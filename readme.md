@@ -1,5 +1,5 @@
+DeepWiki automatically generated documentation --> https://deepwiki.com/Libre-YOLO/libreyolo
 # Libre YOLO
-
 ```bash
 pip install -e .
 ```
@@ -20,6 +20,7 @@ from libreyolo import LIBREYOLO8
 model = LIBREYOLO8(model_path="libreyolo8n.pt", size="n")
 detections = model(image="image.jpg", save=True)
 ```
+
 
 ## Possible Roadmap
 These are some possible ideas to implement, although at this early stage the future direction is extremely unclear:
