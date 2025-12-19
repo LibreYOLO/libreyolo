@@ -1,0 +1,17 @@
+NOTICE: WEIGHTS LICENSING
+
+The weights files in this directory (libreyolo8*.pt) are derived from 
+legacy weights distributed under third-party terms.
+
+These converted weights carried third-party source terms.
+They are NOT covered by the MIT License that applies to the rest of this 
+repository.
+
+For the full AGPL-3.0 License text, see LICENSE_AGPL-3.0.txt in this directory.
+
+IMPORTANT: If you use these weights, you must comply with AGPL-3.0 terms,
+which may require you to open-source derivative works if you distribute them.
+
+The conversion scripts (convert_yolo8_weights.py, install_dependencies.*) 
+in this directory are part of the main repository and are licensed under MIT.
+
