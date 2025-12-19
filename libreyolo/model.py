@@ -129,16 +129,16 @@ class Backbone(nn.Module):
                 
         self.p1 = Conv(c_out=int(64*w), c_in=3, k=3, s=2, p=1)
         self.p2 = Conv(c_out=int(128*w), c_in=int(64*w), k=3, s=2, p=1)
-        self.c2f1 = C2F(c_out=int(128*w), c_in=int(128*w), res_connection=True, nb_bottlenecks=int(3*d))
+        self.c2f1 = C2F(c_out=int(128*w), c_in=int(128*w), res_connection=True, nb_bottlenecks=max(1, int(round(3*d))))
         
         self.p3 = Conv(c_out=int(256*w), c_in=int(128*w), k=3, s=2, p=1)
-        self.c2f2 = C2F(c_out=int(256*w), c_in=int(256*w), res_connection=True, nb_bottlenecks=int(6*d))
+        self.c2f2 = C2F(c_out=int(256*w), c_in=int(256*w), res_connection=True, nb_bottlenecks=max(1, int(round(6*d))))
         
         self.p4 = Conv(c_out=int(512*w), c_in=int(256*w), k=3, s=2, p=1)
-        self.c2f3 = C2F(c_out=int(512*w), c_in=int(512*w), res_connection=True, nb_bottlenecks=int(6*d))
+        self.c2f3 = C2F(c_out=int(512*w), c_in=int(512*w), res_connection=True, nb_bottlenecks=max(1, int(round(6*d))))
         
         self.p5 = Conv(c_out=int(512*w*r), c_in=int(512*w), k=3, s=2, p=1)
-        self.c2f4 = C2F(c_out=int(512*w*r), c_in=int(512*w*r), res_connection=True, nb_bottlenecks=int(3*d))
+        self.c2f4 = C2F(c_out=int(512*w*r), c_in=int(512*w*r), res_connection=True, nb_bottlenecks=max(1, int(round(3*d))))
         
         self.sppf = SPPF(c_out=int(512*w*r), c_in=int(512*w*r))
         
@@ -179,16 +179,16 @@ class Neck(nn.Module):
         r = self.configuration[config]['r']
 
         self.upsample1 = nn.Upsample(scale_factor=2, mode='nearest')        
-        self.c2f21 = C2F(c_out=int(512*w), c_in=int(512*w*(1 + r)), res_connection=False, nb_bottlenecks=int(3*d))
+        self.c2f21 = C2F(c_out=int(512*w), c_in=int(512*w*(1 + r)), res_connection=False, nb_bottlenecks=max(1, int(round(3*d))))
         
         self.upsample2 = nn.Upsample(scale_factor=2, mode='nearest')
-        self.c2f11 = C2F(c_out=int(256*w), c_in=int(768*w), res_connection=False, nb_bottlenecks=int(3*d))    
-
+        self.c2f11 = C2F(c_out=int(256*w), c_in=int(768*w), res_connection=False, nb_bottlenecks=max(1, int(round(3*d))))    
+        
         self.conv1 = Conv(c_out=int(256*w), c_in=int(256*w), k=3, s=2, p=1)
-        self.c2f12 = C2F(c_out=int(512*w), c_in=int(768*w), res_connection=False, nb_bottlenecks=int(3*d))
+        self.c2f12 = C2F(c_out=int(512*w), c_in=int(768*w), res_connection=False, nb_bottlenecks=max(1, int(round(3*d))))
         
         self.conv2 = Conv(c_out=int(512*w), c_in=int(512*w), k=3, s=2, p=1)
-        self.c2f22 = C2F(c_out=int(512*w*r), c_in=int(512*w*(1 + r)), res_connection=False, nb_bottlenecks=int(3*d))
+        self.c2f22 = C2F(c_out=int(512*w*r), c_in=int(512*w*(1 + r)), res_connection=False, nb_bottlenecks=max(1, int(round(3*d))))
         
     def forward(self, x8, x16, x32):
         # 1. Upsample P5 (x32) to P4 size
