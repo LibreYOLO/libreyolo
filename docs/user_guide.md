@@ -67,3 +67,19 @@ The returned `results` dictionary contains:
 - `num_detections`: Total number of detections.
 - `saved_path`: Path to the saved image (if `save=True`).
 
+### Feature Map Visualization
+
+To visualize feature maps from the model layers, set `save_feature_maps=True` when initializing the model.
+
+```python
+from libreyolo import LIBREYOLO8
+
+# Initialize model with feature map saving enabled
+model = LIBREYOLO8(model_path="weights/libreyolo8n.pt", size="n", save_feature_maps=True)
+
+# Run inference
+results = model.predict("path/to/image.jpg", save=True)
+
+print(f"Found {results['num_detections']} detections.")
+print(f"Result saved to: {results.get('saved_path')}")
+```
