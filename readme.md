@@ -23,6 +23,8 @@ detections = model(image="image.jpg", save=True)
 
 ## Possible Roadmap
 These are some possible ideas to implement, although at this early stage the future direction is extremely unclear:
+- [ ] Publish the package in pypi. Automated with a Github pipeline
+- [ ] Automated testing (when a commit is pushed)
 - [ ] Add explainability techniques
 - [ ] Make the activation maps available
 - [ ] Cocoeval to measure how good the model is
