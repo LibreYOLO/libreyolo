@@ -2,7 +2,7 @@
 name = "libreyolo"
 version = "0.1.0"
 description = "Libre YOLO - An open source YOLO library with MIT license."
-readme = "readme.md"
+readme = "README.md"
 requires-python = ">=3.10"
 license = {text = "MIT"}
 authors = [
@@ -30,6 +30,9 @@ convert = [
 [project.urls]
 Homepage = "https://github.com/Libre-YOLO"
 Repository = "https://github.com/Libre-YOLO/libreyolo"
+
+[tool.setuptools]
+include-package-data = true
 
 [tool.setuptools.packages.find]
 include = ["libreyolo*"]
