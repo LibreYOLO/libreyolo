@@ -24,6 +24,8 @@ detections = model(image="image.jpg", save=True)
 
 ## Possible Roadmap
 These are some possible ideas to implement, although at this early stage the future direction is extremely unclear:
+- [ ] Add explainability techniques
+- [ ] Make the activation maps available
 - [ ] Cocoeval to measure how good the model is
 - [ ] YOLOv4 support (LIBREYOLO4 class)
 - [ ] YOLOv5 support (LIBREYOLO5 class)
