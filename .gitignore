@@ -43,3 +43,6 @@ htmlcov/
 .DS_Store
 Thumbs.db
 
+
+# Others
+temporary/
