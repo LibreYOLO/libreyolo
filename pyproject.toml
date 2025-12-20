@@ -1,0 +1,43 @@
+[project]
+name = "libreyolo"
+version = "0.1.0"
+description = "Libre YOLO - An open source YOLO library with MIT license."
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+authors = [
+    {name = "LibreYOLO Team"}
+]
+dependencies = [
+    "numpy>=1.19.0",
+    "Pillow>=8.0.0",
+    "torch>=1.7.0",
+    "PyYAML>=6.0",
+    "matplotlib>=3.3.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.2",
+    "ruff>=0.14.10",
+    "jupyterlab>=4.3.1",
+]
+
+[project.optional-dependencies]
+convert = [
+    "ultralytics"
+]
+
+[project.urls]
+Homepage = "https://github.com/Libre-YOLO"
+Repository = "https://github.com/Libre-YOLO/libreyolo"
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.packages.find]
+include = ["libreyolo*"]
+
+[build-system]
+requires = ["setuptools>=61", "wheel"]
+build-backend = "setuptools.build_meta"

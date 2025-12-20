@@ -1,0 +1,21 @@
+# Training Configuration for LibreYOLO
+
+# Data configuration
+data_path: "data/coco128/images/train2017"
+
+
+# Model configuration
+size: "n"                                    # Model size: "n", "s", "m", "l", "x"
+version: "8"                                 # Model version: "8", "11"
+pretrained_weights: "weights/libreyolo8n.pt" # Path to pretrained weights (optional)
+
+
+# Training parameters
+epochs: 5
+batch_size: 8
+lr: 0.001
+weight_decay: 0.0005
+num_classes: 80
+workers: 0
+output_dir: "runs/"
+save_interval: 1 # Save checkpoint interval (in epochs)

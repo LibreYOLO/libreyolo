@@ -1,17 +1,56 @@
-DeepWiki automatically generated documentation --> https://deepwiki.com/Libre-YOLO/libreyolo
 # Libre YOLO
+
+Libre YOLO is an open-source, MIT-licensed implementation of YOLO object detection models. It provides a clean, independent codebase for training and inference, designed to be free from restrictive licensing for the software itself.
+
+> **Note:** While this codebase is MIT licensed, pre-trained weights converted from other repositories (like Ultralytics) may inherit their original licenses (often AGPL-3.0). Please check the license of the specific weights you use.
+
+## Features
+
+- 🚀 **Supported Models:** Full support for **YOLOv8** and **YOLOv11** architectures.
+- 📦 **Unified API:** Simple, consistent interface for loading and using different YOLO versions.
+- 🛠️ **Training Engine:** Built-in support for training models on custom datasets.
+- ⚖️ **MIT License:** Permissive licensing for the codebase, making it suitable for commercial and research integration.
+- 🔄 **Weight Conversion:** Tools to convert weights from Ultralytics format to LibreYOLO.
+
+## Installation
+
+You can install Libre YOLO directly from the source:
+
 ```bash
+git clone https://github.com/Libre-YOLO/libreyolo.git
+cd libreyolo
 pip install -e .
 ```
 
-## Convert weights
+To include dependencies for weight conversion:
 
 ```bash
+uv sync --extra convert
 ```
 
-(If error: `pip install <legacy-converter-dependency>`)
+## Quick Start
 
-## Use
+### Inference
+
+Libre YOLO provides a unified factory to load models. It automatically detects the model version (v8 or v11) from the weights.
+
+```python
+from libreyolo import LIBREYOLO
+
+# Load a model (automatically detects v8 vs v11)
+model = LIBREYOLO(model_path="weights/libreyolo8n.pt", size="n")
+
+# Run inference
+detections = model(image="media/test_image_1_creative_commons.jpg", save=True)
+
+# Access results
+for detection in detections:
+    print(f"Detected {detection.class_name} with confidence {detection.confidence:.2f}")
+```
+
+### Training
+
+You can train models using the training module.
 
 ```python
 from libreyolo import LIBREYOLO8
@@ -40,82 +79,33 @@ print(model.get_available_layer_names())
 
 Feature maps are saved to `runs/feature_maps/` directory.
 
-### Available Layers
+## Documentation
 
-#### LIBREYOLO8
+For more detailed information, check out our documentation:
 
-| Layer | Description |
-|-------|-------------|
-| `backbone_p1` | First convolution |
-| `backbone_p2` | Second convolution |
-| `backbone_c2f1` | First C2F block |
-| `backbone_p3` | Third convolution |
-| `backbone_c2f2_P3` | C2F at P3 (Stride 8) |
-| `backbone_p4` | Fourth convolution |
-| `backbone_c2f3_P4` | C2F at P4 (Stride 16) |
-| `backbone_p5` | Fifth convolution |
-| `backbone_c2f4` | Fourth C2F block |
-| `backbone_sppf_P5` | SPPF at P5 (Stride 32) |
-| `neck_c2f21` | Neck C2F block 1 |
-| `neck_c2f11` | Neck C2F block 2 |
-| `neck_c2f12` | Neck C2F block 3 |
-| `neck_c2f22` | Neck C2F block 4 |
-| `head8_conv11` | Head8 box conv |
-| `head8_conv21` | Head8 class conv |
-| `head16_conv11` | Head16 box conv |
-| `head16_conv21` | Head16 class conv |
-| `head32_conv11` | Head32 box conv |
-| `head32_conv21` | Head32 class conv |
+- [User Guide](docs/user_guide.md): Comprehensive guide on how to use Libre YOLO.
+- [Fine-Tuning Guide](docs/fine_tuning.md): Instructions on how to fine-tune models on your custom datasets.
+- [Model Layers Reference](docs/model_layers.md): detailed list of available layers for feature map extraction.
 
-#### LIBREYOLO11
+## License
 
-| Layer | Description |
-|-------|-------------|
-| `backbone_p1` | First convolution |
-| `backbone_p2` | Second convolution |
-| `backbone_c2f1` | First C3k2 block |
-| `backbone_p3` | Third convolution |
-| `backbone_c2f2_P3` | C3k2 at P3 (Stride 8) |
-| `backbone_p4` | Fourth convolution |
-| `backbone_c2f3_P4` | C3k2 at P4 (Stride 16) |
-| `backbone_p5` | Fifth convolution |
-| `backbone_c2f4` | Fourth C3k2 block |
-| `backbone_sppf` | SPPF block |
-| `backbone_c2psa_P5` | C2PSA at P5 (Stride 32) |
-| `neck_c2f21` | Neck C3k2 block 1 |
-| `neck_c2f11` | Neck C3k2 block 2 |
-| `neck_c2f12` | Neck C3k2 block 3 |
-| `neck_c2f22` | Neck C3k2 block 4 |
-| `head8_conv11` | Head8 box conv |
-| `head8_conv21` | Head8 class conv |
-| `head16_conv11` | Head16 box conv |
-| `head16_conv21` | Head16 class conv |
-| `head32_conv11` | Head32 box conv |
-| `head32_conv21` | Head32 class conv |
+- **Code:** [MIT License](LICENSE)
+- **Weights:** Use of converted weights must comply with their original licenses (typically AGPL-3.0 for Ultralytics models). See `weights/LICENSE_NOTICE.txt` for details.
 
-## Possible Roadmap
-These are some possible ideas to implement, although at this early stage the future direction is extremely unclear:
-- [ ] Publish the package in pypi. Automated with a Github pipeline
+## PossibleRoadmap
+
+- [x] YOLOv8 Support
+- [x] YOLOv11 Support
+- [x] Training Engine
+- [x] Weight Conversion Tools
+- [ ] Fine-tuning with custom datasets
+- [ ] Publish to PyPI
+- [ ] Export formats (ONNX, TensorRT)
+- [ ] Other models support (YOLOv10, YOLOv12, etc.)
+- [ ] Feature Maps Visualization
 - [ ] Automated testing (when a commit is pushed)
 - [ ] Add explainability techniques
-- [ ] Make the activation maps available
 - [ ] Cocoeval to measure how good the model is
-- [ ] YOLOv4 support (LIBREYOLO4 class)
-- [ ] YOLOv5 support (LIBREYOLO5 class)
-- [ ] YOLOv6 support (LIBREYOLO6 class)
-- [ ] YOLOv7 support (LIBREYOLO7 class)
-- [ ] YOLOv8 support (LIBREYOLO8 class)
-- [x] YOLOv8 support (LIBREYOLO8 class)
-- [ ] YOLOv9 support (LIBREYOLO9 class)
-- [ ] YOLOv10 support (LIBREYOLO10 class)
-- [ ] YOLOv11 support (LIBREYOLO11 class)
-- [ ] YOLOv12 support (LIBREYOLO12 class)
-- [ ] YOLOX support (LIBREYOLOX class)
-- [ ] YOLO-NAS support (LIBREYOLONAS class)
-- [ ] YOLO-World support (LIBREYOLOWORLD class)
-- [ ] YOLOR support (LIBREYOLOR class)
-- [ ] YOLOF support (LIBREYOLOF class)
-- [ ] PP-YOLO/PP-YOLOE support (LIBREPPYOLO class)
 - [ ] CLI Tool
 - [ ] Batch Processing
 - [ ] Export Formats
@@ -176,7 +166,3 @@ These are some possible ideas to implement, although at this early stage the fut
 - [ ] Google Cloud Function template
 - [ ] Azure Function template
 - [ ] Edge device deployment guide
-
-## License
-
-MIT for code. AGPL-3.0 for weights (see `weights/LICENSE_NOTICE.txt`).
