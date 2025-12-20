@@ -38,5 +38,6 @@ build:
 
 clean:
 	@echo "🧹 Cleaning build and test cache artifacts..."
-	@rm -rf dist *.egg-info .ruff_cache
+	@rm -rf dist *.egg-info .ruff_cache .pytest_cache
+	@find . -type d -name '__pycache__' -exec rm -rf {} +
 	@echo "✅ Clean complete!"
