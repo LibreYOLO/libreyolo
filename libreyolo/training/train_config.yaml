@@ -1,0 +1,25 @@
+# Training Configuration for LibreYOLO
+
+# Path to images directory
+data_path: "./data/images"
+
+# Model size: "n", "s", "m", "l", "x"
+size: "n"
+
+# Training parameters
+epochs: 100
+batch_size: 16
+lr: 0.001
+weight_decay: 0.0005
+num_classes: 80
+workers: 4
+
+# Pretrained weights (optional, set to null or path)
+weights: null
+
+# Output directory for checkpoints and logs
+output_dir: "runs/train"
+
+# Save checkpoint interval (in epochs)
+save_interval: 10
+
