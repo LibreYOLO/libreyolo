@@ -249,10 +249,11 @@ class ComputeLoss:
         super().__init__()
         self.reg_max = reg_max
         self.use_dfl = reg_max > 1
-        self.num_classes = model.neck.c2f11.conv1.cnn.in_channels # Hacky way or pass as arg?
-        # Actually better to pass config
-        self.num_classes = model.head8.conv22.cnn.in_channels # No this is c_cls
-        self.num_classes = model.head8.cnn2.out_channels
+        
+        if hasattr(model, 'nc'):
+            self.num_classes = model.nc
+        else:
+            raise AttributeError("Could not determine number of classes from model")
         
         # Loss weights
         self.box_gain = 7.5
@@ -301,7 +302,7 @@ class ComputeLoss:
         xyxy[..., 3] = out[..., 1] + out[..., 3]
         xyxy[..., 4] = out[..., 2] + out[..., 4]
         
-        return xyxy, mask
+        return xyxy[..., 1:], mask
 
     def __call__(self, preds, batch):
         """
@@ -459,8 +460,11 @@ class ComputeLoss:
                 # We need the target distances (l,t,r,b) in grid units
                 # target_bboxes_pos is xyxy in image space
                 # anchors_pos
-                anchors_pos = (anchor_points * stride_tensor)[fg_mask]
-                stride_pos = stride_tensor[fg_mask]
+                anchors_expanded = (anchor_points * stride_tensor).unsqueeze(0).expand(batch_size, -1, -1)
+                anchors_pos = anchors_expanded[fg_mask]
+                
+                strides_expanded = stride_tensor.unsqueeze(0).expand(batch_size, -1, -1)
+                stride_pos = strides_expanded[fg_mask]
                 
                 # Convert target xyxy to ltrb relative to anchor
                 # l = (anchor_x - x1) / stride
