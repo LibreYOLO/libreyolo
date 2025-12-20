@@ -1,17 +1,56 @@
-DeepWiki automatically generated documentation --> https://deepwiki.com/Libre-YOLO/libreyolo
 # Libre YOLO
+
+Libre YOLO is an open-source, MIT-licensed implementation of YOLO object detection models. It provides a clean, independent codebase for training and inference, designed to be free from restrictive licensing for the software itself.
+
+> **Note:** While this codebase is MIT licensed, pre-trained weights converted from other repositories (like Ultralytics) may inherit their original licenses (often AGPL-3.0). Please check the license of the specific weights you use.
+
+## Features
+
+- 🚀 **Supported Models:** Full support for **YOLOv8** and **YOLOv11** architectures.
+- 📦 **Unified API:** Simple, consistent interface for loading and using different YOLO versions.
+- 🛠️ **Training Engine:** Built-in support for training models on custom datasets.
+- ⚖️ **MIT License:** Permissive licensing for the codebase, making it suitable for commercial and research integration.
+- 🔄 **Weight Conversion:** Tools to convert weights from Ultralytics format to LibreYOLO.
+
+## Installation
+
+You can install Libre YOLO directly from the source:
+
 ```bash
+git clone https://github.com/Libre-YOLO/libreyolo.git
+cd libreyolo
 pip install -e .
 ```
 
-## Convert weights
+To include dependencies for weight conversion:
 
 ```bash
+uv sync --extra convert
 ```
 
-(If error: `pip install <legacy-converter-dependency>`)
+## Quick Start
 
-## Use
+### Inference
+
+Libre YOLO provides a unified factory to load models. It automatically detects the model version (v8 or v11) from the weights.
+
+```python
+from libreyolo import LIBREYOLO
+
+# Load a model (automatically detects v8 vs v11)
+model = LIBREYOLO(model_path="weights/libreyolo8n.pt", size="n")
+
+# Run inference
+detections = model(image="media/test_image_1_creative_commons.jpg", save=True)
+
+# Access results
+for detection in detections:
+    print(f"Detected {detection.class_name} with confidence {detection.confidence:.2f}")
+```
+
+### Training
+
+You can train models using the training module.
 
 ```python
 from libreyolo import LIBREYOLO8
@@ -93,29 +132,25 @@ Feature maps are saved to `runs/feature_maps/` directory.
 | `head32_conv11` | Head32 box conv |
 | `head32_conv21` | Head32 class conv |
 
-## Possible Roadmap
-These are some possible ideas to implement, although at this early stage the future direction is extremely unclear:
-- [ ] Publish the package in pypi. Automated with a Github pipeline
+## License
+
+- **Code:** [MIT License](LICENSE)
+- **Weights:** Use of converted weights must comply with their original licenses (typically AGPL-3.0 for Ultralytics models). See `weights/LICENSE_NOTICE.txt` for details.
+
+## PossibleRoadmap
+
+- [x] YOLOv8 Support
+- [x] YOLOv11 Support
+- [x] Training Engine
+- [x] Weight Conversion Tools
+- [ ] Fine-tuning with custom datasets
+- [ ] Publish to PyPI
+- [ ] Export formats (ONNX, TensorRT)
+- [ ] Other models support (YOLOv10, YOLOv12, etc.)
+- [ ] Feature Maps Visualization
 - [ ] Automated testing (when a commit is pushed)
 - [ ] Add explainability techniques
-- [ ] Make the activation maps available
 - [ ] Cocoeval to measure how good the model is
-- [ ] YOLOv4 support (LIBREYOLO4 class)
-- [ ] YOLOv5 support (LIBREYOLO5 class)
-- [ ] YOLOv6 support (LIBREYOLO6 class)
-- [ ] YOLOv7 support (LIBREYOLO7 class)
-- [ ] YOLOv8 support (LIBREYOLO8 class)
-- [x] YOLOv8 support (LIBREYOLO8 class)
-- [ ] YOLOv9 support (LIBREYOLO9 class)
-- [ ] YOLOv10 support (LIBREYOLO10 class)
-- [ ] YOLOv11 support (LIBREYOLO11 class)
-- [ ] YOLOv12 support (LIBREYOLO12 class)
-- [ ] YOLOX support (LIBREYOLOX class)
-- [ ] YOLO-NAS support (LIBREYOLONAS class)
-- [ ] YOLO-World support (LIBREYOLOWORLD class)
-- [ ] YOLOR support (LIBREYOLOR class)
-- [ ] YOLOF support (LIBREYOLOF class)
-- [ ] PP-YOLO/PP-YOLOE support (LIBREPPYOLO class)
 - [ ] CLI Tool
 - [ ] Batch Processing
 - [ ] Export Formats
@@ -176,7 +211,3 @@ These are some possible ideas to implement, although at this early stage the fut
 - [ ] Google Cloud Function template
 - [ ] Azure Function template
 - [ ] Edge device deployment guide
-
-## License
-
-MIT for code. AGPL-3.0 for weights (see `weights/LICENSE_NOTICE.txt`).
