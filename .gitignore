@@ -47,3 +47,7 @@ Thumbs.db
 
 # Others
 temporary/
+*.jpg
+*.png
+*.json
+*.jpeg
