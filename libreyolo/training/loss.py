@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from libreyolo.utils8 import make_anchors
+from libreyolo.v8.utils import make_anchors
 
 def bbox_iou(box1, box2, eps=1e-7):
     """

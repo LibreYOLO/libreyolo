@@ -1,7 +1,7 @@
 import torch
 from pathlib import Path
-from .libreyolo8 import LIBREYOLO8
-from .libreyolo11 import LIBREYOLO11
+from .v8.interface import LIBREYOLO8
+from .v11.interface import LIBREYOLO11
 
 def LIBREYOLO(model_path: str, size: str, reg_max: int = 16, nb_classes: int = 80, save_feature_maps: bool = False):
     """
@@ -40,3 +40,4 @@ def LIBREYOLO(model_path: str, size: str, reg_max: int = 16, nb_classes: int = 8
         model.model_path = model_path # Restore path for reference
         
     return model
+
