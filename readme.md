@@ -7,7 +7,6 @@ pip install -e .
 ## Convert weights
 
 ```bash
-python weights/convert_yolo8_weights.py --source yolov8n.pt --output libreyolo8n.pt
 ```
 
 (If error: `pip install <legacy-converter-dependency>`)
@@ -32,6 +31,7 @@ These are some possible ideas to implement, although at this early stage the fut
 - [ ] YOLOv6 support (LIBREYOLO6 class)
 - [ ] YOLOv7 support (LIBREYOLO7 class)
 - [ ] YOLOv8 support (LIBREYOLO8 class)
+- [x] YOLOv8 support (LIBREYOLO8 class)
 - [ ] YOLOv9 support (LIBREYOLO9 class)
 - [ ] YOLOv10 support (LIBREYOLO10 class)
 - [ ] YOLOv11 support (LIBREYOLO11 class)
