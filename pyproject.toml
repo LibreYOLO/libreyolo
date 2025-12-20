@@ -19,6 +19,7 @@ dependencies = [
 dev = [
     "pytest>=9.0.2",
     "ruff>=0.14.10",
+    "jupyterlab>=4.3.1",
 ]
 
 [project.optional-dependencies]
