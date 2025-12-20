@@ -6,9 +6,9 @@ import time
 import yaml
 import types
 
-from libreyolo.model import LibreYOLO8Model
-from libreyolo.loss import ComputeLoss
-from libreyolo.dataset import YOLODataset, yolov8_collate_fn
+from libreyolo.v8.model import LibreYOLO8Model
+from libreyolo.training.loss import ComputeLoss
+from libreyolo.training.dataset import YOLODataset, yolov8_collate_fn
 from torch.utils.data import DataLoader
 
 def train(args):
