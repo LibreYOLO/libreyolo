@@ -1,9 +1,9 @@
 import torch
 from pathlib import Path
-from .v8.model import LibreYOLO8Model
-from .v11.model import LibreYOLO11Model
-from .v8.interface import LIBREYOLO8
-from .v11.interface import LIBREYOLO11
+from .v8.nn import LibreYOLO8Model
+from .v11.nn import LibreYOLO11Model
+from .v8.model import LIBREYOLO8
+from .v11.model import LIBREYOLO11
 
 # Registry for model classes
 MODELS = {

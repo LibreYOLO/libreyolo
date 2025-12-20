@@ -3,7 +3,7 @@ Shared utility functions.
 """
 import torch
 import numpy as np
-from typing import Tuple, List, Union, Optional
+from typing import Tuple, List
 from PIL import Image, ImageDraw, ImageFont
 import colorsys
 
@@ -33,7 +33,7 @@ def get_class_color(class_id: int) -> str:
     rgb = colorsys.hsv_to_rgb(hue, saturation, value)
     return f"#{int(rgb[0]*255):02x}{int(rgb[1]*255):02x}{int(rgb[2]*255):02x}"
 
-def preprocess_image(image: Union[str, Image.Image, np.ndarray], input_size: int = 640) -> Tuple[torch.Tensor, Image.Image, Tuple[int, int]]:
+def preprocess_image(image: str | Image.Image | np.ndarray, input_size: int = 640) -> Tuple[torch.Tensor, Image.Image, Tuple[int, int]]:
     """
     Preprocess image for model inference.
     
