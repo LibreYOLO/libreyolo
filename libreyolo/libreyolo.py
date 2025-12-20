@@ -3,7 +3,7 @@ from pathlib import Path
 from .libreyolo8 import LIBREYOLO8
 from .libreyolo11 import LIBREYOLO11
 
-def LIBREYOLO(model_path: str, size: str, reg_max: int = 16, nb_classes: int = 80):
+def LIBREYOLO(model_path: str, size: str, reg_max: int = 16, nb_classes: int = 80, save_feature_maps: bool = False):
     """
     Unified Libre YOLO factory that automatically detects model version (8 or 11)
     from the weights file and returns the appropriate model instance.
@@ -13,6 +13,7 @@ def LIBREYOLO(model_path: str, size: str, reg_max: int = 16, nb_classes: int = 8
         size: Model size variant (required). Must be one of: "n", "s", "m", "l", "x"
         reg_max: Regression max value for DFL (default: 16)
         nb_classes: Number of classes (default: 80 for COCO)
+        save_feature_maps: If True, saves backbone feature map visualizations on each inference (default: False)
     
     Returns:
         Instance of LIBREYOLO8 or LIBREYOLO11
@@ -30,11 +31,11 @@ def LIBREYOLO(model_path: str, size: str, reg_max: int = 16, nb_classes: int = 8
     is_yolo11 = any('c2psa' in key for key in state_dict.keys())
 
     if is_yolo11:
-        model = LIBREYOLO11(state_dict, size, reg_max, nb_classes)
+        model = LIBREYOLO11(state_dict, size, reg_max, nb_classes, save_feature_maps=save_feature_maps)
         model.version = "11"
         model.model_path = model_path # Restore path for reference
     else:
-        model = LIBREYOLO8(state_dict, size, reg_max, nb_classes)
+        model = LIBREYOLO8(state_dict, size, reg_max, nb_classes, save_feature_maps=save_feature_maps)
         model.version = "8"
         model.model_path = model_path # Restore path for reference
         
