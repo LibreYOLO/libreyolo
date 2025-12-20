@@ -84,7 +84,7 @@ def train(args):
     ], lr=args.lr)
     
     # 4. Loss Function
-    compute_loss = ComputeLoss(model, reg_max=16, num_classes=args.num_classes)
+    compute_loss = ComputeLoss(model, reg_max=16)
     
     # 5. Training Loop
     print(f"Starting training for {args.epochs} epochs...")
