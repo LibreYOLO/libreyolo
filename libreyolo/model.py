@@ -238,7 +238,7 @@ class Head(nn.Module):
 
 
 class LibreYOLO8Model(nn.Module):
-    """Main YOLOv8 model"""
+    """Main Libre YOLO model"""
     def __init__(self, config, reg_max, nb_classes):
         super().__init__()
         
@@ -257,7 +257,7 @@ class LibreYOLO8Model(nn.Module):
         self.backbone = Backbone(config=config)
         self.neck = Neck(config=config)
         
-        # --- HEAD CONFIGURATION (Matches Ultralytics 'Detect' Logic) ---
+        # --- HEAD CONFIGURATION ---
         # Channels P3 = 256 * w
         c_p3 = int(256 * w)
         
