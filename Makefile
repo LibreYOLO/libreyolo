@@ -10,6 +10,8 @@ help:
 	@echo "  check_format                  - Check code formatting"
 	@echo "  format                        - Format code with ruff"
 	@echo "  lint                          - Run linter"
+	@echo "  test                          - Run fast unit tests (no weights needed)"
+	@echo "  test_integration              - Run integration tests (needs real model weights)"
 	@echo "  build                         - Build package"
 	@echo "  clean                         - Remove build and test cache artifacts"
 
@@ -28,6 +30,12 @@ format:
 
 lint:
 	$(UV) ruff check
+
+test:
+	$(UV) pytest
+
+test_integration:
+	$(UV) pytest -m integration
 
 build:
 	@echo "📦 Building package..."
