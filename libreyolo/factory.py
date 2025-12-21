@@ -1,4 +1,6 @@
 import torch
+import re
+import requests
 from pathlib import Path
 from .v8.nn import LibreYOLO8Model
 from .v11.nn import LibreYOLO11Model
@@ -10,6 +12,57 @@ MODELS = {
     '8': LibreYOLO8Model,
     '11': LibreYOLO11Model
 }
+
+def download_weights(model_path: str, size: str):
+    """
+    Download weights from Hugging Face if not found locally.
+    
+    Args:
+        model_path: Path where weights should be saved
+        size: Model size variant ('n', 's', 'm', 'l', 'x')
+    """
+    path = Path(model_path)
+    if path.exists():
+        return
+
+    filename = path.name
+    # Try to infer version from filename (e.g. libreyolo8n.pt -> 8, yolov11x.pt -> 11)
+    match = re.search(r'(?:yolo|libreyolo)?(8|11)', filename.lower())
+    if not match:
+        raise ValueError(f"Could not determine model version (8 or 11) from filename '{filename}' for auto-download.")
+    
+    version = match.group(1)
+    
+    # Construct Hugging Face URL
+    # Repo format: Libre-YOLO/yolov{version}{size}
+    repo = f"Libre-YOLO/yolov{version}{size}"
+    url = f"https://huggingface.co/{repo}/resolve/main/{filename}"
+    
+    print(f"Model weights not found at {model_path}. Attempting download from {url}...")
+    
+    # Ensure directory exists
+    path.parent.mkdir(parents=True, exist_ok=True)
+    
+    try:
+        response = requests.get(url, stream=True)
+        response.raise_for_status()
+        total_size = int(response.headers.get('content-length', 0))
+        
+        with open(path, 'wb') as f:
+            downloaded = 0
+            for chunk in response.iter_content(chunk_size=8192):
+                if chunk:
+                    f.write(chunk)
+                    downloaded += len(chunk)
+                    if total_size > 0:
+                        percent = int(100 * downloaded / total_size)
+                        print(f"\rDownloading: {percent}% ({downloaded/1024/1024:.1f}/{total_size/1024/1024:.1f} MB)", end="", flush=True)
+            print("\nDownload complete.")
+    except Exception as e:
+        # If download fails, remove the empty/partial file
+        if path.exists():
+            path.unlink()
+        raise RuntimeError(f"Failed to download weights from {url}: {e}") from e
 
 def create_model(version: str, config: str, reg_max: int = 16, nb_classes: int = 80, img_size: int = 640):
     """
@@ -46,6 +99,13 @@ def LIBREYOLO(model_path: str, size: str, reg_max: int = 16, nb_classes: int = 8
     Returns:
         Instance of LIBREYOLO8 or LIBREYOLO11
     """
+    if not Path(model_path).exists():
+        try:
+            download_weights(model_path, size)
+        except Exception as e:
+            # If download fails or is not possible, fall through to FileNotFoundError
+            print(f"Auto-download failed: {e}")
+
     if not Path(model_path).exists():
         raise FileNotFoundError(f"Model weights file not found: {model_path}")
 
