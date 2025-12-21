@@ -51,3 +51,5 @@ temporary/
 *.png
 *.json
 *.jpeg
+.onnx
+.pt

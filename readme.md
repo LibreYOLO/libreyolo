@@ -95,6 +95,8 @@ Feature maps are saved to `runs/feature_maps/` directory.
 
 ## Possible Roadmap
 These are some possible ideas to implement, although at this early stage the future direction is extremely unclear:
+- [ ] onnx inference
+- [ ] Add tiled inference
 - [ ] Publish the package in pypi. Automated with a Github pipeline
 - [ ] Automated testing (when a commit is pushed)
 - [ ] Add explainability techniques
