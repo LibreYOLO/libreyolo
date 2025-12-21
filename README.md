@@ -121,6 +121,17 @@ For more detailed information, check out our documentation:
 
 
 ## PossibleRoadmap
+
+- [ ] Unified Command Line Interface (CLI)
+- [ ] Video & Webcam Inference Support
+- [ ] Letterbox Resizing (Padding)
+- [ ] Batch Inference Support
+- [ ] Benchmark / Speed Test Module
+- [ ] Training Data Augmentations
+- [ ] TorchScript Export
+- [ ] Model Summary & Info
+- [ ] Result Filtering (Class/Size)
+- [ ] Confusion Matrix Generation
 - [ ] onnx inference
 - [ ] Add tiled inference
 - [x] YOLOv8 Support
