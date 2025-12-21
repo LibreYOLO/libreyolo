@@ -84,21 +84,30 @@ def create_model(version: str, config: str, reg_max: int = 16, nb_classes: int =
     model_cls = MODELS[version]
     return model_cls(config=config, reg_max=reg_max, nb_classes=nb_classes, img_size=img_size)
 
-def LIBREYOLO(model_path: str, size: str, reg_max: int = 16, nb_classes: int = 80, save_feature_maps: bool = False):
+def LIBREYOLO(model_path: str, size: str = None, reg_max: int = 16, nb_classes: int = 80, save_feature_maps: bool = False):
     """
     Unified Libre YOLO factory that automatically detects model version (8 or 11)
     from the weights file and returns the appropriate model instance.
     
     Args:
-        model_path: Path to model weights file (required)
-        size: Model size variant (required). Must be one of: "n", "s", "m", "l", "x"
+        model_path: Path to model weights file (.pt) or ONNX file (.onnx)
+        size: Model size variant. Required for .pt files ("n", "s", "m", "l", "x"), ignored for .onnx
         reg_max: Regression max value for DFL (default: 16)
         nb_classes: Number of classes (default: 80 for COCO)
         save_feature_maps: If True, saves backbone feature map visualizations on each inference (default: False)
     
     Returns:
-        Instance of LIBREYOLO8 or LIBREYOLO11
+        Instance of LIBREYOLO8, LIBREYOLO11, or LIBREYOLOOnnx
     """
+    # Handle ONNX models
+    if model_path.endswith('.onnx'):
+        from .common.onnx import LIBREYOLOOnnx
+        return LIBREYOLOOnnx(model_path, nb_classes=nb_classes)
+    
+    # For .pt files, size is required
+    if size is None:
+        raise ValueError("size is required for .pt weights. Must be one of: 'n', 's', 'm', 'l', 'x'")
+    
     if not Path(model_path).exists():
         try:
             download_weights(model_path, size)
