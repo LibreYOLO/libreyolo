@@ -28,6 +28,12 @@ To include dependencies for weight conversion:
 uv sync --extra convert
 ```
 
+To include dependencies for ONNX export:
+
+```bash
+uv sync --extra onnx
+```
+
 ## Testing
 
 We have two types of tests:

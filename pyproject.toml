@@ -28,6 +28,11 @@ dev = [
 convert = [
     "ultralytics"
 ]
+onnx = [
+    "onnx>=1.14.0",
+    "onnxscript>=0.1.0",
+    "onnxruntime>=1.16.0",
+]
 
 [project.urls]
 Homepage = "https://github.com/Libre-YOLO"
