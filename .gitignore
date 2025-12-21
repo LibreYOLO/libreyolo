@@ -53,3 +53,6 @@ temporary/
 *.json
 *.jpeg
 data/
+
+.onnx
+.pt
