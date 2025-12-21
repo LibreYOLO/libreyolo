@@ -1,0 +1,17 @@
+# Exclude model weights and generated artifacts
+prune weights
+prune runs
+prune examples/runs
+prune temporary
+prune media
+prune notebooks
+prune tests/output
+
+# Exclude binary/large files globally
+global-exclude *.pt
+global-exclude *.onnx
+global-exclude *.jpg
+global-exclude *.png
+global-exclude *.webp
+global-exclude *.mp4
+
