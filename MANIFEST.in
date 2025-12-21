@@ -1,5 +1,0 @@
-include README.md
-include readme.md
-include LICENSE
-recursive-include libreyolo *.py
-
