@@ -28,6 +28,33 @@ To include dependencies for weight conversion:
 uv sync --extra convert
 ```
 
+## Testing
+
+We have two types of tests:
+
+**Unit Tests** (fast, no weights needed)
+- Check that functions work correctly without loading real model weights
+- Run automatically when you type `make test` or `pytest`
+- These run in seconds and catch bugs quickly
+
+**Integration Tests** (slower, needs real weights)
+- Load real model weights and test the full pipeline
+- Run with `make test_integration` or `pytest -m integration`
+- These take longer but verify everything works end-to-end
+
+**Quick Commands:**
+```bash
+# Using Makefile (requires uv installed)
+make test              # Run fast unit tests (default)
+make test_integration  # Run slower integration tests (needs weights)
+
+# Or run pytest directly (if you have dependencies installed)
+pytest                 # Run fast unit tests
+pytest -m integration # Run integration tests
+```
+
+**Why two types?** Unit tests are fast so you can run them constantly while coding. Integration tests are slower but make sure everything works together with real models.
+
 ## Quick Start
 
 ### Inference

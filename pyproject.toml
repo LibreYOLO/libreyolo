@@ -41,3 +41,11 @@ include = ["libreyolo*"]
 [build-system]
 requires = ["setuptools>=61", "wheel"]
 build-backend = "setuptools.build_meta"
+
+[tool.pytest.ini_options]
+addopts = "-m unit"
+testpaths = ["tests"]
+markers = [
+    "unit: fast tests that avoid external weights or large files",
+    "integration: slow tests that require converted weights or generate artifacts",
+]
