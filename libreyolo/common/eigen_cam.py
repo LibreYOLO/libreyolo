@@ -38,7 +38,13 @@ def compute_eigen_cam(activations: np.ndarray) -> np.ndarray:
             if len(S) == 0 or S[0] < 1e-10:
                 return np.zeros(activations.shape[1:], dtype=np.float32)
             projection = reshaped @ VT[0]
-    except np.linalg.LinAlgError:
+            
+            # Sign correction heuristic:
+            # SVD sign is arbitrary. Ensure the projection is positively correlated 
+            # with the mean activation to avoid inverted heatmaps (red background, blue objects).
+            if np.corrcoef(projection, reshaped.mean(axis=1))[0, 1] < 0:
+                projection = -projection
+    except (np.linalg.LinAlgError, ValueError):
         return np.zeros(activations.shape[1:], dtype=np.float32)
     
     # Reshape back to spatial dimensions
