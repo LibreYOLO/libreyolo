@@ -84,7 +84,16 @@ def create_model(version: str, config: str, reg_max: int = 16, nb_classes: int =
     model_cls = MODELS[version]
     return model_cls(config=config, reg_max=reg_max, nb_classes=nb_classes, img_size=img_size)
 
-def LIBREYOLO(model_path: str, size: str = None, reg_max: int = 16, nb_classes: int = 80, save_feature_maps: bool = False, save_eigen_cam: bool = False):
+def LIBREYOLO(
+    model_path: str,
+    size: str = None,
+    reg_max: int = 16,
+    nb_classes: int = 80,
+    save_feature_maps: bool = False,
+    save_eigen_cam: bool = False,
+    cam_method: str = "eigencam",
+    cam_layer: str = None
+):
     """
     Unified Libre YOLO factory that automatically detects model version (8 or 11)
     from the weights file and returns the appropriate model instance.
@@ -96,9 +105,16 @@ def LIBREYOLO(model_path: str, size: str = None, reg_max: int = 16, nb_classes: 
         nb_classes: Number of classes (default: 80 for COCO)
         save_feature_maps: If True, saves backbone feature map visualizations on each inference (default: False)
         save_eigen_cam: If True, saves EigenCAM heatmap visualizations on each inference (default: False)
+        cam_method: Default CAM method for explain(). Options: "eigencam", "gradcam", "gradcam++",
+                   "xgradcam", "hirescam", "layercam", "eigengradcam" (default: "eigencam")
+        cam_layer: Target layer for CAM computation (default: "neck_c2f22")
     
     Returns:
         Instance of LIBREYOLO8, LIBREYOLO11, or LIBREYOLOOnnx
+    
+    Example:
+        >>> model = LIBREYOLO("yolo11n.pt", size="n", cam_method="gradcam")
+        >>> result = model.explain("image.jpg", save=True)
     """
     # Handle ONNX models
     if model_path.endswith('.onnx'):
@@ -129,11 +145,23 @@ def LIBREYOLO(model_path: str, size: str = None, reg_max: int = 16, nb_classes: 
     is_yolo11 = any('c2psa' in key for key in state_dict.keys())
 
     if is_yolo11:
-        model = LIBREYOLO11(state_dict, size, reg_max, nb_classes, save_feature_maps=save_feature_maps, save_eigen_cam=save_eigen_cam)
+        model = LIBREYOLO11(
+            state_dict, size, reg_max, nb_classes,
+            save_feature_maps=save_feature_maps,
+            save_eigen_cam=save_eigen_cam,
+            cam_method=cam_method,
+            cam_layer=cam_layer
+        )
         model.version = "11"
         model.model_path = model_path # Restore path for reference
     else:
-        model = LIBREYOLO8(state_dict, size, reg_max, nb_classes, save_feature_maps=save_feature_maps, save_eigen_cam=save_eigen_cam)
+        model = LIBREYOLO8(
+            state_dict, size, reg_max, nb_classes,
+            save_feature_maps=save_feature_maps,
+            save_eigen_cam=save_eigen_cam,
+            cam_method=cam_method,
+            cam_layer=cam_layer
+        )
         model.version = "8"
         model.model_path = model_path # Restore path for reference
         
