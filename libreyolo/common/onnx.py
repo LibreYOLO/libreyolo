@@ -102,7 +102,8 @@ class LIBREYOLOOnnx:
         output_path: str = None,
         conf_thres: float = 0.25,
         iou_thres: float = 0.45,
-        color_format: str = "auto"
+        color_format: str = "auto",
+        batch_size: int = 1
     ) -> Union[dict, List[dict]]:
         """
         Run inference on an image or directory of images.
@@ -114,6 +115,10 @@ class LIBREYOLOOnnx:
             conf_thres: Confidence threshold (default: 0.25).
             iou_thres: IoU threshold for NMS (default: 0.45).
             color_format: Color format hint for NumPy/OpenCV arrays ("auto", "rgb", "bgr").
+            batch_size: Number of images to process per batch when handling multiple
+                images (e.g., directories). Currently used for chunking at the Python
+                level; true batched model inference is planned for future versions.
+                Default: 1 (process one image at a time).
         
         Returns:
             For single image: Dictionary with boxes, scores, classes, source, and num_detections.
@@ -123,12 +128,57 @@ class LIBREYOLOOnnx:
             image_paths = ImageLoader.collect_images(image)
             if not image_paths:
                 return []
-            return [
-                self._predict_single(p, save, output_path, conf_thres, iou_thres, color_format)
-                for p in image_paths
-            ]
+            return self._process_in_batches(
+                image_paths,
+                batch_size=batch_size,
+                save=save,
+                output_path=output_path,
+                conf_thres=conf_thres,
+                iou_thres=iou_thres,
+                color_format=color_format
+            )
         
         return self._predict_single(image, save, output_path, conf_thres, iou_thres, color_format)
+    
+    def _process_in_batches(
+        self,
+        image_paths: List[Path],
+        batch_size: int = 1,
+        save: bool = False,
+        output_path: str = None,
+        conf_thres: float = 0.25,
+        iou_thres: float = 0.45,
+        color_format: str = "auto"
+    ) -> List[dict]:
+        """
+        Process multiple images, respecting batch_size for chunking.
+        
+        This method provides the scaffolding for batch processing. Currently, it
+        processes images sequentially within each batch chunk. Future versions
+        will implement true batched model inference for improved throughput.
+        
+        Args:
+            image_paths: List of image paths to process.
+            batch_size: Number of images per batch chunk.
+            save: If True, saves annotated images.
+            output_path: Optional output path for saved images.
+            conf_thres: Confidence threshold.
+            iou_thres: IoU threshold for NMS.
+            color_format: Color format hint.
+        
+        Returns:
+            List of detection dictionaries, one per image.
+        """
+        results = []
+        for i in range(0, len(image_paths), batch_size):
+            chunk = image_paths[i:i + batch_size]
+            # TODO: Implement _predict_batch() for true batched model inference
+            # For now, process images sequentially within each chunk
+            for path in chunk:
+                results.append(
+                    self._predict_single(path, save, output_path, conf_thres, iou_thres, color_format)
+                )
+        return results
     
     def _predict_single(
         self,
@@ -225,14 +275,25 @@ class LIBREYOLOOnnx:
         output_path: str = None,
         conf_thres: float = 0.25,
         iou_thres: float = 0.45,
-        color_format: str = "auto"
+        color_format: str = "auto",
+        batch_size: int = 1
     ) -> Union[dict, List[dict]]:
         """
         Alias for __call__ method.
+        
+        Args:
+            image: Input image or directory.
+            save: If True, saves annotated image to disk.
+            output_path: Optional path to save the annotated image.
+            conf_thres: Confidence threshold (default: 0.25).
+            iou_thres: IoU threshold for NMS (default: 0.45).
+            color_format: Color format hint for NumPy/OpenCV arrays.
+            batch_size: Number of images to process per batch when handling multiple
+                images (e.g., directories). Default: 1.
         
         Returns:
             For single image: Dictionary containing detection results.
             For directory: List of dictionaries, one per image processed.
         """
-        return self(image=image, save=save, output_path=output_path, conf_thres=conf_thres, iou_thres=iou_thres, color_format=color_format)
+        return self(image=image, save=save, output_path=output_path, conf_thres=conf_thres, iou_thres=iou_thres, color_format=color_format, batch_size=batch_size)
 
