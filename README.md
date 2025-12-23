@@ -14,24 +14,22 @@ Libre YOLO is an open-source, MIT-licensed implementation of YOLO object detecti
 
 ## Installation
 
-You can install Libre YOLO directly from the source:
+Requirements: Python 3.10+ and a working pip/virtualenv. If you prefer `uv`, install it first (`pip install uv`).
+
+Recommended (install everything: convert + onnx + dev/test tools):
 
 ```bash
 git clone https://github.com/Libre-YOLO/libreyolo.git
 cd libreyolo
+uv sync --all-extras --group dev
+# or, with pip extras:
+pip install -e .[convert,onnx,dev]
+```
+
+If you want a lean install without extras:
+
+```bash
 pip install -e .
-```
-
-To include dependencies for weight conversion:
-
-```bash
-uv sync --extra convert
-```
-
-To include dependencies for ONNX export:
-
-```bash
-uv sync --extra onnx
 ```
 
 ## Testing

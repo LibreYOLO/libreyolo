@@ -13,7 +13,7 @@ Supports:
 
 import io
 from pathlib import Path
-from typing import Union
+from typing import Union, List
 
 import numpy as np
 import torch
@@ -22,6 +22,9 @@ from PIL import Image
 
 # Type alias for all supported image inputs
 ImageInput = Union[str, Path, Image.Image, np.ndarray, torch.Tensor, bytes, "io.BytesIO"]
+
+# Supported image file extensions for directory scanning
+SUPPORTED_EXTENSIONS = {'.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.tiff', '.tif'}
 
 
 class ImageLoader:
@@ -324,4 +327,35 @@ class ImageLoader:
         # This threshold is conservative to avoid false positives
         # Return False by default - explicit is better than wrong
         return False  # Disabled: too unreliable, require explicit flag
+    
+    @classmethod
+    def collect_images(cls, directory: Union[str, Path], recursive: bool = True) -> List[Path]:
+        """
+        Recursively collect all image file paths from a directory.
+        
+        Args:
+            directory: Path to the directory to scan.
+            recursive: If True (default), recursively walk subdirectories.
+                      If False, only scan the immediate directory.
+        
+        Returns:
+            Sorted list of Path objects for all image files found.
+        
+        Raises:
+            ValueError: If the path is not a directory.
+        
+        Example:
+            >>> paths = ImageLoader.collect_images("./images/")
+            >>> for path in paths:
+            ...     img = ImageLoader.load(path)
+        """
+        directory = Path(directory)
+        if not directory.is_dir():
+            raise ValueError(f"Not a directory: {directory}")
+        
+        pattern = "**/*" if recursive else "*"
+        return sorted([
+            p for p in directory.glob(pattern)
+            if p.is_file() and p.suffix.lower() in SUPPORTED_EXTENSIONS
+        ])
 

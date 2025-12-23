@@ -4,12 +4,13 @@ ONNX runtime inference backend for LIBREYOLO.
 
 from datetime import datetime
 from pathlib import Path
-from typing import Union
+from typing import Union, List
 
 import numpy as np
 from PIL import Image
 
 from .utils import preprocess_image, draw_boxes
+from .image_loader import ImageLoader
 
 
 def _nms(boxes: np.ndarray, scores: np.ndarray, iou_threshold: float = 0.45) -> list:
@@ -96,26 +97,53 @@ class LIBREYOLOOnnx:
     
     def __call__(
         self,
-        image: Union[str, Image.Image, np.ndarray],
+        image: Union[str, Path, Image.Image, np.ndarray],
         save: bool = False,
         output_path: str = None,
         conf_thres: float = 0.25,
         iou_thres: float = 0.45,
-    ) -> dict:
+    ) -> Union[dict, List[dict]]:
         """
-        Run inference on an image.
+        Run inference on an image or directory of images.
         
         Args:
-            image: Input image (file path, PIL Image, or numpy array).
+            image: Input image or directory (file path, directory path, PIL Image, or numpy array).
             save: If True, saves annotated image to disk.
             output_path: Optional path to save the annotated image.
             conf_thres: Confidence threshold (default: 0.25).
             iou_thres: IoU threshold for NMS (default: 0.45).
         
         Returns:
-            Dictionary with boxes, scores, classes, and num_detections.
+            For single image: Dictionary with boxes, scores, classes, source, and num_detections.
+            For directory: List of dictionaries, one per image processed.
         """
-        image_path = image if isinstance(image, str) else None
+        # Check if input is a directory
+        if isinstance(image, (str, Path)) and Path(image).is_dir():
+            image_paths = ImageLoader.collect_images(image)
+            if not image_paths:
+                return []
+            return [
+                self._predict_single(p, save, output_path, conf_thres, iou_thres)
+                for p in image_paths
+            ]
+        
+        return self._predict_single(image, save, output_path, conf_thres, iou_thres)
+    
+    def _predict_single(
+        self,
+        image: Union[str, Path, Image.Image, np.ndarray],
+        save: bool = False,
+        output_path: str = None,
+        conf_thres: float = 0.25,
+        iou_thres: float = 0.45,
+    ) -> dict:
+        """
+        Run inference on a single image.
+        
+        This is the internal implementation for single-image inference.
+        Use __call__ for the public API which also supports directories.
+        """
+        image_path = image if isinstance(image, (str, Path)) else None
         
         # Preprocess (reuse existing utility, convert tensor to numpy)
         input_tensor, original_img, original_size = preprocess_image(image, input_size=640)
@@ -137,7 +165,7 @@ class LIBREYOLOOnnx:
         boxes, max_scores, class_ids = boxes[mask], max_scores[mask], class_ids[mask]
         
         if len(boxes) == 0:
-            return {"boxes": [], "scores": [], "classes": [], "num_detections": 0}
+            return {"boxes": [], "scores": [], "classes": [], "num_detections": 0, "source": str(image_path) if image_path else None}
         
         # Scale boxes to original image size
         scale_x = original_size[0] / 640
@@ -158,6 +186,7 @@ class LIBREYOLOOnnx:
             "scores": max_scores.tolist(),
             "classes": class_ids.tolist(),
             "num_detections": len(boxes),
+            "source": str(image_path) if image_path else None,
         }
         
         # Save annotated image if requested
@@ -190,12 +219,18 @@ class LIBREYOLOOnnx:
     
     def predict(
         self,
-        image: Union[str, Image.Image, np.ndarray],
+        image: Union[str, Path, Image.Image, np.ndarray],
         save: bool = False,
         output_path: str = None,
         conf_thres: float = 0.25,
         iou_thres: float = 0.45,
-    ) -> dict:
-        """Alias for __call__ method."""
+    ) -> Union[dict, List[dict]]:
+        """
+        Alias for __call__ method.
+        
+        Returns:
+            For single image: Dictionary containing detection results.
+            For directory: List of dictionaries, one per image processed.
+        """
         return self(image=image, save=save, output_path=output_path, conf_thres=conf_thres, iou_thres=iou_thres)
 
