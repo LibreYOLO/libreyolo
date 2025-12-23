@@ -5,10 +5,20 @@ import torch
 import numpy as np
 from pathlib import Path
 from typing import Tuple, List, Union
+from urllib.parse import urlparse
 from PIL import Image, ImageDraw, ImageFont
 import colorsys
 
 from .image_loader import ImageLoader, ImageInput
+
+
+def get_safe_stem(path: Union[str, Path]) -> str:
+    path_str = str(path)
+    if path_str.startswith(("http://", "https://", "s3://", "gs://")):
+        parsed = urlparse(path_str)
+        filename = Path(parsed.path).name
+        return Path(filename).stem if filename else "inference"
+    return Path(path_str).stem
 
 # COCO class names (80 classes)
 COCO_CLASSES = [

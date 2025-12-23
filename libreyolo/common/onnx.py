@@ -9,7 +9,7 @@ from typing import Union, List
 import numpy as np
 from PIL import Image
 
-from .utils import preprocess_image, draw_boxes
+from .utils import preprocess_image, draw_boxes, get_safe_stem
 from .image_loader import ImageLoader
 
 
@@ -102,6 +102,7 @@ class LIBREYOLOOnnx:
         output_path: str = None,
         conf_thres: float = 0.25,
         iou_thres: float = 0.45,
+        color_format: str = "auto"
     ) -> Union[dict, List[dict]]:
         """
         Run inference on an image or directory of images.
@@ -112,22 +113,22 @@ class LIBREYOLOOnnx:
             output_path: Optional path to save the annotated image.
             conf_thres: Confidence threshold (default: 0.25).
             iou_thres: IoU threshold for NMS (default: 0.45).
+            color_format: Color format hint for NumPy/OpenCV arrays ("auto", "rgb", "bgr").
         
         Returns:
             For single image: Dictionary with boxes, scores, classes, source, and num_detections.
             For directory: List of dictionaries, one per image processed.
         """
-        # Check if input is a directory
         if isinstance(image, (str, Path)) and Path(image).is_dir():
             image_paths = ImageLoader.collect_images(image)
             if not image_paths:
                 return []
             return [
-                self._predict_single(p, save, output_path, conf_thres, iou_thres)
+                self._predict_single(p, save, output_path, conf_thres, iou_thres, color_format)
                 for p in image_paths
             ]
         
-        return self._predict_single(image, save, output_path, conf_thres, iou_thres)
+        return self._predict_single(image, save, output_path, conf_thres, iou_thres, color_format)
     
     def _predict_single(
         self,
@@ -136,6 +137,7 @@ class LIBREYOLOOnnx:
         output_path: str = None,
         conf_thres: float = 0.25,
         iou_thres: float = 0.45,
+        color_format: str = "auto"
     ) -> dict:
         """
         Run inference on a single image.
@@ -145,8 +147,7 @@ class LIBREYOLOOnnx:
         """
         image_path = image if isinstance(image, (str, Path)) else None
         
-        # Preprocess (reuse existing utility, convert tensor to numpy)
-        input_tensor, original_img, original_size = preprocess_image(image, input_size=640)
+        input_tensor, original_img, original_size = preprocess_image(image, input_size=640, color_format=color_format)
         blob = input_tensor.numpy()
         
         # Run ONNX inference
@@ -205,7 +206,7 @@ class LIBREYOLOOnnx:
                 final_path = Path(output_path)
                 final_path.parent.mkdir(parents=True, exist_ok=True)
             else:
-                stem = Path(image_path).stem if image_path else "inference"
+                stem = get_safe_stem(image_path) if image_path else "inference"
                 ext = Path(image_path).suffix if image_path else ".jpg"
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                 save_dir = Path("runs/detections")
@@ -224,6 +225,7 @@ class LIBREYOLOOnnx:
         output_path: str = None,
         conf_thres: float = 0.25,
         iou_thres: float = 0.45,
+        color_format: str = "auto"
     ) -> Union[dict, List[dict]]:
         """
         Alias for __call__ method.
@@ -232,5 +234,5 @@ class LIBREYOLOOnnx:
             For single image: Dictionary containing detection results.
             For directory: List of dictionaries, one per image processed.
         """
-        return self(image=image, save=save, output_path=output_path, conf_thres=conf_thres, iou_thres=iou_thres)
+        return self(image=image, save=save, output_path=output_path, conf_thres=conf_thres, iou_thres=iou_thres, color_format=color_format)
 
