@@ -28,6 +28,7 @@ def build_stub(model_cls, save_feature_maps=False, feature_dir=None):
     inst.reg_max = 16
     inst.nb_classes = 80
     inst.save_feature_maps = save_feature_maps
+    inst.save_eigen_cam = False
     inst.feature_maps = {}
     inst.hooks = []
 

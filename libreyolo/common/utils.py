@@ -3,9 +3,12 @@ Shared utility functions.
 """
 import torch
 import numpy as np
-from typing import Tuple, List
+from pathlib import Path
+from typing import Tuple, List, Union
 from PIL import Image, ImageDraw, ImageFont
 import colorsys
+
+from .image_loader import ImageLoader, ImageInput
 
 # COCO class names (80 classes)
 COCO_CLASSES = [
@@ -33,26 +36,34 @@ def get_class_color(class_id: int) -> str:
     rgb = colorsys.hsv_to_rgb(hue, saturation, value)
     return f"#{int(rgb[0]*255):02x}{int(rgb[1]*255):02x}{int(rgb[2]*255):02x}"
 
-def preprocess_image(image: str | Image.Image | np.ndarray, input_size: int = 640) -> Tuple[torch.Tensor, Image.Image, Tuple[int, int]]:
+def preprocess_image(
+    image: ImageInput,
+    input_size: int = 640,
+    color_format: str = "auto"
+) -> Tuple[torch.Tensor, Image.Image, Tuple[int, int]]:
     """
     Preprocess image for model inference.
     
     Args:
-        image: Input image as file path (str), PIL Image, or numpy array
+        image: Input image. Supported types:
+            - str: Local file path or URL (http/https/s3/gs)
+            - pathlib.Path: Local file path
+            - PIL.Image: PIL Image object
+            - np.ndarray: NumPy array (HWC or CHW, RGB or BGR)
+            - torch.Tensor: PyTorch tensor (CHW or NCHW)
+            - bytes: Raw image bytes
+            - io.BytesIO: BytesIO object containing image data
         input_size: Target size for resizing (default: 640)
+        color_format: Color format hint for NumPy/OpenCV arrays.
+            - "auto": Auto-detect (default)
+            - "rgb": Input is RGB format
+            - "bgr": Input is BGR format (e.g., OpenCV)
         
     Returns:
         Tuple of (preprocessed_tensor, original_image, original_size)
     """
-    # Load image
-    if isinstance(image, str):
-        img = Image.open(image).convert('RGB')
-    elif isinstance(image, Image.Image):
-        img = image.convert('RGB')
-    elif isinstance(image, np.ndarray):
-        img = Image.fromarray(image).convert('RGB')
-    else:
-        raise ValueError(f"Unsupported image type: {type(image)}")
+    # Use unified ImageLoader to handle all input types
+    img = ImageLoader.load(image, color_format=color_format)
     
     original_size = img.size  # (width, height)
     original_img = img.copy()
