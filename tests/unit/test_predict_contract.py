@@ -31,6 +31,7 @@ def build_stub(model_cls, save_feature_maps=False, feature_dir=None):
     inst.save_eigen_cam = False
     inst.feature_maps = {}
     inst.hooks = []
+    inst.device = torch.device("cpu")
 
     class DummyModel:
         def __call__(self, x):
