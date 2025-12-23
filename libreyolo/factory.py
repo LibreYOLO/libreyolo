@@ -92,7 +92,8 @@ def LIBREYOLO(
     save_feature_maps: bool = False,
     save_eigen_cam: bool = False,
     cam_method: str = "eigencam",
-    cam_layer: str = None
+    cam_layer: str = None,
+    device: str = "auto"
 ):
     """
     Unified Libre YOLO factory that automatically detects model version (8 or 11)
@@ -108,6 +109,7 @@ def LIBREYOLO(
         cam_method: Default CAM method for explain(). Options: "eigencam", "gradcam", "gradcam++",
                    "xgradcam", "hirescam", "layercam", "eigengradcam" (default: "eigencam")
         cam_layer: Target layer for CAM computation (default: "neck_c2f22")
+        device: Device for inference. "auto" (default) uses CUDA if available, else MPS, else CPU.
     
     Returns:
         Instance of LIBREYOLO8, LIBREYOLO11, or LIBREYOLOOnnx
@@ -119,7 +121,7 @@ def LIBREYOLO(
     # Handle ONNX models
     if model_path.endswith('.onnx'):
         from .common.onnx import LIBREYOLOOnnx
-        return LIBREYOLOOnnx(model_path, nb_classes=nb_classes)
+        return LIBREYOLOOnnx(model_path, nb_classes=nb_classes, device=device)
     
     # For .pt files, size is required
     if size is None:
@@ -150,7 +152,8 @@ def LIBREYOLO(
             save_feature_maps=save_feature_maps,
             save_eigen_cam=save_eigen_cam,
             cam_method=cam_method,
-            cam_layer=cam_layer
+            cam_layer=cam_layer,
+            device=device
         )
         model.version = "11"
         model.model_path = model_path # Restore path for reference
@@ -160,7 +163,8 @@ def LIBREYOLO(
             save_feature_maps=save_feature_maps,
             save_eigen_cam=save_eigen_cam,
             cam_method=cam_method,
-            cam_layer=cam_layer
+            cam_layer=cam_layer,
+            device=device
         )
         model.version = "8"
         model.model_path = model_path # Restore path for reference

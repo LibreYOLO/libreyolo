@@ -50,13 +50,14 @@ class LIBREYOLOOnnx:
     Args:
         onnx_path: Path to the ONNX model file.
         nb_classes: Number of classes (default: 80 for COCO).
+        device: Device for inference. "auto" (default) uses CUDA if available, else CPU.
     
     Example:
         >>> model = LIBREYOLOOnnx("model.onnx")
         >>> detections = model("image.jpg", save=True)
     """
     
-    def __init__(self, onnx_path: str, nb_classes: int = 80):
+    def __init__(self, onnx_path: str, nb_classes: int = 80, device: str = "auto"):
         try:
             import onnxruntime as ort
         except ImportError as e:
@@ -70,7 +71,27 @@ class LIBREYOLOOnnx:
         
         self.model_path = onnx_path
         self.nb_classes = nb_classes
-        self.session = ort.InferenceSession(onnx_path)
+        
+        # Resolve device and set providers
+        available_providers = ort.get_available_providers()
+        if device == "auto":
+            if "CUDAExecutionProvider" in available_providers:
+                providers = ["CUDAExecutionProvider", "CPUExecutionProvider"]
+                self.device = "cuda"
+            else:
+                providers = ["CPUExecutionProvider"]
+                self.device = "cpu"
+        elif device in ("cuda", "gpu"):
+            if "CUDAExecutionProvider" in available_providers:
+                providers = ["CUDAExecutionProvider", "CPUExecutionProvider"]
+            else:
+                providers = ["CPUExecutionProvider"]
+            self.device = "cuda" if "CUDAExecutionProvider" in available_providers else "cpu"
+        else:
+            providers = ["CPUExecutionProvider"]
+            self.device = "cpu"
+        
+        self.session = ort.InferenceSession(onnx_path, providers=providers)
         self.input_name = self.session.get_inputs()[0].name
     
     def __call__(
