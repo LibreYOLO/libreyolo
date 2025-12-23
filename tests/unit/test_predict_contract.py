@@ -32,6 +32,7 @@ def build_stub(model_cls, save_feature_maps=False, feature_dir=None):
     inst.feature_maps = {}
     inst.hooks = []
     inst.device = torch.device("cpu")
+    inst.tiling = False
 
     class DummyModel:
         def __call__(self, x):

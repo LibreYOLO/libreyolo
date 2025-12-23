@@ -93,7 +93,8 @@ def LIBREYOLO(
     save_eigen_cam: bool = False,
     cam_method: str = "eigencam",
     cam_layer: str = None,
-    device: str = "auto"
+    device: str = "auto",
+    tiling: bool = False
 ):
     """
     Unified Libre YOLO factory that automatically detects model version (8 or 11)
@@ -110,6 +111,8 @@ def LIBREYOLO(
                    "xgradcam", "hirescam", "layercam", "eigengradcam" (default: "eigencam")
         cam_layer: Target layer for CAM computation (default: "neck_c2f22")
         device: Device for inference. "auto" (default) uses CUDA if available, else MPS, else CPU.
+        tiling: Enable tiling for large images (default: False). When enabled, images larger than
+                640x640 are split into overlapping tiles for inference.
     
     Returns:
         Instance of LIBREYOLO8, LIBREYOLO11, or LIBREYOLOOnnx
@@ -153,7 +156,8 @@ def LIBREYOLO(
             save_eigen_cam=save_eigen_cam,
             cam_method=cam_method,
             cam_layer=cam_layer,
-            device=device
+            device=device,
+            tiling=tiling
         )
         model.version = "11"
         model.model_path = model_path # Restore path for reference
@@ -164,7 +168,8 @@ def LIBREYOLO(
             save_eigen_cam=save_eigen_cam,
             cam_method=cam_method,
             cam_layer=cam_layer,
-            device=device
+            device=device,
+            tiling=tiling
         )
         model.version = "8"
         model.model_path = model_path # Restore path for reference

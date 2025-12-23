@@ -12,6 +12,47 @@ import colorsys
 from .image_loader import ImageLoader, ImageInput
 
 
+def get_slice_bboxes(
+    image_width: int,
+    image_height: int,
+    slice_size: int = 640,
+    overlap_ratio: float = 0.2
+) -> List[Tuple[int, int, int, int]]:
+    """
+    Generate tile coordinates for slicing a large image.
+    
+    Args:
+        image_width: Width of the original image.
+        image_height: Height of the original image.
+        slice_size: Size of each square tile (default: 640).
+        overlap_ratio: Fractional overlap between tiles (default: 0.2).
+    
+    Returns:
+        List of (x1, y1, x2, y2) tuples representing tile coordinates.
+    """
+    slices = []
+    overlap = int(slice_size * overlap_ratio)
+    step = slice_size - overlap
+    
+    y = 0
+    while y < image_height:
+        x = 0
+        while x < image_width:
+            x2 = min(x + slice_size, image_width)
+            y2 = min(y + slice_size, image_height)
+            # Ensure full tile size when near edges by adjusting start position
+            x1 = max(0, x2 - slice_size) if x2 == image_width else x
+            y1 = max(0, y2 - slice_size) if y2 == image_height else y
+            slices.append((x1, y1, x2, y2))
+            x += step
+            if x2 == image_width:
+                break
+        y += step
+        if y2 == image_height:
+            break
+    return slices
+
+
 def get_safe_stem(path: Union[str, Path]) -> str:
     path_str = str(path)
     if path_str.startswith(("http://", "https://", "s3://", "gs://")):
