@@ -1,6 +1,10 @@
 # Libre YOLO
 
+[![Documentation](https://img.shields.io/badge/docs-docs.libreyolo.com-blue)](https://docs.libreyolo.com)
+
 Libre YOLO is an open-source, MIT-licensed implementation of YOLO object detection models. It provides a clean, independent codebase for training and inference, designed to be free from restrictive licensing for the software itself.
+
+📖 **Full Documentation:** [docs.libreyolo.com](https://docs.libreyolo.com)
 
 > **Note:** While this codebase is MIT licensed, pre-trained weights converted from other repositories (like Ultralytics) may inherit their original licenses (often AGPL-3.0). Please check the license of the specific weights you use.
 
@@ -112,11 +116,14 @@ Feature maps are saved to `runs/feature_maps/` directory.
 
 ## Documentation
 
-For more detailed information, check out our documentation:
+📖 **Full Documentation:** [docs.libreyolo.com](https://docs.libreyolo.com)
 
-- [User Guide](docs/user_guide.md): Comprehensive guide on how to use Libre YOLO.
-- [Fine-Tuning Guide](docs/fine_tuning.md): Instructions on how to fine-tune models on your custom datasets.
-- [Model Layers Reference](docs/model_layers.md): detailed list of available layers for feature map extraction.
+The documentation includes:
+- Getting Started & Installation
+- Inference Guide
+- Training Guide  
+- Explainability (CAM methods)
+- Complete API Reference
 
 ## License
 
