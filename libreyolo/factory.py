@@ -6,11 +6,14 @@ from .v8.nn import LibreYOLO8Model
 from .v11.nn import LibreYOLO11Model
 from .v8.model import LIBREYOLO8
 from .v11.model import LIBREYOLO11
+from .yolox.nn import YOLOXModel
+from .yolox.model import LIBREYOLOX
 
 # Registry for model classes
 MODELS = {
     '8': LibreYOLO8Model,
-    '11': LibreYOLO11Model
+    '11': LibreYOLO11Model,
+    'x': YOLOXModel
 }
 
 def download_weights(model_path: str, size: str):
@@ -97,29 +100,33 @@ def LIBREYOLO(
     tiling: bool = False
 ):
     """
-    Unified Libre YOLO factory that automatically detects model version (8 or 11)
+    Unified Libre YOLO factory that automatically detects model version (8, 11, or X)
     from the weights file and returns the appropriate model instance.
-    
+
     Args:
         model_path: Path to model weights file (.pt) or ONNX file (.onnx)
-        size: Model size variant. Required for .pt files ("n", "s", "m", "l", "x"), ignored for .onnx
-        reg_max: Regression max value for DFL (default: 16)
+        size: Model size variant. Required for .pt files.
+              - For YOLOv8/v11: "n", "s", "m", "l", "x"
+              - For YOLOX: "nano", "tiny", "s", "m", "l", "x"
+        reg_max: Regression max value for DFL (default: 16). Only used for v8/v11.
         nb_classes: Number of classes (default: 80 for COCO)
-        save_feature_maps: If True, saves backbone feature map visualizations on each inference (default: False)
-        save_eigen_cam: If True, saves EigenCAM heatmap visualizations on each inference (default: False)
-        cam_method: Default CAM method for explain(). Options: "eigencam", "gradcam", "gradcam++",
-                   "xgradcam", "hirescam", "layercam", "eigengradcam" (default: "eigencam")
-        cam_layer: Target layer for CAM computation (default: "neck_c2f22")
+        save_feature_maps: If True, saves backbone feature map visualizations (v8/v11 only)
+        save_eigen_cam: If True, saves EigenCAM heatmap visualizations (v8/v11 only)
+        cam_method: Default CAM method for explain() (v8/v11 only)
+        cam_layer: Target layer for CAM computation (v8/v11 only)
         device: Device for inference. "auto" (default) uses CUDA if available, else MPS, else CPU.
-        tiling: Enable tiling for large images (default: False). When enabled, images larger than
-                640x640 are split into overlapping tiles for inference.
-    
+        tiling: Enable tiling for large images (default: False).
+
     Returns:
-        Instance of LIBREYOLO8, LIBREYOLO11, or LIBREYOLOOnnx
-    
+        Instance of LIBREYOLO8, LIBREYOLO11, LIBREYOLOX, or LIBREYOLOOnnx
+
     Example:
-        >>> model = LIBREYOLO("yolo11n.pt", size="n", cam_method="gradcam")
-        >>> result = model.explain("image.jpg", save=True)
+        >>> model = LIBREYOLO("yolo11n.pt", size="n")
+        >>> detections = model("image.jpg", save=True)
+        >>>
+        >>> # For YOLOX
+        >>> model = LIBREYOLO("yolox_s.pt", size="s")
+        >>> detections = model("image.jpg", save=True)
     """
     # Handle ONNX models
     if model_path.endswith('.onnx'):
@@ -146,10 +153,25 @@ def LIBREYOLO(
     except Exception as e:
         raise RuntimeError(f"Failed to load model weights from {model_path}: {e}") from e
 
-    # Check for YOLO11-specific layer names (e.g., 'c2psa')
-    is_yolo11 = any('c2psa' in key for key in state_dict.keys())
+    # Detect model version from state dict keys
+    keys = list(state_dict.keys())
 
-    if is_yolo11:
+    # Check for YOLOX-specific layer names (e.g., 'backbone.backbone.stem' or Focus module)
+    is_yolox = any('backbone.backbone' in key or 'head.stems' in key for key in keys)
+
+    # Check for YOLO11-specific layer names (e.g., 'c2psa')
+    is_yolo11 = any('c2psa' in key for key in keys)
+
+    if is_yolox:
+        # YOLOX detected - use LIBREYOLOX
+        model = LIBREYOLOX(
+            state_dict, size, nb_classes,
+            device=device,
+            tiling=tiling
+        )
+        model.version = "x"
+        model.model_path = model_path
+    elif is_yolo11:
         model = LIBREYOLO11(
             state_dict, size, reg_max, nb_classes,
             save_feature_maps=save_feature_maps,
@@ -160,7 +182,7 @@ def LIBREYOLO(
             tiling=tiling
         )
         model.version = "11"
-        model.model_path = model_path # Restore path for reference
+        model.model_path = model_path
     else:
         model = LIBREYOLO8(
             state_dict, size, reg_max, nb_classes,
@@ -172,6 +194,6 @@ def LIBREYOLO(
             tiling=tiling
         )
         model.version = "8"
-        model.model_path = model_path # Restore path for reference
-        
+        model.model_path = model_path
+
     return model
