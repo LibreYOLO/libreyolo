@@ -53,7 +53,7 @@ class BaseConv(nn.Module):
 
 
 class DWConv(nn.Module):
-    """Depthwise Conv + Pointwise Conv (for nano/tiny models)."""
+    """Depthwise Conv + Pointwise Conv (for nano model only)."""
 
     def __init__(self, in_channels, out_channels, ksize, stride=1, act="silu"):
         super().__init__()
@@ -460,7 +460,7 @@ class YOLOXModel(nn.Module):
     # Model configurations: depth, width, depthwise
     CONFIGS = {
         'nano': {'depth': 0.33, 'width': 0.25, 'depthwise': True},
-        'tiny': {'depth': 0.33, 'width': 0.375, 'depthwise': True},
+        'tiny': {'depth': 0.33, 'width': 0.375, 'depthwise': False},
         's': {'depth': 0.33, 'width': 0.50, 'depthwise': False},
         'm': {'depth': 0.67, 'width': 0.75, 'depthwise': False},
         'l': {'depth': 1.00, 'width': 1.00, 'depthwise': False},

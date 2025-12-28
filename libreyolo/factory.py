@@ -19,27 +19,36 @@ MODELS = {
 def download_weights(model_path: str, size: str):
     """
     Download weights from Hugging Face if not found locally.
-    
+
     Args:
         model_path: Path where weights should be saved
-        size: Model size variant ('n', 's', 'm', 'l', 'x')
+        size: Model size variant ('n', 's', 'm', 'l', 'x' for v8/v11, or 'nano', 'tiny', 's', 'm', 'l', 'x' for YOLOX)
     """
     path = Path(model_path)
     if path.exists():
         return
 
     filename = path.name
-    # Try to infer version from filename (e.g. libreyolo8n.pt -> 8, yolov11x.pt -> 11)
-    match = re.search(r'(?:yolo|libreyolo)?(8|11)', filename.lower())
-    if not match:
-        raise ValueError(f"Could not determine model version (8 or 11) from filename '{filename}' for auto-download.")
-    
-    version = match.group(1)
-    
-    # Construct Hugging Face URL
-    # Repo format: Libre-YOLO/yolov{version}{size}
-    repo = f"Libre-YOLO/yolov{version}{size}"
-    url = f"https://huggingface.co/{repo}/resolve/main/{filename}"
+
+    # Check for YOLOX first (e.g., yolox_s.pt, yolox_nano.pt)
+    yolox_match = re.search(r'yolox[_-]?(nano|tiny|s|m|l|x)', filename.lower())
+    if yolox_match:
+        # YOLOX repos: Libre-YOLO/yolox_nano, Libre-YOLO/yolox_s, etc.
+        yolox_size = yolox_match.group(1)
+        repo = f"Libre-YOLO/yolox_{yolox_size}"
+        url = f"https://huggingface.co/{repo}/resolve/main/{filename}"
+    else:
+        # Try to infer version from filename (e.g. libreyolo8n.pt -> 8, yolov11x.pt -> 11)
+        match = re.search(r'(?:yolo|libreyolo)?(8|11)', filename.lower())
+        if not match:
+            raise ValueError(f"Could not determine model version from filename '{filename}' for auto-download.")
+
+        version = match.group(1)
+
+        # Construct Hugging Face URL
+        # Repo format: Libre-YOLO/yolov{version}{size}
+        repo = f"Libre-YOLO/yolov{version}{size}"
+        url = f"https://huggingface.co/{repo}/resolve/main/{filename}"
     
     print(f"Model weights not found at {model_path}. Attempting download from {url}...")
     
@@ -152,6 +161,10 @@ def LIBREYOLO(
         state_dict = torch.load(model_path, map_location='cpu', weights_only=False)
     except Exception as e:
         raise RuntimeError(f"Failed to load model weights from {model_path}: {e}") from e
+
+    # Handle checkpoint format (e.g., YOLOX checkpoints with 'model' key)
+    if 'model' in state_dict and isinstance(state_dict.get('model'), dict):
+        state_dict = state_dict['model']
 
     # Detect model version from state dict keys
     keys = list(state_dict.keys())
