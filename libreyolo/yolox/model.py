@@ -1,9 +1,11 @@
 """
 LIBREYOLOX implementation for LibreYOLO.
+
+Supports both inference and training.
 """
 
 from datetime import datetime
-from typing import Union, List, Tuple
+from typing import Union, List, Tuple, Optional, Dict
 from pathlib import Path
 import torch
 from PIL import Image
@@ -102,7 +104,21 @@ class LIBREYOLOX:
             raise FileNotFoundError(f"Model weights file not found: {model_path}")
 
         try:
-            state_dict = torch.load(model_path, map_location='cpu', weights_only=False)
+            checkpoint = torch.load(model_path, map_location='cpu', weights_only=False)
+
+            # Handle different checkpoint formats
+            if isinstance(checkpoint, dict):
+                if 'model' in checkpoint:
+                    # Official YOLOX checkpoint format
+                    state_dict = checkpoint['model']
+                elif 'state_dict' in checkpoint:
+                    state_dict = checkpoint['state_dict']
+                else:
+                    # Assume it's a direct state dict
+                    state_dict = checkpoint
+            else:
+                state_dict = checkpoint
+
             self.model.load_state_dict(state_dict, strict=True)
         except Exception as e:
             raise RuntimeError(f"Failed to load model weights from {model_path}: {e}") from e
@@ -432,3 +448,227 @@ class LIBREYOLOX:
             color_format=color_format,
             batch_size=batch_size
         )
+
+    @classmethod
+    def new(
+        cls,
+        size: str = "s",
+        num_classes: int = 80,
+        device: str = "auto"
+    ) -> "LIBREYOLOX":
+        """
+        Create a new untrained YOLOX model.
+
+        This is useful for training from scratch.
+
+        Args:
+            size: Model size variant ("nano", "tiny", "s", "m", "l", "x")
+            num_classes: Number of classes (default: 80)
+            device: Device for the model ("auto", "cuda", "mps", "cpu")
+
+        Returns:
+            LIBREYOLOX instance with randomly initialized weights
+
+        Example:
+            >>> model = LIBREYOLOX.new(size="s", num_classes=80)
+            >>> model.train(data="coco.yaml", epochs=300)
+        """
+        if size not in ['nano', 'tiny', 's', 'm', 'l', 'x']:
+            raise ValueError(f"Invalid size: {size}. Must be one of: 'nano', 'tiny', 's', 'm', 'l', 'x'")
+
+        # Create instance without calling __init__
+        instance = cls.__new__(cls)
+
+        # Resolve device
+        if device == "auto":
+            if torch.cuda.is_available():
+                instance.device = torch.device("cuda")
+            elif torch.backends.mps.is_available():
+                instance.device = torch.device("mps")
+            else:
+                instance.device = torch.device("cpu")
+        else:
+            instance.device = torch.device(device)
+
+        instance.size = size
+        instance.nb_classes = num_classes
+        instance.input_size = cls.DEFAULT_INPUT_SIZES[size]
+        instance.model_path = None
+        instance.tiling = False
+
+        # Create model with random initialization
+        instance.model = YOLOXModel(config=size, nb_classes=num_classes)
+        instance.model.to(instance.device)
+
+        return instance
+
+    def train(
+        self,
+        data: Optional[str] = None,
+        epochs: int = 300,
+        batch_size: int = 16,
+        imgsz: int = None,
+        config: Optional[Union[str, "YOLOXTrainConfig"]] = None,
+        resume: Optional[str] = None,
+        **kwargs
+    ) -> Dict:
+        """
+        Train the model.
+
+        Args:
+            data: Path to data.yaml configuration file
+            epochs: Number of training epochs (default: 300)
+            batch_size: Batch size (default: 16)
+            imgsz: Image size (default: model's default size)
+            config: Path to config.yaml or YOLOXTrainConfig object
+            resume: Path to checkpoint to resume training from
+            **kwargs: Additional training parameters (see YOLOXTrainConfig)
+
+        Returns:
+            Dictionary with training results
+
+        Example:
+            >>> # Train from scratch
+            >>> model = LIBREYOLOX.new(size="s", num_classes=80)
+            >>> model.train(data="coco.yaml", epochs=300)
+
+            >>> # Fine-tune pretrained model
+            >>> model = LIBREYOLOX("yolox_s.pt", size="s")
+            >>> model.train(data="custom.yaml", epochs=100)
+
+            >>> # With config file
+            >>> model.train(config="training_config.yaml")
+        """
+        from ..training import YOLOXTrainConfig, YOLOXTrainer
+
+        # Build configuration
+        if isinstance(config, str):
+            cfg = YOLOXTrainConfig.from_yaml(config)
+        elif config is not None:
+            cfg = config
+        else:
+            cfg = YOLOXTrainConfig(
+                size=self.size,
+                num_classes=self.nb_classes,
+            )
+
+        # Override with explicit parameters
+        if data is not None:
+            cfg = cfg.update(data=data)
+        if epochs != 300:
+            cfg = cfg.update(epochs=epochs)
+        if batch_size != 16:
+            cfg = cfg.update(batch_size=batch_size)
+        if imgsz is not None:
+            cfg = cfg.update(imgsz=imgsz)
+        elif imgsz is None:
+            cfg = cfg.update(imgsz=self.input_size)
+
+        # Apply any additional kwargs
+        if kwargs:
+            cfg = cfg.update(**kwargs)
+
+        # Create trainer
+        trainer = YOLOXTrainer(self.model, cfg)
+
+        # Resume from checkpoint if specified
+        if resume:
+            trainer.resume(resume)
+
+        # Run training
+        results = trainer.train()
+
+        # Update model to use best weights
+        best_checkpoint = Path(results["save_dir"]) / "best.pt"
+        if best_checkpoint.exists():
+            checkpoint = torch.load(best_checkpoint, map_location=self.device)
+            self.model.load_state_dict(checkpoint["model"])
+
+        return results
+
+    def export(
+        self,
+        format: str = "onnx",
+        output_path: Optional[str] = None,
+        opset: int = 11,
+        simplify: bool = True,
+        dynamic: bool = False,
+    ) -> str:
+        """
+        Export the model to a different format.
+
+        Args:
+            format: Export format ("onnx", "torchscript")
+            output_path: Output file path (auto-generated if None)
+            opset: ONNX opset version (default: 11)
+            simplify: Simplify ONNX model (default: True)
+            dynamic: Use dynamic input shapes (default: False)
+
+        Returns:
+            Path to the exported model file
+        """
+        if output_path is None:
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            output_path = f"yolox_{self.size}_{timestamp}.{format}"
+
+        self.model.eval()
+
+        if format == "onnx":
+            return self._export_onnx(output_path, opset, simplify, dynamic)
+        elif format == "torchscript":
+            return self._export_torchscript(output_path)
+        else:
+            raise ValueError(f"Unsupported export format: {format}")
+
+    def _export_onnx(
+        self,
+        output_path: str,
+        opset: int = 11,
+        simplify: bool = True,
+        dynamic: bool = False,
+    ) -> str:
+        """Export to ONNX format."""
+        dummy_input = torch.randn(1, 3, self.input_size, self.input_size).to(self.device)
+
+        input_names = ["images"]
+        output_names = ["outputs"]
+
+        dynamic_axes = None
+        if dynamic:
+            dynamic_axes = {
+                "images": {0: "batch", 2: "height", 3: "width"},
+                "outputs": {0: "batch"},
+            }
+
+        torch.onnx.export(
+            self.model,
+            dummy_input,
+            output_path,
+            input_names=input_names,
+            output_names=output_names,
+            opset_version=opset,
+            dynamic_axes=dynamic_axes,
+        )
+
+        if simplify:
+            try:
+                import onnx
+                from onnxsim import simplify as onnx_simplify
+
+                model = onnx.load(output_path)
+                model_simplified, check = onnx_simplify(model)
+                if check:
+                    onnx.save(model_simplified, output_path)
+            except ImportError:
+                pass  # onnxsim not available
+
+        return output_path
+
+    def _export_torchscript(self, output_path: str) -> str:
+        """Export to TorchScript format."""
+        dummy_input = torch.randn(1, 3, self.input_size, self.input_size).to(self.device)
+
+        traced_model = torch.jit.trace(self.model, dummy_input)
+        traced_model.save(output_path)
+
+        return output_path
