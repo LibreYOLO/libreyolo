@@ -1,8 +1,127 @@
+"""
+Loss functions for YOLO training.
+
+Includes losses for both YOLOv8/v11 (TaskAlignedAssigner, DFL)
+and YOLOX (IOUloss, SimOTA).
+"""
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
 from libreyolo.v8.utils import make_anchors
+
+
+# =============================================================================
+# YOLOX Losses
+# =============================================================================
+
+class IOUloss(nn.Module):
+    """IoU loss for bounding box regression (YOLOX)."""
+
+    def __init__(self, reduction="none", loss_type="iou"):
+        """
+        Args:
+            reduction: Reduction mode ('none', 'mean', 'sum')
+            loss_type: Type of IoU loss ('iou' or 'giou')
+        """
+        super().__init__()
+        self.reduction = reduction
+        self.loss_type = loss_type
+
+    def forward(self, pred, target):
+        """
+        Compute IoU loss.
+
+        Args:
+            pred: Predicted boxes in cxcywh format (N, 4)
+            target: Target boxes in cxcywh format (N, 4)
+
+        Returns:
+            IoU loss tensor
+        """
+        assert pred.shape[0] == target.shape[0]
+
+        pred = pred.view(-1, 4)
+        target = target.view(-1, 4)
+
+        # Convert cxcywh to xyxy for intersection calculation
+        tl = torch.max(
+            (pred[:, :2] - pred[:, 2:] / 2), (target[:, :2] - target[:, 2:] / 2)
+        )
+        br = torch.min(
+            (pred[:, :2] + pred[:, 2:] / 2), (target[:, :2] + target[:, 2:] / 2)
+        )
+
+        area_p = torch.prod(pred[:, 2:], 1)
+        area_g = torch.prod(target[:, 2:], 1)
+
+        en = (tl < br).type(tl.type()).prod(dim=1)
+        area_i = torch.prod(br - tl, 1) * en
+        area_u = area_p + area_g - area_i
+        iou = (area_i) / (area_u + 1e-16)
+
+        if self.loss_type == "iou":
+            loss = 1 - iou ** 2
+        elif self.loss_type == "giou":
+            c_tl = torch.min(
+                (pred[:, :2] - pred[:, 2:] / 2), (target[:, :2] - target[:, 2:] / 2)
+            )
+            c_br = torch.max(
+                (pred[:, :2] + pred[:, 2:] / 2), (target[:, :2] + target[:, 2:] / 2)
+            )
+            area_c = torch.prod(c_br - c_tl, 1)
+            giou = iou - (area_c - area_u) / area_c.clamp(1e-16)
+            loss = 1 - giou.clamp(min=-1.0, max=1.0)
+
+        if self.reduction == "mean":
+            loss = loss.mean()
+        elif self.reduction == "sum":
+            loss = loss.sum()
+
+        return loss
+
+
+def bboxes_iou_yolox(bboxes_a, bboxes_b, xyxy=True):
+    """
+    Compute IoU between two sets of bounding boxes (YOLOX style).
+
+    Args:
+        bboxes_a: First set of boxes (N, 4)
+        bboxes_b: Second set of boxes (M, 4)
+        xyxy: If True, boxes are in xyxy format; if False, in cxcywh format
+
+    Returns:
+        IoU matrix of shape (N, M)
+    """
+    if bboxes_a.shape[1] != 4 or bboxes_b.shape[1] != 4:
+        raise IndexError
+
+    if xyxy:
+        tl = torch.max(bboxes_a[:, None, :2], bboxes_b[:, :2])
+        br = torch.min(bboxes_a[:, None, 2:], bboxes_b[:, 2:])
+        area_a = torch.prod(bboxes_a[:, 2:] - bboxes_a[:, :2], 1)
+        area_b = torch.prod(bboxes_b[:, 2:] - bboxes_b[:, :2], 1)
+    else:
+        tl = torch.max(
+            (bboxes_a[:, None, :2] - bboxes_a[:, None, 2:] / 2),
+            (bboxes_b[:, :2] - bboxes_b[:, 2:] / 2),
+        )
+        br = torch.min(
+            (bboxes_a[:, None, :2] + bboxes_a[:, None, 2:] / 2),
+            (bboxes_b[:, :2] + bboxes_b[:, 2:] / 2),
+        )
+        area_a = torch.prod(bboxes_a[:, 2:], 1)
+        area_b = torch.prod(bboxes_b[:, 2:], 1)
+
+    en = (tl < br).type(tl.type()).prod(dim=2)
+    area_i = torch.prod(br - tl, 2) * en
+    return area_i / (area_a[:, None] + area_b - area_i)
+
+
+# =============================================================================
+# YOLOv8/v11 Losses
+# =============================================================================
 
 def bbox_iou(box1, box2, eps=1e-7):
     """
