@@ -102,10 +102,17 @@ results = model(image="test_image.jpg", save=True)
 
 ### Data Augmentation
 
-LibreYOLO applies standard augmentations during training:
-- Random horizontal flip
-- Color jittering
-- Mosaic augmentation (planned)
+LibreYOLO applies the following augmentations during training:
+
+| Augmentation | Description |
+|--------------|-------------|
+| Mosaic | Combines 4 images into one training sample |
+| Mixup | Blends two images with their labels |
+| HSV Jitter | Random hue, saturation, and value adjustments |
+| Horizontal Flip | Random left-right flipping |
+| Random Affine | Rotation, scaling, translation, and shear |
+
+These augmentations are automatically applied during training and can be configured via the training config.
 
 ## Monitoring Training
 

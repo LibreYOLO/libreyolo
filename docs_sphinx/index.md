@@ -8,12 +8,13 @@ While this codebase is MIT licensed, pre-trained weights converted from other re
 
 ## Features
 
-- 🚀 **Supported Models:** Full support for YOLOv8 and YOLOv11 architectures
-- 📦 **Unified API:** Simple, consistent interface for loading and using different YOLO versions
-- 🛠️ **Training Engine:** Built-in support for training models on custom datasets
-- ⚖️ **MIT License:** Permissive licensing for the codebase
-- 🔄 **Weight Conversion:** Tools to convert weights from Ultralytics format
-- 🔍 **Explainability:** Built-in CAM methods (GradCAM, EigenCAM, etc.)
+- **Supported Models:** Full support for YOLOv8, YOLOv11, and YOLOX architectures
+- **Unified API:** Simple, consistent interface for loading and using different YOLO versions
+- **Training Engine:** Built-in support for training models on custom datasets with Mosaic/Mixup augmentation
+- **MIT License:** Permissive licensing for the codebase
+- **Weight Conversion:** Tools to convert weights from Ultralytics format
+- **Explainability:** Built-in CAM methods (GradCAM, EigenCAM, etc.)
+- **ONNX Export:** Export models for deployment with ONNX Runtime
 
 ## Quick Start
 
@@ -24,11 +25,12 @@ from libreyolo import LIBREYOLO
 model = LIBREYOLO(model_path="weights/libreyolo8n.pt", size="n")
 
 # Run inference
-detections = model(image="path/to/image.jpg", save=True)
+results = model(image="path/to/image.jpg", save=True)
 
 # Access results
-for det in detections:
-    print(f"Detected with confidence {det['scores']}")
+print(f"Found {results['num_detections']} objects")
+for box, score, cls in zip(results['boxes'], results['scores'], results['classes']):
+    print(f"Class {cls}: {score:.2f} at {box}")
 ```
 
 ## Installation
@@ -46,6 +48,7 @@ pip install -e .
 getting-started
 inference
 training
+yolox
 explainability
 ```
 

@@ -19,7 +19,7 @@ LibreYOLO accepts multiple input types:
 # File path
 results = model(image="path/to/image.jpg")
 
-# URL
+# URL (http, https, s3, gs)
 results = model(image="https://example.com/image.jpg")
 
 # PIL Image
@@ -36,6 +36,25 @@ results = model(image=img_array, color_format="rgb")
 import cv2
 img_cv = cv2.imread("image.jpg")
 results = model(image=img_cv, color_format="bgr")
+
+# PyTorch Tensor (CHW or NCHW)
+import torch
+tensor = torch.randn(3, 640, 640)
+results = model(image=tensor)
+
+# Raw bytes
+with open("image.jpg", "rb") as f:
+    img_bytes = f.read()
+results = model(image=img_bytes)
+
+# BytesIO object
+import io
+buffer = io.BytesIO(img_bytes)
+results = model(image=buffer)
+
+# pathlib.Path
+from pathlib import Path
+results = model(image=Path("path/to/image.jpg"))
 
 # Directory of images
 results = model(image="path/to/images/")  # Returns list of results

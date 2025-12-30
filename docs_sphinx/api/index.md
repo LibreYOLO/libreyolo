@@ -12,6 +12,7 @@ This section contains the complete API documentation, auto-generated from docstr
    libreyolo.LIBREYOLO
    libreyolo.LIBREYOLO8
    libreyolo.LIBREYOLO11
+   libreyolo.LIBREYOLOX
    libreyolo.LIBREYOLOOnnx
 ```
 
@@ -35,6 +36,16 @@ This section contains the complete API documentation, auto-generated from docstr
 
 ```{eval-rst}
 .. autoclass:: libreyolo.LIBREYOLO11
+   :members:
+   :undoc-members:
+   :show-inheritance:
+   :special-members: __init__, __call__
+```
+
+## LIBREYOLOX
+
+```{eval-rst}
+.. autoclass:: libreyolo.LIBREYOLOX
    :members:
    :undoc-members:
    :show-inheritance:
