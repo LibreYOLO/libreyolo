@@ -62,7 +62,9 @@ for i, (box, score, cls) in enumerate(zip(
 
 ## Model Sizes
 
-LibreYOLO supports multiple model sizes:
+LibreYOLO supports multiple model sizes for each architecture:
+
+### YOLOv8 / YOLOv11
 
 | Size | Parameter | Speed | Accuracy |
 |------|-----------|-------|----------|
@@ -78,9 +80,26 @@ model_nano = LIBREYOLO("weights/libreyolo8n.pt", size="n")
 model_large = LIBREYOLO("weights/libreyolo8l.pt", size="l")
 ```
 
+### YOLOX
+
+| Size | Input Size | Description |
+|------|------------|-------------|
+| `nano` | 416 | Smallest |
+| `tiny` | 416 | Very small |
+| `s` | 640 | Small |
+| `m` | 640 | Medium |
+| `l` | 640 | Large |
+| `x` | 640 | Extra large |
+
+```python
+# YOLOX uses different size names
+model = LIBREYOLO("weights/yolox_s.pt", size="s")
+```
+
 ## Next Steps
 
 - {doc}`inference` - Learn about inference options
 - {doc}`training` - Train on custom datasets
+- {doc}`yolox` - YOLOX-specific features and training
 - {doc}`explainability` - Visualize model attention with CAM methods
 
