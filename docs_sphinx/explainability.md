@@ -2,6 +2,10 @@
 
 LibreYOLO includes built-in explainability methods to visualize what the model focuses on when making predictions.
 
+```{note}
+Explainability features are only available for YOLOv8 and YOLOv11 PyTorch models. ONNX models (`LIBREYOLOOnnx`) and YOLOX models do not support the `explain()` method.
+```
+
 ## Available CAM Methods
 
 | Method | Description | Gradient-Free |
@@ -56,7 +60,7 @@ model = LIBREYOLO("weights/libreyolo8n.pt", size="n")
 print(model.get_available_layer_names())
 ```
 
-### YOLO8 Layers
+### YOLOv8 Layers
 
 | Layer | Description |
 |-------|-------------|
@@ -66,6 +70,16 @@ print(model.get_available_layer_names())
 | `backbone_sppf_P5` | SPPF at P5 (Stride 32) |
 | `neck_c2f21` | Neck C2F block 1 |
 | `neck_c2f22` | Neck C2F block 4 (default) |
+
+### YOLOv11 Layers
+
+YOLOv11 includes all the layers above plus:
+
+| Layer | Description |
+|-------|-------------|
+| `backbone_c2psa_P5` | C2PSA attention block at P5 (Stride 32) |
+
+This additional layer uses the C2PSA (Partial Self-Attention) module for enhanced feature extraction.
 
 ### Choosing a Layer
 
