@@ -105,8 +105,7 @@ def LIBREYOLO(
     save_eigen_cam: bool = False,
     cam_method: str = "eigencam",
     cam_layer: str = None,
-    device: str = "auto",
-    tiling: bool = False
+    device: str = "auto"
 ):
     """
     Unified Libre YOLO factory that automatically detects model version (8, 11, or X)
@@ -124,7 +123,6 @@ def LIBREYOLO(
         cam_method: Default CAM method for explain() (v8/v11 only)
         cam_layer: Target layer for CAM computation (v8/v11 only)
         device: Device for inference. "auto" (default) uses CUDA if available, else MPS, else CPU.
-        tiling: Enable tiling for large images (default: False).
 
     Returns:
         Instance of LIBREYOLO8, LIBREYOLO11, LIBREYOLOX, or LIBREYOLOOnnx
@@ -132,6 +130,8 @@ def LIBREYOLO(
     Example:
         >>> model = LIBREYOLO("yolo11n.pt", size="n")
         >>> detections = model("image.jpg", save=True)
+        >>> # Use tiling for large images
+        >>> detections = model("large_image.jpg", save=True, tiling=True)
         >>>
         >>> # For YOLOX
         >>> model = LIBREYOLO("yolox_s.pt", size="s")
@@ -179,8 +179,7 @@ def LIBREYOLO(
         # YOLOX detected - use LIBREYOLOX
         model = LIBREYOLOX(
             state_dict, size, nb_classes,
-            device=device,
-            tiling=tiling
+            device=device
         )
         model.version = "x"
         model.model_path = model_path
@@ -191,8 +190,7 @@ def LIBREYOLO(
             save_eigen_cam=save_eigen_cam,
             cam_method=cam_method,
             cam_layer=cam_layer,
-            device=device,
-            tiling=tiling
+            device=device
         )
         model.version = "11"
         model.model_path = model_path
@@ -203,8 +201,7 @@ def LIBREYOLO(
             save_eigen_cam=save_eigen_cam,
             cam_method=cam_method,
             cam_layer=cam_layer,
-            device=device,
-            tiling=tiling
+            device=device
         )
         model.version = "8"
         model.model_path = model_path

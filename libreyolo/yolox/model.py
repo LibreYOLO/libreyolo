@@ -4,6 +4,7 @@ LIBREYOLOX implementation for LibreYOLO.
 Supports both inference and training.
 """
 
+import json
 from datetime import datetime
 from typing import Union, List, Tuple, Optional, Dict
 from pathlib import Path
@@ -12,7 +13,7 @@ from PIL import Image
 
 from .nn import YOLOXModel
 from .utils import preprocess_image, postprocess, nms
-from ..common.utils import draw_boxes, get_safe_stem, get_slice_bboxes
+from ..common.utils import draw_boxes, get_safe_stem, get_slice_bboxes, draw_tile_grid
 from ..common.image_loader import ImageInput, ImageLoader
 
 
@@ -26,13 +27,12 @@ class LIBREYOLOX:
         nb_classes: Number of classes (default: 80 for COCO)
         device: Device for inference. "auto" (default) uses CUDA if available, else MPS, else CPU.
                 Can also specify directly: "cuda", "cuda:0", "mps", "cpu".
-        tiling: Enable tiling for processing large/high-resolution images (default: False).
-                When enabled, large images are automatically split into overlapping tiles,
-                inference is run on each tile, and results are merged using NMS.
 
     Example:
         >>> model = LIBREYOLOX(model_path="yolox_s.pt", size="s")
         >>> detections = model(image="image.jpg", save=True)
+        >>> # Use tiling for large images
+        >>> detections = model(image=large_image_path, save=True, tiling=True)
     """
 
     # Default input sizes for different model variants
@@ -50,8 +50,7 @@ class LIBREYOLOX:
         model_path: Union[str, dict],
         size: str,
         nb_classes: int = 80,
-        device: str = "auto",
-        tiling: bool = False
+        device: str = "auto"
     ):
         """
         Initialize the LIBREYOLOX model.
@@ -61,9 +60,7 @@ class LIBREYOLOX:
             size: Model size variant. Must be "nano", "tiny", "s", "m", "l", or "x"
             nb_classes: Number of classes (default: 80)
             device: Device for inference ("auto", "cuda", "mps", "cpu")
-            tiling: Enable tiling for large images (default: False)
         """
-        self.tiling = tiling
 
         if size not in ['nano', 'tiny', 's', 'm', 'l', 'x']:
             raise ValueError(f"Invalid size: {size}. Must be one of: 'nano', 'tiny', 's', 'm', 'l', 'x'")
@@ -131,7 +128,9 @@ class LIBREYOLOX:
         conf_thres: float = 0.25,
         iou_thres: float = 0.45,
         color_format: str = "auto",
-        batch_size: int = 1
+        batch_size: int = 1,
+        tiling: bool = False,
+        output_file_format: Optional[str] = None
     ) -> Union[dict, List[dict]]:
         """
         Run inference on an image or directory of images.
@@ -151,6 +150,11 @@ class LIBREYOLOX:
             iou_thres: IoU threshold for NMS (default: 0.45)
             color_format: Color format hint for NumPy/OpenCV arrays ("auto", "rgb", "bgr")
             batch_size: Number of images to process per batch (for directories)
+            tiling: Enable tiling for processing large/high-resolution images (default: False).
+                When enabled, large images are automatically split into overlapping tiles,
+                inference is run on each tile, and results are merged using NMS.
+            output_file_format: Output image format when saving. Options: "jpg", "png", "webp".
+                Defaults to "jpg" for maximum compatibility.
 
         Returns:
             For single image: Dictionary containing detection results with keys:
@@ -163,6 +167,12 @@ class LIBREYOLOX:
 
             For directory: List of dictionaries, one per image processed.
         """
+        # Validate output_file_format
+        if output_file_format is not None:
+            output_file_format = output_file_format.lower().lstrip('.')
+            if output_file_format not in ('jpg', 'jpeg', 'png', 'webp'):
+                raise ValueError(f"Invalid output_file_format: {output_file_format}. Must be one of: 'jpg', 'png', 'webp'")
+
         # Check if input is a directory
         if isinstance(image, (str, Path)) and Path(image).is_dir():
             image_paths = ImageLoader.collect_images(image)
@@ -175,14 +185,16 @@ class LIBREYOLOX:
                 output_path=output_path,
                 conf_thres=conf_thres,
                 iou_thres=iou_thres,
-                color_format=color_format
+                color_format=color_format,
+                tiling=tiling,
+                output_file_format=output_file_format
             )
 
         # Use tiled inference for large images when tiling is enabled
-        if self.tiling:
-            return self._predict_tiled(image, save, output_path, conf_thres, iou_thres, color_format)
+        if tiling:
+            return self._predict_tiled(image, save, output_path, conf_thres, iou_thres, color_format, output_file_format)
 
-        return self._predict_single(image, save, output_path, conf_thres, iou_thres, color_format)
+        return self._predict_single(image, save, output_path, conf_thres, iou_thres, color_format, output_file_format)
 
     def _process_in_batches(
         self,
@@ -192,16 +204,23 @@ class LIBREYOLOX:
         output_path: str = None,
         conf_thres: float = 0.25,
         iou_thres: float = 0.45,
-        color_format: str = "auto"
+        color_format: str = "auto",
+        tiling: bool = False,
+        output_file_format: Optional[str] = None
     ) -> List[dict]:
         """Process multiple images in batches."""
         results = []
         for i in range(0, len(image_paths), batch_size):
             chunk = image_paths[i:i + batch_size]
             for path in chunk:
-                results.append(
-                    self._predict_single(path, save, output_path, conf_thres, iou_thres, color_format)
-                )
+                if tiling:
+                    results.append(
+                        self._predict_tiled(path, save, output_path, conf_thres, iou_thres, color_format, output_file_format)
+                    )
+                else:
+                    results.append(
+                        self._predict_single(path, save, output_path, conf_thres, iou_thres, color_format, output_file_format)
+                    )
         return results
 
     def _predict_single(
@@ -211,7 +230,8 @@ class LIBREYOLOX:
         output_path: str = None,
         conf_thres: float = 0.25,
         iou_thres: float = 0.45,
-        color_format: str = "auto"
+        color_format: str = "auto",
+        output_file_format: Optional[str] = None
     ) -> dict:
         """Run inference on a single image."""
         # Store original image path for saving
@@ -253,16 +273,20 @@ class LIBREYOLOX:
             else:
                 annotated_img = original_img
 
+            # Determine output extension (default to jpg for compatibility)
+            if output_file_format:
+                ext = f".{output_file_format}" if not output_file_format.startswith('.') else output_file_format
+            else:
+                ext = ".jpg"  # Default to jpg for maximum compatibility
+
             if output_path:
                 final_output_path = Path(output_path)
                 if final_output_path.suffix == "":
                     final_output_path.mkdir(parents=True, exist_ok=True)
                     if isinstance(image_path, (str, Path)):
                         stem = get_safe_stem(image_path)
-                        ext = Path(image_path).suffix
                     else:
                         stem = "inference"
-                        ext = ".jpg"
                     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                     final_output_path = final_output_path / f"{stem}_{timestamp}{ext}"
                 else:
@@ -270,10 +294,8 @@ class LIBREYOLOX:
             else:
                 if isinstance(image_path, (str, Path)):
                     stem = get_safe_stem(image_path)
-                    ext = Path(image_path).suffix
                 else:
                     stem = "inference"
-                    ext = ".jpg"
 
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                 save_dir = Path("runs/detections")
@@ -322,9 +344,28 @@ class LIBREYOLOX:
         output_path: str = None,
         conf_thres: float = 0.25,
         iou_thres: float = 0.45,
-        color_format: str = "auto"
+        color_format: str = "auto",
+        output_file_format: Optional[str] = None
     ) -> dict:
-        """Run tiled inference on large images."""
+        """
+        Run tiled inference on large images.
+
+        Splits the image into overlapping tiles, runs inference on each,
+        shifts detections back to original coordinates, and merges with NMS.
+
+        Args:
+            image: Input image (path, PIL Image, numpy array, etc.)
+            save: If True, saves the annotated image, individual tiles, and grid visualization.
+            output_path: Optional path to save the outputs. When provided as a directory,
+                outputs are saved there; otherwise a timestamped folder is created.
+            conf_thres: Confidence threshold.
+            iou_thres: IoU threshold for NMS.
+            color_format: Color format hint for numpy arrays.
+            output_file_format: Output image format when saving.
+
+        Returns:
+            Dictionary with detection results including tiling metadata.
+        """
         # Load full image
         img_pil = ImageLoader.load(image, color_format=color_format)
         orig_width, orig_height = img_pil.size
@@ -332,17 +373,26 @@ class LIBREYOLOX:
 
         # Skip tiling if image is already small enough
         if orig_width <= self.input_size and orig_height <= self.input_size:
-            return self._predict_single(image, save, output_path, conf_thres, iou_thres, color_format)
+            return self._predict_single(image, save, output_path, conf_thres, iou_thres, color_format, output_file_format)
 
         # Get tile coordinates
         slices = get_slice_bboxes(orig_width, orig_height, slice_size=self.input_size)
 
         # Collect all detections from tiles
         all_boxes, all_scores, all_classes = [], [], []
+        tiles_data = []  # Store tiles for saving
 
-        for x1, y1, x2, y2 in slices:
+        for idx, (x1, y1, x2, y2) in enumerate(slices):
             # Crop tile from image
             tile = img_pil.crop((x1, y1, x2, y2))
+
+            # Store tile data for saving if needed
+            if save:
+                tiles_data.append({
+                    "index": idx,
+                    "coords": (x1, y1, x2, y2),
+                    "image": tile.copy()
+                })
 
             # Run inference on tile (without saving)
             result = self._predict_single(tile, save=False, conf_thres=conf_thres, iou_thres=iou_thres)
@@ -379,37 +429,80 @@ class LIBREYOLOX:
                     detections["classes"]
                 )
             else:
-                annotated_img = img_pil
+                annotated_img = img_pil.copy()
+
+            # Determine output extension (default to jpg for compatibility)
+            if output_file_format:
+                ext = f".{output_file_format}" if not output_file_format.startswith('.') else output_file_format
+            else:
+                ext = ".jpg"  # Default to jpg for maximum compatibility
+
+            # Determine save directory
+            if isinstance(image_path, (str, Path)):
+                stem = get_safe_stem(image_path)
+            else:
+                stem = "inference"
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
             if output_path:
-                final_output_path = Path(output_path)
-                if final_output_path.suffix == "":
-                    final_output_path.mkdir(parents=True, exist_ok=True)
-                    if isinstance(image_path, (str, Path)):
-                        stem = get_safe_stem(image_path)
-                        ext = Path(image_path).suffix
-                    else:
-                        stem = "inference"
-                        ext = ".jpg"
-                    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                    final_output_path = final_output_path / f"{stem}_{timestamp}{ext}"
+                base_output_path = Path(output_path)
+                if base_output_path.suffix == "":
+                    # It's a directory
+                    save_dir = base_output_path / f"{stem}_{timestamp}"
                 else:
-                    final_output_path.parent.mkdir(parents=True, exist_ok=True)
+                    # It's a file path, use parent directory
+                    save_dir = base_output_path.parent / f"{stem}_{timestamp}"
             else:
-                if isinstance(image_path, (str, Path)):
-                    stem = get_safe_stem(image_path)
-                    ext = Path(image_path).suffix
-                else:
-                    stem = "inference"
-                    ext = ".jpg"
+                save_dir = Path("runs/tiled_detections") / f"{stem}_{timestamp}"
 
-                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                save_dir = Path("runs/detections")
-                save_dir.mkdir(parents=True, exist_ok=True)
-                final_output_path = save_dir / f"{stem}_{timestamp}{ext}"
+            save_dir.mkdir(parents=True, exist_ok=True)
 
-            annotated_img.save(final_output_path)
-            detections["saved_path"] = str(final_output_path)
+            # Create tiles subdirectory and save individual tiles
+            tiles_dir = save_dir / "tiles"
+            tiles_dir.mkdir(parents=True, exist_ok=True)
+            tile_paths = []
+            for tile_data in tiles_data:
+                tile_filename = f"tile_{tile_data['index']:03d}{ext}"
+                tile_path = tiles_dir / tile_filename
+                tile_data["image"].save(tile_path)
+                tile_paths.append(str(tile_path))
+
+            # Save final annotated image
+            final_image_path = save_dir / f"final_image{ext}"
+            annotated_img.save(final_image_path)
+
+            # Save grid visualization
+            grid_img = draw_tile_grid(img_pil, slices)
+            grid_path = save_dir / f"grid_visualization{ext}"
+            grid_img.save(grid_path)
+
+            # Save metadata
+            metadata = {
+                "model": "LIBREYOLOX",
+                "size": self.size,
+                "image_source": str(image_path) if image_path else "PIL/numpy input",
+                "original_size": [orig_width, orig_height],
+                "num_tiles": len(slices),
+                "tile_size": self.input_size,
+                "overlap_ratio": 0.2,
+                "tiles": [
+                    {
+                        "index": td["index"],
+                        "coords": {"x1": td["coords"][0], "y1": td["coords"][1], "x2": td["coords"][2], "y2": td["coords"][3]},
+                        "filename": f"tile_{td['index']:03d}{ext}"
+                    }
+                    for td in tiles_data
+                ],
+                "num_detections": detections["num_detections"],
+                "conf_thres": conf_thres,
+                "iou_thres": iou_thres
+            }
+            with open(save_dir / "metadata.json", "w") as f:
+                json.dump(metadata, f, indent=2)
+
+            detections["saved_path"] = str(save_dir)
+            detections["tiles_path"] = str(tiles_dir)
+            detections["grid_path"] = str(grid_path)
 
         return detections
 
@@ -421,7 +514,9 @@ class LIBREYOLOX:
         conf_thres: float = 0.25,
         iou_thres: float = 0.45,
         color_format: str = "auto",
-        batch_size: int = 1
+        batch_size: int = 1,
+        tiling: bool = False,
+        output_file_format: Optional[str] = None
     ) -> Union[dict, List[dict]]:
         """
         Alias for __call__ method.
@@ -434,6 +529,8 @@ class LIBREYOLOX:
             iou_thres: IoU threshold for NMS (default: 0.45)
             color_format: Color format hint ("auto", "rgb", "bgr")
             batch_size: Number of images per batch
+            tiling: Enable tiling for processing large/high-resolution images (default: False)
+            output_file_format: Output image format when saving. Options: "jpg", "png", "webp".
 
         Returns:
             For single image: Dictionary with detection results
@@ -446,7 +543,9 @@ class LIBREYOLOX:
             conf_thres=conf_thres,
             iou_thres=iou_thres,
             color_format=color_format,
-            batch_size=batch_size
+            batch_size=batch_size,
+            tiling=tiling,
+            output_file_format=output_file_format
         )
 
     @classmethod
@@ -494,7 +593,6 @@ class LIBREYOLOX:
         instance.nb_classes = num_classes
         instance.input_size = cls.DEFAULT_INPUT_SIZES[size]
         instance.model_path = None
-        instance.tiling = False
 
         # Create model with random initialization
         instance.model = YOLOXModel(config=size, nb_classes=num_classes)
