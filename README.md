@@ -20,7 +20,7 @@ pip install libreyolo
 from libreyolo import LIBREYOLO
 
 # Weights auto-download from HuggingFace
-model = LIBREYOLO(model_path="yolov8n", size="n")
+model = LIBREYOLO(model_path="libreyolo8n.pt", size="n")
 results = model(image="https://raw.githubusercontent.com/Libre-YOLO/libreyolo/main/media/parkour.jpg", save=True)
 
 print(f"Detected {results['num_detections']} objects")
