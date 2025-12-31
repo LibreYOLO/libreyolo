@@ -48,8 +48,16 @@ pip install -e .
 getting-started
 inference
 training
+finetuning
 yolox
 explainability
+```
+
+```{toctree}
+:maxdepth: 2
+:caption: Technical Reference
+
+model-architecture
 ```
 
 ```{toctree}
