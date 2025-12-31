@@ -2,6 +2,10 @@
 
 LibreYOLO includes built-in explainability methods to visualize what the model focuses on when making predictions.
 
+```{warning}
+**EXPERIMENTAL**: This feature is under active development. Results may vary between model versions (YOLO8 vs YOLO11) and CAM methods. Some methods may produce better visualizations than others depending on the model and image. We recommend experimenting with different methods to find what works best for your use case.
+```
+
 ```{note}
 Explainability features are only available for YOLOv8 and YOLOv11 PyTorch models. ONNX models (`LIBREYOLOOnnx`) and YOLOX models do not support the `explain()` method.
 ```
@@ -144,6 +148,22 @@ The `explain()` method returns:
 ```
 
 ## Comparing Methods
+
+You can now pass a list of methods to generate multiple explanations at once:
+
+```python
+# Generate multiple explanations in one call
+results = model.explain(
+    image="image.jpg",
+    method=["eigencam", "gradcam", "gradcam++", "xgradcam"],
+    save=True
+)
+
+for result in results:
+    print(f"{result['method']}: saved to {result['saved_path']}")
+```
+
+Or process them individually:
 
 ```python
 methods = ["eigencam", "gradcam", "gradcam++", "xgradcam"]

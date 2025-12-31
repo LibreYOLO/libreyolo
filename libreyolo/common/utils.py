@@ -53,6 +53,34 @@ def get_slice_bboxes(
     return slices
 
 
+def draw_tile_grid(img: Image.Image, tile_coords: List[Tuple[int, int, int, int]], line_color: str = "#FF0000", line_width: int = 3) -> Image.Image:
+    """
+    Draw grid lines on an image to visualize tile boundaries.
+
+    Args:
+        img: PIL Image to draw on.
+        tile_coords: List of (x1, y1, x2, y2) tuples representing tile coordinates.
+        line_color: Color of the grid lines (default: red).
+        line_width: Width of the grid lines in pixels (default: 3).
+
+    Returns:
+        PIL Image with grid lines drawn.
+    """
+    img_draw = img.copy()
+    draw = ImageDraw.Draw(img_draw)
+
+    # Scale line width based on image size
+    max_dim = max(img.size)
+    scale_factor = max_dim / 640.0
+    scaled_width = max(2, min(int(line_width * scale_factor), 10))
+
+    for x1, y1, x2, y2 in tile_coords:
+        # Draw rectangle for each tile
+        draw.rectangle([x1, y1, x2, y2], outline=line_color, width=scaled_width)
+
+    return img_draw
+
+
 def get_safe_stem(path: Union[str, Path]) -> str:
     path_str = str(path)
     if path_str.startswith(("http://", "https://", "s3://", "gs://")):
@@ -133,56 +161,79 @@ def preprocess_image(
 def draw_boxes(img: Image.Image, boxes: List, scores: List, classes: List, class_names: List = None) -> Image.Image:
     """
     Draw bounding boxes on image with class-specific colors.
-    
+
+    Box thickness and font size scale automatically based on image dimensions
+    for better visibility on both small and large images.
+
     Args:
         img: PIL Image to draw on
         boxes: List of boxes in xyxy format
         scores: List of confidence scores
         classes: List of class IDs
         class_names: Optional list of class names (default: COCO_CLASSES)
-        
+
     Returns:
         Annotated PIL Image
     """
     img_draw = img.copy()
     draw = ImageDraw.Draw(img_draw)
-    
+
     # Use COCO classes if not provided
     if class_names is None:
         class_names = COCO_CLASSES
-    
-    # Try to load a font, fallback to default if not available
+
+    # Calculate scaling factor based on image size
+    # Use the larger dimension to determine scale
+    img_width, img_height = img.size
+    max_dim = max(img_width, img_height)
+
+    # Scale factor: base thickness/font at 640px, scales up for larger images
+    # Minimum thickness of 2, scales up to ~6 for 2000px+ images
+    scale_factor = max_dim / 640.0
+    box_thickness = max(2, min(int(2 * scale_factor), 8))
+
+    # Font size scales similarly: base 12px at 640px
+    font_size = max(12, min(int(12 * scale_factor), 36))
+
+    # Try to load a font with scaled size, fallback to default if not available
     try:
-        font = ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", 12)
+        font = ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", font_size)
     except:
-        font = ImageFont.load_default()
-    
+        try:
+            # Try common Linux fonts
+            font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", font_size)
+        except:
+            font = ImageFont.load_default()
+
+    # Label padding scales with font size
+    label_padding = max(2, int(2 * scale_factor))
+
     for box, score, cls_id in zip(boxes, scores, classes):
         x1, y1, x2, y2 = box
         cls_id_int = int(cls_id)
-        
+
         # Get class-specific color
         color = get_class_color(cls_id_int)
-        
-        # Draw box with class color
-        draw.rectangle([x1, y1, x2, y2], outline=color, width=2)
-        
+
+        # Draw box with class color and scaled thickness
+        draw.rectangle([x1, y1, x2, y2], outline=color, width=box_thickness)
+
         # Prepare label
         if class_names and cls_id_int < len(class_names):
             label = f"{class_names[cls_id_int]}: {score:.2f}"
         else:
             label = f"Class {cls_id_int}: {score:.2f}"
-        
+
         # Get text size
         bbox = draw.textbbox((0, 0), label, font=font)
         text_width = bbox[2] - bbox[0]
         text_height = bbox[3] - bbox[1]
-        
-        # Draw label background with class color
-        draw.rectangle([x1, y1 - text_height - 4, x1 + text_width + 4, y1], fill=color)
-        
+
+        # Draw label background with class color (scaled padding)
+        draw.rectangle([x1, y1 - text_height - label_padding * 2, x1 + text_width + label_padding * 2, y1], fill=color)
+
         # Draw label text
-        draw.text((x1 + 2, y1 - text_height - 2), label, fill="white", font=font)
-    
+        draw.text((x1 + label_padding, y1 - text_height - label_padding), label, fill="white", font=font)
+
     return img_draw
 

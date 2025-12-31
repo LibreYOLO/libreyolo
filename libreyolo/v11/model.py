@@ -18,13 +18,13 @@ from .utils import preprocess_image, postprocess, draw_boxes, make_anchors, deco
 from ..common.eigen_cam import compute_eigen_cam, overlay_heatmap
 from ..common.cam import CAM_METHODS
 from ..common.image_loader import ImageInput, ImageLoader
-from ..common.utils import get_safe_stem, get_slice_bboxes
+from ..common.utils import get_safe_stem, get_slice_bboxes, draw_tile_grid
 
 
 class LIBREYOLO11:
     """
     Libre YOLO11 model for object detection.
-    
+
     Args:
         model_path: Path to model weights file (required)
         size: Model size variant (required). Must be one of: "n", "s", "m", "l", "x"
@@ -40,17 +40,16 @@ class LIBREYOLO11:
         cam_layer: Target layer for CAM computation (default: "neck_c2f22")
         device: Device for inference. "auto" (default) uses CUDA if available, else MPS, else CPU.
                 Can also specify directly: "cuda", "cuda:0", "mps", "cpu".
-        tiling: Enable tiling for processing large/high-resolution images (default: False).
-                When enabled, large images are automatically split into overlapping 640x640 tiles,
-                inference is run on each tile, and results are merged using NMS.
-    
+
     Example:
         >>> model = LIBREYOLO11(model_path="path/to/weights.pt", size="x", save_feature_maps=True)
         >>> detections = model(image=image_path, save=True)
+        >>> # Use tiling for large images
+        >>> detections = model(image=large_image_path, save=True, tiling=True)
         >>> # Use explain() for XAI heatmaps
         >>> heatmap = model.explain("image.jpg", method="gradcam")
     """
-    
+
     def __init__(
         self,
         model_path: Union[str, dict],
@@ -61,12 +60,11 @@ class LIBREYOLO11:
         save_eigen_cam: bool = False,
         cam_method: str = "eigencam",
         cam_layer: Optional[str] = None,
-        device: str = "auto",
-        tiling: bool = False
+        device: str = "auto"
     ):
         """
         Initialize the Libre YOLO11 model.
-        
+
         Args:
             model_path: Path to user-provided model weights file or loaded state dict
             size: Model size variant. Must be "n", "s", "m", "l", or "x"
@@ -80,10 +78,7 @@ class LIBREYOLO11:
             cam_method: Default CAM method for explain() (default: "eigencam")
             cam_layer: Target layer for CAM computation (default: "neck_c2f22")
             device: Device for inference ("auto", "cuda", "mps", "cpu")
-            tiling: Enable tiling for large images (default: False). When enabled, images
-                larger than 640x640 are split into overlapping tiles for inference.
         """
-        self.tiling = tiling
         
         if size not in ['n', 's', 'm', 'l', 'x']:
             raise ValueError(f"Invalid size: {size}. Must be one of: 'n', 's', 'm', 'l', 'x'")
@@ -320,11 +315,13 @@ class LIBREYOLO11:
         conf_thres: float = 0.25,
         iou_thres: float = 0.45,
         color_format: str = "auto",
-        batch_size: int = 1
+        batch_size: int = 1,
+        tiling: bool = False,
+        output_file_format: Optional[str] = None
     ) -> Union[dict, List[dict]]:
         """
         Run inference on an image or directory of images.
-        
+
         Args:
             image: Input image or directory. Supported types:
                 - str: Local file path, directory path, or URL (http/https/s3/gs)
@@ -335,7 +332,7 @@ class LIBREYOLO11:
                 - bytes: Raw image bytes
                 - io.BytesIO: BytesIO object containing image data
             save: If True, saves the image with detections drawn. Defaults to False.
-            output_path: Optional path to save the annotated image. If not provided, 
+            output_path: Optional path to save the annotated image. If not provided,
                          saves to 'runs/detections/' with a timestamped name.
             conf_thres: Confidence threshold (default: 0.25)
             iou_thres: IoU threshold for NMS (default: 0.45)
@@ -347,7 +344,12 @@ class LIBREYOLO11:
                 images (e.g., directories). Currently used for chunking at the Python
                 level; true batched model inference is planned for future versions.
                 Default: 1 (process one image at a time).
-        
+            tiling: Enable tiling for processing large/high-resolution images (default: False).
+                When enabled, large images are automatically split into overlapping 640x640 tiles,
+                inference is run on each tile, and results are merged using NMS.
+            output_file_format: Output image format when saving. Options: "jpg", "png", "webp".
+                Defaults to "jpg" for maximum compatibility.
+
         Returns:
             For single image: Dictionary containing detection results with keys:
                 - boxes: List of bounding boxes in xyxy format
@@ -356,9 +358,15 @@ class LIBREYOLO11:
                 - num_detections: Number of detections
                 - source: Source image path (if available)
                 - saved_path: Path to saved image (if save=True)
-            
+
             For directory: List of dictionaries, one per image processed.
         """
+        # Validate output_file_format
+        if output_file_format is not None:
+            output_file_format = output_file_format.lower().lstrip('.')
+            if output_file_format not in ('jpg', 'jpeg', 'png', 'webp'):
+                raise ValueError(f"Invalid output_file_format: {output_file_format}. Must be one of: 'jpg', 'png', 'webp'")
+
         # Check if input is a directory
         if isinstance(image, (str, Path)) and Path(image).is_dir():
             image_paths = ImageLoader.collect_images(image)
@@ -371,14 +379,16 @@ class LIBREYOLO11:
                 output_path=output_path,
                 conf_thres=conf_thres,
                 iou_thres=iou_thres,
-                color_format=color_format
+                color_format=color_format,
+                tiling=tiling,
+                output_file_format=output_file_format
             )
-        
+
         # Use tiled inference for large images when tiling is enabled
-        if self.tiling:
-            return self._predict_tiled(image, save, output_path, conf_thres, iou_thres, color_format)
-        
-        return self._predict_single(image, save, output_path, conf_thres, iou_thres, color_format)
+        if tiling:
+            return self._predict_tiled(image, save, output_path, conf_thres, iou_thres, color_format, output_file_format)
+
+        return self._predict_single(image, save, output_path, conf_thres, iou_thres, color_format, output_file_format)
     
     def _process_in_batches(
         self,
@@ -388,15 +398,17 @@ class LIBREYOLO11:
         output_path: str = None,
         conf_thres: float = 0.25,
         iou_thres: float = 0.45,
-        color_format: str = "auto"
+        color_format: str = "auto",
+        tiling: bool = False,
+        output_file_format: Optional[str] = None
     ) -> List[dict]:
         """
         Process multiple images, respecting batch_size for chunking.
-        
+
         This method provides the scaffolding for batch processing. Currently, it
         processes images sequentially within each batch chunk. Future versions
         will implement true batched model inference for improved throughput.
-        
+
         Args:
             image_paths: List of image paths to process.
             batch_size: Number of images per batch chunk.
@@ -405,7 +417,9 @@ class LIBREYOLO11:
             conf_thres: Confidence threshold.
             iou_thres: IoU threshold for NMS.
             color_format: Color format hint.
-        
+            tiling: Enable tiling for large images.
+            output_file_format: Output image format when saving.
+
         Returns:
             List of detection dictionaries, one per image.
         """
@@ -415,9 +429,14 @@ class LIBREYOLO11:
             # TODO: Implement _predict_batch() for true batched model inference
             # For now, process images sequentially within each chunk
             for path in chunk:
-                results.append(
-                    self._predict_single(path, save, output_path, conf_thres, iou_thres, color_format)
-                )
+                if tiling:
+                    results.append(
+                        self._predict_tiled(path, save, output_path, conf_thres, iou_thres, color_format, output_file_format)
+                    )
+                else:
+                    results.append(
+                        self._predict_single(path, save, output_path, conf_thres, iou_thres, color_format, output_file_format)
+                    )
         return results
     
     def _predict_single(
@@ -427,24 +446,25 @@ class LIBREYOLO11:
         output_path: str = None,
         conf_thres: float = 0.25,
         iou_thres: float = 0.45,
-        color_format: str = "auto"
+        color_format: str = "auto",
+        output_file_format: Optional[str] = None
     ) -> dict:
         """
         Run inference on a single image.
-        
+
         This is the internal implementation for single-image inference.
         Use __call__ for the public API which also supports directories.
         """
         # Store original image path for saving
         image_path = image if isinstance(image, (str, Path)) else None
-        
+
         # Preprocess image
         input_tensor, original_img, original_size = preprocess_image(image, input_size=640, color_format=color_format)
-        
+
         # Run inference
         with torch.no_grad():
             output = self.model(input_tensor.to(self.device))
-        
+
         # Postprocess
         detections = postprocess(
             output,
@@ -453,20 +473,20 @@ class LIBREYOLO11:
             input_size=640,
             original_size=original_size
         )
-        
+
         # Add source path for traceability
         detections["source"] = str(image_path) if image_path else None
-        
+
         # Save feature maps if enabled
         if self.save_feature_maps:
             feature_maps_path = self._save_feature_maps(image_path)
             detections["feature_maps_path"] = feature_maps_path
-        
+
         # Save EigenCAM heatmap if enabled
         if self.save_eigen_cam:
             eigen_cam_path = self._save_eigen_cam(image_path, original_img)
             detections["eigen_cam_path"] = eigen_cam_path
-        
+
         # Draw and save if requested
         if save:
             if detections["num_detections"] > 0:
@@ -478,7 +498,13 @@ class LIBREYOLO11:
                 )
             else:
                 annotated_img = original_img
-            
+
+            # Determine output extension (default to jpg for compatibility)
+            if output_file_format:
+                ext = f".{output_file_format}" if not output_file_format.startswith('.') else output_file_format
+            else:
+                ext = ".jpg"  # Default to jpg for maximum compatibility
+
             if output_path:
                 final_output_path = Path(output_path)
                 if final_output_path.suffix == "":
@@ -486,10 +512,8 @@ class LIBREYOLO11:
                     final_output_path.mkdir(parents=True, exist_ok=True)
                     if isinstance(image_path, (str, Path)):
                         stem = get_safe_stem(image_path)
-                        ext = Path(image_path).suffix
                     else:
                         stem = "inference"
-                        ext = ".jpg"
                     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                     final_output_path = final_output_path / f"{stem}_{timestamp}{ext}"
                 else:
@@ -499,19 +523,17 @@ class LIBREYOLO11:
                 # Determine save directory (matching feature map style)
                 if isinstance(image_path, (str, Path)):
                     stem = get_safe_stem(image_path)
-                    ext = Path(image_path).suffix
                 else:
                     stem = "inference"
-                    ext = ".jpg"
-                
+
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                 save_dir = Path("runs/detections")
                 save_dir.mkdir(parents=True, exist_ok=True)
                 final_output_path = save_dir / f"{stem}_{timestamp}{ext}"
-            
+
             annotated_img.save(final_output_path)
             detections["saved_path"] = str(final_output_path)
-        
+
         return detections
     
     def _merge_tile_detections(
@@ -562,22 +584,25 @@ class LIBREYOLO11:
         output_path: str = None,
         conf_thres: float = 0.25,
         iou_thres: float = 0.45,
-        color_format: str = "auto"
+        color_format: str = "auto",
+        output_file_format: Optional[str] = None
     ) -> dict:
         """
         Run tiled inference on large images.
-        
+
         Splits the image into overlapping 640x640 tiles, runs inference on each,
         shifts detections back to original coordinates, and merges with NMS.
-        
+
         Args:
             image: Input image (path, PIL Image, numpy array, etc.)
-            save: If True, saves the annotated image.
-            output_path: Optional path to save the annotated image.
+            save: If True, saves the annotated image, individual tiles, and grid visualization.
+            output_path: Optional path to save the outputs. When provided as a directory,
+                outputs are saved there; otherwise a timestamped folder is created.
             conf_thres: Confidence threshold.
             iou_thres: IoU threshold for NMS.
             color_format: Color format hint for numpy arrays.
-        
+            output_file_format: Output image format when saving.
+
         Returns:
             Dictionary with detection results including tiling metadata.
         """
@@ -585,36 +610,45 @@ class LIBREYOLO11:
         img_pil = ImageLoader.load(image, color_format=color_format)
         orig_width, orig_height = img_pil.size
         image_path = image if isinstance(image, (str, Path)) else None
-        
+
         # Skip tiling if image is already small enough
         if orig_width <= 640 and orig_height <= 640:
-            return self._predict_single(image, save, output_path, conf_thres, iou_thres, color_format)
-        
+            return self._predict_single(image, save, output_path, conf_thres, iou_thres, color_format, output_file_format)
+
         # Get tile coordinates
         slices = get_slice_bboxes(orig_width, orig_height)
-        
+
         # Collect all detections from tiles
         all_boxes, all_scores, all_classes = [], [], []
-        
-        for x1, y1, x2, y2 in slices:
+        tiles_data = []  # Store tiles for saving
+
+        for idx, (x1, y1, x2, y2) in enumerate(slices):
             # Crop tile from image
             tile = img_pil.crop((x1, y1, x2, y2))
-            
+
+            # Store tile data for saving if needed
+            if save:
+                tiles_data.append({
+                    "index": idx,
+                    "coords": (x1, y1, x2, y2),
+                    "image": tile.copy()
+                })
+
             # Run inference on tile (without saving)
             result = self._predict_single(tile, save=False, conf_thres=conf_thres, iou_thres=iou_thres)
-            
+
             # Shift boxes back to original image coordinates
             for box in result["boxes"]:
                 shifted_box = [box[0] + x1, box[1] + y1, box[2] + x1, box[3] + y1]
                 all_boxes.append(shifted_box)
             all_scores.extend(result["scores"])
             all_classes.extend(result["classes"])
-        
+
         # Merge detections from all tiles using class-wise NMS
         final_boxes, final_scores, final_classes = self._merge_tile_detections(
             all_boxes, all_scores, all_classes, iou_thres
         )
-        
+
         detections = {
             "boxes": final_boxes,
             "scores": final_scores,
@@ -624,7 +658,7 @@ class LIBREYOLO11:
             "tiled": True,
             "num_tiles": len(slices)
         }
-        
+
         # Draw and save if requested
         if save:
             if detections["num_detections"] > 0:
@@ -635,38 +669,81 @@ class LIBREYOLO11:
                     detections["classes"]
                 )
             else:
-                annotated_img = img_pil
-            
-            if output_path:
-                final_output_path = Path(output_path)
-                if final_output_path.suffix == "":
-                    final_output_path.mkdir(parents=True, exist_ok=True)
-                    if isinstance(image_path, (str, Path)):
-                        stem = get_safe_stem(image_path)
-                        ext = Path(image_path).suffix
-                    else:
-                        stem = "inference"
-                        ext = ".jpg"
-                    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                    final_output_path = final_output_path / f"{stem}_{timestamp}{ext}"
-                else:
-                    final_output_path.parent.mkdir(parents=True, exist_ok=True)
+                annotated_img = img_pil.copy()
+
+            # Determine output extension (default to jpg for compatibility)
+            if output_file_format:
+                ext = f".{output_file_format}" if not output_file_format.startswith('.') else output_file_format
             else:
-                if isinstance(image_path, (str, Path)):
-                    stem = get_safe_stem(image_path)
-                    ext = Path(image_path).suffix
+                ext = ".jpg"  # Default to jpg for maximum compatibility
+
+            # Determine save directory
+            if isinstance(image_path, (str, Path)):
+                stem = get_safe_stem(image_path)
+            else:
+                stem = "inference"
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+            if output_path:
+                base_output_path = Path(output_path)
+                if base_output_path.suffix == "":
+                    # It's a directory
+                    save_dir = base_output_path / f"{stem}_{timestamp}"
                 else:
-                    stem = "inference"
-                    ext = ".jpg"
-                
-                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                save_dir = Path("runs/detections")
-                save_dir.mkdir(parents=True, exist_ok=True)
-                final_output_path = save_dir / f"{stem}_{timestamp}{ext}"
-            
-            annotated_img.save(final_output_path)
-            detections["saved_path"] = str(final_output_path)
-        
+                    # It's a file path, use parent directory
+                    save_dir = base_output_path.parent / f"{stem}_{timestamp}"
+            else:
+                save_dir = Path("runs/tiled_detections") / f"{stem}_{timestamp}"
+
+            save_dir.mkdir(parents=True, exist_ok=True)
+
+            # Create tiles subdirectory and save individual tiles
+            tiles_dir = save_dir / "tiles"
+            tiles_dir.mkdir(parents=True, exist_ok=True)
+            tile_paths = []
+            for tile_data in tiles_data:
+                tile_filename = f"tile_{tile_data['index']:03d}{ext}"
+                tile_path = tiles_dir / tile_filename
+                tile_data["image"].save(tile_path)
+                tile_paths.append(str(tile_path))
+
+            # Save final annotated image
+            final_image_path = save_dir / f"final_image{ext}"
+            annotated_img.save(final_image_path)
+
+            # Save grid visualization
+            grid_img = draw_tile_grid(img_pil, slices)
+            grid_path = save_dir / f"grid_visualization{ext}"
+            grid_img.save(grid_path)
+
+            # Save metadata
+            metadata = {
+                "model": "LIBREYOLO11",
+                "size": self.size,
+                "image_source": str(image_path) if image_path else "PIL/numpy input",
+                "original_size": [orig_width, orig_height],
+                "num_tiles": len(slices),
+                "tile_size": 640,
+                "overlap_ratio": 0.2,
+                "tiles": [
+                    {
+                        "index": td["index"],
+                        "coords": {"x1": td["coords"][0], "y1": td["coords"][1], "x2": td["coords"][2], "y2": td["coords"][3]},
+                        "filename": f"tile_{td['index']:03d}{ext}"
+                    }
+                    for td in tiles_data
+                ],
+                "num_detections": detections["num_detections"],
+                "conf_thres": conf_thres,
+                "iou_thres": iou_thres
+            }
+            with open(save_dir / "metadata.json", "w") as f:
+                json.dump(metadata, f, indent=2)
+
+            detections["saved_path"] = str(save_dir)
+            detections["tiles_path"] = str(tiles_dir)
+            detections["grid_path"] = str(grid_path)
+
         return detections
         
     def export(self, output_path: str = None, input_size: int = 640, opset: int = 12) -> str:
@@ -784,11 +861,13 @@ class LIBREYOLO11:
         conf_thres: float = 0.25,
         iou_thres: float = 0.45,
         color_format: str = "auto",
-        batch_size: int = 1
+        batch_size: int = 1,
+        tiling: bool = False,
+        output_file_format: Optional[str] = None
     ) -> Union[dict, List[dict]]:
         """
         Alias for __call__ method.
-        
+
         Args:
             image: Input image or directory. Supported types:
                 - str: Local file path, directory path, or URL (http/https/s3/gs)
@@ -805,31 +884,37 @@ class LIBREYOLO11:
             color_format: Color format hint for NumPy/OpenCV arrays ("auto", "rgb", "bgr")
             batch_size: Number of images to process per batch when handling multiple
                 images (e.g., directories). Default: 1.
-        
+            tiling: Enable tiling for processing large/high-resolution images (default: False).
+            output_file_format: Output image format when saving. Options: "jpg", "png", "webp".
+
         Returns:
             For single image: Dictionary containing detection results.
             For directory: List of dictionaries, one per image processed.
         """
-        return self(image=image, save=save, output_path=output_path, conf_thres=conf_thres, iou_thres=iou_thres, color_format=color_format, batch_size=batch_size)
+        return self(image=image, save=save, output_path=output_path, conf_thres=conf_thres, iou_thres=iou_thres, color_format=color_format, batch_size=batch_size, tiling=tiling, output_file_format=output_file_format)
 
     def explain(
         self,
         image: ImageInput,
-        method: Optional[str] = None,
+        method: Optional[Union[str, List[str]]] = None,
         target_layer: Optional[str] = None,
         eigen_smooth: bool = False,
         save: bool = False,
         output_path: Optional[str] = None,
         alpha: float = 0.5,
         color_format: str = "auto"
-    ) -> dict:
+    ) -> Union[dict, List[dict]]:
         """
         Generate explainability heatmap for the given image using CAM methods.
-        
+
+        **EXPERIMENTAL**: This feature is under active development. Results may vary
+        between model versions (YOLO8 vs YOLO11) and CAM methods. Some methods may
+        produce better visualizations than others depending on the model and image.
+
         This method provides visual explanations of what the model focuses on
         when making predictions. It supports multiple CAM (Class Activation Mapping)
         techniques including gradient-based and gradient-free methods.
-        
+
         Args:
             image: Input image. Supported types:
                 - str: Local file path or URL (http/https/s3/gs)
@@ -839,7 +924,8 @@ class LIBREYOLO11:
                 - torch.Tensor: PyTorch tensor (CHW or NCHW)
                 - bytes: Raw image bytes
                 - io.BytesIO: BytesIO object containing image data
-            method: CAM method to use. Options:
+            method: CAM method(s) to use. Can be a single string or a list of methods.
+                Available methods:
                 - "eigencam": Gradient-free, SVD-based (default)
                 - "gradcam": Gradient-weighted class activation
                 - "gradcam++": Improved GradCAM with second-order gradients
@@ -854,28 +940,62 @@ class LIBREYOLO11:
             output_path: Optional path to save the visualization.
             alpha: Blending factor for overlay (default: 0.5).
             color_format: Color format hint for NumPy/OpenCV arrays ("auto", "rgb", "bgr").
-        
+
         Returns:
-            Dictionary containing:
-            - heatmap: Grayscale heatmap array of shape (H, W) with values in [0, 1]
-            - overlay: RGB overlay image as numpy array
-            - original_image: Original image as PIL Image
-            - method: CAM method used
-            - target_layer: Target layer used
-            - saved_path: Path to saved visualization (if save=True)
-        
+            If method is a single string: Dictionary containing:
+                - heatmap: Grayscale heatmap array of shape (H, W) with values in [0, 1]
+                - overlay: RGB overlay image as numpy array
+                - original_image: Original image as PIL Image
+                - method: CAM method used
+                - target_layer: Target layer used
+                - saved_path: Path to saved visualization (if save=True)
+
+            If method is a list: List of dictionaries, one per method.
+
         Example:
             >>> model = LIBREYOLO11("yolo11n.pt", size="n")
+            >>> # Single method
             >>> result = model.explain("image.jpg", method="gradcam", save=True)
-            >>> heatmap = result["heatmap"]
-            >>> overlay = result["overlay"]
+            >>> # Multiple methods
+            >>> results = model.explain("image.jpg", method=["eigencam", "gradcam"])
+            >>> for r in results:
+            ...     print(f"{r['method']}: heatmap shape {r['heatmap'].shape}")
         """
         if not 0.0 <= alpha <= 1.0:
             raise ValueError(f"alpha must be between 0 and 1, got {alpha}")
-        
+
+        # Handle list of methods
+        if isinstance(method, list):
+            results = []
+            for m in method:
+                results.append(self._explain_single(
+                    image, m, target_layer, eigen_smooth, save, output_path, alpha, color_format
+                ))
+            return results
+
+        return self._explain_single(
+            image, method, target_layer, eigen_smooth, save, output_path, alpha, color_format
+        )
+
+    def _explain_single(
+        self,
+        image: ImageInput,
+        method: Optional[str] = None,
+        target_layer: Optional[str] = None,
+        eigen_smooth: bool = False,
+        save: bool = False,
+        output_path: Optional[str] = None,
+        alpha: float = 0.5,
+        color_format: str = "auto"
+    ) -> dict:
+        """
+        Internal method to generate a single explainability heatmap.
+
+        **EXPERIMENTAL**: This feature is under active development.
+        """
         method = (method or self.cam_method).lower()
         target_layer = target_layer or self._eigen_cam_layer
-        
+
         if method not in CAM_METHODS:
             available = ", ".join(CAM_METHODS.keys())
             raise ValueError(f"Unknown CAM method '{method}'. Available: {available}")
