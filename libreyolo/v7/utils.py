@@ -6,85 +6,13 @@ YOLOv7 uses anchor-based detection, which requires different decoding from ancho
 """
 
 import torch
-import numpy as np
-from typing import Tuple, Dict, List, Union
-from PIL import Image
+from typing import Tuple, Dict, List
 
 # Import shared utilities
-from ..common.utils import preprocess_image, draw_boxes, COCO_CLASSES, get_class_color
-
-
-def nms(boxes: torch.Tensor, scores: torch.Tensor, iou_threshold: float = 0.45) -> torch.Tensor:
-    """
-    Non-Maximum Suppression using torch operations.
-
-    Args:
-        boxes: Boxes in xyxy format (N, 4)
-        scores: Confidence scores (N,)
-        iou_threshold: IoU threshold for suppression
-
-    Returns:
-        Indices of boxes to keep
-    """
-    if len(boxes) == 0:
-        return torch.tensor([], dtype=torch.long, device=boxes.device)
-
-    # Filter out boxes with NaN or Inf values
-    valid_mask = torch.isfinite(boxes).all(dim=1) & torch.isfinite(scores)
-    if not valid_mask.any():
-        return torch.tensor([], dtype=torch.long, device=boxes.device)
-
-    if not valid_mask.all():
-        valid_indices = torch.where(valid_mask)[0]
-        boxes = boxes[valid_mask]
-        scores = scores[valid_mask]
-    else:
-        valid_indices = None
-
-    # Sort by scores (descending)
-    _, order = scores.sort(0, descending=True)
-    keep = []
-
-    while len(order) > 0:
-        i = order[0]
-        keep.append(i.item())
-
-        if len(order) == 1:
-            break
-
-        # Calculate IoU with remaining boxes
-        box_i = boxes[i]
-        boxes_remaining = boxes[order[1:]]
-
-        # Calculate intersection
-        x1_i, y1_i, x2_i, y2_i = box_i
-        x1_r, y1_r, x2_r, y2_r = boxes_remaining[:, 0], boxes_remaining[:, 1], boxes_remaining[:, 2], boxes_remaining[:, 3]
-
-        x1_inter = torch.max(x1_i, x1_r)
-        y1_inter = torch.max(y1_i, y1_r)
-        x2_inter = torch.min(x2_i, x2_r)
-        y2_inter = torch.min(y2_i, y2_r)
-
-        inter_area = torch.clamp(x2_inter - x1_inter, min=0) * torch.clamp(y2_inter - y1_inter, min=0)
-
-        # Calculate union
-        area_i = (x2_i - x1_i) * (y2_i - y1_i)
-        area_r = (x2_r - x1_r) * (y2_r - y1_r)
-        union_area = area_i + area_r - inter_area
-
-        # Calculate IoU
-        iou = inter_area / (union_area + 1e-7)
-
-        # Keep boxes with IoU < threshold
-        order = order[1:][iou < iou_threshold]
-
-    keep_tensor = torch.tensor(keep, dtype=torch.long, device=boxes.device)
-
-    # Map back to original indices if we filtered out invalid boxes
-    if valid_indices is not None:
-        keep_tensor = valid_indices[keep_tensor]
-
-    return keep_tensor
+from ..common.utils import (
+    preprocess_image, draw_boxes, COCO_CLASSES, get_class_color,
+    nms, postprocess_detections
+)
 
 
 def xywh2xyxy(x: torch.Tensor) -> torch.Tensor:
@@ -161,96 +89,20 @@ def postprocess(
             "num_detections": 0
         }
 
-    valid_boxes_xywh = boxes_xywh[mask]
-    valid_scores = max_scores[mask]
-    valid_classes = class_ids[mask]
+    # Convert xywh to xyxy for the valid boxes
+    valid_boxes = xywh2xyxy(boxes_xywh[mask])
 
-    # Convert xywh to xyxy
-    valid_boxes = xywh2xyxy(valid_boxes_xywh)
-
-    # Scale boxes to original image size
-    if original_size is not None:
-        scale_x = original_size[0] / input_size
-        scale_y = original_size[1] / input_size
-        valid_boxes[:, [0, 2]] *= scale_x
-        valid_boxes[:, [1, 3]] *= scale_y
-
-        # Clip to image bounds
-        valid_boxes[:, [0, 2]] = torch.clamp(valid_boxes[:, [0, 2]], 0, original_size[0])
-        valid_boxes[:, [1, 3]] = torch.clamp(valid_boxes[:, [1, 3]], 0, original_size[1])
-
-        # Filter out invalid boxes
-        box_widths = valid_boxes[:, 2] - valid_boxes[:, 0]
-        box_heights = valid_boxes[:, 3] - valid_boxes[:, 1]
-        valid_mask = (box_widths > 0) & (box_heights > 0)
-
-        if not valid_mask.all():
-            valid_boxes = valid_boxes[valid_mask]
-            valid_scores = valid_scores[valid_mask]
-            valid_classes = valid_classes[valid_mask]
-
-    if len(valid_boxes) == 0:
-        return {
-            "boxes": [],
-            "scores": [],
-            "classes": [],
-            "num_detections": 0
-        }
-
-    # Apply NMS per class
-    try:
-        import torchvision.ops
-        use_torchvision_nms = True
-    except ImportError:
-        use_torchvision_nms = False
-
-    unique_classes = torch.unique(valid_classes)
-    keep_indices_list = []
-
-    for cls in unique_classes:
-        cls_mask = valid_classes == cls
-        cls_boxes = valid_boxes[cls_mask]
-        cls_scores = valid_scores[cls_mask]
-
-        if len(cls_boxes) == 0:
-            continue
-
-        if use_torchvision_nms:
-            max_wh = 7680.0
-            boxes_for_nms = cls_boxes + cls.float() * max_wh
-            cls_keep = torchvision.ops.nms(boxes_for_nms, cls_scores, iou_thres)
-        else:
-            cls_keep = nms(cls_boxes, cls_scores, iou_thres)
-
-        cls_indices = torch.where(cls_mask)[0]
-        keep_indices_list.append(cls_indices[cls_keep])
-
-    if len(keep_indices_list) == 0:
-        return {
-            "boxes": [],
-            "scores": [],
-            "classes": [],
-            "num_detections": 0
-        }
-
-    keep_indices = torch.cat(keep_indices_list)
-
-    # Limit to max detections
-    if len(keep_indices) > max_det:
-        final_scores_temp = valid_scores[keep_indices]
-        _, top_indices = torch.topk(final_scores_temp, max_det)
-        keep_indices = keep_indices[top_indices]
-
-    final_boxes = valid_boxes[keep_indices].cpu().numpy()
-    final_scores = valid_scores[keep_indices].cpu().numpy()
-    final_classes = valid_classes[keep_indices].cpu().numpy()
-
-    return {
-        "boxes": final_boxes.tolist(),
-        "scores": final_scores.tolist(),
-        "classes": final_classes.tolist(),
-        "num_detections": len(final_boxes)
-    }
+    # Use shared postprocess pipeline for scaling, clipping, NMS, and max_det
+    return postprocess_detections(
+        boxes=valid_boxes,
+        scores=max_scores[mask],
+        class_ids=class_ids[mask],
+        conf_thres=conf_thres,
+        iou_thres=iou_thres,
+        input_size=input_size,
+        original_size=original_size,
+        max_det=max_det
+    )
 
 
 # Default anchors for YOLOv7
