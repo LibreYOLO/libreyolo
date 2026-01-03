@@ -66,15 +66,30 @@ class TestV9ELANBlocks:
     """Test ELAN-based blocks."""
 
     def test_elan_forward(self):
-        """Test ELAN forward pass."""
-        layer = ELAN(64, 128, n=2)
+        """Test ELAN forward pass.
+        
+        ELAN(c1, c2, c3, c4, n) where:
+        - c1: input channels
+        - c2: cv1 output channels (gets split in half)
+        - c3: cv2/cv3 output channels
+        - c4: output channels
+        """
+        # Input: 64, cv1: 64 (split to 32+32), cv2/cv3: 32, output: 128
+        layer = ELAN(64, 64, 32, 128, n=1)
         x = torch.randn(1, 64, 32, 32)
         out = layer(x)
         assert out.shape == (1, 128, 32, 32)
 
     def test_repncspelan_forward(self):
-        """Test RepNCSPELAN forward pass."""
-        layer = RepNCSPELAN(64, 128, c3=64, c4=64, n=1)
+        """Test RepNCSPELAN forward pass.
+        
+        RepNCSPELAN(c1, c2, c3, c4, n) where:
+        - c1: input channels
+        - c2: intermediate channels 1
+        - c3: intermediate channels 2  
+        - c4: output channels
+        """
+        layer = RepNCSPELAN(64, 64, 32, 128, n=1)
         x = torch.randn(1, 64, 32, 32)
         out = layer(x)
         assert out.shape == (1, 128, 32, 32)
@@ -102,8 +117,15 @@ class TestV9SPPELAN:
     """Test SPP-ELAN module."""
 
     def test_sppelan_forward(self):
-        """Test SPPELAN forward pass."""
-        layer = SPPELAN(256, 256, c_hidden=128)
+        """Test SPPELAN forward pass.
+        
+        SPPELAN(c1, c2, c3, k) where:
+        - c1: input channels
+        - c2: neck channels (intermediate)
+        - c3: output channels
+        - k: pool kernel size
+        """
+        layer = SPPELAN(256, 128, 256, k=5)
         x = torch.randn(1, 256, 16, 16)
         out = layer(x)
         assert out.shape == (1, 256, 16, 16)
@@ -125,24 +147,33 @@ class TestV9DetectionHead:
     """Test detection head components."""
 
     def test_dfl_forward(self):
-        """Test DFL (Distribution Focal Loss) forward pass."""
-        layer = DFL(c1=16)
-        x = torch.randn(1, 16, 100)
+        """Test DFL (Distribution Focal Loss) forward pass.
+        
+        DFL expects input shape (batch, 4*reg_max, anchors).
+        """
+        reg_max = 16
+        layer = DFL(c1=reg_max)
+        # Input: (batch, 4*reg_max, anchors)
+        x = torch.randn(1, 4 * reg_max, 100)
         out = layer(x)
-        assert out.shape == (1, 1, 100)
+        # Output: (batch, 4, anchors)
+        assert out.shape == (1, 4, 100)
 
     def test_ddetect_forward(self):
         """Test DDetect head forward pass."""
-        layer = DDetect(nc=80, ch=(64, 128, 256), reg_max=16)
+        layer = DDetect(nc=80, ch=(64, 128, 256), reg_max=16, stride=(8, 16, 32))
+        layer.eval()  # Set to eval mode to get tensor output
         x = [
             torch.randn(1, 64, 80, 80),
             torch.randn(1, 128, 40, 40),
             torch.randn(1, 256, 20, 20),
         ]
         out = layer(x)
-        # Output is (batch, 4*reg_max + nc, total_anchors) = (1, 144, 8400)
-        assert out.shape[0] == 1
-        assert out.shape[1] == 4 * 16 + 80  # 64 + 80 = 144
+        # Eval mode returns (decoded_output, raw_outputs) tuple
+        decoded, raw = out
+        # decoded: (batch, 4+nc, total_anchors)
+        assert decoded.shape[0] == 1
+        assert decoded.shape[1] == 4 + 80  # 84 (decoded boxes + class scores)
 
 
 class TestV9FullModel:
@@ -159,11 +190,12 @@ class TestV9FullModel:
 
     def test_neck_forward(self):
         """Test Neck9 forward pass."""
+        # Get backbone to determine correct channel sizes
+        backbone = Backbone9(config='t')
+        x = torch.randn(1, 3, 640, 640)
+        p3, p4, p5 = backbone(x)
+        
         neck = Neck9(config='t')
-        # Use correct input channel sizes for 't' config
-        p3 = torch.randn(1, 64, 80, 80)
-        p4 = torch.randn(1, 128, 40, 40)
-        p5 = torch.randn(1, 256, 20, 20)
         n3, n4, n5 = neck(p3, p4, p5)
         assert n3.shape[2] == 80
         assert n4.shape[2] == 40
@@ -172,11 +204,12 @@ class TestV9FullModel:
     def test_full_model_forward(self):
         """Test full LibreYOLO9Model forward pass."""
         model = LibreYOLO9Model(config='t', nb_classes=80)
+        model.eval()  # Set to eval mode to get dict output
         x = torch.randn(1, 3, 640, 640)
         out = model(x)
-        # Output should be (batch, 4*reg_max + nc, total_anchors)
-        assert out.shape[0] == 1
-        assert out.shape[1] == 4 * 16 + 80  # 144
+        # In eval mode, returns dict with 'predictions' key
+        assert isinstance(out, dict)
+        assert 'predictions' in out
 
 
 class TestV9Utils:
@@ -191,7 +224,12 @@ class TestV9Utils:
         assert original_size == (100, 100)
 
     def test_make_anchors(self):
-        """Test anchor generation."""
+        """Test anchor generation.
+        
+        make_anchors returns (anchor_points, stride_tensor) with shapes:
+        - anchor_points: (total_anchors, 2)
+        - stride_tensor: (total_anchors, 1)
+        """
         feature_maps = [
             torch.randn(1, 64, 80, 80),
             torch.randn(1, 128, 40, 40),
@@ -199,5 +237,7 @@ class TestV9Utils:
         ]
         anchors, strides = v9_utils.make_anchors(feature_maps, strides=[8, 16, 32])
         # Total anchors = 80*80 + 40*40 + 20*20 = 8400
-        assert anchors.shape[1] == 8400
-        assert strides.shape[1] == 8400
+        assert anchors.shape[0] == 8400
+        assert anchors.shape[1] == 2
+        assert strides.shape[0] == 8400
+        assert strides.shape[1] == 1

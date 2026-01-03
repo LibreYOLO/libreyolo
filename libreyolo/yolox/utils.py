@@ -8,11 +8,11 @@ YOLOX uses different preprocessing and postprocessing than YOLOv8/v11:
 
 import torch
 import numpy as np
-from typing import Tuple, List, Union
+from typing import Tuple, List
 from PIL import Image
 
 from ..common.image_loader import ImageLoader, ImageInput
-from ..common.utils import draw_boxes, COCO_CLASSES, get_class_color
+from ..common.utils import draw_boxes, COCO_CLASSES, get_class_color, nms
 
 
 def preprocess_image(
@@ -152,75 +152,6 @@ def decode_outputs(
     outputs_cat[..., 2:4] = torch.exp(outputs_cat[..., 2:4]) * stride_tensor
 
     return outputs_cat
-
-
-def nms(boxes: torch.Tensor, scores: torch.Tensor, iou_threshold: float = 0.45) -> torch.Tensor:
-    """
-    Non-Maximum Suppression using torch operations.
-
-    Args:
-        boxes: Boxes in xyxy format (N, 4)
-        scores: Confidence scores (N,)
-        iou_threshold: IoU threshold for suppression
-
-    Returns:
-        Indices of boxes to keep
-    """
-    if len(boxes) == 0:
-        return torch.tensor([], dtype=torch.long, device=boxes.device)
-
-    # Filter out boxes with NaN or Inf values
-    valid_mask = torch.isfinite(boxes).all(dim=1) & torch.isfinite(scores)
-    if not valid_mask.any():
-        return torch.tensor([], dtype=torch.long, device=boxes.device)
-
-    if not valid_mask.all():
-        valid_indices = torch.where(valid_mask)[0]
-        boxes = boxes[valid_mask]
-        scores = scores[valid_mask]
-    else:
-        valid_indices = None
-
-    # Sort by scores (descending)
-    _, order = scores.sort(0, descending=True)
-    keep = []
-
-    while len(order) > 0:
-        i = order[0]
-        keep.append(i.item())
-
-        if len(order) == 1:
-            break
-
-        # Calculate IoU with remaining boxes
-        box_i = boxes[i]
-        boxes_remaining = boxes[order[1:]]
-
-        x1_i, y1_i, x2_i, y2_i = box_i
-        x1_r, y1_r, x2_r, y2_r = boxes_remaining[:, 0], boxes_remaining[:, 1], boxes_remaining[:, 2], boxes_remaining[:, 3]
-
-        x1_inter = torch.max(x1_i, x1_r)
-        y1_inter = torch.max(y1_i, y1_r)
-        x2_inter = torch.min(x2_i, x2_r)
-        y2_inter = torch.min(y2_i, y2_r)
-
-        inter_area = torch.clamp(x2_inter - x1_inter, min=0) * torch.clamp(y2_inter - y1_inter, min=0)
-
-        area_i = (x2_i - x1_i) * (y2_i - y1_i)
-        area_r = (x2_r - x1_r) * (y2_r - y1_r)
-        union_area = area_i + area_r - inter_area
-
-        iou = inter_area / (union_area + 1e-7)
-
-        order = order[1:][iou < iou_threshold]
-
-    keep_tensor = torch.tensor(keep, dtype=torch.long, device=boxes.device)
-
-    # Map back to original indices if we filtered out invalid boxes
-    if valid_indices is not None:
-        keep_tensor = valid_indices[keep_tensor]
-
-    return keep_tensor
 
 
 def cxcywh_to_xyxy(boxes: torch.Tensor) -> torch.Tensor:

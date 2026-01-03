@@ -13,11 +13,14 @@ from PIL import Image
 import numpy as np
 
 from ..common.image_loader import ImageLoader, ImageInput
+from ..common.utils import draw_boxes  # Re-export shared draw_boxes
 
 
 # ImageNet normalization values
 IMAGENET_MEAN = [0.485, 0.456, 0.406]
 IMAGENET_STD = [0.229, 0.224, 0.225]
+
+__all__ = ['preprocess_image', 'draw_boxes', 'denormalize_image', 'IMAGENET_MEAN', 'IMAGENET_STD']
 
 
 def preprocess_image(
@@ -56,54 +59,6 @@ def preprocess_image(
     input_tensor = transform(original_image).unsqueeze(0)
 
     return input_tensor, original_image, original_size
-
-
-def draw_boxes(
-    image: Image.Image,
-    boxes: list,
-    scores: list,
-    classes: list,
-    class_names: list = None,
-    threshold: float = 0.0,
-    box_color: str = "red",
-    text_color: str = "blue"
-) -> Image.Image:
-    """
-    Draw bounding boxes on an image.
-
-    Args:
-        image: PIL Image to draw on
-        boxes: List of [x1, y1, x2, y2] boxes
-        scores: List of confidence scores
-        classes: List of class IDs
-        class_names: Optional list of class names
-        threshold: Only draw boxes with score > threshold
-        box_color: Color for box outline
-        text_color: Color for label text
-
-    Returns:
-        PIL Image with boxes drawn
-    """
-    from PIL import ImageDraw
-
-    draw_img = image.copy()
-    draw = ImageDraw.Draw(draw_img)
-
-    for box, score, cls in zip(boxes, scores, classes):
-        if score < threshold:
-            continue
-
-        x1, y1, x2, y2 = box
-        draw.rectangle([x1, y1, x2, y2], outline=box_color, width=2)
-
-        if class_names is not None and cls < len(class_names):
-            label = f"{class_names[cls]}: {score:.2f}"
-        else:
-            label = f"{cls}: {score:.2f}"
-
-        draw.text((x1, y1), label, fill=text_color)
-
-    return draw_img
 
 
 def denormalize_image(tensor: torch.Tensor) -> np.ndarray:

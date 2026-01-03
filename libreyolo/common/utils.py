@@ -237,3 +237,287 @@ def draw_boxes(img: Image.Image, boxes: List, scores: List, classes: List, class
 
     return img_draw
 
+
+# =============================================================================
+# Shared Model Utilities
+# =============================================================================
+
+def resolve_save_path(
+    output_path: Union[str, Path, None],
+    image_path: Union[str, Path, None],
+    prefix: str = "",
+    ext: str = "jpg",
+    default_dir: str = "runs/detections"
+) -> Path:
+    """
+    Generate a save path handling both directory and file output paths.
+
+    Args:
+        output_path: User-provided output path (file or directory) or None
+        image_path: Source image path for deriving filename
+        prefix: Optional prefix for the filename (e.g., "tiled_")
+        ext: File extension without dot (default: "jpg")
+        default_dir: Default directory if output_path is None
+
+    Returns:
+        Resolved Path object ready for saving
+    """
+    from datetime import datetime
+
+    # Get stem from image path or use default
+    if image_path is not None:
+        stem = get_safe_stem(image_path)
+    else:
+        stem = "inference"
+
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    filename = f"{prefix}{stem}_{timestamp}.{ext}"
+
+    if output_path is None:
+        save_dir = Path(default_dir)
+        save_dir.mkdir(parents=True, exist_ok=True)
+        return save_dir / filename
+
+    save_path = Path(output_path)
+
+    if save_path.suffix == "":
+        # output_path is a directory
+        save_path.mkdir(parents=True, exist_ok=True)
+        return save_path / filename
+    else:
+        # output_path is a file
+        save_path.parent.mkdir(parents=True, exist_ok=True)
+        return save_path
+
+
+def nms(boxes: torch.Tensor, scores: torch.Tensor, iou_threshold: float = 0.45) -> torch.Tensor:
+    """
+    Non-Maximum Suppression using torch operations.
+
+    Args:
+        boxes: Boxes in xyxy format (N, 4)
+        scores: Confidence scores (N,)
+        iou_threshold: IoU threshold for suppression
+
+    Returns:
+        Indices of boxes to keep
+    """
+    if len(boxes) == 0:
+        return torch.tensor([], dtype=torch.long, device=boxes.device)
+
+    # Filter out boxes with NaN or Inf values
+    valid_mask = torch.isfinite(boxes).all(dim=1) & torch.isfinite(scores)
+    if not valid_mask.any():
+        return torch.tensor([], dtype=torch.long, device=boxes.device)
+
+    if not valid_mask.all():
+        valid_indices = torch.where(valid_mask)[0]
+        boxes = boxes[valid_mask]
+        scores = scores[valid_mask]
+    else:
+        valid_indices = None
+
+    # Sort by scores (descending)
+    _, order = scores.sort(0, descending=True)
+    keep = []
+
+    while len(order) > 0:
+        # Keep the box with highest score
+        i = order[0]
+        keep.append(i.item())
+
+        if len(order) == 1:
+            break
+
+        # Calculate IoU with remaining boxes
+        box_i = boxes[i]
+        boxes_remaining = boxes[order[1:]]
+
+        # Calculate intersection
+        x1_i, y1_i, x2_i, y2_i = box_i
+        x1_r, y1_r, x2_r, y2_r = boxes_remaining[:, 0], boxes_remaining[:, 1], boxes_remaining[:, 2], boxes_remaining[:, 3]
+
+        x1_inter = torch.max(x1_i, x1_r)
+        y1_inter = torch.max(y1_i, y1_r)
+        x2_inter = torch.min(x2_i, x2_r)
+        y2_inter = torch.min(y2_i, y2_r)
+
+        inter_area = torch.clamp(x2_inter - x1_inter, min=0) * torch.clamp(y2_inter - y1_inter, min=0)
+
+        # Calculate union
+        area_i = (x2_i - x1_i) * (y2_i - y1_i)
+        area_r = (x2_r - x1_r) * (y2_r - y1_r)
+        union_area = area_i + area_r - inter_area
+
+        # Calculate IoU
+        iou = inter_area / (union_area + 1e-7)
+
+        # Keep boxes with IoU < threshold
+        order = order[1:][iou < iou_threshold]
+
+    keep_tensor = torch.tensor(keep, dtype=torch.long, device=boxes.device)
+
+    # Map back to original indices if we filtered out invalid boxes
+    if valid_indices is not None:
+        keep_tensor = valid_indices[keep_tensor]
+
+    return keep_tensor
+
+
+def make_anchors(
+    feats: List[torch.Tensor],
+    strides: List[int],
+    grid_cell_offset: float = 0.5
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    """
+    Generate anchor points from feature map sizes.
+
+    Args:
+        feats: List of feature tensors from different scales
+        strides: List of stride values corresponding to each feature map
+        grid_cell_offset: Offset for grid cell centers (default: 0.5)
+
+    Returns:
+        Tuple of (anchor_points, stride_tensor)
+    """
+    anchor_points = []
+    stride_tensor = []
+
+    for i, (feat, stride) in enumerate(zip(feats, strides)):
+        _, _, h, w = feat.shape
+        dtype, device = feat.dtype, feat.device
+
+        sx = torch.arange(end=w, device=device, dtype=dtype) + grid_cell_offset
+        sy = torch.arange(end=h, device=device, dtype=dtype) + grid_cell_offset
+        sy, sx = torch.meshgrid(sy, sx, indexing='ij')
+        anchor_points.append(torch.stack((sx, sy), -1).view(-1, 2))
+        stride_tensor.append(torch.full((h * w, 1), stride, dtype=dtype, device=device))
+
+    return torch.cat(anchor_points), torch.cat(stride_tensor)
+
+
+def postprocess_detections(
+    boxes: torch.Tensor,
+    scores: torch.Tensor,
+    class_ids: torch.Tensor,
+    conf_thres: float = 0.25,
+    iou_thres: float = 0.45,
+    input_size: int = 640,
+    original_size: Tuple[int, int] = None,
+    max_det: int = 300
+) -> dict:
+    """
+    Shared post-processing pipeline for object detection outputs.
+    
+    This function handles the common post-processing steps:
+    - Scale boxes to original image size
+    - Clip boxes to image boundaries
+    - Filter invalid boxes (zero/negative area)
+    - Apply per-class NMS
+    - Limit to max detections
+    
+    Args:
+        boxes: Decoded boxes in xyxy format (N, 4)
+        scores: Confidence scores after sigmoid (N,)
+        class_ids: Class indices (N,)
+        conf_thres: Confidence threshold (already applied before calling)
+        iou_thres: IoU threshold for NMS
+        input_size: Model input size for scaling
+        original_size: Original image size (width, height)
+        max_det: Maximum number of detections
+        
+    Returns:
+        Dictionary with boxes, scores, classes, num_detections
+    """
+    if len(boxes) == 0:
+        return {
+            "boxes": [],
+            "scores": [],
+            "classes": [],
+            "num_detections": 0
+        }
+    
+    # Scale boxes to original image size
+    if original_size is not None:
+        scale_x = original_size[0] / input_size
+        scale_y = original_size[1] / input_size
+        boxes[:, [0, 2]] *= scale_x
+        boxes[:, [1, 3]] *= scale_y
+        
+        # Clip to image bounds
+        boxes[:, [0, 2]] = torch.clamp(boxes[:, [0, 2]], 0, original_size[0])
+        boxes[:, [1, 3]] = torch.clamp(boxes[:, [1, 3]], 0, original_size[1])
+        
+        # Filter invalid boxes
+        box_widths = boxes[:, 2] - boxes[:, 0]
+        box_heights = boxes[:, 3] - boxes[:, 1]
+        valid_mask = (box_widths > 0) & (box_heights > 0)
+        
+        if not valid_mask.all():
+            boxes = boxes[valid_mask]
+            scores = scores[valid_mask]
+            class_ids = class_ids[valid_mask]
+    
+    if len(boxes) == 0:
+        return {
+            "boxes": [],
+            "scores": [],
+            "classes": [],
+            "num_detections": 0
+        }
+    
+    # Apply per-class NMS
+    try:
+        import torchvision.ops
+        use_torchvision_nms = True
+    except ImportError:
+        use_torchvision_nms = False
+    
+    unique_classes = torch.unique(class_ids)
+    keep_indices_list = []
+    
+    for cls in unique_classes:
+        cls_mask = class_ids == cls
+        cls_boxes = boxes[cls_mask]
+        cls_scores = scores[cls_mask]
+        
+        if len(cls_boxes) == 0:
+            continue
+        
+        if use_torchvision_nms:
+            max_wh = 7680.0
+            boxes_for_nms = cls_boxes + cls.float() * max_wh
+            cls_keep = torchvision.ops.nms(boxes_for_nms, cls_scores, iou_thres)
+        else:
+            cls_keep = nms(cls_boxes, cls_scores, iou_thres)
+        
+        cls_indices = torch.where(cls_mask)[0]
+        keep_indices_list.append(cls_indices[cls_keep])
+    
+    if len(keep_indices_list) == 0:
+        return {
+            "boxes": [],
+            "scores": [],
+            "classes": [],
+            "num_detections": 0
+        }
+    
+    keep_indices = torch.cat(keep_indices_list)
+    
+    # Limit to max detections
+    if len(keep_indices) > max_det:
+        final_scores_temp = scores[keep_indices]
+        _, top_indices = torch.topk(final_scores_temp, max_det)
+        keep_indices = keep_indices[top_indices]
+    
+    final_boxes = boxes[keep_indices].cpu().numpy()
+    final_scores = scores[keep_indices].cpu().numpy()
+    final_classes = class_ids[keep_indices].cpu().numpy()
+    
+    return {
+        "boxes": final_boxes.tolist(),
+        "scores": final_scores.tolist(),
+        "classes": final_classes.tolist(),
+        "num_detections": len(final_boxes)
+    }
+
