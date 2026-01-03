@@ -54,3 +54,4 @@ data/
 .onnx
 .pt
 *.pt
+*.pth
