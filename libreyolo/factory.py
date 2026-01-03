@@ -8,12 +8,21 @@ from .v8.model import LIBREYOLO8
 from .v11.model import LIBREYOLO11
 from .yolox.nn import YOLOXModel
 from .yolox.model import LIBREYOLOX
+from .v9.nn import LibreYOLO9Model
+from .v9.model import LIBREYOLO9
+from .v7.nn import LibreYOLO7Model
+from .v7.model import LIBREYOLO7
+from .rd.nn import LibreYOLORDModel
+from .rd.model import LIBREYOLORD
 
 # Registry for model classes
 MODELS = {
     '8': LibreYOLO8Model,
     '11': LibreYOLO11Model,
-    'x': YOLOXModel
+    'x': YOLOXModel,
+    '9': LibreYOLO9Model,
+    '7': LibreYOLO7Model,
+    'rd': LibreYOLORDModel
 }
 
 def download_weights(model_path: str, size: str):
@@ -22,7 +31,12 @@ def download_weights(model_path: str, size: str):
 
     Args:
         model_path: Path where weights should be saved
-        size: Model size variant ('n', 's', 'm', 'l', 'x' for v8/v11, or 'nano', 'tiny', 's', 'm', 'l', 'x' for YOLOX)
+        size: Model size variant:
+              - For v8/v11: 'n', 's', 'm', 'l', 'x'
+              - For YOLOX: 'nano', 'tiny', 's', 'm', 'l', 'x'
+              - For v9: 't', 's', 'm', 'c'
+              - For v7: 'base', 'tiny'
+              - For YOLO-RD: 'c' (only c variant)
     """
     path = Path(model_path)
     if path.exists():
@@ -30,15 +44,28 @@ def download_weights(model_path: str, size: str):
 
     filename = path.name
 
-    # Check for YOLOX first (e.g., yolox_s.pt, yolox_nano.pt)
-    yolox_match = re.search(r'yolox[_-]?(nano|tiny|s|m|l|x)', filename.lower())
+    # Check for YOLOX first (e.g., libreyoloXs.pt, libreyoloXnano.pt)
+    yolox_match = re.search(r'libreyolox(nano|tiny|s|m|l|x)', filename.lower())
     if yolox_match:
-        # YOLOX repos: Libre-YOLO/yolox_nano, Libre-YOLO/yolox_s, etc.
+        # YOLOX repos: Libre-YOLO/libreyoloXnano, Libre-YOLO/libreyoloXs, etc.
         yolox_size = yolox_match.group(1)
-        repo = f"Libre-YOLO/yolox_{yolox_size}"
+        repo = f"Libre-YOLO/libreyoloX{yolox_size}"
+        url = f"https://huggingface.co/{repo}/resolve/main/{filename}"
+    # Check for YOLO-RD (e.g., libreyoloRD.pt)
+    elif re.search(r'libreyolord|yolo[_-]?rd', filename.lower()):
+        repo = f"Libre-YOLO/libreyoloRD"
+        url = f"https://huggingface.co/{repo}/resolve/main/{filename}"
+    # Check for YOLOv9 (e.g., libreyolo9c.pt)
+    elif re.search(r'libreyolo9|yolov?9', filename.lower()):
+        repo = f"Libre-YOLO/libreyolo9{size}"
+        url = f"https://huggingface.co/{repo}/resolve/main/{filename}"
+    # Check for YOLOv7 (e.g., libreyolo7.pt, libreyolo7tiny.pt)
+    elif re.search(r'libreyolo7|yolov?7', filename.lower()):
+        size_suffix = "" if size == "base" else size
+        repo = f"Libre-YOLO/libreyolo7{size_suffix}"
         url = f"https://huggingface.co/{repo}/resolve/main/{filename}"
     else:
-        # Try to infer version from filename (e.g. libreyolo8n.pt -> 8, yolov11x.pt -> 11)
+        # Try to infer version from filename (e.g. libreyolo8n.pt -> 8, libreyolo11x.pt -> 11)
         match = re.search(r'(?:yolo|libreyolo)?(8|11)', filename.lower())
         if not match:
             raise ValueError(f"Could not determine model version from filename '{filename}' for auto-download.")
@@ -46,8 +73,8 @@ def download_weights(model_path: str, size: str):
         version = match.group(1)
 
         # Construct Hugging Face URL
-        # Repo format: Libre-YOLO/yolov{version}{size}
-        repo = f"Libre-YOLO/yolov{version}{size}"
+        # Repo format: Libre-YOLO/libreyolo{version}{size}
+        repo = f"Libre-YOLO/libreyolo{version}{size}"
         url = f"https://huggingface.co/{repo}/resolve/main/{filename}"
     
     print(f"Model weights not found at {model_path}. Attempting download from {url}...")
@@ -108,7 +135,7 @@ def LIBREYOLO(
     device: str = "auto"
 ):
     """
-    Unified Libre YOLO factory that automatically detects model version (8, 11, or X)
+    Unified Libre YOLO factory that automatically detects model version (7, 8, 9, 11, X, or RD)
     from the weights file and returns the appropriate model instance.
 
     Args:
@@ -116,16 +143,19 @@ def LIBREYOLO(
         size: Model size variant. Required for .pt files.
               - For YOLOv8/v11: "n", "s", "m", "l", "x"
               - For YOLOX: "nano", "tiny", "s", "m", "l", "x"
-        reg_max: Regression max value for DFL (default: 16). Only used for v8/v11.
+              - For YOLOv9: "t", "s", "m", "c"
+              - For YOLOv7: "base", "tiny"
+              - For YOLO-RD: "c" (only c variant)
+        reg_max: Regression max value for DFL (default: 16). Only used for v8/v11/v9/rd.
         nb_classes: Number of classes (default: 80 for COCO)
-        save_feature_maps: If True, saves backbone feature map visualizations (v8/v11 only)
-        save_eigen_cam: If True, saves EigenCAM heatmap visualizations (v8/v11 only)
-        cam_method: Default CAM method for explain() (v8/v11 only)
-        cam_layer: Target layer for CAM computation (v8/v11 only)
+        save_feature_maps: If True, saves backbone feature map visualizations
+        save_eigen_cam: If True, saves EigenCAM heatmap visualizations
+        cam_method: Default CAM method for explain()
+        cam_layer: Target layer for CAM computation
         device: Device for inference. "auto" (default) uses CUDA if available, else MPS, else CPU.
 
     Returns:
-        Instance of LIBREYOLO8, LIBREYOLO11, LIBREYOLOX, or LIBREYOLOOnnx
+        Instance of LIBREYOLO7, LIBREYOLO8, LIBREYOLO9, LIBREYOLO11, LIBREYOLOX, LIBREYOLORD, or LIBREYOLOOnnx
 
     Example:
         >>> model = LIBREYOLO("yolo11n.pt", size="n")
@@ -134,7 +164,19 @@ def LIBREYOLO(
         >>> detections = model("large_image.jpg", save=True, tiling=True)
         >>>
         >>> # For YOLOX
-        >>> model = LIBREYOLO("yolox_s.pt", size="s")
+        >>> model = LIBREYOLO("libreyoloXs.pt", size="s")
+        >>> detections = model("image.jpg", save=True)
+        >>>
+        >>> # For YOLOv9
+        >>> model = LIBREYOLO("yolov9c.pt", size="c")
+        >>> detections = model("image.jpg", save=True)
+        >>>
+        >>> # For YOLOv7
+        >>> model = LIBREYOLO("yolov7.pt", size="base")
+        >>> detections = model("image.jpg", save=True)
+        >>>
+        >>> # For YOLO-RD
+        >>> model = LIBREYOLO("yolo_rd_c.pt", size="c")
         >>> detections = model("image.jpg", save=True)
     """
     # Handle ONNX models
@@ -168,9 +210,20 @@ def LIBREYOLO(
 
     # Detect model version from state dict keys
     keys = list(state_dict.keys())
+    keys_lower = [k.lower() for k in keys]
 
     # Check for YOLOX-specific layer names (e.g., 'backbone.backbone.stem' or Focus module)
     is_yolox = any('backbone.backbone' in key or 'head.stems' in key for key in keys)
+
+    # Check for YOLO-RD-specific layer names (DConv with PONO)
+    is_yolo_rd = any('dconv' in k or 'pono' in k or 'repncspelan_d' in k for k in keys_lower)
+
+    # Check for YOLOv9-specific layer names (RepNCSPELAN, ADown, SPPELAN, or LibreYOLO9 elan patterns)
+    is_yolo9 = any('repncspelan' in k or 'adown' in k or 'sppelan' in k for k in keys_lower) or \
+               (any('backbone.elan' in k or 'neck.elan' in k for k in keys))
+
+    # Check for YOLOv7-specific layer names (implicit layers, SPPCSPC)
+    is_yolo7 = any('implicit' in k or 'sppcspc' in k for k in keys_lower)
 
     # Check for YOLO11-specific layer names (e.g., 'c2psa')
     is_yolo11 = any('c2psa' in key for key in keys)
@@ -182,6 +235,42 @@ def LIBREYOLO(
             device=device
         )
         model.version = "x"
+        model.model_path = model_path
+    elif is_yolo_rd:
+        # YOLO-RD detected - use LIBREYOLORD
+        model = LIBREYOLORD(
+            state_dict, size, reg_max, nb_classes,
+            save_feature_maps=save_feature_maps,
+            save_eigen_cam=save_eigen_cam,
+            cam_method=cam_method,
+            cam_layer=cam_layer,
+            device=device
+        )
+        model.version = "rd"
+        model.model_path = model_path
+    elif is_yolo9:
+        # YOLOv9 detected - use LIBREYOLO9
+        model = LIBREYOLO9(
+            state_dict, size, reg_max, nb_classes,
+            save_feature_maps=save_feature_maps,
+            save_eigen_cam=save_eigen_cam,
+            cam_method=cam_method,
+            cam_layer=cam_layer,
+            device=device
+        )
+        model.version = "9"
+        model.model_path = model_path
+    elif is_yolo7:
+        # YOLOv7 detected - use LIBREYOLO7
+        model = LIBREYOLO7(
+            state_dict, size, nb_classes,
+            save_feature_maps=save_feature_maps,
+            save_eigen_cam=save_eigen_cam,
+            cam_method=cam_method,
+            cam_layer=cam_layer,
+            device=device
+        )
+        model.version = "7"
         model.model_path = model_path
     elif is_yolo11:
         model = LIBREYOLO11(
@@ -195,6 +284,7 @@ def LIBREYOLO(
         model.version = "11"
         model.model_path = model_path
     else:
+        # Default to YOLOv8
         model = LIBREYOLO8(
             state_dict, size, reg_max, nb_classes,
             save_feature_maps=save_feature_maps,
