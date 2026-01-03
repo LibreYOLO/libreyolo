@@ -9,68 +9,7 @@ import torch
 from typing import Tuple, Optional
 
 from .base import BasePostProcessor, PostProcessorConfig
-
-
-def nms_kernel(boxes: torch.Tensor, scores: torch.Tensor, iou_threshold: float) -> torch.Tensor:
-    """
-    Core NMS algorithm using torch operations.
-
-    This is a pure-torch implementation that doesn't require torchvision.
-    It's used as a fallback when torchvision is not available.
-
-    Args:
-        boxes: Boxes in xyxy format (N, 4)
-        scores: Confidence scores (N,)
-        iou_threshold: IoU threshold for suppression
-
-    Returns:
-        Indices of boxes to keep
-    """
-    if len(boxes) == 0:
-        return torch.tensor([], dtype=torch.long, device=boxes.device)
-
-    # Sort by scores (descending)
-    _, order = scores.sort(0, descending=True)
-    keep = []
-
-    while len(order) > 0:
-        # Keep the box with highest score
-        i = order[0]
-        keep.append(i.item())
-
-        if len(order) == 1:
-            break
-
-        # Calculate IoU with remaining boxes
-        box_i = boxes[i]
-        boxes_remaining = boxes[order[1:]]
-
-        # Calculate intersection
-        x1_i, y1_i, x2_i, y2_i = box_i
-        x1_r = boxes_remaining[:, 0]
-        y1_r = boxes_remaining[:, 1]
-        x2_r = boxes_remaining[:, 2]
-        y2_r = boxes_remaining[:, 3]
-
-        x1_inter = torch.max(x1_i, x1_r)
-        y1_inter = torch.max(y1_i, y1_r)
-        x2_inter = torch.min(x2_i, x2_r)
-        y2_inter = torch.min(y2_i, y2_r)
-
-        inter_area = torch.clamp(x2_inter - x1_inter, min=0) * torch.clamp(y2_inter - y1_inter, min=0)
-
-        # Calculate union
-        area_i = (x2_i - x1_i) * (y2_i - y1_i)
-        area_r = (x2_r - x1_r) * (y2_r - y1_r)
-        union_area = area_i + area_r - inter_area
-
-        # Calculate IoU
-        iou = inter_area / (union_area + 1e-7)
-
-        # Keep boxes with IoU < threshold
-        order = order[1:][iou < iou_threshold]
-
-    return torch.tensor(keep, dtype=torch.long, device=boxes.device)
+from ..utils import nms as nms_kernel  # Use the canonical NMS implementation
 
 
 # Check for torchvision availability once at module load

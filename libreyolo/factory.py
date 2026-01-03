@@ -159,11 +159,16 @@ def LIBREYOLO(
               - For RT-DETR: "s", "ms", "m", "l", "x"
         reg_max: Regression max value for DFL (default: 16). Only used for v8/v11/v9/rd.
         nb_classes: Number of classes (default: 80 for COCO)
-        save_feature_maps: If True, saves backbone feature map visualizations
-        save_eigen_cam: If True, saves EigenCAM heatmap visualizations
-        cam_method: Default CAM method for explain()
-        cam_layer: Target layer for CAM computation
+        save_feature_maps: If True, saves backbone feature map visualizations (YOLO8 only)
+        save_eigen_cam: If True, saves EigenCAM heatmap visualizations (YOLO8 only)
+        cam_method: Default CAM method for explain() (YOLO8 only)
+        cam_layer: Target layer for CAM computation (YOLO8 only)
         device: Device for inference. "auto" (default) uses CUDA if available, else MPS, else CPU.
+    
+    Note:
+        XAI features (save_feature_maps, save_eigen_cam, cam_method, cam_layer, explain())
+        are currently only supported by LIBREYOLO8. For other model versions, use
+        the model class directly (e.g., LIBREYOLO11) for future XAI support.
 
     Returns:
         Instance of LIBREYOLO7, LIBREYOLO8, LIBREYOLO9, LIBREYOLO11, LIBREYOLOX, LIBREYOLORD, LIBREYOLORTDETR, or LIBREYOLOOnnx
@@ -259,27 +264,21 @@ def LIBREYOLO(
     if is_rtdetr:
         # RT-DETR detected - use LIBREYOLORTDETR
         model = LIBREYOLORTDETR(
-            state_dict, size, nb_classes,
-            device=device
+            model_path=weights_dict, size=size, nb_classes=nb_classes, device=device
         )
         model.version = "rtdetr"
         model.model_path = model_path
     elif is_yolox:
         # YOLOX detected - use LIBREYOLOX
         model = LIBREYOLOX(
-            state_dict, size, nb_classes,
-            device=device
+            model_path=weights_dict, size=size, nb_classes=nb_classes, device=device
         )
         model.version = "x"
         model.model_path = model_path
     elif is_yolo_rd:
         # YOLO-RD detected - use LIBREYOLORD
         model = LIBREYOLORD(
-            state_dict, size, reg_max, nb_classes,
-            save_feature_maps=save_feature_maps,
-            save_eigen_cam=save_eigen_cam,
-            cam_method=cam_method,
-            cam_layer=cam_layer,
+            model_path=weights_dict, size=size, reg_max=reg_max, nb_classes=nb_classes,
             device=device
         )
         model.version = "rd"
@@ -287,11 +286,7 @@ def LIBREYOLO(
     elif is_yolo9:
         # YOLOv9 detected - use LIBREYOLO9
         model = LIBREYOLO9(
-            state_dict, size, reg_max, nb_classes,
-            save_feature_maps=save_feature_maps,
-            save_eigen_cam=save_eigen_cam,
-            cam_method=cam_method,
-            cam_layer=cam_layer,
+            model_path=weights_dict, size=size, reg_max=reg_max, nb_classes=nb_classes,
             device=device
         )
         model.version = "9"
@@ -299,30 +294,25 @@ def LIBREYOLO(
     elif is_yolo7:
         # YOLOv7 detected - use LIBREYOLO7
         model = LIBREYOLO7(
-            state_dict, size, nb_classes,
-            save_feature_maps=save_feature_maps,
-            save_eigen_cam=save_eigen_cam,
-            cam_method=cam_method,
-            cam_layer=cam_layer,
-            device=device
+            model_path=weights_dict, size=size, nb_classes=nb_classes, device=device
         )
         model.version = "7"
         model.model_path = model_path
     elif is_yolo11:
+        # YOLOv11 detected - use LIBREYOLO11
         model = LIBREYOLO11(
-            state_dict, size, reg_max, nb_classes,
-            save_feature_maps=save_feature_maps,
-            save_eigen_cam=save_eigen_cam,
-            cam_method=cam_method,
-            cam_layer=cam_layer,
+            model_path=weights_dict, size=size, reg_max=reg_max, nb_classes=nb_classes,
             device=device
         )
         model.version = "11"
         model.model_path = model_path
     else:
         # Default to YOLOv8
+        # Note: XAI features (save_feature_maps, save_eigen_cam, cam_method, cam_layer)
+        # are only supported by LIBREYOLO8. Other model versions do not support
+        # these parameters and will ignore them if passed through the factory.
         model = LIBREYOLO8(
-            state_dict, size, reg_max, nb_classes,
+            weights_dict, size, reg_max, nb_classes,
             save_feature_maps=save_feature_maps,
             save_eigen_cam=save_eigen_cam,
             cam_method=cam_method,
