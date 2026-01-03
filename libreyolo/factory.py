@@ -14,6 +14,8 @@ from .v7.nn import LibreYOLO7Model
 from .v7.model import LIBREYOLO7
 from .rd.nn import LibreYOLORDModel
 from .rd.model import LIBREYOLORD
+from .rtdetr.nn import RTDETRModel
+from .rtdetr.model import LIBREYOLORTDETR
 
 # Registry for model classes
 MODELS = {
@@ -22,7 +24,8 @@ MODELS = {
     'x': YOLOXModel,
     '9': LibreYOLO9Model,
     '7': LibreYOLO7Model,
-    'rd': LibreYOLORDModel
+    'rd': LibreYOLORDModel,
+    'rtdetr': RTDETRModel
 }
 
 def download_weights(model_path: str, size: str):
@@ -204,13 +207,26 @@ def LIBREYOLO(
     except Exception as e:
         raise RuntimeError(f"Failed to load model weights from {model_path}: {e}") from e
 
-    # Handle checkpoint format (e.g., YOLOX checkpoints with 'model' key)
-    if 'model' in state_dict and isinstance(state_dict.get('model'), dict):
-        state_dict = state_dict['model']
+    # Handle checkpoint format (e.g., YOLOX checkpoints with 'model' key, RT-DETR with 'ema' key)
+    # Extract actual weights from nested checkpoint formats
+    weights_dict = state_dict
+    if 'ema' in state_dict and isinstance(state_dict.get('ema'), dict):
+        ema_data = state_dict['ema']
+        if 'module' in ema_data:
+            weights_dict = ema_data['module']
+        else:
+            weights_dict = ema_data
+    elif 'model' in state_dict and isinstance(state_dict.get('model'), dict):
+        weights_dict = state_dict['model']
 
     # Detect model version from state dict keys
-    keys = list(state_dict.keys())
+    keys = list(weights_dict.keys())
     keys_lower = [k.lower() for k in keys]
+
+    # Check for RT-DETR-specific layer names (transformer decoder, hybrid encoder)
+    is_rtdetr = any('decoder.decoder' in k or 'hybrid_encoder' in k.lower() or
+                    'enc_score_head' in k or 'dec_bbox_head' in k for k in keys) or \
+                any('rtdetr' in k for k in keys_lower)
 
     # Check for YOLOX-specific layer names (e.g., 'backbone.backbone.stem' or Focus module)
     is_yolox = any('backbone.backbone' in key or 'head.stems' in key for key in keys)
@@ -228,7 +244,15 @@ def LIBREYOLO(
     # Check for YOLO11-specific layer names (e.g., 'c2psa')
     is_yolo11 = any('c2psa' in key for key in keys)
 
-    if is_yolox:
+    if is_rtdetr:
+        # RT-DETR detected - use LIBREYOLORTDETR
+        model = LIBREYOLORTDETR(
+            state_dict, size, nb_classes,
+            device=device
+        )
+        model.version = "rtdetr"
+        model.model_path = model_path
+    elif is_yolox:
         # YOLOX detected - use LIBREYOLOX
         model = LIBREYOLOX(
             state_dict, size, nb_classes,
