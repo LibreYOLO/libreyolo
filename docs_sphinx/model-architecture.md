@@ -4,13 +4,17 @@ This page provides technical details about the model architectures supported by 
 
 ## Supported Models
 
-LibreYOLO supports three YOLO architectures:
+LibreYOLO supports seven YOLO architectures:
 
 | Model | Class | Sizes | Key Features |
 |-------|-------|-------|--------------|
+| YOLOv7 | `LIBREYOLO7` | base, tiny | ELAN blocks, anchor-based with ImplicitA/ImplicitM |
 | YOLOv8 | `LIBREYOLO8` | n, s, m, l, x | C2F blocks, anchor-free |
+| YOLOv9 | `LIBREYOLO9` | t, s, m, c | ELAN blocks, anchor-free, GELAN architecture |
 | YOLOv11 | `LIBREYOLO11` | n, s, m, l, x | C3k2 blocks, C2PSA attention |
 | YOLOX | `LIBREYOLOX` | nano, tiny, s, m, l, x | CSPDarknet backbone, decoupled head |
+| YOLO-RD | `LIBREYOLORD` | c | YOLOv9-c with DConv for regional diversity |
+| RT-DETR | `LIBREYOLORTDETR` | s, ms, m, l, x | Transformer-based, no anchors, no NMS |
 
 ## Architecture Overview
 
