@@ -19,6 +19,7 @@ from ..common.eigen_cam import compute_eigen_cam, overlay_heatmap
 from ..common.cam import CAM_METHODS
 from ..common.image_loader import ImageInput, ImageLoader
 from ..common.utils import get_safe_stem, get_slice_bboxes, draw_tile_grid
+from ..common.postprocessing import get_postprocessor, list_postprocessors, POSTPROCESSORS
 
 
 class LIBREYOLO8:
@@ -26,7 +27,9 @@ class LIBREYOLO8:
     Libre YOLO8 model for object detection.
 
     Args:
-        model_path: Path to model weights file (required)
+        model_path: Model weights source. Can be:
+            - str: Path to a .pt/.pth weights file
+            - dict: Pre-loaded state_dict (e.g., from torch.load())
         size: Model size variant (required). Must be one of: "n", "s", "m", "l", "x"
         reg_max: Regression max value for DFL (default: 16)
         nb_classes: Number of classes (default: 80 for COCO)
@@ -66,7 +69,9 @@ class LIBREYOLO8:
         Initialize the Libre YOLO8 model.
 
         Args:
-            model_path: Path to user-provided model weights file or loaded state dict
+            model_path: Model weights source. Can be:
+                - str: Path to a .pt/.pth weights file
+                - dict: Pre-loaded state_dict (e.g., from torch.load())
             size: Model size variant. Must be "n", "s", "m", "l", or "x"
             reg_max: Regression max value for DFL (default: 16)
             nb_classes: Number of classes (default: 80)
@@ -315,7 +320,10 @@ class LIBREYOLO8:
         color_format: str = "auto",
         batch_size: int = 1,
         tiling: bool = False,
-        output_file_format: Optional[str] = None
+        overlap_ratio: float = 0.2,
+        output_file_format: Optional[str] = None,
+        postprocessor: Optional[str] = None,
+        postprocessor_kwargs: Optional[dict] = None
     ) -> Union[dict, List[dict]]:
         """
         Run inference on an image or directory of images.
@@ -345,8 +353,20 @@ class LIBREYOLO8:
             tiling: Enable tiling for processing large/high-resolution images (default: False).
                 When enabled, large images are automatically split into overlapping 640x640 tiles,
                 inference is run on each tile, and results are merged using NMS.
+            overlap_ratio: Fractional overlap between tiles when tiling is enabled (default: 0.2).
+                Higher values reduce edge artifacts but increase processing time.
             output_file_format: Output image format when saving. Options: "jpg", "png", "webp".
                 Defaults to "jpg" for maximum compatibility.
+            postprocessor: Post-processing method to use. Options:
+                - "nms": Standard NMS (default)
+                - "soft_nms": Soft-NMS with score decay
+                - "diou_nms": Distance-IoU based NMS
+                - "ciou_nms": Complete-IoU based NMS
+                Use get_available_postprocessors() to see all options.
+            postprocessor_kwargs: Additional arguments for the post-processor.
+                Examples:
+                - For soft_nms: {"sigma": 0.5, "method": "gaussian"}
+                - For any: {"agnostic": True} for class-agnostic NMS
 
         Returns:
             For single image: Dictionary containing detection results with keys:
@@ -379,14 +399,17 @@ class LIBREYOLO8:
                 iou_thres=iou_thres,
                 color_format=color_format,
                 tiling=tiling,
-                output_file_format=output_file_format
+                overlap_ratio=overlap_ratio,
+                output_file_format=output_file_format,
+                postprocessor=postprocessor,
+                postprocessor_kwargs=postprocessor_kwargs
             )
 
         # Use tiled inference for large images when tiling is enabled
         if tiling:
-            return self._predict_tiled(image, save, output_path, conf_thres, iou_thres, color_format, output_file_format)
+            return self._predict_tiled(image, save, output_path, conf_thres, iou_thres, color_format, overlap_ratio, output_file_format, postprocessor, postprocessor_kwargs)
 
-        return self._predict_single(image, save, output_path, conf_thres, iou_thres, color_format, output_file_format)
+        return self._predict_single(image, save, output_path, conf_thres, iou_thres, color_format, output_file_format, postprocessor, postprocessor_kwargs)
     
     def _process_in_batches(
         self,
@@ -398,7 +421,10 @@ class LIBREYOLO8:
         iou_thres: float = 0.45,
         color_format: str = "auto",
         tiling: bool = False,
-        output_file_format: Optional[str] = None
+        overlap_ratio: float = 0.2,
+        output_file_format: Optional[str] = None,
+        postprocessor: Optional[str] = None,
+        postprocessor_kwargs: Optional[dict] = None
     ) -> List[dict]:
         """
         Process multiple images, respecting batch_size for chunking.
@@ -416,7 +442,10 @@ class LIBREYOLO8:
             iou_thres: IoU threshold for NMS.
             color_format: Color format hint.
             tiling: Enable tiling for large images.
+            overlap_ratio: Fractional overlap between tiles (default: 0.2).
             output_file_format: Output image format when saving.
+            postprocessor: Post-processing method name.
+            postprocessor_kwargs: Additional post-processor arguments.
 
         Returns:
             List of detection dictionaries, one per image.
@@ -429,14 +458,108 @@ class LIBREYOLO8:
             for path in chunk:
                 if tiling:
                     results.append(
-                        self._predict_tiled(path, save, output_path, conf_thres, iou_thres, color_format, output_file_format)
+                        self._predict_tiled(path, save, output_path, conf_thres, iou_thres, color_format, overlap_ratio, output_file_format, postprocessor, postprocessor_kwargs)
                     )
                 else:
                     results.append(
-                        self._predict_single(path, save, output_path, conf_thres, iou_thres, color_format, output_file_format)
+                        self._predict_single(path, save, output_path, conf_thres, iou_thres, color_format, output_file_format, postprocessor, postprocessor_kwargs)
                     )
         return results
-    
+
+    def _postprocess_with_processor(
+        self,
+        output: dict,
+        conf_thres: float,
+        iou_thres: float,
+        original_size: Tuple[int, int],
+        postprocessor: str,
+        postprocessor_kwargs: Optional[dict] = None
+    ) -> dict:
+        """
+        Apply postprocessing using the pluggable postprocessor system.
+
+        This decodes the raw model output and applies the specified post-processor.
+
+        Args:
+            output: Raw model output dictionary
+            conf_thres: Confidence threshold
+            iou_thres: IoU threshold
+            original_size: Original image size (width, height)
+            postprocessor: Name of the post-processor to use
+            postprocessor_kwargs: Additional kwargs for the post-processor
+
+        Returns:
+            Detection dictionary with boxes, scores, classes, num_detections
+        """
+        from ..common.postprocessing import get_postprocessor, rescale_boxes, filter_valid_boxes
+
+        # Decode boxes and get class predictions (reuse existing functions)
+        box_layers = [output['x8']['box'], output['x16']['box'], output['x32']['box']]
+        cls_layers = [output['x8']['cls'], output['x16']['cls'], output['x32']['cls']]
+        strides = [8, 16, 32]
+
+        anchors, stride_tensor = make_anchors(box_layers, strides)
+
+        box_preds = torch.cat([x.flatten(2).permute(0, 2, 1) for x in box_layers], dim=1)
+        cls_preds = torch.cat([x.flatten(2).permute(0, 2, 1) for x in cls_layers], dim=1)
+
+        decoded_boxes = decode_boxes(box_preds, anchors, stride_tensor)
+        decoded_boxes = decoded_boxes[0]  # Remove batch dimension
+
+        scores = cls_preds[0].sigmoid()
+        max_scores, class_ids = torch.max(scores, dim=1)
+
+        # Apply confidence threshold
+        mask = max_scores > conf_thres
+        if not mask.any():
+            return {
+                "boxes": [],
+                "scores": [],
+                "classes": [],
+                "num_detections": 0
+            }
+
+        valid_boxes = decoded_boxes[mask]
+        valid_scores = max_scores[mask]
+        valid_classes = class_ids[mask]
+
+        # Rescale boxes to original image size
+        valid_boxes = rescale_boxes(valid_boxes, 640, original_size, clip=True)
+
+        # Filter out invalid boxes
+        valid_boxes, valid_scores, valid_classes = filter_valid_boxes(
+            valid_boxes, valid_scores, valid_classes
+        )
+
+        if len(valid_boxes) == 0:
+            return {
+                "boxes": [],
+                "scores": [],
+                "classes": [],
+                "num_detections": 0
+            }
+
+        # Get the post-processor
+        pp_kwargs = postprocessor_kwargs or {}
+        processor = get_postprocessor(
+            postprocessor,
+            conf_thres=conf_thres,
+            iou_thres=iou_thres,
+            **pp_kwargs
+        )
+
+        # Apply post-processing
+        final_boxes, final_scores, final_classes = processor(
+            valid_boxes, valid_scores, valid_classes
+        )
+
+        return {
+            "boxes": final_boxes.cpu().tolist(),
+            "scores": final_scores.cpu().tolist(),
+            "classes": final_classes.cpu().tolist(),
+            "num_detections": len(final_boxes)
+        }
+
     def _predict_single(
         self,
         image: ImageInput,
@@ -445,13 +568,19 @@ class LIBREYOLO8:
         conf_thres: float = 0.25,
         iou_thres: float = 0.45,
         color_format: str = "auto",
-        output_file_format: Optional[str] = None
+        output_file_format: Optional[str] = None,
+        postprocessor: Optional[str] = None,
+        postprocessor_kwargs: Optional[dict] = None
     ) -> dict:
         """
         Run inference on a single image.
 
         This is the internal implementation for single-image inference.
         Use __call__ for the public API which also supports directories.
+
+        Args:
+            postprocessor: Post-processing method name (e.g., "nms", "soft_nms")
+            postprocessor_kwargs: Additional arguments for the post-processor
         """
         # Store original image path for saving
         image_path = image if isinstance(image, (str, Path)) else None
@@ -463,14 +592,26 @@ class LIBREYOLO8:
         with torch.no_grad():
             output = self.model(input_tensor.to(self.device))
 
-        # Postprocess
-        detections = postprocess(
-            output,
-            conf_thres=conf_thres,
-            iou_thres=iou_thres,
-            input_size=640,
-            original_size=original_size
-        )
+        # Postprocess - use new pluggable system if postprocessor is specified
+        if postprocessor is not None:
+            # Use new postprocessing system
+            detections = self._postprocess_with_processor(
+                output=output,
+                conf_thres=conf_thres,
+                iou_thres=iou_thres,
+                original_size=original_size,
+                postprocessor=postprocessor,
+                postprocessor_kwargs=postprocessor_kwargs
+            )
+        else:
+            # Use legacy postprocess for backwards compatibility
+            detections = postprocess(
+                output,
+                conf_thres=conf_thres,
+                iou_thres=iou_thres,
+                input_size=640,
+                original_size=original_size
+            )
 
         # Add source path for traceability
         detections["source"] = str(image_path) if image_path else None
@@ -583,7 +724,10 @@ class LIBREYOLO8:
         conf_thres: float = 0.25,
         iou_thres: float = 0.45,
         color_format: str = "auto",
-        output_file_format: Optional[str] = None
+        overlap_ratio: float = 0.2,
+        output_file_format: Optional[str] = None,
+        postprocessor: Optional[str] = None,
+        postprocessor_kwargs: Optional[dict] = None
     ) -> dict:
         """
         Run tiled inference on large images.
@@ -599,7 +743,10 @@ class LIBREYOLO8:
             conf_thres: Confidence threshold.
             iou_thres: IoU threshold for NMS.
             color_format: Color format hint for numpy arrays.
+            overlap_ratio: Fractional overlap between tiles (default: 0.2).
             output_file_format: Output image format when saving.
+            postprocessor: Post-processing method name.
+            postprocessor_kwargs: Additional post-processor arguments.
 
         Returns:
             Dictionary with detection results including tiling metadata.
@@ -611,10 +758,10 @@ class LIBREYOLO8:
 
         # Skip tiling if image is already small enough
         if orig_width <= 640 and orig_height <= 640:
-            return self._predict_single(image, save, output_path, conf_thres, iou_thres, color_format, output_file_format)
+            return self._predict_single(image, save, output_path, conf_thres, iou_thres, color_format, output_file_format, postprocessor, postprocessor_kwargs)
 
         # Get tile coordinates
-        slices = get_slice_bboxes(orig_width, orig_height)
+        slices = get_slice_bboxes(orig_width, orig_height, overlap_ratio=overlap_ratio)
 
         # Collect all detections from tiles
         all_boxes, all_scores, all_classes = [], [], []
@@ -633,7 +780,7 @@ class LIBREYOLO8:
                 })
 
             # Run inference on tile (without saving)
-            result = self._predict_single(tile, save=False, conf_thres=conf_thres, iou_thres=iou_thres)
+            result = self._predict_single(tile, save=False, conf_thres=conf_thres, iou_thres=iou_thres, postprocessor=postprocessor, postprocessor_kwargs=postprocessor_kwargs)
 
             # Shift boxes back to original image coordinates
             for box in result["boxes"]:
@@ -722,7 +869,7 @@ class LIBREYOLO8:
                 "original_size": [orig_width, orig_height],
                 "num_tiles": len(slices),
                 "tile_size": 640,
-                "overlap_ratio": 0.2,
+                "overlap_ratio": overlap_ratio,
                 "tiles": [
                     {
                         "index": td["index"],
@@ -1095,8 +1242,24 @@ class LIBREYOLO8:
     def get_available_cam_methods() -> List[str]:
         """
         Get list of available CAM methods.
-        
+
         Returns:
             List of CAM method names that can be used with explain().
         """
         return list(CAM_METHODS.keys())
+
+    @staticmethod
+    def get_available_postprocessors() -> dict:
+        """
+        Get available post-processing methods with their descriptions.
+
+        Returns:
+            Dictionary mapping post-processor names to metadata:
+                - description: Human-readable description
+                - supports_batched: Whether batched processing is supported
+
+        Example:
+            >>> LIBREYOLO8.get_available_postprocessors()
+            {'nms': {'description': 'Standard NMS...', 'supports_batched': False}, ...}
+        """
+        return list_postprocessors()

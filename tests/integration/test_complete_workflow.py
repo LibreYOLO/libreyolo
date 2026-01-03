@@ -30,19 +30,61 @@ except ImportError:
     pass
 
 
-# All model combinations (10 total: 5 YOLO8 + 5 YOLO11)
+# All model combinations (22 total: 5 YOLO8 + 5 YOLO11 + 4 YOLOv9 + 2 YOLOv7 + 1 YOLO-RD + 5 YOLOX)
 ALL_MODELS = [
+    # YOLOv8 variants
     ("8", "n"),
     ("8", "s"),
     ("8", "m"),
     ("8", "l"),
     ("8", "x"),
+    # YOLOv11 variants
     ("11", "n"),
     ("11", "s"),
     ("11", "m"),
     ("11", "l"),
     ("11", "x"),
+    # YOLOv9 variants (anchor-free with DFL)
+    ("9", "t"),
+    ("9", "s"),
+    ("9", "m"),
+    ("9", "c"),
+    # YOLOv7 variants (anchor-based)
+    ("7", "base"),
+    ("7", "tiny"),
+    # YOLO-RD (Regional Diversity - extends v9-c)
+    ("rd", "c"),
 ]
+
+# Subset of quick models for faster testing
+QUICK_MODELS = [
+    ("8", "n"),
+    ("11", "n"),
+    ("9", "t"),
+    ("7", "tiny"),
+]
+
+# Model filename patterns for different versions
+MODEL_FILENAME_PATTERNS = {
+    "8": "libreyolo8{size}.pt",
+    "11": "libreyolo11{size}.pt",
+    "9": "yolov9{size}.pt",
+    "7": "yolov7{size}.pt" if "{size}" != "base" else "yolov7.pt",
+    "rd": "yolo_rd_{size}.pt",
+}
+
+def get_model_filename(version: str, size: str) -> str:
+    """Get the correct filename for a model version and size."""
+    if version == "7" and size == "base":
+        return "yolov7.pt"
+    elif version == "7":
+        return f"yolov7-{size}.pt"
+    elif version == "9":
+        return f"yolov9{size}.pt"
+    elif version == "rd":
+        return f"yolo_rd_{size}.pt"
+    else:
+        return f"libreyolo{version}{size}.pt"
 
 
 @pytest.fixture(scope="module")
@@ -56,69 +98,71 @@ def test_output_dir(project_root):
 
 
 class TestModelDownload:
-    """Test downloading all 10 models from HuggingFace."""
-    
+    """Test downloading all models from HuggingFace."""
+
     @pytest.mark.parametrize("version, size", ALL_MODELS)
     def test_download_model(self, version, size, weights_dir):
         """Test that each model can be downloaded from HuggingFace."""
-        weight_file = weights_dir / f"libreyolo{version}{size}.pt"
-        
+        filename = get_model_filename(version, size)
+        weight_file = weights_dir / filename
+
         # If it already exists, we're good
         if weight_file.exists():
             pytest.skip(f"Weights {weight_file.name} already exist")
             return
-        
+
         # Try to download using the LIBREYOLO factory with auto-download
         try:
             model = LIBREYOLO(str(weight_file), size=size)
             assert weight_file.exists(), f"Download failed, {weight_file} not found"
-            
+
             # Verify it's a valid torch file
             state_dict = torch.load(str(weight_file), map_location='cpu', weights_only=False)
             assert len(state_dict) > 0, "Downloaded weights file is empty"
             print(f"✓ Successfully downloaded {weight_file.name}")
-            
+
         except Exception as e:
             pytest.fail(f"Failed to download model {version}{size}: {e}")
 
 
 class TestInference:
-    """Test inference with all 10 models."""
-    
+    """Test inference with all models."""
+
     @pytest.mark.parametrize("version, size", ALL_MODELS)
     def test_inference_all_models(self, version, size, weights_dir, test_image, test_output_dir):
         """Test inference on a test image for each model."""
-        weight_file = weights_dir / f"libreyolo{version}{size}.pt"
-        
+        filename = get_model_filename(version, size)
+        weight_file = weights_dir / filename
+
         if not weight_file.exists():
             pytest.skip(f"Weights {weight_file.name} not found. Run download tests first.")
-        
+
         # Load model
         model = LIBREYOLO(str(weight_file), size=size)
-        
+
         # Run inference
         results = model.predict(test_image, save=False, conf_thres=0.25, iou_thres=0.45)
-        
+
         # Validate results structure
         assert results is not None, "Results should not be None"
         assert "boxes" in results, "Results should contain 'boxes'"
         assert "scores" in results, "Results should contain 'scores'"
         assert "classes" in results, "Results should contain 'classes'"
         assert "num_detections" in results, "Results should contain 'num_detections'"
-        
+
         # Validate data types
         assert isinstance(results["num_detections"], int), "num_detections should be int"
         num_dets = results["num_detections"]
-        
+
         if num_dets > 0:
             assert len(results["boxes"]) == num_dets, "boxes length should match num_detections"
             assert len(results["scores"]) == num_dets, "scores length should match num_detections"
             assert len(results["classes"]) == num_dets, "classes length should match num_detections"
-            
+
             # Validate ranges
             assert all(0 <= score <= 1 for score in results["scores"]), "Scores should be in [0, 1]"
             assert all(0 <= cls < 80 for cls in results["classes"]), "Classes should be in [0, 79] for COCO"
-        
+
         print(f"✓ Inference successful for {version}{size}: {num_dets} detections")
 
 
@@ -138,8 +182,9 @@ class TestONNXExport:
     @pytest.mark.parametrize("version, size", ALL_MODELS)
     def test_export_to_onnx(self, version, size, weights_dir, test_output_dir):
         """Test exporting each model to ONNX format."""
-        weight_file = weights_dir / f"libreyolo{version}{size}.pt"
-        
+        filename = get_model_filename(version, size)
+        weight_file = weights_dir / filename
+
         if not weight_file.exists():
             pytest.skip(f"Weights {weight_file.name} not found. Run download tests first.")
         
@@ -346,11 +391,12 @@ class TestFeatureMaps:
 class TestCustomOutputPath:
     """Test saving detection results with custom output paths."""
     
-    @pytest.mark.parametrize("version, size", [("11", "n"), ("8", "n")])
+    @pytest.mark.parametrize("version, size", [("11", "n"), ("8", "n"), ("9", "t"), ("7", "tiny")])
     def test_inference_with_custom_output_path(self, version, size, weights_dir, test_image, test_output_dir):
         """Test saving detection images to custom output paths."""
-        weight_file = weights_dir / f"libreyolo{version}{size}.pt"
-        
+        filename = get_model_filename(version, size)
+        weight_file = weights_dir / filename
+
         if not weight_file.exists():
             pytest.skip(f"Weights {weight_file.name} not found. Run download tests first.")
         
@@ -452,4 +498,92 @@ class TestEndToEndWorkflow:
         print(f"  - ONNX model: SKIPPED (not yet implemented)")
         print(f"  - Feature maps: {len(png_files)} files in {latest_dir}")
         print(f"\n  ⚠️  Note: ONNX export/inference steps were skipped (not yet implemented)")
+
+
+class TestNewModelVersions:
+    """Test specific functionality for new model versions (v9, v7, rd)."""
+
+    def test_v9_anchor_free_detection(self, weights_dir, test_image):
+        """Test YOLOv9 anchor-free detection with DFL."""
+        filename = get_model_filename("9", "t")
+        weight_file = weights_dir / filename
+
+        if not weight_file.exists():
+            pytest.skip(f"Weights {weight_file.name} not found.")
+
+        model = LIBREYOLO(str(weight_file), size="t")
+        results = model.predict(test_image, save=False, conf_thres=0.25)
+
+        assert results is not None
+        assert "boxes" in results
+        assert model.version == "9"
+        print(f"✓ YOLOv9 anchor-free detection: {results['num_detections']} detections")
+
+    def test_v7_anchor_based_detection(self, weights_dir, test_image):
+        """Test YOLOv7 anchor-based detection."""
+        filename = get_model_filename("7", "tiny")
+        weight_file = weights_dir / filename
+
+        if not weight_file.exists():
+            pytest.skip(f"Weights {weight_file.name} not found.")
+
+        model = LIBREYOLO(str(weight_file), size="tiny")
+        results = model.predict(test_image, save=False, conf_thres=0.25)
+
+        assert results is not None
+        assert "boxes" in results
+        assert model.version == "7"
+        print(f"✓ YOLOv7 anchor-based detection: {results['num_detections']} detections")
+
+    def test_rd_regional_diversity(self, weights_dir, test_image):
+        """Test YOLO-RD with regional diversity features."""
+        filename = get_model_filename("rd", "c")
+        weight_file = weights_dir / filename
+
+        if not weight_file.exists():
+            pytest.skip(f"Weights {weight_file.name} not found.")
+
+        model = LIBREYOLO(str(weight_file), size="c")
+        results = model.predict(test_image, save=False, conf_thres=0.25)
+
+        assert results is not None
+        assert "boxes" in results
+        assert model.version == "rd"
+        print(f"✓ YOLO-RD regional diversity detection: {results['num_detections']} detections")
+
+    @pytest.mark.parametrize("version, size", QUICK_MODELS)
+    def test_version_detection(self, version, size, weights_dir, test_image):
+        """Test that version is correctly detected from weights."""
+        filename = get_model_filename(version, size)
+        weight_file = weights_dir / filename
+
+        if not weight_file.exists():
+            pytest.skip(f"Weights {weight_file.name} not found.")
+
+        model = LIBREYOLO(str(weight_file), size=size)
+        assert model.version == version, f"Expected version {version}, got {model.version}"
+        print(f"✓ Version detection correct for {version}{size}")
+
+
+class TestModelComparison:
+    """Compare behavior across different model versions."""
+
+    def test_all_models_return_same_schema(self, weights_dir, test_image):
+        """Test that all model versions return the same detection schema."""
+        expected_keys = {"boxes", "scores", "classes", "num_detections"}
+
+        for version, size in QUICK_MODELS:
+            filename = get_model_filename(version, size)
+            weight_file = weights_dir / filename
+
+            if not weight_file.exists():
+                continue
+
+            model = LIBREYOLO(str(weight_file), size=size)
+            results = model.predict(test_image, save=False, conf_thres=0.25)
+
+            assert results is not None, f"{version}{size} returned None"
+            assert set(results.keys()) >= expected_keys, f"{version}{size} missing required keys"
+
+        print("✓ All models return consistent detection schema")
 

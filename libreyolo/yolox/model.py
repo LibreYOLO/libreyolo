@@ -12,9 +12,10 @@ import torch
 from PIL import Image
 
 from .nn import YOLOXModel
-from .utils import preprocess_image, postprocess, nms
+from .utils import preprocess_image, postprocess, nms, decode_outputs, cxcywh_to_xyxy
 from ..common.utils import draw_boxes, get_safe_stem, get_slice_bboxes, draw_tile_grid
 from ..common.image_loader import ImageInput, ImageLoader
+from ..common.postprocessing import get_postprocessor, list_postprocessors, POSTPROCESSORS
 
 
 class LIBREYOLOX:
@@ -22,14 +23,16 @@ class LIBREYOLOX:
     YOLOX model for object detection.
 
     Args:
-        model_path: Path to model weights file or loaded state dict (required)
+        model_path: Model weights source. Can be:
+            - str: Path to a .pt/.pth weights file
+            - dict: Pre-loaded state_dict (e.g., from torch.load())
         size: Model size variant (required). Must be one of: "nano", "tiny", "s", "m", "l", "x"
         nb_classes: Number of classes (default: 80 for COCO)
         device: Device for inference. "auto" (default) uses CUDA if available, else MPS, else CPU.
                 Can also specify directly: "cuda", "cuda:0", "mps", "cpu".
 
     Example:
-        >>> model = LIBREYOLOX(model_path="yolox_s.pt", size="s")
+        >>> model = LIBREYOLOX(model_path="libreyoloXs.pt", size="s")
         >>> detections = model(image="image.jpg", save=True)
         >>> # Use tiling for large images
         >>> detections = model(image=large_image_path, save=True, tiling=True)
@@ -56,7 +59,9 @@ class LIBREYOLOX:
         Initialize the LIBREYOLOX model.
 
         Args:
-            model_path: Path to model weights file or pre-loaded state dict
+            model_path: Model weights source. Can be:
+                - str: Path to a .pt/.pth weights file
+                - dict: Pre-loaded state_dict (e.g., from torch.load())
             size: Model size variant. Must be "nano", "tiny", "s", "m", "l", or "x"
             nb_classes: Number of classes (default: 80)
             device: Device for inference ("auto", "cuda", "mps", "cpu")
@@ -130,7 +135,10 @@ class LIBREYOLOX:
         color_format: str = "auto",
         batch_size: int = 1,
         tiling: bool = False,
-        output_file_format: Optional[str] = None
+        overlap_ratio: float = 0.2,
+        output_file_format: Optional[str] = None,
+        postprocessor: Optional[str] = None,
+        postprocessor_kwargs: Optional[dict] = None
     ) -> Union[dict, List[dict]]:
         """
         Run inference on an image or directory of images.
@@ -153,8 +161,20 @@ class LIBREYOLOX:
             tiling: Enable tiling for processing large/high-resolution images (default: False).
                 When enabled, large images are automatically split into overlapping tiles,
                 inference is run on each tile, and results are merged using NMS.
+            overlap_ratio: Fractional overlap between tiles when tiling is enabled (default: 0.2).
+                Higher values reduce edge artifacts but increase processing time.
             output_file_format: Output image format when saving. Options: "jpg", "png", "webp".
                 Defaults to "jpg" for maximum compatibility.
+            postprocessor: Post-processing method to use. Options:
+                - "nms": Standard NMS (default)
+                - "soft_nms": Soft-NMS with score decay
+                - "diou_nms": Distance-IoU based NMS
+                - "ciou_nms": Complete-IoU based NMS
+                Use get_available_postprocessors() to see all options.
+            postprocessor_kwargs: Additional arguments for the post-processor.
+                Examples:
+                - For soft_nms: {"sigma": 0.5, "method": "gaussian"}
+                - For any: {"agnostic": True} for class-agnostic NMS
 
         Returns:
             For single image: Dictionary containing detection results with keys:
@@ -187,14 +207,17 @@ class LIBREYOLOX:
                 iou_thres=iou_thres,
                 color_format=color_format,
                 tiling=tiling,
-                output_file_format=output_file_format
+                overlap_ratio=overlap_ratio,
+                output_file_format=output_file_format,
+                postprocessor=postprocessor,
+                postprocessor_kwargs=postprocessor_kwargs
             )
 
         # Use tiled inference for large images when tiling is enabled
         if tiling:
-            return self._predict_tiled(image, save, output_path, conf_thres, iou_thres, color_format, output_file_format)
+            return self._predict_tiled(image, save, output_path, conf_thres, iou_thres, color_format, overlap_ratio, output_file_format, postprocessor, postprocessor_kwargs)
 
-        return self._predict_single(image, save, output_path, conf_thres, iou_thres, color_format, output_file_format)
+        return self._predict_single(image, save, output_path, conf_thres, iou_thres, color_format, output_file_format, postprocessor, postprocessor_kwargs)
 
     def _process_in_batches(
         self,
@@ -206,7 +229,10 @@ class LIBREYOLOX:
         iou_thres: float = 0.45,
         color_format: str = "auto",
         tiling: bool = False,
-        output_file_format: Optional[str] = None
+        overlap_ratio: float = 0.2,
+        output_file_format: Optional[str] = None,
+        postprocessor: Optional[str] = None,
+        postprocessor_kwargs: Optional[dict] = None
     ) -> List[dict]:
         """Process multiple images in batches."""
         results = []
@@ -215,11 +241,11 @@ class LIBREYOLOX:
             for path in chunk:
                 if tiling:
                     results.append(
-                        self._predict_tiled(path, save, output_path, conf_thres, iou_thres, color_format, output_file_format)
+                        self._predict_tiled(path, save, output_path, conf_thres, iou_thres, color_format, overlap_ratio, output_file_format, postprocessor, postprocessor_kwargs)
                     )
                 else:
                     results.append(
-                        self._predict_single(path, save, output_path, conf_thres, iou_thres, color_format, output_file_format)
+                        self._predict_single(path, save, output_path, conf_thres, iou_thres, color_format, output_file_format, postprocessor, postprocessor_kwargs)
                     )
         return results
 
@@ -231,7 +257,9 @@ class LIBREYOLOX:
         conf_thres: float = 0.25,
         iou_thres: float = 0.45,
         color_format: str = "auto",
-        output_file_format: Optional[str] = None
+        output_file_format: Optional[str] = None,
+        postprocessor: Optional[str] = None,
+        postprocessor_kwargs: Optional[dict] = None
     ) -> dict:
         """Run inference on a single image."""
         # Store original image path for saving
@@ -248,15 +276,27 @@ class LIBREYOLOX:
         with torch.no_grad():
             outputs = self.model(input_tensor.to(self.device))
 
-        # Postprocess
-        detections = postprocess(
-            outputs,
-            conf_thres=conf_thres,
-            iou_thres=iou_thres,
-            input_size=self.input_size,
-            original_size=original_size,
-            ratio=ratio
-        )
+        # Postprocess - use new pluggable system if postprocessor is specified
+        if postprocessor is not None:
+            detections = self._postprocess_with_processor(
+                outputs=outputs,
+                conf_thres=conf_thres,
+                iou_thres=iou_thres,
+                original_size=original_size,
+                ratio=ratio,
+                postprocessor=postprocessor,
+                postprocessor_kwargs=postprocessor_kwargs
+            )
+        else:
+            # Use legacy postprocess for backwards compatibility
+            detections = postprocess(
+                outputs,
+                conf_thres=conf_thres,
+                iou_thres=iou_thres,
+                input_size=self.input_size,
+                original_size=original_size,
+                ratio=ratio
+            )
 
         # Add source path for traceability
         detections["source"] = str(image_path) if image_path else None
@@ -307,6 +347,112 @@ class LIBREYOLOX:
 
         return detections
 
+    def _postprocess_with_processor(
+        self,
+        outputs: List[torch.Tensor],
+        conf_thres: float,
+        iou_thres: float,
+        original_size: Tuple[int, int],
+        ratio: float,
+        postprocessor: str,
+        postprocessor_kwargs: Optional[dict] = None
+    ) -> dict:
+        """
+        Apply postprocessing using the pluggable postprocessor system.
+
+        This decodes the raw YOLOX model output and applies the specified post-processor.
+        YOLOX uses center/width/height format with objectness scores.
+
+        Args:
+            outputs: List of raw model output tensors from each scale
+            conf_thres: Confidence threshold
+            iou_thres: IoU threshold
+            original_size: Original image size (width, height)
+            ratio: Scale ratio from preprocessing
+            postprocessor: Name of the post-processor to use
+            postprocessor_kwargs: Additional kwargs for the post-processor
+
+        Returns:
+            Detection dictionary with boxes, scores, classes, num_detections
+        """
+        from ..common.postprocessing import get_postprocessor, filter_valid_boxes
+
+        # Decode outputs to absolute coordinates (YOLOX format: cx, cy, w, h, obj, class_probs)
+        decoded = decode_outputs(outputs)  # (B, N, 5+num_classes)
+
+        # Take first batch
+        decoded = decoded[0]  # (N, 5+num_classes)
+
+        # Extract components
+        boxes_cxcywh = decoded[:, :4]  # (N, 4) - center_x, center_y, width, height
+        objectness = decoded[:, 4]     # (N,) - objectness score
+        class_probs = decoded[:, 5:]   # (N, num_classes) - class probabilities
+
+        # Final confidence = objectness * class_prob
+        scores = objectness.unsqueeze(-1) * class_probs  # (N, num_classes)
+
+        # Get max class score and class id for each prediction
+        max_scores, class_ids = torch.max(scores, dim=1)  # (N,)
+
+        # Filter by confidence threshold
+        mask = max_scores > conf_thres
+        if not mask.any():
+            return {
+                "boxes": [],
+                "scores": [],
+                "classes": [],
+                "num_detections": 0
+            }
+
+        valid_boxes_cxcywh = boxes_cxcywh[mask]
+        valid_scores = max_scores[mask]
+        valid_classes = class_ids[mask]
+
+        # Convert from cxcywh to xyxy format
+        valid_boxes = cxcywh_to_xyxy(valid_boxes_cxcywh)
+
+        # Scale boxes back to original image coordinates
+        if ratio != 1.0:
+            valid_boxes = valid_boxes / ratio
+
+        # Clamp to image boundaries
+        valid_boxes[:, [0, 2]] = torch.clamp(valid_boxes[:, [0, 2]], 0, original_size[0])
+        valid_boxes[:, [1, 3]] = torch.clamp(valid_boxes[:, [1, 3]], 0, original_size[1])
+
+        # Filter out invalid boxes
+        valid_boxes, valid_scores, valid_classes = filter_valid_boxes(
+            valid_boxes, valid_scores, valid_classes
+        )
+
+        if len(valid_boxes) == 0:
+            return {
+                "boxes": [],
+                "scores": [],
+                "classes": [],
+                "num_detections": 0
+            }
+
+        # Get the post-processor
+        pp_kwargs = postprocessor_kwargs or {}
+        processor = get_postprocessor(
+            postprocessor,
+            conf_thres=conf_thres,
+            iou_thres=iou_thres,
+            **pp_kwargs
+        )
+
+        # Apply post-processing
+        final_boxes, final_scores, final_classes = processor(
+            valid_boxes, valid_scores, valid_classes
+        )
+
+        return {
+            "boxes": final_boxes.cpu().tolist(),
+            "scores": final_scores.cpu().tolist(),
+            "classes": final_classes.cpu().tolist(),
+            "num_detections": len(final_boxes)
+        }
+
     def _merge_tile_detections(
         self,
         boxes: List,
@@ -345,7 +491,10 @@ class LIBREYOLOX:
         conf_thres: float = 0.25,
         iou_thres: float = 0.45,
         color_format: str = "auto",
-        output_file_format: Optional[str] = None
+        overlap_ratio: float = 0.2,
+        output_file_format: Optional[str] = None,
+        postprocessor: Optional[str] = None,
+        postprocessor_kwargs: Optional[dict] = None
     ) -> dict:
         """
         Run tiled inference on large images.
@@ -361,7 +510,10 @@ class LIBREYOLOX:
             conf_thres: Confidence threshold.
             iou_thres: IoU threshold for NMS.
             color_format: Color format hint for numpy arrays.
+            overlap_ratio: Fractional overlap between tiles (default: 0.2).
             output_file_format: Output image format when saving.
+            postprocessor: Post-processing method name.
+            postprocessor_kwargs: Additional post-processor arguments.
 
         Returns:
             Dictionary with detection results including tiling metadata.
@@ -373,10 +525,10 @@ class LIBREYOLOX:
 
         # Skip tiling if image is already small enough
         if orig_width <= self.input_size and orig_height <= self.input_size:
-            return self._predict_single(image, save, output_path, conf_thres, iou_thres, color_format, output_file_format)
+            return self._predict_single(image, save, output_path, conf_thres, iou_thres, color_format, output_file_format, postprocessor, postprocessor_kwargs)
 
         # Get tile coordinates
-        slices = get_slice_bboxes(orig_width, orig_height, slice_size=self.input_size)
+        slices = get_slice_bboxes(orig_width, orig_height, slice_size=self.input_size, overlap_ratio=overlap_ratio)
 
         # Collect all detections from tiles
         all_boxes, all_scores, all_classes = [], [], []
@@ -395,7 +547,7 @@ class LIBREYOLOX:
                 })
 
             # Run inference on tile (without saving)
-            result = self._predict_single(tile, save=False, conf_thres=conf_thres, iou_thres=iou_thres)
+            result = self._predict_single(tile, save=False, conf_thres=conf_thres, iou_thres=iou_thres, postprocessor=postprocessor, postprocessor_kwargs=postprocessor_kwargs)
 
             # Shift boxes back to original image coordinates
             for box in result["boxes"]:
@@ -484,7 +636,7 @@ class LIBREYOLOX:
                 "original_size": [orig_width, orig_height],
                 "num_tiles": len(slices),
                 "tile_size": self.input_size,
-                "overlap_ratio": 0.2,
+                "overlap_ratio": overlap_ratio,
                 "tiles": [
                     {
                         "index": td["index"],
@@ -516,6 +668,7 @@ class LIBREYOLOX:
         color_format: str = "auto",
         batch_size: int = 1,
         tiling: bool = False,
+        overlap_ratio: float = 0.2,
         output_file_format: Optional[str] = None
     ) -> Union[dict, List[dict]]:
         """
@@ -530,6 +683,7 @@ class LIBREYOLOX:
             color_format: Color format hint ("auto", "rgb", "bgr")
             batch_size: Number of images per batch
             tiling: Enable tiling for processing large/high-resolution images (default: False)
+            overlap_ratio: Fractional overlap between tiles (default: 0.2)
             output_file_format: Output image format when saving. Options: "jpg", "png", "webp".
 
         Returns:
@@ -545,6 +699,7 @@ class LIBREYOLOX:
             color_format=color_format,
             batch_size=batch_size,
             tiling=tiling,
+            overlap_ratio=overlap_ratio,
             output_file_format=output_file_format
         )
 
@@ -597,6 +752,7 @@ class LIBREYOLOX:
         # Create model with random initialization
         instance.model = YOLOXModel(config=size, nb_classes=num_classes)
         instance.model.to(instance.device)
+        instance.model.train()  # Set to training mode for new models
 
         return instance
 
@@ -631,7 +787,7 @@ class LIBREYOLOX:
             >>> model.train(data="coco.yaml", epochs=300)
 
             >>> # Fine-tune pretrained model
-            >>> model = LIBREYOLOX("yolox_s.pt", size="s")
+            >>> model = LIBREYOLOX("libreyoloXs.pt", size="s")
             >>> model.train(data="custom.yaml", epochs=100)
 
             >>> # With config file
@@ -770,3 +926,19 @@ class LIBREYOLOX:
         traced_model.save(output_path)
 
         return output_path
+
+    @staticmethod
+    def get_available_postprocessors() -> dict:
+        """
+        Get available post-processing methods with their descriptions.
+
+        Returns:
+            Dictionary mapping post-processor names to metadata:
+                - description: Human-readable description
+                - supports_batched: Whether batched processing is supported
+
+        Example:
+            >>> LIBREYOLOX.get_available_postprocessors()
+            {'nms': {'description': 'Standard NMS...', 'supports_batched': False}, ...}
+        """
+        return list_postprocessors()

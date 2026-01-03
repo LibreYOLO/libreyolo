@@ -72,17 +72,18 @@ def preprocess_image(
     return img_tensor, original_img, original_size, ratio
 
 
-def make_grids(outputs: List[torch.Tensor], strides: List[int]) -> Tuple[torch.Tensor, torch.Tensor]:
+def make_grids(outputs: List[torch.Tensor], strides: List[int], grid_cell_offset: float = 0.5) -> Tuple[torch.Tensor, torch.Tensor]:
     """
     Generate grid anchors for YOLOX output decoding.
 
     Args:
         outputs: List of output tensors from each scale
         strides: List of stride values [8, 16, 32]
+        grid_cell_offset: Offset for grid cell centers (default: 0.5)
 
     Returns:
         Tuple of (grids, stride_tensor)
-        - grids: (N, 2) tensor of grid coordinates
+        - grids: (N, 2) tensor of grid coordinates (cell centers)
         - stride_tensor: (N, 1) tensor of stride values
     """
     grids = []
@@ -92,9 +93,9 @@ def make_grids(outputs: List[torch.Tensor], strides: List[int]) -> Tuple[torch.T
         _, _, h, w = output.shape
         dtype, device = output.dtype, output.device
 
-        # Create grid
-        xv = torch.arange(w, device=device, dtype=dtype)
-        yv = torch.arange(h, device=device, dtype=dtype)
+        # Create grid with cell center offset
+        xv = torch.arange(w, device=device, dtype=dtype) + grid_cell_offset
+        yv = torch.arange(h, device=device, dtype=dtype) + grid_cell_offset
         yv, xv = torch.meshgrid(yv, xv, indexing='ij')
         grid = torch.stack((xv, yv), dim=2).view(1, -1, 2)
         grids.append(grid)
@@ -168,6 +169,18 @@ def nms(boxes: torch.Tensor, scores: torch.Tensor, iou_threshold: float = 0.45) 
     if len(boxes) == 0:
         return torch.tensor([], dtype=torch.long, device=boxes.device)
 
+    # Filter out boxes with NaN or Inf values
+    valid_mask = torch.isfinite(boxes).all(dim=1) & torch.isfinite(scores)
+    if not valid_mask.any():
+        return torch.tensor([], dtype=torch.long, device=boxes.device)
+
+    if not valid_mask.all():
+        valid_indices = torch.where(valid_mask)[0]
+        boxes = boxes[valid_mask]
+        scores = scores[valid_mask]
+    else:
+        valid_indices = None
+
     # Sort by scores (descending)
     _, order = scores.sort(0, descending=True)
     keep = []
@@ -201,7 +214,13 @@ def nms(boxes: torch.Tensor, scores: torch.Tensor, iou_threshold: float = 0.45) 
 
         order = order[1:][iou < iou_threshold]
 
-    return torch.tensor(keep, dtype=torch.long, device=boxes.device)
+    keep_tensor = torch.tensor(keep, dtype=torch.long, device=boxes.device)
+
+    # Map back to original indices if we filtered out invalid boxes
+    if valid_indices is not None:
+        keep_tensor = valid_indices[keep_tensor]
+
+    return keep_tensor
 
 
 def cxcywh_to_xyxy(boxes: torch.Tensor) -> torch.Tensor:

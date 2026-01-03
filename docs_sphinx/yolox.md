@@ -29,11 +29,11 @@ YOLOX uses different size names than YOLOv8/v11. Use `nano`, `tiny`, `s`, `m`, `
 from libreyolo import LIBREYOLO
 
 # Using the unified factory (auto-detects YOLOX from weights)
-model = LIBREYOLO("weights/yolox_s.pt", size="s")
+model = LIBREYOLO("weights/libreyoloXs.pt", size="s")
 
 # Or use the YOLOX-specific class directly
 from libreyolo import LIBREYOLOX
-model = LIBREYOLOX("weights/yolox_s.pt", size="s")
+model = LIBREYOLOX("weights/libreyoloXs.pt", size="s")
 ```
 
 ### Running Inference
@@ -60,7 +60,7 @@ Weights are automatically downloaded from Hugging Face if not found locally:
 
 ```python
 # Weights will be downloaded automatically
-model = LIBREYOLO("weights/yolox_s.pt", size="s")
+model = LIBREYOLO("weights/libreyoloXs.pt", size="s")
 ```
 
 ## Training
@@ -89,7 +89,7 @@ results = model.train(
 from libreyolo import LIBREYOLOX
 
 # Load pretrained weights
-model = LIBREYOLOX("yolox_s.pt", size="s")
+model = LIBREYOLOX("libreyoloXs.pt", size="s")
 
 # Fine-tune on custom dataset
 results = model.train(
@@ -144,12 +144,12 @@ results = model.train(
 ### ONNX Export
 
 ```python
-model = LIBREYOLOX("yolox_s.pt", size="s")
+model = LIBREYOLOX("libreyoloXs.pt", size="s")
 
 # Export to ONNX
 output_path = model.export(
     format="onnx",
-    output_path="yolox_s.onnx",
+    output_path="libreyoloXs.onnx",
     opset=11,
     simplify=True,      # Simplify with onnx-simplifier
     dynamic=False       # Dynamic input shapes
@@ -161,7 +161,7 @@ output_path = model.export(
 ```python
 output_path = model.export(
     format="torchscript",
-    output_path="yolox_s.pt"
+    output_path="libreyoloXs.pt"
 )
 ```
 
@@ -171,7 +171,7 @@ For high-resolution images, enable tiling:
 
 ```python
 model = LIBREYOLOX(
-    "yolox_s.pt",
+    "libreyoloXs.pt",
     size="s",
     tiling=True
 )
@@ -185,11 +185,11 @@ print(f"Processed {results['num_tiles']} tiles")
 
 ```python
 # Auto-detect best device (CUDA > MPS > CPU)
-model = LIBREYOLOX("yolox_s.pt", size="s", device="auto")
+model = LIBREYOLOX("libreyoloXs.pt", size="s", device="auto")
 
 # Force specific device
-model = LIBREYOLOX("yolox_s.pt", size="s", device="cuda:0")
-model = LIBREYOLOX("yolox_s.pt", size="s", device="cpu")
+model = LIBREYOLOX("libreyoloXs.pt", size="s", device="cuda:0")
+model = LIBREYOLOX("libreyoloXs.pt", size="s", device="cpu")
 ```
 
 ## Comparison with YOLOv8/v11

@@ -19,7 +19,7 @@ from libreyolo import LIBREYOLO, LIBREYOLOX
 
 def run_basic_inference():
     """Basic YOLOX inference example."""
-    weights_path = "weights/yolox_s.pt"
+    weights_path = "weights/libreyoloXs.pt"
     test_image = "media/test_image_1_creative_commons.jpg"
 
     if not os.path.exists(weights_path):
@@ -58,7 +58,7 @@ def run_basic_inference():
 
 def run_inference_with_options():
     """YOLOX inference with custom thresholds."""
-    weights_path = "weights/yolox_s.pt"
+    weights_path = "weights/libreyoloXs.pt"
     test_image = "media/test_image_1_creative_commons.jpg"
 
     if not os.path.exists(weights_path):
@@ -88,7 +88,7 @@ def run_inference_with_options():
 
 def run_tiled_inference():
     """YOLOX tiled inference for large images."""
-    weights_path = "weights/yolox_s.pt"
+    weights_path = "weights/libreyoloXs.pt"
     test_image = "media/test_image_1_creative_commons.jpg"
 
     if not os.path.exists(weights_path):
@@ -115,7 +115,7 @@ def run_tiled_inference():
 
 def run_directory_inference():
     """YOLOX inference on a directory of images."""
-    weights_path = "weights/yolox_s.pt"
+    weights_path = "weights/libreyoloXs.pt"
     test_dir = "media/"
 
     if not os.path.exists(weights_path):
@@ -152,12 +152,12 @@ def compare_model_sizes():
 
     # Model sizes and their weight files
     models = [
-        ("nano", "weights/yolox_nano.pt"),
-        ("tiny", "weights/yolox_tiny.pt"),
-        ("s", "weights/yolox_s.pt"),
-        ("m", "weights/yolox_m.pt"),
-        ("l", "weights/yolox_l.pt"),
-        ("x", "weights/yolox_x.pt"),
+        ("nano", "weights/libreyoloXnano.pt"),
+        ("tiny", "weights/libreyoloXtiny.pt"),
+        ("s", "weights/libreyoloXs.pt"),
+        ("m", "weights/libreyoloXm.pt"),
+        ("l", "weights/libreyoloXl.pt"),
+        ("x", "weights/libreyoloXx.pt"),
     ]
 
     for size, weights_path in models:

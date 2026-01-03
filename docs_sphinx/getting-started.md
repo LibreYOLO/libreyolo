@@ -93,7 +93,7 @@ model_large = LIBREYOLO("weights/libreyolo8l.pt", size="l")
 
 ```python
 # YOLOX uses different size names
-model = LIBREYOLO("weights/yolox_s.pt", size="s")
+model = LIBREYOLO("weights/libreyoloXs.pt", size="s")
 ```
 
 ## Next Steps
