@@ -80,6 +80,32 @@ model_nano = LIBREYOLO("weights/libreyolo8n.pt", size="n")
 model_large = LIBREYOLO("weights/libreyolo8l.pt", size="l")
 ```
 
+### YOLOv7
+
+| Size | Description |
+|------|-------------|
+| `base` | Standard YOLOv7 |
+| `tiny` | Lightweight variant |
+
+```python
+from libreyolo import LIBREYOLO7
+model = LIBREYOLO7("weights/libreyolo7.pt", size="base")
+```
+
+### YOLOv9
+
+| Size | Description |
+|------|-------------|
+| `t` | Tiny |
+| `s` | Small |
+| `m` | Medium |
+| `c` | Compact (largest) |
+
+```python
+from libreyolo import LIBREYOLO9
+model = LIBREYOLO9("weights/libreyolo9s.pt", size="s")
+```
+
 ### YOLOX
 
 | Size | Input Size | Description |
@@ -94,6 +120,32 @@ model_large = LIBREYOLO("weights/libreyolo8l.pt", size="l")
 ```python
 # YOLOX uses different size names
 model = LIBREYOLO("weights/libreyoloXs.pt", size="s")
+```
+
+### YOLO-RD
+
+| Size | Description |
+|------|-------------|
+| `c` | Based on YOLOv9-c with DConv |
+
+```python
+from libreyolo import LIBREYOLORD
+model = LIBREYOLORD("weights/libreyolord.pt", size="c")
+```
+
+### RT-DETR
+
+| Size | Backbone | Description |
+|------|----------|-------------|
+| `s` | ResNet18-vd | Small |
+| `ms` | ResNet34-vd | Medium* |
+| `m` | ResNet50-vd_m | Medium |
+| `l` | ResNet50-vd | Large |
+| `x` | ResNet101-vd | Extra large |
+
+```python
+from libreyolo import LIBREYOLORTDETR
+model = LIBREYOLORTDETR("weights/rtdetr_l.pt", size="l")
 ```
 
 ## Next Steps
