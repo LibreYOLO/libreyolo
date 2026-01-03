@@ -310,9 +310,12 @@ class TestFeatureMaps:
     """Test feature map saving with custom output path."""
     
     def test_feature_maps_with_custom_output(self, weights_dir, test_image, test_output_dir, tmp_path, monkeypatch):
-        """Test feature map saving with a custom output directory for YOLO11n."""
-        # Use YOLO11n as the test model
-        weight_file = weights_dir / "libreyolo11n.pt"
+        """Test feature map saving with a custom output directory.
+        
+        Note: Feature maps are only supported by YOLO8, not YOLO11.
+        """
+        # Use YOLO8n as the test model (feature maps only supported by YOLO8)
+        weight_file = weights_dir / "libreyolo8n.pt"
         
         if not weight_file.exists():
             pytest.skip(f"Weights {weight_file.name} not found. Run download tests first.")
@@ -355,8 +358,11 @@ class TestFeatureMaps:
         print(f"✓ Feature maps saved: {len(png_files)} files in {latest_dir}")
         
     def test_feature_maps_selective_layers(self, weights_dir, test_image, tmp_path, monkeypatch):
-        """Test saving only specific feature map layers."""
-        weight_file = weights_dir / "libreyolo11n.pt"
+        """Test saving only specific feature map layers.
+        
+        Note: Feature maps are only supported by YOLO8, not YOLO11.
+        """
+        weight_file = weights_dir / "libreyolo8n.pt"
         
         if not weight_file.exists():
             pytest.skip(f"Weights {weight_file.name} not found. Run download tests first.")
@@ -476,10 +482,14 @@ class TestEndToEndWorkflow:
         # assert outputs is not None
         # assert len(outputs) == 1
         
-        # Step 6: Save feature maps
+        # Step 6: Save feature maps (using YOLO8 since feature maps only supported by YOLO8)
         print("[6/6] Saving feature maps...")
         monkeypatch.chdir(tmp_path)
-        model_fm = LIBREYOLO(str(weight_file), size=size, save_feature_maps=True)
+        yolo8_weight_file = weights_dir / "libreyolo8n.pt"
+        if not yolo8_weight_file.exists():
+            print("      ⚠️  SKIPPED (YOLO8 weights not found, feature maps only supported by YOLO8)")
+            return
+        model_fm = LIBREYOLO(str(yolo8_weight_file), size="n", save_feature_maps=True)
         model_fm.predict(test_image, save=False)
         
         feature_map_dir = tmp_path / "runs" / "feature_maps"

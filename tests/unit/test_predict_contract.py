@@ -73,18 +73,14 @@ def test_predict_schema(model_cls):
     )
 
 
-@pytest.mark.parametrize("model_cls", [LIBREYOLO8, LIBREYOLO11])
-def test_predict_includes_feature_map_path_when_enabled(model_cls, tmp_path):
+# Note: feature_maps_path is currently only supported by LIBREYOLO8
+def test_predict_includes_feature_map_path_when_enabled(tmp_path):
+    """Test that LIBREYOLO8 includes feature_maps_path when save_feature_maps is enabled."""
     fm_dir = tmp_path / "feature_maps"
-    model = build_stub(model_cls, save_feature_maps=True, feature_dir=fm_dir)
+    model = build_stub(LIBREYOLO8, save_feature_maps=True, feature_dir=fm_dir)
 
-    # Mock postprocess to avoid implementation details
-    if model_cls == LIBREYOLO8:
-        with patch("libreyolo.v8.model.postprocess", side_effect=_mock_postprocess):
-            detections = model.predict(np.zeros((8, 8, 3), dtype=np.uint8), save=False)
-    else:
-        with patch("libreyolo.v11.model.postprocess", side_effect=_mock_postprocess):
-            detections = model.predict(np.zeros((8, 8, 3), dtype=np.uint8), save=False)
+    with patch("libreyolo.v8.model.postprocess", side_effect=_mock_postprocess):
+        detections = model.predict(np.zeros((8, 8, 3), dtype=np.uint8), save=False)
 
     assert detections.get("feature_maps_path") == str(fm_dir)
     assert fm_dir.exists()
