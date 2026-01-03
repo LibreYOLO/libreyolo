@@ -40,6 +40,7 @@ def download_weights(model_path: str, size: str):
               - For v9: 't', 's', 'm', 'c'
               - For v7: 'base', 'tiny'
               - For YOLO-RD: 'c' (only c variant)
+              - For RT-DETR: 's', 'ms', 'm', 'l', 'x'
     """
     path = Path(model_path)
     if path.exists():
@@ -47,10 +48,16 @@ def download_weights(model_path: str, size: str):
 
     filename = path.name
 
-    # Check for YOLOX first (e.g., libreyoloXs.pt, libreyoloXnano.pt)
-    yolox_match = re.search(r'libreyolox(nano|tiny|s|m|l|x)', filename.lower())
-    if yolox_match:
-        # YOLOX repos: Libre-YOLO/libreyoloXnano, Libre-YOLO/libreyoloXs, etc.
+    # Check for RT-DETR (e.g., librertdetrs.pth, librertdetrms.pth, librertdetrl.pth)
+    rtdetr_match = re.search(r'librertdetr(s|ms|m|l|x)', filename.lower())
+    if rtdetr_match:
+        # RT-DETR repos: Libre-YOLO/librertdetrs, Libre-YOLO/librertdetrms, etc.
+        rtdetr_size = rtdetr_match.group(1)
+        repo = f"Libre-YOLO/librertdetr{rtdetr_size}"
+        url = f"https://huggingface.co/{repo}/resolve/main/{filename}"
+    # Check for YOLOX (e.g., libreyoloXs.pt, libreyoloXnano.pt)
+    elif re.search(r'libreyolox(nano|tiny|s|m|l|x)', filename.lower()):
+        yolox_match = re.search(r'libreyolox(nano|tiny|s|m|l|x)', filename.lower())
         yolox_size = yolox_match.group(1)
         repo = f"Libre-YOLO/libreyoloX{yolox_size}"
         url = f"https://huggingface.co/{repo}/resolve/main/{filename}"
@@ -138,17 +145,18 @@ def LIBREYOLO(
     device: str = "auto"
 ):
     """
-    Unified Libre YOLO factory that automatically detects model version (7, 8, 9, 11, X, or RD)
+    Unified Libre YOLO factory that automatically detects model version (7, 8, 9, 11, X, RD, or RT-DETR)
     from the weights file and returns the appropriate model instance.
 
     Args:
-        model_path: Path to model weights file (.pt) or ONNX file (.onnx)
-        size: Model size variant. Required for .pt files.
+        model_path: Path to model weights file (.pt/.pth) or ONNX file (.onnx)
+        size: Model size variant. Required for .pt/.pth files.
               - For YOLOv8/v11: "n", "s", "m", "l", "x"
               - For YOLOX: "nano", "tiny", "s", "m", "l", "x"
               - For YOLOv9: "t", "s", "m", "c"
               - For YOLOv7: "base", "tiny"
               - For YOLO-RD: "c" (only c variant)
+              - For RT-DETR: "s", "ms", "m", "l", "x"
         reg_max: Regression max value for DFL (default: 16). Only used for v8/v11/v9/rd.
         nb_classes: Number of classes (default: 80 for COCO)
         save_feature_maps: If True, saves backbone feature map visualizations
@@ -158,7 +166,7 @@ def LIBREYOLO(
         device: Device for inference. "auto" (default) uses CUDA if available, else MPS, else CPU.
 
     Returns:
-        Instance of LIBREYOLO7, LIBREYOLO8, LIBREYOLO9, LIBREYOLO11, LIBREYOLOX, LIBREYOLORD, or LIBREYOLOOnnx
+        Instance of LIBREYOLO7, LIBREYOLO8, LIBREYOLO9, LIBREYOLO11, LIBREYOLOX, LIBREYOLORD, LIBREYOLORTDETR, or LIBREYOLOOnnx
 
     Example:
         >>> model = LIBREYOLO("yolo11n.pt", size="n")
@@ -180,6 +188,10 @@ def LIBREYOLO(
         >>>
         >>> # For YOLO-RD
         >>> model = LIBREYOLO("yolo_rd_c.pt", size="c")
+        >>> detections = model("image.jpg", save=True)
+        >>>
+        >>> # For RT-DETR (auto-downloads from HuggingFace)
+        >>> model = LIBREYOLO("librertdetrl.pth", size="l")
         >>> detections = model("image.jpg", save=True)
     """
     # Handle ONNX models
