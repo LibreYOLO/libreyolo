@@ -5,26 +5,20 @@ Provides a high-level API for YOLOv7 object detection inference.
 YOLOv7 uses anchor-based detection with implicit layers.
 """
 
-import json
-from datetime import datetime
-from typing import Union, List, Optional, Tuple
-from pathlib import Path
+from typing import Any, Dict, List, Tuple
+
 import torch
+import torch.nn as nn
 from PIL import Image
-import numpy as np
-import matplotlib.pyplot as plt
-import cv2
 
+from ..common.base_model import LibreYOLOBase
+from ..common.image_loader import ImageInput
+from ..common.utils import preprocess_image
 from .nn import LibreYOLO7Model
-from .utils import preprocess_image, postprocess, draw_boxes, nms
-from ..common.eigen_cam import compute_eigen_cam, overlay_heatmap
-from ..common.cam import CAM_METHODS
-from ..common.image_loader import ImageInput, ImageLoader
-from ..common.utils import get_safe_stem, get_slice_bboxes, draw_tile_grid
-from ..common.postprocessing import get_postprocessor, list_postprocessors
+from .utils import postprocess
 
 
-class LIBREYOLO7:
+class LIBREYOLO7(LibreYOLOBase):
     """
     LibreYOLO7 model for object detection.
 
@@ -36,10 +30,6 @@ class LIBREYOLO7:
             - dict: Pre-loaded state_dict (e.g., from torch.load())
         size: Model size variant (required). Must be one of: "base", "tiny"
         nb_classes: Number of classes (default: 80 for COCO)
-        save_feature_maps: Feature map saving mode
-        save_eigen_cam: If True, saves EigenCAM heatmap visualizations
-        cam_method: CAM method for explain()
-        cam_layer: Target layer for CAM computation
         device: Device for inference
 
     Example:
@@ -49,76 +39,38 @@ class LIBREYOLO7:
 
     def __init__(
         self,
-        model_path: Union[str, dict],
+        model_path,
         size: str,
         nb_classes: int = 80,
-        save_feature_maps: Union[bool, List[str]] = False,
-        save_eigen_cam: bool = False,
-        cam_method: str = "eigencam",
-        cam_layer: Optional[str] = None,
-        device: str = "auto"
+        device: str = "auto",
+        **kwargs,
     ):
-        if size not in ['base', 'tiny']:
-            raise ValueError(f"Invalid size: {size}. Must be one of: 'base', 'tiny'")
+        super().__init__(
+            model_path=model_path,
+            size=size,
+            nb_classes=nb_classes,
+            device=device,
+            **kwargs,
+        )
 
-        # Resolve device
-        if device == "auto":
-            if torch.cuda.is_available():
-                self.device = torch.device("cuda")
-            elif torch.backends.mps.is_available():
-                self.device = torch.device("mps")
-            else:
-                self.device = torch.device("cpu")
-        else:
-            self.device = torch.device(device)
+    def _strict_loading(self) -> bool:
+        """YOLOv7 uses non-strict loading as anchors/stride buffers are defined in model."""
+        return False
 
-        self.size = size
-        self.nb_classes = nb_classes
-        self.save_feature_maps = save_feature_maps
-        self.save_eigen_cam = save_eigen_cam
-        self.cam_method = cam_method.lower()
-        self.feature_maps = {}
-        self.hooks = []
-        self._eigen_cam_layer = cam_layer or "neck_elan_down2"
+    def _get_valid_sizes(self) -> List[str]:
+        return ["base", "tiny"]
 
-        # Initialize model
-        self.model = LibreYOLO7Model(config=size, nb_classes=nb_classes)
+    def _get_model_name(self) -> str:
+        return "LIBREYOLO7"
 
-        # Load weights
-        if isinstance(model_path, dict):
-            self.model_path = None
-            # Use strict=False to allow missing anchors/stride buffers
-            self.model.load_state_dict(model_path, strict=False)
-        else:
-            self.model_path = model_path
-            self._load_weights(model_path)
+    def _get_input_size(self) -> int:
+        return 640
 
-        # Set to evaluation mode and move to device
-        self.model.eval()
-        self.model.to(self.device)
+    def _init_model(self) -> nn.Module:
+        return LibreYOLO7Model(config=self.size, nb_classes=self.nb_classes)
 
-        # Register hooks for feature map extraction
-        if self.save_feature_maps or self.save_eigen_cam:
-            self._register_hooks()
-
-    def _load_weights(self, model_path: str):
-        """Load model weights from file."""
-        if not Path(model_path).exists():
-            raise FileNotFoundError(f"Model weights file not found: {model_path}")
-
-        try:
-            state_dict = torch.load(model_path, map_location='cpu', weights_only=False)
-            self.model.load_state_dict(state_dict, strict=True)
-        except Exception as e:
-            raise RuntimeError(f"Failed to load model weights from {model_path}: {e}") from e
-
-    def get_available_layer_names(self) -> List[str]:
-        """Get list of available layer names for feature map saving."""
-        return sorted(self._get_available_layers().keys())
-
-    def _get_available_layers(self) -> dict:
-        """Get mapping of layer names to module objects."""
-        layers = {
+    def _get_available_layers(self) -> Dict[str, nn.Module]:
+        return {
             # Backbone layers
             "backbone_elan1": self.model.backbone.elan1,
             "backbone_elan2": self.model.backbone.elan2,
@@ -135,634 +87,27 @@ class LIBREYOLO7:
             "rep_p4": self.model.rep_p4,
             "rep_p5": self.model.rep_p5,
         }
-        return layers
 
-    def _register_hooks(self):
-        """Register forward hooks to capture feature maps."""
-        def get_hook(name):
-            def hook(module, input, output):
-                self.feature_maps[name] = output.detach().cpu()
-            return hook
+    def _preprocess(
+        self, image: ImageInput, color_format: str = "auto"
+    ) -> Tuple[torch.Tensor, Image.Image, Tuple[int, int]]:
+        return preprocess_image(image, input_size=640, color_format=color_format)
 
-        available_layers = self._get_available_layers()
-        layers_to_hook = set()
+    def _forward(self, input_tensor: torch.Tensor) -> Any:
+        return self.model(input_tensor)
 
-        if self.save_feature_maps is True:
-            layers_to_hook.update(available_layers.keys())
-        elif isinstance(self.save_feature_maps, list):
-            invalid_layers = [l for l in self.save_feature_maps if l not in available_layers]
-            if invalid_layers:
-                available = ", ".join(sorted(available_layers.keys()))
-                raise ValueError(f"Invalid layer names: {invalid_layers}. Available: {available}")
-            layers_to_hook.update(self.save_feature_maps)
-
-        if self.save_eigen_cam:
-            layers_to_hook.add(self._eigen_cam_layer)
-
-        for layer_name in layers_to_hook:
-            module = available_layers[layer_name]
-            self.hooks.append(module.register_forward_hook(get_hook(layer_name)))
-
-    def _save_feature_maps(self, image_path):
-        """Save feature map visualizations to disk."""
-        if isinstance(image_path, str):
-            stem = get_safe_stem(image_path)
-        else:
-            stem = "inference"
-
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        save_dir = Path("runs/feature_maps") / f"{stem}_{timestamp}"
-        save_dir.mkdir(parents=True, exist_ok=True)
-
-        metadata = {
-            "model": "LIBREYOLO7",
-            "size": self.size,
-            "input_size": [640, 640],
-            "image_source": str(image_path) if isinstance(image_path, str) else "PIL/numpy input",
-            "layers_captured": list(self.feature_maps.keys())
-        }
-        with open(save_dir / "metadata.json", "w") as f:
-            json.dump(metadata, f, indent=2)
-
-        for layer_name, fmap in self.feature_maps.items():
-            fmap = fmap[0] if fmap.dim() == 4 else fmap
-            channels = min(fmap.shape[0], 16)
-            fig, axes = plt.subplots(4, 4, figsize=(12, 12))
-
-            for i in range(16):
-                ax = axes[i // 4, i % 4]
-                if i < channels:
-                    channel_data = fmap[i].numpy()
-                    ax.imshow(channel_data, cmap='viridis')
-                ax.axis('off')
-
-            plt.suptitle(f"Feature Maps: {layer_name}\nShape: {list(fmap.shape)}", fontsize=14)
-            plt.tight_layout()
-            plt.savefig(save_dir / f"{layer_name}.png", bbox_inches='tight', dpi=100)
-            plt.close()
-
-        if not self.save_eigen_cam:
-            self.feature_maps.clear()
-
-        return str(save_dir)
-
-    def _save_eigen_cam(self, image_path, original_img: Image.Image):
-        """Save EigenCAM heatmap visualizations."""
-        if self._eigen_cam_layer not in self.feature_maps:
-            return None
-
-        activation = self.feature_maps[self._eigen_cam_layer]
-        activation = activation[0].numpy() if activation.dim() == 4 else activation.numpy()
-        heatmap = compute_eigen_cam(activation)
-
-        if isinstance(image_path, str):
-            stem = get_safe_stem(image_path)
-        else:
-            stem = "inference"
-
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        save_dir = Path("runs/eigen_cam") / f"{stem}_{timestamp}"
-        save_dir.mkdir(parents=True, exist_ok=True)
-
-        img_array = np.array(original_img)
-        overlay = overlay_heatmap(img_array, heatmap, alpha=0.5)
-        Image.fromarray(overlay).save(save_dir / "heatmap_overlay.jpg")
-
-        heatmap_resized = cv2.resize(heatmap, (img_array.shape[1], img_array.shape[0]))
-        heatmap_gray = (heatmap_resized * 255).astype(np.uint8)
-        Image.fromarray(heatmap_gray).save(save_dir / "heatmap_grayscale.png")
-
-        metadata = {
-            "model": "LIBREYOLO7",
-            "size": self.size,
-            "target_layer": self._eigen_cam_layer,
-            "image_source": str(image_path) if isinstance(image_path, str) else "PIL/numpy input"
-        }
-        with open(save_dir / "metadata.json", "w") as f:
-            json.dump(metadata, f, indent=2)
-
-        self.feature_maps.clear()
-        return str(save_dir)
-
-    def __call__(
+    def _postprocess(
         self,
-        image: ImageInput,
-        save: bool = False,
-        output_path: str = None,
-        conf_thres: float = 0.25,
-        iou_thres: float = 0.45,
-        color_format: str = "auto",
-        batch_size: int = 1,
-        tiling: bool = False,
-        overlap_ratio: float = 0.2,
-        output_file_format: Optional[str] = None,
-        postprocessor: Optional[str] = None,
-        postprocessor_kwargs: Optional[dict] = None
-    ) -> Union[dict, List[dict]]:
-        """
-        Run inference on an image or directory of images.
-
-        Args:
-            image: Input image or directory
-            save: If True, saves the image with detections drawn
-            output_path: Optional path to save the annotated image
-            conf_thres: Confidence threshold (default: 0.25)
-            iou_thres: IoU threshold for NMS (default: 0.45)
-            color_format: Color format hint ("auto", "rgb", "bgr")
-            batch_size: Number of images per batch for directories
-            tiling: Enable tiling for large images
-            overlap_ratio: Overlap between tiles
-            output_file_format: Output format ("jpg", "png", "webp")
-            postprocessor: Post-processing method
-            postprocessor_kwargs: Additional post-processor arguments
-
-        Returns:
-            Detection results dictionary or list of dictionaries
-        """
-        if output_file_format is not None:
-            output_file_format = output_file_format.lower().lstrip('.')
-            if output_file_format not in ('jpg', 'jpeg', 'png', 'webp'):
-                raise ValueError(f"Invalid output_file_format: {output_file_format}")
-
-        if isinstance(image, (str, Path)) and Path(image).is_dir():
-            image_paths = ImageLoader.collect_images(image)
-            if not image_paths:
-                return []
-            return self._process_in_batches(
-                image_paths, batch_size, save, output_path, conf_thres, iou_thres,
-                color_format, tiling, overlap_ratio, output_file_format,
-                postprocessor, postprocessor_kwargs
-            )
-
-        if tiling:
-            return self._predict_tiled(
-                image, save, output_path, conf_thres, iou_thres, color_format,
-                overlap_ratio, output_file_format, postprocessor, postprocessor_kwargs
-            )
-
-        return self._predict_single(
-            image, save, output_path, conf_thres, iou_thres, color_format,
-            output_file_format, postprocessor, postprocessor_kwargs
-        )
-
-    def _process_in_batches(
-        self,
-        image_paths: List[Path],
-        batch_size: int = 1,
-        save: bool = False,
-        output_path: str = None,
-        conf_thres: float = 0.25,
-        iou_thres: float = 0.45,
-        color_format: str = "auto",
-        tiling: bool = False,
-        overlap_ratio: float = 0.2,
-        output_file_format: Optional[str] = None,
-        postprocessor: Optional[str] = None,
-        postprocessor_kwargs: Optional[dict] = None
-    ) -> List[dict]:
-        """Process multiple images in batches."""
-        results = []
-        for i in range(0, len(image_paths), batch_size):
-            chunk = image_paths[i:i + batch_size]
-            for path in chunk:
-                if tiling:
-                    results.append(self._predict_tiled(
-                        path, save, output_path, conf_thres, iou_thres,
-                        color_format, overlap_ratio, output_file_format,
-                        postprocessor, postprocessor_kwargs
-                    ))
-                else:
-                    results.append(self._predict_single(
-                        path, save, output_path, conf_thres, iou_thres,
-                        color_format, output_file_format, postprocessor,
-                        postprocessor_kwargs
-                    ))
-        return results
-
-    def _predict_single(
-        self,
-        image: ImageInput,
-        save: bool = False,
-        output_path: str = None,
-        conf_thres: float = 0.25,
-        iou_thres: float = 0.45,
-        color_format: str = "auto",
-        output_file_format: Optional[str] = None,
-        postprocessor: Optional[str] = None,
-        postprocessor_kwargs: Optional[dict] = None
-    ) -> dict:
-        """Run inference on a single image."""
-        image_path = image if isinstance(image, (str, Path)) else None
-
-        # Preprocess
-        input_tensor, original_img, original_size = preprocess_image(
-            image, input_size=640, color_format=color_format
-        )
-
-        # Inference
-        with torch.no_grad():
-            output = self.model(input_tensor.to(self.device))
-
-        # Postprocess
-        detections = postprocess(
+        output: Any,
+        conf_thres: float,
+        iou_thres: float,
+        original_size: Tuple[int, int],
+        **kwargs,
+    ) -> Dict:
+        return postprocess(
             output,
             conf_thres=conf_thres,
             iou_thres=iou_thres,
             input_size=640,
-            original_size=original_size
+            original_size=original_size,
         )
-
-        detections["source"] = str(image_path) if image_path else None
-
-        # Save feature maps
-        if self.save_feature_maps:
-            feature_maps_path = self._save_feature_maps(image_path)
-            detections["feature_maps_path"] = feature_maps_path
-
-        # Save EigenCAM
-        if self.save_eigen_cam:
-            eigen_cam_path = self._save_eigen_cam(image_path, original_img)
-            detections["eigen_cam_path"] = eigen_cam_path
-
-        # Save annotated image
-        if save:
-            if detections["num_detections"] > 0:
-                annotated_img = draw_boxes(
-                    original_img,
-                    detections["boxes"],
-                    detections["scores"],
-                    detections["classes"]
-                )
-            else:
-                annotated_img = original_img
-
-            ext = f".{output_file_format}" if output_file_format else ".jpg"
-
-            if output_path:
-                final_output_path = Path(output_path)
-                if final_output_path.suffix == "":
-                    final_output_path.mkdir(parents=True, exist_ok=True)
-                    stem = get_safe_stem(image_path) if image_path else "inference"
-                    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                    final_output_path = final_output_path / f"{stem}_{timestamp}{ext}"
-                else:
-                    final_output_path.parent.mkdir(parents=True, exist_ok=True)
-            else:
-                stem = get_safe_stem(image_path) if image_path else "inference"
-                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                save_dir = Path("runs/detections")
-                save_dir.mkdir(parents=True, exist_ok=True)
-                final_output_path = save_dir / f"{stem}_{timestamp}{ext}"
-
-            annotated_img.save(final_output_path)
-            detections["saved_path"] = str(final_output_path)
-
-        return detections
-
-    def _merge_tile_detections(
-        self,
-        boxes: List,
-        scores: List,
-        classes: List,
-        iou_thres: float
-    ) -> Tuple[List, List, List]:
-        """Merge detections from tiles using class-wise NMS."""
-        if not boxes:
-            return [], [], []
-
-        boxes_t = torch.tensor(boxes, dtype=torch.float32, device=self.device)
-        scores_t = torch.tensor(scores, dtype=torch.float32, device=self.device)
-        classes_t = torch.tensor(classes, dtype=torch.int64, device=self.device)
-
-        final_boxes, final_scores, final_classes = [], [], []
-
-        for cls_id in torch.unique(classes_t):
-            mask = classes_t == cls_id
-            cls_boxes = boxes_t[mask]
-            cls_scores = scores_t[mask]
-
-            keep = nms(cls_boxes, cls_scores, iou_thres)
-
-            final_boxes.extend(cls_boxes[keep].cpu().tolist())
-            final_scores.extend(cls_scores[keep].cpu().tolist())
-            final_classes.extend([cls_id.item()] * len(keep))
-
-        return final_boxes, final_scores, final_classes
-
-    def _predict_tiled(
-        self,
-        image: ImageInput,
-        save: bool = False,
-        output_path: str = None,
-        conf_thres: float = 0.25,
-        iou_thres: float = 0.45,
-        color_format: str = "auto",
-        overlap_ratio: float = 0.2,
-        output_file_format: Optional[str] = None,
-        postprocessor: Optional[str] = None,
-        postprocessor_kwargs: Optional[dict] = None
-    ) -> dict:
-        """Run tiled inference on large images."""
-        img_pil = ImageLoader.load(image, color_format=color_format)
-        orig_width, orig_height = img_pil.size
-        image_path = image if isinstance(image, (str, Path)) else None
-
-        if orig_width <= 640 and orig_height <= 640:
-            return self._predict_single(
-                image, save, output_path, conf_thres, iou_thres,
-                color_format, output_file_format, postprocessor, postprocessor_kwargs
-            )
-
-        slices = get_slice_bboxes(orig_width, orig_height, overlap_ratio=overlap_ratio)
-
-        all_boxes, all_scores, all_classes = [], [], []
-        tiles_data = []
-
-        for idx, (x1, y1, x2, y2) in enumerate(slices):
-            tile = img_pil.crop((x1, y1, x2, y2))
-
-            if save:
-                tiles_data.append({
-                    "index": idx,
-                    "coords": (x1, y1, x2, y2),
-                    "image": tile.copy()
-                })
-
-            result = self._predict_single(
-                tile, save=False, conf_thres=conf_thres, iou_thres=iou_thres,
-                postprocessor=postprocessor, postprocessor_kwargs=postprocessor_kwargs
-            )
-
-            for box in result["boxes"]:
-                shifted_box = [box[0] + x1, box[1] + y1, box[2] + x1, box[3] + y1]
-                all_boxes.append(shifted_box)
-            all_scores.extend(result["scores"])
-            all_classes.extend(result["classes"])
-
-        final_boxes, final_scores, final_classes = self._merge_tile_detections(
-            all_boxes, all_scores, all_classes, iou_thres
-        )
-
-        detections = {
-            "boxes": final_boxes,
-            "scores": final_scores,
-            "classes": final_classes,
-            "num_detections": len(final_boxes),
-            "source": str(image_path) if image_path else None,
-            "tiled": True,
-            "num_tiles": len(slices)
-        }
-
-        if save:
-            if detections["num_detections"] > 0:
-                annotated_img = draw_boxes(
-                    img_pil,
-                    detections["boxes"],
-                    detections["scores"],
-                    detections["classes"]
-                )
-            else:
-                annotated_img = img_pil.copy()
-
-            ext = f".{output_file_format}" if output_file_format else ".jpg"
-            stem = get_safe_stem(image_path) if image_path else "inference"
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-
-            if output_path:
-                base_output_path = Path(output_path)
-                if base_output_path.suffix == "":
-                    save_dir = base_output_path / f"{stem}_{timestamp}"
-                else:
-                    save_dir = base_output_path.parent / f"{stem}_{timestamp}"
-            else:
-                save_dir = Path("runs/tiled_detections") / f"{stem}_{timestamp}"
-
-            save_dir.mkdir(parents=True, exist_ok=True)
-
-            tiles_dir = save_dir / "tiles"
-            tiles_dir.mkdir(parents=True, exist_ok=True)
-            for tile_data in tiles_data:
-                tile_filename = f"tile_{tile_data['index']:03d}{ext}"
-                tile_path = tiles_dir / tile_filename
-                tile_data["image"].save(tile_path)
-
-            final_image_path = save_dir / f"final_image{ext}"
-            annotated_img.save(final_image_path)
-
-            grid_img = draw_tile_grid(img_pil, slices)
-            grid_path = save_dir / f"grid_visualization{ext}"
-            grid_img.save(grid_path)
-
-            metadata = {
-                "model": "LIBREYOLO7",
-                "size": self.size,
-                "image_source": str(image_path) if image_path else "PIL/numpy input",
-                "original_size": [orig_width, orig_height],
-                "num_tiles": len(slices),
-                "tile_size": 640,
-                "overlap_ratio": overlap_ratio,
-                "num_detections": detections["num_detections"],
-                "conf_thres": conf_thres,
-                "iou_thres": iou_thres
-            }
-            with open(save_dir / "metadata.json", "w") as f:
-                json.dump(metadata, f, indent=2)
-
-            detections["saved_path"] = str(save_dir)
-            detections["tiles_path"] = str(tiles_dir)
-            detections["grid_path"] = str(grid_path)
-
-        return detections
-
-    def export(self, output_path: str = None, input_size: int = 640, opset: int = 12) -> str:
-        """Export the model to ONNX format."""
-        import importlib.util
-
-        if importlib.util.find_spec("onnx") is None:
-            raise ImportError(
-                "ONNX export requires the optional ONNX dependencies. "
-                "Install them with `uv sync --extra onnx` or `pip install -e '.[onnx]'`."
-            )
-
-        if output_path is None:
-            if self.model_path and isinstance(self.model_path, str):
-                output_path = str(Path(self.model_path).with_suffix('.onnx'))
-            else:
-                output_path = f"libreyolo7{self.size}.onnx"
-
-        print(f"Exporting LibreYOLO7 {self.size} to {output_path}...")
-
-        device = next(self.model.parameters()).device
-        dummy_input = torch.randn(1, 3, input_size, input_size).to(device)
-
-        try:
-            torch.onnx.export(
-                self.model,
-                dummy_input,
-                output_path,
-                export_params=True,
-                opset_version=opset,
-                do_constant_folding=True,
-                input_names=['images'],
-                output_names=['output'],
-                dynamic_axes={
-                    'images': {0: 'batch', 2: 'height', 3: 'width'},
-                    'output': {0: 'batch'}
-                },
-            )
-            print(f"Export complete: {output_path}")
-            return output_path
-        except Exception as e:
-            print(f"Export failed: {e}")
-            raise
-
-    def predict(
-        self,
-        image: ImageInput,
-        save: bool = False,
-        output_path: str = None,
-        conf_thres: float = 0.25,
-        iou_thres: float = 0.45,
-        color_format: str = "auto",
-        batch_size: int = 1,
-        tiling: bool = False,
-        output_file_format: Optional[str] = None
-    ) -> Union[dict, List[dict]]:
-        """Alias for __call__ method."""
-        return self(
-            image=image, save=save, output_path=output_path,
-            conf_thres=conf_thres, iou_thres=iou_thres,
-            color_format=color_format, batch_size=batch_size,
-            tiling=tiling, output_file_format=output_file_format
-        )
-
-    def explain(
-        self,
-        image: ImageInput,
-        method: Optional[Union[str, List[str]]] = None,
-        target_layer: Optional[str] = None,
-        eigen_smooth: bool = False,
-        save: bool = False,
-        output_path: Optional[str] = None,
-        alpha: float = 0.5,
-        color_format: str = "auto"
-    ) -> Union[dict, List[dict]]:
-        """Generate explainability heatmap using CAM methods."""
-        if not 0.0 <= alpha <= 1.0:
-            raise ValueError(f"alpha must be between 0 and 1, got {alpha}")
-
-        if isinstance(method, list):
-            results = []
-            for m in method:
-                results.append(self._explain_single(
-                    image, m, target_layer, eigen_smooth, save, output_path, alpha, color_format
-                ))
-            return results
-
-        return self._explain_single(
-            image, method, target_layer, eigen_smooth, save, output_path, alpha, color_format
-        )
-
-    def _explain_single(
-        self,
-        image: ImageInput,
-        method: Optional[str] = None,
-        target_layer: Optional[str] = None,
-        eigen_smooth: bool = False,
-        save: bool = False,
-        output_path: Optional[str] = None,
-        alpha: float = 0.5,
-        color_format: str = "auto"
-    ) -> dict:
-        """Generate a single explainability heatmap."""
-        method = (method or self.cam_method).lower()
-        target_layer = target_layer or self._eigen_cam_layer
-
-        if method not in CAM_METHODS:
-            available = ", ".join(CAM_METHODS.keys())
-            raise ValueError(f"Unknown CAM method '{method}'. Available: {available}")
-
-        available_layers = self._get_available_layers()
-        if target_layer not in available_layers:
-            available = ", ".join(sorted(available_layers.keys()))
-            raise ValueError(f"Unknown layer '{target_layer}'. Available: {available}")
-
-        input_tensor, original_img, original_size = preprocess_image(
-            image, input_size=640, color_format=color_format
-        )
-
-        target_module = available_layers[target_layer]
-
-        cam_class = CAM_METHODS[method]
-        cam = cam_class(
-            model=self.model,
-            target_layers=[target_module],
-            reshape_transform=None
-        )
-
-        try:
-            grayscale_cam = cam(input_tensor.to(self.device), eigen_smooth=eigen_smooth)
-            heatmap = grayscale_cam[0]
-            heatmap_resized = cv2.resize(heatmap, (original_size[0], original_size[1]))
-
-            heatmap_min, heatmap_max = heatmap_resized.min(), heatmap_resized.max()
-            if heatmap_max - heatmap_min > 1e-8:
-                heatmap_resized = (heatmap_resized - heatmap_min) / (heatmap_max - heatmap_min)
-
-            img_array = np.array(original_img)
-            overlay = overlay_heatmap(img_array, heatmap_resized, alpha=alpha)
-
-            result = {
-                "heatmap": heatmap_resized,
-                "overlay": overlay,
-                "original_image": original_img,
-                "method": method,
-                "target_layer": target_layer,
-            }
-
-            if save:
-                image_path = image if isinstance(image, str) else None
-                stem = get_safe_stem(image_path) if image_path else "inference"
-                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-
-                if output_path:
-                    save_dir = Path(output_path)
-                    if save_dir.suffix:
-                        save_dir = save_dir.parent
-                else:
-                    save_dir = Path(f"runs/{method}") / f"{stem}_{timestamp}"
-
-                save_dir.mkdir(parents=True, exist_ok=True)
-
-                Image.fromarray(overlay).save(save_dir / "heatmap_overlay.jpg")
-
-                heatmap_gray = (heatmap_resized * 255).astype(np.uint8)
-                Image.fromarray(heatmap_gray).save(save_dir / "heatmap_grayscale.png")
-
-                metadata = {
-                    "model": "LIBREYOLO7",
-                    "size": self.size,
-                    "method": method,
-                    "target_layer": target_layer,
-                    "eigen_smooth": eigen_smooth,
-                    "image_source": str(image) if isinstance(image, str) else "PIL/numpy input"
-                }
-                with open(save_dir / "metadata.json", "w") as f:
-                    json.dump(metadata, f, indent=2)
-
-                result["saved_path"] = str(save_dir)
-
-            return result
-
-        finally:
-            cam.release()
-
-    @staticmethod
-    def get_available_cam_methods() -> List[str]:
-        """Get list of available CAM methods."""
-        return list(CAM_METHODS.keys())
-
-    @staticmethod
-    def get_available_postprocessors() -> dict:
-        """Get available post-processing methods."""
-        return list_postprocessors()
