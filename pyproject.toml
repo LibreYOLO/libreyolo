@@ -12,6 +12,7 @@ dependencies = [
     "numpy>=1.19.0",
     "Pillow>=8.0.0",
     "torch>=1.7.0",
+    "torchvision>=0.11.0",
     "PyYAML>=6.0",
     "matplotlib>=3.3.0",
     "requests>=2.25.0",
