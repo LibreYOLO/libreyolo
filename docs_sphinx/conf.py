@@ -91,7 +91,7 @@ source_suffix = {
 master_doc = 'index'
 
 # Exclude patterns
-exclude_patterns = ['_build', 'Thumbs.db', '.DS_Store']
+exclude_patterns = ['_build', 'Thumbs.db', '.DS_Store', 'training.md', 'finetuning.md']
 
 # Pygments style for code highlighting
 pygments_style = 'sphinx'

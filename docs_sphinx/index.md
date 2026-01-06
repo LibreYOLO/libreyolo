@@ -10,7 +10,7 @@ While this codebase is MIT licensed, pre-trained weights converted from other re
 
 - **Supported Models:** Full support for YOLOv7, YOLOv8, YOLOv9, YOLOv11, YOLOX, YOLO-RD, and RT-DETR architectures
 - **Unified API:** Simple, consistent interface for loading and using different YOLO versions
-- **Training Engine:** Built-in support for training models on custom datasets with Mosaic/Mixup augmentation
+- **Training Engine:** Under development
 - **MIT License:** Permissive licensing for the codebase
 - **Weight Conversion:** Tools to convert weights from Ultralytics format
 - **Explainability:** Built-in CAM methods (GradCAM, EigenCAM, etc.)
@@ -47,8 +47,6 @@ pip install -e .
 
 getting-started
 inference
-training
-finetuning
 yolox
 explainability
 ```

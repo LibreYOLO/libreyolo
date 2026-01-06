@@ -8,7 +8,7 @@ import types
 
 from libreyolo.factory import create_model
 from libreyolo.training.loss import ComputeLoss
-from libreyolo.training.dataset import YOLODataset, yolov8_collate_fn as yolo_collate_fn
+from libreyolo.training.dataset import YOLODataset, yolox_collate_fn as yolo_collate_fn
 from torch.utils.data import DataLoader
 
 def train(args):
