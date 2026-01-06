@@ -24,9 +24,8 @@ from tqdm import tqdm
 import yaml
 
 from .config import RTDETRTrainConfig
-from .criterion import RTDETRCriterion
-from ..ema import ModelEMA
-from ..dataset import YOLODataset
+from libreyolo.training.ema import ModelEMA
+from libreyolo.training.dataset import YOLODataset
 
 
 logger = logging.getLogger(__name__)
@@ -92,16 +91,12 @@ class RTDETRTrainer:
         # Move model to device
         self.model.to(self.device)
 
-        # Build criterion
-        self.criterion = RTDETRCriterion(
-            num_classes=self.config.num_classes,
-            loss_vfl_weight=self.config.loss_vfl_weight,
-            loss_bbox_weight=self.config.loss_bbox_weight,
-            loss_giou_weight=self.config.loss_giou_weight,
-            matcher_cost_class=self.config.matcher_cost_class,
-            matcher_cost_bbox=self.config.matcher_cost_bbox,
-            matcher_cost_giou=self.config.matcher_cost_giou,
-        )
+        # Build criterion from model
+        self.criterion = self.model.get_loss_fn()
+        # Update loss weights from config
+        self.criterion.loss_vfl_weight = self.config.loss_vfl_weight
+        self.criterion.loss_bbox_weight = self.config.loss_bbox_weight
+        self.criterion.loss_giou_weight = self.config.loss_giou_weight
 
         # Build optimizer with parameter groups
         self.optimizer = self._build_optimizer()
@@ -330,7 +325,7 @@ class RTDETRTrainer:
                 with autocast():
                     outputs = self.model(images)
                     loss_dict = self.criterion(outputs, targets)
-                    loss = loss_dict["loss"]
+                    loss = loss_dict["total_loss"]
 
                 # Backward pass with gradient scaling
                 self.optimizer.zero_grad()
@@ -348,7 +343,7 @@ class RTDETRTrainer:
             else:
                 outputs = self.model(images)
                 loss_dict = self.criterion(outputs, targets)
-                loss = loss_dict["loss"]
+                loss = loss_dict["total_loss"]
 
                 self.optimizer.zero_grad()
                 loss.backward()

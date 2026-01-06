@@ -17,10 +17,10 @@ from torch.cuda.amp import GradScaler, autocast
 from tqdm import tqdm
 
 from .config import YOLOXTrainConfig
-from .scheduler import LRScheduler
-from .ema import ModelEMA
-from .augment import TrainTransform, MosaicMixupDataset
-from .dataset import YOLODataset, COCODataset, create_dataloader, load_data_config
+from libreyolo.training.scheduler import LRScheduler
+from libreyolo.training.ema import ModelEMA
+from libreyolo.training.augment import TrainTransform, MosaicMixupDataset
+from libreyolo.training.dataset import YOLODataset, COCODataset, create_dataloader, load_data_config
 
 
 logger = logging.getLogger(__name__)
@@ -95,12 +95,17 @@ class YOLOXTrainer:
         for k, v in self.model.named_modules():
             if hasattr(v, "bias") and isinstance(v.bias, nn.Parameter):
                 pg2.append(v.bias)  # biases, no weight decay
-            if isinstance(v, nn.BatchNorm2d):
-                pg0.append(v.weight)  # BN weights, no weight decay
+            if isinstance(v, (nn.BatchNorm2d, nn.SyncBatchNorm)) or "bn" in k.lower():
+                if hasattr(v, "weight") and isinstance(v.weight, nn.Parameter):
+                    pg0.append(v.weight)  # BN weights, no weight decay
             elif hasattr(v, "weight") and isinstance(v.weight, nn.Parameter):
                 pg1.append(v.weight)  # conv weights, with weight decay
 
-        lr = self.config.effective_lr
+        # Use warmup_lr_start during warmup, otherwise full effective_lr
+        if self.config.warmup_epochs > 0:
+            lr = self.config.warmup_lr_start
+        else:
+            lr = self.config.effective_lr
 
         if self.config.optimizer == "sgd":
             optimizer = torch.optim.SGD(
@@ -147,7 +152,7 @@ class YOLOXTrainer:
 
         # Create preprocessing transform
         preproc = TrainTransform(
-            max_labels=50,
+            max_labels=self.config.max_labels,
             flip_prob=self.config.flip_prob,
             hsv_prob=self.config.hsv_prob,
         )
@@ -420,6 +425,9 @@ class YOLOXTrainer:
             "config": self.config.to_dict(),
             "loss": loss,
         }
+        # Save EMA updates count for proper resume
+        if self.ema_model is not None:
+            checkpoint["ema_updates"] = self.ema_model.updates
 
         # Save latest checkpoint
         latest_path = self.save_dir / "last.pt"
@@ -452,5 +460,9 @@ class YOLOXTrainer:
 
         if "loss" in checkpoint:
             self.best_loss = checkpoint["loss"]
+
+        # Restore EMA updates count for proper decay continuation
+        if self.ema_model is not None and "ema_updates" in checkpoint:
+            self.ema_model.updates = checkpoint["ema_updates"]
 
         logger.info(f"Resumed from epoch {self.start_epoch}")

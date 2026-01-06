@@ -452,7 +452,9 @@ class YOLOXLoss:
         if mode == "cpu":
             cls_preds_, obj_preds_ = cls_preds_.cpu(), obj_preds_.cpu()
 
-        with torch.amp.autocast(device_type="cuda", enabled=False):
+        # Infer device type for autocast (cuda, cpu, mps)
+        device_type = "cuda" if cls_preds_.is_cuda else "cpu"
+        with torch.amp.autocast(device_type=device_type, enabled=False):
             cls_preds_ = (
                 cls_preds_.float().sigmoid_() * obj_preds_.float().sigmoid_()
             ).sqrt()

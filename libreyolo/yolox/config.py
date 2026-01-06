@@ -57,6 +57,7 @@ class YOLOXTrainConfig:
     mosaic_scale: Tuple[float, float] = (0.1, 2.0)
     mixup_scale: Tuple[float, float] = (0.5, 1.5)
     shear: float = 2.0
+    max_labels: int = 120  # Max labels per image (120 for mosaic: 4 images combined)
 
     # Loss weights
     obj_loss_weight: float = 1.0

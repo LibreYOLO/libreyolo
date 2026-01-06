@@ -1384,3 +1384,13 @@ class RTDETRModel(nn.Module):
                 m.convert_to_deploy()
         self.postprocessor.deploy()
         return self
+
+    def get_loss_fn(self):
+        """
+        Get the loss function for this model.
+
+        Returns:
+            RTDETRLoss: Loss module with Hungarian matcher and VFL/L1/GIoU losses.
+        """
+        from .loss import RTDETRLoss
+        return RTDETRLoss(num_classes=self.decoder.num_classes)

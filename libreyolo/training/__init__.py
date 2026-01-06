@@ -1,14 +1,12 @@
 """
 Training module for LibreYOLO.
 
-Provides training support for YOLOX and RT-DETR models.
+Provides SHARED training infrastructure (dataset, augment, ema, scheduler).
+Model-specific training code (loss, trainer, config) lives in each model folder:
+- libreyolo.yolox (YOLOXTrainer, YOLOXTrainConfig, YOLOXLoss)
+- libreyolo.rtdetr (RTDETRTrainer, RTDETRTrainConfig, RTDETRLoss)
 """
 
-from .config import YOLOXTrainConfig, get_config, YOLOX_CONFIGS
-from .trainer import YOLOXTrainer
-
-# RT-DETR training
-from .rtdetr import RTDETRTrainConfig, RTDETRTrainer, RTDETRCriterion, HungarianMatcher
 from .dataset import YOLODataset, COCODataset, create_dataloader, load_data_config
 from .augment import (
     TrainTransform,
@@ -22,31 +20,20 @@ from .scheduler import LRScheduler
 from .ema import ModelEMA
 
 __all__ = [
-    # YOLOX Config
-    "YOLOXTrainConfig",
-    "get_config",
-    "YOLOX_CONFIGS",
-    # YOLOX Trainer
-    "YOLOXTrainer",
-    # RT-DETR Training
-    "RTDETRTrainConfig",
-    "RTDETRTrainer",
-    "RTDETRCriterion",
-    "HungarianMatcher",
-    # Dataset
+    # Dataset (shared)
     "YOLODataset",
     "COCODataset",
     "create_dataloader",
     "load_data_config",
-    # Augmentation
+    # Augmentation (shared)
     "TrainTransform",
     "ValTransform",
     "MosaicMixupDataset",
     "augment_hsv",
     "random_affine",
     "preproc",
-    # Scheduler
+    # Scheduler (shared)
     "LRScheduler",
-    # EMA
+    # EMA (shared)
     "ModelEMA",
 ]
