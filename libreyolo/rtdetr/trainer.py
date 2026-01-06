@@ -24,6 +24,7 @@ from tqdm import tqdm
 import yaml
 
 from .config import RTDETRTrainConfig
+from .loss import RTDETRLoss
 from libreyolo.training.ema import ModelEMA
 from libreyolo.training.dataset import YOLODataset
 
@@ -56,7 +57,7 @@ class RTDETRTrainer:
         self.best_loss = float("inf")
 
         # Components (initialized in setup)
-        self.criterion: Optional[RTDETRCriterion] = None
+        self.loss_fn: Optional[RTDETRLoss] = None
         self.optimizer: Optional[torch.optim.Optimizer] = None
         self.scheduler = None
         self.scaler: Optional[GradScaler] = None
@@ -91,12 +92,12 @@ class RTDETRTrainer:
         # Move model to device
         self.model.to(self.device)
 
-        # Build criterion from model
-        self.criterion = self.model.get_loss_fn()
+        # Build loss function from model
+        self.loss_fn = self.model.get_loss_fn()
         # Update loss weights from config
-        self.criterion.loss_vfl_weight = self.config.loss_vfl_weight
-        self.criterion.loss_bbox_weight = self.config.loss_bbox_weight
-        self.criterion.loss_giou_weight = self.config.loss_giou_weight
+        self.loss_fn.loss_vfl_weight = self.config.loss_vfl_weight
+        self.loss_fn.loss_bbox_weight = self.config.loss_bbox_weight
+        self.loss_fn.loss_giou_weight = self.config.loss_giou_weight
 
         # Build optimizer with parameter groups
         self.optimizer = self._build_optimizer()
@@ -324,7 +325,7 @@ class RTDETRTrainer:
             if self.scaler is not None:
                 with autocast():
                     outputs = self.model(images)
-                    loss_dict = self.criterion(outputs, targets)
+                    loss_dict = self.loss_fn(outputs, targets)
                     loss = loss_dict["total_loss"]
 
                 # Backward pass with gradient scaling
@@ -342,7 +343,7 @@ class RTDETRTrainer:
                 self.scaler.update()
             else:
                 outputs = self.model(images)
-                loss_dict = self.criterion(outputs, targets)
+                loss_dict = self.loss_fn(outputs, targets)
                 loss = loss_dict["total_loss"]
 
                 self.optimizer.zero_grad()
