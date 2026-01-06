@@ -151,7 +151,6 @@ model = LIBREYOLORTDETR("weights/rtdetr_l.pt", size="l")
 ## Next Steps
 
 - {doc}`inference` - Learn about inference options
-- {doc}`training` - Train on custom datasets
 - {doc}`yolox` - YOLOX-specific features and training
 - {doc}`explainability` - Visualize model attention with CAM methods
 
