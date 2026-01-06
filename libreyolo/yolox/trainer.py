@@ -71,6 +71,7 @@ class YOLOXTrainer:
         self.train_loader = None
         self.val_loader = None
         self.tensorboard_writer = None
+        self.loss_fn = None
 
     def _setup_device(self) -> torch.device:
         """Setup and return the device for training."""
@@ -246,6 +247,9 @@ class YOLOXTrainer:
         if hasattr(self.model, 'head') and hasattr(self.model.head, 'initialize_biases'):
             self.model.head.initialize_biases(0.01)
 
+        # Setup loss function
+        self.loss_fn = self.model.get_loss_fn()
+
         # Setup data
         train_dataset = self._setup_data()
 
@@ -309,7 +313,7 @@ class YOLOXTrainer:
             if epoch == self.config.epochs - self.config.no_aug_epochs:
                 logger.info(f"Disabling mosaic/mixup for final {self.config.no_aug_epochs} epochs")
                 self.train_loader.dataset.close_mosaic()
-                self.model.head.use_l1 = True
+                self.loss_fn.use_l1 = True
 
             # Train one epoch
             epoch_loss = self._train_epoch(epoch)
@@ -355,7 +359,8 @@ class YOLOXTrainer:
             # Forward pass
             if self.scaler is not None:
                 with autocast():
-                    outputs = self.model(imgs, targets)
+                    model_outputs = self.model(imgs)
+                    outputs = self.loss_fn(model_outputs, targets)
                     loss = outputs["total_loss"]
 
                 # Backward pass
@@ -364,7 +369,8 @@ class YOLOXTrainer:
                 self.scaler.step(self.optimizer)
                 self.scaler.update()
             else:
-                outputs = self.model(imgs, targets)
+                model_outputs = self.model(imgs)
+                outputs = self.loss_fn(model_outputs, targets)
                 loss = outputs["total_loss"]
 
                 self.optimizer.zero_grad()
