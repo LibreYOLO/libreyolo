@@ -49,7 +49,7 @@ Thumbs.db
 # Others
 temporary/
 runs/
-data/
+/data/
 
 .onnx
 .pt

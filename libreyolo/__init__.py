@@ -23,6 +23,18 @@ from .common.cam import (
     EigenGradCAM,
     GradCAMPlusPlus,
 )
+from .validation import (
+    ValidationConfig,
+    BaseValidator,
+    DetectionValidator,
+    DetMetrics,
+    ConfusionMatrix,
+)
+from .data import (
+    DATASETS_DIR,
+    load_data_config,
+    check_dataset,
+)
 
 try:
     __version__ = version("libreyolo")
@@ -51,4 +63,14 @@ __all__ = [
     "LayerCAM",
     "EigenGradCAM",
     "GradCAMPlusPlus",
+    # Validation
+    "ValidationConfig",
+    "BaseValidator",
+    "DetectionValidator",
+    "DetMetrics",
+    "ConfusionMatrix",
+    # Data utilities
+    "DATASETS_DIR",
+    "load_data_config",
+    "check_dataset",
 ]
