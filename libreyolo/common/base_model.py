@@ -585,3 +585,67 @@ class LibreYOLOBase(ABC):
     def predict(self, *args, **kwargs) -> Union[Dict, List[Dict]]:
         """Alias for __call__ method."""
         return self(*args, **kwargs)
+
+    def val(
+        self,
+        data: str = None,
+        batch: int = 16,
+        imgsz: int = 640,
+        conf: float = 0.001,
+        iou: float = 0.6,
+        device: str = None,
+        split: str = "val",
+        save_json: bool = False,
+        plots: bool = True,
+        verbose: bool = True,
+        **kwargs,
+    ) -> Dict:
+        """
+        Run validation on a dataset.
+
+        Computes standard object detection metrics including mAP50, mAP50-95,
+        precision, and recall.
+
+        Args:
+            data: Path to data.yaml file containing dataset configuration.
+            batch: Batch size for validation.
+            imgsz: Image size for validation.
+            conf: Confidence threshold. Use low value (0.001) for mAP calculation.
+            iou: IoU threshold for NMS.
+            device: Device to use (default: same as model).
+            split: Dataset split to validate on ("val", "test").
+            save_json: Save predictions in COCO JSON format.
+            plots: Generate confusion matrix and other plots.
+            verbose: Print detailed metrics.
+            **kwargs: Additional arguments passed to ValidationConfig.
+
+        Returns:
+            Dictionary with validation metrics:
+                - metrics/precision: Mean precision at conf threshold
+                - metrics/recall: Mean recall at conf threshold
+                - metrics/mAP50: Mean AP at IoU=0.50
+                - metrics/mAP50-95: Mean AP across IoU 0.50-0.95
+
+        Example:
+            >>> model = LIBREYOLO("weights/libreyolo8n.pt", size="n")
+            >>> results = model.val(data="coco8.yaml", batch=16)
+            >>> print(f"mAP50-95: {results['metrics/mAP50-95']:.3f}")
+        """
+        from libreyolo.validation import DetectionValidator, ValidationConfig
+
+        config = ValidationConfig(
+            data=data,
+            batch_size=batch,
+            imgsz=imgsz,
+            conf_thres=conf,
+            iou_thres=iou,
+            device=device or str(self.device),
+            split=split,
+            save_json=save_json,
+            plots=plots,
+            verbose=verbose,
+            **kwargs,
+        )
+
+        validator = DetectionValidator(model=self, config=config)
+        return validator()
