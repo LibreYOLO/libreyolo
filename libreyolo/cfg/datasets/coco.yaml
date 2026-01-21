@@ -1,16 +1,16 @@
-# COCO8 Dataset (8 images for quick testing)
-# Example usage: model.val(data="coco8.yaml")
+# COCO 2017 dataset https://cocodataset.org
+# Example usage: model.val(data="coco.yaml")
 #
-# COCO8 is a small 8-image dataset for testing and CI/CD pipelines.
-# It's derived from the first 4 train and 4 val images of COCO train2017.
+# COCO 2017 contains 118k training images, 5k validation images.
+# This config downloads val2017 (5k images) for validation.
 
 # Dataset root directory (relative to DATASETS_DIR or absolute path)
-path: coco8
+path: coco
 
 # Train/val/test splits (relative to 'path')
-train: images/train  # 4 images
-val: images/val      # 4 images
-test:                # no test images
+train: train2017.txt  # 118287 images
+val: val2017.txt      # 5000 images
+test: test-dev2017.txt
 
 # Number of classes
 nc: 80
@@ -98,7 +98,22 @@ names:
   78: hair drier
   79: toothbrush
 
-# Download URL (auto-downloads if dataset not found locally)
-# TODO: Replace with LibreYOLO HF URL when available:
-# download: https://huggingface.co/datasets/LibreYOLO/coco8/resolve/main/coco8.zip
-download: https://github.com/ultralytics/assets/releases/download/v0.0.0/coco8.zip
+# Download script (auto-downloads if dataset not found locally)
+download: |
+  from pathlib import Path
+  from libreyolo.utils.downloads import ASSETS_URL, download
+
+  dir = Path(yaml["path"])
+
+  # Download labels (YOLO format)
+  download([ASSETS_URL + "/coco2017labels.zip"], dir=dir.parent)
+
+  # Download images
+  download(
+      [
+          "http://images.cocodataset.org/zips/train2017.zip",  # 19G, 118k images
+          "http://images.cocodataset.org/zips/val2017.zip",    # 1G, 5k images
+      ],
+      dir=dir / "images",
+      threads=2,
+  )

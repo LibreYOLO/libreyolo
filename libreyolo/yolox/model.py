@@ -83,6 +83,13 @@ class LIBREYOLOX(LibreYOLOBase):
             "backbone_dark5": self.model.backbone.dark5,
         }
 
+    def _get_val_preprocessor(self, img_size: int = None):
+        """YOLOX uses letterbox + no normalization (0-255 range)."""
+        from libreyolo.validation.preprocessors import YOLOXValPreprocessor
+        if img_size is None:
+            img_size = self.input_size
+        return YOLOXValPreprocessor(img_size=(img_size, img_size))
+
     def _load_weights(self, model_path: str):
         """Override to handle different checkpoint formats."""
         if not Path(model_path).exists():

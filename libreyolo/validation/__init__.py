@@ -21,6 +21,11 @@ from .base import BaseValidator
 from .config import ValidationConfig
 from .detection_validator import DetectionValidator
 from .metrics import ConfusionMatrix, DetMetrics
+from .preprocessors import (
+    BaseValPreprocessor,
+    StandardValPreprocessor,
+    YOLOXValPreprocessor,
+)
 from .utils import (
     clip_boxes,
     match_predictions_to_gt,
@@ -36,6 +41,10 @@ __all__ = [
     # Validators
     "BaseValidator",
     "DetectionValidator",
+    # Preprocessors
+    "BaseValPreprocessor",
+    "StandardValPreprocessor",
+    "YOLOXValPreprocessor",
     # Metrics
     "DetMetrics",
     "ConfusionMatrix",
