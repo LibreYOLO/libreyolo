@@ -90,6 +90,28 @@ class LibreYOLOBase(ABC):
         pass
 
     # =========================================================================
+    # OVERRIDABLE METHODS - Subclasses may override for custom behavior
+    # =========================================================================
+
+    def _get_val_preprocessor(self, img_size: int = None):
+        """
+        Return the validation preprocessor for this model.
+
+        Override in subclasses that need different preprocessing
+        (e.g., YOLOX uses letterbox + no normalization).
+
+        Args:
+            img_size: Target image size. Defaults to model's native input size.
+
+        Returns:
+            A preprocessor instance with __call__(img, targets, input_size).
+        """
+        from libreyolo.validation.preprocessors import StandardValPreprocessor
+        if img_size is None:
+            img_size = self._get_input_size()
+        return StandardValPreprocessor(img_size=(img_size, img_size))
+
+    # =========================================================================
     # SHARED IMPLEMENTATION
     # =========================================================================
 
@@ -590,7 +612,7 @@ class LibreYOLOBase(ABC):
         self,
         data: str = None,
         batch: int = 16,
-        imgsz: int = 640,
+        imgsz: int = None,
         conf: float = 0.001,
         iou: float = 0.6,
         device: str = None,
@@ -609,7 +631,7 @@ class LibreYOLOBase(ABC):
         Args:
             data: Path to data.yaml file containing dataset configuration.
             batch: Batch size for validation.
-            imgsz: Image size for validation.
+            imgsz: Image size for validation. Defaults to model's native input size.
             conf: Confidence threshold. Use low value (0.001) for mAP calculation.
             iou: IoU threshold for NMS.
             device: Device to use (default: same as model).
@@ -632,6 +654,10 @@ class LibreYOLOBase(ABC):
             >>> print(f"mAP50-95: {results['metrics/mAP50-95']:.3f}")
         """
         from libreyolo.validation import DetectionValidator, ValidationConfig
+
+        # Use model's native input size if not specified
+        if imgsz is None:
+            imgsz = self._get_input_size()
 
         config = ValidationConfig(
             data=data,

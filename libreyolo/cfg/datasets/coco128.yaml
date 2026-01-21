@@ -1,5 +1,4 @@
-# Ultralytics YOLO format - COCO128 Dataset
-# Documentation: https://docs.ultralytics.com/datasets/detect/coco128/
+# COCO128 Dataset (128 images for quick testing)
 # Example usage: model.val(data="coco128.yaml")
 #
 # COCO128 is a small 128-image dataset for quick testing and validation.

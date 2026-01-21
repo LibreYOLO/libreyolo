@@ -4,7 +4,6 @@ Detection validator for LibreYOLO.
 Implements validation for object detection models with mAP computation.
 """
 
-import cv2
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING
 
@@ -19,79 +18,6 @@ from .utils import process_batch
 
 if TYPE_CHECKING:
     from libreyolo.common.base_model import LibreYOLOBase
-
-
-class ValidationPreproc:
-    """
-    Preprocessing transform for validation.
-
-    Uses simple resize (same as model inference) to match model expectations.
-    Pads targets to a fixed size for batching.
-    """
-
-    def __init__(self, img_size: Tuple[int, int], max_labels: int = 120):
-        """
-        Initialize validation preprocessing.
-
-        Args:
-            img_size: Target image size (height, width).
-            max_labels: Maximum number of labels per image.
-        """
-        self.img_size = img_size
-        self.max_labels = max_labels
-
-    def __call__(
-        self, img: np.ndarray, targets: np.ndarray, input_size: Tuple[int, int]
-    ) -> Tuple[np.ndarray, np.ndarray]:
-        """
-        Preprocess image and targets for validation.
-
-        Args:
-            img: Input image (H, W, C) in BGR format.
-            targets: Target annotations (N, 5) with [x1, y1, x2, y2, class].
-                     NOTE: targets come from YOLODataset scaled by letterbox r.
-            input_size: Target input size (height, width).
-
-        Returns:
-            Tuple of (preprocessed_image, padded_targets).
-        """
-        orig_h, orig_w = img.shape[:2]
-        target_h, target_w = input_size
-
-        # Simple resize to match model's preprocessing (no letterbox)
-        resized_img = cv2.resize(img, (target_w, target_h), interpolation=cv2.INTER_LINEAR)
-
-        # Convert to CHW and float
-        resized_img = resized_img.transpose(2, 0, 1)
-        resized_img = np.ascontiguousarray(resized_img, dtype=np.float32)
-
-        # Fix targets: they come from YOLODataset scaled by letterbox r
-        # We need to convert them to simple resize scaling
-        # Letterbox r = min(target_h/orig_h, target_w/orig_w)
-        # Targets are in letterbox coords: original * r
-        # We want simple resize coords: original * (target/orig) for each axis
-        padded_targets = np.zeros((self.max_labels, 5), dtype=np.float32)
-        if len(targets) > 0:
-            targets = np.array(targets).copy()
-            n = min(len(targets), self.max_labels)
-
-            # Undo letterbox scaling and apply simple resize scaling
-            letterbox_r = min(target_h / orig_h, target_w / orig_w)
-            # targets[:, :4] are in letterbox coords = original * letterbox_r
-            # original = targets / letterbox_r
-            # simple_resize = original * (target / orig) = original * scale_x/y
-            scale_x = target_w / orig_w
-            scale_y = target_h / orig_h
-
-            # Convert: simple_resize = (targets / letterbox_r) * scale
-            targets[:n, 0] = targets[:n, 0] / letterbox_r * scale_x  # x1
-            targets[:n, 1] = targets[:n, 1] / letterbox_r * scale_y  # y1
-            targets[:n, 2] = targets[:n, 2] / letterbox_r * scale_x  # x2
-            targets[:n, 3] = targets[:n, 3] / letterbox_r * scale_y  # y2
-
-            padded_targets[:n] = targets[:n]
-
-        return resized_img, padded_targets
 
 
 def val_collate_fn(batch):
@@ -156,15 +82,20 @@ class DetectionValidator(BaseValidator):
         self.class_names: Optional[List[str]] = None
         self.iou_thresholds = torch.tensor(self.config.iou_thresholds)
         self.nc = model.nb_classes
+        self.val_preproc = None  # Set in _setup_dataloader
 
     def _setup_dataloader(self) -> DataLoader:
         """
         Create validation dataloader from config.
 
+        Supports both:
+        - Directory-based datasets (images/val, labels/val structure)
+        - .txt file format (val2017.txt listing image paths)
+
         Returns:
             DataLoader for validation data.
         """
-        from libreyolo.data import load_data_config
+        from libreyolo.data import load_data_config, get_img_files, img2label_paths
         from libreyolo.training.dataset import (
             YOLODataset,
             COCODataset,
@@ -173,36 +104,66 @@ class DetectionValidator(BaseValidator):
 
         img_size = (self.config.imgsz, self.config.imgsz)
 
-        # Load data configuration (supports auto-download)
+        # Initialize variables for file list mode
+        img_files = None
+        label_files = None
         split_name = self.config.split  # Default split name
+        data_cfg = None
+
+        # Load data configuration (supports auto-download)
         if self.config.data:
             data_cfg = load_data_config(self.config.data)
             data_dir = data_cfg["root"]
             self.nc = data_cfg.get("nc", self.nc)
+
             # Handle names as dict or list
             names = data_cfg.get("names", None)
             if isinstance(names, dict):
                 self.class_names = [names[i] for i in range(len(names))]
             else:
                 self.class_names = names
-            # Get the actual split path from config (e.g., "images/train2017")
-            # and extract the folder name for YOLODataset
-            split_path = data_cfg.get(self.config.split, f"images/{self.config.split}")
-            if "/" in split_path:
-                split_name = split_path.split("/")[-1]  # e.g., "train2017" from "images/train2017"
+
+            # Check if we have pre-resolved image files (from .txt format)
+            img_files_key = f"{self.config.split}_img_files"
+            label_files_key = f"{self.config.split}_label_files"
+
+            if img_files_key in data_cfg:
+                # Use pre-resolved file lists from load_data_config
+                img_files = data_cfg[img_files_key]
+                label_files = data_cfg.get(label_files_key)
             else:
-                split_name = split_path
+                # Try to resolve files from the split path
+                split_path_str = data_cfg.get(self.config.split, f"images/{self.config.split}")
+                full_split_path = Path(data_cfg["path"]) / Path(split_path_str).name
+
+                # Check if path ends with .txt (even if not yet downloaded)
+                if str(split_path_str).endswith(".txt"):
+                    # This is .txt format - try to resolve if file exists
+                    txt_path = Path(data_cfg["path"]) / split_path_str
+                    if txt_path.exists():
+                        try:
+                            img_files = get_img_files(txt_path)
+                            label_files = img2label_paths(img_files)
+                        except (FileNotFoundError, ValueError):
+                            pass
+                else:
+                    # Directory format - extract split name for YOLODataset
+                    if "/" in str(split_path_str):
+                        split_name = str(split_path_str).split("/")[-1]
+                    else:
+                        split_name = str(split_path_str)
         else:
             data_dir = self.config.data_dir
             self.class_names = None
 
-        # Create validation preprocessing transform
-        val_preproc = ValidationPreproc(img_size=img_size)
+        # Get model-specific validation preprocessor
+        self.val_preproc = self.model._get_val_preprocessor(img_size=self.config.imgsz)
 
         # Determine dataset format and create dataset
         data_path = Path(data_dir)
+
         if (data_path / "annotations").exists():
-            # COCO format
+            # COCO format (JSON annotations)
             json_file = f"instances_{self.config.split}2017.json"
             if not (data_path / "annotations" / json_file).exists():
                 # Try alternative naming
@@ -213,15 +174,23 @@ class DetectionValidator(BaseValidator):
                 json_file=json_file,
                 name=f"{self.config.split}2017" if "2017" in json_file else self.config.split,
                 img_size=img_size,
-                preproc=val_preproc,
+                preproc=self.val_preproc,
+            )
+        elif img_files is not None:
+            # File list mode (.txt format)
+            dataset = YOLODataset(
+                img_files=img_files,
+                label_files=label_files,
+                img_size=img_size,
+                preproc=self.val_preproc,
             )
         else:
-            # YOLO format
+            # YOLO directory format
             dataset = YOLODataset(
                 data_dir=str(data_path),
                 split=split_name,
                 img_size=img_size,
-                preproc=val_preproc,
+                preproc=self.val_preproc,
             )
 
         # Create dataloader with validation collate function
@@ -264,16 +233,15 @@ class DetectionValidator(BaseValidator):
         """
         images, targets, img_info, img_ids = batch
 
-        # Images from dataset are already resized, need to normalize
-        # Convert to float and normalize to [0, 1]
+        # Convert to tensor
         if isinstance(images, np.ndarray):
             images = torch.from_numpy(images)
 
         images = images.float()
 
-        # Check if normalization is needed (YOLOX doesn't normalize)
-        # Most models expect [0, 1] range
-        if images.max() > 1.0:
+        # Normalize based on preprocessor config
+        # Some models (e.g., YOLOX) expect 0-255 range
+        if self.val_preproc.normalize and images.max() > 1.0:
             images = images / 255.0
 
         # Ensure NCHW format
