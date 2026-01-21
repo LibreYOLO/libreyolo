@@ -2,7 +2,12 @@
 Data utilities for LibreYOLO.
 
 Provides dataset auto-download, path resolution, and configuration loading.
-Follows the Ultralytics pattern where dataset YAMLs contain download URLs.
+
+Supports YAML configs with:
+- Directory paths (e.g., val: images/val)
+- Text file paths (e.g., val: val2017.txt)
+- List paths (e.g., val: [path1, path2])
+- Python download scripts
 """
 
 import os
@@ -10,7 +15,7 @@ import shutil
 import tempfile
 import zipfile
 from pathlib import Path
-from typing import Dict, Optional, Union
+from typing import Dict, List, Optional, Union
 from urllib.parse import urlparse
 
 import requests
@@ -23,6 +28,9 @@ DATASETS_DIR = Path(os.getenv("LIBREYOLO_DATASETS_DIR", Path.home() / "datasets"
 
 # Built-in datasets directory (shipped with package)
 BUILTIN_DATASETS_DIR = Path(__file__).parent.parent / "cfg" / "datasets"
+
+# Supported image extensions
+IMG_FORMATS = {".jpg", ".jpeg", ".png", ".bmp", ".gif", ".tif", ".tiff", ".webp", ".pfm"}
 
 
 def resolve_dataset_yaml(data: str) -> Path:
@@ -87,11 +95,122 @@ def list_builtin_datasets() -> list:
     return [f.stem for f in BUILTIN_DATASETS_DIR.glob("*.yaml")]
 
 
+def get_img_files(path: Union[str, Path, List], prefix: str = "") -> List[Path]:
+    """
+    Get list of image files from various input formats.
+
+    Supports:
+    1. Directory path - recursively finds all images
+    2. Text file (.txt) - reads paths line by line
+    3. List of paths - processes each element
+
+    Args:
+        path: Directory path, .txt file path, or list of paths.
+        prefix: Optional prefix to prepend to relative paths.
+
+    Returns:
+        List of resolved Path objects to image files.
+
+    Raises:
+        FileNotFoundError: If path doesn't exist.
+        ValueError: If no valid images found.
+    """
+    if isinstance(path, list):
+        # Handle list of paths recursively
+        img_files = []
+        for p in path:
+            img_files.extend(get_img_files(p, prefix))
+        return img_files
+
+    path = Path(path)
+
+    # Apply prefix if path is relative
+    if prefix and not path.is_absolute():
+        path = Path(prefix) / path
+
+    if path.is_dir():
+        # Directory: recursively find all images
+        img_files = []
+        for ext in IMG_FORMATS:
+            img_files.extend(path.rglob(f"*{ext}"))
+            img_files.extend(path.rglob(f"*{ext.upper()}"))
+        return sorted(set(img_files))
+
+    elif path.suffix.lower() == ".txt":
+        # Text file: read paths line by line
+        if not path.exists():
+            raise FileNotFoundError(f"Image list file not found: {path}")
+
+        img_files = []
+        with open(path, "r") as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith("#"):
+                    # Handle relative paths in txt file
+                    img_path = Path(line)
+                    if not img_path.is_absolute():
+                        # Relative to txt file's parent directory
+                        img_path = path.parent / img_path
+                    if img_path.exists() and img_path.suffix.lower() in IMG_FORMATS:
+                        img_files.append(img_path.resolve())
+        return sorted(img_files)
+
+    elif path.suffix.lower() in IMG_FORMATS:
+        # Single image file
+        if not path.exists():
+            raise FileNotFoundError(f"Image file not found: {path}")
+        return [path.resolve()]
+
+    else:
+        raise ValueError(f"Unsupported path format: {path}")
+
+
+def img2label_paths(img_paths: List[Path]) -> List[Path]:
+    """
+    Convert image paths to corresponding label paths.
+
+    Convention:
+    - Replace 'images' with 'labels' in path
+    - Change extension to '.txt'
+
+    Args:
+        img_paths: List of image file paths.
+
+    Returns:
+        List of corresponding label file paths.
+
+    Example:
+        >>> img_paths = [Path("/data/images/train/001.jpg")]
+        >>> label_paths = img2label_paths(img_paths)
+        >>> print(label_paths)  # [Path("/data/labels/train/001.txt")]
+    """
+    label_paths = []
+    for img_path in img_paths:
+        # Convert path to string for replacement
+        path_str = str(img_path)
+
+        # Replace 'images' with 'labels' (handles various positions)
+        # Common patterns: /images/, \images\, /images, images/
+        for sep in [os.sep, "/"]:
+            path_str = path_str.replace(f"{sep}images{sep}", f"{sep}labels{sep}")
+            path_str = path_str.replace(f"{sep}images", f"{sep}labels")
+
+        # Change extension to .txt
+        label_path = Path(path_str).with_suffix(".txt")
+        label_paths.append(label_path)
+
+    return label_paths
+
+
 def load_data_config(data: str, autodownload: bool = True) -> Dict:
     """
     Load dataset configuration from YAML file.
 
-    If the dataset doesn't exist locally and a download URL is specified
+    Supports YAML formats:
+    - Directory paths: train/val point to directories (e.g., "images/train")
+    - File list paths: train/val can be .txt files (e.g., "train2017.txt")
+
+    If the dataset doesn't exist locally and a download URL/script is specified
     in the YAML, it will be automatically downloaded.
 
     Args:
@@ -99,7 +218,13 @@ def load_data_config(data: str, autodownload: bool = True) -> Dict:
         autodownload: Whether to auto-download missing datasets.
 
     Returns:
-        Dictionary with dataset configuration including resolved paths.
+        Dictionary with dataset configuration including:
+        - path: Dataset root path
+        - train/val/test: Resolved paths (directory or .txt file)
+        - {split}_img_files: List of image paths (if .txt format detected)
+        - {split}_label_files: List of label paths (if .txt format detected)
+        - names: Class names dict or list
+        - nc: Number of classes
 
     Example:
         >>> config = load_data_config("coco8")
@@ -119,13 +244,24 @@ def load_data_config(data: str, autodownload: bool = True) -> Dict:
 
     # Check if dataset exists, download if needed
     if autodownload:
-        config = check_dataset(config)
+        config = check_dataset(config, yaml_path)
 
     # Resolve train/val/test paths
     for split in ("train", "val", "test"):
         if split in config and config[split]:
-            split_path = dataset_path / config[split]
+            split_value = config[split]
+            split_path = dataset_path / split_value
             config[split] = str(split_path)
+
+            # If it's a .txt file, pre-resolve image files
+            if str(split_value).endswith(".txt") and split_path.exists():
+                try:
+                    img_files = get_img_files(split_path)
+                    config[f"{split}_img_files"] = img_files
+                    config[f"{split}_label_files"] = img2label_paths(img_files)
+                except (FileNotFoundError, ValueError):
+                    # File doesn't exist or no valid images found
+                    pass
 
     # Keep 'root' for backward compatibility
     config["root"] = str(dataset_path)
@@ -154,41 +290,112 @@ def _resolve_dataset_path(config: Dict, yaml_path: Path) -> Path:
         return yaml_path.parent
 
 
-def check_dataset(config: Dict) -> Dict:
+def check_dataset(config: Dict, yaml_path: Path = None) -> Dict:
     """
-    Check if dataset exists, download if missing and URL is provided.
+    Check if dataset exists, download if missing and URL/script is provided.
+
+    Supports:
+    - URL downloads (ZIP files)
+    - Python script execution (multiline download scripts)
 
     Args:
         config: Dataset configuration dictionary.
+        yaml_path: Path to the YAML file (for script context).
 
     Returns:
         Updated configuration with resolved paths.
     """
     dataset_path = Path(config["path"])
 
-    # Check if dataset exists by looking for train/val directories
+    # Check if dataset exists by looking for train/val paths
     exists = False
     for split in ("train", "val"):
         if split in config and config[split]:
             split_path = dataset_path / config[split]
-            if split_path.exists() and any(split_path.iterdir()):
+            # Check if it's a directory with contents or a .txt file that exists
+            if split_path.is_dir() and any(split_path.iterdir()):
+                exists = True
+                break
+            elif split_path.is_file():
                 exists = True
                 break
 
     if exists:
         return config
 
-    # Dataset doesn't exist, check for download URL
-    download_url = config.get("download")
-    if not download_url:
-        print(f"Warning: Dataset not found at {dataset_path} and no download URL specified.")
+    # Dataset doesn't exist, check for download URL/script
+    download_spec = config.get("download")
+    if not download_spec:
+        print(f"Warning: Dataset not found at {dataset_path} and no download specified.")
         return config
 
-    # Download and extract
     print(f"Dataset not found at {dataset_path}")
-    download_dataset(download_url, dataset_path)
+
+    # Check if download is a Python script (multiline or contains Python code)
+    if _is_python_script(download_spec):
+        _execute_download_script(download_spec, config, yaml_path)
+    else:
+        # Treat as URL
+        download_dataset(download_spec, dataset_path)
 
     return config
+
+
+def _is_python_script(download_spec: str) -> bool:
+    """Check if download specification is a Python script."""
+    # Check for common Python patterns
+    python_indicators = [
+        "import ",
+        "from ",
+        "def ",
+        "exec(",
+        "download(",
+        "\n",  # Multiline usually indicates script
+    ]
+    return any(indicator in download_spec for indicator in python_indicators)
+
+
+def _execute_download_script(script: str, config: Dict, yaml_path: Path = None) -> None:
+    """
+    Execute a Python download script.
+
+    The script has access to:
+    - yaml: The full config dict
+    - path: The dataset root path
+    - Path: pathlib.Path class
+
+    Args:
+        script: Python code to execute.
+        config: Dataset configuration.
+        yaml_path: Path to YAML file.
+    """
+    print("Executing download script...")
+
+    # Auto-replace common import patterns with libreyolo equivalents
+    script = script.replace(
+        "from ultralytics.utils.downloads import download",
+        "from libreyolo.utils.downloads import download"
+    )
+    script = script.replace(
+        "from ultralytics.utils import ASSETS_URL",
+        "from libreyolo.utils.downloads import ASSETS_URL"
+    )
+
+    # Create execution context with useful variables
+    context = {
+        "yaml": config,
+        "path": Path(config["path"]),
+        "yaml_file": yaml_path,
+        "Path": Path,
+        "os": os,
+    }
+
+    try:
+        exec(script, context)
+        print("Download script completed.")
+    except Exception as e:
+        print(f"Warning: Download script failed: {e}")
+        raise
 
 
 def download_dataset(url: str, dest: Path) -> None:
