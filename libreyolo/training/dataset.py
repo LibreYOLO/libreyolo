@@ -47,20 +47,14 @@ def load_data_config(data_path: str) -> Dict:
 
 class YOLODataset(Dataset):
     """
-    YOLO format dataset for YOLOX training.
+    YOLO format dataset supporting both directory and file list modes.
 
-    Directory structure:
-    dataset/
-    ├── images/
-    │   ├── train/
-    │   │   ├── img1.jpg
-    │   │   └── ...
-    │   └── val/
-    ├── labels/
-    │   ├── train/
-    │   │   ├── img1.txt  # class cx cy w h (normalized)
-    │   │   └── ...
-    │   └── val/
+    Mode 1 (Directory): Traditional structure
+        dataset/images/{split}/*.jpg
+        dataset/labels/{split}/*.txt
+
+    Mode 2 (File List): .txt file format
+        Provide img_files list directly, labels inferred via img2label_paths()
 
     Each label file contains one object per line:
     class_id center_x center_y width height  (all normalized 0-1)
@@ -68,44 +62,71 @@ class YOLODataset(Dataset):
 
     def __init__(
         self,
-        data_dir: str,
+        data_dir: str = None,
         split: str = "train",
         img_size: Tuple[int, int] = (640, 640),
         preproc=None,
+        img_files: List[Path] = None,
+        label_files: List[Path] = None,
     ):
         """
         Initialize YOLO dataset.
 
         Args:
-            data_dir: Path to dataset root
-            split: "train" or "val"
-            img_size: Target image size (height, width)
-            preproc: Preprocessing transform
+            data_dir: Path to dataset root (for directory mode).
+            split: "train" or "val" (for directory mode).
+            img_size: Target image size (height, width).
+            preproc: Preprocessing transform.
+            img_files: List of image paths (for file list mode).
+            label_files: List of label paths (optional, inferred if not provided).
         """
-        self.data_dir = Path(data_dir)
-        self.split = split
         self.img_size = img_size
         self.preproc = preproc
         self._input_dim = img_size
 
-        # Find images
-        self.img_dir = self.data_dir / "images" / split
-        self.label_dir = self.data_dir / "labels" / split
+        if img_files is not None:
+            # File list mode (.txt format)
+            self.img_files = [Path(f) for f in img_files]
+            if label_files is not None:
+                self.label_files = [Path(f) for f in label_files]
+            else:
+                # Infer label paths from image paths
+                from libreyolo.data import img2label_paths
+                self.label_files = img2label_paths(self.img_files)
 
-        if not self.img_dir.exists():
-            raise FileNotFoundError(f"Image directory not found: {self.img_dir}")
+            self.data_dir = None
+            self.split = None
+            self.img_dir = None
+            self.label_dir = None
+        else:
+            # Directory mode (original behavior)
+            if data_dir is None:
+                raise ValueError("Either data_dir or img_files must be provided")
 
-        # Collect image files
-        self.img_files = []
-        for ext in ['*.jpg', '*.jpeg', '*.png', '*.bmp']:
-            self.img_files.extend(self.img_dir.glob(ext))
-            self.img_files.extend(self.img_dir.glob(ext.upper()))
+            self.data_dir = Path(data_dir)
+            self.split = split
+            self.img_dir = self.data_dir / "images" / split
+            self.label_dir = self.data_dir / "labels" / split
 
-        self.img_files = sorted(self.img_files)
+            if not self.img_dir.exists():
+                raise FileNotFoundError(f"Image directory not found: {self.img_dir}")
+
+            # Collect image files from directory
+            self.img_files = []
+            for ext in ['*.jpg', '*.jpeg', '*.png', '*.bmp']:
+                self.img_files.extend(self.img_dir.glob(ext))
+                self.img_files.extend(self.img_dir.glob(ext.upper()))
+            self.img_files = sorted(self.img_files)
+
+            # Generate corresponding label file paths
+            self.label_files = [
+                self.label_dir / (f.stem + ".txt") for f in self.img_files
+            ]
+
         self.num_imgs = len(self.img_files)
 
         if self.num_imgs == 0:
-            raise ValueError(f"No images found in {self.img_dir}")
+            raise ValueError("No images found")
 
         # Pre-load annotations
         self.annotations = self._load_annotations()
@@ -113,8 +134,7 @@ class YOLODataset(Dataset):
     def _load_annotations(self) -> List:
         """Load all annotations."""
         annotations = []
-        for img_file in self.img_files:
-            label_file = self.label_dir / (img_file.stem + ".txt")
+        for img_file, label_file in zip(self.img_files, self.label_files):
             anno = self._load_label(label_file, img_file)
             annotations.append(anno)
         return annotations
