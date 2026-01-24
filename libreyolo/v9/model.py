@@ -112,3 +112,7 @@ class LIBREYOLO9(LibreYOLOBase):
             input_size=640,
             original_size=original_size,
         )
+
+    def _strict_loading(self) -> bool:
+        """Use non-strict loading for YOLOv9 to handle profiling artifacts in weights."""
+        return False
