@@ -8,6 +8,13 @@ from .v11.model import LIBREYOLO11
 from .v9.model import LIBREYOLO9
 from .yolox.model import LIBREYOLOX
 from .factory import LIBREYOLO, create_model
+
+# Lazy import for RF-DETR to avoid dependency issues
+def __getattr__(name):
+    if name == "LIBREYOLORFDETR":
+        from .rfdetr.model import LIBREYOLORFDETR
+        return LIBREYOLORFDETR
+    raise AttributeError(f"module '{__name__}' has no attribute '{name}'")
 from .common.onnx import LIBREYOLOOnnx
 from .common.cam import (
     CAM_METHODS,
@@ -45,6 +52,7 @@ __all__ = [
     "LIBREYOLO9",
     "LIBREYOLO11",
     "LIBREYOLOX",
+    "LIBREYOLORFDETR",
     "LIBREYOLOOnnx",
     "create_model",
     # CAM methods
