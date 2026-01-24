@@ -8,7 +8,7 @@ While this codebase is MIT licensed, pre-trained weights converted from other re
 
 ## Features
 
-- **Supported Models:** Full support for YOLOv7, YOLOv8, YOLOv9, YOLOv11, YOLOX, YOLO-RD, and RT-DETR architectures
+- **Supported Models:** Full support for YOLOv8, YOLOv9, YOLOv11, and YOLOX architectures
 - **Unified API:** Simple, consistent interface for loading and using different YOLO versions
 - **Training Engine:** Under development
 - **MIT License:** Permissive licensing for the codebase
