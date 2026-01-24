@@ -79,6 +79,7 @@ class DetectionValidator(BaseValidator):
         # Detection-specific attributes
         self.metrics: Optional[DetMetrics] = None
         self.confusion_matrix: Optional[ConfusionMatrix] = None
+        self.coco_evaluator = None  # COCO evaluator (optional)
         self.class_names: Optional[List[str]] = None
         self.iou_thresholds = torch.tensor(self.config.iou_thresholds)
         self.nc = model.nb_classes
@@ -225,16 +226,39 @@ class DetectionValidator(BaseValidator):
 
     def _init_metrics(self) -> None:
         """Initialize metrics containers."""
-        self.metrics = DetMetrics(
-            nc=self.nc,
-            conf=0.25,  # Confidence threshold for precision/recall reporting
-            iou_thresholds=self.config.iou_thresholds,
-        )
-        self.confusion_matrix = ConfusionMatrix(
-            nc=self.nc,
-            conf=0.25,
-            iou_thres=0.5,
-        )
+        if self.config.use_coco_eval:
+            # Use COCO evaluation API
+            try:
+                from libreyolo.data import create_yolo_coco_api
+                from libreyolo.validation import COCOEvaluator
+
+                if self.config.verbose:
+                    print("Initializing COCO evaluator...")
+
+                # Create COCO API from dataset
+                coco_api = create_yolo_coco_api(self.config.data, self.config.split)
+                self.coco_evaluator = COCOEvaluator(coco_api, iou_type='bbox')
+
+                if self.config.verbose:
+                    print(f"COCO evaluator initialized with {len(coco_api.imgs)} images")
+            except Exception as e:
+                print(f"Warning: Failed to initialize COCO evaluator: {e}")
+                print("Falling back to legacy DetMetrics")
+                self.config.use_coco_eval = False
+                self.coco_evaluator = None
+
+        # Always initialize legacy metrics (for confusion matrix and fallback)
+        if not self.config.use_coco_eval or self.coco_evaluator is None:
+            self.metrics = DetMetrics(
+                nc=self.nc,
+                conf=0.25,  # Confidence threshold for precision/recall reporting
+                iou_thresholds=self.config.iou_thresholds,
+            )
+            self.confusion_matrix = ConfusionMatrix(
+                nc=self.nc,
+                conf=0.25,
+                iou_thres=0.5,
+            )
 
     def _preprocess_batch(
         self, batch: Tuple
@@ -416,6 +440,7 @@ class DetectionValidator(BaseValidator):
         preds: List[Dict[str, torch.Tensor]],
         targets: torch.Tensor,
         img_info: List,
+        img_ids: List = None,
     ) -> None:
         """
         Update metrics with batch predictions and targets.
@@ -424,8 +449,20 @@ class DetectionValidator(BaseValidator):
             preds: List of detection dicts per image.
             targets: Ground truth tensor (B, max_labels, 5) with [x1, y1, x2, y2, class].
             img_info: List of (height, width) tuples for each image.
+            img_ids: List of image IDs for COCO evaluation (optional).
         """
         batch_size = len(preds)
+
+        # Update COCO evaluator if enabled
+        if self.coco_evaluator is not None and img_ids is not None:
+            for i in range(batch_size):
+                pred = preds[i]
+                image_id = img_ids[i]
+                self.coco_evaluator.update(pred, image_id)
+
+        # Skip legacy metrics if using COCO eval
+        if self.coco_evaluator is not None:
+            return
 
         # Check if preprocessor uses letterbox (aspect-preserving) or simple resize
         uses_letterbox = self.val_preproc is not None and not self.val_preproc.normalize
@@ -502,7 +539,35 @@ class DetectionValidator(BaseValidator):
         Returns:
             Dictionary with validation metrics.
         """
-        return self.metrics.compute()
+        if self.coco_evaluator is not None:
+            # Compute COCO metrics
+            if self.config.verbose:
+                print("\nComputing COCO metrics...")
+
+            save_json = None
+            if self.config.save_json:
+                save_json = str(self.save_dir / "predictions.json")
+
+            coco_metrics = self.coco_evaluator.compute(save_json=save_json)
+
+            # Map COCO metrics to LibreYOLO naming convention
+            return {
+                'metrics/mAP50-95': coco_metrics['mAP'],      # Primary metric
+                'metrics/mAP50': coco_metrics['mAP50'],       # YOLO-style AP@0.5
+                'metrics/mAP75': coco_metrics['mAP75'],       # Stricter AP@0.75
+                'metrics/mAP_small': coco_metrics['mAP_small'],
+                'metrics/mAP_medium': coco_metrics['mAP_medium'],
+                'metrics/mAP_large': coco_metrics['mAP_large'],
+                'metrics/AR1': coco_metrics['AR1'],
+                'metrics/AR10': coco_metrics['AR10'],
+                'metrics/AR100': coco_metrics['AR100'],
+                'metrics/AR_small': coco_metrics['AR_small'],
+                'metrics/AR_medium': coco_metrics['AR_medium'],
+                'metrics/AR_large': coco_metrics['AR_large'],
+            }
+        else:
+            # Use legacy DetMetrics
+            return self.metrics.compute()
 
     def _generate_plots(self) -> None:
         """Generate and save visualization plots."""

@@ -171,8 +171,8 @@ class BaseValidator(ABC):
                 detections = self._postprocess_predictions(preds, batch)
                 self.speed["postprocess"] += time.time() - t3
 
-                # Update metrics
-                self._update_metrics(detections, targets, img_info)
+                # Update metrics (pass img_ids for COCO evaluation)
+                self._update_metrics(detections, targets, img_info, img_ids)
 
                 # Update seen count
                 self.seen += len(images)
@@ -322,7 +322,7 @@ class BaseValidator(ABC):
         pass
 
     @abstractmethod
-    def _update_metrics(self, preds: Any, targets: Any, img_info: Any) -> None:
+    def _update_metrics(self, preds: Any, targets: Any, img_info: Any, img_ids: Any = None) -> None:
         """
         Update metrics with batch predictions.
 
@@ -330,6 +330,7 @@ class BaseValidator(ABC):
             preds: Processed predictions.
             targets: Ground truth targets.
             img_info: Image information (shapes, etc.).
+            img_ids: Image IDs for COCO evaluation (optional).
         """
         pass
 

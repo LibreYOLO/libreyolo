@@ -21,6 +21,7 @@ from .base import BaseValidator
 from .config import ValidationConfig
 from .detection_validator import DetectionValidator
 from .metrics import ConfusionMatrix, DetMetrics
+from .coco_evaluator import COCOEvaluator
 from .preprocessors import (
     BaseValPreprocessor,
     StandardValPreprocessor,
@@ -48,6 +49,7 @@ __all__ = [
     # Metrics
     "DetMetrics",
     "ConfusionMatrix",
+    "COCOEvaluator",
     # Utilities
     "match_predictions_to_gt",
     "process_batch",
