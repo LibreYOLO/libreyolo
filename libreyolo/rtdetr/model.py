@@ -47,6 +47,7 @@ class LIBREYOLORTDETR(LibreYOLOBase):
         **kwargs,
     ):
         self._original_size = None  # Store for postprocessing
+        self._used_input_size_as_orig = False  # Track if we used input size as orig_size
         super().__init__(
             model_path=model_path,
             size=size,
@@ -75,6 +76,13 @@ class LIBREYOLORTDETR(LibreYOLOBase):
             "encoder": self.model.encoder,
             "decoder": self.model.decoder,
         }
+
+    def _get_val_preprocessor(self, img_size: int = None):
+        """RT-DETR uses simple resize + ImageNet normalization."""
+        from libreyolo.validation.preprocessors import RTDETRValPreprocessor
+        if img_size is None:
+            img_size = self._get_input_size()
+        return RTDETRValPreprocessor(img_size=(img_size, img_size))
 
     def _load_weights(self, model_path: str):
         """Override to handle RT-DETR checkpoint formats."""
@@ -123,8 +131,20 @@ class LIBREYOLORTDETR(LibreYOLOBase):
 
     def _forward(self, input_tensor: torch.Tensor) -> Any:
         """RT-DETR forward pass needs original size tensor."""
+        # Handle None _original_size (e.g., during warmup or batch validation)
+        if self._original_size is not None:
+            orig_w, orig_h = self._original_size
+            self._used_input_size_as_orig = False
+        else:
+            # Default to input size (assumed square) for warmup/batch mode
+            _, _, h, w = input_tensor.shape
+            orig_w, orig_h = w, h
+            self._used_input_size_as_orig = True
+
+        # Create original size tensor for the batch
+        batch_size = input_tensor.shape[0]
         orig_size_tensor = torch.tensor(
-            [[self._original_size[0], self._original_size[1]]],
+            [[orig_w, orig_h]] * batch_size,
             dtype=torch.float32,
             device=self.device,
         )
@@ -145,12 +165,25 @@ class LIBREYOLORTDETR(LibreYOLOBase):
         scores_np = scores[0].cpu()
         mask = scores_np > conf_thres
 
-        filtered_boxes = boxes[0][mask].cpu().tolist()
+        filtered_boxes = boxes[0][mask].cpu()
         filtered_scores = scores_np[mask].tolist()
         filtered_classes = labels[0][mask].cpu().tolist()
 
+        # Scale boxes from model input coords to original image coords
+        # Only needed in batch validation mode where _forward used input_size as orig_size
+        needs_scaling = getattr(self, '_used_input_size_as_orig', False)
+        if needs_scaling and original_size is not None and len(filtered_boxes) > 0:
+            input_size = kwargs.get('input_size', 640)
+            orig_w, orig_h = original_size
+            scale_x = orig_w / input_size
+            scale_y = orig_h / input_size
+            filtered_boxes[:, 0] *= scale_x  # x1
+            filtered_boxes[:, 1] *= scale_y  # y1
+            filtered_boxes[:, 2] *= scale_x  # x2
+            filtered_boxes[:, 3] *= scale_y  # y2
+
         return {
-            "boxes": filtered_boxes,
+            "boxes": filtered_boxes.tolist() if len(filtered_boxes) > 0 else [],
             "scores": filtered_scores,
             "classes": [int(c) for c in filtered_classes],
             "num_detections": len(filtered_boxes),

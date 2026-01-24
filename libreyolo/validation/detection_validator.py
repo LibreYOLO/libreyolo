@@ -102,7 +102,18 @@ class DetectionValidator(BaseValidator):
         )
         from torch.utils.data import DataLoader
 
-        img_size = (self.config.imgsz, self.config.imgsz)
+        # Use model's native input size if it differs from config
+        # This is important for models like YOLOX nano/tiny that use 416x416
+        model_input_size = getattr(self.model, 'input_size', None)
+        if model_input_size is not None and model_input_size != self.config.imgsz:
+            # Model has a specific input size requirement
+            actual_imgsz = model_input_size
+        else:
+            actual_imgsz = self.config.imgsz
+
+        # Store the actual imgsz for postprocessing
+        self._actual_imgsz = actual_imgsz
+        img_size = (actual_imgsz, actual_imgsz)
 
         # Initialize variables for file list mode
         img_files = None
@@ -157,7 +168,7 @@ class DetectionValidator(BaseValidator):
             self.class_names = None
 
         # Get model-specific validation preprocessor
-        self.val_preproc = self.model._get_val_preprocessor(img_size=self.config.imgsz)
+        self.val_preproc = self.model._get_val_preprocessor(img_size=actual_imgsz)
 
         # Determine dataset format and create dataset
         data_path = Path(data_dir)
@@ -194,12 +205,18 @@ class DetectionValidator(BaseValidator):
             )
 
         # Create dataloader with validation collate function
+        # Enable pin_memory for CUDA (faster CPU→GPU transfer)
+        use_cuda = torch.cuda.is_available() and self.device.type == "cuda"
+        nw = self.config.num_workers
+
         dataloader = DataLoader(
             dataset,
             batch_size=self.config.batch_size,
             shuffle=False,
-            num_workers=self.config.num_workers,
-            pin_memory=False,  # MPS doesn't support pin_memory
+            num_workers=nw,
+            pin_memory=use_cuda,  # Enable for CUDA, disable for MPS/CPU
+            prefetch_factor=4 if nw > 0 else None,  # Prefetch more batches
+            persistent_workers=nw > 0,  # Keep workers alive between batches
             collate_fn=val_collate_fn,
             drop_last=False,
         )
@@ -294,6 +311,9 @@ class DetectionValidator(BaseValidator):
         """
         Postprocess model predictions to detection format.
 
+        Uses batched postprocessing when available for much better performance.
+        Falls back to per-image processing for models that don't support batched mode.
+
         Args:
             preds: Raw model output.
             batch: Original batch data (images, targets, img_info, img_ids).
@@ -307,25 +327,27 @@ class DetectionValidator(BaseValidator):
         images, targets, img_info, img_ids = batch
         batch_size = len(img_info)
 
+        # Collect original sizes for batched processing
+        original_sizes = [(int(img_info[i][1]), int(img_info[i][0])) for i in range(batch_size)]  # (w, h)
+
+        # Try batched postprocessing first (much faster)
+        if self._supports_batched_postprocess(preds):
+            return self._postprocess_batch(preds, original_sizes)
+
+        # Fallback: Process each image in batch (slower)
         detections = []
-
-        # Process each image in batch
         for i in range(batch_size):
-            # Get original image size
             orig_h, orig_w = img_info[i]
-
-            # Slice predictions for this specific image
             single_preds = self._slice_batch_predictions(preds, i)
 
-            # Run postprocessing using model's method
             result = self.model._postprocess(
                 single_preds,
                 conf_thres=self.config.conf_thres,
                 iou_thres=self.config.iou_thres,
                 original_size=(orig_w, orig_h),
+                input_size=self._actual_imgsz,  # Pass actual input size used
             )
 
-            # Convert to tensors
             if result["num_detections"] > 0:
                 boxes = torch.tensor(result["boxes"], dtype=torch.float32, device=self.device)
                 scores = torch.tensor(result["scores"], dtype=torch.float32, device=self.device)
@@ -343,6 +365,52 @@ class DetectionValidator(BaseValidator):
 
         return detections
 
+    def _supports_batched_postprocess(self, preds: Any) -> bool:
+        """Check if predictions support batched postprocessing.
+
+        YOLOv8/v11 style output has x8, x16, x32 keys with 'box' and 'cls' sub-keys.
+        Other models (like YOLOv9, YOLOX, RT-DETR) have different structures.
+        """
+        if not isinstance(preds, dict):
+            return False
+        # Check for YOLOv8/v11 style structure with 'box' and 'cls' keys
+        if 'x8' in preds and 'x16' in preds and 'x32' in preds:
+            x8 = preds.get('x8')
+            x16 = preds.get('x16')
+            x32 = preds.get('x32')
+            # ALL scales must have 'box' and 'cls' keys for batched postprocess
+            for scale in [x8, x16, x32]:
+                if not isinstance(scale, dict):
+                    return False
+                if 'box' not in scale or 'cls' not in scale:
+                    return False
+            return True
+        return False
+
+    def _postprocess_batch(
+        self, preds: Dict, original_sizes: List[Tuple[int, int]]
+    ) -> List[Dict[str, torch.Tensor]]:
+        """
+        Batched postprocessing for YOLOv8/v11 style outputs.
+
+        This is much faster than per-image processing because:
+        1. GPU-side confidence filtering for entire batch
+        2. Single batched NMS call
+        3. Minimal Python loop overhead
+        """
+        from libreyolo.v8.utils import postprocess_batch_v8
+
+        results = postprocess_batch_v8(
+            output=preds,
+            conf_thres=self.config.conf_thres,
+            iou_thres=self.config.iou_thres,
+            input_size=self._actual_imgsz,
+            original_sizes=original_sizes,
+            max_det=self.config.max_det,
+        )
+
+        return results
+
     def _update_metrics(
         self,
         preds: List[Dict[str, torch.Tensor]],
@@ -358,6 +426,9 @@ class DetectionValidator(BaseValidator):
             img_info: List of (height, width) tuples for each image.
         """
         batch_size = len(preds)
+
+        # Check if preprocessor uses letterbox (aspect-preserving) or simple resize
+        uses_letterbox = self.val_preproc is not None and not self.val_preproc.normalize
 
         for i in range(batch_size):
             pred = preds[i]
@@ -380,16 +451,24 @@ class DetectionValidator(BaseValidator):
                 gt_boxes = gt[:, :4].clone().to(self.device)
                 gt_classes = gt[:, 4].long().to(self.device)
 
-                # Scale GT boxes from simple resize coords back to original image coords
-                # GT boxes are in 640x640 coords (simple resize, no aspect preservation)
-                # Predictions are in original coords, so scale GT boxes back
+                # Scale GT boxes back to original image coords
+                # GT boxes are in model input coords (640x640)
+                # Predictions are already in original coords from postprocess
                 orig_h, orig_w = img_info[i]
-                img_h, img_w = self.config.imgsz, self.config.imgsz
-                # Simple resize: x_640 = x_orig * (640/orig_w), so x_orig = x_640 * (orig_w/640)
-                gt_boxes[:, 0] = gt_boxes[:, 0] * orig_w / img_w  # x1
-                gt_boxes[:, 1] = gt_boxes[:, 1] * orig_h / img_h  # y1
-                gt_boxes[:, 2] = gt_boxes[:, 2] * orig_w / img_w  # x2
-                gt_boxes[:, 3] = gt_boxes[:, 3] * orig_h / img_h  # y2
+                img_h, img_w = self._actual_imgsz, self._actual_imgsz
+
+                if uses_letterbox:
+                    # Letterbox: GT boxes were scaled by r = min(img_h/orig_h, img_w/orig_w)
+                    # To convert back: divide by r
+                    r = min(img_h / orig_h, img_w / orig_w)
+                    gt_boxes[:, :4] = gt_boxes[:, :4] / r
+                else:
+                    # Simple resize: x_640 = x_orig * (640/orig_w)
+                    # To convert back: x_orig = x_640 * (orig_w/640)
+                    gt_boxes[:, 0] = gt_boxes[:, 0] * orig_w / img_w  # x1
+                    gt_boxes[:, 1] = gt_boxes[:, 1] * orig_h / img_h  # y1
+                    gt_boxes[:, 2] = gt_boxes[:, 2] * orig_w / img_w  # x2
+                    gt_boxes[:, 3] = gt_boxes[:, 3] * orig_h / img_h  # y2
             else:
                 gt_boxes = torch.zeros((0, 4), dtype=torch.float32, device=self.device)
                 gt_classes = torch.zeros(0, dtype=torch.int64, device=self.device)

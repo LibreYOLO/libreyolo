@@ -133,6 +133,9 @@ class BaseValidator(ABC):
         # Initialize metrics (implemented by subclass)
         self._init_metrics()
 
+        # Warmup model (JIT compilation, CUDA kernel caching)
+        self._warmup_model()
+
         if self.config.verbose:
             print(f"Validating on {len(self.dataloader.dataset)} images...")
             print(f"Device: {self.device}")
@@ -204,7 +207,57 @@ class BaseValidator(ABC):
         Returns:
             Model predictions.
         """
-        return self.model._forward(images.to(self.device))
+        # Use non_blocking for CUDA to overlap transfer with computation
+        use_non_blocking = self.device.type == "cuda"
+        return self.model._forward(images.to(self.device, non_blocking=use_non_blocking))
+
+    def _warmup_model(self, n_warmup: int = 3) -> None:
+        """
+        Warmup model with dummy inference passes.
+
+        This triggers JIT compilation, CUDA kernel caching, and memory allocation
+        before the timed validation loop begins.
+
+        Args:
+            n_warmup: Number of warmup iterations.
+        """
+        if self.config.verbose:
+            print(f"Warming up model ({n_warmup} iterations)...")
+
+        # Get input size from model or use config
+        imgsz = self.config.imgsz
+        batch_size = min(self.config.batch_size, 4)  # Small batch for warmup
+
+        # Create dummy input
+        dummy_input = torch.zeros(
+            (batch_size, 3, imgsz, imgsz),
+            dtype=torch.float32,
+            device=self.device,
+        )
+
+        # Set dummy original_size for models that need it (e.g., RT-DETR)
+        # This prevents NoneType errors during warmup forward pass
+        if hasattr(self.model, '_original_size'):
+            self.model._original_size = (imgsz, imgsz)
+
+        # Run warmup passes
+        self.model.model.eval()
+        with torch.no_grad():
+            for _ in range(n_warmup):
+                try:
+                    _ = self.model._forward(dummy_input)
+                except Exception as e:
+                    if self.config.verbose:
+                        print(f"Warmup failed (non-fatal): {e}")
+                    break
+
+        # Reset original_size after warmup
+        if hasattr(self.model, '_original_size'):
+            self.model._original_size = None
+
+        # Sync CUDA if available
+        if self.device.type == "cuda":
+            torch.cuda.synchronize()
 
     def _print_results(self, metrics: Dict[str, float]) -> None:
         """Print validation results."""
