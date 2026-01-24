@@ -8,7 +8,7 @@ LibreYOLO supports seven YOLO architectures:
 
 | Model | Class | Sizes | Key Features |
 |-------|-------|-------|--------------|
-| YOLOv7 | `LIBREYOLO7` | base, tiny | ELAN blocks, anchor-based with ImplicitA/ImplicitM |
+| YOLOv7 | `LIBREYOLO7` | base | ELAN blocks, anchor-based with ImplicitA/ImplicitM |
 | YOLOv8 | `LIBREYOLO8` | n, s, m, l, x | C2F blocks, anchor-free |
 | YOLOv9 | `LIBREYOLO9` | t, s, m, c | ELAN blocks, anchor-free, GELAN architecture |
 | YOLOv11 | `LIBREYOLO11` | n, s, m, l, x | C3k2 blocks, C2PSA attention |

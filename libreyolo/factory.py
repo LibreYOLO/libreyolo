@@ -38,7 +38,7 @@ def download_weights(model_path: str, size: str):
               - For v8/v11: 'n', 's', 'm', 'l', 'x'
               - For YOLOX: 'nano', 'tiny', 's', 'm', 'l', 'x'
               - For v9: 't', 's', 'm', 'c'
-              - For v7: 'base', 'tiny'
+              - For v7: 'base' (only variant available)
               - For YOLO-RD: 'c' (only c variant)
               - For RT-DETR: 's', 'ms', 'm', 'l', 'x'
     """
@@ -69,7 +69,7 @@ def download_weights(model_path: str, size: str):
     elif re.search(r'libreyolo9|yolov?9', filename.lower()):
         repo = f"Libre-YOLO/libreyolo9{size}"
         url = f"https://huggingface.co/{repo}/resolve/main/{filename}"
-    # Check for YOLOv7 (e.g., libreyolo7.pt, libreyolo7tiny.pt)
+    # Check for YOLOv7 (e.g., libreyolo7.pt)
     elif re.search(r'libreyolo7|yolov?7', filename.lower()):
         size_suffix = "" if size == "base" else size
         repo = f"Libre-YOLO/libreyolo7{size_suffix}"
@@ -154,7 +154,7 @@ def LIBREYOLO(
               - For YOLOv8/v11: "n", "s", "m", "l", "x"
               - For YOLOX: "nano", "tiny", "s", "m", "l", "x"
               - For YOLOv9: "t", "s", "m", "c"
-              - For YOLOv7: "base", "tiny"
+              - For YOLOv7: "base" (only variant available)
               - For YOLO-RD: "c" (only c variant)
               - For RT-DETR: "s", "ms", "m", "l", "x"
         reg_max: Regression max value for DFL (default: 16). Only used for v8/v11/v9/rd.

@@ -108,7 +108,15 @@ class LIBREYOLOX(LibreYOLOBase):
             else:
                 state_dict = checkpoint
 
-            self.model.load_state_dict(state_dict, strict=True)
+            self.model.load_state_dict(state_dict, strict=False)
+
+            # Apply nano-specific BN initialization (matching official YOLOX)
+            if self.size == 'nano':
+                for m in self.model.modules():
+                    if isinstance(m, nn.BatchNorm2d):
+                        m.eps = 1e-3
+                        m.momentum = 0.03
+
         except Exception as e:
             raise RuntimeError(
                 f"Failed to load model weights from {model_path}: {e}"
@@ -136,12 +144,25 @@ class LIBREYOLOX(LibreYOLOBase):
         original_size: Tuple[int, int],
         **kwargs,
     ) -> Dict:
-        ratio = getattr(self, "_current_ratio", 1.0)
+        # Compute ratio from original_size if not set during _preprocess
+        # This handles batch validation where _preprocess is not called per-image
+        ratio = getattr(self, "_current_ratio", None)
+
+        # Use passed input_size if available (from validator), otherwise use model's default
+        # This is important when validation uses a different size than model's native size
+        actual_input_size = kwargs.get('input_size', self.input_size)
+
+        if ratio is None and original_size is not None:
+            orig_w, orig_h = original_size
+            # Use actual input size for ratio calculation
+            ratio = min(actual_input_size / orig_h, actual_input_size / orig_w)
+        elif ratio is None:
+            ratio = 1.0
         return postprocess(
             output,
             conf_thres=conf_thres,
             iou_thres=iou_thres,
-            input_size=self.input_size,
+            input_size=actual_input_size,
             original_size=original_size,
             ratio=ratio,
         )

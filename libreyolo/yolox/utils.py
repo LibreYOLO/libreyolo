@@ -72,18 +72,22 @@ def preprocess_image(
     return img_tensor, original_img, original_size, ratio
 
 
-def make_grids(outputs: List[torch.Tensor], strides: List[int], grid_cell_offset: float = 0.5) -> Tuple[torch.Tensor, torch.Tensor]:
+def make_grids(outputs: List[torch.Tensor], strides: List[int], grid_cell_offset: float = 0.0) -> Tuple[torch.Tensor, torch.Tensor]:
     """
     Generate grid anchors for YOLOX output decoding.
+
+    IMPORTANT: YOLOX uses 0-based grid indexing (no offset), matching the training
+    code in YOLOXHead.get_output_and_grid. This differs from some other YOLO variants
+    that use 0.5 offset for anchor-free detection.
 
     Args:
         outputs: List of output tensors from each scale
         strides: List of stride values [8, 16, 32]
-        grid_cell_offset: Offset for grid cell centers (default: 0.5)
+        grid_cell_offset: Offset for grid cells (default: 0.0 for YOLOX compatibility)
 
     Returns:
         Tuple of (grids, stride_tensor)
-        - grids: (N, 2) tensor of grid coordinates (cell centers)
+        - grids: (N, 2) tensor of grid coordinates
         - stride_tensor: (N, 1) tensor of stride values
     """
     grids = []
@@ -93,7 +97,7 @@ def make_grids(outputs: List[torch.Tensor], strides: List[int], grid_cell_offset
         _, _, h, w = output.shape
         dtype, device = output.dtype, output.device
 
-        # Create grid with cell center offset
+        # Create grid WITHOUT offset (matching YOLOX training code)
         xv = torch.arange(w, device=device, dtype=dtype) + grid_cell_offset
         yv = torch.arange(h, device=device, dtype=dtype) + grid_cell_offset
         yv, xv = torch.meshgrid(yv, xv, indexing='ij')

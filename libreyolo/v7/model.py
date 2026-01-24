@@ -28,7 +28,7 @@ class LIBREYOLO7(LibreYOLOBase):
         model_path: Model weights source. Can be:
             - str: Path to a .pt/.pth weights file
             - dict: Pre-loaded state_dict (e.g., from torch.load())
-        size: Model size variant (required). Must be one of: "base", "tiny"
+        size: Model size variant (required). Must be: "base"
         nb_classes: Number of classes (default: 80 for COCO)
         device: Device for inference
 
@@ -58,7 +58,7 @@ class LIBREYOLO7(LibreYOLOBase):
         return False
 
     def _get_valid_sizes(self) -> List[str]:
-        return ["base", "tiny"]
+        return ["base"]
 
     def _get_model_name(self) -> str:
         return "LIBREYOLO7"

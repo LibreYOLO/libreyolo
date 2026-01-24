@@ -551,7 +551,7 @@ class LibreYOLO7Model(nn.Module):
         super().__init__()
 
         if config != 'base':
-            raise ValueError(f"Only 'base' config is currently supported")
+            raise ValueError(f"Only 'base' config is supported for YOLOv7")
 
         self.config = config
         self.nc = nb_classes
