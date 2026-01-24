@@ -4,7 +4,7 @@ Shared utility functions.
 import torch
 import numpy as np
 from pathlib import Path
-from typing import Tuple, List, Union
+from typing import Tuple, List, Union, Dict
 from urllib.parse import urlparse
 from PIL import Image, ImageDraw, ImageFont
 import colorsys
@@ -520,4 +520,125 @@ def postprocess_detections(
         "classes": final_classes.tolist(),
         "num_detections": len(final_boxes)
     }
+
+
+def postprocess_batch(
+    batch_boxes: torch.Tensor,
+    batch_scores: torch.Tensor,
+    batch_class_ids: torch.Tensor,
+    batch_indices: torch.Tensor,
+    batch_size: int,
+    conf_thres: float = 0.25,
+    iou_thres: float = 0.45,
+    input_size: int = 640,
+    original_sizes: List[Tuple[int, int]] = None,
+    max_det: int = 300,
+    device: torch.device = None,
+) -> List[Dict]:
+    """
+    Batched post-processing for efficient validation.
+
+    Processes all detections from a batch at once using GPU-accelerated operations,
+    then splits results per image. This is much faster than processing images
+    one at a time in a Python loop.
+
+    Args:
+        batch_boxes: All boxes from batch (N_total, 4) in xyxy format
+        batch_scores: All scores from batch (N_total,)
+        batch_class_ids: All class IDs from batch (N_total,)
+        batch_indices: Image index for each detection (N_total,) - which image each box belongs to
+        batch_size: Number of images in batch
+        conf_thres: Confidence threshold (already applied if boxes are pre-filtered)
+        iou_thres: IoU threshold for NMS
+        input_size: Model input size for scaling
+        original_sizes: List of (width, height) tuples for each image
+        max_det: Maximum detections per image
+        device: Device for computations
+
+    Returns:
+        List of detection dicts, one per image in batch
+    """
+    try:
+        import torchvision.ops
+        has_torchvision = True
+    except ImportError:
+        has_torchvision = False
+
+    # Initialize results for each image
+    results = []
+
+    if len(batch_boxes) == 0:
+        # No detections at all
+        for _ in range(batch_size):
+            results.append({
+                "boxes": torch.zeros((0, 4), device=device),
+                "scores": torch.zeros(0, device=device),
+                "classes": torch.zeros(0, dtype=torch.int64, device=device),
+                "num_detections": 0,
+            })
+        return results
+
+    # Apply batched NMS using class offsets (standard trick)
+    # Offset boxes by (batch_idx * large_number + class_id * large_number) to prevent
+    # cross-image and cross-class suppression in a single NMS call
+    if has_torchvision:
+        max_wh = 7680.0  # Maximum expected image dimension
+        max_batch_offset = max_wh * 100  # Large offset between batches
+
+        # Create combined index for batched NMS: batch_idx * offset + class_id * max_wh
+        combined_idx = batch_indices.float() * max_batch_offset + batch_class_ids.float() * max_wh
+        boxes_for_nms = batch_boxes + combined_idx.unsqueeze(1)
+
+        # Single NMS call for entire batch
+        keep = torchvision.ops.nms(boxes_for_nms, batch_scores, iou_thres)
+
+        # Apply keep indices
+        batch_boxes = batch_boxes[keep]
+        batch_scores = batch_scores[keep]
+        batch_class_ids = batch_class_ids[keep]
+        batch_indices = batch_indices[keep]
+
+    # Split results by image
+    for img_idx in range(batch_size):
+        img_mask = batch_indices == img_idx
+
+        if not img_mask.any():
+            results.append({
+                "boxes": torch.zeros((0, 4), device=device),
+                "scores": torch.zeros(0, device=device),
+                "classes": torch.zeros(0, dtype=torch.int64, device=device),
+                "num_detections": 0,
+            })
+            continue
+
+        img_boxes = batch_boxes[img_mask].detach()
+        img_scores = batch_scores[img_mask].detach()
+        img_classes = batch_class_ids[img_mask].detach()
+
+        # Scale boxes to original size if provided
+        if original_sizes is not None and img_idx < len(original_sizes):
+            orig_w, orig_h = original_sizes[img_idx]
+            scale_x = orig_w / input_size
+            scale_y = orig_h / input_size
+            img_boxes = img_boxes.clone()
+            img_boxes[:, [0, 2]] *= scale_x
+            img_boxes[:, [1, 3]] *= scale_y
+            img_boxes[:, [0, 2]] = torch.clamp(img_boxes[:, [0, 2]], 0, orig_w)
+            img_boxes[:, [1, 3]] = torch.clamp(img_boxes[:, [1, 3]], 0, orig_h)
+
+        # Limit to max detections per image
+        if len(img_boxes) > max_det:
+            _, top_k = torch.topk(img_scores, max_det)
+            img_boxes = img_boxes[top_k]
+            img_scores = img_scores[top_k]
+            img_classes = img_classes[top_k]
+
+        results.append({
+            "boxes": img_boxes,
+            "scores": img_scores,
+            "classes": img_classes,
+            "num_detections": len(img_boxes),
+        })
+
+    return results
 

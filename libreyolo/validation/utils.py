@@ -20,11 +20,11 @@ def match_predictions_to_gt(
     """
     Match predictions to ground truth using IoU-based greedy assignment.
 
-    Algorithm:
-    1. Compute IoU matrix between all predictions and all ground truths
-    2. For each class, find the best matching GT for each prediction
-    3. Mark prediction as TP if IoU >= threshold and GT not already matched
-    4. Apply this for each IoU threshold
+    Fully vectorized algorithm:
+    1. Compute IoU matrix once between all predictions and ground truths
+    2. Apply class mask to filter valid pred-GT pairs
+    3. For each GT, find the highest-confidence prediction that wants it
+    4. Determine correctness at all thresholds based on matched IoU values
 
     Args:
         pred_boxes: (N, 4) predicted boxes in xyxy format.
@@ -50,36 +50,54 @@ def match_predictions_to_gt(
     if n_pred == 0 or n_gt == 0:
         return correct, iou_values
 
-    # Compute IoU matrix
+    # Compute IoU matrix once
     iou_matrix = box_iou(pred_boxes, gt_boxes)  # (N_pred, N_gt)
 
-    # Match by class (greedy matching)
-    for iou_idx, thresh in enumerate(iou_thresholds):
-        gt_matched = torch.zeros(n_gt, dtype=torch.bool, device=device)
+    # Create class match mask and apply it
+    class_match = pred_classes.unsqueeze(1) == gt_classes.unsqueeze(0)  # (N_pred, N_gt)
+    iou_matrix = iou_matrix * class_match.float()  # Zero out different-class pairs
 
-        # Process predictions (they should be sorted by confidence beforehand)
-        for pred_idx in range(n_pred):
-            pred_cls = pred_classes[pred_idx]
+    # Store max IoU per prediction (same-class only)
+    iou_values, _ = iou_matrix.max(dim=1)
 
-            # Find GTs with same class
-            cls_mask = gt_classes == pred_cls
-            if not cls_mask.any():
-                continue
+    # Get minimum threshold for initial matching
+    min_thresh = iou_thresholds.min().item()
 
-            # Get IoU with same-class GTs
-            ious = iou_matrix[pred_idx].clone()
-            ious[~cls_mask] = 0  # Mask different classes
-            ious[gt_matched] = 0  # Mask already matched
+    # Find best GT for each prediction (vectorized)
+    max_iou_per_pred, best_gt_per_pred = iou_matrix.max(dim=1)  # (N_pred,)
 
-            max_iou, gt_idx = ious.max(0)
+    # Mask predictions below minimum threshold
+    valid_preds = max_iou_per_pred >= min_thresh
 
-            if max_iou >= thresh:
-                correct[pred_idx, iou_idx] = True
-                gt_matched[gt_idx] = True
+    # Greedy assignment: for each GT, only the highest-priority pred gets it
+    # Since preds are sorted by confidence (highest first), lower indices = higher priority
+    # For each GT, find the lowest pred index that wants it and qualifies
 
-                # Store max IoU (only once, at first threshold)
-                if iou_idx == 0:
-                    iou_values[pred_idx] = max_iou
+    pred_matched_iou = torch.zeros(n_pred, device=device)
+
+    if valid_preds.any():
+        # Get indices of valid predictions and their target GTs
+        valid_pred_indices = torch.where(valid_preds)[0]  # Sorted ascending (highest conf first)
+        target_gts = best_gt_per_pred[valid_pred_indices]
+
+        # For each GT, find if any valid pred wants it
+        # Use scatter to mark first occurrence (greedy)
+        gt_taken = torch.zeros(n_gt, dtype=torch.bool, device=device)
+        gt_winner = torch.full((n_gt,), -1, dtype=torch.long, device=device)
+
+        # Process in order (highest confidence first)
+        # This loop is over valid predictions only, typically much smaller
+        for i, pred_idx in enumerate(valid_pred_indices):
+            gt_idx = target_gts[i]
+            if not gt_taken[gt_idx]:
+                gt_taken[gt_idx] = True
+                gt_winner[gt_idx] = pred_idx
+                pred_matched_iou[pred_idx] = max_iou_per_pred[pred_idx]
+
+    # Vectorized: determine correctness at all thresholds
+    # correct[i, j] = True if pred i matched with IoU >= threshold j
+    matched_mask = pred_matched_iou > 0  # Which preds matched at all
+    correct = (pred_matched_iou.unsqueeze(1) >= iou_thresholds.unsqueeze(0)) & matched_mask.unsqueeze(1)
 
     return correct, iou_values
 
