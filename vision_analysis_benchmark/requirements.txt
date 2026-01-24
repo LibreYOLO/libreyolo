@@ -1,0 +1,7 @@
+# Vision Analysis Benchmark Dependencies
+pycocotools>=2.0.6
+numpy<2.0.0
+torch>=2.0.0
+pandas>=2.0.0
+tqdm>=4.65.0
+thop  # For GFLOPs estimation (optional)
