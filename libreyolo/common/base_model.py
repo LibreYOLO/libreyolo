@@ -177,7 +177,7 @@ class LibreYOLOBase(ABC):
     def _strict_loading(self) -> bool:
         """Return whether to use strict mode when loading weights.
 
-        Override in subclasses that need non-strict loading (e.g., YOLOv7).
+        Override in subclasses that need non-strict loading.
         """
         return True
 

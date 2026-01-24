@@ -65,7 +65,7 @@ class BaseValPreprocessor(ABC):
 
 class StandardValPreprocessor(BaseValPreprocessor):
     """
-    Standard validation preprocessor for YOLOv8, v11, v7, v9, RD models.
+    Standard validation preprocessor for YOLOv8, v11, v9 models.
 
     Uses simple resize and normalizes to 0-1 range.
     """
@@ -86,64 +86,6 @@ class StandardValPreprocessor(BaseValPreprocessor):
         # Convert to CHW and float
         resized_img = resized_img.transpose(2, 0, 1)
         resized_img = np.ascontiguousarray(resized_img, dtype=np.float32)
-
-        # Process targets
-        padded_targets = np.zeros((self.max_labels, 5), dtype=np.float32)
-        if len(targets) > 0:
-            targets = np.array(targets).copy()
-            n = min(len(targets), self.max_labels)
-
-            # Undo letterbox scaling and apply simple resize scaling
-            letterbox_r = min(target_h / orig_h, target_w / orig_w)
-            scale_x = target_w / orig_w
-            scale_y = target_h / orig_h
-
-            targets[:n, 0] = targets[:n, 0] / letterbox_r * scale_x
-            targets[:n, 1] = targets[:n, 1] / letterbox_r * scale_y
-            targets[:n, 2] = targets[:n, 2] / letterbox_r * scale_x
-            targets[:n, 3] = targets[:n, 3] / letterbox_r * scale_y
-
-            padded_targets[:n] = targets[:n]
-
-        return resized_img, padded_targets
-
-
-class RTDETRValPreprocessor(BaseValPreprocessor):
-    """
-    RT-DETR validation preprocessor.
-
-    Uses simple resize and applies ImageNet normalization to match inference preprocessing.
-    """
-
-    # ImageNet normalization values (same as used in rtdetr/utils.py for inference)
-    IMAGENET_MEAN = np.array([0.485, 0.456, 0.406], dtype=np.float32)
-    IMAGENET_STD = np.array([0.229, 0.224, 0.225], dtype=np.float32)
-
-    @property
-    def normalize(self) -> bool:
-        return True
-
-    def __call__(
-        self, img: np.ndarray, targets: np.ndarray, input_size: Tuple[int, int]
-    ) -> Tuple[np.ndarray, np.ndarray]:
-        orig_h, orig_w = img.shape[:2]
-        target_h, target_w = input_size
-
-        # Simple resize (no letterbox)
-        resized_img = cv2.resize(img, (target_w, target_h), interpolation=cv2.INTER_LINEAR)
-
-        # Convert BGR to RGB
-        resized_img = resized_img[:, :, ::-1]
-
-        # Convert to float and normalize to 0-1
-        resized_img = resized_img.astype(np.float32) / 255.0
-
-        # Apply ImageNet normalization (matching inference preprocessing)
-        resized_img = (resized_img - self.IMAGENET_MEAN) / self.IMAGENET_STD
-
-        # Convert to CHW
-        resized_img = resized_img.transpose(2, 0, 1)
-        resized_img = np.ascontiguousarray(resized_img)
 
         # Process targets
         padded_targets = np.zeros((self.max_labels, 5), dtype=np.float32)
