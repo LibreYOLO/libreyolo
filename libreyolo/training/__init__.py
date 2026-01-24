@@ -1,14 +1,11 @@
 """
 Training module for LibreYOLO.
 
-Provides training support for YOLOX and RT-DETR models.
+Provides training support for YOLOX models.
 """
 
 from .config import YOLOXTrainConfig, get_config, YOLOX_CONFIGS
 from .trainer import YOLOXTrainer
-
-# RT-DETR training
-from .rtdetr import RTDETRTrainConfig, RTDETRTrainer, RTDETRCriterion, HungarianMatcher
 from .dataset import YOLODataset, COCODataset, create_dataloader, load_data_config
 from .augment import (
     TrainTransform,
@@ -28,11 +25,6 @@ __all__ = [
     "YOLOX_CONFIGS",
     # YOLOX Trainer
     "YOLOXTrainer",
-    # RT-DETR Training
-    "RTDETRTrainConfig",
-    "RTDETRTrainer",
-    "RTDETRCriterion",
-    "HungarianMatcher",
     # Dataset
     "YOLODataset",
     "COCODataset",

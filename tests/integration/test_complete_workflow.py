@@ -30,7 +30,7 @@ except ImportError:
     pass
 
 
-# All model combinations (22 total: 5 YOLO8 + 5 YOLO11 + 4 YOLOv9 + 2 YOLOv7 + 1 YOLO-RD + 5 YOLOX)
+# All model combinations (14 total: 5 YOLO8 + 5 YOLO11 + 4 YOLOv9)
 ALL_MODELS = [
     # YOLOv8 variants
     ("8", "n"),
@@ -49,11 +49,6 @@ ALL_MODELS = [
     ("9", "s"),
     ("9", "m"),
     ("9", "c"),
-    # YOLOv7 variants (anchor-based)
-    ("7", "base"),
-    ("7", "tiny"),
-    # YOLO-RD (Regional Diversity - extends v9-c)
-    ("rd", "c"),
 ]
 
 # Subset of quick models for faster testing
@@ -61,7 +56,6 @@ QUICK_MODELS = [
     ("8", "n"),
     ("11", "n"),
     ("9", "t"),
-    ("7", "tiny"),
 ]
 
 # Model filename patterns for different versions
@@ -69,20 +63,12 @@ MODEL_FILENAME_PATTERNS = {
     "8": "libreyolo8{size}.pt",
     "11": "libreyolo11{size}.pt",
     "9": "yolov9{size}.pt",
-    "7": "yolov7{size}.pt" if "{size}" != "base" else "yolov7.pt",
-    "rd": "yolo_rd_{size}.pt",
 }
 
 def get_model_filename(version: str, size: str) -> str:
     """Get the correct filename for a model version and size."""
-    if version == "7" and size == "base":
-        return "yolov7.pt"
-    elif version == "7":
-        return f"yolov7-{size}.pt"
-    elif version == "9":
+    if version == "9":
         return f"yolov9{size}.pt"
-    elif version == "rd":
-        return f"yolo_rd_{size}.pt"
     else:
         return f"libreyolo{version}{size}.pt"
 
@@ -528,38 +514,6 @@ class TestNewModelVersions:
         assert "boxes" in results
         assert model.version == "9"
         print(f"✓ YOLOv9 anchor-free detection: {results['num_detections']} detections")
-
-    def test_v7_anchor_based_detection(self, weights_dir, test_image):
-        """Test YOLOv7 anchor-based detection."""
-        filename = get_model_filename("7", "tiny")
-        weight_file = weights_dir / filename
-
-        if not weight_file.exists():
-            pytest.skip(f"Weights {weight_file.name} not found.")
-
-        model = LIBREYOLO(str(weight_file), size="tiny")
-        results = model.predict(test_image, save=False, conf_thres=0.25)
-
-        assert results is not None
-        assert "boxes" in results
-        assert model.version == "7"
-        print(f"✓ YOLOv7 anchor-based detection: {results['num_detections']} detections")
-
-    def test_rd_regional_diversity(self, weights_dir, test_image):
-        """Test YOLO-RD with regional diversity features."""
-        filename = get_model_filename("rd", "c")
-        weight_file = weights_dir / filename
-
-        if not weight_file.exists():
-            pytest.skip(f"Weights {weight_file.name} not found.")
-
-        model = LIBREYOLO(str(weight_file), size="c")
-        results = model.predict(test_image, save=False, conf_thres=0.25)
-
-        assert results is not None
-        assert "boxes" in results
-        assert model.version == "rd"
-        print(f"✓ YOLO-RD regional diversity detection: {results['num_detections']} detections")
 
     @pytest.mark.parametrize("version, size", QUICK_MODELS)
     def test_version_detection(self, version, size, weights_dir, test_image):

@@ -235,7 +235,7 @@ class BaseValidator(ABC):
             device=self.device,
         )
 
-        # Set dummy original_size for models that need it (e.g., RT-DETR)
+        # Set dummy original_size for models that need it
         # This prevents NoneType errors during warmup forward pass
         if hasattr(self.model, '_original_size'):
             self.model._original_size = (imgsz, imgsz)
