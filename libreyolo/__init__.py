@@ -6,10 +6,7 @@ from importlib.metadata import version, PackageNotFoundError
 from .v8.model import LIBREYOLO8
 from .v11.model import LIBREYOLO11
 from .v9.model import LIBREYOLO9
-from .v7.model import LIBREYOLO7
-from .rd.model import LIBREYOLORD
 from .yolox.model import LIBREYOLOX
-from .rtdetr.model import LIBREYOLORTDETR
 from .factory import LIBREYOLO, create_model
 from .common.onnx import LIBREYOLOOnnx
 from .common.cam import (
@@ -44,12 +41,9 @@ except PackageNotFoundError:
 __all__ = [
     # Main API
     "LIBREYOLO",
-    "LIBREYOLO7",
     "LIBREYOLO8",
     "LIBREYOLO9",
     "LIBREYOLO11",
-    "LIBREYOLORD",
-    "LIBREYOLORTDETR",
     "LIBREYOLOX",
     "LIBREYOLOOnnx",
     "create_model",

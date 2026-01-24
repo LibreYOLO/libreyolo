@@ -369,7 +369,7 @@ class DetectionValidator(BaseValidator):
         """Check if predictions support batched postprocessing.
 
         YOLOv8/v11 style output has x8, x16, x32 keys with 'box' and 'cls' sub-keys.
-        Other models (like YOLOv9, YOLOX, RT-DETR) have different structures.
+        Other models (like YOLOv9, YOLOX) have different structures.
         """
         if not isinstance(preds, dict):
             return False
