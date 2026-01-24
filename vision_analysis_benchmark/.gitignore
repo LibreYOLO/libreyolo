@@ -1,0 +1,11 @@
+# Benchmark results
+results/
+*.json
+*.csv
+
+# COCO dataset (don't commit large datasets)
+coco/
+
+# Python cache
+__pycache__/
+*.pyc
