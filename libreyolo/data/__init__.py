@@ -16,6 +16,7 @@ from .utils import (
     resolve_dataset_yaml,
     safe_download,
 )
+from .yolo_coco_api import YOLOCocoAPI, create_yolo_coco_api, parse_yolo_label_line
 
 __all__ = [
     "DATASETS_DIR",
@@ -27,4 +28,7 @@ __all__ = [
     "load_data_config",
     "resolve_dataset_yaml",
     "safe_download",
+    "YOLOCocoAPI",
+    "create_yolo_coco_api",
+    "parse_yolo_label_line",
 ]

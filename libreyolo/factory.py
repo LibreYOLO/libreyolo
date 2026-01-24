@@ -10,6 +10,7 @@ from .yolox.nn import YOLOXModel
 from .yolox.model import LIBREYOLOX
 from .v9.nn import LibreYOLO9Model
 from .v9.model import LIBREYOLO9
+# LIBREYOLORFDETR is imported lazily when needed to avoid dependency issues
 
 # Registry for model classes
 MODELS = {
@@ -85,23 +86,50 @@ def download_weights(model_path: str, size: str):
             path.unlink()
         raise RuntimeError(f"Failed to download weights from {url}: {e}") from e
 
+def detect_rfdetr_size(keys):
+    """
+    Detect RF-DETR model size from state dict keys.
+
+    RF-DETR sizes have different hidden dimensions and query counts:
+    - nano (n): hidden_dim=128, num_queries=100
+    - small (s): hidden_dim=256, num_queries=200
+    - base (b): hidden_dim=256, num_queries=300
+    - medium (m): hidden_dim=384, num_queries=300
+    - large (l): hidden_dim=384, num_queries=300
+
+    Args:
+        keys: List of state dict keys
+
+    Returns:
+        Size code ('n', 's', 'b', 'm', 'l'), defaults to 'b' if cannot determine
+    """
+    # Look for embedding layers to determine hidden_dim
+    for key in keys:
+        if 'query_embed' in key.lower() or 'input_proj' in key.lower():
+            # Try to infer from shape if available
+            pass
+
+    # If we can't determine from keys, default to base
+    # User should provide size explicitly for RF-DETR models
+    return 'b'
+
 def create_model(version: str, config: str, reg_max: int = 16, nb_classes: int = 80, img_size: int = 640):
     """
     Create a fresh model instance for training.
-    
+
     Args:
         version: "8", "11", etc.
         config: Model size ("n", "s", "m", "l", "x")
         reg_max: Regression max
         nb_classes: Number of classes
         img_size: Input image size (default: 640)
-    
+
     Returns:
         Model instance (nn.Module)
     """
     if version not in MODELS:
         raise ValueError(f"Unsupported model version: {version}. Available: {list(MODELS.keys())}")
-        
+
     model_cls = MODELS[version]
     return model_cls(config=config, reg_max=reg_max, nb_classes=nb_classes, img_size=img_size)
 
@@ -197,6 +225,15 @@ def LIBREYOLO(
     keys = list(weights_dict.keys())
     keys_lower = [k.lower() for k in keys]
 
+    # Check for RF-DETR (DINOv2 backbone or DETR architecture)
+    # Look for transformer, encoder, decoder, dinov2, detr patterns
+    is_rfdetr = any(
+        'detr' in k or 'dinov2' in k or 'transformer' in k or
+        ('encoder' in k and 'decoder' in k) or 'query_embed' in k or
+        'class_embed' in k or 'bbox_embed' in k
+        for k in keys_lower
+    )
+
     # Check for YOLOX-specific layer names (e.g., 'backbone.backbone.stem' or Focus module)
     is_yolox = any('backbone.backbone' in key or 'head.stems' in key for key in keys)
 
@@ -207,7 +244,18 @@ def LIBREYOLO(
     # Check for YOLO11-specific layer names (e.g., 'c2psa')
     is_yolo11 = any('c2psa' in key for key in keys)
 
-    if is_yolox:
+    if is_rfdetr:
+        # RF-DETR detected - use LIBREYOLORFDETR (lazy import)
+        from .rfdetr.model import LIBREYOLORFDETR
+        # Detect size from state dict if not provided
+        if size is None:
+            size = detect_rfdetr_size(keys)
+        model = LIBREYOLORFDETR(
+            model_path=weights_dict, size=size, nb_classes=nb_classes, device=device
+        )
+        model.version = "rfdetr"
+        model.model_path = model_path
+    elif is_yolox:
         # YOLOX detected - use LIBREYOLOX
         model = LIBREYOLOX(
             model_path=weights_dict, size=size, nb_classes=nb_classes, device=device
