@@ -13,7 +13,7 @@ from torch.utils.data import DataLoader
 
 from .base import BaseValidator
 from .config import ValidationConfig
-from .metrics import ConfusionMatrix, DetMetrics
+from .metrics import DetMetrics
 from .utils import process_batch
 
 if TYPE_CHECKING:
@@ -53,7 +53,6 @@ class DetectionValidator(BaseValidator):
 
     Attributes:
         metrics: DetMetrics instance for mAP computation.
-        confusion_matrix: ConfusionMatrix for visualization.
         class_names: List of class names.
         iou_thresholds: IoU thresholds for evaluation.
     """
@@ -78,7 +77,6 @@ class DetectionValidator(BaseValidator):
 
         # Detection-specific attributes
         self.metrics: Optional[DetMetrics] = None
-        self.confusion_matrix: Optional[ConfusionMatrix] = None
         self.coco_evaluator = None  # COCO evaluator (optional)
         self.class_names: Optional[List[str]] = None
         self.iou_thresholds = torch.tensor(self.config.iou_thresholds)
@@ -247,17 +245,12 @@ class DetectionValidator(BaseValidator):
                 self.config.use_coco_eval = False
                 self.coco_evaluator = None
 
-        # Always initialize legacy metrics (for confusion matrix and fallback)
+        # Initialize legacy metrics as fallback
         if not self.config.use_coco_eval or self.coco_evaluator is None:
             self.metrics = DetMetrics(
                 nc=self.nc,
                 conf=0.25,  # Confidence threshold for precision/recall reporting
                 iou_thresholds=self.config.iou_thresholds,
-            )
-            self.confusion_matrix = ConfusionMatrix(
-                nc=self.nc,
-                conf=0.25,
-                iou_thres=0.5,
             )
 
     def _preprocess_batch(
@@ -281,9 +274,16 @@ class DetectionValidator(BaseValidator):
         images = images.float()
 
         # Normalize based on preprocessor config
-        # Some models (e.g., YOLOX) expect 0-255 range
-        if self.val_preproc.normalize and images.max() > 1.0:
-            images = images / 255.0
+        # Some models (e.g., standard YOLO) expect 0-1 range (normalize=True)
+        # Others (e.g., YOLOX) expect 0-255 range (normalize=False)
+        if self.val_preproc.normalize:
+            # Models expecting 0-1 range
+            if images.max() > 1.0:
+                images = images / 255.0
+        else:
+            # Models expecting 0-255 range (YOLOX)
+            if images.max() <= 1.0:
+                images = images * 255.0
 
         # Ensure NCHW format
         if images.dim() == 3:
@@ -368,7 +368,7 @@ class DetectionValidator(BaseValidator):
                 single_preds,
                 conf_thres=self.config.conf_thres,
                 iou_thres=self.config.iou_thres,
-                original_size=(orig_w, orig_h),
+                original_size=(orig_h, orig_w),  # (height, width) format
                 input_size=self._actual_imgsz,  # Pass actual input size used
             )
 
@@ -523,15 +523,6 @@ class DetectionValidator(BaseValidator):
             # Update DetMetrics
             self.metrics.update(correct, conf, pred_cls, target_cls)
 
-            # Update confusion matrix
-            self.confusion_matrix.update(
-                pred_boxes,
-                pred_classes,
-                pred_scores,
-                gt_boxes,
-                gt_classes,
-            )
-
     def _compute_metrics(self) -> Dict[str, float]:
         """
         Compute final metrics from accumulated stats.
@@ -571,15 +562,7 @@ class DetectionValidator(BaseValidator):
 
     def _generate_plots(self) -> None:
         """Generate and save visualization plots."""
-        if self.confusion_matrix is not None:
-            cm_path = self.save_dir / "confusion_matrix.png"
-            self.confusion_matrix.plot(
-                save_path=cm_path,
-                names=self.class_names,
-                normalize=True,
-            )
-            if self.config.verbose:
-                print(f"Confusion matrix saved to: {cm_path}")
+        pass  # Plotting removed to reduce bloat
 
 
 class ValDataset:

@@ -157,3 +157,64 @@ class YOLOXValPreprocessor(BaseValPreprocessor):
             padded_targets[:n] = targets[:n]
 
         return padded_img, padded_targets
+
+
+class RFDETRValPreprocessor(BaseValPreprocessor):
+    """
+    RF-DETR validation preprocessor.
+
+    Uses simple resize (no letterbox) and ImageNet normalization.
+    RF-DETR expects RGB input with ImageNet mean/std normalization.
+    """
+
+    # ImageNet normalization constants
+    MEAN = np.array([0.485, 0.456, 0.406], dtype=np.float32)
+    STD = np.array([0.229, 0.224, 0.225], dtype=np.float32)
+
+    @property
+    def normalize(self) -> bool:
+        # Return False to indicate preprocessor handles all normalization
+        # (ImageNet mean/std), so validator shouldn't apply additional normalization
+        return False
+
+    def __call__(
+        self, img: np.ndarray, targets: np.ndarray, input_size: Tuple[int, int]
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        orig_h, orig_w = img.shape[:2]
+        target_h, target_w = input_size
+
+        # Simple resize (no letterbox)
+        resized_img = cv2.resize(img, (target_w, target_h), interpolation=cv2.INTER_LINEAR)
+
+        # Convert BGR to RGB
+        resized_img = resized_img[:, :, ::-1]
+
+        # Convert to float and normalize to [0, 1]
+        resized_img = resized_img.astype(np.float32) / 255.0
+
+        # Apply ImageNet normalization
+        resized_img = (resized_img - self.MEAN) / self.STD
+
+        # Convert to CHW format
+        resized_img = resized_img.transpose(2, 0, 1)
+        resized_img = np.ascontiguousarray(resized_img, dtype=np.float32)
+
+        # Process targets
+        padded_targets = np.zeros((self.max_labels, 5), dtype=np.float32)
+        if len(targets) > 0:
+            targets = np.array(targets).copy()
+            n = min(len(targets), self.max_labels)
+
+            # Simple resize scaling (no letterbox)
+            scale_x = target_w / orig_w
+            scale_y = target_h / orig_h
+
+            # Scale bounding boxes
+            targets[:n, 0] *= scale_x  # x1
+            targets[:n, 1] *= scale_y  # y1
+            targets[:n, 2] *= scale_x  # x2
+            targets[:n, 3] *= scale_y  # y2
+
+            padded_targets[:n] = targets[:n]
+
+        return resized_img, padded_targets
