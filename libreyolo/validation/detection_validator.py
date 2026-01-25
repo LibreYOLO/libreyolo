@@ -368,7 +368,7 @@ class DetectionValidator(BaseValidator):
                 single_preds,
                 conf_thres=self.config.conf_thres,
                 iou_thres=self.config.iou_thres,
-                original_size=(orig_w, orig_h),
+                original_size=(orig_h, orig_w),  # (height, width) format
                 input_size=self._actual_imgsz,  # Pass actual input size used
             )
 

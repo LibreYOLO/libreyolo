@@ -26,6 +26,7 @@ from .preprocessors import (
     BaseValPreprocessor,
     StandardValPreprocessor,
     YOLOXValPreprocessor,
+    RFDETRValPreprocessor,
 )
 from .utils import (
     clip_boxes,
@@ -46,6 +47,7 @@ __all__ = [
     "BaseValPreprocessor",
     "StandardValPreprocessor",
     "YOLOXValPreprocessor",
+    "RFDETRValPreprocessor",
     # Metrics
     "DetMetrics",
     "COCOEvaluator",
