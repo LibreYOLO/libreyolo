@@ -1,8 +1,7 @@
 """
 Unit tests for validation metrics.
 
-Tests the DetMetrics and ConfusionMatrix classes along with
-utility functions for prediction matching.
+Tests the DetMetrics class along with utility functions for prediction matching.
 """
 
 import numpy as np
@@ -11,7 +10,6 @@ import torch
 
 from libreyolo.validation import (
     DetMetrics,
-    ConfusionMatrix,
     match_predictions_to_gt,
     process_batch,
     xywh_to_xyxy,
@@ -119,97 +117,6 @@ class TestDetMetrics:
         metrics.reset()
         assert len(metrics.stats) == 0
         assert metrics.ap is None
-
-
-class TestConfusionMatrix:
-    """Tests for ConfusionMatrix class."""
-
-    def test_initialization(self):
-        """Test default initialization."""
-        cm = ConfusionMatrix(nc=10)
-        assert cm.nc == 10
-        assert cm.matrix.shape == (11, 11)  # +1 for background
-
-    def test_perfect_classification(self):
-        """Test confusion matrix with perfect classification."""
-        cm = ConfusionMatrix(nc=3, conf=0.5, iou_thres=0.5)
-
-        # Perfect matching
-        pred_boxes = torch.tensor([[10, 10, 50, 50], [60, 60, 100, 100]], dtype=torch.float32)
-        pred_classes = torch.tensor([0, 1])
-        pred_scores = torch.tensor([0.9, 0.8])
-        gt_boxes = torch.tensor([[10, 10, 50, 50], [60, 60, 100, 100]], dtype=torch.float32)
-        gt_classes = torch.tensor([0, 1])
-
-        cm.update(pred_boxes, pred_classes, pred_scores, gt_boxes, gt_classes)
-
-        # Check diagonal (correct classifications)
-        assert cm.matrix[0, 0] == 1
-        assert cm.matrix[1, 1] == 1
-
-    def test_false_positives(self):
-        """Test that FP are tracked in background row."""
-        cm = ConfusionMatrix(nc=3, conf=0.5, iou_thres=0.5)
-
-        # Prediction with no matching GT
-        pred_boxes = torch.tensor([[10, 10, 50, 50]], dtype=torch.float32)
-        pred_classes = torch.tensor([0])
-        pred_scores = torch.tensor([0.9])
-        gt_boxes = torch.tensor([[200, 200, 300, 300]], dtype=torch.float32)  # Far away
-        gt_classes = torch.tensor([0])
-
-        cm.update(pred_boxes, pred_classes, pred_scores, gt_boxes, gt_classes)
-
-        # FP should be in background row (nc, pred_class)
-        assert cm.matrix[3, 0] == 1  # Background predicted as class 0
-
-    def test_false_negatives(self):
-        """Test that FN are tracked in background column."""
-        cm = ConfusionMatrix(nc=3, conf=0.5, iou_thres=0.5)
-
-        # GT with no matching prediction
-        pred_boxes = torch.zeros((0, 4), dtype=torch.float32)
-        pred_classes = torch.zeros(0, dtype=torch.int64)
-        pred_scores = torch.zeros(0, dtype=torch.float32)
-        gt_boxes = torch.tensor([[10, 10, 50, 50]], dtype=torch.float32)
-        gt_classes = torch.tensor([1])
-
-        cm.update(pred_boxes, pred_classes, pred_scores, gt_boxes, gt_classes)
-
-        # FN should be in (gt_class, background) position
-        assert cm.matrix[1, 3] == 1  # Class 1 missed
-
-    def test_normalization(self):
-        """Test row normalization."""
-        cm = ConfusionMatrix(nc=2)
-        cm.matrix = np.array([
-            [10, 5, 0],
-            [2, 8, 0],
-            [3, 2, 0],
-        ], dtype=np.int64)
-
-        norm = cm.matrix_normalized()
-        # Each row should sum to 1
-        for i in range(3):
-            assert norm[i].sum() == pytest.approx(1.0, abs=0.001)
-
-    def test_tp_fp_fn(self):
-        """Test TP, FP, FN extraction."""
-        cm = ConfusionMatrix(nc=2)
-        cm.matrix = np.array([
-            [10, 2, 3],   # Class 0: 10 TP, 2 confused with class 1, 3 FN
-            [1, 8, 2],    # Class 1: 8 TP, 1 confused with class 0, 2 FN
-            [4, 3, 0],    # Background: 4 FP for class 0, 3 FP for class 1
-        ], dtype=np.int64)
-
-        tp, fp, fn = cm.tp_fp_fn()
-
-        assert tp[0] == 10
-        assert tp[1] == 8
-        assert fp[0] == 5  # 1 + 4 (confused + background)
-        assert fp[1] == 5  # 2 + 3 (confused + background)
-        assert fn[0] == 5  # 2 + 3 (confused + missed)
-        assert fn[1] == 3  # 1 + 2 (confused + missed)
 
 
 class TestMatchPredictionsToGT:
