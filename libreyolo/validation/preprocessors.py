@@ -141,8 +141,8 @@ class YOLOXValPreprocessor(BaseValPreprocessor):
         padded_img = np.full((target_h, target_w, 3), self.pad_value, dtype=np.uint8)
         padded_img[:new_h, :new_w] = resized_img
 
-        # Convert BGR to RGB (YOLOX expects RGB input)
-        padded_img = padded_img[:, :, ::-1]
+        # Keep BGR format (YOLOX is trained on BGR from cv2, do NOT convert to RGB)
+        # The training uses BGR images directly from cv2.imread without conversion
 
         # Convert to CHW and float (keep 0-255 range)
         padded_img = padded_img.transpose(2, 0, 1)
