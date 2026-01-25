@@ -2,7 +2,7 @@
 Validation module for LibreYOLO.
 
 Provides validation infrastructure for computing detection metrics
-including mAP, precision, recall, and confusion matrix.
+including mAP, precision, and recall.
 
 Example:
     >>> from libreyolo import LIBREYOLO
@@ -20,7 +20,7 @@ Example:
 from .base import BaseValidator
 from .config import ValidationConfig
 from .detection_validator import DetectionValidator
-from .metrics import ConfusionMatrix, DetMetrics
+from .metrics import DetMetrics
 from .coco_evaluator import COCOEvaluator
 from .preprocessors import (
     BaseValPreprocessor,
@@ -48,7 +48,6 @@ __all__ = [
     "YOLOXValPreprocessor",
     # Metrics
     "DetMetrics",
-    "ConfusionMatrix",
     "COCOEvaluator",
     # Utilities
     "match_predictions_to_gt",
