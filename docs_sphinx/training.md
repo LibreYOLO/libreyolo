@@ -1,134 +1,246 @@
-# Training Guide
+# Training
 
-This guide explains how to train and fine-tune LibreYOLO models on custom datasets.
+Training is available for **YOLOX** and **RF-DETR** models.
 
-```{warning}
-**TRAINING STATUS**: Training is currently only implemented for **YOLOX** models. Training support for YOLOv8, YOLOv9, YOLOv11, and RF-DETR is under development. If you need to train these models, please use the official implementations or wait for future LibreYOLO updates.
+## YOLOX Training API
+
+### Train from Scratch
+
+```python
+from libreyolo import LIBREYOLOX
+
+# Create new model
+model = LIBREYOLOX.new(size="s", num_classes=80)
+
+# Train
+results = model.train(
+    data="path/to/data.yaml",
+    epochs=300,
+    batch=16,
+    imgsz=640
+)
+
+print(f"Best mAP: {results['best_mAP50_95']:.3f}")
 ```
 
-```{seealso}
-For YOLOX-specific training features and advanced configuration, see {doc}`yolox`.
+### Fine-tune Pretrained Model
+
+```python
+from libreyolo import LIBREYOLOX
+
+# Load pretrained
+model = LIBREYOLOX("weights/libreyoloXs.pt", size="s")
+
+# Fine-tune
+results = model.train(
+    data="custom_data.yaml",
+    epochs=100,
+    batch=16
+)
 ```
 
-## Dataset Preparation
+## Training Parameters
 
-LibreYOLO expects data in the standard YOLO format.
+```python
+results = model.train(
+    # Required
+    data="data.yaml",           # Dataset config path
 
-### Directory Structure
+    # Training
+    epochs=100,                 # Number of epochs
+    batch=16,                   # Batch size
+    imgsz=640,                  # Image size
+
+    # Optimizer
+    lr0=0.01,                   # Initial learning rate
+    optimizer="SGD",            # "SGD", "Adam", "AdamW"
+
+    # System
+    device="",                  # "" = auto, "cuda:0", "cpu"
+    workers=8,                  # Dataloader workers
+    seed=0,                     # Random seed
+
+    # Output
+    project="runs/train",       # Output directory
+    name="exp",                 # Experiment name
+    exist_ok=False,             # Overwrite existing
+
+    # Features
+    amp=True,                   # Mixed precision
+    patience=50,                # Early stopping patience
+    resume=None,                # Resume from checkpoint
+)
+```
+
+## Return Value
+
+```python
+{
+    'final_loss': 0.045,
+    'best_mAP50': 0.65,
+    'best_mAP50_95': 0.48,
+    'best_epoch': 85,
+    'save_dir': 'runs/train/exp',
+    'best_checkpoint': 'runs/train/exp/weights/best.pt',
+    'last_checkpoint': 'runs/train/exp/weights/last.pt'
+}
+```
+
+## Resume Training
+
+```python
+results = model.train(
+    data="data.yaml",
+    epochs=300,
+    resume="runs/train/exp/weights/last.pt"
+)
+```
+
+## Dataset Format
+
+Create `data.yaml`:
+
+```yaml
+path: /path/to/dataset
+train: images/train
+val: images/val
+
+nc: 3
+names:
+  0: cat
+  1: dog
+  2: bird
+```
+
+Directory structure:
 
 ```
 dataset/
 ├── images/
 │   ├── train/
-│   │   ├── image1.jpg
-│   │   └── image2.jpg
+│   │   └── *.jpg
 │   └── val/
-│       └── image3.jpg
+│       └── *.jpg
 └── labels/
     ├── train/
-    │   ├── image1.txt
-    │   └── image2.txt
+    │   └── *.txt
     └── val/
-        └── image3.txt
+        └── *.txt
 ```
 
-### Label Format
+Label format: `class_id x_center y_center width height` (normalized 0-1)
 
-Each image needs a corresponding `.txt` file with one line per object:
-
-```
-<class_id> <x_center> <y_center> <width> <height>
-```
-
-All coordinates are normalized to `[0, 1]`:
+## Training Output
 
 ```
-0 0.5 0.5 0.2 0.3
-1 0.3 0.7 0.15 0.25
+runs/train/exp/
+├── train_config.yaml
+├── weights/
+│   ├── best.pt
+│   ├── last.pt
+│   └── epoch_*.pt
+└── tensorboard/
 ```
 
-## Configuration
-
-Create a YAML configuration file for YOLOX training:
-
-```yaml
-# train_config.yaml (YOLOX only)
-
-# Data
-data_path: "path/to/dataset/images/train"
-
-# Model (YOLOX)
-size: "s"                                    # nano, tiny, s, m, l, x
-pretrained_weights: "weights/libreyoloXs.pt" # Optional: start from pretrained
-
-# Training
-epochs: 50
-batch_size: 16
-lr: 0.001
-weight_decay: 0.0005
-num_classes: 80
-workers: 4
-
-# Output
-output_dir: "runs/training/"
-save_interval: 5  # Save every N epochs
-```
-
-## Running Training
-
-```bash
-uv run python -m libreyolo.training.train --config train_config.yaml
-```
-
-## Using Trained Weights
+## Using Trained Model
 
 ```python
-from libreyolo import LIBREYOLO
+from libreyolo import LIBREYOLOX
 
-# Load your trained YOLOX model (auto-detects version and size)
-model = LIBREYOLO(
-    model_path="runs/training/libreyoloXs_epoch_50.pt"
-)
+# Load best checkpoint
+model = LIBREYOLOX("runs/train/exp/weights/best.pt", size="s")
 
 # Run inference
-results = model(image="test_image.jpg", save=True)
+results = model(image="test.jpg", save=True)
 ```
 
-## Training Tips
+## Configuration File
 
-### Learning Rate
+Optionally load config from YAML:
 
-- Start with `lr=0.001` for fine-tuning
-- Use `lr=0.01` for training from scratch
-
-### Batch Size
-
-- Larger batch sizes = more stable training
-- Reduce if running out of GPU memory
-
-### Data Augmentation
-
-LibreYOLO applies the following augmentations during training:
-
-| Augmentation | Description |
-|--------------|-------------|
-| Mosaic | Combines 4 images into one training sample |
-| Mixup | Blends two images with their labels |
-| HSV Jitter | Random hue, saturation, and value adjustments |
-| Horizontal Flip | Random left-right flipping |
-| Random Affine | Rotation, scaling, translation, and shear |
-
-These augmentations are automatically applied during training and can be configured via the training config.
-
-## Monitoring Training
-
-Training logs are saved to the output directory:
-
-```
-runs/training/
-├── libreyolo8n_epoch_5.pt
-├── libreyolo8n_epoch_10.pt
-├── ...
-└── training_log.txt
+```python
+results = model.train(
+    data="data.yaml",
+    cfg="train_config.yaml",  # Load config from file
+    epochs=200                # Override config value
+)
 ```
 
+## Model Sizes
+
+| Size | Input | Parameters |
+|------|-------|------------|
+| `nano` | 416 | 0.9M |
+| `tiny` | 416 | 5.1M |
+| `s` | 640 | 9.0M |
+| `m` | 640 | 25.3M |
+| `l` | 640 | 54.2M |
+| `x` | 640 | 99.1M |
+
+## RF-DETR Training API
+
+RF-DETR uses the original rfdetr training implementation with EMA, warmup scheduling, and Hungarian matching loss.
+
+### Basic Training
+
+```python
+from libreyolo import LIBREYOLORFDETR
+
+model = LIBREYOLORFDETR(size="b")
+
+results = model.train(
+    data="path/to/dataset",
+    epochs=100,
+    batch_size=4,
+    lr=1e-4
+)
+```
+
+### Training Parameters
+
+```python
+results = model.train(
+    # Required
+    data="path/to/dataset",      # Dataset path (COCO format)
+
+    # Training
+    epochs=100,                  # Number of epochs
+    batch_size=4,                # Batch size
+    lr=1e-4,                     # Learning rate
+
+    # Output
+    output_dir="runs/train",     # Output directory
+
+    # Resume
+    resume=None,                 # Checkpoint path to resume from
+)
+```
+
+### RF-DETR Dataset Format
+
+RF-DETR requires **COCO format** annotations (different from YOLO format):
+
+```
+dataset/
+├── train/
+│   ├── _annotations.coco.json
+│   └── image1.jpg, image2.jpg, ...
+├── valid/
+│   ├── _annotations.coco.json
+│   └── image1.jpg, image2.jpg, ...
+└── test/  (optional)
+    ├── _annotations.coco.json
+    └── image1.jpg, image2.jpg, ...
+```
+
+The `_annotations.coco.json` file follows standard COCO format with `images`, `annotations`, and `categories` fields.
+
+### RF-DETR Model Sizes
+
+| Size | Resolution | Description |
+|------|------------|-------------|
+| `n` | 384 | Nano |
+| `s` | 512 | Small |
+| `b` | 560 | Base |
+| `m` | 576 | Medium |
+| `l` | 704 | Large |

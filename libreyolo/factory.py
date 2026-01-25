@@ -246,6 +246,7 @@ def detect_yolox_size(weights_dict: dict) -> str:
         32: 's',
         48: 'm',
         64: 'l',
+        80: 'x',
     }
 
     return size_map.get(first_channel)
