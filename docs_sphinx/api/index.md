@@ -1,8 +1,8 @@
 # API Reference
 
-This section contains the complete API documentation, auto-generated from docstrings.
+Auto-generated from docstrings.
 
-## Main Classes
+## Model Classes
 
 ```{eval-rst}
 .. autosummary::
@@ -11,12 +11,39 @@ This section contains the complete API documentation, auto-generated from docstr
 
    libreyolo.LIBREYOLO
    libreyolo.LIBREYOLO8
+   libreyolo.LIBREYOLO9
    libreyolo.LIBREYOLO11
    libreyolo.LIBREYOLOX
+   libreyolo.LIBREYOLORFDETR
    libreyolo.LIBREYOLOOnnx
 ```
 
-## Factory Function
+## Validation Classes
+
+```{eval-rst}
+.. autosummary::
+   :toctree: generated
+   :recursive:
+
+   libreyolo.ValidationConfig
+   libreyolo.DetectionValidator
+   libreyolo.BaseValidator
+   libreyolo.DetMetrics
+```
+
+## Data Utilities
+
+```{eval-rst}
+.. autosummary::
+   :toctree: generated
+   :recursive:
+
+   libreyolo.load_data_config
+   libreyolo.check_dataset
+   libreyolo.DATASETS_DIR
+```
+
+## LIBREYOLO (Factory)
 
 ```{eval-rst}
 .. autofunction:: libreyolo.LIBREYOLO
@@ -26,6 +53,16 @@ This section contains the complete API documentation, auto-generated from docstr
 
 ```{eval-rst}
 .. autoclass:: libreyolo.LIBREYOLO8
+   :members:
+   :undoc-members:
+   :show-inheritance:
+   :special-members: __init__, __call__
+```
+
+## LIBREYOLO9
+
+```{eval-rst}
+.. autoclass:: libreyolo.LIBREYOLO9
    :members:
    :undoc-members:
    :show-inheritance:
@@ -52,7 +89,17 @@ This section contains the complete API documentation, auto-generated from docstr
    :special-members: __init__, __call__
 ```
 
-## ONNX Model
+## LIBREYOLORFDETR
+
+```{eval-rst}
+.. autoclass:: libreyolo.LIBREYOLORFDETR
+   :members:
+   :undoc-members:
+   :show-inheritance:
+   :special-members: __init__, __call__
+```
+
+## LIBREYOLOOnnx
 
 ```{eval-rst}
 .. autoclass:: libreyolo.LIBREYOLOOnnx
@@ -61,24 +108,30 @@ This section contains the complete API documentation, auto-generated from docstr
    :show-inheritance:
 ```
 
-## CAM Methods
+## ValidationConfig
 
 ```{eval-rst}
-.. autodata:: libreyolo.CAM_METHODS
-
-.. autoclass:: libreyolo.EigenCAM
+.. autoclass:: libreyolo.ValidationConfig
    :members:
-
-.. autoclass:: libreyolo.GradCAM
-   :members:
-
-.. autoclass:: libreyolo.GradCAMPlusPlus
-   :members:
+   :undoc-members:
+   :show-inheritance:
 ```
 
-## Helper Functions
+## DetectionValidator
 
 ```{eval-rst}
-.. autofunction:: libreyolo.create_model
+.. autoclass:: libreyolo.DetectionValidator
+   :members:
+   :undoc-members:
+   :show-inheritance:
 ```
 
+## Data Utilities
+
+```{eval-rst}
+.. autofunction:: libreyolo.load_data_config
+
+.. autofunction:: libreyolo.check_dataset
+
+.. autodata:: libreyolo.DATASETS_DIR
+```
