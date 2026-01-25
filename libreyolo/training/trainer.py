@@ -117,8 +117,8 @@ class YOLOXTrainer:
             raise ValueError(f"Unknown optimizer: {self.config.optimizer}")
 
         # Add parameter groups with appropriate weight decay
-        optimizer.add_param_group({"params": pg1, "weight_decay": self.config.weight_decay})
-        optimizer.add_param_group({"params": pg2})
+        optimizer.add_param_group({"params": pg1, "lr": lr, "weight_decay": self.config.weight_decay})
+        optimizer.add_param_group({"params": pg2, "lr": lr})
 
         logger.info(f"Optimizer: {self.config.optimizer}")
         logger.info(f"  - pg0 (BN): {len(pg0)} params")
@@ -370,22 +370,31 @@ class YOLOXTrainer:
             if self.ema_model is not None:
                 self.ema_model.update(self.model)
 
+            # Track metrics and save values for logging before deleting
+            loss_val = loss.item()
+            iou_loss_val = outputs.get('iou_loss', 0)
+            obj_loss_val = outputs.get('obj_loss', 0)
+            cls_loss_val = outputs.get('cls_loss', 0)
+            total_loss += loss_val
+
+            # Free memory to prevent GPU memory leak
+            del outputs, loss
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+
             # Update learning rate
             lr = self.lr_scheduler.update_lr(self.current_iter + 1)
             for param_group in self.optimizer.param_groups:
                 param_group["lr"] = lr
-
-            # Track metrics
-            total_loss += loss.item()
             num_batches += 1
 
             # Update progress bar
             pbar.set_postfix({
-                "loss": f"{loss.item():.4f}",
+                "loss": f"{loss_val:.4f}",
                 "lr": f"{lr:.6f}",
-                "iou": f"{outputs.get('iou_loss', 0):.4f}",
-                "obj": f"{outputs.get('obj_loss', 0):.4f}",
-                "cls": f"{outputs.get('cls_loss', 0):.4f}",
+                "iou": f"{iou_loss_val:.4f}",
+                "obj": f"{obj_loss_val:.4f}",
+                "cls": f"{cls_loss_val:.4f}",
             })
 
             # Log to TensorBoard
