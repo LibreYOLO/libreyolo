@@ -17,6 +17,7 @@ dependencies = [
     "matplotlib>=3.3.0",
     "requests>=2.25.0",
     "opencv-python>=4.11.0.86",
+    "tqdm>=4.65.0",
 ]
 
 [dependency-groups]
