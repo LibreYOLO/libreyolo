@@ -125,10 +125,9 @@ After training, load your fine-tuned model:
 ```python
 from libreyolo import LIBREYOLO
 
-# Load your trained model
+# Load your trained model (auto-detects version and size)
 model = LIBREYOLO(
-    model_path="runs/training/libreyolo8n_epoch_50.pt",
-    size="n"
+    model_path="runs/training/libreyolo8n_epoch_50.pt"
 )
 
 # Run inference
@@ -241,6 +240,6 @@ Solutions:
 ## Next Steps
 
 - {doc}`inference` - Run inference with trained models
-- {doc}`explainability` - Visualize model decisions
+- {doc}`validation` - Validate model performance on test data
 - {doc}`yolox` - Alternative training with YOLOX
 

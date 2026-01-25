@@ -28,8 +28,8 @@ YOLOX uses different size names than YOLOv8/v11. Use `nano`, `tiny`, `s`, `m`, `
 ```python
 from libreyolo import LIBREYOLO
 
-# Using the unified factory (auto-detects YOLOX from weights)
-model = LIBREYOLO("weights/libreyoloXs.pt", size="s")
+# Using the unified factory (auto-detects YOLOX version and size)
+model = LIBREYOLO("weights/libreyoloXs.pt")
 
 # Or use the YOLOX-specific class directly
 from libreyolo import LIBREYOLOX
@@ -59,8 +59,8 @@ results = model(image="path/to/images/", save=True)
 Weights are automatically downloaded from Hugging Face if not found locally:
 
 ```python
-# Weights will be downloaded automatically
-model = LIBREYOLO("weights/libreyoloXs.pt", size="s")
+# Weights will be downloaded automatically (auto-detects size)
+model = LIBREYOLO("weights/libreyoloXs.pt")
 ```
 
 ## Training
@@ -170,26 +170,25 @@ output_path = model.export(
 For high-resolution images, enable tiling:
 
 ```python
-model = LIBREYOLOX(
-    "libreyoloXs.pt",
-    size="s",
-    tiling=True
-)
+model = LIBREYOLOX("libreyoloXs.pt")
 
-# Large images are automatically split into tiles
-results = model(image="high_res_image.jpg")
-print(f"Processed {results['num_tiles']} tiles")
+# Enable tiling for large images - splits into overlapping tiles
+results = model(
+    image="high_res_image.jpg",
+    tiling=True,
+    overlap_ratio=0.2
+)
 ```
 
 ## Device Selection
 
 ```python
 # Auto-detect best device (CUDA > MPS > CPU)
-model = LIBREYOLOX("libreyoloXs.pt", size="s", device="auto")
+model = LIBREYOLOX("libreyoloXs.pt", device="auto")
 
 # Force specific device
-model = LIBREYOLOX("libreyoloXs.pt", size="s", device="cuda:0")
-model = LIBREYOLOX("libreyoloXs.pt", size="s", device="cpu")
+model = LIBREYOLOX("libreyoloXs.pt", device="cuda:0")
+model = LIBREYOLOX("libreyoloXs.pt", device="cpu")
 ```
 
 ## Comparison with YOLOv8/v11
@@ -197,12 +196,10 @@ model = LIBREYOLOX("libreyoloXs.pt", size="s", device="cpu")
 | Feature | YOLOX | YOLOv8/v11 |
 |---------|-------|------------|
 | Architecture | Anchor-free | Anchor-free |
+| Backbone | CSPDarknet | C2F/C3k2 |
+| Head | Decoupled | Coupled |
 | Sizes | nano, tiny, s, m, l, x | n, s, m, l, x |
-| Training API | `.train()` method | CLI-based |
+| Training API | `.train()` method (stable) | Under development |
+| Validation | Supported | Supported |
 | Export formats | ONNX, TorchScript | ONNX |
-| Explainability (CAM) | Not supported | Supported |
-
-```{note}
-YOLOX models do not currently support the `explain()` method for CAM-based explainability. Use YOLOv8 or YOLOv11 models if you need explainability features.
-```
 
