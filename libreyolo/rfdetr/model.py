@@ -114,6 +114,24 @@ class LIBREYOLORFDETR(LibreYOLOBase):
                 layers['decoder'] = actual_model.decoder
         return layers
 
+    def _get_val_preprocessor(self, img_size: int = None):
+        """
+        Return RF-DETR specific validation preprocessor.
+
+        RF-DETR requires ImageNet normalization, unlike YOLO models
+        which use simple 0-1 normalization.
+
+        Args:
+            img_size: Target image size. Defaults to model's native input size.
+
+        Returns:
+            RFDETRValPreprocessor instance.
+        """
+        from libreyolo.validation.preprocessors import RFDETRValPreprocessor
+        if img_size is None:
+            img_size = self._get_input_size()
+        return RFDETRValPreprocessor(img_size=(img_size, img_size))
+
     def _load_weights(self, model_path: str):
         """Override to handle RF-DETR checkpoint format."""
         # Skip loading if special marker (weights loaded in _init_model via rfdetr)
