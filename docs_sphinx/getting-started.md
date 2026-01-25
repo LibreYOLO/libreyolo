@@ -36,7 +36,8 @@ LibreYOLO can automatically download weights from Hugging Face:
 from libreyolo import LIBREYOLO
 
 # Weights are auto-downloaded if not found locally
-model = LIBREYOLO(model_path="weights/libreyolo8n.pt", size="n")
+# Model version and size are auto-detected from the weights
+model = LIBREYOLO(model_path="weights/libreyolo8n.pt")
 ```
 
 Or manually download from the [Hugging Face repository](https://huggingface.co/Libre-YOLO).
@@ -46,8 +47,8 @@ Or manually download from the [Hugging Face repository](https://huggingface.co/L
 ```python
 from libreyolo import LIBREYOLO
 
-# Initialize model
-model = LIBREYOLO(model_path="weights/libreyolo8n.pt", size="n")
+# Initialize model (auto-detects version and size)
+model = LIBREYOLO(model_path="weights/libreyolo8n.pt")
 
 # Run inference on an image
 results = model(image="path/to/image.jpg", save=True)
@@ -75,7 +76,11 @@ LibreYOLO supports multiple model sizes for each architecture:
 | `x` (xlarge) | Largest | Slowest | Highest |
 
 ```python
-# Use different sizes
+# Auto-detection (recommended)
+model_nano = LIBREYOLO("weights/libreyolo8n.pt")
+model_large = LIBREYOLO("weights/libreyolo8l.pt")
+
+# Or specify size explicitly (backward compatible)
 model_nano = LIBREYOLO("weights/libreyolo8n.pt", size="n")
 model_large = LIBREYOLO("weights/libreyolo8l.pt", size="l")
 ```
@@ -90,6 +95,10 @@ model_large = LIBREYOLO("weights/libreyolo8l.pt", size="l")
 | `c` | Compact (largest) |
 
 ```python
+# Auto-detection (recommended)
+model = LIBREYOLO("weights/libreyolo9s.pt")
+
+# Or use version-specific class
 from libreyolo import LIBREYOLO9
 model = LIBREYOLO9("weights/libreyolo9s.pt", size="s")
 ```
@@ -106,14 +115,38 @@ model = LIBREYOLO9("weights/libreyolo9s.pt", size="s")
 | `x` | 640 | Extra large |
 
 ```python
-# YOLOX uses different size names
+# Auto-detection (recommended)
+model = LIBREYOLO("weights/libreyoloXs.pt")
+
+# Or specify size explicitly
 model = LIBREYOLO("weights/libreyoloXs.pt", size="s")
 ```
+
+### RF-DETR (Detection Transformer)
+
+| Size | Description |
+|------|-------------|
+| `n` | Nano |
+| `s` | Small |
+| `b` | Base |
+| `m` | Medium |
+| `l` | Large |
+
+```python
+# Auto-detection (recommended)
+model = LIBREYOLO("weights/libreyolorfdetrn.pt")
+
+# Or use version-specific class
+from libreyolo import LIBREYOLORFDETR
+model = LIBREYOLORFDETR("weights/libreyolorfdetrn.pt", size="n")
+```
+
+RF-DETR uses a Detection Transformer architecture with DINOv2 backbone and deformable attention. It requires ImageNet normalization preprocessing (handled automatically).
 
 ## Next Steps
 
 - {doc}`inference` - Learn about inference options
+- {doc}`validation` - Validate models on COCO datasets
 - {doc}`training` - Train on custom datasets
 - {doc}`yolox` - YOLOX-specific features and training
-- {doc}`explainability` - Visualize model attention with CAM methods
 
