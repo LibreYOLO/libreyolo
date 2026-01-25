@@ -94,6 +94,48 @@ def download_weights(model_path: str, size: str):
             path.unlink()
         raise RuntimeError(f"Failed to download weights from {url}: {e}") from e
 
+def detect_size_from_filename(filename: str) -> tuple:
+    """
+    Extract model type and size from filename.
+
+    Supports patterns like:
+    - libreyolo8n.pt, libreyolo11x.pt -> (8/11, n/s/m/l/x)
+    - libreyoloXs.pt, libreyoloXnano.pt -> (x, nano/tiny/s/m/l/x)
+    - libreyolo9c.pt -> (9, t/s/m/c)
+    - librerfdetrnano.pth -> (rfdetr, n/s/b/m/l)
+
+    Args:
+        filename: The model filename
+
+    Returns:
+        Tuple of (model_type, size) or (None, None) if not detected
+    """
+    filename_lower = filename.lower()
+
+    # YOLOX: libreyoloXs.pt, libreyoloXnano.pt, etc.
+    yolox_match = re.search(r'libreyolox(nano|tiny|s|m|l|x)', filename_lower)
+    if yolox_match:
+        return ('x', yolox_match.group(1))
+
+    # RF-DETR: librerfdetrnano.pth, librerfdetrsmall.pth, etc.
+    rfdetr_match = re.search(r'librerfdetr(nano|small|base|medium|large)', filename_lower)
+    if rfdetr_match:
+        size_map = {'nano': 'n', 'small': 's', 'base': 'b', 'medium': 'm', 'large': 'l'}
+        return ('rfdetr', size_map[rfdetr_match.group(1)])
+
+    # YOLOv9: libreyolo9c.pt, yolov9t.pt, etc.
+    yolo9_match = re.search(r'(?:libreyolo|yolov?)9([tsmc])', filename_lower)
+    if yolo9_match:
+        return ('9', yolo9_match.group(1))
+
+    # YOLOv8/v11: libreyolo8n.pt, libreyolo11x.pt, yolo8s.pt, etc.
+    yolo8_11_match = re.search(r'(?:libreyolo|yolov?)(8|11)([nsmlx])', filename_lower)
+    if yolo8_11_match:
+        return (yolo8_11_match.group(1), yolo8_11_match.group(2))
+
+    return (None, None)
+
+
 def detect_rfdetr_size(keys):
     """
     Detect RF-DETR model size from state dict keys.
@@ -324,13 +366,18 @@ def LIBREYOLO(
 
     # For .pt files, handle file download if needed
     if not Path(model_path).exists():
-        # If file doesn't exist and size is None, we can't auto-download
+        # Try to extract size from filename if not provided
         if size is None:
-            raise ValueError(
-                f"Model weights file not found: {model_path}\n"
-                f"Cannot auto-download without explicit size parameter.\n"
-                f"Please specify size explicitly (e.g., size='n', size='s') or provide a valid weights file path."
-            )
+            _, detected_size = detect_size_from_filename(Path(model_path).name)
+            if detected_size:
+                size = detected_size
+                print(f"Detected size '{size}' from filename")
+            else:
+                raise ValueError(
+                    f"Model weights file not found: {model_path}\n"
+                    f"Cannot auto-download: unable to determine size from filename.\n"
+                    f"Please specify size explicitly (e.g., size='n', size='s') or provide a valid weights file path."
+                )
 
         try:
             download_weights(model_path, size)
