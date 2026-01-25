@@ -413,9 +413,10 @@ def LIBREYOLO(
 
     if is_rfdetr:
         # RF-DETR detected - use LIBREYOLORFDETR (lazy import)
+        # RF-DETR needs the path string, not the loaded weights dict
         from .rfdetr.model import LIBREYOLORFDETR
         model = LIBREYOLORFDETR(
-            model_path=weights_dict, size=size, nb_classes=nb_classes, device=device
+            model_path=model_path, size=size, nb_classes=nb_classes, device=device
         )
         model.version = "rfdetr"
         model.model_path = model_path
