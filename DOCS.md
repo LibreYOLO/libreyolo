@@ -26,8 +26,8 @@ The documentation is generated from **two sources**:
    - `index.md` — Homepage
    - `getting-started.md` — Installation guide
    - `inference.md` — Inference options
-   - `training.md` — Training guide  
-   - `explainability.md` — CAM methods
+   - `validation.md` — Model validation and evaluation
+   - `training.md` — Training guide
 
 2. **Auto-generated API docs** (from Python docstrings)
    - `api/index.md` contains `autoclass::` directives

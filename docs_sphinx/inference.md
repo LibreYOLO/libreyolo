@@ -7,7 +7,8 @@ LibreYOLO provides a flexible API for running object detection inference.
 ```python
 from libreyolo import LIBREYOLO
 
-model = LIBREYOLO(model_path="weights/libreyolo8n.pt", size="n")
+# Auto-detect model version and size
+model = LIBREYOLO(model_path="weights/libreyolo8n.pt")
 results = model(image="image.jpg")
 ```
 
@@ -92,14 +93,14 @@ The inference returns a dictionary:
 For high-resolution images, use tiled inference:
 
 ```python
-model = LIBREYOLO(
-    model_path="weights/libreyolo8n.pt",
-    size="n",
-    tiling=True  # Enable tiling
-)
+model = LIBREYOLO("weights/libreyolo8n.pt")
 
-# Large images are automatically split into overlapping tiles
-results = model(image="high_res_image.jpg")
+# Enable tiling for large images - splits into overlapping tiles
+results = model(
+    image="high_res_image.jpg",
+    tiling=True,         # Enable tiled inference
+    overlap_ratio=0.2    # Tile overlap (optional, default=0.2)
+)
 ```
 
 ## Batch Processing
@@ -137,10 +138,10 @@ results = onnx_model(image="image.jpg")
 
 ```python
 # Auto-detect best device (CUDA > MPS > CPU)
-model = LIBREYOLO("weights/libreyolo8n.pt", size="n", device="auto")
+model = LIBREYOLO("weights/libreyolo8n.pt", device="auto")
 
 # Force specific device
-model = LIBREYOLO("weights/libreyolo8n.pt", size="n", device="cuda:0")
-model = LIBREYOLO("weights/libreyolo8n.pt", size="n", device="cpu")
+model = LIBREYOLO("weights/libreyolo8n.pt", device="cuda:0")
+model = LIBREYOLO("weights/libreyolo8n.pt", device="cpu")
 ```
 

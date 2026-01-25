@@ -4,7 +4,7 @@ This page provides technical details about the model architectures supported by 
 
 ## Supported Models
 
-LibreYOLO supports four YOLO architectures:
+LibreYOLO supports five model architectures:
 
 | Model | Class | Sizes | Key Features |
 |-------|-------|-------|--------------|
@@ -12,26 +12,39 @@ LibreYOLO supports four YOLO architectures:
 | YOLOv9 | `LIBREYOLO9` | t, s, m, c | ELAN blocks, anchor-free, GELAN architecture |
 | YOLOv11 | `LIBREYOLO11` | n, s, m, l, x | C3k2 blocks, C2PSA attention |
 | YOLOX | `LIBREYOLOX` | nano, tiny, s, m, l, x | CSPDarknet backbone, decoupled head |
+| RF-DETR | `LIBREYOLORFDETR` | n, s, b, m, l | Detection Transformer, DINOv2, deformable attention |
 
 ## Architecture Overview
 
-All models follow a similar high-level structure:
+YOLO models (v8, v9, v11, YOLOX) follow a similar high-level structure:
 
 ```
 Input Image → Backbone → Neck (FPN/PAN) → Detection Heads → Output
 ```
 
+RF-DETR uses a different paradigm based on Detection Transformers:
+
+```
+Input Image → DINOv2 Backbone → Transformer Encoder → Transformer Decoder → Output
+```
+
 ### Backbone
 
-Extracts hierarchical features at multiple scales (P3, P4, P5 corresponding to strides 8, 16, 32).
+**YOLO models**: Extracts hierarchical features at multiple scales (P3, P4, P5 corresponding to strides 8, 16, 32).
+
+**RF-DETR**: Uses DINOv2 Vision Transformer for feature extraction.
 
 ### Neck
 
-Feature Pyramid Network (FPN) with Path Aggregation Network (PAN) for multi-scale feature fusion.
+**YOLO models**: Feature Pyramid Network (FPN) with Path Aggregation Network (PAN) for multi-scale feature fusion.
+
+**RF-DETR**: Uses deformable attention in transformer encoder/decoder instead of traditional FPN/PAN.
 
 ### Detection Heads
 
-Produce bounding box coordinates, objectness scores, and class probabilities at each scale.
+**YOLO models**: Produce bounding box coordinates, objectness scores, and class probabilities at each scale.
+
+**RF-DETR**: Set-based prediction using transformer decoder queries (no anchors or explicit scales).
 
 ---
 
@@ -222,6 +235,128 @@ FPN Feature
 
 ---
 
+## RF-DETR Architecture
+
+RF-DETR (Real-time Detection Transformer) uses a fundamentally different approach based on **DETR** (Detection Transformer) architecture with optimizations for real-time inference.
+
+### Model Sizes
+
+| Size | Backbone | Encoder Layers | Decoder Layers | Queries | Parameters (approx) |
+|------|----------|----------------|----------------|---------|---------------------|
+| `n` | DINOv2-S | 6 | 6 | 300 | ~20M |
+| `s` | DINOv2-S | 6 | 6 | 300 | ~25M |
+| `b` | DINOv2-B | 6 | 6 | 300 | ~85M |
+| `m` | DINOv2-L | 6 | 6 | 300 | ~150M |
+| `l` | DINOv2-G | 6 | 6 | 300 | ~300M |
+
+### Architecture Components
+
+#### DINOv2 Backbone
+
+RF-DETR uses **DINOv2** (self-supervised Vision Transformer) as its backbone:
+
+- Pre-trained on large-scale unlabeled data
+- Provides rich semantic features
+- Multi-scale feature extraction via patch embeddings
+- Requires **ImageNet normalization** (handled automatically)
+
+```python
+# ImageNet normalization (automatic in LibreYOLO)
+mean = [0.485, 0.456, 0.406]
+std = [0.229, 0.224, 0.225]
+```
+
+#### Transformer Encoder
+
+Multi-scale deformable attention mechanism:
+- Processes multi-scale features from backbone
+- Deformable attention focuses on relevant spatial locations
+- More efficient than standard self-attention
+
+```
+Multi-scale Features (from DINOv2)
+         │
+    Deformable
+     Attention
+         │
+    Feed Forward
+         │
+   Encoded Features
+```
+
+#### Transformer Decoder
+
+Set-based object detection using learned queries:
+- **300 object queries** (learnable embeddings)
+- Each query predicts one potential object
+- Cross-attention with encoded features
+- Self-attention between queries
+
+```
+Object Queries (300)
+         │
+   Self-Attention
+         │
+  Cross-Attention ← Encoded Features
+         │
+   Feed Forward
+         │
+    Detection Outputs
+         │
+    ┌────┴────┐
+    │         │
+  Boxes    Classes
+```
+
+#### Detection Head
+
+Unlike YOLO's anchor-based or anchor-free heads, RF-DETR uses:
+- Direct box regression (normalized coordinates)
+- Classification logits for each query
+- No NMS needed (set-based prediction eliminates duplicates)
+- Hungarian matching during training
+
+### Key Differences from YOLO
+
+| Aspect | YOLO (v8/v9/v11/X) | RF-DETR |
+|--------|-------------------|---------|
+| **Paradigm** | Dense prediction (per-pixel) | Set prediction (queries) |
+| **Backbone** | CNN-based (CSP, C2F, ELAN) | Vision Transformer (DINOv2) |
+| **Feature Fusion** | FPN/PAN | Deformable attention |
+| **Detection** | Multi-scale anchors/anchor-free | Object queries |
+| **Post-processing** | NMS required | No NMS (one-to-one matching) |
+| **Normalization** | 0-1 scaling | ImageNet normalization |
+| **Training** | Dense labels | Bipartite matching loss |
+
+### Advantages
+
+- **No NMS**: Set prediction eliminates duplicate detections
+- **Global context**: Transformer attention captures long-range dependencies
+- **Pre-trained backbone**: DINOv2 provides strong semantic features
+- **End-to-end**: Differentiable throughout (no hand-crafted components)
+
+### Trade-offs
+
+- **Slower inference**: Transformer operations are more computationally expensive than CNNs
+- **Memory intensive**: Self-attention scales quadratically with sequence length
+- **Different preprocessing**: Requires ImageNet normalization (not compatible with YOLO preprocessing)
+
+### Usage Example
+
+```python
+from libreyolo import LIBREYOLO
+
+# RF-DETR auto-detected and uses ImageNet preprocessing
+model = LIBREYOLO("weights/libreyolorfdetrn.pt")
+results = model(image="image.jpg", save=True)
+
+# Or use explicit class
+from libreyolo import LIBREYOLORFDETR
+model = LIBREYOLORFDETR("weights/libreyolorfdetrn.pt", size="n")
+```
+
+---
+
 ## Programmatic Layer Access
 
 ### Getting Available Layers
@@ -229,7 +364,8 @@ FPN Feature
 ```python
 from libreyolo import LIBREYOLO
 
-model = LIBREYOLO("weights/libreyolo8n.pt", size="n")
+# Auto-detect model version and size
+model = LIBREYOLO("weights/libreyolo8n.pt")
 
 # List all available layers
 layers = model.get_available_layer_names()
@@ -238,18 +374,18 @@ print(layers)
 
 ### Feature Map Extraction
 
+Available for YOLOv8 models only:
+
 ```python
 # Save all feature maps
 model = LIBREYOLO(
     "weights/libreyolo8n.pt",
-    size="n",
     save_feature_maps=True
 )
 
 # Or save specific layers only
 model = LIBREYOLO(
     "weights/libreyolo8n.pt",
-    size="n",
     save_feature_maps=["backbone_c2f2_P3", "neck_c2f22"]
 )
 
@@ -257,25 +393,16 @@ results = model(image="image.jpg")
 print(results.get("feature_maps_path"))
 ```
 
-### Layer Selection for CAM
+### Understanding Layer Hierarchy
 
-Different layers reveal different aspects of the model's decision-making:
+Different layers capture different levels of abstraction:
 
-| Layer Type | Example | What It Shows |
-|------------|---------|---------------|
-| Early backbone | `backbone_p1`, `backbone_p2` | Low-level features (edges, textures) |
-| Mid backbone | `backbone_c2f2_P3`, `backbone_c2f3_P4` | Mid-level features (parts, patterns) |
-| Late backbone | `backbone_sppf_P5`, `backbone_c2psa_P5` | High-level features (object parts) |
-| Neck | `neck_c2f22` | Semantic features (full objects) |
-
-```python
-# CAM visualization with specific layer
-result = model.explain(
-    image="image.jpg",
-    method="gradcam",
-    target_layer="backbone_c2f3_P4"  # Mid-level features
-)
-```
+| Layer Type | Example | Features Captured |
+|------------|---------|-------------------|
+| Early backbone | `backbone_p1`, `backbone_p2` | Low-level (edges, textures, colors) |
+| Mid backbone | `backbone_c2f2_P3`, `backbone_c2f3_P4` | Mid-level (parts, patterns, shapes) |
+| Late backbone | `backbone_sppf_P5`, `backbone_c2psa_P5` | High-level (object parts, context) |
+| Neck | `neck_c2f22` | Semantic features (full objects, relationships) |
 
 ---
 

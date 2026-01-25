@@ -8,21 +8,22 @@ While this codebase is MIT licensed, pre-trained weights converted from other re
 
 ## Features
 
-- **Supported Models:** Full support for YOLOv8, YOLOv9, YOLOv11, and YOLOX architectures
-- **Unified API:** Simple, consistent interface for loading and using different YOLO versions
-- **Training Engine:** Under development
+- **Supported Models:** YOLOv8, YOLOv9, YOLOv11, YOLOX, and RF-DETR (Detection Transformer)
+- **Auto-Detection:** Automatic model version and size detection from weights
+- **Unified API:** Simple, consistent interface for all model architectures
+- **Validation:** COCO-style evaluation with mAP metrics
+- **Training:** YOLOX training support (other models under development)
+- **ONNX Export:** Export models for deployment with ONNX Runtime
 - **MIT License:** Permissive licensing for the codebase
 - **Weight Conversion:** Tools to convert weights from Ultralytics format
-- **Explainability:** Built-in CAM methods (GradCAM, EigenCAM, etc.)
-- **ONNX Export:** Export models for deployment with ONNX Runtime
 
 ## Quick Start
 
 ```python
 from libreyolo import LIBREYOLO
 
-# Load a model (auto-detects v8 vs v11)
-model = LIBREYOLO(model_path="weights/libreyolo8n.pt", size="n")
+# Load a model (auto-detects version and size)
+model = LIBREYOLO(model_path="weights/libreyolo8n.pt")
 
 # Run inference
 results = model(image="path/to/image.jpg", save=True)
@@ -31,6 +32,10 @@ results = model(image="path/to/image.jpg", save=True)
 print(f"Found {results['num_detections']} objects")
 for box, score, cls in zip(results['boxes'], results['scores'], results['classes']):
     print(f"Class {cls}: {score:.2f} at {box}")
+
+# Validate on COCO dataset
+val_results = model.val(data="coco128.yaml")
+print(f"mAP50-95: {val_results['metrics/mAP50-95']:.3f}")
 ```
 
 ## Installation
@@ -47,8 +52,10 @@ pip install -e .
 
 getting-started
 inference
+validation
+training
 yolox
-explainability
+finetuning
 ```
 
 ```{toctree}

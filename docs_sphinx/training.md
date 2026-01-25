@@ -2,6 +2,14 @@
 
 This guide explains how to train and fine-tune LibreYOLO models on custom datasets.
 
+```{warning}
+**TRAINING STATUS**: Training is currently only implemented for **YOLOX** models. Training support for YOLOv8, YOLOv9, YOLOv11, and RF-DETR is under development. If you need to train these models, please use the official implementations or wait for future LibreYOLO updates.
+```
+
+```{seealso}
+For YOLOX-specific training features and advanced configuration, see {doc}`yolox`.
+```
+
 ## Dataset Preparation
 
 LibreYOLO expects data in the standard YOLO format.
@@ -41,18 +49,17 @@ All coordinates are normalized to `[0, 1]`:
 
 ## Configuration
 
-Create a YAML configuration file:
+Create a YAML configuration file for YOLOX training:
 
 ```yaml
-# train_config.yaml
+# train_config.yaml (YOLOX only)
 
 # Data
 data_path: "path/to/dataset/images/train"
 
-# Model
-size: "n"                                    # n, s, m, l, x
-version: "8"                                 # 8 or 11
-pretrained_weights: "weights/libreyolo8n.pt"
+# Model (YOLOX)
+size: "s"                                    # nano, tiny, s, m, l, x
+pretrained_weights: "weights/libreyoloXs.pt" # Optional: start from pretrained
 
 # Training
 epochs: 50
@@ -78,10 +85,9 @@ uv run python -m libreyolo.training.train --config train_config.yaml
 ```python
 from libreyolo import LIBREYOLO
 
-# Load your trained model
+# Load your trained YOLOX model (auto-detects version and size)
 model = LIBREYOLO(
-    model_path="runs/training/libreyolo8n_epoch_50.pt",
-    size="n"
+    model_path="runs/training/libreyoloXs_epoch_50.pt"
 )
 
 # Run inference
