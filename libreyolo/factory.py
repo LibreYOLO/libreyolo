@@ -37,8 +37,16 @@ def download_weights(model_path: str, size: str):
 
     filename = path.name
 
+    # Check for RF-DETR (e.g., librerfdetrnano.pth, librerfdetrsmall.pth)
+    if re.search(r'librerfdetr(nano|small|base|medium|large)', filename.lower()):
+        rfdetr_match = re.search(r'librerfdetr(nano|small|base|medium|large)', filename.lower())
+        rfdetr_size = rfdetr_match.group(1)
+        repo = f"Libre-YOLO/librerfdetr{rfdetr_size}"
+        # Actual filename in repo is rf-detr-{size}.pth
+        actual_filename = f"rf-detr-{rfdetr_size}.pth"
+        url = f"https://huggingface.co/{repo}/resolve/main/{actual_filename}"
     # Check for YOLOX (e.g., libreyoloXs.pt, libreyoloXnano.pt)
-    if re.search(r'libreyolox(nano|tiny|s|m|l|x)', filename.lower()):
+    elif re.search(r'libreyolox(nano|tiny|s|m|l|x)', filename.lower()):
         yolox_match = re.search(r'libreyolox(nano|tiny|s|m|l|x)', filename.lower())
         yolox_size = yolox_match.group(1)
         repo = f"Libre-YOLO/libreyoloX{yolox_size}"
@@ -113,6 +121,135 @@ def detect_rfdetr_size(keys):
     # User should provide size explicitly for RF-DETR models
     return 'b'
 
+def _unwrap_state_dict(state_dict: dict) -> dict:
+    """
+    Extract weights from nested checkpoint formats (EMA, model wrappers).
+
+    Args:
+        state_dict: Raw checkpoint dict that may contain nested formats
+
+    Returns:
+        Unwrapped weights dict
+    """
+    weights_dict = state_dict
+    if 'ema' in state_dict and isinstance(state_dict.get('ema'), dict):
+        ema_data = state_dict['ema']
+        weights_dict = ema_data.get('module', ema_data)
+    elif 'model' in state_dict and isinstance(state_dict.get('model'), dict):
+        weights_dict = state_dict['model']
+    return weights_dict
+
+def detect_yolo8_11_size(weights_dict: dict) -> str:
+    """
+    Detect YOLOv8/v11 model size from state dict.
+
+    Checks backbone.p1.cnn.weight shape[0] (output channels) to determine size:
+    - 'n': 16 channels
+    - 's': 32 channels
+    - 'm': 48 channels
+    - 'l': 64 channels
+    - 'x': 80 channels
+
+    Args:
+        weights_dict: Model state dict (already unwrapped)
+
+    Returns:
+        Size code ('n', 's', 'm', 'l', 'x') or None if detection fails
+    """
+    key = 'backbone.p1.cnn.weight'
+    if key not in weights_dict:
+        return None
+
+    first_channel = weights_dict[key].shape[0]
+
+    size_map = {
+        16: 'n',
+        32: 's',
+        48: 'm',
+        64: 'l',
+        80: 'x',
+    }
+
+    return size_map.get(first_channel)
+
+def detect_yolo9_size(weights_dict: dict) -> str:
+    """
+    Detect YOLOv9 model size from state dict.
+
+    Uses primary check on backbone.conv0.conv.weight shape[0]:
+    - 't': 16 channels (unique)
+    - 's', 'm': both 32 channels (need secondary check)
+    - 'c': 64 channels (unique)
+
+    For 32-channel models, uses secondary check on backbone.elan1.cv1.conv.weight:
+    - 's': 64 channels
+    - 'm': 128 channels
+
+    Args:
+        weights_dict: Model state dict (already unwrapped)
+
+    Returns:
+        Size code ('t', 's', 'm', 'c') or None if detection fails
+    """
+    key = 'backbone.conv0.conv.weight'
+    if key not in weights_dict:
+        return None
+
+    first_channel = weights_dict[key].shape[0]
+
+    # Tiny is unique (16 channels)
+    if first_channel == 16:
+        return 't'
+
+    # Compact is unique (64 channels)
+    if first_channel == 64:
+        return 'c'
+
+    # For 32-channel models (s and m), need secondary check
+    if first_channel == 32:
+        secondary_key = 'backbone.elan1.cv1.conv.weight'
+        if secondary_key in weights_dict:
+            mid_channel = weights_dict[secondary_key].shape[0]
+            if mid_channel == 64:
+                return 's'
+            elif mid_channel == 128:
+                return 'm'
+
+    return None
+
+def detect_yolox_size(weights_dict: dict) -> str:
+    """
+    Detect YOLOX model size from state dict.
+
+    Checks backbone.backbone.stem.conv.conv.weight shape[0] to determine size:
+    - 'nano': 16 channels
+    - 'tiny': 24 channels
+    - 's': 32 channels
+    - 'm': 48 channels
+    - 'l': 64 channels
+
+    Args:
+        weights_dict: Model state dict (already unwrapped)
+
+    Returns:
+        Size code ('nano', 'tiny', 's', 'm', 'l') or None if detection fails
+    """
+    key = 'backbone.backbone.stem.conv.conv.weight'
+    if key not in weights_dict:
+        return None
+
+    first_channel = weights_dict[key].shape[0]
+
+    size_map = {
+        16: 'nano',
+        24: 'tiny',
+        32: 's',
+        48: 'm',
+        64: 'l',
+    }
+
+    return size_map.get(first_channel)
+
 def create_model(version: str, config: str, reg_max: int = 16, nb_classes: int = 80, img_size: int = 640):
     """
     Create a fresh model instance for training.
@@ -139,61 +276,61 @@ def LIBREYOLO(
     reg_max: int = 16,
     nb_classes: int = 80,
     save_feature_maps: bool = False,
-    save_eigen_cam: bool = False,
-    cam_method: str = "eigencam",
-    cam_layer: str = None,
     device: str = "auto"
 ):
     """
     Unified Libre YOLO factory that automatically detects model version (8, 9, 11, or X)
-    from the weights file and returns the appropriate model instance.
+    and size from the weights file and returns the appropriate model instance.
 
     Args:
         model_path: Path to model weights file (.pt/.pth) or ONNX file (.onnx)
-        size: Model size variant. Required for .pt/.pth files.
+        size: Model size variant. Optional for .pt/.pth files (auto-detected if omitted).
               - For YOLOv8/v11: "n", "s", "m", "l", "x"
               - For YOLOX: "nano", "tiny", "s", "m", "l", "x"
               - For YOLOv9: "t", "s", "m", "c"
         reg_max: Regression max value for DFL (default: 16). Only used for v8/v11/v9.
         nb_classes: Number of classes (default: 80 for COCO)
         save_feature_maps: If True, saves backbone feature map visualizations (YOLO8 only)
-        save_eigen_cam: If True, saves EigenCAM heatmap visualizations (YOLO8 only)
-        cam_method: Default CAM method for explain() (YOLO8 only)
-        cam_layer: Target layer for CAM computation (YOLO8 only)
         device: Device for inference. "auto" (default) uses CUDA if available, else MPS, else CPU.
-    
-    Note:
-        XAI features (save_feature_maps, save_eigen_cam, cam_method, cam_layer, explain())
-        are currently only supported by LIBREYOLO8. For other model versions, use
-        the model class directly (e.g., LIBREYOLO11) for future XAI support.
 
     Returns:
         Instance of LIBREYOLO8, LIBREYOLO9, LIBREYOLO11, LIBREYOLOX, or LIBREYOLOOnnx
 
     Example:
+        >>> # Auto-detect model version and size (new)
+        >>> model = LIBREYOLO("yolo11n.pt")
+        >>> detections = model("image.jpg", save=True)
+        >>>
+        >>> # Explicit size (backward compatible)
         >>> model = LIBREYOLO("yolo11n.pt", size="n")
         >>> detections = model("image.jpg", save=True)
+        >>>
         >>> # Use tiling for large images
         >>> detections = model("large_image.jpg", save=True, tiling=True)
         >>>
         >>> # For YOLOX
-        >>> model = LIBREYOLO("libreyoloXs.pt", size="s")
+        >>> model = LIBREYOLO("libreyoloXs.pt")  # Auto-detect size
         >>> detections = model("image.jpg", save=True)
         >>>
         >>> # For YOLOv9
-        >>> model = LIBREYOLO("yolov9c.pt", size="c")
+        >>> model = LIBREYOLO("yolov9c.pt")  # Auto-detect size
         >>> detections = model("image.jpg", save=True)
     """
     # Handle ONNX models
     if model_path.endswith('.onnx'):
         from .common.onnx import LIBREYOLOOnnx
         return LIBREYOLOOnnx(model_path, nb_classes=nb_classes, device=device)
-    
-    # For .pt files, size is required
-    if size is None:
-        raise ValueError("size is required for .pt weights. Must be one of: 'n', 's', 'm', 'l', 'x'")
-    
+
+    # For .pt files, handle file download if needed
     if not Path(model_path).exists():
+        # If file doesn't exist and size is None, we can't auto-download
+        if size is None:
+            raise ValueError(
+                f"Model weights file not found: {model_path}\n"
+                f"Cannot auto-download without explicit size parameter.\n"
+                f"Please specify size explicitly (e.g., size='n', size='s') or provide a valid weights file path."
+            )
+
         try:
             download_weights(model_path, size)
         except Exception as e:
@@ -244,12 +381,39 @@ def LIBREYOLO(
     # Check for YOLO11-specific layer names (e.g., 'c2psa')
     is_yolo11 = any('c2psa' in key for key in keys)
 
+    # Auto-detect size if not provided
+    if size is None:
+        # Unwrap state dict for consistent detection
+        unwrapped_weights = _unwrap_state_dict(state_dict)
+
+        # Detect size based on model type
+        if is_yolox:
+            size = detect_yolox_size(unwrapped_weights)
+            model_type = "YOLOX"
+        elif is_yolo9:
+            size = detect_yolo9_size(unwrapped_weights)
+            model_type = "YOLOv9"
+        elif is_yolo11:
+            size = detect_yolo8_11_size(unwrapped_weights)
+            model_type = "YOLOv11"
+        elif is_rfdetr:
+            size = detect_rfdetr_size(keys)
+            model_type = "RF-DETR"
+        else:  # Default to v8
+            size = detect_yolo8_11_size(unwrapped_weights)
+            model_type = "YOLOv8"
+
+        if size is None:
+            raise ValueError(
+                f"Could not automatically detect {model_type} model size from state dict.\n"
+                f"Please specify size explicitly: LIBREYOLO('{model_path}', size='n')"
+            )
+
+        print(f"Auto-detected size: {size}")
+
     if is_rfdetr:
         # RF-DETR detected - use LIBREYOLORFDETR (lazy import)
         from .rfdetr.model import LIBREYOLORFDETR
-        # Detect size from state dict if not provided
-        if size is None:
-            size = detect_rfdetr_size(keys)
         model = LIBREYOLORFDETR(
             model_path=weights_dict, size=size, nb_classes=nb_classes, device=device
         )
@@ -280,15 +444,9 @@ def LIBREYOLO(
         model.model_path = model_path
     else:
         # Default to YOLOv8
-        # Note: XAI features (save_feature_maps, save_eigen_cam, cam_method, cam_layer)
-        # are only supported by LIBREYOLO8. Other model versions do not support
-        # these parameters and will ignore them if passed through the factory.
         model = LIBREYOLO8(
             weights_dict, size, reg_max, nb_classes,
             save_feature_maps=save_feature_maps,
-            save_eigen_cam=save_eigen_cam,
-            cam_method=cam_method,
-            cam_layer=cam_layer,
             device=device
         )
         model.version = "8"
