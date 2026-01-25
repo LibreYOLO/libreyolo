@@ -16,23 +16,12 @@ def __getattr__(name):
         return LIBREYOLORFDETR
     raise AttributeError(f"module '{__name__}' has no attribute '{name}'")
 from .common.onnx import LIBREYOLOOnnx
-from .common.cam import (
-    CAM_METHODS,
-    BaseCAM,
-    EigenCAM,
-    GradCAM,
-    HiResCAM,
-    XGradCAM,
-    LayerCAM,
-    EigenGradCAM,
-    GradCAMPlusPlus,
-)
+# CAM/GradCAM removed
 from .validation import (
     ValidationConfig,
     BaseValidator,
     DetectionValidator,
     DetMetrics,
-    ConfusionMatrix,
 )
 from .data import (
     DATASETS_DIR,
@@ -55,22 +44,11 @@ __all__ = [
     "LIBREYOLORFDETR",
     "LIBREYOLOOnnx",
     "create_model",
-    # CAM methods
-    "CAM_METHODS",
-    "BaseCAM",
-    "EigenCAM",
-    "GradCAM",
-    "HiResCAM",
-    "XGradCAM",
-    "LayerCAM",
-    "EigenGradCAM",
-    "GradCAMPlusPlus",
     # Validation
     "ValidationConfig",
     "BaseValidator",
     "DetectionValidator",
     "DetMetrics",
-    "ConfusionMatrix",
     # Data utilities
     "DATASETS_DIR",
     "load_data_config",
