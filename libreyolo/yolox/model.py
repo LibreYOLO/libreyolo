@@ -298,3 +298,182 @@ class LIBREYOLOX(LibreYOLOBase):
         traced_model = torch.jit.trace(self.model, dummy_input)
         traced_model.save(output_path)
         return output_path
+
+    def train(
+        self,
+        data: str,
+        *,
+        # Training parameters
+        epochs: int = 100,
+        batch: int = 16,
+        imgsz: int = 640,
+
+        # Optimizer parameters
+        lr0: float = 0.01,
+        optimizer: str = "SGD",
+
+        # System parameters
+        device: str = "",
+        workers: int = 8,
+        seed: int = 0,
+
+        # Output parameters
+        project: str = "runs/train",
+        name: str = "exp",
+        exist_ok: bool = False,
+
+        # Model parameters
+        pretrained: bool = True,
+
+        # Training features
+        resume: Optional[str] = None,
+        amp: bool = True,
+        patience: int = 50,
+
+        # Config override
+        cfg: Optional[str] = None,
+        **kwargs
+    ) -> dict:
+        """
+        Train the YOLOX model on a dataset.
+
+        This method follows the TRAINING_API_SPEC.md exactly.
+
+        Args:
+            data: Path to data.yaml file (required)
+
+            epochs: Number of epochs to train
+            batch: Batch size (total, will be divided across devices if multi-GPU)
+            imgsz: Input image size (square: imgsz x imgsz)
+
+            lr0: Initial learning rate
+            optimizer: Optimizer name ('SGD', 'Adam', 'AdamW')
+
+            device: Device to train on ('', 'cpu', 'cuda', '0', '0,1,2,3')
+                    Empty string '' = auto-detect
+            workers: Number of dataloader worker processes
+            seed: Random seed for reproducibility
+
+            project: Root directory for training runs
+            name: Experiment name (auto-increments: exp, exp2, exp3...)
+            exist_ok: If True, overwrite existing experiment directory
+
+            pretrained: Use pretrained weights if available (not implemented yet)
+
+            resume: Path to checkpoint to resume training from
+            amp: Enable automatic mixed precision training
+            patience: Early stopping patience (epochs without improvement)
+
+            cfg: Optional path to YAML config file. If provided, loaded first,
+                 then kwargs override config values.
+            **kwargs: Additional parameters override config file values
+
+        Returns:
+            dict: Training results containing:
+                - 'final_loss': Final training loss
+                - 'best_mAP50': Best mAP@0.5 achieved
+                - 'best_mAP50_95': Best mAP@0.5:0.95 achieved
+                - 'best_epoch': Epoch with best validation performance
+                - 'save_dir': Path to training output directory
+                - 'best_checkpoint': Path to best model checkpoint
+                - 'last_checkpoint': Path to last model checkpoint
+
+        Raises:
+            FileNotFoundError: If data.yaml not found
+            ValueError: If invalid parameters provided
+            RuntimeError: If training fails (OOM, NaN loss, etc.)
+
+        Example:
+            >>> from libreyolo import LIBREYOLOX
+            >>> model = LIBREYOLOX.new(size="s", num_classes=80)
+            >>> results = model.train(
+            ...     data="coco128.yaml",
+            ...     epochs=100,
+            ...     batch=16,
+            ...     imgsz=640,
+            ...     device="0"
+            ... )
+            >>> print(f"Best mAP: {results['best_mAP50_95']:.3f}")
+            >>> # Load best model
+            >>> model_best = LIBREYOLOX(results['best_checkpoint'], size="s")
+        """
+        from libreyolo.training import YOLOXTrainer, YOLOXTrainConfig
+
+        # Validate data file exists
+        if not Path(data).exists():
+            raise FileNotFoundError(f"data.yaml not found at path: {data}")
+
+        # Load config if provided
+        if cfg:
+            config = YOLOXTrainConfig.from_yaml(cfg)
+            # Override with explicit parameters and kwargs
+            config_dict = config.to_dict()
+            # Update with explicit parameters (only if not default)
+            param_updates = {
+                'data': data,
+                'epochs': epochs,
+                'batch': batch,
+                'imgsz': imgsz,
+                'lr0': lr0,
+                'optimizer': optimizer.lower(),
+                'device': device if device else "auto",
+                'workers': workers,
+                'seed': seed,
+                'project': project,
+                'name': name,
+                'exist_ok': exist_ok,
+                'resume': resume,
+                'amp': amp,
+                'patience': patience,
+            }
+            config_dict.update(param_updates)
+            config_dict.update(kwargs)
+            config = YOLOXTrainConfig(**config_dict)
+        else:
+            # Create config from parameters
+            config = YOLOXTrainConfig(
+                size=self.size,
+                num_classes=self.nb_classes,
+                data=data,
+                epochs=epochs,
+                batch=batch,
+                imgsz=imgsz,
+                lr0=lr0,
+                optimizer=optimizer.lower(),
+                device=device if device else "auto",
+                workers=workers,
+                seed=seed,
+                project=project,
+                name=name,
+                exist_ok=exist_ok,
+                resume=resume,
+                amp=amp,
+                patience=patience,
+                **kwargs
+            )
+
+        # Set random seed for reproducibility
+        if seed > 0:
+            import random
+            import numpy as np
+            random.seed(seed)
+            np.random.seed(seed)
+            torch.manual_seed(seed)
+            if torch.cuda.is_available():
+                torch.cuda.manual_seed_all(seed)
+
+        # Create trainer (pass wrapper model for validation)
+        trainer = YOLOXTrainer(model=self.model, config=config, wrapper_model=self)
+
+        # Resume if checkpoint provided
+        if resume:
+            trainer.resume(resume)
+
+        # Run training
+        results = trainer.train()
+
+        # Load best model weights into current instance
+        if Path(results['best_checkpoint']).exists():
+            self._load_weights(results['best_checkpoint'])
+
+        return results
