@@ -66,6 +66,9 @@ def preprocess_image(
     # Convert to numpy array (keep 0-255 range, NO normalization)
     img_array = np.array(padded_img, dtype=np.float32)
 
+    # Convert RGB to BGR (YOLOX was trained on BGR images from cv2)
+    img_array = img_array[:, :, ::-1].copy()
+
     # Convert to tensor: HWC -> CHW -> add batch dimension
     img_tensor = torch.from_numpy(img_array).permute(2, 0, 1).unsqueeze(0)
 
