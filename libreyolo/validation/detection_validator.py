@@ -144,7 +144,6 @@ class DetectionValidator(BaseValidator):
             else:
                 # Try to resolve files from the split path
                 split_path_str = data_cfg.get(self.config.split, f"images/{self.config.split}")
-                full_split_path = Path(data_cfg["path"]) / Path(split_path_str).name
 
                 # Check if path ends with .txt (even if not yet downloaded)
                 if str(split_path_str).endswith(".txt"):
@@ -157,11 +156,25 @@ class DetectionValidator(BaseValidator):
                         except (FileNotFoundError, ValueError):
                             pass
                 else:
-                    # Directory format - extract split name for YOLODataset
-                    if "/" in str(split_path_str):
-                        split_name = str(split_path_str).split("/")[-1]
+                    # Directory format - construct full path and collect image files
+                    full_split_path = Path(data_cfg["path"]) / split_path_str
+
+                    if full_split_path.exists():
+                        # Use file list mode with explicit paths
+                        img_files_list = []
+                        for ext in ['*.jpg', '*.jpeg', '*.png', '*.bmp']:
+                            img_files_list.extend(full_split_path.glob(ext))
+                            img_files_list.extend(full_split_path.glob(ext.upper()))
+
+                        if img_files_list:
+                            img_files = sorted(img_files_list)
+                            label_files = img2label_paths(img_files)
                     else:
-                        split_name = str(split_path_str)
+                        # Fallback: extract split name for legacy directory mode
+                        if "/" in str(split_path_str):
+                            split_name = str(split_path_str).split("/")[-1]
+                        else:
+                            split_name = str(split_path_str)
         else:
             data_dir = self.config.data_dir
             self.class_names = None
@@ -368,7 +381,7 @@ class DetectionValidator(BaseValidator):
                 single_preds,
                 conf_thres=self.config.conf_thres,
                 iou_thres=self.config.iou_thres,
-                original_size=(orig_h, orig_w),  # (height, width) format
+                original_size=(orig_w, orig_h),  # (width, height) format as expected by postprocess
                 input_size=self._actual_imgsz,  # Pass actual input size used
             )
 
@@ -596,10 +609,10 @@ class ValDataset:
     def __getitem__(self, idx: int) -> Tuple:
         import cv2
 
-        # Load image
+        # Load image (keep BGR format to match YOLOX training)
         img_path = self.img_paths[idx]
         img = cv2.imread(img_path)
-        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        # Do NOT convert BGR to RGB - YOLOX is trained on BGR images
 
         orig_h, orig_w = img.shape[:2]
 

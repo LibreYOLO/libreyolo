@@ -8,7 +8,7 @@ import os
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, Optional, Union
+from typing import Any, Dict, Optional, Union, Tuple
 import logging
 
 import torch
@@ -43,6 +43,7 @@ class YOLOXTrainer:
         self,
         model: nn.Module,
         config: YOLOXTrainConfig,
+        wrapper_model: Optional[Any] = None,
     ):
         """
         Initialize trainer.
@@ -50,9 +51,11 @@ class YOLOXTrainer:
         Args:
             model: YOLOX model to train
             config: Training configuration
+            wrapper_model: LibreYOLO wrapper model (for validation), optional
         """
         self.model = model
         self.config = config
+        self.wrapper_model = wrapper_model  # Used for validation
 
         # Setup device
         self.device = self._setup_device()
@@ -61,7 +64,13 @@ class YOLOXTrainer:
         self.start_epoch = 0
         self.current_epoch = 0
         self.current_iter = 0
-        self.best_loss = float('inf')
+
+        # Metric tracking (following API spec)
+        self.best_mAP50_95 = 0.0
+        self.best_mAP50 = 0.0
+        self.best_epoch = 0
+        self.final_loss = 0.0
+        self.patience_counter = 0
 
         # Will be initialized in setup()
         self.optimizer = None
@@ -141,6 +150,32 @@ class YOLOXTrainer:
         )
         return scheduler
 
+    def _get_save_dir(self) -> Path:
+        """
+        Get save directory with auto-incrementing exp names.
+
+        Returns:
+            Path to save directory (e.g., runs/train/exp, runs/train/exp2, ...)
+        """
+        project = Path(self.config.project)
+        name = self.config.name
+
+        if self.config.exist_ok:
+            # Overwrite existing directory
+            save_dir = project / name
+        else:
+            # Auto-increment: exp, exp2, exp3, ...
+            save_dir = project / name
+            if save_dir.exists():
+                # Find next available number
+                i = 2
+                while (project / f"{name}{i}").exists():
+                    i += 1
+                save_dir = project / f"{name}{i}"
+
+        save_dir.mkdir(parents=True, exist_ok=True)
+        return save_dir
+
     def _setup_data(self):
         """Setup training and validation data loaders."""
         img_size = self.config.input_size
@@ -170,10 +205,33 @@ class YOLOXTrainer:
                     preproc=preproc,
                 )
             else:
-                # YOLO format
+                # YOLO format - construct paths from data.yaml
+                train_path = data_cfg.get('train', 'images/train')
+
+                # Full path to training images
+                train_img_dir = Path(data_dir) / train_path
+
+                # Collect image files
+                img_files = []
+                for ext in ['*.jpg', '*.jpeg', '*.png', '*.bmp']:
+                    img_files.extend(train_img_dir.glob(ext))
+                    img_files.extend(train_img_dir.glob(ext.upper()))
+                img_files = sorted(img_files)
+
+                if len(img_files) == 0:
+                    raise FileNotFoundError(f"No images found in {train_img_dir}")
+
+                # Infer label paths (replace 'images' with 'labels', change extension to .txt)
+                label_files = []
+                for img_file in img_files:
+                    # Replace /images/ with /labels/ and .jpg with .txt
+                    label_file = Path(str(img_file).replace('/images/', '/labels/').rsplit('.', 1)[0] + '.txt')
+                    label_files.append(label_file)
+
+                # Create dataset using file list mode
                 train_dataset = YOLODataset(
-                    data_dir=data_dir,
-                    split="train",
+                    img_files=img_files,
+                    label_files=label_files,
                     img_size=img_size,
                     preproc=preproc,
                 )
@@ -219,8 +277,8 @@ class YOLOXTrainer:
         # Create data loader
         self.train_loader = create_dataloader(
             train_dataset,
-            batch_size=self.config.batch_size,
-            num_workers=self.config.num_workers,
+            batch_size=self.config.batch,
+            num_workers=self.config.workers,
             shuffle=True,
             pin_memory=True,
         )
@@ -262,22 +320,22 @@ class YOLOXTrainer:
             self.ema_model = ModelEMA(self.model, decay=self.config.ema_decay)
             logger.info(f"Using EMA with decay={self.config.ema_decay}")
 
-        # Setup save directory
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        self.save_dir = Path(self.config.save_dir) / f"exp_{timestamp}"
-        self.save_dir.mkdir(parents=True, exist_ok=True)
+        # Setup save directory with auto-incrementing names
+        self.save_dir = self._get_save_dir()
 
         # Save config
-        self.config.to_yaml(self.save_dir / "config.yaml")
+        self.config.to_yaml(self.save_dir / "train_config.yaml")  # Renamed to match spec
 
         # Setup TensorBoard
         try:
             from torch.utils.tensorboard import SummaryWriter
             self.tensorboard_writer = SummaryWriter(self.save_dir / "tensorboard")
             logger.info(f"TensorBoard logging to {self.save_dir / 'tensorboard'}")
-        except ImportError:
+        except Exception as e:
+            # Handle ImportError, protobuf compatibility issues, or any other TensorBoard errors
             self.tensorboard_writer = None
-            logger.info("TensorBoard not available")
+            logger.warning(f"TensorBoard not available (skipping): {type(e).__name__}")
+            logger.info("Training will continue without TensorBoard logging")
 
         logger.info(f"Saving to: {self.save_dir}")
 
@@ -292,7 +350,7 @@ class YOLOXTrainer:
 
         logger.info(f"Starting training for {self.config.epochs} epochs")
         logger.info(f"Model: YOLOX-{self.config.size}")
-        logger.info(f"Batch size: {self.config.batch_size}")
+        logger.info(f"Batch size: {self.config.batch}")
         logger.info(f"Learning rate: {self.config.effective_lr}")
 
         start_time = time.time()
@@ -307,11 +365,22 @@ class YOLOXTrainer:
                 self.model.head.use_l1 = True
 
             # Train one epoch
-            epoch_loss = self._train_epoch(epoch)
+            epoch_loss, val_metrics = self._train_epoch(epoch)
+
+            # Track final loss (for return value)
+            self.final_loss = epoch_loss
 
             # Save checkpoint
             if (epoch + 1) % self.config.save_interval == 0 or epoch == self.config.epochs - 1:
-                self._save_checkpoint(epoch, epoch_loss)
+                self._save_checkpoint(epoch, epoch_loss, val_metrics)
+
+            # Early stopping check
+            if self.patience_counter >= self.config.patience:
+                logger.info(
+                    f"Early stopping triggered after {epoch + 1} epochs "
+                    f"(patience={self.config.patience}, no improvement for {self.patience_counter} epochs)"
+                )
+                break
 
         total_time = time.time() - start_time
         logger.info(f"Training complete in {total_time / 3600:.2f} hours")
@@ -320,15 +389,98 @@ class YOLOXTrainer:
         if self.tensorboard_writer:
             self.tensorboard_writer.close()
 
+        # Return results matching API spec format
+        weights_dir = self.save_dir / "weights"
         return {
-            "best_loss": self.best_loss,
-            "total_epochs": self.config.epochs,
-            "total_time": total_time,
-            "save_dir": str(self.save_dir),
+            'final_loss': self.final_loss,
+            'best_mAP50': self.best_mAP50,
+            'best_mAP50_95': self.best_mAP50_95,
+            'best_epoch': self.best_epoch,
+            'save_dir': str(self.save_dir),
+            'best_checkpoint': str(weights_dir / 'best.pt'),
+            'last_checkpoint': str(weights_dir / 'last.pt'),
         }
 
-    def _train_epoch(self, epoch: int) -> float:
-        """Train for one epoch."""
+    def _validate_epoch(self, epoch: int) -> Optional[Dict[str, float]]:
+        """
+        Run validation and return metrics.
+
+        Returns:
+            dict with keys: mAP50, mAP50_95, or None if validation failed
+        """
+        try:
+            from libreyolo.validation import DetectionValidator, ValidationConfig
+
+            logger.info(f"Running validation for epoch {epoch + 1}")
+
+            # Create validation config
+            val_config = ValidationConfig(
+                data=self.config.data,
+                batch_size=self.config.batch,
+                imgsz=self.config.imgsz,  # Fixed: was img_size, should be imgsz
+                conf_thres=0.001,
+                iou_thres=0.65,
+                device=str(self.device),
+                half=self.config.amp and self.device.type == "cuda",
+                verbose=False,  # Reduce validation output during training
+            )
+
+            # For validation, we need the wrapper model, not the raw PyTorch model
+            # The wrapper model has methods like _get_val_preprocessor() that validator needs
+            if self.wrapper_model is None:
+                logger.error("Validation requires wrapper_model to be provided to trainer")
+                return None
+
+            # Create a temporary wrapper with EMA model if available
+            # We'll use the wrapper's methods but swap out the underlying model
+            eval_pytorch_model = self.ema_model.ema if self.ema_model else self.model
+
+            # Temporarily swap the model for validation
+            original_model = self.wrapper_model.model
+            self.wrapper_model.model = eval_pytorch_model
+
+            try:
+                # Create validator with the wrapper model
+                validator = DetectionValidator(
+                    model=self.wrapper_model,
+                    config=val_config,
+                )
+
+                # Run validation (MUST be inside try block so model swap is active)
+                results = validator.run()
+            finally:
+                # Restore original model
+                self.wrapper_model.model = original_model
+
+            # Debug: print what we got back
+            print(f"[DEBUG] Validation results keys: {list(results.keys())}")
+
+            # Extract metrics - results has keys like 'metrics/mAP50' and 'metrics/mAP50-95'
+            metrics = {
+                'mAP50': results.get('metrics/mAP50', 0.0),
+                'mAP50_95': results.get('metrics/mAP50-95', 0.0),
+            }
+
+            print(f"[DEBUG] Extracted metrics: mAP50={metrics['mAP50']:.4f}, mAP50_95={metrics['mAP50_95']:.4f}")
+
+            # Log to user (using print since logger may not show)
+            print(f"Validation - mAP50: {metrics['mAP50']:.4f}, mAP50-95: {metrics['mAP50_95']:.4f}")
+
+            return metrics
+
+        except Exception as e:
+            logger.error(f"Validation failed: {e}")
+            import traceback
+            logger.debug(f"Validation traceback:\n{traceback.format_exc()}")
+            return None
+
+    def _train_epoch(self, epoch: int) -> Tuple[float, Optional[Dict[str, float]]]:
+        """
+        Train for one epoch and optionally validate.
+
+        Returns:
+            Tuple of (average_loss, validation_metrics)
+        """
         self.model.train()
 
         pbar = tqdm(
@@ -375,12 +527,11 @@ class YOLOXTrainer:
             iou_loss_val = outputs.get('iou_loss', 0)
             obj_loss_val = outputs.get('obj_loss', 0)
             cls_loss_val = outputs.get('cls_loss', 0)
+            l1_loss_val = outputs.get('l1_loss', 0)
             total_loss += loss_val
 
-            # Free memory to prevent GPU memory leak
+            # Free memory (don't call empty_cache every iteration - it's slow)
             del outputs, loss
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
 
             # Update learning rate
             lr = self.lr_scheduler.update_lr(self.current_iter + 1)
@@ -397,13 +548,15 @@ class YOLOXTrainer:
                 "cls": f"{cls_loss_val:.4f}",
             })
 
-            # Log to TensorBoard
+            # Log to TensorBoard (use saved values, not deleted variables)
             if self.tensorboard_writer and batch_idx % self.config.log_interval == 0:
-                self.tensorboard_writer.add_scalar("train/loss", loss.item(), self.current_iter)
+                self.tensorboard_writer.add_scalar("train/loss", loss_val, self.current_iter)
                 self.tensorboard_writer.add_scalar("train/lr", lr, self.current_iter)
-                for key in ["iou_loss", "obj_loss", "cls_loss", "l1_loss"]:
-                    if key in outputs:
-                        self.tensorboard_writer.add_scalar(f"train/{key}", outputs[key], self.current_iter)
+                self.tensorboard_writer.add_scalar("train/iou_loss", iou_loss_val, self.current_iter)
+                self.tensorboard_writer.add_scalar("train/obj_loss", obj_loss_val, self.current_iter)
+                self.tensorboard_writer.add_scalar("train/cls_loss", cls_loss_val, self.current_iter)
+                if l1_loss_val:
+                    self.tensorboard_writer.add_scalar("train/l1_loss", l1_loss_val, self.current_iter)
 
         avg_loss = total_loss / num_batches
         logger.info(f"Epoch {epoch + 1} - Average loss: {avg_loss:.4f}")
@@ -412,54 +565,141 @@ class YOLOXTrainer:
         if self.tensorboard_writer:
             self.tensorboard_writer.add_scalar("epoch/loss", avg_loss, epoch)
 
-        return avg_loss
+        # Run validation if configured
+        val_metrics = None
+        if self.config.eval_interval > 0 and (epoch + 1) % self.config.eval_interval == 0:
+            val_metrics = self._validate_epoch(epoch)
 
-    def _save_checkpoint(self, epoch: int, loss: float):
-        """Save training checkpoint."""
+            # Log validation metrics to TensorBoard
+            if val_metrics and self.tensorboard_writer:
+                self.tensorboard_writer.add_scalar("val/mAP50", val_metrics['mAP50'], epoch)
+                self.tensorboard_writer.add_scalar("val/mAP50_95", val_metrics['mAP50_95'], epoch)
+
+        return avg_loss, val_metrics
+
+    def _save_checkpoint(self, epoch: int, loss: float, val_metrics: Optional[Dict[str, float]] = None):
+        """
+        Save training checkpoint.
+
+        Args:
+            epoch: Current epoch number
+            loss: Training loss for this epoch
+            val_metrics: Validation metrics dict with mAP50, mAP50_95 (optional)
+        """
         # Determine which model to save (EMA if available)
         if self.ema_model is not None:
             model_to_save = self.ema_model.ema
         else:
             model_to_save = self.model
 
+        # Create checkpoint dict
         checkpoint = {
             "epoch": epoch,
             "model": model_to_save.state_dict(),
             "optimizer": self.optimizer.state_dict(),
             "config": self.config.to_dict(),
             "loss": loss,
+            "best_mAP50_95": self.best_mAP50_95,
+            "best_mAP50": self.best_mAP50,
+            "best_epoch": self.best_epoch,
         }
 
+        # Save EMA state if available
+        if self.ema_model is not None:
+            checkpoint["ema_updates"] = self.ema_model.updates
+
+        # Create weights directory if it doesn't exist
+        weights_dir = self.save_dir / "weights"
+        weights_dir.mkdir(exist_ok=True)
+
         # Save latest checkpoint
-        latest_path = self.save_dir / "last.pt"
+        latest_path = weights_dir / "last.pt"
         torch.save(checkpoint, latest_path)
 
-        # Save best checkpoint
-        if loss < self.best_loss:
-            self.best_loss = loss
-            best_path = self.save_dir / "best.pt"
-            torch.save(checkpoint, best_path)
-            logger.info(f"New best model saved with loss: {loss:.4f}")
+        # Save best checkpoint based on mAP (if validation metrics available)
+        print(f"[DEBUG] _save_checkpoint: val_metrics={val_metrics}, best_mAP50_95={self.best_mAP50_95}")
+        if val_metrics and val_metrics['mAP50_95'] > self.best_mAP50_95:
+            self.best_mAP50_95 = val_metrics['mAP50_95']
+            self.best_mAP50 = val_metrics['mAP50']
+            self.best_epoch = epoch + 1
+            self.patience_counter = 0  # Reset patience counter on improvement
 
-        # Save epoch checkpoint
-        epoch_path = self.save_dir / f"epoch_{epoch + 1}.pt"
-        torch.save(checkpoint, epoch_path)
+            best_path = weights_dir / "best.pt"
+            torch.save(checkpoint, best_path)
+            logger.info(
+                f"New best model saved - Epoch {epoch + 1}: "
+                f"mAP50={self.best_mAP50:.4f}, mAP50-95={self.best_mAP50_95:.4f}"
+            )
+        elif val_metrics:
+            self.patience_counter += 1
+
+        # Save epoch checkpoint (every save_interval epochs)
+        if (epoch + 1) % self.config.save_interval == 0:
+            epoch_path = weights_dir / f"epoch_{epoch + 1}.pt"
+            torch.save(checkpoint, epoch_path)
 
         logger.info(f"Checkpoint saved: {latest_path}")
 
     def resume(self, checkpoint_path: str):
-        """Resume training from a checkpoint."""
+        """
+        Resume training from a checkpoint.
+
+        Args:
+            checkpoint_path: Path to checkpoint file (.pt)
+
+        Raises:
+            FileNotFoundError: If checkpoint file doesn't exist
+            RuntimeError: If checkpoint is incompatible
+        """
+        if not Path(checkpoint_path).exists():
+            raise FileNotFoundError(f"Resume checkpoint not found: {checkpoint_path}")
+
         logger.info(f"Resuming from {checkpoint_path}")
 
         checkpoint = torch.load(checkpoint_path, map_location=self.device)
 
-        self.model.load_state_dict(checkpoint["model"])
+        # Load model weights
+        try:
+            self.model.load_state_dict(checkpoint["model"])
+        except Exception as e:
+            raise RuntimeError(f"Cannot resume: model architecture mismatch - {e}")
+
+        # Load training state
         self.start_epoch = checkpoint["epoch"] + 1
 
+        # Load optimizer if available
         if self.optimizer is not None and "optimizer" in checkpoint:
-            self.optimizer.load_state_dict(checkpoint["optimizer"])
+            try:
+                self.optimizer.load_state_dict(checkpoint["optimizer"])
+                logger.info("Optimizer state restored")
+            except Exception as e:
+                logger.warning(f"Could not load optimizer state: {e}")
 
-        if "loss" in checkpoint:
-            self.best_loss = checkpoint["loss"]
+        # Load best metrics (following API spec tracking)
+        if "best_mAP50_95" in checkpoint:
+            self.best_mAP50_95 = checkpoint["best_mAP50_95"]
+            self.best_mAP50 = checkpoint.get("best_mAP50", 0.0)
+            self.best_epoch = checkpoint.get("best_epoch", 0)
+            logger.info(
+                f"Restored best metrics: mAP50={self.best_mAP50:.4f}, "
+                f"mAP50-95={self.best_mAP50_95:.4f} (epoch {self.best_epoch})"
+            )
+        elif "loss" in checkpoint:
+            # Legacy checkpoint with loss tracking
+            logger.warning("Old checkpoint format detected (loss-based). Converting to mAP tracking.")
+            self.best_mAP50_95 = 0.0
+            self.best_mAP50 = 0.0
+            self.best_epoch = 0
 
-        logger.info(f"Resumed from epoch {self.start_epoch}")
+        # Load EMA state if available
+        if self.ema_model and "ema_updates" in checkpoint:
+            self.ema_model.updates = checkpoint["ema_updates"]
+            logger.info(f"EMA updates restored: {self.ema_model.updates}")
+
+        # Reset patience counter on resume
+        self.patience_counter = 0
+
+        logger.info(
+            f"Resumed from epoch {self.start_epoch} "
+            f"(will train to epoch {self.config.epochs})"
+        )
