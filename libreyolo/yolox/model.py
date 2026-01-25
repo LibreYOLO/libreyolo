@@ -398,10 +398,15 @@ class LIBREYOLOX(LibreYOLOBase):
             >>> model_best = LIBREYOLOX(results['best_checkpoint'], size="s")
         """
         from libreyolo.training import YOLOXTrainer, YOLOXTrainConfig
+        from libreyolo.data import load_data_config
 
-        # Validate data file exists
-        if not Path(data).exists():
-            raise FileNotFoundError(f"data.yaml not found at path: {data}")
+        # Load and validate data config (handles built-in datasets and auto-download)
+        try:
+            data_config = load_data_config(data, autodownload=True)
+            # Get the resolved yaml path from config
+            data = data_config.get('yaml_file', data)
+        except Exception as e:
+            raise FileNotFoundError(f"Failed to load dataset config '{data}': {e}")
 
         # Load config if provided
         if cfg:
