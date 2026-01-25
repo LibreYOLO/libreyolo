@@ -516,6 +516,29 @@ class TestNewModelVersions:
         print(f"✓ YOLOv9 anchor-free detection: {results['num_detections']} detections")
 
     @pytest.mark.parametrize("version, size", QUICK_MODELS)
+    def test_auto_size_detection(self, version, size, weights_dir, test_image):
+        """Test automatic size detection (new feature - no size parameter needed)."""
+        filename = get_model_filename(version, size)
+        weight_file = weights_dir / filename
+
+        if not weight_file.exists():
+            pytest.skip(f"Weights {weight_file.name} not found.")
+
+        # Load model WITHOUT specifying size - should auto-detect
+        model = LIBREYOLO(str(weight_file))
+
+        # Verify size was correctly detected
+        assert model.size == size, f"Auto-detected size {model.size} != expected {size}"
+        assert model.version == version, f"Version {model.version} != expected {version}"
+
+        # Verify model works correctly with auto-detected size
+        results = model.predict(test_image, save=False, conf_thres=0.25)
+        assert results is not None
+        assert "boxes" in results
+
+        print(f"✓ Auto-detected size={size} for {version}{size}: {results['num_detections']} detections")
+
+    @pytest.mark.parametrize("version, size", QUICK_MODELS)
     def test_version_detection(self, version, size, weights_dir, test_image):
         """Test that version is correctly detected from weights."""
         filename = get_model_filename(version, size)
