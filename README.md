@@ -21,11 +21,14 @@ pip install libreyolo
 ```python
 from libreyolo import LIBREYOLO
 
-# Weights auto-download from HuggingFace
-model = LIBREYOLO(model_path="libreyolo8n.pt", size="n")
+# Auto-detect model version and size (new)
+model = LIBREYOLO("libreyolo8n.pt")
 results = model(image="https://raw.githubusercontent.com/Libre-YOLO/libreyolo/main/media/parkour.jpg", save=True)
 
 print(f"Detected {results['num_detections']} objects")
+
+# Or specify size explicitly (backward compatible)
+# model = LIBREYOLO("libreyolo8n.pt", size="n")
 ```
 
 ## Documentation
