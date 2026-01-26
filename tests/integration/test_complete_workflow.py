@@ -30,20 +30,8 @@ except ImportError:
     pass
 
 
-# All model combinations (14 total: 5 YOLO8 + 5 YOLO11 + 4 YOLOv9)
+# All model combinations (4 YOLOv9)
 ALL_MODELS = [
-    # YOLOv8 variants
-    ("8", "n"),
-    ("8", "s"),
-    ("8", "m"),
-    ("8", "l"),
-    ("8", "x"),
-    # YOLOv11 variants
-    ("11", "n"),
-    ("11", "s"),
-    ("11", "m"),
-    ("11", "l"),
-    ("11", "x"),
     # YOLOv9 variants (anchor-free with DFL)
     ("9", "t"),
     ("9", "s"),
@@ -53,15 +41,11 @@ ALL_MODELS = [
 
 # Subset of quick models for faster testing
 QUICK_MODELS = [
-    ("8", "n"),
-    ("11", "n"),
     ("9", "t"),
 ]
 
 # Model filename patterns for different versions
 MODEL_FILENAME_PATTERNS = {
-    "8": "libreyolo8{size}.pt",
-    "11": "libreyolo11{size}.pt",
     "9": "yolov9{size}.pt",
 }
 
@@ -292,98 +276,10 @@ class TestONNXInference:
         print(f"✓ ONNX inference successful for {version}{size}: {confident_detections} confident detections")
 
 
-class TestFeatureMaps:
-    """Test feature map saving with custom output path."""
-    
-    def test_feature_maps_with_custom_output(self, weights_dir, test_image, test_output_dir, tmp_path, monkeypatch):
-        """Test feature map saving with a custom output directory.
-        
-        Note: Feature maps are only supported by YOLO8, not YOLO11.
-        """
-        # Use YOLO8n as the test model (feature maps only supported by YOLO8)
-        weight_file = weights_dir / "libreyolo8n.pt"
-        
-        if not weight_file.exists():
-            pytest.skip(f"Weights {weight_file.name} not found. Run download tests first.")
-        
-        # Work in tmp_path to keep feature maps isolated
-        monkeypatch.chdir(tmp_path)
-        
-        # Create custom output directory
-        custom_output = tmp_path / "custom_feature_maps"
-        custom_output.mkdir(exist_ok=True)
-        
-        # Load model with feature map saving enabled
-        model = LIBREYOLO(str(weight_file), size="n", save_feature_maps=True)
-        
-        # Run inference - this should save feature maps in runs/feature_maps by default
-        results = model.predict(test_image, save=False)
-        
-        # Verify results
-        assert results is not None, "Inference failed"
-        
-        # Check that feature maps were created
-        feature_map_dir = tmp_path / "runs" / "feature_maps"
-        assert feature_map_dir.exists(), "Feature maps directory not created"
-        
-        # Find the timestamped subdirectory
-        subdirs = sorted(list(feature_map_dir.iterdir()))
-        assert len(subdirs) > 0, "No timestamped feature map directory found"
-        
-        latest_dir = subdirs[-1]
-        assert latest_dir.is_dir(), "Latest entry is not a directory"
-        
-        # Verify metadata.json exists
-        metadata_file = latest_dir / "metadata.json"
-        assert metadata_file.exists(), "metadata.json not found"
-        
-        # Verify PNG files were generated
-        png_files = list(latest_dir.glob("*.png"))
-        assert len(png_files) > 0, "No feature map PNG files generated"
-        
-        print(f"✓ Feature maps saved: {len(png_files)} files in {latest_dir}")
-        
-    def test_feature_maps_selective_layers(self, weights_dir, test_image, tmp_path, monkeypatch):
-        """Test saving only specific feature map layers.
-        
-        Note: Feature maps are only supported by YOLO8, not YOLO11.
-        """
-        weight_file = weights_dir / "libreyolo8n.pt"
-        
-        if not weight_file.exists():
-            pytest.skip(f"Weights {weight_file.name} not found. Run download tests first.")
-        
-        # Work in tmp_path
-        monkeypatch.chdir(tmp_path)
-        
-        # Load model with selective feature map saving
-        specific_layers = ["backbone_p3", "backbone_p4", "backbone_p5"]
-        model = LIBREYOLO(str(weight_file), size="n", save_feature_maps=specific_layers)
-        
-        # Run inference
-        results = model.predict(test_image, save=False)
-        assert results is not None, "Inference failed"
-        
-        # Check feature maps
-        feature_map_dir = tmp_path / "runs" / "feature_maps"
-        assert feature_map_dir.exists(), "Feature maps directory not created"
-        
-        subdirs = sorted(list(feature_map_dir.iterdir()))
-        assert len(subdirs) > 0, "No timestamped feature map directory found"
-        
-        latest_dir = subdirs[-1]
-        png_files = list(latest_dir.glob("*.png"))
-        
-        # Should have approximately the number of specified layers
-        # (might be exact or close depending on implementation)
-        assert len(png_files) > 0, "No feature map PNG files generated"
-        print(f"✓ Selective feature maps saved: {len(png_files)} files")
-
-
 class TestCustomOutputPath:
     """Test saving detection results with custom output paths."""
     
-    @pytest.mark.parametrize("version, size", [("11", "n"), ("8", "n"), ("9", "t"), ("7", "tiny")])
+    @pytest.mark.parametrize("version, size", [("9", "t")])
     def test_inference_with_custom_output_path(self, version, size, weights_dir, test_image, test_output_dir):
         """Test saving detection images to custom output paths."""
         filename = get_model_filename(version, size)
@@ -421,79 +317,42 @@ class TestEndToEndWorkflow:
     
     def test_full_workflow_single_model(self, weights_dir, test_image, test_output_dir, tmp_path, monkeypatch):
         """
-        Complete workflow test for a single model (YOLO11n):
+        Complete workflow test for a single model (YOLOv9t):
         1. Load model (with auto-download if needed)
         2. Run inference
         3. Save detection image to custom path
-        4. Export to ONNX (SKIPPED - not yet implemented)
-        5. Run ONNX inference (SKIPPED - not yet implemented)
-        6. Save feature maps
         """
-        version, size = "11", "n"
-        weight_file = weights_dir / f"libreyolo{version}{size}.pt"
-        
+        version, size = "9", "t"
+        weight_file = weights_dir / get_model_filename(version, size)
+
+        if not weight_file.exists():
+            pytest.skip(f"Weights {weight_file.name} not found.")
+
         # Use a dedicated subdirectory for this test
         workflow_dir = test_output_dir / "end_to_end"
         workflow_dir.mkdir(exist_ok=True)
-        
+
         # Step 1: Load model (will auto-download if needed)
-        print("\n[1/6] Loading model...")
+        print("\n[1/3] Loading model...")
         model = LIBREYOLO(str(weight_file), size=size)
         assert weight_file.exists(), "Model weights not found/downloaded"
-        
+
         # Step 2: Run inference
-        print("[2/6] Running inference...")
+        print("[2/3] Running inference...")
         results = model.predict(test_image, save=False)
         assert results is not None
         assert results["num_detections"] >= 0
         print(f"      Found {results['num_detections']} detections")
-        
+
         # Step 3: Save detection image to custom path
-        print("[3/6] Saving detection image...")
+        print("[3/3] Saving detection image...")
         detection_output = workflow_dir / "detection_result.jpg"
         results = model.predict(test_image, save=True, output_path=str(detection_output))
         assert detection_output.exists(), "Detection image not saved"
-        
-        # Step 4: Export to ONNX (SKIPPED - not yet implemented)
-        print("[4/6] Exporting to ONNX... ⚠️  SKIPPED (not yet implemented)")
-        # onnx_output = workflow_dir / f"model_{version}{size}.onnx"
-        # exported_path = model.export(output_path=str(onnx_output))
-        # assert onnx_output.exists(), "ONNX export failed"
-        
-        # Step 5: Run ONNX inference (SKIPPED - not yet implemented)
-        print("[5/6] Running ONNX inference... ⚠️  SKIPPED (not yet implemented)")
-        # session = ort.InferenceSession(str(onnx_output), providers=['CPUExecutionProvider'])
-        # input_blob = TestONNXInference.preprocess_image_for_onnx(test_image)
-        # outputs = session.run(None, {session.get_inputs()[0].name: input_blob})
-        # assert outputs is not None
-        # assert len(outputs) == 1
-        
-        # Step 6: Save feature maps (using YOLO8 since feature maps only supported by YOLO8)
-        print("[6/6] Saving feature maps...")
-        monkeypatch.chdir(tmp_path)
-        yolo8_weight_file = weights_dir / "libreyolo8n.pt"
-        if not yolo8_weight_file.exists():
-            print("      ⚠️  SKIPPED (YOLO8 weights not found, feature maps only supported by YOLO8)")
-            return
-        model_fm = LIBREYOLO(str(yolo8_weight_file), size="n", save_feature_maps=True)
-        model_fm.predict(test_image, save=False)
-        
-        feature_map_dir = tmp_path / "runs" / "feature_maps"
-        assert feature_map_dir.exists(), "Feature maps not saved"
-        
-        subdirs = list(feature_map_dir.iterdir())
-        assert len(subdirs) > 0, "No feature map directory created"
-        
-        latest_dir = sorted(subdirs)[-1]
-        png_files = list(latest_dir.glob("*.png"))
-        assert len(png_files) > 0, "No feature map images generated"
-        
-        print(f"\n✓ End-to-end workflow completed successfully!")
+
+        print(f"\n End-to-end workflow completed successfully!")
         print(f"  - Detections: {results['num_detections']}")
         print(f"  - Detection image: {detection_output}")
-        print(f"  - ONNX model: SKIPPED (not yet implemented)")
-        print(f"  - Feature maps: {len(png_files)} files in {latest_dir}")
-        print(f"\n  ⚠️  Note: ONNX export/inference steps were skipped (not yet implemented)")
 
 
 class TestNewModelVersions:

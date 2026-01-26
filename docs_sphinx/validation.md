@@ -5,7 +5,7 @@
 ```python
 from libreyolo import LIBREYOLO
 
-model = LIBREYOLO("weights/libreyolo8n.pt")
+model = LIBREYOLO("weights/libreyoloXs.pt")
 
 results = model.val(data="coco128.yaml")
 print(f"mAP50-95: {results['metrics/mAP50-95']:.3f}")
@@ -95,7 +95,7 @@ Datasets auto-download when first used.
 ## Comparing Models
 
 ```python
-models = ["weights/libreyolo8n.pt", "weights/libreyolo8s.pt"]
+models = ["weights/libreyoloXs.pt", "weights/libreyoloXm.pt"]
 
 for weights in models:
     model = LIBREYOLO(weights)

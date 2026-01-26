@@ -1,7 +1,7 @@
 """
 Utility functions for YOLOX.
 
-YOLOX uses different preprocessing and postprocessing than YOLOv8/v11:
+YOLOX uses different preprocessing and postprocessing:
 - Preprocessing: Letterbox with gray padding (114,114,114), NO normalization (0-255 range)
 - Postprocessing: Box decoding with exp() for width/height, objectness score
 """

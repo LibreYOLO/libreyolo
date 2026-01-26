@@ -2,7 +2,7 @@
 Tests for automatic model size detection feature.
 
 Tests verify that:
-- Size can be auto-detected for all model types (v8, v9, v11, X)
+- Size can be auto-detected for all model types (v9, X)
 - Explicit size parameter still works (backward compatibility)
 - Error handling works correctly
 - Size attribute is set correctly on model instances
@@ -13,7 +13,6 @@ import torch
 from pathlib import Path
 from libreyolo.factory import (
     LIBREYOLO,
-    detect_yolo8_11_size,
     detect_yolo9_size,
     detect_yolox_size,
     _unwrap_state_dict,
@@ -49,57 +48,6 @@ class TestUnwrapStateDict:
         state_dict = {'model': weights}
         result = _unwrap_state_dict(state_dict)
         assert result == weights
-
-
-class TestYOLO8_11SizeDetection:
-    """Test YOLOv8/v11 size detection."""
-
-    def test_detect_nano(self):
-        """Test detection of nano model (16 channels)."""
-        state_dict = {
-            'backbone.p1.cnn.weight': torch.zeros(16, 3, 3, 3)
-        }
-        assert detect_yolo8_11_size(state_dict) == 'n'
-
-    def test_detect_small(self):
-        """Test detection of small model (32 channels)."""
-        state_dict = {
-            'backbone.p1.cnn.weight': torch.zeros(32, 3, 3, 3)
-        }
-        assert detect_yolo8_11_size(state_dict) == 's'
-
-    def test_detect_medium(self):
-        """Test detection of medium model (48 channels)."""
-        state_dict = {
-            'backbone.p1.cnn.weight': torch.zeros(48, 3, 3, 3)
-        }
-        assert detect_yolo8_11_size(state_dict) == 'm'
-
-    def test_detect_large(self):
-        """Test detection of large model (64 channels)."""
-        state_dict = {
-            'backbone.p1.cnn.weight': torch.zeros(64, 3, 3, 3)
-        }
-        assert detect_yolo8_11_size(state_dict) == 'l'
-
-    def test_detect_xlarge(self):
-        """Test detection of xlarge model (80 channels)."""
-        state_dict = {
-            'backbone.p1.cnn.weight': torch.zeros(80, 3, 3, 3)
-        }
-        assert detect_yolo8_11_size(state_dict) == 'x'
-
-    def test_detect_missing_key(self):
-        """Test detection fails gracefully when key is missing."""
-        state_dict = {'other.key': torch.zeros(16, 3, 3, 3)}
-        assert detect_yolo8_11_size(state_dict) is None
-
-    def test_detect_unknown_channels(self):
-        """Test detection returns None for unknown channel count."""
-        state_dict = {
-            'backbone.p1.cnn.weight': torch.zeros(99, 3, 3, 3)
-        }
-        assert detect_yolo8_11_size(state_dict) is None
 
 
 class TestYOLO9SizeDetection:
@@ -197,26 +145,6 @@ class TestAutoDetectionIntegration:
     """Integration tests for auto-detection with real model files."""
 
     @pytest.mark.skipif(
-        not Path("libreyolo8n.pt").exists(),
-        reason="Model file not available"
-    )
-    def test_auto_detect_yolo8n(self):
-        """Test auto-detection with YOLOv8n model."""
-        model = LIBREYOLO("libreyolo8n.pt")
-        assert model.size == "n"
-        assert model.version == "8"
-
-    @pytest.mark.skipif(
-        not Path("libreyolo11n.pt").exists(),
-        reason="Model file not available"
-    )
-    def test_auto_detect_yolo11n(self):
-        """Test auto-detection with YOLOv11n model."""
-        model = LIBREYOLO("libreyolo11n.pt")
-        assert model.size == "n"
-        assert model.version == "11"
-
-    @pytest.mark.skipif(
         not Path("libreyolo9t.pt").exists(),
         reason="Model file not available"
     )
@@ -235,30 +163,6 @@ class TestAutoDetectionIntegration:
         model = LIBREYOLO("libreyoloXnano.pt")
         assert model.size == "nano"
         assert model.version == "x"
-
-
-class TestBackwardCompatibility:
-    """Test that explicit size parameter still works."""
-
-    @pytest.mark.skipif(
-        not Path("libreyolo8n.pt").exists(),
-        reason="Model file not available"
-    )
-    def test_explicit_size_still_works(self):
-        """Test that providing explicit size parameter still works."""
-        model = LIBREYOLO("libreyolo8n.pt", size="n")
-        assert model.size == "n"
-        assert model.version == "8"
-
-    @pytest.mark.skipif(
-        not Path("libreyolo11s.pt").exists(),
-        reason="Model file not available"
-    )
-    def test_explicit_size_overrides_detection(self):
-        """Test that explicit size is used without auto-detection."""
-        # This should not print "Auto-detected size" message
-        model = LIBREYOLO("libreyolo11s.pt", size="s")
-        assert model.size == "s"
 
 
 class TestErrorHandling:

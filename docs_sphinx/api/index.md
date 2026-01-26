@@ -10,9 +10,7 @@ Auto-generated from docstrings.
    :recursive:
 
    libreyolo.LIBREYOLO
-   libreyolo.LIBREYOLO8
    libreyolo.LIBREYOLO9
-   libreyolo.LIBREYOLO11
    libreyolo.LIBREYOLOX
    libreyolo.LIBREYOLORFDETR
    libreyolo.LIBREYOLOOnnx
@@ -49,30 +47,10 @@ Auto-generated from docstrings.
 .. autofunction:: libreyolo.LIBREYOLO
 ```
 
-## LIBREYOLO8
-
-```{eval-rst}
-.. autoclass:: libreyolo.LIBREYOLO8
-   :members:
-   :undoc-members:
-   :show-inheritance:
-   :special-members: __init__, __call__
-```
-
 ## LIBREYOLO9
 
 ```{eval-rst}
 .. autoclass:: libreyolo.LIBREYOLO9
-   :members:
-   :undoc-members:
-   :show-inheritance:
-   :special-members: __init__, __call__
-```
-
-## LIBREYOLO11
-
-```{eval-rst}
-.. autoclass:: libreyolo.LIBREYOLO11
    :members:
    :undoc-members:
    :show-inheritance:

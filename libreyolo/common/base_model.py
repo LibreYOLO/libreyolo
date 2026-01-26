@@ -678,7 +678,7 @@ class LibreYOLOBase(ABC):
                 - metrics/mAP50-95: Mean AP across IoU 0.50-0.95
 
         Example:
-            >>> model = LIBREYOLO("weights/libreyolo8n.pt", size="n")
+            >>> model = LIBREYOLO("weights/libreyoloXs.pt")
             >>> results = model.val(data="coco8.yaml", batch=16)
             >>> print(f"mAP50-95: {results['metrics/mAP50-95']:.3f}")
         """
