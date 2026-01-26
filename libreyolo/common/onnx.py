@@ -45,7 +45,7 @@ class LIBREYOLOOnnx:
     """
     ONNX runtime inference backend for LIBREYOLO models.
     
-    Provides the same API as LIBREYOLO8/LIBREYOLO11 but uses ONNX Runtime
+    Provides the same API as LIBREYOLOX/LIBREYOLO9 but uses ONNX Runtime
     instead of PyTorch for inference.
     
     Args:

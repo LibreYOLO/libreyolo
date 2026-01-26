@@ -1,15 +1,14 @@
 """
 Loss functions for YOLO training.
 
-Includes losses for both YOLOv8/v11 (TaskAlignedAssigner, DFL)
-and YOLOX (IOUloss, SimOTA).
+Includes losses for YOLOX (IOUloss, SimOTA).
 """
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from libreyolo.v8.utils import make_anchors
+from libreyolo.common.utils import make_anchors
 
 
 # =============================================================================
