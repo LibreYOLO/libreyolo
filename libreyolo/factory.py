@@ -293,6 +293,36 @@ def detect_yolox_size(weights_dict: dict) -> str:
 
     return size_map.get(first_channel)
 
+def detect_yolox_nb_classes(weights_dict: dict):
+    """Detect number of classes from YOLOX state dict.
+
+    Checks head.cls_preds.0.weight shape[0] (output channels = nb_classes).
+    """
+    key = 'head.cls_preds.0.weight'
+    if key in weights_dict:
+        return weights_dict[key].shape[0]
+    return None
+
+def detect_yolo8_11_nb_classes(weights_dict: dict):
+    """Detect number of classes from YOLOv8/v11 state dict.
+
+    Checks head8.cnn2.weight shape[0] (output channels = nb_classes).
+    """
+    key = 'head8.cnn2.weight'
+    if key in weights_dict:
+        return weights_dict[key].shape[0]
+    return None
+
+def detect_yolo9_nb_classes(weights_dict: dict):
+    """Detect number of classes from YOLOv9 state dict.
+
+    Checks the final Conv2d in the class branch (cv3.*.2.weight).
+    """
+    for key, tensor in weights_dict.items():
+        if re.match(r'(?:head|detect)\.cv3\.\d+\.2\.weight', key):
+            return tensor.shape[0]
+    return None
+
 def create_model(version: str, config: str, reg_max: int = 16, nb_classes: int = 80, img_size: int = 640):
     """
     Create a fresh model instance for training.
@@ -317,13 +347,13 @@ def LIBREYOLO(
     model_path: str,
     size: str = None,
     reg_max: int = 16,
-    nb_classes: int = 80,
+    nb_classes: int = None,
     save_feature_maps: bool = False,
     device: str = "auto"
 ):
     """
-    Unified Libre YOLO factory that automatically detects model version (8, 9, 11, or X)
-    and size from the weights file and returns the appropriate model instance.
+    Unified Libre YOLO factory that automatically detects model version (8, 9, 11, or X),
+    size, and number of classes from the weights file and returns the appropriate model instance.
 
     Args:
         model_path: Path to model weights file (.pt/.pth) or ONNX file (.onnx)
@@ -332,7 +362,7 @@ def LIBREYOLO(
               - For YOLOX: "nano", "tiny", "s", "m", "l", "x"
               - For YOLOv9: "t", "s", "m", "c"
         reg_max: Regression max value for DFL (default: 16). Only used for v8/v11/v9.
-        nb_classes: Number of classes (default: 80 for COCO)
+        nb_classes: Number of classes. Auto-detected from weights if not provided.
         save_feature_maps: If True, saves backbone feature map visualizations (YOLO8 only)
         device: Device for inference. "auto" (default) uses CUDA if available, else MPS, else CPU.
 
@@ -362,7 +392,7 @@ def LIBREYOLO(
     # Handle ONNX models
     if model_path.endswith('.onnx'):
         from .common.onnx import LIBREYOLOOnnx
-        return LIBREYOLOOnnx(model_path, nb_classes=nb_classes, device=device)
+        return LIBREYOLOOnnx(model_path, nb_classes=nb_classes or 80, device=device)
 
     # For .pt files, handle file download if needed
     if not Path(model_path).exists():
@@ -458,6 +488,18 @@ def LIBREYOLO(
             )
 
         print(f"Auto-detected size: {size}")
+
+    # Auto-detect nb_classes if not provided
+    if nb_classes is None:
+        if is_yolox:
+            nb_classes = detect_yolox_nb_classes(weights_dict)
+        elif is_yolo9:
+            nb_classes = detect_yolo9_nb_classes(weights_dict)
+        elif not is_rfdetr:
+            nb_classes = detect_yolo8_11_nb_classes(weights_dict)
+
+        if nb_classes is None:
+            nb_classes = 80
 
     if is_rfdetr:
         # RF-DETR detected - use LIBREYOLORFDETR (lazy import)
