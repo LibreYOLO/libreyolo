@@ -117,7 +117,7 @@ class LibreYOLOBase(ABC):
 
     def __init__(
         self,
-        model_path: Union[str, dict],
+        model_path: Union[str, dict, None],
         size: str,
         nb_classes: int = 80,
         device: str = "auto",
@@ -127,7 +127,8 @@ class LibreYOLOBase(ABC):
         Initialize the model.
 
         Args:
-            model_path: Path to weights file or pre-loaded state_dict.
+            model_path: Path to weights file, pre-loaded state_dict, or None
+                for random initialization (fresh model for training).
             size: Model size variant.
             nb_classes: Number of classes (default: 80 for COCO).
             device: Device for inference ("auto", "cuda", "mps", "cpu").
@@ -162,16 +163,44 @@ class LibreYOLOBase(ABC):
         # Initialize model (implemented by subclass)
         self.model = self._init_model()
 
-        # Load weights
-        if isinstance(model_path, dict):
+        # Load weights (or skip for fresh model)
+        if model_path is None:
+            self.model_path = None
+        elif isinstance(model_path, dict):
             self.model_path = None
             self.model.load_state_dict(model_path, strict=self._strict_loading())
         else:
             self.model_path = model_path
             self._load_weights(model_path)
 
-        # Set to evaluation mode and move to device
-        self.model.eval()
+        # Fresh models start in train mode; loaded models in eval mode
+        if model_path is None:
+            self.model.train()
+        else:
+            self.model.eval()
+        self.model.to(self.device)
+
+    def _rebuild_for_new_classes(self, new_nb_classes: int):
+        """Rebuild model with a new class count, preserving weights where shapes match.
+
+        Used when training on a dataset with a different number of classes
+        than the model was initialized with. Backbone/neck weights are preserved;
+        head weights (which depend on nb_classes) are reinitialized.
+
+        Args:
+            new_nb_classes: The new number of classes.
+        """
+        old_state = self.model.state_dict()
+        self.nb_classes = new_nb_classes
+        self.model = self._init_model()
+
+        # Transfer weights with matching shapes (backbone/neck preserved, head reinitialized)
+        new_state = self.model.state_dict()
+        for key in old_state:
+            if key in new_state and old_state[key].shape == new_state[key].shape:
+                new_state[key] = old_state[key]
+
+        self.model.load_state_dict(new_state)
         self.model.to(self.device)
 
     def _strict_loading(self) -> bool:

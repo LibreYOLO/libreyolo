@@ -26,13 +26,22 @@ class LIBREYOLOX(LibreYOLOBase):
         model_path: Model weights source. Can be:
             - str: Path to a .pt/.pth weights file
             - dict: Pre-loaded state_dict (e.g., from torch.load())
-        size: Model size variant (required). Must be one of: "nano", "tiny", "s", "m", "l", "x"
+            - None: Random initialization for training from scratch
+        size: Model size variant. Must be one of: "nano", "tiny", "s", "m", "l", "x"
         nb_classes: Number of classes (default: 80 for COCO)
         device: Device for inference.
 
-    Example:
-        >>> model = LIBREYOLOX(model_path="libreyoloXs.pt", size="s")
-        >>> detections = model(image="image.jpg", save=True)
+    Examples:
+        Load weights for inference (prefer LIBREYOLO factory for auto-detection)::
+
+            >>> from libreyolo import LIBREYOLO
+            >>> model = LIBREYOLO("libreyoloXs.pt")
+            >>> detections = model(image="image.jpg", save=True)
+
+        Create a fresh model for training (nb_classes read from YAML)::
+
+            >>> model = LIBREYOLOX(size="s")
+            >>> results = model.train(data="coco128.yaml", epochs=100)
     """
 
     # Default input sizes for different model variants
@@ -47,8 +56,8 @@ class LIBREYOLOX(LibreYOLOBase):
 
     def __init__(
         self,
-        model_path,
-        size: str,
+        model_path=None,
+        size: str = "s",
         nb_classes: int = 80,
         device: str = "auto",
         **kwargs,
@@ -167,52 +176,6 @@ class LIBREYOLOX(LibreYOLOBase):
             ratio=ratio,
         )
 
-    @classmethod
-    def new(
-        cls,
-        size: str = "s",
-        num_classes: int = 80,
-        device: str = "auto",
-    ) -> "LIBREYOLOX":
-        """
-        Create a new untrained YOLOX model.
-
-        Args:
-            size: Model size variant ("nano", "tiny", "s", "m", "l", "x")
-            num_classes: Number of classes (default: 80)
-            device: Device for the model
-
-        Returns:
-            LIBREYOLOX instance with randomly initialized weights
-        """
-        if size not in ["nano", "tiny", "s", "m", "l", "x"]:
-            raise ValueError(
-                f"Invalid size: {size}. Must be one of: 'nano', 'tiny', 's', 'm', 'l', 'x'"
-            )
-
-        instance = cls.__new__(cls)
-
-        if device == "auto":
-            if torch.cuda.is_available():
-                instance.device = torch.device("cuda")
-            elif torch.backends.mps.is_available():
-                instance.device = torch.device("mps")
-            else:
-                instance.device = torch.device("cpu")
-        else:
-            instance.device = torch.device(device)
-
-        instance.size = size
-        instance.nb_classes = num_classes
-        instance.input_size = cls.DEFAULT_INPUT_SIZES[size]
-        instance.model_path = None
-
-        instance.model = YOLOXModel(config=size, nb_classes=num_classes)
-        instance.model.to(instance.device)
-        instance.model.train()
-
-        return instance
-
     def export(
         self,
         format: str = "onnx",
@@ -326,18 +289,14 @@ class LIBREYOLOX(LibreYOLOBase):
         pretrained: bool = True,
 
         # Training features
-        resume: Optional[str] = None,
+        resume: bool = False,
         amp: bool = True,
         patience: int = 50,
 
-        # Config override
-        cfg: Optional[str] = None,
         **kwargs
     ) -> dict:
         """
         Train the YOLOX model on a dataset.
-
-        This method follows the TRAINING_API_SPEC.md exactly.
 
         Args:
             data: Path to data.yaml file (required)
@@ -360,13 +319,12 @@ class LIBREYOLOX(LibreYOLOBase):
 
             pretrained: Use pretrained weights if available (not implemented yet)
 
-            resume: Path to checkpoint to resume training from
+            resume: If True, resume training from the loaded checkpoint.
+                    Load the checkpoint first, then call train(resume=True).
             amp: Enable automatic mixed precision training
             patience: Early stopping patience (epochs without improvement)
 
-            cfg: Optional path to YAML config file. If provided, loaded first,
-                 then kwargs override config values.
-            **kwargs: Additional parameters override config file values
+            **kwargs: Additional training parameters
 
         Returns:
             dict: Training results containing:
@@ -385,7 +343,7 @@ class LIBREYOLOX(LibreYOLOBase):
 
         Example:
             >>> from libreyolo import LIBREYOLOX
-            >>> model = LIBREYOLOX.new(size="s", num_classes=80)
+            >>> model = LIBREYOLOX(size="s")
             >>> results = model.train(
             ...     data="coco128.yaml",
             ...     epochs=100,
@@ -394,8 +352,6 @@ class LIBREYOLOX(LibreYOLOBase):
             ...     device="0"
             ... )
             >>> print(f"Best mAP: {results['best_mAP50_95']:.3f}")
-            >>> # Load best model
-            >>> model_best = LIBREYOLOX(results['best_checkpoint'], size="s")
         """
         from libreyolo.training import YOLOXTrainer, YOLOXTrainConfig
         from libreyolo.data import load_data_config
@@ -408,54 +364,32 @@ class LIBREYOLOX(LibreYOLOBase):
         except Exception as e:
             raise FileNotFoundError(f"Failed to load dataset config '{data}': {e}")
 
-        # Load config if provided
-        if cfg:
-            config = YOLOXTrainConfig.from_yaml(cfg)
-            # Override with explicit parameters and kwargs
-            config_dict = config.to_dict()
-            # Update with explicit parameters (only if not default)
-            param_updates = {
-                'data': data,
-                'epochs': epochs,
-                'batch': batch,
-                'imgsz': imgsz,
-                'lr0': lr0,
-                'optimizer': optimizer.lower(),
-                'device': device if device else "auto",
-                'workers': workers,
-                'seed': seed,
-                'project': project,
-                'name': name,
-                'exist_ok': exist_ok,
-                'resume': resume,
-                'amp': amp,
-                'patience': patience,
-            }
-            config_dict.update(param_updates)
-            config_dict.update(kwargs)
-            config = YOLOXTrainConfig(**config_dict)
-        else:
-            # Create config from parameters
-            config = YOLOXTrainConfig(
-                size=self.size,
-                num_classes=self.nb_classes,
-                data=data,
-                epochs=epochs,
-                batch=batch,
-                imgsz=imgsz,
-                lr0=lr0,
-                optimizer=optimizer.lower(),
-                device=device if device else "auto",
-                workers=workers,
-                seed=seed,
-                project=project,
-                name=name,
-                exist_ok=exist_ok,
-                resume=resume,
-                amp=amp,
-                patience=patience,
-                **kwargs
-            )
+        # Reconcile nb_classes with dataset
+        yaml_nc = data_config.get('nc')
+        if yaml_nc is not None and yaml_nc != self.nb_classes:
+            self._rebuild_for_new_classes(yaml_nc)
+
+        # Create training config
+        config = YOLOXTrainConfig(
+            size=self.size,
+            num_classes=self.nb_classes,
+            data=data,
+            epochs=epochs,
+            batch=batch,
+            imgsz=imgsz,
+            lr=lr0,
+            optimizer=optimizer.lower(),
+            device=device if device else "auto",
+            workers=workers,
+            seed=seed,
+            project=project,
+            name=name,
+            exist_ok=exist_ok,
+            resume=resume,
+            amp=amp,
+            patience=patience,
+            **kwargs
+        )
 
         # Set random seed for reproducibility
         if seed > 0:
@@ -470,9 +404,14 @@ class LIBREYOLOX(LibreYOLOBase):
         # Create trainer (pass wrapper model for validation)
         trainer = YOLOXTrainer(model=self.model, config=config, wrapper_model=self)
 
-        # Resume if checkpoint provided
+        # Resume if requested — uses the model_path that was loaded into this instance
         if resume:
-            trainer.resume(resume)
+            if not self.model_path:
+                raise ValueError(
+                    "resume=True requires a checkpoint. Load one first: "
+                    "model = LIBREYOLOX('path/to/last.pt'); model.train(data=..., resume=True)"
+                )
+            trainer.resume(str(self.model_path))
 
         # Run training
         results = trainer.train()
