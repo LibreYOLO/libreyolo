@@ -30,7 +30,7 @@ class YOLOXTrainConfig:
 
     # Training parameters
     epochs: int = 300
-    batch_size: int = 16
+    batch: int = 16
     device: str = "auto"  # "auto", "cuda", "mps", "cpu"
 
     # Optimizer settings (YOLOX defaults)
@@ -70,12 +70,20 @@ class YOLOXTrainConfig:
     amp: bool = True  # Automatic mixed precision
 
     # Checkpointing
-    save_dir: str = "runs/train"
+    project: str = "runs/train"
+    name: str = "exp"
+    exist_ok: bool = False
     save_interval: int = 10  # Save checkpoint every N epochs
     eval_interval: int = 10  # Evaluate every N epochs
 
     # Workers
-    num_workers: int = 4
+    workers: int = 4
+
+    # Early stopping
+    patience: int = 50
+
+    # Resume
+    resume: bool = False
 
     # Logging
     log_interval: int = 10  # Log every N iterations
@@ -112,6 +120,11 @@ class YOLOXTrainConfig:
         """Load configuration from YAML file."""
         with open(path, "r") as f:
             data = yaml.safe_load(f)
+        # Handle old field names for backward compatibility
+        renames = {'batch_size': 'batch', 'num_workers': 'workers', 'save_dir': 'project'}
+        for old, new in renames.items():
+            if old in data and new not in data:
+                data[new] = data.pop(old)
         return cls(**data)
 
     def to_yaml(self, path: Union[str, Path]) -> None:
@@ -138,8 +151,8 @@ class YOLOXTrainConfig:
     @property
     def effective_lr(self) -> float:
         """Calculate effective learning rate based on batch size."""
-        # YOLOX uses linear scaling: lr = base_lr * batch_size / 64
-        return self.lr * self.batch_size / 64
+        # YOLOX uses linear scaling: lr = base_lr * batch / 64
+        return self.lr * self.batch / 64
 
     def __repr__(self) -> str:
         lines = ["YOLOXTrainConfig("]
