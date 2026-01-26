@@ -40,7 +40,7 @@ uv sync --extra onnx --extra convert --group dev
 from libreyolo import LIBREYOLO
 
 # Auto-detects model version and size from weights
-model = LIBREYOLO("weights/libreyolo8n.pt")
+model = LIBREYOLO("weights/libreyoloXs.pt")
 ```
 
 Weights are auto-downloaded from [Hugging Face](https://huggingface.co/Libre-YOLO) if not found locally.
@@ -51,26 +51,20 @@ Use the unified factory (recommended):
 
 ```python
 from libreyolo import LIBREYOLO
-model = LIBREYOLO("weights/libreyolo8n.pt")  # Works for any model
+model = LIBREYOLO("weights/libreyoloXs.pt")  # Works for any model
 ```
 
 Or use specific classes:
 
 ```python
-from libreyolo import LIBREYOLO8, LIBREYOLO9, LIBREYOLO11, LIBREYOLOX, LIBREYOLORFDETR
+from libreyolo import LIBREYOLO9, LIBREYOLOX, LIBREYOLORFDETR
 
-model = LIBREYOLO8("weights/libreyolo8n.pt", size="n")
 model = LIBREYOLO9("weights/libreyolo9s.pt", size="s")
-model = LIBREYOLO11("weights/libreyolo11n.pt", size="n")
 model = LIBREYOLOX("weights/libreyoloXs.pt", size="s")
 model = LIBREYOLORFDETR("weights/libreyolorfdetrn.pt", size="n")
 ```
 
 ## Model Sizes
-
-### YOLOv8 / YOLOv11
-
-`n` (nano), `s` (small), `m` (medium), `l` (large), `x` (xlarge)
 
 ### YOLOv9
 
@@ -90,10 +84,10 @@ Note: `nano` and `tiny` use 416x416 input, others use 640x640.
 
 ```python
 # Auto-detect (CUDA > MPS > CPU)
-model = LIBREYOLO("weights/libreyolo8n.pt", device="auto")
+model = LIBREYOLO("weights/libreyoloXs.pt", device="auto")
 
 # Force specific device
-model = LIBREYOLO("weights/libreyolo8n.pt", device="cuda:0")
-model = LIBREYOLO("weights/libreyolo8n.pt", device="cpu")
-model = LIBREYOLO("weights/libreyolo8n.pt", device="mps")  # Apple Silicon
+model = LIBREYOLO("weights/libreyoloXs.pt", device="cuda:0")
+model = LIBREYOLO("weights/libreyoloXs.pt", device="cpu")
+model = LIBREYOLO("weights/libreyoloXs.pt", device="mps")  # Apple Silicon
 ```

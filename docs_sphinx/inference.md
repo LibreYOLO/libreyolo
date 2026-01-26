@@ -5,7 +5,7 @@
 ```python
 from libreyolo import LIBREYOLO
 
-model = LIBREYOLO("weights/libreyolo8n.pt")
+model = LIBREYOLO("weights/libreyoloXs.pt")
 results = model(image="image.jpg")
 ```
 

@@ -65,7 +65,7 @@ class BaseValPreprocessor(ABC):
 
 class StandardValPreprocessor(BaseValPreprocessor):
     """
-    Standard validation preprocessor for YOLOv8, v11, v9 models.
+    Standard validation preprocessor for YOLOv9 models.
 
     Uses simple resize and normalizes to 0-1 range.
     """

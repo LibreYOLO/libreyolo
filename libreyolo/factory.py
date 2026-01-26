@@ -2,10 +2,6 @@ import torch
 import re
 import requests
 from pathlib import Path
-from .v8.nn import LibreYOLO8Model
-from .v11.nn import LibreYOLO11Model
-from .v8.model import LIBREYOLO8
-from .v11.model import LIBREYOLO11
 from .yolox.nn import YOLOXModel
 from .yolox.model import LIBREYOLOX
 from .v9.nn import LibreYOLO9Model
@@ -14,8 +10,6 @@ from .v9.model import LIBREYOLO9
 
 # Registry for model classes
 MODELS = {
-    '8': LibreYOLO8Model,
-    '11': LibreYOLO11Model,
     'x': YOLOXModel,
     '9': LibreYOLO9Model,
 }
@@ -27,7 +21,6 @@ def download_weights(model_path: str, size: str):
     Args:
         model_path: Path where weights should be saved
         size: Model size variant:
-              - For v8/v11: 'n', 's', 'm', 'l', 'x'
               - For YOLOX: 'nano', 'tiny', 's', 'm', 'l', 'x'
               - For v9: 't', 's', 'm', 'c'
     """
@@ -56,17 +49,7 @@ def download_weights(model_path: str, size: str):
         repo = f"Libre-YOLO/libreyolo9{size}"
         url = f"https://huggingface.co/{repo}/resolve/main/{filename}"
     else:
-        # Try to infer version from filename (e.g. libreyolo8n.pt -> 8, libreyolo11x.pt -> 11)
-        match = re.search(r'(?:yolo|libreyolo)?(8|11)', filename.lower())
-        if not match:
-            raise ValueError(f"Could not determine model version from filename '{filename}' for auto-download.")
-
-        version = match.group(1)
-
-        # Construct Hugging Face URL
-        # Repo format: Libre-YOLO/libreyolo{version}{size}
-        repo = f"Libre-YOLO/libreyolo{version}{size}"
-        url = f"https://huggingface.co/{repo}/resolve/main/{filename}"
+        raise ValueError(f"Could not determine model version from filename '{filename}' for auto-download.")
     
     print(f"Model weights not found at {model_path}. Attempting download from {url}...")
     
@@ -99,7 +82,6 @@ def detect_size_from_filename(filename: str) -> tuple:
     Extract model type and size from filename.
 
     Supports patterns like:
-    - libreyolo8n.pt, libreyolo11x.pt -> (8/11, n/s/m/l/x)
     - libreyoloXs.pt, libreyoloXnano.pt -> (x, nano/tiny/s/m/l/x)
     - libreyolo9c.pt -> (9, t/s/m/c)
     - librerfdetrnano.pth -> (rfdetr, n/s/b/m/l)
@@ -127,11 +109,6 @@ def detect_size_from_filename(filename: str) -> tuple:
     yolo9_match = re.search(r'(?:libreyolo|yolov?)9([tsmc])', filename_lower)
     if yolo9_match:
         return ('9', yolo9_match.group(1))
-
-    # YOLOv8/v11: libreyolo8n.pt, libreyolo11x.pt, yolo8s.pt, etc.
-    yolo8_11_match = re.search(r'(?:libreyolo|yolov?)(8|11)([nsmlx])', filename_lower)
-    if yolo8_11_match:
-        return (yolo8_11_match.group(1), yolo8_11_match.group(2))
 
     return (None, None)
 
@@ -180,39 +157,6 @@ def _unwrap_state_dict(state_dict: dict) -> dict:
     elif 'model' in state_dict and isinstance(state_dict.get('model'), dict):
         weights_dict = state_dict['model']
     return weights_dict
-
-def detect_yolo8_11_size(weights_dict: dict) -> str:
-    """
-    Detect YOLOv8/v11 model size from state dict.
-
-    Checks backbone.p1.cnn.weight shape[0] (output channels) to determine size:
-    - 'n': 16 channels
-    - 's': 32 channels
-    - 'm': 48 channels
-    - 'l': 64 channels
-    - 'x': 80 channels
-
-    Args:
-        weights_dict: Model state dict (already unwrapped)
-
-    Returns:
-        Size code ('n', 's', 'm', 'l', 'x') or None if detection fails
-    """
-    key = 'backbone.p1.cnn.weight'
-    if key not in weights_dict:
-        return None
-
-    first_channel = weights_dict[key].shape[0]
-
-    size_map = {
-        16: 'n',
-        32: 's',
-        48: 'm',
-        64: 'l',
-        80: 'x',
-    }
-
-    return size_map.get(first_channel)
 
 def detect_yolo9_size(weights_dict: dict) -> str:
     """
@@ -303,16 +247,6 @@ def detect_yolox_nb_classes(weights_dict: dict):
         return weights_dict[key].shape[0]
     return None
 
-def detect_yolo8_11_nb_classes(weights_dict: dict):
-    """Detect number of classes from YOLOv8/v11 state dict.
-
-    Checks head8.cnn2.weight shape[0] (output channels = nb_classes).
-    """
-    key = 'head8.cnn2.weight'
-    if key in weights_dict:
-        return weights_dict[key].shape[0]
-    return None
-
 def detect_yolo9_nb_classes(weights_dict: dict):
     """Detect number of classes from YOLOv9 state dict.
 
@@ -328,8 +262,8 @@ def create_model(version: str, config: str, reg_max: int = 16, nb_classes: int =
     Create a fresh model instance for training.
 
     Args:
-        version: "8", "11", etc.
-        config: Model size ("n", "s", "m", "l", "x")
+        version: "x", "9", etc.
+        config: Model size ("n", "s", "m", "l", "x" for YOLOX; "t", "s", "m", "c" for v9)
         reg_max: Regression max
         nb_classes: Number of classes
         img_size: Input image size (default: 640)
@@ -352,35 +286,23 @@ def LIBREYOLO(
     device: str = "auto"
 ):
     """
-    Unified Libre YOLO factory that automatically detects model version (8, 9, 11, or X),
+    Unified Libre YOLO factory that automatically detects model version (9 or X),
     size, and number of classes from the weights file and returns the appropriate model instance.
 
     Args:
         model_path: Path to model weights file (.pt/.pth) or ONNX file (.onnx)
         size: Model size variant. Optional for .pt/.pth files (auto-detected if omitted).
-              - For YOLOv8/v11: "n", "s", "m", "l", "x"
               - For YOLOX: "nano", "tiny", "s", "m", "l", "x"
               - For YOLOv9: "t", "s", "m", "c"
-        reg_max: Regression max value for DFL (default: 16). Only used for v8/v11/v9.
+        reg_max: Regression max value for DFL (default: 16). Only used for v9.
         nb_classes: Number of classes. Auto-detected from weights if not provided.
-        save_feature_maps: If True, saves backbone feature map visualizations (YOLO8 only)
+        save_feature_maps: Reserved for future use.
         device: Device for inference. "auto" (default) uses CUDA if available, else MPS, else CPU.
 
     Returns:
-        Instance of LIBREYOLO8, LIBREYOLO9, LIBREYOLO11, LIBREYOLOX, or LIBREYOLOOnnx
+        Instance of LIBREYOLO9, LIBREYOLOX, or LIBREYOLOOnnx
 
     Example:
-        >>> # Auto-detect model version and size (new)
-        >>> model = LIBREYOLO("yolo11n.pt")
-        >>> detections = model("image.jpg", save=True)
-        >>>
-        >>> # Explicit size (backward compatible)
-        >>> model = LIBREYOLO("yolo11n.pt", size="n")
-        >>> detections = model("image.jpg", save=True)
-        >>>
-        >>> # Use tiling for large images
-        >>> detections = model("large_image.jpg", save=True, tiling=True)
-        >>>
         >>> # For YOLOX
         >>> model = LIBREYOLO("libreyoloXs.pt")  # Auto-detect size
         >>> detections = model("image.jpg", save=True)
@@ -388,6 +310,9 @@ def LIBREYOLO(
         >>> # For YOLOv9
         >>> model = LIBREYOLO("yolov9c.pt")  # Auto-detect size
         >>> detections = model("image.jpg", save=True)
+        >>>
+        >>> # Use tiling for large images
+        >>> detections = model("large_image.jpg", save=True, tiling=True)
     """
     # Handle ONNX models
     if model_path.endswith('.onnx'):
@@ -456,9 +381,6 @@ def LIBREYOLO(
     is_yolo9 = any('repncspelan' in k or 'adown' in k or 'sppelan' in k for k in keys_lower) or \
                (any('backbone.elan' in k or 'neck.elan' in k for k in keys))
 
-    # Check for YOLO11-specific layer names (e.g., 'c2psa')
-    is_yolo11 = any('c2psa' in key for key in keys)
-
     # Auto-detect size if not provided
     if size is None:
         # Unwrap state dict for consistent detection
@@ -471,15 +393,11 @@ def LIBREYOLO(
         elif is_yolo9:
             size = detect_yolo9_size(unwrapped_weights)
             model_type = "YOLOv9"
-        elif is_yolo11:
-            size = detect_yolo8_11_size(unwrapped_weights)
-            model_type = "YOLOv11"
         elif is_rfdetr:
             size = detect_rfdetr_size(keys)
             model_type = "RF-DETR"
-        else:  # Default to v8
-            size = detect_yolo8_11_size(unwrapped_weights)
-            model_type = "YOLOv8"
+        else:
+            model_type = "Unknown"
 
         if size is None:
             raise ValueError(
@@ -495,8 +413,6 @@ def LIBREYOLO(
             nb_classes = detect_yolox_nb_classes(weights_dict)
         elif is_yolo9:
             nb_classes = detect_yolo9_nb_classes(weights_dict)
-        elif not is_rfdetr:
-            nb_classes = detect_yolo8_11_nb_classes(weights_dict)
 
         if nb_classes is None:
             nb_classes = 80
@@ -525,22 +441,10 @@ def LIBREYOLO(
         )
         model.version = "9"
         model.model_path = model_path
-    elif is_yolo11:
-        # YOLOv11 detected - use LIBREYOLO11
-        model = LIBREYOLO11(
-            model_path=weights_dict, size=size, reg_max=reg_max, nb_classes=nb_classes,
-            device=device
-        )
-        model.version = "11"
-        model.model_path = model_path
     else:
-        # Default to YOLOv8
-        model = LIBREYOLO8(
-            weights_dict, size, reg_max, nb_classes,
-            save_feature_maps=save_feature_maps,
-            device=device
+        raise ValueError(
+            f"Could not detect model architecture from state dict keys.\n"
+            f"Supported architectures: YOLOX, YOLOv9, RF-DETR."
         )
-        model.version = "8"
-        model.model_path = model_path
 
     return model

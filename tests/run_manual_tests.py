@@ -59,11 +59,9 @@ class TestRunner:
 
 def test_main_imports():
     """Test that main LibreYOLO imports work."""
-    from libreyolo import LIBREYOLO, LIBREYOLO8, LIBREYOLO9, LIBREYOLO11, LIBREYOLOX
+    from libreyolo import LIBREYOLO, LIBREYOLO9, LIBREYOLOX
     assert LIBREYOLO is not None
-    assert LIBREYOLO8 is not None
     assert LIBREYOLO9 is not None
-    assert LIBREYOLO11 is not None
     assert LIBREYOLOX is not None
 
 
@@ -220,9 +218,7 @@ def test_all_exports_in_init():
     import libreyolo
 
     assert 'LIBREYOLO' in libreyolo.__all__
-    assert 'LIBREYOLO8' in libreyolo.__all__
     assert 'LIBREYOLO9' in libreyolo.__all__
-    assert 'LIBREYOLO11' in libreyolo.__all__
     assert 'LIBREYOLOX' in libreyolo.__all__
     assert 'LIBREYOLORFDETR' in libreyolo.__all__
 

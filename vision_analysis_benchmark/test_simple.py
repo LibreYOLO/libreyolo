@@ -34,17 +34,17 @@ class CUDATimer:
         return self.start_event.elapsed_time(self.end_event)
 
 # Simple test
-def test_yolov8n():
-    print("Testing YOLOv8n benchmark...")
+def test_yolox_s():
+    print("Testing YOLOX-s benchmark...")
 
     # Paths
-    weights_path = "../weights/libreyolo8n.pt"
+    weights_path = "../weights/libreyoloXs.pt"
     coco_path = Path("/home/jovyan/datasets/coco")
     ann_file = coco_path / "annotations" / "instances_val2017.json"
     img_dir = coco_path / "images" / "val2017"
 
     print(f"\n1. Loading model from {weights_path}...")
-    model = LIBREYOLO(model_path=weights_path, size='n', device='auto')
+    model = LIBREYOLO(model_path=weights_path, device='auto')
     print(f"   ✓ Model loaded on {model.device}")
 
     # Count parameters
@@ -142,7 +142,7 @@ def test_yolov8n():
     }
 
 if __name__ == '__main__':
-    results = test_yolov8n()
+    results = test_yolox_s()
     print("\n" + "="*60)
     print("SUMMARY:")
     print(json.dumps(results, indent=2))

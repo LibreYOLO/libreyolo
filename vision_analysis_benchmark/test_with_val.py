@@ -16,15 +16,15 @@ import numpy as np
 from libreyolo import LIBREYOLO
 from libreyolo.validation import ValidationConfig
 
-def test_yolov8n_val():
-    print("Testing YOLOv8n with proper .val() API...")
+def test_yolox_s_val():
+    print("Testing YOLOX-s with proper .val() API...")
 
     # Paths
-    weights_path = "weights/libreyolo8n.pt"
+    weights_path = "weights/libreyoloXs.pt"
     coco_path = Path("/home/jovyan/datasets/coco")
 
     print(f"\n1. Loading model from {weights_path}...")
-    model = LIBREYOLO(model_path=weights_path, size='n', device='auto')
+    model = LIBREYOLO(model_path=weights_path, device='auto')
     print(f"   ✓ Model loaded on {model.device}")
 
     # Count parameters
@@ -66,7 +66,7 @@ def test_yolov8n_val():
     }
 
 if __name__ == '__main__':
-    results = test_yolov8n_val()
+    results = test_yolox_s_val()
     print("\n" + "="*60)
     print("SUMMARY:")
     print(json.dumps(results, indent=2))

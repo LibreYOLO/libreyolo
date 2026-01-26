@@ -4,7 +4,7 @@
 [![PyPI](https://img.shields.io/pypi/v/libreyolo)](https://pypi.org/project/libreyolo/)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
-MIT-licensed YOLO implementation supporting inference for YOLOv8 (n, s, m, l, x), YOLOv9 (t, s, m, c), YOLOv11 (n, s, m, l, x), and YOLOX (nano, tiny, s, m, l, x).
+MIT-licensed YOLO implementation supporting inference for YOLOv9 (t, s, m, c), YOLOX (nano, tiny, s, m, l, x), and RF-DETR (nano, small, base, medium, large).
 
 Training support is under development
 
@@ -21,14 +21,11 @@ pip install libreyolo
 ```python
 from libreyolo import LIBREYOLO
 
-# Auto-detect model version and size (new)
-model = LIBREYOLO("libreyolo8n.pt")
+# Auto-detect model version and size
+model = LIBREYOLO("libreyoloXs.pt")
 results = model(image="https://raw.githubusercontent.com/Libre-YOLO/libreyolo/main/media/parkour.jpg", save=True)
 
 print(f"Detected {results['num_detections']} objects")
-
-# Or specify size explicitly (backward compatible)
-# model = LIBREYOLO("libreyolo8n.pt", size="n")
 ```
 
 ## Documentation

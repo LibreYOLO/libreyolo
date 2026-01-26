@@ -113,15 +113,9 @@ uv run pytest tests/integration/test_complete_workflow.py::TestEndToEndWorkflow 
 All test outputs are saved to:
 ```
 tests/output/complete_workflow/
-├── libreyolo8n.onnx
-├── libreyolo8s.onnx
-├── ...
-├── libreyolo11x.onnx
-├── detections_11n.jpg
-├── detections_8n.jpg
+├── detections_9t.jpg
 └── end_to_end/
-    ├── detection_result.jpg
-    └── model_11n.onnx
+    └── detection_result.jpg
 ```
 
 ## Running Tests Sequentially

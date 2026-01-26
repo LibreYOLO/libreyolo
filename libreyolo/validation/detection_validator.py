@@ -316,7 +316,7 @@ class DetectionValidator(BaseValidator):
             Sliced predictions for the single image.
         """
         if isinstance(preds, dict):
-            # Handle dict output (YOLOv8/v11 style: {'x8': {'box': ..., 'cls': ...}, ...})
+            # Handle dict output (multi-scale style: {'x8': {'box': ..., 'cls': ...}, ...})
             sliced = {}
             for key, value in preds.items():
                 if isinstance(value, dict):
@@ -364,14 +364,7 @@ class DetectionValidator(BaseValidator):
         images, targets, img_info, img_ids = batch
         batch_size = len(img_info)
 
-        # Collect original sizes for batched processing
-        original_sizes = [(int(img_info[i][1]), int(img_info[i][0])) for i in range(batch_size)]  # (w, h)
-
-        # Try batched postprocessing first (much faster)
-        if self._supports_batched_postprocess(preds):
-            return self._postprocess_batch(preds, original_sizes)
-
-        # Fallback: Process each image in batch (slower)
+        # Process each image in batch
         detections = []
         for i in range(batch_size):
             orig_h, orig_w = img_info[i]
@@ -401,52 +394,6 @@ class DetectionValidator(BaseValidator):
             })
 
         return detections
-
-    def _supports_batched_postprocess(self, preds: Any) -> bool:
-        """Check if predictions support batched postprocessing.
-
-        YOLOv8/v11 style output has x8, x16, x32 keys with 'box' and 'cls' sub-keys.
-        Other models (like YOLOv9, YOLOX) have different structures.
-        """
-        if not isinstance(preds, dict):
-            return False
-        # Check for YOLOv8/v11 style structure with 'box' and 'cls' keys
-        if 'x8' in preds and 'x16' in preds and 'x32' in preds:
-            x8 = preds.get('x8')
-            x16 = preds.get('x16')
-            x32 = preds.get('x32')
-            # ALL scales must have 'box' and 'cls' keys for batched postprocess
-            for scale in [x8, x16, x32]:
-                if not isinstance(scale, dict):
-                    return False
-                if 'box' not in scale or 'cls' not in scale:
-                    return False
-            return True
-        return False
-
-    def _postprocess_batch(
-        self, preds: Dict, original_sizes: List[Tuple[int, int]]
-    ) -> List[Dict[str, torch.Tensor]]:
-        """
-        Batched postprocessing for YOLOv8/v11 style outputs.
-
-        This is much faster than per-image processing because:
-        1. GPU-side confidence filtering for entire batch
-        2. Single batched NMS call
-        3. Minimal Python loop overhead
-        """
-        from libreyolo.v8.utils import postprocess_batch_v8
-
-        results = postprocess_batch_v8(
-            output=preds,
-            conf_thres=self.config.conf_thres,
-            iou_thres=self.config.iou_thres,
-            input_size=self._actual_imgsz,
-            original_sizes=original_sizes,
-            max_det=self.config.max_det,
-        )
-
-        return results
 
     def _update_metrics(
         self,

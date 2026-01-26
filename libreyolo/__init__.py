@@ -3,8 +3,6 @@ Libre YOLO - An open source YOLO library with MIT license.
 """
 from importlib.metadata import version, PackageNotFoundError
 
-from .v8.model import LIBREYOLO8
-from .v11.model import LIBREYOLO11
 from .v9.model import LIBREYOLO9
 from .yolox.model import LIBREYOLOX
 from .factory import LIBREYOLO, create_model
@@ -37,9 +35,7 @@ except PackageNotFoundError:
 __all__ = [
     # Main API
     "LIBREYOLO",
-    "LIBREYOLO8",
     "LIBREYOLO9",
-    "LIBREYOLO11",
     "LIBREYOLOX",
     "LIBREYOLORFDETR",
     "LIBREYOLOOnnx",

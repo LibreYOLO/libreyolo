@@ -1,6 +1,6 @@
 # LibreYOLO
 
-LibreYOLO is an MIT-licensed object detection library supporting YOLOv8, YOLOv9, YOLOv11, YOLOX, and RF-DETR models.
+LibreYOLO is an MIT-licensed object detection library supporting YOLOv9, YOLOX, and RF-DETR models.
 
 ## Installation
 
@@ -16,7 +16,7 @@ pip install -e .
 from libreyolo import LIBREYOLO
 
 # Load model (auto-detects version and size)
-model = LIBREYOLO("weights/libreyolo8n.pt")
+model = LIBREYOLO("weights/libreyoloXs.pt")
 
 # Run inference
 results = model(image="image.jpg", save=True)
@@ -31,9 +31,7 @@ print(f"mAP50-95: {val_results['metrics/mAP50-95']:.3f}")
 
 | Model | Sizes | Training |
 |-------|-------|----------|
-| YOLOv8 | n, s, m, l, x | No |
 | YOLOv9 | t, s, m, c | No |
-| YOLOv11 | n, s, m, l, x | No |
 | YOLOX | nano, tiny, s, m, l, x | Yes |
 | RF-DETR | n, s, b, m, l | Yes |
 

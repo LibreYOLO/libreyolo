@@ -35,12 +35,12 @@ The documentation is generated from **two sources**:
 
 Example in `api/index.md`:
 ```rst
-.. autoclass:: libreyolo.LIBREYOLO8
+.. autoclass:: libreyolo.LIBREYOLOX
    :members:
    :show-inheritance:
 ```
 
-This reads the docstring from `LIBREYOLO8` and renders it as documentation.
+This reads the docstring from `LIBREYOLOX` and renders it as documentation.
 
 ## Deployment Options
 
@@ -125,7 +125,7 @@ docs_sphinx/
 
 When you update a docstring in your code:
 ```python
-class LIBREYOLO8:
+class LIBREYOLOX:
     """
     Updated docstring here.  # ← Change this
     """

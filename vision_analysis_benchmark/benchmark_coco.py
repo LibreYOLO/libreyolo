@@ -28,19 +28,9 @@ from libreyolo import LIBREYOLO
 # ============================================================================
 
 LIBREYOLO_MODELS = {
-    'yolov8': {
-        'variants': ['n', 's', 'm', 'l', 'x'],
-        'weights_pattern': 'libreyolo8{variant}.pt',
-        'input_size': 640,
-    },
     'yolov9': {
         'variants': ['t', 's', 'm', 'c'],
         'weights_pattern': 'libreyolo9{variant}.pt',
-        'input_size': 640,
-    },
-    'yolov11': {
-        'variants': ['n', 's', 'm', 'l', 'x'],
-        'weights_pattern': 'libreyolo11{variant}.pt',
         'input_size': 640,
     },
     'yolox': {
