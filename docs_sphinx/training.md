@@ -9,8 +9,8 @@ Training is available for **YOLOX** and **RF-DETR** models.
 ```python
 from libreyolo import LIBREYOLOX
 
-# Create new model
-model = LIBREYOLOX.new(size="s", num_classes=80)
+# Create new model (nb_classes is read from data.yaml)
+model = LIBREYOLOX(size="s")
 
 # Train
 results = model.train(
@@ -26,10 +26,10 @@ print(f"Best mAP: {results['best_mAP50_95']:.3f}")
 ### Fine-tune Pretrained Model
 
 ```python
-from libreyolo import LIBREYOLOX
+from libreyolo import LIBREYOLO
 
-# Load pretrained
-model = LIBREYOLOX("weights/libreyoloXs.pt", size="s")
+# Load pretrained (size and nb_classes auto-detected from weights)
+model = LIBREYOLO("libreyoloXs.pt")
 
 # Fine-tune
 results = model.train(
@@ -68,7 +68,7 @@ results = model.train(
     # Features
     amp=True,                   # Mixed precision
     patience=50,                # Early stopping patience
-    resume=None,                # Resume from checkpoint
+    resume=False,               # Resume from loaded checkpoint
 )
 ```
 
@@ -89,10 +89,14 @@ results = model.train(
 ## Resume Training
 
 ```python
+from libreyolo import LIBREYOLO
+
+# Load the last checkpoint, then resume
+model = LIBREYOLO("runs/train/exp/weights/last.pt")
 results = model.train(
     data="data.yaml",
     epochs=300,
-    resume="runs/train/exp/weights/last.pt"
+    resume=True
 )
 ```
 
@@ -145,10 +149,10 @@ runs/train/exp/
 ## Using Trained Model
 
 ```python
-from libreyolo import LIBREYOLOX
+from libreyolo import LIBREYOLO
 
-# Load best checkpoint
-model = LIBREYOLOX("runs/train/exp/weights/best.pt", size="s")
+# Load best checkpoint (size and nb_classes auto-detected)
+model = LIBREYOLO("runs/train/exp/weights/best.pt")
 
 # Run inference
 results = model(image="test.jpg", save=True)
