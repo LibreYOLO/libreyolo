@@ -35,7 +35,7 @@ class YOLOXTrainConfig:
 
     # Optimizer settings (YOLOX defaults)
     optimizer: str = "sgd"  # "sgd" or "adam"
-    lr: float = 0.01  # Base learning rate (will be scaled by batch size)
+    lr0: float = 0.01  # Base learning rate (will be scaled by batch size)
     momentum: float = 0.9
     weight_decay: float = 5e-4
     nesterov: bool = True
@@ -73,7 +73,7 @@ class YOLOXTrainConfig:
     project: str = "runs/train"
     name: str = "exp"
     exist_ok: bool = False
-    save_interval: int = 10  # Save checkpoint every N epochs
+    save_period: int = 10  # Save checkpoint every N epochs
     eval_interval: int = 10  # Evaluate every N epochs
 
     # Workers
@@ -121,7 +121,7 @@ class YOLOXTrainConfig:
         with open(path, "r") as f:
             data = yaml.safe_load(f)
         # Handle old field names for backward compatibility
-        renames = {'batch_size': 'batch', 'num_workers': 'workers', 'save_dir': 'project'}
+        renames = {'batch_size': 'batch', 'num_workers': 'workers', 'save_dir': 'project', 'lr': 'lr0', 'save_interval': 'save_period'}
         for old, new in renames.items():
             if old in data and new not in data:
                 data[new] = data.pop(old)
@@ -152,7 +152,7 @@ class YOLOXTrainConfig:
     def effective_lr(self) -> float:
         """Calculate effective learning rate based on batch size."""
         # YOLOX uses linear scaling: lr = base_lr * batch / 64
-        return self.lr * self.batch / 64
+        return self.lr0 * self.batch / 64
 
     def __repr__(self) -> str:
         lines = ["YOLOXTrainConfig("]

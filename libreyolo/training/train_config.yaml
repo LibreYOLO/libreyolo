@@ -13,9 +13,9 @@ pretrained_weights: "weights/libreyoloXs.pt" # Path to pretrained weights (optio
 # Training parameters
 epochs: 5
 batch_size: 8
-lr: 0.001
+lr0: 0.001
 weight_decay: 0.0005
 num_classes: 80
 workers: 0
 output_dir: "runs/"
-save_interval: 1 # Save checkpoint interval (in epochs)
+save_period: 1 # Save checkpoint period (in epochs)

@@ -81,7 +81,7 @@ def train(args):
         {'params': g_bn, 'weight_decay': 0.0},
         {'params': g_b, 'weight_decay': 0.0},
         {'params': g_w, 'weight_decay': args.weight_decay}
-    ], lr=args.lr)
+    ], lr=args.lr0)
     
     # 4. Loss Function
     compute_loss = ComputeLoss(model, reg_max=16)
@@ -119,7 +119,7 @@ def train(args):
         print(f"Epoch [{epoch+1}/{args.epochs}] Completed. Avg Loss: {avg_loss:.4f}. Time: {time.time()-start_time:.2f}s")
         
         # Save checkpoint
-        if (epoch + 1) % args.save_interval == 0:
+        if (epoch + 1) % args.save_period == 0:
             save_path = Path(args.output_dir) / f"libreyolo{version}{args.size}_epoch_{epoch+1}.pt"
             save_path.parent.mkdir(parents=True, exist_ok=True)
             torch.save(model.state_dict(), save_path)
