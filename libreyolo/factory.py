@@ -418,7 +418,13 @@ def LIBREYOLO(
     if is_rfdetr:
         # RF-DETR detected - use LIBREYOLORFDETR (lazy import)
         # RF-DETR needs the path string, not the loaded weights dict
-        from .rfdetr.model import LIBREYOLORFDETR
+        try:
+            from .rfdetr.model import LIBREYOLORFDETR
+        except ImportError:
+            raise ModuleNotFoundError(
+                "RF-DETR support requires extra dependencies.\n"
+                "Install with: pip install libreyolo[rfdetr]"
+            )
         model = LIBREYOLORFDETR(
             model_path=model_path, size=size, nb_classes=nb_classes, device=device
         )
