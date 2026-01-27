@@ -113,8 +113,9 @@ class BaseValidator(ABC):
         if self.config.save_dir:
             self.save_dir = Path(self.config.save_dir)
         else:
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            self.save_dir = Path("runs/val") / f"exp_{timestamp}"
+            model_tag = f"{self.model._get_model_name()}_{self.model.size}"
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+            self.save_dir = Path("runs/val") / f"{model_tag}_{timestamp}"
 
         self.save_dir.mkdir(parents=True, exist_ok=True)
 

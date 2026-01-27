@@ -198,7 +198,7 @@ class LIBREYOLOX(LibreYOLOBase):
             Path to the exported model file
         """
         if output_path is None:
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
             output_path = f"yolox_{self.size}_{timestamp}.{format}"
 
         self.model.eval()

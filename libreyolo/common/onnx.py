@@ -258,10 +258,11 @@ class LIBREYOLOOnnx:
             else:
                 stem = get_safe_stem(image_path) if image_path else "inference"
                 ext = Path(image_path).suffix if image_path else ".jpg"
-                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                model_tag = Path(self.model_path).stem
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
                 save_dir = Path("runs/detections")
                 save_dir.mkdir(parents=True, exist_ok=True)
-                final_path = save_dir / f"{stem}_{timestamp}{ext}"
+                final_path = save_dir / f"{stem}_{model_tag}_{timestamp}{ext}"
             
             annotated_img.save(final_path)
             detections["saved_path"] = str(final_path)
