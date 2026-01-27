@@ -282,7 +282,6 @@ def LIBREYOLO(
     size: str = None,
     reg_max: int = 16,
     nb_classes: int = None,
-    save_feature_maps: bool = False,
     device: str = "auto"
 ):
     """
@@ -296,7 +295,6 @@ def LIBREYOLO(
               - For YOLOv9: "t", "s", "m", "c"
         reg_max: Regression max value for DFL (default: 16). Only used for v9.
         nb_classes: Number of classes. Auto-detected from weights if not provided.
-        save_feature_maps: Reserved for future use.
         device: Device for inference. "auto" (default) uses CUDA if available, else MPS, else CPU.
 
     Returns:

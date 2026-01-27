@@ -50,6 +50,9 @@ Repository = "https://github.com/Libre-YOLO/libreyolo"
 [tool.setuptools]
 include-package-data = true
 
+[tool.setuptools.package-data]
+libreyolo = ["assets/*.jpg"]
+
 [tool.setuptools.packages.find]
 include = ["libreyolo*"]
 
