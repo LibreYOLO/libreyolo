@@ -55,6 +55,11 @@ class BaseValPreprocessor(ABC):
         """Whether this preprocessor normalizes images to 0-1 range."""
         pass
 
+    @property
+    def uses_letterbox(self) -> bool:
+        """Whether this preprocessor uses letterbox (aspect-preserving) resize."""
+        return False
+
     def _pad_targets(self, targets: np.ndarray, n_valid: int) -> np.ndarray:
         """Pad targets to fixed size for batching."""
         padded = np.zeros((self.max_labels, 5), dtype=np.float32)
@@ -123,6 +128,10 @@ class YOLOXValPreprocessor(BaseValPreprocessor):
     @property
     def normalize(self) -> bool:
         return False
+
+    @property
+    def uses_letterbox(self) -> bool:
+        return True
 
     def __call__(
         self, img: np.ndarray, targets: np.ndarray, input_size: Tuple[int, int]

@@ -104,6 +104,40 @@ class LIBREYOLOOnnx:
         self.session = ort.InferenceSession(onnx_path, providers=providers)
         self.input_name = self.session.get_inputs()[0].name
 
+        # Try to read libreyolo metadata from ONNX model
+        self._read_onnx_metadata(onnx_path)
+
+    def _read_onnx_metadata(self, onnx_path: str) -> None:
+        """Read libreyolo metadata embedded in an ONNX model file.
+
+        Silently falls back to constructor args if metadata is missing
+        or the onnx package is not installed.
+        """
+        try:
+            import onnx
+
+            model_proto = onnx.load(onnx_path)
+            meta = {p.key: p.value for p in model_proto.metadata_props}
+
+            if "names" in meta:
+                import json
+
+                names_raw = json.loads(meta["names"])
+                self.names = {int(k): v for k, v in names_raw.items()}
+
+            if "nb_classes" in meta:
+                self.nb_classes = int(meta["nb_classes"])
+                # Rebuild names if nb_classes changed but names wasn't present
+                if "names" not in meta:
+                    if self.nb_classes == 80:
+                        self.names = {i: n for i, n in enumerate(COCO_CLASSES)}
+                    else:
+                        self.names = {
+                            i: f"class_{i}" for i in range(self.nb_classes)
+                        }
+        except Exception:
+            pass
+
     def __call__(
         self,
         source: Union[str, Path, Image.Image, np.ndarray] = None,

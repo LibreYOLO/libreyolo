@@ -33,6 +33,7 @@ convert = [
 ]
 onnx = [
     "onnx>=1.14.0",
+    "onnxsim>=0.4.0",
     "onnxscript>=0.1.0",
     "onnxruntime>=1.16.0",
 ]

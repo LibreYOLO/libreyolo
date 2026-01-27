@@ -13,6 +13,7 @@ def __getattr__(name):
         from .rfdetr.model import LIBREYOLORFDETR
         return LIBREYOLORFDETR
     raise AttributeError(f"module '{__name__}' has no attribute '{name}'")
+from .export import Exporter
 from .common.onnx import LIBREYOLOOnnx
 from .common.results import Results, Boxes
 # CAM/GradCAM removed
@@ -34,6 +35,8 @@ except PackageNotFoundError:
     __version__ = "0.0.0.dev0"  # Fallback for editable installs without metadata
 
 __all__ = [
+    # Export
+    "Exporter",
     # Main API
     "LIBREYOLO",
     "LIBREYOLO9",

@@ -718,51 +718,47 @@ class LibreYOLOBase(ABC):
         return result
 
     def export(
-        self, output_path: str = None, input_size: int = None, opset: int = 12
+        self,
+        format: str = "onnx",
+        *,
+        output_path: str = None,
+        imgsz: int = None,
+        opset: int = 13,
+        simplify: bool = True,
+        dynamic: bool = True,
+        half: bool = False,
+        batch: int = 1,
+        device: str = None,
     ) -> str:
-        """Export the model to ONNX format."""
-        import importlib.util
+        """Export model to deployment format.
 
-        if importlib.util.find_spec("onnx") is None:
-            raise ImportError(
-                "ONNX export requires the optional ONNX dependencies. "
-                "Install them with `uv sync --extra onnx` or `pip install -e '.[onnx]'`."
-            )
+        Args:
+            format: Target format ("onnx", "torchscript").
+            output_path: Output file path (auto-generated if None).
+            imgsz: Input resolution (default: model's native size).
+            opset: ONNX opset version (default: 13).
+            simplify: Run ONNX graph simplification (default: True).
+            dynamic: Enable dynamic axes (default: True).
+            half: Export in FP16 (default: False).
+            batch: Batch size for static graph (default: 1).
+            device: Device to trace on (default: model's current device).
 
-        if input_size is None:
-            input_size = self._get_input_size()
+        Returns:
+            Path to the exported model file.
+        """
+        from libreyolo.export import Exporter
 
-        if output_path is None:
-            if self.model_path and isinstance(self.model_path, str):
-                output_path = str(Path(self.model_path).with_suffix(".onnx"))
-            else:
-                output_path = f"{self._get_model_name().lower()}{self.size}.onnx"
-
-        print(f"Exporting {self._get_model_name()} {self.size} to {output_path}...")
-
-        device = next(self.model.parameters()).device
-        dummy_input = torch.randn(1, 3, input_size, input_size).to(device)
-
-        try:
-            torch.onnx.export(
-                self.model,
-                dummy_input,
-                output_path,
-                export_params=True,
-                opset_version=opset,
-                do_constant_folding=True,
-                input_names=["images"],
-                output_names=["output"],
-                dynamic_axes={
-                    "images": {0: "batch", 2: "height", 3: "width"},
-                    "output": {0: "batch"},
-                },
-            )
-            print(f"Export complete: {output_path}")
-            return output_path
-        except Exception as e:
-            print(f"Export failed: {e}")
-            raise
+        return Exporter(self)(
+            format,
+            output_path=output_path,
+            imgsz=imgsz,
+            opset=opset,
+            simplify=simplify,
+            dynamic=dynamic,
+            half=half,
+            batch=batch,
+            device=device,
+        )
 
     def predict(self, *args, **kwargs) -> Union[Results, List[Results]]:
         """Alias for __call__ method."""

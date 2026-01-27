@@ -4,7 +4,6 @@ LIBREYOLOX implementation for LibreYOLO.
 Supports both inference and training.
 """
 
-from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -179,92 +178,6 @@ class LIBREYOLOX(LibreYOLOBase):
             ratio=ratio,
             max_det=max_det,
         )
-
-    def export(
-        self,
-        format: str = "onnx",
-        output_path: Optional[str] = None,
-        opset: int = 11,
-        simplify: bool = True,
-        dynamic: bool = False,
-    ) -> str:
-        """
-        Export the model to a different format.
-
-        Args:
-            format: Export format ("onnx", "torchscript")
-            output_path: Output file path (auto-generated if None)
-            opset: ONNX opset version (default: 11)
-            simplify: Simplify ONNX model (default: True)
-            dynamic: Use dynamic input shapes (default: False)
-
-        Returns:
-            Path to the exported model file
-        """
-        if output_path is None:
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
-            output_path = f"yolox_{self.size}_{timestamp}.{format}"
-
-        self.model.eval()
-
-        if format == "onnx":
-            return self._export_onnx(output_path, opset, simplify, dynamic)
-        elif format == "torchscript":
-            return self._export_torchscript(output_path)
-        else:
-            raise ValueError(f"Unsupported export format: {format}")
-
-    def _export_onnx(
-        self,
-        output_path: str,
-        opset: int = 11,
-        simplify: bool = True,
-        dynamic: bool = False,
-    ) -> str:
-        """Export to ONNX format."""
-        dummy_input = torch.randn(1, 3, self.input_size, self.input_size).to(
-            self.device
-        )
-
-        dynamic_axes = None
-        if dynamic:
-            dynamic_axes = {
-                "images": {0: "batch", 2: "height", 3: "width"},
-                "outputs": {0: "batch"},
-            }
-
-        torch.onnx.export(
-            self.model,
-            dummy_input,
-            output_path,
-            input_names=["images"],
-            output_names=["outputs"],
-            opset_version=opset,
-            dynamic_axes=dynamic_axes,
-        )
-
-        if simplify:
-            try:
-                import onnx
-                from onnxsim import simplify as onnx_simplify
-
-                model = onnx.load(output_path)
-                model_simplified, check = onnx_simplify(model)
-                if check:
-                    onnx.save(model_simplified, output_path)
-            except ImportError:
-                pass
-
-        return output_path
-
-    def _export_torchscript(self, output_path: str) -> str:
-        """Export to TorchScript format."""
-        dummy_input = torch.randn(1, 3, self.input_size, self.input_size).to(
-            self.device
-        )
-        traced_model = torch.jit.trace(self.model, dummy_input)
-        traced_model.save(output_path)
-        return output_path
 
     def train(
         self,
