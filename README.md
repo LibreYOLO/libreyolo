@@ -1,6 +1,6 @@
 # LibreYOLO
 
-[![Documentation](https://img.shields.io/badge/docs-docs.libreyolo.com-blue)](https://docs.libreyolo.com)
+[![Documentation](https://img.shields.io/badge/docs-libreyolo.com-blue)](https://www.libreyolo.com/docs)
 [![PyPI](https://img.shields.io/pypi/v/libreyolo)](https://pypi.org/project/libreyolo/)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
@@ -30,7 +30,7 @@ print(f"Detected {results['num_detections']} objects")
 
 ## Documentation
 
-Full documentation at [docs.libreyolo.com](https://docs.libreyolo.com):
+Full documentation at [libreyolo.com/docs](https://www.libreyolo.com/docs):
 
 ## License
 
