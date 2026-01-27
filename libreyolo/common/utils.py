@@ -247,7 +247,8 @@ def resolve_save_path(
     image_path: Union[str, Path, None],
     prefix: str = "",
     ext: str = "jpg",
-    default_dir: str = "runs/detections"
+    default_dir: str = "runs/detections",
+    model_name: str = "",
 ) -> Path:
     """
     Generate a save path handling both directory and file output paths.
@@ -258,6 +259,7 @@ def resolve_save_path(
         prefix: Optional prefix for the filename (e.g., "tiled_")
         ext: File extension without dot (default: "jpg")
         default_dir: Default directory if output_path is None
+        model_name: Optional model identifier to include in the filename
 
     Returns:
         Resolved Path object ready for saving
@@ -270,8 +272,9 @@ def resolve_save_path(
     else:
         stem = "inference"
 
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    filename = f"{prefix}{stem}_{timestamp}.{ext}"
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+    model_tag = f"_{model_name}" if model_name else ""
+    filename = f"{prefix}{stem}{model_tag}_{timestamp}.{ext}"
 
     if output_path is None:
         save_dir = Path(default_dir)

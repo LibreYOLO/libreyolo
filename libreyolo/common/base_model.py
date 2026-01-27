@@ -408,6 +408,7 @@ class LibreYOLOBase(ABC):
                 image_path,
                 ext=ext,
                 default_dir="runs/detections",
+                model_name=f"{self._get_model_name()}_{self.size}",
             )
             annotated_img.save(save_path)
             detections["saved_path"] = str(save_path)
@@ -526,16 +527,17 @@ class LibreYOLOBase(ABC):
                 stem = get_safe_stem(image_path)
             else:
                 stem = "inference"
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            model_tag = f"{self._get_model_name()}_{self.size}"
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
 
             if output_path:
                 base_path = Path(output_path)
                 if base_path.suffix == "":
-                    save_dir = base_path / f"{stem}_{timestamp}"
+                    save_dir = base_path / f"{stem}_{model_tag}_{timestamp}"
                 else:
-                    save_dir = base_path.parent / f"{stem}_{timestamp}"
+                    save_dir = base_path.parent / f"{stem}_{model_tag}_{timestamp}"
             else:
-                save_dir = Path("runs/tiled_detections") / f"{stem}_{timestamp}"
+                save_dir = Path("runs/tiled_detections") / f"{stem}_{model_tag}_{timestamp}"
 
             save_dir.mkdir(parents=True, exist_ok=True)
 
