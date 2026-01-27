@@ -29,6 +29,9 @@ from .data import (
     check_dataset,
 )
 
+from pathlib import Path as _Path
+SAMPLE_IMAGE = str(_Path(__file__).parent / "assets" / "parkour.jpg")
+
 try:
     __version__ = version("libreyolo")
 except PackageNotFoundError:
@@ -56,4 +59,6 @@ __all__ = [
     "DATASETS_DIR",
     "load_data_config",
     "check_dataset",
+    # Assets
+    "SAMPLE_IMAGE",
 ]
