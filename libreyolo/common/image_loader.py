@@ -210,16 +210,7 @@ class ImageLoader:
                 arr = cls._normalize_dtype(arr)
                 return Image.fromarray(arr, mode="L").convert("RGB")
             
-            # Determine if BGR conversion is needed
-            needs_bgr_conversion = False
-            if color_format == "bgr":
-                needs_bgr_conversion = True
-            elif color_format == "auto":
-                # Auto-detection heuristic for BGR
-                # This is imperfect, but catches common OpenCV patterns
-                needs_bgr_conversion = cls._looks_like_bgr(arr)
-            
-            if needs_bgr_conversion and arr.shape[2] >= 3:
+            if color_format == "bgr" and arr.shape[2] >= 3:
                 # BGR -> RGB (swap first and third channels)
                 arr = arr[..., ::-1].copy()
             
@@ -296,37 +287,6 @@ class ImageLoader:
             # Convert other integer types
             arr = arr.clip(0, 255).astype(np.uint8)
         return arr
-    
-    @classmethod
-    def _looks_like_bgr(cls, arr: np.ndarray) -> bool:
-        """
-        Heuristic to detect if an image might be in BGR format.
-        
-        This is imperfect and can have false positives/negatives.
-        For reliable results, use explicit color_format="bgr".
-        
-        The heuristic checks if blue channel has unusually high values
-        compared to red channel, which is uncommon in natural images.
-        """
-        if arr.ndim != 3 or arr.shape[2] < 3:
-            return False
-        
-        # Normalize for comparison
-        arr_float = arr.astype(np.float32)
-        if arr_float.max() > 1.0:
-            arr_float = arr_float / 255.0
-        
-        # Compare mean values of first and third channels
-        # In BGR, blue is first; in RGB, red is first
-        # Most natural images have red >= blue on average
-        # If "blue" (first channel) >> "red" (third channel), likely BGR
-        ch0_mean = arr_float[..., 0].mean()
-        ch2_mean = arr_float[..., 2].mean()
-        
-        # Only flag as BGR if there's a significant difference
-        # This threshold is conservative to avoid false positives
-        # Return False by default - explicit is better than wrong
-        return False  # Disabled: too unreliable, require explicit flag
     
     @classmethod
     def collect_images(cls, directory: Union[str, Path], recursive: bool = True) -> List[Path]:
