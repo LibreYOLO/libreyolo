@@ -425,7 +425,7 @@ class DetectionValidator(BaseValidator):
             return
 
         # Check if preprocessor uses letterbox (aspect-preserving) or simple resize
-        uses_letterbox = self.val_preproc is not None and not self.val_preproc.normalize
+        uses_letterbox = self.val_preproc is not None and self.val_preproc.uses_letterbox
 
         for i in range(batch_size):
             pred = preds[i]

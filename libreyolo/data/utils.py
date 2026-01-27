@@ -202,7 +202,7 @@ def img2label_paths(img_paths: List[Path]) -> List[Path]:
     return label_paths
 
 
-def load_data_config(data: str, autodownload: bool = True) -> Dict:
+def load_data_config(data: str, autodownload: bool = True, allow_scripts: bool = True) -> Dict:
     """
     Load dataset configuration from YAML file.
 
@@ -216,6 +216,9 @@ def load_data_config(data: str, autodownload: bool = True) -> Dict:
     Args:
         data: Dataset name (e.g., "coco8") or path to YAML file.
         autodownload: Whether to auto-download missing datasets.
+        allow_scripts: Whether to allow execution of Python download scripts
+            embedded in YAML configs. When False, only URL-based downloads are
+            permitted and script-based downloads are skipped with a warning.
 
     Returns:
         Dictionary with dataset configuration including:
@@ -244,7 +247,7 @@ def load_data_config(data: str, autodownload: bool = True) -> Dict:
 
     # Check if dataset exists, download if needed
     if autodownload:
-        config = check_dataset(config, yaml_path)
+        config = check_dataset(config, yaml_path, allow_scripts=allow_scripts)
 
     # Resolve train/val/test paths
     for split in ("train", "val", "test"):
@@ -290,17 +293,19 @@ def _resolve_dataset_path(config: Dict, yaml_path: Path) -> Path:
         return yaml_path.parent
 
 
-def check_dataset(config: Dict, yaml_path: Path = None) -> Dict:
+def check_dataset(config: Dict, yaml_path: Path = None, allow_scripts: bool = True) -> Dict:
     """
     Check if dataset exists, download if missing and URL/script is provided.
 
     Supports:
     - URL downloads (ZIP files)
-    - Python script execution (multiline download scripts)
+    - Python script execution (multiline download scripts, requires allow_scripts=True)
 
     Args:
         config: Dataset configuration dictionary.
         yaml_path: Path to the YAML file (for script context).
+        allow_scripts: Whether to allow execution of Python download scripts.
+            When False, script-based downloads are skipped with a warning.
 
     Returns:
         Updated configuration with resolved paths.
@@ -333,6 +338,17 @@ def check_dataset(config: Dict, yaml_path: Path = None) -> Dict:
 
     # Check if download is a Python script (multiline or contains Python code)
     if _is_python_script(download_spec):
+        if not allow_scripts:
+            print(
+                f"Warning: Dataset YAML contains a Python download script but "
+                f"allow_scripts=False. Skipping script execution. "
+                f"Pass allow_scripts=True to load_data_config() to enable."
+            )
+            return config
+        import logging
+        logging.getLogger(__name__).info(
+            "Executing embedded download script from %s", yaml_path or "config"
+        )
         _execute_download_script(download_spec, config, yaml_path)
     else:
         # Treat as URL
