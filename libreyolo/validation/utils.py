@@ -10,6 +10,29 @@ import numpy as np
 import torch
 
 
+def box_iou(boxes1: torch.Tensor, boxes2: torch.Tensor) -> torch.Tensor:
+    """
+    Compute IoU between two sets of boxes.
+
+    Args:
+        boxes1: Tensor of shape (N, 4) in xyxy format
+        boxes2: Tensor of shape (M, 4) in xyxy format
+
+    Returns:
+        IoU matrix of shape (N, M)
+    """
+    area1 = (boxes1[:, 2] - boxes1[:, 0]) * (boxes1[:, 3] - boxes1[:, 1])
+    area2 = (boxes2[:, 2] - boxes2[:, 0]) * (boxes2[:, 3] - boxes2[:, 1])
+
+    lt = torch.max(boxes1[:, None, :2], boxes2[:, :2])
+    rb = torch.min(boxes1[:, None, 2:], boxes2[:, 2:])
+    wh = (rb - lt).clamp(min=0)
+    inter = wh[:, :, 0] * wh[:, :, 1]
+
+    union = area1[:, None] + area2 - inter
+    return inter / (union + 1e-7)
+
+
 def match_predictions_to_gt(
     pred_boxes: torch.Tensor,
     pred_classes: torch.Tensor,
@@ -37,8 +60,6 @@ def match_predictions_to_gt(
         correct: (N, T) boolean tensor indicating TP at each threshold.
         iou_values: (N,) maximum IoU value for each prediction with matching class.
     """
-    from libreyolo.common.postprocessing import box_iou
-
     device = pred_boxes.device
     n_pred = len(pred_boxes)
     n_gt = len(gt_boxes)
