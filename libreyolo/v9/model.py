@@ -4,7 +4,7 @@ LibreYOLO9 inference wrapper.
 Provides a high-level API for YOLOv9 object detection inference.
 """
 
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import torch
 import torch.nn as nn
@@ -90,9 +90,10 @@ class LIBREYOLO9(LibreYOLOBase):
         }
 
     def _preprocess(
-        self, image: ImageInput, color_format: str = "auto"
+        self, image: ImageInput, color_format: str = "auto", input_size: Optional[int] = None,
     ) -> Tuple[torch.Tensor, Image.Image, Tuple[int, int]]:
-        return preprocess_image(image, input_size=640, color_format=color_format)
+        effective_size = input_size if input_size is not None else 640
+        return preprocess_image(image, input_size=effective_size, color_format=color_format)
 
     def _forward(self, input_tensor: torch.Tensor) -> Any:
         return self.model(input_tensor)
@@ -103,14 +104,17 @@ class LIBREYOLO9(LibreYOLOBase):
         conf_thres: float,
         iou_thres: float,
         original_size: Tuple[int, int],
+        max_det: int = 300,
         **kwargs,
     ) -> Dict:
+        actual_input_size = kwargs.get('input_size', 640)
         return postprocess(
             output,
             conf_thres=conf_thres,
             iou_thres=iou_thres,
-            input_size=640,
+            input_size=actual_input_size,
             original_size=original_size,
+            max_det=max_det,
         )
 
     def _strict_loading(self) -> bool:

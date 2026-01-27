@@ -16,7 +16,9 @@ import torch.nn as nn
 from PIL import Image
 
 from .image_loader import ImageInput, ImageLoader
+from .results import Boxes, Results
 from .utils import (
+    COCO_CLASSES,
     draw_boxes,
     get_safe_stem,
     get_slice_bboxes,
@@ -68,9 +70,15 @@ class LibreYOLOBase(ABC):
 
     @abstractmethod
     def _preprocess(
-        self, image: ImageInput, color_format: str = "auto"
+        self, image: ImageInput, color_format: str = "auto", input_size: Optional[int] = None
     ) -> Tuple[torch.Tensor, Image.Image, Tuple[int, int]]:
-        """Preprocess image for inference."""
+        """Preprocess image for inference.
+
+        Args:
+            image: Input image.
+            color_format: Color format hint.
+            input_size: Override input size (None = model default).
+        """
         pass
 
     @abstractmethod
@@ -85,6 +93,7 @@ class LibreYOLOBase(ABC):
         conf_thres: float,
         iou_thres: float,
         original_size: Tuple[int, int],
+        max_det: int = 300,
     ) -> Dict:
         """Postprocess model output to detections."""
         pass
@@ -155,6 +164,12 @@ class LibreYOLOBase(ABC):
         # Store parameters
         self.size = size
         self.nb_classes = nb_classes
+
+        # Build names dict (matches Ultralytics model.names)
+        if nb_classes == 80:
+            self.names: Dict[int, str] = {i: n for i, n in enumerate(COCO_CLASSES)}
+        else:
+            self.names: Dict[int, str] = {i: f"class_{i}" for i in range(nb_classes)}
 
         # Store extra kwargs for subclass use
         for key, value in kwargs.items():
@@ -229,36 +244,44 @@ class LibreYOLOBase(ABC):
 
     def __call__(
         self,
-        image: ImageInput,
+        source: ImageInput = None,
+        *,
+        conf: float = 0.25,
+        iou: float = 0.45,
+        imgsz: Optional[int] = None,
+        classes: Optional[List[int]] = None,
+        max_det: int = 300,
         save: bool = False,
+        batch: int = 1,
+        # libreyolo-specific
         output_path: str = None,
-        conf_thres: float = 0.25,
-        iou_thres: float = 0.45,
         color_format: str = "auto",
-        batch_size: int = 1,
         tiling: bool = False,
         overlap_ratio: float = 0.2,
         output_file_format: Optional[str] = None,
         **kwargs,
-    ) -> Union[Dict, List[Dict]]:
+    ) -> Union[Results, List[Results]]:
         """
         Run inference on an image or directory.
 
         Args:
-            image: Input image or directory path.
+            source: Input image or directory path.
+            conf: Confidence threshold.
+            iou: IoU threshold for NMS.
+            imgsz: Input size override (None = model default).
+            classes: Filter to specific class IDs.
+            max_det: Maximum detections per image.
             save: If True, saves annotated image.
+            batch: Batch size for directory processing.
             output_path: Optional output path.
-            conf_thres: Confidence threshold.
-            iou_thres: IoU threshold for NMS.
             color_format: Color format hint.
-            batch_size: Batch size for directory processing.
             tiling: Enable tiled inference for large images.
             overlap_ratio: Tile overlap ratio.
             output_file_format: Output format ("jpg", "png", "webp").
             **kwargs: Additional arguments for postprocessing.
 
         Returns:
-            Detection dictionary or list of dictionaries.
+            Results instance or list of Results.
         """
         if output_file_format is not None:
             output_file_format = output_file_format.lower().lstrip(".")
@@ -269,17 +292,20 @@ class LibreYOLOBase(ABC):
                 )
 
         # Handle directory input
-        if isinstance(image, (str, Path)) and Path(image).is_dir():
-            image_paths = ImageLoader.collect_images(image)
+        if isinstance(source, (str, Path)) and Path(source).is_dir():
+            image_paths = ImageLoader.collect_images(source)
             if not image_paths:
                 return []
             return self._process_in_batches(
                 image_paths,
-                batch_size=batch_size,
+                batch=batch,
                 save=save,
                 output_path=output_path,
-                conf_thres=conf_thres,
-                iou_thres=iou_thres,
+                conf=conf,
+                iou=iou,
+                imgsz=imgsz,
+                classes=classes,
+                max_det=max_det,
                 color_format=color_format,
                 tiling=tiling,
                 overlap_ratio=overlap_ratio,
@@ -290,58 +316,70 @@ class LibreYOLOBase(ABC):
         # Use tiled inference if enabled
         if tiling:
             return self._predict_tiled(
-                image,
-                save,
-                output_path,
-                conf_thres,
-                iou_thres,
-                color_format,
-                overlap_ratio,
-                output_file_format,
+                source,
+                save=save,
+                output_path=output_path,
+                conf=conf,
+                iou=iou,
+                imgsz=imgsz,
+                classes=classes,
+                max_det=max_det,
+                color_format=color_format,
+                overlap_ratio=overlap_ratio,
+                output_file_format=output_file_format,
                 **kwargs,
             )
 
         return self._predict_single(
-            image,
-            save,
-            output_path,
-            conf_thres,
-            iou_thres,
-            color_format,
-            output_file_format,
+            source,
+            save=save,
+            output_path=output_path,
+            conf=conf,
+            iou=iou,
+            imgsz=imgsz,
+            classes=classes,
+            max_det=max_det,
+            color_format=color_format,
+            output_file_format=output_file_format,
             **kwargs,
         )
 
     def _process_in_batches(
         self,
         image_paths: List[Path],
-        batch_size: int = 1,
+        batch: int = 1,
         save: bool = False,
         output_path: str = None,
-        conf_thres: float = 0.25,
-        iou_thres: float = 0.45,
+        conf: float = 0.25,
+        iou: float = 0.45,
+        imgsz: Optional[int] = None,
+        classes: Optional[List[int]] = None,
+        max_det: int = 300,
         color_format: str = "auto",
         tiling: bool = False,
         overlap_ratio: float = 0.2,
         output_file_format: Optional[str] = None,
         **kwargs,
-    ) -> List[Dict]:
+    ) -> List[Results]:
         """Process multiple images in batches."""
         results = []
-        for i in range(0, len(image_paths), batch_size):
-            chunk = image_paths[i : i + batch_size]
+        for i in range(0, len(image_paths), batch):
+            chunk = image_paths[i : i + batch]
             for path in chunk:
                 if tiling:
                     results.append(
                         self._predict_tiled(
                             path,
-                            save,
-                            output_path,
-                            conf_thres,
-                            iou_thres,
-                            color_format,
-                            overlap_ratio,
-                            output_file_format,
+                            save=save,
+                            output_path=output_path,
+                            conf=conf,
+                            iou=iou,
+                            imgsz=imgsz,
+                            classes=classes,
+                            max_det=max_det,
+                            color_format=color_format,
+                            overlap_ratio=overlap_ratio,
+                            output_file_format=output_file_format,
                             **kwargs,
                         )
                     )
@@ -349,34 +387,111 @@ class LibreYOLOBase(ABC):
                     results.append(
                         self._predict_single(
                             path,
-                            save,
-                            output_path,
-                            conf_thres,
-                            iou_thres,
-                            color_format,
-                            output_file_format,
+                            save=save,
+                            output_path=output_path,
+                            conf=conf,
+                            iou=iou,
+                            imgsz=imgsz,
+                            classes=classes,
+                            max_det=max_det,
+                            color_format=color_format,
+                            output_file_format=output_file_format,
                             **kwargs,
                         )
                     )
         return results
+
+    @staticmethod
+    def _apply_classes_filter(
+        boxes_t: torch.Tensor,
+        conf_t: torch.Tensor,
+        cls_t: torch.Tensor,
+        classes: List[int],
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """Filter detections to keep only the requested class IDs."""
+        mask = torch.zeros(len(cls_t), dtype=torch.bool, device=cls_t.device)
+        for cid in classes:
+            mask |= cls_t == cid
+        return boxes_t[mask], conf_t[mask], cls_t[mask]
+
+    def _wrap_results(
+        self,
+        detections: Dict,
+        original_size: Tuple[int, int],
+        image_path,
+        classes: Optional[List[int]],
+    ) -> Results:
+        """Convert raw detection dict to a Results object.
+
+        Args:
+            detections: Dict with 'boxes', 'scores', 'classes', 'num_detections'.
+            original_size: (width, height) from preprocessing.
+            image_path: Source path or None.
+            classes: Optional class filter list.
+        """
+        if detections["num_detections"] == 0:
+            boxes_t = torch.zeros((0, 4), dtype=torch.float32)
+            conf_t = torch.zeros((0,), dtype=torch.float32)
+            cls_t = torch.zeros((0,), dtype=torch.float32)
+        else:
+            raw_boxes = detections["boxes"]
+            if isinstance(raw_boxes, torch.Tensor):
+                boxes_t = raw_boxes.float()
+            else:
+                boxes_t = torch.tensor(raw_boxes, dtype=torch.float32)
+
+            raw_conf = detections["scores"]
+            if isinstance(raw_conf, torch.Tensor):
+                conf_t = raw_conf.float()
+            else:
+                conf_t = torch.tensor(raw_conf, dtype=torch.float32)
+
+            raw_cls = detections["classes"]
+            if isinstance(raw_cls, torch.Tensor):
+                cls_t = raw_cls.float()
+            else:
+                cls_t = torch.tensor(raw_cls, dtype=torch.float32)
+
+        # Apply class filter
+        if classes is not None and len(boxes_t) > 0:
+            boxes_t, conf_t, cls_t = self._apply_classes_filter(
+                boxes_t, conf_t, cls_t, classes
+            )
+
+        # original_size from preprocess is (W, H); orig_shape follows Ultralytics (H, W)
+        orig_w, orig_h = original_size
+        orig_shape = (orig_h, orig_w)
+
+        return Results(
+            boxes=Boxes(boxes_t, conf_t, cls_t),
+            orig_shape=orig_shape,
+            path=str(image_path) if image_path else None,
+            names=self.names,
+        )
 
     def _predict_single(
         self,
         image: ImageInput,
         save: bool = False,
         output_path: str = None,
-        conf_thres: float = 0.25,
-        iou_thres: float = 0.45,
+        conf: float = 0.25,
+        iou: float = 0.45,
+        imgsz: Optional[int] = None,
+        classes: Optional[List[int]] = None,
+        max_det: int = 300,
         color_format: str = "auto",
         output_file_format: Optional[str] = None,
         **kwargs,
-    ) -> Dict:
+    ) -> Results:
         """Run inference on a single image."""
         image_path = image if isinstance(image, (str, Path)) else None
 
+        # Resolve input size
+        effective_imgsz = imgsz if imgsz is not None else self._get_input_size()
+
         # Preprocess
         input_tensor, original_img, original_size = self._preprocess(
-            image, color_format
+            image, color_format, input_size=effective_imgsz
         )
 
         # Forward pass
@@ -385,19 +500,20 @@ class LibreYOLOBase(ABC):
 
         # Postprocess
         detections = self._postprocess(
-            output, conf_thres, iou_thres, original_size, **kwargs
+            output, conf, iou, original_size, max_det=max_det, **kwargs
         )
 
-        detections["source"] = str(image_path) if image_path else None
+        # Wrap into Results
+        result = self._wrap_results(detections, original_size, image_path, classes)
 
         # Save annotated image
         if save:
-            if detections["num_detections"] > 0:
+            if len(result) > 0:
                 annotated_img = draw_boxes(
                     original_img,
-                    detections["boxes"],
-                    detections["scores"],
-                    detections["classes"],
+                    result.boxes.xyxy.tolist(),
+                    result.boxes.conf.tolist(),
+                    result.boxes.cls.tolist(),
                 )
             else:
                 annotated_img = original_img
@@ -411,9 +527,9 @@ class LibreYOLOBase(ABC):
                 model_name=f"{self._get_model_name()}_{self.size}",
             )
             annotated_img.save(save_path)
-            detections["saved_path"] = str(save_path)
+            result.saved_path = str(save_path)
 
-        return detections
+        return result
 
     def _merge_tile_detections(
         self,
@@ -450,15 +566,18 @@ class LibreYOLOBase(ABC):
         image: ImageInput,
         save: bool = False,
         output_path: str = None,
-        conf_thres: float = 0.25,
-        iou_thres: float = 0.45,
+        conf: float = 0.25,
+        iou: float = 0.45,
+        imgsz: Optional[int] = None,
+        classes: Optional[List[int]] = None,
+        max_det: int = 300,
         color_format: str = "auto",
         overlap_ratio: float = 0.2,
         output_file_format: Optional[str] = None,
         **kwargs,
-    ) -> Dict:
+    ) -> Results:
         """Run tiled inference on large images."""
-        input_size = self._get_input_size()
+        input_size = imgsz if imgsz is not None else self._get_input_size()
         img_pil = ImageLoader.load(image, color_format=color_format)
         orig_width, orig_height = img_pil.size
         image_path = image if isinstance(image, (str, Path)) else None
@@ -467,12 +586,15 @@ class LibreYOLOBase(ABC):
         if orig_width <= input_size and orig_height <= input_size:
             return self._predict_single(
                 image,
-                save,
-                output_path,
-                conf_thres,
-                iou_thres,
-                color_format,
-                output_file_format,
+                save=save,
+                output_path=output_path,
+                conf=conf,
+                iou=iou,
+                imgsz=imgsz,
+                classes=classes,
+                max_det=max_det,
+                color_format=color_format,
+                output_file_format=output_file_format,
                 **kwargs,
             )
 
@@ -493,31 +615,38 @@ class LibreYOLOBase(ABC):
                     {"index": idx, "coords": (x1, y1, x2, y2), "image": tile.copy()}
                 )
 
-            result = self._predict_single(
-                tile, save=False, conf_thres=conf_thres, iou_thres=iou_thres, **kwargs
+            tile_result = self._predict_single(
+                tile, save=False, conf=conf, iou=iou, imgsz=imgsz, max_det=max_det,
+                **kwargs,
             )
 
             # Shift boxes to original coordinates
-            for box in result["boxes"]:
-                shifted_box = [box[0] + x1, box[1] + y1, box[2] + x1, box[3] + y1]
-                all_boxes.append(shifted_box)
-            all_scores.extend(result["scores"])
-            all_classes.extend(result["classes"])
+            if len(tile_result) > 0:
+                tile_boxes = tile_result.boxes.xyxy.tolist()
+                for box in tile_boxes:
+                    shifted_box = [box[0] + x1, box[1] + y1, box[2] + x1, box[3] + y1]
+                    all_boxes.append(shifted_box)
+                all_scores.extend(tile_result.boxes.conf.tolist())
+                all_classes.extend(tile_result.boxes.cls.tolist())
 
         # Merge detections
         final_boxes, final_scores, final_classes = self._merge_tile_detections(
-            all_boxes, all_scores, all_classes, iou_thres
+            all_boxes, all_scores, all_classes, iou
         )
 
+        # Build Results
+        original_size = (orig_width, orig_height)
         detections = {
             "boxes": final_boxes,
             "scores": final_scores,
             "classes": final_classes,
             "num_detections": len(final_boxes),
-            "source": str(image_path) if image_path else None,
-            "tiled": True,
-            "num_tiles": len(slices),
         }
+        result = self._wrap_results(detections, original_size, image_path, classes)
+
+        # Attach tiling metadata as extra attributes
+        result.tiled = True
+        result.num_tiles = len(slices)
 
         # Save if requested
         if save:
@@ -549,12 +678,12 @@ class LibreYOLOBase(ABC):
                 tile_data["image"].save(tiles_dir / tile_filename)
 
             # Save annotated image
-            if detections["num_detections"] > 0:
+            if len(result) > 0:
                 annotated_img = draw_boxes(
                     img_pil,
-                    detections["boxes"],
-                    detections["scores"],
-                    detections["classes"],
+                    result.boxes.xyxy.tolist(),
+                    result.boxes.conf.tolist(),
+                    result.boxes.cls.tolist(),
                 )
             else:
                 annotated_img = img_pil.copy()
@@ -575,18 +704,18 @@ class LibreYOLOBase(ABC):
                 "num_tiles": len(slices),
                 "tile_size": input_size,
                 "overlap_ratio": overlap_ratio,
-                "num_detections": detections["num_detections"],
-                "conf_thres": conf_thres,
-                "iou_thres": iou_thres,
+                "num_detections": len(result),
+                "conf": conf,
+                "iou": iou,
             }
             with open(save_dir / "metadata.json", "w") as f:
                 json.dump(metadata, f, indent=2)
 
-            detections["saved_path"] = str(save_dir)
-            detections["tiles_path"] = str(tiles_dir)
-            detections["grid_path"] = str(grid_path)
+            result.saved_path = str(save_dir)
+            result.tiles_path = str(tiles_dir)
+            result.grid_path = str(grid_path)
 
-        return detections
+        return result
 
     def export(
         self, output_path: str = None, input_size: int = None, opset: int = 12
@@ -635,7 +764,7 @@ class LibreYOLOBase(ABC):
             print(f"Export failed: {e}")
             raise
 
-    def predict(self, *args, **kwargs) -> Union[Dict, List[Dict]]:
+    def predict(self, *args, **kwargs) -> Union[Results, List[Results]]:
         """Alias for __call__ method."""
         return self(*args, **kwargs)
 

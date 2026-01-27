@@ -163,7 +163,7 @@ class LIBREYOLORFDETR(LibreYOLOBase):
             ) from e
 
     def _preprocess(
-        self, image: ImageInput, color_format: str = "auto"
+        self, image: ImageInput, color_format: str = "auto", input_size: Optional[int] = None,
     ) -> Tuple[torch.Tensor, Image.Image, Tuple[int, int]]:
         """
         Preprocess image for inference.
@@ -176,19 +176,22 @@ class LIBREYOLORFDETR(LibreYOLOBase):
         Args:
             image: Input image in various formats
             color_format: Color format hint (unused, kept for compatibility)
+            input_size: Override input resolution (None = model default)
 
         Returns:
             Tuple of (input_tensor, original_image, original_size)
             - input_tensor: (1, 3, H, W) normalized tensor
             - original_image: Original PIL image
-            - original_size: (height, width) of original image
+            - original_size: (width, height) of original image
         """
+        effective_res = input_size if input_size is not None else self.resolution
+
         # Load image to PIL
         img = ImageLoader.load(image, color_format=color_format)
 
-        # Get original size (height, width) - matches rfdetr format
+        # Get original size (width, height) — normalized convention across all models
         orig_w, orig_h = img.size  # PIL size is (W, H)
-        orig_size = (orig_h, orig_w)
+        orig_size = (orig_w, orig_h)
 
         # Convert to tensor [0, 1]
         img_tensor = F.to_tensor(img)
@@ -197,7 +200,7 @@ class LIBREYOLORFDETR(LibreYOLOBase):
         img_tensor = F.normalize(img_tensor, IMAGENET_MEAN, IMAGENET_STD)
 
         # Resize to model resolution (direct resize, no letterbox)
-        img_tensor = F.resize(img_tensor, (self.resolution, self.resolution))
+        img_tensor = F.resize(img_tensor, (effective_res, effective_res))
 
         # Add batch dimension
         img_tensor = img_tensor.unsqueeze(0)
@@ -214,6 +217,7 @@ class LIBREYOLORFDETR(LibreYOLOBase):
         conf_thres: float,
         iou_thres: float,
         original_size: Tuple[int, int],
+        max_det: int = 300,
         **kwargs,
     ) -> Dict:
         """
@@ -225,7 +229,8 @@ class LIBREYOLORFDETR(LibreYOLOBase):
             output: Model output dictionary with 'pred_logits' and 'pred_boxes'
             conf_thres: Confidence threshold for filtering detections
             iou_thres: IoU threshold (unused for RF-DETR, kept for compatibility)
-            original_size: (height, width) of original image
+            original_size: (width, height) of original image
+            max_det: Maximum number of detections
             **kwargs: Additional arguments (e.g., num_select)
 
         Returns:
@@ -235,11 +240,11 @@ class LIBREYOLORFDETR(LibreYOLOBase):
                 - classes: List of class IDs (0-indexed)
                 - num_detections: Number of detections
         """
-        # Get num_select from kwargs or use default
-        num_select = kwargs.get('num_select', 300)
+        num_select = kwargs.get('num_select', max_det)
 
-        # Prepare target sizes (height, width)
-        target_sizes = torch.tensor([original_size], device=self.device)
+        # original_size is now (width, height); rfdetr postprocess expects (height, width)
+        orig_w, orig_h = original_size
+        target_sizes = torch.tensor([(orig_h, orig_w)], device=self.device)
 
         # Postprocess (matches original rfdetr exactly)
         results = postprocess(output, target_sizes, num_select=num_select)

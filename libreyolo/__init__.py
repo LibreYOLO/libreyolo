@@ -14,6 +14,7 @@ def __getattr__(name):
         return LIBREYOLORFDETR
     raise AttributeError(f"module '{__name__}' has no attribute '{name}'")
 from .common.onnx import LIBREYOLOOnnx
+from .common.results import Results, Boxes
 # CAM/GradCAM removed
 from .validation import (
     ValidationConfig,
@@ -40,6 +41,9 @@ __all__ = [
     "LIBREYOLORFDETR",
     "LIBREYOLOOnnx",
     "create_model",
+    # Results
+    "Results",
+    "Boxes",
     # Validation
     "ValidationConfig",
     "BaseValidator",

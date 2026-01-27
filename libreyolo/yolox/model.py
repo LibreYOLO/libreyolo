@@ -15,7 +15,7 @@ from PIL import Image
 from ..common.base_model import LibreYOLOBase
 from ..common.image_loader import ImageInput
 from .nn import YOLOXModel
-from .utils import preprocess_image, postprocess
+from .utils import preprocess_image as _yolox_preprocess, postprocess
 
 
 class LIBREYOLOX(LibreYOLOBase):
@@ -133,11 +133,12 @@ class LIBREYOLOX(LibreYOLOBase):
             ) from e
 
     def _preprocess(
-        self, image: ImageInput, color_format: str = "auto"
+        self, image: ImageInput, color_format: str = "auto", input_size: Optional[int] = None,
     ) -> Tuple[torch.Tensor, Image.Image, Tuple[int, int]]:
         """YOLOX preprocessing with letterbox - stores ratio for postprocessing."""
-        tensor, orig_img, orig_size, ratio = preprocess_image(
-            image, input_size=self.input_size, color_format=color_format
+        effective_size = input_size if input_size is not None else self.input_size
+        tensor, orig_img, orig_size, ratio = _yolox_preprocess(
+            image, input_size=effective_size, color_format=color_format
         )
         # Store ratio for use in _postprocess
         self._current_ratio = ratio
@@ -152,6 +153,7 @@ class LIBREYOLOX(LibreYOLOBase):
         conf_thres: float,
         iou_thres: float,
         original_size: Tuple[int, int],
+        max_det: int = 300,
         **kwargs,
     ) -> Dict:
         # Compute ratio from original_size if not set during _preprocess
@@ -175,6 +177,7 @@ class LIBREYOLOX(LibreYOLOBase):
             input_size=actual_input_size,
             original_size=original_size,
             ratio=ratio,
+            max_det=max_det,
         )
 
     def export(
