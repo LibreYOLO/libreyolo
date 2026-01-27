@@ -381,7 +381,7 @@ class LIBREYOLOX(LibreYOLOBase):
             epochs=epochs,
             batch=batch,
             imgsz=imgsz,
-            lr=lr0,
+            lr0=lr0,
             optimizer=optimizer.lower(),
             device=device if device else "auto",
             workers=workers,

@@ -371,7 +371,7 @@ class YOLOXTrainer:
             self.final_loss = epoch_loss
 
             # Save checkpoint
-            if (epoch + 1) % self.config.save_interval == 0 or epoch == self.config.epochs - 1:
+            if (epoch + 1) % self.config.save_period == 0 or epoch == self.config.epochs - 1:
                 self._save_checkpoint(epoch, epoch_loss, val_metrics)
 
             # Early stopping check
@@ -633,8 +633,8 @@ class YOLOXTrainer:
         elif val_metrics:
             self.patience_counter += 1
 
-        # Save epoch checkpoint (every save_interval epochs)
-        if (epoch + 1) % self.config.save_interval == 0:
+        # Save epoch checkpoint (every save_period epochs)
+        if (epoch + 1) % self.config.save_period == 0:
             epoch_path = weights_dir / f"epoch_{epoch + 1}.pt"
             torch.save(checkpoint, epoch_path)
 
