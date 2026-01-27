@@ -71,6 +71,14 @@ class LIBREYOLOX(LibreYOLOBase):
             **kwargs,
         )
 
+        # Apply nano-specific BatchNorm settings (matching official YOLOX).
+        # Must run after super().__init__() which loads weights.
+        if self.size == 'nano':
+            for m in self.model.modules():
+                if isinstance(m, nn.BatchNorm2d):
+                    m.eps = 1e-3
+                    m.momentum = 0.03
+
     def _get_valid_sizes(self) -> List[str]:
         return ["nano", "tiny", "s", "m", "l", "x"]
 
@@ -118,13 +126,6 @@ class LIBREYOLOX(LibreYOLOBase):
                 state_dict = checkpoint
 
             self.model.load_state_dict(state_dict, strict=False)
-
-            # Apply nano-specific BN initialization (matching official YOLOX)
-            if self.size == 'nano':
-                for m in self.model.modules():
-                    if isinstance(m, nn.BatchNorm2d):
-                        m.eps = 1e-3
-                        m.momentum = 0.03
 
         except Exception as e:
             raise RuntimeError(
