@@ -406,7 +406,15 @@ def create_yolo_coco_api(data_yaml_path: str, split: str = 'val') -> YOLOCocoAPI
         raise ValueError(f"Images directory not found: {images_dir}")
 
     # Resolve labels directory (parallel to images)
-    labels_dir = Path(str(images_dir).replace('/images/', '/labels/').replace('\\images\\', '\\labels\\'))
+    # Handle both /images/ in middle and /images at end of path
+    images_str = str(images_dir)
+    if images_str.endswith('/images') or images_str.endswith('\\images'):
+        # Path ends with /images (e.g., test/images)
+        labels_dir = images_dir.parent / 'labels'
+    else:
+        # Path contains /images/ in middle (e.g., images/test)
+        labels_dir = Path(images_str.replace('/images/', '/labels/').replace('\\images\\', '\\labels\\'))
+
     if not labels_dir.exists():
         # Alternative: labels next to images dir
         labels_dir = images_dir.parent.parent / 'labels' / images_dir.name
