@@ -220,7 +220,7 @@ class YOLODataset(Dataset):
         """Get item without preprocessing."""
         label, origin_image_size, _, _ = self.annotations[index]
         img = self.load_resized_img(index)
-        return img, copy.deepcopy(label), origin_image_size, np.array([index])
+        return img, copy.deepcopy(label), origin_image_size, index
 
     def __getitem__(self, index: int):
         """Get preprocessed item."""
@@ -388,7 +388,7 @@ class COCODataset(Dataset):
         id_ = self.ids[index]
         label, origin_image_size, _, _ = self.annotations[index]
         img = self.load_resized_img(index)
-        return img, copy.deepcopy(label), origin_image_size, np.array([id_])
+        return img, copy.deepcopy(label), origin_image_size, id_
 
     def __getitem__(self, index: int):
         """Get preprocessed item."""
