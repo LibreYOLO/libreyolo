@@ -417,7 +417,8 @@ class DetectionValidator(BaseValidator):
         if self.coco_evaluator is not None and img_ids is not None:
             for i in range(batch_size):
                 pred = preds[i]
-                image_id = img_ids[i]
+                # Convert to Python int (img_ids may be numpy scalars which aren't hashable)
+                image_id = int(img_ids[i]) if hasattr(img_ids[i], '__int__') else img_ids[i]
                 self.coco_evaluator.update(pred, image_id)
 
         # Skip legacy metrics if using COCO eval
