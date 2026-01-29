@@ -382,6 +382,7 @@ class DDetect(nn.Module):
     Anchor-free detection with DFL for box regression.
 
     Uses grouped convolutions (groups=4) in the box branch to match YOLO.
+    Supports training mode with loss computation when targets are provided.
     """
 
     dynamic = False
@@ -405,6 +406,9 @@ class DDetect(nn.Module):
         self.reg_max = reg_max
         self.no = nc + reg_max * 4  # number of outputs per anchor
         self.stride = torch.tensor(stride) if stride else torch.zeros(self.nl)
+
+        # Loss function (lazy init for training)
+        self._loss_fn = None
 
         # Groups for box branch (YOLO uses groups=4)
         groups = 4 if use_group else 1
@@ -440,14 +444,45 @@ class DDetect(nn.Module):
             a[-1].bias.data[:] = 1.0  # box
             b[-1].bias.data[:self.nc] = math.log(5 / self.nc / (640 / float(s)) ** 2)  # cls
 
-    def forward(self, x):
-        """Forward pass returning box and class predictions."""
+    def _get_loss_fn(self, device):
+        """Lazily initialize loss function for training."""
+        if self._loss_fn is None:
+            from .loss import YOLOv9Loss
+            self._loss_fn = YOLOv9Loss(
+                num_classes=self.nc,
+                reg_max=self.reg_max,
+                strides=self.stride.tolist(),
+                image_size=None,  # Will be set dynamically
+                device=device,
+            )
+        return self._loss_fn
+
+    def forward(self, x, targets=None, img_size=None):
+        """
+        Forward pass returning box and class predictions.
+
+        Args:
+            x: List of feature maps [P3, P4, P5]
+            targets: Optional ground truth [B, max_targets, 5] with [class, x1, y1, x2, y2] normalized
+            img_size: Optional image size (W, H) for anchor generation
+
+        Returns:
+            Training with targets: Dict with loss values
+            Training without targets: Raw predictions (list of tensors)
+            Inference: Decoded predictions
+        """
         shape = x[0].shape  # BCHW
 
         for i in range(self.nl):
             x[i] = torch.cat((self.cv2[i](x[i]), self.cv3[i](x[i])), 1)
 
         if self.training:
+            if targets is not None:
+                # Compute loss
+                loss_fn = self._get_loss_fn(x[0].device)
+                if img_size is not None:
+                    loss_fn.update_anchors(list(img_size))
+                return loss_fn(x, targets)
             return x
 
         # Inference mode
@@ -826,7 +861,20 @@ class LibreYOLO9Model(nn.Module):
             stride=(8, 16, 32)
         )
 
-    def forward(self, x):
+    def forward(self, x, targets=None):
+        """
+        Forward pass through backbone, neck, and detection head.
+
+        Args:
+            x: Input tensor [B, 3, H, W]
+            targets: Optional ground truth [B, max_targets, 5] with [class, x1, y1, x2, y2] normalized
+                    Only used during training to compute loss.
+
+        Returns:
+            Training with targets: Dict with loss values (total_loss, box_loss, dfl_loss, cls_loss)
+            Training without targets: Raw predictions (list of tensors)
+            Inference: Dict with decoded predictions and features
+        """
         # Backbone
         p3, p4, p5 = self.backbone(x)
 
@@ -834,6 +882,13 @@ class LibreYOLO9Model(nn.Module):
         n3, n4, n5 = self.neck(p3, p4, p5)
 
         # Detection head
+        if self.training and targets is not None:
+            # Pass image size for anchor generation
+            img_size = (x.shape[3], x.shape[2])  # (W, H)
+            output = self.detect([n3, n4, n5], targets=targets, img_size=img_size)
+            return output
+
+        # Normal forward (training without targets or inference)
         output = self.detect([n3, n4, n5])
 
         if self.training:

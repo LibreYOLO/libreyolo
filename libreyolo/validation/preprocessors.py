@@ -227,3 +227,57 @@ class RFDETRValPreprocessor(BaseValPreprocessor):
             padded_targets[:n] = targets[:n]
 
         return resized_img, padded_targets
+
+
+class V9ValPreprocessor(BaseValPreprocessor):
+    """
+    YOLOv9 validation preprocessor.
+
+    Uses letterbox resize with gray padding (114, 114, 114).
+    Normalizes to 0-1 range.
+    """
+
+    def __init__(self, img_size: Tuple[int, int], max_labels: int = 120, pad_value: int = 114):
+        super().__init__(img_size, max_labels)
+        self.pad_value = pad_value
+
+    @property
+    def normalize(self) -> bool:
+        return True
+
+    @property
+    def uses_letterbox(self) -> bool:
+        return True
+
+    def __call__(
+        self, img: np.ndarray, targets: np.ndarray, input_size: Tuple[int, int]
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        orig_h, orig_w = img.shape[:2]
+        target_h, target_w = input_size
+
+        # Letterbox resize maintaining aspect ratio
+        ratio = min(target_h / orig_h, target_w / orig_w)
+        new_h = int(orig_h * ratio)
+        new_w = int(orig_w * ratio)
+
+        resized_img = cv2.resize(img, (new_w, new_h), interpolation=cv2.INTER_LINEAR)
+
+        # Create padded image with gray background
+        padded_img = np.full((target_h, target_w, 3), self.pad_value, dtype=np.uint8)
+        padded_img[:new_h, :new_w] = resized_img
+
+        # Convert BGR to RGB (v9 expects RGB)
+        padded_img = padded_img[:, :, ::-1]
+
+        # Convert to CHW and float, normalize to 0-1
+        padded_img = padded_img.transpose(2, 0, 1)
+        padded_img = np.ascontiguousarray(padded_img, dtype=np.float32) / 255.0
+
+        # Process targets - they come scaled by letterbox r
+        padded_targets = np.zeros((self.max_labels, 5), dtype=np.float32)
+        if len(targets) > 0:
+            targets = np.array(targets).copy()
+            n = min(len(targets), self.max_labels)
+            padded_targets[:n] = targets[:n]
+
+        return padded_img, padded_targets
