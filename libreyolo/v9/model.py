@@ -1,9 +1,10 @@
 """
-LibreYOLO9 inference wrapper.
+LibreYOLO9 inference and training wrapper.
 
-Provides a high-level API for YOLOv9 object detection inference.
+Provides a high-level API for YOLOv9 object detection.
 """
 
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 import torch
@@ -13,7 +14,7 @@ from PIL import Image
 from ..common.base_model import LibreYOLOBase
 from ..common.image_loader import ImageInput
 from ..common.utils import preprocess_image
-from .nn import LibreYOLO9Model
+from .nn import LibreYOLO9Model, DDetect, V9_CONFIGS
 from .utils import postprocess
 
 
@@ -120,3 +121,172 @@ class LIBREYOLO9(LibreYOLOBase):
     def _strict_loading(self) -> bool:
         """Use non-strict loading for YOLOv9 to handle profiling artifacts in weights."""
         return False
+
+    def _get_val_preprocessor(self, img_size: int = None):
+        """YOLOv9 uses letterbox + normalization (0-1 range)."""
+        from libreyolo.validation.preprocessors import V9ValPreprocessor
+        if img_size is None:
+            img_size = 640
+        return V9ValPreprocessor(img_size=(img_size, img_size))
+
+    def _rebuild_for_new_classes(self, new_nc: int):
+        """Rebuild detection head for different number of classes."""
+        self.nb_classes = new_nc
+        self.model.nc = new_nc
+        cfg = V9_CONFIGS[self.size]
+        self.model.detect = DDetect(
+            nc=new_nc,
+            ch=cfg['detect_channels'],
+            reg_max=self.reg_max,
+            stride=(8, 16, 32),
+        )
+        self.model.detect.to(next(self.model.parameters()).device)
+
+    def train(
+        self,
+        data: str,
+        *,
+        # Training parameters
+        epochs: int = 300,
+        batch: int = 16,
+        imgsz: int = 640,
+
+        # Optimizer parameters
+        lr0: float = 0.01,
+        optimizer: str = "SGD",
+
+        # System parameters
+        device: str = "",
+        workers: int = 8,
+        seed: int = 0,
+
+        # Output parameters
+        project: str = "runs/train",
+        name: str = "v9_exp",
+        exist_ok: bool = False,
+
+        # Training features
+        resume: bool = False,
+        amp: bool = True,
+        patience: int = 50,
+
+        **kwargs
+    ) -> dict:
+        """
+        Train the YOLOv9 model on a dataset.
+
+        Args:
+            data: Path to data.yaml file (required)
+
+            epochs: Number of epochs to train (default: 300)
+            batch: Batch size (default: 16)
+            imgsz: Input image size (default: 640)
+
+            lr0: Initial learning rate (default: 0.01)
+            optimizer: Optimizer name ('SGD', 'Adam', 'AdamW')
+
+            device: Device to train on ('', 'cpu', 'cuda', '0', '0,1,2,3')
+            workers: Number of dataloader workers (default: 8)
+            seed: Random seed for reproducibility
+
+            project: Root directory for training runs
+            name: Experiment name (auto-increments)
+            exist_ok: If True, overwrite existing experiment directory
+
+            resume: If True, resume training from checkpoint
+            amp: Enable automatic mixed precision training
+            patience: Early stopping patience (epochs without improvement)
+
+            **kwargs: Additional training parameters
+
+        Returns:
+            dict: Training results containing:
+                - 'final_loss': Final training loss
+                - 'best_mAP50': Best mAP@0.5 achieved
+                - 'best_mAP50_95': Best mAP@0.5:0.95 achieved
+                - 'best_epoch': Epoch with best validation performance
+                - 'save_dir': Path to training output directory
+                - 'best_checkpoint': Path to best model checkpoint
+                - 'last_checkpoint': Path to last model checkpoint
+
+        Example:
+            >>> from libreyolo import LIBREYOLO9
+            >>> model = LIBREYOLO9(size='t')
+            >>> results = model.train(
+            ...     data='coco128.yaml',
+            ...     epochs=100,
+            ...     batch=16,
+            ...     imgsz=640,
+            ...     device='0'
+            ... )
+            >>> print(f"Best mAP: {results['best_mAP50_95']:.3f}")
+        """
+        from .trainer import V9Trainer
+        from .config import V9TrainConfig
+        from libreyolo.data import load_data_config
+
+        # Load and validate data config
+        try:
+            data_config = load_data_config(data, autodownload=True)
+            data = data_config.get('yaml_file', data)
+        except Exception as e:
+            raise FileNotFoundError(f"Failed to load dataset config '{data}': {e}")
+
+        # Reconcile nb_classes with dataset
+        yaml_nc = data_config.get('nc')
+        if yaml_nc is not None and yaml_nc != self.nb_classes:
+            self._rebuild_for_new_classes(yaml_nc)
+
+        # Create training config
+        config = V9TrainConfig(
+            size=self.size,
+            num_classes=self.nb_classes,
+            reg_max=self.reg_max,
+            data=data,
+            epochs=epochs,
+            batch=batch,
+            imgsz=imgsz,
+            lr0=lr0,
+            optimizer=optimizer.lower(),
+            device=device if device else "auto",
+            workers=workers,
+            seed=seed,
+            project=project,
+            name=name,
+            exist_ok=exist_ok,
+            resume=resume,
+            amp=amp,
+            patience=patience,
+            **kwargs
+        )
+
+        # Set random seed for reproducibility
+        if seed > 0:
+            import random
+            import numpy as np
+            random.seed(seed)
+            np.random.seed(seed)
+            torch.manual_seed(seed)
+            if torch.cuda.is_available():
+                torch.cuda.manual_seed_all(seed)
+
+        # Create trainer (pass wrapper model for validation)
+        trainer = V9Trainer(model=self.model, config=config, wrapper_model=self)
+
+        # Resume if requested
+        if resume:
+            if not self.model_path:
+                raise ValueError(
+                    "resume=True requires a checkpoint. Load one first: "
+                    "model = LIBREYOLO9('path/to/last.pt', size='t'); model.train(data=..., resume=True)"
+                )
+            trainer.resume(str(self.model_path))
+
+        # Run training
+        results = trainer.train()
+
+        # Load best model weights into current instance
+        if Path(results['best_checkpoint']).exists():
+            self._load_weights(results['best_checkpoint'])
+
+        return results
