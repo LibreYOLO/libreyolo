@@ -1,0 +1,154 @@
+# COCO5000 Dataset - 5000 images for medium-scale training
+# Uses COCO val2017 (5000 images) as training data
+# Example usage: model.train(data="coco5000.yaml", epochs=100)
+#
+# Useful for:
+# - Quick training experiments (faster than full 118k COCO)
+# - Testing training pipelines
+# - Limited compute scenarios
+
+# Dataset root directory
+path: coco5000
+
+# Train/val splits - both use val2017 images (5000 total)
+# We split: 4000 train, 1000 val
+train: images/train  # 4000 images
+val: images/val      # 1000 images
+test:
+
+# Number of classes
+nc: 80
+
+# Class names
+names:
+  0: person
+  1: bicycle
+  2: car
+  3: motorcycle
+  4: airplane
+  5: bus
+  6: train
+  7: truck
+  8: boat
+  9: traffic light
+  10: fire hydrant
+  11: stop sign
+  12: parking meter
+  13: bench
+  14: bird
+  15: cat
+  16: dog
+  17: horse
+  18: sheep
+  19: cow
+  20: elephant
+  21: bear
+  22: zebra
+  23: giraffe
+  24: backpack
+  25: umbrella
+  26: handbag
+  27: tie
+  28: suitcase
+  29: frisbee
+  30: skis
+  31: snowboard
+  32: sports ball
+  33: kite
+  34: baseball bat
+  35: baseball glove
+  36: skateboard
+  37: surfboard
+  38: tennis racket
+  39: bottle
+  40: wine glass
+  41: cup
+  42: fork
+  43: knife
+  44: spoon
+  45: bowl
+  46: banana
+  47: apple
+  48: sandwich
+  49: orange
+  50: broccoli
+  51: carrot
+  52: hot dog
+  53: pizza
+  54: donut
+  55: cake
+  56: chair
+  57: couch
+  58: potted plant
+  59: bed
+  60: dining table
+  61: toilet
+  62: tv
+  63: laptop
+  64: mouse
+  65: remote
+  66: keyboard
+  67: cell phone
+  68: microwave
+  69: oven
+  70: toaster
+  71: sink
+  72: refrigerator
+  73: book
+  74: clock
+  75: vase
+  76: scissors
+  77: teddy bear
+  78: hair drier
+  79: toothbrush
+
+# Download script (images from official COCO, labels from third-party)
+download: |
+  import shutil
+  from pathlib import Path
+  from libreyolo.utils.downloads import ASSETS_URL, download
+
+  dir = Path(yaml["path"])
+  dir.mkdir(parents=True, exist_ok=True)
+
+  # Download val2017 images from official COCO (not Ultralytics)
+  download(
+      ["http://images.cocodataset.org/zips/val2017.zip"],
+      dir=dir,
+      threads=1,
+  )
+
+  # Download labels (YOLO format)
+  download([ASSETS_URL + "/coco2017labels.zip"], dir=dir.parent)
+
+  # Reorganize into train/val split (4000/1000)
+  val2017_dir = dir / "val2017"
+  train_dir = dir / "images" / "train"
+  val_dir = dir / "images" / "val"
+  train_dir.mkdir(parents=True, exist_ok=True)
+  val_dir.mkdir(parents=True, exist_ok=True)
+
+  # Get all images and split
+  images = sorted(val2017_dir.glob("*.jpg"))
+  for i, img in enumerate(images):
+      if i < 4000:
+          shutil.move(str(img), str(train_dir / img.name))
+      else:
+          shutil.move(str(img), str(val_dir / img.name))
+
+  # Clean up original val2017 folder
+  if val2017_dir.exists():
+      shutil.rmtree(val2017_dir)
+
+  # Copy corresponding labels
+  labels_src = dir.parent / "coco" / "labels" / "val2017"
+  train_labels = dir / "labels" / "train"
+  val_labels = dir / "labels" / "val"
+  train_labels.mkdir(parents=True, exist_ok=True)
+  val_labels.mkdir(parents=True, exist_ok=True)
+
+  for img_dir, label_dir in [(train_dir, train_labels), (val_dir, val_labels)]:
+      for img in img_dir.glob("*.jpg"):
+          label_file = labels_src / (img.stem + ".txt")
+          if label_file.exists():
+              shutil.copy(str(label_file), str(label_dir / label_file.name))
