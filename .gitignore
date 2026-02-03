@@ -40,6 +40,7 @@ uv.lock
 .pytest_cache/
 .coverage
 htmlcov/
+tests/e2e/rf5_results/
 
 # OS
 .DS_Store
