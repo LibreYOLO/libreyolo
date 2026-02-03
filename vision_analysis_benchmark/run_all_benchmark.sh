@@ -5,7 +5,7 @@ echo "Running FULL benchmark (all 19 models)..."
 echo "This will take a while..."
 
 python vision_analysis_benchmark/benchmark_coco.py \
-    --coco-yaml vision_analysis_benchmark/coco_benchmark.yaml \
+    --coco-yaml vision_analysis_benchmark/coco-val-only \
     --output-dir ./benchmark_results \
     --batch-size 16
 
