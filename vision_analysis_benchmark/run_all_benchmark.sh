@@ -1,5 +1,5 @@
 #!/bin/bash
-# Full benchmark script - ALL 19 models
+# Full benchmark script - ALL 15 models
 
 echo "Running FULL benchmark (all 19 models)..."
 echo "This will take a while..."
