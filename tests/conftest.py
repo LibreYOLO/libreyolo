@@ -3,6 +3,20 @@ from pathlib import Path
 import shutil
 import os
 
+
+def pytest_configure(config):
+    """Register custom markers."""
+    config.addinivalue_line(
+        "markers", "e2e: mark test as end-to-end (requires GPU and datasets)"
+    )
+    config.addinivalue_line(
+        "markers", "unit: mark test as unit test (fast, no external deps)"
+    )
+    config.addinivalue_line(
+        "markers", "integration: mark test as integration test"
+    )
+
+
 @pytest.fixture(scope="session")
 def project_root():
     return Path(__file__).parent.parent
