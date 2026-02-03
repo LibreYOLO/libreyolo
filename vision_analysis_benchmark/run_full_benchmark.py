@@ -16,7 +16,7 @@ import sys
 from pathlib import Path
 
 # Configuration
-COCO_YAML = "vision_analysis_benchmark/coco_benchmark.yaml"
+COCO_YAML = "vision_analysis_benchmark/coco-val-only"
 OUTPUT_DIR = "./benchmark_results"
 BATCH_SIZE = 16  # Use batch size 16 for faster processing
 
