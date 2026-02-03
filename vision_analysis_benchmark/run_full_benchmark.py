@@ -2,7 +2,7 @@
 """
 Run full benchmark of all LibreYOLO models on COCO val2017.
 
-This will benchmark all 19 model variants:
+This will benchmark all 15 model variants:
 - YOLOv8: n, s, m, l, x (5 models)
 - YOLOv9: t, s, m, c (4 models)
 - YOLOv11: n, s, m, l, x (5 models)

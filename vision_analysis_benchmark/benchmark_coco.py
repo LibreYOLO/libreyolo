@@ -11,6 +11,7 @@ Usage:
 
 import argparse
 import json
+import os
 import platform
 import subprocess
 from datetime import datetime
@@ -28,6 +29,11 @@ from libreyolo import LIBREYOLO
 # ============================================================================
 
 LIBREYOLO_MODELS = {
+    'rfdetr': {
+        'variants': ['n', 's', 'b', 'm', 'l'],
+        'weights_pattern': 'libreyolorfdetr{variant}.pt',
+        'input_size': 640,
+    },
     'yolov9': {
         'variants': ['t', 's', 'm', 'c'],
         'weights_pattern': 'libreyolo9{variant}.pt',
@@ -46,11 +52,12 @@ LIBREYOLO_MODELS = {
 # ============================================================================
 
 def get_gpu_info() -> Dict[str, Any]:
-    """Collect GPU information."""
-    gpu_name = "Unknown"
+    """Collect GPU/device information."""
+    gpu_name = "CPU"
     memory_gb = 0
-    driver = "Unknown"
+    driver = "N/A"
 
+    # Try NVIDIA GPU first
     try:
         result = subprocess.run(
             ['nvidia-smi', '--query-gpu=name,memory.total,driver_version', '--format=csv,noheader'],
@@ -61,13 +68,17 @@ def get_gpu_info() -> Dict[str, Any]:
         parts = result.stdout.strip().split(', ')
         if len(parts) >= 3:
             gpu_name = parts[0]
-            # Handle memory format like "40960 MiB" or "Insufficient Permissions"
             mem_str = parts[1]
             if 'MiB' in mem_str or 'MB' in mem_str:
                 memory_gb = float(mem_str.split()[0]) / 1024
             driver = parts[2]
-    except Exception as e:
-        print(f"Warning: Could not get GPU info: {e}")
+    except (FileNotFoundError, subprocess.CalledProcessError):
+        # No NVIDIA GPU - check for Raspberry Pi
+        try:
+            with open('/proc/device-tree/model', 'r') as f:
+                gpu_name = f.read().strip().replace('\x00', '')
+        except:
+            gpu_name = "CPU"
 
     cuda_version = torch.version.cuda if torch.cuda.is_available() else "N/A"
 
@@ -89,7 +100,7 @@ def get_cpu_info():
             cpu_cores = len([l for l in lines if 'processor' in l])
         else:
             cpu_model = platform.processor()
-            cpu_cores = platform.os.cpu_count() or 0
+            cpu_cores = os.cpu_count() or 0
     except Exception:
         cpu_model = "Unknown"
         cpu_cores = 0
@@ -250,13 +261,19 @@ def benchmark_model(
                 print(f"  Warning: Image directory not found at {img_dir}")
             else:
                 coco_gt = COCO(str(ann_file))
-                img_ids = sorted(coco_gt.getImgIds())[:100]  # Sample 100 images
+                img_ids = sorted(coco_gt.getImgIds())[:500]  # Sample 500 images for timing
 
                 timings = []
                 use_cuda_events = torch.cuda.is_available()
 
                 if not use_cuda_events:
                     print("  Warning: CUDA not available, using CPU timing")
+
+                # Warmup runs
+                print("  Running 10 warmup iterations...")
+                warmup_img = img_dir / coco_gt.loadImgs(img_ids[0])[0]['file_name']
+                for _ in range(10):
+                    _ = model.predict(str(warmup_img), save=False, conf_thres=0.001, iou_thres=0.6)
 
                 for img_id in tqdm(img_ids, desc="Timing"):
                     img_info = coco_gt.loadImgs(img_id)[0]
