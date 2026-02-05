@@ -168,32 +168,33 @@ def run_rf5(config_path: Path, size: str, datasets: Optional[List[str]] = None,
     print(f"RF5 | {model_name} | LR={config.get('lr0')} | {len(datasets)} datasets")
     print("=" * 70)
 
+    RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+    out = RESULTS_DIR / f"rf5_{model_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+
     results = []
     for ds in datasets:
         results.append(train_on_dataset(config, ds, device=device))
 
-    successful = [r for r in results if r.get("success")]
-    test_maps = [r["test_mAP50"] for r in successful if "test_mAP50" in r]
-    rf5_score = sum(test_maps) / len(test_maps) if test_maps else 0.0
+        successful = [r for r in results if r.get("success")]
+        test_maps = [r["test_mAP50"] for r in successful if "test_mAP50" in r]
+        rf5_score = sum(test_maps) / len(test_maps) if test_maps else 0.0
 
-    summary = {
-        "rf5_score": rf5_score,
-        "model": model_name,
-        "successful": len(successful),
-        "failed": len(results) - len(successful),
-        "results": results,
-        "timestamp": datetime.now().isoformat(),
-    }
+        summary = {
+            "rf5_score": rf5_score,
+            "model": model_name,
+            "successful": len(successful),
+            "failed": len(results) - len(successful),
+            "results": results,
+            "timestamp": datetime.now().isoformat(),
+        }
+
+        with open(out, "w") as f:
+            json.dump(summary, f, indent=2)
 
     print("\n" + "=" * 70)
     print(f"RF5 SCORE: {rf5_score:.4f}")
     print(f"Completed: {len(successful)}/{len(results)}")
     print("=" * 70)
-
-    RESULTS_DIR.mkdir(parents=True, exist_ok=True)
-    out = RESULTS_DIR / f"rf5_{model_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
-    with open(out, "w") as f:
-        json.dump(summary, f, indent=2)
     print(f"Saved: {out}")
 
     return summary
