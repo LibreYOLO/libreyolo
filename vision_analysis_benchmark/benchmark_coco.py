@@ -30,9 +30,9 @@ from libreyolo import LIBREYOLO
 
 LIBREYOLO_MODELS = {
     'rfdetr': {
-        'variants': ['n', 's', 'b', 'm', 'l'],
-        'weights_pattern': 'libreyolorfdetr{variant}.pt',
-        'input_size': 640,
+        'variants': ['nano', 'small', 'base', 'medium', 'large'],
+        'weights_pattern': 'librerfdetr{variant}.pth',
+        'input_size': 560,
     },
     'yolov9': {
         'variants': ['t', 's', 'm', 'c'],
@@ -444,7 +444,8 @@ def main():
                     model_name = f"{family}{variant}"
                     if model_spec == model_name:
                         weights = info['weights_pattern'].format(variant=variant)
-                        models_to_benchmark.append((model_name, weights, variant))
+                        size = variant[0] if family == 'rfdetr' else variant
+                        models_to_benchmark.append((model_name, weights, size))
                         break
     else:
         # Benchmark all models
@@ -453,7 +454,8 @@ def main():
             for variant in info['variants']:
                 model_name = f"{family}{variant}"
                 weights = info['weights_pattern'].format(variant=variant)
-                models_to_benchmark.append((model_name, weights, variant))
+                size = variant[0] if family == 'rfdetr' else variant
+                models_to_benchmark.append((model_name, weights, size))
 
     print(f"Will benchmark {len(models_to_benchmark)} models")
 
