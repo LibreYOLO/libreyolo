@@ -113,32 +113,50 @@ def detect_size_from_filename(filename: str) -> tuple:
     return (None, None)
 
 
-def detect_rfdetr_size(keys):
+def detect_rfdetr_size(state_dict):
     """
-    Detect RF-DETR model size from state dict keys.
+    Detect RF-DETR model size from checkpoint.
 
-    RF-DETR sizes have different hidden dimensions and query counts:
-    - nano (n): hidden_dim=128, num_queries=100
-    - small (s): hidden_dim=256, num_queries=200
-    - base (b): hidden_dim=256, num_queries=300
-    - medium (m): hidden_dim=384, num_queries=300
-    - large (l): hidden_dim=384, num_queries=300
+    Uses args.resolution stored in the checkpoint:
+    - 384 -> nano (n)
+    - 512 -> small (s)
+    - 560 -> large (l)
+    - 576 -> medium (m)
+
+    Falls back to backbone_dim (768 = large, 384 = others) if args not present.
 
     Args:
-        keys: List of state dict keys
+        state_dict: Full checkpoint dict (not just keys)
 
     Returns:
-        Size code ('n', 's', 'b', 'm', 'l'), defaults to 'b' if cannot determine
+        Size code ('n', 's', 'b', 'm', 'l') or None if cannot determine
     """
-    # Look for embedding layers to determine hidden_dim
-    for key in keys:
-        if 'query_embed' in key.lower() or 'input_proj' in key.lower():
-            # Try to infer from shape if available
-            pass
+    RESOLUTION_TO_SIZE = {384: 'n', 512: 's', 560: 'l', 576: 'm'}
 
-    # If we can't determine from keys, default to base
-    # User should provide size explicitly for RF-DETR models
-    return 'b'
+    # Primary: read resolution from checkpoint args
+    args = state_dict.get('args')
+    if args is not None:
+        resolution = getattr(args, 'resolution', None) if hasattr(args, 'resolution') else args.get('resolution') if isinstance(args, dict) else None
+        if resolution in RESOLUTION_TO_SIZE:
+            return RESOLUTION_TO_SIZE[resolution]
+
+    # Fallback: infer from backbone position_embeddings shape
+    weights = state_dict.get('model', state_dict)
+    pos_key = 'backbone.0.encoder.encoder.embeddings.position_embeddings'
+    if pos_key in weights:
+        backbone_dim = weights[pos_key].shape[2]
+        pos_tokens = weights[pos_key].shape[1]
+        if backbone_dim == 768:
+            return 'l'
+        # backbone_dim=384: distinguish by pos_tokens
+        if pos_tokens == 577:
+            return 'n'
+        if pos_tokens == 1025:
+            return 's'
+        if pos_tokens == 1297:
+            return 'm'
+
+    return None
 
 def _unwrap_state_dict(state_dict: dict) -> dict:
     """
@@ -392,7 +410,7 @@ def LIBREYOLO(
             size = detect_yolo9_size(unwrapped_weights)
             model_type = "YOLOv9"
         elif is_rfdetr:
-            size = detect_rfdetr_size(keys)
+            size = detect_rfdetr_size(state_dict)
             model_type = "RF-DETR"
         else:
             model_type = "Unknown"
