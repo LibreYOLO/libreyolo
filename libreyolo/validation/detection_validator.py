@@ -185,21 +185,7 @@ class DetectionValidator(BaseValidator):
         # Determine dataset format and create dataset
         data_path = Path(data_dir)
 
-        if (data_path / "annotations").exists():
-            # COCO format (JSON annotations)
-            json_file = f"instances_{self.config.split}2017.json"
-            if not (data_path / "annotations" / json_file).exists():
-                # Try alternative naming
-                json_file = f"instances_{self.config.split}.json"
-
-            dataset = COCODataset(
-                data_dir=str(data_path),
-                json_file=json_file,
-                name=f"{self.config.split}2017" if "2017" in json_file else self.config.split,
-                img_size=img_size,
-                preproc=self.val_preproc,
-            )
-        elif img_files is not None:
+        if img_files is not None:
             # File list mode (.txt format)
             dataset = YOLODataset(
                 img_files=img_files,
