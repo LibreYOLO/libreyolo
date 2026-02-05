@@ -211,7 +211,8 @@ class DetMetrics:
 
         # 101-point interpolation
         x = np.linspace(0, 1, 101)
-        ap = np.trapz(np.interp(x, mrec, mpre), x)
+        _trapz = getattr(np, 'trapezoid', getattr(np, 'trapz', None))
+        ap = _trapz(np.interp(x, mrec, mpre), x)
 
         return float(ap)
 
