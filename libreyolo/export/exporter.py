@@ -194,7 +194,12 @@ class Exporter:
             from .calibration import get_calibration_dataloader
             # Determine model type for correct preprocessing
             model_name = self.model._get_model_name().lower()
-            model_type = "yolox" if "yolox" in model_name else "yolov9"
+            if "yolox" in model_name:
+                model_type = "yolox"
+            elif "rfdetr" in model_name:
+                model_type = "rfdetr"
+            else:
+                model_type = "yolov9"
             calibration_data = get_calibration_dataloader(
                 data=data,
                 imgsz=imgsz,
