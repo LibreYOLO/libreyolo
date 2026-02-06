@@ -50,8 +50,9 @@ class CalibrationDataLoader:
             batch: Batch size for calibration.
             fraction: Fraction of dataset to use (0.0-1.0). Use smaller values
                      for faster calibration with slight accuracy tradeoff.
-            model_type: Model type for preprocessing ("yolox" or "yolov9").
-                       YOLOX uses BGR 0-255, YOLOv9 uses RGB 0-1.
+            model_type: Model type for preprocessing ("yolox", "yolov9", or "rfdetr").
+                       YOLOX uses BGR 0-255, YOLOv9 uses RGB 0-1,
+                       RF-DETR uses RGB with ImageNet mean/std normalization.
         """
         self.imgsz = imgsz
         self.batch = batch
@@ -93,10 +94,11 @@ class CalibrationDataLoader:
         """
         Preprocess a single image for calibration.
 
-        Performs letterbox resize and normalization matching inference preprocessing.
+        Performs resize and normalization matching inference preprocessing.
         Uses model-specific preprocessing:
-        - YOLOX: BGR color, 0-255 range
-        - YOLOv9: RGB color, 0-1 range
+        - YOLOX: BGR color, 0-255 range, letterbox
+        - YOLOv9: RGB color, 0-1 range, letterbox
+        - RF-DETR: RGB color, ImageNet mean/std normalization, direct resize
 
         Args:
             img_path: Path to image file.
@@ -109,9 +111,18 @@ class CalibrationDataLoader:
         if img is None:
             raise FileNotFoundError(f"Cannot read image: {img_path}")
 
-        # Color space: YOLOX uses BGR, YOLOv9 uses RGB
+        # Color space: YOLOX uses BGR, YOLOv9/RF-DETR use RGB
         if self.model_type != "yolox":
             img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+
+        if self.model_type == "rfdetr":
+            # RF-DETR: direct resize (no letterbox), ImageNet normalization
+            img = cv2.resize(img, (self.imgsz, self.imgsz), interpolation=cv2.INTER_LINEAR)
+            img = img.transpose(2, 0, 1).astype(np.float32) / 255.0
+            mean = np.array([0.485, 0.456, 0.406], dtype=np.float32).reshape(3, 1, 1)
+            std = np.array([0.229, 0.224, 0.225], dtype=np.float32).reshape(3, 1, 1)
+            img = (img - mean) / std
+            return img
 
         # Letterbox resize to target size
         h, w = img.shape[:2]
