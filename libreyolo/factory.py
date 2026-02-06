@@ -335,6 +335,11 @@ def LIBREYOLO(
         from .common.onnx import LIBREYOLOOnnx
         return LIBREYOLOOnnx(model_path, nb_classes=nb_classes or 80, device=device)
 
+    # Handle TensorRT engines
+    if model_path.endswith('.engine'):
+        from .common.tensorrt import LIBREYOLOTensorRT
+        return LIBREYOLOTensorRT(model_path, nb_classes=nb_classes or 80, device=device)
+
     # For .pt files, handle file download if needed
     if not Path(model_path).exists():
         # Try to extract size from filename if not provided
