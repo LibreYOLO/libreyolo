@@ -73,7 +73,7 @@ class LIBREYOLOTensorRT:
         # Priority: explicit arg > sidecar > default (80)
         self.nb_classes = nb_classes if nb_classes is not None else self._metadata.get("nb_classes", 80)
         self.model_family = self._metadata.get("model_family")
-        self.size = self._metadata.get("model_size")
+        self._sidecar_size = self._metadata.get("model_size")
 
         # Build names dict: sidecar names when available, else COCO / generic
         sidecar_names = self._metadata.get("names")
@@ -121,30 +121,38 @@ class LIBREYOLOTensorRT:
         # Extract input size from shape (batch, channels, height, width)
         self.input_size = self.input_shape[2]  # Assuming square input
 
-        # Allocate CUDA memory for inputs/outputs
+        # Detect batch capability: -1 means dynamic batch
+        self._dynamic_batch = self.input_shape[0] == -1
+        self._max_batch = 1 if self._dynamic_batch else self.input_shape[0]
+
+        # Allocate CUDA memory for inputs/outputs (batch=1 initially)
         self._allocate_buffers()
 
         # Determine model type from output shapes
         self._detect_model_type()
 
-    def _allocate_buffers(self):
+    def _allocate_buffers(self, batch_size: int = 1):
         """Allocate CUDA memory for input and output tensors."""
-        import tensorrt as trt
-
         self.inputs = {}
         self.outputs = {}
         self.bindings = []
         self.stream = torch.cuda.Stream()
+        self._current_batch = batch_size
+
+        # For dynamic batch, replace -1 with the requested batch size
+        def _resolve_shape(shape):
+            return tuple(batch_size if d == -1 else d for d in shape)
 
         # Allocate input buffer
-        input_size = int(np.prod(self.input_shape))
+        resolved_input = _resolve_shape(self.input_shape)
+        input_size = int(np.prod(resolved_input))
         self.inputs[self.input_name] = torch.zeros(
             input_size, dtype=torch.float32, device="cuda"
         )
 
         # Allocate output buffers
         for name in self.output_names:
-            shape = self.output_shapes[name]
+            shape = _resolve_shape(self.output_shapes[name])
             size = int(np.prod(shape))
             self.outputs[name] = torch.zeros(size, dtype=torch.float32, device="cuda")
 
@@ -251,17 +259,77 @@ class LIBREYOLOTensorRT:
         max_det: int = 300,
         color_format: str = "auto",
     ) -> List[Results]:
-        """Process multiple images."""
-        results = []
-        for path in image_paths:
-            results.append(
-                self._predict_single(
-                    path, save=save, output_path=output_path,
-                    conf=conf, iou=iou, imgsz=imgsz,
-                    classes=classes, max_det=max_det,
-                    color_format=color_format,
+        """Process multiple images in batches.
+
+        When batch > 1 and the engine supports it (dynamic batch or static
+        batch >= requested), images are preprocessed, stacked, and inferred
+        together in a single forward pass. Otherwise falls back to sequential
+        processing.
+        """
+        # Fall back to sequential when batching isn't useful or possible
+        can_batch = batch > 1 and (self._dynamic_batch or self._max_batch >= batch)
+        if not can_batch:
+            results = []
+            for path in image_paths:
+                results.append(
+                    self._predict_single(
+                        path, save=save, output_path=output_path,
+                        conf=conf, iou=iou, imgsz=imgsz,
+                        classes=classes, max_det=max_det,
+                        color_format=color_format,
+                    )
                 )
-            )
+            return results
+
+        effective_imgsz = imgsz if imgsz is not None else self.input_size
+        results = []
+
+        # Process in chunks of `batch`
+        for i in range(0, len(image_paths), batch):
+            chunk_paths = image_paths[i : i + batch]
+
+            # Preprocess all images in the chunk
+            tensors = []
+            preprocess_info = []  # (original_img, original_size, ratio, path)
+            for path in chunk_paths:
+                if self.model_type == "yolox":
+                    tensor, orig_img, orig_size, ratio = preprocess_yolox(
+                        path, input_size=effective_imgsz, color_format=color_format
+                    )
+                else:
+                    tensor, orig_img, orig_size = preprocess_yolov9(
+                        path, input_size=effective_imgsz, color_format=color_format
+                    )
+                    ratio = None
+                tensors.append(tensor)
+                preprocess_info.append((orig_img, orig_size, ratio, path))
+
+            # Stack into a single (B, C, H, W) tensor and run inference
+            batched_input = np.concatenate([t.numpy() for t in tensors], axis=0)
+            batch_outputs = self._infer(batched_input)
+
+            # Split per-image and postprocess
+            for idx, (orig_img, orig_size, ratio, path) in enumerate(preprocess_info):
+                per_image_outputs = {}
+                for name, arr in batch_outputs.items():
+                    per_image_outputs[name] = arr[idx : idx + 1]
+
+                result = self._postprocess_single(
+                    per_image_outputs,
+                    original_img=orig_img,
+                    original_size=orig_size,
+                    ratio=ratio,
+                    image_path=path,
+                    effective_imgsz=effective_imgsz,
+                    conf=conf,
+                    iou=iou,
+                    classes=classes,
+                    max_det=max_det,
+                    save=save,
+                    output_path=output_path,
+                )
+                results.append(result)
+
         return results
 
     def _predict_single(
@@ -280,9 +348,6 @@ class LIBREYOLOTensorRT:
         image_path = image if isinstance(image, (str, Path)) else None
         effective_imgsz = imgsz if imgsz is not None else self.input_size
 
-        # Preprocess image based on model type
-        # YOLOX: BGR, 0-255 range, letterbox with ratio tracking
-        # YOLOv9: RGB, 0-1 normalized
         if self.model_type == "yolox":
             input_tensor, original_img, original_size, ratio = preprocess_yolox(
                 image, input_size=effective_imgsz, color_format=color_format
@@ -293,19 +358,47 @@ class LIBREYOLOTensorRT:
             )
             ratio = None
 
-        # Run TensorRT inference
         outputs = self._infer(input_tensor.numpy())
 
-        # Postprocess based on model type
+        return self._postprocess_single(
+            outputs,
+            original_img=original_img,
+            original_size=original_size,
+            ratio=ratio,
+            image_path=image_path,
+            effective_imgsz=effective_imgsz,
+            conf=conf,
+            iou=iou,
+            classes=classes,
+            max_det=max_det,
+            save=save,
+            output_path=output_path,
+        )
+
+    def _postprocess_single(
+        self,
+        outputs: Dict[str, np.ndarray],
+        *,
+        original_img,
+        original_size: Tuple[int, int],
+        ratio,
+        image_path,
+        effective_imgsz: int,
+        conf: float,
+        iou: float,
+        classes: Optional[List[int]],
+        max_det: int,
+        save: bool,
+        output_path: Optional[str],
+    ) -> Results:
+        """Decode raw model outputs into a Results object for one image."""
         if self.model_type == "yolov9":
             boxes, scores, class_ids = self._postprocess_yolov9(outputs, conf)
         elif self.model_type == "yolox":
             boxes, scores, class_ids = self._postprocess_yolox(outputs, conf)
         else:
-            # Try generic postprocessing
             boxes, scores, class_ids = self._postprocess_generic(outputs, conf)
 
-        # orig_shape for Results: (H, W)
         orig_w, orig_h = original_size
         orig_shape = (orig_h, orig_w)
 
@@ -321,41 +414,32 @@ class LIBREYOLOTensorRT:
                 names=self.names,
             )
         else:
-            # Scale boxes to original image size
-            # YOLOX uses letterbox with ratio, YOLOv9 uses simple resize
             if self.model_type == "yolox" and ratio is not None:
-                # For YOLOX letterbox: divide by ratio to get original coords
                 boxes = boxes / ratio
             else:
-                # For YOLOv9: scale proportionally
                 scale_x = orig_w / effective_imgsz
                 scale_y = orig_h / effective_imgsz
                 boxes[:, [0, 2]] *= scale_x
                 boxes[:, [1, 3]] *= scale_y
 
-            # Clip to image bounds
             boxes[:, [0, 2]] = np.clip(boxes[:, [0, 2]], 0, orig_w)
             boxes[:, [1, 3]] = np.clip(boxes[:, [1, 3]], 0, orig_h)
 
-            # Apply NMS
             boxes_t = torch.tensor(boxes, dtype=torch.float32)
             scores_t = torch.tensor(scores, dtype=torch.float32)
             class_ids_t = torch.tensor(class_ids, dtype=torch.int64)
 
-            # Per-class NMS
             keep = nms(boxes_t, scores_t, iou)
             boxes_t = boxes_t[keep]
             scores_t = scores_t[keep]
             class_ids_t = class_ids_t[keep]
 
-            # Limit to max_det
             if len(boxes_t) > max_det:
                 top_indices = torch.argsort(scores_t, descending=True)[:max_det]
                 boxes_t = boxes_t[top_indices]
                 scores_t = scores_t[top_indices]
                 class_ids_t = class_ids_t[top_indices]
 
-            # Apply classes filter
             if classes is not None and len(boxes_t) > 0:
                 cls_mask = torch.zeros(len(class_ids_t), dtype=torch.bool)
                 for cid in classes:
@@ -371,7 +455,6 @@ class LIBREYOLOTensorRT:
                 names=self.names,
             )
 
-        # Save annotated image if requested
         if save:
             if len(result) > 0:
                 annotated_img = draw_boxes(
@@ -401,11 +484,27 @@ class LIBREYOLOTensorRT:
         return result
 
     def _infer(self, input_array: np.ndarray) -> Dict[str, np.ndarray]:
-        """Run TensorRT inference."""
-        import tensorrt as trt
+        """Run TensorRT inference.
 
+        Args:
+            input_array: Input tensor of shape (B, C, H, W) or (C, H, W).
+        """
         # Ensure input is contiguous and correct dtype
         input_array = np.ascontiguousarray(input_array, dtype=np.float32)
+
+        # Determine actual batch size from input
+        if input_array.ndim == 3:
+            input_array = input_array[np.newaxis]
+        actual_batch = input_array.shape[0]
+
+        # Reallocate buffers if batch size changed
+        if actual_batch != self._current_batch:
+            self._allocate_buffers(actual_batch)
+
+        # For dynamic batch engines, set the actual input shape
+        if self._dynamic_batch:
+            _, c, h, w = self.input_shape
+            self.context.set_input_shape(self.input_name, (actual_batch, c, h, w))
 
         # Copy input to GPU
         input_tensor = torch.from_numpy(input_array).cuda().flatten()
@@ -422,10 +521,12 @@ class LIBREYOLOTensorRT:
         self.context.execute_async_v3(self.stream.cuda_stream)
         self.stream.synchronize()
 
-        # Copy outputs to CPU
+        # Copy outputs to CPU, resolving -1 dims with actual batch size
         results = {}
         for name in self.output_names:
-            shape = self.output_shapes[name]
+            shape = tuple(
+                actual_batch if d == -1 else d for d in self.output_shapes[name]
+            )
             output = self.outputs[name].cpu().numpy().reshape(shape)
             results[name] = output
 
@@ -572,7 +673,9 @@ class LIBREYOLOTensorRT:
 
     @property
     def size(self) -> str:
-        """Return a size string based on engine file name."""
+        """Return model size from sidecar metadata or engine filename."""
+        if self._sidecar_size is not None:
+            return self._sidecar_size
         stem = Path(self.model_path).stem.lower()
         for s in ["nano", "tiny", "s", "m", "l", "x", "t", "c"]:
             if s in stem:
