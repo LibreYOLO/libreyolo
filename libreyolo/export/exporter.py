@@ -373,6 +373,7 @@ class Exporter:
             entry.key = key
             entry.value = value
 
+        onnx.checker.check_model(model_proto)
         onnx.save(model_proto, path)
 
     @staticmethod
