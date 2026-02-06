@@ -312,36 +312,12 @@ class Exporter:
             # Older PyTorch versions don't have dynamo parameter
             torch.onnx.export(nn_model, dummy, output_path, **export_kwargs)
 
-        if simplify:
-            self._simplify_onnx(output_path)
-
-        self._embed_onnx_metadata(output_path, dynamic=dynamic, half=half)
+        self._postprocess_onnx(output_path, simplify=simplify, dynamic=dynamic, half=half)
 
         return output_path
 
-    @staticmethod
-    def _simplify_onnx(path: str) -> None:
-        try:
-            import onnx
-            from onnxsim import simplify as onnx_simplify
-
-            model_proto = onnx.load(path)
-            simplified, ok = onnx_simplify(model_proto)
-            if ok:
-                onnx.save(simplified, path)
-        except ImportError:
-            warnings.warn(
-                "onnxsim is not installed — skipping ONNX graph simplification. "
-                "Install with: pip install onnxsim",
-                stacklevel=3,
-            )
-        except Exception as exc:
-            warnings.warn(
-                f"ONNX simplification failed (non-fatal): {exc}",
-                stacklevel=3,
-            )
-
-    def _embed_onnx_metadata(self, path: str, *, dynamic: bool, half: bool) -> None:
+    def _postprocess_onnx(self, path: str, *, simplify: bool, dynamic: bool, half: bool) -> None:
+        """Load the ONNX file once, optionally simplify, embed metadata, and save."""
         try:
             import onnx
         except ImportError:
@@ -349,6 +325,27 @@ class Exporter:
 
         model_proto = onnx.load(path)
 
+        # Simplify graph
+        if simplify:
+            try:
+                from onnxsim import simplify as onnx_simplify
+
+                simplified, ok = onnx_simplify(model_proto)
+                if ok:
+                    model_proto = simplified
+            except ImportError:
+                warnings.warn(
+                    "onnxsim is not installed — skipping ONNX graph simplification. "
+                    "Install with: pip install onnxsim",
+                    stacklevel=3,
+                )
+            except Exception as exc:
+                warnings.warn(
+                    f"ONNX simplification failed (non-fatal): {exc}",
+                    stacklevel=3,
+                )
+
+        # Embed metadata
         metadata = {
             "libreyolo_version": self._get_version(),
             "model_family": self.model._get_model_name(),
