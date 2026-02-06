@@ -486,9 +486,12 @@ class DDetect(nn.Module):
             return x
 
         # Inference mode
-        if self.dynamic or self.shape != shape:
+        # In export mode, always regenerate anchors to ensure trace consistency
+        # (JIT trace runs the model twice and checks for consistency)
+        if self.export or self.dynamic or self.shape != shape:
             self.anchors, self.strides = (x.transpose(0, 1) for x in self._make_anchors(x, self.stride, 0.5))
-            self.shape = shape
+            if not self.export:
+                self.shape = shape
 
         # Flatten and concatenate all scales
         x_cat = torch.cat([xi.view(shape[0], self.no, -1) for xi in x], 2)
@@ -897,6 +900,10 @@ class LibreYOLO9Model(nn.Module):
 
         # Inference mode
         y, x_list = output
+
+        # Export mode: return only the prediction tensor for ONNX/TorchScript
+        if self.detect.export:
+            return y
 
         # Return in format compatible with postprocessing
         return {
