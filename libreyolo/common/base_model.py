@@ -727,24 +727,62 @@ class LibreYOLOBase(ABC):
         simplify: bool = True,
         dynamic: bool = True,
         half: bool = False,
+        int8: bool = False,
         batch: int = 1,
         device: str = None,
+        # Calibration parameters (for INT8)
+        data: str = None,
+        fraction: float = 1.0,
+        # TensorRT specific
+        workspace: float = 4.0,
+        hardware_compatibility: str = "none",
+        gpu_device: int = 0,
+        trt_config: str = None,
+        # Utility
+        verbose: bool = False,
     ) -> str:
         """Export model to deployment format.
 
         Args:
-            format: Target format ("onnx", "torchscript").
+            format: Target format ("onnx", "torchscript", "tensorrt").
             output_path: Output file path (auto-generated if None).
             imgsz: Input resolution (default: model's native size).
             opset: ONNX opset version (default: 13).
             simplify: Run ONNX graph simplification (default: True).
             dynamic: Enable dynamic axes (default: True).
-            half: Export in FP16 (default: False).
+            half: Export in FP16 precision (default: False).
+            int8: Export in INT8 precision (default: False).
+                 Requires `data` parameter for calibration.
             batch: Batch size for static graph (default: 1).
             device: Device to trace on (default: model's current device).
+            data: Path to data.yaml for INT8 calibration dataset.
+            fraction: Fraction of calibration dataset to use (default: 1.0).
+            workspace: TensorRT workspace size in GiB (default: 4.0).
+            hardware_compatibility: TensorRT hardware compatibility level.
+                - "none": Optimize for current GPU only (fastest, default)
+                - "ampere_plus": Works on Ampere and newer GPUs
+                - "same_compute_capability": Works on same SM version GPUs
+            gpu_device: GPU device ID for multi-GPU systems (default: 0).
+            trt_config: Path to TensorRT config YAML file or dict.
+                       When provided, overrides individual TensorRT parameters.
+            verbose: Enable verbose logging (default: False).
 
         Returns:
             Path to the exported model file.
+
+        Example::
+
+            # ONNX export
+            model.export(format="onnx")
+
+            # TensorRT with FP16
+            model.export(format="tensorrt", half=True)
+
+            # TensorRT with INT8 calibration
+            model.export(format="tensorrt", int8=True, data="coco8.yaml")
+
+            # TensorRT with config file
+            model.export(format="tensorrt", trt_config="tensorrt_default.yaml")
         """
         from libreyolo.export import Exporter
 
@@ -756,8 +794,16 @@ class LibreYOLOBase(ABC):
             simplify=simplify,
             dynamic=dynamic,
             half=half,
+            int8=int8,
             batch=batch,
             device=device,
+            data=data,
+            fraction=fraction,
+            workspace=workspace,
+            hardware_compatibility=hardware_compatibility,
+            gpu_device=gpu_device,
+            trt_config=trt_config,
+            verbose=verbose,
         )
 
     def predict(self, *args, **kwargs) -> Union[Results, List[Results]]:
