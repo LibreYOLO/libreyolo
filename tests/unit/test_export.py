@@ -290,3 +290,269 @@ class TestModelStateRestored:
 
         param = next(wrapper.model.parameters())
         assert param.dtype == torch.float32
+
+
+# ---------------------------------------------------------------------------
+# TensorRT Export Tests
+# ---------------------------------------------------------------------------
+
+
+class TestTensorRTFormat:
+    """Test TensorRT format registration and validation."""
+
+    def test_tensorrt_format_registered(self):
+        """Verify TensorRT is in supported formats."""
+        assert "tensorrt" in Exporter.FORMATS
+
+    def test_tensorrt_format_config(self):
+        """Verify TensorRT format configuration."""
+        fmt = Exporter.FORMATS["tensorrt"]
+        assert fmt["suffix"] == ".engine"
+        assert fmt["method"] == "_export_tensorrt"
+        assert fmt["requires"] == "onnx"
+
+
+class TestTensorRTValidation:
+    """Test TensorRT export parameter validation."""
+
+    def test_int8_requires_data(self):
+        """INT8 export without data should raise ValueError."""
+        wrapper = _make_wrapper()
+        exporter = Exporter(wrapper)
+
+        with pytest.raises(ValueError, match="calibration data"):
+            exporter("tensorrt", int8=True)
+
+    def test_int8_with_data_no_immediate_error(self):
+        """INT8 with data parameter should not raise validation error.
+
+        Note: Will fail later due to missing TensorRT, but validation should pass.
+        If TensorRT is installed, the export may succeed or fail for other reasons.
+        """
+        # Skip if TensorRT is available (test assumes it's not)
+        try:
+            import tensorrt
+            pytest.skip("TensorRT is installed, skipping missing TensorRT test")
+        except ImportError:
+            pass
+
+        wrapper = _make_wrapper()
+        exporter = Exporter(wrapper)
+
+        # Should fail with ImportError (TensorRT not installed), not ValueError
+        with pytest.raises(ImportError, match="[Tt]ensor[Rr][Tt]"):
+            exporter("tensorrt", int8=True, data="coco8.yaml")
+
+
+class TestTensorRTImportCheck:
+    """Test TensorRT availability checking."""
+
+    def test_check_tensorrt_raises_helpful_error(self):
+        """Verify helpful error message when TensorRT not installed."""
+        # Skip if TensorRT is actually installed
+        try:
+            import tensorrt
+            pytest.skip("TensorRT is installed, skipping missing TensorRT test")
+        except ImportError:
+            pass
+
+        from libreyolo.export.tensorrt_export import check_tensorrt_available
+
+        with pytest.raises(ImportError) as exc_info:
+            check_tensorrt_available()
+
+        error_msg = str(exc_info.value)
+        assert "tensorrt" in error_msg.lower()
+        assert "pip install" in error_msg
+
+
+class TestCalibrationDataLoader:
+    """Test calibration data loader for INT8 quantization."""
+
+    def test_calibration_loader_import(self):
+        """Verify calibration module can be imported."""
+        from libreyolo.export.calibration import CalibrationDataLoader, get_calibration_dataloader
+        assert CalibrationDataLoader is not None
+        assert get_calibration_dataloader is not None
+
+    def test_calibration_loader_properties(self):
+        """Test calibration loader with mock data would have correct properties."""
+        from libreyolo.export.calibration import CalibrationDataLoader
+        import numpy as np
+
+        # Check that dtype and shape properties are defined
+        assert hasattr(CalibrationDataLoader, "shape")
+        assert hasattr(CalibrationDataLoader, "dtype")
+
+
+class TestExportPrecisionSuffix:
+    """Test output filename generation with precision suffixes."""
+
+    def test_fp16_suffix_in_auto_path(self):
+        """FP16 export should include _fp16 in auto-generated filename."""
+        wrapper = _make_wrapper(model_name="TESTYOLO", size="s")
+        exporter = Exporter(wrapper)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            import os
+            orig = os.getcwd()
+            try:
+                os.chdir(tmpdir)
+                # Export with half=True and no explicit output_path
+                path = exporter("onnx", half=True, simplify=False)
+                # Verify the filename includes _fp16
+                assert "_fp16" in path, f"Expected _fp16 in path, got: {path}"
+                assert path == "testyolo_s_fp16.onnx"
+            finally:
+                os.chdir(orig)
+
+    def test_half_and_int8_uses_int8(self):
+        """When both half and int8 are True, int8 takes precedence."""
+        import warnings
+
+        wrapper = _make_wrapper()
+        exporter = Exporter(wrapper)
+
+        # Should warn about using INT8 when both specified
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            try:
+                exporter("tensorrt", half=True, int8=True, data="coco8.yaml")
+            except ImportError:
+                # Expected - TensorRT not installed
+                pass
+            except Exception:
+                # May fail for other reasons if TensorRT is installed but
+                # calibration data can't be loaded, etc. That's OK for this test.
+                pass
+
+            # Check that a warning was issued about INT8 precedence
+            warning_msgs = [str(warning.message) for warning in w]
+            assert any("INT8" in msg for msg in warning_msgs)
+
+
+# ---------------------------------------------------------------------------
+# TensorRT Export Config Tests
+# ---------------------------------------------------------------------------
+
+
+class TestTensorRTExportConfig:
+    """Test TensorRT export configuration system."""
+
+    def test_default_config(self):
+        """Test default configuration values."""
+        from libreyolo.export.config import TensorRTExportConfig
+
+        config = TensorRTExportConfig()
+        assert config.precision == "fp16"
+        assert config.workspace == 4.0
+        assert config.verbose is False
+        assert config.hardware_compatibility == "none"
+        assert config.device == 0
+        assert config.dynamic.enabled is False
+        assert config.int8_calibration.fraction == 0.1
+
+    def test_config_half_property(self):
+        """Test half property for different precisions."""
+        from libreyolo.export.config import TensorRTExportConfig
+
+        fp32_config = TensorRTExportConfig(precision="fp32")
+        fp16_config = TensorRTExportConfig(precision="fp16")
+        int8_config = TensorRTExportConfig(precision="int8")
+
+        assert fp32_config.half is False
+        assert fp16_config.half is True
+        assert int8_config.half is True  # INT8 includes FP16 fallback
+
+    def test_config_int8_property(self):
+        """Test int8 property for different precisions."""
+        from libreyolo.export.config import TensorRTExportConfig
+
+        fp32_config = TensorRTExportConfig(precision="fp32")
+        fp16_config = TensorRTExportConfig(precision="fp16")
+        int8_config = TensorRTExportConfig(precision="int8")
+
+        assert fp32_config.int8 is False
+        assert fp16_config.int8 is False
+        assert int8_config.int8 is True
+
+    def test_config_from_dict(self):
+        """Test creating config from dictionary."""
+        from libreyolo.export.config import TensorRTExportConfig
+
+        config = TensorRTExportConfig.from_dict({
+            "precision": "int8",
+            "workspace": 8.0,
+            "hardware_compatibility": "ampere_plus",
+            "dynamic": {"enabled": True, "max_batch": 16},
+        })
+
+        assert config.precision == "int8"
+        assert config.workspace == 8.0
+        assert config.hardware_compatibility == "ampere_plus"
+        assert config.dynamic.enabled is True
+        assert config.dynamic.max_batch == 16
+
+    def test_config_to_dict(self):
+        """Test converting config to dictionary."""
+        from libreyolo.export.config import TensorRTExportConfig
+
+        config = TensorRTExportConfig(precision="fp32", workspace=2.0)
+        data = config.to_dict()
+
+        assert data["precision"] == "fp32"
+        assert data["workspace"] == 2.0
+        assert "dynamic" in data
+        assert "int8_calibration" in data
+
+    def test_config_validation_invalid_precision(self):
+        """Test validation rejects invalid precision."""
+        from libreyolo.export.config import TensorRTExportConfig
+
+        with pytest.raises(ValueError, match="Invalid precision"):
+            TensorRTExportConfig(precision="fp8")
+
+    def test_config_validation_invalid_workspace(self):
+        """Test validation rejects invalid workspace."""
+        from libreyolo.export.config import TensorRTExportConfig
+
+        with pytest.raises(ValueError, match="workspace must be positive"):
+            TensorRTExportConfig(workspace=-1.0)
+
+    def test_config_validation_invalid_hardware_compat(self):
+        """Test validation rejects invalid hardware compatibility."""
+        from libreyolo.export.config import TensorRTExportConfig
+
+        with pytest.raises(ValueError, match="Invalid hardware_compatibility"):
+            TensorRTExportConfig(hardware_compatibility="invalid")
+
+    def test_load_export_config_none(self):
+        """Test load_export_config with None returns default."""
+        from libreyolo.export.config import load_export_config, TensorRTExportConfig
+
+        config = load_export_config(None)
+        assert isinstance(config, TensorRTExportConfig)
+        assert config.precision == "fp16"
+
+    def test_load_export_config_dict(self):
+        """Test load_export_config with dict."""
+        from libreyolo.export.config import load_export_config
+
+        config = load_export_config({"precision": "fp32"})
+        assert config.precision == "fp32"
+
+    def test_load_export_config_passthrough(self):
+        """Test load_export_config passes through existing config."""
+        from libreyolo.export.config import load_export_config, TensorRTExportConfig
+
+        original = TensorRTExportConfig(precision="int8")
+        config = load_export_config(original)
+        assert config is original
+
+    def test_load_export_config_yaml(self):
+        """Test load_export_config from YAML file."""
+        from libreyolo.export.config import load_export_config
+
+        config = load_export_config("tensorrt_default.yaml")
+        assert config.precision == "fp16"
+        assert config.workspace == 4.0
