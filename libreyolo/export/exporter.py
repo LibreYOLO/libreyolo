@@ -253,6 +253,10 @@ class Exporter:
             if original_export is not None:
                 nn_model.detect.export = original_export
 
+        # --- clean up intermediate ONNX file ---
+        if onnx_path and Path(onnx_path).exists():
+            Path(onnx_path).unlink()
+
         precision_str = "INT8" if int8 else ("FP16" if half else "FP32")
         print(
             f"\nExport complete: {result}\n"
