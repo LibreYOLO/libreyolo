@@ -31,7 +31,6 @@ from .config import (
     TensorRTExportConfig,
     DynamicBatchConfig,
     Int8CalibrationConfig,
-    OutputConfig,
     load_export_config,
 )
 
@@ -40,6 +39,5 @@ __all__ = [
     "TensorRTExportConfig",
     "DynamicBatchConfig",
     "Int8CalibrationConfig",
-    "OutputConfig",
     "load_export_config",
 ]

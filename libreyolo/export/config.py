@@ -28,13 +28,6 @@ class Int8CalibrationConfig:
 
 
 @dataclass
-class OutputConfig:
-    """Output settings."""
-    add_precision_suffix: bool = True
-    overwrite: bool = True
-
-
-@dataclass
 class TensorRTExportConfig:
     """
     TensorRT export configuration.
@@ -51,7 +44,6 @@ class TensorRTExportConfig:
         device: GPU device ID for multi-GPU systems
         dynamic: Dynamic batching configuration
         int8_calibration: INT8 calibration settings
-        output: Output file settings
     """
     precision: str = "fp16"
     workspace: float = 4.0
@@ -60,7 +52,6 @@ class TensorRTExportConfig:
     device: int = 0
     dynamic: DynamicBatchConfig = field(default_factory=DynamicBatchConfig)
     int8_calibration: Int8CalibrationConfig = field(default_factory=Int8CalibrationConfig)
-    output: OutputConfig = field(default_factory=OutputConfig)
 
     def __post_init__(self):
         """Validate configuration after initialization."""
@@ -160,12 +151,6 @@ class TensorRTExportConfig:
             cache=int8_data.get("cache", True),
         )
 
-        output_data = data.get("output", {})
-        output = OutputConfig(
-            add_precision_suffix=output_data.get("add_precision_suffix", True),
-            overwrite=output_data.get("overwrite", True),
-        )
-
         return cls(
             precision=data.get("precision", "fp16"),
             workspace=data.get("workspace", 4.0),
@@ -174,7 +159,6 @@ class TensorRTExportConfig:
             device=data.get("device", 0),
             dynamic=dynamic,
             int8_calibration=int8_calibration,
-            output=output,
         )
 
     def to_dict(self) -> dict:
@@ -195,10 +179,6 @@ class TensorRTExportConfig:
                 "dataset": self.int8_calibration.dataset,
                 "fraction": self.int8_calibration.fraction,
                 "cache": self.int8_calibration.cache,
-            },
-            "output": {
-                "add_precision_suffix": self.output.add_precision_suffix,
-                "overwrite": self.output.overwrite,
             },
         }
 
