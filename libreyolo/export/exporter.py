@@ -288,7 +288,7 @@ class Exporter:
         dynamic_axes = None
         if dynamic:
             dynamic_axes = {
-                "images": {0: "batch", 2: "height", 3: "width"},
+                "images": {0: "batch"},
                 "output": {0: "batch"},
             }
 
