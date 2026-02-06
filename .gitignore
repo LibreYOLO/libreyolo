@@ -55,7 +55,9 @@ temporary/
 runs/
 /data/
 
-.onnx
-.pt
+*.onnx
 *.pt
 *.pth
+*.data
+*.engine
+*.cache
