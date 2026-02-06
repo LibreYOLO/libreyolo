@@ -338,7 +338,10 @@ def LIBREYOLO(
     # Handle TensorRT engines
     if model_path.endswith('.engine'):
         from .common.tensorrt import LIBREYOLOTensorRT
-        return LIBREYOLOTensorRT(model_path, nb_classes=nb_classes or 80, device=device)
+        # LIBREYOLOTensorRT loads a .engine.json sidecar if present, which
+        # provides nb_classes, names, model_family, etc. automatically.
+        # Pass nb_classes as-is so the sidecar can fill in the default.
+        return LIBREYOLOTensorRT(model_path, nb_classes=nb_classes, device=device)
 
     # For .pt files, handle file download if needed
     if not Path(model_path).exists():

@@ -5,9 +5,10 @@ Converts ONNX models to optimized TensorRT engines with support for
 FP32, FP16, and INT8 precision modes.
 """
 
+import json
 import warnings
 from pathlib import Path
-from typing import Optional, Union, TYPE_CHECKING
+from typing import Any, Dict, Optional, Union, TYPE_CHECKING
 
 import numpy as np
 import torch
@@ -52,6 +53,7 @@ def export_tensorrt(
     hardware_compatibility: str = "none",
     device: int = 0,
     config: Optional[Union[str, Path, dict, "TensorRTExportConfig"]] = None,
+    metadata: Optional[Dict[str, Any]] = None,
 ) -> str:
     """
     Export ONNX model to TensorRT engine.
@@ -87,6 +89,8 @@ def export_tensorrt(
         device: GPU device ID for multi-GPU systems (default: 0).
         config: Optional TensorRTExportConfig or path to YAML config file.
                If provided, overrides individual parameters.
+        metadata: Optional dict of model metadata to write as a JSON sidecar
+                 file alongside the engine (e.g. model_family, nb_classes, names).
 
     Returns:
         Path to exported .engine file.
@@ -302,6 +306,13 @@ def export_tensorrt(
 
     with open(output_path, "wb") as f:
         f.write(serialized_engine)
+
+    # Write metadata sidecar
+    if metadata is not None:
+        sidecar_path = Path(str(output_path) + ".json")
+        with open(sidecar_path, "w") as f:
+            json.dump(metadata, f, indent=2)
+        print(f"Metadata sidecar: {sidecar_path}")
 
     # Report engine size
     engine_size_mb = output_path.stat().st_size / (1024 * 1024)

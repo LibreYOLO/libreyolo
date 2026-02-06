@@ -419,6 +419,25 @@ class Exporter:
         """Export to TensorRT engine format."""
         from .tensorrt_export import export_tensorrt
 
+        if int8:
+            precision = "int8"
+        elif half:
+            precision = "fp16"
+        else:
+            precision = "fp32"
+
+        metadata = {
+            "libreyolo_version": self._get_version(),
+            "model_family": self.model._get_model_name(),
+            "model_size": self.model.size,
+            "nb_classes": self.model.nb_classes,
+            "names": {str(k): v for k, v in self.model.names.items()},
+            "imgsz": self.model._get_input_size(),
+            "precision": precision,
+            "dynamic": dynamic,
+            "exported_from": str(Path(onnx_path).name) if onnx_path else None,
+        }
+
         return export_tensorrt(
             onnx_path=onnx_path,
             output_path=output_path,
@@ -431,4 +450,5 @@ class Exporter:
             hardware_compatibility=hardware_compatibility,
             device=gpu_device,
             config=trt_config,
+            metadata=metadata,
         )

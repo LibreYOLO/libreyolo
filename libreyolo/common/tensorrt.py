@@ -4,6 +4,7 @@ TensorRT inference backend for LIBREYOLO.
 Provides GPU-accelerated inference using TensorRT engines exported from LibreYOLO models.
 """
 
+import json
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Union
@@ -29,7 +30,11 @@ class LIBREYOLOTensorRT:
 
     Args:
         engine_path: Path to the TensorRT engine file (.engine).
-        nb_classes: Number of classes (default: 80 for COCO).
+            If a JSON sidecar file exists at ``<engine_path>.json``, model
+            metadata (nb_classes, class names, model family, etc.) is loaded
+            from it automatically.
+        nb_classes: Number of classes. When ``None`` (default), uses the value
+            from the sidecar file if available, otherwise defaults to 80.
         device: Device for inference. Must be "cuda" or "auto" (TensorRT requires GPU).
 
     Example:
@@ -38,7 +43,7 @@ class LIBREYOLOTensorRT:
         >>> print(result.boxes.xyxy)
     """
 
-    def __init__(self, engine_path: str, nb_classes: int = 80, device: str = "auto"):
+    def __init__(self, engine_path: str, nb_classes: int = None, device: str = "auto"):
         try:
             import tensorrt as trt
         except ImportError as e:
@@ -56,14 +61,28 @@ class LIBREYOLOTensorRT:
             raise FileNotFoundError(f"TensorRT engine not found: {engine_path}")
 
         self.model_path = engine_path
-        self.nb_classes = nb_classes
         self.device = "cuda"
 
-        # Build names dict
-        if nb_classes == 80:
+        # Load metadata sidecar if available
+        sidecar_path = Path(str(engine_path) + ".json")
+        self._metadata = {}
+        if sidecar_path.exists():
+            with open(sidecar_path) as f:
+                self._metadata = json.load(f)
+
+        # Priority: explicit arg > sidecar > default (80)
+        self.nb_classes = nb_classes if nb_classes is not None else self._metadata.get("nb_classes", 80)
+        self.model_family = self._metadata.get("model_family")
+        self.size = self._metadata.get("model_size")
+
+        # Build names dict: sidecar names when available, else COCO / generic
+        sidecar_names = self._metadata.get("names")
+        if sidecar_names is not None and nb_classes is None:
+            self.names: Dict[int, str] = {int(k): v for k, v in sidecar_names.items()}
+        elif self.nb_classes == 80:
             self.names: Dict[int, str] = {i: n for i, n in enumerate(COCO_CLASSES)}
         else:
-            self.names: Dict[int, str] = {i: f"class_{i}" for i in range(nb_classes)}
+            self.names: Dict[int, str] = {i: f"class_{i}" for i in range(self.nb_classes)}
 
         # Load TensorRT engine
         self.logger = trt.Logger(trt.Logger.WARNING)
@@ -130,29 +149,36 @@ class LIBREYOLOTensorRT:
             self.outputs[name] = torch.zeros(size, dtype=torch.float32, device="cuda")
 
     def _detect_model_type(self):
-        """Detect model type (YOLOX vs YOLOv9) from output shapes."""
-        # YOLOX has 3 outputs (one per scale): (1, 85, H, W)
-        # YOLOv9 has 1 main output: (1, 84, 8400) and auxiliary outputs
+        """Detect model type (YOLOX vs YOLOv9) from sidecar metadata or output shapes."""
+        # Use sidecar metadata when available
+        if self.model_family is not None:
+            family = self.model_family.upper()
+            if "YOLOX" in family:
+                self.model_type = "yolox"
+                self.main_output = None
+                return
+            if "9" in family or "YOLO9" in family:
+                self.model_type = "yolov9"
+                self.main_output = "output" if "output" in self.output_shapes else (
+                    self.output_names[0] if self.output_names else None
+                )
+                return
 
-        # Check if we have a main "output" tensor
+        # Fall back to shape-based heuristic
         if "output" in self.output_shapes:
             shape = self.output_shapes["output"]
             if len(shape) == 3:
-                # YOLOv9 style: (1, 84, N) or (1, N, 84)
                 self.model_type = "yolov9"
                 self.main_output = "output"
             elif len(shape) == 4:
-                # YOLOX style: (1, 85, H, W)
                 self.model_type = "yolox"
-                self.main_output = None  # Use all outputs
+                self.main_output = None
         else:
-            # Check for YOLOX multi-scale outputs
             yolox_outputs = [n for n in self.output_names if n.startswith("cat_")]
             if yolox_outputs:
                 self.model_type = "yolox"
                 self.main_output = None
             else:
-                # Default to first output
                 self.model_type = "unknown"
                 self.main_output = self.output_names[0] if self.output_names else None
 
