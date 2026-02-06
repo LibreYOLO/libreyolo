@@ -392,6 +392,14 @@ def _create_calibrator_class():
                         "Or: pip install pycuda (requires python3-dev)"
                     )
 
+            def __del__(self):
+                if self._device_input is not None:
+                    try:
+                        from cuda.bindings import runtime as cudart
+                        cudart.cudaFree(self._device_input)
+                    except (ImportError, Exception):
+                        pass  # pycuda frees via its own DeviceAllocation.__del__
+
             def read_calibration_cache(self):
                 if self.cache_file.exists():
                     print(f"Loading calibration cache: {self.cache_file}")
