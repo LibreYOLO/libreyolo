@@ -340,6 +340,7 @@ def _create_calibrator_class():
                 self.batch_iter = None
                 self._device_input = None
                 self._batch_size = data_loader.batch
+                self._batch_idx = 0
 
             def get_batch_size(self):
                 return self._batch_size
@@ -350,9 +351,14 @@ def _create_calibrator_class():
 
                 try:
                     batch = next(self.batch_iter)
+                    self._batch_idx += 1
+                    total = len(self.data_loader)
+                    print(f"\rCalibrating: batch {self._batch_idx}/{total}", end="", flush=True)
                     device_ptr = self._ensure_cuda_memory(batch)
                     return [device_ptr]
                 except StopIteration:
+                    if self._batch_idx > 0:
+                        print()  # newline after progress
                     return None
 
             def _ensure_cuda_memory(self, batch):
