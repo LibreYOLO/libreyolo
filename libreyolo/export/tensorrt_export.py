@@ -310,125 +310,17 @@ def export_tensorrt(
     return str(output_path)
 
 
-class TensorRTCalibrator:
-    """
-    INT8 entropy calibrator for TensorRT.
-
-    Feeds calibration images to TensorRT to compute optimal quantization
-    scales for each layer. Uses entropy calibration (IInt8EntropyCalibrator2)
-    which generally provides the best accuracy for detection models.
-
-    The calibration cache is saved to disk so subsequent builds can skip
-    the calibration step.
-    """
-
-    def __init__(
-        self,
-        data_loader: "CalibrationDataLoader",
-        cache_file: str = "calibration.cache",
-    ):
-        """
-        Initialize the calibrator.
-
-        Args:
-            data_loader: CalibrationDataLoader providing calibration batches.
-            cache_file: Path to save/load calibration cache.
-        """
-        import tensorrt as trt
-
-        # Inherit from the correct calibrator class
-        self._calibrator_base = trt.IInt8EntropyCalibrator2
-
-        self.data_loader = data_loader
-        self.cache_file = Path(cache_file)
-        self.batch_iter = None
-        self.current_batch = None
-
-        # Allocate device memory for calibration batches
-        self._device_input = None
-        self._batch_size = data_loader.batch
-
-    def _ensure_cuda_memory(self, batch: np.ndarray) -> int:
-        """Allocate CUDA memory if needed and copy batch to device."""
-        try:
-            import pycuda.driver as cuda
-            import pycuda.autoinit  # noqa: F401 - initializes CUDA context
-        except ImportError:
-            raise ImportError(
-                "INT8 calibration requires pycuda for GPU memory management.\n"
-                "Install with: pip install pycuda"
-            )
-
-        # Ensure batch is contiguous float32
-        batch = np.ascontiguousarray(batch, dtype=np.float32)
-
-        # Allocate device memory if needed
-        if self._device_input is None:
-            self._device_input = cuda.mem_alloc(batch.nbytes)
-
-        # Copy to device
-        cuda.memcpy_htod(self._device_input, batch)
-
-        return int(self._device_input)
-
-    def get_batch_size(self) -> int:
-        """Return the calibration batch size."""
-        return self._batch_size
-
-    def get_batch(self, names) -> list:
-        """
-        Get the next batch of calibration data.
-
-        Args:
-            names: List of input tensor names (provided by TensorRT).
-
-        Returns:
-            List of device pointers to input data, or None if no more batches.
-        """
-        if self.batch_iter is None:
-            self.batch_iter = iter(self.data_loader)
-
-        try:
-            batch = next(self.batch_iter)
-            device_ptr = self._ensure_cuda_memory(batch)
-            return [device_ptr]
-        except StopIteration:
-            return None
-
-    def read_calibration_cache(self) -> bytes:
-        """
-        Read calibration cache from disk if available.
-
-        Returns:
-            Cached calibration data, or None if no cache exists.
-        """
-        if self.cache_file.exists():
-            print(f"Loading calibration cache: {self.cache_file}")
-            with open(self.cache_file, "rb") as f:
-                return f.read()
-        return None
-
-    def write_calibration_cache(self, cache: bytes) -> None:
-        """
-        Write calibration cache to disk.
-
-        Args:
-            cache: Calibration data to cache.
-        """
-        print(f"Saving calibration cache: {self.cache_file}")
-        with open(self.cache_file, "wb") as f:
-            f.write(cache)
-
-
-# Make TensorRTCalibrator inherit from the TensorRT base class at runtime
-# This avoids import errors when TensorRT is not installed
 def _create_calibrator_class():
-    """Create calibrator class that inherits from TensorRT base."""
+    """Create calibrator class that inherits from TensorRT base.
+
+    The class is created at runtime so that importing this module does not
+    require TensorRT to be installed.
+    """
     try:
         import tensorrt as trt
 
         class _TensorRTCalibratorImpl(trt.IInt8EntropyCalibrator2):
-            """Runtime-created calibrator with proper inheritance."""
+            """INT8 entropy calibrator for TensorRT engine builds."""
 
             def __init__(self, data_loader, cache_file="calibration.cache"):
                 super().__init__()
@@ -504,8 +396,10 @@ def _create_calibrator_class():
         return _TensorRTCalibratorImpl
 
     except ImportError:
-        # Return dummy class if TensorRT not available
-        return TensorRTCalibrator
+        raise ImportError(
+            "INT8 calibration requires TensorRT.\n"
+            "Install with: pip install tensorrt"
+        )
 
 
 def get_calibrator_class():
