@@ -168,6 +168,8 @@ def benchmark_model(
     coco_yaml: str,
     batch_size: int = 1,
     device: str = 'auto',
+    runtime_format: str = 'pytorch',
+    runtime_precision: str = 'fp32',
 ) -> Dict[str, Any]:
     """
     Benchmark a single model on COCO val2017 using proper validation API.
@@ -260,15 +262,31 @@ def benchmark_model(
     ram_gb = get_system_memory_gb()
     software_info = get_software_info()
 
+    # Determine actual device used
+    if torch.cuda.is_available() and device in ('auto', 'cuda'):
+        runtime_device = 'cuda'
+    elif hasattr(torch.backends, 'mps') and torch.backends.mps.is_available() and device in ('auto', 'mps'):
+        runtime_device = 'mps'
+    else:
+        runtime_device = 'cpu'
+
+    # Hyphenated model name for website (e.g. "yolox-nano")
+    display_name = f"{model_family}-{size}"
+
     # Assemble results
     results = {
         'model': {
-            'name': model_name,
+            'name': display_name,
             'family': model_family,
             'variant': size,
             'source': 'libreyolo',
             'weights': Path(weights_path).name,
             'input_size': input_size,
+        },
+        'runtime': {
+            'format': runtime_format,
+            'precision': runtime_precision,
+            'device': runtime_device,
         },
         'hardware': {
             'gpu': gpu_info['gpu'],
@@ -347,6 +365,18 @@ def main():
         default='auto',
         help='Device to use (default: auto)'
     )
+    parser.add_argument(
+        '--runtime-format',
+        type=str,
+        default='pytorch',
+        help='Runtime format (pytorch, onnx, ncnn, tensorrt, tflite, coreml, openvino)'
+    )
+    parser.add_argument(
+        '--runtime-precision',
+        type=str,
+        default='fp32',
+        help='Runtime precision (fp32, fp16, int8)'
+    )
 
     args = parser.parse_args()
 
@@ -391,6 +421,8 @@ def main():
                 coco_yaml=args.coco_yaml,
                 batch_size=args.batch_size,
                 device=args.device,
+                runtime_format=args.runtime_format,
+                runtime_precision=args.runtime_precision,
             )
 
             # Save individual JSON
@@ -416,6 +448,9 @@ def main():
                 'model': r['model']['name'],
                 'family': r['model']['family'],
                 'variant': r['model']['variant'],
+                'runtime_format': r['runtime']['format'],
+                'runtime_precision': r['runtime']['precision'],
+                'runtime_device': r['runtime']['device'],
                 'mAP_50_95': r['accuracy']['mAP_50_95'],
                 'mAP_50': r['accuracy']['mAP_50'],
                 'precision': r['accuracy']['precision'],
