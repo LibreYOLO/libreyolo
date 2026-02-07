@@ -375,12 +375,14 @@ class DetectionValidator(BaseValidator):
             orig_h, orig_w = img_info[i]
             single_preds = self._slice_batch_predictions(preds, i)
 
+            uses_letterbox = self.val_preproc is not None and self.val_preproc.uses_letterbox
             result = self.model._postprocess(
                 single_preds,
                 conf_thres=self.config.conf_thres,
                 iou_thres=self.config.iou_thres,
                 original_size=(orig_w, orig_h),  # (width, height) format as expected by postprocess
                 input_size=self._actual_imgsz,  # Pass actual input size used
+                letterbox=uses_letterbox,
             )
 
             if result["num_detections"] > 0:
