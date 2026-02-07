@@ -183,11 +183,31 @@ class Exporter:
         # RF-DETR: activate LWDETR export mode (swaps forward to forward_export
         # which returns traceable tuple instead of mixed-type dict)
         rfdetr_export_activated = False
+        rfdetr_layernorm_patches = []
         inner = getattr(nn_model, 'model', None)
         if inner is not None and hasattr(inner, 'forward_export') and hasattr(inner, '_export'):
             if not inner._export:
                 inner.export()
                 rfdetr_export_activated = True
+
+            # Monkey-patch rfdetr LayerNorm to use static normalized_shape
+            # instead of dynamic x.size(3) so the TorchScript ONNX exporter
+            # can trace the graph.
+            try:
+                from rfdetr.models.backbone.projector import LayerNorm as RFDETRLayerNorm
+                for m in nn_model.modules():
+                    if isinstance(m, RFDETRLayerNorm):
+                        rfdetr_layernorm_patches.append((m, m.forward))
+                        ns = m.normalized_shape
+
+                        def _static_forward(x, _ns=ns, _w=m.weight, _b=m.bias, _eps=m.eps):
+                            x = x.permute(0, 2, 3, 1)
+                            x = torch.nn.functional.layer_norm(x, _ns, _w, _b, _eps)
+                            return x.permute(0, 3, 1, 2)
+
+                        m.forward = _static_forward
+            except ImportError:
+                pass
 
         # --- build dummy input ---
         dummy = torch.randn(batch, 3, imgsz, imgsz, device=device)
@@ -269,6 +289,8 @@ class Exporter:
             if rfdetr_export_activated:
                 inner._export = False
                 inner.forward = inner._forward_origin
+            for m, orig_fwd in rfdetr_layernorm_patches:
+                m.forward = orig_fwd
 
         # --- clean up intermediate ONNX file ---
         if onnx_path and Path(onnx_path).exists():

@@ -270,6 +270,10 @@ class LIBREYOLORFDETR(LibreYOLOBase):
             "num_detections": len(boxes)
         }
 
+    def export(self, format: str = "onnx", *, opset: int = 16, **kwargs) -> str:
+        """Export model. RF-DETR requires opset >= 14 for scaled_dot_product_attention."""
+        return super().export(format, opset=opset, **kwargs)
+
     def train(
         self,
         data: str,
