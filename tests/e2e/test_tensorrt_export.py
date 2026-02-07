@@ -240,7 +240,7 @@ class TestTensorRTEngineLoading:
         from libreyolo import LIBREYOLO
         trt_model = LIBREYOLO(engine_path, device="cuda")
 
-        assert trt_model.model_type == "tensorrt"
+        assert trt_model.model_type == model_type
         assert trt_model.nb_classes == pt_model.nb_classes
         assert hasattr(trt_model, "input_size")
 

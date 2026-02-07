@@ -20,6 +20,41 @@ from .results import Boxes, Results
 # Import YOLOX-specific preprocessing (BGR, 0-255 range)
 from ..yolox.utils import preprocess_image as preprocess_yolox
 
+# ImageNet normalization constants (for RF-DETR)
+_IMAGENET_MEAN = np.array([0.485, 0.456, 0.406], dtype=np.float32).reshape(3, 1, 1)
+_IMAGENET_STD = np.array([0.229, 0.224, 0.225], dtype=np.float32).reshape(3, 1, 1)
+
+
+def preprocess_rfdetr(image, input_size: int, **_kwargs):
+    """Preprocess image for RF-DETR TensorRT inference.
+
+    RF-DETR uses ImageNet normalization and direct resize (no letterbox).
+
+    Returns:
+        Tuple of (input_tensor, original_image, original_size)
+    """
+    from .image_loader import ImageLoader
+
+    img = ImageLoader.load(image, color_format="rgb")
+    orig_w, orig_h = img.size
+
+    # Resize to model resolution (direct resize, no letterbox)
+    img_resized = img.resize((input_size, input_size), Image.BILINEAR)
+
+    # Convert to float32 [0, 1]
+    img_array = np.array(img_resized, dtype=np.float32) / 255.0
+
+    # HWC -> CHW
+    img_array = img_array.transpose(2, 0, 1)
+
+    # ImageNet normalization
+    img_array = (img_array - _IMAGENET_MEAN) / _IMAGENET_STD
+
+    # Add batch dimension
+    input_tensor = torch.from_numpy(img_array[np.newaxis])
+
+    return input_tensor, img, (orig_w, orig_h)
+
 
 class LIBREYOLOTensorRT:
     """
@@ -157,12 +192,16 @@ class LIBREYOLOTensorRT:
             self.outputs[name] = torch.zeros(size, dtype=torch.float32, device="cuda")
 
     def _detect_model_type(self):
-        """Detect model type (YOLOX vs YOLOv9) from sidecar metadata or output shapes."""
+        """Detect model type (YOLOX vs YOLOv9 vs RF-DETR) from sidecar metadata or output shapes."""
         # Use sidecar metadata when available
         if self.model_family is not None:
             family = self.model_family.upper()
             if "YOLOX" in family:
                 self.model_type = "yolox"
+                self.main_output = None
+                return
+            if "RFDETR" in family or "RF-DETR" in family or "DETR" in family:
+                self.model_type = "rfdetr"
                 self.main_output = None
                 return
             if "9" in family or "YOLO9" in family:
@@ -175,7 +214,11 @@ class LIBREYOLOTensorRT:
         # Fall back to shape-based heuristic
         if "output" in self.output_shapes:
             shape = self.output_shapes["output"]
-            if len(shape) == 3:
+            # RF-DETR: 2 outputs, "output" is boxes (1, 300, 4) + another for logits
+            if len(shape) == 3 and shape[2] == 4 and len(self.output_names) == 2:
+                self.model_type = "rfdetr"
+                self.main_output = None
+            elif len(shape) == 3:
                 self.model_type = "yolov9"
                 self.main_output = "output"
             elif len(shape) == 4:
@@ -296,6 +339,11 @@ class LIBREYOLOTensorRT:
                     tensor, orig_img, orig_size, ratio = preprocess_yolox(
                         path, input_size=effective_imgsz, color_format=color_format
                     )
+                elif self.model_type == "rfdetr":
+                    tensor, orig_img, orig_size = preprocess_rfdetr(
+                        path, input_size=effective_imgsz
+                    )
+                    ratio = None
                 else:
                     tensor, orig_img, orig_size = preprocess_yolov9(
                         path, input_size=effective_imgsz, color_format=color_format
@@ -352,6 +400,11 @@ class LIBREYOLOTensorRT:
             input_tensor, original_img, original_size, ratio = preprocess_yolox(
                 image, input_size=effective_imgsz, color_format=color_format
             )
+        elif self.model_type == "rfdetr":
+            input_tensor, original_img, original_size = preprocess_rfdetr(
+                image, input_size=effective_imgsz
+            )
+            ratio = None
         else:
             input_tensor, original_img, original_size = preprocess_yolov9(
                 image, input_size=effective_imgsz, color_format=color_format
@@ -396,6 +449,10 @@ class LIBREYOLOTensorRT:
             boxes, scores, class_ids = self._postprocess_yolov9(outputs, conf)
         elif self.model_type == "yolox":
             boxes, scores, class_ids = self._postprocess_yolox(outputs, conf)
+        elif self.model_type == "rfdetr":
+            boxes, scores, class_ids = self._postprocess_rfdetr(
+                outputs, conf, original_size, max_det
+            )
         else:
             boxes, scores, class_ids = self._postprocess_generic(outputs, conf)
 
@@ -414,7 +471,10 @@ class LIBREYOLOTensorRT:
                 names=self.names,
             )
         else:
-            if self.model_type == "yolox" and ratio is not None:
+            if self.model_type == "rfdetr":
+                # RF-DETR boxes are already in absolute xyxy coordinates
+                pass
+            elif self.model_type == "yolox" and ratio is not None:
                 boxes = boxes / ratio
             else:
                 scale_x = orig_w / effective_imgsz
@@ -641,6 +701,87 @@ class LIBREYOLOTensorRT:
 
         return boxes, scores, class_ids
 
+    def _postprocess_rfdetr(
+        self,
+        outputs: Dict[str, np.ndarray],
+        conf_thres: float,
+        original_size: Tuple[int, int],
+        max_det: int,
+    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """Postprocess RF-DETR outputs (separate boxes + logits tensors).
+
+        RF-DETR exports produce two outputs:
+        - boxes: (1, num_queries, 4) in normalized cxcywh format
+        - logits: (1, num_queries, num_classes) raw class logits
+
+        The ONNX export names the first output "output" (boxes) and
+        auto-names the second (logits).
+        """
+        # Identify the boxes and logits tensors by shape
+        boxes_output = None
+        logits_output = None
+
+        for name in self.output_names:
+            arr = outputs[name]
+            shape = arr.shape
+            if len(shape) == 3 and shape[2] == 4:
+                boxes_output = arr  # (1, num_queries, 4)
+            elif len(shape) == 3 and shape[2] != 4:
+                logits_output = arr  # (1, num_queries, num_classes)
+
+        if boxes_output is None or logits_output is None:
+            return np.zeros((0, 4)), np.zeros((0,)), np.zeros((0,), dtype=np.int64)
+
+        # Remove batch dimension
+        pred_boxes = boxes_output[0]   # (num_queries, 4) cxcywh normalized
+        pred_logits = logits_output[0]  # (num_queries, num_classes)
+
+        # Apply sigmoid to logits
+        prob = 1.0 / (1.0 + np.exp(-pred_logits))
+
+        # Top-K selection across all (queries x classes)
+        num_queries, num_classes = prob.shape
+        flat_prob = prob.reshape(-1)  # (num_queries * num_classes,)
+        num_select = min(max_det, len(flat_prob))
+        topk_indices = np.argpartition(-flat_prob, num_select)[:num_select]
+        topk_scores = flat_prob[topk_indices]
+
+        # Sort by score descending
+        sort_order = np.argsort(-topk_scores)
+        topk_indices = topk_indices[sort_order]
+        topk_scores = topk_scores[sort_order]
+
+        # Convert flat indices to query and class indices
+        query_indices = topk_indices // num_classes
+        class_ids = topk_indices % num_classes
+
+        # Apply confidence threshold
+        mask = topk_scores > conf_thres
+        topk_scores = topk_scores[mask]
+        query_indices = query_indices[mask]
+        class_ids = class_ids[mask]
+
+        if len(topk_scores) == 0:
+            return np.zeros((0, 4)), np.zeros((0,)), np.zeros((0,), dtype=np.int64)
+
+        # Gather boxes for selected queries
+        selected_boxes = pred_boxes[query_indices]  # (N, 4) cxcywh
+
+        # Convert from cxcywh to xyxy
+        cx, cy, w, h = selected_boxes[:, 0], selected_boxes[:, 1], selected_boxes[:, 2], selected_boxes[:, 3]
+        x1 = cx - 0.5 * w
+        y1 = cy - 0.5 * h
+        x2 = cx + 0.5 * w
+        y2 = cy + 0.5 * h
+        boxes_xyxy = np.stack([x1, y1, x2, y2], axis=1)
+
+        # Scale from normalized [0, 1] to absolute coordinates
+        orig_w, orig_h = original_size
+        boxes_xyxy[:, [0, 2]] *= orig_w
+        boxes_xyxy[:, [1, 3]] *= orig_h
+
+        return boxes_xyxy, topk_scores, class_ids
+
     def _postprocess_generic(
         self, outputs: Dict[str, np.ndarray], conf_thres: float
     ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
@@ -688,6 +829,8 @@ class LIBREYOLOTensorRT:
             return "LIBREYOLO9"
         elif self.model_type == "yolox":
             return "LIBREYOLOX"
+        elif self.model_type == "rfdetr":
+            return "LIBREYOLORFDETR"
         return "LIBREYOLO"
 
     def _get_input_size(self) -> int:
