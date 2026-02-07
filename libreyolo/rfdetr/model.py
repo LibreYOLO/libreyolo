@@ -24,6 +24,23 @@ from .train import train_rfdetr, RFDETR_TRAINERS
 IMAGENET_MEAN = [0.485, 0.456, 0.406]
 IMAGENET_STD = [0.229, 0.224, 0.225]
 
+# COCO 91-class to 80-class mapping.
+# RF-DETR pretrained models output 91 COCO category IDs (1-90),
+# but YOLO-format labels use a contiguous 80-class scheme (0-79).
+# This table maps COCO category ID → YOLO class index.
+_COCO91_TO_COCO80 = {
+    1: 0, 2: 1, 3: 2, 4: 3, 5: 4, 6: 5, 7: 6, 8: 7, 9: 8, 10: 9,
+    11: 10, 13: 11, 14: 12, 15: 13, 16: 14, 17: 15, 18: 16, 19: 17,
+    20: 18, 21: 19, 22: 20, 23: 21, 24: 22, 25: 23, 27: 24, 28: 25,
+    31: 26, 32: 27, 33: 28, 34: 29, 35: 30, 36: 31, 37: 32, 38: 33,
+    39: 34, 40: 35, 41: 36, 42: 37, 43: 38, 44: 39, 46: 40, 47: 41,
+    48: 42, 49: 43, 50: 44, 51: 45, 52: 46, 53: 47, 54: 48, 55: 49,
+    56: 50, 57: 51, 58: 52, 59: 53, 60: 54, 61: 55, 62: 56, 63: 57,
+    64: 58, 65: 59, 67: 60, 70: 61, 72: 62, 73: 63, 74: 64, 75: 65,
+    76: 66, 77: 67, 78: 68, 79: 69, 80: 70, 81: 71, 82: 72, 84: 73,
+    85: 74, 86: 75, 87: 76, 88: 77, 89: 78, 90: 79,
+}
+
 
 class LIBREYOLORFDETR(LibreYOLOBase):
     """
@@ -261,13 +278,26 @@ class LIBREYOLORFDETR(LibreYOLOBase):
         labels = labels[keep]
         boxes = boxes[keep]
 
-        # Convert to lists and adjust labels to 0-indexed (LibreYOLO format)
-        # RF-DETR uses 0-indexed labels internally
+        # Map COCO 91-class IDs to YOLO 80-class indices.
+        # RF-DETR pretrained COCO models output 91 category IDs (1-90),
+        # but LibreYOLO uses contiguous 0-79 class indices (YOLO convention).
+        # Check the actual output dimension to decide if mapping is needed.
+        num_output_classes = output['pred_logits'].shape[-1]
+        if num_output_classes == 91 and self.nb_classes == 80:
+            mapped = torch.tensor(
+                [_COCO91_TO_COCO80.get(int(c), -1) for c in labels.cpu()],
+                dtype=labels.dtype,
+            )
+            valid = mapped >= 0
+            boxes = boxes[valid]
+            scores = scores[valid]
+            labels = mapped[valid]
+
         return {
             "boxes": boxes.cpu().tolist(),
             "scores": scores.cpu().tolist(),
             "classes": labels.cpu().tolist(),
-            "num_detections": len(boxes)
+            "num_detections": len(boxes),
         }
 
     def train(

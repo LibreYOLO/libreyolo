@@ -103,7 +103,8 @@ class DetectionValidator(BaseValidator):
 
         # Use model's native input size if it differs from config
         # This is important for models like YOLOX nano/tiny that use 416x416
-        model_input_size = getattr(self.model, 'input_size', None)
+        # and RF-DETR variants that each have different resolutions
+        model_input_size = self.model._get_input_size() if hasattr(self.model, '_get_input_size') else None
         if model_input_size is not None and model_input_size != self.config.imgsz:
             # Model has a specific input size requirement
             actual_imgsz = model_input_size
@@ -292,14 +293,16 @@ class DetectionValidator(BaseValidator):
         images = images.float()
 
         # Normalize based on preprocessor config
-        # Some models (e.g., standard YOLO) expect 0-1 range (normalize=True)
-        # Others (e.g., YOLOX) expect 0-255 range (normalize=False)
-        if self.val_preproc.normalize:
-            # Models expecting 0-1 range
+        # - custom_normalization=True: preprocessor already applied its own
+        #   normalization (e.g. RF-DETR ImageNet mean/std), pass through unchanged
+        # - normalize=True: model expects 0-1 range (standard YOLO)
+        # - normalize=False: model expects 0-255 range (YOLOX)
+        if getattr(self.val_preproc, 'custom_normalization', False):
+            pass  # Already normalized by preprocessor (e.g. RF-DETR ImageNet)
+        elif self.val_preproc.normalize:
             if images.max() > 1.0:
                 images = images / 255.0
         else:
-            # Models expecting 0-255 range (YOLOX)
             if images.max() <= 1.0:
                 images = images * 255.0
 

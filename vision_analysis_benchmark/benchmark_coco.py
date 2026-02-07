@@ -189,11 +189,12 @@ def benchmark_model(
             model_family = family
             break
 
-    input_size = LIBREYOLO_MODELS.get(model_family, {}).get('input_size', 640)
-
     # Load model
     print(f"Loading model from {weights_path}...")
     model = LIBREYOLO(model_path=weights_path, size=size, device=device)
+
+    # Use model's own native resolution (each RF-DETR variant has a different one)
+    input_size = model._get_input_size()
 
     # Model statistics
     print("Computing model statistics...")
@@ -204,11 +205,11 @@ def benchmark_model(
     print(f"  GFLOPs: {gflops:.2f}")
 
     # Run validation using proper API
-    print(f"\nRunning COCO validation (batch_size={batch_size})...")
+    # Don't pass imgsz — let model.val() use the model's native resolution
+    print(f"\nRunning COCO validation (batch_size={batch_size}, imgsz={input_size})...")
     val_results = model.val(
         data=coco_yaml,
         batch=batch_size,
-        imgsz=input_size,
         conf=0.001,
         iou=0.6,
         verbose=True,
