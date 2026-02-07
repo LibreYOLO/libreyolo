@@ -180,6 +180,15 @@ class Exporter:
             original_export = nn_model.detect.export
             nn_model.detect.export = True
 
+        # RF-DETR: activate LWDETR export mode (swaps forward to forward_export
+        # which returns traceable tuple instead of mixed-type dict)
+        rfdetr_export_activated = False
+        inner = getattr(nn_model, 'model', None)
+        if inner is not None and hasattr(inner, 'forward_export') and hasattr(inner, '_export'):
+            if not inner._export:
+                inner.export()
+                rfdetr_export_activated = True
+
         # --- build dummy input ---
         dummy = torch.randn(batch, 3, imgsz, imgsz, device=device)
 
@@ -257,6 +266,9 @@ class Exporter:
                 nn_model.train()
             if original_export is not None:
                 nn_model.detect.export = original_export
+            if rfdetr_export_activated:
+                inner._export = False
+                inner.forward = inner._forward_origin
 
         # --- clean up intermediate ONNX file ---
         if onnx_path and Path(onnx_path).exists():

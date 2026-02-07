@@ -83,7 +83,7 @@ class RFDETRModel(nn.Module):
         self.model = self._rfdetr.model
         self.postprocess = self._rfdetr.postprocess
 
-    def forward(self, x: torch.Tensor) -> dict:
+    def forward(self, x: torch.Tensor):
         """
         Forward pass.
 
@@ -91,9 +91,16 @@ class RFDETRModel(nn.Module):
             x: Input tensor of shape (B, 3, H, W)
 
         Returns:
-            Dictionary with 'pred_logits' and 'pred_boxes'
+            Dictionary with 'pred_logits' and 'pred_boxes' (inference mode),
+            or tuple of (pred_boxes, pred_logits) when in export mode.
         """
-        return self.model(x)
+        out = self.model(x)
+        # In export mode, forward_export returns (coord, class, masks)
+        # where masks may be None (not traceable). Return only tensors.
+        if isinstance(out, tuple):
+            coord, cls = out[0], out[1]
+            return coord, cls
+        return out
 
     def load_state_dict(self, state_dict, strict=True):
         """Load state dict into the wrapped model."""

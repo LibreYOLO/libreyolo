@@ -10,13 +10,13 @@ from .factory import LIBREYOLO, create_model
 # Lazy import for RF-DETR to avoid dependency issues
 def __getattr__(name):
     if name == "LIBREYOLORFDETR":
-        try:
-            from .rfdetr.model import LIBREYOLORFDETR
-        except ImportError:
+        import importlib.util
+        if importlib.util.find_spec("rfdetr") is None:
             raise ModuleNotFoundError(
                 "RF-DETR support requires extra dependencies.\n"
                 "Install with: pip install libreyolo[rfdetr]"
             )
+        from .rfdetr.model import LIBREYOLORFDETR
         return LIBREYOLORFDETR
     raise AttributeError(f"module '{__name__}' has no attribute '{name}'")
 from .export import Exporter
