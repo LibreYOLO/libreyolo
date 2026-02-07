@@ -104,6 +104,13 @@ class LIBREYOLOOnnx:
         self.session = ort.InferenceSession(onnx_path, providers=providers)
         self.input_name = self.session.get_inputs()[0].name
 
+        # Read expected input size from model (fallback to 640)
+        input_shape = self.session.get_inputs()[0].shape
+        if len(input_shape) == 4 and isinstance(input_shape[2], int):
+            self.imgsz = input_shape[2]
+        else:
+            self.imgsz = 640
+
         # Try to read libreyolo metadata from ONNX model
         self._read_onnx_metadata(onnx_path)
 
@@ -236,7 +243,7 @@ class LIBREYOLOOnnx:
     ) -> Results:
         """Run inference on a single image."""
         image_path = image if isinstance(image, (str, Path)) else None
-        effective_imgsz = imgsz if imgsz is not None else 640
+        effective_imgsz = imgsz if imgsz is not None else self.imgsz
 
         input_tensor, original_img, original_size = preprocess_image(
             image, input_size=effective_imgsz, color_format=color_format
