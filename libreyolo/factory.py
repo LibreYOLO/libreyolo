@@ -301,6 +301,33 @@ def create_model(version: str, config: str, reg_max: int = 16, nb_classes: int =
     model_cls = MODELS[version]
     return model_cls(config=config, reg_max=reg_max, nb_classes=nb_classes, img_size=img_size)
 
+def _resolve_weights_path(model_path: str) -> str:
+    """Resolve a model path, defaulting bare filenames to the weights/ directory.
+
+    When the caller passes a bare filename (no directory component, e.g.
+    ``"libreyoloXs.pt"``), this function looks for it in ``weights/`` first,
+    then falls back to the current directory for backward compatibility.  If
+    neither location contains the file, it returns ``weights/<filename>`` so
+    that a subsequent download lands in the canonical directory.
+
+    Paths that already contain a directory component (e.g.
+    ``"my_dir/model.pt"``) are returned unchanged.
+    """
+    path = Path(model_path)
+    # Only redirect bare filenames (no directory component).
+    # Explicit "./" prefix means the user wants CWD — don't redirect.
+    if path.parent == Path(".") and not model_path.startswith(("./", "../")):
+        weights_path = Path("weights") / path.name
+        if weights_path.exists():
+            return str(weights_path)
+        # Fall back to CWD if the file already exists there
+        if path.exists():
+            return str(path)
+        # Neither exists — default to weights/ for new downloads
+        return str(weights_path)
+    return model_path
+
+
 def LIBREYOLO(
     model_path: str,
     size: str = None,
@@ -313,7 +340,9 @@ def LIBREYOLO(
     size, and number of classes from the weights file and returns the appropriate model instance.
 
     Args:
-        model_path: Path to model weights file (.pt/.pth) or ONNX file (.onnx)
+        model_path: Path to model weights file (.pt/.pth) or ONNX file (.onnx).
+                    Bare filenames (e.g. ``"libreyoloXs.pt"``) are resolved to
+                    ``weights/`` by default and downloaded there if missing.
         size: Model size variant. Optional for .pt/.pth files (auto-detected if omitted).
               - For YOLOX: "nano", "tiny", "s", "m", "l", "x"
               - For YOLOv9: "t", "s", "m", "c"
@@ -325,17 +354,19 @@ def LIBREYOLO(
         Instance of LIBREYOLO9, LIBREYOLOX, or LIBREYOLOOnnx
 
     Example:
-        >>> # For YOLOX
-        >>> model = LIBREYOLO("libreyoloXs.pt")  # Auto-detect size
+        >>> # For YOLOX — downloads to weights/libreyoloXs.pt
+        >>> model = LIBREYOLO("libreyoloXs.pt")
         >>> detections = model("image.jpg", save=True)
         >>>
-        >>> # For YOLOv9
-        >>> model = LIBREYOLO("yolov9c.pt")  # Auto-detect size
+        >>> # For YOLOv9 — downloads to weights/yolov9c.pt
+        >>> model = LIBREYOLO("yolov9c.pt")
         >>> detections = model("image.jpg", save=True)
         >>>
-        >>> # Use tiling for large images
-        >>> detections = model("large_image.jpg", save=True, tiling=True)
+        >>> # Explicit path — used as-is
+        >>> model = LIBREYOLO("my_dir/model.pt")
     """
+    model_path = _resolve_weights_path(model_path)
+
     # Handle ONNX models
     if model_path.endswith('.onnx'):
         from .common.onnx import LIBREYOLOOnnx

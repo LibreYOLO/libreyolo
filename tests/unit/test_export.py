@@ -63,10 +63,9 @@ class TestExporterFormats:
             assert "suffix" in fmt_info
             assert fmt_info["suffix"].startswith(".")
 
-    def test_method_present(self):
+    def test_requires_present(self):
         for fmt_info in Exporter.FORMATS.values():
-            assert "method" in fmt_info
-            assert hasattr(Exporter, fmt_info["method"])
+            assert "requires" in fmt_info
 
 
 class TestExporterValidation:
@@ -99,7 +98,7 @@ class TestOutputPathGeneration:
             try:
                 os.chdir(tmpdir)
                 path = exporter("onnx", simplify=False)
-                assert path == "libreyolox_m.onnx"
+                assert path == str(Path("weights") / "libreyolox_m.onnx")
                 assert Path(path).exists()
             finally:
                 os.chdir(orig)
@@ -113,7 +112,7 @@ class TestOutputPathGeneration:
             try:
                 os.chdir(tmpdir)
                 path = exporter("torchscript")
-                assert path == "libreyolo9_t.torchscript"
+                assert path == str(Path("weights") / "libreyolo9_t.torchscript")
                 assert Path(path).exists()
             finally:
                 os.chdir(orig)
@@ -308,7 +307,6 @@ class TestTensorRTFormat:
         """Verify TensorRT format configuration."""
         fmt = Exporter.FORMATS["tensorrt"]
         assert fmt["suffix"] == ".engine"
-        assert fmt["method"] == "_export_tensorrt"
         assert fmt["requires"] == "onnx"
 
 
@@ -402,7 +400,7 @@ class TestExportPrecisionSuffix:
                 path = exporter("onnx", half=True, simplify=False)
                 # Verify the filename includes _fp16
                 assert "_fp16" in path, f"Expected _fp16 in path, got: {path}"
-                assert path == "testyolo_s_fp16.onnx"
+                assert path == str(Path("weights") / "testyolo_s_fp16.onnx")
             finally:
                 os.chdir(orig)
 

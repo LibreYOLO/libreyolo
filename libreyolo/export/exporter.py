@@ -164,7 +164,13 @@ class Exporter:
         if output_path is None:
             model_name = self.model._get_model_name().lower()
             precision_suffix = "_int8" if int8 else ("_fp16" if half else "")
-            output_path = f"{model_name}_{self.model.size}{precision_suffix}{fmt_info['suffix']}"
+            output_path = str(
+                Path("weights")
+                / f"{model_name}_{self.model.size}{precision_suffix}{fmt_info['suffix']}"
+            )
+
+        # --- ensure output directory exists ---
+        Path(output_path).parent.mkdir(parents=True, exist_ok=True)
 
         # --- prepare model ---
         nn_model = self.model.model
@@ -176,9 +182,15 @@ class Exporter:
 
         # --- set export mode for models that support it ---
         original_export = None
+        export_attr = None  # which attribute holds the export flag
         if hasattr(nn_model, 'detect') and hasattr(nn_model.detect, 'export'):
+            export_attr = 'detect'
             original_export = nn_model.detect.export
             nn_model.detect.export = True
+        elif hasattr(nn_model, 'head') and hasattr(nn_model.head, 'export'):
+            export_attr = 'head'
+            original_export = nn_model.head.export
+            nn_model.head.export = True
 
         # RF-DETR: activate LWDETR export mode (swaps forward to forward_export
         # which returns traceable tuple instead of mixed-type dict)

@@ -533,6 +533,8 @@ class YOLOXHead(nn.Module):
         self.grids = [torch.zeros(1)] * len(in_channels)
         # Set to False to return raw outputs for compatibility with postprocess
         self.decode_in_inference = False
+        # Set to True during ONNX/TorchScript export to return decoded outputs
+        self.export = False
 
     def initialize_biases(self, prior_prob):
         """Initialize biases for better training convergence."""
@@ -617,6 +619,29 @@ class YOLOXHead(nn.Module):
                 origin_preds,
                 dtype=xin[0].dtype,
             )
+        elif self.export:
+            # Export mode: decode grid offsets and return single flat tensor
+            # suitable for ONNX/TorchScript tracing.
+            decoded = []
+            for k, output in enumerate(outputs):
+                batch_size = output.shape[0]
+                n_ch = 5 + self.num_classes
+                hsize, wsize = output.shape[-2:]
+                # (B, C, H, W) -> (B, H*W, C)
+                out = output.view(batch_size, n_ch, -1).permute(0, 2, 1)
+                # build grid
+                yv, xv = meshgrid([torch.arange(hsize, device=output.device),
+                                   torch.arange(wsize, device=output.device)])
+                grid = torch.stack((xv, yv), 2).view(1, -1, 2).to(dtype=output.dtype)
+                stride = self.strides[k]
+                out = torch.cat([
+                    (out[..., 0:2] + grid) * stride,
+                    torch.exp(out[..., 2:4]) * stride,
+                    out[..., 4:],
+                ], dim=-1)
+                decoded.append(out)
+            # (B, total_anchors, 5+num_classes) in cxcywh format
+            return torch.cat(decoded, dim=1)
         else:
             # Return raw outputs list for compatibility with existing postprocess
             # Each output has shape (B, 5+num_classes, H, W)
