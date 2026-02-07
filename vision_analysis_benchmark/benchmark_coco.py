@@ -165,6 +165,7 @@ def benchmark_model(
     model_name: str,
     weights_path: str,
     size: str,
+    variant: str,
     coco_yaml: str,
     batch_size: int = 1,
     device: str = 'auto',
@@ -248,14 +249,6 @@ def benchmark_model(
         fps_mean = 0.0
         print("\n  Warning: No timing data available from validation pass")
 
-    total_stats = {
-        'mean': round(ms_per_image, 4),
-        'preprocess_ms': round(preprocess_ms, 4),
-        'inference_ms': round(inference_ms, 4),
-        'postprocess_ms': round(postprocess_ms, 4),
-    }
-    fps_p50 = fps_mean  # Single average from full val pass
-
     # Collect hardware/software info
     gpu_info = get_gpu_info()
     cpu_model, cpu_cores = get_cpu_info()
@@ -270,15 +263,15 @@ def benchmark_model(
     else:
         runtime_device = 'cpu'
 
-    # Hyphenated model name for website (e.g. "yolox-nano")
-    display_name = f"{model_family}-{size}"
+    # Hyphenated model name for website (e.g. "yolox-nano", "rfdetr-base")
+    display_name = f"{model_family}-{variant}"
 
     # Assemble results
     results = {
         'model': {
             'name': display_name,
             'family': model_family,
-            'variant': size,
+            'variant': variant,
             'source': 'libreyolo',
             'weights': Path(weights_path).name,
             'input_size': input_size,
@@ -302,11 +295,13 @@ def benchmark_model(
         'timing': {
             'batch_size': batch_size,
             'num_images': num_images,
-            'total_ms': total_stats,
+            'ms_per_image': round(ms_per_image, 4),
+            'preprocess_ms': round(preprocess_ms, 4),
+            'inference_ms': round(inference_ms, 4),
+            'postprocess_ms': round(postprocess_ms, 4),
         },
         'throughput': {
-            'fps_mean': round(fps_mean, 2),
-            'fps_p50': round(fps_p50, 2),
+            'fps': round(fps_mean, 2),
         },
         'model_stats': {
             'params_millions': round(params_millions, 2),
@@ -394,8 +389,8 @@ def main():
                     model_name = f"{family}{variant}"
                     if model_spec == model_name:
                         weights = info['weights_pattern'].format(variant=variant)
-                        size = variant[0] if family == 'rfdetr' else variant
-                        models_to_benchmark.append((model_name, weights, size))
+                        constructor_size = variant[0] if family == 'rfdetr' else variant
+                        models_to_benchmark.append((model_name, weights, constructor_size, variant))
                         break
     else:
         # Benchmark all models
@@ -404,20 +399,21 @@ def main():
             for variant in info['variants']:
                 model_name = f"{family}{variant}"
                 weights = info['weights_pattern'].format(variant=variant)
-                size = variant[0] if family == 'rfdetr' else variant
-                models_to_benchmark.append((model_name, weights, size))
+                constructor_size = variant[0] if family == 'rfdetr' else variant
+                models_to_benchmark.append((model_name, weights, constructor_size, variant))
 
     print(f"Will benchmark {len(models_to_benchmark)} models")
 
     # Run benchmarks
     all_results = []
 
-    for model_name, weights_file, size in models_to_benchmark:
+    for model_name, weights_file, size, variant in models_to_benchmark:
         try:
             results = benchmark_model(
                 model_name=model_name,
                 weights_path=weights_file,
                 size=size,
+                variant=variant,
                 coco_yaml=args.coco_yaml,
                 batch_size=args.batch_size,
                 device=args.device,
@@ -455,11 +451,11 @@ def main():
                 'mAP_50': r['accuracy']['mAP_50'],
                 'precision': r['accuracy']['precision'],
                 'recall': r['accuracy']['recall'],
-                'fps': r['throughput']['fps_mean'],
-                'latency_ms': r['timing']['total_ms']['mean'],
-                'preprocess_ms': r['timing']['total_ms']['preprocess_ms'],
-                'inference_ms': r['timing']['total_ms']['inference_ms'],
-                'postprocess_ms': r['timing']['total_ms']['postprocess_ms'],
+                'fps': r['throughput']['fps'],
+                'latency_ms': r['timing']['ms_per_image'],
+                'preprocess_ms': r['timing']['preprocess_ms'],
+                'inference_ms': r['timing']['inference_ms'],
+                'postprocess_ms': r['timing']['postprocess_ms'],
                 'params_M': r['model_stats']['params_millions'],
                 'gflops': r['model_stats']['gflops'],
             })
