@@ -67,4 +67,5 @@ testpaths = ["tests"]
 markers = [
     "unit: fast tests that avoid external weights or large files",
     "integration: slow tests that require converted weights or generate artifacts",
+    "e2e: end-to-end tests (requires GPU and datasets)",
 ]
