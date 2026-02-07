@@ -109,9 +109,9 @@ class RFDETRModel(nn.Module):
             state_dict = state_dict['model']
         return self.model.load_state_dict(state_dict, strict=strict)
 
-    def state_dict(self):
+    def state_dict(self, *args, **kwargs):
         """Get state dict from the wrapped model."""
-        return self.model.state_dict()
+        return self.model.state_dict(*args, **kwargs)
 
     def to(self, device):
         """Move model to device."""
