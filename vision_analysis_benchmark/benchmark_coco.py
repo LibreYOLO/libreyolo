@@ -228,117 +228,32 @@ def benchmark_model(
         'mAP_large': 0.0,
     }
 
-    # Timing metrics via separate pass
-    # .val() doesn't return timing, so we run a quick timing benchmark
-    print("\nRunning separate timing benchmark (100 images)...")
+    # Timing metrics from the validation pass (already timed over all images)
+    num_images = int(val_results.get('speed/images_seen', 0))
+    ms_per_image = val_results.get('speed/total_ms', 0.0)
+    preprocess_ms = val_results.get('speed/preprocess_ms', 0.0)
+    inference_ms = val_results.get('speed/inference_ms', 0.0)
+    postprocess_ms = val_results.get('speed/postprocess_ms', 0.0)
 
-    from pycocotools.coco import COCO
-    from tqdm import tqdm
-    import numpy as np
-
-    # Load COCO for timing pass
-    from libreyolo.data.utils import resolve_dataset_yaml
-    timing_successful = False
-
-    try:
-        coco_yaml_path = resolve_dataset_yaml(coco_yaml)
-    except FileNotFoundError:
-        coco_yaml_path = None
-        print(f"  Warning: COCO yaml not found: {coco_yaml}")
-
-    if coco_yaml_path is None:
-        pass
+    if ms_per_image > 0:
+        fps_mean = 1000.0 / ms_per_image
+        print(f"\nTiming (from {num_images}-image validation pass):")
+        print(f"  Preprocess:  {preprocess_ms:.2f} ms/image")
+        print(f"  Inference:   {inference_ms:.2f} ms/image")
+        print(f"  Postprocess: {postprocess_ms:.2f} ms/image")
+        print(f"  Total:       {ms_per_image:.2f} ms/image")
+        print(f"  FPS:         {fps_mean:.1f}")
     else:
-        try:
-            import yaml
-            with open(coco_yaml_path) as f:
-                coco_config = yaml.safe_load(f)
-
-            coco_root = Path(coco_config['path'])
-            ann_file = coco_root / 'annotations' / 'instances_val2017.json'
-            img_dir = coco_root / 'images' / 'val2017'
-
-            print(f"  Looking for annotations at: {ann_file}")
-            print(f"  Looking for images at: {img_dir}")
-
-            if not ann_file.exists():
-                print(f"  Warning: Annotation file not found at {ann_file}")
-            elif not img_dir.exists():
-                print(f"  Warning: Image directory not found at {img_dir}")
-            else:
-                coco_gt = COCO(str(ann_file))
-                img_ids = sorted(coco_gt.getImgIds())[:500]  # Sample 500 images for timing
-
-                timings = []
-                use_cuda_events = torch.cuda.is_available()
-
-                if not use_cuda_events:
-                    print("  Warning: CUDA not available, using CPU timing")
-
-                # Warmup runs
-                print("  Running 10 warmup iterations...")
-                warmup_img = img_dir / coco_gt.loadImgs(img_ids[0])[0]['file_name']
-                for _ in range(10):
-                    _ = model.predict(str(warmup_img), save=False, conf_thres=0.001, iou_thres=0.6)
-
-                for img_id in tqdm(img_ids, desc="Timing"):
-                    img_info = coco_gt.loadImgs(img_id)[0]
-                    img_path = img_dir / img_info['file_name']
-
-                    if use_cuda_events:
-                        # Time with CUDA events for GPU
-                        start_event = torch.cuda.Event(enable_timing=True)
-                        end_event = torch.cuda.Event(enable_timing=True)
-
-                        torch.cuda.synchronize()
-                        start_event.record()
-
-                        _ = model.predict(str(img_path), save=False, conf=0.001, iou=0.6)
-
-                        end_event.record()
-                        torch.cuda.synchronize()
-
-                        elapsed_ms = start_event.elapsed_time(end_event)
-                    else:
-                        # Time with CPU timer
-                        import time
-                        start_time = time.perf_counter()
-
-                        _ = model.predict(str(img_path), save=False, conf=0.001, iou=0.6)
-
-                        end_time = time.perf_counter()
-                        elapsed_ms = (end_time - start_time) * 1000.0
-
-                    timings.append(elapsed_ms)
-
-                # Compute statistics
-                timings = np.array(timings)
-                total_stats = {
-                    'mean': round(float(np.mean(timings)), 4),
-                    'std': round(float(np.std(timings)), 4),
-                    'p50': round(float(np.percentile(timings, 50)), 4),
-                    'p95': round(float(np.percentile(timings, 95)), 4),
-                    'p99': round(float(np.percentile(timings, 99)), 4),
-                }
-
-                fps_mean = 1000.0 / total_stats['mean'] if total_stats['mean'] > 0 else 0
-                fps_p50 = 1000.0 / total_stats['p50'] if total_stats['p50'] > 0 else 0
-
-                print(f"  Mean latency: {total_stats['mean']:.2f}ms")
-                print(f"  p50 latency: {total_stats['p50']:.2f}ms")
-                print(f"  FPS (mean): {fps_mean:.1f}")
-                timing_successful = True
-
-        except Exception as e:
-            print(f"  Error during timing pass: {e}")
-            import traceback
-            traceback.print_exc()
-
-    if not timing_successful:
-        print("  Setting timing metrics to 0 due to timing pass failure")
-        total_stats = {'mean': 0.0, 'std': 0.0, 'p50': 0.0, 'p95': 0.0, 'p99': 0.0}
         fps_mean = 0.0
-        fps_p50 = 0.0
+        print("\n  Warning: No timing data available from validation pass")
+
+    total_stats = {
+        'mean': round(ms_per_image, 4),
+        'preprocess_ms': round(preprocess_ms, 4),
+        'inference_ms': round(inference_ms, 4),
+        'postprocess_ms': round(postprocess_ms, 4),
+    }
+    fps_p50 = fps_mean  # Single average from full val pass
 
     # Collect hardware/software info
     gpu_info = get_gpu_info()
@@ -369,7 +284,7 @@ def benchmark_model(
         'accuracy': accuracy_metrics,
         'timing': {
             'batch_size': batch_size,
-            'num_images': 5000,
+            'num_images': num_images,
             'total_ms': total_stats,
         },
         'throughput': {
@@ -506,12 +421,11 @@ def main():
                 'mAP_50': r['accuracy']['mAP_50'],
                 'precision': r['accuracy']['precision'],
                 'recall': r['accuracy']['recall'],
-                'fps_mean': r['throughput']['fps_mean'],
-                'fps_p50': r['throughput']['fps_p50'],
-                'latency_mean_ms': r['timing']['total_ms']['mean'],
-                'latency_p50_ms': r['timing']['total_ms']['p50'],
-                'latency_p95_ms': r['timing']['total_ms']['p95'],
-                'latency_p99_ms': r['timing']['total_ms']['p99'],
+                'fps': r['throughput']['fps_mean'],
+                'latency_ms': r['timing']['total_ms']['mean'],
+                'preprocess_ms': r['timing']['total_ms']['preprocess_ms'],
+                'inference_ms': r['timing']['total_ms']['inference_ms'],
+                'postprocess_ms': r['timing']['total_ms']['postprocess_ms'],
                 'params_M': r['model_stats']['params_millions'],
                 'gflops': r['model_stats']['gflops'],
             })
