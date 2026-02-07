@@ -179,13 +179,12 @@ def benchmark_model(
     print(f"Benchmarking: {model_name}")
     print(f"{'='*80}")
 
-    # Determine family and variant
-    for family, info in LIBREYOLO_MODELS.items():
-        if size in info['variants']:
+    # Determine family from model_name prefix (e.g. "yoloxnano" -> "yolox")
+    model_family = "unknown"
+    for family in LIBREYOLO_MODELS:
+        if model_name.startswith(family):
             model_family = family
             break
-    else:
-        model_family = "unknown"
 
     input_size = LIBREYOLO_MODELS.get(model_family, {}).get('input_size', 640)
 
