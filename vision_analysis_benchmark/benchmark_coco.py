@@ -237,11 +237,17 @@ def benchmark_model(
     import numpy as np
 
     # Load COCO for timing pass
-    coco_yaml_path = Path(coco_yaml)
+    from libreyolo.data.utils import resolve_dataset_yaml
     timing_successful = False
 
-    if not coco_yaml_path.exists():
-        print(f"  Warning: COCO yaml not found at {coco_yaml_path}")
+    try:
+        coco_yaml_path = resolve_dataset_yaml(coco_yaml)
+    except FileNotFoundError:
+        coco_yaml_path = None
+        print(f"  Warning: COCO yaml not found: {coco_yaml}")
+
+    if coco_yaml_path is None:
+        pass
     else:
         try:
             import yaml
@@ -287,7 +293,7 @@ def benchmark_model(
                         torch.cuda.synchronize()
                         start_event.record()
 
-                        _ = model.predict(str(img_path), save=False, conf_thres=0.001, iou_thres=0.6)
+                        _ = model.predict(str(img_path), save=False, conf=0.001, iou=0.6)
 
                         end_event.record()
                         torch.cuda.synchronize()
@@ -298,7 +304,7 @@ def benchmark_model(
                         import time
                         start_time = time.perf_counter()
 
-                        _ = model.predict(str(img_path), save=False, conf_thres=0.001, iou_thres=0.6)
+                        _ = model.predict(str(img_path), save=False, conf=0.001, iou=0.6)
 
                         end_time = time.perf_counter()
                         elapsed_ms = (end_time - start_time) * 1000.0
