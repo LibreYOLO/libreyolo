@@ -5,13 +5,15 @@ Supports ONNX, TorchScript, and TensorRT export formats with various
 precision modes (FP32, FP16, INT8).
 """
 
-import importlib.util
 import json
 import warnings
 from pathlib import Path
 from typing import Optional
 
 import torch
+
+from .onnx import _get_version, export_onnx
+from .torchscript import export_torchscript
 
 
 class Exporter:
@@ -49,17 +51,14 @@ class Exporter:
     FORMATS = {
         "onnx": {
             "suffix": ".onnx",
-            "method": "_export_onnx",
             "requires": None,
         },
         "torchscript": {
             "suffix": ".torchscript",
-            "method": "_export_torchscript",
             "requires": None,
         },
         "tensorrt": {
             "suffix": ".engine",
-            "method": "_export_tensorrt",
             "requires": "onnx",  # TensorRT builds from ONNX
         },
     }
@@ -257,7 +256,7 @@ class Exporter:
             # Export to ONNX first as intermediate format
             onnx_output = str(Path(output_path).with_suffix(".onnx"))
             print(f"Step 1/2: Exporting to ONNX ({onnx_output})")
-            onnx_path = self._export_onnx(
+            onnx_path = export_onnx(
                 nn_model,
                 dummy,
                 output_path=onnx_output,
@@ -265,30 +264,66 @@ class Exporter:
                 simplify=simplify,
                 dynamic=False,  # TensorRT prefers static shapes in ONNX
                 half=False,  # TensorRT handles precision internally
+                metadata=self._build_onnx_metadata(dynamic=False, half=False),
             )
 
-        # --- dispatch to format-specific method ---
-        method = getattr(self, fmt_info["method"])
+        # --- build metadata for the target format ---
         try:
-            if fmt == "tensorrt":
-                print(f"Step 2/2: Building TensorRT engine")
-            result = method(
-                nn_model,
-                dummy,
-                output_path=output_path,
-                opset=opset,
-                simplify=simplify,
-                dynamic=dynamic,
-                half=half,
-                int8=int8,
-                onnx_path=onnx_path,
-                calibration_data=calibration_data,
-                workspace=workspace,
-                hardware_compatibility=hardware_compatibility,
-                gpu_device=gpu_device,
-                trt_config=trt_config,
-                verbose=verbose,
-            )
+            if fmt == "onnx":
+                result = export_onnx(
+                    nn_model,
+                    dummy,
+                    output_path=output_path,
+                    opset=opset,
+                    simplify=simplify,
+                    dynamic=dynamic,
+                    half=half,
+                    metadata=self._build_onnx_metadata(dynamic=dynamic, half=half),
+                )
+            elif fmt == "torchscript":
+                result = export_torchscript(
+                    nn_model,
+                    dummy,
+                    output_path=output_path,
+                )
+            elif fmt == "tensorrt":
+                from .tensorrt import export_tensorrt
+
+                print("Step 2/2: Building TensorRT engine")
+
+                if int8:
+                    precision = "int8"
+                elif half:
+                    precision = "fp16"
+                else:
+                    precision = "fp32"
+
+                metadata = {
+                    "libreyolo_version": _get_version(),
+                    "model_family": self.model._get_model_name(),
+                    "model_size": self.model.size,
+                    "nb_classes": self.model.nb_classes,
+                    "names": {str(k): v for k, v in self.model.names.items()},
+                    "imgsz": self.model._get_input_size(),
+                    "precision": precision,
+                    "dynamic": dynamic,
+                    "exported_from": str(Path(onnx_path).name) if onnx_path else None,
+                }
+
+                result = export_tensorrt(
+                    onnx_path=onnx_path,
+                    output_path=output_path,
+                    half=half,
+                    int8=int8,
+                    workspace=workspace,
+                    calibration_data=calibration_data,
+                    dynamic=dynamic,
+                    verbose=verbose,
+                    hardware_compatibility=hardware_compatibility,
+                    device=gpu_device,
+                    config=trt_config,
+                    metadata=metadata,
+                )
         finally:
             # restore model state
             nn_model.to(original_device)
@@ -297,7 +332,7 @@ class Exporter:
             if original_training:
                 nn_model.train()
             if original_export is not None:
-                nn_model.detect.export = original_export
+                getattr(nn_model, export_attr).export = original_export
             if rfdetr_export_activated:
                 inner._export = False
                 inner.forward = inner._forward_origin
@@ -318,91 +353,10 @@ class Exporter:
         )
         return result
 
-    # ------------------------------------------------------------------
-    # ONNX
-    # ------------------------------------------------------------------
-
-    def _export_onnx(
-        self,
-        nn_model,
-        dummy,
-        *,
-        output_path: str,
-        opset: int,
-        simplify: bool,
-        dynamic: bool,
-        half: bool,
-        **_kwargs,
-    ) -> str:
-        if importlib.util.find_spec("onnx") is None:
-            raise ImportError(
-                "ONNX export requires the 'onnx' package. "
-                "Install with: uv sync --extra onnx  or  pip install onnx"
-            )
-
-        dynamic_axes = None
-        if dynamic:
-            dynamic_axes = {
-                "images": {0: "batch"},
-                "output": {0: "batch"},
-            }
-
-        # Use legacy exporter (dynamo=False) for compatibility with models
-        # that have complex shape operations not supported by torch.export
-        export_kwargs = {
-            "export_params": True,
-            "opset_version": opset,
-            "do_constant_folding": True,
-            "input_names": ["images"],
-            "output_names": ["output"],
-            "dynamic_axes": dynamic_axes,
-        }
-
-        # PyTorch 2.1+ defaults to dynamo-based export which can fail on
-        # complex models. Use legacy exporter for better compatibility.
-        try:
-            # Try with dynamo=False for PyTorch 2.1+
-            torch.onnx.export(nn_model, dummy, output_path, dynamo=False, **export_kwargs)
-        except TypeError:
-            # Older PyTorch versions don't have dynamo parameter
-            torch.onnx.export(nn_model, dummy, output_path, **export_kwargs)
-
-        self._postprocess_onnx(output_path, simplify=simplify, dynamic=dynamic, half=half)
-
-        return output_path
-
-    def _postprocess_onnx(self, path: str, *, simplify: bool, dynamic: bool, half: bool) -> None:
-        """Load the ONNX file once, optionally simplify, embed metadata, and save."""
-        try:
-            import onnx
-        except ImportError:
-            return
-
-        model_proto = onnx.load(path)
-
-        # Simplify graph
-        if simplify:
-            try:
-                from onnxsim import simplify as onnx_simplify
-
-                simplified, ok = onnx_simplify(model_proto)
-                if ok:
-                    model_proto = simplified
-            except ImportError:
-                warnings.warn(
-                    "onnxsim is not installed — skipping ONNX graph simplification. "
-                    "Install with: pip install onnxsim",
-                    stacklevel=3,
-                )
-            except Exception as exc:
-                warnings.warn(
-                    f"ONNX simplification failed (non-fatal): {exc}",
-                    stacklevel=3,
-                )
-
-        # Embed metadata
-        metadata = {
-            "libreyolo_version": self._get_version(),
+    def _build_onnx_metadata(self, *, dynamic: bool, half: bool) -> dict:
+        """Build the metadata dict for ONNX export."""
+        return {
+            "libreyolo_version": _get_version(),
             "model_family": self.model._get_model_name(),
             "model_size": self.model.size,
             "nb_classes": str(self.model.nb_classes),
@@ -413,95 +367,3 @@ class Exporter:
             "dynamic": str(dynamic),
             "half": str(half),
         }
-
-        for key, value in metadata.items():
-            entry = model_proto.metadata_props.add()
-            entry.key = key
-            entry.value = value
-
-        onnx.checker.check_model(model_proto)
-        onnx.save(model_proto, path)
-
-    @staticmethod
-    def _get_version() -> str:
-        try:
-            from importlib.metadata import version
-
-            return version("libreyolo")
-        except Exception:
-            return "0.0.0.dev0"
-
-    # ------------------------------------------------------------------
-    # TorchScript
-    # ------------------------------------------------------------------
-
-    def _export_torchscript(
-        self,
-        nn_model,
-        dummy,
-        *,
-        output_path: str,
-        **_kwargs,
-    ) -> str:
-        traced = torch.jit.trace(nn_model, dummy)
-        traced.save(output_path)
-        return output_path
-
-    # ------------------------------------------------------------------
-    # TensorRT
-    # ------------------------------------------------------------------
-
-    def _export_tensorrt(
-        self,
-        nn_model,
-        dummy,
-        *,
-        output_path: str,
-        onnx_path: str,
-        half: bool,
-        int8: bool,
-        calibration_data,
-        workspace: float,
-        hardware_compatibility: str,
-        gpu_device: int,
-        trt_config: Optional[str],
-        verbose: bool,
-        dynamic: bool,
-        **_kwargs,
-    ) -> str:
-        """Export to TensorRT engine format."""
-        from .tensorrt_export import export_tensorrt
-
-        if int8:
-            precision = "int8"
-        elif half:
-            precision = "fp16"
-        else:
-            precision = "fp32"
-
-        metadata = {
-            "libreyolo_version": self._get_version(),
-            "model_family": self.model._get_model_name(),
-            "model_size": self.model.size,
-            "nb_classes": self.model.nb_classes,
-            "names": {str(k): v for k, v in self.model.names.items()},
-            "imgsz": self.model._get_input_size(),
-            "precision": precision,
-            "dynamic": dynamic,
-            "exported_from": str(Path(onnx_path).name) if onnx_path else None,
-        }
-
-        return export_tensorrt(
-            onnx_path=onnx_path,
-            output_path=output_path,
-            half=half,
-            int8=int8,
-            workspace=workspace,
-            calibration_data=calibration_data,
-            dynamic=dynamic,
-            verbose=verbose,
-            hardware_compatibility=hardware_compatibility,
-            device=gpu_device,
-            config=trt_config,
-            metadata=metadata,
-        )

@@ -354,7 +354,7 @@ class TestTensorRTImportCheck:
         except ImportError:
             pass
 
-        from libreyolo.export.tensorrt_export import check_tensorrt_available
+        from libreyolo.export.tensorrt import check_tensorrt_available
 
         with pytest.raises(ImportError) as exc_info:
             check_tensorrt_available()
