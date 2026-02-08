@@ -375,6 +375,11 @@ def LIBREYOLO(
         # Pass nb_classes as-is so the sidecar can fill in the default.
         return LIBREYOLOTensorRT(model_path, nb_classes=nb_classes, device=device)
 
+    # Handle OpenVINO model directories (containing model.xml)
+    if Path(model_path).is_dir() and (Path(model_path) / "model.xml").exists():
+        from .common.openvino import LIBREYOLOOpenVINO
+        return LIBREYOLOOpenVINO(model_path, nb_classes=nb_classes, device=device)
+
     # For .pt files, handle file download if needed
     if not Path(model_path).exists():
         # Try to extract size from filename if not provided
