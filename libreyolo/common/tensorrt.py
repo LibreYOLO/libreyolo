@@ -629,75 +629,38 @@ class LIBREYOLOTensorRT:
     def _postprocess_yolox(
         self, outputs: Dict[str, np.ndarray], conf_thres: float
     ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-        """Postprocess YOLOX outputs (multi-scale feature maps)."""
-        # YOLOX has 3 outputs at different scales
-        # Each output: (1, 85, H, W) where 85 = 4 (box) + 1 (obj) + 80 (cls)
+        """Postprocess YOLOX outputs.
 
-        all_boxes = []
-        all_scores = []
-        all_class_ids = []
+        With head.export=True the ONNX (and therefore TensorRT) model produces
+        a single concatenated tensor of shape (B, N, 5+nc) where the columns
+        are: cx, cy, w, h, objectness, class_scores...
+        """
+        output = outputs.get("output", outputs[self.output_names[0]])
+        output = output[0]  # (N, 5+nc)
 
-        # Strides for different scales
-        strides = [8, 16, 32]
+        cx, cy, w, h = output[:, 0], output[:, 1], output[:, 2], output[:, 3]
+        objectness = output[:, 4]
+        class_scores = output[:, 5:]
 
-        # Sort outputs by spatial size (largest first)
-        sorted_outputs = sorted(
-            [(name, outputs[name]) for name in self.output_names if name in outputs],
-            key=lambda x: x[1].shape[2] * x[1].shape[3],
-            reverse=True
-        )
+        # Confidence = objectness * max class score
+        max_class_scores = np.max(class_scores, axis=1)
+        scores = objectness * max_class_scores
+        class_ids = np.argmax(class_scores, axis=1)
 
-        for idx, (name, output) in enumerate(sorted_outputs):
-            if len(output.shape) != 4:
-                continue
+        # Apply confidence threshold
+        mask = scores > conf_thres
+        cx, cy, w, h = cx[mask], cy[mask], w[mask], h[mask]
+        scores, class_ids = scores[mask], class_ids[mask]
 
-            stride = strides[idx] if idx < len(strides) else strides[-1]
-            batch, channels, h, w = output.shape
+        if len(scores) == 0:
+            return np.zeros((0, 4)), np.zeros((0,)), np.zeros((0,), dtype=np.int64)
 
-            # Reshape: (1, 85, H, W) -> (H*W, 85)
-            output = output[0].transpose(1, 2, 0).reshape(-1, channels)
-
-            # Extract components
-            # YOLOX format: x, y, w, h, obj_conf, class_scores...
-            xy = output[:, :2]
-            wh = output[:, 2:4]
-            obj_conf = output[:, 4:5]
-            class_scores = output[:, 5:]
-
-            # Create grid
-            yv, xv = np.meshgrid(np.arange(h), np.arange(w), indexing='ij')
-            grid = np.stack([xv.flatten(), yv.flatten()], axis=1)
-
-            # Decode boxes
-            xy = (xy + grid) * stride
-            wh = np.exp(wh) * stride
-
-            # Convert to xyxy
-            x1 = xy[:, 0] - wh[:, 0] / 2
-            y1 = xy[:, 1] - wh[:, 1] / 2
-            x2 = xy[:, 0] + wh[:, 0] / 2
-            y2 = xy[:, 1] + wh[:, 1] / 2
-            boxes = np.stack([x1, y1, x2, y2], axis=1)
-
-            # Compute final scores
-            scores = (obj_conf * class_scores)
-            max_scores = np.max(scores, axis=1)
-            class_ids = np.argmax(scores, axis=1)
-
-            # Apply confidence threshold
-            mask = max_scores > conf_thres
-            all_boxes.append(boxes[mask])
-            all_scores.append(max_scores[mask])
-            all_class_ids.append(class_ids[mask])
-
-        if all_boxes:
-            boxes = np.concatenate(all_boxes, axis=0)
-            scores = np.concatenate(all_scores, axis=0)
-            class_ids = np.concatenate(all_class_ids, axis=0)
-        else:
-            boxes = np.zeros((0, 4))
-            scores = np.zeros((0,))
-            class_ids = np.zeros((0,), dtype=np.int64)
+        # Convert cxcywh to xyxy
+        x1 = cx - w / 2
+        y1 = cy - h / 2
+        x2 = cx + w / 2
+        y2 = cy + h / 2
+        boxes = np.stack([x1, y1, x2, y2], axis=1)
 
         return boxes, scores, class_ids
 
