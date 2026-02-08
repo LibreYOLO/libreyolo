@@ -106,14 +106,15 @@ def dataset_coco(dataset):
     class_names = data["names"]
 
     # Handle both list and dict formats for names
+    # RF-DETR (Roboflow format) uses 0-indexed category IDs
     if isinstance(class_names, dict):
         categories = [
-            {"id": i + 1, "name": class_names[i], "supercategory": "object"}
+            {"id": i, "name": class_names[i], "supercategory": "object"}
             for i in sorted(class_names.keys())
         ]
     else:
         categories = [
-            {"id": i + 1, "name": name, "supercategory": "object"}
+            {"id": i, "name": name, "supercategory": "object"}
             for i, name in enumerate(class_names)
         ]
 
@@ -152,7 +153,7 @@ def dataset_coco(dataset):
 
                     annotations_list.append({
                         "id": ann_id, "image_id": img_id,
-                        "category_id": cls_id + 1,
+                        "category_id": cls_id,
                         "bbox": [round(x, 2), round(y, 2),
                                  round(box_w, 2), round(box_h, 2)],
                         "area": round(box_w * box_h, 2), "iscrowd": 0,
@@ -189,7 +190,7 @@ def test_rf1_training(weights, size, family, dataset_coco, dataset_data_yaml,
         model.train(
             data=str(dataset_coco),
             epochs=10,
-            batch_size=16,
+            batch_size=4,
             output_dir=str(tmp_path / f"rfdetr_{size}"),
         )
     else:
