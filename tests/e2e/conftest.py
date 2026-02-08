@@ -8,6 +8,7 @@ def pytest_configure(config):
     """Register custom markers."""
     config.addinivalue_line("markers", "e2e: end-to-end tests requiring full model loading")
     config.addinivalue_line("markers", "tensorrt: tests requiring TensorRT")
+    config.addinivalue_line("markers", "openvino: tests requiring OpenVINO")
     config.addinivalue_line("markers", "rfdetr: tests requiring RF-DETR dependencies")
     config.addinivalue_line("markers", "slow: slow tests that may take several minutes")
 
@@ -27,6 +28,16 @@ def has_tensorrt():
         return False
     try:
         import tensorrt as trt
+        return True
+    except ImportError:
+        return False
+
+
+def has_openvino():
+    """Check if OpenVINO is installed and usable."""
+    try:
+        import openvino as ov
+        _ = ov.__version__
         return True
     except ImportError:
         return False
@@ -53,6 +64,11 @@ requires_cuda = pytest.mark.skipif(
 requires_tensorrt = pytest.mark.skipif(
     not has_tensorrt(),
     reason="TensorRT not installed or CUDA not available"
+)
+
+requires_openvino = pytest.mark.skipif(
+    not has_openvino(),
+    reason="OpenVINO not installed (pip install openvino)"
 )
 
 requires_rfdetr = pytest.mark.skipif(

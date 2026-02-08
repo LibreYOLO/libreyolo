@@ -61,7 +61,7 @@ class TestExporterFormats:
     def test_suffix_present(self):
         for fmt_info in Exporter.FORMATS.values():
             assert "suffix" in fmt_info
-            assert fmt_info["suffix"].startswith(".")
+            assert fmt_info["suffix"].startswith(".") or fmt_info["suffix"].startswith("_")
 
     def test_requires_present(self):
         for fmt_info in Exporter.FORMATS.values():
@@ -381,6 +381,76 @@ class TestCalibrationDataLoader:
         # Check that dtype and shape properties are defined
         assert hasattr(CalibrationDataLoader, "shape")
         assert hasattr(CalibrationDataLoader, "dtype")
+
+
+# ---------------------------------------------------------------------------
+# OpenVINO Export Tests
+# ---------------------------------------------------------------------------
+
+
+class TestOpenVINOFormat:
+    """Test OpenVINO format registration and validation."""
+
+    def test_openvino_format_registered(self):
+        """Verify OpenVINO is in supported formats."""
+        assert "openvino" in Exporter.FORMATS
+
+    def test_openvino_format_config(self):
+        """Verify OpenVINO format configuration."""
+        fmt = Exporter.FORMATS["openvino"]
+        assert fmt["suffix"] == "_openvino"
+        assert fmt["requires"] == "onnx"
+
+
+class TestOpenVINOValidation:
+    """Test OpenVINO export parameter validation."""
+
+    def test_int8_requires_data(self):
+        """INT8 export without data should raise ValueError."""
+        wrapper = _make_wrapper()
+        exporter = Exporter(wrapper)
+
+        with pytest.raises(ValueError, match="calibration data"):
+            exporter("openvino", int8=True)
+
+    def test_int8_with_data_no_immediate_error(self):
+        """INT8 with data parameter should not raise validation error.
+
+        Note: Will fail later due to missing OpenVINO, but validation should pass.
+        """
+        try:
+            import openvino
+            pytest.skip("OpenVINO is installed, skipping missing OpenVINO test")
+        except ImportError:
+            pass
+
+        wrapper = _make_wrapper()
+        exporter = Exporter(wrapper)
+
+        # Should fail with ImportError (OpenVINO not installed), not ValueError
+        with pytest.raises(ImportError, match="openvino"):
+            exporter("openvino", int8=True, data="coco8.yaml")
+
+
+class TestOpenVINOImportCheck:
+    """Test OpenVINO availability checking."""
+
+    def test_check_openvino_raises_helpful_error(self):
+        """Verify helpful error message when OpenVINO not installed."""
+        try:
+            import openvino
+            pytest.skip("OpenVINO is installed, skipping missing OpenVINO test")
+        except ImportError:
+            pass
+
+        from libreyolo.export.openvino import check_openvino_available
+
+        with pytest.raises(ImportError) as exc_info:
+            check_openvino_available()
+
+        error_msg = str(exc_info.value)
+        assert "openvino" in error_msg.lower()
+        assert "pip install" in error_msg
 
 
 class TestExportPrecisionSuffix:
