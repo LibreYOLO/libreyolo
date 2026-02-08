@@ -149,35 +149,15 @@ class LIBREYOLORFDETR(LibreYOLOBase):
             img_size = self._get_input_size()
         return RFDETRValPreprocessor(img_size=(img_size, img_size))
 
+    def _strict_loading(self) -> bool:
+        """Use non-strict loading for RF-DETR."""
+        return False
+
     def _load_weights(self, model_path: str):
-        """Override to handle RF-DETR checkpoint format."""
-        # Skip loading if special marker (weights loaded in _init_model via rfdetr)
+        """Override to handle RF-DETR special initialization marker."""
         if model_path == "__skip_loading__":
             return
-
-        if not Path(model_path).exists():
-            raise FileNotFoundError(f"Model weights file not found: {model_path}")
-
-        try:
-            checkpoint = torch.load(model_path, map_location="cpu", weights_only=False)
-
-            # Handle different checkpoint formats
-            if isinstance(checkpoint, dict):
-                if "model" in checkpoint:
-                    state_dict = checkpoint["model"]
-                elif "state_dict" in checkpoint:
-                    state_dict = checkpoint["state_dict"]
-                else:
-                    state_dict = checkpoint
-            else:
-                state_dict = checkpoint
-
-            self.model.load_state_dict(state_dict, strict=False)
-
-        except Exception as e:
-            raise RuntimeError(
-                f"Failed to load model weights from {model_path}: {e}"
-            ) from e
+        super()._load_weights(model_path)
 
     def _preprocess(
         self, image: ImageInput, color_format: str = "auto", input_size: Optional[int] = None,

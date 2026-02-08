@@ -175,7 +175,7 @@ def dataset_data_yaml(dataset):
     return str(dataset / "data.yaml")
 
 
-MIN_MAP = 0.05
+MIN_MAP = 0.1
 
 
 @pytest.mark.e2e
@@ -188,14 +188,14 @@ def test_rf1_training(weights, size, family, dataset_coco, dataset_data_yaml,
     if family == "rfdetr":
         model.train(
             data=str(dataset_coco),
-            epochs=2,
+            epochs=10,
             batch_size=16,
             output_dir=str(tmp_path / f"rfdetr_{size}"),
         )
     else:
         model.train(
             data=dataset_data_yaml,
-            epochs=2,
+            epochs=10,
             batch=16,
             workers=2,
             project=str(tmp_path),
