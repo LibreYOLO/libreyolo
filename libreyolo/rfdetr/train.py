@@ -7,13 +7,12 @@ from pathlib import Path
 from typing import Dict, Optional
 
 # Use the original rfdetr training which is already well-tuned
-from rfdetr import RFDETRBase, RFDETRLarge, RFDETRNano, RFDETRSmall, RFDETRMedium
+from rfdetr import RFDETRLarge, RFDETRNano, RFDETRSmall, RFDETRMedium
 
 # Map size codes to rfdetr classes
 RFDETR_TRAINERS = {
     'n': RFDETRNano,
     's': RFDETRSmall,
-    'b': RFDETRBase,
     'm': RFDETRMedium,
     'l': RFDETRLarge,
 }

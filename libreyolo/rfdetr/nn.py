@@ -12,7 +12,6 @@ import torch.nn as nn
 from rfdetr.main import Model as RFDETRMainModel
 from rfdetr.models.lwdetr import LWDETR, MLP, PostProcess
 from rfdetr.config import (
-    RFDETRBaseConfig,
     RFDETRLargeConfig,
     RFDETRNanoConfig,
     RFDETRSmallConfig,
@@ -24,7 +23,6 @@ from rfdetr.config import (
 RFDETR_CONFIGS = {
     'n': RFDETRNanoConfig,
     's': RFDETRSmallConfig,
-    'b': RFDETRBaseConfig,
     'm': RFDETRMediumConfig,
     'l': RFDETRLargeConfig,
 }

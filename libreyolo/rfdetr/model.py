@@ -100,7 +100,7 @@ class LIBREYOLORFDETR(LibreYOLOBase):
         )
 
     def _get_valid_sizes(self) -> List[str]:
-        return ["n", "s", "b", "m", "l"]
+        return ["n", "s", "m", "l"]
 
     def _get_model_name(self) -> str:
         return "LIBREYOLORFDETR"

@@ -31,12 +31,15 @@ def download_weights(model_path: str, size: str):
     filename = path.name
 
     # Check for RF-DETR (e.g., librerfdetrnano.pth, librerfdetrsmall.pth)
-    if re.search(r'librerfdetr(nano|small|base|medium|large)', filename.lower()):
-        rfdetr_match = re.search(r'librerfdetr(nano|small|base|medium|large)', filename.lower())
+    if re.search(r'librerfdetr(nano|small|medium|large)', filename.lower()):
+        rfdetr_match = re.search(r'librerfdetr(nano|small|medium|large)', filename.lower())
         rfdetr_size = rfdetr_match.group(1)
         repo = f"Libre-YOLO/librerfdetr{rfdetr_size}"
-        # Actual filename in repo is rf-detr-{size}.pth
-        actual_filename = f"rf-detr-{rfdetr_size}.pth"
+        # Large uses different weight filename in rfdetr 1.4.1
+        if rfdetr_size == "large":
+            actual_filename = "rf-detr-large-2026.pth"
+        else:
+            actual_filename = f"rf-detr-{rfdetr_size}.pth"
         url = f"https://huggingface.co/{repo}/resolve/main/{actual_filename}"
     # Check for YOLOX (e.g., libreyoloXs.pt, libreyoloXnano.pt)
     elif re.search(r'libreyolox(nano|tiny|s|m|l|x)', filename.lower()):
@@ -100,9 +103,9 @@ def detect_size_from_filename(filename: str) -> tuple:
         return ('x', yolox_match.group(1))
 
     # RF-DETR: librerfdetrnano.pth, librerfdetrsmall.pth, etc.
-    rfdetr_match = re.search(r'librerfdetr(nano|small|base|medium|large)', filename_lower)
+    rfdetr_match = re.search(r'librerfdetr(nano|small|medium|large)', filename_lower)
     if rfdetr_match:
-        size_map = {'nano': 'n', 'small': 's', 'base': 'b', 'medium': 'm', 'large': 'l'}
+        size_map = {'nano': 'n', 'small': 's', 'medium': 'm', 'large': 'l'}
         return ('rfdetr', size_map[rfdetr_match.group(1)])
 
     # YOLOv9: libreyolo9c.pt, yolov9t.pt, etc.
@@ -120,18 +123,18 @@ def detect_rfdetr_size(state_dict):
     Uses args.resolution stored in the checkpoint:
     - 384 -> nano (n)
     - 512 -> small (s)
-    - 560 -> large (l)
     - 576 -> medium (m)
+    - 704 -> large (l)
 
-    Falls back to backbone_dim (768 = large, 384 = others) if args not present.
+    Falls back to backbone position_embeddings shape if args not present.
 
     Args:
         state_dict: Full checkpoint dict (not just keys)
 
     Returns:
-        Size code ('n', 's', 'b', 'm', 'l') or None if cannot determine
+        Size code ('n', 's', 'm', 'l') or None if cannot determine
     """
-    RESOLUTION_TO_SIZE = {384: 'n', 512: 's', 576: 'm'}
+    RESOLUTION_TO_SIZE = {384: 'n', 512: 's', 576: 'm', 704: 'l'}
 
     # Primary: read resolution from checkpoint args
     args = state_dict.get('args')
@@ -139,28 +142,20 @@ def detect_rfdetr_size(state_dict):
         resolution = getattr(args, 'resolution', None) if hasattr(args, 'resolution') else args.get('resolution') if isinstance(args, dict) else None
         if resolution in RESOLUTION_TO_SIZE:
             return RESOLUTION_TO_SIZE[resolution]
-        # resolution 560 is shared by base (hidden_dim=256) and large (hidden_dim=384)
-        if resolution == 560:
-            hidden_dim = getattr(args, 'hidden_dim', None) if hasattr(args, 'hidden_dim') else args.get('hidden_dim') if isinstance(args, dict) else None
-            return 'l' if hidden_dim == 384 else 'b'
 
     # Fallback: infer from backbone position_embeddings shape
     weights = state_dict.get('model', state_dict)
     pos_key = 'backbone.0.encoder.encoder.embeddings.position_embeddings'
     if pos_key in weights:
-        backbone_dim = weights[pos_key].shape[2]
         pos_tokens = weights[pos_key].shape[1]
-        if backbone_dim == 768:
-            return 'l'
-        # backbone_dim=384: distinguish by pos_tokens
         if pos_tokens == 577:
             return 'n'
         if pos_tokens == 1025:
             return 's'
         if pos_tokens == 1297:
             return 'm'
-        # Default to 'b' for backbone_dim=384 with unrecognized pos_tokens
-        return 'b'
+        # Large (704px) has the most pos_tokens
+        return 'l'
 
     return None
 
