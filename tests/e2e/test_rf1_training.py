@@ -1,10 +1,9 @@
 """
 RF1: Training smoke test for all 15 models.
 
-Trains each model for 2 epochs on underwater-pipes-4ng4t (Roboflow 100,
-5617 train / 1575 valid / 779 test images, 1 class), then validates on the
-test split. This dataset converges fast — yolox-nano hits 0.56 mAP50-95
-in just 2 epochs.
+Trains each model for 2 epochs on Libre-YOLO/marbles (HuggingFace, public,
+56 train / 20 valid / 36 test images, 2 classes), then validates on the test
+split. The dataset auto-downloads from HuggingFace — no API keys needed.
 
 Usage:
     pytest tests/e2e/test_rf1_training.py -v -m e2e
@@ -18,11 +17,14 @@ from pathlib import Path
 import pytest
 import torch
 import yaml
+from huggingface_hub import snapshot_download
 from PIL import Image
 
 from libreyolo import LIBREYOLO
 
-DATASET_ROOT = Path.home() / ".cache" / "rf100" / "underwater-pipes-4ng4t"
+DATASET_ROOT = Path.home() / ".cache" / "libreyolo" / "marbles"
+HF_REPO = "Libre-YOLO/marbles"
+HF_REPO_URL = f"https://huggingface.co/datasets/{HF_REPO}"
 
 # (weights, size, family)
 MODELS = [
@@ -53,34 +55,75 @@ IDS = [
 ]
 
 
+def download_marbles_dataset():
+    """Download the marbles dataset from HuggingFace if not already cached.
+
+    Uses huggingface_hub snapshot_download which handles auth, caching,
+    and LFS automatically. Creates a symlink at DATASET_ROOT pointing
+    to the HF cache snapshot.
+    """
+    if DATASET_ROOT.exists() and (DATASET_ROOT / "data.yaml").exists():
+        return
+
+    print(f"\nDownloading dataset {HF_REPO} from HuggingFace ...")
+    DATASET_ROOT.parent.mkdir(parents=True, exist_ok=True)
+
+    snapshot_path = snapshot_download(
+        repo_id=HF_REPO,
+        repo_type="dataset",
+        local_dir=str(DATASET_ROOT),
+    )
+    print(f"Dataset downloaded to {snapshot_path}")
+
+
+def patch_data_yaml():
+    """Ensure data.yaml has an absolute path so training resolves splits."""
+    data_yaml = DATASET_ROOT / "data.yaml"
+    data = yaml.safe_load(data_yaml.read_text())
+    if data.get("path") != str(DATASET_ROOT):
+        data["path"] = str(DATASET_ROOT)
+        data_yaml.write_text(yaml.dump(data, default_flow_style=False))
+
+
 @pytest.fixture(scope="module")
-def dataset_coco():
+def dataset():
+    """Download marbles dataset and patch data.yaml. Shared by all fixtures."""
+    download_marbles_dataset()
+    patch_data_yaml()
+    return DATASET_ROOT
+
+
+@pytest.fixture(scope="module")
+def dataset_coco(dataset):
     """Convert YOLO labels to COCO JSON for RF-DETR training.
 
     Writes _annotations.coco.json into each split dir (train/valid/test).
     Idempotent — skips if annotations already exist.
+    Reads class names from data.yaml dynamically.
     """
-    assert DATASET_ROOT.exists(), (
-        f"Dataset not found at {DATASET_ROOT}. "
-        "Download it first via tests/e2e/rf5_datasets.py"
-    )
-
-    with open(DATASET_ROOT / "data.yaml") as f:
+    with open(dataset / "data.yaml") as f:
         data = yaml.safe_load(f)
     class_names = data["names"]
 
-    categories = [
-        {"id": i + 1, "name": name, "supercategory": "object"}
-        for i, name in enumerate(class_names)
-    ]
+    # Handle both list and dict formats for names
+    if isinstance(class_names, dict):
+        categories = [
+            {"id": i + 1, "name": class_names[i], "supercategory": "object"}
+            for i in sorted(class_names.keys())
+        ]
+    else:
+        categories = [
+            {"id": i + 1, "name": name, "supercategory": "object"}
+            for i, name in enumerate(class_names)
+        ]
 
     for split in ["train", "valid", "test"]:
-        ann_file = DATASET_ROOT / split / "_annotations.coco.json"
+        ann_file = dataset / split / "_annotations.coco.json"
         if ann_file.exists():
             continue
 
-        images_dir = DATASET_ROOT / split / "images"
-        labels_dir = DATASET_ROOT / split / "labels"
+        images_dir = dataset / split / "images"
+        labels_dir = dataset / split / "labels"
 
         images_list, annotations_list = [], []
         ann_id = 0
@@ -123,35 +166,23 @@ def dataset_coco():
         }
         ann_file.write_text(json.dumps(coco))
 
-    return DATASET_ROOT
+    return dataset
 
 
 @pytest.fixture(scope="module")
-def dataset_data_yaml():
+def dataset_data_yaml(dataset):
     """Return data.yaml path with absolute path for training code."""
-    assert DATASET_ROOT.exists(), (
-        f"Dataset not found at {DATASET_ROOT}. "
-        "Download it first via tests/e2e/rf5_datasets.py"
-    )
-
-    data_yaml = DATASET_ROOT / "data.yaml"
-    data = yaml.safe_load(data_yaml.read_text())
-
-    if data.get("path") != str(DATASET_ROOT):
-        data["path"] = str(DATASET_ROOT)
-        yaml.dump(data, data_yaml.open("w"), default_flow_style=False)
-
-    return str(data_yaml)
+    return str(dataset / "data.yaml")
 
 
-MIN_MAP = 0.18
+MIN_MAP = 0.05
 
 
 @pytest.mark.e2e
 @pytest.mark.parametrize("weights,size,family", MODELS, ids=IDS)
 def test_rf1_training(weights, size, family, dataset_coco, dataset_data_yaml,
                       tmp_path):
-    """Train 2 epochs on underwater-pipes, validate on test split."""
+    """Train 2 epochs on marbles, validate on test split."""
     model = LIBREYOLO(weights, size=size)
 
     if family == "rfdetr":
@@ -165,7 +196,7 @@ def test_rf1_training(weights, size, family, dataset_coco, dataset_data_yaml,
         model.train(
             data=dataset_data_yaml,
             epochs=2,
-            batch=128,
+            batch=16,
             workers=2,
             project=str(tmp_path),
             name=f"{family}_{size}",
