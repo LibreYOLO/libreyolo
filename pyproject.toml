@@ -50,6 +50,9 @@ tensorrt = [
     # pip install pycuda
     "pycuda>=2022.1",
 ]
+openvino = [
+    "openvino>=2024.0.0",
+]
 
 [project.urls]
 Homepage = "https://github.com/Libre-YOLO"
@@ -76,6 +79,7 @@ markers = [
     "integration: slow tests that require converted weights or generate artifacts",
     "e2e: end-to-end tests requiring full model loading and inference",
     "tensorrt: tests requiring TensorRT",
+    "openvino: tests requiring OpenVINO",
     "rfdetr: tests requiring RF-DETR dependencies",
     "slow: slow tests that may take several minutes",
 ]
