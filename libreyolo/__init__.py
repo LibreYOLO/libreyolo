@@ -21,6 +21,7 @@ def __getattr__(name):
     raise AttributeError(f"module '{__name__}' has no attribute '{name}'")
 from .export import Exporter
 from .common.onnx import LIBREYOLOOnnx
+from .common.openvino import LIBREYOLOOpenVINO
 from .common.results import Results, Boxes
 # CAM/GradCAM removed
 from .validation import (
@@ -52,6 +53,7 @@ __all__ = [
     "LIBREYOLOX",
     "LIBREYOLORFDETR",
     "LIBREYOLOOnnx",
+    "LIBREYOLOOpenVINO",
     "create_model",
     # Results
     "Results",
