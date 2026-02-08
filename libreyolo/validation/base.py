@@ -196,6 +196,16 @@ class BaseValidator(ABC):
         # Save config
         self.config.to_yaml(self.save_dir / "config.yaml")
 
+        # Include timing info so callers (e.g. benchmarks) can use it
+        if self.seen > 0:
+            ms_per_image = self.speed["total"] / self.seen * 1000
+            metrics["speed/preprocess_ms"] = self.speed["preprocess"] / self.seen * 1000
+            metrics["speed/inference_ms"] = self.speed["inference"] / self.seen * 1000
+            metrics["speed/postprocess_ms"] = self.speed["postprocess"] / self.seen * 1000
+            metrics["speed/total_ms"] = ms_per_image
+            metrics["speed/total_s"] = self.speed["total"]
+            metrics["speed/images_seen"] = self.seen
+
         return metrics
 
     def _inference(self, images: torch.Tensor) -> Any:

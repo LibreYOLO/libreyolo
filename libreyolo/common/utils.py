@@ -407,18 +407,19 @@ def postprocess_detections(
     iou_thres: float = 0.45,
     input_size: int = 640,
     original_size: Tuple[int, int] = None,
-    max_det: int = 300
+    max_det: int = 300,
+    letterbox: bool = False,
 ) -> dict:
     """
     Shared post-processing pipeline for object detection outputs.
-    
+
     This function handles the common post-processing steps:
     - Scale boxes to original image size
     - Clip boxes to image boundaries
     - Filter invalid boxes (zero/negative area)
     - Apply per-class NMS
     - Limit to max detections
-    
+
     Args:
         boxes: Decoded boxes in xyxy format (N, 4)
         scores: Confidence scores after sigmoid (N,)
@@ -428,7 +429,9 @@ def postprocess_detections(
         input_size: Model input size for scaling
         original_size: Original image size (width, height)
         max_det: Maximum number of detections
-        
+        letterbox: If True, use letterbox-inverse scaling (aspect-preserving).
+            If False, use independent x/y scaling (simple resize).
+
     Returns:
         Dictionary with boxes, scores, classes, num_detections
     """
@@ -442,10 +445,18 @@ def postprocess_detections(
     
     # Scale boxes to original image size
     if original_size is not None:
-        scale_x = original_size[0] / input_size
-        scale_y = original_size[1] / input_size
-        boxes[:, [0, 2]] *= scale_x
-        boxes[:, [1, 3]] *= scale_y
+        if letterbox:
+            # Letterbox: image was scaled by r = min(input/orig_h, input/orig_w)
+            # Reverse by dividing by r
+            orig_w, orig_h = original_size
+            r = min(input_size / orig_h, input_size / orig_w)
+            boxes[:, :4] = boxes[:, :4] / r
+        else:
+            # Simple resize: independent x/y scaling
+            scale_x = original_size[0] / input_size
+            scale_y = original_size[1] / input_size
+            boxes[:, [0, 2]] *= scale_x
+            boxes[:, [1, 3]] *= scale_y
         
         # Clip to image bounds
         boxes[:, [0, 2]] = torch.clamp(boxes[:, [0, 2]], 0, original_size[0])

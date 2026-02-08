@@ -116,6 +116,7 @@ class LIBREYOLO9(LibreYOLOBase):
             input_size=actual_input_size,
             original_size=original_size,
             max_det=max_det,
+            letterbox=kwargs.get('letterbox', False),
         )
 
     def _strict_loading(self) -> bool:
@@ -130,17 +131,30 @@ class LIBREYOLO9(LibreYOLOBase):
         return V9ValPreprocessor(img_size=(img_size, img_size))
 
     def _rebuild_for_new_classes(self, new_nc: int):
-        """Rebuild detection head for different number of classes."""
+        """Replace only the final classification layers for different number of classes.
+
+        Keeps pretrained intermediate conv layers in the class branch (cv3),
+        only replacing the final Conv2d(hidden, nc, 1) output layer.
+        """
         self.nb_classes = new_nc
         self.model.nc = new_nc
-        cfg = V9_CONFIGS[self.size]
-        self.model.detect = DDetect(
-            nc=new_nc,
-            ch=cfg['detect_channels'],
-            reg_max=self.reg_max,
-            stride=(8, 16, 32),
-        )
-        self.model.detect.to(next(self.model.parameters()).device)
+        detect = self.model.detect
+        detect.nc = new_nc
+        detect.no = new_nc + detect.reg_max * 4
+
+        # Replace only the final Conv2d in each class branch
+        for seq in detect.cv3:
+            old_final = seq[-1]  # nn.Conv2d(c3, old_nc, 1)
+            in_channels = old_final.weight.shape[1]
+            seq[-1] = nn.Conv2d(in_channels, new_nc, 1)
+
+        # Re-initialize biases for the new output layers
+        detect._init_bias()
+
+        # Reset cached loss function (it stores num_classes)
+        detect._loss_fn = None
+
+        detect.to(next(self.model.parameters()).device)
 
     def train(
         self,

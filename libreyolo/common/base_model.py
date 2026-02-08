@@ -226,12 +226,27 @@ class LibreYOLOBase(ABC):
         return True
 
     def _load_weights(self, model_path: str):
-        """Load model weights from file."""
+        """Load model weights from file.
+
+        Handles both raw state_dicts and training checkpoint dicts
+        ({"model": state_dict, "optimizer": ..., "epoch": ...}).
+        """
         if not Path(model_path).exists():
             raise FileNotFoundError(f"Model weights file not found: {model_path}")
 
         try:
-            state_dict = torch.load(model_path, map_location="cpu", weights_only=False)
+            loaded = torch.load(model_path, map_location="cpu", weights_only=False)
+
+            if isinstance(loaded, dict):
+                if "model" in loaded:
+                    state_dict = loaded["model"]
+                elif "state_dict" in loaded:
+                    state_dict = loaded["state_dict"]
+                else:
+                    state_dict = loaded
+            else:
+                state_dict = loaded
+
             self.model.load_state_dict(state_dict, strict=self._strict_loading())
         except Exception as e:
             raise RuntimeError(

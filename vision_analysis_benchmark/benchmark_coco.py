@@ -165,9 +165,12 @@ def benchmark_model(
     model_name: str,
     weights_path: str,
     size: str,
+    variant: str,
     coco_yaml: str,
     batch_size: int = 1,
     device: str = 'auto',
+    runtime_format: str = 'pytorch',
+    runtime_precision: str = 'fp32',
 ) -> Dict[str, Any]:
     """
     Benchmark a single model on COCO val2017 using proper validation API.
@@ -179,19 +182,19 @@ def benchmark_model(
     print(f"Benchmarking: {model_name}")
     print(f"{'='*80}")
 
-    # Determine family and variant
-    for family, info in LIBREYOLO_MODELS.items():
-        if size in info['variants']:
+    # Determine family from model_name prefix (e.g. "yoloxnano" -> "yolox")
+    model_family = "unknown"
+    for family in LIBREYOLO_MODELS:
+        if model_name.startswith(family):
             model_family = family
             break
-    else:
-        model_family = "unknown"
-
-    input_size = LIBREYOLO_MODELS.get(model_family, {}).get('input_size', 640)
 
     # Load model
     print(f"Loading model from {weights_path}...")
     model = LIBREYOLO(model_path=weights_path, size=size, device=device)
+
+    # Use model's own native resolution (each RF-DETR variant has a different one)
+    input_size = model._get_input_size()
 
     # Model statistics
     print("Computing model statistics...")
@@ -202,11 +205,11 @@ def benchmark_model(
     print(f"  GFLOPs: {gflops:.2f}")
 
     # Run validation using proper API
-    print(f"\nRunning COCO validation (batch_size={batch_size})...")
+    # Don't pass imgsz — let model.val() use the model's native resolution
+    print(f"\nRunning COCO validation (batch_size={batch_size}, imgsz={input_size})...")
     val_results = model.val(
         data=coco_yaml,
         batch=batch_size,
-        imgsz=input_size,
         conf=0.001,
         iou=0.6,
         verbose=True,
@@ -228,111 +231,24 @@ def benchmark_model(
         'mAP_large': 0.0,
     }
 
-    # Timing metrics via separate pass
-    # .val() doesn't return timing, so we run a quick timing benchmark
-    print("\nRunning separate timing benchmark (100 images)...")
+    # Timing metrics from the validation pass (already timed over all images)
+    num_images = int(val_results.get('speed/images_seen', 0))
+    ms_per_image = val_results.get('speed/total_ms', 0.0)
+    preprocess_ms = val_results.get('speed/preprocess_ms', 0.0)
+    inference_ms = val_results.get('speed/inference_ms', 0.0)
+    postprocess_ms = val_results.get('speed/postprocess_ms', 0.0)
 
-    from pycocotools.coco import COCO
-    from tqdm import tqdm
-    import numpy as np
-
-    # Load COCO for timing pass
-    coco_yaml_path = Path(coco_yaml)
-    timing_successful = False
-
-    if not coco_yaml_path.exists():
-        print(f"  Warning: COCO yaml not found at {coco_yaml_path}")
+    if ms_per_image > 0:
+        fps_mean = 1000.0 / ms_per_image
+        print(f"\nTiming (from {num_images}-image validation pass):")
+        print(f"  Preprocess:  {preprocess_ms:.2f} ms/image")
+        print(f"  Inference:   {inference_ms:.2f} ms/image")
+        print(f"  Postprocess: {postprocess_ms:.2f} ms/image")
+        print(f"  Total:       {ms_per_image:.2f} ms/image")
+        print(f"  FPS:         {fps_mean:.1f}")
     else:
-        try:
-            import yaml
-            with open(coco_yaml_path) as f:
-                coco_config = yaml.safe_load(f)
-
-            coco_root = Path(coco_config['path'])
-            ann_file = coco_root / 'annotations' / 'instances_val2017.json'
-            img_dir = coco_root / 'images' / 'val2017'
-
-            print(f"  Looking for annotations at: {ann_file}")
-            print(f"  Looking for images at: {img_dir}")
-
-            if not ann_file.exists():
-                print(f"  Warning: Annotation file not found at {ann_file}")
-            elif not img_dir.exists():
-                print(f"  Warning: Image directory not found at {img_dir}")
-            else:
-                coco_gt = COCO(str(ann_file))
-                img_ids = sorted(coco_gt.getImgIds())[:500]  # Sample 500 images for timing
-
-                timings = []
-                use_cuda_events = torch.cuda.is_available()
-
-                if not use_cuda_events:
-                    print("  Warning: CUDA not available, using CPU timing")
-
-                # Warmup runs
-                print("  Running 10 warmup iterations...")
-                warmup_img = img_dir / coco_gt.loadImgs(img_ids[0])[0]['file_name']
-                for _ in range(10):
-                    _ = model.predict(str(warmup_img), save=False, conf_thres=0.001, iou_thres=0.6)
-
-                for img_id in tqdm(img_ids, desc="Timing"):
-                    img_info = coco_gt.loadImgs(img_id)[0]
-                    img_path = img_dir / img_info['file_name']
-
-                    if use_cuda_events:
-                        # Time with CUDA events for GPU
-                        start_event = torch.cuda.Event(enable_timing=True)
-                        end_event = torch.cuda.Event(enable_timing=True)
-
-                        torch.cuda.synchronize()
-                        start_event.record()
-
-                        _ = model.predict(str(img_path), save=False, conf_thres=0.001, iou_thres=0.6)
-
-                        end_event.record()
-                        torch.cuda.synchronize()
-
-                        elapsed_ms = start_event.elapsed_time(end_event)
-                    else:
-                        # Time with CPU timer
-                        import time
-                        start_time = time.perf_counter()
-
-                        _ = model.predict(str(img_path), save=False, conf_thres=0.001, iou_thres=0.6)
-
-                        end_time = time.perf_counter()
-                        elapsed_ms = (end_time - start_time) * 1000.0
-
-                    timings.append(elapsed_ms)
-
-                # Compute statistics
-                timings = np.array(timings)
-                total_stats = {
-                    'mean': round(float(np.mean(timings)), 4),
-                    'std': round(float(np.std(timings)), 4),
-                    'p50': round(float(np.percentile(timings, 50)), 4),
-                    'p95': round(float(np.percentile(timings, 95)), 4),
-                    'p99': round(float(np.percentile(timings, 99)), 4),
-                }
-
-                fps_mean = 1000.0 / total_stats['mean'] if total_stats['mean'] > 0 else 0
-                fps_p50 = 1000.0 / total_stats['p50'] if total_stats['p50'] > 0 else 0
-
-                print(f"  Mean latency: {total_stats['mean']:.2f}ms")
-                print(f"  p50 latency: {total_stats['p50']:.2f}ms")
-                print(f"  FPS (mean): {fps_mean:.1f}")
-                timing_successful = True
-
-        except Exception as e:
-            print(f"  Error during timing pass: {e}")
-            import traceback
-            traceback.print_exc()
-
-    if not timing_successful:
-        print("  Setting timing metrics to 0 due to timing pass failure")
-        total_stats = {'mean': 0.0, 'std': 0.0, 'p50': 0.0, 'p95': 0.0, 'p99': 0.0}
         fps_mean = 0.0
-        fps_p50 = 0.0
+        print("\n  Warning: No timing data available from validation pass")
 
     # Collect hardware/software info
     gpu_info = get_gpu_info()
@@ -340,15 +256,31 @@ def benchmark_model(
     ram_gb = get_system_memory_gb()
     software_info = get_software_info()
 
+    # Determine actual device used
+    if torch.cuda.is_available() and device in ('auto', 'cuda'):
+        runtime_device = 'cuda'
+    elif hasattr(torch.backends, 'mps') and torch.backends.mps.is_available() and device in ('auto', 'mps'):
+        runtime_device = 'mps'
+    else:
+        runtime_device = 'cpu'
+
+    # Hyphenated model name for website (e.g. "yolox-nano", "rfdetr-base")
+    display_name = f"{model_family}-{variant}"
+
     # Assemble results
     results = {
         'model': {
-            'name': model_name,
+            'name': display_name,
             'family': model_family,
-            'variant': size,
+            'variant': variant,
             'source': 'libreyolo',
             'weights': Path(weights_path).name,
             'input_size': input_size,
+        },
+        'runtime': {
+            'format': runtime_format,
+            'precision': runtime_precision,
+            'device': runtime_device,
         },
         'hardware': {
             'gpu': gpu_info['gpu'],
@@ -363,12 +295,14 @@ def benchmark_model(
         'accuracy': accuracy_metrics,
         'timing': {
             'batch_size': batch_size,
-            'num_images': 5000,
-            'total_ms': total_stats,
+            'num_images': num_images,
+            'ms_per_image': round(ms_per_image, 4),
+            'preprocess_ms': round(preprocess_ms, 4),
+            'inference_ms': round(inference_ms, 4),
+            'postprocess_ms': round(postprocess_ms, 4),
         },
         'throughput': {
-            'fps_mean': round(fps_mean, 2),
-            'fps_p50': round(fps_p50, 2),
+            'fps': round(fps_mean, 2),
         },
         'model_stats': {
             'params_millions': round(params_millions, 2),
@@ -427,6 +361,18 @@ def main():
         default='auto',
         help='Device to use (default: auto)'
     )
+    parser.add_argument(
+        '--runtime-format',
+        type=str,
+        default='pytorch',
+        help='Runtime format (pytorch, onnx, ncnn, tensorrt, tflite, coreml, openvino)'
+    )
+    parser.add_argument(
+        '--runtime-precision',
+        type=str,
+        default='fp32',
+        help='Runtime precision (fp32, fp16, int8)'
+    )
 
     args = parser.parse_args()
 
@@ -444,8 +390,8 @@ def main():
                     model_name = f"{family}{variant}"
                     if model_spec == model_name:
                         weights = info['weights_pattern'].format(variant=variant)
-                        size = variant[0] if family == 'rfdetr' else variant
-                        models_to_benchmark.append((model_name, weights, size))
+                        constructor_size = variant[0] if family == 'rfdetr' else variant
+                        models_to_benchmark.append((model_name, weights, constructor_size, variant))
                         break
     else:
         # Benchmark all models
@@ -454,23 +400,26 @@ def main():
             for variant in info['variants']:
                 model_name = f"{family}{variant}"
                 weights = info['weights_pattern'].format(variant=variant)
-                size = variant[0] if family == 'rfdetr' else variant
-                models_to_benchmark.append((model_name, weights, size))
+                constructor_size = variant[0] if family == 'rfdetr' else variant
+                models_to_benchmark.append((model_name, weights, constructor_size, variant))
 
     print(f"Will benchmark {len(models_to_benchmark)} models")
 
     # Run benchmarks
     all_results = []
 
-    for model_name, weights_file, size in models_to_benchmark:
+    for model_name, weights_file, size, variant in models_to_benchmark:
         try:
             results = benchmark_model(
                 model_name=model_name,
                 weights_path=weights_file,
                 size=size,
+                variant=variant,
                 coco_yaml=args.coco_yaml,
                 batch_size=args.batch_size,
                 device=args.device,
+                runtime_format=args.runtime_format,
+                runtime_precision=args.runtime_precision,
             )
 
             # Save individual JSON
@@ -496,16 +445,18 @@ def main():
                 'model': r['model']['name'],
                 'family': r['model']['family'],
                 'variant': r['model']['variant'],
+                'runtime_format': r['runtime']['format'],
+                'runtime_precision': r['runtime']['precision'],
+                'runtime_device': r['runtime']['device'],
                 'mAP_50_95': r['accuracy']['mAP_50_95'],
                 'mAP_50': r['accuracy']['mAP_50'],
                 'precision': r['accuracy']['precision'],
                 'recall': r['accuracy']['recall'],
-                'fps_mean': r['throughput']['fps_mean'],
-                'fps_p50': r['throughput']['fps_p50'],
-                'latency_mean_ms': r['timing']['total_ms']['mean'],
-                'latency_p50_ms': r['timing']['total_ms']['p50'],
-                'latency_p95_ms': r['timing']['total_ms']['p95'],
-                'latency_p99_ms': r['timing']['total_ms']['p99'],
+                'fps': r['throughput']['fps'],
+                'latency_ms': r['timing']['ms_per_image'],
+                'preprocess_ms': r['timing']['preprocess_ms'],
+                'inference_ms': r['timing']['inference_ms'],
+                'postprocess_ms': r['timing']['postprocess_ms'],
                 'params_M': r['model_stats']['params_millions'],
                 'gflops': r['model_stats']['gflops'],
             })

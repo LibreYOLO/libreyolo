@@ -20,7 +20,8 @@ def postprocess(
     iou_thres: float = 0.45,
     input_size: int = 640,
     original_size: Tuple[int, int] = None,
-    max_det: int = 300
+    max_det: int = 300,
+    letterbox: bool = False,
 ) -> Dict:
     """
     Postprocess YOLOv9 model outputs to get final detections.
@@ -75,7 +76,8 @@ def postprocess(
         iou_thres=iou_thres,
         input_size=input_size,
         original_size=original_size,
-        max_det=max_det
+        max_det=max_det,
+        letterbox=letterbox,
     )
 
 

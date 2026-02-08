@@ -106,30 +106,9 @@ class LIBREYOLOX(LibreYOLOBase):
             img_size = self.input_size
         return YOLOXValPreprocessor(img_size=(img_size, img_size))
 
-    def _load_weights(self, model_path: str):
-        """Override to handle different checkpoint formats."""
-        if not Path(model_path).exists():
-            raise FileNotFoundError(f"Model weights file not found: {model_path}")
-
-        try:
-            checkpoint = torch.load(model_path, map_location="cpu", weights_only=False)
-
-            if isinstance(checkpoint, dict):
-                if "model" in checkpoint:
-                    state_dict = checkpoint["model"]
-                elif "state_dict" in checkpoint:
-                    state_dict = checkpoint["state_dict"]
-                else:
-                    state_dict = checkpoint
-            else:
-                state_dict = checkpoint
-
-            self.model.load_state_dict(state_dict, strict=False)
-
-        except Exception as e:
-            raise RuntimeError(
-                f"Failed to load model weights from {model_path}: {e}"
-            ) from e
+    def _strict_loading(self) -> bool:
+        """Use non-strict loading for YOLOX."""
+        return False
 
     def _preprocess(
         self, image: ImageInput, color_format: str = "auto", input_size: Optional[int] = None,

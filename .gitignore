@@ -28,7 +28,8 @@ ENV/
 .venv
 uv.lock
 
-# IDE
+# AI / IDE
+CLAUDE.local.md
 .cursor/
 .vscode/
 .idea/

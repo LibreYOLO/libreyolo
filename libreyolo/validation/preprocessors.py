@@ -56,6 +56,12 @@ class BaseValPreprocessor(ABC):
         pass
 
     @property
+    def custom_normalization(self) -> bool:
+        """Whether this preprocessor applies its own normalization (e.g. ImageNet mean/std).
+        When True, the validator should not rescale the images at all."""
+        return False
+
+    @property
     def uses_letterbox(self) -> bool:
         """Whether this preprocessor uses letterbox (aspect-preserving) resize."""
         return False
@@ -182,9 +188,13 @@ class RFDETRValPreprocessor(BaseValPreprocessor):
 
     @property
     def normalize(self) -> bool:
-        # Return False to indicate preprocessor handles all normalization
-        # (ImageNet mean/std), so validator shouldn't apply additional normalization
         return False
+
+    @property
+    def custom_normalization(self) -> bool:
+        # RF-DETR applies ImageNet mean/std normalization in the preprocessor.
+        # The validator must not rescale these values.
+        return True
 
     def __call__(
         self, img: np.ndarray, targets: np.ndarray, input_size: Tuple[int, int]

@@ -103,7 +103,8 @@ class DetectionValidator(BaseValidator):
 
         # Use model's native input size if it differs from config
         # This is important for models like YOLOX nano/tiny that use 416x416
-        model_input_size = getattr(self.model, 'input_size', None)
+        # and RF-DETR variants that each have different resolutions
+        model_input_size = self.model._get_input_size() if hasattr(self.model, '_get_input_size') else None
         if model_input_size is not None and model_input_size != self.config.imgsz:
             # Model has a specific input size requirement
             actual_imgsz = model_input_size
@@ -186,10 +187,29 @@ class DetectionValidator(BaseValidator):
         data_path = Path(data_dir)
 
         if img_files is not None:
-            # File list mode (.txt format)
+            # File list mode (.txt format) - explicit list takes priority
             dataset = YOLODataset(
                 img_files=img_files,
                 label_files=label_files,
+                img_size=img_size,
+                preproc=self.val_preproc,
+            )
+        elif (data_path / "annotations").exists():
+            # COCO format (JSON annotations)
+            json_file = f"instances_{self.config.split}2017.json"
+            if not (data_path / "annotations" / json_file).exists():
+                # Try alternative naming
+                json_file = f"instances_{self.config.split}.json"
+
+            # Determine image subdirectory: prefer images/val2017 (standard COCO layout)
+            split_name = f"{self.config.split}2017" if "2017" in json_file else self.config.split
+            if (data_path / "images" / split_name).exists():
+                split_name = f"images/{split_name}"
+
+            dataset = COCODataset(
+                data_dir=str(data_path),
+                json_file=json_file,
+                name=split_name,
                 img_size=img_size,
                 preproc=self.val_preproc,
             )
@@ -273,14 +293,16 @@ class DetectionValidator(BaseValidator):
         images = images.float()
 
         # Normalize based on preprocessor config
-        # Some models (e.g., standard YOLO) expect 0-1 range (normalize=True)
-        # Others (e.g., YOLOX) expect 0-255 range (normalize=False)
-        if self.val_preproc.normalize:
-            # Models expecting 0-1 range
+        # - custom_normalization=True: preprocessor already applied its own
+        #   normalization (e.g. RF-DETR ImageNet mean/std), pass through unchanged
+        # - normalize=True: model expects 0-1 range (standard YOLO)
+        # - normalize=False: model expects 0-255 range (YOLOX)
+        if getattr(self.val_preproc, 'custom_normalization', False):
+            pass  # Already normalized by preprocessor (e.g. RF-DETR ImageNet)
+        elif self.val_preproc.normalize:
             if images.max() > 1.0:
                 images = images / 255.0
         else:
-            # Models expecting 0-255 range (YOLOX)
             if images.max() <= 1.0:
                 images = images * 255.0
 
@@ -356,12 +378,14 @@ class DetectionValidator(BaseValidator):
             orig_h, orig_w = img_info[i]
             single_preds = self._slice_batch_predictions(preds, i)
 
+            uses_letterbox = self.val_preproc is not None and self.val_preproc.uses_letterbox
             result = self.model._postprocess(
                 single_preds,
                 conf_thres=self.config.conf_thres,
                 iou_thres=self.config.iou_thres,
                 original_size=(orig_w, orig_h),  # (width, height) format as expected by postprocess
                 input_size=self._actual_imgsz,  # Pass actual input size used
+                letterbox=uses_letterbox,
             )
 
             if result["num_detections"] > 0:
