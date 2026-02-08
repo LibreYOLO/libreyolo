@@ -131,7 +131,7 @@ def detect_rfdetr_size(state_dict):
     Returns:
         Size code ('n', 's', 'b', 'm', 'l') or None if cannot determine
     """
-    RESOLUTION_TO_SIZE = {384: 'n', 512: 's', 560: 'l', 576: 'm'}
+    RESOLUTION_TO_SIZE = {384: 'n', 512: 's', 576: 'm'}
 
     # Primary: read resolution from checkpoint args
     args = state_dict.get('args')
@@ -139,6 +139,10 @@ def detect_rfdetr_size(state_dict):
         resolution = getattr(args, 'resolution', None) if hasattr(args, 'resolution') else args.get('resolution') if isinstance(args, dict) else None
         if resolution in RESOLUTION_TO_SIZE:
             return RESOLUTION_TO_SIZE[resolution]
+        # resolution 560 is shared by base (hidden_dim=256) and large (hidden_dim=384)
+        if resolution == 560:
+            hidden_dim = getattr(args, 'hidden_dim', None) if hasattr(args, 'hidden_dim') else args.get('hidden_dim') if isinstance(args, dict) else None
+            return 'l' if hidden_dim == 384 else 'b'
 
     # Fallback: infer from backbone position_embeddings shape
     weights = state_dict.get('model', state_dict)
@@ -155,6 +159,8 @@ def detect_rfdetr_size(state_dict):
             return 's'
         if pos_tokens == 1297:
             return 'm'
+        # Default to 'b' for backbone_dim=384 with unrecognized pos_tokens
+        return 'b'
 
     return None
 
@@ -295,6 +301,33 @@ def create_model(version: str, config: str, reg_max: int = 16, nb_classes: int =
     model_cls = MODELS[version]
     return model_cls(config=config, reg_max=reg_max, nb_classes=nb_classes, img_size=img_size)
 
+def _resolve_weights_path(model_path: str) -> str:
+    """Resolve a model path, defaulting bare filenames to the weights/ directory.
+
+    When the caller passes a bare filename (no directory component, e.g.
+    ``"libreyoloXs.pt"``), this function looks for it in ``weights/`` first,
+    then falls back to the current directory for backward compatibility.  If
+    neither location contains the file, it returns ``weights/<filename>`` so
+    that a subsequent download lands in the canonical directory.
+
+    Paths that already contain a directory component (e.g.
+    ``"my_dir/model.pt"``) are returned unchanged.
+    """
+    path = Path(model_path)
+    # Only redirect bare filenames (no directory component).
+    # Explicit "./" prefix means the user wants CWD — don't redirect.
+    if path.parent == Path(".") and not model_path.startswith(("./", "../")):
+        weights_path = Path("weights") / path.name
+        if weights_path.exists():
+            return str(weights_path)
+        # Fall back to CWD if the file already exists there
+        if path.exists():
+            return str(path)
+        # Neither exists — default to weights/ for new downloads
+        return str(weights_path)
+    return model_path
+
+
 def LIBREYOLO(
     model_path: str,
     size: str = None,
@@ -307,7 +340,9 @@ def LIBREYOLO(
     size, and number of classes from the weights file and returns the appropriate model instance.
 
     Args:
-        model_path: Path to model weights file (.pt/.pth) or ONNX file (.onnx)
+        model_path: Path to model weights file (.pt/.pth) or ONNX file (.onnx).
+                    Bare filenames (e.g. ``"libreyoloXs.pt"``) are resolved to
+                    ``weights/`` by default and downloaded there if missing.
         size: Model size variant. Optional for .pt/.pth files (auto-detected if omitted).
               - For YOLOX: "nano", "tiny", "s", "m", "l", "x"
               - For YOLOv9: "t", "s", "m", "c"
@@ -319,21 +354,31 @@ def LIBREYOLO(
         Instance of LIBREYOLO9, LIBREYOLOX, or LIBREYOLOOnnx
 
     Example:
-        >>> # For YOLOX
-        >>> model = LIBREYOLO("libreyoloXs.pt")  # Auto-detect size
+        >>> # For YOLOX — downloads to weights/libreyoloXs.pt
+        >>> model = LIBREYOLO("libreyoloXs.pt")
         >>> detections = model("image.jpg", save=True)
         >>>
-        >>> # For YOLOv9
-        >>> model = LIBREYOLO("yolov9c.pt")  # Auto-detect size
+        >>> # For YOLOv9 — downloads to weights/yolov9c.pt
+        >>> model = LIBREYOLO("yolov9c.pt")
         >>> detections = model("image.jpg", save=True)
         >>>
-        >>> # Use tiling for large images
-        >>> detections = model("large_image.jpg", save=True, tiling=True)
+        >>> # Explicit path — used as-is
+        >>> model = LIBREYOLO("my_dir/model.pt")
     """
+    model_path = _resolve_weights_path(model_path)
+
     # Handle ONNX models
     if model_path.endswith('.onnx'):
         from .common.onnx import LIBREYOLOOnnx
         return LIBREYOLOOnnx(model_path, nb_classes=nb_classes or 80, device=device)
+
+    # Handle TensorRT engines
+    if model_path.endswith('.engine'):
+        from .common.tensorrt import LIBREYOLOTensorRT
+        # LIBREYOLOTensorRT loads a .engine.json sidecar if present, which
+        # provides nb_classes, names, model_family, etc. automatically.
+        # Pass nb_classes as-is so the sidecar can fill in the default.
+        return LIBREYOLOTensorRT(model_path, nb_classes=nb_classes, device=device)
 
     # For .pt files, handle file download if needed
     if not Path(model_path).exists():
@@ -410,7 +455,10 @@ def LIBREYOLO(
             size = detect_yolo9_size(unwrapped_weights)
             model_type = "YOLOv9"
         elif is_rfdetr:
-            size = detect_rfdetr_size(state_dict)
+            # Try filename first (more reliable for base vs large disambiguation)
+            _, size = detect_size_from_filename(Path(model_path).name)
+            if size is None:
+                size = detect_rfdetr_size(state_dict)
             model_type = "RF-DETR"
         else:
             model_type = "Unknown"
@@ -436,13 +484,13 @@ def LIBREYOLO(
     if is_rfdetr:
         # RF-DETR detected - use LIBREYOLORFDETR (lazy import)
         # RF-DETR needs the path string, not the loaded weights dict
-        try:
-            from .rfdetr.model import LIBREYOLORFDETR
-        except ImportError:
+        import importlib.util
+        if importlib.util.find_spec("rfdetr") is None:
             raise ModuleNotFoundError(
                 "RF-DETR support requires extra dependencies.\n"
                 "Install with: pip install libreyolo[rfdetr]"
             )
+        from .rfdetr.model import LIBREYOLORFDETR
         model = LIBREYOLORFDETR(
             model_path=model_path, size=size, nb_classes=nb_classes, device=device
         )

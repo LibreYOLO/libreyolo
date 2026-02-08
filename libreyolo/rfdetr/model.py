@@ -280,6 +280,10 @@ class LIBREYOLORFDETR(LibreYOLOBase):
             "num_detections": len(boxes),
         }
 
+    def export(self, format: str = "onnx", *, opset: int = 17, **kwargs) -> str:
+        """Export model. RF-DETR requires opset >= 17 for LayerNormalization (avoids FP16 overflow in TensorRT)."""
+        return super().export(format, opset=opset, **kwargs)
+
     def train(
         self,
         data: str,

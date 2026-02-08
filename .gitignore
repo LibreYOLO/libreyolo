@@ -56,7 +56,10 @@ temporary/
 runs/
 /data/
 
-.onnx
-.pt
 *.pt
 *.pth
+*.data
+*.cache
+*.engine
+*.onnx
+*.torchscript

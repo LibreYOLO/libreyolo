@@ -12,6 +12,7 @@ help:
 	@echo "  lint                          - Run linter"
 	@echo "  test                          - Run fast unit tests (no weights needed)"
 	@echo "  test_integration              - Run integration tests (needs real model weights)"
+	@echo "  test_e2e                      - Run e2e export tests (needs GPU + model weights)"
 	@echo "  build                         - Build package"
 	@echo "  clean                         - Remove build and test cache artifacts"
 
@@ -36,6 +37,9 @@ test:
 
 test_integration:
 	$(UV) pytest -m integration
+
+test_e2e:
+	$(UV) pytest tests/e2e/ -m slow -v
 
 build:
 	@echo "📦 Building package..."

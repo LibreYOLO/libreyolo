@@ -26,6 +26,8 @@ dev = [
     "pytest>=9.0.2",
     "ruff>=0.14.10",
     "jupyterlab>=4.3.1",
+    "onnx>=1.14.0",
+    "onnxruntime>=1.16.0",
 ]
 
 [project.optional-dependencies]
@@ -40,8 +42,16 @@ onnx = [
 ]
 rfdetr = [
     "rfdetr",  # RF-DETR package from Roboflow
+    "transformers<5",  # rfdetr uses API removed in transformers 5.x
     "timm>=0.9.0",
     "supervision>=0.19.0",
+]
+tensorrt = [
+    # TensorRT requires manual installation as it depends on CUDA version
+    # Install with: pip install tensorrt (requires NVIDIA GPU + CUDA)
+    # For INT8 calibration, also install pycuda:
+    # pip install pycuda
+    "pycuda>=2022.1",
 ]
 
 [project.urls]
@@ -67,5 +77,8 @@ testpaths = ["tests"]
 markers = [
     "unit: fast tests that avoid external weights or large files",
     "integration: slow tests that require converted weights or generate artifacts",
-    "e2e: end-to-end tests (requires GPU and datasets)",
+    "e2e: end-to-end tests requiring full model loading and inference",
+    "tensorrt: tests requiring TensorRT",
+    "rfdetr: tests requiring RF-DETR dependencies",
+    "slow: slow tests that may take several minutes",
 ]
