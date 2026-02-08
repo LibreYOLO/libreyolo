@@ -303,6 +303,10 @@ class LIBREYOLORFDETR(LibreYOLOBase):
         - Hungarian matching loss
         - Distributed training support
 
+        After training completes, the best checkpoint is automatically loaded
+        back into this model instance so that subsequent predict() and val()
+        calls use the trained weights.
+
         Args:
             data: Path to dataset in Roboflow format (COCO annotations).
                   Structure should be:
@@ -332,7 +336,7 @@ class LIBREYOLORFDETR(LibreYOLOBase):
             >>> # Download a dataset from Roboflow in COCO format
             >>> results = model.train(data="path/to/dataset", epochs=50)
         """
-        return train_rfdetr(
+        result = train_rfdetr(
             data=data,
             size=self.size,
             epochs=epochs,
@@ -342,3 +346,28 @@ class LIBREYOLORFDETR(LibreYOLOBase):
             resume=resume,
             **kwargs
         )
+
+        # Load best trained checkpoint back into this model instance
+        best_ckpt = Path(result["output_dir"]) / "checkpoint_best_total.pth"
+        if best_ckpt.exists():
+            checkpoint = torch.load(best_ckpt, map_location="cpu", weights_only=False)
+            state_dict = checkpoint["model"]
+
+            # RF-DETR uses num_classes + 1 internally (background class)
+            num_classes_internal = state_dict["class_embed.bias"].shape[0]
+            num_classes = num_classes_internal - 1
+
+            # Reinitialize detection head to match trained checkpoint shape
+            if num_classes_internal != self.model.model.class_embed.bias.shape[0]:
+                self.model.model.reinitialize_detection_head(num_classes_internal)
+
+            # Load trained weights
+            self.model.model.load_state_dict(state_dict, strict=False)
+            self.model.model.eval()
+            self.model.model.to(self.device)
+
+            # Update class count
+            self.nb_classes = num_classes
+            self.model.nb_classes = num_classes
+
+        return result

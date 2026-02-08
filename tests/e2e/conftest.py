@@ -37,7 +37,7 @@ def has_rfdetr_deps():
     try:
         from libreyolo.rfdetr.model import LIBREYOLORFDETR
         return True
-    except (ImportError, ModuleNotFoundError):
+    except Exception:
         return False
 
 
