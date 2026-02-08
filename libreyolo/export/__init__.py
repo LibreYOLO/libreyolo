@@ -5,6 +5,7 @@ Supports exporting models to various deployment formats:
 - ONNX: Universal interchange format
 - TorchScript: PyTorch deployment format
 - TensorRT: NVIDIA GPU acceleration (requires tensorrt package)
+- OpenVINO: Intel CPU/GPU/VPU acceleration (requires openvino package)
 
 Example::
 

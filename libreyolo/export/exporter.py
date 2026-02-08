@@ -1,8 +1,8 @@
 """
 Unified model export with multiple backend support.
 
-Supports ONNX, TorchScript, and TensorRT export formats with various
-precision modes (FP32, FP16, INT8).
+Supports ONNX, TorchScript, TensorRT, and OpenVINO export formats with
+various precision modes (FP32, FP16, INT8).
 """
 
 import json
@@ -23,6 +23,7 @@ class Exporter:
         - onnx: ONNX format (universal interchange)
         - torchscript: TorchScript (PyTorch deployment)
         - tensorrt: TensorRT engine (NVIDIA GPU acceleration)
+        - openvino: OpenVINO IR (Intel CPU/GPU/VPU acceleration)
 
     Args:
         model: A LibreYOLOBase subclass instance (LIBREYOLOX, LIBREYOLO9, etc.).
@@ -61,6 +62,10 @@ class Exporter:
             "suffix": ".engine",
             "requires": "onnx",  # TensorRT builds from ONNX
         },
+        "openvino": {
+            "suffix": "_openvino",
+            "requires": "onnx",  # OpenVINO converts from ONNX
+        },
     }
 
     def __init__(self, model):
@@ -93,7 +98,7 @@ class Exporter:
         """Export the model to a deployment format.
 
         Args:
-            format: Target format ("onnx", "torchscript", "tensorrt").
+            format: Target format ("onnx", "torchscript", "tensorrt", "openvino").
             output_path: Output file path (auto-generated if None).
             imgsz: Input resolution (default: model's native size).
             opset: ONNX opset version (default: 13).
@@ -138,7 +143,7 @@ class Exporter:
         fmt_info = self.FORMATS[fmt]
 
         # --- validate INT8 requirements ---
-        if int8 and data is None and fmt == "tensorrt":
+        if int8 and data is None and fmt in ("tensorrt", "openvino"):
             raise ValueError(
                 "INT8 quantization requires calibration data.\n"
                 "Provide data='path/to/data.yaml' or data='coco8' for built-in dataset."
@@ -322,6 +327,39 @@ class Exporter:
                     hardware_compatibility=hardware_compatibility,
                     device=gpu_device,
                     config=trt_config,
+                    metadata=metadata,
+                )
+            elif fmt == "openvino":
+                from .openvino import export_openvino
+
+                print("Step 2/2: Converting to OpenVINO IR")
+
+                if int8:
+                    precision = "int8"
+                elif half:
+                    precision = "fp16"
+                else:
+                    precision = "fp32"
+
+                metadata = {
+                    "libreyolo_version": _get_version(),
+                    "model_family": self.model._get_model_name(),
+                    "model_size": self.model.size,
+                    "nb_classes": self.model.nb_classes,
+                    "names": {str(k): v for k, v in self.model.names.items()},
+                    "imgsz": self.model._get_input_size(),
+                    "precision": precision,
+                    "dynamic": dynamic,
+                    "exported_from": str(Path(onnx_path).name) if onnx_path else None,
+                }
+
+                result = export_openvino(
+                    onnx_path=onnx_path,
+                    output_path=output_path,
+                    half=half,
+                    int8=int8,
+                    calibration_data=calibration_data,
+                    verbose=verbose,
                     metadata=metadata,
                 )
         finally:
