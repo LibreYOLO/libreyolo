@@ -99,6 +99,4 @@ names:
   79: toothbrush
 
 # Download URL (auto-downloads if dataset not found locally)
-# TODO: Replace with LibreYOLO HF URL when available:
-# download: https://huggingface.co/datasets/LibreYOLO/coco128/resolve/main/coco128.zip
-download: https://github.com/ultralytics/assets/releases/download/v0.0.0/coco128.zip
+download: https://huggingface.co/datasets/Libre-YOLO/coco128/resolve/main/coco128.zip
