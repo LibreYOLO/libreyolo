@@ -33,6 +33,65 @@ def check_ncnn_export_available() -> None:
         )
 
 
+def _patch_focus_for_ncnn(nn_model):
+    """Monkey-patch YOLOX Focus layers to use ``pixel_unshuffle`` instead of
+    strided slicing (``x[..., ::2, ::2]``), which ncnn/PNNX cannot convert.
+
+    ``pixel_unshuffle`` maps to ncnn's native ``Reorg`` layer but uses a
+    different channel ordering than Focus's ``cat(TL, BL, TR, BR)``.  To keep
+    the output numerically identical the first conv's input-channel weights are
+    permuted at export time and restored afterwards.
+
+    Returns:
+        List of ``(module, original_forward, original_weight)`` tuples for
+        cleanup.
+    """
+    import torch
+
+    patches = []
+    try:
+        from ..yolox.nn import Focus
+    except ImportError:
+        return patches
+
+    # Focus cat order: TL, BL, TR, BR  →  (i,j) = (0,0),(1,0),(0,1),(1,1)
+    _patch_ij = [(0, 0), (1, 0), (0, 1), (1, 1)]
+
+    for m in nn_model.modules():
+        if not isinstance(m, Focus):
+            continue
+
+        conv2d = m.conv.conv  # nn.Conv2d inside BaseConv
+        C = conv2d.weight.shape[1] // 4  # original input channels (e.g. 3)
+
+        # Build perm: focus_ch[idx] == pixel_unshuffle_ch[perm[idx]]
+        # pixel_unshuffle channel layout: ch = c*4 + i*2 + j
+        perm = [c * 4 + i * 2 + j for i, j in _patch_ij for c in range(C)]
+
+        # inv_perm: pixel_unshuffle_ch -> focus_ch
+        inv_perm = [0] * (C * 4)
+        for focus_idx, pu_idx in enumerate(perm):
+            inv_perm[pu_idx] = focus_idx
+
+        # Save originals for restoration
+        orig_forward = m.forward
+        orig_weight = conv2d.weight.data.clone()
+
+        # Permute conv input channels so conv(pixel_unshuffle(x)) == Focus(x)
+        conv2d.weight.data = orig_weight[:, inv_perm, :, :]
+
+        # Replace forward: pixel_unshuffle → conv (weights already permuted)
+        _conv_module = m.conv
+
+        def _ncnn_forward(x, _conv=_conv_module):
+            return _conv(torch.nn.functional.pixel_unshuffle(x, 2))
+
+        m.forward = _ncnn_forward
+        patches.append((m, orig_forward, conv2d, orig_weight))
+
+    return patches
+
+
 def export_ncnn(
     nn_model,
     dummy,
@@ -73,22 +132,31 @@ def export_ncnn(
     output_dir = Path(output_path)
     output_dir.mkdir(parents=True, exist_ok=True)
 
+    # Patch Focus layers to avoid strided slicing unsupported by ncnn
+    focus_patches = _patch_focus_for_ncnn(nn_model)
+
     try:
-        param_path, bin_path = _export_pnnx_direct(nn_model, dummy, output_dir, half)
-        print("ncnn export via direct PNNX succeeded")
-    except Exception as e:
-        print(f"Direct PNNX export failed ({e}), trying ONNX fallback...")
         try:
-            param_path, bin_path = _export_onnx_fallback(
-                nn_model, dummy, output_dir, half, opset, simplify
-            )
-            print("ncnn export via ONNX fallback succeeded")
-        except Exception as e2:
-            raise RuntimeError(
-                f"ncnn export failed with both direct and ONNX paths.\n"
-                f"Direct error: {e}\n"
-                f"Fallback error: {e2}"
-            ) from e2
+            param_path, bin_path = _export_pnnx_direct(nn_model, dummy, output_dir, half)
+            print("ncnn export via direct PNNX succeeded")
+        except Exception as e:
+            print(f"Direct PNNX export failed ({e}), trying ONNX fallback...")
+            try:
+                param_path, bin_path = _export_onnx_fallback(
+                    nn_model, dummy, output_dir, half, opset, simplify
+                )
+                print("ncnn export via ONNX fallback succeeded")
+            except Exception as e2:
+                raise RuntimeError(
+                    f"ncnn export failed with both direct and ONNX paths.\n"
+                    f"Direct error: {e}\n"
+                    f"Fallback error: {e2}"
+                ) from e2
+    finally:
+        # Restore original Focus forward methods and conv weights
+        for m, orig_fwd, conv2d, orig_weight in focus_patches:
+            m.forward = orig_fwd
+            conv2d.weight.data = orig_weight
 
     if metadata:
         _save_metadata(output_dir, metadata)
