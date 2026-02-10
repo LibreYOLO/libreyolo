@@ -380,6 +380,14 @@ def LIBREYOLO(
         from .common.openvino import LIBREYOLOOpenVINO
         return LIBREYOLOOpenVINO(model_path, nb_classes=nb_classes, device=device)
 
+    # Handle ncnn model directories (containing model.ncnn.param + model.ncnn.bin)
+    if Path(model_path).is_dir():
+        ncnn_param = Path(model_path) / "model.ncnn.param"
+        ncnn_bin = Path(model_path) / "model.ncnn.bin"
+        if ncnn_param.exists() and ncnn_bin.exists():
+            from .common.ncnn import LIBREYOLONCNN
+            return LIBREYOLONCNN(model_path, nb_classes=nb_classes, device=device)
+
     # For .pt files, handle file download if needed
     if not Path(model_path).exists():
         # Try to extract size from filename if not provided

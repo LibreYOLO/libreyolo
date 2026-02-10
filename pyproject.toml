@@ -53,6 +53,10 @@ tensorrt = [
 openvino = [
     "openvino>=2024.0.0",
 ]
+ncnn = [
+    "pnnx",
+    "ncnn",
+]
 
 [project.urls]
 Homepage = "https://github.com/Libre-YOLO"
@@ -80,6 +84,7 @@ markers = [
     "e2e: end-to-end tests requiring full model loading and inference",
     "tensorrt: tests requiring TensorRT",
     "openvino: tests requiring OpenVINO",
+    "ncnn: tests requiring ncnn",
     "rfdetr: tests requiring RF-DETR dependencies",
     "slow: slow tests that may take several minutes",
 ]

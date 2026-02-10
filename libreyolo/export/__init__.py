@@ -6,6 +6,7 @@ Supports exporting models to various deployment formats:
 - TorchScript: PyTorch deployment format
 - TensorRT: NVIDIA GPU acceleration (requires tensorrt package)
 - OpenVINO: Intel CPU/GPU/VPU acceleration (requires openvino package)
+- ncnn: Mobile ARM / embedded CPU deployment (requires pnnx package)
 
 Example::
 
