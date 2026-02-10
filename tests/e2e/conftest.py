@@ -9,6 +9,7 @@ def pytest_configure(config):
     config.addinivalue_line("markers", "e2e: end-to-end tests requiring full model loading")
     config.addinivalue_line("markers", "tensorrt: tests requiring TensorRT")
     config.addinivalue_line("markers", "openvino: tests requiring OpenVINO")
+    config.addinivalue_line("markers", "ncnn: tests requiring ncnn")
     config.addinivalue_line("markers", "rfdetr: tests requiring RF-DETR dependencies")
     config.addinivalue_line("markers", "slow: slow tests that may take several minutes")
 
@@ -43,6 +44,15 @@ def has_openvino():
         return False
 
 
+def has_ncnn():
+    """Check if ncnn is installed and usable."""
+    try:
+        import ncnn
+        return True
+    except ImportError:
+        return False
+
+
 def has_rfdetr_deps():
     """Check if RF-DETR dependencies are installed."""
     try:
@@ -69,6 +79,11 @@ requires_tensorrt = pytest.mark.skipif(
 requires_openvino = pytest.mark.skipif(
     not has_openvino(),
     reason="OpenVINO not installed (pip install openvino)"
+)
+
+requires_ncnn = pytest.mark.skipif(
+    not has_ncnn(),
+    reason="ncnn not installed (pip install libreyolo[ncnn])"
 )
 
 requires_rfdetr = pytest.mark.skipif(
