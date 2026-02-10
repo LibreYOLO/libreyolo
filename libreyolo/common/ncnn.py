@@ -305,8 +305,11 @@ class LIBREYOLONCNN:
         blob = input_tensor.numpy()
 
         # Run ncnn inference
-        # ncnn.Mat expects (C, H, W) float32 array
-        input_data = blob[0]  # remove batch dim -> (C, H, W)
+        # ncnn.Mat expects a C-contiguous (C, H, W) float32 array.
+        # blob[0] is a view with non-standard strides (from removing
+        # the batch dim of a permuted tensor), so we must make a
+        # contiguous copy; otherwise ncnn reads scrambled channel data.
+        input_data = np.ascontiguousarray(blob[0])
         mat_in = _ncnn.Mat(input_data)
 
         ex = self.net.create_extractor()

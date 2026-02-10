@@ -4,10 +4,15 @@ End-to-end tests for ncnn export and inference.
 Tests the complete pipeline:
 1. Load PyTorch model
 2. Run PyTorch inference (baseline)
-3. Export to ncnn
+3. Export to ncnn via PNNX
 4. Load ncnn model via LIBREYOLO() factory / LIBREYOLONCNN backend
 5. Run ncnn inference
 6. Compare results between PyTorch and ncnn
+
+Known ncnn/PNNX limitations:
+- YOLOX: Focus layer uses slice-with-step-2, unsupported by ncnn.
+  Accuracy tests are xfail; export/metadata/consistency tests still pass.
+- RF-DETR: torch.tile is unsupported by ncnn. All inference tests are xfail.
 """
 
 from pathlib import Path
@@ -31,6 +36,34 @@ from .conftest import (
 
 pytestmark = [pytest.mark.e2e, pytest.mark.ncnn]
 
+# ---------------------------------------------------------------------------
+# xfail markers for ncnn op limitations
+# ---------------------------------------------------------------------------
+
+_yolox_xfail = pytest.mark.xfail(
+    reason="PNNX: Focus layer slice-with-step-2 unsupported by ncnn",
+    strict=True,
+)
+_rfdetr_xfail = pytest.mark.xfail(
+    reason="ncnn does not support torch.tile",
+    strict=True,
+)
+
+# Accuracy test parameters — YOLOX and RF-DETR are expected to fail
+QUICK_ACCURACY_PARAMS = [
+    pytest.param("yolox", "nano", marks=_yolox_xfail),
+    ("yolov9", "t"),
+]
+
+FULL_ACCURACY_PARAMS = [
+    *[pytest.param("yolox", size, marks=_yolox_xfail) for size in YOLOX_SIZES],
+    *[("yolov9", size) for size in YOLOV9_SIZES],
+]
+
+RFDETR_ACCURACY_PARAMS = [
+    pytest.param("rfdetr", size, marks=_rfdetr_xfail) for size in RFDETR_SIZES
+]
+
 
 # ---------------------------------------------------------------------------
 # Test classes
@@ -41,14 +74,14 @@ class TestNCNNExportFP32:
     """Test ncnn FP32 export + inference for all models."""
 
     @requires_ncnn
-    @pytest.mark.parametrize("model_type,size", QUICK_TEST_MODELS)
+    @pytest.mark.parametrize("model_type,size", QUICK_ACCURACY_PARAMS)
     def test_fp32_export_quick(self, model_type, size, sample_image, tmp_path):
         """Quick test with smallest models (for CI)."""
         self._run_fp32_test(model_type, size, sample_image, tmp_path)
 
     @requires_ncnn
     @pytest.mark.slow
-    @pytest.mark.parametrize("model_type,size", FULL_TEST_MODELS)
+    @pytest.mark.parametrize("model_type,size", FULL_ACCURACY_PARAMS)
     def test_fp32_export_full(self, model_type, size, sample_image, tmp_path):
         """Full test with all YOLOX and YOLOv9 models."""
         self._run_fp32_test(model_type, size, sample_image, tmp_path)
@@ -56,7 +89,7 @@ class TestNCNNExportFP32:
     @requires_ncnn
     @requires_rfdetr
     @pytest.mark.slow
-    @pytest.mark.parametrize("model_type,size", RFDETR_TEST_MODELS)
+    @pytest.mark.parametrize("model_type,size", RFDETR_ACCURACY_PARAMS)
     def test_fp32_export_rfdetr(self, model_type, size, sample_image, tmp_path):
         """Test RF-DETR models (requires extra dependencies)."""
         self._run_fp32_test(model_type, size, sample_image, tmp_path)
@@ -97,14 +130,14 @@ class TestNCNNExportFP16:
     """Test ncnn FP16 export + inference for all models."""
 
     @requires_ncnn
-    @pytest.mark.parametrize("model_type,size", QUICK_TEST_MODELS)
+    @pytest.mark.parametrize("model_type,size", QUICK_ACCURACY_PARAMS)
     def test_fp16_export_quick(self, model_type, size, sample_image, tmp_path):
         """Quick test with smallest models (for CI)."""
         self._run_fp16_test(model_type, size, sample_image, tmp_path)
 
     @requires_ncnn
     @pytest.mark.slow
-    @pytest.mark.parametrize("model_type,size", FULL_TEST_MODELS)
+    @pytest.mark.parametrize("model_type,size", FULL_ACCURACY_PARAMS)
     def test_fp16_export_full(self, model_type, size, sample_image, tmp_path):
         """Full test with all YOLOX and YOLOv9 models."""
         self._run_fp16_test(model_type, size, sample_image, tmp_path)
@@ -112,7 +145,7 @@ class TestNCNNExportFP16:
     @requires_ncnn
     @requires_rfdetr
     @pytest.mark.slow
-    @pytest.mark.parametrize("model_type,size", RFDETR_TEST_MODELS)
+    @pytest.mark.parametrize("model_type,size", RFDETR_ACCURACY_PARAMS)
     def test_fp16_export_rfdetr(self, model_type, size, sample_image, tmp_path):
         """Test RF-DETR models (requires extra dependencies)."""
         self._run_fp16_test(model_type, size, sample_image, tmp_path)
@@ -211,7 +244,7 @@ class TestNCNNFactory:
     """Test loading ncnn models through the LIBREYOLO() factory."""
 
     @requires_ncnn
-    @pytest.mark.parametrize("model_type,size", QUICK_TEST_MODELS)
+    @pytest.mark.parametrize("model_type,size", QUICK_ACCURACY_PARAMS)
     def test_factory_dispatch(self, model_type, size, sample_image, tmp_path):
         """Export model, load via LIBREYOLO(dir), verify type and inference."""
         from libreyolo import LIBREYOLO
@@ -399,6 +432,7 @@ class TestNCNNModelCoverage:
     @requires_ncnn
     @requires_rfdetr
     @pytest.mark.slow
+    @_rfdetr_xfail
     def test_all_rfdetr_sizes_exportable(self, sample_image, tmp_path):
         """Test that all RF-DETR sizes can be exported and run."""
         from libreyolo import LIBREYOLO
