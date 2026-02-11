@@ -1,7 +1,7 @@
 """
 Unified model export with multiple backend support.
 
-Supports ONNX, TorchScript, TensorRT, and OpenVINO export formats with
+Supports ONNX, TorchScript, TensorRT, OpenVINO, and ncnn export formats with
 various precision modes (FP32, FP16, INT8).
 """
 
@@ -24,6 +24,7 @@ class Exporter:
         - torchscript: TorchScript (PyTorch deployment)
         - tensorrt: TensorRT engine (NVIDIA GPU acceleration)
         - openvino: OpenVINO IR (Intel CPU/GPU/VPU acceleration)
+        - ncnn: ncnn format (mobile ARM / embedded CPU deployment)
 
     Args:
         model: A LibreYOLOBase subclass instance (LIBREYOLOX, LIBREYOLO9, etc.).
@@ -66,6 +67,10 @@ class Exporter:
             "suffix": "_openvino",
             "requires": "onnx",  # OpenVINO converts from ONNX
         },
+        "ncnn": {
+            "suffix": "_ncnn",
+            "requires": None,  # PNNX converts directly from PyTorch
+        },
     }
 
     def __init__(self, model):
@@ -98,7 +103,7 @@ class Exporter:
         """Export the model to a deployment format.
 
         Args:
-            format: Target format ("onnx", "torchscript", "tensorrt", "openvino").
+            format: Target format ("onnx", "torchscript", "tensorrt", "openvino", "ncnn").
             output_path: Output file path (auto-generated if None).
             imgsz: Input resolution (default: model's native size).
             opset: ONNX opset version (default: 13).
@@ -360,6 +365,33 @@ class Exporter:
                     int8=int8,
                     calibration_data=calibration_data,
                     verbose=verbose,
+                    metadata=metadata,
+                )
+            elif fmt == "ncnn":
+                from .ncnn import export_ncnn
+
+                print("Exporting to ncnn via PNNX")
+
+                precision = "fp16" if half else "fp32"
+
+                metadata = {
+                    "libreyolo_version": _get_version(),
+                    "model_family": self.model._get_model_name(),
+                    "model_size": self.model.size,
+                    "nb_classes": self.model.nb_classes,
+                    "names": {str(k): v for k, v in self.model.names.items()},
+                    "imgsz": self.model._get_input_size(),
+                    "precision": precision,
+                    "dynamic": False,
+                }
+
+                result = export_ncnn(
+                    nn_model,
+                    dummy,
+                    output_path=output_path,
+                    half=half,
+                    opset=opset,
+                    simplify=simplify,
                     metadata=metadata,
                 )
         finally:
