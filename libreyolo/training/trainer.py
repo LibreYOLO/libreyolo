@@ -20,7 +20,8 @@ from .config import YOLOXTrainConfig
 from .scheduler import LRScheduler
 from .ema import ModelEMA
 from .augment import TrainTransform, MosaicMixupDataset
-from .dataset import YOLODataset, COCODataset, create_dataloader, load_data_config
+from .dataset import YOLODataset, COCODataset, create_dataloader
+from ..data import load_data_config, get_img_files, img2label_paths
 
 
 logger = logging.getLogger(__name__)
@@ -195,7 +196,21 @@ class YOLOXTrainer:
             self.num_classes = data_cfg.get('nc', self.config.num_classes)
 
             # Determine format (YOLO or COCO)
-            if (Path(data_dir) / "annotations").exists():
+            ann_file = Path(data_dir) / "annotations" / "instances_train2017.json"
+
+            # Prefer pre-resolved file lists from load_data_config (.txt format)
+            img_files = data_cfg.get("train_img_files")
+            label_files = data_cfg.get("train_label_files")
+
+            if img_files:
+                # YOLO format via file list
+                train_dataset = YOLODataset(
+                    img_files=img_files,
+                    label_files=label_files,
+                    img_size=img_size,
+                    preproc=preproc,
+                )
+            elif ann_file.exists():
                 # COCO format
                 train_dataset = COCODataset(
                     data_dir=data_dir,
@@ -205,28 +220,23 @@ class YOLOXTrainer:
                     preproc=preproc,
                 )
             else:
-                # YOLO format - construct paths from data.yaml
+                # YOLO format - directory or .txt file
                 train_path = data_cfg.get('train', 'images/train')
+                train_img_dir = train_path
+                if isinstance(train_path, (str, Path)):
+                    train_img_dir = Path(train_path)
+                    if not train_img_dir.is_absolute():
+                        train_img_dir = Path(data_dir) / train_img_dir
 
-                # Full path to training images
-                train_img_dir = Path(data_dir) / train_path
-
-                # Collect image files
-                img_files = []
-                for ext in ['*.jpg', '*.jpeg', '*.png', '*.bmp']:
-                    img_files.extend(train_img_dir.glob(ext))
-                    img_files.extend(train_img_dir.glob(ext.upper()))
-                img_files = sorted(img_files)
+                try:
+                    img_files = get_img_files(train_path, prefix=data_dir)
+                except (FileNotFoundError, ValueError):
+                    img_files = []
 
                 if len(img_files) == 0:
                     raise FileNotFoundError(f"No images found in {train_img_dir}")
 
-                # Infer label paths (replace 'images' with 'labels', change extension to .txt)
-                label_files = []
-                for img_file in img_files:
-                    # Replace /images/ with /labels/ and .jpg with .txt
-                    label_file = Path(str(img_file).replace('/images/', '/labels/').rsplit('.', 1)[0] + '.txt')
-                    label_files.append(label_file)
+                label_files = img2label_paths(img_files)
 
                 # Create dataset using file list mode
                 train_dataset = YOLODataset(
