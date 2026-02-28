@@ -364,12 +364,12 @@ def LIBREYOLO(
 
     # Handle ONNX models
     if model_path.endswith('.onnx'):
-        from .common.onnx import LIBREYOLOOnnx
+        from .inference.onnx import LIBREYOLOOnnx
         return LIBREYOLOOnnx(model_path, nb_classes=nb_classes or 80, device=device)
 
     # Handle TensorRT engines
     if model_path.endswith('.engine'):
-        from .common.tensorrt import LIBREYOLOTensorRT
+        from .inference.tensorrt import LIBREYOLOTensorRT
         # LIBREYOLOTensorRT loads a .engine.json sidecar if present, which
         # provides nb_classes, names, model_family, etc. automatically.
         # Pass nb_classes as-is so the sidecar can fill in the default.
@@ -377,7 +377,7 @@ def LIBREYOLO(
 
     # Handle OpenVINO model directories (containing model.xml)
     if Path(model_path).is_dir() and (Path(model_path) / "model.xml").exists():
-        from .common.openvino import LIBREYOLOOpenVINO
+        from .inference.openvino import LIBREYOLOOpenVINO
         return LIBREYOLOOpenVINO(model_path, nb_classes=nb_classes, device=device)
 
     # Handle ncnn model directories (containing model.ncnn.param + model.ncnn.bin)
@@ -385,7 +385,7 @@ def LIBREYOLO(
         ncnn_param = Path(model_path) / "model.ncnn.param"
         ncnn_bin = Path(model_path) / "model.ncnn.bin"
         if ncnn_param.exists() and ncnn_bin.exists():
-            from .common.ncnn import LIBREYOLONCNN
+            from .inference.ncnn import LIBREYOLONCNN
             return LIBREYOLONCNN(model_path, nb_classes=nb_classes, device=device)
 
     # For .pt files, handle file download if needed
