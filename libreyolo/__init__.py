@@ -20,8 +20,8 @@ def __getattr__(name):
         return LIBREYOLORFDETR
     raise AttributeError(f"module '{__name__}' has no attribute '{name}'")
 from .export import Exporter
-from .common.onnx import LIBREYOLOOnnx
-from .common.openvino import LIBREYOLOOpenVINO
+from .inference.onnx import LIBREYOLOOnnx
+from .inference.openvino import LIBREYOLOOpenVINO
 from .utils.results import Results, Boxes
 # CAM/GradCAM removed
 from .validation import (
