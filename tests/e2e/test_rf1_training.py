@@ -189,7 +189,7 @@ def test_rf1_training(weights, size, family, dataset_coco, dataset_data_yaml,
         model.train(
             data=str(dataset_coco),
             epochs=10,
-            batch_size=4,
+            batch_size=2,
             output_dir=str(tmp_path / f"rfdetr_{size}"),
         )
     else:
