@@ -24,7 +24,14 @@ from torch.nn import BCEWithLogitsLoss
 # Utility Functions
 # =============================================================================
 
-def calculate_iou(bbox1: Tensor, bbox2: Tensor, metrics: str = "iou") -> Tensor:
+
+def calculate_iou(
+    bbox1: Tensor,
+    bbox2: Tensor,
+    metrics: str = "iou",
+    *,
+    pairwise: bool = True,
+) -> Tensor:
     """
     Calculate IoU, DIoU, or CIoU between two sets of bounding boxes.
 
@@ -32,6 +39,7 @@ def calculate_iou(bbox1: Tensor, bbox2: Tensor, metrics: str = "iou") -> Tensor:
         bbox1: Bounding boxes in xyxy format. Shape: (A, 4) or (B, A, 4)
         bbox2: Bounding boxes in xyxy format. Shape: (B, 4) or (B, B, 4)
         metrics: IoU variant - "iou", "diou", or "ciou"
+        pairwise: Whether to compute all pairwise IoUs for 2D inputs.
 
     Returns:
         IoU matrix. Shape depends on input dimensions.
@@ -44,8 +52,14 @@ def calculate_iou(bbox1: Tensor, bbox2: Tensor, metrics: str = "iou") -> Tensor:
 
     # Expand dimensions if necessary
     if bbox1.ndim == 2 and bbox2.ndim == 2:
-        bbox1 = bbox1.unsqueeze(1)  # (Ax4) -> (Ax1x4)
-        bbox2 = bbox2.unsqueeze(0)  # (Bx4) -> (1xBx4)
+        if pairwise:
+            bbox1 = bbox1.unsqueeze(1)  # (Ax4) -> (Ax1x4)
+            bbox2 = bbox2.unsqueeze(0)  # (Bx4) -> (1xBx4)
+        else:
+            if bbox1.shape != bbox2.shape:
+                raise ValueError(
+                    "bbox1 and bbox2 must have the same shape for elementwise IoU"
+                )
     elif bbox1.ndim == 3 and bbox2.ndim == 3:
         bbox1 = bbox1.unsqueeze(2)  # (BZxAx4) -> (BZxAx1x4)
         bbox2 = bbox2.unsqueeze(1)  # (BZxBx4) -> (BZx1xBx4)
@@ -177,7 +191,7 @@ class BoxLoss(nn.Module):
         picked_predict = predicts_bbox[valid_bbox].view(-1, 4)
         picked_targets = targets_bbox[valid_bbox].view(-1, 4)
 
-        iou = calculate_iou(picked_predict, picked_targets, "ciou").diag()
+        iou = calculate_iou(picked_predict, picked_targets, "ciou", pairwise=False)
         loss_iou = 1.0 - iou
         loss_iou = (loss_iou * box_norm).sum() / cls_norm
         return loss_iou
