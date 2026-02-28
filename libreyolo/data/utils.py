@@ -390,11 +390,11 @@ def _execute_download_script(script: str, config: Dict, yaml_path: Path = None) 
     # Auto-replace common import patterns with libreyolo equivalents
     script = script.replace(
         "from ultralytics.utils.downloads import download",
-        "from libreyolo.utils.downloads import download"
+        "from libreyolo.data import download"
     )
     script = script.replace(
         "from ultralytics.utils import ASSETS_URL",
-        "from libreyolo.utils.downloads import ASSETS_URL"
+        "from libreyolo.data import ASSETS_URL"
     )
 
     # Create execution context with useful variables
