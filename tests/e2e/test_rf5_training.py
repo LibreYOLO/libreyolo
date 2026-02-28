@@ -20,7 +20,7 @@ from typing import Any, Dict, List, Optional
 import torch
 import yaml
 
-from .rf5_datasets import (
+from .conftest import (
     DEFAULT_CACHE_DIR,
     download_dataset,
     get_dataset_path,
