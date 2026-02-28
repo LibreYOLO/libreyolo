@@ -29,6 +29,9 @@ from .conftest import (
     requires_ncnn,
     requires_rfdetr,
     results_are_acceptable,
+    run_consistency_test,
+    run_export_compare_test,
+    run_metadata_round_trip_test,
 )
 
 pytestmark = [pytest.mark.e2e, pytest.mark.ncnn]
@@ -78,34 +81,17 @@ class TestNCNNExportFP32:
 
     def _run_fp32_test(self, model_type, size, sample_image, tmp_path):
         """Common FP32 test implementation."""
-        from libreyolo import LIBREYOLO
-
-        pt_model = load_model(model_type, size, device="cpu")
-        pt_results = pt_model(sample_image, conf=0.25)
-
-        ncnn_path = str(tmp_path / f"{model_type}_{size}_fp32_ncnn")
-        exported_path = pt_model.export(
+        exported_path, _, _ = run_export_compare_test(
+            model_type, size, sample_image, tmp_path,
             format="ncnn",
-            output_path=ncnn_path,
-            half=False,
+            export_kwargs={"half": False},
+            device="cpu",
         )
+
+        # ncnn-specific: verify directory structure
         exported_dir = Path(exported_path)
-        assert exported_dir.is_dir(), "ncnn output directory not created"
         assert (exported_dir / "model.ncnn.param").exists(), "model.ncnn.param not found"
         assert (exported_dir / "model.ncnn.bin").exists(), "model.ncnn.bin not found"
-
-        # Load via factory and run inference
-        ncnn_model = LIBREYOLO(exported_path)
-        ncnn_results = ncnn_model(sample_image, conf=0.25)
-
-        # Compare results
-        match_rate, matched, total = match_detections(pt_results, ncnn_results)
-        assert results_are_acceptable(match_rate, len(pt_results), len(ncnn_results)), (
-            f"Results mismatch: PT={len(pt_results)}, ncnn={len(ncnn_results)}, "
-            f"matched={matched}/{total}, rate={match_rate:.2%}"
-        )
-
-        del pt_model
 
 
 class TestNCNNExportFP16:
@@ -134,34 +120,17 @@ class TestNCNNExportFP16:
 
     def _run_fp16_test(self, model_type, size, sample_image, tmp_path):
         """Common FP16 test implementation."""
-        from libreyolo import LIBREYOLO
-
-        pt_model = load_model(model_type, size, device="cpu")
-        pt_results = pt_model(sample_image, conf=0.25)
-
-        ncnn_path = str(tmp_path / f"{model_type}_{size}_fp16_ncnn")
-        exported_path = pt_model.export(
+        exported_path, _, _ = run_export_compare_test(
+            model_type, size, sample_image, tmp_path,
             format="ncnn",
-            output_path=ncnn_path,
-            half=True,
+            export_kwargs={"half": True},
+            device="cpu",
         )
+
+        # ncnn-specific: verify directory structure
         exported_dir = Path(exported_path)
-        assert exported_dir.is_dir(), "ncnn output directory not created"
         assert (exported_dir / "model.ncnn.param").exists(), "model.ncnn.param not found"
         assert (exported_dir / "model.ncnn.bin").exists(), "model.ncnn.bin not found"
-
-        # Load via factory and run inference
-        ncnn_model = LIBREYOLO(exported_path)
-        ncnn_results = ncnn_model(sample_image, conf=0.25)
-
-        # Compare results — FP16 may lose a bit of precision
-        match_rate, matched, total = match_detections(pt_results, ncnn_results)
-        assert results_are_acceptable(match_rate, len(pt_results), len(ncnn_results)), (
-            f"Results mismatch: PT={len(pt_results)}, ncnn={len(ncnn_results)}, "
-            f"matched={matched}/{total}, rate={match_rate:.2%}"
-        )
-
-        del pt_model
 
 
 class TestNCNNMetadata:
@@ -203,23 +172,12 @@ class TestNCNNMetadata:
     @pytest.mark.parametrize("model_type,size", QUICK_TEST_MODELS)
     def test_metadata_round_trip(self, model_type, size, tmp_path):
         """Test that metadata is correctly loaded when loading ncnn model."""
-        from libreyolo import LIBREYOLO
-
-        pt_model = load_model(model_type, size, device="cpu")
-
-        ncnn_path = str(tmp_path / f"{model_type}_{size}_ncnn")
-        exported_path = pt_model.export(
+        run_metadata_round_trip_test(
+            model_type, size, tmp_path,
             format="ncnn",
-            output_path=ncnn_path,
-            half=False,
+            export_kwargs={"half": False},
+            device="cpu",
         )
-
-        # Load via factory and verify metadata was read
-        ncnn_model = LIBREYOLO(exported_path)
-        assert ncnn_model.nb_classes == pt_model.nb_classes
-        assert ncnn_model.names == pt_model.names
-
-        del pt_model
 
 
 class TestNCNNFactory:
@@ -334,29 +292,12 @@ class TestNCNNMultipleInference:
     @pytest.mark.parametrize("model_type,size", QUICK_TEST_MODELS)
     def test_consistent_results(self, model_type, size, sample_image, tmp_path):
         """Test that ncnn model produces consistent results across runs."""
-        from libreyolo import LIBREYOLO
-
-        pt_model = load_model(model_type, size, device="cpu")
-
-        ncnn_path = str(tmp_path / f"{model_type}_{size}_ncnn")
-        exported_path = pt_model.export(
+        run_consistency_test(
+            model_type, size, sample_image, tmp_path,
             format="ncnn",
-            output_path=ncnn_path,
-            half=False,
+            export_kwargs={"half": False},
+            device="cpu",
         )
-
-        ncnn_model = LIBREYOLO(exported_path)
-
-        # Run multiple inferences
-        results = []
-        for _ in range(5):
-            result = ncnn_model(sample_image, conf=0.25)
-            results.append(len(result))
-
-        # Results should be identical
-        assert len(set(results)) == 1, f"Inconsistent results across runs: {results}"
-
-        del pt_model
 
 
 # ---------------------------------------------------------------------------

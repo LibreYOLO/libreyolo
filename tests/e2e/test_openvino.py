@@ -24,6 +24,9 @@ from .conftest import (
     requires_openvino,
     requires_rfdetr,
     results_are_acceptable,
+    run_consistency_test,
+    run_export_compare_test,
+    run_metadata_round_trip_test,
 )
 
 pytestmark = [pytest.mark.e2e, pytest.mark.openvino]
@@ -60,34 +63,17 @@ class TestOpenVINOExportFP16:
 
     def _run_fp16_test(self, model_type, size, sample_image, tmp_path):
         """Common FP16 test implementation."""
-        from libreyolo import LIBREYOLO
-
-        pt_model = load_model(model_type, size, device="cpu")
-        pt_results = pt_model(sample_image, conf=0.25)
-
-        ov_path = str(tmp_path / f"{model_type}_{size}_fp16_openvino")
-        exported_path = pt_model.export(
+        exported_path, _, _ = run_export_compare_test(
+            model_type, size, sample_image, tmp_path,
             format="openvino",
-            output_path=ov_path,
-            half=True,
+            export_kwargs={"half": True},
+            device="cpu",
         )
+
+        # OpenVINO-specific: verify directory structure
         exported_dir = Path(exported_path)
-        assert exported_dir.is_dir(), "OpenVINO output directory not created"
         assert (exported_dir / "model.xml").exists(), "model.xml not found"
         assert (exported_dir / "model.bin").exists(), "model.bin not found"
-
-        # Load via factory and run inference
-        ov_model = LIBREYOLO(exported_path)
-        ov_results = ov_model(sample_image, conf=0.25)
-
-        # Compare results — FP16 may lose a bit of precision
-        match_rate, matched, total = match_detections(pt_results, ov_results)
-        assert results_are_acceptable(match_rate, len(pt_results), len(ov_results)), (
-            f"Results mismatch: PT={len(pt_results)}, OV={len(ov_results)}, "
-            f"matched={matched}/{total}, rate={match_rate:.2%}"
-        )
-
-        del pt_model
 
 
 class TestOpenVINOExportFP32:
@@ -108,31 +94,13 @@ class TestOpenVINOExportFP32:
 
     def _run_fp32_test(self, model_type, size, sample_image, tmp_path):
         """Common FP32 test implementation."""
-        from libreyolo import LIBREYOLO
-
-        pt_model = load_model(model_type, size, device="cpu")
-        pt_results = pt_model(sample_image, conf=0.25)
-
-        ov_path = str(tmp_path / f"{model_type}_{size}_fp32_openvino")
-        exported_path = pt_model.export(
+        exported_path, _, _ = run_export_compare_test(
+            model_type, size, sample_image, tmp_path,
             format="openvino",
-            output_path=ov_path,
-            half=False,
+            export_kwargs={"half": False},
+            device="cpu",
         )
         assert Path(exported_path).is_dir(), "OpenVINO output directory not created"
-
-        # Load via factory and run inference
-        ov_model = LIBREYOLO(exported_path)
-        ov_results = ov_model(sample_image, conf=0.25)
-
-        # Compare results — FP32 should have higher match rate
-        match_rate, matched, total = match_detections(pt_results, ov_results)
-        assert results_are_acceptable(match_rate, len(pt_results), len(ov_results)), (
-            f"Results mismatch: PT={len(pt_results)}, OV={len(ov_results)}, "
-            f"matched={matched}/{total}, rate={match_rate:.2%}"
-        )
-
-        del pt_model
 
 
 class TestOpenVINOMetadata:
@@ -174,23 +142,12 @@ class TestOpenVINOMetadata:
     @pytest.mark.parametrize("model_type,size", QUICK_TEST_MODELS)
     def test_metadata_round_trip(self, model_type, size, tmp_path):
         """Test that metadata is correctly loaded when loading OpenVINO model."""
-        from libreyolo import LIBREYOLO
-
-        pt_model = load_model(model_type, size, device="cpu")
-
-        ov_path = str(tmp_path / f"{model_type}_{size}_openvino")
-        exported_path = pt_model.export(
+        run_metadata_round_trip_test(
+            model_type, size, tmp_path,
             format="openvino",
-            output_path=ov_path,
-            half=True,
+            export_kwargs={"half": True},
+            device="cpu",
         )
-
-        # Load via factory and verify metadata was read
-        ov_model = LIBREYOLO(exported_path)
-        assert ov_model.nb_classes == pt_model.nb_classes
-        assert ov_model.names == pt_model.names
-
-        del pt_model
 
 
 class TestOpenVINOMultipleInference:
@@ -200,29 +157,12 @@ class TestOpenVINOMultipleInference:
     @pytest.mark.parametrize("model_type,size", QUICK_TEST_MODELS)
     def test_consistent_results(self, model_type, size, sample_image, tmp_path):
         """Test that OpenVINO model produces consistent results across runs."""
-        from libreyolo import LIBREYOLO
-
-        pt_model = load_model(model_type, size, device="cpu")
-
-        ov_path = str(tmp_path / f"{model_type}_{size}_openvino")
-        exported_path = pt_model.export(
+        run_consistency_test(
+            model_type, size, sample_image, tmp_path,
             format="openvino",
-            output_path=ov_path,
-            half=True,
+            export_kwargs={"half": True},
+            device="cpu",
         )
-
-        ov_model = LIBREYOLO(exported_path)
-
-        # Run multiple inferences
-        results = []
-        for _ in range(5):
-            result = ov_model(sample_image, conf=0.25)
-            results.append(len(result))
-
-        # Results should be identical
-        assert len(set(results)) == 1, f"Inconsistent results across runs: {results}"
-
-        del pt_model
 
 
 class TestOpenVINOModelLoading:

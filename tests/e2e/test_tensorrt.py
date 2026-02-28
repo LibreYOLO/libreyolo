@@ -10,10 +10,8 @@ Tests the complete pipeline:
 6. Compare results between PyTorch and TensorRT
 """
 
-import tempfile
 from pathlib import Path
 
-import numpy as np
 import pytest
 import torch
 
@@ -23,10 +21,11 @@ from .conftest import (
     RFDETR_TEST_MODELS,
     load_model,
     match_detections,
-    requires_cuda,
-    requires_tensorrt,
     requires_rfdetr,
+    requires_tensorrt,
     results_are_acceptable,
+    run_consistency_test,
+    run_export_compare_test,
 )
 
 pytestmark = [pytest.mark.e2e, pytest.mark.tensorrt]
@@ -63,39 +62,12 @@ class TestTensorRTExportFP16:
 
     def _run_fp16_test(self, model_type, size, sample_image, tmp_path):
         """Common FP16 test implementation."""
-        # Load PyTorch model
-        pt_model = load_model(model_type, size, device="cuda")
-
-        # Run PyTorch inference
-        pt_results = pt_model(sample_image, conf=0.25)
-
-        # Export to TensorRT
-        engine_path = str(tmp_path / f"{model_type}_{size}_fp16.engine")
-        exported_path = pt_model.export(
+        run_export_compare_test(
+            model_type, size, sample_image, tmp_path,
             format="tensorrt",
-            output_path=engine_path,
-            half=True,
+            export_kwargs={"half": True},
+            device="cuda",
         )
-        assert Path(exported_path).exists(), "Engine file not created"
-        assert Path(exported_path).stat().st_size > 0, "Engine file is empty"
-
-        # Load TensorRT engine
-        from libreyolo import LIBREYOLO
-        trt_model = LIBREYOLO(exported_path, device="cuda")
-
-        # Run TensorRT inference
-        trt_results = trt_model(sample_image, conf=0.25)
-
-        # Compare results
-        match_rate, matched, total = match_detections(pt_results, trt_results)
-
-        assert results_are_acceptable(match_rate, len(pt_results), len(trt_results)), (
-            f"Results mismatch: PT={len(pt_results)}, TRT={len(trt_results)}, "
-            f"matched={matched}/{total}, rate={match_rate:.2%}"
-        )
-
-        # Cleanup CUDA memory
-        del pt_model, trt_model
         torch.cuda.empty_cache()
 
 
@@ -117,39 +89,12 @@ class TestTensorRTExportFP32:
 
     def _run_fp32_test(self, model_type, size, sample_image, tmp_path):
         """Common FP32 test implementation."""
-        # Load PyTorch model
-        pt_model = load_model(model_type, size, device="cuda")
-
-        # Run PyTorch inference
-        pt_results = pt_model(sample_image, conf=0.25)
-
-        # Export to TensorRT (FP32)
-        engine_path = str(tmp_path / f"{model_type}_{size}_fp32.engine")
-        exported_path = pt_model.export(
+        run_export_compare_test(
+            model_type, size, sample_image, tmp_path,
             format="tensorrt",
-            output_path=engine_path,
-            half=False,
+            export_kwargs={"half": False},
+            device="cuda",
         )
-        assert Path(exported_path).exists(), "Engine file not created"
-
-        # Load TensorRT engine
-        from libreyolo import LIBREYOLO
-        trt_model = LIBREYOLO(exported_path, device="cuda")
-
-        # Run TensorRT inference
-        trt_results = trt_model(sample_image, conf=0.25)
-
-        # Compare results - FP32 should have higher match rate
-        match_rate, matched, total = match_detections(pt_results, trt_results)
-
-        # FP32 should be more accurate than FP16
-        assert results_are_acceptable(match_rate, len(pt_results), len(trt_results)), (
-            f"Results mismatch: PT={len(pt_results)}, TRT={len(trt_results)}, "
-            f"matched={matched}/{total}, rate={match_rate:.2%}"
-        )
-
-        # Cleanup
-        del pt_model, trt_model
         torch.cuda.empty_cache()
 
 
@@ -251,24 +196,12 @@ class TestTensorRTEngineLoading:
     @pytest.mark.parametrize("model_type,size", QUICK_TEST_MODELS)
     def test_engine_multiple_inference(self, model_type, size, sample_image, tmp_path):
         """Test that engines can run multiple inferences."""
-        pt_model = load_model(model_type, size, device="cuda")
-
-        engine_path = str(tmp_path / f"{model_type}_{size}.engine")
-        pt_model.export(format="tensorrt", output_path=engine_path, half=True)
-
-        from libreyolo import LIBREYOLO
-        trt_model = LIBREYOLO(engine_path, device="cuda")
-
-        # Run multiple inferences
-        results = []
-        for _ in range(5):
-            result = trt_model(sample_image, conf=0.25)
-            results.append(len(result))
-
-        # Results should be consistent
-        assert len(set(results)) == 1, f"Inconsistent results across runs: {results}"
-
-        del pt_model, trt_model
+        run_consistency_test(
+            model_type, size, sample_image, tmp_path,
+            format="tensorrt",
+            export_kwargs={"half": True},
+            device="cuda",
+        )
         torch.cuda.empty_cache()
 
 

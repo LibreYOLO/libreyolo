@@ -13,7 +13,6 @@ Tests the complete pipeline:
 import json
 from pathlib import Path
 
-import numpy as np
 import onnx
 import pytest
 import torch
@@ -22,13 +21,11 @@ from .conftest import (
     FULL_TEST_MODELS,
     QUICK_TEST_MODELS,
     RFDETR_TEST_MODELS,
-    compute_iou,
-    get_model_weights,
     load_model,
-    match_detections,
-    requires_cuda,
     requires_rfdetr,
-    results_are_acceptable,
+    run_consistency_test,
+    run_export_compare_test,
+    run_metadata_round_trip_test,
 )
 
 pytestmark = pytest.mark.e2e
@@ -64,41 +61,17 @@ class TestONNXExport:
         """Common ONNX export test implementation."""
         device = "cuda" if torch.cuda.is_available() else "cpu"
 
-        # Load PyTorch model
-        pt_model = load_model(model_type, size, device=device)
-
-        # Run PyTorch inference
-        pt_results = pt_model(sample_image, conf=0.25)
-
-        # Export to ONNX
-        onnx_path = str(tmp_path / f"{model_type}_{size}.onnx")
-        exported_path = pt_model.export(
+        exported_path, _, _ = run_export_compare_test(
+            model_type, size, sample_image, tmp_path,
             format="onnx",
-            output_path=onnx_path,
-            simplify=True,
-            dynamic=True,
+            export_kwargs={"simplify": True, "dynamic": True},
+            match_threshold=0.8,
+            device=device,
         )
-        assert Path(exported_path).exists(), "ONNX file not created"
-        assert Path(exported_path).stat().st_size > 0, "ONNX file is empty"
 
-        # Verify ONNX model is valid
+        # ONNX-specific: verify model validity
         onnx_model = onnx.load(exported_path)
         onnx.checker.check_model(onnx_model)
-
-        # Load ONNX model for inference
-        from libreyolo import LIBREYOLO
-        onnx_model_wrapper = LIBREYOLO(exported_path, device=device)
-
-        # Run ONNX inference
-        onnx_results = onnx_model_wrapper(sample_image, conf=0.25)
-
-        # Compare results
-        match_rate, matched, total = match_detections(pt_results, onnx_results)
-
-        assert results_are_acceptable(match_rate, len(pt_results), len(onnx_results), threshold=0.8), (
-            f"Results mismatch: PT={len(pt_results)}, ONNX={len(onnx_results)}, "
-            f"matched={matched}/{total}, rate={match_rate:.2%}"
-        )
 
 
 class TestONNXExportHalf:
@@ -158,18 +131,12 @@ class TestONNXMetadata:
     def test_onnx_metadata_round_trip(self, model_type, size, tmp_path):
         """Test that metadata is correctly loaded when loading ONNX model."""
         device = "cuda" if torch.cuda.is_available() else "cpu"
-
-        pt_model = load_model(model_type, size, device=device)
-
-        onnx_path = str(tmp_path / f"{model_type}_{size}.onnx")
-        pt_model.export(format="onnx", output_path=onnx_path, simplify=False)
-
-        # Load ONNX model and verify metadata was read
-        from libreyolo import LIBREYOLO
-        onnx_model = LIBREYOLO(onnx_path, device=device)
-
-        assert onnx_model.nb_classes == pt_model.nb_classes
-        assert onnx_model.names == pt_model.names
+        run_metadata_round_trip_test(
+            model_type, size, tmp_path,
+            format="onnx",
+            export_kwargs={"simplify": False},
+            device=device,
+        )
 
 
 class TestONNXDynamicAxes:
@@ -260,23 +227,12 @@ class TestONNXMultipleInference:
     def test_onnx_consistent_results(self, model_type, size, sample_image, tmp_path):
         """Test that ONNX model produces consistent results."""
         device = "cuda" if torch.cuda.is_available() else "cpu"
-
-        pt_model = load_model(model_type, size, device=device)
-
-        onnx_path = str(tmp_path / f"{model_type}_{size}.onnx")
-        pt_model.export(format="onnx", output_path=onnx_path, simplify=False)
-
-        from libreyolo import LIBREYOLO
-        onnx_model = LIBREYOLO(onnx_path, device=device)
-
-        # Run multiple inferences
-        results = []
-        for _ in range(5):
-            result = onnx_model(sample_image, conf=0.25)
-            results.append(len(result))
-
-        # Results should be identical
-        assert len(set(results)) == 1, f"Inconsistent results: {results}"
+        run_consistency_test(
+            model_type, size, sample_image, tmp_path,
+            format="onnx",
+            export_kwargs={"simplify": False},
+            device=device,
+        )
 
 
 class TestONNXModelCoverage:
