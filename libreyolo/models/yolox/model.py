@@ -282,7 +282,8 @@ class LIBREYOLOX(LibreYOLOBase):
             ... )
             >>> print(f"Best mAP: {results['best_mAP50_95']:.3f}")
         """
-        from libreyolo.training import YOLOXTrainer, YOLOXTrainConfig
+        from .trainer import YOLOXTrainer
+        from .config import YOLOXTrainConfig
         from libreyolo.data import load_data_config
 
         # Load and validate data config (handles built-in datasets and auto-download)

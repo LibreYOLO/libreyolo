@@ -1,26 +1,25 @@
 """
-YOLOv9 Trainer for LibreYOLO.
+YOLOX Trainer for LibreYOLO.
 
-Provides a training loop adapted from YOLOX trainer with v9-specific changes:
-- LinearLR scheduler with warmup (v9 default)
-- V9TrainTransform for normalized xyxy format
-- Loss integrated into model forward()
+Provides a simplified training loop with essential features.
 """
 
-import logging
+import os
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Optional, Union, Tuple
+import logging
 
 import torch
 import torch.nn as nn
 from torch.cuda.amp import GradScaler, autocast
 from tqdm import tqdm
 
-from .config import V9TrainConfig
-from .transforms import V9TrainTransform, V9MosaicMixupDataset
+from .config import YOLOXTrainConfig
+from ...training.scheduler import LRScheduler
 from ...training.ema import ModelEMA
+from ...training.augment import TrainTransform, MosaicMixupDataset
 from ...data.dataset import YOLODataset, COCODataset, create_dataloader
 from ...data import load_data_config
 
@@ -28,96 +27,14 @@ from ...data import load_data_config
 logger = logging.getLogger(__name__)
 
 
-class LinearLRScheduler:
+class YOLOXTrainer:
     """
-    Linear learning rate scheduler with warmup for YOLOv9.
-
-    LR schedule:
-    - Warmup: linear increase from warmup_lr_start to lr over warmup_iters
-    - Main: linear decrease from lr to lr * min_lr_ratio over remaining iterations
-    """
-
-    def __init__(
-        self,
-        lr: float,
-        iters_per_epoch: int,
-        total_epochs: int,
-        warmup_epochs: int = 3,
-        warmup_lr_start: float = 0.0001,
-        min_lr_ratio: float = 0.01,
-    ):
-        self.lr = lr
-        self.iters_per_epoch = iters_per_epoch
-        self.total_epochs = total_epochs
-        self.total_iters = iters_per_epoch * total_epochs
-        self.warmup_iters = iters_per_epoch * warmup_epochs
-        self.warmup_lr_start = warmup_lr_start
-        self.min_lr_ratio = min_lr_ratio
-        self.min_lr = lr * min_lr_ratio
-
-    def update_lr(self, iters: int) -> float:
-        """Get learning rate for given iteration."""
-        if iters <= self.warmup_iters:
-            # Linear warmup
-            if self.warmup_iters > 0:
-                lr = (self.lr - self.warmup_lr_start) * iters / self.warmup_iters + self.warmup_lr_start
-            else:
-                lr = self.lr
-        else:
-            # Linear decay
-            progress = (iters - self.warmup_iters) / max(1, self.total_iters - self.warmup_iters)
-            lr = self.lr - (self.lr - self.min_lr) * progress
-        return lr
-
-
-class CosineAnnealingScheduler:
-    """
-    Cosine annealing scheduler with warmup.
-
-    Alternative to linear scheduler.
-    """
-
-    def __init__(
-        self,
-        lr: float,
-        iters_per_epoch: int,
-        total_epochs: int,
-        warmup_epochs: int = 3,
-        warmup_lr_start: float = 0.0001,
-        min_lr_ratio: float = 0.01,
-    ):
-        import math
-        self.math = math
-        self.lr = lr
-        self.iters_per_epoch = iters_per_epoch
-        self.total_iters = iters_per_epoch * total_epochs
-        self.warmup_iters = iters_per_epoch * warmup_epochs
-        self.warmup_lr_start = warmup_lr_start
-        self.min_lr = lr * min_lr_ratio
-
-    def update_lr(self, iters: int) -> float:
-        """Get learning rate for given iteration."""
-        if iters <= self.warmup_iters:
-            # Linear warmup
-            if self.warmup_iters > 0:
-                lr = (self.lr - self.warmup_lr_start) * iters / self.warmup_iters + self.warmup_lr_start
-            else:
-                lr = self.lr
-        else:
-            # Cosine annealing
-            progress = (iters - self.warmup_iters) / max(1, self.total_iters - self.warmup_iters)
-            lr = self.min_lr + 0.5 * (self.lr - self.min_lr) * (1 + self.math.cos(self.math.pi * progress))
-        return lr
-
-
-class V9Trainer:
-    """
-    YOLOv9 Trainer.
+    YOLOX Trainer.
 
     Handles the complete training loop with:
     - Mixed precision training (AMP)
     - Exponential Moving Average (EMA)
-    - Learning rate scheduling (Linear or Cosine with warmup)
+    - Learning rate scheduling
     - Mosaic/Mixup augmentation
     - Checkpoint saving
     - TensorBoard logging (optional)
@@ -126,20 +43,20 @@ class V9Trainer:
     def __init__(
         self,
         model: nn.Module,
-        config: V9TrainConfig,
+        config: YOLOXTrainConfig,
         wrapper_model: Optional[Any] = None,
     ):
         """
         Initialize trainer.
 
         Args:
-            model: YOLOv9 model to train
+            model: YOLOX model to train
             config: Training configuration
             wrapper_model: LibreYOLO wrapper model (for validation), optional
         """
         self.model = model
         self.config = config
-        self.wrapper_model = wrapper_model
+        self.wrapper_model = wrapper_model  # Used for validation
 
         # Setup device
         self.device = self._setup_device()
@@ -149,7 +66,7 @@ class V9Trainer:
         self.current_epoch = 0
         self.current_iter = 0
 
-        # Metric tracking
+        # Metric tracking (following API spec)
         self.best_mAP50_95 = 0.0
         self.best_mAP50 = 0.0
         self.best_epoch = 0
@@ -162,6 +79,7 @@ class V9Trainer:
         self.scaler = None
         self.ema_model = None
         self.train_loader = None
+        self.val_loader = None
         self.tensorboard_writer = None
 
     def _setup_device(self) -> torch.device:
@@ -180,7 +98,7 @@ class V9Trainer:
         return device
 
     def _setup_optimizer(self) -> torch.optim.Optimizer:
-        """Create optimizer with parameter groups."""
+        """Create optimizer."""
         # Separate parameters for different weight decay
         pg0, pg1, pg2 = [], [], []  # optimizer parameter groups
 
@@ -219,42 +137,38 @@ class V9Trainer:
 
         return optimizer
 
-    def _setup_scheduler(self, iters_per_epoch: int):
+    def _setup_scheduler(self, iters_per_epoch: int) -> LRScheduler:
         """Create learning rate scheduler."""
-        if self.config.scheduler == "linear":
-            scheduler = LinearLRScheduler(
-                lr=self.config.effective_lr,
-                iters_per_epoch=iters_per_epoch,
-                total_epochs=self.config.epochs,
-                warmup_epochs=self.config.warmup_epochs,
-                warmup_lr_start=self.config.warmup_lr_start,
-                min_lr_ratio=self.config.min_lr_ratio,
-            )
-        elif self.config.scheduler in ("cos", "warmcos"):
-            scheduler = CosineAnnealingScheduler(
-                lr=self.config.effective_lr,
-                iters_per_epoch=iters_per_epoch,
-                total_epochs=self.config.epochs,
-                warmup_epochs=self.config.warmup_epochs,
-                warmup_lr_start=self.config.warmup_lr_start,
-                min_lr_ratio=self.config.min_lr_ratio,
-            )
-        else:
-            raise ValueError(f"Unknown scheduler: {self.config.scheduler}")
-
-        logger.info(f"Scheduler: {self.config.scheduler}")
+        scheduler = LRScheduler(
+            name=self.config.scheduler,
+            lr=self.config.effective_lr,
+            iters_per_epoch=iters_per_epoch,
+            total_epochs=self.config.epochs,
+            warmup_epochs=self.config.warmup_epochs,
+            warmup_lr_start=self.config.warmup_lr_start,
+            no_aug_epochs=self.config.no_aug_epochs,
+            min_lr_ratio=self.config.min_lr_ratio,
+        )
         return scheduler
 
     def _get_save_dir(self) -> Path:
-        """Get save directory with auto-incrementing exp names."""
+        """
+        Get save directory with auto-incrementing exp names.
+
+        Returns:
+            Path to save directory (e.g., runs/train/exp, runs/train/exp2, ...)
+        """
         project = Path(self.config.project)
         name = self.config.name
 
         if self.config.exist_ok:
+            # Overwrite existing directory
             save_dir = project / name
         else:
+            # Auto-increment: exp, exp2, exp3, ...
             save_dir = project / name
             if save_dir.exists():
+                # Find next available number
                 i = 2
                 while (project / f"{name}{i}").exists():
                     i += 1
@@ -264,18 +178,19 @@ class V9Trainer:
         return save_dir
 
     def _setup_data(self):
-        """Setup training data loader."""
+        """Setup training and validation data loaders."""
         img_size = self.config.input_size
 
-        # Create preprocessing transform (v9 format: normalized xyxy)
-        preproc = V9TrainTransform(
-            max_labels=100,
+        # Create preprocessing transform
+        preproc = TrainTransform(
+            max_labels=50,
             flip_prob=self.config.flip_prob,
             hsv_prob=self.config.hsv_prob,
         )
 
-        # Load data config
+        # Determine dataset type and create datasets
         if self.config.data:
+            # Load from data.yaml
             data_cfg = load_data_config(self.config.data)
             data_dir = data_cfg['root']
             self.num_classes = data_cfg.get('nc', self.config.num_classes)
@@ -291,14 +206,11 @@ class V9Trainer:
                     preproc=preproc,
                 )
             else:
-                # YOLO format
+                # YOLO format - construct paths from data.yaml
                 train_path = data_cfg.get('train', 'images/train')
-                # Handle both absolute and relative paths
-                train_path = Path(train_path)
-                if train_path.is_absolute():
-                    train_img_dir = train_path
-                else:
-                    train_img_dir = Path(data_dir) / train_path
+
+                # Full path to training images
+                train_img_dir = Path(data_dir) / train_path
 
                 # Collect image files
                 img_files = []
@@ -310,12 +222,14 @@ class V9Trainer:
                 if len(img_files) == 0:
                     raise FileNotFoundError(f"No images found in {train_img_dir}")
 
-                # Infer label paths
+                # Infer label paths (replace 'images' with 'labels', change extension to .txt)
                 label_files = []
                 for img_file in img_files:
+                    # Replace /images/ with /labels/ and .jpg with .txt
                     label_file = Path(str(img_file).replace('/images/', '/labels/').rsplit('.', 1)[0] + '.txt')
                     label_files.append(label_file)
 
+                # Create dataset using file list mode
                 train_dataset = YOLODataset(
                     img_files=img_files,
                     label_files=label_files,
@@ -323,6 +237,7 @@ class V9Trainer:
                     preproc=preproc,
                 )
         elif self.config.data_dir:
+            # Direct path to dataset
             data_dir = self.config.data_dir
             self.num_classes = self.config.num_classes
 
@@ -344,8 +259,8 @@ class V9Trainer:
         else:
             raise ValueError("Either 'data' or 'data_dir' must be specified in config")
 
-        # Wrap with mosaic/mixup augmentation (v9 version)
-        train_dataset = V9MosaicMixupDataset(
+        # Wrap with mosaic/mixup augmentation
+        train_dataset = MosaicMixupDataset(
             dataset=train_dataset,
             img_size=img_size,
             mosaic=True,
@@ -355,7 +270,7 @@ class V9Trainer:
             mosaic_scale=self.config.mosaic_scale,
             mixup_scale=self.config.mixup_scale,
             shear=self.config.shear,
-            enable_mixup=self.config.mixup_prob > 0,
+            enable_mixup=True,
             mosaic_prob=self.config.mosaic_prob,
             mixup_prob=self.config.mixup_prob,
         )
@@ -381,6 +296,10 @@ class V9Trainer:
         # Move model to device
         self.model.to(self.device)
 
+        # Initialize head biases for better convergence
+        if hasattr(self.model, 'head') and hasattr(self.model.head, 'initialize_biases'):
+            self.model.head.initialize_biases(0.01)
+
         # Setup data
         train_dataset = self._setup_data()
 
@@ -390,7 +309,7 @@ class V9Trainer:
         # Setup scheduler
         self.lr_scheduler = self._setup_scheduler(len(self.train_loader))
 
-        # Setup AMP scaler (CUDA only)
+        # Setup AMP scaler
         if self.config.amp and self.device.type == "cuda":
             self.scaler = GradScaler()
             logger.info("Using mixed precision training (AMP)")
@@ -402,11 +321,11 @@ class V9Trainer:
             self.ema_model = ModelEMA(self.model, decay=self.config.ema_decay)
             logger.info(f"Using EMA with decay={self.config.ema_decay}")
 
-        # Setup save directory
+        # Setup save directory with auto-incrementing names
         self.save_dir = self._get_save_dir()
 
         # Save config
-        self.config.to_yaml(self.save_dir / "train_config.yaml")
+        self.config.to_yaml(self.save_dir / "train_config.yaml")  # Renamed to match spec
 
         # Setup TensorBoard
         try:
@@ -414,8 +333,10 @@ class V9Trainer:
             self.tensorboard_writer = SummaryWriter(self.save_dir / "tensorboard")
             logger.info(f"TensorBoard logging to {self.save_dir / 'tensorboard'}")
         except Exception as e:
+            # Handle ImportError, protobuf compatibility issues, or any other TensorBoard errors
             self.tensorboard_writer = None
             logger.warning(f"TensorBoard not available (skipping): {type(e).__name__}")
+            logger.info("Training will continue without TensorBoard logging")
 
         logger.info(f"Saving to: {self.save_dir}")
 
@@ -429,7 +350,7 @@ class V9Trainer:
         self.setup()
 
         logger.info(f"Starting training for {self.config.epochs} epochs")
-        logger.info(f"Model: YOLOv9-{self.config.size}")
+        logger.info(f"Model: YOLOX-{self.config.size}")
         logger.info(f"Batch size: {self.config.batch}")
         logger.info(f"Learning rate: {self.config.effective_lr}")
 
@@ -441,13 +362,13 @@ class V9Trainer:
             # Disable mosaic in final epochs
             if epoch == self.config.epochs - self.config.no_aug_epochs:
                 logger.info(f"Disabling mosaic/mixup for final {self.config.no_aug_epochs} epochs")
-                if hasattr(self.train_loader.dataset, 'close_mosaic'):
-                    self.train_loader.dataset.close_mosaic()
+                self.train_loader.dataset.close_mosaic()
+                self.model.head.use_l1 = True
 
             # Train one epoch
             epoch_loss, val_metrics = self._train_epoch(epoch)
 
-            # Track final loss
+            # Track final loss (for return value)
             self.final_loss = epoch_loss
 
             # Save checkpoint
@@ -469,7 +390,7 @@ class V9Trainer:
         if self.tensorboard_writer:
             self.tensorboard_writer.close()
 
-        # Return results
+        # Return results matching API spec format
         weights_dir = self.save_dir / "weights"
         return {
             'final_loss': self.final_loss,
@@ -482,28 +403,37 @@ class V9Trainer:
         }
 
     def _validate_epoch(self, epoch: int) -> Optional[Dict[str, float]]:
-        """Run validation and return metrics."""
+        """
+        Run validation and return metrics.
+
+        Returns:
+            dict with keys: mAP50, mAP50_95, or None if validation failed
+        """
         try:
             from libreyolo.validation import DetectionValidator, ValidationConfig
 
             logger.info(f"Running validation for epoch {epoch + 1}")
 
+            # Create validation config
             val_config = ValidationConfig(
                 data=self.config.data,
                 batch_size=self.config.batch,
-                imgsz=self.config.imgsz,
+                imgsz=self.config.imgsz,  # Fixed: was img_size, should be imgsz
                 conf_thres=0.001,
                 iou_thres=0.65,
                 device=str(self.device),
                 half=self.config.amp and self.device.type == "cuda",
-                verbose=False,
+                verbose=False,  # Reduce validation output during training
             )
 
+            # For validation, we need the wrapper model, not the raw PyTorch model
+            # The wrapper model has methods like _get_val_preprocessor() that validator needs
             if self.wrapper_model is None:
                 logger.error("Validation requires wrapper_model to be provided to trainer")
                 return None
 
-            # Use EMA model if available
+            # Create a temporary wrapper with EMA model if available
+            # We'll use the wrapper's methods but swap out the underlying model
             eval_pytorch_model = self.ema_model.ema if self.ema_model else self.model
 
             # Temporarily swap the model for validation
@@ -511,19 +441,30 @@ class V9Trainer:
             self.wrapper_model.model = eval_pytorch_model
 
             try:
+                # Create validator with the wrapper model
                 validator = DetectionValidator(
                     model=self.wrapper_model,
                     config=val_config,
                 )
+
+                # Run validation (MUST be inside try block so model swap is active)
                 results = validator.run()
             finally:
+                # Restore original model
                 self.wrapper_model.model = original_model
 
+            # Debug: print what we got back
+            logger.debug(f"Validation results keys: {list(results.keys())}")
+
+            # Extract metrics - results has keys like 'metrics/mAP50' and 'metrics/mAP50-95'
             metrics = {
                 'mAP50': results.get('metrics/mAP50', 0.0),
                 'mAP50_95': results.get('metrics/mAP50-95', 0.0),
             }
 
+            logger.debug(f"Extracted metrics: mAP50={metrics['mAP50']:.4f}, mAP50_95={metrics['mAP50_95']:.4f}")
+
+            # Log to user (using print since logger may not show)
             print(f"Validation - mAP50: {metrics['mAP50']:.4f}, mAP50-95: {metrics['mAP50_95']:.4f}")
 
             return metrics
@@ -535,7 +476,12 @@ class V9Trainer:
             return None
 
     def _train_epoch(self, epoch: int) -> Tuple[float, Optional[Dict[str, float]]]:
-        """Train for one epoch and optionally validate."""
+        """
+        Train for one epoch and optionally validate.
+
+        Returns:
+            Tuple of (average_loss, validation_metrics)
+        """
         self.model.train()
 
         pbar = tqdm(
@@ -554,10 +500,10 @@ class V9Trainer:
             imgs = imgs.to(self.device, non_blocking=True)
             targets = targets.to(self.device, non_blocking=True)
 
-            # Forward pass with loss computation
+            # Forward pass
             if self.scaler is not None:
                 with autocast():
-                    outputs = self.model(imgs, targets=targets)
+                    outputs = self.model(imgs, targets)
                     loss = outputs["total_loss"]
 
                 # Backward pass
@@ -566,34 +512,26 @@ class V9Trainer:
                 self.scaler.step(self.optimizer)
                 self.scaler.update()
             else:
-                outputs = self.model(imgs, targets=targets)
+                outputs = self.model(imgs, targets)
                 loss = outputs["total_loss"]
 
                 self.optimizer.zero_grad()
                 loss.backward()
                 self.optimizer.step()
 
-            # Extract loss dict for logging
-            loss_dict = outputs
-
             # Update EMA
             if self.ema_model is not None:
                 self.ema_model.update(self.model)
 
-            # Track metrics
+            # Track metrics and save values for logging before deleting
             loss_val = loss.item()
-            box_loss_val = loss_dict.get('box', 0)
-            if isinstance(box_loss_val, torch.Tensor):
-                box_loss_val = box_loss_val.item()
-            cls_loss_val = loss_dict.get('cls', 0)
-            if isinstance(cls_loss_val, torch.Tensor):
-                cls_loss_val = cls_loss_val.item()
-            dfl_loss_val = loss_dict.get('dfl', 0)
-            if isinstance(dfl_loss_val, torch.Tensor):
-                dfl_loss_val = dfl_loss_val.item()
+            iou_loss_val = outputs.get('iou_loss', 0)
+            obj_loss_val = outputs.get('obj_loss', 0)
+            cls_loss_val = outputs.get('cls_loss', 0)
+            l1_loss_val = outputs.get('l1_loss', 0)
             total_loss += loss_val
 
-            # Free memory
+            # Free memory (don't call empty_cache every iteration - it's slow)
             del outputs, loss
 
             # Update learning rate
@@ -606,18 +544,20 @@ class V9Trainer:
             pbar.set_postfix({
                 "loss": f"{loss_val:.4f}",
                 "lr": f"{lr:.6f}",
-                "box": f"{box_loss_val:.4f}",
+                "iou": f"{iou_loss_val:.4f}",
+                "obj": f"{obj_loss_val:.4f}",
                 "cls": f"{cls_loss_val:.4f}",
-                "dfl": f"{dfl_loss_val:.4f}",
             })
 
-            # Log to TensorBoard
+            # Log to TensorBoard (use saved values, not deleted variables)
             if self.tensorboard_writer and batch_idx % self.config.log_interval == 0:
                 self.tensorboard_writer.add_scalar("train/loss", loss_val, self.current_iter)
                 self.tensorboard_writer.add_scalar("train/lr", lr, self.current_iter)
-                self.tensorboard_writer.add_scalar("train/box_loss", box_loss_val, self.current_iter)
+                self.tensorboard_writer.add_scalar("train/iou_loss", iou_loss_val, self.current_iter)
+                self.tensorboard_writer.add_scalar("train/obj_loss", obj_loss_val, self.current_iter)
                 self.tensorboard_writer.add_scalar("train/cls_loss", cls_loss_val, self.current_iter)
-                self.tensorboard_writer.add_scalar("train/dfl_loss", dfl_loss_val, self.current_iter)
+                if l1_loss_val:
+                    self.tensorboard_writer.add_scalar("train/l1_loss", l1_loss_val, self.current_iter)
 
         avg_loss = total_loss / num_batches
         logger.info(f"Epoch {epoch + 1} - Average loss: {avg_loss:.4f}")
@@ -631,6 +571,7 @@ class V9Trainer:
         if self.config.eval_interval > 0 and (epoch + 1) % self.config.eval_interval == 0:
             val_metrics = self._validate_epoch(epoch)
 
+            # Log validation metrics to TensorBoard
             if val_metrics and self.tensorboard_writer:
                 self.tensorboard_writer.add_scalar("val/mAP50", val_metrics['mAP50'], epoch)
                 self.tensorboard_writer.add_scalar("val/mAP50_95", val_metrics['mAP50_95'], epoch)
@@ -638,7 +579,14 @@ class V9Trainer:
         return avg_loss, val_metrics
 
     def _save_checkpoint(self, epoch: int, loss: float, val_metrics: Optional[Dict[str, float]] = None):
-        """Save training checkpoint."""
+        """
+        Save training checkpoint.
+
+        Args:
+            epoch: Current epoch number
+            loss: Training loss for this epoch
+            val_metrics: Validation metrics dict with mAP50, mAP50_95 (optional)
+        """
         # Determine which model to save (EMA if available)
         if self.ema_model is not None:
             model_to_save = self.ema_model.ema
@@ -658,7 +606,7 @@ class V9Trainer:
             # Model metadata for loading fine-tuned models in new sessions
             "nc": self.config.num_classes,
             "size": self.config.size,
-            "model_family": "v9",
+            "model_family": "yolox",
         }
         if self.wrapper_model is not None:
             checkpoint["names"] = self.wrapper_model.names
@@ -667,7 +615,7 @@ class V9Trainer:
         if self.ema_model is not None:
             checkpoint["ema_updates"] = self.ema_model.updates
 
-        # Create weights directory
+        # Create weights directory if it doesn't exist
         weights_dir = self.save_dir / "weights"
         weights_dir.mkdir(exist_ok=True)
 
@@ -675,12 +623,13 @@ class V9Trainer:
         latest_path = weights_dir / "last.pt"
         torch.save(checkpoint, latest_path)
 
-        # Save best checkpoint based on mAP
+        # Save best checkpoint based on mAP (if validation metrics available)
+        logger.debug(f"_save_checkpoint: val_metrics={val_metrics}, best_mAP50_95={self.best_mAP50_95}")
         if val_metrics and val_metrics['mAP50_95'] > self.best_mAP50_95:
             self.best_mAP50_95 = val_metrics['mAP50_95']
             self.best_mAP50 = val_metrics['mAP50']
             self.best_epoch = epoch + 1
-            self.patience_counter = 0
+            self.patience_counter = 0  # Reset patience counter on improvement
 
             best_path = weights_dir / "best.pt"
             torch.save(checkpoint, best_path)
@@ -691,7 +640,7 @@ class V9Trainer:
         elif val_metrics:
             self.patience_counter += 1
 
-        # Save epoch checkpoint
+        # Save epoch checkpoint (every save_period epochs)
         if (epoch + 1) % self.config.save_period == 0:
             epoch_path = weights_dir / f"epoch_{epoch + 1}.pt"
             torch.save(checkpoint, epoch_path)
@@ -699,7 +648,16 @@ class V9Trainer:
         logger.info(f"Checkpoint saved: {latest_path}")
 
     def resume(self, checkpoint_path: str):
-        """Resume training from a checkpoint."""
+        """
+        Resume training from a checkpoint.
+
+        Args:
+            checkpoint_path: Path to checkpoint file (.pt)
+
+        Raises:
+            FileNotFoundError: If checkpoint file doesn't exist
+            RuntimeError: If checkpoint is incompatible
+        """
         if not Path(checkpoint_path).exists():
             raise FileNotFoundError(f"Resume checkpoint not found: {checkpoint_path}")
 
@@ -724,7 +682,7 @@ class V9Trainer:
             except Exception as e:
                 logger.warning(f"Could not load optimizer state: {e}")
 
-        # Load best metrics
+        # Load best metrics (following API spec tracking)
         if "best_mAP50_95" in checkpoint:
             self.best_mAP50_95 = checkpoint["best_mAP50_95"]
             self.best_mAP50 = checkpoint.get("best_mAP50", 0.0)
@@ -733,6 +691,12 @@ class V9Trainer:
                 f"Restored best metrics: mAP50={self.best_mAP50:.4f}, "
                 f"mAP50-95={self.best_mAP50_95:.4f} (epoch {self.best_epoch})"
             )
+        elif "loss" in checkpoint:
+            # Legacy checkpoint with loss tracking
+            logger.warning("Old checkpoint format detected (loss-based). Converting to mAP tracking.")
+            self.best_mAP50_95 = 0.0
+            self.best_mAP50 = 0.0
+            self.best_epoch = 0
 
         # Load EMA state if available
         if self.ema_model and "ema_updates" in checkpoint:

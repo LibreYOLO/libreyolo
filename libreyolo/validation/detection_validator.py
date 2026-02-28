@@ -95,7 +95,7 @@ class DetectionValidator(BaseValidator):
             DataLoader for validation data.
         """
         from libreyolo.data import load_data_config, get_img_files, img2label_paths
-        from libreyolo.training.dataset import (
+        from libreyolo.data.dataset import (
             YOLODataset,
             COCODataset,
         )
