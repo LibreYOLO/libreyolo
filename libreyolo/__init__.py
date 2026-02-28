@@ -22,7 +22,7 @@ def __getattr__(name):
 from .export import Exporter
 from .common.onnx import LIBREYOLOOnnx
 from .common.openvino import LIBREYOLOOpenVINO
-from .common.results import Results, Boxes
+from .utils.results import Results, Boxes
 # CAM/GradCAM removed
 from .validation import (
     ValidationConfig,

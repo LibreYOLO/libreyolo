@@ -12,8 +12,8 @@ import torch.nn as nn
 from PIL import Image
 
 from ..common.base_model import LibreYOLOBase
-from ..common.image_loader import ImageInput
-from ..common.utils import preprocess_image
+from ..utils.image_loader import ImageInput
+from ..utils.general import preprocess_image
 from .nn import LibreYOLO9Model, DDetect, V9_CONFIGS
 from .utils import postprocess
 

@@ -8,7 +8,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from libreyolo.common.utils import make_anchors
+from libreyolo.utils.general import make_anchors
 
 
 # =============================================================================

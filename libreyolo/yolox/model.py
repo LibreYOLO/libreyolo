@@ -12,7 +12,7 @@ import torch.nn as nn
 from PIL import Image
 
 from ..common.base_model import LibreYOLOBase
-from ..common.image_loader import ImageInput
+from ..utils.image_loader import ImageInput
 from .nn import YOLOXModel
 from .utils import preprocess_image as _yolox_preprocess, postprocess
 

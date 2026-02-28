@@ -11,8 +11,9 @@ import numpy as np
 from typing import Tuple, List
 from PIL import Image
 
-from ..common.image_loader import ImageLoader, ImageInput
-from ..common.utils import draw_boxes, COCO_CLASSES, get_class_color, nms
+from ..utils.image_loader import ImageLoader, ImageInput
+from ..utils.general import COCO_CLASSES, nms
+from ..utils.drawing import draw_boxes, get_class_color
 
 
 def preprocess_image(

@@ -8,10 +8,10 @@ import torch
 from typing import Tuple, Dict, List
 
 # Import shared utilities
-from ..common.utils import (
-    preprocess_image, draw_boxes, COCO_CLASSES, get_class_color,
-    nms, make_anchors, postprocess_detections
+from ..utils.general import (
+    COCO_CLASSES, make_anchors, nms, postprocess_detections, preprocess_image,
 )
+from ..utils.drawing import draw_boxes, get_class_color
 
 
 def postprocess(

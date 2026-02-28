@@ -14,7 +14,7 @@ import torchvision.transforms.functional as F
 from PIL import Image
 
 from ..common.base_model import LibreYOLOBase
-from ..common.image_loader import ImageInput, ImageLoader
+from ..utils.image_loader import ImageInput, ImageLoader
 from .nn import RFDETRModel, RFDETR_CONFIGS
 from .utils import postprocess
 from .train import train_rfdetr, RFDETR_TRAINERS
