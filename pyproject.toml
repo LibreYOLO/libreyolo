@@ -38,10 +38,7 @@ rfdetr = [
     "rfdetr==1.4.1",
 ]
 tensorrt = [
-    # TensorRT requires manual installation as it depends on CUDA version
-    # Install with: pip install tensorrt (requires NVIDIA GPU + CUDA)
-    # For INT8 calibration, also install pycuda:
-    # pip install pycuda
+    "tensorrt",
     "pycuda>=2022.1",
 ]
 openvino = [
