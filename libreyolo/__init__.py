@@ -3,20 +3,14 @@ Libre YOLO - An open source YOLO library with MIT license.
 """
 from importlib.metadata import version, PackageNotFoundError
 
-from .v9.model import LIBREYOLO9
-from .yolox.model import LIBREYOLOX
-from .factory import LIBREYOLO, create_model
+from .models import LIBREYOLO, LIBREYOLOX, LIBREYOLO9
 
 # Lazy import for RF-DETR to avoid dependency issues
 def __getattr__(name):
     if name == "LIBREYOLORFDETR":
-        import importlib.util
-        if importlib.util.find_spec("rfdetr") is None:
-            raise ModuleNotFoundError(
-                "RF-DETR support requires extra dependencies.\n"
-                "Install with: pip install libreyolo[rfdetr]"
-            )
-        from .rfdetr.model import LIBREYOLORFDETR
+        from .models import _ensure_rfdetr
+        _ensure_rfdetr()
+        from .models.rfdetr.model import LIBREYOLORFDETR
         return LIBREYOLORFDETR
     raise AttributeError(f"module '{__name__}' has no attribute '{name}'")
 from .export import Exporter
@@ -54,7 +48,6 @@ __all__ = [
     "LIBREYOLORFDETR",
     "LIBREYOLOOnnx",
     "LIBREYOLOOpenVINO",
-    "create_model",
     # Results
     "Results",
     "Boxes",

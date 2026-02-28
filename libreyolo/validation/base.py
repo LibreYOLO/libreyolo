@@ -18,7 +18,7 @@ from tqdm import tqdm
 from .config import ValidationConfig
 
 if TYPE_CHECKING:
-    from libreyolo.common.base_model import LibreYOLOBase
+    from libreyolo.models.base import LibreYOLOBase
 
 
 class BaseValidator(ABC):

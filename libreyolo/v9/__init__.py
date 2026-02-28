@@ -1,21 +1,10 @@
-"""
-YOLOv9 module for LibreYOLO.
-
-This module provides YOLOv9 model implementations with support for
-t (tiny), s (small), m (medium), and c (compact/largest) variants.
-
-Now includes training support with:
-- V9Trainer: Training loop with v9-specific features
-- V9TrainConfig: Configuration dataclass for training
-- YOLOv9Loss: Task-aligned loss function
-"""
-
-from .model import LIBREYOLO9
-from .nn import LibreYOLO9Model
-from .config import V9TrainConfig
-from .trainer import V9Trainer
-from .loss import YOLOv9Loss, BoxMatcher, Vec2Box
-from .transforms import V9TrainTransform, V9MosaicMixupDataset
+"""Re-export shim — real code lives in libreyolo.models.v9."""
+from ..models.v9.model import LIBREYOLO9
+from ..models.v9.nn import LibreYOLO9Model
+from ..models.v9.config import V9TrainConfig
+from ..models.v9.trainer import V9Trainer
+from ..models.v9.loss import YOLOv9Loss, BoxMatcher, Vec2Box
+from ..models.v9.transforms import V9TrainTransform, V9MosaicMixupDataset
 
 __all__ = [
     "LIBREYOLO9",

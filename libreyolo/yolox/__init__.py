@@ -1,8 +1,5 @@
-"""
-YOLOX implementation for LibreYOLO.
-"""
-
-from .model import LIBREYOLOX
-from .nn import YOLOXModel
+"""Re-export shim — real code lives in libreyolo.models.yolox."""
+from ..models.yolox.model import LIBREYOLOX
+from ..models.yolox.nn import YOLOXModel
 
 __all__ = ["LIBREYOLOX", "YOLOXModel"]

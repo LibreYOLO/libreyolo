@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from libreyolo.factory import _resolve_weights_path
+from libreyolo.models import _resolve_weights_path
 
 pytestmark = pytest.mark.unit
 
