@@ -161,26 +161,26 @@ RFDETR_SIZES = ["n", "s", "m", "l"]
 
 # Model weight file patterns
 YOLOX_WEIGHTS = {
-    "nano": "libreyoloXnano.pt",
-    "tiny": "libreyoloXtiny.pt",
-    "s": "libreyoloXs.pt",
-    "m": "libreyoloXm.pt",
-    "l": "libreyoloXl.pt",
-    "x": "libreyoloXx.pt",
+    "nano": "LibreYOLOXn.pt",
+    "tiny": "LibreYOLOXt.pt",
+    "s": "LibreYOLOXs.pt",
+    "m": "LibreYOLOXm.pt",
+    "l": "LibreYOLOXl.pt",
+    "x": "LibreYOLOXx.pt",
 }
 
 YOLOV9_WEIGHTS = {
-    "t": "libreyolo9t.pt",
-    "s": "libreyolo9s.pt",
-    "m": "libreyolo9m.pt",
-    "c": "libreyolo9c.pt",
+    "t": "LibreYOLO9t.pt",
+    "s": "LibreYOLO9s.pt",
+    "m": "LibreYOLO9m.pt",
+    "c": "LibreYOLO9c.pt",
 }
 
 RFDETR_WEIGHTS = {
-    "n": "librerfdetrnano.pth",
-    "s": "librerfdetrsmall.pth",
-    "m": "librerfdetrmedium.pth",
-    "l": "librerfdetrlarge.pth",
+    "n": "LibreRFDETRn.pth",
+    "s": "LibreRFDETRs.pth",
+    "m": "LibreRFDETRm.pth",
+    "l": "LibreRFDETRl.pth",
 }
 
 # Quick test set (for CI - smallest models only)

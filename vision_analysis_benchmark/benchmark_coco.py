@@ -30,21 +30,31 @@ from libreyolo import LIBREYOLO
 
 LIBREYOLO_MODELS = {
     'rfdetr': {
-        'variants': ['nano', 'small', 'base', 'medium', 'large'],
-        'weights_pattern': 'librerfdetr{variant}.pth',
+        'variants': ['n', 's', 'm', 'l'],
+        'weights_pattern': 'LibreRFDETR{variant}.pth',
         'input_size': 560,
     },
     'yolov9': {
         'variants': ['t', 's', 'm', 'c'],
-        'weights_pattern': 'libreyolo9{variant}.pt',
+        'weights_pattern': 'LibreYOLO9{variant}.pt',
         'input_size': 640,
     },
     'yolox': {
-        'variants': ['nano', 'tiny', 's', 'm', 'l', 'x'],
-        'weights_pattern': 'libreyoloX{variant}.pt',
+        'variants': ['n', 't', 's', 'm', 'l', 'x'],
+        'weights_pattern': 'LibreYOLOX{variant}.pt',
         'input_size': 640,
     },
 }
+
+# YOLOX constructor expects full size names for nano/tiny
+_YOLOX_VARIANT_TO_SIZE = {"n": "nano", "t": "tiny", "s": "s", "m": "m", "l": "l", "x": "x"}
+
+
+def _variant_to_size(family: str, variant: str) -> str:
+    """Map benchmark variant letter to model constructor size string."""
+    if family == "yolox":
+        return _YOLOX_VARIANT_TO_SIZE.get(variant, variant)
+    return variant
 
 
 # ============================================================================
@@ -390,7 +400,7 @@ def main():
                     model_name = f"{family}{variant}"
                     if model_spec == model_name:
                         weights = info['weights_pattern'].format(variant=variant)
-                        constructor_size = variant[0] if family == 'rfdetr' else variant
+                        constructor_size = _variant_to_size(family, variant)
                         models_to_benchmark.append((model_name, weights, constructor_size, variant))
                         break
     else:
@@ -400,7 +410,7 @@ def main():
             for variant in info['variants']:
                 model_name = f"{family}{variant}"
                 weights = info['weights_pattern'].format(variant=variant)
-                constructor_size = variant[0] if family == 'rfdetr' else variant
+                constructor_size = _variant_to_size(family, variant)
                 models_to_benchmark.append((model_name, weights, constructor_size, variant))
 
     print(f"Will benchmark {len(models_to_benchmark)} models")

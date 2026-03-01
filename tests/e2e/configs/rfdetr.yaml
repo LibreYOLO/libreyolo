@@ -3,11 +3,10 @@ model_type: rfdetr
 
 # Size-specific defaults
 sizes:
-  nano: {imgsz: 560, lr0: 0.001, weights: librerfdetrnano.pth}
-  small: {imgsz: 560, lr0: 0.001, weights: librerfdetrsmall.pth}
-  base: {imgsz: 560, lr0: 0.001, weights: librerfdetrbase.pth}
-  medium: {imgsz: 560, lr0: 0.001, weights: librerfdetrmedium.pth}
-  large: {imgsz: 560, lr0: 0.001, weights: librerfdetrlarge.pth}
+  n: {imgsz: 560, lr0: 0.001, weights: LibreRFDETRn.pth}
+  s: {imgsz: 560, lr0: 0.001, weights: LibreRFDETRs.pth}
+  m: {imgsz: 560, lr0: 0.001, weights: LibreRFDETRm.pth}
+  l: {imgsz: 560, lr0: 0.001, weights: LibreRFDETRl.pth}
 
 # Training
 epochs: 100

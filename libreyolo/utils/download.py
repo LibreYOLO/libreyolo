@@ -14,7 +14,7 @@ def _detect_family_from_filename(filename: str) -> Optional[str]:
         return "rfdetr"
     if re.search(r"libreyolox", fl):
         return "yolox"
-    if re.search(r"libreyolo9|yolov?9", fl):
+    if re.search(r"libreyolo9", fl):
         return "yolo9"
     return None
 
@@ -26,27 +26,29 @@ def download_weights(model_path: str, size: str):
         return
 
     filename = path.name
+    fl = filename.lower()
 
-    # RF-DETR
-    if re.search(r"librerfdetr(nano|small|medium|large)", filename.lower()):
-        m = re.search(r"librerfdetr(nano|small|medium|large)", filename.lower())
-        rfdetr_size = m.group(1)
-        repo = f"Libre-YOLO/librerfdetr{rfdetr_size}"
-        if rfdetr_size == "large":
-            actual_filename = "rf-detr-large-2026.pth"
-        else:
-            actual_filename = f"rf-detr-{rfdetr_size}.pth"
+    # RF-DETR: LibreRFDETR(n|s|m|l).pth
+    m = re.search(r"librerfdetr([nsml])\.pth", fl)
+    if m:
+        letter = m.group(1)
+        repo = f"Libre-YOLO/LibreRFDETR{letter}"
+        actual_filename = f"LibreRFDETR{letter}.pth"
         url = f"https://huggingface.co/{repo}/resolve/main/{actual_filename}"
-    # YOLOX
-    elif re.search(r"libreyolox(nano|tiny|s|m|l|x)", filename.lower()):
-        yolox_match = re.search(r"libreyolox(nano|tiny|s|m|l|x)", filename.lower())
-        yolox_size = yolox_match.group(1)
-        repo = f"Libre-YOLO/libreyoloX{yolox_size}"
-        url = f"https://huggingface.co/{repo}/resolve/main/{filename}"
-    # YOLOv9
-    elif re.search(r"libreyolo9|yolov?9", filename.lower()):
-        repo = f"Libre-YOLO/libreyolo9{size}"
-        url = f"https://huggingface.co/{repo}/resolve/main/{filename}"
+    # YOLOX: LibreYOLOX(n|t|s|m|l|x).pt
+    elif re.search(r"libreyolox([ntslmx])\.pt", fl):
+        yolox_m = re.search(r"libreyolox([ntslmx])\.pt", fl)
+        letter = yolox_m.group(1)
+        repo = f"Libre-YOLO/LibreYOLOX{letter}"
+        actual_filename = f"LibreYOLOX{letter}.pt"
+        url = f"https://huggingface.co/{repo}/resolve/main/{actual_filename}"
+    # YOLOv9: LibreYOLO9(t|s|m|c).pt
+    elif re.search(r"libreyolo9([tsmc])\.pt", fl):
+        v9_m = re.search(r"libreyolo9([tsmc])\.pt", fl)
+        letter = v9_m.group(1)
+        repo = f"Libre-YOLO/LibreYOLO9{letter}"
+        actual_filename = f"LibreYOLO9{letter}.pt"
+        url = f"https://huggingface.co/{repo}/resolve/main/{actual_filename}"
     else:
         raise ValueError(
             f"Could not determine model version from filename '{filename}' for auto-download."

@@ -21,22 +21,22 @@ MIN_MAP = 0.18  # Uniform threshold for all models
 # (weights, size)
 MODELS = [
     # YOLOX
-    ("libreyoloXnano.pt",    "nano"),
-    ("libreyoloXtiny.pt",    "tiny"),
-    ("libreyoloXs.pt",       "s"),
-    ("libreyoloXm.pt",       "m"),
-    ("libreyoloXl.pt",       "l"),
-    ("libreyoloXx.pt",       "x"),
+    ("LibreYOLOXn.pt",    "nano"),
+    ("LibreYOLOXt.pt",    "tiny"),
+    ("LibreYOLOXs.pt",    "s"),
+    ("LibreYOLOXm.pt",    "m"),
+    ("LibreYOLOXl.pt",    "l"),
+    ("LibreYOLOXx.pt",    "x"),
     # YOLOv9
-    ("libreyolo9t.pt",       "t"),
-    ("libreyolo9s.pt",       "s"),
-    ("libreyolo9m.pt",       "m"),
-    ("libreyolo9c.pt",       "c"),
+    ("LibreYOLO9t.pt",    "t"),
+    ("LibreYOLO9s.pt",    "s"),
+    ("LibreYOLO9m.pt",    "m"),
+    ("LibreYOLO9c.pt",    "c"),
     # RF-DETR
-    ("librerfdetrnano.pth",  "n"),
-    ("librerfdetrsmall.pth", "s"),
-    ("librerfdetrmedium.pth","m"),
-    ("librerfdetrlarge.pth", "l"),
+    ("LibreRFDETRn.pth",  "n"),
+    ("LibreRFDETRs.pth",  "s"),
+    ("LibreRFDETRm.pth",  "m"),
+    ("LibreRFDETRl.pth",  "l"),
 ]
 
 IDS = [

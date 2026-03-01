@@ -129,12 +129,9 @@ class LibreYOLORFDETR(BaseModel):
 
     @classmethod
     def detect_size_from_filename(cls, filename: str) -> Optional[str]:
-        """Extract size from filename pattern like librerfdetrnano.pth."""
-        m = re.search(r'librerfdetr(nano|small|medium|large)', filename.lower())
-        if m:
-            size_map = {'nano': 'n', 'small': 's', 'medium': 'm', 'large': 'l'}
-            return size_map[m.group(1)]
-        return None
+        """Extract size from filename pattern like LibreRFDETRn.pth."""
+        m = re.search(r'librerfdetr([nsml])\.pth', filename.lower())
+        return m.group(1) if m else None
 
     # =========================================================================
 

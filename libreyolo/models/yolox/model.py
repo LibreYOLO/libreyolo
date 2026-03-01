@@ -36,7 +36,7 @@ class LibreYOLOX(BaseModel):
         Load weights for inference (prefer LibreYOLO factory for auto-detection)::
 
             >>> from libreyolo import LibreYOLO
-            >>> model = LibreYOLO("libreyoloXs.pt")
+            >>> model = LibreYOLO("LibreYOLOXs.pt")
             >>> detections = model(image="image.jpg", save=True)
 
         Create a fresh model for training (nb_classes read from YAML)::
@@ -73,9 +73,12 @@ class LibreYOLOX(BaseModel):
 
     @classmethod
     def detect_size_from_filename(cls, filename: str) -> Optional[str]:
-        """Extract size from filename pattern like libreyoloXs.pt."""
-        m = re.search(r'libreyolox(nano|tiny|s|m|l|x)', filename.lower())
-        return m.group(1) if m else None
+        """Extract size from filename pattern like LibreYOLOXs.pt."""
+        m = re.search(r'libreyolox([ntsmxl])\.pt', filename.lower())
+        if m:
+            letter = m.group(1)
+            return {"n": "nano", "t": "tiny"}.get(letter, letter)
+        return None
 
     # =========================================================================
 

@@ -86,8 +86,8 @@ class LibreYOLO9(BaseModel):
 
     @classmethod
     def detect_size_from_filename(cls, filename: str) -> Optional[str]:
-        """Extract size from filename pattern like libreyolo9c.pt."""
-        m = re.search(r'(?:libreyolo|yolov?)9([tsmc])', filename.lower())
+        """Extract size from filename pattern like LibreYOLO9t.pt."""
+        m = re.search(r'libreyolo9([tsmc])\.pt', filename.lower())
         return m.group(1) if m else None
 
     # =========================================================================

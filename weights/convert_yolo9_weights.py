@@ -2,10 +2,10 @@
 Convert YOLOv9 weights from official YOLO repo format to LibreYOLO format.
 
 Usage:
-    python weights/convert_yolo9_weights.py weights/v9-t.pt weights/libreyolo9t.pt --config t
-    python weights/convert_yolo9_weights.py weights/v9-s.pt weights/libreyolo9s.pt --config s
-    python weights/convert_yolo9_weights.py weights/v9-m.pt weights/libreyolo9m.pt --config m
-    python weights/convert_yolo9_weights.py weights/v9-c.pt weights/libreyolo9c.pt --config c
+    python weights/convert_yolo9_weights.py weights/v9-t.pt weights/LibreYOLO9t.pt --config t
+    python weights/convert_yolo9_weights.py weights/v9-s.pt weights/LibreYOLO9s.pt --config s
+    python weights/convert_yolo9_weights.py weights/v9-m.pt weights/LibreYOLO9m.pt --config m
+    python weights/convert_yolo9_weights.py weights/v9-c.pt weights/LibreYOLO9c.pt --config c
 
 The YOLO repo uses numbered layer indices (0., 1., 2., etc.) while LibreYOLO
 uses semantic naming (backbone.conv0, neck.elan_up1, etc.).

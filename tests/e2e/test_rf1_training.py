@@ -29,22 +29,22 @@ HF_REPO_URL = f"https://huggingface.co/datasets/{HF_REPO}"
 # (weights, size, family)
 MODELS = [
     # YOLOX
-    ("libreyoloXnano.pt",    "nano", "yolox"),
-    ("libreyoloXtiny.pt",    "tiny", "yolox"),
-    ("libreyoloXs.pt",       "s",    "yolox"),
-    ("libreyoloXm.pt",       "m",    "yolox"),
-    ("libreyoloXl.pt",       "l",    "yolox"),
-    ("libreyoloXx.pt",       "x",    "yolox"),
+    ("LibreYOLOXn.pt",    "nano", "yolox"),
+    ("LibreYOLOXt.pt",    "tiny", "yolox"),
+    ("LibreYOLOXs.pt",    "s",    "yolox"),
+    ("LibreYOLOXm.pt",    "m",    "yolox"),
+    ("LibreYOLOXl.pt",    "l",    "yolox"),
+    ("LibreYOLOXx.pt",    "x",    "yolox"),
     # YOLOv9
-    ("libreyolo9t.pt",       "t",    "yolo9"),
-    ("libreyolo9s.pt",       "s",    "yolo9"),
-    ("libreyolo9m.pt",       "m",    "yolo9"),
-    ("libreyolo9c.pt",       "c",    "yolo9"),
+    ("LibreYOLO9t.pt",    "t",    "yolo9"),
+    ("LibreYOLO9s.pt",    "s",    "yolo9"),
+    ("LibreYOLO9m.pt",    "m",    "yolo9"),
+    ("LibreYOLO9c.pt",    "c",    "yolo9"),
     # RF-DETR
-    ("librerfdetrnano.pth",  "n",    "rfdetr"),
-    ("librerfdetrsmall.pth", "s",    "rfdetr"),
-    ("librerfdetrmedium.pth","m",    "rfdetr"),
-    ("librerfdetrlarge.pth", "l",    "rfdetr"),
+    ("LibreRFDETRn.pth",  "n",    "rfdetr"),
+    ("LibreRFDETRs.pth",  "s",    "rfdetr"),
+    ("LibreRFDETRm.pth",  "m",    "rfdetr"),
+    ("LibreRFDETRl.pth",  "l",    "rfdetr"),
 ]
 
 IDS = [
@@ -249,16 +249,16 @@ def test_rf1_training(weights, size, family, dataset_coco, dataset_data_yaml,
 
 # YOLOX/V9: all models
 RELOAD_MODELS = [
-    ("libreyoloXnano.pt",    "nano", "yolox"),
-    ("libreyoloXtiny.pt",    "tiny", "yolox"),
-    ("libreyoloXs.pt",       "s",    "yolox"),
-    ("libreyoloXm.pt",       "m",    "yolox"),
-    ("libreyoloXl.pt",       "l",    "yolox"),
-    ("libreyoloXx.pt",       "x",    "yolox"),
-    ("libreyolo9t.pt",       "t",    "yolo9"),
-    ("libreyolo9s.pt",       "s",    "yolo9"),
-    ("libreyolo9m.pt",       "m",    "yolo9"),
-    ("libreyolo9c.pt",       "c",    "yolo9"),
+    ("LibreYOLOXn.pt",    "nano", "yolox"),
+    ("LibreYOLOXt.pt",    "tiny", "yolox"),
+    ("LibreYOLOXs.pt",    "s",    "yolox"),
+    ("LibreYOLOXm.pt",    "m",    "yolox"),
+    ("LibreYOLOXl.pt",    "l",    "yolox"),
+    ("LibreYOLOXx.pt",    "x",    "yolox"),
+    ("LibreYOLO9t.pt",    "t",    "yolo9"),
+    ("LibreYOLO9s.pt",    "s",    "yolo9"),
+    ("LibreYOLO9m.pt",    "m",    "yolo9"),
+    ("LibreYOLO9c.pt",    "c",    "yolo9"),
 ]
 RELOAD_IDS = [
     "yolox-nano", "yolox-tiny", "yolox-s", "yolox-m", "yolox-l", "yolox-x",
@@ -359,7 +359,7 @@ def test_load_finetuned_checkpoint(weights, size, family, dataset_coco,
 
 # RF-DETR: reload fine-tuned checkpoint
 RELOAD_RFDETR_MODELS = [
-    ("librerfdetrnano.pth", "n", "rfdetr"),
+    ("LibreRFDETRn.pth", "n", "rfdetr"),
 ]
 RELOAD_RFDETR_IDS = ["rfdetr-n"]
 

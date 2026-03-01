@@ -6,7 +6,7 @@ including mAP, precision, and recall.
 
 Example:
     >>> from libreyolo import LibreYOLO
-    >>> model = LibreYOLO("weights/libreyoloXs.pt")
+    >>> model = LibreYOLO("weights/LibreYOLOXs.pt")
     >>> results = model.val(data="coco8.yaml", batch=16)
     >>> print(f"mAP50-95: {results['metrics/mAP50-95']:.3f}")
 

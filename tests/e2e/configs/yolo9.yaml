@@ -3,10 +3,10 @@ model_type: v9
 
 # Size-specific defaults
 sizes:
-  t: {imgsz: 640, lr0: 0.005, weights: libreyolo9t.pt}
-  s: {imgsz: 640, lr0: 0.01, weights: libreyolo9s.pt}
-  m: {imgsz: 640, lr0: 0.01, weights: libreyolo9m.pt}
-  c: {imgsz: 640, lr0: 0.01, weights: libreyolo9c.pt}
+  t: {imgsz: 640, lr0: 0.005, weights: LibreYOLO9t.pt}
+  s: {imgsz: 640, lr0: 0.01, weights: LibreYOLO9s.pt}
+  m: {imgsz: 640, lr0: 0.01, weights: LibreYOLO9m.pt}
+  c: {imgsz: 640, lr0: 0.01, weights: LibreYOLO9c.pt}
 
 # Training
 epochs: 100

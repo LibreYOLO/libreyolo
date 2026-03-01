@@ -3,12 +3,12 @@ model_type: yolox
 
 # Size-specific defaults (can override via CLI)
 sizes:
-  nano: {imgsz: 416, lr0: 0.005, weights: libreyoloXnano.pt}
-  tiny: {imgsz: 416, lr0: 0.005, weights: libreyoloXtiny.pt}
-  s: {imgsz: 640, lr0: 0.01, weights: libreyoloXs.pt}
-  m: {imgsz: 640, lr0: 0.01, weights: libreyoloXm.pt}
-  l: {imgsz: 640, lr0: 0.01, weights: libreyoloXl.pt}
-  x: {imgsz: 640, lr0: 0.01, weights: libreyoloXx.pt}
+  nano: {imgsz: 416, lr0: 0.005, weights: LibreYOLOXn.pt}
+  tiny: {imgsz: 416, lr0: 0.005, weights: LibreYOLOXt.pt}
+  s: {imgsz: 640, lr0: 0.01, weights: LibreYOLOXs.pt}
+  m: {imgsz: 640, lr0: 0.01, weights: LibreYOLOXm.pt}
+  l: {imgsz: 640, lr0: 0.01, weights: LibreYOLOXl.pt}
+  x: {imgsz: 640, lr0: 0.01, weights: LibreYOLOXx.pt}
 
 # Training
 epochs: 100
