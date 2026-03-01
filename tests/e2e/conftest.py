@@ -61,7 +61,7 @@ def has_ncnn():
 def has_rfdetr_deps():
     """Check if RF-DETR dependencies are installed."""
     try:
-        from libreyolo.models.rfdetr.model import LIBREYOLORFDETR
+        from libreyolo.models.rfdetr.model import LibreYOLORFDETR
         return True
     except Exception:
         return False
@@ -266,10 +266,10 @@ def match_detections(results1, results2, iou_threshold=0.5):
 
 def load_model(model_type: str, size: str, device: str = "cuda"):
     """Load a model by type and size."""
-    from libreyolo import LIBREYOLO
+    from libreyolo import LibreYOLO
 
     weights = get_model_weights(model_type, size)
-    return LIBREYOLO(weights, device=device)
+    return LibreYOLO(weights, device=device)
 
 
 def results_are_acceptable(
@@ -563,7 +563,7 @@ def run_export_compare_test(
 
     Returns (exported_path, pt_results, export_results).
     """
-    from libreyolo import LIBREYOLO
+    from libreyolo import LibreYOLO
 
     pt_model = load_model(model_type, size, device=device)
     pt_results = pt_model(sample_image, conf=0.25)
@@ -575,7 +575,7 @@ def run_export_compare_test(
         **(export_kwargs or {}),
     )
 
-    exported_model = LIBREYOLO(exported_path, device=device)
+    exported_model = LibreYOLO(exported_path, device=device)
     export_results = exported_model(sample_image, conf=0.25)
 
     match_rate, matched, total = match_detections(pt_results, export_results)
@@ -601,7 +601,7 @@ def run_consistency_test(
     n_runs=5,
 ):
     """Export model and verify consistent inference results across N runs."""
-    from libreyolo import LIBREYOLO
+    from libreyolo import LibreYOLO
 
     pt_model = load_model(model_type, size, device=device)
     export_path = str(tmp_path / f"{model_type}_{size}_{format}")
@@ -609,7 +609,7 @@ def run_consistency_test(
         format=format, output_path=export_path, **(export_kwargs or {})
     )
 
-    model = LIBREYOLO(exported_path, device=device)
+    model = LibreYOLO(exported_path, device=device)
     results = [len(model(sample_image, conf=0.25)) for _ in range(n_runs)]
     assert len(set(results)) == 1, f"Inconsistent results across runs: {results}"
 
@@ -623,7 +623,7 @@ def run_metadata_round_trip_test(
     device="cpu",
 ):
     """Export model and verify metadata is preserved when loading."""
-    from libreyolo import LIBREYOLO
+    from libreyolo import LibreYOLO
 
     pt_model = load_model(model_type, size, device=device)
     export_path = str(tmp_path / f"{model_type}_{size}_{format}")
@@ -631,6 +631,6 @@ def run_metadata_round_trip_test(
         format=format, output_path=export_path, **(export_kwargs or {})
     )
 
-    loaded_model = LIBREYOLO(exported_path, device=device)
+    loaded_model = LibreYOLO(exported_path, device=device)
     assert loaded_model.nb_classes == pt_model.nb_classes
     assert loaded_model.names == pt_model.names

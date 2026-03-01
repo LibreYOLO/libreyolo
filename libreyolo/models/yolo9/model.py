@@ -12,7 +12,7 @@ import torch
 import torch.nn as nn
 from PIL import Image
 
-from ..base import LibreYOLOBase
+from ..base import BaseModel
 from ...utils.image_loader import ImageInput
 from ...utils.general import preprocess_image
 from .nn import LibreYOLO9Model
@@ -20,7 +20,7 @@ from .utils import postprocess
 from ...validation.preprocessors import YOLO9ValPreprocessor
 
 
-class LIBREYOLO9(LibreYOLOBase):
+class LibreYOLO9(BaseModel):
     """
     LibreYOLO9 model for object detection.
 
@@ -34,14 +34,14 @@ class LIBREYOLO9(LibreYOLOBase):
         device: Device for inference. "auto" uses CUDA if available, else MPS, else CPU.
 
     Example:
-        >>> model = LIBREYOLO9(model_path="path/to/weights.pt", size="s")
+        >>> model = LibreYOLO9(model_path="path/to/weights.pt", size="s")
         >>> detections = model(image=image_path, save=True)
         >>> # Use tiling for large images
         >>> detections = model(image=large_image_path, save=True, tiling=True)
     """
 
     # =========================================================================
-    # REGISTRY CLASSMETHODS — used by LIBREYOLO() factory
+    # REGISTRY CLASSMETHODS — used by LibreYOLO() factory
     # =========================================================================
 
     @classmethod
@@ -270,8 +270,8 @@ class LIBREYOLO9(LibreYOLOBase):
                 - 'last_checkpoint': Path to last model checkpoint
 
         Example:
-            >>> from libreyolo import LIBREYOLO9
-            >>> model = LIBREYOLO9(size='t')
+            >>> from libreyolo import LibreYOLO9
+            >>> model = LibreYOLO9(size='t')
             >>> results = model.train(
             ...     data='coco128.yaml',
             ...     epochs=100,
@@ -338,7 +338,7 @@ class LIBREYOLO9(LibreYOLOBase):
             if not self.model_path:
                 raise ValueError(
                     "resume=True requires a checkpoint. Load one first: "
-                    "model = LIBREYOLO9('path/to/last.pt', size='t'); model.train(data=..., resume=True)"
+                    "model = LibreYOLO9('path/to/last.pt', size='t'); model.train(data=..., resume=True)"
                 )
             trainer.resume(str(self.model_path))
 

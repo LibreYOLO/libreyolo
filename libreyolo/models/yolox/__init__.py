@@ -2,7 +2,7 @@
 YOLOX implementation for LibreYOLO.
 """
 
-from .model import LIBREYOLOX
+from .model import LibreYOLOX
 from .nn import LibreYOLOXModel
 
-__all__ = ["LIBREYOLOX", "LibreYOLOXModel"]
+__all__ = ["LibreYOLOX", "LibreYOLOXModel"]

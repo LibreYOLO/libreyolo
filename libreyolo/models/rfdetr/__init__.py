@@ -4,18 +4,18 @@ LibreYOLO RF-DETR - Detection Transformer with DINOv2 backbone.
 A LibreYOLO wrapper for RF-DETR with 100% weight compatibility.
 
 Example usage:
-    >>> from libreyolo import LIBREYOLORFDETR
+    >>> from libreyolo import LibreYOLORFDETR
     >>>
     >>> # Use pretrained COCO weights (auto-downloads)
-    >>> model = LIBREYOLORFDETR(size="s")  # or "n", "m", "l"
+    >>> model = LibreYOLORFDETR(size="s")  # or "n", "m", "l"
     >>> detections = model.predict("path/to/image.jpg")
     >>> print(detections["boxes"], detections["scores"], detections["classes"])
     >>>
     >>> # With custom weights
-    >>> model = LIBREYOLORFDETR(model_path="custom_weights.pth", size="s")
+    >>> model = LibreYOLORFDETR(model_path="custom_weights.pth", size="s")
     >>>
     >>> # Training (Ultralytics-style API)
-    >>> model = LIBREYOLORFDETR(size="s")
+    >>> model = LibreYOLORFDETR(size="s")
     >>> model.train(data="coco128", epochs=10, batch_size=4)
 
 Available model sizes:
@@ -25,14 +25,14 @@ Available model sizes:
     - "l" (large): Best accuracy, slowest
 """
 
-from .model import LIBREYOLORFDETR
+from .model import LibreYOLORFDETR
 from .nn import LibreRFDETRModel, create_rfdetr_model, RFDETR_CONFIGS
 from .utils import postprocess, cxcywh_to_xyxy
 from .trainer import train_rfdetr, RFDETR_TRAINERS
 
 __all__ = [
     # Main model wrapper
-    "LIBREYOLORFDETR",
+    "LibreYOLORFDETR",
     # Neural network
     "LibreRFDETRModel",
     "create_rfdetr_model",

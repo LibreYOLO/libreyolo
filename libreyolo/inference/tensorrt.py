@@ -57,7 +57,7 @@ def preprocess_rfdetr(image, input_size: int, **_kwargs):
     return input_tensor, img, (orig_w, orig_h)
 
 
-class LIBREYOLOTensorRT:
+class TensorRTBackend:
     """
     TensorRT inference backend for LIBREYOLO models.
 
@@ -74,7 +74,7 @@ class LIBREYOLOTensorRT:
         device: Device for inference. Must be "cuda" or "auto" (TensorRT requires GPU).
 
     Example:
-        >>> model = LIBREYOLOTensorRT("model.engine")
+        >>> model = TensorRTBackend("model.engine")
         >>> result = model("image.jpg", save=True)
         >>> print(result.boxes.xyxy)
     """

@@ -14,7 +14,7 @@ Usage:
 import pytest
 import torch
 
-from libreyolo import LIBREYOLO
+from libreyolo import LibreYOLO
 
 MIN_MAP = 0.18  # Uniform threshold for all models
 
@@ -50,7 +50,7 @@ IDS = [
 @pytest.mark.parametrize("weights,size", MODELS, ids=IDS)
 def test_val_coco128(weights, size):
     """Validate a pretrained model on coco128 and check mAP >= 0.18."""
-    model = LIBREYOLO(weights, size=size)
+    model = LibreYOLO(weights, size=size)
 
     results = model.val(data="coco128.yaml", batch=16, conf=0.001, iou=0.6)
 

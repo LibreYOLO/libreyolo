@@ -142,8 +142,8 @@ class TestTensorRTExportINT8:
         assert Path(exported_path).exists(), "Engine file not created"
 
         # Load TensorRT engine
-        from libreyolo import LIBREYOLO
-        trt_model = LIBREYOLO(exported_path, device="cuda")
+        from libreyolo import LibreYOLO
+        trt_model = LibreYOLO(exported_path, device="cuda")
 
         # Run TensorRT inference
         trt_results = trt_model(sample_image, conf=0.25)
@@ -182,8 +182,8 @@ class TestTensorRTEngineLoading:
         )
 
         # Load and verify metadata
-        from libreyolo import LIBREYOLO
-        trt_model = LIBREYOLO(engine_path, device="cuda")
+        from libreyolo import LibreYOLO
+        trt_model = LibreYOLO(engine_path, device="cuda")
 
         assert trt_model.model_type == model_type
         assert trt_model.nb_classes == pt_model.nb_classes
@@ -223,8 +223,8 @@ class TestTensorRTExportConfig:
         assert Path(exported_path).exists()
 
         # Verify inference works
-        from libreyolo import LIBREYOLO
-        trt_model = LIBREYOLO(exported_path, device="cuda")
+        from libreyolo import LibreYOLO
+        trt_model = LibreYOLO(exported_path, device="cuda")
         result = trt_model(sample_image, conf=0.25)
 
         assert result is not None
@@ -272,8 +272,8 @@ class TestTensorRTInferenceSpeed:
         engine_path = str(tmp_path / f"{model_type}_{size}.engine")
         pt_model.export(format="tensorrt", output_path=engine_path, half=True)
 
-        from libreyolo import LIBREYOLO
-        trt_model = LIBREYOLO(engine_path, device="cuda")
+        from libreyolo import LibreYOLO
+        trt_model = LibreYOLO(engine_path, device="cuda")
 
         # Warmup
         for _ in range(5):

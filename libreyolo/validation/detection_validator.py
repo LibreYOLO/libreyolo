@@ -17,7 +17,7 @@ from .metrics import DetMetrics
 from .utils import process_batch
 
 if TYPE_CHECKING:
-    from libreyolo.models.base import LibreYOLOBase
+    from libreyolo.models.base import BaseModel
 
 
 def val_collate_fn(batch):
@@ -61,7 +61,7 @@ class DetectionValidator(BaseValidator):
 
     def __init__(
         self,
-        model: "LibreYOLOBase",
+        model: "BaseModel",
         config: Optional[ValidationConfig] = None,
         **kwargs,
     ) -> None:

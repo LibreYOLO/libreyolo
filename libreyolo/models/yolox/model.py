@@ -1,5 +1,5 @@
 """
-LIBREYOLOX implementation for LibreYOLO.
+LibreYOLOX implementation for LibreYOLO.
 
 Supports both inference and training.
 """
@@ -12,14 +12,14 @@ import torch
 import torch.nn as nn
 from PIL import Image
 
-from ..base import LibreYOLOBase
+from ..base import BaseModel
 from ...utils.image_loader import ImageInput
 from .nn import LibreYOLOXModel
 from .utils import preprocess_image as _yolox_preprocess, postprocess
 from ...validation.preprocessors import YOLOXValPreprocessor
 
 
-class LIBREYOLOX(LibreYOLOBase):
+class LibreYOLOX(BaseModel):
     """
     YOLOX model for object detection.
 
@@ -33,20 +33,20 @@ class LIBREYOLOX(LibreYOLOBase):
         device: Device for inference.
 
     Examples:
-        Load weights for inference (prefer LIBREYOLO factory for auto-detection)::
+        Load weights for inference (prefer LibreYOLO factory for auto-detection)::
 
-            >>> from libreyolo import LIBREYOLO
-            >>> model = LIBREYOLO("libreyoloXs.pt")
+            >>> from libreyolo import LibreYOLO
+            >>> model = LibreYOLO("libreyoloXs.pt")
             >>> detections = model(image="image.jpg", save=True)
 
         Create a fresh model for training (nb_classes read from YAML)::
 
-            >>> model = LIBREYOLOX(size="s")
+            >>> model = LibreYOLOX(size="s")
             >>> results = model.train(data="coco128.yaml", epochs=100)
     """
 
     # =========================================================================
-    # REGISTRY CLASSMETHODS — used by LIBREYOLO() factory
+    # REGISTRY CLASSMETHODS — used by LibreYOLO() factory
     # =========================================================================
 
     @classmethod
@@ -266,8 +266,8 @@ class LIBREYOLOX(LibreYOLOBase):
             RuntimeError: If training fails (OOM, NaN loss, etc.)
 
         Example:
-            >>> from libreyolo import LIBREYOLOX
-            >>> model = LIBREYOLOX(size="s")
+            >>> from libreyolo import LibreYOLOX
+            >>> model = LibreYOLOX(size="s")
             >>> results = model.train(
             ...     data="coco128.yaml",
             ...     epochs=100,
@@ -334,7 +334,7 @@ class LIBREYOLOX(LibreYOLOBase):
             if not self.model_path:
                 raise ValueError(
                     "resume=True requires a checkpoint. Load one first: "
-                    "model = LIBREYOLOX('path/to/last.pt'); model.train(data=..., resume=True)"
+                    "model = LibreYOLOX('path/to/last.pt'); model.train(data=..., resume=True)"
                 )
             trainer.resume(str(self.model_path))
 

@@ -10,10 +10,10 @@ Supports exporting models to various deployment formats:
 
 Example::
 
-    from libreyolo import LIBREYOLO
+    from libreyolo import LibreYOLO
     from libreyolo.export import Exporter
 
-    model = LIBREYOLO("yolov9c.pt")
+    model = LibreYOLO("yolov9c.pt")
 
     # ONNX export
     model.export(format="onnx")

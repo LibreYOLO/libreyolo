@@ -35,7 +35,7 @@ class _TinyModel(nn.Module):
 
 
 def _make_wrapper(nb_classes=4, model_name="TESTYOLO", size="s", input_size=32):
-    """Build a mock LibreYOLOBase-like wrapper around _TinyModel."""
+    """Build a mock BaseModel-like wrapper around _TinyModel."""
     wrapper = MagicMock()
     wrapper.model = _TinyModel()
     wrapper.model.eval()

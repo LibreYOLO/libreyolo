@@ -53,14 +53,14 @@ def load_config(config_path: Path, size: str) -> Dict[str, Any]:
 
 def create_model(config: Dict[str, Any]):
     """Create model from config with auto-download support."""
-    from libreyolo import LIBREYOLO
+    from libreyolo import LibreYOLO
 
     weights = config.get("model_weights")
     size = config["model_size"]
 
-    # LIBREYOLO factory handles auto-download from HuggingFace
+    # LibreYOLO factory handles auto-download from HuggingFace
     # Don't pass nb_classes - load COCO weights, train() will rebuild head
-    return LIBREYOLO(weights, size=size)
+    return LibreYOLO(weights, size=size)
 
 
 def train_on_dataset(

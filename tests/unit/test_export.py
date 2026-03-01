@@ -35,7 +35,7 @@ class _TinyModel(nn.Module):
 
 
 def _make_wrapper(nb_classes=4, model_name="TESTYOLO", size="s", input_size=32):
-    """Build a mock LibreYOLOBase-like wrapper around _TinyModel."""
+    """Build a mock BaseModel-like wrapper around _TinyModel."""
     wrapper = MagicMock()
     wrapper.model = _TinyModel()
     wrapper.model.eval()
@@ -154,7 +154,7 @@ class TestOnnxMetadata:
 
 class TestOnnxMetadataReading:
     def test_round_trip(self):
-        """Export with metadata, then load via LIBREYOLOOnnx and verify auto-read."""
+        """Export with metadata, then load via OnnxBackend and verify auto-read."""
         import onnx
 
         wrapper = _make_wrapper(nb_classes=3, model_name="TESTYOLO", size="s")
@@ -165,9 +165,9 @@ class TestOnnxMetadataReading:
             out = str(Path(tmpdir) / "rt.onnx")
             exporter("onnx", output_path=out, simplify=False)
 
-            from libreyolo.inference.onnx import LIBREYOLOOnnx
+            from libreyolo.inference.onnx import OnnxBackend
 
-            onnx_model = LIBREYOLOOnnx(out, nb_classes=80)  # deliberately wrong
+            onnx_model = OnnxBackend(out, nb_classes=80)  # deliberately wrong
             # After metadata reading, names should be overwritten
             assert onnx_model.names[0] == "cat"
             assert onnx_model.names[1] == "dog"

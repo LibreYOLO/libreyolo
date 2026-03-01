@@ -5,7 +5,7 @@ Tests the complete pipeline:
 1. Load PyTorch model
 2. Run PyTorch inference (baseline)
 3. Export to OpenVINO
-4. Load OpenVINO model via LIBREYOLO() factory / LIBREYOLOOpenVINO backend
+4. Load OpenVINO model via LibreYOLO() factory / OpenVINOBackend backend
 5. Run OpenVINO inference
 6. Compare results between PyTorch and OpenVINO
 """
@@ -203,7 +203,7 @@ class TestOpenVINOModelLoading:
     @pytest.mark.parametrize("model_type,size", QUICK_TEST_MODELS)
     def test_fp32_and_fp16_both_work(self, model_type, size, sample_image, tmp_path):
         """Test that both FP32 and FP16 exports produce valid results."""
-        from libreyolo import LIBREYOLO
+        from libreyolo import LibreYOLO
 
         pt_model = load_model(model_type, size, device="cpu")
 
@@ -220,8 +220,8 @@ class TestOpenVINOModelLoading:
         )
 
         # Both should produce inference results via the backend
-        fp32_model = LIBREYOLO(fp32_exported)
-        fp16_model = LIBREYOLO(fp16_exported)
+        fp32_model = LibreYOLO(fp32_exported)
+        fp16_model = LibreYOLO(fp16_exported)
 
         fp32_results = fp32_model(sample_image, conf=0.25)
         fp16_results = fp16_model(sample_image, conf=0.25)
@@ -245,13 +245,13 @@ class TestOpenVINOModelLoading:
 
 
 class TestOpenVINOBackend:
-    """Test the LIBREYOLOOpenVINO inference backend class directly."""
+    """Test the OpenVINOBackend inference backend class directly."""
 
     @requires_openvino
     @pytest.mark.parametrize("model_type,size", QUICK_TEST_MODELS)
     def test_predict_alias(self, model_type, size, sample_image, tmp_path):
         """Test that predict() is an alias for __call__."""
-        from libreyolo.inference.openvino import LIBREYOLOOpenVINO
+        from libreyolo.inference.openvino import OpenVINOBackend
 
         pt_model = load_model(model_type, size, device="cpu")
         ov_path = str(tmp_path / f"{model_type}_{size}_openvino")
@@ -259,7 +259,7 @@ class TestOpenVINOBackend:
             format="openvino", output_path=ov_path, half=True,
         )
 
-        ov_model = LIBREYOLOOpenVINO(exported_path)
+        ov_model = OpenVINOBackend(exported_path)
         result_call = ov_model(sample_image, conf=0.25)
         result_predict = ov_model.predict(sample_image, conf=0.25)
 
@@ -271,7 +271,7 @@ class TestOpenVINOBackend:
     @pytest.mark.parametrize("model_type,size", QUICK_TEST_MODELS)
     def test_save_output(self, model_type, size, sample_image, tmp_path):
         """Test that save=True produces an annotated image."""
-        from libreyolo.inference.openvino import LIBREYOLOOpenVINO
+        from libreyolo.inference.openvino import OpenVINOBackend
 
         pt_model = load_model(model_type, size, device="cpu")
         ov_path = str(tmp_path / f"{model_type}_{size}_openvino")
@@ -280,7 +280,7 @@ class TestOpenVINOBackend:
         )
 
         save_path = str(tmp_path / "annotated.jpg")
-        ov_model = LIBREYOLOOpenVINO(exported_path)
+        ov_model = OpenVINOBackend(exported_path)
         result = ov_model(sample_image, conf=0.25, save=True, output_path=save_path)
 
         assert Path(save_path).exists(), "Annotated image was not saved"
@@ -292,7 +292,7 @@ class TestOpenVINOBackend:
     @pytest.mark.parametrize("model_type,size", QUICK_TEST_MODELS)
     def test_classes_filter(self, model_type, size, sample_image, tmp_path):
         """Test that classes filter limits detections to specified class IDs."""
-        from libreyolo.inference.openvino import LIBREYOLOOpenVINO
+        from libreyolo.inference.openvino import OpenVINOBackend
 
         pt_model = load_model(model_type, size, device="cpu")
         ov_path = str(tmp_path / f"{model_type}_{size}_openvino")
@@ -300,7 +300,7 @@ class TestOpenVINOBackend:
             format="openvino", output_path=ov_path, half=True,
         )
 
-        ov_model = LIBREYOLOOpenVINO(exported_path)
+        ov_model = OpenVINOBackend(exported_path)
 
         # Run with class filter (class 0 = person in COCO)
         result = ov_model(sample_image, conf=0.25, classes=[0])
@@ -315,14 +315,14 @@ class TestOpenVINOBackend:
 
 
 class TestOpenVINOFactory:
-    """Test loading OpenVINO models through the LIBREYOLO() factory."""
+    """Test loading OpenVINO models through the LibreYOLO() factory."""
 
     @requires_openvino
     @pytest.mark.parametrize("model_type,size", QUICK_TEST_MODELS)
     def test_factory_dispatch(self, model_type, size, sample_image, tmp_path):
-        """Export model, load via LIBREYOLO(dir), verify type and inference."""
-        from libreyolo import LIBREYOLO
-        from libreyolo.inference.openvino import LIBREYOLOOpenVINO
+        """Export model, load via LibreYOLO(dir), verify type and inference."""
+        from libreyolo import LibreYOLO
+        from libreyolo.inference.openvino import OpenVINOBackend
 
         pt_model = load_model(model_type, size, device="cpu")
         pt_results = pt_model(sample_image, conf=0.25)
@@ -333,9 +333,9 @@ class TestOpenVINOFactory:
         )
 
         # Load through factory
-        factory_model = LIBREYOLO(exported_path)
-        assert isinstance(factory_model, LIBREYOLOOpenVINO), (
-            f"Expected LIBREYOLOOpenVINO, got {type(factory_model).__name__}"
+        factory_model = LibreYOLO(exported_path)
+        assert isinstance(factory_model, OpenVINOBackend), (
+            f"Expected OpenVINOBackend, got {type(factory_model).__name__}"
         )
 
         # Run inference and compare
@@ -361,7 +361,7 @@ class TestOpenVINOModelCoverage:
     @pytest.mark.slow
     def test_all_yolox_sizes_exportable(self, sample_image, tmp_path):
         """Test that all YOLOX sizes can be exported and run."""
-        from libreyolo import LIBREYOLO
+        from libreyolo import LibreYOLO
         from .conftest import YOLOX_SIZES
 
         for size in YOLOX_SIZES:
@@ -374,7 +374,7 @@ class TestOpenVINOModelCoverage:
             assert Path(exported_path).is_dir(), f"Failed to export YOLOX-{size}"
 
             # Verify inference works via backend
-            ov_model = LIBREYOLO(exported_path)
+            ov_model = LibreYOLO(exported_path)
             result = ov_model(sample_image, conf=0.25)
             assert result is not None
 
@@ -384,7 +384,7 @@ class TestOpenVINOModelCoverage:
     @pytest.mark.slow
     def test_all_yolov9_sizes_exportable(self, sample_image, tmp_path):
         """Test that all YOLOv9 sizes can be exported and run."""
-        from libreyolo import LIBREYOLO
+        from libreyolo import LibreYOLO
         from .conftest import YOLOV9_SIZES
 
         for size in YOLOV9_SIZES:
@@ -397,7 +397,7 @@ class TestOpenVINOModelCoverage:
             assert Path(exported_path).is_dir(), f"Failed to export YOLOv9-{size}"
 
             # Verify inference works via backend
-            ov_model = LIBREYOLO(exported_path)
+            ov_model = LibreYOLO(exported_path)
             result = ov_model(sample_image, conf=0.25)
             assert result is not None
 
@@ -408,7 +408,7 @@ class TestOpenVINOModelCoverage:
     @pytest.mark.slow
     def test_all_rfdetr_sizes_exportable(self, sample_image, tmp_path):
         """Test that all RF-DETR sizes can be exported and run."""
-        from libreyolo import LIBREYOLO
+        from libreyolo import LibreYOLO
         from .conftest import RFDETR_SIZES
 
         for size in RFDETR_SIZES:
@@ -421,7 +421,7 @@ class TestOpenVINOModelCoverage:
             assert Path(exported_path).is_dir(), f"Failed to export RF-DETR-{size}"
 
             # Verify inference works via backend
-            ov_model = LIBREYOLO(exported_path)
+            ov_model = LibreYOLO(exported_path)
             result = ov_model(sample_image, conf=0.25)
             assert result is not None
 

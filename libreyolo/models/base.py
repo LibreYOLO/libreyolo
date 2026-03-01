@@ -28,7 +28,7 @@ from ..utils.general import (
 from ..utils.drawing import draw_boxes, draw_tile_grid
 
 
-class LibreYOLOBase(ABC):
+class BaseModel(ABC):
     """
     Abstract base class for LibreYOLO model wrappers.
 
@@ -925,7 +925,7 @@ class LibreYOLOBase(ABC):
                 - metrics/mAP50-95: Mean AP across IoU 0.50-0.95
 
         Example:
-            >>> model = LIBREYOLO("weights/libreyoloXs.pt")
+            >>> model = LibreYOLO("weights/libreyoloXs.pt")
             >>> results = model.val(data="coco8.yaml", batch=16)
             >>> print(f"mAP50-95: {results['metrics/mAP50-95']:.3f}")
         """

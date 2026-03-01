@@ -5,7 +5,7 @@ Tests the complete pipeline:
 1. Load PyTorch model
 2. Run PyTorch inference (baseline)
 3. Export to ncnn via PNNX
-4. Load ncnn model via LIBREYOLO() factory / LIBREYOLONCNN backend
+4. Load ncnn model via LibreYOLO() factory / NcnnBackend backend
 5. Run ncnn inference
 6. Compare results between PyTorch and ncnn
 
@@ -181,14 +181,14 @@ class TestNCNNMetadata:
 
 
 class TestNCNNFactory:
-    """Test loading ncnn models through the LIBREYOLO() factory."""
+    """Test loading ncnn models through the LibreYOLO() factory."""
 
     @requires_ncnn
     @pytest.mark.parametrize("model_type,size", QUICK_TEST_MODELS)
     def test_factory_dispatch(self, model_type, size, sample_image, tmp_path):
-        """Export model, load via LIBREYOLO(dir), verify type and inference."""
-        from libreyolo import LIBREYOLO
-        from libreyolo.inference.ncnn import LIBREYOLONCNN
+        """Export model, load via LibreYOLO(dir), verify type and inference."""
+        from libreyolo import LibreYOLO
+        from libreyolo.inference.ncnn import NcnnBackend
 
         pt_model = load_model(model_type, size, device="cpu")
         pt_results = pt_model(sample_image, conf=0.25)
@@ -199,9 +199,9 @@ class TestNCNNFactory:
         )
 
         # Load through factory
-        factory_model = LIBREYOLO(exported_path)
-        assert isinstance(factory_model, LIBREYOLONCNN), (
-            f"Expected LIBREYOLONCNN, got {type(factory_model).__name__}"
+        factory_model = LibreYOLO(exported_path)
+        assert isinstance(factory_model, NcnnBackend), (
+            f"Expected NcnnBackend, got {type(factory_model).__name__}"
         )
 
         # Run inference and compare
@@ -216,13 +216,13 @@ class TestNCNNFactory:
 
 
 class TestNCNNBackend:
-    """Test the LIBREYOLONCNN inference backend class directly."""
+    """Test the NcnnBackend inference backend class directly."""
 
     @requires_ncnn
     @pytest.mark.parametrize("model_type,size", QUICK_TEST_MODELS)
     def test_predict_alias(self, model_type, size, sample_image, tmp_path):
         """Test that predict() is an alias for __call__."""
-        from libreyolo.inference.ncnn import LIBREYOLONCNN
+        from libreyolo.inference.ncnn import NcnnBackend
 
         pt_model = load_model(model_type, size, device="cpu")
         ncnn_path = str(tmp_path / f"{model_type}_{size}_ncnn")
@@ -230,7 +230,7 @@ class TestNCNNBackend:
             format="ncnn", output_path=ncnn_path, half=False,
         )
 
-        ncnn_model = LIBREYOLONCNN(exported_path)
+        ncnn_model = NcnnBackend(exported_path)
         result_call = ncnn_model(sample_image, conf=0.25)
         result_predict = ncnn_model.predict(sample_image, conf=0.25)
 
@@ -242,7 +242,7 @@ class TestNCNNBackend:
     @pytest.mark.parametrize("model_type,size", QUICK_TEST_MODELS)
     def test_save_output(self, model_type, size, sample_image, tmp_path):
         """Test that save=True produces an annotated image."""
-        from libreyolo.inference.ncnn import LIBREYOLONCNN
+        from libreyolo.inference.ncnn import NcnnBackend
 
         pt_model = load_model(model_type, size, device="cpu")
         ncnn_path = str(tmp_path / f"{model_type}_{size}_ncnn")
@@ -251,7 +251,7 @@ class TestNCNNBackend:
         )
 
         save_path = str(tmp_path / "annotated.jpg")
-        ncnn_model = LIBREYOLONCNN(exported_path)
+        ncnn_model = NcnnBackend(exported_path)
         result = ncnn_model(sample_image, conf=0.25, save=True, output_path=save_path)
 
         assert Path(save_path).exists(), "Annotated image was not saved"
@@ -263,7 +263,7 @@ class TestNCNNBackend:
     @pytest.mark.parametrize("model_type,size", QUICK_TEST_MODELS)
     def test_classes_filter(self, model_type, size, sample_image, tmp_path):
         """Test that classes filter limits detections to specified class IDs."""
-        from libreyolo.inference.ncnn import LIBREYOLONCNN
+        from libreyolo.inference.ncnn import NcnnBackend
 
         pt_model = load_model(model_type, size, device="cpu")
         ncnn_path = str(tmp_path / f"{model_type}_{size}_ncnn")
@@ -271,7 +271,7 @@ class TestNCNNBackend:
             format="ncnn", output_path=ncnn_path, half=False,
         )
 
-        ncnn_model = LIBREYOLONCNN(exported_path)
+        ncnn_model = NcnnBackend(exported_path)
 
         # Run with class filter (class 0 = person in COCO)
         result = ncnn_model(sample_image, conf=0.25, classes=[0])
@@ -312,7 +312,7 @@ class TestNCNNModelCoverage:
     @pytest.mark.slow
     def test_all_yolox_sizes_exportable(self, sample_image, tmp_path):
         """Test that all YOLOX sizes can be exported and run."""
-        from libreyolo import LIBREYOLO
+        from libreyolo import LibreYOLO
 
         for size in YOLOX_SIZES:
             pt_model = load_model("yolox", size, device="cpu")
@@ -324,7 +324,7 @@ class TestNCNNModelCoverage:
             assert Path(exported_path).is_dir(), f"Failed to export YOLOX-{size}"
 
             # Verify inference works via backend
-            ncnn_model = LIBREYOLO(exported_path)
+            ncnn_model = LibreYOLO(exported_path)
             result = ncnn_model(sample_image, conf=0.25)
             assert result is not None
 
@@ -334,7 +334,7 @@ class TestNCNNModelCoverage:
     @pytest.mark.slow
     def test_all_yolov9_sizes_exportable(self, sample_image, tmp_path):
         """Test that all YOLOv9 sizes can be exported and run."""
-        from libreyolo import LIBREYOLO
+        from libreyolo import LibreYOLO
 
         for size in YOLOV9_SIZES:
             pt_model = load_model("yolov9", size, device="cpu")
@@ -346,7 +346,7 @@ class TestNCNNModelCoverage:
             assert Path(exported_path).is_dir(), f"Failed to export YOLOv9-{size}"
 
             # Verify inference works via backend
-            ncnn_model = LIBREYOLO(exported_path)
+            ncnn_model = LibreYOLO(exported_path)
             result = ncnn_model(sample_image, conf=0.25)
             assert result is not None
 
@@ -358,7 +358,7 @@ class TestNCNNModelCoverage:
     @_rfdetr_xfail
     def test_all_rfdetr_sizes_exportable(self, sample_image, tmp_path):
         """Test that all RF-DETR sizes can be exported and run."""
-        from libreyolo import LIBREYOLO
+        from libreyolo import LibreYOLO
 
         for size in RFDETR_SIZES:
             pt_model = load_model("rfdetr", size, device="cpu")
@@ -370,7 +370,7 @@ class TestNCNNModelCoverage:
             assert Path(exported_path).is_dir(), f"Failed to export RF-DETR-{size}"
 
             # Verify inference works via backend
-            ncnn_model = LIBREYOLO(exported_path)
+            ncnn_model = LibreYOLO(exported_path)
             result = ncnn_model(sample_image, conf=0.25)
             assert result is not None
 

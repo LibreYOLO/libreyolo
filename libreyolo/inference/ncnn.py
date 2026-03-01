@@ -45,7 +45,7 @@ def _nms(boxes: np.ndarray, scores: np.ndarray, iou_threshold: float = 0.45) -> 
     return keep
 
 
-class LIBREYOLONCNN:
+class NcnnBackend:
     """
     ncnn inference backend for LIBREYOLO models.
 
@@ -60,7 +60,7 @@ class LIBREYOLONCNN:
             Vulkan GPU if available.
 
     Example:
-        >>> model = LIBREYOLONCNN("exported_model_dir/")
+        >>> model = NcnnBackend("exported_model_dir/")
         >>> result = model("image.jpg", save=True)
         >>> print(result.boxes.xyxy)
     """

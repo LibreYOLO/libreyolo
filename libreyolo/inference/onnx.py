@@ -48,7 +48,7 @@ def _nms(boxes: np.ndarray, scores: np.ndarray, iou_threshold: float = 0.45) -> 
     return keep
 
 
-class LIBREYOLOOnnx:
+class OnnxBackend:
     """
     ONNX runtime inference backend for LIBREYOLO models.
 
@@ -61,7 +61,7 @@ class LIBREYOLOOnnx:
         device: Device for inference. "auto" (default) uses CUDA if available, else CPU.
 
     Example:
-        >>> model = LIBREYOLOOnnx("model.onnx")
+        >>> model = OnnxBackend("model.onnx")
         >>> result = model("image.jpg", save=True)
         >>> print(result.boxes.xyxy)
     """

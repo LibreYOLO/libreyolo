@@ -45,7 +45,7 @@ def _nms(boxes: np.ndarray, scores: np.ndarray, iou_threshold: float = 0.45) -> 
     return keep
 
 
-class LIBREYOLOOpenVINO:
+class OpenVINOBackend:
     """
     OpenVINO inference backend for LIBREYOLO models.
 
@@ -59,7 +59,7 @@ class LIBREYOLOOpenVINO:
         device: Device for inference. "auto" (default) uses CPU. "gpu"/"cuda" uses GPU.
 
     Example:
-        >>> model = LIBREYOLOOpenVINO("exported_model_dir/")
+        >>> model = OpenVINOBackend("exported_model_dir/")
         >>> result = model("image.jpg", save=True)
         >>> print(result.boxes.xyxy)
     """

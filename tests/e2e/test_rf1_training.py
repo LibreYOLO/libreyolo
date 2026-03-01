@@ -20,7 +20,7 @@ import yaml
 from huggingface_hub import snapshot_download
 from PIL import Image
 
-from libreyolo import LIBREYOLO
+from libreyolo import LibreYOLO
 
 DATASET_ROOT = Path.home() / ".cache" / "libreyolo" / "marbles"
 HF_REPO = "Libre-YOLO/marbles"
@@ -183,7 +183,7 @@ MIN_MAP = 0.05
 def test_rf1_training(weights, size, family, dataset_coco, dataset_data_yaml,
                       tmp_path):
     """Train 2 epochs on marbles, validate on test split."""
-    model = LIBREYOLO(weights, size=size)
+    model = LibreYOLO(weights, size=size)
 
     if family == "rfdetr":
         model.train(
@@ -250,7 +250,7 @@ def test_load_finetuned_checkpoint(weights, size, family, dataset_coco,
     with correct nc, names, and architecture auto-rebuild.
     """
     # 1. Train
-    model = LIBREYOLO(weights, size=size)
+    model = LibreYOLO(weights, size=size)
     model.train(
         data=dataset_data_yaml,
         epochs=10,
@@ -282,7 +282,7 @@ def test_load_finetuned_checkpoint(weights, size, family, dataset_coco,
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
 
-    fresh_model = LIBREYOLO(str(best_pt), size=size)
+    fresh_model = LibreYOLO(str(best_pt), size=size)
 
     # 5. Verify auto-rebuild happened
     assert fresh_model.nb_classes == 2, (
@@ -326,7 +326,7 @@ def test_load_finetuned_checkpoint_rfdetr(weights, size, family, dataset_coco,
     from pathlib import Path as P
 
     # 1. Train
-    model = LIBREYOLO(weights, size=size)
+    model = LibreYOLO(weights, size=size)
     output_dir = str(tmp_path / f"rfdetr_{size}")
     model.train(
         data=str(dataset_coco),
@@ -358,7 +358,7 @@ def test_load_finetuned_checkpoint_rfdetr(weights, size, family, dataset_coco,
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
 
-    fresh_model = LIBREYOLO(weights, size=size)
+    fresh_model = LibreYOLO(weights, size=size)
 
     # Reinitialize detection head and load trained weights
     if num_classes_internal != fresh_model.model.model.class_embed.bias.shape[0]:

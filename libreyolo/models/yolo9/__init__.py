@@ -10,7 +10,7 @@ Now includes training support with:
 - YOLO9Loss: Task-aligned loss function
 """
 
-from .model import LIBREYOLO9
+from .model import LibreYOLO9
 from .nn import LibreYOLO9Model
 from .config import YOLO9TrainConfig
 from .trainer import YOLO9Trainer
@@ -18,7 +18,7 @@ from .loss import YOLO9Loss, BoxMatcher, Vec2Box
 from .transforms import YOLO9TrainTransform, YOLO9MosaicMixupDataset
 
 __all__ = [
-    "LIBREYOLO9",
+    "LibreYOLO9",
     "LibreYOLO9Model",
     "YOLO9TrainConfig",
     "YOLO9Trainer",

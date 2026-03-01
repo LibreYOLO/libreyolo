@@ -31,10 +31,10 @@ pytestmark = pytest.mark.e2e
 
 def load_model(model_type: str, size: str, device: str = "cuda"):
     """Load a model by type and size."""
-    from libreyolo import LIBREYOLO
+    from libreyolo import LibreYOLO
 
     weights = get_model_weights(model_type, size)
-    return LIBREYOLO(weights, device=device)
+    return LibreYOLO(weights, device=device)
 
 
 # ---------------------------------------------------------------------------

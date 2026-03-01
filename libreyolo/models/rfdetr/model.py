@@ -1,5 +1,5 @@
 """
-LIBREYOLORFDETR implementation for LibreYOLO.
+LibreYOLORFDETR implementation for LibreYOLO.
 
 Supports both inference and training with RF-DETR (Detection Transformer).
 """
@@ -14,7 +14,7 @@ import torch.nn as nn
 import torchvision.transforms.functional as F
 from PIL import Image
 
-from ..base import LibreYOLOBase
+from ..base import BaseModel
 from ...utils.image_loader import ImageInput, ImageLoader
 from .nn import LibreRFDETRModel, RFDETR_CONFIGS
 from .utils import postprocess
@@ -44,7 +44,7 @@ _COCO91_TO_COCO80 = {
 }
 
 
-class LIBREYOLORFDETR(LibreYOLOBase):
+class LibreYOLORFDETR(BaseModel):
     """
     LibreYOLO RF-DETR model for object detection.
 
@@ -65,16 +65,16 @@ class LIBREYOLORFDETR(LibreYOLOBase):
 
     Example:
         >>> # Use pretrained COCO weights
-        >>> model = LIBREYOLORFDETR(size="s")
+        >>> model = LibreYOLORFDETR(size="s")
         >>> detections = model.predict("path/to/image.jpg")
 
         >>> # Use custom weights
-        >>> model = LIBREYOLORFDETR(model_path="custom_weights.pth", size="s")
+        >>> model = LibreYOLORFDETR(model_path="custom_weights.pth", size="s")
         >>> detections = model.predict("path/to/image.jpg", conf_thres=0.5)
     """
 
     # =========================================================================
-    # REGISTRY CLASSMETHODS — used by LIBREYOLO() factory
+    # REGISTRY CLASSMETHODS — used by LibreYOLO() factory
     # =========================================================================
 
     @classmethod
@@ -155,7 +155,7 @@ class LIBREYOLORFDETR(LibreYOLOBase):
         else:
             self._pretrain_weights = model_path
 
-        # Pass special marker for LibreYOLOBase to skip weight loading
+        # Pass special marker for BaseModel to skip weight loading
         super().__init__(
             model_path="__skip_loading__",  # Special marker to skip _load_weights
             size=size,
@@ -380,7 +380,7 @@ class LIBREYOLORFDETR(LibreYOLOBase):
             Dictionary with training results including output_dir and model
 
         Example:
-            >>> model = LIBREYOLORFDETR(size="s")
+            >>> model = LibreYOLORFDETR(size="s")
             >>> # Download a dataset from Roboflow in COCO format
             >>> results = model.train(data="path/to/dataset", epochs=50)
         """

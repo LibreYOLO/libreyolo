@@ -2,7 +2,7 @@
 LibreYOLO model registry and unified factory.
 
 All model families register here. Adding a new model means:
-1. Create models/<family>/ with model.py defining a class that inherits LibreYOLOBase
+1. Create models/<family>/ with model.py defining a class that inherits BaseModel
 2. Add classmethods: can_load, detect_size, detect_nb_classes, detect_size_from_filename
 3. Import and append to MODEL_REGISTRY below
 """
@@ -12,23 +12,23 @@ import requests
 from pathlib import Path
 from typing import List, Optional, Type
 
-from .base import LibreYOLOBase
+from .base import BaseModel
 
 # ---------------------------------------------------------------------------
 # Model registry — order matters: first match wins in can_load()
 # ---------------------------------------------------------------------------
-MODEL_REGISTRY: List[Type[LibreYOLOBase]] = []
+MODEL_REGISTRY: List[Type[BaseModel]] = []
 
 # Always-available models
-from .yolox.model import LIBREYOLOX   # noqa: E402
-from .yolo9.model import LIBREYOLO9      # noqa: E402
+from .yolox.model import LibreYOLOX   # noqa: E402
+from .yolo9.model import LibreYOLO9      # noqa: E402
 
-MODEL_REGISTRY.extend([LIBREYOLOX, LIBREYOLO9])
+MODEL_REGISTRY.extend([LibreYOLOX, LibreYOLO9])
 
 
 def _ensure_rfdetr():
     """Lazily register RF-DETR if its dependencies are installed."""
-    if any(c.__name__ == "LIBREYOLORFDETR" for c in MODEL_REGISTRY):
+    if any(c.__name__ == "LibreYOLORFDETR" for c in MODEL_REGISTRY):
         return
     import importlib.util
     if importlib.util.find_spec("rfdetr") is None:
@@ -36,8 +36,8 @@ def _ensure_rfdetr():
             "RF-DETR support requires extra dependencies.\n"
             "Install with: pip install libreyolo[rfdetr]"
         )
-    from .rfdetr.model import LIBREYOLORFDETR  # noqa: F811
-    MODEL_REGISTRY.append(LIBREYOLORFDETR)
+    from .rfdetr.model import LibreYOLORFDETR  # noqa: F811
+    MODEL_REGISTRY.append(LibreYOLORFDETR)
 
 
 # ---------------------------------------------------------------------------
@@ -140,10 +140,10 @@ def download_weights(model_path: str, size: str):
 
 
 # ---------------------------------------------------------------------------
-# LIBREYOLO — unified factory function
+# LibreYOLO — unified factory function
 # ---------------------------------------------------------------------------
 
-def LIBREYOLO(
+def LibreYOLO(
     model_path: str,
     size: str = None,
     reg_max: int = 16,
@@ -163,7 +163,7 @@ def LIBREYOLO(
         device: Device for inference ("auto", "cuda", "cpu", "mps").
 
     Returns:
-        Model instance (LIBREYOLOX, LIBREYOLO9, LIBREYOLORFDETR, or inference backend).
+        Model instance (LibreYOLOX, LibreYOLO9, LibreYOLORFDETR, or inference backend).
     """
     import torch
 
@@ -171,23 +171,23 @@ def LIBREYOLO(
 
     # --- Non-PyTorch formats: delegate to inference backends ---
     if model_path.endswith(".onnx"):
-        from ..inference.onnx import LIBREYOLOOnnx
-        return LIBREYOLOOnnx(model_path, nb_classes=nb_classes or 80, device=device)
+        from ..inference.onnx import OnnxBackend
+        return OnnxBackend(model_path, nb_classes=nb_classes or 80, device=device)
 
     if model_path.endswith(".engine"):
-        from ..inference.tensorrt import LIBREYOLOTensorRT
-        return LIBREYOLOTensorRT(model_path, nb_classes=nb_classes, device=device)
+        from ..inference.tensorrt import TensorRTBackend
+        return TensorRTBackend(model_path, nb_classes=nb_classes, device=device)
 
     if Path(model_path).is_dir() and (Path(model_path) / "model.xml").exists():
-        from ..inference.openvino import LIBREYOLOOpenVINO
-        return LIBREYOLOOpenVINO(model_path, nb_classes=nb_classes, device=device)
+        from ..inference.openvino import OpenVINOBackend
+        return OpenVINOBackend(model_path, nb_classes=nb_classes, device=device)
 
     if Path(model_path).is_dir():
         ncnn_param = Path(model_path) / "model.ncnn.param"
         ncnn_bin = Path(model_path) / "model.ncnn.bin"
         if ncnn_param.exists() and ncnn_bin.exists():
-            from ..inference.ncnn import LIBREYOLONCNN
-            return LIBREYOLONCNN(model_path, nb_classes=nb_classes, device=device)
+            from ..inference.ncnn import NcnnBackend
+            return NcnnBackend(model_path, nb_classes=nb_classes, device=device)
 
     # --- Download if missing ---
     if not Path(model_path).exists():
@@ -264,7 +264,7 @@ def LIBREYOLO(
 
     # --- Auto-detect size ---
     if size is None:
-        if matched_cls.__name__ == "LIBREYOLORFDETR":
+        if matched_cls.__name__ == "LibreYOLORFDETR":
             # RF-DETR needs the full checkpoint for args-based detection
             size = matched_cls.detect_size(weights_dict, state_dict=state_dict)
         else:
@@ -277,7 +277,7 @@ def LIBREYOLO(
         if size is None:
             raise ValueError(
                 f"Could not automatically detect {matched_cls.__name__} model size.\n"
-                f"Please specify size explicitly: LIBREYOLO('{model_path}', size='s')"
+                f"Please specify size explicitly: LibreYOLO('{model_path}', size='s')"
             )
         print(f"Auto-detected size: {size}")
 
@@ -293,7 +293,7 @@ def LIBREYOLO(
     # For old/pretrained checkpoints, pass the extracted state_dict directly.
     has_metadata = isinstance(state_dict, dict) and "nc" in state_dict
 
-    if matched_cls.__name__ == "LIBREYOLORFDETR":
+    if matched_cls.__name__ == "LibreYOLORFDETR":
         # RF-DETR always needs the path (handles its own loading internally)
         model = matched_cls(
             model_path=model_path, size=size, nb_classes=nb_classes, device=device
@@ -302,13 +302,13 @@ def LIBREYOLO(
         # Our trainer checkpoint — pass path for metadata handling
         model = matched_cls(
             model_path=model_path, size=size, nb_classes=80,
-            device=device, **({"reg_max": reg_max} if matched_cls.__name__ == "LIBREYOLO9" else {})
+            device=device, **({"reg_max": reg_max} if matched_cls.__name__ == "LibreYOLO9" else {})
         )
     else:
         # Pretrained checkpoint — pass extracted state dict
         model = matched_cls(
             model_path=weights_dict, size=size, nb_classes=nb_classes,
-            device=device, **({"reg_max": reg_max} if matched_cls.__name__ == "LIBREYOLO9" else {})
+            device=device, **({"reg_max": reg_max} if matched_cls.__name__ == "LibreYOLO9" else {})
         )
 
     model.model_path = model_path
@@ -317,8 +317,8 @@ def LIBREYOLO(
 
 __all__ = [
     "MODEL_REGISTRY",
-    "LIBREYOLO",
-    "LIBREYOLOX",
-    "LIBREYOLO9",
-    "LibreYOLOBase",
+    "LibreYOLO",
+    "LibreYOLOX",
+    "LibreYOLO9",
+    "BaseModel",
 ]

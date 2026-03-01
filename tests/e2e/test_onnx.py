@@ -214,8 +214,8 @@ class TestONNXSimplification:
         assert simp_size <= raw_size * 1.1, "Simplified model should not be much larger"
 
         # Both should produce valid results
-        from libreyolo import LIBREYOLO
-        onnx_model = LIBREYOLO(onnx_simp_path, device=device)
+        from libreyolo import LibreYOLO
+        onnx_model = LibreYOLO(onnx_simp_path, device=device)
         result = onnx_model(sample_image, conf=0.25)
         assert result is not None
 

@@ -27,14 +27,14 @@ class Exporter:
         - ncnn: ncnn format (mobile ARM / embedded CPU deployment)
 
     Args:
-        model: A LibreYOLOBase subclass instance (LIBREYOLOX, LIBREYOLO9, etc.).
+        model: A BaseModel subclass instance (LibreYOLOX, LibreYOLO9, etc.).
 
     Example::
 
-        from libreyolo import LIBREYOLOX
+        from libreyolo import LibreYOLOX
         from libreyolo.export import Exporter
 
-        model = LIBREYOLOX("weights.pt", size="s")
+        model = LibreYOLOX("weights.pt", size="s")
         exporter = Exporter(model)
 
         # Basic ONNX export

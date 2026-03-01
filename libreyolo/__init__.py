@@ -3,7 +3,7 @@ from importlib.metadata import version, PackageNotFoundError
 from pathlib import Path as _Path
 
 # Core API — always available
-from .models import LIBREYOLO, LIBREYOLOX, LIBREYOLO9
+from .models import LibreYOLO, LibreYOLOX, LibreYOLO9
 from .utils.results import Results, Boxes
 
 SAMPLE_IMAGE = str(_Path(__file__).parent / "assets" / "parkour.jpg")
@@ -17,11 +17,11 @@ except PackageNotFoundError:
 # Lazy imports for optional/heavy modules
 def __getattr__(name):
     _lazy = {
-        "LIBREYOLORFDETR": (".models.rfdetr.model", "LIBREYOLORFDETR"),
-        "LIBREYOLOOnnx": (".inference.onnx", "LIBREYOLOOnnx"),
-        "LIBREYOLOOpenVINO": (".inference.openvino", "LIBREYOLOOpenVINO"),
-        "LIBREYOLOTensorRT": (".inference.tensorrt", "LIBREYOLOTensorRT"),
-        "LIBREYOLONCNN": (".inference.ncnn", "LIBREYOLONCNN"),
+        "LibreYOLORFDETR": (".models.rfdetr.model", "LibreYOLORFDETR"),
+        "OnnxBackend": (".inference.onnx", "OnnxBackend"),
+        "OpenVINOBackend": (".inference.openvino", "OpenVINOBackend"),
+        "TensorRTBackend": (".inference.tensorrt", "TensorRTBackend"),
+        "NcnnBackend": (".inference.ncnn", "NcnnBackend"),
         "Exporter": (".export", "Exporter"),
         "DetectionValidator": (".validation", "DetectionValidator"),
         "ValidationConfig": (".validation", "ValidationConfig"),
@@ -31,7 +31,7 @@ def __getattr__(name):
         "load_data_config": (".data", "load_data_config"),
         "check_dataset": (".data", "check_dataset"),
     }
-    if name == "LIBREYOLORFDETR":
+    if name == "LibreYOLORFDETR":
         # RF-DETR needs dependency check before import
         from .models import _ensure_rfdetr
         _ensure_rfdetr()
@@ -45,20 +45,20 @@ def __getattr__(name):
 
 __all__ = [
     # Main API
-    "LIBREYOLO",
-    "LIBREYOLO9",
-    "LIBREYOLOX",
-    "LIBREYOLORFDETR",
+    "LibreYOLO",
+    "LibreYOLO9",
+    "LibreYOLOX",
+    "LibreYOLORFDETR",
     # Results
     "Results",
     "Boxes",
     # Assets
     "SAMPLE_IMAGE",
     # Lazy-loaded
-    "LIBREYOLOOnnx",
-    "LIBREYOLOOpenVINO",
-    "LIBREYOLOTensorRT",
-    "LIBREYOLONCNN",
+    "OnnxBackend",
+    "OpenVINOBackend",
+    "TensorRTBackend",
+    "NcnnBackend",
     "Exporter",
     "DetectionValidator",
     "ValidationConfig",
