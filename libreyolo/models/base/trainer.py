@@ -108,6 +108,7 @@ class BaseTrainer:
         self.best_mAP50 = 0.0
         self.best_epoch = 0
         self.final_loss = 0.0
+        self.epoch_losses: List[float] = []
         self.patience_counter = 0
 
         # Initialised in setup()
@@ -399,6 +400,7 @@ class BaseTrainer:
 
             epoch_loss, val_metrics = self._train_epoch(epoch)
             self.final_loss = epoch_loss
+            self.epoch_losses.append(epoch_loss)
 
             if (epoch + 1) % self.cfg["save_period"] == 0 or epoch == self.cfg["epochs"] - 1:
                 self._save_checkpoint(epoch, epoch_loss, val_metrics)
@@ -419,6 +421,7 @@ class BaseTrainer:
         weights_dir = self.save_dir / "weights"
         return {
             "final_loss": self.final_loss,
+            "epoch_losses": list(self.epoch_losses),
             "best_mAP50": self.best_mAP50,
             "best_mAP50_95": self.best_mAP50_95,
             "best_epoch": self.best_epoch,
