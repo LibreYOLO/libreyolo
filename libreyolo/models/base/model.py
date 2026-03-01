@@ -18,18 +18,6 @@ from ...utils.image_loader import ImageInput
 from ...utils.results import Results
 
 
-_FAMILY_ALIASES = {
-    "LIBREYOLOX": "yolox",
-    "LIBREYOLO9": "yolo9",
-    "libreyolo9": "yolo9",
-    "LIBREYOLORFDETR": "rfdetr",
-    "v9": "yolo9",
-}
-
-
-def _normalize_family(raw: str) -> str:
-    return _FAMILY_ALIASES.get(raw, raw.lower())
-
 
 class BaseModel(ABC):
     """
@@ -296,7 +284,7 @@ class BaseModel(ABC):
 
                 # Reject cross-family loading
                 own_family = self._get_model_name()
-                ckpt_family = _normalize_family(loaded.get("model_family", ""))
+                ckpt_family = loaded.get("model_family", "")
                 if ckpt_family and ckpt_family != own_family:
                     raise RuntimeError(
                         f"Checkpoint was trained with model_family='{ckpt_family}' "

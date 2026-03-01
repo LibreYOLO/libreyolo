@@ -25,18 +25,6 @@ from ..models.yolox.utils import preprocess_image as preprocess_yolox
 _IMAGENET_MEAN = np.array([0.485, 0.456, 0.406], dtype=np.float32).reshape(3, 1, 1)
 _IMAGENET_STD = np.array([0.229, 0.224, 0.225], dtype=np.float32).reshape(3, 1, 1)
 
-_FAMILY_ALIASES = {
-    "LIBREYOLOX": "yolox",
-    "LIBREYOLO9": "yolo9",
-    "libreyolo9": "yolo9",
-    "LIBREYOLORFDETR": "rfdetr",
-    "v9": "yolo9",
-}
-
-
-def _normalize_family(raw: str) -> str:
-    return _FAMILY_ALIASES.get(raw, raw.lower())
-
 
 def preprocess_rfdetr(image, input_size: int, **_kwargs):
     """Preprocess image for RF-DETR TensorRT inference.
@@ -120,8 +108,7 @@ class TensorRTBackend:
 
         # Priority: explicit arg > sidecar > default (80)
         self.nb_classes = nb_classes if nb_classes is not None else self._metadata.get("nb_classes", 80)
-        raw_family = self._metadata.get("model_family")
-        self.model_family = _normalize_family(raw_family) if raw_family is not None else None
+        self.model_family = self._metadata.get("model_family")
         self._sidecar_size = self._metadata.get("model_size")
 
         # Build names dict: sidecar names when available, else COCO / generic

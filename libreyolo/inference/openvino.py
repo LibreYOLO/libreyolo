@@ -16,18 +16,6 @@ from ..utils.image_loader import ImageLoader
 from ..utils.results import Boxes, Results
 from ..models.yolox.utils import preprocess_image as yolox_preprocess_image
 
-_FAMILY_ALIASES = {
-    "LIBREYOLOX": "yolox",
-    "LIBREYOLO9": "yolo9",
-    "libreyolo9": "yolo9",
-    "LIBREYOLORFDETR": "rfdetr",
-    "v9": "yolo9",
-}
-
-
-def _normalize_family(raw: str) -> str:
-    return _FAMILY_ALIASES.get(raw, raw.lower())
-
 
 def _nms(boxes: np.ndarray, scores: np.ndarray, iou_threshold: float = 0.45) -> list:
     """Numpy-based Non-Maximum Suppression."""
@@ -141,8 +129,7 @@ class OpenVINOBackend:
         if meta is None:
             meta = {}
 
-        raw_family = meta.get("model_family")
-        self.model_family = _normalize_family(raw_family) if raw_family is not None else None
+        self.model_family = meta.get("model_family")
 
         if "imgsz" in meta:
             self.imgsz = int(meta["imgsz"])
