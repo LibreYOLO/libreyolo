@@ -16,9 +16,9 @@ import yaml
 from torch.cuda.amp import GradScaler, autocast
 from tqdm import tqdm
 
-from ...training.ema import ModelEMA
-from ...data.dataset import YOLODataset, COCODataset, create_dataloader
-from ...data import load_data_config
+from .ema import ModelEMA
+from ..data.dataset import YOLODataset, COCODataset, create_dataloader
+from ..data import load_data_config
 
 
 logger = logging.getLogger(__name__)

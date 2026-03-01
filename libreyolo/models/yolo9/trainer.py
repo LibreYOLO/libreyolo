@@ -8,7 +8,7 @@ and loss extraction.
 import torch
 from typing import Dict
 
-from ..base.trainer import BaseTrainer
+from libreyolo.training.base_trainer import BaseTrainer
 from ...training.scheduler import LinearLRScheduler, CosineAnnealingScheduler
 from .transforms import YOLO9TrainTransform, YOLO9MosaicMixupDataset
 

@@ -154,14 +154,18 @@ class LibreYOLORFDETR(BaseModel):
         else:
             self._pretrain_weights = model_path
 
-        # Pass special marker for BaseModel to skip weight loading
         super().__init__(
-            model_path="__skip_loading__",  # Special marker to skip _load_weights
+            model_path=None,
             size=size,
             nb_classes=nb_classes,
             device=device,
             **kwargs,
         )
+
+        # RF-DETR loads its own weights in _init_model() via pretrain_weights,
+        # so put in eval mode when weights were provided.
+        if self._pretrain_weights is not None:
+            self.model.eval()
 
     def _get_valid_sizes(self) -> List[str]:
         return ["n", "s", "m", "l"]
@@ -198,12 +202,6 @@ class LibreYOLORFDETR(BaseModel):
     def _strict_loading(self) -> bool:
         """Use non-strict loading for RF-DETR."""
         return False
-
-    def _load_weights(self, model_path: str):
-        """Override to handle RF-DETR special initialization marker."""
-        if model_path == "__skip_loading__":
-            return
-        super()._load_weights(model_path)
 
     def _preprocess(
         self, image: ImageInput, color_format: str = "auto", input_size: Optional[int] = None,

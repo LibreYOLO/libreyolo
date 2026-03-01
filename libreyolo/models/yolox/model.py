@@ -109,8 +109,12 @@ class LibreYOLOX(BaseModel):
             **kwargs,
         )
 
+        # Load weights explicitly (BaseModel stores path but doesn't auto-load)
+        if isinstance(model_path, str):
+            self._load_weights(model_path)
+
         # Apply nano-specific BatchNorm settings (matching official YOLOX).
-        # Must run after super().__init__() which loads weights.
+        # Must run after weight loading.
         if self.size == 'nano':
             for m in self.model.modules():
                 if isinstance(m, nn.BatchNorm2d):

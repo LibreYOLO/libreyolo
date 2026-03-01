@@ -110,6 +110,10 @@ class LibreYOLO9(BaseModel):
             **kwargs,
         )
 
+        # Load weights explicitly (BaseModel stores path but doesn't auto-load)
+        if isinstance(model_path, str):
+            self._load_weights(model_path)
+
     def _get_valid_sizes(self) -> List[str]:
         return ["t", "s", "m", "c"]
 

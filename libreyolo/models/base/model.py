@@ -186,7 +186,6 @@ class BaseModel(ABC):
             self.model.load_state_dict(model_path, strict=self._strict_loading())
         else:
             self.model_path = model_path
-            self._load_weights(model_path)
 
         # Fresh models start in train mode; loaded models in eval mode
         if model_path is None:
