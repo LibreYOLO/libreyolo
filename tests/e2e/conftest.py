@@ -216,7 +216,11 @@ def get_model_weights(model_type: str, size: str) -> str:
 # ---------------------------------------------------------------------------
 
 def compute_iou(box1, box2):
-    """Compute IoU between two boxes in xyxy format."""
+    """Compute IoU between two boxes in xyxy format.
+
+    Simple Python implementation for test utilities (no torch dependency).
+    For GPU-accelerated IoU, see libreyolo.utils.box_ops.
+    """
     x1 = max(box1[0], box2[0])
     y1 = max(box1[1], box2[1])
     x2 = min(box1[2], box2[2])

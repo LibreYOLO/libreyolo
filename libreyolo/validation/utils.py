@@ -9,28 +9,7 @@ from typing import Dict, List, Tuple
 import numpy as np
 import torch
 
-
-def box_iou(boxes1: torch.Tensor, boxes2: torch.Tensor) -> torch.Tensor:
-    """
-    Compute IoU between two sets of boxes.
-
-    Args:
-        boxes1: Tensor of shape (N, 4) in xyxy format
-        boxes2: Tensor of shape (M, 4) in xyxy format
-
-    Returns:
-        IoU matrix of shape (N, M)
-    """
-    area1 = (boxes1[:, 2] - boxes1[:, 0]) * (boxes1[:, 3] - boxes1[:, 1])
-    area2 = (boxes2[:, 2] - boxes2[:, 0]) * (boxes2[:, 3] - boxes2[:, 1])
-
-    lt = torch.max(boxes1[:, None, :2], boxes2[:, :2])
-    rb = torch.min(boxes1[:, None, 2:], boxes2[:, 2:])
-    wh = (rb - lt).clamp(min=0)
-    inter = wh[:, :, 0] * wh[:, :, 1]
-
-    union = area1[:, None] + area2 - inter
-    return inter / (union + 1e-7)
+from ..utils.box_ops import box_iou
 
 
 def match_predictions_to_gt(
