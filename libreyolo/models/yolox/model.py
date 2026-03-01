@@ -145,15 +145,12 @@ class LibreYOLOX(BaseModel):
 
     def _preprocess(
         self, image: ImageInput, color_format: str = "auto", input_size: Optional[int] = None,
-    ) -> Tuple[torch.Tensor, Image.Image, Tuple[int, int]]:
-        """YOLOX preprocessing with letterbox - stores ratio for postprocessing."""
+    ) -> Tuple[torch.Tensor, Image.Image, Tuple[int, int], float]:
+        """YOLOX preprocessing with letterbox."""
         effective_size = input_size if input_size is not None else self.input_size
-        tensor, orig_img, orig_size, ratio = _yolox_preprocess(
+        return _yolox_preprocess(
             image, input_size=effective_size, color_format=color_format
         )
-        # Store ratio for use in _postprocess
-        self._current_ratio = ratio
-        return tensor, orig_img, orig_size
 
     def _forward(self, input_tensor: torch.Tensor) -> Any:
         return self.model(input_tensor)
@@ -165,22 +162,17 @@ class LibreYOLOX(BaseModel):
         iou_thres: float,
         original_size: Tuple[int, int],
         max_det: int = 300,
+        ratio: float = 1.0,
         **kwargs,
     ) -> Dict:
-        # Compute ratio from original_size if not set during _preprocess
-        # This handles batch validation where _preprocess is not called per-image
-        ratio = getattr(self, "_current_ratio", None)
-
         # Use passed input_size if available (from validator), otherwise use model's default
-        # This is important when validation uses a different size than model's native size
         actual_input_size = kwargs.get('input_size', self.input_size)
 
-        if ratio is None and original_size is not None:
+        # Recompute ratio if caller passed default (batch validation path)
+        if ratio == 1.0 and original_size is not None:
             orig_w, orig_h = original_size
-            # Use actual input size for ratio calculation
             ratio = min(actual_input_size / orig_h, actual_input_size / orig_w)
-        elif ratio is None:
-            ratio = 1.0
+
         return postprocess(
             output,
             conf_thres=conf_thres,

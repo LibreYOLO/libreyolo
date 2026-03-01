@@ -4,14 +4,65 @@ Utility functions for LibreYOLO v9.
 Provides preprocessing and postprocessing functions for YOLOv9 inference.
 """
 
+import numpy as np
 import torch
 from typing import Tuple, Dict, List
+from PIL import Image
 
 # Import shared utilities
 from ...utils.general import (
-    COCO_CLASSES, make_anchors, nms, postprocess_detections, preprocess_image,
+    COCO_CLASSES, make_anchors, nms, postprocess_detections,
 )
 from ...utils.drawing import draw_boxes, get_class_color
+from ...utils.image_loader import ImageLoader, ImageInput
+
+
+def preprocess_numpy(
+    img_rgb_hwc: np.ndarray,
+    input_size: int = 640,
+) -> Tuple[np.ndarray, float]:
+    """
+    Preprocess RGB HWC uint8 image for YOLOv9 inference.
+
+    Simple resize + normalize to 0-1 range.
+
+    Args:
+        img_rgb_hwc: Input image as RGB HWC uint8 numpy array.
+        input_size: Target size for the model.
+
+    Returns:
+        Tuple of (preprocessed CHW float32 array in RGB 0-1, ratio).
+    """
+    img_resized = Image.fromarray(img_rgb_hwc).resize(
+        (input_size, input_size), Image.Resampling.BILINEAR
+    )
+    arr = np.array(img_resized, dtype=np.float32) / 255.0
+    return arr.transpose(2, 0, 1), 1.0
+
+
+def preprocess_image(
+    image: ImageInput,
+    input_size: int = 640,
+    color_format: str = "auto"
+) -> Tuple[torch.Tensor, Image.Image, Tuple[int, int]]:
+    """
+    Preprocess image for YOLOv9 inference.
+
+    Args:
+        image: Input image (path, PIL, numpy, tensor, bytes, etc.)
+        input_size: Target size for resizing (default: 640)
+        color_format: Color format hint ("auto", "rgb", "bgr")
+
+    Returns:
+        Tuple of (preprocessed_tensor, original_image, original_size)
+    """
+    img = ImageLoader.load(image, color_format=color_format)
+    original_size = img.size  # (width, height)
+    original_img = img.copy()
+
+    img_chw, _ = preprocess_numpy(np.array(img), input_size)
+    img_tensor = torch.from_numpy(img_chw).unsqueeze(0)
+    return img_tensor, original_img, original_size
 
 
 def postprocess(

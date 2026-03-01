@@ -94,11 +94,8 @@ class CalibrationDataLoader:
         """
         Preprocess a single image for calibration.
 
-        Performs resize and normalization matching inference preprocessing.
-        Uses model-specific preprocessing:
-        - YOLOX: BGR color, 0-255 range, letterbox
-        - YOLOv9: RGB color, 0-1 range, letterbox
-        - RF-DETR: RGB color, ImageNet mean/std normalization, direct resize
+        Delegates to each model family's preprocess_numpy() to match
+        inference preprocessing exactly.
 
         Args:
             img_path: Path to image file.
@@ -106,45 +103,21 @@ class CalibrationDataLoader:
         Returns:
             Preprocessed image as CHW float32 array.
         """
-        # Read image (cv2 loads as BGR)
+        # Read image (cv2 loads as BGR) and convert to RGB
         img = cv2.imread(str(img_path))
         if img is None:
             raise FileNotFoundError(f"Cannot read image: {img_path}")
+        img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
 
-        # Color space: YOLOX uses BGR, YOLOv9/RF-DETR use RGB
-        if self.model_type != "yolox":
-            img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-
-        if self.model_type == "rfdetr":
-            # RF-DETR: direct resize (no letterbox), ImageNet normalization
-            img = cv2.resize(img, (self.imgsz, self.imgsz), interpolation=cv2.INTER_LINEAR)
-            img = img.transpose(2, 0, 1).astype(np.float32) / 255.0
-            mean = np.array([0.485, 0.456, 0.406], dtype=np.float32).reshape(3, 1, 1)
-            std = np.array([0.229, 0.224, 0.225], dtype=np.float32).reshape(3, 1, 1)
-            img = (img - mean) / std
-            return img
-
-        # Letterbox resize to target size
-        h, w = img.shape[:2]
-        scale = min(self.imgsz / h, self.imgsz / w)
-        new_h, new_w = int(h * scale), int(w * scale)
-
-        img = cv2.resize(img, (new_w, new_h), interpolation=cv2.INTER_LINEAR)
-
-        # Create padded image (gray padding like YOLO)
-        padded = np.full((self.imgsz, self.imgsz, 3), 114, dtype=np.uint8)
-        pad_h = (self.imgsz - new_h) // 2
-        pad_w = (self.imgsz - new_w) // 2
-        padded[pad_h:pad_h + new_h, pad_w:pad_w + new_w] = img
-
-        # Convert to CHW float32
-        # YOLOX: 0-255 range, YOLOv9: 0-1 range
         if self.model_type == "yolox":
-            padded = padded.transpose(2, 0, 1).astype(np.float32)
+            from libreyolo.models.yolox.utils import preprocess_numpy
+        elif self.model_type == "rfdetr":
+            from libreyolo.models.rfdetr.utils import preprocess_numpy
         else:
-            padded = padded.transpose(2, 0, 1).astype(np.float32) / 255.0
+            from libreyolo.models.yolo9.utils import preprocess_numpy
 
-        return padded
+        result, _ = preprocess_numpy(img_rgb, self.imgsz)
+        return result
 
     def __iter__(self) -> Iterator[np.ndarray]:
         """Yield batches of calibration data as numpy arrays."""

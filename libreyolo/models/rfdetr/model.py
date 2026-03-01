@@ -17,14 +17,9 @@ from PIL import Image
 from ..base import BaseModel
 from ...utils.image_loader import ImageInput, ImageLoader
 from .nn import LibreRFDETRModel, RFDETR_CONFIGS
-from .utils import postprocess
+from .utils import postprocess, IMAGENET_MEAN, IMAGENET_STD
 from .trainer import train_rfdetr, RFDETR_TRAINERS
 from ...validation.preprocessors import RFDETRValPreprocessor
-
-
-# ImageNet normalization constants (same as original rfdetr)
-IMAGENET_MEAN = [0.485, 0.456, 0.406]
-IMAGENET_STD = [0.229, 0.224, 0.225]
 
 # COCO 91-class to 80-class mapping.
 # RF-DETR pretrained models output 91 COCO category IDs (1-90),
@@ -205,7 +200,7 @@ class LibreYOLORFDETR(BaseModel):
 
     def _preprocess(
         self, image: ImageInput, color_format: str = "auto", input_size: Optional[int] = None,
-    ) -> Tuple[torch.Tensor, Image.Image, Tuple[int, int]]:
+    ) -> Tuple[torch.Tensor, Image.Image, Tuple[int, int], float]:
         """
         Preprocess image for inference.
 
@@ -246,7 +241,7 @@ class LibreYOLORFDETR(BaseModel):
         # Add batch dimension
         img_tensor = img_tensor.unsqueeze(0)
 
-        return img_tensor, img, orig_size
+        return img_tensor, img, orig_size, 1.0
 
     def _forward(self, input_tensor: torch.Tensor) -> Any:
         """Run model forward pass."""

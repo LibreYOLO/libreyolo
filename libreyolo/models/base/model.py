@@ -75,13 +75,16 @@ class BaseModel(ABC):
     @abstractmethod
     def _preprocess(
         self, image: ImageInput, color_format: str = "auto", input_size: Optional[int] = None
-    ) -> Tuple[torch.Tensor, Image.Image, Tuple[int, int]]:
+    ) -> Tuple[torch.Tensor, Image.Image, Tuple[int, int], float]:
         """Preprocess image for inference.
 
         Args:
             image: Input image.
             color_format: Color format hint.
             input_size: Override input size (None = model default).
+
+        Returns:
+            Tuple of (input_tensor, original_image, original_size, ratio).
         """
         pass
 
@@ -98,6 +101,7 @@ class BaseModel(ABC):
         iou_thres: float,
         original_size: Tuple[int, int],
         max_det: int = 300,
+        ratio: float = 1.0,
     ) -> Dict:
         """Postprocess model output to detections."""
         pass

@@ -15,7 +15,8 @@ import torch
 from PIL import Image
 
 from ..utils.drawing import draw_boxes
-from ..utils.general import preprocess_image, get_safe_stem, COCO_CLASSES
+from ..utils.general import get_safe_stem, COCO_CLASSES
+from ..models.yolo9.utils import preprocess_image
 from ..utils.image_loader import ImageLoader
 from ..utils.results import Boxes, Results
 from ..models.yolox.utils import preprocess_image as yolox_preprocess_image
@@ -198,12 +199,9 @@ class BaseBackend(ABC):
         effective_imgsz = imgsz if imgsz is not None else self.imgsz
 
         # 1. Preprocess
-        preprocess_out = self._preprocess(image, effective_imgsz, color_format)
-        if len(preprocess_out) == 4:
-            input_tensor, original_img, original_size, ratio = preprocess_out
-            self._yolox_ratio = ratio
-        else:
-            input_tensor, original_img, original_size = preprocess_out
+        input_tensor, original_img, original_size, ratio = self._preprocess(
+            image, effective_imgsz, color_format
+        )
 
         blob = input_tensor.numpy()
 
@@ -212,7 +210,7 @@ class BaseBackend(ABC):
 
         # 3. Parse outputs
         boxes, max_scores, class_ids = self._parse_outputs(
-            all_outputs, effective_imgsz, original_size, conf
+            all_outputs, effective_imgsz, original_size, conf, ratio=ratio
         )
 
         # 4. Build result
@@ -240,35 +238,37 @@ class BaseBackend(ABC):
     # ------------------------------------------------------------------
 
     def _preprocess(self, image, effective_imgsz, color_format):
-        """Dispatch to model-family-specific preprocessing."""
+        """Dispatch to model-family-specific preprocessing.
+
+        Returns:
+            Tuple of (input_tensor, original_img, original_size, ratio).
+        """
         if self.model_family == "yolox":
             return yolox_preprocess_image(
                 image, input_size=effective_imgsz, color_format=color_format
             )
         elif self.model_family == "rfdetr":
-            return self._preprocess_rfdetr(image, effective_imgsz, color_format)
+            tensor, img, size = self._preprocess_rfdetr(
+                image, effective_imgsz, color_format
+            )
+            return tensor, img, size, 1.0
         else:
-            return preprocess_image(
+            tensor, img, size = preprocess_image(
                 image, input_size=effective_imgsz, color_format=color_format
             )
+            return tensor, img, size, 1.0
 
     @staticmethod
     def _preprocess_rfdetr(image, input_size, color_format):
         """RF-DETR preprocessing: direct resize + ImageNet normalization."""
+        from ..models.rfdetr.utils import preprocess_numpy as rfdetr_preprocess_numpy
+
         img = ImageLoader.load(image, color_format=color_format)
         original_size = img.size  # (W, H)
         original_img = img.copy()
 
-        img_resized = img.resize(
-            (input_size, input_size), Image.Resampling.BILINEAR
-        )
-        img_array = np.array(img_resized, dtype=np.float32) / 255.0
-
-        mean = np.array([0.485, 0.456, 0.406], dtype=np.float32)
-        std = np.array([0.229, 0.224, 0.225], dtype=np.float32)
-        img_array = (img_array - mean) / std
-
-        img_tensor = torch.from_numpy(img_array).permute(2, 0, 1).unsqueeze(0)
+        img_chw, _ = rfdetr_preprocess_numpy(np.array(img), input_size)
+        img_tensor = torch.from_numpy(img_chw).unsqueeze(0)
         return img_tensor, original_img, original_size
 
     # ------------------------------------------------------------------
@@ -281,13 +281,14 @@ class BaseBackend(ABC):
         effective_imgsz: int,
         original_size: tuple,
         conf: float,
+        ratio: float = 1.0,
     ):
         """Parse raw outputs into (boxes_xyxy, scores, class_ids)."""
         orig_w, orig_h = original_size
 
         if self.model_family == "yolox":
             return self._parse_yolox(
-                all_outputs, effective_imgsz, orig_w, orig_h, conf
+                all_outputs, effective_imgsz, orig_w, orig_h, conf, ratio
             )
         elif self.model_family == "rfdetr":
             return self._parse_rfdetr(all_outputs, orig_w, orig_h, conf)
@@ -296,7 +297,7 @@ class BaseBackend(ABC):
                 all_outputs, effective_imgsz, orig_w, orig_h, conf
             )
 
-    def _parse_yolox(self, all_outputs, effective_imgsz, orig_w, orig_h, conf):
+    def _parse_yolox(self, all_outputs, effective_imgsz, orig_w, orig_h, conf, ratio=1.0):
         """Parse YOLOX output: (B, N, 5+nc) — cxcywh + objectness + class_scores."""
         outputs = all_outputs[0][0]  # (N, 5+nc)
 
@@ -321,7 +322,6 @@ class BaseBackend(ABC):
         y2 = cy + h / 2
         boxes = np.stack([x1, y1, x2, y2], axis=1)
 
-        ratio = getattr(self, "_yolox_ratio", 1.0)
         boxes /= ratio
         boxes[:, [0, 2]] = np.clip(boxes[:, [0, 2]], 0, orig_w)
         boxes[:, [1, 3]] = np.clip(boxes[:, [1, 3]], 0, orig_h)
@@ -368,6 +368,18 @@ class BaseBackend(ABC):
         mask = max_scores > conf
         boxes_raw = boxes_raw[mask]
         max_scores, class_ids = max_scores[mask], class_ids[mask]
+
+        if len(boxes_raw) == 0:
+            return boxes_raw, max_scores, class_ids
+
+        # Apply COCO 91→80 class mapping if needed
+        if logits.shape[1] == 91 and self.nb_classes == 80:
+            from ..models.rfdetr.model import _COCO91_TO_COCO80
+            mapped = np.array([_COCO91_TO_COCO80.get(int(c), -1) for c in class_ids])
+            valid = mapped >= 0
+            boxes_raw = boxes_raw[valid]
+            max_scores = max_scores[valid]
+            class_ids = mapped[valid]
 
         if len(boxes_raw) == 0:
             return boxes_raw, max_scores, class_ids

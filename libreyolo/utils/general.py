@@ -7,9 +7,6 @@ from pathlib import Path
 from typing import Tuple, List, Union, Dict
 from urllib.parse import urlparse
 
-from .image_loader import ImageLoader, ImageInput
-
-
 def get_slice_bboxes(
     image_width: int,
     image_height: int,
@@ -89,52 +86,6 @@ def cxcywh_to_xyxy(boxes: torch.Tensor) -> torch.Tensor:
     x2 = cx + w / 2
     y2 = cy + h / 2
     return torch.stack([x1, y1, x2, y2], dim=-1)
-
-
-def preprocess_image(
-    image: ImageInput,
-    input_size: int = 640,
-    color_format: str = "auto"
-) -> Tuple[torch.Tensor, "Image.Image", Tuple[int, int]]:
-    """
-    Preprocess image for model inference.
-
-    Args:
-        image: Input image. Supported types:
-            - str: Local file path or URL (http/https/s3/gs)
-            - pathlib.Path: Local file path
-            - PIL.Image: PIL Image object
-            - np.ndarray: NumPy array (HWC or CHW, RGB or BGR)
-            - torch.Tensor: PyTorch tensor (CHW or NCHW)
-            - bytes: Raw image bytes
-            - io.BytesIO: BytesIO object containing image data
-        input_size: Target size for resizing (default: 640)
-        color_format: Color format hint for NumPy/OpenCV arrays.
-            - "auto": Auto-detect (default)
-            - "rgb": Input is RGB format
-            - "bgr": Input is BGR format (e.g., OpenCV)
-
-    Returns:
-        Tuple of (preprocessed_tensor, original_image, original_size)
-    """
-    from PIL import Image
-
-    # Use unified ImageLoader to handle all input types
-    img = ImageLoader.load(image, color_format=color_format)
-
-    original_size = img.size  # (width, height)
-    original_img = img.copy()
-
-    # Resize to input_size (simple resize, maintain aspect ratio could be added)
-    img_resized = img.resize((input_size, input_size), Image.Resampling.BILINEAR)
-
-    # Convert to numpy and normalize
-    img_array = np.array(img_resized, dtype=np.float32) / 255.0
-
-    # Convert to tensor: HWC -> CHW -> add batch dimension
-    img_tensor = torch.from_numpy(img_array).permute(2, 0, 1).unsqueeze(0)
-
-    return img_tensor, original_img, original_size
 
 
 # =============================================================================

@@ -277,7 +277,7 @@ class InferenceRunner:
         effective_imgsz = imgsz if imgsz is not None else self.model._get_input_size()
 
         # Preprocess
-        input_tensor, original_img, original_size = self.model._preprocess(
+        input_tensor, original_img, original_size, ratio = self.model._preprocess(
             image, color_format, input_size=effective_imgsz
         )
 
@@ -287,7 +287,7 @@ class InferenceRunner:
 
         # Postprocess
         detections = self.model._postprocess(
-            output, conf, iou, original_size, max_det=max_det, **kwargs
+            output, conf, iou, original_size, max_det=max_det, ratio=ratio, **kwargs
         )
 
         # Wrap into Results

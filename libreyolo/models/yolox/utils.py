@@ -12,8 +12,42 @@ from typing import Tuple, List
 from PIL import Image
 
 from ...utils.image_loader import ImageLoader, ImageInput
-from ...utils.general import COCO_CLASSES, nms, cxcywh_to_xyxy
+from ...utils.general import COCO_CLASSES, cxcywh_to_xyxy, postprocess_detections
 from ...utils.drawing import draw_boxes, get_class_color
+
+
+def preprocess_numpy(
+    img_rgb_hwc: np.ndarray,
+    input_size: int = 640,
+) -> Tuple[np.ndarray, float]:
+    """
+    Preprocess RGB HWC uint8 image for YOLOX inference.
+
+    YOLOX-specific: letterbox + RGB to BGR + no normalization (0-255 range).
+
+    Args:
+        img_rgb_hwc: Input image as RGB HWC uint8 numpy array.
+        input_size: Target size for the model.
+
+    Returns:
+        Tuple of (preprocessed CHW float32 array in BGR 0-255, ratio).
+    """
+    orig_h, orig_w = img_rgb_hwc.shape[:2]
+    ratio = min(input_size / orig_h, input_size / orig_w)
+    new_w, new_h = int(orig_w * ratio), int(orig_h * ratio)
+
+    # Resize
+    img_resized = Image.fromarray(img_rgb_hwc).resize(
+        (new_w, new_h), Image.Resampling.BILINEAR
+    )
+
+    # Letterbox with gray padding at top-left
+    padded = Image.new("RGB", (input_size, input_size), (114, 114, 114))
+    padded.paste(img_resized, (0, 0))
+
+    # To numpy, RGB to BGR, keep 0-255, HWC to CHW
+    arr = np.array(padded, dtype=np.float32)[:, :, ::-1].copy()
+    return arr.transpose(2, 0, 1), ratio
 
 
 def preprocess_image(
@@ -36,43 +70,13 @@ def preprocess_image(
 
     Returns:
         Tuple of (preprocessed_tensor, original_image, original_size, ratio)
-        - preprocessed_tensor: (1, 3, H, W) float32 tensor in 0-255 range
-        - original_image: PIL Image copy of original
-        - original_size: (width, height) of original image
-        - ratio: scale ratio applied during preprocessing
     """
-    # Use unified ImageLoader to handle all input types
     img = ImageLoader.load(image, color_format=color_format)
-
     original_size = img.size  # (width, height)
     original_img = img.copy()
 
-    # Calculate scale ratio to fit in input_size while maintaining aspect ratio
-    orig_w, orig_h = original_size
-    ratio = min(input_size / orig_h, input_size / orig_w)
-
-    # Calculate new dimensions
-    new_w = int(orig_w * ratio)
-    new_h = int(orig_h * ratio)
-
-    # Resize image
-    img_resized = img.resize((new_w, new_h), Image.Resampling.BILINEAR)
-
-    # Create padded image with gray background (114, 114, 114)
-    padded_img = Image.new("RGB", (input_size, input_size), (114, 114, 114))
-
-    # Paste resized image at top-left corner
-    padded_img.paste(img_resized, (0, 0))
-
-    # Convert to numpy array (keep 0-255 range, NO normalization)
-    img_array = np.array(padded_img, dtype=np.float32)
-
-    # Convert RGB to BGR (YOLOX was trained on BGR images from cv2)
-    img_array = img_array[:, :, ::-1].copy()
-
-    # Convert to tensor: HWC -> CHW -> add batch dimension
-    img_tensor = torch.from_numpy(img_array).permute(2, 0, 1).unsqueeze(0)
-
+    img_chw, ratio = preprocess_numpy(np.array(img), input_size)
+    img_tensor = torch.from_numpy(img_chw).unsqueeze(0)
     return img_tensor, original_img, original_size, ratio
 
 
@@ -239,65 +243,15 @@ def postprocess(
             valid_scores = valid_scores[valid_mask]
             valid_classes = valid_classes[valid_mask]
 
-    if len(valid_boxes) == 0:
-        return {
-            "boxes": [],
-            "scores": [],
-            "classes": [],
-            "num_detections": 0
-        }
-
-    # Apply NMS per class
-    try:
-        import torchvision.ops
-        use_torchvision_nms = True
-    except ImportError:
-        use_torchvision_nms = False
-
-    unique_classes = torch.unique(valid_classes)
-    keep_indices_list = []
-
-    for cls in unique_classes:
-        cls_mask = valid_classes == cls
-        cls_boxes = valid_boxes[cls_mask]
-        cls_scores = valid_scores[cls_mask]
-
-        if len(cls_boxes) == 0:
-            continue
-
-        if use_torchvision_nms:
-            max_wh = 7680.0
-            boxes_for_nms = cls_boxes + cls.float() * max_wh
-            cls_keep = torchvision.ops.nms(boxes_for_nms, cls_scores, iou_thres)
-        else:
-            cls_keep = nms(cls_boxes, cls_scores, iou_thres)
-
-        cls_indices = torch.where(cls_mask)[0]
-        keep_indices_list.append(cls_indices[cls_keep])
-
-    if len(keep_indices_list) == 0:
-        return {
-            "boxes": [],
-            "scores": [],
-            "classes": [],
-            "num_detections": 0
-        }
-
-    keep_indices = torch.cat(keep_indices_list)
-
-    # Limit to max_det
-    if len(keep_indices) > max_det:
-        final_scores_temp = valid_scores[keep_indices]
-        _, top_indices = torch.topk(final_scores_temp, max_det)
-        keep_indices = keep_indices[top_indices]
-
-    final_boxes = valid_boxes[keep_indices].cpu().numpy()
-    final_scores = valid_scores[keep_indices].cpu().numpy()
-    final_classes = valid_classes[keep_indices].cpu().numpy()
-
-    return {
-        "boxes": final_boxes.tolist(),
-        "scores": final_scores.tolist(),
-        "classes": final_classes.tolist(),
-        "num_detections": len(final_boxes)
-    }
+    # Delegate NMS, max_det, and output formatting to shared pipeline
+    return postprocess_detections(
+        boxes=valid_boxes,
+        scores=valid_scores,
+        class_ids=valid_classes,
+        conf_thres=conf_thres,
+        iou_thres=iou_thres,
+        input_size=input_size,
+        original_size=None,  # already scaled above
+        max_det=max_det,
+        letterbox=False,
+    )

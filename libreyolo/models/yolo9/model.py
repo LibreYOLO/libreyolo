@@ -14,9 +14,8 @@ from PIL import Image
 
 from ..base import BaseModel
 from ...utils.image_loader import ImageInput
-from ...utils.general import preprocess_image
 from .nn import LibreYOLO9Model
-from .utils import postprocess
+from .utils import preprocess_image, postprocess
 from ...validation.preprocessors import YOLO9ValPreprocessor
 
 
@@ -150,9 +149,10 @@ class LibreYOLO9(BaseModel):
 
     def _preprocess(
         self, image: ImageInput, color_format: str = "auto", input_size: Optional[int] = None,
-    ) -> Tuple[torch.Tensor, Image.Image, Tuple[int, int]]:
+    ) -> Tuple[torch.Tensor, Image.Image, Tuple[int, int], float]:
         effective_size = input_size if input_size is not None else 640
-        return preprocess_image(image, input_size=effective_size, color_format=color_format)
+        tensor, img, size = preprocess_image(image, input_size=effective_size, color_format=color_format)
+        return tensor, img, size, 1.0
 
     def _forward(self, input_tensor: torch.Tensor) -> Any:
         return self.model(input_tensor)
