@@ -279,13 +279,11 @@ class LibreYOLOX(BaseModel):
             >>> print(f"Best mAP: {results['best_mAP50_95']:.3f}")
         """
         from .trainer import YOLOXTrainer
-        from .config import YOLOXTrainConfig
         from libreyolo.data import load_data_config
 
         # Load and validate data config (handles built-in datasets and auto-download)
         try:
             data_config = load_data_config(data, autodownload=True)
-            # Get the resolved yaml path from config
             data = data_config.get('yaml_file', data)
         except Exception as e:
             raise FileNotFoundError(f"Failed to load dataset config '{data}': {e}")
@@ -295,8 +293,20 @@ class LibreYOLOX(BaseModel):
         if yaml_nc is not None and yaml_nc != self.nb_classes:
             self._rebuild_for_new_classes(yaml_nc)
 
-        # Create training config
-        config = YOLOXTrainConfig(
+        # Set random seed for reproducibility
+        if seed > 0:
+            import random
+            import numpy as np
+            random.seed(seed)
+            np.random.seed(seed)
+            torch.manual_seed(seed)
+            if torch.cuda.is_available():
+                torch.cuda.manual_seed_all(seed)
+
+        # Create trainer with kwargs
+        trainer = YOLOXTrainer(
+            model=self.model,
+            wrapper_model=self,
             size=self.size,
             num_classes=self.nb_classes,
             data=data,
@@ -314,23 +324,10 @@ class LibreYOLOX(BaseModel):
             resume=resume,
             amp=amp,
             patience=patience,
-            **kwargs
+            **kwargs,
         )
 
-        # Set random seed for reproducibility
-        if seed > 0:
-            import random
-            import numpy as np
-            random.seed(seed)
-            np.random.seed(seed)
-            torch.manual_seed(seed)
-            if torch.cuda.is_available():
-                torch.cuda.manual_seed_all(seed)
-
-        # Create trainer (pass wrapper model for validation)
-        trainer = YOLOXTrainer(model=self.model, config=config, wrapper_model=self)
-
-        # Resume if requested — uses the model_path that was loaded into this instance
+        # Resume if requested
         if resume:
             if not self.model_path:
                 raise ValueError(

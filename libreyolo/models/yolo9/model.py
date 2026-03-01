@@ -283,7 +283,6 @@ class LibreYOLO9(BaseModel):
             >>> print(f"Best mAP: {results['best_mAP50_95']:.3f}")
         """
         from .trainer import YOLO9Trainer
-        from .config import YOLO9TrainConfig
         from libreyolo.data import load_data_config
 
         # Load and validate data config
@@ -298,8 +297,20 @@ class LibreYOLO9(BaseModel):
         if yaml_nc is not None and yaml_nc != self.nb_classes:
             self._rebuild_for_new_classes(yaml_nc)
 
-        # Create training config
-        config = YOLO9TrainConfig(
+        # Set random seed for reproducibility
+        if seed > 0:
+            import random
+            import numpy as np
+            random.seed(seed)
+            np.random.seed(seed)
+            torch.manual_seed(seed)
+            if torch.cuda.is_available():
+                torch.cuda.manual_seed_all(seed)
+
+        # Create trainer with kwargs
+        trainer = YOLO9Trainer(
+            model=self.model,
+            wrapper_model=self,
             size=self.size,
             num_classes=self.nb_classes,
             reg_max=self.reg_max,
@@ -318,21 +329,8 @@ class LibreYOLO9(BaseModel):
             resume=resume,
             amp=amp,
             patience=patience,
-            **kwargs
+            **kwargs,
         )
-
-        # Set random seed for reproducibility
-        if seed > 0:
-            import random
-            import numpy as np
-            random.seed(seed)
-            np.random.seed(seed)
-            torch.manual_seed(seed)
-            if torch.cuda.is_available():
-                torch.cuda.manual_seed_all(seed)
-
-        # Create trainer (pass wrapper model for validation)
-        trainer = YOLO9Trainer(model=self.model, config=config, wrapper_model=self)
 
         # Resume if requested
         if resume:

@@ -1,0 +1,667 @@
+"""
+Base trainer for LibreYOLO models.
+
+Captures the shared training loop, optimizer setup, checkpointing, validation,
+and TensorBoard logging. Model-specific trainers subclass and override hooks.
+"""
+
+import logging
+import time
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple
+
+import torch
+import torch.nn as nn
+import yaml
+from torch.cuda.amp import GradScaler, autocast
+from tqdm import tqdm
+
+from ...training.ema import ModelEMA
+from ...data.dataset import YOLODataset, COCODataset, create_dataloader
+from ...data import load_data_config
+
+
+logger = logging.getLogger(__name__)
+
+
+class BaseTrainer:
+    """
+    Base trainer for all LibreYOLO model families.
+
+    Subclasses override hook methods to customise transforms, schedulers,
+    loss extraction, and family-specific behaviour.
+    """
+
+    # Subclasses merge their own defaults on top.
+    DEFAULT_CFG: Dict[str, Any] = {
+        # Model
+        "size": "s",
+        "num_classes": 80,
+        # Data
+        "data": None,
+        "data_dir": None,
+        "imgsz": 640,
+        # Training
+        "epochs": 300,
+        "batch": 16,
+        "device": "auto",
+        # Optimizer
+        "optimizer": "sgd",
+        "lr0": 0.01,
+        "momentum": 0.937,
+        "weight_decay": 5e-4,
+        "nesterov": True,
+        # Scheduler
+        "scheduler": "yoloxwarmcos",
+        "warmup_epochs": 5,
+        "warmup_lr_start": 0.0,
+        "no_aug_epochs": 15,
+        "min_lr_ratio": 0.05,
+        # Augmentation
+        "mosaic_prob": 1.0,
+        "mixup_prob": 1.0,
+        "hsv_prob": 1.0,
+        "flip_prob": 0.5,
+        "degrees": 10.0,
+        "translate": 0.1,
+        "mosaic_scale": (0.1, 2.0),
+        "mixup_scale": (0.5, 1.5),
+        "shear": 2.0,
+        # Training features
+        "ema": True,
+        "ema_decay": 0.9998,
+        "amp": True,
+        # Checkpointing / output
+        "project": "runs/train",
+        "name": "exp",
+        "exist_ok": False,
+        "save_period": 10,
+        "eval_interval": 10,
+        # System
+        "workers": 4,
+        "patience": 50,
+        "resume": False,
+        "log_interval": 10,
+        "seed": 0,
+    }
+
+    def __init__(
+        self,
+        model: nn.Module,
+        wrapper_model: Optional[Any] = None,
+        **kwargs,
+    ):
+        self.cfg = {**self.DEFAULT_CFG, **kwargs}
+        self.model = model
+        self.wrapper_model = wrapper_model
+
+        # Device
+        self.device = self._setup_device()
+
+        # Training state
+        self.start_epoch = 0
+        self.current_epoch = 0
+        self.current_iter = 0
+
+        # Metric tracking
+        self.best_mAP50_95 = 0.0
+        self.best_mAP50 = 0.0
+        self.best_epoch = 0
+        self.final_loss = 0.0
+        self.patience_counter = 0
+
+        # Initialised in setup()
+        self.optimizer = None
+        self.lr_scheduler = None
+        self.scaler = None
+        self.ema_model = None
+        self.train_loader = None
+        self.tensorboard_writer = None
+
+    # ------------------------------------------------------------------
+    # Properties
+    # ------------------------------------------------------------------
+
+    @property
+    def effective_lr(self) -> float:
+        """Learning rate scaled by batch size (linear scaling rule)."""
+        return self.cfg["lr0"] * self.cfg["batch"] / 64
+
+    @property
+    def input_size(self) -> Tuple[int, int]:
+        return (self.cfg["imgsz"], self.cfg["imgsz"])
+
+    # ------------------------------------------------------------------
+    # Hook methods — subclasses override these
+    # ------------------------------------------------------------------
+
+    def get_model_family(self) -> str:
+        """Return canonical model family string for checkpoint metadata."""
+        raise NotImplementedError
+
+    def get_model_tag(self) -> str:
+        """Return human-readable model tag for log messages (e.g. 'YOLOX-s')."""
+        raise NotImplementedError
+
+    def create_transforms(self):
+        """Return (preproc_transform, mosaic_dataset_class)."""
+        raise NotImplementedError
+
+    def create_scheduler(self, iters_per_epoch: int):
+        """Return a scheduler with an ``update_lr(iters)`` method."""
+        raise NotImplementedError
+
+    def get_loss_components(self, outputs: Dict) -> Dict[str, float]:
+        """Extract per-component losses for progress bar / TensorBoard.
+
+        Returns:
+            Dict mapping loss name → scalar value.
+        """
+        raise NotImplementedError
+
+    def on_setup(self):
+        """Called after model is on device, before data setup (e.g. bias init)."""
+
+    def on_mosaic_disable(self):
+        """Called when mosaic is disabled for final no-aug epochs."""
+        if hasattr(self.train_loader.dataset, "close_mosaic"):
+            self.train_loader.dataset.close_mosaic()
+
+    def on_forward(self, imgs: torch.Tensor, targets: torch.Tensor) -> Dict:
+        """Run the model forward pass. Override if call signature differs."""
+        return self.model(imgs, targets)
+
+    # ------------------------------------------------------------------
+    # Shared infrastructure
+    # ------------------------------------------------------------------
+
+    def _setup_device(self) -> torch.device:
+        device_str = self.cfg["device"]
+        if device_str == "auto":
+            if torch.cuda.is_available():
+                device = torch.device("cuda")
+            elif torch.backends.mps.is_available():
+                device = torch.device("mps")
+            else:
+                device = torch.device("cpu")
+        else:
+            device = torch.device(device_str)
+        logger.info(f"Using device: {device}")
+        return device
+
+    def _setup_optimizer(self) -> torch.optim.Optimizer:
+        pg0, pg1, pg2 = [], [], []
+        for _k, v in self.model.named_modules():
+            if hasattr(v, "bias") and isinstance(v.bias, nn.Parameter):
+                pg2.append(v.bias)
+            if isinstance(v, nn.BatchNorm2d):
+                pg0.append(v.weight)
+            elif hasattr(v, "weight") and isinstance(v.weight, nn.Parameter):
+                pg1.append(v.weight)
+
+        lr = self.effective_lr
+        opt_name = self.cfg["optimizer"]
+
+        if opt_name == "sgd":
+            optimizer = torch.optim.SGD(
+                pg0, lr=lr,
+                momentum=self.cfg["momentum"],
+                nesterov=self.cfg["nesterov"],
+            )
+        elif opt_name == "adam":
+            optimizer = torch.optim.Adam(pg0, lr=lr)
+        elif opt_name == "adamw":
+            optimizer = torch.optim.AdamW(pg0, lr=lr)
+        else:
+            raise ValueError(f"Unknown optimizer: {opt_name}")
+
+        optimizer.add_param_group({"params": pg1, "lr": lr, "weight_decay": self.cfg["weight_decay"]})
+        optimizer.add_param_group({"params": pg2, "lr": lr})
+
+        logger.info(f"Optimizer: {opt_name}")
+        logger.info(f"  - pg0 (BN): {len(pg0)} params")
+        logger.info(f"  - pg1 (Conv, wd={self.cfg['weight_decay']}): {len(pg1)} params")
+        logger.info(f"  - pg2 (Bias): {len(pg2)} params")
+        return optimizer
+
+    def _get_save_dir(self) -> Path:
+        project = Path(self.cfg["project"])
+        name = self.cfg["name"]
+
+        if self.cfg["exist_ok"]:
+            save_dir = project / name
+        else:
+            save_dir = project / name
+            if save_dir.exists():
+                i = 2
+                while (project / f"{name}{i}").exists():
+                    i += 1
+                save_dir = project / f"{name}{i}"
+
+        save_dir.mkdir(parents=True, exist_ok=True)
+        return save_dir
+
+    def _setup_data(self):
+        img_size = self.input_size
+        preproc, MosaicDatasetClass = self.create_transforms()
+
+        if self.cfg["data"]:
+            data_cfg = load_data_config(self.cfg["data"])
+            data_dir = data_cfg["root"]
+            self.num_classes = data_cfg.get("nc", self.cfg["num_classes"])
+
+            if (Path(data_dir) / "annotations").exists():
+                train_dataset = COCODataset(
+                    data_dir=data_dir,
+                    json_file="instances_train2017.json",
+                    name="train2017",
+                    img_size=img_size,
+                    preproc=preproc,
+                )
+            else:
+                train_path = data_cfg.get("train", "images/train")
+                train_path = Path(train_path)
+                if train_path.is_absolute():
+                    train_img_dir = train_path
+                else:
+                    train_img_dir = Path(data_dir) / train_path
+
+                img_files = []
+                for ext in ["*.jpg", "*.jpeg", "*.png", "*.bmp"]:
+                    img_files.extend(train_img_dir.glob(ext))
+                    img_files.extend(train_img_dir.glob(ext.upper()))
+                img_files = sorted(img_files)
+
+                if len(img_files) == 0:
+                    raise FileNotFoundError(f"No images found in {train_img_dir}")
+
+                label_files = []
+                for img_file in img_files:
+                    label_file = Path(
+                        str(img_file).replace("/images/", "/labels/").rsplit(".", 1)[0] + ".txt"
+                    )
+                    label_files.append(label_file)
+
+                train_dataset = YOLODataset(
+                    img_files=img_files,
+                    label_files=label_files,
+                    img_size=img_size,
+                    preproc=preproc,
+                )
+        elif self.cfg["data_dir"]:
+            data_dir = self.cfg["data_dir"]
+            self.num_classes = self.cfg["num_classes"]
+
+            if (Path(data_dir) / "annotations").exists():
+                train_dataset = COCODataset(
+                    data_dir=data_dir,
+                    json_file="instances_train2017.json",
+                    name="train2017",
+                    img_size=img_size,
+                    preproc=preproc,
+                )
+            else:
+                train_dataset = YOLODataset(
+                    data_dir=data_dir,
+                    split="train",
+                    img_size=img_size,
+                    preproc=preproc,
+                )
+        else:
+            raise ValueError("Either 'data' or 'data_dir' must be specified")
+
+        # Wrap with mosaic/mixup
+        train_dataset = MosaicDatasetClass(
+            dataset=train_dataset,
+            img_size=img_size,
+            mosaic=True,
+            preproc=preproc,
+            degrees=self.cfg["degrees"],
+            translate=self.cfg["translate"],
+            mosaic_scale=self.cfg["mosaic_scale"],
+            mixup_scale=self.cfg["mixup_scale"],
+            shear=self.cfg["shear"],
+            enable_mixup=self.cfg["mixup_prob"] > 0,
+            mosaic_prob=self.cfg["mosaic_prob"],
+            mixup_prob=self.cfg["mixup_prob"],
+        )
+
+        self.train_loader = create_dataloader(
+            train_dataset,
+            batch_size=self.cfg["batch"],
+            num_workers=self.cfg["workers"],
+            shuffle=True,
+            pin_memory=True,
+        )
+
+        logger.info(f"Training dataset: {len(train_dataset)} images")
+        logger.info(f"Iterations per epoch: {len(self.train_loader)}")
+        return train_dataset
+
+    # ------------------------------------------------------------------
+    # Setup / train / epoch
+    # ------------------------------------------------------------------
+
+    def setup(self):
+        logger.info("Setting up training...")
+        self.model.to(self.device)
+
+        self.on_setup()
+
+        self._setup_data()
+        self.optimizer = self._setup_optimizer()
+        self.lr_scheduler = self.create_scheduler(len(self.train_loader))
+
+        if self.cfg["amp"] and self.device.type == "cuda":
+            self.scaler = GradScaler()
+            logger.info("Using mixed precision training (AMP)")
+        else:
+            self.scaler = None
+
+        if self.cfg["ema"]:
+            self.ema_model = ModelEMA(self.model, decay=self.cfg["ema_decay"])
+            logger.info(f"Using EMA with decay={self.cfg['ema_decay']}")
+
+        self.save_dir = self._get_save_dir()
+
+        # Save config as YAML
+        self._save_config_yaml(self.save_dir / "train_config.yaml")
+
+        # TensorBoard
+        try:
+            from torch.utils.tensorboard import SummaryWriter
+            self.tensorboard_writer = SummaryWriter(self.save_dir / "tensorboard")
+            logger.info(f"TensorBoard logging to {self.save_dir / 'tensorboard'}")
+        except Exception as e:
+            self.tensorboard_writer = None
+            logger.warning(f"TensorBoard not available (skipping): {type(e).__name__}")
+            logger.info("Training will continue without TensorBoard logging")
+
+        logger.info(f"Saving to: {self.save_dir}")
+
+    def train(self) -> Dict:
+        self.setup()
+
+        logger.info(f"Starting training for {self.cfg['epochs']} epochs")
+        logger.info(f"Model: {self.get_model_tag()}")
+        logger.info(f"Batch size: {self.cfg['batch']}")
+        logger.info(f"Learning rate: {self.effective_lr}")
+
+        start_time = time.time()
+
+        for epoch in range(self.start_epoch, self.cfg["epochs"]):
+            self.current_epoch = epoch
+
+            # Disable mosaic in final epochs
+            if epoch == self.cfg["epochs"] - self.cfg["no_aug_epochs"]:
+                logger.info(f"Disabling mosaic/mixup for final {self.cfg['no_aug_epochs']} epochs")
+                self.on_mosaic_disable()
+
+            epoch_loss, val_metrics = self._train_epoch(epoch)
+            self.final_loss = epoch_loss
+
+            if (epoch + 1) % self.cfg["save_period"] == 0 or epoch == self.cfg["epochs"] - 1:
+                self._save_checkpoint(epoch, epoch_loss, val_metrics)
+
+            if self.patience_counter >= self.cfg["patience"]:
+                logger.info(
+                    f"Early stopping triggered after {epoch + 1} epochs "
+                    f"(patience={self.cfg['patience']}, no improvement for {self.patience_counter} epochs)"
+                )
+                break
+
+        total_time = time.time() - start_time
+        logger.info(f"Training complete in {total_time / 3600:.2f} hours")
+
+        if self.tensorboard_writer:
+            self.tensorboard_writer.close()
+
+        weights_dir = self.save_dir / "weights"
+        return {
+            "final_loss": self.final_loss,
+            "best_mAP50": self.best_mAP50,
+            "best_mAP50_95": self.best_mAP50_95,
+            "best_epoch": self.best_epoch,
+            "save_dir": str(self.save_dir),
+            "best_checkpoint": str(weights_dir / "best.pt"),
+            "last_checkpoint": str(weights_dir / "last.pt"),
+        }
+
+    def _train_epoch(self, epoch: int) -> Tuple[float, Optional[Dict[str, float]]]:
+        self.model.train()
+
+        pbar = tqdm(
+            self.train_loader,
+            desc=f"Epoch {epoch + 1}/{self.cfg['epochs']}",
+            total=len(self.train_loader),
+        )
+
+        total_loss = 0.0
+        num_batches = 0
+
+        for batch_idx, (imgs, targets, img_infos, img_ids) in enumerate(pbar):
+            self.current_iter = epoch * len(self.train_loader) + batch_idx
+
+            imgs = imgs.to(self.device, non_blocking=True)
+            targets = targets.to(self.device, non_blocking=True)
+
+            # Forward + backward
+            if self.scaler is not None:
+                with autocast():
+                    outputs = self.on_forward(imgs, targets)
+                    loss = outputs["total_loss"]
+                self.optimizer.zero_grad()
+                self.scaler.scale(loss).backward()
+                self.scaler.step(self.optimizer)
+                self.scaler.update()
+            else:
+                outputs = self.on_forward(imgs, targets)
+                loss = outputs["total_loss"]
+                self.optimizer.zero_grad()
+                loss.backward()
+                self.optimizer.step()
+
+            # EMA
+            if self.ema_model is not None:
+                self.ema_model.update(self.model)
+
+            loss_val = loss.item()
+            loss_components = self.get_loss_components(outputs)
+            total_loss += loss_val
+
+            del outputs, loss
+
+            # LR update
+            lr = self.lr_scheduler.update_lr(self.current_iter + 1)
+            for param_group in self.optimizer.param_groups:
+                param_group["lr"] = lr
+            num_batches += 1
+
+            # Progress bar
+            postfix = {"loss": f"{loss_val:.4f}", "lr": f"{lr:.6f}"}
+            postfix.update({k: f"{v:.4f}" for k, v in loss_components.items()})
+            pbar.set_postfix(postfix)
+
+            # TensorBoard
+            if self.tensorboard_writer and batch_idx % self.cfg["log_interval"] == 0:
+                self.tensorboard_writer.add_scalar("train/loss", loss_val, self.current_iter)
+                self.tensorboard_writer.add_scalar("train/lr", lr, self.current_iter)
+                for name, val in loss_components.items():
+                    self.tensorboard_writer.add_scalar(f"train/{name}", val, self.current_iter)
+
+        avg_loss = total_loss / num_batches
+        logger.info(f"Epoch {epoch + 1} - Average loss: {avg_loss:.4f}")
+
+        if self.tensorboard_writer:
+            self.tensorboard_writer.add_scalar("epoch/loss", avg_loss, epoch)
+
+        # Validation
+        val_metrics = None
+        if self.cfg["eval_interval"] > 0 and (epoch + 1) % self.cfg["eval_interval"] == 0:
+            val_metrics = self._validate_epoch(epoch)
+            if val_metrics and self.tensorboard_writer:
+                self.tensorboard_writer.add_scalar("val/mAP50", val_metrics["mAP50"], epoch)
+                self.tensorboard_writer.add_scalar("val/mAP50_95", val_metrics["mAP50_95"], epoch)
+
+        return avg_loss, val_metrics
+
+    # ------------------------------------------------------------------
+    # Validation
+    # ------------------------------------------------------------------
+
+    def _validate_epoch(self, epoch: int) -> Optional[Dict[str, float]]:
+        try:
+            from libreyolo.validation import DetectionValidator, ValidationConfig
+
+            logger.info(f"Running validation for epoch {epoch + 1}")
+
+            val_config = ValidationConfig(
+                data=self.cfg["data"],
+                batch_size=self.cfg["batch"],
+                imgsz=self.cfg["imgsz"],
+                conf_thres=0.001,
+                iou_thres=0.65,
+                device=str(self.device),
+                half=self.cfg["amp"] and self.device.type == "cuda",
+                verbose=False,
+            )
+
+            if self.wrapper_model is None:
+                logger.error("Validation requires wrapper_model to be provided to trainer")
+                return None
+
+            eval_pytorch_model = self.ema_model.ema if self.ema_model else self.model
+            original_model = self.wrapper_model.model
+            self.wrapper_model.model = eval_pytorch_model
+
+            try:
+                validator = DetectionValidator(model=self.wrapper_model, config=val_config)
+                results = validator.run()
+            finally:
+                self.wrapper_model.model = original_model
+
+            metrics = {
+                "mAP50": results.get("metrics/mAP50", 0.0),
+                "mAP50_95": results.get("metrics/mAP50-95", 0.0),
+            }
+
+            logger.debug(f"Extracted metrics: mAP50={metrics['mAP50']:.4f}, mAP50_95={metrics['mAP50_95']:.4f}")
+            print(f"Validation - mAP50: {metrics['mAP50']:.4f}, mAP50-95: {metrics['mAP50_95']:.4f}")
+            return metrics
+
+        except Exception as e:
+            logger.error(f"Validation failed: {e}")
+            import traceback
+            logger.debug(f"Validation traceback:\n{traceback.format_exc()}")
+            return None
+
+    # ------------------------------------------------------------------
+    # Checkpointing
+    # ------------------------------------------------------------------
+
+    def _save_checkpoint(self, epoch: int, loss: float, val_metrics: Optional[Dict[str, float]] = None):
+        model_to_save = self.ema_model.ema if self.ema_model else self.model
+
+        checkpoint = {
+            "epoch": epoch,
+            "model": model_to_save.state_dict(),
+            "optimizer": self.optimizer.state_dict(),
+            "config": dict(self.cfg),
+            "loss": loss,
+            "best_mAP50_95": self.best_mAP50_95,
+            "best_mAP50": self.best_mAP50,
+            "best_epoch": self.best_epoch,
+            "nc": self.cfg["num_classes"],
+            "size": self.cfg["size"],
+            "model_family": self.get_model_family(),
+        }
+        if self.wrapper_model is not None:
+            checkpoint["names"] = self.wrapper_model.names
+        if self.ema_model is not None:
+            checkpoint["ema_updates"] = self.ema_model.updates
+
+        weights_dir = self.save_dir / "weights"
+        weights_dir.mkdir(exist_ok=True)
+
+        latest_path = weights_dir / "last.pt"
+        torch.save(checkpoint, latest_path)
+
+        if val_metrics and val_metrics["mAP50_95"] > self.best_mAP50_95:
+            self.best_mAP50_95 = val_metrics["mAP50_95"]
+            self.best_mAP50 = val_metrics["mAP50"]
+            self.best_epoch = epoch + 1
+            self.patience_counter = 0
+            best_path = weights_dir / "best.pt"
+            torch.save(checkpoint, best_path)
+            logger.info(
+                f"New best model saved - Epoch {epoch + 1}: "
+                f"mAP50={self.best_mAP50:.4f}, mAP50-95={self.best_mAP50_95:.4f}"
+            )
+        elif val_metrics:
+            self.patience_counter += 1
+
+        if (epoch + 1) % self.cfg["save_period"] == 0:
+            epoch_path = weights_dir / f"epoch_{epoch + 1}.pt"
+            torch.save(checkpoint, epoch_path)
+
+        logger.info(f"Checkpoint saved: {latest_path}")
+
+    def resume(self, checkpoint_path: str):
+        if not Path(checkpoint_path).exists():
+            raise FileNotFoundError(f"Resume checkpoint not found: {checkpoint_path}")
+
+        logger.info(f"Resuming from {checkpoint_path}")
+        checkpoint = torch.load(checkpoint_path, map_location=self.device)
+
+        try:
+            self.model.load_state_dict(checkpoint["model"])
+        except Exception as e:
+            raise RuntimeError(f"Cannot resume: model architecture mismatch - {e}")
+
+        self.start_epoch = checkpoint["epoch"] + 1
+
+        if self.optimizer is not None and "optimizer" in checkpoint:
+            try:
+                self.optimizer.load_state_dict(checkpoint["optimizer"])
+                logger.info("Optimizer state restored")
+            except Exception as e:
+                logger.warning(f"Could not load optimizer state: {e}")
+
+        if "best_mAP50_95" in checkpoint:
+            self.best_mAP50_95 = checkpoint["best_mAP50_95"]
+            self.best_mAP50 = checkpoint.get("best_mAP50", 0.0)
+            self.best_epoch = checkpoint.get("best_epoch", 0)
+            logger.info(
+                f"Restored best metrics: mAP50={self.best_mAP50:.4f}, "
+                f"mAP50-95={self.best_mAP50_95:.4f} (epoch {self.best_epoch})"
+            )
+        elif "loss" in checkpoint:
+            logger.warning("Old checkpoint format detected (loss-based). Converting to mAP tracking.")
+            self.best_mAP50_95 = 0.0
+            self.best_mAP50 = 0.0
+            self.best_epoch = 0
+
+        if self.ema_model and "ema_updates" in checkpoint:
+            self.ema_model.updates = checkpoint["ema_updates"]
+            logger.info(f"EMA updates restored: {self.ema_model.updates}")
+
+        self.patience_counter = 0
+        logger.info(
+            f"Resumed from epoch {self.start_epoch} "
+            f"(will train to epoch {self.cfg['epochs']})"
+        )
+
+    # ------------------------------------------------------------------
+    # Config persistence
+    # ------------------------------------------------------------------
+
+    def _save_config_yaml(self, path):
+        """Save the config dict as YAML."""
+        Path(path).parent.mkdir(parents=True, exist_ok=True)
+        serialisable = {}
+        for k, v in self.cfg.items():
+            if isinstance(v, tuple):
+                v = list(v)
+            serialisable[k] = v
+        with open(path, "w") as f:
+            yaml.dump(serialisable, f, default_flow_style=False, sort_keys=False)
