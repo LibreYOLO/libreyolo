@@ -73,6 +73,24 @@ COCO_CLASSES = [
     'refrigerator', 'book', 'clock', 'vase', 'scissors', 'teddy bear', 'hair drier', 'toothbrush'
 ]
 
+def cxcywh_to_xyxy(boxes: torch.Tensor) -> torch.Tensor:
+    """
+    Convert boxes from center format (cx, cy, w, h) to corner format (x1, y1, x2, y2).
+
+    Args:
+        boxes: Boxes in cxcywh format (..., 4)
+
+    Returns:
+        Boxes in xyxy format (..., 4)
+    """
+    cx, cy, w, h = boxes[..., 0], boxes[..., 1], boxes[..., 2], boxes[..., 3]
+    x1 = cx - w / 2
+    y1 = cy - h / 2
+    x2 = cx + w / 2
+    y2 = cy + h / 2
+    return torch.stack([x1, y1, x2, y2], dim=-1)
+
+
 def preprocess_image(
     image: ImageInput,
     input_size: int = 640,

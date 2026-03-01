@@ -12,7 +12,7 @@ from typing import Tuple, List
 from PIL import Image
 
 from ...utils.image_loader import ImageLoader, ImageInput
-from ...utils.general import COCO_CLASSES, nms
+from ...utils.general import COCO_CLASSES, nms, cxcywh_to_xyxy
 from ...utils.drawing import draw_boxes, get_class_color
 
 
@@ -160,24 +160,6 @@ def decode_outputs(
     outputs_cat[..., 2:4] = torch.exp(outputs_cat[..., 2:4]) * stride_tensor
 
     return outputs_cat
-
-
-def cxcywh_to_xyxy(boxes: torch.Tensor) -> torch.Tensor:
-    """
-    Convert boxes from center format (cx, cy, w, h) to corner format (x1, y1, x2, y2).
-
-    Args:
-        boxes: Boxes in cxcywh format (..., 4)
-
-    Returns:
-        Boxes in xyxy format (..., 4)
-    """
-    cx, cy, w, h = boxes[..., 0], boxes[..., 1], boxes[..., 2], boxes[..., 3]
-    x1 = cx - w / 2
-    y1 = cy - h / 2
-    x2 = cx + w / 2
-    y2 = cy + h / 2
-    return torch.stack([x1, y1, x2, y2], dim=-1)
 
 
 def postprocess(

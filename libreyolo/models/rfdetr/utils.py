@@ -8,23 +8,7 @@ import torch
 import torch.nn.functional as F
 from typing import List, Dict
 
-
-def box_cxcywh_to_xyxy(boxes: torch.Tensor) -> torch.Tensor:
-    """
-    Convert boxes from center-x, center-y, width, height to x1, y1, x2, y2.
-
-    Args:
-        boxes: Tensor of shape (..., 4) with cxcywh format
-
-    Returns:
-        Tensor of shape (..., 4) with xyxy format
-    """
-    cx, cy, w, h = boxes.unbind(-1)
-    x1 = cx - 0.5 * w
-    y1 = cy - 0.5 * h
-    x2 = cx + 0.5 * w
-    y2 = cy + 0.5 * h
-    return torch.stack([x1, y1, x2, y2], dim=-1)
+from ...utils.general import cxcywh_to_xyxy
 
 
 def postprocess(
@@ -81,7 +65,7 @@ def postprocess(
     labels = topk_indexes % num_classes        # Which class
 
     # Convert boxes from cxcywh to xyxy
-    boxes = box_cxcywh_to_xyxy(out_bbox)
+    boxes = cxcywh_to_xyxy(out_bbox)
 
     # Gather boxes for the selected queries
     # boxes shape: (B, num_queries, 4)

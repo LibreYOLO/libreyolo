@@ -26,20 +26,20 @@ Available model sizes:
 """
 
 from .model import LIBREYOLORFDETR
-from .nn import RFDETRModel, create_rfdetr_model, RFDETR_CONFIGS
-from .utils import postprocess, box_cxcywh_to_xyxy
-from .train import train_rfdetr, RFDETR_TRAINERS
+from .nn import LibreRFDETRModel, create_rfdetr_model, RFDETR_CONFIGS
+from .utils import postprocess, cxcywh_to_xyxy
+from .trainer import train_rfdetr, RFDETR_TRAINERS
 
 __all__ = [
     # Main model wrapper
     "LIBREYOLORFDETR",
     # Neural network
-    "RFDETRModel",
+    "LibreRFDETRModel",
     "create_rfdetr_model",
     "RFDETR_CONFIGS",
     # Postprocessing
     "postprocess",
-    "box_cxcywh_to_xyxy",
+    "cxcywh_to_xyxy",
     # Training
     "train_rfdetr",
     "RFDETR_TRAINERS",
