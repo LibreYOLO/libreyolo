@@ -188,7 +188,7 @@ class TestNCNNFactory:
     def test_factory_dispatch(self, model_type, size, sample_image, tmp_path):
         """Export model, load via LibreYOLO(dir), verify type and inference."""
         from libreyolo import LibreYOLO
-        from libreyolo.inference.ncnn import NcnnBackend
+        from libreyolo.backends.ncnn import NcnnBackend
 
         pt_model = load_model(model_type, size, device="cpu")
         pt_results = pt_model(sample_image, conf=0.25)
@@ -222,7 +222,7 @@ class TestNCNNBackend:
     @pytest.mark.parametrize("model_type,size", QUICK_TEST_MODELS)
     def test_predict_alias(self, model_type, size, sample_image, tmp_path):
         """Test that predict() is an alias for __call__."""
-        from libreyolo.inference.ncnn import NcnnBackend
+        from libreyolo.backends.ncnn import NcnnBackend
 
         pt_model = load_model(model_type, size, device="cpu")
         ncnn_path = str(tmp_path / f"{model_type}_{size}_ncnn")
@@ -242,7 +242,7 @@ class TestNCNNBackend:
     @pytest.mark.parametrize("model_type,size", QUICK_TEST_MODELS)
     def test_save_output(self, model_type, size, sample_image, tmp_path):
         """Test that save=True produces an annotated image."""
-        from libreyolo.inference.ncnn import NcnnBackend
+        from libreyolo.backends.ncnn import NcnnBackend
 
         pt_model = load_model(model_type, size, device="cpu")
         ncnn_path = str(tmp_path / f"{model_type}_{size}_ncnn")
@@ -263,7 +263,7 @@ class TestNCNNBackend:
     @pytest.mark.parametrize("model_type,size", QUICK_TEST_MODELS)
     def test_classes_filter(self, model_type, size, sample_image, tmp_path):
         """Test that classes filter limits detections to specified class IDs."""
-        from libreyolo.inference.ncnn import NcnnBackend
+        from libreyolo.backends.ncnn import NcnnBackend
 
         pt_model = load_model(model_type, size, device="cpu")
         ncnn_path = str(tmp_path / f"{model_type}_{size}_ncnn")

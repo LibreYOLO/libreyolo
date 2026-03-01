@@ -1,0 +1,493 @@
+"""
+Base class for LibreYOLO inference backends.
+
+Provides shared preprocessing, output parsing, NMS, result wrapping,
+and save logic. Subclasses only need to implement __init__ and _run_inference.
+"""
+
+from abc import ABC, abstractmethod
+from datetime import datetime
+from pathlib import Path
+from typing import Dict, List, Optional, Tuple, Union
+
+import numpy as np
+import torch
+from PIL import Image
+
+from ..utils.drawing import draw_boxes
+from ..utils.general import preprocess_image, get_safe_stem, COCO_CLASSES
+from ..utils.image_loader import ImageLoader
+from ..utils.results import Boxes, Results
+from ..models.yolox.utils import preprocess_image as yolox_preprocess_image
+
+
+def _nms_numpy(
+    boxes: np.ndarray, scores: np.ndarray, iou_threshold: float = 0.45
+) -> list:
+    """Numpy-based Non-Maximum Suppression."""
+    if len(boxes) == 0:
+        return []
+
+    x1, y1, x2, y2 = boxes[:, 0], boxes[:, 1], boxes[:, 2], boxes[:, 3]
+    areas = (x2 - x1) * (y2 - y1)
+    order = scores.argsort()[::-1]
+    keep = []
+
+    while order.size > 0:
+        i = order[0]
+        keep.append(i)
+
+        xx1 = np.maximum(x1[i], x1[order[1:]])
+        yy1 = np.maximum(y1[i], y1[order[1:]])
+        xx2 = np.minimum(x2[i], x2[order[1:]])
+        yy2 = np.minimum(y2[i], y2[order[1:]])
+
+        w = np.maximum(0.0, xx2 - xx1)
+        h = np.maximum(0.0, yy2 - yy1)
+        inter = w * h
+        iou = inter / (areas[i] + areas[order[1:]] - inter)
+        order = order[np.where(iou <= iou_threshold)[0] + 1]
+
+    return keep
+
+
+class BaseBackend(ABC):
+    """Abstract base class for all inference backends.
+
+    Subclasses must:
+    1. Implement ``__init__`` to load the runtime-specific model, then call
+       ``super().__init__(...)`` with the resolved common attributes.
+    2. Implement ``_run_inference`` to execute the model and return raw outputs.
+    """
+
+    def __init__(
+        self,
+        *,
+        model_path: str,
+        nb_classes: int,
+        device: str,
+        imgsz: int,
+        model_family: Optional[str],
+        names: Dict[int, str],
+    ):
+        self.model_path = model_path
+        self.nb_classes = nb_classes
+        self.device = device
+        self.imgsz = imgsz
+        self.model_family = model_family
+        self.names = names
+
+    # ------------------------------------------------------------------
+    # Abstract — must be implemented by each backend
+    # ------------------------------------------------------------------
+
+    @abstractmethod
+    def _run_inference(self, blob: np.ndarray) -> list:
+        """Run backend-specific inference.
+
+        Args:
+            blob: Preprocessed input array of shape ``(1, C, H, W)``.
+
+        Returns:
+            List of numpy arrays, one per model output tensor.
+        """
+
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
+
+    def __call__(
+        self,
+        source: Union[str, Path, Image.Image, np.ndarray] = None,
+        *,
+        conf: float = 0.25,
+        iou: float = 0.45,
+        imgsz: Optional[int] = None,
+        classes: Optional[List[int]] = None,
+        max_det: int = 300,
+        save: bool = False,
+        batch: int = 1,
+        output_path: str = None,
+        color_format: str = "auto",
+    ) -> Union[Results, List[Results]]:
+        """Run inference on an image or directory of images."""
+        if isinstance(source, (str, Path)) and Path(source).is_dir():
+            image_paths = ImageLoader.collect_images(source)
+            if not image_paths:
+                return []
+            return self._process_in_batches(
+                image_paths,
+                batch=batch,
+                save=save,
+                output_path=output_path,
+                conf=conf,
+                iou=iou,
+                imgsz=imgsz,
+                classes=classes,
+                max_det=max_det,
+                color_format=color_format,
+            )
+
+        return self._predict_single(
+            source,
+            save=save,
+            output_path=output_path,
+            conf=conf,
+            iou=iou,
+            imgsz=imgsz,
+            classes=classes,
+            max_det=max_det,
+            color_format=color_format,
+        )
+
+    def predict(self, *args, **kwargs) -> Union[Results, List[Results]]:
+        """Alias for __call__ method."""
+        return self(*args, **kwargs)
+
+    # ------------------------------------------------------------------
+    # Inference pipeline
+    # ------------------------------------------------------------------
+
+    def _process_in_batches(
+        self,
+        image_paths: List[Path],
+        batch: int = 1,
+        save: bool = False,
+        output_path: str = None,
+        conf: float = 0.25,
+        iou: float = 0.45,
+        imgsz: Optional[int] = None,
+        classes: Optional[List[int]] = None,
+        max_det: int = 300,
+        color_format: str = "auto",
+    ) -> List[Results]:
+        """Process multiple images sequentially."""
+        results = []
+        for i in range(0, len(image_paths), batch):
+            chunk = image_paths[i : i + batch]
+            for path in chunk:
+                results.append(
+                    self._predict_single(
+                        path,
+                        save=save,
+                        output_path=output_path,
+                        conf=conf,
+                        iou=iou,
+                        imgsz=imgsz,
+                        classes=classes,
+                        max_det=max_det,
+                        color_format=color_format,
+                    )
+                )
+        return results
+
+    def _predict_single(
+        self,
+        image: Union[str, Path, Image.Image, np.ndarray],
+        save: bool = False,
+        output_path: str = None,
+        conf: float = 0.25,
+        iou: float = 0.45,
+        imgsz: Optional[int] = None,
+        classes: Optional[List[int]] = None,
+        max_det: int = 300,
+        color_format: str = "auto",
+    ) -> Results:
+        """Run inference on a single image."""
+        image_path = image if isinstance(image, (str, Path)) else None
+        effective_imgsz = imgsz if imgsz is not None else self.imgsz
+
+        # 1. Preprocess
+        preprocess_out = self._preprocess(image, effective_imgsz, color_format)
+        if len(preprocess_out) == 4:
+            input_tensor, original_img, original_size, ratio = preprocess_out
+            self._yolox_ratio = ratio
+        else:
+            input_tensor, original_img, original_size = preprocess_out
+
+        blob = input_tensor.numpy()
+
+        # 2. Inference
+        all_outputs = self._run_inference(blob)
+
+        # 3. Parse outputs
+        boxes, max_scores, class_ids = self._parse_outputs(
+            all_outputs, effective_imgsz, original_size, conf
+        )
+
+        # 4. Build result
+        orig_w, orig_h = original_size
+        orig_shape = (orig_h, orig_w)
+        result = self._build_result(
+            boxes,
+            max_scores,
+            class_ids,
+            orig_shape=orig_shape,
+            image_path=image_path,
+            iou=iou,
+            classes=classes,
+            max_det=max_det,
+        )
+
+        # 5. Save if requested
+        if save:
+            self._save_annotated(result, original_img, image_path, output_path)
+
+        return result
+
+    # ------------------------------------------------------------------
+    # Preprocessing
+    # ------------------------------------------------------------------
+
+    def _preprocess(self, image, effective_imgsz, color_format):
+        """Dispatch to model-family-specific preprocessing."""
+        if self.model_family == "yolox":
+            return yolox_preprocess_image(
+                image, input_size=effective_imgsz, color_format=color_format
+            )
+        elif self.model_family == "rfdetr":
+            return self._preprocess_rfdetr(image, effective_imgsz, color_format)
+        else:
+            return preprocess_image(
+                image, input_size=effective_imgsz, color_format=color_format
+            )
+
+    @staticmethod
+    def _preprocess_rfdetr(image, input_size, color_format):
+        """RF-DETR preprocessing: direct resize + ImageNet normalization."""
+        img = ImageLoader.load(image, color_format=color_format)
+        original_size = img.size  # (W, H)
+        original_img = img.copy()
+
+        img_resized = img.resize(
+            (input_size, input_size), Image.Resampling.BILINEAR
+        )
+        img_array = np.array(img_resized, dtype=np.float32) / 255.0
+
+        mean = np.array([0.485, 0.456, 0.406], dtype=np.float32)
+        std = np.array([0.229, 0.224, 0.225], dtype=np.float32)
+        img_array = (img_array - mean) / std
+
+        img_tensor = torch.from_numpy(img_array).permute(2, 0, 1).unsqueeze(0)
+        return img_tensor, original_img, original_size
+
+    # ------------------------------------------------------------------
+    # Output parsing
+    # ------------------------------------------------------------------
+
+    def _parse_outputs(
+        self,
+        all_outputs: list,
+        effective_imgsz: int,
+        original_size: tuple,
+        conf: float,
+    ):
+        """Parse raw outputs into (boxes_xyxy, scores, class_ids)."""
+        orig_w, orig_h = original_size
+
+        if self.model_family == "yolox":
+            return self._parse_yolox(
+                all_outputs, effective_imgsz, orig_w, orig_h, conf
+            )
+        elif self.model_family == "rfdetr":
+            return self._parse_rfdetr(all_outputs, orig_w, orig_h, conf)
+        else:
+            return self._parse_yolov9(
+                all_outputs, effective_imgsz, orig_w, orig_h, conf
+            )
+
+    def _parse_yolox(self, all_outputs, effective_imgsz, orig_w, orig_h, conf):
+        """Parse YOLOX output: (B, N, 5+nc) — cxcywh + objectness + class_scores."""
+        outputs = all_outputs[0][0]  # (N, 5+nc)
+
+        cx, cy, w, h = outputs[:, 0], outputs[:, 1], outputs[:, 2], outputs[:, 3]
+        objectness = outputs[:, 4]
+        class_scores = outputs[:, 5:]
+
+        max_class_scores = np.max(class_scores, axis=1)
+        max_scores = objectness * max_class_scores
+        class_ids = np.argmax(class_scores, axis=1)
+
+        mask = max_scores > conf
+        cx, cy, w, h = cx[mask], cy[mask], w[mask], h[mask]
+        max_scores, class_ids = max_scores[mask], class_ids[mask]
+
+        if len(max_scores) == 0:
+            return np.empty((0, 4)), max_scores, class_ids
+
+        x1 = cx - w / 2
+        y1 = cy - h / 2
+        x2 = cx + w / 2
+        y2 = cy + h / 2
+        boxes = np.stack([x1, y1, x2, y2], axis=1)
+
+        ratio = getattr(self, "_yolox_ratio", 1.0)
+        boxes /= ratio
+        boxes[:, [0, 2]] = np.clip(boxes[:, [0, 2]], 0, orig_w)
+        boxes[:, [1, 3]] = np.clip(boxes[:, [1, 3]], 0, orig_h)
+
+        return boxes, max_scores, class_ids
+
+    def _parse_yolov9(self, all_outputs, effective_imgsz, orig_w, orig_h, conf):
+        """Parse YOLOv9 output: (B, 4+nc, N) — xyxy + class_scores."""
+        outputs = all_outputs[0][0].T  # (N, 4+nc)
+
+        boxes = outputs[:, :4]
+        scores = outputs[:, 4:]
+
+        max_scores = np.max(scores, axis=1)
+        class_ids = np.argmax(scores, axis=1)
+
+        mask = max_scores > conf
+        boxes, max_scores, class_ids = boxes[mask], max_scores[mask], class_ids[mask]
+
+        if len(boxes) == 0:
+            return boxes, max_scores, class_ids
+
+        scale_x = orig_w / effective_imgsz
+        scale_y = orig_h / effective_imgsz
+        boxes[:, [0, 2]] *= scale_x
+        boxes[:, [1, 3]] *= scale_y
+        boxes[:, [0, 2]] = np.clip(boxes[:, [0, 2]], 0, orig_w)
+        boxes[:, [1, 3]] = np.clip(boxes[:, [1, 3]], 0, orig_h)
+
+        return boxes, max_scores, class_ids
+
+    def _parse_rfdetr(self, all_outputs, orig_w, orig_h, conf):
+        """Parse RF-DETR output: boxes (B,300,4) cxcywh [0,1] + logits (B,300,nc)."""
+        boxes_raw = all_outputs[0][0]  # (300, 4) normalized cxcywh
+        logits = all_outputs[1][0]  # (300, nc) raw logits
+
+        scores = 1.0 / (1.0 + np.exp(-logits.astype(np.float64))).astype(
+            np.float32
+        )
+
+        max_scores = np.max(scores, axis=1)
+        class_ids = np.argmax(scores, axis=1)
+
+        mask = max_scores > conf
+        boxes_raw = boxes_raw[mask]
+        max_scores, class_ids = max_scores[mask], class_ids[mask]
+
+        if len(boxes_raw) == 0:
+            return boxes_raw, max_scores, class_ids
+
+        cx, cy, w, h = (
+            boxes_raw[:, 0],
+            boxes_raw[:, 1],
+            boxes_raw[:, 2],
+            boxes_raw[:, 3],
+        )
+        x1 = (cx - w / 2) * orig_w
+        y1 = (cy - h / 2) * orig_h
+        x2 = (cx + w / 2) * orig_w
+        y2 = (cy + h / 2) * orig_h
+        boxes = np.stack([x1, y1, x2, y2], axis=1)
+
+        boxes[:, [0, 2]] = np.clip(boxes[:, [0, 2]], 0, orig_w)
+        boxes[:, [1, 3]] = np.clip(boxes[:, [1, 3]], 0, orig_h)
+
+        return boxes, max_scores, class_ids
+
+    # ------------------------------------------------------------------
+    # Result building
+    # ------------------------------------------------------------------
+
+    def _build_result(
+        self,
+        boxes: np.ndarray,
+        max_scores: np.ndarray,
+        class_ids: np.ndarray,
+        *,
+        orig_shape: Tuple[int, int],
+        image_path,
+        iou: float,
+        classes: Optional[List[int]],
+        max_det: int,
+    ) -> Results:
+        """Apply NMS, max_det, classes filter and wrap into Results."""
+        if len(boxes) == 0:
+            return Results(
+                boxes=Boxes(
+                    torch.zeros((0, 4), dtype=torch.float32),
+                    torch.zeros((0,), dtype=torch.float32),
+                    torch.zeros((0,), dtype=torch.float32),
+                ),
+                orig_shape=orig_shape,
+                path=str(image_path) if image_path else None,
+                names=self.names,
+            )
+
+        keep = _nms_numpy(boxes, max_scores, iou)
+        boxes, max_scores, class_ids = (
+            boxes[keep],
+            max_scores[keep],
+            class_ids[keep],
+        )
+
+        if len(boxes) > max_det:
+            top_indices = np.argsort(max_scores)[::-1][:max_det]
+            boxes = boxes[top_indices]
+            max_scores = max_scores[top_indices]
+            class_ids = class_ids[top_indices]
+
+        boxes_t = torch.tensor(boxes, dtype=torch.float32)
+        conf_t = torch.tensor(max_scores, dtype=torch.float32)
+        cls_t = torch.tensor(class_ids, dtype=torch.float32)
+
+        if classes is not None and len(boxes_t) > 0:
+            cls_mask = torch.zeros(len(cls_t), dtype=torch.bool)
+            for cid in classes:
+                cls_mask |= cls_t == cid
+            boxes_t = boxes_t[cls_mask]
+            conf_t = conf_t[cls_mask]
+            cls_t = cls_t[cls_mask]
+
+        return Results(
+            boxes=Boxes(boxes_t, conf_t, cls_t),
+            orig_shape=orig_shape,
+            path=str(image_path) if image_path else None,
+            names=self.names,
+        )
+
+    # ------------------------------------------------------------------
+    # Save
+    # ------------------------------------------------------------------
+
+    def _save_annotated(self, result, original_img, image_path, output_path):
+        """Save annotated image to disk."""
+        if len(result) > 0:
+            annotated_img = draw_boxes(
+                original_img,
+                result.boxes.xyxy.tolist(),
+                result.boxes.conf.tolist(),
+                result.boxes.cls.tolist(),
+            )
+        else:
+            annotated_img = original_img
+
+        if output_path:
+            final_path = Path(output_path)
+            final_path.parent.mkdir(parents=True, exist_ok=True)
+        else:
+            stem = get_safe_stem(image_path) if image_path else "inference"
+            ext = Path(image_path).suffix if image_path else ".jpg"
+            model_tag = Path(self.model_path).stem
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+            save_dir = Path("runs/detections")
+            save_dir.mkdir(parents=True, exist_ok=True)
+            final_path = save_dir / f"{stem}_{model_tag}_{timestamp}{ext}"
+
+        annotated_img.save(final_path)
+        result.saved_path = str(final_path)
+
+    # ------------------------------------------------------------------
+    # Helpers for building names dict (used by subclass __init__)
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def build_names(nb_classes: int) -> Dict[int, str]:
+        """Build a class names dict — COCO for 80 classes, generic otherwise."""
+        if nb_classes == 80:
+            return {i: n for i, n in enumerate(COCO_CLASSES)}
+        return {i: f"class_{i}" for i in range(nb_classes)}

@@ -95,22 +95,22 @@ def LibreYOLO(
 
     # --- Non-PyTorch formats: delegate to inference backends ---
     if model_path.endswith(".onnx"):
-        from ..inference.onnx import OnnxBackend
+        from ..backends.onnx import OnnxBackend
         return OnnxBackend(model_path, nb_classes=nb_classes or 80, device=device)
 
     if model_path.endswith(".engine"):
-        from ..inference.tensorrt import TensorRTBackend
+        from ..backends.tensorrt import TensorRTBackend
         return TensorRTBackend(model_path, nb_classes=nb_classes, device=device)
 
     if Path(model_path).is_dir() and (Path(model_path) / "model.xml").exists():
-        from ..inference.openvino import OpenVINOBackend
+        from ..backends.openvino import OpenVINOBackend
         return OpenVINOBackend(model_path, nb_classes=nb_classes, device=device)
 
     if Path(model_path).is_dir():
         ncnn_param = Path(model_path) / "model.ncnn.param"
         ncnn_bin = Path(model_path) / "model.ncnn.bin"
         if ncnn_param.exists() and ncnn_bin.exists():
-            from ..inference.ncnn import NcnnBackend
+            from ..backends.ncnn import NcnnBackend
             return NcnnBackend(model_path, nb_classes=nb_classes, device=device)
 
     # --- Download if missing ---

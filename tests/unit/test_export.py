@@ -165,7 +165,7 @@ class TestOnnxMetadataReading:
             out = str(Path(tmpdir) / "rt.onnx")
             exporter("onnx", output_path=out, simplify=False)
 
-            from libreyolo.inference.onnx import OnnxBackend
+            from libreyolo.backends.onnx import OnnxBackend
 
             onnx_model = OnnxBackend(out, nb_classes=80)  # deliberately wrong
             # After metadata reading, names should be overwritten

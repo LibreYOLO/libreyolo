@@ -18,10 +18,10 @@ except PackageNotFoundError:
 def __getattr__(name):
     _lazy = {
         "LibreYOLORFDETR": (".models.rfdetr.model", "LibreYOLORFDETR"),
-        "OnnxBackend": (".inference.onnx", "OnnxBackend"),
-        "OpenVINOBackend": (".inference.openvino", "OpenVINOBackend"),
-        "TensorRTBackend": (".inference.tensorrt", "TensorRTBackend"),
-        "NcnnBackend": (".inference.ncnn", "NcnnBackend"),
+        "OnnxBackend": (".backends.onnx", "OnnxBackend"),
+        "OpenVINOBackend": (".backends.openvino", "OpenVINOBackend"),
+        "TensorRTBackend": (".backends.tensorrt", "TensorRTBackend"),
+        "NcnnBackend": (".backends.ncnn", "NcnnBackend"),
         "Exporter": (".export", "Exporter"),
         "DetectionValidator": (".validation", "DetectionValidator"),
         "ValidationConfig": (".validation", "ValidationConfig"),

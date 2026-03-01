@@ -1,9 +1,11 @@
 """Inference backends for LibreYOLO."""
 
+from .base import BaseBackend
 from .onnx import OnnxBackend
 from .openvino import OpenVINOBackend
 
 __all__ = [
+    "BaseBackend",
     "OnnxBackend",
     "OpenVINOBackend",
 ]
