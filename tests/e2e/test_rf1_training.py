@@ -7,7 +7,7 @@ split. The dataset auto-downloads from HuggingFace — no API keys needed.
 
 Usage:
     pytest tests/e2e/test_rf1_training.py -v -m e2e
-    pytest tests/e2e/test_rf1_training.py::test_rf1_training[yolox-nano] -v
+    pytest tests/e2e/test_rf1_training.py::test_rf1_training[yolox-n] -v
     pytest tests/e2e/test_rf1_training.py -k "rfdetr" -v
 """
 
@@ -29,8 +29,8 @@ HF_REPO_URL = f"https://huggingface.co/datasets/{HF_REPO}"
 # (weights, size, family)
 MODELS = [
     # YOLOX
-    ("LibreYOLOXn.pt",    "nano", "yolox"),
-    ("LibreYOLOXt.pt",    "tiny", "yolox"),
+    ("LibreYOLOXn.pt",    "n",    "yolox"),
+    ("LibreYOLOXt.pt",    "t",    "yolox"),
     ("LibreYOLOXs.pt",    "s",    "yolox"),
     ("LibreYOLOXm.pt",    "m",    "yolox"),
     ("LibreYOLOXl.pt",    "l",    "yolox"),
@@ -48,8 +48,8 @@ MODELS = [
 ]
 
 IDS = [
-    "yolox-nano", "yolox-tiny", "yolox-s", "yolox-m", "yolox-l", "yolox-x",
-    "v9-t", "v9-s", "v9-m", "v9-c",
+    "yolox-n", "yolox-t", "yolox-s", "yolox-m", "yolox-l", "yolox-x",
+    "yolo9-t", "yolo9-s", "yolo9-m", "yolo9-c",
     "rfdetr-n", "rfdetr-s", "rfdetr-m", "rfdetr-l",
 ]
 
@@ -249,8 +249,8 @@ def test_rf1_training(weights, size, family, dataset_coco, dataset_data_yaml,
 
 # YOLOX/V9: all models
 RELOAD_MODELS = [
-    ("LibreYOLOXn.pt",    "nano", "yolox"),
-    ("LibreYOLOXt.pt",    "tiny", "yolox"),
+    ("LibreYOLOXn.pt",    "n",    "yolox"),
+    ("LibreYOLOXt.pt",    "t",    "yolox"),
     ("LibreYOLOXs.pt",    "s",    "yolox"),
     ("LibreYOLOXm.pt",    "m",    "yolox"),
     ("LibreYOLOXl.pt",    "l",    "yolox"),
@@ -261,8 +261,8 @@ RELOAD_MODELS = [
     ("LibreYOLO9c.pt",    "c",    "yolo9"),
 ]
 RELOAD_IDS = [
-    "yolox-nano", "yolox-tiny", "yolox-s", "yolox-m", "yolox-l", "yolox-x",
-    "v9-t", "v9-s", "v9-m", "v9-c",
+    "yolox-n", "yolox-t", "yolox-s", "yolox-m", "yolox-l", "yolox-x",
+    "yolo9-t", "yolo9-s", "yolo9-m", "yolo9-c",
 ]
 
 

@@ -151,7 +151,7 @@ def temp_export_dir(tmp_path):
 # ---------------------------------------------------------------------------
 
 # YOLOX model sizes
-YOLOX_SIZES = ["nano", "tiny", "s", "m", "l", "x"]
+YOLOX_SIZES = ["n", "t", "s", "m", "l", "x"]
 
 # YOLOv9 model sizes
 YOLOV9_SIZES = ["t", "s", "m", "c"]
@@ -161,8 +161,8 @@ RFDETR_SIZES = ["n", "s", "m", "l"]
 
 # Model weight file patterns
 YOLOX_WEIGHTS = {
-    "nano": "LibreYOLOXn.pt",
-    "tiny": "LibreYOLOXt.pt",
+    "n": "LibreYOLOXn.pt",
+    "t": "LibreYOLOXt.pt",
     "s": "LibreYOLOXs.pt",
     "m": "LibreYOLOXm.pt",
     "l": "LibreYOLOXl.pt",
@@ -185,7 +185,7 @@ RFDETR_WEIGHTS = {
 
 # Quick test set (for CI - smallest models only)
 QUICK_TEST_MODELS = [
-    ("yolox", "nano"),
+    ("yolox", "n"),
     ("yolov9", "t"),
 ]
 

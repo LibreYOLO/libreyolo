@@ -28,7 +28,7 @@ class LibreYOLOX(BaseModel):
             - str: Path to a .pt/.pth weights file
             - dict: Pre-loaded state_dict (e.g., from torch.load())
             - None: Random initialization for training from scratch
-        size: Model size variant. Must be one of: "nano", "tiny", "s", "m", "l", "x"
+        size: Model size variant. Must be one of: "n", "t", "s", "m", "l", "x"
         nb_classes: Number of classes (default: 80 for COCO)
         device: Device for inference.
 
@@ -63,7 +63,7 @@ class LibreYOLOX(BaseModel):
         if key not in weights_dict:
             return None
         ch = weights_dict[key].shape[0]
-        return {16: 'nano', 24: 'tiny', 32: 's', 48: 'm', 64: 'l', 80: 'x'}.get(ch)
+        return {16: 'n', 24: 't', 32: 's', 48: 'm', 64: 'l', 80: 'x'}.get(ch)
 
     @classmethod
     def detect_nb_classes(cls, weights_dict: dict) -> Optional[int]:
@@ -75,17 +75,14 @@ class LibreYOLOX(BaseModel):
     def detect_size_from_filename(cls, filename: str) -> Optional[str]:
         """Extract size from filename pattern like LibreYOLOXs.pt."""
         m = re.search(r'libreyolox([ntsmxl])\.pt', filename.lower())
-        if m:
-            letter = m.group(1)
-            return {"n": "nano", "t": "tiny"}.get(letter, letter)
-        return None
+        return m.group(1) if m else None
 
     # =========================================================================
 
     # Default input sizes for different model variants
     DEFAULT_INPUT_SIZES = {
-        "nano": 416,
-        "tiny": 416,
+        "n": 416,
+        "t": 416,
         "s": 640,
         "m": 640,
         "l": 640,
@@ -115,14 +112,14 @@ class LibreYOLOX(BaseModel):
 
         # Apply nano-specific BatchNorm settings (matching official YOLOX).
         # Must run after weight loading.
-        if self.size == 'nano':
+        if self.size == 'n':
             for m in self.model.modules():
                 if isinstance(m, nn.BatchNorm2d):
                     m.eps = 1e-3
                     m.momentum = 0.03
 
     def _get_valid_sizes(self) -> List[str]:
-        return ["nano", "tiny", "s", "m", "l", "x"]
+        return ["n", "t", "s", "m", "l", "x"]
 
     def _get_model_name(self) -> str:
         return "yolox"

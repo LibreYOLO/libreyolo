@@ -346,7 +346,7 @@ class TensorRTBackend(BaseBackend):
         if self._sidecar_size is not None:
             return self._sidecar_size
         stem = Path(self.model_path).stem.lower()
-        for s in ["nano", "tiny", "s", "m", "l", "x", "t", "c"]:
+        for s in ["n", "t", "s", "m", "l", "x", "c"]:
             if s in stem:
                 return s
         return "unknown"

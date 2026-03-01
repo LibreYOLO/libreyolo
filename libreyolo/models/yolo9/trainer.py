@@ -30,7 +30,7 @@ class YOLO9Trainer(BaseTrainer):
         "mosaic_scale": (0.5, 1.5),
         "mixup_prob": 0.0,
         "ema_decay": 0.9999,
-        "name": "v9_exp",
+        "name": "yolo9_exp",
         "workers": 8,
     }
 

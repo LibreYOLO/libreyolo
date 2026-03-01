@@ -39,7 +39,10 @@ def download_weights(model_path: str, size: str):
     elif re.search(r"libreyolox([ntslmx])\.pt", fl):
         yolox_m = re.search(r"libreyolox([ntslmx])\.pt", fl)
         letter = yolox_m.group(1)
-        repo = f"Libre-YOLO/LibreYOLOX{letter}"
+        # HF repos use full names for n/t variants
+        _YOLOX_HF_NAMES = {"n": "nano", "t": "tiny"}
+        hf_letter = _YOLOX_HF_NAMES.get(letter, letter)
+        repo = f"Libre-YOLO/LibreYOLOX{hf_letter}"
         actual_filename = f"LibreYOLOX{letter}.pt"
         url = f"https://huggingface.co/{repo}/resolve/main/{actual_filename}"
     # YOLOv9: LibreYOLO9(t|s|m|c).pt

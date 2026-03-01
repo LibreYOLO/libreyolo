@@ -211,7 +211,7 @@ class TestTensorRTExportConfig:
     @requires_tensorrt
     def test_export_with_yaml_config(self, sample_image, tmp_path):
         """Test export using YAML configuration file."""
-        pt_model = load_model("yolox", "nano", device="cuda")
+        pt_model = load_model("yolox", "n", device="cuda")
 
         engine_path = str(tmp_path / "model_with_config.engine")
         exported_path = pt_model.export(
@@ -235,7 +235,7 @@ class TestTensorRTExportConfig:
     @requires_tensorrt
     def test_export_with_dict_config(self, sample_image, tmp_path):
         """Test export using dictionary configuration."""
-        pt_model = load_model("yolox", "nano", device="cuda")
+        pt_model = load_model("yolox", "n", device="cuda")
 
         config = {
             "precision": "fp16",

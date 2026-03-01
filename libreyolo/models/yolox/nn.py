@@ -964,8 +964,8 @@ class LibreYOLOXModel(nn.Module):
 
     # Model configurations: depth, width, depthwise
     CONFIGS = {
-        'nano': {'depth': 0.33, 'width': 0.25, 'depthwise': True},
-        'tiny': {'depth': 0.33, 'width': 0.375, 'depthwise': False},
+        'n': {'depth': 0.33, 'width': 0.25, 'depthwise': True},
+        't': {'depth': 0.33, 'width': 0.375, 'depthwise': False},
         's': {'depth': 0.33, 'width': 0.50, 'depthwise': False},
         'm': {'depth': 0.67, 'width': 0.75, 'depthwise': False},
         'l': {'depth': 1.00, 'width': 1.00, 'depthwise': False},
@@ -982,7 +982,7 @@ class LibreYOLOXModel(nn.Module):
         Initialize YOLOX model.
 
         Args:
-            config: Model size ('nano', 'tiny', 's', 'm', 'l', 'x')
+            config: Model size ('n', 't', 's', 'm', 'l', 'x')
             nb_classes: Number of classes (default: 80 for COCO)
             act: Activation function (default: 'silu')
         """
