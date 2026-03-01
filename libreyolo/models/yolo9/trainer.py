@@ -21,93 +21,12 @@ from tqdm import tqdm
 from .config import YOLO9TrainConfig
 from .transforms import YOLO9TrainTransform, YOLO9MosaicMixupDataset
 from ...training.ema import ModelEMA
+from ...training.scheduler import LinearLRScheduler, CosineAnnealingScheduler
 from ...data.dataset import YOLODataset, COCODataset, create_dataloader
 from ...data import load_data_config
 
 
 logger = logging.getLogger(__name__)
-
-
-class LinearLRScheduler:
-    """
-    Linear learning rate scheduler with warmup for YOLOv9.
-
-    LR schedule:
-    - Warmup: linear increase from warmup_lr_start to lr over warmup_iters
-    - Main: linear decrease from lr to lr * min_lr_ratio over remaining iterations
-    """
-
-    def __init__(
-        self,
-        lr: float,
-        iters_per_epoch: int,
-        total_epochs: int,
-        warmup_epochs: int = 3,
-        warmup_lr_start: float = 0.0001,
-        min_lr_ratio: float = 0.01,
-    ):
-        self.lr = lr
-        self.iters_per_epoch = iters_per_epoch
-        self.total_epochs = total_epochs
-        self.total_iters = iters_per_epoch * total_epochs
-        self.warmup_iters = iters_per_epoch * warmup_epochs
-        self.warmup_lr_start = warmup_lr_start
-        self.min_lr_ratio = min_lr_ratio
-        self.min_lr = lr * min_lr_ratio
-
-    def update_lr(self, iters: int) -> float:
-        """Get learning rate for given iteration."""
-        if iters <= self.warmup_iters:
-            # Linear warmup
-            if self.warmup_iters > 0:
-                lr = (self.lr - self.warmup_lr_start) * iters / self.warmup_iters + self.warmup_lr_start
-            else:
-                lr = self.lr
-        else:
-            # Linear decay
-            progress = (iters - self.warmup_iters) / max(1, self.total_iters - self.warmup_iters)
-            lr = self.lr - (self.lr - self.min_lr) * progress
-        return lr
-
-
-class CosineAnnealingScheduler:
-    """
-    Cosine annealing scheduler with warmup.
-
-    Alternative to linear scheduler.
-    """
-
-    def __init__(
-        self,
-        lr: float,
-        iters_per_epoch: int,
-        total_epochs: int,
-        warmup_epochs: int = 3,
-        warmup_lr_start: float = 0.0001,
-        min_lr_ratio: float = 0.01,
-    ):
-        import math
-        self.math = math
-        self.lr = lr
-        self.iters_per_epoch = iters_per_epoch
-        self.total_iters = iters_per_epoch * total_epochs
-        self.warmup_iters = iters_per_epoch * warmup_epochs
-        self.warmup_lr_start = warmup_lr_start
-        self.min_lr = lr * min_lr_ratio
-
-    def update_lr(self, iters: int) -> float:
-        """Get learning rate for given iteration."""
-        if iters <= self.warmup_iters:
-            # Linear warmup
-            if self.warmup_iters > 0:
-                lr = (self.lr - self.warmup_lr_start) * iters / self.warmup_iters + self.warmup_lr_start
-            else:
-                lr = self.lr
-        else:
-            # Cosine annealing
-            progress = (iters - self.warmup_iters) / max(1, self.total_iters - self.warmup_iters)
-            lr = self.min_lr + 0.5 * (self.lr - self.min_lr) * (1 + self.math.cos(self.math.pi * progress))
-        return lr
 
 
 class YOLO9Trainer:

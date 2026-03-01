@@ -14,7 +14,7 @@ from .augment import (
     random_affine,
     preproc,
 )
-from .scheduler import LRScheduler
+from .scheduler import LRScheduler, LinearLRScheduler, CosineAnnealingScheduler
 from .ema import ModelEMA
 
 # Dataset re-export for backward compatibility
@@ -35,6 +35,8 @@ __all__ = [
     "preproc",
     # Scheduler
     "LRScheduler",
+    "LinearLRScheduler",
+    "CosineAnnealingScheduler",
     # EMA
     "ModelEMA",
 ]
