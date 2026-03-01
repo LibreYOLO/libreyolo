@@ -182,18 +182,24 @@ MIN_MAP = 0.05
 @pytest.mark.parametrize("weights,size,family", MODELS, ids=IDS)
 def test_rf1_training(weights, size, family, dataset_coco, dataset_data_yaml,
                       tmp_path):
-    """Train 2 epochs on marbles, validate on test split."""
+    """Train 10 epochs on marbles, verify loss decreases and mAP improves."""
     model = LibreYOLO(weights, size=size)
 
+    # --- Baseline mAP BEFORE training ---
+    pre_results = model.val(data=dataset_data_yaml, split="test",
+                            batch=16, conf=0.001, iou=0.6)
+    pre_map = pre_results["metrics/mAP50-95"]
+
+    # --- Train ---
     if family == "rfdetr":
-        model.train(
+        train_results = model.train(
             data=str(dataset_coco),
             epochs=10,
             batch_size=2,
             output_dir=str(tmp_path / f"rfdetr_{size}"),
         )
     else:
-        model.train(
+        train_results = model.train(
             data=dataset_data_yaml,
             epochs=10,
             batch=16,
@@ -203,14 +209,34 @@ def test_rf1_training(weights, size, family, dataset_coco, dataset_data_yaml,
             exist_ok=True,
         )
 
-    results = model.val(data=dataset_data_yaml, split="test",
-                        batch=16, conf=0.001, iou=0.6)
-    map50_95 = results["metrics/mAP50-95"]
+    # --- Post-training mAP ---
+    post_results = model.val(data=dataset_data_yaml, split="test",
+                             batch=16, conf=0.001, iou=0.6)
+    post_map = post_results["metrics/mAP50-95"]
 
-    print(f"\n  {weights} post-training mAP50-95={map50_95:.4f}")
+    print(f"\n  {weights} pre-training mAP50-95={pre_map:.4f}")
+    print(f"  {weights} post-training mAP50-95={post_map:.4f}")
 
-    assert map50_95 >= MIN_MAP, (
-        f"Post-training mAP50-95={map50_95:.4f} below {MIN_MAP}"
+    # --- Loss monitoring (YOLOX / YOLOv9 only, RF-DETR uses external trainer) ---
+    if family != "rfdetr":
+        epoch_losses = train_results["epoch_losses"]
+        first_loss = epoch_losses[0]
+        last_loss = epoch_losses[-1]
+        print(f"  {weights} first epoch loss={first_loss:.4f}, "
+              f"last epoch loss={last_loss:.4f}")
+
+        assert last_loss < first_loss, (
+            f"Loss did not decrease: first={first_loss:.4f} → "
+            f"last={last_loss:.4f}"
+        )
+
+    # --- Assertions ---
+    assert post_map >= MIN_MAP, (
+        f"Post-training mAP50-95={post_map:.4f} below {MIN_MAP}"
+    )
+
+    assert post_map > pre_map, (
+        f"Model did not improve: pre={pre_map:.4f} → post={post_map:.4f}"
     )
 
     if torch.cuda.is_available():
@@ -248,10 +274,16 @@ def test_load_finetuned_checkpoint(weights, size, family, dataset_coco,
 
     Verifies that fine-tuned checkpoints can be loaded in a new session
     with correct nc, names, and architecture auto-rebuild.
+    Also verifies loss decreased during training and mAP improved.
     """
-    # 1. Train
+    # 1. Baseline mAP before training
     model = LibreYOLO(weights, size=size)
-    model.train(
+    pre_results = model.val(data=dataset_data_yaml, split="test",
+                            batch=16, conf=0.001, iou=0.6)
+    pre_map = pre_results["metrics/mAP50-95"]
+
+    # 2. Train
+    train_results = model.train(
         data=dataset_data_yaml,
         epochs=10,
         batch=16,
@@ -261,30 +293,42 @@ def test_load_finetuned_checkpoint(weights, size, family, dataset_coco,
         exist_ok=True,
     )
 
-    # 2. Find best.pt on disk
+    # 3. Verify loss decreased
+    epoch_losses = train_results["epoch_losses"]
+    first_loss = epoch_losses[0]
+    last_loss = epoch_losses[-1]
+    print(f"\n  {weights} first epoch loss={first_loss:.4f}, "
+          f"last epoch loss={last_loss:.4f}")
+
+    assert last_loss < first_loss, (
+        f"Loss did not decrease: first={first_loss:.4f} → "
+        f"last={last_loss:.4f}"
+    )
+
+    # 4. Find best.pt on disk
     best_pt = tmp_path / f"{family}_{size}" / "weights" / "best.pt"
     if not best_pt.exists():
         best_pt = tmp_path / f"{family}_{size}" / "weights" / "last.pt"
     assert best_pt.exists(), f"No checkpoint found at {best_pt}"
 
-    # 3. Verify checkpoint has metadata
+    # 5. Verify checkpoint has metadata
     ckpt = torch.load(best_pt, map_location="cpu", weights_only=False)
     assert "nc" in ckpt, "Checkpoint missing 'nc' metadata"
     assert "names" in ckpt, "Checkpoint missing 'names' metadata"
     assert "model_family" in ckpt, "Checkpoint missing 'model_family' metadata"
     assert ckpt["nc"] == 2, f"Expected nc=2 (marbles), got {ckpt['nc']}"
     assert ckpt["model_family"] == family
-    print(f"\n  Checkpoint metadata: nc={ckpt['nc']}, family={ckpt['model_family']}, "
+    print(f"  Checkpoint metadata: nc={ckpt['nc']}, family={ckpt['model_family']}, "
           f"names={ckpt['names']}")
 
-    # 4. Load into a completely fresh model (default nc=80)
+    # 6. Load into a completely fresh model (default nc=80)
     del model
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
 
     fresh_model = LibreYOLO(str(best_pt), size=size)
 
-    # 5. Verify auto-rebuild happened
+    # 7. Verify auto-rebuild happened
     assert fresh_model.nb_classes == 2, (
         f"Expected nb_classes=2 after loading, got {fresh_model.nb_classes}"
     )
@@ -292,15 +336,21 @@ def test_load_finetuned_checkpoint(weights, size, family, dataset_coco,
         f"Expected 2 names, got {len(fresh_model.names)}"
     )
 
-    # 6. Validate on test split
-    results = fresh_model.val(data=dataset_data_yaml, split="test",
-                              batch=16, conf=0.001, iou=0.6)
-    map50_95 = results["metrics/mAP50-95"]
+    # 8. Validate reloaded model on test split
+    post_results = fresh_model.val(data=dataset_data_yaml, split="test",
+                                   batch=16, conf=0.001, iou=0.6)
+    post_map = post_results["metrics/mAP50-95"]
 
-    print(f"  {weights} reloaded checkpoint mAP50-95={map50_95:.4f}")
+    print(f"  {weights} pre-training mAP50-95={pre_map:.4f}")
+    print(f"  {weights} reloaded checkpoint mAP50-95={post_map:.4f}")
 
-    assert map50_95 >= MIN_MAP, (
-        f"Reloaded model mAP50-95={map50_95:.4f} below {MIN_MAP}"
+    assert post_map >= MIN_MAP, (
+        f"Reloaded model mAP50-95={post_map:.4f} below {MIN_MAP}"
+    )
+
+    assert post_map > pre_map, (
+        f"Reloaded model did not improve over baseline: "
+        f"pre={pre_map:.4f} → post={post_map:.4f}"
     )
 
     if torch.cuda.is_available():
@@ -322,11 +372,17 @@ def test_load_finetuned_checkpoint_rfdetr(weights, size, family, dataset_coco,
 
     RF-DETR uses a different checkpoint format (checkpoint_best_total.pth)
     and requires manual detection head reinitialization.
+    Also verifies mAP improved over pre-training baseline.
     """
     from pathlib import Path as P
 
-    # 1. Train
+    # 1. Baseline mAP before training
     model = LibreYOLO(weights, size=size)
+    pre_results = model.val(data=dataset_data_yaml, split="test",
+                            batch=16, conf=0.001, iou=0.6)
+    pre_map = pre_results["metrics/mAP50-95"]
+
+    # 2. Train
     output_dir = str(tmp_path / f"rfdetr_{size}")
     model.train(
         data=str(dataset_coco),
@@ -335,7 +391,7 @@ def test_load_finetuned_checkpoint_rfdetr(weights, size, family, dataset_coco,
         output_dir=output_dir,
     )
 
-    # 2. Find checkpoint on disk
+    # 3. Find checkpoint on disk
     best_ckpt = P(output_dir) / "checkpoint_best_total.pth"
     if not best_ckpt.exists():
         # Fall back to any checkpoint
@@ -343,7 +399,7 @@ def test_load_finetuned_checkpoint_rfdetr(weights, size, family, dataset_coco,
         assert ckpts, f"No checkpoint found in {output_dir}"
         best_ckpt = ckpts[-1]
 
-    # 3. Verify checkpoint structure
+    # 4. Verify checkpoint structure
     ckpt = torch.load(best_ckpt, map_location="cpu", weights_only=False)
     assert "model" in ckpt, "RF-DETR checkpoint missing 'model' key"
     state_dict = ckpt["model"]
@@ -353,7 +409,7 @@ def test_load_finetuned_checkpoint_rfdetr(weights, size, family, dataset_coco,
     assert num_classes == 2, f"Expected nc=2 (marbles), got {num_classes}"
     print(f"\n  RF-DETR checkpoint: nc={num_classes}, internal={num_classes_internal}")
 
-    # 4. Load into a fresh model and manually load checkpoint
+    # 5. Load into a fresh model and manually load checkpoint
     del model
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
@@ -369,15 +425,21 @@ def test_load_finetuned_checkpoint_rfdetr(weights, size, family, dataset_coco,
     fresh_model.nb_classes = num_classes
     fresh_model.model.nb_classes = num_classes
 
-    # 5. Validate on test split
-    results = fresh_model.val(data=dataset_data_yaml, split="test",
-                              batch=16, conf=0.001, iou=0.6)
-    map50_95 = results["metrics/mAP50-95"]
+    # 6. Validate reloaded model on test split
+    post_results = fresh_model.val(data=dataset_data_yaml, split="test",
+                                   batch=16, conf=0.001, iou=0.6)
+    post_map = post_results["metrics/mAP50-95"]
 
-    print(f"  {weights} reloaded checkpoint mAP50-95={map50_95:.4f}")
+    print(f"  {weights} pre-training mAP50-95={pre_map:.4f}")
+    print(f"  {weights} reloaded checkpoint mAP50-95={post_map:.4f}")
 
-    assert map50_95 >= MIN_MAP, (
-        f"Reloaded model mAP50-95={map50_95:.4f} below {MIN_MAP}"
+    assert post_map >= MIN_MAP, (
+        f"Reloaded model mAP50-95={post_map:.4f} below {MIN_MAP}"
+    )
+
+    assert post_map > pre_map, (
+        f"Reloaded model did not improve over baseline: "
+        f"pre={pre_map:.4f} → post={post_map:.4f}"
     )
 
     if torch.cuda.is_available():
