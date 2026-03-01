@@ -73,6 +73,8 @@ class LibreYOLORFDETR(BaseModel):
         >>> detections = model.predict("path/to/image.jpg", conf_thres=0.5)
     """
 
+    val_preprocessor_class = RFDETRValPreprocessor
+
     # =========================================================================
     # REGISTRY CLASSMETHODS — used by LibreYOLO() factory
     # =========================================================================
@@ -161,7 +163,6 @@ class LibreYOLORFDETR(BaseModel):
             size=size,
             nb_classes=nb_classes,
             device=device,
-            val_preprocessor_class=RFDETRValPreprocessor,
             **kwargs,
         )
 

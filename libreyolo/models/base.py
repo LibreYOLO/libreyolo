@@ -52,6 +52,8 @@ class BaseModel(ABC):
     behavior for initialization, forward pass, and postprocessing.
     """
 
+    val_preprocessor_class = None
+
     # =========================================================================
     # ABSTRACT METHODS - Must be implemented by subclasses
     # =========================================================================
@@ -123,7 +125,11 @@ class BaseModel(ABC):
         """
         if img_size is None:
             img_size = self._get_input_size()
-        return self.val_preprocessor_class(img_size=(img_size, img_size))
+        cls = self.val_preprocessor_class
+        if cls is None:
+            from libreyolo.validation.preprocessors import StandardValPreprocessor
+            cls = StandardValPreprocessor
+        return cls(img_size=(img_size, img_size))
 
     # =========================================================================
     # SHARED IMPLEMENTATION
@@ -135,7 +141,6 @@ class BaseModel(ABC):
         size: str,
         nb_classes: int = 80,
         device: str = "auto",
-        val_preprocessor_class=None,
         **kwargs,
     ):
         """
@@ -147,15 +152,8 @@ class BaseModel(ABC):
             size: Model size variant.
             nb_classes: Number of classes (default: 80 for COCO).
             device: Device for inference ("auto", "cuda", "mps", "cpu").
-            val_preprocessor_class: Preprocessor class for validation.
-                Defaults to StandardValPreprocessor if not provided.
             **kwargs: Additional model-specific arguments.
         """
-        # Validation preprocessor
-        if val_preprocessor_class is None:
-            from libreyolo.validation.preprocessors import StandardValPreprocessor
-            val_preprocessor_class = StandardValPreprocessor
-        self.val_preprocessor_class = val_preprocessor_class
         # Validate size
         valid_sizes = self._get_valid_sizes()
         if size not in valid_sizes:
