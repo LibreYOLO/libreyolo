@@ -99,15 +99,19 @@ class LibreYOLOBase(ABC):
         pass
 
     # =========================================================================
-    # OVERRIDABLE METHODS - Subclasses may override for custom behavior
+    # OVERRIDABLE ATTRIBUTES / METHODS - Subclasses may override
     # =========================================================================
+
+    # Validation preprocessor class — override in subclasses.
+    # Default uses simple resize + 0-1 normalization (StandardValPreprocessor).
+    val_preprocessor_class = None  # Set lazily to avoid circular imports
 
     def _get_val_preprocessor(self, img_size: int = None):
         """
         Return the validation preprocessor for this model.
 
-        Override in subclasses that need different preprocessing
-        (e.g., YOLOX uses letterbox + no normalization).
+        Uses val_preprocessor_class attribute. Subclasses override the
+        class attribute instead of this method.
 
         Args:
             img_size: Target image size. Defaults to model's native input size.
@@ -115,10 +119,13 @@ class LibreYOLOBase(ABC):
         Returns:
             A preprocessor instance with __call__(img, targets, input_size).
         """
-        from libreyolo.validation.preprocessors import StandardValPreprocessor
         if img_size is None:
             img_size = self._get_input_size()
-        return StandardValPreprocessor(img_size=(img_size, img_size))
+        cls = self.val_preprocessor_class
+        if cls is None:
+            from libreyolo.validation.preprocessors import StandardValPreprocessor
+            cls = StandardValPreprocessor
+        return cls(img_size=(img_size, img_size))
 
     # =========================================================================
     # SHARED IMPLEMENTATION
