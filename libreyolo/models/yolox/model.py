@@ -14,8 +14,9 @@ from PIL import Image
 
 from ..base import LibreYOLOBase
 from ...utils.image_loader import ImageInput
-from .nn import YOLOXModel
+from .nn import LibreYOLOXModel
 from .utils import preprocess_image as _yolox_preprocess, postprocess
+from ...validation.preprocessors import YOLOXValPreprocessor
 
 
 class LIBREYOLOX(LibreYOLOBase):
@@ -76,6 +77,8 @@ class LIBREYOLOX(LibreYOLOBase):
             >>> results = model.train(data="coco128.yaml", epochs=100)
     """
 
+    val_preprocessor_class = YOLOXValPreprocessor
+
     # Default input sizes for different model variants
     DEFAULT_INPUT_SIZES = {
         "nano": 416,
@@ -121,7 +124,7 @@ class LIBREYOLOX(LibreYOLOBase):
         return self.input_size
 
     def _init_model(self) -> nn.Module:
-        return YOLOXModel(config=self.size, nb_classes=self.nb_classes)
+        return LibreYOLOXModel(config=self.size, nb_classes=self.nb_classes)
 
     def _get_available_layers(self) -> Dict[str, nn.Module]:
         return {
@@ -131,13 +134,6 @@ class LIBREYOLOX(LibreYOLOBase):
             "backbone_dark4": self.model.backbone.dark4,
             "backbone_dark5": self.model.backbone.dark5,
         }
-
-    def _get_val_preprocessor(self, img_size: int = None):
-        """YOLOX uses letterbox + no normalization (0-255 range)."""
-        from libreyolo.validation.preprocessors import YOLOXValPreprocessor
-        if img_size is None:
-            img_size = self.input_size
-        return YOLOXValPreprocessor(img_size=(img_size, img_size))
 
     def _strict_loading(self) -> bool:
         """Use non-strict loading for YOLOX."""

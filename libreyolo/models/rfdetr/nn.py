@@ -28,7 +28,7 @@ RFDETR_CONFIGS = {
 }
 
 
-class RFDETRModel(nn.Module):
+class LibreRFDETRModel(nn.Module):
     """
     RF-DETR Detection Transformer model wrapper.
 
@@ -132,7 +132,7 @@ def create_rfdetr_model(
     nb_classes: int = 80,
     pretrain_weights: str = None,
     device: str = 'cpu',
-) -> RFDETRModel:
+) -> LibreRFDETRModel:
     """
     Create an RF-DETR model.
 
@@ -143,9 +143,9 @@ def create_rfdetr_model(
         device: Device to use
 
     Returns:
-        RFDETRModel instance
+        LibreRFDETRModel instance
     """
-    return RFDETRModel(
+    return LibreRFDETRModel(
         config=config,
         nb_classes=nb_classes,
         pretrain_weights=pretrain_weights,
@@ -155,7 +155,7 @@ def create_rfdetr_model(
 
 # Export commonly used components
 __all__ = [
-    'RFDETRModel',
+    'LibreRFDETRModel',
     'create_rfdetr_model',
     'RFDETR_CONFIGS',
     'LWDETR',
