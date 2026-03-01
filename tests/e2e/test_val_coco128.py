@@ -7,7 +7,7 @@ mapping, etc.) — NOT exact mAP benchmarking.
 
 Usage:
     pytest tests/e2e/test_val_coco128.py -v -m e2e
-    pytest tests/e2e/test_val_coco128.py::test_val_coco128[yolox-nano] -v
+    pytest tests/e2e/test_val_coco128.py::test_val_coco128[yolox-n] -v
     pytest tests/e2e/test_val_coco128.py -k "rfdetr" -v
 """
 
@@ -21,8 +21,8 @@ MIN_MAP = 0.18  # Uniform threshold for all models
 # (weights, size)
 MODELS = [
     # YOLOX
-    ("LibreYOLOXn.pt",    "nano"),
-    ("LibreYOLOXt.pt",    "tiny"),
+    ("LibreYOLOXn.pt",    "n"),
+    ("LibreYOLOXt.pt",    "t"),
     ("LibreYOLOXs.pt",    "s"),
     ("LibreYOLOXm.pt",    "m"),
     ("LibreYOLOXl.pt",    "l"),
@@ -40,8 +40,8 @@ MODELS = [
 ]
 
 IDS = [
-    "yolox-nano", "yolox-tiny", "yolox-s", "yolox-m", "yolox-l", "yolox-x",
-    "v9-t", "v9-s", "v9-m", "v9-c",
+    "yolox-n", "yolox-t", "yolox-s", "yolox-m", "yolox-l", "yolox-x",
+    "yolo9-t", "yolo9-s", "yolo9-m", "yolo9-c",
     "rfdetr-n", "rfdetr-s", "rfdetr-m", "rfdetr-l",
 ]
 

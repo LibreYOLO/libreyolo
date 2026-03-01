@@ -250,9 +250,9 @@ class TestTorchScriptBatchSize:
         """Test that TorchScript works with different batch sizes."""
         device = "cuda" if torch.cuda.is_available() else "cpu"
 
-        pt_model = load_model("yolox", "nano", device=device)
+        pt_model = load_model("yolox", "n", device=device)
 
-        ts_path = str(tmp_path / f"yolox_nano_batch{batch_size}.torchscript")
+        ts_path = str(tmp_path / f"yolox_n_batch{batch_size}.torchscript")
         pt_model.export(
             format="torchscript",
             output_path=ts_path,

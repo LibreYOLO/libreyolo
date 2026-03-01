@@ -299,9 +299,9 @@ class TestONNXOpset:
         """Test export with different opset versions."""
         device = "cuda" if torch.cuda.is_available() else "cpu"
 
-        pt_model = load_model("yolox", "nano", device=device)
+        pt_model = load_model("yolox", "n", device=device)
 
-        onnx_path = str(tmp_path / f"yolox_nano_opset{opset}.onnx")
+        onnx_path = str(tmp_path / f"yolox_n_opset{opset}.onnx")
 
         try:
             pt_model.export(

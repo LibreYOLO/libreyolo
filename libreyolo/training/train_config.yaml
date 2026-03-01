@@ -5,7 +5,7 @@ data_path: "data/coco128/images/train2017"
 
 
 # Model configuration
-size: "s"                                    # Model size (YOLOX: "nano","tiny","s","m","l","x"; v9: "t","s","m","c")
+size: "s"                                    # Model size (YOLOX: "n","t","s","m","l","x"; v9: "t","s","m","c")
 version: "x"                                 # Model version: "x", "9"
 pretrained_weights: "weights/libreyoloXs.pt" # Path to pretrained weights (optional)
 

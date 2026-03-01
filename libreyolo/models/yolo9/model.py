@@ -227,7 +227,7 @@ class LibreYOLO9(BaseModel):
 
         # Output parameters
         project: str = "runs/train",
-        name: str = "v9_exp",
+        name: str = "yolo9_exp",
         exist_ok: bool = False,
 
         # Training features
