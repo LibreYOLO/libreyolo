@@ -8,7 +8,7 @@ loss extraction, and bias initialisation.
 import torch
 from typing import Dict
 
-from libreyolo.training.base_trainer import BaseTrainer
+from libreyolo.training.trainer import BaseTrainer
 from ...training.scheduler import LRScheduler
 from ...training.augment import TrainTransform, MosaicMixupDataset
 

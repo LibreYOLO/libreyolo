@@ -5,4 +5,4 @@ Shared training infrastructure (EMA, schedulers, augmentation primitives).
 Model-specific trainers live in their respective models/ subdirectories.
 """
 
-from .base_trainer import BaseTrainer
+from .trainer import BaseTrainer

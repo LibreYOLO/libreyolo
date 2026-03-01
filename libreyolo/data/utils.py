@@ -27,7 +27,7 @@ from tqdm import tqdm
 DATASETS_DIR = Path(os.getenv("LIBREYOLO_DATASETS_DIR", Path.home() / "datasets"))
 
 # Built-in datasets directory (shipped with package)
-BUILTIN_DATASETS_DIR = Path(__file__).parent.parent / "cfg" / "datasets"
+BUILTIN_DATASETS_DIR = Path(__file__).parent.parent / "config" / "datasets"
 
 # Supported image extensions
 IMG_FORMATS = {".jpg", ".jpeg", ".png", ".bmp", ".gif", ".tif", ".tiff", ".webp", ".pfm"}
@@ -40,7 +40,7 @@ def resolve_dataset_yaml(data: str) -> Path:
     Searches in the following order:
     1. Exact path (if exists)
     2. Current working directory
-    3. Built-in datasets directory (libreyolo/cfg/datasets/)
+    3. Built-in datasets directory (libreyolo/config/datasets/)
 
     Args:
         data: Dataset name (e.g., "coco8.yaml") or path to YAML file.
