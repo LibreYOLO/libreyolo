@@ -1,7 +1,7 @@
 """
 Loss functions for YOLO training.
 
-Includes losses for YOLOX (IOUloss, SimOTA).
+Includes losses for YOLOX (IoULoss, SimOTA).
 """
 
 import torch
@@ -15,7 +15,7 @@ from libreyolo.utils.general import make_anchors
 # YOLOX Losses
 # =============================================================================
 
-class IOUloss(nn.Module):
+class IoULoss(nn.Module):
     """IoU loss for bounding box regression (YOLOX)."""
 
     def __init__(self, reduction="none", loss_type="iou"):

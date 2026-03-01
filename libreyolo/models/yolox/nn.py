@@ -54,53 +54,7 @@ def bboxes_iou(bboxes_a, bboxes_b, xyxy=True):
     return area_i / (area_a[:, None] + area_b - area_i)
 
 
-class IOUloss(nn.Module):
-    """IoU loss for bounding box regression."""
-
-    def __init__(self, reduction="none", loss_type="iou"):
-        super().__init__()
-        self.reduction = reduction
-        self.loss_type = loss_type
-
-    def forward(self, pred, target):
-        assert pred.shape[0] == target.shape[0]
-        pred = pred.view(-1, 4)
-        target = target.view(-1, 4)
-
-        tl = torch.max(
-            (pred[:, :2] - pred[:, 2:] / 2), (target[:, :2] - target[:, 2:] / 2)
-        )
-        br = torch.min(
-            (pred[:, :2] + pred[:, 2:] / 2), (target[:, :2] + target[:, 2:] / 2)
-        )
-
-        area_p = torch.prod(pred[:, 2:], 1)
-        area_g = torch.prod(target[:, 2:], 1)
-
-        en = (tl < br).to(device=tl.device, dtype=tl.dtype).prod(dim=1)
-        area_i = torch.prod(br - tl, 1) * en
-        area_u = area_p + area_g - area_i
-        iou = (area_i) / (area_u + 1e-16)
-
-        if self.loss_type == "iou":
-            loss = 1 - iou ** 2
-        elif self.loss_type == "giou":
-            c_tl = torch.min(
-                (pred[:, :2] - pred[:, 2:] / 2), (target[:, :2] - target[:, 2:] / 2)
-            )
-            c_br = torch.max(
-                (pred[:, :2] + pred[:, 2:] / 2), (target[:, :2] + target[:, 2:] / 2)
-            )
-            area_c = torch.prod(c_br - c_tl, 1)
-            giou = iou - (area_c - area_u) / area_c.clamp(1e-16)
-            loss = 1 - giou.clamp(min=-1.0, max=1.0)
-
-        if self.reduction == "mean":
-            loss = loss.mean()
-        elif self.reduction == "sum":
-            loss = loss.sum()
-
-        return loss
+from .loss import IoULoss
 
 
 # =============================================================================
@@ -529,7 +483,7 @@ class YOLOXHead(nn.Module):
         self.use_l1 = False
         self.l1_loss = nn.L1Loss(reduction="none")
         self.bcewithlog_loss = nn.BCEWithLogitsLoss(reduction="none")
-        self.iou_loss = IOUloss(reduction="none")
+        self.iou_loss = IoULoss(reduction="none")
         self.grids = [torch.zeros(1)] * len(in_channels)
         # Set to False to return raw outputs for compatibility with postprocess
         self.decode_in_inference = False
@@ -1000,7 +954,7 @@ class YOLOXHead(nn.Module):
         return num_fg, gt_matched_classes, pred_ious_this_matching, matched_gt_inds
 
 
-class YOLOXModel(nn.Module):
+class LibreYOLOXModel(nn.Module):
     """
     Complete YOLOX model combining backbone (PAFPN) and head.
 
