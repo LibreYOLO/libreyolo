@@ -16,9 +16,10 @@ from PIL import Image
 
 from ..base import LibreYOLOBase
 from ...utils.image_loader import ImageInput, ImageLoader
-from .nn import RFDETRModel, RFDETR_CONFIGS
+from .nn import LibreRFDETRModel, RFDETR_CONFIGS
 from .utils import postprocess
-from .train import train_rfdetr, RFDETR_TRAINERS
+from .trainer import train_rfdetr, RFDETR_TRAINERS
+from ...validation.preprocessors import RFDETRValPreprocessor
 
 
 # ImageNet normalization constants (same as original rfdetr)
@@ -44,6 +45,9 @@ _COCO91_TO_COCO80 = {
 
 
 class LIBREYOLORFDETR(LibreYOLOBase):
+
+    val_preprocessor_class = RFDETRValPreprocessor
+
     """
     LibreYOLO RF-DETR model for object detection.
 
@@ -174,7 +178,7 @@ class LIBREYOLORFDETR(LibreYOLOBase):
 
     def _init_model(self) -> nn.Module:
         """Initialize RF-DETR model."""
-        return RFDETRModel(
+        return LibreRFDETRModel(
             config=self.size,
             nb_classes=self.nb_classes,
             pretrain_weights=self._pretrain_weights,
@@ -194,24 +198,6 @@ class LIBREYOLORFDETR(LibreYOLOBase):
             if hasattr(actual_model, 'decoder'):
                 layers['decoder'] = actual_model.decoder
         return layers
-
-    def _get_val_preprocessor(self, img_size: int = None):
-        """
-        Return RF-DETR specific validation preprocessor.
-
-        RF-DETR requires ImageNet normalization, unlike YOLO models
-        which use simple 0-1 normalization.
-
-        Args:
-            img_size: Target image size. Defaults to model's native input size.
-
-        Returns:
-            RFDETRValPreprocessor instance.
-        """
-        from libreyolo.validation.preprocessors import RFDETRValPreprocessor
-        if img_size is None:
-            img_size = self._get_input_size()
-        return RFDETRValPreprocessor(img_size=(img_size, img_size))
 
     def _strict_loading(self) -> bool:
         """Use non-strict loading for RF-DETR."""
