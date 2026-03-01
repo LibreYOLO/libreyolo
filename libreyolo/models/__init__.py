@@ -21,7 +21,7 @@ MODEL_REGISTRY: List[Type[LibreYOLOBase]] = []
 
 # Always-available models
 from .yolox.model import LIBREYOLOX   # noqa: E402
-from .v9.model import LIBREYOLO9      # noqa: E402
+from .yolo9.model import LIBREYOLO9      # noqa: E402
 
 MODEL_REGISTRY.extend([LIBREYOLOX, LIBREYOLO9])
 

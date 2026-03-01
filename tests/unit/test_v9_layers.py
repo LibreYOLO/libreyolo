@@ -2,12 +2,12 @@
 import pytest
 import torch
 
-from libreyolo.models.v9.nn import (
+from libreyolo.models.yolo9.nn import (
     Conv, RepConvN, Bottleneck, RepNBottleneck, RepNCSP,
     ELAN, RepNCSPELAN, AConv, ADown, SPPELAN, Concat,
     DFL, DDetect, Backbone9, Neck9, LibreYOLO9Model
 )
-from libreyolo.models.v9 import utils as v9_utils
+from libreyolo.models.yolo9 import utils as v9_utils
 
 pytestmark = pytest.mark.unit
 

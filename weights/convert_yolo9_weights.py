@@ -376,7 +376,7 @@ def verify_conversion(converted_path: str, config: str) -> bool:
     import sys
     sys.path.insert(0, str(Path(__file__).parent.parent))
 
-    from libreyolo.models.v9.nn import LibreYOLO9Model
+    from libreyolo.models.yolo9.nn import LibreYOLO9Model
 
     print(f"\nVerifying weights can be loaded into v9-{config} model...")
 
