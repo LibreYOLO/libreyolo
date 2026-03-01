@@ -9,7 +9,7 @@ import logging
 from abc import ABC, abstractmethod
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, ClassVar, Dict, List, Optional, Tuple, Type, Union
 
 import numpy as np
 import torch
@@ -53,6 +53,17 @@ class BaseModel(ABC):
     """
 
     val_preprocessor_class = None
+
+    _registry: ClassVar[List[Type["BaseModel"]]] = []
+
+    def __init_subclass__(cls, **kwargs):
+        super().__init_subclass__(**kwargs)
+        if (
+            hasattr(cls, "can_load")
+            and not getattr(cls.can_load, "__isabstractmethod__", False)
+            and cls not in BaseModel._registry
+        ):
+            BaseModel._registry.append(cls)
 
     # =========================================================================
     # ABSTRACT METHODS - Must be implemented by subclasses

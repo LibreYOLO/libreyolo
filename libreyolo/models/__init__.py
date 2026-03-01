@@ -1,33 +1,31 @@
 """
 LibreYOLO model registry and unified factory.
 
-All model families register here. Adding a new model means:
+All model families register here via ``__init_subclass__``. Adding a new model means:
 1. Create models/<family>/ with model.py defining a class that inherits BaseModel
 2. Add classmethods: can_load, detect_size, detect_nb_classes, detect_size_from_filename
-3. Import and append to MODEL_REGISTRY below
+3. Import the class so that ``__init_subclass__`` adds it to ``BaseModel._registry``
 """
 
 from pathlib import Path
-from typing import List, Optional, Type
+from typing import Optional
 
 from .base import BaseModel
 from ..utils.download import _detect_family_from_filename, download_weights
 
 # ---------------------------------------------------------------------------
-# Model registry — order matters: first match wins in can_load()
+# Model registry — auto-populated by BaseModel.__init_subclass__
+# Order depends on import order: first match wins in can_load()
 # ---------------------------------------------------------------------------
-MODEL_REGISTRY: List[Type[BaseModel]] = []
 
-# Always-available models
+# Always-available models (importing triggers __init_subclass__ registration)
 from .yolox.model import LibreYOLOX   # noqa: E402
 from .yolo9.model import LibreYOLO9      # noqa: E402
-
-MODEL_REGISTRY.extend([LibreYOLOX, LibreYOLO9])
 
 
 def _ensure_rfdetr():
     """Lazily register RF-DETR if its dependencies are installed."""
-    if any(c.__name__ == "LibreYOLORFDETR" for c in MODEL_REGISTRY):
+    if any(c.__name__ == "LibreYOLORFDETR" for c in BaseModel._registry):
         return
     import importlib.util
     if importlib.util.find_spec("rfdetr") is None:
@@ -35,8 +33,7 @@ def _ensure_rfdetr():
             "RF-DETR support requires extra dependencies.\n"
             "Install with: pip install libreyolo[rfdetr]"
         )
-    from .rfdetr.model import LibreYOLORFDETR  # noqa: F811
-    MODEL_REGISTRY.append(LibreYOLORFDETR)
+    from .rfdetr.model import LibreYOLORFDETR  # noqa: F811  (import triggers registration)
 
 
 # ---------------------------------------------------------------------------
@@ -120,7 +117,7 @@ def LibreYOLO(
     if not Path(model_path).exists():
         if size is None:
             # Ask each registered model class for a size hint from the filename
-            for cls in MODEL_REGISTRY:
+            for cls in BaseModel._registry:
                 detected = cls.detect_size_from_filename(Path(model_path).name)
                 if detected is not None:
                     size = detected
@@ -132,7 +129,7 @@ def LibreYOLO(
                 if family_hint == "rfdetr":
                     try:
                         _ensure_rfdetr()
-                        for cls in MODEL_REGISTRY:
+                        for cls in BaseModel._registry:
                             detected = cls.detect_size_from_filename(Path(model_path).name)
                             if detected is not None:
                                 size = detected
@@ -178,7 +175,7 @@ def LibreYOLO(
 
     # --- Find the right model class ---
     matched_cls = None
-    for cls in MODEL_REGISTRY:
+    for cls in BaseModel._registry:
         if cls.can_load(weights_dict):
             matched_cls = cls
             break
@@ -243,7 +240,6 @@ def LibreYOLO(
 
 
 __all__ = [
-    "MODEL_REGISTRY",
     "LibreYOLO",
     "LibreYOLOX",
     "LibreYOLO9",
