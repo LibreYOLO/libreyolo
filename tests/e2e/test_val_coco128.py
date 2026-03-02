@@ -17,10 +17,11 @@ import torch
 from libreyolo import LibreYOLO
 from .conftest import ALL_MODELS_WITH_WEIGHTS, make_ids
 
+pytestmark = pytest.mark.e2e
+
 MIN_MAP = 0.18  # Uniform threshold for all models
 
 
-@pytest.mark.e2e
 @pytest.mark.parametrize(
     "family,size,weights", ALL_MODELS_WITH_WEIGHTS, ids=make_ids(ALL_MODELS_WITH_WEIGHTS)
 )

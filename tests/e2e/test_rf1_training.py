@@ -24,6 +24,8 @@ from PIL import Image
 from libreyolo import LibreYOLO
 from .conftest import ALL_MODELS_WITH_WEIGHTS, YOLOX_YOLO9_MODELS, make_ids
 
+pytestmark = pytest.mark.e2e
+
 DATASET_ROOT = Path.home() / ".cache" / "libreyolo" / "marbles"
 HF_REPO = "LibreYOLO/marbles"
 HF_REPO_URL = f"https://huggingface.co/datasets/{HF_REPO}"
@@ -164,7 +166,6 @@ def dataset_data_yaml(dataset):
 MIN_MAP = 0.05
 
 
-@pytest.mark.e2e
 @pytest.mark.parametrize(
     "family,size,weights", ALL_MODELS_WITH_WEIGHTS, ids=make_ids(ALL_MODELS_WITH_WEIGHTS)
 )
@@ -254,7 +255,6 @@ _RELOAD_MODELS = [
 ]
 
 
-@pytest.mark.e2e
 @pytest.mark.parametrize(
     "family,size,weights", _RELOAD_MODELS, ids=make_ids(_RELOAD_MODELS)
 )
@@ -367,7 +367,6 @@ def test_load_finetuned_checkpoint(
 _RELOAD_RFDETR = [("rfdetr", "n", "LibreRFDETRn.pth")]
 
 
-@pytest.mark.e2e
 @pytest.mark.parametrize(
     "family,size,weights", _RELOAD_RFDETR, ids=make_ids(_RELOAD_RFDETR)
 )
