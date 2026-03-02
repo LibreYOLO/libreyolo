@@ -122,6 +122,11 @@ class LibreYOLO9(BaseModel):
     def _get_input_size(self) -> int:
         return 640
 
+    @staticmethod
+    def _get_preprocess_numpy():
+        from .utils import preprocess_numpy
+        return preprocess_numpy
+
     def _init_model(self) -> nn.Module:
         return LibreYOLO9Model(
             config=self.size, reg_max=self.reg_max, nb_classes=self.nb_classes

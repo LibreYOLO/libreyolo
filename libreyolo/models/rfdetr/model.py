@@ -171,6 +171,11 @@ class LibreYOLORFDETR(BaseModel):
     def _get_input_size(self) -> int:
         return self.resolution
 
+    @staticmethod
+    def _get_preprocess_numpy():
+        from .utils import preprocess_numpy
+        return preprocess_numpy
+
     def _init_model(self) -> nn.Module:
         """Initialize RF-DETR model."""
         return LibreRFDETRModel(
