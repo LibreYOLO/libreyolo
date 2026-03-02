@@ -3,10 +3,16 @@ Unified model export with multiple backend support.
 
 Supports ONNX, TorchScript, TensorRT, OpenVINO, and ncnn export formats with
 various precision modes (FP32, FP16, INT8).
+
+Architecture: BaseExporter ABC with one subclass per format. Each subclass only
+implements ``_export()``, while the template method in ``__call__`` handles
+validation, model setup/teardown, calibration, and intermediate ONNX export.
 """
 
 import json
 import warnings
+from abc import ABC, abstractmethod
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Optional
 
@@ -16,69 +22,94 @@ from .onnx import _get_version, export_onnx
 from .torchscript import export_torchscript
 
 
-class Exporter:
-    """Export a LibreYOLO model to deployment formats.
+# ── Model-type mapping for calibration preprocessing ────────────────────────
+_MODEL_TYPE_MAP = {
+    "yolox": "yolox",
+    "yolo9": "yolov9",
+    "rfdetr": "rfdetr",
+}
 
-    Supported formats:
-        - onnx: ONNX format (universal interchange)
-        - torchscript: TorchScript (PyTorch deployment)
-        - tensorrt: TensorRT engine (NVIDIA GPU acceleration)
-        - openvino: OpenVINO IR (Intel CPU/GPU/VPU acceleration)
-        - ncnn: ncnn format (mobile ARM / embedded CPU deployment)
 
-    Args:
-        model: A BaseModel subclass instance (LibreYOLOX, LibreYOLO9, etc.).
+def _resolve_model_type(model_name: str) -> str:
+    """Map a model name (e.g. 'LibreYOLOX') to a calibration model_type."""
+    name = model_name.lower()
+    for key, value in _MODEL_TYPE_MAP.items():
+        if key in name:
+            return value
+    return "yolov9"
+
+
+# ── Precision helpers ───────────────────────────────────────────────────────
+
+def _resolve_precision(half: bool, int8: bool) -> str:
+    if int8:
+        return "int8"
+    if half:
+        return "fp16"
+    return "fp32"
+
+
+def _precision_label(precision: str) -> str:
+    return precision.upper()
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# BaseExporter ABC
+# ═════════════════════════════════════════════════════════════════════════════
+
+class BaseExporter(ABC):
+    """Abstract base for all export formats.
+
+    Subclasses set class-level attributes and implement ``_export()``.
+    The ``__call__`` template method handles everything else.
 
     Example::
 
-        from libreyolo import LibreYOLOX
-        from libreyolo.export import Exporter
+        from libreyolo.export import BaseExporter
 
-        model = LibreYOLOX("weights.pt", size="s")
-        exporter = Exporter(model)
+        exporter = BaseExporter.create("onnx", model)
+        path = exporter(output_path="model.onnx")
 
-        # Basic ONNX export
-        path = exporter("onnx", simplify=True, dynamic=True)
-
-        # TensorRT with FP16
-        path = exporter("tensorrt", half=True)
-
-        # TensorRT with INT8 (requires calibration dataset)
-        path = exporter("tensorrt", int8=True, data="coco8.yaml")
-
-        # Or use the model's export() facade directly:
-        path = model.export(format="tensorrt", half=True)
+        # Or instantiate directly:
+        from libreyolo.export import OnnxExporter
+        path = OnnxExporter(model)(simplify=True, dynamic=True)
     """
 
-    FORMATS = {
-        "onnx": {
-            "suffix": ".onnx",
-            "requires": None,
-        },
-        "torchscript": {
-            "suffix": ".torchscript",
-            "requires": None,
-        },
-        "tensorrt": {
-            "suffix": ".engine",
-            "requires": "onnx",  # TensorRT builds from ONNX
-        },
-        "openvino": {
-            "suffix": "_openvino",
-            "requires": "onnx",  # OpenVINO converts from ONNX
-        },
-        "ncnn": {
-            "suffix": "_ncnn",
-            "requires": None,  # PNNX converts directly from PyTorch
-        },
-    }
+    _registry: dict[str, type["BaseExporter"]] = {}
+
+    # ── Class attributes (overridden by each subclass) ──────────────────────
+    format_name: str          # e.g. "onnx"
+    suffix: str               # e.g. ".onnx"
+    requires_onnx: bool       # TensorRT/OpenVINO need intermediate ONNX
+    supports_int8: bool       # only TensorRT/OpenVINO support INT8 calibration
+    apply_model_half: bool    # whether to cast model to fp16 (only ONNX/TorchScript)
+
+    def __init_subclass__(cls, **kwargs):
+        super().__init_subclass__(**kwargs)
+        name = getattr(cls, "format_name", None)
+        if name is not None:
+            BaseExporter._registry[name] = cls
 
     def __init__(self, model):
         self.model = model
 
+    # ── Factory ─────────────────────────────────────────────────────────────
+
+    @classmethod
+    def create(cls, format: str, model) -> "BaseExporter":
+        """Look up *format* in the registry and return an exporter instance."""
+        key = format.lower()
+        if key not in cls._registry:
+            valid = ", ".join(sorted(cls._registry))
+            raise ValueError(
+                f"Unsupported export format: {format!r}. Must be one of: {valid}"
+            )
+        return cls._registry[key](model)
+
+    # ── Template method ─────────────────────────────────────────────────────
+
     def __call__(
         self,
-        format: str = "onnx",
         *,
         output_path: Optional[str] = None,
         imgsz: Optional[int] = None,
@@ -89,99 +120,134 @@ class Exporter:
         int8: bool = False,
         batch: int = 1,
         device: Optional[str] = None,
-        # Calibration parameters (for INT8)
         data: Optional[str] = None,
         fraction: float = 1.0,
-        # TensorRT specific
-        workspace: float = 4.0,
-        hardware_compatibility: str = "none",
-        gpu_device: int = 0,
-        trt_config: Optional[str] = None,
-        # Utility
         verbose: bool = False,
+        **kwargs,
     ) -> str:
-        """Export the model to a deployment format.
+        """Export the model.
 
         Args:
-            format: Target format ("onnx", "torchscript", "tensorrt", "openvino", "ncnn").
             output_path: Output file path (auto-generated if None).
             imgsz: Input resolution (default: model's native size).
             opset: ONNX opset version (default: 13).
             simplify: Run ONNX graph simplification (default: True).
             dynamic: Enable dynamic axes for ONNX (default: True).
-                    For TensorRT, use with caution as it affects optimization.
             half: Export in FP16 precision (default: False).
-                 Recommended for TensorRT on modern GPUs.
             int8: Export in INT8 precision (default: False).
-                 Requires `data` parameter for calibration.
             batch: Batch size for the model (default: 1).
             device: Device to trace on (default: model's current device).
             data: Path to data.yaml for INT8 calibration dataset.
-                 Required when int8=True.
             fraction: Fraction of calibration dataset to use (default: 1.0).
-                     Lower values speed up calibration with slight accuracy loss.
-            workspace: TensorRT workspace size in GiB (default: 4.0).
-                      Larger values may find faster kernels during optimization.
-            hardware_compatibility: TensorRT hardware compatibility level.
-                - "none": Optimize for current GPU only (fastest, not portable)
-                - "ampere_plus": Works on Ampere and newer GPUs
-                - "same_compute_capability": Works on GPUs with same SM version
-            gpu_device: GPU device ID for multi-GPU systems (default: 0).
-            trt_config: Path to TensorRT export YAML config file.
-                       When provided, overrides individual TensorRT parameters.
             verbose: Enable verbose logging (default: False).
+            **kwargs: Format-specific parameters forwarded to ``_export()``.
 
         Returns:
             Path to the exported model file.
-
-        Raises:
-            ValueError: If format is unsupported or INT8 requested without data.
-            ImportError: If required packages are not installed.
         """
-        # --- validate format ---
-        fmt = format.lower()
-        if fmt not in self.FORMATS:
-            valid = ", ".join(sorted(self.FORMATS))
-            raise ValueError(
-                f"Unsupported export format: {format!r}. Must be one of: {valid}"
-            )
-        fmt_info = self.FORMATS[fmt]
+        # 1. Validate
+        half, int8 = self._validate(half, int8, data)
 
-        # --- validate INT8 requirements ---
-        if int8 and data is None and fmt in ("tensorrt", "openvino"):
+        # 2. Resolve common parameters
+        imgsz, device, output_path = self._resolve_params(
+            output_path, imgsz, device, half, int8,
+        )
+
+        Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+
+        precision = _resolve_precision(half, int8)
+
+        # 3. Setup → export → teardown
+        with self._model_context(device, half, batch, imgsz) as (nn_model, dummy):
+            calibration_data = self._load_calibration(
+                data, imgsz, batch, fraction,
+            ) if int8 and data is not None else None
+
+            onnx_path = self._export_intermediate_onnx(
+                nn_model, dummy, output_path, opset, simplify,
+            ) if self.requires_onnx else None
+
+            metadata = self._build_metadata(precision, dynamic, onnx_path)
+
+            result = self._export(
+                nn_model, dummy,
+                output_path=output_path,
+                precision=precision,
+                metadata=metadata,
+                calibration_data=calibration_data,
+                onnx_path=onnx_path,
+                half=half,
+                int8=int8,
+                dynamic=dynamic,
+                opset=opset,
+                simplify=simplify,
+                verbose=verbose,
+                **kwargs,
+            )
+
+        # 4. Cleanup intermediate ONNX
+        if onnx_path and Path(onnx_path).exists():
+            Path(onnx_path).unlink()
+
+        # 5. Summary
+        self._print_summary(result, precision, imgsz)
+        return result
+
+    # ── Abstract export method ──────────────────────────────────────────────
+
+    @abstractmethod
+    def _export(
+        self,
+        nn_model,
+        dummy,
+        *,
+        output_path: str,
+        precision: str,
+        metadata: dict,
+        calibration_data=None,
+        onnx_path: Optional[str] = None,
+        **kwargs,
+    ) -> str:
+        """Format-specific export logic. Subclasses implement this only."""
+
+    # ── Shared helpers ──────────────────────────────────────────────────────
+
+    def _validate(self, half: bool, int8: bool, data: Optional[str]):
+        """Validate precision flags and calibration requirements."""
+        if int8 and data is None and self.supports_int8:
             raise ValueError(
                 "INT8 quantization requires calibration data.\n"
                 "Provide data='path/to/data.yaml' or data='coco8' for built-in dataset."
             )
-
-        # --- validate precision ---
         if half and int8:
             warnings.warn(
                 "Both half=True and int8=True specified. Using INT8 precision."
             )
             half = False
+        return half, int8
 
-        # --- resolve parameters ---
+    def _resolve_params(self, output_path, imgsz, device, half, int8):
         if imgsz is None:
             imgsz = self.model._get_input_size()
-
         if device is None:
             device = self.model.device
         else:
             device = torch.device(device)
-
         if output_path is None:
-            model_name = self.model._get_model_name().lower()
-            precision_suffix = "_int8" if int8 else ("_fp16" if half else "")
-            output_path = str(
-                Path("weights")
-                / f"{model_name}_{self.model.size}{precision_suffix}{fmt_info['suffix']}"
-            )
+            output_path = self._auto_output_path(half, int8)
+        return imgsz, device, output_path
 
-        # --- ensure output directory exists ---
-        Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+    def _auto_output_path(self, half: bool, int8: bool) -> str:
+        model_name = self.model._get_model_name().lower()
+        precision_suffix = "_int8" if int8 else ("_fp16" if half else "")
+        return str(
+            Path("weights")
+            / f"{model_name}_{self.model.size}{precision_suffix}{self.suffix}"
+        )
 
-        # --- prepare model ---
+    @contextmanager
+    def _model_context(self, device, half, batch, imgsz):
+        """Setup model for export and restore state afterwards."""
         nn_model = self.model.model
         original_training = nn_model.training
         nn_model.eval()
@@ -189,16 +255,15 @@ class Exporter:
         original_device = next(nn_model.parameters()).device
         nn_model.to(device)
 
-        # --- set export mode for models that support it ---
+        # Set export mode for YOLOX/YOLOv9 heads
         original_export = None
-        export_attr = None  # which attribute holds the export flag
+        export_attr = None
         if hasattr(nn_model, 'head') and hasattr(nn_model.head, 'export'):
             export_attr = 'head'
             original_export = nn_model.head.export
             nn_model.head.export = True
 
-        # RF-DETR: activate LWDETR export mode (swaps forward to forward_export
-        # which returns traceable tuple instead of mixed-type dict)
+        # RF-DETR export mode
         rfdetr_export_activated = False
         rfdetr_layernorm_patches = []
         inner = getattr(nn_model, 'model', None)
@@ -207,9 +272,6 @@ class Exporter:
                 inner.export()
                 rfdetr_export_activated = True
 
-            # Monkey-patch rfdetr LayerNorm to use static normalized_shape
-            # instead of dynamic x.size(3) so the TorchScript ONNX exporter
-            # can trace the graph.
             try:
                 from rfdetr.models.backbone.projector import LayerNorm as RFDETRLayerNorm
                 for m in nn_model.modules():
@@ -226,174 +288,19 @@ class Exporter:
             except ImportError:
                 pass
 
-        # --- build dummy input ---
+        # Build dummy input
         dummy = torch.randn(batch, 3, imgsz, imgsz, device=device)
 
-        # For ONNX/TorchScript export, use FP16 if requested (TensorRT handles precision internally)
-        if half and fmt in ("onnx", "torchscript"):
+        # FP16 cast for formats that need it
+        if half and self.apply_model_half:
             nn_model.half()
             dummy = dummy.half()
 
-        # --- prepare calibration data if needed ---
-        calibration_data = None
-        if int8 and data is not None:
-            from .calibration import get_calibration_dataloader
-            # Determine model type for correct preprocessing
-            model_name = self.model._get_model_name().lower()
-            if "yolox" in model_name:
-                model_type = "yolox"
-            elif "rfdetr" in model_name:
-                model_type = "rfdetr"
-            else:
-                model_type = "yolov9"
-            calibration_data = get_calibration_dataloader(
-                data=data,
-                imgsz=imgsz,
-                batch=batch,
-                fraction=fraction,
-                model_type=model_type,
-            )
-            print(f"Calibration dataset: {len(calibration_data)} batches, "
-                  f"{calibration_data.num_samples} images (preprocessing: {model_type})")
-
-        # --- handle format dependencies ---
-        onnx_path = None
-        if fmt_info.get("requires") == "onnx":
-            # Export to ONNX first as intermediate format
-            onnx_output = str(Path(output_path).with_suffix(".onnx"))
-            print(f"Step 1/2: Exporting to ONNX ({onnx_output})")
-            onnx_path = export_onnx(
-                nn_model,
-                dummy,
-                output_path=onnx_output,
-                opset=opset,
-                simplify=simplify,
-                dynamic=False,  # TensorRT prefers static shapes in ONNX
-                half=False,  # TensorRT handles precision internally
-                metadata=self._build_onnx_metadata(dynamic=False, half=False),
-            )
-
-        # --- build metadata for the target format ---
         try:
-            if fmt == "onnx":
-                result = export_onnx(
-                    nn_model,
-                    dummy,
-                    output_path=output_path,
-                    opset=opset,
-                    simplify=simplify,
-                    dynamic=dynamic,
-                    half=half,
-                    metadata=self._build_onnx_metadata(dynamic=dynamic, half=half),
-                )
-            elif fmt == "torchscript":
-                result = export_torchscript(
-                    nn_model,
-                    dummy,
-                    output_path=output_path,
-                )
-            elif fmt == "tensorrt":
-                from .tensorrt import export_tensorrt
-
-                print("Step 2/2: Building TensorRT engine")
-
-                if int8:
-                    precision = "int8"
-                elif half:
-                    precision = "fp16"
-                else:
-                    precision = "fp32"
-
-                metadata = {
-                    "libreyolo_version": _get_version(),
-                    "model_family": self.model._get_model_name(),
-                    "model_size": self.model.size,
-                    "nb_classes": self.model.nb_classes,
-                    "names": {str(k): v for k, v in self.model.names.items()},
-                    "imgsz": self.model._get_input_size(),
-                    "precision": precision,
-                    "dynamic": dynamic,
-                    "exported_from": str(Path(onnx_path).name) if onnx_path else None,
-                }
-
-                result = export_tensorrt(
-                    onnx_path=onnx_path,
-                    output_path=output_path,
-                    half=half,
-                    int8=int8,
-                    workspace=workspace,
-                    calibration_data=calibration_data,
-                    dynamic=dynamic,
-                    verbose=verbose,
-                    hardware_compatibility=hardware_compatibility,
-                    device=gpu_device,
-                    config=trt_config,
-                    metadata=metadata,
-                )
-            elif fmt == "openvino":
-                from .openvino import export_openvino
-
-                print("Step 2/2: Converting to OpenVINO IR")
-
-                if int8:
-                    precision = "int8"
-                elif half:
-                    precision = "fp16"
-                else:
-                    precision = "fp32"
-
-                metadata = {
-                    "libreyolo_version": _get_version(),
-                    "model_family": self.model._get_model_name(),
-                    "model_size": self.model.size,
-                    "nb_classes": self.model.nb_classes,
-                    "names": {str(k): v for k, v in self.model.names.items()},
-                    "imgsz": self.model._get_input_size(),
-                    "precision": precision,
-                    "dynamic": dynamic,
-                    "exported_from": str(Path(onnx_path).name) if onnx_path else None,
-                }
-
-                result = export_openvino(
-                    onnx_path=onnx_path,
-                    output_path=output_path,
-                    half=half,
-                    int8=int8,
-                    calibration_data=calibration_data,
-                    verbose=verbose,
-                    metadata=metadata,
-                )
-            elif fmt == "ncnn":
-                from .ncnn import export_ncnn
-
-                print("Exporting to ncnn via PNNX")
-
-                precision = "fp16" if half else "fp32"
-
-                metadata = {
-                    "libreyolo_version": _get_version(),
-                    "model_family": self.model._get_model_name(),
-                    "model_size": self.model.size,
-                    "nb_classes": self.model.nb_classes,
-                    "names": {str(k): v for k, v in self.model.names.items()},
-                    "imgsz": self.model._get_input_size(),
-                    "precision": precision,
-                    "dynamic": False,
-                }
-
-                result = export_ncnn(
-                    nn_model,
-                    dummy,
-                    output_path=output_path,
-                    half=half,
-                    opset=opset,
-                    simplify=simplify,
-                    metadata=metadata,
-                )
+            yield nn_model, dummy
         finally:
-            # restore model state
             nn_model.to(original_device)
-            if half and fmt in ("onnx", "torchscript"):
+            if half and self.apply_model_half:
                 nn_model.float()
             if original_training:
                 nn_model.train()
@@ -405,22 +312,54 @@ class Exporter:
             for m, orig_fwd in rfdetr_layernorm_patches:
                 m.forward = orig_fwd
 
-        # --- clean up intermediate ONNX file ---
-        if onnx_path and Path(onnx_path).exists():
-            Path(onnx_path).unlink()
+    def _load_calibration(self, data, imgsz, batch, fraction):
+        from .calibration import get_calibration_dataloader
 
-        precision_str = "INT8" if int8 else ("FP16" if half else "FP32")
-        print(
-            f"\nExport complete: {result}\n"
-            f"  Model: {self.model._get_model_name()} {self.model.size}\n"
-            f"  Format: {fmt}\n"
-            f"  Precision: {precision_str}\n"
-            f"  Input size: {imgsz}x{imgsz}"
+        model_type = _resolve_model_type(self.model._get_model_name())
+        calibration_data = get_calibration_dataloader(
+            data=data,
+            imgsz=imgsz,
+            batch=batch,
+            fraction=fraction,
+            model_type=model_type,
         )
-        return result
+        print(
+            f"Calibration dataset: {len(calibration_data)} batches, "
+            f"{calibration_data.num_samples} images (preprocessing: {model_type})"
+        )
+        return calibration_data
+
+    def _export_intermediate_onnx(self, nn_model, dummy, output_path, opset, simplify):
+        onnx_output = str(Path(output_path).with_suffix(".onnx"))
+        print(f"Step 1/2: Exporting to ONNX ({onnx_output})")
+        return export_onnx(
+            nn_model, dummy,
+            output_path=onnx_output,
+            opset=opset,
+            simplify=simplify,
+            dynamic=False,
+            half=False,
+            metadata=self._build_onnx_metadata(dynamic=False, half=False),
+        )
+
+    def _build_metadata(self, precision: str, dynamic: bool, onnx_path: Optional[str]) -> dict:
+        """Build metadata dict for non-ONNX formats (native Python types)."""
+        meta = {
+            "libreyolo_version": _get_version(),
+            "model_family": self.model._get_model_name(),
+            "model_size": self.model.size,
+            "nb_classes": self.model.nb_classes,
+            "names": {str(k): v for k, v in self.model.names.items()},
+            "imgsz": self.model._get_input_size(),
+            "precision": precision,
+            "dynamic": dynamic,
+        }
+        if onnx_path is not None:
+            meta["exported_from"] = str(Path(onnx_path).name)
+        return meta
 
     def _build_onnx_metadata(self, *, dynamic: bool, half: bool) -> dict:
-        """Build the metadata dict for ONNX export."""
+        """Build metadata dict for ONNX (all-string values, JSON-encoded names)."""
         return {
             "libreyolo_version": _get_version(),
             "model_family": self.model._get_model_name(),
@@ -433,3 +372,153 @@ class Exporter:
             "dynamic": str(dynamic),
             "half": str(half),
         }
+
+    def _print_summary(self, result: str, precision: str, imgsz: int):
+        print(
+            f"\nExport complete: {result}\n"
+            f"  Model: {self.model._get_model_name()} {self.model.size}\n"
+            f"  Format: {self.format_name}\n"
+            f"  Precision: {_precision_label(precision)}\n"
+            f"  Input size: {imgsz}x{imgsz}"
+        )
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# Subclasses — one per format
+# ═════════════════════════════════════════════════════════════════════════════
+
+class OnnxExporter(BaseExporter):
+    format_name = "onnx"
+    suffix = ".onnx"
+    requires_onnx = False
+    supports_int8 = False
+    apply_model_half = True
+
+    def _export(self, nn_model, dummy, *, output_path, metadata, half, dynamic,
+                opset, simplify, **kwargs):
+        return export_onnx(
+            nn_model, dummy,
+            output_path=output_path,
+            opset=opset,
+            simplify=simplify,
+            dynamic=dynamic,
+            half=half,
+            metadata=self._build_onnx_metadata(dynamic=dynamic, half=half),
+        )
+
+
+class TorchScriptExporter(BaseExporter):
+    format_name = "torchscript"
+    suffix = ".torchscript"
+    requires_onnx = False
+    supports_int8 = False
+    apply_model_half = True
+
+    def _export(self, nn_model, dummy, *, output_path, **kwargs):
+        return export_torchscript(nn_model, dummy, output_path=output_path)
+
+
+class TensorRTExporter(BaseExporter):
+    format_name = "tensorrt"
+    suffix = ".engine"
+    requires_onnx = True
+    supports_int8 = True
+    apply_model_half = False
+
+    def _export(self, nn_model, dummy, *, output_path, precision, metadata,
+                calibration_data, onnx_path, half, int8, dynamic, verbose,
+                workspace=4.0, hardware_compatibility="none",
+                gpu_device=0, trt_config=None, **kwargs):
+        from .tensorrt import export_tensorrt
+
+        print("Step 2/2: Building TensorRT engine")
+        return export_tensorrt(
+            onnx_path=onnx_path,
+            output_path=output_path,
+            half=half,
+            int8=int8,
+            workspace=workspace,
+            calibration_data=calibration_data,
+            dynamic=dynamic,
+            verbose=verbose,
+            hardware_compatibility=hardware_compatibility,
+            device=gpu_device,
+            config=trt_config,
+            metadata=metadata,
+        )
+
+
+class OpenVINOExporter(BaseExporter):
+    format_name = "openvino"
+    suffix = "_openvino"
+    requires_onnx = True
+    supports_int8 = True
+    apply_model_half = False
+
+    def _export(self, nn_model, dummy, *, output_path, metadata,
+                calibration_data, onnx_path, half, int8, verbose, **kwargs):
+        from .openvino import export_openvino
+
+        print("Step 2/2: Converting to OpenVINO IR")
+        return export_openvino(
+            onnx_path=onnx_path,
+            output_path=output_path,
+            half=half,
+            int8=int8,
+            calibration_data=calibration_data,
+            verbose=verbose,
+            metadata=metadata,
+        )
+
+
+class NcnnExporter(BaseExporter):
+    format_name = "ncnn"
+    suffix = "_ncnn"
+    requires_onnx = False
+    supports_int8 = False
+    apply_model_half = False
+
+    def _build_metadata(self, precision, dynamic, onnx_path):
+        meta = super()._build_metadata(precision, dynamic, onnx_path)
+        meta["dynamic"] = False
+        meta.pop("exported_from", None)
+        return meta
+
+    def _export(self, nn_model, dummy, *, output_path, metadata, half,
+                opset, simplify, **kwargs):
+        from .ncnn import export_ncnn
+
+        print("Exporting to ncnn via PNNX")
+        return export_ncnn(
+            nn_model, dummy,
+            output_path=output_path,
+            half=half,
+            opset=opset,
+            simplify=simplify,
+            metadata=metadata,
+        )
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# Backwards-compatible alias
+# ═════════════════════════════════════════════════════════════════════════════
+
+class Exporter:
+    """Thin wrapper preserving the old ``Exporter(model)(format, ...)`` API.
+
+    Prefer ``BaseExporter.create(format, model)(...)`` for new code.
+    """
+
+    FORMATS = {
+        "onnx":        {"suffix": ".onnx",        "requires": None},
+        "torchscript": {"suffix": ".torchscript",  "requires": None},
+        "tensorrt":    {"suffix": ".engine",       "requires": "onnx"},
+        "openvino":    {"suffix": "_openvino",     "requires": "onnx"},
+        "ncnn":        {"suffix": "_ncnn",         "requires": None},
+    }
+
+    def __init__(self, model):
+        self.model = model
+
+    def __call__(self, format: str = "onnx", **kwargs) -> str:
+        return BaseExporter.create(format, self.model)(**kwargs)
