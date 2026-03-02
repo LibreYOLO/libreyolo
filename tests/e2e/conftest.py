@@ -1,5 +1,6 @@
 """E2E test configuration and fixtures."""
 
+import gc
 import os
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -96,6 +97,18 @@ requires_rfdetr = pytest.mark.skipif(
 
 
 # ---------------------------------------------------------------------------
+# GPU helpers
+# ---------------------------------------------------------------------------
+
+
+def cuda_cleanup():
+    """Free GPU memory. Call after heavy tests."""
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+        gc.collect()
+
+
+# ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
 
@@ -150,8 +163,6 @@ def temp_export_dir(tmp_path):
 @pytest.fixture(autouse=True, scope="function")
 def cleanup_gpu_memory():
     """Clear GPU memory before and after each test to prevent state corruption."""
-    import gc
-
     yield
     if torch.cuda.is_available():
         torch.cuda.synchronize()
@@ -162,8 +173,6 @@ def cleanup_gpu_memory():
 @pytest.fixture(scope="class")
 def reset_gpu_state():
     """Force GPU state reset between test classes (useful for RF-DETR training)."""
-    import gc
-
     if torch.cuda.is_available():
         torch.cuda.synchronize()
         torch.cuda.empty_cache()

@@ -11,7 +11,6 @@ Usage:
     pytest tests/e2e/test_rf1_training.py -k "rfdetr" -v
 """
 
-import gc
 import json
 from pathlib import Path
 
@@ -22,7 +21,7 @@ from huggingface_hub import snapshot_download
 from PIL import Image
 
 from libreyolo import LibreYOLO
-from .conftest import ALL_MODELS_WITH_WEIGHTS, YOLOX_YOLO9_MODELS, make_ids
+from .conftest import ALL_MODELS_WITH_WEIGHTS, cuda_cleanup, make_ids
 
 pytestmark = pytest.mark.e2e
 
@@ -240,9 +239,7 @@ def test_rf1_training(family, size, weights, dataset_coco, dataset_data_yaml, tm
         f"Model did not improve: pre={pre_map:.4f} → post={post_map:.4f}"
     )
 
-    if torch.cuda.is_available():
-        torch.cuda.empty_cache()
-        gc.collect()
+    cuda_cleanup()
 
 
 # ---------------------------------------------------------------------------
@@ -326,9 +323,7 @@ def test_load_finetuned_checkpoint(
 
     # 6. Load into a completely fresh model (default nc=80)
     del model
-    if torch.cuda.is_available():
-        torch.cuda.empty_cache()
-        gc.collect()
+    cuda_cleanup()
 
     fresh_model = LibreYOLO(str(best_pt), size=size)
 
@@ -358,9 +353,7 @@ def test_load_finetuned_checkpoint(
         f"pre={pre_map:.4f} → post={post_map:.4f}"
     )
 
-    if torch.cuda.is_available():
-        torch.cuda.empty_cache()
-        gc.collect()
+    cuda_cleanup()
 
 
 # RF-DETR: reload fine-tuned checkpoint (only n for speed)
@@ -415,9 +408,7 @@ def test_load_finetuned_checkpoint_rfdetr(
 
     # 5. Load into a fresh model and manually load checkpoint
     del model
-    if torch.cuda.is_available():
-        torch.cuda.empty_cache()
-        gc.collect()
+    cuda_cleanup()
 
     fresh_model = LibreYOLO(weights, size=size)
 
@@ -448,6 +439,4 @@ def test_load_finetuned_checkpoint_rfdetr(
         f"pre={pre_map:.4f} → post={post_map:.4f}"
     )
 
-    if torch.cuda.is_available():
-        torch.cuda.empty_cache()
-        gc.collect()
+    cuda_cleanup()

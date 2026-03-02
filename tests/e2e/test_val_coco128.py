@@ -12,10 +12,9 @@ Usage:
 """
 
 import pytest
-import torch
 
 from libreyolo import LibreYOLO
-from .conftest import ALL_MODELS_WITH_WEIGHTS, make_ids
+from .conftest import ALL_MODELS_WITH_WEIGHTS, cuda_cleanup, make_ids
 
 pytestmark = pytest.mark.e2e
 
@@ -41,5 +40,4 @@ def test_val_coco128(family, size, weights):
         f"model may be broken (wrong preprocessing, class mapping, etc.)"
     )
 
-    if torch.cuda.is_available():
-        torch.cuda.empty_cache()
+    cuda_cleanup()
