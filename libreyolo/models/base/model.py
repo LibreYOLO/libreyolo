@@ -72,6 +72,12 @@ class BaseModel(ABC):
         """Return the input size for this model."""
         pass
 
+    @staticmethod
+    @abstractmethod
+    def _get_preprocess_numpy():
+        """Return the ``preprocess_numpy(img_rgb_hwc, input_size)`` callable for this model family."""
+        pass
+
     @abstractmethod
     def _preprocess(
         self, image: ImageInput, color_format: str = "auto", input_size: Optional[int] = None

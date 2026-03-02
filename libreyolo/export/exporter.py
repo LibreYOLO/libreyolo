@@ -22,23 +22,6 @@ from .onnx import _get_version, export_onnx
 from .torchscript import export_torchscript
 
 
-# ── Model-type mapping for calibration preprocessing ────────────────────────
-_MODEL_TYPE_MAP = {
-    "yolox": "yolox",
-    "yolo9": "yolov9",
-    "rfdetr": "rfdetr",
-}
-
-
-def _resolve_model_type(model_name: str) -> str:
-    """Map a model name (e.g. 'LibreYOLOX') to a calibration model_type."""
-    name = model_name.lower()
-    for key, value in _MODEL_TYPE_MAP.items():
-        if key in name:
-            return value
-    return "yolov9"
-
-
 # ── Precision helpers ───────────────────────────────────────────────────────
 
 def _resolve_precision(half: bool, int8: bool) -> str:
@@ -315,17 +298,17 @@ class BaseExporter(ABC):
     def _load_calibration(self, data, imgsz, batch, fraction):
         from .calibration import get_calibration_dataloader
 
-        model_type = _resolve_model_type(self.model._get_model_name())
+        preprocess_fn = self.model._get_preprocess_numpy()
         calibration_data = get_calibration_dataloader(
             data=data,
             imgsz=imgsz,
             batch=batch,
             fraction=fraction,
-            model_type=model_type,
+            preprocess_fn=preprocess_fn,
         )
         print(
             f"Calibration dataset: {len(calibration_data)} batches, "
-            f"{calibration_data.num_samples} images (preprocessing: {model_type})"
+            f"{calibration_data.num_samples} images"
         )
         return calibration_data
 

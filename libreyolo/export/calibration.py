@@ -39,7 +39,7 @@ class CalibrationDataLoader:
         imgsz: int = 640,
         batch: int = 8,
         fraction: float = 1.0,
-        model_type: str = "yolov9",
+        preprocess_fn=None,
     ):
         """
         Initialize calibration data loader.
@@ -50,14 +50,13 @@ class CalibrationDataLoader:
             batch: Batch size for calibration.
             fraction: Fraction of dataset to use (0.0-1.0). Use smaller values
                      for faster calibration with slight accuracy tradeoff.
-            model_type: Model type for preprocessing ("yolox", "yolov9", or "rfdetr").
-                       YOLOX uses BGR 0-255, YOLOv9 uses RGB 0-1,
-                       RF-DETR uses RGB with ImageNet mean/std normalization.
+            preprocess_fn: Callable ``(img_rgb_hwc, input_size) -> (chw_float32, ratio)``.
+                Obtained from ``model._get_preprocess_numpy()``.
         """
         self.imgsz = imgsz
         self.batch = batch
         self.fraction = max(0.0, min(1.0, fraction))
-        self.model_type = model_type
+        self._preprocess_fn = preprocess_fn
 
         # Load dataset config (handles resolve, download, path resolution)
         data_config = load_data_config(data, autodownload=True)
@@ -94,8 +93,9 @@ class CalibrationDataLoader:
         """
         Preprocess a single image for calibration.
 
-        Delegates to each model family's preprocess_numpy() to match
-        inference preprocessing exactly.
+        Uses the ``preprocess_fn`` callable provided at init (obtained from
+        ``model._get_preprocess_numpy()``) so each model family's exact
+        inference preprocessing is applied.
 
         Args:
             img_path: Path to image file.
@@ -103,20 +103,12 @@ class CalibrationDataLoader:
         Returns:
             Preprocessed image as CHW float32 array.
         """
-        # Read image (cv2 loads as BGR) and convert to RGB
         img = cv2.imread(str(img_path))
         if img is None:
             raise FileNotFoundError(f"Cannot read image: {img_path}")
         img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
 
-        if self.model_type == "yolox":
-            from libreyolo.models.yolox.utils import preprocess_numpy
-        elif self.model_type == "rfdetr":
-            from libreyolo.models.rfdetr.utils import preprocess_numpy
-        else:
-            from libreyolo.models.yolo9.utils import preprocess_numpy
-
-        result, _ = preprocess_numpy(img_rgb, self.imgsz)
+        result, _ = self._preprocess_fn(img_rgb, self.imgsz)
         return result
 
     def __iter__(self) -> Iterator[np.ndarray]:
@@ -163,7 +155,7 @@ def get_calibration_dataloader(
     imgsz: int = 640,
     batch: int = 8,
     fraction: float = 1.0,
-    model_type: str = "yolov9",
+    preprocess_fn=None,
 ) -> CalibrationDataLoader:
     """
     Factory function for calibration data loader.
@@ -173,9 +165,9 @@ def get_calibration_dataloader(
         imgsz: Input image size.
         batch: Batch size for calibration.
         fraction: Fraction of dataset to use.
-        model_type: Model type for preprocessing ("yolox" or "yolov9").
+        preprocess_fn: Callable ``(img_rgb_hwc, input_size) -> (chw_float32, ratio)``.
 
     Returns:
         CalibrationDataLoader instance.
     """
-    return CalibrationDataLoader(data, imgsz, batch, fraction, model_type)
+    return CalibrationDataLoader(data, imgsz, batch, fraction, preprocess_fn)
