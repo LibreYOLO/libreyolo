@@ -14,7 +14,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import torch
 import torch.nn as nn
 import yaml
-from torch.cuda.amp import GradScaler, autocast
+from torch.amp import GradScaler, autocast
 from tqdm import tqdm
 
 from .ema import ModelEMA
@@ -355,7 +355,7 @@ class BaseTrainer(ABC):
         self.lr_scheduler = self.create_scheduler(len(self.train_loader))
 
         if self.cfg["amp"] and self.device.type == "cuda":
-            self.scaler = GradScaler()
+            self.scaler = GradScaler("cuda")
             logger.info("Using mixed precision training (AMP)")
         else:
             self.scaler = None
@@ -451,7 +451,7 @@ class BaseTrainer(ABC):
 
             # Forward + backward
             if self.scaler is not None:
-                with autocast():
+                with autocast("cuda"):
                     outputs = self.on_forward(imgs, targets)
                     loss = outputs["total_loss"]
                 self.optimizer.zero_grad()

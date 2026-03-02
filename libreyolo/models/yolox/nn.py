@@ -854,7 +854,7 @@ class YOLOXHead(nn.Module):
         if mode == "cpu":
             cls_preds_, obj_preds_ = cls_preds_.cpu(), obj_preds_.cpu()
 
-        with torch.cuda.amp.autocast(enabled=False):
+        with torch.amp.autocast("cuda", enabled=False):
             cls_preds_ = (
                 cls_preds_.float().sigmoid_() * obj_preds_.float().sigmoid_()
             ).sqrt()
