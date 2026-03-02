@@ -11,6 +11,7 @@ Usage:
     pytest tests/e2e/test_rf1_training.py -k "rfdetr" -v
 """
 
+import gc
 import json
 from pathlib import Path
 
@@ -29,28 +30,39 @@ HF_REPO_URL = f"https://huggingface.co/datasets/{HF_REPO}"
 # (weights, size, family)
 MODELS = [
     # YOLOX
-    ("LibreYOLOXn.pt",    "n",    "yolox"),
-    ("LibreYOLOXt.pt",    "t",    "yolox"),
-    ("LibreYOLOXs.pt",    "s",    "yolox"),
-    ("LibreYOLOXm.pt",    "m",    "yolox"),
-    ("LibreYOLOXl.pt",    "l",    "yolox"),
-    ("LibreYOLOXx.pt",    "x",    "yolox"),
+    ("LibreYOLOXn.pt", "n", "yolox"),
+    ("LibreYOLOXt.pt", "t", "yolox"),
+    ("LibreYOLOXs.pt", "s", "yolox"),
+    ("LibreYOLOXm.pt", "m", "yolox"),
+    ("LibreYOLOXl.pt", "l", "yolox"),
+    ("LibreYOLOXx.pt", "x", "yolox"),
     # YOLOv9
-    ("LibreYOLO9t.pt",    "t",    "yolo9"),
-    ("LibreYOLO9s.pt",    "s",    "yolo9"),
-    ("LibreYOLO9m.pt",    "m",    "yolo9"),
-    ("LibreYOLO9c.pt",    "c",    "yolo9"),
+    ("LibreYOLO9t.pt", "t", "yolo9"),
+    ("LibreYOLO9s.pt", "s", "yolo9"),
+    ("LibreYOLO9m.pt", "m", "yolo9"),
+    ("LibreYOLO9c.pt", "c", "yolo9"),
     # RF-DETR
-    ("LibreRFDETRn.pth",  "n",    "rfdetr"),
-    ("LibreRFDETRs.pth",  "s",    "rfdetr"),
-    ("LibreRFDETRm.pth",  "m",    "rfdetr"),
-    ("LibreRFDETRl.pth",  "l",    "rfdetr"),
+    ("LibreRFDETRn.pth", "n", "rfdetr"),
+    ("LibreRFDETRs.pth", "s", "rfdetr"),
+    ("LibreRFDETRm.pth", "m", "rfdetr"),
+    ("LibreRFDETRl.pth", "l", "rfdetr"),
 ]
 
 IDS = [
-    "yolox-n", "yolox-t", "yolox-s", "yolox-m", "yolox-l", "yolox-x",
-    "yolo9-t", "yolo9-s", "yolo9-m", "yolo9-c",
-    "rfdetr-n", "rfdetr-s", "rfdetr-m", "rfdetr-l",
+    "yolox-n",
+    "yolox-t",
+    "yolox-s",
+    "yolox-m",
+    "yolox-l",
+    "yolox-x",
+    "yolo9-t",
+    "yolo9-s",
+    "yolo9-m",
+    "yolo9-c",
+    "rfdetr-n",
+    "rfdetr-s",
+    "rfdetr-m",
+    "rfdetr-l",
 ]
 
 
@@ -132,11 +144,14 @@ def dataset_coco(dataset):
             with Image.open(img_path) as img:
                 w, h = img.size
 
-            images_list.append({
-                "id": img_id,
-                "file_name": f"images/{img_path.name}",
-                "width": w, "height": h,
-            })
+            images_list.append(
+                {
+                    "id": img_id,
+                    "file_name": f"images/{img_path.name}",
+                    "width": w,
+                    "height": h,
+                }
+            )
 
             label_file = labels_dir / img_path.with_suffix(".txt").name
             if label_file.exists():
@@ -150,13 +165,21 @@ def dataset_coco(dataset):
                     y = (cy - bh / 2) * h
                     box_w, box_h = bw * w, bh * h
 
-                    annotations_list.append({
-                        "id": ann_id, "image_id": img_id,
-                        "category_id": cls_id,
-                        "bbox": [round(x, 2), round(y, 2),
-                                 round(box_w, 2), round(box_h, 2)],
-                        "area": round(box_w * box_h, 2), "iscrowd": 0,
-                    })
+                    annotations_list.append(
+                        {
+                            "id": ann_id,
+                            "image_id": img_id,
+                            "category_id": cls_id,
+                            "bbox": [
+                                round(x, 2),
+                                round(y, 2),
+                                round(box_w, 2),
+                                round(box_h, 2),
+                            ],
+                            "area": round(box_w * box_h, 2),
+                            "iscrowd": 0,
+                        }
+                    )
                     ann_id += 1
 
         coco = {
@@ -180,14 +203,26 @@ MIN_MAP = 0.05
 
 @pytest.mark.e2e
 @pytest.mark.parametrize("weights,size,family", MODELS, ids=IDS)
-def test_rf1_training(weights, size, family, dataset_coco, dataset_data_yaml,
-                      tmp_path):
+def test_rf1_training(weights, size, family, dataset_coco, dataset_data_yaml, tmp_path):
     """Train 10 epochs on marbles, verify loss decreases and mAP improves."""
     model = LibreYOLO(weights, size=size)
 
+    # Batch sizes adjusted for 16GB GPUs (A100 has 40GB)
+    if family == "rfdetr":
+        val_batch = 8
+        train_batch = 2
+    elif size == "x" or size == "l":
+        # yolox-x, yolo9-l/c are too large for 16GB with batch=16
+        val_batch = 4
+        train_batch = 4
+    else:
+        val_batch = 16
+        train_batch = 16
+
     # --- Baseline mAP BEFORE training ---
-    pre_results = model.val(data=dataset_data_yaml, split="test",
-                            batch=16, conf=0.001, iou=0.6)
+    pre_results = model.val(
+        data=dataset_data_yaml, split="test", batch=val_batch, conf=0.001, iou=0.6
+    )
     pre_map = pre_results["metrics/mAP50-95"]
 
     # --- Train ---
@@ -195,14 +230,14 @@ def test_rf1_training(weights, size, family, dataset_coco, dataset_data_yaml,
         train_results = model.train(
             data=str(dataset_coco),
             epochs=10,
-            batch_size=2,
+            batch_size=train_batch,
             output_dir=str(tmp_path / f"rfdetr_{size}"),
         )
     else:
         train_results = model.train(
             data=dataset_data_yaml,
             epochs=10,
-            batch=16,
+            batch=train_batch,
             workers=2,
             project=str(tmp_path),
             name=f"{family}_{size}",
@@ -210,8 +245,9 @@ def test_rf1_training(weights, size, family, dataset_coco, dataset_data_yaml,
         )
 
     # --- Post-training mAP ---
-    post_results = model.val(data=dataset_data_yaml, split="test",
-                             batch=16, conf=0.001, iou=0.6)
+    post_results = model.val(
+        data=dataset_data_yaml, split="test", batch=val_batch, conf=0.001, iou=0.6
+    )
     post_map = post_results["metrics/mAP50-95"]
 
     print(f"\n  {weights} pre-training mAP50-95={pre_map:.4f}")
@@ -222,18 +258,17 @@ def test_rf1_training(weights, size, family, dataset_coco, dataset_data_yaml,
         epoch_losses = train_results["epoch_losses"]
         first_loss = epoch_losses[0]
         last_loss = epoch_losses[-1]
-        print(f"  {weights} first epoch loss={first_loss:.4f}, "
-              f"last epoch loss={last_loss:.4f}")
+        print(
+            f"  {weights} first epoch loss={first_loss:.4f}, "
+            f"last epoch loss={last_loss:.4f}"
+        )
 
         assert last_loss < first_loss, (
-            f"Loss did not decrease: first={first_loss:.4f} → "
-            f"last={last_loss:.4f}"
+            f"Loss did not decrease: first={first_loss:.4f} → last={last_loss:.4f}"
         )
 
     # --- Assertions ---
-    assert post_map >= MIN_MAP, (
-        f"Post-training mAP50-95={post_map:.4f} below {MIN_MAP}"
-    )
+    assert post_map >= MIN_MAP, f"Post-training mAP50-95={post_map:.4f} below {MIN_MAP}"
 
     assert post_map > pre_map, (
         f"Model did not improve: pre={pre_map:.4f} → post={post_map:.4f}"
@@ -241,6 +276,7 @@ def test_rf1_training(weights, size, family, dataset_coco, dataset_data_yaml,
 
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
+        gc.collect()
 
 
 # ---------------------------------------------------------------------------
@@ -249,44 +285,62 @@ def test_rf1_training(weights, size, family, dataset_coco, dataset_data_yaml,
 
 # YOLOX/V9: all models
 RELOAD_MODELS = [
-    ("LibreYOLOXn.pt",    "n",    "yolox"),
-    ("LibreYOLOXt.pt",    "t",    "yolox"),
-    ("LibreYOLOXs.pt",    "s",    "yolox"),
-    ("LibreYOLOXm.pt",    "m",    "yolox"),
-    ("LibreYOLOXl.pt",    "l",    "yolox"),
-    ("LibreYOLOXx.pt",    "x",    "yolox"),
-    ("LibreYOLO9t.pt",    "t",    "yolo9"),
-    ("LibreYOLO9s.pt",    "s",    "yolo9"),
-    ("LibreYOLO9m.pt",    "m",    "yolo9"),
-    ("LibreYOLO9c.pt",    "c",    "yolo9"),
+    ("LibreYOLOXn.pt", "n", "yolox"),
+    ("LibreYOLOXt.pt", "t", "yolox"),
+    ("LibreYOLOXs.pt", "s", "yolox"),
+    ("LibreYOLOXm.pt", "m", "yolox"),
+    ("LibreYOLOXl.pt", "l", "yolox"),
+    ("LibreYOLOXx.pt", "x", "yolox"),
+    ("LibreYOLO9t.pt", "t", "yolo9"),
+    ("LibreYOLO9s.pt", "s", "yolo9"),
+    ("LibreYOLO9m.pt", "m", "yolo9"),
+    ("LibreYOLO9c.pt", "c", "yolo9"),
 ]
 RELOAD_IDS = [
-    "yolox-n", "yolox-t", "yolox-s", "yolox-m", "yolox-l", "yolox-x",
-    "yolo9-t", "yolo9-s", "yolo9-m", "yolo9-c",
+    "yolox-n",
+    "yolox-t",
+    "yolox-s",
+    "yolox-m",
+    "yolox-l",
+    "yolox-x",
+    "yolo9-t",
+    "yolo9-s",
+    "yolo9-m",
+    "yolo9-c",
 ]
 
 
 @pytest.mark.e2e
 @pytest.mark.parametrize("weights,size,family", RELOAD_MODELS, ids=RELOAD_IDS)
-def test_load_finetuned_checkpoint(weights, size, family, dataset_coco,
-                                   dataset_data_yaml, tmp_path):
+def test_load_finetuned_checkpoint(
+    weights, size, family, dataset_coco, dataset_data_yaml, tmp_path
+):
     """Train, save checkpoint, load into fresh model, validate.
 
     Verifies that fine-tuned checkpoints can be loaded in a new session
     with correct nc, names, and architecture auto-rebuild.
     Also verifies loss decreased during training and mAP improved.
     """
+    # Batch sizes adjusted for 16GB GPUs (A100 has 40GB)
+    if size in ("x", "l"):
+        val_batch = 4
+        train_batch = 4
+    else:
+        val_batch = 16
+        train_batch = 16
+
     # 1. Baseline mAP before training
     model = LibreYOLO(weights, size=size)
-    pre_results = model.val(data=dataset_data_yaml, split="test",
-                            batch=16, conf=0.001, iou=0.6)
+    pre_results = model.val(
+        data=dataset_data_yaml, split="test", batch=val_batch, conf=0.001, iou=0.6
+    )
     pre_map = pre_results["metrics/mAP50-95"]
 
     # 2. Train
     train_results = model.train(
         data=dataset_data_yaml,
         epochs=10,
-        batch=16,
+        batch=train_batch,
         workers=2,
         project=str(tmp_path),
         name=f"{family}_{size}",
@@ -297,12 +351,13 @@ def test_load_finetuned_checkpoint(weights, size, family, dataset_coco,
     epoch_losses = train_results["epoch_losses"]
     first_loss = epoch_losses[0]
     last_loss = epoch_losses[-1]
-    print(f"\n  {weights} first epoch loss={first_loss:.4f}, "
-          f"last epoch loss={last_loss:.4f}")
+    print(
+        f"\n  {weights} first epoch loss={first_loss:.4f}, "
+        f"last epoch loss={last_loss:.4f}"
+    )
 
     assert last_loss < first_loss, (
-        f"Loss did not decrease: first={first_loss:.4f} → "
-        f"last={last_loss:.4f}"
+        f"Loss did not decrease: first={first_loss:.4f} → last={last_loss:.4f}"
     )
 
     # 4. Find best.pt on disk
@@ -318,13 +373,16 @@ def test_load_finetuned_checkpoint(weights, size, family, dataset_coco,
     assert "model_family" in ckpt, "Checkpoint missing 'model_family' metadata"
     assert ckpt["nc"] == 2, f"Expected nc=2 (marbles), got {ckpt['nc']}"
     assert ckpt["model_family"] == family
-    print(f"  Checkpoint metadata: nc={ckpt['nc']}, family={ckpt['model_family']}, "
-          f"names={ckpt['names']}")
+    print(
+        f"  Checkpoint metadata: nc={ckpt['nc']}, family={ckpt['model_family']}, "
+        f"names={ckpt['names']}"
+    )
 
     # 6. Load into a completely fresh model (default nc=80)
     del model
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
+        gc.collect()
 
     fresh_model = LibreYOLO(str(best_pt), size=size)
 
@@ -337,8 +395,9 @@ def test_load_finetuned_checkpoint(weights, size, family, dataset_coco,
     )
 
     # 8. Validate reloaded model on test split
-    post_results = fresh_model.val(data=dataset_data_yaml, split="test",
-                                   batch=16, conf=0.001, iou=0.6)
+    post_results = fresh_model.val(
+        data=dataset_data_yaml, split="test", batch=val_batch, conf=0.001, iou=0.6
+    )
     post_map = post_results["metrics/mAP50-95"]
 
     print(f"  {weights} pre-training mAP50-95={pre_map:.4f}")
@@ -355,6 +414,7 @@ def test_load_finetuned_checkpoint(weights, size, family, dataset_coco,
 
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
+        gc.collect()
 
 
 # RF-DETR: reload fine-tuned checkpoint
@@ -365,9 +425,12 @@ RELOAD_RFDETR_IDS = ["rfdetr-n"]
 
 
 @pytest.mark.e2e
-@pytest.mark.parametrize("weights,size,family", RELOAD_RFDETR_MODELS, ids=RELOAD_RFDETR_IDS)
-def test_load_finetuned_checkpoint_rfdetr(weights, size, family, dataset_coco,
-                                          dataset_data_yaml, tmp_path):
+@pytest.mark.parametrize(
+    "weights,size,family", RELOAD_RFDETR_MODELS, ids=RELOAD_RFDETR_IDS
+)
+def test_load_finetuned_checkpoint_rfdetr(
+    weights, size, family, dataset_coco, dataset_data_yaml, tmp_path
+):
     """Train RF-DETR, save checkpoint, load into fresh model, validate.
 
     RF-DETR uses a different checkpoint format (checkpoint_best_total.pth)
@@ -378,8 +441,9 @@ def test_load_finetuned_checkpoint_rfdetr(weights, size, family, dataset_coco,
 
     # 1. Baseline mAP before training
     model = LibreYOLO(weights, size=size)
-    pre_results = model.val(data=dataset_data_yaml, split="test",
-                            batch=16, conf=0.001, iou=0.6)
+    pre_results = model.val(
+        data=dataset_data_yaml, split="test", batch=16, conf=0.001, iou=0.6
+    )
     pre_map = pre_results["metrics/mAP50-95"]
 
     # 2. Train
@@ -413,6 +477,7 @@ def test_load_finetuned_checkpoint_rfdetr(weights, size, family, dataset_coco,
     del model
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
+        gc.collect()
 
     fresh_model = LibreYOLO(weights, size=size)
 
@@ -426,8 +491,9 @@ def test_load_finetuned_checkpoint_rfdetr(weights, size, family, dataset_coco,
     fresh_model.model.nb_classes = num_classes
 
     # 6. Validate reloaded model on test split
-    post_results = fresh_model.val(data=dataset_data_yaml, split="test",
-                                   batch=16, conf=0.001, iou=0.6)
+    post_results = fresh_model.val(
+        data=dataset_data_yaml, split="test", batch=16, conf=0.001, iou=0.6
+    )
     post_map = post_results["metrics/mAP50-95"]
 
     print(f"  {weights} pre-training mAP50-95={pre_map:.4f}")
@@ -444,3 +510,4 @@ def test_load_finetuned_checkpoint_rfdetr(weights, size, family, dataset_coco,
 
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
+        gc.collect()
