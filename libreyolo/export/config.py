@@ -113,7 +113,7 @@ class TensorRTExportConfig:
         path = Path(path)
         if not path.exists():
             # Check in default config directory
-            default_path = Path(__file__).parent.parent / "cfg" / "export" / path.name
+            default_path = Path(__file__).parent.parent / "config" / "export" / path.name
             if default_path.exists():
                 path = default_path
             else:

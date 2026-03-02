@@ -229,8 +229,8 @@ class Exporter:
         # --- build dummy input ---
         dummy = torch.randn(batch, 3, imgsz, imgsz, device=device)
 
-        # For ONNX export, use FP16 if requested (TensorRT handles precision internally)
-        if half and fmt == "onnx":
+        # For ONNX/TorchScript export, use FP16 if requested (TensorRT handles precision internally)
+        if half and fmt in ("onnx", "torchscript"):
             nn_model.half()
             dummy = dummy.half()
 
@@ -393,7 +393,7 @@ class Exporter:
         finally:
             # restore model state
             nn_model.to(original_device)
-            if half and fmt == "onnx":
+            if half and fmt in ("onnx", "torchscript"):
                 nn_model.float()
             if original_training:
                 nn_model.train()
