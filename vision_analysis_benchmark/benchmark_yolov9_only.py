@@ -15,9 +15,9 @@ if __name__ == '__main__':
     # Override to only benchmark YOLOv9
     original_models = LIBREYOLO_MODELS.copy()
 
-    # Keep only YOLOv9
+    # Keep only YOLO9
     LIBREYOLO_MODELS.clear()
-    LIBREYOLO_MODELS['yolov9'] = original_models['yolov9']
+    LIBREYOLO_MODELS['yolo9'] = original_models['yolo9']
 
     print("=" * 80)
     print("YOLOv9-ONLY BENCHMARK")

@@ -34,7 +34,7 @@ LIBREYOLO_MODELS = {
         'weights_pattern': 'LibreRFDETR{variant}.pth',
         'input_size': 560,
     },
-    'yolov9': {
+    'yolo9': {
         'variants': ['t', 's', 'm', 'c'],
         'weights_pattern': 'LibreYOLO9{variant}.pt',
         'input_size': 640,

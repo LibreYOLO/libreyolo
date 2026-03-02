@@ -333,17 +333,17 @@ class TestModelCoverage:
                 torch.cuda.empty_cache()
 
     @requires_tensorrt
-    def test_all_yolov9_sizes_exportable(self, tmp_path):
-        """Test that all YOLOv9 sizes can be exported."""
-        from .conftest import YOLOV9_SIZES
+    def test_all_yolo9_sizes_exportable(self, tmp_path):
+        """Test that all YOLO9 sizes can be exported."""
+        from .conftest import YOLO9_SIZES
 
-        for size in YOLOV9_SIZES:
-            pt_model = load_model("yolov9", size, device="cuda")
-            engine_path = str(tmp_path / f"yolov9_{size}.engine")
+        for size in YOLO9_SIZES:
+            pt_model = load_model("yolo9", size, device="cuda")
+            engine_path = str(tmp_path / f"yolo9_{size}.engine")
 
             try:
                 pt_model.export(format="tensorrt", output_path=engine_path, half=True)
-                assert Path(engine_path).exists(), f"Failed to export YOLOv9-{size}"
+                assert Path(engine_path).exists(), f"Failed to export YOLO9-{size}"
             finally:
                 del pt_model
                 torch.cuda.empty_cache()

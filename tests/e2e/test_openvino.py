@@ -382,19 +382,19 @@ class TestOpenVINOModelCoverage:
 
     @requires_openvino
     @pytest.mark.slow
-    def test_all_yolov9_sizes_exportable(self, sample_image, tmp_path):
-        """Test that all YOLOv9 sizes can be exported and run."""
+    def test_all_yolo9_sizes_exportable(self, sample_image, tmp_path):
+        """Test that all YOLO9 sizes can be exported and run."""
         from libreyolo import LibreYOLO
-        from .conftest import YOLOV9_SIZES
+        from .conftest import YOLO9_SIZES
 
-        for size in YOLOV9_SIZES:
-            pt_model = load_model("yolov9", size, device="cpu")
-            ov_path = str(tmp_path / f"yolov9_{size}_openvino")
+        for size in YOLO9_SIZES:
+            pt_model = load_model("yolo9", size, device="cpu")
+            ov_path = str(tmp_path / f"yolo9_{size}_openvino")
 
             exported_path = pt_model.export(
                 format="openvino", output_path=ov_path, half=True
             )
-            assert Path(exported_path).is_dir(), f"Failed to export YOLOv9-{size}"
+            assert Path(exported_path).is_dir(), f"Failed to export YOLO9-{size}"
 
             # Verify inference works via backend
             ov_model = LibreYOLO(exported_path)

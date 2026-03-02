@@ -13,7 +13,7 @@ Example::
     from libreyolo import LibreYOLO
     from libreyolo.export import BaseExporter, OnnxExporter
 
-    model = LibreYOLO("yolov9c.pt")
+    model = LibreYOLO("LibreYOLO9c.pt")
 
     # Via factory
     BaseExporter.create("onnx", model)(simplify=True)

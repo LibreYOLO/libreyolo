@@ -185,8 +185,8 @@ def reset_gpu_state():
 # YOLOX model sizes
 YOLOX_SIZES = ["n", "t", "s", "m", "l", "x"]
 
-# YOLOv9 model sizes
-YOLOV9_SIZES = ["t", "s", "m", "c"]
+# YOLO9 model sizes
+YOLO9_SIZES = ["t", "s", "m", "c"]
 
 # RF-DETR model sizes
 RFDETR_SIZES = ["n", "s", "m", "l"]
@@ -201,7 +201,7 @@ YOLOX_WEIGHTS = {
     "x": "LibreYOLOXx.pt",
 }
 
-YOLOV9_WEIGHTS = {
+YOLO9_WEIGHTS = {
     "t": "LibreYOLO9t.pt",
     "s": "LibreYOLO9s.pt",
     "m": "LibreYOLO9m.pt",
@@ -218,12 +218,12 @@ RFDETR_WEIGHTS = {
 # Quick test set (for CI - smallest models only)
 QUICK_TEST_MODELS = [
     ("yolox", "n"),
-    ("yolov9", "t"),
+    ("yolo9", "t"),
 ]
 
 # Full test set (all models)
 FULL_TEST_MODELS = [("yolox", size) for size in YOLOX_SIZES] + [
-    ("yolov9", size) for size in YOLOV9_SIZES
+    ("yolo9", size) for size in YOLO9_SIZES
 ]
 
 # RF-DETR test set (separate due to dependency)
@@ -234,8 +234,8 @@ def get_model_weights(model_type: str, size: str) -> str:
     """Get the weight file name for a model type and size."""
     if model_type == "yolox":
         return YOLOX_WEIGHTS[size]
-    elif model_type == "yolov9":
-        return YOLOV9_WEIGHTS[size]
+    elif model_type == "yolo9":
+        return YOLO9_WEIGHTS[size]
     elif model_type == "rfdetr":
         return RFDETR_WEIGHTS[size]
     else:

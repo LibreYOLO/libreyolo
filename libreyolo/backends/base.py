@@ -293,7 +293,7 @@ class BaseBackend(ABC):
         elif self.model_family == "rfdetr":
             return self._parse_rfdetr(all_outputs, orig_w, orig_h, conf)
         else:
-            return self._parse_yolov9(
+            return self._parse_yolo9(
                 all_outputs, effective_imgsz, orig_w, orig_h, conf
             )
 
@@ -328,8 +328,8 @@ class BaseBackend(ABC):
 
         return boxes, max_scores, class_ids
 
-    def _parse_yolov9(self, all_outputs, effective_imgsz, orig_w, orig_h, conf):
-        """Parse YOLOv9 output: (B, 4+nc, N) — xyxy + class_scores."""
+    def _parse_yolo9(self, all_outputs, effective_imgsz, orig_w, orig_h, conf):
+        """Parse YOLO9 output: (B, 4+nc, N) — xyxy + class_scores."""
         outputs = all_outputs[0][0].T  # (N, 4+nc)
 
         boxes = outputs[:, :4]

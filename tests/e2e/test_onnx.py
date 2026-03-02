@@ -255,18 +255,18 @@ class TestONNXModelCoverage:
             onnx_model = onnx.load(onnx_path)
             onnx.checker.check_model(onnx_model)
 
-    def test_all_yolov9_sizes_exportable(self, tmp_path):
-        """Test that all YOLOv9 sizes can be exported."""
-        from .conftest import YOLOV9_SIZES
+    def test_all_yolo9_sizes_exportable(self, tmp_path):
+        """Test that all YOLO9 sizes can be exported."""
+        from .conftest import YOLO9_SIZES
 
         device = "cuda" if torch.cuda.is_available() else "cpu"
 
-        for size in YOLOV9_SIZES:
-            pt_model = load_model("yolov9", size, device=device)
-            onnx_path = str(tmp_path / f"yolov9_{size}.onnx")
+        for size in YOLO9_SIZES:
+            pt_model = load_model("yolo9", size, device=device)
+            onnx_path = str(tmp_path / f"yolo9_{size}.onnx")
 
             pt_model.export(format="onnx", output_path=onnx_path, simplify=False)
-            assert Path(onnx_path).exists(), f"Failed to export YOLOv9-{size}"
+            assert Path(onnx_path).exists(), f"Failed to export YOLO9-{size}"
 
             # Verify model is valid
             onnx_model = onnx.load(onnx_path)
