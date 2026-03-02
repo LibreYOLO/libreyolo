@@ -7,6 +7,7 @@ and TensorBoard logging. Model-specific trainers subclass and override hooks.
 
 import logging
 import time
+from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -24,7 +25,7 @@ from ..data import load_data_config
 logger = logging.getLogger(__name__)
 
 
-class BaseTrainer:
+class BaseTrainer(ABC):
     """
     Base trainer for all LibreYOLO model families.
 
@@ -136,29 +137,29 @@ class BaseTrainer:
     # Hook methods — subclasses override these
     # ------------------------------------------------------------------
 
+    @abstractmethod
     def get_model_family(self) -> str:
         """Return canonical model family string for checkpoint metadata."""
-        raise NotImplementedError
 
+    @abstractmethod
     def get_model_tag(self) -> str:
         """Return human-readable model tag for log messages (e.g. 'YOLOX-s')."""
-        raise NotImplementedError
 
+    @abstractmethod
     def create_transforms(self):
         """Return (preproc_transform, mosaic_dataset_class)."""
-        raise NotImplementedError
 
+    @abstractmethod
     def create_scheduler(self, iters_per_epoch: int):
         """Return a scheduler with an ``update_lr(iters)`` method."""
-        raise NotImplementedError
 
+    @abstractmethod
     def get_loss_components(self, outputs: Dict) -> Dict[str, float]:
         """Extract per-component losses for progress bar / TensorBoard.
 
         Returns:
             Dict mapping loss name → scalar value.
         """
-        raise NotImplementedError
 
     def on_setup(self):
         """Called after model is on device, before data setup (e.g. bias init)."""
