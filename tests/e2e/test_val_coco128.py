@@ -15,40 +15,16 @@ import pytest
 import torch
 
 from libreyolo import LibreYOLO
+from .conftest import ALL_MODELS_WITH_WEIGHTS, make_ids
 
 MIN_MAP = 0.18  # Uniform threshold for all models
 
-# (weights, size)
-MODELS = [
-    # YOLOX
-    ("LibreYOLOXn.pt",    "n"),
-    ("LibreYOLOXt.pt",    "t"),
-    ("LibreYOLOXs.pt",    "s"),
-    ("LibreYOLOXm.pt",    "m"),
-    ("LibreYOLOXl.pt",    "l"),
-    ("LibreYOLOXx.pt",    "x"),
-    # YOLOv9
-    ("LibreYOLO9t.pt",    "t"),
-    ("LibreYOLO9s.pt",    "s"),
-    ("LibreYOLO9m.pt",    "m"),
-    ("LibreYOLO9c.pt",    "c"),
-    # RF-DETR
-    ("LibreRFDETRn.pth",  "n"),
-    ("LibreRFDETRs.pth",  "s"),
-    ("LibreRFDETRm.pth",  "m"),
-    ("LibreRFDETRl.pth",  "l"),
-]
-
-IDS = [
-    "yolox-n", "yolox-t", "yolox-s", "yolox-m", "yolox-l", "yolox-x",
-    "yolo9-t", "yolo9-s", "yolo9-m", "yolo9-c",
-    "rfdetr-n", "rfdetr-s", "rfdetr-m", "rfdetr-l",
-]
-
 
 @pytest.mark.e2e
-@pytest.mark.parametrize("weights,size", MODELS, ids=IDS)
-def test_val_coco128(weights, size):
+@pytest.mark.parametrize(
+    "family,size,weights", ALL_MODELS_WITH_WEIGHTS, ids=make_ids(ALL_MODELS_WITH_WEIGHTS)
+)
+def test_val_coco128(family, size, weights):
     """Validate a pretrained model on coco128 and check mAP >= 0.18."""
     model = LibreYOLO(weights, size=size)
 
