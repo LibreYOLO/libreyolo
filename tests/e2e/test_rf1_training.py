@@ -380,8 +380,6 @@ def test_load_finetuned_checkpoint_rfdetr(
     and requires manual detection head reinitialization.
     Also verifies mAP improved over pre-training baseline.
     """
-    from pathlib import Path as P
-
     # 1. Baseline mAP before training
     model = LibreYOLO(weights, size=size)
     pre_results = model.val(
@@ -399,10 +397,10 @@ def test_load_finetuned_checkpoint_rfdetr(
     )
 
     # 3. Find checkpoint on disk
-    best_ckpt = P(output_dir) / "checkpoint_best_total.pth"
+    best_ckpt = Path(output_dir) / "checkpoint_best_total.pth"
     if not best_ckpt.exists():
         # Fall back to any checkpoint
-        ckpts = sorted(P(output_dir).glob("checkpoint*.pth"))
+        ckpts = sorted(Path(output_dir).glob("checkpoint*.pth"))
         assert ckpts, f"No checkpoint found in {output_dir}"
         best_ckpt = ckpts[-1]
 
