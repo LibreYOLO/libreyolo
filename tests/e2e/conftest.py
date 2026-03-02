@@ -179,67 +179,57 @@ def reset_gpu_state():
 
 
 # ---------------------------------------------------------------------------
-# Model parameter sets
+# Model catalog — single source of truth
 # ---------------------------------------------------------------------------
 
-# YOLOX model sizes
-YOLOX_SIZES = ["n", "t", "s", "m", "l", "x"]
-
-# YOLO9 model sizes
-YOLO9_SIZES = ["t", "s", "m", "c"]
-
-# RF-DETR model sizes
-RFDETR_SIZES = ["n", "s", "m", "l"]
-
-# Model weight file patterns
-YOLOX_WEIGHTS = {
-    "n": "LibreYOLOXn.pt",
-    "t": "LibreYOLOXt.pt",
-    "s": "LibreYOLOXs.pt",
-    "m": "LibreYOLOXm.pt",
-    "l": "LibreYOLOXl.pt",
-    "x": "LibreYOLOXx.pt",
-}
-
-YOLO9_WEIGHTS = {
-    "t": "LibreYOLO9t.pt",
-    "s": "LibreYOLO9s.pt",
-    "m": "LibreYOLO9m.pt",
-    "c": "LibreYOLO9c.pt",
-}
-
-RFDETR_WEIGHTS = {
-    "n": "LibreRFDETRn.pth",
-    "s": "LibreRFDETRs.pth",
-    "m": "LibreRFDETRm.pth",
-    "l": "LibreRFDETRl.pth",
-}
-
-# Quick test set (for CI - smallest models only)
-QUICK_TEST_MODELS = [
-    ("yolox", "n"),
-    ("yolo9", "t"),
+# (family, size, weights)
+MODEL_CATALOG = [
+    ("yolox", "n", "LibreYOLOXn.pt"),
+    ("yolox", "t", "LibreYOLOXt.pt"),
+    ("yolox", "s", "LibreYOLOXs.pt"),
+    ("yolox", "m", "LibreYOLOXm.pt"),
+    ("yolox", "l", "LibreYOLOXl.pt"),
+    ("yolox", "x", "LibreYOLOXx.pt"),
+    ("yolo9", "t", "LibreYOLO9t.pt"),
+    ("yolo9", "s", "LibreYOLO9s.pt"),
+    ("yolo9", "m", "LibreYOLO9m.pt"),
+    ("yolo9", "c", "LibreYOLO9c.pt"),
+    ("rfdetr", "n", "LibreRFDETRn.pth"),
+    ("rfdetr", "s", "LibreRFDETRs.pth"),
+    ("rfdetr", "m", "LibreRFDETRm.pth"),
+    ("rfdetr", "l", "LibreRFDETRl.pth"),
 ]
 
-# Full test set (all models)
-FULL_TEST_MODELS = [("yolox", size) for size in YOLOX_SIZES] + [
-    ("yolo9", size) for size in YOLO9_SIZES
-]
+# Derived lists (no manual maintenance)
+YOLOX_SIZES = [s for f, s, _ in MODEL_CATALOG if f == "yolox"]
+YOLO9_SIZES = [s for f, s, _ in MODEL_CATALOG if f == "yolo9"]
+RFDETR_SIZES = [s for f, s, _ in MODEL_CATALOG if f == "rfdetr"]
+
+ALL_MODELS = [(f, s) for f, s, _ in MODEL_CATALOG]
+ALL_MODELS_WITH_WEIGHTS = MODEL_CATALOG
+YOLOX_YOLO9_MODELS = [(f, s) for f, s, _ in MODEL_CATALOG if f != "rfdetr"]
+
+# Quick test set (for CI — smallest models only)
+QUICK_TEST_MODELS = [("yolox", "n"), ("yolo9", "t")]
+
+# Full test set (YOLOX + YOLO9, no RF-DETR)
+FULL_TEST_MODELS = YOLOX_YOLO9_MODELS
 
 # RF-DETR test set (separate due to dependency)
-RFDETR_TEST_MODELS = [("rfdetr", size) for size in RFDETR_SIZES]
+RFDETR_TEST_MODELS = [(f, s) for f, s, _ in MODEL_CATALOG if f == "rfdetr"]
 
 
-def get_model_weights(model_type: str, size: str) -> str:
-    """Get the weight file name for a model type and size."""
-    if model_type == "yolox":
-        return YOLOX_WEIGHTS[size]
-    elif model_type == "yolo9":
-        return YOLO9_WEIGHTS[size]
-    elif model_type == "rfdetr":
-        return RFDETR_WEIGHTS[size]
-    else:
-        raise ValueError(f"Unknown model type: {model_type}")
+def get_model_weights(family: str, size: str) -> str:
+    """Get the weight file name for a model family and size."""
+    for f, s, w in MODEL_CATALOG:
+        if f == family and s == size:
+            return w
+    raise ValueError(f"Unknown model: {family}-{size}")
+
+
+def make_ids(models):
+    """Generate test IDs like 'yolox-n' from (family, size, ...) tuples."""
+    return [f"{m[0]}-{m[1]}" for m in models]
 
 
 # ---------------------------------------------------------------------------

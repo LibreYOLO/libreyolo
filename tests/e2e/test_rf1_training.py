@@ -22,48 +22,11 @@ from huggingface_hub import snapshot_download
 from PIL import Image
 
 from libreyolo import LibreYOLO
+from .conftest import ALL_MODELS_WITH_WEIGHTS, YOLOX_YOLO9_MODELS, make_ids
 
 DATASET_ROOT = Path.home() / ".cache" / "libreyolo" / "marbles"
 HF_REPO = "LibreYOLO/marbles"
 HF_REPO_URL = f"https://huggingface.co/datasets/{HF_REPO}"
-
-# (weights, size, family)
-MODELS = [
-    # YOLOX
-    ("LibreYOLOXn.pt", "n", "yolox"),
-    ("LibreYOLOXt.pt", "t", "yolox"),
-    ("LibreYOLOXs.pt", "s", "yolox"),
-    ("LibreYOLOXm.pt", "m", "yolox"),
-    ("LibreYOLOXl.pt", "l", "yolox"),
-    ("LibreYOLOXx.pt", "x", "yolox"),
-    # YOLOv9
-    ("LibreYOLO9t.pt", "t", "yolo9"),
-    ("LibreYOLO9s.pt", "s", "yolo9"),
-    ("LibreYOLO9m.pt", "m", "yolo9"),
-    ("LibreYOLO9c.pt", "c", "yolo9"),
-    # RF-DETR
-    ("LibreRFDETRn.pth", "n", "rfdetr"),
-    ("LibreRFDETRs.pth", "s", "rfdetr"),
-    ("LibreRFDETRm.pth", "m", "rfdetr"),
-    ("LibreRFDETRl.pth", "l", "rfdetr"),
-]
-
-IDS = [
-    "yolox-n",
-    "yolox-t",
-    "yolox-s",
-    "yolox-m",
-    "yolox-l",
-    "yolox-x",
-    "yolo9-t",
-    "yolo9-s",
-    "yolo9-m",
-    "yolo9-c",
-    "rfdetr-n",
-    "rfdetr-s",
-    "rfdetr-m",
-    "rfdetr-l",
-]
 
 
 def download_marbles_dataset():
@@ -202,8 +165,10 @@ MIN_MAP = 0.05
 
 
 @pytest.mark.e2e
-@pytest.mark.parametrize("weights,size,family", MODELS, ids=IDS)
-def test_rf1_training(weights, size, family, dataset_coco, dataset_data_yaml, tmp_path):
+@pytest.mark.parametrize(
+    "family,size,weights", ALL_MODELS_WITH_WEIGHTS, ids=make_ids(ALL_MODELS_WITH_WEIGHTS)
+)
+def test_rf1_training(family, size, weights, dataset_coco, dataset_data_yaml, tmp_path):
     """Train 10 epochs on marbles, verify loss decreases and mAP improves."""
     model = LibreYOLO(weights, size=size)
 
@@ -283,37 +248,18 @@ def test_rf1_training(weights, size, family, dataset_coco, dataset_data_yaml, tm
 # Phase 2: Reload fine-tuned checkpoints into fresh models
 # ---------------------------------------------------------------------------
 
-# YOLOX/V9: all models
-RELOAD_MODELS = [
-    ("LibreYOLOXn.pt", "n", "yolox"),
-    ("LibreYOLOXt.pt", "t", "yolox"),
-    ("LibreYOLOXs.pt", "s", "yolox"),
-    ("LibreYOLOXm.pt", "m", "yolox"),
-    ("LibreYOLOXl.pt", "l", "yolox"),
-    ("LibreYOLOXx.pt", "x", "yolox"),
-    ("LibreYOLO9t.pt", "t", "yolo9"),
-    ("LibreYOLO9s.pt", "s", "yolo9"),
-    ("LibreYOLO9m.pt", "m", "yolo9"),
-    ("LibreYOLO9c.pt", "c", "yolo9"),
-]
-RELOAD_IDS = [
-    "yolox-n",
-    "yolox-t",
-    "yolox-s",
-    "yolox-m",
-    "yolox-l",
-    "yolox-x",
-    "yolo9-t",
-    "yolo9-s",
-    "yolo9-m",
-    "yolo9-c",
+# YOLOX/YOLO9 reload: derive from catalog (excludes rfdetr)
+_RELOAD_MODELS = [
+    (f, s, w) for f, s, w in ALL_MODELS_WITH_WEIGHTS if f != "rfdetr"
 ]
 
 
 @pytest.mark.e2e
-@pytest.mark.parametrize("weights,size,family", RELOAD_MODELS, ids=RELOAD_IDS)
+@pytest.mark.parametrize(
+    "family,size,weights", _RELOAD_MODELS, ids=make_ids(_RELOAD_MODELS)
+)
 def test_load_finetuned_checkpoint(
-    weights, size, family, dataset_coco, dataset_data_yaml, tmp_path
+    family, size, weights, dataset_coco, dataset_data_yaml, tmp_path
 ):
     """Train, save checkpoint, load into fresh model, validate.
 
@@ -417,19 +363,16 @@ def test_load_finetuned_checkpoint(
         gc.collect()
 
 
-# RF-DETR: reload fine-tuned checkpoint
-RELOAD_RFDETR_MODELS = [
-    ("LibreRFDETRn.pth", "n", "rfdetr"),
-]
-RELOAD_RFDETR_IDS = ["rfdetr-n"]
+# RF-DETR: reload fine-tuned checkpoint (only n for speed)
+_RELOAD_RFDETR = [("rfdetr", "n", "LibreRFDETRn.pth")]
 
 
 @pytest.mark.e2e
 @pytest.mark.parametrize(
-    "weights,size,family", RELOAD_RFDETR_MODELS, ids=RELOAD_RFDETR_IDS
+    "family,size,weights", _RELOAD_RFDETR, ids=make_ids(_RELOAD_RFDETR)
 )
 def test_load_finetuned_checkpoint_rfdetr(
-    weights, size, family, dataset_coco, dataset_data_yaml, tmp_path
+    family, size, weights, dataset_coco, dataset_data_yaml, tmp_path
 ):
     """Train RF-DETR, save checkpoint, load into fresh model, validate.
 
