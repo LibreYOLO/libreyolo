@@ -1,5 +1,8 @@
 UV := uv run --no-sync
 
+.DEFAULT_GOAL := help
+.PHONY: help setup check_format format lint typecheck test test_integration test_e2e test_rf5 build clean
+
 help:
 	@echo "═══════════════════════════════════════════════════════════════════════════════"
 	@echo "                         LibreYOLO Makefile"
