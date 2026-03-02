@@ -39,6 +39,8 @@ test_integration:
 	$(UV) pytest -m integration
 
 test_e2e:
+	@echo "🧹 Cleaning pytest cache before tests..."
+	@rm -rf /tmp/pytest-of-$(USER) 2>/dev/null || true
 	$(UV) pytest tests/e2e/ -m e2e -v --ignore=tests/e2e/test_rf5_training.py
 
 build:
@@ -51,5 +53,6 @@ build:
 clean:
 	@echo "🧹 Cleaning build and test cache artifacts..."
 	@rm -rf dist *.egg-info .ruff_cache .pytest_cache
+	@rm -rf /tmp/pytest-of-$(USER) 2>/dev/null || true
 	@find . -type d -name '__pycache__' -exec rm -rf {} +
 	@echo "✅ Clean complete!"
