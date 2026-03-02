@@ -10,10 +10,7 @@ import yaml
 
 
 def pytest_configure(config):
-    """Register custom markers."""
-    config.addinivalue_line(
-        "markers", "e2e: end-to-end tests requiring full model loading"
-    )
+    """Register custom markers (e2e marker registered in root conftest)."""
     config.addinivalue_line("markers", "tensorrt: tests requiring TensorRT")
     config.addinivalue_line("markers", "openvino: tests requiring OpenVINO")
     config.addinivalue_line("markers", "ncnn: tests requiring ncnn")
