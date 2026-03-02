@@ -14,6 +14,7 @@ help:
 	@echo "  test                          - Run fast unit tests (no weights needed)"
 	@echo "  test_integration              - Run integration tests (needs real model weights)"
 	@echo "  test_e2e                      - Run e2e export tests (needs GPU + model weights)"
+	@echo "  test_rf5                      - Run RF5 training benchmark tests"
 	@echo "  build                         - Build package"
 	@echo "  clean                         - Remove build and test cache artifacts"
 
@@ -45,7 +46,10 @@ test_integration:
 test_e2e:
 	@echo "🧹 Cleaning pytest cache before tests..."
 	@rm -rf /tmp/pytest-of-$(USER) 2>/dev/null || true
-	$(UV) pytest tests/e2e/ -m e2e -v --ignore=tests/e2e/test_rf5_training.py
+	$(UV) pytest tests/e2e/ -m "e2e and not rf5" -v
+
+test_rf5:
+	$(UV) pytest tests/e2e/test_rf5_training.py -m rf5 -v
 
 build:
 	@echo "📦 Building package..."
