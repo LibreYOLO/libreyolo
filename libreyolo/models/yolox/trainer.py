@@ -9,7 +9,7 @@ import torch
 from typing import Dict
 
 from libreyolo.training.trainer import BaseTrainer
-from ...training.scheduler import LRScheduler
+from ...training.scheduler import WarmupCosineScheduler
 from ...training.augment import TrainTransform, MosaicMixupDataset
 
 
@@ -20,7 +20,6 @@ class YOLOXTrainer(BaseTrainer):
         **BaseTrainer.DEFAULT_CFG,
         # YOLOX-specific defaults
         "momentum": 0.9,
-        "scheduler": "yoloxwarmcos",
         "warmup_epochs": 5,
         "warmup_lr_start": 0.0,
         "no_aug_epochs": 15,
@@ -48,14 +47,13 @@ class YOLOXTrainer(BaseTrainer):
         return preproc, MosaicMixupDataset
 
     def create_scheduler(self, iters_per_epoch: int):
-        return LRScheduler(
-            name=self.cfg["scheduler"],
+        return WarmupCosineScheduler(
             lr=self.effective_lr,
             iters_per_epoch=iters_per_epoch,
             total_epochs=self.cfg["epochs"],
             warmup_epochs=self.cfg["warmup_epochs"],
             warmup_lr_start=self.cfg["warmup_lr_start"],
-            no_aug_epochs=self.cfg["no_aug_epochs"],
+            plateau_epochs=self.cfg["no_aug_epochs"],
             min_lr_ratio=self.cfg["min_lr_ratio"],
         )
 
