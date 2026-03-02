@@ -9,7 +9,7 @@ tests/
 │   ├── test_coco_validation.py          # COCO evaluation with mock data
 │   ├── test_export.py                   # Export logic unit tests
 │   ├── test_export_ncnn.py              # ncnn export unit tests
-│   ├── test_factory.py                  # LIBREYOLO() factory tests
+│   ├── test_factory.py                  # LibreYOLO() factory tests
 │   ├── test_image_loader.py             # Image format handling
 │   ├── test_results.py                  # Results class tests
 │   ├── test_v9_layers.py                # YOLOv9 layer forward passes

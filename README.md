@@ -19,10 +19,10 @@ pip install libreyolo
 ## Quick Start
 
 ```python
-from libreyolo import LIBREYOLO
+from libreyolo import LibreYOLO
 
 # Auto-detect model version and size
-model = LIBREYOLO("libreyoloXs.pt")
+model = LibreYOLO("LibreYOLOXs.pt")
 results = model(image="https://raw.githubusercontent.com/Libre-YOLO/libreyolo/main/media/parkour.jpg", save=True)
 
 print(f"Detected {results['num_detections']} objects")

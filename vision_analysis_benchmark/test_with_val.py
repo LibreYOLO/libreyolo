@@ -13,18 +13,18 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 import torch
 import numpy as np
 
-from libreyolo import LIBREYOLO
+from libreyolo import LibreYOLO
 from libreyolo.validation import ValidationConfig
 
 def test_yolox_s_val():
     print("Testing YOLOX-s with proper .val() API...")
 
     # Paths
-    weights_path = "weights/libreyoloXs.pt"
+    weights_path = "weights/LibreYOLOXs.pt"
     coco_path = Path("/home/jovyan/datasets/coco")
 
     print(f"\n1. Loading model from {weights_path}...")
-    model = LIBREYOLO(model_path=weights_path, device='auto')
+    model = LibreYOLO(model_path=weights_path, device='auto')
     print(f"   ✓ Model loaded on {model.device}")
 
     # Count parameters

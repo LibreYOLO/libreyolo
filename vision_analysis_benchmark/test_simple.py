@@ -16,7 +16,7 @@ from tqdm import tqdm
 from pycocotools.coco import COCO
 from pycocotools.cocoeval import COCOeval
 
-from libreyolo import LIBREYOLO
+from libreyolo import LibreYOLO
 
 # CUDA Timer
 class CUDATimer:
@@ -38,13 +38,13 @@ def test_yolox_s():
     print("Testing YOLOX-s benchmark...")
 
     # Paths
-    weights_path = "../weights/libreyoloXs.pt"
+    weights_path = "../weights/LibreYOLOXs.pt"
     coco_path = Path("/home/jovyan/datasets/coco")
     ann_file = coco_path / "annotations" / "instances_val2017.json"
     img_dir = coco_path / "images" / "val2017"
 
     print(f"\n1. Loading model from {weights_path}...")
-    model = LIBREYOLO(model_path=weights_path, device='auto')
+    model = LibreYOLO(model_path=weights_path, device='auto')
     print(f"   ✓ Model loaded on {model.device}")
 
     # Count parameters
