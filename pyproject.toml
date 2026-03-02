@@ -49,8 +49,8 @@ ncnn = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/Libre-YOLO"
-Repository = "https://github.com/Libre-YOLO/libreyolo"
+Homepage = "https://github.com/LibreYOLO"
+Repository = "https://github.com/LibreYOLO/libreyolo"
 
 [tool.setuptools]
 include-package-data = true

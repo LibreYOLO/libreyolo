@@ -1,7 +1,7 @@
 """
 RF1: Training smoke test for all 15 models.
 
-Trains each model for 2 epochs on Libre-YOLO/marbles (HuggingFace, public,
+Trains each model for 2 epochs on LibreYOLO/marbles (HuggingFace, public,
 56 train / 20 valid / 36 test images, 2 classes), then validates on the test
 split. The dataset auto-downloads from HuggingFace — no API keys needed.
 
@@ -24,7 +24,7 @@ from PIL import Image
 from libreyolo import LibreYOLO
 
 DATASET_ROOT = Path.home() / ".cache" / "libreyolo" / "marbles"
-HF_REPO = "Libre-YOLO/marbles"
+HF_REPO = "LibreYOLO/marbles"
 HF_REPO_URL = f"https://huggingface.co/datasets/{HF_REPO}"
 
 # (weights, size, family)

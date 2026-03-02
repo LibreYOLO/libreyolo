@@ -23,7 +23,7 @@ from libreyolo import LibreYOLO
 
 # Auto-detect model version and size
 model = LibreYOLO("LibreYOLOXs.pt")
-results = model(image="https://raw.githubusercontent.com/Libre-YOLO/libreyolo/main/media/parkour.jpg", save=True)
+results = model(image="https://raw.githubusercontent.com/LibreYOLO/libreyolo/main/media/parkour.jpg", save=True)
 
 print(f"Detected {results['num_detections']} objects")
 ```

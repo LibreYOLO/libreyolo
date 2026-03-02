@@ -99,4 +99,4 @@ names:
   79: toothbrush
 
 # Download URL (auto-downloads if dataset not found locally)
-download: https://huggingface.co/datasets/Libre-YOLO/coco128/resolve/main/coco128.zip
+download: https://huggingface.co/datasets/LibreYOLO/coco128/resolve/main/coco128.zip
