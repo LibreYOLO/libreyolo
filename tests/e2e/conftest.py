@@ -11,7 +11,9 @@ import yaml
 
 def pytest_configure(config):
     """Register custom markers."""
-    config.addinivalue_line("markers", "e2e: end-to-end tests requiring full model loading")
+    config.addinivalue_line(
+        "markers", "e2e: end-to-end tests requiring full model loading"
+    )
     config.addinivalue_line("markers", "tensorrt: tests requiring TensorRT")
     config.addinivalue_line("markers", "openvino: tests requiring OpenVINO")
     config.addinivalue_line("markers", "ncnn: tests requiring ncnn")
@@ -22,6 +24,7 @@ def pytest_configure(config):
 # ---------------------------------------------------------------------------
 # Hardware detection
 # ---------------------------------------------------------------------------
+
 
 def has_cuda():
     """Check if CUDA is available."""
@@ -34,6 +37,7 @@ def has_tensorrt():
         return False
     try:
         import tensorrt as trt
+
         return True
     except ImportError:
         return False
@@ -43,6 +47,7 @@ def has_openvino():
     """Check if OpenVINO is installed and usable."""
     try:
         import openvino as ov
+
         _ = ov.__version__
         return True
     except ImportError:
@@ -53,6 +58,7 @@ def has_ncnn():
     """Check if ncnn is installed and usable."""
     try:
         import ncnn
+
         return True
     except ImportError:
         return False
@@ -62,6 +68,7 @@ def has_rfdetr_deps():
     """Check if RF-DETR dependencies are installed."""
     try:
         from libreyolo.models.rfdetr.model import LibreYOLORFDETR
+
         return True
     except Exception:
         return False
@@ -71,35 +78,30 @@ def has_rfdetr_deps():
 # Skip decorators
 # ---------------------------------------------------------------------------
 
-requires_cuda = pytest.mark.skipif(
-    not has_cuda(),
-    reason="CUDA not available"
-)
+requires_cuda = pytest.mark.skipif(not has_cuda(), reason="CUDA not available")
 
 requires_tensorrt = pytest.mark.skipif(
-    not has_tensorrt(),
-    reason="TensorRT not installed or CUDA not available"
+    not has_tensorrt(), reason="TensorRT not installed or CUDA not available"
 )
 
 requires_openvino = pytest.mark.skipif(
-    not has_openvino(),
-    reason="OpenVINO not installed (pip install openvino)"
+    not has_openvino(), reason="OpenVINO not installed (pip install openvino)"
 )
 
 requires_ncnn = pytest.mark.skipif(
-    not has_ncnn(),
-    reason="ncnn not installed (pip install libreyolo[ncnn])"
+    not has_ncnn(), reason="ncnn not installed (pip install libreyolo[ncnn])"
 )
 
 requires_rfdetr = pytest.mark.skipif(
     not has_rfdetr_deps(),
-    reason="RF-DETR dependencies not installed (pip install libreyolo[rfdetr])"
+    reason="RF-DETR dependencies not installed (pip install libreyolo[rfdetr])",
 )
 
 
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture(scope="session")
 def cuda_device():
@@ -130,6 +132,7 @@ def tensorrt_version():
         pytest.skip("TensorRT not available")
 
     import tensorrt as trt
+
     return trt.__version__
 
 
@@ -137,6 +140,7 @@ def tensorrt_version():
 def sample_image():
     """Get a sample image for inference tests."""
     from libreyolo import SAMPLE_IMAGE
+
     return SAMPLE_IMAGE
 
 
@@ -144,6 +148,34 @@ def sample_image():
 def temp_export_dir(tmp_path):
     """Create a temporary directory for export artifacts."""
     return tmp_path / "exports"
+
+
+@pytest.fixture(autouse=True, scope="function")
+def cleanup_gpu_memory():
+    """Clear GPU memory before and after each test to prevent state corruption."""
+    import gc
+
+    yield
+    if torch.cuda.is_available():
+        torch.cuda.synchronize()
+        torch.cuda.empty_cache()
+        gc.collect()
+
+
+@pytest.fixture(scope="class")
+def reset_gpu_state():
+    """Force GPU state reset between test classes (useful for RF-DETR training)."""
+    import gc
+
+    if torch.cuda.is_available():
+        torch.cuda.synchronize()
+        torch.cuda.empty_cache()
+        gc.collect()
+    yield
+    if torch.cuda.is_available():
+        torch.cuda.synchronize()
+        torch.cuda.empty_cache()
+        gc.collect()
 
 
 # ---------------------------------------------------------------------------
@@ -190,10 +222,9 @@ QUICK_TEST_MODELS = [
 ]
 
 # Full test set (all models)
-FULL_TEST_MODELS = (
-    [("yolox", size) for size in YOLOX_SIZES] +
-    [("yolov9", size) for size in YOLOV9_SIZES]
-)
+FULL_TEST_MODELS = [("yolox", size) for size in YOLOX_SIZES] + [
+    ("yolov9", size) for size in YOLOV9_SIZES
+]
 
 # RF-DETR test set (separate due to dependency)
 RFDETR_TEST_MODELS = [("rfdetr", size) for size in RFDETR_SIZES]
@@ -214,6 +245,7 @@ def get_model_weights(model_type: str, size: str) -> str:
 # ---------------------------------------------------------------------------
 # Common utility functions for E2E tests
 # ---------------------------------------------------------------------------
+
 
 def compute_iou(box1, box2):
     """Compute IoU between two boxes in xyxy format.
@@ -477,15 +509,15 @@ def _fix_data_yaml(dataset_dir: Path) -> None:
     if not data_yaml.exists():
         return
 
-    with open(data_yaml, 'r') as f:
+    with open(data_yaml, "r") as f:
         data = yaml.safe_load(f)
 
-    data['path'] = '.'
-    data['train'] = 'train/images'
-    data['val'] = 'valid/images'
-    data['test'] = 'test/images'
+    data["path"] = "."
+    data["train"] = "train/images"
+    data["val"] = "valid/images"
+    data["test"] = "test/images"
 
-    with open(data_yaml, 'w') as f:
+    with open(data_yaml, "w") as f:
         yaml.dump(data, f, default_flow_style=False)
 
 
@@ -584,7 +616,9 @@ def run_export_compare_test(
 
     match_rate, matched, total = match_detections(pt_results, export_results)
     assert results_are_acceptable(
-        match_rate, len(pt_results), len(export_results),
+        match_rate,
+        len(pt_results),
+        len(export_results),
         threshold=match_threshold,
     ), (
         f"Results mismatch: PT={len(pt_results)}, {format}={len(export_results)}, "
