@@ -12,12 +12,12 @@ Usage:
 """
 
 import json
+import subprocess
 from pathlib import Path
 
 import pytest
 import torch
 import yaml
-from huggingface_hub import snapshot_download
 from PIL import Image
 
 from libreyolo import LibreYOLO
@@ -33,9 +33,7 @@ HF_REPO_URL = f"https://huggingface.co/datasets/{HF_REPO}"
 def download_marbles_dataset():
     """Download the marbles dataset from HuggingFace if not already cached.
 
-    Uses huggingface_hub snapshot_download which handles auth, caching,
-    and LFS automatically. Creates a symlink at DATASET_ROOT pointing
-    to the HF cache snapshot.
+    Uses a plain ``git clone`` — no extra Python packages needed.
     """
     if DATASET_ROOT.exists() and (DATASET_ROOT / "data.yaml").exists():
         return
@@ -43,12 +41,11 @@ def download_marbles_dataset():
     print(f"\nDownloading dataset {HF_REPO} from HuggingFace ...")
     DATASET_ROOT.parent.mkdir(parents=True, exist_ok=True)
 
-    snapshot_path = snapshot_download(
-        repo_id=HF_REPO,
-        repo_type="dataset",
-        local_dir=str(DATASET_ROOT),
+    subprocess.run(
+        ["git", "clone", f"https://huggingface.co/datasets/{HF_REPO}", str(DATASET_ROOT)],
+        check=True,
     )
-    print(f"Dataset downloaded to {snapshot_path}")
+    print(f"Dataset downloaded to {DATASET_ROOT}")
 
 
 def patch_data_yaml():
