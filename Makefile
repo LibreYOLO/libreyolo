@@ -10,6 +10,7 @@ help:
 	@echo "  check_format                  - Check code formatting"
 	@echo "  format                        - Format code with ruff"
 	@echo "  lint                          - Run linter"
+	@echo "  typecheck                     - Run type checker (ty)"
 	@echo "  test                          - Run fast unit tests (no weights needed)"
 	@echo "  test_integration              - Run integration tests (needs real model weights)"
 	@echo "  test_e2e                      - Run e2e export tests (needs GPU + model weights)"
@@ -31,6 +32,9 @@ format:
 
 lint:
 	$(UV) ruff check
+
+typecheck:
+	$(UV) ty check
 
 test:
 	$(UV) pytest
