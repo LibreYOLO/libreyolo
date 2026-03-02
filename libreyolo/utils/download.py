@@ -32,7 +32,7 @@ def download_weights(model_path: str, size: str):
     m = re.search(r"librerfdetr([nsml])\.pth", fl)
     if m:
         letter = m.group(1)
-        repo = f"Libre-YOLO/LibreRFDETR{letter}"
+        repo = f"LibreYOLO/LibreRFDETR{letter}"
         actual_filename = f"LibreRFDETR{letter}.pth"
         url = f"https://huggingface.co/{repo}/resolve/main/{actual_filename}"
     # YOLOX: LibreYOLOX(n|t|s|m|l|x).pt
@@ -42,14 +42,14 @@ def download_weights(model_path: str, size: str):
         # HF repos use full names for n/t variants
         _YOLOX_HF_NAMES = {"n": "nano", "t": "tiny"}
         hf_letter = _YOLOX_HF_NAMES.get(letter, letter)
-        repo = f"Libre-YOLO/LibreYOLOX{hf_letter}"
+        repo = f"LibreYOLO/LibreYOLOX{hf_letter}"
         actual_filename = f"LibreYOLOX{letter}.pt"
         url = f"https://huggingface.co/{repo}/resolve/main/{actual_filename}"
     # YOLOv9: LibreYOLO9(t|s|m|c).pt
     elif re.search(r"libreyolo9([tsmc])\.pt", fl):
         v9_m = re.search(r"libreyolo9([tsmc])\.pt", fl)
         letter = v9_m.group(1)
-        repo = f"Libre-YOLO/LibreYOLO9{letter}"
+        repo = f"LibreYOLO/LibreYOLO9{letter}"
         actual_filename = f"LibreYOLO9{letter}.pt"
         url = f"https://huggingface.co/{repo}/resolve/main/{actual_filename}"
     else:
