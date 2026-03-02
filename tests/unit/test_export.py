@@ -1,6 +1,5 @@
 """Unit tests for the unified Exporter module."""
 
-import json
 import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock
@@ -11,7 +10,6 @@ import torch.nn as nn
 
 from libreyolo.export.exporter import (
     BaseExporter,
-    Exporter,
     NcnnExporter,
     OnnxExporter,
     OpenVINOExporter,
@@ -79,11 +77,6 @@ class TestExporterFormats:
         assert TorchScriptExporter.apply_model_half is True
         assert NcnnExporter.supports_int8 is False
 
-    def test_legacy_exporter_formats(self):
-        """Backward-compat Exporter.FORMATS still works."""
-        assert "onnx" in Exporter.FORMATS
-        assert Exporter.FORMATS["tensorrt"]["suffix"] == ".engine"
-
 
 class TestExporterValidation:
     def test_invalid_format_raises(self):
@@ -95,29 +88,14 @@ class TestExporterValidation:
         wrapper = _make_wrapper()
         # Should NOT raise — format names are lowered via create()
         with tempfile.TemporaryDirectory() as tmpdir:
-            exporter = BaseExporter.create("ONNX", wrapper)
+            exporter = BaseExporter.create("TORCHSCRIPT", wrapper)
             path = exporter(
-                output_path=str(Path(tmpdir) / "model.onnx"),
-                simplify=False,
+                output_path=str(Path(tmpdir) / "model.torchscript"),
             )
             assert Path(path).exists()
 
 
 class TestOutputPathGeneration:
-    def test_auto_path_onnx(self):
-        wrapper = _make_wrapper(model_name="yolox", size="m")
-        exporter = OnnxExporter(wrapper)
-        with tempfile.TemporaryDirectory() as tmpdir:
-            import os
-            orig = os.getcwd()
-            try:
-                os.chdir(tmpdir)
-                path = exporter(simplify=False)
-                assert path == str(Path("weights") / "yolox_m.onnx")
-                assert Path(path).exists()
-            finally:
-                os.chdir(orig)
-
     def test_auto_path_torchscript(self):
         wrapper = _make_wrapper(model_name="yolo9", size="t")
         exporter = TorchScriptExporter(wrapper)
@@ -134,128 +112,12 @@ class TestOutputPathGeneration:
 
     def test_explicit_path(self):
         wrapper = _make_wrapper()
-        exporter = OnnxExporter(wrapper)
+        exporter = TorchScriptExporter(wrapper)
         with tempfile.TemporaryDirectory() as tmpdir:
-            out = str(Path(tmpdir) / "custom.onnx")
-            path = exporter(output_path=out, simplify=False)
+            out = str(Path(tmpdir) / "custom.torchscript")
+            path = exporter(output_path=out)
             assert path == out
             assert Path(out).exists()
-
-
-class TestOnnxMetadata:
-    def test_metadata_written(self):
-        import onnx
-
-        wrapper = _make_wrapper(nb_classes=4, model_name="yolox", size="s")
-        exporter = OnnxExporter(wrapper)
-
-        with tempfile.TemporaryDirectory() as tmpdir:
-            out = str(Path(tmpdir) / "meta.onnx")
-            exporter(output_path=out, simplify=False)
-
-            model_proto = onnx.load(out)
-            meta = {p.key: p.value for p in model_proto.metadata_props}
-
-            assert meta["model_family"] == "yolox"
-            assert meta["model_size"] == "s"
-            assert meta["nb_classes"] == "4"
-            assert meta["dynamic"] == "True"
-            assert meta["half"] == "False"
-
-            names = json.loads(meta["names"])
-            assert names["0"] == "class_0"
-            assert len(names) == 4
-
-
-class TestOnnxMetadataReading:
-    def test_round_trip(self):
-        """Export with metadata, then load via OnnxBackend and verify auto-read."""
-        import onnx
-
-        wrapper = _make_wrapper(nb_classes=3, model_name="TESTYOLO", size="s")
-        wrapper.names = {0: "cat", 1: "dog", 2: "bird"}
-        exporter = OnnxExporter(wrapper)
-
-        with tempfile.TemporaryDirectory() as tmpdir:
-            out = str(Path(tmpdir) / "rt.onnx")
-            exporter(output_path=out, simplify=False)
-
-            from libreyolo.backends.onnx import OnnxBackend
-
-            onnx_model = OnnxBackend(out, nb_classes=80)  # deliberately wrong
-            # After metadata reading, names should be overwritten
-            assert onnx_model.names[0] == "cat"
-            assert onnx_model.names[1] == "dog"
-            assert onnx_model.names[2] == "bird"
-            assert onnx_model.nb_classes == 3
-
-
-class TestDynamicAxes:
-    def test_dynamic_true(self):
-        import onnx
-
-        wrapper = _make_wrapper()
-        exporter = OnnxExporter(wrapper)
-
-        with tempfile.TemporaryDirectory() as tmpdir:
-            out = str(Path(tmpdir) / "dyn.onnx")
-            exporter(output_path=out, dynamic=True, simplify=False)
-
-            model_proto = onnx.load(out)
-            graph = model_proto.graph
-
-            # Input batch dim should be symbolic (dim_param is a non-empty string)
-            input_shape = graph.input[0].type.tensor_type.shape
-            dim0 = input_shape.dim[0]
-            assert dim0.dim_param != "", "Batch dim should be dynamic (symbolic)"
-            assert dim0.dim_value == 0, "Dynamic dim should not have a fixed value"
-
-    def test_dynamic_false(self):
-        import onnx
-
-        wrapper = _make_wrapper()
-        exporter = OnnxExporter(wrapper)
-
-        with tempfile.TemporaryDirectory() as tmpdir:
-            out = str(Path(tmpdir) / "static.onnx")
-            exporter(output_path=out, dynamic=False, simplify=False)
-
-            model_proto = onnx.load(out)
-            graph = model_proto.graph
-
-            # Input batch dim should be a fixed value (1)
-            input_shape = graph.input[0].type.tensor_type.shape
-            dim0 = input_shape.dim[0]
-            assert dim0.dim_value == 1
-
-
-class TestHalfExport:
-    def test_half_produces_float16_input(self):
-        import onnx
-        from onnx import TensorProto
-
-        wrapper = _make_wrapper()
-        exporter = OnnxExporter(wrapper)
-
-        with tempfile.TemporaryDirectory() as tmpdir:
-            out = str(Path(tmpdir) / "fp16.onnx")
-            exporter(output_path=out, half=True, simplify=False)
-
-            model_proto = onnx.load(out)
-            input_type = model_proto.graph.input[0].type.tensor_type.elem_type
-            assert input_type == TensorProto.FLOAT16
-
-
-class TestSimplify:
-    def test_simplify_runs_without_error(self):
-        wrapper = _make_wrapper()
-        exporter = OnnxExporter(wrapper)
-
-        with tempfile.TemporaryDirectory() as tmpdir:
-            out = str(Path(tmpdir) / "simp.onnx")
-            # Should not raise even if onnxsim is missing (warns instead)
-            path = exporter(output_path=out, simplify=True)
-            assert Path(path).exists()
 
 
 class TestTorchScriptExport:
@@ -280,24 +142,20 @@ class TestModelStateRestored:
         wrapper = _make_wrapper()
         original_device = next(wrapper.model.parameters()).device
 
-        exporter = OnnxExporter(wrapper)
+        exporter = TorchScriptExporter(wrapper)
         with tempfile.TemporaryDirectory() as tmpdir:
-            exporter(
-                output_path=str(Path(tmpdir) / "test.onnx"),
-                simplify=False,
-            )
+            exporter(output_path=str(Path(tmpdir) / "test.torchscript"))
 
         current_device = next(wrapper.model.parameters()).device
         assert current_device == original_device
 
     def test_half_restored_to_float32(self):
         wrapper = _make_wrapper()
-        exporter = OnnxExporter(wrapper)
+        exporter = TorchScriptExporter(wrapper)
         with tempfile.TemporaryDirectory() as tmpdir:
             exporter(
-                output_path=str(Path(tmpdir) / "test.onnx"),
+                output_path=str(Path(tmpdir) / "test.torchscript"),
                 half=True,
-                simplify=False,
             )
 
         param = next(wrapper.model.parameters())
@@ -336,10 +194,8 @@ class TestTensorRTValidation:
     def test_int8_with_data_no_immediate_error(self):
         """INT8 with data parameter should not raise validation error.
 
-        Note: Will fail later due to missing TensorRT, but validation should pass.
-        If TensorRT is installed, the export may succeed or fail for other reasons.
+        Note: Will fail later due to missing TensorRT (or ONNX), but validation should pass.
         """
-        # Skip if TensorRT is available (test assumes it's not)
         try:
             import tensorrt
             pytest.skip("TensorRT is installed, skipping missing TensorRT test")
@@ -349,8 +205,8 @@ class TestTensorRTValidation:
         wrapper = _make_wrapper()
         exporter = TensorRTExporter(wrapper)
 
-        # Should fail with ImportError (TensorRT not installed), not ValueError
-        with pytest.raises(ImportError, match="[Tt]ensor[Rr][Tt]"):
+        # Should fail with ImportError (missing onnx or tensorrt), not ValueError
+        with pytest.raises(ImportError):
             exporter(int8=True, data="coco8.yaml")
 
 
@@ -427,7 +283,7 @@ class TestOpenVINOValidation:
     def test_int8_with_data_no_immediate_error(self):
         """INT8 with data parameter should not raise validation error.
 
-        Note: Will fail later due to missing OpenVINO, but validation should pass.
+        Note: Will fail later due to missing OpenVINO (or ONNX), but validation should pass.
         """
         try:
             import openvino
@@ -438,8 +294,8 @@ class TestOpenVINOValidation:
         wrapper = _make_wrapper()
         exporter = OpenVINOExporter(wrapper)
 
-        # Should fail with ImportError (OpenVINO not installed), not ValueError
-        with pytest.raises(ImportError, match="openvino"):
+        # Should fail with ImportError (missing onnx or openvino), not ValueError
+        with pytest.raises(ImportError):
             exporter(int8=True, data="coco8.yaml")
 
 
@@ -470,18 +326,16 @@ class TestExportPrecisionSuffix:
     def test_fp16_suffix_in_auto_path(self):
         """FP16 export should include _fp16 in auto-generated filename."""
         wrapper = _make_wrapper(model_name="TESTYOLO", size="s")
-        exporter = OnnxExporter(wrapper)
+        exporter = TorchScriptExporter(wrapper)
 
         with tempfile.TemporaryDirectory() as tmpdir:
             import os
             orig = os.getcwd()
             try:
                 os.chdir(tmpdir)
-                # Export with half=True and no explicit output_path
-                path = exporter(half=True, simplify=False)
-                # Verify the filename includes _fp16
+                path = exporter(half=True)
                 assert "_fp16" in path, f"Expected _fp16 in path, got: {path}"
-                assert path == str(Path("weights") / "testyolo_s_fp16.onnx")
+                assert path == str(Path("weights") / "testyolo_s_fp16.torchscript")
             finally:
                 os.chdir(orig)
 

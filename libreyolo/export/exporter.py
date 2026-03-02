@@ -497,28 +497,3 @@ class NcnnExporter(BaseExporter):
             simplify=simplify,
             metadata=metadata,
         )
-
-
-# ═════════════════════════════════════════════════════════════════════════════
-# Backwards-compatible alias
-# ═════════════════════════════════════════════════════════════════════════════
-
-class Exporter:
-    """Thin wrapper preserving the old ``Exporter(model)(format, ...)`` API.
-
-    Prefer ``BaseExporter.create(format, model)(...)`` for new code.
-    """
-
-    FORMATS = {
-        "onnx":        {"suffix": ".onnx",        "requires": None},
-        "torchscript": {"suffix": ".torchscript",  "requires": None},
-        "tensorrt":    {"suffix": ".engine",       "requires": "onnx"},
-        "openvino":    {"suffix": "_openvino",     "requires": "onnx"},
-        "ncnn":        {"suffix": "_ncnn",         "requires": None},
-    }
-
-    def __init__(self, model):
-        self.model = model
-
-    def __call__(self, format: str = "onnx", **kwargs) -> str:
-        return BaseExporter.create(format, self.model)(**kwargs)
