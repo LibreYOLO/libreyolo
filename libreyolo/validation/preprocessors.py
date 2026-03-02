@@ -276,7 +276,7 @@ class YOLO9ValPreprocessor(BaseValPreprocessor):
         padded_img = np.full((target_h, target_w, 3), self.pad_value, dtype=np.uint8)
         padded_img[:new_h, :new_w] = resized_img
 
-        # Convert BGR to RGB (v9 expects RGB)
+        # Convert BGR to RGB (yolo9 expects RGB)
         padded_img = padded_img[:, :, ::-1]
 
         # Convert to CHW and float, normalize to 0-1

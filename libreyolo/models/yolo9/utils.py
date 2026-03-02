@@ -1,5 +1,5 @@
 """
-Utility functions for LibreYOLO v9.
+Utility functions for YOLO9.
 
 Provides preprocessing and postprocessing functions for YOLOv9 inference.
 """

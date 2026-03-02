@@ -7,12 +7,12 @@ from libreyolo.models.yolo9.nn import (
     ELAN, RepNCSPELAN, AConv, ADown, SPPELAN, Concat,
     DFL, DDetect, Backbone9, Neck9, LibreYOLO9Model
 )
-from libreyolo.models.yolo9 import utils as v9_utils
+from libreyolo.models.yolo9 import utils as yolo9_utils
 
 pytestmark = pytest.mark.unit
 
 
-class TestV9ConvLayers:
+class TestYOLO9ConvLayers:
     """Test basic convolution layers."""
 
     def test_conv_forward(self):
@@ -37,7 +37,7 @@ class TestV9ConvLayers:
         assert out.shape == (1, 64, 32, 32)
 
 
-class TestV9Bottlenecks:
+class TestYOLO9Bottlenecks:
     """Test bottleneck modules."""
 
     def test_bottleneck_forward(self):
@@ -62,7 +62,7 @@ class TestV9Bottlenecks:
         assert out.shape == (1, 64, 32, 32)
 
 
-class TestV9ELANBlocks:
+class TestYOLO9ELANBlocks:
     """Test ELAN-based blocks."""
 
     def test_elan_forward(self):
@@ -95,7 +95,7 @@ class TestV9ELANBlocks:
         assert out.shape == (1, 128, 32, 32)
 
 
-class TestV9Downsampling:
+class TestYOLO9Downsampling:
     """Test downsampling layers."""
 
     def test_aconv_forward(self):
@@ -113,7 +113,7 @@ class TestV9Downsampling:
         assert out.shape == (1, 128, 16, 16)
 
 
-class TestV9SPPELAN:
+class TestYOLO9SPPELAN:
     """Test SPP-ELAN module."""
 
     def test_sppelan_forward(self):
@@ -131,7 +131,7 @@ class TestV9SPPELAN:
         assert out.shape == (1, 256, 16, 16)
 
 
-class TestV9Concat:
+class TestYOLO9Concat:
     """Test Concat layer."""
 
     def test_concat_forward(self):
@@ -143,7 +143,7 @@ class TestV9Concat:
         assert out.shape == (1, 192, 32, 32)
 
 
-class TestV9DetectionHead:
+class TestYOLO9DetectionHead:
     """Test detection head components."""
 
     def test_dfl_forward(self):
@@ -176,7 +176,7 @@ class TestV9DetectionHead:
         assert decoded.shape[1] == 4 + 80  # 84 (decoded boxes + class scores)
 
 
-class TestV9FullModel:
+class TestYOLO9FullModel:
     """Test full model architecture."""
 
     def test_backbone_forward(self):
@@ -212,14 +212,14 @@ class TestV9FullModel:
         assert 'predictions' in out
 
 
-class TestV9Utils:
+class TestYOLO9Utils:
     """Test utility functions."""
 
     def test_preprocess_image(self):
         """Test image preprocessing."""
         import numpy as np
         img = np.zeros((100, 100, 3), dtype=np.uint8)
-        tensor, original_img, original_size = v9_utils.preprocess_image(img, input_size=640)
+        tensor, original_img, original_size = yolo9_utils.preprocess_image(img, input_size=640)
         assert tensor.shape == (1, 3, 640, 640)
         assert original_size == (100, 100)
 
@@ -235,7 +235,7 @@ class TestV9Utils:
             torch.randn(1, 128, 40, 40),
             torch.randn(1, 256, 20, 20),
         ]
-        anchors, strides = v9_utils.make_anchors(feature_maps, strides=[8, 16, 32])
+        anchors, strides = yolo9_utils.make_anchors(feature_maps, strides=[8, 16, 32])
         # Total anchors = 80*80 + 40*40 + 20*20 = 8400
         assert anchors.shape[0] == 8400
         assert anchors.shape[1] == 2

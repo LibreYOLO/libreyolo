@@ -1,5 +1,5 @@
 """
-Neural network architecture for LibreYOLO v9.
+Neural network architecture for LibreYOLO yolo9.
 
 All layers are self-contained within this module to allow scientists to modify
 a single version without affecting others.
@@ -7,7 +7,7 @@ a single version without affecting others.
 Layer naming follows the official YOLO repo convention for direct weight loading:
 - model.0., model.1., ... etc.
 
-Supports v9-t (tiny), v9-s (small), v9-m (medium), and v9-c (compact/largest).
+Supports yolo9-t (tiny), yolo9-s (small), yolo9-m (medium), and yolo9-c (compact/largest).
 """
 
 import math
@@ -210,7 +210,7 @@ class RepNCSP(nn.Module):
 class ELAN(nn.Module):
     """
     Efficient Layer Aggregation Network block.
-    Used in v9-t and v9-s variants.
+    Used in yolo9-t and yolo9-s variants.
 
     Architecture:
     - cv1: input -> part_channels (c2), then split in half
@@ -248,7 +248,7 @@ class ELAN(nn.Module):
 class RepNCSPELAN(nn.Module):
     """
     CSP-ELAN block with RepConvN.
-    Used in v9-m and v9-c variants.
+    Used in yolo9-m and yolo9-c variants.
     """
 
     def __init__(self, c1, c2, c3, c4, n=1):
@@ -289,7 +289,7 @@ class AConv(nn.Module):
 class ADown(nn.Module):
     """
     Advanced dual-path downsampling block.
-    Used in v9-c variant.
+    Used in yolo9-c variant.
     """
 
     def __init__(self, c1, c2):
@@ -378,7 +378,7 @@ class DFL(nn.Module):
 
 class DDetect(nn.Module):
     """
-    Decoupled Detection Head for v9.
+    Decoupled Detection Head for yolo9.
     Anchor-free detection with DFL for box regression.
 
     Uses grouped convolutions (groups=4) in the box branch to match YOLO.
@@ -655,8 +655,8 @@ class Backbone9(nn.Module):
     """YOLOv9 Backbone.
 
     Supports all variants with their specific architectures:
-    - v9-t/s: Conv -> Conv -> ELAN -> [AConv -> RepNCSPELAN] x3 -> SPPELAN
-    - v9-m/c: Conv -> Conv -> RepNCSPELAN -> [AConv/ADown -> RepNCSPELAN] x3 -> SPPELAN
+    - yolo9-t/s: Conv -> Conv -> ELAN -> [AConv -> RepNCSPELAN] x3 -> SPPELAN
+    - yolo9-m/c: Conv -> Conv -> RepNCSPELAN -> [AConv/ADown -> RepNCSPELAN] x3 -> SPPELAN
     """
 
     def __init__(self, config='c'):
@@ -676,7 +676,7 @@ class Backbone9(nn.Module):
             #   c2 = cv1 output (part_channels)
             #   c3 = cv2/cv3 output (part_channels // 2)
             #   c4 = output channels
-            # For v9-t/s: ELAN {out_channels: X, part_channels: X}
+            # For yolo9-t/s: ELAN {out_channels: X, part_channels: X}
             c1 = cfg['conv1_out']
             c4 = cfg['first_block_out']
             part = c4  # part_channels = out_channels for t/s ELAN
@@ -827,7 +827,7 @@ class LibreYOLO9Model(nn.Module):
     """
     Complete LibreYOLO9 model.
 
-    Supports v9-t, v9-s, v9-m, and v9-c variants with their specific architectures.
+    Supports yolo9-t, yolo9-s, yolo9-m, and yolo9-c variants with their specific architectures.
     """
 
     def __init__(self, config='c', reg_max=16, nb_classes=80, img_size=640):

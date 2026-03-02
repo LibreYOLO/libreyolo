@@ -31,8 +31,8 @@ COMMON_LAYERS = {
     1: "backbone.conv1",      # Conv X->Y
 }
 
-# v9-t and v9-s: ELAN first block, AConv downsampling
-V9_TS_LAYER_MAP = {
+# yolo9-t and yolo9-s: ELAN first block, AConv downsampling
+YOLO9_TS_LAYER_MAP = {
     **COMMON_LAYERS,
     2: "backbone.elan1",      # ELAN
     3: "backbone.down2",      # AConv
@@ -53,8 +53,8 @@ V9_TS_LAYER_MAP = {
     22: "detect",             # MultiheadDetection
 }
 
-# v9-m: RepNCSPELAN first block, AConv downsampling
-V9_M_LAYER_MAP = {
+# yolo9-m: RepNCSPELAN first block, AConv downsampling
+YOLO9_M_LAYER_MAP = {
     **COMMON_LAYERS,
     2: "backbone.elan1",      # RepNCSPELAN
     3: "backbone.down2",      # AConv
@@ -75,8 +75,8 @@ V9_M_LAYER_MAP = {
     22: "detect",             # MultiheadDetection
 }
 
-# v9-c: RepNCSPELAN first block, ADown downsampling
-V9_C_LAYER_MAP = {
+# yolo9-c: RepNCSPELAN first block, ADown downsampling
+YOLO9_C_LAYER_MAP = {
     **COMMON_LAYERS,
     2: "backbone.elan1",      # RepNCSPELAN
     3: "backbone.down2",      # ADown
@@ -98,10 +98,10 @@ V9_C_LAYER_MAP = {
 }
 
 LAYER_MAPS = {
-    't': V9_TS_LAYER_MAP,
-    's': V9_TS_LAYER_MAP,
-    'm': V9_M_LAYER_MAP,
-    'c': V9_C_LAYER_MAP,
+    't': YOLO9_TS_LAYER_MAP,
+    's': YOLO9_TS_LAYER_MAP,
+    'm': YOLO9_M_LAYER_MAP,
+    'c': YOLO9_C_LAYER_MAP,
 }
 
 
@@ -135,7 +135,7 @@ def map_adown_keys(yolo_suffix: str) -> str:
 
 
 def map_elan_keys(yolo_suffix: str) -> str:
-    """Map ELAN layer keys (for v9-t/s first block).
+    """Map ELAN layer keys (for yolo9-t/s first block).
 
     YOLO ELAN: conv1, conv2, conv3, conv4
     LibreYOLO ELAN: cv1, cv2, cv3, cv4
@@ -297,7 +297,7 @@ def convert_key(yolo_key: str, config: str) -> Tuple[str, bool]:
 
 def convert_weights(input_path: str, output_path: str, config: str,
                     verbose: bool = False, reg_max: int = 16) -> Dict[str, torch.Tensor]:
-    """Convert YOLO v9 weights to LibreYOLO format.
+    """Convert YOLOv9 weights to LibreYOLO format.
 
     Args:
         input_path: Path to YOLO weights (.pt file)
@@ -325,7 +325,7 @@ def convert_weights(input_path: str, output_path: str, config: str,
         state_dict = weights
 
     print(f"Found {len(state_dict)} keys in original weights")
-    print(f"Converting for config: v9-{config}")
+    print(f"Converting for config: yolo9-{config}")
 
     # Convert keys
     converted = {}
@@ -378,7 +378,7 @@ def verify_conversion(converted_path: str, config: str) -> bool:
 
     from libreyolo.models.yolo9.nn import LibreYOLO9Model
 
-    print(f"\nVerifying weights can be loaded into v9-{config} model...")
+    print(f"\nVerifying weights can be loaded into yolo9-{config} model...")
 
     # Load converted weights
     converted = torch.load(converted_path, map_location='cpu', weights_only=False)

@@ -2,7 +2,7 @@
 YOLOv9 Loss functions for training.
 
 Ported from https://github.com/WongKinYiu/YOLO (MIT License)
-Adapted for LibreYOLO's v9 architecture.
+Adapted for LibreYOLO's yolo9 architecture.
 
 Includes:
 - Task Aligned Assignment (TAL) via BoxMatcher
@@ -166,7 +166,7 @@ class Vec2Box:
     """
     Convert raw detection outputs to decoded format for loss computation.
 
-    Handles LibreYOLO v9's output format:
+    Handles LibreYOLO yolo9's output format:
     - Input: List of tensors [P3, P4, P5], each (B, nc + 4*reg_max, H, W)
     - Output: (preds_cls, preds_anc, preds_box) all flattened across scales
     """

@@ -1,5 +1,5 @@
 # RF5 - YOLOv9 family
-model_type: v9
+model_type: yolo9
 
 # Size-specific defaults
 sizes:

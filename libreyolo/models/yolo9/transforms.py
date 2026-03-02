@@ -209,12 +209,12 @@ class YOLO9MosaicMixupDataset:
             img_size: Target image size (height, width)
             mosaic: Enable mosaic augmentation
             preproc: Preprocessing transform (default: YOLO9TrainTransform)
-            degrees: Rotation degrees (default 0 for v9)
+            degrees: Rotation degrees (default 0 for yolo9)
             translate: Translation factor
             mosaic_scale: Scale range for mosaic
             mixup_scale: Scale range for mixup
-            shear: Shear degrees (default 0 for v9)
-            enable_mixup: Enable mixup (default False for v9)
+            shear: Shear degrees (default 0 for yolo9)
+            enable_mixup: Enable mixup (default False for yolo9)
             mosaic_prob: Probability of applying mosaic
             mixup_prob: Probability of applying mixup
         """

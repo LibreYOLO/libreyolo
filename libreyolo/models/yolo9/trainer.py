@@ -1,7 +1,7 @@
 """
 YOLOv9 Trainer for LibreYOLO.
 
-Thin subclass of BaseTrainer with v9-specific transforms, scheduler,
+Thin subclass of BaseTrainer with yolo9-specific transforms, scheduler,
 and loss extraction.
 """
 

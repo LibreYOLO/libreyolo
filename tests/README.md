@@ -12,7 +12,7 @@ tests/
 │   ├── test_factory.py                  # LibreYOLO() factory tests
 │   ├── test_image_loader.py             # Image format handling
 │   ├── test_results.py                  # Results class tests
-│   ├── test_v9_layers.py                # YOLOv9 layer forward passes
+│   ├── test_yolo9_layers.py              # YOLOv9 layer forward passes
 │   ├── test_validation_metrics.py       # IoU, mAP, precision/recall
 │   └── test_yolo_coco_api.py            # COCO format conversion
 └── e2e/                                 # End-to-end tests (GPU recommended)
@@ -36,7 +36,7 @@ tests/
 pytest tests/unit/ -v
 
 # Run specific test
-pytest tests/unit/test_v9_layers.py -v
+pytest tests/unit/test_yolo9_layers.py -v
 ```
 
 ### E2E Export Tests
