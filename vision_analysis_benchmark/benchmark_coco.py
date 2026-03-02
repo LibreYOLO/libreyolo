@@ -21,7 +21,7 @@ from typing import Dict, Any
 import pandas as pd
 import torch
 
-from libreyolo import LIBREYOLO
+from libreyolo import LibreYOLO
 
 
 # ============================================================================
@@ -201,7 +201,7 @@ def benchmark_model(
 
     # Load model
     print(f"Loading model from {weights_path}...")
-    model = LIBREYOLO(model_path=weights_path, size=size, device=device)
+    model = LibreYOLO(model_path=weights_path, size=size, device=device)
 
     # Use model's own native resolution (each RF-DETR variant has a different one)
     input_size = model._get_input_size()

@@ -1,5 +1,5 @@
 """
-ONNX runtime inference backend for LIBREYOLO.
+ONNX runtime inference backend for LibreYOLO.
 """
 
 import logging
@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 class OnnxBackend(BaseBackend):
     """
-    ONNX runtime inference backend for LIBREYOLO models.
+    ONNX runtime inference backend for LibreYOLO models.
 
     Args:
         onnx_path: Path to the ONNX model file.

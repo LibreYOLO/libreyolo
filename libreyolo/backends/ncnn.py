@@ -1,5 +1,5 @@
 """
-ncnn inference backend for LIBREYOLO.
+ncnn inference backend for LibreYOLO.
 """
 
 from pathlib import Path
@@ -12,7 +12,7 @@ from .base import BaseBackend
 
 class NcnnBackend(BaseBackend):
     """
-    ncnn inference backend for LIBREYOLO models.
+    ncnn inference backend for LibreYOLO models.
 
     Args:
         model_dir: Path to the ncnn model directory (containing model.ncnn.param,

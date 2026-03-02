@@ -1,5 +1,5 @@
 """
-TensorRT inference backend for LIBREYOLO.
+TensorRT inference backend for LibreYOLO.
 
 Provides GPU-accelerated inference using TensorRT engines exported from LibreYOLO models.
 """
@@ -16,9 +16,9 @@ from .base import BaseBackend
 
 class TensorRTBackend(BaseBackend):
     """
-    TensorRT inference backend for LIBREYOLO models.
+    TensorRT inference backend for LibreYOLO models.
 
-    Provides the same API as LIBREYOLOX/LIBREYOLO9 but uses TensorRT
+    Provides the same API as LibreYOLOX/LibreYOLO9 but uses TensorRT
     for GPU-accelerated inference.
 
     Args:

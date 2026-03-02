@@ -1,5 +1,5 @@
 """
-OpenVINO inference backend for LIBREYOLO.
+OpenVINO inference backend for LibreYOLO.
 """
 
 from pathlib import Path
@@ -12,7 +12,7 @@ from .base import BaseBackend
 
 class OpenVINOBackend(BaseBackend):
     """
-    OpenVINO inference backend for LIBREYOLO models.
+    OpenVINO inference backend for LibreYOLO models.
 
     Args:
         model_dir: Path to the OpenVINO model directory (containing model.xml,
