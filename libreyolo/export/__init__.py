@@ -11,26 +11,22 @@ Supports exporting models to various deployment formats:
 Example::
 
     from libreyolo import LibreYOLO
-    from libreyolo.export import Exporter
+    from libreyolo.export import BaseExporter, OnnxExporter
 
     model = LibreYOLO("yolov9c.pt")
 
-    # ONNX export
-    model.export(format="onnx")
+    # Via factory
+    BaseExporter.create("onnx", model)(simplify=True)
 
-    # TensorRT with FP16
+    # Or direct subclass
+    OnnxExporter(model)(dynamic=True)
+
+    # Or the model facade
     model.export(format="tensorrt", half=True)
-
-    # TensorRT with INT8
-    model.export(format="tensorrt", int8=True, data="coco8.yaml")
-
-    # TensorRT with config file
-    model.export(format="tensorrt", trt_config="tensorrt_default.yaml")
 """
 
 from .exporter import (
     BaseExporter,
-    Exporter,
     NcnnExporter,
     OnnxExporter,
     OpenVINOExporter,
@@ -40,7 +36,6 @@ from .exporter import (
 
 __all__ = [
     "BaseExporter",
-    "Exporter",
     "NcnnExporter",
     "OnnxExporter",
     "OpenVINOExporter",
