@@ -8,17 +8,6 @@ license = {text = "MIT"}
 authors = [
     {name = "LibreYOLO Team"}
 ]
-classifiers = [
-    "Development Status :: 3 - Alpha",
-    "License :: OSI Approved :: MIT License",
-    "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.10",
-    "Programming Language :: Python :: 3.11",
-    "Programming Language :: Python :: 3.12",
-    "Programming Language :: Python :: 3.13",
-    "Topic :: Scientific/Engineering :: Artificial Intelligence",
-    "Topic :: Scientific/Engineering :: Image Recognition",
-]
 dependencies = [
     "numpy>=1.19.0",
     "Pillow>=8.0.0",
