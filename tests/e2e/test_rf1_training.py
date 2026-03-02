@@ -216,8 +216,8 @@ def test_rf1_training(weights, size, family, dataset_coco, dataset_data_yaml, tm
         val_batch = 4
         train_batch = 4
     else:
-        val_batch = 16
-        train_batch = 16
+        val_batch = 8
+        train_batch = 8
 
     # --- Baseline mAP BEFORE training ---
     pre_results = model.val(
@@ -326,8 +326,8 @@ def test_load_finetuned_checkpoint(
         val_batch = 4
         train_batch = 4
     else:
-        val_batch = 16
-        train_batch = 16
+        val_batch = 8
+        train_batch = 8
 
     # 1. Baseline mAP before training
     model = LibreYOLO(weights, size=size)
@@ -442,7 +442,7 @@ def test_load_finetuned_checkpoint_rfdetr(
     # 1. Baseline mAP before training
     model = LibreYOLO(weights, size=size)
     pre_results = model.val(
-        data=dataset_data_yaml, split="test", batch=16, conf=0.001, iou=0.6
+        data=dataset_data_yaml, split="test", batch=8, conf=0.001, iou=0.6
     )
     pre_map = pre_results["metrics/mAP50-95"]
 
@@ -451,7 +451,7 @@ def test_load_finetuned_checkpoint_rfdetr(
     model.train(
         data=str(dataset_coco),
         epochs=10,
-        batch_size=4,
+        batch_size=2,
         output_dir=output_dir,
     )
 
@@ -492,7 +492,7 @@ def test_load_finetuned_checkpoint_rfdetr(
 
     # 6. Validate reloaded model on test split
     post_results = fresh_model.val(
-        data=dataset_data_yaml, split="test", batch=16, conf=0.001, iou=0.6
+        data=dataset_data_yaml, split="test", batch=8, conf=0.001, iou=0.6
     )
     post_map = post_results["metrics/mAP50-95"]
 
