@@ -144,7 +144,7 @@ class LibreYOLORFDETR(BaseModel):
     FAMILY = "rfdetr"
     FILENAME_PREFIX = "LibreRFDETR"
     WEIGHT_EXT = ".pth"
-    DEFAULT_INPUT_SIZES = {"n": 384, "s": 512, "m": 576, "l": 704}
+    INPUT_SIZES = {"n": 384, "s": 512, "m": 576, "l": 704}
 
     # =========================================================================
     # REGISTRY CLASSMETHODS — used by LibreYOLO() factory
