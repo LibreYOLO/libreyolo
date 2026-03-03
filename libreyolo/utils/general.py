@@ -1,62 +1,15 @@
-"""
-Shared general utility functions.
-"""
+"""Shared general utility functions."""
 
-import torch
 from pathlib import Path
-from typing import Tuple, List, Union, Dict
+from typing import Dict, List, Tuple, Union
 from urllib.parse import urlparse
 
-
-def get_slice_bboxes(
-    image_width: int,
-    image_height: int,
-    slice_size: int = 640,
-    overlap_ratio: float = 0.2,
-) -> List[Tuple[int, int, int, int]]:
-    """
-    Generate tile coordinates for slicing a large image.
-
-    Args:
-        image_width: Width of the original image.
-        image_height: Height of the original image.
-        slice_size: Size of each square tile (default: 640).
-        overlap_ratio: Fractional overlap between tiles (default: 0.2).
-
-    Returns:
-        List of (x1, y1, x2, y2) tuples representing tile coordinates.
-    """
-    slices = []
-    overlap = int(slice_size * overlap_ratio)
-    step = slice_size - overlap
-
-    y = 0
-    while y < image_height:
-        x = 0
-        while x < image_width:
-            x2 = min(x + slice_size, image_width)
-            y2 = min(y + slice_size, image_height)
-            # Ensure full tile size when near edges by adjusting start position
-            x1 = max(0, x2 - slice_size) if x2 == image_width else x
-            y1 = max(0, y2 - slice_size) if y2 == image_height else y
-            slices.append((x1, y1, x2, y2))
-            x += step
-            if x2 == image_width:
-                break
-        y += step
-        if y2 == image_height:
-            break
-    return slices
+import torch
 
 
-def get_safe_stem(path: Union[str, Path]) -> str:
-    path_str = str(path)
-    if path_str.startswith(("http://", "https://", "s3://", "gs://")):
-        parsed = urlparse(path_str)
-        filename = Path(parsed.path).name
-        return Path(filename).stem if filename else "inference"
-    return Path(path_str).stem
-
+# =============================================================================
+# Constants
+# =============================================================================
 
 # COCO class names (80 classes)
 COCO_CLASSES = [
@@ -143,6 +96,11 @@ COCO_CLASSES = [
 ]
 
 
+# =============================================================================
+# Box Utilities
+# =============================================================================
+
+
 def cxcywh_to_xyxy(boxes: torch.Tensor) -> torch.Tensor:
     """
     Convert boxes from center format (cx, cy, w, h) to corner format (x1, y1, x2, y2).
@@ -162,8 +120,17 @@ def cxcywh_to_xyxy(boxes: torch.Tensor) -> torch.Tensor:
 
 
 # =============================================================================
-# Shared Model Utilities
+# Path Utilities
 # =============================================================================
+
+
+def get_safe_stem(path: Union[str, Path]) -> str:
+    path_str = str(path)
+    if path_str.startswith(("http://", "https://", "s3://", "gs://")):
+        parsed = urlparse(path_str)
+        filename = Path(parsed.path).name
+        return Path(filename).stem if filename else "inference"
+    return Path(path_str).stem
 
 
 def resolve_save_path(
@@ -190,7 +157,6 @@ def resolve_save_path(
     """
     from datetime import datetime
 
-    # Get stem from image path or use default
     if image_path is not None:
         stem = get_safe_stem(image_path)
     else:
@@ -208,13 +174,62 @@ def resolve_save_path(
     save_path = Path(output_path)
 
     if save_path.suffix == "":
-        # output_path is a directory
         save_path.mkdir(parents=True, exist_ok=True)
         return save_path / filename
     else:
-        # output_path is a file
         save_path.parent.mkdir(parents=True, exist_ok=True)
         return save_path
+
+
+# =============================================================================
+# Image Tiling
+# =============================================================================
+
+
+def get_slice_bboxes(
+    image_width: int,
+    image_height: int,
+    slice_size: int = 640,
+    overlap_ratio: float = 0.2,
+) -> List[Tuple[int, int, int, int]]:
+    """
+    Generate tile coordinates for slicing a large image.
+
+    Args:
+        image_width: Width of the original image.
+        image_height: Height of the original image.
+        slice_size: Size of each square tile (default: 640).
+        overlap_ratio: Fractional overlap between tiles (default: 0.2).
+
+    Returns:
+        List of (x1, y1, x2, y2) tuples representing tile coordinates.
+    """
+    slices = []
+    overlap = int(slice_size * overlap_ratio)
+    step = slice_size - overlap
+
+    y = 0
+    while y < image_height:
+        x = 0
+        while x < image_width:
+            x2 = min(x + slice_size, image_width)
+            y2 = min(y + slice_size, image_height)
+            # Ensure full tile size when near edges by adjusting start position
+            x1 = max(0, x2 - slice_size) if x2 == image_width else x
+            y1 = max(0, y2 - slice_size) if y2 == image_height else y
+            slices.append((x1, y1, x2, y2))
+            x += step
+            if x2 == image_width:
+                break
+        y += step
+        if y2 == image_height:
+            break
+    return slices
+
+
+# =============================================================================
+# Detection Post-processing
+# =============================================================================
 
 
 def nms(
@@ -246,23 +261,19 @@ def nms(
     else:
         valid_indices = None
 
-    # Sort by scores (descending)
     _, order = scores.sort(0, descending=True)
     keep = []
 
     while len(order) > 0:
-        # Keep the box with highest score
         i = order[0]
         keep.append(i.item())
 
         if len(order) == 1:
             break
 
-        # Calculate IoU with remaining boxes
         box_i = boxes[i]
         boxes_remaining = boxes[order[1:]]
 
-        # Calculate intersection
         x1_i, y1_i, x2_i, y2_i = box_i
         x1_r, y1_r, x2_r, y2_r = (
             boxes_remaining[:, 0],
@@ -280,20 +291,16 @@ def nms(
             y2_inter - y1_inter, min=0
         )
 
-        # Calculate union
         area_i = (x2_i - x1_i) * (y2_i - y1_i)
         area_r = (x2_r - x1_r) * (y2_r - y1_r)
         union_area = area_i + area_r - inter_area
 
-        # Calculate IoU
         iou = inter_area / (union_area + 1e-7)
-
-        # Keep boxes with IoU < threshold
         order = order[1:][iou < iou_threshold]
 
     keep_tensor = torch.tensor(keep, dtype=torch.long, device=boxes.device)
 
-    # Map back to original indices if we filtered out invalid boxes
+    # Map back to original indices if we filtered invalid boxes
     if valid_indices is not None:
         keep_tensor = valid_indices[keep_tensor]
 
@@ -317,7 +324,7 @@ def make_anchors(
     anchor_points = []
     stride_tensor = []
 
-    for i, (feat, stride) in enumerate(zip(feats, strides)):
+    for feat, stride in zip(feats, strides):
         _, _, h, w = feat.shape
         dtype, device = feat.dtype, feat.device
 
@@ -372,8 +379,7 @@ def postprocess_detections(
     # Scale boxes to original image size
     if original_size is not None:
         if letterbox:
-            # Letterbox: image was scaled by r = min(input/orig_h, input/orig_w)
-            # Reverse by dividing by r
+            # Letterbox inverse: r = min(input/orig_h, input/orig_w)
             orig_w, orig_h = original_size
             r = min(input_size / orig_h, input_size / orig_w)
             boxes[:, :4] = boxes[:, :4] / r
@@ -384,11 +390,10 @@ def postprocess_detections(
             boxes[:, [0, 2]] *= scale_x
             boxes[:, [1, 3]] *= scale_y
 
-        # Clip to image bounds
         boxes[:, [0, 2]] = torch.clamp(boxes[:, [0, 2]], 0, original_size[0])
         boxes[:, [1, 3]] = torch.clamp(boxes[:, [1, 3]], 0, original_size[1])
 
-        # Filter invalid boxes
+        # Filter zero/negative-area boxes
         box_widths = boxes[:, 2] - boxes[:, 0]
         box_heights = boxes[:, 3] - boxes[:, 1]
         valid_mask = (box_widths > 0) & (box_heights > 0)
@@ -401,7 +406,7 @@ def postprocess_detections(
     if len(boxes) == 0:
         return {"boxes": [], "scores": [], "classes": [], "num_detections": 0}
 
-    # Apply per-class NMS
+    # Per-class NMS
     try:
         import torchvision.ops
 
@@ -435,7 +440,6 @@ def postprocess_detections(
 
     keep_indices = torch.cat(keep_indices_list)
 
-    # Limit to max detections
     if len(keep_indices) > max_det:
         final_scores_temp = scores[keep_indices]
         _, top_indices = torch.topk(final_scores_temp, max_det)
@@ -496,11 +500,9 @@ def postprocess_batch(
     except ImportError:
         has_torchvision = False
 
-    # Initialize results for each image
     results = []
 
     if len(batch_boxes) == 0:
-        # No detections at all
         for _ in range(batch_size):
             results.append(
                 {
@@ -512,23 +514,18 @@ def postprocess_batch(
             )
         return results
 
-    # Apply batched NMS using class offsets (standard trick)
-    # Offset boxes by (batch_idx * large_number + class_id * large_number) to prevent
-    # cross-image and cross-class suppression in a single NMS call
+    # Batched NMS using class offsets: offset boxes by batch_idx and class_id
+    # to prevent cross-image and cross-class suppression in a single call
     if has_torchvision:
-        max_wh = 7680.0  # Maximum expected image dimension
-        max_batch_offset = max_wh * 100  # Large offset between batches
+        max_wh = 7680.0  # max expected image dimension
+        max_batch_offset = max_wh * 100  # large offset between batches
 
-        # Create combined index for batched NMS: batch_idx * offset + class_id * max_wh
         combined_idx = (
             batch_indices.float() * max_batch_offset + batch_class_ids.float() * max_wh
         )
         boxes_for_nms = batch_boxes + combined_idx.unsqueeze(1)
-
-        # Single NMS call for entire batch
         keep = torchvision.ops.nms(boxes_for_nms, batch_scores, iou_thres)
 
-        # Apply keep indices
         batch_boxes = batch_boxes[keep]
         batch_scores = batch_scores[keep]
         batch_class_ids = batch_class_ids[keep]
@@ -553,7 +550,6 @@ def postprocess_batch(
         img_scores = batch_scores[img_mask].detach()
         img_classes = batch_class_ids[img_mask].detach()
 
-        # Scale boxes to original size if provided
         if original_sizes is not None and img_idx < len(original_sizes):
             orig_w, orig_h = original_sizes[img_idx]
             scale_x = orig_w / input_size
@@ -564,7 +560,6 @@ def postprocess_batch(
             img_boxes[:, [0, 2]] = torch.clamp(img_boxes[:, [0, 2]], 0, orig_w)
             img_boxes[:, [1, 3]] = torch.clamp(img_boxes[:, [1, 3]], 0, orig_h)
 
-        # Limit to max detections per image
         if len(img_boxes) > max_det:
             _, top_k = torch.topk(img_scores, max_det)
             img_boxes = img_boxes[top_k]
