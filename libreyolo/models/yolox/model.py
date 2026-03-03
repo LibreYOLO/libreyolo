@@ -51,7 +51,6 @@ class LibreYOLOX(BaseModel):
     # ------------------------------------------------------------------
     FAMILY = "yolox"
     FILENAME_PREFIX = "LibreYOLOX"
-    WEIGHT_EXT = ".pt"
     INPUT_SIZES = {
         "n": 416,
         "t": 416,

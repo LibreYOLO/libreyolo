@@ -38,7 +38,7 @@ class BaseModel(ABC):
     # ------------------------------------------------------------------
     FAMILY: ClassVar[str] = ""  # e.g., "yolox"
     FILENAME_PREFIX: ClassVar[str] = ""  # e.g., "LibreYOLOX"
-    WEIGHT_EXT: ClassVar[str] = ".pt"  # e.g., ".pt" or ".pth"
+    WEIGHT_EXT: ClassVar[str] = ".pt"
     INPUT_SIZES: ClassVar[dict[str, int]] = {}  # size → input resolution
 
     _registry: ClassVar[List[Type["BaseModel"]]] = []
