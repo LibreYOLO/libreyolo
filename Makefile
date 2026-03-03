@@ -1,7 +1,7 @@
 UV := uv run --no-sync
 
 .DEFAULT_GOAL := help
-.PHONY: help setup check_format format lint typecheck test test_integration test_e2e test_rf5 build clean
+.PHONY: help setup format lint typecheck test test_integration test_e2e test_rf5 build clean
 
 help:
 	@echo "═══════════════════════════════════════════════════════════════════════════════"
@@ -10,10 +10,9 @@ help:
 	@echo ""
 	@echo "Development Commands:"
 	@echo "  setup                         - Create venv and install package + dev dependencies"
-	@echo "  check_format                  - Check code formatting"
 	@echo "  format                        - Format code with ruff"
 	@echo "  lint                          - Run linter"
-	@echo "  typecheck                     - Run type checker (ty)"
+	@echo "  typecheck                     - Run type checker"
 	@echo "  test                          - Run fast unit tests (no weights needed)"
 	@echo "  test_integration              - Run integration tests (needs real model weights)"
 	@echo "  test_e2e                      - Run e2e export tests (needs GPU + model weights)"
@@ -28,14 +27,11 @@ setup:
 	@echo "✅ Setup complete! To activate the virtual environment, run:"
 	@echo "   source .venv/bin/activate"
 
-check_format:
-	$(UV) ruff format --check
-
 format:
 	$(UV) ruff format
 
 lint:
-	$(UV) ruff check
+	$(UV) ruff check --fix
 
 typecheck:
 	$(UV) ty check
