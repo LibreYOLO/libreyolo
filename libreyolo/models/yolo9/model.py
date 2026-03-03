@@ -1,8 +1,4 @@
-"""
-LibreYOLO9 inference and training wrapper.
-
-Provides a high-level API for YOLOv9 object detection.
-"""
+"""LibreYOLO9 inference and training wrapper."""
 
 import re
 from pathlib import Path
@@ -20,41 +16,33 @@ from ...validation.preprocessors import YOLO9ValPreprocessor
 
 
 class LibreYOLO9(BaseModel):
-    """
-    LibreYOLO9 model for object detection.
+    """YOLOv9 model for object detection.
 
     Args:
-        model_path: Model weights source. Can be:
-            - str: Path to a .pt/.pth weights file
-            - dict: Pre-loaded state_dict (e.g., from torch.load())
-        size: Model size variant (required). Must be one of: "t", "s", "m", "c"
-        reg_max: Regression max value for DFL (default: 16)
-        nb_classes: Number of classes (default: 80 for COCO)
-        device: Device for inference. "auto" uses CUDA if available, else MPS, else CPU.
+        model_path: Path to weights, pre-loaded state_dict, or None for fresh model.
+        size: Model size variant ("t", "s", "m", "c").
+        reg_max: Regression max value for DFL (default: 16).
+        nb_classes: Number of classes (default: 80 for COCO).
+        device: Device for inference.
 
-    Example:
+    Example::
+
         >>> model = LibreYOLO9(model_path="path/to/weights.pt", size="s")
         >>> detections = model(image=image_path, save=True)
-        >>> # Use tiling for large images
-        >>> detections = model(image=large_image_path, save=True, tiling=True)
     """
 
-    val_preprocessor_class = YOLO9ValPreprocessor
-
-    # ------------------------------------------------------------------
-    # Model metadata
-    # ------------------------------------------------------------------
+    # Class-level metadata
     FAMILY = "yolo9"
     FILENAME_PREFIX = "LibreYOLO9"
     INPUT_SIZES = {"t": 640, "s": 640, "m": 640, "c": 640}
+    val_preprocessor_class = YOLO9ValPreprocessor
 
-    # =========================================================================
-    # REGISTRY CLASSMETHODS — used by LibreYOLO() factory
-    # =========================================================================
+    # ------------------------------------------------------------------
+    # Registry classmethods
+    # ------------------------------------------------------------------
 
     @classmethod
     def can_load(cls, weights_dict: dict) -> bool:
-        """Check if a state dict belongs to a YOLOv9 model."""
         keys_lower = [k.lower() for k in weights_dict]
         return any(
             "repncspelan" in k or "adown" in k or "sppelan" in k for k in keys_lower
@@ -62,7 +50,6 @@ class LibreYOLO9(BaseModel):
 
     @classmethod
     def detect_size(cls, weights_dict: dict) -> Optional[str]:
-        """Detect YOLOv9 model size from state dict channel counts."""
         key = "backbone.conv0.conv.weight"
         if key not in weights_dict:
             return None
@@ -83,13 +70,14 @@ class LibreYOLO9(BaseModel):
 
     @classmethod
     def detect_nb_classes(cls, weights_dict: dict) -> Optional[int]:
-        """Detect number of classes from YOLOv9 state dict."""
         for key, tensor in weights_dict.items():
             if re.match(r"head\.cv3\.\d+\.2\.weight", key):
                 return tensor.shape[0]
         return None
 
-    # =========================================================================
+    # ------------------------------------------------------------------
+    # Initialization
+    # ------------------------------------------------------------------
 
     def __init__(
         self,
@@ -109,15 +97,12 @@ class LibreYOLO9(BaseModel):
             **kwargs,
         )
 
-        # Load weights explicitly (BaseModel stores path but doesn't auto-load)
         if isinstance(model_path, str):
             self._load_weights(model_path)
 
-    @staticmethod
-    def _get_preprocess_numpy():
-        from .utils import preprocess_numpy
-
-        return preprocess_numpy
+    # ------------------------------------------------------------------
+    # Model lifecycle
+    # ------------------------------------------------------------------
 
     def _init_model(self) -> nn.Module:
         return LibreYOLO9Model(
@@ -126,7 +111,6 @@ class LibreYOLO9(BaseModel):
 
     def _get_available_layers(self) -> Dict[str, nn.Module]:
         return {
-            # Backbone layers
             "backbone_conv0": self.model.backbone.conv0,
             "backbone_conv1": self.model.backbone.conv1,
             "backbone_elan1": self.model.backbone.elan1,
@@ -137,12 +121,51 @@ class LibreYOLO9(BaseModel):
             "backbone_down4": self.model.backbone.down4,
             "backbone_elan4": self.model.backbone.elan4,
             "backbone_spp": self.model.backbone.spp,
-            # Neck layers
             "neck_elan_up1": self.model.neck.elan_up1,
             "neck_elan_up2": self.model.neck.elan_up2,
             "neck_elan_down1": self.model.neck.elan_down1,
             "neck_elan_down2": self.model.neck.elan_down2,
         }
+
+    def _strict_loading(self) -> bool:
+        return False
+
+    def _prepare_state_dict(self, state_dict: dict) -> dict:
+        """Remap legacy 'detect.*' keys to 'head.*' for backward compatibility."""
+        remapped = {}
+        for key, value in state_dict.items():
+            new_key = (
+                key.replace("detect.", "head.", 1) if key.startswith("detect.") else key
+            )
+            remapped[new_key] = value
+        return remapped
+
+    def _rebuild_for_new_classes(self, new_nc: int):
+        """Replace only the final classification layers for different number of classes."""
+        self.nb_classes = new_nc
+        self.model.nc = new_nc
+        detect = self.model.head
+        detect.nc = new_nc
+        detect.no = new_nc + detect.reg_max * 4
+
+        for seq in detect.cv3:
+            old_final = seq[-1]
+            in_channels = old_final.weight.shape[1]
+            seq[-1] = nn.Conv2d(in_channels, new_nc, 1)
+
+        detect._init_bias()
+        detect._loss_fn = None
+        detect.to(next(self.model.parameters()).device)
+
+    # ------------------------------------------------------------------
+    # Inference pipeline
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _get_preprocess_numpy():
+        from .utils import preprocess_numpy
+
+        return preprocess_numpy
 
     def _preprocess(
         self,
@@ -179,126 +202,65 @@ class LibreYOLO9(BaseModel):
             letterbox=kwargs.get("letterbox", False),
         )
 
-    def _strict_loading(self) -> bool:
-        """Use non-strict loading for YOLOv9 to handle profiling artifacts in weights."""
-        return False
-
-    def _rebuild_for_new_classes(self, new_nc: int):
-        """Replace only the final classification layers for different number of classes.
-
-        Keeps pretrained intermediate conv layers in the class branch (cv3),
-        only replacing the final Conv2d(hidden, nc, 1) output layer.
-        """
-        self.nb_classes = new_nc
-        self.model.nc = new_nc
-        detect = self.model.head
-        detect.nc = new_nc
-        detect.no = new_nc + detect.reg_max * 4
-
-        # Replace only the final Conv2d in each class branch
-        for seq in detect.cv3:
-            old_final = seq[-1]  # nn.Conv2d(c3, old_nc, 1)
-            in_channels = old_final.weight.shape[1]
-            seq[-1] = nn.Conv2d(in_channels, new_nc, 1)
-
-        # Re-initialize biases for the new output layers
-        detect._init_bias()
-
-        # Reset cached loss function (it stores num_classes)
-        detect._loss_fn = None
-
-        detect.to(next(self.model.parameters()).device)
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
 
     def train(
         self,
         data: str,
         *,
-        # Training parameters
         epochs: int = 300,
         batch: int = 16,
         imgsz: int = 640,
-        # Optimizer parameters
         lr0: float = 0.01,
         optimizer: str = "SGD",
-        # System parameters
         device: str = "",
         workers: int = 8,
         seed: int = 0,
-        # Output parameters
         project: str = "runs/train",
         name: str = "yolo9_exp",
         exist_ok: bool = False,
-        # Training features
         resume: bool = False,
         amp: bool = True,
         patience: int = 50,
         **kwargs,
     ) -> dict:
-        """
-        Train the YOLOv9 model on a dataset.
+        """Train the YOLOv9 model on a dataset.
 
         Args:
-            data: Path to data.yaml file (required)
-
-            epochs: Number of epochs to train (default: 300)
-            batch: Batch size (default: 16)
-            imgsz: Input image size (default: 640)
-
-            lr0: Initial learning rate (default: 0.01)
-            optimizer: Optimizer name ('SGD', 'Adam', 'AdamW')
-
-            device: Device to train on ('', 'cpu', 'cuda', '0', '0,1,2,3')
-            workers: Number of dataloader workers (default: 8)
-            seed: Random seed for reproducibility
-
-            project: Root directory for training runs
-            name: Experiment name (auto-increments)
-            exist_ok: If True, overwrite existing experiment directory
-
-            resume: If True, resume training from checkpoint
-            amp: Enable automatic mixed precision training
-            patience: Early stopping patience (epochs without improvement)
-
-            **kwargs: Additional training parameters
+            data: Path to data.yaml file (required).
+            epochs: Number of epochs to train.
+            batch: Batch size.
+            imgsz: Input image size.
+            lr0: Initial learning rate.
+            optimizer: Optimizer name ('SGD', 'Adam', 'AdamW').
+            device: Device to train on ('' = auto-detect).
+            workers: Number of dataloader workers.
+            seed: Random seed for reproducibility.
+            project: Root directory for training runs.
+            name: Experiment name.
+            exist_ok: If True, overwrite existing experiment directory.
+            resume: If True, resume training from checkpoint.
+            amp: Enable automatic mixed precision training.
+            patience: Early stopping patience.
 
         Returns:
-            dict: Training results containing:
-                - 'final_loss': Final training loss
-                - 'best_mAP50': Best mAP@0.5 achieved
-                - 'best_mAP50_95': Best mAP@0.5:0.95 achieved
-                - 'best_epoch': Epoch with best validation performance
-                - 'save_dir': Path to training output directory
-                - 'best_checkpoint': Path to best model checkpoint
-                - 'last_checkpoint': Path to last model checkpoint
-
-        Example:
-            >>> from libreyolo import LibreYOLO9
-            >>> model = LibreYOLO9(size='t')
-            >>> results = model.train(
-            ...     data='coco128.yaml',
-            ...     epochs=100,
-            ...     batch=16,
-            ...     imgsz=640,
-            ...     device='0'
-            ... )
-            >>> print(f"Best mAP: {results['best_mAP50_95']:.3f}")
+            Training results dict with final_loss, best_mAP50, best_mAP50_95, etc.
         """
         from .trainer import YOLO9Trainer
         from libreyolo.data import load_data_config
 
-        # Load and validate data config
         try:
             data_config = load_data_config(data, autodownload=True)
             data = data_config.get("yaml_file", data)
         except Exception as e:
             raise FileNotFoundError(f"Failed to load dataset config '{data}': {e}")
 
-        # Reconcile nb_classes with dataset
         yaml_nc = data_config.get("nc")
         if yaml_nc is not None and yaml_nc != self.nb_classes:
             self._rebuild_for_new_classes(yaml_nc)
 
-        # Set random seed for reproducibility
         if seed > 0:
             import random
             import numpy as np
@@ -309,7 +271,6 @@ class LibreYOLO9(BaseModel):
             if torch.cuda.is_available():
                 torch.cuda.manual_seed_all(seed)
 
-        # Create trainer with kwargs
         trainer = YOLO9Trainer(
             model=self.model,
             wrapper_model=self,
@@ -334,7 +295,6 @@ class LibreYOLO9(BaseModel):
             **kwargs,
         )
 
-        # Resume if requested
         if resume:
             if not self.model_path:
                 raise ValueError(
@@ -343,10 +303,8 @@ class LibreYOLO9(BaseModel):
                 )
             trainer.resume(str(self.model_path))
 
-        # Run training
         results = trainer.train()
 
-        # Load best model weights into current instance
         if Path(results["best_checkpoint"]).exists():
             self._load_weights(results["best_checkpoint"])
 

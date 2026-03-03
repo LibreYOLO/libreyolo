@@ -1,8 +1,4 @@
-"""
-LibreYOLOX implementation for LibreYOLO.
-
-Supports both inference and training.
-"""
+"""LibreYOLOX implementation for LibreYOLO."""
 
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -19,62 +15,42 @@ from ...validation.preprocessors import YOLOXValPreprocessor
 
 
 class LibreYOLOX(BaseModel):
-    """
-    YOLOX model for object detection.
+    """YOLOX model for object detection.
 
     Args:
-        model_path: Model weights source. Can be:
-            - str: Path to a .pt/.pth weights file
-            - dict: Pre-loaded state_dict (e.g., from torch.load())
-            - None: Random initialization for training from scratch
-        size: Model size variant. Must be one of: "n", "t", "s", "m", "l", "x"
-        nb_classes: Number of classes (default: 80 for COCO)
+        model_path: Path to weights, pre-loaded state_dict, or None for fresh model.
+        size: Model size variant ("n", "t", "s", "m", "l", "x").
+        nb_classes: Number of classes (default: 80 for COCO).
         device: Device for inference.
 
-    Examples:
-        Load weights for inference (prefer LibreYOLO factory for auto-detection)::
+    Examples::
 
-            >>> from libreyolo import LibreYOLO
-            >>> model = LibreYOLO("LibreYOLOXs.pt")
-            >>> detections = model(image="image.jpg", save=True)
+        >>> model = LibreYOLO("LibreYOLOXs.pt")
+        >>> detections = model(image="image.jpg", save=True)
 
-        Create a fresh model for training (nb_classes read from YAML)::
-
-            >>> model = LibreYOLOX(size="s")
-            >>> results = model.train(data="coco128.yaml", epochs=100)
+        >>> model = LibreYOLOX(size="s")
+        >>> results = model.train(data="coco128.yaml", epochs=100)
     """
 
-    val_preprocessor_class = YOLOXValPreprocessor
-
-    # ------------------------------------------------------------------
-    # Model metadata
-    # ------------------------------------------------------------------
+    # Class-level metadata
     FAMILY = "yolox"
     FILENAME_PREFIX = "LibreYOLOX"
-    INPUT_SIZES = {
-        "n": 416,
-        "t": 416,
-        "s": 640,
-        "m": 640,
-        "l": 640,
-        "x": 640,
-    }
+    INPUT_SIZES = {"n": 416, "t": 416, "s": 640, "m": 640, "l": 640, "x": 640}
+    val_preprocessor_class = YOLOXValPreprocessor
 
-    # HF repo names differ from the single-letter size codes for n/t
+    # HF repo names differ from single-letter size codes for n/t
     _HF_REPO_NAMES = {"n": "nano", "t": "tiny"}
 
-    # =========================================================================
-    # REGISTRY CLASSMETHODS — used by LibreYOLO() factory
-    # =========================================================================
+    # ------------------------------------------------------------------
+    # Registry classmethods
+    # ------------------------------------------------------------------
 
     @classmethod
     def can_load(cls, weights_dict: dict) -> bool:
-        """Check if a state dict belongs to a YOLOX model."""
         return any("backbone.backbone" in k or "head.stems" in k for k in weights_dict)
 
     @classmethod
     def detect_size(cls, weights_dict: dict) -> Optional[str]:
-        """Detect YOLOX model size from state dict channel counts."""
         key = "backbone.backbone.stem.conv.conv.weight"
         if key not in weights_dict:
             return None
@@ -83,13 +59,12 @@ class LibreYOLOX(BaseModel):
 
     @classmethod
     def detect_nb_classes(cls, weights_dict: dict) -> Optional[int]:
-        """Detect number of classes from YOLOX state dict."""
         key = "head.cls_preds.0.weight"
         return weights_dict[key].shape[0] if key in weights_dict else None
 
     @classmethod
     def get_download_url(cls, filename: str) -> Optional[str]:
-        """Return download URL. YOLOX uses 'nano'/'tiny' in HF repo names."""
+        """YOLOX uses 'nano'/'tiny' in HF repo names for n/t sizes."""
         size = cls.detect_size_from_filename(filename)
         if size is None:
             return None
@@ -98,7 +73,9 @@ class LibreYOLOX(BaseModel):
         actual = f"{cls.FILENAME_PREFIX}{size}{cls.WEIGHT_EXT}"
         return f"https://huggingface.co/{repo}/resolve/main/{actual}"
 
-    # =========================================================================
+    # ------------------------------------------------------------------
+    # Initialization
+    # ------------------------------------------------------------------
 
     def __init__(
         self,
@@ -116,23 +93,19 @@ class LibreYOLOX(BaseModel):
             **kwargs,
         )
 
-        # Load weights explicitly (BaseModel stores path but doesn't auto-load)
         if isinstance(model_path, str):
             self._load_weights(model_path)
 
-        # Apply nano-specific BatchNorm settings (matching official YOLOX).
-        # Must run after weight loading.
+        # Nano-specific BatchNorm settings (must run after weight loading)
         if self.size == "n":
             for m in self.model.modules():
                 if isinstance(m, nn.BatchNorm2d):
                     m.eps = 1e-3
                     m.momentum = 0.03
 
-    @staticmethod
-    def _get_preprocess_numpy():
-        from .utils import preprocess_numpy
-
-        return preprocess_numpy
+    # ------------------------------------------------------------------
+    # Model lifecycle
+    # ------------------------------------------------------------------
 
     def _init_model(self) -> nn.Module:
         return LibreYOLOXModel(config=self.size, nb_classes=self.nb_classes)
@@ -147,8 +120,17 @@ class LibreYOLOX(BaseModel):
         }
 
     def _strict_loading(self) -> bool:
-        """Use non-strict loading for YOLOX."""
         return False
+
+    # ------------------------------------------------------------------
+    # Inference pipeline
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _get_preprocess_numpy():
+        from .utils import preprocess_numpy
+
+        return preprocess_numpy
 
     def _preprocess(
         self,
@@ -156,7 +138,6 @@ class LibreYOLOX(BaseModel):
         color_format: str = "auto",
         input_size: Optional[int] = None,
     ) -> Tuple[torch.Tensor, Image.Image, Tuple[int, int], float]:
-        """YOLOX preprocessing with letterbox."""
         effective_size = input_size if input_size is not None else self.input_size
         return _yolox_preprocess(
             image, input_size=effective_size, color_format=color_format
@@ -175,7 +156,6 @@ class LibreYOLOX(BaseModel):
         ratio: float = 1.0,
         **kwargs,
     ) -> Dict:
-        # Use passed input_size if available (from validator), otherwise use model's default
         actual_input_size = kwargs.get("input_size", self.input_size)
 
         # Recompute ratio if caller passed default (batch validation path)
@@ -193,107 +173,67 @@ class LibreYOLOX(BaseModel):
             max_det=max_det,
         )
 
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
+
     def train(
         self,
         data: str,
         *,
-        # Training parameters
         epochs: int = 100,
         batch: int = 16,
         imgsz: int = 640,
-        # Optimizer parameters
         lr0: float = 0.01,
         optimizer: str = "SGD",
-        # System parameters
         device: str = "",
         workers: int = 8,
         seed: int = 0,
-        # Output parameters
         project: str = "runs/train",
         name: str = "exp",
         exist_ok: bool = False,
-        # Model parameters
         pretrained: bool = True,
-        # Training features
         resume: bool = False,
         amp: bool = True,
         patience: int = 50,
         **kwargs,
     ) -> dict:
-        """
-        Train the YOLOX model on a dataset.
+        """Train the YOLOX model on a dataset.
 
         Args:
-            data: Path to data.yaml file (required)
-
-            epochs: Number of epochs to train
-            batch: Batch size (total, will be divided across devices if multi-GPU)
-            imgsz: Input image size (square: imgsz x imgsz)
-
-            lr0: Initial learning rate
-            optimizer: Optimizer name ('SGD', 'Adam', 'AdamW')
-
-            device: Device to train on ('', 'cpu', 'cuda', '0', '0,1,2,3')
-                    Empty string '' = auto-detect
-            workers: Number of dataloader worker processes
-            seed: Random seed for reproducibility
-
-            project: Root directory for training runs
-            name: Experiment name (auto-increments: exp, exp2, exp3...)
-            exist_ok: If True, overwrite existing experiment directory
-
-            pretrained: Use pretrained weights if available (not implemented yet)
-
+            data: Path to data.yaml file (required).
+            epochs: Number of epochs to train.
+            batch: Batch size.
+            imgsz: Input image size.
+            lr0: Initial learning rate.
+            optimizer: Optimizer name ('SGD', 'Adam', 'AdamW').
+            device: Device to train on ('' = auto-detect).
+            workers: Number of dataloader workers.
+            seed: Random seed for reproducibility.
+            project: Root directory for training runs.
+            name: Experiment name.
+            exist_ok: If True, overwrite existing experiment directory.
+            pretrained: Use pretrained weights if available.
             resume: If True, resume training from the loaded checkpoint.
-                    Load the checkpoint first, then call train(resume=True).
-            amp: Enable automatic mixed precision training
-            patience: Early stopping patience (epochs without improvement)
-
-            **kwargs: Additional training parameters
+            amp: Enable automatic mixed precision training.
+            patience: Early stopping patience.
 
         Returns:
-            dict: Training results containing:
-                - 'final_loss': Final training loss
-                - 'best_mAP50': Best mAP@0.5 achieved
-                - 'best_mAP50_95': Best mAP@0.5:0.95 achieved
-                - 'best_epoch': Epoch with best validation performance
-                - 'save_dir': Path to training output directory
-                - 'best_checkpoint': Path to best model checkpoint
-                - 'last_checkpoint': Path to last model checkpoint
-
-        Raises:
-            FileNotFoundError: If data.yaml not found
-            ValueError: If invalid parameters provided
-            RuntimeError: If training fails (OOM, NaN loss, etc.)
-
-        Example:
-            >>> from libreyolo import LibreYOLOX
-            >>> model = LibreYOLOX(size="s")
-            >>> results = model.train(
-            ...     data="coco128.yaml",
-            ...     epochs=100,
-            ...     batch=16,
-            ...     imgsz=640,
-            ...     device="0"
-            ... )
-            >>> print(f"Best mAP: {results['best_mAP50_95']:.3f}")
+            Training results dict with final_loss, best_mAP50, best_mAP50_95, etc.
         """
         from .trainer import YOLOXTrainer
         from libreyolo.data import load_data_config
 
-        # Load and validate data config (handles built-in datasets and auto-download)
         try:
             data_config = load_data_config(data, autodownload=True)
             data = data_config.get("yaml_file", data)
         except Exception as e:
             raise FileNotFoundError(f"Failed to load dataset config '{data}': {e}")
 
-        # Reconcile nb_classes with dataset
         yaml_nc = data_config.get("nc")
         if yaml_nc is not None and yaml_nc != self.nb_classes:
             self._rebuild_for_new_classes(yaml_nc)
 
-        # Set random seed for reproducibility
         if seed > 0:
             import random
             import numpy as np
@@ -304,7 +244,6 @@ class LibreYOLOX(BaseModel):
             if torch.cuda.is_available():
                 torch.cuda.manual_seed_all(seed)
 
-        # Create trainer with kwargs
         trainer = YOLOXTrainer(
             model=self.model,
             wrapper_model=self,
@@ -328,7 +267,6 @@ class LibreYOLOX(BaseModel):
             **kwargs,
         )
 
-        # Resume if requested
         if resume:
             if not self.model_path:
                 raise ValueError(
@@ -337,10 +275,8 @@ class LibreYOLOX(BaseModel):
                 )
             trainer.resume(str(self.model_path))
 
-        # Run training
         results = trainer.train()
 
-        # Load best model weights into current instance
         if Path(results["best_checkpoint"]).exists():
             self._load_weights(results["best_checkpoint"])
 

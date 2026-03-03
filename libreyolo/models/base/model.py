@@ -18,29 +18,30 @@ from PIL import Image
 from ...utils.general import COCO_CLASSES
 from ...utils.image_loader import ImageInput
 from ...utils.results import Results
+from ...validation.preprocessors import StandardValPreprocessor
 
 
 class BaseModel(ABC):
-    """
-    Abstract base class for LibreYOLO model wrappers.
-
-    Provides shared functionality for inference, saving, and tiling
-    across all YOLO model variants.
+    """Abstract base class for LibreYOLO model wrappers.
 
     Subclasses must implement the abstract methods to provide model-specific
     behavior for initialization, forward pass, and postprocessing.
+
+    Class constants subclasses should set:
+        FAMILY: Model family identifier (e.g. "yolox").
+        FILENAME_PREFIX: Prefix for weight filenames (e.g. "LibreYOLOX").
+        INPUT_SIZES: Mapping of size code to input resolution.
+        val_preprocessor_class: Preprocessor class for validation.
     """
 
-    val_preprocessor_class = None
-
-    # ------------------------------------------------------------------
-    # Class-level model metadata — subclasses must set these
-    # ------------------------------------------------------------------
-    FAMILY: ClassVar[str] = ""  # e.g., "yolox"
-    FILENAME_PREFIX: ClassVar[str] = ""  # e.g., "LibreYOLOX"
+    # Class-level model metadata — subclasses override these
+    FAMILY: ClassVar[str] = ""
+    FILENAME_PREFIX: ClassVar[str] = ""
     WEIGHT_EXT: ClassVar[str] = ".pt"
-    INPUT_SIZES: ClassVar[dict[str, int]] = {}  # size → input resolution
+    INPUT_SIZES: ClassVar[dict[str, int]] = {}
+    val_preprocessor_class = StandardValPreprocessor
 
+    # Model registry — auto-populated by __init_subclass__
     _registry: ClassVar[List[Type["BaseModel"]]] = []
 
     def __init_subclass__(cls, **kwargs):
@@ -52,9 +53,67 @@ class BaseModel(ABC):
         ):
             BaseModel._registry.append(cls)
 
-    # =========================================================================
-    # ABSTRACT METHODS - Must be implemented by subclasses
-    # =========================================================================
+    # ------------------------------------------------------------------
+    # Initialization
+    # ------------------------------------------------------------------
+
+    def __init__(
+        self,
+        model_path: Union[str, dict, None],
+        size: str,
+        nb_classes: int = 80,
+        device: str = "auto",
+        **kwargs,
+    ):
+        valid_sizes = self._get_valid_sizes()
+        if size not in valid_sizes:
+            raise ValueError(
+                f"Invalid size: {size}. Must be one of: {', '.join(valid_sizes)}"
+            )
+
+        if device == "auto":
+            if torch.cuda.is_available():
+                self.device = torch.device("cuda")
+            elif torch.backends.mps.is_available():
+                self.device = torch.device("mps")
+            else:
+                self.device = torch.device("cpu")
+        else:
+            self.device = torch.device(device)
+
+        self.size = size
+        self.nb_classes = nb_classes
+        self.input_size = self.INPUT_SIZES[size]
+
+        if nb_classes == 80:
+            self.names: Dict[int, str] = {i: n for i, n in enumerate(COCO_CLASSES)}
+        else:
+            self.names: Dict[int, str] = {i: f"class_{i}" for i in range(nb_classes)}
+
+        for key, value in kwargs.items():
+            setattr(self, key, value)
+
+        self.model = self._init_model()
+
+        if model_path is None:
+            self.model_path = None
+        elif isinstance(model_path, dict):
+            self.model_path = None
+            self.model.load_state_dict(
+                model_path, strict=self._strict_loading()
+            )
+        else:
+            self.model_path = model_path
+
+        if model_path is None:
+            self.model.train()
+        else:
+            self.model.eval()
+        self.model.to(self.device)
+
+    # ------------------------------------------------------------------
+    # Abstract interface — subclasses must implement
+    # ------------------------------------------------------------------
 
     @abstractmethod
     def _init_model(self) -> nn.Module:
@@ -65,39 +124,6 @@ class BaseModel(ABC):
     def _get_available_layers(self) -> Dict[str, nn.Module]:
         """Return mapping of layer names to module objects."""
         pass
-
-    def _get_valid_sizes(self) -> List[str]:
-        """Return list of valid size codes for this model."""
-        return list(self.INPUT_SIZES.keys())
-
-    def _get_model_name(self) -> str:
-        """Return the model name for metadata."""
-        return self.FAMILY
-
-    def _get_input_size(self) -> int:
-        """Return the input size for this model."""
-        return self.input_size
-
-    @classmethod
-    def detect_size_from_filename(cls, filename: str) -> Optional[str]:
-        """Extract model size from a filename using FILENAME_PREFIX and INPUT_SIZES."""
-        if not cls.INPUT_SIZES or not cls.FILENAME_PREFIX:
-            return None
-        sizes_pattern = "".join(cls.INPUT_SIZES.keys())
-        prefix = cls.FILENAME_PREFIX.lower()
-        ext = re.escape(cls.WEIGHT_EXT)
-        m = re.search(rf"{prefix}([{sizes_pattern}]){ext}", filename.lower())
-        return m.group(1) if m else None
-
-    @classmethod
-    def get_download_url(cls, filename: str) -> Optional[str]:
-        """Return the Hugging Face download URL for the given weight filename."""
-        size = cls.detect_size_from_filename(filename)
-        if size is None:
-            return None
-        repo = f"LibreYOLO/{cls.FILENAME_PREFIX}{size}"
-        actual = f"{cls.FILENAME_PREFIX}{size}{cls.WEIGHT_EXT}"
-        return f"https://huggingface.co/{repo}/resolve/main/{actual}"
 
     @staticmethod
     @abstractmethod
@@ -113,11 +139,6 @@ class BaseModel(ABC):
         input_size: Optional[int] = None,
     ) -> Tuple[torch.Tensor, Image.Image, Tuple[int, int], float]:
         """Preprocess image for inference.
-
-        Args:
-            image: Input image.
-            color_format: Color format hint.
-            input_size: Override input size (None = model default).
 
         Returns:
             Tuple of (input_tensor, original_image, original_size, ratio).
@@ -142,119 +163,36 @@ class BaseModel(ABC):
         """Postprocess model output to detections."""
         pass
 
-    def _get_val_preprocessor(self, img_size: int | None = None):
+    # ------------------------------------------------------------------
+    # Concrete defaults — subclasses may override
+    # ------------------------------------------------------------------
+
+    def _get_valid_sizes(self) -> List[str]:
+        return list(self.INPUT_SIZES.keys())
+
+    def _get_model_name(self) -> str:
+        return self.FAMILY
+
+    def _get_input_size(self) -> int:
+        return self.input_size
+
+    def _strict_loading(self) -> bool:
+        """Return whether to use strict mode when loading weights."""
+        return True
+
+    def _prepare_state_dict(self, state_dict: dict) -> dict:
+        """Transform state dict keys before loading.
+
+        Override in subclasses that need to remap legacy key names.
         """
-        Return the validation preprocessor for this model.
-
-        Args:
-            img_size: Target image size. Defaults to model's native input size.
-
-        Returns:
-            A preprocessor instance with __call__(img, targets, input_size).
-        """
-        if img_size is None:
-            img_size = self._get_input_size()
-        cls = self.val_preprocessor_class
-        if cls is None:
-            from libreyolo.validation.preprocessors import StandardValPreprocessor
-
-            cls = StandardValPreprocessor
-        return cls(img_size=(img_size, img_size))
-
-    # =========================================================================
-    # SHARED IMPLEMENTATION
-    # =========================================================================
-
-    def __init__(
-        self,
-        model_path: Union[str, dict, None],
-        size: str,
-        nb_classes: int = 80,
-        device: str = "auto",
-        **kwargs,
-    ):
-        """
-        Initialize the model.
-
-        Args:
-            model_path: Path to weights file, pre-loaded state_dict, or None
-                for random initialization (fresh model for training).
-            size: Model size variant.
-            nb_classes: Number of classes (default: 80 for COCO).
-            device: Device for inference ("auto", "cuda", "mps", "cpu").
-            **kwargs: Additional model-specific arguments.
-        """
-        # Validate size
-        valid_sizes = self._get_valid_sizes()
-        if size not in valid_sizes:
-            raise ValueError(
-                f"Invalid size: {size}. Must be one of: {', '.join(valid_sizes)}"
-            )
-
-        # Resolve device
-        if device == "auto":
-            if torch.cuda.is_available():
-                self.device = torch.device("cuda")
-            elif torch.backends.mps.is_available():
-                self.device = torch.device("mps")
-            else:
-                self.device = torch.device("cpu")
-        else:
-            self.device = torch.device(device)
-
-        # Store parameters
-        self.size = size
-        self.nb_classes = nb_classes
-
-        # Set input_size from class constant (before _init_model)
-        self.input_size = self.INPUT_SIZES[size]
-
-        # Build names dict (matches Ultralytics model.names)
-        if nb_classes == 80:
-            self.names: Dict[int, str] = {i: n for i, n in enumerate(COCO_CLASSES)}
-        else:
-            self.names: Dict[int, str] = {i: f"class_{i}" for i in range(nb_classes)}
-
-        # Store extra kwargs for subclass use
-        for key, value in kwargs.items():
-            setattr(self, key, value)
-
-        # Initialize model (implemented by subclass)
-        self.model = self._init_model()
-
-        # Load weights (or skip for fresh model)
-        if model_path is None:
-            self.model_path = None
-        elif isinstance(model_path, dict):
-            self.model_path = None
-            self.model.load_state_dict(
-                model_path, strict=self._strict_loading()
-            )
-        else:
-            self.model_path = model_path
-
-        # Fresh models start in train mode; loaded models in eval mode
-        if model_path is None:
-            self.model.train()
-        else:
-            self.model.eval()
-        self.model.to(self.device)
+        return state_dict
 
     def _rebuild_for_new_classes(self, new_nb_classes: int):
-        """Rebuild model with a new class count, preserving weights where shapes match.
-
-        Used when training on a dataset with a different number of classes
-        than the model was initialized with. Backbone/neck weights are preserved;
-        head weights (which depend on nb_classes) are reinitialized.
-
-        Args:
-            new_nb_classes: The new number of classes.
-        """
+        """Rebuild model with a new class count, preserving weights where shapes match."""
         old_state = self.model.state_dict()
         self.nb_classes = new_nb_classes
         self.model = self._init_model()
 
-        # Transfer weights with matching shapes (backbone/neck preserved, head reinitialized)
         new_state = self.model.state_dict()
         for key in old_state:
             if key in new_state and old_state[key].shape == new_state[key].shape:
@@ -263,12 +201,36 @@ class BaseModel(ABC):
         self.model.load_state_dict(new_state)
         self.model.to(self.device)
 
-    def _strict_loading(self) -> bool:
-        """Return whether to use strict mode when loading weights.
+    @classmethod
+    def detect_size_from_filename(cls, filename: str) -> Optional[str]:
+        """Extract model size from a weight filename."""
+        if not cls.INPUT_SIZES or not cls.FILENAME_PREFIX:
+            return None
+        sizes_pattern = "".join(cls.INPUT_SIZES.keys())
+        prefix = cls.FILENAME_PREFIX.lower()
+        ext = re.escape(cls.WEIGHT_EXT)
+        m = re.search(rf"{prefix}([{sizes_pattern}]){ext}", filename.lower())
+        return m.group(1) if m else None
 
-        Override in subclasses that need non-strict loading.
-        """
-        return True
+    @classmethod
+    def get_download_url(cls, filename: str) -> Optional[str]:
+        """Return the Hugging Face download URL for the given weight filename."""
+        size = cls.detect_size_from_filename(filename)
+        if size is None:
+            return None
+        repo = f"LibreYOLO/{cls.FILENAME_PREFIX}{size}"
+        actual = f"{cls.FILENAME_PREFIX}{size}{cls.WEIGHT_EXT}"
+        return f"https://huggingface.co/{repo}/resolve/main/{actual}"
+
+    def _get_val_preprocessor(self, img_size: int | None = None):
+        """Return the validation preprocessor for this model."""
+        if img_size is None:
+            img_size = self._get_input_size()
+        return self.val_preprocessor_class(img_size=(img_size, img_size))
+
+    # ------------------------------------------------------------------
+    # Weight loading internals
+    # ------------------------------------------------------------------
 
     @staticmethod
     def _strip_ddp_prefix(state_dict: dict) -> dict:
@@ -295,18 +257,9 @@ class BaseModel(ABC):
     def _load_weights(self, model_path: str):
         """Load model weights from file.
 
-        Handles both raw state_dicts and training checkpoint dicts
-        ({"model": state_dict, "optimizer": ..., "epoch": ...}).
-
-        If the checkpoint contains model metadata (nc, names, size),
-        auto-rebuilds the model architecture to match before loading weights.
-        This enables loading fine-tuned checkpoints trained on different
-        numbers of classes.
-
-        Also handles:
-        - DDP 'module.' prefix stripping
-        - Cross-family checkpoint warnings
-        - Names dict sanitization (string keys, gaps, nc mismatch)
+        Handles raw state_dicts and training checkpoint dicts.
+        Auto-rebuilds model architecture if checkpoint has different nc.
+        Also handles DDP prefix stripping and cross-family rejection.
         """
         if not Path(model_path).exists():
             raise FileNotFoundError(f"Model weights file not found: {model_path}")
@@ -322,7 +275,6 @@ class BaseModel(ABC):
                 else:
                     state_dict = loaded
 
-                # Strip DDP 'module.' prefix if present
                 state_dict = self._strip_ddp_prefix(state_dict)
 
                 # Reject cross-family loading
@@ -335,12 +287,10 @@ class BaseModel(ABC):
                         f"Use the correct model class for this checkpoint."
                     )
 
-                # Auto-rebuild model if checkpoint has different nc
                 ckpt_nc = loaded.get("nc")
                 if ckpt_nc is not None and ckpt_nc != self.nb_classes:
                     self._rebuild_for_new_classes(ckpt_nc)
 
-                # Restore and sanitize class names from checkpoint
                 ckpt_names = loaded.get("names")
                 effective_nc = ckpt_nc if ckpt_nc is not None else self.nb_classes
                 if ckpt_names is not None:
@@ -354,13 +304,13 @@ class BaseModel(ABC):
                 f"Failed to load model weights from {model_path}: {e}"
             ) from e
 
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
+
     def get_available_layer_names(self) -> List[str]:
         """Get list of available layer names."""
         return sorted(self._get_available_layers().keys())
-
-    # =========================================================================
-    # INFERENCE - delegates to InferenceRunner
-    # =========================================================================
 
     @property
     def _runner(self):
@@ -377,10 +327,6 @@ class BaseModel(ABC):
         """Alias for __call__ method."""
         return self(*args, **kwargs)
 
-    # =========================================================================
-    # EXPORT & VALIDATION - delegate to external modules
-    # =========================================================================
-
     def export(self, format: str = "onnx", **kwargs) -> str:
         """Export model to deployment format.
 
@@ -388,19 +334,9 @@ class BaseModel(ABC):
             format: Target format ("onnx", "torchscript", "tensorrt",
                 "openvino", "ncnn").
             **kwargs: Format-specific parameters forwarded to the exporter.
-                Common: output_path, imgsz, half, int8, batch, device, verbose.
-                ONNX: opset, simplify, dynamic.
-                TensorRT: workspace, hardware_compatibility, gpu_device, trt_config.
-                INT8: data, fraction.
 
         Returns:
             Path to the exported model file.
-
-        Example::
-
-            model.export(format="onnx")
-            model.export(format="tensorrt", half=True)
-            model.export(format="tensorrt", int8=True, data="coco8.yaml")
         """
         from libreyolo.export import BaseExporter
 
@@ -419,39 +355,25 @@ class BaseModel(ABC):
         verbose: bool = True,
         **kwargs,
     ) -> Dict:
-        """
-        Run validation on a dataset.
-
-        Computes standard object detection metrics including mAP50, mAP50-95,
-        precision, and recall.
+        """Run validation on a dataset.
 
         Args:
-            data: Path to data.yaml file containing dataset configuration.
-            batch: Batch size for validation.
-            imgsz: Image size for validation. Defaults to model's native input size.
-            conf: Confidence threshold. Use low value (0.001) for mAP calculation.
+            data: Path to data.yaml file.
+            batch: Batch size.
+            imgsz: Image size (defaults to model's native input size).
+            conf: Confidence threshold.
             iou: IoU threshold for NMS.
             device: Device to use (default: same as model).
-            split: Dataset split to validate on ("val", "test").
+            split: Dataset split ("val", "test").
             save_json: Save predictions in COCO JSON format.
             verbose: Print detailed metrics.
-            **kwargs: Additional arguments passed to ValidationConfig.
 
         Returns:
-            Dictionary with validation metrics:
-                - metrics/precision: Mean precision at conf threshold
-                - metrics/recall: Mean recall at conf threshold
-                - metrics/mAP50: Mean AP at IoU=0.50
-                - metrics/mAP50-95: Mean AP across IoU 0.50-0.95
-
-        Example:
-            >>> model = LibreYOLO("weights/LibreYOLOXs.pt")
-            >>> results = model.val(data="coco8.yaml", batch=16)
-            >>> print(f"mAP50-95: {results['metrics/mAP50-95']:.3f}")
+            Dictionary with metrics/precision, metrics/recall,
+            metrics/mAP50, metrics/mAP50-95.
         """
         from libreyolo.validation import DetectionValidator, ValidationConfig
 
-        # Use model's native input size if not specified
         if imgsz is None:
             imgsz = self._get_input_size()
 
