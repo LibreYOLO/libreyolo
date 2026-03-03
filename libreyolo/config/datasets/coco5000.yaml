@@ -118,8 +118,8 @@ download: |
       threads=1,
   )
 
-  # Download labels (YOLO format)
-  download([ASSETS_URL + "/coco2017labels.zip"], dir=dir.parent)
+  # Download labels (YOLO format) inside coco5000
+  download([ASSETS_URL + "/coco2017labels.zip"], dir=dir)
 
   # Reorganize into train/val split (4000/1000)
   val2017_dir = dir / "val2017"
@@ -140,8 +140,8 @@ download: |
   if val2017_dir.exists():
       shutil.rmtree(val2017_dir)
 
-  # Copy corresponding labels
-  labels_src = dir.parent / "coco" / "labels" / "val2017"
+  # Copy corresponding labels from extracted archive
+  labels_src = dir / "coco" / "labels" / "val2017"
   train_labels = dir / "labels" / "train"
   val_labels = dir / "labels" / "val"
   train_labels.mkdir(parents=True, exist_ok=True)
@@ -152,3 +152,8 @@ download: |
           label_file = labels_src / (img.stem + ".txt")
           if label_file.exists():
               shutil.copy(str(label_file), str(label_dir / label_file.name))
+
+  # Clean up extracted coco subfolder
+  coco_extracted = dir / "coco"
+  if coco_extracted.exists():
+      shutil.rmtree(coco_extracted)
