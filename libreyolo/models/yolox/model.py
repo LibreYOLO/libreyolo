@@ -50,7 +50,6 @@ class LibreYOLOX(BaseModel):
     # Model metadata
     # ------------------------------------------------------------------
     FAMILY = "yolox"
-    SIZES = ("n", "t", "s", "m", "l", "x")
     FILENAME_PREFIX = "LibreYOLOX"
     WEIGHT_EXT = ".pt"
     DEFAULT_INPUT_SIZES = {

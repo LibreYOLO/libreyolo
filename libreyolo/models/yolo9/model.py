@@ -45,10 +45,9 @@ class LibreYOLO9(BaseModel):
     # Model metadata
     # ------------------------------------------------------------------
     FAMILY = "yolo9"
-    SIZES = ("t", "s", "m", "c")
     FILENAME_PREFIX = "LibreYOLO9"
     WEIGHT_EXT = ".pt"
-    DEFAULT_INPUT_SIZES = 640
+    DEFAULT_INPUT_SIZES = {"t": 640, "s": 640, "m": 640, "c": 640}
 
     # =========================================================================
     # REGISTRY CLASSMETHODS — used by LibreYOLO() factory
