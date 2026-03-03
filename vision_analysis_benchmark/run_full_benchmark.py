@@ -24,11 +24,12 @@ BATCH_SIZE = 16  # Use batch size 16 for faster processing
 # To benchmark specific models, add them like: ["yolov8n", "yolov11s"]
 MODELS_TO_BENCHMARK = []  # Empty = all models
 
+
 def main():
-    print("="*80)
+    print("=" * 80)
     print("LibreYOLO Full Benchmark Script")
-    print("="*80)
-    print(f"\nConfiguration:")
+    print("=" * 80)
+    print("\nConfiguration:")
     print(f"  COCO YAML: {COCO_YAML}")
     print(f"  Output directory: {OUTPUT_DIR}")
     print(f"  Batch size: {BATCH_SIZE}")
@@ -36,7 +37,7 @@ def main():
     if MODELS_TO_BENCHMARK:
         print(f"  Models: {', '.join(MODELS_TO_BENCHMARK)}")
     else:
-        print(f"  Models: ALL (19 models)")
+        print("  Models: ALL (19 models)")
 
     # Check if COCO yaml exists
     if not Path(COCO_YAML).exists():
@@ -48,27 +49,30 @@ def main():
     cmd = [
         "python",
         "vision_analysis_benchmark/benchmark_coco.py",
-        "--coco-yaml", COCO_YAML,
-        "--output-dir", OUTPUT_DIR,
-        "--batch-size", str(BATCH_SIZE),
+        "--coco-yaml",
+        COCO_YAML,
+        "--output-dir",
+        OUTPUT_DIR,
+        "--batch-size",
+        str(BATCH_SIZE),
     ]
 
     # Add specific models if requested
     if MODELS_TO_BENCHMARK:
         cmd.extend(["--models"] + MODELS_TO_BENCHMARK)
 
-    print(f"\n{'='*80}")
+    print(f"\n{'=' * 80}")
     print("Running benchmark...")
-    print(f"{'='*80}")
+    print(f"{'=' * 80}")
     print(f"\nCommand: {' '.join(cmd)}\n")
 
     # Run the benchmark
     try:
         subprocess.run(cmd, check=True)
 
-        print(f"\n{'='*80}")
+        print(f"\n{'=' * 80}")
         print("✅ Benchmark Complete!")
-        print(f"{'='*80}")
+        print(f"{'=' * 80}")
         print(f"\nResults saved to: {OUTPUT_DIR}/")
         print(f"  - Individual JSON files: {OUTPUT_DIR}/<model>_benchmark.json")
         print(f"  - Summary CSV: {OUTPUT_DIR}/benchmark_summary.csv")
@@ -79,6 +83,7 @@ def main():
     except KeyboardInterrupt:
         print("\n\n⚠️  Benchmark interrupted by user")
         sys.exit(130)
+
 
 if __name__ == "__main__":
     main()

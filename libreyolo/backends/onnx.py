@@ -114,9 +114,7 @@ class OnnxBackend(BaseBackend):
                 else:
                     names = {i: f"class_{i}" for i in range(nc)}
         except Exception as e:
-            logger.warning(
-                "Failed to read ONNX metadata from %s: %s", onnx_path, e
-            )
+            logger.warning("Failed to read ONNX metadata from %s: %s", onnx_path, e)
 
         return model_family, names
 

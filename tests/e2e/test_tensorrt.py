@@ -23,7 +23,6 @@ from .conftest import (
     match_detections,
     requires_rfdetr,
     requires_tensorrt,
-    results_are_acceptable,
     run_consistency_test,
     run_export_compare_test,
 )
@@ -63,7 +62,10 @@ class TestTensorRTExportFP16:
     def _run_fp16_test(self, model_type, size, sample_image, tmp_path):
         """Common FP16 test implementation."""
         run_export_compare_test(
-            model_type, size, sample_image, tmp_path,
+            model_type,
+            size,
+            sample_image,
+            tmp_path,
             format="tensorrt",
             export_kwargs={"half": True},
             device="cuda",
@@ -90,7 +92,10 @@ class TestTensorRTExportFP32:
     def _run_fp32_test(self, model_type, size, sample_image, tmp_path):
         """Common FP32 test implementation."""
         run_export_compare_test(
-            model_type, size, sample_image, tmp_path,
+            model_type,
+            size,
+            sample_image,
+            tmp_path,
             format="tensorrt",
             export_kwargs={"half": False},
             device="cuda",
@@ -112,10 +117,10 @@ class TestTensorRTExportINT8:
         """Common INT8 test implementation."""
         # Check for cuda-python or pycuda
         try:
-            from cuda.bindings import runtime as cudart
+            from cuda.bindings import runtime as cudart  # noqa: F401
         except ImportError:
             try:
-                import pycuda.driver
+                import pycuda.driver  # noqa: F401
             except ImportError:
                 pytest.skip("INT8 requires cuda-python or pycuda")
 
@@ -143,13 +148,16 @@ class TestTensorRTExportINT8:
 
         # Load TensorRT engine
         from libreyolo import LibreYOLO
+
         trt_model = LibreYOLO(exported_path, device="cuda")
 
         # Run TensorRT inference
         trt_results = trt_model(sample_image, conf=0.25)
 
         # INT8 may have lower accuracy but should still detect objects
-        match_rate, matched, total = match_detections(pt_results, trt_results, iou_threshold=0.3)
+        match_rate, matched, total = match_detections(
+            pt_results, trt_results, iou_threshold=0.3
+        )
 
         # INT8 tolerances are more relaxed
         det_diff = abs(len(pt_results) - len(trt_results))
@@ -183,6 +191,7 @@ class TestTensorRTEngineLoading:
 
         # Load and verify metadata
         from libreyolo import LibreYOLO
+
         trt_model = LibreYOLO(engine_path, device="cuda")
 
         assert trt_model.model_type == model_type
@@ -197,7 +206,10 @@ class TestTensorRTEngineLoading:
     def test_engine_multiple_inference(self, model_type, size, sample_image, tmp_path):
         """Test that engines can run multiple inferences."""
         run_consistency_test(
-            model_type, size, sample_image, tmp_path,
+            model_type,
+            size,
+            sample_image,
+            tmp_path,
             format="tensorrt",
             export_kwargs={"half": True},
             device="cuda",
@@ -224,6 +236,7 @@ class TestTensorRTExportConfig:
 
         # Verify inference works
         from libreyolo import LibreYOLO
+
         trt_model = LibreYOLO(exported_path, device="cuda")
         result = trt_model(sample_image, conf=0.25)
 
@@ -262,7 +275,9 @@ class TestTensorRTInferenceSpeed:
     @requires_tensorrt
     @pytest.mark.slow
     @pytest.mark.parametrize("model_type,size", QUICK_TEST_MODELS)
-    def test_tensorrt_faster_than_pytorch(self, model_type, size, sample_image, tmp_path):
+    def test_tensorrt_faster_than_pytorch(
+        self, model_type, size, sample_image, tmp_path
+    ):
         """Verify TensorRT inference is faster than PyTorch."""
         import time
 
@@ -273,6 +288,7 @@ class TestTensorRTInferenceSpeed:
         pt_model.export(format="tensorrt", output_path=engine_path, half=True)
 
         from libreyolo import LibreYOLO
+
         trt_model = LibreYOLO(engine_path, device="cuda")
 
         # Warmup
@@ -300,8 +316,8 @@ class TestTensorRTInferenceSpeed:
 
         # TensorRT should be at least 1.2x faster (conservative)
         assert speedup >= 1.0, (
-            f"TensorRT not faster: PT={pt_time*1000:.1f}ms, "
-            f"TRT={trt_time*1000:.1f}ms, speedup={speedup:.2f}x"
+            f"TensorRT not faster: PT={pt_time * 1000:.1f}ms, "
+            f"TRT={trt_time * 1000:.1f}ms, speedup={speedup:.2f}x"
         )
 
         del pt_model, trt_model

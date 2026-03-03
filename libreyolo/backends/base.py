@@ -99,7 +99,7 @@ class BaseBackend(ABC):
 
     def __call__(
         self,
-        source: Union[str, Path, Image.Image, np.ndarray] = None,
+        source: Union[str, Path, Image.Image, np.ndarray, None] = None,
         *,
         conf: float = 0.25,
         iou: float = 0.45,
@@ -108,7 +108,7 @@ class BaseBackend(ABC):
         max_det: int = 300,
         save: bool = False,
         batch: int = 1,
-        output_path: str = None,
+        output_path: str | None = None,
         color_format: str = "auto",
     ) -> Union[Results, List[Results]]:
         """Run inference on an image or directory of images."""
@@ -154,7 +154,7 @@ class BaseBackend(ABC):
         image_paths: List[Path],
         batch: int = 1,
         save: bool = False,
-        output_path: str = None,
+        output_path: str | None = None,
         conf: float = 0.25,
         iou: float = 0.45,
         imgsz: Optional[int] = None,
@@ -186,7 +186,7 @@ class BaseBackend(ABC):
         self,
         image: Union[str, Path, Image.Image, np.ndarray],
         save: bool = False,
-        output_path: str = None,
+        output_path: str | None = None,
         conf: float = 0.25,
         iou: float = 0.45,
         imgsz: Optional[int] = None,
@@ -293,11 +293,11 @@ class BaseBackend(ABC):
         elif self.model_family == "rfdetr":
             return self._parse_rfdetr(all_outputs, orig_w, orig_h, conf)
         else:
-            return self._parse_yolo9(
-                all_outputs, effective_imgsz, orig_w, orig_h, conf
-            )
+            return self._parse_yolo9(all_outputs, effective_imgsz, orig_w, orig_h, conf)
 
-    def _parse_yolox(self, all_outputs, effective_imgsz, orig_w, orig_h, conf, ratio=1.0):
+    def _parse_yolox(
+        self, all_outputs, effective_imgsz, orig_w, orig_h, conf, ratio=1.0
+    ):
         """Parse YOLOX output: (B, N, 5+nc) — cxcywh + objectness + class_scores."""
         outputs = all_outputs[0][0]  # (N, 5+nc)
 
@@ -358,9 +358,7 @@ class BaseBackend(ABC):
         boxes_raw = all_outputs[0][0]  # (300, 4) normalized cxcywh
         logits = all_outputs[1][0]  # (300, nc) raw logits
 
-        scores = 1.0 / (1.0 + np.exp(-logits.astype(np.float64))).astype(
-            np.float32
-        )
+        scores = 1.0 / (1.0 + np.exp(-logits.astype(np.float64))).astype(np.float32)
 
         max_scores = np.max(scores, axis=1)
         class_ids = np.argmax(scores, axis=1)
@@ -375,6 +373,7 @@ class BaseBackend(ABC):
         # Apply COCO 91→80 class mapping if needed
         if logits.shape[1] == 91 and self.nb_classes == 80:
             from ..models.rfdetr.model import _COCO91_TO_COCO80
+
             mapped = np.array([_COCO91_TO_COCO80.get(int(c), -1) for c in class_ids])
             valid = mapped >= 0
             boxes_raw = boxes_raw[valid]

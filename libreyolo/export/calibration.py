@@ -8,7 +8,7 @@ to TensorRT for computing quantization scales.
 import cv2
 import numpy as np
 from pathlib import Path
-from typing import Iterator, List, Optional
+from typing import Iterator
 
 from libreyolo.data.utils import load_data_config, get_img_files
 
@@ -73,7 +73,7 @@ class CalibrationDataLoader:
             # Resolve from directory/file path - prefer train for more diversity
             train_path = data_config.get("train") or data_config.get("val")
             if train_path is None:
-                raise ValueError(f"Dataset config must have 'train' or 'val' key")
+                raise ValueError("Dataset config must have 'train' or 'val' key")
 
             # Get image file list
             self.img_files = get_img_files(train_path, prefix=str(root))
@@ -84,7 +84,7 @@ class CalibrationDataLoader:
         # Apply fraction
         total = len(self.img_files)
         self.num_samples = max(1, int(total * self.fraction))
-        self.img_files = self.img_files[:self.num_samples]
+        self.img_files = self.img_files[: self.num_samples]
 
         # Compute number of batches
         self._num_batches = (self.num_samples + self.batch - 1) // self.batch

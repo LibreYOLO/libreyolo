@@ -82,7 +82,10 @@ class TestNCNNExportFP32:
     def _run_fp32_test(self, model_type, size, sample_image, tmp_path):
         """Common FP32 test implementation."""
         exported_path, _, _ = run_export_compare_test(
-            model_type, size, sample_image, tmp_path,
+            model_type,
+            size,
+            sample_image,
+            tmp_path,
             format="ncnn",
             export_kwargs={"half": False},
             device="cpu",
@@ -90,7 +93,9 @@ class TestNCNNExportFP32:
 
         # ncnn-specific: verify directory structure
         exported_dir = Path(exported_path)
-        assert (exported_dir / "model.ncnn.param").exists(), "model.ncnn.param not found"
+        assert (exported_dir / "model.ncnn.param").exists(), (
+            "model.ncnn.param not found"
+        )
         assert (exported_dir / "model.ncnn.bin").exists(), "model.ncnn.bin not found"
 
 
@@ -121,7 +126,10 @@ class TestNCNNExportFP16:
     def _run_fp16_test(self, model_type, size, sample_image, tmp_path):
         """Common FP16 test implementation."""
         exported_path, _, _ = run_export_compare_test(
-            model_type, size, sample_image, tmp_path,
+            model_type,
+            size,
+            sample_image,
+            tmp_path,
             format="ncnn",
             export_kwargs={"half": True},
             device="cpu",
@@ -129,7 +137,9 @@ class TestNCNNExportFP16:
 
         # ncnn-specific: verify directory structure
         exported_dir = Path(exported_path)
-        assert (exported_dir / "model.ncnn.param").exists(), "model.ncnn.param not found"
+        assert (exported_dir / "model.ncnn.param").exists(), (
+            "model.ncnn.param not found"
+        )
         assert (exported_dir / "model.ncnn.bin").exists(), "model.ncnn.bin not found"
 
 
@@ -173,7 +183,9 @@ class TestNCNNMetadata:
     def test_metadata_round_trip(self, model_type, size, tmp_path):
         """Test that metadata is correctly loaded when loading ncnn model."""
         run_metadata_round_trip_test(
-            model_type, size, tmp_path,
+            model_type,
+            size,
+            tmp_path,
             format="ncnn",
             export_kwargs={"half": False},
             device="cpu",
@@ -195,7 +207,9 @@ class TestNCNNFactory:
 
         ncnn_path = str(tmp_path / f"{model_type}_{size}_ncnn")
         exported_path = pt_model.export(
-            format="ncnn", output_path=ncnn_path, half=False,
+            format="ncnn",
+            output_path=ncnn_path,
+            half=False,
         )
 
         # Load through factory
@@ -207,7 +221,9 @@ class TestNCNNFactory:
         # Run inference and compare
         factory_results = factory_model(sample_image, conf=0.25)
         match_rate, matched, total = match_detections(pt_results, factory_results)
-        assert results_are_acceptable(match_rate, len(pt_results), len(factory_results)), (
+        assert results_are_acceptable(
+            match_rate, len(pt_results), len(factory_results)
+        ), (
             f"Results mismatch: PT={len(pt_results)}, Factory={len(factory_results)}, "
             f"matched={matched}/{total}, rate={match_rate:.2%}"
         )
@@ -227,7 +243,9 @@ class TestNCNNBackend:
         pt_model = load_model(model_type, size, device="cpu")
         ncnn_path = str(tmp_path / f"{model_type}_{size}_ncnn")
         exported_path = pt_model.export(
-            format="ncnn", output_path=ncnn_path, half=False,
+            format="ncnn",
+            output_path=ncnn_path,
+            half=False,
         )
 
         ncnn_model = NcnnBackend(exported_path)
@@ -247,7 +265,9 @@ class TestNCNNBackend:
         pt_model = load_model(model_type, size, device="cpu")
         ncnn_path = str(tmp_path / f"{model_type}_{size}_ncnn")
         exported_path = pt_model.export(
-            format="ncnn", output_path=ncnn_path, half=False,
+            format="ncnn",
+            output_path=ncnn_path,
+            half=False,
         )
 
         save_path = str(tmp_path / "annotated.jpg")
@@ -268,7 +288,9 @@ class TestNCNNBackend:
         pt_model = load_model(model_type, size, device="cpu")
         ncnn_path = str(tmp_path / f"{model_type}_{size}_ncnn")
         exported_path = pt_model.export(
-            format="ncnn", output_path=ncnn_path, half=False,
+            format="ncnn",
+            output_path=ncnn_path,
+            half=False,
         )
 
         ncnn_model = NcnnBackend(exported_path)
@@ -293,7 +315,10 @@ class TestNCNNMultipleInference:
     def test_consistent_results(self, model_type, size, sample_image, tmp_path):
         """Test that ncnn model produces consistent results across runs."""
         run_consistency_test(
-            model_type, size, sample_image, tmp_path,
+            model_type,
+            size,
+            sample_image,
+            tmp_path,
             format="ncnn",
             export_kwargs={"half": False},
             device="cpu",

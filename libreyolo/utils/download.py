@@ -74,8 +74,9 @@ def download_weights(model_path: str, size: str):
                     if total_size > 0:
                         percent = int(100 * downloaded / total_size)
                         print(
-                            f"\rDownloading: {percent}% ({downloaded/1024/1024:.1f}/{total_size/1024/1024:.1f} MB)",
-                            end="", flush=True,
+                            f"\rDownloading: {percent}% ({downloaded / 1024 / 1024:.1f}/{total_size / 1024 / 1024:.1f} MB)",
+                            end="",
+                            flush=True,
                         )
             print("\nDownload complete.")
     except Exception as e:

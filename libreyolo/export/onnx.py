@@ -6,7 +6,6 @@ dynamic axes, FP16 precision, and embedded metadata.
 """
 
 import importlib.util
-import json
 import warnings
 
 import torch
@@ -79,7 +78,9 @@ def export_onnx(
         # Older PyTorch versions don't have dynamo parameter
         torch.onnx.export(nn_model, dummy, output_path, **export_kwargs)
 
-    _postprocess_onnx(output_path, simplify=simplify, dynamic=dynamic, half=half, metadata=metadata)
+    _postprocess_onnx(
+        output_path, simplify=simplify, dynamic=dynamic, half=half, metadata=metadata
+    )
 
     return output_path
 

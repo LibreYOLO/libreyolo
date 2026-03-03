@@ -49,44 +49,43 @@ class LibreYOLO9(BaseModel):
     def can_load(cls, weights_dict: dict) -> bool:
         """Check if a state dict belongs to a YOLOv9 model."""
         keys_lower = [k.lower() for k in weights_dict]
-        return (
-            any('repncspelan' in k or 'adown' in k or 'sppelan' in k for k in keys_lower)
-            or any('backbone.elan' in k or 'neck.elan' in k for k in weights_dict)
-        )
+        return any(
+            "repncspelan" in k or "adown" in k or "sppelan" in k for k in keys_lower
+        ) or any("backbone.elan" in k or "neck.elan" in k for k in weights_dict)
 
     @classmethod
     def detect_size(cls, weights_dict: dict) -> Optional[str]:
         """Detect YOLOv9 model size from state dict channel counts."""
-        key = 'backbone.conv0.conv.weight'
+        key = "backbone.conv0.conv.weight"
         if key not in weights_dict:
             return None
         first_channel = weights_dict[key].shape[0]
         if first_channel == 16:
-            return 't'
+            return "t"
         if first_channel == 64:
-            return 'c'
+            return "c"
         if first_channel == 32:
-            secondary_key = 'backbone.elan1.cv1.conv.weight'
+            secondary_key = "backbone.elan1.cv1.conv.weight"
             if secondary_key in weights_dict:
                 mid_channel = weights_dict[secondary_key].shape[0]
                 if mid_channel == 64:
-                    return 's'
+                    return "s"
                 elif mid_channel == 128:
-                    return 'm'
+                    return "m"
         return None
 
     @classmethod
     def detect_nb_classes(cls, weights_dict: dict) -> Optional[int]:
         """Detect number of classes from YOLOv9 state dict."""
         for key, tensor in weights_dict.items():
-            if re.match(r'head\.cv3\.\d+\.2\.weight', key):
+            if re.match(r"head\.cv3\.\d+\.2\.weight", key):
                 return tensor.shape[0]
         return None
 
     @classmethod
     def detect_size_from_filename(cls, filename: str) -> Optional[str]:
         """Extract size from filename pattern like LibreYOLO9t.pt."""
-        m = re.search(r'libreyolo9([tsmc])\.pt', filename.lower())
+        m = re.search(r"libreyolo9([tsmc])\.pt", filename.lower())
         return m.group(1) if m else None
 
     # =========================================================================
@@ -125,6 +124,7 @@ class LibreYOLO9(BaseModel):
     @staticmethod
     def _get_preprocess_numpy():
         from .utils import preprocess_numpy
+
         return preprocess_numpy
 
     def _init_model(self) -> nn.Module:
@@ -153,10 +153,15 @@ class LibreYOLO9(BaseModel):
         }
 
     def _preprocess(
-        self, image: ImageInput, color_format: str = "auto", input_size: Optional[int] = None,
+        self,
+        image: ImageInput,
+        color_format: str = "auto",
+        input_size: Optional[int] = None,
     ) -> Tuple[torch.Tensor, Image.Image, Tuple[int, int], float]:
         effective_size = input_size if input_size is not None else 640
-        tensor, img, size = preprocess_image(image, input_size=effective_size, color_format=color_format)
+        tensor, img, size = preprocess_image(
+            image, input_size=effective_size, color_format=color_format
+        )
         return tensor, img, size, 1.0
 
     def _forward(self, input_tensor: torch.Tensor) -> Any:
@@ -171,7 +176,7 @@ class LibreYOLO9(BaseModel):
         max_det: int = 300,
         **kwargs,
     ) -> Dict:
-        actual_input_size = kwargs.get('input_size', 640)
+        actual_input_size = kwargs.get("input_size", 640)
         return postprocess(
             output,
             conf_thres=conf_thres,
@@ -179,7 +184,7 @@ class LibreYOLO9(BaseModel):
             input_size=actual_input_size,
             original_size=original_size,
             max_det=max_det,
-            letterbox=kwargs.get('letterbox', False),
+            letterbox=kwargs.get("letterbox", False),
         )
 
     def _prepare_state_dict(self, state_dict: dict) -> dict:
@@ -190,7 +195,9 @@ class LibreYOLO9(BaseModel):
         """
         remapped = {}
         for key, value in state_dict.items():
-            new_key = key.replace("detect.", "head.", 1) if key.startswith("detect.") else key
+            new_key = (
+                key.replace("detect.", "head.", 1) if key.startswith("detect.") else key
+            )
             remapped[new_key] = value
         return remapped
 
@@ -232,27 +239,22 @@ class LibreYOLO9(BaseModel):
         epochs: int = 300,
         batch: int = 16,
         imgsz: int = 640,
-
         # Optimizer parameters
         lr0: float = 0.01,
         optimizer: str = "SGD",
-
         # System parameters
         device: str = "",
         workers: int = 8,
         seed: int = 0,
-
         # Output parameters
         project: str = "runs/train",
         name: str = "yolo9_exp",
         exist_ok: bool = False,
-
         # Training features
         resume: bool = False,
         amp: bool = True,
         patience: int = 50,
-
-        **kwargs
+        **kwargs,
     ) -> dict:
         """
         Train the YOLOv9 model on a dataset.
@@ -309,12 +311,12 @@ class LibreYOLO9(BaseModel):
         # Load and validate data config
         try:
             data_config = load_data_config(data, autodownload=True)
-            data = data_config.get('yaml_file', data)
+            data = data_config.get("yaml_file", data)
         except Exception as e:
             raise FileNotFoundError(f"Failed to load dataset config '{data}': {e}")
 
         # Reconcile nb_classes with dataset
-        yaml_nc = data_config.get('nc')
+        yaml_nc = data_config.get("nc")
         if yaml_nc is not None and yaml_nc != self.nb_classes:
             self._rebuild_for_new_classes(yaml_nc)
 
@@ -322,6 +324,7 @@ class LibreYOLO9(BaseModel):
         if seed > 0:
             import random
             import numpy as np
+
             random.seed(seed)
             np.random.seed(seed)
             torch.manual_seed(seed)
@@ -366,7 +369,7 @@ class LibreYOLO9(BaseModel):
         results = trainer.train()
 
         # Load best model weights into current instance
-        if Path(results['best_checkpoint']).exists():
-            self._load_weights(results['best_checkpoint'])
+        if Path(results["best_checkpoint"]).exists():
+            self._load_weights(results["best_checkpoint"])
 
         return results

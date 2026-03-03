@@ -24,6 +24,7 @@ from .torchscript import export_torchscript
 
 # ── Precision helpers ───────────────────────────────────────────────────────
 
+
 def _resolve_precision(half: bool, int8: bool) -> str:
     if int8:
         return "int8"
@@ -39,6 +40,7 @@ def _precision_label(precision: str) -> str:
 # ═════════════════════════════════════════════════════════════════════════════
 # BaseExporter ABC
 # ═════════════════════════════════════════════════════════════════════════════
+
 
 class BaseExporter(ABC):
     """Abstract base for all export formats.
@@ -61,11 +63,11 @@ class BaseExporter(ABC):
     _registry: dict[str, type["BaseExporter"]] = {}
 
     # ── Class attributes (overridden by each subclass) ──────────────────────
-    format_name: str          # e.g. "onnx"
-    suffix: str               # e.g. ".onnx"
-    requires_onnx: bool       # TensorRT/OpenVINO need intermediate ONNX
-    supports_int8: bool       # only TensorRT/OpenVINO support INT8 calibration
-    apply_model_half: bool    # whether to cast model to fp16 (only ONNX/TorchScript)
+    format_name: str  # e.g. "onnx"
+    suffix: str  # e.g. ".onnx"
+    requires_onnx: bool  # TensorRT/OpenVINO need intermediate ONNX
+    supports_int8: bool  # only TensorRT/OpenVINO support INT8 calibration
+    apply_model_half: bool  # whether to cast model to fp16 (only ONNX/TorchScript)
 
     def __init_subclass__(cls, **kwargs):
         super().__init_subclass__(**kwargs)
@@ -133,7 +135,11 @@ class BaseExporter(ABC):
 
         # 2. Resolve common parameters
         imgsz, device, output_path = self._resolve_params(
-            output_path, imgsz, device, half, int8,
+            output_path,
+            imgsz,
+            device,
+            half,
+            int8,
         )
 
         Path(output_path).parent.mkdir(parents=True, exist_ok=True)
@@ -142,18 +148,34 @@ class BaseExporter(ABC):
 
         # 3. Setup → export → teardown
         with self._model_context(device, half, batch, imgsz) as (nn_model, dummy):
-            calibration_data = self._load_calibration(
-                data, imgsz, batch, fraction,
-            ) if int8 and data is not None else None
+            calibration_data = (
+                self._load_calibration(
+                    data,
+                    imgsz,
+                    batch,
+                    fraction,
+                )
+                if int8 and data is not None
+                else None
+            )
 
-            onnx_path = self._export_intermediate_onnx(
-                nn_model, dummy, output_path, opset, simplify,
-            ) if self.requires_onnx else None
+            onnx_path = (
+                self._export_intermediate_onnx(
+                    nn_model,
+                    dummy,
+                    output_path,
+                    opset,
+                    simplify,
+                )
+                if self.requires_onnx
+                else None
+            )
 
             metadata = self._build_metadata(precision, dynamic, onnx_path)
 
             result = self._export(
-                nn_model, dummy,
+                nn_model,
+                dummy,
                 output_path=output_path,
                 precision=precision,
                 metadata=metadata,
@@ -185,10 +207,16 @@ class BaseExporter(ABC):
         dummy,
         *,
         output_path: str,
-        precision: str,
-        metadata: dict,
+        precision: str = "fp32",
+        metadata: dict | None = None,
         calibration_data=None,
-        onnx_path: Optional[str] = None,
+        onnx_path: str | None = None,
+        half: bool = False,
+        int8: bool = False,
+        dynamic: bool = False,
+        opset: int = 13,
+        simplify: bool = True,
+        verbose: bool = False,
         **kwargs,
     ) -> str:
         """Format-specific export logic. Subclasses implement this only."""
@@ -241,28 +269,37 @@ class BaseExporter(ABC):
         # Set export mode for YOLOX/YOLOv9 heads
         original_export = None
         export_attr = None
-        if hasattr(nn_model, 'head') and hasattr(nn_model.head, 'export'):
-            export_attr = 'head'
+        if hasattr(nn_model, "head") and hasattr(nn_model.head, "export"):
+            export_attr = "head"
             original_export = nn_model.head.export
             nn_model.head.export = True
 
         # RF-DETR export mode
         rfdetr_export_activated = False
         rfdetr_layernorm_patches = []
-        inner = getattr(nn_model, 'model', None)
-        if inner is not None and hasattr(inner, 'forward_export') and hasattr(inner, '_export'):
+        inner = getattr(nn_model, "model", None)
+        if (
+            inner is not None
+            and hasattr(inner, "forward_export")
+            and hasattr(inner, "_export")
+        ):
             if not inner._export:
                 inner.export()
                 rfdetr_export_activated = True
 
             try:
-                from rfdetr.models.backbone.projector import LayerNorm as RFDETRLayerNorm
+                from rfdetr.models.backbone.projector import (
+                    LayerNorm as RFDETRLayerNorm,
+                )
+
                 for m in nn_model.modules():
                     if isinstance(m, RFDETRLayerNorm):
                         rfdetr_layernorm_patches.append((m, m.forward))
                         ns = m.normalized_shape
 
-                        def _static_forward(x, _ns=ns, _w=m.weight, _b=m.bias, _eps=m.eps):
+                        def _static_forward(
+                            x, _ns=ns, _w=m.weight, _b=m.bias, _eps=m.eps
+                        ):
                             x = x.permute(0, 2, 3, 1)
                             x = torch.nn.functional.layer_norm(x, _ns, _w, _b, _eps)
                             return x.permute(0, 3, 1, 2)
@@ -316,7 +353,8 @@ class BaseExporter(ABC):
         onnx_output = str(Path(output_path).with_suffix(".onnx"))
         print(f"Step 1/2: Exporting to ONNX ({onnx_output})")
         return export_onnx(
-            nn_model, dummy,
+            nn_model,
+            dummy,
             output_path=onnx_output,
             opset=opset,
             simplify=simplify,
@@ -325,7 +363,9 @@ class BaseExporter(ABC):
             metadata=self._build_onnx_metadata(dynamic=False, half=False),
         )
 
-    def _build_metadata(self, precision: str, dynamic: bool, onnx_path: Optional[str]) -> dict:
+    def _build_metadata(
+        self, precision: str, dynamic: bool, onnx_path: Optional[str]
+    ) -> dict:
         """Build metadata dict for non-ONNX formats (native Python types)."""
         meta = {
             "libreyolo_version": _get_version(),
@@ -348,9 +388,7 @@ class BaseExporter(ABC):
             "model_family": self.model._get_model_name(),
             "model_size": self.model.size,
             "nb_classes": str(self.model.nb_classes),
-            "names": json.dumps(
-                {str(k): v for k, v in self.model.names.items()}
-            ),
+            "names": json.dumps({str(k): v for k, v in self.model.names.items()}),
             "imgsz": str(self.model._get_input_size()),
             "dynamic": str(dynamic),
             "half": str(half),
@@ -370,6 +408,7 @@ class BaseExporter(ABC):
 # Subclasses — one per format
 # ═════════════════════════════════════════════════════════════════════════════
 
+
 class OnnxExporter(BaseExporter):
     format_name = "onnx"
     suffix = ".onnx"
@@ -377,10 +416,22 @@ class OnnxExporter(BaseExporter):
     supports_int8 = False
     apply_model_half = True
 
-    def _export(self, nn_model, dummy, *, output_path, metadata, half, dynamic,
-                opset, simplify, **kwargs):
+    def _export(
+        self,
+        nn_model,
+        dummy,
+        *,
+        output_path,
+        metadata,
+        half,
+        dynamic,
+        opset,
+        simplify,
+        **kwargs,
+    ):
         return export_onnx(
-            nn_model, dummy,
+            nn_model,
+            dummy,
             output_path=output_path,
             opset=opset,
             simplify=simplify,
@@ -408,10 +459,26 @@ class TensorRTExporter(BaseExporter):
     supports_int8 = True
     apply_model_half = False
 
-    def _export(self, nn_model, dummy, *, output_path, precision, metadata,
-                calibration_data, onnx_path, half, int8, dynamic, verbose,
-                workspace=4.0, hardware_compatibility="none",
-                gpu_device=0, trt_config=None, **kwargs):
+    def _export(
+        self,
+        nn_model,
+        dummy,
+        *,
+        output_path,
+        precision,
+        metadata,
+        calibration_data,
+        onnx_path,
+        half,
+        int8,
+        dynamic,
+        verbose,
+        workspace=4.0,
+        hardware_compatibility="none",
+        gpu_device=0,
+        trt_config=None,
+        **kwargs,
+    ):
         from .tensorrt import export_tensorrt
 
         print("Step 2/2: Building TensorRT engine")
@@ -438,8 +505,20 @@ class OpenVINOExporter(BaseExporter):
     supports_int8 = True
     apply_model_half = False
 
-    def _export(self, nn_model, dummy, *, output_path, metadata,
-                calibration_data, onnx_path, half, int8, verbose, **kwargs):
+    def _export(
+        self,
+        nn_model,
+        dummy,
+        *,
+        output_path,
+        metadata,
+        calibration_data,
+        onnx_path,
+        half,
+        int8,
+        verbose,
+        **kwargs,
+    ):
         from .openvino import export_openvino
 
         print("Step 2/2: Converting to OpenVINO IR")
@@ -467,13 +546,15 @@ class NcnnExporter(BaseExporter):
         meta.pop("exported_from", None)
         return meta
 
-    def _export(self, nn_model, dummy, *, output_path, metadata, half,
-                opset, simplify, **kwargs):
+    def _export(
+        self, nn_model, dummy, *, output_path, metadata, half, opset, simplify, **kwargs
+    ):
         from .ncnn import export_ncnn
 
         print("Exporting to ncnn via PNNX")
         return export_ncnn(
-            nn_model, dummy,
+            nn_model,
+            dummy,
             output_path=output_path,
             half=half,
             opset=opset,

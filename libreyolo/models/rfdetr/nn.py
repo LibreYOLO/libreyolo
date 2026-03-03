@@ -21,10 +21,10 @@ from rfdetr.config import (
 
 # Model configurations mapping size code to config class
 RFDETR_CONFIGS = {
-    'n': RFDETRNanoConfig,
-    's': RFDETRSmallConfig,
-    'm': RFDETRMediumConfig,
-    'l': RFDETRLargeConfig,
+    "n": RFDETRNanoConfig,
+    "s": RFDETRSmallConfig,
+    "m": RFDETRMediumConfig,
+    "l": RFDETRLargeConfig,
 }
 
 
@@ -38,10 +38,10 @@ class LibreRFDETRModel(nn.Module):
 
     def __init__(
         self,
-        config: str = 's',
+        config: str = "s",
         nb_classes: int = 80,
-        pretrain_weights: str = None,
-        device: str = 'cpu',
+        pretrain_weights: str | None = None,
+        device: str = "cpu",
     ):
         """
         Initialize RF-DETR model.
@@ -55,7 +55,9 @@ class LibreRFDETRModel(nn.Module):
         super().__init__()
 
         if config not in RFDETR_CONFIGS:
-            raise ValueError(f"Invalid config: {config}. Must be one of: {list(RFDETR_CONFIGS.keys())}")
+            raise ValueError(
+                f"Invalid config: {config}. Must be one of: {list(RFDETR_CONFIGS.keys())}"
+            )
 
         self.config_name = config
         self.nb_classes = nb_classes
@@ -70,11 +72,11 @@ class LibreRFDETRModel(nn.Module):
         self.resolution = model_config.resolution
         self.hidden_dim = model_config.hidden_dim
         # num_queries is defined in base config, should be inherited
-        self.num_queries = getattr(model_config, 'num_queries', 300)
+        self.num_queries = getattr(model_config, "num_queries", 300)
 
         # Use RF-DETR's Model class which handles all the complexity
         config_dict = model_config.dict()
-        config_dict['device'] = device  # Override device
+        config_dict["device"] = device  # Override device
         self._rfdetr = RFDETRMainModel(**config_dict)
 
         # Reference the actual PyTorch model
@@ -103,8 +105,8 @@ class LibreRFDETRModel(nn.Module):
     def load_state_dict(self, state_dict, strict=True):
         """Load state dict into the wrapped model."""
         # Handle checkpoint format (may have 'model' key)
-        if 'model' in state_dict:
-            state_dict = state_dict['model']
+        if "model" in state_dict:
+            state_dict = state_dict["model"]
         return self.model.load_state_dict(state_dict, strict=strict)
 
     def state_dict(self, *args, **kwargs):
@@ -128,10 +130,10 @@ class LibreRFDETRModel(nn.Module):
 
 
 def create_rfdetr_model(
-    config: str = 's',
+    config: str = "s",
     nb_classes: int = 80,
-    pretrain_weights: str = None,
-    device: str = 'cpu',
+    pretrain_weights: str | None = None,
+    device: str = "cpu",
 ) -> LibreRFDETRModel:
     """
     Create an RF-DETR model.
@@ -155,10 +157,10 @@ def create_rfdetr_model(
 
 # Export commonly used components
 __all__ = [
-    'LibreRFDETRModel',
-    'create_rfdetr_model',
-    'RFDETR_CONFIGS',
-    'LWDETR',
-    'MLP',
-    'PostProcess',
+    "LibreRFDETRModel",
+    "create_rfdetr_model",
+    "RFDETR_CONFIGS",
+    "LWDETR",
+    "MLP",
+    "PostProcess",
 ]

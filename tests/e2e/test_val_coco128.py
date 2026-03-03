@@ -22,7 +22,9 @@ MIN_MAP = 0.18  # Uniform threshold for all models
 
 
 @pytest.mark.parametrize(
-    "family,size,weights", ALL_MODELS_WITH_WEIGHTS, ids=make_ids(ALL_MODELS_WITH_WEIGHTS)
+    "family,size,weights",
+    ALL_MODELS_WITH_WEIGHTS,
+    ids=make_ids(ALL_MODELS_WITH_WEIGHTS),
 )
 def test_val_coco128(family, size, weights):
     """Validate a pretrained model on coco128 and check mAP >= 0.18."""

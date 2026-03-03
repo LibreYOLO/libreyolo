@@ -6,7 +6,6 @@ Postprocessing matches the original rfdetr implementation exactly.
 
 import numpy as np
 import torch
-import torch.nn.functional as F
 from typing import List, Dict, Tuple
 from PIL import Image
 
@@ -44,9 +43,7 @@ def preprocess_numpy(
 
 
 def postprocess(
-    outputs: Dict[str, torch.Tensor],
-    target_sizes: torch.Tensor,
-    num_select: int = 300
+    outputs: Dict[str, torch.Tensor], target_sizes: torch.Tensor, num_select: int = 300
 ) -> List[Dict[str, torch.Tensor]]:
     """
     Postprocess RF-DETR outputs to get final detections.
@@ -70,8 +67,8 @@ def postprocess(
             - labels: Tensor of shape (num_select,) with class IDs
             - boxes: Tensor of shape (num_select, 4) in xyxy format
     """
-    out_logits = outputs['pred_logits']  # (B, num_queries, num_classes)
-    out_bbox = outputs['pred_boxes']      # (B, num_queries, 4) in cxcywh [0, 1]
+    out_logits = outputs["pred_logits"]  # (B, num_queries, num_classes)
+    out_bbox = outputs["pred_boxes"]  # (B, num_queries, 4) in cxcywh [0, 1]
 
     assert len(out_logits) == len(target_sizes)
     assert target_sizes.shape[1] == 2
@@ -84,17 +81,13 @@ def postprocess(
     batch_size = out_logits.shape[0]
     num_classes = out_logits.shape[2]
 
-    topk_values, topk_indexes = torch.topk(
-        prob.view(batch_size, -1),
-        num_select,
-        dim=1
-    )
+    topk_values, topk_indexes = torch.topk(prob.view(batch_size, -1), num_select, dim=1)
 
     scores = topk_values
 
     # Convert flat indices to query indices and class indices
     topk_boxes = topk_indexes // num_classes  # Which query
-    labels = topk_indexes % num_classes        # Which class
+    labels = topk_indexes % num_classes  # Which class
 
     # Convert boxes from cxcywh to xyxy
     boxes = cxcywh_to_xyxy(out_bbox)
@@ -102,11 +95,7 @@ def postprocess(
     # Gather boxes for the selected queries
     # boxes shape: (B, num_queries, 4)
     # topk_boxes shape: (B, num_select)
-    boxes = torch.gather(
-        boxes,
-        1,
-        topk_boxes.unsqueeze(-1).repeat(1, 1, 4)
-    )
+    boxes = torch.gather(boxes, 1, topk_boxes.unsqueeze(-1).repeat(1, 1, 4))
 
     # Scale from relative [0, 1] to absolute [0, height/width] coordinates
     img_h, img_w = target_sizes.unbind(1)
@@ -115,8 +104,8 @@ def postprocess(
 
     # Build results list
     results = [
-        {'scores': s, 'labels': l, 'boxes': b}
-        for s, l, b in zip(scores, labels, boxes)
+        {"scores": s, "labels": lab, "boxes": b}
+        for s, lab, b in zip(scores, labels, boxes)
     ]
 
     return results

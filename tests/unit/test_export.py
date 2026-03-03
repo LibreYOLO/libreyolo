@@ -24,6 +24,7 @@ pytestmark = pytest.mark.unit
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 class _TinyModel(nn.Module):
     """Minimal model for export tests (no real weights needed)."""
 
@@ -101,6 +102,7 @@ class TestOutputPathGeneration:
         exporter = TorchScriptExporter(wrapper)
         with tempfile.TemporaryDirectory() as tmpdir:
             import os
+
             orig = os.getcwd()
             try:
                 os.chdir(tmpdir)
@@ -197,7 +199,8 @@ class TestTensorRTValidation:
         Note: Will fail later due to missing TensorRT (or ONNX), but validation should pass.
         """
         try:
-            import tensorrt
+            import tensorrt  # noqa: F401
+
             pytest.skip("TensorRT is installed, skipping missing TensorRT test")
         except ImportError:
             pass
@@ -217,7 +220,8 @@ class TestTensorRTImportCheck:
         """Verify helpful error message when TensorRT not installed."""
         # Skip if TensorRT is actually installed
         try:
-            import tensorrt
+            import tensorrt  # noqa: F401
+
             pytest.skip("TensorRT is installed, skipping missing TensorRT test")
         except ImportError:
             pass
@@ -237,14 +241,17 @@ class TestCalibrationDataLoader:
 
     def test_calibration_loader_import(self):
         """Verify calibration module can be imported."""
-        from libreyolo.export.calibration import CalibrationDataLoader, get_calibration_dataloader
+        from libreyolo.export.calibration import (
+            CalibrationDataLoader,
+            get_calibration_dataloader,
+        )
+
         assert CalibrationDataLoader is not None
         assert get_calibration_dataloader is not None
 
     def test_calibration_loader_properties(self):
         """Test calibration loader with mock data would have correct properties."""
         from libreyolo.export.calibration import CalibrationDataLoader
-        import numpy as np
 
         # Check that dtype and shape properties are defined
         assert hasattr(CalibrationDataLoader, "shape")
@@ -286,7 +293,8 @@ class TestOpenVINOValidation:
         Note: Will fail later due to missing OpenVINO (or ONNX), but validation should pass.
         """
         try:
-            import openvino
+            import openvino  # noqa: F401
+
             pytest.skip("OpenVINO is installed, skipping missing OpenVINO test")
         except ImportError:
             pass
@@ -305,7 +313,8 @@ class TestOpenVINOImportCheck:
     def test_check_openvino_raises_helpful_error(self):
         """Verify helpful error message when OpenVINO not installed."""
         try:
-            import openvino
+            import openvino  # noqa: F401
+
             pytest.skip("OpenVINO is installed, skipping missing OpenVINO test")
         except ImportError:
             pass
@@ -330,6 +339,7 @@ class TestExportPrecisionSuffix:
 
         with tempfile.TemporaryDirectory() as tmpdir:
             import os
+
             orig = os.getcwd()
             try:
                 os.chdir(tmpdir)
@@ -413,12 +423,14 @@ class TestTensorRTExportConfig:
         """Test creating config from dictionary."""
         from libreyolo.export.config import TensorRTExportConfig
 
-        config = TensorRTExportConfig.from_dict({
-            "precision": "int8",
-            "workspace": 8.0,
-            "hardware_compatibility": "ampere_plus",
-            "dynamic": {"enabled": True, "max_batch": 16},
-        })
+        config = TensorRTExportConfig.from_dict(
+            {
+                "precision": "int8",
+                "workspace": 8.0,
+                "hardware_compatibility": "ampere_plus",
+                "dynamic": {"enabled": True, "max_batch": 16},
+            }
+        )
 
         assert config.precision == "int8"
         assert config.workspace == 8.0

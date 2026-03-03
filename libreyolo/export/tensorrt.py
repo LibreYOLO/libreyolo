@@ -22,6 +22,7 @@ def check_tensorrt_available() -> None:
     """Check if TensorRT is available and raise helpful error if not."""
     try:
         import tensorrt as trt
+
         _ = trt.__version__
     except ImportError:
         raise ImportError(
@@ -118,6 +119,7 @@ def export_tensorrt(
     # Load config if provided
     if config is not None:
         from .config import load_export_config
+
         cfg = load_export_config(config)
         # Config values override function parameters
         half = cfg.half
@@ -181,13 +183,13 @@ def export_tensorrt(
         error_msgs = []
         for i in range(parser.num_errors):
             error_msgs.append(str(parser.get_error(i)))
-        raise RuntimeError(
-            f"Failed to parse ONNX model:\n" + "\n".join(error_msgs)
-        )
+        raise RuntimeError("Failed to parse ONNX model:\n" + "\n".join(error_msgs))
 
     # Log network info
-    print(f"Network: {network.num_inputs} inputs, {network.num_outputs} outputs, "
-          f"{network.num_layers} layers")
+    print(
+        f"Network: {network.num_inputs} inputs, {network.num_outputs} outputs, "
+        f"{network.num_layers} layers"
+    )
 
     # Create builder configuration
     builder_config = builder.create_builder_config()
@@ -216,8 +218,8 @@ def export_tensorrt(
         except AttributeError:
             # Older TensorRT versions may not have this attribute
             warnings.warn(
-                f"TensorRT version does not support hardware_compatibility_level. "
-                f"Engine will only work on current GPU architecture."
+                "TensorRT version does not support hardware_compatibility_level. "
+                "Engine will only work on current GPU architecture."
             )
 
     # Configure precision
@@ -228,9 +230,7 @@ def export_tensorrt(
             builder_config.set_flag(trt.BuilderFlag.FP16)
             precision_str = "FP16"
         else:
-            warnings.warn(
-                "GPU does not support fast FP16. Falling back to FP32."
-            )
+            warnings.warn("GPU does not support fast FP16. Falling back to FP32.")
 
     if int8:
         if builder.platform_has_fast_int8:
@@ -244,12 +244,12 @@ def export_tensorrt(
                 cache_file=str(Path(output_path).with_suffix(".cache")),
             )
             builder_config.int8_calibrator = calibrator
-            print(f"INT8 calibration: {len(calibration_data)} batches, "
-                  f"batch size {calibration_data.batch}")
-        else:
-            warnings.warn(
-                "GPU does not support fast INT8. Falling back to FP16."
+            print(
+                f"INT8 calibration: {len(calibration_data)} batches, "
+                f"batch size {calibration_data.batch}"
             )
+        else:
+            warnings.warn("GPU does not support fast INT8. Falling back to FP16.")
 
     print(f"Precision: {precision_str}")
 
@@ -278,13 +278,17 @@ def export_tensorrt(
             max_shape = (max_batch, c, h, w)
 
             profile.set_shape(input_name, min_shape, opt_shape, max_shape)
-            print(f"Dynamic input '{input_name}': "
-                  f"min={min_shape}, opt={opt_shape}, max={max_shape}")
+            print(
+                f"Dynamic input '{input_name}': "
+                f"min={min_shape}, opt={opt_shape}, max={max_shape}"
+            )
 
         builder_config.add_optimization_profile(profile)
     elif dynamic and not has_dynamic_batch:
         # ONNX has static batch, so we use static shape optimization
-        print(f"Note: ONNX has static batch size ({input_shape[0]}), using static optimization")
+        print(
+            f"Note: ONNX has static batch size ({input_shape[0]}), using static optimization"
+        )
 
     # Build the engine
     print("Building TensorRT engine... (this may take several minutes)")
@@ -353,7 +357,11 @@ def _create_calibrator_class():
                     batch = next(self.batch_iter)
                     self._batch_idx += 1
                     total = len(self.data_loader)
-                    print(f"\rCalibrating: batch {self._batch_idx}/{total}", end="", flush=True)
+                    print(
+                        f"\rCalibrating: batch {self._batch_idx}/{total}",
+                        end="",
+                        flush=True,
+                    )
                     device_ptr = self._ensure_cuda_memory(batch)
                     return [device_ptr]
                 except StopIteration:
@@ -367,13 +375,16 @@ def _create_calibrator_class():
                 # Try cuda-python/cuda-bindings first (newer, better maintained)
                 try:
                     from cuda.bindings import runtime as cudart
+
                     if self._device_input is None:
                         err, self._device_input = cudart.cudaMalloc(batch.nbytes)
                         if err != cudart.cudaError_t.cudaSuccess:
                             raise RuntimeError(f"cudaMalloc failed: {err}")
-                    err, = cudart.cudaMemcpy(
-                        self._device_input, batch.ctypes.data,
-                        batch.nbytes, cudart.cudaMemcpyKind.cudaMemcpyHostToDevice
+                    (err,) = cudart.cudaMemcpy(
+                        self._device_input,
+                        batch.ctypes.data,
+                        batch.nbytes,
+                        cudart.cudaMemcpyKind.cudaMemcpyHostToDevice,
                     )
                     if err != cudart.cudaError_t.cudaSuccess:
                         raise RuntimeError(f"cudaMemcpy failed: {err}")
@@ -402,6 +413,7 @@ def _create_calibrator_class():
                 if self._device_input is not None:
                     try:
                         from cuda.bindings import runtime as cudart
+
                         cudart.cudaFree(self._device_input)
                     except (ImportError, Exception):
                         pass  # pycuda frees via its own DeviceAllocation.__del__
@@ -422,8 +434,7 @@ def _create_calibrator_class():
 
     except ImportError:
         raise ImportError(
-            "INT8 calibration requires TensorRT.\n"
-            "Install with: pip install tensorrt"
+            "INT8 calibration requires TensorRT.\nInstall with: pip install tensorrt"
         )
 
 

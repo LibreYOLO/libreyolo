@@ -18,6 +18,7 @@ pytestmark = pytest.mark.unit
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 class _TinyModel(nn.Module):
     """Minimal model for export tests (no real weights needed)."""
 
@@ -72,7 +73,8 @@ class TestNCNNAvailabilityCheck:
     def test_check_ncnn_export_raises_helpful_error(self):
         """Verify helpful error message when pnnx not installed."""
         try:
-            import pnnx
+            import pnnx  # noqa: F401
+
             pytest.skip("pnnx is installed, skipping missing pnnx test")
         except ImportError:
             pass
@@ -148,7 +150,8 @@ class TestNCNNExportValidation:
     def test_ncnn_export_fails_without_pnnx(self):
         """ncnn export without pnnx should raise ImportError."""
         try:
-            import pnnx
+            import pnnx  # noqa: F401
+
             pytest.skip("pnnx is installed, skipping missing pnnx test")
         except ImportError:
             pass

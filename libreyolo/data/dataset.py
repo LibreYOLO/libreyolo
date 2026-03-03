@@ -7,7 +7,7 @@ Supports both COCO JSON format and YOLO txt format.
 import copy
 import os
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Union
+from typing import List, Tuple
 
 import cv2
 import numpy as np
@@ -32,12 +32,12 @@ class YOLODataset(Dataset):
 
     def __init__(
         self,
-        data_dir: str = None,
+        data_dir: str | None = None,
         split: str = "train",
         img_size: Tuple[int, int] = (640, 640),
         preproc=None,
-        img_files: List[Path] = None,
-        label_files: List[Path] = None,
+        img_files: List[Path] | None = None,
+        label_files: List[Path] | None = None,
     ):
         """
         Initialize YOLO dataset.
@@ -62,6 +62,7 @@ class YOLODataset(Dataset):
             else:
                 # Infer label paths from image paths
                 from libreyolo.data import img2label_paths
+
                 self.label_files = img2label_paths(self.img_files)
 
             self.data_dir = None
@@ -83,7 +84,7 @@ class YOLODataset(Dataset):
 
             # Collect image files from directory
             self.img_files = []
-            for ext in ['*.jpg', '*.jpeg', '*.png', '*.bmp']:
+            for ext in ["*.jpg", "*.jpeg", "*.png", "*.bmp"]:
                 self.img_files.extend(self.img_dir.glob(ext))
                 self.img_files.extend(self.img_dir.glob(ext.upper()))
             self.img_files = sorted(self.img_files)
@@ -121,7 +122,7 @@ class YOLODataset(Dataset):
         # Load labels
         labels = []
         if label_file.exists():
-            with open(label_file, 'r') as f:
+            with open(label_file, "r") as f:
                 for line in f:
                     parts = line.strip().split()
                     if len(parts) >= 5:

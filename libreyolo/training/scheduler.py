@@ -95,12 +95,16 @@ class LinearLRScheduler(BaseScheduler):
         if iters <= self.warmup_iters:
             # Linear warmup
             if self.warmup_iters > 0:
-                lr = (self.lr - self.warmup_lr_start) * iters / self.warmup_iters + self.warmup_lr_start
+                lr = (
+                    self.lr - self.warmup_lr_start
+                ) * iters / self.warmup_iters + self.warmup_lr_start
             else:
                 lr = self.lr
         else:
             # Linear decay
-            progress = (iters - self.warmup_iters) / max(1, self.total_iters - self.warmup_iters)
+            progress = (iters - self.warmup_iters) / max(
+                1, self.total_iters - self.warmup_iters
+            )
             lr = self.lr - (self.lr - self.min_lr) * progress
         return lr
 
@@ -131,11 +135,17 @@ class CosineAnnealingScheduler(BaseScheduler):
         if iters <= self.warmup_iters:
             # Linear warmup
             if self.warmup_iters > 0:
-                lr = (self.lr - self.warmup_lr_start) * iters / self.warmup_iters + self.warmup_lr_start
+                lr = (
+                    self.lr - self.warmup_lr_start
+                ) * iters / self.warmup_iters + self.warmup_lr_start
             else:
                 lr = self.lr
         else:
             # Cosine annealing
-            progress = (iters - self.warmup_iters) / max(1, self.total_iters - self.warmup_iters)
-            lr = self.min_lr + 0.5 * (self.lr - self.min_lr) * (1 + math.cos(math.pi * progress))
+            progress = (iters - self.warmup_iters) / max(
+                1, self.total_iters - self.warmup_iters
+            )
+            lr = self.min_lr + 0.5 * (self.lr - self.min_lr) * (
+                1 + math.cos(math.pi * progress)
+            )
         return lr

@@ -66,7 +66,9 @@ class YOLOXTrainer(BaseTrainer):
         }
 
     def on_setup(self):
-        if hasattr(self.model, "head") and hasattr(self.model.head, "initialize_biases"):
+        if hasattr(self.model, "head") and hasattr(
+            self.model.head, "initialize_biases"
+        ):
             self.model.head.initialize_biases(0.01)
 
     def on_mosaic_disable(self):

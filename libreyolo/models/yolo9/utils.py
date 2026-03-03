@@ -6,14 +6,13 @@ Provides preprocessing and postprocessing functions for YOLOv9 inference.
 
 import numpy as np
 import torch
-from typing import Tuple, Dict, List
+from typing import Tuple, Dict
 from PIL import Image
 
 # Import shared utilities
 from ...utils.general import (
-    COCO_CLASSES, make_anchors, nms, postprocess_detections,
+    postprocess_detections,
 )
-from ...utils.drawing import draw_boxes, get_class_color
 from ...utils.image_loader import ImageLoader, ImageInput
 
 
@@ -41,9 +40,7 @@ def preprocess_numpy(
 
 
 def preprocess_image(
-    image: ImageInput,
-    input_size: int = 640,
-    color_format: str = "auto"
+    image: ImageInput, input_size: int = 640, color_format: str = "auto"
 ) -> Tuple[torch.Tensor, Image.Image, Tuple[int, int]]:
     """
     Preprocess image for YOLOv9 inference.
@@ -70,7 +67,7 @@ def postprocess(
     conf_thres: float = 0.25,
     iou_thres: float = 0.45,
     input_size: int = 640,
-    original_size: Tuple[int, int] = None,
+    original_size: Tuple[int, int] | None = None,
     max_det: int = 300,
     letterbox: bool = False,
 ) -> Dict:
@@ -90,7 +87,7 @@ def postprocess(
     """
     # Get predictions from model output
     # Shape: (batch, 4+nc, total_anchors)
-    predictions = output['predictions']
+    predictions = output["predictions"]
 
     # Take first batch
     if predictions.dim() == 3:
@@ -111,12 +108,7 @@ def postprocess(
     # Apply confidence threshold
     mask = max_scores > conf_thres
     if not mask.any():
-        return {
-            "boxes": [],
-            "scores": [],
-            "classes": [],
-            "num_detections": 0
-        }
+        return {"boxes": [], "scores": [], "classes": [], "num_detections": 0}
 
     # Use shared postprocess pipeline
     return postprocess_detections(
@@ -133,9 +125,7 @@ def postprocess(
 
 
 def decode_boxes(
-    box_preds: torch.Tensor,
-    anchors: torch.Tensor,
-    stride_tensor: torch.Tensor
+    box_preds: torch.Tensor, anchors: torch.Tensor, stride_tensor: torch.Tensor
 ) -> torch.Tensor:
     """
     Decode box predictions to xyxy coordinates.

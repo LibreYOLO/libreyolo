@@ -18,6 +18,7 @@ from pycocotools.cocoeval import COCOeval
 
 from libreyolo import LibreYOLO
 
+
 # CUDA Timer
 class CUDATimer:
     def __init__(self):
@@ -33,6 +34,7 @@ class CUDATimer:
         torch.cuda.synchronize()
         return self.start_event.elapsed_time(self.end_event)
 
+
 # Simple test
 def test_yolox_s():
     print("Testing YOLOX-s benchmark...")
@@ -44,7 +46,7 @@ def test_yolox_s():
     img_dir = coco_path / "images" / "val2017"
 
     print(f"\n1. Loading model from {weights_path}...")
-    model = LibreYOLO(model_path=weights_path, device='auto')
+    model = LibreYOLO(model_path=weights_path, device="auto")
     print(f"   ✓ Model loaded on {model.device}")
 
     # Count parameters
@@ -73,37 +75,41 @@ def test_yolox_s():
 
     for img_id in tqdm(img_ids, desc="Processing"):
         img_info = coco_gt.loadImgs(img_id)[0]
-        img_path = img_dir / img_info['file_name']
+        img_path = img_dir / img_info["file_name"]
 
         # Time it
         timer = CUDATimer()
         timer.start()
-        results = model.predict(str(img_path), save=False, conf_thres=0.001, iou_thres=0.6)
+        results = model.predict(
+            str(img_path), save=False, conf_thres=0.001, iou_thres=0.6
+        )
         elapsed = timer.stop()
 
         timings.append(elapsed)
 
         # Convert to COCO format
-        if results['num_detections'] > 0:
-            boxes = results['boxes']
-            scores = results['scores']
-            classes = results['classes']
+        if results["num_detections"] > 0:
+            boxes = results["boxes"]
+            scores = results["scores"]
+            classes = results["classes"]
 
             for box, score, cls in zip(boxes, scores, classes):
                 x1, y1, x2, y2 = box
                 w = x2 - x1
                 h = y2 - y1
 
-                predictions.append({
-                    'image_id': img_id,
-                    'category_id': int(cls) + 1,
-                    'bbox': [float(x1), float(y1), float(w), float(h)],
-                    'score': float(score),
-                })
+                predictions.append(
+                    {
+                        "image_id": img_id,
+                        "category_id": int(cls) + 1,
+                        "bbox": [float(x1), float(y1), float(w), float(h)],
+                        "score": float(score),
+                    }
+                )
 
     # Timing stats
     timings = np.array(timings)
-    print(f"\n5. Timing Results:")
+    print("\n5. Timing Results:")
     print(f"   Mean:  {np.mean(timings):.2f}ms")
     print(f"   Std:   {np.std(timings):.2f}ms")
     print(f"   p50:   {np.percentile(timings, 50):.2f}ms")
@@ -115,13 +121,13 @@ def test_yolox_s():
     print(f"\n6. COCO Evaluation ({len(predictions)} detections)...")
     if predictions:
         coco_dt = coco_gt.loadRes(predictions)
-        coco_eval = COCOeval(coco_gt, coco_dt, 'bbox')
+        coco_eval = COCOeval(coco_gt, coco_dt, "bbox")
         coco_eval.params.imgIds = img_ids  # Only evaluate on our test images
         coco_eval.evaluate()
         coco_eval.accumulate()
         coco_eval.summarize()
 
-        print(f"\n7. Accuracy Results:")
+        print("\n7. Accuracy Results:")
         print(f"   mAP@50-95: {coco_eval.stats[0]:.4f}")
         print(f"   mAP@50:    {coco_eval.stats[1]:.4f}")
         print(f"   mAP small: {coco_eval.stats[3]:.4f}")
@@ -133,16 +139,17 @@ def test_yolox_s():
     print("\n✓ Test complete! All measurements working.")
 
     return {
-        'params_millions': params,
-        'timing_mean_ms': float(np.mean(timings)),
-        'timing_p50_ms': float(np.percentile(timings, 50)),
-        'fps': float(1000.0 / np.mean(timings)),
-        'map_50_95': float(coco_eval.stats[0]) if predictions else 0.0,
-        'map_50': float(coco_eval.stats[1]) if predictions else 0.0,
+        "params_millions": params,
+        "timing_mean_ms": float(np.mean(timings)),
+        "timing_p50_ms": float(np.percentile(timings, 50)),
+        "fps": float(1000.0 / np.mean(timings)),
+        "map_50_95": float(coco_eval.stats[0]) if predictions else 0.0,
+        "map_50": float(coco_eval.stats[1]) if predictions else 0.0,
     }
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     results = test_yolox_s()
-    print("\n" + "="*60)
+    print("\n" + "=" * 60)
     print("SUMMARY:")
     print(json.dumps(results, indent=2))

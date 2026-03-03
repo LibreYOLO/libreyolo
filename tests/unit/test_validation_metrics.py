@@ -65,13 +65,15 @@ class TestDetMetrics:
         metrics = DetMetrics(nc=2)
 
         # 2 TP and 3 FP
-        correct = np.array([
-            [True] * 10,   # TP
-            [True] * 10,   # TP
-            [False] * 10,  # FP
-            [False] * 10,  # FP
-            [False] * 10,  # FP
-        ])
+        correct = np.array(
+            [
+                [True] * 10,  # TP
+                [True] * 10,  # TP
+                [False] * 10,  # FP
+                [False] * 10,  # FP
+                [False] * 10,  # FP
+            ]
+        )
         conf = np.array([0.9, 0.8, 0.7, 0.6, 0.5])
         pred_cls = np.array([0, 0, 0, 0, 0])
         target_cls = np.array([0, 0])  # 2 GT
@@ -88,10 +90,12 @@ class TestDetMetrics:
         metrics = DetMetrics(nc=2)
 
         # Predictions match GT at IoU=0.5 but not at higher thresholds
-        correct = np.array([
-            [True, True, True, False, False, False, False, False, False, False],
-            [True, True, False, False, False, False, False, False, False, False],
-        ])
+        correct = np.array(
+            [
+                [True, True, True, False, False, False, False, False, False, False],
+                [True, True, False, False, False, False, False, False, False, False],
+            ]
+        )
         conf = np.array([0.9, 0.8])
         pred_cls = np.array([0, 1])
         target_cls = np.array([0, 1])
@@ -220,7 +224,9 @@ class TestBoxConversions:
 
     def test_round_trip_conversion(self):
         """Test that conversion is reversible."""
-        original = torch.tensor([[10, 20, 100, 200], [50, 50, 80, 80]], dtype=torch.float32)
+        original = torch.tensor(
+            [[10, 20, 100, 200], [50, 50, 80, 80]], dtype=torch.float32
+        )
         converted = xyxy_to_xywh(original)
         recovered = xywh_to_xyxy(converted)
 
@@ -232,10 +238,14 @@ class TestProcessBatch:
 
     def test_basic_processing(self):
         """Test basic batch processing."""
-        pred_boxes = torch.tensor([[10, 10, 50, 50], [60, 60, 100, 100]], dtype=torch.float32)
+        pred_boxes = torch.tensor(
+            [[10, 10, 50, 50], [60, 60, 100, 100]], dtype=torch.float32
+        )
         pred_scores = torch.tensor([0.9, 0.7])
         pred_classes = torch.tensor([0, 1])
-        gt_boxes = torch.tensor([[10, 10, 50, 50], [60, 60, 100, 100]], dtype=torch.float32)
+        gt_boxes = torch.tensor(
+            [[10, 10, 50, 50], [60, 60, 100, 100]], dtype=torch.float32
+        )
         gt_classes = torch.tensor([0, 1])
         iou_thresholds = torch.tensor([0.5, 0.75])
 

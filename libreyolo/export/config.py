@@ -13,6 +13,7 @@ import yaml
 @dataclass
 class DynamicBatchConfig:
     """Dynamic batching configuration."""
+
     enabled: bool = False
     min_batch: int = 1
     opt_batch: int = 1
@@ -22,6 +23,7 @@ class DynamicBatchConfig:
 @dataclass
 class Int8CalibrationConfig:
     """INT8 calibration configuration."""
+
     dataset: str = "coco5000.yaml"
     fraction: float = 0.1
     cache: bool = True
@@ -45,13 +47,16 @@ class TensorRTExportConfig:
         dynamic: Dynamic batching configuration
         int8_calibration: INT8 calibration settings
     """
+
     precision: str = "fp16"
     workspace: float = 4.0
     verbose: bool = False
     hardware_compatibility: str = "none"
     device: int = 0
     dynamic: DynamicBatchConfig = field(default_factory=DynamicBatchConfig)
-    int8_calibration: Int8CalibrationConfig = field(default_factory=Int8CalibrationConfig)
+    int8_calibration: Int8CalibrationConfig = field(
+        default_factory=Int8CalibrationConfig
+    )
 
     def __post_init__(self):
         """Validate configuration after initialization."""
@@ -113,7 +118,9 @@ class TensorRTExportConfig:
         path = Path(path)
         if not path.exists():
             # Check in default config directory
-            default_path = Path(__file__).parent.parent / "config" / "export" / path.name
+            default_path = (
+                Path(__file__).parent.parent / "config" / "export" / path.name
+            )
             if default_path.exists():
                 path = default_path
             else:
@@ -184,7 +191,7 @@ class TensorRTExportConfig:
 
 
 def load_export_config(
-    config: Optional[Union[str, Path, dict, TensorRTExportConfig]] = None
+    config: Optional[Union[str, Path, dict, TensorRTExportConfig]] = None,
 ) -> TensorRTExportConfig:
     """
     Load export configuration from various sources.

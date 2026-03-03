@@ -11,7 +11,6 @@ Includes:
 - BCE classification loss
 """
 
-import math
 from typing import Dict, List, Optional, Tuple
 
 import torch
@@ -22,7 +21,9 @@ from torch.nn import BCEWithLogitsLoss
 from libreyolo.utils.box_ops import compute_iou as calculate_iou
 
 
-def generate_anchors(image_size: List[int], strides: List[int]) -> Tuple[Tensor, Tensor]:
+def generate_anchors(
+    image_size: List[int], strides: List[int]
+) -> Tuple[Tensor, Tensor]:
     """
     Generate anchor grid points for all feature map scales.
 
@@ -55,6 +56,7 @@ def generate_anchors(image_size: List[int], strides: List[int]) -> Tuple[Tensor,
 # Loss Classes
 # =============================================================================
 
+
 class BCELoss(nn.Module):
     """Binary Cross Entropy loss for classification, normalized by positive samples."""
 
@@ -62,7 +64,9 @@ class BCELoss(nn.Module):
         super().__init__()
         self.bce = BCEWithLogitsLoss(reduction="none")
 
-    def forward(self, predicts_cls: Tensor, targets_cls: Tensor, cls_norm: Tensor) -> Tensor:
+    def forward(
+        self, predicts_cls: Tensor, targets_cls: Tensor, cls_norm: Tensor
+    ) -> Tensor:
         """
         Args:
             predicts_cls: Predicted class logits [B, anchors, num_classes]
@@ -148,10 +152,17 @@ class DFLoss(nn.Module):
 
         # Soft label assignment between adjacent bins
         label_left, label_right = picked_targets.floor(), picked_targets.floor() + 1
-        weight_left, weight_right = label_right - picked_targets, picked_targets - label_left
+        weight_left, weight_right = (
+            label_right - picked_targets,
+            picked_targets - label_left,
+        )
 
-        loss_left = F.cross_entropy(picked_predict, label_left.to(torch.long), reduction="none")
-        loss_right = F.cross_entropy(picked_predict, label_right.to(torch.long), reduction="none")
+        loss_left = F.cross_entropy(
+            picked_predict, label_left.to(torch.long), reduction="none"
+        )
+        loss_right = F.cross_entropy(
+            picked_predict, label_right.to(torch.long), reduction="none"
+        )
         loss_dfl = loss_left * weight_left + loss_right * weight_right
         loss_dfl = loss_dfl.view(-1, 4).mean(-1)
         loss_dfl = (loss_dfl * box_norm).sum() / cls_norm
@@ -161,6 +172,7 @@ class DFLoss(nn.Module):
 # =============================================================================
 # Vec2Box - Prediction Converter
 # =============================================================================
+
 
 class Vec2Box:
     """
@@ -230,21 +242,27 @@ class Vec2Box:
             # Reshape box predictions for DFL: (B, 4*reg_max, H, W) -> (B, H*W, 4, reg_max)
             # Format: (B, anchors, 4, reg_max) matches YOLO repo for DFL loss
             pred_anc = pred_box_raw.view(B, 4, self.reg_max, H, W)
-            pred_anc = pred_anc.permute(0, 3, 4, 1, 2).reshape(B, H * W, 4, self.reg_max)
+            pred_anc = pred_anc.permute(0, 3, 4, 1, 2).reshape(
+                B, H * W, 4, self.reg_max
+            )
             preds_anc_list.append(pred_anc)
 
             # Decode boxes using DFL (softmax + weighted sum)
             # (B, H*W, 4, reg_max) -> softmax over reg_max -> (B, H*W, 4)
             pred_dist = F.softmax(pred_anc, dim=3)
             # Weighted sum: multiply by [0, 1, 2, ..., reg_max-1]
-            proj = torch.arange(self.reg_max, dtype=pred_dist.dtype, device=pred_dist.device)
+            proj = torch.arange(
+                self.reg_max, dtype=pred_dist.dtype, device=pred_dist.device
+            )
             pred_box = (pred_dist * proj.view(1, 1, 1, -1)).sum(dim=3)  # (B, H*W, 4)
             preds_box_list.append(pred_box)
 
         # Concatenate across scales
         preds_cls = torch.cat(preds_cls_list, dim=1)  # (B, total_anchors, nc)
         preds_anc = torch.cat(preds_anc_list, dim=1)  # (B, total_anchors, 4, reg_max)
-        preds_box = torch.cat(preds_box_list, dim=1)  # (B, total_anchors, 4) - LTRB distances
+        preds_box = torch.cat(
+            preds_box_list, dim=1
+        )  # (B, total_anchors, 4) - LTRB distances
 
         # Convert LTRB distances to xyxy coordinates (pixel space)
         # pred_box is in "grid units", scale by stride
@@ -258,6 +276,7 @@ class Vec2Box:
 # =============================================================================
 # BoxMatcher - Task Aligned Assignment (TAL)
 # =============================================================================
+
 
 class BoxMatcher:
     """
@@ -300,10 +319,15 @@ class BoxMatcher:
 
         x_min_dist, x_max_dist = anchors_x - x_min, x_max - anchors_x
         y_min_dist, y_max_dist = anchors_y - y_min, y_max - anchors_y
-        targets_dist = torch.stack((x_min_dist, y_min_dist, x_max_dist, y_max_dist), dim=-1)
+        targets_dist = torch.stack(
+            (x_min_dist, y_min_dist, x_max_dist, y_max_dist), dim=-1
+        )
         targets_dist /= self.scaler[None, None, :, None]
 
-        min_reg_dist, max_reg_dist = targets_dist.amin(dim=-1), targets_dist.amax(dim=-1)
+        min_reg_dist, max_reg_dist = (
+            targets_dist.amin(dim=-1),
+            targets_dist.amax(dim=-1),
+        )
         target_on_anchor = min_reg_dist >= 0
         target_in_reg_max = max_reg_dist <= self.reg_max - 1.01
         return target_on_anchor & target_in_reg_max
@@ -320,7 +344,9 @@ class BoxMatcher:
             Class probabilities [B, targets, anchors]
         """
         predict_cls = predict_cls.transpose(1, 2)  # (B, nc, anchors)
-        target_cls = target_cls.expand(-1, -1, predict_cls.size(2))  # (B, targets, anchors)
+        target_cls = target_cls.expand(
+            -1, -1, predict_cls.size(2)
+        )  # (B, targets, anchors)
         cls_probabilities = torch.gather(predict_cls, 1, target_cls)
         return cls_probabilities
 
@@ -355,14 +381,18 @@ class BoxMatcher:
         best_anchor_mask.scatter_(-1, index=indices[..., None], src=~best_anchor_mask)
         matched_anchor_num = torch.sum(topk_mask, dim=-1)
         target_without_anchor = (matched_anchor_num == 0) & (values > 0)
-        topk_mask = torch.where(target_without_anchor[..., None], best_anchor_mask, topk_mask)
+        topk_mask = torch.where(
+            target_without_anchor[..., None], best_anchor_mask, topk_mask
+        )
         return topk_mask
 
     def filter_duplicates(
         self, iou_mat: Tensor, topk_mask: Tensor
     ) -> Tuple[Tensor, Tensor, Tensor]:
         """Remove duplicate assignments (one anchor -> multiple targets)."""
-        duplicates = (topk_mask.sum(1, keepdim=True) > 1).repeat([1, topk_mask.size(1), 1])
+        duplicates = (topk_mask.sum(1, keepdim=True) > 1).repeat(
+            [1, topk_mask.size(1), 1]
+        )
         masked_iou_mat = topk_mask * iou_mat
         best_indices = masked_iou_mat.argmax(1)[:, None, :]
         best_target_mask = torch.zeros_like(duplicates, dtype=torch.bool)
@@ -411,16 +441,20 @@ class BoxMatcher:
         cls_mat = self.get_cls_matrix(predict_cls.sigmoid(), target_cls)
 
         # Compute task-aligned score
-        target_matrix = (iou_mat ** self.iou_factor) * (cls_mat ** self.cls_factor)
+        target_matrix = (iou_mat**self.iou_factor) * (cls_mat**self.cls_factor)
 
         # Select top-k anchors per target
-        topk_targets, topk_mask = self.filter_topk(target_matrix, grid_mask, topk=self.topk)
+        topk_targets, topk_mask = self.filter_topk(
+            target_matrix, grid_mask, topk=self.topk
+        )
 
         # Ensure each target has at least one anchor
         topk_mask = self.ensure_one_anchor(target_matrix, topk_mask)
 
         # Remove duplicate assignments
-        unique_indices, valid_mask, topk_mask = self.filter_duplicates(iou_mat, topk_mask)
+        unique_indices, valid_mask, topk_mask = self.filter_duplicates(
+            iou_mat, topk_mask
+        )
 
         # Gather assigned targets
         align_bbox = torch.gather(target_bbox, 1, unique_indices.repeat(1, 1, 4))
@@ -446,6 +480,7 @@ class BoxMatcher:
 # =============================================================================
 # YOLO9Loss - Main Loss Class
 # =============================================================================
+
 
 class YOLO9Loss:
     """
@@ -548,7 +583,9 @@ class YOLO9Loss:
         # Scale targets from normalized to pixel coordinates
         B = targets.shape[0]
         W, H = self.vec2box.image_size
-        scale = torch.tensor([1, W, H, W, H], device=targets.device, dtype=targets.dtype)
+        scale = torch.tensor(
+            [1, W, H, W, H], device=targets.device, dtype=targets.dtype
+        )
         targets_scaled = targets * scale
 
         # Run Task Aligned Assignment
@@ -571,7 +608,9 @@ class YOLO9Loss:
 
         # Compute losses
         loss_cls = self.cls_loss(preds_cls, targets_cls, cls_norm)
-        loss_box = self.box_loss(preds_box_norm, targets_bbox_norm, valid_masks, box_norm, cls_norm)
+        loss_box = self.box_loss(
+            preds_box_norm, targets_bbox_norm, valid_masks, box_norm, cls_norm
+        )
 
         # DFL loss needs normalized anchor grid
         anchors_norm = (self.vec2box.anchor_grid / self.vec2box.scaler[:, None])[None]
@@ -594,9 +633,15 @@ class YOLO9Loss:
             "dfl_loss": loss_dfl_weighted,
             "cls_loss": loss_cls_weighted,
             # Scalar values for logging
-            "box": loss_box_weighted.item() if isinstance(loss_box_weighted, Tensor) else loss_box_weighted,
-            "dfl": loss_dfl_weighted.item() if isinstance(loss_dfl_weighted, Tensor) else loss_dfl_weighted,
-            "cls": loss_cls_weighted.item() if isinstance(loss_cls_weighted, Tensor) else loss_cls_weighted,
+            "box": loss_box_weighted.item()
+            if isinstance(loss_box_weighted, Tensor)
+            else loss_box_weighted,
+            "dfl": loss_dfl_weighted.item()
+            if isinstance(loss_dfl_weighted, Tensor)
+            else loss_dfl_weighted,
+            "cls": loss_cls_weighted.item()
+            if isinstance(loss_cls_weighted, Tensor)
+            else loss_cls_weighted,
             "num_fg": valid_masks.sum().item() / max(B, 1),
         }
 

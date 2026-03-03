@@ -104,7 +104,11 @@ class DetectionValidator(BaseValidator):
         # Use model's native input size if it differs from config
         # This is important for models like YOLOX nano/tiny that use 416x416
         # and RF-DETR variants that each have different resolutions
-        model_input_size = self.model._get_input_size() if hasattr(self.model, '_get_input_size') else None
+        model_input_size = (
+            self.model._get_input_size()
+            if hasattr(self.model, "_get_input_size")
+            else None
+        )
         if model_input_size is not None and model_input_size != self.config.imgsz:
             # Model has a specific input size requirement
             actual_imgsz = model_input_size
@@ -144,7 +148,9 @@ class DetectionValidator(BaseValidator):
                 label_files = data_cfg.get(label_files_key)
             else:
                 # Try to resolve files from the split path
-                split_path_str = data_cfg.get(self.config.split, f"images/{self.config.split}")
+                split_path_str = data_cfg.get(
+                    self.config.split, f"images/{self.config.split}"
+                )
 
                 # Check if path ends with .txt (even if not yet downloaded)
                 if str(split_path_str).endswith(".txt"):
@@ -163,7 +169,7 @@ class DetectionValidator(BaseValidator):
                     if full_split_path.exists():
                         # Use file list mode with explicit paths
                         img_files_list = []
-                        for ext in ['*.jpg', '*.jpeg', '*.png', '*.bmp']:
+                        for ext in ["*.jpg", "*.jpeg", "*.png", "*.bmp"]:
                             img_files_list.extend(full_split_path.glob(ext))
                             img_files_list.extend(full_split_path.glob(ext.upper()))
 
@@ -202,7 +208,9 @@ class DetectionValidator(BaseValidator):
                 json_file = f"instances_{self.config.split}.json"
 
             # Determine image subdirectory: prefer images/val2017 (standard COCO layout)
-            split_name = f"{self.config.split}2017" if "2017" in json_file else self.config.split
+            split_name = (
+                f"{self.config.split}2017" if "2017" in json_file else self.config.split
+            )
             if (data_path / "images" / split_name).exists():
                 split_name = f"images/{split_name}"
 
@@ -254,10 +262,12 @@ class DetectionValidator(BaseValidator):
 
                 # Create COCO API from dataset
                 coco_api = create_yolo_coco_api(self.config.data, self.config.split)
-                self.coco_evaluator = COCOEvaluator(coco_api, iou_type='bbox')
+                self.coco_evaluator = COCOEvaluator(coco_api, iou_type="bbox")
 
                 if self.config.verbose:
-                    print(f"COCO evaluator initialized with {len(coco_api.imgs)} images")
+                    print(
+                        f"COCO evaluator initialized with {len(coco_api.imgs)} images"
+                    )
             except Exception as e:
                 print(f"Warning: Failed to initialize COCO evaluator: {e}")
                 print("Falling back to legacy DetMetrics")
@@ -297,7 +307,7 @@ class DetectionValidator(BaseValidator):
         #   normalization (e.g. RF-DETR ImageNet mean/std), pass through unchanged
         # - normalize=True: model expects 0-1 range (standard YOLO)
         # - normalize=False: model expects 0-255 range (YOLOX)
-        if getattr(self.val_preproc, 'custom_normalization', False):
+        if getattr(self.val_preproc, "custom_normalization", False):
             pass  # Already normalized by preprocessor (e.g. RF-DETR ImageNet)
         elif self.val_preproc.normalize:
             if images.max() > 1.0:
@@ -330,21 +340,23 @@ class DetectionValidator(BaseValidator):
                 if isinstance(value, dict):
                     # Nested dict like {'box': tensor, 'cls': tensor}
                     sliced[key] = {
-                        k: v[batch_idx:batch_idx+1] if isinstance(v, torch.Tensor) else v
+                        k: v[batch_idx : batch_idx + 1]
+                        if isinstance(v, torch.Tensor)
+                        else v
                         for k, v in value.items()
                     }
                 elif isinstance(value, torch.Tensor):
-                    sliced[key] = value[batch_idx:batch_idx+1]
+                    sliced[key] = value[batch_idx : batch_idx + 1]
                 else:
                     sliced[key] = value
             return sliced
         elif isinstance(preds, torch.Tensor):
             # Simple tensor output
-            return preds[batch_idx:batch_idx+1]
+            return preds[batch_idx : batch_idx + 1]
         elif isinstance(preds, (list, tuple)):
             # List/tuple of tensors
             return type(preds)(
-                p[batch_idx:batch_idx+1] if isinstance(p, torch.Tensor) else p
+                p[batch_idx : batch_idx + 1] if isinstance(p, torch.Tensor) else p
                 for p in preds
             )
         else:
@@ -378,30 +390,43 @@ class DetectionValidator(BaseValidator):
             orig_h, orig_w = img_info[i]
             single_preds = self._slice_batch_predictions(preds, i)
 
-            uses_letterbox = self.val_preproc is not None and self.val_preproc.uses_letterbox
+            uses_letterbox = (
+                self.val_preproc is not None and self.val_preproc.uses_letterbox
+            )
             result = self.model._postprocess(
                 single_preds,
                 conf_thres=self.config.conf_thres,
                 iou_thres=self.config.iou_thres,
-                original_size=(orig_w, orig_h),  # (width, height) format as expected by postprocess
+                original_size=(
+                    orig_w,
+                    orig_h,
+                ),  # (width, height) format as expected by postprocess
                 input_size=self._actual_imgsz,  # Pass actual input size used
                 letterbox=uses_letterbox,
             )
 
             if result["num_detections"] > 0:
-                boxes = torch.tensor(result["boxes"], dtype=torch.float32, device=self.device)
-                scores = torch.tensor(result["scores"], dtype=torch.float32, device=self.device)
-                classes = torch.tensor(result["classes"], dtype=torch.int64, device=self.device)
+                boxes = torch.tensor(
+                    result["boxes"], dtype=torch.float32, device=self.device
+                )
+                scores = torch.tensor(
+                    result["scores"], dtype=torch.float32, device=self.device
+                )
+                classes = torch.tensor(
+                    result["classes"], dtype=torch.int64, device=self.device
+                )
             else:
                 boxes = torch.zeros((0, 4), dtype=torch.float32, device=self.device)
                 scores = torch.zeros(0, dtype=torch.float32, device=self.device)
                 classes = torch.zeros(0, dtype=torch.int64, device=self.device)
 
-            detections.append({
-                "boxes": boxes,
-                "scores": scores,
-                "classes": classes,
-            })
+            detections.append(
+                {
+                    "boxes": boxes,
+                    "scores": scores,
+                    "classes": classes,
+                }
+            )
 
         return detections
 
@@ -410,7 +435,7 @@ class DetectionValidator(BaseValidator):
         preds: List[Dict[str, torch.Tensor]],
         targets: torch.Tensor,
         img_info: List,
-        img_ids: List = None,
+        img_ids: List | None = None,
     ) -> None:
         """
         Update metrics with batch predictions and targets.
@@ -435,7 +460,9 @@ class DetectionValidator(BaseValidator):
             return
 
         # Check if preprocessor uses letterbox (aspect-preserving) or simple resize
-        uses_letterbox = self.val_preproc is not None and self.val_preproc.uses_letterbox
+        uses_letterbox = (
+            self.val_preproc is not None and self.val_preproc.uses_letterbox
+        )
 
         for i in range(batch_size):
             pred = preds[i]
@@ -513,18 +540,18 @@ class DetectionValidator(BaseValidator):
 
             # Map COCO metrics to LibreYOLO naming convention
             return {
-                'metrics/mAP50-95': coco_metrics['mAP'],      # Primary metric
-                'metrics/mAP50': coco_metrics['mAP50'],       # YOLO-style AP@0.5
-                'metrics/mAP75': coco_metrics['mAP75'],       # Stricter AP@0.75
-                'metrics/mAP_small': coco_metrics['mAP_small'],
-                'metrics/mAP_medium': coco_metrics['mAP_medium'],
-                'metrics/mAP_large': coco_metrics['mAP_large'],
-                'metrics/AR1': coco_metrics['AR1'],
-                'metrics/AR10': coco_metrics['AR10'],
-                'metrics/AR100': coco_metrics['AR100'],
-                'metrics/AR_small': coco_metrics['AR_small'],
-                'metrics/AR_medium': coco_metrics['AR_medium'],
-                'metrics/AR_large': coco_metrics['AR_large'],
+                "metrics/mAP50-95": coco_metrics["mAP"],  # Primary metric
+                "metrics/mAP50": coco_metrics["mAP50"],  # YOLO-style AP@0.5
+                "metrics/mAP75": coco_metrics["mAP75"],  # Stricter AP@0.75
+                "metrics/mAP_small": coco_metrics["mAP_small"],
+                "metrics/mAP_medium": coco_metrics["mAP_medium"],
+                "metrics/mAP_large": coco_metrics["mAP_large"],
+                "metrics/AR1": coco_metrics["AR1"],
+                "metrics/AR10": coco_metrics["AR10"],
+                "metrics/AR100": coco_metrics["AR100"],
+                "metrics/AR_small": coco_metrics["AR_small"],
+                "metrics/AR_medium": coco_metrics["AR_medium"],
+                "metrics/AR_large": coco_metrics["AR_large"],
             }
         else:
             # Use legacy DetMetrics

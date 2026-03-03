@@ -72,6 +72,35 @@ include = ["libreyolo*"]
 requires = ["setuptools>=61", "wheel"]
 build-backend = "setuptools.build_meta"
 
+[tool.ty.rules]
+# Rules that catch real bugs — keep as errors
+invalid-parameter-default = "error"
+
+# Rules that produce false positives with PyTorch nn.Module dynamic attrs
+# and C extensions without type stubs (tensorrt, ncnn, pycuda).
+# Downgrade to warnings so they don't block CI but remain visible.
+unresolved-import = "warn"       # optional deps not installed in dev env
+unresolved-attribute = "warn"    # nn.Module.__getattr__, C extension members
+invalid-argument-type = "warn"   # torch.onnx.export kwargs, tensor ops
+not-subscriptable = "warn"       # tensor[int] operations
+unsupported-operator = "warn"    # tensor arithmetic
+not-iterable = "warn"            # Module/tensor iterations
+call-non-callable = "warn"       # Module.__call__
+invalid-method-override = "warn" # template method + nn.Module patterns
+invalid-assignment = "warn"      # nn.Module dynamic attrs, tensor ops
+invalid-return-type = "warn"     # torch return type inference
+index-out-of-bounds = "warn"     # tensor indexing
+unknown-argument = "warn"        # dynamic kwargs patterns
+no-matching-overload = "warn"    # torch overloaded functions
+possibly-missing-attribute = "warn"
+
+[[tool.ty.overrides]]
+include = ["vision_analysis_benchmark/**", "tests/**"]
+
+[tool.ty.overrides.rules]
+# Benchmark and test code: suppress all to avoid noise
+unresolved-import = "ignore"
+
 [tool.pytest.ini_options]
 addopts = "-m unit"
 testpaths = ["tests"]

@@ -4,7 +4,7 @@ Utility functions for validation.
 Provides prediction-to-ground-truth matching and helper functions.
 """
 
-from typing import Dict, List, Tuple
+from typing import Tuple
 
 import numpy as np
 import torch
@@ -77,7 +77,9 @@ def match_predictions_to_gt(
 
     if valid_preds.any():
         # Get indices of valid predictions and their target GTs
-        valid_pred_indices = torch.where(valid_preds)[0]  # Sorted ascending (highest conf first)
+        valid_pred_indices = torch.where(valid_preds)[
+            0
+        ]  # Sorted ascending (highest conf first)
         target_gts = best_gt_per_pred[valid_pred_indices]
 
         # For each GT, find if any valid pred wants it
@@ -97,7 +99,9 @@ def match_predictions_to_gt(
     # Vectorized: determine correctness at all thresholds
     # correct[i, j] = True if pred i matched with IoU >= threshold j
     matched_mask = pred_matched_iou > 0  # Which preds matched at all
-    correct = (pred_matched_iou.unsqueeze(1) >= iou_thresholds.unsqueeze(0)) & matched_mask.unsqueeze(1)
+    correct = (
+        pred_matched_iou.unsqueeze(1) >= iou_thresholds.unsqueeze(0)
+    ) & matched_mask.unsqueeze(1)
 
     return correct, iou_values
 

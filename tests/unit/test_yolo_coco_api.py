@@ -3,10 +3,6 @@ Unit tests for YOLOCocoAPI - COCO evaluation for YOLO format datasets.
 """
 
 import pytest
-from pathlib import Path
-from unittest.mock import Mock, patch, MagicMock
-import tempfile
-import shutil
 
 from libreyolo.data import YOLOCocoAPI, create_yolo_coco_api, parse_yolo_label_line
 
@@ -42,12 +38,16 @@ class TestParseYOLOLabelLine:
     def test_class_id_out_of_range(self):
         """Test that out-of-range class IDs are skipped."""
         # Class 100 when max is 80
-        result = parse_yolo_label_line("100 0.5 0.5 0.2 0.1", img_w=100, img_h=100, num_classes=80)
+        result = parse_yolo_label_line(
+            "100 0.5 0.5 0.2 0.1", img_w=100, img_h=100, num_classes=80
+        )
         assert result is None
 
     def test_negative_class_id(self):
         """Test that negative class IDs are skipped."""
-        result = parse_yolo_label_line("-1 0.5 0.5 0.2 0.1", img_w=100, img_h=100, num_classes=80)
+        result = parse_yolo_label_line(
+            "-1 0.5 0.5 0.2 0.1", img_w=100, img_h=100, num_classes=80
+        )
         assert result is None
 
     def test_box_clamping(self):
@@ -85,8 +85,9 @@ class TestYOLOCocoAPI:
 
         # Create 2 dummy images
         from PIL import Image
-        img1 = Image.new('RGB', (100, 100), color='red')
-        img2 = Image.new('RGB', (200, 150), color='blue')
+
+        img1 = Image.new("RGB", (100, 100), color="red")
+        img2 = Image.new("RGB", (200, 150), color="blue")
         img1.save(images_dir / "img1.jpg")
         img2.save(images_dir / "img2.jpg")
 
@@ -136,12 +137,12 @@ class TestYOLOCocoAPI:
 
         # Check annotation format
         ann = all_anns[0]
-        assert 'id' in ann
-        assert 'image_id' in ann
-        assert 'category_id' in ann
-        assert 'bbox' in ann  # Should be [x, y, w, h] format
-        assert 'area' in ann
-        assert 'iscrowd' in ann
+        assert "id" in ann
+        assert "image_id" in ann
+        assert "category_id" in ann
+        assert "bbox" in ann  # Should be [x, y, w, h] format
+        assert "area" in ann
+        assert "iscrowd" in ann
 
     def test_yolo_coco_api_get_ann_ids(self, mock_yolo_dataset):
         """Test getAnnIds method."""
@@ -172,7 +173,8 @@ class TestCreateYOLOCocoAPI:
 
         # Create dummy image
         from PIL import Image
-        img = Image.new('RGB', (100, 100))
+
+        img = Image.new("RGB", (100, 100))
         img.save(tmp_path / "images" / "val" / "test.jpg")
 
         # Create dummy label
@@ -180,21 +182,21 @@ class TestCreateYOLOCocoAPI:
 
         # Create data.yaml
         data = {
-            'path': str(tmp_path),
-            'train': 'images/train',
-            'val': 'images/val',
-            'names': ['cat', 'dog', 'bird']
+            "path": str(tmp_path),
+            "train": "images/train",
+            "val": "images/val",
+            "names": ["cat", "dog", "bird"],
         }
 
         yaml_path = tmp_path / "data.yaml"
-        with open(yaml_path, 'w') as f:
+        with open(yaml_path, "w") as f:
             yaml.dump(data, f)
 
         return yaml_path
 
     def test_create_yolo_coco_api_from_yaml(self, mock_data_yaml):
         """Test creating YOLOCocoAPI from data.yaml."""
-        api = create_yolo_coco_api(str(mock_data_yaml), split='val')
+        api = create_yolo_coco_api(str(mock_data_yaml), split="val")
 
         assert api is not None
         assert len(api.imgs) >= 0  # May have images
@@ -214,7 +216,8 @@ class TestCOCOEvaluatorIntegration:
 
         # Create one image
         from PIL import Image
-        img = Image.new('RGB', (100, 100))
+
+        img = Image.new("RGB", (100, 100))
         img.save(images_dir / "test.jpg")
 
         # Create one label
@@ -228,7 +231,7 @@ class TestCOCOEvaluatorIntegration:
 
         evaluator = COCOEvaluator(simple_coco_api)
         assert evaluator is not None
-        assert evaluator.iou_type == 'bbox'
+        assert evaluator.iou_type == "bbox"
 
     def test_coco_evaluator_update(self, simple_coco_api):
         """Test adding predictions to evaluator."""
@@ -238,9 +241,9 @@ class TestCOCOEvaluatorIntegration:
 
         # Add some dummy predictions
         predictions = {
-            'boxes': [[30, 30, 70, 70]],  # xyxy format
-            'scores': [0.9],
-            'classes': [0],
+            "boxes": [[30, 30, 70, 70]],  # xyxy format
+            "scores": [0.9],
+            "classes": [0],
         }
 
         evaluator.update(predictions, image_id=0)
@@ -248,7 +251,7 @@ class TestCOCOEvaluatorIntegration:
 
         # Check COCO format
         result = evaluator.results[0]
-        assert 'image_id' in result
-        assert 'category_id' in result
-        assert 'bbox' in result  # Should be [x, y, w, h]
-        assert 'score' in result
+        assert "image_id" in result
+        assert "category_id" in result
+        assert "bbox" in result  # Should be [x, y, w, h]
+        assert "score" in result

@@ -26,7 +26,9 @@ class OpenVINOBackend(BaseBackend):
         >>> print(result.boxes.xyxy)
     """
 
-    def __init__(self, model_dir: str, nb_classes: int = None, device: str = "auto"):
+    def __init__(
+        self, model_dir: str | Path, nb_classes: int | None = None, device: str = "auto"
+    ):
         try:
             import openvino as ov
         except ImportError as e:
@@ -37,9 +39,7 @@ class OpenVINOBackend(BaseBackend):
 
         model_dir = Path(model_dir)
         if not model_dir.is_dir():
-            raise FileNotFoundError(
-                f"OpenVINO model directory not found: {model_dir}"
-            )
+            raise FileNotFoundError(f"OpenVINO model directory not found: {model_dir}")
 
         xml_path = model_dir / "model.xml"
         if not xml_path.exists():
@@ -94,7 +94,7 @@ class OpenVINOBackend(BaseBackend):
         )
 
     @staticmethod
-    def _read_metadata(metadata_path: Path, nb_classes_override: int = None):
+    def _read_metadata(metadata_path: Path, nb_classes_override: int | None = None):
         """Read metadata from metadata.yaml file.
 
         Returns:

@@ -14,7 +14,6 @@ import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from typing import List, Tuple, Optional
 
 
 def autopad(k, p=None, d=1):
@@ -46,9 +45,17 @@ class Conv(nn.Module):
             act: Activation (True for default, False for none, or nn.Module)
         """
         super().__init__()
-        self.conv = nn.Conv2d(c1, c2, k, s, autopad(k, p, d), groups=g, dilation=d, bias=False)
+        self.conv = nn.Conv2d(
+            c1, c2, k, s, autopad(k, p, d), groups=g, dilation=d, bias=False
+        )
         self.bn = nn.BatchNorm2d(c2, eps=0.001, momentum=0.03)
-        self.act = self.default_act if act is True else act if isinstance(act, nn.Module) else nn.Identity()
+        self.act = (
+            self.default_act
+            if act is True
+            else act
+            if isinstance(act, nn.Module)
+            else nn.Identity()
+        )
 
     def forward(self, x):
         return self.act(self.bn(self.conv(x)))
@@ -68,13 +75,21 @@ class RepConvN(nn.Module):
 
     default_act = nn.SiLU()
 
-    def __init__(self, c1, c2, k=3, s=1, p=1, g=1, d=1, act=True, bn=False, deploy=False):
+    def __init__(
+        self, c1, c2, k=3, s=1, p=1, g=1, d=1, act=True, bn=False, deploy=False
+    ):
         super().__init__()
         assert k == 3 and p == 1
         self.g = g
         self.c1 = c1
         self.c2 = c2
-        self.act = self.default_act if act is True else act if isinstance(act, nn.Module) else nn.Identity()
+        self.act = (
+            self.default_act
+            if act is True
+            else act
+            if isinstance(act, nn.Module)
+            else nn.Identity()
+        )
 
         self.bn = nn.BatchNorm2d(c2) if bn and c2 == c1 and s == 1 else None
         self.conv1 = Conv(c1, c2, k, s, p=p, g=g, act=False)
@@ -91,7 +106,7 @@ class RepConvN(nn.Module):
 
     def fuse_convs(self):
         """Fuse parallel convolutions into single conv for inference."""
-        if hasattr(self, 'conv'):
+        if hasattr(self, "conv"):
             return
 
         kernel3x3, bias3x3 = self._fuse_bn_tensor(self.conv1)
@@ -107,12 +122,12 @@ class RepConvN(nn.Module):
         for para in self.parameters():
             para.detach_()
 
-        self.__delattr__('conv1')
-        self.__delattr__('conv2')
-        if hasattr(self, 'bn'):
-            self.__delattr__('bn')
-        if hasattr(self, 'id_tensor'):
-            self.__delattr__('id_tensor')
+        self.__delattr__("conv1")
+        self.__delattr__("conv2")
+        if hasattr(self, "bn"):
+            self.__delattr__("bn")
+        if hasattr(self, "id_tensor"):
+            self.__delattr__("id_tensor")
 
     def _fuse_bn_tensor(self, branch):
         """Fuse batch norm into conv weights."""
@@ -126,9 +141,13 @@ class RepConvN(nn.Module):
             beta = branch.bn.bias
             eps = branch.bn.eps
         elif isinstance(branch, nn.BatchNorm2d):
-            if not hasattr(self, 'id_tensor'):
+            if not hasattr(self, "id_tensor"):
                 input_dim = self.c1 // self.g
-                kernel_value = torch.zeros((self.c1, input_dim, 3, 3), dtype=branch.weight.dtype, device=branch.weight.device)
+                kernel_value = torch.zeros(
+                    (self.c1, input_dim, 3, 3),
+                    dtype=branch.weight.dtype,
+                    device=branch.weight.device,
+                )
                 for i in range(self.c1):
                     kernel_value[i, i % input_dim, 1, 1] = 1
                 self.id_tensor = kernel_value
@@ -201,7 +220,9 @@ class RepNCSP(nn.Module):
         self.cv1 = Conv(c1, c_, 1, 1)
         self.cv2 = Conv(c1, c_, 1, 1)
         self.cv3 = Conv(2 * c_, c2, 1)
-        self.m = nn.Sequential(*(RepNBottleneck(c_, c_, shortcut, g, e=1.0) for _ in range(n)))
+        self.m = nn.Sequential(
+            *(RepNBottleneck(c_, c_, shortcut, g, e=1.0) for _ in range(n))
+        )
 
     def forward(self, x):
         return self.cv3(torch.cat((self.m(self.cv1(x)), self.cv2(x)), 1))
@@ -327,10 +348,9 @@ class SPPELAN(nn.Module):
         super().__init__()
         # Match YOLO naming: conv1, pools, conv5
         self.cv1 = Conv(c1, c2, 1, 1)
-        self.pools = nn.ModuleList([
-            nn.MaxPool2d(kernel_size=k, stride=1, padding=k // 2)
-            for _ in range(3)
-        ])
+        self.pools = nn.ModuleList(
+            [nn.MaxPool2d(kernel_size=k, stride=1, padding=k // 2) for _ in range(3)]
+        )
         self.cv5 = Conv(4 * c2, c3, 1, 1)  # Concat 4 features -> output
 
     def forward(self, x):
@@ -427,12 +447,16 @@ class DDetect(nn.Module):
             nn.Sequential(
                 Conv(x, c2, 3),  # Regular conv: in -> 64
                 Conv(c2, c2, 3, g=groups),  # Grouped conv: 64->64, groups=4
-                nn.Conv2d(c2, anchor_channels, 1, groups=groups)  # Grouped conv: 64->64
-            ) for x in ch
+                nn.Conv2d(
+                    c2, anchor_channels, 1, groups=groups
+                ),  # Grouped conv: 64->64
+            )
+            for x in ch
         )
         # Class branch (no grouping)
         self.cv3 = nn.ModuleList(
-            nn.Sequential(Conv(x, c3, 3), Conv(c3, c3, 3), nn.Conv2d(c3, nc, 1)) for x in ch
+            nn.Sequential(Conv(x, c3, 3), Conv(c3, c3, 3), nn.Conv2d(c3, nc, 1))
+            for x in ch
         )
         self.dfl = DFL(reg_max) if reg_max > 1 else nn.Identity()
 
@@ -442,12 +466,15 @@ class DDetect(nn.Module):
         """Initialize biases for focal loss."""
         for a, b, s in zip(self.cv2, self.cv3, self.stride):
             a[-1].bias.data[:] = 1.0  # box
-            b[-1].bias.data[:self.nc] = math.log(5 / self.nc / (640 / float(s)) ** 2)  # cls
+            b[-1].bias.data[: self.nc] = math.log(
+                5 / self.nc / (640 / float(s)) ** 2
+            )  # cls
 
     def _get_loss_fn(self, device):
         """Lazily initialize loss function for training."""
         if self._loss_fn is None:
             from .loss import YOLO9Loss
+
             self._loss_fn = YOLO9Loss(
                 num_classes=self.nc,
                 reg_max=self.reg_max,
@@ -489,7 +516,9 @@ class DDetect(nn.Module):
         # In export mode, always regenerate anchors to ensure trace consistency
         # (JIT trace runs the model twice and checks for consistency)
         if self.export or self.dynamic or self.shape != shape:
-            self.anchors, self.strides = (x.transpose(0, 1) for x in self._make_anchors(x, self.stride, 0.5))
+            self.anchors, self.strides = (
+                x.transpose(0, 1) for x in self._make_anchors(x, self.stride, 0.5)
+            )
             if not self.export:
                 self.shape = shape
 
@@ -499,7 +528,9 @@ class DDetect(nn.Module):
         box, cls = x_cat.split((self.reg_max * 4, self.nc), 1)
 
         # DFL decoding
-        dbox = self._decode_bboxes(self.dfl(box), self.anchors.unsqueeze(0)) * self.strides
+        dbox = (
+            self._decode_bboxes(self.dfl(box), self.anchors.unsqueeze(0)) * self.strides
+        )
 
         y = torch.cat((dbox, cls.sigmoid()), 1)
 
@@ -514,9 +545,11 @@ class DDetect(nn.Module):
             _, _, h, w = feats[i].shape
             sx = torch.arange(end=w, device=device, dtype=dtype) + grid_cell_offset
             sy = torch.arange(end=h, device=device, dtype=dtype) + grid_cell_offset
-            sy, sx = torch.meshgrid(sy, sx, indexing='ij')
+            sy, sx = torch.meshgrid(sy, sx, indexing="ij")
             anchor_points.append(torch.stack((sx, sy), -1).view(-1, 2))
-            stride_tensor.append(torch.full((h * w, 1), stride, dtype=dtype, device=device))
+            stride_tensor.append(
+                torch.full((h * w, 1), stride, dtype=dtype, device=device)
+            )
 
         return torch.cat(anchor_points), torch.cat(stride_tensor)
 
@@ -550,103 +583,103 @@ class DDetect(nn.Module):
 # YOLOv9 configurations - exact channel dimensions from official YOLO configs
 # Each variant has unique, non-linear channel structures
 YOLO9_CONFIGS = {
-    't': {  # Tiny
+    "t": {  # Tiny
         # Backbone: Conv(16) -> Conv(32) -> ELAN(32) -> [AConv -> RepNCSPELAN] x3
-        'conv0_out': 16,
-        'conv1_out': 32,
-        'first_block': 'elan',  # ELAN for t/s, RepNCSPELAN for m/c
-        'first_block_out': 32,
-        'down_type': 'aconv',  # AConv for t/s/m, ADown for c
-        'stages': [  # (down_out, elan_out, elan_part) for stages 2, 3, 4
-            (64, 64, 64),    # B3: AConv->64, RepNCSPELAN->64
-            (96, 96, 96),    # B4: AConv->96, RepNCSPELAN->96
-            (128, 128, 128), # B5: AConv->128, RepNCSPELAN->128
+        "conv0_out": 16,
+        "conv1_out": 32,
+        "first_block": "elan",  # ELAN for t/s, RepNCSPELAN for m/c
+        "first_block_out": 32,
+        "down_type": "aconv",  # AConv for t/s/m, ADown for c
+        "stages": [  # (down_out, elan_out, elan_part) for stages 2, 3, 4
+            (64, 64, 64),  # B3: AConv->64, RepNCSPELAN->64
+            (96, 96, 96),  # B4: AConv->96, RepNCSPELAN->96
+            (128, 128, 128),  # B5: AConv->128, RepNCSPELAN->128
         ],
-        'spp_out': 128,
-        'repeat_num': 3,  # RepNCSPELAN repeat for t/s
+        "spp_out": 128,
+        "repeat_num": 3,  # RepNCSPELAN repeat for t/s
         # Neck
-        'neck_elan_up1': (96, 96),   # N4: out=96, part=96
-        'neck_elan_up2': (64, 64),   # P3: out=64, part=64
-        'neck_down1_out': 48,        # AConv after P3
-        'neck_elan_down1': (96, 96), # P4: out=96, part=96
-        'neck_down2_out': 64,        # AConv after P4
-        'neck_elan_down2': (128, 128), # P5: out=128, part=128
+        "neck_elan_up1": (96, 96),  # N4: out=96, part=96
+        "neck_elan_up2": (64, 64),  # P3: out=64, part=64
+        "neck_down1_out": 48,  # AConv after P3
+        "neck_elan_down1": (96, 96),  # P4: out=96, part=96
+        "neck_down2_out": 64,  # AConv after P4
+        "neck_elan_down2": (128, 128),  # P5: out=128, part=128
         # Detection head channels
-        'head_channels': (64, 96, 128),  # P3, P4, P5
+        "head_channels": (64, 96, 128),  # P3, P4, P5
     },
-    's': {  # Small
+    "s": {  # Small
         # Backbone: Conv(32) -> Conv(64) -> ELAN(64) -> [AConv -> RepNCSPELAN] x3
-        'conv0_out': 32,
-        'conv1_out': 64,
-        'first_block': 'elan',
-        'first_block_out': 64,
-        'down_type': 'aconv',
-        'stages': [
+        "conv0_out": 32,
+        "conv1_out": 64,
+        "first_block": "elan",
+        "first_block_out": 64,
+        "down_type": "aconv",
+        "stages": [
             (128, 128, 128),  # B3
             (192, 192, 192),  # B4
             (256, 256, 256),  # B5
         ],
-        'spp_out': 256,
-        'repeat_num': 3,
+        "spp_out": 256,
+        "repeat_num": 3,
         # Neck
-        'neck_elan_up1': (192, 192),
-        'neck_elan_up2': (128, 128),
-        'neck_down1_out': 96,
-        'neck_elan_down1': (192, 192),
-        'neck_down2_out': 128,
-        'neck_elan_down2': (256, 256),
+        "neck_elan_up1": (192, 192),
+        "neck_elan_up2": (128, 128),
+        "neck_down1_out": 96,
+        "neck_elan_down1": (192, 192),
+        "neck_down2_out": 128,
+        "neck_elan_down2": (256, 256),
         # Detection
-        'head_channels': (128, 192, 256),
+        "head_channels": (128, 192, 256),
     },
-    'm': {  # Medium
+    "m": {  # Medium
         # Backbone: Conv(32) -> Conv(64) -> RepNCSPELAN(128) -> [AConv -> RepNCSPELAN] x3
-        'conv0_out': 32,
-        'conv1_out': 64,
-        'first_block': 'repncspelan',
-        'first_block_out': 128,
-        'first_block_part': 128,
-        'down_type': 'aconv',
-        'stages': [
+        "conv0_out": 32,
+        "conv1_out": 64,
+        "first_block": "repncspelan",
+        "first_block_out": 128,
+        "first_block_part": 128,
+        "down_type": "aconv",
+        "stages": [
             (240, 240, 240),  # B3
             (360, 360, 360),  # B4
             (480, 480, 480),  # B5
         ],
-        'spp_out': 480,
-        'repeat_num': 1,  # Default repeat for m/c
+        "spp_out": 480,
+        "repeat_num": 1,  # Default repeat for m/c
         # Neck
-        'neck_elan_up1': (360, 360),
-        'neck_elan_up2': (240, 240),
-        'neck_down1_out': 184,
-        'neck_elan_down1': (360, 360),
-        'neck_down2_out': 240,
-        'neck_elan_down2': (480, 480),
+        "neck_elan_up1": (360, 360),
+        "neck_elan_up2": (240, 240),
+        "neck_down1_out": 184,
+        "neck_elan_down1": (360, 360),
+        "neck_down2_out": 240,
+        "neck_elan_down2": (480, 480),
         # Detection
-        'head_channels': (240, 360, 480),
+        "head_channels": (240, 360, 480),
     },
-    'c': {  # Compact (largest)
+    "c": {  # Compact (largest)
         # Backbone: Conv(64) -> Conv(128) -> RepNCSPELAN(256) -> [ADown -> RepNCSPELAN] x3
-        'conv0_out': 64,
-        'conv1_out': 128,
-        'first_block': 'repncspelan',
-        'first_block_out': 256,
-        'first_block_part': 128,  # part_channels for first RepNCSPELAN
-        'down_type': 'adown',
-        'stages': [
+        "conv0_out": 64,
+        "conv1_out": 128,
+        "first_block": "repncspelan",
+        "first_block_out": 256,
+        "first_block_part": 128,  # part_channels for first RepNCSPELAN
+        "down_type": "adown",
+        "stages": [
             (256, 512, 256),  # B3: ADown->256, RepNCSPELAN->512, part=256
             (512, 512, 512),  # B4: ADown->512, RepNCSPELAN->512, part=512
             (512, 512, 512),  # B5: ADown->512, RepNCSPELAN->512, part=512
         ],
-        'spp_out': 512,
-        'repeat_num': 1,
+        "spp_out": 512,
+        "repeat_num": 1,
         # Neck
-        'neck_elan_up1': (512, 512),
-        'neck_elan_up2': (256, 256),
-        'neck_down1_out': 256,
-        'neck_elan_down1': (512, 512),
-        'neck_down2_out': 512,
-        'neck_elan_down2': (512, 512),
+        "neck_elan_up1": (512, 512),
+        "neck_elan_up2": (256, 256),
+        "neck_down1_out": 256,
+        "neck_elan_down1": (512, 512),
+        "neck_down2_out": 512,
+        "neck_elan_down2": (512, 512),
         # Detection
-        'head_channels': (256, 512, 512),
+        "head_channels": (256, 512, 512),
     },
 }
 
@@ -659,26 +692,26 @@ class Backbone9(nn.Module):
     - yolo9-m/c: Conv -> Conv -> RepNCSPELAN -> [AConv/ADown -> RepNCSPELAN] x3 -> SPPELAN
     """
 
-    def __init__(self, config='c'):
+    def __init__(self, config="c"):
         super().__init__()
 
         cfg = YOLO9_CONFIGS[config]
         self.config = config
 
         # Stem
-        self.conv0 = Conv(3, cfg['conv0_out'], 3, 2)
-        self.conv1 = Conv(cfg['conv0_out'], cfg['conv1_out'], 3, 2)
+        self.conv0 = Conv(3, cfg["conv0_out"], 3, 2)
+        self.conv1 = Conv(cfg["conv0_out"], cfg["conv1_out"], 3, 2)
 
         # First block (ELAN for t/s, RepNCSPELAN for m/c)
-        if cfg['first_block'] == 'elan':
+        if cfg["first_block"] == "elan":
             # ELAN(c1, c2, c3, c4, n) where:
             #   c1 = input channels
             #   c2 = cv1 output (part_channels)
             #   c3 = cv2/cv3 output (part_channels // 2)
             #   c4 = output channels
             # For yolo9-t/s: ELAN {out_channels: X, part_channels: X}
-            c1 = cfg['conv1_out']
-            c4 = cfg['first_block_out']
+            c1 = cfg["conv1_out"]
+            c4 = cfg["first_block_out"]
             part = c4  # part_channels = out_channels for t/s ELAN
             self.elan1 = ELAN(c1, part, part // 2, c4, n=1)
         else:
@@ -688,38 +721,38 @@ class Backbone9(nn.Module):
             #   c2 = cv1 output = part_channels (gets split in half)
             #   c3 = cv2/cv3 internal = part_channels // 2
             #   c4 = output channels
-            c1 = cfg['conv1_out']
-            c4 = cfg['first_block_out']
-            part = cfg.get('first_block_part', c4)
-            self.elan1 = RepNCSPELAN(c1, part, part // 2, c4, cfg['repeat_num'])
+            c1 = cfg["conv1_out"]
+            c4 = cfg["first_block_out"]
+            part = cfg.get("first_block_part", c4)
+            self.elan1 = RepNCSPELAN(c1, part, part // 2, c4, cfg["repeat_num"])
 
         # Determine downsampling block type
-        DownBlock = ADown if cfg['down_type'] == 'adown' else AConv
-        n = cfg['repeat_num']
+        DownBlock = ADown if cfg["down_type"] == "adown" else AConv
+        n = cfg["repeat_num"]
 
         # Stage 2 (B3) - first stage after initial block
         # stage = (down_out, elan_out, part_channels)
-        stage = cfg['stages'][0]
-        prev_ch = cfg['first_block_out']
+        stage = cfg["stages"][0]
+        prev_ch = cfg["first_block_out"]
         self.down2 = DownBlock(prev_ch, stage[0])
         # RepNCSPELAN: c1=down_out, c2=part, c3=part//2, c4=out
         self.elan2 = RepNCSPELAN(stage[0], stage[2], stage[2] // 2, stage[1], n)
 
         # Stage 3 (B4)
-        stage = cfg['stages'][1]
-        prev_ch = cfg['stages'][0][1]  # Previous elan output
+        stage = cfg["stages"][1]
+        prev_ch = cfg["stages"][0][1]  # Previous elan output
         self.down3 = DownBlock(prev_ch, stage[0])
         self.elan3 = RepNCSPELAN(stage[0], stage[2], stage[2] // 2, stage[1], n)
 
         # Stage 4 (B5)
-        stage = cfg['stages'][2]
-        prev_ch = cfg['stages'][1][1]
+        stage = cfg["stages"][2]
+        prev_ch = cfg["stages"][1][1]
         self.down4 = DownBlock(prev_ch, stage[0])
         self.elan4 = RepNCSPELAN(stage[0], stage[2], stage[2] // 2, stage[1], n)
 
         # SPP
-        spp_in = cfg['stages'][2][1]
-        spp_out = cfg['spp_out']
+        spp_in = cfg["stages"][2][1]
+        spp_out = cfg["spp_out"]
         self.spp = SPPELAN(spp_in, spp_out // 2, spp_out)
 
     def forward(self, x):
@@ -758,48 +791,52 @@ class Neck9(nn.Module):
     - AConv/ADown + Concat(SPP) -> RepNCSPELAN (P5)
     """
 
-    def __init__(self, config='c'):
+    def __init__(self, config="c"):
         super().__init__()
 
         cfg = YOLO9_CONFIGS[config]
         self.config = config
-        n = cfg['repeat_num']
+        n = cfg["repeat_num"]
 
         # Get backbone output channels for concatenation
-        b3_ch = cfg['stages'][0][1]  # B3 output channels
-        b4_ch = cfg['stages'][1][1]  # B4 output channels
-        spp_ch = cfg['spp_out']       # SPP/P5 output channels
+        b3_ch = cfg["stages"][0][1]  # B3 output channels
+        b4_ch = cfg["stages"][1][1]  # B4 output channels
+        spp_ch = cfg["spp_out"]  # SPP/P5 output channels
 
         # Top-down path
-        self.up1 = nn.Upsample(scale_factor=2, mode='nearest')
+        self.up1 = nn.Upsample(scale_factor=2, mode="nearest")
         # Concat(SPP_up, B4) -> N4
         up1_in = spp_ch + b4_ch
-        up1_out, up1_part = cfg['neck_elan_up1']
+        up1_out, up1_part = cfg["neck_elan_up1"]
         # RepNCSPELAN: c1=concat_in, c2=part, c3=part//2, c4=out
         self.elan_up1 = RepNCSPELAN(up1_in, up1_part, up1_part // 2, up1_out, n)
 
-        self.up2 = nn.Upsample(scale_factor=2, mode='nearest')
+        self.up2 = nn.Upsample(scale_factor=2, mode="nearest")
         # Concat(N4_up, B3) -> P3
         up2_in = up1_out + b3_ch
-        up2_out, up2_part = cfg['neck_elan_up2']
+        up2_out, up2_part = cfg["neck_elan_up2"]
         self.elan_up2 = RepNCSPELAN(up2_in, up2_part, up2_part // 2, up2_out, n)
 
         # Bottom-up path
-        DownBlock = ADown if cfg['down_type'] == 'adown' else AConv
+        DownBlock = ADown if cfg["down_type"] == "adown" else AConv
 
         # P3 -> down -> Concat(N4) -> P4
         p3_out = up2_out
-        self.down1 = DownBlock(p3_out, cfg['neck_down1_out'])
-        down1_concat_in = cfg['neck_down1_out'] + up1_out
-        down1_out, down1_part = cfg['neck_elan_down1']
-        self.elan_down1 = RepNCSPELAN(down1_concat_in, down1_part, down1_part // 2, down1_out, n)
+        self.down1 = DownBlock(p3_out, cfg["neck_down1_out"])
+        down1_concat_in = cfg["neck_down1_out"] + up1_out
+        down1_out, down1_part = cfg["neck_elan_down1"]
+        self.elan_down1 = RepNCSPELAN(
+            down1_concat_in, down1_part, down1_part // 2, down1_out, n
+        )
 
         # P4 -> down -> Concat(SPP) -> P5
         p4_out = down1_out
-        self.down2 = DownBlock(p4_out, cfg['neck_down2_out'])
-        down2_concat_in = cfg['neck_down2_out'] + spp_ch
-        down2_out, down2_part = cfg['neck_elan_down2']
-        self.elan_down2 = RepNCSPELAN(down2_concat_in, down2_part, down2_part // 2, down2_out, n)
+        self.down2 = DownBlock(p4_out, cfg["neck_down2_out"])
+        down2_concat_in = cfg["neck_down2_out"] + spp_ch
+        down2_out, down2_part = cfg["neck_elan_down2"]
+        self.elan_down2 = RepNCSPELAN(
+            down2_concat_in, down2_part, down2_part // 2, down2_out, n
+        )
 
     def forward(self, p3, p4, p5):
         # Top-down path
@@ -830,7 +867,7 @@ class LibreYOLO9Model(nn.Module):
     Supports yolo9-t, yolo9-s, yolo9-m, and yolo9-c variants with their specific architectures.
     """
 
-    def __init__(self, config='c', reg_max=16, nb_classes=80, img_size=640):
+    def __init__(self, config="c", reg_max=16, nb_classes=80, img_size=640):
         """
         Initialize YOLOv9 model.
 
@@ -843,7 +880,9 @@ class LibreYOLO9Model(nn.Module):
         super().__init__()
 
         if config not in YOLO9_CONFIGS:
-            raise ValueError(f"Invalid config: {config}. Must be one of: {list(YOLO9_CONFIGS.keys())}")
+            raise ValueError(
+                f"Invalid config: {config}. Must be one of: {list(YOLO9_CONFIGS.keys())}"
+            )
 
         self.config = config
         self.nc = nb_classes
@@ -856,12 +895,9 @@ class LibreYOLO9Model(nn.Module):
         self.neck = Neck9(config)
 
         # Detection head - use exact channels from config
-        head_channels = cfg['head_channels']
+        head_channels = cfg["head_channels"]
         self.head = DDetect(
-            nc=nb_classes,
-            ch=head_channels,
-            reg_max=reg_max,
-            stride=(8, 16, 32)
+            nc=nb_classes, ch=head_channels, reg_max=reg_max, stride=(8, 16, 32)
         )
 
     def forward(self, x, targets=None):
@@ -907,11 +943,11 @@ class LibreYOLO9Model(nn.Module):
 
         # Return in format compatible with postprocessing
         return {
-            'predictions': y,  # (batch, 4+nc, total_anchors)
-            'raw_outputs': x_list,
-            'x8': {'features': n3},
-            'x16': {'features': n4},
-            'x32': {'features': n5}
+            "predictions": y,  # (batch, 4+nc, total_anchors)
+            "raw_outputs": x_list,
+            "x8": {"features": n3},
+            "x16": {"features": n4},
+            "x32": {"features": n5},
         }
 
     def fuse(self):
@@ -919,32 +955,42 @@ class LibreYOLO9Model(nn.Module):
         for m in self.modules():
             if isinstance(m, RepConvN):
                 m.fuse_convs()
-            elif isinstance(m, Conv) and hasattr(m, 'bn'):
+            elif isinstance(m, Conv) and hasattr(m, "bn"):
                 # Fuse Conv+BN
                 m.conv = self._fuse_conv_bn(m.conv, m.bn)
-                delattr(m, 'bn')
+                delattr(m, "bn")
                 m.forward = m.forward_fuse
         return self
 
     def _fuse_conv_bn(self, conv, bn):
         """Fuse Conv2d and BatchNorm2d."""
-        fusedconv = nn.Conv2d(
-            conv.in_channels,
-            conv.out_channels,
-            kernel_size=conv.kernel_size,
-            stride=conv.stride,
-            padding=conv.padding,
-            dilation=conv.dilation,
-            groups=conv.groups,
-            bias=True
-        ).requires_grad_(False).to(conv.weight.device)
+        fusedconv = (
+            nn.Conv2d(
+                conv.in_channels,
+                conv.out_channels,
+                kernel_size=conv.kernel_size,
+                stride=conv.stride,
+                padding=conv.padding,
+                dilation=conv.dilation,
+                groups=conv.groups,
+                bias=True,
+            )
+            .requires_grad_(False)
+            .to(conv.weight.device)
+        )
 
         w_conv = conv.weight.clone().view(conv.out_channels, -1)
         w_bn = torch.diag(bn.weight.div(torch.sqrt(bn.eps + bn.running_var)))
         fusedconv.weight.copy_(torch.mm(w_bn, w_conv).view(fusedconv.weight.shape))
 
-        b_conv = torch.zeros(conv.weight.size(0), device=conv.weight.device) if conv.bias is None else conv.bias
-        b_bn = bn.bias - bn.weight.mul(bn.running_mean).div(torch.sqrt(bn.running_var + bn.eps))
+        b_conv = (
+            torch.zeros(conv.weight.size(0), device=conv.weight.device)
+            if conv.bias is None
+            else conv.bias
+        )
+        b_bn = bn.bias - bn.weight.mul(bn.running_mean).div(
+            torch.sqrt(bn.running_var + bn.eps)
+        )
         fusedconv.bias.copy_(torch.mm(w_bn, b_conv.reshape(-1, 1)).reshape(-1) + b_bn)
 
         return fusedconv

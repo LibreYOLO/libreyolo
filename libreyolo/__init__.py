@@ -1,4 +1,5 @@
 """Libre YOLO — open source YOLO library with MIT license."""
+
 from importlib.metadata import version, PackageNotFoundError
 from pathlib import Path as _Path
 
@@ -33,9 +34,11 @@ def __getattr__(name):
     if name == "LibreYOLORFDETR":
         # RF-DETR needs dependency check before import
         from .models import _ensure_rfdetr
+
         _ensure_rfdetr()
     if name in _lazy:
         import importlib
+
         module_path, attr = _lazy[name]
         mod = importlib.import_module(module_path, package=__name__)
         return getattr(mod, attr)

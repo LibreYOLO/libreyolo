@@ -4,7 +4,7 @@ Validation configuration for LibreYOLO.
 Provides a dataclass for configuring model validation runs.
 """
 
-from dataclasses import dataclass, field, asdict
+from dataclasses import dataclass, asdict
 from pathlib import Path
 from typing import Optional, Tuple, Union
 
@@ -48,7 +48,16 @@ class ValidationConfig:
 
     # Metrics settings
     iou_thresholds: Tuple[float, ...] = (
-        0.50, 0.55, 0.60, 0.65, 0.70, 0.75, 0.80, 0.85, 0.90, 0.95
+        0.50,
+        0.55,
+        0.60,
+        0.65,
+        0.70,
+        0.75,
+        0.80,
+        0.85,
+        0.90,
+        0.95,
     )
     use_coco_eval: bool = True  # Use COCO evaluation API (recommended)
 
@@ -72,7 +81,9 @@ class ValidationConfig:
             raise ValueError("Either 'data' or 'data_dir' must be specified")
 
         if self.split not in ("val", "test", "train"):
-            raise ValueError(f"Invalid split: {self.split}. Must be 'val', 'test', or 'train'")
+            raise ValueError(
+                f"Invalid split: {self.split}. Must be 'val', 'test', or 'train'"
+            )
 
         if not 0 < self.conf_thres < 1:
             raise ValueError(f"conf_thres must be in (0, 1), got {self.conf_thres}")
@@ -98,7 +109,9 @@ class ValidationConfig:
             config_dict = yaml.safe_load(f)
 
         # Convert iou_thresholds list to tuple if present
-        if "iou_thresholds" in config_dict and isinstance(config_dict["iou_thresholds"], list):
+        if "iou_thresholds" in config_dict and isinstance(
+            config_dict["iou_thresholds"], list
+        ):
             config_dict["iou_thresholds"] = tuple(config_dict["iou_thresholds"])
 
         return cls(**config_dict)

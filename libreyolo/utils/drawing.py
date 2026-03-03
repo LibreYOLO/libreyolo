@@ -1,7 +1,8 @@
 """
 Drawing utility functions for visualization.
 """
-from typing import Tuple, List, Union
+
+from typing import Tuple, List
 from PIL import Image, ImageDraw, ImageFont
 import colorsys
 
@@ -18,10 +19,16 @@ def get_class_color(class_id: int) -> str:
     saturation = 0.7 + (class_id % 3) * 0.1  # Vary saturation
     value = 0.8 + (class_id % 2) * 0.15  # Vary brightness
     rgb = colorsys.hsv_to_rgb(hue, saturation, value)
-    return f"#{int(rgb[0]*255):02x}{int(rgb[1]*255):02x}{int(rgb[2]*255):02x}"
+    return f"#{int(rgb[0] * 255):02x}{int(rgb[1] * 255):02x}{int(rgb[2] * 255):02x}"
 
 
-def draw_boxes(img: Image.Image, boxes: List, scores: List, classes: List, class_names: List = None) -> Image.Image:
+def draw_boxes(
+    img: Image.Image,
+    boxes: List,
+    scores: List,
+    classes: List,
+    class_names: List | None = None,
+) -> Image.Image:
     """
     Draw bounding boxes on image with class-specific colors.
 
@@ -61,11 +68,13 @@ def draw_boxes(img: Image.Image, boxes: List, scores: List, classes: List, class
     # Try to load a font with scaled size, fallback to default if not available
     try:
         font = ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", font_size)
-    except:
+    except OSError:
         try:
             # Try common Linux fonts
-            font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", font_size)
-        except:
+            font = ImageFont.truetype(
+                "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", font_size
+            )
+        except OSError:
             font = ImageFont.load_default()
 
     # Label padding scales with font size
@@ -93,15 +102,33 @@ def draw_boxes(img: Image.Image, boxes: List, scores: List, classes: List, class
         text_height = bbox[3] - bbox[1]
 
         # Draw label background with class color (scaled padding)
-        draw.rectangle([x1, y1 - text_height - label_padding * 2, x1 + text_width + label_padding * 2, y1], fill=color)
+        draw.rectangle(
+            [
+                x1,
+                y1 - text_height - label_padding * 2,
+                x1 + text_width + label_padding * 2,
+                y1,
+            ],
+            fill=color,
+        )
 
         # Draw label text
-        draw.text((x1 + label_padding, y1 - text_height - label_padding), label, fill="white", font=font)
+        draw.text(
+            (x1 + label_padding, y1 - text_height - label_padding),
+            label,
+            fill="white",
+            font=font,
+        )
 
     return img_draw
 
 
-def draw_tile_grid(img: Image.Image, tile_coords: List[Tuple[int, int, int, int]], line_color: str = "#FF0000", line_width: int = 3) -> Image.Image:
+def draw_tile_grid(
+    img: Image.Image,
+    tile_coords: List[Tuple[int, int, int, int]],
+    line_color: str = "#FF0000",
+    line_width: int = 3,
+) -> Image.Image:
     """
     Draw grid lines on an image to visualize tile boundaries.
 

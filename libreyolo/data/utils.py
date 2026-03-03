@@ -30,7 +30,17 @@ DATASETS_DIR = Path(os.getenv("LIBREYOLO_DATASETS_DIR", Path.home() / "datasets"
 BUILTIN_DATASETS_DIR = Path(__file__).parent.parent / "config" / "datasets"
 
 # Supported image extensions
-IMG_FORMATS = {".jpg", ".jpeg", ".png", ".bmp", ".gif", ".tif", ".tiff", ".webp", ".pfm"}
+IMG_FORMATS = {
+    ".jpg",
+    ".jpeg",
+    ".png",
+    ".bmp",
+    ".gif",
+    ".tif",
+    ".tiff",
+    ".webp",
+    ".pfm",
+}
 
 
 def resolve_dataset_yaml(data: str) -> Path:
@@ -202,7 +212,9 @@ def img2label_paths(img_paths: List[Path]) -> List[Path]:
     return label_paths
 
 
-def load_data_config(data: str, autodownload: bool = True, allow_scripts: bool = True) -> Dict:
+def load_data_config(
+    data: str, autodownload: bool = True, allow_scripts: bool = True
+) -> Dict:
     """
     Load dataset configuration from YAML file.
 
@@ -293,7 +305,9 @@ def _resolve_dataset_path(config: Dict, yaml_path: Path) -> Path:
         return yaml_path.parent
 
 
-def check_dataset(config: Dict, yaml_path: Path = None, allow_scripts: bool = True) -> Dict:
+def check_dataset(
+    config: Dict, yaml_path: Path | None = None, allow_scripts: bool = True
+) -> Dict:
     """
     Check if dataset exists, download if missing and URL/script is provided.
 
@@ -331,7 +345,9 @@ def check_dataset(config: Dict, yaml_path: Path = None, allow_scripts: bool = Tr
     # Dataset doesn't exist, check for download URL/script
     download_spec = config.get("download")
     if not download_spec:
-        print(f"Warning: Dataset not found at {dataset_path} and no download specified.")
+        print(
+            f"Warning: Dataset not found at {dataset_path} and no download specified."
+        )
         return config
 
     print(f"Dataset not found at {dataset_path}")
@@ -340,12 +356,13 @@ def check_dataset(config: Dict, yaml_path: Path = None, allow_scripts: bool = Tr
     if _is_python_script(download_spec):
         if not allow_scripts:
             print(
-                f"Warning: Dataset YAML contains a Python download script but "
-                f"allow_scripts=False. Skipping script execution. "
-                f"Pass allow_scripts=True to load_data_config() to enable."
+                "Warning: Dataset YAML contains a Python download script but "
+                "allow_scripts=False. Skipping script execution. "
+                "Pass allow_scripts=True to load_data_config() to enable."
             )
             return config
         import logging
+
         logging.getLogger(__name__).info(
             "Executing embedded download script from %s", yaml_path or "config"
         )
@@ -371,7 +388,9 @@ def _is_python_script(download_spec: str) -> bool:
     return any(indicator in download_spec for indicator in python_indicators)
 
 
-def _execute_download_script(script: str, config: Dict, yaml_path: Path = None) -> None:
+def _execute_download_script(
+    script: str, config: Dict, yaml_path: Path | None = None
+) -> None:
     """
     Execute a Python download script.
 
@@ -390,11 +409,11 @@ def _execute_download_script(script: str, config: Dict, yaml_path: Path = None) 
     # Auto-replace common import patterns with libreyolo equivalents
     script = script.replace(
         "from ultralytics.utils.downloads import download",
-        "from libreyolo.data.utils import download"
+        "from libreyolo.data.utils import download",
     )
     script = script.replace(
         "from ultralytics.utils import ASSETS_URL",
-        "from libreyolo.data.utils import ASSETS_URL"
+        "from libreyolo.data.utils import ASSETS_URL",
     )
 
     # Create execution context with useful variables

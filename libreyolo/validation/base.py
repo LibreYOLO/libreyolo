@@ -197,7 +197,9 @@ class BaseValidator(ABC):
             ms_per_image = self.speed["total"] / self.seen * 1000
             metrics["speed/preprocess_ms"] = self.speed["preprocess"] / self.seen * 1000
             metrics["speed/inference_ms"] = self.speed["inference"] / self.seen * 1000
-            metrics["speed/postprocess_ms"] = self.speed["postprocess"] / self.seen * 1000
+            metrics["speed/postprocess_ms"] = (
+                self.speed["postprocess"] / self.seen * 1000
+            )
             metrics["speed/total_ms"] = ms_per_image
             metrics["speed/total_s"] = self.speed["total"]
             metrics["speed/images_seen"] = self.seen
@@ -216,7 +218,9 @@ class BaseValidator(ABC):
         """
         # Use non_blocking for CUDA to overlap transfer with computation
         use_non_blocking = self.device.type == "cuda"
-        return self.model._forward(images.to(self.device, non_blocking=use_non_blocking))
+        return self.model._forward(
+            images.to(self.device, non_blocking=use_non_blocking)
+        )
 
     def _warmup_model(self, n_warmup: int = 3) -> None:
         """
@@ -244,7 +248,7 @@ class BaseValidator(ABC):
 
         # Set dummy original_size for models that need it
         # This prevents NoneType errors during warmup forward pass
-        if hasattr(self.model, '_original_size'):
+        if hasattr(self.model, "_original_size"):
             self.model._original_size = (imgsz, imgsz)
 
         # Run warmup passes
@@ -259,7 +263,7 @@ class BaseValidator(ABC):
                     break
 
         # Reset original_size after warmup
-        if hasattr(self.model, '_original_size'):
+        if hasattr(self.model, "_original_size"):
             self.model._original_size = None
 
         # Sync CUDA if available
@@ -329,7 +333,9 @@ class BaseValidator(ABC):
         pass
 
     @abstractmethod
-    def _update_metrics(self, preds: Any, targets: Any, img_info: Any, img_ids: Any = None) -> None:
+    def _update_metrics(
+        self, preds: Any, targets: Any, img_info: Any, img_ids: Any = None
+    ) -> None:
         """
         Update metrics with batch predictions.
 

@@ -103,8 +103,12 @@ def compute_iou(
     cent_dis = (cx1 - cx2) ** 2 + (cy1 - cy2) ** 2
 
     # Calculate diagonal length of the smallest enclosing box
-    c_x = torch.max(bbox1[..., 2], bbox2[..., 2]) - torch.min(bbox1[..., 0], bbox2[..., 0])
-    c_y = torch.max(bbox1[..., 3], bbox2[..., 3]) - torch.min(bbox1[..., 1], bbox2[..., 1])
+    c_x = torch.max(bbox1[..., 2], bbox2[..., 2]) - torch.min(
+        bbox1[..., 0], bbox2[..., 0]
+    )
+    c_y = torch.max(bbox1[..., 3], bbox2[..., 3]) - torch.min(
+        bbox1[..., 1], bbox2[..., 1]
+    )
     diag_dis = c_x**2 + c_y**2 + EPS
 
     diou = iou - (cent_dis / diag_dis)

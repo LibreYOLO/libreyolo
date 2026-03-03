@@ -12,8 +12,7 @@ from typing import Tuple, List
 from PIL import Image
 
 from ...utils.image_loader import ImageLoader, ImageInput
-from ...utils.general import COCO_CLASSES, cxcywh_to_xyxy, postprocess_detections
-from ...utils.drawing import draw_boxes, get_class_color
+from ...utils.general import cxcywh_to_xyxy, postprocess_detections
 
 
 def preprocess_numpy(
@@ -51,9 +50,7 @@ def preprocess_numpy(
 
 
 def preprocess_image(
-    image: ImageInput,
-    input_size: int = 640,
-    color_format: str = "auto"
+    image: ImageInput, input_size: int = 640, color_format: str = "auto"
 ) -> Tuple[torch.Tensor, Image.Image, Tuple[int, int], float]:
     """
     Preprocess image for YOLOX inference with letterboxing.
@@ -80,7 +77,9 @@ def preprocess_image(
     return img_tensor, original_img, original_size, ratio
 
 
-def make_grids(outputs: List[torch.Tensor], strides: List[int], grid_cell_offset: float = 0.0) -> Tuple[torch.Tensor, torch.Tensor]:
+def make_grids(
+    outputs: List[torch.Tensor], strides: List[int], grid_cell_offset: float = 0.0
+) -> Tuple[torch.Tensor, torch.Tensor]:
     """
     Generate grid anchors for YOLOX output decoding.
 
@@ -108,12 +107,14 @@ def make_grids(outputs: List[torch.Tensor], strides: List[int], grid_cell_offset
         # Create grid WITHOUT offset (matching YOLOX training code)
         xv = torch.arange(w, device=device, dtype=dtype) + grid_cell_offset
         yv = torch.arange(h, device=device, dtype=dtype) + grid_cell_offset
-        yv, xv = torch.meshgrid(yv, xv, indexing='ij')
+        yv, xv = torch.meshgrid(yv, xv, indexing="ij")
         grid = torch.stack((xv, yv), dim=2).view(1, -1, 2)
         grids.append(grid)
 
         # Create stride tensor
-        stride_tensors.append(torch.full((1, h * w, 1), stride, dtype=dtype, device=device))
+        stride_tensors.append(
+            torch.full((1, h * w, 1), stride, dtype=dtype, device=device)
+        )
 
     grids = torch.cat(grids, dim=1)
     stride_tensors = torch.cat(stride_tensors, dim=1)
@@ -122,8 +123,7 @@ def make_grids(outputs: List[torch.Tensor], strides: List[int], grid_cell_offset
 
 
 def decode_outputs(
-    outputs: List[torch.Tensor],
-    strides: List[int] = [8, 16, 32]
+    outputs: List[torch.Tensor], strides: List[int] = [8, 16, 32]
 ) -> torch.Tensor:
     """
     Decode YOLOX outputs to absolute coordinates.
@@ -171,9 +171,9 @@ def postprocess(
     conf_thres: float = 0.25,
     iou_thres: float = 0.45,
     input_size: int = 640,
-    original_size: Tuple[int, int] = None,
+    original_size: Tuple[int, int] | None = None,
     ratio: float = 1.0,
-    max_det: int = 300
+    max_det: int = 300,
 ) -> dict:
     """
     Postprocess YOLOX outputs to get final detections.
@@ -198,8 +198,8 @@ def postprocess(
 
     # Extract components
     boxes_cxcywh = decoded[:, :4]  # (N, 4) - center_x, center_y, width, height
-    objectness = decoded[:, 4]     # (N,) - objectness score
-    class_probs = decoded[:, 5:]   # (N, num_classes) - class probabilities
+    objectness = decoded[:, 4]  # (N,) - objectness score
+    class_probs = decoded[:, 5:]  # (N, num_classes) - class probabilities
 
     # Final confidence = objectness * class_prob
     scores = objectness.unsqueeze(-1) * class_probs  # (N, num_classes)
@@ -210,12 +210,7 @@ def postprocess(
     # Filter by confidence threshold
     mask = max_scores > conf_thres
     if not mask.any():
-        return {
-            "boxes": [],
-            "scores": [],
-            "classes": [],
-            "num_detections": 0
-        }
+        return {"boxes": [], "scores": [], "classes": [], "num_detections": 0}
 
     valid_boxes_cxcywh = boxes_cxcywh[mask]
     valid_scores = max_scores[mask]
@@ -230,8 +225,12 @@ def postprocess(
         valid_boxes = valid_boxes / ratio
 
         # Clamp to image boundaries
-        valid_boxes[:, [0, 2]] = torch.clamp(valid_boxes[:, [0, 2]], 0, original_size[0])
-        valid_boxes[:, [1, 3]] = torch.clamp(valid_boxes[:, [1, 3]], 0, original_size[1])
+        valid_boxes[:, [0, 2]] = torch.clamp(
+            valid_boxes[:, [0, 2]], 0, original_size[0]
+        )
+        valid_boxes[:, [1, 3]] = torch.clamp(
+            valid_boxes[:, [1, 3]], 0, original_size[1]
+        )
 
         # Filter out invalid boxes (zero or negative area)
         box_widths = valid_boxes[:, 2] - valid_boxes[:, 0]

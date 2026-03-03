@@ -18,6 +18,7 @@ def check_openvino_available() -> None:
     """Check if OpenVINO is available and raise helpful error if not."""
     try:
         import openvino as ov
+
         _ = ov.__version__
     except ImportError:
         raise ImportError(

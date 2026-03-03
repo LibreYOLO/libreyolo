@@ -31,7 +31,7 @@ class InferenceRunner:
 
     def __call__(
         self,
-        source: ImageInput = None,
+        source: ImageInput | None = None,
         *,
         conf: float = 0.25,
         iou: float = 0.45,
@@ -41,7 +41,7 @@ class InferenceRunner:
         save: bool = False,
         batch: int = 1,
         # libreyolo-specific
-        output_path: str = None,
+        output_path: str | None = None,
         color_format: str = "auto",
         tiling: bool = False,
         overlap_ratio: float = 0.2,
@@ -136,7 +136,7 @@ class InferenceRunner:
         image_paths: List[Path],
         batch: int = 1,
         save: bool = False,
-        output_path: str = None,
+        output_path: str | None = None,
         conf: float = 0.25,
         iou: float = 0.45,
         imgsz: Optional[int] = None,
@@ -260,7 +260,7 @@ class InferenceRunner:
         self,
         image: ImageInput,
         save: bool = False,
-        output_path: str = None,
+        output_path: str | None = None,
         conf: float = 0.25,
         iou: float = 0.45,
         imgsz: Optional[int] = None,
@@ -352,7 +352,7 @@ class InferenceRunner:
         self,
         image: ImageInput,
         save: bool = False,
-        output_path: str = None,
+        output_path: str | None = None,
         conf: float = 0.25,
         iou: float = 0.45,
         imgsz: Optional[int] = None,
@@ -403,7 +403,12 @@ class InferenceRunner:
                 )
 
             tile_result = self._predict_single(
-                tile, save=False, conf=conf, iou=iou, imgsz=imgsz, max_det=max_det,
+                tile,
+                save=False,
+                conf=conf,
+                iou=iou,
+                imgsz=imgsz,
+                max_det=max_det,
                 **kwargs,
             )
 
@@ -453,7 +458,9 @@ class InferenceRunner:
                 else:
                     save_dir = base_path.parent / f"{stem}_{model_tag}_{timestamp}"
             else:
-                save_dir = Path("runs/tiled_detections") / f"{stem}_{model_tag}_{timestamp}"
+                save_dir = (
+                    Path("runs/tiled_detections") / f"{stem}_{model_tag}_{timestamp}"
+                )
 
             save_dir.mkdir(parents=True, exist_ok=True)
 

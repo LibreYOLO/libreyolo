@@ -5,8 +5,7 @@ Provides COCO-standard evaluation metrics (AP, AR, etc.) for object detection.
 Works with both COCO format and Ultralytics YOLO format datasets via YOLOCocoAPI.
 """
 
-from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, Optional
 import json
 
 import numpy as np
@@ -38,7 +37,7 @@ class COCOEvaluator:
         >>> print(f"mAP50-95: {metrics['mAP']:.3f}")
     """
 
-    def __init__(self, coco_gt, iou_type: str = 'bbox'):
+    def __init__(self, coco_gt, iou_type: str = "bbox"):
         """
         Initialize COCO evaluator.
 
@@ -62,9 +61,9 @@ class COCOEvaluator:
                 - 'classes': List or tensor of class IDs (0-indexed)
             image_id: Image ID (must match COCO API image IDs)
         """
-        boxes = predictions['boxes']
-        scores = predictions['scores']
-        classes = predictions['classes']
+        boxes = predictions["boxes"]
+        scores = predictions["scores"]
+        classes = predictions["classes"]
 
         # Convert to numpy if tensors
         if isinstance(boxes, torch.Tensor):
@@ -85,12 +84,14 @@ class COCOEvaluator:
             w, h = x2 - x1, y2 - y1
 
             # COCO format: [x, y, width, height]
-            self.results.append({
-                'image_id': int(image_id),
-                'category_id': int(label),  # COCO uses 0-indexed like we do
-                'bbox': [float(x1), float(y1), float(w), float(h)],
-                'score': float(score)
-            })
+            self.results.append(
+                {
+                    "image_id": int(image_id),
+                    "category_id": int(label),  # COCO uses 0-indexed like we do
+                    "bbox": [float(x1), float(y1), float(w), float(h)],
+                    "score": float(score),
+                }
+            )
 
         self._img_ids.add(image_id)
 
@@ -122,13 +123,13 @@ class COCOEvaluator:
 
         # Save predictions if requested
         if save_json:
-            with open(save_json, 'w') as f:
+            with open(save_json, "w") as f:
                 json.dump(self.results, f, indent=2)
             print(f"Saved predictions to {save_json}")
 
         # Use pycocotools for evaluation
         try:
-            from pycocotools.coco import COCO
+            from pycocotools.coco import COCO  # noqa: F401
             from pycocotools.cocoeval import COCOeval
         except ImportError:
             raise ImportError(
@@ -163,35 +164,35 @@ class COCOEvaluator:
         # stats[11]: AR large
 
         return {
-            'mAP': float(coco_eval.stats[0]),           # mAP@[0.5:0.95]
-            'mAP50': float(coco_eval.stats[1]),         # mAP@0.5
-            'mAP75': float(coco_eval.stats[2]),         # mAP@0.75
-            'mAP_small': float(coco_eval.stats[3]),     # mAP for small objects
-            'mAP_medium': float(coco_eval.stats[4]),    # mAP for medium objects
-            'mAP_large': float(coco_eval.stats[5]),     # mAP for large objects
-            'AR1': float(coco_eval.stats[6]),           # AR with 1 det per image
-            'AR10': float(coco_eval.stats[7]),          # AR with 10 dets per image
-            'AR100': float(coco_eval.stats[8]),         # AR with 100 dets per image
-            'AR_small': float(coco_eval.stats[9]),      # AR for small objects
-            'AR_medium': float(coco_eval.stats[10]),    # AR for medium objects
-            'AR_large': float(coco_eval.stats[11]),     # AR for large objects
+            "mAP": float(coco_eval.stats[0]),  # mAP@[0.5:0.95]
+            "mAP50": float(coco_eval.stats[1]),  # mAP@0.5
+            "mAP75": float(coco_eval.stats[2]),  # mAP@0.75
+            "mAP_small": float(coco_eval.stats[3]),  # mAP for small objects
+            "mAP_medium": float(coco_eval.stats[4]),  # mAP for medium objects
+            "mAP_large": float(coco_eval.stats[5]),  # mAP for large objects
+            "AR1": float(coco_eval.stats[6]),  # AR with 1 det per image
+            "AR10": float(coco_eval.stats[7]),  # AR with 10 dets per image
+            "AR100": float(coco_eval.stats[8]),  # AR with 100 dets per image
+            "AR_small": float(coco_eval.stats[9]),  # AR for small objects
+            "AR_medium": float(coco_eval.stats[10]),  # AR for medium objects
+            "AR_large": float(coco_eval.stats[11]),  # AR for large objects
         }
 
     def _empty_metrics(self) -> Dict[str, float]:
         """Return empty metrics dict (all zeros)."""
         return {
-            'mAP': 0.0,
-            'mAP50': 0.0,
-            'mAP75': 0.0,
-            'mAP_small': 0.0,
-            'mAP_medium': 0.0,
-            'mAP_large': 0.0,
-            'AR1': 0.0,
-            'AR10': 0.0,
-            'AR100': 0.0,
-            'AR_small': 0.0,
-            'AR_medium': 0.0,
-            'AR_large': 0.0,
+            "mAP": 0.0,
+            "mAP50": 0.0,
+            "mAP75": 0.0,
+            "mAP_small": 0.0,
+            "mAP_medium": 0.0,
+            "mAP_large": 0.0,
+            "AR1": 0.0,
+            "AR10": 0.0,
+            "AR100": 0.0,
+            "AR_small": 0.0,
+            "AR_medium": 0.0,
+            "AR_large": 0.0,
         }
 
     def reset(self):

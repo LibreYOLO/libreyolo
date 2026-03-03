@@ -4,11 +4,9 @@ Detection metrics for LibreYOLO validation.
 Provides classes for computing mAP, precision, and recall.
 """
 
-from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Dict, List, Optional, Tuple
 
 import numpy as np
-import torch
 
 
 class DetMetrics:
@@ -41,7 +39,16 @@ class DetMetrics:
         self.nc = nc
         self.conf = conf
         self.iou_thresholds = iou_thresholds or (
-            0.50, 0.55, 0.60, 0.65, 0.70, 0.75, 0.80, 0.85, 0.90, 0.95
+            0.50,
+            0.55,
+            0.60,
+            0.65,
+            0.70,
+            0.75,
+            0.80,
+            0.85,
+            0.90,
+            0.95,
         )
         self.niou = len(self.iou_thresholds)
 
@@ -211,7 +218,7 @@ class DetMetrics:
 
         # 101-point interpolation
         x = np.linspace(0, 1, 101)
-        _trapz = getattr(np, 'trapezoid', getattr(np, 'trapz', None))
+        _trapz = getattr(np, "trapezoid", getattr(np, "trapz", None))
         ap = _trapz(np.interp(x, mrec, mpre), x)
 
         return float(ap)
@@ -233,4 +240,3 @@ class DetMetrics:
         self.ap_class = None
         self.precision = None
         self.recall = None
-

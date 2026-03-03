@@ -10,6 +10,7 @@ import torch.nn as nn
 # YOLOX Losses
 # =============================================================================
 
+
 class IoULoss(nn.Module):
     """IoU loss for bounding box regression (YOLOX)."""
 
@@ -56,7 +57,7 @@ class IoULoss(nn.Module):
         iou = (area_i) / (area_u + 1e-16)
 
         if self.loss_type == "iou":
-            loss = 1 - iou ** 2
+            loss = 1 - iou**2
         elif self.loss_type == "giou":
             c_tl = torch.min(
                 (pred[:, :2] - pred[:, 2:] / 2), (target[:, :2] - target[:, 2:] / 2)

@@ -290,7 +290,12 @@ class YOLO9MosaicMixupDataset:
                 x1a, y1a, x2a, y2a = max(xc - w, 0), yc, xc, min(yc + h, input_h * 2)
                 x1b, y1b, x2b, y2b = w - (x2a - x1a), 0, w, min(y2a - y1a, h)
             else:  # bottom right
-                x1a, y1a, x2a, y2a = xc, yc, min(xc + w, input_w * 2), min(yc + h, input_h * 2)
+                x1a, y1a, x2a, y2a = (
+                    xc,
+                    yc,
+                    min(xc + w, input_w * 2),
+                    min(yc + h, input_h * 2),
+                )
                 x1b, y1b, x2b, y2b = 0, 0, min(w, x2a - x1a), min(y2a - y1a, h)
 
             mosaic_img[y1a:y2a, x1a:x2a] = img[y1b:y2b, x1b:x2b]
@@ -355,7 +360,11 @@ class YOLO9MosaicMixupDataset:
             if len(labels2) > 0:
                 # Concatenate and truncate
                 all_labels = np.vstack([labels, labels2])
-                max_labels = self.preproc.max_labels if hasattr(self.preproc, 'max_labels') else 100
+                max_labels = (
+                    self.preproc.max_labels
+                    if hasattr(self.preproc, "max_labels")
+                    else 100
+                )
                 labels = all_labels[:max_labels]
 
         return img, labels

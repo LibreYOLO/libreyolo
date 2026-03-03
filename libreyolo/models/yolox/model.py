@@ -54,27 +54,27 @@ class LibreYOLOX(BaseModel):
     @classmethod
     def can_load(cls, weights_dict: dict) -> bool:
         """Check if a state dict belongs to a YOLOX model."""
-        return any('backbone.backbone' in k or 'head.stems' in k for k in weights_dict)
+        return any("backbone.backbone" in k or "head.stems" in k for k in weights_dict)
 
     @classmethod
     def detect_size(cls, weights_dict: dict) -> Optional[str]:
         """Detect YOLOX model size from state dict channel counts."""
-        key = 'backbone.backbone.stem.conv.conv.weight'
+        key = "backbone.backbone.stem.conv.conv.weight"
         if key not in weights_dict:
             return None
         ch = weights_dict[key].shape[0]
-        return {16: 'n', 24: 't', 32: 's', 48: 'm', 64: 'l', 80: 'x'}.get(ch)
+        return {16: "n", 24: "t", 32: "s", 48: "m", 64: "l", 80: "x"}.get(ch)
 
     @classmethod
     def detect_nb_classes(cls, weights_dict: dict) -> Optional[int]:
         """Detect number of classes from YOLOX state dict."""
-        key = 'head.cls_preds.0.weight'
+        key = "head.cls_preds.0.weight"
         return weights_dict[key].shape[0] if key in weights_dict else None
 
     @classmethod
     def detect_size_from_filename(cls, filename: str) -> Optional[str]:
         """Extract size from filename pattern like LibreYOLOXs.pt."""
-        m = re.search(r'libreyolox([ntsmxl])\.pt', filename.lower())
+        m = re.search(r"libreyolox([ntsmxl])\.pt", filename.lower())
         return m.group(1) if m else None
 
     # =========================================================================
@@ -112,7 +112,7 @@ class LibreYOLOX(BaseModel):
 
         # Apply nano-specific BatchNorm settings (matching official YOLOX).
         # Must run after weight loading.
-        if self.size == 'n':
+        if self.size == "n":
             for m in self.model.modules():
                 if isinstance(m, nn.BatchNorm2d):
                     m.eps = 1e-3
@@ -130,6 +130,7 @@ class LibreYOLOX(BaseModel):
     @staticmethod
     def _get_preprocess_numpy():
         from .utils import preprocess_numpy
+
         return preprocess_numpy
 
     def _init_model(self) -> nn.Module:
@@ -149,7 +150,10 @@ class LibreYOLOX(BaseModel):
         return False
 
     def _preprocess(
-        self, image: ImageInput, color_format: str = "auto", input_size: Optional[int] = None,
+        self,
+        image: ImageInput,
+        color_format: str = "auto",
+        input_size: Optional[int] = None,
     ) -> Tuple[torch.Tensor, Image.Image, Tuple[int, int], float]:
         """YOLOX preprocessing with letterbox."""
         effective_size = input_size if input_size is not None else self.input_size
@@ -171,7 +175,7 @@ class LibreYOLOX(BaseModel):
         **kwargs,
     ) -> Dict:
         # Use passed input_size if available (from validator), otherwise use model's default
-        actual_input_size = kwargs.get('input_size', self.input_size)
+        actual_input_size = kwargs.get("input_size", self.input_size)
 
         # Recompute ratio if caller passed default (batch validation path)
         if ratio == 1.0 and original_size is not None:
@@ -196,30 +200,24 @@ class LibreYOLOX(BaseModel):
         epochs: int = 100,
         batch: int = 16,
         imgsz: int = 640,
-
         # Optimizer parameters
         lr0: float = 0.01,
         optimizer: str = "SGD",
-
         # System parameters
         device: str = "",
         workers: int = 8,
         seed: int = 0,
-
         # Output parameters
         project: str = "runs/train",
         name: str = "exp",
         exist_ok: bool = False,
-
         # Model parameters
         pretrained: bool = True,
-
         # Training features
         resume: bool = False,
         amp: bool = True,
         patience: int = 50,
-
-        **kwargs
+        **kwargs,
     ) -> dict:
         """
         Train the YOLOX model on a dataset.
@@ -285,12 +283,12 @@ class LibreYOLOX(BaseModel):
         # Load and validate data config (handles built-in datasets and auto-download)
         try:
             data_config = load_data_config(data, autodownload=True)
-            data = data_config.get('yaml_file', data)
+            data = data_config.get("yaml_file", data)
         except Exception as e:
             raise FileNotFoundError(f"Failed to load dataset config '{data}': {e}")
 
         # Reconcile nb_classes with dataset
-        yaml_nc = data_config.get('nc')
+        yaml_nc = data_config.get("nc")
         if yaml_nc is not None and yaml_nc != self.nb_classes:
             self._rebuild_for_new_classes(yaml_nc)
 
@@ -298,6 +296,7 @@ class LibreYOLOX(BaseModel):
         if seed > 0:
             import random
             import numpy as np
+
             random.seed(seed)
             np.random.seed(seed)
             torch.manual_seed(seed)
@@ -341,7 +340,7 @@ class LibreYOLOX(BaseModel):
         results = trainer.train()
 
         # Load best model weights into current instance
-        if Path(results['best_checkpoint']).exists():
-            self._load_weights(results['best_checkpoint'])
+        if Path(results["best_checkpoint"]).exists():
+            self._load_weights(results["best_checkpoint"])
 
         return results

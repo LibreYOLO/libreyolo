@@ -8,7 +8,6 @@ import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-import numpy as np
 import torch
 import torch.nn as nn
 import torchvision.transforms.functional as F
@@ -18,7 +17,7 @@ from ..base import BaseModel
 from ...utils.image_loader import ImageInput, ImageLoader
 from .nn import LibreRFDETRModel, RFDETR_CONFIGS
 from .utils import postprocess, IMAGENET_MEAN, IMAGENET_STD
-from .trainer import train_rfdetr, RFDETR_TRAINERS
+from .trainer import train_rfdetr
 from ...validation.preprocessors import RFDETRValPreprocessor
 
 # COCO 91-class to 80-class mapping.
@@ -26,16 +25,86 @@ from ...validation.preprocessors import RFDETRValPreprocessor
 # but YOLO-format labels use a contiguous 80-class scheme (0-79).
 # This table maps COCO category ID → YOLO class index.
 _COCO91_TO_COCO80 = {
-    1: 0, 2: 1, 3: 2, 4: 3, 5: 4, 6: 5, 7: 6, 8: 7, 9: 8, 10: 9,
-    11: 10, 13: 11, 14: 12, 15: 13, 16: 14, 17: 15, 18: 16, 19: 17,
-    20: 18, 21: 19, 22: 20, 23: 21, 24: 22, 25: 23, 27: 24, 28: 25,
-    31: 26, 32: 27, 33: 28, 34: 29, 35: 30, 36: 31, 37: 32, 38: 33,
-    39: 34, 40: 35, 41: 36, 42: 37, 43: 38, 44: 39, 46: 40, 47: 41,
-    48: 42, 49: 43, 50: 44, 51: 45, 52: 46, 53: 47, 54: 48, 55: 49,
-    56: 50, 57: 51, 58: 52, 59: 53, 60: 54, 61: 55, 62: 56, 63: 57,
-    64: 58, 65: 59, 67: 60, 70: 61, 72: 62, 73: 63, 74: 64, 75: 65,
-    76: 66, 77: 67, 78: 68, 79: 69, 80: 70, 81: 71, 82: 72, 84: 73,
-    85: 74, 86: 75, 87: 76, 88: 77, 89: 78, 90: 79,
+    1: 0,
+    2: 1,
+    3: 2,
+    4: 3,
+    5: 4,
+    6: 5,
+    7: 6,
+    8: 7,
+    9: 8,
+    10: 9,
+    11: 10,
+    13: 11,
+    14: 12,
+    15: 13,
+    16: 14,
+    17: 15,
+    18: 16,
+    19: 17,
+    20: 18,
+    21: 19,
+    22: 20,
+    23: 21,
+    24: 22,
+    25: 23,
+    27: 24,
+    28: 25,
+    31: 26,
+    32: 27,
+    33: 28,
+    34: 29,
+    35: 30,
+    36: 31,
+    37: 32,
+    38: 33,
+    39: 34,
+    40: 35,
+    41: 36,
+    42: 37,
+    43: 38,
+    44: 39,
+    46: 40,
+    47: 41,
+    48: 42,
+    49: 43,
+    50: 44,
+    51: 45,
+    52: 46,
+    53: 47,
+    54: 48,
+    55: 49,
+    56: 50,
+    57: 51,
+    58: 52,
+    59: 53,
+    60: 54,
+    61: 55,
+    62: 56,
+    63: 57,
+    64: 58,
+    65: 59,
+    67: 60,
+    70: 61,
+    72: 62,
+    73: 63,
+    74: 64,
+    75: 65,
+    76: 66,
+    77: 67,
+    78: 68,
+    79: 69,
+    80: 70,
+    81: 71,
+    82: 72,
+    84: 73,
+    85: 74,
+    86: 75,
+    87: 76,
+    88: 77,
+    89: 78,
+    90: 79,
 }
 
 
@@ -79,41 +148,49 @@ class LibreYOLORFDETR(BaseModel):
         """Check if a state dict belongs to an RF-DETR model."""
         keys_lower = [k.lower() for k in weights_dict]
         return any(
-            'detr' in k or 'dinov2' in k or 'transformer' in k
-            or ('encoder' in k and 'decoder' in k) or 'query_embed' in k
-            or 'class_embed' in k or 'bbox_embed' in k
+            "detr" in k
+            or "dinov2" in k
+            or "transformer" in k
+            or ("encoder" in k and "decoder" in k)
+            or "query_embed" in k
+            or "class_embed" in k
+            or "bbox_embed" in k
             for k in keys_lower
         )
 
     @classmethod
-    def detect_size(cls, weights_dict: dict, state_dict: dict = None) -> Optional[str]:
+    def detect_size(
+        cls, weights_dict: dict, state_dict: dict | None = None
+    ) -> Optional[str]:
         """Detect RF-DETR model size from checkpoint."""
         # state_dict is the full checkpoint (may contain 'args')
         full_ckpt = state_dict if state_dict is not None else weights_dict
-        RESOLUTION_TO_SIZE = {384: 'n', 512: 's', 576: 'm', 704: 'l'}
+        RESOLUTION_TO_SIZE = {384: "n", 512: "s", 576: "m", 704: "l"}
 
         # Primary: read resolution from checkpoint args
-        args = full_ckpt.get('args')
+        args = full_ckpt.get("args")
         if args is not None:
             resolution = (
-                getattr(args, 'resolution', None)
-                if hasattr(args, 'resolution')
-                else args.get('resolution') if isinstance(args, dict) else None
+                getattr(args, "resolution", None)
+                if hasattr(args, "resolution")
+                else args.get("resolution")
+                if isinstance(args, dict)
+                else None
             )
             if resolution in RESOLUTION_TO_SIZE:
                 return RESOLUTION_TO_SIZE[resolution]
 
         # Fallback: infer from backbone position_embeddings shape
-        pos_key = 'backbone.0.encoder.encoder.embeddings.position_embeddings'
+        pos_key = "backbone.0.encoder.encoder.embeddings.position_embeddings"
         if pos_key in weights_dict:
             pos_tokens = weights_dict[pos_key].shape[1]
             if pos_tokens == 577:
-                return 'n'
+                return "n"
             if pos_tokens == 1025:
-                return 's'
+                return "s"
             if pos_tokens == 1297:
-                return 'm'
-            return 'l'
+                return "m"
+            return "l"
 
         return None
 
@@ -125,14 +202,14 @@ class LibreYOLORFDETR(BaseModel):
     @classmethod
     def detect_size_from_filename(cls, filename: str) -> Optional[str]:
         """Extract size from filename pattern like LibreRFDETRn.pth."""
-        m = re.search(r'librerfdetr([nsml])\.pth', filename.lower())
+        m = re.search(r"librerfdetr([nsml])\.pth", filename.lower())
         return m.group(1) if m else None
 
     # =========================================================================
 
     def __init__(
         self,
-        model_path: str = None,
+        model_path: str | None = None,
         size: str = "s",
         nb_classes: int = 80,
         device: str = "auto",
@@ -174,6 +251,7 @@ class LibreYOLORFDETR(BaseModel):
     @staticmethod
     def _get_preprocess_numpy():
         from .utils import preprocess_numpy
+
         return preprocess_numpy
 
     def _init_model(self) -> nn.Module:
@@ -189,14 +267,14 @@ class LibreYOLORFDETR(BaseModel):
         """Return available layers from RF-DETR model."""
         # RF-DETR has backbone, encoder, decoder structure
         layers = {}
-        if hasattr(self.model, 'model'):
+        if hasattr(self.model, "model"):
             actual_model = self.model.model
-            if hasattr(actual_model, 'backbone'):
-                layers['backbone'] = actual_model.backbone
-            if hasattr(actual_model, 'encoder'):
-                layers['encoder'] = actual_model.encoder
-            if hasattr(actual_model, 'decoder'):
-                layers['decoder'] = actual_model.decoder
+            if hasattr(actual_model, "backbone"):
+                layers["backbone"] = actual_model.backbone
+            if hasattr(actual_model, "encoder"):
+                layers["encoder"] = actual_model.encoder
+            if hasattr(actual_model, "decoder"):
+                layers["decoder"] = actual_model.decoder
         return layers
 
     def _strict_loading(self) -> bool:
@@ -204,7 +282,10 @@ class LibreYOLORFDETR(BaseModel):
         return False
 
     def _preprocess(
-        self, image: ImageInput, color_format: str = "auto", input_size: Optional[int] = None,
+        self,
+        image: ImageInput,
+        color_format: str = "auto",
+        input_size: Optional[int] = None,
     ) -> Tuple[torch.Tensor, Image.Image, Tuple[int, int], float]:
         """
         Preprocess image for inference.
@@ -281,7 +362,7 @@ class LibreYOLORFDETR(BaseModel):
                 - classes: List of class IDs (0-indexed)
                 - num_detections: Number of detections
         """
-        num_select = kwargs.get('num_select', max_det)
+        num_select = kwargs.get("num_select", max_det)
 
         # original_size is now (width, height); rfdetr postprocess expects (height, width)
         orig_w, orig_h = original_size
@@ -292,9 +373,9 @@ class LibreYOLORFDETR(BaseModel):
 
         # Extract first (and only) result
         result = results[0]
-        scores = result['scores']
-        labels = result['labels']
-        boxes = result['boxes']
+        scores = result["scores"]
+        labels = result["labels"]
+        boxes = result["boxes"]
 
         # Filter by confidence threshold
         keep = scores > conf_thres
@@ -306,7 +387,7 @@ class LibreYOLORFDETR(BaseModel):
         # RF-DETR pretrained COCO models output 91 category IDs (1-90),
         # but LibreYOLO uses contiguous 0-79 class indices (YOLO convention).
         # Check the actual output dimension to decide if mapping is needed.
-        num_output_classes = output['pred_logits'].shape[-1]
+        num_output_classes = output["pred_logits"].shape[-1]
         if num_output_classes == 91 and self.nb_classes == 80:
             mapped = torch.tensor(
                 [_COCO91_TO_COCO80.get(int(c), -1) for c in labels.cpu()],
@@ -335,8 +416,8 @@ class LibreYOLORFDETR(BaseModel):
         batch_size: int = 4,
         lr: float = 1e-4,
         output_dir: str = "runs/train",
-        resume: str = None,
-        **kwargs
+        resume: str | None = None,
+        **kwargs,
     ) -> Dict:
         """
         Train the model using the original RF-DETR training implementation.
@@ -388,7 +469,7 @@ class LibreYOLORFDETR(BaseModel):
             lr=lr,
             output_dir=output_dir,
             resume=resume,
-            **kwargs
+            **kwargs,
         )
 
         # Load best trained checkpoint back into this model instance

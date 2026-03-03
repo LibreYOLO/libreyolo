@@ -10,7 +10,6 @@ Supports FP32 and FP16 precision modes.
 import shutil
 import subprocess
 import tempfile
-import warnings
 from pathlib import Path
 from typing import Optional
 
@@ -137,7 +136,9 @@ def export_ncnn(
 
     try:
         try:
-            param_path, bin_path = _export_pnnx_direct(nn_model, dummy, output_dir, half)
+            param_path, bin_path = _export_pnnx_direct(
+                nn_model, dummy, output_dir, half
+            )
             print("ncnn export via direct PNNX succeeded")
         except Exception as e:
             print(f"Direct PNNX export failed ({e}), trying ONNX fallback...")
@@ -254,9 +255,7 @@ def _export_onnx_fallback(
         if half:
             cmd.append("fp16=1")
 
-        result = subprocess.run(
-            cmd, capture_output=True, text=True, cwd=str(tmpdir)
-        )
+        result = subprocess.run(cmd, capture_output=True, text=True, cwd=str(tmpdir))
         if result.returncode != 0:
             raise RuntimeError(
                 f"pnnx CLI failed (exit code {result.returncode}):\n"

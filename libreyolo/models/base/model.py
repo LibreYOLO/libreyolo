@@ -4,7 +4,8 @@ Base model class for LibreYOLO model wrappers.
 Provides shared functionality for all YOLO model variants.
 """
 
-import logging
+from __future__ import annotations
+
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Any, ClassVar, Dict, List, Optional, Tuple, Type, Union
@@ -16,7 +17,6 @@ from PIL import Image
 from ...utils.general import COCO_CLASSES
 from ...utils.image_loader import ImageInput
 from ...utils.results import Results
-
 
 
 class BaseModel(ABC):
@@ -80,7 +80,10 @@ class BaseModel(ABC):
 
     @abstractmethod
     def _preprocess(
-        self, image: ImageInput, color_format: str = "auto", input_size: Optional[int] = None
+        self,
+        image: ImageInput,
+        color_format: str = "auto",
+        input_size: Optional[int] = None,
     ) -> Tuple[torch.Tensor, Image.Image, Tuple[int, int], float]:
         """Preprocess image for inference.
 
@@ -112,7 +115,7 @@ class BaseModel(ABC):
         """Postprocess model output to detections."""
         pass
 
-    def _get_val_preprocessor(self, img_size: int = None):
+    def _get_val_preprocessor(self, img_size: int | None = None):
         """
         Return the validation preprocessor for this model.
 
@@ -127,6 +130,7 @@ class BaseModel(ABC):
         cls = self.val_preprocessor_class
         if cls is None:
             from libreyolo.validation.preprocessors import StandardValPreprocessor
+
             cls = StandardValPreprocessor
         return cls(img_size=(img_size, img_size))
 
@@ -281,8 +285,6 @@ class BaseModel(ABC):
         - Cross-family checkpoint warnings
         - Names dict sanitization (string keys, gaps, nc mismatch)
         """
-        logger = logging.getLogger(__name__)
-
         if not Path(model_path).exists():
             raise FileNotFoundError(f"Model weights file not found: {model_path}")
 
@@ -342,6 +344,7 @@ class BaseModel(ABC):
     def _runner(self):
         if not hasattr(self, "_runner_instance") or self._runner_instance is None:
             from .inference import InferenceRunner
+
             self._runner_instance = InferenceRunner(self)
         return self._runner_instance
 
@@ -383,12 +386,12 @@ class BaseModel(ABC):
 
     def val(
         self,
-        data: str = None,
+        data: str | None = None,
         batch: int = 16,
-        imgsz: int = None,
+        imgsz: int | None = None,
         conf: float = 0.001,
         iou: float = 0.6,
-        device: str = None,
+        device: str | None = None,
         split: str = "val",
         save_json: bool = False,
         verbose: bool = True,

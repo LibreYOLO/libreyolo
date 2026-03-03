@@ -20,7 +20,7 @@ def parse_yolo_label_line(
     img_w: int,
     img_h: int,
     num_classes: int,
-    label_path: Optional[Path] = None
+    label_path: Optional[Path] = None,
 ) -> Optional[Tuple[int, float, float, float, float, float]]:
     """
     Parse a single line from a YOLO label file.
@@ -64,13 +64,15 @@ def parse_yolo_label_line(
         bh = float(parts[4])
     except ValueError as e:
         if label_path:
-            warnings.warn(f"Invalid label format in {label_path}: '{line[:50]}...' - {e}")
+            warnings.warn(
+                f"Invalid label format in {label_path}: '{line[:50]}...' - {e}"
+            )
         return None
 
     # Validate class ID
     if class_id < 0 or class_id >= num_classes:
         warnings.warn(
-            f"Class ID {class_id} out of range [0, {num_classes-1}] in {label_path}. Skipping."
+            f"Class ID {class_id} out of range [0, {num_classes - 1}] in {label_path}. Skipping."
         )
         return None
 
@@ -146,7 +148,16 @@ class YOLOCocoAPI:
 
         # Find all images
         image_files = []
-        extensions = ['*.jpg', '*.jpeg', '*.png', '*.bmp', '*.webp', '*.tiff', '*.tif', '*.gif']
+        extensions = [
+            "*.jpg",
+            "*.jpeg",
+            "*.png",
+            "*.bmp",
+            "*.webp",
+            "*.tiff",
+            "*.tif",
+            "*.gif",
+        ]
         for ext in extensions:
             image_files.extend(list(self.images_dir.glob(ext)))
             image_files.extend(list(self.images_dir.glob(ext.upper())))
@@ -166,19 +177,21 @@ class YOLOCocoAPI:
 
             img_id = idx
             self.imgs[img_id] = {
-                'id': img_id,
-                'file_name': img_path.name,
-                'width': w,
-                'height': h,
+                "id": img_id,
+                "file_name": img_path.name,
+                "width": w,
+                "height": h,
             }
             self.imgToAnns[img_id] = []
 
             # Parse labels using shared function (same filtering as dataset __getitem__)
             label_path = self.labels_dir / (img_path.stem + ".txt")
             if label_path.exists():
-                with open(label_path, 'r') as f:
+                with open(label_path, "r") as f:
                     for line in f:
-                        parsed = parse_yolo_label_line(line, w, h, num_classes, label_path)
+                        parsed = parse_yolo_label_line(
+                            line, w, h, num_classes, label_path
+                        )
                         if parsed is None:
                             continue
 
@@ -189,12 +202,12 @@ class YOLOCocoAPI:
                         box_h = y2 - y1
 
                         ann = {
-                            'id': ann_id,
-                            'image_id': img_id,
-                            'category_id': class_id,
-                            'bbox': [x1, y1, box_w, box_h],
-                            'area': area,
-                            'iscrowd': 0,
+                            "id": ann_id,
+                            "image_id": img_id,
+                            "category_id": class_id,
+                            "bbox": [x1, y1, box_w, box_h],
+                            "area": area,
+                            "iscrowd": 0,
                         }
                         self.anns[ann_id] = ann
                         self.imgToAnns[img_id].append(ann)
@@ -202,7 +215,7 @@ class YOLOCocoAPI:
 
         # Build categories
         for i, name in enumerate(class_names):
-            self.cats[i] = {'id': i, 'name': name, 'supercategory': 'object'}
+            self.cats[i] = {"id": i, "name": name, "supercategory": "object"}
 
         print(f"  Loaded {len(self.anns)} annotations across {len(self.imgs)} images")
 
@@ -227,9 +240,9 @@ class YOLOCocoAPI:
         ann_ids = []
         for img_id in imgIds:
             for ann in self.imgToAnns.get(img_id, []):
-                if catIds is not None and ann['category_id'] not in catIds:
+                if catIds is not None and ann["category_id"] not in catIds:
                     continue
-                ann_ids.append(ann['id'])
+                ann_ids.append(ann["id"])
         return ann_ids
 
     def getCatIds(self, catNms=None, supNms=None, catIds=None):
@@ -328,7 +341,7 @@ class YOLOCocoAPI:
         res_coco = YOLOCocoAPI.__new__(YOLOCocoAPI)
 
         # Copy ground truth data structures
-        res_coco.dataset = self.dataset.copy() if hasattr(self, 'dataset') else {}
+        res_coco.dataset = self.dataset.copy() if hasattr(self, "dataset") else {}
         res_coco.imgs = self.imgs.copy()
         res_coco.cats = self.cats.copy()
         res_coco.imgToAnns = {img_id: [] for img_id in self.imgs.keys()}
@@ -337,24 +350,24 @@ class YOLOCocoAPI:
         res_coco.anns = {}
         for ann_id, result in enumerate(results):
             ann = {
-                'id': ann_id,
-                'image_id': result['image_id'],
-                'category_id': result['category_id'],
-                'bbox': result['bbox'],  # [x, y, w, h]
-                'area': result['bbox'][2] * result['bbox'][3],  # w * h
-                'iscrowd': 0,
-                'score': result.get('score', 1.0),
+                "id": ann_id,
+                "image_id": result["image_id"],
+                "category_id": result["category_id"],
+                "bbox": result["bbox"],  # [x, y, w, h]
+                "area": result["bbox"][2] * result["bbox"][3],  # w * h
+                "iscrowd": 0,
+                "score": result.get("score", 1.0),
             }
             res_coco.anns[ann_id] = ann
 
-            img_id = result['image_id']
+            img_id = result["image_id"]
             if img_id in res_coco.imgToAnns:
                 res_coco.imgToAnns[img_id].append(ann)
 
         return res_coco
 
 
-def create_yolo_coco_api(data_yaml_path: str, split: str = 'val') -> YOLOCocoAPI:
+def create_yolo_coco_api(data_yaml_path: str, split: str = "val") -> YOLOCocoAPI:
     """
     Create YOLOCocoAPI from a data.yaml file.
 
@@ -371,53 +384,57 @@ def create_yolo_coco_api(data_yaml_path: str, split: str = 'val') -> YOLOCocoAPI
     """
     import yaml
 
-    with open(data_yaml_path, 'r') as f:
+    with open(data_yaml_path, "r") as f:
         data = yaml.safe_load(f)
 
     # Get root directory
     root = Path(data_yaml_path).parent
-    if 'path' in data:
-        root_override = Path(data['path'])
+    if "path" in data:
+        root_override = Path(data["path"])
         if not root_override.is_absolute():
             root = root / root_override
         else:
             root = root_override
 
     # Get class names
-    names = data.get('names', [])
+    names = data.get("names", [])
     if isinstance(names, dict):
         # Format: {0: 'class0', 1: 'class1', ...}
         max_idx = max(names.keys()) if names else -1
-        class_names = [names.get(i, f'class_{i}') for i in range(max_idx + 1)]
+        class_names = [names.get(i, f"class_{i}") for i in range(max_idx + 1)]
     else:
         # Format: ['class0', 'class1', ...]
         class_names = list(names)
 
     # Get split paths
     split_key = split.split("_")[0]  # Handle 'val_speed' etc.
-    images_subpath = data.get(split_key, f'images/{split_key}')
+    images_subpath = data.get(split_key, f"images/{split_key}")
 
     # Resolve images directory
     images_dir = root / images_subpath
     if not images_dir.exists():
         # Try with 'images/' prefix
-        images_dir = root / 'images' / split_key
+        images_dir = root / "images" / split_key
     if not images_dir.exists():
         raise ValueError(f"Images directory not found: {images_dir}")
 
     # Resolve labels directory (parallel to images)
     # Handle both /images/ in middle and /images at end of path
     images_str = str(images_dir)
-    if images_str.endswith('/images') or images_str.endswith('\\images'):
+    if images_str.endswith("/images") or images_str.endswith("\\images"):
         # Path ends with /images (e.g., test/images)
-        labels_dir = images_dir.parent / 'labels'
+        labels_dir = images_dir.parent / "labels"
     else:
         # Path contains /images/ in middle (e.g., images/test)
-        labels_dir = Path(images_str.replace('/images/', '/labels/').replace('\\images\\', '\\labels\\'))
+        labels_dir = Path(
+            images_str.replace("/images/", "/labels/").replace(
+                "\\images\\", "\\labels\\"
+            )
+        )
 
     if not labels_dir.exists():
         # Alternative: labels next to images dir
-        labels_dir = images_dir.parent.parent / 'labels' / images_dir.name
+        labels_dir = images_dir.parent.parent / "labels" / images_dir.name
     if not labels_dir.exists():
         raise ValueError(f"Labels directory not found: {labels_dir}")
 

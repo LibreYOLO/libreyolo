@@ -62,7 +62,10 @@ class TestONNXExport:
         device = "cuda" if torch.cuda.is_available() else "cpu"
 
         exported_path, _, _ = run_export_compare_test(
-            model_type, size, sample_image, tmp_path,
+            model_type,
+            size,
+            sample_image,
+            tmp_path,
             format="onnx",
             export_kwargs={"simplify": True, "dynamic": True},
             match_threshold=0.8,
@@ -132,7 +135,9 @@ class TestONNXMetadata:
         """Test that metadata is correctly loaded when loading ONNX model."""
         device = "cuda" if torch.cuda.is_available() else "cpu"
         run_metadata_round_trip_test(
-            model_type, size, tmp_path,
+            model_type,
+            size,
+            tmp_path,
             format="onnx",
             export_kwargs={"simplify": False},
             device=device,
@@ -215,6 +220,7 @@ class TestONNXSimplification:
 
         # Both should produce valid results
         from libreyolo import LibreYOLO
+
         onnx_model = LibreYOLO(onnx_simp_path, device=device)
         result = onnx_model(sample_image, conf=0.25)
         assert result is not None
@@ -228,7 +234,10 @@ class TestONNXMultipleInference:
         """Test that ONNX model produces consistent results."""
         device = "cuda" if torch.cuda.is_available() else "cpu"
         run_consistency_test(
-            model_type, size, sample_image, tmp_path,
+            model_type,
+            size,
+            sample_image,
+            tmp_path,
             format="onnx",
             export_kwargs={"simplify": False},
             device=device,

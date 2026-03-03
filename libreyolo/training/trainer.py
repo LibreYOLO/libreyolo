@@ -206,7 +206,8 @@ class BaseTrainer(ABC):
 
         if opt_name == "sgd":
             optimizer = torch.optim.SGD(
-                pg0, lr=lr,
+                pg0,
+                lr=lr,
                 momentum=self.cfg["momentum"],
                 nesterov=self.cfg["nesterov"],
             )
@@ -217,7 +218,9 @@ class BaseTrainer(ABC):
         else:
             raise ValueError(f"Unknown optimizer: {opt_name}")
 
-        optimizer.add_param_group({"params": pg1, "lr": lr, "weight_decay": self.cfg["weight_decay"]})
+        optimizer.add_param_group(
+            {"params": pg1, "lr": lr, "weight_decay": self.cfg["weight_decay"]}
+        )
         optimizer.add_param_group({"params": pg2, "lr": lr})
 
         logger.info(f"Optimizer: {opt_name}")
@@ -280,7 +283,8 @@ class BaseTrainer(ABC):
                 label_files = []
                 for img_file in img_files:
                     label_file = Path(
-                        str(img_file).replace("/images/", "/labels/").rsplit(".", 1)[0] + ".txt"
+                        str(img_file).replace("/images/", "/labels/").rsplit(".", 1)[0]
+                        + ".txt"
                     )
                     label_files.append(label_file)
 
@@ -372,6 +376,7 @@ class BaseTrainer(ABC):
         # TensorBoard
         try:
             from torch.utils.tensorboard import SummaryWriter
+
             self.tensorboard_writer = SummaryWriter(self.save_dir / "tensorboard")
             logger.info(f"TensorBoard logging to {self.save_dir / 'tensorboard'}")
         except Exception as e:
@@ -396,14 +401,18 @@ class BaseTrainer(ABC):
 
             # Disable mosaic in final epochs
             if epoch == self.cfg["epochs"] - self.cfg["no_aug_epochs"]:
-                logger.info(f"Disabling mosaic/mixup for final {self.cfg['no_aug_epochs']} epochs")
+                logger.info(
+                    f"Disabling mosaic/mixup for final {self.cfg['no_aug_epochs']} epochs"
+                )
                 self.on_mosaic_disable()
 
             epoch_loss, val_metrics = self._train_epoch(epoch)
             self.final_loss = epoch_loss
             self.epoch_losses.append(epoch_loss)
 
-            if (epoch + 1) % self.cfg["save_period"] == 0 or epoch == self.cfg["epochs"] - 1:
+            if (epoch + 1) % self.cfg["save_period"] == 0 or epoch == self.cfg[
+                "epochs"
+            ] - 1:
                 self._save_checkpoint(epoch, epoch_loss, val_metrics)
 
             if self.patience_counter >= self.cfg["patience"]:
@@ -488,10 +497,14 @@ class BaseTrainer(ABC):
 
             # TensorBoard
             if self.tensorboard_writer and batch_idx % self.cfg["log_interval"] == 0:
-                self.tensorboard_writer.add_scalar("train/loss", loss_val, self.current_iter)
+                self.tensorboard_writer.add_scalar(
+                    "train/loss", loss_val, self.current_iter
+                )
                 self.tensorboard_writer.add_scalar("train/lr", lr, self.current_iter)
                 for name, val in loss_components.items():
-                    self.tensorboard_writer.add_scalar(f"train/{name}", val, self.current_iter)
+                    self.tensorboard_writer.add_scalar(
+                        f"train/{name}", val, self.current_iter
+                    )
 
         avg_loss = total_loss / num_batches
         logger.info(f"Epoch {epoch + 1} - Average loss: {avg_loss:.4f}")
@@ -501,11 +514,18 @@ class BaseTrainer(ABC):
 
         # Validation
         val_metrics = None
-        if self.cfg["eval_interval"] > 0 and (epoch + 1) % self.cfg["eval_interval"] == 0:
+        if (
+            self.cfg["eval_interval"] > 0
+            and (epoch + 1) % self.cfg["eval_interval"] == 0
+        ):
             val_metrics = self._validate_epoch(epoch)
             if val_metrics and self.tensorboard_writer:
-                self.tensorboard_writer.add_scalar("val/mAP50", val_metrics["mAP50"], epoch)
-                self.tensorboard_writer.add_scalar("val/mAP50_95", val_metrics["mAP50_95"], epoch)
+                self.tensorboard_writer.add_scalar(
+                    "val/mAP50", val_metrics["mAP50"], epoch
+                )
+                self.tensorboard_writer.add_scalar(
+                    "val/mAP50_95", val_metrics["mAP50_95"], epoch
+                )
 
         return avg_loss, val_metrics
 
@@ -531,7 +551,9 @@ class BaseTrainer(ABC):
             )
 
             if self.wrapper_model is None:
-                logger.error("Validation requires wrapper_model to be provided to trainer")
+                logger.error(
+                    "Validation requires wrapper_model to be provided to trainer"
+                )
                 return None
 
             eval_pytorch_model = self.ema_model.ema if self.ema_model else self.model
@@ -539,7 +561,9 @@ class BaseTrainer(ABC):
             self.wrapper_model.model = eval_pytorch_model
 
             try:
-                validator = DetectionValidator(model=self.wrapper_model, config=val_config)
+                validator = DetectionValidator(
+                    model=self.wrapper_model, config=val_config
+                )
                 results = validator.run()
             finally:
                 self.wrapper_model.model = original_model
@@ -549,13 +573,18 @@ class BaseTrainer(ABC):
                 "mAP50_95": results.get("metrics/mAP50-95", 0.0),
             }
 
-            logger.debug(f"Extracted metrics: mAP50={metrics['mAP50']:.4f}, mAP50_95={metrics['mAP50_95']:.4f}")
-            print(f"Validation - mAP50: {metrics['mAP50']:.4f}, mAP50-95: {metrics['mAP50_95']:.4f}")
+            logger.debug(
+                f"Extracted metrics: mAP50={metrics['mAP50']:.4f}, mAP50_95={metrics['mAP50_95']:.4f}"
+            )
+            print(
+                f"Validation - mAP50: {metrics['mAP50']:.4f}, mAP50-95: {metrics['mAP50_95']:.4f}"
+            )
             return metrics
 
         except Exception as e:
             logger.error(f"Validation failed: {e}")
             import traceback
+
             logger.debug(f"Validation traceback:\n{traceback.format_exc()}")
             return None
 
@@ -563,7 +592,9 @@ class BaseTrainer(ABC):
     # Checkpointing
     # ------------------------------------------------------------------
 
-    def _save_checkpoint(self, epoch: int, loss: float, val_metrics: Optional[Dict[str, float]] = None):
+    def _save_checkpoint(
+        self, epoch: int, loss: float, val_metrics: Optional[Dict[str, float]] = None
+    ):
         model_to_save = self.ema_model.ema if self.ema_model else self.model
 
         checkpoint = {
@@ -640,7 +671,9 @@ class BaseTrainer(ABC):
                 f"mAP50-95={self.best_mAP50_95:.4f} (epoch {self.best_epoch})"
             )
         elif "loss" in checkpoint:
-            logger.warning("Old checkpoint format detected (loss-based). Converting to mAP tracking.")
+            logger.warning(
+                "Old checkpoint format detected (loss-based). Converting to mAP tracking."
+            )
             self.best_mAP50_95 = 0.0
             self.best_mAP50 = 0.0
             self.best_epoch = 0

@@ -130,11 +130,13 @@ class TestClassesFilter:
     """Tests for the classes filter in Results wrapping."""
 
     def test_filter_reduces_detections(self):
-        b = torch.tensor([[0, 0, 10, 10], [20, 20, 30, 30], [40, 40, 50, 50]], dtype=torch.float32)
+        b = torch.tensor(
+            [[0, 0, 10, 10], [20, 20, 30, 30], [40, 40, 50, 50]], dtype=torch.float32
+        )
         c = torch.tensor([0.9, 0.8, 0.7])
         cl = torch.tensor([0.0, 1.0, 0.0])
         boxes = Boxes(b, c, cl)
-        result = Results(boxes=boxes, orig_shape=(100, 100))
+        Results(boxes=boxes, orig_shape=(100, 100))
 
         # Manually apply filter (same logic as base_model._apply_classes_filter)
         mask = cl == 0.0

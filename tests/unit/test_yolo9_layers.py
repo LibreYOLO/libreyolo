@@ -1,11 +1,25 @@
 """Unit tests for YOLOv9 layers."""
+
 import pytest
 import torch
 
 from libreyolo.models.yolo9.nn import (
-    Conv, RepConvN, Bottleneck, RepNBottleneck, RepNCSP,
-    ELAN, RepNCSPELAN, AConv, ADown, SPPELAN, Concat,
-    DFL, DDetect, Backbone9, Neck9, LibreYOLO9Model
+    Conv,
+    RepConvN,
+    Bottleneck,
+    RepNBottleneck,
+    RepNCSP,
+    ELAN,
+    RepNCSPELAN,
+    AConv,
+    ADown,
+    SPPELAN,
+    Concat,
+    DFL,
+    DDetect,
+    Backbone9,
+    Neck9,
+    LibreYOLO9Model,
 )
 from libreyolo.models.yolo9 import utils as yolo9_utils
 
@@ -67,7 +81,7 @@ class TestYOLO9ELANBlocks:
 
     def test_elan_forward(self):
         """Test ELAN forward pass.
-        
+
         ELAN(c1, c2, c3, c4, n) where:
         - c1: input channels
         - c2: cv1 output channels (gets split in half)
@@ -82,11 +96,11 @@ class TestYOLO9ELANBlocks:
 
     def test_repncspelan_forward(self):
         """Test RepNCSPELAN forward pass.
-        
+
         RepNCSPELAN(c1, c2, c3, c4, n) where:
         - c1: input channels
         - c2: intermediate channels 1
-        - c3: intermediate channels 2  
+        - c3: intermediate channels 2
         - c4: output channels
         """
         layer = RepNCSPELAN(64, 64, 32, 128, n=1)
@@ -118,7 +132,7 @@ class TestYOLO9SPPELAN:
 
     def test_sppelan_forward(self):
         """Test SPPELAN forward pass.
-        
+
         SPPELAN(c1, c2, c3, k) where:
         - c1: input channels
         - c2: neck channels (intermediate)
@@ -148,7 +162,7 @@ class TestYOLO9DetectionHead:
 
     def test_dfl_forward(self):
         """Test DFL (Distribution Focal Loss) forward pass.
-        
+
         DFL expects input shape (batch, 4*reg_max, anchors).
         """
         reg_max = 16
@@ -181,7 +195,7 @@ class TestYOLO9FullModel:
 
     def test_backbone_forward(self):
         """Test Backbone9 forward pass."""
-        backbone = Backbone9(config='t')
+        backbone = Backbone9(config="t")
         x = torch.randn(1, 3, 640, 640)
         p3, p4, p5 = backbone(x)
         assert p3.shape[2] == 80  # 640 / 8
@@ -191,11 +205,11 @@ class TestYOLO9FullModel:
     def test_neck_forward(self):
         """Test Neck9 forward pass."""
         # Get backbone to determine correct channel sizes
-        backbone = Backbone9(config='t')
+        backbone = Backbone9(config="t")
         x = torch.randn(1, 3, 640, 640)
         p3, p4, p5 = backbone(x)
-        
-        neck = Neck9(config='t')
+
+        neck = Neck9(config="t")
         n3, n4, n5 = neck(p3, p4, p5)
         assert n3.shape[2] == 80
         assert n4.shape[2] == 40
@@ -203,13 +217,13 @@ class TestYOLO9FullModel:
 
     def test_full_model_forward(self):
         """Test full LibreYOLO9Model forward pass."""
-        model = LibreYOLO9Model(config='t', nb_classes=80)
+        model = LibreYOLO9Model(config="t", nb_classes=80)
         model.eval()  # Set to eval mode to get dict output
         x = torch.randn(1, 3, 640, 640)
         out = model(x)
         # In eval mode, returns dict with 'predictions' key
         assert isinstance(out, dict)
-        assert 'predictions' in out
+        assert "predictions" in out
 
 
 class TestYOLO9Utils:
@@ -218,14 +232,17 @@ class TestYOLO9Utils:
     def test_preprocess_image(self):
         """Test image preprocessing."""
         import numpy as np
+
         img = np.zeros((100, 100, 3), dtype=np.uint8)
-        tensor, original_img, original_size = yolo9_utils.preprocess_image(img, input_size=640)
+        tensor, original_img, original_size = yolo9_utils.preprocess_image(
+            img, input_size=640
+        )
         assert tensor.shape == (1, 3, 640, 640)
         assert original_size == (100, 100)
 
     def test_make_anchors(self):
         """Test anchor generation.
-        
+
         make_anchors returns (anchor_points, stride_tensor) with shapes:
         - anchor_points: (total_anchors, 2)
         - stride_tensor: (total_anchors, 1)
@@ -235,7 +252,9 @@ class TestYOLO9Utils:
             torch.randn(1, 128, 40, 40),
             torch.randn(1, 256, 20, 20),
         ]
-        anchors, strides = yolo9_utils.make_anchors(feature_maps, strides=[8, 16, 32])
+        from libreyolo.utils.general import make_anchors
+
+        anchors, strides = make_anchors(feature_maps, strides=[8, 16, 32])
         # Total anchors = 80*80 + 40*40 + 20*20 = 8400
         assert anchors.shape[0] == 8400
         assert anchors.shape[1] == 2

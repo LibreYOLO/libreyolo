@@ -1,17 +1,18 @@
 """
 Shared general utility functions.
 """
+
 import torch
-import numpy as np
 from pathlib import Path
 from typing import Tuple, List, Union, Dict
 from urllib.parse import urlparse
+
 
 def get_slice_bboxes(
     image_width: int,
     image_height: int,
     slice_size: int = 640,
-    overlap_ratio: float = 0.2
+    overlap_ratio: float = 0.2,
 ) -> List[Tuple[int, int, int, int]]:
     """
     Generate tile coordinates for slicing a large image.
@@ -56,19 +57,91 @@ def get_safe_stem(path: Union[str, Path]) -> str:
         return Path(filename).stem if filename else "inference"
     return Path(path_str).stem
 
+
 # COCO class names (80 classes)
 COCO_CLASSES = [
-    'person', 'bicycle', 'car', 'motorcycle', 'airplane', 'bus', 'train', 'truck', 'boat',
-    'traffic light', 'fire hydrant', 'stop sign', 'parking meter', 'bench', 'bird', 'cat',
-    'dog', 'horse', 'sheep', 'cow', 'elephant', 'bear', 'zebra', 'giraffe', 'backpack',
-    'umbrella', 'handbag', 'tie', 'suitcase', 'frisbee', 'skis', 'snowboard', 'sports ball',
-    'kite', 'baseball bat', 'baseball glove', 'skateboard', 'surfboard', 'tennis racket',
-    'bottle', 'wine glass', 'cup', 'fork', 'knife', 'spoon', 'bowl', 'banana', 'apple',
-    'sandwich', 'orange', 'broccoli', 'carrot', 'hot dog', 'pizza', 'donut', 'cake',
-    'chair', 'couch', 'potted plant', 'bed', 'dining table', 'toilet', 'tv', 'laptop',
-    'mouse', 'remote', 'keyboard', 'cell phone', 'microwave', 'oven', 'toaster', 'sink',
-    'refrigerator', 'book', 'clock', 'vase', 'scissors', 'teddy bear', 'hair drier', 'toothbrush'
+    "person",
+    "bicycle",
+    "car",
+    "motorcycle",
+    "airplane",
+    "bus",
+    "train",
+    "truck",
+    "boat",
+    "traffic light",
+    "fire hydrant",
+    "stop sign",
+    "parking meter",
+    "bench",
+    "bird",
+    "cat",
+    "dog",
+    "horse",
+    "sheep",
+    "cow",
+    "elephant",
+    "bear",
+    "zebra",
+    "giraffe",
+    "backpack",
+    "umbrella",
+    "handbag",
+    "tie",
+    "suitcase",
+    "frisbee",
+    "skis",
+    "snowboard",
+    "sports ball",
+    "kite",
+    "baseball bat",
+    "baseball glove",
+    "skateboard",
+    "surfboard",
+    "tennis racket",
+    "bottle",
+    "wine glass",
+    "cup",
+    "fork",
+    "knife",
+    "spoon",
+    "bowl",
+    "banana",
+    "apple",
+    "sandwich",
+    "orange",
+    "broccoli",
+    "carrot",
+    "hot dog",
+    "pizza",
+    "donut",
+    "cake",
+    "chair",
+    "couch",
+    "potted plant",
+    "bed",
+    "dining table",
+    "toilet",
+    "tv",
+    "laptop",
+    "mouse",
+    "remote",
+    "keyboard",
+    "cell phone",
+    "microwave",
+    "oven",
+    "toaster",
+    "sink",
+    "refrigerator",
+    "book",
+    "clock",
+    "vase",
+    "scissors",
+    "teddy bear",
+    "hair drier",
+    "toothbrush",
 ]
+
 
 def cxcywh_to_xyxy(boxes: torch.Tensor) -> torch.Tensor:
     """
@@ -91,6 +164,7 @@ def cxcywh_to_xyxy(boxes: torch.Tensor) -> torch.Tensor:
 # =============================================================================
 # Shared Model Utilities
 # =============================================================================
+
 
 def resolve_save_path(
     output_path: Union[str, Path, None],
@@ -143,7 +217,9 @@ def resolve_save_path(
         return save_path
 
 
-def nms(boxes: torch.Tensor, scores: torch.Tensor, iou_threshold: float = 0.45) -> torch.Tensor:
+def nms(
+    boxes: torch.Tensor, scores: torch.Tensor, iou_threshold: float = 0.45
+) -> torch.Tensor:
     """
     Non-Maximum Suppression using torch operations.
 
@@ -188,14 +264,21 @@ def nms(boxes: torch.Tensor, scores: torch.Tensor, iou_threshold: float = 0.45) 
 
         # Calculate intersection
         x1_i, y1_i, x2_i, y2_i = box_i
-        x1_r, y1_r, x2_r, y2_r = boxes_remaining[:, 0], boxes_remaining[:, 1], boxes_remaining[:, 2], boxes_remaining[:, 3]
+        x1_r, y1_r, x2_r, y2_r = (
+            boxes_remaining[:, 0],
+            boxes_remaining[:, 1],
+            boxes_remaining[:, 2],
+            boxes_remaining[:, 3],
+        )
 
         x1_inter = torch.max(x1_i, x1_r)
         y1_inter = torch.max(y1_i, y1_r)
         x2_inter = torch.min(x2_i, x2_r)
         y2_inter = torch.min(y2_i, y2_r)
 
-        inter_area = torch.clamp(x2_inter - x1_inter, min=0) * torch.clamp(y2_inter - y1_inter, min=0)
+        inter_area = torch.clamp(x2_inter - x1_inter, min=0) * torch.clamp(
+            y2_inter - y1_inter, min=0
+        )
 
         # Calculate union
         area_i = (x2_i - x1_i) * (y2_i - y1_i)
@@ -218,9 +301,7 @@ def nms(boxes: torch.Tensor, scores: torch.Tensor, iou_threshold: float = 0.45) 
 
 
 def make_anchors(
-    feats: List[torch.Tensor],
-    strides: List[int],
-    grid_cell_offset: float = 0.5
+    feats: List[torch.Tensor], strides: List[int], grid_cell_offset: float = 0.5
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     """
     Generate anchor points from feature map sizes.
@@ -242,7 +323,7 @@ def make_anchors(
 
         sx = torch.arange(end=w, device=device, dtype=dtype) + grid_cell_offset
         sy = torch.arange(end=h, device=device, dtype=dtype) + grid_cell_offset
-        sy, sx = torch.meshgrid(sy, sx, indexing='ij')
+        sy, sx = torch.meshgrid(sy, sx, indexing="ij")
         anchor_points.append(torch.stack((sx, sy), -1).view(-1, 2))
         stride_tensor.append(torch.full((h * w, 1), stride, dtype=dtype, device=device))
 
@@ -256,7 +337,7 @@ def postprocess_detections(
     conf_thres: float = 0.25,
     iou_thres: float = 0.45,
     input_size: int = 640,
-    original_size: Tuple[int, int] = None,
+    original_size: Tuple[int, int] | None = None,
     max_det: int = 300,
     letterbox: bool = False,
 ) -> dict:
@@ -286,12 +367,7 @@ def postprocess_detections(
         Dictionary with boxes, scores, classes, num_detections
     """
     if len(boxes) == 0:
-        return {
-            "boxes": [],
-            "scores": [],
-            "classes": [],
-            "num_detections": 0
-        }
+        return {"boxes": [], "scores": [], "classes": [], "num_detections": 0}
 
     # Scale boxes to original image size
     if original_size is not None:
@@ -323,16 +399,12 @@ def postprocess_detections(
             class_ids = class_ids[valid_mask]
 
     if len(boxes) == 0:
-        return {
-            "boxes": [],
-            "scores": [],
-            "classes": [],
-            "num_detections": 0
-        }
+        return {"boxes": [], "scores": [], "classes": [], "num_detections": 0}
 
     # Apply per-class NMS
     try:
         import torchvision.ops
+
         use_torchvision_nms = True
     except ImportError:
         use_torchvision_nms = False
@@ -359,12 +431,7 @@ def postprocess_detections(
         keep_indices_list.append(cls_indices[cls_keep])
 
     if len(keep_indices_list) == 0:
-        return {
-            "boxes": [],
-            "scores": [],
-            "classes": [],
-            "num_detections": 0
-        }
+        return {"boxes": [], "scores": [], "classes": [], "num_detections": 0}
 
     keep_indices = torch.cat(keep_indices_list)
 
@@ -382,7 +449,7 @@ def postprocess_detections(
         "boxes": final_boxes.tolist(),
         "scores": final_scores.tolist(),
         "classes": final_classes.tolist(),
-        "num_detections": len(final_boxes)
+        "num_detections": len(final_boxes),
     }
 
 
@@ -395,9 +462,9 @@ def postprocess_batch(
     conf_thres: float = 0.25,
     iou_thres: float = 0.45,
     input_size: int = 640,
-    original_sizes: List[Tuple[int, int]] = None,
+    original_sizes: List[Tuple[int, int]] | None = None,
     max_det: int = 300,
-    device: torch.device = None,
+    device: torch.device | None = None,
 ) -> List[Dict]:
     """
     Batched post-processing for efficient validation.
@@ -424,6 +491,7 @@ def postprocess_batch(
     """
     try:
         import torchvision.ops
+
         has_torchvision = True
     except ImportError:
         has_torchvision = False
@@ -434,12 +502,14 @@ def postprocess_batch(
     if len(batch_boxes) == 0:
         # No detections at all
         for _ in range(batch_size):
-            results.append({
-                "boxes": torch.zeros((0, 4), device=device),
-                "scores": torch.zeros(0, device=device),
-                "classes": torch.zeros(0, dtype=torch.int64, device=device),
-                "num_detections": 0,
-            })
+            results.append(
+                {
+                    "boxes": torch.zeros((0, 4), device=device),
+                    "scores": torch.zeros(0, device=device),
+                    "classes": torch.zeros(0, dtype=torch.int64, device=device),
+                    "num_detections": 0,
+                }
+            )
         return results
 
     # Apply batched NMS using class offsets (standard trick)
@@ -450,7 +520,9 @@ def postprocess_batch(
         max_batch_offset = max_wh * 100  # Large offset between batches
 
         # Create combined index for batched NMS: batch_idx * offset + class_id * max_wh
-        combined_idx = batch_indices.float() * max_batch_offset + batch_class_ids.float() * max_wh
+        combined_idx = (
+            batch_indices.float() * max_batch_offset + batch_class_ids.float() * max_wh
+        )
         boxes_for_nms = batch_boxes + combined_idx.unsqueeze(1)
 
         # Single NMS call for entire batch
@@ -467,12 +539,14 @@ def postprocess_batch(
         img_mask = batch_indices == img_idx
 
         if not img_mask.any():
-            results.append({
-                "boxes": torch.zeros((0, 4), device=device),
-                "scores": torch.zeros(0, device=device),
-                "classes": torch.zeros(0, dtype=torch.int64, device=device),
-                "num_detections": 0,
-            })
+            results.append(
+                {
+                    "boxes": torch.zeros((0, 4), device=device),
+                    "scores": torch.zeros(0, device=device),
+                    "classes": torch.zeros(0, dtype=torch.int64, device=device),
+                    "num_detections": 0,
+                }
+            )
             continue
 
         img_boxes = batch_boxes[img_mask].detach()
@@ -497,11 +571,13 @@ def postprocess_batch(
             img_scores = img_scores[top_k]
             img_classes = img_classes[top_k]
 
-        results.append({
-            "boxes": img_boxes,
-            "scores": img_scores,
-            "classes": img_classes,
-            "num_detections": len(img_boxes),
-        })
+        results.append(
+            {
+                "boxes": img_boxes,
+                "scores": img_scores,
+                "classes": img_classes,
+                "num_detections": len(img_boxes),
+            }
+        )
 
     return results

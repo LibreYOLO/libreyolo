@@ -27,7 +27,9 @@ class NcnnBackend(BaseBackend):
         >>> print(result.boxes.xyxy)
     """
 
-    def __init__(self, model_dir: str, nb_classes: int = None, device: str = "auto"):
+    def __init__(
+        self, model_dir: str | Path, nb_classes: int | None = None, device: str = "auto"
+    ):
         try:
             import ncnn as _ncnn
         except ImportError as e:
@@ -80,9 +82,7 @@ class NcnnBackend(BaseBackend):
         self.net.load_model(str(bin_path))
 
         # Discover input/output blob names from the param file
-        self._input_names, self._output_names = self._discover_blob_names(
-            param_path
-        )
+        self._input_names, self._output_names = self._discover_blob_names(param_path)
 
         super().__init__(
             model_path=str(model_dir),
@@ -121,7 +121,7 @@ class NcnnBackend(BaseBackend):
         return input_names, output_names
 
     @staticmethod
-    def _read_metadata(metadata_path: Path, nb_classes_override: int = None):
+    def _read_metadata(metadata_path: Path, nb_classes_override: int | None = None):
         """Read metadata from metadata.yaml file.
 
         Returns:
@@ -175,7 +175,5 @@ class NcnnBackend(BaseBackend):
                     raise RuntimeError(
                         f"Failed to extract output '{out_name}' from ncnn model"
                     )
-            all_outputs.append(
-                np.array(mat_out).reshape(1, *np.array(mat_out).shape)
-            )
+            all_outputs.append(np.array(mat_out).reshape(1, *np.array(mat_out).shape))
         return all_outputs

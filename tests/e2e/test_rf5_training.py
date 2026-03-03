@@ -273,12 +273,32 @@ def test_rf5_training(config_path, size, dataset_name, rf5_datasets, tmp_path):
     }
 
     optional = [
-        "lr0", "momentum", "weight_decay", "nesterov", "optimizer",
-        "scheduler", "warmup_epochs", "warmup_lr_start", "no_aug_epochs",
-        "min_lr_ratio", "mosaic_prob", "mixup_prob", "hsv_prob", "flip_prob",
-        "degrees", "translate", "shear", "mosaic_scale", "mixup_scale",
-        "ema", "ema_decay", "amp", "patience", "eval_interval",
-        "save_period", "workers",
+        "lr0",
+        "momentum",
+        "weight_decay",
+        "nesterov",
+        "optimizer",
+        "scheduler",
+        "warmup_epochs",
+        "warmup_lr_start",
+        "no_aug_epochs",
+        "min_lr_ratio",
+        "mosaic_prob",
+        "mixup_prob",
+        "hsv_prob",
+        "flip_prob",
+        "degrees",
+        "translate",
+        "shear",
+        "mosaic_scale",
+        "mixup_scale",
+        "ema",
+        "ema_decay",
+        "amp",
+        "patience",
+        "eval_interval",
+        "save_period",
+        "workers",
     ]
     for p in optional:
         if p in config:

@@ -64,7 +64,10 @@ class TestOpenVINOExportFP16:
     def _run_fp16_test(self, model_type, size, sample_image, tmp_path):
         """Common FP16 test implementation."""
         exported_path, _, _ = run_export_compare_test(
-            model_type, size, sample_image, tmp_path,
+            model_type,
+            size,
+            sample_image,
+            tmp_path,
             format="openvino",
             export_kwargs={"half": True},
             device="cpu",
@@ -95,7 +98,10 @@ class TestOpenVINOExportFP32:
     def _run_fp32_test(self, model_type, size, sample_image, tmp_path):
         """Common FP32 test implementation."""
         exported_path, _, _ = run_export_compare_test(
-            model_type, size, sample_image, tmp_path,
+            model_type,
+            size,
+            sample_image,
+            tmp_path,
             format="openvino",
             export_kwargs={"half": False},
             device="cpu",
@@ -143,7 +149,9 @@ class TestOpenVINOMetadata:
     def test_metadata_round_trip(self, model_type, size, tmp_path):
         """Test that metadata is correctly loaded when loading OpenVINO model."""
         run_metadata_round_trip_test(
-            model_type, size, tmp_path,
+            model_type,
+            size,
+            tmp_path,
             format="openvino",
             export_kwargs={"half": True},
             device="cpu",
@@ -158,7 +166,10 @@ class TestOpenVINOMultipleInference:
     def test_consistent_results(self, model_type, size, sample_image, tmp_path):
         """Test that OpenVINO model produces consistent results across runs."""
         run_consistency_test(
-            model_type, size, sample_image, tmp_path,
+            model_type,
+            size,
+            sample_image,
+            tmp_path,
             format="openvino",
             export_kwargs={"half": True},
             device="cpu",
@@ -195,7 +206,7 @@ class TestOpenVINOModelLoading:
         # Verify input shape is correct
         input_shape = model.inputs[0].shape
         assert len(input_shape) == 4  # (B, C, H, W)
-        assert input_shape[1] == 3    # RGB channels
+        assert input_shape[1] == 3  # RGB channels
 
         del pt_model
 
@@ -256,7 +267,9 @@ class TestOpenVINOBackend:
         pt_model = load_model(model_type, size, device="cpu")
         ov_path = str(tmp_path / f"{model_type}_{size}_openvino")
         exported_path = pt_model.export(
-            format="openvino", output_path=ov_path, half=True,
+            format="openvino",
+            output_path=ov_path,
+            half=True,
         )
 
         ov_model = OpenVINOBackend(exported_path)
@@ -276,7 +289,9 @@ class TestOpenVINOBackend:
         pt_model = load_model(model_type, size, device="cpu")
         ov_path = str(tmp_path / f"{model_type}_{size}_openvino")
         exported_path = pt_model.export(
-            format="openvino", output_path=ov_path, half=True,
+            format="openvino",
+            output_path=ov_path,
+            half=True,
         )
 
         save_path = str(tmp_path / "annotated.jpg")
@@ -297,7 +312,9 @@ class TestOpenVINOBackend:
         pt_model = load_model(model_type, size, device="cpu")
         ov_path = str(tmp_path / f"{model_type}_{size}_openvino")
         exported_path = pt_model.export(
-            format="openvino", output_path=ov_path, half=True,
+            format="openvino",
+            output_path=ov_path,
+            half=True,
         )
 
         ov_model = OpenVINOBackend(exported_path)
@@ -329,7 +346,9 @@ class TestOpenVINOFactory:
 
         ov_path = str(tmp_path / f"{model_type}_{size}_openvino")
         exported_path = pt_model.export(
-            format="openvino", output_path=ov_path, half=True,
+            format="openvino",
+            output_path=ov_path,
+            half=True,
         )
 
         # Load through factory
@@ -341,7 +360,9 @@ class TestOpenVINOFactory:
         # Run inference and compare
         factory_results = factory_model(sample_image, conf=0.25)
         match_rate, matched, total = match_detections(pt_results, factory_results)
-        assert results_are_acceptable(match_rate, len(pt_results), len(factory_results)), (
+        assert results_are_acceptable(
+            match_rate, len(pt_results), len(factory_results)
+        ), (
             f"Results mismatch: PT={len(pt_results)}, Factory={len(factory_results)}, "
             f"matched={matched}/{total}, rate={match_rate:.2%}"
         )

@@ -134,9 +134,9 @@ class TestTorchScriptOutputConsistency:
 
         # TorchScript was traced with export=True, so set the same mode on PT
         # to get comparable decoded output shapes.
-        head = getattr(pt_model.model, 'head', None)
+        head = getattr(pt_model.model, "head", None)
         had_export = False
-        if head is not None and hasattr(head, 'export'):
+        if head is not None and hasattr(head, "export"):
             had_export = head.export
             head.export = True
 
@@ -145,7 +145,7 @@ class TestTorchScriptOutputConsistency:
                 pt_output = pt_model.model(dummy_input)
                 ts_output = ts_model(dummy_input)
         finally:
-            if head is not None and hasattr(head, 'export'):
+            if head is not None and hasattr(head, "export"):
                 head.export = had_export
 
         # Compare shapes

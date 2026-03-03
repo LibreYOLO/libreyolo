@@ -29,25 +29,32 @@ from libreyolo import LibreYOLO
 # ============================================================================
 
 LIBREYOLO_MODELS = {
-    'rfdetr': {
-        'variants': ['n', 's', 'm', 'l'],
-        'weights_pattern': 'LibreRFDETR{variant}.pth',
-        'input_size': 560,
+    "rfdetr": {
+        "variants": ["n", "s", "m", "l"],
+        "weights_pattern": "LibreRFDETR{variant}.pth",
+        "input_size": 560,
     },
-    'yolo9': {
-        'variants': ['t', 's', 'm', 'c'],
-        'weights_pattern': 'LibreYOLO9{variant}.pt',
-        'input_size': 640,
+    "yolo9": {
+        "variants": ["t", "s", "m", "c"],
+        "weights_pattern": "LibreYOLO9{variant}.pt",
+        "input_size": 640,
     },
-    'yolox': {
-        'variants': ['n', 't', 's', 'm', 'l', 'x'],
-        'weights_pattern': 'LibreYOLOX{variant}.pt',
-        'input_size': 640,
+    "yolox": {
+        "variants": ["n", "t", "s", "m", "l", "x"],
+        "weights_pattern": "LibreYOLOX{variant}.pt",
+        "input_size": 640,
     },
 }
 
 # YOLOX constructor expects full size names for nano/tiny
-_YOLOX_VARIANT_TO_SIZE = {"n": "nano", "t": "tiny", "s": "s", "m": "m", "l": "l", "x": "x"}
+_YOLOX_VARIANT_TO_SIZE = {
+    "n": "nano",
+    "t": "tiny",
+    "s": "s",
+    "m": "m",
+    "l": "l",
+    "x": "x",
+}
 
 
 def _variant_to_size(family: str, variant: str) -> str:
@@ -61,6 +68,7 @@ def _variant_to_size(family: str, variant: str) -> str:
 # Hardware/Software Metadata Collection
 # ============================================================================
 
+
 def get_gpu_info() -> Dict[str, Any]:
     """Collect GPU/device information."""
     gpu_name = "CPU"
@@ -70,44 +78,52 @@ def get_gpu_info() -> Dict[str, Any]:
     # Try NVIDIA GPU first
     try:
         result = subprocess.run(
-            ['nvidia-smi', '--query-gpu=name,memory.total,driver_version', '--format=csv,noheader'],
+            [
+                "nvidia-smi",
+                "--query-gpu=name,memory.total,driver_version",
+                "--format=csv,noheader",
+            ],
             capture_output=True,
             text=True,
-            check=True
+            check=True,
         )
-        parts = result.stdout.strip().split(', ')
+        parts = result.stdout.strip().split(", ")
         if len(parts) >= 3:
             gpu_name = parts[0]
             mem_str = parts[1]
-            if 'MiB' in mem_str or 'MB' in mem_str:
+            if "MiB" in mem_str or "MB" in mem_str:
                 memory_gb = float(mem_str.split()[0]) / 1024
             driver = parts[2]
     except (FileNotFoundError, subprocess.CalledProcessError):
         # No NVIDIA GPU - check for Raspberry Pi
         try:
-            with open('/proc/device-tree/model', 'r') as f:
-                gpu_name = f.read().strip().replace('\x00', '')
-        except:
+            with open("/proc/device-tree/model", "r") as f:
+                gpu_name = f.read().strip().replace("\x00", "")
+        except (FileNotFoundError, OSError):
             gpu_name = "CPU"
 
     cuda_version = torch.version.cuda if torch.cuda.is_available() else "N/A"
 
     return {
-        'gpu': gpu_name,
-        'gpu_memory_gb': round(memory_gb, 1),
-        'driver_version': driver,
-        'cuda_version': cuda_version,
+        "gpu": gpu_name,
+        "gpu_memory_gb": round(memory_gb, 1),
+        "driver_version": driver,
+        "cuda_version": cuda_version,
     }
 
 
 def get_cpu_info():
     """Get CPU model and core count."""
     try:
-        if platform.system() == 'Linux':
-            with open('/proc/cpuinfo', 'r') as f:
+        if platform.system() == "Linux":
+            with open("/proc/cpuinfo", "r") as f:
                 lines = f.readlines()
-            cpu_model = [l for l in lines if 'model name' in l][0].split(':')[1].strip()
-            cpu_cores = len([l for l in lines if 'processor' in l])
+            cpu_model = (
+                [line for line in lines if "model name" in line][0]
+                .split(":")[1]
+                .strip()
+            )
+            cpu_cores = len([line for line in lines if "processor" in line])
         else:
             cpu_model = platform.processor()
             cpu_cores = os.cpu_count() or 0
@@ -121,13 +137,16 @@ def get_cpu_info():
 def get_system_memory_gb() -> int:
     """Get total system RAM in GB."""
     try:
-        if platform.system() == 'Linux':
-            with open('/proc/meminfo', 'r') as f:
-                mem_kb = int([l for l in f.readlines() if 'MemTotal' in l][0].split()[1])
-            return mem_kb // (1024 ** 2)
+        if platform.system() == "Linux":
+            with open("/proc/meminfo", "r") as f:
+                mem_kb = int(
+                    [line for line in f.readlines() if "MemTotal" in line][0].split()[1]
+                )
+            return mem_kb // (1024**2)
         else:
             import psutil
-            return psutil.virtual_memory().total // (1024 ** 3)
+
+            return psutil.virtual_memory().total // (1024**3)
     except Exception:
         return 0
 
@@ -137,15 +156,16 @@ def get_software_info() -> Dict[str, str]:
     import libreyolo
 
     return {
-        'python': platform.python_version(),
-        'torch': torch.__version__,
-        'libreyolo': getattr(libreyolo, '__version__', 'dev'),
+        "python": platform.python_version(),
+        "torch": torch.__version__,
+        "libreyolo": getattr(libreyolo, "__version__", "dev"),
     }
 
 
 # ============================================================================
 # Model Statistics
 # ============================================================================
+
 
 def count_parameters(model: torch.nn.Module) -> float:
     """Count model parameters in millions."""
@@ -156,7 +176,10 @@ def estimate_gflops(model: torch.nn.Module, input_size: int = 640) -> float:
     """Estimate GFLOPs for a given input size."""
     try:
         from thop import profile
-        dummy_input = torch.randn(1, 3, input_size, input_size).to(next(model.parameters()).device)
+
+        dummy_input = torch.randn(1, 3, input_size, input_size).to(
+            next(model.parameters()).device
+        )
         flops, _ = profile(model, inputs=(dummy_input,), verbose=False)
         return flops / 1e9
     except ImportError:
@@ -171,6 +194,7 @@ def estimate_gflops(model: torch.nn.Module, input_size: int = 640) -> float:
 # Main Benchmark Function
 # ============================================================================
 
+
 def benchmark_model(
     model_name: str,
     weights_path: str,
@@ -178,9 +202,9 @@ def benchmark_model(
     variant: str,
     coco_yaml: str,
     batch_size: int = 1,
-    device: str = 'auto',
-    runtime_format: str = 'pytorch',
-    runtime_precision: str = 'fp32',
+    device: str = "auto",
+    runtime_format: str = "pytorch",
+    runtime_precision: str = "fp32",
 ) -> Dict[str, Any]:
     """
     Benchmark a single model on COCO val2017 using proper validation API.
@@ -188,9 +212,9 @@ def benchmark_model(
     Returns comprehensive benchmark results including accuracy, timing, throughput.
     """
 
-    print(f"\n{'='*80}")
+    print(f"\n{'=' * 80}")
     print(f"Benchmarking: {model_name}")
-    print(f"{'='*80}")
+    print(f"{'=' * 80}")
 
     # Determine family from model_name prefix (e.g. "yoloxnano" -> "yolox")
     model_family = "unknown"
@@ -231,22 +255,22 @@ def benchmark_model(
 
     # Accuracy metrics
     accuracy_metrics = {
-        'mAP_50': val_results.get('metrics/mAP50', 0.0),
-        'mAP_50_95': val_results.get('metrics/mAP50-95', 0.0),
-        'precision': val_results.get('metrics/precision', 0.0),
-        'recall': val_results.get('metrics/recall', 0.0),
+        "mAP_50": val_results.get("metrics/mAP50", 0.0),
+        "mAP_50_95": val_results.get("metrics/mAP50-95", 0.0),
+        "precision": val_results.get("metrics/precision", 0.0),
+        "recall": val_results.get("metrics/recall", 0.0),
         # Note: Size-specific mAP not available from .val() API currently
-        'mAP_small': 0.0,
-        'mAP_medium': 0.0,
-        'mAP_large': 0.0,
+        "mAP_small": 0.0,
+        "mAP_medium": 0.0,
+        "mAP_large": 0.0,
     }
 
     # Timing metrics from the validation pass (already timed over all images)
-    num_images = int(val_results.get('speed/images_seen', 0))
-    ms_per_image = val_results.get('speed/total_ms', 0.0)
-    preprocess_ms = val_results.get('speed/preprocess_ms', 0.0)
-    inference_ms = val_results.get('speed/inference_ms', 0.0)
-    postprocess_ms = val_results.get('speed/postprocess_ms', 0.0)
+    num_images = int(val_results.get("speed/images_seen", 0))
+    ms_per_image = val_results.get("speed/total_ms", 0.0)
+    preprocess_ms = val_results.get("speed/preprocess_ms", 0.0)
+    inference_ms = val_results.get("speed/inference_ms", 0.0)
+    postprocess_ms = val_results.get("speed/postprocess_ms", 0.0)
 
     if ms_per_image > 0:
         fps_mean = 1000.0 / ms_per_image
@@ -267,61 +291,65 @@ def benchmark_model(
     software_info = get_software_info()
 
     # Determine actual device used
-    if torch.cuda.is_available() and device in ('auto', 'cuda'):
-        runtime_device = 'cuda'
-    elif hasattr(torch.backends, 'mps') and torch.backends.mps.is_available() and device in ('auto', 'mps'):
-        runtime_device = 'mps'
+    if torch.cuda.is_available() and device in ("auto", "cuda"):
+        runtime_device = "cuda"
+    elif (
+        hasattr(torch.backends, "mps")
+        and torch.backends.mps.is_available()
+        and device in ("auto", "mps")
+    ):
+        runtime_device = "mps"
     else:
-        runtime_device = 'cpu'
+        runtime_device = "cpu"
 
     # Hyphenated model name for website (e.g. "yolox-nano", "rfdetr-base")
     display_name = f"{model_family}-{variant}"
 
     # Assemble results
     results = {
-        'model': {
-            'name': display_name,
-            'family': model_family,
-            'variant': variant,
-            'source': 'libreyolo',
-            'weights': Path(weights_path).name,
-            'input_size': input_size,
+        "model": {
+            "name": display_name,
+            "family": model_family,
+            "variant": variant,
+            "source": "libreyolo",
+            "weights": Path(weights_path).name,
+            "input_size": input_size,
         },
-        'runtime': {
-            'format': runtime_format,
-            'precision': runtime_precision,
-            'device': runtime_device,
+        "runtime": {
+            "format": runtime_format,
+            "precision": runtime_precision,
+            "device": runtime_device,
         },
-        'hardware': {
-            'gpu': gpu_info['gpu'],
-            'gpu_memory_gb': gpu_info['gpu_memory_gb'],
-            'driver_version': gpu_info['driver_version'],
-            'cuda_version': gpu_info['cuda_version'],
-            'cpu': cpu_model,
-            'cpu_cores': cpu_cores,
-            'ram_gb': ram_gb,
+        "hardware": {
+            "gpu": gpu_info["gpu"],
+            "gpu_memory_gb": gpu_info["gpu_memory_gb"],
+            "driver_version": gpu_info["driver_version"],
+            "cuda_version": gpu_info["cuda_version"],
+            "cpu": cpu_model,
+            "cpu_cores": cpu_cores,
+            "ram_gb": ram_gb,
         },
-        'software': software_info,
-        'accuracy': accuracy_metrics,
-        'timing': {
-            'batch_size': batch_size,
-            'num_images': num_images,
-            'ms_per_image': round(ms_per_image, 4),
-            'preprocess_ms': round(preprocess_ms, 4),
-            'inference_ms': round(inference_ms, 4),
-            'postprocess_ms': round(postprocess_ms, 4),
+        "software": software_info,
+        "accuracy": accuracy_metrics,
+        "timing": {
+            "batch_size": batch_size,
+            "num_images": num_images,
+            "ms_per_image": round(ms_per_image, 4),
+            "preprocess_ms": round(preprocess_ms, 4),
+            "inference_ms": round(inference_ms, 4),
+            "postprocess_ms": round(postprocess_ms, 4),
         },
-        'throughput': {
-            'fps': round(fps_mean, 2),
+        "throughput": {
+            "fps": round(fps_mean, 2),
         },
-        'model_stats': {
-            'params_millions': round(params_millions, 2),
-            'gflops': round(gflops, 2),
+        "model_stats": {
+            "params_millions": round(params_millions, 2),
+            "gflops": round(gflops, 2),
         },
-        'metadata': {
-            'benchmark_date': datetime.now().strftime('%Y-%m-%d'),
-            'benchmark_version': '1.0',
-        }
+        "metadata": {
+            "benchmark_date": datetime.now().strftime("%Y-%m-%d"),
+            "benchmark_version": "1.0",
+        },
     }
 
     # Print summary
@@ -338,50 +366,48 @@ def benchmark_model(
 # Main Entry Point
 # ============================================================================
 
+
 def main():
     parser = argparse.ArgumentParser(
-        description='Vision Analysis Benchmark for LibreYOLO models'
+        description="Vision Analysis Benchmark for LibreYOLO models"
     )
     parser.add_argument(
-        '--coco-yaml',
+        "--coco-yaml",
         type=str,
         required=True,
-        help='Path to COCO dataset YAML configuration file'
+        help="Path to COCO dataset YAML configuration file",
     )
     parser.add_argument(
-        '--output-dir',
+        "--output-dir",
         type=Path,
-        default=Path('./results'),
-        help='Output directory for benchmark results'
+        default=Path("./results"),
+        help="Output directory for benchmark results",
     )
     parser.add_argument(
-        '--models',
-        nargs='+',
-        help='Specific models to benchmark (e.g., yolov8n yolov11s). Default: all'
+        "--models",
+        nargs="+",
+        help="Specific models to benchmark (e.g., yolov8n yolov11s). Default: all",
     )
     parser.add_argument(
-        '--batch-size',
+        "--batch-size",
         type=int,
         default=1,
-        help='Batch size for inference (default: 1 for accurate latency measurement)'
+        help="Batch size for inference (default: 1 for accurate latency measurement)",
     )
     parser.add_argument(
-        '--device',
-        type=str,
-        default='auto',
-        help='Device to use (default: auto)'
+        "--device", type=str, default="auto", help="Device to use (default: auto)"
     )
     parser.add_argument(
-        '--runtime-format',
+        "--runtime-format",
         type=str,
-        default='pytorch',
-        help='Runtime format (pytorch, onnx, ncnn, tensorrt, tflite, coreml, openvino)'
+        default="pytorch",
+        help="Runtime format (pytorch, onnx, ncnn, tensorrt, tflite, coreml, openvino)",
     )
     parser.add_argument(
-        '--runtime-precision',
+        "--runtime-precision",
         type=str,
-        default='fp32',
-        help='Runtime precision (fp32, fp16, int8)'
+        default="fp32",
+        help="Runtime precision (fp32, fp16, int8)",
     )
 
     args = parser.parse_args()
@@ -395,23 +421,27 @@ def main():
         for model_spec in args.models:
             # Parse model spec (e.g., "yolov8n")
             for family, info in LIBREYOLO_MODELS.items():
-                for variant in info['variants']:
+                for variant in info["variants"]:
                     # family is like 'yolov8', so just add variant
                     model_name = f"{family}{variant}"
                     if model_spec == model_name:
-                        weights = info['weights_pattern'].format(variant=variant)
+                        weights = info["weights_pattern"].format(variant=variant)
                         constructor_size = _variant_to_size(family, variant)
-                        models_to_benchmark.append((model_name, weights, constructor_size, variant))
+                        models_to_benchmark.append(
+                            (model_name, weights, constructor_size, variant)
+                        )
                         break
     else:
         # Benchmark all models
         models_to_benchmark = []
         for family, info in LIBREYOLO_MODELS.items():
-            for variant in info['variants']:
+            for variant in info["variants"]:
                 model_name = f"{family}{variant}"
-                weights = info['weights_pattern'].format(variant=variant)
+                weights = info["weights_pattern"].format(variant=variant)
                 constructor_size = _variant_to_size(family, variant)
-                models_to_benchmark.append((model_name, weights, constructor_size, variant))
+                models_to_benchmark.append(
+                    (model_name, weights, constructor_size, variant)
+                )
 
     print(f"Will benchmark {len(models_to_benchmark)} models")
 
@@ -434,7 +464,7 @@ def main():
 
             # Save individual JSON
             output_file = args.output_dir / f"{model_name}_benchmark.json"
-            with open(output_file, 'w') as f:
+            with open(output_file, "w") as f:
                 json.dump(results, f, indent=2)
             print(f"Saved results to {output_file}")
 
@@ -443,6 +473,7 @@ def main():
         except Exception as e:
             print(f"Error benchmarking {model_name}: {e}")
             import traceback
+
             traceback.print_exc()
             continue
 
@@ -451,39 +482,41 @@ def main():
         print("\nGenerating summary CSV...")
         csv_rows = []
         for r in all_results:
-            csv_rows.append({
-                'model': r['model']['name'],
-                'family': r['model']['family'],
-                'variant': r['model']['variant'],
-                'runtime_format': r['runtime']['format'],
-                'runtime_precision': r['runtime']['precision'],
-                'runtime_device': r['runtime']['device'],
-                'mAP_50_95': r['accuracy']['mAP_50_95'],
-                'mAP_50': r['accuracy']['mAP_50'],
-                'precision': r['accuracy']['precision'],
-                'recall': r['accuracy']['recall'],
-                'fps': r['throughput']['fps'],
-                'latency_ms': r['timing']['ms_per_image'],
-                'preprocess_ms': r['timing']['preprocess_ms'],
-                'inference_ms': r['timing']['inference_ms'],
-                'postprocess_ms': r['timing']['postprocess_ms'],
-                'params_M': r['model_stats']['params_millions'],
-                'gflops': r['model_stats']['gflops'],
-            })
+            csv_rows.append(
+                {
+                    "model": r["model"]["name"],
+                    "family": r["model"]["family"],
+                    "variant": r["model"]["variant"],
+                    "runtime_format": r["runtime"]["format"],
+                    "runtime_precision": r["runtime"]["precision"],
+                    "runtime_device": r["runtime"]["device"],
+                    "mAP_50_95": r["accuracy"]["mAP_50_95"],
+                    "mAP_50": r["accuracy"]["mAP_50"],
+                    "precision": r["accuracy"]["precision"],
+                    "recall": r["accuracy"]["recall"],
+                    "fps": r["throughput"]["fps"],
+                    "latency_ms": r["timing"]["ms_per_image"],
+                    "preprocess_ms": r["timing"]["preprocess_ms"],
+                    "inference_ms": r["timing"]["inference_ms"],
+                    "postprocess_ms": r["timing"]["postprocess_ms"],
+                    "params_M": r["model_stats"]["params_millions"],
+                    "gflops": r["model_stats"]["gflops"],
+                }
+            )
 
         df = pd.DataFrame(csv_rows)
-        csv_file = args.output_dir / 'benchmark_summary.csv'
+        csv_file = args.output_dir / "benchmark_summary.csv"
         df.to_csv(csv_file, index=False)
         print(f"Saved summary to {csv_file}")
 
         # Print summary table
-        print("\n" + "="*80)
+        print("\n" + "=" * 80)
         print("BENCHMARK SUMMARY")
-        print("="*80)
+        print("=" * 80)
         print(df.to_string(index=False))
 
     print(f"\nBenchmark complete! Results saved to {args.output_dir}")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

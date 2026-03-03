@@ -1,9 +1,23 @@
 """E2E test configuration and fixtures."""
 
 import gc
+import multiprocessing
 
 import pytest
 import torch
+
+# ---------------------------------------------------------------------------
+# Force 'spawn' multiprocessing to prevent CUDA + fork segfaults.
+#
+# Export tests (ONNX, TensorRT) initialise the CUDA context.  Training tests
+# then create DataLoader workers — with the default 'fork' start method on
+# Linux the workers inherit the parent's CUDA context, which is not fork-safe.
+# When those workers exit their stale CUDA cleanup can corrupt the parent
+# process, producing a segfault (typically exit code 139 / signal 11).
+#
+# 'spawn' starts workers from scratch so they never inherit CUDA state.
+# ---------------------------------------------------------------------------
+multiprocessing.set_start_method("spawn", force=True)
 
 
 def pytest_configure(config):
@@ -31,7 +45,7 @@ def has_tensorrt():
     if not has_cuda():
         return False
     try:
-        import tensorrt as trt
+        import tensorrt as trt  # noqa: F401
 
         return True
     except ImportError:
@@ -52,7 +66,7 @@ def has_openvino():
 def has_ncnn():
     """Check if ncnn is installed and usable."""
     try:
-        import ncnn
+        import ncnn  # noqa: F401
 
         return True
     except ImportError:
@@ -62,7 +76,7 @@ def has_ncnn():
 def has_rfdetr_deps():
     """Check if RF-DETR dependencies are installed."""
     try:
-        from libreyolo.models.rfdetr.model import LibreYOLORFDETR
+        from libreyolo.models.rfdetr.model import LibreYOLORFDETR  # noqa: F401
 
         return True
     except Exception:
@@ -101,8 +115,39 @@ requires_rfdetr = pytest.mark.skipif(
 def cuda_cleanup():
     """Free GPU memory. Call after heavy tests."""
     if torch.cuda.is_available():
+        gc.collect()
+        torch.cuda.synchronize()
         torch.cuda.empty_cache()
         gc.collect()
+        torch.cuda.empty_cache()
+
+
+def run_in_subprocess(script: str, *, timeout: int = 300) -> str:
+    """Run Python code in a fresh subprocess for CUDA isolation.
+
+    RF-DETR training segfaults when the CUDA driver has accumulated state from
+    hundreds of prior export tests in the same process.  Running in a subprocess
+    gives a pristine CUDA context.  The *script* string is passed to
+    ``python -c``.  Raises ``RuntimeError`` on non-zero exit.
+    """
+    import subprocess
+    import sys
+    import textwrap
+
+    result = subprocess.run(
+        [sys.executable, "-c", textwrap.dedent(script)],
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+    )
+    # Show full output on failure for easy debugging
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"Subprocess exited with code {result.returncode}\n"
+            f"--- stdout (last 2000 chars) ---\n{result.stdout[-2000:]}\n"
+            f"--- stderr (last 2000 chars) ---\n{result.stderr[-2000:]}"
+        )
+    return result.stdout
 
 
 # ---------------------------------------------------------------------------
@@ -162,9 +207,11 @@ def cleanup_gpu_memory():
     """Clear GPU memory before and after each test to prevent state corruption."""
     yield
     if torch.cuda.is_available():
+        gc.collect()
         torch.cuda.synchronize()
         torch.cuda.empty_cache()
         gc.collect()
+        torch.cuda.empty_cache()
 
 
 @pytest.fixture(scope="class")

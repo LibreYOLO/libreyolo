@@ -9,15 +9,14 @@ from pathlib import Path
 # Import the main benchmark script
 sys.path.insert(0, str(Path(__file__).parent))
 from benchmark_coco import main, LIBREYOLO_MODELS
-import argparse
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     # Override to only benchmark YOLOv9
     original_models = LIBREYOLO_MODELS.copy()
 
     # Keep only YOLO9
     LIBREYOLO_MODELS.clear()
-    LIBREYOLO_MODELS['yolo9'] = original_models['yolo9']
+    LIBREYOLO_MODELS["yolo9"] = original_models["yolo9"]
 
     print("=" * 80)
     print("YOLOv9-ONLY BENCHMARK")

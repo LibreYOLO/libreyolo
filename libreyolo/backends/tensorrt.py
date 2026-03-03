@@ -6,7 +6,7 @@ Provides GPU-accelerated inference using TensorRT engines exported from LibreYOL
 
 import json
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 import torch
@@ -36,7 +36,9 @@ class TensorRTBackend(BaseBackend):
         >>> print(result.boxes.xyxy)
     """
 
-    def __init__(self, engine_path: str, nb_classes: int = None, device: str = "auto"):
+    def __init__(
+        self, engine_path: str, nb_classes: int | None = None, device: str = "auto"
+    ):
         try:
             import tensorrt as trt
         except ImportError as e:
@@ -46,9 +48,7 @@ class TensorRTBackend(BaseBackend):
             ) from e
 
         if not torch.cuda.is_available():
-            raise RuntimeError(
-                "TensorRT requires CUDA. No CUDA-capable GPU detected."
-            )
+            raise RuntimeError("TensorRT requires CUDA. No CUDA-capable GPU detected.")
 
         if not Path(engine_path).exists():
             raise FileNotFoundError(f"TensorRT engine not found: {engine_path}")
@@ -157,9 +157,7 @@ class TensorRTBackend(BaseBackend):
         for name in self.output_names:
             shape = _resolve_shape(self.output_shapes[name])
             size = int(np.prod(shape))
-            self.outputs[name] = torch.zeros(
-                size, dtype=torch.float32, device="cuda"
-            )
+            self.outputs[name] = torch.zeros(size, dtype=torch.float32, device="cuda")
 
     def _detect_model_family(self) -> Optional[str]:
         """Detect model family from output shapes when sidecar metadata is absent."""
@@ -197,9 +195,7 @@ class TensorRTBackend(BaseBackend):
 
         if self._dynamic_batch:
             _, c, h, w = self.input_shape
-            self.context.set_input_shape(
-                self.input_name, (actual_batch, c, h, w)
-            )
+            self.context.set_input_shape(self.input_name, (actual_batch, c, h, w))
 
         input_tensor = torch.from_numpy(input_array).cuda().flatten()
         self.inputs[self.input_name].copy_(input_tensor)
@@ -208,9 +204,7 @@ class TensorRTBackend(BaseBackend):
             self.input_name, self.inputs[self.input_name].data_ptr()
         )
         for name in self.output_names:
-            self.context.set_tensor_address(
-                name, self.outputs[name].data_ptr()
-            )
+            self.context.set_tensor_address(name, self.outputs[name].data_ptr())
 
         self.context.execute_async_v3(self.stream.cuda_stream)
         self.stream.synchronize()
@@ -218,8 +212,7 @@ class TensorRTBackend(BaseBackend):
         results = {}
         for name in self.output_names:
             shape = tuple(
-                actual_batch if d == -1 else d
-                for d in self.output_shapes[name]
+                actual_batch if d == -1 else d for d in self.output_shapes[name]
             )
             output = self.outputs[name].cpu().numpy().reshape(shape)
             results[name] = output
@@ -240,7 +233,7 @@ class TensorRTBackend(BaseBackend):
         image_paths: List,
         batch: int = 1,
         save: bool = False,
-        output_path: str = None,
+        output_path: str | None = None,
         conf: float = 0.25,
         iou: float = 0.45,
         imgsz: Optional[int] = None,
@@ -255,9 +248,7 @@ class TensorRTBackend(BaseBackend):
         together in a single forward pass. Otherwise falls back to sequential
         processing.
         """
-        can_batch = batch > 1 and (
-            self._dynamic_batch or self._max_batch >= batch
-        )
+        can_batch = batch > 1 and (self._dynamic_batch or self._max_batch >= batch)
         if not can_batch:
             return super()._process_in_batches(
                 image_paths,
@@ -282,9 +273,7 @@ class TensorRTBackend(BaseBackend):
             tensors = []
             preprocess_info = []
             for path in chunk_paths:
-                preprocess_out = self._preprocess(
-                    path, effective_imgsz, color_format
-                )
+                preprocess_out = self._preprocess(path, effective_imgsz, color_format)
                 if len(preprocess_out) == 4:
                     tensor, orig_img, orig_size, ratio = preprocess_out
                 else:
@@ -294,18 +283,13 @@ class TensorRTBackend(BaseBackend):
                 preprocess_info.append((orig_img, orig_size, ratio, path))
 
             # Stack into a single (B, C, H, W) tensor and run inference
-            batched_input = np.concatenate(
-                [t.numpy() for t in tensors], axis=0
-            )
+            batched_input = np.concatenate([t.numpy() for t in tensors], axis=0)
             batch_outputs = self._infer(batched_input)
 
             # Split per-image and postprocess using base class methods
-            for idx, (orig_img, orig_size, ratio, path) in enumerate(
-                preprocess_info
-            ):
+            for idx, (orig_img, orig_size, ratio, path) in enumerate(preprocess_info):
                 per_image = [
-                    batch_outputs[name][idx : idx + 1]
-                    for name in self.output_names
+                    batch_outputs[name][idx : idx + 1] for name in self.output_names
                 ]
 
                 # Set YOLOX ratio for this specific image

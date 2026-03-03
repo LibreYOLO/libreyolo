@@ -92,7 +92,9 @@ class StandardValPreprocessor(BaseValPreprocessor):
         target_h, target_w = input_size
 
         # Simple resize
-        resized_img = cv2.resize(img, (target_w, target_h), interpolation=cv2.INTER_LINEAR)
+        resized_img = cv2.resize(
+            img, (target_w, target_h), interpolation=cv2.INTER_LINEAR
+        )
 
         # Convert to CHW and float
         resized_img = resized_img.transpose(2, 0, 1)
@@ -127,7 +129,9 @@ class YOLOXValPreprocessor(BaseValPreprocessor):
     Does NOT normalize - keeps 0-255 range.
     """
 
-    def __init__(self, img_size: Tuple[int, int], max_labels: int = 120, pad_value: int = 114):
+    def __init__(
+        self, img_size: Tuple[int, int], max_labels: int = 120, pad_value: int = 114
+    ):
         super().__init__(img_size, max_labels)
         self.pad_value = pad_value
 
@@ -203,7 +207,9 @@ class RFDETRValPreprocessor(BaseValPreprocessor):
         target_h, target_w = input_size
 
         # Simple resize (no letterbox)
-        resized_img = cv2.resize(img, (target_w, target_h), interpolation=cv2.INTER_LINEAR)
+        resized_img = cv2.resize(
+            img, (target_w, target_h), interpolation=cv2.INTER_LINEAR
+        )
 
         # Convert BGR to RGB
         resized_img = resized_img[:, :, ::-1]
@@ -247,7 +253,9 @@ class YOLO9ValPreprocessor(BaseValPreprocessor):
     Normalizes to 0-1 range.
     """
 
-    def __init__(self, img_size: Tuple[int, int], max_labels: int = 120, pad_value: int = 114):
+    def __init__(
+        self, img_size: Tuple[int, int], max_labels: int = 120, pad_value: int = 114
+    ):
         super().__init__(img_size, max_labels)
         self.pad_value = pad_value
 

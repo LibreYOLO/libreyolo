@@ -15,6 +15,7 @@ import numpy as np
 # Box utilities
 # =============================================================================
 
+
 def xyxy2cxcywh(bboxes):
     """Convert bboxes from xyxy to center format (cx, cy, w, h)."""
     bboxes[:, 2] = bboxes[:, 2] - bboxes[:, 0]  # w
@@ -43,6 +44,7 @@ def adjust_box_anns(bbox, scale_ratio, padw, padh, w_max, h_max):
 # =============================================================================
 # Image augmentations
 # =============================================================================
+
 
 def augment_hsv(img, hgain=5, sgain=30, vgain=30):
     """Apply HSV augmentation to an image."""
@@ -189,6 +191,7 @@ def preproc(img, input_size, swap=(2, 0, 1)):
 # Transform classes
 # =============================================================================
 
+
 class TrainTransform:
     """Transform for training data."""
 
@@ -257,6 +260,7 @@ class ValTransform:
 # =============================================================================
 # Mosaic augmentation
 # =============================================================================
+
 
 def get_mosaic_coordinate(mosaic_image, mosaic_index, xc, yc, w, h, input_h, input_w):
     """Get coordinates for placing an image in the mosaic."""
