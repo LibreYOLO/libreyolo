@@ -120,7 +120,9 @@ def export_openvino(
         ov.save_model(ov_model, str(model_path))
     elif half:
         print(f"Saving OpenVINO FP16 model: {model_path}")
-        ov.save_model(ov_model, str(model_path), compress_to_fp16=True)  # weight compression
+        ov.save_model(
+            ov_model, str(model_path), compress_to_fp16=True
+        )  # weight compression
     else:
         print(f"Saving OpenVINO FP32 model: {model_path}")
         ov.save_model(ov_model, str(model_path))

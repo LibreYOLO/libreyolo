@@ -232,10 +232,10 @@ class BaseTrainer(ABC):
 
         save_dir = project / name
         if not self.cfg["exist_ok"] and save_dir.exists():
-                i = 2
-                while (project / f"{name}{i}").exists():
-                    i += 1
-                save_dir = project / f"{name}{i}"
+            i = 2
+            while (project / f"{name}{i}").exists():
+                i += 1
+            save_dir = project / f"{name}{i}"
 
         save_dir.mkdir(parents=True, exist_ok=True)
         return save_dir

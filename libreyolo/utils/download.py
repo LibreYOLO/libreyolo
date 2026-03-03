@@ -20,9 +20,7 @@ def download_weights(model_path: str, size: str):
             break
 
     if url is None:
-        raise ValueError(
-            f"Could not determine download URL for '{path.name}'."
-        )
+        raise ValueError(f"Could not determine download URL for '{path.name}'.")
 
     print(f"Model weights not found at {model_path}. Attempting download from {url}...")
     path.parent.mkdir(parents=True, exist_ok=True)
