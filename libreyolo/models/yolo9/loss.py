@@ -3,12 +3,6 @@ YOLOv9 Loss functions for training.
 
 Ported from https://github.com/WongKinYiu/YOLO (MIT License)
 Adapted for LibreYOLO's yolo9 architecture.
-
-Includes:
-- Task Aligned Assignment (TAL) via BoxMatcher
-- CIoU box loss
-- Distribution Focal Loss (DFL) for anchor-free regression
-- BCE classification loss
 """
 
 from typing import Dict, List, Optional, Tuple

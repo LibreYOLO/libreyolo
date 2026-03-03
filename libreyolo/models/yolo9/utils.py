@@ -9,7 +9,6 @@ import torch
 from typing import Tuple, Dict
 from PIL import Image
 
-# Import shared utilities
 from ...utils.general import (
     postprocess_detections,
 )
@@ -85,11 +84,8 @@ def postprocess(
     Returns:
         Dictionary with boxes, scores, classes, num_detections
     """
-    # Get predictions from model output
-    # Shape: (batch, 4+nc, total_anchors)
-    predictions = output["predictions"]
+    predictions = output["predictions"]  # (batch, 4+nc, total_anchors)
 
-    # Take first batch
     if predictions.dim() == 3:
         pred = predictions[0]  # (4+nc, total_anchors)
     else:
@@ -98,19 +94,15 @@ def postprocess(
     # Transpose to (total_anchors, 4+nc)
     pred = pred.transpose(0, 1)
 
-    # Split boxes and class scores
     boxes = pred[:, :4]  # xyxy format
     scores = pred[:, 4:]  # class scores (already sigmoid applied in model)
 
-    # Get max class score and class id
     max_scores, class_ids = torch.max(scores, dim=1)
 
-    # Apply confidence threshold
     mask = max_scores > conf_thres
     if not mask.any():
         return {"boxes": [], "scores": [], "classes": [], "num_detections": 0}
 
-    # Use shared postprocess pipeline
     return postprocess_detections(
         boxes=boxes[mask],
         scores=max_scores[mask],
