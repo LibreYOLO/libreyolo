@@ -50,7 +50,7 @@ YOLO9_TS_LAYER_MAP = {
     19: "neck.down2",         # AConv
     21: "neck.elan_down2",    # RepNCSPELAN (P5)
     # Detection head
-    22: "detect",             # MultiheadDetection
+    22: "head",               # MultiheadDetection
 }
 
 # yolo9-m: RepNCSPELAN first block, AConv downsampling
@@ -72,7 +72,7 @@ YOLO9_M_LAYER_MAP = {
     19: "neck.down2",         # AConv
     21: "neck.elan_down2",    # RepNCSPELAN (P5)
     # Detection head
-    22: "detect",             # MultiheadDetection
+    22: "head",               # MultiheadDetection
 }
 
 # yolo9-c: RepNCSPELAN first block, ADown downsampling
@@ -94,7 +94,7 @@ YOLO9_C_LAYER_MAP = {
     19: "neck.down2",         # ADown
     21: "neck.elan_down2",    # RepNCSPELAN (P5)
     # Detection head
-    22: "detect",             # MultiheadDetection
+    22: "head",               # MultiheadDetection
 }
 
 LAYER_MAPS = {
@@ -361,8 +361,8 @@ def convert_weights(input_path: str, output_path: str, config: str,
 
     # Add DFL fixed weights
     dfl_weight = torch.arange(reg_max, dtype=torch.float32).view(1, reg_max, 1, 1)
-    converted['detect.dfl.conv.weight'] = dfl_weight
-    print(f"  Added DFL fixed weights (detect.dfl.conv.weight)")
+    converted['head.dfl.conv.weight'] = dfl_weight
+    print(f"  Added DFL fixed weights (head.dfl.conv.weight)")
 
     # Save converted weights
     print(f"\nSaving converted weights to {output_path}")
