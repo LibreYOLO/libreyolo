@@ -179,20 +179,6 @@ class LibreYOLO9(BaseModel):
             letterbox=kwargs.get("letterbox", False),
         )
 
-    def _prepare_state_dict(self, state_dict: dict) -> dict:
-        """Remap legacy 'detect.*' keys to 'head.*' for backward compatibility.
-
-        Pretrained weights use 'detect' as the head attribute name, but the
-        refactored model uses 'head'.
-        """
-        remapped = {}
-        for key, value in state_dict.items():
-            new_key = (
-                key.replace("detect.", "head.", 1) if key.startswith("detect.") else key
-            )
-            remapped[new_key] = value
-        return remapped
-
     def _strict_loading(self) -> bool:
         """Use non-strict loading for YOLOv9 to handle profiling artifacts in weights."""
         return False

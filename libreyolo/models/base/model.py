@@ -228,7 +228,7 @@ class BaseModel(ABC):
         elif isinstance(model_path, dict):
             self.model_path = None
             self.model.load_state_dict(
-                self._prepare_state_dict(model_path), strict=self._strict_loading()
+                model_path, strict=self._strict_loading()
             )
         else:
             self.model_path = model_path
@@ -262,13 +262,6 @@ class BaseModel(ABC):
 
         self.model.load_state_dict(new_state)
         self.model.to(self.device)
-
-    def _prepare_state_dict(self, state_dict: dict) -> dict:
-        """Transform state dict keys before loading.
-
-        Override in subclasses that need to remap legacy key names.
-        """
-        return state_dict
 
     def _strict_loading(self) -> bool:
         """Return whether to use strict mode when loading weights.
@@ -355,7 +348,6 @@ class BaseModel(ABC):
             else:
                 state_dict = loaded
 
-            state_dict = self._prepare_state_dict(state_dict)
             self.model.load_state_dict(state_dict, strict=self._strict_loading())
         except Exception as e:
             raise RuntimeError(
