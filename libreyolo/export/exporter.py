@@ -1,10 +1,6 @@
-"""
-Unified model export with multiple backend support.
+"""Unified model export with multiple backend support.
 
-Supports ONNX, TorchScript, TensorRT, OpenVINO, and ncnn export formats with
-various precision modes (FP32, FP16, INT8).
-
-Architecture: BaseExporter ABC with one subclass per format. Each subclass only
+BaseExporter ABC with one subclass per format. Each subclass only
 implements ``_export()``, while the template method in ``__call__`` handles
 validation, model setup/teardown, calibration, and intermediate ONNX export.
 """
@@ -22,7 +18,7 @@ from .onnx import _get_version, export_onnx
 from .torchscript import export_torchscript
 
 
-# ── Precision helpers ───────────────────────────────────────────────────────
+# Precision helpers
 
 
 def _resolve_precision(half: bool, int8: bool) -> str:
@@ -37,9 +33,9 @@ def _precision_label(precision: str) -> str:
     return precision.upper()
 
 
-# ═════════════════════════════════════════════════════════════════════════════
+# =============================================================================
 # BaseExporter ABC
-# ═════════════════════════════════════════════════════════════════════════════
+# =============================================================================
 
 
 class BaseExporter(ABC):
@@ -62,7 +58,7 @@ class BaseExporter(ABC):
 
     _registry: dict[str, type["BaseExporter"]] = {}
 
-    # ── Class attributes (overridden by each subclass) ──────────────────────
+    # Class attributes (overridden by each subclass)
     format_name: str  # e.g. "onnx"
     suffix: str  # e.g. ".onnx"
     requires_onnx: bool  # TensorRT/OpenVINO need intermediate ONNX
@@ -78,7 +74,7 @@ class BaseExporter(ABC):
     def __init__(self, model):
         self.model = model
 
-    # ── Factory ─────────────────────────────────────────────────────────────
+    # Factory
 
     @classmethod
     def create(cls, format: str, model) -> "BaseExporter":
@@ -91,7 +87,7 @@ class BaseExporter(ABC):
             )
         return cls._registry[key](model)
 
-    # ── Template method ─────────────────────────────────────────────────────
+    # Template method
 
     def __call__(
         self,
@@ -130,10 +126,8 @@ class BaseExporter(ABC):
         Returns:
             Path to the exported model file.
         """
-        # 1. Validate
         half, int8 = self._validate(half, int8, data)
 
-        # 2. Resolve common parameters
         imgsz, device, output_path = self._resolve_params(
             output_path,
             imgsz,
@@ -146,7 +140,6 @@ class BaseExporter(ABC):
 
         precision = _resolve_precision(half, int8)
 
-        # 3. Setup → export → teardown
         with self._model_context(device, half, batch, imgsz) as (nn_model, dummy):
             calibration_data = (
                 self._load_calibration(
@@ -190,15 +183,13 @@ class BaseExporter(ABC):
                 **kwargs,
             )
 
-        # 4. Cleanup intermediate ONNX
         if onnx_path and Path(onnx_path).exists():
             Path(onnx_path).unlink()
 
-        # 5. Summary
         self._print_summary(result, precision, imgsz)
         return result
 
-    # ── Abstract export method ──────────────────────────────────────────────
+    # Abstract export method
 
     @abstractmethod
     def _export(
@@ -221,7 +212,7 @@ class BaseExporter(ABC):
     ) -> str:
         """Format-specific export logic. Subclasses implement this only."""
 
-    # ── Shared helpers ──────────────────────────────────────────────────────
+    # Shared helpers
 
     def _validate(self, half: bool, int8: bool, data: Optional[str]):
         """Validate precision flags and calibration requirements."""
@@ -308,10 +299,8 @@ class BaseExporter(ABC):
             except ImportError:
                 pass
 
-        # Build dummy input
         dummy = torch.randn(batch, 3, imgsz, imgsz, device=device)
 
-        # FP16 cast for formats that need it
         if half and self.apply_model_half:
             nn_model.half()
             dummy = dummy.half()
@@ -404,9 +393,9 @@ class BaseExporter(ABC):
         )
 
 
-# ═════════════════════════════════════════════════════════════════════════════
+# =============================================================================
 # Subclasses — one per format
-# ═════════════════════════════════════════════════════════════════════════════
+# =============================================================================
 
 
 class OnnxExporter(BaseExporter):

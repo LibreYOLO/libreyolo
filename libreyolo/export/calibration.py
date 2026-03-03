@@ -1,9 +1,4 @@
-"""
-INT8 calibration utilities for TensorRT export.
-
-Provides a calibration data loader that feeds representative images
-to TensorRT for computing quantization scales.
-"""
+"""INT8 calibration utilities for TensorRT export."""
 
 import cv2
 import numpy as np
@@ -75,34 +70,18 @@ class CalibrationDataLoader:
             if train_path is None:
                 raise ValueError("Dataset config must have 'train' or 'val' key")
 
-            # Get image file list
             self.img_files = get_img_files(train_path, prefix=str(root))
 
         if len(self.img_files) == 0:
             raise ValueError(f"No images found in dataset: {data}")
 
-        # Apply fraction
         total = len(self.img_files)
         self.num_samples = max(1, int(total * self.fraction))
         self.img_files = self.img_files[: self.num_samples]
-
-        # Compute number of batches
         self._num_batches = (self.num_samples + self.batch - 1) // self.batch
 
     def _preprocess(self, img_path: Path) -> np.ndarray:
-        """
-        Preprocess a single image for calibration.
-
-        Uses the ``preprocess_fn`` callable provided at init (obtained from
-        ``model._get_preprocess_numpy()``) so each model family's exact
-        inference preprocessing is applied.
-
-        Args:
-            img_path: Path to image file.
-
-        Returns:
-            Preprocessed image as CHW float32 array.
-        """
+        """Preprocess a single image using the model's ``preprocess_fn``."""
         img = cv2.imread(str(img_path))
         if img is None:
             raise FileNotFoundError(f"Cannot read image: {img_path}")
@@ -120,7 +99,6 @@ class CalibrationDataLoader:
                 img = self._preprocess(img_path)
                 batch_data.append(img)
             except Exception as e:
-                # Skip problematic images
                 print(f"Warning: Skipping {img_path}: {e}")
                 continue
 
@@ -128,9 +106,8 @@ class CalibrationDataLoader:
                 yield np.stack(batch_data, axis=0)
                 batch_data = []
 
-        # Yield remaining samples (pad if needed for TensorRT)
+        # Pad last batch to full size (required by TensorRT)
         if batch_data:
-            # Pad last batch to full size if needed
             while len(batch_data) < self.batch:
                 batch_data.append(batch_data[-1].copy())
             yield np.stack(batch_data, axis=0)
