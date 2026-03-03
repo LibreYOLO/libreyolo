@@ -4,7 +4,6 @@ LibreYOLOX implementation for LibreYOLO.
 Supports both inference and training.
 """
 
-import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -47,6 +46,25 @@ class LibreYOLOX(BaseModel):
 
     val_preprocessor_class = YOLOXValPreprocessor
 
+    # ------------------------------------------------------------------
+    # Model metadata
+    # ------------------------------------------------------------------
+    FAMILY = "yolox"
+    SIZES = ("n", "t", "s", "m", "l", "x")
+    FILENAME_PREFIX = "LibreYOLOX"
+    WEIGHT_EXT = ".pt"
+    DEFAULT_INPUT_SIZES = {
+        "n": 416,
+        "t": 416,
+        "s": 640,
+        "m": 640,
+        "l": 640,
+        "x": 640,
+    }
+
+    # HF repo names differ from the single-letter size codes for n/t
+    _HF_REPO_NAMES = {"n": "nano", "t": "tiny"}
+
     # =========================================================================
     # REGISTRY CLASSMETHODS — used by LibreYOLO() factory
     # =========================================================================
@@ -72,22 +90,17 @@ class LibreYOLOX(BaseModel):
         return weights_dict[key].shape[0] if key in weights_dict else None
 
     @classmethod
-    def detect_size_from_filename(cls, filename: str) -> Optional[str]:
-        """Extract size from filename pattern like LibreYOLOXs.pt."""
-        m = re.search(r"libreyolox([ntsmxl])\.pt", filename.lower())
-        return m.group(1) if m else None
+    def get_download_url(cls, filename: str) -> Optional[str]:
+        """Return download URL. YOLOX uses 'nano'/'tiny' in HF repo names."""
+        size = cls.detect_size_from_filename(filename)
+        if size is None:
+            return None
+        hf_suffix = cls._HF_REPO_NAMES.get(size, size)
+        repo = f"LibreYOLO/{cls.FILENAME_PREFIX}{hf_suffix}"
+        actual = f"{cls.FILENAME_PREFIX}{size}{cls.WEIGHT_EXT}"
+        return f"https://huggingface.co/{repo}/resolve/main/{actual}"
 
     # =========================================================================
-
-    # Default input sizes for different model variants
-    DEFAULT_INPUT_SIZES = {
-        "n": 416,
-        "t": 416,
-        "s": 640,
-        "m": 640,
-        "l": 640,
-        "x": 640,
-    }
 
     def __init__(
         self,
@@ -97,7 +110,6 @@ class LibreYOLOX(BaseModel):
         device: str = "auto",
         **kwargs,
     ):
-        self.input_size = self.DEFAULT_INPUT_SIZES.get(size, 640)
         super().__init__(
             model_path=model_path,
             size=size,
@@ -117,15 +129,6 @@ class LibreYOLOX(BaseModel):
                 if isinstance(m, nn.BatchNorm2d):
                     m.eps = 1e-3
                     m.momentum = 0.03
-
-    def _get_valid_sizes(self) -> List[str]:
-        return ["n", "t", "s", "m", "l", "x"]
-
-    def _get_model_name(self) -> str:
-        return "yolox"
-
-    def _get_input_size(self) -> int:
-        return self.input_size
 
     @staticmethod
     def _get_preprocess_numpy():

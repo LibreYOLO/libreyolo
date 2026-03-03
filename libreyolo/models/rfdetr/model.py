@@ -4,7 +4,6 @@ LibreYOLORFDETR implementation for LibreYOLO.
 Supports both inference and training with RF-DETR (Detection Transformer).
 """
 
-import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -15,7 +14,7 @@ from PIL import Image
 
 from ..base import BaseModel
 from ...utils.image_loader import ImageInput, ImageLoader
-from .nn import LibreRFDETRModel, RFDETR_CONFIGS
+from .nn import LibreRFDETRModel
 from .utils import postprocess, IMAGENET_MEAN, IMAGENET_STD
 from .trainer import train_rfdetr
 from ...validation.preprocessors import RFDETRValPreprocessor
@@ -139,6 +138,15 @@ class LibreYOLORFDETR(BaseModel):
 
     val_preprocessor_class = RFDETRValPreprocessor
 
+    # ------------------------------------------------------------------
+    # Model metadata
+    # ------------------------------------------------------------------
+    FAMILY = "rfdetr"
+    SIZES = ("n", "s", "m", "l")
+    FILENAME_PREFIX = "LibreRFDETR"
+    WEIGHT_EXT = ".pth"
+    DEFAULT_INPUT_SIZES = {"n": 384, "s": 512, "m": 576, "l": 704}
+
     # =========================================================================
     # REGISTRY CLASSMETHODS — used by LibreYOLO() factory
     # =========================================================================
@@ -199,12 +207,6 @@ class LibreYOLORFDETR(BaseModel):
         """RF-DETR class count detection — returns None (uses default)."""
         return None
 
-    @classmethod
-    def detect_size_from_filename(cls, filename: str) -> Optional[str]:
-        """Extract size from filename pattern like LibreRFDETRn.pth."""
-        m = re.search(r"librerfdetr([nsml])\.pth", filename.lower())
-        return m.group(1) if m else None
-
     # =========================================================================
 
     def __init__(
@@ -215,10 +217,6 @@ class LibreYOLORFDETR(BaseModel):
         device: str = "auto",
         **kwargs,
     ):
-        # Get resolution from config before calling super().__init__
-        config_cls = RFDETR_CONFIGS[size]
-        self.resolution = config_cls().resolution
-
         # Store model_path for later use
         # Convert empty dict (from factory) to None for RF-DETR config compatibility
         if isinstance(model_path, dict) and not model_path:
@@ -238,15 +236,6 @@ class LibreYOLORFDETR(BaseModel):
         # so put in eval mode when weights were provided.
         if self._pretrain_weights is not None:
             self.model.eval()
-
-    def _get_valid_sizes(self) -> List[str]:
-        return ["n", "s", "m", "l"]
-
-    def _get_model_name(self) -> str:
-        return "rfdetr"
-
-    def _get_input_size(self) -> int:
-        return self.resolution
 
     @staticmethod
     def _get_preprocess_numpy():
@@ -306,7 +295,7 @@ class LibreYOLORFDETR(BaseModel):
             - original_image: Original PIL image
             - original_size: (width, height) of original image
         """
-        effective_res = input_size if input_size is not None else self.resolution
+        effective_res = input_size if input_size is not None else self.input_size
 
         # Load image to PIL
         img = ImageLoader.load(image, color_format=color_format)

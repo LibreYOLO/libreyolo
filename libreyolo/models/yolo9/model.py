@@ -41,6 +41,15 @@ class LibreYOLO9(BaseModel):
 
     val_preprocessor_class = YOLO9ValPreprocessor
 
+    # ------------------------------------------------------------------
+    # Model metadata
+    # ------------------------------------------------------------------
+    FAMILY = "yolo9"
+    SIZES = ("t", "s", "m", "c")
+    FILENAME_PREFIX = "LibreYOLO9"
+    WEIGHT_EXT = ".pt"
+    DEFAULT_INPUT_SIZES = 640
+
     # =========================================================================
     # REGISTRY CLASSMETHODS — used by LibreYOLO() factory
     # =========================================================================
@@ -82,12 +91,6 @@ class LibreYOLO9(BaseModel):
                 return tensor.shape[0]
         return None
 
-    @classmethod
-    def detect_size_from_filename(cls, filename: str) -> Optional[str]:
-        """Extract size from filename pattern like LibreYOLO9t.pt."""
-        m = re.search(r"libreyolo9([tsmc])\.pt", filename.lower())
-        return m.group(1) if m else None
-
     # =========================================================================
 
     def __init__(
@@ -111,15 +114,6 @@ class LibreYOLO9(BaseModel):
         # Load weights explicitly (BaseModel stores path but doesn't auto-load)
         if isinstance(model_path, str):
             self._load_weights(model_path)
-
-    def _get_valid_sizes(self) -> List[str]:
-        return ["t", "s", "m", "c"]
-
-    def _get_model_name(self) -> str:
-        return "yolo9"
-
-    def _get_input_size(self) -> int:
-        return 640
 
     @staticmethod
     def _get_preprocess_numpy():

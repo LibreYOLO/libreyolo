@@ -1,22 +1,8 @@
 """Download helpers for LibreYOLO model weights."""
 
-import re
 from pathlib import Path
-from typing import Optional
 
 import requests
-
-
-def _detect_family_from_filename(filename: str) -> Optional[str]:
-    """Return model family hint from filename (for download routing only)."""
-    fl = filename.lower()
-    if re.search(r"librerfdetr", fl):
-        return "rfdetr"
-    if re.search(r"libreyolox", fl):
-        return "yolox"
-    if re.search(r"libreyolo9", fl):
-        return "yolo9"
-    return None
 
 
 def download_weights(model_path: str, size: str):
@@ -25,36 +11,17 @@ def download_weights(model_path: str, size: str):
     if path.exists():
         return
 
-    filename = path.name
-    fl = filename.lower()
+    from libreyolo.models.base.model import BaseModel
 
-    # RF-DETR: LibreRFDETR(n|s|m|l).pth
-    m = re.search(r"librerfdetr([nsml])\.pth", fl)
-    if m:
-        letter = m.group(1)
-        repo = f"LibreYOLO/LibreRFDETR{letter}"
-        actual_filename = f"LibreRFDETR{letter}.pth"
-        url = f"https://huggingface.co/{repo}/resolve/main/{actual_filename}"
-    # YOLOX: LibreYOLOX(n|t|s|m|l|x).pt
-    elif re.search(r"libreyolox([ntslmx])\.pt", fl):
-        yolox_m = re.search(r"libreyolox([ntslmx])\.pt", fl)
-        letter = yolox_m.group(1)
-        # HF repos use full names for n/t variants
-        _YOLOX_HF_NAMES = {"n": "nano", "t": "tiny"}
-        hf_letter = _YOLOX_HF_NAMES.get(letter, letter)
-        repo = f"LibreYOLO/LibreYOLOX{hf_letter}"
-        actual_filename = f"LibreYOLOX{letter}.pt"
-        url = f"https://huggingface.co/{repo}/resolve/main/{actual_filename}"
-    # YOLOv9: LibreYOLO9(t|s|m|c).pt
-    elif re.search(r"libreyolo9([tsmc])\.pt", fl):
-        yolo9_m = re.search(r"libreyolo9([tsmc])\.pt", fl)
-        letter = yolo9_m.group(1)
-        repo = f"LibreYOLO/LibreYOLO9{letter}"
-        actual_filename = f"LibreYOLO9{letter}.pt"
-        url = f"https://huggingface.co/{repo}/resolve/main/{actual_filename}"
-    else:
+    url = None
+    for cls in BaseModel._registry:
+        url = cls.get_download_url(path.name)
+        if url:
+            break
+
+    if url is None:
         raise ValueError(
-            f"Could not determine model version from filename '{filename}' for auto-download."
+            f"Could not determine download URL for '{path.name}'."
         )
 
     print(f"Model weights not found at {model_path}. Attempting download from {url}...")

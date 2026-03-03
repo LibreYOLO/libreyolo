@@ -12,7 +12,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from .base import BaseModel
-from ..utils.download import _detect_family_from_filename, download_weights
+from ..utils.download import download_weights
 
 # ---------------------------------------------------------------------------
 # Model registry — auto-populated by BaseModel.__init_subclass__
@@ -131,22 +131,20 @@ def LibreYOLO(
                     size = detected
                     print(f"Detected size '{size}' from filename")
                     break
-            # Try RF-DETR (may not be registered yet)
+            # Try RF-DETR (may not be registered yet — cheap check)
             if size is None:
-                family_hint = _detect_family_from_filename(Path(model_path).name)
-                if family_hint == "rfdetr":
-                    try:
-                        _ensure_rfdetr()
-                        for cls in BaseModel._registry:
-                            detected = cls.detect_size_from_filename(
-                                Path(model_path).name
-                            )
-                            if detected is not None:
-                                size = detected
-                                print(f"Detected size '{size}' from filename")
-                                break
-                    except ModuleNotFoundError:
-                        pass
+                try:
+                    _ensure_rfdetr()
+                    for cls in BaseModel._registry:
+                        detected = cls.detect_size_from_filename(
+                            Path(model_path).name
+                        )
+                        if detected is not None:
+                            size = detected
+                            print(f"Detected size '{size}' from filename")
+                            break
+                except ModuleNotFoundError:
+                    pass
             if size is None:
                 raise ValueError(
                     f"Model weights file not found: {model_path}\n"
@@ -204,7 +202,7 @@ def LibreYOLO(
 
     # --- Auto-detect size ---
     if size is None:
-        if matched_cls.__name__ == "LibreYOLORFDETR":
+        if matched_cls.FAMILY == "rfdetr":
             # RF-DETR needs the full checkpoint for args-based detection
             size = matched_cls.detect_size(weights_dict, state_dict=state_dict)
         else:
@@ -233,7 +231,7 @@ def LibreYOLO(
     # For old/pretrained checkpoints, pass the extracted state_dict directly.
     has_metadata = isinstance(state_dict, dict) and "nc" in state_dict
 
-    if matched_cls.__name__ == "LibreYOLORFDETR":
+    if matched_cls.FAMILY == "rfdetr":
         # RF-DETR always needs the path (handles its own loading internally)
         model = matched_cls(
             model_path=model_path, size=size, nb_classes=nb_classes, device=device
@@ -245,7 +243,7 @@ def LibreYOLO(
             size=size,
             nb_classes=80,
             device=device,
-            **({"reg_max": reg_max} if matched_cls.__name__ == "LibreYOLO9" else {}),
+            **({"reg_max": reg_max} if matched_cls.FAMILY == "yolo9" else {}),
         )
     else:
         # Pretrained checkpoint — pass extracted state dict
@@ -254,7 +252,7 @@ def LibreYOLO(
             size=size,
             nb_classes=nb_classes,
             device=device,
-            **({"reg_max": reg_max} if matched_cls.__name__ == "LibreYOLO9" else {}),
+            **({"reg_max": reg_max} if matched_cls.FAMILY == "yolo9" else {}),
         )
 
     model.model_path = model_path

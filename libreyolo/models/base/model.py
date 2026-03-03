@@ -6,6 +6,7 @@ Provides shared functionality for all YOLO model variants.
 
 from __future__ import annotations
 
+import re
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Any, ClassVar, Dict, List, Optional, Tuple, Type, Union
@@ -32,6 +33,15 @@ class BaseModel(ABC):
 
     val_preprocessor_class = None
 
+    # ------------------------------------------------------------------
+    # Class-level model metadata — subclasses must set these
+    # ------------------------------------------------------------------
+    FAMILY: ClassVar[str] = ""  # e.g., "yolox"
+    SIZES: ClassVar[tuple] = ()  # e.g., ("n", "t", "s", "m", "l", "x")
+    FILENAME_PREFIX: ClassVar[str] = ""  # e.g., "LibreYOLOX"
+    WEIGHT_EXT: ClassVar[str] = ".pt"  # e.g., ".pt" or ".pth"
+    DEFAULT_INPUT_SIZES: ClassVar[dict | int] = 640  # per-size dict or uniform int
+
     _registry: ClassVar[List[Type["BaseModel"]]] = []
 
     def __init_subclass__(cls, **kwargs):
@@ -57,20 +67,38 @@ class BaseModel(ABC):
         """Return mapping of layer names to module objects."""
         pass
 
-    @abstractmethod
     def _get_valid_sizes(self) -> List[str]:
         """Return list of valid size codes for this model."""
-        pass
+        return list(self.SIZES)
 
-    @abstractmethod
     def _get_model_name(self) -> str:
         """Return the model name for metadata."""
-        pass
+        return self.FAMILY
 
-    @abstractmethod
     def _get_input_size(self) -> int:
         """Return the input size for this model."""
-        pass
+        return self.input_size
+
+    @classmethod
+    def detect_size_from_filename(cls, filename: str) -> Optional[str]:
+        """Extract model size from a filename using FILENAME_PREFIX and SIZES."""
+        if not cls.SIZES or not cls.FILENAME_PREFIX:
+            return None
+        sizes_pattern = "".join(cls.SIZES)
+        prefix = cls.FILENAME_PREFIX.lower()
+        ext = re.escape(cls.WEIGHT_EXT)
+        m = re.search(rf"{prefix}([{sizes_pattern}]){ext}", filename.lower())
+        return m.group(1) if m else None
+
+    @classmethod
+    def get_download_url(cls, filename: str) -> Optional[str]:
+        """Return the Hugging Face download URL for the given weight filename."""
+        size = cls.detect_size_from_filename(filename)
+        if size is None:
+            return None
+        repo = f"LibreYOLO/{cls.FILENAME_PREFIX}{size}"
+        actual = f"{cls.FILENAME_PREFIX}{size}{cls.WEIGHT_EXT}"
+        return f"https://huggingface.co/{repo}/resolve/main/{actual}"
 
     @staticmethod
     @abstractmethod
@@ -178,6 +206,12 @@ class BaseModel(ABC):
         # Store parameters
         self.size = size
         self.nb_classes = nb_classes
+
+        # Set input_size from class constant (before _init_model)
+        if isinstance(self.DEFAULT_INPUT_SIZES, dict):
+            self.input_size = self.DEFAULT_INPUT_SIZES[size]
+        else:
+            self.input_size = self.DEFAULT_INPUT_SIZES
 
         # Build names dict (matches Ultralytics model.names)
         if nb_classes == 80:
