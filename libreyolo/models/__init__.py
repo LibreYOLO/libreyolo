@@ -83,7 +83,7 @@ def LibreYOLO(
     the appropriate model instance.
 
     Args:
-        model_path: Path to weights (.pt/.pth), ONNX (.onnx), TensorRT (.engine),
+        model_path: Path to weights (.pt), ONNX (.onnx), TensorRT (.engine),
                     or OpenVINO/ncnn directory.
         size: Model size variant (auto-detected from weights if omitted).
         reg_max: Regression max for DFL (YOLOv9 only, default: 16).
