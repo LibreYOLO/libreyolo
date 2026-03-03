@@ -1,9 +1,4 @@
-"""
-Base validator class for LibreYOLO.
-
-Provides an abstract base class implementing the Template Method pattern
-for model validation.
-"""
+"""Base validator class for LibreYOLO."""
 
 import time
 from abc import ABC, abstractmethod
@@ -22,20 +17,7 @@ if TYPE_CHECKING:
 
 
 class BaseValidator(ABC):
-    """
-    Abstract base class for model validators.
-
-    Implements the Template Method pattern where subclasses provide
-    task-specific implementations for preprocessing, inference, and postprocessing.
-
-    Attributes:
-        model: LibreYOLO model instance.
-        config: Validation configuration.
-        device: Torch device for inference.
-        dataloader: Validation data loader.
-        seen: Number of images processed.
-        speed: Timing information per phase.
-    """
+    """Abstract base class for model validators (Template Method pattern)."""
 
     task: str = "base"
 
@@ -45,14 +27,6 @@ class BaseValidator(ABC):
         config: Optional[ValidationConfig] = None,
         **kwargs,
     ) -> None:
-        """
-        Initialize the validator.
-
-        Args:
-            model: LibreYOLO model instance.
-            config: ValidationConfig instance.
-            **kwargs: Override config parameters.
-        """
         self.model = model
         self.config = config or ValidationConfig(**kwargs)
         if kwargs and config is not None:
@@ -67,35 +41,23 @@ class BaseValidator(ABC):
             "postprocess": 0.0,
             "total": 0.0,
         }
-
-        # Save directory
         self.save_dir: Optional[Path] = None
+
+    # =========================================================================
+    # Concrete methods
+    # =========================================================================
 
     def __call__(self, **kwargs) -> Dict[str, float]:
         """Run validation and return metrics."""
         return self.run(**kwargs)
 
     def run(self, **kwargs) -> Dict[str, float]:
-        """
-        Main validation loop following template method pattern.
-
-        Args:
-            **kwargs: Additional arguments.
-
-        Returns:
-            Dictionary with validation metrics.
-        """
-        # Setup
+        """Main validation entry point (template method)."""
         self._setup(**kwargs)
-
-        # Validation loop
         self._run_validation()
-
-        # Finalize and return metrics
         return self._finalize()
 
     def _setup_device(self) -> torch.device:
-        """Setup and return the device for validation."""
         if self.config.device == "auto":
             if torch.cuda.is_available():
                 device = torch.device("cuda")
@@ -108,8 +70,6 @@ class BaseValidator(ABC):
         return device
 
     def _setup(self, **kwargs) -> None:
-        """Setup dataloader, metrics, and save directory."""
-        # Setup save directory
         if self.config.save_dir:
             self.save_dir = Path(self.config.save_dir)
         else:
@@ -119,10 +79,8 @@ class BaseValidator(ABC):
 
         self.save_dir.mkdir(parents=True, exist_ok=True)
 
-        # Setup dataloader
         self.dataloader = self._setup_dataloader()
 
-        # Reset counters
         self.seen = 0
         self.speed = {
             "preprocess": 0.0,
@@ -131,10 +89,7 @@ class BaseValidator(ABC):
             "total": 0.0,
         }
 
-        # Initialize metrics (implemented by subclass)
         self._init_metrics()
-
-        # Warmup model (JIT compilation, CUDA kernel caching)
         self._warmup_model()
 
         if self.config.verbose:
@@ -143,7 +98,6 @@ class BaseValidator(ABC):
             print(f"Batch size: {self.config.batch_size}")
 
     def _run_validation(self) -> None:
-        """Run the validation loop over all batches."""
         self.model.model.eval()
 
         pbar = tqdm(
@@ -157,39 +111,29 @@ class BaseValidator(ABC):
 
         with torch.no_grad():
             for batch_idx, batch in enumerate(pbar):
-                # Preprocess
                 t1 = time.time()
                 images, targets, img_info, img_ids = self._preprocess_batch(batch)
                 self.speed["preprocess"] += time.time() - t1
 
-                # Inference
                 t2 = time.time()
                 preds = self._inference(images)
                 self.speed["inference"] += time.time() - t2
 
-                # Postprocess
                 t3 = time.time()
                 detections = self._postprocess_predictions(preds, batch)
                 self.speed["postprocess"] += time.time() - t3
 
-                # Update metrics (pass img_ids for COCO evaluation)
                 self._update_metrics(detections, targets, img_info, img_ids)
-
-                # Update seen count
                 self.seen += len(images)
 
         self.speed["total"] = time.time() - total_start
 
     def _finalize(self) -> Dict[str, float]:
-        """Finalize validation and compute final metrics."""
-        # Compute metrics (implemented by subclass)
         metrics = self._compute_metrics()
 
-        # Print results
         if self.config.verbose:
             self._print_results(metrics)
 
-        # Save config
         self.config.to_yaml(self.save_dir / "config.yaml")
 
         # Include timing info so callers (e.g. benchmarks) can use it
@@ -207,51 +151,30 @@ class BaseValidator(ABC):
         return metrics
 
     def _inference(self, images: torch.Tensor) -> Any:
-        """
-        Run model inference on batch of images.
-
-        Args:
-            images: (B, C, H, W) batch of images.
-
-        Returns:
-            Model predictions.
-        """
-        # Use non_blocking for CUDA to overlap transfer with computation
+        """Run model inference on a batch of images (B, C, H, W)."""
         use_non_blocking = self.device.type == "cuda"
         return self.model._forward(
             images.to(self.device, non_blocking=use_non_blocking)
         )
 
     def _warmup_model(self, n_warmup: int = 3) -> None:
-        """
-        Warmup model with dummy inference passes.
-
-        This triggers JIT compilation, CUDA kernel caching, and memory allocation
-        before the timed validation loop begins.
-
-        Args:
-            n_warmup: Number of warmup iterations.
-        """
+        """Run dummy inference passes to trigger JIT compilation and CUDA kernel caching."""
         if self.config.verbose:
             print(f"Warming up model ({n_warmup} iterations)...")
 
-        # Get input size from model or use config
         imgsz = self.config.imgsz
-        batch_size = min(self.config.batch_size, 4)  # Small batch for warmup
+        batch_size = min(self.config.batch_size, 4)
 
-        # Create dummy input
         dummy_input = torch.zeros(
             (batch_size, 3, imgsz, imgsz),
             dtype=torch.float32,
             device=self.device,
         )
 
-        # Set dummy original_size for models that need it
-        # This prevents NoneType errors during warmup forward pass
+        # Prevent NoneType errors during warmup forward pass
         if hasattr(self.model, "_original_size"):
             self.model._original_size = (imgsz, imgsz)
 
-        # Run warmup passes
         self.model.model.eval()
         with torch.no_grad():
             for _ in range(n_warmup):
@@ -262,16 +185,13 @@ class BaseValidator(ABC):
                         print(f"Warmup failed (non-fatal): {e}")
                     break
 
-        # Reset original_size after warmup
         if hasattr(self.model, "_original_size"):
             self.model._original_size = None
 
-        # Sync CUDA if available
         if self.device.type == "cuda":
             torch.cuda.synchronize()
 
     def _print_results(self, metrics: Dict[str, float]) -> None:
-        """Print validation results."""
         print("\n" + "=" * 50)
         print("Validation Results")
         print("=" * 50)
@@ -287,17 +207,12 @@ class BaseValidator(ABC):
         print("=" * 50)
 
     # =========================================================================
-    # ABSTRACT METHODS - Must be implemented by subclasses
+    # Abstract methods
     # =========================================================================
 
     @abstractmethod
     def _setup_dataloader(self) -> DataLoader:
-        """
-        Create validation dataloader from config.
-
-        Returns:
-            DataLoader for validation data.
-        """
+        """Create validation dataloader from config."""
         pass
 
     @abstractmethod
@@ -307,52 +222,22 @@ class BaseValidator(ABC):
 
     @abstractmethod
     def _preprocess_batch(self, batch: Any) -> tuple:
-        """
-        Preprocess a batch of data.
-
-        Args:
-            batch: Raw batch from dataloader.
-
-        Returns:
-            Tuple of (images, targets, img_info, img_ids).
-        """
+        """Preprocess a batch → (images, targets, img_info, img_ids)."""
         pass
 
     @abstractmethod
     def _postprocess_predictions(self, preds: Any, batch: Any) -> Any:
-        """
-        Postprocess model predictions.
-
-        Args:
-            preds: Raw model output.
-            batch: Original batch data.
-
-        Returns:
-            Processed predictions.
-        """
+        """Postprocess model predictions into detection format."""
         pass
 
     @abstractmethod
     def _update_metrics(
         self, preds: Any, targets: Any, img_info: Any, img_ids: Any = None
     ) -> None:
-        """
-        Update metrics with batch predictions.
-
-        Args:
-            preds: Processed predictions.
-            targets: Ground truth targets.
-            img_info: Image information (shapes, etc.).
-            img_ids: Image IDs for COCO evaluation (optional).
-        """
+        """Update metrics with batch predictions."""
         pass
 
     @abstractmethod
     def _compute_metrics(self) -> Dict[str, float]:
-        """
-        Compute final metrics from accumulated stats.
-
-        Returns:
-            Dictionary with metric names and values.
-        """
+        """Compute final metrics from accumulated stats."""
         pass

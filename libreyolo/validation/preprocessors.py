@@ -1,11 +1,4 @@
-"""
-Validation preprocessors for different model architectures.
-
-Each model type may have different preprocessing requirements:
-- Image normalization (0-1 vs 0-255)
-- Resize mode (simple resize vs letterbox)
-- Padding values
-"""
+"""Validation preprocessors for different model architectures."""
 
 from abc import ABC, abstractmethod
 from typing import Tuple
@@ -15,20 +8,9 @@ import numpy as np
 
 
 class BaseValPreprocessor(ABC):
-    """
-    Abstract base class for validation preprocessors.
-
-    Subclasses implement model-specific preprocessing logic.
-    """
+    """Abstract base class for validation preprocessors."""
 
     def __init__(self, img_size: Tuple[int, int], max_labels: int = 120):
-        """
-        Initialize preprocessor.
-
-        Args:
-            img_size: Target image size (height, width).
-            max_labels: Maximum number of labels per image for padding.
-        """
         self.img_size = img_size
         self.max_labels = max_labels
 
@@ -36,17 +18,7 @@ class BaseValPreprocessor(ABC):
     def __call__(
         self, img: np.ndarray, targets: np.ndarray, input_size: Tuple[int, int]
     ) -> Tuple[np.ndarray, np.ndarray]:
-        """
-        Preprocess image and targets.
-
-        Args:
-            img: Input image (H, W, C) in BGR format.
-            targets: Target annotations (N, 5) with [x1, y1, x2, y2, class].
-            input_size: Target input size (height, width).
-
-        Returns:
-            Tuple of (preprocessed_image, padded_targets).
-        """
+        """Preprocess image (H, W, C BGR) and targets (N, 5) [x1,y1,x2,y2,class]."""
         pass
 
     @property
@@ -75,10 +47,7 @@ class BaseValPreprocessor(ABC):
 
 
 class StandardValPreprocessor(BaseValPreprocessor):
-    """Default validation preprocessor.
-
-    Uses simple resize (no letterbox) and normalizes to 0-1 range.
-    """
+    """Default preprocessor: simple resize (no letterbox), normalizes to 0-1."""
 
     @property
     def normalize(self) -> bool:
@@ -90,22 +59,19 @@ class StandardValPreprocessor(BaseValPreprocessor):
         orig_h, orig_w = img.shape[:2]
         target_h, target_w = input_size
 
-        # Simple resize
         resized_img = cv2.resize(
             img, (target_w, target_h), interpolation=cv2.INTER_LINEAR
         )
 
-        # Convert to CHW and float
-        resized_img = resized_img.transpose(2, 0, 1)
+        resized_img = resized_img.transpose(2, 0, 1)  # HWC → CHW
         resized_img = np.ascontiguousarray(resized_img, dtype=np.float32)
 
-        # Process targets
         padded_targets = np.zeros((self.max_labels, 5), dtype=np.float32)
         if len(targets) > 0:
             targets = np.array(targets).copy()
             n = min(len(targets), self.max_labels)
 
-            # Undo letterbox scaling and apply simple resize scaling
+            # Undo letterbox scaling (applied by dataset) and apply simple resize scaling
             letterbox_r = min(target_h / orig_h, target_w / orig_w)
             scale_x = target_w / orig_w
             scale_y = target_h / orig_h
@@ -121,12 +87,7 @@ class StandardValPreprocessor(BaseValPreprocessor):
 
 
 class YOLOXValPreprocessor(BaseValPreprocessor):
-    """
-    YOLOX validation preprocessor.
-
-    Uses letterbox resize with gray padding (114, 114, 114).
-    Does NOT normalize - keeps 0-255 range.
-    """
+    """YOLOX preprocessor: letterbox with gray padding, 0-255 range, BGR format."""
 
     def __init__(
         self, img_size: Tuple[int, int], max_labels: int = 120, pad_value: int = 114
@@ -155,35 +116,26 @@ class YOLOXValPreprocessor(BaseValPreprocessor):
 
         resized_img = cv2.resize(img, (new_w, new_h), interpolation=cv2.INTER_LINEAR)
 
-        # Create padded image with gray background
         padded_img = np.full((target_h, target_w, 3), self.pad_value, dtype=np.uint8)
         padded_img[:new_h, :new_w] = resized_img
 
-        # Keep BGR format (YOLOX is trained on BGR from cv2, do NOT convert to RGB)
-        # The training uses BGR images directly from cv2.imread without conversion
+        # Keep BGR format — YOLOX is trained on BGR from cv2
 
-        # Convert to CHW and float (keep 0-255 range)
-        padded_img = padded_img.transpose(2, 0, 1)
+        padded_img = padded_img.transpose(2, 0, 1)  # HWC → CHW, keep 0-255
         padded_img = np.ascontiguousarray(padded_img, dtype=np.float32)
 
-        # Process targets - they come scaled by letterbox r, which matches our preprocessing
+        # Targets are already in letterbox coords, no conversion needed
         padded_targets = np.zeros((self.max_labels, 5), dtype=np.float32)
         if len(targets) > 0:
             targets = np.array(targets).copy()
             n = min(len(targets), self.max_labels)
-            # Targets are already in letterbox coords, no conversion needed
             padded_targets[:n] = targets[:n]
 
         return padded_img, padded_targets
 
 
 class RFDETRValPreprocessor(BaseValPreprocessor):
-    """
-    RF-DETR validation preprocessor.
-
-    Uses simple resize (no letterbox) and ImageNet normalization.
-    RF-DETR expects RGB input with ImageNet mean/std normalization.
-    """
+    """RF-DETR preprocessor: simple resize, RGB, ImageNet mean/std normalization."""
 
     # ImageNet normalization constants (canonical source: models.rfdetr.utils)
     MEAN = np.array([0.485, 0.456, 0.406], dtype=np.float32)
@@ -195,9 +147,7 @@ class RFDETRValPreprocessor(BaseValPreprocessor):
 
     @property
     def custom_normalization(self) -> bool:
-        # RF-DETR applies ImageNet mean/std normalization in the preprocessor.
-        # The validator must not rescale these values.
-        return True
+        return True  # ImageNet mean/std applied here; validator must not rescale
 
     def __call__(
         self, img: np.ndarray, targets: np.ndarray, input_size: Tuple[int, int]
@@ -205,25 +155,17 @@ class RFDETRValPreprocessor(BaseValPreprocessor):
         orig_h, orig_w = img.shape[:2]
         target_h, target_w = input_size
 
-        # Simple resize (no letterbox)
         resized_img = cv2.resize(
             img, (target_w, target_h), interpolation=cv2.INTER_LINEAR
         )
 
-        # Convert BGR to RGB
-        resized_img = resized_img[:, :, ::-1]
-
-        # Convert to float and normalize to [0, 1]
+        resized_img = resized_img[:, :, ::-1]  # BGR → RGB
         resized_img = resized_img.astype(np.float32) / 255.0
+        resized_img = (resized_img - self.MEAN) / self.STD  # ImageNet normalization
 
-        # Apply ImageNet normalization
-        resized_img = (resized_img - self.MEAN) / self.STD
-
-        # Convert to CHW format
-        resized_img = resized_img.transpose(2, 0, 1)
+        resized_img = resized_img.transpose(2, 0, 1)  # HWC → CHW
         resized_img = np.ascontiguousarray(resized_img, dtype=np.float32)
 
-        # Process targets
         padded_targets = np.zeros((self.max_labels, 5), dtype=np.float32)
         if len(targets) > 0:
             targets = np.array(targets).copy()
@@ -233,11 +175,10 @@ class RFDETRValPreprocessor(BaseValPreprocessor):
             scale_x = target_w / orig_w
             scale_y = target_h / orig_h
 
-            # Scale bounding boxes
-            targets[:n, 0] *= scale_x  # x1
-            targets[:n, 1] *= scale_y  # y1
-            targets[:n, 2] *= scale_x  # x2
-            targets[:n, 3] *= scale_y  # y2
+            targets[:n, 0] *= scale_x
+            targets[:n, 1] *= scale_y
+            targets[:n, 2] *= scale_x
+            targets[:n, 3] *= scale_y
 
             padded_targets[:n] = targets[:n]
 
@@ -245,12 +186,7 @@ class RFDETRValPreprocessor(BaseValPreprocessor):
 
 
 class YOLO9ValPreprocessor(BaseValPreprocessor):
-    """
-    YOLOv9 validation preprocessor.
-
-    Uses letterbox resize with gray padding (114, 114, 114).
-    Normalizes to 0-1 range.
-    """
+    """YOLOv9 preprocessor: letterbox with gray padding, 0-1 range, RGB format."""
 
     def __init__(
         self, img_size: Tuple[int, int], max_labels: int = 120, pad_value: int = 114
@@ -279,18 +215,14 @@ class YOLO9ValPreprocessor(BaseValPreprocessor):
 
         resized_img = cv2.resize(img, (new_w, new_h), interpolation=cv2.INTER_LINEAR)
 
-        # Create padded image with gray background
         padded_img = np.full((target_h, target_w, 3), self.pad_value, dtype=np.uint8)
         padded_img[:new_h, :new_w] = resized_img
 
-        # Convert BGR to RGB (yolo9 expects RGB)
-        padded_img = padded_img[:, :, ::-1]
-
-        # Convert to CHW and float, normalize to 0-1
-        padded_img = padded_img.transpose(2, 0, 1)
+        padded_img = padded_img[:, :, ::-1]  # BGR → RGB
+        padded_img = padded_img.transpose(2, 0, 1)  # HWC → CHW
         padded_img = np.ascontiguousarray(padded_img, dtype=np.float32) / 255.0
 
-        # Process targets - they come scaled by letterbox r
+        # Targets are already in letterbox coords
         padded_targets = np.zeros((self.max_labels, 5), dtype=np.float32)
         if len(targets) > 0:
             targets = np.array(targets).copy()
