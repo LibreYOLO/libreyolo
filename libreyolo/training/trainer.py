@@ -1,8 +1,6 @@
-"""
-Base trainer for LibreYOLO models.
+"""Base trainer for LibreYOLO models.
 
-Captures the shared training loop, optimizer setup, checkpointing, validation,
-and TensorBoard logging. Model-specific trainers subclass and override hooks.
+Model-specific trainers subclass BaseTrainer and override hooks.
 """
 
 import logging
@@ -26,8 +24,7 @@ logger = logging.getLogger(__name__)
 
 
 class BaseTrainer(ABC):
-    """
-    Base trainer for all LibreYOLO model families.
+    """Base trainer for all LibreYOLO model families.
 
     Subclasses override hook methods to customise transforms, schedulers,
     loss extraction, and family-specific behaviour.
@@ -120,9 +117,9 @@ class BaseTrainer(ABC):
         self.train_loader = None
         self.tensorboard_writer = None
 
-    # ------------------------------------------------------------------
+    # =========================================================================
     # Properties
-    # ------------------------------------------------------------------
+    # =========================================================================
 
     @property
     def effective_lr(self) -> float:
@@ -133,9 +130,9 @@ class BaseTrainer(ABC):
     def input_size(self) -> Tuple[int, int]:
         return (self.cfg["imgsz"], self.cfg["imgsz"])
 
-    # ------------------------------------------------------------------
+    # =========================================================================
     # Hook methods — subclasses override these
-    # ------------------------------------------------------------------
+    # =========================================================================
 
     @abstractmethod
     def get_model_family(self) -> str:
@@ -173,9 +170,9 @@ class BaseTrainer(ABC):
         """Run the model forward pass. Override if call signature differs."""
         return self.model(imgs, targets)
 
-    # ------------------------------------------------------------------
+    # =========================================================================
     # Shared infrastructure
-    # ------------------------------------------------------------------
+    # =========================================================================
 
     def _setup_device(self) -> torch.device:
         device_str = self.cfg["device"]
@@ -233,11 +230,8 @@ class BaseTrainer(ABC):
         project = Path(self.cfg["project"])
         name = self.cfg["name"]
 
-        if self.cfg["exist_ok"]:
-            save_dir = project / name
-        else:
-            save_dir = project / name
-            if save_dir.exists():
+        save_dir = project / name
+        if not self.cfg["exist_ok"] and save_dir.exists():
                 i = 2
                 while (project / f"{name}{i}").exists():
                     i += 1
@@ -316,7 +310,6 @@ class BaseTrainer(ABC):
         else:
             raise ValueError("Either 'data' or 'data_dir' must be specified")
 
-        # Wrap with mosaic/mixup
         train_dataset = MosaicDatasetClass(
             dataset=train_dataset,
             img_size=img_size,
@@ -344,9 +337,19 @@ class BaseTrainer(ABC):
         logger.info(f"Iterations per epoch: {len(self.train_loader)}")
         return train_dataset
 
-    # ------------------------------------------------------------------
+    def _save_config_yaml(self, path):
+        Path(path).parent.mkdir(parents=True, exist_ok=True)
+        serialisable = {}
+        for k, v in self.cfg.items():
+            if isinstance(v, tuple):
+                v = list(v)
+            serialisable[k] = v
+        with open(path, "w") as f:
+            yaml.dump(serialisable, f, default_flow_style=False, sort_keys=False)
+
+    # =========================================================================
     # Setup / train / epoch
-    # ------------------------------------------------------------------
+    # =========================================================================
 
     def setup(self):
         logger.info("Setting up training...")
@@ -370,7 +373,6 @@ class BaseTrainer(ABC):
 
         self.save_dir = self._get_save_dir()
 
-        # Save config as YAML
         self._save_config_yaml(self.save_dir / "train_config.yaml")
 
         # TensorBoard
@@ -399,7 +401,6 @@ class BaseTrainer(ABC):
         for epoch in range(self.start_epoch, self.cfg["epochs"]):
             self.current_epoch = epoch
 
-            # Disable mosaic in final epochs
             if epoch == self.cfg["epochs"] - self.cfg["no_aug_epochs"]:
                 logger.info(
                     f"Disabling mosaic/mixup for final {self.cfg['no_aug_epochs']} epochs"
@@ -529,9 +530,9 @@ class BaseTrainer(ABC):
 
         return avg_loss, val_metrics
 
-    # ------------------------------------------------------------------
+    # =========================================================================
     # Validation
-    # ------------------------------------------------------------------
+    # =========================================================================
 
     def _validate_epoch(self, epoch: int) -> Optional[Dict[str, float]]:
         try:
@@ -588,9 +589,9 @@ class BaseTrainer(ABC):
             logger.debug(f"Validation traceback:\n{traceback.format_exc()}")
             return None
 
-    # ------------------------------------------------------------------
+    # =========================================================================
     # Checkpointing
-    # ------------------------------------------------------------------
+    # =========================================================================
 
     def _save_checkpoint(
         self, epoch: int, loss: float, val_metrics: Optional[Dict[str, float]] = None
@@ -687,18 +688,3 @@ class BaseTrainer(ABC):
             f"Resumed from epoch {self.start_epoch} "
             f"(will train to epoch {self.cfg['epochs']})"
         )
-
-    # ------------------------------------------------------------------
-    # Config persistence
-    # ------------------------------------------------------------------
-
-    def _save_config_yaml(self, path):
-        """Save the config dict as YAML."""
-        Path(path).parent.mkdir(parents=True, exist_ok=True)
-        serialisable = {}
-        for k, v in self.cfg.items():
-            if isinstance(v, tuple):
-                v = list(v)
-            serialisable[k] = v
-        with open(path, "w") as f:
-            yaml.dump(serialisable, f, default_flow_style=False, sort_keys=False)

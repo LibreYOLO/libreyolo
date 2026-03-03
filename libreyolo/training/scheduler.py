@@ -45,7 +45,6 @@ class WarmupCosineScheduler(BaseScheduler):
         self.min_lr = lr * min_lr_ratio
 
     def update_lr(self, iters: int) -> float:
-        """Get learning rate for given iteration."""
         if iters <= self.warmup_iters:
             # Quadratic warmup
             lr = (self.lr - self.warmup_lr_start) * pow(
@@ -91,7 +90,6 @@ class LinearLRScheduler(BaseScheduler):
         self.min_lr = lr * min_lr_ratio
 
     def update_lr(self, iters: int) -> float:
-        """Get learning rate for given iteration."""
         if iters <= self.warmup_iters:
             # Linear warmup
             if self.warmup_iters > 0:
@@ -112,8 +110,6 @@ class LinearLRScheduler(BaseScheduler):
 class CosineAnnealingScheduler(BaseScheduler):
     """
     Cosine annealing scheduler with warmup.
-
-    Alternative to linear scheduler.
     """
 
     def __init__(
@@ -131,7 +127,6 @@ class CosineAnnealingScheduler(BaseScheduler):
         self.min_lr = lr * min_lr_ratio
 
     def update_lr(self, iters: int) -> float:
-        """Get learning rate for given iteration."""
         if iters <= self.warmup_iters:
             # Linear warmup
             if self.warmup_iters > 0:
