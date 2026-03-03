@@ -122,32 +122,120 @@ def cuda_cleanup():
         torch.cuda.empty_cache()
 
 
-def run_in_subprocess(script: str, *, timeout: int = 300) -> str:
-    """Run Python code in a fresh subprocess for CUDA isolation.
+# ---------------------------------------------------------------------------
+# Pre-spawned subprocess worker for CUDA isolation
+#
+# After hundreds of CUDA-heavy export + training tests, the CUDA driver state
+# in the main pytest process becomes corrupted.  Any fork() / posix_spawn()
+# from this process then triggers SIGSEGV (exit 139).
+#
+# Fix: fork a *worker* process at import time — before CUDA is ever used —
+# so its CUDA context stays pristine.  Later, run_in_subprocess() sends
+# commands to the worker via stdin/stdout pipes (no fork from the polluted
+# main process).  The worker creates fresh subprocesses from its clean state.
+# ---------------------------------------------------------------------------
 
-    RF-DETR training segfaults when the CUDA driver has accumulated state from
-    hundreds of prior export tests in the same process.  Running in a subprocess
-    gives a pristine CUDA context.  The *script* string is passed to
-    ``python -c``.  Raises ``RuntimeError`` on non-zero exit.
+_WORKER_SCRIPT = r"""
+import json, os, subprocess, sys, tempfile
+
+while True:
+    line = sys.stdin.readline()
+    if not line:
+        break
+    msg = json.loads(line)
+    script_text, timeout = msg["s"], msg["t"]
+
+    fd, path = tempfile.mkstemp(suffix=".py", prefix="ly_")
+    os.write(fd, script_text.encode())
+    os.close(fd)
+    try:
+        r = subprocess.run(
+            [sys.executable, path],
+            capture_output=True, text=True, timeout=timeout,
+        )
+        resp = {"rc": r.returncode, "o": r.stdout[-4000:], "e": r.stderr[-4000:]}
+    except subprocess.TimeoutExpired:
+        resp = {"rc": -1, "o": "", "e": f"Timed out after {timeout}s"}
+    except Exception as exc:
+        resp = {"rc": -1, "o": "", "e": str(exc)}
+    finally:
+        try:
+            os.unlink(path)
+        except OSError:
+            pass
+    sys.stdout.write(json.dumps(resp) + "\n")
+    sys.stdout.flush()
+"""
+
+
+def _start_worker():
+    """Start the subprocess worker. Called once at import time."""
+    import atexit
+    import subprocess as _sp
+    import sys as _sys
+    import tempfile as _tmp
+
+    fd, path = _tmp.mkstemp(suffix=".py", prefix="ly_worker_")
+    import os as _os
+
+    _os.write(fd, _WORKER_SCRIPT.encode())
+    _os.close(fd)
+
+    proc = _sp.Popen(
+        [_sys.executable, path],
+        stdin=_sp.PIPE,
+        stdout=_sp.PIPE,
+        stderr=_sp.DEVNULL,
+        text=True,
+    )
+
+    def _cleanup():
+        try:
+            proc.stdin.close()
+        except Exception:
+            pass
+        proc.wait(timeout=5)
+        try:
+            _os.unlink(path)
+        except OSError:
+            pass
+
+    atexit.register(_cleanup)
+    return proc
+
+
+_worker_proc = _start_worker()
+
+
+def run_in_subprocess(script: str, *, timeout: int = 300) -> str:
+    """Run Python code in a fresh subprocess via the pre-spawned worker.
+
+    The worker was forked at import time (clean CUDA state) and creates
+    child processes on demand — no fork from the polluted main process.
     """
-    import subprocess
-    import sys
+    import json
     import textwrap
 
-    result = subprocess.run(
-        [sys.executable, "-c", textwrap.dedent(script)],
-        capture_output=True,
-        text=True,
-        timeout=timeout,
-    )
-    # Show full output on failure for easy debugging
-    if result.returncode != 0:
+    msg = json.dumps({"s": textwrap.dedent(script), "t": timeout})
+    _worker_proc.stdin.write(msg + "\n")
+    _worker_proc.stdin.flush()
+
+    # Read response (blocking).  The +60 allows the worker to report a
+    # timeout rather than us killing it.
+    resp_line = _worker_proc.stdout.readline()
+    if not resp_line:
         raise RuntimeError(
-            f"Subprocess exited with code {result.returncode}\n"
-            f"--- stdout (last 2000 chars) ---\n{result.stdout[-2000:]}\n"
-            f"--- stderr (last 2000 chars) ---\n{result.stderr[-2000:]}"
+            "Subprocess worker died unexpectedly.  Check stderr for details."
         )
-    return result.stdout
+
+    resp = json.loads(resp_line)
+    if resp["rc"] != 0:
+        raise RuntimeError(
+            f"Subprocess exited with code {resp['rc']}\n"
+            f"--- stdout (last 2000 chars) ---\n{resp['o'][-2000:]}\n"
+            f"--- stderr (last 2000 chars) ---\n{resp['e'][-2000:]}"
+        )
+    return resp["o"]
 
 
 # ---------------------------------------------------------------------------

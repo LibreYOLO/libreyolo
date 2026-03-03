@@ -20,7 +20,6 @@ help:
 	@echo "  build                         - Build package"
 	@echo "  clean                         - Remove build and test cache artifacts"
 
-# Development Commands
 setup:
 	uv sync --dev
 	@echo ""
