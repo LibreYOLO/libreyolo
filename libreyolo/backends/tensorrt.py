@@ -275,7 +275,10 @@ class TensorRTBackend(BaseBackend):
                 ]
 
                 boxes, max_scores, class_ids = self._parse_outputs(
-                    per_image, effective_imgsz, orig_size, conf,
+                    per_image,
+                    effective_imgsz,
+                    orig_size,
+                    conf,
                     ratio=ratio if ratio is not None else 1.0,
                 )
 

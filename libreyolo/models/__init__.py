@@ -135,9 +135,7 @@ def LibreYOLO(
                 try:
                     _ensure_rfdetr()
                     for cls in BaseModel._registry:
-                        detected = cls.detect_size_from_filename(
-                            Path(model_path).name
-                        )
+                        detected = cls.detect_size_from_filename(Path(model_path).name)
                         if detected is not None:
                             size = detected
                             print(f"Detected size '{size}' from filename")

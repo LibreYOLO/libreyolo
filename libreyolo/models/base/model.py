@@ -99,9 +99,7 @@ class BaseModel(ABC):
             self.model_path = None
         elif isinstance(model_path, dict):
             self.model_path = None
-            self.model.load_state_dict(
-                model_path, strict=self._strict_loading()
-            )
+            self.model.load_state_dict(model_path, strict=self._strict_loading())
         else:
             self.model_path = model_path
 
