@@ -332,10 +332,10 @@ MODEL_CATALOG = [
     ("yolo9", "s", "LibreYOLO9s.pt"),
     ("yolo9", "m", "LibreYOLO9m.pt"),
     ("yolo9", "c", "LibreYOLO9c.pt"),
-    ("rfdetr", "n", "LibreRFDETRn.pth"),
-    ("rfdetr", "s", "LibreRFDETRs.pth"),
-    ("rfdetr", "m", "LibreRFDETRm.pth"),
-    ("rfdetr", "l", "LibreRFDETRl.pth"),
+    ("rfdetr", "n", "LibreRFDETRn.pt"),
+    ("rfdetr", "s", "LibreRFDETRs.pt"),
+    ("rfdetr", "m", "LibreRFDETRm.pt"),
+    ("rfdetr", "l", "LibreRFDETRl.pt"),
 ]
 
 # Derived lists (no manual maintenance)
