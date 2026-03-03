@@ -143,7 +143,6 @@ class LibreYOLORFDETR(BaseModel):
     # ------------------------------------------------------------------
     FAMILY = "rfdetr"
     FILENAME_PREFIX = "LibreRFDETR"
-    WEIGHT_EXT = ".pth"
     INPUT_SIZES = {"n": 384, "s": 512, "m": 576, "l": 704}
 
     # =========================================================================
