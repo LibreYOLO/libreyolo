@@ -58,12 +58,11 @@ def draw_boxes(
     max_dim = max(img_width, img_height)
 
     # Scale factor: base thickness/font at 640px, scales up for larger images
-    # Minimum thickness of 2, scales up to ~6 for 2000px+ images
     scale_factor = max_dim / 640.0
-    box_thickness = max(2, min(int(2 * scale_factor), 8))
+    box_thickness = max(2, int(2 * scale_factor))
 
     # Font size scales similarly: base 12px at 640px
-    font_size = max(12, min(int(12 * scale_factor), 36))
+    font_size = max(12, int(12 * scale_factor))
 
     # Try to load a font with scaled size, fallback to default if not available
     try:
@@ -101,24 +100,21 @@ def draw_boxes(
         text_width = bbox[2] - bbox[0]
         text_height = bbox[3] - bbox[1]
 
-        # Draw label background with class color (scaled padding)
-        draw.rectangle(
-            [
-                x1,
-                y1 - text_height - label_padding * 2,
-                x1 + text_width + label_padding * 2,
-                y1,
-            ],
-            fill=color,
-        )
+        # Check if label fits above box; if not, draw inside
+        outside = y1 >= text_height + label_padding * 2
 
-        # Draw label text
-        draw.text(
-            (x1 + label_padding, y1 - text_height - label_padding),
-            label,
-            fill="white",
-            font=font,
-        )
+        # Clamp label x to stay within image bounds
+        label_x = min(x1, img_width - text_width - label_padding * 2)
+        label_x = max(0, label_x)
+
+        if outside:
+            # Draw label above box
+            draw.rectangle([label_x, y1 - text_height - label_padding * 2, label_x + text_width + label_padding * 2, y1], fill=color)
+            draw.text((label_x + label_padding, y1 - text_height - label_padding), label, fill="white", font=font)
+        else:
+            # Draw label inside box
+            draw.rectangle([label_x, y1, label_x + text_width + label_padding * 2, y1 + text_height + label_padding * 2], fill=color)
+            draw.text((label_x + label_padding, y1 + label_padding), label, fill="white", font=font)
 
     return img_draw
 
