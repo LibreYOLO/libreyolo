@@ -61,6 +61,33 @@ def preprocess_image(
     return img_tensor, original_img, original_size
 
 
+def decode_boxes(
+    box_preds: torch.Tensor, anchors: torch.Tensor, stride_tensor: torch.Tensor
+) -> torch.Tensor:
+    """
+    Decode box predictions to xyxy coordinates.
+
+    Args:
+        box_preds: Box predictions [l, t, r, b] distances from anchors (B, N, 4)
+        anchors: Anchor points (N, 2)
+        stride_tensor: Stride values (N, 1)
+
+    Returns:
+        Decoded boxes in xyxy format (B, N, 4)
+    """
+    anchors = anchors.unsqueeze(0)
+    stride_tensor = stride_tensor.unsqueeze(0)
+
+    # Decode: xyxy = [x - l, y - t, x + r, y + b] * stride
+    x1 = (anchors[..., 0:1] - box_preds[..., 0:1]) * stride_tensor[..., 0:1]
+    y1 = (anchors[..., 1:2] - box_preds[..., 1:2]) * stride_tensor[..., 0:1]
+    x2 = (anchors[..., 0:1] + box_preds[..., 2:3]) * stride_tensor[..., 0:1]
+    y2 = (anchors[..., 1:2] + box_preds[..., 3:4]) * stride_tensor[..., 0:1]
+
+    decoded_boxes = torch.cat([x1, y1, x2, y2], dim=-1)
+    return decoded_boxes
+
+
 def postprocess(
     output: Dict,
     conf_thres: float = 0.25,
@@ -114,30 +141,3 @@ def postprocess(
         max_det=max_det,
         letterbox=letterbox,
     )
-
-
-def decode_boxes(
-    box_preds: torch.Tensor, anchors: torch.Tensor, stride_tensor: torch.Tensor
-) -> torch.Tensor:
-    """
-    Decode box predictions to xyxy coordinates.
-
-    Args:
-        box_preds: Box predictions [l, t, r, b] distances from anchors (B, N, 4)
-        anchors: Anchor points (N, 2)
-        stride_tensor: Stride values (N, 1)
-
-    Returns:
-        Decoded boxes in xyxy format (B, N, 4)
-    """
-    anchors = anchors.unsqueeze(0)
-    stride_tensor = stride_tensor.unsqueeze(0)
-
-    # Decode: xyxy = [x - l, y - t, x + r, y + b] * stride
-    x1 = (anchors[..., 0:1] - box_preds[..., 0:1]) * stride_tensor[..., 0:1]
-    y1 = (anchors[..., 1:2] - box_preds[..., 1:2]) * stride_tensor[..., 0:1]
-    x2 = (anchors[..., 0:1] + box_preds[..., 2:3]) * stride_tensor[..., 0:1]
-    y2 = (anchors[..., 1:2] + box_preds[..., 3:4]) * stride_tensor[..., 0:1]
-
-    decoded_boxes = torch.cat([x1, y1, x2, y2], dim=-1)
-    return decoded_boxes
