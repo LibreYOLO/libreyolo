@@ -5,10 +5,8 @@ Wraps the original rfdetr training API with Ultralytics-compatible interface.
 
 from typing import Dict
 
-# Use the original rfdetr training which is already well-tuned
 from rfdetr import RFDETRLarge, RFDETRNano, RFDETRSmall, RFDETRMedium
 
-# Map size codes to rfdetr classes
 RFDETR_TRAINERS = {
     "n": RFDETRNano,
     "s": RFDETRSmall,
@@ -58,11 +56,9 @@ def train_rfdetr(
             f"Invalid size: {size}. Must be one of {list(RFDETR_TRAINERS.keys())}"
         )
 
-    # Create the appropriate trainer
     trainer_cls = RFDETR_TRAINERS[size]
     model = trainer_cls()
 
-    # Train with the original API
     model.train(
         dataset_dir=data,
         epochs=epochs,

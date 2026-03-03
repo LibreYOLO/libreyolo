@@ -11,7 +11,6 @@ from PIL import Image
 
 from ...utils.general import cxcywh_to_xyxy
 
-# ImageNet normalization constants
 IMAGENET_MEAN = [0.485, 0.456, 0.406]
 IMAGENET_STD = [0.229, 0.224, 0.225]
 
@@ -73,11 +72,9 @@ def postprocess(
     assert len(out_logits) == len(target_sizes)
     assert target_sizes.shape[1] == 2
 
-    # Apply sigmoid to get probabilities
     prob = out_logits.sigmoid()
 
-    # Get top-K across all (queries × classes)
-    # Flatten to (B, num_queries * num_classes) then take topk
+    # Top-K across all (queries × classes)
     batch_size = out_logits.shape[0]
     num_classes = out_logits.shape[2]
 
@@ -85,16 +82,11 @@ def postprocess(
 
     scores = topk_values
 
-    # Convert flat indices to query indices and class indices
     topk_boxes = topk_indexes // num_classes  # Which query
     labels = topk_indexes % num_classes  # Which class
 
-    # Convert boxes from cxcywh to xyxy
     boxes = cxcywh_to_xyxy(out_bbox)
 
-    # Gather boxes for the selected queries
-    # boxes shape: (B, num_queries, 4)
-    # topk_boxes shape: (B, num_select)
     boxes = torch.gather(boxes, 1, topk_boxes.unsqueeze(-1).repeat(1, 1, 4))
 
     # Scale from relative [0, 1] to absolute [0, height/width] coordinates
@@ -102,7 +94,6 @@ def postprocess(
     scale_fct = torch.stack([img_w, img_h, img_w, img_h], dim=1)
     boxes = boxes * scale_fct[:, None, :]
 
-    # Build results list
     results = [
         {"scores": s, "labels": lab, "boxes": b}
         for s, lab, b in zip(scores, labels, boxes)

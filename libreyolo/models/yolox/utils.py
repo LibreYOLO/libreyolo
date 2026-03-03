@@ -35,7 +35,6 @@ def preprocess_numpy(
     ratio = min(input_size / orig_h, input_size / orig_w)
     new_w, new_h = int(orig_w * ratio), int(orig_h * ratio)
 
-    # Resize
     img_resized = Image.fromarray(img_rgb_hwc).resize(
         (new_w, new_h), Image.Resampling.BILINEAR
     )
@@ -44,7 +43,7 @@ def preprocess_numpy(
     padded = Image.new("RGB", (input_size, input_size), (114, 114, 114))
     padded.paste(img_resized, (0, 0))
 
-    # To numpy, RGB to BGR, keep 0-255, HWC to CHW
+    # RGB to BGR, HWC to CHW, keep 0-255
     arr = np.array(padded, dtype=np.float32)[:, :, ::-1].copy()
     return arr.transpose(2, 0, 1), ratio
 
@@ -154,10 +153,8 @@ def decode_outputs(
     # (B, N_total, 5+num_classes)
     outputs_cat = torch.cat(flattened, dim=1)
 
-    # Generate grids
     grids, stride_tensor = make_grids(outputs, strides)
 
-    # Decode boxes
     # Center: (offset + grid) * stride
     outputs_cat[..., 0:2] = (outputs_cat[..., 0:2] + grids) * stride_tensor
     # Width/Height: exp(pred) * stride
@@ -190,13 +187,10 @@ def postprocess(
     Returns:
         Dictionary with boxes, scores, classes, num_detections
     """
-    # Decode outputs to absolute coordinates
     decoded = decode_outputs(outputs)  # (B, N, 5+num_classes)
 
-    # Take first batch
     decoded = decoded[0]  # (N, 5+num_classes)
 
-    # Extract components
     boxes_cxcywh = decoded[:, :4]  # (N, 4) - center_x, center_y, width, height
     objectness = decoded[:, 4]  # (N,) - objectness score
     class_probs = decoded[:, 5:]  # (N, num_classes) - class probabilities
@@ -204,10 +198,8 @@ def postprocess(
     # Final confidence = objectness * class_prob
     scores = objectness.unsqueeze(-1) * class_probs  # (N, num_classes)
 
-    # Get max class score and class id for each prediction
     max_scores, class_ids = torch.max(scores, dim=1)  # (N,)
 
-    # Filter by confidence threshold
     mask = max_scores > conf_thres
     if not mask.any():
         return {"boxes": [], "scores": [], "classes": [], "num_detections": 0}
@@ -216,15 +208,11 @@ def postprocess(
     valid_scores = max_scores[mask]
     valid_classes = class_ids[mask]
 
-    # Convert to xyxy format
     valid_boxes = cxcywh_to_xyxy(valid_boxes_cxcywh)
 
-    # Scale boxes back to original image coordinates
     if original_size is not None and ratio != 1.0:
-        # Divide by ratio to get back to original scale
         valid_boxes = valid_boxes / ratio
 
-        # Clamp to image boundaries
         valid_boxes[:, [0, 2]] = torch.clamp(
             valid_boxes[:, [0, 2]], 0, original_size[0]
         )
@@ -242,7 +230,6 @@ def postprocess(
             valid_scores = valid_scores[valid_mask]
             valid_classes = valid_classes[valid_mask]
 
-    # Delegate NMS, max_det, and output formatting to shared pipeline
     return postprocess_detections(
         boxes=valid_boxes,
         scores=valid_scores,
