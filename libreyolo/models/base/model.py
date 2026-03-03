@@ -39,7 +39,7 @@ class BaseModel(ABC):
     FAMILY: ClassVar[str] = ""  # e.g., "yolox"
     FILENAME_PREFIX: ClassVar[str] = ""  # e.g., "LibreYOLOX"
     WEIGHT_EXT: ClassVar[str] = ".pt"  # e.g., ".pt" or ".pth"
-    DEFAULT_INPUT_SIZES: ClassVar[dict[str, int]] = {}  # size → input resolution
+    INPUT_SIZES: ClassVar[dict[str, int]] = {}  # size → input resolution
 
     _registry: ClassVar[List[Type["BaseModel"]]] = []
 
@@ -68,7 +68,7 @@ class BaseModel(ABC):
 
     def _get_valid_sizes(self) -> List[str]:
         """Return list of valid size codes for this model."""
-        return list(self.DEFAULT_INPUT_SIZES.keys())
+        return list(self.INPUT_SIZES.keys())
 
     def _get_model_name(self) -> str:
         """Return the model name for metadata."""
@@ -80,10 +80,10 @@ class BaseModel(ABC):
 
     @classmethod
     def detect_size_from_filename(cls, filename: str) -> Optional[str]:
-        """Extract model size from a filename using FILENAME_PREFIX and DEFAULT_INPUT_SIZES."""
-        if not cls.DEFAULT_INPUT_SIZES or not cls.FILENAME_PREFIX:
+        """Extract model size from a filename using FILENAME_PREFIX and INPUT_SIZES."""
+        if not cls.INPUT_SIZES or not cls.FILENAME_PREFIX:
             return None
-        sizes_pattern = "".join(cls.DEFAULT_INPUT_SIZES.keys())
+        sizes_pattern = "".join(cls.INPUT_SIZES.keys())
         prefix = cls.FILENAME_PREFIX.lower()
         ext = re.escape(cls.WEIGHT_EXT)
         m = re.search(rf"{prefix}([{sizes_pattern}]){ext}", filename.lower())
@@ -207,7 +207,7 @@ class BaseModel(ABC):
         self.nb_classes = nb_classes
 
         # Set input_size from class constant (before _init_model)
-        self.input_size = self.DEFAULT_INPUT_SIZES[size]
+        self.input_size = self.INPUT_SIZES[size]
 
         # Build names dict (matches Ultralytics model.names)
         if nb_classes == 80:
