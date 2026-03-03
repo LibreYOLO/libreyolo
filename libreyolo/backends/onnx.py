@@ -1,6 +1,4 @@
-"""
-ONNX runtime inference backend for LibreYOLO.
-"""
+"""ONNX runtime inference backend for LibreYOLO."""
 
 import logging
 from pathlib import Path
@@ -14,8 +12,7 @@ logger = logging.getLogger(__name__)
 
 
 class OnnxBackend(BaseBackend):
-    """
-    ONNX runtime inference backend for LibreYOLO models.
+    """ONNX runtime inference backend for LibreYOLO models.
 
     Args:
         onnx_path: Path to the ONNX model file.
@@ -40,7 +37,6 @@ class OnnxBackend(BaseBackend):
         if not Path(onnx_path).exists():
             raise FileNotFoundError(f"ONNX model not found: {onnx_path}")
 
-        # Resolve device and set providers
         available_providers = ort.get_available_providers()
         if device == "auto":
             if "CUDAExecutionProvider" in available_providers:
@@ -64,14 +60,12 @@ class OnnxBackend(BaseBackend):
         self.session = ort.InferenceSession(onnx_path, providers=providers)
         self.input_name = self.session.get_inputs()[0].name
 
-        # Read expected input size from model (fallback to 640)
         input_shape = self.session.get_inputs()[0].shape
         if len(input_shape) == 4 and isinstance(input_shape[2], int):
             imgsz = input_shape[2]
         else:
-            imgsz = 640
+            imgsz = 640  # dynamic shape; use default
 
-        # Read libreyolo metadata from ONNX model
         model_family, names = self._read_onnx_metadata(onnx_path, nb_classes)
 
         super().__init__(

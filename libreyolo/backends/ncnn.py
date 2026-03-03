@@ -1,6 +1,4 @@
-"""
-ncnn inference backend for LibreYOLO.
-"""
+"""ncnn inference backend for LibreYOLO."""
 
 from pathlib import Path
 from typing import Dict
@@ -11,8 +9,7 @@ from .base import BaseBackend
 
 
 class NcnnBackend(BaseBackend):
-    """
-    ncnn inference backend for LibreYOLO models.
+    """ncnn inference backend for LibreYOLO models.
 
     Args:
         model_dir: Path to the ncnn model directory (containing model.ncnn.param,
@@ -49,13 +46,11 @@ class NcnnBackend(BaseBackend):
         if not bin_path.exists():
             raise FileNotFoundError(f"model.ncnn.bin not found in {model_dir}")
 
-        # Defaults
         model_family = None
         imgsz = 640
         resolved_nb_classes = nb_classes if nb_classes is not None else 80
         names = self.build_names(resolved_nb_classes)
 
-        # Load metadata from metadata.yaml if present
         metadata_path = model_dir / "metadata.yaml"
         if metadata_path.exists():
             model_family, imgsz, resolved_nb_classes, names = self._read_metadata(
@@ -74,14 +69,12 @@ class NcnnBackend(BaseBackend):
             resolved_device = device_lower
             use_vulkan = False
 
-        # Load ncnn model
         self.net = _ncnn.Net()
         if use_vulkan and hasattr(_ncnn, "build_with_gpu") and _ncnn.build_with_gpu:
             self.net.opt.use_vulkan_compute = True
         self.net.load_param(str(param_path))
         self.net.load_model(str(bin_path))
 
-        # Discover input/output blob names from the param file
         self._input_names, self._output_names = self._discover_blob_names(param_path)
 
         super().__init__(

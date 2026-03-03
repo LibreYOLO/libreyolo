@@ -1,8 +1,4 @@
-"""
-TensorRT inference backend for LibreYOLO.
-
-Provides GPU-accelerated inference using TensorRT engines exported from LibreYOLO models.
-"""
+"""TensorRT inference backend for LibreYOLO."""
 
 import json
 from pathlib import Path
@@ -15,11 +11,7 @@ from .base import BaseBackend
 
 
 class TensorRTBackend(BaseBackend):
-    """
-    TensorRT inference backend for LibreYOLO models.
-
-    Provides the same API as LibreYOLOX/LibreYOLO9 but uses TensorRT
-    for GPU-accelerated inference.
+    """TensorRT inference backend for LibreYOLO models.
 
     Args:
         engine_path: Path to the TensorRT engine file (.engine).
@@ -53,7 +45,6 @@ class TensorRTBackend(BaseBackend):
         if not Path(engine_path).exists():
             raise FileNotFoundError(f"TensorRT engine not found: {engine_path}")
 
-        # Load metadata sidecar if available
         sidecar_path = Path(str(engine_path) + ".json")
         self._metadata = {}
         if sidecar_path.exists():
@@ -69,14 +60,12 @@ class TensorRTBackend(BaseBackend):
         model_family = self._metadata.get("model_family")
         self._sidecar_size = self._metadata.get("model_size")
 
-        # Build names dict: sidecar names when available, else COCO / generic
         sidecar_names = self._metadata.get("names")
         if sidecar_names is not None and nb_classes is None:
             names: Dict[int, str] = {int(k): v for k, v in sidecar_names.items()}
         else:
             names = self.build_names(resolved_nb_classes)
 
-        # Load TensorRT engine
         self.logger = trt.Logger(trt.Logger.WARNING)
         self.runtime = trt.Runtime(self.logger)
 
@@ -89,7 +78,6 @@ class TensorRTBackend(BaseBackend):
 
         self.context = self.engine.create_execution_context()
 
-        # Get input/output tensor info
         self.input_name = None
         self.output_names: List[str] = []
         self.input_shape = None
@@ -110,17 +98,12 @@ class TensorRTBackend(BaseBackend):
         if self.input_name is None:
             raise RuntimeError("No input tensor found in TensorRT engine")
 
-        # Extract input size from shape (batch, channels, height, width)
-        imgsz = self.input_shape[2]  # Assuming square input
-
-        # Detect batch capability: -1 means dynamic batch
-        self._dynamic_batch = self.input_shape[0] == -1
+        imgsz = self.input_shape[2]  # (B, C, H, W); assumes square
+        self._dynamic_batch = self.input_shape[0] == -1  # -1 = dynamic batch
         self._max_batch = 1 if self._dynamic_batch else self.input_shape[0]
 
-        # Allocate CUDA memory for inputs/outputs (batch=1 initially)
         self._allocate_buffers()
 
-        # Detect model family from output shapes if not in sidecar
         if model_family is None:
             model_family = self._detect_model_family()
 
@@ -133,9 +116,9 @@ class TensorRTBackend(BaseBackend):
             names=names,
         )
 
-    # ------------------------------------------------------------------
+    # =========================================================================
     # TensorRT-specific internals
-    # ------------------------------------------------------------------
+    # =========================================================================
 
     def _allocate_buffers(self, batch_size: int = 1):
         """Allocate CUDA memory for input and output tensors."""
@@ -219,9 +202,9 @@ class TensorRTBackend(BaseBackend):
 
         return results
 
-    # ------------------------------------------------------------------
+    # =========================================================================
     # BaseBackend interface
-    # ------------------------------------------------------------------
+    # =========================================================================
 
     def _run_inference(self, blob: np.ndarray) -> list:
         """Run TensorRT inference and return outputs as a list."""
@@ -269,7 +252,6 @@ class TensorRTBackend(BaseBackend):
         for i in range(0, len(image_paths), batch):
             chunk_paths = image_paths[i : i + batch]
 
-            # Preprocess all images in the chunk
             tensors = []
             preprocess_info = []
             for path in chunk_paths:
@@ -282,22 +264,19 @@ class TensorRTBackend(BaseBackend):
                 tensors.append(tensor)
                 preprocess_info.append((orig_img, orig_size, ratio, path))
 
-            # Stack into a single (B, C, H, W) tensor and run inference
-            batched_input = np.concatenate([t.numpy() for t in tensors], axis=0)
+            batched_input = np.concatenate(
+                [t.numpy() for t in tensors], axis=0
+            )  # (B, C, H, W)
             batch_outputs = self._infer(batched_input)
 
-            # Split per-image and postprocess using base class methods
             for idx, (orig_img, orig_size, ratio, path) in enumerate(preprocess_info):
                 per_image = [
                     batch_outputs[name][idx : idx + 1] for name in self.output_names
                 ]
 
-                # Set YOLOX ratio for this specific image
-                if ratio is not None:
-                    self._yolox_ratio = ratio
-
                 boxes, max_scores, class_ids = self._parse_outputs(
-                    per_image, effective_imgsz, orig_size, conf
+                    per_image, effective_imgsz, orig_size, conf,
+                    ratio=ratio if ratio is not None else 1.0,
                 )
 
                 orig_w, orig_h = orig_size
@@ -320,9 +299,9 @@ class TensorRTBackend(BaseBackend):
 
         return results
 
-    # ------------------------------------------------------------------
+    # =========================================================================
     # Metadata helpers
-    # ------------------------------------------------------------------
+    # =========================================================================
 
     @property
     def size(self) -> str:
