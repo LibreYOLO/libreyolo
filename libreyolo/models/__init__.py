@@ -265,5 +265,4 @@ __all__ = [
     "LibreYOLO",
     "LibreYOLOX",
     "LibreYOLO9",
-    "BaseModel",
 ]

@@ -12,7 +12,6 @@ from .utils import (
     img2label_paths,
     load_data_config,
 )
-from .dataset import YOLODataset, COCODataset, create_dataloader, yolox_collate_fn
 from .yolo_coco_api import YOLOCocoAPI, create_yolo_coco_api, parse_yolo_label_line
 
 __all__ = [
@@ -21,10 +20,6 @@ __all__ = [
     "get_img_files",
     "img2label_paths",
     "load_data_config",
-    "YOLODataset",
-    "COCODataset",
-    "create_dataloader",
-    "yolox_collate_fn",
     "YOLOCocoAPI",
     "create_yolo_coco_api",
     "parse_yolo_label_line",
