@@ -1,9 +1,4 @@
-"""
-Base class for LibreYOLO inference backends.
-
-Provides shared preprocessing, output parsing, NMS, result wrapping,
-and save logic. Subclasses only need to implement __init__ and _run_inference.
-"""
+"""Base class for LibreYOLO inference backends."""
 
 from abc import ABC, abstractmethod
 from datetime import datetime
@@ -14,12 +9,12 @@ import numpy as np
 import torch
 from PIL import Image
 
-from ..utils.drawing import draw_boxes
-from ..utils.general import get_safe_stem, COCO_CLASSES
 from ..models.yolo9.utils import preprocess_image
+from ..models.yolox.utils import preprocess_image as yolox_preprocess_image
+from ..utils.drawing import draw_boxes
+from ..utils.general import COCO_CLASSES, get_safe_stem
 from ..utils.image_loader import ImageLoader
 from ..utils.results import Boxes, Results
-from ..models.yolox.utils import preprocess_image as yolox_preprocess_image
 
 
 def _nms_numpy(
@@ -78,9 +73,9 @@ class BaseBackend(ABC):
         self.model_family = model_family
         self.names = names
 
-    # ------------------------------------------------------------------
-    # Abstract — must be implemented by each backend
-    # ------------------------------------------------------------------
+    # =========================================================================
+    # Abstract interface
+    # =========================================================================
 
     @abstractmethod
     def _run_inference(self, blob: np.ndarray) -> list:
@@ -93,149 +88,9 @@ class BaseBackend(ABC):
             List of numpy arrays, one per model output tensor.
         """
 
-    # ------------------------------------------------------------------
-    # Public API
-    # ------------------------------------------------------------------
-
-    def __call__(
-        self,
-        source: Union[str, Path, Image.Image, np.ndarray, None] = None,
-        *,
-        conf: float = 0.25,
-        iou: float = 0.45,
-        imgsz: Optional[int] = None,
-        classes: Optional[List[int]] = None,
-        max_det: int = 300,
-        save: bool = False,
-        batch: int = 1,
-        output_path: str | None = None,
-        color_format: str = "auto",
-    ) -> Union[Results, List[Results]]:
-        """Run inference on an image or directory of images."""
-        if isinstance(source, (str, Path)) and Path(source).is_dir():
-            image_paths = ImageLoader.collect_images(source)
-            if not image_paths:
-                return []
-            return self._process_in_batches(
-                image_paths,
-                batch=batch,
-                save=save,
-                output_path=output_path,
-                conf=conf,
-                iou=iou,
-                imgsz=imgsz,
-                classes=classes,
-                max_det=max_det,
-                color_format=color_format,
-            )
-
-        return self._predict_single(
-            source,
-            save=save,
-            output_path=output_path,
-            conf=conf,
-            iou=iou,
-            imgsz=imgsz,
-            classes=classes,
-            max_det=max_det,
-            color_format=color_format,
-        )
-
-    def predict(self, *args, **kwargs) -> Union[Results, List[Results]]:
-        """Alias for __call__ method."""
-        return self(*args, **kwargs)
-
-    # ------------------------------------------------------------------
-    # Inference pipeline
-    # ------------------------------------------------------------------
-
-    def _process_in_batches(
-        self,
-        image_paths: List[Path],
-        batch: int = 1,
-        save: bool = False,
-        output_path: str | None = None,
-        conf: float = 0.25,
-        iou: float = 0.45,
-        imgsz: Optional[int] = None,
-        classes: Optional[List[int]] = None,
-        max_det: int = 300,
-        color_format: str = "auto",
-    ) -> List[Results]:
-        """Process multiple images sequentially."""
-        results = []
-        for i in range(0, len(image_paths), batch):
-            chunk = image_paths[i : i + batch]
-            for path in chunk:
-                results.append(
-                    self._predict_single(
-                        path,
-                        save=save,
-                        output_path=output_path,
-                        conf=conf,
-                        iou=iou,
-                        imgsz=imgsz,
-                        classes=classes,
-                        max_det=max_det,
-                        color_format=color_format,
-                    )
-                )
-        return results
-
-    def _predict_single(
-        self,
-        image: Union[str, Path, Image.Image, np.ndarray],
-        save: bool = False,
-        output_path: str | None = None,
-        conf: float = 0.25,
-        iou: float = 0.45,
-        imgsz: Optional[int] = None,
-        classes: Optional[List[int]] = None,
-        max_det: int = 300,
-        color_format: str = "auto",
-    ) -> Results:
-        """Run inference on a single image."""
-        image_path = image if isinstance(image, (str, Path)) else None
-        effective_imgsz = imgsz if imgsz is not None else self.imgsz
-
-        # 1. Preprocess
-        input_tensor, original_img, original_size, ratio = self._preprocess(
-            image, effective_imgsz, color_format
-        )
-
-        blob = input_tensor.numpy()
-
-        # 2. Inference
-        all_outputs = self._run_inference(blob)
-
-        # 3. Parse outputs
-        boxes, max_scores, class_ids = self._parse_outputs(
-            all_outputs, effective_imgsz, original_size, conf, ratio=ratio
-        )
-
-        # 4. Build result
-        orig_w, orig_h = original_size
-        orig_shape = (orig_h, orig_w)
-        result = self._build_result(
-            boxes,
-            max_scores,
-            class_ids,
-            orig_shape=orig_shape,
-            image_path=image_path,
-            iou=iou,
-            classes=classes,
-            max_det=max_det,
-        )
-
-        # 5. Save if requested
-        if save:
-            self._save_annotated(result, original_img, image_path, output_path)
-
-        return result
-
-    # ------------------------------------------------------------------
+    # =========================================================================
     # Preprocessing
-    # ------------------------------------------------------------------
+    # =========================================================================
 
     def _preprocess(self, image, effective_imgsz, color_format):
         """Dispatch to model-family-specific preprocessing.
@@ -271,9 +126,9 @@ class BaseBackend(ABC):
         img_tensor = torch.from_numpy(img_chw).unsqueeze(0)
         return img_tensor, original_img, original_size
 
-    # ------------------------------------------------------------------
+    # =========================================================================
     # Output parsing
-    # ------------------------------------------------------------------
+    # =========================================================================
 
     def _parse_outputs(
         self,
@@ -370,7 +225,7 @@ class BaseBackend(ABC):
         if len(boxes_raw) == 0:
             return boxes_raw, max_scores, class_ids
 
-        # Apply COCO 91→80 class mapping if needed
+        # COCO 91→80 class mapping
         if logits.shape[1] == 91 and self.nb_classes == 80:
             from ..models.rfdetr.model import _COCO91_TO_COCO80
 
@@ -400,9 +255,9 @@ class BaseBackend(ABC):
 
         return boxes, max_scores, class_ids
 
-    # ------------------------------------------------------------------
+    # =========================================================================
     # Result building
-    # ------------------------------------------------------------------
+    # =========================================================================
 
     def _build_result(
         self,
@@ -461,9 +316,9 @@ class BaseBackend(ABC):
             names=self.names,
         )
 
-    # ------------------------------------------------------------------
+    # =========================================================================
     # Save
-    # ------------------------------------------------------------------
+    # =========================================================================
 
     def _save_annotated(self, result, original_img, image_path, output_path):
         """Save annotated image to disk."""
@@ -492,9 +347,9 @@ class BaseBackend(ABC):
         annotated_img.save(final_path)
         result.saved_path = str(final_path)
 
-    # ------------------------------------------------------------------
-    # Helpers for building names dict (used by subclass __init__)
-    # ------------------------------------------------------------------
+    # =========================================================================
+    # Helpers
+    # =========================================================================
 
     @staticmethod
     def build_names(nb_classes: int) -> Dict[int, str]:
@@ -502,3 +357,138 @@ class BaseBackend(ABC):
         if nb_classes == 80:
             return {i: n for i, n in enumerate(COCO_CLASSES)}
         return {i: f"class_{i}" for i in range(nb_classes)}
+
+    # =========================================================================
+    # Inference pipeline
+    # =========================================================================
+
+    def _predict_single(
+        self,
+        image: Union[str, Path, Image.Image, np.ndarray],
+        save: bool = False,
+        output_path: str | None = None,
+        conf: float = 0.25,
+        iou: float = 0.45,
+        imgsz: Optional[int] = None,
+        classes: Optional[List[int]] = None,
+        max_det: int = 300,
+        color_format: str = "auto",
+    ) -> Results:
+        """Run inference on a single image."""
+        image_path = image if isinstance(image, (str, Path)) else None
+        effective_imgsz = imgsz if imgsz is not None else self.imgsz
+
+        input_tensor, original_img, original_size, ratio = self._preprocess(
+            image, effective_imgsz, color_format
+        )
+
+        blob = input_tensor.numpy()
+
+        all_outputs = self._run_inference(blob)
+
+        boxes, max_scores, class_ids = self._parse_outputs(
+            all_outputs, effective_imgsz, original_size, conf, ratio=ratio
+        )
+
+        orig_w, orig_h = original_size
+        orig_shape = (orig_h, orig_w)
+        result = self._build_result(
+            boxes,
+            max_scores,
+            class_ids,
+            orig_shape=orig_shape,
+            image_path=image_path,
+            iou=iou,
+            classes=classes,
+            max_det=max_det,
+        )
+
+        if save:
+            self._save_annotated(result, original_img, image_path, output_path)
+
+        return result
+
+    def _process_in_batches(
+        self,
+        image_paths: List[Path],
+        batch: int = 1,
+        save: bool = False,
+        output_path: str | None = None,
+        conf: float = 0.25,
+        iou: float = 0.45,
+        imgsz: Optional[int] = None,
+        classes: Optional[List[int]] = None,
+        max_det: int = 300,
+        color_format: str = "auto",
+    ) -> List[Results]:
+        """Process multiple images sequentially."""
+        results = []
+        for i in range(0, len(image_paths), batch):
+            chunk = image_paths[i : i + batch]
+            for path in chunk:
+                results.append(
+                    self._predict_single(
+                        path,
+                        save=save,
+                        output_path=output_path,
+                        conf=conf,
+                        iou=iou,
+                        imgsz=imgsz,
+                        classes=classes,
+                        max_det=max_det,
+                        color_format=color_format,
+                    )
+                )
+        return results
+
+    # =========================================================================
+    # Public API
+    # =========================================================================
+
+    def __call__(
+        self,
+        source: Union[str, Path, Image.Image, np.ndarray, None] = None,
+        *,
+        conf: float = 0.25,
+        iou: float = 0.45,
+        imgsz: Optional[int] = None,
+        classes: Optional[List[int]] = None,
+        max_det: int = 300,
+        save: bool = False,
+        batch: int = 1,
+        output_path: str | None = None,
+        color_format: str = "auto",
+    ) -> Union[Results, List[Results]]:
+        """Run inference on an image or directory of images."""
+        if isinstance(source, (str, Path)) and Path(source).is_dir():
+            image_paths = ImageLoader.collect_images(source)
+            if not image_paths:
+                return []
+            return self._process_in_batches(
+                image_paths,
+                batch=batch,
+                save=save,
+                output_path=output_path,
+                conf=conf,
+                iou=iou,
+                imgsz=imgsz,
+                classes=classes,
+                max_det=max_det,
+                color_format=color_format,
+            )
+
+        return self._predict_single(
+            source,
+            save=save,
+            output_path=output_path,
+            conf=conf,
+            iou=iou,
+            imgsz=imgsz,
+            classes=classes,
+            max_det=max_det,
+            color_format=color_format,
+        )
+
+    def predict(self, *args, **kwargs) -> Union[Results, List[Results]]:
+        """Alias for __call__ method."""
+        return self(*args, **kwargs)

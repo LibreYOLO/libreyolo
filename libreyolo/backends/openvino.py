@@ -1,6 +1,4 @@
-"""
-OpenVINO inference backend for LibreYOLO.
-"""
+"""OpenVINO inference backend for LibreYOLO."""
 
 from pathlib import Path
 from typing import Dict
@@ -11,8 +9,7 @@ from .base import BaseBackend
 
 
 class OpenVINOBackend(BaseBackend):
-    """
-    OpenVINO inference backend for LibreYOLO models.
+    """OpenVINO inference backend for LibreYOLO models.
 
     Args:
         model_dir: Path to the OpenVINO model directory (containing model.xml,
@@ -45,13 +42,11 @@ class OpenVINOBackend(BaseBackend):
         if not xml_path.exists():
             raise FileNotFoundError(f"model.xml not found in {model_dir}")
 
-        # Defaults
         model_family = None
         imgsz = 640
         resolved_nb_classes = nb_classes if nb_classes is not None else 80
         names = self.build_names(resolved_nb_classes)
 
-        # Load metadata from metadata.yaml if present
         metadata_path = model_dir / "metadata.yaml"
         if metadata_path.exists():
             model_family, imgsz, resolved_nb_classes, names = self._read_metadata(
@@ -70,12 +65,10 @@ class OpenVINOBackend(BaseBackend):
             ov_device = device.upper()
             resolved_device = device_lower
 
-        # Load and compile model
         core = ov.Core()
         ov_model = core.read_model(str(xml_path))
         self.compiled_model = core.compile_model(ov_model, ov_device)
 
-        # Read expected input size from model
         input_shape = ov_model.inputs[0].shape
         if (
             len(input_shape) == 4
