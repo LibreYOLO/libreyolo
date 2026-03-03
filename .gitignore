@@ -10,6 +10,7 @@ dist/
 venv/
 env/
 .venv/
+uv.lock
 
 # IDE
 .vscode/
