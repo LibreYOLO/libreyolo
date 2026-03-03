@@ -389,7 +389,7 @@ def test_load_finetuned_checkpoint(
 
 
 # RF-DETR: reload fine-tuned checkpoint (only n for speed)
-_RELOAD_RFDETR = [("rfdetr", "n", "LibreRFDETRn.pth")]
+_RELOAD_RFDETR = [("rfdetr", "n", "LibreRFDETRn.pt")]
 
 
 @pytest.mark.parametrize(

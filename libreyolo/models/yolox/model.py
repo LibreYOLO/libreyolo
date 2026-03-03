@@ -38,9 +38,6 @@ class LibreYOLOX(BaseModel):
     INPUT_SIZES = {"n": 416, "t": 416, "s": 640, "m": 640, "l": 640, "x": 640}
     val_preprocessor_class = YOLOXValPreprocessor
 
-    # HF repo names differ from single-letter size codes for n/t
-    _HF_REPO_NAMES = {"n": "nano", "t": "tiny"}
-
     # =========================================================================
     # Registry classmethods
     # =========================================================================
@@ -61,17 +58,6 @@ class LibreYOLOX(BaseModel):
     def detect_nb_classes(cls, weights_dict: dict) -> Optional[int]:
         key = "head.cls_preds.0.weight"
         return weights_dict[key].shape[0] if key in weights_dict else None
-
-    @classmethod
-    def get_download_url(cls, filename: str) -> Optional[str]:
-        """YOLOX uses 'nano'/'tiny' in HF repo names for n/t sizes."""
-        size = cls.detect_size_from_filename(filename)
-        if size is None:
-            return None
-        hf_suffix = cls._HF_REPO_NAMES.get(size, size)
-        repo = f"LibreYOLO/{cls.FILENAME_PREFIX}{hf_suffix}"
-        actual = f"{cls.FILENAME_PREFIX}{size}{cls.WEIGHT_EXT}"
-        return f"https://huggingface.co/{repo}/resolve/main/{actual}"
 
     # =========================================================================
     # Initialization
