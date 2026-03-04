@@ -1,12 +1,6 @@
 """
 Neural network architecture for LibreYOLO yolo9.
 
-All layers are self-contained within this module to allow scientists to modify
-a single version without affecting others.
-
-Layer naming follows the official YOLO repo convention for direct weight loading:
-- model.0., model.1., ... etc.
-
 Supports yolo9-t (tiny), yolo9-s (small), yolo9-m (medium), and yolo9-c (compact/largest).
 """
 
@@ -427,7 +421,6 @@ class DDetect(nn.Module):
         self.no = nc + reg_max * 4  # number of outputs per anchor
         self.stride = torch.tensor(stride) if stride else torch.zeros(self.nl)
 
-        # Loss function (lazy init for training)
         self._loss_fn = None
 
         # Groups for box branch (YOLO uses groups=4)

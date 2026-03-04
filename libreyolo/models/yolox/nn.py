@@ -3,8 +3,6 @@ YOLOX neural network architecture for LibreYOLO.
 
 This module implements the YOLOX architecture with layer names matching
 the official YOLOX repository for direct weight loading.
-
-Supports both inference and training modes.
 """
 
 import math
@@ -427,8 +425,6 @@ class YOLOXHead(nn.Module):
         super().__init__()
         self.num_classes = num_classes
         self.strides = strides
-        self.decode_in_inference = True
-
         self.cls_convs = nn.ModuleList()
         self.reg_convs = nn.ModuleList()
         self.cls_preds = nn.ModuleList()
@@ -471,10 +467,8 @@ class YOLOXHead(nn.Module):
         self.bcewithlog_loss = nn.BCEWithLogitsLoss(reduction="none")
         self.iou_loss = IoULoss(reduction="none")
         self.grids = [torch.zeros(1)] * len(in_channels)
-        # Set to False to return raw outputs for compatibility with postprocess
-        self.decode_in_inference = False
-        # Set to True during ONNX/TorchScript export to return decoded outputs
-        self.export = False
+        self.decode_in_inference = False  # raw outputs for postprocess
+        self.export = False  # True during ONNX/TorchScript export
 
     def initialize_biases(self, prior_prob):
         """Initialize biases for better training convergence."""
@@ -968,7 +962,6 @@ class LibreYOLOXModel(nn.Module):
     Supports both training and inference modes.
     """
 
-    # Model configurations: depth, width, depthwise
     CONFIGS = {
         "n": {"depth": 0.33, "width": 0.25, "depthwise": True},
         "t": {"depth": 0.33, "width": 0.375, "depthwise": False},
@@ -1003,7 +996,6 @@ class LibreYOLOXModel(nn.Module):
 
         in_channels = [256, 512, 1024]
 
-        # Backbone includes PAFPN (matching official YOLOX structure)
         self.backbone = YOLOPAFPN(
             depth=depth,
             width=width,
@@ -1012,7 +1004,6 @@ class LibreYOLOXModel(nn.Module):
             act=act,
         )
 
-        # Detection head
         self.head = YOLOXHead(
             num_classes=nb_classes,
             width=width,
@@ -1034,10 +1025,8 @@ class LibreYOLOXModel(nn.Module):
             Training: dict with loss values
             Inference: decoded detection outputs
         """
-        # Get FPN features
         fpn_outs = self.backbone(x)
 
-        # Get detection outputs (or losses in training mode)
         if self.training and targets is not None:
             outputs = self.head(fpn_outs, labels=targets, imgs=x)
         else:

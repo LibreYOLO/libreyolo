@@ -1,21 +1,4 @@
-"""
-Validation module for LibreYOLO.
-
-Provides validation infrastructure for computing detection metrics
-including mAP, precision, and recall.
-
-Example:
-    >>> from libreyolo import LibreYOLO
-    >>> model = LibreYOLO("weights/LibreYOLOXs.pt")
-    >>> results = model.val(data="coco8.yaml", batch=16)
-    >>> print(f"mAP50-95: {results['metrics/mAP50-95']:.3f}")
-
-    Or using the validator directly:
-    >>> from libreyolo.validation import DetectionValidator, ValidationConfig
-    >>> config = ValidationConfig(data="coco8.yaml", batch_size=16)
-    >>> validator = DetectionValidator(model=model, config=config)
-    >>> results = validator()
-"""
+"""Validation module for LibreYOLO."""
 
 from .config import ValidationConfig
 from .detection_validator import DetectionValidator

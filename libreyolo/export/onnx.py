@@ -1,9 +1,4 @@
-"""
-ONNX export implementation.
-
-Exports PyTorch models to ONNX format with optional graph simplification,
-dynamic axes, FP16 precision, and embedded metadata.
-"""
+"""ONNX export implementation."""
 
 import importlib.util
 import warnings
@@ -19,6 +14,50 @@ def _get_version() -> str:
         return version("libreyolo")
     except Exception:
         return "0.0.0.dev0"
+
+
+def _postprocess_onnx(
+    path: str,
+    *,
+    simplify: bool,
+    dynamic: bool,
+    half: bool,
+    metadata: dict,
+) -> None:
+    """Load the ONNX file, optionally simplify, embed metadata, and save."""
+    try:
+        import onnx
+    except ImportError:
+        return
+
+    model_proto = onnx.load(path)
+
+    if simplify:
+        try:
+            from onnxsim import simplify as onnx_simplify
+
+            simplified, ok = onnx_simplify(model_proto)
+            if ok:
+                model_proto = simplified
+        except ImportError:
+            warnings.warn(
+                "onnxsim is not installed — skipping ONNX graph simplification. "
+                "Install with: pip install onnxsim",
+                stacklevel=3,
+            )
+        except Exception as exc:
+            warnings.warn(
+                f"ONNX simplification failed (non-fatal): {exc}",
+                stacklevel=3,
+            )
+
+    for key, value in metadata.items():
+        entry = model_proto.metadata_props.add()
+        entry.key = key
+        entry.value = value
+
+    onnx.checker.check_model(model_proto)
+    onnx.save(model_proto, path)
 
 
 def export_onnx(
@@ -83,49 +122,3 @@ def export_onnx(
     )
 
     return output_path
-
-
-def _postprocess_onnx(
-    path: str,
-    *,
-    simplify: bool,
-    dynamic: bool,
-    half: bool,
-    metadata: dict,
-) -> None:
-    """Load the ONNX file, optionally simplify, embed metadata, and save."""
-    try:
-        import onnx
-    except ImportError:
-        return
-
-    model_proto = onnx.load(path)
-
-    # Simplify graph
-    if simplify:
-        try:
-            from onnxsim import simplify as onnx_simplify
-
-            simplified, ok = onnx_simplify(model_proto)
-            if ok:
-                model_proto = simplified
-        except ImportError:
-            warnings.warn(
-                "onnxsim is not installed — skipping ONNX graph simplification. "
-                "Install with: pip install onnxsim",
-                stacklevel=3,
-            )
-        except Exception as exc:
-            warnings.warn(
-                f"ONNX simplification failed (non-fatal): {exc}",
-                stacklevel=3,
-            )
-
-    # Embed metadata
-    for key, value in metadata.items():
-        entry = model_proto.metadata_props.add()
-        entry.key = key
-        entry.value = value
-
-    onnx.checker.check_model(model_proto)
-    onnx.save(model_proto, path)

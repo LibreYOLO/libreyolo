@@ -3,10 +3,10 @@ model_type: rfdetr
 
 # Size-specific defaults
 sizes:
-  n: {imgsz: 560, lr0: 0.001, weights: LibreRFDETRn.pth}
-  s: {imgsz: 560, lr0: 0.001, weights: LibreRFDETRs.pth}
-  m: {imgsz: 560, lr0: 0.001, weights: LibreRFDETRm.pth}
-  l: {imgsz: 560, lr0: 0.001, weights: LibreRFDETRl.pth}
+  n: {imgsz: 560, lr0: 0.001, weights: LibreRFDETRn.pt}
+  s: {imgsz: 560, lr0: 0.001, weights: LibreRFDETRs.pt}
+  m: {imgsz: 560, lr0: 0.001, weights: LibreRFDETRm.pt}
+  l: {imgsz: 560, lr0: 0.001, weights: LibreRFDETRl.pt}
 
 # Training
 epochs: 100

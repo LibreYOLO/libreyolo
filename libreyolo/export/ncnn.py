@@ -1,11 +1,4 @@
-"""
-ncnn export implementation via PNNX.
-
-Converts PyTorch models to ncnn format using PNNX (direct PyTorch-to-ncnn
-conversion). Falls back to ONNX-to-PNNX if direct tracing fails.
-
-Supports FP32 and FP16 precision modes.
-"""
+"""ncnn export implementation via PNNX."""
 
 import shutil
 import subprocess
@@ -72,7 +65,6 @@ def _patch_focus_for_ncnn(nn_model):
         for focus_idx, pu_idx in enumerate(perm):
             inv_perm[pu_idx] = focus_idx
 
-        # Save originals for restoration
         orig_forward = m.forward
         orig_weight = conv2d.weight.data.clone()
 
@@ -91,6 +83,128 @@ def _patch_focus_for_ncnn(nn_model):
     return patches
 
 
+def _export_pnnx_direct(nn_model, dummy, output_dir: Path, half: bool):
+    """Export using PNNX's direct PyTorch-to-ncnn conversion.
+
+    Args:
+        nn_model: PyTorch model in eval mode.
+        dummy: Dummy input tensor.
+        output_dir: Target directory for ncnn files.
+        half: Whether to use FP16 precision.
+
+    Returns:
+        Tuple of (param_path, bin_path) in the output directory.
+    """
+    import pnnx
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmpdir = Path(tmpdir)
+
+        # pnnx.export writes files relative to the torchscript path
+        temp_pt = tmpdir / "model.pt"
+        traced = __import__("torch").jit.trace(nn_model, dummy)
+        traced.save(str(temp_pt))
+
+        fp16_flag = 1 if half else 0
+        pnnx.export(nn_model, str(temp_pt), dummy, fp16=fp16_flag)
+
+        src_param = tmpdir / "model.ncnn.param"
+        src_bin = tmpdir / "model.ncnn.bin"
+
+        if not src_param.exists() or not src_bin.exists():
+            # PNNX may use different naming; search for .ncnn.param/.ncnn.bin
+            params = list(tmpdir.glob("*.ncnn.param"))
+            bins = list(tmpdir.glob("*.ncnn.bin"))
+            if not params or not bins:
+                raise RuntimeError(
+                    f"PNNX did not produce expected .ncnn.param/.ncnn.bin files "
+                    f"in {tmpdir}. Files found: {list(tmpdir.iterdir())}"
+                )
+            src_param = params[0]
+            src_bin = bins[0]
+
+        dst_param = output_dir / "model.ncnn.param"
+        dst_bin = output_dir / "model.ncnn.bin"
+        shutil.copy2(str(src_param), str(dst_param))
+        shutil.copy2(str(src_bin), str(dst_bin))
+
+    return dst_param, dst_bin
+
+
+def _export_onnx_fallback(
+    nn_model, dummy, output_dir: Path, half: bool, opset: int, simplify: bool
+):
+    """Fallback: export to ONNX first, then convert to ncnn with pnnx CLI.
+
+    Args:
+        nn_model: PyTorch model in eval mode.
+        dummy: Dummy input tensor.
+        output_dir: Target directory for ncnn files.
+        half: Whether to use FP16 precision.
+        opset: ONNX opset version.
+        simplify: Whether to simplify the ONNX graph.
+
+    Returns:
+        Tuple of (param_path, bin_path) in the output directory.
+    """
+    from .onnx import export_onnx
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmpdir = Path(tmpdir)
+
+        # Export to ONNX (always FP32 — PNNX handles precision)
+        onnx_path = str(tmpdir / "model.onnx")
+        export_onnx(
+            nn_model,
+            dummy,
+            output_path=onnx_path,
+            opset=opset,
+            simplify=simplify,
+            dynamic=False,
+            half=False,
+            metadata={},
+        )
+
+        # Call pnnx CLI on the ONNX file
+        shape_str = str(list(dummy.shape)).replace(" ", "")
+        cmd = ["pnnx", onnx_path, f"inputshape={shape_str}"]
+        if half:
+            cmd.append("fp16=1")
+
+        result = subprocess.run(cmd, capture_output=True, text=True, cwd=str(tmpdir))
+        if result.returncode != 0:
+            raise RuntimeError(
+                f"pnnx CLI failed (exit code {result.returncode}):\n"
+                f"stdout: {result.stdout}\n"
+                f"stderr: {result.stderr}"
+            )
+
+        params = list(tmpdir.glob("*.ncnn.param"))
+        bins = list(tmpdir.glob("*.ncnn.bin"))
+        if not params or not bins:
+            raise RuntimeError(
+                f"pnnx CLI did not produce .ncnn.param/.ncnn.bin files. "
+                f"Files found: {list(tmpdir.iterdir())}\n"
+                f"stdout: {result.stdout}\n"
+                f"stderr: {result.stderr}"
+            )
+
+        dst_param = output_dir / "model.ncnn.param"
+        dst_bin = output_dir / "model.ncnn.bin"
+        shutil.copy2(str(params[0]), str(dst_param))
+        shutil.copy2(str(bins[0]), str(dst_bin))
+
+    return dst_param, dst_bin
+
+
+def _save_metadata(output_dir: Path, metadata: dict) -> None:
+    """Save metadata.yaml for ncnn model."""
+    metadata_path = output_dir / "metadata.yaml"
+    with open(metadata_path, "w") as f:
+        yaml.dump(metadata, f, default_flow_style=False, sort_keys=False)
+    print(f"Saved metadata: {metadata_path}")
+
+
 def export_ncnn(
     nn_model,
     dummy,
@@ -101,8 +215,7 @@ def export_ncnn(
     simplify: bool = True,
     metadata: Optional[dict] = None,
 ) -> str:
-    """
-    Export a PyTorch model to ncnn format via PNNX.
+    """Export a PyTorch model to ncnn format via PNNX.
 
     Tries direct PNNX conversion first (PyTorch -> ncnn). If that fails,
     falls back to ONNX -> PNNX conversion.
@@ -154,7 +267,6 @@ def export_ncnn(
                     f"Fallback error: {e2}"
                 ) from e2
     finally:
-        # Restore original Focus forward methods and conv weights
         for m, orig_fwd, conv2d, orig_weight in focus_patches:
             m.forward = orig_fwd
             conv2d.weight.data = orig_weight
@@ -164,127 +276,3 @@ def export_ncnn(
 
     print(f"ncnn export complete: {output_dir}")
     return str(output_dir)
-
-
-def _export_pnnx_direct(nn_model, dummy, output_dir: Path, half: bool):
-    """Export using PNNX's direct PyTorch-to-ncnn conversion.
-
-    Args:
-        nn_model: PyTorch model in eval mode.
-        dummy: Dummy input tensor.
-        output_dir: Target directory for ncnn files.
-        half: Whether to use FP16 precision.
-
-    Returns:
-        Tuple of (param_path, bin_path) in the output directory.
-    """
-    import pnnx
-
-    with tempfile.TemporaryDirectory() as tmpdir:
-        tmpdir = Path(tmpdir)
-
-        # pnnx.export writes files relative to the torchscript path
-        temp_pt = tmpdir / "model.pt"
-        traced = __import__("torch").jit.trace(nn_model, dummy)
-        traced.save(str(temp_pt))
-
-        fp16_flag = 1 if half else 0
-        pnnx.export(nn_model, str(temp_pt), dummy, fp16=fp16_flag)
-
-        # PNNX creates files alongside the .pt file
-        src_param = tmpdir / "model.ncnn.param"
-        src_bin = tmpdir / "model.ncnn.bin"
-
-        if not src_param.exists() or not src_bin.exists():
-            # PNNX may use different naming; search for .ncnn.param/.ncnn.bin
-            params = list(tmpdir.glob("*.ncnn.param"))
-            bins = list(tmpdir.glob("*.ncnn.bin"))
-            if not params or not bins:
-                raise RuntimeError(
-                    f"PNNX did not produce expected .ncnn.param/.ncnn.bin files "
-                    f"in {tmpdir}. Files found: {list(tmpdir.iterdir())}"
-                )
-            src_param = params[0]
-            src_bin = bins[0]
-
-        dst_param = output_dir / "model.ncnn.param"
-        dst_bin = output_dir / "model.ncnn.bin"
-        shutil.copy2(str(src_param), str(dst_param))
-        shutil.copy2(str(src_bin), str(dst_bin))
-
-    return dst_param, dst_bin
-
-
-def _export_onnx_fallback(
-    nn_model, dummy, output_dir: Path, half: bool, opset: int, simplify: bool
-):
-    """Fallback: export to ONNX first, then convert to ncnn with pnnx CLI.
-
-    Args:
-        nn_model: PyTorch model in eval mode.
-        dummy: Dummy input tensor.
-        output_dir: Target directory for ncnn files.
-        half: Whether to use FP16 precision.
-        opset: ONNX opset version.
-        simplify: Whether to simplify the ONNX graph.
-
-    Returns:
-        Tuple of (param_path, bin_path) in the output directory.
-    """
-    from .onnx import export_onnx
-
-    with tempfile.TemporaryDirectory() as tmpdir:
-        tmpdir = Path(tmpdir)
-
-        # Step 1: Export to ONNX (always FP32 — PNNX handles precision)
-        onnx_path = str(tmpdir / "model.onnx")
-        export_onnx(
-            nn_model,
-            dummy,
-            output_path=onnx_path,
-            opset=opset,
-            simplify=simplify,
-            dynamic=False,
-            half=False,
-            metadata={},
-        )
-
-        # Step 2: Call pnnx CLI on the ONNX file
-        shape_str = str(list(dummy.shape)).replace(" ", "")
-        cmd = ["pnnx", onnx_path, f"inputshape={shape_str}"]
-        if half:
-            cmd.append("fp16=1")
-
-        result = subprocess.run(cmd, capture_output=True, text=True, cwd=str(tmpdir))
-        if result.returncode != 0:
-            raise RuntimeError(
-                f"pnnx CLI failed (exit code {result.returncode}):\n"
-                f"stdout: {result.stdout}\n"
-                f"stderr: {result.stderr}"
-            )
-
-        # Find the generated ncnn files
-        params = list(tmpdir.glob("*.ncnn.param"))
-        bins = list(tmpdir.glob("*.ncnn.bin"))
-        if not params or not bins:
-            raise RuntimeError(
-                f"pnnx CLI did not produce .ncnn.param/.ncnn.bin files. "
-                f"Files found: {list(tmpdir.iterdir())}\n"
-                f"stdout: {result.stdout}\n"
-                f"stderr: {result.stderr}"
-            )
-
-        dst_param = output_dir / "model.ncnn.param"
-        dst_bin = output_dir / "model.ncnn.bin"
-        shutil.copy2(str(params[0]), str(dst_param))
-        shutil.copy2(str(bins[0]), str(dst_bin))
-
-    return dst_param, dst_bin
-
-
-def _save_metadata(output_dir: Path, metadata: dict) -> None:
-    """Save metadata.yaml for ncnn model."""
-    metadata_path = output_dir / "metadata.yaml"
-    with open(metadata_path, "w") as f:
-        yaml.dump(metadata, f, default_flow_style=False, sort_keys=False)
-    print(f"Saved metadata: {metadata_path}")
