@@ -53,9 +53,9 @@ class BaseModel(ABC):
         ):
             BaseModel._registry.append(cls)
 
-    # ------------------------------------------------------------------
+    # =========================================================================
     # Initialization
-    # ------------------------------------------------------------------
+    # =========================================================================
 
     def __init__(
         self,
@@ -99,9 +99,7 @@ class BaseModel(ABC):
             self.model_path = None
         elif isinstance(model_path, dict):
             self.model_path = None
-            self.model.load_state_dict(
-                model_path, strict=self._strict_loading()
-            )
+            self.model.load_state_dict(model_path, strict=self._strict_loading())
         else:
             self.model_path = model_path
 
@@ -111,9 +109,9 @@ class BaseModel(ABC):
             self.model.eval()
         self.model.to(self.device)
 
-    # ------------------------------------------------------------------
+    # =========================================================================
     # Abstract interface — subclasses must implement
-    # ------------------------------------------------------------------
+    # =========================================================================
 
     @abstractmethod
     def _init_model(self) -> nn.Module:
@@ -163,9 +161,9 @@ class BaseModel(ABC):
         """Postprocess model output to detections."""
         pass
 
-    # ------------------------------------------------------------------
+    # =========================================================================
     # Concrete defaults — subclasses may override
-    # ------------------------------------------------------------------
+    # =========================================================================
 
     def _get_valid_sizes(self) -> List[str]:
         return list(self.INPUT_SIZES.keys())
@@ -228,9 +226,9 @@ class BaseModel(ABC):
             img_size = self._get_input_size()
         return self.val_preprocessor_class(img_size=(img_size, img_size))
 
-    # ------------------------------------------------------------------
+    # =========================================================================
     # Weight loading internals
-    # ------------------------------------------------------------------
+    # =========================================================================
 
     @staticmethod
     def _strip_ddp_prefix(state_dict: dict) -> dict:
@@ -304,9 +302,9 @@ class BaseModel(ABC):
                 f"Failed to load model weights from {model_path}: {e}"
             ) from e
 
-    # ------------------------------------------------------------------
+    # =========================================================================
     # Public API
-    # ------------------------------------------------------------------
+    # =========================================================================
 
     def get_available_layer_names(self) -> List[str]:
         """Get list of available layer names."""

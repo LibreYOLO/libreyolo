@@ -9,7 +9,6 @@ import torch
 from typing import Tuple, Dict
 from PIL import Image
 
-# Import shared utilities
 from ...utils.general import (
     postprocess_detections,
 )
@@ -62,68 +61,6 @@ def preprocess_image(
     return img_tensor, original_img, original_size
 
 
-def postprocess(
-    output: Dict,
-    conf_thres: float = 0.25,
-    iou_thres: float = 0.45,
-    input_size: int = 640,
-    original_size: Tuple[int, int] | None = None,
-    max_det: int = 300,
-    letterbox: bool = False,
-) -> Dict:
-    """
-    Postprocess YOLOv9 model outputs to get final detections.
-
-    Args:
-        output: Model output dictionary with 'predictions' key
-        conf_thres: Confidence threshold (default: 0.25)
-        iou_thres: IoU threshold for NMS (default: 0.45)
-        input_size: Input image size (default: 640)
-        original_size: Original image size (width, height) for scaling
-        max_det: Maximum number of detections to return (default: 300)
-
-    Returns:
-        Dictionary with boxes, scores, classes, num_detections
-    """
-    # Get predictions from model output
-    # Shape: (batch, 4+nc, total_anchors)
-    predictions = output["predictions"]
-
-    # Take first batch
-    if predictions.dim() == 3:
-        pred = predictions[0]  # (4+nc, total_anchors)
-    else:
-        pred = predictions
-
-    # Transpose to (total_anchors, 4+nc)
-    pred = pred.transpose(0, 1)
-
-    # Split boxes and class scores
-    boxes = pred[:, :4]  # xyxy format
-    scores = pred[:, 4:]  # class scores (already sigmoid applied in model)
-
-    # Get max class score and class id
-    max_scores, class_ids = torch.max(scores, dim=1)
-
-    # Apply confidence threshold
-    mask = max_scores > conf_thres
-    if not mask.any():
-        return {"boxes": [], "scores": [], "classes": [], "num_detections": 0}
-
-    # Use shared postprocess pipeline
-    return postprocess_detections(
-        boxes=boxes[mask],
-        scores=max_scores[mask],
-        class_ids=class_ids[mask],
-        conf_thres=conf_thres,
-        iou_thres=iou_thres,
-        input_size=input_size,
-        original_size=original_size,
-        max_det=max_det,
-        letterbox=letterbox,
-    )
-
-
 def decode_boxes(
     box_preds: torch.Tensor, anchors: torch.Tensor, stride_tensor: torch.Tensor
 ) -> torch.Tensor:
@@ -149,3 +86,58 @@ def decode_boxes(
 
     decoded_boxes = torch.cat([x1, y1, x2, y2], dim=-1)
     return decoded_boxes
+
+
+def postprocess(
+    output: Dict,
+    conf_thres: float = 0.25,
+    iou_thres: float = 0.45,
+    input_size: int = 640,
+    original_size: Tuple[int, int] | None = None,
+    max_det: int = 300,
+    letterbox: bool = False,
+) -> Dict:
+    """
+    Postprocess YOLOv9 model outputs to get final detections.
+
+    Args:
+        output: Model output dictionary with 'predictions' key
+        conf_thres: Confidence threshold (default: 0.25)
+        iou_thres: IoU threshold for NMS (default: 0.45)
+        input_size: Input image size (default: 640)
+        original_size: Original image size (width, height) for scaling
+        max_det: Maximum number of detections to return (default: 300)
+
+    Returns:
+        Dictionary with boxes, scores, classes, num_detections
+    """
+    predictions = output["predictions"]  # (batch, 4+nc, total_anchors)
+
+    if predictions.dim() == 3:
+        pred = predictions[0]  # (4+nc, total_anchors)
+    else:
+        pred = predictions
+
+    # Transpose to (total_anchors, 4+nc)
+    pred = pred.transpose(0, 1)
+
+    boxes = pred[:, :4]  # xyxy format
+    scores = pred[:, 4:]  # class scores (already sigmoid applied in model)
+
+    max_scores, class_ids = torch.max(scores, dim=1)
+
+    mask = max_scores > conf_thres
+    if not mask.any():
+        return {"boxes": [], "scores": [], "classes": [], "num_detections": 0}
+
+    return postprocess_detections(
+        boxes=boxes[mask],
+        scores=max_scores[mask],
+        class_ids=class_ids[mask],
+        conf_thres=conf_thres,
+        iou_thres=iou_thres,
+        input_size=input_size,
+        original_size=original_size,
+        max_det=max_det,
+        letterbox=letterbox,
+    )

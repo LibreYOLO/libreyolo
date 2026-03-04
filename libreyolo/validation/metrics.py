@@ -1,8 +1,4 @@
-"""
-Detection metrics for LibreYOLO validation.
-
-Provides classes for computing mAP, precision, and recall.
-"""
+"""Detection metrics for LibreYOLO validation."""
 
 from typing import Dict, List, Optional, Tuple
 
@@ -14,12 +10,7 @@ class DetMetrics:
     Detection metrics calculator.
 
     Computes precision, recall, and Average Precision (AP) curves
-    for object detection evaluation following COCO-style metrics.
-
-    Attributes:
-        nc: Number of classes.
-        conf: Confidence threshold for precision/recall reporting.
-        iou_thresholds: IoU thresholds for AP calculation.
+    following COCO-style 101-point interpolation.
     """
 
     def __init__(
@@ -28,14 +19,6 @@ class DetMetrics:
         conf: float = 0.25,
         iou_thresholds: Optional[Tuple[float, ...]] = None,
     ) -> None:
-        """
-        Initialize detection metrics.
-
-        Args:
-            nc: Number of classes.
-            conf: Confidence threshold for precision/recall.
-            iou_thresholds: IoU thresholds for AP calculation.
-        """
         self.nc = nc
         self.conf = conf
         self.iou_thresholds = iou_thresholds or (
@@ -52,12 +35,10 @@ class DetMetrics:
         )
         self.niou = len(self.iou_thresholds)
 
-        # Accumulated statistics: list of (correct, conf, pred_cls, target_cls)
         self.stats: List[Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]] = []
 
-        # Computed metrics
         self.ap: Optional[np.ndarray] = None  # (nc, niou)
-        self.ap_class: Optional[np.ndarray] = None  # Classes with GT samples
+        self.ap_class: Optional[np.ndarray] = None  # classes with GT samples
         self.precision: Optional[np.ndarray] = None  # (nc,) at conf threshold
         self.recall: Optional[np.ndarray] = None  # (nc,) at conf threshold
 
@@ -69,7 +50,7 @@ class DetMetrics:
         target_cls: np.ndarray,
     ) -> None:
         """
-        Update metrics with batch results.
+        Accumulate batch results.
 
         Args:
             correct: (N_pred, N_iou_thresholds) boolean array indicating TP.
@@ -84,11 +65,7 @@ class DetMetrics:
         Compute final metrics from accumulated stats.
 
         Returns:
-            Dictionary with:
-                - metrics/precision: Mean precision at conf threshold
-                - metrics/recall: Mean recall at conf threshold
-                - metrics/mAP50: Mean AP at IoU=0.50
-                - metrics/mAP50-95: Mean AP across IoU 0.50-0.95
+            Dictionary with precision, recall, mAP50, mAP50-95.
         """
         if not self.stats:
             return {
@@ -98,13 +75,11 @@ class DetMetrics:
                 "metrics/mAP50-95": 0.0,
             }
 
-        # Concatenate all stats
         correct = np.concatenate([s[0] for s in self.stats], axis=0)
         conf = np.concatenate([s[1] for s in self.stats], axis=0)
         pred_cls = np.concatenate([s[2] for s in self.stats], axis=0)
         target_cls = np.concatenate([s[3] for s in self.stats], axis=0)
 
-        # Compute AP per class
         ap, p, r, unique_classes = self._compute_ap_per_class(
             correct, conf, pred_cls, target_cls
         )
@@ -114,12 +89,8 @@ class DetMetrics:
         self.precision = p
         self.recall = r
 
-        # Compute mean metrics
-        # mAP50 is AP at first IoU threshold (0.50)
         map50 = ap[:, 0].mean() if len(ap) > 0 else 0.0
-        # mAP50-95 is mean over all IoU thresholds
         map50_95 = ap.mean() if len(ap) > 0 else 0.0
-        # Mean precision and recall at conf threshold
         mp = p.mean() if len(p) > 0 else 0.0
         mr = r.mean() if len(r) > 0 else 0.0
 
@@ -153,17 +124,14 @@ class DetMetrics:
         i = np.argsort(-conf)
         correct, conf, pred_cls = correct[i], conf[i], pred_cls[i]
 
-        # Find unique classes with ground truth
         unique_classes = np.unique(target_cls)
         nc = len(unique_classes)
 
-        # Initialize outputs
         ap = np.zeros((nc, self.niou))
         precision_at_conf = np.zeros(nc)
         recall_at_conf = np.zeros(nc)
 
         for ci, c in enumerate(unique_classes):
-            # Predictions and targets for this class
             pred_mask = pred_cls == c
             n_gt = (target_cls == c).sum()
             n_pred = pred_mask.sum()
@@ -171,17 +139,12 @@ class DetMetrics:
             if n_pred == 0 or n_gt == 0:
                 continue
 
-            # Accumulate FPs and TPs for this class
             fpc = (1 - correct[pred_mask]).cumsum(axis=0)
             tpc = correct[pred_mask].cumsum(axis=0)
 
-            # Recall = TP / (TP + FN) = TP / n_gt
-            recall = tpc / n_gt
+            recall = tpc / n_gt  # TP / (TP + FN)
+            precision = tpc / (tpc + fpc)  # TP / (TP + FP)
 
-            # Precision = TP / (TP + FP)
-            precision = tpc / (tpc + fpc)
-
-            # AP for each IoU threshold
             for iou_idx in range(self.niou):
                 ap[ci, iou_idx] = self._compute_ap(
                     recall[:, iou_idx], precision[:, iou_idx]
@@ -198,25 +161,14 @@ class DetMetrics:
 
     @staticmethod
     def _compute_ap(recall: np.ndarray, precision: np.ndarray) -> float:
-        """
-        Compute Average Precision using 101-point interpolation (COCO-style).
-
-        Args:
-            recall: Recall values (cumulative, ascending).
-            precision: Precision values (cumulative).
-
-        Returns:
-            Average Precision value.
-        """
-        # Prepend/append sentinel values
+        """Compute AP using COCO-style 101-point interpolation."""
         mrec = np.concatenate(([0.0], recall, [1.0]))
         mpre = np.concatenate(([1.0], precision, [0.0]))
 
-        # Make precision monotonically decreasing (from right to left)
+        # Make precision monotonically decreasing (right to left)
         for i in range(len(mpre) - 2, -1, -1):
             mpre[i] = max(mpre[i], mpre[i + 1])
 
-        # 101-point interpolation
         x = np.linspace(0, 1, 101)
         _trapz = getattr(np, "trapezoid", getattr(np, "trapz", None))
         ap = _trapz(np.interp(x, mrec, mpre), x)
@@ -224,13 +176,7 @@ class DetMetrics:
         return float(ap)
 
     def ap_per_class_values(self) -> Optional[np.ndarray]:
-        """
-        Get per-class AP values.
-
-        Returns:
-            Array of shape (nc, niou) with AP per class and IoU threshold,
-            or None if not computed yet.
-        """
+        """Get per-class AP values: (nc, niou) array, or None if not computed."""
         return self.ap
 
     def reset(self) -> None:

@@ -1,8 +1,4 @@
-"""
-Validation configuration for LibreYOLO.
-
-Provides a dataclass for configuring model validation runs.
-"""
+"""Validation configuration for LibreYOLO."""
 
 from dataclasses import dataclass, asdict
 from pathlib import Path
@@ -34,19 +30,19 @@ class ValidationConfig:
         half: Whether to use FP16 inference.
     """
 
-    # Data configuration
+    # Data
     data: Optional[str] = None
     data_dir: Optional[str] = None
     split: str = "val"
 
-    # Inference settings
+    # Inference
     batch_size: int = 16
     imgsz: int = 640
     conf_thres: float = 0.001
     iou_thres: float = 0.6
     max_det: int = 300
 
-    # Metrics settings
+    # Metrics
     iou_thresholds: Tuple[float, ...] = (
         0.50,
         0.55,
@@ -76,7 +72,6 @@ class ValidationConfig:
     half: bool = False
 
     def __post_init__(self) -> None:
-        """Validate configuration after initialization."""
         if self.data is None and self.data_dir is None:
             raise ValueError("Either 'data' or 'data_dir' must be specified")
 
@@ -96,19 +91,10 @@ class ValidationConfig:
 
     @classmethod
     def from_yaml(cls, path: Union[str, Path]) -> "ValidationConfig":
-        """
-        Load configuration from YAML file.
-
-        Args:
-            path: Path to YAML configuration file.
-
-        Returns:
-            ValidationConfig instance.
-        """
+        """Load configuration from a YAML file."""
         with open(path, "r") as f:
             config_dict = yaml.safe_load(f)
 
-        # Convert iou_thresholds list to tuple if present
         if "iou_thresholds" in config_dict and isinstance(
             config_dict["iou_thresholds"], list
         ):
@@ -117,45 +103,25 @@ class ValidationConfig:
         return cls(**config_dict)
 
     def to_yaml(self, path: Union[str, Path]) -> None:
-        """
-        Save configuration to YAML file.
-
-        Args:
-            path: Path to save YAML configuration.
-        """
+        """Save configuration to a YAML file."""
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
 
         config_dict = self.to_dict()
-        # Convert tuple to list for YAML serialization
         config_dict["iou_thresholds"] = list(config_dict["iou_thresholds"])
 
         with open(path, "w") as f:
             yaml.dump(config_dict, f, default_flow_style=False, sort_keys=False)
 
     def to_dict(self) -> dict:
-        """
-        Convert configuration to dictionary.
-
-        Returns:
-            Configuration as dictionary.
-        """
+        """Convert configuration to dictionary."""
         return asdict(self)
 
     def update(self, **kwargs) -> "ValidationConfig":
-        """
-        Create new configuration with updated values.
-
-        Args:
-            **kwargs: Configuration values to update.
-
-        Returns:
-            New ValidationConfig with updated values.
-        """
+        """Create new configuration with updated values."""
         current = self.to_dict()
         current.update(kwargs)
 
-        # Convert iou_thresholds to tuple if it's a list
         if isinstance(current.get("iou_thresholds"), list):
             current["iou_thresholds"] = tuple(current["iou_thresholds"])
 

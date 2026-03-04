@@ -1,23 +1,18 @@
-"""
-Drawing utility functions for visualization.
-"""
+"""Drawing utility functions for visualization."""
 
-from typing import Tuple, List
-from PIL import Image, ImageDraw, ImageFont
 import colorsys
+from typing import List, Tuple
+
+from PIL import Image, ImageDraw, ImageFont
 
 from .general import COCO_CLASSES
 
 
 def get_class_color(class_id: int) -> str:
-    """
-    Get a unique color for a class ID.
-    Uses a hash-based approach to generate consistent colors.
-    """
-    # Generate colors using HSV color space for better distribution
-    hue = (class_id * 137.508) % 360 / 360.0  # Golden angle approximation
-    saturation = 0.7 + (class_id % 3) * 0.1  # Vary saturation
-    value = 0.8 + (class_id % 2) * 0.15  # Vary brightness
+    """Get a unique, consistent color for a class ID using HSV distribution."""
+    hue = (class_id * 137.508) % 360 / 360.0  # golden angle approximation
+    saturation = 0.7 + (class_id % 3) * 0.1
+    value = 0.8 + (class_id % 2) * 0.15
     rgb = colorsys.hsv_to_rgb(hue, saturation, value)
     return f"#{int(rgb[0] * 255):02x}{int(rgb[1] * 255):02x}{int(rgb[2] * 255):02x}"
 
@@ -48,54 +43,41 @@ def draw_boxes(
     img_draw = img.copy()
     draw = ImageDraw.Draw(img_draw)
 
-    # Use COCO classes if not provided
     if class_names is None:
         class_names = COCO_CLASSES
 
-    # Calculate scaling factor based on image size
-    # Use the larger dimension to determine scale
+    # Scale factor: base sizes at 640px, scales up for larger images
     img_width, img_height = img.size
     max_dim = max(img_width, img_height)
-
-    # Scale factor: base thickness/font at 640px, scales up for larger images
     scale_factor = max_dim / 640.0
     box_thickness = max(2, int(2 * scale_factor))
-
-    # Font size scales similarly: base 12px at 640px
     font_size = max(12, int(12 * scale_factor))
 
-    # Try to load a font with scaled size, fallback to default if not available
     try:
         font = ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", font_size)
     except OSError:
         try:
-            # Try common Linux fonts
+            # Linux fallback
             font = ImageFont.truetype(
                 "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", font_size
             )
         except OSError:
             font = ImageFont.load_default()
 
-    # Label padding scales with font size
     label_padding = max(2, int(2 * scale_factor))
 
     for box, score, cls_id in zip(boxes, scores, classes):
         x1, y1, x2, y2 = box
         cls_id_int = int(cls_id)
-
-        # Get class-specific color
         color = get_class_color(cls_id_int)
 
-        # Draw box with class color and scaled thickness
         draw.rectangle([x1, y1, x2, y2], outline=color, width=box_thickness)
 
-        # Prepare label
         if class_names and cls_id_int < len(class_names):
             label = f"{class_names[cls_id_int]}: {score:.2f}"
         else:
             label = f"Class {cls_id_int}: {score:.2f}"
 
-        # Get text size
         bbox = draw.textbbox((0, 0), label, font=font)
         text_width = bbox[2] - bbox[0]
         text_height = bbox[3] - bbox[1]
@@ -108,13 +90,37 @@ def draw_boxes(
         label_x = max(0, label_x)
 
         if outside:
-            # Draw label above box
-            draw.rectangle([label_x, y1 - text_height - label_padding * 2, label_x + text_width + label_padding * 2, y1], fill=color)
-            draw.text((label_x + label_padding, y1 - text_height - label_padding), label, fill="white", font=font)
+            draw.rectangle(
+                [
+                    label_x,
+                    y1 - text_height - label_padding * 2,
+                    label_x + text_width + label_padding * 2,
+                    y1,
+                ],
+                fill=color,
+            )
+            draw.text(
+                (label_x + label_padding, y1 - text_height - label_padding),
+                label,
+                fill="white",
+                font=font,
+            )
         else:
-            # Draw label inside box
-            draw.rectangle([label_x, y1, label_x + text_width + label_padding * 2, y1 + text_height + label_padding * 2], fill=color)
-            draw.text((label_x + label_padding, y1 + label_padding), label, fill="white", font=font)
+            draw.rectangle(
+                [
+                    label_x,
+                    y1,
+                    label_x + text_width + label_padding * 2,
+                    y1 + text_height + label_padding * 2,
+                ],
+                fill=color,
+            )
+            draw.text(
+                (label_x + label_padding, y1 + label_padding),
+                label,
+                fill="white",
+                font=font,
+            )
 
     return img_draw
 
@@ -140,13 +146,11 @@ def draw_tile_grid(
     img_draw = img.copy()
     draw = ImageDraw.Draw(img_draw)
 
-    # Scale line width based on image size
     max_dim = max(img.size)
     scale_factor = max_dim / 640.0
     scaled_width = max(2, min(int(line_width * scale_factor), 10))
 
     for x1, y1, x2, y2 in tile_coords:
-        # Draw rectangle for each tile
         draw.rectangle([x1, y1, x2, y2], outline=line_color, width=scaled_width)
 
     return img_draw

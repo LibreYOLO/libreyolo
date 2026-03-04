@@ -1,5 +1,4 @@
-"""
-Data augmentation for YOLOX training.
+"""YOLOX-style data augmentation.
 
 Adapted from the official YOLOX repository.
 """
@@ -17,7 +16,7 @@ import numpy as np
 
 
 def xyxy2cxcywh(bboxes):
-    """Convert bboxes from xyxy to center format (cx, cy, w, h)."""
+    """Convert bboxes from xyxy to (cx, cy, w, h) in-place."""
     bboxes[:, 2] = bboxes[:, 2] - bboxes[:, 0]  # w
     bboxes[:, 3] = bboxes[:, 3] - bboxes[:, 1]  # h
     bboxes[:, 0] = bboxes[:, 0] + bboxes[:, 2] * 0.5  # cx
@@ -26,7 +25,7 @@ def xyxy2cxcywh(bboxes):
 
 
 def cxcywh2xyxy(bboxes):
-    """Convert bboxes from center format (cx, cy, w, h) to xyxy."""
+    """Convert bboxes from (cx, cy, w, h) to xyxy in-place."""
     bboxes[:, 0] = bboxes[:, 0] - bboxes[:, 2] * 0.5  # x1
     bboxes[:, 1] = bboxes[:, 1] - bboxes[:, 3] * 0.5  # y1
     bboxes[:, 2] = bboxes[:, 0] + bboxes[:, 2]  # x2
@@ -35,7 +34,7 @@ def cxcywh2xyxy(bboxes):
 
 
 def adjust_box_anns(bbox, scale_ratio, padw, padh, w_max, h_max):
-    """Adjust box annotations after scaling and padding."""
+    """Scale + offset boxes, then clip to (w_max, h_max)."""
     bbox[:, 0::2] = np.clip(bbox[:, 0::2] * scale_ratio + padw, 0, w_max)
     bbox[:, 1::2] = np.clip(bbox[:, 1::2] * scale_ratio + padh, 0, h_max)
     return bbox
@@ -47,9 +46,9 @@ def adjust_box_anns(bbox, scale_ratio, padw, padh, w_max, h_max):
 
 
 def augment_hsv(img, hgain=5, sgain=30, vgain=30):
-    """Apply HSV augmentation to an image."""
+    """Random HSV jitter (in-place)."""
     hsv_augs = np.random.uniform(-1, 1, 3) * [hgain, sgain, vgain]
-    hsv_augs *= np.random.randint(0, 2, 3)  # random selection of h, s, v
+    hsv_augs *= np.random.randint(0, 2, 3)  # randomly zero-out each channel
     hsv_augs = hsv_augs.astype(np.int16)
     img_hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV).astype(np.int16)
 
@@ -61,7 +60,7 @@ def augment_hsv(img, hgain=5, sgain=30, vgain=30):
 
 
 def get_aug_params(value, center=0):
-    """Get augmentation parameter value."""
+    """Sample a random value from a float or (min, max) range."""
     if isinstance(value, float):
         return random.uniform(center - value, center + value)
     elif len(value) == 2:
@@ -74,10 +73,9 @@ def get_aug_params(value, center=0):
 
 
 def get_affine_matrix(target_size, degrees=10, translate=0.1, scales=0.1, shear=10):
-    """Get affine transformation matrix."""
+    """Build a random 2x3 affine matrix (rotation + scale + shear + translation)."""
     twidth, theight = target_size
 
-    # Rotation and Scale
     angle = get_aug_params(degrees)
     scale = get_aug_params(scales, center=1.0)
 
@@ -87,14 +85,12 @@ def get_affine_matrix(target_size, degrees=10, translate=0.1, scales=0.1, shear=
     R = cv2.getRotationMatrix2D(angle=angle, center=(0, 0), scale=scale)
 
     M = np.ones([2, 3])
-    # Shear
     shear_x = math.tan(get_aug_params(shear) * math.pi / 180)
     shear_y = math.tan(get_aug_params(shear) * math.pi / 180)
 
     M[0] = R[0] + shear_y * R[1]
     M[1] = R[1] + shear_x * R[0]
 
-    # Translation
     translation_x = get_aug_params(translate) * twidth
     translation_y = get_aug_params(translate) * theight
 
@@ -105,7 +101,7 @@ def get_affine_matrix(target_size, degrees=10, translate=0.1, scales=0.1, shear=
 
 
 def apply_affine_to_bboxes(targets, target_size, M, scale):
-    """Apply affine transformation to bounding boxes."""
+    """Warp box corners through M, then recompute axis-aligned bounds."""
     num_gts = len(targets)
 
     # Warp corner points
@@ -146,12 +142,11 @@ def random_affine(
     scales=0.1,
     shear=10,
 ):
-    """Apply random affine transformation to image and targets."""
+    """Random affine on image + box targets."""
     M, scale = get_affine_matrix(target_size, degrees, translate, scales, shear)
 
     img = cv2.warpAffine(img, M, dsize=target_size, borderValue=(114, 114, 114))
 
-    # Transform label coordinates
     if len(targets) > 0:
         targets = apply_affine_to_bboxes(targets, target_size, M, scale)
 
@@ -159,7 +154,7 @@ def random_affine(
 
 
 def mirror(image, boxes, prob=0.5):
-    """Apply horizontal flip with probability."""
+    """Random horizontal flip."""
     _, width, _ = image.shape
     if random.random() < prob:
         image = image[:, ::-1]
@@ -168,7 +163,7 @@ def mirror(image, boxes, prob=0.5):
 
 
 def preproc(img, input_size, swap=(2, 0, 1)):
-    """Preprocess image: resize, pad, and transpose."""
+    """Letterbox resize + pad (114) + HWC→CHW transpose."""
     if len(img.shape) == 3:
         padded_img = np.ones((input_size[0], input_size[1], 3), dtype=np.uint8) * 114
     else:
@@ -213,16 +208,14 @@ class TrainTransform:
         height_o, width_o, _ = image_o.shape
         boxes_o = targets_o[:, :4]
         labels_o = targets_o[:, 4]
-        # bbox_o: [xyxy] to [c_x,c_y,w,h]
-        boxes_o = xyxy2cxcywh(boxes_o)
+        boxes_o = xyxy2cxcywh(boxes_o)  # [xyxy] → [cx,cy,w,h]
 
         if random.random() < self.hsv_prob:
             augment_hsv(image)
         image_t, boxes = mirror(image, boxes, self.flip_prob)
         height, width, _ = image_t.shape
         image_t, r_ = preproc(image_t, input_dim)
-        # boxes [xyxy] 2 [cx,cy,w,h]
-        boxes = xyxy2cxcywh(boxes)
+        boxes = xyxy2cxcywh(boxes)  # [xyxy] → [cx,cy,w,h]
         boxes *= r_
 
         mask_b = np.minimum(boxes[:, 2], boxes[:, 3]) > 1
@@ -263,20 +256,20 @@ class ValTransform:
 
 
 def get_mosaic_coordinate(mosaic_image, mosaic_index, xc, yc, w, h, input_h, input_w):
-    """Get coordinates for placing an image in the mosaic."""
-    # index0 to top left part of image
+    """Return (large_coords, small_coords) for placing an image in the 2x2 mosaic."""
+    # Top-left
     if mosaic_index == 0:
         x1, y1, x2, y2 = max(xc - w, 0), max(yc - h, 0), xc, yc
         small_coord = w - (x2 - x1), h - (y2 - y1), w, h
-    # index1 to top right part of image
+    # Top-right
     elif mosaic_index == 1:
         x1, y1, x2, y2 = xc, max(yc - h, 0), min(xc + w, input_w * 2), yc
         small_coord = 0, h - (y2 - y1), min(w, x2 - x1), h
-    # index2 to bottom left part of image
+    # Bottom-left
     elif mosaic_index == 2:
         x1, y1, x2, y2 = max(xc - w, 0), yc, xc, min(input_h * 2, yc + h)
         small_coord = w - (x2 - x1), 0, w, min(y2 - y1, h)
-    # index3 to bottom right part of image
+    # Bottom-right
     elif mosaic_index == 3:
         x1, y1, x2, y2 = xc, yc, min(xc + w, input_w * 2), min(input_h * 2, yc + h)
         small_coord = 0, 0, min(w, x2 - x1), min(y2 - y1, h)
@@ -284,11 +277,7 @@ def get_mosaic_coordinate(mosaic_image, mosaic_index, xc, yc, w, h, input_h, inp
 
 
 class MosaicMixupDataset:
-    """
-    Dataset wrapper that applies Mosaic and Mixup augmentation.
-
-    This wraps a base dataset and applies YOLOX-style mosaic and mixup.
-    """
+    """Dataset wrapper that applies YOLOX-style mosaic and mixup augmentation."""
 
     def __init__(
         self,
@@ -305,23 +294,6 @@ class MosaicMixupDataset:
         mosaic_prob=1.0,
         mixup_prob=1.0,
     ):
-        """
-        Initialize MosaicMixupDataset.
-
-        Args:
-            dataset: Base dataset with pull_item and load_anno methods
-            img_size: Target image size (height, width)
-            mosaic: Enable mosaic augmentation
-            preproc: Preprocessing transform
-            degrees: Rotation degrees for affine transform
-            translate: Translation factor for affine transform
-            mosaic_scale: Scale range for mosaic
-            mixup_scale: Scale range for mixup
-            shear: Shear degrees for affine transform
-            enable_mixup: Enable mixup augmentation
-            mosaic_prob: Probability of applying mosaic
-            mixup_prob: Probability of applying mixup
-        """
         self.dataset = dataset
         self.img_size = img_size
         self.preproc = preproc or TrainTransform()
@@ -349,13 +321,11 @@ class MosaicMixupDataset:
             return self._get_normal_item(idx)
 
     def _get_normal_item(self, idx):
-        """Get a single item without mosaic."""
         img, label, img_info, img_id = self.dataset.pull_item(idx)
         img, label = self.preproc(img, label, self.input_dim)
         return img, label, img_info, img_id
 
     def _get_mosaic_item(self, idx):
-        """Get an item with mosaic augmentation."""
         mosaic_labels = []
         input_h, input_w = self.input_dim[0], self.input_dim[1]
 
@@ -409,7 +379,6 @@ class MosaicMixupDataset:
             shear=self.shear,
         )
 
-        # Apply mixup if enabled
         if (
             self.enable_mixup
             and len(mosaic_labels) > 0
@@ -423,7 +392,6 @@ class MosaicMixupDataset:
         return mix_img, padded_labels, img_info, img_id
 
     def _mixup(self, origin_img, origin_labels):
-        """Apply mixup augmentation."""
         jit_factor = random.uniform(*self.mixup_scale)
         FLIP = random.uniform(0, 1) > 0.5
         cp_labels = []
@@ -499,6 +467,6 @@ class MosaicMixupDataset:
         return origin_img.astype(np.uint8), origin_labels
 
     def close_mosaic(self):
-        """Disable mosaic augmentation (typically done in final epochs)."""
+        """Disable mosaic and mixup (called for final no-aug epochs)."""
         self.enable_mosaic = False
         self.enable_mixup = False

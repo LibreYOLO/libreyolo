@@ -14,10 +14,10 @@ from pathlib import Path
 from .base import BaseModel
 from ..utils.download import download_weights
 
-# ---------------------------------------------------------------------------
+# =============================================================================
 # Model registry — auto-populated by BaseModel.__init_subclass__
 # Order depends on import order: first match wins in can_load()
-# ---------------------------------------------------------------------------
+# =============================================================================
 
 # Always-available models (importing triggers __init_subclass__ registration)
 from .yolox.model import LibreYOLOX  # noqa: E402
@@ -38,9 +38,9 @@ def _ensure_rfdetr():
     from .rfdetr.model import LibreYOLORFDETR  # noqa: F401  (import triggers registration)
 
 
-# ---------------------------------------------------------------------------
-# Internal helpers (ported from old factory.py)
-# ---------------------------------------------------------------------------
+# =============================================================================
+# Internal helpers
+# =============================================================================
 
 
 def _resolve_weights_path(model_path: str) -> str:
@@ -66,9 +66,9 @@ def _unwrap_state_dict(state_dict: dict) -> dict:
     return state_dict
 
 
-# ---------------------------------------------------------------------------
+# =============================================================================
 # LibreYOLO — unified factory function
-# ---------------------------------------------------------------------------
+# =============================================================================
 
 
 def LibreYOLO(
@@ -83,7 +83,7 @@ def LibreYOLO(
     the appropriate model instance.
 
     Args:
-        model_path: Path to weights (.pt/.pth), ONNX (.onnx), TensorRT (.engine),
+        model_path: Path to weights (.pt), ONNX (.onnx), TensorRT (.engine),
                     or OpenVINO/ncnn directory.
         size: Model size variant (auto-detected from weights if omitted).
         reg_max: Regression max for DFL (YOLOv9 only, default: 16).
@@ -97,7 +97,7 @@ def LibreYOLO(
 
     model_path = _resolve_weights_path(model_path)
 
-    # --- Non-PyTorch formats: delegate to inference backends ---
+    # Non-PyTorch formats: delegate to inference backends
     if model_path.endswith(".onnx"):
         from ..backends.onnx import OnnxBackend
 
@@ -121,10 +121,9 @@ def LibreYOLO(
 
             return NcnnBackend(model_path, nb_classes=nb_classes, device=device)
 
-    # --- Download if missing ---
+    # Download if missing
     if not Path(model_path).exists():
         if size is None:
-            # Ask each registered model class for a size hint from the filename
             for cls in BaseModel._registry:
                 detected = cls.detect_size_from_filename(Path(model_path).name)
                 if detected is not None:
@@ -136,9 +135,7 @@ def LibreYOLO(
                 try:
                     _ensure_rfdetr()
                     for cls in BaseModel._registry:
-                        detected = cls.detect_size_from_filename(
-                            Path(model_path).name
-                        )
+                        detected = cls.detect_size_from_filename(Path(model_path).name)
                         if detected is not None:
                             size = detected
                             print(f"Detected size '{size}' from filename")
@@ -160,7 +157,7 @@ def LibreYOLO(
     if not Path(model_path).exists():
         raise FileNotFoundError(f"Model weights file not found: {model_path}")
 
-    # --- Load weights once ---
+    # Load weights once
     try:
         state_dict = torch.load(model_path, map_location="cpu", weights_only=False)
     except Exception as e:
@@ -170,7 +167,7 @@ def LibreYOLO(
 
     weights_dict = _unwrap_state_dict(state_dict)
 
-    # --- Ensure RF-DETR is registered if its keys are present ---
+    # Ensure RF-DETR is registered if its keys are present
     keys_lower = [k.lower() for k in weights_dict]
     if any(
         "detr" in k
@@ -187,7 +184,7 @@ def LibreYOLO(
         except ModuleNotFoundError:
             raise
 
-    # --- Find the right model class ---
+    # Find the right model class
     matched_cls = None
     for cls in BaseModel._registry:
         if cls.can_load(weights_dict):
@@ -200,7 +197,7 @@ def LibreYOLO(
             "Supported architectures: YOLOX, YOLOv9, RF-DETR."
         )
 
-    # --- Auto-detect size ---
+    # Auto-detect size
     if size is None:
         if matched_cls.FAMILY == "rfdetr":
             # RF-DETR needs the full checkpoint for args-based detection
@@ -219,13 +216,13 @@ def LibreYOLO(
             )
         print(f"Auto-detected size: {size}")
 
-    # --- Auto-detect nb_classes ---
+    # Auto-detect nb_classes
     if nb_classes is None:
         nb_classes = matched_cls.detect_nb_classes(weights_dict)
         if nb_classes is None:
             nb_classes = 80
 
-    # --- Determine how to pass weights ---
+    # Determine how to pass weights
     # Checkpoints from our trainers have metadata (nc, names, model_family).
     # For those, pass the file path so _load_weights() handles nc rebuild + names.
     # For old/pretrained checkpoints, pass the extracted state_dict directly.

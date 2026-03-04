@@ -31,7 +31,7 @@ from libreyolo import LibreYOLO
 LIBREYOLO_MODELS = {
     "rfdetr": {
         "variants": ["n", "s", "m", "l"],
-        "weights_pattern": "LibreRFDETR{variant}.pth",
+        "weights_pattern": "LibreRFDETR{variant}.pt",
         "input_size": 560,
     },
     "yolo9": {

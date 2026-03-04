@@ -40,7 +40,6 @@ class IoULoss(nn.Module):
         pred = pred.view(-1, 4)
         target = target.view(-1, 4)
 
-        # Convert cxcywh to xyxy for intersection calculation
         tl = torch.max(
             (pred[:, :2] - pred[:, 2:] / 2), (target[:, :2] - target[:, 2:] / 2)
         )

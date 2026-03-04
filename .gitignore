@@ -1,41 +1,26 @@
 # Python
 __pycache__/
 *.py[cod]
-*$py.class
 *.so
-.Python
 build/
-develop-eggs/
 dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
 *.egg-info/
-.installed.cfg
-*.egg
-MANIFEST
 
 # Virtual environments
 venv/
 env/
-ENV/
-.venv
+.venv/
 uv.lock
 
-# AI / IDE
-CLAUDE.local.md
-.cursor/
+# IDE
 .vscode/
 .idea/
 *.swp
 *.swo
 *~
+
+# Linting
+.ruff_cache/
 
 # Testing
 .pytest_cache/
@@ -46,17 +31,17 @@ tests/output/
 
 # OS
 .DS_Store
-Thumbs.db
-
 
 # Environment
 .env
 
-# Others
+# Project
 temporary/
 runs/
 /data/
+*.log
 
+# Model weights & exports
 *.pt
 *.pth
 *.data
