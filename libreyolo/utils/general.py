@@ -11,6 +11,34 @@ import torch
 # Constants
 # =============================================================================
 
+def increment_path(path: Union[str, Path], exist_ok: bool = False, sep: str = "", mkdir: bool = False) -> Path:
+    """
+    Return an incremented path if it already exists.
+
+    E.g. runs/detect/predict -> runs/detect/predict2 -> runs/detect/predict3, etc.
+
+    Args:
+        path: Base path to increment.
+        exist_ok: If True, return the path as-is even if it exists.
+        sep: Separator between base name and number (default: "").
+        mkdir: Create the directory if True.
+
+    Returns:
+        Incremented Path.
+    """
+    path = Path(path)
+    if path.exists() and not exist_ok:
+        path, suffix = (path.with_suffix(""), path.suffix) if path.is_file() else (path, "")
+        for n in range(2, 9999):
+            p = f"{path}{sep}{n}{suffix}"
+            if not Path(p).exists():
+                break
+        path = Path(p)
+    if mkdir:
+        path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
 # COCO class names (80 classes)
 COCO_CLASSES = [
     "person",
@@ -123,6 +151,7 @@ def cxcywh_to_xyxy(boxes: torch.Tensor) -> torch.Tensor:
 # Path Utilities
 # =============================================================================
 
+_save_dir_cache: Dict[str, Path] = {}
 
 def get_safe_stem(path: Union[str, Path]) -> str:
     path_str = str(path)
@@ -138,11 +167,16 @@ def resolve_save_path(
     image_path: Union[str, Path, None],
     prefix: str = "",
     ext: str = "jpg",
-    default_dir: str = "runs/detections",
-    model_name: str = "",
+    default_dir: str = "runs/detect",
+    exist_ok: bool = False,
 ) -> Path:
     """
     Generate a save path handling both directory and file output paths.
+
+    Uses an auto-incrementing directory scheme: runs/detect/predict,
+    runs/detect/predict2, etc. The original filename is preserved.
+    Within a single process, all images are saved to the same directory.
+    Duplicate filenames from different input folders will overwrite.
 
     Args:
         output_path: User-provided output path (file or directory) or None
@@ -150,26 +184,25 @@ def resolve_save_path(
         prefix: Optional prefix for the filename (e.g., "tiled_")
         ext: File extension without dot (default: "jpg")
         default_dir: Default directory if output_path is None
-        model_name: Optional model identifier to include in the filename
+        exist_ok: If True, reuse existing predict/ directory without incrementing
 
     Returns:
         Resolved Path object ready for saving
     """
-    from datetime import datetime
-
+    # Get filename from image path or use default
     if image_path is not None:
         stem = get_safe_stem(image_path)
     else:
         stem = "inference"
 
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
-    model_tag = f"_{model_name}" if model_name else ""
-    filename = f"{prefix}{stem}{model_tag}_{timestamp}.{ext}"
+    filename = f"{prefix}{stem}.{ext}"
 
     if output_path is None:
-        save_dir = Path(default_dir)
-        save_dir.mkdir(parents=True, exist_ok=True)
-        return save_dir / filename
+        if default_dir not in _save_dir_cache:
+            _save_dir_cache[default_dir] = increment_path(
+                Path(default_dir) / "predict", exist_ok=exist_ok, mkdir=True
+            )
+        return _save_dir_cache[default_dir] / filename
 
     save_path = Path(output_path)
 

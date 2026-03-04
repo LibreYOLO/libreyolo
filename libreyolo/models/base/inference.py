@@ -310,8 +310,6 @@ class InferenceRunner:
                 output_path,
                 image_path,
                 ext=ext,
-                default_dir="runs/detections",
-                model_name=f"{self.model._get_model_name()}_{self.model.size}",
             )
             annotated_img.save(save_path)
             result.saved_path = str(save_path)

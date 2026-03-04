@@ -2,8 +2,8 @@
 # This config only downloads val2017 (5k images) for validation/benchmarking
 # Use this instead of coco.yaml if you don't need training data
 
-# Dataset root directory - using LOCAL storage for speed
-path: /tmp/datasets/coco
+# Dataset root directory
+path: coco
 
 # Train/val/test splits (relative to 'path')
 train: train2017.txt  # 118287 images (not downloaded)
