@@ -1,5 +1,4 @@
-"""
-Exponential Moving Average (EMA) for model weights.
+"""Exponential Moving Average (EMA) for model weights.
 
 Adapted from the official YOLOX repository.
 """
@@ -12,7 +11,6 @@ import torch.nn as nn
 
 
 def is_parallel(model):
-    """Check if model is in parallel mode."""
     parallel_type = (
         nn.parallel.DataParallel,
         nn.parallel.DistributedDataParallel,
@@ -21,34 +19,21 @@ def is_parallel(model):
 
 
 class ModelEMA:
-    """
-    Model Exponential Moving Average.
-
-    Keeps a moving average of model parameters and buffers.
-    This smoothed version of weights helps training stability.
+    """Model Exponential Moving Average.
 
     From https://github.com/rwightman/pytorch-image-models
     """
 
     def __init__(self, model, decay=0.9999, updates=0):
-        """
-        Initialize EMA.
-
-        Args:
-            model: Model to track
-            decay: EMA decay rate
-            updates: Initial update counter
-        """
-        # Create EMA model (FP32)
         self.ema = deepcopy(model.module if is_parallel(model) else model).eval()
         self.updates = updates
-        # Decay exponential ramp (helps early epochs)
-        self.decay = lambda x: decay * (1 - math.exp(-x / 2000))
+        self.decay = lambda x: decay * (
+            1 - math.exp(-x / 2000)
+        )  # ramp-up during early epochs
         for p in self.ema.parameters():
             p.requires_grad_(False)
 
     def update(self, model):
-        """Update EMA parameters."""
         with torch.no_grad():
             self.updates += 1
             d = self.decay(self.updates)

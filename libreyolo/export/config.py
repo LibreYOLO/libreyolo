@@ -1,8 +1,4 @@
-"""
-Export configuration handling.
-
-Provides loading and validation of export configuration from YAML files.
-"""
+"""Export configuration handling."""
 
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -31,11 +27,7 @@ class Int8CalibrationConfig:
 
 @dataclass
 class TensorRTExportConfig:
-    """
-    TensorRT export configuration.
-
-    This class holds all configuration options for TensorRT engine export.
-    It can be loaded from a YAML file or created programmatically.
+    """TensorRT export configuration.
 
     Attributes:
         precision: Precision mode ('fp32', 'fp16', 'int8')
@@ -59,11 +51,9 @@ class TensorRTExportConfig:
     )
 
     def __post_init__(self):
-        """Validate configuration after initialization."""
         self._validate()
 
     def _validate(self):
-        """Validate configuration values."""
         valid_precisions = ("fp32", "fp16", "int8")
         if self.precision not in valid_precisions:
             raise ValueError(
@@ -117,7 +107,6 @@ class TensorRTExportConfig:
         """
         path = Path(path)
         if not path.exists():
-            # Check in default config directory
             default_path = (
                 Path(__file__).parent.parent / "config" / "export" / path.name
             )
@@ -142,7 +131,6 @@ class TensorRTExportConfig:
         Returns:
             TensorRTExportConfig instance.
         """
-        # Parse nested configs
         dynamic_data = data.get("dynamic", {})
         dynamic = DynamicBatchConfig(
             enabled=dynamic_data.get("enabled", False),
@@ -229,5 +217,4 @@ def load_export_config(
     )
 
 
-# Default configuration instance
 DEFAULT_CONFIG = TensorRTExportConfig()
