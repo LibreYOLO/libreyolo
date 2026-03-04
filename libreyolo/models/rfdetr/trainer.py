@@ -23,6 +23,7 @@ def train_rfdetr(
     lr: float = 1e-4,
     output_dir: str = "runs/train",
     resume: str | None = None,
+    pretrain_weights: str | None = None,
     **kwargs,
 ) -> Dict:
     """
@@ -42,6 +43,9 @@ def train_rfdetr(
         lr: Learning rate
         output_dir: Directory to save outputs
         resume: Path to checkpoint to resume from
+        pretrain_weights: Path to pretrained weights. When provided the
+            upstream rfdetr trainer reuses these instead of downloading
+            its own copy from Google Cloud Storage.
         **kwargs: Additional args passed to rfdetr train()
 
     Returns:
@@ -57,7 +61,10 @@ def train_rfdetr(
         )
 
     trainer_cls = RFDETR_TRAINERS[size]
-    model = trainer_cls()
+    init_kwargs = {}
+    if pretrain_weights is not None:
+        init_kwargs["pretrain_weights"] = pretrain_weights
+    model = trainer_cls(**init_kwargs)
 
     model.train(
         dataset_dir=data,

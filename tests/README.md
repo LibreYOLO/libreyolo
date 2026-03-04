@@ -21,7 +21,7 @@ tests/
     ├── test_ncnn.py                     # ncnn export + inference
     ├── test_onnx.py                     # ONNX export + inference
     ├── test_openvino.py                 # OpenVINO export + inference
-    ├── test_rf1_training.py             # All-models training smoke test (marbles dataset)
+    ├── test_rf1_training.py             # All-models training test (marbles dataset)
     ├── test_rf5_training.py             # RF5 training validation (CLI tool)
     ├── test_tensorrt.py                 # TensorRT export + inference
     ├── test_torchscript.py              # TorchScript export
@@ -67,7 +67,7 @@ pytest tests/e2e/ -v -m "not slow"
 ### E2E Training Tests
 
 ```bash
-# RF1: smoke test on marbles dataset (all 15 models, 10 epochs each)
+# RF1: test on marbles dataset (all 15 models, 10 epochs each)
 pytest tests/e2e/test_rf1_training.py -v -s
 
 # RF5: config-driven benchmark (standalone CLI)

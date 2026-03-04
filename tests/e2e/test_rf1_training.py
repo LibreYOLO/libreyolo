@@ -1,5 +1,5 @@
 """
-RF1: Training smoke test for all 15 models.
+RF1: Training test for all 15 models.
 
 Trains each model for 2 epochs on LibreYOLO/marbles (HuggingFace, public,
 56 train / 20 valid / 36 test images, 2 classes), then validates on the test
@@ -23,7 +23,7 @@ from PIL import Image
 from libreyolo import LibreYOLO
 from .conftest import ALL_MODELS_WITH_WEIGHTS, cuda_cleanup, make_ids, run_in_subprocess
 
-pytestmark = pytest.mark.e2e
+pytestmark = [pytest.mark.e2e, pytest.mark.rf1]
 
 DATASET_ROOT = Path.home() / ".cache" / "libreyolo" / "marbles"
 HF_REPO = "LibreYOLO/marbles"
