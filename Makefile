@@ -40,7 +40,8 @@ test:
 test_e2e: clean
 	@echo "Running each test file in its own process (avoids CUDA driver state corruption)..."
 	@for f in tests/e2e/test_*.py; do \
-		$(UV) pytest "$$f" -m "e2e and not rf5" -v || exit 1; \
+		$(UV) pytest "$$f" -m "e2e and not rf5" -v; \
+		rc=$$?; if [ $$rc -ne 0 ] && [ $$rc -ne 5 ]; then exit $$rc; fi; \
 	done
 
 test_rf5: clean
