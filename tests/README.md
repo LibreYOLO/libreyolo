@@ -39,40 +39,27 @@ pytest tests/unit/ -v
 pytest tests/unit/test_yolo9_layers.py -v
 ```
 
-### E2E Export Tests
+### E2E Tests (Export + Training)
 
-Export tests validate the full export + inference pipeline per backend.
-Each backend requires its runtime to be installed.
+`make test_e2e` runs all e2e tests (export, training, validation) with each test
+file in its own process to avoid CUDA driver state corruption between files.
 
 ```bash
-# ONNX (always available)
-pytest tests/e2e/test_onnx.py -v
+# All e2e tests (recommended)
+make test_e2e
 
-# TensorRT (requires CUDA + TensorRT)
-pytest tests/e2e/test_tensorrt.py -v
-
-# OpenVINO
-pytest tests/e2e/test_openvino.py -v
-
-# ncnn
-pytest tests/e2e/test_ncnn.py -v
+# Individual test files
+pytest tests/e2e/test_onnx.py -v        # ONNX export + inference
+pytest tests/e2e/test_tensorrt.py -v     # TensorRT (requires CUDA + TensorRT)
+pytest tests/e2e/test_openvino.py -v     # OpenVINO
+pytest tests/e2e/test_ncnn.py -v         # ncnn
+pytest tests/e2e/test_rf1_training.py -v # RF1: all 15 models, 10 epochs (marbles)
 
 # Quick tests only (smallest models)
-pytest tests/e2e/ -v -k "quick" --ignore=tests/e2e/test_rf1_training.py --ignore=tests/e2e/test_rf5_training.py
-
-# Skip slow tests
-pytest tests/e2e/ -v -m "not slow"
-```
-
-### E2E Training Tests
-
-```bash
-# RF1: test on marbles dataset (all 15 models, 10 epochs each)
-pytest tests/e2e/test_rf1_training.py -v -s
+pytest tests/e2e/ -v -k "quick" --ignore=tests/e2e/test_rf5_training.py
 
 # RF5: config-driven benchmark (standalone CLI)
 python -m tests.e2e.test_rf5_training --config yolox.yaml --size nano
-python -m tests.e2e.test_rf5_training --config yolox.yaml --size nano --dataset aquarium-qlnqy
 python -m tests.e2e.test_rf5_training --list-configs
 ```
 
@@ -93,6 +80,5 @@ RF5 is a minimal subset of Roboflow100 designed to quickly verify training code 
 ### When to Run
 
 - **Unit tests**: Always, before any commit
-- **Export tests**: When modifying export code or inference backends
-- **RF1 training**: When changing training code, loss functions, or model architectures
+- **E2E tests** (`make test_e2e`): When modifying export, training, or model code
 - **RF5 training**: Before merging significant training changes
