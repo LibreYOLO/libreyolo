@@ -7,14 +7,14 @@ import logging
 import time
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Type
 
 import torch
 import torch.nn as nn
-import yaml
 from torch.amp import GradScaler, autocast
 from tqdm import tqdm
 
+from .config import TrainConfig
 from .ema import ModelEMA
 from ..data.dataset import YOLODataset, COCODataset, create_dataloader
 from ..data import load_data_config
@@ -30,66 +30,13 @@ class BaseTrainer(ABC):
     loss extraction, and family-specific behaviour.
     """
 
-    # Subclasses merge their own defaults on top.
-    DEFAULT_CFG: Dict[str, Any] = {
-        # Model
-        "size": "s",
-        "num_classes": 80,
-        # Data
-        "data": None,
-        "data_dir": None,
-        "imgsz": 640,
-        # Training
-        "epochs": 300,
-        "batch": 16,
-        "device": "auto",
-        # Optimizer
-        "optimizer": "sgd",
-        "lr0": 0.01,
-        "momentum": 0.937,
-        "weight_decay": 5e-4,
-        "nesterov": True,
-        # Scheduler
-        "scheduler": "yoloxwarmcos",
-        "warmup_epochs": 5,
-        "warmup_lr_start": 0.0,
-        "no_aug_epochs": 15,
-        "min_lr_ratio": 0.05,
-        # Augmentation
-        "mosaic_prob": 1.0,
-        "mixup_prob": 1.0,
-        "hsv_prob": 1.0,
-        "flip_prob": 0.5,
-        "degrees": 10.0,
-        "translate": 0.1,
-        "mosaic_scale": (0.1, 2.0),
-        "mixup_scale": (0.5, 1.5),
-        "shear": 2.0,
-        # Training features
-        "ema": True,
-        "ema_decay": 0.9998,
-        "amp": True,
-        # Checkpointing / output
-        "project": "runs/train",
-        "name": "exp",
-        "exist_ok": False,
-        "save_period": 10,
-        "eval_interval": 10,
-        # System
-        "workers": 4,
-        "patience": 50,
-        "resume": False,
-        "log_interval": 10,
-        "seed": 0,
-    }
-
     def __init__(
         self,
         model: nn.Module,
         wrapper_model: Optional[Any] = None,
         **kwargs,
     ):
-        self.cfg = {**self.DEFAULT_CFG, **kwargs}
+        self.config = self._config_class().from_kwargs(**kwargs)
         self.model = model
         self.wrapper_model = wrapper_model
 
@@ -118,17 +65,26 @@ class BaseTrainer(ABC):
         self.tensorboard_writer = None
 
     # =========================================================================
+    # Config
+    # =========================================================================
+
+    @classmethod
+    def _config_class(cls) -> Type[TrainConfig]:
+        """Return the config dataclass for this trainer. Subclasses override."""
+        return TrainConfig
+
+    # =========================================================================
     # Properties
     # =========================================================================
 
     @property
     def effective_lr(self) -> float:
         """Learning rate scaled by batch size (linear scaling rule)."""
-        return self.cfg["lr0"] * self.cfg["batch"] / 64
+        return self.config.lr0 * self.config.batch / 64
 
     @property
     def input_size(self) -> Tuple[int, int]:
-        return (self.cfg["imgsz"], self.cfg["imgsz"])
+        return (self.config.imgsz, self.config.imgsz)
 
     # =========================================================================
     # Hook methods — subclasses override these
@@ -175,7 +131,7 @@ class BaseTrainer(ABC):
     # =========================================================================
 
     def _setup_device(self) -> torch.device:
-        device_str = self.cfg["device"]
+        device_str = self.config.device
         if device_str == "auto":
             if torch.cuda.is_available():
                 device = torch.device("cuda")
@@ -199,14 +155,14 @@ class BaseTrainer(ABC):
                 pg1.append(v.weight)
 
         lr = self.effective_lr
-        opt_name = self.cfg["optimizer"]
+        opt_name = self.config.optimizer
 
         if opt_name == "sgd":
             optimizer = torch.optim.SGD(
                 pg0,
                 lr=lr,
-                momentum=self.cfg["momentum"],
-                nesterov=self.cfg["nesterov"],
+                momentum=self.config.momentum,
+                nesterov=self.config.nesterov,
             )
         elif opt_name == "adam":
             optimizer = torch.optim.Adam(pg0, lr=lr)
@@ -216,22 +172,22 @@ class BaseTrainer(ABC):
             raise ValueError(f"Unknown optimizer: {opt_name}")
 
         optimizer.add_param_group(
-            {"params": pg1, "lr": lr, "weight_decay": self.cfg["weight_decay"]}
+            {"params": pg1, "lr": lr, "weight_decay": self.config.weight_decay}
         )
         optimizer.add_param_group({"params": pg2, "lr": lr})
 
         logger.info(f"Optimizer: {opt_name}")
         logger.info(f"  - pg0 (BN): {len(pg0)} params")
-        logger.info(f"  - pg1 (Conv, wd={self.cfg['weight_decay']}): {len(pg1)} params")
+        logger.info(f"  - pg1 (Conv, wd={self.config.weight_decay}): {len(pg1)} params")
         logger.info(f"  - pg2 (Bias): {len(pg2)} params")
         return optimizer
 
     def _get_save_dir(self) -> Path:
-        project = Path(self.cfg["project"])
-        name = self.cfg["name"]
+        project = Path(self.config.project)
+        name = self.config.name
 
         save_dir = project / name
-        if not self.cfg["exist_ok"] and save_dir.exists():
+        if not self.config.exist_ok and save_dir.exists():
             i = 2
             while (project / f"{name}{i}").exists():
                 i += 1
@@ -244,10 +200,10 @@ class BaseTrainer(ABC):
         img_size = self.input_size
         preproc, MosaicDatasetClass = self.create_transforms()
 
-        if self.cfg["data"]:
-            data_cfg = load_data_config(self.cfg["data"])
+        if self.config.data:
+            data_cfg = load_data_config(self.config.data)
             data_dir = data_cfg["root"]
-            self.num_classes = data_cfg.get("nc", self.cfg["num_classes"])
+            self.num_classes = data_cfg.get("nc", self.config.num_classes)
 
             if (Path(data_dir) / "annotations").exists():
                 train_dataset = COCODataset(
@@ -288,9 +244,9 @@ class BaseTrainer(ABC):
                     img_size=img_size,
                     preproc=preproc,
                 )
-        elif self.cfg["data_dir"]:
-            data_dir = self.cfg["data_dir"]
-            self.num_classes = self.cfg["num_classes"]
+        elif self.config.data_dir:
+            data_dir = self.config.data_dir
+            self.num_classes = self.config.num_classes
 
             if (Path(data_dir) / "annotations").exists():
                 train_dataset = COCODataset(
@@ -315,20 +271,20 @@ class BaseTrainer(ABC):
             img_size=img_size,
             mosaic=True,
             preproc=preproc,
-            degrees=self.cfg["degrees"],
-            translate=self.cfg["translate"],
-            mosaic_scale=self.cfg["mosaic_scale"],
-            mixup_scale=self.cfg["mixup_scale"],
-            shear=self.cfg["shear"],
-            enable_mixup=self.cfg["mixup_prob"] > 0,
-            mosaic_prob=self.cfg["mosaic_prob"],
-            mixup_prob=self.cfg["mixup_prob"],
+            degrees=self.config.degrees,
+            translate=self.config.translate,
+            mosaic_scale=self.config.mosaic_scale,
+            mixup_scale=self.config.mixup_scale,
+            shear=self.config.shear,
+            enable_mixup=self.config.mixup_prob > 0,
+            mosaic_prob=self.config.mosaic_prob,
+            mixup_prob=self.config.mixup_prob,
         )
 
         self.train_loader = create_dataloader(
             train_dataset,
-            batch_size=self.cfg["batch"],
-            num_workers=self.cfg["workers"],
+            batch_size=self.config.batch,
+            num_workers=self.config.workers,
             shuffle=True,
             pin_memory=True,
         )
@@ -336,16 +292,6 @@ class BaseTrainer(ABC):
         logger.info(f"Training dataset: {len(train_dataset)} images")
         logger.info(f"Iterations per epoch: {len(self.train_loader)}")
         return train_dataset
-
-    def _save_config_yaml(self, path):
-        Path(path).parent.mkdir(parents=True, exist_ok=True)
-        serialisable = {}
-        for k, v in self.cfg.items():
-            if isinstance(v, tuple):
-                v = list(v)
-            serialisable[k] = v
-        with open(path, "w") as f:
-            yaml.dump(serialisable, f, default_flow_style=False, sort_keys=False)
 
     # =========================================================================
     # Setup / train / epoch
@@ -361,19 +307,19 @@ class BaseTrainer(ABC):
         self.optimizer = self._setup_optimizer()
         self.lr_scheduler = self.create_scheduler(len(self.train_loader))
 
-        if self.cfg["amp"] and self.device.type == "cuda":
+        if self.config.amp and self.device.type == "cuda":
             self.scaler = GradScaler("cuda")
             logger.info("Using mixed precision training (AMP)")
         else:
             self.scaler = None
 
-        if self.cfg["ema"]:
-            self.ema_model = ModelEMA(self.model, decay=self.cfg["ema_decay"])
-            logger.info(f"Using EMA with decay={self.cfg['ema_decay']}")
+        if self.config.ema:
+            self.ema_model = ModelEMA(self.model, decay=self.config.ema_decay)
+            logger.info(f"Using EMA with decay={self.config.ema_decay}")
 
         self.save_dir = self._get_save_dir()
 
-        self._save_config_yaml(self.save_dir / "train_config.yaml")
+        self.config.to_yaml(self.save_dir / "train_config.yaml")
 
         # TensorBoard
         try:
@@ -391,19 +337,19 @@ class BaseTrainer(ABC):
     def train(self) -> Dict:
         self.setup()
 
-        logger.info(f"Starting training for {self.cfg['epochs']} epochs")
+        logger.info(f"Starting training for {self.config.epochs} epochs")
         logger.info(f"Model: {self.get_model_tag()}")
-        logger.info(f"Batch size: {self.cfg['batch']}")
+        logger.info(f"Batch size: {self.config.batch}")
         logger.info(f"Learning rate: {self.effective_lr}")
 
         start_time = time.time()
 
-        for epoch in range(self.start_epoch, self.cfg["epochs"]):
+        for epoch in range(self.start_epoch, self.config.epochs):
             self.current_epoch = epoch
 
-            if epoch == self.cfg["epochs"] - self.cfg["no_aug_epochs"]:
+            if epoch == self.config.epochs - self.config.no_aug_epochs:
                 logger.info(
-                    f"Disabling mosaic/mixup for final {self.cfg['no_aug_epochs']} epochs"
+                    f"Disabling mosaic/mixup for final {self.config.no_aug_epochs} epochs"
                 )
                 self.on_mosaic_disable()
 
@@ -411,15 +357,13 @@ class BaseTrainer(ABC):
             self.final_loss = epoch_loss
             self.epoch_losses.append(epoch_loss)
 
-            if (epoch + 1) % self.cfg["save_period"] == 0 or epoch == self.cfg[
-                "epochs"
-            ] - 1:
+            if (epoch + 1) % self.config.save_period == 0 or epoch == self.config.epochs - 1:
                 self._save_checkpoint(epoch, epoch_loss, val_metrics)
 
-            if self.patience_counter >= self.cfg["patience"]:
+            if self.patience_counter >= self.config.patience:
                 logger.info(
                     f"Early stopping triggered after {epoch + 1} epochs "
-                    f"(patience={self.cfg['patience']}, no improvement for {self.patience_counter} epochs)"
+                    f"(patience={self.config.patience}, no improvement for {self.patience_counter} epochs)"
                 )
                 break
 
@@ -446,7 +390,7 @@ class BaseTrainer(ABC):
 
         pbar = tqdm(
             self.train_loader,
-            desc=f"Epoch {epoch + 1}/{self.cfg['epochs']}",
+            desc=f"Epoch {epoch + 1}/{self.config.epochs}",
             total=len(self.train_loader),
         )
 
@@ -497,7 +441,7 @@ class BaseTrainer(ABC):
             pbar.set_postfix(postfix)
 
             # TensorBoard
-            if self.tensorboard_writer and batch_idx % self.cfg["log_interval"] == 0:
+            if self.tensorboard_writer and batch_idx % self.config.log_interval == 0:
                 self.tensorboard_writer.add_scalar(
                     "train/loss", loss_val, self.current_iter
                 )
@@ -516,8 +460,8 @@ class BaseTrainer(ABC):
         # Validation
         val_metrics = None
         if (
-            self.cfg["eval_interval"] > 0
-            and (epoch + 1) % self.cfg["eval_interval"] == 0
+            self.config.eval_interval > 0
+            and (epoch + 1) % self.config.eval_interval == 0
         ):
             val_metrics = self._validate_epoch(epoch)
             if val_metrics and self.tensorboard_writer:
@@ -541,13 +485,13 @@ class BaseTrainer(ABC):
             logger.info(f"Running validation for epoch {epoch + 1}")
 
             val_config = ValidationConfig(
-                data=self.cfg["data"],
-                batch_size=self.cfg["batch"],
-                imgsz=self.cfg["imgsz"],
+                data=self.config.data,
+                batch_size=self.config.batch,
+                imgsz=self.config.imgsz,
                 conf_thres=0.001,
                 iou_thres=0.65,
                 device=str(self.device),
-                half=self.cfg["amp"] and self.device.type == "cuda",
+                half=self.config.amp and self.device.type == "cuda",
                 verbose=False,
             )
 
@@ -602,13 +546,13 @@ class BaseTrainer(ABC):
             "epoch": epoch,
             "model": model_to_save.state_dict(),
             "optimizer": self.optimizer.state_dict(),
-            "config": dict(self.cfg),
+            "config": self.config.to_dict(),
             "loss": loss,
             "best_mAP50_95": self.best_mAP50_95,
             "best_mAP50": self.best_mAP50,
             "best_epoch": self.best_epoch,
-            "nc": self.cfg["num_classes"],
-            "size": self.cfg["size"],
+            "nc": self.config.num_classes,
+            "size": self.config.size,
             "model_family": self.get_model_family(),
         }
         if self.wrapper_model is not None:
@@ -636,7 +580,7 @@ class BaseTrainer(ABC):
         elif val_metrics:
             self.patience_counter += 1
 
-        if (epoch + 1) % self.cfg["save_period"] == 0:
+        if (epoch + 1) % self.config.save_period == 0:
             epoch_path = weights_dir / f"epoch_{epoch + 1}.pt"
             torch.save(checkpoint, epoch_path)
 
@@ -686,5 +630,5 @@ class BaseTrainer(ABC):
         self.patience_counter = 0
         logger.info(
             f"Resumed from epoch {self.start_epoch} "
-            f"(will train to epoch {self.cfg['epochs']})"
+            f"(will train to epoch {self.config.epochs})"
         )

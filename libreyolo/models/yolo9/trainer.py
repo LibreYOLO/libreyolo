@@ -6,9 +6,10 @@ and loss extraction.
 """
 
 import torch
-from typing import Dict
+from typing import Dict, Type
 
 from libreyolo.training.trainer import BaseTrainer
+from libreyolo.training.config import TrainConfig, YOLO9Config
 from ...training.scheduler import LinearLRScheduler, CosineAnnealingScheduler
 from .transforms import YOLO9TrainTransform, YOLO9MosaicMixupDataset
 
@@ -16,57 +17,43 @@ from .transforms import YOLO9TrainTransform, YOLO9MosaicMixupDataset
 class YOLO9Trainer(BaseTrainer):
     """YOLOv9-specific trainer."""
 
-    DEFAULT_CFG: Dict = {
-        **BaseTrainer.DEFAULT_CFG,
-        # YOLOv9-specific defaults
-        "momentum": 0.937,
-        "scheduler": "linear",
-        "warmup_epochs": 3,
-        "warmup_lr_start": 0.0001,
-        "no_aug_epochs": 15,
-        "min_lr_ratio": 0.01,
-        "degrees": 0.0,
-        "shear": 0.0,
-        "mosaic_scale": (0.5, 1.5),
-        "mixup_prob": 0.0,
-        "ema_decay": 0.9999,
-        "name": "yolo9_exp",
-        "workers": 8,
-    }
+    @classmethod
+    def _config_class(cls) -> Type[TrainConfig]:
+        return YOLO9Config
 
     def get_model_family(self) -> str:
         return "yolo9"
 
     def get_model_tag(self) -> str:
-        return f"YOLOv9-{self.cfg['size']}"
+        return f"YOLOv9-{self.config.size}"
 
     def create_transforms(self):
         preproc = YOLO9TrainTransform(
             max_labels=100,
-            flip_prob=self.cfg["flip_prob"],
-            hsv_prob=self.cfg["hsv_prob"],
+            flip_prob=self.config.flip_prob,
+            hsv_prob=self.config.hsv_prob,
         )
         return preproc, YOLO9MosaicMixupDataset
 
     def create_scheduler(self, iters_per_epoch: int):
-        scheduler_name = self.cfg["scheduler"]
+        scheduler_name = self.config.scheduler
         if scheduler_name == "linear":
             return LinearLRScheduler(
                 lr=self.effective_lr,
                 iters_per_epoch=iters_per_epoch,
-                total_epochs=self.cfg["epochs"],
-                warmup_epochs=self.cfg["warmup_epochs"],
-                warmup_lr_start=self.cfg["warmup_lr_start"],
-                min_lr_ratio=self.cfg["min_lr_ratio"],
+                total_epochs=self.config.epochs,
+                warmup_epochs=self.config.warmup_epochs,
+                warmup_lr_start=self.config.warmup_lr_start,
+                min_lr_ratio=self.config.min_lr_ratio,
             )
         elif scheduler_name in ("cos", "warmcos"):
             return CosineAnnealingScheduler(
                 lr=self.effective_lr,
                 iters_per_epoch=iters_per_epoch,
-                total_epochs=self.cfg["epochs"],
-                warmup_epochs=self.cfg["warmup_epochs"],
-                warmup_lr_start=self.cfg["warmup_lr_start"],
-                min_lr_ratio=self.cfg["min_lr_ratio"],
+                total_epochs=self.config.epochs,
+                warmup_epochs=self.config.warmup_epochs,
+                warmup_lr_start=self.config.warmup_lr_start,
+                min_lr_ratio=self.config.min_lr_ratio,
             )
         else:
             raise ValueError(f"Unknown scheduler: {scheduler_name}")

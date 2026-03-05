@@ -276,7 +276,6 @@ class LibreYOLO9(BaseModel):
             wrapper_model=self,
             size=self.size,
             num_classes=self.nb_classes,
-            reg_max=self.reg_max,
             data=data,
             epochs=epochs,
             batch=batch,
