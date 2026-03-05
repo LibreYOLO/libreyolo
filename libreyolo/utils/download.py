@@ -31,7 +31,6 @@ def _detect_family_from_filename(filename: str) -> Optional[str]:
     return None
 
 
-
 def download_weights(model_path: str, size: str):
     """Download weights from Hugging Face if not found locally."""
     path = Path(model_path)

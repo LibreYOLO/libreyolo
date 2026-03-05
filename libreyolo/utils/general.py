@@ -11,7 +11,10 @@ import torch
 # Constants
 # =============================================================================
 
-def increment_path(path: Union[str, Path], exist_ok: bool = False, sep: str = "", mkdir: bool = False) -> Path:
+
+def increment_path(
+    path: Union[str, Path], exist_ok: bool = False, sep: str = "", mkdir: bool = False
+) -> Path:
     """
     Return an incremented path if it already exists.
 
@@ -28,7 +31,9 @@ def increment_path(path: Union[str, Path], exist_ok: bool = False, sep: str = ""
     """
     path = Path(path)
     if path.exists() and not exist_ok:
-        path, suffix = (path.with_suffix(""), path.suffix) if path.is_file() else (path, "")
+        path, suffix = (
+            (path.with_suffix(""), path.suffix) if path.is_file() else (path, "")
+        )
         for n in range(2, 9999):
             p = f"{path}{sep}{n}{suffix}"
             if not Path(p).exists():
@@ -152,6 +157,7 @@ def cxcywh_to_xyxy(boxes: torch.Tensor) -> torch.Tensor:
 # =============================================================================
 
 _save_dir_cache: Dict[str, Path] = {}
+
 
 def get_safe_stem(path: Union[str, Path]) -> str:
     path_str = str(path)

@@ -357,7 +357,9 @@ class BaseTrainer(ABC):
             self.final_loss = epoch_loss
             self.epoch_losses.append(epoch_loss)
 
-            if (epoch + 1) % self.config.save_period == 0 or epoch == self.config.epochs - 1:
+            if (
+                epoch + 1
+            ) % self.config.save_period == 0 or epoch == self.config.epochs - 1:
                 self._save_checkpoint(epoch, epoch_loss, val_metrics)
 
             if self.patience_counter >= self.config.patience:
