@@ -156,6 +156,11 @@ class TensorRTBackend(BaseBackend):
             yolox_outputs = [n for n in self.output_names if n.startswith("cat_")]
             if yolox_outputs:
                 return "yolox"
+            # RTDETR has pred_logits and pred_boxes outputs
+            has_pred_logits = any("pred_logits" in n for n in self.output_names)
+            has_pred_boxes = any("pred_boxes" in n for n in self.output_names)
+            if has_pred_logits and has_pred_boxes:
+                return "rtdetr"
         return None
 
     def _infer(self, input_array: np.ndarray) -> Dict[str, np.ndarray]:
@@ -325,6 +330,8 @@ class TensorRTBackend(BaseBackend):
             return "yolox"
         elif self.model_family == "rfdetr":
             return "rfdetr"
+        elif self.model_family == "rtdetr":
+            return "rtdetr"
         return "libreyolo"
 
     def _get_input_size(self) -> int:

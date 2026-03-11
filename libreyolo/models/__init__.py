@@ -22,6 +22,7 @@ from ..utils.download import download_weights
 # Always-available models (importing triggers __init_subclass__ registration)
 from .yolox.model import LibreYOLOX  # noqa: E402
 from .yolo9.model import LibreYOLO9  # noqa: E402
+from .rtdetr.model import LibreYOLORTDETR  # noqa: E402
 
 
 def _ensure_rfdetr():
@@ -194,7 +195,7 @@ def LibreYOLO(
     if matched_cls is None:
         raise ValueError(
             "Could not detect model architecture from state dict keys.\n"
-            "Supported architectures: YOLOX, YOLOv9, RF-DETR."
+            "Supported architectures: YOLOX, YOLOv9, RT-DETR, RF-DETR."
         )
 
     # Auto-detect size
@@ -260,4 +261,5 @@ __all__ = [
     "LibreYOLO",
     "LibreYOLOX",
     "LibreYOLO9",
+    "LibreYOLORTDETR",
 ]

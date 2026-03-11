@@ -337,25 +337,34 @@ MODEL_CATALOG = [
     ("rfdetr", "s", "LibreRFDETRs.pt"),
     ("rfdetr", "m", "LibreRFDETRm.pt"),
     ("rfdetr", "l", "LibreRFDETRl.pt"),
+    ("rtdetr", "r18", "LibreRTDETRr18.pt"),
+    ("rtdetr", "r34", "LibreRTDETRr34.pt"),
+    ("rtdetr", "r50", "LibreRTDETRr50.pt"),
+    ("rtdetr", "r50m", "LibreRTDETRr50m.pt"),
+    ("rtdetr", "r101", "LibreRTDETRr101.pt"),
 ]
 
 # Derived lists (no manual maintenance)
 YOLOX_SIZES = [s for f, s, _ in MODEL_CATALOG if f == "yolox"]
 YOLO9_SIZES = [s for f, s, _ in MODEL_CATALOG if f == "yolo9"]
 RFDETR_SIZES = [s for f, s, _ in MODEL_CATALOG if f == "rfdetr"]
+RTDETR_SIZES = [s for f, s, _ in MODEL_CATALOG if f == "rtdetr"]
 
 ALL_MODELS = [(f, s) for f, s, _ in MODEL_CATALOG]
 ALL_MODELS_WITH_WEIGHTS = MODEL_CATALOG
-YOLOX_YOLO9_MODELS = [(f, s) for f, s, _ in MODEL_CATALOG if f != "rfdetr"]
+YOLOX_YOLO9_MODELS = [(f, s) for f, s, _ in MODEL_CATALOG if f not in ("rfdetr", "rtdetr")]
 
 # Quick test set (for CI — smallest models only)
-QUICK_TEST_MODELS = [("yolox", "n"), ("yolo9", "t")]
+QUICK_TEST_MODELS = [("yolox", "n"), ("yolo9", "t"), ("rtdetr", "r18")]
 
-# Full test set (YOLOX + YOLO9, no RF-DETR)
+# Full test set (YOLOX + YOLO9, no RF-DETR or RTDETR)
 FULL_TEST_MODELS = YOLOX_YOLO9_MODELS
 
 # RF-DETR test set (separate due to dependency)
 RFDETR_TEST_MODELS = [(f, s) for f, s, _ in MODEL_CATALOG if f == "rfdetr"]
+
+# RT-DETR test set (separate due to being transformer-based)
+RTDETR_TEST_MODELS = [(f, s) for f, s, _ in MODEL_CATALOG if f == "rtdetr"]
 
 
 def get_model_weights(family: str, size: str) -> str:
