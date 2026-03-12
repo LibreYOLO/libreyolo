@@ -15,7 +15,7 @@ import torch.nn as nn
 from libreyolo.training.trainer import BaseTrainer
 from libreyolo.training.config import TrainConfig
 from libreyolo.training.scheduler import LinearLRScheduler, CosineAnnealingScheduler
-from libreyolo.training.augment import TrainTransform, MosaicMixupDataset
+from libreyolo.models.yolo9.transforms import YOLO9TrainTransform, YOLO9MosaicMixupDataset
 
 from .config import RTDETRConfig
 from .loss import RTDETRLoss
@@ -78,12 +78,12 @@ class RTDETRTrainer(BaseTrainer):
         return f"RT-DETR-{self.config.size}"
 
     def create_transforms(self):
-        preproc = TrainTransform(
+        preproc = YOLO9TrainTransform(
             max_labels=300,  # RTDETR uses more labels
             flip_prob=self.config.flip_prob,
             hsv_prob=self.config.hsv_prob,
         )
-        return preproc, MosaicMixupDataset
+        return preproc, YOLO9MosaicMixupDataset
 
     def create_scheduler(self, iters_per_epoch: int):
         scheduler_name = self.config.scheduler
