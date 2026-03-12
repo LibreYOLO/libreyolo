@@ -215,28 +215,41 @@ class BaseTrainer(ABC):
                 )
             else:
                 train_path = data_cfg.get("train", "images/train")
-                train_path = Path(train_path)
-                if train_path.is_absolute():
-                    train_img_dir = train_path
+                if train_path.endswith('.txt'):
+                    img_files_ = data_cfg['train_img_files']
+                    label_files_ = data_cfg['train_label_files']
+                    # check if image file and label file exists
+                    img_files = []
+                    label_files = []
+                    for img_file, label_file in zip(img_files_, label_files_):
+                        img_path = Path(data_dir) / img_file
+                        lbl_path = Path(data_dir) / label_file
+                        if img_path.exists() and lbl_path.exists():
+                            img_files.append(img_path)
+                            label_files.append(lbl_path)
                 else:
-                    train_img_dir = Path(data_dir) / train_path
+                    train_path = Path(train_path)
+                    if train_path.is_absolute():
+                        train_img_dir = train_path
+                    else:
+                        train_img_dir = Path(data_dir) / train_path
 
-                img_files = []
-                for ext in ["*.jpg", "*.jpeg", "*.png", "*.bmp"]:
-                    img_files.extend(train_img_dir.glob(ext))
-                    img_files.extend(train_img_dir.glob(ext.upper()))
-                img_files = sorted(img_files)
+                    img_files = []
+                    for ext in ["*.jpg", "*.jpeg", "*.png", "*.bmp"]:
+                        img_files.extend(train_img_dir.glob(ext))
+                        img_files.extend(train_img_dir.glob(ext.upper()))
+                    img_files = sorted(img_files)
 
-                if len(img_files) == 0:
-                    raise FileNotFoundError(f"No images found in {train_img_dir}")
+                    if len(img_files) == 0:
+                        raise FileNotFoundError(f"No images found in {train_img_dir}")
 
-                label_files = []
-                for img_file in img_files:
-                    label_file = Path(
-                        str(img_file).replace("/images/", "/labels/").rsplit(".", 1)[0]
-                        + ".txt"
-                    )
-                    label_files.append(label_file)
+                    label_files = []
+                    for img_file in img_files:
+                        label_file = Path(
+                            str(img_file).replace("/images/", "/labels/").rsplit(".", 1)[0]
+                            + ".txt"
+                        )
+                        label_files.append(label_file)
 
                 train_dataset = YOLODataset(
                     img_files=img_files,
