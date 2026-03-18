@@ -64,6 +64,9 @@ class BaseTrainer(ABC):
         self.train_loader = None
         self.tensorboard_writer = None
 
+        # Deferred resume state: set by resume(), consumed by setup()
+        self._resume_optimizer_state = None
+
     # =========================================================================
     # Config
     # =========================================================================
@@ -215,9 +218,9 @@ class BaseTrainer(ABC):
                 )
             else:
                 train_path = data_cfg.get("train", "images/train")
-                if train_path.endswith('.txt'):
-                    img_files_ = data_cfg['train_img_files']
-                    label_files_ = data_cfg['train_label_files']
+                if train_path.endswith(".txt"):
+                    img_files_ = data_cfg["train_img_files"]
+                    label_files_ = data_cfg["train_label_files"]
                     # check if image file and label file exists
                     img_files = []
                     label_files = []
@@ -246,7 +249,9 @@ class BaseTrainer(ABC):
                     label_files = []
                     for img_file in img_files:
                         label_file = Path(
-                            str(img_file).replace("/images/", "/labels/").rsplit(".", 1)[0]
+                            str(img_file)
+                            .replace("/images/", "/labels/")
+                            .rsplit(".", 1)[0]
                             + ".txt"
                         )
                         label_files.append(label_file)
@@ -318,6 +323,17 @@ class BaseTrainer(ABC):
 
         self._setup_data()
         self.optimizer = self._setup_optimizer()
+
+        # Restore optimizer state saved by resume() before setup() was called
+        if self._resume_optimizer_state is not None:
+            try:
+                self.optimizer.load_state_dict(self._resume_optimizer_state)
+                logger.info("Optimizer state restored from checkpoint")
+            except Exception as e:
+                logger.warning(f"Could not restore optimizer state: {e}")
+            finally:
+                self._resume_optimizer_state = None
+
         self.lr_scheduler = self.create_scheduler(len(self.train_loader))
 
         if self.config.amp and self.device.type == "cuda":
@@ -615,12 +631,20 @@ class BaseTrainer(ABC):
 
         self.start_epoch = checkpoint["epoch"] + 1
 
-        if self.optimizer is not None and "optimizer" in checkpoint:
-            try:
-                self.optimizer.load_state_dict(checkpoint["optimizer"])
-                logger.info("Optimizer state restored")
-            except Exception as e:
-                logger.warning(f"Could not load optimizer state: {e}")
+        if "optimizer" in checkpoint:
+            if self.optimizer is not None:
+                # Optimizer already exists (e.g. resume() called after setup())
+                try:
+                    self.optimizer.load_state_dict(checkpoint["optimizer"])
+                    logger.info("Optimizer state restored")
+                except Exception as e:
+                    logger.warning(f"Could not load optimizer state: {e}")
+            else:
+                # Optimizer not yet created; defer until setup() creates it
+                self._resume_optimizer_state = checkpoint["optimizer"]
+                logger.info(
+                    "Optimizer state will be restored when training setup completes"
+                )
 
         if "best_mAP50_95" in checkpoint:
             self.best_mAP50_95 = checkpoint["best_mAP50_95"]
