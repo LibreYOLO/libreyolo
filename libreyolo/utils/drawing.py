@@ -9,22 +9,19 @@ from PIL import Image, ImageDraw, ImageFont
 from .general import COCO_CLASSES
 
 
-def get_class_color(class_id: int) -> str:
-    """Get a unique, consistent color for a class ID using HSV distribution."""
-    hue = (class_id * 137.508) % 360 / 360.0  # golden angle approximation
-    saturation = 0.7 + (class_id % 3) * 0.1
-    value = 0.8 + (class_id % 2) * 0.15
-    rgb = colorsys.hsv_to_rgb(hue, saturation, value)
-    return f"#{int(rgb[0] * 255):02x}{int(rgb[1] * 255):02x}{int(rgb[2] * 255):02x}"
-
-
 def _get_class_color_rgb(class_id: int) -> Tuple[int, int, int]:
-    """Get class color as (R, G, B) ints."""
-    hue = (class_id * 137.508) % 360 / 360.0
+    """Get a unique, consistent color for a class ID as (R, G, B) ints."""
+    hue = (class_id * 137.508) % 360 / 360.0  # golden angle approximation
     saturation = 0.7 + (class_id % 3) * 0.1
     value = 0.8 + (class_id % 2) * 0.15
     r, g, b = colorsys.hsv_to_rgb(hue, saturation, value)
     return int(r * 255), int(g * 255), int(b * 255)
+
+
+def get_class_color(class_id: int) -> str:
+    """Get a unique, consistent color for a class ID as hex string."""
+    r, g, b = _get_class_color_rgb(class_id)
+    return f"#{r:02x}{g:02x}{b:02x}"
 
 
 def draw_boxes(

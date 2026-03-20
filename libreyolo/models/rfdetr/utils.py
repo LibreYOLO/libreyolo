@@ -6,7 +6,7 @@ Postprocessing matches the original rfdetr implementation exactly.
 
 import numpy as np
 import torch
-import torch.nn.functional as TF
+import torch.nn.functional as F
 from typing import List, Dict, Tuple
 from PIL import Image
 
@@ -113,7 +113,7 @@ def postprocess(
 
             # Resize to original image size
             h, w = target_sizes[i].tolist()
-            masks_i = TF.interpolate(
+            masks_i = F.interpolate(
                 masks_i.unsqueeze(1),
                 size=(int(h), int(w)),
                 mode="bilinear",

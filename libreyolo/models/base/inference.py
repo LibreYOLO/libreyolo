@@ -317,7 +317,7 @@ class InferenceRunner:
                 # Draw masks first (underneath boxes)
                 if result.masks is not None:
                     masks_np = result.masks.data
-                    if hasattr(masks_np, "numpy"):
+                    if isinstance(masks_np, torch.Tensor):
                         masks_np = masks_np.cpu().numpy()
                     annotated_img = draw_masks(
                         annotated_img,
