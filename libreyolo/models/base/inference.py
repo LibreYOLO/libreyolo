@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING, Dict, List, Optional, Tuple, Union
 
 import torch
 
-from ...utils.drawing import draw_boxes, draw_tile_grid
+from ...utils.drawing import draw_boxes, draw_masks, draw_tile_grid
 from ...utils.general import get_safe_stem, get_slice_bboxes, nms, resolve_save_path
 from ...utils.image_loader import ImageInput, ImageLoader
 from ...utils.results import Boxes, Masks, Results
@@ -313,8 +313,19 @@ class InferenceRunner:
         # Save annotated image
         if save:
             if len(result) > 0:
+                annotated_img = original_img
+                # Draw masks first (underneath boxes)
+                if result.masks is not None:
+                    masks_np = result.masks.data
+                    if hasattr(masks_np, "numpy"):
+                        masks_np = masks_np.cpu().numpy()
+                    annotated_img = draw_masks(
+                        annotated_img,
+                        masks_np,
+                        result.boxes.cls.tolist(),
+                    )
                 annotated_img = draw_boxes(
-                    original_img,
+                    annotated_img,
                     result.boxes.xyxy.tolist(),
                     result.boxes.conf.tolist(),
                     result.boxes.cls.tolist(),
