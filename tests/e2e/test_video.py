@@ -2,14 +2,15 @@
 E2E video inference: validate model() on a real video with pedestrians.
 
 Downloads a short test video (7.3 MB, 13.6s) from the LibreYOLO HF repo and
-runs video inference through LibreYOLO detectors, checking that:
+runs video inference through one model per family (YOLOX, YOLO9, RF-DETR),
+checking that:
   - stream=True yields a generator of Results
   - stream=False collects Results into a list
   - vid_stride skips frames correctly
   - save=True writes a valid output video
-  - show=False does not crash (show=True requires a display)
   - frame_idx is set correctly on each result
   - detections are found (the video contains many pedestrians)
+  - conf and classes filters work
 
 The video auto-downloads and is cached at ~/.cache/libreyolo/tracking/ — no
 manual setup needed.
@@ -17,6 +18,7 @@ manual setup needed.
 Usage:
     pytest tests/e2e/test_video.py -v -m e2e
     pytest tests/e2e/test_video.py -k "yolo9" -v
+    pytest tests/e2e/test_video.py -k "rfdetr" -v
 """
 
 import urllib.request
@@ -27,7 +29,7 @@ import pytest
 
 from libreyolo import LibreYOLO
 
-from .conftest import cuda_cleanup
+from .conftest import cuda_cleanup, requires_rfdetr
 
 pytestmark = pytest.mark.e2e
 
@@ -37,7 +39,7 @@ VIDEO_PATH = VIDEO_CACHE / "people-walking.mp4"
 
 
 def download_video():
-    """Download the test video from Roboflow if not already cached."""
+    """Download the test video from HF if not already cached."""
     if VIDEO_PATH.exists():
         return
     print(f"\nDownloading test video from {VIDEO_URL} ...")
@@ -56,147 +58,156 @@ def video_path():
     return str(VIDEO_PATH)
 
 
+# ---------------------------------------------------------------------------
+# Model fixtures — one per family, smallest variant
+# ---------------------------------------------------------------------------
+
+
 @pytest.fixture(scope="module")
-def model():
-    """Load the smallest YOLO9 model once per module."""
+def yolox_model():
+    m = LibreYOLO("LibreYOLOXn.pt")
+    yield m
+    del m
+    cuda_cleanup()
+
+
+@pytest.fixture(scope="module")
+def yolo9_model():
     m = LibreYOLO("LibreYOLO9t.pt")
     yield m
     del m
     cuda_cleanup()
 
 
+@pytest.fixture(scope="module")
+def rfdetr_model():
+    m = LibreYOLO("LibreRFDETRn.pt")
+    yield m
+    del m
+    cuda_cleanup()
+
+
 # ---------------------------------------------------------------------------
-# stream=True (generator)
+# Helpers
 # ---------------------------------------------------------------------------
 
 
-class TestVideoStream:
-    """Tests for generator-based video inference."""
+def _collect_n_frames(model, video_path, n=30, **kwargs):
+    """Run inference and collect first n frames."""
+    results = []
+    for i, r in enumerate(model(video_path, stream=True, **kwargs)):
+        results.append(r)
+        if i + 1 >= n:
+            break
+    return results
 
-    def test_stream_returns_generator(self, model, video_path):
-        gen = model(video_path, stream=True, conf=0.25)
-        assert hasattr(gen, "__next__"), "stream=True should return a generator"
-        # Consume just one frame to verify it works
+
+# ---------------------------------------------------------------------------
+# YOLOX
+# ---------------------------------------------------------------------------
+
+
+class TestVideoYOLOX:
+    """Video inference with YOLOX."""
+
+    def test_stream_returns_generator(self, yolox_model, video_path):
+        gen = yolox_model(video_path, stream=True, conf=0.25)
+        assert hasattr(gen, "__next__")
         result = next(gen)
         assert result is not None
-        # Clean up generator
+        assert result.frame_idx == 0
         gen.close()
 
-    def test_stream_yields_all_frames(self, model, video_path):
-        results = list(model(video_path, stream=True, conf=0.25))
-        # Video has 341 frames
-        assert len(results) == 341
-
-    def test_stream_results_have_frame_idx(self, model, video_path):
-        indices = []
-        for i, result in enumerate(model(video_path, stream=True, conf=0.25)):
-            indices.append(result.frame_idx)
-            if i >= 9:
-                break
-        assert indices == list(range(10))
-
-    def test_stream_results_have_path(self, model, video_path):
-        result = next(iter(model(video_path, stream=True, conf=0.25)))
-        assert result.path == video_path
-
-    def test_stream_detects_people(self, model, video_path):
-        """The video has many pedestrians — we should detect objects."""
-        total_dets = 0
-        for i, result in enumerate(model(video_path, stream=True, conf=0.25)):
-            total_dets += len(result)
-            if i >= 29:
-                break
-        # 30 frames of people walking — should find plenty of detections
+    def test_detects_people(self, yolox_model, video_path):
+        frames = _collect_n_frames(yolox_model, video_path, n=30, conf=0.25)
+        total_dets = sum(len(r) for r in frames)
         assert total_dets > 100, f"Only {total_dets} detections in 30 frames"
 
+    def test_vid_stride(self, yolox_model, video_path):
+        frames = _collect_n_frames(yolox_model, video_path, n=1000, conf=0.25, vid_stride=5)
+        indices = [r.frame_idx for r in frames[:5]]
+        assert indices == [0, 5, 10, 15, 20]
+
+    def test_save(self, yolox_model, video_path, tmp_path):
+        output = str(tmp_path / "yolox_output.mp4")
+        n = 0
+        for r in yolox_model(video_path, stream=True, save=True, output_path=output,
+                              conf=0.25, vid_stride=10):
+            n += 1
+        assert Path(output).exists()
+        cap = cv2.VideoCapture(output)
+        assert int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) == n
+        cap.release()
+
+    def test_orig_shape(self, yolox_model, video_path):
+        result = next(iter(yolox_model(video_path, stream=True, conf=0.25)))
+        assert result.orig_shape == (1080, 1920)
+
 
 # ---------------------------------------------------------------------------
-# stream=False (list)
+# YOLO9
 # ---------------------------------------------------------------------------
 
 
-class TestVideoList:
-    """Tests for list-based video inference (stream=False)."""
+class TestVideoYOLO9:
+    """Video inference with YOLO9."""
 
-    def test_list_mode_returns_list(self, model, video_path):
-        # Use vid_stride=10 to keep it fast
-        results = model(video_path, conf=0.25, vid_stride=10)
-        assert isinstance(results, list)
-        assert len(results) > 0
+    def test_stream_returns_generator(self, yolo9_model, video_path):
+        gen = yolo9_model(video_path, stream=True, conf=0.25)
+        assert hasattr(gen, "__next__")
+        result = next(gen)
+        assert result is not None
+        assert result.frame_idx == 0
+        gen.close()
 
-    def test_list_mode_results_have_frame_idx(self, model, video_path):
-        results = model(video_path, conf=0.25, vid_stride=10)
-        for result in results:
-            assert result.frame_idx is not None
+    def test_detects_people(self, yolo9_model, video_path):
+        frames = _collect_n_frames(yolo9_model, video_path, n=30, conf=0.25)
+        total_dets = sum(len(r) for r in frames)
+        assert total_dets > 100, f"Only {total_dets} detections in 30 frames"
 
-
-# ---------------------------------------------------------------------------
-# vid_stride
-# ---------------------------------------------------------------------------
-
-
-class TestVidStride:
-    """Tests for frame skipping."""
-
-    def test_vid_stride_1(self, model, video_path):
-        results = list(model(video_path, stream=True, conf=0.25))
+    def test_stream_yields_all_frames(self, yolo9_model, video_path):
+        results = list(yolo9_model(video_path, stream=True, conf=0.25))
         assert len(results) == 341
 
-    def test_vid_stride_2(self, model, video_path):
-        results = list(model(video_path, stream=True, conf=0.25, vid_stride=2))
-        assert len(results) == 171  # ceil(341/2)
+    def test_list_mode(self, yolo9_model, video_path):
+        results = yolo9_model(video_path, conf=0.25, vid_stride=10)
+        assert isinstance(results, list)
+        assert len(results) > 0
+        for r in results:
+            assert r.frame_idx is not None
 
-    def test_vid_stride_5(self, model, video_path):
-        results = list(model(video_path, stream=True, conf=0.25, vid_stride=5))
-        assert len(results) == 69  # ceil(341/5)
+    def test_vid_stride_2(self, yolo9_model, video_path):
+        results = list(yolo9_model(video_path, stream=True, conf=0.25, vid_stride=2))
+        assert len(results) == 171
 
-    def test_vid_stride_frame_indices(self, model, video_path):
-        results = list(model(video_path, stream=True, conf=0.25, vid_stride=5))
+    def test_vid_stride_5(self, yolo9_model, video_path):
+        results = list(yolo9_model(video_path, stream=True, conf=0.25, vid_stride=5))
+        assert len(results) == 69
+
+    def test_vid_stride_frame_indices(self, yolo9_model, video_path):
+        results = list(yolo9_model(video_path, stream=True, conf=0.25, vid_stride=5))
         indices = [r.frame_idx for r in results[:5]]
         assert indices == [0, 5, 10, 15, 20]
 
-
-# ---------------------------------------------------------------------------
-# save=True
-# ---------------------------------------------------------------------------
-
-
-class TestVideoSave:
-    """Tests for saving annotated output video."""
-
-    def test_save_creates_video(self, model, video_path, tmp_path):
-        output = str(tmp_path / "output.mp4")
-        # Use vid_stride=10 to keep it fast
-        for _ in model(video_path, stream=True, save=True, output_path=output,
-                       conf=0.25, vid_stride=10):
-            pass
+    def test_save_creates_valid_video(self, yolo9_model, video_path, tmp_path):
+        output = str(tmp_path / "yolo9_output.mp4")
+        n_input = 0
+        for _ in yolo9_model(video_path, stream=True, save=True, output_path=output,
+                              conf=0.25, vid_stride=10):
+            n_input += 1
 
         assert Path(output).exists()
         assert Path(output).stat().st_size > 1000
-
-    def test_saved_video_is_valid(self, model, video_path, tmp_path):
-        output = str(tmp_path / "output.mp4")
-        n_input = 0
-        for _ in model(video_path, stream=True, save=True, output_path=output,
-                       conf=0.25, vid_stride=10):
-            n_input += 1
-
         cap = cv2.VideoCapture(output)
         assert cap.isOpened()
-        n_output = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-        width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-        height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        assert int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) == n_input
+        assert int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)) == 1920
+        assert int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)) == 1080
         cap.release()
 
-        assert n_output == n_input
-        assert width == 1920
-        assert height == 1080
-
-    def test_save_auto_path(self, model, video_path):
-        """save=True without output_path should create runs/detect/predict*."""
-        for _ in model(video_path, stream=True, save=True, conf=0.25, vid_stride=50):
+    def test_save_auto_path(self, yolo9_model, video_path):
+        for _ in yolo9_model(video_path, stream=True, save=True, conf=0.25, vid_stride=50):
             pass
-        # Check that some predict directory was created
         predict_dirs = list(Path("runs/detect").glob("predict*"))
         assert len(predict_dirs) > 0
         mp4s = []
@@ -204,53 +215,70 @@ class TestVideoSave:
             mp4s.extend(d.glob("*.mp4"))
         assert len(mp4s) > 0
 
+    def test_high_conf_fewer_detections(self, yolo9_model, video_path):
+        low = sum(len(r) for r in _collect_n_frames(
+            yolo9_model, video_path, n=10, conf=0.1, vid_stride=10))
+        high = sum(len(r) for r in _collect_n_frames(
+            yolo9_model, video_path, n=10, conf=0.7, vid_stride=10))
+        assert high < low
 
-# ---------------------------------------------------------------------------
-# conf / classes filters
-# ---------------------------------------------------------------------------
-
-
-class TestVideoFilters:
-    """Tests for conf/classes filtering during video inference."""
-
-    def test_high_conf_fewer_detections(self, model, video_path):
-        low_conf_dets = 0
-        high_conf_dets = 0
-        for i, r in enumerate(model(video_path, stream=True, conf=0.1, vid_stride=10)):
-            low_conf_dets += len(r)
-            if i >= 9:
-                break
-
-        for i, r in enumerate(model(video_path, stream=True, conf=0.7, vid_stride=10)):
-            high_conf_dets += len(r)
-            if i >= 9:
-                break
-
-        assert high_conf_dets < low_conf_dets
-
-    def test_classes_filter(self, model, video_path):
-        """Filter to class 0 (person) should still find detections."""
+    def test_classes_filter(self, yolo9_model, video_path):
         total = 0
-        for i, r in enumerate(model(video_path, stream=True, conf=0.25,
-                                     classes=[0], vid_stride=10)):
+        for r in _collect_n_frames(yolo9_model, video_path, n=10,
+                                    conf=0.25, classes=[0], vid_stride=10):
             total += len(r)
-            if r.boxes is not None and len(r) > 0:
-                # All detections should be class 0
+            if len(r) > 0:
                 assert (r.boxes.cls == 0).all()
-            if i >= 9:
-                break
         assert total > 0
 
+    def test_orig_shape(self, yolo9_model, video_path):
+        result = next(iter(yolo9_model(video_path, stream=True, conf=0.25)))
+        assert result.orig_shape == (1080, 1920)
+
+    def test_path_on_results(self, yolo9_model, video_path):
+        result = next(iter(yolo9_model(video_path, stream=True, conf=0.25)))
+        assert result.path == video_path
+
 
 # ---------------------------------------------------------------------------
-# orig_shape
+# RF-DETR
 # ---------------------------------------------------------------------------
 
 
-class TestVideoResultShape:
-    """Tests for result metadata correctness."""
+@requires_rfdetr
+class TestVideoRFDETR:
+    """Video inference with RF-DETR."""
 
-    def test_orig_shape_matches_video(self, model, video_path):
-        result = next(iter(model(video_path, stream=True, conf=0.25)))
-        # Video is 1920x1080, orig_shape is (H, W)
+    def test_stream_returns_generator(self, rfdetr_model, video_path):
+        gen = rfdetr_model(video_path, stream=True, conf=0.25)
+        assert hasattr(gen, "__next__")
+        result = next(gen)
+        assert result is not None
+        assert result.frame_idx == 0
+        gen.close()
+
+    def test_detects_people(self, rfdetr_model, video_path):
+        frames = _collect_n_frames(rfdetr_model, video_path, n=30, conf=0.25)
+        total_dets = sum(len(r) for r in frames)
+        assert total_dets > 100, f"Only {total_dets} detections in 30 frames"
+
+    def test_vid_stride(self, rfdetr_model, video_path):
+        frames = _collect_n_frames(rfdetr_model, video_path, n=1000,
+                                    conf=0.25, vid_stride=5)
+        indices = [r.frame_idx for r in frames[:5]]
+        assert indices == [0, 5, 10, 15, 20]
+
+    def test_save(self, rfdetr_model, video_path, tmp_path):
+        output = str(tmp_path / "rfdetr_output.mp4")
+        n = 0
+        for r in rfdetr_model(video_path, stream=True, save=True, output_path=output,
+                               conf=0.25, vid_stride=10):
+            n += 1
+        assert Path(output).exists()
+        cap = cv2.VideoCapture(output)
+        assert int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) == n
+        cap.release()
+
+    def test_orig_shape(self, rfdetr_model, video_path):
+        result = next(iter(rfdetr_model(video_path, stream=True, conf=0.25)))
         assert result.orig_shape == (1080, 1920)
