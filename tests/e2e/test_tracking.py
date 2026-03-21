@@ -165,6 +165,11 @@ class TestTrackingYOLOX:
         for f in saved:
             assert f.stat().st_size > 1000, f"{f.name} is suspiciously small"
 
+    def test_track_raises_on_missing_video(self, model):
+        """track() should raise FileNotFoundError for non-existent video."""
+        with pytest.raises(FileNotFoundError, match="Video file not found"):
+            next(model.track("/tmp/nonexistent_video_12345.mp4"))
+
 
 # ── YOLO9 ────────────────────────────────────────────────────────────────────
 

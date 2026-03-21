@@ -415,6 +415,7 @@ class BaseModel(ABC):
                     Path("runs") / "track" / video_stem, exist_ok=False
                 )
             output_dir.mkdir(parents=True, exist_ok=True)
+            print(f"Saving tracked frames to {output_dir}/")
 
         tracker = ByteTracker(config=tracker_config)
         cap = cv2.VideoCapture(str(source))

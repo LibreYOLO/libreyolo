@@ -65,6 +65,30 @@ class TestTrackConfig:
         with pytest.warns(UserWarning, match="Unknown tracking config"):
             TrackConfig.from_kwargs(bogus=True)
 
+    def test_rejects_zero_frame_rate(self):
+        with pytest.raises(ValueError, match="frame_rate must be > 0"):
+            TrackConfig(frame_rate=0)
+
+    def test_rejects_negative_threshold(self):
+        with pytest.raises(ValueError, match="track_high_thresh must be in"):
+            TrackConfig(track_high_thresh=-0.5)
+
+    def test_rejects_threshold_over_one(self):
+        with pytest.raises(ValueError, match="track_low_thresh must be in"):
+            TrackConfig(track_low_thresh=1.5)
+
+    def test_rejects_high_below_low(self):
+        with pytest.raises(ValueError, match="track_high_thresh .* must be >= track_low_thresh"):
+            TrackConfig(track_high_thresh=0.1, track_low_thresh=0.5)
+
+    def test_rejects_negative_track_buffer(self):
+        with pytest.raises(ValueError, match="track_buffer must be >= 0"):
+            TrackConfig(track_buffer=-1)
+
+    def test_rejects_zero_minimum_consecutive_frames(self):
+        with pytest.raises(ValueError, match="minimum_consecutive_frames must be >= 1"):
+            TrackConfig(minimum_consecutive_frames=0)
+
 
 # --------------------------------------------------------------------------
 # KalmanFilter

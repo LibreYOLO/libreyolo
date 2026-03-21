@@ -1,12 +1,27 @@
 """Drawing utility functions for visualization."""
 
 import colorsys
+from functools import lru_cache
 from typing import Dict, List, Tuple
 
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
 from .general import COCO_CLASSES
+
+
+@lru_cache(maxsize=16)
+def _get_font(font_size: int) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
+    """Load and cache a font at the given size."""
+    try:
+        return ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", font_size)
+    except OSError:
+        try:
+            return ImageFont.truetype(
+                "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", font_size
+            )
+        except OSError:
+            return ImageFont.load_default()
 
 
 def _get_class_color_rgb(class_id: int) -> Tuple[int, int, int]:
@@ -64,16 +79,7 @@ def draw_boxes(
     box_thickness = max(2, int(2 * scale_factor))
     font_size = max(12, int(12 * scale_factor))
 
-    try:
-        font = ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", font_size)
-    except OSError:
-        try:
-            # Linux fallback
-            font = ImageFont.truetype(
-                "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", font_size
-            )
-        except OSError:
-            font = ImageFont.load_default()
+    font = _get_font(font_size)
 
     label_padding = max(2, int(2 * scale_factor))
 
