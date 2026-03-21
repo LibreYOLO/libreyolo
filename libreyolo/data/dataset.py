@@ -205,14 +205,7 @@ class YOLODataset(Dataset):
         resized_info = (int(height * r), int(width * r))
         file_name = img_file.name
 
-        # Store polygons indexed by image for seg training
-        if not hasattr(self, "_polygons"):
-            self._polygons = {}
-        img_idx = len(self._polygons)
-        if any(p is not None for p in polygons):
-            self._polygons[img_idx] = polygons
-
-        return (res, img_info, resized_info, file_name)
+        return (res, img_info, resized_info, file_name, polygons)
 
     def __len__(self):
         return self.num_imgs
@@ -248,14 +241,36 @@ class YOLODataset(Dataset):
         return resized_img
 
     def pull_item(self, index: int):
-        """Get item without preprocessing."""
-        label, origin_image_size, _, _ = self.annotations[index]
+        """Get item without preprocessing.
+
+        Returns:
+            img: Resized image (H, W, C).
+            label: Annotations [N, 5] in pixel coords at resized scale.
+            origin_image_size: (height, width) of original image.
+            index: Image index.
+            polygons: List of (M, 2) arrays in pixel coords at resized scale,
+                or empty list for detection-only labels.
+        """
+        label, origin_image_size, resized_info, _, polygons = self.annotations[index]
         img = self.load_resized_img(index)
-        return img, copy.deepcopy(label), origin_image_size, index
+
+        # Convert normalized polygons to pixel coords at resized scale
+        rh, rw = resized_info
+        polygons_px = []
+        for p in polygons:
+            if p is not None:
+                p_px = p.copy()
+                p_px[:, 0] *= rw
+                p_px[:, 1] *= rh
+                polygons_px.append(p_px)
+            else:
+                polygons_px.append(None)
+
+        return img, copy.deepcopy(label), origin_image_size, index, polygons_px
 
     def __getitem__(self, index: int):
         """Get preprocessed item."""
-        img, target, img_info, img_id = self.pull_item(index)
+        img, target, img_info, img_id, _polygons = self.pull_item(index)
 
         if self.preproc is not None:
             img, target = self.preproc(img, target, self.input_dim)
@@ -440,14 +455,27 @@ def yolox_collate_fn(batch):
         targets: (B, max_labels, 5) tensor
         img_infos: tuple of image info
         img_ids: tuple of image ids
+        masks: (B, max_labels, 160, 160) tensor, or None if no masks
     """
-    imgs, targets, img_infos, img_ids = zip(*batch)
+    # Support both 4-tuple (detection) and 5-tuple (segmentation) batches
+    first = batch[0]
+    has_masks = len(first) == 5
+
+    if has_masks:
+        imgs, targets, img_infos, img_ids, masks = zip(*batch)
+    else:
+        imgs, targets, img_infos, img_ids = zip(*batch)
+        masks = None
 
     # Stack images
     imgs = torch.from_numpy(np.stack(imgs))
 
     # Stack targets (already padded to max_labels)
     targets = torch.from_numpy(np.stack(targets))
+
+    if masks is not None:
+        masks = torch.stack(masks)  # (B, max_labels, 160, 160)
+        return imgs, targets, img_infos, img_ids, masks
 
     return imgs, targets, img_infos, img_ids
 

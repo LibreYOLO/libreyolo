@@ -215,24 +215,21 @@ def postprocess(
         proto_single = proto[0]  # (num_masks, H_proto, W_proto)
         mc_single = mc[0]        # (num_masks, total_anchors)
 
-        # Get mask coefficients for conf-filtered anchors, then for NMS survivors
+        # Get mask coefficients for conf-filtered anchors
         mc_filtered = mc_single[:, conf_mask].T  # (N_conf, num_masks)
 
-        # The postprocess_detections function applies NMS and returns final boxes
-        # We need to re-identify which of the conf-filtered indices survived NMS
-        # by matching the returned boxes back to the input boxes
-        # This is imperfect but works for the common case
+        # Use keep_indices from NMS to select the correct mask coefficients
+        keep_indices = det.get("keep_indices")
+        if keep_indices is not None and len(keep_indices) > 0:
+            mask_coeffs = mc_filtered[keep_indices]
+        else:
+            mask_coeffs = mc_filtered[:det["num_detections"]]
+
         if original_size is not None:
             orig_w, orig_h = original_size
             img_shape = (orig_h, orig_w)
         else:
             img_shape = (input_size, input_size)
-
-        # Use all conf-filtered mask coefficients and assemble all masks,
-        # then select the ones that match the NMS-surviving detections
-        # For now, take the first N detections' coefficients
-        n_det = det["num_detections"]
-        mask_coeffs = mc_filtered[:n_det]
 
         boxes_t = torch.tensor(det["boxes"], dtype=torch.float32, device=proto_single.device)
         masks = process_mask(proto_single, mask_coeffs, boxes_t, img_shape)
