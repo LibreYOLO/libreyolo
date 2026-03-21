@@ -208,9 +208,15 @@ class LibreYOLORFDETR(BaseModel):
 
         self._is_segmentation = segmentation
 
-        # Auto-detect segmentation from weights
+        # Auto-detect segmentation from filename first (avoids loading weights twice)
         if not segmentation and self._pretrain_weights is not None:
-            self._is_segmentation = self._detect_segmentation(self._pretrain_weights)
+            task = self.detect_task_from_filename(str(self._pretrain_weights))
+            if task == "seg":
+                self._is_segmentation = True
+            else:
+                self._is_segmentation = self._detect_segmentation(
+                    self._pretrain_weights
+                )
 
         if self._is_segmentation:
             self.INPUT_SIZES = self.SEG_INPUT_SIZES
