@@ -17,6 +17,7 @@ import torch
 from ...utils.drawing import draw_boxes, draw_tile_grid
 from ...utils.general import get_safe_stem, get_slice_bboxes, nms, resolve_save_path
 from ...utils.image_loader import ImageInput, ImageLoader
+from ...utils.postprocess import resolve_nms_fn
 from ...utils.results import Boxes, Results
 
 if TYPE_CHECKING:
@@ -46,6 +47,7 @@ class InferenceRunner:
         tiling: bool = False,
         overlap_ratio: float = 0.2,
         output_file_format: Optional[str] = None,
+        postprocess=None,
         **kwargs,
     ) -> Union[Results, List[Results]]:
         """
@@ -65,7 +67,14 @@ class InferenceRunner:
             tiling: Enable tiled inference for large images.
             overlap_ratio: Tile overlap ratio.
             output_file_format: Output format ("jpg", "png", "webp").
-            **kwargs: Additional arguments for postprocessing.
+            postprocess: NMS alternative. One of:
+                - None or "nms": standard NMS (default)
+                - "soft_nms": Soft-NMS with Gaussian decay
+                - "diou_nms": Distance-IoU NMS
+                - A callable: (boxes, scores, iou_threshold) -> indices
+                For custom parameters (e.g., sigma), use functools.partial:
+                ``postprocess=partial(soft_nms, sigma=0.3)``
+            **kwargs: Additional arguments for model postprocessing.
 
         Returns:
             Results instance or list of Results.
@@ -77,6 +86,20 @@ class InferenceRunner:
                     f"Invalid output_file_format: {output_file_format}. "
                     "Must be one of: 'jpg', 'png', 'webp'"
                 )
+
+        # Resolve postprocess method to a callable (or None for default NMS)
+        nms_fn = resolve_nms_fn(postprocess)
+        if nms_fn is not None:
+            if tiling:
+                import warnings
+
+                warnings.warn(
+                    "Tiled inference always uses standard NMS for tile merging, "
+                    f"regardless of postprocess={postprocess!r}. The custom "
+                    "postprocess is applied per-tile only.",
+                    stacklevel=2,
+                )
+            kwargs["nms_fn"] = nms_fn
 
         # Handle directory input
         if isinstance(source, (str, Path)) and Path(source).is_dir():

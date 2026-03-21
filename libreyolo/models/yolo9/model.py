@@ -200,6 +200,7 @@ class LibreYOLO9(BaseModel):
             original_size=original_size,
             max_det=max_det,
             letterbox=kwargs.get("letterbox", False),
+            nms_fn=kwargs.get("nms_fn"),
         )
 
     # =========================================================================

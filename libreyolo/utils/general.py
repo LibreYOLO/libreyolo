@@ -6,6 +6,14 @@ from urllib.parse import urlparse
 
 import torch
 
+try:
+    import torchvision.ops as _tv_ops
+
+    _HAS_TORCHVISION = True
+except ImportError:
+    _tv_ops = None  # type: ignore[assignment]
+    _HAS_TORCHVISION = False
+
 
 # =============================================================================
 # Constants
@@ -386,6 +394,7 @@ def postprocess_detections(
     original_size: Tuple[int, int] | None = None,
     max_det: int = 300,
     letterbox: bool = False,
+    nms_fn: "Callable | None" = None,
 ) -> dict:
     """
     Shared post-processing pipeline for object detection outputs.
@@ -394,7 +403,7 @@ def postprocess_detections(
     - Scale boxes to original image size
     - Clip boxes to image boundaries
     - Filter invalid boxes (zero/negative area)
-    - Apply per-class NMS
+    - Apply per-class NMS (or alternative post-processing)
     - Limit to max detections
 
     Args:
@@ -408,6 +417,9 @@ def postprocess_detections(
         max_det: Maximum number of detections
         letterbox: If True, use letterbox-inverse scaling (aspect-preserving).
             If False, use independent x/y scaling (simple resize).
+        nms_fn: Optional callable replacing NMS. Signature:
+            (boxes: Tensor[N,4], scores: Tensor[N], iou_threshold: float) -> Tensor[K]
+            returning indices of boxes to keep. None = default NMS.
 
     Returns:
         Dictionary with boxes, scores, classes, num_detections
@@ -446,13 +458,6 @@ def postprocess_detections(
         return {"boxes": [], "scores": [], "classes": [], "num_detections": 0}
 
     # Per-class NMS
-    try:
-        import torchvision.ops
-
-        use_torchvision_nms = True
-    except ImportError:
-        use_torchvision_nms = False
-
     unique_classes = torch.unique(class_ids)
     keep_indices_list = []
 
@@ -464,10 +469,12 @@ def postprocess_detections(
         if len(cls_boxes) == 0:
             continue
 
-        if use_torchvision_nms:
+        if nms_fn is not None:
+            cls_keep = nms_fn(cls_boxes, cls_scores, iou_thres)
+        elif _HAS_TORCHVISION:
             max_wh = 7680.0
             boxes_for_nms = cls_boxes + cls.float() * max_wh
-            cls_keep = torchvision.ops.nms(boxes_for_nms, cls_scores, iou_thres)
+            cls_keep = _tv_ops.nms(boxes_for_nms, cls_scores, iou_thres)
         else:
             cls_keep = nms(cls_boxes, cls_scores, iou_thres)
 
@@ -532,13 +539,6 @@ def postprocess_batch(
     Returns:
         List of detection dicts, one per image in batch
     """
-    try:
-        import torchvision.ops
-
-        has_torchvision = True
-    except ImportError:
-        has_torchvision = False
-
     results = []
 
     if len(batch_boxes) == 0:
@@ -555,7 +555,7 @@ def postprocess_batch(
 
     # Batched NMS using class offsets: offset boxes by batch_idx and class_id
     # to prevent cross-image and cross-class suppression in a single call
-    if has_torchvision:
+    if _HAS_TORCHVISION:
         max_wh = 7680.0  # max expected image dimension
         max_batch_offset = max_wh * 100  # large offset between batches
 
@@ -563,7 +563,7 @@ def postprocess_batch(
             batch_indices.float() * max_batch_offset + batch_class_ids.float() * max_wh
         )
         boxes_for_nms = batch_boxes + combined_idx.unsqueeze(1)
-        keep = torchvision.ops.nms(boxes_for_nms, batch_scores, iou_thres)
+        keep = _tv_ops.nms(boxes_for_nms, batch_scores, iou_thres)
 
         batch_boxes = batch_boxes[keep]
         batch_scores = batch_scores[keep]

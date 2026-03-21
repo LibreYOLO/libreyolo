@@ -12,6 +12,8 @@ from .config import ValidationConfig
 from .metrics import DetMetrics
 from .utils import process_batch
 
+from libreyolo.utils.postprocess import resolve_nms_fn
+
 if TYPE_CHECKING:
     from libreyolo.models.base import BaseModel
 
@@ -38,10 +40,12 @@ class DetectionValidator(BaseValidator):
         self,
         model: "BaseModel",
         config: Optional[ValidationConfig] = None,
+        postprocess=None,
         **kwargs,
     ) -> None:
         super().__init__(model, config, **kwargs)
 
+        self.nms_fn = resolve_nms_fn(postprocess)
         self.metrics: Optional[DetMetrics] = None
         self.coco_evaluator = None
         self.class_names: Optional[List[str]] = None
@@ -308,6 +312,7 @@ class DetectionValidator(BaseValidator):
                 original_size=(orig_w, orig_h),  # (width, height)
                 input_size=self._actual_imgsz,
                 letterbox=uses_letterbox,
+                nms_fn=self.nms_fn,
             )
 
             if result["num_detections"] > 0:

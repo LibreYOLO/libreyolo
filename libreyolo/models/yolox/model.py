@@ -157,6 +157,7 @@ class LibreYOLOX(BaseModel):
             original_size=original_size,
             ratio=ratio,
             max_det=max_det,
+            nms_fn=kwargs.get("nms_fn"),
         )
 
     # =========================================================================

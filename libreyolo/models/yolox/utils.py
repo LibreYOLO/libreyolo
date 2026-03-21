@@ -171,6 +171,7 @@ def postprocess(
     original_size: Tuple[int, int] | None = None,
     ratio: float = 1.0,
     max_det: int = 300,
+    nms_fn: "Callable | None" = None,
 ) -> dict:
     """
     Postprocess YOLOX outputs to get final detections.
@@ -240,4 +241,5 @@ def postprocess(
         original_size=None,  # already scaled above
         max_det=max_det,
         letterbox=False,
+        nms_fn=nms_fn,
     )

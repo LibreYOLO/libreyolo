@@ -96,6 +96,7 @@ def postprocess(
     original_size: Tuple[int, int] | None = None,
     max_det: int = 300,
     letterbox: bool = False,
+    nms_fn: "Callable | None" = None,
 ) -> Dict:
     """
     Postprocess YOLOv9 model outputs to get final detections.
@@ -140,4 +141,5 @@ def postprocess(
         original_size=original_size,
         max_det=max_det,
         letterbox=letterbox,
+        nms_fn=nms_fn,
     )

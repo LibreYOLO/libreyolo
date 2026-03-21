@@ -351,6 +351,7 @@ class BaseModel(ABC):
         split: str = "val",
         save_json: bool = False,
         verbose: bool = True,
+        postprocess=None,
         **kwargs,
     ) -> Dict:
         """Run validation on a dataset.
@@ -365,6 +366,7 @@ class BaseModel(ABC):
             split: Dataset split ("val", "test").
             save_json: Save predictions in COCO JSON format.
             verbose: Print detailed metrics.
+            postprocess: NMS alternative ("soft_nms", "diou_nms", or callable).
 
         Returns:
             Dictionary with metrics/precision, metrics/recall,
@@ -388,5 +390,5 @@ class BaseModel(ABC):
             **kwargs,
         )
 
-        validator = DetectionValidator(model=self, config=config)
+        validator = DetectionValidator(model=self, config=config, postprocess=postprocess)
         return validator()
