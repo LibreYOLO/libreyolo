@@ -2,22 +2,28 @@
 Inference runner for LibreYOLO models.
 
 Encapsulates all inference-related logic: single-image prediction,
-tiled inference, batch processing, and result wrapping.
+tiled inference, batch processing, video inference, and result wrapping.
 """
 
 from __future__ import annotations
 
 import json
+import logging
+import warnings
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Dict, List, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Dict, Generator, List, Optional, Tuple, Union
 
+import numpy as np
 import torch
 
 from ...utils.drawing import draw_boxes, draw_tile_grid
 from ...utils.general import get_safe_stem, get_slice_bboxes, nms, resolve_save_path
 from ...utils.image_loader import ImageInput, ImageLoader
 from ...utils.results import Boxes, Results
+from ...utils.video import VideoSource, VideoWriter, is_video_file
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from .model import BaseModel
@@ -40,6 +46,10 @@ class InferenceRunner:
         max_det: int = 300,
         save: bool = False,
         batch: int = 1,
+        # video parameters
+        stream: bool = False,
+        vid_stride: int = 1,
+        show: bool = False,
         # libreyolo-specific
         output_path: str | None = None,
         color_format: str = "auto",
@@ -47,19 +57,23 @@ class InferenceRunner:
         overlap_ratio: float = 0.2,
         output_file_format: Optional[str] = None,
         **kwargs,
-    ) -> Union[Results, List[Results]]:
+    ) -> Union[Results, List[Results], Generator[Results, None, None]]:
         """
-        Run inference on an image or directory.
+        Run inference on an image, directory, or video.
 
         Args:
-            source: Input image or directory path.
+            source: Input image, directory path, or video file path.
             conf: Confidence threshold.
             iou: IoU threshold for NMS.
             imgsz: Input size override (None = model default).
             classes: Filter to specific class IDs.
             max_det: Maximum detections per image.
-            save: If True, saves annotated image.
+            save: If True, saves annotated image or video.
             batch: Batch size for directory processing.
+            stream: If True, return a generator yielding per-frame Results.
+                Recommended for video to avoid high memory usage.
+            vid_stride: Process every N-th video frame (default: 1).
+            show: If True, display annotated frames in a window (video only).
             output_path: Optional output path.
             color_format: Color format hint.
             tiling: Enable tiled inference for large images.
@@ -68,7 +82,7 @@ class InferenceRunner:
             **kwargs: Additional arguments for postprocessing.
 
         Returns:
-            Results instance or list of Results.
+            Results, list of Results, or generator of Results (video + stream).
         """
         if output_file_format is not None:
             output_file_format = output_file_format.lower().lstrip(".")
@@ -77,6 +91,36 @@ class InferenceRunner:
                     f"Invalid output_file_format: {output_file_format}. "
                     "Must be one of: 'jpg', 'png', 'webp'"
                 )
+
+        # Handle video input
+        if is_video_file(source):
+            gen = self._predict_video(
+                source,
+                conf=conf,
+                iou=iou,
+                imgsz=imgsz,
+                classes=classes,
+                max_det=max_det,
+                save=save,
+                show=show,
+                vid_stride=vid_stride,
+                output_path=output_path,
+                **kwargs,
+            )
+            if stream:
+                return gen
+            # Collect all results into a list (with warning for large videos)
+            vs = VideoSource(source, vid_stride=vid_stride)
+            est_frames = vs.total_frames // max(1, vid_stride)
+            vs.release()
+            if est_frames > 500:
+                warnings.warn(
+                    f"Video has ~{est_frames} frames to process. "
+                    f"Consider using stream=True to avoid high memory usage. "
+                    f"Example: model('{source}', stream=True)",
+                    stacklevel=2,
+                )
+            return list(gen)
 
         # Handle directory input
         if isinstance(source, (str, Path)) and Path(source).is_dir():
@@ -315,6 +359,127 @@ class InferenceRunner:
             result.saved_path = str(save_path)
 
         return result
+
+    def _predict_video(
+        self,
+        source: str | Path,
+        *,
+        conf: float = 0.25,
+        iou: float = 0.45,
+        imgsz: Optional[int] = None,
+        classes: Optional[List[int]] = None,
+        max_det: int = 300,
+        save: bool = False,
+        show: bool = False,
+        vid_stride: int = 1,
+        output_path: str | None = None,
+        **kwargs,
+    ) -> Generator[Results, None, None]:
+        """Run inference on a video file, yielding per-frame Results.
+
+        Args:
+            source: Path to a video file.
+            conf: Confidence threshold.
+            iou: IoU threshold for NMS.
+            imgsz: Input size override.
+            classes: Filter to specific class IDs.
+            max_det: Maximum detections per frame.
+            save: Write annotated video to disk.
+            show: Display annotated frames in a window.
+            vid_stride: Process every N-th frame.
+            output_path: Optional output path for saved video.
+            **kwargs: Additional postprocessing arguments.
+
+        Yields:
+            Results for each processed frame.
+        """
+        import cv2
+        from PIL import Image
+
+        video_src = VideoSource(source, vid_stride=vid_stride)
+        effective_imgsz = imgsz if imgsz is not None else self.model._get_input_size()
+
+        writer = None
+        if save:
+            out_path = self._resolve_video_save_path(source, output_path)
+            effective_fps = video_src.fps / max(1, vid_stride)
+            writer = VideoWriter(out_path, effective_fps, video_src.width, video_src.height)
+
+        try:
+            for frame_bgr, frame_idx in video_src:
+                # Convert BGR frame to PIL RGB for the existing pipeline
+                frame_rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
+                pil_img = Image.fromarray(frame_rgb)
+
+                # Preprocess
+                input_tensor, original_img, original_size, ratio = (
+                    self.model._preprocess(pil_img, "rgb", input_size=effective_imgsz)
+                )
+
+                # Forward
+                with torch.no_grad():
+                    output = self.model._forward(input_tensor.to(self.model.device))
+
+                # Postprocess
+                detections = self.model._postprocess(
+                    output, conf, iou, original_size, max_det=max_det, ratio=ratio,
+                    **kwargs,
+                )
+
+                # Wrap results
+                result = self._wrap_results(detections, original_size, str(source), classes)
+                result.frame_idx = frame_idx
+
+                # Annotate frame for save/show
+                if save or show:
+                    if len(result) > 0:
+                        annotated_pil = draw_boxes(
+                            original_img,
+                            result.boxes.xyxy.tolist(),
+                            result.boxes.conf.tolist(),
+                            result.boxes.cls.tolist(),
+                        )
+                    else:
+                        annotated_pil = original_img
+
+                    annotated_bgr = cv2.cvtColor(
+                        np.array(annotated_pil), cv2.COLOR_RGB2BGR
+                    )
+
+                    if save and writer is not None:
+                        writer.write_frame(annotated_bgr)
+
+                    if show:
+                        cv2.imshow("LibreYOLO", annotated_bgr)
+                        if cv2.waitKey(1) & 0xFF == ord("q"):
+                            break
+
+                yield result
+
+        finally:
+            video_src.release()
+            if writer is not None:
+                writer.release()
+                logger.info(f"Video saved to {out_path}")
+            if show:
+                cv2.destroyAllWindows()
+
+    @staticmethod
+    def _resolve_video_save_path(
+        source: str | Path, output_path: str | None
+    ) -> str:
+        """Determine the output path for a saved video."""
+        if output_path is not None:
+            out = Path(output_path)
+            out.parent.mkdir(parents=True, exist_ok=True)
+            return str(out)
+
+        save_dir = Path("runs/detect") / "predict"
+        from ...utils.general import increment_path
+
+        save_dir = increment_path(save_dir, exist_ok=False, mkdir=True)
+        stem = Path(source).stem
+        return str(save_dir / f"{stem}.mp4")
 
     def _merge_tile_detections(
         self,

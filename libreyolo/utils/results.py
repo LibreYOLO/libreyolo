@@ -114,11 +114,13 @@ class Results:
         orig_shape: Tuple[int, int],
         path: Optional[str] = None,
         names: Optional[Dict[int, str]] = None,
+        frame_idx: Optional[int] = None,
     ):
         self.boxes = boxes
         self.orig_shape = orig_shape
         self.path = path
         self.names = names or {}
+        self.frame_idx = frame_idx
 
     def cpu(self) -> "Results":
         """Return a copy with all tensors on CPU."""
@@ -127,15 +129,18 @@ class Results:
             orig_shape=self.orig_shape,
             path=self.path,
             names=self.names,
+            frame_idx=self.frame_idx,
         )
 
     def __len__(self) -> int:
         return len(self.boxes)
 
     def __repr__(self) -> str:
-        return (
-            f"Results("
-            f"path='{self.path}', "
-            f"orig_shape={self.orig_shape}, "
-            f"boxes={self.boxes})"
-        )
+        parts = [
+            f"path='{self.path}'",
+            f"orig_shape={self.orig_shape}",
+            f"boxes={self.boxes}",
+        ]
+        if self.frame_idx is not None:
+            parts.append(f"frame_idx={self.frame_idx}")
+        return f"Results({', '.join(parts)})"
