@@ -14,7 +14,7 @@ from ..models.yolox.utils import preprocess_image as yolox_preprocess_image
 from ..utils.drawing import draw_boxes
 from ..utils.general import COCO_CLASSES, get_safe_stem
 from ..utils.image_loader import ImageLoader
-from ..utils.results import Boxes, Results
+from ..utils.results import Boxes, Masks, Results
 
 
 def _nms_numpy(
@@ -138,17 +138,21 @@ class BaseBackend(ABC):
         conf: float,
         ratio: float = 1.0,
     ):
-        """Parse raw outputs into (boxes_xyxy, scores, class_ids)."""
+        """Parse raw outputs into (boxes_xyxy, scores, class_ids, masks_or_None)."""
         orig_w, orig_h = original_size
 
         if self.model_family == "yolox":
-            return self._parse_yolox(
+            boxes, scores, cls = self._parse_yolox(
                 all_outputs, effective_imgsz, orig_w, orig_h, conf, ratio
             )
+            return boxes, scores, cls, None
         elif self.model_family == "rfdetr":
             return self._parse_rfdetr(all_outputs, orig_w, orig_h, conf)
         else:
-            return self._parse_yolo9(all_outputs, effective_imgsz, orig_w, orig_h, conf)
+            boxes, scores, cls = self._parse_yolo9(
+                all_outputs, effective_imgsz, orig_w, orig_h, conf
+            )
+            return boxes, scores, cls, None
 
     def _parse_yolox(
         self, all_outputs, effective_imgsz, orig_w, orig_h, conf, ratio=1.0
@@ -209,9 +213,14 @@ class BaseBackend(ABC):
         return boxes, max_scores, class_ids
 
     def _parse_rfdetr(self, all_outputs, orig_w, orig_h, conf):
-        """Parse RF-DETR output: boxes (B,300,4) cxcywh [0,1] + logits (B,300,nc)."""
+        """Parse RF-DETR output: boxes (B,300,4) cxcywh [0,1] + logits (B,300,nc).
+
+        For segmentation models a third output is present:
+        masks (B,300,Hm,Wm) raw mask logits at model resolution.
+        """
         boxes_raw = all_outputs[0][0]  # (300, 4) normalized cxcywh
         logits = all_outputs[1][0]  # (300, nc) raw logits
+        raw_masks = all_outputs[2][0] if len(all_outputs) >= 3 else None
 
         scores = 1.0 / (1.0 + np.exp(-logits.astype(np.float64))).astype(np.float32)
 
@@ -221,9 +230,11 @@ class BaseBackend(ABC):
         mask = max_scores > conf
         boxes_raw = boxes_raw[mask]
         max_scores, class_ids = max_scores[mask], class_ids[mask]
+        if raw_masks is not None:
+            raw_masks = raw_masks[mask]
 
         if len(boxes_raw) == 0:
-            return boxes_raw, max_scores, class_ids
+            return boxes_raw, max_scores, class_ids, None
 
         # COCO 91→80 class mapping
         if logits.shape[1] == 91 and self.nb_classes == 80:
@@ -234,9 +245,11 @@ class BaseBackend(ABC):
             boxes_raw = boxes_raw[valid]
             max_scores = max_scores[valid]
             class_ids = mapped[valid]
+            if raw_masks is not None:
+                raw_masks = raw_masks[valid]
 
         if len(boxes_raw) == 0:
-            return boxes_raw, max_scores, class_ids
+            return boxes_raw, max_scores, class_ids, None
 
         cx, cy, w, h = (
             boxes_raw[:, 0],
@@ -253,7 +266,22 @@ class BaseBackend(ABC):
         boxes[:, [0, 2]] = np.clip(boxes[:, [0, 2]], 0, orig_w)
         boxes[:, [1, 3]] = np.clip(boxes[:, [1, 3]], 0, orig_h)
 
-        return boxes, max_scores, class_ids
+        # Resize and threshold masks to original image resolution
+        masks_out = None
+        if raw_masks is not None and len(raw_masks) > 0:
+            import torch
+            import torch.nn.functional as F
+
+            masks_t = torch.from_numpy(raw_masks).unsqueeze(1).float()
+            masks_t = F.interpolate(
+                masks_t,
+                size=(int(orig_h), int(orig_w)),
+                mode="bilinear",
+                align_corners=False,
+            )
+            masks_out = (masks_t[:, 0] > 0.0).numpy()  # (N, H, W)
+
+        return boxes, max_scores, class_ids, masks_out
 
     # =========================================================================
     # Result building
@@ -265,6 +293,7 @@ class BaseBackend(ABC):
         max_scores: np.ndarray,
         class_ids: np.ndarray,
         *,
+        masks: "np.ndarray | None" = None,
         orig_shape: Tuple[int, int],
         image_path,
         iou: float,
@@ -290,12 +319,16 @@ class BaseBackend(ABC):
             max_scores[keep],
             class_ids[keep],
         )
+        if masks is not None:
+            masks = masks[keep]
 
         if len(boxes) > max_det:
             top_indices = np.argsort(max_scores)[::-1][:max_det]
             boxes = boxes[top_indices]
             max_scores = max_scores[top_indices]
             class_ids = class_ids[top_indices]
+            if masks is not None:
+                masks = masks[top_indices]
 
         boxes_t = torch.tensor(boxes, dtype=torch.float32)
         conf_t = torch.tensor(max_scores, dtype=torch.float32)
@@ -308,9 +341,16 @@ class BaseBackend(ABC):
             boxes_t = boxes_t[cls_mask]
             conf_t = conf_t[cls_mask]
             cls_t = cls_t[cls_mask]
+            if masks is not None:
+                masks = masks[cls_mask.numpy()]
+
+        masks_obj = None
+        if masks is not None and len(masks) > 0:
+            masks_obj = Masks(torch.from_numpy(masks).bool(), orig_shape=orig_shape)
 
         return Results(
             boxes=Boxes(boxes_t, conf_t, cls_t),
+            masks=masks_obj,
             orig_shape=orig_shape,
             path=str(image_path) if image_path else None,
             names=self.names,
@@ -322,15 +362,22 @@ class BaseBackend(ABC):
 
     def _save_annotated(self, result, original_img, image_path, output_path):
         """Save annotated image to disk."""
+        annotated_img = original_img
         if len(result) > 0:
+            if result.masks is not None:
+                from ..utils.drawing import draw_masks
+
+                annotated_img = draw_masks(
+                    annotated_img,
+                    result.masks.data.numpy(),
+                    result.boxes.cls.tolist(),
+                )
             annotated_img = draw_boxes(
-                original_img,
+                annotated_img,
                 result.boxes.xyxy.tolist(),
                 result.boxes.conf.tolist(),
                 result.boxes.cls.tolist(),
             )
-        else:
-            annotated_img = original_img
 
         if output_path:
             final_path = Path(output_path)
@@ -386,7 +433,7 @@ class BaseBackend(ABC):
 
         all_outputs = self._run_inference(blob)
 
-        boxes, max_scores, class_ids = self._parse_outputs(
+        boxes, max_scores, class_ids, masks = self._parse_outputs(
             all_outputs, effective_imgsz, original_size, conf, ratio=ratio
         )
 
@@ -396,6 +443,7 @@ class BaseBackend(ABC):
             boxes,
             max_scores,
             class_ids,
+            masks=masks,
             orig_shape=orig_shape,
             image_path=image_path,
             iou=iou,
