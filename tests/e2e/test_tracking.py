@@ -147,6 +147,24 @@ class TestTrackingYOLOX:
             f"Only {len(all_ids)} unique IDs across 10 frames"
         )
 
+    def test_save_creates_annotated_frames(self, model, video_path, tmp_path):
+        """save=True should write annotated JPEG frames to output_path."""
+        out = tmp_path / "track_output"
+        frames = []
+        for i, r in enumerate(model.track(video_path, save=True, output_path=str(out))):
+            frames.append(r)
+            if i >= 4:
+                break
+
+        assert out.exists(), "Output directory was not created"
+        saved = sorted(out.glob("frame_*.jpg"))
+        assert len(saved) == 5, f"Expected 5 saved frames, got {len(saved)}"
+        assert saved[0].name == "frame_000000.jpg"
+        assert saved[-1].name == "frame_000004.jpg"
+        # Verify files are non-empty JPEGs
+        for f in saved:
+            assert f.stat().st_size > 1000, f"{f.name} is suspiciously small"
+
 
 # ── YOLO9 ────────────────────────────────────────────────────────────────────
 

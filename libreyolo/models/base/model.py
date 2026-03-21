@@ -349,13 +349,13 @@ class BaseModel(ABC):
         self,
         source: str | Path,
         *,
-        conf: float = 0.25,
+        track_conf: float = 0.25,
         iou: float = 0.45,
         imgsz: Optional[int] = None,
         classes: Optional[List[int]] = None,
         max_det: int = 300,
         save: bool = False,
-        save_dir: Optional[str] = None,
+        output_path: Optional[str] = None,
         tracker_config=None,
         **tracker_kwargs,
     ) -> Generator[Results, None, None]:
@@ -367,16 +367,17 @@ class BaseModel(ABC):
 
         Args:
             source: Path to a video file.
-            conf: Confidence threshold passed to the tracker as
-                ``track_high_thresh``. The detector runs at a lower threshold
-                internally so ByteTrack can use low-confidence detections.
+            track_conf: Confidence threshold for the tracker's first
+                association stage (``track_high_thresh``). The detector
+                runs at the lower ``track_low_thresh`` internally so
+                ByteTrack can use low-confidence detections for recovery.
             iou: IoU threshold for NMS during detection.
             imgsz: Override input image size.
             classes: Filter to specific class IDs.
             max_det: Maximum detections per frame.
             save: If True, save annotated frames (with bounding boxes and
-                track IDs) as images to *save_dir*.
-            save_dir: Directory to save annotated frames. Defaults to
+                track IDs) as images to *output_path*.
+            output_path: Directory to save annotated frames. Defaults to
                 ``runs/track/<video_stem>/``.
             tracker_config: A ``TrackConfig`` instance, or None to build
                 one from **tracker_kwargs.
@@ -404,8 +405,8 @@ class BaseModel(ABC):
         # Resolve save directory.
         output_dir = None
         if save:
-            if save_dir is not None:
-                output_dir = Path(save_dir)
+            if output_path is not None:
+                output_dir = Path(output_path)
             else:
                 video_stem = Path(source).stem
                 from ...utils.general import increment_path

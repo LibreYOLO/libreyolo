@@ -8,7 +8,14 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import numpy as np
-from scipy.optimize import linear_sum_assignment as scipy_lsa
+
+try:
+    from scipy.optimize import linear_sum_assignment as scipy_lsa
+except ImportError as e:
+    raise ImportError(
+        "scipy is required for tracking. "
+        "Install with: pip install libreyolo[tracking]"
+    ) from e
 
 if TYPE_CHECKING:
     from .strack import STrack

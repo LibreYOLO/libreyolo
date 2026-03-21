@@ -5,7 +5,14 @@ Measurement: (cx, cy, aspect_ratio, height)
 """
 
 import numpy as np
-import scipy.linalg
+
+try:
+    import scipy.linalg
+except ImportError as e:
+    raise ImportError(
+        "scipy is required for tracking. "
+        "Install with: pip install libreyolo[tracking]"
+    ) from e
 
 
 class KalmanFilterXYAH:

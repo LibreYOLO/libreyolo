@@ -43,6 +43,11 @@ class TrackConfig:
             raise ValueError(f"track_buffer must be >= 0, got {self.track_buffer}")
         if self.minimum_consecutive_frames < 1:
             raise ValueError(f"minimum_consecutive_frames must be >= 1, got {self.minimum_consecutive_frames}")
+        if self.track_high_thresh < self.track_low_thresh:
+            raise ValueError(
+                f"track_high_thresh ({self.track_high_thresh}) must be >= "
+                f"track_low_thresh ({self.track_low_thresh})"
+            )
 
     @classmethod
     def from_kwargs(cls, **kwargs) -> "TrackConfig":
