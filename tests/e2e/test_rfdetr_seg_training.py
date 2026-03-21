@@ -1,14 +1,19 @@
 """
-E2E: RF-DETR segmentation training test.
+E2E: RF-DETR segmentation training and inference tests.
 
-Trains RF-DETR-Seg-Nano for a few epochs on LibreYOLO/fire-smoke-seg
+Training test: trains RF-DETR-Seg-Nano for 5 epochs on LibreYOLO/fire-smoke-seg
 (HuggingFace, public, 141 train / 40 valid / 20 test images, 2 classes:
 fire & smoke, YOLO segmentation format with polygon annotations).
+
+NOTE: Seg training requires CUDA — the upstream rfdetr mask loss uses
+F.grid_sample(padding_mode='border') which MPS does not support.
+Seg inference works on all devices (CPU, MPS, CUDA).
 
 The dataset auto-downloads from HuggingFace — no API keys needed.
 
 Usage:
     pytest tests/e2e/test_rfdetr_seg_training.py -v -m e2e
+    pytest tests/e2e/test_rfdetr_seg_training.py::test_rfdetr_seg_inference_only -v
 """
 
 import subprocess
@@ -17,7 +22,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from .conftest import run_in_subprocess
+from .conftest import requires_cuda, run_in_subprocess
 
 pytestmark = [pytest.mark.e2e, pytest.mark.rfdetr, pytest.mark.slow]
 
@@ -62,6 +67,7 @@ def dataset():
     return DATASET_ROOT
 
 
+@requires_cuda
 def test_rfdetr_seg_training(dataset, tmp_path):
     """Train RF-DETR-Seg-Nano on fire-smoke-seg, verify masks are produced."""
     output_dir = str(tmp_path / "rfdetr_seg_n")
