@@ -194,6 +194,8 @@ class MaskLoss(nn.Module):
         gt_masks: Tensor,
         gt_bboxes: Tensor,
         valid_masks: Tensor,
+        match_indices: Tensor,
+        image_size: Tuple[int, int] = (640, 640),
     ) -> Tensor:
         """
         Args:
@@ -203,13 +205,21 @@ class MaskLoss(nn.Module):
                 at prototype resolution.
             gt_bboxes: (B, anchors, 4) matched GT bounding boxes (pixel coords).
             valid_masks: (B, anchors) boolean mask for positive anchors.
+            match_indices: (B, anchors, 1) target index each anchor is matched to.
+            image_size: (W, H) input image size for scaling bboxes to proto res.
+
+        Following Ultralytics YOLOv8-seg:
+        - Crop the LOSS (not the masks) to GT bboxes
+        - Divide per-instance loss by normalized bbox area
+        - Normalize total by foreground anchor count
         """
         if not valid_masks.any():
             return torch.tensor(0.0, device=proto.device, requires_grad=True)
 
         B, nm, mh, mw = proto.shape
+        img_w, img_h = image_size
         total_loss = torch.tensor(0.0, device=proto.device, requires_grad=True)
-        num_pos = 0
+        total_pos = valid_masks.sum().clamp(min=1)
 
         for b in range(B):
             pos = valid_masks[b]  # (anchors,)
@@ -217,43 +227,47 @@ class MaskLoss(nn.Module):
                 continue
 
             # Get mask coefficients for positive anchors in this image
-            # mask_coeffs is a list of (B, num_masks, H_i, W_i) per scale
-            # We need to flatten and gather positive anchors
             mc_flat = torch.cat(
                 [mc[b].view(nm, -1) for mc in mask_coeffs], dim=1
             )  # (num_masks, total_anchors)
             pos_coeffs = mc_flat[:, pos].T  # (num_pos, num_masks)
 
-            # Assemble predicted masks: coeffs @ proto
+            # Assemble predicted masks: coeffs @ proto → logits
             pred_masks = (pos_coeffs @ proto[b].view(nm, -1)).view(-1, mh, mw)
-            # pred_masks are logits (no sigmoid yet — BCE with logits)
 
-            # Get GT masks for positive anchors
-            # gt_masks[b] is (max_targets, mh, mw), we need to index by matched target
-            # For now, use the first num_pos targets (simplified — proper matching needed in full impl)
-            n_pos = pos.sum().item()
-            if gt_masks is not None and gt_masks.shape[1] >= n_pos:
-                target_masks = gt_masks[b, :n_pos]  # (num_pos, mh, mw)
-            else:
-                continue
+            # Get GT masks using TAL match indices
+            matched_idx = match_indices[b, pos, 0]  # (num_pos,)
+            target_masks = gt_masks[b][matched_idx]  # (num_pos, mh, mw)
 
-            # Scale bboxes to proto resolution for cropping
-            pos_bboxes = gt_bboxes[b, pos]  # (num_pos, 4) pixel coords
-            scale_x = mw / (gt_bboxes.max() + 1e-6)  # rough scale
-            scale_y = mh / (gt_bboxes.max() + 1e-6)
-            # For proper implementation, bboxes should already be at proto resolution
+            # Scale GT bboxes to proto resolution via normalized coords
+            pos_bboxes = gt_bboxes[b, pos].clone()  # (num_pos, 4) pixel coords
+            # Normalize to [0,1] then scale to proto dims
+            bboxes_norm = pos_bboxes.clone()
+            bboxes_norm[:, 0] /= img_w
+            bboxes_norm[:, 1] /= img_h
+            bboxes_norm[:, 2] /= img_w
+            bboxes_norm[:, 3] /= img_h
 
-            # BCE loss with logits, cropped to GT bbox
+            bboxes_proto = bboxes_norm.clone()
+            bboxes_proto[:, 0] *= mw
+            bboxes_proto[:, 1] *= mh
+            bboxes_proto[:, 2] *= mw
+            bboxes_proto[:, 3] *= mh
+
+            # Compute normalized bbox areas for per-instance weighting
+            bbox_wh = bboxes_norm[:, 2:] - bboxes_norm[:, :2]  # (num_pos, 2)
+            area = bbox_wh.prod(dim=1).clamp(min=1e-6)  # (num_pos,)
+
+            # BCE loss with logits (full spatial)
             loss = F.binary_cross_entropy_with_logits(
-                pred_masks, target_masks.float(), reduction="none"
+                pred_masks, target_masks.to(pred_masks.dtype), reduction="none"
             )
-            loss = loss.mean(dim=(1, 2))  # per-instance mean
-            total_loss = total_loss + loss.sum()
-            num_pos += n_pos
+            # Crop the LOSS to GT bbox (not the masks)
+            loss = self._crop_mask(loss, bboxes_proto)
+            # Per-instance: spatial mean / area, then sum
+            total_loss = total_loss + (loss.mean(dim=(1, 2)) / area).sum()
 
-        if num_pos > 0:
-            total_loss = total_loss / num_pos
-        return total_loss
+        return total_loss / total_pos
 
 
 # =============================================================================
@@ -509,11 +523,13 @@ class BoxMatcher:
         n_targets = target.shape[1]
         if n_targets == 0:
             device = predict_bbox.device
+            B, num_anchors = predict_cls.shape[:2]
             align_cls = torch.zeros_like(predict_cls, device=device)
             align_bbox = torch.zeros_like(predict_bbox, device=device)
             valid_mask = torch.zeros(predict_cls.shape[:2], dtype=bool, device=device)
             anchor_matched_targets = torch.cat([align_cls, align_bbox], dim=-1)
-            return anchor_matched_targets, valid_mask
+            unique_indices = torch.zeros(B, num_anchors, 1, dtype=torch.long, device=device)
+            return anchor_matched_targets, valid_mask, unique_indices
 
         target_cls, target_bbox = target.split([1, 4], dim=-1)
         target_cls = target_cls.long().clamp(0)
@@ -561,7 +577,7 @@ class BoxMatcher:
         align_cls = align_cls * normalize_term * valid_mask[:, :, None]
 
         anchor_matched_targets = torch.cat([align_cls, align_bbox], dim=-1)
-        return anchor_matched_targets, valid_mask
+        return anchor_matched_targets, valid_mask, unique_indices
 
 
 # =============================================================================
@@ -684,7 +700,7 @@ class YOLO9Loss:
         targets_scaled = targets * scale
 
         # Run Task Aligned Assignment
-        align_targets, valid_masks = self.matcher(
+        align_targets, valid_masks, match_indices = self.matcher(
             targets_scaled, (preds_cls.detach(), preds_box.detach())
         )
 
@@ -724,7 +740,8 @@ class YOLO9Loss:
         loss_mask_weighted = torch.tensor(0.0, device=targets.device)
         if proto is not None and mask_coeffs is not None and mask_targets is not None:
             loss_mask = self.mask_loss(
-                proto, mask_coeffs, mask_targets, targets_bbox, valid_masks
+                proto, mask_coeffs, mask_targets, targets_bbox, valid_masks,
+                match_indices, image_size=(W, H),
             )
             loss_mask_weighted = self.mask_weight * loss_mask
             total_loss = total_loss + loss_mask_weighted

@@ -71,5 +71,5 @@ class YOLO9Trainer(BaseTrainer):
             components["mask"] = _scalar(outputs["mask"])
         return components
 
-    def on_forward(self, imgs: torch.Tensor, targets: torch.Tensor) -> Dict:
-        return self.model(imgs, targets=targets)
+    def on_forward(self, imgs: torch.Tensor, targets: torch.Tensor, masks=None) -> Dict:
+        return self.model(imgs, targets=targets, mask_targets=masks)

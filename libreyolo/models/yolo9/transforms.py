@@ -48,13 +48,19 @@ def preproc(img, input_size, swap=(2, 0, 1)):
     return padded_img, r
 
 
-def mirror(image, boxes, prob=0.5):
+def mirror(image, boxes, prob=0.5, polygons=None):
     """Apply horizontal flip with probability."""
     _, width, _ = image.shape
+    flipped = False
     if random.random() < prob:
         image = image[:, ::-1]
         boxes[:, 0::2] = width - boxes[:, 2::-2]
-    return image, boxes
+        flipped = True
+        if polygons is not None:
+            for p in polygons:
+                if p is not None:
+                    p[:, 0] = width - p[:, 0]
+    return image, boxes, flipped
 
 
 class YOLO9TrainTransform:
@@ -76,7 +82,7 @@ class YOLO9TrainTransform:
         self.flip_prob = flip_prob
         self.hsv_prob = hsv_prob
 
-    def __call__(self, image, targets, input_dim):
+    def __call__(self, image, targets, input_dim, polygons=None):
         """
         Apply transformations.
 
@@ -84,61 +90,80 @@ class YOLO9TrainTransform:
             image: Input image (H, W, C) in BGR format
             targets: Annotations [N, 5] with [x1, y1, x2, y2, class] in pixel coords
             input_dim: Target size (height, width)
+            polygons: Optional list of (M, 2) arrays in pixel coords, one per target.
 
         Returns:
-            image: Transformed image (C, H, W) as float32
-            padded_labels: [max_labels, 5] with [class, x1, y1, x2, y2] normalized
+            If polygons is None:
+                image, padded_labels
+            If polygons is provided:
+                image, padded_labels, masks (max_labels, 160, 160)
         """
+        has_polys = polygons is not None and len(polygons) > 0
         boxes = targets[:, :4].copy()
         labels = targets[:, 4].copy()
 
         if len(boxes) == 0:
             padded_labels = np.zeros((self.max_labels, 5), dtype=np.float32)
-            # Fill class with -1 to indicate padding (empty slots)
             padded_labels[:, 0] = -1
             image, _ = preproc(image, input_dim)
+            if has_polys:
+                from libreyolo.data.dataset import polygons_to_masks
+                masks = polygons_to_masks([], 160, 160, self.max_labels)
+                return image, padded_labels, masks
             return image, padded_labels
 
         # Store original for fallback
         image_o = image.copy()
         boxes_o = boxes.copy()
         labels_o = labels.copy()
+        if has_polys:
+            import copy as _copy
+            polygons_o = _copy.deepcopy(polygons)
 
         # Apply HSV augmentation
         if random.random() < self.hsv_prob:
             augment_hsv(image)
 
         # Apply horizontal flip
-        image_t, boxes = mirror(image, boxes, self.flip_prob)
+        image_t, boxes, _flipped = mirror(image, boxes, self.flip_prob, polygons)
 
         # Resize with letterbox
         image_t, r = preproc(image_t, input_dim)
 
         # Scale boxes by resize ratio
         boxes = boxes * r
+        if has_polys:
+            for p in polygons:
+                if p is not None:
+                    p[:] *= r
 
         # Filter out tiny boxes (after resize)
         w = boxes[:, 2] - boxes[:, 0]
         h = boxes[:, 3] - boxes[:, 1]
-        mask = (w > 1) & (h > 1)
-        boxes_t = boxes[mask]
-        labels_t = labels[mask]
+        filt = (w > 1) & (h > 1)
+        boxes_t = boxes[filt]
+        labels_t = labels[filt]
+        if has_polys:
+            polygons_t = [polygons[i] for i in range(len(filt)) if filt[i]]
 
         # Fallback to original if all boxes filtered
         if len(boxes_t) == 0:
             image_t, r = preproc(image_o, input_dim)
             boxes_t = boxes_o * r
             labels_t = labels_o
+            if has_polys:
+                polygons_t = polygons_o
+                for p in polygons_t:
+                    if p is not None:
+                        p[:] *= r
 
         # Normalize coordinates to [0, 1]
         h_out, w_out = input_dim
         boxes_norm = boxes_t.copy()
-        boxes_norm[:, 0] /= w_out  # x1
-        boxes_norm[:, 1] /= h_out  # y1
-        boxes_norm[:, 2] /= w_out  # x2
-        boxes_norm[:, 3] /= h_out  # y2
-
-        # Clip to [0, 1]
+        boxes_norm[:, 0] /= w_out
+        boxes_norm[:, 1] /= h_out
+        boxes_norm[:, 2] /= w_out
+        boxes_norm[:, 3] /= h_out
         boxes_norm = np.clip(boxes_norm, 0, 1)
 
         # Format: [class, x1, y1, x2, y2]
@@ -147,11 +172,24 @@ class YOLO9TrainTransform:
 
         # Pad to max_labels
         padded_labels = np.zeros((self.max_labels, 5), dtype=np.float32)
-        # Fill class with -1 to indicate padding
         padded_labels[:, 0] = -1
-
         n = min(len(targets_t), self.max_labels)
         padded_labels[:n] = targets_t[:n]
+
+        if has_polys:
+            # Normalize polygons to [0, 1] and rasterize to proto resolution
+            polys_norm = []
+            for p in polygons_t[:self.max_labels]:
+                if p is not None:
+                    pn = p.copy()
+                    pn[:, 0] = np.clip(pn[:, 0] / w_out, 0, 1)
+                    pn[:, 1] = np.clip(pn[:, 1] / h_out, 0, 1)
+                    polys_norm.append(pn)
+                else:
+                    polys_norm.append(None)
+            from libreyolo.data.dataset import polygons_to_masks
+            masks = polygons_to_masks(polys_norm, 160, 160, self.max_labels)
+            return image_t, padded_labels, masks
 
         return image_t, padded_labels
 
@@ -251,12 +289,19 @@ class YOLO9MosaicMixupDataset:
 
     def _get_normal_item(self, idx):
         """Get a single item without mosaic."""
-        img, label, img_info, img_id = self.dataset.pull_item(idx)
-        img, label = self.preproc(img, label, self.input_dim)
-        return img, label, img_info, img_id
+        result = self.dataset.pull_item(idx)
+        if len(result) == 5:
+            img, label, img_info, img_id, polygons = result
+            img, label, masks = self.preproc(img, label, self.input_dim, polygons)
+            return img, label, img_info, img_id, masks
+        else:
+            img, label, img_info, img_id = result
+            img, label = self.preproc(img, label, self.input_dim)
+            return img, label, img_info, img_id
 
     def _get_mosaic_item(self, idx):
         """Get a mosaic-augmented item."""
+        import copy as _copy
         input_h, input_w = self.input_dim
 
         # Random center point for mosaic
@@ -269,9 +314,18 @@ class YOLO9MosaicMixupDataset:
         # Create mosaic canvas
         mosaic_img = np.full((input_h * 2, input_w * 2, 3), 114, dtype=np.uint8)
         mosaic_labels = []
+        mosaic_polygons = []
+        has_polys = False
 
         for i, index in enumerate(indices):
-            img, _labels, _, _ = self.dataset.pull_item(index)
+            result = self.dataset.pull_item(index)
+            if len(result) == 5:
+                img, _labels, _, _, _polygons = result
+                has_polys = True
+            else:
+                img, _labels, _, _ = result
+                _polygons = []
+
             h0, w0 = img.shape[:2]
 
             # Scale for mosaic
@@ -304,6 +358,7 @@ class YOLO9MosaicMixupDataset:
 
             # Adjust labels
             labels = _labels.copy()
+            polys = _copy.deepcopy(_polygons)
             if len(labels) > 0:
                 labels[:, :4] = labels[:, :4] * scale
                 labels[:, 0] += padw  # x1
@@ -311,6 +366,13 @@ class YOLO9MosaicMixupDataset:
                 labels[:, 2] += padw  # x2
                 labels[:, 3] += padh  # y2
                 mosaic_labels.append(labels)
+                # Transform polygons the same way
+                for p in polys:
+                    if p is not None:
+                        p[:] *= scale
+                        p[:, 0] += padw
+                        p[:, 1] += padh
+                mosaic_polygons.extend(polys)
 
         if len(mosaic_labels) > 0:
             mosaic_labels = np.concatenate(mosaic_labels, 0)
@@ -319,27 +381,47 @@ class YOLO9MosaicMixupDataset:
             np.clip(mosaic_labels[:, 1], 0, 2 * input_h, out=mosaic_labels[:, 1])
             np.clip(mosaic_labels[:, 2], 0, 2 * input_w, out=mosaic_labels[:, 2])
             np.clip(mosaic_labels[:, 3], 0, 2 * input_h, out=mosaic_labels[:, 3])
+            # Clamp polygon vertices to mosaic bounds
+            if has_polys:
+                for p in mosaic_polygons:
+                    if p is not None:
+                        np.clip(p[:, 0], 0, 2 * input_w, out=p[:, 0])
+                        np.clip(p[:, 1], 0, 2 * input_h, out=p[:, 1])
         else:
             mosaic_labels = np.zeros((0, 5))
 
-        # Resize mosaic to target size
+        # Resize mosaic to target size (2x -> 1x)
         mosaic_img = cv2.resize(mosaic_img, (input_w, input_h))
         mosaic_labels[:, :4] = mosaic_labels[:, :4] / 2
+        if has_polys:
+            for p in mosaic_polygons:
+                if p is not None:
+                    p[:] /= 2
 
         # Filter small boxes
         if len(mosaic_labels) > 0:
             w = mosaic_labels[:, 2] - mosaic_labels[:, 0]
             h = mosaic_labels[:, 3] - mosaic_labels[:, 1]
-            mask = (w > 2) & (h > 2)
-            mosaic_labels = mosaic_labels[mask]
+            filt = (w > 2) & (h > 2)
+            mosaic_labels = mosaic_labels[filt]
+            if has_polys:
+                mosaic_polygons = [mosaic_polygons[j] for j in range(len(filt)) if filt[j]]
 
-        # Apply preprocessing (HSV, flip, normalize)
-        img, labels = self.preproc(mosaic_img, mosaic_labels, self.input_dim)
+        # Apply preprocessing (HSV, flip, normalize, rasterize masks)
+        if has_polys:
+            img, labels, masks = self.preproc(
+                mosaic_img, mosaic_labels, self.input_dim, mosaic_polygons
+            )
+        else:
+            img, labels = self.preproc(mosaic_img, mosaic_labels, self.input_dim)
+            masks = None
 
-        # Apply mixup if enabled
+        # Apply mixup if enabled (masks not mixed — simplified)
         if self.enable_mixup and random.random() < self.mixup_prob and len(labels) > 0:
             img, labels = self._mixup(img, labels)
 
+        if has_polys:
+            return img, labels, (input_h, input_w), idx, masks
         return img, labels, (input_h, input_w), idx
 
     def _mixup(self, img, labels):

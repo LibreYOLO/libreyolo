@@ -412,8 +412,10 @@ def postprocess_detections(
     Returns:
         Dictionary with boxes, scores, classes, num_detections
     """
+    _empty = {"boxes": [], "scores": [], "classes": [], "num_detections": 0,
+              "keep_indices": torch.empty(0, dtype=torch.long)}
     if len(boxes) == 0:
-        return {"boxes": [], "scores": [], "classes": [], "num_detections": 0}
+        return _empty
 
     # Scale boxes to original image size
     if original_size is not None:
@@ -443,7 +445,7 @@ def postprocess_detections(
             class_ids = class_ids[valid_mask]
 
     if len(boxes) == 0:
-        return {"boxes": [], "scores": [], "classes": [], "num_detections": 0}
+        return _empty
 
     # Per-class NMS
     try:
@@ -475,7 +477,7 @@ def postprocess_detections(
         keep_indices_list.append(cls_indices[cls_keep])
 
     if len(keep_indices_list) == 0:
-        return {"boxes": [], "scores": [], "classes": [], "num_detections": 0}
+        return _empty
 
     keep_indices = torch.cat(keep_indices_list)
 
@@ -493,6 +495,7 @@ def postprocess_detections(
         "scores": final_scores.tolist(),
         "classes": final_classes.tolist(),
         "num_detections": len(final_boxes),
+        "keep_indices": keep_indices.cpu(),
     }
 
 

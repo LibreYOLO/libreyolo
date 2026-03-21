@@ -122,7 +122,7 @@ class BaseTrainer(ABC):
         if hasattr(self.train_loader.dataset, "close_mosaic"):
             self.train_loader.dataset.close_mosaic()
 
-    def on_forward(self, imgs: torch.Tensor, targets: torch.Tensor) -> Dict:
+    def on_forward(self, imgs: torch.Tensor, targets: torch.Tensor, masks=None) -> Dict:
         """Run the model forward pass. Override if call signature differs."""
         return self.model(imgs, targets)
 
@@ -403,23 +403,32 @@ class BaseTrainer(ABC):
         total_loss = 0.0
         num_batches = 0
 
-        for batch_idx, (imgs, targets, img_infos, img_ids) in enumerate(pbar):
+        for batch_idx, batch_data in enumerate(pbar):
+            # Support both 4-tuple (detection) and 5-tuple (segmentation) batches
+            if len(batch_data) == 5:
+                imgs, targets, img_infos, img_ids, masks = batch_data
+                masks = masks.to(self.device, non_blocking=True)
+            else:
+                imgs, targets, img_infos, img_ids = batch_data
+                masks = None
+
             self.current_iter = epoch * len(self.train_loader) + batch_idx
 
             imgs = imgs.to(self.device, non_blocking=True)
             targets = targets.to(self.device, non_blocking=True)
 
             # Forward + backward
+            fwd_args = (imgs, targets) if masks is None else (imgs, targets, masks)
             if self.scaler is not None:
                 with autocast("cuda"):
-                    outputs = self.on_forward(imgs, targets)
+                    outputs = self.on_forward(*fwd_args)
                     loss = outputs["total_loss"]
                 self.optimizer.zero_grad()
                 self.scaler.scale(loss).backward()
                 self.scaler.step(self.optimizer)
                 self.scaler.update()
             else:
-                outputs = self.on_forward(imgs, targets)
+                outputs = self.on_forward(*fwd_args)
                 loss = outputs["total_loss"]
                 self.optimizer.zero_grad()
                 loss.backward()
