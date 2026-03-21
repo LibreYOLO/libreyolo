@@ -110,15 +110,15 @@ class LibreYOLO9(BaseModel):
 
     @staticmethod
     def _detect_segmentation(model_path) -> bool:
-        """Check if weights contain a segmentation head."""
+        """Check if weights contain a segmentation head (proto + mask coeffs)."""
         if isinstance(model_path, dict):
-            return any("proto" in k or "cv4" in k for k in model_path)
+            return any(k.startswith("head.proto") or k.startswith("head.cv4") for k in model_path)
         if not isinstance(model_path, str):
             return False
         try:
             ckpt = torch.load(model_path, map_location="cpu", weights_only=False)
             state = ckpt.get("model", ckpt)
-            return any("proto" in k or "cv4" in k for k in state)
+            return any(k.startswith("head.proto") or k.startswith("head.cv4") for k in state)
         except Exception:
             return False
 
