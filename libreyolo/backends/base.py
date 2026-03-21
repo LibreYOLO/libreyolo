@@ -482,7 +482,6 @@ class BaseBackend(ABC):
                 show=show,
                 vid_stride=vid_stride,
                 output_path=output_path,
-                color_format=color_format,
             )
             if stream:
                 return gen
