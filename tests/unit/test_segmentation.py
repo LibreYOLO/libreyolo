@@ -219,3 +219,114 @@ class TestFactorySegDetection:
         assert LibreYOLOX.detect_task_from_filename("LibreYOLOXs.pt") is None
         assert LibreYOLO9.detect_size_from_filename("LibreYOLO9s.pt") == "s"
         assert LibreYOLO9.detect_task_from_filename("LibreYOLO9s.pt") is None
+
+
+class TestPolygonLabelParsing:
+    """Tests for polygon→bbox derivation in label parsers."""
+
+    def test_parse_yolo_label_polygon_format(self):
+        """parse_yolo_label_line derives bbox from polygon vertices."""
+        from libreyolo.data.yolo_coco_api import parse_yolo_label_line
+
+        # Triangle polygon: (0.2,0.3) (0.8,0.3) (0.5,0.9)
+        line = "0 0.2 0.3 0.8 0.3 0.5 0.9"
+        result = parse_yolo_label_line(line, img_w=100, img_h=100, num_classes=2)
+        assert result is not None
+        cls_id, x1, y1, x2, y2, area = result
+        assert cls_id == 0
+        # bbox of polygon: cx=0.5, cy=0.6, w=0.6, h=0.6
+        # pixel: x1=20, y1=30, x2=80, y2=90
+        assert abs(x1 - 20) < 1
+        assert abs(y1 - 30) < 1
+        assert abs(x2 - 80) < 1
+        assert abs(y2 - 90) < 1
+
+    def test_parse_yolo_label_detection_format(self):
+        """parse_yolo_label_line still works for standard 5-column detection."""
+        from libreyolo.data.yolo_coco_api import parse_yolo_label_line
+
+        line = "1 0.5 0.5 0.4 0.6"
+        result = parse_yolo_label_line(line, img_w=200, img_h=200, num_classes=2)
+        assert result is not None
+        cls_id, x1, y1, x2, y2, area = result
+        assert cls_id == 1
+        # cx=0.5, cy=0.5, w=0.4, h=0.6 → pixel: x1=60, y1=40, x2=140, y2=160
+        assert abs(x1 - 60) < 1
+        assert abs(y1 - 40) < 1
+        assert abs(x2 - 140) < 1
+        assert abs(y2 - 160) < 1
+
+    def test_yolo_dataset_polygon_format(self):
+        """YOLODataset._load_label derives bbox from polygon vertices."""
+        import tempfile
+        from pathlib import Path
+
+        from PIL import Image
+
+        # Create a minimal dataset with a polygon label
+        with tempfile.TemporaryDirectory() as tmpdir:
+            img_dir = Path(tmpdir) / "images" / "train"
+            lbl_dir = Path(tmpdir) / "labels" / "train"
+            img_dir.mkdir(parents=True)
+            lbl_dir.mkdir(parents=True)
+
+            # 100x100 dummy image
+            Image.new("RGB", (100, 100)).save(img_dir / "test.jpg")
+            # Polygon label: square from (0.2,0.2) to (0.8,0.8)
+            (lbl_dir / "test.txt").write_text(
+                "0 0.2 0.2 0.8 0.2 0.8 0.8 0.2 0.8\n"
+            )
+
+            from libreyolo.data.dataset import YOLODataset
+
+            ds = YOLODataset(data_dir=tmpdir, split="train", img_size=(100, 100))
+            _, target, _, _ = ds[0]
+            # target shape: (N, 5) with [x1, y1, x2, y2, cls]
+            assert len(target) == 1
+            x1, y1, x2, y2, cls = target[0]
+            assert cls == 0
+            assert abs(x1 - 20) < 1
+            assert abs(y1 - 20) < 1
+            assert abs(x2 - 80) < 1
+            assert abs(y2 - 80) < 1
+
+
+class TestDetectSegmentation:
+    """Tests for auto-detection of segmentation from weights."""
+
+    def test_detect_seg_from_checkpoint(self):
+        """_detect_segmentation returns True for checkpoints with seg keys."""
+        import tempfile
+        from pathlib import Path
+
+        from libreyolo.models.rfdetr.model import LibreYOLORFDETR
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = str(Path(tmpdir) / "seg_model.pt")
+            torch.save(
+                {"model": {"segmentation_head.weight": torch.zeros(1)}},
+                path,
+            )
+            assert LibreYOLORFDETR._detect_segmentation(path) is True
+
+    def test_detect_det_from_checkpoint(self):
+        """_detect_segmentation returns False for detection-only checkpoints."""
+        import tempfile
+        from pathlib import Path
+
+        from libreyolo.models.rfdetr.model import LibreYOLORFDETR
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = str(Path(tmpdir) / "det_model.pt")
+            torch.save(
+                {"model": {"class_embed.weight": torch.zeros(1)}},
+                path,
+            )
+            assert LibreYOLORFDETR._detect_segmentation(path) is False
+
+    def test_detect_seg_from_filename(self):
+        """Filename-based detection avoids loading weights."""
+        from libreyolo.models.rfdetr.model import LibreYOLORFDETR
+
+        assert LibreYOLORFDETR.detect_task_from_filename("LibreRFDETRn-seg.pt") == "seg"
+        assert LibreYOLORFDETR.detect_task_from_filename("LibreRFDETRn.pt") is None
