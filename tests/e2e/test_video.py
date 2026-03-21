@@ -1,7 +1,7 @@
 """
 E2E video inference: validate model() on a real video with pedestrians.
 
-Downloads a short test video (7.3 MB, 13.6s) from Roboflow's public CDN and
+Downloads a short test video (7.3 MB, 13.6s) from the LibreYOLO HF repo and
 runs video inference through LibreYOLO detectors, checking that:
   - stream=True yields a generator of Results
   - stream=False collects Results into a list
@@ -31,7 +31,7 @@ from .conftest import cuda_cleanup
 
 pytestmark = pytest.mark.e2e
 
-VIDEO_URL = "https://media.roboflow.com/supervision/video-examples/people-walking.mp4"
+VIDEO_URL = "https://huggingface.co/datasets/LibreYOLO/test-assets/resolve/main/videos/people-walking.mp4"
 VIDEO_CACHE = Path.home() / ".cache" / "libreyolo" / "tracking"
 VIDEO_PATH = VIDEO_CACHE / "people-walking.mp4"
 
