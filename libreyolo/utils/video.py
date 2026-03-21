@@ -1,9 +1,12 @@
 """Video source utilities for LibreYOLO."""
 
+import logging
 from pathlib import Path
-from typing import Iterator, Optional, Tuple
+from typing import Callable, Generator, Iterator, Tuple, Union
 
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 # Video extensions supported via OpenCV's VideoCapture
 VIDEO_EXTENSIONS = {
@@ -29,20 +32,47 @@ def is_video_file(source) -> bool:
     return Path(source).suffix.lower() in VIDEO_EXTENSIONS
 
 
+def resolve_video_save_path(
+    source: Union[str, Path], output_path: Union[str, None]
+) -> str:
+    """Determine the output path for a saved video.
+
+    If *output_path* is provided, uses it directly. Otherwise creates an
+    auto-incrementing directory under ``runs/detect/predict*/``.
+    """
+    if output_path is not None:
+        out = Path(output_path)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        return str(out)
+
+    from .general import increment_path
+
+    save_dir = Path("runs/detect") / "predict"
+    save_dir = increment_path(save_dir, exist_ok=False, mkdir=True)
+    stem = Path(source).stem
+    return str(save_dir / f"{stem}.mp4")
+
+
 class VideoSource:
     """Iterate over video frames using OpenCV.
+
+    Supports use as a context manager::
+
+        with VideoSource("clip.mp4", vid_stride=2) as src:
+            for frame_bgr, frame_idx in src:
+                ...
 
     Args:
         path: Path to a video file.
         vid_stride: Process every N-th frame (default ``1`` = every frame).
 
-    Yields:
-        ``(frame_bgr, frame_idx)`` tuples where *frame_bgr* is a
-        ``np.ndarray`` in BGR/uint8 format and *frame_idx* is the
-        zero-based index of the frame in the original video.
+    Note:
+        A ``VideoSource`` instance can only be iterated **once**. After
+        iteration completes (or the source is released), create a new
+        instance to iterate again.
     """
 
-    def __init__(self, path: str | Path, vid_stride: int = 1):
+    def __init__(self, path: Union[str, Path], vid_stride: int = 1):
         try:
             import cv2
         except ImportError:
@@ -56,7 +86,10 @@ class VideoSource:
 
         self._cap = cv2.VideoCapture(self._path)
         if not self._cap.isOpened():
+            self._cap.release()
             raise ValueError(f"Cannot open video file: {self._path}")
+
+        self._iterated = False
 
         self.fps: float = self._cap.get(cv2.CAP_PROP_FPS) or 30.0
         self.total_frames: int = int(self._cap.get(cv2.CAP_PROP_FRAME_COUNT))
@@ -64,10 +97,27 @@ class VideoSource:
         self.height: int = int(self._cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
 
     # ------------------------------------------------------------------
+    # Context manager
+    # ------------------------------------------------------------------
+
+    def __enter__(self) -> "VideoSource":
+        return self
+
+    def __exit__(self, *exc) -> None:
+        self.release()
+
+    # ------------------------------------------------------------------
     # Iteration
     # ------------------------------------------------------------------
 
     def __iter__(self) -> Iterator[Tuple[np.ndarray, int]]:
+        if self._cap is None or self._iterated:
+            raise RuntimeError(
+                "VideoSource has been consumed or released. "
+                "Create a new instance to iterate again."
+            )
+        self._iterated = True
+
         frame_idx = 0
         while self._cap.isOpened():
             grabbed = self._cap.grab()
@@ -79,16 +129,22 @@ class VideoSource:
                 ok, frame = self._cap.retrieve()
                 if ok:
                     yield frame, frame_idx
+                else:
+                    logger.warning(
+                        "Failed to decode frame %d in %s, skipping",
+                        frame_idx,
+                        self._path,
+                    )
 
             frame_idx += 1
 
-        self.release()
-
     def release(self):
-        """Release the underlying VideoCapture."""
+        """Release the underlying VideoCapture. Safe to call multiple times."""
         if self._cap is not None:
-            self._cap.release()
-            self._cap = None
+            try:
+                self._cap.release()
+            finally:
+                self._cap = None
 
     def __del__(self):
         self.release()
@@ -106,6 +162,11 @@ class VideoSource:
 class VideoWriter:
     """Write annotated frames to a video file using OpenCV.
 
+    Supports use as a context manager::
+
+        with VideoWriter("out.mp4", fps=25, width=1920, height=1080) as w:
+            w.write_frame(frame_bgr)
+
     Args:
         path: Output video file path (should end in ``.mp4``).
         fps: Frames per second.
@@ -113,7 +174,7 @@ class VideoWriter:
         height: Frame height in pixels.
     """
 
-    def __init__(self, path: str | Path, fps: float, width: int, height: int):
+    def __init__(self, path: Union[str, Path], fps: float, width: int, height: int):
         try:
             import cv2
         except ImportError:
@@ -130,18 +191,118 @@ class VideoWriter:
         if not self._writer.isOpened():
             raise ValueError(f"Cannot open video writer for: {self._path}")
 
+    # ------------------------------------------------------------------
+    # Context manager
+    # ------------------------------------------------------------------
+
+    def __enter__(self) -> "VideoWriter":
+        return self
+
+    def __exit__(self, *exc) -> None:
+        self.release()
+
+    # ------------------------------------------------------------------
+
     def write_frame(self, frame_bgr: np.ndarray):
         """Write a single BGR frame."""
         self._writer.write(frame_bgr)
 
     def release(self):
-        """Flush and close the writer."""
+        """Flush and close the writer. Safe to call multiple times."""
         if self._writer is not None:
-            self._writer.release()
-            self._writer = None
+            try:
+                self._writer.release()
+            finally:
+                self._writer = None
 
     def __del__(self):
         self.release()
 
     def __repr__(self) -> str:
         return f"VideoWriter(path='{self._path}')"
+
+
+# ---------------------------------------------------------------------------
+# Shared video inference loop
+# ---------------------------------------------------------------------------
+
+
+def run_video_inference(
+    source: Union[str, Path],
+    predict_frame_fn: Callable,
+    *,
+    vid_stride: int = 1,
+    save: bool = False,
+    show: bool = False,
+    output_path: Union[str, None] = None,
+) -> Generator:
+    """Generic video inference loop shared by all backends.
+
+    Args:
+        source: Path to video file.
+        predict_frame_fn: Callable that takes a PIL RGB image and returns
+            a ``Results`` object.
+        vid_stride: Process every N-th frame.
+        save: Write annotated output video.
+        show: Display frames in a cv2 window.
+        output_path: Output path for saved video.
+
+    Yields:
+        ``Results`` for each processed frame.
+    """
+    import cv2
+    from PIL import Image
+
+    from .drawing import draw_boxes
+
+    with VideoSource(source, vid_stride=vid_stride) as video_src:
+        writer = None
+        if save:
+            out_path = resolve_video_save_path(source, output_path)
+            effective_fps = video_src.fps / max(1, vid_stride)
+            writer = VideoWriter(
+                out_path, effective_fps, video_src.width, video_src.height
+            )
+
+        try:
+            for frame_bgr, frame_idx in video_src:
+                # Convert BGR frame to PIL RGB for the model pipeline
+                frame_rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
+                pil_img = Image.fromarray(frame_rgb)
+
+                # Run model-specific inference
+                result = predict_frame_fn(pil_img)
+                result.frame_idx = frame_idx
+
+                # Annotate frame for save/show
+                if save or show:
+                    if len(result) > 0:
+                        annotated_pil = draw_boxes(
+                            pil_img,
+                            result.boxes.xyxy.tolist(),
+                            result.boxes.conf.tolist(),
+                            result.boxes.cls.tolist(),
+                        )
+                    else:
+                        annotated_pil = pil_img
+
+                    annotated_bgr = cv2.cvtColor(
+                        np.array(annotated_pil), cv2.COLOR_RGB2BGR
+                    )
+
+                    if save and writer is not None:
+                        writer.write_frame(annotated_bgr)
+
+                    if show:
+                        cv2.imshow("LibreYOLO", annotated_bgr)
+                        if cv2.waitKey(1) & 0xFF == ord("q"):
+                            break
+
+                yield result
+
+        finally:
+            if writer is not None:
+                writer.release()
+                logger.info("Video saved to %s", out_path)
+            if show:
+                cv2.destroyAllWindows()
