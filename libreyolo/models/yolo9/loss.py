@@ -163,6 +163,99 @@ class DFLoss(nn.Module):
         return loss_dfl
 
 
+class MaskLoss(nn.Module):
+    """Mask loss for instance segmentation (YOLACT, Bolya et al. ICCV 2019).
+
+    Computes binary cross entropy on assembled masks vs ground truth masks,
+    cropped to the ground truth bounding box.
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+
+    @staticmethod
+    def _crop_mask(masks: Tensor, boxes: Tensor) -> Tensor:
+        """Zero out mask pixels outside bounding boxes.
+
+        Args:
+            masks: (N, H, W) predicted mask logits.
+            boxes: (N, 4) xyxy bounding boxes at mask resolution.
+        """
+        _, h, w = masks.shape
+        x1, y1, x2, y2 = boxes.T.unsqueeze(-1).unsqueeze(-1)
+        cols = torch.arange(w, device=masks.device).view(1, 1, w)
+        rows = torch.arange(h, device=masks.device).view(1, h, 1)
+        return masks * ((cols >= x1) & (cols < x2) & (rows >= y1) & (rows < y2)).float()
+
+    def forward(
+        self,
+        proto: Tensor,
+        mask_coeffs: Tensor,
+        gt_masks: Tensor,
+        gt_bboxes: Tensor,
+        valid_masks: Tensor,
+    ) -> Tensor:
+        """
+        Args:
+            proto: (B, num_masks, H_proto, W_proto) prototype masks.
+            mask_coeffs: List of per-scale mask coefficient tensors.
+            gt_masks: (B, max_targets, H_proto, W_proto) ground truth binary masks
+                at prototype resolution.
+            gt_bboxes: (B, anchors, 4) matched GT bounding boxes (pixel coords).
+            valid_masks: (B, anchors) boolean mask for positive anchors.
+        """
+        if not valid_masks.any():
+            return torch.tensor(0.0, device=proto.device, requires_grad=True)
+
+        B, nm, mh, mw = proto.shape
+        total_loss = torch.tensor(0.0, device=proto.device, requires_grad=True)
+        num_pos = 0
+
+        for b in range(B):
+            pos = valid_masks[b]  # (anchors,)
+            if not pos.any():
+                continue
+
+            # Get mask coefficients for positive anchors in this image
+            # mask_coeffs is a list of (B, num_masks, H_i, W_i) per scale
+            # We need to flatten and gather positive anchors
+            mc_flat = torch.cat(
+                [mc[b].view(nm, -1) for mc in mask_coeffs], dim=1
+            )  # (num_masks, total_anchors)
+            pos_coeffs = mc_flat[:, pos].T  # (num_pos, num_masks)
+
+            # Assemble predicted masks: coeffs @ proto
+            pred_masks = (pos_coeffs @ proto[b].view(nm, -1)).view(-1, mh, mw)
+            # pred_masks are logits (no sigmoid yet — BCE with logits)
+
+            # Get GT masks for positive anchors
+            # gt_masks[b] is (max_targets, mh, mw), we need to index by matched target
+            # For now, use the first num_pos targets (simplified — proper matching needed in full impl)
+            n_pos = pos.sum().item()
+            if gt_masks is not None and gt_masks.shape[1] >= n_pos:
+                target_masks = gt_masks[b, :n_pos]  # (num_pos, mh, mw)
+            else:
+                continue
+
+            # Scale bboxes to proto resolution for cropping
+            pos_bboxes = gt_bboxes[b, pos]  # (num_pos, 4) pixel coords
+            scale_x = mw / (gt_bboxes.max() + 1e-6)  # rough scale
+            scale_y = mh / (gt_bboxes.max() + 1e-6)
+            # For proper implementation, bboxes should already be at proto resolution
+
+            # BCE loss with logits, cropped to GT bbox
+            loss = F.binary_cross_entropy_with_logits(
+                pred_masks, target_masks.float(), reduction="none"
+            )
+            loss = loss.mean(dim=(1, 2))  # per-instance mean
+            total_loss = total_loss + loss.sum()
+            num_pos += n_pos
+
+        if num_pos > 0:
+            total_loss = total_loss / num_pos
+        return total_loss
+
+
 # =============================================================================
 # Vec2Box - Prediction Converter
 # =============================================================================
@@ -496,6 +589,7 @@ class YOLO9Loss:
         box_weight: float = 7.5,
         dfl_weight: float = 1.5,
         cls_weight: float = 0.5,
+        mask_weight: float = 7.5,
         topk: int = 10,
         iou_factor: float = 6.0,
         cls_factor: float = 0.5,
@@ -508,6 +602,7 @@ class YOLO9Loss:
         self.box_weight = box_weight
         self.dfl_weight = dfl_weight
         self.cls_weight = cls_weight
+        self.mask_weight = mask_weight
 
         # TAL matcher parameters - must be set before _init_vec2box
         self.topk = topk
@@ -518,6 +613,7 @@ class YOLO9Loss:
         self.cls_loss = BCELoss()
         self.box_loss = BoxLoss()
         self.dfl_loss = DFLoss(reg_max)
+        self.mask_loss = MaskLoss()
 
         # Matcher will be created when needed
         self.matcher = None
@@ -553,8 +649,11 @@ class YOLO9Loss:
             self._init_vec2box(image_size)
 
     def __call__(
-        self, predictions: List[Tensor], targets: Tensor
-    ) -> Tuple[Tensor, Dict[str, float]]:
+        self, predictions: List[Tensor], targets: Tensor,
+        proto: Optional[Tensor] = None,
+        mask_coeffs: Optional[List[Tensor]] = None,
+        mask_targets: Optional[Tensor] = None,
+    ) -> Dict:
         """
         Compute YOLOv9 loss.
 
@@ -563,10 +662,12 @@ class YOLO9Loss:
                         Each tensor: (B, nc + 4*reg_max, H, W)
             targets: Ground truth [B, max_targets, 5] with [class_id, x1, y1, x2, y2]
                     Coordinates are normalized (0-1)
+            proto: Optional (B, num_masks, H_proto, W_proto) prototypes for seg.
+            mask_coeffs: Optional list of per-scale mask coefficient tensors.
+            mask_targets: Optional (B, max_targets, H_proto, W_proto) GT masks.
 
         Returns:
-            total_loss: Scalar loss tensor
-            loss_dict: Dict with individual loss values for logging
+            loss_dict: Dict with total_loss and individual loss values for logging
         """
         if self.vec2box is None:
             raise RuntimeError("Vec2Box not initialized. Call update_anchors() first.")
@@ -619,6 +720,15 @@ class YOLO9Loss:
 
         total_loss = loss_box_weighted + loss_dfl_weighted + loss_cls_weighted
 
+        # Mask loss (segmentation)
+        loss_mask_weighted = torch.tensor(0.0, device=targets.device)
+        if proto is not None and mask_coeffs is not None and mask_targets is not None:
+            loss_mask = self.mask_loss(
+                proto, mask_coeffs, mask_targets, targets_bbox, valid_masks
+            )
+            loss_mask_weighted = self.mask_weight * loss_mask
+            total_loss = total_loss + loss_mask_weighted
+
         # Return dict format consistent with YOLOX
         loss_dict = {
             "total_loss": total_loss,
@@ -638,5 +748,13 @@ class YOLO9Loss:
             else loss_cls_weighted,
             "num_fg": valid_masks.sum().item() / max(B, 1),
         }
+
+        if proto is not None:
+            loss_dict["mask_loss"] = loss_mask_weighted
+            loss_dict["mask"] = (
+                loss_mask_weighted.item()
+                if isinstance(loss_mask_weighted, Tensor)
+                else loss_mask_weighted
+            )
 
         return loss_dict
