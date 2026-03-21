@@ -34,7 +34,7 @@ onnx = [
     "onnxruntime>=1.16.0",
 ]
 rfdetr = [
-    "rfdetr>=1.6.0",
+    "rfdetr[train]>=1.6.0",
 ]
 tensorrt = [
     "tensorrt",
