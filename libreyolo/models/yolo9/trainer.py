@@ -62,11 +62,14 @@ class YOLO9Trainer(BaseTrainer):
         def _scalar(v):
             return v.item() if isinstance(v, torch.Tensor) else v
 
-        return {
+        components = {
             "box": _scalar(outputs.get("box", 0)),
             "cls": _scalar(outputs.get("cls", 0)),
             "dfl": _scalar(outputs.get("dfl", 0)),
         }
+        if "mask" in outputs:
+            components["mask"] = _scalar(outputs["mask"])
+        return components
 
     def on_forward(self, imgs: torch.Tensor, targets: torch.Tensor) -> Dict:
         return self.model(imgs, targets=targets)
