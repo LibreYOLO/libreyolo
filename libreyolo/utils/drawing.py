@@ -30,6 +30,7 @@ def draw_boxes(
     scores: List,
     classes: List,
     class_names: List[str] | Dict[int, str] | None = None,
+    track_ids: List | None = None,
 ) -> Image.Image:
     """
     Draw bounding boxes on image with class-specific colors.
@@ -44,6 +45,8 @@ def draw_boxes(
         classes: List of class IDs
         class_names: Optional class-name container, either a list indexed by class
             ID or a dict mapping class ID to class name (default: COCO_CLASSES)
+        track_ids: Optional list of track IDs. When provided, each box is
+            colored by its track ID and the label includes ``ID:<n>``.
 
     Returns:
         Annotated PIL Image
@@ -74,27 +77,43 @@ def draw_boxes(
 
     label_padding = max(2, int(2 * scale_factor))
 
-    for box, score, cls_id in zip(boxes, scores, classes):
+    _track_ids = track_ids or [None] * len(boxes)
+
+    for box, score, cls_id, tid in zip(boxes, scores, classes, _track_ids):
         x1, y1, x2, y2 = box
         cls_id_int = int(cls_id)
-        color = get_class_color(cls_id_int)
+
+        # Color by track ID when tracking, otherwise by class ID.
+        color = get_class_color(int(tid)) if tid is not None else get_class_color(cls_id_int)
 
         draw.rectangle([x1, y1, x2, y2], outline=color, width=box_thickness)
 
-        class_name = None
-        if isinstance(class_names, dict):
-            class_name = class_names.get(cls_id_int)
-        elif class_names and cls_id_int < len(class_names):
-            class_name = class_names[cls_id_int]
-
-        if class_name is not None:
-            label = f"{class_name}: {score:.2f}"
+        # Tracking mode: short two-tone label  "#23 0.87"
+        # Detection mode: full label           "person: 0.87"
+        if tid is not None:
+            id_text = f"#{int(tid)}"
+            conf_text = f" {score:.2f}"
+            # Measure both parts separately for two-tone rendering.
+            id_bbox = draw.textbbox((0, 0), id_text, font=font)
+            full_label = id_text + conf_text
+            full_bbox = draw.textbbox((0, 0), full_label, font=font)
+            text_width = full_bbox[2] - full_bbox[0]
+            text_height = full_bbox[3] - full_bbox[1]
+            id_width = id_bbox[2] - id_bbox[0]
         else:
-            label = f"Class {cls_id_int}: {score:.2f}"
+            class_name = None
+            if isinstance(class_names, dict):
+                class_name = class_names.get(cls_id_int)
+            elif class_names and cls_id_int < len(class_names):
+                class_name = class_names[cls_id_int]
 
-        bbox = draw.textbbox((0, 0), label, font=font)
-        text_width = bbox[2] - bbox[0]
-        text_height = bbox[3] - bbox[1]
+            if class_name is not None:
+                full_label = f"{class_name}: {score:.2f}"
+            else:
+                full_label = f"Class {cls_id_int}: {score:.2f}"
+            full_bbox = draw.textbbox((0, 0), full_label, font=font)
+            text_width = full_bbox[2] - full_bbox[0]
+            text_height = full_bbox[3] - full_bbox[1]
 
         # Check if label fits above box; if not, draw inside
         outside = y1 >= text_height + label_padding * 2
@@ -104,34 +123,37 @@ def draw_boxes(
         label_x = max(0, label_x)
 
         if outside:
-            draw.rectangle(
-                [
-                    label_x,
-                    y1 - text_height - label_padding * 2,
-                    label_x + text_width + label_padding * 2,
-                    y1,
-                ],
-                fill=color,
+            bg_y0 = y1 - text_height - label_padding * 2
+            bg_y1 = y1
+            text_y = y1 - text_height - label_padding
+        else:
+            bg_y0 = y1
+            bg_y1 = y1 + text_height + label_padding * 2
+            text_y = y1 + label_padding
+
+        draw.rectangle(
+            [label_x, bg_y0, label_x + text_width + label_padding * 2, bg_y1],
+            fill=color,
+        )
+
+        if tid is not None:
+            # Two-tone: track ID in yellow, confidence in white
+            draw.text(
+                (label_x + label_padding, text_y),
+                id_text,
+                fill="#FFFF00",
+                font=font,
             )
             draw.text(
-                (label_x + label_padding, y1 - text_height - label_padding),
-                label,
-                fill="white",
+                (label_x + label_padding + id_width, text_y),
+                conf_text,
+                fill="#DDDDDD",
                 font=font,
             )
         else:
-            draw.rectangle(
-                [
-                    label_x,
-                    y1,
-                    label_x + text_width + label_padding * 2,
-                    y1 + text_height + label_padding * 2,
-                ],
-                fill=color,
-            )
             draw.text(
-                (label_x + label_padding, y1 + label_padding),
-                label,
+                (label_x + label_padding, text_y),
+                full_label,
                 fill="white",
                 font=font,
             )
