@@ -21,7 +21,7 @@ from ...utils.drawing import draw_boxes, draw_tile_grid
 from ...utils.general import get_safe_stem, get_slice_bboxes, nms, resolve_save_path
 from ...utils.image_loader import ImageInput, ImageLoader
 from ...utils.results import Boxes, Results
-from ...utils.video import VideoSource, VideoWriter, is_video_file
+from ...utils.video import VideoSource, is_video_file, run_video_inference
 
 logger = logging.getLogger(__name__)
 
@@ -362,7 +362,7 @@ class InferenceRunner:
 
     def _predict_video(
         self,
-        source: str | Path,
+        source: Union[str, Path],
         *,
         conf: float = 0.25,
         iou: float = 0.45,
@@ -372,114 +372,32 @@ class InferenceRunner:
         save: bool = False,
         show: bool = False,
         vid_stride: int = 1,
-        output_path: str | None = None,
+        output_path: Optional[str] = None,
         **kwargs,
     ) -> Generator[Results, None, None]:
-        """Run inference on a video file, yielding per-frame Results.
-
-        Args:
-            source: Path to a video file.
-            conf: Confidence threshold.
-            iou: IoU threshold for NMS.
-            imgsz: Input size override.
-            classes: Filter to specific class IDs.
-            max_det: Maximum detections per frame.
-            save: Write annotated video to disk.
-            show: Display annotated frames in a window.
-            vid_stride: Process every N-th frame.
-            output_path: Optional output path for saved video.
-            **kwargs: Additional postprocessing arguments.
-
-        Yields:
-            Results for each processed frame.
-        """
-        import cv2
-        from PIL import Image
-
-        video_src = VideoSource(source, vid_stride=vid_stride)
+        """Run inference on a video file, yielding per-frame Results."""
         effective_imgsz = imgsz if imgsz is not None else self.model._get_input_size()
 
-        writer = None
-        if save:
-            out_path = self._resolve_video_save_path(source, output_path)
-            effective_fps = video_src.fps / max(1, vid_stride)
-            writer = VideoWriter(out_path, effective_fps, video_src.width, video_src.height)
+        def predict_frame(pil_img):
+            input_tensor, original_img, original_size, ratio = (
+                self.model._preprocess(pil_img, "rgb", input_size=effective_imgsz)
+            )
+            with torch.no_grad():
+                output = self.model._forward(input_tensor.to(self.model.device))
+            detections = self.model._postprocess(
+                output, conf, iou, original_size, max_det=max_det, ratio=ratio,
+                **kwargs,
+            )
+            return self._wrap_results(detections, original_size, str(source), classes)
 
-        try:
-            for frame_bgr, frame_idx in video_src:
-                # Convert BGR frame to PIL RGB for the existing pipeline
-                frame_rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
-                pil_img = Image.fromarray(frame_rgb)
-
-                # Preprocess
-                input_tensor, original_img, original_size, ratio = (
-                    self.model._preprocess(pil_img, "rgb", input_size=effective_imgsz)
-                )
-
-                # Forward
-                with torch.no_grad():
-                    output = self.model._forward(input_tensor.to(self.model.device))
-
-                # Postprocess
-                detections = self.model._postprocess(
-                    output, conf, iou, original_size, max_det=max_det, ratio=ratio,
-                    **kwargs,
-                )
-
-                # Wrap results
-                result = self._wrap_results(detections, original_size, str(source), classes)
-                result.frame_idx = frame_idx
-
-                # Annotate frame for save/show
-                if save or show:
-                    if len(result) > 0:
-                        annotated_pil = draw_boxes(
-                            original_img,
-                            result.boxes.xyxy.tolist(),
-                            result.boxes.conf.tolist(),
-                            result.boxes.cls.tolist(),
-                        )
-                    else:
-                        annotated_pil = original_img
-
-                    annotated_bgr = cv2.cvtColor(
-                        np.array(annotated_pil), cv2.COLOR_RGB2BGR
-                    )
-
-                    if save and writer is not None:
-                        writer.write_frame(annotated_bgr)
-
-                    if show:
-                        cv2.imshow("LibreYOLO", annotated_bgr)
-                        if cv2.waitKey(1) & 0xFF == ord("q"):
-                            break
-
-                yield result
-
-        finally:
-            video_src.release()
-            if writer is not None:
-                writer.release()
-                logger.info(f"Video saved to {out_path}")
-            if show:
-                cv2.destroyAllWindows()
-
-    @staticmethod
-    def _resolve_video_save_path(
-        source: str | Path, output_path: str | None
-    ) -> str:
-        """Determine the output path for a saved video."""
-        if output_path is not None:
-            out = Path(output_path)
-            out.parent.mkdir(parents=True, exist_ok=True)
-            return str(out)
-
-        save_dir = Path("runs/detect") / "predict"
-        from ...utils.general import increment_path
-
-        save_dir = increment_path(save_dir, exist_ok=False, mkdir=True)
-        stem = Path(source).stem
-        return str(save_dir / f"{stem}.mp4")
+        yield from run_video_inference(
+            source,
+            predict_frame,
+            vid_stride=vid_stride,
+            save=save,
+            show=show,
+            output_path=output_path,
+        )
 
     def _merge_tile_detections(
         self,

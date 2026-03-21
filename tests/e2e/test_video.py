@@ -58,6 +58,15 @@ def video_path():
     return str(VIDEO_PATH)
 
 
+@pytest.fixture(scope="module")
+def video_total_frames(video_path):
+    """Query the actual frame count from the video (avoids hardcoding)."""
+    cap = cv2.VideoCapture(video_path)
+    total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    cap.release()
+    return total
+
+
 # ---------------------------------------------------------------------------
 # Model fixtures — one per family, smallest variant
 # ---------------------------------------------------------------------------
@@ -165,9 +174,9 @@ class TestVideoYOLO9:
         total_dets = sum(len(r) for r in frames)
         assert total_dets > 100, f"Only {total_dets} detections in 30 frames"
 
-    def test_stream_yields_all_frames(self, yolo9_model, video_path):
+    def test_stream_yields_all_frames(self, yolo9_model, video_path, video_total_frames):
         results = list(yolo9_model(video_path, stream=True, conf=0.25))
-        assert len(results) == 341
+        assert len(results) == video_total_frames
 
     def test_list_mode(self, yolo9_model, video_path):
         results = yolo9_model(video_path, conf=0.25, vid_stride=10)
@@ -176,13 +185,15 @@ class TestVideoYOLO9:
         for r in results:
             assert r.frame_idx is not None
 
-    def test_vid_stride_2(self, yolo9_model, video_path):
+    def test_vid_stride_2(self, yolo9_model, video_path, video_total_frames):
         results = list(yolo9_model(video_path, stream=True, conf=0.25, vid_stride=2))
-        assert len(results) == 171
+        expected = len(range(0, video_total_frames, 2))
+        assert len(results) == expected
 
-    def test_vid_stride_5(self, yolo9_model, video_path):
+    def test_vid_stride_5(self, yolo9_model, video_path, video_total_frames):
         results = list(yolo9_model(video_path, stream=True, conf=0.25, vid_stride=5))
-        assert len(results) == 69
+        expected = len(range(0, video_total_frames, 5))
+        assert len(results) == expected
 
     def test_vid_stride_frame_indices(self, yolo9_model, video_path):
         results = list(yolo9_model(video_path, stream=True, conf=0.25, vid_stride=5))
@@ -205,10 +216,12 @@ class TestVideoYOLO9:
         assert int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)) == 1080
         cap.release()
 
-    def test_save_auto_path(self, yolo9_model, video_path):
+    def test_save_auto_path(self, yolo9_model, video_path, tmp_path, monkeypatch):
+        # Run from tmp_path so runs/detect/ is created there, not in the repo
+        monkeypatch.chdir(tmp_path)
         for _ in yolo9_model(video_path, stream=True, save=True, conf=0.25, vid_stride=50):
             pass
-        predict_dirs = list(Path("runs/detect").glob("predict*"))
+        predict_dirs = list((tmp_path / "runs" / "detect").glob("predict*"))
         assert len(predict_dirs) > 0
         mp4s = []
         for d in predict_dirs:

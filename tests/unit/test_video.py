@@ -99,9 +99,34 @@ class TestVideoSource:
         indices = [idx for _, idx in frames]
         assert indices == [0, 2, 4, 6, 8]
 
+    def test_vid_stride_larger_than_total(self, sample_video):
+        vs = VideoSource(sample_video, vid_stride=100)
+        frames = list(vs)
+        # Only frame 0 matches (0 % 100 == 0), all others are skipped
+        assert len(frames) == 1
+        assert frames[0][1] == 0
+
     def test_invalid_path(self):
         with pytest.raises(ValueError, match="Cannot open video"):
             VideoSource("/nonexistent/video.mp4")
+
+    def test_re_iteration_raises(self, sample_video):
+        vs = VideoSource(sample_video)
+        list(vs)  # consume once
+        with pytest.raises(RuntimeError, match="consumed or released"):
+            list(vs)
+
+    def test_context_manager(self, sample_video):
+        with VideoSource(sample_video) as vs:
+            frames = list(vs)
+        assert len(frames) == 10
+        # After exiting context, cap should be released
+        assert vs._cap is None
+
+    def test_double_release_safe(self, sample_video):
+        vs = VideoSource(sample_video)
+        vs.release()
+        vs.release()  # should not raise
 
     def test_repr(self, sample_video):
         vs = VideoSource(sample_video)
@@ -145,6 +170,14 @@ class TestVideoWriter:
         writer.write_frame(frame)
         writer.release()
         assert Path(out_path).exists()
+
+    def test_context_manager(self, tmp_path):
+        out_path = str(tmp_path / "ctx_output.mp4")
+        with VideoWriter(out_path, fps=10.0, width=32, height=32) as writer:
+            frame = np.zeros((32, 32, 3), dtype=np.uint8)
+            writer.write_frame(frame)
+        assert Path(out_path).exists()
+        assert writer._writer is None  # released
 
 
 # ---------------------------------------------------------------------------
