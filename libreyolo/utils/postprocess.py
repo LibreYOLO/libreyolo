@@ -16,7 +16,7 @@ def soft_nms(
     scores: torch.Tensor,
     iou_threshold: float = 0.45,
     *,
-    sigma: float = 0.5,
+    sigma: float = 0.1,
     score_threshold: float = 0.001,
 ) -> torch.Tensor:
     """
@@ -33,6 +33,8 @@ def soft_nms(
         scores: Confidence scores (N,).
         iou_threshold: Not used for hard suppression — kept for interface compatibility.
         sigma: Gaussian decay parameter. Lower = more aggressive suppression.
+            Default 0.1 is tuned for YOLO-family models. The original paper
+            uses 0.5 (for Faster R-CNN), which is too lenient for YOLO.
         score_threshold: Minimum decayed score to keep a box.
 
     Returns:
