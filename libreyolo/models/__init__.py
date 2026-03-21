@@ -230,8 +230,14 @@ def LibreYOLO(
 
     if matched_cls.FAMILY == "rfdetr":
         # RF-DETR always needs the path (handles its own loading internally)
+        # Detect segmentation from filename (supplements auto-detection from weights)
+        task = matched_cls.detect_task_from_filename(Path(model_path).name)
         model = matched_cls(
-            model_path=model_path, size=size, nb_classes=nb_classes, device=device
+            model_path=model_path,
+            size=size,
+            nb_classes=nb_classes,
+            device=device,
+            segmentation=(task == "seg"),
         )
     elif has_metadata:
         # Our trainer checkpoint — pass path for metadata handling
