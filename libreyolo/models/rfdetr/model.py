@@ -395,6 +395,7 @@ class LibreYOLORFDETR(BaseModel):
             output_dir=output_dir,
             resume=resume,
             pretrain_weights=self._pretrain_weights,
+            segmentation=self._is_segmentation,
             **kwargs,
         )
 
