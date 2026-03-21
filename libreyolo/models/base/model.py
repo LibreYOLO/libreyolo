@@ -18,6 +18,8 @@ from PIL import Image
 from ...utils.general import COCO_CLASSES
 from ...utils.image_loader import ImageInput
 from ...utils.results import Results
+
+from typing import Generator
 from ...validation.preprocessors import StandardValPreprocessor
 
 
@@ -338,10 +340,14 @@ class BaseModel(ABC):
             self._runner_instance = InferenceRunner(self)
         return self._runner_instance
 
-    def __call__(self, source=None, **kwargs):
+    def __call__(
+        self, source=None, **kwargs
+    ) -> Union[Results, List[Results], Generator[Results, None, None]]:
         return self._runner(source, **kwargs)
 
-    def predict(self, *args, **kwargs) -> Union[Results, List[Results]]:
+    def predict(
+        self, *args, **kwargs
+    ) -> Union[Results, List[Results], Generator[Results, None, None]]:
         """Alias for __call__ method."""
         return self(*args, **kwargs)
 
