@@ -569,6 +569,127 @@ class DDetect(nn.Module):
         return torch.cat((x1y1, x2y2), dim)
 
 
+class Proto(nn.Module):
+    """Prototype mask generation module (YOLACT, Bolya et al. ICCV 2019).
+
+    Generates k prototype masks from the highest-resolution feature map (P3).
+    Architecture: Conv(3x3) → Upsample(2x) → Conv(3x3) → Conv(1x1, k)
+
+    The 2x upsample produces prototypes at double P3 resolution — for a 640x640
+    input, P3 is 80x80 so prototypes are 160x160.
+    """
+
+    def __init__(self, c1, c_=256, num_masks=32):
+        """
+        Args:
+            c1: Input channels (P3 feature map channels).
+            c_: Hidden channels.
+            num_masks: Number of prototype masks (k).
+        """
+        super().__init__()
+        self.cv1 = Conv(c1, c_, 3)
+        self.upsample = nn.ConvTranspose2d(c_, c_, 2, 2, 0, bias=True)
+        self.cv2 = Conv(c_, c_, 3)
+        self.cv3 = Conv(c_, num_masks, 1)
+
+    def forward(self, x):
+        return self.cv3(self.cv2(self.upsample(self.cv1(x))))
+
+
+class DDetectSeg(DDetect):
+    """Detection + Segmentation head (YOLACT-style proto masks).
+
+    Extends DDetect with:
+    - cv4: mask coefficient branch (outputs k coefficients per anchor)
+    - proto: prototype mask generation from P3 features
+
+    Mask assembly: M = sigmoid(coefficients @ prototypes^T)
+    """
+
+    def __init__(self, nc=80, ch=(), reg_max=16, stride=(), num_masks=32, use_group=True):
+        """
+        Args:
+            nc: Number of classes.
+            ch: Input channels per scale.
+            reg_max: DFL regression max.
+            stride: Stride per scale.
+            num_masks: Number of prototype masks (default 32).
+            use_group: Use grouped convolutions in box branch.
+        """
+        super().__init__(nc, ch, reg_max, stride, use_group)
+        self.num_masks = num_masks
+
+        # Mask coefficient branch — same structure as class branch
+        c3 = max(ch[0], min(nc, 100))
+        self.cv4 = nn.ModuleList(
+            nn.Sequential(Conv(x, c3, 3), Conv(c3, c3, 3), nn.Conv2d(c3, num_masks, 1))
+            for x in ch
+        )
+
+        # Proto module — generates prototypes from P3 (highest res feature map)
+        self.proto = Proto(ch[0], c_=256, num_masks=num_masks)
+
+    def forward(self, x, targets=None, img_size=None, mask_targets=None):
+        """
+        Forward pass with detection + mask outputs.
+
+        Args:
+            x: List of feature maps [P3, P4, P5].
+            targets: Optional box targets for training.
+            img_size: Optional image size for anchors.
+            mask_targets: Optional mask targets (B, max_targets, H_proto, W_proto).
+
+        Returns:
+            Training: loss dict (with mask loss if mask_targets provided)
+            Inference: (predictions, raw_outputs, protos, mask_coeffs)
+        """
+        # Generate prototype masks from P3
+        proto = self.proto(x[0])  # (B, num_masks, H_proto, W_proto)
+
+        # Compute mask coefficients per scale
+        mask_coeffs = []
+        for i in range(self.nl):
+            mask_coeffs.append(self.cv4[i](x[i]))
+
+        # Detection forward (box + class)
+        shape = x[0].shape
+        for i in range(self.nl):
+            x[i] = torch.cat((self.cv2[i](x[i]), self.cv3[i](x[i])), 1)
+
+        if self.training:
+            if targets is not None:
+                loss_fn = self._get_loss_fn(x[0].device)
+                if img_size is not None:
+                    loss_fn.update_anchors(list(img_size))
+                return loss_fn(x, targets, proto=proto, mask_coeffs=mask_coeffs,
+                               mask_targets=mask_targets)
+            return x, proto, mask_coeffs
+
+        # Inference mode
+        if self.export or self.dynamic or self.shape != shape:
+            self.anchors, self.strides = (
+                x.transpose(0, 1) for x in self._make_anchors(x, self.stride, 0.5)
+            )
+            if not self.export:
+                self.shape = shape
+
+        x_cat = torch.cat([xi.view(shape[0], self.no, -1) for xi in x], 2)
+        box, cls = x_cat.split((self.reg_max * 4, self.nc), 1)
+
+        dbox = (
+            self._decode_bboxes(self.dfl(box), self.anchors.unsqueeze(0)) * self.strides
+        )
+
+        y = torch.cat((dbox, cls.sigmoid()), 1)
+
+        # Flatten and concatenate mask coefficients across scales
+        mc = torch.cat(
+            [ci.view(shape[0], self.num_masks, -1) for ci in mask_coeffs], 2
+        )  # (B, num_masks, total_anchors)
+
+        return y, x, proto, mc
+
+
 # =============================================================================
 # Model Architecture Definitions
 # =============================================================================
@@ -858,9 +979,11 @@ class LibreYOLO9Model(nn.Module):
     Complete LibreYOLO9 model.
 
     Supports yolo9-t, yolo9-s, yolo9-m, and yolo9-c variants with their specific architectures.
+    Optionally supports instance segmentation via YOLACT-style proto masks.
     """
 
-    def __init__(self, config="c", reg_max=16, nb_classes=80, img_size=640):
+    def __init__(self, config="c", reg_max=16, nb_classes=80, img_size=640,
+                 segmentation=False, num_masks=32):
         """
         Initialize YOLOv9 model.
 
@@ -869,6 +992,8 @@ class LibreYOLO9Model(nn.Module):
             reg_max: Regression max value for DFL
             nb_classes: Number of classes
             img_size: Input image size
+            segmentation: If True, use segmentation head with proto masks
+            num_masks: Number of prototype masks (default 32)
         """
         super().__init__()
 
@@ -881,19 +1006,26 @@ class LibreYOLO9Model(nn.Module):
         self.nc = nb_classes
         self.reg_max = reg_max
         self.img_size = img_size
+        self.segmentation = segmentation
 
         cfg = YOLO9_CONFIGS[config]
 
         self.backbone = Backbone9(config)
         self.neck = Neck9(config)
 
-        # Detection head - use exact channels from config
+        # Detection or segmentation head
         head_channels = cfg["head_channels"]
-        self.head = DDetect(
-            nc=nb_classes, ch=head_channels, reg_max=reg_max, stride=(8, 16, 32)
-        )
+        if segmentation:
+            self.head = DDetectSeg(
+                nc=nb_classes, ch=head_channels, reg_max=reg_max,
+                stride=(8, 16, 32), num_masks=num_masks,
+            )
+        else:
+            self.head = DDetect(
+                nc=nb_classes, ch=head_channels, reg_max=reg_max, stride=(8, 16, 32)
+            )
 
-    def forward(self, x, targets=None):
+    def forward(self, x, targets=None, mask_targets=None):
         """
         Forward pass through backbone, neck, and detection head.
 
@@ -901,11 +1033,12 @@ class LibreYOLO9Model(nn.Module):
             x: Input tensor [B, 3, H, W]
             targets: Optional ground truth [B, max_targets, 5] with [class, x1, y1, x2, y2] normalized
                     Only used during training to compute loss.
+            mask_targets: Optional mask ground truth for seg training.
 
         Returns:
-            Training with targets: Dict with loss values (total_loss, box_loss, dfl_loss, cls_loss)
+            Training with targets: Dict with loss values (total_loss, box_loss, dfl_loss, cls_loss, [mask_loss])
             Training without targets: Raw predictions (list of tensors)
-            Inference: Dict with decoded predictions and features
+            Inference: Dict with decoded predictions and features (+ protos/mask_coeffs if seg)
         """
         # Backbone
         p3, p4, p5 = self.backbone(x)
@@ -915,33 +1048,46 @@ class LibreYOLO9Model(nn.Module):
 
         # Detection head
         if self.training and targets is not None:
-            # Pass image size for anchor generation
             img_size = (x.shape[3], x.shape[2])  # (W, H)
-            output = self.head([n3, n4, n5], targets=targets, img_size=img_size)
+            if self.segmentation:
+                output = self.head(
+                    [n3, n4, n5], targets=targets, img_size=img_size,
+                    mask_targets=mask_targets,
+                )
+            else:
+                output = self.head([n3, n4, n5], targets=targets, img_size=img_size)
             return output
 
         # Normal forward (training without targets or inference)
         output = self.head([n3, n4, n5])
 
         if self.training:
-            # Return raw outputs for loss calculation
             return output
 
         # Inference mode
-        y, x_list = output
+        if self.segmentation:
+            y, x_list, proto, mc = output
+        else:
+            y, x_list = output
 
-        # Export mode: return only the prediction tensor for ONNX/TorchScript
+        # Export mode
         if self.head.export:
+            if self.segmentation:
+                return y, proto, mc
             return y
 
-        # Return in format compatible with postprocessing
-        return {
+        result = {
             "predictions": y,  # (batch, 4+nc, total_anchors)
             "raw_outputs": x_list,
             "x8": {"features": n3},
             "x16": {"features": n4},
             "x32": {"features": n5},
         }
+        if self.segmentation:
+            result["proto"] = proto      # (B, num_masks, H_proto, W_proto)
+            result["mask_coeffs"] = mc   # (B, num_masks, total_anchors)
+
+        return result
 
     def fuse(self):
         """Fuse Conv+BN and RepConvN for faster inference."""
