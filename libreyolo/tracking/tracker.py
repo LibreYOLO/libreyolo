@@ -292,12 +292,6 @@ def _joint_stracks(a: list[STrack], b: list[STrack]) -> list[STrack]:
     return list(seen.values())
 
 
-def _sub_stracks(a: list[STrack], b: list[STrack]) -> list[STrack]:
-    """Return tracks in a whose track_id is not in b."""
-    b_ids = {t.track_id for t in b}
-    return [t for t in a if t.track_id not in b_ids]
-
-
 def _remove_duplicate_stracks(
     tracked: list[STrack], lost: list[STrack]
 ) -> tuple[list[STrack], list[STrack]]:
