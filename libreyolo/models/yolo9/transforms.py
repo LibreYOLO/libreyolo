@@ -292,7 +292,14 @@ class YOLO9MosaicMixupDataset:
         result = self.dataset.pull_item(idx)
         if len(result) == 5:
             img, label, img_info, img_id, polygons = result
-            img, label, masks = self.preproc(img, label, self.input_dim, polygons)
+            preproc_result = self.preproc(img, label, self.input_dim, polygons)
+            if len(preproc_result) == 3:
+                img, label, masks = preproc_result
+            else:
+                img, label = preproc_result
+                from libreyolo.data.dataset import polygons_to_masks
+                max_labels = self.preproc.max_labels if hasattr(self.preproc, 'max_labels') else 100
+                masks = polygons_to_masks([], 160, 160, max_labels)
             return img, label, img_info, img_id, masks
         else:
             img, label, img_info, img_id = result
@@ -408,19 +415,25 @@ class YOLO9MosaicMixupDataset:
                 mosaic_polygons = [mosaic_polygons[j] for j in range(len(filt)) if filt[j]]
 
         # Apply preprocessing (HSV, flip, normalize, rasterize masks)
-        if has_polys:
+        if has_polys and len(mosaic_polygons) > 0:
             img, labels, masks = self.preproc(
                 mosaic_img, mosaic_labels, self.input_dim, mosaic_polygons
             )
         else:
             img, labels = self.preproc(mosaic_img, mosaic_labels, self.input_dim)
-            masks = None
+            if has_polys:
+                # Seg dataset but this mosaic had no polygons — return empty masks
+                from libreyolo.data.dataset import polygons_to_masks
+                max_labels = self.preproc.max_labels if hasattr(self.preproc, 'max_labels') else 100
+                masks = polygons_to_masks([], 160, 160, max_labels)
+            else:
+                masks = None
 
         # Apply mixup if enabled (masks not mixed — simplified)
         if self.enable_mixup and random.random() < self.mixup_prob and len(labels) > 0:
             img, labels = self._mixup(img, labels)
 
-        if has_polys:
+        if masks is not None:
             return img, labels, (input_h, input_w), idx, masks
         return img, labels, (input_h, input_w), idx
 
