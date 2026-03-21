@@ -394,6 +394,10 @@ class BaseModel(ABC):
         if tracker_config is None:
             tracker_config = TrackConfig.from_kwargs(**tracker_kwargs)
 
+        source = Path(source)
+        if not source.exists():
+            raise FileNotFoundError(f"Video file not found: {source}")
+
         # ByteTrack needs to see low-confidence detections.
         effective_conf = tracker_config.track_low_thresh
 

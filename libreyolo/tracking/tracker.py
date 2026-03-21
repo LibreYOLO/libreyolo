@@ -179,11 +179,9 @@ class ByteTracker:
         for i in u_det_final:
             det = remaining_high_dets[i]
             if det.score >= cfg.new_track_thresh:
-                if cfg.minimum_consecutive_frames <= 1:
-                    det.activate(self.kalman_filter, self._frame_id, self._next_id())
-                else:
-                    # Start as unconfirmed — don't assign a visible ID yet.
-                    det.activate(self.kalman_filter, self._frame_id, self._next_id())
+                det.activate(self.kalman_filter, self._frame_id, self._next_id())
+                if cfg.minimum_consecutive_frames > 1:
+                    # Start as unconfirmed — needs more consecutive matches.
                     det.is_activated = False
 
         # ------------------------------------------------------------------
