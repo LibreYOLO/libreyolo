@@ -11,12 +11,12 @@ from PIL import Image
 from ..base import BaseModel
 from ...utils.image_loader import ImageInput
 from .nn import LibreYOLO9Model
-from .utils import preprocess_image, postprocess
+from .utils import preprocess_image, postprocess, process_mask
 from ...validation.preprocessors import YOLO9ValPreprocessor
 
 
 class LibreYOLO9(BaseModel):
-    """YOLOv9 model for object detection.
+    """YOLOv9 model for object detection and instance segmentation.
 
     Args:
         model_path: Path to weights, pre-loaded state_dict, or None for fresh model.
@@ -24,6 +24,7 @@ class LibreYOLO9(BaseModel):
         reg_max: Regression max value for DFL (default: 16).
         nb_classes: Number of classes (default: 80 for COCO).
         device: Device for inference.
+        segmentation: If True, use segmentation head with proto masks.
 
     Example::
 
@@ -86,9 +87,16 @@ class LibreYOLO9(BaseModel):
         reg_max: int = 16,
         nb_classes: int = 80,
         device: str = "auto",
+        segmentation: bool = False,
         **kwargs,
     ):
         self.reg_max = reg_max
+        self._is_segmentation = segmentation
+
+        # Auto-detect segmentation from weights
+        if not segmentation and isinstance(model_path, (str, dict)):
+            self._is_segmentation = self._detect_segmentation(model_path)
+
         super().__init__(
             model_path=model_path,
             size=size,
@@ -100,13 +108,28 @@ class LibreYOLO9(BaseModel):
         if isinstance(model_path, str):
             self._load_weights(model_path)
 
+    @staticmethod
+    def _detect_segmentation(model_path) -> bool:
+        """Check if weights contain a segmentation head."""
+        if isinstance(model_path, dict):
+            return any("proto" in k or "cv4" in k for k in model_path)
+        if not isinstance(model_path, str):
+            return False
+        try:
+            ckpt = torch.load(model_path, map_location="cpu", weights_only=False)
+            state = ckpt.get("model", ckpt)
+            return any("proto" in k or "cv4" in k for k in state)
+        except Exception:
+            return False
+
     # =========================================================================
     # Model lifecycle
     # =========================================================================
 
     def _init_model(self) -> nn.Module:
         return LibreYOLO9Model(
-            config=self.size, reg_max=self.reg_max, nb_classes=self.nb_classes
+            config=self.size, reg_max=self.reg_max, nb_classes=self.nb_classes,
+            segmentation=self._is_segmentation,
         )
 
     def _get_available_layers(self) -> Dict[str, nn.Module]:
