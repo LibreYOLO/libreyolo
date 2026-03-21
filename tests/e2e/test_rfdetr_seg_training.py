@@ -69,9 +69,10 @@ def dataset():
 
 @requires_cuda
 def test_rfdetr_seg_training(dataset, tmp_path):
-    """Train RF-DETR-Seg-Nano on fire-smoke-seg, verify masks are produced."""
+    """Train RF-DETR-Seg-Nano on fire-smoke-seg, verify mAP improves and masks are produced."""
     output_dir = str(tmp_path / "rfdetr_seg_n")
     dataset_dir = str(dataset)
+    data_yaml = str(dataset / "data.yaml")
 
     run_in_subprocess(
         f"""
@@ -87,10 +88,12 @@ def test_rfdetr_seg_training(dataset, tmp_path):
         )
         assert model._is_segmentation, "Model should be in segmentation mode"
 
-        # 2. Verify pre-training inference produces masks
-        pre_result = model.predict(SAMPLE_IMAGE, conf=0.3)
-        print(f"Pre-training: {{len(pre_result)}} detections, "
-              f"masks={{pre_result.masks is not None}}")
+        # 2. Baseline mAP BEFORE training (box mAP on fire-smoke-seg)
+        pre = model.val(
+            data="{data_yaml}", split="test", batch=8, conf=0.001, iou=0.6
+        )
+        pre_map = pre["metrics/mAP50-95"]
+        print(f"Pre-training box mAP50-95: {{pre_map:.4f}}")
 
         # 3. Train on fire-smoke-seg dataset
         model.train(
@@ -116,7 +119,19 @@ def test_rfdetr_seg_training(dataset, tmp_path):
         assert len(seg_keys) > 0, "Checkpoint missing segmentation_head keys"
         print(f"Checkpoint has {{len(seg_keys)}} segmentation_head keys")
 
-        # 6. Post-training inference still produces masks
+        # 6. Post-training mAP (box mAP — seg mAP requires SegmentationValidator)
+        post = model.val(
+            data="{data_yaml}", split="test", batch=8, conf=0.001, iou=0.6
+        )
+        post_map = post["metrics/mAP50-95"]
+        print(f"Post-training box mAP50-95: {{post_map:.4f}}")
+
+        assert post_map >= 0.05, f"mAP50-95={{post_map:.4f}} below 0.05"
+        assert post_map > pre_map, (
+            f"No improvement: pre={{pre_map:.4f}} -> post={{post_map:.4f}}"
+        )
+
+        # 7. Post-training inference still produces masks
         post_result = model.predict(SAMPLE_IMAGE, conf=0.3)
         print(f"Post-training: {{len(post_result)}} detections, "
               f"masks={{post_result.masks is not None}}")
@@ -143,8 +158,8 @@ def test_rfdetr_seg_inference_only(dataset):
         )
 
         # Run inference on a few test images
-        test_images = sorted(Path("{dataset}") / "test" / "images")
-        test_images = list(test_images.glob("*.jpg"))[:5]
+        test_dir = Path("{dataset}") / "test" / "images"
+        test_images = sorted(test_dir.glob("*.jpg"))[:5]
         assert len(test_images) > 0, "No test images found"
 
         for img_path in test_images:
