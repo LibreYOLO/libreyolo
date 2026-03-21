@@ -17,7 +17,7 @@ from ..utils.drawing import draw_boxes
 from ..utils.general import COCO_CLASSES, get_safe_stem
 from ..utils.image_loader import ImageLoader
 from ..utils.results import Boxes, Masks, Results
-from ..utils.video import VideoSource, VideoWriter, is_video_file
+from ..utils.video import VideoSource, is_video_file, run_video_inference
 
 logger = logging.getLogger(__name__)
 
@@ -583,7 +583,7 @@ class BaseBackend(ABC):
 
     def _predict_video(
         self,
-        source: str | Path,
+        source: Union[str, Path],
         *,
         conf: float = 0.25,
         iou: float = 0.45,
@@ -593,99 +593,33 @@ class BaseBackend(ABC):
         save: bool = False,
         show: bool = False,
         vid_stride: int = 1,
-        output_path: str | None = None,
-        color_format: str = "auto",
+        output_path: Optional[str] = None,
     ) -> Generator[Results, None, None]:
         """Run inference on a video file, yielding per-frame Results."""
-        import cv2
-
-        video_src = VideoSource(source, vid_stride=vid_stride)
         effective_imgsz = imgsz if imgsz is not None else self.imgsz
 
-        writer = None
-        if save:
-            out_path = self._resolve_video_save_path(source, output_path)
-            effective_fps = video_src.fps / max(1, vid_stride)
-            writer = VideoWriter(
-                out_path, effective_fps, video_src.width, video_src.height
+        def predict_frame(pil_img):
+            input_tensor, original_img, original_size, ratio = self._preprocess(
+                pil_img, effective_imgsz, "rgb"
+            )
+            blob = input_tensor.numpy()
+            all_outputs = self._run_inference(blob)
+            boxes, max_scores, class_ids = self._parse_outputs(
+                all_outputs, effective_imgsz, original_size, conf, ratio=ratio
+            )
+            orig_w, orig_h = original_size
+            return self._build_result(
+                boxes, max_scores, class_ids,
+                orig_shape=(orig_h, orig_w),
+                image_path=str(source),
+                iou=iou, classes=classes, max_det=max_det,
             )
 
-        try:
-            for frame_bgr, frame_idx in video_src:
-                frame_rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
-                pil_img = Image.fromarray(frame_rgb)
-
-                input_tensor, original_img, original_size, ratio = self._preprocess(
-                    pil_img, effective_imgsz, "rgb"
-                )
-
-                blob = input_tensor.numpy()
-                all_outputs = self._run_inference(blob)
-
-                boxes, max_scores, class_ids = self._parse_outputs(
-                    all_outputs, effective_imgsz, original_size, conf, ratio=ratio
-                )
-
-                orig_w, orig_h = original_size
-                orig_shape = (orig_h, orig_w)
-                result = self._build_result(
-                    boxes,
-                    max_scores,
-                    class_ids,
-                    orig_shape=orig_shape,
-                    image_path=str(source),
-                    iou=iou,
-                    classes=classes,
-                    max_det=max_det,
-                )
-                result.frame_idx = frame_idx
-
-                if save or show:
-                    if len(result) > 0:
-                        annotated_pil = draw_boxes(
-                            original_img,
-                            result.boxes.xyxy.tolist(),
-                            result.boxes.conf.tolist(),
-                            result.boxes.cls.tolist(),
-                        )
-                    else:
-                        annotated_pil = original_img
-
-                    annotated_bgr = cv2.cvtColor(
-                        np.array(annotated_pil), cv2.COLOR_RGB2BGR
-                    )
-
-                    if save and writer is not None:
-                        writer.write_frame(annotated_bgr)
-
-                    if show:
-                        cv2.imshow("LibreYOLO", annotated_bgr)
-                        if cv2.waitKey(1) & 0xFF == ord("q"):
-                            break
-
-                yield result
-
-        finally:
-            video_src.release()
-            if writer is not None:
-                writer.release()
-                logger.info(f"Video saved to {out_path}")
-            if show:
-                cv2.destroyAllWindows()
-
-    @staticmethod
-    def _resolve_video_save_path(
-        source: str | Path, output_path: str | None
-    ) -> str:
-        """Determine the output path for a saved video."""
-        if output_path is not None:
-            out = Path(output_path)
-            out.parent.mkdir(parents=True, exist_ok=True)
-            return str(out)
-
-        from ..utils.general import increment_path
-
-        save_dir = Path("runs/detect") / "predict"
-        save_dir = increment_path(save_dir, exist_ok=False, mkdir=True)
-        stem = Path(source).stem
-        return str(save_dir / f"{stem}.mp4")
+        yield from run_video_inference(
+            source,
+            predict_frame,
+            vid_stride=vid_stride,
+            save=save,
+            show=show,
+            output_path=output_path,
+        )
