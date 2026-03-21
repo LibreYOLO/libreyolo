@@ -9,7 +9,7 @@ from __future__ import annotations
 import re
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Any, ClassVar, Dict, List, Optional, Tuple, Type, Union
+from typing import Any, ClassVar, Dict, Generator, List, Optional, Tuple, Type, Union
 
 import torch
 import torch.nn as nn
@@ -344,6 +344,78 @@ class BaseModel(ABC):
     def predict(self, *args, **kwargs) -> Union[Results, List[Results]]:
         """Alias for __call__ method."""
         return self(*args, **kwargs)
+
+    def track(
+        self,
+        source: str | Path,
+        *,
+        conf: float = 0.25,
+        iou: float = 0.45,
+        imgsz: Optional[int] = None,
+        classes: Optional[List[int]] = None,
+        max_det: int = 300,
+        tracker_config=None,
+        **tracker_kwargs,
+    ) -> Generator[Results, None, None]:
+        """Track objects across video frames.
+
+        Runs detection on each frame and associates detections across time
+        using the ByteTrack algorithm. Yields one Results per frame with
+        ``track_id`` set.
+
+        Args:
+            source: Path to a video file.
+            conf: Confidence threshold passed to the tracker as
+                ``track_high_thresh``. The detector runs at a lower threshold
+                internally so ByteTrack can use low-confidence detections.
+            iou: IoU threshold for NMS during detection.
+            imgsz: Override input image size.
+            classes: Filter to specific class IDs.
+            max_det: Maximum detections per frame.
+            tracker_config: A ``TrackConfig`` instance, or None to build
+                one from **tracker_kwargs.
+            **tracker_kwargs: Forwarded to ``TrackConfig.from_kwargs``.
+
+        Yields:
+            Results with ``track_id`` attribute set as an (N,) int tensor.
+        """
+        import cv2
+        import numpy as np
+
+        from ...tracking import ByteTracker, TrackConfig
+
+        if tracker_config is None:
+            tracker_config = TrackConfig.from_kwargs(**tracker_kwargs)
+
+        # ByteTrack needs to see low-confidence detections.
+        effective_conf = tracker_config.track_low_thresh
+
+        tracker = ByteTracker(config=tracker_config)
+        cap = cv2.VideoCapture(str(source))
+
+        try:
+            while cap.isOpened():
+                ret, frame_bgr = cap.read()
+                if not ret:
+                    break
+
+                # Convert BGR → RGB numpy array for the detector.
+                frame_rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
+
+                result = self._runner(
+                    frame_rgb,
+                    conf=effective_conf,
+                    iou=iou,
+                    imgsz=imgsz,
+                    classes=classes,
+                    max_det=max_det,
+                    color_format="rgb",
+                )
+
+                tracked = tracker.update(result)
+                yield tracked
+        finally:
+            cap.release()
 
     def export(self, format: str = "onnx", **kwargs) -> str:
         """Export model to deployment format.

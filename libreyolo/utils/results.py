@@ -188,6 +188,7 @@ class Results:
         path: Source image path (or None).
         names: Dict mapping class ID -> class name.
         masks: Optional Masks instance for segmentation results.
+        track_id: Optional (N,) tensor of integer track IDs from a tracker.
     """
 
     def __init__(
@@ -197,12 +198,14 @@ class Results:
         path: Optional[str] = None,
         names: Optional[Dict[int, str]] = None,
         masks: Optional[Masks] = None,
+        track_id: Optional[torch.Tensor] = None,
     ):
         self.boxes = boxes
         self.orig_shape = orig_shape
         self.path = path
         self.names = names or {}
         self.masks = masks
+        self.track_id = track_id
 
     def cpu(self) -> "Results":
         """Return a copy with all tensors on CPU."""
@@ -212,6 +215,7 @@ class Results:
             path=self.path,
             names=self.names,
             masks=self.masks.cpu() if self.masks is not None else None,
+            track_id=self.track_id.cpu() if self.track_id is not None else None,
         )
 
     def __len__(self) -> int:
@@ -225,4 +229,6 @@ class Results:
         ]
         if self.masks is not None:
             parts.append(f"masks={self.masks}")
+        if self.track_id is not None:
+            parts.append(f"track_ids={len(self.track_id)}")
         return f"Results({', '.join(parts)})"

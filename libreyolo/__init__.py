@@ -27,6 +27,8 @@ def __getattr__(name):
         "DetectionValidator": (".validation", "DetectionValidator"),
         "ValidationConfig": (".validation", "ValidationConfig"),
         "DetMetrics": (".validation", "DetMetrics"),
+        "ByteTracker": (".tracking", "ByteTracker"),
+        "TrackConfig": (".tracking", "TrackConfig"),
         "DATASETS_DIR": (".data", "DATASETS_DIR"),
         "load_data_config": (".data", "load_data_config"),
         "check_dataset": (".data", "check_dataset"),
@@ -57,6 +59,9 @@ __all__ = [
     "Masks",
     # Assets
     "SAMPLE_IMAGE",
+    # Tracking
+    "ByteTracker",
+    "TrackConfig",
     # Lazy-loaded
     "OnnxBackend",
     "OpenVINOBackend",

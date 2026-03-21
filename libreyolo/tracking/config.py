@@ -1,0 +1,42 @@
+"""Tracking configuration for ByteTrack."""
+
+import warnings
+from dataclasses import dataclass, fields
+
+
+@dataclass(kw_only=True)
+class TrackConfig:
+    """Configuration for the ByteTrack multi-object tracker.
+
+    Args:
+        track_high_thresh: Minimum confidence for first association stage.
+        track_low_thresh: Minimum confidence for second association (low-conf recovery).
+        new_track_thresh: Minimum confidence to initialize a new track.
+        match_thresh: IoU cost threshold for first association.
+        track_buffer: Frames to keep lost tracks before removal.
+        frame_rate: Video frame rate (used to scale track_buffer).
+        fuse_score: Fuse detection score with IoU for first association.
+        minimum_consecutive_frames: Frames a track must be matched before it is confirmed.
+    """
+
+    track_high_thresh: float = 0.25
+    track_low_thresh: float = 0.1
+    new_track_thresh: float = 0.25
+    match_thresh: float = 0.8
+    track_buffer: int = 30
+    frame_rate: int = 30
+    fuse_score: bool = True
+    minimum_consecutive_frames: int = 1
+
+    @classmethod
+    def from_kwargs(cls, **kwargs) -> "TrackConfig":
+        """Construct config, warning on unknown keys."""
+        valid = {f.name for f in fields(cls)}
+        unknown = set(kwargs) - valid
+        if unknown:
+            warnings.warn(
+                f"Unknown tracking config keys (ignored): {sorted(unknown)}",
+                stacklevel=2,
+            )
+        filtered = {k: v for k, v in kwargs.items() if k in valid}
+        return cls(**filtered)
