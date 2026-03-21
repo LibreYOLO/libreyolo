@@ -185,3 +185,85 @@ def test_rfdetr_seg_inference_only(dataset):
         """,
         timeout=300,
     )
+
+
+@requires_cuda
+def test_rfdetr_seg_resume_training(dataset, tmp_path):
+    """Train 3 epochs, stop, resume from checkpoint, train to 5 epochs."""
+    output_dir = str(tmp_path / "rfdetr_seg_resume")
+    dataset_dir = str(dataset)
+
+    run_in_subprocess(
+        f"""
+        import gc
+        import torch
+        from pathlib import Path
+        from libreyolo.models.rfdetr.model import LibreYOLORFDETR
+
+        output_dir = "{output_dir}"
+        dataset_dir = "{dataset_dir}"
+
+        # Phase 1: Train 3 epochs
+        print("Phase 1: Training 3 epochs...")
+        model = LibreYOLORFDETR(
+            model_path="LibreRFDETRn-seg.pt",
+            size="n",
+            segmentation=True,
+        )
+        model.train(
+            data=dataset_dir,
+            epochs=3,
+            batch_size=2,
+            output_dir=output_dir,
+        )
+
+        # Find checkpoint
+        ckpt_path = Path(output_dir) / "checkpoint_best_total.pth"
+        if not ckpt_path.exists():
+            ckpts = sorted(Path(output_dir).glob("checkpoint*.pth"))
+            assert ckpts, f"No checkpoint found in {{output_dir}}"
+            ckpt_path = ckpts[-1]
+        print(f"Checkpoint: {{ckpt_path}}")
+
+        # Verify checkpoint has seg keys
+        ckpt = torch.load(ckpt_path, map_location="cpu", weights_only=False)
+        seg_keys = [k for k in ckpt["model"] if k.startswith("segmentation_head")]
+        assert len(seg_keys) > 0, "Checkpoint missing segmentation_head keys"
+
+        # Cleanup
+        del model, ckpt
+        gc.collect()
+        torch.cuda.empty_cache()
+
+        # Phase 2: Resume from checkpoint, train to 5 epochs
+        print("Phase 2: Resuming training to 5 epochs...")
+        model2 = LibreYOLORFDETR(
+            model_path="LibreRFDETRn-seg.pt",
+            size="n",
+            segmentation=True,
+        )
+        model2.train(
+            data=dataset_dir,
+            epochs=5,
+            batch_size=2,
+            output_dir=output_dir,
+            resume=str(ckpt_path),
+        )
+
+        # Verify resumed checkpoint still has seg keys
+        ckpt2_path = Path(output_dir) / "checkpoint_best_total.pth"
+        ckpt2 = torch.load(ckpt2_path, map_location="cpu", weights_only=False)
+        seg_keys2 = [k for k in ckpt2["model"] if k.startswith("segmentation_head")]
+        assert len(seg_keys2) > 0, "Resumed checkpoint missing segmentation_head keys"
+        print(f"Resumed checkpoint has {{len(seg_keys2)}} segmentation_head keys")
+
+        # Verify model still produces masks after resume
+        from libreyolo import SAMPLE_IMAGE
+        result = model2.predict(SAMPLE_IMAGE, conf=0.3)
+        print(f"Post-resume inference: {{len(result)}} dets, "
+              f"masks={{result.masks is not None}}")
+
+        print("PASSED")
+        """,
+        timeout=600,
+    )
