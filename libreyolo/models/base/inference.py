@@ -390,6 +390,16 @@ class InferenceRunner:
         **kwargs,
     ) -> Results:
         """Run tiled inference on large images."""
+        import warnings
+
+        if getattr(self.model, "_is_segmentation", False):
+            warnings.warn(
+                "Tiled inference does not support segmentation masks. "
+                "Masks will be None in the results. Use non-tiled inference "
+                "for instance segmentation.",
+                stacklevel=2,
+            )
+
         input_size = imgsz if imgsz is not None else self.model._get_input_size()
         img_pil = ImageLoader.load(image, color_format=color_format)
         orig_width, orig_height = img_pil.size
