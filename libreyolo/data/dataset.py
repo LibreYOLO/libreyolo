@@ -2,17 +2,54 @@
 Dataset classes for YOLOX training.
 
 Supports both COCO JSON format and YOLO txt format.
+Includes polygon rasterization for instance segmentation.
 """
 
 import copy
 import os
 from pathlib import Path
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 
 import cv2
 import numpy as np
 import torch
 from torch.utils.data import Dataset, DataLoader
+
+
+def polygons_to_masks(
+    polygons: List[Optional[np.ndarray]],
+    mask_h: int,
+    mask_w: int,
+    max_objects: int = 100,
+) -> torch.Tensor:
+    """Rasterize normalized polygon coordinates into binary masks.
+
+    Args:
+        polygons: List of (M_i, 2) arrays with normalized [0,1] polygon vertices,
+            or None for detection-only labels.
+        mask_h: Output mask height (proto resolution).
+        mask_w: Output mask width (proto resolution).
+        max_objects: Maximum number of masks to produce.
+
+    Returns:
+        (max_objects, mask_h, mask_w) float32 tensor with binary masks.
+    """
+    masks = torch.zeros((max_objects, mask_h, mask_w), dtype=torch.float32)
+
+    for i, poly in enumerate(polygons[:max_objects]):
+        if poly is None or len(poly) < 3:
+            continue
+        # Scale normalized coords to mask resolution
+        pts = poly.copy()
+        pts[:, 0] *= mask_w
+        pts[:, 1] *= mask_h
+        pts = pts.astype(np.int32)
+
+        mask_np = np.zeros((mask_h, mask_w), dtype=np.uint8)
+        cv2.fillPoly(mask_np, [pts], 1)
+        masks[i] = torch.from_numpy(mask_np).float()
+
+    return masks
 
 
 class YOLODataset(Dataset):
@@ -111,7 +148,11 @@ class YOLODataset(Dataset):
         return annotations
 
     def _load_label(self, label_file: Path, img_file: Path) -> Tuple:
-        """Load annotation for a single image."""
+        """Load annotation for a single image.
+
+        For segmentation labels (>5 columns), polygon coordinates are stored
+        in self._polygons for later rasterization into masks.
+        """
         # Read image to get dimensions
         img = cv2.imread(str(img_file))
         if img is None:
@@ -121,6 +162,7 @@ class YOLODataset(Dataset):
 
         # Load labels
         labels = []
+        polygons = []
         if label_file.exists():
             with open(label_file, "r") as f:
                 for line in f:
@@ -137,8 +179,12 @@ class YOLODataset(Dataset):
                             cy = (min(ys) + max(ys)) / 2
                             w = max(xs) - min(xs)
                             h = max(ys) - min(ys)
+                            # Store normalized polygon vertices
+                            polygon = np.array(coords, dtype=np.float32).reshape(-1, 2)
+                            polygons.append(polygon)
                         else:
                             cx, cy, w, h = map(float, parts[1:5])
+                            polygons.append(None)
 
                         # Convert normalized xywh to pixel xyxy
                         x1 = (cx - w / 2) * width
@@ -162,6 +208,13 @@ class YOLODataset(Dataset):
         img_info = (height, width)
         resized_info = (int(height * r), int(width * r))
         file_name = img_file.name
+
+        # Store polygons indexed by image for seg training
+        if not hasattr(self, "_polygons"):
+            self._polygons = {}
+        img_idx = len(self._polygons)
+        if any(p is not None for p in polygons):
+            self._polygons[img_idx] = polygons
 
         return (res, img_info, resized_info, file_name)
 
