@@ -9,7 +9,7 @@ from __future__ import annotations
 import re
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Any, ClassVar, Dict, List, Optional, Tuple, Type, Union
+from typing import Any, ClassVar, Dict, Generator, List, Optional, Tuple, Type, Union
 
 import torch
 import torch.nn as nn
@@ -18,6 +18,8 @@ from PIL import Image
 from ...utils.general import COCO_CLASSES
 from ...utils.image_loader import ImageInput
 from ...utils.results import Results
+
+from typing import Generator
 from ...validation.preprocessors import StandardValPreprocessor
 
 
@@ -338,12 +340,127 @@ class BaseModel(ABC):
             self._runner_instance = InferenceRunner(self)
         return self._runner_instance
 
-    def __call__(self, source=None, **kwargs):
+    def __call__(
+        self, source=None, **kwargs
+    ) -> Union[Results, List[Results], Generator[Results, None, None]]:
         return self._runner(source, **kwargs)
 
-    def predict(self, *args, **kwargs) -> Union[Results, List[Results]]:
+    def predict(
+        self, *args, **kwargs
+    ) -> Union[Results, List[Results], Generator[Results, None, None]]:
         """Alias for __call__ method."""
         return self(*args, **kwargs)
+
+    def track(
+        self,
+        source: str | Path,
+        *,
+        track_conf: float = 0.25,
+        iou: float = 0.45,
+        imgsz: Optional[int] = None,
+        classes: Optional[List[int]] = None,
+        max_det: int = 300,
+        save: bool = False,
+        show: bool = False,
+        vid_stride: int = 1,
+        output_path: Optional[str] = None,
+        tracker_config=None,
+        **tracker_kwargs,
+    ) -> Generator[Results, None, None]:
+        """Track objects across video frames.
+
+        Runs detection on each frame and associates detections across time
+        using the ByteTrack algorithm. Yields one Results per frame with
+        ``track_id`` set.
+
+        Args:
+            source: Path to a video file.
+            track_conf: Confidence threshold for the tracker's first
+                association stage (``track_high_thresh``). The detector
+                runs at the lower ``track_low_thresh`` internally so
+                ByteTrack can use low-confidence detections for recovery.
+            iou: IoU threshold for NMS during detection.
+            imgsz: Override input image size.
+            classes: Filter to specific class IDs.
+            max_det: Maximum detections per frame.
+            save: If True, save annotated video to *output_path*.
+            show: Display tracked frames in a window.
+            vid_stride: Process every N-th frame.
+            output_path: Path for saved video. Defaults to
+                ``runs/track/<video_stem>.mp4``.
+            tracker_config: A ``TrackConfig`` instance, or None to build
+                one from **tracker_kwargs.
+            **tracker_kwargs: Forwarded to ``TrackConfig.from_kwargs``.
+
+        Yields:
+            Results with ``track_id`` attribute set as an (N,) int tensor.
+        """
+        from ...tracking import ByteTracker, TrackConfig
+        from ...utils.drawing import draw_boxes
+        from ...utils.video import run_video_inference
+
+        if tracker_config is None:
+            tracker_config = TrackConfig.from_kwargs(**tracker_kwargs)
+
+        source = Path(source)
+        if not source.exists():
+            raise FileNotFoundError(f"Video file not found: {source}")
+
+        # ByteTrack needs to see low-confidence detections.
+        effective_conf = tracker_config.track_low_thresh
+        tracker = ByteTracker(config=tracker_config)
+        model_names = self.names
+
+        def predict_and_track(pil_img):
+            result = self._runner(
+                pil_img,
+                conf=effective_conf,
+                iou=iou,
+                imgsz=imgsz,
+                classes=classes,
+                max_det=max_det,
+                color_format="rgb",
+            )
+            return tracker.update(result)
+
+        def annotate_tracked(pil_img, result):
+            if len(result) == 0:
+                return pil_img
+            tid_list = (
+                result.track_id.tolist()
+                if result.track_id is not None
+                else None
+            )
+            return draw_boxes(
+                pil_img,
+                result.boxes.xyxy.tolist(),
+                result.boxes.conf.tolist(),
+                result.boxes.cls.tolist(),
+                class_names=model_names,
+                track_ids=tid_list,
+            )
+
+        # Use runs/track/ prefix instead of runs/detect/
+        track_output = output_path
+        if save and output_path is None:
+            from ...utils.general import increment_path
+
+            track_output = str(
+                increment_path(
+                    Path("runs") / "track" / f"{source.stem}.mp4",
+                    exist_ok=False,
+                )
+            )
+
+        yield from run_video_inference(
+            source,
+            predict_and_track,
+            vid_stride=vid_stride,
+            save=save,
+            show=show,
+            output_path=track_output,
+            annotate_fn=annotate_tracked,
+        )
 
     def export(self, format: str = "onnx", **kwargs) -> str:
         """Export model to deployment format.

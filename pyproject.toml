@@ -47,12 +47,16 @@ ncnn = [
     "pnnx",
     "ncnn",
 ]
+tracking = [
+    "scipy>=1.7.0",
+]
 all = [
     "libreyolo[onnx]",
     "libreyolo[rfdetr]",
     "libreyolo[tensorrt]",
     "libreyolo[openvino]",
     "libreyolo[ncnn]",
+    "libreyolo[tracking]",
 ]
 
 [project.urls]
