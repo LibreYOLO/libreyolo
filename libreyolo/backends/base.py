@@ -1,9 +1,11 @@
 """Base class for LibreYOLO inference backends."""
 
+import logging
+import warnings
 from abc import ABC, abstractmethod
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Dict, Generator, List, Optional, Tuple, Union
 
 import numpy as np
 import torch
@@ -15,6 +17,9 @@ from ..utils.drawing import draw_boxes
 from ..utils.general import COCO_CLASSES, get_safe_stem
 from ..utils.image_loader import ImageLoader
 from ..utils.results import Boxes, Masks, Results
+from ..utils.video import VideoSource, is_video_file, run_video_inference
+
+logger = logging.getLogger(__name__)
 
 
 def _nms_numpy(
@@ -504,10 +509,42 @@ class BaseBackend(ABC):
         max_det: int = 300,
         save: bool = False,
         batch: int = 1,
+        # video parameters
+        stream: bool = False,
+        vid_stride: int = 1,
+        show: bool = False,
         output_path: str | None = None,
         color_format: str = "auto",
-    ) -> Union[Results, List[Results]]:
-        """Run inference on an image or directory of images."""
+    ) -> Union[Results, List[Results], Generator[Results, None, None]]:
+        """Run inference on an image, directory, or video."""
+        # Handle video input
+        if is_video_file(source):
+            gen = self._predict_video(
+                source,
+                conf=conf,
+                iou=iou,
+                imgsz=imgsz,
+                classes=classes,
+                max_det=max_det,
+                save=save,
+                show=show,
+                vid_stride=vid_stride,
+                output_path=output_path,
+            )
+            if stream:
+                return gen
+            vs = VideoSource(source, vid_stride=vid_stride)
+            est_frames = vs.total_frames // max(1, vid_stride)
+            vs.release()
+            if est_frames > 500:
+                warnings.warn(
+                    f"Video has ~{est_frames} frames to process. "
+                    f"Consider using stream=True to avoid high memory usage. "
+                    f"Example: backend('{source}', stream=True)",
+                    stacklevel=2,
+                )
+            return list(gen)
+
         if isinstance(source, (str, Path)) and Path(source).is_dir():
             image_paths = ImageLoader.collect_images(source)
             if not image_paths:
@@ -537,6 +574,51 @@ class BaseBackend(ABC):
             color_format=color_format,
         )
 
-    def predict(self, *args, **kwargs) -> Union[Results, List[Results]]:
+    def predict(
+        self, *args, **kwargs
+    ) -> Union[Results, List[Results], Generator[Results, None, None]]:
         """Alias for __call__ method."""
         return self(*args, **kwargs)
+
+    def _predict_video(
+        self,
+        source: Union[str, Path],
+        *,
+        conf: float = 0.25,
+        iou: float = 0.45,
+        imgsz: Optional[int] = None,
+        classes: Optional[List[int]] = None,
+        max_det: int = 300,
+        save: bool = False,
+        show: bool = False,
+        vid_stride: int = 1,
+        output_path: Optional[str] = None,
+    ) -> Generator[Results, None, None]:
+        """Run inference on a video file, yielding per-frame Results."""
+        effective_imgsz = imgsz if imgsz is not None else self.imgsz
+
+        def predict_frame(pil_img):
+            input_tensor, original_img, original_size, ratio = self._preprocess(
+                pil_img, effective_imgsz, "rgb"
+            )
+            blob = input_tensor.numpy()
+            all_outputs = self._run_inference(blob)
+            boxes, max_scores, class_ids = self._parse_outputs(
+                all_outputs, effective_imgsz, original_size, conf, ratio=ratio
+            )
+            orig_w, orig_h = original_size
+            return self._build_result(
+                boxes, max_scores, class_ids,
+                orig_shape=(orig_h, orig_w),
+                image_path=str(source),
+                iou=iou, classes=classes, max_det=max_det,
+            )
+
+        yield from run_video_inference(
+            source,
+            predict_frame,
+            vid_stride=vid_stride,
+            save=save,
+            show=show,
+            output_path=output_path,
+        )
