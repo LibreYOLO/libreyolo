@@ -14,10 +14,10 @@ from typing import TYPE_CHECKING, Dict, List, Optional, Tuple, Union
 
 import torch
 
-from ...utils.drawing import draw_boxes, draw_tile_grid
+from ...utils.drawing import draw_boxes, draw_masks, draw_tile_grid
 from ...utils.general import get_safe_stem, get_slice_bboxes, nms, resolve_save_path
 from ...utils.image_loader import ImageInput, ImageLoader
-from ...utils.results import Boxes, Results
+from ...utils.results import Boxes, Masks, Results
 
 if TYPE_CHECKING:
     from .model import BaseModel
@@ -194,12 +194,14 @@ class InferenceRunner:
         conf_t: torch.Tensor,
         cls_t: torch.Tensor,
         classes: List[int],
-    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        masks_t: Optional[torch.Tensor] = None,
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, Optional[torch.Tensor]]:
         """Filter detections to keep only the requested class IDs."""
         mask = torch.zeros(len(cls_t), dtype=torch.bool, device=cls_t.device)
         for cid in classes:
             mask |= cls_t == cid
-        return boxes_t[mask], conf_t[mask], cls_t[mask]
+        filtered_masks = masks_t[mask] if masks_t is not None else None
+        return boxes_t[mask], conf_t[mask], cls_t[mask], filtered_masks
 
     def _wrap_results(
         self,
@@ -211,11 +213,14 @@ class InferenceRunner:
         """Convert raw detection dict to a Results object.
 
         Args:
-            detections: Dict with 'boxes', 'scores', 'classes', 'num_detections'.
+            detections: Dict with 'boxes', 'scores', 'classes', 'num_detections',
+                and optionally 'masks'.
             original_size: (width, height) from preprocessing.
             image_path: Source path or None.
             classes: Optional class filter list.
         """
+        masks_t = None
+
         if detections["num_detections"] == 0:
             boxes_t = torch.zeros((0, 4), dtype=torch.float32)
             conf_t = torch.zeros((0,), dtype=torch.float32)
@@ -239,21 +244,33 @@ class InferenceRunner:
             else:
                 cls_t = torch.tensor(raw_cls, dtype=torch.float32)
 
+            raw_masks = detections.get("masks")
+            if raw_masks is not None:
+                if isinstance(raw_masks, torch.Tensor):
+                    masks_t = raw_masks
+                else:
+                    masks_t = torch.tensor(raw_masks)
+
         # Apply class filter
         if classes is not None and len(boxes_t) > 0:
-            boxes_t, conf_t, cls_t = self._apply_classes_filter(
-                boxes_t, conf_t, cls_t, classes
+            boxes_t, conf_t, cls_t, masks_t = self._apply_classes_filter(
+                boxes_t, conf_t, cls_t, classes, masks_t
             )
 
-        # original_size from preprocess is (W, H); orig_shape follows Ultralytics (H, W)
+        # original_size from preprocess is (W, H); orig_shape is (H, W)
         orig_w, orig_h = original_size
         orig_shape = (orig_h, orig_w)
+
+        masks_obj = None
+        if masks_t is not None:
+            masks_obj = Masks(masks_t, orig_shape)
 
         return Results(
             boxes=Boxes(boxes_t, conf_t, cls_t),
             orig_shape=orig_shape,
             path=str(image_path) if image_path else None,
             names=self.model.names,
+            masks=masks_obj,
         )
 
     def _predict_single(
@@ -297,8 +314,19 @@ class InferenceRunner:
         # Save annotated image
         if save:
             if len(result) > 0:
+                annotated_img = original_img
+                # Draw masks first (underneath boxes)
+                if result.masks is not None:
+                    masks_np = result.masks.data
+                    if isinstance(masks_np, torch.Tensor):
+                        masks_np = masks_np.cpu().numpy()
+                    annotated_img = draw_masks(
+                        annotated_img,
+                        masks_np,
+                        result.boxes.cls.tolist(),
+                    )
                 annotated_img = draw_boxes(
-                    original_img,
+                    annotated_img,
                     result.boxes.xyxy.tolist(),
                     result.boxes.conf.tolist(),
                     result.boxes.cls.tolist(),
@@ -364,6 +392,16 @@ class InferenceRunner:
         **kwargs,
     ) -> Results:
         """Run tiled inference on large images."""
+        import warnings
+
+        if getattr(self.model, "_is_segmentation", False):
+            warnings.warn(
+                "Tiled inference does not support segmentation masks. "
+                "Masks will be None in the results. Use non-tiled inference "
+                "for instance segmentation.",
+                stacklevel=2,
+            )
+
         input_size = imgsz if imgsz is not None else self.model._get_input_size()
         img_pil = ImageLoader.load(image, color_format=color_format)
         orig_width, orig_height = img_pil.size

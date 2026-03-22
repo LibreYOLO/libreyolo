@@ -127,7 +127,18 @@ class YOLODataset(Dataset):
                     parts = line.strip().split()
                     if len(parts) >= 5:
                         cls_id = int(parts[0])
-                        cx, cy, w, h = map(float, parts[1:5])
+
+                        if len(parts) > 5:
+                            # Segmentation format: derive bbox from polygon vertices
+                            coords = [float(p) for p in parts[1:]]
+                            xs = coords[0::2]
+                            ys = coords[1::2]
+                            cx = (min(xs) + max(xs)) / 2
+                            cy = (min(ys) + max(ys)) / 2
+                            w = max(xs) - min(xs)
+                            h = max(ys) - min(ys)
+                        else:
+                            cx, cy, w, h = map(float, parts[1:5])
 
                         # Convert normalized xywh to pixel xyxy
                         x1 = (cx - w / 2) * width
