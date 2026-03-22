@@ -5,7 +5,7 @@ from pathlib import Path as _Path
 
 # Core API — always available
 from .models import LibreYOLO, LibreYOLOX, LibreYOLO9
-from .utils.results import Results, Boxes
+from .utils.results import Results, Boxes, Masks
 
 SAMPLE_IMAGE = str(_Path(__file__).parent / "assets" / "parkour.jpg")
 
@@ -54,6 +54,7 @@ __all__ = [
     # Results
     "Results",
     "Boxes",
+    "Masks",
     # Assets
     "SAMPLE_IMAGE",
     # Lazy-loaded

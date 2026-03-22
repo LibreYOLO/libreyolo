@@ -8,13 +8,18 @@ rfdetr package to ensure 100% weight compatibility.
 import torch
 import torch.nn as nn
 
-from rfdetr.main import Model as RFDETRMainModel
-from rfdetr.models.lwdetr import LWDETR, MLP, PostProcess
+from rfdetr.detr import _build_model_context
+from rfdetr.models import PostProcess
+from rfdetr.models.lwdetr import LWDETR, MLP
 from rfdetr.config import (
     RFDETRLargeConfig,
     RFDETRNanoConfig,
     RFDETRSmallConfig,
     RFDETRMediumConfig,
+    RFDETRSegLargeConfig,
+    RFDETRSegNanoConfig,
+    RFDETRSegSmallConfig,
+    RFDETRSegMediumConfig,
 )
 
 
@@ -25,13 +30,21 @@ RFDETR_CONFIGS = {
     "l": RFDETRLargeConfig,
 }
 
+RFDETR_SEG_CONFIGS = {
+    "n": RFDETRSegNanoConfig,
+    "s": RFDETRSegSmallConfig,
+    "m": RFDETRSegMediumConfig,
+    "l": RFDETRSegLargeConfig,
+}
+
 
 class LibreRFDETRModel(nn.Module):
     """
     RF-DETR Detection Transformer model wrapper.
 
     This wraps the original RF-DETR model to provide a consistent interface
-    while maintaining 100% weight compatibility.
+    while maintaining 100% weight compatibility. Supports both detection and
+    instance segmentation variants.
     """
 
     def __init__(
@@ -40,6 +53,7 @@ class LibreRFDETRModel(nn.Module):
         nb_classes: int = 80,
         pretrain_weights: str | None = None,
         device: str = "cpu",
+        segmentation: bool = False,
     ):
         """
         Initialize RF-DETR model.
@@ -49,18 +63,21 @@ class LibreRFDETRModel(nn.Module):
             nb_classes: Number of object classes (use 80 for COCO)
             pretrain_weights: Path to pretrained weights (optional)
             device: Device to use ('cpu', 'cuda', 'mps')
+            segmentation: If True, use segmentation config with mask head
         """
         super().__init__()
 
-        if config not in RFDETR_CONFIGS:
+        configs = RFDETR_SEG_CONFIGS if segmentation else RFDETR_CONFIGS
+        if config not in configs:
             raise ValueError(
-                f"Invalid config: {config}. Must be one of: {list(RFDETR_CONFIGS.keys())}"
+                f"Invalid config: {config}. Must be one of: {list(configs.keys())}"
             )
 
         self.config_name = config
         self.nb_classes = nb_classes
+        self.segmentation = segmentation
 
-        config_cls = RFDETR_CONFIGS[config]
+        config_cls = configs[config]
         model_config = config_cls(
             num_classes=nb_classes,
             pretrain_weights=pretrain_weights,
@@ -70,9 +87,8 @@ class LibreRFDETRModel(nn.Module):
         self.hidden_dim = model_config.hidden_dim
         self.num_queries = getattr(model_config, "num_queries", 300)
 
-        config_dict = model_config.dict()
-        config_dict["device"] = device  # Override device
-        self._rfdetr = RFDETRMainModel(**config_dict)
+        model_config.device = device
+        self._rfdetr = _build_model_context(model_config)
 
         self.model = self._rfdetr.model
         self.postprocess = self._rfdetr.postprocess
@@ -85,14 +101,16 @@ class LibreRFDETRModel(nn.Module):
             x: Input tensor of shape (B, 3, H, W)
 
         Returns:
-            Dictionary with 'pred_logits' and 'pred_boxes' (inference mode),
-            or tuple of (pred_boxes, pred_logits) when in export mode.
+            Dictionary with 'pred_logits', 'pred_boxes', and optionally
+            'pred_masks' (inference mode), or tuple of tensors in export mode.
         """
         out = self.model(x)
-        # In export mode, forward_export returns (coord, class, masks)
-        # where masks may be None (not traceable). Return only tensors.
+        # In export mode, forward_export returns (coord, class, masks).
+        # Pass through all available tensors.
         if isinstance(out, tuple):
             coord, cls = out[0], out[1]
+            if len(out) >= 3 and out[2] is not None:
+                return coord, cls, out[2]
             return coord, cls
         return out
 
@@ -122,6 +140,7 @@ def create_rfdetr_model(
     nb_classes: int = 80,
     pretrain_weights: str | None = None,
     device: str = "cpu",
+    segmentation: bool = False,
 ) -> LibreRFDETRModel:
     """
     Create an RF-DETR model.
@@ -131,6 +150,7 @@ def create_rfdetr_model(
         nb_classes: Number of object classes
         pretrain_weights: Path to pretrained weights
         device: Device to use
+        segmentation: If True, create segmentation variant with mask head
 
     Returns:
         LibreRFDETRModel instance
@@ -140,6 +160,7 @@ def create_rfdetr_model(
         nb_classes=nb_classes,
         pretrain_weights=pretrain_weights,
         device=device,
+        segmentation=segmentation,
     )
 
 

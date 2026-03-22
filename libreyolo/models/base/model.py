@@ -200,15 +200,34 @@ class BaseModel(ABC):
         self.model.to(self.device)
 
     @classmethod
-    def detect_size_from_filename(cls, filename: str) -> Optional[str]:
-        """Extract model size from a weight filename."""
+    def _filename_regex(cls) -> Optional[re.Pattern]:
+        """Compile regex for matching weight filenames with optional task suffix."""
         if not cls.INPUT_SIZES or not cls.FILENAME_PREFIX:
             return None
         sizes_pattern = "".join(cls.INPUT_SIZES.keys())
         prefix = cls.FILENAME_PREFIX.lower()
         ext = re.escape(cls.WEIGHT_EXT)
-        m = re.search(rf"{prefix}([{sizes_pattern}]){ext}", filename.lower())
+        return re.compile(rf"{prefix}([{sizes_pattern}])(-seg)?{ext}")
+
+    @classmethod
+    def detect_size_from_filename(cls, filename: str) -> Optional[str]:
+        """Extract model size from a weight filename."""
+        pattern = cls._filename_regex()
+        if pattern is None:
+            return None
+        m = pattern.search(filename.lower())
         return m.group(1) if m else None
+
+    @classmethod
+    def detect_task_from_filename(cls, filename: str) -> Optional[str]:
+        """Extract task suffix from a weight filename (e.g. 'seg')."""
+        pattern = cls._filename_regex()
+        if pattern is None:
+            return None
+        m = pattern.search(filename.lower())
+        if m and m.group(2):
+            return m.group(2).lstrip("-")
+        return None
 
     @classmethod
     def get_download_url(cls, filename: str) -> Optional[str]:
@@ -216,9 +235,10 @@ class BaseModel(ABC):
         size = cls.detect_size_from_filename(filename)
         if size is None:
             return None
-        repo = f"LibreYOLO/{cls.FILENAME_PREFIX}{size}"
-        actual = f"{cls.FILENAME_PREFIX}{size}{cls.WEIGHT_EXT}"
-        return f"https://huggingface.co/{repo}/resolve/main/{actual}"
+        task = cls.detect_task_from_filename(filename)
+        suffix = f"-{task}" if task else ""
+        name = f"{cls.FILENAME_PREFIX}{size}{suffix}"
+        return f"https://huggingface.co/LibreYOLO/{name}/resolve/main/{name}{cls.WEIGHT_EXT}"
 
     def _get_val_preprocessor(self, img_size: int | None = None):
         """Return the validation preprocessor for this model."""

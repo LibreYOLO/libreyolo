@@ -6,6 +6,7 @@ Postprocessing matches the original rfdetr implementation exactly.
 
 import numpy as np
 import torch
+import torch.nn.functional as F
 from typing import List, Dict, Tuple
 from PIL import Image
 
@@ -68,6 +69,7 @@ def postprocess(
     """
     out_logits = outputs["pred_logits"]  # (B, num_queries, num_classes)
     out_bbox = outputs["pred_boxes"]  # (B, num_queries, 4) in cxcywh [0, 1]
+    out_masks = outputs.get("pred_masks")  # (B, num_queries, Hm, Wm) or None
 
     assert len(out_logits) == len(target_sizes)
     assert target_sizes.shape[1] == 2
@@ -94,9 +96,33 @@ def postprocess(
     scale_fct = torch.stack([img_w, img_h, img_w, img_h], dim=1)
     boxes = boxes * scale_fct[:, None, :]
 
-    results = [
-        {"scores": s, "labels": lab, "boxes": b}
-        for s, lab, b in zip(scores, labels, boxes)
-    ]
+    results = []
+    for i in range(batch_size):
+        res_i = {"scores": scores[i], "labels": labels[i], "boxes": boxes[i]}
+
+        if out_masks is not None:
+            # Gather masks for top-K queries
+            k_idx = topk_boxes[i]
+            masks_i = torch.gather(
+                out_masks[i],
+                0,
+                k_idx.unsqueeze(-1)
+                .unsqueeze(-1)
+                .repeat(1, out_masks.shape[-2], out_masks.shape[-1]),
+            )  # (K, Hm, Wm)
+
+            # Resize to original image size
+            h, w = target_sizes[i].tolist()
+            masks_i = F.interpolate(
+                masks_i.unsqueeze(1),
+                size=(int(h), int(w)),
+                mode="bilinear",
+                align_corners=False,
+            )  # (K, 1, H, W)
+
+            # Threshold at 0.0 in logit space (= 0.5 probability)
+            res_i["masks"] = (masks_i[:, 0] > 0.0).bool()  # (K, H, W)
+
+        results.append(res_i)
 
     return results
