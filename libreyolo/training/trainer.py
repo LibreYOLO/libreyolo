@@ -449,10 +449,11 @@ class BaseTrainer(ABC):
 
             del outputs, loss
 
-            # LR update
+            # LR update (respects per-group lr_ratio if set)
             lr = self.lr_scheduler.update_lr(self.current_iter + 1)
             for param_group in self.optimizer.param_groups:
-                param_group["lr"] = lr
+                ratio = param_group.get("lr_ratio", 1.0)
+                param_group["lr"] = lr * ratio
             num_batches += 1
 
             # Progress bar
