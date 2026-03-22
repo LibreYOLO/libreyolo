@@ -3,7 +3,9 @@
 import pytest
 import torch
 import numpy as np
+from PIL import Image
 
+from libreyolo.utils.drawing import draw_masks
 from libreyolo.utils.results import Boxes, Masks, Results
 
 pytestmark = pytest.mark.unit
@@ -289,6 +291,106 @@ class TestPolygonLabelParsing:
             assert abs(y1 - 20) < 1
             assert abs(x2 - 80) < 1
             assert abs(y2 - 80) < 1
+
+
+class TestDrawMasks:
+    """Tests for draw_masks visualization function."""
+
+    def _make_img(self, w=200, h=100):
+        return Image.new("RGB", (w, h), color=(128, 128, 128))
+
+    def test_single_mask(self):
+        img = self._make_img()
+        masks = np.zeros((1, 100, 200), dtype=bool)
+        masks[0, 20:80, 40:160] = True
+        result = draw_masks(img, masks, classes=[0])
+        assert isinstance(result, Image.Image)
+        assert result.size == (200, 100)
+        assert result.mode == "RGB"
+
+    def test_multiple_masks_different_classes(self):
+        img = self._make_img()
+        masks = np.zeros((3, 100, 200), dtype=bool)
+        masks[0, 10:30, 10:50] = True
+        masks[1, 40:60, 60:120] = True
+        masks[2, 70:90, 130:190] = True
+        result = draw_masks(img, masks, classes=[0, 1, 2])
+        assert result.size == (200, 100)
+        # Masked regions should differ from uniform gray background
+        arr = np.array(result)
+        assert not np.all(arr == 128)
+
+    def test_empty_masks(self):
+        img = self._make_img()
+        masks = np.zeros((0, 100, 200), dtype=bool)
+        result = draw_masks(img, masks, classes=[])
+        assert result.size == img.size
+        # No masks → image should be unchanged
+        assert np.array_equal(np.array(result), np.array(img))
+
+    def test_all_false_mask(self):
+        img = self._make_img()
+        masks = np.zeros((1, 100, 200), dtype=bool)  # all False
+        result = draw_masks(img, masks, classes=[0])
+        assert result.size == img.size
+
+    def test_alpha_zero_transparent(self):
+        img = self._make_img()
+        masks = np.ones((1, 100, 200), dtype=bool)
+        result = draw_masks(img, masks, classes=[0], alpha=0.0)
+        # Alpha 0 = fully transparent, image should be unchanged
+        assert np.array_equal(np.array(result), np.array(img))
+
+    def test_alpha_one_opaque(self):
+        img = self._make_img()
+        masks = np.ones((1, 100, 200), dtype=bool)
+        result = draw_masks(img, masks, classes=[0], alpha=1.0)
+        # Alpha 1 = fully opaque, masked pixels should NOT match original
+        assert not np.array_equal(np.array(result), np.array(img))
+
+    def test_does_not_modify_original(self):
+        img = self._make_img()
+        original_arr = np.array(img).copy()
+        masks = np.ones((1, 100, 200), dtype=bool)
+        draw_masks(img, masks, classes=[0])
+        assert np.array_equal(np.array(img), original_arr)
+
+
+class TestDetectNumOutputs:
+    """Tests for ONNX segmentation output detection."""
+
+    def test_detection_model_two_outputs(self):
+        from libreyolo.export.onnx import _detect_num_outputs
+
+        class DetModel(torch.nn.Module):
+            def forward(self, x):
+                return torch.zeros(1, 4), torch.zeros(1, 80)
+
+        model = DetModel()
+        dummy = torch.zeros(1, 3, 64, 64)
+        assert _detect_num_outputs(model, dummy) == 2
+
+    def test_segmentation_model_three_outputs(self):
+        from libreyolo.export.onnx import _detect_num_outputs
+
+        class SegModel(torch.nn.Module):
+            def forward(self, x):
+                return torch.zeros(1, 4), torch.zeros(1, 80), torch.zeros(1, 1, 64, 64)
+
+        model = SegModel()
+        dummy = torch.zeros(1, 3, 64, 64)
+        assert _detect_num_outputs(model, dummy) == 3
+
+    def test_single_output_model(self):
+        from libreyolo.export.onnx import _detect_num_outputs
+
+        class SingleModel(torch.nn.Module):
+            def forward(self, x):
+                return torch.zeros(1, 85, 100)
+
+        model = SingleModel()
+        dummy = torch.zeros(1, 3, 64, 64)
+        assert _detect_num_outputs(model, dummy) == 1
 
 
 class TestDetectSegmentation:
