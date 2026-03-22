@@ -361,6 +361,8 @@ class BaseModel(ABC):
         classes: Optional[List[int]] = None,
         max_det: int = 300,
         save: bool = False,
+        show: bool = False,
+        vid_stride: int = 1,
         output_path: Optional[str] = None,
         tracker_config=None,
         **tracker_kwargs,
@@ -381,10 +383,11 @@ class BaseModel(ABC):
             imgsz: Override input image size.
             classes: Filter to specific class IDs.
             max_det: Maximum detections per frame.
-            save: If True, save annotated frames (with bounding boxes and
-                track IDs) as images to *output_path*.
-            output_path: Directory to save annotated frames. Defaults to
-                ``runs/track/<video_stem>/``.
+            save: If True, save annotated video to *output_path*.
+            show: Display tracked frames in a window.
+            vid_stride: Process every N-th frame.
+            output_path: Path for saved video. Defaults to
+                ``runs/track/<video_stem>.mp4``.
             tracker_config: A ``TrackConfig`` instance, or None to build
                 one from **tracker_kwargs.
             **tracker_kwargs: Forwarded to ``TrackConfig.from_kwargs``.
@@ -392,11 +395,9 @@ class BaseModel(ABC):
         Yields:
             Results with ``track_id`` attribute set as an (N,) int tensor.
         """
-        import cv2
-        import numpy as np
-
         from ...tracking import ByteTracker, TrackConfig
         from ...utils.drawing import draw_boxes
+        from ...utils.video import run_video_inference
 
         if tracker_config is None:
             tracker_config = TrackConfig.from_kwargs(**tracker_kwargs)
@@ -407,71 +408,59 @@ class BaseModel(ABC):
 
         # ByteTrack needs to see low-confidence detections.
         effective_conf = tracker_config.track_low_thresh
-
-        # Resolve save directory.
-        output_dir = None
-        if save:
-            if output_path is not None:
-                output_dir = Path(output_path)
-            else:
-                video_stem = Path(source).stem
-                from ...utils.general import increment_path
-
-                output_dir = increment_path(
-                    Path("runs") / "track" / video_stem, exist_ok=False
-                )
-            output_dir.mkdir(parents=True, exist_ok=True)
-            print(f"Saving tracked frames to {output_dir}/")
-
         tracker = ByteTracker(config=tracker_config)
-        cap = cv2.VideoCapture(str(source))
-        frame_idx = 0
+        model_names = self.names
 
-        try:
-            while cap.isOpened():
-                ret, frame_bgr = cap.read()
-                if not ret:
-                    break
+        def predict_and_track(pil_img):
+            result = self._runner(
+                pil_img,
+                conf=effective_conf,
+                iou=iou,
+                imgsz=imgsz,
+                classes=classes,
+                max_det=max_det,
+                color_format="rgb",
+            )
+            return tracker.update(result)
 
-                # Convert BGR → RGB numpy array for the detector.
-                frame_rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
+        def annotate_tracked(pil_img, result):
+            if len(result) == 0:
+                return pil_img
+            tid_list = (
+                result.track_id.tolist()
+                if result.track_id is not None
+                else None
+            )
+            return draw_boxes(
+                pil_img,
+                result.boxes.xyxy.tolist(),
+                result.boxes.conf.tolist(),
+                result.boxes.cls.tolist(),
+                class_names=model_names,
+                track_ids=tid_list,
+            )
 
-                result = self._runner(
-                    frame_rgb,
-                    conf=effective_conf,
-                    iou=iou,
-                    imgsz=imgsz,
-                    classes=classes,
-                    max_det=max_det,
-                    color_format="rgb",
+        # Use runs/track/ prefix instead of runs/detect/
+        track_output = output_path
+        if save and output_path is None:
+            from ...utils.general import increment_path
+
+            track_output = str(
+                increment_path(
+                    Path("runs") / "track" / f"{source.stem}.mp4",
+                    exist_ok=False,
                 )
+            )
 
-                tracked = tracker.update(result)
-
-                if save and output_dir is not None:
-                    img_pil = Image.fromarray(frame_rgb)
-                    tid_list = (
-                        tracked.track_id.tolist()
-                        if tracked.track_id is not None and len(tracked) > 0
-                        else None
-                    )
-                    if len(tracked) > 0:
-                        annotated = draw_boxes(
-                            img_pil,
-                            tracked.boxes.xyxy.tolist(),
-                            tracked.boxes.conf.tolist(),
-                            tracked.boxes.cls.tolist(),
-                            class_names=self.names,
-                            track_ids=tid_list,
-                        )
-                    else:
-                        annotated = img_pil
-                    annotated.save(output_dir / f"frame_{frame_idx:06d}.jpg")
-
-                frame_idx += 1
-                yield tracked
-        finally:
-            cap.release()
+        yield from run_video_inference(
+            source,
+            predict_and_track,
+            vid_stride=vid_stride,
+            save=save,
+            show=show,
+            output_path=track_output,
+            annotate_fn=annotate_tracked,
+        )
 
     def export(self, format: str = "onnx", **kwargs) -> str:
         """Export model to deployment format.
