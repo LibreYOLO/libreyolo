@@ -5,13 +5,17 @@ Thin subclass of BaseTrainer with yolo9-specific transforms, scheduler,
 and loss extraction.
 """
 
+import logging
 import torch
+import torch.nn as nn
 from typing import Dict, Type
 
 from libreyolo.training.trainer import BaseTrainer
 from libreyolo.training.config import TrainConfig, YOLO9Config
 from ...training.scheduler import LinearLRScheduler, CosineAnnealingScheduler
 from .transforms import YOLO9TrainTransform, YOLO9MosaicMixupDataset
+
+logger = logging.getLogger(__name__)
 
 
 class YOLO9Trainer(BaseTrainer):
@@ -70,6 +74,71 @@ class YOLO9Trainer(BaseTrainer):
         if "mask" in outputs:
             components["mask"] = _scalar(outputs["mask"])
         return components
+
+    def _setup_optimizer(self) -> torch.optim.Optimizer:
+        """Setup optimizer with differential LR for segmentation models.
+
+        When the model has a segmentation head (proto + cv4), use full LR for
+        seg params and reduced LR for backbone/neck/detection head.
+        """
+        is_seg = hasattr(self.model, 'segmentation') and self.model.segmentation
+
+        if not is_seg:
+            return super()._setup_optimizer()
+
+        # Separate params into seg head vs everything else
+        seg_names = {'head.proto', 'head.cv4'}
+        seg_params_wd, seg_params_no_wd = [], []
+        det_params_wd, det_params_no_wd = [], []
+
+        for name, param in self.model.named_parameters():
+            if not param.requires_grad:
+                continue
+            is_seg_param = any(name.startswith(s) for s in seg_names)
+            is_no_wd = 'bias' in name or 'bn' in name or 'BatchNorm' in name
+
+            if is_seg_param:
+                if is_no_wd:
+                    seg_params_no_wd.append(param)
+                else:
+                    seg_params_wd.append(param)
+            else:
+                if is_no_wd:
+                    det_params_no_wd.append(param)
+                else:
+                    det_params_wd.append(param)
+
+        lr = self.effective_lr
+        # Seg head: full LR (ratio=1.0)
+        # Everything else: 0.01x LR (ratio=0.01)
+        backbone_ratio = 0.01
+
+        opt_name = self.config.optimizer
+        param_groups = [
+            {"params": seg_params_wd, "lr": lr, "weight_decay": self.config.weight_decay, "lr_ratio": 1.0},
+            {"params": seg_params_no_wd, "lr": lr, "lr_ratio": 1.0},
+            {"params": det_params_wd, "lr": lr * backbone_ratio, "weight_decay": self.config.weight_decay, "lr_ratio": backbone_ratio},
+            {"params": det_params_no_wd, "lr": lr * backbone_ratio, "lr_ratio": backbone_ratio},
+        ]
+
+        if opt_name == "sgd":
+            optimizer = torch.optim.SGD(
+                param_groups, lr=lr,
+                momentum=self.config.momentum, nesterov=self.config.nesterov,
+            )
+        elif opt_name == "adam":
+            optimizer = torch.optim.Adam(param_groups, lr=lr)
+        elif opt_name == "adamw":
+            optimizer = torch.optim.AdamW(param_groups, lr=lr)
+        else:
+            raise ValueError(f"Unknown optimizer: {opt_name}")
+
+        logger.info(f"Optimizer: {opt_name} (differential LR for seg)")
+        logger.info(f"  - seg (wd):    {len(seg_params_wd)} params, lr_ratio=1.0")
+        logger.info(f"  - seg (no_wd): {len(seg_params_no_wd)} params, lr_ratio=1.0")
+        logger.info(f"  - det (wd):    {len(det_params_wd)} params, lr_ratio={backbone_ratio}")
+        logger.info(f"  - det (no_wd): {len(det_params_no_wd)} params, lr_ratio={backbone_ratio}")
+        return optimizer
 
     def on_forward(self, imgs: torch.Tensor, targets: torch.Tensor, masks=None) -> Dict:
         return self.model(imgs, targets=targets, mask_targets=masks)
