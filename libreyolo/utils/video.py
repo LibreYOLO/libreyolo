@@ -235,6 +235,7 @@ def run_video_inference(
     save: bool = False,
     show: bool = False,
     output_path: Union[str, None] = None,
+    annotate_fn: Union[Callable, None] = None,
 ) -> Generator:
     """Generic video inference loop shared by all backends.
 
@@ -246,6 +247,9 @@ def run_video_inference(
         save: Write annotated output video.
         show: Display frames in a cv2 window.
         output_path: Output path for saved video.
+        annotate_fn: Optional callable ``(pil_img, result) -> pil_img`` for
+            custom annotation (e.g. tracking labels). When *None*, the default
+            ``draw_boxes()`` annotation is used.
 
     Yields:
         ``Results`` for each processed frame.
@@ -276,7 +280,9 @@ def run_video_inference(
 
                 # Annotate frame for save/show
                 if save or show:
-                    if len(result) > 0:
+                    if annotate_fn is not None:
+                        annotated_pil = annotate_fn(pil_img, result)
+                    elif len(result) > 0:
                         annotated_pil = draw_boxes(
                             pil_img,
                             result.boxes.xyxy.tolist(),
