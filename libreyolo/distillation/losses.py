@@ -141,10 +141,11 @@ class CWDLoss(nn.Module):
             student_feat = self.adapter(student_feat)
 
         N, C, H, W = student_feat.shape
-        assert student_feat.shape == teacher_feat.shape, (
-            f"Feature shape mismatch after adaptation: "
-            f"student={student_feat.shape}, teacher={teacher_feat.shape}"
-        )
+        if student_feat.shape != teacher_feat.shape:
+            raise RuntimeError(
+                f"Feature shape mismatch after adaptation: "
+                f"student={student_feat.shape}, teacher={teacher_feat.shape}"
+            )
 
         # Reshape to (N*C, H*W) — treat each channel as an independent distribution
         s_flat = student_feat.reshape(N * C, -1) / self.tau

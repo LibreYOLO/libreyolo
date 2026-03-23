@@ -117,7 +117,11 @@ class Distiller(nn.Module):
 
         # Per-scale weights
         if per_scale_weight is not None:
-            assert len(per_scale_weight) == self.num_scales
+            if len(per_scale_weight) != self.num_scales:
+                raise ValueError(
+                    f"per_scale_weight has {len(per_scale_weight)} entries, "
+                    f"expected {self.num_scales} (one per feature scale)"
+                )
             self._scale_weights = per_scale_weight
         else:
             self._scale_weights = [1.0] * self.num_scales
@@ -143,13 +147,20 @@ class Distiller(nn.Module):
                 f"student={sc}ch -> teacher={tc}ch"
             )
 
+    # =========================================================================
+    # Configuration
+    # =========================================================================
+
     def _default_weight(self) -> float:
         """Return sensible default loss weight for the chosen loss type."""
-        if self.loss_type == "mgd":
-            return 2e-5
-        elif self.loss_type == "cwd":
-            return 1.0  # CWD has per-scale weights built in
-        return 1.0
+        defaults = {"mgd": 2e-5, "cwd": 1.0}
+        if self.loss_type not in defaults:
+            raise ValueError(
+                f"No default weight for loss type '{self.loss_type}'. "
+                f"Available: {list(defaults.keys())}. "
+                f"Pass loss_weight explicitly."
+            )
+        return defaults[self.loss_type]
 
     def _build_loss(
         self,
@@ -180,9 +191,13 @@ class Distiller(nn.Module):
                 f"Available: {list(DISTILL_LOSSES.keys())}"
             )
 
+    # =========================================================================
+    # Forward pass
+    # =========================================================================
+
     @torch.no_grad()
     def teacher_forward(self, images: torch.Tensor) -> Any:
-        """Run the teacher model in eval mode with no gradients.
+        """Run the frozen teacher model with no gradients.
 
         The forward hooks automatically capture the teacher's features.
         Call this BEFORE the student forward pass.
@@ -193,13 +208,7 @@ class Distiller(nn.Module):
         Returns:
             Teacher model output (usually ignored — we only need the hooks).
         """
-        was_training = self.teacher.training
-        self.teacher.eval()
-        try:
-            return self.teacher(images)
-        finally:
-            if was_training:
-                self.teacher.train()
+        return self.teacher(images)
 
     def compute_loss(self) -> torch.Tensor:
         """Compute total distillation loss across all feature scales.
@@ -235,6 +244,10 @@ class Distiller(nn.Module):
             total = total + scale_loss
 
         return self.loss_weight * total
+
+    # =========================================================================
+    # Lifecycle
+    # =========================================================================
 
     def step(self):
         """Clear captured features. Call at the end of each training step."""
