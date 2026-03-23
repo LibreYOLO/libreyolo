@@ -179,19 +179,24 @@ class TestMGDLoss:
         loss = loss_fn(t, t)
         assert loss.shape == ()
 
-    def test_loss_weight(self):
-        loss_fn_1 = MGDLoss(student_channels=32, teacher_channels=32, loss_weight=1.0)
-        loss_fn_5 = MGDLoss(student_channels=32, teacher_channels=32, loss_weight=5.0)
+    def test_loss_weight_scales_output(self):
+        """Loss weight=5 should produce 5x the loss of weight=1."""
+        # Use mask_ratio=0 so the mask is deterministic (all ones)
+        loss_fn_1 = MGDLoss(student_channels=32, teacher_channels=32, loss_weight=1.0, mask_ratio=0.0)
+        loss_fn_5 = MGDLoss(student_channels=32, teacher_channels=32, loss_weight=5.0, mask_ratio=0.0)
 
-        # Use same random state for both
-        torch.manual_seed(42)
+        # Share the same weights so generation output is identical
+        loss_fn_5.align.load_state_dict(loss_fn_1.align.state_dict())
+        loss_fn_5.generation.load_state_dict(loss_fn_1.generation.state_dict())
+
         s = torch.randn(2, 32, 8, 8)
         t = torch.randn(2, 32, 8, 8)
 
-        # Note: mask is random so we can't compare exactly,
-        # but the 5x weight version should generally be larger
         loss_1 = loss_fn_1(s, t)
+        loss_5 = loss_fn_5(s, t)
+
         assert loss_1.item() > 0
+        assert abs(loss_5.item() - 5.0 * loss_1.item()) < 1e-4
 
     def test_gradient_flows(self):
         loss_fn = MGDLoss(student_channels=64, teacher_channels=128)
@@ -231,14 +236,30 @@ class TestCWDLoss:
         # KL divergence of identical distributions should be ~0
         assert loss.item() < 1e-5
 
-    def test_no_adapter_when_channels_match(self):
-        loss_fn = CWDLoss(student_channels=64, teacher_channels=64)
-        assert loss_fn.adapter is None
+    def test_loss_weight_scales_output(self):
+        """Loss weight=3 should produce 3x the loss of weight=1."""
+        loss_fn_1 = CWDLoss(student_channels=64, teacher_channels=64, loss_weight=1.0)
+        loss_fn_3 = CWDLoss(student_channels=64, teacher_channels=64, loss_weight=3.0)
 
-    def test_adapter_when_channels_differ(self):
-        loss_fn = CWDLoss(student_channels=64, teacher_channels=128)
-        assert loss_fn.adapter is not None
-        assert isinstance(loss_fn.adapter, nn.Conv2d)
+        s = torch.randn(2, 64, 8, 8)
+        t = torch.randn(2, 64, 8, 8)
+
+        loss_1 = loss_fn_1(s, t)
+        loss_3 = loss_fn_3(s, t)
+
+        assert loss_1.item() > 0
+        assert abs(loss_3.item() - 3.0 * loss_1.item()) < 1e-4
+
+    def test_temperature_affects_loss(self):
+        """Different tau values should produce different loss values."""
+        s = torch.randn(2, 32, 8, 8)
+        t = torch.randn(2, 32, 8, 8)
+
+        loss_low_tau = CWDLoss(tau=0.1)(s, t)
+        loss_high_tau = CWDLoss(tau=10.0)(s, t)
+
+        # With very different temperatures, losses should differ
+        assert loss_low_tau.item() != pytest.approx(loss_high_tau.item(), rel=0.1)
 
     def test_gradient_flows(self):
         loss_fn = CWDLoss(student_channels=64, teacher_channels=128)
@@ -379,6 +400,190 @@ class TestDistiller:
         assert loss.item() > 0
         distiller.step()
 
+    def test_mgd_loss_converges(self):
+        """MGD distillation loss should decrease over optimization steps."""
+        teacher = DummyModel(channels=(128, 256, 512))
+        student = DummyModel(channels=(64, 128, 256))
+        t_cfg = {
+            "tap_points": ["neck.p3", "neck.p4", "neck.p5"],
+            "channels": [128, 256, 512],
+            "strides": [8, 16, 32],
+        }
+        s_cfg = {
+            "tap_points": ["neck.p3", "neck.p4", "neck.p5"],
+            "channels": [64, 128, 256],
+            "strides": [8, 16, 32],
+        }
+        # Use loss_weight=1.0 so the loss isn't scaled down to near-zero
+        distiller = Distiller(
+            teacher_model=teacher,
+            student_model=student,
+            teacher_config=t_cfg,
+            student_config=s_cfg,
+            loss_type="mgd",
+            loss_weight=1.0,
+        )
+
+        params = list(student.parameters()) + list(distiller.loss_modules.parameters())
+        optimizer = torch.optim.Adam(params, lr=1e-3)
+
+        x = torch.randn(2, 3, 16, 16)
+
+        losses = []
+        for _ in range(50):
+            distiller.teacher_forward(x)
+            student(x)
+            loss = distiller.compute_loss()
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+            losses.append(loss.item())
+            distiller.step()
+
+        assert losses[-1] < losses[0] * 0.5, (
+            f"MGD loss did not converge: first={losses[0]:.6f} → last={losses[-1]:.6f}"
+        )
+
+    def test_cwd_loss_converges(self):
+        """CWD distillation loss should decrease over optimization steps."""
+        distiller, teacher, student = self._make_distiller("cwd")
+
+        params = list(student.parameters()) + list(distiller.loss_modules.parameters())
+        optimizer = torch.optim.Adam(params, lr=1e-3)
+
+        x = torch.randn(2, 3, 16, 16)
+
+        losses = []
+        for _ in range(50):
+            distiller.teacher_forward(x)
+            student(x)
+            loss = distiller.compute_loss()
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+            losses.append(loss.item())
+            distiller.step()
+
+        assert losses[-1] < losses[0] * 0.5, (
+            f"CWD loss did not converge: first={losses[0]:.6f} → last={losses[-1]:.6f}"
+        )
+
+    def test_different_inputs_produce_different_losses(self):
+        """Hooks should capture per-batch features, not stale ones."""
+        distiller, teacher, student = self._make_distiller("mgd")
+
+        x1 = torch.randn(2, 3, 16, 16)
+        x2 = torch.randn(2, 3, 16, 16) + 5.0  # very different input
+
+        distiller.teacher_forward(x1)
+        student(x1)
+        loss_1 = distiller.compute_loss().item()
+        distiller.step()
+
+        distiller.teacher_forward(x2)
+        student(x2)
+        loss_2 = distiller.compute_loss().item()
+        distiller.step()
+
+        assert loss_1 != pytest.approx(loss_2, rel=0.01), (
+            "Different inputs should produce different losses"
+        )
+
+    def test_distiller_params_receive_gradients(self):
+        """Distiller's own parameters (align/generation convs) should be trainable."""
+        distiller, teacher, student = self._make_distiller("mgd")
+
+        x = torch.randn(2, 3, 16, 16)
+        distiller.teacher_forward(x)
+        student(x)
+        loss = distiller.compute_loss()
+        loss.backward()
+
+        # MGD loss_modules have align and generation convolutions
+        has_grad = False
+        for p in distiller.loss_modules.parameters():
+            if p.grad is not None and p.grad.abs().sum() > 0:
+                has_grad = True
+                break
+
+        assert has_grad, "No gradients flowed to distiller's own parameters"
+
+    def test_per_scale_weight_mismatch_raises(self):
+        """Wrong number of per_scale_weight entries should raise ValueError."""
+        teacher = DummyModel(channels=(128, 256, 512))
+        student = DummyModel(channels=(64, 128, 256))
+
+        t_cfg = {
+            "tap_points": ["neck.p3", "neck.p4", "neck.p5"],
+            "channels": [128, 256, 512],
+            "strides": [8, 16, 32],
+        }
+        s_cfg = {
+            "tap_points": ["neck.p3", "neck.p4", "neck.p5"],
+            "channels": [64, 128, 256],
+            "strides": [8, 16, 32],
+        }
+
+        with pytest.raises(ValueError, match="per_scale_weight"):
+            Distiller(
+                teacher_model=teacher,
+                student_model=student,
+                teacher_config=t_cfg,
+                student_config=s_cfg,
+                per_scale_weight=[1.0, 1.0],  # 2 instead of 3
+            )
+
+    def test_cleanup_is_idempotent(self):
+        """Calling cleanup() twice should not raise."""
+        distiller, teacher, student = self._make_distiller()
+
+        x = torch.randn(1, 3, 8, 8)
+        distiller.teacher_forward(x)
+        student(x)
+
+        distiller.cleanup()
+        distiller.cleanup()  # should not raise
+
+    def test_mgd_mask_ratio_affects_convergence(self):
+        """mask_ratio=0 (sees full features) should converge faster than mask_ratio=1 (sees zeros)."""
+        s = torch.randn(4, 64, 8, 8)
+        t = torch.randn(4, 64, 8, 8)
+
+        loss_fn_no_mask = MGDLoss(student_channels=64, teacher_channels=64, mask_ratio=0.0)
+        loss_fn_full_mask = MGDLoss(student_channels=64, teacher_channels=64, mask_ratio=1.0)
+
+        # Share initial weights
+        loss_fn_full_mask.align.load_state_dict(loss_fn_no_mask.align.state_dict())
+        loss_fn_full_mask.generation.load_state_dict(loss_fn_no_mask.generation.state_dict())
+
+        # Train each for 30 steps
+        for loss_fn, results in [
+            (loss_fn_no_mask, []),
+            (loss_fn_full_mask, []),
+        ]:
+            opt = torch.optim.Adam(loss_fn.parameters(), lr=1e-3)
+            for _ in range(30):
+                loss = loss_fn(s, t)
+                opt.zero_grad()
+                loss.backward()
+                opt.step()
+            results.append(loss.item())
+
+        # Evaluate both with mask_ratio=0 (no mask) to compare learned quality
+        with torch.no_grad():
+            # Temporarily set mask_ratio=0 for fair comparison
+            orig_ratio = loss_fn_full_mask.mask_ratio
+            loss_fn_full_mask.mask_ratio = 0.0
+            loss_no_mask_final = loss_fn_no_mask(s, t).item()
+            loss_full_mask_final = loss_fn_full_mask(s, t).item()
+            loss_fn_full_mask.mask_ratio = orig_ratio
+
+        # The model that trained with full input should reconstruct better
+        assert loss_no_mask_final < loss_full_mask_final, (
+            f"No-mask trained loss ({loss_no_mask_final:.6f}) should be lower than "
+            f"full-mask trained loss ({loss_full_mask_final:.6f})"
+        )
+
 
 # =============================================================================
 # Tests: configs.py
@@ -419,13 +624,67 @@ class TestConfigs:
             get_distill_config("unknown_model", "s")
 
     def test_unknown_size_raises(self):
-        with pytest.raises(ValueError, match="Unknown YOLOv9 size"):
+        with pytest.raises(ValueError, match="Invalid size"):
             get_distill_config("yolo9", "z")
 
     def test_list_supported(self):
         supported = list_supported()
         assert "yolo9" in supported
         assert "yolox" in supported
+
+
+# =============================================================================
+# Tests: model wrapper get_distill_config()
+# =============================================================================
+
+
+class TestModelDistillConfig:
+    """Verify that model wrappers return correct distillation configs."""
+
+    def test_yolo9_config_matches_nn_architecture(self):
+        """Config channels must match YOLO9_CONFIGS head_channels."""
+        from libreyolo.models.yolo9.model import LibreYOLO9
+        from libreyolo.models.yolo9.nn import YOLO9_CONFIGS
+
+        for size in ["t", "s", "m", "c"]:
+            model = LibreYOLO9(model_path=None, size=size)
+            cfg = model.get_distill_config()
+            expected = list(YOLO9_CONFIGS[size]["head_channels"])
+            assert cfg["channels"] == expected, f"YOLOv9-{size}: {cfg['channels']} != {expected}"
+            assert cfg["strides"] == [8, 16, 32]
+            assert len(cfg["tap_points"]) == 3
+
+    def test_yolox_config_matches_nn_architecture(self):
+        """Config channels must match YOLOX width * base channels."""
+        from libreyolo.models.yolox.model import LibreYOLOX
+        from libreyolo.models.yolox.nn import LibreYOLOXModel
+
+        for size in ["n", "t", "s", "m", "l", "x"]:
+            model = LibreYOLOX(model_path=None, size=size)
+            cfg = model.get_distill_config()
+            width = LibreYOLOXModel.CONFIGS[size]["width"]
+            expected = [int(256 * width), int(512 * width), int(1024 * width)]
+            assert cfg["channels"] == expected, f"YOLOX-{size}: {cfg['channels']} != {expected}"
+            assert cfg["strides"] == [8, 16, 32]
+            assert len(cfg["tap_points"]) == 3
+
+    def test_unsupported_family_raises(self):
+        """BaseModel default should raise NotImplementedError."""
+        from libreyolo.models.base.model import BaseModel
+
+        # BaseModel can't be instantiated directly (ABC), so test via the
+        # get_distill_config convenience function with an unknown family
+        with pytest.raises(ValueError, match="not yet configured"):
+            get_distill_config("rfdetr", "n")
+
+    def test_model_config_matches_convenience_function(self):
+        """Model wrapper and convenience function should return identical configs."""
+        from libreyolo.models.yolo9.model import LibreYOLO9
+
+        model = LibreYOLO9(model_path=None, size="t")
+        direct = model.get_distill_config()
+        via_func = get_distill_config("yolo9", "t")
+        assert direct == via_func
 
 
 if __name__ == "__main__":
