@@ -6,6 +6,7 @@ Model-specific trainers subclass BaseTrainer and override hooks.
 import logging
 import time
 from abc import ABC, abstractmethod
+from contextlib import nullcontext
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Type
 
@@ -195,7 +196,6 @@ class BaseTrainer(ABC):
             )
 
         from ..distillation import Distiller
-        from ..distillation.configs import get_distill_config
         from ..models import LibreYOLO
 
         # Load teacher via the factory (handles family detection, weight loading)
@@ -203,9 +203,9 @@ class BaseTrainer(ABC):
         teacher_wrapper = LibreYOLO(self.config.distill_teacher)
         teacher_nn = teacher_wrapper.model.to(self.device)
 
-        # Get distillation configs (tap points + channels + strides)
-        teacher_cfg = get_distill_config(teacher_wrapper.FAMILY, teacher_wrapper.size)
-        student_cfg = get_distill_config(self.get_model_family(), self.config.size)
+        # Get distillation configs from the models themselves
+        teacher_cfg = teacher_wrapper.get_distill_config()
+        student_cfg = self.wrapper_model.get_distill_config()
 
         self.distiller = Distiller(
             teacher_model=teacher_nn,
@@ -464,27 +464,23 @@ class BaseTrainer(ABC):
             if self.distiller is not None:
                 self.distiller.teacher_forward(imgs)
 
-            # Forward + backward
-            if self.scaler is not None:
-                with autocast("cuda"):
-                    outputs = self.on_forward(imgs, targets)
-                    loss = outputs["total_loss"]
-                    if self.distiller is not None:
-                        distill_loss = self.distiller.compute_loss()
-                        loss = loss + distill_loss
-                        self._distill_loss_val = distill_loss.item()
-                self.optimizer.zero_grad()
-                self.scaler.scale(loss).backward()
-                self.scaler.step(self.optimizer)
-                self.scaler.update()
-            else:
+            # Forward + loss (autocast only when using AMP scaler)
+            amp_ctx = autocast("cuda") if self.scaler is not None else nullcontext()
+            with amp_ctx:
                 outputs = self.on_forward(imgs, targets)
                 loss = outputs["total_loss"]
                 if self.distiller is not None:
                     distill_loss = self.distiller.compute_loss()
                     loss = loss + distill_loss
                     self._distill_loss_val = distill_loss.item()
-                self.optimizer.zero_grad()
+
+            # Backward + optimizer step
+            self.optimizer.zero_grad()
+            if self.scaler is not None:
+                self.scaler.scale(loss).backward()
+                self.scaler.step(self.optimizer)
+                self.scaler.update()
+            else:
                 loss.backward()
                 self.optimizer.step()
 
