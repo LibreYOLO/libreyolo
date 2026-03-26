@@ -379,5 +379,6 @@ class LibreYOLORFDETR(BaseModel):
 
             self.nb_classes = num_classes
             self.model.nb_classes = num_classes
+            self.names = {i: f"class_{i}" for i in range(num_classes)}
 
         return result
