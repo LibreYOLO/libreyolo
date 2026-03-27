@@ -293,6 +293,7 @@ class InferenceRunner:
         # Wrap into Results
         result = self._wrap_results(detections, original_size, image_path, classes)
 
+
         # Save annotated image
         if save:
             if len(result) > 0:
@@ -301,6 +302,7 @@ class InferenceRunner:
                     result.boxes.xyxy.tolist(),
                     result.boxes.conf.tolist(),
                     result.boxes.cls.tolist(),
+                    class_names=result.names,
                 )
             else:
                 annotated_img = original_img
@@ -476,6 +478,7 @@ class InferenceRunner:
                     result.boxes.xyxy.tolist(),
                     result.boxes.conf.tolist(),
                     result.boxes.cls.tolist(),
+                    class_names=result.names
                 )
             else:
                 annotated_img = img_pil.copy()

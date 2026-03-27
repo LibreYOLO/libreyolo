@@ -1,7 +1,7 @@
 """Drawing utility functions for visualization."""
 
 import colorsys
-from typing import List, Tuple
+from typing import Dict, List, Tuple
 
 from PIL import Image, ImageDraw, ImageFont
 
@@ -22,7 +22,7 @@ def draw_boxes(
     boxes: List,
     scores: List,
     classes: List,
-    class_names: List | None = None,
+    class_names: List[str] | Dict[int, str] | None = None,
 ) -> Image.Image:
     """
     Draw bounding boxes on image with class-specific colors.
@@ -35,7 +35,8 @@ def draw_boxes(
         boxes: List of boxes in xyxy format
         scores: List of confidence scores
         classes: List of class IDs
-        class_names: Optional list of class names (default: COCO_CLASSES)
+        class_names: Optional class-name container, either a list indexed by class
+            ID or a dict mapping class ID to class name (default: COCO_CLASSES)
 
     Returns:
         Annotated PIL Image
@@ -73,8 +74,14 @@ def draw_boxes(
 
         draw.rectangle([x1, y1, x2, y2], outline=color, width=box_thickness)
 
-        if class_names and cls_id_int < len(class_names):
-            label = f"{class_names[cls_id_int]}: {score:.2f}"
+        class_name = None
+        if isinstance(class_names, dict):
+            class_name = class_names.get(cls_id_int)
+        elif class_names and cls_id_int < len(class_names):
+            class_name = class_names[cls_id_int]
+
+        if class_name is not None:
+            label = f"{class_name}: {score:.2f}"
         else:
             label = f"Class {cls_id_int}: {score:.2f}"
 

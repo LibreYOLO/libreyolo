@@ -239,7 +239,7 @@ def LibreYOLO(
         model = matched_cls(
             model_path=model_path,
             size=size,
-            nb_classes=80,
+            nb_classes=nb_classes,
             device=device,
             **({"reg_max": reg_max} if matched_cls.FAMILY == "yolo9" else {}),
         )

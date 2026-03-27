@@ -189,6 +189,7 @@ class BaseModel(ABC):
         """Rebuild model with a new class count, preserving weights where shapes match."""
         old_state = self.model.state_dict()
         self.nb_classes = new_nb_classes
+        self.names = {i: f"class_{i}" for i in range(new_nb_classes)}
         self.model = self._init_model()
 
         new_state = self.model.state_dict()
