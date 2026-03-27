@@ -4,9 +4,7 @@
 [![PyPI](https://img.shields.io/pypi/v/libreyolo)](https://pypi.org/project/libreyolo/)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
-MIT-licensed YOLO implementation supporting inference for YOLOv9 (t, s, m, c), YOLOX (nano, tiny, s, m, l, x), and RF-DETR (nano, small, base, medium, large).
-
-Training support is under development
+MIT-licensed YOLO implementation with full support for training and inference across YOLOv9 (t, s, m, c), YOLOX (nano, tiny, s, m, l, x), and RF-DETR (nano, small, base, medium, large).
 
 ![LibreYOLO Detection Example](libreyolo/assets/parkour_result.jpg)
 
