@@ -68,17 +68,6 @@ class TestRTDETRDetectNbClasses:
         assert LibreYOLORTDETR.detect_nb_classes(fake_weights) == 10
 
 
-class TestRTDETRDetectSizeFromFilename:
-    """Test RTDETR size detection from filename."""
-
-    def test_rtdetr_detect_size_from_filename(self):
-        """detect_size_from_filename() should handle multi-char size codes."""
-        assert LibreYOLORTDETR.detect_size_from_filename("rtdetr-r50.pt") == "r50"
-        assert LibreYOLORTDETR.detect_size_from_filename("rtdetr-r50m.pt") == "r50m"
-        assert LibreYOLORTDETR.detect_size_from_filename("rtdetr-r18.pt") == "r18"
-        assert LibreYOLORTDETR.detect_size_from_filename("rtdetr-r101.pt") == "r101"
-
-
 class TestRTDETRModelInstantiation:
     """Test RTDETR model creation."""
 

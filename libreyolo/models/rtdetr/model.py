@@ -102,7 +102,7 @@ class LibreYOLORTDETR(BaseModel):
 
     # Class-level metadata
     FAMILY = "rtdetr"
-    FILENAME_PREFIX = "rtdetr"
+    FILENAME_PREFIX = "LibreRTDETR"
     INPUT_SIZES = {"r18": 640, "r34": 640, "r50": 640, "r50m": 640, "r101": 640}
     val_preprocessor_class = RTDETRValPreprocessor
 
@@ -204,7 +204,7 @@ class LibreYOLORTDETR(BaseModel):
         sizes = list(cls.INPUT_SIZES.keys())
         # Sort by length descending to match r50m before r50
         sizes_sorted = sorted(sizes, key=len, reverse=True)
-        basename = os.path.basename(filename).lower()
+        basename = os.path.basename(filename)
         for size in sizes_sorted:
             pattern = rf"{cls.FILENAME_PREFIX}[-_]?{re.escape(size)}[^a-z0-9]"
             if re.search(pattern, basename):
@@ -453,8 +453,15 @@ class LibreYOLORTDETR(BaseModel):
             raise FileNotFoundError(f"Failed to load dataset config '{data}': {e}")
 
         yaml_nc = data_config.get("nc")
+        yaml_names = data_config.get("names")
         if yaml_nc is not None and yaml_nc != self.nb_classes:
             self._rebuild_for_new_classes(yaml_nc)
+            
+        # Apply custom class names from data config
+        if yaml_names is not None:
+            if isinstance(yaml_names, list):
+                yaml_names = {i: n for i, n in enumerate(yaml_names)}
+            self.names = self._sanitize_names(yaml_names, self.nb_classes)
 
         if seed > 0:
             import random

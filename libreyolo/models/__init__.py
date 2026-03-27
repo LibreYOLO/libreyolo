@@ -168,9 +168,11 @@ def LibreYOLO(
 
     weights_dict = _unwrap_state_dict(state_dict)
 
-    # Ensure RF-DETR is registered if its keys are present
+    # Ensure RF-DETR is registered if its keys are present, but avoid
+    # treating RT-DETR checkpoints as RF-DETR.
+    is_rtdetr = LibreYOLORTDETR.can_load(weights_dict)
     keys_lower = [k.lower() for k in weights_dict]
-    if any(
+    if not is_rtdetr and any(
         "detr" in k
         or "dinov2" in k
         or "transformer" in k
