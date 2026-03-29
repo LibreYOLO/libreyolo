@@ -18,8 +18,6 @@ from PIL import Image
 from ...utils.general import COCO_CLASSES
 from ...utils.image_loader import ImageInput
 from ...utils.results import Results
-
-from typing import Generator
 from ...validation.preprocessors import StandardValPreprocessor
 
 
