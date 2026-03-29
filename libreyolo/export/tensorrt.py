@@ -3,14 +3,13 @@
 import json
 import warnings
 from pathlib import Path
-from typing import Any, Dict, Optional, Union, TYPE_CHECKING
+from typing import Any, Dict, Optional, Union
 
 import numpy as np
 import torch
 
-if TYPE_CHECKING:
-    from .calibration import CalibrationDataLoader
-    from .config import TensorRTExportConfig
+from .calibration import CalibrationDataLoader
+from .config import TensorRTExportConfig
 
 
 def check_tensorrt_available() -> None:
@@ -158,7 +157,7 @@ def export_tensorrt(
     half: bool = True,
     int8: bool = False,
     workspace: float = 4.0,
-    calibration_data: Optional["CalibrationDataLoader"] = None,
+    calibration_data: Optional[CalibrationDataLoader] = None,
     dynamic: bool = False,
     verbose: bool = False,
     min_batch: int = 1,
@@ -166,7 +165,7 @@ def export_tensorrt(
     max_batch: int = 8,
     hardware_compatibility: str = "none",
     device: int = 0,
-    config: Optional[Union[str, Path, dict, "TensorRTExportConfig"]] = None,
+    config: Optional[Union[str, Path, dict, TensorRTExportConfig]] = None,
     metadata: Optional[Dict[str, Any]] = None,
 ) -> str:
     """Export ONNX model to TensorRT engine.

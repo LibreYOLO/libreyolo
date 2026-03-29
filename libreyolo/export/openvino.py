@@ -1,12 +1,11 @@
 """OpenVINO export implementation."""
 
 from pathlib import Path
-from typing import Optional, TYPE_CHECKING
+from typing import Optional
 
 import yaml
 
-if TYPE_CHECKING:
-    from .calibration import CalibrationDataLoader
+from .calibration import CalibrationDataLoader
 
 
 def check_openvino_available() -> None:
@@ -27,7 +26,7 @@ def check_openvino_available() -> None:
 
 def _quantize_int8(
     ov_model,
-    calibration_data: "CalibrationDataLoader",
+    calibration_data: CalibrationDataLoader,
     verbose: bool = False,
 ):
     """Quantize OpenVINO model to INT8 using NNCF."""
@@ -71,7 +70,7 @@ def export_openvino(
     *,
     half: bool = True,
     int8: bool = False,
-    calibration_data: Optional["CalibrationDataLoader"] = None,
+    calibration_data: Optional[CalibrationDataLoader] = None,
     verbose: bool = False,
     metadata: Optional[dict] = None,
 ) -> str:
