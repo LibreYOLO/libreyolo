@@ -78,7 +78,9 @@ class TestTrackConfig:
             TrackConfig(track_low_thresh=1.5)
 
     def test_rejects_high_below_low(self):
-        with pytest.raises(ValueError, match="track_high_thresh .* must be >= track_low_thresh"):
+        with pytest.raises(
+            ValueError, match="track_high_thresh .* must be >= track_low_thresh"
+        ):
             TrackConfig(track_high_thresh=0.1, track_low_thresh=0.5)
 
     def test_rejects_negative_track_buffer(self):

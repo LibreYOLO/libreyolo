@@ -13,8 +13,7 @@ try:
     from scipy.optimize import linear_sum_assignment as scipy_lsa
 except ImportError as e:
     raise ImportError(
-        "scipy is required for tracking. "
-        "Install with: pip install libreyolo[tracking]"
+        "scipy is required for tracking. Install with: pip install libreyolo[tracking]"
     ) from e
 
 if TYPE_CHECKING:
@@ -114,7 +113,9 @@ def linear_assignment(
         unmatched_a.discard(r)
         unmatched_b.discard(c)
 
-    matches_arr = np.array(matches, dtype=int) if matches else np.empty((0, 2), dtype=int)
+    matches_arr = (
+        np.array(matches, dtype=int) if matches else np.empty((0, 2), dtype=int)
+    )
     return (
         matches_arr,
         np.array(sorted(unmatched_a), dtype=int),

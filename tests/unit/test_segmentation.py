@@ -150,8 +150,9 @@ class TestClassesFilterWithMasks:
     def test_filter_with_masks(self):
         from libreyolo.models.base.inference import InferenceRunner
 
-        boxes = torch.tensor([[0, 0, 10, 10], [20, 20, 30, 30], [40, 40, 50, 50]],
-                             dtype=torch.float32)
+        boxes = torch.tensor(
+            [[0, 0, 10, 10], [20, 20, 30, 30], [40, 40, 50, 50]], dtype=torch.float32
+        )
         conf = torch.tensor([0.9, 0.8, 0.7])
         cls = torch.tensor([0.0, 1.0, 0.0])
         masks = torch.randint(0, 2, (3, 64, 64), dtype=torch.bool)
@@ -205,13 +206,19 @@ class TestFactorySegDetection:
         from libreyolo.models.rfdetr.model import LibreYOLORFDETR
 
         url = LibreYOLORFDETR.get_download_url("LibreRFDETRs-seg.pt")
-        assert url == "https://huggingface.co/LibreYOLO/LibreRFDETRs-seg/resolve/main/LibreRFDETRs-seg.pt"
+        assert (
+            url
+            == "https://huggingface.co/LibreYOLO/LibreRFDETRs-seg/resolve/main/LibreRFDETRs-seg.pt"
+        )
 
     def test_download_url_det(self):
         from libreyolo.models.rfdetr.model import LibreYOLORFDETR
 
         url = LibreYOLORFDETR.get_download_url("LibreRFDETRs.pt")
-        assert url == "https://huggingface.co/LibreYOLO/LibreRFDETRs/resolve/main/LibreRFDETRs.pt"
+        assert (
+            url
+            == "https://huggingface.co/LibreYOLO/LibreRFDETRs/resolve/main/LibreRFDETRs.pt"
+        )
 
     def test_other_families_unaffected(self):
         from libreyolo.models.yolox.model import LibreYOLOX
@@ -275,9 +282,7 @@ class TestPolygonLabelParsing:
             # 100x100 dummy image
             Image.new("RGB", (100, 100)).save(img_dir / "test.jpg")
             # Polygon label: square from (0.2,0.2) to (0.8,0.8)
-            (lbl_dir / "test.txt").write_text(
-                "0 0.2 0.2 0.8 0.2 0.8 0.8 0.2 0.8\n"
-            )
+            (lbl_dir / "test.txt").write_text("0 0.2 0.2 0.8 0.2 0.8 0.8 0.2 0.8\n")
 
             from libreyolo.data.dataset import YOLODataset
 

@@ -28,7 +28,12 @@ def marbles_yaml():
     if not DATASET_ROOT.exists():
         DATASET_ROOT.parent.mkdir(parents=True, exist_ok=True)
         subprocess.run(
-            ["git", "clone", f"https://huggingface.co/datasets/{HF_REPO}", str(DATASET_ROOT)],
+            [
+                "git",
+                "clone",
+                f"https://huggingface.co/datasets/{HF_REPO}",
+                str(DATASET_ROOT),
+            ],
             check=True,
         )
     data_yaml = DATASET_ROOT / "data.yaml"

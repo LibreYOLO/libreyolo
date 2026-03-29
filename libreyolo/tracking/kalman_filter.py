@@ -10,8 +10,7 @@ try:
     import scipy.linalg
 except ImportError as e:
     raise ImportError(
-        "scipy is required for tracking. "
-        "Install with: pip install libreyolo[tracking]"
+        "scipy is required for tracking. Install with: pip install libreyolo[tracking]"
     ) from e
 
 
@@ -95,9 +94,7 @@ class KalmanFilterXYAH:
         # velocity variance can trigger spurious numpy matmul warnings.
         covariance = np.clip(covariance, -1e10, 1e10)
         with np.errstate(over="ignore", divide="ignore", invalid="ignore"):
-            covariance = (
-                self._motion_mat @ covariance @ self._motion_mat.T + motion_cov
-            )
+            covariance = self._motion_mat @ covariance @ self._motion_mat.T + motion_cov
         return mean, covariance
 
     def multi_predict(self, mean: np.ndarray, covariance: np.ndarray):

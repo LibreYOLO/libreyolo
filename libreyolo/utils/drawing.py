@@ -90,7 +90,11 @@ def draw_boxes(
         cls_id_int = int(cls_id)
 
         # Color by track ID when tracking, otherwise by class ID.
-        color = get_class_color(int(tid)) if tid is not None else get_class_color(cls_id_int)
+        color = (
+            get_class_color(int(tid))
+            if tid is not None
+            else get_class_color(cls_id_int)
+        )
 
         draw.rectangle([x1, y1, x2, y2], outline=color, width=box_thickness)
 

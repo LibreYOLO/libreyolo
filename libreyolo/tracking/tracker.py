@@ -136,7 +136,9 @@ class ByteTracker:
         # 4. Stage 2: low-confidence detections ↔ remaining tracked (NOT lost)
         # ------------------------------------------------------------------
         remaining_tracked = [
-            strack_pool[i] for i in u_track if strack_pool[i].state == TrackState.Tracked
+            strack_pool[i]
+            for i in u_track
+            if strack_pool[i].state == TrackState.Tracked
         ]
         cost2 = iou_distance(remaining_tracked, low_bboxes)
         matches2, u_track2, _ = linear_assignment(cost2, 0.5)
