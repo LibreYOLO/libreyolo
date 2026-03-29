@@ -77,15 +77,10 @@ def test_rfdetr_seg_training(dataset, tmp_path):
     run_in_subprocess(
         f"""
         from pathlib import Path
-        from libreyolo.models.rfdetr.model import LibreYOLORFDETR
-        from libreyolo import SAMPLE_IMAGE
+        from libreyolo import LibreYOLO, SAMPLE_IMAGE
 
-        # 1. Load segmentation model
-        model = LibreYOLORFDETR(
-            model_path="LibreRFDETRn-seg.pt",
-            size="n",
-            segmentation=True,
-        )
+        # 1. Load segmentation model via factory (resolves weights path)
+        model = LibreYOLO("LibreRFDETRn-seg.pt")
         assert model._is_segmentation, "Model should be in segmentation mode"
 
         # 2. Baseline mAP BEFORE training (box mAP on fire-smoke-seg)
@@ -149,13 +144,9 @@ def test_rfdetr_seg_inference_only(dataset):
     run_in_subprocess(
         f"""
         from pathlib import Path
-        from libreyolo.models.rfdetr.model import LibreYOLORFDETR
+        from libreyolo import LibreYOLO
 
-        model = LibreYOLORFDETR(
-            model_path="LibreRFDETRn-seg.pt",
-            size="n",
-            segmentation=True,
-        )
+        model = LibreYOLO("LibreRFDETRn-seg.pt")
 
         # Run inference on a few test images
         test_dir = Path("{dataset}") / "test" / "images"
@@ -198,18 +189,14 @@ def test_rfdetr_seg_resume_training(dataset, tmp_path):
         import gc
         import torch
         from pathlib import Path
-        from libreyolo.models.rfdetr.model import LibreYOLORFDETR
+        from libreyolo import LibreYOLO
 
         output_dir = "{output_dir}"
         dataset_dir = "{dataset_dir}"
 
         # Phase 1: Train 3 epochs
         print("Phase 1: Training 3 epochs...")
-        model = LibreYOLORFDETR(
-            model_path="LibreRFDETRn-seg.pt",
-            size="n",
-            segmentation=True,
-        )
+        model = LibreYOLO("LibreRFDETRn-seg.pt")
         model.train(
             data=dataset_dir,
             epochs=3,
@@ -237,11 +224,7 @@ def test_rfdetr_seg_resume_training(dataset, tmp_path):
 
         # Phase 2: Resume from checkpoint, train to 5 epochs
         print("Phase 2: Resuming training to 5 epochs...")
-        model2 = LibreYOLORFDETR(
-            model_path="LibreRFDETRn-seg.pt",
-            size="n",
-            segmentation=True,
-        )
+        model2 = LibreYOLO("LibreRFDETRn-seg.pt")
         model2.train(
             data=dataset_dir,
             epochs=5,
