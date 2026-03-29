@@ -26,16 +26,33 @@ def _strip_task_prefix() -> None:
         sys.argv = [sys.argv[0]] + args[1:]
 
 
+def _setup_logging_from_argv() -> None:
+    """Configure logging early, before Typer parses args.
+
+    Peeks at sys.argv for --quiet/--verbose so the logger is ready
+    before any command code runs.
+    """
+    from ..utils.logging import setup_logging
+
+    args = sys.argv[1:]
+    quiet = "--quiet" in args
+    verbose = "--verbose" in args
+    setup_logging(quiet=quiet, verbose=verbose)
+
+
 def entrypoint() -> None:
     """CLI entry point registered in pyproject.toml."""
     _strip_task_prefix()
+    _setup_logging_from_argv()
 
-    from .parsing import KeyValueCommand
     from .commands import special, predict, train, val, export  # noqa: F401
+    from .parsing import KeyValueCommand
 
-    # Special commands (no key=value needed, but cls keeps it consistent)
+    # Special commands
     for cmd_name in ("version", "checks", "models", "formats", "cfg", "info"):
-        app.command(cmd_name, cls=KeyValueCommand)(getattr(special, f"{cmd_name}_cmd"))
+        app.command(cmd_name, cls=KeyValueCommand)(
+            getattr(special, f"{cmd_name}_cmd")
+        )
 
     # Core mode commands
     app.command("predict", cls=KeyValueCommand)(predict.predict_cmd)
