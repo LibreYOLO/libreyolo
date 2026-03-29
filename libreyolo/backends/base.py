@@ -13,7 +13,7 @@ from PIL import Image
 
 from ..models.yolo9.utils import preprocess_image
 from ..models.yolox.utils import preprocess_image as yolox_preprocess_image
-from ..utils.drawing import draw_boxes
+from ..utils.drawing import draw_boxes, draw_masks
 from ..utils.general import COCO_CLASSES, get_safe_stem
 from ..utils.image_loader import ImageLoader
 from ..utils.results import Boxes, Masks, Results
@@ -367,8 +367,6 @@ class BaseBackend(ABC):
         annotated_img = original_img
         if len(result) > 0:
             if result.masks is not None:
-                from ..utils.drawing import draw_masks
-
                 annotated_img = draw_masks(
                     annotated_img,
                     result.masks.data.numpy(),
