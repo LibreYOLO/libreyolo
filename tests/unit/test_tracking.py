@@ -3,6 +3,7 @@
 import pytest
 import numpy as np
 import torch
+from PIL import Image
 
 from libreyolo.tracking.config import TrackConfig
 from libreyolo.tracking.kalman_filter import KalmanFilterXYAH
@@ -385,3 +386,48 @@ class TestByteTracker:
         assert cpu_r.track_id is not None
         assert cpu_r.track_id.device.type == "cpu"
         assert torch.equal(cpu_r.track_id, torch.tensor([1, 2]))
+
+
+class TestDrawBoxesWithTrackIds:
+    """Tests for draw_boxes() with the track_ids parameter."""
+
+    def _draw(self, **kwargs):
+        from libreyolo.utils.drawing import draw_boxes
+
+        img = Image.new("RGB", (200, 200), (255, 255, 255))
+        boxes = [[10, 10, 90, 90], [110, 110, 190, 190]]
+        scores = [0.9, 0.8]
+        classes = [0, 1]
+        return draw_boxes(img, boxes, scores, classes, **kwargs)
+
+    def test_without_track_ids(self):
+        result = self._draw()
+        assert isinstance(result, Image.Image)
+        assert result.size == (200, 200)
+
+    def test_with_track_ids(self):
+        result = self._draw(track_ids=[1, 2])
+        assert isinstance(result, Image.Image)
+        # Tracked image should differ from non-tracked (different label text)
+        arr_tracked = np.array(result)
+        arr_plain = np.array(self._draw())
+        assert not np.array_equal(arr_tracked, arr_plain)
+
+    def test_track_ids_color_by_id(self):
+        """Two boxes with same class but different track IDs get different colors."""
+        from libreyolo.utils.drawing import draw_boxes
+
+        img = Image.new("RGB", (300, 100), (255, 255, 255))
+        # Same class (0) for both, but different track IDs
+        r1 = draw_boxes(img, [[10, 10, 90, 90]], [0.9], [0], track_ids=[1])
+        r2 = draw_boxes(img, [[10, 10, 90, 90]], [0.9], [0], track_ids=[2])
+        # Different track IDs → different box colors → different images
+        assert not np.array_equal(np.array(r1), np.array(r2))
+
+    def test_does_not_modify_original(self):
+        img = Image.new("RGB", (200, 200), (128, 128, 128))
+        original_arr = np.array(img).copy()
+        from libreyolo.utils.drawing import draw_boxes
+
+        draw_boxes(img, [[10, 10, 90, 90]], [0.9], [0], track_ids=[1])
+        assert np.array_equal(np.array(img), original_arr)

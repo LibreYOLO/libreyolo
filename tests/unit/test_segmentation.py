@@ -5,6 +5,7 @@ import torch
 import numpy as np
 from PIL import Image
 
+from libreyolo.data.utils import polygon_to_cxcywh
 from libreyolo.utils.drawing import draw_masks
 from libreyolo.utils.results import Boxes, Masks, Results
 
@@ -437,3 +438,42 @@ class TestDetectSegmentation:
 
         assert LibreYOLORFDETR.detect_task_from_filename("LibreRFDETRn-seg.pt") == "seg"
         assert LibreYOLORFDETR.detect_task_from_filename("LibreRFDETRn.pt") is None
+
+
+class TestPolygonToCxcywh:
+    """Tests for the polygon_to_cxcywh shared utility."""
+
+    def test_square(self):
+        coords = [0.1, 0.1, 0.3, 0.1, 0.3, 0.3, 0.1, 0.3]
+        cx, cy, w, h = polygon_to_cxcywh(coords)
+        assert cx == pytest.approx(0.2)
+        assert cy == pytest.approx(0.2)
+        assert w == pytest.approx(0.2)
+        assert h == pytest.approx(0.2)
+
+    def test_triangle(self):
+        # Triangle: (0.2,0.2), (0.8,0.2), (0.5,0.8)
+        coords = [0.2, 0.2, 0.8, 0.2, 0.5, 0.8]
+        cx, cy, w, h = polygon_to_cxcywh(coords)
+        assert cx == pytest.approx(0.5)
+        assert cy == pytest.approx(0.5)
+        assert w == pytest.approx(0.6)
+        assert h == pytest.approx(0.6)
+
+    def test_single_point(self):
+        # Degenerate: single point → zero-size box
+        coords = [0.5, 0.5]
+        cx, cy, w, h = polygon_to_cxcywh(coords)
+        assert cx == pytest.approx(0.5)
+        assert cy == pytest.approx(0.5)
+        assert w == pytest.approx(0.0)
+        assert h == pytest.approx(0.0)
+
+    def test_horizontal_line(self):
+        # Two points on horizontal line → zero height
+        coords = [0.1, 0.5, 0.9, 0.5]
+        cx, cy, w, h = polygon_to_cxcywh(coords)
+        assert cx == pytest.approx(0.5)
+        assert cy == pytest.approx(0.5)
+        assert w == pytest.approx(0.8)
+        assert h == pytest.approx(0.0)

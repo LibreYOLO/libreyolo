@@ -8,6 +8,7 @@ import pytest
 from libreyolo.utils.video import (
     VideoSource,
     VideoWriter,
+    collect_video_results,
     is_video_file,
 )
 
@@ -234,3 +235,36 @@ class TestResultsFrameIdx:
         boxes = Boxes(torch.zeros((0, 4)), torch.zeros((0,)), torch.zeros((0,)))
         result = Results(boxes=boxes, orig_shape=(480, 640))
         assert "frame_idx" not in repr(result)
+
+
+class TestCollectVideoResults:
+    """Tests for collect_video_results()."""
+
+    def test_collects_all_items(self, sample_video):
+        """Generator items are collected into a list."""
+        items = ["a", "b", "c"]
+        result = collect_video_results(iter(items), sample_video, vid_stride=1)
+        assert result == ["a", "b", "c"]
+
+    def test_empty_generator(self, sample_video):
+        result = collect_video_results(iter([]), sample_video, vid_stride=1)
+        assert result == []
+
+    def test_warns_on_large_video(self, tmp_path):
+        """Videos with many frames should emit a warning."""
+        # Create a video that reports many frames (>500 threshold)
+        path = str(tmp_path / "long.mp4")
+        fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+        # Write 600 frames
+        writer = cv2.VideoWriter(path, fourcc, 30.0, (16, 16))
+        for _ in range(600):
+            writer.write(np.zeros((16, 16, 3), dtype=np.uint8))
+        writer.release()
+
+        import warnings
+
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            collect_video_results(iter([1, 2, 3]), path, vid_stride=1)
+            memory_warnings = [x for x in w if "stream=True" in str(x.message)]
+            assert len(memory_warnings) == 1
