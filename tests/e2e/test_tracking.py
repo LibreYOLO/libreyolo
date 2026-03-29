@@ -268,9 +268,7 @@ class TestTrackingRFDETRSeg:
     def test_tracked_results_have_masks(self, model, video_path):
         """Each tracked frame should carry masks alongside track IDs."""
         frames = _run_tracker(model, video_path, n_frames=10)
-        frames_with_masks = [
-            f for f in frames if len(f) > 0 and f.masks is not None
-        ]
+        frames_with_masks = [f for f in frames if len(f) > 0 and f.masks is not None]
         assert len(frames_with_masks) >= len(frames) // 2, (
             f"Only {len(frames_with_masks)}/{len(frames)} frames had masks"
         )

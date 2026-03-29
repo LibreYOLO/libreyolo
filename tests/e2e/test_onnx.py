@@ -348,9 +348,7 @@ class TestONNXSegmentation:
 
         # Export to ONNX
         onnx_path = str(tmp_path / "rfdetr_n_seg.onnx")
-        exported = pt_model.export(
-            format="onnx", output_path=onnx_path, simplify=False
-        )
+        exported = pt_model.export(format="onnx", output_path=onnx_path, simplify=False)
         assert Path(exported).exists()
 
         # Verify ONNX has 3 outputs (boxes, scores, masks)
@@ -369,12 +367,8 @@ class TestONNXSegmentation:
 
         # ONNX result should also have masks
         if len(onnx_result) > 0:
-            assert onnx_result.masks is not None, (
-                "ONNX seg model should return masks"
-            )
-            assert len(onnx_result.masks) == len(onnx_result), (
-                "One mask per detection"
-            )
+            assert onnx_result.masks is not None, "ONNX seg model should return masks"
+            assert len(onnx_result.masks) == len(onnx_result), "One mask per detection"
             h, w = onnx_result.orig_shape
             assert onnx_result.masks.data.shape[1:] == (h, w), (
                 "Masks should be at original image resolution"

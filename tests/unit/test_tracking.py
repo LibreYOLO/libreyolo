@@ -420,9 +420,7 @@ class TestByteTrackerMasks:
         tracked = tracker.update(r)
 
         assert tracked.masks is not None, "Masks should survive tracking"
-        assert len(tracked.masks) == len(tracked), (
-            "One mask per tracked detection"
-        )
+        assert len(tracked.masks) == len(tracked), "One mask per tracked detection"
         # Masks should be actual filled regions, not empty
         for i in range(len(tracked.masks)):
             assert tracked.masks.data[i].sum() > 0
@@ -464,7 +462,9 @@ class TestByteTrackerMasks:
         """Empty tracked output from a seg model should have no masks."""
         tracker = ByteTracker(minimum_consecutive_frames=5)
         r = _make_results_with_masks(
-            [[100, 100, 200, 200]], [0.9], [0],
+            [[100, 100, 200, 200]],
+            [0.9],
+            [0],
         )
         tracked = tracker.update(r)
         # With min_consecutive_frames=5, first frame yields nothing
