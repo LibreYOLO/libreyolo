@@ -102,9 +102,12 @@ def export_onnx(
             "Install with: uv sync --extra onnx  or  pip install onnx"
         )
 
-    # Detect segmentation models (3 outputs: boxes, logits, masks)
-    num_outputs = _detect_num_outputs(nn_model, dummy)
-    is_seg = num_outputs >= 3
+    # Detect segmentation: prefer metadata flag from exporter, fall back
+    # to output count heuristic for direct export_onnx() calls.
+    is_seg = metadata.get("segmentation") == "true"
+    if not is_seg:
+        num_outputs = _detect_num_outputs(nn_model, dummy)
+        is_seg = num_outputs >= 3
 
     if is_seg:
         output_names = ["boxes", "scores", "masks"]
