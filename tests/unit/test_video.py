@@ -1,12 +1,15 @@
 """Unit tests for video support utilities."""
 
-import tempfile
 from pathlib import Path
 
 import numpy as np
 import pytest
 
-from libreyolo.utils.video import VIDEO_EXTENSIONS, VideoSource, VideoWriter, is_video_file
+from libreyolo.utils.video import (
+    VideoSource,
+    VideoWriter,
+    is_video_file,
+)
 
 pytestmark = pytest.mark.unit
 

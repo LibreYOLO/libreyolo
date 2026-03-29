@@ -32,17 +32,25 @@ class TrackConfig:
         if self.frame_rate <= 0:
             raise ValueError(f"frame_rate must be > 0, got {self.frame_rate}")
         if not (0 <= self.track_high_thresh <= 1):
-            raise ValueError(f"track_high_thresh must be in [0, 1], got {self.track_high_thresh}")
+            raise ValueError(
+                f"track_high_thresh must be in [0, 1], got {self.track_high_thresh}"
+            )
         if not (0 <= self.track_low_thresh <= 1):
-            raise ValueError(f"track_low_thresh must be in [0, 1], got {self.track_low_thresh}")
+            raise ValueError(
+                f"track_low_thresh must be in [0, 1], got {self.track_low_thresh}"
+            )
         if not (0 <= self.new_track_thresh <= 1):
-            raise ValueError(f"new_track_thresh must be in [0, 1], got {self.new_track_thresh}")
+            raise ValueError(
+                f"new_track_thresh must be in [0, 1], got {self.new_track_thresh}"
+            )
         if not (0 <= self.match_thresh <= 1):
             raise ValueError(f"match_thresh must be in [0, 1], got {self.match_thresh}")
         if self.track_buffer < 0:
             raise ValueError(f"track_buffer must be >= 0, got {self.track_buffer}")
         if self.minimum_consecutive_frames < 1:
-            raise ValueError(f"minimum_consecutive_frames must be >= 1, got {self.minimum_consecutive_frames}")
+            raise ValueError(
+                f"minimum_consecutive_frames must be >= 1, got {self.minimum_consecutive_frames}"
+            )
         if self.track_high_thresh < self.track_low_thresh:
             raise ValueError(
                 f"track_high_thresh ({self.track_high_thresh}) must be >= "

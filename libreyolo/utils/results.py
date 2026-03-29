@@ -143,7 +143,9 @@ class Masks:
         h, w = self.orig_shape
         contours_list = []
         for mask in masks_np:
-            contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            contours, _ = cv2.findContours(
+                mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+            )
             if contours:
                 # take the largest contour
                 c = max(contours, key=cv2.contourArea).squeeze(1).astype(np.float64)

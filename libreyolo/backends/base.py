@@ -593,10 +593,14 @@ class BaseBackend(ABC):
             )
             orig_w, orig_h = original_size
             return self._build_result(
-                boxes, max_scores, class_ids,
+                boxes,
+                max_scores,
+                class_ids,
                 orig_shape=(orig_h, orig_w),
                 image_path=str(source),
-                iou=iou, classes=classes, max_det=max_det,
+                iou=iou,
+                classes=classes,
+                max_det=max_det,
             )
 
         yield from run_video_inference(

@@ -117,7 +117,7 @@ class TestTrackingYOLOX:
                 stable_count += 1
 
         assert stable_count >= len(frames) // 2, (
-            f"Only {stable_count}/{len(frames)-1} frame-pairs had >=50% ID overlap"
+            f"Only {stable_count}/{len(frames) - 1} frame-pairs had >=50% ID overlap"
         )
 
     def test_ids_are_positive_integers(self, model, video_path):
@@ -143,9 +143,7 @@ class TestTrackingYOLOX:
         all_ids = set()
         for f in frames:
             all_ids |= _ids(f)
-        assert len(all_ids) >= 10, (
-            f"Only {len(all_ids)} unique IDs across 10 frames"
-        )
+        assert len(all_ids) >= 10, f"Only {len(all_ids)} unique IDs across 10 frames"
 
     def test_save_creates_annotated_video(self, model, video_path, tmp_path):
         """save=True should write an annotated video to output_path."""

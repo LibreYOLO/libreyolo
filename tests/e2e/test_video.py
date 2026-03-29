@@ -133,15 +133,23 @@ class TestVideoYOLOX:
         assert total_dets > 100, f"Only {total_dets} detections in 30 frames"
 
     def test_vid_stride(self, yolox_model, video_path):
-        frames = _collect_n_frames(yolox_model, video_path, n=1000, conf=0.25, vid_stride=5)
+        frames = _collect_n_frames(
+            yolox_model, video_path, n=1000, conf=0.25, vid_stride=5
+        )
         indices = [r.frame_idx for r in frames[:5]]
         assert indices == [0, 5, 10, 15, 20]
 
     def test_save(self, yolox_model, video_path, tmp_path):
         output = str(tmp_path / "yolox_output.mp4")
         n = 0
-        for r in yolox_model(video_path, stream=True, save=True, output_path=output,
-                              conf=0.25, vid_stride=10):
+        for r in yolox_model(
+            video_path,
+            stream=True,
+            save=True,
+            output_path=output,
+            conf=0.25,
+            vid_stride=10,
+        ):
             n += 1
         assert Path(output).exists()
         cap = cv2.VideoCapture(output)
@@ -174,7 +182,9 @@ class TestVideoYOLO9:
         total_dets = sum(len(r) for r in frames)
         assert total_dets > 100, f"Only {total_dets} detections in 30 frames"
 
-    def test_stream_yields_all_frames(self, yolo9_model, video_path, video_total_frames):
+    def test_stream_yields_all_frames(
+        self, yolo9_model, video_path, video_total_frames
+    ):
         results = list(yolo9_model(video_path, stream=True, conf=0.25))
         assert len(results) == video_total_frames
 
@@ -203,8 +213,14 @@ class TestVideoYOLO9:
     def test_save_creates_valid_video(self, yolo9_model, video_path, tmp_path):
         output = str(tmp_path / "yolo9_output.mp4")
         n_input = 0
-        for _ in yolo9_model(video_path, stream=True, save=True, output_path=output,
-                              conf=0.25, vid_stride=10):
+        for _ in yolo9_model(
+            video_path,
+            stream=True,
+            save=True,
+            output_path=output,
+            conf=0.25,
+            vid_stride=10,
+        ):
             n_input += 1
 
         assert Path(output).exists()
@@ -219,7 +235,9 @@ class TestVideoYOLO9:
     def test_save_auto_path(self, yolo9_model, video_path, tmp_path, monkeypatch):
         # Run from tmp_path so runs/detect/ is created there, not in the repo
         monkeypatch.chdir(tmp_path)
-        for _ in yolo9_model(video_path, stream=True, save=True, conf=0.25, vid_stride=50):
+        for _ in yolo9_model(
+            video_path, stream=True, save=True, conf=0.25, vid_stride=50
+        ):
             pass
         predict_dirs = list((tmp_path / "runs" / "detect").glob("predict*"))
         assert len(predict_dirs) > 0
@@ -229,16 +247,25 @@ class TestVideoYOLO9:
         assert len(mp4s) > 0
 
     def test_high_conf_fewer_detections(self, yolo9_model, video_path):
-        low = sum(len(r) for r in _collect_n_frames(
-            yolo9_model, video_path, n=10, conf=0.1, vid_stride=10))
-        high = sum(len(r) for r in _collect_n_frames(
-            yolo9_model, video_path, n=10, conf=0.7, vid_stride=10))
+        low = sum(
+            len(r)
+            for r in _collect_n_frames(
+                yolo9_model, video_path, n=10, conf=0.1, vid_stride=10
+            )
+        )
+        high = sum(
+            len(r)
+            for r in _collect_n_frames(
+                yolo9_model, video_path, n=10, conf=0.7, vid_stride=10
+            )
+        )
         assert high < low
 
     def test_classes_filter(self, yolo9_model, video_path):
         total = 0
-        for r in _collect_n_frames(yolo9_model, video_path, n=10,
-                                    conf=0.25, classes=[0], vid_stride=10):
+        for r in _collect_n_frames(
+            yolo9_model, video_path, n=10, conf=0.25, classes=[0], vid_stride=10
+        ):
             total += len(r)
             if len(r) > 0:
                 assert (r.boxes.cls == 0).all()
@@ -276,16 +303,23 @@ class TestVideoRFDETR:
         assert total_dets > 100, f"Only {total_dets} detections in 30 frames"
 
     def test_vid_stride(self, rfdetr_model, video_path):
-        frames = _collect_n_frames(rfdetr_model, video_path, n=1000,
-                                    conf=0.25, vid_stride=5)
+        frames = _collect_n_frames(
+            rfdetr_model, video_path, n=1000, conf=0.25, vid_stride=5
+        )
         indices = [r.frame_idx for r in frames[:5]]
         assert indices == [0, 5, 10, 15, 20]
 
     def test_save(self, rfdetr_model, video_path, tmp_path):
         output = str(tmp_path / "rfdetr_output.mp4")
         n = 0
-        for r in rfdetr_model(video_path, stream=True, save=True, output_path=output,
-                               conf=0.25, vid_stride=10):
+        for r in rfdetr_model(
+            video_path,
+            stream=True,
+            save=True,
+            output_path=output,
+            conf=0.25,
+            vid_stride=10,
+        ):
             n += 1
         assert Path(output).exists()
         cap = cv2.VideoCapture(output)

@@ -424,11 +424,7 @@ class BaseModel(ABC):
         def annotate_tracked(pil_img, result):
             if len(result) == 0:
                 return pil_img
-            tid_list = (
-                result.track_id.tolist()
-                if result.track_id is not None
-                else None
-            )
+            tid_list = result.track_id.tolist() if result.track_id is not None else None
             return draw_boxes(
                 pil_img,
                 result.boxes.xyxy.tolist(),

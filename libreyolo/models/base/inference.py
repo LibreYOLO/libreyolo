@@ -13,7 +13,6 @@ from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Dict, Generator, List, Optional, Tuple, Union
 
-import numpy as np
 import torch
 
 from ...utils.drawing import draw_boxes, draw_masks, draw_tile_grid
@@ -342,7 +341,6 @@ class InferenceRunner:
         # Wrap into Results
         result = self._wrap_results(detections, original_size, image_path, classes)
 
-
         # Save annotated image
         if save:
             if len(result) > 0:
@@ -397,13 +395,18 @@ class InferenceRunner:
         effective_imgsz = imgsz if imgsz is not None else self.model._get_input_size()
 
         def predict_frame(pil_img):
-            input_tensor, original_img, original_size, ratio = (
-                self.model._preprocess(pil_img, "rgb", input_size=effective_imgsz)
+            input_tensor, original_img, original_size, ratio = self.model._preprocess(
+                pil_img, "rgb", input_size=effective_imgsz
             )
             with torch.no_grad():
                 output = self.model._forward(input_tensor.to(self.model.device))
             detections = self.model._postprocess(
-                output, conf, iou, original_size, max_det=max_det, ratio=ratio,
+                output,
+                conf,
+                iou,
+                original_size,
+                max_det=max_det,
+                ratio=ratio,
                 **kwargs,
             )
             return self._wrap_results(detections, original_size, str(source), classes)
@@ -587,7 +590,7 @@ class InferenceRunner:
                     result.boxes.xyxy.tolist(),
                     result.boxes.conf.tolist(),
                     result.boxes.cls.tolist(),
-                    class_names=result.names
+                    class_names=result.names,
                 )
             else:
                 annotated_img = img_pil.copy()
