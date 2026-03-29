@@ -4,10 +4,13 @@ stdout is the API (results only). stderr is for humans (progress, logs).
 """
 
 import json
+import logging
 import sys
 from typing import Any
 
 from .errors import CLIError
+
+logger = logging.getLogger(__name__)
 
 
 class OutputHandler:
@@ -27,12 +30,11 @@ class OutputHandler:
             self._print_human(data)
 
     def progress(self, message: str) -> None:
-        """Write progress info to stderr. Suppressed by --quiet."""
-        if not self.quiet:
-            print(message, file=sys.stderr)
+        """Write progress info to stderr via logger. Respects --quiet."""
+        logger.info(message)
 
     def error(self, err: CLIError) -> None:
-        """Write error. With --json: JSON to stdout. Without: text to stderr."""
+        """Write error. With --json: JSON to stdout. Without: log to stderr."""
         if self.json_mode:
             print(
                 json.dumps(
@@ -46,14 +48,12 @@ class OutputHandler:
                 )
             )
         else:
-            print(f"Error [{err.code}]: {err.message}", file=sys.stderr)
+            logger.error("Error [%s]: %s", err.code, err.message)
             if err.suggestion:
-                print(f"  Suggestion: {err.suggestion}", file=sys.stderr)
+                logger.info("  Suggestion: %s", err.suggestion)
 
     def _print_human(self, data: dict[str, Any]) -> None:
         """Format data as human-readable text to stdout."""
-        # Commands provide their own human formatting via _human_text key.
-        # Fall back to simple key: value display.
         if "_human_text" in data:
             print(data["_human_text"])
         else:
