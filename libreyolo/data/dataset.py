@@ -14,6 +14,8 @@ import numpy as np
 import torch
 from torch.utils.data import Dataset, DataLoader
 
+from .utils import polygon_to_cxcywh
+
 
 class YOLODataset(Dataset):
     """
@@ -131,12 +133,7 @@ class YOLODataset(Dataset):
                         if len(parts) > 5:
                             # Segmentation format: derive bbox from polygon vertices
                             coords = [float(p) for p in parts[1:]]
-                            xs = coords[0::2]
-                            ys = coords[1::2]
-                            cx = (min(xs) + max(xs)) / 2
-                            cy = (min(ys) + max(ys)) / 2
-                            w = max(xs) - min(xs)
-                            h = max(ys) - min(ys)
+                            cx, cy, w, h = polygon_to_cxcywh(coords)
                         else:
                             cx, cy, w, h = map(float, parts[1:5])
 

@@ -43,6 +43,17 @@ IMG_FORMATS = {
 }
 
 
+def polygon_to_cxcywh(coords: list[float]) -> tuple[float, float, float, float]:
+    """Derive normalized cxcywh bounding box from polygon vertices."""
+    xs = coords[0::2]
+    ys = coords[1::2]
+    cx = (min(xs) + max(xs)) / 2
+    cy = (min(ys) + max(ys)) / 2
+    w = max(xs) - min(xs)
+    h = max(ys) - min(ys)
+    return cx, cy, w, h
+
+
 def resolve_dataset_yaml(data: str) -> Path:
     """
     Resolve a dataset YAML path.

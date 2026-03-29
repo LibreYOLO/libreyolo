@@ -14,6 +14,8 @@ import warnings
 
 from PIL import Image
 
+from .utils import polygon_to_cxcywh
+
 
 def parse_yolo_label_line(
     line: str,
@@ -52,15 +54,9 @@ def parse_yolo_label_line(
         class_id = int(parts[0])
 
         if len(parts) > 5:
-            # Segmentation format: class_id x1 y1 x2 y2 x3 y3 ...
-            # Derive bounding box from polygon vertices.
+            # Segmentation format: derive bbox from polygon vertices.
             coords = [float(p) for p in parts[1:]]
-            xs = coords[0::2]
-            ys = coords[1::2]
-            cx = (min(xs) + max(xs)) / 2
-            cy = (min(ys) + max(ys)) / 2
-            bw = max(xs) - min(xs)
-            bh = max(ys) - min(ys)
+            cx, cy, bw, bh = polygon_to_cxcywh(coords)
         else:
             # Detection format: class_id cx cy w h
             cx = float(parts[1])
