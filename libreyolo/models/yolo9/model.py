@@ -9,6 +9,7 @@ import torch.nn as nn
 from PIL import Image
 
 from ..base import BaseModel
+from ...training.config import YOLO9Config
 from ...utils.image_loader import ImageInput
 from .nn import LibreYOLO9Model
 from .utils import preprocess_image, postprocess
@@ -35,6 +36,7 @@ class LibreYOLO9(BaseModel):
     FAMILY = "yolo9"
     FILENAME_PREFIX = "LibreYOLO9"
     INPUT_SIZES = {"t": 640, "s": 640, "m": 640, "c": 640}
+    TRAIN_CONFIG = YOLO9Config
     val_preprocessor_class = YOLO9ValPreprocessor
 
     # =========================================================================

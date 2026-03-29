@@ -8,6 +8,7 @@ import torch.nn as nn
 from PIL import Image
 
 from ..base import BaseModel
+from ...training.config import YOLOXConfig
 from ...utils.image_loader import ImageInput
 from .nn import LibreYOLOXModel
 from .utils import preprocess_image as _yolox_preprocess, postprocess
@@ -36,6 +37,7 @@ class LibreYOLOX(BaseModel):
     FAMILY = "yolox"
     FILENAME_PREFIX = "LibreYOLOX"
     INPUT_SIZES = {"n": 416, "t": 416, "s": 640, "m": 640, "l": 640, "x": 640}
+    TRAIN_CONFIG = YOLOXConfig
     val_preprocessor_class = YOLOXValPreprocessor
 
     # =========================================================================

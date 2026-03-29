@@ -9,13 +9,16 @@ from __future__ import annotations
 import re
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Any, ClassVar, Dict, List, Optional, Tuple, Type, Union
+from typing import TYPE_CHECKING, Any, ClassVar, Dict, List, Optional, Tuple, Type, Union
 
 import torch
 import torch.nn as nn
 from PIL import Image
 
 from ...utils.general import COCO_CLASSES
+
+if TYPE_CHECKING:
+    from ...training.config import TrainConfig
 from ...utils.image_loader import ImageInput
 from ...utils.results import Results
 from ...validation.preprocessors import StandardValPreprocessor
@@ -31,6 +34,7 @@ class BaseModel(ABC):
         FAMILY: Model family identifier (e.g. "yolox").
         FILENAME_PREFIX: Prefix for weight filenames (e.g. "LibreYOLOX").
         INPUT_SIZES: Mapping of size code to input resolution.
+        TRAIN_CONFIG: TrainConfig subclass with family-specific defaults.
         val_preprocessor_class: Preprocessor class for validation.
     """
 
@@ -39,6 +43,7 @@ class BaseModel(ABC):
     FILENAME_PREFIX: ClassVar[str] = ""
     WEIGHT_EXT: ClassVar[str] = ".pt"
     INPUT_SIZES: ClassVar[dict[str, int]] = {}
+    TRAIN_CONFIG: ClassVar[Optional[type[TrainConfig]]] = None
     val_preprocessor_class = StandardValPreprocessor
 
     # Model registry — auto-populated by __init_subclass__
