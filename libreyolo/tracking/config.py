@@ -13,6 +13,8 @@ class TrackConfig:
         track_low_thresh: Minimum confidence for second association (low-conf recovery).
         new_track_thresh: Minimum confidence to initialize a new track.
         match_thresh: IoU cost threshold for first association.
+        match_thresh_low: IoU cost threshold for low-confidence association (stage 2).
+        match_thresh_unconfirmed: IoU cost threshold for unconfirmed track matching (stage 3).
         track_buffer: Frames to keep lost tracks before removal.
         frame_rate: Video frame rate (used to scale track_buffer).
         fuse_score: Fuse detection score with IoU for first association.
@@ -23,6 +25,8 @@ class TrackConfig:
     track_low_thresh: float = 0.1
     new_track_thresh: float = 0.25
     match_thresh: float = 0.8
+    match_thresh_low: float = 0.5
+    match_thresh_unconfirmed: float = 0.7
     track_buffer: int = 30
     frame_rate: int = 30
     fuse_score: bool = True
@@ -45,6 +49,15 @@ class TrackConfig:
             )
         if not (0 <= self.match_thresh <= 1):
             raise ValueError(f"match_thresh must be in [0, 1], got {self.match_thresh}")
+        if not (0 <= self.match_thresh_low <= 1):
+            raise ValueError(
+                f"match_thresh_low must be in [0, 1], got {self.match_thresh_low}"
+            )
+        if not (0 <= self.match_thresh_unconfirmed <= 1):
+            raise ValueError(
+                f"match_thresh_unconfirmed must be in [0, 1], got "
+                f"{self.match_thresh_unconfirmed}"
+            )
         if self.track_buffer < 0:
             raise ValueError(f"track_buffer must be >= 0, got {self.track_buffer}")
         if self.minimum_consecutive_frames < 1:
