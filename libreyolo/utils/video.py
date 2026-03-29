@@ -1,10 +1,13 @@
 """Video source utilities for LibreYOLO."""
 
 import logging
+import warnings
 from pathlib import Path
 from typing import Callable, Generator, Iterator, Tuple, Union
 
 import numpy as np
+
+from .general import increment_path
 
 logger = logging.getLogger(__name__)
 
@@ -44,8 +47,6 @@ def resolve_video_save_path(
         out = Path(output_path)
         out.parent.mkdir(parents=True, exist_ok=True)
         return str(out)
-
-    from .general import increment_path
 
     save_dir = Path("runs/detect") / "predict"
     save_dir = increment_path(save_dir, exist_ok=False, mkdir=True)
@@ -146,9 +147,6 @@ class VideoSource:
             finally:
                 self._cap = None
 
-    def __del__(self):
-        self.release()
-
     def __repr__(self) -> str:
         return (
             f"VideoSource(path='{self._path}', "
@@ -215,16 +213,34 @@ class VideoWriter:
             finally:
                 self._writer = None
 
-    def __del__(self):
-        self.release()
-
     def __repr__(self) -> str:
         return f"VideoWriter(path='{self._path}')"
 
 
 # ---------------------------------------------------------------------------
-# Shared video inference loop
+# Shared video inference helpers
 # ---------------------------------------------------------------------------
+
+_LARGE_VIDEO_THRESHOLD = 500
+
+
+def collect_video_results(
+    gen: Generator,
+    source: Union[str, Path],
+    vid_stride: int = 1,
+) -> list:
+    """Collect all video results into a list, warning for large videos."""
+    vs = VideoSource(source, vid_stride=vid_stride)
+    est_frames = vs.total_frames // max(1, vid_stride)
+    vs.release()
+
+    if est_frames > _LARGE_VIDEO_THRESHOLD:
+        warnings.warn(
+            f"Video has ~{est_frames} frames to process. "
+            f"Consider using stream=True to avoid high memory usage.",
+            stacklevel=3,
+        )
+    return list(gen)
 
 
 def run_video_inference(
@@ -288,6 +304,7 @@ def run_video_inference(
                             result.boxes.xyxy.tolist(),
                             result.boxes.conf.tolist(),
                             result.boxes.cls.tolist(),
+                            class_names=result.names,
                         )
                     else:
                         annotated_pil = pil_img
