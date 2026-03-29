@@ -337,8 +337,7 @@ class TestByteTracker:
     def test_reset_clears_state(self):
         tracker = ByteTracker()
         r = _make_results([[100, 100, 200, 200]], [0.9], [0])
-        t1 = tracker.update(r)
-        id1 = t1.track_id[0].item()
+        tracker.update(r)
 
         tracker.reset()
 
