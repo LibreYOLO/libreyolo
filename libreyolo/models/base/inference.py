@@ -466,7 +466,6 @@ class InferenceRunner:
         **kwargs,
     ) -> Results:
         """Run tiled inference on large images."""
-        import warnings
 
         if getattr(self.model, "_is_segmentation", False):
             raise ValueError(

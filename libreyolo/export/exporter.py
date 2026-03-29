@@ -381,9 +381,7 @@ class BaseExporter(ABC):
             "imgsz": str(self.model._get_input_size()),
             "dynamic": str(dynamic),
             "half": str(half),
-            "segmentation": str(
-                getattr(self.model, "_is_segmentation", False)
-            ).lower(),
+            "segmentation": str(getattr(self.model, "_is_segmentation", False)).lower(),
         }
 
     def _print_summary(self, result: str, precision: str, imgsz: int):
