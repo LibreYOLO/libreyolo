@@ -203,6 +203,8 @@ class LibreYOLORFDETR(BaseModel):
         # Convert empty dict (from factory) to None for RF-DETR config compatibility
         if isinstance(model_path, dict) and not model_path:
             self._pretrain_weights = None
+        elif isinstance(model_path, str):
+            self._pretrain_weights = self._resolve_weights_path(model_path)
         else:
             self._pretrain_weights = model_path
 
