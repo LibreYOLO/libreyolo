@@ -6,10 +6,8 @@ from typing import Optional
 
 import typer
 
-from ..aliases import resolve_aliases
 from ..errors import CLIError
 from ..output import OutputHandler
-from ..parsing import KeyValueCommand, PythonLiteral
 
 
 def predict_cmd(
@@ -18,7 +16,9 @@ def predict_cmd(
     conf: float = typer.Option(0.25, help="Confidence threshold"),
     iou: float = typer.Option(0.45, help="NMS IoU threshold"),
     imgsz: Optional[int] = typer.Option(None, help="Input image size"),
-    classes: Optional[str] = typer.Option(None, help="Filter by class IDs, e.g. [0,2,5]"),
+    classes: Optional[str] = typer.Option(
+        None, help="Filter by class IDs, e.g. [0,2,5]"
+    ),
     max_det: int = typer.Option(300, help="Max detections per image"),
     half: bool = typer.Option(False, help="FP16 inference"),
     save: bool = typer.Option(False, help="Save annotated images"),
@@ -27,7 +27,9 @@ def predict_cmd(
     overlap_ratio: float = typer.Option(0.2, help="Tile overlap ratio"),
     output_path: Optional[str] = typer.Option(None, help="Explicit output path"),
     color_format: str = typer.Option("auto", help="Input color: auto, rgb, bgr"),
-    output_file_format: Optional[str] = typer.Option(None, help="Output format: jpg, png, webp"),
+    output_file_format: Optional[str] = typer.Option(
+        None, help="Output format: jpg, png, webp"
+    ),
     device: str = typer.Option("auto", help="Device: 0, cpu, mps, auto"),
     project: str = typer.Option("runs/detect", help="Output directory root"),
     name: str = typer.Option("predict", help="Experiment name"),
@@ -37,7 +39,9 @@ def predict_cmd(
     quiet: bool = typer.Option(False, "--quiet", help="Suppress stderr"),
     verbose: bool = typer.Option(False, "--verbose", help="Verbose stderr output"),
     help_json: bool = typer.Option(
-        False, "--help-json", is_eager=True,
+        False,
+        "--help-json",
+        is_eager=True,
         callback=lambda ctx, param, v: _help_json(ctx, v),
         help="Dump command schema as JSON",
     ),
@@ -145,7 +149,10 @@ def predict_cmd(
             f"{v} {k}{'s' if v > 1 else ''}" for k, v in class_counts.items()
         )
         img_name = Path(r.path or source).name
-        human_lines.append(f"{img_name}: {counts_str or 'no detections'}")
+        elapsed_ms = elapsed * 1000 / max(len(results), 1)
+        human_lines.append(
+            f"{img_name}: {counts_str or 'no detections'} ({elapsed_ms:.1f}ms)"
+        )
 
     data = {
         "source": str(source),
