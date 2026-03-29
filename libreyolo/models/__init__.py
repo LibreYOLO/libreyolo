@@ -9,10 +9,13 @@ All model families register here via ``__init_subclass__``. Adding a new model m
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 from .base import BaseModel
 from ..utils.download import download_weights
+
+logger = logging.getLogger(__name__)
 
 # =============================================================================
 # Model registry — auto-populated by BaseModel.__init_subclass__
@@ -129,7 +132,7 @@ def LibreYOLO(
                 detected = cls.detect_size_from_filename(Path(model_path).name)
                 if detected is not None:
                     size = detected
-                    print(f"Detected size '{size}' from filename")
+                    logger.debug("Detected size '%s' from filename", size)
                     break
             # Try RF-DETR (may not be registered yet — cheap check)
             if size is None:
@@ -139,7 +142,7 @@ def LibreYOLO(
                         detected = cls.detect_size_from_filename(Path(model_path).name)
                         if detected is not None:
                             size = detected
-                            print(f"Detected size '{size}' from filename")
+                            logger.debug("Detected size '%s' from filename", size)
                             break
                 except ModuleNotFoundError:
                     pass
@@ -153,7 +156,7 @@ def LibreYOLO(
         try:
             download_weights(model_path, size)
         except Exception as e:
-            print(f"Auto-download failed: {e}")
+            logger.warning("Auto-download failed: %s", e)
 
     if not Path(model_path).exists():
         raise FileNotFoundError(f"Model weights file not found: {model_path}")
@@ -217,7 +220,7 @@ def LibreYOLO(
                 f"Could not automatically detect {matched_cls.__name__} model size.\n"
                 f"Please specify size explicitly: LibreYOLO('{model_path}', size='s')"
             )
-        print(f"Auto-detected size: {size}")
+        logger.debug("Auto-detected size: %s", size)
 
     # Auto-detect nb_classes
     if nb_classes is None:

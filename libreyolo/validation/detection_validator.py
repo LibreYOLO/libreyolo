@@ -1,5 +1,6 @@
 """Detection validator for LibreYOLO."""
 
+import logging
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING
 
@@ -11,6 +12,8 @@ from .base import BaseValidator
 from .config import ValidationConfig
 from .metrics import DetMetrics
 from .utils import process_batch
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from libreyolo.models.base import BaseModel
@@ -200,18 +203,18 @@ class DetectionValidator(BaseValidator):
                 from libreyolo.validation import COCOEvaluator
 
                 if self.config.verbose:
-                    print("Initializing COCO evaluator...")
+                    logger.info("Initializing COCO evaluator...")
 
                 coco_api = create_yolo_coco_api(self.config.data, self.config.split)
                 self.coco_evaluator = COCOEvaluator(coco_api, iou_type="bbox")
 
                 if self.config.verbose:
-                    print(
-                        f"COCO evaluator initialized with {len(coco_api.imgs)} images"
+                    logger.info(
+                        "COCO evaluator initialized with %d images", len(coco_api.imgs)
                     )
             except Exception as e:
-                print(f"Warning: Failed to initialize COCO evaluator: {e}")
-                print("Falling back to legacy DetMetrics")
+                logger.warning("Failed to initialize COCO evaluator: %s", e)
+                logger.warning("Falling back to legacy DetMetrics")
                 self.config.use_coco_eval = False
                 self.coco_evaluator = None
 
@@ -412,7 +415,7 @@ class DetectionValidator(BaseValidator):
     def _compute_metrics(self) -> Dict[str, float]:
         if self.coco_evaluator is not None:
             if self.config.verbose:
-                print("\nComputing COCO metrics...")
+                logger.info("Computing COCO metrics...")
 
             save_json = None
             if self.config.save_json:
