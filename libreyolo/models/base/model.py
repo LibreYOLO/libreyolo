@@ -394,7 +394,7 @@ class BaseModel(ABC):
             Results with ``track_id`` attribute set as an (N,) int tensor.
         """
         from ...tracking import ByteTracker, TrackConfig
-        from ...utils.drawing import draw_boxes
+        from ...utils.drawing import draw_boxes, draw_masks
         from ...utils.video import run_video_inference
 
         if tracker_config is None:
@@ -424,9 +424,15 @@ class BaseModel(ABC):
         def annotate_tracked(pil_img, result):
             if len(result) == 0:
                 return pil_img
+            img = pil_img
+            if result.masks is not None:
+                masks_np = result.masks.data
+                if isinstance(masks_np, torch.Tensor):
+                    masks_np = masks_np.cpu().numpy()
+                img = draw_masks(img, masks_np, result.boxes.cls.tolist())
             tid_list = result.track_id.tolist() if result.track_id is not None else None
             return draw_boxes(
-                pil_img,
+                img,
                 result.boxes.xyxy.tolist(),
                 result.boxes.conf.tolist(),
                 result.boxes.cls.tolist(),

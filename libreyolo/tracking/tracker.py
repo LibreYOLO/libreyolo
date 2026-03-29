@@ -10,7 +10,7 @@ from __future__ import annotations
 import numpy as np
 import torch
 
-from ..utils.results import Boxes, Results
+from ..utils.results import Boxes, Masks, Results
 from .config import TrackConfig
 from .kalman_filter import KalmanFilterXYAH
 from .matching import fuse_score, iou_distance, linear_assignment
@@ -271,11 +271,16 @@ class ByteTracker:
             [t.track_id for t in output_stracks], dtype=torch.int64
         )
 
+        out_masks = None
+        if results.masks is not None:
+            out_masks = Masks(results.masks.data[indices], results.orig_shape)
+
         return Results(
             boxes=Boxes(out_boxes, out_conf, out_cls),
             orig_shape=results.orig_shape,
             path=results.path,
             names=results.names,
+            masks=out_masks,
             track_id=track_ids,
         )
 
