@@ -8,6 +8,7 @@ from typing import Dict, Generator, List, Optional, Tuple, Union
 
 import numpy as np
 import torch
+import torch.nn.functional as F
 from PIL import Image
 
 from ..models.yolo9.utils import preprocess_image
@@ -273,9 +274,6 @@ class BaseBackend(ABC):
         # Resize and threshold masks to original image resolution
         masks_out = None
         if raw_masks is not None and len(raw_masks) > 0:
-            import torch
-            import torch.nn.functional as F
-
             masks_t = torch.from_numpy(raw_masks).unsqueeze(1).float()
             masks_t = F.interpolate(
                 masks_t,
