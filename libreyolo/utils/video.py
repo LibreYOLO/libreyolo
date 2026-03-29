@@ -305,11 +305,18 @@ def run_video_inference(
                     if annotate_fn is not None:
                         annotated_pil = annotate_fn(pil_img, result)
                     elif len(result) > 0:
+                        names = result.names
+                        class_names = (
+                            [names[i] for i in range(max(names) + 1)]
+                            if names
+                            else None
+                        )
                         annotated_pil = draw_boxes(
                             pil_img,
                             result.boxes.xyxy.tolist(),
                             result.boxes.conf.tolist(),
                             result.boxes.cls.tolist(),
+                            class_names=class_names,
                         )
                     else:
                         annotated_pil = pil_img
