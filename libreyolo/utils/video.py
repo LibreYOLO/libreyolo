@@ -147,9 +147,6 @@ class VideoSource:
             finally:
                 self._cap = None
 
-    def __del__(self):
-        self.release()
-
     def __repr__(self) -> str:
         return (
             f"VideoSource(path='{self._path}', "
@@ -215,9 +212,6 @@ class VideoWriter:
                 self._writer.release()
             finally:
                 self._writer = None
-
-    def __del__(self):
-        self.release()
 
     def __repr__(self) -> str:
         return f"VideoWriter(path='{self._path}')"
