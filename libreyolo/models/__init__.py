@@ -228,10 +228,16 @@ def LibreYOLO(
     # For old/pretrained checkpoints, pass the extracted state_dict directly.
     has_metadata = isinstance(state_dict, dict) and "nc" in state_dict
 
+    # Check for -seg suffix on models that don't support segmentation
+    task = matched_cls.detect_task_from_filename(Path(model_path).name)
+    if task == "seg" and matched_cls.FAMILY != "rfdetr":
+        raise ValueError(
+            f"{matched_cls.__name__} does not support segmentation. "
+            f"Only RF-DETR models support instance segmentation (-seg suffix)."
+        )
+
     if matched_cls.FAMILY == "rfdetr":
         # RF-DETR always needs the path (handles its own loading internally)
-        # Detect segmentation from filename (supplements auto-detection from weights)
-        task = matched_cls.detect_task_from_filename(Path(model_path).name)
         model = matched_cls(
             model_path=model_path,
             size=size,
