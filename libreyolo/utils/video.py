@@ -7,6 +7,8 @@ from typing import Callable, Generator, Iterator, Tuple, Union
 
 import numpy as np
 
+from .general import increment_path
+
 logger = logging.getLogger(__name__)
 
 # Video extensions supported via OpenCV's VideoCapture
@@ -45,8 +47,6 @@ def resolve_video_save_path(
         out = Path(output_path)
         out.parent.mkdir(parents=True, exist_ok=True)
         return str(out)
-
-    from .general import increment_path
 
     save_dir = Path("runs/detect") / "predict"
     save_dir = increment_path(save_dir, exist_ok=False, mkdir=True)
