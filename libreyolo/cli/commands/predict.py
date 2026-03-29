@@ -116,6 +116,7 @@ def predict_cmd(
     # Normalize to list
     if not isinstance(results, list):
         results = [results]
+    total_images = len(results)
 
     # Format output
     result_list = []
@@ -144,14 +145,20 @@ def predict_cmd(
                 "detections": detections,
             }
         )
-        # Human summary
+        # Human summary line (ultralytics format):
+        # image 1/3 parkour.jpg: 640x480 3 persons, 2 skateboards, 45.2ms
+        h, w = r.orig_shape
         counts_str = ", ".join(
             f"{v} {k}{'s' if v > 1 else ''}" for k, v in class_counts.items()
         )
         img_name = Path(r.path or source).name
+        idx = len(human_lines) + 1
         elapsed_ms = elapsed * 1000 / max(len(results), 1)
         human_lines.append(
-            f"{img_name}: {counts_str or 'no detections'} ({elapsed_ms:.1f}ms)"
+            f"image {idx}/{total_images} {img_name}: "
+            f"{w}x{h} "
+            f"{counts_str or '(no detections)'}, "
+            f"{elapsed_ms:.1f}ms"
         )
 
     data = {
