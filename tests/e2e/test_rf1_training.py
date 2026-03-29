@@ -31,10 +31,7 @@ HF_REPO_URL = f"https://huggingface.co/datasets/{HF_REPO}"
 
 
 def download_marbles_dataset():
-    """Download the marbles dataset from HuggingFace if not already cached.
-
-    Uses a plain ``git clone`` — no extra Python packages needed.
-    """
+    """Download the marbles dataset from HuggingFace if not already cached."""
     if DATASET_ROOT.exists() and (DATASET_ROOT / "data.yaml").exists():
         return
 
