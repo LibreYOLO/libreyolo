@@ -249,3 +249,46 @@ class TestTrackingRFDETR:
         for i, f in enumerate(frames):
             ids = f.track_id.tolist() if f.track_id is not None else []
             assert len(ids) == len(set(ids)), f"Frame {i}: duplicate IDs: {ids}"
+
+
+# ── RF-DETR Segmentation + Tracking ─────────────────────────────────────────
+
+
+@requires_rfdetr
+class TestTrackingRFDETRSeg:
+    """Tracking e2e with a segmentation model: masks must survive tracking."""
+
+    @pytest.fixture(scope="class")
+    def model(self):
+        m = LibreYOLO("LibreRFDETRn-seg.pt")
+        yield m
+        del m
+        cuda_cleanup()
+
+    def test_tracked_results_have_masks(self, model, video_path):
+        """Each tracked frame should carry masks alongside track IDs."""
+        frames = _run_tracker(model, video_path, n_frames=10)
+        frames_with_masks = [
+            f for f in frames if len(f) > 0 and f.masks is not None
+        ]
+        assert len(frames_with_masks) >= len(frames) // 2, (
+            f"Only {len(frames_with_masks)}/{len(frames)} frames had masks"
+        )
+        for f in frames_with_masks:
+            assert len(f.masks) == len(f), (
+                f"Mask count ({len(f.masks)}) != detection count ({len(f)})"
+            )
+            assert f.track_id is not None
+            assert len(f.track_id) == len(f)
+
+    def test_masks_are_image_resolution(self, model, video_path):
+        """Tracked masks should be at the original frame resolution."""
+        frames = _run_tracker(model, video_path, n_frames=5)
+        for f in frames:
+            if len(f) > 0 and f.masks is not None:
+                h, w = f.orig_shape
+                assert f.masks.data.shape[1:] == (h, w), (
+                    f"Mask shape {f.masks.data.shape[1:]} != frame {(h, w)}"
+                )
+                return  # one verified frame is enough
+        pytest.skip("No frames with detections+masks to verify")
