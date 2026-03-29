@@ -20,7 +20,7 @@ def predict_cmd(
         None, help="Filter by class IDs, e.g. [0,2,5]"
     ),
     max_det: int = typer.Option(300, help="Max detections per image"),
-    half: bool = typer.Option(False, help="FP16 inference"),
+    half: bool = typer.Option(False, help="FP16 inference (CUDA only, requires model support)"),
     save: bool = typer.Option(False, help="Save annotated images"),
     batch: int = typer.Option(1, help="Batch size for directories"),
     tiling: bool = typer.Option(False, help="Tiled inference for large images"),
@@ -73,8 +73,15 @@ def predict_cmd(
         out.error(err)
         raise SystemExit(err.exit_code)
 
+    # NOTE: half for PyTorch inference is not yet supported in the inference
+    # pipeline (model converts to FP16 but input stays FP32 → dtype mismatch).
+    # FP16 works correctly through exported models (ONNX, TensorRT).
+    # For now, warn and skip.
     if half:
-        loaded_model.model.half()
+        out.progress(
+            "Warning: half (FP16) is not yet supported for PyTorch inference. "
+            "Use exported models (ONNX/TensorRT) for FP16. Ignoring."
+        )
 
     # Resolve output path
     if output_path is None and save:
