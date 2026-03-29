@@ -100,6 +100,14 @@ def linear_assignment(
             np.arange(cost_matrix.shape[1], dtype=int),
         )
 
+    if not np.isfinite(cost_matrix).all():
+        # Degenerate Kalman state produced NaN/Inf — treat as all unmatched.
+        return (
+            np.empty((0, 2), dtype=int),
+            np.arange(cost_matrix.shape[0], dtype=int),
+            np.arange(cost_matrix.shape[1], dtype=int),
+        )
+
     row_indices, col_indices = scipy_lsa(cost_matrix)
 
     matches = []
