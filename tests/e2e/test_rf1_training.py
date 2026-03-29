@@ -446,9 +446,13 @@ def test_load_finetuned_checkpoint_rfdetr(
         assert "model" in ckpt, "RF-DETR checkpoint missing 'model' key"
         state_dict = ckpt["model"]
         assert "class_embed.bias" in state_dict, "Missing class_embed in state dict"
+        # rfdetr >= 1.6 keeps 91-class head; actual classes are in args.
+        class_names = ckpt.get("args", {{}}).get("class_names", [])
+        assert len(class_names) == 2, (
+            f"Expected 2 class names, got {{class_names}}"
+        )
+        num_classes = len(class_names)
         num_classes_internal = state_dict["class_embed.bias"].shape[0]
-        num_classes = num_classes_internal - 1
-        assert num_classes == 2, f"Expected nc=2, got {{num_classes}}"
 
         # 5. Load into fresh model
         del model
