@@ -1,6 +1,7 @@
 """Video source utilities for LibreYOLO."""
 
 import logging
+import warnings
 from pathlib import Path
 from typing import Callable, Generator, Iterator, Tuple, Union
 
@@ -223,8 +224,29 @@ class VideoWriter:
 
 
 # ---------------------------------------------------------------------------
-# Shared video inference loop
+# Shared video inference helpers
 # ---------------------------------------------------------------------------
+
+_LARGE_VIDEO_THRESHOLD = 500
+
+
+def collect_video_results(
+    gen: Generator,
+    source: Union[str, Path],
+    vid_stride: int = 1,
+) -> list:
+    """Collect all video results into a list, warning for large videos."""
+    vs = VideoSource(source, vid_stride=vid_stride)
+    est_frames = vs.total_frames // max(1, vid_stride)
+    vs.release()
+
+    if est_frames > _LARGE_VIDEO_THRESHOLD:
+        warnings.warn(
+            f"Video has ~{est_frames} frames to process. "
+            f"Consider using stream=True to avoid high memory usage.",
+            stacklevel=3,
+        )
+    return list(gen)
 
 
 def run_video_inference(

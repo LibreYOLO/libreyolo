@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import json
 import logging
-import warnings
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Dict, Generator, List, Optional, Tuple, Union
@@ -21,7 +20,7 @@ from ...utils.drawing import draw_boxes, draw_tile_grid
 from ...utils.general import get_safe_stem, get_slice_bboxes, nms, resolve_save_path
 from ...utils.image_loader import ImageInput, ImageLoader
 from ...utils.results import Boxes, Results
-from ...utils.video import VideoSource, is_video_file, run_video_inference
+from ...utils.video import collect_video_results, is_video_file, run_video_inference
 
 logger = logging.getLogger(__name__)
 
@@ -109,18 +108,7 @@ class InferenceRunner:
             )
             if stream:
                 return gen
-            # Collect all results into a list (with warning for large videos)
-            vs = VideoSource(source, vid_stride=vid_stride)
-            est_frames = vs.total_frames // max(1, vid_stride)
-            vs.release()
-            if est_frames > 500:
-                warnings.warn(
-                    f"Video has ~{est_frames} frames to process. "
-                    f"Consider using stream=True to avoid high memory usage. "
-                    f"Example: model('{source}', stream=True)",
-                    stacklevel=2,
-                )
-            return list(gen)
+            return collect_video_results(gen, source, vid_stride)
 
         # Handle directory input
         if isinstance(source, (str, Path)) and Path(source).is_dir():
