@@ -278,6 +278,7 @@ def run_video_inference(
 
     with VideoSource(source, vid_stride=vid_stride) as video_src:
         writer = None
+        out_path = None
         if save:
             out_path = resolve_video_save_path(source, output_path)
             effective_fps = video_src.fps / max(1, vid_stride)
