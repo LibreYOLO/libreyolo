@@ -63,6 +63,7 @@ class BaseExporter(ABC):
     suffix: str  # e.g. ".onnx"
     requires_onnx: bool  # TensorRT/OpenVINO need intermediate ONNX
     supports_int8: bool  # only TensorRT/OpenVINO support INT8 calibration
+    supports_fp16: bool  # whether the format supports FP16 export
     apply_model_half: bool  # whether to cast model to fp16 (only ONNX/TorchScript)
 
     def __init_subclass__(cls, **kwargs):
@@ -403,6 +404,7 @@ class OnnxExporter(BaseExporter):
     suffix = ".onnx"
     requires_onnx = False
     supports_int8 = False
+    supports_fp16 = True
     apply_model_half = True
 
     def _export(
@@ -435,6 +437,7 @@ class TorchScriptExporter(BaseExporter):
     suffix = ".torchscript"
     requires_onnx = False
     supports_int8 = False
+    supports_fp16 = True
     apply_model_half = True
 
     def _export(self, nn_model, dummy, *, output_path, **kwargs):
@@ -446,6 +449,7 @@ class TensorRTExporter(BaseExporter):
     suffix = ".engine"
     requires_onnx = True
     supports_int8 = True
+    supports_fp16 = True
     apply_model_half = False
 
     def _export(
@@ -492,6 +496,7 @@ class OpenVINOExporter(BaseExporter):
     suffix = "_openvino"
     requires_onnx = True
     supports_int8 = True
+    supports_fp16 = True
     apply_model_half = False
 
     def _export(
@@ -527,6 +532,7 @@ class NcnnExporter(BaseExporter):
     suffix = "_ncnn"
     requires_onnx = False
     supports_int8 = False
+    supports_fp16 = False
     apply_model_half = False
 
     def _build_metadata(self, precision, dynamic, onnx_path):

@@ -250,7 +250,7 @@ def formats_cmd(
             "name": name,
             "extension": cls.suffix,
             "int8": cls.supports_int8,
-            "fp16": cls.apply_model_half,
+            "fp16": cls.supports_fp16,
             "requires_onnx": cls.requires_onnx,
         }
         if name == "tensorrt":
