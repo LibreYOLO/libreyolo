@@ -110,7 +110,10 @@ def get_train_config_class(family: str) -> type:
     try:
         from libreyolo.models.rfdetr.model import LibreYOLORFDETR
 
-        if LibreYOLORFDETR.FAMILY == family and LibreYOLORFDETR.TRAIN_CONFIG is not None:
+        if (
+            LibreYOLORFDETR.FAMILY == family
+            and LibreYOLORFDETR.TRAIN_CONFIG is not None
+        ):
             return LibreYOLORFDETR.TRAIN_CONFIG
     except ImportError:
         pass

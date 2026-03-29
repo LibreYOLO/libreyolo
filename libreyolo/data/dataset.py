@@ -16,7 +16,6 @@ from torch.utils.data import Dataset, DataLoader
 from PIL import Image, UnidentifiedImageError
 
 
-
 class YOLODataset(Dataset):
     """
     YOLO format dataset supporting both directory and file list modes.

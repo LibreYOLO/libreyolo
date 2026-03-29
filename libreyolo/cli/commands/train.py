@@ -1,10 +1,6 @@
 """Train command: train a model on a dataset."""
 
-import sys
 import time
-import warnings
-from pathlib import Path
-from typing import Optional
 
 import typer
 
@@ -16,7 +12,6 @@ from ..config import (
 )
 from ..errors import CLIError
 from ..output import OutputHandler
-from ..parsing import KeyValueCommand, PythonLiteral
 
 
 def train_cmd(
@@ -53,7 +48,9 @@ def train_cmd(
     shear: float = typer.Option(2.0, help="Shear angle"),
     mosaic_scale: str = typer.Option("(0.1,2.0)", help="Mosaic scale range"),
     mixup_scale: str = typer.Option("(0.5,1.5)", help="Mixup scale range"),
-    no_aug_epochs: int = typer.Option(15, help="Disable augmentation for final N epochs"),
+    no_aug_epochs: int = typer.Option(
+        15, help="Disable augmentation for final N epochs"
+    ),
     # EMA
     ema: bool = typer.Option(True, help="Exponential Moving Average"),
     ema_decay: float = typer.Option(0.9998, help="EMA decay factor"),
@@ -72,7 +69,9 @@ def train_cmd(
     quiet: bool = typer.Option(False, "--quiet", help="Suppress stderr"),
     dry_run: bool = typer.Option(False, "--dry-run", help="Validate without executing"),
     help_json: bool = typer.Option(
-        False, "--help-json", is_eager=True,
+        False,
+        "--help-json",
+        is_eager=True,
         callback=lambda ctx, param, v: _help_json(ctx, v),
         help="Dump command schema as JSON",
     ),
@@ -86,8 +85,16 @@ def train_cmd(
 
     # Parse tuple strings
     try:
-        mosaic_scale_val = ast.literal_eval(mosaic_scale) if isinstance(mosaic_scale, str) else mosaic_scale
-        mixup_scale_val = ast.literal_eval(mixup_scale) if isinstance(mixup_scale, str) else mixup_scale
+        mosaic_scale_val = (
+            ast.literal_eval(mosaic_scale)
+            if isinstance(mosaic_scale, str)
+            else mosaic_scale
+        )
+        mixup_scale_val = (
+            ast.literal_eval(mixup_scale)
+            if isinstance(mixup_scale, str)
+            else mixup_scale
+        )
     except (ValueError, SyntaxError) as e:
         err = CLIError("config_type_error", f"Invalid scale value: {e}")
         out.error(err)

@@ -8,7 +8,6 @@ import typer
 from ..aliases import resolve_aliases
 from ..errors import CLIError
 from ..output import OutputHandler
-from ..parsing import KeyValueCommand
 
 
 def val_cmd(
@@ -34,7 +33,9 @@ def val_cmd(
     quiet: bool = typer.Option(False, "--quiet", help="Suppress stderr"),
     verbose: bool = typer.Option(True, help="Verbose output"),
     help_json: bool = typer.Option(
-        False, "--help-json", is_eager=True,
+        False,
+        "--help-json",
+        is_eager=True,
         callback=lambda ctx, param, v: _help_json(ctx, v),
         help="Dump command schema as JSON",
     ),

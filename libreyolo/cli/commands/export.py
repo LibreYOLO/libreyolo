@@ -7,12 +7,13 @@ import typer
 
 from ..errors import CLIError
 from ..output import OutputHandler
-from ..parsing import KeyValueCommand
 
 
 def export_cmd(
     model: str = typer.Option(..., help="Model weights (.pt)"),
-    format: str = typer.Option("onnx", help="Export format: onnx, torchscript, tensorrt, openvino, ncnn"),
+    format: str = typer.Option(
+        "onnx", help="Export format: onnx, torchscript, tensorrt, openvino, ncnn"
+    ),
     imgsz: Optional[int] = typer.Option(None, help="Input image size"),
     batch: int = typer.Option(1, help="Export batch size"),
     half: bool = typer.Option(False, help="FP16 precision"),
@@ -28,7 +29,9 @@ def export_cmd(
     quiet: bool = typer.Option(False, "--quiet", help="Suppress stderr"),
     verbose: bool = typer.Option(False, help="Verbose export logging"),
     help_json: bool = typer.Option(
-        False, "--help-json", is_eager=True,
+        False,
+        "--help-json",
+        is_eager=True,
         callback=lambda ctx, param, v: _help_json(ctx, v),
         help="Dump command schema as JSON",
     ),
@@ -90,7 +93,9 @@ def export_cmd(
         output_path = loaded_model.export(format=fmt, **export_kwargs)
     except ValueError as e:
         if "Unsupported export format" in str(e):
-            err = CLIError("export_format_unknown", str(e), suggestion="Run: libreyolo formats")
+            err = CLIError(
+                "export_format_unknown", str(e), suggestion="Run: libreyolo formats"
+            )
         else:
             err = CLIError("io_error", str(e))
         out.error(err)
@@ -109,7 +114,9 @@ def export_cmd(
     if export_path.is_file():
         size_mb = export_path.stat().st_size / (1024 * 1024)
     elif export_path.is_dir():
-        size_mb = sum(f.stat().st_size for f in export_path.rglob("*") if f.is_file()) / (1024 * 1024)
+        size_mb = sum(
+            f.stat().st_size for f in export_path.rglob("*") if f.is_file()
+        ) / (1024 * 1024)
     else:
         size_mb = 0.0
 

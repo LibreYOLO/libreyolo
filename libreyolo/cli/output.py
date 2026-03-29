@@ -13,9 +13,7 @@ from .errors import CLIError
 class OutputHandler:
     """Routes output to stdout (results) and stderr (progress/errors)."""
 
-    def __init__(
-        self, *, json_mode: bool = False, quiet: bool = False
-    ) -> None:
+    def __init__(self, *, json_mode: bool = False, quiet: bool = False) -> None:
         self.json_mode = json_mode
         self.quiet = quiet
         self.is_tty = sys.stdout.isatty()

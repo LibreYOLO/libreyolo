@@ -38,7 +38,14 @@ def _help_json_callback(ctx: typer.Context, value: bool) -> None:
         "schema_version": 1,
         "command": ctx.info_name,
         "parameters": params,
-        "flags": ["--json", "--quiet", "--verbose", "--yes", "--help-json", "--dry-run"],
+        "flags": [
+            "--json",
+            "--quiet",
+            "--verbose",
+            "--yes",
+            "--help-json",
+            "--dry-run",
+        ],
     }
     print(json.dumps(schema, default=str))
     ctx.exit()
@@ -59,7 +66,9 @@ def version_cmd(
     from libreyolo import __version__
 
     cuda_version = torch.version.cuda or None
-    python_version = f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"
+    python_version = (
+        f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"
+    )
 
     out = _get_output(json_output, quiet)
     data = {
@@ -88,7 +97,9 @@ def checks_cmd(
     """System info: GPU, CUDA, Python, installed packages."""
     import torch
 
-    python_version = f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"
+    python_version = (
+        f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"
+    )
 
     gpus = []
     if torch.cuda.is_available():
@@ -116,7 +127,9 @@ def checks_cmd(
         "python": python_version,
         "torch": torch.__version__,
         "cuda": torch.version.cuda,
-        "cudnn": str(torch.backends.cudnn.version()) if torch.backends.cudnn.is_available() else None,
+        "cudnn": str(torch.backends.cudnn.version())
+        if torch.backends.cudnn.is_available()
+        else None,
         "gpu": gpus,
         "packages": packages,
     }
@@ -252,7 +265,9 @@ def formats_cmd(
         for f in formats:
             alias = f" (alias: {', '.join(f['aliases'])})" if f.get("aliases") else ""
             lines.append(f"  {f['name']}{alias}")
-            lines.append(f"    Extension: {f['extension']}, FP16: {f['fp16']}, INT8: {f['int8']}")
+            lines.append(
+                f"    Extension: {f['extension']}, FP16: {f['fp16']}, INT8: {f['int8']}"
+            )
         data["_human_text"] = "\n".join(lines)
 
     out.result(data)
