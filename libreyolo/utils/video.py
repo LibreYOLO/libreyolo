@@ -293,18 +293,12 @@ def run_video_inference(
                 # Annotate frame for save/show
                 if save or show:
                     if len(result) > 0:
-                        names = result.names
-                        class_names = (
-                            [names[i] for i in range(max(names) + 1)]
-                            if names
-                            else None
-                        )
                         annotated_pil = draw_boxes(
                             pil_img,
                             result.boxes.xyxy.tolist(),
                             result.boxes.conf.tolist(),
                             result.boxes.cls.tolist(),
-                            class_names=class_names,
+                            class_names=result.names,
                         )
                     else:
                         annotated_pil = pil_img
