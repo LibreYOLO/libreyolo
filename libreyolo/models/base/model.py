@@ -93,6 +93,11 @@ class BaseModel(ABC):
         for key, value in kwargs.items():
             setattr(self, key, value)
 
+        # Resolve bare filenames (e.g. "LibreYOLOXn.pt") to weights/ directory
+        # so direct instantiation works the same as the factory.
+        if isinstance(model_path, str):
+            model_path = self._resolve_weights_path(model_path)
+
         self.model = self._init_model()
 
         if model_path is None:
@@ -108,6 +113,19 @@ class BaseModel(ABC):
         else:
             self.model.eval()
         self.model.to(self.device)
+
+    @staticmethod
+    def _resolve_weights_path(model_path: str) -> str:
+        """Resolve bare filenames (e.g. ``LibreYOLOXn.pt``) to ``weights/`` dir."""
+        path = Path(model_path)
+        if path.parent == Path(".") and not model_path.startswith(("./", "../")):
+            weights_path = Path("weights") / path.name
+            if weights_path.exists():
+                return str(weights_path)
+            if path.exists():
+                return str(path)
+            return str(weights_path)
+        return model_path
 
     # =========================================================================
     # Abstract interface — subclasses must implement
