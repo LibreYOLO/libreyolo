@@ -9,16 +9,14 @@ from __future__ import annotations
 import re
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, ClassVar, Dict, List, Optional, Tuple, Type, Union
+from typing import Any, ClassVar, Dict, List, Optional, Tuple, Type, Union
 
 import torch
 import torch.nn as nn
 from PIL import Image
 
+from ...training.config import TrainConfig
 from ...utils.general import COCO_CLASSES
-
-if TYPE_CHECKING:
-    from ...training.config import TrainConfig
 from ...utils.image_loader import ImageInput
 from ...utils.results import Results
 from ...validation.preprocessors import StandardValPreprocessor
