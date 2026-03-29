@@ -1,5 +1,6 @@
 """ncnn export implementation via PNNX."""
 
+import logging
 import shutil
 import subprocess
 import tempfile
@@ -7,6 +8,8 @@ from pathlib import Path
 from typing import Optional
 
 import yaml
+
+logger = logging.getLogger(__name__)
 
 
 def check_ncnn_export_available() -> None:
@@ -202,7 +205,7 @@ def _save_metadata(output_dir: Path, metadata: dict) -> None:
     metadata_path = output_dir / "metadata.yaml"
     with open(metadata_path, "w") as f:
         yaml.dump(metadata, f, default_flow_style=False, sort_keys=False)
-    print(f"Saved metadata: {metadata_path}")
+    logger.info("Saved metadata: %s", metadata_path)
 
 
 def export_ncnn(
@@ -252,14 +255,14 @@ def export_ncnn(
             param_path, bin_path = _export_pnnx_direct(
                 nn_model, dummy, output_dir, half
             )
-            print("ncnn export via direct PNNX succeeded")
+            logger.info("ncnn export via direct PNNX succeeded")
         except Exception as e:
-            print(f"Direct PNNX export failed ({e}), trying ONNX fallback...")
+            logger.warning("Direct PNNX export failed (%s), trying ONNX fallback...", e)
             try:
                 param_path, bin_path = _export_onnx_fallback(
                     nn_model, dummy, output_dir, half, opset, simplify
                 )
-                print("ncnn export via ONNX fallback succeeded")
+                logger.info("ncnn export via ONNX fallback succeeded")
             except Exception as e2:
                 raise RuntimeError(
                     f"ncnn export failed with both direct and ONNX paths.\n"
@@ -274,5 +277,5 @@ def export_ncnn(
     if metadata:
         _save_metadata(output_dir, metadata)
 
-    print(f"ncnn export complete: {output_dir}")
+    logger.info("ncnn export complete: %s", output_dir)
     return str(output_dir)

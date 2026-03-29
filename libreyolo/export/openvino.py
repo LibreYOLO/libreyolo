@@ -1,11 +1,14 @@
 """OpenVINO export implementation."""
 
+import logging
 from pathlib import Path
 from typing import Optional
 
 import yaml
 
 from .calibration import CalibrationDataLoader
+
+logger = logging.getLogger(__name__)
 
 
 def check_openvino_available() -> None:
@@ -38,7 +41,7 @@ def _quantize_int8(
             "Install with: pip install nncf"
         )
 
-    print("Quantizing model to INT8 with NNCF...")
+    logger.info("Quantizing model to INT8 with NNCF...")
 
     def transform_fn(batch):
         return batch
@@ -52,7 +55,7 @@ def _quantize_int8(
         subset_size=len(calibration_data) * calibration_data.batch,
     )
 
-    print("INT8 quantization complete")
+    logger.info("INT8 quantization complete")
     return quantized_model
 
 
@@ -61,7 +64,7 @@ def _save_metadata(output_dir: Path, metadata: dict) -> None:
     metadata_path = output_dir / "metadata.yaml"
     with open(metadata_path, "w") as f:
         yaml.dump(metadata, f, default_flow_style=False, sort_keys=False)
-    print(f"Saved metadata: {metadata_path}")
+    logger.info("Saved metadata: %s", metadata_path)
 
 
 def export_openvino(
@@ -106,7 +109,7 @@ def export_openvino(
             "Provide calibration_data or set int8=False."
         )
 
-    print(f"Converting ONNX to OpenVINO IR: {onnx_path}")
+    logger.info("Converting ONNX to OpenVINO IR: %s", onnx_path)
     ov_model = ov.convert_model(onnx_path)
 
     output_dir = Path(output_path)
@@ -115,19 +118,19 @@ def export_openvino(
 
     if int8:
         ov_model = _quantize_int8(ov_model, calibration_data, verbose)
-        print(f"Saving OpenVINO INT8 model: {model_path}")
+        logger.info("Saving OpenVINO INT8 model: %s", model_path)
         ov.save_model(ov_model, str(model_path))
     elif half:
-        print(f"Saving OpenVINO FP16 model: {model_path}")
+        logger.info("Saving OpenVINO FP16 model: %s", model_path)
         ov.save_model(
             ov_model, str(model_path), compress_to_fp16=True
         )  # weight compression
     else:
-        print(f"Saving OpenVINO FP32 model: {model_path}")
+        logger.info("Saving OpenVINO FP32 model: %s", model_path)
         ov.save_model(ov_model, str(model_path))
 
     if metadata:
         _save_metadata(output_dir, metadata)
 
-    print(f"OpenVINO export complete: {output_dir}")
+    logger.info("OpenVINO export complete: %s", output_dir)
     return str(output_dir)
