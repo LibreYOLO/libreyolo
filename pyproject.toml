@@ -18,7 +18,6 @@ dependencies = [
     "opencv-python>=4.11.0.86",
     "tqdm>=4.65.0",
     "pycocotools>=2.0.0",
-    "scipy>=1.7.0",
 ]
 
 [dependency-groups]
@@ -48,12 +47,14 @@ ncnn = [
     "pnnx",
     "ncnn",
 ]
+rtdetr = ["scipy>=1.7.0"]
 all = [
     "libreyolo[onnx]",
     "libreyolo[rfdetr]",
     "libreyolo[tensorrt]",
     "libreyolo[openvino]",
     "libreyolo[ncnn]",
+    "libreyolo[rtdetr]",
 ]
 
 [project.urls]

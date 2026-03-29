@@ -7,7 +7,7 @@ loss extraction, and optimizer configuration.
 
 import logging
 import re
-from typing import Dict, List, Optional, Tuple, Type
+from typing import Dict, List, Type
 
 import torch
 import torch.nn as nn
@@ -183,6 +183,9 @@ class RTDETRTrainer(BaseTrainer):
 
         return loss_dict
 
+    def _scale_lr(self, base_lr: float, param_group: dict) -> float:
+        return base_lr * param_group.get("lr_ratio", 1.0)
+
     def _setup_optimizer(self) -> torch.optim.Optimizer:
         """Setup optimizer with regex-based parameter group matching.
 
@@ -286,98 +289,3 @@ class RTDETRTrainer(BaseTrainer):
             )
 
         return optimizer
-
-    def _train_epoch(self, epoch: int) -> Tuple[float, Optional[Dict[str, float]]]:
-        """Override to handle per-group LR scaling."""
-        self.model.train()
-
-        from tqdm import tqdm
-        from torch.amp import autocast
-
-        pbar = tqdm(
-            self.train_loader,
-            desc=f"Epoch {epoch + 1}/{self.config.epochs}",
-            total=len(self.train_loader),
-        )
-
-        total_loss = 0.0
-        num_batches = 0
-
-        for batch_idx, (imgs, targets, img_infos, img_ids) in enumerate(pbar):
-            self.current_iter = epoch * len(self.train_loader) + batch_idx
-
-            imgs = imgs.to(self.device, non_blocking=True)
-            targets = targets.to(self.device, non_blocking=True)
-
-            # Forward + backward
-            if self.scaler is not None:
-                with autocast("cuda"):
-                    outputs = self.on_forward(imgs, targets)
-                    loss = outputs["total_loss"]
-                self.optimizer.zero_grad()
-                self.scaler.scale(loss).backward()
-                self.scaler.step(self.optimizer)
-                self.scaler.update()
-            else:
-                outputs = self.on_forward(imgs, targets)
-                loss = outputs["total_loss"]
-                self.optimizer.zero_grad()
-                loss.backward()
-                self.optimizer.step()
-
-            # EMA
-            if self.ema_model is not None:
-                self.ema_model.update(self.model)
-
-            loss_val = loss.item()
-            loss_components = self.get_loss_components(outputs)
-            total_loss += loss_val
-
-            del outputs, loss
-
-            # LR update with per-group scaling
-            base_lr = self.lr_scheduler.update_lr(self.current_iter + 1)
-            for param_group in self.optimizer.param_groups:
-                param_group["lr"] = base_lr * param_group.get("lr_ratio", 1.0)
-            num_batches += 1
-
-            # Progress bar
-            postfix = {"loss": f"{loss_val:.4f}", "lr": f"base_lr:.6f"}
-            postfix.update({k: f"{v:.4f}" for k, v in loss_components.items()})
-            pbar.set_postfix(postfix)
-
-            # TensorBoard
-            if self.tensorboard_writer and batch_idx % self.config.log_interval == 0:
-                self.tensorboard_writer.add_scalar(
-                    "train/loss", loss_val, self.current_iter
-                )
-                self.tensorboard_writer.add_scalar(
-                    "train/lr", base_lr, self.current_iter
-                )
-                for name, val in loss_components.items():
-                    self.tensorboard_writer.add_scalar(
-                        f"train/{name}", val, self.current_iter
-                    )
-
-        avg_loss = total_loss / num_batches
-        logger.info(f"Epoch {epoch + 1} - Average loss: {avg_loss:.4f}")
-
-        if self.tensorboard_writer:
-            self.tensorboard_writer.add_scalar("epoch/loss", avg_loss, epoch)
-
-        # Validation
-        val_metrics = None
-        if (
-            self.config.eval_interval > 0
-            and (epoch + 1) % self.config.eval_interval == 0
-        ):
-            val_metrics = self._validate_epoch(epoch)
-            if val_metrics and self.tensorboard_writer:
-                self.tensorboard_writer.add_scalar(
-                    "val/mAP50", val_metrics["mAP50"], epoch
-                )
-                self.tensorboard_writer.add_scalar(
-                    "val/mAP50_95", val_metrics["mAP50_95"], epoch
-                )
-
-        return avg_loss, val_metrics

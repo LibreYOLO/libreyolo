@@ -16,7 +16,7 @@ from collections import OrderedDict
 from .utils import get_activation
 
 
-__all__ = ['PResNet']
+__all__ = ["PResNet"]
 
 
 ResNet_cfg = {
@@ -28,22 +28,23 @@ ResNet_cfg = {
 
 
 download_url = {
-    18: 'https://github.com/lyuwenyu/storage/releases/download/v0.1/ResNet18_vd_pretrained_from_paddle.pth',
-    34: 'https://github.com/lyuwenyu/storage/releases/download/v0.1/ResNet34_vd_pretrained_from_paddle.pth',
-    50: 'https://github.com/lyuwenyu/storage/releases/download/v0.1/ResNet50_vd_ssld_v2_pretrained_from_paddle.pth',
-    101: 'https://github.com/lyuwenyu/storage/releases/download/v0.1/ResNet101_vd_ssld_pretrained_from_paddle.pth',
+    18: "https://github.com/lyuwenyu/storage/releases/download/v0.1/ResNet18_vd_pretrained_from_paddle.pth",
+    34: "https://github.com/lyuwenyu/storage/releases/download/v0.1/ResNet34_vd_pretrained_from_paddle.pth",
+    50: "https://github.com/lyuwenyu/storage/releases/download/v0.1/ResNet50_vd_ssld_v2_pretrained_from_paddle.pth",
+    101: "https://github.com/lyuwenyu/storage/releases/download/v0.1/ResNet101_vd_ssld_pretrained_from_paddle.pth",
 }
 
 
 class FrozenBatchNorm2d(nn.Module):
     """BatchNorm2d where the batch statistics and affine parameters are fixed."""
+
     def __init__(self, num_features, eps=1e-5):
         super().__init__()
         self.eps = eps
-        self.register_buffer('weight', torch.ones(num_features))
-        self.register_buffer('bias', torch.zeros(num_features))
-        self.register_buffer('running_mean', torch.zeros(num_features))
-        self.register_buffer('running_var', torch.ones(num_features))
+        self.register_buffer("weight", torch.ones(num_features))
+        self.register_buffer("bias", torch.zeros(num_features))
+        self.register_buffer("running_mean", torch.zeros(num_features))
+        self.register_buffer("running_var", torch.ones(num_features))
 
     def forward(self, x):
         w = self.weight.reshape(1, -1, 1, 1)
@@ -57,12 +58,19 @@ class FrozenBatchNorm2d(nn.Module):
 
 class ConvNormLayer(nn.Module):
     """Conv2d + BatchNorm + optional activation for the backbone."""
-    def __init__(self, ch_in, ch_out, kernel_size, stride, padding=None, bias=False, act=None):
+
+    def __init__(
+        self, ch_in, ch_out, kernel_size, stride, padding=None, bias=False, act=None
+    ):
         super().__init__()
         self.conv = nn.Conv2d(
-            ch_in, ch_out, kernel_size, stride,
+            ch_in,
+            ch_out,
+            kernel_size,
+            stride,
             padding=(kernel_size - 1) // 2 if padding is None else padding,
-            bias=bias)
+            bias=bias,
+        )
         self.norm = nn.BatchNorm2d(ch_out)
         self.act = nn.Identity() if act is None else get_activation(act)
 
@@ -72,18 +80,23 @@ class ConvNormLayer(nn.Module):
 
 class BasicBlock(nn.Module):
     """Residual block for ResNet-18/34."""
+
     expansion = 1
 
-    def __init__(self, ch_in, ch_out, stride, shortcut, act='relu', variant='b'):
+    def __init__(self, ch_in, ch_out, stride, shortcut, act="relu", variant="b"):
         super().__init__()
         self.shortcut = shortcut
 
         if not shortcut:
-            if variant == 'd' and stride == 2:
-                self.short = nn.Sequential(OrderedDict([
-                    ('pool', nn.AvgPool2d(2, 2, 0, ceil_mode=True)),
-                    ('conv', ConvNormLayer(ch_in, ch_out, 1, 1))
-                ]))
+            if variant == "d" and stride == 2:
+                self.short = nn.Sequential(
+                    OrderedDict(
+                        [
+                            ("pool", nn.AvgPool2d(2, 2, 0, ceil_mode=True)),
+                            ("conv", ConvNormLayer(ch_in, ch_out, 1, 1)),
+                        ]
+                    )
+                )
             else:
                 self.short = ConvNormLayer(ch_in, ch_out, 1, stride)
 
@@ -105,11 +118,12 @@ class BasicBlock(nn.Module):
 
 class BottleNeck(nn.Module):
     """Residual bottleneck block for ResNet-50/101."""
+
     expansion = 4
 
-    def __init__(self, ch_in, ch_out, stride, shortcut, act='relu', variant='b'):
+    def __init__(self, ch_in, ch_out, stride, shortcut, act="relu", variant="b"):
         super().__init__()
-        if variant == 'a':
+        if variant == "a":
             stride1, stride2 = stride, 1
         else:
             stride1, stride2 = 1, stride
@@ -122,11 +136,18 @@ class BottleNeck(nn.Module):
 
         self.shortcut = shortcut
         if not shortcut:
-            if variant == 'd' and stride == 2:
-                self.short = nn.Sequential(OrderedDict([
-                    ('pool', nn.AvgPool2d(2, 2, 0, ceil_mode=True)),
-                    ('conv', ConvNormLayer(ch_in, ch_out * self.expansion, 1, 1))
-                ]))
+            if variant == "d" and stride == 2:
+                self.short = nn.Sequential(
+                    OrderedDict(
+                        [
+                            ("pool", nn.AvgPool2d(2, 2, 0, ceil_mode=True)),
+                            (
+                                "conv",
+                                ConvNormLayer(ch_in, ch_out * self.expansion, 1, 1),
+                            ),
+                        ]
+                    )
+                )
             else:
                 self.short = ConvNormLayer(ch_in, ch_out * self.expansion, 1, stride)
 
@@ -147,7 +168,8 @@ class BottleNeck(nn.Module):
 
 class Blocks(nn.Module):
     """A stage of residual blocks."""
-    def __init__(self, block, ch_in, ch_out, count, stage_num, act='relu', variant='b'):
+
+    def __init__(self, block, ch_in, ch_out, count, stage_num, act="relu", variant="b"):
         super().__init__()
         self.blocks = nn.ModuleList()
         for i in range(count):
@@ -158,7 +180,8 @@ class Blocks(nn.Module):
                     stride=2 if i == 0 and stage_num != 2 else 1,
                     shortcut=False if i == 0 else True,
                     variant=variant,
-                    act=act)
+                    act=act,
+                )
             )
             if i == 0:
                 ch_in = ch_out * block.expansion
@@ -183,21 +206,23 @@ class PResNet(nn.Module):
         freeze_norm (bool): Replace BatchNorm with FrozenBatchNorm2d.
         pretrained (bool): Load pretrained weights from the official RT-DETR release.
     """
+
     def __init__(
         self,
         depth,
-        variant='d',
+        variant="d",
         num_stages=4,
         return_idx=[0, 1, 2, 3],
-        act='relu',
+        act="relu",
         freeze_at=-1,
         freeze_norm=True,
-        pretrained=False):
+        pretrained=False,
+    ):
         super().__init__()
 
         block_nums = ResNet_cfg[depth]
         ch_in = 64
-        if variant in ['c', 'd']:
+        if variant in ["c", "d"]:
             conv_def = [
                 [3, ch_in // 2, 3, 2, "conv1_1"],
                 [ch_in // 2, ch_in // 2, 3, 1, "conv1_2"],
@@ -206,10 +231,14 @@ class PResNet(nn.Module):
         else:
             conv_def = [[3, ch_in, 7, 2, "conv1_1"]]
 
-        self.conv1 = nn.Sequential(OrderedDict([
-            (_name, ConvNormLayer(c_in, c_out, k, s, act=act))
-            for c_in, c_out, k, s, _name in conv_def
-        ]))
+        self.conv1 = nn.Sequential(
+            OrderedDict(
+                [
+                    (_name, ConvNormLayer(c_in, c_out, k, s, act=act))
+                    for c_in, c_out, k, s, _name in conv_def
+                ]
+            )
+        )
 
         ch_out_list = [64, 128, 256, 512]
         block = BottleNeck if depth >= 50 else BasicBlock
@@ -221,7 +250,15 @@ class PResNet(nn.Module):
         for i in range(num_stages):
             stage_num = i + 2
             self.res_layers.append(
-                Blocks(block, ch_in, ch_out_list[i], block_nums[i], stage_num, act=act, variant=variant)
+                Blocks(
+                    block,
+                    ch_in,
+                    ch_out_list[i],
+                    block_nums[i],
+                    stage_num,
+                    act=act,
+                    variant=variant,
+                )
             )
             ch_in = _out_channels[i]
 
@@ -240,7 +277,7 @@ class PResNet(nn.Module):
         if pretrained:
             state = torch.hub.load_state_dict_from_url(download_url[depth])
             self.load_state_dict(state)
-            print(f'Load PResNet{depth} state_dict')
+            print(f"Load PResNet{depth} state_dict")
 
     def _freeze_parameters(self, m: nn.Module):
         for p in m.parameters():

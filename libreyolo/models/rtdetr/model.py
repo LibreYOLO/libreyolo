@@ -114,7 +114,12 @@ class LibreYOLORTDETR(BaseModel):
     def can_load(cls, weights_dict: dict) -> bool:
         """Detect RTDETR-specific keys in the state dict."""
         keys = set(weights_dict.keys())
-        rtdetr_keys = {"backbone.res_layers", "encoder.input_proj", "decoder.dec_score_head", "decoder.enc_score_head"}
+        rtdetr_keys = {
+            "backbone.res_layers",
+            "encoder.input_proj",
+            "decoder.dec_score_head",
+            "decoder.enc_score_head",
+        }
         # Check if any key starts with these prefixes
         for key in keys:
             for rtdetr_key in rtdetr_keys:
@@ -126,7 +131,9 @@ class LibreYOLORTDETR(BaseModel):
     def detect_size(cls, weights_dict: dict) -> Optional[str]:
         """Detect model size from weights."""
         # Count decoder layers
-        decoder_layer_keys = [k for k in weights_dict.keys() if k.startswith("decoder.decoder.layers.")]
+        decoder_layer_keys = [
+            k for k in weights_dict.keys() if k.startswith("decoder.decoder.layers.")
+        ]
         layer_indices = set()
         for k in decoder_layer_keys:
             parts = k.split(".")
@@ -146,13 +153,19 @@ class LibreYOLORTDETR(BaseModel):
                 break
 
         # Check backbone type (BasicBlock vs BottleNeck)
-        has_bottleneck = any("conv3" in k for k in weights_dict.keys() if k.startswith("backbone"))
+        has_bottleneck = any(
+            "conv3" in k for k in weights_dict.keys() if k.startswith("backbone")
+        )
 
         if not has_bottleneck:
             # r18 or r34 — check by layer count
             # r18: [2,2,2,2], r34: [3,4,6,3]
             # Count unique layer indices in backbone.res_layers.0
-            stage0_keys = [k for k in weights_dict.keys() if k.startswith("backbone.res_layers.0.blocks.")]
+            stage0_keys = [
+                k
+                for k in weights_dict.keys()
+                if k.startswith("backbone.res_layers.0.blocks.")
+            ]
             block_indices = set()
             for k in stage0_keys:
                 parts = k.split(".")
@@ -169,19 +182,24 @@ class LibreYOLORTDETR(BaseModel):
             # r50, r50m, or r101
             if num_decoder_layers == 3:
                 return "r50"  # shouldn't happen but fallback
-            
+
             # Check encoder hidden dim for r101 (again, in case we missed it)
             for k, v in weights_dict.items():
                 if "encoder.input_proj" in k and k.endswith(".weight"):
                     if v.shape[0] == 384:
                         return "r101"
                     break
-            
+
             # Check freeze_norm by looking for FrozenBatchNorm2d params
             # FrozenBatchNorm2d has weight, bias, running_mean, running_var but no num_batches_tracked
-            has_frozen_bn = any("running_mean" in k and "backbone" in k for k in weights_dict.keys())
-            has_num_batches = any("num_batches_tracked" in k and "backbone" in k for k in weights_dict.keys())
-            
+            has_frozen_bn = any(
+                "running_mean" in k and "backbone" in k for k in weights_dict.keys()
+            )
+            has_num_batches = any(
+                "num_batches_tracked" in k and "backbone" in k
+                for k in weights_dict.keys()
+            )
+
             if has_frozen_bn and not has_num_batches:
                 return "r50m"
             return "r50"
@@ -191,7 +209,11 @@ class LibreYOLORTDETR(BaseModel):
         """Detect number of classes from the classification head."""
         # The classification head is decoder.dec_score_head.{last_layer}.bias
         # Find the last dec_score_head layer
-        score_head_keys = [k for k in weights_dict.keys() if "dec_score_head" in k and k.endswith(".bias")]
+        score_head_keys = [
+            k
+            for k in weights_dict.keys()
+            if "dec_score_head" in k and k.endswith(".bias")
+        ]
         if score_head_keys:
             # Get the last layer's bias shape
             last_key = sorted(score_head_keys)[-1]
@@ -210,7 +232,11 @@ class LibreYOLORTDETR(BaseModel):
             if re.search(pattern, basename):
                 return size
             # Also try just the size code anywhere in the filename
-            if f"-{size}" in basename or f"_{size}" in basename or basename.startswith(f"{size}"):
+            if (
+                f"-{size}" in basename
+                or f"_{size}" in basename
+                or basename.startswith(f"{size}")
+            ):
                 return size
         return None
 
@@ -312,9 +338,6 @@ class LibreYOLORTDETR(BaseModel):
         # To tensor and add batch dimension
         input_tensor = torch.from_numpy(img_chw).unsqueeze(0)
 
-        if next(self.model.parameters()).is_cuda:
-            input_tensor = input_tensor.cuda()
-
         ratio = 1.0  # RTDETR uses direct resize, not letterbox
         return input_tensor, img, original_size, ratio
 
@@ -335,7 +358,7 @@ class LibreYOLORTDETR(BaseModel):
         **kwargs,
     ) -> Dict:
         """Convert RTDETR outputs to detection results.
-        
+
         Args:
             output: dict with pred_logits [1, Q, C] and pred_boxes [1, Q, 4] (cxcywh normalized)
             conf_thres: confidence threshold
@@ -343,12 +366,12 @@ class LibreYOLORTDETR(BaseModel):
             original_size: (width, height)
             max_det: maximum detections
             ratio: aspect ratio (1.0 for RTDETR)
-        
+
         Returns:
             Dict with boxes, scores, classes, num_detections
         """
         pred_logits = output["pred_logits"]  # [1, Q, C]
-        pred_boxes = output["pred_boxes"]    # [1, Q, 4] cxcywh normalized
+        pred_boxes = output["pred_boxes"]  # [1, Q, 4] cxcywh normalized
 
         # Get scores and labels
         scores = torch.sigmoid(pred_logits[0])  # [Q, C]
@@ -456,7 +479,7 @@ class LibreYOLORTDETR(BaseModel):
         yaml_names = data_config.get("names")
         if yaml_nc is not None and yaml_nc != self.nb_classes:
             self._rebuild_for_new_classes(yaml_nc)
-            
+
         # Apply custom class names from data config
         if yaml_names is not None:
             if isinstance(yaml_names, list):

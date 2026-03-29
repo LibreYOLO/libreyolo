@@ -391,6 +391,10 @@ class BaseTrainer(ABC):
             "last_checkpoint": str(weights_dir / "last.pt"),
         }
 
+    def _scale_lr(self, base_lr: float, param_group: dict) -> float:
+        """Hook for per-group LR scaling. Override in subclasses."""
+        return base_lr
+
     def _train_epoch(self, epoch: int) -> Tuple[float, Optional[Dict[str, float]]]:
         self.model.train()
 
@@ -438,7 +442,7 @@ class BaseTrainer(ABC):
             # LR update
             lr = self.lr_scheduler.update_lr(self.current_iter + 1)
             for param_group in self.optimizer.param_groups:
-                param_group["lr"] = lr
+                param_group["lr"] = self._scale_lr(lr, param_group)
             num_batches += 1
 
             # Progress bar
