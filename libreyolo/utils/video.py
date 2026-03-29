@@ -271,9 +271,10 @@ def run_video_inference(
         ``Results`` for each processed frame.
     """
     import cv2
+    import torch
     from PIL import Image
 
-    from .drawing import draw_boxes
+    from .drawing import draw_boxes, draw_masks
 
     with VideoSource(source, vid_stride=vid_stride) as video_src:
         writer = None
@@ -299,8 +300,18 @@ def run_video_inference(
                     if annotate_fn is not None:
                         annotated_pil = annotate_fn(pil_img, result)
                     elif len(result) > 0:
+                        annotated_pil = pil_img
+                        if result.masks is not None:
+                            masks_np = result.masks.data
+                            if isinstance(masks_np, torch.Tensor):
+                                masks_np = masks_np.cpu().numpy()
+                            annotated_pil = draw_masks(
+                                annotated_pil,
+                                masks_np,
+                                result.boxes.cls.tolist(),
+                            )
                         annotated_pil = draw_boxes(
-                            pil_img,
+                            annotated_pil,
                             result.boxes.xyxy.tolist(),
                             result.boxes.conf.tolist(),
                             result.boxes.cls.tolist(),
