@@ -14,6 +14,8 @@ import warnings
 
 from PIL import Image
 
+from .utils import polygon_to_cxcywh
+
 
 def parse_yolo_label_line(
     line: str,
@@ -47,21 +49,20 @@ def parse_yolo_label_line(
     if len(parts) < 5:
         return None
 
-    # Warn about segmentation format (more than 5 columns)
-    if len(parts) > 5:
-        warnings.warn(
-            f"Label line has {len(parts)} columns (expected 5 for detection). "
-            f"This may be a segmentation dataset which is not supported. "
-            f"File: {label_path}, Line: '{line[:50]}...'"
-        )
-
     # Parse values with error handling
     try:
         class_id = int(parts[0])
-        cx = float(parts[1])
-        cy = float(parts[2])
-        bw = float(parts[3])
-        bh = float(parts[4])
+
+        if len(parts) > 5:
+            # Segmentation format: derive bbox from polygon vertices.
+            coords = [float(p) for p in parts[1:]]
+            cx, cy, bw, bh = polygon_to_cxcywh(coords)
+        else:
+            # Detection format: class_id cx cy w h
+            cx = float(parts[1])
+            cy = float(parts[2])
+            bw = float(parts[3])
+            bh = float(parts[4])
     except ValueError as e:
         if label_path:
             warnings.warn(

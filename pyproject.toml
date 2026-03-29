@@ -34,7 +34,7 @@ onnx = [
     "onnxruntime>=1.16.0",
 ]
 rfdetr = [
-    "rfdetr>=1.4.1",
+    "rfdetr[train]>=1.6.0",
 ]
 tensorrt = [
     "tensorrt",
@@ -47,12 +47,16 @@ ncnn = [
     "pnnx",
     "ncnn",
 ]
+tracking = [
+    "scipy>=1.7.0",
+]
 all = [
     "libreyolo[onnx]",
     "libreyolo[rfdetr]",
     "libreyolo[tensorrt]",
     "libreyolo[openvino]",
     "libreyolo[ncnn]",
+    "libreyolo[tracking]",
 ]
 
 [project.urls]

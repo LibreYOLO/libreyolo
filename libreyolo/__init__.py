@@ -5,7 +5,7 @@ from pathlib import Path as _Path
 
 # Core API — always available
 from .models import LibreYOLO, LibreYOLOX, LibreYOLO9
-from .utils.results import Results, Boxes
+from .utils.results import Results, Boxes, Masks
 
 SAMPLE_IMAGE = str(_Path(__file__).parent / "assets" / "parkour.jpg")
 
@@ -27,6 +27,8 @@ def __getattr__(name):
         "DetectionValidator": (".validation", "DetectionValidator"),
         "ValidationConfig": (".validation", "ValidationConfig"),
         "DetMetrics": (".validation", "DetMetrics"),
+        "ByteTracker": (".tracking", "ByteTracker"),
+        "TrackConfig": (".tracking", "TrackConfig"),
         "DATASETS_DIR": (".data", "DATASETS_DIR"),
         "load_data_config": (".data", "load_data_config"),
         "check_dataset": (".data", "check_dataset"),
@@ -54,8 +56,12 @@ __all__ = [
     # Results
     "Results",
     "Boxes",
+    "Masks",
     # Assets
     "SAMPLE_IMAGE",
+    # Tracking
+    "ByteTracker",
+    "TrackConfig",
     # Lazy-loaded
     "OnnxBackend",
     "OpenVINOBackend",

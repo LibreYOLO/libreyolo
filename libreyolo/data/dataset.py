@@ -16,6 +16,8 @@ from torch.utils.data import Dataset, DataLoader
 from PIL import Image, UnidentifiedImageError
 
 
+from .utils import polygon_to_cxcywh
+
 
 class YOLODataset(Dataset):
     """
@@ -129,7 +131,13 @@ class YOLODataset(Dataset):
                     parts = line.strip().split()
                     if len(parts) >= 5:
                         cls_id = int(parts[0])
-                        cx, cy, w, h = map(float, parts[1:5])
+
+                        if len(parts) > 5:
+                            # Segmentation format: derive bbox from polygon vertices
+                            coords = [float(p) for p in parts[1:]]
+                            cx, cy, w, h = polygon_to_cxcywh(coords)
+                        else:
+                            cx, cy, w, h = map(float, parts[1:5])
 
                         # Convert normalized xywh to pixel xyxy
                         x1 = (cx - w / 2) * width
