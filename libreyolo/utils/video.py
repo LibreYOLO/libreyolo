@@ -94,8 +94,8 @@ class VideoSource:
 
         detected_fps = self._cap.get(cv2.CAP_PROP_FPS)
         if not detected_fps:
-            logger.warning("Could not detect video FPS, defaulting to 30.0")
             detected_fps = 30.0
+            logger.warning(f"Could not detect video FPS, defaulting to {detected_fps}")
         self.fps: float = detected_fps
         self.total_frames: int = int(self._cap.get(cv2.CAP_PROP_FRAME_COUNT))
         self.width: int = int(self._cap.get(cv2.CAP_PROP_FRAME_WIDTH))
