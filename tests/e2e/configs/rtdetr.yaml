@@ -1,0 +1,45 @@
+# RTDETR training configuration for e2e tests
+model_type: rtdetr
+
+# Size-specific defaults (smallest model for fast tests)
+sizes:
+  r18: {imgsz: 640, lr0: 0.0001, weights: LibreRTDETRr18.pt}
+  r34: {imgsz: 640, lr0: 0.0001, weights: LibreRTDETRr34.pt}
+  r50: {imgsz: 640, lr0: 0.0001, weights: LibreRTDETRr50.pt}
+  r50m: {imgsz: 640, lr0: 0.0001, weights: LibreRTDETRr50m.pt}
+  r101: {imgsz: 640, lr0: 0.0001, weights: LibreRTDETRr101.pt}
+
+# Training
+epochs: 1
+batch_size: 2
+optimizer: adamw
+lr_backbone: 0.00001
+weight_decay: 0.0001
+
+# Scheduler
+scheduler: linear
+warmup_epochs: 0
+warmup_lr_start: 0.0
+no_aug_epochs: 0
+min_lr_ratio: 0.0001
+
+# Augmentation
+mosaic_prob: 0.0
+mixup_prob: 0.0
+hsv_prob: 0.0
+flip_prob: 0.5
+degrees: 0.0
+translate: 0.0
+mosaic_scale: [0.5, 1.5]
+mixup_scale: [0.5, 1.5]
+shear: 0.0
+
+# Training options
+ema: true
+ema_decay: 0.9999
+amp: false
+patience: 10
+eval_interval: 1
+save_period: 1
+workers: 0
+device: cpu
