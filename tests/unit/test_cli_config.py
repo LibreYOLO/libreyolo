@@ -2,8 +2,12 @@
 
 import pytest
 
+from dataclasses import fields as dc_fields
+
 from libreyolo.cli.config import (
+    build_train_kwargs,
     detect_family_from_name,
+    get_cfg_defaults,
     get_family_defaults,
     get_train_config_class,
     resolve_model_name,
@@ -97,3 +101,104 @@ class TestGetFamilyDefaults:
 
     def test_unknown_family_returns_empty(self):
         assert get_family_defaults("nonexistent") == {}
+
+
+class TestBuildTrainKwargs:
+    """Test auto-building train kwargs from CLI params via TrainConfig fields."""
+
+    def test_aliases_resolved(self):
+        """CLI names 'mosaic'/'mixup' map to internal 'mosaic_prob'/'mixup_prob'."""
+        params = {"mosaic": 0.5, "mixup": 0.3, "epochs": 100}
+        kwargs = build_train_kwargs(params)
+        assert kwargs["mosaic_prob"] == 0.5
+        assert kwargs["mixup_prob"] == 0.3
+        assert "mosaic" not in kwargs
+        assert "mixup" not in kwargs
+
+    def test_excluded_fields(self):
+        """size, num_classes, data, data_dir are never in output."""
+        params = {"size": "m", "num_classes": 10, "data": "coco.yaml",
+                  "data_dir": "/tmp", "epochs": 50}
+        kwargs = build_train_kwargs(params)
+        assert "size" not in kwargs
+        assert "num_classes" not in kwargs
+        assert "data" not in kwargs
+        assert "data_dir" not in kwargs
+        assert kwargs["epochs"] == 50
+
+    def test_covers_all_config_fields(self):
+        """Every non-excluded TrainConfig field is picked up when present."""
+        excluded = {"size", "num_classes", "data", "data_dir"}
+        from libreyolo.cli.aliases import TRAIN_ALIASES
+        internal_to_cli = {v: k for k, v in TRAIN_ALIASES.items()}
+
+        params = {}
+        base = TrainConfig()
+        for f in dc_fields(TrainConfig):
+            if f.name in excluded:
+                continue
+            cli_name = internal_to_cli.get(f.name, f.name)
+            params[cli_name] = getattr(base, f.name)
+
+        kwargs = build_train_kwargs(params)
+        expected_count = len(dc_fields(TrainConfig)) - len(excluded)
+        assert len(kwargs) == expected_count
+
+    def test_unknown_params_ignored(self):
+        """Params not in TrainConfig are silently dropped."""
+        params = {"epochs": 100, "pretrained": True, "val": True, "unknown": "x"}
+        kwargs = build_train_kwargs(params)
+        assert kwargs["epochs"] == 100
+        assert "pretrained" not in kwargs
+        assert "val" not in kwargs
+        assert "unknown" not in kwargs
+
+
+class TestGetCfgDefaults:
+    """Test that cfg defaults are fully derived from dataclasses."""
+
+    def test_has_all_sections(self):
+        cfg = get_cfg_defaults()
+        assert "train_defaults" in cfg
+        assert "val_defaults" in cfg
+        assert "predict_defaults" in cfg
+        assert "family_overrides" in cfg
+
+    def test_train_defaults_match_dataclass(self):
+        """Train defaults should match TrainConfig() values."""
+        cfg = get_cfg_defaults()
+        base = TrainConfig()
+        assert cfg["train_defaults"]["epochs"] == base.epochs
+        assert cfg["train_defaults"]["lr0"] == base.lr0
+        assert cfg["train_defaults"]["momentum"] == base.momentum
+        assert cfg["train_defaults"]["mosaic"] == base.mosaic_prob
+        assert cfg["train_defaults"]["mixup"] == base.mixup_prob
+
+    def test_val_defaults_use_cli_names(self):
+        """Val defaults should use aliased CLI names."""
+        cfg = get_cfg_defaults()
+        assert "batch" in cfg["val_defaults"]
+        assert "conf" in cfg["val_defaults"]
+        assert "iou" in cfg["val_defaults"]
+        assert "workers" in cfg["val_defaults"]
+        assert "batch_size" not in cfg["val_defaults"]
+        assert "conf_thres" not in cfg["val_defaults"]
+
+    def test_family_overrides_auto_discovered(self):
+        """Family overrides should be discovered from model registry."""
+        cfg = get_cfg_defaults()
+        overrides = cfg["family_overrides"]
+        assert overrides["yolox"]["momentum"] == 0.9
+        assert overrides["yolo9"]["scheduler"] == "linear"
+        assert overrides["yolo9"]["mixup"] == 0.0
+        assert overrides["yolo9"]["workers"] == 8
+        # These were missing from old hardcoded version but are real diffs
+        assert overrides["yolo9"]["degrees"] == 0.0
+        assert overrides["yolo9"]["shear"] == 0.0
+
+    def test_no_excluded_fields_in_train(self):
+        """Internal fields like size/num_classes should not appear."""
+        cfg = get_cfg_defaults()
+        assert "size" not in cfg["train_defaults"]
+        assert "num_classes" not in cfg["train_defaults"]
+        assert "device" not in cfg["train_defaults"]
