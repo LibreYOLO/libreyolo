@@ -42,6 +42,18 @@ def _ensure_rfdetr():
     from .rfdetr.model import LibreYOLORFDETR  # noqa: F401  (import triggers registration)
 
 
+def try_ensure_rfdetr():
+    """Try to register RF-DETR. Returns the model class or ``None`` if unavailable."""
+    try:
+        _ensure_rfdetr()
+    except (ImportError, ModuleNotFoundError):
+        return None
+    for cls in BaseModel._registry:
+        if cls.__name__ == "LibreYOLORFDETR":
+            return cls
+    return None
+
+
 # =============================================================================
 # Internal helpers
 # =============================================================================
