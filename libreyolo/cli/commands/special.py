@@ -282,47 +282,9 @@ def cfg_cmd(
     quiet: bool = typer.Option(False, "--quiet", help="Suppress stderr"),
 ) -> None:
     """Print default configuration."""
-    data = {
-        "train_defaults": {
-            "epochs": 300,
-            "batch": 16,
-            "imgsz": 640,
-            "optimizer": "sgd",
-            "lr0": 0.01,
-            "momentum": 0.937,
-            "mosaic": 1.0,
-            "mixup": 1.0,
-            "workers": 4,
-        },
-        "val_defaults": {
-            "batch": 16,
-            "imgsz": 640,
-            "conf": 0.001,
-            "iou": 0.6,
-            "workers": 4,
-        },
-        "predict_defaults": {
-            "conf": 0.25,
-            "iou": 0.45,
-            "batch": 1,
-            "imgsz": None,
-        },
-        "family_overrides": {
-            "yolox": {"momentum": 0.9},
-            "yolo9": {
-                "scheduler": "linear",
-                "warmup_epochs": 3,
-                "mixup": 0.0,
-                "workers": 8,
-            },
-            "rfdetr": {
-                "epochs": 100,
-                "batch": 4,
-                "lr0": 0.0001,
-                "optimizer": "adamw",
-            },
-        },
-    }
+    from ..config import get_cfg_defaults
+
+    data = get_cfg_defaults()
 
     out = _get_output(json_output, quiet)
 

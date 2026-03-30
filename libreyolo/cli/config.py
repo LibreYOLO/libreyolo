@@ -5,7 +5,7 @@ The CLI discovers them via BaseModel._registry → TRAIN_CONFIG, so adding a new
 model family requires zero CLI changes.
 """
 
-from dataclasses import fields
+from dataclasses import MISSING, fields
 from typing import Any, Optional
 
 import click
@@ -181,3 +181,87 @@ def apply_family_defaults(
         if cli_name in result and not is_user_provided(cli_name):
             result[cli_name] = default_value
     return result
+
+
+# =========================================================================
+# Cfg defaults (auto-discovered from config dataclasses)
+# =========================================================================
+
+
+def _to_json_safe(val: Any) -> Any:
+    """Convert tuples to lists for JSON serialization."""
+    return list(val) if isinstance(val, tuple) else val
+
+
+def get_cfg_defaults() -> dict[str, Any]:
+    """Build configuration defaults from dataclasses for the cfg command.
+
+    All values are derived from TrainConfig and ValidationConfig — nothing
+    hardcoded.  Family overrides are auto-discovered from the model registry.
+    """
+    from libreyolo.models.base.model import BaseModel
+    from libreyolo.models import try_ensure_rfdetr
+    from libreyolo.training.config import TrainConfig
+    from libreyolo.validation.config import ValidationConfig
+    from .aliases import TRAIN_ALIASES, VAL_ALIASES
+
+    train_internal_to_cli = {v: k for k, v in TRAIN_ALIASES.items()}
+    val_internal_to_cli = {v: k for k, v in VAL_ALIASES.items()}
+
+    # -- Train defaults from TrainConfig() -----------------------------------
+    train_exclude = {"size", "num_classes", "data", "data_dir", "device"}
+    base = TrainConfig()
+    train_defaults = {}
+    for f in fields(TrainConfig):
+        if f.name in train_exclude:
+            continue
+        cli_name = train_internal_to_cli.get(f.name, f.name)
+        train_defaults[cli_name] = _to_json_safe(getattr(base, f.name))
+
+    # -- Val defaults from ValidationConfig field defaults --------------------
+    #    (Can't instantiate — __post_init__ requires data.)
+    val_exclude = {"data", "data_dir", "device", "save_dir", "iou_thresholds"}
+    val_defaults = {}
+    for f in fields(ValidationConfig):
+        if f.name in val_exclude or f.default is MISSING:
+            continue
+        cli_name = val_internal_to_cli.get(f.name, f.name)
+        val_defaults[cli_name] = _to_json_safe(f.default)
+
+    # -- Predict defaults (no backing dataclass) -----------------------------
+    predict_defaults: dict[str, Any] = {
+        "conf": 0.25,
+        "iou": 0.45,
+        "batch": 1,
+        "imgsz": None,
+    }
+
+    # -- Family overrides (auto-discovered from registry) --------------------
+    family_overrides: dict[str, dict[str, Any]] = {}
+    seen: set[str] = set()
+    for cls in BaseModel._registry:
+        if cls.FAMILY in seen:
+            continue
+        seen.add(cls.FAMILY)
+        diffs = get_family_defaults(cls.FAMILY)
+        if diffs:
+            family_overrides[cls.FAMILY] = {
+                train_internal_to_cli.get(k, k): _to_json_safe(v)
+                for k, v in diffs.items()
+            }
+
+    rfcls = try_ensure_rfdetr()
+    if rfcls is not None and rfcls.FAMILY not in seen:
+        diffs = get_family_defaults(rfcls.FAMILY)
+        if diffs:
+            family_overrides[rfcls.FAMILY] = {
+                train_internal_to_cli.get(k, k): _to_json_safe(v)
+                for k, v in diffs.items()
+            }
+
+    return {
+        "train_defaults": train_defaults,
+        "val_defaults": val_defaults,
+        "predict_defaults": predict_defaults,
+        "family_overrides": family_overrides,
+    }
