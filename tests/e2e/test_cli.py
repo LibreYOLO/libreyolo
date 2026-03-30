@@ -239,6 +239,76 @@ class TestPredict:
 
 
 # =========================================================================
+# Val command
+# =========================================================================
+
+
+class TestVal:
+    """Test val command with real validation."""
+
+    @pytest.fixture(scope="class")
+    def app(self):
+        return _build_app()
+
+    def test_val_json(self, app):
+        """Full validation pipeline produces metrics."""
+        result = runner.invoke(
+            app,
+            [
+                "val",
+                "data=coco8.yaml",
+                "model=yolox-s",
+                "device=cpu",
+                "--json",
+            ],
+        )
+        assert result.exit_code == 0
+        data = _parse_json_output(result.output)
+        assert data["schema_version"] == 1
+        assert data["model_family"] == "yolox"
+        assert data["split"] == "val"
+        assert "metrics" in data
+        assert "mAP50" in data["metrics"]
+        assert "mAP50_95" in data["metrics"]
+        assert isinstance(data["metrics"]["mAP50"], float)
+
+    def test_val_missing_data(self, app):
+        """Missing required data arg errors cleanly."""
+        result = runner.invoke(app, ["val", "model=yolox-s"])
+        assert result.exit_code != 0
+
+
+# =========================================================================
+# Predict (multi-family)
+# =========================================================================
+
+
+class TestPredictMultiFamily:
+    """Test predict across model families to verify factory routing."""
+
+    @pytest.fixture(scope="class")
+    def app(self):
+        return _build_app()
+
+    def test_predict_yolo9(self, app):
+        """YOLO9 model loads and produces detections through the same CLI."""
+        result = runner.invoke(
+            app,
+            [
+                "predict",
+                "source=libreyolo/assets/parkour.jpg",
+                "model=yolo9-t",
+                "--json",
+            ],
+        )
+        assert result.exit_code == 0
+        data = _parse_json_output(result.output)
+        assert data["model_family"] == "yolo9"
+        assert len(data["results"]) == 1
+        assert len(data["results"][0]["detections"]) > 0
+
+
+# =========================================================================
 # Train command (dry-run only — real training is in test_rf1_training.py)
 # =========================================================================
 
