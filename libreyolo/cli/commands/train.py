@@ -4,10 +4,10 @@ import time
 
 import typer
 
-from ..aliases import resolve_aliases
 from ..config import (
     RFDETR_UNSUPPORTED_PARAMS,
     apply_family_defaults,
+    build_train_kwargs,
     detect_family_from_name,
 )
 from ..errors import CLIError
@@ -113,25 +113,45 @@ def train_cmd(
     # Detect model family
     family = detect_family_from_name(model)
 
-    # Apply family-specific defaults for non-user-provided params
+    # All training params in CLI-facing names (single source of truth).
+    # build_train_kwargs() maps these to TrainConfig field names automatically.
     params = {
         "epochs": epochs,
         "batch": batch,
         "imgsz": imgsz,
+        "device": device,
         "workers": workers,
+        "seed": seed,
+        "resume": resume_val,
+        "amp": amp,
         "optimizer": optimizer,
         "lr0": lr0,
         "momentum": momentum,
+        "weight_decay": weight_decay,
+        "nesterov": nesterov,
         "scheduler": scheduler,
         "warmup_epochs": warmup_epochs,
         "warmup_lr_start": warmup_lr_start,
         "min_lr_ratio": min_lr_ratio,
         "mosaic": mosaic,
         "mixup": mixup,
+        "hsv_prob": hsv_prob,
+        "flip_prob": flip_prob,
         "degrees": degrees,
+        "translate": translate,
         "shear": shear,
+        "mosaic_scale": mosaic_scale_val,
+        "mixup_scale": mixup_scale_val,
+        "no_aug_epochs": no_aug_epochs,
+        "ema": ema,
         "ema_decay": ema_decay,
+        "eval_interval": eval_interval,
+        "patience": patience,
+        "project": project,
         "name": name,
+        "exist_ok": exist_ok,
+        "save_period": save_period,
+        "log_interval": log_interval,
     }
     if family:
         params = apply_family_defaults(params, family, "train")
@@ -191,57 +211,11 @@ def train_cmd(
         out.error(err)
         raise SystemExit(err.exit_code)
 
-    # Build training kwargs using alias-resolved internal names
-    train_overrides = resolve_aliases(
-        {
-            "mosaic": params["mosaic"],
-            "mixup": params["mixup"],
-        },
-        "train",
-    )
-
-    train_kwargs = {
-        "epochs": params["epochs"],
-        "batch": params["batch"],
-        "imgsz": params["imgsz"],
-        "lr0": params["lr0"],
-        "optimizer": params["optimizer"],
-        "device": device,
-        "workers": params["workers"],
-        "seed": seed,
-        "project": project,
-        "name": params["name"],
-        "exist_ok": exist_ok,
-        "resume": resume_val,
-        "amp": amp,
-        "patience": patience,
-        "pretrained": pretrained,
-        # Scheduler
-        "momentum": params["momentum"],
-        "weight_decay": weight_decay,
-        "nesterov": nesterov,
-        "scheduler": params["scheduler"],
-        "warmup_epochs": params["warmup_epochs"],
-        "warmup_lr_start": params["warmup_lr_start"],
-        "min_lr_ratio": params["min_lr_ratio"],
-        # Augmentation (using internal names via alias resolution)
-        **train_overrides,
-        "hsv_prob": hsv_prob,
-        "flip_prob": flip_prob,
-        "degrees": params["degrees"],
-        "translate": translate,
-        "shear": params["shear"],
-        "mosaic_scale": mosaic_scale_val,
-        "mixup_scale": mixup_scale_val,
-        "no_aug_epochs": no_aug_epochs,
-        # EMA
-        "ema": ema,
-        "ema_decay": params["ema_decay"],
-        # Validation
-        "eval_interval": eval_interval if val else 0,
-        "save_period": save_period,
-        "log_interval": log_interval,
-    }
+    # Build training kwargs — auto-mapped from TrainConfig fields via aliases
+    train_kwargs = build_train_kwargs(params)
+    train_kwargs["pretrained"] = pretrained  # Not in TrainConfig
+    if not val:
+        train_kwargs["eval_interval"] = 0
 
     # Run training
     out.progress(f"Training {model} on {data} for {params['epochs']} epochs...")

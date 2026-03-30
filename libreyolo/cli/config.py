@@ -184,6 +184,34 @@ def apply_family_defaults(
 
 
 # =========================================================================
+# Train kwargs builder (auto-discovered from TrainConfig)
+# =========================================================================
+
+
+def build_train_kwargs(params: dict[str, Any]) -> dict[str, Any]:
+    """Build training kwargs from CLI params, keyed by TrainConfig field names.
+
+    Iterates TrainConfig fields and maps CLI-facing parameter names to
+    internal field names using TRAIN_ALIASES.  Adding a new field to
+    TrainConfig automatically makes it available — no manual dict needed.
+    """
+    from .aliases import TRAIN_ALIASES
+    from libreyolo.training.config import TrainConfig
+
+    internal_to_cli = {v: k for k, v in TRAIN_ALIASES.items()}
+    excluded = {"size", "num_classes", "data", "data_dir"}
+
+    kwargs = {}
+    for f in fields(TrainConfig):
+        if f.name in excluded:
+            continue
+        cli_name = internal_to_cli.get(f.name, f.name)
+        if cli_name in params:
+            kwargs[f.name] = params[cli_name]
+    return kwargs
+
+
+# =========================================================================
 # Cfg defaults (auto-discovered from config dataclasses)
 # =========================================================================
 
