@@ -184,22 +184,21 @@ def models_cmd(
     # Check RF-DETR (lazily registered, may not be in _registry yet)
     rfdetr_present = any(f["name"] == "rfdetr" for f in families)
     if not rfdetr_present:
-        try:
-            from libreyolo.models.rfdetr.model import LibreYOLORFDETR
+        from libreyolo.models import try_ensure_rfdetr
 
+        rfcls = try_ensure_rfdetr()
+        if rfcls is not None:
             families.append(
                 {
-                    "name": LibreYOLORFDETR.FAMILY,
-                    "sizes": sorted(LibreYOLORFDETR.INPUT_SIZES.keys()),
-                    "default_imgsz": LibreYOLORFDETR.INPUT_SIZES,
+                    "name": rfcls.FAMILY,
+                    "sizes": sorted(rfcls.INPUT_SIZES.keys()),
+                    "default_imgsz": rfcls.INPUT_SIZES,
                     "cli_names": [
-                        f"{LibreYOLORFDETR.FAMILY}-{s}"
-                        for s in sorted(LibreYOLORFDETR.INPUT_SIZES.keys())
+                        f"{rfcls.FAMILY}-{s}"
+                        for s in sorted(rfcls.INPUT_SIZES.keys())
                     ],
                 }
             )
-        except ImportError:
-            pass
 
     out = _get_output(json_output, quiet)
     data = {"families": families}

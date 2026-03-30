@@ -56,15 +56,14 @@ def _build_name_map() -> None:
             _CLI_NAME_TO_WEIGHTS[cli_name] = filename
 
     # Also try RF-DETR (lazily registered)
-    try:
-        from libreyolo.models.rfdetr.model import LibreYOLORFDETR as rfcls
+    from libreyolo.models import try_ensure_rfdetr
 
+    rfcls = try_ensure_rfdetr()
+    if rfcls is not None:
         for size_code in rfcls.INPUT_SIZES:
             cli_name = f"{rfcls.FAMILY}-{size_code}"
             filename = f"{rfcls.FILENAME_PREFIX}{size_code}{rfcls.WEIGHT_EXT}"
             _CLI_NAME_TO_WEIGHTS[cli_name] = filename
-    except ImportError:
-        pass
 
 
 def resolve_model_name(model: str) -> str:
@@ -107,16 +106,11 @@ def get_train_config_class(family: str) -> type:
             return cls.TRAIN_CONFIG
 
     # Check RF-DETR (lazily registered)
-    try:
-        from libreyolo.models.rfdetr.model import LibreYOLORFDETR
+    from libreyolo.models import try_ensure_rfdetr
 
-        if (
-            LibreYOLORFDETR.FAMILY == family
-            and LibreYOLORFDETR.TRAIN_CONFIG is not None
-        ):
-            return LibreYOLORFDETR.TRAIN_CONFIG
-    except ImportError:
-        pass
+    rfcls = try_ensure_rfdetr()
+    if rfcls is not None and rfcls.FAMILY == family and rfcls.TRAIN_CONFIG is not None:
+        return rfcls.TRAIN_CONFIG
 
     return TrainConfig
 
