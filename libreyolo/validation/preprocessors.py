@@ -230,3 +230,59 @@ class YOLO9ValPreprocessor(BaseValPreprocessor):
             padded_targets[:n] = targets[:n]
 
         return padded_img, padded_targets
+
+
+class RTDETRValPreprocessor(BaseValPreprocessor):
+    """Preprocessor for RT-DETR validation: resize to fixed size, normalize to [0,1], no letterbox."""
+
+    @property
+    def normalize(self) -> bool:
+        return True
+
+    def __call__(
+        self, img: np.ndarray, targets: np.ndarray, input_size: Tuple[int, int]
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        """
+        Preprocess image for RTDETR validation.
+
+        Args:
+            img: BGR image as numpy array (H, W, C)
+            targets: Target boxes in xyxy format
+            input_size: target size (square)
+
+        Returns:
+            preprocessed: float32 array (C, H, W) normalized to [0,1] in RGB
+            padded_targets: padded targets array
+        """
+        orig_h, orig_w = img.shape[:2]
+        target_h, target_w = input_size
+
+        # Simple resize (no letterbox)
+        resized_img = cv2.resize(
+            img, (target_w, target_h), interpolation=cv2.INTER_LINEAR
+        )
+
+        # BGR → RGB, normalize to [0, 1]
+        resized_img = resized_img[:, :, ::-1]
+        resized_img = resized_img.astype(np.float32) / 255.0
+
+        resized_img = resized_img.transpose(2, 0, 1)  # HWC → CHW
+        resized_img = np.ascontiguousarray(resized_img, dtype=np.float32)
+
+        padded_targets = np.zeros((self.max_labels, 5), dtype=np.float32)
+        if len(targets) > 0:
+            targets = np.array(targets).copy()
+            n = min(len(targets), self.max_labels)
+
+            # Simple resize scaling (no letterbox)
+            scale_x = target_w / orig_w
+            scale_y = target_h / orig_h
+
+            targets[:n, 0] *= scale_x
+            targets[:n, 1] *= scale_y
+            targets[:n, 2] *= scale_x
+            targets[:n, 3] *= scale_y
+
+            padded_targets[:n] = targets[:n]
+
+        return resized_img, padded_targets
