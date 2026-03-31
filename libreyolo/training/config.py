@@ -66,6 +66,14 @@ class TrainConfig:
     save_period: int = 10
     eval_interval: int = 10
 
+    # Distillation
+    distill: bool = False
+    distill_teacher: Optional[str] = None
+    distill_loss_type: str = "mgd"
+    distill_loss_weight: Optional[float] = None
+    distill_mask_ratio: float = 0.65
+    distill_tau: float = 1.0
+
     # System
     workers: int = 4
     patience: int = 50

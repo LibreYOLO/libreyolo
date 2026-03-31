@@ -206,6 +206,21 @@ class LibreYOLO9(BaseModel):
     # Public API
     # =========================================================================
 
+    def get_distill_config(self) -> Dict:
+        """Return distillation config derived from this model's architecture.
+
+        The tap points are the three neck FPN outputs (P3, P4, P5) and
+        channel dimensions come from ``YOLO9_CONFIGS[size]["head_channels"]``.
+        """
+        from .nn import YOLO9_CONFIGS
+
+        cfg = YOLO9_CONFIGS[self.size]
+        return {
+            "tap_points": ["neck.elan_up2", "neck.elan_down1", "neck.elan_down2"],
+            "channels": list(cfg["head_channels"]),
+            "strides": [8, 16, 32],
+        }
+
     def train(
         self,
         data: str,

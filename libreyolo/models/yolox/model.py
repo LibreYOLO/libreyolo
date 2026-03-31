@@ -163,6 +163,21 @@ class LibreYOLOX(BaseModel):
     # Public API
     # =========================================================================
 
+    def get_distill_config(self) -> Dict:
+        """Return distillation config derived from this model's architecture.
+
+        The tap points are the three PAFPN outputs (C3_p3, C3_n3, C3_n4) and
+        channel dimensions are ``[256, 512, 1024] * width_multiplier``.
+        """
+        from .nn import LibreYOLOXModel
+
+        width = LibreYOLOXModel.CONFIGS[self.size]["width"]
+        return {
+            "tap_points": ["backbone.C3_p3", "backbone.C3_n3", "backbone.C3_n4"],
+            "channels": [int(256 * width), int(512 * width), int(1024 * width)],
+            "strides": [8, 16, 32],
+        }
+
     def train(
         self,
         data: str,
