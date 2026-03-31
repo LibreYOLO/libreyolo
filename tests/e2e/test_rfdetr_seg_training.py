@@ -34,9 +34,7 @@ HF_REPO = "LibreYOLO/fire-smoke-seg"
 def _has_git_lfs() -> bool:
     """Check if git-lfs is installed."""
     try:
-        subprocess.run(
-            ["git", "lfs", "version"], capture_output=True, check=True
-        )
+        subprocess.run(["git", "lfs", "version"], capture_output=True, check=True)
         return True
     except (FileNotFoundError, subprocess.CalledProcessError):
         return False
