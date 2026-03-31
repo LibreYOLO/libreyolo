@@ -107,6 +107,11 @@ class BaseBackend(ABC):
                 image, effective_imgsz, color_format
             )
             return tensor, img, size, 1.0
+        elif self.model_family == "rtdetr":
+            tensor, img, size = self._preprocess_rtdetr(
+                image, effective_imgsz, color_format
+            )
+            return tensor, img, size, 1.0
         else:
             tensor, img, size = preprocess_image(
                 image, input_size=effective_imgsz, color_format=color_format
@@ -124,6 +129,19 @@ class BaseBackend(ABC):
 
         img_chw, _ = rfdetr_preprocess_numpy(np.array(img), input_size)
         img_tensor = torch.from_numpy(img_chw).unsqueeze(0)
+        return img_tensor, original_img, original_size
+
+    @staticmethod
+    def _preprocess_rtdetr(image, input_size, color_format):
+        """RT-DETR preprocessing: direct resize + normalize to [0,1]."""
+        from ..models.rtdetr.utils import preprocess_numpy as rtdetr_preprocess_numpy
+
+        img = ImageLoader.load(image, color_format=color_format)
+        original_size = img.size  # (W, H)
+        original_img = img.copy()
+
+        img_chw, _ = rtdetr_preprocess_numpy(np.array(img), input_size)
+        img_tensor = torch.from_numpy(img_chw)
         return img_tensor, original_img, original_size
 
     # =========================================================================
@@ -147,6 +165,8 @@ class BaseBackend(ABC):
             )
         elif self.model_family == "rfdetr":
             return self._parse_rfdetr(all_outputs, orig_w, orig_h, conf)
+        elif self.model_family == "rtdetr":
+            return self._parse_rtdetr(all_outputs, orig_w, orig_h, conf)
         else:
             return self._parse_yolo9(all_outputs, effective_imgsz, orig_w, orig_h, conf)
 
@@ -234,6 +254,60 @@ class BaseBackend(ABC):
             boxes_raw = boxes_raw[valid]
             max_scores = max_scores[valid]
             class_ids = mapped[valid]
+
+        if len(boxes_raw) == 0:
+            return boxes_raw, max_scores, class_ids
+
+        cx, cy, w, h = (
+            boxes_raw[:, 0],
+            boxes_raw[:, 1],
+            boxes_raw[:, 2],
+            boxes_raw[:, 3],
+        )
+        x1 = (cx - w / 2) * orig_w
+        y1 = (cy - h / 2) * orig_h
+        x2 = (cx + w / 2) * orig_w
+        y2 = (cy + h / 2) * orig_h
+        boxes = np.stack([x1, y1, x2, y2], axis=1)
+
+        boxes[:, [0, 2]] = np.clip(boxes[:, [0, 2]], 0, orig_w)
+        boxes[:, [1, 3]] = np.clip(boxes[:, [1, 3]], 0, orig_h)
+
+        return boxes, max_scores, class_ids
+
+    def _parse_rtdetr(self, all_outputs, orig_w, orig_h, conf):
+        """Parse RT-DETR output: pred_boxes (B,Q,4) cxcywh [0,1] + pred_logits (B,Q,C).
+
+        RTDETR outputs are already in the correct class indices (no COCO 91->80 mapping needed).
+        """
+        # all_outputs order depends on ONNX output naming; try both orderings
+        first = all_outputs[0][0]  # (Q, 4) or (Q, C)
+        second = all_outputs[1][0]  # (Q, C) or (Q, 4)
+
+        # Detect which is boxes and which is logits by shape
+        if first.shape[1] == 4 and len(second.shape) == 2 and second.shape[1] != 4:
+            boxes_raw = first  # (Q, 4) normalized cxcywh
+            logits = second  # (Q, C) raw logits
+        elif second.shape[1] == 4 and len(first.shape) == 2 and first.shape[1] != 4:
+            boxes_raw = second
+            logits = first
+        else:
+            # Fallback: assume pred_logits has more columns (num_classes typically > 4)
+            if first.shape[1] > second.shape[1]:
+                logits = first
+                boxes_raw = second
+            else:
+                logits = second
+                boxes_raw = first
+
+        scores = 1.0 / (1.0 + np.exp(-logits.astype(np.float64))).astype(np.float32)
+
+        max_scores = np.max(scores, axis=1)
+        class_ids = np.argmax(scores, axis=1)
+
+        mask = max_scores > conf
+        boxes_raw = boxes_raw[mask]
+        max_scores, class_ids = max_scores[mask], class_ids[mask]
 
         if len(boxes_raw) == 0:
             return boxes_raw, max_scores, class_ids
