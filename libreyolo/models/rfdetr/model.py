@@ -185,6 +185,9 @@ class LibreYOLORFDETR(BaseModel):
 
     @classmethod
     def detect_nb_classes(cls, weights_dict: dict) -> Optional[int]:
+        # RF-DETR class_embed has (num_classes + 1) outputs (includes background)
+        if "class_embed.bias" in weights_dict:
+            return weights_dict["class_embed.bias"].shape[0] - 1
         return None
 
     # =========================================================================
@@ -203,6 +206,8 @@ class LibreYOLORFDETR(BaseModel):
         # Convert empty dict (from factory) to None for RF-DETR config compatibility
         if isinstance(model_path, dict) and not model_path:
             self._pretrain_weights = None
+        elif isinstance(model_path, str):
+            self._pretrain_weights = self._resolve_weights_path(model_path)
         else:
             self._pretrain_weights = model_path
 
@@ -221,10 +226,17 @@ class LibreYOLORFDETR(BaseModel):
         if self._is_segmentation:
             self.INPUT_SIZES = self.SEG_INPUT_SIZES
 
+        # RF-DETR COCO checkpoints have 90 arch-classes (91 outputs incl.
+        # background), but libreyolo uses 80 YOLO-contiguous classes with a
+        # 91→80 mapping in _postprocess.  Store the arch count for rfdetr
+        # config and present 80 to the rest of the framework.
+        self._model_num_classes = nb_classes
+        user_nb_classes = 80 if nb_classes == 90 else nb_classes
+
         super().__init__(
             model_path=None,
             size=size,
-            nb_classes=nb_classes,
+            nb_classes=user_nb_classes,
             device=device,
             **kwargs,
         )
@@ -252,7 +264,7 @@ class LibreYOLORFDETR(BaseModel):
     def _init_model(self) -> nn.Module:
         return LibreRFDETRModel(
             config=self.size,
-            nb_classes=self.nb_classes,
+            nb_classes=self._model_num_classes,
             pretrain_weights=self._pretrain_weights,
             device=str(self.device),
             segmentation=self._is_segmentation,

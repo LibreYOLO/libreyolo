@@ -15,7 +15,7 @@ from libreyolo.tracking.matching import (
 )
 from libreyolo.tracking.strack import STrack, TrackState
 from libreyolo.tracking.tracker import ByteTracker
-from libreyolo.utils.results import Boxes, Results
+from libreyolo.utils.results import Boxes, Masks, Results
 
 pytestmark = pytest.mark.unit
 
@@ -386,6 +386,89 @@ class TestByteTracker:
         assert cpu_r.track_id is not None
         assert cpu_r.track_id.device.type == "cpu"
         assert torch.equal(cpu_r.track_id, torch.tensor([1, 2]))
+
+
+def _make_results_with_masks(boxes_list, confs, classes, orig_shape=(480, 640)):
+    """Build a Results object with fake instance masks for testing."""
+    n = len(boxes_list)
+    h, w = orig_shape
+    boxes = torch.tensor(boxes_list, dtype=torch.float32)
+    conf = torch.tensor(confs, dtype=torch.float32)
+    cls = torch.tensor(classes, dtype=torch.float32)
+    # One binary mask per detection, each a simple filled rectangle
+    mask_data = torch.zeros((n, h, w), dtype=torch.uint8)
+    for i, (x1, y1, x2, y2) in enumerate(boxes_list):
+        mask_data[i, int(y1) : int(y2), int(x1) : int(x2)] = 1
+    return Results(
+        boxes=Boxes(boxes, conf, cls),
+        orig_shape=orig_shape,
+        masks=Masks(mask_data, orig_shape),
+    )
+
+
+class TestByteTrackerMasks:
+    """Verify that segmentation masks survive through ByteTracker.update()."""
+
+    def test_masks_preserved_through_tracking(self):
+        """Tracked results should carry masks sliced to matched detections."""
+        tracker = ByteTracker()
+        r = _make_results_with_masks(
+            [[100, 100, 200, 200], [400, 400, 480, 480]],
+            [0.9, 0.8],
+            [0, 1],
+        )
+        tracked = tracker.update(r)
+
+        assert tracked.masks is not None, "Masks should survive tracking"
+        assert len(tracked.masks) == len(tracked), "One mask per tracked detection"
+        # Masks should be actual filled regions, not empty
+        for i in range(len(tracked.masks)):
+            assert tracked.masks.data[i].sum() > 0
+
+    def test_masks_sliced_to_correct_detections(self):
+        """When tracker drops a detection, its mask should also be dropped."""
+        tracker = ByteTracker(track_high_thresh=0.5, track_low_thresh=0.1)
+
+        # Frame 1: two objects
+        r1 = _make_results_with_masks(
+            [[100, 100, 200, 200], [400, 400, 480, 480]],
+            [0.9, 0.8],
+            [0, 1],
+        )
+        t1 = tracker.update(r1)
+        assert t1.masks is not None
+        assert len(t1.masks) == len(t1)
+
+        # Frame 2: only first object remains (second disappears)
+        r2 = _make_results_with_masks(
+            [[105, 105, 205, 205]],
+            [0.9],
+            [0],
+        )
+        t2 = tracker.update(r2)
+        assert t2.masks is not None
+        assert len(t2.masks) == len(t2)
+        # The surviving mask should cover the first object's region
+        assert t2.masks.data[0, 150, 150] == 1  # center of first box
+
+    def test_no_masks_when_input_has_none(self):
+        """Detection-only results should not gain masks through tracking."""
+        tracker = ByteTracker()
+        r = _make_results([[100, 100, 200, 200]], [0.9], [0])
+        tracked = tracker.update(r)
+        assert tracked.masks is None
+
+    def test_empty_frame_with_seg_model(self):
+        """Empty tracked output from a seg model should have no masks."""
+        tracker = ByteTracker(minimum_consecutive_frames=5)
+        r = _make_results_with_masks(
+            [[100, 100, 200, 200]],
+            [0.9],
+            [0],
+        )
+        tracked = tracker.update(r)
+        # With min_consecutive_frames=5, first frame yields nothing
+        assert len(tracked) == 0
 
 
 class TestDrawBoxesWithTrackIds:

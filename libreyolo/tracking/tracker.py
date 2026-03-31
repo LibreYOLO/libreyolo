@@ -10,7 +10,7 @@ from __future__ import annotations
 import numpy as np
 import torch
 
-from ..utils.results import Boxes, Results
+from ..utils.results import Boxes, Masks, Results
 from .config import TrackConfig
 from .kalman_filter import KalmanFilterXYAH
 from .matching import fuse_score, iou_distance, linear_assignment
@@ -141,7 +141,7 @@ class ByteTracker:
             if strack_pool[i].state == TrackState.Tracked
         ]
         cost2 = iou_distance(remaining_tracked, low_bboxes)
-        matches2, u_track2, _ = linear_assignment(cost2, 0.5)
+        matches2, u_track2, _ = linear_assignment(cost2, cfg.match_thresh_low)
 
         for m in matches2:
             track = remaining_tracked[m[0]]
@@ -164,7 +164,9 @@ class ByteTracker:
             else np.empty((0, 4))
         )
         cost3 = iou_distance(unconfirmed, remaining_high_bboxes)
-        matches3, u_unconf, u_det_final = linear_assignment(cost3, 0.7)
+        matches3, u_unconf, u_det_final = linear_assignment(
+            cost3, cfg.match_thresh_unconfirmed
+        )
 
         for m in matches3:
             track = unconfirmed[m[0]]
@@ -269,11 +271,16 @@ class ByteTracker:
             [t.track_id for t in output_stracks], dtype=torch.int64
         )
 
+        out_masks = None
+        if results.masks is not None:
+            out_masks = Masks(results.masks.data[indices], results.orig_shape)
+
         return Results(
             boxes=Boxes(out_boxes, out_conf, out_cls),
             orig_shape=results.orig_shape,
             path=results.path,
             names=results.names,
+            masks=out_masks,
             track_id=track_ids,
         )
 
