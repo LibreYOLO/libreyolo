@@ -588,7 +588,7 @@ class BaseBackend(ABC):
             )
             blob = input_tensor.numpy()
             all_outputs = self._run_inference(blob)
-            boxes, max_scores, class_ids = self._parse_outputs(
+            boxes, max_scores, class_ids, masks = self._parse_outputs(
                 all_outputs, effective_imgsz, original_size, conf, ratio=ratio
             )
             orig_w, orig_h = original_size
@@ -596,6 +596,7 @@ class BaseBackend(ABC):
                 boxes,
                 max_scores,
                 class_ids,
+                masks=masks,
                 orig_shape=(orig_h, orig_w),
                 image_path=str(source),
                 iou=iou,

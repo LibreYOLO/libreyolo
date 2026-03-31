@@ -331,3 +331,67 @@ class TestONNXOpset:
             if opset < 11:
                 pytest.skip(f"Opset {opset} not supported: {e}")
             raise
+
+
+@requires_rfdetr
+class TestONNXSegmentation:
+    """Test ONNX export and inference for segmentation models."""
+
+    def test_onnx_seg_export_produces_masks(self, sample_image, tmp_path):
+        """Export RF-DETR-seg to ONNX, load it back, and verify masks are returned."""
+        from libreyolo import LibreYOLO
+
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+
+        # PyTorch seg model
+        pt_model = LibreYOLO("LibreRFDETRn-seg.pt", device=device)
+
+        # Export to ONNX
+        onnx_path = str(tmp_path / "rfdetr_n_seg.onnx")
+        exported = pt_model.export(format="onnx", output_path=onnx_path, simplify=False)
+        assert Path(exported).exists()
+
+        # Verify ONNX has 3 outputs (boxes, scores, masks)
+        onnx_model = onnx.load(exported)
+        output_names = [o.name for o in onnx_model.graph.output]
+        assert len(output_names) == 3, f"Expected 3 outputs, got {output_names}"
+        assert "masks" in output_names
+
+        # Verify segmentation metadata
+        meta = {p.key: p.value for p in onnx_model.metadata_props}
+        assert meta.get("segmentation") == "true"
+
+        # Load ONNX backend and run inference
+        onnx_model_loaded = LibreYOLO(exported, device=device)
+        onnx_result = onnx_model_loaded(sample_image, conf=0.3)
+
+        # ONNX result should also have masks
+        if len(onnx_result) > 0:
+            assert onnx_result.masks is not None, "ONNX seg model should return masks"
+            assert len(onnx_result.masks) == len(onnx_result), "One mask per detection"
+            h, w = onnx_result.orig_shape
+            assert onnx_result.masks.data.shape[1:] == (h, w), (
+                "Masks should be at original image resolution"
+            )
+
+    def test_onnx_seg_detection_counts_match(self, sample_image, tmp_path):
+        """ONNX seg model should produce similar detection counts to PyTorch."""
+        from libreyolo import LibreYOLO
+
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+
+        pt_model = LibreYOLO("LibreRFDETRn-seg.pt", device=device)
+        pt_result = pt_model(sample_image, conf=0.3)
+
+        onnx_path = str(tmp_path / "rfdetr_n_seg_compare.onnx")
+        pt_model.export(format="onnx", output_path=onnx_path, simplify=False)
+
+        onnx_model = LibreYOLO(onnx_path, device=device)
+        onnx_result = onnx_model(sample_image, conf=0.3)
+
+        # Detection counts should be close (allow some variance from fp32→onnx)
+        pt_count = len(pt_result)
+        onnx_count = len(onnx_result)
+        assert abs(pt_count - onnx_count) <= max(3, pt_count * 0.3), (
+            f"Detection count mismatch: PT={pt_count}, ONNX={onnx_count}"
+        )

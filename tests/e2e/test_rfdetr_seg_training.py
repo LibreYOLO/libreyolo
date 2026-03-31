@@ -16,6 +16,7 @@ Usage:
     pytest tests/e2e/test_rfdetr_seg_training.py::test_rfdetr_seg_inference_only -v
 """
 
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -30,14 +31,44 @@ DATASET_ROOT = Path.home() / ".cache" / "libreyolo" / "fire-smoke-seg"
 HF_REPO = "LibreYOLO/fire-smoke-seg"
 
 
+def _has_git_lfs() -> bool:
+    """Check if git-lfs is installed."""
+    try:
+        subprocess.run(["git", "lfs", "version"], capture_output=True, check=True)
+        return True
+    except (FileNotFoundError, subprocess.CalledProcessError):
+        return False
+
+
+def _is_lfs_pointer(path: Path) -> bool:
+    """Check if a file is a Git LFS pointer instead of actual content."""
+    with open(path, "rb") as f:
+        return f.read(20).startswith(b"version https://git-lfs")
+
+
 def download_fire_smoke_dataset():
-    """Download the fire-smoke-seg dataset from HuggingFace if not cached."""
+    """Download the fire-smoke-seg dataset from HuggingFace.
+
+    This dataset uses Git LFS for images, so git-lfs must be installed.
+    """
     if DATASET_ROOT.exists() and (DATASET_ROOT / "data.yaml").exists():
-        return
+        sample = next(DATASET_ROOT.rglob("*.jpg"), None)
+        if sample is not None and not _is_lfs_pointer(sample):
+            return
+        # LFS pointers from a previous clone without git-lfs — nuke it
+        shutil.rmtree(DATASET_ROOT)
+
+    if not _has_git_lfs():
+        pytest.skip(
+            "git-lfs is required for fire-smoke-seg dataset. "
+            "Install with: sudo apt install git-lfs && git lfs install"
+        )
 
     print(f"\nDownloading dataset {HF_REPO} from HuggingFace ...")
     DATASET_ROOT.parent.mkdir(parents=True, exist_ok=True)
 
+    # git-lfs must be initialized before cloning
+    subprocess.run(["git", "lfs", "install"], check=True)
     subprocess.run(
         [
             "git",
@@ -47,15 +78,27 @@ def download_fire_smoke_dataset():
         ],
         check=True,
     )
-    print(f"Dataset downloaded to {DATASET_ROOT}")
+    print(f"Dataset ready at {DATASET_ROOT}")
 
 
 def patch_data_yaml():
-    """Ensure data.yaml has an absolute path so training resolves splits."""
+    """Ensure data.yaml has absolute path and correct split paths.
+
+    Roboflow exports use ``../train/images`` (relative to a subdirectory).
+    We normalise them to ``train/images`` (relative to the dataset root).
+    """
     data_yaml = DATASET_ROOT / "data.yaml"
     data = yaml.safe_load(data_yaml.read_text())
+    changed = False
     if data.get("path") != str(DATASET_ROOT):
         data["path"] = str(DATASET_ROOT)
+        changed = True
+    for split in ("train", "val", "test"):
+        val = data.get(split, "")
+        if isinstance(val, str) and val.startswith("../"):
+            data[split] = val.removeprefix("../")
+            changed = True
+    if changed:
         data_yaml.write_text(yaml.dump(data, default_flow_style=False))
 
 

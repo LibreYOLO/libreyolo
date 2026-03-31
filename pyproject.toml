@@ -37,7 +37,7 @@ rfdetr = [
     "rfdetr[train]>=1.6.0",
 ]
 tensorrt = [
-    "tensorrt",
+    "tensorrt-cu12",
     "pycuda>=2022.1",
 ]
 openvino = [

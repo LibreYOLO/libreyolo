@@ -15,6 +15,7 @@ help:
 	@echo "  typecheck                     - Run type checker"
 	@echo "  test                          - Run fast unit tests (no weights needed)"
 	@echo "  test_e2e                      - Run all e2e tests (needs GPU + model weights)"
+	@echo "  test_e2e FROM=<name>          - Resume from a specific test file (e.g. FROM=rfdetr_seg)"
 	@echo "  test_rf5                      - Run RF5 training benchmark tests"
 	@echo "  build                         - Build package"
 	@echo "  clean                         - Remove build and test cache artifacts"
@@ -37,12 +38,52 @@ typecheck:
 test:
 	$(UV) pytest
 
-test_e2e: clean
-	@echo "Running each test file in its own process (avoids CUDA driver state corruption)..."
-	@for f in tests/e2e/test_*.py; do \
+test_e2e:
+	@if [ -z "$(FROM)" ]; then $(MAKE) clean; fi
+	@files=$$(ls tests/e2e/test_*.py); \
+	total=$$(echo "$$files" | wc -w); \
+	resume_from="$(FROM)"; \
+	i=0; passed=0; failed=0; skipped=0; resuming=0; \
+	if [ -n "$$resume_from" ]; then resuming=1; fi; \
+	echo ""; \
+	echo "══════════════════════════════════════════════════════════════"; \
+	if [ -n "$$resume_from" ]; then \
+		echo "  e2e test suite — $$total files (resuming from $$resume_from)"; \
+	else \
+		echo "  e2e test suite — $$total files (each in its own process)"; \
+	fi; \
+	echo "══════════════════════════════════════════════════════════════"; \
+	echo ""; \
+	for f in $$files; do \
+		i=$$((i + 1)); \
+		name=$$(basename "$$f" .py); \
+		if [ $$resuming -eq 1 ]; then \
+			if echo "$$name" | grep -q "$$resume_from"; then \
+				resuming=0; \
+			else \
+				echo "  [$$i/$$total] $$name — skipped (resuming)"; \
+				skipped=$$((skipped + 1)); \
+				continue; \
+			fi; \
+		fi; \
+		echo "────────────────────────────────────────────────────────────"; \
+		echo "  [$$i/$$total] $$name"; \
+		echo "────────────────────────────────────────────────────────────"; \
 		$(UV) pytest "$$f" -m "e2e and not rf5" -v; \
-		rc=$$?; if [ $$rc -ne 0 ] && [ $$rc -ne 5 ]; then exit $$rc; fi; \
-	done
+		rc=$$?; \
+		if [ $$rc -eq 0 ]; then passed=$$((passed + 1)); \
+		elif [ $$rc -eq 5 ]; then skipped=$$((skipped + 1)); \
+		else failed=$$((failed + 1)); \
+			echo ""; \
+			echo "  FAILED: $$name (exit $$rc)"; \
+			echo ""; \
+			exit $$rc; \
+		fi; \
+	done; \
+	echo ""; \
+	echo "══════════════════════════════════════════════════════════════"; \
+	echo "  all done: $$passed passed, $$skipped skipped, $$failed failed"; \
+	echo "══════════════════════════════════════════════════════════════"
 
 test_rf5: clean
 	$(UV) pytest tests/e2e/test_rf5_training.py -m rf5 -v

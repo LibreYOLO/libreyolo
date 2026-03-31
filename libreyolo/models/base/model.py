@@ -93,6 +93,11 @@ class BaseModel(ABC):
         for key, value in kwargs.items():
             setattr(self, key, value)
 
+        # Resolve bare filenames (e.g. "LibreYOLOXn.pt") to weights/ directory
+        # so direct instantiation works the same as the factory.
+        if isinstance(model_path, str):
+            model_path = self._resolve_weights_path(model_path)
+
         self.model = self._init_model()
 
         if model_path is None:
@@ -108,6 +113,19 @@ class BaseModel(ABC):
         else:
             self.model.eval()
         self.model.to(self.device)
+
+    @staticmethod
+    def _resolve_weights_path(model_path: str) -> str:
+        """Resolve bare filenames (e.g. ``LibreYOLOXn.pt``) to ``weights/`` dir."""
+        path = Path(model_path)
+        if path.parent == Path(".") and not model_path.startswith(("./", "../")):
+            weights_path = Path("weights") / path.name
+            if weights_path.exists():
+                return str(weights_path)
+            if path.exists():
+                return str(path)
+            return str(weights_path)
+        return model_path
 
     # =========================================================================
     # Abstract interface — subclasses must implement
@@ -394,7 +412,7 @@ class BaseModel(ABC):
             Results with ``track_id`` attribute set as an (N,) int tensor.
         """
         from ...tracking import ByteTracker, TrackConfig
-        from ...utils.drawing import draw_boxes
+        from ...utils.drawing import draw_boxes, draw_masks
         from ...utils.video import run_video_inference
 
         if tracker_config is None:
@@ -424,9 +442,15 @@ class BaseModel(ABC):
         def annotate_tracked(pil_img, result):
             if len(result) == 0:
                 return pil_img
+            img = pil_img
+            if result.masks is not None:
+                masks_np = result.masks.data
+                if isinstance(masks_np, torch.Tensor):
+                    masks_np = masks_np.cpu().numpy()
+                img = draw_masks(img, masks_np, result.boxes.cls.tolist())
             tid_list = result.track_id.tolist() if result.track_id is not None else None
             return draw_boxes(
-                pil_img,
+                img,
                 result.boxes.xyxy.tolist(),
                 result.boxes.conf.tolist(),
                 result.boxes.cls.tolist(),

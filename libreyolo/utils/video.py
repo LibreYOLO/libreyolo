@@ -92,7 +92,11 @@ class VideoSource:
 
         self._iterated = False
 
-        self.fps: float = self._cap.get(cv2.CAP_PROP_FPS) or 30.0
+        detected_fps = self._cap.get(cv2.CAP_PROP_FPS)
+        if not detected_fps:
+            detected_fps = 30.0
+            logger.warning(f"Could not detect video FPS, defaulting to {detected_fps}")
+        self.fps: float = detected_fps
         self.total_frames: int = int(self._cap.get(cv2.CAP_PROP_FRAME_COUNT))
         self.width: int = int(self._cap.get(cv2.CAP_PROP_FRAME_WIDTH))
         self.height: int = int(self._cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
@@ -271,12 +275,14 @@ def run_video_inference(
         ``Results`` for each processed frame.
     """
     import cv2
+    import torch
     from PIL import Image
 
-    from .drawing import draw_boxes
+    from .drawing import draw_boxes, draw_masks
 
     with VideoSource(source, vid_stride=vid_stride) as video_src:
         writer = None
+        out_path = None
         if save:
             out_path = resolve_video_save_path(source, output_path)
             effective_fps = video_src.fps / max(1, vid_stride)
@@ -299,8 +305,18 @@ def run_video_inference(
                     if annotate_fn is not None:
                         annotated_pil = annotate_fn(pil_img, result)
                     elif len(result) > 0:
+                        annotated_pil = pil_img
+                        if result.masks is not None:
+                            masks_np = result.masks.data
+                            if isinstance(masks_np, torch.Tensor):
+                                masks_np = masks_np.cpu().numpy()
+                            annotated_pil = draw_masks(
+                                annotated_pil,
+                                masks_np,
+                                result.boxes.cls.tolist(),
+                            )
                         annotated_pil = draw_boxes(
-                            pil_img,
+                            annotated_pil,
                             result.boxes.xyxy.tolist(),
                             result.boxes.conf.tolist(),
                             result.boxes.cls.tolist(),
