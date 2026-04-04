@@ -42,6 +42,10 @@ def _setup_logging_from_argv() -> None:
 
 def entrypoint() -> None:
     """CLI entry point registered in pyproject.toml."""
+    import warnings
+
+    warnings.filterwarnings("ignore")
+
     _strip_task_prefix()
     _setup_logging_from_argv()
 
