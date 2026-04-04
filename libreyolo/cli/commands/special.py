@@ -170,7 +170,7 @@ def models_cmd(
     families = []
     for cls in BaseModel._registry:
         family = cls.FAMILY
-        sizes = sorted(cls.INPUT_SIZES.keys())
+        sizes = list(cls.INPUT_SIZES.keys())
         cli_names = [f"{family}-{s}" for s in sizes]
         families.append(
             {
@@ -188,15 +188,13 @@ def models_cmd(
 
         rfcls = try_ensure_rfdetr()
         if rfcls is not None:
+            sizes = list(rfcls.INPUT_SIZES.keys())
             families.append(
                 {
                     "name": rfcls.FAMILY,
-                    "sizes": sorted(rfcls.INPUT_SIZES.keys()),
+                    "sizes": sizes,
                     "default_imgsz": rfcls.INPUT_SIZES,
-                    "cli_names": [
-                        f"{rfcls.FAMILY}-{s}"
-                        for s in sorted(rfcls.INPUT_SIZES.keys())
-                    ],
+                    "cli_names": [f"{rfcls.FAMILY}-{s}" for s in sizes],
                 }
             )
 
