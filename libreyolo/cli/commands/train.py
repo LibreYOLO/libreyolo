@@ -15,7 +15,7 @@ from ..output import OutputHandler
 
 
 def train_cmd(
-    data: str = typer.Option(..., help="Path to dataset YAML"),
+    data: str = typer.Option(..., help="Path to dataset YAML (YOLO format, e.g. coco8.yaml)"),
     model: str = typer.Option("yolox-s", help="Model name or path to weights"),
     # Training
     epochs: int = typer.Option(300, help="Training epochs"),
@@ -223,7 +223,11 @@ def train_cmd(
     try:
         results = loaded_model.train(data=data, **train_kwargs)
     except FileNotFoundError as e:
-        err = CLIError("data_not_found", str(e))
+        err = CLIError(
+            "data_not_found",
+            str(e),
+            suggestion=f"Check that '{data}' exists and is a valid YOLO-format dataset YAML.",
+        )
         out.error(err)
         raise SystemExit(err.exit_code)
     except Exception as e:
