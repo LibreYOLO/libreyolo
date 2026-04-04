@@ -311,12 +311,28 @@ def info_cmd(
     """Show model info: family, size, parameters, classes."""
     from libreyolo import LibreYOLO
 
-    from ..config import resolve_model_name
-    from ..errors import CLIError
+    from ..config import get_all_cli_names, resolve_model_name
+    from ..errors import CLIError, suggest_key
 
     out = _get_output(json_output, quiet)
 
     model_path = resolve_model_name(model)
+
+    # If resolve didn't match a CLI name and it's not a file path, error early
+    from pathlib import Path
+
+    if model_path == model and not Path(model).exists():
+        all_names = get_all_cli_names()
+        suggestion = suggest_key(model, all_names)
+        hint = f" Did you mean '{suggestion}'?" if suggestion else ""
+        err = CLIError(
+            "model_not_found",
+            f"Unknown model '{model}'.{hint}",
+            suggestion=f"Available: {', '.join(all_names)}",
+        )
+        out.error(err)
+        raise SystemExit(err.exit_code)
+
     try:
         loaded = LibreYOLO(model_path, device="cpu")
     except Exception as e:

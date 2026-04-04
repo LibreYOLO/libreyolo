@@ -66,6 +66,12 @@ def _build_name_map() -> None:
             _CLI_NAME_TO_WEIGHTS[cli_name] = filename
 
 
+def get_all_cli_names() -> list[str]:
+    """Return all valid CLI model names (e.g. ['yolox-n', 'yolox-s', ...])."""
+    _build_name_map()
+    return list(_CLI_NAME_TO_WEIGHTS.keys())
+
+
 def resolve_model_name(model: str) -> str:
     """Resolve a CLI model name to a weight filename or passthrough.
 
