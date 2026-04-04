@@ -176,8 +176,12 @@ def predict_cmd(
         "device": str(loaded_model.device),
         "results": result_list,
     }
+    if save and output_path:
+        data["output_path"] = output_path
 
     if not json_output:
+        if save and output_path:
+            human_lines.append(f"Results saved to {output_path}")
         data["_human_text"] = "\n".join(human_lines)
 
     out.result(data)
