@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Dict, List, Optional, Tuple, Union
+from typing import Dict, List, Optional, Tuple, Union
 
 import torch
 
@@ -18,15 +18,13 @@ from ...utils.drawing import draw_boxes, draw_tile_grid
 from ...utils.general import get_safe_stem, get_slice_bboxes, nms, resolve_save_path
 from ...utils.image_loader import ImageInput, ImageLoader
 from ...utils.results import Boxes, Results
-
-if TYPE_CHECKING:
-    from .model import BaseModel
+from .model import BaseModel
 
 
 class InferenceRunner:
     """Handles all inference logic on behalf of a BaseModel instance."""
 
-    def __init__(self, model: "BaseModel"):
+    def __init__(self, model: BaseModel):
         self.model = model
 
     def __call__(
@@ -293,7 +291,6 @@ class InferenceRunner:
         # Wrap into Results
         result = self._wrap_results(detections, original_size, image_path, classes)
 
-
         # Save annotated image
         if save:
             if len(result) > 0:
@@ -478,7 +475,7 @@ class InferenceRunner:
                     result.boxes.xyxy.tolist(),
                     result.boxes.conf.tolist(),
                     result.boxes.cls.tolist(),
-                    class_names=result.names
+                    class_names=result.names,
                 )
             else:
                 annotated_img = img_pil.copy()

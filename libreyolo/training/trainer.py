@@ -531,8 +531,10 @@ class BaseTrainer(ABC):
             logger.debug(
                 f"Extracted metrics: mAP50={metrics['mAP50']:.4f}, mAP50_95={metrics['mAP50_95']:.4f}"
             )
-            print(
-                f"Validation - mAP50: {metrics['mAP50']:.4f}, mAP50-95: {metrics['mAP50_95']:.4f}"
+            logger.info(
+                "Validation - mAP50: %.4f, mAP50-95: %.4f",
+                metrics["mAP50"],
+                metrics["mAP50_95"],
             )
             return metrics
 

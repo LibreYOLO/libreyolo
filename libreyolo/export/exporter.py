@@ -6,6 +6,7 @@ validation, model setup/teardown, calibration, and intermediate ONNX export.
 """
 
 import json
+import logging
 import warnings
 from abc import ABC, abstractmethod
 from contextlib import contextmanager
@@ -13,6 +14,8 @@ from pathlib import Path
 from typing import Optional
 
 import torch
+
+logger = logging.getLogger(__name__)
 
 from .onnx import _get_version, export_onnx
 from .torchscript import export_torchscript
@@ -63,6 +66,7 @@ class BaseExporter(ABC):
     suffix: str  # e.g. ".onnx"
     requires_onnx: bool  # TensorRT/OpenVINO need intermediate ONNX
     supports_int8: bool  # only TensorRT/OpenVINO support INT8 calibration
+    supports_fp16: bool  # whether the format supports FP16 export
     apply_model_half: bool  # whether to cast model to fp16 (only ONNX/TorchScript)
 
     def __init_subclass__(cls, **kwargs):
@@ -332,15 +336,16 @@ class BaseExporter(ABC):
             fraction=fraction,
             preprocess_fn=preprocess_fn,
         )
-        print(
-            f"Calibration dataset: {len(calibration_data)} batches, "
-            f"{calibration_data.num_samples} images"
+        logger.info(
+            "Calibration dataset: %d batches, %d images",
+            len(calibration_data),
+            calibration_data.num_samples,
         )
         return calibration_data
 
     def _export_intermediate_onnx(self, nn_model, dummy, output_path, opset, simplify):
         onnx_output = str(Path(output_path).with_suffix(".onnx"))
-        print(f"Step 1/2: Exporting to ONNX ({onnx_output})")
+        logger.info("Step 1/2: Exporting to ONNX (%s)", onnx_output)
         return export_onnx(
             nn_model,
             dummy,
@@ -384,12 +389,19 @@ class BaseExporter(ABC):
         }
 
     def _print_summary(self, result: str, precision: str, imgsz: int):
-        print(
-            f"\nExport complete: {result}\n"
-            f"  Model: {self.model._get_model_name()} {self.model.size}\n"
-            f"  Format: {self.format_name}\n"
-            f"  Precision: {_precision_label(precision)}\n"
-            f"  Input size: {imgsz}x{imgsz}"
+        logger.info(
+            "Export complete: %s\n"
+            "  Model: %s %s\n"
+            "  Format: %s\n"
+            "  Precision: %s\n"
+            "  Input size: %dx%d",
+            result,
+            self.model._get_model_name(),
+            self.model.size,
+            self.format_name,
+            _precision_label(precision),
+            imgsz,
+            imgsz,
         )
 
 
@@ -403,6 +415,7 @@ class OnnxExporter(BaseExporter):
     suffix = ".onnx"
     requires_onnx = False
     supports_int8 = False
+    supports_fp16 = True
     apply_model_half = True
 
     def _export(
@@ -435,6 +448,7 @@ class TorchScriptExporter(BaseExporter):
     suffix = ".torchscript"
     requires_onnx = False
     supports_int8 = False
+    supports_fp16 = True
     apply_model_half = True
 
     def _export(self, nn_model, dummy, *, output_path, **kwargs):
@@ -446,6 +460,7 @@ class TensorRTExporter(BaseExporter):
     suffix = ".engine"
     requires_onnx = True
     supports_int8 = True
+    supports_fp16 = True
     apply_model_half = False
 
     def _export(
@@ -470,7 +485,7 @@ class TensorRTExporter(BaseExporter):
     ):
         from .tensorrt import export_tensorrt
 
-        print("Step 2/2: Building TensorRT engine")
+        logger.info("Step 2/2: Building TensorRT engine")
         return export_tensorrt(
             onnx_path=onnx_path,
             output_path=output_path,
@@ -492,6 +507,7 @@ class OpenVINOExporter(BaseExporter):
     suffix = "_openvino"
     requires_onnx = True
     supports_int8 = True
+    supports_fp16 = True
     apply_model_half = False
 
     def _export(
@@ -510,7 +526,7 @@ class OpenVINOExporter(BaseExporter):
     ):
         from .openvino import export_openvino
 
-        print("Step 2/2: Converting to OpenVINO IR")
+        logger.info("Step 2/2: Converting to OpenVINO IR")
         return export_openvino(
             onnx_path=onnx_path,
             output_path=output_path,
@@ -527,6 +543,7 @@ class NcnnExporter(BaseExporter):
     suffix = "_ncnn"
     requires_onnx = False
     supports_int8 = False
+    supports_fp16 = False
     apply_model_half = False
 
     def _build_metadata(self, precision, dynamic, onnx_path):
@@ -540,7 +557,7 @@ class NcnnExporter(BaseExporter):
     ):
         from .ncnn import export_ncnn
 
-        print("Exporting to ncnn via PNNX")
+        logger.info("Exporting to ncnn via PNNX")
         return export_ncnn(
             nn_model,
             dummy,

@@ -1,11 +1,15 @@
 """INT8 calibration utilities for TensorRT export."""
 
+import logging
+
 import cv2
 import numpy as np
 from pathlib import Path
 from typing import Iterator
 
 from libreyolo.data.utils import load_data_config, get_img_files
+
+logger = logging.getLogger(__name__)
 
 
 class CalibrationDataLoader:
@@ -99,7 +103,7 @@ class CalibrationDataLoader:
                 img = self._preprocess(img_path)
                 batch_data.append(img)
             except Exception as e:
-                print(f"Warning: Skipping {img_path}: {e}")
+                logger.warning("Skipping %s: %s", img_path, e)
                 continue
 
             if len(batch_data) == self.batch:
