@@ -1,6 +1,11 @@
 ---
 name: libreyolo-add-native-detection-model
-description: Add a native detection model family to LibreYOLO. Use when integrating a model in the YOLOX/YOLOv9 style: local nn implementation, BaseModel wrapper, BaseTrainer integration, validation preprocessor, factory registration, export compatibility, and tests. Not for upstream-wrapper models or segmentation.
+description: >-
+  Add a native detection model family to LibreYOLO. Use when integrating a
+  model in the YOLOX/YOLOv9 style: local nn implementation, BaseModel wrapper,
+  BaseTrainer integration, validation preprocessor, factory registration,
+  export compatibility, and tests. Not for upstream-wrapper models or
+  segmentation.
 ---
 
 # Add a Native Detection Model to LibreYOLO
