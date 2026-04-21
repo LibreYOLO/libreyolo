@@ -2,6 +2,8 @@
 
 from typing import Any, NoReturn, Optional
 
+import typer
+
 from .errors import CLIError
 from .output import OutputHandler
 
@@ -16,7 +18,7 @@ def exit_with_error(
     """Emit a structured CLI error and terminate the command."""
     err = CLIError(code, message, suggestion=suggestion)
     out.error(err)
-    raise SystemExit(err.exit_code)
+    raise typer.Exit(code=err.exit_code)
 
 
 def load_model_or_exit(
