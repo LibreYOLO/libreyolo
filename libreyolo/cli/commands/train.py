@@ -9,6 +9,7 @@ from ..command_utils import (
     exit_with_error,
     help_json_callback,
     load_model_or_exit,
+    resolve_model_or_exit,
 )
 from ..config import (
     RFDETR_UNSUPPORTED_PARAMS,
@@ -119,6 +120,8 @@ def train_cmd(
     # Detect model family
     family = detect_family_from_name(model)
 
+    model_path = resolve_model_or_exit(out, model)
+
     # All training params in CLI-facing names (single source of truth).
     # build_train_kwargs() maps these to TrainConfig field names automatically.
     params = {
@@ -203,11 +206,6 @@ def train_cmd(
             )
         out.result(data_out)
         return
-
-    # Resolve CLI model name (yolox-s → LibreYOLOXs.pt)
-    from ..config import resolve_model_name
-
-    model_path = resolve_model_name(model)
 
     if allow_download_scripts:
         out.warning(

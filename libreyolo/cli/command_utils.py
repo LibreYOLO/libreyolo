@@ -1,7 +1,7 @@
 """Shared helpers for CLI command implementations."""
 
 import json
-
+from pathlib import Path
 from typing import Any, NoReturn, Optional
 
 import typer
@@ -42,6 +42,26 @@ def load_model_or_exit(
             "model_load_failed",
             f"Failed to load model '{model}': {exc}",
         )
+
+
+def resolve_model_or_exit(out: OutputHandler, model: str) -> str:
+    """Resolve a model reference or fail with a consistent CLI error."""
+    from .config import get_all_cli_names, is_known_weight_filename, resolve_model_name
+    from .errors import suggest_key
+
+    model_path = resolve_model_name(model)
+    if model_path != model or Path(model).exists() or is_known_weight_filename(model):
+        return model_path
+
+    all_names = get_all_cli_names()
+    suggestion = suggest_key(model, all_names)
+    hint = f" Did you mean '{suggestion}'?" if suggestion else ""
+    exit_with_error(
+        out,
+        "model_not_found",
+        f"Unknown model '{model}'.{hint}",
+        suggestion=f"Available: {', '.join(all_names)}",
+    )
 
 
 def exit_stage_error(

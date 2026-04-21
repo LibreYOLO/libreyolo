@@ -6,7 +6,12 @@ from typing import Optional
 
 import typer
 
-from ..command_utils import exit_with_error, help_json_callback, load_model_or_exit
+from ..command_utils import (
+    exit_with_error,
+    help_json_callback,
+    load_model_or_exit,
+    resolve_model_or_exit,
+)
 from ..output import OutputHandler
 
 
@@ -49,8 +54,6 @@ def predict_cmd(
     """Run inference on images."""
     from libreyolo.utils.general import increment_path
 
-    from ..config import resolve_model_name
-
     out = OutputHandler(json_mode=json_output, quiet=quiet)
 
     # Validate source exists
@@ -59,7 +62,7 @@ def predict_cmd(
         exit_with_error(out, "source_not_found", f"Source not found: {source}")
 
     # Resolve CLI model name (yolox-s → LibreYOLOXs.pt)
-    model_path = resolve_model_name(model)
+    model_path = resolve_model_or_exit(out, model)
 
     # Load model
     loaded_model = load_model_or_exit(

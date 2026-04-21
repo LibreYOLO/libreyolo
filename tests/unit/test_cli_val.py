@@ -41,7 +41,7 @@ class DummyModel:
 def test_val_cli_uses_public_argument_names(monkeypatch):
     dummy = DummyModel()
 
-    monkeypatch.setattr("libreyolo.cli.config.resolve_model_name", lambda model: model)
+    monkeypatch.setattr("libreyolo.cli.commands.val.resolve_model_or_exit", lambda out, model: model)
     monkeypatch.setattr("libreyolo.LibreYOLO", lambda *args, **kwargs: dummy)
     monkeypatch.setattr(
         "libreyolo.utils.general.increment_path",
@@ -79,7 +79,7 @@ def test_val_cli_uses_public_argument_names(monkeypatch):
 def test_val_cli_passes_allow_download_scripts(monkeypatch):
     dummy = DummyModel()
 
-    monkeypatch.setattr("libreyolo.cli.config.resolve_model_name", lambda model: model)
+    monkeypatch.setattr("libreyolo.cli.commands.val.resolve_model_or_exit", lambda out, model: model)
     monkeypatch.setattr("libreyolo.LibreYOLO", lambda *args, **kwargs: dummy)
     monkeypatch.setattr(
         "libreyolo.utils.general.increment_path",
