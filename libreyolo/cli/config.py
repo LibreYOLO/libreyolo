@@ -6,6 +6,7 @@ model family requires zero CLI changes.
 """
 
 from dataclasses import MISSING, fields
+from pathlib import Path
 from typing import Any, Optional
 
 import click
@@ -14,24 +15,26 @@ import click
 # RF-DETR does not support these augmentation/scheduler parameters.
 # They are warned and ignored rather than errored.
 RFDETR_UNSUPPORTED_PARAMS: set[str] = {
+    "imgsz",
     "mosaic",
     "mixup",
     "degrees",
     "shear",
     "scheduler",
-    "warmup_epochs",
     "warmup_lr_start",
     "min_lr_ratio",
     "mosaic_scale",
     "mixup_scale",
     "no_aug_epochs",
+    "optimizer",
     "momentum",
     "nesterov",
-    "ema",
-    "ema_decay",
     "hsv_prob",
     "flip_prob",
     "translate",
+    "amp",
+    "pretrained",
+    "log_interval",
 }
 
 
@@ -215,6 +218,71 @@ def build_train_kwargs(params: dict[str, Any]) -> dict[str, Any]:
         if cli_name in params:
             kwargs[f.name] = params[cli_name]
     return kwargs
+
+
+def _build_rfdetr_train_kwargs(
+    params: dict[str, Any], *, model_path: str | None = None
+) -> dict[str, Any]:
+    """Build RF-DETR kwargs without forcing unrelated generic CLI defaults.
+
+    RF-DETR uses a different training API than the YOLO-family wrappers. The CLI
+    should translate only the parameters it intentionally supports, and leave the
+    rest to RF-DETR's own defaults instead of pushing generic TrainConfig values.
+    """
+    from libreyolo.utils.general import increment_path
+
+    output_dir = increment_path(
+        Path(params["project"]) / params["name"],
+        exist_ok=params["exist_ok"],
+        mkdir=True,
+    )
+
+    kwargs: dict[str, Any] = {"output_dir": str(output_dir)}
+
+    direct_mappings = {
+        "epochs": "epochs",
+        "batch": "batch_size",
+        "lr0": "lr",
+        "workers": "num_workers",
+        "weight_decay": "weight_decay",
+        "eval_interval": "eval_interval",
+        "warmup_epochs": "warmup_epochs",
+        "ema": "use_ema",
+        "ema_decay": "ema_decay",
+        "save_period": "checkpoint_interval",
+        "seed": "seed",
+        "device": "device",
+    }
+
+    for cli_name, target_name in direct_mappings.items():
+        if is_user_provided(cli_name):
+            kwargs[target_name] = params[cli_name]
+
+    if is_user_provided("patience"):
+        kwargs["early_stopping"] = params["patience"] > 0
+        kwargs["early_stopping_patience"] = params["patience"]
+
+    if is_user_provided("resume"):
+        resume = params["resume"]
+        if resume is True:
+            resume = model_path
+        elif not resume:
+            resume = None
+        kwargs["resume"] = resume
+
+    return kwargs
+
+
+def build_family_train_kwargs(
+    params: dict[str, Any],
+    family: str | None,
+    *,
+    model_path: str | None = None,
+) -> dict[str, Any]:
+    """Build train kwargs, translating family-specific CLI/API mismatches."""
+    if family == "rfdetr":
+        return _build_rfdetr_train_kwargs(params, model_path=model_path)
+    return build_train_kwargs(params)
 
 
 # =========================================================================
