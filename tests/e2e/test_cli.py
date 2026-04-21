@@ -387,6 +387,8 @@ class TestExport:
         return _build_app()
 
     def test_export_onnx(self, app):
+        pytest.importorskip("onnx")
+
         result = runner.invoke(
             app,
             [
