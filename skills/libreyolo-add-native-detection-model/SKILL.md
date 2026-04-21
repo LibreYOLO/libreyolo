@@ -29,7 +29,7 @@ Every new native detection family must satisfy these:
 
 Only do these when the model actually needs them:
 
-- Add a custom validation preprocessor if neither the YOLOX nor YOLOv9 preprocessing pattern is correct.
+- Add a new validation preprocessor implementation only if neither the YOLOX nor YOLOv9 preprocessing pattern is correct. Still set `val_preprocessor_class` explicitly for the family.
 - Add head-only class rebuild logic if full model rebuild is wrong or wasteful.
 - Add state-dict key remapping if upstream keys do not match local module names.
 - Add backend parser branches if exported outputs are not compatible with existing YOLO-style parsing.
@@ -42,9 +42,19 @@ Do not turn these into blanket checklist items for every family.
 1. Decide the family identifier, filename prefix, size codes, input sizes, and output tensor shape.
 2. Read `references/contract.md` for the required wrapper and trainer interfaces.
 3. Create `libreyolo/models/<family>/` with the local `nn.py`, `model.py`, `trainer.py`, and supporting files.
-4. Register the family in `libreyolo/models/__init__.py` and export it from `libreyolo/__init__.py` if needed.
-5. Add config defaults and validation preprocessing only where the family truly differs from the current defaults.
+4. Register the family in `libreyolo/models/__init__.py` and export it from `libreyolo/__init__.py`.
+5. Add config defaults and an explicit `val_preprocessor_class`. Reuse an existing preprocessor implementation only if the semantics match exactly.
 6. Update the test catalog and add the smallest test set that proves the integration is real.
+
+## Hot files
+
+These are the files most native-family ports touch:
+
+- `libreyolo/__init__.py`
+- `libreyolo/models/__init__.py`
+- `libreyolo/training/config.py`
+- `libreyolo/validation/preprocessors.py`
+- `tests/e2e/conftest.py`
 
 ## Common traps
 
@@ -59,6 +69,13 @@ Read `references/gotchas.md` when you touch any of these:
 - checkpoint key remapping
 
 Important: `BaseModel._prepare_state_dict()` exists, but the current shared loader does **not** call it automatically. If your family depends on key remapping, wire that behavior explicitly.
+
+## Troubleshooting
+
+- Wrong family selected by `LibreYOLO(path)`: `can_load()` is too greedy or collides with an earlier family.
+- Validation mAP collapses while inference still looks plausible: training transform and validation preprocessing disagree on color space, scaling, or box semantics.
+- Exported model produces garbage detections: the head export path or backend parser does not match the model's true output format.
+- `load_state_dict` missing/unexpected keys: `_strict_loading()` is too strict, or key remapping was implemented through `_prepare_state_dict()` without wiring it into the real load path.
 
 ## Minimal validation
 

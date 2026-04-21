@@ -23,7 +23,7 @@ Must define:
 - Classmethods: `can_load`, `detect_size`, `detect_nb_classes`
 - Instance methods: `_init_model`, `_get_available_layers`, `_get_preprocess_numpy`, `_preprocess`, `_forward`, `_postprocess`
 
-See `reference/contract.md` section 1 for signatures.
+See `contract.md` section 1 for signatures.
 
 Size budget: YOLOX is 270 LOC; YOLOv9 is 311 LOC. Expect 200-350 LOC.
 
