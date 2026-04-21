@@ -14,6 +14,37 @@ import click
 from typer.core import TyperCommand
 
 
+_TRUE_VALUES = {"true", "1"}
+_FALSE_VALUES = {"false", "0"}
+
+
+def rewrite_known_bool_flags(args: list[str], bool_flags: set[str]) -> list[str]:
+    """Rewrite known bool flags from key=value or bare-word syntax.
+
+    This is used both by the CLI parser and by the entry point's early logging
+    setup so flags like ``quiet=true`` behave the same as ``--quiet``.
+    """
+    new_args: list[str] = []
+    for arg in args:
+        m = re.match(r"^([a-zA-Z_][a-zA-Z0-9_-]*)=(.*)$", arg)
+        if m:
+            key, value = m.group(1), m.group(2)
+            cli_key = key.replace("_", "-")
+            lower_value = value.lower()
+            if cli_key in bool_flags and lower_value in _TRUE_VALUES | _FALSE_VALUES:
+                if lower_value in _TRUE_VALUES:
+                    new_args.append(f"--{cli_key}")
+                else:
+                    new_args.append(f"--no-{cli_key}")
+            else:
+                new_args.append(arg)
+        elif arg.replace("_", "-") in bool_flags:
+            new_args.append(f"--{arg.replace('_', '-')}")
+        else:
+            new_args.append(arg)
+    return new_args
+
+
 class KeyValueCommand(TyperCommand):
     """Typer command that accepts both key=value and --key value syntax."""
 
@@ -27,8 +58,9 @@ class KeyValueCommand(TyperCommand):
                 for opt in param.secondary_opts:
                     bool_flags.add(opt.lstrip("-"))
 
-        new_args: list[str] = []
-        for arg in args:
+        new_args = rewrite_known_bool_flags(args, bool_flags)
+        parsed_args: list[str] = []
+        for arg in new_args:
             # Match key=value pattern (key must start with letter or underscore)
             m = re.match(r"^([a-zA-Z_][a-zA-Z0-9_-]*)=(.*)$", arg)
             if m:
@@ -36,27 +68,12 @@ class KeyValueCommand(TyperCommand):
                 cli_key = key.replace("_", "-")
 
                 # Boolean flag with explicit value: half=true → --half
-                if cli_key in bool_flags and value.lower() in (
-                    "true",
-                    "false",
-                    "1",
-                    "0",
-                ):
-                    if value.lower() in ("true", "1"):
-                        new_args.append(f"--{cli_key}")
-                    else:
-                        new_args.append(f"--no-{cli_key}")
-                else:
-                    new_args.append(f"--{cli_key}")
-                    new_args.append(value)
-
-            # Bare word matching a boolean flag: half → --half
-            elif arg.replace("_", "-") in bool_flags:
-                new_args.append(f"--{arg.replace('_', '-')}")
+                parsed_args.append(f"--{cli_key}")
+                parsed_args.append(value)
             else:
-                new_args.append(arg)
+                parsed_args.append(arg)
 
-        return super().parse_args(ctx, new_args)
+        return super().parse_args(ctx, parsed_args)
 
 
 class PythonLiteral(click.ParamType):
