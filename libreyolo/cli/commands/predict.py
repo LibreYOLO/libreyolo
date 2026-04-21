@@ -6,7 +6,7 @@ from typing import Optional
 
 import typer
 
-from ..errors import CLIError
+from ..command_utils import exit_with_error, load_model_or_exit
 from ..output import OutputHandler
 
 
@@ -47,7 +47,6 @@ def predict_cmd(
     ),
 ) -> None:
     """Run inference on images."""
-    from libreyolo import LibreYOLO
     from libreyolo.utils.general import increment_path
 
     from ..config import resolve_model_name
@@ -57,21 +56,15 @@ def predict_cmd(
     # Validate source exists
     source_path = Path(source)
     if not source_path.exists() and not source.startswith(("http://", "https://")):
-        err = CLIError("source_not_found", f"Source not found: {source}")
-        out.error(err)
-        raise SystemExit(err.exit_code)
+        exit_with_error(out, "source_not_found", f"Source not found: {source}")
 
     # Resolve CLI model name (yolox-s → LibreYOLOXs.pt)
     model_path = resolve_model_name(model)
 
     # Load model
-    out.progress(f"Loading {model}...")
-    try:
-        loaded_model = LibreYOLO(model_path, device=device)
-    except Exception as e:
-        err = CLIError("model_load_failed", str(e))
-        out.error(err)
-        raise SystemExit(err.exit_code)
+    loaded_model = load_model_or_exit(
+        out, model=model, model_path=model_path, device=device
+    )
 
     # NOTE: half for PyTorch inference is not yet supported in the inference
     # pipeline (model converts to FP16 but input stays FP32 → dtype mismatch).
@@ -96,9 +89,9 @@ def predict_cmd(
         try:
             parsed_classes = list(ast.literal_eval(classes))
         except (ValueError, SyntaxError):
-            err = CLIError("config_type_error", f"Invalid classes value: {classes}")
-            out.error(err)
-            raise SystemExit(err.exit_code)
+            exit_with_error(
+                out, "config_type_error", f"Invalid classes value: {classes}"
+            )
 
     # Run inference
     out.progress(f"Running inference on {source}...")

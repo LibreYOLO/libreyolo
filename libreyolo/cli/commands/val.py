@@ -5,7 +5,7 @@ from typing import Optional
 
 import typer
 
-from ..errors import CLIError
+from ..command_utils import exit_with_error, load_model_or_exit
 from ..output import OutputHandler
 
 
@@ -45,7 +45,6 @@ def val_cmd(
     ),
 ) -> None:
     """Evaluate a model on a dataset."""
-    from libreyolo import LibreYOLO
     from libreyolo.utils.general import increment_path
 
     out = OutputHandler(json_mode=json_output, quiet=quiet)
@@ -61,13 +60,9 @@ def val_cmd(
         )
 
     # Load model
-    out.progress(f"Loading {model}...")
-    try:
-        loaded_model = LibreYOLO(model_path, device=device)
-    except Exception as e:
-        err = CLIError("model_load_failed", str(e))
-        out.error(err)
-        raise SystemExit(err.exit_code)
+    loaded_model = load_model_or_exit(
+        out, model=model, model_path=model_path, device=device
+    )
 
     # Resolve save directory
     save_dir = str(increment_path(Path(project) / name, exist_ok=exist_ok, mkdir=True))
@@ -94,13 +89,9 @@ def val_cmd(
             max_det=max_det,
         )
     except FileNotFoundError as e:
-        err = CLIError("data_not_found", str(e))
-        out.error(err)
-        raise SystemExit(err.exit_code)
+        exit_with_error(out, "data_not_found", str(e))
     except Exception as e:
-        err = CLIError("io_error", str(e))
-        out.error(err)
-        raise SystemExit(err.exit_code)
+        exit_with_error(out, "io_error", str(e))
 
     # Extract metrics (keys like "metrics/mAP50", "metrics/mAP50-95")
     mAP50 = metrics.get("metrics/mAP50", 0.0)

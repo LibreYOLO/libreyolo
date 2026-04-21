@@ -6,6 +6,7 @@ from typing import Optional
 
 import typer
 
+from ..command_utils import exit_with_error, load_model_or_exit
 from ..output import OutputHandler
 
 
@@ -308,10 +309,8 @@ def info_cmd(
     quiet: bool = typer.Option(False, "--quiet", help="Suppress stderr"),
 ) -> None:
     """Show model info: family, size, parameters, classes."""
-    from libreyolo import LibreYOLO
-
     from ..config import get_all_cli_names, resolve_model_name
-    from ..errors import CLIError, suggest_key
+    from ..errors import suggest_key
 
     out = _get_output(json_output, quiet)
 
@@ -324,20 +323,13 @@ def info_cmd(
         all_names = get_all_cli_names()
         suggestion = suggest_key(model, all_names)
         hint = f" Did you mean '{suggestion}'?" if suggestion else ""
-        err = CLIError(
+        exit_with_error(
+            out,
             "model_not_found",
             f"Unknown model '{model}'.{hint}",
             suggestion=f"Available: {', '.join(all_names)}",
         )
-        out.error(err)
-        raise SystemExit(err.exit_code)
-
-    try:
-        loaded = LibreYOLO(model_path, device="cpu")
-    except Exception as e:
-        err = CLIError("model_load_failed", str(e))
-        out.error(err)
-        raise SystemExit(err.exit_code)
+    loaded = load_model_or_exit(out, model=model, model_path=model_path, device="cpu")
 
     num_params = sum(p.numel() for p in loaded.model.parameters())
     input_size = loaded.INPUT_SIZES.get(loaded.size, 640)

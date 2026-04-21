@@ -4,13 +4,13 @@ import time
 
 import typer
 
+from ..command_utils import exit_with_error, load_model_or_exit
 from ..config import (
     RFDETR_UNSUPPORTED_PARAMS,
     apply_family_defaults,
     build_family_train_kwargs,
     detect_family_from_name,
 )
-from ..errors import CLIError
 from ..output import OutputHandler
 
 
@@ -84,8 +84,6 @@ def train_cmd(
     """Train a detection model on a dataset."""
     import ast
 
-    from libreyolo import LibreYOLO
-
     out = OutputHandler(json_mode=json_output, quiet=quiet)
 
     # Parse tuple strings
@@ -101,9 +99,7 @@ def train_cmd(
             else mixup_scale
         )
     except (ValueError, SyntaxError) as e:
-        err = CLIError("config_type_error", f"Invalid scale value: {e}")
-        out.error(err)
-        raise SystemExit(err.exit_code)
+        exit_with_error(out, "config_type_error", f"Invalid scale value: {e}")
 
     # Parse resume (can be "true"/"false" or a path)
     resume_val: bool | str = False
@@ -214,13 +210,9 @@ def train_cmd(
         )
 
     # Load model
-    out.progress(f"Loading {model}...")
-    try:
-        loaded_model = LibreYOLO(model_path, device=device)
-    except Exception as e:
-        err = CLIError("model_load_failed", str(e))
-        out.error(err)
-        raise SystemExit(err.exit_code)
+    loaded_model = load_model_or_exit(
+        out, model=model, model_path=model_path, device=device
+    )
 
     # Build training kwargs, with family-specific translation where needed.
     train_kwargs = build_family_train_kwargs(params, family, model_path=model_path)
@@ -243,17 +235,14 @@ def train_cmd(
     try:
         results = loaded_model.train(data=data, **train_kwargs)
     except FileNotFoundError as e:
-        err = CLIError(
+        exit_with_error(
+            out,
             "data_not_found",
             str(e),
             suggestion=f"Check that '{data}' exists and is a valid YOLO-format dataset YAML.",
         )
-        out.error(err)
-        raise SystemExit(err.exit_code)
     except Exception as e:
-        err = CLIError("io_error", str(e))
-        out.error(err)
-        raise SystemExit(err.exit_code)
+        exit_with_error(out, "io_error", str(e))
 
     training_hours = (time.time() - t0) / 3600
 
