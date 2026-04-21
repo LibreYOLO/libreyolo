@@ -4,6 +4,7 @@ Model-specific trainers subclass BaseTrainer and override hooks.
 """
 
 import logging
+import sys
 import time
 from abc import ABC, abstractmethod
 from pathlib import Path
@@ -406,6 +407,8 @@ class BaseTrainer(ABC):
             self.train_loader,
             desc=f"Epoch {epoch + 1}/{self.config.epochs}",
             total=len(self.train_loader),
+            disable=not sys.stderr.isatty(),
+            file=sys.stderr,
         )
 
         total_loss = 0.0
