@@ -7,7 +7,7 @@ import typer
 from ..config import (
     RFDETR_UNSUPPORTED_PARAMS,
     apply_family_defaults,
-    build_train_kwargs,
+    build_family_train_kwargs,
     detect_family_from_name,
 )
 from ..errors import CLIError
@@ -211,10 +211,19 @@ def train_cmd(
         out.error(err)
         raise SystemExit(err.exit_code)
 
-    # Build training kwargs — auto-mapped from TrainConfig fields via aliases
-    train_kwargs = build_train_kwargs(params)
+    # Build training kwargs, with family-specific translation where needed.
+    train_kwargs = build_family_train_kwargs(params, family, model_path=model_path)
     train_kwargs["pretrained"] = pretrained  # Not in TrainConfig
-    if not val:
+    if family == "rfdetr":
+        train_kwargs.pop("pretrained", None)
+        if not val:
+            from ..config import is_user_provided
+
+            if is_user_provided("val"):
+                out.progress(
+                    "Warning: RF-DETR does not support disabling validation via val=false. Ignoring."
+                )
+    elif not val:
         train_kwargs["eval_interval"] = 0
 
     # Run training
@@ -241,7 +250,13 @@ def train_cmd(
     best_mAP50 = results.get("best_mAP50", None)
     best_mAP50_95 = results.get("best_mAP50_95", None)
     best_epoch = results.get("best_epoch", None)
-    save_dir = results.get("save_dir", f"{project}/{params['name']}")
+    save_dir = results.get("save_dir") or results.get(
+        "output_dir", f"{project}/{params['name']}"
+    )
+    best_weights = results.get("best_checkpoint") or f"{save_dir}/weights/best.pt"
+    last_weights = results.get("last_checkpoint")
+    if last_weights is None and loaded_model.FAMILY != "rfdetr":
+        last_weights = f"{save_dir}/weights/last.pt"
 
     data_out = {
         "status": "complete",
@@ -256,8 +271,8 @@ def train_cmd(
             if best_mAP50 is not None
             else None
         ),
-        "best_weights": f"{save_dir}/weights/best.pt",
-        "last_weights": f"{save_dir}/weights/last.pt",
+        "best_weights": best_weights,
+        "last_weights": last_weights,
         "training_time_hours": round(training_hours, 2),
         "save_dir": str(save_dir),
     }
@@ -271,7 +286,10 @@ def train_cmd(
                 f"Best results at epoch {best_epoch}:\n"
                 f"  mAP50: {best_mAP50:.4f}  mAP50-95: {best_mAP50_95:.4f}"
             )
-        lines.append(f"Weights saved to: {save_dir}/weights/best.pt")
+        if best_weights:
+            lines.append(f"Weights saved to: {best_weights}")
+        else:
+            lines.append(f"Artifacts saved to: {save_dir}")
         data_out["_human_text"] = "\n".join(lines)
 
     out.result(data_out)
