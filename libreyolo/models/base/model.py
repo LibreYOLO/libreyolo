@@ -351,6 +351,7 @@ class BaseModel(ABC):
         imgsz: int | None = None,
         conf: float = 0.001,
         iou: float = 0.6,
+        workers: int = 4,
         device: str | None = None,
         split: str = "val",
         save_json: bool = False,
@@ -365,6 +366,7 @@ class BaseModel(ABC):
             imgsz: Image size (defaults to model's native input size).
             conf: Confidence threshold.
             iou: IoU threshold for NMS.
+            workers: Number of dataloader workers.
             device: Device to use (default: same as model).
             split: Dataset split ("val", "test").
             save_json: Save predictions in COCO JSON format.
@@ -385,6 +387,7 @@ class BaseModel(ABC):
             imgsz=imgsz,
             conf_thres=conf,
             iou_thres=iou,
+            num_workers=workers,
             device=device or str(self.device),
             split=split,
             save_json=save_json,
