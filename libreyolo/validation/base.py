@@ -1,6 +1,7 @@
 """Base validator class for LibreYOLO."""
 
 import logging
+import sys
 import time
 from abc import ABC, abstractmethod
 from datetime import datetime
@@ -107,7 +108,8 @@ class BaseValidator(ABC):
             self.dataloader,
             desc="Validating",
             total=len(self.dataloader),
-            disable=not self.config.verbose,
+            disable=not self.config.verbose or not sys.stderr.isatty(),
+            file=sys.stderr,
         )
 
         total_start = time.time()
