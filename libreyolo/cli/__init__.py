@@ -15,6 +15,27 @@ app = typer.Typer(
 )
 
 
+def _configure_warning_filters() -> None:
+    """Suppress only known high-noise dependency deprecations."""
+    import warnings
+
+    warnings.filterwarnings(
+        "ignore",
+        message=r"`torch\.jit\.script` is deprecated\..*",
+        category=DeprecationWarning,
+    )
+    warnings.filterwarnings(
+        "ignore",
+        message=r"rfdetr\.util\.box_ops is deprecated;.*",
+        category=DeprecationWarning,
+    )
+    warnings.filterwarnings(
+        "ignore",
+        message=r"rfdetr\.util\.logger is deprecated;.*",
+        category=DeprecationWarning,
+    )
+
+
 def _strip_task_prefix() -> None:
     """Strip optional 'detect' task prefix from argv.
 
@@ -50,10 +71,7 @@ def _normalize_logging_flags() -> None:
 
 def entrypoint() -> None:
     """CLI entry point registered in pyproject.toml."""
-    import warnings
-
-    warnings.filterwarnings("ignore")
-
+    _configure_warning_filters()
     _strip_task_prefix()
     _normalize_logging_flags()
     _setup_logging_from_argv()
