@@ -5,7 +5,6 @@ from typing import Optional
 
 import typer
 
-from ..aliases import resolve_aliases
 from ..errors import CLIError
 from ..output import OutputHandler
 
@@ -63,18 +62,16 @@ def val_cmd(
     # Resolve save directory
     save_dir = str(increment_path(Path(project) / name, exist_ok=exist_ok, mkdir=True))
 
-    # Build val kwargs — use internal field names via alias resolution
-    val_overrides = resolve_aliases(
-        {"batch": batch, "conf": conf, "iou": iou, "workers": workers},
-        "val",
-    )
-
     # Run validation
     out.progress(f"Validating {model} on {data} ({split} split)...")
     try:
         metrics = loaded_model.val(
             data=data,
+            batch=batch,
             imgsz=imgsz,
+            conf=conf,
+            iou=iou,
+            workers=workers,
             device=device,
             split=split,
             save_json=save_json,
@@ -84,7 +81,6 @@ def val_cmd(
             use_coco_eval=use_coco_eval,
             half=half,
             max_det=max_det,
-            **val_overrides,
         )
     except FileNotFoundError as e:
         err = CLIError("data_not_found", str(e))
