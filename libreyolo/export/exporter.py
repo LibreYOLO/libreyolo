@@ -107,6 +107,7 @@ class BaseExporter(ABC):
         device: Optional[str] = None,
         data: Optional[str] = None,
         fraction: float = 1.0,
+        allow_download_scripts: bool = False,
         verbose: bool = False,
         **kwargs,
     ) -> str:
@@ -124,6 +125,7 @@ class BaseExporter(ABC):
             device: Device to trace on (default: model's current device).
             data: Path to data.yaml for INT8 calibration dataset.
             fraction: Fraction of calibration dataset to use (default: 1.0).
+            allow_download_scripts: Allow embedded Python in dataset YAML downloads.
             verbose: Enable verbose logging (default: False).
             **kwargs: Format-specific parameters forwarded to ``_export()``.
 
@@ -151,6 +153,7 @@ class BaseExporter(ABC):
                     imgsz,
                     batch,
                     fraction,
+                    allow_download_scripts,
                 )
                 if int8 and data is not None
                 else None
@@ -325,7 +328,14 @@ class BaseExporter(ABC):
             for m, orig_fwd in rfdetr_layernorm_patches:
                 m.forward = orig_fwd
 
-    def _load_calibration(self, data, imgsz, batch, fraction):
+    def _load_calibration(
+        self,
+        data,
+        imgsz,
+        batch,
+        fraction,
+        allow_download_scripts=False,
+    ):
         from .calibration import get_calibration_dataloader
 
         preprocess_fn = self.model._get_preprocess_numpy()
@@ -335,6 +345,7 @@ class BaseExporter(ABC):
             batch=batch,
             fraction=fraction,
             preprocess_fn=preprocess_fn,
+            allow_download_scripts=allow_download_scripts,
         )
         logger.info(
             "Calibration dataset: %d batches, %d images",

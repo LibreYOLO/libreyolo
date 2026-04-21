@@ -215,7 +215,7 @@ def img2label_paths(img_paths: List[Path]) -> List[Path]:
 
 
 def load_data_config(
-    data: str, autodownload: bool = True, allow_scripts: bool = True
+    data: str, autodownload: bool = True, allow_scripts: bool = False
 ) -> Dict:
     """
     Load dataset configuration from YAML file.
@@ -308,7 +308,7 @@ def _resolve_dataset_path(config: Dict, yaml_path: Path) -> Path:
 
 
 def check_dataset(
-    config: Dict, yaml_path: Path | None = None, allow_scripts: bool = True
+    config: Dict, yaml_path: Path | None = None, allow_scripts: bool = False
 ) -> Dict:
     """
     Check if dataset exists, download if missing and URL/script is provided.
@@ -372,17 +372,17 @@ def check_dataset(
 
 
 def _is_python_script(download_spec: str) -> bool:
-    """Check if download specification is a Python script."""
-    # Check for common Python patterns
-    python_indicators = [
-        "import ",
-        "from ",
-        "def ",
-        "exec(",
-        "download(",
-        "\n",  # Multiline usually indicates script
-    ]
-    return any(indicator in download_spec for indicator in python_indicators)
+    """Check if download specification is a Python script.
+
+    Only explicit HTTP(S) URLs are treated as data downloads. Everything else
+    is treated as executable script content and therefore subject to the
+    ``allow_scripts`` gate.
+    """
+    stripped = download_spec.strip()
+    parsed = urlparse(stripped)
+    if parsed.scheme in {"http", "https"}:
+        return False
+    return True
 
 
 def _execute_download_script(

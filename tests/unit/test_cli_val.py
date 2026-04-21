@@ -74,3 +74,28 @@ def test_val_cli_uses_public_argument_names(monkeypatch):
     assert "conf_thres" not in dummy.received
     assert "iou_thres" not in dummy.received
     assert "num_workers" not in dummy.received
+
+
+def test_val_cli_passes_allow_download_scripts(monkeypatch):
+    dummy = DummyModel()
+
+    monkeypatch.setattr("libreyolo.cli.config.resolve_model_name", lambda model: model)
+    monkeypatch.setattr("libreyolo.LibreYOLO", lambda *args, **kwargs: dummy)
+    monkeypatch.setattr(
+        "libreyolo.utils.general.increment_path",
+        lambda path, exist_ok=False, mkdir=False: path,
+    )
+
+    app = _make_app()
+    result = runner.invoke(
+        app,
+        [
+            "model=yolox-s",
+            "data=coco8.yaml",
+            "--allow-download-scripts",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert dummy.received["allow_download_scripts"] is True

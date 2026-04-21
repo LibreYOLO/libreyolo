@@ -70,6 +70,7 @@ class ValidationConfig:
 
     # Precision
     half: bool = False
+    allow_download_scripts: bool = False
 
     def __post_init__(self) -> None:
         if self.data is None and self.data_dir is None:

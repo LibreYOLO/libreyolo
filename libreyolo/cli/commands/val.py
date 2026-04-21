@@ -27,6 +27,11 @@ def val_cmd(
     name: str = typer.Option("exp", help="Experiment name"),
     exist_ok: bool = typer.Option(False, help="Reuse output directory"),
     use_coco_eval: bool = typer.Option(True, help="Use pycocotools evaluator"),
+    allow_download_scripts: bool = typer.Option(
+        False,
+        "--allow-download-scripts",
+        help="Allow embedded Python in dataset YAML download blocks",
+    ),
     # Agent flags
     json_output: bool = typer.Option(False, "--json", help="JSON output to stdout"),
     quiet: bool = typer.Option(False, "--quiet", help="Suppress stderr"),
@@ -50,6 +55,11 @@ def val_cmd(
 
     model_path = resolve_model_name(model)
 
+    if allow_download_scripts:
+        out.warning(
+            "Dataset download scripts are enabled. Embedded Python from the dataset YAML may execute locally."
+        )
+
     # Load model
     out.progress(f"Loading {model}...")
     try:
@@ -72,6 +82,7 @@ def val_cmd(
             conf=conf,
             iou=iou,
             workers=workers,
+            allow_download_scripts=allow_download_scripts,
             device=device,
             split=split,
             save_json=save_json,

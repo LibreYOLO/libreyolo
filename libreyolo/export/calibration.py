@@ -39,6 +39,7 @@ class CalibrationDataLoader:
         batch: int = 8,
         fraction: float = 1.0,
         preprocess_fn=None,
+        allow_download_scripts: bool = False,
     ):
         """
         Initialize calibration data loader.
@@ -51,6 +52,7 @@ class CalibrationDataLoader:
                      for faster calibration with slight accuracy tradeoff.
             preprocess_fn: Callable ``(img_rgb_hwc, input_size) -> (chw_float32, ratio)``.
                 Obtained from ``model._get_preprocess_numpy()``.
+            allow_download_scripts: Allow embedded Python in dataset YAML downloads.
         """
         self.imgsz = imgsz
         self.batch = batch
@@ -58,7 +60,11 @@ class CalibrationDataLoader:
         self._preprocess_fn = preprocess_fn
 
         # Load dataset config (handles resolve, download, path resolution)
-        data_config = load_data_config(data, autodownload=True)
+        data_config = load_data_config(
+            data,
+            autodownload=True,
+            allow_scripts=allow_download_scripts,
+        )
 
         # Get train images (preferred for calibration - more diverse) or val
         root = Path(data_config.get("path", "."))
@@ -137,6 +143,7 @@ def get_calibration_dataloader(
     batch: int = 8,
     fraction: float = 1.0,
     preprocess_fn=None,
+    allow_download_scripts: bool = False,
 ) -> CalibrationDataLoader:
     """
     Factory function for calibration data loader.
@@ -151,4 +158,11 @@ def get_calibration_dataloader(
     Returns:
         CalibrationDataLoader instance.
     """
-    return CalibrationDataLoader(data, imgsz, batch, fraction, preprocess_fn)
+    return CalibrationDataLoader(
+        data,
+        imgsz,
+        batch,
+        fraction,
+        preprocess_fn,
+        allow_download_scripts,
+    )

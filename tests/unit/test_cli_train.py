@@ -121,3 +121,42 @@ def test_train_dry_run_uses_rtdetr_defaults():
     assert data["resolved_config"]["optimizer"] == "adamw"
     assert data["resolved_config"]["lr0"] == 0.0001
     assert data["resolved_config"]["scheduler"] == "linear"
+
+
+class DummyYOLOXModel:
+    FAMILY = "yolox"
+    device = "cpu"
+
+    def __init__(self):
+        self.received = None
+
+    def train(self, **kwargs):
+        self.received = kwargs
+        return {"save_dir": "/tmp/runs/train/exp"}
+
+
+def test_train_cli_passes_allow_download_scripts(monkeypatch):
+    dummy = DummyYOLOXModel()
+
+    monkeypatch.setattr("libreyolo.cli.commands.train.detect_family_from_name", lambda model: "yolox")
+    monkeypatch.setattr("libreyolo.cli.commands.train.apply_family_defaults", lambda params, family, mode: params)
+    monkeypatch.setattr("libreyolo.cli.config.resolve_model_name", lambda model: model)
+    monkeypatch.setattr(
+        "libreyolo.utils.general.increment_path",
+        lambda path, exist_ok=False, mkdir=False: path,
+    )
+    monkeypatch.setattr("libreyolo.LibreYOLO", lambda *args, **kwargs: dummy)
+
+    app = _make_app()
+    result = runner.invoke(
+        app,
+        [
+            "data=coco8.yaml",
+            "model=yolox-s",
+            "--allow-download-scripts",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert dummy.received["allow_download_scripts"] is True

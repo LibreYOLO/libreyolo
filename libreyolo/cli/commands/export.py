@@ -24,6 +24,11 @@ def export_cmd(
     data: Optional[str] = typer.Option(None, help="Calibration data for INT8"),
     fraction: float = typer.Option(1.0, help="Fraction of calibration data"),
     device: str = typer.Option("auto", help="Device for tracing"),
+    allow_download_scripts: bool = typer.Option(
+        False,
+        "--allow-download-scripts",
+        help="Allow embedded Python in dataset YAML download blocks",
+    ),
     # Agent flags
     json_output: bool = typer.Option(False, "--json", help="JSON output to stdout"),
     quiet: bool = typer.Option(False, "--quiet", help="Suppress stderr"),
@@ -61,6 +66,11 @@ def export_cmd(
 
     model_path = resolve_model_name(model)
 
+    if allow_download_scripts and data is not None:
+        out.warning(
+            "Dataset download scripts are enabled. Embedded Python from the dataset YAML may execute locally."
+        )
+
     # Load model
     out.progress(f"Loading {model}...")
     try:
@@ -86,6 +96,7 @@ def export_cmd(
     if data is not None:
         export_kwargs["data"] = data
         export_kwargs["fraction"] = fraction
+        export_kwargs["allow_download_scripts"] = allow_download_scripts
 
     # Run export
     out.progress(f"Exporting {model} to {fmt}...")
