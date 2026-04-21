@@ -23,7 +23,7 @@ from PIL import Image
 from libreyolo import LibreYOLO
 from .conftest import ALL_MODELS_WITH_WEIGHTS, cuda_cleanup, make_ids, run_in_subprocess
 
-pytestmark = [pytest.mark.e2e, pytest.mark.rf1]
+pytestmark = [pytest.mark.e2e, pytest.mark.rf1, pytest.mark.slow, pytest.mark.network]
 
 DATASET_ROOT = Path.home() / ".cache" / "libreyolo" / "marbles"
 HF_REPO = "LibreYOLO/marbles"
