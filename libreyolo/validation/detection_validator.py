@@ -86,7 +86,10 @@ class DetectionValidator(BaseValidator):
         data_cfg = None
 
         if self.config.data:
-            data_cfg = load_data_config(self.config.data)
+            data_cfg = load_data_config(
+                self.config.data,
+                allow_scripts=self.config.allow_download_scripts,
+            )
             data_dir = data_cfg["root"]
             self.nc = data_cfg.get("nc", self.nc)
 

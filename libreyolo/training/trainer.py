@@ -201,7 +201,10 @@ class BaseTrainer(ABC):
         preproc, MosaicDatasetClass = self.create_transforms()
 
         if self.config.data:
-            data_cfg = load_data_config(self.config.data)
+            data_cfg = load_data_config(
+                self.config.data,
+                allow_scripts=self.config.allow_download_scripts,
+            )
             data_dir = data_cfg["root"]
             self.num_classes = data_cfg.get("nc", self.config.num_classes)
 

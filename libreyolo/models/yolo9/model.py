@@ -226,6 +226,7 @@ class LibreYOLO9(BaseModel):
         resume: bool = False,
         amp: bool = True,
         patience: int = 50,
+        allow_download_scripts: bool = False,
         **kwargs,
     ) -> dict:
         """Train the YOLOv9 model on a dataset.
@@ -254,7 +255,11 @@ class LibreYOLO9(BaseModel):
         from libreyolo.data import load_data_config
 
         try:
-            data_config = load_data_config(data, autodownload=True)
+            data_config = load_data_config(
+                data,
+                autodownload=True,
+                allow_scripts=allow_download_scripts,
+            )
             data = data_config.get("yaml_file", data)
         except Exception as e:
             raise FileNotFoundError(f"Failed to load dataset config '{data}': {e}")
@@ -300,6 +305,7 @@ class LibreYOLO9(BaseModel):
             resume=resume,
             amp=amp,
             patience=patience,
+            allow_download_scripts=allow_download_scripts,
             **kwargs,
         )
 

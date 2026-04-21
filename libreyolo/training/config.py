@@ -72,6 +72,7 @@ class TrainConfig:
     resume: bool = False
     log_interval: int = 10
     seed: int = 0
+    allow_download_scripts: bool = False
 
     @classmethod
     def from_kwargs(cls, **kwargs):

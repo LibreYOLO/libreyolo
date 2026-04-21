@@ -352,6 +352,7 @@ class BaseModel(ABC):
         conf: float = 0.001,
         iou: float = 0.6,
         workers: int = 4,
+        allow_download_scripts: bool = False,
         device: str | None = None,
         split: str = "val",
         save_json: bool = False,
@@ -367,6 +368,7 @@ class BaseModel(ABC):
             conf: Confidence threshold.
             iou: IoU threshold for NMS.
             workers: Number of dataloader workers.
+            allow_download_scripts: Allow embedded Python in dataset YAML downloads.
             device: Device to use (default: same as model).
             split: Dataset split ("val", "test").
             save_json: Save predictions in COCO JSON format.
@@ -388,6 +390,7 @@ class BaseModel(ABC):
             conf_thres=conf,
             iou_thres=iou,
             num_workers=workers,
+            allow_download_scripts=allow_download_scripts,
             device=device or str(self.device),
             split=split,
             save_json=save_json,

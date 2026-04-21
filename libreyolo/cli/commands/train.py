@@ -64,6 +64,11 @@ def train_cmd(
     exist_ok: bool = typer.Option(False, help="Reuse existing output directory"),
     save_period: int = typer.Option(10, help="Save checkpoint every N epochs"),
     log_interval: int = typer.Option(10, help="Log loss every N batches"),
+    allow_download_scripts: bool = typer.Option(
+        False,
+        "--allow-download-scripts",
+        help="Allow embedded Python in dataset YAML download blocks",
+    ),
     # Agent flags
     json_output: bool = typer.Option(False, "--json", help="JSON output to stdout"),
     quiet: bool = typer.Option(False, "--quiet", help="Suppress stderr"),
@@ -152,6 +157,7 @@ def train_cmd(
         "exist_ok": exist_ok,
         "save_period": save_period,
         "log_interval": log_interval,
+        "allow_download_scripts": allow_download_scripts,
     }
     if family:
         params = apply_family_defaults(params, family, "train")
@@ -201,6 +207,11 @@ def train_cmd(
     from ..config import resolve_model_name
 
     model_path = resolve_model_name(model)
+
+    if allow_download_scripts:
+        out.warning(
+            "Dataset download scripts are enabled. Embedded Python from the dataset YAML may execute locally."
+        )
 
     # Load model
     out.progress(f"Loading {model}...")

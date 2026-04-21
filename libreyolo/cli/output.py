@@ -33,6 +33,10 @@ class OutputHandler:
         """Write progress info to stderr via logger. Respects --quiet."""
         logger.info(message)
 
+    def warning(self, message: str) -> None:
+        """Write warnings to stderr."""
+        logger.warning(message)
+
     def error(self, err: CLIError) -> None:
         """Write error. With --json: JSON to stdout. Without: log to stderr."""
         if self.json_mode:
