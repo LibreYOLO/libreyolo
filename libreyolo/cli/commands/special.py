@@ -23,6 +23,7 @@ def _help_json_callback(ctx: typer.Context, value: bool) -> None:
     if not value:
         return
     params = []
+    flags = []
     for p in ctx.command.params:
         if p.name in ("help_json", "help"):
             continue
@@ -34,18 +35,15 @@ def _help_json_callback(ctx: typer.Context, value: bool) -> None:
         if p.help:
             info["help"] = p.help
         params.append(info)
+        if getattr(p, "is_flag", False):
+            for opt in (*p.opts, *p.secondary_opts):
+                if opt.startswith("--"):
+                    flags.append(opt)
     schema = {
         "schema_version": 1,
         "command": ctx.info_name,
         "parameters": params,
-        "flags": [
-            "--json",
-            "--quiet",
-            "--verbose",
-            "--yes",
-            "--help-json",
-            "--dry-run",
-        ],
+        "flags": sorted(set(flags)),
     }
     print(json.dumps(schema, default=str))
     ctx.exit()
