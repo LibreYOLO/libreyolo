@@ -1,9 +1,12 @@
 """Tests for KeyValueCommand — the key=value → --key value rewriting."""
 
+import sys
+
 import pytest
 import typer
 from typer.testing import CliRunner
 
+from libreyolo.cli import _normalize_logging_flags, _setup_logging_from_argv
 from libreyolo.cli.parsing import KeyValueCommand
 
 pytestmark = pytest.mark.unit
@@ -128,6 +131,40 @@ class TestBoolFlags:
         assert captured["name"] == "test"
         assert captured["half"] is True
         assert captured["count"] == 5
+
+
+class TestLoggingFlagNormalization:
+    def test_normalize_logging_flags_rewrites_key_value_syntax(self, monkeypatch):
+        monkeypatch.setattr(
+            sys,
+            "argv",
+            ["libreyolo", "predict", "quiet=true", "verbose=false", "model=yolox-s"],
+        )
+
+        _normalize_logging_flags()
+
+        assert sys.argv == [
+            "libreyolo",
+            "predict",
+            "--quiet",
+            "--no-verbose",
+            "model=yolox-s",
+        ]
+
+    def test_setup_logging_reads_normalized_quiet_flag(self, monkeypatch):
+        calls = {}
+
+        monkeypatch.setattr(sys, "argv", ["libreyolo", "predict", "--quiet"])
+        monkeypatch.setattr(
+            "libreyolo.utils.logging.setup_logging",
+            lambda quiet, verbose: calls.update(
+                {"quiet": quiet, "verbose": verbose}
+            ),
+        )
+
+        _setup_logging_from_argv()
+
+        assert calls == {"quiet": True, "verbose": False}
 
 
 class TestEdgeCases:

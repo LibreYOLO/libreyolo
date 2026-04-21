@@ -40,6 +40,14 @@ def _setup_logging_from_argv() -> None:
     setup_logging(quiet=quiet, verbose=verbose)
 
 
+def _normalize_logging_flags() -> None:
+    """Normalize key=value bool syntax for flags that affect early logging."""
+    from .parsing import rewrite_known_bool_flags
+
+    args = rewrite_known_bool_flags(sys.argv[1:], {"quiet", "verbose"})
+    sys.argv = [sys.argv[0]] + args
+
+
 def entrypoint() -> None:
     """CLI entry point registered in pyproject.toml."""
     import warnings
@@ -47,6 +55,7 @@ def entrypoint() -> None:
     warnings.filterwarnings("ignore")
 
     _strip_task_prefix()
+    _normalize_logging_flags()
     _setup_logging_from_argv()
 
     from .commands import special, predict, train, val, export  # noqa: F401
