@@ -1,6 +1,4 @@
 """Special commands: version, checks, models, formats, cfg, info."""
-
-import json
 import sys
 from typing import Optional
 
@@ -13,41 +11,8 @@ from ..output import OutputHandler
 # =========================================================================
 # Helpers
 # =========================================================================
-
-
 def _get_output(json_output: bool, quiet: bool) -> OutputHandler:
     return OutputHandler(json_mode=json_output, quiet=quiet)
-
-
-def _help_json_callback(ctx: typer.Context, value: bool) -> None:
-    """Eager callback for --help-json: dump command schema and exit."""
-    if not value:
-        return
-    params = []
-    flags = []
-    for p in ctx.command.params:
-        if p.name in ("help_json", "help"):
-            continue
-        info: dict = {"name": p.name, "type": p.type.name}
-        if p.default is not None:
-            info["default"] = p.default
-        if p.required:
-            info["required"] = True
-        if p.help:
-            info["help"] = p.help
-        params.append(info)
-        if getattr(p, "is_flag", False):
-            for opt in (*p.opts, *p.secondary_opts):
-                if opt.startswith("--"):
-                    flags.append(opt)
-    schema = {
-        "schema_version": 1,
-        "command": ctx.info_name,
-        "parameters": params,
-        "flags": sorted(set(flags)),
-    }
-    print(json.dumps(schema, default=str))
-    ctx.exit()
 
 
 # =========================================================================

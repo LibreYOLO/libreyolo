@@ -6,7 +6,7 @@ from typing import Optional
 
 import typer
 
-from ..command_utils import exit_with_error, load_model_or_exit
+from ..command_utils import exit_with_error, help_json_callback, load_model_or_exit
 from ..output import OutputHandler
 
 
@@ -42,7 +42,7 @@ def predict_cmd(
         False,
         "--help-json",
         is_eager=True,
-        callback=lambda ctx, param, v: _help_json(ctx, v),
+        callback=help_json_callback,
         help="Dump command schema as JSON",
     ),
 ) -> None:
@@ -178,12 +178,3 @@ def predict_cmd(
         data["_human_text"] = "\n".join(human_lines)
 
     out.result(data)
-
-
-def _help_json(ctx: typer.Context, value: bool) -> None:
-    """Eager callback for --help-json."""
-    if not value:
-        return
-    from ..commands.special import _help_json_callback
-
-    _help_json_callback(ctx, value)

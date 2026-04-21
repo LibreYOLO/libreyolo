@@ -4,7 +4,12 @@ import time
 
 import typer
 
-from ..command_utils import exit_stage_error, exit_with_error, load_model_or_exit
+from ..command_utils import (
+    exit_stage_error,
+    exit_with_error,
+    help_json_callback,
+    load_model_or_exit,
+)
 from ..config import (
     RFDETR_UNSUPPORTED_PARAMS,
     apply_family_defaults,
@@ -77,7 +82,7 @@ def train_cmd(
         False,
         "--help-json",
         is_eager=True,
-        callback=lambda ctx, param, v: _help_json(ctx, v),
+        callback=help_json_callback,
         help="Dump command schema as JSON",
     ),
 ) -> None:
@@ -293,11 +298,3 @@ def train_cmd(
         data_out["_human_text"] = "\n".join(lines)
 
     out.result(data_out)
-
-
-def _help_json(ctx: typer.Context, value: bool) -> None:
-    if not value:
-        return
-    from ..commands.special import _help_json_callback
-
-    _help_json_callback(ctx, value)

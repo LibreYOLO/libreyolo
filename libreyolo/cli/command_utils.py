@@ -1,5 +1,7 @@
 """Shared helpers for CLI command implementations."""
 
+import json
+
 from typing import Any, NoReturn, Optional
 
 import typer
@@ -57,3 +59,41 @@ def exit_stage_error(
         f"{stage} failed: {detail}",
         suggestion=suggestion,
     )
+
+
+def help_json_callback(
+    ctx: typer.Context,
+    param: typer.CallbackParam,
+    value: bool,
+) -> None:
+    """Eager callback for --help-json: dump command schema and exit."""
+    del param
+    if not value:
+        return
+
+    params = []
+    flags = []
+    for p in ctx.command.params:
+        if p.name in ("help_json", "help"):
+            continue
+        info: dict[str, Any] = {"name": p.name, "type": p.type.name}
+        if p.default is not None:
+            info["default"] = p.default
+        if p.required:
+            info["required"] = True
+        if p.help:
+            info["help"] = p.help
+        params.append(info)
+        if getattr(p, "is_flag", False):
+            for opt in (*p.opts, *p.secondary_opts):
+                if opt.startswith("--"):
+                    flags.append(opt)
+
+    schema = {
+        "schema_version": 1,
+        "command": ctx.info_name,
+        "parameters": params,
+        "flags": sorted(set(flags)),
+    }
+    print(json.dumps(schema, default=str))
+    ctx.exit()
