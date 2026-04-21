@@ -5,7 +5,7 @@ from typing import Optional
 
 import typer
 
-from ..errors import CLIError
+from ..command_utils import exit_with_error, load_model_or_exit
 from ..output import OutputHandler
 
 
@@ -42,8 +42,6 @@ def export_cmd(
     ),
 ) -> None:
     """Export a model to a deployment format."""
-    from libreyolo import LibreYOLO
-
     out = OutputHandler(json_mode=json_output, quiet=quiet)
 
     # Resolve format alias
@@ -53,13 +51,12 @@ def export_cmd(
 
     # Validate precision conflict
     if half and int8:
-        err = CLIError(
+        exit_with_error(
+            out,
             "config_conflict",
             "Cannot use both half (FP16) and int8 simultaneously.",
             suggestion="Choose one: half or int8",
         )
-        out.error(err)
-        raise SystemExit(err.exit_code)
 
     # Resolve CLI model name
     from ..config import resolve_model_name
@@ -72,13 +69,9 @@ def export_cmd(
         )
 
     # Load model
-    out.progress(f"Loading {model}...")
-    try:
-        loaded_model = LibreYOLO(model_path, device=device)
-    except Exception as e:
-        err = CLIError("model_load_failed", str(e))
-        out.error(err)
-        raise SystemExit(err.exit_code)
+    loaded_model = load_model_or_exit(
+        out, model=model, model_path=model_path, device=device
+    )
 
     # Build export kwargs
     export_kwargs: dict = {
@@ -104,21 +97,16 @@ def export_cmd(
         output_path = loaded_model.export(format=fmt, **export_kwargs)
     except ValueError as e:
         if "Unsupported export format" in str(e):
-            err = CLIError(
+            exit_with_error(
+                out,
                 "export_format_unknown", str(e), suggestion="Run: libreyolo formats"
             )
         else:
-            err = CLIError("io_error", str(e))
-        out.error(err)
-        raise SystemExit(err.exit_code)
+            exit_with_error(out, "io_error", str(e))
     except ImportError as e:
-        err = CLIError("export_dep_missing", str(e))
-        out.error(err)
-        raise SystemExit(err.exit_code)
+        exit_with_error(out, "export_dep_missing", str(e))
     except Exception as e:
-        err = CLIError("io_error", str(e))
-        out.error(err)
-        raise SystemExit(err.exit_code)
+        exit_with_error(out, "io_error", str(e))
 
     # File size
     export_path = Path(output_path)
