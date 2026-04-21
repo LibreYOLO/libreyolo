@@ -10,6 +10,7 @@ from ..command_utils import (
     exit_with_error,
     help_json_callback,
     load_model_or_exit,
+    resolve_model_or_exit,
 )
 from ..output import OutputHandler
 
@@ -63,10 +64,7 @@ def export_cmd(
             suggestion="Choose one: half or int8",
         )
 
-    # Resolve CLI model name
-    from ..config import resolve_model_name
-
-    model_path = resolve_model_name(model)
+    model_path = resolve_model_or_exit(out, model)
 
     if allow_download_scripts and data is not None:
         out.warning(

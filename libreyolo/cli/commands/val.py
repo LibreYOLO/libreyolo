@@ -10,6 +10,7 @@ from ..command_utils import (
     exit_with_error,
     help_json_callback,
     load_model_or_exit,
+    resolve_model_or_exit,
 )
 from ..output import OutputHandler
 
@@ -53,11 +54,7 @@ def val_cmd(
     from libreyolo.utils.general import increment_path
 
     out = OutputHandler(json_mode=json_output, quiet=quiet)
-
-    # Resolve CLI model name
-    from ..config import resolve_model_name
-
-    model_path = resolve_model_name(model)
+    model_path = resolve_model_or_exit(out, model)
 
     if allow_download_scripts:
         out.warning(

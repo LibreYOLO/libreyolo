@@ -41,7 +41,7 @@ def test_train_cli_translates_rfdetr_kwargs_and_outputs(monkeypatch):
 
     monkeypatch.setattr("libreyolo.cli.commands.train.detect_family_from_name", lambda model: "rfdetr")
     monkeypatch.setattr("libreyolo.cli.commands.train.apply_family_defaults", lambda params, family, mode: params)
-    monkeypatch.setattr("libreyolo.cli.config.resolve_model_name", lambda model: model)
+    monkeypatch.setattr("libreyolo.cli.commands.train.resolve_model_or_exit", lambda out, model: model)
     monkeypatch.setattr("libreyolo.cli.config.is_user_provided", lambda name: name in {
         "batch",
         "lr0",
@@ -140,7 +140,7 @@ def test_train_cli_passes_allow_download_scripts(monkeypatch):
 
     monkeypatch.setattr("libreyolo.cli.commands.train.detect_family_from_name", lambda model: "yolox")
     monkeypatch.setattr("libreyolo.cli.commands.train.apply_family_defaults", lambda params, family, mode: params)
-    monkeypatch.setattr("libreyolo.cli.config.resolve_model_name", lambda model: model)
+    monkeypatch.setattr("libreyolo.cli.commands.train.resolve_model_or_exit", lambda out, model: model)
     monkeypatch.setattr(
         "libreyolo.utils.general.increment_path",
         lambda path, exist_ok=False, mkdir=False: path,

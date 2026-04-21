@@ -10,6 +10,7 @@ from libreyolo.cli.config import (
     get_cfg_defaults,
     get_family_defaults,
     get_train_config_class,
+    is_known_weight_filename,
     resolve_model_name,
 )
 from libreyolo.training.config import TrainConfig, YOLOXConfig, YOLO9Config
@@ -41,6 +42,11 @@ class TestResolveModelName:
 
     def test_unknown_model_passthrough(self):
         assert resolve_model_name("unknown-model") == "unknown-model"
+
+    def test_known_weight_filename_detection(self):
+        assert is_known_weight_filename("LibreYOLOXs.pt") is True
+        assert is_known_weight_filename("weights/LibreYOLOXs.pt") is True
+        assert is_known_weight_filename("not-a-real-model.pt") is False
 
 
 class TestDetectFamilyFromName:

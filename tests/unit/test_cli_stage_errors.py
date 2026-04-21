@@ -40,7 +40,9 @@ class _FailingModel:
 
 @pytest.fixture
 def app(monkeypatch):
-    monkeypatch.setattr("libreyolo.cli.config.resolve_model_name", lambda model: model)
+    monkeypatch.setattr("libreyolo.cli.commands.train.resolve_model_or_exit", lambda out, model: model)
+    monkeypatch.setattr("libreyolo.cli.commands.val.resolve_model_or_exit", lambda out, model: model)
+    monkeypatch.setattr("libreyolo.cli.commands.export.resolve_model_or_exit", lambda out, model: model)
     monkeypatch.setattr("libreyolo.LibreYOLO", lambda *args, **kwargs: _FailingModel())
     monkeypatch.setattr(
         "libreyolo.utils.general.increment_path",

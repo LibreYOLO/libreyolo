@@ -4,7 +4,7 @@ from typing import Optional
 
 import typer
 
-from ..command_utils import exit_with_error, load_model_or_exit
+from ..command_utils import load_model_or_exit, resolve_model_or_exit
 from ..output import OutputHandler
 
 
@@ -274,26 +274,9 @@ def info_cmd(
     quiet: bool = typer.Option(False, "--quiet", help="Suppress stderr"),
 ) -> None:
     """Show model info: family, size, parameters, classes."""
-    from ..config import get_all_cli_names, resolve_model_name
-    from ..errors import suggest_key
-
     out = _get_output(json_output, quiet)
 
-    model_path = resolve_model_name(model)
-
-    # If resolve didn't match a CLI name and it's not a file path, error early
-    from pathlib import Path
-
-    if model_path == model and not Path(model).exists():
-        all_names = get_all_cli_names()
-        suggestion = suggest_key(model, all_names)
-        hint = f" Did you mean '{suggestion}'?" if suggestion else ""
-        exit_with_error(
-            out,
-            "model_not_found",
-            f"Unknown model '{model}'.{hint}",
-            suggestion=f"Available: {', '.join(all_names)}",
-        )
+    model_path = resolve_model_or_exit(out, model)
     loaded = load_model_or_exit(out, model=model, model_path=model_path, device="cpu")
 
     num_params = sum(p.numel() for p in loaded.model.parameters())

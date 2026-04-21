@@ -75,6 +75,13 @@ def get_all_cli_names() -> list[str]:
     return list(_CLI_NAME_TO_WEIGHTS.keys())
 
 
+def is_known_weight_filename(model: str) -> bool:
+    """Return whether a path or filename matches a known packaged weight name."""
+    _build_name_map()
+    filename = Path(model).name.lower()
+    return any(Path(weight).name.lower() == filename for weight in _CLI_NAME_TO_WEIGHTS.values())
+
+
 def resolve_model_name(model: str) -> str:
     """Resolve a CLI model name to a weight filename or passthrough.
 
