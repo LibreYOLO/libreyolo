@@ -5,7 +5,7 @@ from typing import Optional
 
 import typer
 
-from ..command_utils import exit_with_error, load_model_or_exit
+from ..command_utils import exit_stage_error, exit_with_error, load_model_or_exit
 from ..output import OutputHandler
 
 
@@ -91,7 +91,7 @@ def val_cmd(
     except FileNotFoundError as e:
         exit_with_error(out, "data_not_found", str(e))
     except Exception as e:
-        exit_with_error(out, "io_error", str(e))
+        exit_stage_error(out, stage="Validation", detail=e)
 
     # Extract metrics (keys like "metrics/mAP50", "metrics/mAP50-95")
     mAP50 = metrics.get("metrics/mAP50", 0.0)
