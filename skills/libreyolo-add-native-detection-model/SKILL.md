@@ -68,7 +68,7 @@ Read `references/gotchas.md` when you touch any of these:
 - class-count rebuilding
 - checkpoint key remapping
 
-Important: `BaseModel._prepare_state_dict()` exists, but the current shared loader does **not** call it automatically. If your family depends on key remapping, wire that behavior explicitly.
+Important: `BaseModel._prepare_state_dict()` exists, but the current shared loader does **not** call it automatically. If your family depends on key remapping, do it in the real load path: remap keys before `load_state_dict()`, override `_load_weights()`, or add the remap in family-specific init/load code before the shared loader runs.
 
 ## Troubleshooting
 

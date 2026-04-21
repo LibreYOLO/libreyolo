@@ -132,6 +132,8 @@ Only edit these if your model diverges from the YOLO-grid output convention.
 
 Add `_preprocess_<family>` and `_parse_<family>` branches only if your ONNX/TensorRT output format differs from standard YOLO grid outputs.
 
+This file already dispatches on `self.model_family` in both `_preprocess(...)` and `_parse_outputs(...)`. New exported families must either fit the existing YOLOX or YOLOv9-style paths, or add a new family branch here.
+
 - YOLOX and YOLOv9 did NOT need this — they share the default YOLO parsing path.
 - RF-DETR and the historical RT-DETR both needed it (query-based outputs).
 

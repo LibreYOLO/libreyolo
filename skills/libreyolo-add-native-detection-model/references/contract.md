@@ -224,6 +224,8 @@ You can also write your own and return it here — just implement `update_lr(ite
 
 Extract named loss components from the model's output dict for progress-bar and TensorBoard logging.
 
+Training forward must return a dict containing `total_loss`. `BaseTrainer` reads `outputs["total_loss"]` directly during backprop; `get_loss_components()` is only for logging the extra terms.
+
 ```python
 # YOLOX (yolox/trainer.py:49-55) — note the key names match what the YOLOX head returns
 def get_loss_components(self, outputs: Dict) -> Dict[str, float]:
@@ -280,6 +282,8 @@ def _config_class(cls) -> Type[TrainConfig]:
 ```
 
 Override this classmethod to make the trainer use your family's config dataclass when constructing `self.config` from kwargs.
+
+If you forget this override, `BaseTrainer` falls back to plain `TrainConfig`. That base config is broadly YOLO-style but still carries defaults like `scheduler="yoloxwarmcos"` and `mixup_prob=1.0`, so your family's intended recipe can be silently replaced by the wrong defaults.
 
 ---
 

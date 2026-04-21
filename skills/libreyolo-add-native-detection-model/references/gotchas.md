@@ -117,7 +117,7 @@ Never check generic tokens (`backbone`, `head`, `weight`, `bias`). When unsure, 
 
 **How it breaks.** If your model has any optional modules (EMA state, reparam-able convs, profiling buffers, auxiliary heads), or if upstream weight formats occasionally include debug keys, strict loading raises `RuntimeError` on an otherwise-valid checkpoint.
 
-**How to avoid.** If you suspect any flexibility is needed, override `_strict_loading()` to return `False` (see YOLOX's override at yolox/model.py:108-109). If legacy keys need renaming, do not rely on `_prepare_state_dict()` alone — the current shared loader does not call it. Either remap keys before calling `load_state_dict()` or override the family load path explicitly.
+**How to avoid.** If you suspect any flexibility is needed, override `_strict_loading()` to return `False` (see YOLOX's override at yolox/model.py:108-109). If legacy keys need renaming, do not rely on `_prepare_state_dict()` alone — the current shared loader does not call it. Either remap keys before calling `load_state_dict()`, override `_load_weights()`, or do the remap in family-specific init/load code before the shared loader runs.
 
 ---
 
