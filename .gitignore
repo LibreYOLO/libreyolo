@@ -35,6 +35,10 @@ tests/output/
 # Environment
 .env
 
+# Local AI tooling state
+.claude/settings.local.json
+.claude/worktrees/
+
 # Project
 temporary/
 runs/
