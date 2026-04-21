@@ -142,14 +142,14 @@ Run the model forward pass. The return value is opaque to `BaseModel` — it's p
 
 #### `_postprocess(self, output, conf_thres, iou_thres, original_size, max_det, ratio) -> Dict`
 
-Decode raw model output into a detections dict. Structure: `{"num_detections": int, "boxes": np.ndarray, "scores": np.ndarray, "labels": np.ndarray}`.
+Decode raw model output into a detections dict. Structure: `{"num_detections": int, "boxes": np.ndarray, "scores": np.ndarray, "classes": np.ndarray}`.
 
 ### 1.5 Instance methods (concrete — optional overrides)
 
 Override only when the default doesn't work.
 
 - `_strict_loading() -> bool` (default `True`) — set to `False` if checkpoints contain profiling buffers, EMA artifacts, or legacy keys. YOLOX overrides at `yolox/model.py:108-109`.
-- `_prepare_state_dict(state_dict) -> dict` (default identity) — remap legacy key names. YOLOv9 uses this to rewrite `detect.*` → `head.*` (`yolo9/model.py:133-141`).
+- `_prepare_state_dict(state_dict) -> dict` (default identity) — defined as an extension hook, but the current shared loader does **not** call it. YOLOv9 overrides it to rewrite `detect.*` → `head.*` (`yolo9/model.py:133-141`), but that override does not fire unless you wire it into your load path explicitly.
 - `_rebuild_for_new_classes(new_nb_classes)` (default works for most models) — override only if you need special handling for class-count changes.
 - `_get_model_name() -> str` (default `self.FAMILY`) — rarely overridden.
 

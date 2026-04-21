@@ -113,11 +113,11 @@ Never check generic tokens (`backbone`, `head`, `weight`, `bias`). When unsure, 
 
 ## 10. strict=True state-dict loading
 
-**What it is.** `BaseModel._strict_loading()` returns `True` by default. `torch.load(path, strict=True)` rejects checkpoints with any missing or unexpected keys.
+**What it is.** `BaseModel._strict_loading()` returns `True` by default. The shared loader then passes that flag into `self.model.load_state_dict(state_dict, strict=...)`.
 
 **How it breaks.** If your model has any optional modules (EMA state, reparam-able convs, profiling buffers, auxiliary heads), or if upstream weight formats occasionally include debug keys, strict loading raises `RuntimeError` on an otherwise-valid checkpoint.
 
-**How to avoid.** If you suspect any flexibility is needed, override `_strict_loading()` to return `False` (see YOLOX's override at yolox/model.py:108-109). If legacy keys need renaming, override `_prepare_state_dict()` — see YOLOv9's `detect.*` → `head.*` rewrite at yolo9/model.py:133-141.
+**How to avoid.** If you suspect any flexibility is needed, override `_strict_loading()` to return `False` (see YOLOX's override at yolox/model.py:108-109). If legacy keys need renaming, do not rely on `_prepare_state_dict()` alone — the current shared loader does not call it. Either remap keys before calling `load_state_dict()` or override the family load path explicitly.
 
 ---
 
