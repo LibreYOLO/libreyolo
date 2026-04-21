@@ -22,13 +22,21 @@ from .conftest import (
     QUICK_TEST_MODELS,
     RFDETR_TEST_MODELS,
     load_model,
+    match_detections,
     requires_rfdetr,
+    results_are_acceptable,
     run_consistency_test,
     run_export_compare_test,
     run_metadata_round_trip_test,
 )
 
 pytestmark = pytest.mark.e2e
+OFFICIAL_YOLONAS_S = Path("downloads/yolonas/yolo_nas_s_coco.pth")
+OFFICIAL_YOLONAS_WEIGHTS = {
+    "s": Path("downloads/yolonas/yolo_nas_s_coco.pth"),
+    "m": Path("downloads/yolonas/yolo_nas_m_coco.pth"),
+    "l": Path("downloads/yolonas/yolo_nas_l_coco.pth"),
+}
 
 
 # ---------------------------------------------------------------------------
@@ -75,6 +83,53 @@ class TestONNXExport:
         # ONNX-specific: verify model validity
         onnx_model = onnx.load(exported_path)
         onnx.checker.check_model(onnx_model)
+
+
+class TestONNXYOLONAS:
+    """Test ONNX export for the official YOLO-NAS-S checkpoint."""
+
+    @pytest.mark.skipif(
+        not OFFICIAL_YOLONAS_S.exists(),
+        reason="Official YOLO-NAS-S checkpoint not present in downloads/yolonas/",
+    )
+    def test_onnx_export_yolonas_s(self, sample_image, tmp_path):
+        """Export YOLO-NAS-S to ONNX, reload it, and compare inference results."""
+        from libreyolo import LibreYOLO
+
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+
+        pt_model = LibreYOLO(str(OFFICIAL_YOLONAS_S), device=device)
+        pt_results = pt_model(sample_image, conf=0.25)
+
+        onnx_path = str(tmp_path / "yolonas_s.onnx")
+        exported_path = pt_model.export(
+            format="onnx",
+            output_path=onnx_path,
+            simplify=True,
+            dynamic=True,
+        )
+        assert Path(exported_path).exists(), "ONNX file not created"
+
+        onnx_model = onnx.load(exported_path)
+        onnx.checker.check_model(onnx_model)
+
+        loaded_model = LibreYOLO(exported_path, device=device)
+        assert loaded_model.model_family == "yolonas"
+        assert loaded_model.nb_classes == pt_model.nb_classes
+        assert loaded_model.names == pt_model.names
+
+        onnx_results = loaded_model(sample_image, conf=0.25)
+
+        match_rate, matched, total = match_detections(pt_results, onnx_results)
+        assert results_are_acceptable(
+            match_rate,
+            len(pt_results),
+            len(onnx_results),
+            threshold=0.8,
+        ), (
+            f"Results mismatch: PT={len(pt_results)}, ONNX={len(onnx_results)}, "
+            f"matched={matched}/{total}, rate={match_rate:.2%}"
+        )
 
 
 class TestONNXExportHalf:
@@ -298,6 +353,33 @@ class TestONNXModelCoverage:
             # Verify model is valid
             onnx_model = onnx.load(onnx_path)
             onnx.checker.check_model(onnx_model)
+
+    def test_all_yolonas_sizes_exportable(self, tmp_path):
+        """Test that all local official YOLO-NAS detection sizes export."""
+        from libreyolo import LibreYOLO
+
+        missing = [size for size, path in OFFICIAL_YOLONAS_WEIGHTS.items() if not path.exists()]
+        if missing:
+            pytest.skip(
+                "Official YOLO-NAS checkpoints not present for sizes: "
+                + ", ".join(sorted(missing))
+            )
+
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+
+        for size, weights in OFFICIAL_YOLONAS_WEIGHTS.items():
+            pt_model = LibreYOLO(str(weights), device=device)
+            onnx_path = str(tmp_path / f"yolonas_{size}.onnx")
+
+            pt_model.export(format="onnx", output_path=onnx_path, simplify=False)
+            assert Path(onnx_path).exists(), f"Failed to export YOLO-NAS-{size}"
+
+            onnx_model = onnx.load(onnx_path)
+            onnx.checker.check_model(onnx_model)
+
+            loaded = LibreYOLO(onnx_path, device=device)
+            assert loaded.model_family == "yolonas"
+            assert loaded.nb_classes == pt_model.nb_classes
 
 
 class TestONNXOpset:

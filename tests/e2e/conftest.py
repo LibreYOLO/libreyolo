@@ -2,6 +2,7 @@
 
 import gc
 import multiprocessing
+from pathlib import Path
 
 import pytest
 import torch
@@ -333,6 +334,9 @@ MODEL_CATALOG = [
     ("yolo9", "s", "LibreYOLO9s.pt"),
     ("yolo9", "m", "LibreYOLO9m.pt"),
     ("yolo9", "c", "LibreYOLO9c.pt"),
+    ("yolonas", "s", "downloads/yolonas/yolo_nas_s_coco.pth"),
+    ("yolonas", "m", "downloads/yolonas/yolo_nas_m_coco.pth"),
+    ("yolonas", "l", "downloads/yolonas/yolo_nas_l_coco.pth"),
     ("rfdetr", "n", "LibreRFDETRn.pt"),
     ("rfdetr", "s", "LibreRFDETRs.pt"),
     ("rfdetr", "m", "LibreRFDETRm.pt"),
@@ -342,17 +346,18 @@ MODEL_CATALOG = [
 # Derived lists (no manual maintenance)
 YOLOX_SIZES = [s for f, s, _ in MODEL_CATALOG if f == "yolox"]
 YOLO9_SIZES = [s for f, s, _ in MODEL_CATALOG if f == "yolo9"]
+YOLONAS_SIZES = [s for f, s, _ in MODEL_CATALOG if f == "yolonas"]
 RFDETR_SIZES = [s for f, s, _ in MODEL_CATALOG if f == "rfdetr"]
 
 ALL_MODELS = [(f, s) for f, s, _ in MODEL_CATALOG]
 ALL_MODELS_WITH_WEIGHTS = MODEL_CATALOG
-YOLOX_YOLO9_MODELS = [(f, s) for f, s, _ in MODEL_CATALOG if f != "rfdetr"]
+NON_RFDETR_MODELS = [(f, s) for f, s, _ in MODEL_CATALOG if f != "rfdetr"]
 
-# Quick test set (for CI — smallest models only)
+# Quick test set (for CI — smallest auto-available models only)
 QUICK_TEST_MODELS = [("yolox", "n"), ("yolo9", "t")]
 
-# Full test set (YOLOX + YOLO9, no RF-DETR)
-FULL_TEST_MODELS = YOLOX_YOLO9_MODELS
+# Full test set (all non-RF-DETR models)
+FULL_TEST_MODELS = NON_RFDETR_MODELS
 
 # RF-DETR test set (separate due to dependency)
 RFDETR_TEST_MODELS = [(f, s) for f, s, _ in MODEL_CATALOG if f == "rfdetr"]
@@ -364,6 +369,14 @@ def get_model_weights(family: str, size: str) -> str:
         if f == family and s == size:
             return w
     raise ValueError(f"Unknown model: {family}-{size}")
+
+
+def require_test_weights(weights: str) -> str:
+    """Skip cleanly if a test depends on a missing local checkpoint path."""
+    path = Path(weights)
+    if path.parent != Path(".") and not path.exists():
+        pytest.skip(f"Required local weights not found: {weights}")
+    return weights
 
 
 def make_ids(models):
@@ -433,7 +446,7 @@ def load_model(model_type: str, size: str, device: str = "cuda"):
     """Load a model by type and size."""
     from libreyolo import LibreYOLO
 
-    weights = get_model_weights(model_type, size)
+    weights = require_test_weights(get_model_weights(model_type, size))
     return LibreYOLO(weights, device=device)
 
 

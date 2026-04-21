@@ -1,5 +1,5 @@
 """
-RF1: Training test for all 15 models.
+RF1: Training test for all catalog models.
 
 Trains each model for 2 epochs on LibreYOLO/marbles (HuggingFace, public,
 56 train / 20 valid / 36 test images, 2 classes), then validates on the test
@@ -21,7 +21,13 @@ import yaml
 from PIL import Image
 
 from libreyolo import LibreYOLO
-from .conftest import ALL_MODELS_WITH_WEIGHTS, cuda_cleanup, make_ids, run_in_subprocess
+from .conftest import (
+    ALL_MODELS_WITH_WEIGHTS,
+    cuda_cleanup,
+    make_ids,
+    require_test_weights,
+    run_in_subprocess,
+)
 
 pytestmark = [pytest.mark.e2e, pytest.mark.rf1]
 
@@ -171,6 +177,8 @@ MIN_MAP = 0.05
 )
 def test_rf1_training(family, size, weights, dataset_coco, dataset_data_yaml, tmp_path):
     """Train 10 epochs on marbles, verify loss decreases and mAP improves."""
+    weights = require_test_weights(weights)
+
     # RF-DETR: run in a fresh subprocess to avoid CUDA driver state corruption
     # that causes SIGSEGV when export tests have run beforehand in the same process.
     if family == "rfdetr":
