@@ -4,7 +4,7 @@ import time
 
 import typer
 
-from ..command_utils import exit_with_error, load_model_or_exit
+from ..command_utils import exit_stage_error, exit_with_error, load_model_or_exit
 from ..config import (
     RFDETR_UNSUPPORTED_PARAMS,
     apply_family_defaults,
@@ -242,7 +242,7 @@ def train_cmd(
             suggestion=f"Check that '{data}' exists and is a valid YOLO-format dataset YAML.",
         )
     except Exception as e:
-        exit_with_error(out, "io_error", str(e))
+        exit_stage_error(out, stage="Training", detail=e)
 
     training_hours = (time.time() - t0) / 3600
 

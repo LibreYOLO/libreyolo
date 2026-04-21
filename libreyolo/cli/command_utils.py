@@ -38,3 +38,20 @@ def load_model_or_exit(
             "model_load_failed",
             f"Failed to load model '{model}': {exc}",
         )
+
+
+def exit_stage_error(
+    out: OutputHandler,
+    *,
+    stage: str,
+    detail: Exception | str,
+    code: str = "io_error",
+    suggestion: Optional[str] = None,
+) -> NoReturn:
+    """Emit a stage-specific runtime error and terminate the command."""
+    exit_with_error(
+        out,
+        code,
+        f"{stage} failed: {detail}",
+        suggestion=suggestion,
+    )
