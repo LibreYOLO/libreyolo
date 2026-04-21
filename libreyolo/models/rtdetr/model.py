@@ -13,6 +13,7 @@ from PIL import Image
 from ..base import BaseModel
 from ...utils.image_loader import ImageInput
 from .nn import RTDETRModel
+from .config import RTDETRConfig
 from ...validation.preprocessors import RTDETRValPreprocessor
 
 
@@ -104,6 +105,7 @@ class LibreYOLORTDETR(BaseModel):
     FAMILY = "rtdetr"
     FILENAME_PREFIX = "LibreRTDETR"
     INPUT_SIZES = {"r18": 640, "r34": 640, "r50": 640, "r50m": 640, "r101": 640}
+    TRAIN_CONFIG = RTDETRConfig
     val_preprocessor_class = RTDETRValPreprocessor
 
     # =========================================================================

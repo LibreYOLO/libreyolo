@@ -142,6 +142,8 @@ def get_family_defaults(family: str) -> dict[str, Any]:
     # Find fields where the family default differs from the base default
     diffs = {}
     for f in fields(config_cls):
+        if not hasattr(base, f.name):
+            continue
         base_val = getattr(base, f.name)
         family_val = getattr(family_cfg, f.name)
         if base_val != family_val:

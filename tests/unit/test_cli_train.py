@@ -99,3 +99,25 @@ def test_train_cli_translates_rfdetr_kwargs_and_outputs(monkeypatch):
     assert "workers" not in dummy.received
     assert "ema" not in dummy.received
     assert "eval_interval" not in dummy.received
+
+
+def test_train_dry_run_uses_rtdetr_defaults():
+    app = _make_app()
+    result = runner.invoke(
+        app,
+        [
+            "data=coco8.yaml",
+            "model=rtdetr-r18",
+            "--dry-run",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0
+    data = json.loads(result.stdout)
+    assert data["model_family"] == "rtdetr"
+    assert data["resolved_config"]["epochs"] == 72
+    assert data["resolved_config"]["batch"] == 4
+    assert data["resolved_config"]["optimizer"] == "adamw"
+    assert data["resolved_config"]["lr0"] == 0.0001
+    assert data["resolved_config"]["scheduler"] == "linear"

@@ -13,6 +13,13 @@ from libreyolo.training.config import TrainConfig
 class RTDETRConfig(TrainConfig):
     """Training configuration for RT-DETR models."""
 
+    # RT-DETR defaults match the wrapper's public train() signature.
+    epochs: int = 72
+    batch: int = 4
+    optimizer: str = "adamw"
+    lr0: float = 1e-4
+    scheduler: str = "linear"
+
     # RT-DETR specific optimizer settings
     lr_backbone: float = (
         0.00001  # Separate backbone learning rate (10x lower than base)

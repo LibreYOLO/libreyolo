@@ -13,6 +13,7 @@ from libreyolo.cli.config import (
     resolve_model_name,
 )
 from libreyolo.training.config import TrainConfig, YOLOXConfig, YOLO9Config
+from libreyolo.models.rtdetr.config import RTDETRConfig
 
 pytestmark = pytest.mark.unit
 
@@ -70,6 +71,9 @@ class TestGetTrainConfigClass:
     def test_yolo9_returns_yolo9_config(self):
         assert get_train_config_class("yolo9") is YOLO9Config
 
+    def test_rtdetr_returns_rtdetr_config(self):
+        assert get_train_config_class("rtdetr") is RTDETRConfig
+
     def test_unknown_family_returns_base(self):
         assert get_train_config_class("nonexistent") is TrainConfig
 
@@ -101,6 +105,15 @@ class TestGetFamilyDefaults:
 
     def test_unknown_family_returns_empty(self):
         assert get_family_defaults("nonexistent") == {}
+
+    def test_rtdetr_uses_family_specific_training_defaults(self):
+        diffs = get_family_defaults("rtdetr")
+        assert diffs["epochs"] == 72
+        assert diffs["batch"] == 4
+        assert diffs["optimizer"] == "adamw"
+        assert diffs["lr0"] == 0.0001
+        assert diffs["scheduler"] == "linear"
+        assert "lr_backbone" not in diffs
 
 
 class TestBuildTrainKwargs:
