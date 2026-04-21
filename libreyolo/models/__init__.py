@@ -14,6 +14,7 @@ from pathlib import Path
 
 from .base import BaseModel
 from ..utils.download import download_weights
+from ..utils.logging import ensure_default_logging
 from ..utils.serialization import load_untrusted_torch_file
 
 logger = logging.getLogger(__name__)
@@ -112,6 +113,7 @@ def LibreYOLO(
     """
     import torch
 
+    ensure_default_logging()
     model_path = _resolve_weights_path(model_path)
 
     # Non-PyTorch formats: delegate to inference backends

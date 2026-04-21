@@ -18,6 +18,7 @@ from PIL import Image
 from ...training.config import TrainConfig
 from ...utils.general import COCO_CLASSES
 from ...utils.image_loader import ImageInput
+from ...utils.logging import ensure_default_logging
 from ...utils.results import Results
 from ...utils.serialization import load_untrusted_torch_file
 from ...validation.preprocessors import StandardValPreprocessor
@@ -69,6 +70,7 @@ class BaseModel(ABC):
         device: str = "auto",
         **kwargs,
     ):
+        ensure_default_logging()
         valid_sizes = self._get_valid_sizes()
         if size not in valid_sizes:
             raise ValueError(

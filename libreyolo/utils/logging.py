@@ -104,3 +104,24 @@ def setup_logging(*, quiet: bool = False, verbose: bool = False) -> logging.Logg
         logger.header = header
 
     return logger
+
+
+def ensure_default_logging() -> logging.Logger:
+    """Install a minimal default logger for Python API usage when unconfigured.
+
+    This intentionally does nothing when either the ``libreyolo`` logger or the
+    process root logger already has handlers, so host applications keep control
+    of logging when they have configured it themselves.
+    """
+    logger = logging.getLogger("libreyolo")
+    root_logger = logging.getLogger()
+
+    if logger.handlers or root_logger.handlers:
+        return logger
+
+    handler = logging.StreamHandler(sys.stderr)
+    handler.setFormatter(ConsoleFormatter(colors=sys.stderr.isatty()))
+    logger.addHandler(handler)
+    logger.setLevel(logging.INFO)
+    logger.propagate = False
+    return logger
