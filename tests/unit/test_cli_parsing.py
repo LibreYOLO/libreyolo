@@ -6,7 +6,11 @@ import pytest
 import typer
 from typer.testing import CliRunner
 
-from libreyolo.cli import _normalize_logging_flags, _setup_logging_from_argv
+from libreyolo.cli import (
+    _configure_warning_filters,
+    _normalize_logging_flags,
+    _setup_logging_from_argv,
+)
 from libreyolo.cli.parsing import KeyValueCommand
 
 pytestmark = pytest.mark.unit
@@ -165,6 +169,22 @@ class TestLoggingFlagNormalization:
         _setup_logging_from_argv()
 
         assert calls == {"quiet": True, "verbose": False}
+
+
+class TestWarningFilters:
+    def test_cli_configures_specific_warning_filters(self, monkeypatch):
+        calls = []
+
+        monkeypatch.setattr(
+            "warnings.filterwarnings",
+            lambda *args, **kwargs: calls.append((args, kwargs)),
+        )
+
+        _configure_warning_filters()
+
+        assert len(calls) == 3
+        assert all(args[0] == "ignore" for args, _kwargs in calls)
+        assert all(kwargs["category"] is DeprecationWarning for _args, kwargs in calls)
 
 
 class TestEdgeCases:
