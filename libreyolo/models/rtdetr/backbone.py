@@ -7,6 +7,7 @@ https://github.com/lyuwenyu/RT-DETR/blob/main/rtdetr_pytorch/src/nn/backbone/pre
 Supports ResNet-18/34/50/101 with variant 'd' (3x3 stem + AvgPool shortcut).
 """
 
+import logging
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -17,6 +18,8 @@ from .utils import get_activation
 
 
 __all__ = ["PResNet"]
+
+logger = logging.getLogger(__name__)
 
 
 ResNet_cfg = {
@@ -277,7 +280,7 @@ class PResNet(nn.Module):
         if pretrained:
             state = torch.hub.load_state_dict_from_url(download_url[depth])
             self.load_state_dict(state)
-            print(f"Load PResNet{depth} state_dict")
+            logger.info("Loaded PResNet%d state_dict", depth)
 
     def _freeze_parameters(self, m: nn.Module):
         for p in m.parameters():
