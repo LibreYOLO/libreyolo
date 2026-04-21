@@ -35,6 +35,12 @@ from .conftest import (
 )
 
 pytestmark = [pytest.mark.e2e, pytest.mark.ncnn]
+OFFICIAL_YOLONAS_S = Path("downloads/yolonas/yolo_nas_s_coco.pth")
+OFFICIAL_YOLONAS_WEIGHTS = {
+    "s": Path("downloads/yolonas/yolo_nas_s_coco.pth"),
+    "m": Path("downloads/yolonas/yolo_nas_m_coco.pth"),
+    "l": Path("downloads/yolonas/yolo_nas_l_coco.pth"),
+}
 
 # ---------------------------------------------------------------------------
 # xfail markers for ncnn op limitations
@@ -97,6 +103,51 @@ class TestNCNNExportFP32:
             "model.ncnn.param not found"
         )
         assert (exported_dir / "model.ncnn.bin").exists(), "model.ncnn.bin not found"
+
+
+class TestNCNNYOLONAS:
+    """Test ncnn export for the official YOLO-NAS-S checkpoint."""
+
+    @requires_ncnn
+    @pytest.mark.skipif(
+        not OFFICIAL_YOLONAS_S.exists(),
+        reason="Official YOLO-NAS-S checkpoint not present in downloads/yolonas/",
+    )
+    def test_ncnn_export_yolonas_s(self, sample_image, tmp_path):
+        """Export YOLO-NAS-S to ncnn, reload it, and compare inference results."""
+        from libreyolo import LibreYOLO
+
+        pt_model = LibreYOLO(str(OFFICIAL_YOLONAS_S), device="cpu")
+        pt_results = pt_model(sample_image, conf=0.25)
+
+        ncnn_path = str(tmp_path / "yolonas_s_ncnn")
+        exported_path = pt_model.export(
+            format="ncnn",
+            output_path=ncnn_path,
+            half=False,
+            simplify=False,
+        )
+        assert Path(exported_path).is_dir(), "ncnn output directory not created"
+        assert (Path(exported_path) / "model.ncnn.param").exists()
+        assert (Path(exported_path) / "model.ncnn.bin").exists()
+
+        loaded_model = LibreYOLO(exported_path, device="cpu")
+        assert loaded_model.model_family == "yolonas"
+        assert loaded_model.nb_classes == pt_model.nb_classes
+        assert loaded_model.names == pt_model.names
+
+        ncnn_results = loaded_model(sample_image, conf=0.25)
+
+        match_rate, matched, total = match_detections(pt_results, ncnn_results)
+        assert results_are_acceptable(
+            match_rate,
+            len(pt_results),
+            len(ncnn_results),
+            threshold=0.8,
+        ), (
+            f"Results mismatch: PT={len(pt_results)}, NCNN={len(ncnn_results)}, "
+            f"matched={matched}/{total}, rate={match_rate:.2%}"
+        )
 
 
 class TestNCNNExportFP16:
@@ -395,6 +446,37 @@ class TestNCNNModelCoverage:
             assert Path(exported_path).is_dir(), f"Failed to export RF-DETR-{size}"
 
             # Verify inference works via backend
+            ncnn_model = LibreYOLO(exported_path)
+            result = ncnn_model(sample_image, conf=0.25)
+            assert result is not None
+
+            del pt_model
+
+    @requires_ncnn
+    @pytest.mark.slow
+    def test_all_yolonas_sizes_exportable(self, sample_image, tmp_path):
+        """Test that all local official YOLO-NAS detection sizes export and run."""
+        from libreyolo import LibreYOLO
+
+        missing = [size for size, path in OFFICIAL_YOLONAS_WEIGHTS.items() if not path.exists()]
+        if missing:
+            pytest.skip(
+                "Official YOLO-NAS checkpoints not present for sizes: "
+                + ", ".join(sorted(missing))
+            )
+
+        for size, weights in OFFICIAL_YOLONAS_WEIGHTS.items():
+            pt_model = LibreYOLO(str(weights), device="cpu")
+            ncnn_path = str(tmp_path / f"yolonas_{size}_ncnn")
+
+            exported_path = pt_model.export(
+                format="ncnn",
+                output_path=ncnn_path,
+                half=False,
+                simplify=False,
+            )
+            assert Path(exported_path).is_dir(), f"Failed to export YOLO-NAS-{size}"
+
             ncnn_model = LibreYOLO(exported_path)
             result = ncnn_model(sample_image, conf=0.25)
             assert result is not None

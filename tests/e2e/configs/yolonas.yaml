@@ -1,0 +1,43 @@
+# RF5 - YOLO-NAS family
+model_type: yolonas
+
+# Size-specific defaults
+sizes:
+  s: {imgsz: 640, lr0: 0.0005, weights: downloads/yolonas/yolo_nas_s_coco.pth}
+  m: {imgsz: 640, lr0: 0.0005, weights: downloads/yolonas/yolo_nas_m_coco.pth}
+  l: {imgsz: 640, lr0: 0.0005, weights: downloads/yolonas/yolo_nas_l_coco.pth}
+
+# Training
+epochs: 100
+batch_size: 16
+optimizer: adamw
+momentum: 0.9
+weight_decay: 0.00001
+nesterov: true
+
+# Scheduler
+scheduler: cos
+warmup_epochs: 1
+warmup_lr_start: 0.000001
+no_aug_epochs: 0
+min_lr_ratio: 0.1
+
+# Augmentation
+mosaic_prob: 0.0
+mixup_prob: 0.5
+hsv_prob: 0.5
+flip_prob: 0.5
+degrees: 0.0
+translate: 0.25
+mosaic_scale: [0.5, 1.5]
+mixup_scale: [0.5, 1.5]
+shear: 0.0
+
+# Training options
+ema: true
+ema_decay: 0.9997
+amp: false
+patience: 50
+eval_interval: 10
+save_period: 10
+workers: 4

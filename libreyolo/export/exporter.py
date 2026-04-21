@@ -438,8 +438,10 @@ class TorchScriptExporter(BaseExporter):
     supports_int8 = False
     apply_model_half = True
 
-    def _export(self, nn_model, dummy, *, output_path, **kwargs):
-        return export_torchscript(nn_model, dummy, output_path=output_path)
+    def _export(self, nn_model, dummy, *, output_path, metadata, **kwargs):
+        return export_torchscript(
+            nn_model, dummy, output_path=output_path, metadata=metadata
+        )
 
 
 class TensorRTExporter(BaseExporter):

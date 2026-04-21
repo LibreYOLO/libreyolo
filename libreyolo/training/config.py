@@ -136,3 +136,30 @@ class YOLO9Config(TrainConfig):
     ema_decay: float = 0.9999
     name: str = "yolo9_exp"
     workers: int = 8
+
+
+@dataclass(kw_only=True)
+class YOLONASConfig(TrainConfig):
+    """YOLO-NAS-specific training defaults."""
+
+    optimizer: str = "adamw"
+    lr0: float = 5e-4
+    momentum: float = 0.9
+    weight_decay: float = 1e-5
+    scheduler: str = "cos"
+    warmup_epochs: int = 1
+    warmup_lr_start: float = 1e-6
+    no_aug_epochs: int = 0
+    min_lr_ratio: float = 0.1
+    mosaic_prob: float = 0.0
+    mixup_prob: float = 0.5
+    hsv_prob: float = 0.5
+    flip_prob: float = 0.5
+    degrees: float = 0.0
+    translate: float = 0.25
+    mosaic_scale: Tuple[float, float] = (0.5, 1.5)
+    mixup_scale: Tuple[float, float] = (0.5, 1.5)
+    shear: float = 0.0
+    ema_decay: float = 0.9997
+    amp: bool = False
+    name: str = "yolonas_exp"

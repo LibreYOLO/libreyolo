@@ -12,6 +12,7 @@ import torch.nn.functional as F
 from PIL import Image
 
 from ..models.yolo9.utils import preprocess_image
+from ..models.yolonas.utils import preprocess_image as yolonas_preprocess_image
 from ..models.yolox.utils import preprocess_image as yolox_preprocess_image
 from ..utils.drawing import draw_boxes, draw_masks
 from ..utils.general import COCO_CLASSES, get_safe_stem
@@ -107,6 +108,10 @@ class BaseBackend(ABC):
             return yolox_preprocess_image(
                 image, input_size=effective_imgsz, color_format=color_format
             )
+        elif self.model_family == "yolonas":
+            return yolonas_preprocess_image(
+                image, input_size=effective_imgsz, color_format=color_format
+            )
         elif self.model_family == "rfdetr":
             tensor, img, size = self._preprocess_rfdetr(
                 image, effective_imgsz, color_format
@@ -149,6 +154,11 @@ class BaseBackend(ABC):
         if self.model_family == "yolox":
             boxes, scores, cls = self._parse_yolox(
                 all_outputs, effective_imgsz, orig_w, orig_h, conf, ratio
+            )
+            return boxes, scores, cls, None
+        elif self.model_family == "yolonas":
+            boxes, scores, cls = self._parse_yolonas(
+                all_outputs, orig_w, orig_h, conf, ratio=ratio
             )
             return boxes, scores, cls, None
         elif self.model_family == "rfdetr":
@@ -215,6 +225,26 @@ class BaseBackend(ABC):
         boxes[:, [0, 2]] = np.clip(boxes[:, [0, 2]], 0, orig_w)
         boxes[:, [1, 3]] = np.clip(boxes[:, [1, 3]], 0, orig_h)
 
+        return boxes, max_scores, class_ids
+
+    def _parse_yolonas(self, all_outputs, orig_w, orig_h, conf, ratio=1.0):
+        """Parse YOLO-NAS output: [boxes(B,N,4), scores(B,N,nc)] in input pixels."""
+        boxes = all_outputs[0][0]  # (N, 4) xyxy in input image coordinates
+        scores = all_outputs[1][0]  # (N, nc)
+
+        max_scores = np.max(scores, axis=1)
+        class_ids = np.argmax(scores, axis=1)
+
+        mask = max_scores > conf
+        boxes, max_scores, class_ids = boxes[mask], max_scores[mask], class_ids[mask]
+
+        if len(boxes) == 0:
+            return boxes, max_scores, class_ids
+
+        boxes = boxes.astype(np.float32, copy=True)
+        boxes /= ratio
+        boxes[:, [0, 2]] = np.clip(boxes[:, [0, 2]], 0, orig_w)
+        boxes[:, [1, 3]] = np.clip(boxes[:, [1, 3]], 0, orig_h)
         return boxes, max_scores, class_ids
 
     def _parse_rfdetr(self, all_outputs, orig_w, orig_h, conf):

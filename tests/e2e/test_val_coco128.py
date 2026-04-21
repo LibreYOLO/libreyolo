@@ -1,5 +1,5 @@
 """
-val_128: Validation sanity check for all 15 pretrained models.
+val_128: Validation sanity check for all catalog pretrained models.
 
 Runs model.val() on coco128.yaml (128 images) and checks mAP50-95 >= 0.18.
 Purpose: catch catastrophic regressions (broken preprocessing, wrong class
@@ -14,7 +14,12 @@ Usage:
 import pytest
 
 from libreyolo import LibreYOLO
-from .conftest import ALL_MODELS_WITH_WEIGHTS, cuda_cleanup, make_ids
+from .conftest import (
+    ALL_MODELS_WITH_WEIGHTS,
+    cuda_cleanup,
+    make_ids,
+    require_test_weights,
+)
 
 pytestmark = pytest.mark.e2e
 
@@ -28,6 +33,7 @@ MIN_MAP = 0.18  # Uniform threshold for all models
 )
 def test_val_coco128(family, size, weights):
     """Validate a pretrained model on coco128 and check mAP >= 0.18."""
+    weights = require_test_weights(weights)
     model = LibreYOLO(weights, size=size)
 
     results = model.val(data="coco128.yaml", batch=16, conf=0.001, iou=0.6)

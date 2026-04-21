@@ -63,6 +63,7 @@ class BaseTrainer(ABC):
         self.ema_model = None
         self.train_loader = None
         self.tensorboard_writer = None
+        self._is_setup = False
 
     # =========================================================================
     # Config
@@ -302,6 +303,9 @@ class BaseTrainer(ABC):
     # =========================================================================
 
     def setup(self):
+        if self._is_setup:
+            return
+
         logger.info("Setting up training...")
         self.model.to(self.device)
 
@@ -337,6 +341,7 @@ class BaseTrainer(ABC):
             logger.info("Training will continue without TensorBoard logging")
 
         logger.info(f"Saving to: {self.save_dir}")
+        self._is_setup = True
 
     def train(self) -> Dict:
         self.setup()
@@ -499,6 +504,7 @@ class BaseTrainer(ABC):
                 device=str(self.device),
                 half=self.config.amp and self.device.type == "cuda",
                 verbose=False,
+                num_workers=self.config.workers,
             )
 
             if self.wrapper_model is None:

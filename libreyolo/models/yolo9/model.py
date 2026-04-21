@@ -300,6 +300,7 @@ class LibreYOLO9(BaseModel):
                     "resume=True requires a checkpoint. Load one first: "
                     "model = LibreYOLO9('path/to/last.pt', size='t'); model.train(data=..., resume=True)"
                 )
+            trainer.setup()
             trainer.resume(str(self.model_path))
 
         results = trainer.train()

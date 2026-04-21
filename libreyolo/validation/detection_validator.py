@@ -48,6 +48,7 @@ class DetectionValidator(BaseValidator):
         self.iou_thresholds = torch.tensor(self.config.iou_thresholds)
         self.nc = model.nb_classes
         self.val_preproc = None  # set in _setup_dataloader
+        self.data_cfg = None
 
     # =========================================================================
     # Setup
@@ -84,6 +85,7 @@ class DetectionValidator(BaseValidator):
 
         if self.config.data:
             data_cfg = load_data_config(self.config.data)
+            self.data_cfg = data_cfg
             data_dir = data_cfg["root"]
             self.nc = data_cfg.get("nc", self.nc)
 
@@ -202,7 +204,11 @@ class DetectionValidator(BaseValidator):
                 if self.config.verbose:
                     print("Initializing COCO evaluator...")
 
-                coco_api = create_yolo_coco_api(self.config.data, self.config.split)
+                data_yaml = self.config.data
+                if self.data_cfg is not None:
+                    data_yaml = self.data_cfg.get("yaml_file", data_yaml)
+
+                coco_api = create_yolo_coco_api(data_yaml, self.config.split)
                 self.coco_evaluator = COCOEvaluator(coco_api, iou_type="bbox")
 
                 if self.config.verbose:

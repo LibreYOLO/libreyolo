@@ -19,7 +19,7 @@ from typing import Any, Dict, List, Optional
 import pytest
 import yaml
 
-from .conftest import cuda_cleanup
+from .conftest import cuda_cleanup, require_test_weights
 
 pytestmark = [pytest.mark.e2e, pytest.mark.rf5]
 
@@ -258,7 +258,7 @@ def test_rf5_training(config_path, size, dataset_name, rf5_datasets, tmp_path):
     assert data_yaml.exists(), f"data.yaml not found in {dataset_path}"
 
     # Create model
-    weights = config.get("model_weights")
+    weights = require_test_weights(config.get("model_weights"))
     model = LibreYOLO(weights, size=size)
 
     # Build train kwargs

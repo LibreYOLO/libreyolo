@@ -22,6 +22,7 @@ from ..utils.download import download_weights
 # Always-available models (importing triggers __init_subclass__ registration)
 from .yolox.model import LibreYOLOX  # noqa: E402
 from .yolo9.model import LibreYOLO9  # noqa: E402
+from .yolonas.model import LibreYOLONAS  # noqa: E402
 
 
 def _ensure_rfdetr():
@@ -57,12 +58,25 @@ def _resolve_weights_path(model_path: str) -> str:
 
 
 def _unwrap_state_dict(state_dict: dict) -> dict:
-    """Extract weights from nested checkpoint formats (EMA, model wrappers)."""
+    """Extract weights from nested checkpoint formats.
+
+    Supports:
+    - LibreYOLO trainer checkpoints (``model``)
+    - legacy EMA wrappers (``ema``)
+    - SuperGradients checkpoints (``ema_net`` / ``net``)
+    - generic wrappers (``state_dict``)
+    """
     if "ema" in state_dict and isinstance(state_dict.get("ema"), dict):
         ema_data = state_dict["ema"]
         return ema_data.get("module", ema_data)
+    if "ema_net" in state_dict and isinstance(state_dict.get("ema_net"), dict):
+        return state_dict["ema_net"]
+    if "net" in state_dict and isinstance(state_dict.get("net"), dict):
+        return state_dict["net"]
     if "model" in state_dict and isinstance(state_dict.get("model"), dict):
         return state_dict["model"]
+    if "state_dict" in state_dict and isinstance(state_dict.get("state_dict"), dict):
+        return state_dict["state_dict"]
     return state_dict
 
 
@@ -102,6 +116,11 @@ def LibreYOLO(
         from ..backends.onnx import OnnxBackend
 
         return OnnxBackend(model_path, nb_classes=nb_classes or 80, device=device)
+
+    if model_path.endswith(".torchscript"):
+        from ..backends.torchscript import TorchScriptBackend
+
+        return TorchScriptBackend(model_path, nb_classes=nb_classes, device=device)
 
     if model_path.endswith((".engine", ".tensorrt")):
         from ..backends.tensorrt import TensorRTBackend
@@ -194,7 +213,7 @@ def LibreYOLO(
     if matched_cls is None:
         raise ValueError(
             "Could not detect model architecture from state dict keys.\n"
-            "Supported architectures: YOLOX, YOLOv9, RF-DETR."
+            "Supported architectures: YOLOX, YOLOv9, YOLO-NAS, RF-DETR."
         )
 
     # Auto-detect size

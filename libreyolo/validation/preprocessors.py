@@ -230,3 +230,12 @@ class YOLO9ValPreprocessor(BaseValPreprocessor):
             padded_targets[:n] = targets[:n]
 
         return padded_img, padded_targets
+
+
+class YOLONASValPreprocessor(YOLO9ValPreprocessor):
+    """YOLO-NAS preprocessor.
+
+    The current native port uses LibreYOLO's shared RGB 0-1 letterbox path for
+    consistency across inference and validation. A later parity pass can tighten
+    this toward the exact SG preprocessing contract if needed.
+    """
