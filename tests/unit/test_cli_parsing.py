@@ -208,7 +208,7 @@ class TestEdgeCases:
         app, captured = _make_app()
         result = runner.invoke(app, ["name=ok", "unknown_word"])
         # Should fail because 'unknown_word' is not a known option or bool flag
-        assert result.exit_code != 0
+        assert result.exit_code == 2
 
     def test_defaults_unchanged_when_no_args(self):
         app, captured = _make_app()

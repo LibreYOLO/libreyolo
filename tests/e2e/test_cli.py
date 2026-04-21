@@ -227,13 +227,13 @@ class TestPredict:
         result = runner.invoke(
             app, ["predict", "source=nonexistent.jpg", "model=yolox-s"]
         )
-        assert result.exit_code != 0
+        assert result.exit_code == 3
 
     def test_predict_missing_source_json(self, app):
         result = runner.invoke(
             app, ["predict", "source=nonexistent.jpg", "model=yolox-s", "--json"]
         )
-        assert result.exit_code != 0
+        assert result.exit_code == 3
         data = _parse_json_output(result.output)
         assert data["error"] == "source_not_found"
 
@@ -275,7 +275,7 @@ class TestVal:
     def test_val_missing_data(self, app):
         """Missing required data arg errors cleanly."""
         result = runner.invoke(app, ["val", "model=yolox-s"])
-        assert result.exit_code != 0
+        assert result.exit_code == 2
 
 
 # =========================================================================
@@ -371,7 +371,7 @@ class TestTrainDryRun:
 
     def test_missing_data_arg(self, app):
         result = runner.invoke(app, ["train", "model=yolox-s", "--dry-run"])
-        assert result.exit_code != 0
+        assert result.exit_code == 2
 
 
 # =========================================================================
@@ -415,6 +415,6 @@ class TestExport:
                 "--json",
             ],
         )
-        assert result.exit_code != 0
+        assert result.exit_code == 2
         data = _parse_json_output(result.output)
         assert data["error"] == "config_conflict"
