@@ -76,12 +76,13 @@ def version_cmd(
         "python": python_version,
         "torch": torch.__version__,
         "cuda": cuda_version,
-        "_human_text": (
+    }
+    if not json_output:
+        data["_human_text"] = (
             f"libreyolo {__version__}\n"
             f"Python {python_version}, torch {torch.__version__}, "
             f"CUDA {cuda_version or 'not available'}"
-        ),
-    }
+        )
     out.result(data)
 
 

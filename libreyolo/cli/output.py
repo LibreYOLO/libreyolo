@@ -24,8 +24,11 @@ class OutputHandler:
     def result(self, data: dict[str, Any]) -> None:
         """Write result to stdout. In JSON mode, adds schema_version."""
         if self.json_mode:
-            data["schema_version"] = 1
-            print(json.dumps(data, default=str))
+            public_data = {
+                key: value for key, value in data.items() if not key.startswith("_")
+            }
+            public_data["schema_version"] = 1
+            print(json.dumps(public_data, default=str))
         else:
             self._print_human(data)
 

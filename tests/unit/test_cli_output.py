@@ -20,6 +20,15 @@ class TestResultOutput:
         assert data["schema_version"] == 1
         assert data["key"] == "value"
 
+    def test_json_mode_strips_private_keys(self, capsys):
+        out = OutputHandler(json_mode=True)
+        out.result({"key": "value", "_human_text": "hidden", "_debug": "hidden"})
+        stdout = capsys.readouterr().out
+        data = json.loads(stdout)
+        assert data["key"] == "value"
+        assert "_human_text" not in data
+        assert "_debug" not in data
+
     def test_human_mode_uses_human_text(self, capsys):
         out = OutputHandler(json_mode=False)
         out.result({"_human_text": "hello world", "key": "value"})
