@@ -18,6 +18,7 @@ from .config import TrainConfig
 from .ema import ModelEMA
 from ..data.dataset import YOLODataset, COCODataset, create_dataloader
 from ..data import load_data_config, get_img_files, img2label_paths
+from ..utils.serialization import load_trusted_torch_file
 
 
 logger = logging.getLogger(__name__)
@@ -606,7 +607,11 @@ class BaseTrainer(ABC):
             raise FileNotFoundError(f"Resume checkpoint not found: {checkpoint_path}")
 
         logger.info(f"Resuming from {checkpoint_path}")
-        checkpoint = torch.load(checkpoint_path, map_location=self.device)
+        checkpoint = load_trusted_torch_file(
+            checkpoint_path,
+            map_location=self.device,
+            context="training resume checkpoint",
+        )
 
         try:
             self.model.load_state_dict(checkpoint["model"])

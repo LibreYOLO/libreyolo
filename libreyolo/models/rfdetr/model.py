@@ -10,6 +10,7 @@ from PIL import Image
 
 from ..base import BaseModel
 from ...utils.image_loader import ImageInput, ImageLoader
+from ...utils.serialization import load_trusted_torch_file
 from .nn import LibreRFDETRModel
 from .utils import postprocess, IMAGENET_MEAN, IMAGENET_STD
 from .trainer import train_rfdetr
@@ -363,7 +364,11 @@ class LibreYOLORFDETR(BaseModel):
 
         best_ckpt = Path(result["output_dir"]) / "checkpoint_best_total.pth"
         if best_ckpt.exists():
-            checkpoint = torch.load(best_ckpt, map_location="cpu", weights_only=False)
+            checkpoint = load_trusted_torch_file(
+                best_ckpt,
+                map_location="cpu",
+                context="RF-DETR best checkpoint reload",
+            )
             state_dict = checkpoint["model"]
 
             # RF-DETR uses num_classes + 1 internally (background class)

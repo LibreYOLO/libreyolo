@@ -19,6 +19,7 @@ from ...training.config import TrainConfig
 from ...utils.general import COCO_CLASSES
 from ...utils.image_loader import ImageInput
 from ...utils.results import Results
+from ...utils.serialization import load_untrusted_torch_file
 from ...validation.preprocessors import StandardValPreprocessor
 
 
@@ -267,7 +268,11 @@ class BaseModel(ABC):
             raise FileNotFoundError(f"Model weights file not found: {model_path}")
 
         try:
-            loaded = torch.load(model_path, map_location="cpu", weights_only=False)
+            loaded = load_untrusted_torch_file(
+                model_path,
+                map_location="cpu",
+                context="model weights",
+            )
 
             if isinstance(loaded, dict):
                 if "model" in loaded:

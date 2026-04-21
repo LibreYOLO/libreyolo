@@ -14,6 +14,7 @@ from pathlib import Path
 
 from .base import BaseModel
 from ..utils.download import download_weights
+from ..utils.serialization import load_untrusted_torch_file
 
 logger = logging.getLogger(__name__)
 
@@ -175,7 +176,11 @@ def LibreYOLO(
 
     # Load weights once
     try:
-        state_dict = torch.load(model_path, map_location="cpu", weights_only=False)
+        state_dict = load_untrusted_torch_file(
+            model_path,
+            map_location="cpu",
+            context="model inspection",
+        )
     except Exception as e:
         raise RuntimeError(
             f"Failed to load model weights from {model_path}: {e}"
