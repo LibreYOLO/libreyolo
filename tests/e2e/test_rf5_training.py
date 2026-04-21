@@ -21,7 +21,7 @@ import yaml
 
 from .conftest import cuda_cleanup
 
-pytestmark = [pytest.mark.e2e, pytest.mark.rf5]
+pytestmark = [pytest.mark.e2e, pytest.mark.rf5, pytest.mark.slow, pytest.mark.network]
 
 
 # ---------------------------------------------------------------------------

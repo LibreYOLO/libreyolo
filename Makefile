@@ -1,7 +1,7 @@
 UV := uv run --no-sync
 
 .DEFAULT_GOAL := help
-.PHONY: help setup format lint typecheck test test_e2e test_rf5 build clean
+.PHONY: help setup format lint typecheck test test_e2e test_rf1 test_rf5 build clean
 
 help:
 	@echo "═══════════════════════════════════════════════════════════════════════════════"
@@ -14,7 +14,8 @@ help:
 	@echo "  lint                          - Run linter"
 	@echo "  typecheck                     - Run type checker"
 	@echo "  test                          - Run fast unit tests (no weights needed)"
-	@echo "  test_e2e                      - Run all e2e tests (needs GPU + model weights)"
+	@echo "  test_e2e                      - Run local e2e tests (no live dataset downloads)"
+	@echo "  test_rf1                      - Run RF1 network-backed training tests"
 	@echo "  test_rf5                      - Run RF5 training benchmark tests"
 	@echo "  build                         - Build package"
 	@echo "  clean                         - Remove build and test cache artifacts"
@@ -38,14 +39,17 @@ test:
 	$(UV) pytest
 
 test_e2e: clean
-	@echo "Running each test file in its own process (avoids CUDA driver state corruption)..."
+	@echo "Running local e2e tests in isolated processes (excludes network-backed suites)..."
 	@for f in tests/e2e/test_*.py; do \
-		$(UV) pytest "$$f" -m "e2e and not rf5" -v; \
+		$(UV) pytest "$$f" -m "e2e and not network" -v; \
 		rc=$$?; if [ $$rc -ne 0 ] && [ $$rc -ne 5 ]; then exit $$rc; fi; \
 	done
 
+test_rf1: clean
+	$(UV) pytest tests/e2e/test_rf1_training.py -m "rf1 and network" -v
+
 test_rf5: clean
-	$(UV) pytest tests/e2e/test_rf5_training.py -m rf5 -v
+	$(UV) pytest tests/e2e/test_rf5_training.py -m "rf5 and network" -v
 
 build:
 	@echo "📦 Building package..."
