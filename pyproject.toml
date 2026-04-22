@@ -107,6 +107,7 @@ testpaths = ["tests"]
 markers = [
     "unit: fast tests that avoid external weights or large files",
     "e2e: end-to-end tests requiring full model loading and inference",
+    "smoke: fast end-to-end pipeline checks on tiny synthetic data (CPU, <60s)",
     "tensorrt: tests requiring TensorRT",
     "openvino: tests requiring OpenVINO",
     "ncnn: tests requiring ncnn",
