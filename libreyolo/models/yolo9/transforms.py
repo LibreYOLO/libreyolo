@@ -11,6 +11,11 @@ import cv2
 import numpy as np
 
 
+# Seg mask target resolution = input_dim // MASK_STRIDE.
+# YOLOv9 proto head output stride is 4 (imgsz 640 → 160x160, imgsz 128 → 32x32).
+MASK_STRIDE = 4
+
+
 def augment_hsv(img, hgain=5, sgain=30, vgain=30):
     """Apply HSV augmentation to an image."""
     hsv_augs = np.random.uniform(-1, 1, 3) * [hgain, sgain, vgain]
@@ -102,13 +107,18 @@ class YOLO9TrainTransform:
         boxes = targets[:, :4].copy()
         labels = targets[:, 4].copy()
 
+        # Mask targets are rasterized at proto resolution (input / MASK_STRIDE).
+        # YOLOv9 proto stride is 4, so imgsz=640 → masks 160x160, imgsz=128 → 32x32.
+        mask_h = input_dim[0] // MASK_STRIDE
+        mask_w = input_dim[1] // MASK_STRIDE
+
         if len(boxes) == 0:
             padded_labels = np.zeros((self.max_labels, 5), dtype=np.float32)
             padded_labels[:, 0] = -1
             image, _ = preproc(image, input_dim)
             if has_polys:
                 from libreyolo.data.dataset import polygons_to_masks
-                masks = polygons_to_masks([], 160, 160, self.max_labels)
+                masks = polygons_to_masks([], mask_h, mask_w, self.max_labels)
                 return image, padded_labels, masks
             return image, padded_labels
 
@@ -188,7 +198,7 @@ class YOLO9TrainTransform:
                 else:
                     polys_norm.append(None)
             from libreyolo.data.dataset import polygons_to_masks
-            masks = polygons_to_masks(polys_norm, 160, 160, self.max_labels)
+            masks = polygons_to_masks(polys_norm, mask_h, mask_w, self.max_labels)
             return image_t, padded_labels, masks
 
         return image_t, padded_labels
@@ -299,7 +309,8 @@ class YOLO9MosaicMixupDataset:
                 img, label = preproc_result
                 from libreyolo.data.dataset import polygons_to_masks
                 max_labels = self.preproc.max_labels if hasattr(self.preproc, 'max_labels') else 100
-                masks = polygons_to_masks([], 160, 160, max_labels)
+                mh, mw = self.input_dim[0] // MASK_STRIDE, self.input_dim[1] // MASK_STRIDE
+                masks = polygons_to_masks([], mh, mw, max_labels)
             return img, label, img_info, img_id, masks
         else:
             img, label, img_info, img_id = result
@@ -425,7 +436,8 @@ class YOLO9MosaicMixupDataset:
                 # Seg dataset but this mosaic had no polygons — return empty masks
                 from libreyolo.data.dataset import polygons_to_masks
                 max_labels = self.preproc.max_labels if hasattr(self.preproc, 'max_labels') else 100
-                masks = polygons_to_masks([], 160, 160, max_labels)
+                mh, mw = self.input_dim[0] // MASK_STRIDE, self.input_dim[1] // MASK_STRIDE
+                masks = polygons_to_masks([], mh, mw, max_labels)
             else:
                 masks = None
 
