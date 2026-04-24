@@ -207,3 +207,23 @@ class LibreDFINEModel(nn.Module):
             if hasattr(m, "convert_to_deploy") and m is not self:
                 m.convert_to_deploy()
         return self
+
+
+class DFINEExportWrapper(nn.Module):
+    """Tracing-friendly wrapper for ONNX/TorchScript export.
+
+    The raw ``LibreDFINEModel`` returns a dict ``{"pred_logits", "pred_boxes"}``
+    which `torch.onnx.export` cannot trace cleanly with named outputs. This
+    wrapper deploys the model (BN fusion + prune non-eval layers) once and
+    flattens the output to a tuple in declaration order.
+    """
+
+    def __init__(self, model: LibreDFINEModel):
+        super().__init__()
+        self.model = model
+        # Idempotent if deploy() has already been called.
+        self.model.deploy()
+
+    def forward(self, x):
+        out = self.model(x)
+        return out["pred_logits"], out["pred_boxes"]

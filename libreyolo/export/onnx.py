@@ -122,6 +122,18 @@ def export_onnx(
             else None
         )
         metadata["segmentation"] = "true"
+    elif metadata.get("model_family") == "dfine" or _detect_num_outputs(nn_model, dummy) == 2:
+        # DETR-style detection (D-FINE): {pred_logits, pred_boxes} as a tuple
+        output_names = ["pred_logits", "pred_boxes"]
+        dynamic_axes = (
+            {
+                "images": {0: "batch"},
+                "pred_logits": {0: "batch"},
+                "pred_boxes": {0: "batch"},
+            }
+            if dynamic
+            else None
+        )
     else:
         output_names = ["output"]
         dynamic_axes = (

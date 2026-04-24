@@ -257,10 +257,21 @@ class BaseExporter(ABC):
         original_device = next(nn_model.parameters()).device
         nn_model.to(device)
 
+        # D-FINE export mode: wrap model so it returns a tuple instead of dict
+        # and apply ``model.deploy()`` (BN fusion + prune non-eval decoder layers).
+        # The wrapper is what gets traced; the original model is restored on exit.
+        dfine_wrapped = False
+        if self.model._get_model_name() == "dfine":
+            from ..models.dfine.nn import DFINEExportWrapper
+
+            nn_model = DFINEExportWrapper(nn_model).to(device)
+            nn_model.eval()
+            dfine_wrapped = True
+
         # Set export mode for YOLOX/YOLOv9 heads
         original_export = None
         export_attr = None
-        if hasattr(nn_model, "head") and hasattr(nn_model.head, "export"):
+        if not dfine_wrapped and hasattr(nn_model, "head") and hasattr(nn_model.head, "export"):
             export_attr = "head"
             original_export = nn_model.head.export
             nn_model.head.export = True

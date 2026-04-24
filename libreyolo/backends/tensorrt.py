@@ -144,6 +144,10 @@ class TensorRTBackend(BaseBackend):
 
     def _detect_model_family(self) -> Optional[str]:
         """Detect model family from output shapes when sidecar metadata is absent."""
+        # D-FINE exports name its outputs ``pred_logits`` and ``pred_boxes`` —
+        # this is the unambiguous signal.
+        if "pred_logits" in self.output_names and "pred_boxes" in self.output_names:
+            return "dfine"
         if "output" in self.output_shapes:
             shape = self.output_shapes["output"]
             if len(shape) == 3 and shape[2] == 4 and len(self.output_names) == 2:
