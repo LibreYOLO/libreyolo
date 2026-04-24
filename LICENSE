@@ -22,6 +22,14 @@ SOFTWARE.
 
 ---
 
-IMPORTANT: The weights in the `weights/` directory are NOT covered by this MIT License.
-They are licensed under AGPL-3.0. See `weights/LICENSE_NOTICE.txt` for details.
+NOTE ON WEIGHTS: No pretrained weight files are shipped with this source
+repository. Pretrained LibreYOLO weights are published separately on
+Hugging Face under https://huggingface.co/LibreYOLO and carry their own
+per-family licenses (MIT or Apache-2.0, reflecting each upstream).
+See `weights/LICENSE_NOTICE.txt` and the LICENSE / NOTICE files on each
+Hugging Face model card for the authoritative terms.
+
+NOTE ON THIRD-PARTY CODE: Portions of this repository are derived from
+other open-source projects. See `THIRD_PARTY_NOTICES.txt` for the list
+of upstream projects and their licenses.
 
