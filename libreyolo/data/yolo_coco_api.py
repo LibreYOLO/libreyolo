@@ -383,19 +383,12 @@ def create_yolo_coco_api(data_yaml_path: str, split: str = "val") -> YOLOCocoAPI
         >>> coco_api = create_yolo_coco_api("path/to/data.yaml", split="val")
         >>> # Use with COCOeval
     """
-    import yaml
+    from .utils import load_data_config
 
-    with open(data_yaml_path, "r") as f:
-        data = yaml.safe_load(f)
-
-    # Get root directory
-    root = Path(data_yaml_path).parent
-    if "path" in data:
-        root_override = Path(data["path"])
-        if not root_override.is_absolute():
-            root = root / root_override
-        else:
-            root = root_override
+    # Reuse the same YAML alias and dataset-root resolution logic as the main
+    # loader so COCO evaluation works for dataset names like "coco128.yaml".
+    data = load_data_config(data_yaml_path, autodownload=False)
+    root = Path(data["path"])
 
     # Get class names
     names = data.get("names", [])
@@ -410,9 +403,9 @@ def create_yolo_coco_api(data_yaml_path: str, split: str = "val") -> YOLOCocoAPI
     # Get split paths
     split_key = split.split("_")[0]  # Handle 'val_speed' etc.
     images_subpath = data.get(split_key, f"images/{split_key}")
-
-    # Resolve images directory
-    images_dir = root / images_subpath
+    images_dir = Path(images_subpath)
+    if not images_dir.is_absolute():
+        images_dir = root / images_subpath
     if not images_dir.exists():
         # Try with 'images/' prefix
         images_dir = root / "images" / split_key

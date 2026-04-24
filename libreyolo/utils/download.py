@@ -4,8 +4,11 @@ import os
 import re
 from pathlib import Path
 from typing import Optional
+from urllib.parse import urlparse
 
 import requests
+
+_YOLONAS_LICENSE_NOTICE_SHOWN = False
 
 
 def _get_hf_token() -> Optional[str]:
@@ -17,6 +20,24 @@ def _get_hf_token() -> Optional[str]:
     if token_path.exists():
         return token_path.read_text().strip()
     return None
+
+
+def _notify_yolonas_license_once() -> None:
+    """Print Deci's YOLO-NAS license terms once per process before download."""
+    global _YOLONAS_LICENSE_NOTICE_SHOWN
+    if _YOLONAS_LICENSE_NOTICE_SHOWN:
+        return
+    _YOLONAS_LICENSE_NOTICE_SHOWN = True
+    print(
+        "\n"
+        "─────────────────────────────────────────────────────────────────────\n"
+        "YOLO-NAS weights are distributed by Deci.AI under a proprietary\n"
+        "license (non-commercial, no redistribution, no production use\n"
+        "without a separate agreement). By downloading, you accept those\n"
+        "terms. Full license text:\n"
+        "  https://github.com/Deci-AI/super-gradients/blob/master/LICENSE.YOLONAS.md\n"
+        "─────────────────────────────────────────────────────────────────────\n"
+    )
 
 
 def _detect_family_from_filename(filename: str) -> Optional[str]:
@@ -64,11 +85,18 @@ def download_weights(model_path: str, size: str):
     print(f"Model weights not found at {model_path}. Attempting download from {url}...")
     path.parent.mkdir(parents=True, exist_ok=True)
 
+    host = urlparse(url).netloc
+    is_hf = host.endswith("huggingface.co")
+
+    if "cloudfront.net" in host or host.endswith("deci.ai"):
+        _notify_yolonas_license_once()
+
     headers = {}
     token = _get_hf_token()
-    if token:
+    if token and is_hf:
+        # Only attach the HF token to HF URLs — never leak it to third parties.
         headers["Authorization"] = f"Bearer {token}"
-    else:
+    elif is_hf and not token:
         print("Tip: Run `huggingface-cli login` or set HF_TOKEN for faster downloads.")
 
     try:
