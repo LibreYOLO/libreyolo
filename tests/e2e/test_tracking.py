@@ -6,7 +6,7 @@ runs ByteTrack through several LibreYOLO detectors, checking that:
   - track IDs are assigned and consistent across frames
   - the same person keeps the same ID across consecutive frames
   - no duplicate IDs within a single frame
-  - the tracker works with every supported model family (YOLOX, YOLO9, RF-DETR)
+  - the tracker works with every supported model family (YOLOX, YOLO9, RF-DETR, YOLO-NAS)
 
 The video auto-downloads and is cached at ~/.cache/libreyolo/tracking/ — no
 manual setup needed.
@@ -36,6 +36,8 @@ pytestmark = [pytest.mark.e2e, requires_cuda]
 VIDEO_URL = "https://media.roboflow.com/supervision/video-examples/people-walking.mp4"
 VIDEO_CACHE = Path.home() / ".cache" / "libreyolo" / "tracking"
 VIDEO_PATH = VIDEO_CACHE / "people-walking.mp4"
+
+OFFICIAL_YOLONAS_S = Path("downloads/yolonas/yolo_nas_s_coco.pth")
 
 
 def download_tracking_video():
@@ -185,6 +187,50 @@ class TestTrackingYOLO9:
 
     def test_track_produces_results(self, model, video_path):
         """YOLO9 tracker should produce tracked results."""
+        frames = _run_tracker(model, video_path, n_frames=5)
+        assert len(frames) == 5
+        for f in frames:
+            assert f.track_id is not None
+            assert len(f) > 0
+
+    def test_id_consistency(self, model, video_path):
+        """IDs should persist across consecutive frames."""
+        frames = _run_tracker(model, video_path, n_frames=10)
+        stable = sum(
+            1
+            for i in range(1, len(frames))
+            if len(_ids(frames[i - 1]) & _ids(frames[i]))
+            >= len(_ids(frames[i - 1])) * 0.5
+        )
+        assert stable >= len(frames) // 2
+
+    def test_no_duplicate_ids_in_frame(self, model, video_path):
+        """Within a single frame, each ID should be unique."""
+        frames = _run_tracker(model, video_path, n_frames=10)
+        for i, f in enumerate(frames):
+            ids = f.track_id.tolist() if f.track_id is not None else []
+            assert len(ids) == len(set(ids)), f"Frame {i}: duplicate IDs: {ids}"
+
+
+# ── YOLO-NAS ─────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.skipif(
+    not OFFICIAL_YOLONAS_S.exists(),
+    reason="Official YOLO-NAS-S checkpoint not present in downloads/yolonas/",
+)
+class TestTrackingYOLONAS:
+    """Tracking e2e with the smallest YOLO-NAS model."""
+
+    @pytest.fixture(scope="class")
+    def model(self):
+        m = LibreYOLO(str(OFFICIAL_YOLONAS_S))
+        yield m
+        del m
+        cuda_cleanup()
+
+    def test_track_produces_results(self, model, video_path):
+        """YOLO-NAS tracker should produce tracked results."""
         frames = _run_tracker(model, video_path, n_frames=5)
         assert len(frames) == 5
         for f in frames:

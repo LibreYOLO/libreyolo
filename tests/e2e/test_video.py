@@ -2,7 +2,7 @@
 E2E video inference: validate model() on a real video with pedestrians.
 
 Downloads a short test video (7.3 MB, 13.6s) from the LibreYOLO HF repo and
-runs video inference through one model per family (YOLOX, YOLO9, RF-DETR),
+runs video inference through one model per family (YOLOX, YOLO9, RF-DETR, YOLO-NAS),
 checking that:
   - stream=True yields a generator of Results
   - stream=False collects Results into a list
@@ -36,6 +36,8 @@ pytestmark = pytest.mark.e2e
 VIDEO_URL = "https://huggingface.co/datasets/LibreYOLO/test-assets/resolve/main/videos/people-walking.mp4"
 VIDEO_CACHE = Path.home() / ".cache" / "libreyolo" / "tracking"
 VIDEO_PATH = VIDEO_CACHE / "people-walking.mp4"
+
+OFFICIAL_YOLONAS_S = Path("downloads/yolonas/yolo_nas_s_coco.pth")
 
 
 def download_video():
@@ -91,6 +93,14 @@ def yolo9_model():
 @pytest.fixture(scope="module")
 def rfdetr_model():
     m = LibreYOLO("LibreRFDETRn.pt")
+    yield m
+    del m
+    cuda_cleanup()
+
+
+@pytest.fixture(scope="module")
+def yolonas_model():
+    m = LibreYOLO(str(OFFICIAL_YOLONAS_S))
     yield m
     del m
     cuda_cleanup()
@@ -328,4 +338,58 @@ class TestVideoRFDETR:
 
     def test_orig_shape(self, rfdetr_model, video_path):
         result = next(iter(rfdetr_model(video_path, stream=True, conf=0.25)))
+        assert result.orig_shape == (1080, 1920)
+
+
+# ---------------------------------------------------------------------------
+# YOLO-NAS
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.skipif(
+    not OFFICIAL_YOLONAS_S.exists(),
+    reason="Official YOLO-NAS-S checkpoint not present in downloads/yolonas/",
+)
+class TestVideoYOLONAS:
+    """Video inference with YOLO-NAS."""
+
+    def test_stream_returns_generator(self, yolonas_model, video_path):
+        gen = yolonas_model(video_path, stream=True, conf=0.25)
+        assert hasattr(gen, "__next__")
+        result = next(gen)
+        assert result is not None
+        assert result.frame_idx == 0
+        gen.close()
+
+    def test_detects_people(self, yolonas_model, video_path):
+        frames = _collect_n_frames(yolonas_model, video_path, n=30, conf=0.25)
+        total_dets = sum(len(r) for r in frames)
+        assert total_dets > 100, f"Only {total_dets} detections in 30 frames"
+
+    def test_vid_stride(self, yolonas_model, video_path):
+        frames = _collect_n_frames(
+            yolonas_model, video_path, n=1000, conf=0.25, vid_stride=5
+        )
+        indices = [r.frame_idx for r in frames[:5]]
+        assert indices == [0, 5, 10, 15, 20]
+
+    def test_save(self, yolonas_model, video_path, tmp_path):
+        output = str(tmp_path / "yolonas_output.mp4")
+        n = 0
+        for r in yolonas_model(
+            video_path,
+            stream=True,
+            save=True,
+            output_path=output,
+            conf=0.25,
+            vid_stride=10,
+        ):
+            n += 1
+        assert Path(output).exists()
+        cap = cv2.VideoCapture(output)
+        assert int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) == n
+        cap.release()
+
+    def test_orig_shape(self, yolonas_model, video_path):
+        result = next(iter(yolonas_model(video_path, stream=True, conf=0.25)))
         assert result.orig_shape == (1080, 1920)
