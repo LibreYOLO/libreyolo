@@ -85,6 +85,30 @@ class TestYOLONASHeuristics:
     def test_detect_nb_classes(self):
         assert LibreYOLONAS.detect_nb_classes(_make_yolonas_state_dict(64, 17)) == 17
 
+    @pytest.mark.parametrize(
+        ("filename", "expected_url"),
+        [
+            (
+                "LibreYOLONASs.pt",
+                "https://d2gjn4b69gu75n.cloudfront.net/models/yolo_nas_s_coco.pth",
+            ),
+            (
+                "LibreYOLONASm.pt",
+                "https://d2gjn4b69gu75n.cloudfront.net/models/yolo_nas_m_coco.pth",
+            ),
+            (
+                "LibreYOLONASl.pt",
+                "https://d2gjn4b69gu75n.cloudfront.net/models/yolo_nas_l_coco.pth",
+            ),
+        ],
+    )
+    def test_get_download_url_points_to_deci_cdn(self, filename, expected_url):
+        # Overrides the HF default because Deci's weights license forbids mirroring.
+        assert LibreYOLONAS.get_download_url(filename) == expected_url
+
+    def test_get_download_url_returns_none_for_unknown_filename(self):
+        assert LibreYOLONAS.get_download_url("unrelated.pt") is None
+
 
 class TestYOLONASNativeModel:
     def test_native_model_forward_shapes(self):

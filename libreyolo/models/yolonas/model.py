@@ -35,9 +35,20 @@ class LibreYOLONAS(BaseModel):
     _SIZE_FROM_HEAD_WIDTH = {64: "s", 96: "m", 128: "l"}
     _NUM_CLASSES_KEY = "heads.head1.cls_pred.weight"
 
+    _DECI_CDN_BASE = "https://d2gjn4b69gu75n.cloudfront.net/models"
+
     @classmethod
     def can_load(cls, weights_dict: dict) -> bool:
         return all(key in weights_dict for key in cls._REQUIRED_SIGNATURE_KEYS)
+
+    @classmethod
+    def get_download_url(cls, filename: str) -> Optional[str]:
+        # YOLO-NAS weights are under Deci's proprietary license — LibreYOLO
+        # links to Deci's public CDN instead of mirroring on its own HF org.
+        size = cls.detect_size_from_filename(filename)
+        if size is None:
+            return None
+        return f"{cls._DECI_CDN_BASE}/yolo_nas_{size}_coco.pth"
 
     @classmethod
     def detect_size(cls, weights_dict: dict) -> Optional[str]:
