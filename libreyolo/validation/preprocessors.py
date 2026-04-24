@@ -239,3 +239,14 @@ class YOLONASValPreprocessor(YOLO9ValPreprocessor):
     consistency across inference and validation. A later parity pass can tighten
     this toward the exact SG preprocessing contract if needed.
     """
+
+
+class DFINEValPreprocessor(StandardValPreprocessor):
+    """D-FINE preprocessor: plain resize + 0-1 + RGB, no letterbox, no ImageNet norm.
+
+    D-FINE's training pipeline uses ``ConvertPILImage(scale=True)`` and
+    ``Resize([640, 640])`` without padding or channel normalization. That's
+    precisely ``StandardValPreprocessor``'s contract, so we subclass for
+    documentation + explicit ``val_preprocessor_class`` binding without
+    duplicating the body.
+    """

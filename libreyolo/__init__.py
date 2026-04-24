@@ -4,7 +4,7 @@ from importlib.metadata import version, PackageNotFoundError
 from pathlib import Path as _Path
 
 # Core API — always available
-from .models import LibreYOLO, LibreYOLOX, LibreYOLO9, LibreYOLONAS
+from .models import LibreYOLO, LibreYOLOX, LibreYOLO9, LibreYOLONAS, LibreDFINE
 from .utils.results import Results, Boxes, Masks
 
 SAMPLE_IMAGE = str(_Path(__file__).parent / "assets" / "parkour.jpg")
@@ -54,6 +54,7 @@ __all__ = [
     "LibreYOLONAS",
     "LibreYOLOX",
     "LibreYOLORFDETR",
+    "LibreDFINE",
     # Results
     "Results",
     "Boxes",

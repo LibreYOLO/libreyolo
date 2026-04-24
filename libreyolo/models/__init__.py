@@ -23,6 +23,7 @@ from ..utils.download import download_weights
 from .yolox.model import LibreYOLOX  # noqa: E402
 from .yolo9.model import LibreYOLO9  # noqa: E402
 from .yolonas.model import LibreYOLONAS  # noqa: E402
+from .dfine.model import LibreDFINE  # noqa: E402
 
 
 def _ensure_rfdetr():
@@ -186,18 +187,13 @@ def LibreYOLO(
 
     weights_dict = _unwrap_state_dict(state_dict)
 
-    # Ensure RF-DETR is registered if its keys are present
+    # Ensure RF-DETR is registered if its keys are present.
+    # D-FINE also has ``encoder``/``decoder``/``class_embed``-ish keys — we
+    # gate on ``dinov2`` (RF-DETR uses DINOv2 backbone, D-FINE uses HGNetV2)
+    # or the RF-DETR-specific ``query_embed`` to avoid a spurious import
+    # whenever D-FINE weights are loaded.
     keys_lower = [k.lower() for k in weights_dict]
-    if any(
-        "detr" in k
-        or "dinov2" in k
-        or "transformer" in k
-        or ("encoder" in k and "decoder" in k)
-        or "query_embed" in k
-        or "class_embed" in k
-        or "bbox_embed" in k
-        for k in keys_lower
-    ):
+    if any("dinov2" in k or "query_embed" in k for k in keys_lower):
         try:
             _ensure_rfdetr()
         except ModuleNotFoundError:
