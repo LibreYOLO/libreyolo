@@ -1,7 +1,7 @@
 """LibreYOLORFDETR implementation for LibreYOLO."""
 
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, ClassVar, Dict, Optional, Tuple
 
 import torch
 import torch.nn as nn
@@ -126,6 +126,30 @@ class LibreYOLORFDETR(BaseModel):
     FILENAME_PREFIX = "LibreRFDETR"
     INPUT_SIZES = {"n": 384, "s": 512, "m": 576, "l": 704}
     val_preprocessor_class = RFDETRValPreprocessor
+
+    # CLI parameters not supported by RF-DETR's training API
+    UNSUPPORTED_TRAIN_PARAMS: ClassVar[set[str]] = {
+        "imgsz",
+        "mosaic",
+        "mixup",
+        "degrees",
+        "shear",
+        "scheduler",
+        "warmup_lr_start",
+        "min_lr_ratio",
+        "mosaic_scale",
+        "mixup_scale",
+        "no_aug_epochs",
+        "optimizer",
+        "momentum",
+        "nesterov",
+        "hsv_prob",
+        "flip_prob",
+        "translate",
+        "amp",
+        "pretrained",
+        "log_interval",
+    }
 
     # =========================================================================
     # Registry classmethods

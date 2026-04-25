@@ -10,30 +10,15 @@ from pathlib import Path
 from typing import Any, Optional
 
 
-# RF-DETR does not support these augmentation/scheduler parameters.
-# They are warned and ignored rather than errored.
-RFDETR_UNSUPPORTED_PARAMS: set[str] = {
-    "imgsz",
-    "mosaic",
-    "mixup",
-    "degrees",
-    "shear",
-    "scheduler",
-    "warmup_lr_start",
-    "min_lr_ratio",
-    "mosaic_scale",
-    "mixup_scale",
-    "no_aug_epochs",
-    "optimizer",
-    "momentum",
-    "nesterov",
-    "hsv_prob",
-    "flip_prob",
-    "translate",
-    "amp",
-    "pretrained",
-    "log_interval",
-}
+def get_unsupported_train_params(family: str) -> set[str]:
+    """Return the set of CLI parameters ignored by a model family's trainer."""
+    if family == "rfdetr":
+        from libreyolo.models import try_ensure_rfdetr
+
+        rfcls = try_ensure_rfdetr()
+        if rfcls is not None:
+            return getattr(rfcls, "UNSUPPORTED_TRAIN_PARAMS", set())
+    return set()
 
 
 # =========================================================================

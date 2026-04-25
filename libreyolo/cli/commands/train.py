@@ -14,10 +14,10 @@ from ..command_utils import (
     resolve_model_or_exit,
 )
 from ..config import (
-    RFDETR_UNSUPPORTED_PARAMS,
     apply_family_defaults,
     build_family_train_kwargs,
     detect_family_from_name,
+    get_unsupported_train_params,
 )
 from ..output import OutputHandler
 
@@ -185,8 +185,9 @@ def train_cmd(
 
     # RF-DETR: warn and ignore unsupported params
     rfdetr_warnings = []
-    if family == "rfdetr":
-        for param_name in RFDETR_UNSUPPORTED_PARAMS:
+    unsupported_params = get_unsupported_train_params(family)
+    if unsupported_params:
+        for param_name in unsupported_params:
             if param_name in user_provided:
                 rfdetr_warnings.append(param_name)
         if rfdetr_warnings:
