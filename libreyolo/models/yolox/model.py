@@ -14,6 +14,9 @@ from .nn import LibreYOLOXModel
 from .utils import preprocess_image as _yolox_preprocess, postprocess
 from ...validation.preprocessors import YOLOXValPreprocessor
 
+# Single source of truth for training defaults
+_TRAIN_DEFAULTS = YOLOXConfig()
+
 
 class LibreYOLOX(BaseModel):
     """YOLOX model for object detection.
@@ -169,21 +172,21 @@ class LibreYOLOX(BaseModel):
         self,
         data: str,
         *,
-        epochs: int = 100,
-        batch: int = 16,
-        imgsz: int = 640,
-        lr0: float = 0.01,
-        optimizer: str = "SGD",
+        epochs: int = _TRAIN_DEFAULTS.epochs,
+        batch: int = _TRAIN_DEFAULTS.batch,
+        imgsz: int = _TRAIN_DEFAULTS.imgsz,
+        lr0: float = _TRAIN_DEFAULTS.lr0,
+        optimizer: str = _TRAIN_DEFAULTS.optimizer,
         device: str = "",
-        workers: int = 8,
-        seed: int = 0,
-        project: str = "runs/train",
-        name: str = "exp",
-        exist_ok: bool = False,
+        workers: int = _TRAIN_DEFAULTS.workers,
+        seed: int = _TRAIN_DEFAULTS.seed,
+        project: str = _TRAIN_DEFAULTS.project,
+        name: str = _TRAIN_DEFAULTS.name,
+        exist_ok: bool = _TRAIN_DEFAULTS.exist_ok,
         pretrained: bool = True,
-        resume: bool = False,
-        amp: bool = True,
-        patience: int = 50,
+        resume: bool = _TRAIN_DEFAULTS.resume,
+        amp: bool = _TRAIN_DEFAULTS.amp,
+        patience: int = _TRAIN_DEFAULTS.patience,
         allow_download_scripts: bool = False,
         **kwargs,
     ) -> dict:

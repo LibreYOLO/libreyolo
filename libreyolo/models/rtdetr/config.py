@@ -13,7 +13,6 @@ from libreyolo.training.config import TrainConfig
 class RTDETRConfig(TrainConfig):
     """Training configuration for RT-DETR models."""
 
-    # RT-DETR defaults match the wrapper's public train() signature.
     epochs: int = 72
     batch: int = 4
     optimizer: str = "adamw"
