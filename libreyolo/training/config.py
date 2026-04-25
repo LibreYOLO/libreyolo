@@ -171,6 +171,12 @@ class DFINEConfig(TrainConfig):
     ema_decay: float = 0.9999
     ema_restart_decay: float = 0.9999
 
+    # D-FINE-specific training knobs (paper-faithful fine-tune defaults).
+    backbone_lr_mult: float = 0.5  # upstream's fine-tune recipe uses 0.5×
+    clip_max_norm: float = 0.1  # upstream default; 0 disables clipping
+    multi_scale: bool = True  # per-batch random resize via DFINEMultiScaleCollate
+    aug_stop_epoch_ratio: float = 0.85  # disable strong augs at epoch * ratio
+
     amp: bool = False
     epochs: int = 132
     name: str = "dfine_exp"

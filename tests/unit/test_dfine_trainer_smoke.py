@@ -121,12 +121,13 @@ def test_optimizer_setup_groups_params_correctly():
     )
     optimizer = trainer._setup_optimizer()
     groups = optimizer.param_groups
-    assert len(groups) == 2
-    wd_group, no_wd_group = groups
-    assert wd_group["weight_decay"] > 0
-    assert no_wd_group["weight_decay"] == 0
-    assert sum(p.numel() for p in wd_group["params"]) > 0
-    assert sum(p.numel() for p in no_wd_group["params"]) > 0
+    # 4 groups: head/backbone × wd/no-wd, all populated for D-FINE-N.
+    assert len(groups) == 4
+    wd_groups = [g for g in groups if g["weight_decay"] > 0]
+    no_wd_groups = [g for g in groups if g["weight_decay"] == 0]
+    assert len(wd_groups) == 2 and len(no_wd_groups) == 2
+    for g in groups:
+        assert sum(p.numel() for p in g["params"]) > 0
 
 
 def test_optimizer_layernorm_weights_in_no_wd_group():
@@ -153,11 +154,11 @@ def test_optimizer_layernorm_weights_in_no_wd_group():
         eval_interval=-1,
     )
     optimizer = trainer._setup_optimizer()
-    wd_group, no_wd_group = optimizer.param_groups
-
-    # Build name lookup so we can assert by name.
     name_by_id = {id(p): n for n, p in wrapper.model.named_parameters()}
-    no_wd_names = {name_by_id[id(p)] for p in no_wd_group["params"]}
+    no_wd_names = set()
+    for g in optimizer.param_groups:
+        if g["weight_decay"] == 0:
+            no_wd_names.update(name_by_id[id(p)] for p in g["params"])
 
     expected_in_no_wd = [
         "encoder.encoder.0.layers.0.norm1.weight",
@@ -197,6 +198,92 @@ def test_scheduler_warmup_then_flat():
     # iter 100 → end of cosine → min_lr (0.001 * 0.05)
     final = sched.update_lr(100)
     assert abs(final - 0.001 * 0.05) < 1e-5
+
+
+def test_optimizer_backbone_lr_mult():
+    """4 param groups with backbone groups carrying lr_mult=backbone_lr_mult."""
+    from libreyolo.models.dfine.trainer import DFINETrainer
+
+    wrapper = LibreDFINE(None, size="n", device="cpu")
+    trainer = DFINETrainer(
+        model=wrapper.model,
+        wrapper_model=wrapper,
+        size="n",
+        num_classes=80,
+        data=None,
+        epochs=1,
+        batch=2,
+        imgsz=640,
+        device="cpu",
+        amp=False,
+        ema=False,
+        eval_interval=-1,
+        backbone_lr_mult=0.5,
+    )
+    optimizer = trainer._setup_optimizer()
+    by_mult = {}
+    for pg in optimizer.param_groups:
+        by_mult.setdefault(pg["lr_mult"], []).append(pg)
+    # Expect exactly two distinct lr_mult values: 1.0 (head) and 0.5 (backbone).
+    assert sorted(by_mult.keys()) == [0.5, 1.0]
+    # And both head + backbone should have non-empty groups.
+    assert sum(len(pg["params"]) for pg in by_mult[1.0]) > 0
+    assert sum(len(pg["params"]) for pg in by_mult[0.5]) > 0
+
+
+def test_train_transform_strong_augs_toggle():
+    """Strong augs run by default; disable_strong_augs() takes them off."""
+    import numpy as np
+
+    from libreyolo.models.dfine.transforms import DFINETrainTransform
+
+    img = np.random.randint(0, 255, (480, 640, 3), dtype=np.uint8)
+    targets = np.array([[100, 100, 200, 200, 0]], dtype=np.float32)
+
+    t = DFINETrainTransform(strong_augs=True, imgsz=640)
+    img_out, padded = t(img, targets, (640, 640))
+    assert img_out.shape == (3, 640, 640)
+    assert img_out.dtype == np.float32
+    # At least one valid box should remain after augs.
+    assert int((padded[:, 3] > 0).sum()) >= 1
+
+    t.disable_strong_augs()
+    img_out, padded = t(img, targets, (640, 640))
+    assert img_out.shape == (3, 640, 640)
+    assert int((padded[:, 3] > 0).sum()) == 1  # weak ops alone preserve the single box
+
+
+def test_multi_scale_collate_resize_and_stop_epoch():
+    """Random resize before stop_epoch, fixed base_size after."""
+    import numpy as np
+
+    from libreyolo.models.dfine.transforms import DFINEMultiScaleCollate, _generate_scales
+
+    scales = _generate_scales(640, 3)
+    assert 480 in scales and 800 in scales and scales.count(640) == 3
+
+    collate = DFINEMultiScaleCollate(base_size=640, base_size_repeat=3, stop_epoch=10)
+    batch = [
+        (
+            np.random.rand(3, 640, 640).astype(np.float32),
+            np.zeros((120, 5), dtype=np.float32),
+            {},
+            i,
+        )
+        for i in range(2)
+    ]
+    # Pre-stop_epoch: shape may be any of the 13 scales.
+    collate.set_epoch(0)
+    seen_sizes = set()
+    for _ in range(50):
+        imgs, *_ = collate(batch)
+        seen_sizes.add(imgs.shape[-1])
+    assert seen_sizes.issubset(set(scales))
+
+    # Post-stop_epoch: shape stays 640.
+    collate.set_epoch(20)
+    imgs, *_ = collate(batch)
+    assert imgs.shape[-2:] == (640, 640)
 
 
 def test_set_decay_changes_ema_behavior():

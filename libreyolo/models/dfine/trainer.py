@@ -1,24 +1,50 @@
 """DFINETrainer — BaseTrainer subclass for native D-FINE training.
 
-The integration trick is in ``on_forward``: LibreYOLO's training pipeline
-yields targets as a ``(B, max_labels, 5)`` padded tensor, but D-FINE's
-criterion wants ``list[dict{labels, boxes_cxcywh_normalized}]`` per image.
-The trainer translates between the two without touching ``BaseTrainer``.
+The integration tricks in this file:
+
+1. ``on_forward`` translates LibreYOLO's padded ``(B, max_labels, 5)`` target
+   tensor to D-FINE's ``list[dict{labels, boxes_cxcywh_normalized}]`` per-image
+   format expected by the criterion.
+
+2. ``_setup_optimizer`` builds 4 param groups (backbone wd / no-wd, head
+   wd / no-wd) and stamps each with an ``lr_mult`` (backbone groups at
+   ``config.backbone_lr_mult``, default 0.5).
+
+3. ``_setup_data`` swaps the parent's standard collate for
+   ``DFINEMultiScaleCollate`` (random per-batch resize until stop_epoch) when
+   ``config.multi_scale=True``.
+
+4. ``_train_epoch`` is a copy of ``BaseTrainer._train_epoch`` with three
+   tweaks: per-epoch ``set_epoch`` propagation to the dataset and collate,
+   gradient clipping at ``config.clip_max_norm``, and per-group LR (the
+   scheduler's single output is multiplied by each group's ``lr_mult`` instead
+   of being applied uniformly).
+
+   Why a wholesale override: ``BaseTrainer._train_epoch`` doesn't expose
+   pre-step / post-step hooks. The copy is intentionally kept structurally
+   close to the parent so drift is easy to audit; if a third family ends up
+   needing the same hooks, promote them into ``BaseTrainer``.
 """
 
 from __future__ import annotations
 
-from typing import Dict, Type
+import time
+from pathlib import Path
+from typing import Any, Dict, Optional, Tuple, Type
 
 import torch
 import torch.nn as nn
+from torch.amp import autocast
+from tqdm import tqdm
 
+from ...data import get_img_files, img2label_paths, load_data_config
+from ...data.dataset import COCODataset, YOLODataset
 from ...training.config import DFINEConfig, TrainConfig
 from ...training.scheduler import FlatCosineScheduler
 from ...training.trainer import BaseTrainer
 from .loss import DFINECriterion
 from .matcher import HungarianMatcher
-from .transforms import DFINEPassThroughDataset, DFINETrainTransform
+from .transforms import DFINEMultiScaleCollate, DFINEPassThroughDataset, DFINETrainTransform
 
 
 class DFINETrainer(BaseTrainer):
@@ -92,22 +118,17 @@ class DFINETrainer(BaseTrainer):
             self.ema_model.set_decay(decay)
 
     def _setup_optimizer(self) -> torch.optim.Optimizer:
-        """AdamW with no-WD on norms / biases / LearnableAffine params.
+        """AdamW with 4 param groups: {backbone, head} × {wd, no-wd}.
 
-        Backbone-LR multiplier is intentionally **not** applied in v1 — we share
-        a single LR across all groups. Adding it later requires either a custom
-        scheduler (returning per-group LRs) or an override of ``_train_epoch``.
+        Each group gets an ``lr_mult`` that ``_train_epoch`` reads back when
+        applying the scheduler-returned base LR. The default
+        ``backbone_lr_mult=0.5`` matches D-FINE's published fine-tune recipe;
+        head groups stay at 1.0×.
         """
-        no_wd_params, wd_params = [], []
+        backbone_wd, backbone_no_wd, head_wd, head_no_wd = [], [], [], []
         for name, p in self.model.named_parameters():
             if not p.requires_grad:
                 continue
-            # Match all norm-layer params:
-            #   - ``.bn.`` (BatchNorm in HGNetv2/encoder convs)
-            #   - ``.norm.`` (encoder lateral conv layers)
-            #   - ``.norm`` followed by digit (transformer ``norm1`` / ``norm2`` /
-            #     ``norm3`` in encoder + decoder layers — the bug-prone case
-            #     because ``.norm.`` does NOT match ``norm1``)
             is_norm_or_bias = (
                 ".bn." in name
                 or ".norm." in name
@@ -121,15 +142,37 @@ class DFINETrainer(BaseTrainer):
                 or "lab.scale" in name
                 or "lab.bias" in name
             )
-            (no_wd_params if is_norm_or_bias else wd_params).append(p)
+            is_backbone = name.startswith("backbone.")
+            if is_backbone and is_norm_or_bias:
+                backbone_no_wd.append(p)
+            elif is_backbone:
+                backbone_wd.append(p)
+            elif is_norm_or_bias:
+                head_no_wd.append(p)
+            else:
+                head_wd.append(p)
 
         lr = self.effective_lr
         wd = self.config.weight_decay
-        param_groups = [
-            {"params": wd_params, "lr": lr, "weight_decay": wd},
-        ]
-        if no_wd_params:
-            param_groups.append({"params": no_wd_params, "lr": lr, "weight_decay": 0.0})
+        bb_mult = float(getattr(self.config, "backbone_lr_mult", 1.0))
+
+        param_groups = []
+        if head_wd:
+            param_groups.append(
+                {"params": head_wd, "lr": lr, "weight_decay": wd, "lr_mult": 1.0}
+            )
+        if head_no_wd:
+            param_groups.append(
+                {"params": head_no_wd, "lr": lr, "weight_decay": 0.0, "lr_mult": 1.0}
+            )
+        if backbone_wd:
+            param_groups.append(
+                {"params": backbone_wd, "lr": lr * bb_mult, "weight_decay": wd, "lr_mult": bb_mult}
+            )
+        if backbone_no_wd:
+            param_groups.append(
+                {"params": backbone_no_wd, "lr": lr * bb_mult, "weight_decay": 0.0, "lr_mult": bb_mult}
+            )
 
         return torch.optim.AdamW(param_groups, betas=(0.9, 0.999))
 
@@ -141,7 +184,10 @@ class DFINETrainer(BaseTrainer):
         boxes, then runs model + criterion.
         """
         B = targets.shape[0]
-        H, W = self.config.imgsz, self.config.imgsz
+        # Read actual image size from the batch — multi-scale collate may have
+        # resized to a non-default value (576..704), so we cannot trust
+        # ``config.imgsz`` here.
+        H, W = imgs.shape[-2], imgs.shape[-1]
         scale = torch.tensor([W, H, W, H], device=targets.device, dtype=targets.dtype)
 
         target_list = []
@@ -177,3 +223,242 @@ class DFINETrainer(BaseTrainer):
             "loss_fgl": losses.get("loss_fgl", torch.tensor(0.0)),
             "loss_ddf": losses.get("loss_ddf", torch.tensor(0.0)),
         }
+
+    # =========================================================================
+    # _setup_data override — wire DFINEMultiScaleCollate (when enabled)
+    # =========================================================================
+
+    def _setup_data(self):
+        """Mirror of ``BaseTrainer._setup_data`` but uses ``DFINEMultiScaleCollate``.
+
+        Built by hand instead of inheriting because ``create_dataloader`` doesn't
+        expose ``collate_fn`` and we need our epoch-aware collate. Dataset-build
+        logic is duplicated from the parent for clarity.
+        """
+        from torch.utils.data import DataLoader
+
+        img_size = self.input_size
+        preproc, MosaicDatasetClass = self.create_transforms()
+
+        if self.config.data:
+            data_cfg = load_data_config(self.config.data)
+            data_dir = data_cfg["root"]
+            self.num_classes = data_cfg.get("nc", self.config.num_classes)
+
+            ann_file = Path(data_dir) / "annotations" / "instances_train2017.json"
+            img_files = data_cfg.get("train_img_files")
+            label_files = data_cfg.get("train_label_files")
+
+            if img_files:
+                train_dataset = YOLODataset(
+                    img_files=img_files,
+                    label_files=label_files,
+                    img_size=img_size,
+                    preproc=preproc,
+                )
+            elif ann_file.exists():
+                train_dataset = COCODataset(
+                    data_dir=data_dir,
+                    json_file="instances_train2017.json",
+                    name="train2017",
+                    img_size=img_size,
+                    preproc=preproc,
+                )
+            else:
+                train_path = data_cfg.get("train", "images/train")
+                try:
+                    img_files = get_img_files(train_path, prefix=data_dir)
+                except (FileNotFoundError, ValueError):
+                    img_files = []
+                if not img_files:
+                    raise FileNotFoundError(f"No images found in {train_path}")
+                label_files = img2label_paths(img_files)
+                train_dataset = YOLODataset(
+                    img_files=img_files,
+                    label_files=label_files,
+                    img_size=img_size,
+                    preproc=preproc,
+                )
+        elif self.config.data_dir:
+            data_dir = self.config.data_dir
+            self.num_classes = self.config.num_classes
+            if (Path(data_dir) / "annotations").exists():
+                train_dataset = COCODataset(
+                    data_dir=data_dir,
+                    json_file="instances_train2017.json",
+                    name="train2017",
+                    img_size=img_size,
+                    preproc=preproc,
+                )
+            else:
+                train_dataset = YOLODataset(
+                    data_dir=data_dir,
+                    split="train",
+                    img_size=img_size,
+                    preproc=preproc,
+                )
+        else:
+            raise ValueError("Either 'data' or 'data_dir' must be specified")
+
+        train_dataset = MosaicDatasetClass(
+            dataset=train_dataset,
+            img_size=img_size,
+            mosaic=True,
+            preproc=preproc,
+            degrees=self.config.degrees,
+            translate=self.config.translate,
+            mosaic_scale=self.config.mosaic_scale,
+            mixup_scale=self.config.mixup_scale,
+            shear=self.config.shear,
+            enable_mixup=self.config.mixup_prob > 0,
+            mosaic_prob=self.config.mosaic_prob,
+            mixup_prob=self.config.mixup_prob,
+        )
+
+        # Wire stop_epoch on the dataset wrapper so set_epoch can disable
+        # strong augs at the right moment.
+        stop_epoch = int(
+            self.config.epochs * float(getattr(self.config, "aug_stop_epoch_ratio", 1.0))
+        )
+        if hasattr(train_dataset, "set_stop_epoch"):
+            train_dataset.set_stop_epoch(stop_epoch)
+
+        # Multi-scale collate (or default yolox_collate_fn).
+        if getattr(self.config, "multi_scale", False):
+            collate_fn = DFINEMultiScaleCollate(
+                base_size=self.config.imgsz,
+                base_size_repeat=3,
+                stop_epoch=stop_epoch,
+            )
+        else:
+            from ...data.dataset import yolox_collate_fn
+
+            collate_fn = yolox_collate_fn
+
+        self.train_loader = DataLoader(
+            train_dataset,
+            batch_size=self.config.batch,
+            num_workers=self.config.workers,
+            shuffle=True,
+            pin_memory=True,
+            collate_fn=collate_fn,
+            drop_last=True,
+        )
+
+        return train_dataset
+
+    # =========================================================================
+    # _train_epoch override — set_epoch propagation, grad clip, per-group LR
+    # =========================================================================
+
+    def _train_epoch(self, epoch: int) -> Tuple[float, Optional[Dict[str, float]]]:
+        """Copy of ``BaseTrainer._train_epoch`` with three D-FINE-specific tweaks:
+
+        1. Propagate the current epoch to dataset + collate (drives stop_epoch
+           augmentation/multi-scale gating).
+        2. Apply gradient clipping at ``config.clip_max_norm`` before the
+           optimizer step.
+        3. Apply per-group LR multipliers (the scheduler returns one base LR;
+           each param group's ``lr_mult`` scales it).
+        """
+        # 1. Epoch propagation.
+        ds = self.train_loader.dataset
+        if hasattr(ds, "set_epoch"):
+            ds.set_epoch(epoch)
+        cf = getattr(self.train_loader, "collate_fn", None)
+        if cf is not None and hasattr(cf, "set_epoch"):
+            cf.set_epoch(epoch)
+
+        clip_max_norm = float(getattr(self.config, "clip_max_norm", 0.0))
+
+        self.model.train()
+        pbar = tqdm(
+            self.train_loader,
+            desc=f"Epoch {epoch + 1}/{self.config.epochs}",
+            total=len(self.train_loader),
+        )
+
+        total_loss = 0.0
+        num_batches = 0
+
+        for batch_idx, (imgs, targets, img_infos, img_ids) in enumerate(pbar):
+            self.current_iter = epoch * len(self.train_loader) + batch_idx
+
+            imgs = imgs.to(self.device, non_blocking=True)
+            targets = targets.to(self.device, non_blocking=True)
+
+            if self.scaler is not None:
+                with autocast("cuda"):
+                    outputs = self.on_forward(imgs, targets)
+                    loss = outputs["total_loss"]
+                self.optimizer.zero_grad()
+                self.scaler.scale(loss).backward()
+                if clip_max_norm > 0:
+                    self.scaler.unscale_(self.optimizer)
+                    torch.nn.utils.clip_grad_norm_(
+                        self.model.parameters(), clip_max_norm
+                    )
+                self.scaler.step(self.optimizer)
+                self.scaler.update()
+            else:
+                outputs = self.on_forward(imgs, targets)
+                loss = outputs["total_loss"]
+                self.optimizer.zero_grad()
+                loss.backward()
+                if clip_max_norm > 0:
+                    torch.nn.utils.clip_grad_norm_(
+                        self.model.parameters(), clip_max_norm
+                    )
+                self.optimizer.step()
+
+            if self.ema_model is not None:
+                self.ema_model.update(self.model)
+
+            loss_val = loss.item()
+            loss_components = self.get_loss_components(outputs)
+            total_loss += loss_val
+            del outputs, loss
+
+            # 3. Per-group LR (scheduler returns one base LR; each group
+            # multiplies by its ``lr_mult``).
+            base_lr = self.lr_scheduler.update_lr(self.current_iter + 1)
+            for pg in self.optimizer.param_groups:
+                pg["lr"] = base_lr * pg.get("lr_mult", 1.0)
+            num_batches += 1
+
+            postfix = {"loss": f"{loss_val:.4f}", "lr": f"{base_lr:.6f}"}
+            postfix.update({k: f"{v:.4f}" for k, v in loss_components.items()})
+            pbar.set_postfix(postfix)
+
+            if self.tensorboard_writer and batch_idx % self.config.log_interval == 0:
+                self.tensorboard_writer.add_scalar(
+                    "train/loss", loss_val, self.current_iter
+                )
+                self.tensorboard_writer.add_scalar(
+                    "train/lr", base_lr, self.current_iter
+                )
+                for name, val in loss_components.items():
+                    self.tensorboard_writer.add_scalar(
+                        f"train/{name}", val, self.current_iter
+                    )
+
+        avg_loss = total_loss / max(num_batches, 1)
+
+        if self.tensorboard_writer:
+            self.tensorboard_writer.add_scalar("epoch/loss", avg_loss, epoch)
+
+        val_metrics = None
+        if (
+            self.config.eval_interval > 0
+            and (epoch + 1) % self.config.eval_interval == 0
+        ):
+            val_metrics = self._validate_epoch(epoch)
+            if val_metrics and self.tensorboard_writer:
+                self.tensorboard_writer.add_scalar(
+                    "val/mAP50", val_metrics["mAP50"], epoch
+                )
+                self.tensorboard_writer.add_scalar(
+                    "val/mAP50_95", val_metrics["mAP50_95"], epoch
+                )
+
+        return avg_loss, val_metrics
