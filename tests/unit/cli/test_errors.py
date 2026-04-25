@@ -50,7 +50,12 @@ class TestExitCodes:
             assert EXIT_CODES[code] == 2, f"{code} should exit 2"
 
     def test_data_errors_exit_3(self):
-        for code in ("source_not_found", "data_not_found", "data_invalid", "data_images_missing"):
+        for code in (
+            "source_not_found",
+            "data_not_found",
+            "data_invalid",
+            "data_images_missing",
+        ):
             assert EXIT_CODES[code] == 3, f"{code} should exit 3"
 
     def test_model_errors_exit_4(self):

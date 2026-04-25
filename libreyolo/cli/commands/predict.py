@@ -25,7 +25,9 @@ def predict_cmd(
         None, help="Filter by class IDs, e.g. [0,2,5]"
     ),
     max_det: int = typer.Option(300, help="Max detections per image"),
-    half: bool = typer.Option(False, help="FP16 inference (CUDA only, requires model support)"),
+    half: bool = typer.Option(
+        False, help="FP16 inference (CUDA only, requires model support)"
+    ),
     save: bool = typer.Option(False, help="Save annotated images"),
     batch: int = typer.Option(1, help="Batch size for directories"),
     tiling: bool = typer.Option(False, help="Tiled inference for large images"),
