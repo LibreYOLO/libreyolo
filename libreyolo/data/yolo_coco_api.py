@@ -13,9 +13,9 @@ from pathlib import Path
 from typing import List, Optional, Tuple
 import warnings
 
-from PIL import Image
-
 logger = logging.getLogger(__name__)
+
+from PIL import Image
 
 
 def parse_yolo_label_line(

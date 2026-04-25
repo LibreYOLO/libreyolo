@@ -632,7 +632,6 @@ class TransformerDecoder(nn.Module):
         dec_out_bboxes = []
         dec_out_logits = []
         ref_points_detach = F.sigmoid(ref_points_unact)
-        ref_points = ref_points_detach
 
         for i, layer in enumerate(self.layers):
             ref_points_input = ref_points_detach.unsqueeze(2)

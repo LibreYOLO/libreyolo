@@ -111,6 +111,8 @@ def LibreYOLO(
     Returns:
         Model instance (LibreYOLOX, LibreYOLO9, LibreYOLORFDETR, or inference backend).
     """
+    import torch
+
     ensure_default_logging()
     model_path = _resolve_weights_path(model_path)
 

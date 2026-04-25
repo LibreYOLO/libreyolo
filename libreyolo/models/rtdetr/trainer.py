@@ -10,6 +10,7 @@ import re
 from typing import Dict, List, Type
 
 import torch
+import torch.nn as nn
 
 from libreyolo.training.trainer import BaseTrainer
 from libreyolo.training.config import TrainConfig

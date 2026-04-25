@@ -15,10 +15,10 @@ from typing import Optional
 
 import torch
 
+logger = logging.getLogger(__name__)
+
 from .onnx import _get_version, export_onnx
 from .torchscript import export_torchscript
-
-logger = logging.getLogger(__name__)
 
 
 # Precision helpers
