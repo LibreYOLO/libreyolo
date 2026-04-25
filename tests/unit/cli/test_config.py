@@ -37,10 +37,7 @@ class TestResolveModelName:
 
     def test_local_path_passthrough(self):
         assert resolve_model_name("best.pt") == "best.pt"
-        assert (
-            resolve_model_name("runs/train/exp/weights/best.pt")
-            == "runs/train/exp/weights/best.pt"
-        )
+        assert resolve_model_name("runs/train/exp/weights/best.pt") == "runs/train/exp/weights/best.pt"
         assert resolve_model_name("model.onnx") == "model.onnx"
 
     def test_unknown_model_passthrough(self):
@@ -139,13 +136,8 @@ class TestBuildTrainKwargs:
 
     def test_excluded_fields(self):
         """size, num_classes, data, data_dir are never in output."""
-        params = {
-            "size": "m",
-            "num_classes": 10,
-            "data": "coco.yaml",
-            "data_dir": "/tmp",
-            "epochs": 50,
-        }
+        params = {"size": "m", "num_classes": 10, "data": "coco.yaml",
+                  "data_dir": "/tmp", "epochs": 50}
         kwargs = build_train_kwargs(params)
         assert "size" not in kwargs
         assert "num_classes" not in kwargs
@@ -157,7 +149,6 @@ class TestBuildTrainKwargs:
         """Every non-excluded TrainConfig field is picked up when present."""
         excluded = {"size", "num_classes", "data", "data_dir"}
         from libreyolo.cli.aliases import TRAIN_ALIASES
-
         internal_to_cli = {v: k for k, v in TRAIN_ALIASES.items()}
 
         params = {}

@@ -352,9 +352,7 @@ RTDETR_SIZES = [s for f, s, _ in MODEL_CATALOG if f == "rtdetr"]
 
 ALL_MODELS = [(f, s) for f, s, _ in MODEL_CATALOG]
 ALL_MODELS_WITH_WEIGHTS = MODEL_CATALOG
-YOLOX_YOLO9_MODELS = [
-    (f, s) for f, s, _ in MODEL_CATALOG if f not in ("rfdetr", "rtdetr")
-]
+YOLOX_YOLO9_MODELS = [(f, s) for f, s, _ in MODEL_CATALOG if f not in ("rfdetr", "rtdetr")]
 
 # Quick test set (for CI — smallest models only)
 QUICK_TEST_MODELS = [("yolox", "n"), ("yolo9", "t"), ("rtdetr", "r18")]

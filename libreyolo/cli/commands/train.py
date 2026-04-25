@@ -21,9 +21,7 @@ from ..output import OutputHandler
 
 
 def train_cmd(
-    data: str = typer.Option(
-        ..., help="Path to dataset YAML (YOLO format, e.g. coco8.yaml)"
-    ),
+    data: str = typer.Option(..., help="Path to dataset YAML (YOLO format, e.g. coco8.yaml)"),
     model: str = typer.Option("yolox-s", help="Model name or path to weights"),
     # Training
     epochs: int = typer.Option(300, help="Training epochs"),

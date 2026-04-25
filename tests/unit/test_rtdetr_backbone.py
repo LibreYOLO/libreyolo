@@ -12,12 +12,7 @@ def test_presnet_pretrained_uses_logger_not_print(monkeypatch):
 
     monkeypatch.setattr("torch.hub.load_state_dict_from_url", lambda url: {})
     monkeypatch.setattr(PResNet, "load_state_dict", lambda self, state: None)
-    monkeypatch.setattr(
-        "builtins.print",
-        lambda *args, **kwargs: (_ for _ in ()).throw(
-            AssertionError("print should not be called")
-        ),
-    )
+    monkeypatch.setattr("builtins.print", lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("print should not be called")))
     monkeypatch.setattr(
         "libreyolo.models.rtdetr.backbone.logger.info",
         lambda message, depth: calls.update({"message": message, "depth": depth}),

@@ -81,7 +81,9 @@ def entrypoint() -> None:
 
     # Special commands
     for cmd_name in ("version", "checks", "models", "formats", "cfg", "info"):
-        app.command(cmd_name, cls=KeyValueCommand)(getattr(special, f"{cmd_name}_cmd"))
+        app.command(cmd_name, cls=KeyValueCommand)(
+            getattr(special, f"{cmd_name}_cmd")
+        )
 
     # Core mode commands
     app.command("predict", cls=KeyValueCommand)(predict.predict_cmd)

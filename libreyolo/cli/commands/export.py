@@ -102,9 +102,7 @@ def export_cmd(
         if "Unsupported export format" in str(e):
             exit_with_error(
                 out,
-                "export_format_unknown",
-                str(e),
-                suggestion="Run: libreyolo formats",
+                "export_format_unknown", str(e), suggestion="Run: libreyolo formats"
             )
         else:
             exit_stage_error(out, stage="Export", detail=e)

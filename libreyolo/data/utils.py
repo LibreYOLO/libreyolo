@@ -347,9 +347,7 @@ def check_dataset(
     # Dataset doesn't exist, check for download URL/script
     download_spec = config.get("download")
     if not download_spec:
-        logger.warning(
-            "Dataset not found at %s and no download specified.", dataset_path
-        )
+        logger.warning("Dataset not found at %s and no download specified.", dataset_path)
         return config
 
     logger.info("Dataset not found at %s", dataset_path)

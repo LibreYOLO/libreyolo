@@ -17,9 +17,7 @@ from ..output import OutputHandler
 
 def val_cmd(
     model: str = typer.Option(..., help="Model weights path"),
-    data: str = typer.Option(
-        ..., help="Path to dataset YAML (YOLO format, e.g. coco8.yaml)"
-    ),
+    data: str = typer.Option(..., help="Path to dataset YAML (YOLO format, e.g. coco8.yaml)"),
     data_dir: Optional[str] = typer.Option(None, help="Direct dataset directory"),
     split: str = typer.Option("val", help="Dataset split: val, test, train"),
     batch: int = typer.Option(16, help="Batch size"),

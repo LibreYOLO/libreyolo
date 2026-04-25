@@ -1,5 +1,4 @@
 """Special commands: version, checks, models, formats, cfg, info."""
-
 import sys
 from typing import Optional
 
