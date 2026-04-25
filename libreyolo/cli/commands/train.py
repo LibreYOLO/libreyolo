@@ -181,7 +181,9 @@ def train_cmd(
         "allow_download_scripts": allow_download_scripts,
     }
     if family:
-        params = apply_family_defaults(params, family, "train", user_provided=user_provided)
+        params = apply_family_defaults(
+            params, family, "train", user_provided=user_provided
+        )
 
     # RF-DETR: warn and ignore unsupported params
     rfdetr_warnings = []
