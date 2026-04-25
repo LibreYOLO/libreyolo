@@ -39,6 +39,7 @@ class BaseModel(ABC):
     FILENAME_PREFIX: ClassVar[str] = ""
     WEIGHT_EXT: ClassVar[str] = ".pt"
     INPUT_SIZES: ClassVar[dict[str, int]] = {}
+    SUPPORTS_SEG: ClassVar[bool] = False
     val_preprocessor_class = StandardValPreprocessor
 
     # Model registry — auto-populated by __init_subclass__

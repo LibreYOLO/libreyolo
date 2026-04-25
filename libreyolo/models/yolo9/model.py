@@ -36,6 +36,7 @@ class LibreYOLO9(BaseModel):
     FAMILY = "yolo9"
     FILENAME_PREFIX = "LibreYOLO9"
     INPUT_SIZES = {"t": 640, "s": 640, "m": 640, "c": 640}
+    SUPPORTS_SEG = True
     val_preprocessor_class = YOLO9ValPreprocessor
 
     # =========================================================================

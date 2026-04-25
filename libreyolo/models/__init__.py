@@ -247,13 +247,20 @@ def LibreYOLO(
     # For old/pretrained checkpoints, pass the extracted state_dict directly.
     has_metadata = isinstance(state_dict, dict) and "nc" in state_dict
 
-    # Check for -seg suffix on models that don't support segmentation
+    # Check for -seg suffix on families that don't support segmentation
     task = matched_cls.detect_task_from_filename(Path(model_path).name)
-    if task == "seg" and matched_cls.FAMILY != "rfdetr":
+    if task == "seg" and not matched_cls.SUPPORTS_SEG:
         raise ValueError(
-            f"{matched_cls.__name__} does not support segmentation. "
-            f"Only RF-DETR models support instance segmentation (-seg suffix)."
+            f"{matched_cls.__name__} does not support segmentation (-seg suffix). "
+            f"Families with seg support: "
+            f"{[c.__name__ for c in BaseModel._registry if c.SUPPORTS_SEG]}"
         )
+
+    extra_kwargs = {}
+    if matched_cls.SUPPORTS_SEG:
+        extra_kwargs["segmentation"] = task == "seg"
+    if matched_cls.FAMILY == "yolo9":
+        extra_kwargs["reg_max"] = reg_max
 
     if matched_cls.FAMILY == "rfdetr":
         # RF-DETR always needs the path (handles its own loading internally)
@@ -262,7 +269,7 @@ def LibreYOLO(
             size=size,
             nb_classes=nb_classes,
             device=device,
-            segmentation=(task == "seg"),
+            **extra_kwargs,
         )
     elif has_metadata:
         # Our trainer checkpoint — pass path for metadata handling
@@ -271,7 +278,7 @@ def LibreYOLO(
             size=size,
             nb_classes=80,
             device=device,
-            **({"reg_max": reg_max} if matched_cls.FAMILY == "yolo9" else {}),
+            **extra_kwargs,
         )
     else:
         # Pretrained checkpoint — pass extracted state dict
@@ -280,7 +287,7 @@ def LibreYOLO(
             size=size,
             nb_classes=nb_classes,
             device=device,
-            **({"reg_max": reg_max} if matched_cls.FAMILY == "yolo9" else {}),
+            **extra_kwargs,
         )
 
     model.model_path = model_path

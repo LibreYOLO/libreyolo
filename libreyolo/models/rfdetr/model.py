@@ -126,6 +126,7 @@ class LibreYOLORFDETR(BaseModel):
     FILENAME_PREFIX = "LibreRFDETR"
     INPUT_SIZES = {"n": 384, "s": 512, "m": 576, "l": 704}
     SEG_INPUT_SIZES = {"n": 312, "s": 384, "m": 432, "l": 504}
+    SUPPORTS_SEG = True
     val_preprocessor_class = RFDETRValPreprocessor
 
     # =========================================================================
