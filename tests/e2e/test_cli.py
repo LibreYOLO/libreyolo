@@ -64,11 +64,17 @@ def _parse_json_output(output: str) -> dict:
 
 
 class TestSpecialCommands:
-    """Test special commands: version, checks, models, formats, cfg."""
+    """Test special commands: version, checks, models, formats, cfg, info."""
 
     @pytest.fixture(scope="class")
     def app(self):
         return _build_app()
+
+    def test_no_args_shows_help(self, app):
+        result = runner.invoke(app, [])
+        # Typer with multiple commands exits 2 and prints usage when no subcommand given
+        assert result.exit_code == 2
+        assert "LibreYOLO" in result.output
 
     def test_version(self, app):
         result = runner.invoke(app, ["version"])
@@ -136,6 +142,19 @@ class TestSpecialCommands:
         assert "train_defaults" in data
         assert "val_defaults" in data
         assert "family_overrides" in data
+
+    def test_info(self, app):
+        result = runner.invoke(app, ["info", "model=yolox-s"])
+        assert result.exit_code == 0
+        assert "yolox" in result.output
+        assert "Parameters" in result.output
+
+    def test_info_json(self, app):
+        result = runner.invoke(app, ["info", "model=yolox-s", "--json"])
+        assert result.exit_code == 0
+        data = _parse_json_output(result.output)
+        assert data["model_family"] == "yolox"
+        assert data["parameters"] > 0
 
 
 # =========================================================================
@@ -221,6 +240,72 @@ class TestPredict:
         assert result.exit_code == 0
         assert "person" in result.output
 
+    def test_predict_mixed_syntax(self, app):
+        """Mixed key=value and --key value syntax works for predict."""
+        result = runner.invoke(
+            app,
+            [
+                "predict",
+                "source=libreyolo/assets/parkour.jpg",
+                "--model",
+                "yolox-s",
+                "conf=0.5",
+                "--json",
+            ],
+        )
+        assert result.exit_code == 0
+        data = _parse_json_output(result.output)
+        assert data["model_family"] == "yolox"
+
+    def test_predict_bare_bool_flags(self, app):
+        """Bare boolean flags (half, save) work for predict."""
+        result = runner.invoke(
+            app,
+            [
+                "predict",
+                "source=libreyolo/assets/parkour.jpg",
+                "model=yolox-s",
+                "half",
+                "save",
+                "--json",
+            ],
+        )
+        assert result.exit_code == 0
+        data = _parse_json_output(result.output)
+        assert len(data["results"]) == 1
+
+    def test_predict_save(self, app):
+        """Save flag produces output_path in JSON."""
+        result = runner.invoke(
+            app,
+            [
+                "predict",
+                "source=libreyolo/assets/parkour.jpg",
+                "model=yolox-s",
+                "save",
+                "--json",
+            ],
+        )
+        assert result.exit_code == 0
+        data = _parse_json_output(result.output)
+        assert "output_path" in data
+
+    def test_predict_local_weights(self, app):
+        """Local weights path works for predict."""
+        result = runner.invoke(
+            app,
+            [
+                "predict",
+                "source=libreyolo/assets/parkour.jpg",
+                "model=weights/LibreYOLOXs.pt",
+                "--json",
+            ],
+        )
+        assert result.exit_code == 0
+        data = _parse_json_output(result.output)
+        assert data["model_family"] == "yolox"
+        assert len(data["results"][0]["detections"]) > 0
+
     def test_predict_missing_source(self, app):
         result = runner.invoke(
             app, ["predict", "source=nonexistent.jpg", "model=yolox-s"]
@@ -234,6 +319,47 @@ class TestPredict:
         assert result.exit_code == 3
         data = _parse_json_output(result.output)
         assert data["error"] == "source_not_found"
+
+    def test_predict_missing_required_source(self, app):
+        """Missing source entirely exits with usage error."""
+        result = runner.invoke(app, ["predict", "model=yolox-s"])
+        assert result.exit_code == 2
+
+    def test_predict_help(self, app):
+        result = runner.invoke(app, ["predict", "--help"])
+        assert result.exit_code == 0
+        assert "source" in result.output
+        assert "model" in result.output
+
+    def test_detect_task_prefix(self, app, monkeypatch):
+        """Optional 'detect' task prefix is stripped by the entrypoint."""
+        import sys
+
+        # Simulate what entrypoint() does: strip 'detect' from sys.argv
+        monkeypatch.setattr(
+            sys,
+            "argv",
+            [
+                "libreyolo",
+                "detect",
+                "predict",
+                "source=libreyolo/assets/parkour.jpg",
+                "model=yolox-s",
+                "--json",
+            ],
+        )
+        from libreyolo.cli import _strip_task_prefix
+
+        _strip_task_prefix()
+        # After stripping, argv should not contain 'detect'
+        assert "detect" not in sys.argv
+        result = runner.invoke(
+            app,
+            sys.argv[1:],
+        )
+        assert result.exit_code == 0
+        data = _parse_json_output(result.output)
+        assert data["model_family"] == "yolox"
 
 
 # =========================================================================
@@ -274,6 +400,59 @@ class TestVal:
         """Missing required data arg errors cleanly."""
         result = runner.invoke(app, ["val", "model=yolox-s"])
         assert result.exit_code == 2
+
+    def test_val_with_overrides(self, app):
+        """Validation with batch and conf overrides produces metrics."""
+        result = runner.invoke(
+            app,
+            [
+                "val",
+                "model=yolox-s",
+                "data=coco8.yaml",
+                "batch=8",
+                "conf=0.01",
+                "device=cpu",
+                "--json",
+            ],
+        )
+        assert result.exit_code == 0
+        data = _parse_json_output(result.output)
+        assert "metrics" in data
+        assert "mAP50" in data["metrics"]
+
+    def test_val_yolo9(self, app):
+        """YOLOv9 validation through CLI."""
+        result = runner.invoke(
+            app,
+            [
+                "val",
+                "model=yolo9-t",
+                "data=coco8.yaml",
+                "device=cpu",
+                "--json",
+            ],
+        )
+        assert result.exit_code == 0
+        data = _parse_json_output(result.output)
+        assert data["model_family"] == "yolo9"
+        assert "metrics" in data
+
+    def test_val_local_weights(self, app):
+        """Local weights path works for val."""
+        result = runner.invoke(
+            app,
+            [
+                "val",
+                "model=weights/LibreYOLOXs.pt",
+                "data=coco8.yaml",
+                "device=cpu",
+                "--json",
+            ],
+        )
+        assert result.exit_code == 0
+        data = _parse_json_output(result.output)
+        assert data["model_family"] == "yolox"
+        assert "metrics" in data
 
 
 # =========================================================================
@@ -371,6 +550,12 @@ class TestTrainDryRun:
         result = runner.invoke(app, ["train", "model=yolox-s", "--dry-run"])
         assert result.exit_code == 2
 
+    def test_train_help(self, app):
+        result = runner.invoke(app, ["train", "--help"])
+        assert result.exit_code == 0
+        assert "data" in result.output
+        assert "epochs" in result.output
+
 
 # =========================================================================
 # Export command
@@ -402,6 +587,24 @@ class TestExport:
         assert data["format"] == "onnx"
         assert data["model_family"] == "yolox"
         assert data["output_path"].endswith(".onnx")
+
+    def test_export_onnx_with_options(self, app):
+        pytest.importorskip("onnx")
+        result = runner.invoke(
+            app,
+            [
+                "export",
+                "model=yolox-s",
+                "format=onnx",
+                "dynamic",
+                "device=cpu",
+                "--json",
+            ],
+        )
+        assert result.exit_code == 0
+        data = _parse_json_output(result.output)
+        assert data["format"] == "onnx"
+        assert data["dynamic"] is True
 
     def test_export_half_int8_conflict(self, app):
         result = runner.invoke(
