@@ -2,7 +2,7 @@
 
 import pytest
 
-from libreyolo.cli.aliases import TRAIN_ALIASES, VAL_ALIASES, resolve_aliases
+from libreyolo.cli.aliases import resolve_aliases
 
 pytestmark = pytest.mark.unit
 
@@ -23,9 +23,7 @@ class TestTrainAliases:
         assert result == {"epochs": 100, "batch": 16}
 
     def test_mixed_aliased_and_non_aliased(self):
-        result = resolve_aliases(
-            {"mosaic": 0.8, "epochs": 100, "mixup": 0.5}, "train"
-        )
+        result = resolve_aliases({"mosaic": 0.8, "epochs": 100, "mixup": 0.5}, "train")
         assert result == {"mosaic_prob": 0.8, "epochs": 100, "mixup_prob": 0.5}
 
 

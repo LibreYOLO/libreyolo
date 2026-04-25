@@ -19,9 +19,7 @@ def _json_default(obj: Any) -> Any:
     """Strict JSON default: only allow Path → str. Everything else is an error."""
     if isinstance(obj, Path):
         return str(obj)
-    raise TypeError(
-        f"Object of type {type(obj).__name__} is not JSON serializable"
-    )
+    raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
 
 
 class OutputHandler:
