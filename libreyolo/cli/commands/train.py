@@ -1,7 +1,9 @@
 """Train command: train a model on a dataset."""
 
 import time
+from typing import Set
 
+import click
 import typer
 
 from ..command_utils import (
@@ -18,6 +20,18 @@ from ..config import (
     detect_family_from_name,
 )
 from ..output import OutputHandler
+
+
+def _get_user_provided_params() -> Set[str]:
+    """Return the set of parameter names explicitly provided on the command line."""
+    ctx = click.get_current_context(silent=True)
+    if ctx is None:
+        return set()
+    return {
+        p.name
+        for p in ctx.command.params
+        if ctx.get_parameter_source(p.name) == click.core.ParameterSource.COMMANDLINE
+    }
 
 
 def train_cmd(
@@ -93,6 +107,7 @@ def train_cmd(
     import ast
 
     out = OutputHandler(json_mode=json_output, quiet=quiet)
+    user_provided = _get_user_provided_params()
 
     # Parse tuple strings
     try:
@@ -166,15 +181,13 @@ def train_cmd(
         "allow_download_scripts": allow_download_scripts,
     }
     if family:
-        params = apply_family_defaults(params, family, "train")
+        params = apply_family_defaults(params, family, "train", user_provided=user_provided)
 
     # RF-DETR: warn and ignore unsupported params
     rfdetr_warnings = []
     if family == "rfdetr":
-        from ..config import is_user_provided
-
         for param_name in RFDETR_UNSUPPORTED_PARAMS:
-            if is_user_provided(param_name):
+            if param_name in user_provided:
                 rfdetr_warnings.append(param_name)
         if rfdetr_warnings:
             out.progress(
@@ -220,17 +233,16 @@ def train_cmd(
     )
 
     # Build training kwargs, with family-specific translation where needed.
-    train_kwargs = build_family_train_kwargs(params, family, model_path=model_path)
+    train_kwargs = build_family_train_kwargs(
+        params, family, model_path=model_path, user_provided=user_provided
+    )
     train_kwargs["pretrained"] = pretrained  # Not in TrainConfig
     if family == "rfdetr":
         train_kwargs.pop("pretrained", None)
-        if not val:
-            from ..config import is_user_provided
-
-            if is_user_provided("val"):
-                out.progress(
-                    "Warning: RF-DETR does not support disabling validation via val=false. Ignoring."
-                )
+        if not val and "val" in user_provided:
+            out.progress(
+                "Warning: RF-DETR does not support disabling validation via val=false. Ignoring."
+            )
     elif not val:
         train_kwargs["eval_interval"] = 0
 

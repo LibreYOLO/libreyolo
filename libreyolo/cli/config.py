@@ -9,8 +9,6 @@ from dataclasses import MISSING, fields
 from pathlib import Path
 from typing import Any, Optional
 
-import click
-
 
 # RF-DETR does not support these augmentation/scheduler parameters.
 # They are warned and ignored rather than errored.
@@ -166,17 +164,12 @@ def get_family_defaults(family: str) -> dict[str, Any]:
 # =========================================================================
 
 
-def is_user_provided(param_name: str) -> bool:
-    """Check if a parameter was explicitly provided by the user (not defaulted)."""
-    ctx = click.get_current_context(silent=True)
-    if ctx is None:
-        return False
-    source = ctx.get_parameter_source(param_name)
-    return source == click.core.ParameterSource.COMMANDLINE
-
-
 def apply_family_defaults(
-    params: dict[str, Any], family: str, mode: str
+    params: dict[str, Any],
+    family: str,
+    mode: str,
+    *,
+    user_provided: set[str] | None = None,
 ) -> dict[str, Any]:
     """Apply family-specific defaults to parameters that weren't explicitly set.
 
@@ -190,16 +183,17 @@ def apply_family_defaults(
     if not family_diffs:
         return params
 
-    # Reverse alias map: internal name → CLI name (for is_user_provided check)
+    # Reverse alias map: internal name → CLI name (for user_provided check)
     from .aliases import TRAIN_ALIASES
 
     internal_to_cli = {v: k for k, v in TRAIN_ALIASES.items()}
 
+    provided = user_provided or set()
     result = dict(params)
     for internal_name, default_value in family_diffs.items():
         # The params dict uses CLI-facing names, so check both
         cli_name = internal_to_cli.get(internal_name, internal_name)
-        if cli_name in result and not is_user_provided(cli_name):
+        if cli_name in result and cli_name not in provided:
             result[cli_name] = default_value
     return result
 
@@ -233,7 +227,10 @@ def build_train_kwargs(params: dict[str, Any]) -> dict[str, Any]:
 
 
 def _build_rfdetr_train_kwargs(
-    params: dict[str, Any], *, model_path: str | None = None
+    params: dict[str, Any],
+    *,
+    model_path: str | None = None,
+    user_provided: set[str] | None = None,
 ) -> dict[str, Any]:
     """Build RF-DETR kwargs without forcing unrelated generic CLI defaults.
 
@@ -266,15 +263,16 @@ def _build_rfdetr_train_kwargs(
         "device": "device",
     }
 
+    provided = user_provided or set()
     for cli_name, target_name in direct_mappings.items():
-        if is_user_provided(cli_name):
+        if cli_name in provided:
             kwargs[target_name] = params[cli_name]
 
-    if is_user_provided("patience"):
+    if "patience" in provided:
         kwargs["early_stopping"] = params["patience"] > 0
         kwargs["early_stopping_patience"] = params["patience"]
 
-    if is_user_provided("resume"):
+    if "resume" in provided:
         resume = params["resume"]
         if resume is True:
             resume = model_path
@@ -290,10 +288,13 @@ def build_family_train_kwargs(
     family: str | None,
     *,
     model_path: str | None = None,
+    user_provided: set[str] | None = None,
 ) -> dict[str, Any]:
     """Build train kwargs, translating family-specific CLI/API mismatches."""
     if family == "rfdetr":
-        return _build_rfdetr_train_kwargs(params, model_path=model_path)
+        return _build_rfdetr_train_kwargs(
+            params, model_path=model_path, user_provided=user_provided
+        )
     return build_train_kwargs(params)
 
 
