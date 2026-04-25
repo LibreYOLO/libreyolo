@@ -2,7 +2,7 @@
 
 import pytest
 
-from libreyolo.cli.aliases import TRAIN_ALIASES, VAL_ALIASES, resolve_aliases
+from libreyolo.cli.aliases import resolve_aliases
 
 pytestmark = pytest.mark.unit
 
