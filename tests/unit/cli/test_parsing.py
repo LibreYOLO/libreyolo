@@ -138,16 +138,18 @@ class TestBoolFlags:
 
 
 class TestLoggingFlagNormalization:
-    def test_normalize_logging_flags_rewrites_key_value_syntax(self, monkeypatch):
-        monkeypatch.setattr(
-            sys,
-            "argv",
-            ["libreyolo", "predict", "quiet=true", "verbose=false", "model=yolox-s"],
-        )
+    def test_normalize_logging_flags_rewrites_key_value_syntax(self):
+        argv = [
+            "libreyolo",
+            "predict",
+            "quiet=true",
+            "verbose=false",
+            "model=yolox-s",
+        ]
 
-        _normalize_logging_flags()
+        result = _normalize_logging_flags(argv)
 
-        assert sys.argv == [
+        assert result == [
             "libreyolo",
             "predict",
             "--quiet",
@@ -158,13 +160,12 @@ class TestLoggingFlagNormalization:
     def test_setup_logging_reads_normalized_quiet_flag(self, monkeypatch):
         calls = {}
 
-        monkeypatch.setattr(sys, "argv", ["libreyolo", "predict", "--quiet"])
         monkeypatch.setattr(
             "libreyolo.utils.logging.setup_logging",
             lambda quiet, verbose: calls.update({"quiet": quiet, "verbose": verbose}),
         )
 
-        _setup_logging_from_argv()
+        _setup_logging_from_argv(["libreyolo", "predict", "--quiet"])
 
         assert calls == {"quiet": True, "verbose": False}
 

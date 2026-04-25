@@ -36,45 +36,47 @@ def _configure_warning_filters() -> None:
     )
 
 
-def _strip_task_prefix() -> None:
+def _strip_task_prefix(argv: list[str]) -> list[str]:
     """Strip optional 'detect' task prefix from argv.
 
     ``libreyolo detect predict ...`` becomes ``libreyolo predict ...``.
     """
     known_tasks = {"detect"}
-    args = sys.argv[1:]
+    args = argv[1:]
     if args and args[0] in known_tasks:
-        sys.argv = [sys.argv[0]] + args[1:]
+        return [argv[0]] + args[1:]
+    return argv
 
 
-def _setup_logging_from_argv() -> None:
+def _setup_logging_from_argv(argv: list[str]) -> None:
     """Configure logging early, before Typer parses args.
 
-    Peeks at sys.argv for --quiet/--verbose so the logger is ready
+    Peeks at argv for --quiet/--verbose so the logger is ready
     before any command code runs.
     """
     from ..utils.logging import setup_logging
 
-    args = sys.argv[1:]
+    args = argv[1:]
     quiet = "--quiet" in args
     verbose = "--verbose" in args
     setup_logging(quiet=quiet, verbose=verbose)
 
 
-def _normalize_logging_flags() -> None:
+def _normalize_logging_flags(argv: list[str]) -> list[str]:
     """Normalize key=value bool syntax for flags that affect early logging."""
     from .parsing import rewrite_known_bool_flags
 
-    args = rewrite_known_bool_flags(sys.argv[1:], {"quiet", "verbose"})
-    sys.argv = [sys.argv[0]] + args
+    args = rewrite_known_bool_flags(argv[1:], {"quiet", "verbose"})
+    return [argv[0]] + args
 
 
 def entrypoint() -> None:
     """CLI entry point registered in pyproject.toml."""
     _configure_warning_filters()
-    _strip_task_prefix()
-    _normalize_logging_flags()
-    _setup_logging_from_argv()
+    argv = list(sys.argv)
+    argv = _strip_task_prefix(argv)
+    argv = _normalize_logging_flags(argv)
+    _setup_logging_from_argv(argv)
 
     from .commands import special, predict, train, val, export  # noqa: F401
     from .parsing import KeyValueCommand
@@ -89,4 +91,4 @@ def entrypoint() -> None:
     app.command("val", cls=KeyValueCommand)(val.val_cmd)
     app.command("export", cls=KeyValueCommand)(export.export_cmd)
 
-    app()
+    app(args=argv[1:])
