@@ -163,7 +163,7 @@ def predict_cmd(
             f"image {idx}/{total_images} {img_name}: "
             f"{w}x{h} "
             f"{counts_str or '(no detections)'}, "
-            f"{elapsed_ms:.1f}ms"
+            f"{elapsed_ms:.1f}ms avg"
         )
 
     data = {
