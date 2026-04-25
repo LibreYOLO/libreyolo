@@ -94,7 +94,7 @@ class BaseExporter(ABC):
         *,
         output_path: Optional[str] = None,
         imgsz: Optional[int] = None,
-        opset: int = 13,
+        opset: Optional[int] = None,
         simplify: bool = True,
         dynamic: bool = True,
         half: bool = False,
@@ -127,6 +127,12 @@ class BaseExporter(ABC):
             Path to the exported model file.
         """
         half, int8 = self._validate(half, int8, data)
+
+        if opset is None:
+            # D-FINE uses ``F.grid_sample`` (deformable attention) which
+            # requires opset 16+. Default the rest of the families to 13 to
+            # preserve compatibility with the broadest set of ONNX runtimes.
+            opset = 17 if self.model._get_model_name() == "dfine" else 13
 
         imgsz, device, output_path = self._resolve_params(
             output_path,
@@ -552,6 +558,18 @@ class NcnnExporter(BaseExporter):
     def _export(
         self, nn_model, dummy, *, output_path, metadata, half, opset, simplify, **kwargs
     ):
+        # NCNN can't handle DETR-style decoders: its op registry doesn't
+        # include ``torch.topk`` (used in D-FINE's encoder query selection),
+        # so PNNX produces a graph the NCNN runtime refuses to load with
+        # ``layer torch.topk not exists or registered``. Block early with a
+        # clear error rather than producing a broken export directory.
+        if metadata and metadata.get("model_family") == "dfine":
+            raise NotImplementedError(
+                "NCNN export is not supported for D-FINE: NCNN's op registry "
+                "lacks topk/gather/Slice variants that the DETR-style decoder "
+                "requires. Use ONNX, OpenVINO, TorchScript, or TensorRT instead."
+            )
+
         from .ncnn import export_ncnn
 
         print("Exporting to ncnn via PNNX")
