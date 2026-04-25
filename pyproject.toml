@@ -48,6 +48,9 @@ ncnn = [
     "ncnn",
 ]
 rtdetr = ["scipy>=1.7.0"]
+yoloworld = [
+    "transformers>=4.40.0",
+]
 all = [
     "libreyolo[onnx]",
     "libreyolo[rfdetr]",
@@ -55,6 +58,7 @@ all = [
     "libreyolo[openvino]",
     "libreyolo[ncnn]",
     "libreyolo[rtdetr]",
+    "libreyolo[yoloworld]",
 ]
 
 [project.urls]
@@ -109,6 +113,7 @@ testpaths = ["tests"]
 markers = [
     "unit: fast tests that avoid external weights or large files",
     "e2e: end-to-end tests requiring full model loading and inference",
+    "smoke: fast end-to-end pipeline checks on tiny synthetic data (CPU, <60s)",
     "tensorrt: tests requiring TensorRT",
     "openvino: tests requiring OpenVINO",
     "ncnn: tests requiring ncnn",
