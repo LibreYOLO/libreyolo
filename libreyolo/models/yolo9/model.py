@@ -37,6 +37,10 @@ class LibreYOLO9(BaseModel):
     FILENAME_PREFIX = "LibreYOLO9"
     INPUT_SIZES = {"t": 640, "s": 640, "m": 640, "c": 640}
     SUPPORTS_SEG = True
+    # YOLOv9 seg emits (predictions, proto, mask_coeffs) — final mask
+    # assembly happens after NMS, so we cannot pre-name them as
+    # (boxes, scores, masks) the way RF-DETR does.
+    ONNX_SEG_OUTPUT_NAMES = ("predictions", "proto", "mask_coeffs")
     val_preprocessor_class = YOLO9ValPreprocessor
 
     # =========================================================================

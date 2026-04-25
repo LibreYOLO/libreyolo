@@ -66,7 +66,16 @@ class OnnxBackend(BaseBackend):
         else:
             imgsz = 640  # dynamic shape; use default
 
-        model_family, names = self._read_onnx_metadata(onnx_path, nb_classes)
+        model_family, names, is_seg = self._read_onnx_metadata(onnx_path, nb_classes)
+
+        if is_seg and model_family == "yolo9":
+            raise NotImplementedError(
+                "ONNX inference for YOLOv9-seg is not yet implemented. "
+                "The exported file emits (predictions, proto, mask_coeffs); "
+                "a backend mask-assembly path that runs NMS then process_mask "
+                "is needed before inference works. Use the .pt model for "
+                "segmentation inference for now."
+            )
 
         super().__init__(
             model_path=onnx_path,
@@ -82,10 +91,11 @@ class OnnxBackend(BaseBackend):
         """Read libreyolo metadata embedded in an ONNX model file.
 
         Returns:
-            Tuple of (model_family, names_dict_or_None).
+            Tuple of (model_family, names_dict_or_None, is_segmentation).
         """
         model_family = None
         names = None
+        is_seg = False
         try:
             import onnx
 
@@ -94,6 +104,9 @@ class OnnxBackend(BaseBackend):
 
             if "model_family" in meta:
                 model_family = meta["model_family"]
+
+            if meta.get("segmentation") == "true":
+                is_seg = True
 
             if "names" in meta:
                 import json
@@ -110,7 +123,7 @@ class OnnxBackend(BaseBackend):
         except Exception as e:
             logger.warning("Failed to read ONNX metadata from %s: %s", onnx_path, e)
 
-        return model_family, names
+        return model_family, names, is_seg
 
     def _run_inference(self, blob: np.ndarray) -> list:
         """Run ONNX Runtime inference."""

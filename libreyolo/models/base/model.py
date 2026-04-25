@@ -40,6 +40,11 @@ class BaseModel(ABC):
     WEIGHT_EXT: ClassVar[str] = ".pt"
     INPUT_SIZES: ClassVar[dict[str, int]] = {}
     SUPPORTS_SEG: ClassVar[bool] = False
+    # Output tensor names for ONNX export when the model is in segmentation
+    # mode. Default matches the canonical (boxes, scores, masks) contract that
+    # RF-DETR-seg honors. Families whose seg head emits raw prototypes/coeffs
+    # (e.g. YOLOv9-seg) override this to declare what they actually emit.
+    ONNX_SEG_OUTPUT_NAMES: ClassVar[tuple] = ("boxes", "scores", "masks")
     val_preprocessor_class = StandardValPreprocessor
 
     # Model registry — auto-populated by __init_subclass__

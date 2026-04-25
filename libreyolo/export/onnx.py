@@ -79,6 +79,7 @@ def export_onnx(
     dynamic: bool,
     half: bool,
     metadata: dict,
+    seg_output_names: tuple = ("boxes", "scores", "masks"),
 ) -> str:
     """Export a PyTorch model to ONNX format.
 
@@ -110,18 +111,14 @@ def export_onnx(
         is_seg = num_outputs >= 3
 
     if is_seg:
-        output_names = ["boxes", "scores", "masks"]
+        output_names = list(seg_output_names)
         dynamic_axes = (
-            {
-                "images": {0: "batch"},
-                "boxes": {0: "batch"},
-                "scores": {0: "batch"},
-                "masks": {0: "batch"},
-            }
+            {"images": {0: "batch"}, **{name: {0: "batch"} for name in output_names}}
             if dynamic
             else None
         )
         metadata["segmentation"] = "true"
+        metadata["seg_output_names"] = ",".join(output_names)
     else:
         output_names = ["output"]
         dynamic_axes = (

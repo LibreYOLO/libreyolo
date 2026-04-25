@@ -350,6 +350,9 @@ class BaseExporter(ABC):
             dynamic=False,
             half=False,
             metadata=self._build_onnx_metadata(dynamic=False, half=False),
+            seg_output_names=getattr(
+                self.model, "ONNX_SEG_OUTPUT_NAMES", ("boxes", "scores", "masks")
+            ),
         )
 
     def _build_metadata(
@@ -428,6 +431,9 @@ class OnnxExporter(BaseExporter):
             dynamic=dynamic,
             half=half,
             metadata=self._build_onnx_metadata(dynamic=dynamic, half=half),
+            seg_output_names=getattr(
+                self.model, "ONNX_SEG_OUTPUT_NAMES", ("boxes", "scores", "masks")
+            ),
         )
 
 
