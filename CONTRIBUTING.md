@@ -1,14 +1,20 @@
-# Package publishing process
+# Contributing
 
-Relevan files:
-- MANIFEST.in to exclude weights/artifacts from the package (sdist)
-- .github/workflows/publish.yml to run CI + publish to PyPI via OIDC
+Thanks for your interest in contributing to LibreYOLO.
 
-To publish a new version:
-- Bump version in pyproject.toml (source of truth), commit, push to main
-- Go to github.com/LibreYOLO/libreyolo/releases/new and create/publish a release with tag vX.Y.Z (this triggers the workflow)
-- Go to the Actions run and approve the publish step at the end (GitHub Environment gate): github.com/LibreYOLO/libreyolo/actions
+LibreYOLO is an MIT-licensed computer vision library focused on YOLO-style
+training and inference. Contributions are welcome, but maintainer review time
+is limited. Keep changes focused, tested, and aligned with the project.
 
-Security:
-- Publishing approvals are enforced via GitHub Environments: github.com/LibreYOLO/libreyolo/settings/environments
-- No PyPI tokens stored in GitHub; uses Trusted Publishing (OIDC)
+## Before opening a PR
+
+- For anything non-trivial, open an issue before submitting a PR so we can
+  agree on the approach before review time is spent.
+- PRs must link to an issue.
+- A good PR solves one clearly described problem.
+- Use common sense and keep scope tight.
+
+## LLM policy
+
+- Do not add LLMs as co-authors in commits.
+- Do not open LLM-generated issues.
