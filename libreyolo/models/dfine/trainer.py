@@ -87,6 +87,27 @@ class DFINETrainer(BaseTrainer):
             "ddf": _scalar(outputs.get("loss_ddf", 0)),
         }
 
+    def _setup_device(self) -> torch.device:
+        """Override the parent's device autodetect to avoid MPS.
+
+        D-FINE's training backward pass crashes on Apple's MPS backend in the
+        ``linear_backward`` op (the Integral's 33-bin softmax × W matmul hits
+        a known MPS / MetalPerformanceShadersGraph compilation failure). Eval
+        mode is fine — this only applies to training. Force CPU when the
+        parent would have picked MPS.
+        """
+        device = super()._setup_device()
+        if device.type == "mps":
+            import logging
+
+            logging.getLogger(__name__).warning(
+                "D-FINE training on Apple MPS triggers a torch backward bug "
+                "(mps_linear_backward in Metal). Falling back to CPU. "
+                "Pass device='cuda' or device='cpu' explicitly to override."
+            )
+            return torch.device("cpu")
+        return device
+
     def on_setup(self):
         matcher = HungarianMatcher(
             weight_dict={"cost_class": 2.0, "cost_bbox": 5.0, "cost_giou": 2.0},

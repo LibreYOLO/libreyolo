@@ -273,6 +273,12 @@ class LibreDFINE(BaseModel):
             self.model_path = best_ckpt
             self._load_weights(best_ckpt)
 
+        # The trainer may have forced a different device than the wrapper's
+        # (e.g., MPS-fallback to CPU). Restore the model to the wrapper's
+        # device so subsequent ``model.val()`` / ``model.predict()`` calls
+        # don't hit input/weight device mismatches.
+        self.model.to(self.device)
+
         return results
 
     def _load_weights(self, model_path: str):

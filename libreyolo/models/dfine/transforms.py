@@ -33,6 +33,16 @@ from torchvision import tv_tensors
 from torchvision.transforms import v2 as tv2
 
 
+def _labels_at_index_2(inputs):
+    """Module-level labels_getter for ``SanitizeBoundingBoxes``.
+
+    Defined at module scope (rather than as a lambda) so the transform is
+    picklable for ``DataLoader(num_workers > 0)`` under Python 3.14's
+    ``forkserver`` multiprocessing default.
+    """
+    return inputs[2]
+
+
 def _generate_scales(base_size: int, base_size_repeat: int) -> List[int]:
     """Mirror of ``D-FINE/src/data/dataloader.py::generate_scales``.
 
@@ -85,13 +95,13 @@ class DFINETrainTransform:
             tv2.RandomPhotometricDistort(p=photometric_p),
             tv2.RandomZoomOut(fill=zoomout_fill),
             tv2.RandomApply([tv2.RandomIoUCrop()], p=iou_crop_p),
-            tv2.SanitizeBoundingBoxes(min_size=1, labels_getter=lambda inp: inp[2]),
+            tv2.SanitizeBoundingBoxes(min_size=1, labels_getter=_labels_at_index_2),
         ])
         # Weak (always-on) ops.
         self._weak = tv2.Compose([
             tv2.RandomHorizontalFlip(p=flip_prob),
             tv2.Resize(size=(imgsz, imgsz), antialias=True),
-            tv2.SanitizeBoundingBoxes(min_size=1, labels_getter=lambda inp: inp[2]),
+            tv2.SanitizeBoundingBoxes(min_size=1, labels_getter=_labels_at_index_2),
         ])
 
     def disable_strong_augs(self):
