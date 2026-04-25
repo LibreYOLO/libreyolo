@@ -27,10 +27,6 @@ def pytest_configure(config):
     config.addinivalue_line("markers", "ncnn: tests requiring ncnn")
     config.addinivalue_line("markers", "rfdetr: tests requiring RF-DETR dependencies")
     config.addinivalue_line("markers", "slow: slow tests that may take several minutes")
-    config.addinivalue_line(
-        "markers",
-        "network: tests that may download external datasets or depend on live network/cache state",
-    )
     config.addinivalue_line("markers", "rf1: RF1 training tests")
     config.addinivalue_line("markers", "rf5: RF5 training benchmark tests")
 

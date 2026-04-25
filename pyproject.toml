@@ -118,7 +118,4 @@ markers = [
     "ncnn: tests requiring ncnn",
     "rfdetr: tests requiring RF-DETR dependencies",
     "slow: slow tests that may take several minutes",
-    "network: tests that may download external datasets or depend on live network/cache state",
-    "rf1: RF1 training tests",
-    "rf5: RF5 training benchmark tests",
 ]

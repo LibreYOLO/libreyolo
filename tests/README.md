@@ -41,16 +41,12 @@ pytest tests/unit/test_yolo9_layers.py -v
 
 ### E2E Tests (Export + Training)
 
-`make test_e2e` runs the local e2e tests (export, validation, non-networked flows)
-with each test file in its own process to avoid CUDA driver state corruption
-between files.
+`make test_e2e` runs all e2e tests (export, training, validation) with each test
+file in its own process to avoid CUDA driver state corruption between files.
 
 ```bash
 # All e2e tests (recommended)
 make test_e2e
-
-# RF1 network-backed training suite
-make test_rf1
 
 # Individual test files
 pytest tests/e2e/test_onnx.py -v        # ONNX export + inference
@@ -65,9 +61,6 @@ pytest tests/e2e/ -v -k "quick" --ignore=tests/e2e/test_rf5_training.py
 # RF5: config-driven benchmark (standalone CLI)
 python -m tests.e2e.test_rf5_training --config yolox.yaml --size nano
 python -m tests.e2e.test_rf5_training --list-configs
-
-# Network-backed suites only
-pytest tests/e2e/ -m network -v
 ```
 
 ## RF5 - Training Validation Suite
@@ -87,6 +80,5 @@ RF5 is a minimal subset of Roboflow100 designed to quickly verify training code 
 ### When to Run
 
 - **Unit tests**: Always, before any commit
-- **E2E tests** (`make test_e2e`): When modifying export, validation, or model code
-- **Networked training suites** (`make test_rf1`, `make test_rf5`): When modifying dataset download or long-running training paths
+- **E2E tests** (`make test_e2e`): When modifying export, training, or model code
 - **RF5 training**: Before merging significant training changes
