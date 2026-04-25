@@ -570,6 +570,140 @@ class DDetect(nn.Module):
 
 
 # =============================================================================
+# NMS-free detection head (YOLOv10-style dual-label assignment)
+# =============================================================================
+
+
+class DDetectV10(DDetect):
+    """YOLOv9 detection head augmented with a parallel one-to-one branch.
+
+    Architecture matches THU-MIG/yolov10's `v10Detect` (Apache-2.0): two
+    deep-copies of the existing box+class branches train alongside each other.
+    The original branches use rich one-to-many task-aligned assignment (TAL,
+    topk=10); the new `one2one_*` branches use top-1 TAL so they're trained
+    to predict *one* anchor per ground-truth object — making NMS unnecessary
+    at inference time.
+
+    The o2o branch receives **detached** input features so its gradients
+    don't compete with the o2m branch for the backbone. Total training loss
+    = o2m_loss + o2o_loss, where each loss uses the same components (CIoU +
+    DFL + BCE) but different anchor assignment.
+
+    At inference (eval mode) the head returns the one-to-one decoded output
+    only; downstream postprocessing can skip NMS for `top_k`-style decoding.
+    Calling NMS on the o2o output is harmless (just a no-op cost) — set
+    ``nms_free=True`` on the wrapper to skip it.
+
+    Reference:
+      Wang et al., "YOLOv10: Real-Time End-to-End Object Detection" (2024)
+      https://github.com/THU-MIG/yolov10 (Apache-2.0)
+    """
+
+    max_det: int = 300
+
+    def __init__(self, nc=80, ch=(), reg_max=16, stride=(), use_group=True):
+        super().__init__(nc, ch, reg_max, stride, use_group)
+        import copy
+
+        # Parallel branches — deep copies of the original cv2/cv3 stacks. The
+        # YOLOv10 paper finds that sharing weights here regresses mAP, so we
+        # keep them fully independent.
+        self.one2one_cv2 = copy.deepcopy(self.cv2)
+        self.one2one_cv3 = copy.deepcopy(self.cv3)
+
+        # Re-init biases on the new branches with the same scheme.
+        for a, b, s in zip(self.one2one_cv2, self.one2one_cv3, self.stride):
+            a[-1].bias.data[:] = 1.0
+            b[-1].bias.data[: self.nc] = math.log(5 / self.nc / (640 / float(s)) ** 2)
+
+        self._loss_fn_o2o = None  # lazy init in _get_loss_fn_o2o
+
+    def sync_o2o_from_o2m(self) -> None:
+        """Copy current cv2/cv3 weights into one2one_cv2/one2one_cv3.
+
+        Call this right after loading a checkpoint that DOESN'T contain the
+        one2one_* keys (e.g. a COCO-pretrained YOLOv9 checkpoint). The o2o
+        branch starts as a structural copy of the o2m branch; the dual-loss
+        training then specializes them under top-1 vs top-10 assignment.
+        """
+        self.one2one_cv2.load_state_dict(self.cv2.state_dict())
+        self.one2one_cv3.load_state_dict(self.cv3.state_dict())
+
+    def _get_loss_fn_o2o(self, device):
+        """Lazily instantiate the o2o loss (top-1 TAL)."""
+        if self._loss_fn_o2o is None:
+            from .loss import YOLO9Loss
+
+            self._loss_fn_o2o = YOLO9Loss(
+                num_classes=self.nc,
+                reg_max=self.reg_max,
+                strides=self.stride.tolist(),
+                image_size=None,
+                device=device,
+                topk=1,  # the only knob that distinguishes o2o from o2m
+            )
+        return self._loss_fn_o2o
+
+    def forward(self, x, targets=None, img_size=None):
+        # Compute o2o features from detached inputs so backbone gradients
+        # come ONLY from the o2m branch.
+        o2o_outputs = []
+        for i in range(self.nl):
+            xi_d = x[i].detach() if self.training else x[i]
+            o2o_outputs.append(
+                torch.cat(
+                    (self.one2one_cv2[i](xi_d), self.one2one_cv3[i](xi_d)), 1
+                )
+            )
+
+        if self.training:
+            if targets is not None:
+                # Compute o2m loss (standard top-10 TAL, as in DDetect)
+                o2m_loss_dict = super().forward(list(x), targets, img_size)
+
+                # Compute o2o loss (top-1 TAL on detached features)
+                loss_fn_o2o = self._get_loss_fn_o2o(o2o_outputs[0].device)
+                if img_size is not None:
+                    loss_fn_o2o.update_anchors(list(img_size))
+                o2o_dict = loss_fn_o2o(o2o_outputs, targets)
+                o2o_total = o2o_dict["total_loss"]
+
+                merged = dict(o2m_loss_dict)
+                merged["total_loss"] = o2m_loss_dict["total_loss"] + o2o_total
+                merged["loss_o2o_total"] = (
+                    o2o_total.detach() if isinstance(o2o_total, torch.Tensor) else float(o2o_total)
+                )
+                for k, v in o2o_dict.items():
+                    if k == "total_loss":
+                        continue
+                    merged[f"loss_o2o_{k}"] = v
+                return merged
+            # Training mode but no targets — return raw outputs from both branches
+            return {"o2m": super().forward(list(x)), "o2o": o2o_outputs}
+
+        # Inference: decode the o2o output. The output format matches the
+        # base class so existing postprocess code keeps working; with proper
+        # top-1 training the duplicates suppressed by NMS in the o2m head are
+        # already absent here, so NMS is optional.
+        shape = x[0].shape
+        if self.export or self.dynamic or self.shape != shape:
+            self.anchors, self.strides = (
+                t.transpose(0, 1)
+                for t in self._make_anchors(o2o_outputs, self.stride, 0.5)
+            )
+            if not self.export:
+                self.shape = shape
+
+        x_cat = torch.cat([xi.view(shape[0], self.no, -1) for xi in o2o_outputs], 2)
+        box, cls = x_cat.split((self.reg_max * 4, self.nc), 1)
+        dbox = (
+            self._decode_bboxes(self.dfl(box), self.anchors.unsqueeze(0))
+            * self.strides
+        )
+        return torch.cat((dbox, cls.sigmoid()), 1), o2o_outputs
+
+
+# =============================================================================
 # Model Architecture Definitions
 # =============================================================================
 
@@ -860,7 +994,8 @@ class LibreYOLO9Model(nn.Module):
     Supports yolo9-t, yolo9-s, yolo9-m, and yolo9-c variants with their specific architectures.
     """
 
-    def __init__(self, config="c", reg_max=16, nb_classes=80, img_size=640):
+    def __init__(self, config="c", reg_max=16, nb_classes=80, img_size=640,
+                 nms_free: bool = False):
         """
         Initialize YOLOv9 model.
 
@@ -869,6 +1004,10 @@ class LibreYOLO9Model(nn.Module):
             reg_max: Regression max value for DFL
             nb_classes: Number of classes
             img_size: Input image size
+            nms_free: If True, use the YOLOv10-style dual-head (DDetectV10) so
+                      the model is trained with both one-to-many (topk=10) and
+                      one-to-one (topk=1) task-aligned assignment. The o2o
+                      branch's output requires no NMS at inference.
         """
         super().__init__()
 
@@ -881,15 +1020,17 @@ class LibreYOLO9Model(nn.Module):
         self.nc = nb_classes
         self.reg_max = reg_max
         self.img_size = img_size
+        self.nms_free = nms_free
 
         cfg = YOLO9_CONFIGS[config]
 
         self.backbone = Backbone9(config)
         self.neck = Neck9(config)
 
-        # Detection head - use exact channels from config
+        # Detection head — DDetectV10 when nms_free is enabled.
         head_channels = cfg["head_channels"]
-        self.head = DDetect(
+        head_cls = DDetectV10 if nms_free else DDetect
+        self.head = head_cls(
             nc=nb_classes, ch=head_channels, reg_max=reg_max, stride=(8, 16, 32)
         )
 

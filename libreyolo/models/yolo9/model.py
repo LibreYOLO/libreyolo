@@ -86,9 +86,11 @@ class LibreYOLO9(BaseModel):
         reg_max: int = 16,
         nb_classes: int = 80,
         device: str = "auto",
+        nms_free: bool = False,
         **kwargs,
     ):
         self.reg_max = reg_max
+        self.nms_free = nms_free
         super().__init__(
             model_path=model_path,
             size=size,
@@ -99,6 +101,7 @@ class LibreYOLO9(BaseModel):
 
         if isinstance(model_path, str):
             self._load_weights(model_path)
+            self._maybe_sync_o2o_branch(model_path)
 
     # =========================================================================
     # Model lifecycle
@@ -106,8 +109,39 @@ class LibreYOLO9(BaseModel):
 
     def _init_model(self) -> nn.Module:
         return LibreYOLO9Model(
-            config=self.size, reg_max=self.reg_max, nb_classes=self.nb_classes
+            config=self.size, reg_max=self.reg_max, nb_classes=self.nb_classes,
+            nms_free=getattr(self, "nms_free", False),
         )
+
+    def _maybe_sync_o2o_branch(self, model_path: str) -> None:
+        """When loading a non-NMS-free checkpoint into an NMS-free model,
+        bootstrap the one-to-one branch from the freshly-loaded one-to-many
+        branch so it starts trained instead of random."""
+        if not getattr(self, "nms_free", False):
+            return
+        from .nn import DDetectV10
+
+        head = getattr(self.model, "head", None)
+        if not isinstance(head, DDetectV10):
+            return
+
+        try:
+            ckpt = torch.load(model_path, map_location="cpu", weights_only=False)
+        except Exception:
+            return
+        state_dict = ckpt
+        if isinstance(ckpt, dict):
+            for key in ("model", "state_dict"):
+                if key in ckpt and isinstance(ckpt[key], dict):
+                    state_dict = ckpt[key]
+                    break
+
+        has_o2o_weights = any(
+            k.startswith("head.one2one_cv2.") or k.startswith("head.one2one_cv3.")
+            for k in (state_dict.keys() if isinstance(state_dict, dict) else [])
+        )
+        if not has_o2o_weights:
+            head.sync_o2o_from_o2m()
 
     def _get_available_layers(self) -> Dict[str, nn.Module]:
         return {
