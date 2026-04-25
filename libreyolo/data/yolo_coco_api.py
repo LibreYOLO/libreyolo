@@ -220,7 +220,9 @@ class YOLOCocoAPI:
         for i, name in enumerate(class_names):
             self.cats[i] = {"id": i, "name": name, "supercategory": "object"}
 
-        logger.info("  Loaded %d annotations across %d images", len(self.anns), len(self.imgs))
+        logger.info(
+            "  Loaded %d annotations across %d images", len(self.anns), len(self.imgs)
+        )
 
     def getAnnIds(self, imgIds=None, catIds=None, areaRng=None, iscrowd=None):
         """

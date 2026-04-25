@@ -36,9 +36,7 @@ def _build_app() -> typer.Typer:
     app = typer.Typer(add_completion=False, no_args_is_help=True)
 
     for cmd_name in ("version", "checks", "models", "formats", "cfg", "info"):
-        app.command(cmd_name, cls=KeyValueCommand)(
-            getattr(special, f"{cmd_name}_cmd")
-        )
+        app.command(cmd_name, cls=KeyValueCommand)(getattr(special, f"{cmd_name}_cmd"))
     app.command("predict", cls=KeyValueCommand)(predict.predict_cmd)
     app.command("train", cls=KeyValueCommand)(train.train_cmd)
     app.command("val", cls=KeyValueCommand)(val.val_cmd)

@@ -64,7 +64,9 @@ def download_weights(model_path: str, size: str):
     if url is None:
         raise ValueError(f"Could not determine download URL for '{path.name}'.")
 
-    logger.info("Model weights not found at %s. Attempting download from %s...", model_path, url)
+    logger.info(
+        "Model weights not found at %s. Attempting download from %s...", model_path, url
+    )
     path.parent.mkdir(parents=True, exist_ok=True)
 
     headers = {}
@@ -72,7 +74,9 @@ def download_weights(model_path: str, size: str):
     if token:
         headers["Authorization"] = f"Bearer {token}"
     else:
-        logger.info("Tip: Run `huggingface-cli login` or set HF_TOKEN for faster downloads.")
+        logger.info(
+            "Tip: Run `huggingface-cli login` or set HF_TOKEN for faster downloads."
+        )
 
     try:
         response = requests.get(url, stream=True, headers=headers)

@@ -39,19 +39,32 @@ class DummyRFDETRModel:
 def test_train_cli_translates_rfdetr_kwargs_and_outputs(monkeypatch):
     dummy = DummyRFDETRModel()
 
-    monkeypatch.setattr("libreyolo.cli.commands.train.detect_family_from_name", lambda model: "rfdetr")
-    monkeypatch.setattr("libreyolo.cli.commands.train.apply_family_defaults", lambda params, family, mode: params)
-    monkeypatch.setattr("libreyolo.cli.commands.train.resolve_model_or_exit", lambda out, model: model)
-    monkeypatch.setattr("libreyolo.cli.config.is_user_provided", lambda name: name in {
-        "batch",
-        "lr0",
-        "workers",
-        "patience",
-        "save_period",
-        "warmup_epochs",
-        "ema",
-        "val",
-    })
+    monkeypatch.setattr(
+        "libreyolo.cli.commands.train.detect_family_from_name", lambda model: "rfdetr"
+    )
+    monkeypatch.setattr(
+        "libreyolo.cli.commands.train.apply_family_defaults",
+        lambda params, family, mode: params,
+    )
+    monkeypatch.setattr(
+        "libreyolo.cli.commands.train.resolve_model_or_exit", lambda out, model: model
+    )
+    monkeypatch.setattr(
+        "libreyolo.cli.config.is_user_provided",
+        lambda name: (
+            name
+            in {
+                "batch",
+                "lr0",
+                "workers",
+                "patience",
+                "save_period",
+                "warmup_epochs",
+                "ema",
+                "val",
+            }
+        ),
+    )
     monkeypatch.setattr(
         "libreyolo.utils.general.increment_path",
         lambda path, exist_ok=False, mkdir=False: path,
@@ -79,10 +92,7 @@ def test_train_cli_translates_rfdetr_kwargs_and_outputs(monkeypatch):
     assert result.exit_code == 0
     data = json.loads(result.stdout)
     assert data["model_family"] == "rfdetr"
-    assert (
-        data["best_weights"]
-        == "/tmp/runs/train/exp/checkpoint_best_total.pth"
-    )
+    assert data["best_weights"] == "/tmp/runs/train/exp/checkpoint_best_total.pth"
     assert data["last_weights"] is None
 
     assert dummy.received["batch_size"] == 32
@@ -138,9 +148,16 @@ class DummyYOLOXModel:
 def test_train_cli_passes_allow_download_scripts(monkeypatch):
     dummy = DummyYOLOXModel()
 
-    monkeypatch.setattr("libreyolo.cli.commands.train.detect_family_from_name", lambda model: "yolox")
-    monkeypatch.setattr("libreyolo.cli.commands.train.apply_family_defaults", lambda params, family, mode: params)
-    monkeypatch.setattr("libreyolo.cli.commands.train.resolve_model_or_exit", lambda out, model: model)
+    monkeypatch.setattr(
+        "libreyolo.cli.commands.train.detect_family_from_name", lambda model: "yolox"
+    )
+    monkeypatch.setattr(
+        "libreyolo.cli.commands.train.apply_family_defaults",
+        lambda params, family, mode: params,
+    )
+    monkeypatch.setattr(
+        "libreyolo.cli.commands.train.resolve_model_or_exit", lambda out, model: model
+    )
     monkeypatch.setattr(
         "libreyolo.utils.general.increment_path",
         lambda path, exist_ok=False, mkdir=False: path,

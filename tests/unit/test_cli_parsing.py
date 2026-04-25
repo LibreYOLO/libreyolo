@@ -161,9 +161,7 @@ class TestLoggingFlagNormalization:
         monkeypatch.setattr(sys, "argv", ["libreyolo", "predict", "--quiet"])
         monkeypatch.setattr(
             "libreyolo.utils.logging.setup_logging",
-            lambda quiet, verbose: calls.update(
-                {"quiet": quiet, "verbose": verbose}
-            ),
+            lambda quiet, verbose: calls.update({"quiet": quiet, "verbose": verbose}),
         )
 
         _setup_logging_from_argv()

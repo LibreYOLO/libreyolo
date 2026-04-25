@@ -23,9 +23,7 @@ class TestTrainAliases:
         assert result == {"epochs": 100, "batch": 16}
 
     def test_mixed_aliased_and_non_aliased(self):
-        result = resolve_aliases(
-            {"mosaic": 0.8, "epochs": 100, "mixup": 0.5}, "train"
-        )
+        result = resolve_aliases({"mosaic": 0.8, "epochs": 100, "mixup": 0.5}, "train")
         assert result == {"mosaic_prob": 0.8, "epochs": 100, "mixup_prob": 0.5}
 
 
