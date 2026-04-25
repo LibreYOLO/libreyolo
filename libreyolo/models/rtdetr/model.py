@@ -16,6 +16,9 @@ from .nn import RTDETRModel
 from .config import RTDETRConfig
 from ...validation.preprocessors import RTDETRValPreprocessor
 
+# Single source of truth for training defaults
+_TRAIN_DEFAULTS = RTDETRConfig()
+
 
 # Model configs — derived from official RT-DETR YAML configs
 RTDETR_CONFIGS = {
@@ -424,23 +427,23 @@ class LibreYOLORTDETR(BaseModel):
         self,
         data: str,
         *,
-        epochs: int = 72,
-        batch: int = 4,
-        imgsz: int = 640,
-        lr0: float = 0.0001,
-        lr_backbone: float = 0.00001,
-        optimizer: str = "AdamW",
-        scheduler: str = "linear",
+        epochs: int = _TRAIN_DEFAULTS.epochs,
+        batch: int = _TRAIN_DEFAULTS.batch,
+        imgsz: int = _TRAIN_DEFAULTS.imgsz,
+        lr0: float = _TRAIN_DEFAULTS.lr0,
+        lr_backbone: float = _TRAIN_DEFAULTS.lr_backbone,
+        optimizer: str = _TRAIN_DEFAULTS.optimizer,
+        scheduler: str = _TRAIN_DEFAULTS.scheduler,
         device: str = "",
-        workers: int = 4,
-        seed: int = 0,
-        project: str = "runs/train",
-        name: str = "rtdetr_exp",
-        exist_ok: bool = False,
+        workers: int = _TRAIN_DEFAULTS.workers,
+        seed: int = _TRAIN_DEFAULTS.seed,
+        project: str = _TRAIN_DEFAULTS.project,
+        name: str = _TRAIN_DEFAULTS.name,
+        exist_ok: bool = _TRAIN_DEFAULTS.exist_ok,
         pretrained: bool = True,
-        resume: bool = False,
-        amp: bool = True,
-        patience: int = 50,
+        resume: bool = _TRAIN_DEFAULTS.resume,
+        amp: bool = _TRAIN_DEFAULTS.amp,
+        patience: int = _TRAIN_DEFAULTS.patience,
         allow_download_scripts: bool = False,
         **kwargs,
     ) -> dict:
