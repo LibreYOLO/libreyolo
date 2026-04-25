@@ -10,7 +10,7 @@ is limited. Keep changes focused, tested, and aligned with the project.
 
 - For anything non-trivial, open an issue before submitting a PR so we can
   agree on the approach before review time is spent.
-- PRs must link to an issue.
+- PRs must link to an issue (for anything non-trivial)
 - A good PR solves one clearly described problem.
 - Use common sense and keep scope tight.
 
@@ -18,3 +18,4 @@ is limited. Keep changes focused, tested, and aligned with the project.
 
 - Do not add LLMs as co-authors in commits.
 - Do not open LLM-generated issues.
+- Read AGENTS.md
