@@ -222,6 +222,15 @@ class DetectionValidator(BaseValidator):
                 iou_thresholds=self.config.iou_thresholds,
             )
 
+        # Always track a confusion matrix — populated alongside whichever metric
+        # backend is active (COCO or legacy DetMetrics). Plotted in _compute_metrics.
+        from libreyolo.validation.metrics import ConfusionMatrix
+        self.confusion_matrix = ConfusionMatrix(
+            nc=self.nc,
+            conf=getattr(self.config, "conf", 0.25),
+            iou_thresh=0.45,
+        )
+
     # =========================================================================
     # Inference pipeline
     # =========================================================================
@@ -352,44 +361,31 @@ class DetectionValidator(BaseValidator):
             for i in range(batch_size):
                 self.coco_evaluator.update(preds[i], img_ids[i])
 
-        if self.coco_evaluator is not None:
-            return
-
         uses_letterbox = (
             self.val_preproc is not None and self.val_preproc.uses_letterbox
         )
 
+        # Pre-scale GT boxes once per image and reuse for both DetMetrics and
+        # the confusion matrix. The scaling logic mirrors the original
+        # behavior — extracted into an inline helper for clarity.
+        scaled_gt: List[Tuple[torch.Tensor, torch.Tensor]] = []
         for i in range(batch_size):
-            pred = preds[i]
-            pred_boxes = pred["boxes"]
-            pred_scores = pred["scores"]
-            pred_classes = pred["classes"]
-
-            # targets: (B, max_labels, 5) with [x1, y1, x2, y2, class]
             if isinstance(targets, torch.Tensor):
-                gt = targets[i]  # (max_labels, 5)
+                gt = targets[i]
             else:
                 gt = torch.from_numpy(targets[i])
-
-            # Filter padding (all-zero boxes)
             valid_mask = gt[:, :4].sum(dim=1) > 0
             gt = gt[valid_mask]
 
             if len(gt) > 0:
                 gt_boxes = gt[:, :4].clone().to(self.device)
                 gt_classes = gt[:, 4].long().to(self.device)
-
-                # Scale GT boxes from model input coords back to original image coords
-                # (predictions are already in original coords from postprocess)
                 orig_h, orig_w = img_info[i]
                 img_h, img_w = self._actual_imgsz, self._actual_imgsz
-
                 if uses_letterbox:
-                    # Letterbox: GT scaled by r = min(img_h/orig_h, img_w/orig_w)
                     r = min(img_h / orig_h, img_w / orig_w)
                     gt_boxes[:, :4] = gt_boxes[:, :4] / r
                 else:
-                    # Simple resize: x_input = x_orig * (input_w/orig_w)
                     gt_boxes[:, 0] = gt_boxes[:, 0] * orig_w / img_w
                     gt_boxes[:, 1] = gt_boxes[:, 1] * orig_h / img_h
                     gt_boxes[:, 2] = gt_boxes[:, 2] * orig_w / img_w
@@ -397,16 +393,37 @@ class DetectionValidator(BaseValidator):
             else:
                 gt_boxes = torch.zeros((0, 4), dtype=torch.float32, device=self.device)
                 gt_classes = torch.zeros(0, dtype=torch.int64, device=self.device)
+            scaled_gt.append((gt_boxes, gt_classes))
 
+        # Always update the confusion matrix (regardless of which mAP backend
+        # is in use). It runs on numpy on CPU.
+        if getattr(self, "confusion_matrix", None) is not None:
+            for i in range(batch_size):
+                pred = preds[i]
+                gt_boxes, gt_classes = scaled_gt[i]
+                self.confusion_matrix.update(
+                    pred_boxes=pred["boxes"].detach().cpu().numpy(),
+                    pred_scores=pred["scores"].detach().cpu().numpy(),
+                    pred_classes=pred["classes"].detach().cpu().numpy(),
+                    gt_boxes=gt_boxes.detach().cpu().numpy(),
+                    gt_classes=gt_classes.detach().cpu().numpy(),
+                )
+
+        # Legacy DetMetrics path only when COCO evaluator is off.
+        if self.coco_evaluator is not None:
+            return
+
+        for i in range(batch_size):
+            pred = preds[i]
+            gt_boxes, gt_classes = scaled_gt[i]
             correct, conf, pred_cls, target_cls = process_batch(
-                pred_boxes,
-                pred_scores,
-                pred_classes,
+                pred["boxes"],
+                pred["scores"],
+                pred["classes"],
                 gt_boxes,
                 gt_classes,
                 self.iou_thresholds.to(self.device),
             )
-
             self.metrics.update(correct, conf, pred_cls, target_cls)
 
     def _compute_metrics(self) -> Dict[str, float]:
@@ -420,7 +437,7 @@ class DetectionValidator(BaseValidator):
 
             coco_metrics = self.coco_evaluator.compute(save_json=save_json)
 
-            return {
+            results = {
                 "metrics/mAP50-95": coco_metrics["mAP"],
                 "metrics/mAP50": coco_metrics["mAP50"],
                 "metrics/mAP75": coco_metrics["mAP75"],
@@ -435,4 +452,65 @@ class DetectionValidator(BaseValidator):
                 "metrics/AR_large": coco_metrics["AR_large"],
             }
         else:
-            return self.metrics.compute()
+            results = self.metrics.compute()
+
+        # DX plots: confusion matrix + per-class AP. Saved next to checkpoints
+        # in the same `save_dir` the trainer/validator already uses.
+        self._save_dx_plots()
+        return results
+
+    def _save_dx_plots(self) -> None:
+        """Render confusion_matrix.png and per_class_ap.png to save_dir."""
+        save_dir = getattr(self, "save_dir", None)
+        if save_dir is None:
+            return
+        try:
+            save_dir = type(save_dir)(save_dir)  # Path or str
+        except Exception:
+            return
+        names = self._dx_class_names()
+
+        cm = getattr(self, "confusion_matrix", None)
+        if cm is not None and cm.matrix.sum() > 0:
+            try:
+                cm.plot(str(save_dir) + "/confusion_matrix.png", names=names)
+                if self.config.verbose:
+                    print(f"  saved confusion_matrix.png")
+            except Exception as e:
+                if self.config.verbose:
+                    print(f"  confusion_matrix.png skipped: {e}")
+
+        # Per-class AP plot — only if DetMetrics path produced AP values
+        det_metrics = getattr(self, "metrics", None)
+        if det_metrics is not None and getattr(det_metrics, "ap", None) is not None \
+                and getattr(det_metrics, "ap_class", None) is not None:
+            try:
+                from libreyolo.validation.metrics import plot_per_class_ap
+                plot_per_class_ap(
+                    det_metrics.ap, det_metrics.ap_class, self.nc,
+                    str(save_dir) + "/per_class_ap.png",
+                    names=names,
+                )
+                if self.config.verbose:
+                    print(f"  saved per_class_ap.png")
+            except Exception as e:
+                if self.config.verbose:
+                    print(f"  per_class_ap.png skipped: {e}")
+
+    def _dx_class_names(self) -> List[str]:
+        """Best-effort recovery of class-name strings (falls back to indices)."""
+        # Try data.yaml's `names` first
+        try:
+            from libreyolo.data import load_data_config
+            cfg = load_data_config(self.config.data, autodownload=False)
+            names = cfg.get("names")
+            if isinstance(names, dict):
+                names = [names.get(i, str(i)) for i in range(self.nc)]
+            elif isinstance(names, list):
+                names = list(names)[: self.nc]
+                names = names + [str(i) for i in range(len(names), self.nc)]
+            else:
+                names = [str(i) for i in range(self.nc)]
+        except Exception:
+            names = [str(i) for i in range(self.nc)]
+        return names
