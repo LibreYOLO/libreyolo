@@ -53,6 +53,16 @@ def _nms_numpy(
     return keep
 
 
+def _is_nms_free_family(model_family: Optional[str]) -> bool:
+    """Whether backend outputs should bypass generic NMS.
+
+    DETR-style families already emit a ranked set prediction after top-k
+    selection. Applying YOLO-style IoU suppression on top of that can remove
+    valid detections and make exported runtimes diverge from native PyTorch.
+    """
+    return model_family in {"dfine", "rfdetr"}
+
+
 class BaseBackend(ABC):
     """Abstract base class for all inference backends.
 
@@ -397,7 +407,7 @@ class BaseBackend(ABC):
         classes: Optional[List[int]],
         max_det: int,
     ) -> Results:
-        """Apply NMS, max_det, classes filter and wrap into Results."""
+        """Apply family-appropriate suppression/max_det/filtering and wrap."""
         if len(boxes) == 0:
             return Results(
                 boxes=Boxes(
@@ -410,14 +420,15 @@ class BaseBackend(ABC):
                 names=self.names,
             )
 
-        keep = _nms_numpy(boxes, max_scores, iou)
-        boxes, max_scores, class_ids = (
-            boxes[keep],
-            max_scores[keep],
-            class_ids[keep],
-        )
-        if masks is not None:
-            masks = masks[keep]
+        if not _is_nms_free_family(self.model_family):
+            keep = _nms_numpy(boxes, max_scores, iou)
+            boxes, max_scores, class_ids = (
+                boxes[keep],
+                max_scores[keep],
+                class_ids[keep],
+            )
+            if masks is not None:
+                masks = masks[keep]
 
         if len(boxes) > max_det:
             top_indices = np.argsort(max_scores)[::-1][:max_det]
