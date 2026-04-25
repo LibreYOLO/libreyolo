@@ -197,7 +197,7 @@ class BaseValidator(ABC):
             torch.cuda.synchronize()
 
     def _print_results(self, metrics: Dict[str, float]) -> None:
-        logger.info("\n" + "=" * 50)
+        logger.info("=" * 50)
         logger.info("Validation Results")
         logger.info("=" * 50)
 
