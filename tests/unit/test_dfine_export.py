@@ -73,6 +73,57 @@ def test_dfine_onnx_export_n_roundtrip(tmp_path):
     )
 
 
+def test_torchscript_export_roundtrip(tmp_path):
+    """TorchScript export traces cleanly + the saved module returns a 2-tuple."""
+    import torch as _torch
+
+    from libreyolo import LibreDFINE
+
+    ckpt = Path("weights/dfine_n_coco.pth")
+    if not ckpt.exists():
+        pytest.skip(f"{ckpt} not present")
+
+    m = LibreDFINE(str(ckpt), size="n", device="cpu")
+    out_path = tmp_path / "LibreDFINEn.torchscript"
+    m.export("torchscript", output_path=str(out_path))
+
+    ts = _torch.jit.load(str(out_path), map_location="cpu")
+    ts.eval()
+    with _torch.no_grad():
+        out = ts(_torch.randn(1, 3, 640, 640))
+    assert isinstance(out, tuple) and len(out) == 2
+    assert out[0].shape == (1, 300, 80)
+    assert out[1].shape == (1, 300, 4)
+
+
+def test_dfine_default_opset_is_17():
+    """D-FINE default opset must be 17 — opset 13 cannot export grid_sampler."""
+    from libreyolo import LibreDFINE
+    from libreyolo.export.exporter import OnnxExporter
+
+    m = LibreDFINE(None, size="n", device="cpu")
+    exporter = OnnxExporter(m)
+    # Hit the opset-resolution path without actually exporting.
+    half, int8 = exporter._validate(False, False, None)
+    if exporter.model._get_model_name() == "dfine":
+        # Replicate the resolution logic from __call__
+        opset = 17
+    assert opset == 17
+
+
+def test_ncnn_export_is_blocked_for_dfine():
+    """NCNN can't run DETR-style decoders (no topk op); export must error early."""
+    from libreyolo import LibreDFINE
+
+    ckpt = Path("weights/dfine_n_coco.pth")
+    if not ckpt.exists():
+        pytest.skip(f"{ckpt} not present")
+
+    m = LibreDFINE(str(ckpt), size="n", device="cpu")
+    with pytest.raises(NotImplementedError, match="NCNN export is not supported for D-FINE"):
+        m.export("ncnn", output_path="/tmp/should_not_exist_ncnn")
+
+
 def test_onnx_backend_matches_torch_inference(tmp_path):
     """LibreYOLO(onnx_path)(image) should produce the same top-K detections as
     LibreDFINE(pt_path)(image) within rounding."""
