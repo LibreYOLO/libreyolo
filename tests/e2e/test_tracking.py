@@ -83,6 +83,7 @@ def _ids(result):
 # ── YOLOX ────────────────────────────────────────────────────────────────────
 
 
+@pytest.mark.yolox
 class TestTrackingYOLOX:
     """Tracking e2e with the smallest YOLOX model."""
 
@@ -175,6 +176,7 @@ class TestTrackingYOLOX:
 # ── YOLO9 ────────────────────────────────────────────────────────────────────
 
 
+@pytest.mark.yolo9
 class TestTrackingYOLO9:
     """Tracking e2e with the smallest YOLO9 model."""
 
@@ -219,6 +221,7 @@ class TestTrackingYOLO9:
     not OFFICIAL_YOLONAS_S.exists(),
     reason="Official YOLO-NAS-S checkpoint not present in downloads/yolonas/",
 )
+@pytest.mark.yolonas
 class TestTrackingYOLONAS:
     """Tracking e2e with the smallest YOLO-NAS model."""
 
@@ -260,6 +263,7 @@ class TestTrackingYOLONAS:
 
 
 @requires_rfdetr
+@pytest.mark.rfdetr
 class TestTrackingRFDETR:
     """Tracking e2e with the smallest RF-DETR model."""
 
@@ -301,6 +305,7 @@ class TestTrackingRFDETR:
 
 
 @requires_rfdetr
+@pytest.mark.rfdetr
 class TestTrackingRFDETRSeg:
     """Tracking e2e with a segmentation model: masks must survive tracking."""
 

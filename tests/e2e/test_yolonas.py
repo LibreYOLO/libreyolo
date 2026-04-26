@@ -20,7 +20,7 @@ from libreyolo import LibreYOLO
 
 from .conftest import cuda_cleanup
 
-pytestmark = pytest.mark.e2e
+pytestmark = [pytest.mark.e2e, pytest.mark.yolonas]
 
 OFFICIAL_YOLONAS_S = Path("downloads/yolonas/yolo_nas_s_coco.pth")
 MIN_MAP = 0.25
@@ -46,9 +46,7 @@ def test_yolonas_s_val_coco128():
 
     map50_95 = results["metrics/mAP50-95"]
     map50 = results["metrics/mAP50"]
-    print(
-        f"\n  YOLO-NAS-S coco128: mAP50-95={map50_95:.4f}, mAP50={map50:.4f}"
-    )
+    print(f"\n  YOLO-NAS-S coco128: mAP50-95={map50_95:.4f}, mAP50={map50:.4f}")
 
     assert map50_95 >= MIN_MAP, (
         f"mAP50-95={map50_95:.4f} below threshold {MIN_MAP} — "
@@ -122,6 +120,7 @@ def test_yolonas_s_train_resume_smoke(tmp_path):
     not OFFICIAL_YOLONAS_S.exists(),
     reason="Official YOLO-NAS-S checkpoint not present in downloads/yolonas/",
 )
+@pytest.mark.torchscript
 def test_yolonas_s_torchscript_roundtrip(sample_image, tmp_path):
     """Export YOLO-NAS-S to TorchScript and reload it through LibreYOLO."""
     model = LibreYOLO(str(OFFICIAL_YOLONAS_S), device="cpu")
@@ -149,7 +148,9 @@ def test_yolonas_s_torchscript_roundtrip(sample_image, tmp_path):
     )
 
     assert len(result.boxes) > 0, "Round-tripped TorchScript model returned no boxes"
-    assert output_image.exists(), "Round-tripped TorchScript inference did not save output"
+    assert output_image.exists(), (
+        "Round-tripped TorchScript inference did not save output"
+    )
     assert result.saved_path == str(output_image)
 
     cuda_cleanup()

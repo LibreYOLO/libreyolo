@@ -126,6 +126,7 @@ def _collect_n_frames(model, video_path, n=30, **kwargs):
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.yolox
 class TestVideoYOLOX:
     """Video inference with YOLOX."""
 
@@ -176,6 +177,7 @@ class TestVideoYOLOX:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.yolo9
 class TestVideoYOLO9:
     """Video inference with YOLO9."""
 
@@ -296,6 +298,7 @@ class TestVideoYOLO9:
 
 
 @requires_rfdetr
+@pytest.mark.rfdetr
 class TestVideoRFDETR:
     """Video inference with RF-DETR."""
 
@@ -350,6 +353,7 @@ class TestVideoRFDETR:
     not OFFICIAL_YOLONAS_S.exists(),
     reason="Official YOLO-NAS-S checkpoint not present in downloads/yolonas/",
 )
+@pytest.mark.yolonas
 class TestVideoYOLONAS:
     """Video inference with YOLO-NAS."""
 
