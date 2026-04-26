@@ -58,6 +58,11 @@ pytest tests/e2e/ -v -m "e2e and not experimental_backend"
 make test_e2e MARKERS='e2e and onnx'
 make test_e2e MARKERS='e2e and (onnx or torchscript) and not ncnn'
 make test_e2e MARKERS='e2e and not experimental_backend'
+make test_e2e MARKER='e2e and not experimental_backend' FROM=rf1_training
+make test_e2e MARKERS='e2e and dfine' FROM=test_rf1_training.py
+
+# MARKER= and MARKERS= are equivalent
+make test_e2e MARKER='e2e and yolo9'
 
 # Individual test files
 pytest tests/e2e/test_onnx.py -v        # ONNX export + inference
