@@ -114,6 +114,11 @@ def LibreYOLO(
 
         return OpenVINOBackend(model_path, nb_classes=nb_classes, device=device)
 
+    if Path(model_path).is_dir() and Path(model_path).suffix == ".mlpackage":
+        from ..backends.coreml import CoreMLBackend
+
+        return CoreMLBackend(model_path, nb_classes=nb_classes or 80, device=device)
+
     if Path(model_path).is_dir():
         ncnn_param = Path(model_path) / "model.ncnn.param"
         ncnn_bin = Path(model_path) / "model.ncnn.bin"

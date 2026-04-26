@@ -217,3 +217,27 @@ class TestCoreMLExporterRegistry:
         assert CoreMLExporter.requires_onnx is False
         assert CoreMLExporter.supports_int8 is False
         assert CoreMLExporter.apply_model_half is False
+
+
+class TestCoreMLBackendModule:
+    def test_backend_class_importable(self):
+        # On non-macOS, importing the class itself must succeed (only
+        # instantiation should refuse). Use the lazy import path.
+        import libreyolo
+        assert hasattr(libreyolo, "CoreMLBackend")
+        cls = libreyolo.CoreMLBackend
+        assert cls.__name__ == "CoreMLBackend"
+
+    def test_dispatch_mlpackage(self, tmp_path, monkeypatch):
+        # Create a fake .mlpackage directory and ensure the model factory
+        # routes it to CoreMLBackend (we patch the class to a sentinel).
+        pkg = tmp_path / "fake.mlpackage"
+        pkg.mkdir()
+
+        sentinel = MagicMock(name="CoreMLBackendSentinel")
+        import libreyolo.backends.coreml as coreml_mod
+        monkeypatch.setattr(coreml_mod, "CoreMLBackend", sentinel)
+
+        from libreyolo.models import LibreYOLO
+        LibreYOLO(str(pkg), nb_classes=80, device="cpu")
+        sentinel.assert_called_once()
