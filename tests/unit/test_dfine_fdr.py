@@ -6,9 +6,9 @@ These tests exist to catch numerical drift in the three functions that are
 pixels and silently collapses mAP — they must match the D-FINE reference impl
 to within tight tolerance.
 
-The reference impl is expected at ``/Users/xuban.ceccon/dfine-libreyolo-review/D-FINE``.
-If it is absent, these parity tests are skipped (the local correctness tests
-still run).
+The reference impl path is read from ``LIBREYOLO_DFINE_REF_PATH``. If that
+env var is unset, or the path doesn't exist, these parity tests are
+skipped (the local correctness tests still run).
 """
 
 from __future__ import annotations
@@ -29,12 +29,8 @@ from libreyolo.models.dfine.fdr import Integral, distance2bbox, weighting_functi
 # Reference-impl fixture (skip if not available).
 # ---------------------------------------------------------------------------
 
-_DFINE_REF_PATH = Path(
-    os.environ.get(
-        "LIBREYOLO_DFINE_REF_PATH",
-        "/Users/xuban.ceccon/dfine-libreyolo-review/D-FINE",
-    )
-)
+_DFINE_REF_PATH_ENV = os.environ.get("LIBREYOLO_DFINE_REF_PATH")
+_DFINE_REF_PATH = Path(_DFINE_REF_PATH_ENV) if _DFINE_REF_PATH_ENV else None
 
 
 def _load_reference():
@@ -48,6 +44,8 @@ def _load_reference():
     import importlib.util
     import types
 
+    if _DFINE_REF_PATH is None:
+        pytest.skip("LIBREYOLO_DFINE_REF_PATH unset; point it at a D-FINE clone to run this parity test")
     dfine_src = _DFINE_REF_PATH / "src" / "zoo" / "dfine"
     if not dfine_src.is_dir():
         pytest.skip(f"D-FINE reference not at {_DFINE_REF_PATH}")

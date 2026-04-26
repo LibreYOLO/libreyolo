@@ -15,22 +15,12 @@ from .nn import LibreDFINEModel
 from .utils import postprocess, preprocess_image, unwrap_dfine_checkpoint
 
 
-# D-FINE-specific keys that never appear in RF-DETR / YOLOX / YOLOv9 / YOLO-NAS
-# checkpoints. Used for both ``can_load`` disambiguation and hidden-dim probing.
-_SIZE_BY_HIDDEN_DIM_AND_LEVELS = {
-    # (hidden_dim, num_decoder_input_proj_levels) -> size code
-    (128, 2): "n",
-    (256, 3): "s",  # B0 backbone → backbone.stages.0.blocks.0.aggregation... width distinguishes S from M
-    (384, 3): "x",
-}
-
-
 class LibreDFINE(BaseModel):
     """LibreYOLO wrapper for D-FINE.
 
-    Inference-only v1: supports loading upstream ``dfine_{n,s,m,l,x}_coco.pth``
-    checkpoints, running preprocessing, forward pass, and DETR-style post-
-    processing. Training is not wired yet.
+    Loads upstream ``dfine_{n,s,m,l,x}_coco.pth`` checkpoints and supports
+    inference, fine-tuning (via ``DFINETrainer``), validation, and export
+    (ONNX / TensorRT / OpenVINO).
     """
 
     FAMILY = "dfine"
@@ -38,20 +28,10 @@ class LibreDFINE(BaseModel):
     INPUT_SIZES = {"n": 640, "s": 640, "m": 640, "l": 640, "x": 640}
     val_preprocessor_class = DFINEValPreprocessor
 
-    # Signature keys unique to D-FINE — absent from every other LibreYOLO family.
-    _SIGNATURE_KEYS = (
-        "decoder.integral",  # never serialized (no params) — kept for doc
-        "decoder.dec_bbox_head.0.layers.0.weight",
-        "decoder.denoising_class_embed.weight",
-        "decoder.pre_bbox_head.layers.0.weight",
-        "decoder.enc_bbox_head.layers.0.weight",
-    )
-
     @classmethod
     def can_load(cls, weights_dict: dict) -> bool:
-        # Accept if any of several D-FINE-unique keys appear. The three that
-        # ARE in the state dict (dec_bbox_head, denoising_class_embed, pre_bbox_head)
-        # are not present in RF-DETR / YOLOX / YOLOv9 / YOLO-NAS state dicts.
+        # D-FINE-unique decoder key prefixes absent from RF-DETR / YOLOX /
+        # YOLOv9 / YOLO-NAS state dicts.
         markers = (
             "decoder.dec_bbox_head.",
             "decoder.denoising_class_embed",
