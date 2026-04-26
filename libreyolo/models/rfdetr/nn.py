@@ -88,7 +88,6 @@ class LibreRFDETRModel(nn.Module):
         self.num_queries = getattr(model_config, "num_queries", 300)
 
         model_config.device = device
-        model_config.device = device
         ctx = _build_model_context(model_config)
         self.model = ctx.model
         self.postprocess = ctx.postprocess

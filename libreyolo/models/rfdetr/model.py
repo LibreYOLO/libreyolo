@@ -129,7 +129,6 @@ class LibreYOLORFDETR(BaseModel):
     INPUT_SIZES = {"n": 384, "s": 512, "m": 576, "l": 704}
     SEG_INPUT_SIZES = {"n": 312, "s": 384, "m": 432, "l": 504}
     TRAIN_CONFIG = RFDETRConfig
-    TRAIN_CONFIG = RFDETRConfig
     val_preprocessor_class = RFDETRValPreprocessor
 
     # CLI parameters not supported by RF-DETR's training API
