@@ -13,6 +13,7 @@ import cv2
 import numpy as np
 import torch
 from torch.utils.data import Dataset, DataLoader
+from PIL import Image, UnidentifiedImageError
 
 from .utils import polygon_to_cxcywh
 
@@ -115,11 +116,11 @@ class YOLODataset(Dataset):
     def _load_label(self, label_file: Path, img_file: Path) -> Tuple:
         """Load annotation for a single image."""
         # Read image to get dimensions
-        img = cv2.imread(str(img_file))
-        if img is None:
-            raise FileNotFoundError(f"Cannot read image: {img_file}")
-
-        height, width = img.shape[:2]
+        try:
+            with Image.open(img_file) as im:
+                width, height = im.size
+        except (FileNotFoundError, UnidentifiedImageError, OSError) as e:
+            raise FileNotFoundError(f"Cannot read image: {img_file}") from e
 
         # Load labels
         labels = []

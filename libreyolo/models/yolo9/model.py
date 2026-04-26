@@ -9,10 +9,14 @@ import torch.nn as nn
 from PIL import Image
 
 from ..base import BaseModel
+from ...training.config import YOLO9Config
 from ...utils.image_loader import ImageInput
 from .nn import LibreYOLO9Model
 from .utils import preprocess_image, postprocess
 from ...validation.preprocessors import YOLO9ValPreprocessor
+
+# Single source of truth for training defaults
+_TRAIN_DEFAULTS = YOLO9Config()
 
 
 class LibreYOLO9(BaseModel):
@@ -35,6 +39,7 @@ class LibreYOLO9(BaseModel):
     FAMILY = "yolo9"
     FILENAME_PREFIX = "LibreYOLO9"
     INPUT_SIZES = {"t": 640, "s": 640, "m": 640, "c": 640}
+    TRAIN_CONFIG = YOLO9Config
     val_preprocessor_class = YOLO9ValPreprocessor
 
     # =========================================================================
@@ -210,20 +215,21 @@ class LibreYOLO9(BaseModel):
         self,
         data: str,
         *,
-        epochs: int = 300,
-        batch: int = 16,
-        imgsz: int = 640,
-        lr0: float = 0.01,
-        optimizer: str = "SGD",
+        epochs: int = _TRAIN_DEFAULTS.epochs,
+        batch: int = _TRAIN_DEFAULTS.batch,
+        imgsz: int = _TRAIN_DEFAULTS.imgsz,
+        lr0: float = _TRAIN_DEFAULTS.lr0,
+        optimizer: str = _TRAIN_DEFAULTS.optimizer,
         device: str = "",
-        workers: int = 8,
-        seed: int = 0,
-        project: str = "runs/train",
-        name: str = "yolo9_exp",
-        exist_ok: bool = False,
-        resume: bool = False,
-        amp: bool = True,
-        patience: int = 50,
+        workers: int = _TRAIN_DEFAULTS.workers,
+        seed: int = _TRAIN_DEFAULTS.seed,
+        project: str = _TRAIN_DEFAULTS.project,
+        name: str = _TRAIN_DEFAULTS.name,
+        exist_ok: bool = _TRAIN_DEFAULTS.exist_ok,
+        resume: bool = _TRAIN_DEFAULTS.resume,
+        amp: bool = _TRAIN_DEFAULTS.amp,
+        patience: int = _TRAIN_DEFAULTS.patience,
+        allow_download_scripts: bool = False,
         **kwargs,
     ) -> dict:
         """Train the YOLOv9 model on a dataset.
@@ -252,14 +258,25 @@ class LibreYOLO9(BaseModel):
         from libreyolo.data import load_data_config
 
         try:
-            data_config = load_data_config(data, autodownload=True)
+            data_config = load_data_config(
+                data,
+                autodownload=True,
+                allow_scripts=allow_download_scripts,
+            )
             data = data_config.get("yaml_file", data)
         except Exception as e:
             raise FileNotFoundError(f"Failed to load dataset config '{data}': {e}")
 
         yaml_nc = data_config.get("nc")
+        yaml_names = data_config.get("names")
         if yaml_nc is not None and yaml_nc != self.nb_classes:
             self._rebuild_for_new_classes(yaml_nc)
+
+        # Apply custom class names from data config
+        if yaml_names is not None:
+            if isinstance(yaml_names, list):
+                yaml_names = {i: n for i, n in enumerate(yaml_names)}
+            self.names = self._sanitize_names(yaml_names, self.nb_classes)
 
         if seed > 0:
             import random
@@ -291,6 +308,7 @@ class LibreYOLO9(BaseModel):
             resume=resume,
             amp=amp,
             patience=patience,
+            allow_download_scripts=allow_download_scripts,
             **kwargs,
         )
 

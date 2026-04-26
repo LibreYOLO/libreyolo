@@ -1,10 +1,13 @@
 """COCO evaluator for LibreYOLO."""
 
+import logging
 from typing import Dict, Optional
 import json
 
 import numpy as np
 import torch
+
+logger = logging.getLogger(__name__)
 
 
 class COCOEvaluator:
@@ -67,13 +70,13 @@ class COCOEvaluator:
             save_json: Optional path to save predictions in COCO JSON format.
         """
         if len(self.results) == 0:
-            print("Warning: No predictions to evaluate")
+            logger.warning("No predictions to evaluate")
             return self._empty_metrics()
 
         if save_json:
             with open(save_json, "w") as f:
                 json.dump(self.results, f, indent=2)
-            print(f"Saved predictions to {save_json}")
+            logger.info("Saved predictions to %s", save_json)
 
         try:
             from pycocotools.coco import COCO  # noqa: F401

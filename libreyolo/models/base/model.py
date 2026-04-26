@@ -15,9 +15,12 @@ import torch
 import torch.nn as nn
 from PIL import Image
 
+from ...training.config import TrainConfig
 from ...utils.general import COCO_CLASSES
 from ...utils.image_loader import ImageInput
+from ...utils.logging import ensure_default_logging
 from ...utils.results import Results
+from ...utils.serialization import load_untrusted_torch_file
 from ...validation.preprocessors import StandardValPreprocessor
 
 
@@ -31,6 +34,7 @@ class BaseModel(ABC):
         FAMILY: Model family identifier (e.g. "yolox").
         FILENAME_PREFIX: Prefix for weight filenames (e.g. "LibreYOLOX").
         INPUT_SIZES: Mapping of size code to input resolution.
+        TRAIN_CONFIG: TrainConfig subclass with family-specific defaults.
         val_preprocessor_class: Preprocessor class for validation.
     """
 
@@ -39,6 +43,7 @@ class BaseModel(ABC):
     FILENAME_PREFIX: ClassVar[str] = ""
     WEIGHT_EXT: ClassVar[str] = ".pt"
     INPUT_SIZES: ClassVar[dict[str, int]] = {}
+    TRAIN_CONFIG: ClassVar[Optional[type[TrainConfig]]] = None
     val_preprocessor_class = StandardValPreprocessor
 
     # Model registry — auto-populated by __init_subclass__
@@ -65,6 +70,7 @@ class BaseModel(ABC):
         device: str = "auto",
         **kwargs,
     ):
+        ensure_default_logging()
         valid_sizes = self._get_valid_sizes()
         if size not in valid_sizes:
             raise ValueError(
@@ -207,6 +213,7 @@ class BaseModel(ABC):
         """Rebuild model with a new class count, preserving weights where shapes match."""
         old_state = self.model.state_dict()
         self.nb_classes = new_nb_classes
+        self.names = {i: f"class_{i}" for i in range(new_nb_classes)}
         self.model = self._init_model()
 
         new_state = self.model.state_dict()
@@ -297,11 +304,27 @@ class BaseModel(ABC):
         Auto-rebuilds model architecture if checkpoint has different nc.
         Also handles DDP prefix stripping and cross-family rejection.
         """
-        if not Path(model_path).exists():
-            raise FileNotFoundError(f"Model weights file not found: {model_path}")
+        path = Path(model_path)
+        if not path.exists() and path.parent == Path("."):
+            weights_path = Path("weights") / path.name
+            if weights_path.exists():
+                model_path = str(weights_path)
+                path = weights_path
 
+        if not path.exists():
+            from ...utils.download import download_weights
+
+            download_weights(model_path, self.size)
+            path = Path(model_path)
+
+        if not path.exists():
+            raise FileNotFoundError(f"Model weights not found at {model_path}")
         try:
-            loaded = torch.load(model_path, map_location="cpu", weights_only=False)
+            loaded = load_untrusted_torch_file(
+                model_path,
+                map_location="cpu",
+                context="model weights",
+            )
 
             if isinstance(loaded, dict):
                 if "model" in loaded:
@@ -502,6 +525,8 @@ class BaseModel(ABC):
         imgsz: int | None = None,
         conf: float = 0.001,
         iou: float = 0.6,
+        workers: int = 4,
+        allow_download_scripts: bool = False,
         device: str | None = None,
         split: str = "val",
         save_json: bool = False,
@@ -516,6 +541,8 @@ class BaseModel(ABC):
             imgsz: Image size (defaults to model's native input size).
             conf: Confidence threshold.
             iou: IoU threshold for NMS.
+            workers: Number of dataloader workers.
+            allow_download_scripts: Allow embedded Python in dataset YAML downloads.
             device: Device to use (default: same as model).
             split: Dataset split ("val", "test").
             save_json: Save predictions in COCO JSON format.
@@ -536,6 +563,8 @@ class BaseModel(ABC):
             imgsz=imgsz,
             conf_thres=conf,
             iou_thres=iou,
+            num_workers=workers,
+            allow_download_scripts=allow_download_scripts,
             device=device or str(self.device),
             split=split,
             save_json=save_json,

@@ -4,6 +4,7 @@ Model-specific trainers subclass BaseTrainer and override hooks.
 """
 
 import logging
+import sys
 import time
 from abc import ABC, abstractmethod
 from pathlib import Path
@@ -18,6 +19,7 @@ from .config import TrainConfig
 from .ema import ModelEMA
 from ..data.dataset import YOLODataset, COCODataset, create_dataloader
 from ..data import load_data_config, get_img_files, img2label_paths
+from ..utils.serialization import load_trusted_torch_file
 
 
 logger = logging.getLogger(__name__)
@@ -132,8 +134,8 @@ class BaseTrainer(ABC):
     # =========================================================================
 
     def _setup_device(self) -> torch.device:
-        device_str = self.config.device
-        if device_str == "auto":
+        device_str = str(self.config.device).strip().lower()
+        if device_str in ("", "auto"):
             if torch.cuda.is_available():
                 device = torch.device("cuda")
             elif torch.backends.mps.is_available():
@@ -141,6 +143,15 @@ class BaseTrainer(ABC):
             else:
                 device = torch.device("cpu")
         else:
+            if "," in device_str:
+                raise NotImplementedError(
+                    f"Multi-GPU training is not supported yet "
+                    f"(got device={self.config.device!r}). Pass a single "
+                    "index like '0' or 'cuda:0'."
+                )
+            # YOLO-style "0" -> "cuda:0"
+            if device_str.isdigit():
+                device_str = f"cuda:{device_str}"
             device = torch.device(device_str)
         logger.info(f"Using device: {device}")
         return device
@@ -202,7 +213,10 @@ class BaseTrainer(ABC):
         preproc, MosaicDatasetClass = self.create_transforms()
 
         if self.config.data:
-            data_cfg = load_data_config(self.config.data)
+            data_cfg = load_data_config(
+                self.config.data,
+                allow_scripts=self.config.allow_download_scripts,
+            )
             data_dir = data_cfg["root"]
             self.num_classes = data_cfg.get("nc", self.config.num_classes)
 
@@ -396,6 +410,10 @@ class BaseTrainer(ABC):
             "last_checkpoint": str(weights_dir / "last.pt"),
         }
 
+    def _scale_lr(self, base_lr: float, param_group: dict) -> float:
+        """Hook for per-group LR scaling. Override in subclasses."""
+        return base_lr
+
     def _train_epoch(self, epoch: int) -> Tuple[float, Optional[Dict[str, float]]]:
         self.model.train()
 
@@ -403,6 +421,8 @@ class BaseTrainer(ABC):
             self.train_loader,
             desc=f"Epoch {epoch + 1}/{self.config.epochs}",
             total=len(self.train_loader),
+            disable=not sys.stderr.isatty(),
+            file=sys.stderr,
         )
 
         total_loss = 0.0
@@ -443,7 +463,7 @@ class BaseTrainer(ABC):
             # LR update
             lr = self.lr_scheduler.update_lr(self.current_iter + 1)
             for param_group in self.optimizer.param_groups:
-                param_group["lr"] = lr
+                param_group["lr"] = self._scale_lr(lr, param_group)
             num_batches += 1
 
             # Progress bar
@@ -533,8 +553,10 @@ class BaseTrainer(ABC):
             logger.debug(
                 f"Extracted metrics: mAP50={metrics['mAP50']:.4f}, mAP50_95={metrics['mAP50_95']:.4f}"
             )
-            print(
-                f"Validation - mAP50: {metrics['mAP50']:.4f}, mAP50-95: {metrics['mAP50_95']:.4f}"
+            logger.info(
+                "Validation - mAP50: %.4f, mAP50-95: %.4f",
+                metrics["mAP50"],
+                metrics["mAP50_95"],
             )
             return metrics
 
@@ -603,7 +625,11 @@ class BaseTrainer(ABC):
             raise FileNotFoundError(f"Resume checkpoint not found: {checkpoint_path}")
 
         logger.info(f"Resuming from {checkpoint_path}")
-        checkpoint = torch.load(checkpoint_path, map_location=self.device)
+        checkpoint = load_trusted_torch_file(
+            checkpoint_path,
+            map_location=self.device,
+            context="training resume checkpoint",
+        )
 
         try:
             self.model.load_state_dict(checkpoint["model"])

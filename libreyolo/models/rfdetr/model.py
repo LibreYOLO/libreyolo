@@ -1,7 +1,7 @@
 """LibreYOLORFDETR implementation for LibreYOLO."""
 
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, ClassVar, Dict, Optional, Tuple
 
 import torch
 import torch.nn as nn
@@ -10,7 +10,9 @@ from PIL import Image
 
 from ..base import BaseModel
 from ...utils.image_loader import ImageInput, ImageLoader
+from ...utils.serialization import load_trusted_torch_file
 from .nn import LibreRFDETRModel
+from .config import RFDETRConfig
 from .utils import postprocess, IMAGENET_MEAN, IMAGENET_STD
 from .trainer import train_rfdetr
 from ...validation.preprocessors import RFDETRValPreprocessor
@@ -126,7 +128,33 @@ class LibreYOLORFDETR(BaseModel):
     FILENAME_PREFIX = "LibreRFDETR"
     INPUT_SIZES = {"n": 384, "s": 512, "m": 576, "l": 704}
     SEG_INPUT_SIZES = {"n": 312, "s": 384, "m": 432, "l": 504}
+    TRAIN_CONFIG = RFDETRConfig
+    TRAIN_CONFIG = RFDETRConfig
     val_preprocessor_class = RFDETRValPreprocessor
+
+    # CLI parameters not supported by RF-DETR's training API
+    UNSUPPORTED_TRAIN_PARAMS: ClassVar[set[str]] = {
+        "imgsz",
+        "mosaic",
+        "mixup",
+        "degrees",
+        "shear",
+        "scheduler",
+        "warmup_lr_start",
+        "min_lr_ratio",
+        "mosaic_scale",
+        "mixup_scale",
+        "no_aug_epochs",
+        "optimizer",
+        "momentum",
+        "nesterov",
+        "hsv_prob",
+        "flip_prob",
+        "translate",
+        "amp",
+        "pretrained",
+        "log_interval",
+    }
 
     # =========================================================================
     # Registry classmethods
@@ -419,7 +447,11 @@ class LibreYOLORFDETR(BaseModel):
 
         best_ckpt = Path(result["output_dir"]) / "checkpoint_best_total.pth"
         if best_ckpt.exists():
-            checkpoint = torch.load(best_ckpt, map_location="cpu", weights_only=False)
+            checkpoint = load_trusted_torch_file(
+                best_ckpt,
+                map_location="cpu",
+                context="RF-DETR best checkpoint reload",
+            )
             state_dict = checkpoint["model"]
 
             # RF-DETR uses num_classes + 1 internally (background class)
@@ -435,5 +467,6 @@ class LibreYOLORFDETR(BaseModel):
 
             self.nb_classes = num_classes
             self.model.nb_classes = num_classes
+            self.names = {i: f"class_{i}" for i in range(num_classes)}
 
         return result

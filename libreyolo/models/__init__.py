@@ -9,10 +9,15 @@ All model families register here via ``__init_subclass__``. Adding a new model m
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 from .base import BaseModel
 from ..utils.download import download_weights
+from ..utils.logging import ensure_default_logging
+from ..utils.serialization import load_untrusted_torch_file
+
+logger = logging.getLogger(__name__)
 
 # =============================================================================
 # Model registry — auto-populated by BaseModel.__init_subclass__
@@ -24,6 +29,7 @@ from .yolox.model import LibreYOLOX  # noqa: E402
 from .yolo9.model import LibreYOLO9  # noqa: E402
 from .yolonas.model import LibreYOLONAS  # noqa: E402
 from .dfine.model import LibreDFINE  # noqa: E402
+from .rtdetr.model import LibreYOLORTDETR  # noqa: E402
 
 
 def _ensure_rfdetr():
@@ -38,6 +44,18 @@ def _ensure_rfdetr():
             "Install with: pip install libreyolo[rfdetr]"
         )
     from .rfdetr.model import LibreYOLORFDETR  # noqa: F401  (import triggers registration)
+
+
+def try_ensure_rfdetr():
+    """Try to register RF-DETR. Returns the model class or ``None`` if unavailable."""
+    try:
+        _ensure_rfdetr()
+    except (ImportError, ModuleNotFoundError):
+        return None
+    for cls in BaseModel._registry:
+        if cls.__name__ == "LibreYOLORFDETR":
+            return cls
+    return None
 
 
 # =============================================================================
@@ -108,8 +126,7 @@ def LibreYOLO(
     Returns:
         Model instance (LibreYOLOX, LibreYOLO9, LibreYOLORFDETR, or inference backend).
     """
-    import torch
-
+    ensure_default_logging()
     model_path = _resolve_weights_path(model_path)
 
     # Non-PyTorch formats: delegate to inference backends
@@ -148,7 +165,7 @@ def LibreYOLO(
                 detected = cls.detect_size_from_filename(Path(model_path).name)
                 if detected is not None:
                     size = detected
-                    print(f"Detected size '{size}' from filename")
+                    logger.debug("Detected size '%s' from filename", size)
                     break
             # Try RF-DETR (may not be registered yet — cheap check)
             if size is None:
@@ -158,7 +175,7 @@ def LibreYOLO(
                         detected = cls.detect_size_from_filename(Path(model_path).name)
                         if detected is not None:
                             size = detected
-                            print(f"Detected size '{size}' from filename")
+                            logger.debug("Detected size '%s' from filename", size)
                             break
                 except ModuleNotFoundError:
                     pass
@@ -172,14 +189,18 @@ def LibreYOLO(
         try:
             download_weights(model_path, size)
         except Exception as e:
-            print(f"Auto-download failed: {e}")
+            logger.warning("Auto-download failed: %s", e)
 
     if not Path(model_path).exists():
         raise FileNotFoundError(f"Model weights file not found: {model_path}")
 
     # Load weights once
     try:
-        state_dict = torch.load(model_path, map_location="cpu", weights_only=False)
+        state_dict = load_untrusted_torch_file(
+            model_path,
+            map_location="cpu",
+            context="model inspection",
+        )
     except Exception as e:
         raise RuntimeError(
             f"Failed to load model weights from {model_path}: {e}"
@@ -187,13 +208,13 @@ def LibreYOLO(
 
     weights_dict = _unwrap_state_dict(state_dict)
 
-    # Ensure RF-DETR is registered if its keys are present.
-    # D-FINE also has ``encoder``/``decoder``/``class_embed``-ish keys — we
-    # gate on ``dinov2`` (RF-DETR uses DINOv2 backbone, D-FINE uses HGNetV2)
-    # or the RF-DETR-specific ``query_embed`` to avoid a spurious import
-    # whenever D-FINE weights are loaded.
+    # Ensure RF-DETR is registered if its keys are present, but avoid
+    # treating RT-DETR checkpoints as RF-DETR. D-FINE also has
+    # ``encoder``/``decoder``-ish keys, so only the RF-DETR-specific markers
+    # should trigger the lazy import.
+    is_rtdetr = LibreYOLORTDETR.can_load(weights_dict)
     keys_lower = [k.lower() for k in weights_dict]
-    if any("dinov2" in k or "query_embed" in k for k in keys_lower):
+    if not is_rtdetr and any("dinov2" in k or "query_embed" in k for k in keys_lower):
         try:
             _ensure_rfdetr()
         except ModuleNotFoundError:
@@ -209,7 +230,7 @@ def LibreYOLO(
     if matched_cls is None:
         raise ValueError(
             "Could not detect model architecture from state dict keys.\n"
-            "Supported architectures: YOLOX, YOLOv9, YOLO-NAS, RF-DETR, D-FINE."
+            "Supported architectures: YOLOX, YOLOv9, YOLO-NAS, RT-DETR, RF-DETR, D-FINE."
         )
 
     # Auto-detect size
@@ -229,7 +250,7 @@ def LibreYOLO(
                 f"Could not automatically detect {matched_cls.__name__} model size.\n"
                 f"Please specify size explicitly: LibreYOLO('{model_path}', size='s')"
             )
-        print(f"Auto-detected size: {size}")
+        logger.debug("Auto-detected size: %s", size)
 
     # Auto-detect nb_classes
     if nb_classes is None:
@@ -265,7 +286,7 @@ def LibreYOLO(
         model = matched_cls(
             model_path=model_path,
             size=size,
-            nb_classes=80,
+            nb_classes=nb_classes,
             device=device,
             **({"reg_max": reg_max} if matched_cls.FAMILY == "yolo9" else {}),
         )
@@ -287,4 +308,8 @@ __all__ = [
     "LibreYOLO",
     "LibreYOLOX",
     "LibreYOLO9",
+    "LibreYOLONAS",
+    "LibreDFINE",
+    "LibreYOLORTDETR",
+    "try_ensure_rfdetr",
 ]
