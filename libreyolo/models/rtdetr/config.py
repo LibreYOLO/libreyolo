@@ -11,7 +11,14 @@ from libreyolo.training.config import TrainConfig
 
 @dataclass(kw_only=True)
 class RTDETRConfig(TrainConfig):
-    """Training configuration for RT-DETR models."""
+    """Training configuration for RT-DETR models.
+
+    Notes on defaults relative to lyuwenyu/RT-DETR upstream:
+      * ``warmup_epochs=1`` for fine-tune ergonomics; set to ``0`` for strict
+        lyuwenyu recipe parity on from-scratch runs.
+      * ``grad_clip=0.1`` matches lyuwenyu's ``clip_max_norm`` and applies on
+        both fine-tune and from-scratch.
+    """
 
     epochs: int = 72
     batch: int = 4
@@ -27,9 +34,10 @@ class RTDETRConfig(TrainConfig):
 
     # Optimizer overrides (RT-DETR uses lighter regularisation than YOLO)
     weight_decay: float = 1e-4
+    grad_clip: float = 0.1
 
-    # Scheduler overrides (RT-DETR uses no warmup / no-aug tail by default)
-    warmup_epochs: int = 0
+    # Scheduler overrides
+    warmup_epochs: int = 1
     no_aug_epochs: int = 0
 
     # Augmentation overrides (RT-DETR uses milder augmentation than YOLOX)

@@ -409,6 +409,31 @@ class BaseTrainer(ABC):
         """Hook for per-group LR scaling. Override in subclasses."""
         return base_lr
 
+    def _backward_and_step(self, loss: torch.Tensor) -> None:
+        """Backward, optional gradient clipping, and optimizer step.
+
+        Handles both AMP (via ``self.scaler``) and non-AMP paths.  Gradient
+        clipping is applied after unscaling when AMP is active so the clip
+        threshold is in real (not scaled) gradient space.
+        """
+        grad_clip = self.config.grad_clip
+        if self.scaler is not None:
+            self.scaler.scale(loss).backward()
+            if grad_clip > 0:
+                self.scaler.unscale_(self.optimizer)
+                torch.nn.utils.clip_grad_norm_(
+                    self.model.parameters(), max_norm=grad_clip
+                )
+            self.scaler.step(self.optimizer)
+            self.scaler.update()
+        else:
+            loss.backward()
+            if grad_clip > 0:
+                torch.nn.utils.clip_grad_norm_(
+                    self.model.parameters(), max_norm=grad_clip
+                )
+            self.optimizer.step()
+
     def _train_epoch(self, epoch: int) -> Tuple[float, Optional[Dict[str, float]]]:
         self.model.train()
 
@@ -434,16 +459,12 @@ class BaseTrainer(ABC):
                 with autocast("cuda"):
                     outputs = self.on_forward(imgs, targets)
                     loss = outputs["total_loss"]
-                self.optimizer.zero_grad()
-                self.scaler.scale(loss).backward()
-                self.scaler.step(self.optimizer)
-                self.scaler.update()
             else:
                 outputs = self.on_forward(imgs, targets)
                 loss = outputs["total_loss"]
-                self.optimizer.zero_grad()
-                loss.backward()
-                self.optimizer.step()
+
+            self.optimizer.zero_grad()
+            self._backward_and_step(loss)
 
             # EMA
             if self.ema_model is not None:
