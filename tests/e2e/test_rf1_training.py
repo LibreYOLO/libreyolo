@@ -22,6 +22,7 @@ from PIL import Image
 
 from libreyolo import LibreYOLO
 from .conftest import (
+    ALL_MODEL_WEIGHT_PARAMS,
     ALL_MODELS_WITH_WEIGHTS,
     cuda_cleanup,
     make_ids,
@@ -172,8 +173,7 @@ MIN_MAP = 0.05
 
 @pytest.mark.parametrize(
     "family,size,weights",
-    ALL_MODELS_WITH_WEIGHTS,
-    ids=make_ids(ALL_MODELS_WITH_WEIGHTS),
+    ALL_MODEL_WEIGHT_PARAMS,
 )
 def test_rf1_training(family, size, weights, dataset_coco, dataset_data_yaml, tmp_path):
     """Train 10 epochs on marbles, verify loss decreases and mAP improves."""

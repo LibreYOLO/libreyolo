@@ -15,9 +15,8 @@ import pytest
 
 from libreyolo import LibreYOLO
 from .conftest import (
-    ALL_MODELS_WITH_WEIGHTS,
+    ALL_MODEL_WEIGHT_PARAMS,
     cuda_cleanup,
-    make_ids,
     require_test_weights,
 )
 
@@ -28,8 +27,7 @@ MIN_MAP = 0.18  # Uniform threshold for all models
 
 @pytest.mark.parametrize(
     "family,size,weights",
-    ALL_MODELS_WITH_WEIGHTS,
-    ids=make_ids(ALL_MODELS_WITH_WEIGHTS),
+    ALL_MODEL_WEIGHT_PARAMS,
 )
 def test_val_coco128(family, size, weights):
     """Validate a pretrained model on coco128 and check mAP >= 0.18."""
