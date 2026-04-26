@@ -341,6 +341,11 @@ MODEL_CATALOG = [
     ("rfdetr", "s", "LibreRFDETRs.pt"),
     ("rfdetr", "m", "LibreRFDETRm.pt"),
     ("rfdetr", "l", "LibreRFDETRl.pt"),
+    ("dfine", "n", "LibreDFINEn.pt"),
+    ("dfine", "s", "LibreDFINEs.pt"),
+    ("dfine", "m", "LibreDFINEm.pt"),
+    ("dfine", "l", "LibreDFINEl.pt"),
+    ("dfine", "x", "LibreDFINEx.pt"),
 ]
 
 # Derived lists (no manual maintenance)
@@ -348,6 +353,7 @@ YOLOX_SIZES = [s for f, s, _ in MODEL_CATALOG if f == "yolox"]
 YOLO9_SIZES = [s for f, s, _ in MODEL_CATALOG if f == "yolo9"]
 YOLONAS_SIZES = [s for f, s, _ in MODEL_CATALOG if f == "yolonas"]
 RFDETR_SIZES = [s for f, s, _ in MODEL_CATALOG if f == "rfdetr"]
+DFINE_SIZES = [s for f, s, _ in MODEL_CATALOG if f == "dfine"]
 
 ALL_MODELS = [(f, s) for f, s, _ in MODEL_CATALOG]
 ALL_MODELS_WITH_WEIGHTS = MODEL_CATALOG

@@ -239,3 +239,19 @@ class YOLONASValPreprocessor(YOLO9ValPreprocessor):
     consistency across inference and validation. A later parity pass can tighten
     this toward the exact SG preprocessing contract if needed.
     """
+
+
+class DFINEValPreprocessor(StandardValPreprocessor):
+    """D-FINE preprocessor: plain resize + 0-1 + RGB, no letterbox, no ImageNet norm.
+
+    Upstream D-FINE loads images via PIL (RGB) and feeds them through
+    ``ConvertPILImage(scale=True)``; LibreYOLO's training transform mirrors
+    this with an explicit BGR→RGB flip, and inference also runs on RGB. The
+    validator's dataset, however, hands us BGR straight from ``cv2.imread``,
+    so we flip channels here to keep validation aligned with train/inference.
+    """
+
+    def __call__(
+        self, img: np.ndarray, targets: np.ndarray, input_size: Tuple[int, int]
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        return super().__call__(img[:, :, ::-1].copy(), targets, input_size)

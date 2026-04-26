@@ -53,6 +53,16 @@ def _nms_numpy(
     return keep
 
 
+def _is_nms_free_family(model_family: Optional[str]) -> bool:
+    """Whether backend outputs should bypass generic NMS.
+
+    DETR-style families already emit a ranked set prediction after top-k
+    selection. Applying YOLO-style IoU suppression on top of that can remove
+    valid detections and make exported runtimes diverge from native PyTorch.
+    """
+    return model_family in {"dfine", "rfdetr"}
+
+
 class BaseBackend(ABC):
     """Abstract base class for all inference backends.
 
@@ -117,6 +127,11 @@ class BaseBackend(ABC):
                 image, effective_imgsz, color_format
             )
             return tensor, img, size, 1.0
+        elif self.model_family == "dfine":
+            tensor, img, size = self._preprocess_dfine(
+                image, effective_imgsz, color_format
+            )
+            return tensor, img, size, 1.0
         else:
             tensor, img, size = preprocess_image(
                 image, input_size=effective_imgsz, color_format=color_format
@@ -133,6 +148,19 @@ class BaseBackend(ABC):
         original_img = img.copy()
 
         img_chw, _ = rfdetr_preprocess_numpy(np.array(img), input_size)
+        img_tensor = torch.from_numpy(img_chw).unsqueeze(0)
+        return img_tensor, original_img, original_size
+
+    @staticmethod
+    def _preprocess_dfine(image, input_size, color_format):
+        """D-FINE preprocessing: plain resize + RGB + /255, no ImageNet norm."""
+        from ..models.dfine.utils import preprocess_numpy as dfine_preprocess_numpy
+
+        img = ImageLoader.load(image, color_format=color_format)
+        original_size = img.size
+        original_img = img.copy()
+
+        img_chw, _ = dfine_preprocess_numpy(np.array(img), input_size)
         img_tensor = torch.from_numpy(img_chw).unsqueeze(0)
         return img_tensor, original_img, original_size
 
@@ -163,6 +191,11 @@ class BaseBackend(ABC):
             return boxes, scores, cls, None
         elif self.model_family == "rfdetr":
             return self._parse_rfdetr(all_outputs, orig_w, orig_h, conf)
+        elif self.model_family == "dfine":
+            boxes, scores, cls = self._parse_dfine(
+                all_outputs, orig_w, orig_h, conf
+            )
+            return boxes, scores, cls, None
         else:
             boxes, scores, cls = self._parse_yolo9(
                 all_outputs, effective_imgsz, orig_w, orig_h, conf
@@ -246,6 +279,48 @@ class BaseBackend(ABC):
         boxes[:, [0, 2]] = np.clip(boxes[:, [0, 2]], 0, orig_w)
         boxes[:, [1, 3]] = np.clip(boxes[:, [1, 3]], 0, orig_h)
         return boxes, max_scores, class_ids
+
+    def _parse_dfine(self, all_outputs, orig_w, orig_h, conf, max_det: int = 300):
+        """Parse D-FINE outputs: pred_logits (B, Q, nc) + pred_boxes (B, Q, 4) cxcywh [0,1].
+
+        Matches the upstream DFINEPostProcessor (use_focal_loss=True): sigmoid →
+        topk over (queries × classes) flattened → labels = topk_idx % nc, query_idx
+        = topk_idx // nc. No NMS (DETR set-prediction).
+        """
+        pred_logits = all_outputs[0][0]  # (Q, nc)
+        pred_boxes = all_outputs[1][0]  # (Q, 4)
+
+        Q, nc = pred_logits.shape
+        prob = 1.0 / (1.0 + np.exp(-pred_logits.astype(np.float64)))
+        prob = prob.astype(np.float32)
+
+        flat = prob.reshape(-1)  # (Q * nc,)
+        k = min(max_det, flat.size)
+        # Top-k via argpartition (faster than full sort).
+        idx = np.argpartition(-flat, k - 1)[:k]
+        idx = idx[np.argsort(-flat[idx])]
+
+        scores = flat[idx]
+        query_idx = idx // nc
+        class_ids = idx % nc
+
+        # cxcywh -> xyxy in [0,1], then gather + scale.
+        cx, cy, w, h = (
+            pred_boxes[:, 0],
+            pred_boxes[:, 1],
+            pred_boxes[:, 2],
+            pred_boxes[:, 3],
+        )
+        boxes_xyxy = np.stack([cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2], axis=1)
+        boxes = boxes_xyxy[query_idx]
+
+        boxes[:, [0, 2]] *= orig_w
+        boxes[:, [1, 3]] *= orig_h
+        boxes[:, [0, 2]] = np.clip(boxes[:, [0, 2]], 0, orig_w)
+        boxes[:, [1, 3]] = np.clip(boxes[:, [1, 3]], 0, orig_h)
+
+        mask = scores > conf
+        return boxes[mask], scores[mask], class_ids[mask].astype(np.int64)
 
     def _parse_rfdetr(self, all_outputs, orig_w, orig_h, conf):
         """Parse RF-DETR output: boxes (B,300,4) cxcywh [0,1] + logits (B,300,nc).
@@ -332,7 +407,7 @@ class BaseBackend(ABC):
         classes: Optional[List[int]],
         max_det: int,
     ) -> Results:
-        """Apply NMS, max_det, classes filter and wrap into Results."""
+        """Apply family-appropriate suppression/max_det/filtering and wrap."""
         if len(boxes) == 0:
             return Results(
                 boxes=Boxes(
@@ -345,14 +420,15 @@ class BaseBackend(ABC):
                 names=self.names,
             )
 
-        keep = _nms_numpy(boxes, max_scores, iou)
-        boxes, max_scores, class_ids = (
-            boxes[keep],
-            max_scores[keep],
-            class_ids[keep],
-        )
-        if masks is not None:
-            masks = masks[keep]
+        if not _is_nms_free_family(self.model_family):
+            keep = _nms_numpy(boxes, max_scores, iou)
+            boxes, max_scores, class_ids = (
+                boxes[keep],
+                max_scores[keep],
+                class_ids[keep],
+            )
+            if masks is not None:
+                masks = masks[keep]
 
         if len(boxes) > max_det:
             top_indices = np.argsort(max_scores)[::-1][:max_det]
