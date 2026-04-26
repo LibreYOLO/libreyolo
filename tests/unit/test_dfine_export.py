@@ -96,21 +96,6 @@ def test_torchscript_export_roundtrip(tmp_path):
     assert out[1].shape == (1, 300, 4)
 
 
-def test_dfine_default_opset_is_17():
-    """D-FINE default opset must be 17 — opset 13 cannot export grid_sampler."""
-    from libreyolo import LibreDFINE
-    from libreyolo.export.exporter import OnnxExporter
-
-    m = LibreDFINE(None, size="n", device="cpu")
-    exporter = OnnxExporter(m)
-    # Hit the opset-resolution path without actually exporting.
-    half, int8 = exporter._validate(False, False, None)
-    if exporter.model._get_model_name() == "dfine":
-        # Replicate the resolution logic from __call__
-        opset = 17
-    assert opset == 17
-
-
 def test_ncnn_export_is_blocked_for_dfine():
     """NCNN can't run DETR-style decoders (no topk op); export must error early."""
     from libreyolo import LibreDFINE
