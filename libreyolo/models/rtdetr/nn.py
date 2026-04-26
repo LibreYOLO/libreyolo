@@ -1057,6 +1057,7 @@ class RTDETRModel(nn.Module):
     def __init__(
         self,
         num_classes=80,
+        backbone=None,
         backbone_depth=18,
         backbone_variant="d",
         backbone_pretrained=False,
@@ -1087,15 +1088,18 @@ class RTDETRModel(nn.Module):
         decoder_hidden_dim = decoder_hidden_dim or hidden_dim
         decoder_dim_feedforward = decoder_dim_feedforward or dim_feedforward
 
-        # 1. Backbone
-        self.backbone = PResNet(
-            depth=backbone_depth,
-            variant=backbone_variant,
-            return_idx=[1, 2, 3],
-            pretrained=backbone_pretrained,
-            freeze_norm=backbone_freeze_norm,
-            freeze_at=backbone_freeze_at,
-        )
+        # 1. Backbone — accept a pre-built module (e.g. HGNetv2) or fall back to PResNet.
+        if backbone is not None:
+            self.backbone = backbone
+        else:
+            self.backbone = PResNet(
+                depth=backbone_depth,
+                variant=backbone_variant,
+                return_idx=[1, 2, 3],
+                pretrained=backbone_pretrained,
+                freeze_norm=backbone_freeze_norm,
+                freeze_at=backbone_freeze_at,
+            )
 
         # 2. Hybrid Encoder
         self.encoder = HybridEncoder(

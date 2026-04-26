@@ -39,6 +39,17 @@ class TestRTDETRCanLoad:
         }
         assert LibreYOLORTDETR.can_load(fake_weights) is True
 
+    def test_rtdetr_can_load_with_hgnetv2_keys(self):
+        """can_load() should return True for HGNetv2-backbone (L/X) weight keys."""
+        fake_weights = {
+            "backbone.stages.0.blocks.0.layers.0.conv1.conv.weight": torch.zeros(
+                48, 48, 1, 1
+            ),
+            "encoder.input_proj.0.0.weight": torch.zeros(256, 512, 1, 1),
+            "decoder.dec_score_head.0.weight": torch.zeros(80, 256),
+        }
+        assert LibreYOLORTDETR.can_load(fake_weights) is True
+
     def test_rtdetr_cannot_load_rfdetr_keys(self):
         """can_load() should return False for RF-DETR weight keys."""
         fake_rfdetr_weights = {
@@ -46,6 +57,30 @@ class TestRTDETRCanLoad:
             "model.encoder_projection.weight": torch.zeros(256, 512),
         }
         assert LibreYOLORTDETR.can_load(fake_rfdetr_weights) is False
+
+
+class TestRTDETRDetectSize:
+    """Test RTDETR size detection from weights."""
+
+    def test_detect_size_hgnetv2_l(self):
+        """HGNetv2 + encoder hidden_dim 256 → 'l'."""
+        weights = {
+            "backbone.stages.0.blocks.0.layers.0.conv1.conv.weight": torch.zeros(
+                48, 48, 1, 1
+            ),
+            "encoder.input_proj.0.0.weight": torch.zeros(256, 512, 1, 1),
+        }
+        assert LibreYOLORTDETR.detect_size(weights) == "l"
+
+    def test_detect_size_hgnetv2_x(self):
+        """HGNetv2 + encoder hidden_dim 384 → 'x'."""
+        weights = {
+            "backbone.stages.0.blocks.0.layers.0.conv1.conv.weight": torch.zeros(
+                64, 64, 1, 1
+            ),
+            "encoder.input_proj.0.0.weight": torch.zeros(384, 512, 1, 1),
+        }
+        assert LibreYOLORTDETR.detect_size(weights) == "x"
 
 
 class TestRTDETRDetectNbClasses:

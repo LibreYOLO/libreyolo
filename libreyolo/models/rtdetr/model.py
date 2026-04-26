@@ -79,6 +79,33 @@ RTDETR_CONFIGS = {
         "num_decoder_layers": 6,
         "eval_idx": -1,
     },
+    "l": {
+        "backbone_type": "hgnetv2",
+        "backbone_arch": "L",
+        "backbone_freeze_at": 0,
+        "backbone_freeze_norm": True,
+        "backbone_pretrained": True,
+        "encoder_hidden_dim": 256,
+        "encoder_dim_feedforward": 1024,
+        "encoder_expansion": 1.0,
+        "decoder_hidden_dim": 256,
+        "num_decoder_layers": 6,
+        "eval_idx": -1,
+    },
+    "x": {
+        "backbone_type": "hgnetv2",
+        "backbone_arch": "X",
+        "backbone_freeze_at": 0,
+        "backbone_freeze_norm": True,
+        "backbone_pretrained": True,
+        "encoder_hidden_dim": 384,
+        "encoder_dim_feedforward": 2048,
+        "encoder_expansion": 1.0,
+        "decoder_hidden_dim": 256,
+        "decoder_dim_feedforward": 1024,
+        "num_decoder_layers": 6,
+        "eval_idx": -1,
+    },
 }
 
 
@@ -103,7 +130,15 @@ class LibreYOLORTDETR(BaseModel):
     # Class-level metadata
     FAMILY = "rtdetr"
     FILENAME_PREFIX = "LibreRTDETR"
-    INPUT_SIZES = {"r18": 640, "r34": 640, "r50": 640, "r50m": 640, "r101": 640}
+    INPUT_SIZES = {
+        "r18": 640,
+        "r34": 640,
+        "r50": 640,
+        "r50m": 640,
+        "r101": 640,
+        "l": 640,
+        "x": 640,
+    }
     val_preprocessor_class = RTDETRValPreprocessor
 
     # =========================================================================
@@ -115,7 +150,8 @@ class LibreYOLORTDETR(BaseModel):
         """Detect RTDETR-specific keys in the state dict."""
         keys = set(weights_dict.keys())
         rtdetr_keys = {
-            "backbone.res_layers",
+            "backbone.res_layers",  # ResNet variants
+            "backbone.stages",  # HGNetv2 variants
             "encoder.input_proj",
             "decoder.dec_score_head",
             "decoder.enc_score_head",
@@ -130,6 +166,15 @@ class LibreYOLORTDETR(BaseModel):
     @classmethod
     def detect_size(cls, weights_dict: dict) -> Optional[str]:
         """Detect model size from weights."""
+        keys = set(weights_dict.keys())
+
+        # HGNetv2 backbone (l/x): distinguish by encoder hidden_dim (256 vs 384).
+        if any(k.startswith("backbone.stages") for k in keys):
+            for k, v in weights_dict.items():
+                if k == "encoder.input_proj.0.0.weight":
+                    return "x" if v.shape[0] == 384 else "l"
+            return "l"
+
         # Count decoder layers
         decoder_layer_keys = [
             k for k in weights_dict.keys() if k.startswith("decoder.decoder.layers.")
@@ -270,12 +315,27 @@ class LibreYOLORTDETR(BaseModel):
     def _init_model(self) -> nn.Module:
         """Initialize the RTDETR model."""
         cfg = RTDETR_CONFIGS[self.size]
+        backbone_kwargs: Dict[str, Any] = {}
+        if cfg.get("backbone_type") == "hgnetv2":
+            from .hgnetv2 import HGNetv2
+
+            backbone_kwargs["backbone"] = HGNetv2(
+                name=cfg["backbone_arch"],
+                return_idx=[1, 2, 3],
+                freeze_at=cfg["backbone_freeze_at"],
+                freeze_norm=cfg["backbone_freeze_norm"],
+                pretrained=cfg["backbone_pretrained"],
+            )
+        else:
+            backbone_kwargs.update(
+                backbone_depth=cfg["backbone_depth"],
+                backbone_freeze_at=cfg["backbone_freeze_at"],
+                backbone_freeze_norm=cfg["backbone_freeze_norm"],
+                backbone_pretrained=cfg["backbone_pretrained"],
+            )
         return RTDETRModel(
             num_classes=self.nb_classes,
-            backbone_depth=cfg["backbone_depth"],
-            backbone_freeze_at=cfg["backbone_freeze_at"],
-            backbone_freeze_norm=cfg["backbone_freeze_norm"],
-            backbone_pretrained=cfg["backbone_pretrained"],
+            **backbone_kwargs,
             hidden_dim=cfg["encoder_hidden_dim"],
             dim_feedforward=cfg["encoder_dim_feedforward"],
             expansion=cfg["encoder_expansion"],
