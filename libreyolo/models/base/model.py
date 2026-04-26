@@ -266,9 +266,21 @@ class BaseModel(ABC):
         Auto-rebuilds model architecture if checkpoint has different nc.
         Also handles DDP prefix stripping and cross-family rejection.
         """
-        if not Path(model_path).exists():
-            raise FileNotFoundError(f"Model weights file not found: {model_path}")
+        path = Path(model_path)
+        if not path.exists() and path.parent == Path("."):
+            weights_path = Path("weights") / path.name
+            if weights_path.exists():
+                model_path = str(weights_path)
+                path = weights_path
 
+        if not path.exists():
+            from ...utils.download import download_weights
+
+            download_weights(model_path, self.size)
+            path = Path(model_path)
+
+        if not path.exists():
+            raise FileNotFoundError(f"Model weights not found at {model_path}")
         try:
             loaded = load_untrusted_torch_file(
                 model_path,

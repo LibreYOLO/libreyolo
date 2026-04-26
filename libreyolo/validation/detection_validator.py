@@ -10,8 +10,6 @@ from torch.utils.data import DataLoader
 
 from .base import BaseValidator
 from .config import ValidationConfig
-from .metrics import DetMetrics
-from .utils import process_batch
 
 logger = logging.getLogger(__name__)
 
@@ -31,8 +29,8 @@ class DetectionValidator(BaseValidator):
     """
     Validator for object detection models.
 
-    Computes mAP50, mAP50-95, precision, recall, and per-class AP.
-    Supports both COCO evaluation API and legacy DetMetrics.
+    Computes the standard pycocotools COCO metrics:
+    mAP50-95, mAP50, mAP75, mAP/AR by object size, AR at different maxDets.
     """
 
     task = "detect"
@@ -45,7 +43,6 @@ class DetectionValidator(BaseValidator):
     ) -> None:
         super().__init__(model, config, **kwargs)
 
-        self.metrics: Optional[DetMetrics] = None
         self.coco_evaluator = None
         self.class_names: Optional[List[str]] = None
         self.iou_thresholds = torch.tensor(self.config.iou_thresholds)
@@ -200,33 +197,56 @@ class DetectionValidator(BaseValidator):
         return dataloader
 
     def _init_metrics(self) -> None:
-        if self.config.use_coco_eval:
-            try:
-                from libreyolo.data import create_yolo_coco_api
-                from libreyolo.validation import COCOEvaluator
+        from libreyolo.data import load_data_config
+        from libreyolo.data.yolo_coco_api import YOLOCocoAPI
+        from libreyolo.validation import COCOEvaluator
 
-                if self.config.verbose:
-                    logger.info("Initializing COCO evaluator...")
+        if self.config.verbose:
+            logger.info("Initializing COCO evaluator...")
 
-                coco_api = create_yolo_coco_api(self.config.data, self.config.split)
-                self.coco_evaluator = COCOEvaluator(coco_api, iou_type="bbox")
-
-                if self.config.verbose:
-                    logger.info(
-                        "COCO evaluator initialized with %d images", len(coco_api.imgs)
-                    )
-            except Exception as e:
-                logger.warning("Failed to initialize COCO evaluator: %s", e)
-                logger.warning("Falling back to legacy DetMetrics")
-                self.config.use_coco_eval = False
-                self.coco_evaluator = None
-
-        if not self.config.use_coco_eval or self.coco_evaluator is None:
-            self.metrics = DetMetrics(
-                nc=self.nc,
-                conf=0.25,
-                iou_thresholds=self.config.iou_thresholds,
+        if self.config.data is None:
+            raise RuntimeError(
+                "config.data must be set to a yaml path or registry name "
+                "to initialize the COCO evaluator."
             )
+
+        # Resolve the (possibly registry-name) data argument through
+        # load_data_config — that handles both relative `path:` fields and
+        # registry shortcuts like "coco-val-only", returning absolute file
+        # lists. Build YOLOCocoAPI directly from the resolved paths.
+        data_cfg = load_data_config(
+            self.config.data,
+            allow_scripts=self.config.allow_download_scripts,
+        )
+        split = self.config.split
+        img_files = data_cfg.get(f"{split}_img_files")
+        label_files = data_cfg.get(f"{split}_label_files")
+        if not img_files:
+            raise RuntimeError(
+                f"No {split} images resolved for data={self.config.data!r}. "
+                "Check the dataset configuration."
+            )
+
+        names = data_cfg.get("names") or self.class_names or []
+        if isinstance(names, dict):
+            class_names = [names[i] for i in sorted(names.keys())]
+        else:
+            class_names = list(names)
+
+        images_dir = Path(img_files[0]).parent
+        labels_dir = (
+            Path(label_files[0]).parent if label_files else images_dir.parent / "labels"
+        )
+
+        coco_api = YOLOCocoAPI(
+            images_dir=images_dir,
+            labels_dir=labels_dir,
+            class_names=class_names,
+        )
+        self.coco_evaluator = COCOEvaluator(coco_api, iou_type="bbox")
+
+        if self.config.verbose:
+            logger.info("COCO evaluator initialized with %d images", len(coco_api.imgs))
 
     # =========================================================================
     # Inference pipeline
@@ -352,93 +372,35 @@ class DetectionValidator(BaseValidator):
         img_info: List,
         img_ids: List | None = None,
     ) -> None:
-        batch_size = len(preds)
-
-        if self.coco_evaluator is not None and img_ids is not None:
-            for i in range(batch_size):
-                self.coco_evaluator.update(preds[i], img_ids[i])
-
-        if self.coco_evaluator is not None:
-            return
-
-        uses_letterbox = (
-            self.val_preproc is not None and self.val_preproc.uses_letterbox
-        )
-
-        for i in range(batch_size):
-            pred = preds[i]
-            pred_boxes = pred["boxes"]
-            pred_scores = pred["scores"]
-            pred_classes = pred["classes"]
-
-            # targets: (B, max_labels, 5) with [x1, y1, x2, y2, class]
-            if isinstance(targets, torch.Tensor):
-                gt = targets[i]  # (max_labels, 5)
-            else:
-                gt = torch.from_numpy(targets[i])
-
-            # Filter padding (all-zero boxes)
-            valid_mask = gt[:, :4].sum(dim=1) > 0
-            gt = gt[valid_mask]
-
-            if len(gt) > 0:
-                gt_boxes = gt[:, :4].clone().to(self.device)
-                gt_classes = gt[:, 4].long().to(self.device)
-
-                # Scale GT boxes from model input coords back to original image coords
-                # (predictions are already in original coords from postprocess)
-                orig_h, orig_w = img_info[i]
-                img_h, img_w = self._actual_imgsz, self._actual_imgsz
-
-                if uses_letterbox:
-                    # Letterbox: GT scaled by r = min(img_h/orig_h, img_w/orig_w)
-                    r = min(img_h / orig_h, img_w / orig_w)
-                    gt_boxes[:, :4] = gt_boxes[:, :4] / r
-                else:
-                    # Simple resize: x_input = x_orig * (input_w/orig_w)
-                    gt_boxes[:, 0] = gt_boxes[:, 0] * orig_w / img_w
-                    gt_boxes[:, 1] = gt_boxes[:, 1] * orig_h / img_h
-                    gt_boxes[:, 2] = gt_boxes[:, 2] * orig_w / img_w
-                    gt_boxes[:, 3] = gt_boxes[:, 3] * orig_h / img_h
-            else:
-                gt_boxes = torch.zeros((0, 4), dtype=torch.float32, device=self.device)
-                gt_classes = torch.zeros(0, dtype=torch.int64, device=self.device)
-
-            correct, conf, pred_cls, target_cls = process_batch(
-                pred_boxes,
-                pred_scores,
-                pred_classes,
-                gt_boxes,
-                gt_classes,
-                self.iou_thresholds.to(self.device),
+        if img_ids is None:
+            raise RuntimeError(
+                "img_ids are required for COCO evaluation but were not provided "
+                "by the dataloader."
             )
-
-            self.metrics.update(correct, conf, pred_cls, target_cls)
+        for i in range(len(preds)):
+            self.coco_evaluator.update(preds[i], img_ids[i])
 
     def _compute_metrics(self) -> Dict[str, float]:
-        if self.coco_evaluator is not None:
-            if self.config.verbose:
-                logger.info("Computing COCO metrics...")
+        if self.config.verbose:
+            logger.info("Computing COCO metrics...")
 
-            save_json = None
-            if self.config.save_json:
-                save_json = str(self.save_dir / "predictions.json")
+        save_json = None
+        if self.config.save_json:
+            save_json = str(self.save_dir / "predictions.json")
 
-            coco_metrics = self.coco_evaluator.compute(save_json=save_json)
+        coco_metrics = self.coco_evaluator.compute(save_json=save_json)
 
-            return {
-                "metrics/mAP50-95": coco_metrics["mAP"],
-                "metrics/mAP50": coco_metrics["mAP50"],
-                "metrics/mAP75": coco_metrics["mAP75"],
-                "metrics/mAP_small": coco_metrics["mAP_small"],
-                "metrics/mAP_medium": coco_metrics["mAP_medium"],
-                "metrics/mAP_large": coco_metrics["mAP_large"],
-                "metrics/AR1": coco_metrics["AR1"],
-                "metrics/AR10": coco_metrics["AR10"],
-                "metrics/AR100": coco_metrics["AR100"],
-                "metrics/AR_small": coco_metrics["AR_small"],
-                "metrics/AR_medium": coco_metrics["AR_medium"],
-                "metrics/AR_large": coco_metrics["AR_large"],
-            }
-        else:
-            return self.metrics.compute()
+        return {
+            "metrics/mAP50-95": coco_metrics["mAP"],
+            "metrics/mAP50": coco_metrics["mAP50"],
+            "metrics/mAP75": coco_metrics["mAP75"],
+            "metrics/mAP_small": coco_metrics["mAP_small"],
+            "metrics/mAP_medium": coco_metrics["mAP_medium"],
+            "metrics/mAP_large": coco_metrics["mAP_large"],
+            "metrics/AR1": coco_metrics["AR1"],
+            "metrics/AR10": coco_metrics["AR10"],
+            "metrics/AR100": coco_metrics["AR100"],
+            "metrics/AR_small": coco_metrics["AR_small"],
+            "metrics/AR_medium": coco_metrics["AR_medium"],
+            "metrics/AR_large": coco_metrics["AR_large"],
+        }

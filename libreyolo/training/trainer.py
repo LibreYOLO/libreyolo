@@ -133,8 +133,8 @@ class BaseTrainer(ABC):
     # =========================================================================
 
     def _setup_device(self) -> torch.device:
-        device_str = self.config.device
-        if device_str == "auto":
+        device_str = str(self.config.device).strip().lower()
+        if device_str in ("", "auto"):
             if torch.cuda.is_available():
                 device = torch.device("cuda")
             elif torch.backends.mps.is_available():
@@ -142,6 +142,15 @@ class BaseTrainer(ABC):
             else:
                 device = torch.device("cpu")
         else:
+            if "," in device_str:
+                raise NotImplementedError(
+                    f"Multi-GPU training is not supported yet "
+                    f"(got device={self.config.device!r}). Pass a single "
+                    "index like '0' or 'cuda:0'."
+                )
+            # YOLO-style "0" -> "cuda:0"
+            if device_str.isdigit():
+                device_str = f"cuda:{device_str}"
             device = torch.device(device_str)
         logger.info(f"Using device: {device}")
         return device

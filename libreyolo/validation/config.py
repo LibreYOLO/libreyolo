@@ -55,7 +55,6 @@ class ValidationConfig:
         0.90,
         0.95,
     )
-    use_coco_eval: bool = True  # Use COCO evaluation API (recommended)
 
     # Device
     device: str = "auto"
