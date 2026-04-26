@@ -209,7 +209,7 @@ def LibreYOLO(
     if matched_cls is None:
         raise ValueError(
             "Could not detect model architecture from state dict keys.\n"
-            "Supported architectures: YOLOX, YOLOv9, YOLO-NAS, RF-DETR."
+            "Supported architectures: YOLOX, YOLOv9, YOLO-NAS, RF-DETR, D-FINE."
         )
 
     # Auto-detect size
