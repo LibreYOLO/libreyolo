@@ -47,6 +47,9 @@ ncnn = [
     "pnnx",
     "ncnn",
 ]
+coreml = [
+    "coremltools>=7.2",
+]
 rtdetr = ["scipy>=1.7.0"]
 all = [
     "libreyolo[onnx]",
@@ -55,6 +58,7 @@ all = [
     "libreyolo[openvino]",
     "libreyolo[ncnn]",
     "libreyolo[rtdetr]",
+    "libreyolo[coreml]",
 ]
 
 [project.urls]
@@ -113,5 +117,6 @@ markers = [
     "openvino: tests requiring OpenVINO",
     "ncnn: tests requiring ncnn",
     "rfdetr: tests requiring RF-DETR dependencies",
+    "coreml: tests requiring CoreML (macOS only)",
     "slow: slow tests that may take several minutes",
 ]
