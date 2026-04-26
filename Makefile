@@ -16,7 +16,7 @@ help:
 	@echo "  test                          - Run fast unit tests (no weights needed)"
 	@echo "  test_e2e                      - Run all e2e tests (needs GPU + model weights)"
 	@echo "  test_e2e FROM=<name>          - Resume from a specific test file (e.g. FROM=rfdetr_seg)"
-	@echo "  test_e2e MARKERS='<expr>'     - Run only matching e2e markers (e.g. MARKERS='e2e and onnx')"
+	@echo "  test_e2e MARKERS='<expr>'     - Run only matching e2e markers (e.g. MARKERS='e2e and not experimental_backend')"
 	@echo "  test_rf5                      - Run RF5 training benchmark tests"
 	@echo "  build                         - Build package"
 	@echo "  clean                         - Remove build and test cache artifacts"

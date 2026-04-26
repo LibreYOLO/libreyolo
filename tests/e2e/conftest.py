@@ -23,6 +23,17 @@ multiprocessing.set_start_method("spawn", force=True)
 
 def pytest_configure(config):
     """Register custom markers (e2e marker registered in root conftest)."""
+    config.addinivalue_line(
+        "markers",
+        "export_backend: tests covering an export backend or serialized runtime format",
+    )
+    config.addinivalue_line(
+        "markers",
+        "supported_backend: tests covering a release-blocking supported backend",
+    )
+    config.addinivalue_line(
+        "markers", "experimental_backend: tests covering an experimental backend"
+    )
     config.addinivalue_line("markers", "onnx: tests covering ONNX export or inference")
     config.addinivalue_line(
         "markers", "torchscript: tests covering TorchScript export or inference"

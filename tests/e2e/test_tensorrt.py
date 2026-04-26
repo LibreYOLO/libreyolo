@@ -27,7 +27,13 @@ from .conftest import (
     run_export_compare_test,
 )
 
-pytestmark = [pytest.mark.e2e, pytest.mark.tensorrt, pytest.mark.trt]
+pytestmark = [
+    pytest.mark.e2e,
+    pytest.mark.export_backend,
+    pytest.mark.experimental_backend,
+    pytest.mark.tensorrt,
+    pytest.mark.trt,
+]
 
 
 # ---------------------------------------------------------------------------

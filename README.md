@@ -16,6 +16,18 @@ pip install libreyolo
 
 For optional runtime and export dependencies such as ONNX Runtime, OpenVINO, TensorRT, NCNN, and RF-DETR, see the full docs.
 
+## Export Backend Support
+
+| Backend | Status | Notes |
+|---------|--------|-------|
+| ONNX | Supported | Release-blocking export path. Keep it in routine validation and release e2e runs. |
+| TorchScript | Experimental | Useful compatibility target, but not a release gate. |
+| TensorRT (`tensorrt` / `trt`) | Experimental | CUDA-specific path. Valuable coverage, but not required for every release run. |
+| OpenVINO | Experimental | Runtime-specific path. Keep coverage available, but not release-blocking. |
+| NCNN | Experimental | Highest maintenance overhead today. Safe to exclude from routine release runs. |
+
+The e2e suite mirrors this policy with pytest markers: `supported_backend` for ONNX and `experimental_backend` for the other export backends.
+
 ## Quick Start
 
 ```python
