@@ -99,6 +99,21 @@ def _unwrap_state_dict(state_dict: dict) -> dict:
     return state_dict
 
 
+def _needs_rfdetr_registration(weights_dict: dict) -> bool:
+    """Return True when checkpoint keys require lazy RF-DETR registration."""
+    if LibreYOLORTDETR.can_load(weights_dict):
+        return False
+
+    keys_lower = [k.lower() for k in weights_dict]
+    return any(
+        "dinov2" in k
+        or "query_embed" in k
+        or "enc_out_class_embed" in k
+        or "enc_out_bbox_embed" in k
+        for k in keys_lower
+    )
+
+
 # =============================================================================
 # LibreYOLO — unified factory function
 # =============================================================================
@@ -210,11 +225,9 @@ def LibreYOLO(
 
     # Ensure RF-DETR is registered if its keys are present, but avoid
     # treating RT-DETR checkpoints as RF-DETR. D-FINE also has
-    # ``encoder``/``decoder``-ish keys, so only the RF-DETR-specific markers
+    # ``encoder``/``decoder``-ish keys, so only RF-DETR-specific markers
     # should trigger the lazy import.
-    is_rtdetr = LibreYOLORTDETR.can_load(weights_dict)
-    keys_lower = [k.lower() for k in weights_dict]
-    if not is_rtdetr and any("dinov2" in k or "query_embed" in k for k in keys_lower):
+    if _needs_rfdetr_registration(weights_dict):
         try:
             _ensure_rfdetr()
         except ModuleNotFoundError:

@@ -308,6 +308,8 @@ def test_load_finetuned_checkpoint(
     with correct nc, names, and architecture auto-rebuild.
     Also verifies loss decreased during training and mAP improved.
     """
+    weights = require_test_weights(weights)
+
     # Batch sizes adjusted for 16GB GPUs (A100 has 40GB)
     if size in ("x", "l"):
         val_batch = 4
