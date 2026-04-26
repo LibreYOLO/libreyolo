@@ -12,6 +12,7 @@ Usage:
 """
 
 import json
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -217,75 +218,80 @@ def test_rf1_training(family, size, weights, dataset_coco, dataset_data_yaml, tm
         """,
             timeout=600,
         )
+        shutil.rmtree(tmp_path, ignore_errors=True)
         return
 
     # --- YOLOX / YOLOv9: run in-process ---
     model = LibreYOLO(weights, size=size)
+    try:
+        if size == "x" or size == "l":
+            val_batch = 4
+            train_batch = 4
+        else:
+            val_batch = 8
+            train_batch = 8
 
-    # Batch sizes adjusted for 16GB GPUs
-    if size == "x" or size == "l":
-        val_batch = 4
-        train_batch = 4
-    else:
-        val_batch = 8
-        train_batch = 8
+        # --- Baseline mAP BEFORE training ---
+        pre_results = model.val(
+            data=dataset_data_yaml, split="test", batch=val_batch, conf=0.001, iou=0.6
+        )
+        pre_map = pre_results["metrics/mAP50-95"]
 
-    # --- Baseline mAP BEFORE training ---
-    pre_results = model.val(
-        data=dataset_data_yaml, split="test", batch=val_batch, conf=0.001, iou=0.6
-    )
-    pre_map = pre_results["metrics/mAP50-95"]
-
-    # --- Train ---
-    train_results = model.train(
-        data=dataset_data_yaml,
-        epochs=10,
-        batch=train_batch,
-        workers=2,
-        project=str(tmp_path),
-        name=f"{family}_{size}",
-        exist_ok=True,
-    )
-
-    # --- Post-training mAP ---
-    post_results = model.val(
-        data=dataset_data_yaml, split="test", batch=val_batch, conf=0.001, iou=0.6
-    )
-    post_map = post_results["metrics/mAP50-95"]
-
-    print(f"\n  {weights} pre-training mAP50-95={pre_map:.4f}")
-    print(f"  {weights} post-training mAP50-95={post_map:.4f}")
-
-    # --- Loss monitoring ---
-    epoch_losses = train_results["epoch_losses"]
-    first_loss = epoch_losses[0]
-    last_loss = epoch_losses[-1]
-    print(
-        f"  {weights} first epoch loss={first_loss:.4f}, "
-        f"last epoch loss={last_loss:.4f}"
-    )
-
-    # D-FINE is DETR-family: total loss is a sum of ~38 weighted auxiliary
-    # terms (per-decoder-layer + pre + encoder-aux + DN paths), and combined
-    # with augmentation + multi-scale variance the per-epoch loss is too
-    # noisy for a monotonic-decrease assertion to hold reliably on small
-    # datasets. RF-DETR skips this check for the same reason (see the
-    # subprocess branch above). For D-FINE we rely on the mAP-improvement
-    # assertions below.
-    if family != "dfine":
-        assert last_loss < first_loss, (
-            f"Loss did not decrease: first={first_loss:.4f} → last={last_loss:.4f}"
+        # --- Train ---
+        train_results = model.train(
+            data=dataset_data_yaml,
+            epochs=10,
+            batch=train_batch,
+            workers=2,
+            save_period=999,
+            project=str(tmp_path),
+            name=f"{family}_{size}",
+            exist_ok=True,
         )
 
-    # --- Assertions ---
-    assert post_map >= MIN_MAP, f"Post-training mAP50-95={post_map:.4f} below {MIN_MAP}"
+        # --- Post-training mAP ---
+        post_results = model.val(
+            data=dataset_data_yaml, split="test", batch=val_batch, conf=0.001, iou=0.6
+        )
+        post_map = post_results["metrics/mAP50-95"]
 
-    assert post_map > pre_map, (
-        f"Model did not improve: pre={pre_map:.4f} → post={post_map:.4f}"
-    )
+        print(f"\n  {weights} pre-training mAP50-95={pre_map:.4f}")
+        print(f"  {weights} post-training mAP50-95={post_map:.4f}")
 
-    del model
-    cuda_cleanup()
+        # --- Loss monitoring ---
+        epoch_losses = train_results["epoch_losses"]
+        first_loss = epoch_losses[0]
+        last_loss = epoch_losses[-1]
+        print(
+            f"  {weights} first epoch loss={first_loss:.4f}, "
+            f"last epoch loss={last_loss:.4f}"
+        )
+
+        # D-FINE is DETR-family: total loss is a sum of ~38 weighted auxiliary
+        # terms (per-decoder-layer + pre + encoder-aux + DN paths), and combined
+        # with augmentation + multi-scale variance the per-epoch loss is too
+        # noisy for a monotonic-decrease assertion to hold reliably on small
+        # datasets. RF-DETR skips this check for the same reason (see the
+        # subprocess branch above). For D-FINE we rely on the mAP-improvement
+        # assertions below.
+        if family != "dfine":
+            assert last_loss < first_loss, (
+                f"Loss did not decrease: first={first_loss:.4f} → last={last_loss:.4f}"
+            )
+
+        # --- Assertions ---
+        assert post_map >= MIN_MAP, (
+            f"Post-training mAP50-95={post_map:.4f} below {MIN_MAP}"
+        )
+
+        assert post_map > pre_map, (
+            f"Model did not improve: pre={pre_map:.4f} → post={post_map:.4f}"
+        )
+
+        shutil.rmtree(tmp_path, ignore_errors=True)
+    finally:
+        del model
+        cuda_cleanup()
 
 
 # ---------------------------------------------------------------------------
@@ -310,7 +316,6 @@ def test_load_finetuned_checkpoint(
     """
     weights = require_test_weights(weights)
 
-    # Batch sizes adjusted for 16GB GPUs (A100 has 40GB)
     if size in ("x", "l"):
         val_batch = 4
         train_batch = 4
@@ -318,89 +323,99 @@ def test_load_finetuned_checkpoint(
         val_batch = 8
         train_batch = 8
 
-    # 1. Baseline mAP before training
     model = LibreYOLO(weights, size=size)
-    pre_results = model.val(
-        data=dataset_data_yaml, split="test", batch=val_batch, conf=0.001, iou=0.6
-    )
-    pre_map = pre_results["metrics/mAP50-95"]
+    fresh_model = None
+    try:
+        # 1. Baseline mAP before training
+        pre_results = model.val(
+            data=dataset_data_yaml, split="test", batch=val_batch, conf=0.001, iou=0.6
+        )
+        pre_map = pre_results["metrics/mAP50-95"]
 
-    # 2. Train
-    train_results = model.train(
-        data=dataset_data_yaml,
-        epochs=10,
-        batch=train_batch,
-        workers=2,
-        project=str(tmp_path),
-        name=f"{family}_{size}",
-        exist_ok=True,
-    )
+        # 2. Train
+        train_results = model.train(
+            data=dataset_data_yaml,
+            epochs=10,
+            batch=train_batch,
+            workers=2,
+            save_period=999,
+            project=str(tmp_path),
+            name=f"{family}_{size}",
+            exist_ok=True,
+        )
 
-    # 3. Verify loss decreased
-    epoch_losses = train_results["epoch_losses"]
-    first_loss = epoch_losses[0]
-    last_loss = epoch_losses[-1]
-    print(
-        f"\n  {weights} first epoch loss={first_loss:.4f}, "
-        f"last epoch loss={last_loss:.4f}"
-    )
+        # 3. Verify loss decreased
+        epoch_losses = train_results["epoch_losses"]
+        first_loss = epoch_losses[0]
+        last_loss = epoch_losses[-1]
+        print(
+            f"\n  {weights} first epoch loss={first_loss:.4f}, "
+            f"last epoch loss={last_loss:.4f}"
+        )
 
-    assert last_loss < first_loss, (
-        f"Loss did not decrease: first={first_loss:.4f} → last={last_loss:.4f}"
-    )
+        if family != "dfine":
+            assert last_loss < first_loss, (
+                f"Loss did not decrease: first={first_loss:.4f} → last={last_loss:.4f}"
+            )
 
-    # 4. Find best.pt on disk
-    best_pt = tmp_path / f"{family}_{size}" / "weights" / "best.pt"
-    if not best_pt.exists():
-        best_pt = tmp_path / f"{family}_{size}" / "weights" / "last.pt"
-    assert best_pt.exists(), f"No checkpoint found at {best_pt}"
+        # 4. Find best.pt on disk
+        best_pt = tmp_path / f"{family}_{size}" / "weights" / "best.pt"
+        if not best_pt.exists():
+            best_pt = tmp_path / f"{family}_{size}" / "weights" / "last.pt"
+        assert best_pt.exists(), f"No checkpoint found at {best_pt}"
 
-    # 5. Verify checkpoint has metadata
-    ckpt = torch.load(best_pt, map_location="cpu", weights_only=False)
-    assert "nc" in ckpt, "Checkpoint missing 'nc' metadata"
-    assert "names" in ckpt, "Checkpoint missing 'names' metadata"
-    assert "model_family" in ckpt, "Checkpoint missing 'model_family' metadata"
-    assert ckpt["nc"] == 2, f"Expected nc=2 (marbles), got {ckpt['nc']}"
-    assert ckpt["model_family"] == family
-    print(
-        f"  Checkpoint metadata: nc={ckpt['nc']}, family={ckpt['model_family']}, "
-        f"names={ckpt['names']}"
-    )
+        # 5. Verify checkpoint has metadata
+        ckpt = torch.load(best_pt, map_location="cpu", weights_only=False)
+        assert "nc" in ckpt, "Checkpoint missing 'nc' metadata"
+        assert "names" in ckpt, "Checkpoint missing 'names' metadata"
+        assert "model_family" in ckpt, "Checkpoint missing 'model_family' metadata"
+        assert ckpt["nc"] == 2, f"Expected nc=2 (marbles), got {ckpt['nc']}"
+        assert ckpt["model_family"] == family
+        print(
+            f"  Checkpoint metadata: nc={ckpt['nc']}, family={ckpt['model_family']}, "
+            f"names={ckpt['names']}"
+        )
 
-    # 6. Load into a completely fresh model (default nc=80)
-    del model
-    cuda_cleanup()
+        # 6. Load into a completely fresh model (default nc=80)
+        del model
+        model = None
+        cuda_cleanup()
 
-    fresh_model = LibreYOLO(str(best_pt), size=size)
+        fresh_model = LibreYOLO(str(best_pt), size=size)
 
-    # 7. Verify auto-rebuild happened
-    assert fresh_model.nb_classes == 2, (
-        f"Expected nb_classes=2 after loading, got {fresh_model.nb_classes}"
-    )
-    assert len(fresh_model.names) == 2, (
-        f"Expected 2 names, got {len(fresh_model.names)}"
-    )
+        # 7. Verify auto-rebuild happened
+        assert fresh_model.nb_classes == 2, (
+            f"Expected nb_classes=2 after loading, got {fresh_model.nb_classes}"
+        )
+        assert len(fresh_model.names) == 2, (
+            f"Expected 2 names, got {len(fresh_model.names)}"
+        )
 
-    # 8. Validate reloaded model on test split
-    post_results = fresh_model.val(
-        data=dataset_data_yaml, split="test", batch=val_batch, conf=0.001, iou=0.6
-    )
-    post_map = post_results["metrics/mAP50-95"]
+        # 8. Validate reloaded model on test split
+        post_results = fresh_model.val(
+            data=dataset_data_yaml, split="test", batch=val_batch, conf=0.001, iou=0.6
+        )
+        post_map = post_results["metrics/mAP50-95"]
 
-    print(f"  {weights} pre-training mAP50-95={pre_map:.4f}")
-    print(f"  {weights} reloaded checkpoint mAP50-95={post_map:.4f}")
+        print(f"  {weights} pre-training mAP50-95={pre_map:.4f}")
+        print(f"  {weights} reloaded checkpoint mAP50-95={post_map:.4f}")
 
-    assert post_map >= MIN_MAP, (
-        f"Reloaded model mAP50-95={post_map:.4f} below {MIN_MAP}"
-    )
+        assert post_map >= MIN_MAP, (
+            f"Reloaded model mAP50-95={post_map:.4f} below {MIN_MAP}"
+        )
 
-    assert post_map > pre_map, (
-        f"Reloaded model did not improve over baseline: "
-        f"pre={pre_map:.4f} → post={post_map:.4f}"
-    )
+        assert post_map > pre_map, (
+            f"Reloaded model did not improve over baseline: "
+            f"pre={pre_map:.4f} → post={post_map:.4f}"
+        )
 
-    del fresh_model
-    cuda_cleanup()
+        shutil.rmtree(tmp_path, ignore_errors=True)
+    finally:
+        if model is not None:
+            del model
+        if fresh_model is not None:
+            del fresh_model
+        cuda_cleanup()
 
 
 # RF-DETR: reload fine-tuned checkpoint (only n for speed)
@@ -501,3 +516,4 @@ def test_load_finetuned_checkpoint_rfdetr(
     """,
         timeout=600,
     )
+    shutil.rmtree(tmp_path, ignore_errors=True)
