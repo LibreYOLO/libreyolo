@@ -48,6 +48,15 @@ file in its own process to avoid CUDA driver state corruption between files.
 # All e2e tests (recommended)
 make test_e2e
 
+# Marker-driven subsets
+pytest tests/e2e/ -v -m "e2e and onnx"
+pytest tests/e2e/ -v -m "e2e and torchscript and yolonas"
+pytest tests/e2e/ -v -m "e2e and yolo9 and not ncnn"
+
+# Same marker filtering through the Makefile runner
+make test_e2e MARKERS='e2e and onnx'
+make test_e2e MARKERS='e2e and (onnx or torchscript) and not ncnn'
+
 # Individual test files
 pytest tests/e2e/test_onnx.py -v        # ONNX export + inference
 pytest tests/e2e/test_tensorrt.py -v     # TensorRT (requires CUDA + TensorRT)
@@ -62,6 +71,12 @@ pytest tests/e2e/ -v -k "quick" --ignore=tests/e2e/test_rf5_training.py
 python -m tests.e2e.test_rf5_training --config yolox.yaml --size nano
 python -m tests.e2e.test_rf5_training --list-configs
 ```
+
+### Useful Markers
+
+- Backends: `onnx`, `torchscript`, `tensorrt`, `trt`, `openvino`, `ncnn`
+- Model families: `yolox`, `yolo9`, `yolonas`, `rfdetr`, `dfine`, `rtdetr`
+- Suites: `rf1`, `rf5`, `slow`
 
 ## RF5 - Training Validation Suite
 

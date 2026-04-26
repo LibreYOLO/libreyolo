@@ -16,6 +16,7 @@ help:
 	@echo "  test                          - Run fast unit tests (no weights needed)"
 	@echo "  test_e2e                      - Run all e2e tests (needs GPU + model weights)"
 	@echo "  test_e2e FROM=<name>          - Resume from a specific test file (e.g. FROM=rfdetr_seg)"
+	@echo "  test_e2e MARKERS='<expr>'     - Run only matching e2e markers (e.g. MARKERS='e2e and onnx')"
 	@echo "  test_rf5                      - Run RF5 training benchmark tests"
 	@echo "  build                         - Build package"
 	@echo "  clean                         - Remove build and test cache artifacts"
@@ -42,6 +43,8 @@ test_e2e:
 	@if [ -z "$(FROM)" ]; then $(MAKE) clean; fi
 	@files=$$(ls tests/e2e/test_*.py); \
 	total=$$(echo "$$files" | wc -w); \
+	markers="$(MARKERS)"; \
+	if [ -z "$$markers" ]; then markers="e2e and not rf5"; fi; \
 	resume_from="$(FROM)"; \
 	i=0; passed=0; failed=0; skipped=0; resuming=0; \
 	if [ -n "$$resume_from" ]; then resuming=1; fi; \
@@ -52,6 +55,7 @@ test_e2e:
 	else \
 		echo "  e2e test suite — $$total files (each in its own process)"; \
 	fi; \
+	echo "  markers: $$markers"; \
 	echo "══════════════════════════════════════════════════════════════"; \
 	echo ""; \
 	for f in $$files; do \
@@ -69,7 +73,7 @@ test_e2e:
 		echo "────────────────────────────────────────────────────────────"; \
 		echo "  [$$i/$$total] $$name"; \
 		echo "────────────────────────────────────────────────────────────"; \
-		$(UV) pytest "$$f" -m "e2e and not rf5" -v; \
+		$(UV) pytest "$$f" -m "$$markers" -v; \
 		rc=$$?; \
 		if [ $$rc -eq 0 ]; then passed=$$((passed + 1)); \
 		elif [ $$rc -eq 5 ]; then skipped=$$((skipped + 1)); \
