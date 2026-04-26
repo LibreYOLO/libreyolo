@@ -54,6 +54,7 @@ class _DummyModel(torch.nn.Module):
 
 def _patch_ct(monkeypatch):
     """Reset the fake coremltools module and return the mock for assertions."""
+    # Create the main coremltools mock
     fake = MagicMock()
     fake.ComputeUnit.ALL = "ALL"
     fake.ComputeUnit.CPU_AND_GPU = "CPU_AND_GPU"
@@ -63,10 +64,24 @@ def _patch_ct(monkeypatch):
     fake.precision.FLOAT16 = "FLOAT16"
     fake.target.iOS15 = "iOS15"
     fake.ImageType = MagicMock(side_effect=lambda **kw: ("ImageType", kw))
+    
+    # Create models submodule mock
+    fake_models = MagicMock()
+    fake_models.pipeline = MagicMock()
+    fake.models = fake_models
+    # MLModel is in the models submodule
+    fake.models.MLModel = MagicMock()
+    
+    # Create the MLModel mock that gets returned by convert
     mlmodel = MagicMock()
     mlmodel.user_defined_metadata = {}
     fake.convert = MagicMock(return_value=mlmodel)
+    
+    # Patch the module and submodules
     monkeypatch.setitem(sys.modules, "coremltools", fake)
+    monkeypatch.setitem(sys.modules, "coremltools.models", fake_models)
+    monkeypatch.setitem(sys.modules, "coremltools.models.pipeline", fake_models.pipeline)
+    
     return fake, mlmodel
 
 
@@ -143,3 +158,47 @@ class TestExportCoreML:
         )
         decoded = json.loads(mlmodel.user_defined_metadata["names"])
         assert decoded == {"0": "person", "1": "cat"}
+
+
+class TestNMSWrap:
+    def test_rfdetr_raises(self, tmp_path, monkeypatch):
+        fake, mlmodel = _patch_ct(monkeypatch)
+        from libreyolo.export.coreml import export_coreml
+
+        with pytest.raises(NotImplementedError, match="RF-DETR"):
+            export_coreml(
+                _DummyModel().eval(),
+                torch.randn(1, 3, 640, 640),
+                output_path=str(tmp_path / "m.mlpackage"),
+                precision="fp32",
+                compute_units="all",
+                nms=True,
+                metadata={"model_family": "rfdetr"},
+                model_family="rfdetr",
+            )
+
+    def test_yolox_calls_pipeline(self, tmp_path, monkeypatch):
+        fake, mlmodel = _patch_ct(monkeypatch)
+        # ct.models.pipeline.Pipeline returns a mock pipeline whose .spec
+        # is what gets saved.
+        pipeline_mock = MagicMock()
+        pipeline_mock.spec.user_defined_metadata = {}
+        fake.models.pipeline.Pipeline = MagicMock(return_value=pipeline_mock)
+        fake.models.MLModel = MagicMock(return_value=MagicMock(
+            user_defined_metadata={}, compute_unit=None,
+        ))
+
+        from libreyolo.export.coreml import export_coreml
+
+        export_coreml(
+            _DummyModel().eval(),
+            torch.randn(1, 3, 640, 640),
+            output_path=str(tmp_path / "m.mlpackage"),
+            precision="fp32",
+            compute_units="all",
+            nms=True,
+            metadata={"model_family": "yolox", "nb_classes": 80},
+            model_family="yolox",
+        )
+        # Pipeline was constructed
+        assert fake.models.pipeline.Pipeline.called
