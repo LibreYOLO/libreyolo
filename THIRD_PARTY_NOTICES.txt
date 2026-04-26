@@ -56,8 +56,11 @@ RT-DETR (lyuwenyu)
 --------------------------------------------------------------------
 Source: https://github.com/lyuwenyu/RT-DETR
 License: Apache License 2.0
+Copyright (c) 2023 lyuwenyu
 Used for: RT-DETR model family (libreyolo/models/rtdetr/) including
-          backbone, neck, decoder, loss, and denoising modules.
+          backbone, neck, decoder, loss, and denoising modules. The
+          HGNetv2 backbone (libreyolo/models/rtdetr/hgnetv2.py) is
+          ported from rtdetrv2_pytorch/src/nn/backbone/hgnetv2.py.
 
 --------------------------------------------------------------------
 RF-DETR (Roboflow)
