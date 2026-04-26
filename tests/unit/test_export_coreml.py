@@ -202,3 +202,18 @@ class TestNMSWrap:
         )
         # Pipeline was constructed
         assert fake.models.pipeline.Pipeline.called
+
+
+class TestCoreMLExporterRegistry:
+    def test_format_registered(self):
+        from libreyolo.export.exporter import BaseExporter, CoreMLExporter
+        assert "coreml" in BaseExporter._registry
+        assert BaseExporter._registry["coreml"] is CoreMLExporter
+
+    def test_class_attrs(self):
+        from libreyolo.export.exporter import CoreMLExporter
+        assert CoreMLExporter.format_name == "coreml"
+        assert CoreMLExporter.suffix == ".mlpackage"
+        assert CoreMLExporter.requires_onnx is False
+        assert CoreMLExporter.supports_int8 is False
+        assert CoreMLExporter.apply_model_half is False
