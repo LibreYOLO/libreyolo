@@ -10,6 +10,7 @@ Supports YAML configs with:
 - Python download scripts
 """
 
+import logging
 import os
 import shutil
 import tempfile
@@ -22,6 +23,7 @@ import requests
 import yaml
 from tqdm import tqdm
 
+logger = logging.getLogger(__name__)
 
 # Default datasets directory (can be overridden via environment variable)
 DATASETS_DIR = Path(os.getenv("LIBREYOLO_DATASETS_DIR", Path.home() / "datasets"))
@@ -213,7 +215,7 @@ def img2label_paths(img_paths: List[Path]) -> List[Path]:
 
 
 def load_data_config(
-    data: str, autodownload: bool = True, allow_scripts: bool = True
+    data: str, autodownload: bool = True, allow_scripts: bool = False
 ) -> Dict:
     """
     Load dataset configuration from YAML file.
@@ -306,7 +308,7 @@ def _resolve_dataset_path(config: Dict, yaml_path: Path) -> Path:
 
 
 def check_dataset(
-    config: Dict, yaml_path: Path | None = None, allow_scripts: bool = True
+    config: Dict, yaml_path: Path | None = None, allow_scripts: bool = False
 ) -> Dict:
     """
     Check if dataset exists, download if missing and URL/script is provided.
@@ -345,27 +347,22 @@ def check_dataset(
     # Dataset doesn't exist, check for download URL/script
     download_spec = config.get("download")
     if not download_spec:
-        print(
-            f"Warning: Dataset not found at {dataset_path} and no download specified."
-        )
+        logger.warning("Dataset not found at %s and no download specified.", dataset_path)
         return config
 
-    print(f"Dataset not found at {dataset_path}")
+    logger.info("Dataset not found at %s", dataset_path)
 
     # Check if download is a Python script (multiline or contains Python code)
     if _is_python_script(download_spec):
         if not allow_scripts:
-            print(
-                "Warning: Dataset YAML contains a Python download script but "
+            logger.warning(
+                "Dataset YAML contains a Python download script but "
                 "allow_scripts=False. Skipping script execution. "
                 "Pass allow_scripts=True to load_data_config() to enable."
             )
             return config
-        import logging
 
-        logging.getLogger(__name__).info(
-            "Executing embedded download script from %s", yaml_path or "config"
-        )
+        logger.info("Executing embedded download script from %s", yaml_path or "config")
         _execute_download_script(download_spec, config, yaml_path)
     else:
         # Treat as URL
@@ -375,17 +372,17 @@ def check_dataset(
 
 
 def _is_python_script(download_spec: str) -> bool:
-    """Check if download specification is a Python script."""
-    # Check for common Python patterns
-    python_indicators = [
-        "import ",
-        "from ",
-        "def ",
-        "exec(",
-        "download(",
-        "\n",  # Multiline usually indicates script
-    ]
-    return any(indicator in download_spec for indicator in python_indicators)
+    """Check if download specification is a Python script.
+
+    Only explicit HTTP(S) URLs are treated as data downloads. Everything else
+    is treated as executable script content and therefore subject to the
+    ``allow_scripts`` gate.
+    """
+    stripped = download_spec.strip()
+    parsed = urlparse(stripped)
+    if parsed.scheme in {"http", "https"}:
+        return False
+    return True
 
 
 def _execute_download_script(
@@ -404,7 +401,7 @@ def _execute_download_script(
         config: Dataset configuration.
         yaml_path: Path to YAML file.
     """
-    print("Executing download script...")
+    logger.info("Executing download script...")
 
     # Auto-replace common import patterns with libreyolo equivalents
     script = script.replace(
@@ -427,9 +424,9 @@ def _execute_download_script(
 
     try:
         exec(script, context)
-        print("Download script completed.")
+        logger.info("Download script completed.")
     except Exception as e:
-        print(f"Warning: Download script failed: {e}")
+        logger.warning("Download script failed: %s", e)
         raise
 
 
@@ -445,7 +442,7 @@ def download_dataset(url: str, dest: Path) -> None:
         url: Download URL.
         dest: Destination directory.
     """
-    print(f"Downloading dataset from {url}...")
+    logger.info("Downloading dataset from %s...", url)
 
     dest = Path(dest)
     dest.parent.mkdir(parents=True, exist_ok=True)
@@ -460,7 +457,7 @@ def download_dataset(url: str, dest: Path) -> None:
     else:
         raise ValueError(f"Unsupported download URL format: {url}")
 
-    print(f"Dataset extracted to {dest}")
+    logger.info("Dataset extracted to %s", dest)
 
 
 def _download_and_extract_zip(url: str, dest: Path) -> None:
@@ -474,7 +471,7 @@ def _download_and_extract_zip(url: str, dest: Path) -> None:
         _download_file(url, tmp_path)
 
         # Extract
-        print(f"Extracting to {dest}...")
+        logger.info("Extracting to %s...", dest)
         dest.mkdir(parents=True, exist_ok=True)
 
         with zipfile.ZipFile(tmp_path, "r") as zf:
@@ -614,12 +611,12 @@ def download(
         filepath = dir / filename
 
         # Download
-        print(f"Downloading {filename}...")
+        logger.info("Downloading %s...", filename)
         _download_file(url, filepath)
 
         # Extract if zip
         if unzip and filepath.suffix == ".zip":
-            print(f"Extracting {filename}...")
+            logger.info("Extracting %s...", filename)
             with zipfile.ZipFile(filepath, "r") as zf:
                 zf.extractall(dir)
             if delete:

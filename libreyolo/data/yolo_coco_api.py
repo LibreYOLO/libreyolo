@@ -8,9 +8,12 @@ Copyright (c) 2025 Roboflow (RF-DETR). Licensed under Apache 2.0.
 Adapted for LibreYOLO.
 """
 
+import logging
 from pathlib import Path
 from typing import List, Optional, Tuple
 import warnings
+
+logger = logging.getLogger(__name__)
 
 from PIL import Image
 
@@ -167,7 +170,7 @@ class YOLOCocoAPI:
         if len(image_files) == 0:
             raise ValueError(f"No images found in {self.images_dir}")
 
-        print(f"Building COCO API for {len(image_files)} images...")
+        logger.info("Building COCO API for %d images...", len(image_files))
 
         ann_id = 1
         for idx, img_path in enumerate(image_files):
@@ -217,7 +220,7 @@ class YOLOCocoAPI:
         for i, name in enumerate(class_names):
             self.cats[i] = {"id": i, "name": name, "supercategory": "object"}
 
-        print(f"  Loaded {len(self.anns)} annotations across {len(self.imgs)} images")
+        logger.info("  Loaded %d annotations across %d images", len(self.anns), len(self.imgs))
 
     def getAnnIds(self, imgIds=None, catIds=None, areaRng=None, iscrowd=None):
         """

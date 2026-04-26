@@ -8,7 +8,7 @@ rfdetr package to ensure 100% weight compatibility.
 import torch
 import torch.nn as nn
 
-from rfdetr.main import Model as RFDETRMainModel
+from rfdetr.detr import _build_model_context
 from rfdetr.models.lwdetr import LWDETR, MLP, PostProcess
 from rfdetr.config import (
     RFDETRLargeConfig,
@@ -64,18 +64,16 @@ class LibreRFDETRModel(nn.Module):
         model_config = config_cls(
             num_classes=nb_classes,
             pretrain_weights=pretrain_weights,
+            device=device,
         )
 
         self.resolution = model_config.resolution
         self.hidden_dim = model_config.hidden_dim
         self.num_queries = getattr(model_config, "num_queries", 300)
 
-        config_dict = model_config.dict()
-        config_dict["device"] = device  # Override device
-        self._rfdetr = RFDETRMainModel(**config_dict)
-
-        self.model = self._rfdetr.model
-        self.postprocess = self._rfdetr.postprocess
+        ctx = _build_model_context(model_config)
+        self.model = ctx.model
+        self.postprocess = ctx.postprocess
 
     def forward(self, x: torch.Tensor):
         """

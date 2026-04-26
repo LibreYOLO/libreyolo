@@ -1,5 +1,6 @@
 """Detection validator for LibreYOLO."""
 
+import logging
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING
 
@@ -9,6 +10,8 @@ from torch.utils.data import DataLoader
 
 from .base import BaseValidator
 from .config import ValidationConfig
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from libreyolo.models.base import BaseModel
@@ -80,7 +83,10 @@ class DetectionValidator(BaseValidator):
         data_cfg = None
 
         if self.config.data:
-            data_cfg = load_data_config(self.config.data)
+            data_cfg = load_data_config(
+                self.config.data,
+                allow_scripts=self.config.allow_download_scripts,
+            )
             data_dir = data_cfg["root"]
             self.nc = data_cfg.get("nc", self.nc)
 
@@ -196,7 +202,7 @@ class DetectionValidator(BaseValidator):
         from libreyolo.validation import COCOEvaluator
 
         if self.config.verbose:
-            print("Initializing COCO evaluator...")
+            logger.info("Initializing COCO evaluator...")
 
         if self.config.data is None:
             raise RuntimeError(
@@ -208,7 +214,10 @@ class DetectionValidator(BaseValidator):
         # load_data_config — that handles both relative `path:` fields and
         # registry shortcuts like "coco-val-only", returning absolute file
         # lists. Build YOLOCocoAPI directly from the resolved paths.
-        data_cfg = load_data_config(self.config.data)
+        data_cfg = load_data_config(
+            self.config.data,
+            allow_scripts=self.config.allow_download_scripts,
+        )
         split = self.config.split
         img_files = data_cfg.get(f"{split}_img_files")
         label_files = data_cfg.get(f"{split}_label_files")
@@ -237,7 +246,7 @@ class DetectionValidator(BaseValidator):
         self.coco_evaluator = COCOEvaluator(coco_api, iou_type="bbox")
 
         if self.config.verbose:
-            print(f"COCO evaluator initialized with {len(coco_api.imgs)} images")
+            logger.info("COCO evaluator initialized with %d images", len(coco_api.imgs))
 
     # =========================================================================
     # Inference pipeline
@@ -373,7 +382,7 @@ class DetectionValidator(BaseValidator):
 
     def _compute_metrics(self) -> Dict[str, float]:
         if self.config.verbose:
-            print("\nComputing COCO metrics...")
+            logger.info("Computing COCO metrics...")
 
         save_json = None
         if self.config.save_json:

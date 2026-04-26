@@ -1,16 +1,18 @@
 """TensorRT export implementation."""
 
 import json
+import logging
 import warnings
 from pathlib import Path
-from typing import Any, Dict, Optional, Union, TYPE_CHECKING
+from typing import Any, Dict, Optional, Union
 
 import numpy as np
 import torch
 
-if TYPE_CHECKING:
-    from .calibration import CalibrationDataLoader
-    from .config import TensorRTExportConfig
+from .calibration import CalibrationDataLoader
+from .config import TensorRTExportConfig
+
+logger = logging.getLogger(__name__)
 
 
 def check_tensorrt_available() -> None:
@@ -65,17 +67,13 @@ def _create_calibrator_class():
                     batch = next(self.batch_iter)
                     self._batch_idx += 1
                     total = len(self.data_loader)
-                    print(
-                        f"\rCalibrating: batch {self._batch_idx}/{total}",
-                        end="",
-                        flush=True,
+                    logger.info(
+                        "Calibrating: batch %d/%d", self._batch_idx, total
                     )
                     device_ptr = self._ensure_cuda_memory(batch)
                     return [device_ptr]
                 except StopIteration:
-                    if self._batch_idx > 0:
-                        print()  # newline after progress
-                    return None
+                        return None
 
             def _ensure_cuda_memory(self, batch):
                 batch = np.ascontiguousarray(batch, dtype=np.float32)
@@ -128,13 +126,13 @@ def _create_calibrator_class():
 
             def read_calibration_cache(self):
                 if self.cache_file.exists():
-                    print(f"Loading calibration cache: {self.cache_file}")
+                    logger.info("Loading calibration cache: %s", self.cache_file)
                     with open(self.cache_file, "rb") as f:
                         return f.read()
                 return None
 
             def write_calibration_cache(self, cache):
-                print(f"Saving calibration cache: {self.cache_file}")
+                logger.info("Saving calibration cache: %s", self.cache_file)
                 with open(self.cache_file, "wb") as f:
                     f.write(cache)
 
@@ -158,7 +156,7 @@ def export_tensorrt(
     half: bool = True,
     int8: bool = False,
     workspace: float = 4.0,
-    calibration_data: Optional["CalibrationDataLoader"] = None,
+    calibration_data: Optional[CalibrationDataLoader] = None,
     dynamic: bool = False,
     verbose: bool = False,
     min_batch: int = 1,
@@ -166,7 +164,7 @@ def export_tensorrt(
     max_batch: int = 8,
     hardware_compatibility: str = "none",
     device: int = 0,
-    config: Optional[Union[str, Path, dict, "TensorRTExportConfig"]] = None,
+    config: Optional[Union[str, Path, dict, TensorRTExportConfig]] = None,
     metadata: Optional[Dict[str, Any]] = None,
 ) -> str:
     """Export ONNX model to TensorRT engine.
@@ -250,7 +248,7 @@ def export_tensorrt(
     if device != 0:
         if torch.cuda.is_available():
             torch.cuda.set_device(device)
-            print(f"Using GPU device: {device} ({torch.cuda.get_device_name(device)})")
+            logger.info("Using GPU device: %d (%s)", device, torch.cuda.get_device_name(device))
 
     if int8 and calibration_data is None:
         raise ValueError(
@@ -270,15 +268,15 @@ def export_tensorrt(
         raise FileNotFoundError(f"ONNX file not found: {onnx_path}")
 
     log_level = trt.Logger.VERBOSE if verbose else trt.Logger.WARNING
-    logger = trt.Logger(log_level)
+    trt_logger = trt.Logger(log_level)
 
-    builder = trt.Builder(logger)
+    builder = trt.Builder(trt_logger)
     # Explicit batch mode (required for modern TensorRT)
     network_flags = 1 << int(trt.NetworkDefinitionCreationFlag.EXPLICIT_BATCH)
     network = builder.create_network(network_flags)
-    parser = trt.OnnxParser(network, logger)
+    parser = trt.OnnxParser(network, trt_logger)
 
-    print(f"Parsing ONNX model: {onnx_path}")
+    logger.info("Parsing ONNX model: %s", onnx_path)
     with open(onnx_path, "rb") as f:
         onnx_data = f.read()
 
@@ -288,16 +286,18 @@ def export_tensorrt(
             error_msgs.append(str(parser.get_error(i)))
         raise RuntimeError("Failed to parse ONNX model:\n" + "\n".join(error_msgs))
 
-    print(
-        f"Network: {network.num_inputs} inputs, {network.num_outputs} outputs, "
-        f"{network.num_layers} layers"
+    logger.info(
+        "Network: %d inputs, %d outputs, %d layers",
+        network.num_inputs,
+        network.num_outputs,
+        network.num_layers,
     )
 
     builder_config = builder.create_builder_config()
 
     workspace_bytes = int(workspace * (1 << 30))  # GiB to bytes
     builder_config.set_memory_pool_limit(trt.MemoryPoolType.WORKSPACE, workspace_bytes)
-    print(f"Workspace: {workspace} GiB")
+    logger.info("Workspace: %s GiB", workspace)
 
     if hardware_compatibility != "none":
         try:
@@ -308,7 +308,7 @@ def export_tensorrt(
 
             if compat_level is not None:
                 builder_config.hardware_compatibility_level = compat_level
-                print(f"Hardware compatibility: {hardware_compatibility}")
+                logger.info("Hardware compatibility: %s", hardware_compatibility)
             else:
                 warnings.warn(
                     f"Unknown hardware_compatibility '{hardware_compatibility}'. "
@@ -341,14 +341,15 @@ def export_tensorrt(
                 cache_file=str(Path(output_path).with_suffix(".cache")),
             )
             builder_config.int8_calibrator = calibrator
-            print(
-                f"INT8 calibration: {len(calibration_data)} batches, "
-                f"batch size {calibration_data.batch}"
+            logger.info(
+                "INT8 calibration: %d batches, batch size %d",
+                len(calibration_data),
+                calibration_data.batch,
             )
         else:
             warnings.warn("GPU does not support fast INT8. Falling back to FP16.")
 
-    print(f"Precision: {precision_str}")
+    logger.info("Precision: %s", precision_str)
 
     # Dynamic shapes (only if ONNX has dynamic batch dimension)
     input_tensor = network.get_input(0)
@@ -370,18 +371,22 @@ def export_tensorrt(
             max_shape = (max_batch, c, h, w)
 
             profile.set_shape(input_name, min_shape, opt_shape, max_shape)
-            print(
-                f"Dynamic input '{input_name}': "
-                f"min={min_shape}, opt={opt_shape}, max={max_shape}"
+            logger.info(
+                "Dynamic input '%s': min=%s, opt=%s, max=%s",
+                input_name,
+                min_shape,
+                opt_shape,
+                max_shape,
             )
 
         builder_config.add_optimization_profile(profile)
     elif dynamic and not has_dynamic_batch:
-        print(
-            f"Note: ONNX has static batch size ({input_shape[0]}), using static optimization"
+        logger.info(
+            "Note: ONNX has static batch size (%s), using static optimization",
+            input_shape[0],
         )
 
-    print("Building TensorRT engine... (this may take several minutes)")
+    logger.info("Building TensorRT engine... (this may take several minutes)")
 
     serialized_engine = builder.build_serialized_network(network, builder_config)
 
@@ -404,9 +409,9 @@ def export_tensorrt(
         sidecar_path = Path(str(output_path) + ".json")
         with open(sidecar_path, "w") as f:
             json.dump(metadata, f, indent=2)
-        print(f"Metadata sidecar: {sidecar_path}")
+        logger.info("Metadata sidecar: %s", sidecar_path)
 
     engine_size_mb = output_path.stat().st_size / (1024 * 1024)
-    print(f"Engine saved: {output_path} ({engine_size_mb:.1f} MB)")
+    logger.info("Engine saved: %s (%.1f MB)", output_path, engine_size_mb)
 
     return str(output_path)

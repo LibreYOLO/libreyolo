@@ -1,5 +1,7 @@
 """Base validator class for LibreYOLO."""
 
+import logging
+import sys
 import time
 from abc import ABC, abstractmethod
 from datetime import datetime
@@ -11,6 +13,8 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 from .config import ValidationConfig
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from libreyolo.models.base import BaseModel
@@ -93,9 +97,9 @@ class BaseValidator(ABC):
         self._warmup_model()
 
         if self.config.verbose:
-            print(f"Validating on {len(self.dataloader.dataset)} images...")
-            print(f"Device: {self.device}")
-            print(f"Batch size: {self.config.batch_size}")
+            logger.info("Validating on %d images...", len(self.dataloader.dataset))
+            logger.info("Device: %s", self.device)
+            logger.info("Batch size: %d", self.config.batch_size)
 
     def _run_validation(self) -> None:
         self.model.model.eval()
@@ -104,7 +108,8 @@ class BaseValidator(ABC):
             self.dataloader,
             desc="Validating",
             total=len(self.dataloader),
-            disable=not self.config.verbose,
+            disable=not self.config.verbose or not sys.stderr.isatty(),
+            file=sys.stderr,
         )
 
         total_start = time.time()
@@ -160,7 +165,7 @@ class BaseValidator(ABC):
     def _warmup_model(self, n_warmup: int = 3) -> None:
         """Run dummy inference passes to trigger JIT compilation and CUDA kernel caching."""
         if self.config.verbose:
-            print(f"Warming up model ({n_warmup} iterations)...")
+            logger.info("Warming up model (%d iterations)...", n_warmup)
 
         imgsz = self.config.imgsz
         batch_size = min(self.config.batch_size, 4)
@@ -182,7 +187,7 @@ class BaseValidator(ABC):
                     _ = self.model._forward(dummy_input)
                 except Exception as e:
                     if self.config.verbose:
-                        print(f"Warmup failed (non-fatal): {e}")
+                        logger.warning("Warmup failed (non-fatal): %s", e)
                     break
 
         if hasattr(self.model, "_original_size"):
@@ -192,19 +197,19 @@ class BaseValidator(ABC):
             torch.cuda.synchronize()
 
     def _print_results(self, metrics: Dict[str, float]) -> None:
-        print("\n" + "=" * 50)
-        print("Validation Results")
-        print("=" * 50)
+        logger.info("=" * 50)
+        logger.info("Validation Results")
+        logger.info("=" * 50)
 
         for key, value in metrics.items():
-            print(f"  {key}: {value:.4f}")
+            logger.info("  %s: %.4f", key, value)
 
-        print("-" * 50)
-        print(f"  Images processed: {self.seen}")
-        print(f"  Total time: {self.speed['total']:.2f}s")
+        logger.info("-" * 50)
+        logger.info("  Images processed: %d", self.seen)
+        logger.info("  Total time: %.2fs", self.speed["total"])
         if self.seen > 0:
-            print(f"  Speed: {self.speed['total'] / self.seen * 1000:.1f}ms/image")
-        print("=" * 50)
+            logger.info("  Speed: %.1fms/image", self.speed["total"] / self.seen * 1000)
+        logger.info("=" * 50)
 
     # =========================================================================
     # Abstract methods

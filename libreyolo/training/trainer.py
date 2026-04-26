@@ -4,6 +4,7 @@ Model-specific trainers subclass BaseTrainer and override hooks.
 """
 
 import logging
+import sys
 import time
 from abc import ABC, abstractmethod
 from pathlib import Path
@@ -18,6 +19,7 @@ from .config import TrainConfig
 from .ema import ModelEMA
 from ..data.dataset import YOLODataset, COCODataset, create_dataloader
 from ..data import load_data_config, get_img_files, img2label_paths
+from ..utils.serialization import load_trusted_torch_file
 
 
 logger = logging.getLogger(__name__)
@@ -210,7 +212,10 @@ class BaseTrainer(ABC):
         preproc, MosaicDatasetClass = self.create_transforms()
 
         if self.config.data:
-            data_cfg = load_data_config(self.config.data)
+            data_cfg = load_data_config(
+                self.config.data,
+                allow_scripts=self.config.allow_download_scripts,
+            )
             data_dir = data_cfg["root"]
             self.num_classes = data_cfg.get("nc", self.config.num_classes)
 
@@ -411,6 +416,8 @@ class BaseTrainer(ABC):
             self.train_loader,
             desc=f"Epoch {epoch + 1}/{self.config.epochs}",
             total=len(self.train_loader),
+            disable=not sys.stderr.isatty(),
+            file=sys.stderr,
         )
 
         total_loss = 0.0
@@ -540,8 +547,10 @@ class BaseTrainer(ABC):
             logger.debug(
                 f"Extracted metrics: mAP50={metrics['mAP50']:.4f}, mAP50_95={metrics['mAP50_95']:.4f}"
             )
-            print(
-                f"Validation - mAP50: {metrics['mAP50']:.4f}, mAP50-95: {metrics['mAP50_95']:.4f}"
+            logger.info(
+                "Validation - mAP50: %.4f, mAP50-95: %.4f",
+                metrics["mAP50"],
+                metrics["mAP50_95"],
             )
             return metrics
 
@@ -610,7 +619,11 @@ class BaseTrainer(ABC):
             raise FileNotFoundError(f"Resume checkpoint not found: {checkpoint_path}")
 
         logger.info(f"Resuming from {checkpoint_path}")
-        checkpoint = torch.load(checkpoint_path, map_location=self.device)
+        checkpoint = load_trusted_torch_file(
+            checkpoint_path,
+            map_location=self.device,
+            context="training resume checkpoint",
+        )
 
         try:
             self.model.load_state_dict(checkpoint["model"])

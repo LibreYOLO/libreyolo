@@ -11,13 +11,14 @@ authors = [
 dependencies = [
     "numpy>=1.19.0",
     "Pillow>=8.0.0",
-    "torch>=1.7.0",
+    "torch>=1.13.0",
     "torchvision>=0.11.0",
     "PyYAML>=6.0",
     "requests>=2.25.0",
     "opencv-python>=4.11.0.86",
     "tqdm>=4.65.0",
     "pycocotools>=2.0.0",
+    "typer>=0.9.0",
 ]
 
 [dependency-groups]
@@ -34,7 +35,7 @@ onnx = [
     "onnxruntime>=1.16.0",
 ]
 rfdetr = [
-    "rfdetr>=1.4.1",
+    "rfdetr>=1.6.2,<2.0.0",
 ]
 tensorrt = [
     "tensorrt",
@@ -56,6 +57,9 @@ all = [
     "libreyolo[ncnn]",
     "libreyolo[rtdetr]",
 ]
+
+[project.scripts]
+libreyolo = "libreyolo.cli:entrypoint"
 
 [project.urls]
 Homepage = "https://github.com/LibreYOLO"
