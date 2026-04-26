@@ -152,21 +152,27 @@ class LibreYOLORTDETR(BaseModel):
 
     @classmethod
     def can_load(cls, weights_dict: dict) -> bool:
-        """Detect RTDETR-specific keys in the state dict."""
+        """Detect RT-DETR-specific keys in the state dict.
+
+        RT-DETR and D-FINE share several decoder head names, so require the
+        RT-DETR decoder input projection path that D-FINE does not have.
+        """
         keys = set(weights_dict.keys())
-        rtdetr_keys = {
-            "backbone.res_layers",  # ResNet variants
-            "backbone.stages",  # HGNetv2 variants
-            "encoder.input_proj",
-            "decoder.dec_score_head",
-            "decoder.enc_score_head",
-        }
-        # Check if any key starts with these prefixes
-        for key in keys:
-            for rtdetr_key in rtdetr_keys:
-                if key.startswith(rtdetr_key):
-                    return True
-        return False
+        has_backbone = any(
+            k.startswith(("backbone.res_layers", "backbone.stages")) for k in keys
+        )
+        has_encoder_input_proj = any(k.startswith("encoder.input_proj") for k in keys)
+        has_decoder_input_proj = any(k.startswith("decoder.input_proj") for k in keys)
+        has_decoder_head = any(
+            k.startswith(("decoder.dec_score_head", "decoder.enc_score_head"))
+            for k in keys
+        )
+        return (
+            has_backbone
+            and has_encoder_input_proj
+            and has_decoder_input_proj
+            and has_decoder_head
+        )
 
     @classmethod
     def detect_size(cls, weights_dict: dict) -> Optional[str]:

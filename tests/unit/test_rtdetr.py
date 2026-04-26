@@ -7,6 +7,7 @@ import numpy as np
 import pytest
 import torch
 
+from libreyolo.models.dfine.model import LibreDFINE
 from libreyolo.models.rtdetr.config import RTDETRConfig
 from libreyolo.models.rtdetr.model import LibreYOLORTDETR
 from libreyolo.validation.preprocessors import RTDETRValPreprocessor
@@ -34,6 +35,7 @@ class TestRTDETRCanLoad:
         fake_weights = {
             "backbone.res_layers.0.blocks.0.conv1.weight": torch.zeros(64, 3, 3, 3),
             "encoder.input_proj.0.0.weight": torch.zeros(256, 512, 1, 1),
+            "decoder.input_proj.0.conv.weight": torch.zeros(256, 256, 1, 1),
             "decoder.dec_score_head.0.weight": torch.zeros(80, 256),
             "decoder.dec_score_head.0.bias": torch.zeros(80),
         }
@@ -46,9 +48,38 @@ class TestRTDETRCanLoad:
                 48, 48, 1, 1
             ),
             "encoder.input_proj.0.0.weight": torch.zeros(256, 512, 1, 1),
+            "decoder.input_proj.0.conv.weight": torch.zeros(256, 256, 1, 1),
             "decoder.dec_score_head.0.weight": torch.zeros(80, 256),
         }
         assert LibreYOLORTDETR.can_load(fake_weights) is True
+
+    def test_rtdetr_does_not_claim_dfine_keys(self):
+        """can_load() should not claim D-FINE checkpoints with overlapping keys."""
+        fake_dfine_weights = {
+            "backbone.stages.0.blocks.0.layers.0.conv1.conv.weight": torch.zeros(
+                48, 48, 1, 1
+            ),
+            "encoder.input_proj.0.conv.weight": torch.zeros(128, 256, 1, 1),
+            "decoder.pre_bbox_head.layers.0.weight": torch.zeros(256, 256),
+            "decoder.dec_score_head.0.bias": torch.zeros(80),
+            "decoder.dec_bbox_head.0.layers.0.weight": torch.zeros(256, 256),
+        }
+        assert LibreDFINE.can_load(fake_dfine_weights) is True
+        assert LibreYOLORTDETR.can_load(fake_dfine_weights) is False
+
+    def test_dfine_does_not_claim_rtdetr_overlap_keys(self):
+        """D-FINE should not match RT-DETR decoder heads that share names."""
+        fake_rtdetr_weights = {
+            "backbone.res_layers.0.blocks.0.conv1.weight": torch.zeros(64, 3, 3, 3),
+            "encoder.input_proj.0.0.weight": torch.zeros(256, 512, 1, 1),
+            "decoder.input_proj.0.conv.weight": torch.zeros(256, 256, 1, 1),
+            "decoder.denoising_class_embed.weight": torch.zeros(81, 256),
+            "decoder.enc_bbox_head.layers.0.weight": torch.zeros(256, 256),
+            "decoder.dec_bbox_head.0.layers.0.weight": torch.zeros(256, 256),
+            "decoder.dec_score_head.0.bias": torch.zeros(80),
+        }
+        assert LibreYOLORTDETR.can_load(fake_rtdetr_weights) is True
+        assert LibreDFINE.can_load(fake_rtdetr_weights) is False
 
     def test_rtdetr_cannot_load_rfdetr_keys(self):
         """can_load() should return False for RF-DETR weight keys."""
@@ -138,6 +169,14 @@ class TestRTDETRExportMetadata:
         """RTDETR model family should be 'rtdetr'."""
         model = LibreYOLORTDETR(nc=80, size="r18")
         assert model.FAMILY == "rtdetr"
+
+    def test_ncnn_export_is_blocked_for_rtdetr(self, tmp_path):
+        """NCNN cannot run RT-DETR's DETR-style query selection."""
+        model = LibreYOLORTDETR(nc=80, size="r18", device="cpu")
+        with pytest.raises(
+            NotImplementedError, match="NCNN export is not supported for RT-DETR"
+        ):
+            model.export("ncnn", output_path=str(tmp_path / "rtdetr_ncnn"))
 
 
 class TestRTDETRConfig:

@@ -11,6 +11,8 @@ Tests the complete pipeline:
 
 Known ncnn/PNNX limitations:
 - RF-DETR: torch.tile is unsupported by ncnn. All inference tests are xfail.
+- D-FINE / RT-DETR: DETR query-selection ops are unsupported by ncnn. All
+  inference tests are xfail.
 """
 
 from pathlib import Path
@@ -51,8 +53,29 @@ _rfdetr_xfail = pytest.mark.xfail(
     strict=True,
 )
 
+_detr_ncnn_xfail = pytest.mark.xfail(
+    reason="ncnn does not support DETR query-selection ops (topk/gather)",
+    strict=True,
+)
+
+_DETR_NCNN_XFAIL_FAMILIES = {"dfine", "rtdetr"}
+
 RFDETR_ACCURACY_PARAMS = [
     pytest.param("rfdetr", size, marks=_rfdetr_xfail) for size in RFDETR_SIZES
+]
+
+NCNN_QUICK_TEST_MODELS = [
+    pytest.param(mt, sz, marks=_detr_ncnn_xfail)
+    if mt in _DETR_NCNN_XFAIL_FAMILIES
+    else (mt, sz)
+    for mt, sz in QUICK_TEST_MODELS
+]
+
+NCNN_FULL_TEST_MODELS = [
+    pytest.param(mt, sz, marks=_detr_ncnn_xfail)
+    if mt in _DETR_NCNN_XFAIL_FAMILIES
+    else (mt, sz)
+    for mt, sz in FULL_TEST_MODELS
 ]
 
 
@@ -65,14 +88,14 @@ class TestNCNNExportFP32:
     """Test ncnn FP32 export + inference for all models."""
 
     @requires_ncnn
-    @pytest.mark.parametrize("model_type,size", QUICK_TEST_MODELS)
+    @pytest.mark.parametrize("model_type,size", NCNN_QUICK_TEST_MODELS)
     def test_fp32_export_quick(self, model_type, size, sample_image, tmp_path):
         """Quick test with smallest models (for CI)."""
         self._run_fp32_test(model_type, size, sample_image, tmp_path)
 
     @requires_ncnn
     @pytest.mark.slow
-    @pytest.mark.parametrize("model_type,size", FULL_TEST_MODELS)
+    @pytest.mark.parametrize("model_type,size", NCNN_FULL_TEST_MODELS)
     def test_fp32_export_full(self, model_type, size, sample_image, tmp_path):
         """Full test with all YOLOX and YOLOv9 models."""
         self._run_fp32_test(model_type, size, sample_image, tmp_path)
@@ -154,14 +177,14 @@ class TestNCNNExportFP16:
     """Test ncnn FP16 export + inference for all models."""
 
     @requires_ncnn
-    @pytest.mark.parametrize("model_type,size", QUICK_TEST_MODELS)
+    @pytest.mark.parametrize("model_type,size", NCNN_QUICK_TEST_MODELS)
     def test_fp16_export_quick(self, model_type, size, sample_image, tmp_path):
         """Quick test with smallest models (for CI)."""
         self._run_fp16_test(model_type, size, sample_image, tmp_path)
 
     @requires_ncnn
     @pytest.mark.slow
-    @pytest.mark.parametrize("model_type,size", FULL_TEST_MODELS)
+    @pytest.mark.parametrize("model_type,size", NCNN_FULL_TEST_MODELS)
     def test_fp16_export_full(self, model_type, size, sample_image, tmp_path):
         """Full test with all YOLOX and YOLOv9 models."""
         self._run_fp16_test(model_type, size, sample_image, tmp_path)
@@ -198,7 +221,7 @@ class TestNCNNMetadata:
     """Test ncnn metadata export."""
 
     @requires_ncnn
-    @pytest.mark.parametrize("model_type,size", QUICK_TEST_MODELS)
+    @pytest.mark.parametrize("model_type,size", NCNN_QUICK_TEST_MODELS)
     def test_metadata_saved(self, model_type, size, tmp_path):
         """Test that exported models have correct metadata."""
         pt_model = load_model(model_type, size, device="cpu")
@@ -230,7 +253,7 @@ class TestNCNNMetadata:
         del pt_model
 
     @requires_ncnn
-    @pytest.mark.parametrize("model_type,size", QUICK_TEST_MODELS)
+    @pytest.mark.parametrize("model_type,size", NCNN_QUICK_TEST_MODELS)
     def test_metadata_round_trip(self, model_type, size, tmp_path):
         """Test that metadata is correctly loaded when loading ncnn model."""
         run_metadata_round_trip_test(
@@ -247,7 +270,7 @@ class TestNCNNFactory:
     """Test loading ncnn models through the LibreYOLO() factory."""
 
     @requires_ncnn
-    @pytest.mark.parametrize("model_type,size", QUICK_TEST_MODELS)
+    @pytest.mark.parametrize("model_type,size", NCNN_QUICK_TEST_MODELS)
     def test_factory_dispatch(self, model_type, size, sample_image, tmp_path):
         """Export model, load via LibreYOLO(dir), verify type and inference."""
         from libreyolo import LibreYOLO
@@ -286,7 +309,7 @@ class TestNCNNBackend:
     """Test the NcnnBackend inference backend class directly."""
 
     @requires_ncnn
-    @pytest.mark.parametrize("model_type,size", QUICK_TEST_MODELS)
+    @pytest.mark.parametrize("model_type,size", NCNN_QUICK_TEST_MODELS)
     def test_predict_alias(self, model_type, size, sample_image, tmp_path):
         """Test that predict() is an alias for __call__."""
         from libreyolo.backends.ncnn import NcnnBackend
@@ -308,7 +331,7 @@ class TestNCNNBackend:
         del pt_model
 
     @requires_ncnn
-    @pytest.mark.parametrize("model_type,size", QUICK_TEST_MODELS)
+    @pytest.mark.parametrize("model_type,size", NCNN_QUICK_TEST_MODELS)
     def test_save_output(self, model_type, size, sample_image, tmp_path):
         """Test that save=True produces an annotated image."""
         from libreyolo.backends.ncnn import NcnnBackend
@@ -331,7 +354,7 @@ class TestNCNNBackend:
         del pt_model
 
     @requires_ncnn
-    @pytest.mark.parametrize("model_type,size", QUICK_TEST_MODELS)
+    @pytest.mark.parametrize("model_type,size", NCNN_QUICK_TEST_MODELS)
     def test_classes_filter(self, model_type, size, sample_image, tmp_path):
         """Test that classes filter limits detections to specified class IDs."""
         from libreyolo.backends.ncnn import NcnnBackend
@@ -362,7 +385,7 @@ class TestNCNNMultipleInference:
     """Test ncnn inference consistency."""
 
     @requires_ncnn
-    @pytest.mark.parametrize("model_type,size", QUICK_TEST_MODELS)
+    @pytest.mark.parametrize("model_type,size", NCNN_QUICK_TEST_MODELS)
     def test_consistent_results(self, model_type, size, sample_image, tmp_path):
         """Test that ncnn model produces consistent results across runs."""
         run_consistency_test(
@@ -458,7 +481,9 @@ class TestNCNNModelCoverage:
         """Test that all local official YOLO-NAS detection sizes export and run."""
         from libreyolo import LibreYOLO
 
-        missing = [size for size, path in OFFICIAL_YOLONAS_WEIGHTS.items() if not path.exists()]
+        missing = [
+            size for size, path in OFFICIAL_YOLONAS_WEIGHTS.items() if not path.exists()
+        ]
         if missing:
             pytest.skip(
                 "Official YOLO-NAS checkpoints not present for sizes: "
