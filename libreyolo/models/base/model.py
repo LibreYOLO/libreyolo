@@ -102,6 +102,28 @@ class BaseModel(ABC):
         for key, value in kwargs.items():
             setattr(self, key, value)
 
+        # Peek at the checkpoint so we construct the right architecture the
+        # first time. Without this, ``LibreYOLORTDETR("LibreRTDETRl.pt")``
+        # with the default ``size="r50"`` would build a PResNet-50 model and
+        # download its 90 MB ImageNet weights for nothing, then immediately
+        # rebuild as HGNetv2-L when ``_load_weights`` runs the auto-detect.
+        # When the file isn't on disk yet (auto-download case), peek
+        # silently returns None and ``_load_weights`` does the rebuild.
+        # Also: when loading from a checkpoint, the file's weights overwrite
+        # the backbone, so we tell ``_init_model`` to skip the second
+        # pretrained-backbone download via ``_loading_pretrained_checkpoint``.
+        self._loading_pretrained_checkpoint = isinstance(model_path, (str, dict))
+        if isinstance(model_path, str):
+            peeked = type(self)._peek_size_from_path(model_path)
+            if peeked and peeked in valid_sizes and peeked != self.size:
+                logger.info(
+                    "Detected size=%r from checkpoint %s; constructing as %r "
+                    "instead of the default %r.",
+                    peeked, model_path, peeked, self.size,
+                )
+                self.size = peeked
+                self.input_size = self.INPUT_SIZES[peeked]
+
         self.model = self._init_model()
 
         if model_path is None:
@@ -117,6 +139,42 @@ class BaseModel(ABC):
         else:
             self.model.eval()
         self.model.to(self.device)
+
+    @classmethod
+    def _peek_size_from_path(cls, model_path: str) -> Optional[str]:
+        """Best-effort: read the checkpoint file and return ``cls.detect_size`` of it.
+
+        Used by ``__init__`` to construct the correct architecture upfront
+        instead of materialising a wrong-size model whose ImageNet pretrained
+        weights would just be thrown away on rebuild.
+
+        Returns ``None`` if the file isn't on disk yet, the subclass doesn't
+        implement ``detect_size``, or anything goes wrong — callers fall
+        back to the default ``size`` and ``_load_weights`` handles the
+        rebuild later.
+        """
+        if not hasattr(cls, "detect_size"):
+            return None
+        try:
+            path = Path(model_path)
+            if not path.exists() and path.parent == Path("."):
+                weights_path = Path("weights") / path.name
+                if weights_path.exists():
+                    path = weights_path
+            if not path.exists():
+                return None
+            loaded = load_untrusted_torch_file(
+                str(path), map_location="cpu", context="size detection"
+            )
+            if isinstance(loaded, dict):
+                state_dict = loaded.get(
+                    "model", loaded.get("state_dict", loaded)
+                )
+            else:
+                state_dict = loaded
+            return cls.detect_size(state_dict)
+        except Exception:
+            return None
 
     # =========================================================================
     # Abstract interface — subclasses must implement

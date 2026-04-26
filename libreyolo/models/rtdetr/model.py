@@ -320,6 +320,11 @@ class LibreYOLORTDETR(BaseModel):
     def _init_model(self) -> nn.Module:
         """Initialize the RTDETR model."""
         cfg = RTDETR_CONFIGS[self.size]
+        # Skip the ImageNet-pretrained backbone download when we're about to
+        # overwrite the backbone with weights from a user checkpoint.
+        backbone_pretrained = cfg["backbone_pretrained"] and not getattr(
+            self, "_loading_pretrained_checkpoint", False
+        )
         backbone_kwargs: Dict[str, Any] = {}
         if cfg.get("backbone_type") == "hgnetv2":
             from .hgnetv2 import HGNetv2
@@ -329,14 +334,14 @@ class LibreYOLORTDETR(BaseModel):
                 return_idx=[1, 2, 3],
                 freeze_at=cfg["backbone_freeze_at"],
                 freeze_norm=cfg["backbone_freeze_norm"],
-                pretrained=cfg["backbone_pretrained"],
+                pretrained=backbone_pretrained,
             )
         else:
             backbone_kwargs.update(
                 backbone_depth=cfg["backbone_depth"],
                 backbone_freeze_at=cfg["backbone_freeze_at"],
                 backbone_freeze_norm=cfg["backbone_freeze_norm"],
-                backbone_pretrained=cfg["backbone_pretrained"],
+                backbone_pretrained=backbone_pretrained,
             )
         return RTDETRModel(
             num_classes=self.nb_classes,
