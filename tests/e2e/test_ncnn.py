@@ -37,7 +37,12 @@ from .conftest import (
     run_metadata_round_trip_test,
 )
 
-pytestmark = [pytest.mark.e2e, pytest.mark.ncnn]
+pytestmark = [
+    pytest.mark.e2e,
+    pytest.mark.export_backend,
+    pytest.mark.experimental_backend,
+    pytest.mark.ncnn,
+]
 OFFICIAL_YOLONAS_S = Path("downloads/yolonas/yolo_nas_s_coco.pth")
 OFFICIAL_YOLONAS_WEIGHTS = {
     "s": Path("downloads/yolonas/yolo_nas_s_coco.pth"),

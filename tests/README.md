@@ -52,10 +52,12 @@ make test_e2e
 pytest tests/e2e/ -v -m "e2e and onnx"
 pytest tests/e2e/ -v -m "e2e and torchscript and yolonas"
 pytest tests/e2e/ -v -m "e2e and yolo9 and not ncnn"
+pytest tests/e2e/ -v -m "e2e and not experimental_backend"
 
 # Same marker filtering through the Makefile runner
 make test_e2e MARKERS='e2e and onnx'
 make test_e2e MARKERS='e2e and (onnx or torchscript) and not ncnn'
+make test_e2e MARKERS='e2e and not experimental_backend'
 
 # Individual test files
 pytest tests/e2e/test_onnx.py -v        # ONNX export + inference
@@ -74,9 +76,28 @@ python -m tests.e2e.test_rf5_training --list-configs
 
 ### Useful Markers
 
+- Support tiers: `supported_backend`, `experimental_backend`, `export_backend`
 - Backends: `onnx`, `torchscript`, `tensorrt`, `trt`, `openvino`, `ncnn`
 - Model families: `yolox`, `yolo9`, `yolonas`, `rfdetr`, `dfine`, `rtdetr`
 - Suites: `rf1`, `rf5`, `slow`
+
+## Export Backend Support
+
+| Backend | Status | Marker | Release guidance |
+|---------|--------|--------|------------------|
+| ONNX | Supported | `supported_backend`, `onnx` | Keep in full release validation. |
+| TorchScript | Experimental | `experimental_backend`, `torchscript` | Optional release coverage. |
+| TensorRT | Experimental | `experimental_backend`, `tensorrt`, `trt` | Optional release coverage. |
+| OpenVINO | Experimental | `experimental_backend`, `openvino` | Optional release coverage. |
+| NCNN | Experimental | `experimental_backend`, `ncnn` | Exclude by default if turnaround matters. |
+
+If you want "everything except experimental export backends", run:
+
+```bash
+make test_e2e MARKERS='e2e and not rf5 and not experimental_backend'
+```
+
+That keeps training, validation, CLI, video, tracking, and ONNX coverage while dropping TorchScript, TensorRT, OpenVINO, and NCNN.
 
 ## RF5 - Training Validation Suite
 

@@ -29,7 +29,12 @@ from .conftest import (
     run_metadata_round_trip_test,
 )
 
-pytestmark = [pytest.mark.e2e, pytest.mark.openvino]
+pytestmark = [
+    pytest.mark.e2e,
+    pytest.mark.export_backend,
+    pytest.mark.experimental_backend,
+    pytest.mark.openvino,
+]
 
 
 # ---------------------------------------------------------------------------

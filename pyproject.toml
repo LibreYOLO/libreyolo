@@ -117,6 +117,9 @@ testpaths = ["tests"]
 markers = [
     "unit: fast tests that avoid external weights or large files",
     "e2e: end-to-end tests requiring full model loading and inference",
+    "export_backend: tests covering an export backend or serialized runtime format",
+    "supported_backend: tests covering a release-blocking supported backend",
+    "experimental_backend: tests covering an experimental backend",
     "onnx: tests covering ONNX export or inference",
     "torchscript: tests covering TorchScript export or inference",
     "tensorrt: tests requiring TensorRT",

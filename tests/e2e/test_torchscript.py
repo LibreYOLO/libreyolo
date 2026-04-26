@@ -23,7 +23,12 @@ from .conftest import (
     results_are_acceptable,
 )
 
-pytestmark = [pytest.mark.e2e, pytest.mark.torchscript]
+pytestmark = [
+    pytest.mark.e2e,
+    pytest.mark.export_backend,
+    pytest.mark.experimental_backend,
+    pytest.mark.torchscript,
+]
 OFFICIAL_YOLONAS_S = Path("downloads/yolonas/yolo_nas_s_coco.pth")
 OFFICIAL_YOLONAS_WEIGHTS = {
     "s": Path("downloads/yolonas/yolo_nas_s_coco.pth"),
