@@ -23,10 +23,28 @@ multiprocessing.set_start_method("spawn", force=True)
 
 def pytest_configure(config):
     """Register custom markers (e2e marker registered in root conftest)."""
+    config.addinivalue_line("markers", "onnx: tests covering ONNX export or inference")
+    config.addinivalue_line(
+        "markers", "torchscript: tests covering TorchScript export or inference"
+    )
     config.addinivalue_line("markers", "tensorrt: tests requiring TensorRT")
+    config.addinivalue_line(
+        "markers", "trt: alias for TensorRT tests requiring TensorRT"
+    )
     config.addinivalue_line("markers", "openvino: tests requiring OpenVINO")
     config.addinivalue_line("markers", "ncnn: tests requiring ncnn")
-    config.addinivalue_line("markers", "rfdetr: tests requiring RF-DETR dependencies")
+    config.addinivalue_line("markers", "yolox: tests covering the YOLOX model family")
+    config.addinivalue_line("markers", "yolo9: tests covering the YOLO9 model family")
+    config.addinivalue_line(
+        "markers", "yolonas: tests covering the YOLO-NAS model family"
+    )
+    config.addinivalue_line(
+        "markers", "rfdetr: tests covering the RF-DETR model family"
+    )
+    config.addinivalue_line("markers", "dfine: tests covering the D-FINE model family")
+    config.addinivalue_line(
+        "markers", "rtdetr: tests covering the RT-DETR model family"
+    )
     config.addinivalue_line("markers", "slow: slow tests that may take several minutes")
     config.addinivalue_line("markers", "rf1: RF1 training tests")
     config.addinivalue_line("markers", "rf5: RF5 training benchmark tests")
@@ -376,6 +394,53 @@ RFDETR_TEST_MODELS = [(f, s) for f, s, _ in MODEL_CATALOG if f == "rfdetr"]
 
 # RT-DETR test set (separate due to being transformer-based)
 RTDETR_TEST_MODELS = [(f, s) for f, s, _ in MODEL_CATALOG if f == "rtdetr"]
+
+FAMILY_MARKERS = {
+    "yolox": pytest.mark.yolox,
+    "yolo9": pytest.mark.yolo9,
+    "yolonas": pytest.mark.yolonas,
+    "rfdetr": pytest.mark.rfdetr,
+    "dfine": pytest.mark.dfine,
+    "rtdetr": pytest.mark.rtdetr,
+}
+
+
+def _normalize_marks(marks):
+    """Normalize a mark or a collection of marks to a flat list."""
+    if marks is None:
+        return []
+    if isinstance(marks, (list, tuple, set)):
+        return [mark for mark in marks if mark is not None]
+    return [marks]
+
+
+def family_marks(family: str, marks=None):
+    """Return pytest marks for a model family plus any extra marks."""
+    return [FAMILY_MARKERS[family], *_normalize_marks(marks)]
+
+
+def model_case(family: str, size: str, *, weights: str | None = None, marks=None):
+    """Build a parametrized model case with family markers attached."""
+    values = (family, size) if weights is None else (family, size, weights)
+    return pytest.param(
+        *values, marks=family_marks(family, marks), id=f"{family}-{size}"
+    )
+
+
+def model_cases(models, *, with_weights: bool = False, marks_resolver=None):
+    """Attach family markers to a model matrix used in parametrized tests."""
+    params = []
+    for family, size, *rest in models:
+        weights = rest[0] if with_weights else None
+        marks = marks_resolver(family, size, *rest) if marks_resolver else None
+        params.append(model_case(family, size, weights=weights, marks=marks))
+    return params
+
+
+QUICK_TEST_PARAMS = model_cases(QUICK_TEST_MODELS)
+FULL_TEST_PARAMS = model_cases(FULL_TEST_MODELS)
+RFDETR_TEST_PARAMS = model_cases(RFDETR_TEST_MODELS)
+ALL_MODEL_WEIGHT_PARAMS = model_cases(ALL_MODELS_WITH_WEIGHTS, with_weights=True)
 
 
 def get_model_weights(family: str, size: str) -> str:

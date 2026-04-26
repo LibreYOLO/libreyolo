@@ -28,6 +28,7 @@ from .conftest import (
     YOLO9_SIZES,
     load_model,
     match_detections,
+    model_case,
     requires_ncnn,
     requires_rfdetr,
     results_are_acceptable,
@@ -60,21 +61,27 @@ _detr_ncnn_xfail = pytest.mark.xfail(
 
 _DETR_NCNN_XFAIL_FAMILIES = {"dfine", "rtdetr"}
 
+
+def _ncnn_case(model_type: str, size: str, *, marks=None):
+    """Attach family markers and optional xfail marks to an ncnn case."""
+    return model_case(model_type, size, marks=marks)
+
+
 RFDETR_ACCURACY_PARAMS = [
-    pytest.param("rfdetr", size, marks=_rfdetr_xfail) for size in RFDETR_SIZES
+    _ncnn_case("rfdetr", size, marks=_rfdetr_xfail) for size in RFDETR_SIZES
 ]
 
 NCNN_QUICK_TEST_MODELS = [
-    pytest.param(mt, sz, marks=_detr_ncnn_xfail)
+    _ncnn_case(mt, sz, marks=_detr_ncnn_xfail)
     if mt in _DETR_NCNN_XFAIL_FAMILIES
-    else (mt, sz)
+    else _ncnn_case(mt, sz)
     for mt, sz in QUICK_TEST_MODELS
 ]
 
 NCNN_FULL_TEST_MODELS = [
-    pytest.param(mt, sz, marks=_detr_ncnn_xfail)
+    _ncnn_case(mt, sz, marks=_detr_ncnn_xfail)
     if mt in _DETR_NCNN_XFAIL_FAMILIES
-    else (mt, sz)
+    else _ncnn_case(mt, sz)
     for mt, sz in FULL_TEST_MODELS
 ]
 
@@ -128,6 +135,7 @@ class TestNCNNExportFP32:
         assert (exported_dir / "model.ncnn.bin").exists(), "model.ncnn.bin not found"
 
 
+@pytest.mark.yolonas
 class TestNCNNYOLONAS:
     """Test ncnn export for the official YOLO-NAS-S checkpoint."""
 
@@ -409,6 +417,7 @@ class TestNCNNModelCoverage:
 
     @requires_ncnn
     @pytest.mark.slow
+    @pytest.mark.yolox
     def test_all_yolox_sizes_exportable(self, sample_image, tmp_path):
         """Test that all YOLOX sizes can be exported and run."""
         from libreyolo import LibreYOLO
@@ -431,6 +440,7 @@ class TestNCNNModelCoverage:
 
     @requires_ncnn
     @pytest.mark.slow
+    @pytest.mark.yolo9
     def test_all_yolo9_sizes_exportable(self, sample_image, tmp_path):
         """Test that all YOLO9 sizes can be exported and run."""
         from libreyolo import LibreYOLO
@@ -455,6 +465,7 @@ class TestNCNNModelCoverage:
     @requires_rfdetr
     @pytest.mark.slow
     @_rfdetr_xfail
+    @pytest.mark.rfdetr
     def test_all_rfdetr_sizes_exportable(self, sample_image, tmp_path):
         """Test that all RF-DETR sizes can be exported and run."""
         from libreyolo import LibreYOLO
@@ -477,6 +488,7 @@ class TestNCNNModelCoverage:
 
     @requires_ncnn
     @pytest.mark.slow
+    @pytest.mark.yolonas
     def test_all_yolonas_sizes_exportable(self, sample_image, tmp_path):
         """Test that all local official YOLO-NAS detection sizes export and run."""
         from libreyolo import LibreYOLO

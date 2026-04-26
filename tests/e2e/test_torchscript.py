@@ -14,16 +14,16 @@ import pytest
 import torch
 
 from .conftest import (
-    FULL_TEST_MODELS,
-    QUICK_TEST_MODELS,
-    RFDETR_TEST_MODELS,
+    FULL_TEST_PARAMS,
+    QUICK_TEST_PARAMS,
+    RFDETR_TEST_PARAMS,
     load_model,
     match_detections,
     requires_rfdetr,
     results_are_acceptable,
 )
 
-pytestmark = pytest.mark.e2e
+pytestmark = [pytest.mark.e2e, pytest.mark.torchscript]
 OFFICIAL_YOLONAS_S = Path("downloads/yolonas/yolo_nas_s_coco.pth")
 OFFICIAL_YOLONAS_WEIGHTS = {
     "s": Path("downloads/yolonas/yolo_nas_s_coco.pth"),
@@ -40,20 +40,20 @@ OFFICIAL_YOLONAS_WEIGHTS = {
 class TestTorchScriptExport:
     """Test TorchScript export for all models."""
 
-    @pytest.mark.parametrize("model_type,size", QUICK_TEST_MODELS)
+    @pytest.mark.parametrize("model_type,size", QUICK_TEST_PARAMS)
     def test_torchscript_export_quick(self, model_type, size, tmp_path):
         """Quick test with smallest models (for CI)."""
         self._run_export_test(model_type, size, tmp_path)
 
     @pytest.mark.slow
-    @pytest.mark.parametrize("model_type,size", FULL_TEST_MODELS)
+    @pytest.mark.parametrize("model_type,size", FULL_TEST_PARAMS)
     def test_torchscript_export_full(self, model_type, size, tmp_path):
         """Full test with all YOLOX and YOLOv9 models."""
         self._run_export_test(model_type, size, tmp_path)
 
     @requires_rfdetr
     @pytest.mark.slow
-    @pytest.mark.parametrize("model_type,size", RFDETR_TEST_MODELS)
+    @pytest.mark.parametrize("model_type,size", RFDETR_TEST_PARAMS)
     def test_torchscript_export_rfdetr(self, model_type, size, tmp_path):
         """Test RF-DETR models (requires extra dependencies)."""
         self._run_export_test(model_type, size, tmp_path)
@@ -88,6 +88,7 @@ class TestTorchScriptExport:
         assert output is not None
 
 
+@pytest.mark.yolonas
 class TestTorchScriptYOLONAS:
     """Test TorchScript export for the official YOLO-NAS-S checkpoint."""
 
@@ -135,7 +136,7 @@ class TestTorchScriptYOLONAS:
 class TestTorchScriptLoadAndInference:
     """Test TorchScript model loading and inference."""
 
-    @pytest.mark.parametrize("model_type,size", QUICK_TEST_MODELS)
+    @pytest.mark.parametrize("model_type,size", QUICK_TEST_PARAMS)
     def test_torchscript_inference(self, model_type, size, tmp_path):
         """Test that TorchScript produces valid forward pass output."""
         device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -163,7 +164,7 @@ class TestTorchScriptLoadAndInference:
 class TestTorchScriptOutputConsistency:
     """Test TorchScript vs PyTorch output consistency."""
 
-    @pytest.mark.parametrize("model_type,size", QUICK_TEST_MODELS)
+    @pytest.mark.parametrize("model_type,size", QUICK_TEST_PARAMS)
     def test_output_shapes_match(self, model_type, size, tmp_path):
         """Test that TorchScript output shapes match PyTorch."""
         device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -216,7 +217,7 @@ class TestTorchScriptOutputConsistency:
 class TestTorchScriptHalf:
     """Test TorchScript FP16 export."""
 
-    @pytest.mark.parametrize("model_type,size", QUICK_TEST_MODELS)
+    @pytest.mark.parametrize("model_type,size", QUICK_TEST_PARAMS)
     def test_torchscript_half(self, model_type, size, tmp_path):
         """Test FP16 TorchScript export."""
         if not torch.cuda.is_available():
@@ -245,6 +246,7 @@ class TestTorchScriptHalf:
 class TestTorchScriptModelCoverage:
     """Verify all model types can be exported to TorchScript."""
 
+    @pytest.mark.yolox
     def test_all_yolox_sizes_exportable(self, tmp_path):
         """Test that all YOLOX sizes can be exported."""
         from .conftest import YOLOX_SIZES
@@ -262,6 +264,7 @@ class TestTorchScriptModelCoverage:
             loaded = torch.jit.load(ts_path, map_location=device)
             assert loaded is not None
 
+    @pytest.mark.yolo9
     def test_all_yolo9_sizes_exportable(self, tmp_path):
         """Test that all YOLO9 sizes can be exported."""
         from .conftest import YOLO9_SIZES
@@ -280,6 +283,7 @@ class TestTorchScriptModelCoverage:
             assert loaded is not None
 
     @requires_rfdetr
+    @pytest.mark.rfdetr
     def test_all_rfdetr_sizes_exportable(self, tmp_path):
         """Test that all RF-DETR sizes can be exported."""
         from .conftest import RFDETR_SIZES
@@ -297,11 +301,14 @@ class TestTorchScriptModelCoverage:
                 # RF-DETR may have tracing issues due to dynamic shapes
                 pytest.skip(f"RF-DETR-{size} TorchScript export not supported: {e}")
 
+    @pytest.mark.yolonas
     def test_all_yolonas_sizes_exportable(self, tmp_path):
         """Test that all local official YOLO-NAS detection sizes export."""
         from libreyolo import LibreYOLO
 
-        missing = [size for size, path in OFFICIAL_YOLONAS_WEIGHTS.items() if not path.exists()]
+        missing = [
+            size for size, path in OFFICIAL_YOLONAS_WEIGHTS.items() if not path.exists()
+        ]
         if missing:
             pytest.skip(
                 "Official YOLO-NAS checkpoints not present for sizes: "
@@ -326,6 +333,7 @@ class TestTorchScriptModelCoverage:
 class TestTorchScriptBatchSize:
     """Test TorchScript with different batch sizes."""
 
+    @pytest.mark.yolox
     @pytest.mark.parametrize("batch_size", [1, 2, 4, 8])
     def test_different_batch_sizes(self, batch_size, tmp_path):
         """Test that TorchScript works with different batch sizes."""

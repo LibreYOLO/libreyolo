@@ -19,7 +19,7 @@ from typing import Any, Dict, List, Optional
 import pytest
 import yaml
 
-from .conftest import cuda_cleanup, require_test_weights
+from .conftest import cuda_cleanup, family_marks, require_test_weights
 
 pytestmark = [pytest.mark.e2e, pytest.mark.rf5]
 
@@ -201,7 +201,7 @@ def load_config(config_path: Path, size: str) -> Dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 # Collect (config_path, size) pairs from all YAML configs
-_TEST_CONFIGS: List[tuple] = []
+_TEST_CONFIGS: List[Any] = []
 _TEST_IDS: List[str] = []
 
 for _cfg_path in sorted(CONFIGS_DIR.glob("*.yaml")):
@@ -209,7 +209,14 @@ for _cfg_path in sorted(CONFIGS_DIR.glob("*.yaml")):
         _cfg = yaml.safe_load(_f)
     _model_type = _cfg.get("model_type", _cfg_path.stem)
     for _size in _cfg.get("sizes", {}):
-        _TEST_CONFIGS.append((_cfg_path, _size))
+        _TEST_CONFIGS.append(
+            pytest.param(
+                _cfg_path,
+                _size,
+                marks=family_marks(_model_type),
+                id=f"{_model_type}-{_size}",
+            )
+        )
         _TEST_IDS.append(f"{_model_type}-{_size}")
 
 
