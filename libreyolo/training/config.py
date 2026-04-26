@@ -139,6 +139,50 @@ class YOLO9Config(TrainConfig):
 
 
 @dataclass(kw_only=True)
+class DFINEConfig(TrainConfig):
+    """D-FINE-specific training defaults.
+
+    Inference matches upstream byte-for-byte; training is a v1 cut: AdamW with
+    no-wd on norms/biases, flat LR with warmup + cosine tail, hflip-only aug,
+    no mosaic/mixup. AMP off by default — D-FINE's decoder clamps activations
+    to ±65504 (FP16 max) which strongly suggests FP32 is required.
+    """
+
+    optimizer: str = "adamw"
+    lr0: float = 2e-4
+    weight_decay: float = 1e-4
+
+    scheduler: str = "flat_cosine"
+    warmup_epochs: int = 2
+    warmup_lr_start: float = 1e-6
+    no_aug_epochs: int = 4
+    min_lr_ratio: float = 0.05
+
+    # No mosaic / no mixup / no color or geometric aug for v1.
+    mosaic_prob: float = 0.0
+    mixup_prob: float = 0.0
+    hsv_prob: float = 0.0
+    flip_prob: float = 0.5
+    degrees: float = 0.0
+    translate: float = 0.0
+    shear: float = 0.0
+
+    ema: bool = True
+    ema_decay: float = 0.9999
+    ema_restart_decay: float = 0.9999
+
+    # D-FINE-specific training knobs (paper-faithful fine-tune defaults).
+    backbone_lr_mult: float = 0.5  # upstream's fine-tune recipe uses 0.5×
+    clip_max_norm: float = 0.1  # upstream default; 0 disables clipping
+    multi_scale: bool = True  # per-batch random resize via DFINEMultiScaleCollate
+    aug_stop_epoch_ratio: float = 0.85  # disable strong augs at epoch * ratio
+
+    amp: bool = False
+    epochs: int = 132
+    name: str = "dfine_exp"
+
+
+@dataclass(kw_only=True)
 class YOLONASConfig(TrainConfig):
     """YOLO-NAS-specific training defaults."""
 
