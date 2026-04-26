@@ -221,6 +221,26 @@ class DetectionValidator(BaseValidator):
         split = self.config.split
         img_files = data_cfg.get(f"{split}_img_files")
         label_files = data_cfg.get(f"{split}_label_files")
+
+        # Directory-format YOLO datasets (the Roboflow default) don't get
+        # ``{split}_img_files`` pre-populated by ``load_data_config`` — that
+        # path only fires for ``.txt`` lists. Walk the directory the same way
+        # ``_setup_dataloader`` does so the metrics init stays in lockstep.
+        if not img_files:
+            from libreyolo.data import img2label_paths
+
+            split_value = data_cfg.get(split)
+            if split_value and not str(split_value).endswith(".txt"):
+                split_dir = Path(split_value)
+                if split_dir.is_dir():
+                    globbed: List[Path] = []
+                    for pattern in ("*.jpg", "*.jpeg", "*.png", "*.bmp"):
+                        globbed.extend(split_dir.glob(pattern))
+                        globbed.extend(split_dir.glob(pattern.upper()))
+                    if globbed:
+                        img_files = sorted(globbed)
+                        label_files = img2label_paths(img_files)
+
         if not img_files:
             raise RuntimeError(
                 f"No {split} images resolved for data={self.config.data!r}. "

@@ -6,6 +6,7 @@ Provides shared functionality for all YOLO model variants.
 
 from __future__ import annotations
 
+import logging
 import re
 from abc import ABC, abstractmethod
 from pathlib import Path
@@ -22,6 +23,8 @@ from ...utils.logging import ensure_default_logging
 from ...utils.results import Results
 from ...utils.serialization import load_untrusted_torch_file
 from ...validation.preprocessors import StandardValPreprocessor
+
+logger = logging.getLogger(__name__)
 
 
 class BaseModel(ABC):
@@ -308,6 +311,14 @@ class BaseModel(ABC):
                         f"Use the correct model class for this checkpoint."
                     )
 
+                # Auto-detect size from the state dict and rebuild if the
+                # constructed architecture doesn't match the file. Without this,
+                # e.g. LibreYOLORTDETR("LibreRTDETRl.pt") with the default
+                # size="r50" silently constructs a PResNet-50 model; HGNetv2-L
+                # weights then load partially via strict=False because key names
+                # differ, leaving most of the model randomly initialised.
+                self._auto_rebuild_for_detected_size(state_dict)
+
                 ckpt_nc = loaded.get("nc")
                 if ckpt_nc is not None and ckpt_nc != self.nb_classes:
                     self._rebuild_for_new_classes(ckpt_nc)
@@ -318,12 +329,59 @@ class BaseModel(ABC):
                     self.names = self._sanitize_names(ckpt_names, effective_nc)
             else:
                 state_dict = loaded
+                self._auto_rebuild_for_detected_size(state_dict)
 
-            self.model.load_state_dict(state_dict, strict=self._strict_loading())
+            try:
+                self.model.load_state_dict(
+                    state_dict, strict=self._strict_loading()
+                )
+            except RuntimeError as e:
+                msg = str(e)
+                if "size mismatch" in msg:
+                    raise RuntimeError(
+                        f"Checkpoint shape mismatch loading {model_path}: the "
+                        f"weights file appears to be for a different model "
+                        f"configuration (likely stale or from a different "
+                        f"version of the code). Underlying error: {e}"
+                    ) from e
+                raise
         except Exception as e:
             raise RuntimeError(
                 f"Failed to load model weights from {model_path}: {e}"
             ) from e
+
+    def _auto_rebuild_for_detected_size(self, state_dict: dict) -> None:
+        """Detect the architecture size from a checkpoint state dict and
+        rebuild the wrapped model if it doesn't match ``self.size``.
+
+        Subclasses opt in by implementing the ``detect_size`` classmethod.
+        Returns silently if no detection is available, no size could be
+        inferred, or the detected size already matches.
+        """
+        detect_size = getattr(type(self), "detect_size", None)
+        if detect_size is None:
+            return
+        try:
+            detected_size = detect_size(state_dict)
+        except Exception:
+            return
+        if not detected_size:
+            return
+        if detected_size not in self._get_valid_sizes():
+            return
+        if detected_size == self.size:
+            return
+        logger.warning(
+            "Checkpoint indicates size=%r but model was constructed with "
+            "size=%r; rebuilding as %r to match the checkpoint.",
+            detected_size,
+            self.size,
+            detected_size,
+        )
+        self.size = detected_size
+        self.input_size = self.INPUT_SIZES[detected_size]
+        self.model = self._init_model()
+        self.model.to(self.device)
 
     # =========================================================================
     # Public API
