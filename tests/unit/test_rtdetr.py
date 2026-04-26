@@ -93,6 +93,51 @@ class TestRTDETRCanLoad:
 class TestRTDETRDetectSize:
     """Test RTDETR size detection from weights."""
 
+    def test_detect_size_resnet18(self):
+        """BasicBlock + two stage-0 blocks -> 'r18'."""
+        weights = {
+            "backbone.res_layers.0.blocks.0.branch2a.conv.weight": torch.zeros(
+                64, 64, 3, 3
+            ),
+            "backbone.res_layers.0.blocks.1.branch2a.conv.weight": torch.zeros(
+                64, 64, 3, 3
+            ),
+            "encoder.input_proj.0.0.weight": torch.zeros(256, 128, 1, 1),
+        }
+        assert LibreYOLORTDETR.detect_size(weights) == "r18"
+
+    def test_detect_size_resnet50(self):
+        """Bottleneck + full-width encoder expansion -> 'r50'."""
+        weights = {
+            "backbone.res_layers.0.blocks.0.branch2c.conv.weight": torch.zeros(
+                256, 64, 1, 1
+            ),
+            "encoder.input_proj.0.0.weight": torch.zeros(256, 512, 1, 1),
+            "encoder.fpn_blocks.0.conv1.conv.weight": torch.zeros(256, 512, 1, 1),
+        }
+        assert LibreYOLORTDETR.detect_size(weights) == "r50"
+
+    def test_detect_size_resnet50m(self):
+        """Bottleneck + half-width encoder expansion -> 'r50m'."""
+        weights = {
+            "backbone.res_layers.0.blocks.0.branch2c.conv.weight": torch.zeros(
+                256, 64, 1, 1
+            ),
+            "encoder.input_proj.0.0.weight": torch.zeros(256, 512, 1, 1),
+            "encoder.fpn_blocks.0.conv1.conv.weight": torch.zeros(128, 512, 1, 1),
+        }
+        assert LibreYOLORTDETR.detect_size(weights) == "r50m"
+
+    def test_detect_size_resnet101(self):
+        """Hidden dim 384 identifies the R101 variant."""
+        weights = {
+            "backbone.res_layers.0.blocks.0.branch2c.conv.weight": torch.zeros(
+                256, 64, 1, 1
+            ),
+            "encoder.input_proj.0.0.weight": torch.zeros(384, 512, 1, 1),
+        }
+        assert LibreYOLORTDETR.detect_size(weights) == "r101"
+
     def test_detect_size_hgnetv2_l(self):
         """HGNetv2 + encoder hidden_dim 256 → 'l'."""
         weights = {
