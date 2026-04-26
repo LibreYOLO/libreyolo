@@ -7,6 +7,8 @@ from dataclasses import fields as dc_fields
 from libreyolo.cli.config import (
     build_train_kwargs,
     detect_family_from_name,
+    detect_family_from_model_ref,
+    detect_family_from_weight_filename,
     get_cfg_defaults,
     get_family_defaults,
     get_train_config_class,
@@ -69,6 +71,26 @@ class TestDetectFamilyFromName:
 
     def test_unknown_returns_none(self):
         assert detect_family_from_name("unknown") is None
+
+
+class TestDetectFamilyFromModelRef:
+    """Test family detection across aliases, filenames, and paths."""
+
+    def test_weight_filename_family(self):
+        assert detect_family_from_weight_filename("LibreYOLOXs.pt") == "yolox"
+        assert detect_family_from_weight_filename("weights/LibreYOLO9t.pt") == "yolo9"
+        assert detect_family_from_weight_filename("LibreRTDETRr18.pt") == "rtdetr"
+
+    def test_model_ref_uses_alias_or_resolved_filename(self):
+        assert detect_family_from_model_ref("rtdetr-r18", "LibreRTDETRr18.pt") == "rtdetr"
+        assert detect_family_from_model_ref("LibreRTDETRr18.pt") == "rtdetr"
+        assert (
+            detect_family_from_model_ref("/tmp/models/LibreRTDETRr18.pt")
+            == "rtdetr"
+        )
+
+    def test_unknown_checkpoint_name_returns_none(self):
+        assert detect_family_from_model_ref("best.pt") is None
 
 
 class TestGetTrainConfigClass:

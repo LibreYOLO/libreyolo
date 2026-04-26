@@ -44,6 +44,61 @@ def load_model_or_exit(
         )
 
 
+def get_loaded_model_family(loaded_model: Any) -> Optional[str]:
+    """Return the model family for native wrappers or exported-runtime backends."""
+    family = getattr(loaded_model, "FAMILY", None)
+    if family:
+        return str(family)
+
+    family = getattr(loaded_model, "model_family", None)
+    if family:
+        return str(family)
+
+    get_model_name = getattr(loaded_model, "_get_model_name", None)
+    if callable(get_model_name):
+        try:
+            family = get_model_name()
+        except Exception:
+            family = None
+        if family:
+            return str(family)
+
+    return None
+
+
+def get_loaded_model_input_size(
+    loaded_model: Any,
+    *,
+    imgsz: Optional[int] = None,
+    default: int = 640,
+) -> int:
+    """Return the effective square input size for wrapper or backend output."""
+    if imgsz is not None:
+        return int(imgsz)
+
+    get_input_size = getattr(loaded_model, "_get_input_size", None)
+    if callable(get_input_size):
+        try:
+            return int(get_input_size())
+        except Exception:
+            pass
+
+    input_size = getattr(loaded_model, "input_size", None)
+    if input_size is not None:
+        return int(input_size)
+
+    backend_imgsz = getattr(loaded_model, "imgsz", None)
+    if backend_imgsz is not None:
+        return int(backend_imgsz)
+
+    input_sizes = getattr(loaded_model, "INPUT_SIZES", None)
+    size = getattr(loaded_model, "size", None)
+    if isinstance(input_sizes, dict) and size is not None:
+        return int(input_sizes.get(size, default))
+
+    return default
+
+
 def resolve_model_or_exit(out: OutputHandler, model: str) -> str:
     """Resolve a model reference or fail with a consistent CLI error."""
     from .config import get_all_cli_names, is_known_weight_filename, resolve_model_name

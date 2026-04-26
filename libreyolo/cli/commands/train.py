@@ -9,6 +9,7 @@ import typer
 from ..command_utils import (
     exit_stage_error,
     exit_with_error,
+    get_loaded_model_family,
     help_json_callback,
     load_model_or_exit,
     resolve_model_or_exit,
@@ -16,7 +17,7 @@ from ..command_utils import (
 from ..config import (
     apply_family_defaults,
     build_family_train_kwargs,
-    detect_family_from_name,
+    detect_family_from_model_ref,
     get_unsupported_train_params,
 )
 from ..output import OutputHandler
@@ -134,10 +135,16 @@ def train_cmd(
         else:
             resume_val = resume
 
-    # Detect model family
-    family = detect_family_from_name(model)
-
     model_path = resolve_model_or_exit(out, model)
+    family = detect_family_from_model_ref(
+        model, model_path, inspect_checkpoint=dry_run
+    )
+    loaded_model = None
+    if family is None and not dry_run:
+        loaded_model = load_model_or_exit(
+            out, model=model, model_path=model_path, device=device
+        )
+        family = get_loaded_model_family(loaded_model)
 
     # All training params in CLI-facing names (single source of truth).
     # build_train_kwargs() maps these to TrainConfig field names automatically.
@@ -231,9 +238,11 @@ def train_cmd(
         )
 
     # Load model
-    loaded_model = load_model_or_exit(
-        out, model=model, model_path=model_path, device=device
-    )
+    if loaded_model is None:
+        loaded_model = load_model_or_exit(
+            out, model=model, model_path=model_path, device=device
+        )
+    loaded_family = get_loaded_model_family(loaded_model) or family
 
     # Build training kwargs, with family-specific translation where needed.
     train_kwargs = build_family_train_kwargs(
@@ -275,13 +284,13 @@ def train_cmd(
     )
     best_weights = results.get("best_checkpoint") or f"{save_dir}/weights/best.pt"
     last_weights = results.get("last_checkpoint")
-    if last_weights is None and loaded_model.FAMILY != "rfdetr":
+    if last_weights is None and loaded_family != "rfdetr":
         last_weights = f"{save_dir}/weights/last.pt"
 
     data_out = {
         "status": "complete",
         "model": model,
-        "model_family": loaded_model.FAMILY,
+        "model_family": loaded_family,
         "data": data,
         "device": str(loaded_model.device),
         "epochs_completed": params["epochs"],

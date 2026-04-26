@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 
-def get_unsupported_train_params(family: str) -> set[str]:
+def get_unsupported_train_params(family: str | None) -> set[str]:
     """Return the set of CLI parameters ignored by a model family's trainer."""
     if family == "rfdetr":
         from libreyolo.models import try_ensure_rfdetr
@@ -87,6 +87,112 @@ def detect_family_from_name(model_name: str) -> Optional[str]:
         family = cli_name.rsplit("-", 1)[0]
         if lower.startswith(f"{family}-"):
             return family
+    return None
+
+
+def _iter_model_classes():
+    """Yield registered model classes, including lazy optional families."""
+    from libreyolo.models import try_ensure_rfdetr
+    from libreyolo.models.base.model import BaseModel
+
+    seen: set[type] = set()
+    for cls in BaseModel._registry:
+        if cls not in seen:
+            seen.add(cls)
+            yield cls
+
+    rfcls = try_ensure_rfdetr()
+    if rfcls is not None and rfcls not in seen:
+        yield rfcls
+
+
+def detect_family_from_weight_filename(model: str) -> Optional[str]:
+    """Detect model family from a known LibreYOLO weight filename or path."""
+    filename = Path(model).name
+    for cls in _iter_model_classes():
+        if cls.detect_size_from_filename(filename) is not None:
+            return cls.FAMILY
+    return None
+
+
+def _unwrap_checkpoint_state(checkpoint: Any) -> Any:
+    """Extract a state dict from common trainer checkpoint layouts."""
+    if not isinstance(checkpoint, dict):
+        return checkpoint
+    if "ema" in checkpoint and isinstance(checkpoint.get("ema"), dict):
+        ema_data = checkpoint["ema"]
+        return ema_data.get("module", ema_data)
+    if "model" in checkpoint and isinstance(checkpoint.get("model"), dict):
+        return checkpoint["model"]
+    return checkpoint
+
+
+def detect_family_from_checkpoint(model_path: str) -> Optional[str]:
+    """Detect model family from an existing PyTorch checkpoint when possible."""
+    path = Path(model_path)
+    if not path.exists() or path.suffix.lower() not in {".pt", ".pth"}:
+        return None
+
+    try:
+        from libreyolo.utils.serialization import load_untrusted_torch_file
+
+        checkpoint = load_untrusted_torch_file(
+            path,
+            map_location="cpu",
+            context="CLI model family inspection",
+        )
+    except Exception:
+        return None
+
+    if isinstance(checkpoint, dict):
+        family = checkpoint.get("model_family")
+        if isinstance(family, str) and family:
+            return family
+
+    state = _unwrap_checkpoint_state(checkpoint)
+    if not isinstance(state, dict):
+        return None
+
+    for cls in _iter_model_classes():
+        try:
+            if cls.can_load(state):
+                return cls.FAMILY
+        except Exception:
+            continue
+    return None
+
+
+def detect_family_from_model_ref(
+    model: str,
+    resolved_model_path: str | None = None,
+    *,
+    inspect_checkpoint: bool = False,
+) -> Optional[str]:
+    """Detect model family from a CLI model reference and optional resolved path.
+
+    The CLI accepts aliases (``yolox-s``), packaged weight filenames
+    (``LibreYOLOXs.pt``), and filesystem paths. Keep this detection registry-based
+    so family-specific defaults follow model-class metadata instead of hardcoded
+    CLI switches.
+    """
+    refs = [model]
+    if resolved_model_path is not None and resolved_model_path != model:
+        refs.append(resolved_model_path)
+
+    for ref in refs:
+        family = detect_family_from_name(ref)
+        if family is not None:
+            return family
+        family = detect_family_from_weight_filename(ref)
+        if family is not None:
+            return family
+
+    if inspect_checkpoint:
+        for ref in refs:
+            family = detect_family_from_checkpoint(ref)
+            if family is not None:
+                return family
+
     return None
 
 

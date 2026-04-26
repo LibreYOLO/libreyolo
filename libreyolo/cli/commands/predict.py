@@ -8,6 +8,8 @@ import typer
 
 from ..command_utils import (
     exit_with_error,
+    get_loaded_model_family,
+    get_loaded_model_input_size,
     help_json_callback,
     load_model_or_exit,
     resolve_model_or_exit,
@@ -166,11 +168,12 @@ def predict_cmd(
             f"{elapsed_ms:.1f}ms avg"
         )
 
+    image_size = get_loaded_model_input_size(loaded_model, imgsz=imgsz)
     data = {
         "source": str(source),
         "model": model,
-        "model_family": loaded_model.FAMILY,
-        "image_size": [loaded_model.INPUT_SIZES.get(loaded_model.size, 640)] * 2,
+        "model_family": get_loaded_model_family(loaded_model) or "unknown",
+        "image_size": [image_size] * 2,
         "device": str(loaded_model.device),
         "results": result_list,
     }

@@ -45,3 +45,26 @@ def test_train_dry_run_uses_rtdetr_defaults():
     assert data["resolved_config"]["optimizer"] == "adamw"
     assert data["resolved_config"]["lr0"] == 0.0001
     assert data["resolved_config"]["scheduler"] == "linear"
+
+
+def test_train_dry_run_uses_rtdetr_defaults_for_weight_filename():
+    """Dry-run detects family defaults from supported weight filenames."""
+    app = _make_app()
+    result = runner.invoke(
+        app,
+        [
+            "data=coco8.yaml",
+            "model=LibreRTDETRr18.pt",
+            "--dry-run",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0
+    data = json.loads(result.stdout)
+    assert data["model_family"] == "rtdetr"
+    assert data["resolved_config"]["epochs"] == 72
+    assert data["resolved_config"]["batch"] == 4
+    assert data["resolved_config"]["optimizer"] == "adamw"
+    assert data["resolved_config"]["lr0"] == 0.0001
+    assert data["resolved_config"]["scheduler"] == "linear"

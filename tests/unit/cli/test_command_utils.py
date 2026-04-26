@@ -8,11 +8,17 @@ import json
 from pathlib import Path
 
 import pytest
+import torch
 import typer
 from typer.testing import CliRunner
 
 from libreyolo.cli.commands import export, predict, special, train, val
+from libreyolo.cli.command_utils import (
+    get_loaded_model_family,
+    get_loaded_model_input_size,
+)
 from libreyolo.cli.parsing import KeyValueCommand
+from libreyolo.utils.results import Boxes, Results
 
 pytestmark = pytest.mark.unit
 
@@ -264,6 +270,71 @@ def test_info_accepts_known_weight_filename(monkeypatch):
     data = json.loads(result.stdout)
     assert data["model"] == "LibreYOLOXs.pt"
     assert data["model_family"] == "yolox"
+
+
+def test_loaded_model_metadata_supports_wrappers_and_backends():
+    class _Wrapper:
+        FAMILY = "yolox"
+        INPUT_SIZES = {"s": 640}
+        size = "s"
+
+    class _Backend:
+        model_family = "yolox"
+        imgsz = 320
+
+    assert get_loaded_model_family(_Wrapper()) == "yolox"
+    assert get_loaded_model_input_size(_Wrapper()) == 640
+    assert get_loaded_model_family(_Backend()) == "yolox"
+    assert get_loaded_model_input_size(_Backend()) == 320
+    assert get_loaded_model_input_size(_Wrapper(), imgsz=416) == 416
+
+
+def test_predict_json_supports_exported_backend_metadata(monkeypatch):
+    app = _make_app([("predict", predict.predict_cmd), ("info", special.info_cmd)])
+
+    class _BackendLike:
+        model_family = "yolox"
+        imgsz = 640
+        device = "cpu"
+
+        def __call__(self, source, **kwargs):
+            boxes = Boxes(
+                torch.tensor([[1.0, 2.0, 3.0, 4.0]]),
+                torch.tensor([0.9]),
+                torch.tensor([0]),
+            )
+            return Results(
+                boxes=boxes,
+                orig_shape=(10, 20),
+                path=source,
+                names={0: "person"},
+            )
+
+    monkeypatch.setattr(
+        "libreyolo.cli.commands.predict.resolve_model_or_exit",
+        lambda out, model: model,
+    )
+    monkeypatch.setattr(
+        "libreyolo.cli.commands.predict.load_model_or_exit",
+        lambda out, model, model_path, device: _BackendLike(),
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "predict",
+            "source=libreyolo/assets/parkour.jpg",
+            "model=model.onnx",
+            "imgsz=320",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0
+    data = json.loads(result.stdout)
+    assert data["model_family"] == "yolox"
+    assert data["image_size"] == [320, 320]
+    assert data["results"][0]["detections"][0]["class"] == "person"
 
 
 # ---------------------------------------------------------------------------

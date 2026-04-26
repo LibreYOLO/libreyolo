@@ -304,7 +304,24 @@ class TestPredict:
         assert result.exit_code == 0
         data = _parse_json_output(result.output)
         assert data["model_family"] == "yolox"
+        assert data["image_size"] == [640, 640]
         assert len(data["results"][0]["detections"]) > 0
+
+    def test_predict_reports_effective_imgsz(self, app):
+        """JSON output reports the requested inference size."""
+        result = runner.invoke(
+            app,
+            [
+                "predict",
+                "source=libreyolo/assets/parkour.jpg",
+                "model=weights/LibreYOLOXs.pt",
+                "imgsz=320",
+                "--json",
+            ],
+        )
+        assert result.exit_code == 0
+        data = _parse_json_output(result.output)
+        assert data["image_size"] == [320, 320]
 
     def test_predict_missing_source(self, app):
         result = runner.invoke(
@@ -350,12 +367,12 @@ class TestPredict:
         )
         from libreyolo.cli import _strip_task_prefix
 
-        _strip_task_prefix()
+        argv = _strip_task_prefix(sys.argv)
         # After stripping, argv should not contain 'detect'
-        assert "detect" not in sys.argv
+        assert "detect" not in argv
         result = runner.invoke(
             app,
-            sys.argv[1:],
+            argv[1:],
         )
         assert result.exit_code == 0
         data = _parse_json_output(result.output)
@@ -519,6 +536,26 @@ class TestTrainDryRun:
         assert data["model_family"] == "yolo9"
         cfg = data["resolved_config"]
         assert cfg["scheduler"] == "linear"  # YOLO9 family default
+
+    def test_rtdetr_weight_filename_uses_family_defaults(self, app):
+        result = runner.invoke(
+            app,
+            [
+                "train",
+                "data=coco8.yaml",
+                "model=LibreRTDETRr18.pt",
+                "--dry-run",
+                "--json",
+            ],
+        )
+        assert result.exit_code == 0
+        data = _parse_json_output(result.output)
+        assert data["model_family"] == "rtdetr"
+        cfg = data["resolved_config"]
+        assert cfg["epochs"] == 72
+        assert cfg["batch"] == 4
+        assert cfg["optimizer"] == "adamw"
+        assert cfg["scheduler"] == "linear"
 
     def test_user_override_wins(self, app):
         result = runner.invoke(
