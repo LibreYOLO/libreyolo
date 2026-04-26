@@ -236,13 +236,14 @@ class DFINETrainer(BaseTrainer):
         losses = self.criterion(outputs, target_list)
         total = sum(losses.values())
 
+        zero = torch.tensor(0.0, device=self.device)
         return {
             "total_loss": total,
-            "loss_vfl": losses.get("loss_vfl", torch.tensor(0.0)),
-            "loss_bbox": losses.get("loss_bbox", torch.tensor(0.0)),
-            "loss_giou": losses.get("loss_giou", torch.tensor(0.0)),
-            "loss_fgl": losses.get("loss_fgl", torch.tensor(0.0)),
-            "loss_ddf": losses.get("loss_ddf", torch.tensor(0.0)),
+            "loss_vfl": losses.get("loss_vfl", zero),
+            "loss_bbox": losses.get("loss_bbox", zero),
+            "loss_giou": losses.get("loss_giou", zero),
+            "loss_fgl": losses.get("loss_fgl", zero),
+            "loss_ddf": losses.get("loss_ddf", zero),
         }
 
     # =========================================================================
