@@ -18,6 +18,7 @@ EXIT_CODES: dict[str, int] = {
     "config_range_error": 2,
     "config_required_key": 2,
     "config_conflict": 2,
+    "config_unsupported": 2,
     # Data errors
     "source_not_found": 3,
     "data_not_found": 3,

@@ -337,6 +337,134 @@ def test_predict_json_supports_exported_backend_metadata(monkeypatch):
     assert data["results"][0]["detections"][0]["class"] == "person"
 
 
+def test_predict_exported_backend_does_not_receive_native_only_kwargs(monkeypatch):
+    app = _make_app([("predict", predict.predict_cmd), ("info", special.info_cmd)])
+
+    class _StrictBackendLike:
+        model_family = "yolox"
+        imgsz = 640
+        device = "cpu"
+
+        def __call__(
+            self,
+            source,
+            *,
+            conf=0.25,
+            iou=0.45,
+            imgsz=None,
+            classes=None,
+            max_det=300,
+            save=False,
+            batch=1,
+            output_path=None,
+            color_format="auto",
+        ):
+            assert conf == 0.25
+            assert iou == 0.45
+            assert imgsz is None
+            assert classes is None
+            assert max_det == 300
+            assert save is False
+            assert batch == 1
+            assert output_path is None
+            assert color_format == "auto"
+            boxes = Boxes(
+                torch.tensor([[1.0, 2.0, 3.0, 4.0]]),
+                torch.tensor([0.9]),
+                torch.tensor([0]),
+            )
+            return Results(
+                boxes=boxes,
+                orig_shape=(10, 20),
+                path=source,
+                names={0: "person"},
+            )
+
+    monkeypatch.setattr(
+        "libreyolo.cli.commands.predict.resolve_model_or_exit",
+        lambda out, model: model,
+    )
+    monkeypatch.setattr(
+        "libreyolo.cli.commands.predict.load_model_or_exit",
+        lambda out, model, model_path, device: _StrictBackendLike(),
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "predict",
+            "source=libreyolo/assets/parkour.jpg",
+            "model=model.onnx",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0
+    data = json.loads(result.stdout)
+    assert data["model_family"] == "yolox"
+    assert data["results"][0]["detections"][0]["class"] == "person"
+
+
+@pytest.mark.parametrize(
+    ("option", "name"),
+    [
+        ("tiling=true", "tiling"),
+        ("overlap_ratio=0.3", "overlap_ratio"),
+        ("output_file_format=png", "output_file_format"),
+    ],
+)
+def test_predict_exported_backend_rejects_requested_native_only_kwargs(
+    monkeypatch, option, name
+):
+    app = _make_app([("predict", predict.predict_cmd), ("info", special.info_cmd)])
+
+    class _StrictBackendLike:
+        model_family = "yolox"
+        imgsz = 640
+        device = "cpu"
+
+        def __call__(
+            self,
+            source,
+            *,
+            conf=0.25,
+            iou=0.45,
+            imgsz=None,
+            classes=None,
+            max_det=300,
+            save=False,
+            batch=1,
+            output_path=None,
+            color_format="auto",
+        ):
+            raise AssertionError("should fail before backend inference")
+
+    monkeypatch.setattr(
+        "libreyolo.cli.commands.predict.resolve_model_or_exit",
+        lambda out, model: model,
+    )
+    monkeypatch.setattr(
+        "libreyolo.cli.commands.predict.load_model_or_exit",
+        lambda out, model, model_path, device: _StrictBackendLike(),
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "predict",
+            "source=libreyolo/assets/parkour.jpg",
+            "model=model.onnx",
+            option,
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 2
+    data = json.loads(result.stdout)
+    assert data["error"] == "config_unsupported"
+    assert name in data["message"]
+
+
 # ---------------------------------------------------------------------------
 # --help-json schema
 # ---------------------------------------------------------------------------

@@ -1,15 +1,14 @@
 """Train command: train a model on a dataset."""
 
 import time
-from typing import Set
 
-import click
 import typer
 
 from ..command_utils import (
     exit_stage_error,
     exit_with_error,
     get_loaded_model_family,
+    get_user_provided_params,
     help_json_callback,
     load_model_or_exit,
     resolve_model_or_exit,
@@ -21,18 +20,6 @@ from ..config import (
     get_unsupported_train_params,
 )
 from ..output import OutputHandler
-
-
-def _get_user_provided_params() -> Set[str]:
-    """Return the set of parameter names explicitly provided on the command line."""
-    ctx = click.get_current_context(silent=True)
-    if ctx is None:
-        return set()
-    return {
-        p.name
-        for p in ctx.command.params
-        if ctx.get_parameter_source(p.name) == click.core.ParameterSource.COMMANDLINE
-    }
 
 
 def train_cmd(
@@ -108,7 +95,7 @@ def train_cmd(
     import ast
 
     out = OutputHandler(json_mode=json_output, quiet=quiet)
-    user_provided = _get_user_provided_params()
+    user_provided = get_user_provided_params()
 
     # Parse tuple strings
     try:
@@ -136,9 +123,7 @@ def train_cmd(
             resume_val = resume
 
     model_path = resolve_model_or_exit(out, model)
-    family = detect_family_from_model_ref(
-        model, model_path, inspect_checkpoint=dry_run
-    )
+    family = detect_family_from_model_ref(model, model_path, inspect_checkpoint=dry_run)
     loaded_model = None
     if family is None and not dry_run:
         loaded_model = load_model_or_exit(
@@ -206,21 +191,38 @@ def train_cmd(
 
     # Dry run: validate and show resolved config
     if dry_run:
-        data_out = {
-            "valid": True,
-            "mode": "train",
-            "model_family": family or "auto-detect",
-            "resolved_config": {
+        resolved_config = {
+            "model": model,
+            "data": data,
+            "epochs": params["epochs"],
+            "batch": params["batch"],
+            "imgsz": params["imgsz"],
+            "optimizer": params["optimizer"],
+            "lr0": params["lr0"],
+            "momentum": params["momentum"],
+            "scheduler": params["scheduler"],
+        }
+        if family == "rfdetr":
+            resolved_config = {
                 "model": model,
                 "data": data,
                 "epochs": params["epochs"],
                 "batch": params["batch"],
-                "imgsz": params["imgsz"],
-                "optimizer": params["optimizer"],
                 "lr0": params["lr0"],
-                "momentum": params["momentum"],
-                "scheduler": params["scheduler"],
-            },
+                "workers": params["workers"],
+                "weight_decay": params["weight_decay"],
+                "eval_interval": params["eval_interval"],
+                "warmup_epochs": params["warmup_epochs"],
+                "ema": params["ema"],
+                "ema_decay": params["ema_decay"],
+                "save_period": params["save_period"],
+            }
+
+        data_out = {
+            "valid": True,
+            "mode": "train",
+            "model_family": family or "auto-detect",
+            "resolved_config": resolved_config,
         }
         if not json_output:
             import yaml

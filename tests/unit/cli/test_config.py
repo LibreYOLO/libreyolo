@@ -82,12 +82,11 @@ class TestDetectFamilyFromModelRef:
         assert detect_family_from_weight_filename("LibreRTDETRr18.pt") == "rtdetr"
 
     def test_model_ref_uses_alias_or_resolved_filename(self):
-        assert detect_family_from_model_ref("rtdetr-r18", "LibreRTDETRr18.pt") == "rtdetr"
-        assert detect_family_from_model_ref("LibreRTDETRr18.pt") == "rtdetr"
         assert (
-            detect_family_from_model_ref("/tmp/models/LibreRTDETRr18.pt")
-            == "rtdetr"
+            detect_family_from_model_ref("rtdetr-r18", "LibreRTDETRr18.pt") == "rtdetr"
         )
+        assert detect_family_from_model_ref("LibreRTDETRr18.pt") == "rtdetr"
+        assert detect_family_from_model_ref("/tmp/models/LibreRTDETRr18.pt") == "rtdetr"
 
     def test_unknown_checkpoint_name_returns_none(self):
         assert detect_family_from_model_ref("best.pt") is None

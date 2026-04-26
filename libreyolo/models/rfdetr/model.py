@@ -12,6 +12,7 @@ from ..base import BaseModel
 from ...utils.image_loader import ImageInput, ImageLoader
 from ...utils.serialization import load_trusted_torch_file
 from .nn import LibreRFDETRModel
+from .config import RFDETRConfig
 from .utils import postprocess, IMAGENET_MEAN, IMAGENET_STD
 from .trainer import train_rfdetr
 from ...validation.preprocessors import RFDETRValPreprocessor
@@ -125,6 +126,7 @@ class LibreYOLORFDETR(BaseModel):
     FAMILY = "rfdetr"
     FILENAME_PREFIX = "LibreRFDETR"
     INPUT_SIZES = {"n": 384, "s": 512, "m": 576, "l": 704}
+    TRAIN_CONFIG = RFDETRConfig
     val_preprocessor_class = RFDETRValPreprocessor
 
     # CLI parameters not supported by RF-DETR's training API

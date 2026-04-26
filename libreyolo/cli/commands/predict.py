@@ -1,5 +1,6 @@
 """Predict command: run inference on images."""
 
+import inspect
 import time
 from pathlib import Path
 from typing import Optional
@@ -10,11 +11,90 @@ from ..command_utils import (
     exit_with_error,
     get_loaded_model_family,
     get_loaded_model_input_size,
+    get_user_provided_params,
     help_json_callback,
     load_model_or_exit,
     resolve_model_or_exit,
 )
 from ..output import OutputHandler
+
+
+_NATIVE_ONLY_PREDICT_KWARGS = {"tiling", "overlap_ratio", "output_file_format"}
+
+
+def _call_accepts_kwarg(callable_obj, name: str) -> bool:
+    """Return whether a callable accepts a keyword argument by name."""
+    try:
+        signature = inspect.signature(callable_obj)
+    except (TypeError, ValueError):
+        return True
+
+    for param in signature.parameters.values():
+        if param.kind == inspect.Parameter.VAR_KEYWORD:
+            return True
+
+    return name in signature.parameters
+
+
+def _build_predict_kwargs(
+    loaded_model,
+    *,
+    out: OutputHandler,
+    user_provided: set[str],
+    conf: float,
+    iou: float,
+    imgsz: Optional[int],
+    classes: Optional[list[int]],
+    max_det: int,
+    save: bool,
+    batch: int,
+    output_path: Optional[str],
+    color_format: str,
+    tiling: bool,
+    overlap_ratio: float,
+    output_file_format: Optional[str],
+) -> dict:
+    """Build inference kwargs without sending native-only options to backends."""
+    kwargs = {
+        "conf": conf,
+        "iou": iou,
+        "imgsz": imgsz,
+        "classes": classes,
+        "max_det": max_det,
+        "save": save,
+        "batch": batch,
+        "output_path": output_path,
+        "color_format": color_format,
+        "tiling": tiling,
+        "overlap_ratio": overlap_ratio,
+        "output_file_format": output_file_format,
+    }
+
+    call = loaded_model.__call__
+    unsupported = {
+        name
+        for name in _NATIVE_ONLY_PREDICT_KWARGS
+        if not _call_accepts_kwarg(call, name)
+    }
+
+    requested_unsupported = []
+    if "tiling" in unsupported and tiling:
+        requested_unsupported.append("tiling")
+    if "output_file_format" in unsupported and output_file_format is not None:
+        requested_unsupported.append("output_file_format")
+    if "overlap_ratio" in unsupported and "overlap_ratio" in user_provided:
+        requested_unsupported.append("overlap_ratio")
+
+    if requested_unsupported:
+        names = ", ".join(sorted(requested_unsupported))
+        exit_with_error(
+            out,
+            "config_unsupported",
+            f"Exported-runtime backends do not support these predict options: {names}.",
+            suggestion="Use a native .pt model for tiled/custom-format inference, or omit these options.",
+        )
+
+    return {name: value for name, value in kwargs.items() if name not in unsupported}
 
 
 def predict_cmd(
@@ -59,6 +139,7 @@ def predict_cmd(
     from libreyolo.utils.general import increment_path
 
     out = OutputHandler(json_mode=json_output, quiet=quiet)
+    user_provided = get_user_provided_params()
 
     # Validate source exists
     source_path = Path(source)
@@ -103,8 +184,10 @@ def predict_cmd(
     # Run inference
     out.progress(f"Running inference on {source}...")
     t0 = time.time()
-    results = loaded_model(
-        source,
+    predict_kwargs = _build_predict_kwargs(
+        loaded_model,
+        out=out,
+        user_provided=user_provided,
         conf=conf,
         iou=iou,
         imgsz=imgsz,
@@ -118,6 +201,7 @@ def predict_cmd(
         overlap_ratio=overlap_ratio,
         output_file_format=output_file_format,
     )
+    results = loaded_model(source, **predict_kwargs)
     elapsed = time.time() - t0
 
     # Normalize to list

@@ -323,11 +323,11 @@ def _build_rfdetr_train_kwargs(
     model_path: str | None = None,
     user_provided: set[str] | None = None,
 ) -> dict[str, Any]:
-    """Build RF-DETR kwargs without forcing unrelated generic CLI defaults.
+    """Build RF-DETR kwargs from resolved family-aware CLI params.
 
     RF-DETR uses a different training API than the YOLO-family wrappers. The CLI
-    should translate only the parameters it intentionally supports, and leave the
-    rest to RF-DETR's own defaults instead of pushing generic TrainConfig values.
+    translates only the parameters it intentionally supports; unsupported YOLO
+    family options stay out of the upstream adapter call.
     """
     from libreyolo.utils.general import increment_path
 
@@ -354,12 +354,12 @@ def _build_rfdetr_train_kwargs(
         "device": "device",
     }
 
-    provided = user_provided or set()
     for cli_name, target_name in direct_mappings.items():
-        if cli_name in provided:
+        if cli_name in params:
             kwargs[target_name] = params[cli_name]
 
-    if "patience" in provided:
+    provided = user_provided or set()
+    if "patience" in params:
         kwargs["early_stopping"] = params["patience"] > 0
         kwargs["early_stopping_patience"] = params["patience"]
 
@@ -454,6 +454,7 @@ def get_cfg_defaults() -> dict[str, Any]:
             family_overrides[cls.FAMILY] = {
                 train_internal_to_cli.get(k, k): _to_json_safe(v)
                 for k, v in diffs.items()
+                if k not in train_exclude
             }
 
     rfcls = try_ensure_rfdetr()
@@ -463,6 +464,7 @@ def get_cfg_defaults() -> dict[str, Any]:
             family_overrides[rfcls.FAMILY] = {
                 train_internal_to_cli.get(k, k): _to_json_safe(v)
                 for k, v in diffs.items()
+                if k not in train_exclude
             }
 
     return {

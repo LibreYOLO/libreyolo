@@ -2,8 +2,9 @@
 
 import json
 from pathlib import Path
-from typing import Any, NoReturn, Optional
+from typing import Any, NoReturn, Optional, Set
 
+import click
 import typer
 
 from .errors import CLIError
@@ -134,6 +135,18 @@ def exit_stage_error(
         f"{stage} failed: {detail}",
         suggestion=suggestion,
     )
+
+
+def get_user_provided_params() -> Set[str]:
+    """Return parameter names explicitly provided on the current command line."""
+    ctx = click.get_current_context(silent=True)
+    if ctx is None:
+        return set()
+    return {
+        p.name
+        for p in ctx.command.params
+        if ctx.get_parameter_source(p.name) == click.core.ParameterSource.COMMANDLINE
+    }
 
 
 def help_json_callback(

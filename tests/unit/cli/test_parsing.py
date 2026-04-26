@@ -1,6 +1,5 @@
 """Tests for KeyValueCommand — the key=value → --key value rewriting."""
 
-
 import pytest
 import typer
 from typer.testing import CliRunner
