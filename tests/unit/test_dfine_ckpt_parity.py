@@ -24,17 +24,15 @@ pytestmark = pytest.mark.unit
 
 from libreyolo import LibreDFINE
 
-_DFINE_REF_PATH = Path(
-    os.environ.get(
-        "LIBREYOLO_DFINE_REF_PATH",
-        "/Users/xuban.ceccon/dfine-libreyolo-review/D-FINE",
-    )
-)
+_DFINE_REF_PATH_ENV = os.environ.get("LIBREYOLO_DFINE_REF_PATH")
+_DFINE_REF_PATH = Path(_DFINE_REF_PATH_ENV) if _DFINE_REF_PATH_ENV else None
 _CKPT_PATH = Path("weights/dfine_n_coco.pth")
 
 
 def _load_ref_dfine_module():
     """Import the upstream D-FINE decoder/encoder/backbone as standalone modules."""
+    if _DFINE_REF_PATH is None:
+        pytest.skip("LIBREYOLO_DFINE_REF_PATH unset; point it at a D-FINE clone to run this parity test")
     dfine_src = _DFINE_REF_PATH / "src"
     if not dfine_src.is_dir():
         pytest.skip(f"D-FINE reference not at {_DFINE_REF_PATH}")
