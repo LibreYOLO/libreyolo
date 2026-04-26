@@ -15,10 +15,10 @@ from typing import Optional
 
 import torch
 
-logger = logging.getLogger(__name__)
-
 from .onnx import _get_version, export_onnx
 from .torchscript import export_torchscript
+
+logger = logging.getLogger(__name__)
 
 
 # Precision helpers
@@ -284,7 +284,11 @@ class BaseExporter(ABC):
         # Set export mode for YOLOX/YOLOv9 heads
         original_export = None
         export_attr = None
-        if not dfine_wrapped and hasattr(nn_model, "head") and hasattr(nn_model.head, "export"):
+        if (
+            not dfine_wrapped
+            and hasattr(nn_model, "head")
+            and hasattr(nn_model.head, "export")
+        ):
             export_attr = "head"
             original_export = nn_model.head.export
             nn_model.head.export = True
@@ -586,15 +590,16 @@ class NcnnExporter(BaseExporter):
     def _export(
         self, nn_model, dummy, *, output_path, metadata, half, opset, simplify, **kwargs
     ):
-        # NCNN can't handle DETR-style decoders: its op registry doesn't
-        # include ``torch.topk`` (used in D-FINE's encoder query selection),
-        # so PNNX produces a graph the NCNN runtime refuses to load with
-        # ``layer torch.topk not exists or registered``. Block early with a
-        # clear error rather than producing a broken export directory.
-        if metadata and metadata.get("model_family") == "dfine":
+        # NCNN can't handle DETR-style query selection: its op registry doesn't
+        # include the topk/gather variants used by D-FINE and RT-DETR decoders.
+        # Block early rather than producing a broken export directory.
+        unsupported_family_names = {"dfine": "D-FINE", "rtdetr": "RT-DETR"}
+        model_family = metadata.get("model_family") if metadata else None
+        if model_family in unsupported_family_names:
             raise NotImplementedError(
-                "NCNN export is not supported for D-FINE: NCNN's op registry "
-                "lacks topk/gather/Slice variants that the DETR-style decoder "
+                f"NCNN export is not supported for "
+                f"{unsupported_family_names[model_family]}: NCNN's op registry "
+                "lacks topk/gather variants that the DETR-style decoder "
                 "requires. Use ONNX, OpenVINO, TorchScript, or TensorRT instead."
             )
 
