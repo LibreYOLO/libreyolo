@@ -165,6 +165,22 @@ class BaseModel(ABC):
     # Concrete defaults — subclasses may override
     # =========================================================================
 
+    def get_distill_config(self) -> Dict:
+        """Return distillation config for this model instance.
+
+        Returns:
+            Dict with keys:
+                - tap_points: List[str] — module paths for forward hooks
+                - channels: List[int] — channel dimensions per tap point
+                - strides: List[int] — spatial strides per tap point
+
+        Subclasses that support distillation must override this method.
+        """
+        raise NotImplementedError(
+            f"{type(self).__name__} does not implement get_distill_config(). "
+            f"Distillation is not yet supported for the '{self.FAMILY}' family."
+        )
+
     def _get_valid_sizes(self) -> List[str]:
         return list(self.INPUT_SIZES.keys())
 

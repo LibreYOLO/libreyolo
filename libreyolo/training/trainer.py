@@ -6,6 +6,7 @@ Model-specific trainers subclass BaseTrainer and override hooks.
 import logging
 import time
 from abc import ABC, abstractmethod
+from contextlib import nullcontext
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Type
 
@@ -63,6 +64,8 @@ class BaseTrainer(ABC):
         self.ema_model = None
         self.train_loader = None
         self.tensorboard_writer = None
+        self.distiller = None
+        self._distill_loss_val = 0.0
 
     # =========================================================================
     # Config
@@ -191,6 +194,50 @@ class BaseTrainer(ABC):
         logger.info(f"  - pg2 (Bias): {len(pg2)} params")
         return optimizer
 
+    def _setup_distillation(self):
+        """Set up knowledge distillation if enabled in config."""
+        if not self.config.distill:
+            return
+
+        if not self.config.distill_teacher:
+            raise ValueError(
+                "distill=True requires distill_teacher (path to teacher weights)"
+            )
+
+        from ..distillation import Distiller
+        from ..models import LibreYOLO
+
+        # Load teacher via the factory (handles family detection, weight loading)
+        logger.info(f"Loading teacher model: {self.config.distill_teacher}")
+        teacher_wrapper = LibreYOLO(self.config.distill_teacher)
+        teacher_nn = teacher_wrapper.model.to(self.device)
+
+        # Get distillation configs from the models themselves
+        teacher_cfg = teacher_wrapper.get_distill_config()
+        student_cfg = self.wrapper_model.get_distill_config()
+
+        self.distiller = Distiller(
+            teacher_model=teacher_nn,
+            student_model=self.model,
+            teacher_config=teacher_cfg,
+            student_config=student_cfg,
+            loss_type=self.config.distill_loss_type,
+            loss_weight=self.config.distill_loss_weight,
+            mask_ratio=self.config.distill_mask_ratio,
+            tau=self.config.distill_tau,
+        )
+        self.distiller.to(self.device)
+
+        # Add distiller's learnable params (align/generation convs) to optimizer
+        distill_params = list(self.distiller.loss_modules.parameters())
+        if distill_params:
+            self.optimizer.add_param_group(
+                {"params": distill_params, "lr": self.effective_lr}
+            )
+            logger.info(
+                f"Added {len(distill_params)} distillation params to optimizer"
+            )
+
     def _get_save_dir(self) -> Path:
         project = Path(self.config.project)
         name = self.config.name
@@ -318,6 +365,7 @@ class BaseTrainer(ABC):
 
         self._setup_data()
         self.optimizer = self._setup_optimizer()
+        self._setup_distillation()
         self.lr_scheduler = self.create_scheduler(len(self.train_loader))
 
         if self.config.amp and self.device.type == "cuda":
@@ -382,6 +430,9 @@ class BaseTrainer(ABC):
                 )
                 break
 
+        if self.distiller is not None:
+            self.distiller.cleanup()
+
         total_time = time.time() - start_time
         logger.info(f"Training complete in {total_time / 3600:.2f} hours")
 
@@ -422,21 +473,32 @@ class BaseTrainer(ABC):
             imgs = imgs.to(self.device, non_blocking=True)
             targets = targets.to(self.device, non_blocking=True)
 
-            # Forward + backward
+            # Teacher forward (no-grad, outside autocast)
+            if self.distiller is not None:
+                self.distiller.teacher_forward(imgs)
+
+            # Forward + loss (autocast only when using AMP scaler)
+            amp_ctx = autocast("cuda") if self.scaler is not None else nullcontext()
+            with amp_ctx:
+                outputs = self.on_forward(imgs, targets)
+                loss = outputs["total_loss"]
+                if self.distiller is not None:
+                    distill_loss = self.distiller.compute_loss()
+                    loss = loss + distill_loss
+                    self._distill_loss_val = distill_loss.item()
+
+            # Backward + optimizer step
+            self.optimizer.zero_grad()
             if self.scaler is not None:
-                with autocast("cuda"):
-                    outputs = self.on_forward(imgs, targets)
-                    loss = outputs["total_loss"]
-                self.optimizer.zero_grad()
                 self.scaler.scale(loss).backward()
                 self.scaler.step(self.optimizer)
                 self.scaler.update()
             else:
-                outputs = self.on_forward(imgs, targets)
-                loss = outputs["total_loss"]
-                self.optimizer.zero_grad()
                 loss.backward()
                 self.optimizer.step()
+
+            if self.distiller is not None:
+                self.distiller.step()
 
             # EMA
             if self.ema_model is not None:
@@ -444,6 +506,8 @@ class BaseTrainer(ABC):
 
             loss_val = loss.item()
             loss_components = self.get_loss_components(outputs)
+            if self.distiller is not None:
+                loss_components["distill"] = self._distill_loss_val
             total_loss += loss_val
 
             del outputs, loss

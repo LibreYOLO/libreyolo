@@ -29,6 +29,8 @@ def __getattr__(name):
         "DATASETS_DIR": (".data", "DATASETS_DIR"),
         "load_data_config": (".data", "load_data_config"),
         "check_dataset": (".data", "check_dataset"),
+        "Distiller": (".distillation", "Distiller"),
+        "get_distill_config": (".distillation", "get_distill_config"),
     }
     if name == "LibreYOLORFDETR":
         # RF-DETR needs dependency check before import
@@ -67,4 +69,7 @@ __all__ = [
     "DATASETS_DIR",
     "load_data_config",
     "check_dataset",
+    # Distillation
+    "Distiller",
+    "get_distill_config",
 ]
