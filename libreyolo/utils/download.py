@@ -1,5 +1,6 @@
 """Download helpers for LibreYOLO model weights."""
 
+import logging
 import os
 import re
 from pathlib import Path
@@ -9,6 +10,7 @@ from urllib.parse import urlparse
 import requests
 
 _YOLONAS_LICENSE_NOTICE_SHOWN = False
+logger = logging.getLogger(__name__)
 
 
 def _get_hf_token() -> Optional[str]:
@@ -82,7 +84,11 @@ def download_weights(model_path: str, size: str):
     if url is None:
         raise ValueError(f"Could not determine download URL for '{path.name}'.")
 
-    print(f"Model weights not found at {model_path}. Attempting download from {url}...")
+    logger.info(
+        "Model weights not found at %s. Attempting download from %s...",
+        model_path,
+        url,
+    )
     path.parent.mkdir(parents=True, exist_ok=True)
 
     host = urlparse(url).netloc
@@ -97,7 +103,7 @@ def download_weights(model_path: str, size: str):
         # Only attach the HF token to HF URLs — never leak it to third parties.
         headers["Authorization"] = f"Bearer {token}"
     elif is_hf and not token:
-        print("Tip: Run `huggingface-cli login` or set HF_TOKEN for faster downloads.")
+        logger.info("Tip: Run `huggingface-cli login` or set HF_TOKEN for faster downloads.")
 
     try:
         response = requests.get(url, stream=True, headers=headers)
@@ -112,12 +118,14 @@ def download_weights(model_path: str, size: str):
                     downloaded += len(chunk)
                     if total_size > 0:
                         percent = int(100 * downloaded / total_size)
-                        print(
-                            f"\rDownloading: {percent}% ({downloaded / 1024 / 1024:.1f}/{total_size / 1024 / 1024:.1f} MB)",
-                            end="",
-                            flush=True,
-                        )
-            print("\nDownload complete.")
+                        if percent % 25 == 0:
+                            logger.info(
+                                "Downloading: %d%% (%.1f/%.1f MB)",
+                                percent,
+                                downloaded / 1024 / 1024,
+                                total_size / 1024 / 1024,
+                            )
+            logger.info("Download complete.")
     except Exception as e:
         if path.exists():
             path.unlink()

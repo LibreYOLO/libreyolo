@@ -346,6 +346,11 @@ MODEL_CATALOG = [
     ("dfine", "m", "LibreDFINEm.pt"),
     ("dfine", "l", "LibreDFINEl.pt"),
     ("dfine", "x", "LibreDFINEx.pt"),
+    ("rtdetr", "r18", "LibreRTDETRr18.pt"),
+    ("rtdetr", "r34", "LibreRTDETRr34.pt"),
+    ("rtdetr", "r50", "LibreRTDETRr50.pt"),
+    ("rtdetr", "r50m", "LibreRTDETRr50m.pt"),
+    ("rtdetr", "r101", "LibreRTDETRr101.pt"),
 ]
 
 # Derived lists (no manual maintenance)
@@ -354,19 +359,23 @@ YOLO9_SIZES = [s for f, s, _ in MODEL_CATALOG if f == "yolo9"]
 YOLONAS_SIZES = [s for f, s, _ in MODEL_CATALOG if f == "yolonas"]
 RFDETR_SIZES = [s for f, s, _ in MODEL_CATALOG if f == "rfdetr"]
 DFINE_SIZES = [s for f, s, _ in MODEL_CATALOG if f == "dfine"]
+RTDETR_SIZES = [s for f, s, _ in MODEL_CATALOG if f == "rtdetr"]
 
 ALL_MODELS = [(f, s) for f, s, _ in MODEL_CATALOG]
 ALL_MODELS_WITH_WEIGHTS = MODEL_CATALOG
 NON_RFDETR_MODELS = [(f, s) for f, s, _ in MODEL_CATALOG if f != "rfdetr"]
 
 # Quick test set (for CI — smallest auto-available models only)
-QUICK_TEST_MODELS = [("yolox", "n"), ("yolo9", "t")]
+QUICK_TEST_MODELS = [("yolox", "n"), ("yolo9", "t"), ("rtdetr", "r18")]
 
 # Full test set (all non-RF-DETR models)
 FULL_TEST_MODELS = NON_RFDETR_MODELS
 
 # RF-DETR test set (separate due to dependency)
 RFDETR_TEST_MODELS = [(f, s) for f, s, _ in MODEL_CATALOG if f == "rfdetr"]
+
+# RT-DETR test set (separate due to being transformer-based)
+RTDETR_TEST_MODELS = [(f, s) for f, s, _ in MODEL_CATALOG if f == "rtdetr"]
 
 
 def get_model_weights(family: str, size: str) -> str:

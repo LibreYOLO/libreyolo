@@ -1,8 +1,14 @@
-This product includes code derived from the SAHI project
-(https://github.com/obss/sahi)
+This repository includes code derived from, or inspired by, the
+following open-source projects. Each upstream is listed with its
+license and the LibreYOLO module(s) that port from it.
 
-Copyright (c) SAHI contributors
-Licensed under the MIT License.
+--------------------------------------------------------------------
+SAHI
+--------------------------------------------------------------------
+Source: https://github.com/obss/sahi
+License: MIT
+Copyright (c) 2020 obss
+Used for: slicing-aided hyper inference utilities.
 
 MIT License
 
@@ -25,3 +31,67 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+--------------------------------------------------------------------
+YOLOX (Megvii-BaseDetection)
+--------------------------------------------------------------------
+Source: https://github.com/Megvii-BaseDetection/YOLOX
+License: Apache License 2.0
+Copyright (c) 2021-2022 Megvii Inc. All rights reserved.
+Used for: YOLOX model family (libreyolo/models/yolox/), EMA helper
+          (libreyolo/training/ema.py), augmentation pipeline
+          (libreyolo/training/augment.py).
+
+--------------------------------------------------------------------
+YOLO (MultimediaTechLab, successor to WongKinYiu/YOLO)
+--------------------------------------------------------------------
+Source: https://github.com/MultimediaTechLab/YOLO
+License: MIT
+Copyright (c) 2024 Kin-Yiu Wong and Hao-Tang Tsui
+Used for: YOLO9 model family (libreyolo/models/yolo9/), including the
+          loss port in libreyolo/models/yolo9/loss.py.
+
+--------------------------------------------------------------------
+RT-DETR (lyuwenyu)
+--------------------------------------------------------------------
+Source: https://github.com/lyuwenyu/RT-DETR
+License: Apache License 2.0
+Copyright (c) 2023 lyuwenyu
+Used for: RT-DETR model family (libreyolo/models/rtdetr/) including
+          backbone, neck, decoder, loss, and denoising modules. The
+          HGNetv2 backbone (libreyolo/models/rtdetr/hgnetv2.py) is
+          ported from rtdetrv2_pytorch/src/nn/backbone/hgnetv2.py.
+
+--------------------------------------------------------------------
+RF-DETR (Roboflow)
+--------------------------------------------------------------------
+Source: https://github.com/roboflow/rf-detr
+License: Apache License 2.0
+Copyright (c) 2024-2025 Roboflow, Inc.
+Used for: RF-DETR model family (libreyolo/models/rfdetr/), COCO
+          evaluation glue (libreyolo/data/yolo_coco_api.py).
+
+--------------------------------------------------------------------
+DINOv2 (Meta AI / facebookresearch)
+--------------------------------------------------------------------
+Source: https://github.com/facebookresearch/dinov2
+License: Apache License 2.0
+Copyright (c) Meta Platforms, Inc. and affiliates.
+Used for: vision transformer backbone consumed by RF-DETR.
+
+--------------------------------------------------------------------
+PaddleClas (PaddlePaddle)
+--------------------------------------------------------------------
+Source: https://github.com/PaddlePaddle/PaddleClas
+License: Apache License 2.0
+Copyright (c) 2020 PaddlePaddle Authors. All Rights Reserved.
+Used for: ResNet_vd pretrained classification backbones loaded by
+          RT-DETR (libreyolo/models/rtdetr/backbone.py downloads
+          ResNet{18,34,50,101}_vd weights that originate here).
+
+--------------------------------------------------------------------
+Apache License 2.0 (full text)
+--------------------------------------------------------------------
+The full text of the Apache License, Version 2.0 is available at
+https://www.apache.org/licenses/LICENSE-2.0 and applies to the
+Apache-2.0 upstreams listed above.

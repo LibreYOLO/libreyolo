@@ -30,7 +30,7 @@ if TYPE_CHECKING:
 class InferenceRunner:
     """Handles all inference logic on behalf of a BaseModel instance."""
 
-    def __init__(self, model: "BaseModel"):
+    def __init__(self, model: BaseModel):
         self.model = model
 
     def __call__(

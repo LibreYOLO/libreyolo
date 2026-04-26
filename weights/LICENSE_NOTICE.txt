@@ -1,17 +1,34 @@
 NOTICE: WEIGHTS LICENSING
 
-The weights files in this directory (libreyolo8*.pt) are derived from 
-weights originally distributed under the AGPL-3.0 License by Ultralytics.
+No pretrained weight files are distributed in this directory or anywhere
+else in the source tree. The conversion scripts in this directory are
+part of the LibreYOLO source repository and are covered by the root
+MIT License.
 
-These converted weights inherit the AGPL-3.0 License from their source.
-They are NOT covered by the MIT License that applies to the rest of this 
-repository.
+Pretrained LibreYOLO weights are published separately on Hugging Face
+under the LibreYOLO organization:
 
-For the full AGPL-3.0 License text, see LICENSE_AGPL-3.0.txt in this directory.
+    https://huggingface.co/LibreYOLO
 
-IMPORTANT: If you use these weights, you must comply with AGPL-3.0 terms,
-which may require you to open-source derivative works if you distribute them.
+Each Hugging Face model repository ships its own LICENSE, NOTICE (where
+applicable), and attribution reflecting the license of the upstream
+project the weights were derived from. Per-family summary:
 
-The conversion scripts (convert_yolo8_weights.py, install_dependencies.*) 
-in this directory are part of the main repository and are licensed under MIT.
+    YOLOX    (LibreYOLOX{n,t,s,m,l,x})                 Apache-2.0
+             upstream: Megvii-BaseDetection/YOLOX
 
+    YOLO9    (LibreYOLO9{t,s,m,c})                     MIT
+             upstream: MultimediaTechLab/YOLO
+
+    RF-DETR  (LibreRFDETR{n,s,m,l})                    Apache-2.0
+             upstream: roboflow/rf-detr
+             (backbone: facebookresearch/dinov2, Apache-2.0)
+
+    RT-DETR  (LibreRTDETR{r18,r34,r50,r50m,r101})      Apache-2.0
+             upstream: lyuwenyu/RT-DETR
+             (backbone: PaddlePaddle/PaddleClas ResNet_vd, Apache-2.0)
+
+The LICENSE and NOTICE files on each Hugging Face model card are the
+authoritative source for redistribution terms. Users converting
+third-party checkpoints locally are responsible for complying with the
+upstream license of those checkpoints.

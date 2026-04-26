@@ -9,8 +9,7 @@ import torch
 import torch.nn as nn
 
 from rfdetr.detr import _build_model_context
-from rfdetr.models import PostProcess
-from rfdetr.models.lwdetr import LWDETR, MLP
+from rfdetr.models.lwdetr import LWDETR, MLP, PostProcess
 from rfdetr.config import (
     RFDETRLargeConfig,
     RFDETRNanoConfig,
@@ -81,6 +80,7 @@ class LibreRFDETRModel(nn.Module):
         model_config = config_cls(
             num_classes=nb_classes,
             pretrain_weights=pretrain_weights,
+            device=device,
         )
 
         self.resolution = model_config.resolution
@@ -88,10 +88,10 @@ class LibreRFDETRModel(nn.Module):
         self.num_queries = getattr(model_config, "num_queries", 300)
 
         model_config.device = device
-        self._rfdetr = _build_model_context(model_config)
-
-        self.model = self._rfdetr.model
-        self.postprocess = self._rfdetr.postprocess
+        model_config.device = device
+        ctx = _build_model_context(model_config)
+        self.model = ctx.model
+        self.postprocess = ctx.postprocess
 
     def forward(self, x: torch.Tensor):
         """

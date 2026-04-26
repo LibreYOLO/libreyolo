@@ -89,16 +89,3 @@ def test_coco_evaluator_integration(tmp_path):
     ]
     for key in expected_keys:
         assert key in metrics, f"Missing metric: {key}"
-
-
-@pytest.mark.unit
-def test_validation_config_coco_flag():
-    """Test that ValidationConfig has use_coco_eval flag."""
-    from libreyolo.validation import ValidationConfig
-
-    config = ValidationConfig(data="dummy.yaml")
-    assert hasattr(config, "use_coco_eval")
-    assert config.use_coco_eval is True
-
-    config = ValidationConfig(data="dummy.yaml", use_coco_eval=False)
-    assert config.use_coco_eval is False

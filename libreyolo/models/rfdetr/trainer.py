@@ -3,6 +3,7 @@ Training module for RF-DETR.
 Wraps the original rfdetr training API with Ultralytics-compatible interface.
 """
 
+from pathlib import Path
 from typing import Dict
 
 from rfdetr import RFDETRLarge, RFDETRNano, RFDETRSmall, RFDETRMedium
@@ -86,7 +87,20 @@ def train_rfdetr(
         **kwargs,
     )
 
+    output_path = Path(output_dir)
+    best_checkpoint = output_path / "checkpoint_best_total.pth"
+    last_candidates = (
+        output_path / "checkpoint_last_total.pth",
+        output_path / "checkpoint_last.pth",
+        output_path / "last.pth",
+        output_path / "last.ckpt",
+    )
+    last_checkpoint = next((p for p in last_candidates if p.exists()), None)
+
     return {
         "output_dir": output_dir,
+        "save_dir": output_dir,
+        "best_checkpoint": str(best_checkpoint) if best_checkpoint.exists() else None,
+        "last_checkpoint": str(last_checkpoint) if last_checkpoint else None,
         "model": model,
     }

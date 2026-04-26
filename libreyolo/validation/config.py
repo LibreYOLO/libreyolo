@@ -55,7 +55,6 @@ class ValidationConfig:
         0.90,
         0.95,
     )
-    use_coco_eval: bool = True  # Use COCO evaluation API (recommended)
 
     # Device
     device: str = "auto"
@@ -70,6 +69,7 @@ class ValidationConfig:
 
     # Precision
     half: bool = False
+    allow_download_scripts: bool = False
 
     def __post_init__(self) -> None:
         if self.data is None and self.data_dir is None:
