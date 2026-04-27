@@ -197,10 +197,15 @@ class LibreDFINE(BaseModel):
             raise FileNotFoundError(f"Failed to load dataset config '{data}': {e}")
 
         yaml_nc = data_config.get("nc")
+        yaml_names = data_config.get("names")
         if yaml_nc is not None and yaml_nc != self.nb_classes:
             self._rebuild_for_new_classes(yaml_nc)
+        if yaml_names is not None:
+            if isinstance(yaml_names, list):
+                yaml_names = {i: n for i, n in enumerate(yaml_names)}
+            self.names = self._sanitize_names(yaml_names, self.nb_classes)
 
-        if seed > 0:
+        if seed >= 0:
             import random
 
             import numpy as np
