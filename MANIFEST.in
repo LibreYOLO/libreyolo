@@ -15,3 +15,5 @@ global-exclude *.png
 global-exclude *.webp
 global-exclude *.mp4
 
+# Re-include packaged sample assets (overrides global-exclude above)
+recursive-include libreyolo/assets *.jpg
