@@ -205,6 +205,8 @@ def rf1_train_kwargs(family: str, size: str) -> dict:
             "mosaic_prob": 0.0,
             "hsv_prob": 0.0,
         }
+    if family == "ecdet":
+        return {"allow_experimental": True}
     return {}
 
 
@@ -419,7 +421,9 @@ def test_rf1_training(family, size, weights, dataset_coco, dataset_data_yaml, tm
         # datasets. RF-DETR skips this check for the same reason (see the
         # subprocess branch above). For D-FINE we rely on the mAP-improvement
         # assertions below.
-        if family != "dfine":
+        # D-FINE and ECDet are both DETR-family with ~38 weighted aux losses;
+        # see the comment block above for why the monotonic check is skipped.
+        if family not in ("dfine", "ecdet"):
             assert last_loss < first_loss, (
                 f"Loss did not decrease: first={first_loss:.4f} → last={last_loss:.4f}"
             )
@@ -605,7 +609,9 @@ def test_load_finetuned_checkpoint(
             f"last epoch loss={last_loss:.4f}"
         )
 
-        if family != "dfine":
+        # D-FINE and ECDet are both DETR-family with ~38 weighted aux losses;
+        # see the comment block above for why the monotonic check is skipped.
+        if family not in ("dfine", "ecdet"):
             assert last_loss < first_loss, (
                 f"Loss did not decrease: first={first_loss:.4f} → last={last_loss:.4f}"
             )
