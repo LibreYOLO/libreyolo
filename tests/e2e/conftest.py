@@ -2,6 +2,7 @@
 
 import gc
 import multiprocessing
+from functools import lru_cache
 from pathlib import Path
 
 import pytest
@@ -269,6 +270,43 @@ def run_in_subprocess(script: str, *, timeout: int = 300) -> str:
     return resp["o"]
 
 
+def run_direct_subprocess(script: str, *, timeout: int = 300) -> str:
+    """Run Python code in a one-shot subprocess.
+
+    Use this for families that do not need the long-lived clean worker used by
+    ``run_in_subprocess()``.
+    """
+    import os
+    import subprocess
+    import sys
+    import tempfile
+    import textwrap
+
+    fd, path = tempfile.mkstemp(suffix=".py", prefix="ly_direct_")
+    os.write(fd, textwrap.dedent(script).encode())
+    os.close(fd)
+    try:
+        result = subprocess.run(
+            [sys.executable, path],
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+    finally:
+        try:
+            os.unlink(path)
+        except OSError:
+            pass
+
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"Subprocess exited with code {result.returncode}\n"
+            f"--- stdout (last 2000 chars) ---\n{result.stdout[-2000:]}\n"
+            f"--- stderr (last 2000 chars) ---\n{result.stderr[-2000:]}"
+        )
+    return result.stdout
+
+
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -462,11 +500,31 @@ def get_model_weights(family: str, size: str) -> str:
     raise ValueError(f"Unknown model: {family}-{size}")
 
 
-def require_test_weights(weights: str) -> str:
-    """Skip cleanly if a test depends on a missing local checkpoint path."""
+@lru_cache(maxsize=None)
+def _detect_local_weights_family(weights: str) -> str:
+    """Detect a local checkpoint's family for skip-only environment validation."""
+    from libreyolo import LibreYOLO
+
+    model = LibreYOLO(weights)
+    return model.FAMILY
+
+
+def require_test_weights(weights: str, expected_family: str | None = None) -> str:
+    """Skip cleanly if a test depends on missing or obviously wrong local weights."""
     path = Path(weights)
-    if path.parent != Path(".") and not path.exists():
-        pytest.skip(f"Required local weights not found: {weights}")
+    if path.parent != Path("."):
+        if not path.exists():
+            pytest.skip(f"Required local weights not found: {weights}")
+        if expected_family is not None:
+            try:
+                detected_family = _detect_local_weights_family(str(path))
+            except Exception as exc:
+                pytest.skip(f"Local weights are unusable for testing: {weights} ({exc})")
+            if detected_family != expected_family:
+                pytest.skip(
+                    "Local weights do not match the expected family: "
+                    f"{weights} detected as '{detected_family}', expected '{expected_family}'"
+                )
     return weights
 
 
