@@ -60,6 +60,15 @@ def _postprocess_onnx(
     onnx.save(model_proto, path)
 
 
+def _detect_num_outputs(nn_model, dummy):
+    """Run a forward pass to detect how many outputs the model produces."""
+    with torch.no_grad():
+        out = nn_model(dummy)
+    if isinstance(out, tuple):
+        return len(out)
+    return 1
+
+
 def export_onnx(
     nn_model,
     dummy,
@@ -93,19 +102,53 @@ def export_onnx(
             "Install with: uv sync --extra onnx  or  pip install onnx"
         )
 
-    dynamic_axes = None
-    if dynamic:
-        dynamic_axes = {
-            "images": {0: "batch"},
-            "output": {0: "batch"},
-        }
+    # Detect segmentation: prefer metadata flag from exporter, fall back
+    # to output count heuristic for direct export_onnx() calls.
+    is_seg = metadata.get("segmentation") == "true"
+    if not is_seg:
+        num_outputs = _detect_num_outputs(nn_model, dummy)
+        is_seg = num_outputs >= 3
+
+    if is_seg:
+        output_names = ["boxes", "scores", "masks"]
+        dynamic_axes = (
+            {
+                "images": {0: "batch"},
+                "boxes": {0: "batch"},
+                "scores": {0: "batch"},
+                "masks": {0: "batch"},
+            }
+            if dynamic
+            else None
+        )
+        metadata["segmentation"] = "true"
+    elif (
+        metadata.get("model_family") == "dfine"
+        or _detect_num_outputs(nn_model, dummy) == 2
+    ):
+        # DETR-style detection (D-FINE): {pred_logits, pred_boxes} as a tuple
+        output_names = ["pred_logits", "pred_boxes"]
+        dynamic_axes = (
+            {
+                "images": {0: "batch"},
+                "pred_logits": {0: "batch"},
+                "pred_boxes": {0: "batch"},
+            }
+            if dynamic
+            else None
+        )
+    else:
+        output_names = ["output"]
+        dynamic_axes = (
+            {"images": {0: "batch"}, "output": {0: "batch"}} if dynamic else None
+        )
 
     export_kwargs = {
         "export_params": True,
         "opset_version": opset,
         "do_constant_folding": True,
         "input_names": ["images"],
-        "output_names": ["output"],
+        "output_names": output_names,
         "dynamic_axes": dynamic_axes,
     }
 

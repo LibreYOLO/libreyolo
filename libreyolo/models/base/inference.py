@@ -2,23 +2,29 @@
 Inference runner for LibreYOLO models.
 
 Encapsulates all inference-related logic: single-image prediction,
-tiled inference, batch processing, and result wrapping.
+tiled inference, batch processing, video inference, and result wrapping.
 """
 
 from __future__ import annotations
 
 import json
+import logging
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Dict, Generator, List, Optional, Tuple, Union
 
 import torch
 
-from ...utils.drawing import draw_boxes, draw_tile_grid
+from ...utils.drawing import draw_boxes, draw_masks, draw_tile_grid
 from ...utils.general import get_safe_stem, get_slice_bboxes, nms, resolve_save_path
 from ...utils.image_loader import ImageInput, ImageLoader
-from ...utils.results import Boxes, Results
-from .model import BaseModel
+from ...utils.results import Boxes, Masks, Results
+from ...utils.video import collect_video_results, is_video_file, run_video_inference
+
+logger = logging.getLogger(__name__)
+
+if TYPE_CHECKING:
+    from .model import BaseModel
 
 
 class InferenceRunner:
@@ -38,6 +44,10 @@ class InferenceRunner:
         max_det: int = 300,
         save: bool = False,
         batch: int = 1,
+        # video parameters
+        stream: bool = False,
+        vid_stride: int = 1,
+        show: bool = False,
         # libreyolo-specific
         output_path: str | None = None,
         color_format: str = "auto",
@@ -45,19 +55,23 @@ class InferenceRunner:
         overlap_ratio: float = 0.2,
         output_file_format: Optional[str] = None,
         **kwargs,
-    ) -> Union[Results, List[Results]]:
+    ) -> Union[Results, List[Results], Generator[Results, None, None]]:
         """
-        Run inference on an image or directory.
+        Run inference on an image, directory, or video.
 
         Args:
-            source: Input image or directory path.
+            source: Input image, directory path, or video file path.
             conf: Confidence threshold.
             iou: IoU threshold for NMS.
             imgsz: Input size override (None = model default).
             classes: Filter to specific class IDs.
             max_det: Maximum detections per image.
-            save: If True, saves annotated image.
+            save: If True, saves annotated image or video.
             batch: Batch size for directory processing.
+            stream: If True, return a generator yielding per-frame Results.
+                Recommended for video to avoid high memory usage.
+            vid_stride: Process every N-th video frame (default: 1).
+            show: If True, display annotated frames in a window (video only).
             output_path: Optional output path.
             color_format: Color format hint.
             tiling: Enable tiled inference for large images.
@@ -66,7 +80,7 @@ class InferenceRunner:
             **kwargs: Additional arguments for postprocessing.
 
         Returns:
-            Results instance or list of Results.
+            Results, list of Results, or generator of Results (video + stream).
         """
         if output_file_format is not None:
             output_file_format = output_file_format.lower().lstrip(".")
@@ -75,6 +89,25 @@ class InferenceRunner:
                     f"Invalid output_file_format: {output_file_format}. "
                     "Must be one of: 'jpg', 'png', 'webp'"
                 )
+
+        # Handle video input
+        if is_video_file(source):
+            gen = self._predict_video(
+                source,
+                conf=conf,
+                iou=iou,
+                imgsz=imgsz,
+                classes=classes,
+                max_det=max_det,
+                save=save,
+                show=show,
+                vid_stride=vid_stride,
+                output_path=output_path,
+                **kwargs,
+            )
+            if stream:
+                return gen
+            return collect_video_results(gen, source, vid_stride)
 
         # Handle directory input
         if isinstance(source, (str, Path)) and Path(source).is_dir():
@@ -192,12 +225,14 @@ class InferenceRunner:
         conf_t: torch.Tensor,
         cls_t: torch.Tensor,
         classes: List[int],
-    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        masks_t: Optional[torch.Tensor] = None,
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, Optional[torch.Tensor]]:
         """Filter detections to keep only the requested class IDs."""
         mask = torch.zeros(len(cls_t), dtype=torch.bool, device=cls_t.device)
         for cid in classes:
             mask |= cls_t == cid
-        return boxes_t[mask], conf_t[mask], cls_t[mask]
+        filtered_masks = masks_t[mask] if masks_t is not None else None
+        return boxes_t[mask], conf_t[mask], cls_t[mask], filtered_masks
 
     def _wrap_results(
         self,
@@ -209,11 +244,14 @@ class InferenceRunner:
         """Convert raw detection dict to a Results object.
 
         Args:
-            detections: Dict with 'boxes', 'scores', 'classes', 'num_detections'.
+            detections: Dict with 'boxes', 'scores', 'classes', 'num_detections',
+                and optionally 'masks'.
             original_size: (width, height) from preprocessing.
             image_path: Source path or None.
             classes: Optional class filter list.
         """
+        masks_t = None
+
         if detections["num_detections"] == 0:
             boxes_t = torch.zeros((0, 4), dtype=torch.float32)
             conf_t = torch.zeros((0,), dtype=torch.float32)
@@ -237,21 +275,33 @@ class InferenceRunner:
             else:
                 cls_t = torch.tensor(raw_cls, dtype=torch.float32)
 
+            raw_masks = detections.get("masks")
+            if raw_masks is not None:
+                if isinstance(raw_masks, torch.Tensor):
+                    masks_t = raw_masks
+                else:
+                    masks_t = torch.tensor(raw_masks)
+
         # Apply class filter
         if classes is not None and len(boxes_t) > 0:
-            boxes_t, conf_t, cls_t = self._apply_classes_filter(
-                boxes_t, conf_t, cls_t, classes
+            boxes_t, conf_t, cls_t, masks_t = self._apply_classes_filter(
+                boxes_t, conf_t, cls_t, classes, masks_t
             )
 
-        # original_size from preprocess is (W, H); orig_shape follows Ultralytics (H, W)
+        # original_size from preprocess is (W, H); orig_shape is (H, W)
         orig_w, orig_h = original_size
         orig_shape = (orig_h, orig_w)
+
+        masks_obj = None
+        if masks_t is not None:
+            masks_obj = Masks(masks_t, orig_shape)
 
         return Results(
             boxes=Boxes(boxes_t, conf_t, cls_t),
             orig_shape=orig_shape,
             path=str(image_path) if image_path else None,
             names=self.model.names,
+            masks=masks_obj,
         )
 
     def _predict_single(
@@ -294,8 +344,19 @@ class InferenceRunner:
         # Save annotated image
         if save:
             if len(result) > 0:
+                annotated_img = original_img
+                # Draw masks first (underneath boxes)
+                if result.masks is not None:
+                    masks_np = result.masks.data
+                    if isinstance(masks_np, torch.Tensor):
+                        masks_np = masks_np.cpu().numpy()
+                    annotated_img = draw_masks(
+                        annotated_img,
+                        masks_np,
+                        result.boxes.cls.tolist(),
+                    )
                 annotated_img = draw_boxes(
-                    original_img,
+                    annotated_img,
                     result.boxes.xyxy.tolist(),
                     result.boxes.conf.tolist(),
                     result.boxes.cls.tolist(),
@@ -314,6 +375,50 @@ class InferenceRunner:
             result.saved_path = str(save_path)
 
         return result
+
+    def _predict_video(
+        self,
+        source: Union[str, Path],
+        *,
+        conf: float = 0.25,
+        iou: float = 0.45,
+        imgsz: Optional[int] = None,
+        classes: Optional[List[int]] = None,
+        max_det: int = 300,
+        save: bool = False,
+        show: bool = False,
+        vid_stride: int = 1,
+        output_path: Optional[str] = None,
+        **kwargs,
+    ) -> Generator[Results, None, None]:
+        """Run inference on a video file, yielding per-frame Results."""
+        effective_imgsz = imgsz if imgsz is not None else self.model._get_input_size()
+
+        def predict_frame(pil_img):
+            input_tensor, original_img, original_size, ratio = self.model._preprocess(
+                pil_img, "rgb", input_size=effective_imgsz
+            )
+            with torch.no_grad():
+                output = self.model._forward(input_tensor.to(self.model.device))
+            detections = self.model._postprocess(
+                output,
+                conf,
+                iou,
+                original_size,
+                max_det=max_det,
+                ratio=ratio,
+                **kwargs,
+            )
+            return self._wrap_results(detections, original_size, str(source), classes)
+
+        yield from run_video_inference(
+            source,
+            predict_frame,
+            vid_stride=vid_stride,
+            save=save,
+            show=show,
+            output_path=output_path,
+        )
 
     def _merge_tile_detections(
         self,
@@ -361,6 +466,13 @@ class InferenceRunner:
         **kwargs,
     ) -> Results:
         """Run tiled inference on large images."""
+
+        if getattr(self.model, "_is_segmentation", False):
+            raise ValueError(
+                "Tiled inference does not support segmentation masks. "
+                "Use non-tiled inference for instance segmentation."
+            )
+
         input_size = imgsz if imgsz is not None else self.model._get_input_size()
         img_pil = ImageLoader.load(image, color_format=color_format)
         orig_width, orig_height = img_pil.size

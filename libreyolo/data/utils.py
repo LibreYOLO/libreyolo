@@ -45,6 +45,17 @@ IMG_FORMATS = {
 }
 
 
+def polygon_to_cxcywh(coords: list[float]) -> tuple[float, float, float, float]:
+    """Derive normalized cxcywh bounding box from polygon vertices."""
+    xs = coords[0::2]
+    ys = coords[1::2]
+    cx = (min(xs) + max(xs)) / 2
+    cy = (min(ys) + max(ys)) / 2
+    w = max(xs) - min(xs)
+    h = max(ys) - min(ys)
+    return cx, cy, w, h
+
+
 def resolve_dataset_yaml(data: str) -> Path:
     """
     Resolve a dataset YAML path.
@@ -238,8 +249,8 @@ def load_data_config(
         Dictionary with dataset configuration including:
         - path: Dataset root path
         - train/val/test: Resolved paths (directory or .txt file)
-        - {split}_img_files: List of image paths (if .txt format detected)
-        - {split}_label_files: List of label paths (if .txt format detected)
+        - {split}_img_files: List of resolved image paths (when discoverable)
+        - {split}_label_files: List of resolved label paths (when discoverable)
         - names: Class names dict or list
         - nc: Number of classes
 
@@ -263,22 +274,34 @@ def load_data_config(
     if autodownload:
         config = check_dataset(config, yaml_path, allow_scripts=allow_scripts)
 
-    # Resolve train/val/test paths
+    # Resolve train/val/test paths and pre-compute image lists when possible.
     for split in ("train", "val", "test"):
         if split in config and config[split]:
             split_value = config[split]
-            split_path = dataset_path / split_value
-            config[split] = str(split_path)
 
-            # If it's a .txt file, pre-resolve image files
-            if str(split_value).endswith(".txt") and split_path.exists():
-                try:
-                    img_files = get_img_files(split_path)
+            if isinstance(split_value, list):
+                split_path = [
+                    str(path if Path(path).is_absolute() else dataset_path / path)
+                    for path in split_value
+                ]
+                config[split] = split_path
+            else:
+                split_path_obj = Path(split_value)
+                split_path = (
+                    split_path_obj
+                    if split_path_obj.is_absolute()
+                    else dataset_path / split_path_obj
+                )
+                config[split] = str(split_path)
+
+            try:
+                img_files = get_img_files(split_path)
+                if img_files:
                     config[f"{split}_img_files"] = img_files
                     config[f"{split}_label_files"] = img2label_paths(img_files)
-                except (FileNotFoundError, ValueError):
-                    # File doesn't exist or no valid images found
-                    pass
+            except (FileNotFoundError, ValueError):
+                # Split path doesn't exist yet or contains no supported images.
+                pass
 
     # Keep 'root' for backward compatibility
     config["root"] = str(dataset_path)
@@ -347,7 +370,9 @@ def check_dataset(
     # Dataset doesn't exist, check for download URL/script
     download_spec = config.get("download")
     if not download_spec:
-        logger.warning("Dataset not found at %s and no download specified.", dataset_path)
+        logger.warning(
+            "Dataset not found at %s and no download specified.", dataset_path
+        )
         return config
 
     logger.info("Dataset not found at %s", dataset_path)

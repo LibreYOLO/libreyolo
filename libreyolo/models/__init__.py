@@ -27,6 +27,8 @@ logger = logging.getLogger(__name__)
 # Always-available models (importing triggers __init_subclass__ registration)
 from .yolox.model import LibreYOLOX  # noqa: E402
 from .yolo9.model import LibreYOLO9  # noqa: E402
+from .yolonas.model import LibreYOLONAS  # noqa: E402
+from .dfine.model import LibreDFINE  # noqa: E402
 from .rtdetr.model import LibreYOLORTDETR  # noqa: E402
 
 
@@ -75,13 +77,41 @@ def _resolve_weights_path(model_path: str) -> str:
 
 
 def _unwrap_state_dict(state_dict: dict) -> dict:
-    """Extract weights from nested checkpoint formats (EMA, model wrappers)."""
+    """Extract weights from nested checkpoint formats.
+
+    Supports:
+    - LibreYOLO trainer checkpoints (``model``)
+    - legacy EMA wrappers (``ema``)
+    - SuperGradients checkpoints (``ema_net`` / ``net``)
+    - generic wrappers (``state_dict``)
+    """
     if "ema" in state_dict and isinstance(state_dict.get("ema"), dict):
         ema_data = state_dict["ema"]
         return ema_data.get("module", ema_data)
+    if "ema_net" in state_dict and isinstance(state_dict.get("ema_net"), dict):
+        return state_dict["ema_net"]
+    if "net" in state_dict and isinstance(state_dict.get("net"), dict):
+        return state_dict["net"]
     if "model" in state_dict and isinstance(state_dict.get("model"), dict):
         return state_dict["model"]
+    if "state_dict" in state_dict and isinstance(state_dict.get("state_dict"), dict):
+        return state_dict["state_dict"]
     return state_dict
+
+
+def _needs_rfdetr_registration(weights_dict: dict) -> bool:
+    """Return True when checkpoint keys require lazy RF-DETR registration."""
+    if LibreYOLORTDETR.can_load(weights_dict):
+        return False
+
+    keys_lower = [k.lower() for k in weights_dict]
+    return any(
+        "dinov2" in k
+        or "query_embed" in k
+        or "enc_out_class_embed" in k
+        or "enc_out_bbox_embed" in k
+        for k in keys_lower
+    )
 
 
 # =============================================================================
@@ -111,8 +141,6 @@ def LibreYOLO(
     Returns:
         Model instance (LibreYOLOX, LibreYOLO9, LibreYOLORFDETR, or inference backend).
     """
-    import torch
-
     ensure_default_logging()
     model_path = _resolve_weights_path(model_path)
 
@@ -121,6 +149,11 @@ def LibreYOLO(
         from ..backends.onnx import OnnxBackend
 
         return OnnxBackend(model_path, nb_classes=nb_classes or 80, device=device)
+
+    if model_path.endswith(".torchscript"):
+        from ..backends.torchscript import TorchScriptBackend
+
+        return TorchScriptBackend(model_path, nb_classes=nb_classes, device=device)
 
     if model_path.endswith((".engine", ".tensorrt")):
         from ..backends.tensorrt import TensorRTBackend
@@ -191,19 +224,10 @@ def LibreYOLO(
     weights_dict = _unwrap_state_dict(state_dict)
 
     # Ensure RF-DETR is registered if its keys are present, but avoid
-    # treating RT-DETR checkpoints as RF-DETR.
-    is_rtdetr = LibreYOLORTDETR.can_load(weights_dict)
-    keys_lower = [k.lower() for k in weights_dict]
-    if not is_rtdetr and any(
-        "detr" in k
-        or "dinov2" in k
-        or "transformer" in k
-        or ("encoder" in k and "decoder" in k)
-        or "query_embed" in k
-        or "class_embed" in k
-        or "bbox_embed" in k
-        for k in keys_lower
-    ):
+    # treating RT-DETR checkpoints as RF-DETR. D-FINE also has
+    # ``encoder``/``decoder``-ish keys, so only RF-DETR-specific markers
+    # should trigger the lazy import.
+    if _needs_rfdetr_registration(weights_dict):
         try:
             _ensure_rfdetr()
         except ModuleNotFoundError:
@@ -219,7 +243,7 @@ def LibreYOLO(
     if matched_cls is None:
         raise ValueError(
             "Could not detect model architecture from state dict keys.\n"
-            "Supported architectures: YOLOX, YOLOv9, RT-DETR, RF-DETR."
+            "Supported architectures: YOLOX, YOLOv9, YOLO-NAS, RT-DETR, RF-DETR, D-FINE."
         )
 
     # Auto-detect size
@@ -241,22 +265,43 @@ def LibreYOLO(
             )
         logger.debug("Auto-detected size: %s", size)
 
-    # Auto-detect nb_classes
-    if nb_classes is None:
-        nb_classes = matched_cls.detect_nb_classes(weights_dict)
-        if nb_classes is None:
-            nb_classes = 80
-
     # Determine how to pass weights
     # Checkpoints from our trainers have metadata (nc, names, model_family).
     # For those, pass the file path so _load_weights() handles nc rebuild + names.
     # For old/pretrained checkpoints, pass the extracted state_dict directly.
     has_metadata = isinstance(state_dict, dict) and "nc" in state_dict
 
+    # Auto-detect nb_classes.
+    #
+    # Metadata checkpoints are reloaded via ``_load_weights()``, which reads the
+    # saved ``nc`` and performs any family-specific rebuild logic. Starting from
+    # the constructor default (80) avoids baking the fine-tuned class count into
+    # the fresh model init too early. This matters for YOLO9-t where the class
+    # branch width depends on COCO-vs-custom ``nc`` during construction.
+    if nb_classes is None:
+        if has_metadata:
+            nb_classes = 80
+        else:
+            nb_classes = matched_cls.detect_nb_classes(weights_dict)
+            if nb_classes is None:
+                nb_classes = 80
+
+    # Check for -seg suffix on models that don't support segmentation
+    task = matched_cls.detect_task_from_filename(Path(model_path).name)
+    if task == "seg" and matched_cls.FAMILY != "rfdetr":
+        raise ValueError(
+            f"{matched_cls.__name__} does not support segmentation. "
+            f"Only RF-DETR models support instance segmentation (-seg suffix)."
+        )
+
     if matched_cls.FAMILY == "rfdetr":
         # RF-DETR always needs the path (handles its own loading internally)
         model = matched_cls(
-            model_path=model_path, size=size, nb_classes=nb_classes, device=device
+            model_path=model_path,
+            size=size,
+            nb_classes=nb_classes,
+            device=device,
+            segmentation=(task == "seg"),
         )
     elif has_metadata:
         # Our trainer checkpoint — pass path for metadata handling
@@ -285,5 +330,8 @@ __all__ = [
     "LibreYOLO",
     "LibreYOLOX",
     "LibreYOLO9",
+    "LibreYOLONAS",
+    "LibreDFINE",
     "LibreYOLORTDETR",
+    "try_ensure_rfdetr",
 ]

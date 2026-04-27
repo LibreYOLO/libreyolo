@@ -278,7 +278,7 @@ class LibreYOLO9(BaseModel):
                 yaml_names = {i: n for i, n in enumerate(yaml_names)}
             self.names = self._sanitize_names(yaml_names, self.nb_classes)
 
-        if seed > 0:
+        if seed >= 0:
             import random
             import numpy as np
 
@@ -318,6 +318,7 @@ class LibreYOLO9(BaseModel):
                     "resume=True requires a checkpoint. Load one first: "
                     "model = LibreYOLO9('path/to/last.pt', size='t'); model.train(data=..., resume=True)"
                 )
+            trainer.setup()
             trainer.resume(str(self.model_path))
 
         results = trainer.train()

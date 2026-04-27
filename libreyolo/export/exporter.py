@@ -15,10 +15,10 @@ from typing import Optional
 
 import torch
 
-logger = logging.getLogger(__name__)
-
 from .onnx import _get_version, export_onnx
 from .torchscript import export_torchscript
+
+logger = logging.getLogger(__name__)
 
 
 # Precision helpers
@@ -98,7 +98,7 @@ class BaseExporter(ABC):
         *,
         output_path: Optional[str] = None,
         imgsz: Optional[int] = None,
-        opset: int = 13,
+        opset: Optional[int] = None,
         simplify: bool = True,
         dynamic: bool = True,
         half: bool = False,
@@ -133,6 +133,12 @@ class BaseExporter(ABC):
             Path to the exported model file.
         """
         half, int8 = self._validate(half, int8, data)
+
+        if opset is None:
+            # D-FINE uses ``F.grid_sample`` (deformable attention) which
+            # requires opset 16+. Default the rest of the families to 13 to
+            # preserve compatibility with the broadest set of ONNX runtimes.
+            opset = 17 if self.model._get_model_name() == "dfine" else 13
 
         imgsz, device, output_path = self._resolve_params(
             output_path,
@@ -264,10 +270,25 @@ class BaseExporter(ABC):
         original_device = next(nn_model.parameters()).device
         nn_model.to(device)
 
+        # D-FINE export mode: wrap model so it returns a tuple instead of dict
+        # and apply ``model.deploy()`` (BN fusion + prune non-eval decoder layers).
+        # The wrapper is what gets traced; the original model is restored on exit.
+        dfine_wrapped = False
+        if self.model._get_model_name() == "dfine":
+            from ..models.dfine.nn import DFINEExportWrapper
+
+            nn_model = DFINEExportWrapper(nn_model).to(device)
+            nn_model.eval()
+            dfine_wrapped = True
+
         # Set export mode for YOLOX/YOLOv9 heads
         original_export = None
         export_attr = None
-        if hasattr(nn_model, "head") and hasattr(nn_model.head, "export"):
+        if (
+            not dfine_wrapped
+            and hasattr(nn_model, "head")
+            and hasattr(nn_model.head, "export")
+        ):
             export_attr = "head"
             original_export = nn_model.head.export
             nn_model.head.export = True
@@ -397,6 +418,7 @@ class BaseExporter(ABC):
             "imgsz": str(self.model._get_input_size()),
             "dynamic": str(dynamic),
             "half": str(half),
+            "segmentation": str(getattr(self.model, "_is_segmentation", False)).lower(),
         }
 
     def _print_summary(self, result: str, precision: str, imgsz: int):
@@ -462,8 +484,10 @@ class TorchScriptExporter(BaseExporter):
     supports_fp16 = True
     apply_model_half = True
 
-    def _export(self, nn_model, dummy, *, output_path, **kwargs):
-        return export_torchscript(nn_model, dummy, output_path=output_path)
+    def _export(self, nn_model, dummy, *, output_path, metadata, **kwargs):
+        return export_torchscript(
+            nn_model, dummy, output_path=output_path, metadata=metadata
+        )
 
 
 class TensorRTExporter(BaseExporter):
@@ -566,6 +590,19 @@ class NcnnExporter(BaseExporter):
     def _export(
         self, nn_model, dummy, *, output_path, metadata, half, opset, simplify, **kwargs
     ):
+        # NCNN can't handle DETR-style query selection: its op registry doesn't
+        # include the topk/gather variants used by D-FINE and RT-DETR decoders.
+        # Block early rather than producing a broken export directory.
+        unsupported_family_names = {"dfine": "D-FINE", "rtdetr": "RT-DETR"}
+        model_family = metadata.get("model_family") if metadata else None
+        if model_family in unsupported_family_names:
+            raise NotImplementedError(
+                f"NCNN export is not supported for "
+                f"{unsupported_family_names[model_family]}: NCNN's op registry "
+                "lacks topk/gather variants that the DETR-style decoder "
+                "requires. Use ONNX, OpenVINO, TorchScript, or TensorRT instead."
+            )
+
         from .ncnn import export_ncnn
 
         logger.info("Exporting to ncnn via PNNX")

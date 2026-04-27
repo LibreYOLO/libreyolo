@@ -16,9 +16,9 @@ import pytest
 import yaml
 
 from .conftest import (
-    FULL_TEST_MODELS,
-    QUICK_TEST_MODELS,
-    RFDETR_TEST_MODELS,
+    FULL_TEST_PARAMS,
+    QUICK_TEST_PARAMS,
+    RFDETR_TEST_PARAMS,
     load_model,
     match_detections,
     requires_openvino,
@@ -29,7 +29,12 @@ from .conftest import (
     run_metadata_round_trip_test,
 )
 
-pytestmark = [pytest.mark.e2e, pytest.mark.openvino]
+pytestmark = [
+    pytest.mark.e2e,
+    pytest.mark.export_backend,
+    pytest.mark.experimental_backend,
+    pytest.mark.openvino,
+]
 
 
 # ---------------------------------------------------------------------------
@@ -41,14 +46,14 @@ class TestOpenVINOExportFP16:
     """Test OpenVINO FP16 export + inference for all models."""
 
     @requires_openvino
-    @pytest.mark.parametrize("model_type,size", QUICK_TEST_MODELS)
+    @pytest.mark.parametrize("model_type,size", QUICK_TEST_PARAMS)
     def test_fp16_export_quick(self, model_type, size, sample_image, tmp_path):
         """Quick test with smallest models (for CI)."""
         self._run_fp16_test(model_type, size, sample_image, tmp_path)
 
     @requires_openvino
     @pytest.mark.slow
-    @pytest.mark.parametrize("model_type,size", FULL_TEST_MODELS)
+    @pytest.mark.parametrize("model_type,size", FULL_TEST_PARAMS)
     def test_fp16_export_full(self, model_type, size, sample_image, tmp_path):
         """Full test with all YOLOX and YOLOv9 models."""
         self._run_fp16_test(model_type, size, sample_image, tmp_path)
@@ -56,7 +61,7 @@ class TestOpenVINOExportFP16:
     @requires_openvino
     @requires_rfdetr
     @pytest.mark.slow
-    @pytest.mark.parametrize("model_type,size", RFDETR_TEST_MODELS)
+    @pytest.mark.parametrize("model_type,size", RFDETR_TEST_PARAMS)
     def test_fp16_export_rfdetr(self, model_type, size, sample_image, tmp_path):
         """Test RF-DETR models (requires extra dependencies)."""
         self._run_fp16_test(model_type, size, sample_image, tmp_path)
@@ -83,14 +88,14 @@ class TestOpenVINOExportFP32:
     """Test OpenVINO FP32 export + inference for all models."""
 
     @requires_openvino
-    @pytest.mark.parametrize("model_type,size", QUICK_TEST_MODELS)
+    @pytest.mark.parametrize("model_type,size", QUICK_TEST_PARAMS)
     def test_fp32_export_quick(self, model_type, size, sample_image, tmp_path):
         """Quick FP32 export test."""
         self._run_fp32_test(model_type, size, sample_image, tmp_path)
 
     @requires_openvino
     @pytest.mark.slow
-    @pytest.mark.parametrize("model_type,size", FULL_TEST_MODELS)
+    @pytest.mark.parametrize("model_type,size", FULL_TEST_PARAMS)
     def test_fp32_export_full(self, model_type, size, sample_image, tmp_path):
         """Full test with all YOLOX and YOLOv9 models."""
         self._run_fp32_test(model_type, size, sample_image, tmp_path)
@@ -113,7 +118,7 @@ class TestOpenVINOMetadata:
     """Test OpenVINO metadata export."""
 
     @requires_openvino
-    @pytest.mark.parametrize("model_type,size", QUICK_TEST_MODELS)
+    @pytest.mark.parametrize("model_type,size", QUICK_TEST_PARAMS)
     def test_metadata_saved(self, model_type, size, tmp_path):
         """Test that exported models have correct metadata."""
         pt_model = load_model(model_type, size, device="cpu")
@@ -145,7 +150,7 @@ class TestOpenVINOMetadata:
         del pt_model
 
     @requires_openvino
-    @pytest.mark.parametrize("model_type,size", QUICK_TEST_MODELS)
+    @pytest.mark.parametrize("model_type,size", QUICK_TEST_PARAMS)
     def test_metadata_round_trip(self, model_type, size, tmp_path):
         """Test that metadata is correctly loaded when loading OpenVINO model."""
         run_metadata_round_trip_test(
@@ -162,7 +167,7 @@ class TestOpenVINOMultipleInference:
     """Test OpenVINO inference consistency."""
 
     @requires_openvino
-    @pytest.mark.parametrize("model_type,size", QUICK_TEST_MODELS)
+    @pytest.mark.parametrize("model_type,size", QUICK_TEST_PARAMS)
     def test_consistent_results(self, model_type, size, sample_image, tmp_path):
         """Test that OpenVINO model produces consistent results across runs."""
         run_consistency_test(
@@ -180,7 +185,7 @@ class TestOpenVINOModelLoading:
     """Test OpenVINO model loading and structure."""
 
     @requires_openvino
-    @pytest.mark.parametrize("model_type,size", QUICK_TEST_MODELS)
+    @pytest.mark.parametrize("model_type,size", QUICK_TEST_PARAMS)
     def test_model_loadable(self, model_type, size, tmp_path):
         """Test that exported OpenVINO model can be loaded by the runtime."""
         import openvino as ov
@@ -211,7 +216,7 @@ class TestOpenVINOModelLoading:
         del pt_model
 
     @requires_openvino
-    @pytest.mark.parametrize("model_type,size", QUICK_TEST_MODELS)
+    @pytest.mark.parametrize("model_type,size", QUICK_TEST_PARAMS)
     def test_fp32_and_fp16_both_work(self, model_type, size, sample_image, tmp_path):
         """Test that both FP32 and FP16 exports produce valid results."""
         from libreyolo import LibreYOLO
@@ -259,7 +264,7 @@ class TestOpenVINOBackend:
     """Test the OpenVINOBackend inference backend class directly."""
 
     @requires_openvino
-    @pytest.mark.parametrize("model_type,size", QUICK_TEST_MODELS)
+    @pytest.mark.parametrize("model_type,size", QUICK_TEST_PARAMS)
     def test_predict_alias(self, model_type, size, sample_image, tmp_path):
         """Test that predict() is an alias for __call__."""
         from libreyolo.backends.openvino import OpenVINOBackend
@@ -281,7 +286,7 @@ class TestOpenVINOBackend:
         del pt_model
 
     @requires_openvino
-    @pytest.mark.parametrize("model_type,size", QUICK_TEST_MODELS)
+    @pytest.mark.parametrize("model_type,size", QUICK_TEST_PARAMS)
     def test_save_output(self, model_type, size, sample_image, tmp_path):
         """Test that save=True produces an annotated image."""
         from libreyolo.backends.openvino import OpenVINOBackend
@@ -304,7 +309,7 @@ class TestOpenVINOBackend:
         del pt_model
 
     @requires_openvino
-    @pytest.mark.parametrize("model_type,size", QUICK_TEST_MODELS)
+    @pytest.mark.parametrize("model_type,size", QUICK_TEST_PARAMS)
     def test_classes_filter(self, model_type, size, sample_image, tmp_path):
         """Test that classes filter limits detections to specified class IDs."""
         from libreyolo.backends.openvino import OpenVINOBackend
@@ -335,7 +340,7 @@ class TestOpenVINOFactory:
     """Test loading OpenVINO models through the LibreYOLO() factory."""
 
     @requires_openvino
-    @pytest.mark.parametrize("model_type,size", QUICK_TEST_MODELS)
+    @pytest.mark.parametrize("model_type,size", QUICK_TEST_PARAMS)
     def test_factory_dispatch(self, model_type, size, sample_image, tmp_path):
         """Export model, load via LibreYOLO(dir), verify type and inference."""
         from libreyolo import LibreYOLO
@@ -380,6 +385,7 @@ class TestOpenVINOModelCoverage:
 
     @requires_openvino
     @pytest.mark.slow
+    @pytest.mark.yolox
     def test_all_yolox_sizes_exportable(self, sample_image, tmp_path):
         """Test that all YOLOX sizes can be exported and run."""
         from libreyolo import LibreYOLO
@@ -403,6 +409,7 @@ class TestOpenVINOModelCoverage:
 
     @requires_openvino
     @pytest.mark.slow
+    @pytest.mark.yolo9
     def test_all_yolo9_sizes_exportable(self, sample_image, tmp_path):
         """Test that all YOLO9 sizes can be exported and run."""
         from libreyolo import LibreYOLO
@@ -427,6 +434,7 @@ class TestOpenVINOModelCoverage:
     @requires_openvino
     @requires_rfdetr
     @pytest.mark.slow
+    @pytest.mark.rfdetr
     def test_all_rfdetr_sizes_exportable(self, sample_image, tmp_path):
         """Test that all RF-DETR sizes can be exported and run."""
         from libreyolo import LibreYOLO

@@ -7,12 +7,20 @@ from pathlib import Path
 from typing import Dict
 
 from rfdetr import RFDETRLarge, RFDETRNano, RFDETRSmall, RFDETRMedium
+from rfdetr import RFDETRSegLarge, RFDETRSegNano, RFDETRSegSmall, RFDETRSegMedium
 
 RFDETR_TRAINERS = {
     "n": RFDETRNano,
     "s": RFDETRSmall,
     "m": RFDETRMedium,
     "l": RFDETRLarge,
+}
+
+RFDETR_SEG_TRAINERS = {
+    "n": RFDETRSegNano,
+    "s": RFDETRSegSmall,
+    "m": RFDETRSegMedium,
+    "l": RFDETRSegLarge,
 }
 
 
@@ -25,6 +33,7 @@ def train_rfdetr(
     output_dir: str = "runs/train",
     resume: str | None = None,
     pretrain_weights: str | None = None,
+    segmentation: bool = False,
     **kwargs,
 ) -> Dict:
     """
@@ -56,12 +65,13 @@ def train_rfdetr(
         >>> from libreyolo.rfdetr import train_rfdetr
         >>> train_rfdetr(data="path/to/dataset", size="s", epochs=50)
     """
-    if size not in RFDETR_TRAINERS:
+    trainers = RFDETR_SEG_TRAINERS if segmentation else RFDETR_TRAINERS
+    if size not in trainers:
         raise ValueError(
-            f"Invalid size: {size}. Must be one of {list(RFDETR_TRAINERS.keys())}"
+            f"Invalid size: {size}. Must be one of {list(trainers.keys())}"
         )
 
-    trainer_cls = RFDETR_TRAINERS[size]
+    trainer_cls = trainers[size]
     init_kwargs = {}
     if pretrain_weights is not None:
         init_kwargs["pretrain_weights"] = pretrain_weights

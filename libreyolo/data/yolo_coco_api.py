@@ -9,13 +9,15 @@ Adapted for LibreYOLO.
 """
 
 import logging
+import warnings
 from pathlib import Path
 from typing import List, Optional, Tuple
-import warnings
-
-logger = logging.getLogger(__name__)
 
 from PIL import Image
+
+from .utils import polygon_to_cxcywh
+
+logger = logging.getLogger(__name__)
 
 
 def parse_yolo_label_line(
@@ -50,21 +52,20 @@ def parse_yolo_label_line(
     if len(parts) < 5:
         return None
 
-    # Warn about segmentation format (more than 5 columns)
-    if len(parts) > 5:
-        warnings.warn(
-            f"Label line has {len(parts)} columns (expected 5 for detection). "
-            f"This may be a segmentation dataset which is not supported. "
-            f"File: {label_path}, Line: '{line[:50]}...'"
-        )
-
     # Parse values with error handling
     try:
         class_id = int(parts[0])
-        cx = float(parts[1])
-        cy = float(parts[2])
-        bw = float(parts[3])
-        bh = float(parts[4])
+
+        if len(parts) > 5:
+            # Segmentation format: derive bbox from polygon vertices.
+            coords = [float(p) for p in parts[1:]]
+            cx, cy, bw, bh = polygon_to_cxcywh(coords)
+        else:
+            # Detection format: class_id cx cy w h
+            cx = float(parts[1])
+            cy = float(parts[2])
+            bw = float(parts[3])
+            bh = float(parts[4])
     except ValueError as e:
         if label_path:
             warnings.warn(
@@ -220,7 +221,9 @@ class YOLOCocoAPI:
         for i, name in enumerate(class_names):
             self.cats[i] = {"id": i, "name": name, "supercategory": "object"}
 
-        logger.info("  Loaded %d annotations across %d images", len(self.anns), len(self.imgs))
+        logger.info(
+            "  Loaded %d annotations across %d images", len(self.anns), len(self.imgs)
+        )
 
     def getAnnIds(self, imgIds=None, catIds=None, areaRng=None, iscrowd=None):
         """
@@ -385,19 +388,12 @@ def create_yolo_coco_api(data_yaml_path: str, split: str = "val") -> YOLOCocoAPI
         >>> coco_api = create_yolo_coco_api("path/to/data.yaml", split="val")
         >>> # Use with COCOeval
     """
-    import yaml
+    from .utils import load_data_config
 
-    with open(data_yaml_path, "r") as f:
-        data = yaml.safe_load(f)
-
-    # Get root directory
-    root = Path(data_yaml_path).parent
-    if "path" in data:
-        root_override = Path(data["path"])
-        if not root_override.is_absolute():
-            root = root / root_override
-        else:
-            root = root_override
+    # Reuse the same YAML alias and dataset-root resolution logic as the main
+    # loader so COCO evaluation works for dataset names like "coco128.yaml".
+    data = load_data_config(data_yaml_path, autodownload=False)
+    root = Path(data["path"])
 
     # Get class names
     names = data.get("names", [])
@@ -412,9 +408,9 @@ def create_yolo_coco_api(data_yaml_path: str, split: str = "val") -> YOLOCocoAPI
     # Get split paths
     split_key = split.split("_")[0]  # Handle 'val_speed' etc.
     images_subpath = data.get(split_key, f"images/{split_key}")
-
-    # Resolve images directory
-    images_dir = root / images_subpath
+    images_dir = Path(images_subpath)
+    if not images_dir.is_absolute():
+        images_dir = root / images_subpath
     if not images_dir.exists():
         # Try with 'images/' prefix
         images_dir = root / "images" / split_key

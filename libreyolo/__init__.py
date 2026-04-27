@@ -4,8 +4,15 @@ from importlib.metadata import version, PackageNotFoundError
 from pathlib import Path as _Path
 
 # Core API — always available
-from .models import LibreYOLO, LibreYOLOX, LibreYOLO9, LibreYOLORTDETR
-from .utils.results import Results, Boxes
+from .models import (
+    LibreYOLO,
+    LibreYOLOX,
+    LibreYOLO9,
+    LibreYOLONAS,
+    LibreDFINE,
+    LibreYOLORTDETR,
+)
+from .utils.results import Results, Boxes, Masks
 
 SAMPLE_IMAGE = str(_Path(__file__).parent / "assets" / "parkour.jpg")
 
@@ -26,6 +33,8 @@ def __getattr__(name):
         "BaseExporter": (".export", "BaseExporter"),
         "DetectionValidator": (".validation", "DetectionValidator"),
         "ValidationConfig": (".validation", "ValidationConfig"),
+        "ByteTracker": (".tracking", "ByteTracker"),
+        "TrackConfig": (".tracking", "TrackConfig"),
         "DATASETS_DIR": (".data", "DATASETS_DIR"),
         "load_data_config": (".data", "load_data_config"),
         "check_dataset": (".data", "check_dataset"),
@@ -48,14 +57,20 @@ __all__ = [
     # Main API
     "LibreYOLO",
     "LibreYOLO9",
+    "LibreYOLONAS",
     "LibreYOLOX",
     "LibreYOLORTDETR",
     "LibreYOLORFDETR",
+    "LibreDFINE",
     # Results
     "Results",
     "Boxes",
+    "Masks",
     # Assets
     "SAMPLE_IMAGE",
+    # Tracking
+    "ByteTracker",
+    "TrackConfig",
     # Lazy-loaded
     "OnnxBackend",
     "OpenVINOBackend",

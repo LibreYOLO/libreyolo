@@ -75,7 +75,15 @@ class NcnnBackend(BaseBackend):
         self.net.load_param(str(param_path))
         self.net.load_model(str(bin_path))
 
-        self._input_names, self._output_names = self._discover_blob_names(param_path)
+        input_names_fn = getattr(self.net, "input_names", None)
+        output_names_fn = getattr(self.net, "output_names", None)
+        if callable(input_names_fn) and callable(output_names_fn):
+            self._input_names = list(input_names_fn())
+            self._output_names = list(output_names_fn())
+        else:
+            self._input_names, self._output_names = self._discover_blob_names(
+                param_path
+            )
 
         super().__init__(
             model_path=str(model_dir),
@@ -169,4 +177,13 @@ class NcnnBackend(BaseBackend):
                         f"Failed to extract output '{out_name}' from ncnn model"
                     )
             all_outputs.append(np.array(mat_out).reshape(1, *np.array(mat_out).shape))
+
+        # YOLO-NAS exports two outputs (scores, boxes) from pnnx as out1/out0.
+        # Reorder them to [boxes, scores] so the shared backend parser can stay
+        # aligned with the ONNX/TorchScript/OpenVINO conventions.
+        if self.model_family == "yolonas" and len(all_outputs) == 2:
+            first, second = all_outputs
+            if first.shape[-1] != 4 and second.shape[-1] == 4:
+                all_outputs = [second, first]
+
         return all_outputs

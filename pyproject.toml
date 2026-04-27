@@ -38,7 +38,7 @@ rfdetr = [
     "rfdetr>=1.6.2,<2.0.0",
 ]
 tensorrt = [
-    "tensorrt",
+    "tensorrt-cu12",
     "pycuda>=2022.1",
 ]
 openvino = [
@@ -48,6 +48,9 @@ ncnn = [
     "pnnx",
     "ncnn",
 ]
+tracking = [
+    "scipy>=1.7.0",
+]
 rtdetr = ["scipy>=1.7.0"]
 all = [
     "libreyolo[onnx]",
@@ -55,6 +58,7 @@ all = [
     "libreyolo[tensorrt]",
     "libreyolo[openvino]",
     "libreyolo[ncnn]",
+    "libreyolo[tracking]",
     "libreyolo[rtdetr]",
 ]
 
@@ -113,9 +117,22 @@ testpaths = ["tests"]
 markers = [
     "unit: fast tests that avoid external weights or large files",
     "e2e: end-to-end tests requiring full model loading and inference",
+    "export_backend: tests covering an export backend or serialized runtime format",
+    "supported_backend: tests covering a release-blocking supported backend",
+    "experimental_backend: tests covering an experimental backend",
+    "onnx: tests covering ONNX export or inference",
+    "torchscript: tests covering TorchScript export or inference",
     "tensorrt: tests requiring TensorRT",
+    "trt: alias for TensorRT tests requiring TensorRT",
     "openvino: tests requiring OpenVINO",
     "ncnn: tests requiring ncnn",
-    "rfdetr: tests requiring RF-DETR dependencies",
+    "yolox: tests covering the YOLOX model family",
+    "yolo9: tests covering the YOLO9 model family",
+    "yolonas: tests covering the YOLO-NAS model family",
+    "rfdetr: tests covering the RF-DETR model family",
+    "dfine: tests covering the D-FINE model family",
+    "rtdetr: tests covering the RT-DETR model family",
+    "rf1: RF1 training tests",
+    "rf5: RF5 training benchmark tests",
     "slow: slow tests that may take several minutes",
 ]

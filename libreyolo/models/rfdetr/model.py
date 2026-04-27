@@ -105,10 +105,11 @@ _COCO91_TO_COCO80 = {
 
 
 class LibreYOLORFDETR(BaseModel):
-    """RF-DETR model for object detection.
+    """RF-DETR model for object detection and instance segmentation.
 
     RF-DETR is a Detection Transformer using DINOv2 backbone with
-    multi-scale deformable attention.
+    multi-scale deformable attention. Segmentation variants add a
+    lightweight mask head for instance segmentation.
 
     Args:
         model_path: Path to weights, pre-loaded state_dict, or None for pretrained.
@@ -126,6 +127,7 @@ class LibreYOLORFDETR(BaseModel):
     FAMILY = "rfdetr"
     FILENAME_PREFIX = "LibreRFDETR"
     INPUT_SIZES = {"n": 384, "s": 512, "m": 576, "l": 704}
+    SEG_INPUT_SIZES = {"n": 312, "s": 384, "m": 432, "l": 504}
     TRAIN_CONFIG = RFDETRConfig
     val_preprocessor_class = RFDETRValPreprocessor
 
@@ -176,7 +178,11 @@ class LibreYOLORFDETR(BaseModel):
         cls, weights_dict: dict, state_dict: dict | None = None
     ) -> Optional[str]:
         full_ckpt = state_dict if state_dict is not None else weights_dict
+        is_seg = any(k.startswith("segmentation_head") for k in weights_dict)
+
         RESOLUTION_TO_SIZE = {384: "n", 512: "s", 576: "m", 704: "l"}
+        SEG_RESOLUTION_TO_SIZE = {312: "n", 384: "s", 432: "m", 504: "l"}
+        res_map = SEG_RESOLUTION_TO_SIZE if is_seg else RESOLUTION_TO_SIZE
 
         args = full_ckpt.get("args")
         if args is not None:
@@ -187,8 +193,8 @@ class LibreYOLORFDETR(BaseModel):
                 if isinstance(args, dict)
                 else None
             )
-            if resolution in RESOLUTION_TO_SIZE:
-                return RESOLUTION_TO_SIZE[resolution]
+            if resolution in res_map:
+                return res_map[resolution]
 
         # Fallback: infer from backbone position_embeddings shape
         pos_key = "backbone.0.encoder.encoder.embeddings.position_embeddings"
@@ -206,6 +212,9 @@ class LibreYOLORFDETR(BaseModel):
 
     @classmethod
     def detect_nb_classes(cls, weights_dict: dict) -> Optional[int]:
+        # RF-DETR class_embed has (num_classes + 1) outputs (includes background)
+        if "class_embed.bias" in weights_dict:
+            return weights_dict["class_embed.bias"].shape[0] - 1
         return None
 
     # =========================================================================
@@ -218,18 +227,43 @@ class LibreYOLORFDETR(BaseModel):
         size: str = "s",
         nb_classes: int = 80,
         device: str = "auto",
+        segmentation: bool = False,
         **kwargs,
     ):
         # Convert empty dict (from factory) to None for RF-DETR config compatibility
         if isinstance(model_path, dict) and not model_path:
             self._pretrain_weights = None
+        elif isinstance(model_path, str):
+            self._pretrain_weights = self._resolve_weights_path(model_path)
         else:
             self._pretrain_weights = model_path
+
+        self._is_segmentation = segmentation
+
+        # Auto-detect segmentation from filename first (avoids loading weights twice)
+        if not segmentation and self._pretrain_weights is not None:
+            task = self.detect_task_from_filename(str(self._pretrain_weights))
+            if task == "seg":
+                self._is_segmentation = True
+            else:
+                self._is_segmentation = self._detect_segmentation(
+                    self._pretrain_weights
+                )
+
+        if self._is_segmentation:
+            self.INPUT_SIZES = self.SEG_INPUT_SIZES
+
+        # RF-DETR COCO checkpoints have 90 arch-classes (91 outputs incl.
+        # background), but libreyolo uses 80 YOLO-contiguous classes with a
+        # 91→80 mapping in _postprocess.  Store the arch count for rfdetr
+        # config and present 80 to the rest of the framework.
+        self._model_num_classes = nb_classes
+        user_nb_classes = 80 if nb_classes == 90 else nb_classes
 
         super().__init__(
             model_path=None,
             size=size,
-            nb_classes=nb_classes,
+            nb_classes=user_nb_classes,
             device=device,
             **kwargs,
         )
@@ -238,6 +272,18 @@ class LibreYOLORFDETR(BaseModel):
         if self._pretrain_weights is not None:
             self.model.eval()
 
+    @staticmethod
+    def _detect_segmentation(model_path) -> bool:
+        """Check if weights contain a segmentation head."""
+        if not isinstance(model_path, str):
+            return False
+        try:
+            ckpt = torch.load(model_path, map_location="cpu", weights_only=False)
+            state = ckpt.get("model", ckpt)
+            return any(k.startswith("segmentation_head") for k in state)
+        except Exception:
+            return False
+
     # =========================================================================
     # Model lifecycle
     # =========================================================================
@@ -245,9 +291,10 @@ class LibreYOLORFDETR(BaseModel):
     def _init_model(self) -> nn.Module:
         return LibreRFDETRModel(
             config=self.size,
-            nb_classes=self.nb_classes,
+            nb_classes=self._model_num_classes,
             pretrain_weights=self._pretrain_weights,
             device=str(self.device),
+            segmentation=self._is_segmentation,
         )
 
     def _get_available_layers(self) -> Dict[str, nn.Module]:
@@ -319,11 +366,14 @@ class LibreYOLORFDETR(BaseModel):
         scores = result["scores"]
         labels = result["labels"]
         boxes = result["boxes"]
+        masks = result.get("masks")  # (K, H, W) bool or None
 
         keep = scores > conf_thres
         scores = scores[keep]
         labels = labels[keep]
         boxes = boxes[keep]
+        if masks is not None:
+            masks = masks[keep]
 
         # Map COCO 91-class IDs to YOLO 80-class indices if needed
         num_output_classes = output["pred_logits"].shape[-1]
@@ -336,13 +386,18 @@ class LibreYOLORFDETR(BaseModel):
             boxes = boxes[valid]
             scores = scores[valid]
             labels = mapped[valid]
+            if masks is not None:
+                masks = masks[valid]
 
-        return {
+        det = {
             "boxes": boxes.cpu().tolist(),
             "scores": scores.cpu().tolist(),
             "classes": labels.cpu().tolist(),
             "num_detections": len(boxes),
         }
+        if masks is not None:
+            det["masks"] = masks.cpu()
+        return det
 
     # =========================================================================
     # Public API
@@ -385,6 +440,7 @@ class LibreYOLORFDETR(BaseModel):
             output_dir=output_dir,
             resume=resume,
             pretrain_weights=self._pretrain_weights,
+            segmentation=self._is_segmentation,
             **kwargs,
         )
 

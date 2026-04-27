@@ -129,7 +129,9 @@ def verify(state_dict: dict, size: str) -> None:
     model = LibreYOLORTDETR(nb_classes=80, size=size, device="cpu")
     missing, unexpected = model.model.load_state_dict(state_dict, strict=False)
     if missing:
-        raise RuntimeError(f"[{size}] missing keys: {missing[:5]}{' ...' if len(missing) > 5 else ''}")
+        raise RuntimeError(
+            f"[{size}] missing keys: {missing[:5]}{' ...' if len(missing) > 5 else ''}"
+        )
     if unexpected:
         raise RuntimeError(
             f"[{size}] unexpected keys: {unexpected[:5]}{' ...' if len(unexpected) > 5 else ''}"
@@ -155,9 +157,7 @@ def main() -> None:
         src = repo_root / cfg["src"]
         dst = repo_root / cfg["dst"]
         if not src.exists():
-            raise SystemExit(
-                f"missing source {src}; download from {cfg['url']} first"
-            )
+            raise SystemExit(f"missing source {src}; download from {cfg['url']} first")
         print(f"\n=== Converting RT-DETR HGNetv2-{size.upper()} ===")
         sd = convert(src, dst)
         verify(sd, size)

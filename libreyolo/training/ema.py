@@ -45,3 +45,15 @@ class ModelEMA:
                 if v.dtype.is_floating_point:
                     v *= d
                     v += (1.0 - d) * msd[k].detach()
+
+    def set_decay(self, decay: float, ramp: bool = False):
+        """Replace the decay schedule (used for D-FINE-style EMA restart).
+
+        ``ramp=True`` keeps the early-epoch ramp-up; ``ramp=False`` (default)
+        sets a constant decay — the right choice when ``set_decay`` is called
+        mid-training and the model is already past its noisy initial phase.
+        """
+        if ramp:
+            self.decay = lambda x: decay * (1 - math.exp(-x / 2000))
+        else:
+            self.decay = lambda x: decay
