@@ -16,7 +16,6 @@ from .nn import RTDETRModel
 from .config import RTDETRConfig
 from ...validation.preprocessors import RTDETRValPreprocessor
 
-# Single source of truth for training defaults
 _TRAIN_DEFAULTS = RTDETRConfig()
 
 
@@ -152,21 +151,27 @@ class LibreYOLORTDETR(BaseModel):
 
     @classmethod
     def can_load(cls, weights_dict: dict) -> bool:
-        """Detect RTDETR-specific keys in the state dict."""
+        """Detect RT-DETR-specific keys in the state dict.
+
+        RT-DETR and D-FINE share several decoder head names, so require the
+        RT-DETR decoder input projection path that D-FINE does not have.
+        """
         keys = set(weights_dict.keys())
-        rtdetr_keys = {
-            "backbone.res_layers",  # ResNet variants
-            "backbone.stages",  # HGNetv2 variants
-            "encoder.input_proj",
-            "decoder.dec_score_head",
-            "decoder.enc_score_head",
-        }
-        # Check if any key starts with these prefixes
-        for key in keys:
-            for rtdetr_key in rtdetr_keys:
-                if key.startswith(rtdetr_key):
-                    return True
-        return False
+        has_backbone = any(
+            k.startswith(("backbone.res_layers", "backbone.stages")) for k in keys
+        )
+        has_encoder_input_proj = any(k.startswith("encoder.input_proj") for k in keys)
+        has_decoder_input_proj = any(k.startswith("decoder.input_proj") for k in keys)
+        has_decoder_head = any(
+            k.startswith(("decoder.dec_score_head", "decoder.enc_score_head"))
+            for k in keys
+        )
+        return (
+            has_backbone
+            and has_encoder_input_proj
+            and has_decoder_input_proj
+            and has_decoder_head
+        )
 
     @classmethod
     def detect_size(cls, weights_dict: dict) -> Optional[str]:
@@ -180,31 +185,13 @@ class LibreYOLORTDETR(BaseModel):
                     return "x" if v.shape[0] == 384 else "l"
             return "l"
 
-        # Count decoder layers
-        decoder_layer_keys = [
-            k for k in weights_dict.keys() if k.startswith("decoder.decoder.layers.")
-        ]
-        layer_indices = set()
-        for k in decoder_layer_keys:
-            parts = k.split(".")
-            if len(parts) > 4:
-                try:
-                    layer_indices.add(int(parts[3]))
-                except ValueError:
-                    pass
-        num_decoder_layers = len(layer_indices) if layer_indices else 0
+        enc0 = weights_dict.get("encoder.input_proj.0.0.weight")
+        if enc0 is not None and int(enc0.shape[0]) == 384:
+            return "r101"
 
-        # Check encoder hidden dim for r101
-        for k, v in weights_dict.items():
-            if k == "encoder.input_proj.0.0.weight":
-                hidden_dim = v.shape[0]
-                if hidden_dim == 384:
-                    return "r101"
-                break
-
-        # Check backbone type (BasicBlock vs BottleNeck)
+        # PResNet bottleneck checkpoints use branch2c, not a "conv3" name.
         has_bottleneck = any(
-            "conv3" in k for k in weights_dict.keys() if k.startswith("backbone")
+            k.startswith("backbone.res_layers.") and ".branch2c." in k for k in keys
         )
 
         if not has_bottleneck:
@@ -228,31 +215,23 @@ class LibreYOLORTDETR(BaseModel):
                 return "r18"
             else:
                 return "r34"
-        else:
-            # r50, r50m, or r101
-            if num_decoder_layers == 3:
-                return "r50"  # shouldn't happen but fallback
 
-            # Check encoder hidden dim for r101 (again, in case we missed it)
-            for k, v in weights_dict.items():
-                if "encoder.input_proj" in k and k.endswith(".weight"):
-                    if v.shape[0] == 384:
-                        return "r101"
-                    break
+        stage2_blocks = {
+            int(k.split(".")[4])
+            for k in keys
+            if k.startswith("backbone.res_layers.2.blocks.")
+            and len(k.split(".")) > 5
+            and k.split(".")[4].isdigit()
+        }
+        if len(stage2_blocks) > 6:
+            return "r101"
 
-            # Check freeze_norm by looking for FrozenBatchNorm2d params
-            # FrozenBatchNorm2d has weight, bias, running_mean, running_var but no num_batches_tracked
-            has_frozen_bn = any(
-                "running_mean" in k and "backbone" in k for k in weights_dict.keys()
-            )
-            has_num_batches = any(
-                "num_batches_tracked" in k and "backbone" in k
-                for k in weights_dict.keys()
-            )
-
-            if has_frozen_bn and not has_num_batches:
-                return "r50m"
-            return "r50"
+        # r50m uses encoder_expansion=0.5, so the first CSPRepLayer projects to
+        # 128 channels; r50 uses expansion=1.0 and keeps 256 channels.
+        fpn_key = "encoder.fpn_blocks.0.conv1.conv.weight"
+        if fpn_key in weights_dict and int(weights_dict[fpn_key].shape[0]) == 128:
+            return "r50m"
+        return "r50"
 
     @classmethod
     def detect_nb_classes(cls, weights_dict: dict) -> int:
@@ -556,7 +535,7 @@ class LibreYOLORTDETR(BaseModel):
                 yaml_names = {i: n for i, n in enumerate(yaml_names)}
             self.names = self._sanitize_names(yaml_names, self.nb_classes)
 
-        if seed > 0:
+        if seed >= 0:
             import random
             import numpy as np
 

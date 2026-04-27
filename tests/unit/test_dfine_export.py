@@ -15,7 +15,10 @@ import torch
 
 pytestmark = pytest.mark.unit
 
-if importlib.util.find_spec("onnx") is None or importlib.util.find_spec("onnxruntime") is None:
+if (
+    importlib.util.find_spec("onnx") is None
+    or importlib.util.find_spec("onnxruntime") is None
+):
     pytest.skip("onnx/onnxruntime not installed", allow_module_level=True)
 
 
@@ -105,7 +108,9 @@ def test_ncnn_export_is_blocked_for_dfine():
         pytest.skip(f"{ckpt} not present")
 
     m = LibreDFINE(str(ckpt), size="n", device="cpu")
-    with pytest.raises(NotImplementedError, match="NCNN export is not supported for D-FINE"):
+    with pytest.raises(
+        NotImplementedError, match="NCNN export is not supported for D-FINE"
+    ):
         m.export("ncnn", output_path="/tmp/should_not_exist_ncnn")
 
 
@@ -120,7 +125,9 @@ def test_onnx_backend_matches_torch_inference(tmp_path):
 
     out_path = tmp_path / "LibreDFINEn.onnx"
     torch_m = LibreDFINE(str(ckpt), size="n", device="cpu")
-    torch_m.export("onnx", output_path=str(out_path), simplify=False, dynamic=True, opset=17)
+    torch_m.export(
+        "onnx", output_path=str(out_path), simplify=False, dynamic=True, opset=17
+    )
 
     # Run torch + onnx on the same image; compare top-5 by class + ~conf.
     torch_res = torch_m(SAMPLE_IMAGE, conf=0.5)
@@ -130,9 +137,9 @@ def test_onnx_backend_matches_torch_inference(tmp_path):
     n = min(5, len(torch_res.boxes), len(onnx_res.boxes))
     assert n >= 3, "expected at least 3 confident detections in both"
     for i in range(n):
-        assert int(torch_res.boxes.cls[i].item()) == int(onnx_res.boxes.cls[i].item()), (
-            f"class mismatch at i={i}"
-        )
+        assert int(torch_res.boxes.cls[i].item()) == int(
+            onnx_res.boxes.cls[i].item()
+        ), f"class mismatch at i={i}"
         d = abs(
             float(torch_res.boxes.conf[i].item()) - float(onnx_res.boxes.conf[i].item())
         )

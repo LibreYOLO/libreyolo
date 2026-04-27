@@ -118,11 +118,13 @@ class TestSpecialCommands:
         assert "yolox" in families
         assert "yolo9" in families
 
+    @pytest.mark.onnx
     def test_formats(self, app):
         result = runner.invoke(app, ["formats"])
         assert result.exit_code == 0
         assert "onnx" in result.output
 
+    @pytest.mark.onnx
     def test_formats_json(self, app):
         result = runner.invoke(app, ["formats", "--json"])
         assert result.exit_code == 0
@@ -143,12 +145,14 @@ class TestSpecialCommands:
         assert "val_defaults" in data
         assert "family_overrides" in data
 
+    @pytest.mark.yolox
     def test_info(self, app):
         result = runner.invoke(app, ["info", "model=yolox-s"])
         assert result.exit_code == 0
         assert "yolox" in result.output
         assert "Parameters" in result.output
 
+    @pytest.mark.yolox
     def test_info_json(self, app):
         result = runner.invoke(app, ["info", "model=yolox-s", "--json"])
         assert result.exit_code == 0
@@ -162,6 +166,7 @@ class TestSpecialCommands:
 # =========================================================================
 
 
+@pytest.mark.yolox
 class TestPredict:
     """Test predict command with real inference."""
 
@@ -391,6 +396,7 @@ class TestVal:
     def app(self):
         return _build_app()
 
+    @pytest.mark.yolox
     def test_val_json(self, app):
         """Full validation pipeline produces metrics."""
         result = runner.invoke(
@@ -413,11 +419,13 @@ class TestVal:
         assert "mAP50_95" in data["metrics"]
         assert isinstance(data["metrics"]["mAP50"], float)
 
+    @pytest.mark.yolox
     def test_val_missing_data(self, app):
         """Missing required data arg errors cleanly."""
         result = runner.invoke(app, ["val", "model=yolox-s"])
         assert result.exit_code == 2
 
+    @pytest.mark.yolox
     def test_val_with_overrides(self, app):
         """Validation with batch and conf overrides produces metrics."""
         result = runner.invoke(
@@ -437,6 +445,7 @@ class TestVal:
         assert "metrics" in data
         assert "mAP50" in data["metrics"]
 
+    @pytest.mark.yolo9
     def test_val_yolo9(self, app):
         """YOLOv9 validation through CLI."""
         result = runner.invoke(
@@ -454,6 +463,7 @@ class TestVal:
         assert data["model_family"] == "yolo9"
         assert "metrics" in data
 
+    @pytest.mark.yolox
     def test_val_local_weights(self, app):
         """Local weights path works for val."""
         result = runner.invoke(
@@ -477,6 +487,7 @@ class TestVal:
 # =========================================================================
 
 
+@pytest.mark.yolo9
 class TestPredictMultiFamily:
     """Test predict across model families to verify factory routing."""
 
@@ -514,6 +525,7 @@ class TestTrainDryRun:
     def app(self):
         return _build_app()
 
+    @pytest.mark.yolox
     def test_yolox_defaults(self, app):
         result = runner.invoke(
             app,
@@ -526,6 +538,7 @@ class TestTrainDryRun:
         assert cfg["momentum"] == 0.9  # YOLOX family default
         assert cfg["scheduler"] == "yoloxwarmcos"
 
+    @pytest.mark.yolo9
     def test_yolo9_defaults(self, app):
         result = runner.invoke(
             app,
@@ -537,6 +550,7 @@ class TestTrainDryRun:
         cfg = data["resolved_config"]
         assert cfg["scheduler"] == "linear"  # YOLO9 family default
 
+    @pytest.mark.rtdetr
     def test_rtdetr_weight_filename_uses_family_defaults(self, app):
         result = runner.invoke(
             app,
@@ -557,6 +571,7 @@ class TestTrainDryRun:
         assert cfg["optimizer"] == "adamw"
         assert cfg["scheduler"] == "linear"
 
+    @pytest.mark.yolox
     def test_user_override_wins(self, app):
         result = runner.invoke(
             app,
@@ -583,6 +598,7 @@ class TestTrainDryRun:
         assert "model" in param_names
         assert "epochs" in param_names
 
+    @pytest.mark.yolox
     def test_missing_data_arg(self, app):
         result = runner.invoke(app, ["train", "model=yolox-s", "--dry-run"])
         assert result.exit_code == 2
@@ -599,6 +615,8 @@ class TestTrainDryRun:
 # =========================================================================
 
 
+@pytest.mark.onnx
+@pytest.mark.yolox
 class TestExport:
     """Test export command."""
 

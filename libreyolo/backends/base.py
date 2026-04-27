@@ -211,9 +211,7 @@ class BaseBackend(ABC):
         elif self.model_family == "rfdetr":
             return self._parse_rfdetr(all_outputs, orig_w, orig_h, conf)
         elif self.model_family == "dfine":
-            boxes, scores, cls = self._parse_dfine(
-                all_outputs, orig_w, orig_h, conf
-            )
+            boxes, scores, cls = self._parse_dfine(all_outputs, orig_w, orig_h, conf)
             return boxes, scores, cls, None
         elif self.model_family == "rtdetr":
             boxes, scores, cls = self._parse_rtdetr(all_outputs, orig_w, orig_h, conf)
@@ -284,8 +282,17 @@ class BaseBackend(ABC):
 
     def _parse_yolonas(self, all_outputs, orig_w, orig_h, conf, ratio=1.0):
         """Parse YOLO-NAS output: [boxes(B,N,4), scores(B,N,nc)] in input pixels."""
-        boxes = all_outputs[0][0]  # (N, 4) xyxy in input image coordinates
-        scores = all_outputs[1][0]  # (N, nc)
+        first = all_outputs[0][0]
+        second = all_outputs[1][0]
+        if first.shape[-1] == 4 and second.shape[-1] != 4:
+            boxes = first
+            scores = second
+        elif second.shape[-1] == 4 and first.shape[-1] != 4:
+            boxes = second
+            scores = first
+        else:
+            boxes = first
+            scores = second
 
         max_scores = np.max(scores, axis=1)
         class_ids = np.argmax(scores, axis=1)

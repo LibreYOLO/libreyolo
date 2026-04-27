@@ -18,9 +18,9 @@ import pytest
 import torch
 
 from .conftest import (
-    FULL_TEST_MODELS,
-    QUICK_TEST_MODELS,
-    RFDETR_TEST_MODELS,
+    FULL_TEST_PARAMS,
+    QUICK_TEST_PARAMS,
+    RFDETR_TEST_PARAMS,
     load_model,
     match_detections,
     requires_rfdetr,
@@ -30,7 +30,12 @@ from .conftest import (
     run_metadata_round_trip_test,
 )
 
-pytestmark = pytest.mark.e2e
+pytestmark = [
+    pytest.mark.e2e,
+    pytest.mark.export_backend,
+    pytest.mark.supported_backend,
+    pytest.mark.onnx,
+]
 OFFICIAL_YOLONAS_S = Path("downloads/yolonas/yolo_nas_s_coco.pth")
 OFFICIAL_YOLONAS_WEIGHTS = {
     "s": Path("downloads/yolonas/yolo_nas_s_coco.pth"),
@@ -47,20 +52,20 @@ OFFICIAL_YOLONAS_WEIGHTS = {
 class TestONNXExport:
     """Test ONNX export for all models."""
 
-    @pytest.mark.parametrize("model_type,size", QUICK_TEST_MODELS)
+    @pytest.mark.parametrize("model_type,size", QUICK_TEST_PARAMS)
     def test_onnx_export_quick(self, model_type, size, sample_image, tmp_path):
         """Quick test with smallest models (for CI)."""
         self._run_onnx_test(model_type, size, sample_image, tmp_path)
 
     @pytest.mark.slow
-    @pytest.mark.parametrize("model_type,size", FULL_TEST_MODELS)
+    @pytest.mark.parametrize("model_type,size", FULL_TEST_PARAMS)
     def test_onnx_export_full(self, model_type, size, sample_image, tmp_path):
         """Full test with all YOLOX and YOLOv9 models."""
         self._run_onnx_test(model_type, size, sample_image, tmp_path)
 
     @requires_rfdetr
     @pytest.mark.slow
-    @pytest.mark.parametrize("model_type,size", RFDETR_TEST_MODELS)
+    @pytest.mark.parametrize("model_type,size", RFDETR_TEST_PARAMS)
     def test_onnx_export_rfdetr(self, model_type, size, sample_image, tmp_path):
         """Test RF-DETR models (requires extra dependencies)."""
         self._run_onnx_test(model_type, size, sample_image, tmp_path)
@@ -85,6 +90,7 @@ class TestONNXExport:
         onnx.checker.check_model(onnx_model)
 
 
+@pytest.mark.yolonas
 class TestONNXYOLONAS:
     """Test ONNX export for the official YOLO-NAS-S checkpoint."""
 
@@ -135,7 +141,7 @@ class TestONNXYOLONAS:
 class TestONNXExportHalf:
     """Test ONNX FP16 export."""
 
-    @pytest.mark.parametrize("model_type,size", QUICK_TEST_MODELS)
+    @pytest.mark.parametrize("model_type,size", QUICK_TEST_PARAMS)
     def test_onnx_fp16_export(self, model_type, size, sample_image, tmp_path):
         """Test FP16 ONNX export."""
         device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -161,7 +167,7 @@ class TestONNXExportHalf:
 class TestONNXMetadata:
     """Test ONNX export metadata."""
 
-    @pytest.mark.parametrize("model_type,size", QUICK_TEST_MODELS)
+    @pytest.mark.parametrize("model_type,size", QUICK_TEST_PARAMS)
     def test_onnx_metadata(self, model_type, size, tmp_path):
         """Test that ONNX exports include correct metadata."""
         device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -185,7 +191,7 @@ class TestONNXMetadata:
         assert isinstance(names, dict)
         assert len(names) == pt_model.nb_classes
 
-    @pytest.mark.parametrize("model_type,size", QUICK_TEST_MODELS)
+    @pytest.mark.parametrize("model_type,size", QUICK_TEST_PARAMS)
     def test_onnx_metadata_round_trip(self, model_type, size, tmp_path):
         """Test that metadata is correctly loaded when loading ONNX model."""
         device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -202,7 +208,7 @@ class TestONNXMetadata:
 class TestONNXDynamicAxes:
     """Test ONNX dynamic axes export."""
 
-    @pytest.mark.parametrize("model_type,size", QUICK_TEST_MODELS)
+    @pytest.mark.parametrize("model_type,size", QUICK_TEST_PARAMS)
     def test_onnx_dynamic_batch(self, model_type, size, tmp_path):
         """Test that dynamic batch works correctly."""
         device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -225,7 +231,7 @@ class TestONNXDynamicAxes:
         # Dynamic dim should have param name, not fixed value
         assert dim0.dim_param != "", "Batch dim should be dynamic"
 
-    @pytest.mark.parametrize("model_type,size", QUICK_TEST_MODELS)
+    @pytest.mark.parametrize("model_type,size", QUICK_TEST_PARAMS)
     def test_onnx_static_batch(self, model_type, size, tmp_path):
         """Test that static batch works correctly."""
         device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -252,7 +258,7 @@ class TestONNXDynamicAxes:
 class TestONNXSimplification:
     """Test ONNX graph simplification."""
 
-    @pytest.mark.parametrize("model_type,size", QUICK_TEST_MODELS)
+    @pytest.mark.parametrize("model_type,size", QUICK_TEST_PARAMS)
     def test_onnx_simplify(self, model_type, size, sample_image, tmp_path):
         """Test that simplified ONNX produces same results."""
         device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -284,7 +290,7 @@ class TestONNXSimplification:
 class TestONNXMultipleInference:
     """Test ONNX model stability."""
 
-    @pytest.mark.parametrize("model_type,size", QUICK_TEST_MODELS)
+    @pytest.mark.parametrize("model_type,size", QUICK_TEST_PARAMS)
     def test_onnx_consistent_results(self, model_type, size, sample_image, tmp_path):
         """Test that ONNX model produces consistent results."""
         device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -302,6 +308,7 @@ class TestONNXMultipleInference:
 class TestONNXModelCoverage:
     """Verify all model types can be exported to ONNX."""
 
+    @pytest.mark.yolox
     def test_all_yolox_sizes_exportable(self, tmp_path):
         """Test that all YOLOX sizes can be exported."""
         from .conftest import YOLOX_SIZES
@@ -319,6 +326,7 @@ class TestONNXModelCoverage:
             onnx_model = onnx.load(onnx_path)
             onnx.checker.check_model(onnx_model)
 
+    @pytest.mark.yolo9
     def test_all_yolo9_sizes_exportable(self, tmp_path):
         """Test that all YOLO9 sizes can be exported."""
         from .conftest import YOLO9_SIZES
@@ -337,6 +345,7 @@ class TestONNXModelCoverage:
             onnx.checker.check_model(onnx_model)
 
     @requires_rfdetr
+    @pytest.mark.rfdetr
     def test_all_rfdetr_sizes_exportable(self, tmp_path):
         """Test that all RF-DETR sizes can be exported."""
         from .conftest import RFDETR_SIZES
@@ -354,11 +363,14 @@ class TestONNXModelCoverage:
             onnx_model = onnx.load(onnx_path)
             onnx.checker.check_model(onnx_model)
 
+    @pytest.mark.yolonas
     def test_all_yolonas_sizes_exportable(self, tmp_path):
         """Test that all local official YOLO-NAS detection sizes export."""
         from libreyolo import LibreYOLO
 
-        missing = [size for size, path in OFFICIAL_YOLONAS_WEIGHTS.items() if not path.exists()]
+        missing = [
+            size for size, path in OFFICIAL_YOLONAS_WEIGHTS.items() if not path.exists()
+        ]
         if missing:
             pytest.skip(
                 "Official YOLO-NAS checkpoints not present for sizes: "
@@ -385,6 +397,7 @@ class TestONNXModelCoverage:
 class TestONNXOpset:
     """Test ONNX opset version handling."""
 
+    @pytest.mark.yolox
     @pytest.mark.parametrize("opset", [11, 12, 13, 14, 15, 16, 17])
     def test_onnx_different_opsets(self, opset, tmp_path):
         """Test export with different opset versions."""
@@ -416,6 +429,7 @@ class TestONNXOpset:
 
 
 @requires_rfdetr
+@pytest.mark.rfdetr
 class TestONNXSegmentation:
     """Test ONNX export and inference for segmentation models."""
 

@@ -50,7 +50,9 @@ def preprocess_numpy(
         (new_w, new_h), Image.Resampling.BILINEAR
     )
 
-    padded = Image.new("RGB", (input_size, input_size), (pad_value, pad_value, pad_value))
+    padded = Image.new(
+        "RGB", (input_size, input_size), (pad_value, pad_value, pad_value)
+    )
     offset_x = (input_size - new_w) // 2
     offset_y = (input_size - new_h) // 2
     padded.paste(img_resized, (offset_x, offset_y))
@@ -86,8 +88,7 @@ def _extract_decoded_predictions(output):
             return output
 
     raise TypeError(
-        "Unsupported YOLO-NAS output format for postprocess: "
-        f"{type(output)!r}"
+        f"Unsupported YOLO-NAS output format for postprocess: {type(output)!r}"
     )
 
 

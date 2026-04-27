@@ -161,7 +161,10 @@ class TransformerEncoderLayer(nn.Module):
 
     @staticmethod
     def with_pos_embed(tensor, pos_embed):
-        return tensor if pos_embed is None else tensor + pos_embed
+        if pos_embed is None:
+            return tensor
+        pos_embed = pos_embed.to(device=tensor.device, dtype=tensor.dtype)
+        return tensor + pos_embed
 
     def forward(self, src, src_mask=None, pos_embed=None):
         residual = src
@@ -631,7 +634,8 @@ class TransformerDecoder(nn.Module):
         output = tgt
         dec_out_bboxes = []
         dec_out_logits = []
-        ref_points_detach = F.sigmoid(ref_points_unact)
+        ref_points_detach = F.sigmoid(ref_points_unact).to(dtype=output.dtype)
+        ref_points = ref_points_detach
 
         for i, layer in enumerate(self.layers):
             ref_points_input = ref_points_detach.unsqueeze(2)
@@ -904,6 +908,7 @@ class RTDETRTransformer(nn.Module):
             anchors = self.anchors.to(memory.device)
             valid_mask = self.valid_mask.to(memory.device)
 
+        anchors = anchors.to(device=memory.device, dtype=memory.dtype)
         memory = valid_mask.to(memory.dtype) * memory
 
         output_memory = self.enc_output(memory)

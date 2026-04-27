@@ -28,12 +28,10 @@ The integration tricks in this file:
 
 from __future__ import annotations
 
-import time
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple, Type
+from typing import Dict, Optional, Tuple, Type
 
 import torch
-import torch.nn as nn
 from torch.amp import autocast
 from tqdm import tqdm
 
@@ -44,7 +42,11 @@ from ...training.scheduler import FlatCosineScheduler
 from ...training.trainer import BaseTrainer
 from .loss import DFINECriterion
 from .matcher import HungarianMatcher
-from .transforms import DFINEMultiScaleCollate, DFINEPassThroughDataset, DFINETrainTransform
+from .transforms import (
+    DFINEMultiScaleCollate,
+    DFINEPassThroughDataset,
+    DFINETrainTransform,
+)
 
 
 class DFINETrainer(BaseTrainer):
@@ -188,11 +190,21 @@ class DFINETrainer(BaseTrainer):
             )
         if backbone_wd:
             param_groups.append(
-                {"params": backbone_wd, "lr": lr * bb_mult, "weight_decay": wd, "lr_mult": bb_mult}
+                {
+                    "params": backbone_wd,
+                    "lr": lr * bb_mult,
+                    "weight_decay": wd,
+                    "lr_mult": bb_mult,
+                }
             )
         if backbone_no_wd:
             param_groups.append(
-                {"params": backbone_no_wd, "lr": lr * bb_mult, "weight_decay": 0.0, "lr_mult": bb_mult}
+                {
+                    "params": backbone_no_wd,
+                    "lr": lr * bb_mult,
+                    "weight_decay": 0.0,
+                    "lr_mult": bb_mult,
+                }
             )
 
         return torch.optim.AdamW(param_groups, betas=(0.9, 0.999))
@@ -221,7 +233,9 @@ class DFINETrainer(BaseTrainer):
                 target_list.append(
                     {
                         "labels": torch.zeros(0, dtype=torch.int64, device=self.device),
-                        "boxes": torch.zeros(0, 4, dtype=torch.float32, device=self.device),
+                        "boxes": torch.zeros(
+                            0, 4, dtype=torch.float32, device=self.device
+                        ),
                     }
                 )
             else:
@@ -340,7 +354,8 @@ class DFINETrainer(BaseTrainer):
         # Wire stop_epoch on the dataset wrapper so set_epoch can disable
         # strong augs at the right moment.
         stop_epoch = int(
-            self.config.epochs * float(getattr(self.config, "aug_stop_epoch_ratio", 1.0))
+            self.config.epochs
+            * float(getattr(self.config, "aug_stop_epoch_ratio", 1.0))
         )
         if hasattr(train_dataset, "set_stop_epoch"):
             train_dataset.set_stop_epoch(stop_epoch)

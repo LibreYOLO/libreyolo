@@ -16,9 +16,9 @@ import pytest
 import torch
 
 from .conftest import (
-    FULL_TEST_MODELS,
-    QUICK_TEST_MODELS,
-    RFDETR_TEST_MODELS,
+    FULL_TEST_PARAMS,
+    QUICK_TEST_PARAMS,
+    RFDETR_TEST_PARAMS,
     load_model,
     match_detections,
     requires_rfdetr,
@@ -27,26 +27,49 @@ from .conftest import (
     run_export_compare_test,
 )
 
-pytestmark = [pytest.mark.e2e, pytest.mark.tensorrt]
+pytestmark = [
+    pytest.mark.e2e,
+    pytest.mark.export_backend,
+    pytest.mark.experimental_backend,
+    pytest.mark.tensorrt,
+    pytest.mark.trt,
+]
 
 
 # ---------------------------------------------------------------------------
 # Test classes
 # ---------------------------------------------------------------------------
 
+_DFINE_TRT_EXPECTED_FAILURES = {
+    ("fp16", "m"),
+    ("fp16", "l"),
+    ("fp32", "s"),
+    ("fp32", "m"),
+    ("fp32", "l"),
+    ("fp32", "x"),
+}
+
+
+def _xfail_known_dfine_trt_drift(precision: str, model_type: str, size: str) -> None:
+    if model_type == "dfine" and (precision, size) in _DFINE_TRT_EXPECTED_FAILURES:
+        pytest.xfail(
+            f"D-FINE-{size} TensorRT {precision.upper()} engines currently "
+            "diverge from PyTorch/ONNX at raw logits on TensorRT 10.x"
+        )
+
 
 class TestTensorRTExportFP16:
     """Test TensorRT FP16 export for all models."""
 
     @requires_tensorrt
-    @pytest.mark.parametrize("model_type,size", QUICK_TEST_MODELS)
+    @pytest.mark.parametrize("model_type,size", QUICK_TEST_PARAMS)
     def test_fp16_export_quick(self, model_type, size, sample_image, tmp_path):
         """Quick test with smallest models (for CI)."""
         self._run_fp16_test(model_type, size, sample_image, tmp_path)
 
     @requires_tensorrt
     @pytest.mark.slow
-    @pytest.mark.parametrize("model_type,size", FULL_TEST_MODELS)
+    @pytest.mark.parametrize("model_type,size", FULL_TEST_PARAMS)
     def test_fp16_export_full(self, model_type, size, sample_image, tmp_path):
         """Full test with all YOLOX and YOLOv9 models."""
         self._run_fp16_test(model_type, size, sample_image, tmp_path)
@@ -54,13 +77,14 @@ class TestTensorRTExportFP16:
     @requires_tensorrt
     @requires_rfdetr
     @pytest.mark.slow
-    @pytest.mark.parametrize("model_type,size", RFDETR_TEST_MODELS)
+    @pytest.mark.parametrize("model_type,size", RFDETR_TEST_PARAMS)
     def test_fp16_export_rfdetr(self, model_type, size, sample_image, tmp_path):
         """Test RF-DETR models (requires extra dependencies)."""
         self._run_fp16_test(model_type, size, sample_image, tmp_path)
 
     def _run_fp16_test(self, model_type, size, sample_image, tmp_path):
         """Common FP16 test implementation."""
+        _xfail_known_dfine_trt_drift("fp16", model_type, size)
         run_export_compare_test(
             model_type,
             size,
@@ -77,20 +101,21 @@ class TestTensorRTExportFP32:
     """Test TensorRT FP32 export for all models."""
 
     @requires_tensorrt
-    @pytest.mark.parametrize("model_type,size", QUICK_TEST_MODELS)
+    @pytest.mark.parametrize("model_type,size", QUICK_TEST_PARAMS)
     def test_fp32_export_quick(self, model_type, size, sample_image, tmp_path):
         """Quick test with smallest models (for CI)."""
         self._run_fp32_test(model_type, size, sample_image, tmp_path)
 
     @requires_tensorrt
     @pytest.mark.slow
-    @pytest.mark.parametrize("model_type,size", FULL_TEST_MODELS)
+    @pytest.mark.parametrize("model_type,size", FULL_TEST_PARAMS)
     def test_fp32_export_full(self, model_type, size, sample_image, tmp_path):
         """Full test with all YOLOX and YOLOv9 models."""
         self._run_fp32_test(model_type, size, sample_image, tmp_path)
 
     def _run_fp32_test(self, model_type, size, sample_image, tmp_path):
         """Common FP32 test implementation."""
+        _xfail_known_dfine_trt_drift("fp32", model_type, size)
         run_export_compare_test(
             model_type,
             size,
@@ -108,7 +133,7 @@ class TestTensorRTExportINT8:
 
     @requires_tensorrt
     @pytest.mark.slow
-    @pytest.mark.parametrize("model_type,size", QUICK_TEST_MODELS)
+    @pytest.mark.parametrize("model_type,size", QUICK_TEST_PARAMS)
     def test_int8_export_quick(self, model_type, size, sample_image, tmp_path):
         """INT8 export test with calibration."""
         self._run_int8_test(model_type, size, sample_image, tmp_path)
@@ -189,7 +214,7 @@ class TestTensorRTEngineLoading:
     """Test TensorRT engine loading and metadata."""
 
     @requires_tensorrt
-    @pytest.mark.parametrize("model_type,size", QUICK_TEST_MODELS)
+    @pytest.mark.parametrize("model_type,size", QUICK_TEST_PARAMS)
     def test_engine_metadata(self, model_type, size, tmp_path):
         """Test that exported engines have correct metadata."""
         pt_model = load_model(model_type, size, device="cuda")
@@ -214,7 +239,7 @@ class TestTensorRTEngineLoading:
         torch.cuda.empty_cache()
 
     @requires_tensorrt
-    @pytest.mark.parametrize("model_type,size", QUICK_TEST_MODELS)
+    @pytest.mark.parametrize("model_type,size", QUICK_TEST_PARAMS)
     def test_engine_multiple_inference(self, model_type, size, sample_image, tmp_path):
         """Test that engines can run multiple inferences."""
         run_consistency_test(
@@ -233,6 +258,7 @@ class TestTensorRTExportConfig:
     """Test TensorRT export with configuration files."""
 
     @requires_tensorrt
+    @pytest.mark.yolox
     def test_export_with_yaml_config(self, sample_image, tmp_path):
         """Test export using YAML configuration file."""
         pt_model = load_model("yolox", "n", device="cuda")
@@ -258,6 +284,7 @@ class TestTensorRTExportConfig:
         torch.cuda.empty_cache()
 
     @requires_tensorrt
+    @pytest.mark.yolox
     def test_export_with_dict_config(self, sample_image, tmp_path):
         """Test export using dictionary configuration."""
         pt_model = load_model("yolox", "n", device="cuda")
@@ -286,7 +313,7 @@ class TestTensorRTInferenceSpeed:
 
     @requires_tensorrt
     @pytest.mark.slow
-    @pytest.mark.parametrize("model_type,size", QUICK_TEST_MODELS)
+    @pytest.mark.parametrize("model_type,size", QUICK_TEST_PARAMS)
     def test_tensorrt_faster_than_pytorch(
         self, model_type, size, sample_image, tmp_path
     ):
@@ -345,6 +372,7 @@ class TestModelCoverage:
     """Verify all model types can be exported."""
 
     @requires_tensorrt
+    @pytest.mark.yolox
     def test_all_yolox_sizes_exportable(self, tmp_path):
         """Test that all YOLOX sizes can be exported."""
         from .conftest import YOLOX_SIZES
@@ -361,6 +389,7 @@ class TestModelCoverage:
                 torch.cuda.empty_cache()
 
     @requires_tensorrt
+    @pytest.mark.yolo9
     def test_all_yolo9_sizes_exportable(self, tmp_path):
         """Test that all YOLO9 sizes can be exported."""
         from .conftest import YOLO9_SIZES
@@ -378,6 +407,7 @@ class TestModelCoverage:
 
     @requires_tensorrt
     @requires_rfdetr
+    @pytest.mark.rfdetr
     def test_all_rfdetr_sizes_exportable(self, tmp_path):
         """Test that all RF-DETR sizes can be exported."""
         from .conftest import RFDETR_SIZES

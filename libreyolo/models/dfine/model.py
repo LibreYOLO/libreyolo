@@ -30,15 +30,10 @@ class LibreDFINE(BaseModel):
 
     @classmethod
     def can_load(cls, weights_dict: dict) -> bool:
-        # D-FINE-unique decoder key prefixes absent from RF-DETR / YOLOX /
-        # YOLOv9 / YOLO-NAS state dicts.
-        markers = (
-            "decoder.dec_bbox_head.",
-            "decoder.denoising_class_embed",
-            "decoder.pre_bbox_head.",
-            "decoder.enc_bbox_head.",
-        )
-        return any(any(m in k for m in markers) for k in weights_dict)
+        # D-FINE-unique decoder key prefix.  ``pre_bbox_head`` is present in
+        # D-FINE but absent from RT-DETR (which otherwise shares
+        # ``dec_bbox_head``, ``denoising_class_embed``, and ``enc_bbox_head``).
+        return any("decoder.pre_bbox_head." in k for k in weights_dict)
 
     @classmethod
     def detect_size(cls, weights_dict: dict) -> Optional[str]:
@@ -137,7 +132,9 @@ class LibreDFINE(BaseModel):
     ) -> Tuple[torch.Tensor, Any, Tuple[int, int], float]:
         effective_size = input_size if input_size is not None else self.input_size
         return preprocess_image(
-            image, input_size=effective_size, color_format=color_format,
+            image,
+            input_size=effective_size,
+            color_format=color_format,
         )
 
     def _forward(self, input_tensor: torch.Tensor) -> Any:
@@ -200,10 +197,15 @@ class LibreDFINE(BaseModel):
             raise FileNotFoundError(f"Failed to load dataset config '{data}': {e}")
 
         yaml_nc = data_config.get("nc")
+        yaml_names = data_config.get("names")
         if yaml_nc is not None and yaml_nc != self.nb_classes:
             self._rebuild_for_new_classes(yaml_nc)
+        if yaml_names is not None:
+            if isinstance(yaml_names, list):
+                yaml_names = {i: n for i, n in enumerate(yaml_names)}
+            self.names = self._sanitize_names(yaml_names, self.nb_classes)
 
-        if seed > 0:
+        if seed >= 0:
             import random
 
             import numpy as np
@@ -282,9 +284,7 @@ class LibreDFINE(BaseModel):
                 if ckpt_nc is not None and ckpt_nc != self.nb_classes:
                     self._rebuild_for_new_classes(int(ckpt_nc))
                 ckpt_names = loaded.get("names")
-                effective_nc = (
-                    int(ckpt_nc) if ckpt_nc is not None else self.nb_classes
-                )
+                effective_nc = int(ckpt_nc) if ckpt_nc is not None else self.nb_classes
                 if ckpt_names is not None:
                     self.names = self._sanitize_names(ckpt_names, effective_nc)
 
@@ -296,7 +296,11 @@ class LibreDFINE(BaseModel):
             if unexpected:
                 raise RuntimeError(
                     f"Unexpected keys when loading D-FINE weights: {sorted(unexpected)[:10]}"
-                    + (f" (+{len(unexpected) - 10} more)" if len(unexpected) > 10 else "")
+                    + (
+                        f" (+{len(unexpected) - 10} more)"
+                        if len(unexpected) > 10
+                        else ""
+                    )
                 )
         except RuntimeError:
             raise

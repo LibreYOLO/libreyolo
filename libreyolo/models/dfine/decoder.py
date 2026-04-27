@@ -316,15 +316,24 @@ class TransformerDecoder(nn.Module):
         self.reg_max = reg_max
         self.layers = nn.ModuleList(
             [copy.deepcopy(decoder_layer) for _ in range(self.eval_idx + 1)]
-            + [copy.deepcopy(decoder_layer_wide) for _ in range(num_layers - self.eval_idx - 1)]
+            + [
+                copy.deepcopy(decoder_layer_wide)
+                for _ in range(num_layers - self.eval_idx - 1)
+            ]
         )
         self.lqe_layers = nn.ModuleList(
             [copy.deepcopy(LQE(4, 64, 2, reg_max)) for _ in range(num_layers)]
         )
 
-    def value_op(self, memory, value_proj, value_scale, memory_mask, memory_spatial_shapes):
+    def value_op(
+        self, memory, value_proj, value_scale, memory_mask, memory_spatial_shapes
+    ):
         value = value_proj(memory) if value_proj is not None else memory
-        value = F.interpolate(memory, size=value_scale) if value_scale is not None else value
+        value = (
+            F.interpolate(memory, size=value_scale)
+            if value_scale is not None
+            else value
+        )
         if memory_mask is not None:
             value = value * memory_mask.to(value.dtype).unsqueeze(-1)
         value = value.reshape(value.shape[0], value.shape[1], self.num_head, -1)
@@ -332,7 +341,9 @@ class TransformerDecoder(nn.Module):
         return value.permute(0, 2, 3, 1).split(split_shape, dim=-1)
 
     def convert_to_deploy(self):
-        self.project = weighting_function(self.reg_max, self.up, self.reg_scale, deploy=True)
+        self.project = weighting_function(
+            self.reg_max, self.up, self.reg_scale, deploy=True
+        )
         self.layers = self.layers[: self.eval_idx + 1]
         self.lqe_layers = nn.ModuleList(
             [nn.Identity()] * self.eval_idx + [self.lqe_layers[self.eval_idx]]
@@ -375,7 +386,9 @@ class TransformerDecoder(nn.Module):
             query_pos_embed = query_pos_head(ref_points_detach).clamp(min=-10, max=10)
 
             if i >= self.eval_idx + 1 and self.layer_scale > 1:
-                query_pos_embed = F.interpolate(query_pos_embed, scale_factor=self.layer_scale)
+                query_pos_embed = F.interpolate(
+                    query_pos_embed, scale_factor=self.layer_scale
+                )
                 value = self.value_op(
                     memory, None, query_pos_embed.shape[-1], memory_mask, spatial_shapes
                 )
@@ -392,7 +405,9 @@ class TransformerDecoder(nn.Module):
             )
 
             if i == 0:
-                pre_bboxes = F.sigmoid(pre_bbox_head(output) + inverse_sigmoid(ref_points_detach))
+                pre_bboxes = F.sigmoid(
+                    pre_bbox_head(output) + inverse_sigmoid(ref_points_detach)
+                )
                 pre_scores = score_head[0](output)
                 ref_points_initial = pre_bboxes.detach()
 
@@ -553,7 +568,10 @@ class DFINETransformer(nn.Module):
         self.eval_idx = eval_idx if eval_idx >= 0 else num_layers + eval_idx
         self.dec_score_head = nn.ModuleList(
             [nn.Linear(hidden_dim, num_classes) for _ in range(self.eval_idx + 1)]
-            + [nn.Linear(scaled_dim, num_classes) for _ in range(num_layers - self.eval_idx - 1)]
+            + [
+                nn.Linear(scaled_dim, num_classes)
+                for _ in range(num_layers - self.eval_idx - 1)
+            ]
         )
         self.pre_bbox_head = MLP(hidden_dim, hidden_dim, 4, 3)
         self.dec_bbox_head = nn.ModuleList(
@@ -620,7 +638,12 @@ class DFINETransformer(nn.Module):
                     nn.Sequential(
                         OrderedDict(
                             [
-                                ("conv", nn.Conv2d(in_channels, self.hidden_dim, 1, bias=False)),
+                                (
+                                    "conv",
+                                    nn.Conv2d(
+                                        in_channels, self.hidden_dim, 1, bias=False
+                                    ),
+                                ),
                                 ("norm", nn.BatchNorm2d(self.hidden_dim)),
                             ]
                         )
@@ -686,7 +709,9 @@ class DFINETransformer(nn.Module):
 
         anchors = []
         for lvl, (h, w) in enumerate(spatial_shapes):
-            grid_y, grid_x = torch.meshgrid(torch.arange(h), torch.arange(w), indexing="ij")
+            grid_y, grid_x = torch.meshgrid(
+                torch.arange(h), torch.arange(w), indexing="ij"
+            )
             grid_xy = torch.stack([grid_x, grid_y], dim=-1)
             grid_xy = (grid_xy.unsqueeze(0) + 0.5) / torch.tensor([w, h], dtype=dtype)
             wh = torch.ones_like(grid_xy) * grid_size * (2.0**lvl)
@@ -694,7 +719,9 @@ class DFINETransformer(nn.Module):
             anchors.append(lvl_anchors)
 
         anchors = torch.concat(anchors, dim=1).to(device)
-        valid_mask = ((anchors > self.eps) * (anchors < 1 - self.eps)).all(-1, keepdim=True)
+        valid_mask = ((anchors > self.eps) * (anchors < 1 - self.eps)).all(
+            -1, keepdim=True
+        )
         anchors = torch.log(anchors / (1 - anchors))
         anchors = torch.where(valid_mask, anchors, torch.inf)
 
@@ -708,7 +735,9 @@ class DFINETransformer(nn.Module):
         denoising_bbox_unact=None,
     ):
         if self.training or self.eval_spatial_size is None:
-            anchors, valid_mask = self._generate_anchors(spatial_shapes, device=memory.device)
+            anchors, valid_mask = self._generate_anchors(
+                spatial_shapes, device=memory.device
+            )
         else:
             anchors = self.anchors
             valid_mask = self.valid_mask
@@ -768,7 +797,8 @@ class DFINETransformer(nn.Module):
         )
         topk_logits = (
             outputs_logits.gather(
-                dim=1, index=topk_ind.unsqueeze(-1).repeat(1, 1, outputs_logits.shape[-1])
+                dim=1,
+                index=topk_ind.unsqueeze(-1).repeat(1, 1, outputs_logits.shape[-1]),
             )
             if self.training
             else None
@@ -794,37 +824,59 @@ class DFINETransformer(nn.Module):
                 )
             )
         else:
-            denoising_logits, denoising_bbox_unact, attn_mask, dn_meta = None, None, None, None
+            denoising_logits, denoising_bbox_unact, attn_mask, dn_meta = (
+                None,
+                None,
+                None,
+                None,
+            )
 
-        init_ref_contents, init_ref_points_unact, enc_topk_bboxes_list, enc_topk_logits_list = (
-            self._get_decoder_input(
-                memory, spatial_shapes, denoising_logits, denoising_bbox_unact
+        (
+            init_ref_contents,
+            init_ref_points_unact,
+            enc_topk_bboxes_list,
+            enc_topk_logits_list,
+        ) = self._get_decoder_input(
+            memory, spatial_shapes, denoising_logits, denoising_bbox_unact
+        )
+
+        out_bboxes, out_logits, out_corners, out_refs, pre_bboxes, pre_logits = (
+            self.decoder(
+                init_ref_contents,
+                init_ref_points_unact,
+                memory,
+                spatial_shapes,
+                self.dec_bbox_head,
+                self.dec_score_head,
+                self.query_pos_head,
+                self.pre_bbox_head,
+                self.integral,
+                self.up,
+                self.reg_scale,
+                attn_mask=attn_mask,
+                dn_meta=dn_meta,
             )
         )
 
-        out_bboxes, out_logits, out_corners, out_refs, pre_bboxes, pre_logits = self.decoder(
-            init_ref_contents,
-            init_ref_points_unact,
-            memory,
-            spatial_shapes,
-            self.dec_bbox_head,
-            self.dec_score_head,
-            self.query_pos_head,
-            self.pre_bbox_head,
-            self.integral,
-            self.up,
-            self.reg_scale,
-            attn_mask=attn_mask,
-            dn_meta=dn_meta,
-        )
-
         if self.training and dn_meta is not None:
-            dn_pre_logits, pre_logits = torch.split(pre_logits, dn_meta["dn_num_split"], dim=1)
-            dn_pre_bboxes, pre_bboxes = torch.split(pre_bboxes, dn_meta["dn_num_split"], dim=1)
-            dn_out_bboxes, out_bboxes = torch.split(out_bboxes, dn_meta["dn_num_split"], dim=2)
-            dn_out_logits, out_logits = torch.split(out_logits, dn_meta["dn_num_split"], dim=2)
-            dn_out_corners, out_corners = torch.split(out_corners, dn_meta["dn_num_split"], dim=2)
-            dn_out_refs, out_refs = torch.split(out_refs, dn_meta["dn_num_split"], dim=2)
+            dn_pre_logits, pre_logits = torch.split(
+                pre_logits, dn_meta["dn_num_split"], dim=1
+            )
+            dn_pre_bboxes, pre_bboxes = torch.split(
+                pre_bboxes, dn_meta["dn_num_split"], dim=1
+            )
+            dn_out_bboxes, out_bboxes = torch.split(
+                out_bboxes, dn_meta["dn_num_split"], dim=2
+            )
+            dn_out_logits, out_logits = torch.split(
+                out_logits, dn_meta["dn_num_split"], dim=2
+            )
+            dn_out_corners, out_corners = torch.split(
+                out_corners, dn_meta["dn_num_split"], dim=2
+            )
+            dn_out_refs, out_refs = torch.split(
+                out_refs, dn_meta["dn_num_split"], dim=2
+            )
 
         if self.training:
             out = {
@@ -873,7 +925,8 @@ class DFINETransformer(nn.Module):
     @torch.jit.unused
     def _set_aux_loss(self, outputs_class, outputs_coord):
         return [
-            {"pred_logits": a, "pred_boxes": b} for a, b in zip(outputs_class, outputs_coord)
+            {"pred_logits": a, "pred_boxes": b}
+            for a, b in zip(outputs_class, outputs_coord)
         ]
 
     @torch.jit.unused
@@ -895,5 +948,7 @@ class DFINETransformer(nn.Module):
                 "teacher_corners": teacher_corners,
                 "teacher_logits": teacher_logits,
             }
-            for a, b, c, d in zip(outputs_class, outputs_coord, outputs_corners, outputs_ref)
+            for a, b, c, d in zip(
+                outputs_class, outputs_coord, outputs_corners, outputs_ref
+            )
         ]

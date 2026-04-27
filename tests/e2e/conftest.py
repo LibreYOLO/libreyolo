@@ -2,6 +2,7 @@
 
 import gc
 import multiprocessing
+from functools import lru_cache
 from pathlib import Path
 
 import pytest
@@ -23,10 +24,39 @@ multiprocessing.set_start_method("spawn", force=True)
 
 def pytest_configure(config):
     """Register custom markers (e2e marker registered in root conftest)."""
+    config.addinivalue_line(
+        "markers",
+        "export_backend: tests covering an export backend or serialized runtime format",
+    )
+    config.addinivalue_line(
+        "markers",
+        "supported_backend: tests covering a release-blocking supported backend",
+    )
+    config.addinivalue_line(
+        "markers", "experimental_backend: tests covering an experimental backend"
+    )
+    config.addinivalue_line("markers", "onnx: tests covering ONNX export or inference")
+    config.addinivalue_line(
+        "markers", "torchscript: tests covering TorchScript export or inference"
+    )
     config.addinivalue_line("markers", "tensorrt: tests requiring TensorRT")
+    config.addinivalue_line(
+        "markers", "trt: alias for TensorRT tests requiring TensorRT"
+    )
     config.addinivalue_line("markers", "openvino: tests requiring OpenVINO")
     config.addinivalue_line("markers", "ncnn: tests requiring ncnn")
-    config.addinivalue_line("markers", "rfdetr: tests requiring RF-DETR dependencies")
+    config.addinivalue_line("markers", "yolox: tests covering the YOLOX model family")
+    config.addinivalue_line("markers", "yolo9: tests covering the YOLO9 model family")
+    config.addinivalue_line(
+        "markers", "yolonas: tests covering the YOLO-NAS model family"
+    )
+    config.addinivalue_line(
+        "markers", "rfdetr: tests covering the RF-DETR model family"
+    )
+    config.addinivalue_line("markers", "dfine: tests covering the D-FINE model family")
+    config.addinivalue_line(
+        "markers", "rtdetr: tests covering the RT-DETR model family"
+    )
     config.addinivalue_line("markers", "slow: slow tests that may take several minutes")
     config.addinivalue_line("markers", "rf1: RF1 training tests")
     config.addinivalue_line("markers", "rf5: RF5 training benchmark tests")
@@ -240,6 +270,43 @@ def run_in_subprocess(script: str, *, timeout: int = 300) -> str:
     return resp["o"]
 
 
+def run_direct_subprocess(script: str, *, timeout: int = 300) -> str:
+    """Run Python code in a one-shot subprocess.
+
+    Use this for families that do not need the long-lived clean worker used by
+    ``run_in_subprocess()``.
+    """
+    import os
+    import subprocess
+    import sys
+    import tempfile
+    import textwrap
+
+    fd, path = tempfile.mkstemp(suffix=".py", prefix="ly_direct_")
+    os.write(fd, textwrap.dedent(script).encode())
+    os.close(fd)
+    try:
+        result = subprocess.run(
+            [sys.executable, path],
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+    finally:
+        try:
+            os.unlink(path)
+        except OSError:
+            pass
+
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"Subprocess exited with code {result.returncode}\n"
+            f"--- stdout (last 2000 chars) ---\n{result.stdout[-2000:]}\n"
+            f"--- stderr (last 2000 chars) ---\n{result.stderr[-2000:]}"
+        )
+    return result.stdout
+
+
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -377,6 +444,53 @@ RFDETR_TEST_MODELS = [(f, s) for f, s, _ in MODEL_CATALOG if f == "rfdetr"]
 # RT-DETR test set (separate due to being transformer-based)
 RTDETR_TEST_MODELS = [(f, s) for f, s, _ in MODEL_CATALOG if f == "rtdetr"]
 
+FAMILY_MARKERS = {
+    "yolox": pytest.mark.yolox,
+    "yolo9": pytest.mark.yolo9,
+    "yolonas": pytest.mark.yolonas,
+    "rfdetr": pytest.mark.rfdetr,
+    "dfine": pytest.mark.dfine,
+    "rtdetr": pytest.mark.rtdetr,
+}
+
+
+def _normalize_marks(marks):
+    """Normalize a mark or a collection of marks to a flat list."""
+    if marks is None:
+        return []
+    if isinstance(marks, (list, tuple, set)):
+        return [mark for mark in marks if mark is not None]
+    return [marks]
+
+
+def family_marks(family: str, marks=None):
+    """Return pytest marks for a model family plus any extra marks."""
+    return [FAMILY_MARKERS[family], *_normalize_marks(marks)]
+
+
+def model_case(family: str, size: str, *, weights: str | None = None, marks=None):
+    """Build a parametrized model case with family markers attached."""
+    values = (family, size) if weights is None else (family, size, weights)
+    return pytest.param(
+        *values, marks=family_marks(family, marks), id=f"{family}-{size}"
+    )
+
+
+def model_cases(models, *, with_weights: bool = False, marks_resolver=None):
+    """Attach family markers to a model matrix used in parametrized tests."""
+    params = []
+    for family, size, *rest in models:
+        weights = rest[0] if with_weights else None
+        marks = marks_resolver(family, size, *rest) if marks_resolver else None
+        params.append(model_case(family, size, weights=weights, marks=marks))
+    return params
+
+
+QUICK_TEST_PARAMS = model_cases(QUICK_TEST_MODELS)
+FULL_TEST_PARAMS = model_cases(FULL_TEST_MODELS)
+RFDETR_TEST_PARAMS = model_cases(RFDETR_TEST_MODELS)
+ALL_MODEL_WEIGHT_PARAMS = model_cases(ALL_MODELS_WITH_WEIGHTS, with_weights=True)
+
 
 def get_model_weights(family: str, size: str) -> str:
     """Get the weight file name for a model family and size."""
@@ -386,11 +500,33 @@ def get_model_weights(family: str, size: str) -> str:
     raise ValueError(f"Unknown model: {family}-{size}")
 
 
-def require_test_weights(weights: str) -> str:
-    """Skip cleanly if a test depends on a missing local checkpoint path."""
+@lru_cache(maxsize=None)
+def _detect_local_weights_family(weights: str) -> str:
+    """Detect a local checkpoint's family for skip-only environment validation."""
+    from libreyolo import LibreYOLO
+
+    model = LibreYOLO(weights)
+    return model.FAMILY
+
+
+def require_test_weights(weights: str, expected_family: str | None = None) -> str:
+    """Skip cleanly if a test depends on missing or obviously wrong local weights."""
     path = Path(weights)
-    if path.parent != Path(".") and not path.exists():
-        pytest.skip(f"Required local weights not found: {weights}")
+    if path.parent != Path("."):
+        if not path.exists():
+            pytest.skip(f"Required local weights not found: {weights}")
+        if expected_family is not None:
+            try:
+                detected_family = _detect_local_weights_family(str(path))
+            except Exception as exc:
+                pytest.skip(
+                    f"Local weights are unusable for testing: {weights} ({exc})"
+                )
+            if detected_family != expected_family:
+                pytest.skip(
+                    "Local weights do not match the expected family: "
+                    f"{weights} detected as '{detected_family}', expected '{expected_family}'"
+                )
     return weights
 
 
@@ -461,7 +597,10 @@ def load_model(model_type: str, size: str, device: str = "cuda"):
     """Load a model by type and size."""
     from libreyolo import LibreYOLO
 
-    weights = require_test_weights(get_model_weights(model_type, size))
+    weights = require_test_weights(
+        get_model_weights(model_type, size),
+        expected_family=model_type,
+    )
     return LibreYOLO(weights, device=device)
 
 

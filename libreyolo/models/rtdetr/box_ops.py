@@ -11,15 +11,13 @@ import torch
 def box_cxcywh_to_xyxy(x: torch.Tensor) -> torch.Tensor:
     """Convert boxes from (cx, cy, w, h) to (x1, y1, x2, y2) format."""
     cx, cy, w, h = x.unbind(-1)
-    return torch.stack([cx - 0.5 * w, cy - 0.5 * h,
-                        cx + 0.5 * w, cy + 0.5 * h], dim=-1)
+    return torch.stack([cx - 0.5 * w, cy - 0.5 * h, cx + 0.5 * w, cy + 0.5 * h], dim=-1)
 
 
 def box_xyxy_to_cxcywh(x: torch.Tensor) -> torch.Tensor:
     """Convert boxes from (x1, y1, x2, y2) to (cx, cy, w, h) format."""
     x0, y0, x1, y1 = x.unbind(-1)
-    return torch.stack([(x0 + x1) / 2, (y0 + y1) / 2,
-                        x1 - x0, y1 - y0], dim=-1)
+    return torch.stack([(x0 + x1) / 2, (y0 + y1) / 2, x1 - x0, y1 - y0], dim=-1)
 
 
 def box_iou(boxes1: torch.Tensor, boxes2: torch.Tensor):

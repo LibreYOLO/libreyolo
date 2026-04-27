@@ -11,9 +11,9 @@ from __future__ import annotations
 import pytest
 import torch
 
-pytestmark = pytest.mark.unit
-
 from libreyolo.models.dfine.fdr import Integral, distance2bbox, weighting_function
+
+pytestmark = pytest.mark.unit
 
 
 class TestWeightingFunction:

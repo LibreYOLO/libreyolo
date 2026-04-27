@@ -9,15 +9,15 @@ Adapted for LibreYOLO.
 """
 
 import logging
+import warnings
 from pathlib import Path
 from typing import List, Optional, Tuple
-import warnings
-
-logger = logging.getLogger(__name__)
 
 from PIL import Image
 
 from .utils import polygon_to_cxcywh
+
+logger = logging.getLogger(__name__)
 
 
 def parse_yolo_label_line(
@@ -221,7 +221,9 @@ class YOLOCocoAPI:
         for i, name in enumerate(class_names):
             self.cats[i] = {"id": i, "name": name, "supercategory": "object"}
 
-        logger.info("  Loaded %d annotations across %d images", len(self.anns), len(self.imgs))
+        logger.info(
+            "  Loaded %d annotations across %d images", len(self.anns), len(self.imgs)
+        )
 
     def getAnnIds(self, imgIds=None, catIds=None, areaRng=None, iscrowd=None):
         """

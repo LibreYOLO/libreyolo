@@ -99,6 +99,21 @@ def _unwrap_state_dict(state_dict: dict) -> dict:
     return state_dict
 
 
+def _needs_rfdetr_registration(weights_dict: dict) -> bool:
+    """Return True when checkpoint keys require lazy RF-DETR registration."""
+    if LibreYOLORTDETR.can_load(weights_dict):
+        return False
+
+    keys_lower = [k.lower() for k in weights_dict]
+    return any(
+        "dinov2" in k
+        or "query_embed" in k
+        or "enc_out_class_embed" in k
+        or "enc_out_bbox_embed" in k
+        for k in keys_lower
+    )
+
+
 # =============================================================================
 # LibreYOLO — unified factory function
 # =============================================================================
@@ -210,11 +225,9 @@ def LibreYOLO(
 
     # Ensure RF-DETR is registered if its keys are present, but avoid
     # treating RT-DETR checkpoints as RF-DETR. D-FINE also has
-    # ``encoder``/``decoder``-ish keys, so only the RF-DETR-specific markers
+    # ``encoder``/``decoder``-ish keys, so only RF-DETR-specific markers
     # should trigger the lazy import.
-    is_rtdetr = LibreYOLORTDETR.can_load(weights_dict)
-    keys_lower = [k.lower() for k in weights_dict]
-    if not is_rtdetr and any("dinov2" in k or "query_embed" in k for k in keys_lower):
+    if _needs_rfdetr_registration(weights_dict):
         try:
             _ensure_rfdetr()
         except ModuleNotFoundError:
@@ -252,17 +265,26 @@ def LibreYOLO(
             )
         logger.debug("Auto-detected size: %s", size)
 
-    # Auto-detect nb_classes
-    if nb_classes is None:
-        nb_classes = matched_cls.detect_nb_classes(weights_dict)
-        if nb_classes is None:
-            nb_classes = 80
-
     # Determine how to pass weights
     # Checkpoints from our trainers have metadata (nc, names, model_family).
     # For those, pass the file path so _load_weights() handles nc rebuild + names.
     # For old/pretrained checkpoints, pass the extracted state_dict directly.
     has_metadata = isinstance(state_dict, dict) and "nc" in state_dict
+
+    # Auto-detect nb_classes.
+    #
+    # Metadata checkpoints are reloaded via ``_load_weights()``, which reads the
+    # saved ``nc`` and performs any family-specific rebuild logic. Starting from
+    # the constructor default (80) avoids baking the fine-tuned class count into
+    # the fresh model init too early. This matters for YOLO9-t where the class
+    # branch width depends on COCO-vs-custom ``nc`` during construction.
+    if nb_classes is None:
+        if has_metadata:
+            nb_classes = 80
+        else:
+            nb_classes = matched_cls.detect_nb_classes(weights_dict)
+            if nb_classes is None:
+                nb_classes = 80
 
     # Check for -seg suffix on models that don't support segmentation
     task = matched_cls.detect_task_from_filename(Path(model_path).name)

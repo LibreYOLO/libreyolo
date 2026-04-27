@@ -15,7 +15,9 @@ help:
 	@echo "  typecheck                     - Run type checker"
 	@echo "  test                          - Run fast unit tests (no weights needed)"
 	@echo "  test_e2e                      - Run all e2e tests (needs GPU + model weights)"
-	@echo "  test_e2e FROM=<name>          - Resume from a specific test file (e.g. FROM=rfdetr_seg)"
+	@echo "  test_e2e FROM=<file>          - Resume from a test file (e.g. FROM=test_rf1_training.py or FROM=rf1_training)"
+	@echo "  test_e2e MARKERS='<expr>'     - Run only matching e2e markers (e.g. MARKERS='e2e and not experimental_backend')"
+	@echo "  test_e2e MARKER='<expr>'      - Alias for MARKERS=..., also works with FROM=..."
 	@echo "  test_rf5                      - Run RF5 training benchmark tests"
 	@echo "  build                         - Build package"
 	@echo "  clean                         - Remove build and test cache artifacts"
@@ -42,23 +44,37 @@ test_e2e:
 	@if [ -z "$(FROM)" ]; then $(MAKE) clean; fi
 	@files=$$(ls tests/e2e/test_*.py); \
 	total=$$(echo "$$files" | wc -w); \
+	markers="$(MARKERS)"; \
+	if [ -z "$$markers" ]; then markers="$(MARKER)"; fi; \
+	if [ -z "$$markers" ]; then markers="e2e and not rf5"; fi; \
 	resume_from="$(FROM)"; \
-	i=0; passed=0; failed=0; skipped=0; resuming=0; \
-	if [ -n "$$resume_from" ]; then resuming=1; fi; \
+	resume_name=""; \
+	if [ -n "$$resume_from" ]; then \
+		resume_name=$$(basename "$$resume_from"); \
+		resume_name=$${resume_name%.py}; \
+		case "$$resume_name" in \
+			test_*) ;; \
+			*) resume_name="test_$$resume_name" ;; \
+		esac; \
+	fi; \
+	i=0; passed=0; failed=0; skipped=0; resuming=0; found_resume=0; \
+	if [ -n "$$resume_name" ]; then resuming=1; fi; \
 	echo ""; \
 	echo "══════════════════════════════════════════════════════════════"; \
-	if [ -n "$$resume_from" ]; then \
-		echo "  e2e test suite — $$total files (resuming from $$resume_from)"; \
+	if [ -n "$$resume_name" ]; then \
+		echo "  e2e test suite — $$total files (resuming from $$resume_name)"; \
 	else \
 		echo "  e2e test suite — $$total files (each in its own process)"; \
 	fi; \
+	echo "  markers: $$markers"; \
 	echo "══════════════════════════════════════════════════════════════"; \
 	echo ""; \
 	for f in $$files; do \
 		i=$$((i + 1)); \
 		name=$$(basename "$$f" .py); \
 		if [ $$resuming -eq 1 ]; then \
-			if echo "$$name" | grep -q "$$resume_from"; then \
+			if [ "$$name" = "$$resume_name" ]; then \
+				found_resume=1; \
 				resuming=0; \
 			else \
 				echo "  [$$i/$$total] $$name — skipped (resuming)"; \
@@ -69,7 +85,7 @@ test_e2e:
 		echo "────────────────────────────────────────────────────────────"; \
 		echo "  [$$i/$$total] $$name"; \
 		echo "────────────────────────────────────────────────────────────"; \
-		$(UV) pytest "$$f" -m "e2e and not rf5" -v; \
+		$(UV) pytest "$$f" -m "$$markers" -v; \
 		rc=$$?; \
 		if [ $$rc -eq 0 ]; then passed=$$((passed + 1)); \
 		elif [ $$rc -eq 5 ]; then skipped=$$((skipped + 1)); \
@@ -80,6 +96,12 @@ test_e2e:
 			exit $$rc; \
 		fi; \
 	done; \
+	if [ -n "$$resume_name" ] && [ $$found_resume -eq 0 ]; then \
+		echo ""; \
+		echo "  FAILED: resume target '$$resume_from' not found"; \
+		echo ""; \
+		exit 2; \
+	fi; \
 	echo ""; \
 	echo "══════════════════════════════════════════════════════════════"; \
 	echo "  all done: $$passed passed, $$skipped skipped, $$failed failed"; \

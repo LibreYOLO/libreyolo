@@ -134,9 +134,9 @@ def gather_topk_anchors(
     num_anchors = metrics.shape[-1]
     topk_metrics, topk_idxs = torch.topk(metrics, topk, dim=-1, largest=largest)
     if topk_mask is None:
-        topk_mask = (
-            topk_metrics.max(dim=-1, keepdim=True).values > eps
-        ).type_as(metrics)
+        topk_mask = (topk_metrics.max(dim=-1, keepdim=True).values > eps).type_as(
+            metrics
+        )
     is_in_topk = F.one_hot(topk_idxs, num_anchors).sum(dim=-2).type_as(metrics)
     return is_in_topk * topk_mask
 
@@ -170,12 +170,16 @@ class ATSSAssigner(nn.Module):
 
         is_in_topk_list = []
         topk_idxs_list = []
-        for distances, anchors_index in zip(gt2anchor_distances_list, num_anchors_index):
+        for distances, anchors_index in zip(
+            gt2anchor_distances_list, num_anchors_index
+        ):
             num_anchors = distances.shape[-1]
             _, topk_idxs = torch.topk(distances, self.topk, dim=-1, largest=False)
             topk_idxs_list.append(topk_idxs + anchors_index)
-            is_in_topk = F.one_hot(topk_idxs, num_anchors).sum(dim=-2).type_as(
-                gt2anchor_distances
+            is_in_topk = (
+                F.one_hot(topk_idxs, num_anchors)
+                .sum(dim=-2)
+                .type_as(gt2anchor_distances)
             )
             if pad_gt_mask is not None:
                 is_in_topk = is_in_topk * pad_gt_mask
@@ -398,16 +402,20 @@ class TaskAlignedAssigner(nn.Module):
         indices = [i for i in range(num_classes + 1) if i != bg_index]
         assigned_scores = torch.index_select(
             assigned_scores,
-            index=torch.tensor(indices, device=assigned_scores.device, dtype=torch.long),
+            index=torch.tensor(
+                indices, device=assigned_scores.device, dtype=torch.long
+            ),
             dim=-1,
         )
 
         alignment_metrics *= mask_positive
         max_metrics_per_instance = alignment_metrics.max(dim=-1, keepdim=True).values
         max_ious_per_instance = (ious * mask_positive).max(dim=-1, keepdim=True).values
-        alignment_metrics = alignment_metrics / (
-            max_metrics_per_instance + self.eps
-        ) * max_ious_per_instance
+        alignment_metrics = (
+            alignment_metrics
+            / (max_metrics_per_instance + self.eps)
+            * max_ious_per_instance
+        )
         alignment_metrics = alignment_metrics.max(dim=-2).values.unsqueeze(-1)
         assigned_scores = assigned_scores * alignment_metrics
 
@@ -530,7 +538,9 @@ class PPYoloELoss(nn.Module):
         for i in range(batch_size):
             elements_to_pad = max_boxes - len(per_image_class[i])
             pad = (0, 0, 0, elements_to_pad)
-            per_image_class[i] = F.pad(per_image_class[i], pad, mode="constant", value=0)
+            per_image_class[i] = F.pad(
+                per_image_class[i], pad, mode="constant", value=0
+            )
             per_image_bbox[i] = F.pad(per_image_bbox[i], pad, mode="constant", value=0)
             per_image_pad_mask[i] = F.pad(
                 per_image_pad_mask[i], pad, mode="constant", value=0
@@ -591,9 +601,7 @@ class PPYoloELoss(nn.Module):
             alpha_l = -1
 
         if self.use_varifocal_loss:
-            one_hot_label = F.one_hot(
-                assigned_labels, self.num_classes + 1
-            )[..., :-1]
+            one_hot_label = F.one_hot(assigned_labels, self.num_classes + 1)[..., :-1]
             cls_loss_sum = self._varifocal_loss(
                 pred_scores, assigned_scores, one_hot_label
             )
@@ -693,8 +701,8 @@ class PPYoloELoss(nn.Module):
         return loss_iou, loss_dfl
 
     def _bbox_decode(self, anchor_points: Tensor, pred_dist: Tensor):
-        b, l, *_ = pred_dist.size()
-        pred_dist = pred_dist.reshape([b, l, 4, -1])
+        batch_size, num_locations, *_ = pred_dist.size()
+        pred_dist = pred_dist.reshape([batch_size, num_locations, 4, -1])
         reg_max = pred_dist.size(-1) - 1
         proj_conv = self.get_proj_conv_for_reg_max(reg_max, device=pred_dist.device)
         pred_dist = torch.softmax(pred_dist, dim=-1)
@@ -708,7 +716,9 @@ class PPYoloELoss(nn.Module):
         return torch.cat([lt, rb], dim=-1).clip(0, reg_max - 0.01)
 
     @staticmethod
-    def _focal_loss(pred_logits: Tensor, label: Tensor, alpha=0.25, gamma=2.0) -> Tensor:
+    def _focal_loss(
+        pred_logits: Tensor, label: Tensor, alpha=0.25, gamma=2.0
+    ) -> Tensor:
         pred_score = pred_logits.sigmoid()
         weight = (pred_score - label).pow(gamma)
         if alpha > 0:

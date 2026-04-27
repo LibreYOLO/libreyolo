@@ -92,7 +92,9 @@ def verify_conversion(converted_path: str, size: str) -> bool:
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Convert D-FINE weights to LibreYOLO format")
+    parser = argparse.ArgumentParser(
+        description="Convert D-FINE weights to LibreYOLO format"
+    )
     parser.add_argument("input", help="Upstream D-FINE checkpoint (.pth)")
     parser.add_argument("output", help="Output LibreYOLO checkpoint (.pt)")
     parser.add_argument(
@@ -101,8 +103,12 @@ if __name__ == "__main__":
         choices=["n", "s", "m", "l", "x"],
         help="Size code",
     )
-    parser.add_argument("--nc", type=int, default=80, help="Number of classes (default: 80)")
-    parser.add_argument("--verify", action="store_true", help="Verify round-trip after conversion")
+    parser.add_argument(
+        "--nc", type=int, default=80, help="Number of classes (default: 80)"
+    )
+    parser.add_argument(
+        "--verify", action="store_true", help="Verify round-trip after conversion"
+    )
     args = parser.parse_args()
 
     convert_weights(args.input, args.output, args.size, args.nc)

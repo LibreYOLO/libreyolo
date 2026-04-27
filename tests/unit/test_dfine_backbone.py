@@ -5,9 +5,9 @@ from __future__ import annotations
 import pytest
 import torch
 
-pytestmark = pytest.mark.unit
-
 from libreyolo.models.dfine.backbone import HGNetv2
+
+pytestmark = pytest.mark.unit
 
 
 @pytest.mark.parametrize(
@@ -44,8 +44,12 @@ def test_forward_shapes(name, return_idx, expected_out_channels):
 
 def test_use_lab_adds_scale_bias_parameters():
     """use_lab=True should introduce LearnableAffineBlock params after activations."""
-    without = HGNetv2(name="B0", use_lab=False, return_idx=(2, 3), freeze_at=-1, freeze_norm=False)
-    with_lab = HGNetv2(name="B0", use_lab=True, return_idx=(2, 3), freeze_at=-1, freeze_norm=False)
+    without = HGNetv2(
+        name="B0", use_lab=False, return_idx=(2, 3), freeze_at=-1, freeze_norm=False
+    )
+    with_lab = HGNetv2(
+        name="B0", use_lab=True, return_idx=(2, 3), freeze_at=-1, freeze_norm=False
+    )
     params_without = sum(p.numel() for p in without.parameters())
     params_with = sum(p.numel() for p in with_lab.parameters())
     assert params_with > params_without
