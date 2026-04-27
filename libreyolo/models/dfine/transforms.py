@@ -72,6 +72,12 @@ class DFINETrainTransform:
 
     STRONG_OP_NAMES = ("RandomPhotometricDistort", "RandomZoomOut", "RandomIoUCrop")
 
+    # ImageNet stats (used only when ``imagenet_norm=True``). ECDet's pretrained
+    # ViT backbone expects normalized inputs at both train and eval; D-FINE's
+    # HGNetv2 was pretrained on /255-only inputs and disables normalization.
+    _IMAGENET_MEAN = np.array([0.485, 0.456, 0.406], dtype=np.float32).reshape(3, 1, 1)
+    _IMAGENET_STD = np.array([0.229, 0.224, 0.225], dtype=np.float32).reshape(3, 1, 1)
+
     def __init__(
         self,
         max_labels: int = 120,
@@ -81,11 +87,13 @@ class DFINETrainTransform:
         photometric_p: float = 0.5,
         iou_crop_p: float = 0.8,
         strong_augs: bool = True,
+        imagenet_norm: bool = False,
     ):
         self.max_labels = max_labels
         self.imgsz = imgsz
         self.flip_prob = flip_prob
         self.strong_augs = strong_augs
+        self.imagenet_norm = imagenet_norm
 
         # Strong (early-training) ops — disabled at stop_epoch.
         # ``RandomIoUCrop`` has no built-in ``p``; wrap with ``RandomApply`` to
@@ -148,8 +156,10 @@ class DFINETrainTransform:
             img_t, boxes, labels = self._strong(img_t, boxes, labels)
         img_t, boxes, labels = self._weak(img_t, boxes, labels)
 
-        # Tensor → numpy CHW float32 [0, 1] RGB.
+        # Tensor → numpy CHW float32 [0, 1] RGB, with optional ImageNet (mean, std).
         img_out = img_t.float().div_(255.0).numpy()
+        if self.imagenet_norm:
+            img_out = (img_out - self._IMAGENET_MEAN) / self._IMAGENET_STD
 
         # Boxes back to (N, 4) numpy xyxy in pixel coords on the resized canvas.
         boxes_arr = boxes.detach().numpy().astype(np.float32, copy=True)

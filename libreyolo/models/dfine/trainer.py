@@ -76,17 +76,22 @@ class DFINETrainer(BaseTrainer):
         )
 
     def get_loss_components(self, outputs: Dict) -> Dict[str, float]:
-        def _scalar(v):
-            if isinstance(v, torch.Tensor):
-                return v.item()
-            return float(v)
+        # FGL/DDF are emitted only by the aux/dn paths (no main-loss key);
+        # bare ``outputs.get("loss_ddf")`` was always 0. Aggregate over every
+        # variant key so the tqdm display reflects the actual loss magnitude.
+        def _sum_with_prefix(prefix: str) -> float:
+            total = 0.0
+            for k, v in outputs.items():
+                if k == prefix or k.startswith(prefix + "_"):
+                    total += v.item() if isinstance(v, torch.Tensor) else float(v)
+            return total
 
         return {
-            "vfl": _scalar(outputs.get("loss_vfl", 0)),
-            "bbox": _scalar(outputs.get("loss_bbox", 0)),
-            "giou": _scalar(outputs.get("loss_giou", 0)),
-            "fgl": _scalar(outputs.get("loss_fgl", 0)),
-            "ddf": _scalar(outputs.get("loss_ddf", 0)),
+            "vfl": _sum_with_prefix("loss_vfl"),
+            "bbox": _sum_with_prefix("loss_bbox"),
+            "giou": _sum_with_prefix("loss_giou"),
+            "fgl": _sum_with_prefix("loss_fgl"),
+            "ddf": _sum_with_prefix("loss_ddf"),
         }
 
     def _setup_device(self) -> torch.device:
@@ -152,18 +157,15 @@ class DFINETrainer(BaseTrainer):
         for name, p in self.model.named_parameters():
             if not p.requires_grad:
                 continue
+            # Match upstream's regex semantics ``(?:norm|bn|bias)`` — substring,
+            # not suffix. The previous ``endswith('.bias')`` missed
+            # ``self_attn.in_proj_bias`` (PyTorch MHA's fused QKV bias) on five
+            # parameters per model, which silently received weight decay.
             is_norm_or_bias = (
-                ".bn." in name
-                or ".norm." in name
-                or ".norm1." in name
-                or ".norm2." in name
-                or ".norm3." in name
-                or name.endswith(".norm1.weight")
-                or name.endswith(".norm2.weight")
-                or name.endswith(".norm3.weight")
-                or name.endswith(".bias")
+                "norm" in name
+                or ".bn." in name
+                or "bias" in name
                 or "lab.scale" in name
-                or "lab.bias" in name
             )
             is_backbone = name.startswith("backbone.")
             if is_backbone and is_norm_or_bias:
@@ -250,15 +252,12 @@ class DFINETrainer(BaseTrainer):
         losses = self.criterion(outputs, target_list)
         total = sum(losses.values())
 
-        zero = torch.tensor(0.0, device=self.device)
-        return {
-            "total_loss": total,
-            "loss_vfl": losses.get("loss_vfl", zero),
-            "loss_bbox": losses.get("loss_bbox", zero),
-            "loss_giou": losses.get("loss_giou", zero),
-            "loss_fgl": losses.get("loss_fgl", zero),
-            "loss_ddf": losses.get("loss_ddf", zero),
-        }
+        # Expose every named loss (including aux_/dn_/pre/enc variants) so
+        # ``get_loss_components`` can aggregate by prefix. FGL/DDF appear only
+        # in the aux/dn paths — bare ``loss_ddf`` would always be 0 otherwise.
+        result = {"total_loss": total}
+        result.update(losses)
+        return result
 
     # =========================================================================
     # _setup_data override — wire DFINEMultiScaleCollate (when enabled)
