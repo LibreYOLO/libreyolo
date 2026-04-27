@@ -60,7 +60,7 @@ def _is_nms_free_family(model_family: Optional[str]) -> bool:
     selection. Applying YOLO-style IoU suppression on top of that can remove
     valid detections and make exported runtimes diverge from native PyTorch.
     """
-    return model_family in {"dfine", "rfdetr", "rtdetr"}
+    return model_family in {"dfine", "ecdet", "rfdetr", "rtdetr"}
 
 
 class BaseBackend(ABC):
@@ -132,6 +132,11 @@ class BaseBackend(ABC):
                 image, effective_imgsz, color_format
             )
             return tensor, img, size, 1.0
+        elif self.model_family == "ecdet":
+            tensor, img, size = self._preprocess_ecdet(
+                image, effective_imgsz, color_format
+            )
+            return tensor, img, size, 1.0
         elif self.model_family == "rtdetr":
             tensor, img, size = self._preprocess_rtdetr(
                 image, effective_imgsz, color_format
@@ -168,6 +173,19 @@ class BaseBackend(ABC):
         img_chw, _ = dfine_preprocess_numpy(np.array(img), input_size)
         img_tensor = torch.from_numpy(img_chw).unsqueeze(0)
 
+        return img_tensor, original_img, original_size
+
+    @staticmethod
+    def _preprocess_ecdet(image, input_size, color_format):
+        """ECDet preprocessing: plain resize + RGB + /255 + ImageNet (mean, std)."""
+        from ..models.ecdet.postprocess import preprocess_numpy as ecdet_preprocess_numpy
+
+        img = ImageLoader.load(image, color_format=color_format)
+        original_size = img.size
+        original_img = img.copy()
+
+        img_chw, _ = ecdet_preprocess_numpy(np.array(img), input_size)
+        img_tensor = torch.from_numpy(img_chw).unsqueeze(0)
         return img_tensor, original_img, original_size
 
     @staticmethod
@@ -212,6 +230,13 @@ class BaseBackend(ABC):
             return self._parse_rfdetr(all_outputs, orig_w, orig_h, conf)
         elif self.model_family == "dfine":
             boxes, scores, cls = self._parse_dfine(all_outputs, orig_w, orig_h, conf)
+            return boxes, scores, cls, None
+        elif self.model_family == "ecdet":
+            # ECDet emits the same {pred_logits, pred_boxes} schema as D-FINE
+            # so the parser is shared.
+            boxes, scores, cls = self._parse_dfine(
+                all_outputs, orig_w, orig_h, conf
+            )
             return boxes, scores, cls, None
         elif self.model_family == "rtdetr":
             boxes, scores, cls = self._parse_rtdetr(all_outputs, orig_w, orig_h, conf)
