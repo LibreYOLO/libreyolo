@@ -211,9 +211,7 @@ class BaseBackend(ABC):
         elif self.model_family == "rfdetr":
             return self._parse_rfdetr(all_outputs, orig_w, orig_h, conf)
         elif self.model_family == "dfine":
-            boxes, scores, cls = self._parse_dfine(
-                all_outputs, orig_w, orig_h, conf
-            )
+            boxes, scores, cls = self._parse_dfine(all_outputs, orig_w, orig_h, conf)
             return boxes, scores, cls, None
         elif self.model_family == "rtdetr":
             boxes, scores, cls = self._parse_rtdetr(all_outputs, orig_w, orig_h, conf)

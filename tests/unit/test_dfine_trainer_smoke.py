@@ -5,9 +5,9 @@ from __future__ import annotations
 import pytest
 import torch
 
-pytestmark = pytest.mark.unit
-
 from libreyolo import LibreDFINE
+
+pytestmark = pytest.mark.unit
 
 
 def test_trainer_target_translation_smoke():
@@ -257,7 +257,10 @@ def test_multi_scale_collate_resize_and_stop_epoch():
     """Random resize before stop_epoch, fixed base_size after."""
     import numpy as np
 
-    from libreyolo.models.dfine.transforms import DFINEMultiScaleCollate, _generate_scales
+    from libreyolo.models.dfine.transforms import (
+        DFINEMultiScaleCollate,
+        _generate_scales,
+    )
 
     scales = _generate_scales(640, 3)
     assert 480 in scales and 800 in scales and scales.count(640) == 3

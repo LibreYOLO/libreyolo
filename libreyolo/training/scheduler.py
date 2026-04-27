@@ -141,9 +141,8 @@ class FlatCosineScheduler(BaseScheduler):
         if iters <= self.warmup_iters:
             if self.warmup_iters > 0:
                 return (
-                    (self.lr - self.warmup_lr_start) * iters / self.warmup_iters
-                    + self.warmup_lr_start
-                )
+                    self.lr - self.warmup_lr_start
+                ) * iters / self.warmup_iters + self.warmup_lr_start
             return self.lr
         cosine_start = self.total_iters - self.cosine_iters
         if iters < cosine_start:

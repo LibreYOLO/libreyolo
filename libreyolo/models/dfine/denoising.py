@@ -32,7 +32,11 @@ def get_contrastive_denoising_training_group(
 
     max_gt_num = max(num_gts)
     if max_gt_num == 0:
-        dn_meta = {"dn_positive_idx": None, "dn_num_group": 0, "dn_num_split": [0, num_queries]}
+        dn_meta = {
+            "dn_positive_idx": None,
+            "dn_num_group": 0,
+            "dn_num_split": [0, num_queries],
+        }
         return None, None, None, dn_meta
 
     num_group = num_denoising // max_gt_num
@@ -67,16 +71,24 @@ def get_contrastive_denoising_training_group(
     num_denoising = int(max_gt_num * 2 * num_group)
 
     if label_noise_ratio > 0:
-        mask = torch.rand_like(input_query_class, dtype=torch.float) < (label_noise_ratio * 0.5)
-        new_label = torch.randint_like(mask, 0, num_classes, dtype=input_query_class.dtype)
-        input_query_class = torch.where(mask & pad_gt_mask, new_label, input_query_class)
+        mask = torch.rand_like(input_query_class, dtype=torch.float) < (
+            label_noise_ratio * 0.5
+        )
+        new_label = torch.randint_like(
+            mask, 0, num_classes, dtype=input_query_class.dtype
+        )
+        input_query_class = torch.where(
+            mask & pad_gt_mask, new_label, input_query_class
+        )
 
     if box_noise_scale > 0:
         known_bbox = box_cxcywh_to_xyxy(input_query_bbox)
         diff = torch.tile(input_query_bbox[..., 2:] * 0.5, [1, 1, 2]) * box_noise_scale
         rand_sign = torch.randint_like(input_query_bbox, 0, 2) * 2.0 - 1.0
         rand_part = torch.rand_like(input_query_bbox)
-        rand_part = (rand_part + 1.0) * negative_gt_mask + rand_part * (1 - negative_gt_mask)
+        rand_part = (rand_part + 1.0) * negative_gt_mask + rand_part * (
+            1 - negative_gt_mask
+        )
         known_bbox += rand_sign * rand_part * diff
         known_bbox = torch.clip(known_bbox, min=0.0, max=1.0)
         input_query_bbox = box_xyxy_to_cxcywh(known_bbox)

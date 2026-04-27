@@ -37,9 +37,9 @@ class HungarianMatcher(nn.Module):
         self.alpha = alpha
         self.gamma = gamma
 
-        assert (
-            self.cost_class != 0 or self.cost_bbox != 0 or self.cost_giou != 0
-        ), "all costs cant be 0"
+        assert self.cost_class != 0 or self.cost_bbox != 0 or self.cost_giou != 0, (
+            "all costs cant be 0"
+        )
 
     @torch.no_grad()
     def forward(self, outputs: Dict[str, torch.Tensor], targets, return_topk=False):
@@ -58,7 +58,9 @@ class HungarianMatcher(nn.Module):
         if self.use_focal_loss:
             out_prob = out_prob[:, tgt_ids]
             neg_cost_class = (
-                (1 - self.alpha) * (out_prob**self.gamma) * (-(1 - out_prob + 1e-8).log())
+                (1 - self.alpha)
+                * (out_prob**self.gamma)
+                * (-(1 - out_prob + 1e-8).log())
             )
             pos_cost_class = (
                 self.alpha * ((1 - out_prob) ** self.gamma) * (-(out_prob + 1e-8).log())

@@ -81,7 +81,9 @@ class NcnnBackend(BaseBackend):
             self._input_names = list(input_names_fn())
             self._output_names = list(output_names_fn())
         else:
-            self._input_names, self._output_names = self._discover_blob_names(param_path)
+            self._input_names, self._output_names = self._discover_blob_names(
+                param_path
+            )
 
         super().__init__(
             model_path=str(model_dir),

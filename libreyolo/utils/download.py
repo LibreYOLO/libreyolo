@@ -103,7 +103,9 @@ def download_weights(model_path: str, size: str):
         # Only attach the HF token to HF URLs — never leak it to third parties.
         headers["Authorization"] = f"Bearer {token}"
     elif is_hf and not token:
-        logger.info("Tip: Run `huggingface-cli login` or set HF_TOKEN for faster downloads.")
+        logger.info(
+            "Tip: Run `huggingface-cli login` or set HF_TOKEN for faster downloads."
+        )
 
     try:
         response = requests.get(url, stream=True, headers=headers)

@@ -89,8 +89,7 @@ class TorchScriptBackend(BaseBackend):
                     out_list.append(out.detach().cpu().numpy())
                 else:
                     raise TypeError(
-                        "Unsupported TorchScript output element type: "
-                        f"{type(out)!r}"
+                        f"Unsupported TorchScript output element type: {type(out)!r}"
                     )
             return out_list
 

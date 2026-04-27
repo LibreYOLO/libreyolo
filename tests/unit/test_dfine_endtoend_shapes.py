@@ -10,12 +10,12 @@ from __future__ import annotations
 import pytest
 import torch
 
-pytestmark = pytest.mark.unit
-
 from libreyolo.models.dfine.backbone import HGNetv2
 from libreyolo.models.dfine.decoder import DFINETransformer
 from libreyolo.models.dfine.encoder import HybridEncoder
 from libreyolo.models.dfine.nn import SIZE_CONFIGS
+
+pytestmark = pytest.mark.unit
 
 
 @pytest.mark.parametrize("size", ["n", "s", "x"])

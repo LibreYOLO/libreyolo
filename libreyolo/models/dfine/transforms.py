@@ -91,18 +91,22 @@ class DFINETrainTransform:
         # ``RandomIoUCrop`` has no built-in ``p``; wrap with ``RandomApply`` to
         # match upstream's manual ``if torch.rand(1) >= self.p: return inputs``
         # subclass.
-        self._strong = tv2.Compose([
-            tv2.RandomPhotometricDistort(p=photometric_p),
-            tv2.RandomZoomOut(fill=zoomout_fill),
-            tv2.RandomApply([tv2.RandomIoUCrop()], p=iou_crop_p),
-            tv2.SanitizeBoundingBoxes(min_size=1, labels_getter=_labels_at_index_2),
-        ])
+        self._strong = tv2.Compose(
+            [
+                tv2.RandomPhotometricDistort(p=photometric_p),
+                tv2.RandomZoomOut(fill=zoomout_fill),
+                tv2.RandomApply([tv2.RandomIoUCrop()], p=iou_crop_p),
+                tv2.SanitizeBoundingBoxes(min_size=1, labels_getter=_labels_at_index_2),
+            ]
+        )
         # Weak (always-on) ops.
-        self._weak = tv2.Compose([
-            tv2.RandomHorizontalFlip(p=flip_prob),
-            tv2.Resize(size=(imgsz, imgsz), antialias=True),
-            tv2.SanitizeBoundingBoxes(min_size=1, labels_getter=_labels_at_index_2),
-        ])
+        self._weak = tv2.Compose(
+            [
+                tv2.RandomHorizontalFlip(p=flip_prob),
+                tv2.Resize(size=(imgsz, imgsz), antialias=True),
+                tv2.SanitizeBoundingBoxes(min_size=1, labels_getter=_labels_at_index_2),
+            ]
+        )
 
     def disable_strong_augs(self):
         self.strong_augs = False
@@ -121,7 +125,9 @@ class DFINETrainTransform:
 
         # BGR → RGB, HWC → CHW uint8 tensor.
         img_rgb = image[:, :, ::-1].copy()
-        img_t = tv_tensors.Image(torch.from_numpy(np.ascontiguousarray(img_rgb)).permute(2, 0, 1))
+        img_t = tv_tensors.Image(
+            torch.from_numpy(np.ascontiguousarray(img_rgb)).permute(2, 0, 1)
+        )
 
         if len(targets):
             boxes_xyxy = targets[:, :4].astype(np.float32, copy=True)
@@ -217,7 +223,10 @@ class DFINEPassThroughDataset:
         """
         self._epoch = epoch
         if self._stop_epoch is not None and epoch >= self._stop_epoch:
-            if isinstance(self.preproc, DFINETrainTransform) and self.preproc.strong_augs:
+            if (
+                isinstance(self.preproc, DFINETrainTransform)
+                and self.preproc.strong_augs
+            ):
                 self.preproc.disable_strong_augs()
 
     def close_mosaic(self):
@@ -247,7 +256,9 @@ class DFINEMultiScaleCollate:
         stop_epoch: Optional[int] = None,
     ):
         self.base_size = base_size
-        self.scales = _generate_scales(base_size, base_size_repeat) if base_size_repeat else None
+        self.scales = (
+            _generate_scales(base_size, base_size_repeat) if base_size_repeat else None
+        )
         self._stop_epoch = stop_epoch if stop_epoch is not None else 10**9
         self._epoch = 0
 
@@ -256,8 +267,12 @@ class DFINEMultiScaleCollate:
 
     def __call__(self, batch: Sequence):
         # Each item: (img_chw, padded_labels, info, id) — same as YOLOX collate produces.
-        imgs = torch.stack([torch.from_numpy(np.ascontiguousarray(item[0])) for item in batch])
-        labels = torch.stack([torch.from_numpy(np.ascontiguousarray(item[1])) for item in batch])
+        imgs = torch.stack(
+            [torch.from_numpy(np.ascontiguousarray(item[0])) for item in batch]
+        )
+        labels = torch.stack(
+            [torch.from_numpy(np.ascontiguousarray(item[1])) for item in batch]
+        )
         infos = [item[2] for item in batch]
         ids = torch.tensor([item[3] for item in batch])
 
@@ -267,7 +282,9 @@ class DFINEMultiScaleCollate:
                 # Rescale targets too — they are pixel cxcywh on the original
                 # canvas (which the per-sample transform already resized to base_size).
                 ratio = sz / imgs.shape[-1]
-                imgs = F.interpolate(imgs, size=sz, mode="bilinear", align_corners=False)
+                imgs = F.interpolate(
+                    imgs, size=sz, mode="bilinear", align_corners=False
+                )
                 # Scale (cx, cy, w, h) — column 0 is class.
                 labels[..., 1:] = labels[..., 1:] * ratio
 

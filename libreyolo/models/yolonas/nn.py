@@ -256,7 +256,9 @@ class QARepVGGBlock(nn.Module):
             return 0
         return F.pad(kernel1x1, [1, 1, 1, 1])
 
-    def _fuse_bn_tensor(self, kernel, bias, running_mean, running_var, gamma, beta, eps):
+    def _fuse_bn_tensor(
+        self, kernel, bias, running_mean, running_var, gamma, beta, eps
+    ):
         std = torch.sqrt(running_var + eps)
         fused_bias = beta - gamma * running_mean / std
         scale = (gamma / std).expand_as(kernel.transpose(0, -1)).transpose(0, -1)
@@ -335,7 +337,9 @@ class QARepVGGBlock(nn.Module):
     def fuse_block_residual_branches(self):
         self.partial_fusion()
 
-    def prep_model_for_conversion(self, input_size=None, full_fusion: bool = False, **kwargs):
+    def prep_model_for_conversion(
+        self, input_size=None, full_fusion: bool = False, **kwargs
+    ):
         if full_fusion:
             self.full_fusion()
         else:
@@ -354,12 +358,20 @@ class YoloNASBottleneck(nn.Module):
         drop_path_rate: float = 0.0,
     ):
         super().__init__()
-        self.cv1 = block_type(input_channels, output_channels, activation_type=activation_type)
-        self.cv2 = block_type(output_channels, output_channels, activation_type=activation_type)
+        self.cv1 = block_type(
+            input_channels, output_channels, activation_type=activation_type
+        )
+        self.cv2 = block_type(
+            output_channels, output_channels, activation_type=activation_type
+        )
         self.add = shortcut and input_channels == output_channels
         self.shortcut = Residual() if self.add else None
-        self.drop_path = DropPath(drop_path_rate) if drop_path_rate > 0.0 else nn.Identity()
-        self.alpha = nn.Parameter(torch.tensor([1.0]), requires_grad=True) if use_alpha else 1.0
+        self.drop_path = (
+            DropPath(drop_path_rate) if drop_path_rate > 0.0 else nn.Identity()
+        )
+        self.alpha = (
+            nn.Parameter(torch.tensor([1.0]), requires_grad=True) if use_alpha else 1.0
+        )
 
     def forward(self, x: Tensor) -> Tensor:
         y = self.drop_path(self.cv2(self.cv1(x)))
@@ -431,7 +443,11 @@ class YoloNASCSPLayer(nn.Module):
                 for i in range(num_bottlenecks)
             ],
         )
-        self.dropout = nn.Dropout2d(dropout_rate, inplace=True) if dropout_rate > 0.0 else nn.Identity()
+        self.dropout = (
+            nn.Dropout2d(dropout_rate, inplace=True)
+            if dropout_rate > 0.0
+            else nn.Identity()
+        )
 
     def forward(self, x: Tensor) -> Tensor:
         x_1 = self.conv1(x)
@@ -528,22 +544,44 @@ class YoloNASUpStage(nn.Module):
             skip_in_channels = skip_in_channels1 + out_channels
 
         out_channels = width_multiplier(out_channels, width_mult, 8)
-        num_blocks = max(round(num_blocks * depth_mult), 1) if num_blocks > 1 else num_blocks
+        num_blocks = (
+            max(round(num_blocks * depth_mult), 1) if num_blocks > 1 else num_blocks
+        )
 
         if num_inputs == 2:
-            self.reduce_skip = Conv(skip_in_channels, out_channels, 1, 1, activation_type) if reduce_channels else nn.Identity()
+            self.reduce_skip = (
+                Conv(skip_in_channels, out_channels, 1, 1, activation_type)
+                if reduce_channels
+                else nn.Identity()
+            )
         else:
-            self.reduce_skip1 = Conv(skip_in_channels1, out_channels, 1, 1, activation_type) if reduce_channels else nn.Identity()
-            self.reduce_skip2 = Conv(skip_in_channels2, out_channels, 1, 1, activation_type) if reduce_channels else nn.Identity()
+            self.reduce_skip1 = (
+                Conv(skip_in_channels1, out_channels, 1, 1, activation_type)
+                if reduce_channels
+                else nn.Identity()
+            )
+            self.reduce_skip2 = (
+                Conv(skip_in_channels2, out_channels, 1, 1, activation_type)
+                if reduce_channels
+                else nn.Identity()
+            )
 
         self.conv = Conv(in_channels, out_channels, 1, 1, activation_type)
-        self.upsample = nn.ConvTranspose2d(out_channels, out_channels, kernel_size=2, stride=2)
+        self.upsample = nn.ConvTranspose2d(
+            out_channels, out_channels, kernel_size=2, stride=2
+        )
         if num_inputs == 3:
             ds_in = out_channels if reduce_channels else skip_in_channels2
             self.downsample = Conv(ds_in, out_channels, 3, 2, activation_type)
 
-        self.reduce_after_concat = Conv(num_inputs * out_channels, out_channels, 1, 1, activation_type) if reduce_channels else nn.Identity()
-        after_concat_channels = out_channels if reduce_channels else out_channels + skip_in_channels
+        self.reduce_after_concat = (
+            Conv(num_inputs * out_channels, out_channels, 1, 1, activation_type)
+            if reduce_channels
+            else nn.Identity()
+        )
+        after_concat_channels = (
+            out_channels if reduce_channels else out_channels + skip_in_channels
+        )
         self.blocks = YoloNASCSPLayer(
             after_concat_channels,
             out_channels,
@@ -595,7 +633,9 @@ class YoloNASDownStage(nn.Module):
         super().__init__()
         in_channels, skip_in_channels = in_channels
         out_channels = width_multiplier(out_channels, width_mult, 8)
-        num_blocks = max(round(num_blocks * depth_mult), 1) if num_blocks > 1 else num_blocks
+        num_blocks = (
+            max(round(num_blocks * depth_mult), 1) if num_blocks > 1 else num_blocks
+        )
 
         self.conv = Conv(in_channels, out_channels // 2, 3, 2, activation_type)
         after_concat_channels = out_channels // 2 + skip_in_channels
@@ -635,8 +675,12 @@ class SPP(nn.Module):
         self._output_channels = output_channels
         hidden_channels = in_channels // 2
         self.cv1 = Conv(in_channels, hidden_channels, 1, 1, activation_type)
-        self.cv2 = Conv(hidden_channels * (len(k) + 1), output_channels, 1, 1, activation_type)
-        self.m = nn.ModuleList([nn.MaxPool2d(kernel_size=x, stride=1, padding=x // 2) for x in k])
+        self.cv2 = Conv(
+            hidden_channels * (len(k) + 1), output_channels, 1, 1, activation_type
+        )
+        self.m = nn.ModuleList(
+            [nn.MaxPool2d(kernel_size=x, stride=1, padding=x // 2) for x in k]
+        )
 
     def forward(self, x: Tensor) -> Tensor:
         x = self.cv1(x)
@@ -657,11 +701,41 @@ class YoloNASBackbone(nn.Module):
         stage_hidden = config["stage_hidden"]
         stage_concat = config["stage_concat"]
 
-        self.stage1 = YoloNASStage(48, stage_out[0], stage_blocks[0], activation_type, hidden_channels=stage_hidden[0], concat_intermediates=stage_concat[0])
-        self.stage2 = YoloNASStage(stage_out[0], stage_out[1], stage_blocks[1], activation_type, hidden_channels=stage_hidden[1], concat_intermediates=stage_concat[1])
-        self.stage3 = YoloNASStage(stage_out[1], stage_out[2], stage_blocks[2], activation_type, hidden_channels=stage_hidden[2], concat_intermediates=stage_concat[2])
-        self.stage4 = YoloNASStage(stage_out[2], stage_out[3], stage_blocks[3], activation_type, hidden_channels=stage_hidden[3], concat_intermediates=stage_concat[3])
-        self.context_module = SPP(stage_out[3], stage_out[3], (5, 9, 13), activation_type)
+        self.stage1 = YoloNASStage(
+            48,
+            stage_out[0],
+            stage_blocks[0],
+            activation_type,
+            hidden_channels=stage_hidden[0],
+            concat_intermediates=stage_concat[0],
+        )
+        self.stage2 = YoloNASStage(
+            stage_out[0],
+            stage_out[1],
+            stage_blocks[1],
+            activation_type,
+            hidden_channels=stage_hidden[1],
+            concat_intermediates=stage_concat[1],
+        )
+        self.stage3 = YoloNASStage(
+            stage_out[1],
+            stage_out[2],
+            stage_blocks[2],
+            activation_type,
+            hidden_channels=stage_hidden[2],
+            concat_intermediates=stage_concat[2],
+        )
+        self.stage4 = YoloNASStage(
+            stage_out[2],
+            stage_out[3],
+            stage_blocks[3],
+            activation_type,
+            hidden_channels=stage_hidden[3],
+            concat_intermediates=stage_concat[3],
+        )
+        self.context_module = SPP(
+            stage_out[3], stage_out[3], (5, 9, 13), activation_type
+        )
         self._out_channels = (stage_out[0], stage_out[1], stage_out[2], stage_out[3])
 
     @property
@@ -733,7 +807,9 @@ class YoloNASPANNeckWithC2(nn.Module):
     def out_channels(self):
         return self._out_channels
 
-    def forward(self, inputs: Tuple[Tensor, Tensor, Tensor, Tensor]) -> Tuple[Tensor, Tensor, Tensor]:
+    def forward(
+        self, inputs: Tuple[Tensor, Tensor, Tensor, Tensor]
+    ) -> Tuple[Tensor, Tensor, Tensor]:
         c2, c3, c4, c5 = inputs
         x_n1_inter, x = self.neck1([c5, c4, c3])
         x_n2_inter, p3 = self.neck2([x, c3, c2])
@@ -780,7 +856,9 @@ def generate_anchors_for_grid_cell(
         anchors.append(anchor.reshape([-1, 4]))
         anchor_points.append(anchor_point.reshape([-1, 2]))
         num_anchors_list.append(len(anchors[-1]))
-        stride_tensor.append(torch.full([num_anchors_list[-1], 1], stride, dtype=dtype, device=device))
+        stride_tensor.append(
+            torch.full([num_anchors_list[-1], 1], stride, dtype=dtype, device=device)
+        )
 
     anchors = torch.cat(anchors).to(device)
     anchor_points = torch.cat(anchor_points).to(device)
@@ -788,7 +866,9 @@ def generate_anchors_for_grid_cell(
     return anchors, anchor_points, num_anchors_list, stride_tensor
 
 
-def batch_distance2bbox(points: Tensor, distance: Tensor, max_shapes: Optional[Tensor] = None) -> Tensor:
+def batch_distance2bbox(
+    points: Tensor, distance: Tensor, max_shapes: Optional[Tensor] = None
+) -> Tensor:
     lt, rb = torch.split(distance, 2, dim=-1)
     x1y1 = points - lt
     x2y2 = rb + points
@@ -826,18 +906,72 @@ class YoloNASDFLHead(nn.Module):
             groups = inter_channels // first_conv_group_size
 
         self.num_classes = num_classes
-        self.stem = ConvBNReLU(in_channels, inter_channels, kernel_size=1, stride=1, padding=0, bias=False)
+        self.stem = ConvBNReLU(
+            in_channels, inter_channels, kernel_size=1, stride=1, padding=0, bias=False
+        )
 
-        first_cls_conv = [ConvBNReLU(inter_channels, inter_channels, kernel_size=3, stride=1, padding=1, groups=groups, bias=False)] if groups else []
-        self.cls_convs = nn.Sequential(*first_cls_conv, ConvBNReLU(inter_channels, inter_channels, kernel_size=3, stride=1, padding=1, bias=False))
+        first_cls_conv = (
+            [
+                ConvBNReLU(
+                    inter_channels,
+                    inter_channels,
+                    kernel_size=3,
+                    stride=1,
+                    padding=1,
+                    groups=groups,
+                    bias=False,
+                )
+            ]
+            if groups
+            else []
+        )
+        self.cls_convs = nn.Sequential(
+            *first_cls_conv,
+            ConvBNReLU(
+                inter_channels,
+                inter_channels,
+                kernel_size=3,
+                stride=1,
+                padding=1,
+                bias=False,
+            ),
+        )
 
-        first_reg_conv = [ConvBNReLU(inter_channels, inter_channels, kernel_size=3, stride=1, padding=1, groups=groups, bias=False)] if groups else []
-        self.reg_convs = nn.Sequential(*first_reg_conv, ConvBNReLU(inter_channels, inter_channels, kernel_size=3, stride=1, padding=1, bias=False))
+        first_reg_conv = (
+            [
+                ConvBNReLU(
+                    inter_channels,
+                    inter_channels,
+                    kernel_size=3,
+                    stride=1,
+                    padding=1,
+                    groups=groups,
+                    bias=False,
+                )
+            ]
+            if groups
+            else []
+        )
+        self.reg_convs = nn.Sequential(
+            *first_reg_conv,
+            ConvBNReLU(
+                inter_channels,
+                inter_channels,
+                kernel_size=3,
+                stride=1,
+                padding=1,
+                bias=False,
+            ),
+        )
 
         self.cls_pred = nn.Conv2d(inter_channels, self.num_classes, 1, 1, 0)
         self.reg_pred = nn.Conv2d(inter_channels, 4 * (reg_max + 1), 1, 1, 0)
-        self.cls_dropout_rate = nn.Dropout2d(cls_dropout_rate) if cls_dropout_rate > 0 else nn.Identity()
-        self.reg_dropout_rate = nn.Dropout2d(reg_dropout_rate) if reg_dropout_rate > 0 else nn.Identity()
+        self.cls_dropout_rate = (
+            nn.Dropout2d(cls_dropout_rate) if cls_dropout_rate > 0 else nn.Identity()
+        )
+        self.reg_dropout_rate = (
+            nn.Dropout2d(reg_dropout_rate) if reg_dropout_rate > 0 else nn.Identity()
+        )
 
         self.grid = torch.zeros(1)
         self.stride = stride
@@ -884,12 +1018,20 @@ class NDFLHeads(nn.Module):
         self.grid_cell_offset = grid_cell_offset
         self.reg_max = reg_max
         self.eval_size = eval_size
-        proj = torch.linspace(0, self.reg_max, self.reg_max + 1).reshape([1, self.reg_max + 1, 1, 1])
+        proj = torch.linspace(0, self.reg_max, self.reg_max + 1).reshape(
+            [1, self.reg_max + 1, 1, 1]
+        )
         self.register_buffer("proj_conv", proj, persistent=False)
 
-        self.head1 = YoloNASDFLHead(in_channels[0], 128, width_mult, 0, num_classes, 8, reg_max)
-        self.head2 = YoloNASDFLHead(in_channels[1], 256, width_mult, 0, num_classes, 16, reg_max)
-        self.head3 = YoloNASDFLHead(in_channels[2], 512, width_mult, 0, num_classes, 32, reg_max)
+        self.head1 = YoloNASDFLHead(
+            in_channels[0], 128, width_mult, 0, num_classes, 8, reg_max
+        )
+        self.head2 = YoloNASDFLHead(
+            in_channels[1], 256, width_mult, 0, num_classes, 16, reg_max
+        )
+        self.head3 = YoloNASDFLHead(
+            in_channels[2], 512, width_mult, 0, num_classes, 32, reg_max
+        )
         self.num_heads = 3
         self.fpn_strides = (8, 16, 32)
         self._init_weights()
@@ -905,7 +1047,9 @@ class NDFLHeads(nn.Module):
         self.eval_size = input_size
         device = next(self.parameters()).device
         dtype = next(self.parameters()).dtype
-        anchor_points, stride_tensor = self._generate_anchors(dtype=dtype, device=device)
+        anchor_points, stride_tensor = self._generate_anchors(
+            dtype=dtype, device=device
+        )
         self.register_buffer("anchor_points", anchor_points, persistent=False)
         self.register_buffer("stride_tensor", stride_tensor, persistent=False)
 
@@ -914,7 +1058,9 @@ class NDFLHeads(nn.Module):
         if self.eval_size:
             device = next(self.parameters()).device
             dtype = next(self.parameters()).dtype
-            anchor_points, stride_tensor = self._generate_anchors(dtype=dtype, device=device)
+            anchor_points, stride_tensor = self._generate_anchors(
+                dtype=dtype, device=device
+            )
             self.anchor_points = anchor_points
             self.stride_tensor = stride_tensor
 
@@ -931,8 +1077,14 @@ class NDFLHeads(nn.Module):
                 h = int(self.eval_size[0] / stride)
                 w = int(self.eval_size[1] / stride)
 
-            shift_x = torch.arange(end=w, dtype=torch.float32, device=device) + self.grid_cell_offset
-            shift_y = torch.arange(end=h, dtype=torch.float32, device=device) + self.grid_cell_offset
+            shift_x = (
+                torch.arange(end=w, dtype=torch.float32, device=device)
+                + self.grid_cell_offset
+            )
+            shift_y = (
+                torch.arange(end=h, dtype=torch.float32, device=device)
+                + self.grid_cell_offset
+            )
             if torch.__version__ >= "1.10":
                 shift_y, shift_x = torch.meshgrid(shift_y, shift_x, indexing="ij")
             else:
@@ -940,7 +1092,9 @@ class NDFLHeads(nn.Module):
 
             anchor_point = torch.stack([shift_x, shift_y], dim=-1).to(dtype=dtype)
             anchor_points.append(anchor_point.reshape([-1, 2]))
-            stride_tensor.append(torch.full([h * w, 1], stride, dtype=dtype, device=device))
+            stride_tensor.append(
+                torch.full([h * w, 1], stride, dtype=dtype, device=device)
+            )
 
         return torch.cat(anchor_points), torch.cat(stride_tensor)
 
@@ -976,22 +1130,30 @@ class NDFLHeads(nn.Module):
         reg_dist_reduced_list = torch.cat(reg_dist_reduced_list, dim=1)
 
         if self.eval_size:
-            anchor_points_inference, stride_tensor = self.anchor_points, self.stride_tensor
+            anchor_points_inference, stride_tensor = (
+                self.anchor_points,
+                self.stride_tensor,
+            )
         else:
             anchor_points_inference, stride_tensor = self._generate_anchors(feats)
 
         pred_scores = cls_score_list.sigmoid()
-        pred_bboxes = batch_distance2bbox(anchor_points_inference, reg_dist_reduced_list) * stride_tensor
+        pred_bboxes = (
+            batch_distance2bbox(anchor_points_inference, reg_dist_reduced_list)
+            * stride_tensor
+        )
         decoded_predictions = pred_bboxes, pred_scores
 
         if torch.jit.is_tracing():
             return decoded_predictions
 
-        anchors, anchor_points, num_anchors_list, raw_stride_tensor = generate_anchors_for_grid_cell(
-            feats,
-            self.fpn_strides,
-            self.grid_cell_scale,
-            self.grid_cell_offset,
+        anchors, anchor_points, num_anchors_list, raw_stride_tensor = (
+            generate_anchors_for_grid_cell(
+                feats,
+                self.fpn_strides,
+                self.grid_cell_scale,
+                self.grid_cell_offset,
+            )
         )
         raw_predictions = (
             cls_score_list,
@@ -1076,13 +1238,19 @@ class LibreYOLONASModel(nn.Module):
             if isinstance(m, nn.BatchNorm2d):
                 m.eps = bn_eps
                 m.momentum = bn_momentum
-            elif inplace_act and isinstance(m, (nn.Hardswish, nn.LeakyReLU, nn.ReLU, nn.ReLU6, nn.SiLU, nn.Mish)):
+            elif inplace_act and isinstance(
+                m, (nn.Hardswish, nn.LeakyReLU, nn.ReLU, nn.ReLU6, nn.SiLU, nn.Mish)
+            ):
                 m.inplace = True
 
-    def prep_model_for_conversion(self, input_size=None, full_fusion: bool = False, **kwargs):
+    def prep_model_for_conversion(
+        self, input_size=None, full_fusion: bool = False, **kwargs
+    ):
         for module in self.modules():
             if module is not self and hasattr(module, "prep_model_for_conversion"):
-                module.prep_model_for_conversion(input_size=input_size, full_fusion=full_fusion, **kwargs)
+                module.prep_model_for_conversion(
+                    input_size=input_size, full_fusion=full_fusion, **kwargs
+                )
 
     def fuse_reparam(self, full_fusion: bool = False):
         self.prep_model_for_conversion(full_fusion=full_fusion)

@@ -6,7 +6,6 @@ from typing import Any, Mapping, Tuple
 
 import numpy as np
 import torch
-import torch.nn.functional as F
 from PIL import Image
 
 from ...utils.image_loader import ImageInput, ImageLoader
@@ -116,8 +115,12 @@ def postprocess(
 
     return {
         "num_detections": int(boxes.shape[0]),
-        "boxes": boxes.cpu().numpy() if boxes.numel() > 0 else np.zeros((0, 4), dtype=np.float32),
-        "scores": scores.cpu().numpy() if scores.numel() > 0 else np.zeros((0,), dtype=np.float32),
+        "boxes": boxes.cpu().numpy()
+        if boxes.numel() > 0
+        else np.zeros((0, 4), dtype=np.float32),
+        "scores": scores.cpu().numpy()
+        if scores.numel() > 0
+        else np.zeros((0,), dtype=np.float32),
         "classes": (
             class_idx.cpu().numpy()
             if class_idx.numel() > 0

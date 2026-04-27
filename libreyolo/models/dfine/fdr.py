@@ -71,10 +71,18 @@ def distance2bbox(points, distance, reg_scale):
     Returns: boxes in cxcywh format, same leading shape as ``points``.
     """
     reg_scale = abs(reg_scale)
-    x1 = points[..., 0] - (0.5 * reg_scale + distance[..., 0]) * (points[..., 2] / reg_scale)
-    y1 = points[..., 1] - (0.5 * reg_scale + distance[..., 1]) * (points[..., 3] / reg_scale)
-    x2 = points[..., 0] + (0.5 * reg_scale + distance[..., 2]) * (points[..., 2] / reg_scale)
-    y2 = points[..., 1] + (0.5 * reg_scale + distance[..., 3]) * (points[..., 3] / reg_scale)
+    x1 = points[..., 0] - (0.5 * reg_scale + distance[..., 0]) * (
+        points[..., 2] / reg_scale
+    )
+    y1 = points[..., 1] - (0.5 * reg_scale + distance[..., 1]) * (
+        points[..., 3] / reg_scale
+    )
+    x2 = points[..., 0] + (0.5 * reg_scale + distance[..., 2]) * (
+        points[..., 2] / reg_scale
+    )
+    y2 = points[..., 1] + (0.5 * reg_scale + distance[..., 3]) * (
+        points[..., 3] / reg_scale
+    )
 
     bboxes = torch.stack([x1, y1, x2, y2], -1)
 
@@ -157,12 +165,22 @@ def bbox2distance(points, bbox, reg_max, reg_scale, up, eps=0.1):
         (target_corners flat, weight_right, weight_left) — all 1-D tensors.
     """
     reg_scale = abs(reg_scale)
-    left = (points[:, 0] - bbox[:, 0]) / (points[..., 2] / reg_scale + 1e-16) - 0.5 * reg_scale
-    top = (points[:, 1] - bbox[:, 1]) / (points[..., 3] / reg_scale + 1e-16) - 0.5 * reg_scale
-    right = (bbox[:, 2] - points[:, 0]) / (points[..., 2] / reg_scale + 1e-16) - 0.5 * reg_scale
-    bottom = (bbox[:, 3] - points[:, 1]) / (points[..., 3] / reg_scale + 1e-16) - 0.5 * reg_scale
+    left = (points[:, 0] - bbox[:, 0]) / (
+        points[..., 2] / reg_scale + 1e-16
+    ) - 0.5 * reg_scale
+    top = (points[:, 1] - bbox[:, 1]) / (
+        points[..., 3] / reg_scale + 1e-16
+    ) - 0.5 * reg_scale
+    right = (bbox[:, 2] - points[:, 0]) / (
+        points[..., 2] / reg_scale + 1e-16
+    ) - 0.5 * reg_scale
+    bottom = (bbox[:, 3] - points[:, 1]) / (
+        points[..., 3] / reg_scale + 1e-16
+    ) - 0.5 * reg_scale
     four_lens = torch.stack([left, top, right, bottom], -1)
-    four_lens, weight_right, weight_left = translate_gt(four_lens, reg_max, reg_scale, up)
+    four_lens, weight_right, weight_left = translate_gt(
+        four_lens, reg_max, reg_scale, up
+    )
     if reg_max is not None:
         four_lens = four_lens.clamp(min=0, max=reg_max - eps)
     return four_lens.reshape(-1).detach(), weight_right.detach(), weight_left.detach()

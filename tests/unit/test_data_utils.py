@@ -21,7 +21,7 @@ def _write_dataset_yaml(tmp_path: Path) -> Path:
                 "train: images/train",
                 "val: images/val",
                 "download: |",
-                f"  Path(r\"{marker_path}\").write_text(\"ran\")",
+                f'  Path(r"{marker_path}").write_text("ran")',
             ]
         )
     )

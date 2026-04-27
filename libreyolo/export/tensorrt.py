@@ -67,13 +67,11 @@ def _create_calibrator_class():
                     batch = next(self.batch_iter)
                     self._batch_idx += 1
                     total = len(self.data_loader)
-                    logger.info(
-                        "Calibrating: batch %d/%d", self._batch_idx, total
-                    )
+                    logger.info("Calibrating: batch %d/%d", self._batch_idx, total)
                     device_ptr = self._ensure_cuda_memory(batch)
                     return [device_ptr]
                 except StopIteration:
-                        return None
+                    return None
 
             def _ensure_cuda_memory(self, batch):
                 batch = np.ascontiguousarray(batch, dtype=np.float32)
@@ -248,7 +246,9 @@ def export_tensorrt(
     if device != 0:
         if torch.cuda.is_available():
             torch.cuda.set_device(device)
-            logger.info("Using GPU device: %d (%s)", device, torch.cuda.get_device_name(device))
+            logger.info(
+                "Using GPU device: %d (%s)", device, torch.cuda.get_device_name(device)
+            )
 
     if int8 and calibration_data is None:
         raise ValueError(

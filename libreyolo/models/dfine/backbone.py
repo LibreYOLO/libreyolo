@@ -47,7 +47,9 @@ class ConvBNAct(nn.Module):
         if padding == "same":
             self.conv = nn.Sequential(
                 nn.ZeroPad2d([0, 1, 0, 1]),
-                nn.Conv2d(in_chs, out_chs, kernel_size, stride, groups=groups, bias=False),
+                nn.Conv2d(
+                    in_chs, out_chs, kernel_size, stride, groups=groups, bias=False
+                ),
             )
         else:
             self.conv = nn.Conv2d(
@@ -61,7 +63,9 @@ class ConvBNAct(nn.Module):
             )
         self.bn = nn.BatchNorm2d(out_chs)
         self.act = nn.ReLU() if self.use_act else nn.Identity()
-        self.lab = LearnableAffineBlock() if (self.use_act and self.use_lab) else nn.Identity()
+        self.lab = (
+            LearnableAffineBlock() if (self.use_act and self.use_lab) else nn.Identity()
+        )
 
     def forward(self, x):
         x = self.conv(x)
@@ -75,10 +79,19 @@ class LightConvBNAct(nn.Module):
     def __init__(self, in_chs, out_chs, kernel_size, groups=1, use_lab=False):
         super().__init__()
         self.conv1 = ConvBNAct(
-            in_chs, out_chs, kernel_size=1, use_act=False, use_lab=use_lab,
+            in_chs,
+            out_chs,
+            kernel_size=1,
+            use_act=False,
+            use_lab=use_lab,
         )
         self.conv2 = ConvBNAct(
-            out_chs, out_chs, kernel_size=kernel_size, groups=out_chs, use_act=True, use_lab=use_lab,
+            out_chs,
+            out_chs,
+            kernel_size=kernel_size,
+            groups=out_chs,
+            use_act=True,
+            use_lab=use_lab,
         )
 
     def forward(self, x):
@@ -90,11 +103,21 @@ class LightConvBNAct(nn.Module):
 class StemBlock(nn.Module):
     def __init__(self, in_chs, mid_chs, out_chs, use_lab=False):
         super().__init__()
-        self.stem1 = ConvBNAct(in_chs, mid_chs, kernel_size=3, stride=2, use_lab=use_lab)
-        self.stem2a = ConvBNAct(mid_chs, mid_chs // 2, kernel_size=2, stride=1, use_lab=use_lab)
-        self.stem2b = ConvBNAct(mid_chs // 2, mid_chs, kernel_size=2, stride=1, use_lab=use_lab)
-        self.stem3 = ConvBNAct(mid_chs * 2, mid_chs, kernel_size=3, stride=2, use_lab=use_lab)
-        self.stem4 = ConvBNAct(mid_chs, out_chs, kernel_size=1, stride=1, use_lab=use_lab)
+        self.stem1 = ConvBNAct(
+            in_chs, mid_chs, kernel_size=3, stride=2, use_lab=use_lab
+        )
+        self.stem2a = ConvBNAct(
+            mid_chs, mid_chs // 2, kernel_size=2, stride=1, use_lab=use_lab
+        )
+        self.stem2b = ConvBNAct(
+            mid_chs // 2, mid_chs, kernel_size=2, stride=1, use_lab=use_lab
+        )
+        self.stem3 = ConvBNAct(
+            mid_chs * 2, mid_chs, kernel_size=3, stride=2, use_lab=use_lab
+        )
+        self.stem4 = ConvBNAct(
+            mid_chs, out_chs, kernel_size=1, stride=1, use_lab=use_lab
+        )
         self.pool = nn.MaxPool2d(kernel_size=2, stride=1, ceil_mode=True)
 
     def forward(self, x):
@@ -166,17 +189,30 @@ class HG_Block(nn.Module):
         total_chs = in_chs + layer_num * mid_chs
         if agg == "se":
             aggregation_squeeze_conv = ConvBNAct(
-                total_chs, out_chs // 2, kernel_size=1, stride=1, use_lab=use_lab,
+                total_chs,
+                out_chs // 2,
+                kernel_size=1,
+                stride=1,
+                use_lab=use_lab,
             )
             aggregation_excitation_conv = ConvBNAct(
-                out_chs // 2, out_chs, kernel_size=1, stride=1, use_lab=use_lab,
+                out_chs // 2,
+                out_chs,
+                kernel_size=1,
+                stride=1,
+                use_lab=use_lab,
             )
             self.aggregation = nn.Sequential(
-                aggregation_squeeze_conv, aggregation_excitation_conv,
+                aggregation_squeeze_conv,
+                aggregation_excitation_conv,
             )
         else:
             aggregation_conv = ConvBNAct(
-                total_chs, out_chs, kernel_size=1, stride=1, use_lab=use_lab,
+                total_chs,
+                out_chs,
+                kernel_size=1,
+                stride=1,
+                use_lab=use_lab,
             )
             att = EseModule(out_chs)
             self.aggregation = nn.Sequential(aggregation_conv, att)
@@ -215,8 +251,13 @@ class HG_Stage(nn.Module):
         self.downsample = downsample
         if downsample:
             self.downsample = ConvBNAct(
-                in_chs, in_chs, kernel_size=3, stride=2, groups=in_chs,
-                use_act=False, use_lab=use_lab,
+                in_chs,
+                in_chs,
+                kernel_size=3,
+                stride=2,
+                groups=in_chs,
+                use_act=False,
+                use_lab=use_lab,
             )
         else:
             self.downsample = nn.Identity()
@@ -234,7 +275,9 @@ class HG_Stage(nn.Module):
                     light_block=light_block,
                     use_lab=use_lab,
                     agg=agg,
-                    drop_path=drop_path[i] if isinstance(drop_path, (list, tuple)) else drop_path,
+                    drop_path=drop_path[i]
+                    if isinstance(drop_path, (list, tuple))
+                    else drop_path,
                 )
             )
         self.blocks = nn.Sequential(*blocks_list)

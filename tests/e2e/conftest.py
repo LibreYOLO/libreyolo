@@ -519,7 +519,9 @@ def require_test_weights(weights: str, expected_family: str | None = None) -> st
             try:
                 detected_family = _detect_local_weights_family(str(path))
             except Exception as exc:
-                pytest.skip(f"Local weights are unusable for testing: {weights} ({exc})")
+                pytest.skip(
+                    f"Local weights are unusable for testing: {weights} ({exc})"
+                )
             if detected_family != expected_family:
                 pytest.skip(
                     "Local weights do not match the expected family: "
