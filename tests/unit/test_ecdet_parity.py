@@ -39,28 +39,42 @@ def _try_import_upstream():
     return UpstreamBackbone, UpstreamEncoder, UpstreamDecoder
 
 
-CKPT_PATH = Path("downloads/ec_weights/ecdet_s.pth")
+# (size, ckpt_basename, upstream_name, embed, heads, proj_dim, ffn_ratio,
+#  enc_hidden, enc_ff, enc_exp, enc_dep, dec_hidden, dec_ff)
+SIZE_PARAMS = [
+    ("s", "ecdet_s.pth", "ecvitt",     192, 3, None, 4.0, 192, 512,  0.34, 0.67, 192, 512),
+    ("m", "ecdet_m.pth", "ecvittplus", 256, 4, None, 4.0, 256, 512,  0.75, 0.67, 256, 1024),
+    ("l", "ecdet_l.pth", "ecvits",     384, 6, 256,  4.0, 256, 1024, 0.75, 1.0,  256, 1024),
+    ("x", "ecdet_x.pth", "ecvitsplus", 384, 6, 256,  6.0, 256, 2048, 1.5,  1.0,  256, 2048),
+]
+WEIGHTS_DIR = Path("downloads/ec_weights")
 
 
-@pytest.mark.skipif(not CKPT_PATH.exists(), reason=f"{CKPT_PATH} not found")
-def test_backbone_parity_ecdet_s():
+@pytest.mark.parametrize("params", SIZE_PARAMS, ids=[p[0] for p in SIZE_PARAMS])
+def test_backbone_parity(params):
+    size, ckpt_name, upstream_name, embed, heads, proj_dim, ffn_ratio, *_ = params
+    ckpt = WEIGHTS_DIR / ckpt_name
+    if not ckpt.exists():
+        pytest.skip(f"{ckpt} not found")
     UpBB, _, _ = _try_import_upstream()
     from libreyolo.models.ecdet.backbone import ViTAdapter as LibreBB
 
-    upstream = UpBB(
-        name="ecvitt",
-        embed_dim=192,
-        num_heads=3,
-        interaction_indexes=[10, 11],
-        skip_load_backbone=True,
-    )
-    libre = LibreBB(embed_dim=192, num_heads=3, interaction_indexes=(10, 11))
+    up_kw = dict(name=upstream_name, embed_dim=embed, num_heads=heads,
+                 interaction_indexes=[10, 11], ffn_ratio=ffn_ratio,
+                 skip_load_backbone=True)
+    lb_kw = dict(embed_dim=embed, num_heads=heads,
+                 interaction_indexes=(10, 11), ffn_ratio=ffn_ratio)
+    if proj_dim is not None:
+        up_kw["proj_dim"] = proj_dim
+        lb_kw["proj_dim"] = proj_dim
 
-    ck = torch.load(CKPT_PATH, map_location="cpu", weights_only=False)["model"]
+    upstream = UpBB(**up_kw)
+    libre = LibreBB(**lb_kw)
+
+    ck = torch.load(ckpt, map_location="cpu", weights_only=False)["model"]
     bb_sd = {k.removeprefix("backbone."): v for k, v in ck.items() if k.startswith("backbone.")}
     upstream.load_state_dict(bb_sd, strict=True)
     libre.load_state_dict(bb_sd, strict=True)
-
     upstream.eval()
     libre.eval()
 
@@ -72,48 +86,58 @@ def test_backbone_parity_ecdet_s():
 
     assert len(up_out) == len(lb_out)
     for i, (u, l) in enumerate(zip(up_out, lb_out)):
-        assert u.shape == l.shape, f"level {i}: shape {u.shape} vs {l.shape}"
-        max_err = (u - l).abs().max().item()
-        assert max_err < 1e-5, f"level {i}: max abs err {max_err:.2e}"
+        assert u.shape == l.shape, f"{size} level {i}: {u.shape} vs {l.shape}"
+        err = (u - l).abs().max().item()
+        assert err < 1e-5, f"{size} level {i}: max err {err:.2e}"
 
 
-@pytest.mark.skipif(not CKPT_PATH.exists(), reason=f"{CKPT_PATH} not found")
-def test_full_pipeline_parity_ecdet_s():
+@pytest.mark.parametrize("params", SIZE_PARAMS, ids=[p[0] for p in SIZE_PARAMS])
+def test_full_pipeline_parity(params):
+    (size, ckpt_name, upstream_name, embed, heads, proj_dim, ffn_ratio,
+     enc_hidden, enc_ff, enc_exp, enc_dep, dec_hidden, dec_ff) = params
+    ckpt = WEIGHTS_DIR / ckpt_name
+    if not ckpt.exists():
+        pytest.skip(f"{ckpt} not found")
     UpBB, UpEnc, UpDec = _try_import_upstream()
     from libreyolo.models.ecdet.backbone import ViTAdapter as LBB
     from libreyolo.models.ecdet.encoder import HybridEncoder as LEnc
     from libreyolo.models.ecdet.decoder import ECTransformer as LDec
 
     enc_kwargs = dict(
-        in_channels=[192, 192, 192],
-        hidden_dim=192,
-        dim_feedforward=512,
-        depth_mult=0.67,
-        expansion=0.34,
+        in_channels=[enc_hidden] * 3,
+        hidden_dim=enc_hidden,
+        dim_feedforward=enc_ff,
+        depth_mult=enc_dep,
+        expansion=enc_exp,
         eval_spatial_size=[640, 640],
         csp_type="csp2",
         fuse_op="sum",
     )
     dec_kwargs = dict(
         num_classes=80,
-        hidden_dim=192,
-        feat_channels=[192, 192, 192],
-        dim_feedforward=512,
+        hidden_dim=dec_hidden,
+        feat_channels=[dec_hidden] * 3,
+        dim_feedforward=dec_ff,
         num_layers=4,
         num_points=[3, 6, 3],
         eval_idx=-1,
         eval_spatial_size=[640, 640],
     )
 
-    up_bb = UpBB(name="ecvitt", embed_dim=192, num_heads=3,
-                 interaction_indexes=[10, 11], skip_load_backbone=True)
-    lb_bb = LBB(embed_dim=192, num_heads=3, interaction_indexes=(10, 11))
-    up_enc = UpEnc(**enc_kwargs)
-    lb_enc = LEnc(**enc_kwargs)
-    up_dec = UpDec(**dec_kwargs)
-    lb_dec = LDec(**dec_kwargs)
+    up_bb_kw = dict(name=upstream_name, embed_dim=embed, num_heads=heads,
+                    interaction_indexes=[10, 11], ffn_ratio=ffn_ratio,
+                    skip_load_backbone=True)
+    lb_bb_kw = dict(embed_dim=embed, num_heads=heads,
+                    interaction_indexes=(10, 11), ffn_ratio=ffn_ratio)
+    if proj_dim is not None:
+        up_bb_kw["proj_dim"] = proj_dim
+        lb_bb_kw["proj_dim"] = proj_dim
 
-    ck = torch.load(CKPT_PATH, map_location="cpu", weights_only=False)["model"]
+    up_bb, lb_bb = UpBB(**up_bb_kw), LBB(**lb_bb_kw)
+    up_enc, lb_enc = UpEnc(**enc_kwargs), LEnc(**enc_kwargs)
+    up_dec, lb_dec = UpDec(**dec_kwargs), LDec(**dec_kwargs)
+
+    ck = torch.load(ckpt, map_location="cpu", weights_only=False)["model"]
     bb_sd = {k.removeprefix("backbone."): v for k, v in ck.items() if k.startswith("backbone.")}
     enc_sd = {k.removeprefix("encoder."): v for k, v in ck.items() if k.startswith("encoder.")}
     dec_sd = {k.removeprefix("decoder."): v for k, v in ck.items() if k.startswith("decoder.")}
