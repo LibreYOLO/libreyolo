@@ -595,7 +595,10 @@ def load_model(model_type: str, size: str, device: str = "cuda"):
     """Load a model by type and size."""
     from libreyolo import LibreYOLO
 
-    weights = require_test_weights(get_model_weights(model_type, size))
+    weights = require_test_weights(
+        get_model_weights(model_type, size),
+        expected_family=model_type,
+    )
     return LibreYOLO(weights, device=device)
 
 
