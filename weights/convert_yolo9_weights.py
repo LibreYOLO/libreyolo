@@ -15,10 +15,17 @@ This script handles the mapping between the two naming conventions for all varia
 
 import argparse
 import re
-from pathlib import Path
 from typing import Dict, Tuple, Optional
 
 import torch
+
+from _conversion_utils import (
+    add_repo_root_to_path,
+    extract_state_dict,
+    load_checkpoint,
+    save_checkpoint,
+    strip_state_dict_prefix,
+)
 
 
 # =============================================================================
@@ -318,21 +325,16 @@ def convert_weights(
         Converted state dict
     """
     print(f"Loading weights from {input_path}")
-    weights = torch.load(input_path, map_location="cpu", weights_only=False)
+    weights = load_checkpoint(input_path)
 
     # Handle different checkpoint formats
-    if isinstance(weights, dict):
-        if "state_dict" in weights:
-            state_dict = {
-                k.replace("model.model.", ""): v
-                for k, v in weights["state_dict"].items()
-            }
-        elif "model" in weights:
-            state_dict = weights["model"]
-        else:
-            state_dict = weights
+    if isinstance(weights, dict) and "state_dict" in weights:
+        state_dict = strip_state_dict_prefix(
+            extract_state_dict(weights, state_dict_keys=("state_dict",), prefer_ema=False),
+            "model.model.",
+        )
     else:
-        state_dict = weights
+        state_dict = extract_state_dict(weights, state_dict_keys=("model",), prefer_ema=False)
 
     print(f"Found {len(state_dict)} keys in original weights")
     print(f"Converting for config: yolo9-{config}")
@@ -376,23 +378,21 @@ def convert_weights(
 
     # Save converted weights
     print(f"\nSaving converted weights to {output_path}")
-    torch.save(converted, output_path)
+    save_checkpoint(converted, output_path)
 
     return converted
 
 
 def verify_conversion(converted_path: str, config: str) -> bool:
     """Verify converted weights can be loaded into LibreYOLO model."""
-    import sys
-
-    sys.path.insert(0, str(Path(__file__).parent.parent))
+    add_repo_root_to_path()
 
     from libreyolo.models.yolo9.nn import LibreYOLO9Model
 
     print(f"\nVerifying weights can be loaded into yolo9-{config} model...")
 
     # Load converted weights
-    converted = torch.load(converted_path, map_location="cpu", weights_only=False)
+    converted = load_checkpoint(converted_path)
 
     # Create model
     model = LibreYOLO9Model(config=config, reg_max=16, nb_classes=80)
