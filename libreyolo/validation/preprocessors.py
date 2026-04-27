@@ -257,6 +257,15 @@ class DFINEValPreprocessor(StandardValPreprocessor):
         return super().__call__(img[:, :, ::-1].copy(), targets, input_size)
 
 
+class ECDetValPreprocessor(StandardValPreprocessor):
+    """ECDet preprocessor: same as D-FINE — plain resize, /255, RGB, no letterbox."""
+
+    def __call__(
+        self, img: np.ndarray, targets: np.ndarray, input_size: Tuple[int, int]
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        return super().__call__(img[:, :, ::-1].copy(), targets, input_size)
+
+
 class RTDETRValPreprocessor(BaseValPreprocessor):
     """Preprocessor for RT-DETR validation: resize to fixed size, normalize to [0,1], no letterbox."""
 
