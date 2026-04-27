@@ -52,8 +52,12 @@ def test_trainer_target_translation_smoke():
     assert "total_loss" in out
     assert torch.isfinite(out["total_loss"]), "total_loss must be finite"
     assert out["total_loss"].item() > 0
-    for k in ("loss_vfl", "loss_bbox", "loss_giou", "loss_fgl", "loss_ddf"):
-        assert k in out
+    # Each loss family must appear in some form. DDF and FGL only emit
+    # aux/dn variants (no bare key) — match by prefix instead of exact name.
+    for prefix in ("loss_vfl", "loss_bbox", "loss_giou", "loss_fgl", "loss_ddf"):
+        assert any(
+            k == prefix or k.startswith(prefix + "_") for k in out
+        ), f"no key matching {prefix}* in output: {sorted(out)}"
 
     out["total_loss"].backward()
 

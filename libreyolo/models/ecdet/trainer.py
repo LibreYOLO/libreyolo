@@ -22,6 +22,7 @@ import torch
 from ...training.config import ECDetConfig, TrainConfig
 from ..dfine.matcher import HungarianMatcher
 from ..dfine.trainer import DFINETrainer
+from ..dfine.transforms import DFINEPassThroughDataset, DFINETrainTransform
 from .loss import ECCriterion
 
 
@@ -36,18 +37,36 @@ class ECDetTrainer(DFINETrainer):
     def get_model_tag(self) -> str:
         return f"ECDet-{self.config.size}"
 
+    def create_transforms(self):
+        # ECDet's pretrained ViT backbone expects ImageNet-normalized inputs at
+        # both train and eval time; the inference path applies the same norm
+        # (see commit cc14dd20). Without this, the train/eval input distribution
+        # diverges and fine-tuning silently corrupts the model.
+        preproc = DFINETrainTransform(
+            max_labels=120,
+            flip_prob=self.config.flip_prob,
+            imgsz=self.config.imgsz,
+            imagenet_norm=True,
+        )
+        return preproc, DFINEPassThroughDataset
+
     def get_loss_components(self, outputs: Dict) -> Dict[str, float]:
-        def _scalar(v):
-            if isinstance(v, torch.Tensor):
-                return v.item()
-            return float(v)
+        # FGL/DDF are emitted only by the aux/dn paths (no main-loss key);
+        # bare ``outputs.get("loss_ddf")`` was always 0. Aggregate over every
+        # variant key so the tqdm display reflects the actual loss magnitude.
+        def _sum_with_prefix(prefix: str) -> float:
+            total = 0.0
+            for k, v in outputs.items():
+                if k == prefix or k.startswith(prefix + "_"):
+                    total += v.item() if isinstance(v, torch.Tensor) else float(v)
+            return total
 
         return {
-            "mal": _scalar(outputs.get("loss_mal", 0)),
-            "bbox": _scalar(outputs.get("loss_bbox", 0)),
-            "giou": _scalar(outputs.get("loss_giou", 0)),
-            "fgl": _scalar(outputs.get("loss_fgl", 0)),
-            "ddf": _scalar(outputs.get("loss_ddf", 0)),
+            "mal": _sum_with_prefix("loss_mal"),
+            "bbox": _sum_with_prefix("loss_bbox"),
+            "giou": _sum_with_prefix("loss_giou"),
+            "fgl": _sum_with_prefix("loss_fgl"),
+            "ddf": _sum_with_prefix("loss_ddf"),
         }
 
     def on_setup(self):
@@ -103,12 +122,8 @@ class ECDetTrainer(DFINETrainer):
         losses = self.criterion(outputs, target_list)
         total = sum(losses.values())
 
-        zero = torch.tensor(0.0, device=self.device)
-        return {
-            "total_loss": total,
-            "loss_mal": losses.get("loss_mal", zero),
-            "loss_bbox": losses.get("loss_bbox", zero),
-            "loss_giou": losses.get("loss_giou", zero),
-            "loss_fgl": losses.get("loss_fgl", zero),
-            "loss_ddf": losses.get("loss_ddf", zero),
-        }
+        # Expose every named loss (including aux_/dn_/pre/enc variants) so
+        # ``get_loss_components`` can aggregate by prefix.
+        result = {"total_loss": total}
+        result.update(losses)
+        return result
