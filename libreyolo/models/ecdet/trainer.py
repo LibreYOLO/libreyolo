@@ -15,6 +15,7 @@ behind an explicit ``allow_experimental`` gate on ``LibreECDet.train()``.
 
 from __future__ import annotations
 
+import os
 from typing import Dict, Type
 
 import torch
@@ -36,6 +37,32 @@ class ECDetTrainer(DFINETrainer):
 
     def get_model_tag(self) -> str:
         return f"ECDet-{self.config.size}"
+
+    def _setup_device(self) -> torch.device:
+        """Override the D-FINE blanket CPU-fallback for ECDet.
+
+        ECDet's training was hitting two MPS issues:
+          1. ``mps_linear_backward`` on ``Integral.forward``'s 33-bin
+             ``F.linear`` matmul. **Fixed in our Integral** by replacing the
+             1-D matmul with ``(softmax_x * project).sum(-1)``.
+          2. ``aten::grid_sampler_2d_backward`` (deformable attention) is not
+             implemented on MPS. PyTorch ships a per-op CPU fallback gated on
+             ``PYTORCH_ENABLE_MPS_FALLBACK=1`` — set it here so that op alone
+             goes to CPU while the rest of training stays on GPU.
+
+        The DFINETrainer parent forces CPU unconditionally; we bypass that.
+        """
+        # Skip super()._setup_device() and call the grandparent so we don't
+        # inherit DFINETrainer's MPS->CPU override.
+        device = super(DFINETrainer, self)._setup_device()
+        if device.type == "mps":
+            os.environ.setdefault("PYTORCH_ENABLE_MPS_FALLBACK", "1")
+            import logging
+            logging.getLogger(__name__).info(
+                "ECDet training on MPS: enabling PYTORCH_ENABLE_MPS_FALLBACK=1 "
+                "(deformable attention's grid_sample backward runs on CPU)."
+            )
+        return device
 
     def create_transforms(self):
         # ECDet's pretrained ViT backbone expects ImageNet-normalized inputs at

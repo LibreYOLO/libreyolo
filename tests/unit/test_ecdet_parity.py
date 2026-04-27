@@ -169,4 +169,9 @@ def test_full_pipeline_parity(params):
         u, l = up_out[k], lb_out[k]
         assert u.shape == l.shape
         err = (u - l).abs().max().item()
-        assert err < 1e-5, f"{k}: max err {err:.2e}"
+        # Tolerance is 1e-4 (not 1e-5) because our Integral uses
+        # ``(softmax_x * project).sum(-1)`` instead of ``F.linear(softmax_x,
+        # project)``. Mathematically identical; differs only in fp32
+        # summation order. Equivalent in mAP and detection-set output, but
+        # the tensor diff against upstream is ~3e-5 instead of bit-exact.
+        assert err < 1e-4, f"{k}: max err {err:.2e}"

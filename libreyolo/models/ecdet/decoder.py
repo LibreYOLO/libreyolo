@@ -69,6 +69,15 @@ class Gate(nn.Module):
 
 
 class Integral(nn.Module):
+    """Distribution-to-scalar integral.
+
+    Mathematically: ``out[i] = sum_j softmax(x)[i,j] * project[j]``.
+    Implemented as elementwise mul + sum-reduce instead of the equivalent
+    1-D matmul. The matmul form (``F.linear(softmax_x, project)``) hits a
+    PyTorch MPS verifier bug during backward (``mps.matmul op contracting
+    dimensions differ 4000 & 33``); the elementwise rewrite avoids it.
+    """
+
     def __init__(self, reg_max=32):
         super().__init__()
         self.reg_max = reg_max
@@ -76,7 +85,7 @@ class Integral(nn.Module):
     def forward(self, x, project):
         shape = x.shape
         x = F.softmax(x.reshape(-1, self.reg_max + 1), dim=1)
-        x = F.linear(x, project.to(x.device)).reshape(-1, 4)
+        x = (x * project.to(x.device)).sum(dim=-1).reshape(-1, 4)
         return x.reshape(list(shape[:-1]) + [-1])
 
 
