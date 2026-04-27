@@ -64,6 +64,7 @@ SIZE_CONFIGS: Dict[str, Dict] = {
         "embed_dim": 384,
         "num_heads": 6,
         "proj_dim": 256,
+        "ffn_ratio": 6.0,  # ecvitsplus uses 6, all other variants use the default 4
         "enc_in_channels": (256, 256, 256),
         "enc_hidden_dim": 256,
         "enc_dim_feedforward": 2048,
@@ -95,6 +96,7 @@ class LibreECDetModel(nn.Module):
             embed_dim=cfg["embed_dim"],
             num_heads=cfg["num_heads"],
             proj_dim=cfg["proj_dim"],
+            ffn_ratio=cfg.get("ffn_ratio", 4.0),
             interaction_indexes=(10, 11),
         )
         self.encoder = HybridEncoder(
