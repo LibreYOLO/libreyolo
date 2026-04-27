@@ -26,6 +26,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.nn.init as init
 
+from ..dfine.denoising import get_contrastive_denoising_training_group
 from .utils import (
     bias_init_with_prob,
     deformable_attention_core_func_v2,
@@ -591,21 +592,102 @@ class ECTransformer(nn.Module):
         )
         return topk_memory, topk_logits, topk_anchors
 
+    @staticmethod
+    def _split(x, dim, s_idx):
+        return torch.split(x, s_idx, dim=dim) if x is not None else (None, None)
+
+    @staticmethod
+    @torch.jit.unused
+    def _set_aux_loss(outputs_class, outputs_coord):
+        return [{"pred_logits": a, "pred_boxes": b} for a, b in zip(outputs_class, outputs_coord)]
+
+    @staticmethod
+    @torch.jit.unused
+    def _set_aux_loss2(outputs_class, outputs_coord, outputs_corners, outputs_ref,
+                      teacher_corners=None, teacher_logits=None):
+        results = []
+        for c, b, corners, ref in zip(outputs_class, outputs_coord, outputs_corners, outputs_ref):
+            results.append({
+                "pred_logits": c,
+                "pred_boxes": b,
+                "pred_corners": corners,
+                "ref_points": ref,
+                "teacher_corners": teacher_corners,
+                "teacher_logits": teacher_logits,
+            })
+        return results
+
     def forward(self, feats, targets=None):
         memory, spatial_shapes = self._get_encoder_input(feats)
 
-        # Inference path only — denoising logic from upstream omitted (training stub).
-        denoising_logits, denoising_bbox_unact, attn_mask = None, None, None
+        if self.training and self.num_denoising > 0 and targets is not None:
+            denoising_logits, denoising_bbox_unact, attn_mask, dn_meta = (
+                get_contrastive_denoising_training_group(
+                    targets,
+                    self.num_classes,
+                    self.num_queries,
+                    self.denoising_class_embed,
+                    num_denoising=self.num_denoising,
+                    label_noise_ratio=self.label_noise_ratio,
+                    box_noise_scale=self.box_noise_scale,
+                )
+            )
+        else:
+            denoising_logits, denoising_bbox_unact, attn_mask, dn_meta = None, None, None, None
 
-        init_ref_contents, init_ref_points_unact, _, _ = self._get_decoder_input(
+        (
+            init_ref_contents,
+            init_ref_points_unact,
+            enc_topk_bboxes_list,
+            enc_topk_logits_list,
+        ) = self._get_decoder_input(
             memory, spatial_shapes, denoising_logits, denoising_bbox_unact
         )
 
-        out_bboxes, out_logits, _, _, _, _ = self.decoder(
+        out_bboxes, out_logits, out_corners, out_refs, pre_bboxes, pre_scores = self.decoder(
             init_ref_contents, init_ref_points_unact, memory, spatial_shapes,
             self.dec_bbox_head, self.dec_score_head, self.query_pos_head,
             self.pre_bbox_head, self.integral, self.up, self.reg_scale,
             attn_mask=attn_mask,
         )
 
-        return {"pred_logits": out_logits[-1], "pred_boxes": out_bboxes[-1]}
+        # Split DN vs non-DN halves of every per-layer output.
+        if self.training and dn_meta is not None:
+            s_idx = dn_meta["dn_num_split"]
+            dn_pre_logits, pre_scores = self._split(pre_scores, 1, s_idx)
+            dn_pre_bboxes, pre_bboxes = self._split(pre_bboxes, 1, s_idx)
+            dn_out_logits, out_logits = self._split(out_logits, 2, s_idx)
+            dn_out_bboxes, out_bboxes = self._split(out_bboxes, 2, s_idx)
+            dn_out_corners, out_corners = self._split(out_corners, 2, s_idx)
+            dn_out_refs, out_refs = self._split(out_refs, 2, s_idx)
+
+        if not self.training:
+            return {"pred_logits": out_logits[-1], "pred_boxes": out_bboxes[-1]}
+
+        out = {
+            "pred_logits": out_logits[-1],
+            "pred_boxes": out_bboxes[-1],
+            "pred_corners": out_corners[-1],
+            "ref_points": out_refs[-1],
+            "up": self.up,
+            "reg_scale": self.reg_scale,
+        }
+
+        if self.aux_loss:
+            out["aux_outputs"] = self._set_aux_loss2(
+                out_logits[:-1], out_bboxes[:-1], out_corners[:-1], out_refs[:-1],
+                out_corners[-1], out_logits[-1],
+            )
+            out["enc_aux_outputs"] = self._set_aux_loss(enc_topk_logits_list, enc_topk_bboxes_list)
+            out["pre_outputs"] = {"pred_logits": pre_scores, "pred_boxes": pre_bboxes}
+            out["enc_meta"] = {"class_agnostic": self.query_select_method == "agnostic"}
+
+            if dn_meta is not None:
+                out["dn_outputs"] = self._set_aux_loss2(
+                    dn_out_logits, dn_out_bboxes, dn_out_corners, dn_out_refs,
+                    dn_out_corners[-1], dn_out_logits[-1],
+                )
+                out["dn_pre_outputs"] = {"pred_logits": dn_pre_logits, "pred_boxes": dn_pre_bboxes}
+                out["dn_meta"] = dn_meta
+
+        return out

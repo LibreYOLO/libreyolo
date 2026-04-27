@@ -184,6 +184,55 @@ class DFINEConfig(TrainConfig):
 
 
 @dataclass(kw_only=True)
+class ECDetConfig(TrainConfig):
+    """ECDet-specific training defaults (experimental).
+
+    Fine-tune defaults follow upstream EdgeCrafter's published recipe (S/M):
+    AdamW with backbone-LR multiplier 0.05 (≈2.5e-5 vs head 5e-4), no-decay
+    on norms/biases, FlatCosine schedule with quadratic warmup, EMA 0.9999,
+    Mosaic+Mixup until ~mid-training, all strong augs disabled past
+    ``stop_epoch``. Loss = MAL + L1 + GIoU + FGL + DDF.
+
+    Training has NOT been validated on a real fine-tune run — ship as
+    experimental.
+    """
+
+    optimizer: str = "adamw"
+    lr0: float = 5e-4
+    weight_decay: float = 1e-4
+
+    scheduler: str = "flat_cosine"
+    warmup_epochs: int = 2
+    warmup_lr_start: float = 1e-6
+    no_aug_epochs: int = 4
+    min_lr_ratio: float = 0.5  # ECDet's lr_gamma in upstream
+
+    mosaic_prob: float = 0.75
+    mixup_prob: float = 0.75
+    hsv_prob: float = 0.5
+    flip_prob: float = 0.5
+    degrees: float = 10.0
+    translate: float = 0.1
+    mosaic_scale: Tuple[float, float] = (0.5, 1.5)
+    mixup_scale: Tuple[float, float] = (0.5, 1.5)
+    shear: float = 0.0
+
+    ema: bool = True
+    ema_decay: float = 0.9999
+    ema_restart_decay: float = 0.9999
+
+    # ECDet-specific knobs.
+    backbone_lr_mult: float = 0.05  # 2.5e-5 / 5e-4 ≈ 0.05 for S/M; L/X use 0.01
+    clip_max_norm: float = 0.1
+    multi_scale: bool = False  # upstream uses fixed 640; multi-scale not in their config
+    aug_stop_epoch_ratio: float = 0.97  # stop_epoch=72 with epochs=74 → 72/74
+
+    amp: bool = True
+    epochs: int = 74
+    name: str = "ecdet_exp"
+
+
+@dataclass(kw_only=True)
 class YOLONASConfig(TrainConfig):
     """YOLO-NAS-specific training defaults."""
 

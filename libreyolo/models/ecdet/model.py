@@ -151,6 +151,111 @@ class LibreECDet(BaseModel):
         # forward time. Mirror the D-FINE policy.
         return False
 
+    def train(
+        self,
+        data: str,
+        *,
+        allow_experimental: bool = False,
+        epochs: int = 74,
+        batch: int = 16,
+        imgsz: int = 640,
+        lr0: float = 5e-4,
+        device: str = "",
+        workers: int = 4,
+        seed: int = 0,
+        project: str = "runs/train",
+        name: str = "ecdet_exp",
+        exist_ok: bool = False,
+        resume: bool = False,
+        amp: bool = True,
+        patience: int = 50,
+        **kwargs,
+    ) -> dict:
+        """Fine-tune ECDet on a YOLO-format dataset.
+
+        **EXPERIMENTAL.** This training path follows upstream EdgeCrafter's
+        published recipe (AdamW, FlatCosine, MAL+L1+GIoU+FGL+DDF, EMA 0.9999,
+        Mosaic+Mixup, all strong augs disabled past stop_epoch) and passes
+        loss-parity vs upstream's criterion at 1e-5 on synthetic input — but
+        a full fine-tune has not been run end-to-end. Pass
+        ``allow_experimental=True`` to acknowledge.
+        """
+        if not allow_experimental:
+            raise RuntimeError(
+                "ECDet training is experimental and has not been validated by a "
+                "full fine-tune. Pass allow_experimental=True to proceed.\n"
+                "What's been validated: inference parity (1e-5 vs upstream on all "
+                "4 sizes), ONNX export round-trip, COCO val2017 mAP. What's NOT "
+                "validated: full fine-tune convergence, multi-GPU, the "
+                "stop_aug_epoch best-reload trick, Obj365→COCO class remap."
+            )
+
+        from pathlib import Path
+
+        from libreyolo.data import load_data_config
+        from .trainer import ECDetTrainer
+
+        try:
+            data_config = load_data_config(data, autodownload=True)
+            data = data_config.get("yaml_file", data)
+        except Exception as e:
+            raise FileNotFoundError(f"Failed to load dataset config '{data}': {e}")
+
+        yaml_nc = data_config.get("nc")
+        if yaml_nc is not None and yaml_nc != self.nb_classes:
+            self._rebuild_for_new_classes(yaml_nc)
+
+        if seed > 0:
+            import random as _r
+            import numpy as _np
+
+            _r.seed(seed)
+            _np.random.seed(seed)
+            torch.manual_seed(seed)
+            if torch.cuda.is_available():
+                torch.cuda.manual_seed_all(seed)
+
+        trainer = ECDetTrainer(
+            model=self.model,
+            wrapper_model=self,
+            size=self.size,
+            num_classes=self.nb_classes,
+            data=data,
+            epochs=epochs,
+            batch=batch,
+            imgsz=imgsz,
+            lr0=lr0,
+            device=device if device else "auto",
+            workers=workers,
+            seed=seed,
+            project=project,
+            name=name,
+            exist_ok=exist_ok,
+            resume=resume,
+            amp=amp,
+            patience=patience,
+            **kwargs,
+        )
+
+        if resume:
+            if not self.model_path:
+                raise ValueError(
+                    "resume=True requires a checkpoint. Load one first."
+                )
+            trainer.setup()
+            trainer.resume(str(self.model_path))
+            return trainer.train()
+
+        results = trainer.train()
+
+        best_ckpt = results.get("best_checkpoint")
+        if best_ckpt and Path(best_ckpt).exists():
+            self.model_path = best_ckpt
+            self._load_weights(best_ckpt)
+
+        self.model.to(self.device)
+        return results
+
     def _load_weights(self, model_path: str):
         if not Path(model_path).exists():
             raise FileNotFoundError(f"ECDet weights file not found: {model_path}")
