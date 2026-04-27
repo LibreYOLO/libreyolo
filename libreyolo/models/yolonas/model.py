@@ -240,7 +240,7 @@ class LibreYOLONAS(BaseModel):
         if yaml_nc is not None and yaml_nc != self.nb_classes:
             self._rebuild_for_new_classes(yaml_nc)
 
-        if seed > 0:
+        if seed >= 0:
             import random
 
             import numpy as np

@@ -16,7 +16,6 @@ from .nn import RTDETRModel
 from .config import RTDETRConfig
 from ...validation.preprocessors import RTDETRValPreprocessor
 
-# Single source of truth for training defaults
 _TRAIN_DEFAULTS = RTDETRConfig()
 
 
@@ -536,7 +535,7 @@ class LibreYOLORTDETR(BaseModel):
                 yaml_names = {i: n for i, n in enumerate(yaml_names)}
             self.names = self._sanitize_names(yaml_names, self.nb_classes)
 
-        if seed > 0:
+        if seed >= 0:
             import random
             import numpy as np
 
