@@ -55,9 +55,9 @@ def test_trainer_target_translation_smoke():
     # Each loss family must appear in some form. DDF and FGL only emit
     # aux/dn variants (no bare key) — match by prefix instead of exact name.
     for prefix in ("loss_vfl", "loss_bbox", "loss_giou", "loss_fgl", "loss_ddf"):
-        assert any(
-            k == prefix or k.startswith(prefix + "_") for k in out
-        ), f"no key matching {prefix}* in output: {sorted(out)}"
+        assert any(k == prefix or k.startswith(prefix + "_") for k in out), (
+            f"no key matching {prefix}* in output: {sorted(out)}"
+        )
 
     out["total_loss"].backward()
 

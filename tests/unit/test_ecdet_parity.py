@@ -42,10 +42,38 @@ def _try_import_upstream():
 # (size, ckpt_basename, upstream_name, embed, heads, proj_dim, ffn_ratio,
 #  enc_hidden, enc_ff, enc_exp, enc_dep, dec_hidden, dec_ff)
 SIZE_PARAMS = [
-    ("s", "ecdet_s.pth", "ecvitt",     192, 3, None, 4.0, 192, 512,  0.34, 0.67, 192, 512),
-    ("m", "ecdet_m.pth", "ecvittplus", 256, 4, None, 4.0, 256, 512,  0.75, 0.67, 256, 1024),
-    ("l", "ecdet_l.pth", "ecvits",     384, 6, 256,  4.0, 256, 1024, 0.75, 1.0,  256, 1024),
-    ("x", "ecdet_x.pth", "ecvitsplus", 384, 6, 256,  6.0, 256, 2048, 1.5,  1.0,  256, 2048),
+    ("s", "ecdet_s.pth", "ecvitt", 192, 3, None, 4.0, 192, 512, 0.34, 0.67, 192, 512),
+    (
+        "m",
+        "ecdet_m.pth",
+        "ecvittplus",
+        256,
+        4,
+        None,
+        4.0,
+        256,
+        512,
+        0.75,
+        0.67,
+        256,
+        1024,
+    ),
+    ("l", "ecdet_l.pth", "ecvits", 384, 6, 256, 4.0, 256, 1024, 0.75, 1.0, 256, 1024),
+    (
+        "x",
+        "ecdet_x.pth",
+        "ecvitsplus",
+        384,
+        6,
+        256,
+        6.0,
+        256,
+        2048,
+        1.5,
+        1.0,
+        256,
+        2048,
+    ),
 ]
 WEIGHTS_DIR = Path("downloads/ec_weights")
 
@@ -59,11 +87,20 @@ def test_backbone_parity(params):
     UpBB, _, _ = _try_import_upstream()
     from libreyolo.models.ecdet.backbone import ViTAdapter as LibreBB
 
-    up_kw = dict(name=upstream_name, embed_dim=embed, num_heads=heads,
-                 interaction_indexes=[10, 11], ffn_ratio=ffn_ratio,
-                 skip_load_backbone=True)
-    lb_kw = dict(embed_dim=embed, num_heads=heads,
-                 interaction_indexes=(10, 11), ffn_ratio=ffn_ratio)
+    up_kw = dict(
+        name=upstream_name,
+        embed_dim=embed,
+        num_heads=heads,
+        interaction_indexes=[10, 11],
+        ffn_ratio=ffn_ratio,
+        skip_load_backbone=True,
+    )
+    lb_kw = dict(
+        embed_dim=embed,
+        num_heads=heads,
+        interaction_indexes=(10, 11),
+        ffn_ratio=ffn_ratio,
+    )
     if proj_dim is not None:
         up_kw["proj_dim"] = proj_dim
         lb_kw["proj_dim"] = proj_dim
@@ -72,7 +109,11 @@ def test_backbone_parity(params):
     libre = LibreBB(**lb_kw)
 
     ck = torch.load(ckpt, map_location="cpu", weights_only=False)["model"]
-    bb_sd = {k.removeprefix("backbone."): v for k, v in ck.items() if k.startswith("backbone.")}
+    bb_sd = {
+        k.removeprefix("backbone."): v
+        for k, v in ck.items()
+        if k.startswith("backbone.")
+    }
     upstream.load_state_dict(bb_sd, strict=True)
     libre.load_state_dict(bb_sd, strict=True)
     upstream.eval()
@@ -85,16 +126,29 @@ def test_backbone_parity(params):
         lb_out = libre(x)
 
     assert len(up_out) == len(lb_out)
-    for i, (u, l) in enumerate(zip(up_out, lb_out)):
-        assert u.shape == l.shape, f"{size} level {i}: {u.shape} vs {l.shape}"
-        err = (u - l).abs().max().item()
+    for i, (u, lb) in enumerate(zip(up_out, lb_out)):
+        assert u.shape == lb.shape, f"{size} level {i}: {u.shape} vs {lb.shape}"
+        err = (u - lb).abs().max().item()
         assert err < 1e-5, f"{size} level {i}: max err {err:.2e}"
 
 
 @pytest.mark.parametrize("params", SIZE_PARAMS, ids=[p[0] for p in SIZE_PARAMS])
 def test_full_pipeline_parity(params):
-    (size, ckpt_name, upstream_name, embed, heads, proj_dim, ffn_ratio,
-     enc_hidden, enc_ff, enc_exp, enc_dep, dec_hidden, dec_ff) = params
+    (
+        size,
+        ckpt_name,
+        upstream_name,
+        embed,
+        heads,
+        proj_dim,
+        ffn_ratio,
+        enc_hidden,
+        enc_ff,
+        enc_exp,
+        enc_dep,
+        dec_hidden,
+        dec_ff,
+    ) = params
     ckpt = WEIGHTS_DIR / ckpt_name
     if not ckpt.exists():
         pytest.skip(f"{ckpt} not found")
@@ -124,11 +178,20 @@ def test_full_pipeline_parity(params):
         eval_spatial_size=[640, 640],
     )
 
-    up_bb_kw = dict(name=upstream_name, embed_dim=embed, num_heads=heads,
-                    interaction_indexes=[10, 11], ffn_ratio=ffn_ratio,
-                    skip_load_backbone=True)
-    lb_bb_kw = dict(embed_dim=embed, num_heads=heads,
-                    interaction_indexes=(10, 11), ffn_ratio=ffn_ratio)
+    up_bb_kw = dict(
+        name=upstream_name,
+        embed_dim=embed,
+        num_heads=heads,
+        interaction_indexes=[10, 11],
+        ffn_ratio=ffn_ratio,
+        skip_load_backbone=True,
+    )
+    lb_bb_kw = dict(
+        embed_dim=embed,
+        num_heads=heads,
+        interaction_indexes=(10, 11),
+        ffn_ratio=ffn_ratio,
+    )
     if proj_dim is not None:
         up_bb_kw["proj_dim"] = proj_dim
         lb_bb_kw["proj_dim"] = proj_dim
@@ -138,13 +201,21 @@ def test_full_pipeline_parity(params):
     up_dec, lb_dec = UpDec(**dec_kwargs), LDec(**dec_kwargs)
 
     ck = torch.load(ckpt, map_location="cpu", weights_only=False)["model"]
-    bb_sd = {k.removeprefix("backbone."): v for k, v in ck.items() if k.startswith("backbone.")}
-    enc_sd = {k.removeprefix("encoder."): v for k, v in ck.items() if k.startswith("encoder.")}
-    dec_sd = {k.removeprefix("decoder."): v for k, v in ck.items() if k.startswith("decoder.")}
+    bb_sd = {
+        k.removeprefix("backbone."): v
+        for k, v in ck.items()
+        if k.startswith("backbone.")
+    }
+    enc_sd = {
+        k.removeprefix("encoder."): v for k, v in ck.items() if k.startswith("encoder.")
+    }
+    dec_sd = {
+        k.removeprefix("decoder."): v for k, v in ck.items() if k.startswith("decoder.")
+    }
 
-    for u, l, sd in [(up_bb, lb_bb, bb_sd), (up_enc, lb_enc, enc_sd)]:
+    for u, lb, sd in [(up_bb, lb_bb, bb_sd), (up_enc, lb_enc, enc_sd)]:
         u.load_state_dict(sd, strict=True)
-        l.load_state_dict(sd, strict=True)
+        lb.load_state_dict(sd, strict=True)
     # Decoder: upstream has segmentation_head args; we don't. Use strict=False
     # on upstream-only since our decoder is det-only.
     up_dec.load_state_dict(dec_sd, strict=False)
@@ -158,17 +229,17 @@ def test_full_pipeline_parity(params):
     with torch.no_grad():
         up_feats = up_enc(up_bb(x))
         lb_feats = lb_enc(lb_bb(x))
-        for i, (u, l) in enumerate(zip(up_feats, lb_feats)):
-            err = (u - l).abs().max().item()
+        for i, (u, lb) in enumerate(zip(up_feats, lb_feats)):
+            err = (u - lb).abs().max().item()
             assert err < 1e-5, f"encoder level {i}: max err {err:.2e}"
 
         up_out = up_dec(up_feats)
         lb_out = lb_dec(lb_feats)
 
     for k in ("pred_logits", "pred_boxes"):
-        u, l = up_out[k], lb_out[k]
-        assert u.shape == l.shape
-        err = (u - l).abs().max().item()
+        u, lb = up_out[k], lb_out[k]
+        assert u.shape == lb.shape
+        err = (u - lb).abs().max().item()
         # Tolerance is 1e-4 (not 1e-5) because our Integral uses
         # ``(softmax_x * project).sum(-1)`` instead of ``F.linear(softmax_x,
         # project)``. Mathematically identical; differs only in fp32

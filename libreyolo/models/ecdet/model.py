@@ -142,8 +142,11 @@ class LibreECDet(BaseModel):
         **kwargs,
     ) -> Dict:
         return postprocess(
-            output, conf_thres=conf_thres, iou_thres=iou_thres,
-            original_size=original_size, max_det=max_det,
+            output,
+            conf_thres=conf_thres,
+            iou_thres=iou_thres,
+            original_size=original_size,
+            max_det=max_det,
         )
 
     def _strict_loading(self) -> bool:
@@ -239,9 +242,7 @@ class LibreECDet(BaseModel):
 
         if resume:
             if not self.model_path:
-                raise ValueError(
-                    "resume=True requires a checkpoint. Load one first."
-                )
+                raise ValueError("resume=True requires a checkpoint. Load one first.")
             trainer.setup()
             trainer.resume(str(self.model_path))
             return trainer.train()
@@ -287,9 +288,15 @@ class LibreECDet(BaseModel):
             if unexpected:
                 raise RuntimeError(
                     f"Unexpected keys when loading ECDet weights: {sorted(unexpected)[:10]}"
-                    + (f" (+{len(unexpected) - 10} more)" if len(unexpected) > 10 else "")
+                    + (
+                        f" (+{len(unexpected) - 10} more)"
+                        if len(unexpected) > 10
+                        else ""
+                    )
                 )
         except RuntimeError:
             raise
         except Exception as e:
-            raise RuntimeError(f"Failed to load ECDet weights from {model_path}: {e}") from e
+            raise RuntimeError(
+                f"Failed to load ECDet weights from {model_path}: {e}"
+            ) from e

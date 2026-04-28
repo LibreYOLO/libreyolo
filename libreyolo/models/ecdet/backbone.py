@@ -27,6 +27,7 @@ from ..dfine.encoder import ConvNormLayer_fuse
 
 # ---------- RoPE ------------------------------------------------------------
 
+
 class RopePositionEmbedding(nn.Module):
     """2D RoPE with separate H/W normalization (matches DINOv3)."""
 
@@ -50,7 +51,9 @@ class RopePositionEmbedding(nn.Module):
         assert head_dim % 4 == 0, "Head dimension must be divisible by 4 for 2D RoPE"
         both_periods = min_period is not None and max_period is not None
         if (base is None and not both_periods) or (base is not None and both_periods):
-            raise ValueError("Either `base` or `min_period`+`max_period` must be provided.")
+            raise ValueError(
+                "Either `base` or `min_period`+`max_period` must be provided."
+            )
 
         self.base = base
         self.min_period = min_period
@@ -73,11 +76,15 @@ class RopePositionEmbedding(nn.Module):
         dtype = self.dtype if self.dtype is not None else torch.get_default_dtype()
         if self.base is not None:
             periods = self.base ** (
-                2 * torch.arange(self.D_head // 4, device=device, dtype=dtype) / (self.D_head // 2)
+                2
+                * torch.arange(self.D_head // 4, device=device, dtype=dtype)
+                / (self.D_head // 2)
             )
         else:
             base = self.max_period / self.min_period
-            exponents = torch.linspace(0, 1, self.D_head // 4, device=device, dtype=dtype)
+            exponents = torch.linspace(
+                0, 1, self.D_head // 4, device=device, dtype=dtype
+            )
             periods = self.max_period * (base ** (exponents - 1))
         self.periods.data.copy_(periods)
 
@@ -103,15 +110,21 @@ class RopePositionEmbedding(nn.Module):
         coords = 2.0 * coords - 1.0
 
         if self.training and self.shift_coords is not None:
-            coords += torch.empty(2, **dd).uniform_(-self.shift_coords, self.shift_coords)[None, :]
+            coords += torch.empty(2, **dd).uniform_(
+                -self.shift_coords, self.shift_coords
+            )[None, :]
         if self.training and self.jitter_coords is not None:
             jitter = (
-                torch.empty(2, **dd).uniform_(-np.log(self.jitter_coords), np.log(self.jitter_coords))
+                torch.empty(2, **dd).uniform_(
+                    -np.log(self.jitter_coords), np.log(self.jitter_coords)
+                )
             ).exp()
             coords *= jitter[None, :]
         if self.training and self.rescale_coords is not None:
             rescale = (
-                torch.empty(1, **dd).uniform_(-np.log(self.rescale_coords), np.log(self.rescale_coords))
+                torch.empty(1, **dd).uniform_(
+                    -np.log(self.rescale_coords), np.log(self.rescale_coords)
+                )
             ).exp()
             coords *= rescale
 
@@ -134,6 +147,7 @@ def apply_rope(x: torch.Tensor, sin: torch.Tensor, cos: torch.Tensor) -> torch.T
 
 # ---------- Patch embed -----------------------------------------------------
 
+
 class ConvPyramidPatchEmbed(nn.Module):
     """5-conv pyramid stem (patch_size=16) producing the ViT token sequence."""
 
@@ -141,7 +155,7 @@ class ConvPyramidPatchEmbed(nn.Module):
         super().__init__()
         assert patch_size == 16, "Only support patch_size=16 for ConvPyramidPatchEmbed"
         num_stages = int(math.log2(patch_size)) - 1
-        ratios = [2 ** i for i in range(num_stages, 0, -1)]
+        ratios = [2**i for i in range(num_stages, 0, -1)]
         channels = [embed_dim // r for r in ratios]
         self.convs = nn.ModuleList(
             [
@@ -149,7 +163,9 @@ class ConvPyramidPatchEmbed(nn.Module):
                 for in_ch, out_ch in zip([3] + channels[:-1], channels)
             ]
         )
-        self.proj = nn.Conv2d(channels[-1], embed_dim, kernel_size=3, stride=2, padding=1)
+        self.proj = nn.Conv2d(
+            channels[-1], embed_dim, kernel_size=3, stride=2, padding=1
+        )
 
     def forward(self, x):
         for conv in self.convs:
@@ -161,10 +177,14 @@ class PatchEmbed(nn.Module):
     def __init__(self, img_size=224, patch_size=16, in_chans=3, embed_dim=768):
         super().__init__()
         img_size = (img_size, img_size) if isinstance(img_size, int) else img_size
-        patch_size = (patch_size, patch_size) if isinstance(patch_size, int) else patch_size
+        patch_size = (
+            (patch_size, patch_size) if isinstance(patch_size, int) else patch_size
+        )
         self.grid_size = (img_size[0] // patch_size[0], img_size[1] // patch_size[1])
         self.num_patches = self.grid_size[0] * self.grid_size[1]
-        self.proj = nn.Conv2d(in_chans, embed_dim, kernel_size=patch_size, stride=patch_size)
+        self.proj = nn.Conv2d(
+            in_chans, embed_dim, kernel_size=patch_size, stride=patch_size
+        )
 
     def forward(self, x):
         return self.proj(x)
@@ -172,7 +192,10 @@ class PatchEmbed(nn.Module):
 
 # ---------- Block utilities -------------------------------------------------
 
-def drop_path(x: torch.Tensor, drop_prob: float = 0.0, training: bool = False) -> torch.Tensor:
+
+def drop_path(
+    x: torch.Tensor, drop_prob: float = 0.0, training: bool = False
+) -> torch.Tensor:
     if drop_prob == 0.0 or not training:
         return x
     keep_prob = 1 - drop_prob
@@ -200,7 +223,7 @@ def _no_grad_trunc_normal_(tensor, mean, std, a, b):
             stacklevel=2,
         )
     with torch.no_grad():
-        l = norm_cdf((a - mean) / std)
+        l = norm_cdf((a - mean) / std)  # noqa: E741
         u = norm_cdf((b - mean) / std)
         tensor.uniform_(2 * l - 1, 2 * u - 1)
         tensor.erfinv_()
@@ -244,7 +267,7 @@ class Attention(nn.Module):
         super().__init__()
         self.num_heads = num_heads
         head_dim = dim // num_heads
-        self.scale = head_dim ** -0.5
+        self.scale = head_dim**-0.5
         self.qkv = nn.Linear(dim, dim * 3, bias=qkv_bias)
         self.attn_drop = attn_drop
         self.proj = nn.Linear(dim, dim)
@@ -288,11 +311,20 @@ class Block(nn.Module):
     ):
         super().__init__()
         self.norm1 = norm_layer(dim)
-        self.attn = Attention(dim, num_heads=num_heads, qkv_bias=qkv_bias, attn_drop=attn_drop, proj_drop=drop)
+        self.attn = Attention(
+            dim,
+            num_heads=num_heads,
+            qkv_bias=qkv_bias,
+            attn_drop=attn_drop,
+            proj_drop=drop,
+        )
         self.drop_path = DropPath(drop_path) if drop_path > 0.0 else nn.Identity()
         self.norm2 = norm_layer(dim)
         self.mlp = ffn_layer(
-            in_features=dim, hidden_features=int(dim * ffn_ratio), act_layer=act_layer, drop=drop
+            in_features=dim,
+            hidden_features=int(dim * ffn_ratio),
+            act_layer=act_layer,
+            drop=drop,
         )
 
     def forward(self, x, rope_sincos=None):
@@ -302,6 +334,7 @@ class Block(nn.Module):
 
 
 # ---------- ViT + adapter ---------------------------------------------------
+
 
 class VisionTransformer(nn.Module):
     def __init__(
@@ -332,7 +365,10 @@ class VisionTransformer(nn.Module):
 
         if embed_layer is PatchEmbed:
             self.patch_embed = embed_layer(
-                img_size=img_size, patch_size=patch_size, in_chans=in_chans, embed_dim=embed_dim
+                img_size=img_size,
+                patch_size=patch_size,
+                in_chans=in_chans,
+                embed_dim=embed_dim,
             )
         else:
             self.patch_embed = embed_layer(embed_dim=embed_dim, patch_size=patch_size)
@@ -456,7 +492,10 @@ class ViTAdapter(nn.Module):
 
         self.proj_dim = [proj_dim] * num_levels if proj_dim is not None else [embed_dim]
         self.projector = nn.ModuleList(
-            [ConvNormLayer_fuse(embed_dim, dim, kernel_size=1, stride=1) for dim in self.proj_dim]
+            [
+                ConvNormLayer_fuse(embed_dim, dim, kernel_size=1, stride=1)
+                for dim in self.proj_dim
+            ]
         )
 
     def forward(self, x):
@@ -473,12 +512,16 @@ class ViTAdapter(nn.Module):
             scale = 2 ** (1 - i)
             resize_H = int(H_c * scale)
             resize_W = int(W_c * scale)
-            feat = F.interpolate(fused, size=(resize_H, resize_W), mode="bilinear", align_corners=False)
+            feat = F.interpolate(
+                fused, size=(resize_H, resize_W), mode="bilinear", align_corners=False
+            )
             proj_feats.append(feat)
 
         if len(self.projector) == 1:
             proj_feats[-1] = self.projector[-1](proj_feats[-1])
         else:
-            proj_feats = [layer(feat) for layer, feat in zip(self.projector, proj_feats)]
+            proj_feats = [
+                layer(feat) for layer, feat in zip(self.projector, proj_feats)
+            ]
 
         return proj_feats

@@ -37,7 +37,9 @@ _IMAGENET_MEAN = np.array([0.485, 0.456, 0.406], dtype=np.float32)
 _IMAGENET_STD = np.array([0.229, 0.224, 0.225], dtype=np.float32)
 
 
-def preprocess_numpy(img_rgb_hwc: np.ndarray, input_size: int = 640) -> Tuple[np.ndarray, float]:
+def preprocess_numpy(
+    img_rgb_hwc: np.ndarray, input_size: int = 640
+) -> Tuple[np.ndarray, float]:
     """ECDet preprocess: square resize + /255 + ImageNet (mean, std).
 
     Mirrors upstream val transforms (`Resize -> ConvertPILImage(scale=True) ->
@@ -101,7 +103,13 @@ def postprocess(
 
     return {
         "num_detections": int(boxes.shape[0]),
-        "boxes": boxes.cpu().numpy() if boxes.numel() > 0 else np.zeros((0, 4), dtype=np.float32),
-        "scores": scores.cpu().numpy() if scores.numel() > 0 else np.zeros((0,), dtype=np.float32),
-        "classes": class_idx.cpu().numpy() if class_idx.numel() > 0 else np.zeros((0,), dtype=np.int64),
+        "boxes": boxes.cpu().numpy()
+        if boxes.numel() > 0
+        else np.zeros((0, 4), dtype=np.float32),
+        "scores": scores.cpu().numpy()
+        if scores.numel() > 0
+        else np.zeros((0,), dtype=np.float32),
+        "classes": class_idx.cpu().numpy()
+        if class_idx.numel() > 0
+        else np.zeros((0,), dtype=np.int64),
     }

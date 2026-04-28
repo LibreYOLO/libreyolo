@@ -277,7 +277,9 @@ class ECDetValPreprocessor(StandardValPreprocessor):
     def __call__(
         self, img: np.ndarray, targets: np.ndarray, input_size: Tuple[int, int]
     ) -> Tuple[np.ndarray, np.ndarray]:
-        chw, padded_targets = super().__call__(img[:, :, ::-1].copy(), targets, input_size)
+        chw, padded_targets = super().__call__(
+            img[:, :, ::-1].copy(), targets, input_size
+        )
         chw = chw / 255.0
         chw = (chw - self._IMAGENET_MEAN) / self._IMAGENET_STD
         return chw.astype(np.float32), padded_targets
