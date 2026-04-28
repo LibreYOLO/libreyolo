@@ -91,19 +91,38 @@ def test_eccriterion_loss_parity_vs_upstream():
     from libreyolo.models.ecdet.loss import ECCriterion as LibreECCriterion
 
     cost_weights = {"cost_class": 2.0, "cost_bbox": 5.0, "cost_giou": 2.0}
-    weight_dict = {"loss_mal": 1.0, "loss_bbox": 5.0, "loss_giou": 2.0,
-                   "loss_fgl": 0.15, "loss_ddf": 1.5}
+    weight_dict = {
+        "loss_mal": 1.0,
+        "loss_bbox": 5.0,
+        "loss_giou": 2.0,
+        "loss_fgl": 0.15,
+        "loss_ddf": 1.5,
+    }
 
-    up_matcher = UpMatcher(weight_dict=cost_weights, use_focal_loss=True, alpha=0.25, gamma=2.0)
-    lb_matcher = LibreMatcher(weight_dict=cost_weights, use_focal_loss=True, alpha=0.25, gamma=2.0)
+    up_matcher = UpMatcher(
+        weight_dict=cost_weights, use_focal_loss=True, alpha=0.25, gamma=2.0
+    )
+    lb_matcher = LibreMatcher(
+        weight_dict=cost_weights, use_focal_loss=True, alpha=0.25, gamma=2.0
+    )
 
     up_crit = UpECCriterion(
-        matcher=up_matcher, weight_dict=weight_dict, losses=["mal", "boxes", "local"],
-        num_classes=80, alpha=0.75, gamma=2.0, reg_max=32,
+        matcher=up_matcher,
+        weight_dict=weight_dict,
+        losses=["mal", "boxes", "local"],
+        num_classes=80,
+        alpha=0.75,
+        gamma=2.0,
+        reg_max=32,
     )
     lb_crit = LibreECCriterion(
-        matcher=lb_matcher, weight_dict=weight_dict, losses=["mal", "boxes", "local"],
-        num_classes=80, alpha=0.75, gamma=2.0, reg_max=32,
+        matcher=lb_matcher,
+        weight_dict=weight_dict,
+        losses=["mal", "boxes", "local"],
+        num_classes=80,
+        alpha=0.75,
+        gamma=2.0,
+        reg_max=32,
     )
     up_crit.eval()
     lb_crit.eval()
@@ -142,14 +161,24 @@ def test_ecdet_one_step_training_smoke():
 
     matcher = HungarianMatcher(
         weight_dict={"cost_class": 2.0, "cost_bbox": 5.0, "cost_giou": 2.0},
-        use_focal_loss=True, alpha=0.25, gamma=2.0,
+        use_focal_loss=True,
+        alpha=0.25,
+        gamma=2.0,
     )
     crit = ECCriterion(
         matcher=matcher,
-        weight_dict={"loss_mal": 1.0, "loss_bbox": 5.0, "loss_giou": 2.0,
-                     "loss_fgl": 0.15, "loss_ddf": 1.5},
+        weight_dict={
+            "loss_mal": 1.0,
+            "loss_bbox": 5.0,
+            "loss_giou": 2.0,
+            "loss_fgl": 0.15,
+            "loss_ddf": 1.5,
+        },
         losses=["mal", "boxes", "local"],
-        num_classes=80, alpha=0.75, gamma=2.0, reg_max=32,
+        num_classes=80,
+        alpha=0.75,
+        gamma=2.0,
+        reg_max=32,
     )
     crit.train()
 
@@ -158,10 +187,14 @@ def test_ecdet_one_step_training_smoke():
     torch.manual_seed(0)
     imgs = torch.randn(2, 3, 640, 640)
     targets = [
-        {"labels": torch.tensor([0, 1], dtype=torch.long),
-         "boxes": torch.tensor([[0.3, 0.3, 0.2, 0.2], [0.6, 0.6, 0.1, 0.1]])},
-        {"labels": torch.tensor([2], dtype=torch.long),
-         "boxes": torch.tensor([[0.5, 0.5, 0.3, 0.3]])},
+        {
+            "labels": torch.tensor([0, 1], dtype=torch.long),
+            "boxes": torch.tensor([[0.3, 0.3, 0.2, 0.2], [0.6, 0.6, 0.1, 0.1]]),
+        },
+        {
+            "labels": torch.tensor([2], dtype=torch.long),
+            "boxes": torch.tensor([[0.5, 0.5, 0.3, 0.3]]),
+        },
     ]
 
     out = m.model(imgs, targets=targets)
@@ -171,6 +204,8 @@ def test_ecdet_one_step_training_smoke():
     assert torch.isfinite(total), f"loss is non-finite: {total}"
     optim.zero_grad()
     total.backward()
-    n_with_grad = sum(1 for p in m.model.parameters() if p.grad is not None and p.grad.abs().sum() > 0)
+    n_with_grad = sum(
+        1 for p in m.model.parameters() if p.grad is not None and p.grad.abs().sum() > 0
+    )
     assert n_with_grad > 100, f"too few params with non-zero grad: {n_with_grad}"
     optim.step()

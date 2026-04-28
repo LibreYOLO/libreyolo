@@ -19,7 +19,6 @@ import copy
 import functools
 import math
 from collections import OrderedDict
-from typing import List
 
 import torch
 import torch.nn as nn
@@ -107,8 +106,15 @@ class LQE(nn.Module):
 
 
 class MSDeformableAttention(nn.Module):
-    def __init__(self, embed_dim=256, num_heads=8, num_levels=4, num_points=4,
-                 method="default", offset_scale=0.5):
+    def __init__(
+        self,
+        embed_dim=256,
+        num_heads=8,
+        num_levels=4,
+        num_points=4,
+        method="default",
+        offset_scale=0.5,
+    ):
         super().__init__()
         self.embed_dim = embed_dim
         self.num_heads = num_heads
@@ -145,10 +151,14 @@ class MSDeformableAttention(nn.Module):
 
     def _reset_parameters(self):
         init.constant_(self.sampling_offsets.weight, 0)
-        thetas = torch.arange(self.num_heads, dtype=torch.float32) * (2 * math.pi / self.num_heads)
+        thetas = torch.arange(self.num_heads, dtype=torch.float32) * (
+            2 * math.pi / self.num_heads
+        )
         grid_init = torch.stack([thetas.cos(), thetas.sin()], -1)
         grid_init = grid_init / grid_init.abs().max(-1, keepdim=True).values
-        grid_init = grid_init.reshape(self.num_heads, 1, 2).tile([1, sum(self.num_points_list), 1])
+        grid_init = grid_init.reshape(self.num_heads, 1, 2).tile(
+            [1, sum(self.num_points_list), 1]
+        )
         scaling = torch.concat(
             [torch.arange(1, n + 1) for n in self.num_points_list]
         ).reshape(1, -1, 1)
@@ -169,7 +179,9 @@ class MSDeformableAttention(nn.Module):
 
         if reference_points.shape[-1] == 2:
             offset_normalizer = torch.tensor(value_spatial_shapes)
-            offset_normalizer = offset_normalizer.flip([1]).reshape(1, 1, 1, self.num_levels, 1, 2)
+            offset_normalizer = offset_normalizer.flip([1]).reshape(
+                1, 1, 1, self.num_levels, 1, 2
+            )
             sampling_locations = (
                 reference_points.reshape(bs, Len_q, 1, self.num_levels, 1, 2)
                 + sampling_offsets / offset_normalizer
@@ -189,20 +201,35 @@ class MSDeformableAttention(nn.Module):
             )
 
         return self.ms_deformable_attn_core(
-            value, value_spatial_shapes, sampling_locations, attention_weights, self.num_points_list
+            value,
+            value_spatial_shapes,
+            sampling_locations,
+            attention_weights,
+            self.num_points_list,
         )
 
 
 class TransformerDecoderLayer(nn.Module):
-    def __init__(self, d_model=256, n_head=8, dim_feedforward=1024, dropout=0.0,
-                 activation="relu", n_levels=4, n_points=4,
-                 cross_attn_method="default", layer_scale=None):
+    def __init__(
+        self,
+        d_model=256,
+        n_head=8,
+        dim_feedforward=1024,
+        dropout=0.0,
+        activation="relu",
+        n_levels=4,
+        n_points=4,
+        cross_attn_method="default",
+        layer_scale=None,
+    ):
         super().__init__()
         if layer_scale is not None:
             dim_feedforward = round(layer_scale * dim_feedforward)
             d_model = round(layer_scale * d_model)
 
-        self.self_attn = nn.MultiheadAttention(d_model, n_head, dropout=dropout, batch_first=True)
+        self.self_attn = nn.MultiheadAttention(
+            d_model, n_head, dropout=dropout, batch_first=True
+        )
         self.dropout1 = nn.Dropout(dropout)
         self.norm1 = nn.LayerNorm(d_model)
 
@@ -223,15 +250,24 @@ class TransformerDecoderLayer(nn.Module):
     def with_pos_embed(tensor, pos):
         return tensor if pos is None else tensor + pos
 
-    def forward(self, target, reference_points, value, spatial_shapes,
-                attn_mask=None, query_pos_embed=None):
+    def forward(
+        self,
+        target,
+        reference_points,
+        value,
+        spatial_shapes,
+        attn_mask=None,
+        query_pos_embed=None,
+    ):
         q = k = self.with_pos_embed(target, query_pos_embed)
         target2, _ = self.self_attn(q, k, value=target, attn_mask=attn_mask)
         target = self.norm1(target + self.dropout1(target2))
 
         target2 = self.cross_attn(
             self.with_pos_embed(target, query_pos_embed),
-            reference_points, value, spatial_shapes,
+            reference_points,
+            value,
+            spatial_shapes,
         )
         target = self.gateway(target, self.dropout2(target2))
 
@@ -241,8 +277,20 @@ class TransformerDecoderLayer(nn.Module):
 
 
 class TransformerDecoder(nn.Module):
-    def __init__(self, hidden_dim, decoder_layer, decoder_layer_wide, num_layers, num_head,
-                 reg_max, reg_scale, up, eval_idx=-1, layer_scale=2, act="relu"):
+    def __init__(
+        self,
+        hidden_dim,
+        decoder_layer,
+        decoder_layer_wide,
+        num_layers,
+        num_head,
+        reg_max,
+        reg_scale,
+        up,
+        eval_idx=-1,
+        layer_scale=2,
+        act="relu",
+    ):
         super().__init__()
         self.hidden_dim = hidden_dim
         self.num_layers = num_layers
@@ -252,15 +300,24 @@ class TransformerDecoder(nn.Module):
         self.up, self.reg_scale, self.reg_max = up, reg_scale, reg_max
         self.layers = nn.ModuleList(
             [copy.deepcopy(decoder_layer) for _ in range(self.eval_idx + 1)]
-            + [copy.deepcopy(decoder_layer_wide) for _ in range(num_layers - self.eval_idx - 1)]
+            + [
+                copy.deepcopy(decoder_layer_wide)
+                for _ in range(num_layers - self.eval_idx - 1)
+            ]
         )
         self.lqe_layers = nn.ModuleList(
             [copy.deepcopy(LQE(4, 64, 2, reg_max, act=act)) for _ in range(num_layers)]
         )
 
-    def value_op(self, memory, value_proj, value_scale, memory_mask, memory_spatial_shapes):
+    def value_op(
+        self, memory, value_proj, value_scale, memory_mask, memory_spatial_shapes
+    ):
         value = value_proj(memory) if value_proj is not None else memory
-        value = F.interpolate(memory, size=value_scale) if value_scale is not None else value
+        value = (
+            F.interpolate(memory, size=value_scale)
+            if value_scale is not None
+            else value
+        )
         if memory_mask is not None:
             value = value * memory_mask.to(value.dtype).unsqueeze(-1)
         value = value.reshape(value.shape[0], value.shape[1], self.num_head, -1)
@@ -268,23 +325,46 @@ class TransformerDecoder(nn.Module):
         return value.permute(0, 2, 3, 1).split(split_shape, dim=-1)
 
     def convert_to_deploy(self):
-        self.project = weighting_function(self.reg_max, self.up, self.reg_scale, deploy=True)
+        self.project = weighting_function(
+            self.reg_max, self.up, self.reg_scale, deploy=True
+        )
         self.layers = self.layers[: self.eval_idx + 1]
         self.lqe_layers = nn.ModuleList(
             [nn.Identity()] * self.eval_idx + [self.lqe_layers[self.eval_idx]]
         )
 
-    def forward(self, target, ref_points_unact, memory, spatial_shapes,
-                bbox_head, score_head, query_pos_head, pre_bbox_head, integral,
-                up, reg_scale, attn_mask=None, memory_mask=None):
+    def forward(
+        self,
+        target,
+        ref_points_unact,
+        memory,
+        spatial_shapes,
+        bbox_head,
+        score_head,
+        query_pos_head,
+        pre_bbox_head,
+        integral,
+        up,
+        reg_scale,
+        attn_mask=None,
+        memory_mask=None,
+    ):
         output = target
         output_detach = pred_corners_undetach = 0
         value = self.value_op(memory, None, None, memory_mask, spatial_shapes)
 
-        dec_out_bboxes, dec_out_logits, dec_out_pred_corners, dec_out_refs, dec_out_hs = [], [], [], [], []
+        (
+            dec_out_bboxes,
+            dec_out_logits,
+            dec_out_pred_corners,
+            dec_out_refs,
+            dec_out_hs,
+        ) = [], [], [], [], []
 
-        project = self.project if hasattr(self, "project") else weighting_function(
-            self.reg_max, up, reg_scale
+        project = (
+            self.project
+            if hasattr(self, "project")
+            else weighting_function(self.reg_max, up, reg_scale)
         )
 
         ref_points_detach = F.sigmoid(ref_points_unact)
@@ -294,20 +374,35 @@ class TransformerDecoder(nn.Module):
             ref_points_input = ref_points_detach.unsqueeze(2)
 
             if i >= self.eval_idx + 1 and self.layer_scale > 1:
-                query_pos_embed = F.interpolate(query_pos_embed, scale_factor=self.layer_scale)
-                value = self.value_op(memory, None, query_pos_embed.shape[-1], memory_mask, spatial_shapes)
+                query_pos_embed = F.interpolate(
+                    query_pos_embed, scale_factor=self.layer_scale
+                )
+                value = self.value_op(
+                    memory, None, query_pos_embed.shape[-1], memory_mask, spatial_shapes
+                )
                 output = F.interpolate(output, size=query_pos_embed.shape[-1])
                 output_detach = output.detach()
 
-            output = layer(output, ref_points_input, value, spatial_shapes, attn_mask, query_pos_embed)
+            output = layer(
+                output,
+                ref_points_input,
+                value,
+                spatial_shapes,
+                attn_mask,
+                query_pos_embed,
+            )
 
             if i == 0:
-                pre_bboxes = F.sigmoid(pre_bbox_head(output) + inverse_sigmoid(ref_points_detach))
+                pre_bboxes = F.sigmoid(
+                    pre_bbox_head(output) + inverse_sigmoid(ref_points_detach)
+                )
                 pre_scores = score_head[0](output)
                 ref_points_initial = pre_bboxes.detach()
 
             pred_corners = bbox_head[i](output + output_detach) + pred_corners_undetach
-            inter_ref_bbox = distance2bbox(ref_points_initial, integral(pred_corners, project), reg_scale)
+            inter_ref_bbox = distance2bbox(
+                ref_points_initial, integral(pred_corners, project), reg_scale
+            )
 
             if self.training or i == self.eval_idx:
                 scores = score_head[i](output)
@@ -335,35 +430,36 @@ class TransformerDecoder(nn.Module):
 
 
 class ECTransformer(nn.Module):
-    def __init__(self,
-                 num_classes=80,
-                 hidden_dim=256,
-                 num_queries=300,
-                 feat_channels=(256, 256, 256),
-                 feat_strides=(8, 16, 32),
-                 num_levels=3,
-                 num_points=(3, 6, 3),
-                 nhead=8,
-                 num_layers=4,
-                 dim_feedforward=1024,
-                 dropout=0.0,
-                 activation="silu",
-                 num_denoising=100,
-                 label_noise_ratio=0.5,
-                 box_noise_scale=1.0,
-                 learn_query_content=False,
-                 eval_spatial_size=(640, 640),
-                 eval_idx=-1,
-                 eps=1e-2,
-                 aux_loss=True,
-                 cross_attn_method="default",
-                 query_select_method="default",
-                 reg_max=32,
-                 reg_scale=4.0,
-                 layer_scale=1,
-                 share_bbox_head=False,
-                 share_score_head=False,
-                 ):
+    def __init__(
+        self,
+        num_classes=80,
+        hidden_dim=256,
+        num_queries=300,
+        feat_channels=(256, 256, 256),
+        feat_strides=(8, 16, 32),
+        num_levels=3,
+        num_points=(3, 6, 3),
+        nhead=8,
+        num_layers=4,
+        dim_feedforward=1024,
+        dropout=0.0,
+        activation="silu",
+        num_denoising=100,
+        label_noise_ratio=0.5,
+        box_noise_scale=1.0,
+        learn_query_content=False,
+        eval_spatial_size=(640, 640),
+        eval_idx=-1,
+        eps=1e-2,
+        aux_loss=True,
+        cross_attn_method="default",
+        query_select_method="default",
+        reg_max=32,
+        reg_scale=4.0,
+        layer_scale=1,
+        share_bbox_head=False,
+        share_score_head=False,
+    ):
         super().__init__()
         feat_channels = list(feat_channels)
         feat_strides = list(feat_strides)
@@ -394,17 +490,39 @@ class ECTransformer(nn.Module):
         self.reg_scale = nn.Parameter(torch.tensor([reg_scale]), requires_grad=False)
 
         decoder_layer = TransformerDecoderLayer(
-            hidden_dim, nhead, dim_feedforward, dropout, activation,
-            num_levels, num_points, cross_attn_method=cross_attn_method,
+            hidden_dim,
+            nhead,
+            dim_feedforward,
+            dropout,
+            activation,
+            num_levels,
+            num_points,
+            cross_attn_method=cross_attn_method,
         )
         decoder_layer_wide = TransformerDecoderLayer(
-            hidden_dim, nhead, dim_feedforward, dropout, activation,
-            num_levels, num_points, cross_attn_method=cross_attn_method, layer_scale=layer_scale,
+            hidden_dim,
+            nhead,
+            dim_feedforward,
+            dropout,
+            activation,
+            num_levels,
+            num_points,
+            cross_attn_method=cross_attn_method,
+            layer_scale=layer_scale,
         )
 
         self.decoder = TransformerDecoder(
-            hidden_dim, decoder_layer, decoder_layer_wide, num_layers, nhead,
-            reg_max, self.reg_scale, self.up, eval_idx, layer_scale, act=activation,
+            hidden_dim,
+            decoder_layer,
+            decoder_layer_wide,
+            num_layers,
+            nhead,
+            reg_max,
+            self.reg_scale,
+            self.up,
+            eval_idx,
+            layer_scale,
+            act=activation,
         )
 
         self.num_denoising = num_denoising
@@ -433,17 +551,28 @@ class ECTransformer(nn.Module):
         self.eval_idx = eval_idx if eval_idx >= 0 else num_layers + eval_idx
         dec_score_head = nn.Linear(hidden_dim, num_classes)
         self.dec_score_head = nn.ModuleList(
-            [dec_score_head if share_score_head else copy.deepcopy(dec_score_head)
-             for _ in range(self.eval_idx + 1)]
-            + [copy.deepcopy(dec_score_head) for _ in range(num_layers - self.eval_idx - 1)]
+            [
+                dec_score_head if share_score_head else copy.deepcopy(dec_score_head)
+                for _ in range(self.eval_idx + 1)
+            ]
+            + [
+                copy.deepcopy(dec_score_head)
+                for _ in range(num_layers - self.eval_idx - 1)
+            ]
         )
 
-        dec_bbox_head = MLP(hidden_dim, hidden_dim, 4 * (self.reg_max + 1), 3, act=activation)
+        dec_bbox_head = MLP(
+            hidden_dim, hidden_dim, 4 * (self.reg_max + 1), 3, act=activation
+        )
         self.dec_bbox_head = nn.ModuleList(
-            [dec_bbox_head if share_bbox_head else copy.deepcopy(dec_bbox_head)
-             for _ in range(self.eval_idx + 1)]
-            + [MLP(scaled_dim, scaled_dim, 4 * (self.reg_max + 1), 3, act=activation)
-               for _ in range(num_layers - self.eval_idx - 1)]
+            [
+                dec_bbox_head if share_bbox_head else copy.deepcopy(dec_bbox_head)
+                for _ in range(self.eval_idx + 1)
+            ]
+            + [
+                MLP(scaled_dim, scaled_dim, 4 * (self.reg_max + 1), 3, act=activation)
+                for _ in range(num_layers - self.eval_idx - 1)
+            ]
         )
 
         if self.eval_spatial_size:
@@ -458,8 +587,10 @@ class ECTransformer(nn.Module):
             [nn.Identity()] * self.eval_idx + [self.dec_score_head[self.eval_idx]]
         )
         self.dec_bbox_head = nn.ModuleList(
-            [self.dec_bbox_head[i] if i <= self.eval_idx else nn.Identity()
-             for i in range(len(self.dec_bbox_head))]
+            [
+                self.dec_bbox_head[i] if i <= self.eval_idx else nn.Identity()
+                for i in range(len(self.dec_bbox_head))
+            ]
         )
 
     def _reset_parameters(self, feat_channels):
@@ -490,10 +621,19 @@ class ECTransformer(nn.Module):
                 self.input_proj.append(nn.Identity())
             else:
                 self.input_proj.append(
-                    nn.Sequential(OrderedDict([
-                        ("conv", nn.Conv2d(in_channels, self.hidden_dim, 1, bias=False)),
-                        ("norm", nn.BatchNorm2d(self.hidden_dim)),
-                    ]))
+                    nn.Sequential(
+                        OrderedDict(
+                            [
+                                (
+                                    "conv",
+                                    nn.Conv2d(
+                                        in_channels, self.hidden_dim, 1, bias=False
+                                    ),
+                                ),
+                                ("norm", nn.BatchNorm2d(self.hidden_dim)),
+                            ]
+                        )
+                    )
                 )
         in_channels = feat_channels[-1]
         for _ in range(self.num_levels - len(feat_channels)):
@@ -501,10 +641,24 @@ class ECTransformer(nn.Module):
                 self.input_proj.append(nn.Identity())
             else:
                 self.input_proj.append(
-                    nn.Sequential(OrderedDict([
-                        ("conv", nn.Conv2d(in_channels, self.hidden_dim, 3, 2, padding=1, bias=False)),
-                        ("norm", nn.BatchNorm2d(self.hidden_dim)),
-                    ]))
+                    nn.Sequential(
+                        OrderedDict(
+                            [
+                                (
+                                    "conv",
+                                    nn.Conv2d(
+                                        in_channels,
+                                        self.hidden_dim,
+                                        3,
+                                        2,
+                                        padding=1,
+                                        bias=False,
+                                    ),
+                                ),
+                                ("norm", nn.BatchNorm2d(self.hidden_dim)),
+                            ]
+                        )
+                    )
                 )
                 in_channels = self.hidden_dim
 
@@ -513,7 +667,9 @@ class ECTransformer(nn.Module):
         if self.num_levels > len(proj_feats):
             len_srcs = len(proj_feats)
             for i in range(len_srcs, self.num_levels):
-                proj_feats.append(self.input_proj[i](feats[-1] if i == len_srcs else proj_feats[-1]))
+                proj_feats.append(
+                    self.input_proj[i](feats[-1] if i == len_srcs else proj_feats[-1])
+                )
 
         feat_flatten = []
         spatial_shapes = []
@@ -523,8 +679,9 @@ class ECTransformer(nn.Module):
             spatial_shapes.append([h, w])
         return torch.concat(feat_flatten, 1), spatial_shapes
 
-    def _generate_anchors(self, spatial_shapes=None, grid_size=0.05,
-                          dtype=torch.float32, device="cpu"):
+    def _generate_anchors(
+        self, spatial_shapes=None, grid_size=0.05, dtype=torch.float32, device="cpu"
+    ):
         if spatial_shapes is None:
             spatial_shapes = []
             eval_h, eval_w = self.eval_spatial_size
@@ -533,21 +690,28 @@ class ECTransformer(nn.Module):
 
         anchors = []
         for lvl, (h, w) in enumerate(spatial_shapes):
-            grid_y, grid_x = torch.meshgrid(torch.arange(h), torch.arange(w), indexing="ij")
+            grid_y, grid_x = torch.meshgrid(
+                torch.arange(h), torch.arange(w), indexing="ij"
+            )
             grid_xy = torch.stack([grid_x, grid_y], dim=-1)
             grid_xy = (grid_xy.unsqueeze(0) + 0.5) / torch.tensor([w, h], dtype=dtype)
-            wh = torch.ones_like(grid_xy) * grid_size * (2.0 ** lvl)
+            wh = torch.ones_like(grid_xy) * grid_size * (2.0**lvl)
             anchors.append(torch.concat([grid_xy, wh], dim=-1).reshape(-1, h * w, 4))
 
         anchors = torch.concat(anchors, dim=1).to(device)
-        valid_mask = ((anchors > self.eps) * (anchors < 1 - self.eps)).all(-1, keepdim=True)
+        valid_mask = ((anchors > self.eps) * (anchors < 1 - self.eps)).all(
+            -1, keepdim=True
+        )
         anchors = torch.log(anchors / (1 - anchors))
         return torch.where(valid_mask, anchors, torch.inf), valid_mask
 
-    def _get_decoder_input(self, memory, spatial_shapes,
-                           denoising_logits=None, denoising_bbox_unact=None):
+    def _get_decoder_input(
+        self, memory, spatial_shapes, denoising_logits=None, denoising_bbox_unact=None
+    ):
         if self.training or self.eval_spatial_size is None:
-            anchors, valid_mask = self._generate_anchors(spatial_shapes, device=memory.device)
+            anchors, valid_mask = self._generate_anchors(
+                spatial_shapes, device=memory.device
+            )
         else:
             anchors = self.anchors
             valid_mask = self.valid_mask
@@ -575,7 +739,9 @@ class ECTransformer(nn.Module):
 
         enc_topk_bbox_unact = enc_topk_bbox_unact.detach()
         if denoising_bbox_unact is not None:
-            enc_topk_bbox_unact = torch.concat([denoising_bbox_unact, enc_topk_bbox_unact], dim=1)
+            enc_topk_bbox_unact = torch.concat(
+                [denoising_bbox_unact, enc_topk_bbox_unact], dim=1
+            )
             content = torch.concat([denoising_logits, content], dim=1)
 
         return content, enc_topk_bbox_unact, enc_topk_bboxes_list, enc_topk_logits_list
@@ -590,11 +756,16 @@ class ECTransformer(nn.Module):
             _, topk_ind = torch.topk(outputs_logits.squeeze(-1), topk, dim=-1)
 
         topk_anchors = outputs_anchors_unact.gather(
-            dim=1, index=topk_ind.unsqueeze(-1).repeat(1, 1, outputs_anchors_unact.shape[-1])
+            dim=1,
+            index=topk_ind.unsqueeze(-1).repeat(1, 1, outputs_anchors_unact.shape[-1]),
         )
         topk_logits = (
-            outputs_logits.gather(dim=1, index=topk_ind.unsqueeze(-1).repeat(1, 1, outputs_logits.shape[-1]))
-            if self.training else None
+            outputs_logits.gather(
+                dim=1,
+                index=topk_ind.unsqueeze(-1).repeat(1, 1, outputs_logits.shape[-1]),
+            )
+            if self.training
+            else None
         )
         topk_memory = memory.gather(
             dim=1, index=topk_ind.unsqueeze(-1).repeat(1, 1, memory.shape[-1])
@@ -608,22 +779,35 @@ class ECTransformer(nn.Module):
     @staticmethod
     @torch.jit.unused
     def _set_aux_loss(outputs_class, outputs_coord):
-        return [{"pred_logits": a, "pred_boxes": b} for a, b in zip(outputs_class, outputs_coord)]
+        return [
+            {"pred_logits": a, "pred_boxes": b}
+            for a, b in zip(outputs_class, outputs_coord)
+        ]
 
     @staticmethod
     @torch.jit.unused
-    def _set_aux_loss2(outputs_class, outputs_coord, outputs_corners, outputs_ref,
-                      teacher_corners=None, teacher_logits=None):
+    def _set_aux_loss2(
+        outputs_class,
+        outputs_coord,
+        outputs_corners,
+        outputs_ref,
+        teacher_corners=None,
+        teacher_logits=None,
+    ):
         results = []
-        for c, b, corners, ref in zip(outputs_class, outputs_coord, outputs_corners, outputs_ref):
-            results.append({
-                "pred_logits": c,
-                "pred_boxes": b,
-                "pred_corners": corners,
-                "ref_points": ref,
-                "teacher_corners": teacher_corners,
-                "teacher_logits": teacher_logits,
-            })
+        for c, b, corners, ref in zip(
+            outputs_class, outputs_coord, outputs_corners, outputs_ref
+        ):
+            results.append(
+                {
+                    "pred_logits": c,
+                    "pred_boxes": b,
+                    "pred_corners": corners,
+                    "ref_points": ref,
+                    "teacher_corners": teacher_corners,
+                    "teacher_logits": teacher_logits,
+                }
+            )
         return results
 
     def forward(self, feats, targets=None):
@@ -642,7 +826,12 @@ class ECTransformer(nn.Module):
                 )
             )
         else:
-            denoising_logits, denoising_bbox_unact, attn_mask, dn_meta = None, None, None, None
+            denoising_logits, denoising_bbox_unact, attn_mask, dn_meta = (
+                None,
+                None,
+                None,
+                None,
+            )
 
         (
             init_ref_contents,
@@ -653,11 +842,21 @@ class ECTransformer(nn.Module):
             memory, spatial_shapes, denoising_logits, denoising_bbox_unact
         )
 
-        out_bboxes, out_logits, out_corners, out_refs, pre_bboxes, pre_scores = self.decoder(
-            init_ref_contents, init_ref_points_unact, memory, spatial_shapes,
-            self.dec_bbox_head, self.dec_score_head, self.query_pos_head,
-            self.pre_bbox_head, self.integral, self.up, self.reg_scale,
-            attn_mask=attn_mask,
+        out_bboxes, out_logits, out_corners, out_refs, pre_bboxes, pre_scores = (
+            self.decoder(
+                init_ref_contents,
+                init_ref_points_unact,
+                memory,
+                spatial_shapes,
+                self.dec_bbox_head,
+                self.dec_score_head,
+                self.query_pos_head,
+                self.pre_bbox_head,
+                self.integral,
+                self.up,
+                self.reg_scale,
+                attn_mask=attn_mask,
+            )
         )
 
         # Split DN vs non-DN halves of every per-layer output.
@@ -684,19 +883,32 @@ class ECTransformer(nn.Module):
 
         if self.aux_loss:
             out["aux_outputs"] = self._set_aux_loss2(
-                out_logits[:-1], out_bboxes[:-1], out_corners[:-1], out_refs[:-1],
-                out_corners[-1], out_logits[-1],
+                out_logits[:-1],
+                out_bboxes[:-1],
+                out_corners[:-1],
+                out_refs[:-1],
+                out_corners[-1],
+                out_logits[-1],
             )
-            out["enc_aux_outputs"] = self._set_aux_loss(enc_topk_logits_list, enc_topk_bboxes_list)
+            out["enc_aux_outputs"] = self._set_aux_loss(
+                enc_topk_logits_list, enc_topk_bboxes_list
+            )
             out["pre_outputs"] = {"pred_logits": pre_scores, "pred_boxes": pre_bboxes}
             out["enc_meta"] = {"class_agnostic": self.query_select_method == "agnostic"}
 
             if dn_meta is not None:
                 out["dn_outputs"] = self._set_aux_loss2(
-                    dn_out_logits, dn_out_bboxes, dn_out_corners, dn_out_refs,
-                    dn_out_corners[-1], dn_out_logits[-1],
+                    dn_out_logits,
+                    dn_out_bboxes,
+                    dn_out_corners,
+                    dn_out_refs,
+                    dn_out_corners[-1],
+                    dn_out_logits[-1],
                 )
-                out["dn_pre_outputs"] = {"pred_logits": dn_pre_logits, "pred_boxes": dn_pre_bboxes}
+                out["dn_pre_outputs"] = {
+                    "pred_logits": dn_pre_logits,
+                    "pred_boxes": dn_pre_bboxes,
+                }
                 out["dn_meta"] = dn_meta
 
         return out

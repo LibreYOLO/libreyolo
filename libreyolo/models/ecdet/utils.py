@@ -60,20 +60,28 @@ def deformable_attention_core_func_v2(
 
         if method == "default":
             sampling_value_l = F.grid_sample(
-                value_l, sampling_grid_l, mode="bilinear", padding_mode="zeros", align_corners=False
+                value_l,
+                sampling_grid_l,
+                mode="bilinear",
+                padding_mode="zeros",
+                align_corners=False,
             )
         elif method == "discrete":
             sampling_coord = (
                 sampling_grid_l * torch.tensor([[w, h]], device=value_l.device) + 0.5
             ).to(torch.int64)
             sampling_coord = sampling_coord.clamp(0, h - 1)
-            sampling_coord = sampling_coord.reshape(bs * n_head, Len_q * num_points_list[level], 2)
+            sampling_coord = sampling_coord.reshape(
+                bs * n_head, Len_q * num_points_list[level], 2
+            )
             s_idx = (
                 torch.arange(sampling_coord.shape[0], device=value_l.device)
                 .unsqueeze(-1)
                 .repeat(1, sampling_coord.shape[1])
             )
-            sampling_value_l = value_l[s_idx, :, sampling_coord[..., 1], sampling_coord[..., 0]]
+            sampling_value_l = value_l[
+                s_idx, :, sampling_coord[..., 1], sampling_coord[..., 0]
+            ]
             sampling_value_l = sampling_value_l.permute(0, 2, 1).reshape(
                 bs * n_head, c, Len_q, num_points_list[level]
             )
@@ -93,7 +101,7 @@ def weighting_function(reg_max: int, up: torch.Tensor, reg_scale, deploy: bool =
         upper_bound1 = (abs(up[0]) * abs(reg_scale)).item()
         upper_bound2 = (abs(up[0]) * abs(reg_scale) * 2).item()
         step = (upper_bound1 + 1) ** (2 / (reg_max - 2))
-        left_values = [-(step) ** i + 1 for i in range(reg_max // 2 - 1, 0, -1)]
+        left_values = [-((step) ** i) + 1 for i in range(reg_max // 2 - 1, 0, -1)]
         right_values = [(step) ** i - 1 for i in range(1, reg_max // 2)]
         values = (
             [-upper_bound2]
@@ -107,7 +115,7 @@ def weighting_function(reg_max: int, up: torch.Tensor, reg_scale, deploy: bool =
         upper_bound1 = abs(up[0]) * abs(reg_scale)
         upper_bound2 = abs(up[0]) * abs(reg_scale) * 2
         step = (upper_bound1 + 1) ** (2 / (reg_max - 2))
-        left_values = [-(step) ** i + 1 for i in range(reg_max // 2 - 1, 0, -1)]
+        left_values = [-((step) ** i) + 1 for i in range(reg_max // 2 - 1, 0, -1)]
         right_values = [(step) ** i - 1 for i in range(1, reg_max // 2)]
         values = (
             [-upper_bound2]
@@ -119,12 +127,22 @@ def weighting_function(reg_max: int, up: torch.Tensor, reg_scale, deploy: bool =
         return torch.cat(values, 0)
 
 
-def distance2bbox(points: torch.Tensor, distance: torch.Tensor, reg_scale) -> torch.Tensor:
+def distance2bbox(
+    points: torch.Tensor, distance: torch.Tensor, reg_scale
+) -> torch.Tensor:
     reg_scale = abs(reg_scale)
-    x1 = points[..., 0] - (0.5 * reg_scale + distance[..., 0]) * (points[..., 2] / reg_scale)
-    y1 = points[..., 1] - (0.5 * reg_scale + distance[..., 1]) * (points[..., 3] / reg_scale)
-    x2 = points[..., 0] + (0.5 * reg_scale + distance[..., 2]) * (points[..., 2] / reg_scale)
-    y2 = points[..., 1] + (0.5 * reg_scale + distance[..., 3]) * (points[..., 3] / reg_scale)
+    x1 = points[..., 0] - (0.5 * reg_scale + distance[..., 0]) * (
+        points[..., 2] / reg_scale
+    )
+    y1 = points[..., 1] - (0.5 * reg_scale + distance[..., 1]) * (
+        points[..., 3] / reg_scale
+    )
+    x2 = points[..., 0] + (0.5 * reg_scale + distance[..., 2]) * (
+        points[..., 2] / reg_scale
+    )
+    y2 = points[..., 1] + (0.5 * reg_scale + distance[..., 3]) * (
+        points[..., 3] / reg_scale
+    )
     return box_xyxy_to_cxcywh(torch.stack([x1, y1, x2, y2], -1))
 
 

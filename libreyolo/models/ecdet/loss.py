@@ -59,7 +59,9 @@ class ECCriterion(DFINECriterion):
             ious = values
 
         src_logits = outputs["pred_logits"]
-        target_classes_o = torch.cat([t["labels"][J] for t, (_, J) in zip(targets, indices)])
+        target_classes_o = torch.cat(
+            [t["labels"][J] for t, (_, J) in zip(targets, indices)]
+        )
         target_classes = torch.full(
             src_logits.shape[:2],
             self.num_classes,

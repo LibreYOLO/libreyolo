@@ -139,11 +139,7 @@ class BaseExporter(ABC):
             # which requires opset 16+. Default the rest of the families to
             # 13 to preserve compatibility with the broadest set of ONNX
             # runtimes.
-            opset = (
-                17
-                if self.model._get_model_name() in ("dfine", "ecdet")
-                else 13
-            )
+            opset = 17 if self.model._get_model_name() in ("dfine", "ecdet") else 13
 
         imgsz, device, output_path = self._resolve_params(
             output_path,

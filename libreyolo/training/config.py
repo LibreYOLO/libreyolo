@@ -224,7 +224,9 @@ class ECDetConfig(TrainConfig):
     # ECDet-specific knobs.
     backbone_lr_mult: float = 0.05  # 2.5e-5 / 5e-4 ≈ 0.05 for S/M; L/X use 0.01
     clip_max_norm: float = 0.1
-    multi_scale: bool = False  # upstream uses fixed 640; multi-scale not in their config
+    multi_scale: bool = (
+        False  # upstream uses fixed 640; multi-scale not in their config
+    )
     aug_stop_epoch_ratio: float = 0.97  # stop_epoch=72 with epochs=74 → 72/74
 
     amp: bool = True

@@ -5,12 +5,12 @@ from __future__ import annotations
 import pytest
 import torch
 
-pytestmark = pytest.mark.unit
-
 from libreyolo.models.ecdet.backbone import ViTAdapter
 from libreyolo.models.ecdet.decoder import ECTransformer
 from libreyolo.models.ecdet.encoder import HybridEncoder
 from libreyolo.models.ecdet.nn import SIZE_CONFIGS
+
+pytestmark = pytest.mark.unit
 
 
 @pytest.mark.parametrize("size", ["s", "m", "l", "x"])

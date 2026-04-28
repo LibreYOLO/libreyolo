@@ -15,7 +15,10 @@ import torch
 
 pytestmark = pytest.mark.unit
 
-if importlib.util.find_spec("onnx") is None or importlib.util.find_spec("onnxruntime") is None:
+if (
+    importlib.util.find_spec("onnx") is None
+    or importlib.util.find_spec("onnxruntime") is None
+):
     pytest.skip("onnx/onnxruntime not installed", allow_module_level=True)
 
 
@@ -93,7 +96,9 @@ def test_ecdet_onnx_backend_predict(tmp_path):
 
     pt = LibreYOLO(str(CKPT_PATH), device="cpu")
     onnx_path = tmp_path / "LibreECDetS.onnx"
-    pt.export("onnx", output_path=str(onnx_path), simplify=False, dynamic=False, opset=17)
+    pt.export(
+        "onnx", output_path=str(onnx_path), simplify=False, dynamic=False, opset=17
+    )
 
     ox = LibreYOLO(str(onnx_path), nb_classes=80)
     assert ox.model_family == "ecdet"
@@ -103,7 +108,11 @@ def test_ecdet_onnx_backend_predict(tmp_path):
 
     assert len(pt_r.boxes) == len(ox_r.boxes), (len(pt_r.boxes), len(ox_r.boxes))
 
-    pt_top = sorted([float(pt_r.boxes.conf[i].item()) for i in range(len(pt_r.boxes))], reverse=True)
-    ox_top = sorted([float(ox_r.boxes.conf[i].item()) for i in range(len(ox_r.boxes))], reverse=True)
+    pt_top = sorted(
+        [float(pt_r.boxes.conf[i].item()) for i in range(len(pt_r.boxes))], reverse=True
+    )
+    ox_top = sorted(
+        [float(ox_r.boxes.conf[i].item()) for i in range(len(ox_r.boxes))], reverse=True
+    )
     for p, o in zip(pt_top, ox_top):
         assert abs(p - o) < 1e-4, f"conf drift {abs(p - o):.2e}"

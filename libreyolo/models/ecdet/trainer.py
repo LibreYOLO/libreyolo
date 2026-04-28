@@ -58,6 +58,7 @@ class ECDetTrainer(DFINETrainer):
         if device.type == "mps":
             os.environ.setdefault("PYTORCH_ENABLE_MPS_FALLBACK", "1")
             import logging
+
             logging.getLogger(__name__).info(
                 "ECDet training on MPS: enabling PYTORCH_ENABLE_MPS_FALLBACK=1 "
                 "(deformable attention's grid_sample backward runs on CPU)."
@@ -134,7 +135,9 @@ class ECDetTrainer(DFINETrainer):
                 target_list.append(
                     {
                         "labels": torch.zeros(0, dtype=torch.int64, device=self.device),
-                        "boxes": torch.zeros(0, 4, dtype=torch.float32, device=self.device),
+                        "boxes": torch.zeros(
+                            0, 4, dtype=torch.float32, device=self.device
+                        ),
                     }
                 )
             else:

@@ -32,8 +32,12 @@ def test_imagenet_norm_applied_when_flag_true():
     img_bgr = rng.integers(0, 255, (480, 640, 3), dtype=np.uint8)
     targets = np.zeros((0, 5), dtype=np.float32)
 
-    plain = DFINETrainTransform(strong_augs=False, flip_prob=0.0, imgsz=640, imagenet_norm=False)
-    norm = DFINETrainTransform(strong_augs=False, flip_prob=0.0, imgsz=640, imagenet_norm=True)
+    plain = DFINETrainTransform(
+        strong_augs=False, flip_prob=0.0, imgsz=640, imagenet_norm=False
+    )
+    norm = DFINETrainTransform(
+        strong_augs=False, flip_prob=0.0, imgsz=640, imagenet_norm=True
+    )
 
     img_p, _ = plain(img_bgr, targets, (640, 640))
     img_n, _ = norm(img_bgr, targets, (640, 640))
@@ -44,9 +48,14 @@ def test_imagenet_norm_applied_when_flag_true():
 
     # Normalized output: per-channel mean = (0.5 - imagenet_mean) / imagenet_std.
     # For uniform-random input this is roughly [+0.07, +0.20, +0.42].
-    expected_mean = (0.5 - np.array([0.485, 0.456, 0.406])) / np.array([0.229, 0.224, 0.225])
+    expected_mean = (0.5 - np.array([0.485, 0.456, 0.406])) / np.array(
+        [0.229, 0.224, 0.225]
+    )
     actual_mean = img_n.mean(axis=(1, 2))
-    assert np.allclose(actual_mean, expected_mean, atol=0.05), (actual_mean, expected_mean)
+    assert np.allclose(actual_mean, expected_mean, atol=0.05), (
+        actual_mean,
+        expected_mean,
+    )
     # And the std rises from ~0.29 (uniform [0,1]) to ~1.27 (after dividing by ~0.22).
     assert img_n.std() > 1.0, f"normalized std is {img_n.std():.3f}, expected > 1.0"
 
@@ -83,9 +92,7 @@ def test_in_proj_bias_in_no_wd_group():
             wd.append(name)
 
     misclassified = [n for n in in_proj_bias_params if n in wd]
-    assert not misclassified, (
-        f"in_proj_bias params got weight decay: {misclassified}"
-    )
+    assert not misclassified, f"in_proj_bias params got weight decay: {misclassified}"
     assert all(n in no_wd for n in in_proj_bias_params)
 
 
