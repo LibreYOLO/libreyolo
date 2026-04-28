@@ -36,6 +36,14 @@ from pathlib import Path
 
 import torch
 
+from _conversion_utils import (
+    add_repo_root_to_path,
+    extract_state_dict,
+    load_checkpoint,
+    repo_root,
+    save_checkpoint,
+)
+
 
 SOURCES = {
     "l": {
@@ -98,8 +106,7 @@ def remap_key(k: str) -> str:
 def convert(src_path: Path, dst_path: Path) -> dict:
     """Load lyuwenyu v2 ckpt, remap keys, save as LibreYOLO state_dict."""
     print(f"Loading {src_path} ...")
-    ckpt = torch.load(src_path, map_location="cpu", weights_only=False)
-    sd_v2 = ckpt["ema"]["module"]
+    sd_v2 = extract_state_dict(load_checkpoint(src_path))
 
     out = {}
     dropped = []
@@ -115,14 +122,14 @@ def convert(src_path: Path, dst_path: Path) -> dict:
     for k in dropped:
         print(f"    drop: {k}")
 
-    dst_path.parent.mkdir(parents=True, exist_ok=True)
-    torch.save(out, dst_path)
+    save_checkpoint(out, dst_path)
     print(f"  saved -> {dst_path}")
     return out
 
 
 def verify(state_dict: dict, size: str) -> None:
     """Round-trip: load state_dict into a LibreYOLO RTDETR model strict=True."""
+    add_repo_root_to_path()
     from libreyolo.models.rtdetr.model import RTDETR_CONFIGS, LibreYOLORTDETR
 
     RTDETR_CONFIGS[size]["backbone_pretrained"] = False
@@ -149,13 +156,12 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    repo_root = Path(__file__).resolve().parent.parent
     for size in args.sizes:
         if size not in SOURCES:
             raise SystemExit(f"unknown size {size!r}; valid: {list(SOURCES)}")
         cfg = SOURCES[size]
-        src = repo_root / cfg["src"]
-        dst = repo_root / cfg["dst"]
+        src = repo_root() / cfg["src"]
+        dst = repo_root() / cfg["dst"]
         if not src.exists():
             raise SystemExit(f"missing source {src}; download from {cfg['url']} first")
         print(f"\n=== Converting RT-DETR HGNetv2-{size.upper()} ===")
