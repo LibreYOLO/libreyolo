@@ -53,10 +53,10 @@ def upsert_csv(path: Path, key_fields: list[str], rows: list[dict]) -> None:
 
     all_rows = list(existing.values())
     all_fields = sorted({f for row in all_rows for f in row.keys()})
-    preferred = key_fields + [
+    preferred = list(dict.fromkeys(key_fields + [
         "count", "uniques", "referrer", "path", "title",
         "snapshot_date", "collected_at",
-    ]
+    ]))
     fieldnames = [f for f in preferred if f in all_fields] + [
         f for f in all_fields if f not in preferred
     ]
