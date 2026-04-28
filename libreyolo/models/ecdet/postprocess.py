@@ -1,4 +1,4 @@
-"""LibreECDet preprocessing and postprocessing helpers.
+"""LibreECDET preprocessing and postprocessing helpers.
 
 ECDet's input pipeline is identical to D-FINE's: square resize to 640, no
 letterbox, divide by 255, no ImageNet normalization. Output postprocessing is

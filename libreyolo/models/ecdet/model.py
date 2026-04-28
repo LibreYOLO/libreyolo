@@ -1,4 +1,4 @@
-"""LibreECDet — BaseModel wrapper for the ECDet (EdgeCrafter detection) family."""
+"""LibreECDET — BaseModel wrapper for the ECDet (EdgeCrafter detection) family."""
 
 from __future__ import annotations
 
@@ -11,15 +11,15 @@ import torch.nn as nn
 from ...utils.image_loader import ImageInput
 from ...validation.preprocessors import ECDetValPreprocessor
 from ..base import BaseModel
-from .nn import LibreECDetModel
+from .nn import LibreECDETModel
 from .postprocess import postprocess, preprocess_image, unwrap_ecdet_checkpoint
 
 
-class LibreECDet(BaseModel):
+class LibreECDET(BaseModel):
     """LibreYOLO wrapper for EdgeCrafter ECDet."""
 
     FAMILY = "ecdet"
-    FILENAME_PREFIX = "LibreECDet"
+    FILENAME_PREFIX = "LibreECDET"
     INPUT_SIZES = {"s": 640, "m": 640, "l": 640, "x": 640}
     val_preprocessor_class = ECDetValPreprocessor
 
@@ -94,7 +94,7 @@ class LibreECDet(BaseModel):
             self._load_weights(model_path)
 
     def _init_model(self) -> nn.Module:
-        return LibreECDetModel(
+        return LibreECDETModel(
             config=self.size,
             nb_classes=self.nb_classes,
             eval_spatial_size=(self.input_size, self.input_size),

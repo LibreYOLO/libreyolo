@@ -24,10 +24,10 @@ if (
 
 def test_ecdet_export_wrapper_returns_tuple():
     """Trace-friendly wrapper must return a 2-tuple, not a dict."""
-    from libreyolo import LibreECDet
+    from libreyolo import LibreECDET
     from libreyolo.models.ecdet.nn import ECDetExportWrapper
 
-    wrapper = LibreECDet(None, size="s", device="cpu")
+    wrapper = LibreECDET(None, size="s", device="cpu")
     exp = ECDetExportWrapper(wrapper.model)
     exp.eval()
     with torch.no_grad():
@@ -38,7 +38,7 @@ def test_ecdet_export_wrapper_returns_tuple():
     assert pred_boxes.shape == (1, 300, 4)
 
 
-CKPT_PATH = Path("weights/LibreECDetS.pt")
+CKPT_PATH = Path("weights/LibreECDETs.pt")
 
 
 @pytest.mark.skipif(not CKPT_PATH.exists(), reason=f"{CKPT_PATH} not present")
@@ -47,11 +47,11 @@ def test_ecdet_onnx_export_s_roundtrip(tmp_path):
     import onnx
     import onnxruntime as ort
 
-    from libreyolo import LibreECDet
+    from libreyolo import LibreECDET
     from libreyolo.models.ecdet.postprocess import preprocess_numpy
 
-    m = LibreECDet(str(CKPT_PATH), size="s", device="cpu")
-    out_path = tmp_path / "LibreECDetS.onnx"
+    m = LibreECDET(str(CKPT_PATH), size="s", device="cpu")
+    out_path = tmp_path / "LibreECDETs.onnx"
     m.export("onnx", output_path=str(out_path), simplify=False, dynamic=False, opset=17)
 
     # Graph inspection
@@ -95,7 +95,7 @@ def test_ecdet_onnx_backend_predict(tmp_path):
     from libreyolo import LibreYOLO, SAMPLE_IMAGE
 
     pt = LibreYOLO(str(CKPT_PATH), device="cpu")
-    onnx_path = tmp_path / "LibreECDetS.onnx"
+    onnx_path = tmp_path / "LibreECDETs.onnx"
     pt.export(
         "onnx", output_path=str(onnx_path), simplify=False, dynamic=False, opset=17
     )

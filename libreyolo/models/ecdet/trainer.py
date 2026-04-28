@@ -10,7 +10,7 @@ diverges from D-FINE's:
 * ``get_model_family`` / ``get_model_tag`` / ``_config_class`` updated.
 
 Training has not been validated on a real fine-tune run; this is shipped
-behind an explicit ``allow_experimental`` gate on ``LibreECDet.train()``.
+behind an explicit ``allow_experimental`` gate on ``LibreECDET.train()``.
 """
 
 from __future__ import annotations

@@ -4,16 +4,16 @@ Upstream releases ship as ``{"model": state_dict}``. LibreYOLO checkpoints add
 metadata (``model_family``, ``nc``, ``size``, ``names``) so the unified
 ``LibreYOLO()`` factory can route without filename heuristics.
 
-ECDet's module names already match the LibreECDet port byte-for-byte, so this
+ECDet's module names already match the LibreECDET port byte-for-byte, so this
 is a metadata wrap — no key remapping required.
 
 Usage:
-    python weights/convert_ecdet_weights.py downloads/ec_weights/ecdet_s.pth weights/LibreECDetS.pt --size s
-    python weights/convert_ecdet_weights.py downloads/ec_weights/ecdet_m.pth weights/LibreECDetM.pt --size m
-    python weights/convert_ecdet_weights.py downloads/ec_weights/ecdet_l.pth weights/LibreECDetL.pt --size l
-    python weights/convert_ecdet_weights.py downloads/ec_weights/ecdet_x.pth weights/LibreECDetX.pt --size x
+    python weights/convert_ecdet_weights.py downloads/ec_weights/ecdet_s.pth weights/LibreECDETs.pt --size s
+    python weights/convert_ecdet_weights.py downloads/ec_weights/ecdet_m.pth weights/LibreECDETm.pt --size m
+    python weights/convert_ecdet_weights.py downloads/ec_weights/ecdet_l.pth weights/LibreECDETl.pt --size l
+    python weights/convert_ecdet_weights.py downloads/ec_weights/ecdet_x.pth weights/LibreECDETx.pt --size x
 
-Add ``--verify`` to load the converted weights into a LibreECDet wrapper and
+Add ``--verify`` to load the converted weights into a LibreECDET wrapper and
 run a smoke forward pass.
 """
 
@@ -72,10 +72,10 @@ def convert_weights(input_path: str, output_path: str, size: str, nc: int = 80) 
 
 def verify_conversion(converted_path: str, size: str) -> bool:
     sys.path.insert(0, str(Path(__file__).parent.parent))
-    from libreyolo import LibreECDet
+    from libreyolo import LibreECDET
 
-    print(f"\nLoading converted weights into LibreECDet-{size}...")
-    m = LibreECDet(converted_path, size=size, device="cpu")
+    print(f"\nLoading converted weights into LibreECDET-{size}...")
+    m = LibreECDET(converted_path, size=size, device="cpu")
     print(f"  family={m.FAMILY} size={m.size} nc={m.nb_classes}")
 
     m.model.eval()

@@ -10,7 +10,7 @@ from .models import (
     LibreYOLO9,
     LibreYOLONAS,
     LibreDFINE,
-    LibreECDet,
+    LibreECDET,
     LibreYOLORTDETR,
 )
 from .utils.results import Results, Boxes, Masks
@@ -63,7 +63,7 @@ __all__ = [
     "LibreYOLORTDETR",
     "LibreYOLORFDETR",
     "LibreDFINE",
-    "LibreECDet",
+    "LibreECDET",
     # Results
     "Results",
     "Boxes",

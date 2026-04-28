@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 # backbone keys ("backbone.backbone.register_token") are uniquely identifying,
 # so register it before YOLOX which matches the broader "backbone.backbone"
 # prefix (skill landmine §9.3).
-from .ecdet.model import LibreECDet  # noqa: E402
+from .ecdet.model import LibreECDET  # noqa: E402
 from .yolox.model import LibreYOLOX  # noqa: E402
 from .yolo9.model import LibreYOLO9  # noqa: E402
 from .yolonas.model import LibreYOLONAS  # noqa: E402
@@ -337,7 +337,7 @@ __all__ = [
     "LibreYOLO9",
     "LibreYOLONAS",
     "LibreDFINE",
-    "LibreECDet",
+    "LibreECDET",
     "LibreYOLORTDETR",
     "try_ensure_rfdetr",
 ]
