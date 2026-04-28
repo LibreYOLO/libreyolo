@@ -135,10 +135,11 @@ class BaseExporter(ABC):
         half, int8 = self._validate(half, int8, data)
 
         if opset is None:
-            # D-FINE uses ``F.grid_sample`` (deformable attention) which
-            # requires opset 16+. Default the rest of the families to 13 to
-            # preserve compatibility with the broadest set of ONNX runtimes.
-            opset = 17 if self.model._get_model_name() == "dfine" else 13
+            # D-FINE and ECDet use ``F.grid_sample`` (deformable attention)
+            # which requires opset 16+. Default the rest of the families to
+            # 13 to preserve compatibility with the broadest set of ONNX
+            # runtimes.
+            opset = 17 if self.model._get_model_name() in ("dfine", "ecdet") else 13
 
         imgsz, device, output_path = self._resolve_params(
             output_path,
@@ -270,16 +271,24 @@ class BaseExporter(ABC):
         original_device = next(nn_model.parameters()).device
         nn_model.to(device)
 
-        # D-FINE export mode: wrap model so it returns a tuple instead of dict
-        # and apply ``model.deploy()`` (BN fusion + prune non-eval decoder layers).
-        # The wrapper is what gets traced; the original model is restored on exit.
+        # DETR-family export mode: wrap model so it returns a tuple instead
+        # of dict and apply ``model.deploy()`` (BN fusion + prune non-eval
+        # decoder layers). The wrapper is what gets traced; the original
+        # model is restored on exit.
         dfine_wrapped = False
-        if self.model._get_model_name() == "dfine":
+        family = self.model._get_model_name()
+        if family == "dfine":
             from ..models.dfine.nn import DFINEExportWrapper
 
             nn_model = DFINEExportWrapper(nn_model).to(device)
             nn_model.eval()
             dfine_wrapped = True
+        elif family == "ecdet":
+            from ..models.ecdet.nn import ECDetExportWrapper
+
+            nn_model = ECDetExportWrapper(nn_model).to(device)
+            nn_model.eval()
+            dfine_wrapped = True  # share the YOLOX-head-export skip path below
 
         # Set export mode for YOLOX/YOLOv9 heads
         original_export = None
@@ -593,7 +602,11 @@ class NcnnExporter(BaseExporter):
         # NCNN can't handle DETR-style query selection: its op registry doesn't
         # include the topk/gather variants used by D-FINE and RT-DETR decoders.
         # Block early rather than producing a broken export directory.
-        unsupported_family_names = {"dfine": "D-FINE", "rtdetr": "RT-DETR"}
+        unsupported_family_names = {
+            "dfine": "D-FINE",
+            "rtdetr": "RT-DETR",
+            "ecdet": "ECDet",
+        }
         model_family = metadata.get("model_family") if metadata else None
         if model_family in unsupported_family_names:
             raise NotImplementedError(

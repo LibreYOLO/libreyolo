@@ -54,6 +54,7 @@ def pytest_configure(config):
         "markers", "rfdetr: tests covering the RF-DETR model family"
     )
     config.addinivalue_line("markers", "dfine: tests covering the D-FINE model family")
+    config.addinivalue_line("markers", "ecdet: tests covering the ECDet model family")
     config.addinivalue_line(
         "markers", "rtdetr: tests covering the RT-DETR model family"
     )
@@ -413,6 +414,10 @@ MODEL_CATALOG = [
     ("dfine", "m", "LibreDFINEm.pt"),
     ("dfine", "l", "LibreDFINEl.pt"),
     ("dfine", "x", "LibreDFINEx.pt"),
+    ("ecdet", "s", "LibreECDETs.pt"),
+    ("ecdet", "m", "LibreECDETm.pt"),
+    ("ecdet", "l", "LibreECDETl.pt"),
+    ("ecdet", "x", "LibreECDETx.pt"),
     ("rtdetr", "r18", "LibreRTDETRr18.pt"),
     ("rtdetr", "r34", "LibreRTDETRr34.pt"),
     ("rtdetr", "r50", "LibreRTDETRr50.pt"),
@@ -426,6 +431,7 @@ YOLO9_SIZES = [s for f, s, _ in MODEL_CATALOG if f == "yolo9"]
 YOLONAS_SIZES = [s for f, s, _ in MODEL_CATALOG if f == "yolonas"]
 RFDETR_SIZES = [s for f, s, _ in MODEL_CATALOG if f == "rfdetr"]
 DFINE_SIZES = [s for f, s, _ in MODEL_CATALOG if f == "dfine"]
+ECDET_SIZES = [s for f, s, _ in MODEL_CATALOG if f == "ecdet"]
 RTDETR_SIZES = [s for f, s, _ in MODEL_CATALOG if f == "rtdetr"]
 
 ALL_MODELS = [(f, s) for f, s, _ in MODEL_CATALOG]
@@ -450,6 +456,7 @@ FAMILY_MARKERS = {
     "yolonas": pytest.mark.yolonas,
     "rfdetr": pytest.mark.rfdetr,
     "dfine": pytest.mark.dfine,
+    "ecdet": pytest.mark.ecdet,
     "rtdetr": pytest.mark.rtdetr,
 }
 
