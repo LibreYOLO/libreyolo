@@ -20,7 +20,7 @@ import torch
 
 pytestmark = pytest.mark.unit
 
-CKPT_PATH = Path("weights/LibreECDetS.pt")
+CKPT_PATH = Path("weights/LibreECDETs.pt")
 
 
 def test_imagenet_norm_applied_when_flag_true():

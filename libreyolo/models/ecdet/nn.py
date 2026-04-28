@@ -1,4 +1,4 @@
-"""Top-level LibreECDet model and per-size config table.
+"""Top-level LibreECDET model and per-size config table.
 
 Sizes follow upstream ``ecdetseg/configs/ecdet/ecdet_{s,m,l,x}.yml``. All four
 share the same decoder (4 layers, num_points=[3,6,3], reg_max=32, reg_scale=4)
@@ -77,7 +77,7 @@ SIZE_CONFIGS: Dict[str, Dict] = {
 }
 
 
-class LibreECDetModel(nn.Module):
+class LibreECDETModel(nn.Module):
     """Backbone (ECViT + adapter) + HybridEncoder + ECTransformer."""
 
     def __init__(
@@ -136,7 +136,7 @@ class LibreECDetModel(nn.Module):
 class ECDetExportWrapper(nn.Module):
     """Tracing-friendly wrapper for ONNX/TorchScript export."""
 
-    def __init__(self, model: LibreECDetModel):
+    def __init__(self, model: LibreECDETModel):
         super().__init__()
         self.model = model
         self.model.deploy()

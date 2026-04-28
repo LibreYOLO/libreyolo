@@ -156,7 +156,7 @@ def test_ecdet_one_step_training_smoke():
     from libreyolo.models.dfine.matcher import HungarianMatcher
     from libreyolo.models.ecdet.loss import ECCriterion
 
-    m = LibreYOLO("weights/LibreECDetS.pt", device="cpu")
+    m = LibreYOLO("weights/LibreECDETs.pt", device="cpu")
     m.model.train()
 
     matcher = HungarianMatcher(
