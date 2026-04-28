@@ -241,6 +241,15 @@ class YOLONASValPreprocessor(YOLO9ValPreprocessor):
     """
 
 
+class YOLO9E2EValPreprocessor(YOLO9ValPreprocessor):
+    """YOLOv9 E2E (NMS-free) preprocessor.
+
+    Identical to YOLO9ValPreprocessor: letterbox with gray (114) padding,
+    BGR→RGB, 0-1 normalization.  The one-to-one head does not change the
+    preprocessing contract.
+    """
+
+
 class DFINEValPreprocessor(StandardValPreprocessor):
     """D-FINE preprocessor: plain resize + 0-1 + RGB, no letterbox, no ImageNet norm.
 
