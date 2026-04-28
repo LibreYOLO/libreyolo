@@ -1,0 +1,38 @@
+name: Collect GitHub traffic
+
+on:
+  schedule:
+    - cron: "15 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Collect traffic data
+        env:
+          GITHUB_TOKEN_FOR_TRAFFIC: ${{ secrets.TRAFFIC_TOKEN }}
+          OWNER: LibreYOLO
+          REPO: libreyolo
+        run: python scripts/collect_github_traffic.py
+
+      - name: Commit traffic data
+        run: |
+          git config user.name "github-traffic-bot"
+          git config user.email "github-traffic-bot@users.noreply.github.com"
+          git add analytics/github-traffic
+          if git diff --cached --quiet; then
+            echo "No traffic changes to commit"
+          else
+            git commit -m "chore: archive GitHub traffic data"
+            git push
+          fi
