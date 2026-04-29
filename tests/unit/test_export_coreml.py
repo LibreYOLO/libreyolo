@@ -8,16 +8,21 @@ import pytest
 import torch
 
 # Install a fake `coremltools` module so the import inside libreyolo.export.coreml
-# succeeds even on machines without coremltools installed.
-_fake_ct = MagicMock()
-_fake_ct.ComputeUnit.ALL = "ALL"
-_fake_ct.ComputeUnit.CPU_AND_GPU = "CPU_AND_GPU"
-_fake_ct.ComputeUnit.CPU_AND_NE = "CPU_AND_NE"
-_fake_ct.ComputeUnit.CPU_ONLY = "CPU_ONLY"
-_fake_ct.precision.FLOAT32 = "FLOAT32"
-_fake_ct.precision.FLOAT16 = "FLOAT16"
-_fake_ct.target.iOS15 = "iOS15"
-sys.modules.setdefault("coremltools", _fake_ct)
+# succeeds even on machines without coremltools installed. Only do this if the
+# real coremltools is genuinely unavailable, so we don't pollute sys.modules
+# for any e2e test that runs in the same pytest session.
+try:  # pragma: no cover - environment-dependent
+    import coremltools  # noqa: F401
+except ImportError:
+    _fake_ct = MagicMock()
+    _fake_ct.ComputeUnit.ALL = "ALL"
+    _fake_ct.ComputeUnit.CPU_AND_GPU = "CPU_AND_GPU"
+    _fake_ct.ComputeUnit.CPU_AND_NE = "CPU_AND_NE"
+    _fake_ct.ComputeUnit.CPU_ONLY = "CPU_ONLY"
+    _fake_ct.precision.FLOAT32 = "FLOAT32"
+    _fake_ct.precision.FLOAT16 = "FLOAT16"
+    _fake_ct.target.iOS15 = "iOS15"
+    sys.modules["coremltools"] = _fake_ct
 
 from libreyolo.export.coreml import _to_compute_unit  # noqa: E402
 
@@ -27,20 +32,25 @@ pytestmark = pytest.mark.unit
 
 class TestToComputeUnit:
     def test_all(self):
-        assert _to_compute_unit("all") == "ALL"
+        import coremltools as ct
+        assert _to_compute_unit("all") == ct.ComputeUnit.ALL
 
     def test_cpu_and_gpu(self):
-        assert _to_compute_unit("cpu_and_gpu") == "CPU_AND_GPU"
+        import coremltools as ct
+        assert _to_compute_unit("cpu_and_gpu") == ct.ComputeUnit.CPU_AND_GPU
 
     def test_cpu_and_ne(self):
-        assert _to_compute_unit("cpu_and_ne") == "CPU_AND_NE"
+        import coremltools as ct
+        assert _to_compute_unit("cpu_and_ne") == ct.ComputeUnit.CPU_AND_NE
 
     def test_cpu_only(self):
-        assert _to_compute_unit("cpu_only") == "CPU_ONLY"
+        import coremltools as ct
+        assert _to_compute_unit("cpu_only") == ct.ComputeUnit.CPU_ONLY
 
     def test_case_insensitive(self):
-        assert _to_compute_unit("ALL") == "ALL"
-        assert _to_compute_unit("Cpu_And_Ne") == "CPU_AND_NE"
+        import coremltools as ct
+        assert _to_compute_unit("ALL") == ct.ComputeUnit.ALL
+        assert _to_compute_unit("Cpu_And_Ne") == ct.ComputeUnit.CPU_AND_NE
 
     def test_invalid_raises(self):
         with pytest.raises(ValueError, match="compute_units"):
@@ -50,6 +60,21 @@ class TestToComputeUnit:
 class _DummyModel(torch.nn.Module):
     def forward(self, x):
         return x.mean(dim=(2, 3))
+
+
+class _DummyYoloxExportModel(torch.nn.Module):
+    def forward(self, x):
+        batch = x.shape[0]
+        return torch.zeros(batch, 10, 85, dtype=x.dtype, device=x.device)
+
+
+class _DummyRtdetrExportModel(torch.nn.Module):
+    def forward(self, x):
+        batch = x.shape[0]
+        return {
+            "pred_logits": torch.zeros(batch, 300, 80, dtype=x.dtype, device=x.device),
+            "pred_boxes": torch.zeros(batch, 300, 4, dtype=x.dtype, device=x.device),
+        }
 
 
 def _patch_ct(monkeypatch):
@@ -64,24 +89,27 @@ def _patch_ct(monkeypatch):
     fake.precision.FLOAT16 = "FLOAT16"
     fake.target.iOS15 = "iOS15"
     fake.ImageType = MagicMock(side_effect=lambda **kw: ("ImageType", kw))
-    
+    fake.TensorType = MagicMock(side_effect=lambda **kw: ("TensorType", kw))
+
     # Create models submodule mock
     fake_models = MagicMock()
     fake_models.pipeline = MagicMock()
     fake.models = fake_models
     # MLModel is in the models submodule
     fake.models.MLModel = MagicMock()
-    
+
     # Create the MLModel mock that gets returned by convert
     mlmodel = MagicMock()
     mlmodel.user_defined_metadata = {}
     fake.convert = MagicMock(return_value=mlmodel)
-    
+
     # Patch the module and submodules
     monkeypatch.setitem(sys.modules, "coremltools", fake)
     monkeypatch.setitem(sys.modules, "coremltools.models", fake_models)
-    monkeypatch.setitem(sys.modules, "coremltools.models.pipeline", fake_models.pipeline)
-    
+    monkeypatch.setitem(
+        sys.modules, "coremltools.models.pipeline", fake_models.pipeline
+    )
+
     return fake, mlmodel
 
 
@@ -159,6 +187,15 @@ class TestExportCoreML:
         decoded = json.loads(mlmodel.user_defined_metadata["names"])
         assert decoded == {"0": "person", "1": "cat"}
 
+    def test_rtdetr_dict_output_is_flattened_for_trace(self):
+        from libreyolo.export.coreml import _wrap_for_family
+
+        wrapped = _wrap_for_family(_DummyRtdetrExportModel().eval(), "rtdetr")
+        logits, boxes = wrapped(torch.randn(1, 3, 640, 640))
+
+        assert logits.shape == (1, 300, 80)
+        assert boxes.shape == (1, 300, 4)
+
 
 class TestNMSWrap:
     def test_rfdetr_raises(self, tmp_path, monkeypatch):
@@ -179,19 +216,14 @@ class TestNMSWrap:
 
     def test_yolox_calls_pipeline(self, tmp_path, monkeypatch):
         fake, mlmodel = _patch_ct(monkeypatch)
-        # ct.models.pipeline.Pipeline returns a mock pipeline whose .spec
-        # is what gets saved.
-        pipeline_mock = MagicMock()
-        pipeline_mock.spec.user_defined_metadata = {}
-        fake.models.pipeline.Pipeline = MagicMock(return_value=pipeline_mock)
-        fake.models.MLModel = MagicMock(return_value=MagicMock(
-            user_defined_metadata={}, compute_unit=None,
-        ))
 
-        from libreyolo.export.coreml import export_coreml
+        from libreyolo.export import coreml as coreml_mod
 
-        export_coreml(
-            _DummyModel().eval(),
+        wrap = MagicMock(return_value=mlmodel)
+        monkeypatch.setattr(coreml_mod, "_wrap_with_nms", wrap)
+
+        coreml_mod.export_coreml(
+            _DummyYoloxExportModel().eval(),
             torch.randn(1, 3, 640, 640),
             output_path=str(tmp_path / "m.mlpackage"),
             precision="fp32",
@@ -200,8 +232,13 @@ class TestNMSWrap:
             metadata={"model_family": "yolox", "nb_classes": 80},
             model_family="yolox",
         )
-        # Pipeline was constructed
-        assert fake.models.pipeline.Pipeline.called
+        kwargs = fake.convert.call_args.kwargs
+        assert kwargs["outputs"] == [
+            ("TensorType", {"name": "confidence"}),
+            ("TensorType", {"name": "coordinates"}),
+        ]
+        wrap.assert_called_once_with(mlmodel, model_family="yolox")
+        assert mlmodel.user_defined_metadata["nms"] == "True"
 
 
 class TestCoreMLExporterRegistry:

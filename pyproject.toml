@@ -48,7 +48,7 @@ ncnn = [
     "ncnn",
 ]
 coreml = [
-    "coremltools>=7.2",
+    "coremltools>=8.0",
 ]
 rtdetr = ["scipy>=1.7.0"]
 all = [
