@@ -275,7 +275,11 @@ def LibreYOLO(
     if matched_cls is None:
         matching_classes = _matching_model_classes(weights_dict)
         matching_families = {cls.FAMILY for cls in matching_classes}
-        if {"dfine", "deim"}.issubset(matching_families):
+        # Only raise on a true D-FINE/DEIM tie. ECDet also serializes
+        # ``decoder.pre_bbox_head.*`` keys, so a strict ``issubset`` check would
+        # misfire on ECDet checkpoints that also match the more-specific ECDet
+        # ``can_load``.
+        if matching_families == {"dfine", "deim"}:
             raise ValueError(
                 "Ambiguous D-FINE/DEIM checkpoint: both families share the same "
                 "DEIM-D-FINE architecture keys.\n"
