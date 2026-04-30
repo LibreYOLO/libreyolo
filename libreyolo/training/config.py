@@ -184,6 +184,51 @@ class DFINEConfig(TrainConfig):
 
 
 @dataclass(kw_only=True)
+class DEIMConfig(TrainConfig):
+    """DEIM-D-FINE fine-tuning defaults.
+
+    DEIM keeps the D-FINE HGNetv2 architecture and replaces the classification
+    objective with MAL from the Dense O2O recipe. These defaults are for
+    practical LibreYOLO fine-tuning, not reproducing DEIM's full COCO training
+    recipe. The upstream Mosaic/MixUp schedule is intentionally left for the
+    shared augmentation refactor.
+    """
+
+    optimizer: str = "adamw"
+    lr0: float = 4e-4
+    weight_decay: float = 1e-4
+
+    scheduler: str = "flat_cosine"
+    warmup_epochs: int = 2
+    warmup_lr_start: float = 1e-6
+    no_aug_epochs: int = 12
+    min_lr_ratio: float = 1.0
+
+    mosaic_prob: float = 0.0
+    mixup_prob: float = 0.0
+    hsv_prob: float = 0.0
+    flip_prob: float = 0.5
+    degrees: float = 10.0
+    translate: float = 0.1
+    mosaic_scale: Tuple[float, float] = (0.5, 1.5)
+    mixup_scale: Tuple[float, float] = (0.5, 1.5)
+    shear: float = 0.0
+
+    ema: bool = True
+    ema_decay: float = 0.9999
+    ema_restart_decay: float = 0.9999
+
+    backbone_lr_mult: Optional[float] = None
+    clip_max_norm: float = 0.1
+    multi_scale: bool = True
+    aug_stop_epoch_ratio: float = 0.91
+
+    amp: bool = False
+    epochs: int = 132
+    name: str = "deim_exp"
+
+
+@dataclass(kw_only=True)
 class ECDetConfig(TrainConfig):
     """ECDet-specific training defaults (experimental).
 
