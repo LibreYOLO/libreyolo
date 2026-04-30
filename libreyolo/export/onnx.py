@@ -103,9 +103,13 @@ def export_onnx(
         )
 
     # Detect segmentation: prefer metadata flag from exporter, fall back
-    # to output count heuristic for direct export_onnx() calls.
+    # to output count heuristic for direct export_onnx() calls. For known
+    # DETR detection families we already know the output schema, so skip
+    # the probe forward pass entirely and reuse the count below.
     is_seg = metadata.get("segmentation") == "true"
-    if not is_seg:
+    known_detr_detection = metadata.get("model_family") in {"dfine", "deim"}
+    num_outputs = None
+    if not is_seg and not known_detr_detection:
         num_outputs = _detect_num_outputs(nn_model, dummy)
         is_seg = num_outputs >= 3
 
@@ -122,9 +126,7 @@ def export_onnx(
             else None
         )
         metadata["segmentation"] = "true"
-    elif metadata.get("model_family") in {"dfine", "deim"} or _detect_num_outputs(
-        nn_model, dummy
-    ) == 2:
+    elif known_detr_detection or num_outputs == 2:
         # DETR-style detection: {pred_logits, pred_boxes} as a tuple
         output_names = ["pred_logits", "pred_boxes"]
         dynamic_axes = (
