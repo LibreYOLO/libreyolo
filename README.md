@@ -1,5 +1,7 @@
 # LibreYOLO
 
+> ⭐ **Support LibreYOLO.** The best way to help is to **[star the repo](https://github.com/LibreYOLO/libreyolo)**. Feel free to [open an issue](https://github.com/LibreYOLO/libreyolo/issues/new) if you encounter problems or have suggestions, and code contributions are very welcome (see [CONTRIBUTING.md](CONTRIBUTING.md)). We are also looking for sponsors to donate GPU resources to the project. If you or your company can help, please [reach out on LinkedIn](https://www.linkedin.com/in/xuban-ceccon).
+
 > **v1.1 released!** New model families (YOLO-NAS, D-FINE, RT-DETR), instance segmentation, ByteTrack tracking, video inference, and a brand-new CLI. [See the release notes](https://github.com/LibreYOLO/libreyolo/releases/tag/v1.1.0).
 
 [![Documentation](https://img.shields.io/badge/docs-libreyolo.com-blue)](https://www.libreyolo.com/docs)
