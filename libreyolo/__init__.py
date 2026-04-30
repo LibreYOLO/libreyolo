@@ -8,6 +8,7 @@ from .models import (
     LibreYOLO,
     LibreYOLOX,
     LibreYOLO9,
+    LibreYOLO9E2E,
     LibreYOLONAS,
     LibreDFINE,
     LibreECDET,
@@ -58,6 +59,7 @@ __all__ = [
     # Main API
     "LibreYOLO",
     "LibreYOLO9",
+    "LibreYOLO9E2E",
     "LibreYOLONAS",
     "LibreYOLOX",
     "LibreYOLORTDETR",

@@ -29,8 +29,12 @@ logger = logging.getLogger(__name__)
 # backbone keys ("backbone.backbone.register_token") are uniquely identifying,
 # so register it before YOLOX which matches the broader "backbone.backbone"
 # prefix (skill landmine §9.3).
+# NOTE: LibreYOLO9E2E *must* be imported before LibreYOLO9.  E2E checkpoints
+# contain all the same backbone/neck key patterns that LibreYOLO9.can_load
+# matches, so the E2E discriminator (one2one_cv2 / one2one_cv3) must win first.
 from .ecdet.model import LibreECDET  # noqa: E402
 from .yolox.model import LibreYOLOX  # noqa: E402
+from .yolo9_e2e.model import LibreYOLO9E2E  # noqa: E402
 from .yolo9.model import LibreYOLO9  # noqa: E402
 from .yolonas.model import LibreYOLONAS  # noqa: E402
 from .dfine.model import LibreDFINE  # noqa: E402
@@ -248,7 +252,7 @@ def LibreYOLO(
     if matched_cls is None:
         raise ValueError(
             "Could not detect model architecture from state dict keys.\n"
-            "Supported architectures: YOLOX, YOLOv9, YOLO-NAS, RT-DETR, RF-DETR, D-FINE."
+            "Supported architectures: YOLOX, YOLOv9, YOLOv9-E2E, YOLO-NAS, RT-DETR, RF-DETR, D-FINE."
         )
 
     # Auto-detect size
@@ -315,7 +319,7 @@ def LibreYOLO(
             size=size,
             nb_classes=nb_classes,
             device=device,
-            **({"reg_max": reg_max} if matched_cls.FAMILY == "yolo9" else {}),
+            **({"reg_max": reg_max} if matched_cls.FAMILY in ("yolo9", "yolo9_e2e") else {}),
         )
     else:
         # Pretrained checkpoint — pass extracted state dict
@@ -324,7 +328,7 @@ def LibreYOLO(
             size=size,
             nb_classes=nb_classes,
             device=device,
-            **({"reg_max": reg_max} if matched_cls.FAMILY == "yolo9" else {}),
+            **({"reg_max": reg_max} if matched_cls.FAMILY in ("yolo9", "yolo9_e2e") else {}),
         )
 
     model.model_path = model_path
@@ -335,6 +339,7 @@ __all__ = [
     "LibreYOLO",
     "LibreYOLOX",
     "LibreYOLO9",
+    "LibreYOLO9E2E",
     "LibreYOLONAS",
     "LibreDFINE",
     "LibreECDET",

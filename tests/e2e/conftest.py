@@ -48,6 +48,9 @@ def pytest_configure(config):
     config.addinivalue_line("markers", "yolox: tests covering the YOLOX model family")
     config.addinivalue_line("markers", "yolo9: tests covering the YOLO9 model family")
     config.addinivalue_line(
+        "markers", "yolo9_e2e: tests covering the YOLOv9-E2E model family"
+    )
+    config.addinivalue_line(
         "markers", "yolonas: tests covering the YOLO-NAS model family"
     )
     config.addinivalue_line(
@@ -402,6 +405,10 @@ MODEL_CATALOG = [
     ("yolo9", "s", "LibreYOLO9s.pt"),
     ("yolo9", "m", "LibreYOLO9m.pt"),
     ("yolo9", "c", "LibreYOLO9c.pt"),
+    ("yolo9_e2e", "t", "LibreYOLO9E2Et.pt"),
+    ("yolo9_e2e", "s", "LibreYOLO9E2Es.pt"),
+    ("yolo9_e2e", "m", "LibreYOLO9E2Em.pt"),
+    ("yolo9_e2e", "c", "LibreYOLO9E2Ec.pt"),
     ("yolonas", "s", "downloads/yolonas/yolo_nas_s_coco.pth"),
     ("yolonas", "m", "downloads/yolonas/yolo_nas_m_coco.pth"),
     ("yolonas", "l", "downloads/yolonas/yolo_nas_l_coco.pth"),
@@ -428,6 +435,7 @@ MODEL_CATALOG = [
 # Derived lists (no manual maintenance)
 YOLOX_SIZES = [s for f, s, _ in MODEL_CATALOG if f == "yolox"]
 YOLO9_SIZES = [s for f, s, _ in MODEL_CATALOG if f == "yolo9"]
+YOLO9E2E_SIZES = [s for f, s, _ in MODEL_CATALOG if f == "yolo9_e2e"]
 YOLONAS_SIZES = [s for f, s, _ in MODEL_CATALOG if f == "yolonas"]
 RFDETR_SIZES = [s for f, s, _ in MODEL_CATALOG if f == "rfdetr"]
 DFINE_SIZES = [s for f, s, _ in MODEL_CATALOG if f == "dfine"]
@@ -453,6 +461,7 @@ RTDETR_TEST_MODELS = [(f, s) for f, s, _ in MODEL_CATALOG if f == "rtdetr"]
 FAMILY_MARKERS = {
     "yolox": pytest.mark.yolox,
     "yolo9": pytest.mark.yolo9,
+    "yolo9_e2e": pytest.mark.yolo9_e2e,
     "yolonas": pytest.mark.yolonas,
     "rfdetr": pytest.mark.rfdetr,
     "dfine": pytest.mark.dfine,

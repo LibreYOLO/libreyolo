@@ -49,6 +49,9 @@ class LibreYOLO9(BaseModel):
     @classmethod
     def can_load(cls, weights_dict: dict) -> bool:
         keys_lower = [k.lower() for k in weights_dict]
+        # Explicitly exclude E2E checkpoints so LibreYOLO9E2E.can_load wins first.
+        if any("one2one_cv2" in k or "one2one_cv3" in k for k in keys_lower):
+            return False
         return any(
             "repncspelan" in k or "adown" in k or "sppelan" in k for k in keys_lower
         ) or any("backbone.elan" in k or "neck.elan" in k for k in weights_dict)
