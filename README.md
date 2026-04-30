@@ -8,7 +8,7 @@
 [![PyPI](https://img.shields.io/pypi/v/libreyolo)](https://pypi.org/project/libreyolo/)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
-MIT-licensed object detection library with training and inference support across YOLOv9 (`t`, `s`, `m`, `c`), YOLOX (`n`, `t`, `s`, `m`, `l`, `x`), YOLO-NAS (`s`, `m`, `l`), RF-DETR (`n`, `s`, `m`, `l`), and D-FINE (`n`, `s`, `m`, `l`, `x`).
+MIT-licensed object detection library with training and inference support across YOLOv9, YOLOX, YOLO-NAS, RF-DETR, D-FINE, and RT-DETR.
 
 ![LibreYOLO Detection Example](libreyolo/assets/parkour_result.jpg)
 
