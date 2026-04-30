@@ -5,7 +5,11 @@ Supports both COCO JSON format and YOLO txt format.
 """
 
 import copy
+import logging
 import os
+import sys
+import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import List, Tuple
 
@@ -14,8 +18,11 @@ import numpy as np
 import torch
 from torch.utils.data import Dataset, DataLoader
 from PIL import Image, UnidentifiedImageError
+from tqdm import tqdm
 
 from .utils import polygon_to_cxcywh
+
+logger = logging.getLogger(__name__)
 
 
 class YOLODataset(Dataset):
@@ -107,11 +114,59 @@ class YOLODataset(Dataset):
 
     def _load_annotations(self) -> List:
         """Load all annotations."""
-        annotations = []
-        for img_file, label_file in zip(self.img_files, self.label_files):
-            anno = self._load_label(label_file, img_file)
-            annotations.append(anno)
+        total = len(self.img_files)
+        source = self._annotation_source()
+        logger.info("Loading %d YOLO annotations from %s...", total, source)
+        start = time.perf_counter()
+
+        pairs = list(zip(self.img_files, self.label_files))
+        max_workers = min(8, os.cpu_count() or 1, total)
+
+        def load_one(pair):
+            img_file, label_file = pair
+            return self._load_label(label_file, img_file)
+
+        if max_workers > 1:
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                annotations = list(
+                    tqdm(
+                        executor.map(load_one, pairs),
+                        total=total,
+                        desc=f"Loading YOLO annotations ({source})",
+                        file=sys.stderr,
+                        disable=not sys.stderr.isatty(),
+                    )
+                )
+        else:
+            annotations = [
+                load_one(pair)
+                for pair in tqdm(
+                    pairs,
+                    total=total,
+                    desc=f"Loading YOLO annotations ({source})",
+                    file=sys.stderr,
+                    disable=not sys.stderr.isatty(),
+                )
+            ]
+
+        logger.info(
+            "Loaded %d YOLO annotations from %s in %.2fs",
+            total,
+            source,
+            time.perf_counter() - start,
+        )
         return annotations
+
+    def _annotation_source(self) -> str:
+        """Return a compact source label for annotation loading progress."""
+        if self.split is not None:
+            return str(self.split)
+        if self.label_files:
+            label_dir = self.label_files[0].parent
+            if label_dir.parent.name:
+                return f"{label_dir.parent.name}/{label_dir.name}"
+            return str(label_dir)
+        return "dataset"
 
     def _load_label(self, label_file: Path, img_file: Path) -> Tuple:
         """Load annotation for a single image."""
@@ -291,7 +346,27 @@ class COCODataset(Dataset):
 
     def _load_coco_annotations(self) -> List:
         """Load all annotations."""
-        return [self._load_anno_from_id(id_) for id_ in self.ids]
+        total = len(self.ids)
+        source = f"{self.name}/{self.json_file}"
+        logger.info("Loading %d COCO annotations from %s...", total, source)
+        start = time.perf_counter()
+        annotations = [
+            self._load_anno_from_id(id_)
+            for id_ in tqdm(
+                self.ids,
+                total=total,
+                desc=f"Loading COCO annotations ({self.name})",
+                file=sys.stderr,
+                disable=not sys.stderr.isatty(),
+            )
+        ]
+        logger.info(
+            "Loaded %d COCO annotations from %s in %.2fs",
+            total,
+            source,
+            time.perf_counter() - start,
+        )
+        return annotations
 
     def _load_anno_from_id(self, id_: int) -> Tuple:
         """Load annotation for a single image ID."""
