@@ -45,7 +45,7 @@ class LibreDEIM(BaseModel):
             return detected
         m = re.search(r"deim(?:_hgnetv2)?_([nsmlx])(?:_|\.|$)", filename.lower())
         if m:
-            return m.group(1).replace(" ", "")
+            return m.group(1)
         return None
 
     @classmethod
