@@ -66,6 +66,22 @@ def test_generic_dfine_deim_checkpoint_requires_family_hint(tmp_path):
         LibreYOLO(str(ckpt), device="cpu")
 
 
+def test_ecdet_checkpoint_does_not_trip_dfine_deim_ambiguity(tmp_path):
+    """ECDet's decoder also has ``decoder.pre_bbox_head.*`` keys, so DFINE and
+    DEIM ``can_load`` both return True alongside ECDet's. The factory must
+    still resolve to ECDet via the more-specific ``register_token`` match
+    instead of raising the D-FINE/DEIM ambiguity error."""
+    from libreyolo import LibreECDET, LibreYOLO
+
+    src = LibreECDET(None, size="s", device="cpu")
+    ckpt = tmp_path / "ecdet_s_coco.pth"
+    torch.save({"model": src.model.state_dict()}, ckpt)
+
+    loaded = LibreYOLO(str(ckpt), device="cpu")
+    assert loaded.FAMILY == "ecdet"
+    assert loaded.size == "s"
+
+
 def test_deim_metadata_hint_wins_over_dfine_for_libreyolo_checkpoint(tmp_path):
     from libreyolo import LibreDEIM, LibreYOLO
 
