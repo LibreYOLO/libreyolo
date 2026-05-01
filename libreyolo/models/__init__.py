@@ -38,6 +38,7 @@ from .yolo9_e2e.model import LibreYOLO9E2E  # noqa: E402
 from .yolo9.model import LibreYOLO9  # noqa: E402
 from .yolonas.model import LibreYOLONAS  # noqa: E402
 from .dfine.model import LibreDFINE  # noqa: E402
+from .deim.model import LibreDEIM  # noqa: E402
 from .rtdetr.model import LibreYOLORTDETR  # noqa: E402
 
 
@@ -121,6 +122,17 @@ def _needs_rfdetr_registration(weights_dict: dict) -> bool:
         or "enc_out_bbox_embed" in k
         for k in keys_lower
     )
+
+
+def _find_registered_family(family: str):
+    for cls in BaseModel._registry:
+        if cls.FAMILY == family:
+            return cls
+    return None
+
+
+def _matching_model_classes(weights_dict: dict):
+    return [cls for cls in BaseModel._registry if cls.can_load(weights_dict)]
 
 
 # =============================================================================
@@ -242,17 +254,51 @@ def LibreYOLO(
         except ModuleNotFoundError:
             raise
 
-    # Find the right model class
+    # Find the right model class. Metadata and filename hints come first so
+    # DEIM-D-FINE and D-FINE, which intentionally share architecture keys, can
+    # coexist without one stealing the other's LibreYOLO-format checkpoints.
     matched_cls = None
-    for cls in BaseModel._registry:
-        if cls.can_load(weights_dict):
+    metadata_family = (
+        state_dict.get("model_family")
+        if isinstance(state_dict, dict)
+        and isinstance(state_dict.get("model_family"), str)
+        else None
+    )
+    if metadata_family:
+        cls = _find_registered_family(metadata_family)
+        if cls is not None and cls.can_load(weights_dict):
             matched_cls = cls
-            break
+
+    if matched_cls is None:
+        filename = Path(model_path).name
+        for cls in BaseModel._registry:
+            if cls.detect_size_from_filename(filename) and cls.can_load(weights_dict):
+                matched_cls = cls
+                break
+
+    if matched_cls is None:
+        matching_classes = _matching_model_classes(weights_dict)
+        matching_families = {cls.FAMILY for cls in matching_classes}
+        # Only raise on a true D-FINE/DEIM tie. ECDet also serializes
+        # ``decoder.pre_bbox_head.*`` keys, so a strict ``issubset`` check would
+        # misfire on ECDet checkpoints that also match the more-specific ECDet
+        # ``can_load``.
+        if matching_families == {"dfine", "deim"}:
+            raise ValueError(
+                "Ambiguous D-FINE/DEIM checkpoint: both families share the same "
+                "DEIM-D-FINE architecture keys.\n"
+                "Use a LibreYOLO checkpoint with model_family metadata, an "
+                "upstream-style filename such as dfine_hgnetv2_n_coco.pth or "
+                "deim_hgnetv2_n_coco.pth, or instantiate LibreDFINE/LibreDEIM "
+                "directly."
+            )
+        if matching_classes:
+            matched_cls = matching_classes[0]
 
     if matched_cls is None:
         raise ValueError(
             "Could not detect model architecture from state dict keys.\n"
-            "Supported architectures: YOLOX, YOLOv9, YOLOv9-E2E, YOLO-NAS, RT-DETR, RF-DETR, D-FINE."
+            "Supported architectures: YOLOX, YOLOv9, YOLOv9-E2E, YOLO-NAS, RT-DETR, RF-DETR, D-FINE, DEIM."
         )
 
     # Auto-detect size
@@ -342,6 +388,7 @@ __all__ = [
     "LibreYOLO9E2E",
     "LibreYOLONAS",
     "LibreDFINE",
+    "LibreDEIM",
     "LibreECDET",
     "LibreYOLORTDETR",
     "try_ensure_rfdetr",

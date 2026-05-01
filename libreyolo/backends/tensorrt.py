@@ -283,7 +283,7 @@ class TensorRTBackend(BaseBackend):
                     batch_outputs[name][idx : idx + 1] for name in self.output_names
                 ]
 
-                boxes, max_scores, class_ids = self._parse_outputs(
+                boxes, max_scores, class_ids, masks = self._parse_outputs(
                     per_image,
                     effective_imgsz,
                     orig_size,
@@ -297,6 +297,7 @@ class TensorRTBackend(BaseBackend):
                     boxes,
                     max_scores,
                     class_ids,
+                    masks=masks,
                     orig_shape=orig_shape,
                     image_path=path,
                     iou=iou,
@@ -334,6 +335,8 @@ class TensorRTBackend(BaseBackend):
             return "yolox"
         elif self.model_family == "rfdetr":
             return "rfdetr"
+        elif self.model_family == "deim":
+            return "deim"
         elif self.model_family == "rtdetr":
             return "rtdetr"
         return "libreyolo"

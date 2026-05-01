@@ -139,7 +139,11 @@ class BaseExporter(ABC):
             # which requires opset 16+. Default the rest of the families to
             # 13 to preserve compatibility with the broadest set of ONNX
             # runtimes.
-            opset = 17 if self.model._get_model_name() in ("dfine", "ecdet") else 13
+            opset = (
+                17
+                if self.model._get_model_name() in ("dfine", "deim", "ecdet")
+                else 13
+            )
 
         imgsz, device, output_path = self._resolve_params(
             output_path,
@@ -281,6 +285,12 @@ class BaseExporter(ABC):
             from ..models.dfine.nn import DFINEExportWrapper
 
             nn_model = DFINEExportWrapper(nn_model).to(device)
+            nn_model.eval()
+            dfine_wrapped = True
+        elif family == "deim":
+            from ..models.deim.nn import DEIMExportWrapper
+
+            nn_model = DEIMExportWrapper(nn_model).to(device)
             nn_model.eval()
             dfine_wrapped = True
         elif family == "ecdet":
@@ -604,6 +614,7 @@ class NcnnExporter(BaseExporter):
         # Block early rather than producing a broken export directory.
         unsupported_family_names = {
             "dfine": "D-FINE",
+            "deim": "DEIM",
             "rtdetr": "RT-DETR",
             "ecdet": "ECDet",
         }
