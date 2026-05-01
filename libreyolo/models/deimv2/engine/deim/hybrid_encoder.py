@@ -57,6 +57,11 @@ class ConvNormLayer_fuse(nn.Module):
         return self.act(y)
 
     def convert_to_deploy(self):
+        if hasattr(self, "conv_bn_fused") and not (
+            hasattr(self, "conv") and hasattr(self, "norm")
+        ):
+            return self
+
         if not hasattr(self, "conv_bn_fused"):
             self.conv_bn_fused = nn.Conv2d(
                 self.ch_in,
@@ -73,6 +78,7 @@ class ConvNormLayer_fuse(nn.Module):
         self.conv_bn_fused.bias.data = bias
         self.__delattr__("conv")
         self.__delattr__("norm")
+        return self
 
     def get_equivalent_kernel_bias(self):
         kernel3x3, bias3x3 = self._fuse_bn_tensor()
@@ -145,6 +151,11 @@ class VGGBlock(nn.Module):
         return self.act(y)
 
     def convert_to_deploy(self):
+        if hasattr(self, "conv") and not (
+            hasattr(self, "conv1") and hasattr(self, "conv2")
+        ):
+            return self
+
         if not hasattr(self, "conv"):
             self.conv = nn.Conv2d(self.ch_in, self.ch_out, 3, 1, padding=1)
 
@@ -153,6 +164,7 @@ class VGGBlock(nn.Module):
         self.conv.bias.data = bias
         self.__delattr__("conv1")
         self.__delattr__("conv2")
+        return self
 
     def get_equivalent_kernel_bias(self):
         kernel3x3, bias3x3 = self._fuse_bn_tensor(self.conv1)
