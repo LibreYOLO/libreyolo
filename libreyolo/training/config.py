@@ -202,7 +202,7 @@ class DEIMConfig(TrainConfig):
     warmup_epochs: int = 2
     warmup_lr_start: float = 1e-6
     no_aug_epochs: int = 12
-    min_lr_ratio: float = 1.0
+    min_lr_ratio: float = 0.5  # DEIM's lr_gamma in upstream
 
     mosaic_prob: float = 0.0
     mixup_prob: float = 0.0
