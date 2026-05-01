@@ -253,11 +253,36 @@ class LibreDEIMv2(BaseModel):
                 )
             )
 
+    def _load_safetensors_weights(self, model_path: str) -> None:
+        try:
+            from safetensors.torch import load_model as load_safetensors_model
+        except ImportError as e:
+            raise ImportError(
+                "Loading DEIMv2 safetensors requires safetensors. "
+                "Install with: pip install safetensors"
+            ) from e
+
+        missing, unexpected = load_safetensors_model(
+            self.model,
+            model_path,
+            strict=True,
+            device="cpu",
+        )
+        if missing or unexpected:
+            raise RuntimeError(
+                "Failed to load DEIMv2 safetensors exactly: "
+                f"missing={sorted(missing)[:10]}, unexpected={sorted(unexpected)[:10]}"
+            )
+
     def _load_weights(self, model_path: str):
         if not Path(model_path).exists():
             raise FileNotFoundError(f"DEIMv2 weights file not found: {model_path}")
 
         try:
+            if Path(model_path).suffix == ".safetensors":
+                self._load_safetensors_weights(model_path)
+                return
+
             loaded = load_untrusted_torch_file(
                 model_path,
                 map_location="cpu",

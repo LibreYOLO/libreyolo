@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+from pathlib import Path
 
 import torch
 
@@ -15,10 +16,40 @@ from _conversion_utils import (
 )
 
 
+def _load_safetensors_state_dict(input_path: str, size: str, nc: int) -> dict:
+    add_repo_root_to_path()
+    try:
+        from safetensors.torch import load_model as load_safetensors_model
+    except ImportError as e:
+        raise ImportError(
+            "Converting DEIMv2 safetensors requires safetensors. "
+            "Install with: pip install safetensors"
+        ) from e
+
+    from libreyolo.models.deimv2.nn import LibreDEIMv2Model
+
+    model = LibreDEIMv2Model(config=size, nb_classes=nc)
+    missing, unexpected = load_safetensors_model(
+        model,
+        input_path,
+        strict=True,
+        device="cpu",
+    )
+    if missing or unexpected:
+        raise RuntimeError(
+            "Failed to load DEIMv2 safetensors exactly: "
+            f"missing={sorted(missing)[:10]}, unexpected={sorted(unexpected)[:10]}"
+        )
+    return model.state_dict()
+
+
 def convert_weights(input_path: str, output_path: str, size: str, nc: int = 80) -> dict:
     print(f"Loading upstream weights from {input_path}")
-    raw = load_checkpoint(input_path)
-    state_dict = extract_state_dict(raw)
+    if Path(input_path).suffix == ".safetensors":
+        state_dict = _load_safetensors_state_dict(input_path, size, nc)
+    else:
+        raw = load_checkpoint(input_path)
+        state_dict = extract_state_dict(raw)
     print(f"Found {len(state_dict)} parameter entries")
 
     libreyolo_ckpt = wrap_libreyolo_checkpoint(
@@ -54,7 +85,9 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="Convert DEIMv2 weights to LibreYOLO format"
     )
-    parser.add_argument("input", help="Upstream DEIMv2 checkpoint (.pth/.bin)")
+    parser.add_argument(
+        "input", help="Upstream DEIMv2 checkpoint (.pth/.bin/.safetensors)"
+    )
     parser.add_argument("output", help="Output LibreYOLO checkpoint (.pt)")
     parser.add_argument(
         "--size",
