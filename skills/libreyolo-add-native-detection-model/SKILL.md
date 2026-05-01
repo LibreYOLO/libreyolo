@@ -144,6 +144,31 @@ Pick one. The contracts diverge non-trivially.
 - EMA mid-training decay change (`set_decay`) is sometimes used to stabilize the
   final phase after augmentation stops.
 
+### Sibling architectures
+
+When your family is the *same architecture* as an existing family with a
+different training objective (e.g. a port whose architecture is identical
+to an existing port, with only the loss / matcher changed), landmine #3's
+"match on tokens unique to your architecture" advice fails because the
+architectures are literally identical and both `can_load` checks fire on
+the same checkpoint. The disambiguation pattern:
+
+1. Embed an explicit `model_family` field in the converted checkpoint's
+   metadata (the conversion script's job). This is the strongest signal.
+2. Use the family's `FILENAME_PREFIX` (e.g. `LibreDFINE`, `LibreDEIM`)
+   in `detect_size_from_filename` as a fallback hint when metadata is
+   absent, e.g. someone hands you a raw upstream `.pth` they renamed.
+   Each sibling abstains on the other's prefix.
+3. Order the registry imports in `libreyolo/models/__init__.py` so the
+   more-specific family loads first; `BaseModel._registry` is walked
+   in import order and the first `can_load` match wins.
+4. Raise an explicit "ambiguous between {A, B}" error on a true tie
+   (architecture-equal checkpoint, no metadata, no filename hint)
+   rather than silently picking one.
+
+This pattern is reusable for any descendant family that inherits an
+existing port's architecture.
+
 ## 6. The training-recipe trade-off (read this before claiming a port is "done")
 
 LibreYOLO has explicitly chosen **not to reproduce upstream paper recipes for
@@ -188,6 +213,37 @@ A useful agent prompt:
 *"In `<upstream-repo>/`, identify every augmentation, loss weight, optimizer
 param group, LR schedule, and EMA behavior used during training. Output a
 concrete checklist of what would need to be ported."*
+
+### The minimum bar for "this port loads upstream weights correctly"
+
+Before claiming inference is correct, run a tensor-equivalence check:
+
+1. Import the upstream model class side-by-side with yours.
+2. Build both with the same config / size; cross-load the upstream
+   `state_dict` into yours and inspect the missing/unexpected key
+   diff. Use `strict=True` only if your port loads the *full* upstream
+   state dict (this is the case for D-FINE/DEIM-style DETR ports that
+   mirror upstream attribute naming exactly). For ports that
+   intentionally drop upstream layers (YOLOX strips training-state
+   buffers; YOLOv9 drops the auxiliary head and remaps legacy
+   `detect.*` -> `head.*` keys; YOLO-NAS unwraps SuperGradients EMA
+   buffers), use `strict=False` and assert that the missing/unexpected
+   key set matches a *documented expected set*. Silent unexpected
+   drift, not the strict mode itself, is the thing to catch. See
+   landmine #14 for `_strict_loading()`.
+3. Run identical inputs through both at FP32 and assert
+   `max_abs_diff == 0` on the output tensors that come from layers
+   present in both models, in both `eval()` and `train()` modes.
+
+This recipe validates architectural fidelity, attribute naming, and
+state-dict compatibility in one shot. Save the script as a one-off
+under the family's test directory; it pays for itself on every future
+upstream version bump. Fine-tune sanity (load -> 10 epochs on coco128
+or marbles -> mAP improves) is the second gate, not the first.
+
+If your family is a wrapper around an upstream PyPI package (RF-DETR
+pattern), this check reduces to "import the upstream package and verify
+it produces the documented outputs"; substitute accordingly.
 
 ## 7. Per-family integration: what each one actually shipped
 
@@ -243,9 +299,8 @@ Every family edits these:
 | `libreyolo/models/<family>/{__init__.py, model.py, nn.py, trainer.py, utils.py}` | family-local code |
 | `libreyolo/models/__init__.py` | one-line family import (drives auto-registration order) |
 | `libreyolo/__init__.py` | `LibreYOLO<Family>` export + `__all__` |
-| `libreyolo/training/config.py` | append `<Family>Config(TrainConfig)` |
+| `libreyolo/training/config.py` | append `<Family>Config(TrainConfig)` (RF-DETR is the exception: keeps `RFDETRConfig` family-local at `models/rfdetr/config.py`) |
 | `libreyolo/validation/preprocessors.py` | append `<Family>ValPreprocessor` |
-| `weights/convert_<family>_weights.py` | one-shot CLI that wraps the upstream checkpoint with LibreYOLO metadata (`model_family`, `size`, `nc`, `names`) so the unified factory can route it without filename heuristics |
 | `tests/unit/test_<family>_*.py` | parity / shape / loss / smoke tests against upstream — done before claiming inference is correct |
 | `tests/e2e/conftest.py` | append rows to `MODEL_CATALOG` |
 
@@ -261,6 +316,7 @@ Conditional edits depending on family:
 | `libreyolo/backends/tensorrt.py` | output names differ from `"output"` (DETR families) |
 | `libreyolo/export/exporter.py` | needs an `_model_context` branch (D-FINE has one for the deploy wrapper) |
 | `libreyolo/export/onnx.py` | output count differs from 1 or 3 (DETR's 2-output case) |
+| `weights/convert_<family>_weights.py` | needed when upstream ships a checkpoint format LibreYOLO can't load directly (extra wrapping, EMA buffer drops, key remaps, or just no `model_family` metadata). **Skip it** when (a) your family is a wrapper that consumes upstream checkpoints in-process (RF-DETR), (b) your top-level module attributes mirror upstream's so SG/upstream `state_dict`s load with `_strict_loading=False` plus an in-process unwrap helper (YOLO-NAS, YOLOX), or (c) the conversion is trivial enough to keep inside `LibreYOLO("upstream.pt")`. When you *do* write one: wrap with metadata (`model_family`, `size`, `nc`, `names`) so the factory routes without filename heuristics; print a missing/unexpected-key diff after loading the wrapped dict into a fresh model (silent drops are a frequent source of slow-burn fine-tune bugs); write atomically (`.tmp` + rename) so an interrupted run can't half-write a corrupt `.pt`; fail loudly on shape mismatches. The script can stay under ~100 LoC if your top-level attributes mirror upstream's names so no key remapping is needed (YOLO-NAS is the canonical example of this design). |
 | `pyproject.toml` | **mandatory for wrapper integrations** (RF-DETR's `[rfdetr]` extra is required, not optional — the wrapper is non-functional without the dep). For native ports, only if you genuinely can't avoid a new dep. |
 
 ## 8. The integration-proof tests
@@ -274,6 +330,20 @@ You're integrated when both pass for every size of your family.
 
 To wire your family into both: append rows to `MODEL_CATALOG` in
 `tests/e2e/conftest.py`. Both tests parametrize over the catalog.
+
+### Optional faithfulness gate
+
+`test_val_coco128`'s mAP50-95 ≥ 0.18 floor is a sanity check that
+preprocessing and class mapping are wired correctly; it is not a
+faithfulness check. A silent regression in the conversion script or
+numerical drift in the model port can still leave the floor intact while
+losing several mAP. The faithfulness gate is loading the converted
+official checkpoint and asserting full-COCO `mAP >= published - 0.5`.
+
+Recommended pattern when users care about matching upstream's published
+numbers: `tests/nightly/test_<family>_official_ckpt_map.py`, gated on a
+`<FAMILY>_OFFICIAL_CKPT_DIR` env var, kept out of the default suite to
+avoid pulling multi-GB weights in CI. This is opt-in by design.
 
 **DETR families**: skip the `last_loss < first_loss` assertion in `test_rf1_training`.
 DETR total loss is the sum of ~38 weighted aux terms (per-decoder-layer + pre +
@@ -323,6 +393,26 @@ The ones below have actually burned integrations in this repo. Each line is a on
     loop to add per-group LR + grad clip + epoch propagation, leave a comment
     "kept in sync with `BaseTrainer._train_epoch` as of <commit>" so drift is
     auditable. Promote to shared hooks if a third family needs the same overrides.
+19. **Per-size defaults copy-pasted from one size to all.** When upstream
+    ships per-size YAMLs, build a side-by-side table of every override per
+    size before assuming the s config applies to n. DETR examples:
+    `freeze_at`, `freeze_norm`, backbone-LR multiplier, EMA decay,
+    `lr_gamma`, peak `lr`. YOLO-grid examples: BN epsilon / momentum
+    overrides on the smallest size, `INPUT_SIZES`, depth/width
+    multipliers, head reg-max. The default is rarely uniform across
+    sizes. A single-row table that's wrong on n/m is a silent ~1 mAP
+    regression on those sizes. Cross-check each row against the actual
+    upstream YAML, not just the first one you ported.
+20. **`<Family>Config.min_lr_ratio` is one knob trying to cover several
+    upstream `lr_gamma` values.** `FlatCosineScheduler` computes
+    `min_lr = lr * min_lr_ratio`, so the ratio is the upstream `lr_gamma`
+    by another name. Different families pick different values
+    (D-FINE: `1.0` = no cosine decay, by design; DEIM: `0.5`; ECDet:
+    `0.5`); within a family, sizes can disagree too (DEIM-N overrides
+    to `1.0`). The trap is picking *any* uniform value without
+    cross-checking. A ratio of `1.0` is correct when upstream's
+    `lr_gamma` is `1.0` and a silent bug otherwise; the ratio is
+    not the issue, the cross-check is.
 
 ## 10. Workflow
 
@@ -332,7 +422,11 @@ The ones below have actually burned integrations in this repo. Each line is a on
 2. **Pick the pattern**: YOLO-grid or DETR. Skim the existing family that's closest.
 3. **Audit upstream's training recipe** with an agent. Decide what you skip.
 4. **Implement family-local code** (`models/<family>/`) — the model, postprocess,
-   and inference wrapper first. Verify byte-equivalent inference parity vs upstream.
+   and inference wrapper first. Verify inference parity using the recipe
+   in §6 (cross-load upstream `state_dict`, assert `max_abs_diff == 0`
+   on identical inputs over the layers present in both models). For
+   wrapper integrations like RF-DETR, substitute "verify the wrapped
+   package produces its documented outputs."
 5. **Wire central files** — `models/__init__.py`, `__init__.py`, `config.py`,
    `validation/preprocessors.py`. Family must load via `LibreYOLO("Libre<Family>s.pt")`.
 6. **Implement the trainer** — `trainer.py`, `transforms.py`, `loss.py`. Verify
