@@ -4,9 +4,8 @@ Ported from DEIM (https://github.com/Intellindust-AI-Lab/DEIM).
 Copyright (c) 2023 lyuwenyu. All Rights Reserved.
 Modifications Copyright (c) 2024 The DEIM Authors.
 
-This function is only invoked during training (``decoder.training and
-num_denoising > 0``). For LibreYOLO's inference-only v1 port it is kept for
-import compatibility with the decoder — nothing calls it.
+Invoked from ``decoder.py`` during training when ``decoder.training`` and
+``num_denoising > 0``; bypassed at inference and when ``num_denoising == 0``.
 """
 
 import torch
