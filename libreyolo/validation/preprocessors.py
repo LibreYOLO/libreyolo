@@ -232,6 +232,15 @@ class YOLO9ValPreprocessor(BaseValPreprocessor):
         return padded_img, padded_targets
 
 
+class YOLO9E2EValPreprocessor(YOLO9ValPreprocessor):
+    """YOLOv9 E2E (NMS-free) preprocessor.
+
+    Identical to YOLO9ValPreprocessor: letterbox with gray (114) padding,
+    BGR→RGB, 0-1 normalization.  The one-to-one head does not change the
+    preprocessing contract.
+    """
+
+
 class YOLONASValPreprocessor(YOLO9ValPreprocessor):
     """YOLO-NAS preprocessor.
 
