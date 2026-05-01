@@ -266,6 +266,10 @@ class DFINEValPreprocessor(StandardValPreprocessor):
         return super().__call__(img[:, :, ::-1].copy(), targets, input_size)
 
 
+class DEIMValPreprocessor(DFINEValPreprocessor):
+    """DEIM-D-FINE validation preprocessor: same RGB /255 plain resize as D-FINE."""
+
+
 class ECDetValPreprocessor(StandardValPreprocessor):
     """ECDet preprocessor: plain resize, RGB, /255, ImageNet normalize.
 

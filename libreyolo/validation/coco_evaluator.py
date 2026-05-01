@@ -1,7 +1,7 @@
 """COCO evaluator for LibreYOLO."""
 
 import logging
-from typing import Dict, Optional
+from typing import Dict, Mapping, Optional
 import json
 
 import numpy as np
@@ -18,9 +18,19 @@ class COCOEvaluator:
     AP/AR by object size, and AR at different maxDets.
     """
 
-    def __init__(self, coco_gt, iou_type: str = "bbox"):
+    def __init__(
+        self,
+        coco_gt,
+        iou_type: str = "bbox",
+        label_to_category_id: Optional[Mapping[int, int]] = None,
+    ):
         self.coco_gt = coco_gt
         self.iou_type = iou_type
+        self.label_to_category_id = (
+            {int(k): int(v) for k, v in label_to_category_id.items()}
+            if label_to_category_id is not None
+            else None
+        )
         self.results = []
         self._img_ids = set()
 
@@ -51,10 +61,17 @@ class COCOEvaluator:
             x1, y1, x2, y2 = box
             w, h = x2 - x1, y2 - y1
 
+            label = int(label)
+            category_id = (
+                self.label_to_category_id.get(label, label)
+                if self.label_to_category_id is not None
+                else label
+            )
+
             self.results.append(
                 {
                     "image_id": int(image_id),
-                    "category_id": int(label),
+                    "category_id": int(category_id),
                     "bbox": [float(x1), float(y1), float(w), float(h)],  # COCO xywh
                     "score": float(score),
                 }
