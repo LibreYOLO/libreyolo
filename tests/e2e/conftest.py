@@ -479,6 +479,7 @@ FAMILY_MARKERS = {
     "deim": pytest.mark.deim,
     "ecdet": pytest.mark.ecdet,
     "rtdetr": pytest.mark.rtdetr,
+    "picodet": pytest.mark.picodet,
 }
 
 
