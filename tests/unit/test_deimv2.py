@@ -60,6 +60,22 @@ def test_deimv2_factory_detects_upstream_style_checkpoint(tmp_path):
     assert loaded.input_size == 320
 
 
+def test_deimv2_factory_loads_safetensors_checkpoint(tmp_path):
+    pytest.importorskip("safetensors")
+    from safetensors.torch import save_model
+
+    from libreyolo import LibreDEIMv2, LibreYOLO
+
+    src = LibreDEIMv2(None, size="atto", device="cpu")
+    ckpt = tmp_path / "deimv2_hgnetv2_atto_coco.safetensors"
+    save_model(src.model, ckpt)
+
+    loaded = LibreYOLO(str(ckpt), device="cpu")
+    assert loaded.FAMILY == "deimv2"
+    assert loaded.size == "atto"
+    assert loaded.input_size == 320
+
+
 def test_deimv2_dino_sizes_use_imagenet_preprocessing():
     from libreyolo import LibreDEIMv2
 

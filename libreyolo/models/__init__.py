@@ -233,11 +233,22 @@ def LibreYOLO(
 
     # Load weights once
     try:
-        state_dict = load_untrusted_torch_file(
-            model_path,
-            map_location="cpu",
-            context="model inspection",
-        )
+        if Path(model_path).suffix == ".safetensors":
+            try:
+                from safetensors.torch import load_file as load_safetensors_file
+            except ImportError as e:
+                raise ImportError(
+                    "Loading safetensors weights requires safetensors. "
+                    "Install with: pip install safetensors"
+                ) from e
+
+            state_dict = load_safetensors_file(model_path, device="cpu")
+        else:
+            state_dict = load_untrusted_torch_file(
+                model_path,
+                map_location="cpu",
+                context="model inspection",
+            )
     except Exception as e:
         raise RuntimeError(
             f"Failed to load model weights from {model_path}: {e}"
