@@ -108,8 +108,27 @@ license: cc-by-nc-4.0 # ← non-commercial: usually a hard "no" for inclusion
 | `TrainConfig` | `training/config.py` | dataclass subclass with `kw_only=True`, override only fields that differ |
 | `BaseValPreprocessor` | `validation/preprocessors.py` | `__call__`, `normalize`, optionally `uses_letterbox` and `custom_normalization` |
 
+`BaseModel` also exposes a set of `ClassVar`s every family must set
+(missing or empty values silently break the factory's auto-routing):
+
+| ClassVar | What it controls |
+|---|---|
+| `FAMILY: str` | family identifier (e.g. `"yolox"`, `"deim"`); used by the factory to gate per-family kwargs and by the conversion script's `model_family` metadata field |
+| `FILENAME_PREFIX: str` | e.g. `"LibreYOLOX"`, `"LibreDFINE"`; drives `detect_size_from_filename` and the rehosted-weights filename convention |
+| `WEIGHT_EXT: str` | usually `".pt"`; only override if your weights need a different extension |
+| `INPUT_SIZES: dict[str, int]` | size code -> input resolution; used to validate the `size=` arg and to drive the val preprocessor's expected canvas |
+| `TRAIN_CONFIG: type[TrainConfig] \| None` | wires the family's dataclass to the model class so `model.train(...)` builds the right config; set this to `None` only for inference-only ports |
+| `SUPPORTS_SEG: bool` | default `False`; flip to `True` if your family also ships a segmentation head. The factory routes `task="seg"` requests via this flag (replacing the old `FAMILY == "rfdetr"` special-case in commit `d300f1c`) |
+| `val_preprocessor_class` | `BaseValPreprocessor` subclass; defaults to `StandardValPreprocessor` if unset |
+
 Auto-registration kicks in on import: `models/__init__.py` adds one line per
 family. **Import order = `can_load` priority** when heuristics overlap.
+
+Checkpoint loading goes through `libreyolo.utils.serialization.load_untrusted_torch_file`,
+not raw `torch.load`. That helper centralises the `weights_only=False`
+choice (PyTorch 2.6 default change) and adds an explanatory error
+context. Anything that loads a `.pt` outside `BaseModel._load_weights`
+should use the same helper rather than bypassing it.
 
 ## 5. Two architectural patterns
 
