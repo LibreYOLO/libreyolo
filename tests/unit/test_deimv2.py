@@ -9,6 +9,17 @@ import pytest
 
 pytestmark = pytest.mark.unit
 
+DEIMV2_SIZE_CASES = [
+    ("atto", 320, 100),
+    ("femto", 416, 150),
+    ("pico", 640, 200),
+    ("n", 640, 300),
+    ("s", 640, 300),
+    ("m", 640, 300),
+    ("l", 640, 300),
+    ("x", 640, 300),
+]
+
 
 def test_deimv2_is_registered_and_detects_filenames():
     from libreyolo import LibreDEIMv2
@@ -23,16 +34,7 @@ def test_deimv2_is_registered_and_detects_filenames():
     assert LibreDEIMv2.detect_size_from_filename("deimv2_dinov3_s_coco.pth") == "s"
 
 
-@pytest.mark.parametrize(
-    ("size", "input_size", "queries"),
-    [
-        ("atto", 320, 100),
-        ("femto", 416, 150),
-        ("pico", 640, 200),
-        ("n", 640, 300),
-        ("s", 640, 300),
-    ],
-)
+@pytest.mark.parametrize(("size", "input_size", "queries"), DEIMV2_SIZE_CASES)
 def test_deimv2_forward_shapes(size, input_size, queries):
     from libreyolo import LibreDEIMv2
 
