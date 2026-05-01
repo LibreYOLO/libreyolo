@@ -58,6 +58,9 @@ def pytest_configure(config):
     )
     config.addinivalue_line("markers", "dfine: tests covering the D-FINE model family")
     config.addinivalue_line("markers", "deim: tests covering the DEIM model family")
+    config.addinivalue_line(
+        "markers", "deimv2: tests covering the DEIMv2 model family"
+    )
     config.addinivalue_line("markers", "ecdet: tests covering the ECDet model family")
     config.addinivalue_line(
         "markers", "rtdetr: tests covering the RT-DETR model family"
@@ -446,6 +449,7 @@ YOLONAS_SIZES = [s for f, s, _ in MODEL_CATALOG if f == "yolonas"]
 RFDETR_SIZES = [s for f, s, _ in MODEL_CATALOG if f == "rfdetr"]
 DFINE_SIZES = [s for f, s, _ in MODEL_CATALOG if f == "dfine"]
 DEIM_SIZES = [s for f, s, _ in MODEL_CATALOG if f == "deim"]
+DEIMV2_SIZES = [s for f, s, _ in MODEL_CATALOG if f == "deimv2"]
 ECDET_SIZES = [s for f, s, _ in MODEL_CATALOG if f == "ecdet"]
 RTDETR_SIZES = [s for f, s, _ in MODEL_CATALOG if f == "rtdetr"]
 
@@ -473,6 +477,7 @@ FAMILY_MARKERS = {
     "rfdetr": pytest.mark.rfdetr,
     "dfine": pytest.mark.dfine,
     "deim": pytest.mark.deim,
+    "deimv2": pytest.mark.deimv2,
     "ecdet": pytest.mark.ecdet,
     "rtdetr": pytest.mark.rtdetr,
 }
