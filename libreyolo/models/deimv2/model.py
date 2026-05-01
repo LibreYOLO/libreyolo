@@ -59,6 +59,12 @@ class LibreDEIMv2(BaseModel):
         return None
 
     @classmethod
+    def format_weight_filename(cls, size: str) -> str:
+        size = normalize_size(size)
+        token = {"atto": "Atto", "femto": "Femto", "pico": "Pico"}.get(size, size)
+        return f"{cls.FILENAME_PREFIX}{token}{cls.WEIGHT_EXT}"
+
+    @classmethod
     def detect_size(cls, weights_dict: dict) -> Optional[str]:
         key = "decoder.dec_score_head.0.weight"
         if key not in weights_dict:
