@@ -48,6 +48,8 @@ class DetectionValidator(BaseValidator):
         self.iou_thresholds = torch.tensor(self.config.iou_thresholds)
         self.nc = model.nb_classes
         self.val_preproc = None  # set in _setup_dataloader
+        self._coco_annotation_file: Optional[Path] = None
+        self._coco_label_to_category_id: Optional[Dict[int, int]] = None
 
     # =========================================================================
     # Setup
@@ -142,8 +144,28 @@ class DetectionValidator(BaseValidator):
 
         # Determine dataset format
         data_path = Path(data_dir)
+        self._coco_annotation_file = None
+        self._coco_label_to_category_id = None
+        coco_annotation_file = self._find_coco_annotation_file(data_path)
 
-        if img_files is not None:
+        if coco_annotation_file is not None:
+            # Prefer official COCO JSON when it is present. This preserves
+            # COCO image ids, category ids, crowd annotations, and area ranges.
+            json_file = coco_annotation_file.name
+            split_name = self._resolve_coco_image_dir(data_path, json_file)
+
+            dataset = COCODataset(
+                data_dir=str(data_path),
+                json_file=json_file,
+                name=split_name,
+                img_size=img_size,
+                preproc=self.val_preproc,
+            )
+            self._coco_annotation_file = coco_annotation_file
+            self._coco_label_to_category_id = {
+                label: category_id for label, category_id in enumerate(dataset.class_ids)
+            }
+        elif img_files is not None:
             # File list mode (.txt format)
             dataset = YOLODataset(
                 img_files=img_files,
@@ -196,6 +218,30 @@ class DetectionValidator(BaseValidator):
 
         return dataloader
 
+    def _find_coco_annotation_file(self, data_path: Path) -> Optional[Path]:
+        annotations_dir = data_path / "annotations"
+        if not annotations_dir.exists():
+            return None
+
+        candidates = [
+            annotations_dir / f"instances_{self.config.split}2017.json",
+            annotations_dir / f"instances_{self.config.split}.json",
+        ]
+        for candidate in candidates:
+            if candidate.exists():
+                return candidate
+        return None
+
+    def _resolve_coco_image_dir(self, data_path: Path, json_file: str) -> str:
+        split_name = (
+            f"{self.config.split}2017"
+            if f"{self.config.split}2017" in json_file
+            else self.config.split
+        )
+        if (data_path / "images" / split_name).exists():
+            return f"images/{split_name}"
+        return split_name
+
     def _init_metrics(self) -> None:
         from libreyolo.data import load_data_config
         from libreyolo.data.yolo_coco_api import YOLOCocoAPI
@@ -209,6 +255,29 @@ class DetectionValidator(BaseValidator):
                 "config.data must be set to a yaml path or registry name "
                 "to initialize the COCO evaluator."
             )
+
+        if self._coco_annotation_file is not None:
+            try:
+                from pycocotools.coco import COCO
+            except ImportError:
+                raise ImportError(
+                    "pycocotools is required for COCO format. "
+                    "Install with: pip install pycocotools"
+                )
+
+            coco_api = COCO(str(self._coco_annotation_file))
+            self.coco_evaluator = COCOEvaluator(
+                coco_api,
+                iou_type="bbox",
+                label_to_category_id=self._coco_label_to_category_id,
+            )
+            if self.config.verbose:
+                logger.info(
+                    "COCO evaluator initialized from %s with %d images",
+                    self._coco_annotation_file,
+                    len(coco_api.imgs),
+                )
+            return
 
         # Resolve the (possibly registry-name) data argument through
         # load_data_config — that handles both relative `path:` fields and

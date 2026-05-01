@@ -255,3 +255,18 @@ class TestCOCOEvaluatorIntegration:
         assert "category_id" in result
         assert "bbox" in result  # Should be [x, y, w, h]
         assert "score" in result
+
+    def test_coco_evaluator_remaps_labels(self, simple_coco_api):
+        """Test contiguous model labels can be mapped to COCO category IDs."""
+        from libreyolo.validation import COCOEvaluator
+
+        evaluator = COCOEvaluator(simple_coco_api, label_to_category_id={0: 3})
+        predictions = {
+            "boxes": [[30, 30, 70, 70]],
+            "scores": [0.9],
+            "classes": [0],
+        }
+
+        evaluator.update(predictions, image_id=0)
+
+        assert evaluator.results[0]["category_id"] == 3

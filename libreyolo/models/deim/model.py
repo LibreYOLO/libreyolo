@@ -1,4 +1,4 @@
-"""LibreDFINE — BaseModel wrapper for the D-FINE native detection family."""
+"""LibreDEIM — BaseModel wrapper for the DEIM native detection family."""
 
 from __future__ import annotations
 
@@ -10,30 +10,32 @@ import torch
 import torch.nn as nn
 
 from ...utils.image_loader import ImageInput
-from ...validation.preprocessors import DFINEValPreprocessor
+from ...training.config import DEIMConfig
+from ...validation.preprocessors import DEIMValPreprocessor
 from ..base import BaseModel
-from .nn import LibreDFINEModel
-from .utils import postprocess, preprocess_image, unwrap_dfine_checkpoint
+from .nn import LibreDEIMModel
+from .utils import postprocess, preprocess_image, unwrap_deim_checkpoint
 
 
-class LibreDFINE(BaseModel):
-    """LibreYOLO wrapper for D-FINE.
+class LibreDEIM(BaseModel):
+    """LibreYOLO wrapper for DEIM.
 
-    Loads upstream ``dfine_{n,s,m,l,x}_coco.pth`` checkpoints and supports
-    inference, fine-tuning (via ``DFINETrainer``), validation, and export
+    Loads upstream ``deim_{n,s,m,l,x}_coco.pth`` checkpoints and supports
+    inference, fine-tuning (via ``DEIMTrainer``), validation, and export
     (ONNX / TensorRT / OpenVINO).
     """
 
-    FAMILY = "dfine"
-    FILENAME_PREFIX = "LibreDFINE"
+    FAMILY = "deim"
+    FILENAME_PREFIX = "LibreDEIM"
     INPUT_SIZES = {"n": 640, "s": 640, "m": 640, "l": 640, "x": 640}
-    val_preprocessor_class = DFINEValPreprocessor
+    TRAIN_CONFIG = DEIMConfig
+    val_preprocessor_class = DEIMValPreprocessor
 
     @classmethod
     def can_load(cls, weights_dict: dict) -> bool:
-        # D-FINE-unique decoder key prefix.  ``pre_bbox_head`` is present in
-        # D-FINE but absent from RT-DETR (which otherwise shares
-        # ``dec_bbox_head``, ``denoising_class_embed``, and ``enc_bbox_head``).
+        # DEIM-D-FINE intentionally shares the same architecture keys as D-FINE.
+        # The factory resolves that ambiguity with model_family metadata or a
+        # DEIM filename hint before falling back to registry order.
         return any("decoder.pre_bbox_head." in k for k in weights_dict)
 
     @classmethod
@@ -41,7 +43,7 @@ class LibreDFINE(BaseModel):
         detected = super().detect_size_from_filename(filename)
         if detected is not None:
             return detected
-        m = re.search(r"dfine(?:_hgnetv2)?_([nsmlx])(?:_|\.|$)", filename.lower())
+        m = re.search(r"deim(?:_hgnetv2)?_([nsmlx])(?:_|\.|$)", filename.lower())
         if m:
             return m.group(1)
         return None
@@ -97,7 +99,7 @@ class LibreDFINE(BaseModel):
         **kwargs,
     ):
         if isinstance(model_path, dict):
-            model_path = unwrap_dfine_checkpoint(model_path)
+            model_path = unwrap_deim_checkpoint(model_path)
         super().__init__(
             model_path=model_path,
             size=size,
@@ -109,7 +111,7 @@ class LibreDFINE(BaseModel):
             self._load_weights(model_path)
 
     def _init_model(self) -> nn.Module:
-        return LibreDFINEModel(
+        return LibreDEIMModel(
             config=self.size,
             nb_classes=self.nb_classes,
             eval_spatial_size=(self.input_size, self.input_size),
@@ -169,7 +171,7 @@ class LibreDFINE(BaseModel):
         )
 
     def _strict_loading(self) -> bool:
-        # D-FINE checkpoints carry buffers (anchors, valid_mask) that are
+        # DEIM checkpoints carry buffers (anchors, valid_mask) that are
         # regenerated at forward time from eval_spatial_size. Tolerate drift.
         return False
 
@@ -180,26 +182,26 @@ class LibreDFINE(BaseModel):
         epochs: int = 132,
         batch: int = 16,
         imgsz: int = 640,
-        lr0: float = 2e-4,
+        lr0: float = 4e-4,
         device: str = "",
         workers: int = 4,
         seed: int = 0,
         project: str = "runs/train",
-        name: str = "dfine_exp",
+        name: str = "deim_exp",
         exist_ok: bool = False,
         resume: bool = False,
         amp: bool = False,
         patience: int = 50,
         **kwargs,
     ) -> dict:
-        """Fine-tune or train D-FINE on a YOLO-format dataset config.
+        """Fine-tune or train DEIM on a YOLO-format dataset config.
 
         For v1 inference-only usage, just don't call this. To fine-tune from
         upstream weights, pass ``data="coco128.yaml"`` (or your own data yaml).
         """
         from libreyolo.data import load_data_config
 
-        from .trainer import DFINETrainer
+        from .trainer import DEIMTrainer
 
         try:
             data_config = load_data_config(data, autodownload=True)
@@ -227,7 +229,7 @@ class LibreDFINE(BaseModel):
             if torch.cuda.is_available():
                 torch.cuda.manual_seed_all(seed)
 
-        trainer = DFINETrainer(
+        trainer = DEIMTrainer(
             model=self.model,
             wrapper_model=self,
             size=self.size,
@@ -253,7 +255,7 @@ class LibreDFINE(BaseModel):
             if not self.model_path:
                 raise ValueError(
                     "resume=True requires a checkpoint. Load one first: "
-                    "model = LibreDFINE('path/to/last.pt'); model.train(data=..., resume=True)"
+                    "model = LibreDEIM('path/to/last.pt'); model.train(data=..., resume=True)"
                 )
             trainer.setup()
             trainer.resume(str(self.model_path))
@@ -276,11 +278,11 @@ class LibreDFINE(BaseModel):
 
     def _load_weights(self, model_path: str):
         if not Path(model_path).exists():
-            raise FileNotFoundError(f"D-FINE weights file not found: {model_path}")
+            raise FileNotFoundError(f"DEIM weights file not found: {model_path}")
 
         try:
             loaded = torch.load(model_path, map_location="cpu", weights_only=False)
-            state_dict = unwrap_dfine_checkpoint(loaded)
+            state_dict = unwrap_deim_checkpoint(loaded)
             state_dict = self._strip_ddp_prefix(dict(state_dict))
 
             if isinstance(loaded, dict):
@@ -306,7 +308,7 @@ class LibreDFINE(BaseModel):
             # has historically masked whole-module misalignment.
             if unexpected:
                 raise RuntimeError(
-                    f"Unexpected keys when loading D-FINE weights: {sorted(unexpected)[:10]}"
+                    f"Unexpected keys when loading DEIM weights: {sorted(unexpected)[:10]}"
                     + (
                         f" (+{len(unexpected) - 10} more)"
                         if len(unexpected) > 10
@@ -317,5 +319,5 @@ class LibreDFINE(BaseModel):
             raise
         except Exception as e:
             raise RuntimeError(
-                f"Failed to load D-FINE weights from {model_path}: {e}"
+                f"Failed to load DEIM weights from {model_path}: {e}"
             ) from e
