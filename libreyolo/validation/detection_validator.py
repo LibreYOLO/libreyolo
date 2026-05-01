@@ -13,6 +13,8 @@ from .config import ValidationConfig
 
 logger = logging.getLogger(__name__)
 
+COCO_TOPK_FAMILIES = {"dfine", "deim", "deimv2", "ecdet", "rfdetr", "rtdetr"}
+
 if TYPE_CHECKING:
     from libreyolo.models.base import BaseModel
 
@@ -163,7 +165,8 @@ class DetectionValidator(BaseValidator):
             )
             self._coco_annotation_file = coco_annotation_file
             self._coco_label_to_category_id = {
-                label: category_id for label, category_id in enumerate(dataset.class_ids)
+                label: category_id
+                for label, category_id in enumerate(dataset.class_ids)
             }
         elif img_files is not None:
             # File list mode (.txt format)
@@ -396,13 +399,24 @@ class DetectionValidator(BaseValidator):
             uses_letterbox = (
                 self.val_preproc is not None and self.val_preproc.uses_letterbox
             )
+            conf_thres = self.config.conf_thres
+            if (
+                self._coco_annotation_file is not None
+                and self.model.FAMILY in COCO_TOPK_FAMILIES
+            ):
+                # Upstream DETR-style COCO eval keeps the ranked top-k set and
+                # lets pycocotools handle score ordering, rather than applying
+                # a pre-eval confidence cutoff.
+                conf_thres = 0.0
+
             result = self.model._postprocess(
                 single_preds,
-                conf_thres=self.config.conf_thres,
+                conf_thres=conf_thres,
                 iou_thres=self.config.iou_thres,
                 original_size=(orig_w, orig_h),  # (width, height)
                 input_size=self._actual_imgsz,
                 letterbox=uses_letterbox,
+                max_det=self.config.max_det,
             )
 
             if result["num_detections"] > 0:
