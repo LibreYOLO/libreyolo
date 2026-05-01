@@ -11,9 +11,31 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import numpy as np
 import pytest
 
 pytestmark = pytest.mark.unit
+
+
+def test_dfine_val_preprocessor_matches_upstream_pil_resize():
+    """D-FINE/DEIM validators should match upstream PIL RGB resize semantics."""
+    from PIL import Image
+
+    from libreyolo.validation.preprocessors import DFINEValPreprocessor
+
+    img_bgr = np.arange(4 * 7 * 3, dtype=np.uint8).reshape(4, 7, 3)
+    preproc = DFINEValPreprocessor(img_size=(3, 5))
+
+    out, targets = preproc(img_bgr, np.zeros((0, 5), dtype=np.float32), (3, 5))
+
+    expected_rgb = img_bgr[:, :, ::-1]
+    expected = np.array(
+        Image.fromarray(expected_rgb).resize((5, 3), Image.Resampling.BILINEAR),
+        dtype=np.float32,
+    ).transpose(2, 0, 1)
+
+    np.testing.assert_array_equal(out, expected)
+    assert targets.shape == (preproc.max_labels, 5)
 
 
 def test_dfine_n_validation_mAP_on_coco128():
