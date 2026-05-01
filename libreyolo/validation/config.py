@@ -18,7 +18,7 @@ class ValidationConfig:
         split: Dataset split to validate on ("val" or "test").
         batch_size: Batch size for validation.
         imgsz: Image size for validation (assumes square input).
-        conf_thres: Confidence threshold. Use low value (0.001) for mAP calculation.
+        conf_thres: Confidence threshold. Use 0.0 or a low value for mAP calculation.
         iou_thres: IoU threshold for NMS.
         max_det: Maximum detections per image.
         iou_thresholds: IoU thresholds for mAP calculation (default: 0.50 to 0.95).
@@ -80,8 +80,8 @@ class ValidationConfig:
                 f"Invalid split: {self.split}. Must be 'val', 'test', or 'train'"
             )
 
-        if not 0 < self.conf_thres < 1:
-            raise ValueError(f"conf_thres must be in (0, 1), got {self.conf_thres}")
+        if not 0 <= self.conf_thres < 1:
+            raise ValueError(f"conf_thres must be in [0, 1), got {self.conf_thres}")
 
         if not 0 < self.iou_thres < 1:
             raise ValueError(f"iou_thres must be in (0, 1), got {self.iou_thres}")
