@@ -29,6 +29,13 @@ def get_unsupported_train_params(family: str | None) -> set[str]:
 _CLI_NAME_TO_WEIGHTS: dict[str, str] = {}
 
 
+def _weight_filename_for_cli(cls, size_code: str) -> str:
+    formatter = getattr(cls, "format_weight_filename", None)
+    if callable(formatter):
+        return formatter(size_code)
+    return f"{cls.FILENAME_PREFIX}{size_code}{cls.WEIGHT_EXT}"
+
+
 def _build_name_map() -> None:
     """Populate CLI name → weight filename mapping from model registry."""
     if _CLI_NAME_TO_WEIGHTS:
@@ -38,8 +45,7 @@ def _build_name_map() -> None:
     for cls in BaseModel._registry:
         for size_code in cls.INPUT_SIZES:
             cli_name = f"{cls.FAMILY}-{size_code}"
-            filename = f"{cls.FILENAME_PREFIX}{size_code}{cls.WEIGHT_EXT}"
-            _CLI_NAME_TO_WEIGHTS[cli_name] = filename
+            _CLI_NAME_TO_WEIGHTS[cli_name] = _weight_filename_for_cli(cls, size_code)
 
     # Also try RF-DETR (lazily registered)
     from libreyolo.models import try_ensure_rfdetr
@@ -48,8 +54,9 @@ def _build_name_map() -> None:
     if rfcls is not None:
         for size_code in rfcls.INPUT_SIZES:
             cli_name = f"{rfcls.FAMILY}-{size_code}"
-            filename = f"{rfcls.FILENAME_PREFIX}{size_code}{rfcls.WEIGHT_EXT}"
-            _CLI_NAME_TO_WEIGHTS[cli_name] = filename
+            _CLI_NAME_TO_WEIGHTS[cli_name] = _weight_filename_for_cli(
+                rfcls, size_code
+            )
 
 
 def get_all_cli_names() -> list[str]:
