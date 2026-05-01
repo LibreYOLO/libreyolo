@@ -13,6 +13,7 @@ from .models import (
     LibreDFINE,
     LibreDEIM,
     LibreECDET,
+    LibrePicoDet,
     LibreYOLORTDETR,
 )
 from .utils.results import Results, Boxes, Masks
@@ -68,6 +69,7 @@ __all__ = [
     "LibreDFINE",
     "LibreDEIM",
     "LibreECDET",
+    "LibrePicoDet",
     # Results
     "Results",
     "Boxes",

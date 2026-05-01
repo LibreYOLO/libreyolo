@@ -298,6 +298,33 @@ class ECDetValPreprocessor(StandardValPreprocessor):
         return chw.astype(np.float32), padded_targets
 
 
+class PicoDetValPreprocessor(StandardValPreprocessor):
+    """PicoDet preprocessor: simple resize, RGB, ImageNet mean/std in 0-255 space.
+
+    Matches Bo's upstream val pipeline (``Resize(keep_ratio=False)`` then
+    ``Normalize(mean=[123.675, 116.28, 103.53], std=[58.395, 57.12, 57.375], to_rgb=True)``).
+    Skipping the normalisation costs several mAP on COCO val2017.
+    """
+
+    _MEAN = np.array([123.675, 116.28, 103.53], dtype=np.float32).reshape(3, 1, 1)
+    _STD = np.array([58.395, 57.12, 57.375], dtype=np.float32).reshape(3, 1, 1)
+
+    @property
+    def custom_normalization(self) -> bool:
+        return True
+
+    def __call__(
+        self, img: np.ndarray, targets: np.ndarray, input_size: Tuple[int, int]
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        # BGR -> RGB then standard simple-resize path; no /255 (mean/std are
+        # already in 0-255 space).
+        chw, padded_targets = super().__call__(
+            img[:, :, ::-1].copy(), targets, input_size
+        )
+        chw = (chw - self._MEAN) / self._STD
+        return chw.astype(np.float32), padded_targets
+
+
 class RTDETRValPreprocessor(BaseValPreprocessor):
     """Preprocessor for RT-DETR validation: resize to fixed size, normalize to [0,1], no letterbox."""
 
