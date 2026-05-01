@@ -158,10 +158,6 @@ class RFDETRValPreprocessor(BaseValPreprocessor):
     def custom_normalization(self) -> bool:
         return True  # ImageNet mean/std applied here; validator must not rescale
 
-    @property
-    def expects_original_image(self) -> bool:
-        return True
-
     def __call__(
         self, img: np.ndarray, targets: np.ndarray, input_size: Tuple[int, int]
     ) -> Tuple[np.ndarray, np.ndarray]:
@@ -316,10 +312,6 @@ class RTDETRValPreprocessor(BaseValPreprocessor):
 
     @property
     def normalize(self) -> bool:
-        return True
-
-    @property
-    def expects_original_image(self) -> bool:
         return True
 
     def __call__(
