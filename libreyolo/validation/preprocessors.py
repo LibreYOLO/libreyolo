@@ -270,6 +270,19 @@ class DFINEValPreprocessor(StandardValPreprocessor):
     so we flip channels here to keep validation aligned with train/inference.
     """
 
+    def __call__(
+        self, img: np.ndarray, targets: np.ndarray, input_size: Tuple[int, int]
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        return super().__call__(img[:, :, ::-1].copy(), targets, input_size)
+
+
+class DEIMValPreprocessor(DFINEValPreprocessor):
+    """DEIM-D-FINE validation preprocessor: same RGB /255 plain resize as D-FINE."""
+
+
+class DEIMv2ValPreprocessor(DEIMValPreprocessor):
+    """DEIMv2 validation preprocessor matching upstream PIL/torchvision resize."""
+
     def _resize_image(
         self, img: np.ndarray, target_w: int, target_h: int
     ) -> np.ndarray:
@@ -312,11 +325,7 @@ class DFINEValPreprocessor(StandardValPreprocessor):
         return resized_img, padded_targets
 
 
-class DEIMValPreprocessor(DFINEValPreprocessor):
-    """DEIM-D-FINE validation preprocessor: same RGB /255 plain resize as D-FINE."""
-
-
-class ECDetValPreprocessor(DFINEValPreprocessor):
+class ECDetValPreprocessor(StandardValPreprocessor):
     """ECDet preprocessor: plain resize, RGB, /255, ImageNet normalize.
 
     Same skeleton as D-FINE's preprocessor but adds ImageNet (mean, std)
@@ -327,6 +336,28 @@ class ECDetValPreprocessor(DFINEValPreprocessor):
 
     _IMAGENET_MEAN = np.array([0.485, 0.456, 0.406], dtype=np.float32).reshape(3, 1, 1)
     _IMAGENET_STD = np.array([0.229, 0.224, 0.225], dtype=np.float32).reshape(3, 1, 1)
+
+    @property
+    def custom_normalization(self) -> bool:
+        # We apply /255 + ImageNet norm here; the validator must not rescale.
+        return True
+
+    def __call__(
+        self, img: np.ndarray, targets: np.ndarray, input_size: Tuple[int, int]
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        chw, padded_targets = super().__call__(
+            img[:, :, ::-1].copy(), targets, input_size
+        )
+        chw = chw / 255.0
+        chw = (chw - self._IMAGENET_MEAN) / self._IMAGENET_STD
+        return chw.astype(np.float32), padded_targets
+
+
+class DEIMv2DINOValPreprocessor(DEIMv2ValPreprocessor):
+    """DEIMv2 DINOv3 validation preprocessor: PIL resize plus ImageNet norm."""
+
+    _IMAGENET_MEAN = ECDetValPreprocessor._IMAGENET_MEAN
+    _IMAGENET_STD = ECDetValPreprocessor._IMAGENET_STD
 
     @property
     def custom_normalization(self) -> bool:

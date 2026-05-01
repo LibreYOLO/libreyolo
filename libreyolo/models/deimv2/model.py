@@ -11,7 +11,10 @@ import torch.nn as nn
 
 from ...utils.image_loader import ImageInput
 from ...utils.serialization import load_untrusted_torch_file
-from ...validation.preprocessors import DEIMValPreprocessor, ECDetValPreprocessor
+from ...validation.preprocessors import (
+    DEIMv2DINOValPreprocessor,
+    DEIMv2ValPreprocessor,
+)
 from ..base import BaseModel
 from .nn import DINO_SIZES, SIZE_CONFIGS, LibreDEIMv2Model, normalize_size
 from .utils import (
@@ -33,7 +36,7 @@ class LibreDEIMv2(BaseModel):
     FILENAME_PREFIX = "LibreDEIMv2"
     INPUT_SIZES = {size: int(cfg["input_size"]) for size, cfg in SIZE_CONFIGS.items()}
     TRAIN_CONFIG = None
-    val_preprocessor_class = DEIMValPreprocessor
+    val_preprocessor_class = DEIMv2ValPreprocessor
 
     @classmethod
     def can_load(cls, weights_dict: dict) -> bool:
@@ -150,7 +153,11 @@ class LibreDEIMv2(BaseModel):
     def _get_val_preprocessor(self, img_size: int | None = None):
         if img_size is None:
             img_size = self._get_input_size()
-        cls = ECDetValPreprocessor if self.size in DINO_SIZES else DEIMValPreprocessor
+        cls = (
+            DEIMv2DINOValPreprocessor
+            if self.size in DINO_SIZES
+            else DEIMv2ValPreprocessor
+        )
         return cls(img_size=(img_size, img_size))
 
     def _preprocess(

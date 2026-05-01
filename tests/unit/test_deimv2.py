@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import numpy as np
 import torch
 import pytest
 
@@ -67,3 +68,30 @@ def test_deimv2_dino_sizes_use_imagenet_preprocessing():
     assert dino.size in {"s", "m", "l", "x"}
     assert atto.model.uses_imagenet_norm is False
     assert dino.model.uses_imagenet_norm is True
+
+
+def test_deimv2_val_preprocessor_matches_upstream_pil_resize():
+    """DEIMv2 validation should match upstream PIL RGB resize semantics."""
+    from PIL import Image
+
+    from libreyolo.validation.preprocessors import (
+        DEIMValPreprocessor,
+        DEIMv2ValPreprocessor,
+        DFINEValPreprocessor,
+    )
+
+    img_bgr = np.arange(4 * 7 * 3, dtype=np.uint8).reshape(4, 7, 3)
+    preproc = DEIMv2ValPreprocessor(img_size=(3, 5))
+
+    out, targets = preproc(img_bgr, np.zeros((0, 5), dtype=np.float32), (3, 5))
+
+    expected_rgb = img_bgr[:, :, ::-1]
+    expected = np.array(
+        Image.fromarray(expected_rgb).resize((5, 3), Image.Resampling.BILINEAR),
+        dtype=np.float32,
+    ).transpose(2, 0, 1)
+
+    np.testing.assert_array_equal(out, expected)
+    assert targets.shape == (preproc.max_labels, 5)
+    assert not issubclass(DFINEValPreprocessor, DEIMv2ValPreprocessor)
+    assert not issubclass(DEIMValPreprocessor, DEIMv2ValPreprocessor)
