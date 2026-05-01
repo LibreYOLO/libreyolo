@@ -4,7 +4,7 @@
 [![PyPI](https://img.shields.io/pypi/v/libreyolo)](https://pypi.org/project/libreyolo/)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
-MIT-licensed object detection library with training and inference support across YOLOv9 (`t`, `s`, `m`, `c`), YOLOX (`n`, `t`, `s`, `m`, `l`, `x`), YOLO-NAS (`s`, `m`, `l`), RF-DETR (`n`, `s`, `m`, `l`), and D-FINE (`n`, `s`, `m`, `l`, `x`).
+MIT-licensed object detection library with training and inference support across YOLOv9 (`t`, `s`, `m`, `c`), YOLOX (`n`, `t`, `s`, `m`, `l`, `x`), YOLO-NAS (`s`, `m`, `l`), RF-DETR (`n`, `s`, `m`, `l`), D-FINE (`n`, `s`, `m`, `l`, `x`), and DEIM (`n`, `s`, `m`, `l`, `x`), plus inference/export support for DEIMv2 (`atto`, `femto`, `pico`, `n`, `s`, `m`, `l`, `x`).
 
 ![LibreYOLO Detection Example](libreyolo/assets/parkour_result.jpg)
 
@@ -41,11 +41,13 @@ The e2e suite mirrors this policy with pytest markers: `supported_backend` for O
 | YOLO-NAS | ✓ | ✓ | ✓ | ✓ | ✓ |
 | RF-DETR | ✓ | ~ | ✓ | ✓ | ~ |
 | D-FINE | ✓ | ✓ | ✓ | ✓ | — |
+| DEIM | ✓ | ✓ | ✓ | ✓ | — |
+| DEIMv2 | ✓ | ✓ | ✓ | ✓ | — |
 | RT-DETR | ✓ | ✓ | ✓ | ✓ | — |
 
 Notes:
 - RF-DETR TorchScript export exists, but tracing can still be brittle on some checkpoints and shapes.
-- NCNN is intentionally blocked for D-FINE and RT-DETR because the runtime lacks required DETR query-selection ops.
+- NCNN is intentionally blocked for D-FINE, DEIM, DEIMv2, and RT-DETR because the runtime lacks required DETR query-selection ops.
 - RF-DETR on NCNN is not blocked at export time, but current e2e coverage still tracks known runtime limitations.
 
 ## Quick Start
