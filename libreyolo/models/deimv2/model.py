@@ -103,9 +103,7 @@ class LibreDEIMv2(BaseModel):
         size = cls.detect_size_from_filename(filename)
         if size is None:
             return None
-        token = {"atto": "Atto", "femto": "Femto", "pico": "Pico"}.get(
-            size, size.upper()
-        )
+        token = {"atto": "Atto", "femto": "Femto", "pico": "Pico"}.get(size, size)
         name = f"{cls.FILENAME_PREFIX}{token}"
         return f"https://huggingface.co/LibreYOLO/{name}/resolve/main/{name}.pt"
 
