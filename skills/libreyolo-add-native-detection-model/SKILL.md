@@ -34,7 +34,7 @@ libreyolo/
 |----------|--------------------|----------|-------------|---------------------|
 | YOLOX    | n / t / s / m / l / x | YOLO-grid | yes        | Apache-2.0         |
 | YOLOv9   | t / s / m / c      | YOLO-grid | yes         | MIT (`MultimediaTechLab/YOLO`) |
-| YOLO-NAS | s / m / l          | YOLO-grid | yes         | Apache-2.0 (Deci CDN) |
+| YOLO-NAS | s / m / l          | YOLO-grid | yes         | Apache-2.0 code; weights non-redistributable (Deci CDN) |
 | RF-DETR  | n / s / m / l      | DETR      | wrapper     | Apache-2.0         |
 | D-FINE   | n / s / m / l / x  | DETR      | yes         | Apache-2.0         |
 
@@ -117,7 +117,7 @@ Pick one. The contracts diverge non-trivially.
 
 ### YOLO-grid pattern (YOLOX, YOLOv9, YOLO-NAS)
 
-- Model output: single dense tensor per scale, e.g. `(B, 4+nc, N)` (xyxy + class scores).
+- Model output: per-scale tensor list. Shape and contents differ across families: YOLOX is `(B, 5+nc, H, W)` per scale (4 reg + 1 objectness + nc classes), with grid offsets and exp applied only in export mode; YOLOv9 / YOLO-NAS drop the objectness channel and emit `(B, 4+nc, N)`-shaped tensors. Confirm your family's exact shape against the upstream head.
 - Training targets: `(B, max_labels, 5)` padded `[class, cx, cy, w, h]` pixel coords.
 - Loss: per-anchor + assignment (SimOTA / TaskAlignedAssigner / DFL).
 - Augmentation: numpy/cv2, mosaic + mixup central. Lives in `training/augment.py`
@@ -198,9 +198,13 @@ concrete checklist of what would need to be ported."*
 - Recipe gaps: minimal. Closest to upstream of any family.
 
 ### YOLOv9 (`models/yolo9/`)
-- Files: 7 files. Largest port (~2.3k LoC) due to ELAN/RepNCSPELAN modules.
-- Pattern: YOLO-grid. RGB 0–1 inference, letterbox.
-- Recipe gaps: from-scratch auxiliary head dropped; mixup disabled; single LR group instead of upstream's 3.
+- Files: 7 files. Largest YOLO-grid port (~2.3k LoC) due to ELAN/RepNCSPELAN modules.
+- Pattern: YOLO-grid. RGB 0-1 normalisation. Validation path letterboxes; the default
+  inference path uses plain `Image.resize` (`utils.py:_postprocess` defaults
+  `letterbox=False`), a known asymmetry called out in the val-preprocessor docstring.
+- Recipe gaps: from-scratch auxiliary head dropped; mixup disabled; trainer builds
+  three param groups (BN / Conv / Bias) at the same `lr` rather than upstream's
+  three at distinct LRs (no backbone-LR split).
 
 ### YOLO-NAS (`models/yolonas/`)
 - Files: 7 files. Native nn but state-dict-compatible with SuperGradients' SG checkpoints.
@@ -209,9 +213,13 @@ concrete checklist of what would need to be ported."*
 - Quirks: weights download from Deci's CDN, not LibreYOLO's HF org (license).
 
 ### RF-DETR (`models/rfdetr/`)
-- Files: 5 files (`__init__.py`, `model.py`, `nn.py`, `trainer.py`, `utils.py`).
+- Files: 6 files (`__init__.py`, `config.py`, `model.py`, `nn.py`, `trainer.py`, `utils.py`).
+  RF-DETR is the only family that keeps its `<Family>Config` family-local
+  (in `models/rfdetr/config.py`) rather than appending it to
+  `libreyolo/training/config.py`.
 - Pattern: DETR. **Wrapper, not native** — delegates to the `rfdetr` PyPI package.
-- Trainer subprocess-isolated to avoid CUDA driver corruption.
+- Subprocess isolation lives in `tests/e2e/test_rf1_training.py`, not in
+  the trainer itself; the trainer calls upstream `model.train()` directly.
 - Recipe gaps: training is upstream's, so few. Inference path adapts upstream's
   postprocessor (cxcywh → xyxy, COCO 91→80 class remap).
 
