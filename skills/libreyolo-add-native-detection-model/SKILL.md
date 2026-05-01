@@ -464,6 +464,21 @@ The ones below have actually burned integrations in this repo. Each line is a on
     cross-checking. A ratio of `1.0` is correct when upstream's
     `lr_gamma` is `1.0` and a silent bug otherwise; the ratio is
     not the issue, the cross-check is.
+21. **Wasted ImageNet backbone download in `_init_model`** *(RT-DETR
+    fixed in `bf16a2b`).* When a user constructs your wrapper from a
+    LibreYOLO checkpoint, `BaseModel.__init__` will eventually load
+    *their* weights and overwrite anything you initialised the
+    backbone with. If `_init_model` unconditionally fetches the
+    upstream ImageNet-pretrained backbone, you pay a 50-100 MB
+    download for nothing on every checkpoint load. Two related
+    pieces guard against it: (a) `BaseModel.__init__` peeks at the
+    checkpoint via `cls.detect_size` *before* the first
+    `_init_model` call so the right architecture is built from the
+    start, which means your `detect_size` has to work on raw
+    upstream `state_dict`s (not just LibreYOLO-wrapped ones); (b)
+    inside `_init_model`, check `self._loading_pretrained_checkpoint`
+    and pass `backbone_pretrained=False` (or the equivalent kwarg
+    your model uses) when the flag is set.
 
 ## 10. Workflow
 
