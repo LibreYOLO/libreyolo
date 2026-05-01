@@ -9,12 +9,16 @@ import torch
 import torch.nn as nn
 from PIL import Image
 
+from ...training.config import PicoDetConfig
 from ...utils.image_loader import ImageInput
 from ...validation.preprocessors import PicoDetValPreprocessor
 from ..base import BaseModel
 from .nn import LibrePicoDetModel
 from .utils import postprocess as _picodet_postprocess
 from .utils import preprocess_image as _picodet_preprocess
+
+
+_TRAIN_DEFAULTS = PicoDetConfig()
 
 
 class LibrePicoDet(BaseModel):
@@ -32,10 +36,7 @@ class LibrePicoDet(BaseModel):
     FAMILY = "picodet"
     FILENAME_PREFIX = "LibrePicoDet"
     INPUT_SIZES = {"s": 320, "m": 416, "l": 640}
-    # Trainer is added in a follow-up; setting to None marks this as
-    # inference-only until then (see skill §4: ``TRAIN_CONFIG = None`` is the
-    # supported sentinel for inference-only ports).
-    TRAIN_CONFIG = None
+    TRAIN_CONFIG = PicoDetConfig
     val_preprocessor_class = PicoDetValPreprocessor
 
     # ---- registry --------------------------------------------------------
@@ -147,10 +148,106 @@ class LibrePicoDet(BaseModel):
             max_det=max_det,
         )
 
-    # ---- training (placeholder) ------------------------------------------
+    # ---- training --------------------------------------------------------
 
-    def train(self, *args: Any, **kwargs: Any) -> dict:
-        raise NotImplementedError(
-            "PicoDet training is not yet wired into LibreYOLO. "
-            "Inference and weight loading are supported; see issue #161."
+    def train(
+        self,
+        data: str,
+        *,
+        epochs: int = _TRAIN_DEFAULTS.epochs,
+        batch: int = _TRAIN_DEFAULTS.batch,
+        imgsz: int | None = None,
+        lr0: float = _TRAIN_DEFAULTS.lr0,
+        optimizer: str = _TRAIN_DEFAULTS.optimizer,
+        device: str = "",
+        workers: int = _TRAIN_DEFAULTS.workers,
+        seed: int = _TRAIN_DEFAULTS.seed,
+        project: str = _TRAIN_DEFAULTS.project,
+        name: str = _TRAIN_DEFAULTS.name,
+        exist_ok: bool = _TRAIN_DEFAULTS.exist_ok,
+        pretrained: bool = True,
+        resume: bool = _TRAIN_DEFAULTS.resume,
+        amp: bool = _TRAIN_DEFAULTS.amp,
+        patience: int = _TRAIN_DEFAULTS.patience,
+        allow_download_scripts: bool = False,
+        **kwargs: Any,
+    ) -> dict:
+        """Train the PicoDet model on a dataset.
+
+        v1 cut: SGD + cosine LR + hflip + ImageNet normalisation. Bo's full
+        upstream pipeline (multiscale resize, MinIoURandomCrop,
+        PhotoMetricDistortion) is a known recipe gap and lands in a
+        follow-up commit per skill §6's "fine-tune parity, not paper parity"
+        guidance.
+        """
+        from pathlib import Path
+
+        from libreyolo.data import load_data_config
+
+        from .trainer import PicoDetTrainer
+
+        if imgsz is None:
+            imgsz = self.input_size
+
+        try:
+            data_config = load_data_config(
+                data, autodownload=True, allow_scripts=allow_download_scripts,
+            )
+            data = data_config.get("yaml_file", data)
+        except Exception as e:
+            raise FileNotFoundError(f"Failed to load dataset config '{data}': {e}")
+
+        yaml_nc = data_config.get("nc")
+        yaml_names = data_config.get("names")
+        if yaml_nc is not None and yaml_nc != self.nb_classes:
+            self._rebuild_for_new_classes(yaml_nc)
+        if yaml_names is not None:
+            if isinstance(yaml_names, list):
+                yaml_names = {i: n for i, n in enumerate(yaml_names)}
+            self.names = self._sanitize_names(yaml_names, self.nb_classes)
+
+        if seed >= 0:
+            import random
+            import numpy as np
+
+            random.seed(seed); np.random.seed(seed); torch.manual_seed(seed)
+            if torch.cuda.is_available():
+                torch.cuda.manual_seed_all(seed)
+
+        trainer = PicoDetTrainer(
+            model=self.model,
+            wrapper_model=self,
+            size=self.size,
+            num_classes=self.nb_classes,
+            data=data,
+            epochs=epochs,
+            batch=batch,
+            imgsz=imgsz,
+            lr0=lr0,
+            optimizer=optimizer.lower(),
+            device=device if device else "auto",
+            workers=workers,
+            seed=seed,
+            project=project,
+            name=name,
+            exist_ok=exist_ok,
+            resume=resume,
+            amp=amp,
+            patience=patience,
+            allow_download_scripts=allow_download_scripts,
+            **kwargs,
         )
+
+        if resume:
+            if not self.model_path:
+                raise ValueError(
+                    "resume=True requires a checkpoint. Load one first: "
+                    "model = LibrePicoDet('path/to/last.pt'); model.train(data=..., resume=True)"
+                )
+            trainer.setup()
+            trainer.resume(str(self.model_path))
+
+        results = trainer.train()
+        if Path(results["best_checkpoint"]).exists():
+            self._load_weights(results["best_checkpoint"])
+        return results
