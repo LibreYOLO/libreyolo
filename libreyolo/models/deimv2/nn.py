@@ -1,7 +1,7 @@
 """Top-level DEIMv2 model wiring.
 
-The implementation vendors the upstream DEIMv2 engine and builds the exact
-component graph from the released Hugging Face config JSONs.
+The implementation vendors the upstream DEIMv2 engine and builds the component
+graphs from the upstream COCO YAMLs and released Hugging Face configs.
 """
 
 from __future__ import annotations
@@ -55,6 +55,8 @@ SIZE_CONFIGS: dict[str, dict[str, Any]] = {
             "eval_idx": -1,
             "num_queries": 100,
             "dim_feedforward": 160,
+            "activation": "silu",
+            "mlp_act": "silu",
             "share_bbox_head": True,
             "use_gateway": False,
         },
@@ -90,6 +92,8 @@ SIZE_CONFIGS: dict[str, dict[str, Any]] = {
             "eval_idx": -1,
             "num_queries": 150,
             "dim_feedforward": 256,
+            "activation": "silu",
+            "mlp_act": "silu",
             "share_bbox_head": True,
             "use_gateway": False,
         },
@@ -125,6 +129,8 @@ SIZE_CONFIGS: dict[str, dict[str, Any]] = {
             "eval_idx": -1,
             "num_queries": 200,
             "dim_feedforward": 320,
+            "activation": "silu",
+            "mlp_act": "silu",
             "share_bbox_head": True,
             "use_gateway": False,
         },
@@ -177,7 +183,7 @@ SIZE_CONFIGS: dict[str, dict[str, Any]] = {
             "type": "dinov3",
             "name": "vit_tiny",
             "embed_dim": 192,
-            "interaction_indexes": [5, 8, 11],
+            "interaction_indexes": [3, 7, 11],
             "num_heads": 3,
         },
         "encoder": {
@@ -217,7 +223,7 @@ SIZE_CONFIGS: dict[str, dict[str, Any]] = {
             "type": "dinov3",
             "name": "vit_tinyplus",
             "embed_dim": 256,
-            "interaction_indexes": [5, 8, 11],
+            "interaction_indexes": [3, 7, 11],
             "num_heads": 4,
         },
         "encoder": {
