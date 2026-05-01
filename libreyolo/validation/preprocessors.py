@@ -5,6 +5,7 @@ from typing import Tuple
 
 import cv2
 import numpy as np
+from PIL import Image
 
 
 class BaseValPreprocessor(ABC):
@@ -269,17 +270,53 @@ class DFINEValPreprocessor(StandardValPreprocessor):
     so we flip channels here to keep validation aligned with train/inference.
     """
 
+    def _resize_image(
+        self, img: np.ndarray, target_w: int, target_h: int
+    ) -> np.ndarray:
+        rgb = img[:, :, ::-1]
+        return np.array(
+            Image.fromarray(rgb).resize(
+                (target_w, target_h), Image.Resampling.BILINEAR
+            ),
+            dtype=np.float32,
+        )
+
     def __call__(
         self, img: np.ndarray, targets: np.ndarray, input_size: Tuple[int, int]
     ) -> Tuple[np.ndarray, np.ndarray]:
-        return super().__call__(img[:, :, ::-1].copy(), targets, input_size)
+        orig_h, orig_w = img.shape[:2]
+        target_h, target_w = input_size
+
+        resized_img = self._resize_image(img, target_w, target_h)
+        resized_img = resized_img.transpose(2, 0, 1)  # HWC -> CHW
+        resized_img = np.ascontiguousarray(resized_img, dtype=np.float32)
+
+        padded_targets = np.zeros((self.max_labels, 5), dtype=np.float32)
+        if len(targets) > 0:
+            targets = np.array(targets).copy()
+            n = min(len(targets), self.max_labels)
+
+            # COCO annotations are pre-scaled by the dataset's aspect-ratio r.
+            # Undo that, then apply upstream's direct square resize scaling.
+            letterbox_r = min(target_h / orig_h, target_w / orig_w)
+            scale_x = target_w / orig_w
+            scale_y = target_h / orig_h
+
+            targets[:n, 0] = targets[:n, 0] / letterbox_r * scale_x
+            targets[:n, 1] = targets[:n, 1] / letterbox_r * scale_y
+            targets[:n, 2] = targets[:n, 2] / letterbox_r * scale_x
+            targets[:n, 3] = targets[:n, 3] / letterbox_r * scale_y
+
+            padded_targets[:n] = targets[:n]
+
+        return resized_img, padded_targets
 
 
 class DEIMValPreprocessor(DFINEValPreprocessor):
     """DEIM-D-FINE validation preprocessor: same RGB /255 plain resize as D-FINE."""
 
 
-class ECDetValPreprocessor(StandardValPreprocessor):
+class ECDetValPreprocessor(DFINEValPreprocessor):
     """ECDet preprocessor: plain resize, RGB, /255, ImageNet normalize.
 
     Same skeleton as D-FINE's preprocessor but adds ImageNet (mean, std)
@@ -299,9 +336,7 @@ class ECDetValPreprocessor(StandardValPreprocessor):
     def __call__(
         self, img: np.ndarray, targets: np.ndarray, input_size: Tuple[int, int]
     ) -> Tuple[np.ndarray, np.ndarray]:
-        chw, padded_targets = super().__call__(
-            img[:, :, ::-1].copy(), targets, input_size
-        )
+        chw, padded_targets = super().__call__(img, targets, input_size)
         chw = chw / 255.0
         chw = (chw - self._IMAGENET_MEAN) / self._IMAGENET_STD
         return chw.astype(np.float32), padded_targets
