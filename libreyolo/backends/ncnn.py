@@ -47,14 +47,15 @@ class NcnnBackend(BaseBackend):
             raise FileNotFoundError(f"model.ncnn.bin not found in {model_dir}")
 
         model_family = None
+        model_size = None
         imgsz = 640
         resolved_nb_classes = nb_classes if nb_classes is not None else 80
         names = self.build_names(resolved_nb_classes)
 
         metadata_path = model_dir / "metadata.yaml"
         if metadata_path.exists():
-            model_family, imgsz, resolved_nb_classes, names = self._read_metadata(
-                metadata_path, nb_classes
+            model_family, model_size, imgsz, resolved_nb_classes, names = (
+                self._read_metadata(metadata_path, nb_classes)
             )
 
         # Map device strings
@@ -92,6 +93,7 @@ class NcnnBackend(BaseBackend):
             imgsz=imgsz,
             model_family=model_family,
             names=names,
+            model_size=model_size,
         )
 
     @staticmethod
@@ -126,7 +128,7 @@ class NcnnBackend(BaseBackend):
         """Read metadata from metadata.yaml file.
 
         Returns:
-            Tuple of (model_family, imgsz, nb_classes, names).
+            Tuple of (model_family, model_size, imgsz, nb_classes, names).
         """
         import yaml
 
@@ -134,6 +136,7 @@ class NcnnBackend(BaseBackend):
             meta = yaml.safe_load(f) or {}
 
         model_family = meta.get("model_family")
+        model_size = meta.get("model_size")
         imgsz = int(meta["imgsz"]) if "imgsz" in meta else 640
 
         if nb_classes_override is not None:
@@ -148,7 +151,7 @@ class NcnnBackend(BaseBackend):
         else:
             names = BaseBackend.build_names(nb_classes)
 
-        return model_family, imgsz, nb_classes, names
+        return model_family, model_size, imgsz, nb_classes, names
 
     def _run_inference(self, blob: np.ndarray) -> list:
         """Run ncnn inference."""

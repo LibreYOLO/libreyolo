@@ -141,7 +141,7 @@ class BaseExporter(ABC):
             # runtimes.
             opset = (
                 17
-                if self.model._get_model_name() in ("dfine", "deim", "ecdet")
+                if self.model._get_model_name() in ("dfine", "deim", "deimv2", "ecdet")
                 else 13
             )
 
@@ -291,6 +291,12 @@ class BaseExporter(ABC):
             from ..models.deim.nn import DEIMExportWrapper
 
             nn_model = DEIMExportWrapper(nn_model).to(device)
+            nn_model.eval()
+            dfine_wrapped = True
+        elif family == "deimv2":
+            from ..models.deimv2.nn import DEIMv2ExportWrapper
+
+            nn_model = DEIMv2ExportWrapper(nn_model).to(device)
             nn_model.eval()
             dfine_wrapped = True
         elif family == "ecdet":
@@ -615,6 +621,7 @@ class NcnnExporter(BaseExporter):
         unsupported_family_names = {
             "dfine": "D-FINE",
             "deim": "DEIM",
+            "deimv2": "DEIMv2",
             "rtdetr": "RT-DETR",
             "ecdet": "ECDet",
         }

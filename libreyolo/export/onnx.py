@@ -107,7 +107,11 @@ def export_onnx(
     # DETR detection families we already know the output schema, so skip
     # the probe forward pass entirely and reuse the count below.
     is_seg = metadata.get("segmentation") == "true"
-    known_detr_detection = metadata.get("model_family") in {"dfine", "deim"}
+    known_detr_detection = metadata.get("model_family") in {
+        "dfine",
+        "deim",
+        "deimv2",
+    }
     num_outputs = None
     if not is_seg and not known_detr_detection:
         num_outputs = _detect_num_outputs(nn_model, dummy)

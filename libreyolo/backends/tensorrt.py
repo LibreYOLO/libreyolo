@@ -114,6 +114,7 @@ class TensorRTBackend(BaseBackend):
             imgsz=imgsz,
             model_family=model_family,
             names=names,
+            model_size=self._sidecar_size,
         )
 
     # =========================================================================

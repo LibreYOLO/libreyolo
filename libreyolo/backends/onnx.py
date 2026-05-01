@@ -66,7 +66,9 @@ class OnnxBackend(BaseBackend):
         else:
             imgsz = 640  # dynamic shape; use default
 
-        model_family, names = self._read_onnx_metadata(onnx_path, nb_classes)
+        model_family, model_size, names = self._read_onnx_metadata(
+            onnx_path, nb_classes
+        )
 
         super().__init__(
             model_path=onnx_path,
@@ -75,6 +77,7 @@ class OnnxBackend(BaseBackend):
             imgsz=imgsz,
             model_family=model_family,
             names=names if names is not None else self.build_names(nb_classes),
+            model_size=model_size,
         )
 
     @staticmethod
@@ -85,6 +88,7 @@ class OnnxBackend(BaseBackend):
             Tuple of (model_family, names_dict_or_None).
         """
         model_family = None
+        model_size = None
         names = None
         try:
             import onnx
@@ -94,6 +98,8 @@ class OnnxBackend(BaseBackend):
 
             if "model_family" in meta:
                 model_family = meta["model_family"]
+            if "model_size" in meta:
+                model_size = meta["model_size"]
 
             if "names" in meta:
                 import json
@@ -110,7 +116,7 @@ class OnnxBackend(BaseBackend):
         except Exception as e:
             logger.warning("Failed to read ONNX metadata from %s: %s", onnx_path, e)
 
-        return model_family, names
+        return model_family, model_size, names
 
     def _run_inference(self, blob: np.ndarray) -> list:
         """Run ONNX Runtime inference."""

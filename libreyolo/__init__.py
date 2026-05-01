@@ -12,6 +12,7 @@ from .models import (
     LibreYOLONAS,
     LibreDFINE,
     LibreDEIM,
+    LibreDEIMv2,
     LibreECDET,
     LibreYOLORTDETR,
 )
@@ -67,6 +68,7 @@ __all__ = [
     "LibreYOLORFDETR",
     "LibreDFINE",
     "LibreDEIM",
+    "LibreDEIMv2",
     "LibreECDET",
     # Results
     "Results",

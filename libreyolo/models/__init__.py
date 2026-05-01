@@ -38,6 +38,7 @@ from .yolo9_e2e.model import LibreYOLO9E2E  # noqa: E402
 from .yolo9.model import LibreYOLO9  # noqa: E402
 from .yolonas.model import LibreYOLONAS  # noqa: E402
 from .dfine.model import LibreDFINE  # noqa: E402
+from .deimv2.model import LibreDEIMv2  # noqa: E402
 from .deim.model import LibreDEIM  # noqa: E402
 from .rtdetr.model import LibreYOLORTDETR  # noqa: E402
 
@@ -298,7 +299,7 @@ def LibreYOLO(
     if matched_cls is None:
         raise ValueError(
             "Could not detect model architecture from state dict keys.\n"
-            "Supported architectures: YOLOX, YOLOv9, YOLOv9-E2E, YOLO-NAS, RT-DETR, RF-DETR, D-FINE, DEIM."
+            "Supported architectures: YOLOX, YOLOv9, YOLOv9-E2E, YOLO-NAS, RT-DETR, RF-DETR, D-FINE, DEIM, DEIMv2."
         )
 
     # Auto-detect size
@@ -365,7 +366,11 @@ def LibreYOLO(
             size=size,
             nb_classes=nb_classes,
             device=device,
-            **({"reg_max": reg_max} if matched_cls.FAMILY in ("yolo9", "yolo9_e2e") else {}),
+            **(
+                {"reg_max": reg_max}
+                if matched_cls.FAMILY in ("yolo9", "yolo9_e2e")
+                else {}
+            ),
         )
     else:
         # Pretrained checkpoint — pass extracted state dict
@@ -374,7 +379,11 @@ def LibreYOLO(
             size=size,
             nb_classes=nb_classes,
             device=device,
-            **({"reg_max": reg_max} if matched_cls.FAMILY in ("yolo9", "yolo9_e2e") else {}),
+            **(
+                {"reg_max": reg_max}
+                if matched_cls.FAMILY in ("yolo9", "yolo9_e2e")
+                else {}
+            ),
         )
 
     model.model_path = model_path
@@ -389,6 +398,7 @@ __all__ = [
     "LibreYOLONAS",
     "LibreDFINE",
     "LibreDEIM",
+    "LibreDEIMv2",
     "LibreECDET",
     "LibreYOLORTDETR",
     "try_ensure_rfdetr",
