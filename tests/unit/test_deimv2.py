@@ -67,7 +67,7 @@ def test_deimv2_factory_loads_safetensors_checkpoint(tmp_path):
     from libreyolo import LibreDEIMv2, LibreYOLO
 
     src = LibreDEIMv2(None, size="atto", device="cpu")
-    ckpt = tmp_path / "deimv2_hgnetv2_atto_coco.safetensors"
+    ckpt = tmp_path / "model.safetensors"
     save_model(src.model, ckpt)
 
     loaded = LibreYOLO(str(ckpt), device="cpu")
