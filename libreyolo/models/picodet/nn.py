@@ -299,7 +299,11 @@ class ESNet(nn.Module):
 
 
 class DarknetBottleneck(nn.Module):
-    """1x1 conv -> kxk conv (depthwise-separable by default) + optional residual."""
+    """1x1 conv -> kxk conv (depthwise-separable by default) + optional residual.
+
+    ``expansion`` is the inner-channel ratio (``hidden = out_channels * expansion``).
+    Bo's CSP-PAN passes ``expansion=1.0`` so hidden == mid.
+    """
 
     def __init__(
         self,
@@ -328,6 +332,14 @@ class DarknetBottleneck(nn.Module):
 class CSPLayer(nn.Module):
     """Cross Stage Partial layer: two 1x1 convs split the input, one path
     goes through ``num_blocks`` bottlenecks, then concat + final 1x1.
+
+    Two distinct ratios match Bo's upstream:
+
+    * ``expand_ratio`` — CSP split: ``mid = out_channels * expand_ratio`` (default 0.5).
+      This drives ``main_conv`` / ``short_conv`` / inner-bottleneck channels.
+    * ``expansion``    — inner ratio of each :class:`DarknetBottleneck`
+      (default 1.0 in PicoDet, which means the bottleneck's hidden dim
+      equals its in/out dim).
     """
 
     def __init__(
@@ -335,20 +347,21 @@ class CSPLayer(nn.Module):
         in_channels: int,
         out_channels: int,
         kernel_size: int = 5,
-        expansion: float = 0.5,
+        expand_ratio: float = 0.5,
+        expansion: float = 1.0,
         num_blocks: int = 1,
         add_identity: bool = True,
         use_depthwise: bool = True,
         act: str = "hswish",
     ) -> None:
         super().__init__()
-        mid = int(out_channels * expansion)
+        mid = int(out_channels * expand_ratio)
         self.main_conv = ConvBNAct(in_channels, mid, 1, act=act)
         self.short_conv = ConvBNAct(in_channels, mid, 1, act=act)
         self.final_conv = ConvBNAct(2 * mid, out_channels, 1, act=act)
         self.blocks = nn.Sequential(*[
             DarknetBottleneck(
-                mid, mid, kernel_size=kernel_size, expansion=1.0,
+                mid, mid, kernel_size=kernel_size, expansion=expansion,
                 add_identity=add_identity, use_depthwise=use_depthwise, act=act,
             )
             for _ in range(num_blocks)
@@ -405,7 +418,8 @@ class CSPPAN(nn.Module):
         self.top_down_blocks = nn.ModuleList([
             CSPLayer(
                 out_channels * 2, out_channels, kernel_size=kernel_size,
-                expansion=expansion, num_blocks=num_csp_blocks,
+                expand_ratio=0.5, expansion=expansion,
+                num_blocks=num_csp_blocks,
                 add_identity=False, use_depthwise=use_depthwise, act=act,
             )
             for _ in range(len(self.in_channels) - 1)
@@ -421,7 +435,8 @@ class CSPPAN(nn.Module):
             )
             self.bottom_up_blocks.append(CSPLayer(
                 out_channels * 2, out_channels, kernel_size=kernel_size,
-                expansion=expansion, num_blocks=num_csp_blocks,
+                expand_ratio=0.5, expansion=expansion,
+                num_blocks=num_csp_blocks,
                 add_identity=False, use_depthwise=use_depthwise, act=act,
             ))
 
