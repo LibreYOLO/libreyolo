@@ -19,6 +19,7 @@ dependencies = [
     "tqdm>=4.65.0",
     "pycocotools>=2.0.0",
     "typer>=0.9.0",
+    "safetensors>=0.4.0",
 ]
 
 [dependency-groups]
