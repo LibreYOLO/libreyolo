@@ -442,7 +442,12 @@ class COCODataset(Dataset):
         """Get item without preprocessing."""
         id_ = self.ids[index]
         label, origin_image_size, _, _ = self.annotations[index]
-        img = self.load_resized_img(index)
+        if getattr(self.preproc, "expects_original_image", False):
+            # Plain-resize DETR-style validators must match upstream COCO
+            # evaluation: original image -> configured square resize.
+            img = self.load_image(index)
+        else:
+            img = self.load_resized_img(index)
         return img, copy.deepcopy(label), origin_image_size, id_
 
     def __getitem__(self, index: int):

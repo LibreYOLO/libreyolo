@@ -38,6 +38,11 @@ class BaseValPreprocessor(ABC):
         """Whether this preprocessor uses letterbox (aspect-preserving) resize."""
         return False
 
+    @property
+    def expects_original_image(self) -> bool:
+        """Whether COCO JSON datasets should skip their aspect pre-resize step."""
+        return False
+
     def _pad_targets(self, targets: np.ndarray, n_valid: int) -> np.ndarray:
         """Pad targets to fixed size for batching."""
         padded = np.zeros((self.max_labels, 5), dtype=np.float32)
@@ -51,6 +56,10 @@ class StandardValPreprocessor(BaseValPreprocessor):
 
     @property
     def normalize(self) -> bool:
+        return True
+
+    @property
+    def expects_original_image(self) -> bool:
         return True
 
     def __call__(
@@ -148,6 +157,10 @@ class RFDETRValPreprocessor(BaseValPreprocessor):
     @property
     def custom_normalization(self) -> bool:
         return True  # ImageNet mean/std applied here; validator must not rescale
+
+    @property
+    def expects_original_image(self) -> bool:
+        return True
 
     def __call__(
         self, img: np.ndarray, targets: np.ndarray, input_size: Tuple[int, int]
@@ -303,6 +316,10 @@ class RTDETRValPreprocessor(BaseValPreprocessor):
 
     @property
     def normalize(self) -> bool:
+        return True
+
+    @property
+    def expects_original_image(self) -> bool:
         return True
 
     def __call__(
