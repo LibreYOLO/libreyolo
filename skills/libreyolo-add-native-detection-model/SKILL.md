@@ -290,6 +290,38 @@ it produces the documented outputs"; substitute accordingly.
   from D-FINE's own COCO/obj2coco checkpoints). Backbone-LR multiplier added in v2.
   Fine-tune now closely matches upstream's recipe.
 
+### Shared conversion helpers (`weights/_conversion_utils.py`)
+
+When a family does need a conversion script, use the shared helpers
+rather than reinventing the plumbing. They cover the parts that every
+script ends up needing:
+
+| Helper | Purpose |
+|---|---|
+| `add_repo_root_to_path()` | so `python weights/convert_*.py` can import `libreyolo.*` cleanly |
+| `load_checkpoint(path)` | `torch.load` with `map_location="cpu"` and `weights_only=False`; centralises the post-PyTorch-2.6 default change so it cannot bite per-script |
+| `extract_state_dict(ckpt, *, prefer_ema=True)` | unwraps the common upstream layouts: `{"ema": {"module": ...}}`, `{"model": ...}`, `{"state_dict": ...}`, raw dicts, or anything with a `.state_dict()` method |
+| `strip_state_dict_prefix(state_dict, prefix)` | drops a leading prefix when the upstream wrapper is `model.model.<...>` |
+| `wrap_libreyolo_checkpoint(state_dict, *, model_family, size, nc, names=None)` | builds the canonical metadata-wrapped LibreYOLO format; `build_class_names(nc)` falls back to COCO-80 names for `nc=80`, generic `class_<i>` otherwise |
+| `save_checkpoint(checkpoint, output_path)` | creates parent dirs and writes |
+
+`weights/README.md` classifies each shipped conversion as one of three
+tiers, which is the right framing for a new one too:
+
+- **metadata-wrap** (D-FINE, DEIM): module names already match,
+  `extract_state_dict` -> `wrap_libreyolo_checkpoint` -> `save_checkpoint`,
+  ~50-100 LoC end-to-end.
+- **light structural** (RT-DETR HGNetv2): EMA unwrap + a small set of
+  encoder/decoder key remaps + drop-list for tensors absent in
+  LibreYOLO's port. Saves a flat converted `state_dict` (no metadata
+  wrap on this path historically).
+- **heavy structural** (YOLOv9): translate numbered upstream layer
+  indices into LibreYOLO semantic module names, remap sublayer names
+  for ELAN / RepNCSPELAN / AConv / ADown / SPP / heads, skip the
+  auxiliary head, inject fixed DFL weights. Hundreds of LoC.
+
+Reference test for the helpers: `tests/unit/test_weight_conversion_utils.py`.
+
 ### Files-touched matrix (universal centralizing files)
 
 Every family edits these:
