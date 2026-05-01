@@ -145,8 +145,26 @@ class TensorRTBackend(BaseBackend):
 
     def _detect_model_family(self) -> Optional[str]:
         """Detect model family from output shapes when sidecar metadata is absent."""
-        # D-FINE exports name its outputs ``pred_logits`` and ``pred_boxes`` —
-        # this is the unambiguous signal.
+        # DETR exports share ``pred_logits``/``pred_boxes`` output names; the
+        # sidecar is authoritative, but filename hints keep sidecar-less engines
+        # routed to the right family when the user keeps LibreYOLO's names.
+        stem = Path(self.model_path).stem.lower()
+        if "deimv2" in stem:
+            return "deimv2"
+        if "ecdet" in stem:
+            return "ecdet"
+        if "dfine" in stem:
+            return "dfine"
+        if "deim" in stem:
+            return "deim"
+        if "rtdetr" in stem or "rt-detr" in stem:
+            return "rtdetr"
+        if "rfdetr" in stem or "rf-detr" in stem:
+            return "rfdetr"
+
+        # Without metadata or filename hints, this two-output schema is known
+        # to be DETR-style detection but cannot distinguish D-FINE/DEIM/DEIMv2.
+        # Keep the historical fallback for compatibility.
         if "pred_logits" in self.output_names and "pred_boxes" in self.output_names:
             return "dfine"
         if "output" in self.output_shapes:
@@ -336,10 +354,16 @@ class TensorRTBackend(BaseBackend):
             return "yolox"
         elif self.model_family == "rfdetr":
             return "rfdetr"
+        elif self.model_family == "dfine":
+            return "dfine"
         elif self.model_family == "deim":
             return "deim"
+        elif self.model_family == "deimv2":
+            return "deimv2"
         elif self.model_family == "rtdetr":
             return "rtdetr"
+        elif self.model_family == "ecdet":
+            return "ecdet"
         return "libreyolo"
 
     def _get_input_size(self) -> int:
