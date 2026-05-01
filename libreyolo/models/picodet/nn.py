@@ -571,7 +571,9 @@ class PicoHead(nn.Module):
 
     def forward(
         self, feats: Sequence[torch.Tensor]
-    ) -> Tuple[List[torch.Tensor], List[torch.Tensor]]:
+    ) -> (
+        Tuple[List[torch.Tensor], List[torch.Tensor]] | torch.Tensor
+    ):
         cls_scores: List[torch.Tensor] = []
         bbox_preds: List[torch.Tensor] = []
         for level, x in enumerate(feats):
@@ -590,19 +592,49 @@ class PicoHead(nn.Module):
                 cls_score = self.gfl_cls[level](cls_feat)
                 bbox_pred = self.gfl_reg[level](reg_feat)  # type: ignore[index]
 
-            if self.export:
-                # Flatten + sigmoid so backends can NMS without re-shaping.
-                B = cls_score.shape[0]
-                cls_score = (
-                    torch.sigmoid(cls_score)
-                    .reshape(B, self.num_classes, -1)
-                    .permute(0, 2, 1)
-                )
-                bbox_pred = bbox_pred.reshape(B, 4 * (self.reg_max + 1), -1).permute(0, 2, 1)
-
             cls_scores.append(cls_score)
             bbox_preds.append(bbox_pred)
-        return cls_scores, bbox_preds
+
+        if not self.export:
+            return cls_scores, bbox_preds
+
+        # Export path: decode to a single fused tensor matching the
+        # YOLO-grid backend convention. Output: ``(B, N, 4 + num_classes)``
+        # where the first 4 channels are xyxy boxes in input-canvas pixel
+        # coords and the rest are sigmoid class scores. Single output keeps
+        # the ONNX exporter on its happy path (``output_names=["output"]``).
+        decoded: List[torch.Tensor] = []
+        for level, (cls_score, bbox_pred) in enumerate(zip(cls_scores, bbox_preds)):
+            stride = self.strides[level]
+            B, _, h, w = cls_score.shape
+            n = h * w
+
+            scores = torch.sigmoid(cls_score).permute(0, 2, 3, 1).reshape(B, n, self.num_classes)
+
+            bp = bbox_pred.permute(0, 2, 3, 1).reshape(B, n, 4 * (self.reg_max + 1))
+            bp = bp.reshape(B, n, 4, self.reg_max + 1)
+            bp = F.softmax(bp, dim=-1)
+            project = torch.linspace(
+                0, self.reg_max, self.reg_max + 1,
+                device=bp.device, dtype=bp.dtype,
+            )
+            distances = (bp * project).sum(dim=-1) * stride  # (B, n, 4)
+
+            # Grid centers (n, 2)
+            ys = (torch.arange(h, device=bp.device, dtype=bp.dtype) + 0.5) * stride
+            xs = (torch.arange(w, device=bp.device, dtype=bp.dtype) + 0.5) * stride
+            yy, xx = torch.meshgrid(ys, xs, indexing="ij")
+            centers = torch.stack([xx.flatten(), yy.flatten()], dim=-1).unsqueeze(0)  # (1, n, 2)
+
+            x1 = centers[..., 0] - distances[..., 0]
+            y1 = centers[..., 1] - distances[..., 1]
+            x2 = centers[..., 0] + distances[..., 2]
+            y2 = centers[..., 1] + distances[..., 3]
+            boxes = torch.stack([x1, y1, x2, y2], dim=-1)  # (B, n, 4)
+
+            decoded.append(torch.cat([boxes, scores], dim=-1))
+
+        return torch.cat(decoded, dim=1)  # (B, N_total, 4 + num_classes)
 
 
 # ---------------------------------------------------------------------------
@@ -669,7 +701,12 @@ class LibrePicoDetModel(nn.Module):
 
     def forward(
         self, x: torch.Tensor
-    ) -> Tuple[List[torch.Tensor], List[torch.Tensor]]:
+    ) -> (
+        Tuple[List[torch.Tensor], List[torch.Tensor]] | torch.Tensor
+    ):
         feats = self.backbone(x)
         feats = self.neck(feats)
+        # Returns ``(cls_scores, bbox_preds)`` lists in training/eval mode,
+        # or a single decoded ``(B, N, 4 + nc)`` tensor when
+        # ``self.head.export`` is True (set by the ONNX/TRT exporter).
         return self.head(feats)
