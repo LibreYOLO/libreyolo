@@ -64,6 +64,8 @@ vocab1 = [
     "iopath>=0.1.10",
     "ftfy>=6.1.0",
     "regex>=2023.0.0",
+    # Phase 2 trainable: scipy for Hungarian matcher (linear_sum_assignment)
+    "scipy>=1.7.0",
 ]
 all = [
     "libreyolo[onnx]",
