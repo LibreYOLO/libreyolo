@@ -264,8 +264,12 @@ def main() -> None:
     if not isinstance(sd, dict):
         raise TypeError(f"Could not extract state dict from {args.src}")
 
-    print(f"Selecting EMA weights from {len(sd)} keys")
-    sd = use_ema_weights(sd)
+    # Use non-EMA (regular) weights — that is what Bo's mmdet ``init_detector``
+    # actually loads (the underscore-flat ``ema_*`` keys are reported as
+    # "unexpected" and silently ignored by mmcv's loader). Bo's claimed
+    # 26.9 mAP corresponds to this regular set, not the EMA copy.
+    print(f"Filtering EMA keys; keeping regular weights from {len(sd)} keys")
+    sd = {k: v for k, v in sd.items() if not k.startswith("ema_")}
     # Drop the integral.project buffer — LibreYOLO registers it as
     # ``persistent=False`` and rebuilds it on the fly.
     sd = {k: v for k, v in sd.items() if not k.endswith("integral.project")}
