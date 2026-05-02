@@ -56,3 +56,22 @@ Nature of the conversion:
 
 This is the heaviest conversion in this folder because the upstream naming
 scheme and module structure differ substantially from LibreYOLO's.
+
+### PicoDet
+
+Script: [`convert_picodet_weights.py`](convert_picodet_weights.py)
+
+Nature of the conversion:
+- unwrap a Bo396543018/Picodet_Pytorch checkpoint
+- remap top-level prefixes: `bbox_head.* -> head.*`,
+  `neck.trans.trans.* -> neck.trans.*`
+- flatten `backbone.<stage>_<i>.*` (Bo's per-stage `setattr` naming) into
+  `backbone.blocks.<flat>.*` for our `nn.ModuleList` layout
+- unwrap mmcv's `ConvModule` inside SE layers (`*.se.conv{1,2}.conv.X
+  -> *.se.conv{1,2}.X`)
+- add LibreYOLO metadata
+- optionally emit the 5-file HuggingFace upload bundle via `--hf-bundle`
+
+This is a light structural adaptation: every learned tensor maps 1-to-1,
+no DFL injection or auxiliary-head dropping needed. Round-trip
+bit-equivalence is verified by `tests/unit/test_picodet_parity.py`.

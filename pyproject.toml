@@ -134,6 +134,7 @@ markers = [
     "deim: tests covering the DEIM model family",
     "ecdet: tests covering the ECDet model family",
     "rtdetr: tests covering the RT-DETR model family",
+    "picodet: tests covering the PicoDet model family",
     "rf1: RF1 training tests",
     "rf5: RF5 training benchmark tests",
     "slow: slow tests that may take several minutes",

@@ -369,9 +369,13 @@ class DetectionValidator(BaseValidator):
         elif isinstance(preds, torch.Tensor):
             return preds[batch_idx : batch_idx + 1]
         elif isinstance(preds, (list, tuple)):
+            # Recurse so nested list-of-tensor outputs (e.g. PicoDet's per-level
+            # ``(List[cls_scores], List[bbox_preds])``) are sliced too. Without
+            # this every per-image postprocess gets the full batch's tensors
+            # and ``[0]``-indexing yields the first image's slice for every
+            # image in the batch.
             return type(preds)(
-                p[batch_idx : batch_idx + 1] if isinstance(p, torch.Tensor) else p
-                for p in preds
+                self._slice_batch_predictions(p, batch_idx) for p in preds
             )
         else:
             return preds
