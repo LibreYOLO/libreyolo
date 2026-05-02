@@ -225,7 +225,7 @@ class BaseBackend(ABC):
 
     @staticmethod
     def _preprocess_ecdet(image, input_size, color_format):
-        """ECDet preprocessing: plain resize + RGB + /255 + ImageNet (mean, std)."""
+        """ECDET preprocessing: plain resize + RGB + /255 + ImageNet (mean, std)."""
         from ..models.ecdet.postprocess import (
             preprocess_numpy as ecdet_preprocess_numpy,
         )
@@ -301,7 +301,7 @@ class BaseBackend(ABC):
             boxes, scores, cls = self._parse_dfine(all_outputs, orig_w, orig_h, conf)
             return boxes, scores, cls, None
         elif self.model_family == "ecdet":
-            # ECDet emits the same {pred_logits, pred_boxes} schema as D-FINE
+            # ECDET emits the same {pred_logits, pred_boxes} schema as D-FINE
             # so the parser is shared.
             boxes, scores, cls = self._parse_dfine(all_outputs, orig_w, orig_h, conf)
             return boxes, scores, cls, None

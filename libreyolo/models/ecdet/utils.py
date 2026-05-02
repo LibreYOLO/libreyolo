@@ -1,4 +1,4 @@
-"""ECDet decoder helpers.
+"""ECDET decoder helpers.
 
 Ported from EdgeCrafter (Apache-2.0). Functions kept byte-equivalent to upstream
 to lock in numerical parity for the decoder + criterion. Only the import of

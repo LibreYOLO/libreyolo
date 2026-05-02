@@ -11,7 +11,7 @@ Tests the complete pipeline:
 
 Known ncnn/PNNX limitations:
 - RF-DETR: torch.tile is unsupported by ncnn. All inference tests are xfail.
-- D-FINE / DEIM / DEIMv2 / ECDet / RT-DETR: DETR query-selection ops are
+- D-FINE / DEIM / DEIMv2 / ECDET / RT-DETR: DETR query-selection ops are
   unsupported by ncnn. All inference tests are xfail.
 """
 

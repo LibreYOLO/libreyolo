@@ -1,4 +1,4 @@
-"""ECDet HybridEncoder (RT-DETR-style CSP-PAN with sum fusion + CSPLayer2).
+"""ECDET HybridEncoder (RT-DETR-style CSP-PAN with sum fusion + CSPLayer2).
 
 Differs from D-FINE's HybridEncoder in three ways:
   * no `input_proj` (channel-match happens in the ViTAdapter projector)
@@ -90,7 +90,7 @@ class RepNCSPELAN4(nn.Module):
 
 
 class HybridEncoder(nn.Module):
-    """ECDet's encoder. Same skeleton as D-FINE's HybridEncoder, but:
+    """ECDET's encoder. Same skeleton as D-FINE's HybridEncoder, but:
     * no input_proj (backbone projector matches channels)
     * `csp_type` and `fuse_op` knobs threaded through.
     """

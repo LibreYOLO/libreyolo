@@ -34,7 +34,7 @@ def _try_import_upstream():
 
 
 def _seeded_outputs_and_targets(device="cpu"):
-    """Synthetic ECDet training-mode outputs that mimic the model's structure."""
+    """Synthetic ECDET training-mode outputs that mimic the model's structure."""
     torch.manual_seed(0)
     B, Q, NC, RM = 2, 300, 80, 32
 

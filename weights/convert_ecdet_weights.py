@@ -1,10 +1,10 @@
-"""Convert upstream EdgeCrafter ECDet COCO weights into LibreYOLO format.
+"""Convert upstream EdgeCrafter ECDET COCO weights into LibreYOLO format.
 
 Upstream releases ship as ``{"model": state_dict}``. LibreYOLO checkpoints add
 metadata (``model_family``, ``nc``, ``size``, ``names``) so the unified
 ``LibreYOLO()`` factory can route without filename heuristics.
 
-ECDet's module names already match the LibreECDET port byte-for-byte, so this
+ECDET's module names already match the LibreECDET port byte-for-byte, so this
 is a metadata wrap — no key remapping required.
 
 Usage:
@@ -89,8 +89,8 @@ def verify_conversion(converted_path: str, size: str) -> bool:
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Convert ECDet weights to LibreYOLO format")
-    parser.add_argument("input", help="Upstream ECDet checkpoint (.pth)")
+    parser = argparse.ArgumentParser(description="Convert ECDET weights to LibreYOLO format")
+    parser.add_argument("input", help="Upstream ECDET checkpoint (.pth)")
     parser.add_argument("output", help="Output LibreYOLO checkpoint (.pt)")
     parser.add_argument("--size", required=True, choices=["s", "m", "l", "x"])
     parser.add_argument("--nc", type=int, default=80)

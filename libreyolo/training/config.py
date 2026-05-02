@@ -455,8 +455,8 @@ class DEIMv2Config(TrainConfig):
 
 
 @dataclass(kw_only=True)
-class ECDetConfig(TrainConfig):
-    """ECDet-specific training defaults (experimental).
+class ECDETConfig(TrainConfig):
+    """ECDET-specific training defaults (experimental).
 
     Fine-tune defaults follow upstream EdgeCrafter's published recipe (S/M):
     AdamW with backbone-LR multiplier 0.05 (≈2.5e-5 vs head 5e-4), no-decay
@@ -476,7 +476,7 @@ class ECDetConfig(TrainConfig):
     warmup_epochs: int = 2
     warmup_lr_start: float = 1e-6
     no_aug_epochs: int = 4
-    min_lr_ratio: float = 0.5  # ECDet's lr_gamma in upstream
+    min_lr_ratio: float = 0.5  # ECDET's lr_gamma in upstream
 
     mosaic_prob: float = 0.75
     mixup_prob: float = 0.75
@@ -492,7 +492,7 @@ class ECDetConfig(TrainConfig):
     ema_decay: float = 0.9999
     ema_restart_decay: float = 0.9999
 
-    # ECDet-specific knobs.
+    # ECDET-specific knobs.
     backbone_lr_mult: float = 0.05  # 2.5e-5 / 5e-4 ≈ 0.05 for S/M; L/X use 0.01
     clip_max_norm: float = 0.1
     multi_scale: bool = (

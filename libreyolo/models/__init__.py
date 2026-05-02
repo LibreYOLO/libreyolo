@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 # =============================================================================
 
 # Always-available models (importing triggers __init_subclass__ registration)
-# Order matters: more-specific can_load() checks must run first. ECDet's ViT
+# Order matters: more-specific can_load() checks must run first. ECDET's ViT
 # backbone keys ("backbone.backbone.register_token") are uniquely identifying,
 # so register it before YOLOX which matches the broader "backbone.backbone"
 # prefix (skill landmine §9.3).
@@ -293,7 +293,7 @@ def LibreYOLO(
         matching_classes = _matching_model_classes(weights_dict)
         matching_families = {cls.FAMILY for cls in matching_classes}
         # Only raise on a true D-FINE/DEIM tie. Some optional families can add
-        # broader false-positive matches after lazy registration, while ECDet
+        # broader false-positive matches after lazy registration, while ECDET
         # and DEIMv2 legitimately match D-FINE/DEIM-ish decoder keys and should
         # be allowed to win via their more-specific detectors.
         if {"dfine", "deim"}.issubset(matching_families) and not (

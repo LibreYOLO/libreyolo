@@ -77,19 +77,6 @@ def _grid_centers(
     return torch.stack([xx.flatten(), yy.flatten()], dim=-1)
 
 
-def _integral(bbox_pred: torch.Tensor, reg_max: int) -> torch.Tensor:
-    """Softmax-expectation along the last bucket dim. ``bbox_pred`` is
-    (..., 4 * (reg_max+1)) and the result is (..., 4) in distance units
-    (left, top, right, bottom) before stride scaling.
-    """
-    shape = bbox_pred.shape
-    x = bbox_pred.reshape(-1, reg_max + 1)
-    x = F.softmax(x, dim=-1)
-    project = torch.linspace(0, reg_max, reg_max + 1, device=x.device, dtype=x.dtype)
-    x = (x * project).sum(dim=-1)
-    return x.reshape(*shape[:-1], 4)
-
-
 def _per_level_filter_topk(
     cls_scores: List[torch.Tensor],
     bbox_preds: List[torch.Tensor],

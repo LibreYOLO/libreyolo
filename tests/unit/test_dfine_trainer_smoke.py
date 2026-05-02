@@ -304,3 +304,27 @@ def test_set_decay_changes_ema_behavior():
     post = ema.decay(1000)
     assert abs(post - 0.99) < 1e-9
     assert post != pre
+
+
+def test_get_loss_components_aggregates_prefixes():
+    """get_loss_components must sum ``_aux_*`` and ``_dn_*`` variants so DDF/FGL
+    report non-zero values. Bare ``loss_ddf`` doesn't exist."""
+    from libreyolo.models.dfine.trainer import DFINETrainer
+
+    outputs = {
+        "loss_ddf_aux_0": torch.tensor(1.0),
+        "loss_ddf_aux_1": torch.tensor(2.0),
+        "loss_ddf_dn_0": torch.tensor(0.5),
+        "loss_fgl": torch.tensor(0.3),
+        "loss_fgl_aux_0": torch.tensor(0.2),
+        "loss_vfl": torch.tensor(4.0),
+        "loss_bbox": torch.tensor(5.0),
+        "loss_giou": torch.tensor(6.0),
+    }
+
+    components = DFINETrainer.get_loss_components(None, outputs)
+    assert components["ddf"] == pytest.approx(3.5), components  # 1 + 2 + 0.5
+    assert components["fgl"] == pytest.approx(0.5), components  # 0.3 + 0.2
+    assert components["vfl"] == pytest.approx(4.0)
+    assert components["bbox"] == pytest.approx(5.0)
+    assert components["giou"] == pytest.approx(6.0)

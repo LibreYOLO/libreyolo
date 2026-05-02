@@ -451,7 +451,7 @@ def test_rf1_training(family, size, weights, dataset_coco, dataset_data_yaml, tm
         # datasets. RF-DETR skips this check for the same reason (see the
         # subprocess branch above). For D-FINE we rely on the mAP-improvement
         # assertions below.
-        # D-FINE and ECDet are both DETR-family with ~38 weighted aux losses;
+        # D-FINE and ECDET are both DETR-family with ~38 weighted aux losses;
         # see the comment block above for why the monotonic check is skipped.
         if family not in ("dfine", "ecdet"):
             assert last_loss < first_loss, (
@@ -639,7 +639,7 @@ def test_load_finetuned_checkpoint(
             f"last epoch loss={last_loss:.4f}"
         )
 
-        # D-FINE and ECDet are both DETR-family with ~38 weighted aux losses;
+        # D-FINE and ECDET are both DETR-family with ~38 weighted aux losses;
         # see the comment block above for why the monotonic check is skipped.
         if family not in ("dfine", "ecdet"):
             assert last_loss < first_loss, (
