@@ -24,29 +24,11 @@ _TRAIN_DEFAULTS = PicoDetConfig()
 class LibrePicoDet(BaseModel):
     """PicoDet object detector (s/m/l).
 
-    Inference parity vs Bo396543018/Picodet_Pytorch upstream
-    (Apache-2.0, the source of our weights):
-
-    +------+--------------+-----------------+
-    | size | ours mAP\\* | upstream mAP    |
-    +======+==============+=================+
-    | s    | 26.85        | 26.9            |
-    +------+--------------+-----------------+
-    | m    | 34.23        | 34.2            |
-    +------+--------------+-----------------+
-    | l    | 40.39        | 40.4            |
-    +------+--------------+-----------------+
-
-    \\* COCO val2017 mAP50-95, conf=0.025, iou=0.6, max_per_img=100.
-    Forward outputs are bit-equivalent (max_abs_diff ~1e-5) on the same
-    input.
-
     Examples::
 
         >>> model = LibreYOLO("LibrePicoDets.pt")
         >>> dets = model(image="image.jpg")
 
-        >>> # Inference + train + exports all wired:
         >>> model = LibrePicoDet(size="s")
         >>> model.train(data="coco128.yaml", epochs=10)
     """

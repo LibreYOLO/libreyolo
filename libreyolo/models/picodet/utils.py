@@ -256,10 +256,10 @@ def postprocess(
 
     cls_scores, bbox_preds = output
 
-    # Bo's ``filter_scores_and_topk`` per level: keep top ``nms_pre`` (anchor,
-    # class) pairs above ``conf_thres``, then a single ``batched_nms`` across
-    # the union. Multi-label-per-anchor matches upstream mAP (~+1.5 vs argmax)
-    # without the per-class NMS Python loop.
+    # Per-level top-K filter, then a single ``batched_nms`` across the union.
+    # Each level keeps the top ``nms_pre`` (anchor, class) pairs above
+    # ``conf_thres``. Multi-label per anchor (vs argmax) so anchors with two
+    # strong classes emit both candidates.
     valid_scores, class_ids, valid_boxes = _per_level_filter_topk(
         cls_scores, bbox_preds, strides=strides, reg_max=reg_max,
         score_thr=conf_thres, nms_pre=1000,

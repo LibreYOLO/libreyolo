@@ -6,8 +6,4 @@ mmcv/mmdet dependency: ``ConvModule`` is replaced with plain
 ``nn.Conv2d + nn.BatchNorm2d + activation``, ``BaseModule`` with
 ``nn.Module``, registry decorators removed, and the head/loss path
 rewritten against LibreYOLO's ``BaseModel`` / ``BaseTrainer`` ABCs.
-
-Activations (HardSwish in backbone/neck/head, HardSigmoid in SE) are
-preserved exactly so upstream PaddlePaddle/Bo checkpoints can be
-loaded with bit-equivalent forwards.
 """
