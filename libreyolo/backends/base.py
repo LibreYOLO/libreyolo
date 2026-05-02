@@ -60,7 +60,7 @@ def _is_nms_free_family(model_family: Optional[str]) -> bool:
     selection. Applying YOLO-style IoU suppression on top of that can remove
     valid detections and make exported runtimes diverge from native PyTorch.
     """
-    return model_family in {"dfine", "deim", "ecdet", "rfdetr", "rtdetr"}
+    return model_family in {"dfine", "deim", "deimv2", "ecdet", "rfdetr", "rtdetr"}
 
 
 class BaseBackend(ABC):
@@ -81,12 +81,14 @@ class BaseBackend(ABC):
         imgsz: int,
         model_family: Optional[str],
         names: Dict[int, str],
+        model_size: Optional[str] = None,
     ):
         self.model_path = model_path
         self.nb_classes = nb_classes
         self.device = device
         self.imgsz = imgsz
         self.model_family = model_family
+        self.model_size = model_size
         self.names = names
 
     # =========================================================================
@@ -135,6 +137,11 @@ class BaseBackend(ABC):
         elif self.model_family == "deim":
             tensor, img, size = self._preprocess_deim(
                 image, effective_imgsz, color_format
+            )
+            return tensor, img, size, 1.0
+        elif self.model_family == "deimv2":
+            tensor, img, size = self._preprocess_deimv2(
+                image, effective_imgsz, color_format, self.model_size
             )
             return tensor, img, size, 1.0
         elif self.model_family == "ecdet":
@@ -195,6 +202,23 @@ class BaseBackend(ABC):
         original_img = img.copy()
 
         img_chw, _ = deim_preprocess_numpy(np.array(img), input_size)
+        img_tensor = torch.from_numpy(img_chw).unsqueeze(0)
+
+        return img_tensor, original_img, original_size
+
+    @staticmethod
+    def _preprocess_deimv2(image, input_size, color_format, model_size=None):
+        """DEIMv2 preprocessing; DINO-backed sizes use ImageNet normalization."""
+        from ..models.deimv2.nn import DINO_SIZES
+        from ..models.deimv2.utils import preprocess_numpy as deimv2_preprocess_numpy
+
+        img = ImageLoader.load(image, color_format=color_format)
+        original_size = img.size
+        original_img = img.copy()
+
+        img_chw, _ = deimv2_preprocess_numpy(
+            np.array(img), input_size, imagenet_norm=model_size in DINO_SIZES
+        )
         img_tensor = torch.from_numpy(img_chw).unsqueeze(0)
 
         return img_tensor, original_img, original_size
@@ -271,6 +295,9 @@ class BaseBackend(ABC):
             boxes, scores, cls = self._parse_dfine(all_outputs, orig_w, orig_h, conf)
             return boxes, scores, cls, None
         elif self.model_family == "deim":
+            boxes, scores, cls = self._parse_dfine(all_outputs, orig_w, orig_h, conf)
+            return boxes, scores, cls, None
+        elif self.model_family == "deimv2":
             boxes, scores, cls = self._parse_dfine(all_outputs, orig_w, orig_h, conf)
             return boxes, scores, cls, None
         elif self.model_family == "ecdet":

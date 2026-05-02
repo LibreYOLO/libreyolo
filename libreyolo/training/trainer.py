@@ -574,6 +574,15 @@ class BaseTrainer(ABC):
     def _save_checkpoint(
         self, epoch: int, loss: float, val_metrics: Optional[Dict[str, float]] = None
     ):
+        is_best = bool(val_metrics and val_metrics["mAP50_95"] > self.best_mAP50_95)
+        if is_best:
+            self.best_mAP50_95 = val_metrics["mAP50_95"]
+            self.best_mAP50 = val_metrics["mAP50"]
+            self.best_epoch = epoch + 1
+            self.patience_counter = 0
+        elif val_metrics:
+            self.patience_counter += 1
+
         model_to_save = self.ema_model.ema if self.ema_model else self.model
 
         checkpoint = {
@@ -592,6 +601,8 @@ class BaseTrainer(ABC):
         if self.wrapper_model is not None:
             checkpoint["names"] = self.wrapper_model.names
         if self.ema_model is not None:
+            checkpoint["train_model"] = self.model.state_dict()
+            checkpoint["ema"] = self.ema_model.ema.state_dict()
             checkpoint["ema_updates"] = self.ema_model.updates
 
         weights_dir = self.save_dir / "weights"
@@ -600,19 +611,13 @@ class BaseTrainer(ABC):
         latest_path = weights_dir / "last.pt"
         torch.save(checkpoint, latest_path)
 
-        if val_metrics and val_metrics["mAP50_95"] > self.best_mAP50_95:
-            self.best_mAP50_95 = val_metrics["mAP50_95"]
-            self.best_mAP50 = val_metrics["mAP50"]
-            self.best_epoch = epoch + 1
-            self.patience_counter = 0
+        if is_best:
             best_path = weights_dir / "best.pt"
             torch.save(checkpoint, best_path)
             logger.info(
                 f"New best model saved - Epoch {epoch + 1}: "
                 f"mAP50={self.best_mAP50:.4f}, mAP50-95={self.best_mAP50_95:.4f}"
             )
-        elif val_metrics:
-            self.patience_counter += 1
 
         if (epoch + 1) % self.config.save_period == 0:
             epoch_path = weights_dir / f"epoch_{epoch + 1}.pt"
@@ -632,7 +637,8 @@ class BaseTrainer(ABC):
         )
 
         try:
-            self.model.load_state_dict(checkpoint["model"])
+            model_state = checkpoint.get("train_model", checkpoint["model"])
+            self.model.load_state_dict(model_state)
         except Exception as e:
             raise RuntimeError(f"Cannot resume: model architecture mismatch - {e}")
 
@@ -662,6 +668,12 @@ class BaseTrainer(ABC):
             self.best_epoch = 0
 
         if self.ema_model and "ema_updates" in checkpoint:
+            if "ema" in checkpoint:
+                try:
+                    self.ema_model.ema.load_state_dict(checkpoint["ema"])
+                    logger.info("EMA weights restored")
+                except Exception as e:
+                    logger.warning(f"Could not load EMA weights: {e}")
             self.ema_model.updates = checkpoint["ema_updates"]
             logger.info(f"EMA updates restored: {self.ema_model.updates}")
 

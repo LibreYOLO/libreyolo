@@ -19,6 +19,7 @@ dependencies = [
     "tqdm>=4.65.0",
     "pycocotools>=2.0.0",
     "typer>=0.9.0",
+    "safetensors>=0.4.0",
 ]
 
 [dependency-groups]
@@ -82,6 +83,11 @@ include = ["libreyolo*"]
 requires = ["setuptools>=61", "wheel"]
 build-backend = "setuptools.build_meta"
 
+[tool.ruff]
+# Vendored from upstream DEIMv2. Keep local lint focused on the LibreYOLO
+# wrapper/integration code instead of rewriting third-party implementation files.
+extend-exclude = ["libreyolo/models/deimv2/engine"]
+
 [tool.ty.rules]
 # Rules that catch real bugs — keep as errors
 invalid-parameter-default = "error"
@@ -132,6 +138,7 @@ markers = [
     "rfdetr: tests covering the RF-DETR model family",
     "dfine: tests covering the D-FINE model family",
     "deim: tests covering the DEIM model family",
+    "deimv2: tests covering the DEIMv2 model family",
     "ecdet: tests covering the ECDet model family",
     "rtdetr: tests covering the RT-DETR model family",
     "picodet: tests covering the PicoDet model family",

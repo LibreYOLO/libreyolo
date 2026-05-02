@@ -26,7 +26,9 @@ def export_cmd(
     int8: bool = typer.Option(False, help="INT8 quantization"),
     dynamic: bool = typer.Option(False, help="Dynamic input shapes (ONNX)"),
     simplify: bool = typer.Option(True, help="ONNX graph simplification"),
-    opset: int = typer.Option(13, help="ONNX opset version"),
+    opset: Optional[int] = typer.Option(
+        None, help="ONNX opset version (auto if omitted)"
+    ),
     data: Optional[str] = typer.Option(None, help="Calibration data for INT8"),
     fraction: float = typer.Option(1.0, help="Fraction of calibration data"),
     device: str = typer.Option("auto", help="Device for tracing"),

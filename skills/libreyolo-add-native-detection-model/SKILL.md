@@ -324,6 +324,19 @@ script ends up needing:
 | `wrap_libreyolo_checkpoint(state_dict, *, model_family, size, nc, names=None)` | builds the canonical metadata-wrapped LibreYOLO format; `build_class_names(nc)` falls back to COCO-80 names for `nc=80`, generic `class_<i>` otherwise |
 | `save_checkpoint(checkpoint, output_path)` | creates parent dirs and writes |
 
+If upstream ships `.safetensors` (DEIMv2 was the first family to surface
+this), don't try to feed it through `load_checkpoint` — `torch.load`
+won't read it. Dispatch on `Path(input).suffix == ".safetensors"`,
+construct a fresh native model instance (e.g. `LibreDEIMv2Model(...)`),
+load with `safetensors.torch.load_model(model, path, strict=True)`, and
+read `.state_dict()` back. `strict=True` is the right default here: it
+fails the conversion loudly on any structural drift between upstream's
+safetensors layout and your port, which is exactly the bug class a
+silent unwrap would hide. `safetensors` is added as a runtime dep in
+`pyproject.toml` rather than an extra, since DETR families are
+increasingly publishing weights in this format.
+`weights/convert_deimv2_weights.py` is the reference implementation.
+
 `weights/README.md` classifies each shipped conversion as one of three
 tiers, which is the right framing for a new one too:
 

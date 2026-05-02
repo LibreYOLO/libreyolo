@@ -29,6 +29,13 @@ def get_unsupported_train_params(family: str | None) -> set[str]:
 _CLI_NAME_TO_WEIGHTS: dict[str, str] = {}
 
 
+def _weight_filename_for_cli(cls, size_code: str) -> str:
+    formatter = getattr(cls, "format_weight_filename", None)
+    if callable(formatter):
+        return formatter(size_code)
+    return f"{cls.FILENAME_PREFIX}{size_code}{cls.WEIGHT_EXT}"
+
+
 def _build_name_map() -> None:
     """Populate CLI name → weight filename mapping from model registry."""
     if _CLI_NAME_TO_WEIGHTS:
@@ -38,8 +45,7 @@ def _build_name_map() -> None:
     for cls in BaseModel._registry:
         for size_code in cls.INPUT_SIZES:
             cli_name = f"{cls.FAMILY}-{size_code}"
-            filename = f"{cls.FILENAME_PREFIX}{size_code}{cls.WEIGHT_EXT}"
-            _CLI_NAME_TO_WEIGHTS[cli_name] = filename
+            _CLI_NAME_TO_WEIGHTS[cli_name] = _weight_filename_for_cli(cls, size_code)
 
     # Also try RF-DETR (lazily registered)
     from libreyolo.models import try_ensure_rfdetr
@@ -48,8 +54,9 @@ def _build_name_map() -> None:
     if rfcls is not None:
         for size_code in rfcls.INPUT_SIZES:
             cli_name = f"{rfcls.FAMILY}-{size_code}"
-            filename = f"{rfcls.FILENAME_PREFIX}{size_code}{rfcls.WEIGHT_EXT}"
-            _CLI_NAME_TO_WEIGHTS[cli_name] = filename
+            _CLI_NAME_TO_WEIGHTS[cli_name] = _weight_filename_for_cli(
+                rfcls, size_code
+            )
 
 
 def get_all_cli_names() -> list[str]:
@@ -386,6 +393,43 @@ def build_family_train_kwargs(
         return _build_rfdetr_train_kwargs(
             params, model_path=model_path, user_provided=user_provided
         )
+    if family == "deimv2":
+        kwargs = build_train_kwargs(params)
+        provided = user_provided or set()
+        from .aliases import TRAIN_ALIASES
+
+        internal_to_cli = {v: k for k, v in TRAIN_ALIASES.items()}
+        size_defaulted = {
+            "epochs",
+            "batch",
+            "imgsz",
+            "optimizer",
+            "lr0",
+            "weight_decay",
+            "scheduler",
+            "warmup_epochs",
+            "warmup_lr_start",
+            "no_aug_epochs",
+            "min_lr_ratio",
+            "mosaic_prob",
+            "mixup_prob",
+            "hsv_prob",
+            "flip_prob",
+            "degrees",
+            "translate",
+            "shear",
+            "mosaic_scale",
+            "mixup_scale",
+            "ema",
+            "ema_decay",
+            "amp",
+            "name",
+        }
+        for internal_name in size_defaulted:
+            cli_name = internal_to_cli.get(internal_name, internal_name)
+            if cli_name not in provided:
+                kwargs.pop(internal_name, None)
+        return kwargs
     return build_train_kwargs(params)
 
 
