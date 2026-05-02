@@ -137,6 +137,88 @@ def decode_outputs(
     return torch.cat(all_scores, dim=1), torch.cat(all_boxes, dim=1)
 
 
+def _per_level_filter_topk(
+    cls_scores: List[torch.Tensor],
+    bbox_preds: List[torch.Tensor],
+    strides: Sequence[int],
+    reg_max: int,
+    score_thr: float,
+    nms_pre: int,
+) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Bo's ``filter_scores_and_topk`` per level: each level applies
+    ``score_thr`` to the *flattened* (anchor*classes) score table, then keeps
+    the top ``nms_pre`` (anchor, class) pairs by score, then decodes only
+    those boxes. Concatenates across levels.
+
+    Returns ``(scores, class_ids, boxes_xyxy)`` flat across levels.
+    """
+    assert len(cls_scores) == len(bbox_preds) == len(strides)
+    B = cls_scores[0].shape[0]
+    assert B == 1, "Per-level top-K only implemented for B=1 inference path."
+    device, dtype = cls_scores[0].device, cls_scores[0].dtype
+    nc = cls_scores[0].shape[1]
+
+    out_scores: List[torch.Tensor] = []
+    out_classes: List[torch.Tensor] = []
+    out_boxes: List[torch.Tensor] = []
+
+    for cls_score, bbox_pred, stride in zip(cls_scores, bbox_preds, strides):
+        _, _, h, w = cls_score.shape
+        n = h * w
+
+        # (n, num_classes) sigmoid scores
+        scores = torch.sigmoid(cls_score[0]).permute(1, 2, 0).reshape(n, nc)
+        # Flatten to (n*nc,) and pick top candidates above threshold
+        flat = scores.reshape(-1)
+        keep_mask = flat > score_thr
+        if not keep_mask.any():
+            continue
+        kept_flat_idx = keep_mask.nonzero(as_tuple=False).squeeze(1)
+        kept_scores = flat[kept_flat_idx]
+        if kept_scores.numel() > nms_pre:
+            top_scores, top_idx = torch.topk(kept_scores, nms_pre)
+            kept_flat_idx = kept_flat_idx[top_idx]
+            kept_scores = top_scores
+
+        anchor_idx = kept_flat_idx // nc
+        class_idx = kept_flat_idx % nc
+
+        # Decode just the kept anchors
+        bp = bbox_pred[0].permute(1, 2, 0).reshape(n, 4 * (reg_max + 1))[anchor_idx]
+        bp = bp.reshape(-1, 4, reg_max + 1)
+        bp = F.softmax(bp, dim=-1)
+        proj = torch.linspace(0, reg_max, reg_max + 1, device=device, dtype=dtype)
+        distances = (bp * proj).sum(dim=-1) * stride
+
+        # Per-anchor centers from the original grid
+        ys = (torch.arange(h, device=device, dtype=dtype) + 0.5) * stride
+        xs = (torch.arange(w, device=device, dtype=dtype) + 0.5) * stride
+        yy, xx = torch.meshgrid(ys, xs, indexing="ij")
+        centers = torch.stack([xx.flatten(), yy.flatten()], dim=-1)[anchor_idx]
+
+        x1 = centers[:, 0] - distances[:, 0]
+        y1 = centers[:, 1] - distances[:, 1]
+        x2 = centers[:, 0] + distances[:, 2]
+        y2 = centers[:, 1] + distances[:, 3]
+        boxes = torch.stack([x1, y1, x2, y2], dim=-1)
+
+        out_scores.append(kept_scores)
+        out_classes.append(class_idx)
+        out_boxes.append(boxes)
+
+    if not out_scores:
+        return (
+            torch.zeros(0, device=device, dtype=dtype),
+            torch.zeros(0, device=device, dtype=torch.long),
+            torch.zeros((0, 4), device=device, dtype=dtype),
+        )
+    return (
+        torch.cat(out_scores, dim=0),
+        torch.cat(out_classes, dim=0),
+        torch.cat(out_boxes, dim=0),
+    )
+
+
 # ---------------------------------------------------------------------------
 # Postprocess
 # ---------------------------------------------------------------------------
@@ -160,26 +242,18 @@ def postprocess(
     interactive inference.
     """
     cls_scores, bbox_preds = output
-    scores, boxes = decode_outputs(cls_scores, bbox_preds, strides=strides, reg_max=reg_max)
 
-    # Single-image path (B=1)
-    scores = scores[0]  # (N, nc)
-    boxes = boxes[0]    # (N, 4)
-
-    # Multi-label per anchor: each (anchor, class) pair above conf is a
-    # separate candidate. Matches Bo's ``filter_scores_and_topk`` pipeline,
-    # which is what produces the upstream mAP. The argmax-per-anchor path
-    # we used previously costs ~1.5 mAP because anchors with two strong
-    # classes (e.g. "person" and "skier") only emitted the single max.
-    mask = scores > conf_thres
-    if not mask.any():
+    # Bo's ``filter_scores_and_topk`` per level: keep top ``nms_pre`` (anchor,
+    # class) pairs by score above ``conf_thres``, then run per-class NMS on
+    # the union. Multi-label-per-anchor with a top-K cap matches the upstream
+    # mAP (gain ~1.5 mAP over argmax-per-anchor) without blowing up per-class
+    # NMS runtime.
+    valid_scores, class_ids, valid_boxes = _per_level_filter_topk(
+        cls_scores, bbox_preds, strides=strides, reg_max=reg_max,
+        score_thr=conf_thres, nms_pre=1000,
+    )
+    if valid_scores.numel() == 0:
         return {"boxes": [], "scores": [], "classes": [], "num_detections": 0}
-
-    nz = mask.nonzero(as_tuple=False)
-    anchor_idx = nz[:, 0]
-    class_ids = nz[:, 1]
-    valid_scores = scores[anchor_idx, class_ids]
-    valid_boxes = boxes[anchor_idx]
 
     return postprocess_detections(
         boxes=valid_boxes,
