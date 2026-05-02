@@ -241,13 +241,14 @@ def postprocess(
     max_per_img=100). Caller usually overrides ``conf_thres`` to 0.25 for
     interactive inference.
     """
+    import torchvision.ops as tvo
+
     cls_scores, bbox_preds = output
 
     # Bo's ``filter_scores_and_topk`` per level: keep top ``nms_pre`` (anchor,
-    # class) pairs by score above ``conf_thres``, then run per-class NMS on
-    # the union. Multi-label-per-anchor with a top-K cap matches the upstream
-    # mAP (gain ~1.5 mAP over argmax-per-anchor) without blowing up per-class
-    # NMS runtime.
+    # class) pairs above ``conf_thres``, then a single ``batched_nms`` across
+    # the union. Multi-label-per-anchor matches upstream mAP (~+1.5 vs argmax)
+    # without the per-class NMS Python loop.
     valid_scores, class_ids, valid_boxes = _per_level_filter_topk(
         cls_scores, bbox_preds, strides=strides, reg_max=reg_max,
         score_thr=conf_thres, nms_pre=1000,
@@ -255,14 +256,41 @@ def postprocess(
     if valid_scores.numel() == 0:
         return {"boxes": [], "scores": [], "classes": [], "num_detections": 0}
 
-    return postprocess_detections(
-        boxes=valid_boxes,
-        scores=valid_scores,
-        class_ids=class_ids,
-        conf_thres=conf_thres,
-        iou_thres=iou_thres,
-        input_size=input_size,
-        original_size=original_size,
-        max_det=max_det,
-        letterbox=False,  # PicoDet uses simple resize, not letterbox
-    )
+    # Rescale to original image (PicoDet uses simple resize, not letterbox)
+    if original_size is not None:
+        scale_x = original_size[0] / input_size
+        scale_y = original_size[1] / input_size
+        valid_boxes = valid_boxes.clone()
+        valid_boxes[:, [0, 2]] *= scale_x
+        valid_boxes[:, [1, 3]] *= scale_y
+        valid_boxes[:, [0, 2]].clamp_(0, original_size[0])
+        valid_boxes[:, [1, 3]].clamp_(0, original_size[1])
+
+    # Drop zero/negative-area boxes
+    bw = valid_boxes[:, 2] - valid_boxes[:, 0]
+    bh = valid_boxes[:, 3] - valid_boxes[:, 1]
+    keep_area = (bw > 0) & (bh > 0)
+    if not keep_area.all():
+        valid_boxes = valid_boxes[keep_area]
+        valid_scores = valid_scores[keep_area]
+        class_ids = class_ids[keep_area]
+
+    if valid_scores.numel() == 0:
+        return {"boxes": [], "scores": [], "classes": [], "num_detections": 0}
+
+    # Single batched NMS across all classes (one C++ call).
+    keep = tvo.batched_nms(valid_boxes, valid_scores, class_ids, iou_thres)
+    if keep.numel() > max_det:
+        # Top-by-score among the kept indices
+        top = torch.topk(valid_scores[keep], max_det).indices
+        keep = keep[top]
+
+    final_boxes = valid_boxes[keep].cpu().numpy()
+    final_scores = valid_scores[keep].cpu().numpy()
+    final_classes = class_ids[keep].cpu().numpy()
+    return {
+        "boxes": final_boxes.tolist(),
+        "scores": final_scores.tolist(),
+        "classes": final_classes.tolist(),
+        "num_detections": len(final_boxes),
+    }

@@ -38,6 +38,20 @@ class BaseValPreprocessor(ABC):
         """Whether this preprocessor uses letterbox (aspect-preserving) resize."""
         return False
 
+    @property
+    def wants_unresized_image(self) -> bool:
+        """If True, the dataset should hand over the original-resolution image
+        and let the preprocessor own all resizing.
+
+        ``COCODataset.load_resized_img`` letterbox-resizes by default to keep
+        the YOLOX path on its happy path. Families that do plain stretch
+        resize end up with a double-resize (letterbox → stretch) which costs
+        ~1 mAP from the extra interpolation pass. Setting this True skips
+        the dataset-level resize and lets the preprocessor go straight from
+        the original image to the target size in a single ``cv2.resize``.
+        """
+        return False
+
     def _pad_targets(self, targets: np.ndarray, n_valid: int) -> np.ndarray:
         """Pad targets to fixed size for batching."""
         padded = np.zeros((self.max_labels, 5), dtype=np.float32)
@@ -312,6 +326,10 @@ class PicoDetValPreprocessor(StandardValPreprocessor):
     @property
     def custom_normalization(self) -> bool:
         return True
+
+    @property
+    def wants_unresized_image(self) -> bool:
+        return True  # avoid the dataset's letterbox-then-stretch double resize
 
     def __call__(
         self, img: np.ndarray, targets: np.ndarray, input_size: Tuple[int, int]

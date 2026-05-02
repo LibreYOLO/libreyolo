@@ -442,6 +442,20 @@ class COCODataset(Dataset):
         """Get item without preprocessing."""
         id_ = self.ids[index]
         label, origin_image_size, _, _ = self.annotations[index]
+        if getattr(self.preproc, "wants_unresized_image", False):
+            # Preprocessor handles all resizing in one pass (avoids the
+            # letterbox-then-stretch double-resize). Targets are already
+            # scaled by the dataset's letterbox ratio; we undo that here so
+            # the preprocessor sees them in original-image coords matching
+            # the original-image pixels we hand over.
+            img = self.load_image(index)
+            label = copy.deepcopy(label)
+            if label.shape[0] > 0:
+                target_h, target_w = self.img_size
+                r = min(target_h / origin_image_size[0], target_w / origin_image_size[1])
+                if r > 0:
+                    label[:, :4] = label[:, :4] / r
+            return img, label, origin_image_size, id_
         img = self.load_resized_img(index)
         return img, copy.deepcopy(label), origin_image_size, id_
 
