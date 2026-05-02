@@ -67,9 +67,9 @@ def test_generic_dfine_deim_checkpoint_requires_family_hint(tmp_path):
 
 
 def test_ecdet_checkpoint_does_not_trip_dfine_deim_ambiguity(tmp_path):
-    """ECDet's decoder also has ``decoder.pre_bbox_head.*`` keys, so DFINE and
-    DEIM ``can_load`` both return True alongside ECDet's. The factory must
-    still resolve to ECDet via the more-specific ``register_token`` match
+    """ECDET's decoder also has ``decoder.pre_bbox_head.*`` keys, so DFINE and
+    DEIM ``can_load`` both return True alongside ECDET's. The factory must
+    still resolve to ECDET via the more-specific ``register_token`` match
     instead of raising the D-FINE/DEIM ambiguity error."""
     from libreyolo import LibreECDET, LibreYOLO
 

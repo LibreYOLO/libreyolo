@@ -1,4 +1,4 @@
-"""Layer-by-layer parity test for ECDet vs upstream EdgeCrafter.
+"""Layer-by-layer parity test for ECDET vs upstream EdgeCrafter.
 
 Builds the same model with the same weights in both implementations, feeds an
 identical input, and asserts intermediate tensors agree at 1e-5. Skipped if

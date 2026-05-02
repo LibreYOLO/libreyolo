@@ -1,10 +1,10 @@
-"""ECDetTrainer — D-FINE-style trainer adapted for ECDet (EXPERIMENTAL).
+"""ECDETTrainer — D-FINE-style trainer adapted for ECDET (EXPERIMENTAL).
 
-Subclasses ``DFINETrainer`` and overrides only the points where ECDet's recipe
+Subclasses ``DFINETrainer`` and overrides only the points where ECDET's recipe
 diverges from D-FINE's:
 
 * ``on_setup`` swaps the criterion to ``ECCriterion`` with MAL classification
-  loss (upstream's default), the ECDet weight_dict, and the ECDet loss list
+  loss (upstream's default), the ECDET weight_dict, and the ECDET loss list
   ``["mal", "boxes", "local"]``.
 * ``get_loss_components`` reports ``mal`` instead of ``vfl``.
 * ``get_model_family`` / ``get_model_tag`` / ``_config_class`` updated.
@@ -20,28 +20,28 @@ from typing import Dict, Type
 
 import torch
 
-from ...training.config import ECDetConfig, TrainConfig
+from ...training.config import ECDETConfig, TrainConfig
 from ..dfine.matcher import HungarianMatcher
 from ..dfine.trainer import DFINETrainer
 from ..dfine.transforms import DFINEPassThroughDataset, DFINETrainTransform
 from .loss import ECCriterion
 
 
-class ECDetTrainer(DFINETrainer):
+class ECDETTrainer(DFINETrainer):
     @classmethod
     def _config_class(cls) -> Type[TrainConfig]:
-        return ECDetConfig
+        return ECDETConfig
 
     def get_model_family(self) -> str:
         return "ecdet"
 
     def get_model_tag(self) -> str:
-        return f"ECDet-{self.config.size}"
+        return f"ECDET-{self.config.size}"
 
     def _setup_device(self) -> torch.device:
-        """Override the D-FINE blanket CPU-fallback for ECDet.
+        """Override the D-FINE blanket CPU-fallback for ECDET.
 
-        ECDet's training was hitting two MPS issues:
+        ECDET's training was hitting two MPS issues:
           1. ``mps_linear_backward`` on ``Integral.forward``'s 33-bin
              ``F.linear`` matmul. **Fixed in our Integral** by replacing the
              1-D matmul with ``(softmax_x * project).sum(-1)``.
@@ -60,13 +60,13 @@ class ECDetTrainer(DFINETrainer):
             import logging
 
             logging.getLogger(__name__).info(
-                "ECDet training on MPS: enabling PYTORCH_ENABLE_MPS_FALLBACK=1 "
+                "ECDET training on MPS: enabling PYTORCH_ENABLE_MPS_FALLBACK=1 "
                 "(deformable attention's grid_sample backward runs on CPU)."
             )
         return device
 
     def create_transforms(self):
-        # ECDet's pretrained ViT backbone expects ImageNet-normalized inputs at
+        # ECDET's pretrained ViT backbone expects ImageNet-normalized inputs at
         # both train and eval time; the inference path applies the same norm
         # (see commit cc14dd20). Without this, the train/eval input distribution
         # diverges and fine-tuning silently corrupts the model.

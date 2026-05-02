@@ -1,8 +1,8 @@
 """ECCriterion — D-FINE-style criterion with the upstream MAL classification loss.
 
-ECDet's classification loss in the released YAML is ``mal`` (Modified Align
+ECDET's classification loss in the released YAML is ``mal`` (Modified Align
 Loss). LibreYOLO's D-FINE port only carries ``focal`` / ``vfl``; the MAL form is
-ported here so the ECDet recipe can be reproduced.
+ported here so the ECDET recipe can be reproduced.
 
 Other losses (``focal``, ``vfl``, ``boxes``, ``local`` = FGL+DDF) are inherited
 from ``DFINECriterion`` unchanged. The forward path is identical: D-FINE's hard-

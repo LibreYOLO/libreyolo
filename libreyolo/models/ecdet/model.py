@@ -1,4 +1,4 @@
-"""LibreECDET — BaseModel wrapper for the ECDet (EdgeCrafter detection) family."""
+"""LibreECDET — BaseModel wrapper for the ECDET (EdgeCrafter detection) family."""
 
 from __future__ import annotations
 
@@ -9,23 +9,23 @@ import torch
 import torch.nn as nn
 
 from ...utils.image_loader import ImageInput
-from ...validation.preprocessors import ECDetValPreprocessor
+from ...validation.preprocessors import ECDETValPreprocessor
 from ..base import BaseModel
 from .nn import LibreECDETModel
 from .postprocess import postprocess, preprocess_image, unwrap_ecdet_checkpoint
 
 
 class LibreECDET(BaseModel):
-    """LibreYOLO wrapper for EdgeCrafter ECDet."""
+    """LibreYOLO wrapper for EdgeCrafter ECDET."""
 
     FAMILY = "ecdet"
     FILENAME_PREFIX = "LibreECDET"
     INPUT_SIZES = {"s": 640, "m": 640, "l": 640, "x": 640}
-    val_preprocessor_class = ECDetValPreprocessor
+    val_preprocessor_class = ECDETValPreprocessor
 
     @classmethod
     def can_load(cls, weights_dict: dict) -> bool:
-        # ECDet-unique: ECViT register token in the backbone. Distinct from
+        # ECDET-unique: ECViT register token in the backbone. Distinct from
         # D-FINE's HGNetv2 stem and RT-DETR's resnet/dinov2 backbones.
         return "backbone.backbone.register_token" in weights_dict
 
@@ -150,7 +150,7 @@ class LibreECDET(BaseModel):
         )
 
     def _strict_loading(self) -> bool:
-        # ECDet checkpoints carry anchors/valid_mask buffers regenerated at
+        # ECDET checkpoints carry anchors/valid_mask buffers regenerated at
         # forward time. Mirror the D-FINE policy.
         return False
 
@@ -174,7 +174,7 @@ class LibreECDET(BaseModel):
         patience: int = 50,
         **kwargs,
     ) -> dict:
-        """Fine-tune ECDet on a YOLO-format dataset.
+        """Fine-tune ECDET on a YOLO-format dataset.
 
         **EXPERIMENTAL.** This training path follows upstream EdgeCrafter's
         published recipe (AdamW, FlatCosine, MAL+L1+GIoU+FGL+DDF, EMA 0.9999,
@@ -185,7 +185,7 @@ class LibreECDET(BaseModel):
         """
         if not allow_experimental:
             raise RuntimeError(
-                "ECDet training is experimental and has not been validated by a "
+                "ECDET training is experimental and has not been validated by a "
                 "full fine-tune. Pass allow_experimental=True to proceed.\n"
                 "What's been validated: inference parity (1e-5 vs upstream on all "
                 "4 sizes), ONNX export round-trip, COCO val2017 mAP. What's NOT "
@@ -196,7 +196,7 @@ class LibreECDET(BaseModel):
         from pathlib import Path
 
         from libreyolo.data import load_data_config
-        from .trainer import ECDetTrainer
+        from .trainer import ECDETTrainer
 
         try:
             data_config = load_data_config(data, autodownload=True)
@@ -218,7 +218,7 @@ class LibreECDET(BaseModel):
             if torch.cuda.is_available():
                 torch.cuda.manual_seed_all(seed)
 
-        trainer = ECDetTrainer(
+        trainer = ECDETTrainer(
             model=self.model,
             wrapper_model=self,
             size=self.size,
@@ -259,7 +259,7 @@ class LibreECDET(BaseModel):
 
     def _load_weights(self, model_path: str):
         if not Path(model_path).exists():
-            raise FileNotFoundError(f"ECDet weights file not found: {model_path}")
+            raise FileNotFoundError(f"ECDET weights file not found: {model_path}")
 
         try:
             loaded = torch.load(model_path, map_location="cpu", weights_only=False)
@@ -287,7 +287,7 @@ class LibreECDET(BaseModel):
             )
             if unexpected:
                 raise RuntimeError(
-                    f"Unexpected keys when loading ECDet weights: {sorted(unexpected)[:10]}"
+                    f"Unexpected keys when loading ECDET weights: {sorted(unexpected)[:10]}"
                     + (
                         f" (+{len(unexpected) - 10} more)"
                         if len(unexpected) > 10
@@ -298,5 +298,5 @@ class LibreECDET(BaseModel):
             raise
         except Exception as e:
             raise RuntimeError(
-                f"Failed to load ECDet weights from {model_path}: {e}"
+                f"Failed to load ECDET weights from {model_path}: {e}"
             ) from e

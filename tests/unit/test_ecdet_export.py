@@ -1,6 +1,6 @@
-"""ONNX export + ONNX-backend round-trip tests for ECDet.
+"""ONNX export + ONNX-backend round-trip tests for ECDET.
 
-Skipped if ``onnx`` / ``onnxruntime`` are not installed, or if the ECDet-S
+Skipped if ``onnx`` / ``onnxruntime`` are not installed, or if the ECDET-S
 checkpoint is absent.
 """
 
@@ -25,10 +25,10 @@ if (
 def test_ecdet_export_wrapper_returns_tuple():
     """Trace-friendly wrapper must return a 2-tuple, not a dict."""
     from libreyolo import LibreECDET
-    from libreyolo.models.ecdet.nn import ECDetExportWrapper
+    from libreyolo.models.ecdet.nn import ECDETExportWrapper
 
     wrapper = LibreECDET(None, size="s", device="cpu")
-    exp = ECDetExportWrapper(wrapper.model)
+    exp = ECDETExportWrapper(wrapper.model)
     exp.eval()
     with torch.no_grad():
         out = exp(torch.randn(1, 3, 640, 640))

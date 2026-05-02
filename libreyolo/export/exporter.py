@@ -136,7 +136,7 @@ class BaseExporter(ABC):
         half, int8 = self._validate(half, int8, data)
 
         if opset is None:
-            # D-FINE and ECDet use ``F.grid_sample`` (deformable attention)
+            # D-FINE and ECDET use ``F.grid_sample`` (deformable attention)
             # which requires opset 16+. Default the rest of the families to
             # 13 to preserve compatibility with the broadest set of ONNX
             # runtimes.
@@ -311,9 +311,9 @@ class BaseExporter(ABC):
             nn_model.eval()
             dfine_wrapped = True
         elif family == "ecdet":
-            from ..models.ecdet.nn import ECDetExportWrapper
+            from ..models.ecdet.nn import ECDETExportWrapper
 
-            nn_model = ECDetExportWrapper(nn_model).to(device)
+            nn_model = ECDETExportWrapper(nn_model).to(device)
             nn_model.eval()
             dfine_wrapped = True  # share the YOLOX-head-export skip path below
 
@@ -636,7 +636,7 @@ class NcnnExporter(BaseExporter):
             "deim": "DEIM",
             "deimv2": "DEIMv2",
             "rtdetr": "RT-DETR",
-            "ecdet": "ECDet",
+            "ecdet": "ECDET",
         }
         model_family = metadata.get("model_family") if metadata else None
         if model_family in unsupported_family_names:

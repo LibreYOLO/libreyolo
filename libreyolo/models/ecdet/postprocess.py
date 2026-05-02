@@ -1,8 +1,9 @@
 """LibreECDET preprocessing and postprocessing helpers.
 
-ECDet's input pipeline is identical to D-FINE's: square resize to 640, no
-letterbox, divide by 255, no ImageNet normalization. Output postprocessing is
-also DETR-style top-K (no NMS).
+ECDET's input pipeline is square resize (no letterbox), divide by 255, then
+ImageNet (mean, std) normalization. The ImageNet normalization is what
+distinguishes ECDET's preprocess from D-FINE's. Output postprocessing is
+DETR-style top-K (no NMS).
 """
 
 from __future__ import annotations
@@ -18,7 +19,7 @@ from ..dfine.box_ops import box_cxcywh_to_xyxy
 
 
 def unwrap_ecdet_checkpoint(checkpoint: Mapping | Any):
-    """Extract the model state_dict from upstream/Libre ECDet checkpoint formats."""
+    """Extract the model state_dict from upstream/Libre ECDET checkpoint formats."""
     if not isinstance(checkpoint, Mapping):
         return checkpoint
     ema = checkpoint.get("ema")
@@ -40,11 +41,11 @@ _IMAGENET_STD = np.array([0.229, 0.224, 0.225], dtype=np.float32)
 def preprocess_numpy(
     img_rgb_hwc: np.ndarray, input_size: int = 640
 ) -> Tuple[np.ndarray, float]:
-    """ECDet preprocess: square resize + /255 + ImageNet (mean, std).
+    """ECDET preprocess: square resize + /255 + ImageNet (mean, std).
 
     Mirrors upstream val transforms (`Resize -> ConvertPILImage(scale=True) ->
     Normalize(IMAGENET)`). The ImageNet normalization is what distinguishes
-    ECDet's preprocess from D-FINE's; missing it costs ~2 mAP on COCO val.
+    ECDET's preprocess from D-FINE's; missing it costs ~2 mAP on COCO val.
     """
     img_resized = Image.fromarray(img_rgb_hwc).resize(
         (input_size, input_size), Image.Resampling.BILINEAR
@@ -74,7 +75,7 @@ def postprocess(
     max_det: int = 300,
     **_unused,
 ):
-    """Decode ECDet output dict into LibreYOLO detections dict (DETR-style top-K)."""
+    """Decode ECDET output dict into LibreYOLO detections dict (DETR-style top-K)."""
     out_logits = outputs["pred_logits"]
     out_bbox = outputs["pred_boxes"]
     if out_logits.dim() == 3:

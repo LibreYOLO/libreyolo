@@ -88,7 +88,7 @@ class LibreECDETModel(nn.Module):
     ):
         super().__init__()
         if config not in SIZE_CONFIGS:
-            raise ValueError(f"Unknown ECDet size: {config!r}")
+            raise ValueError(f"Unknown ECDET size: {config!r}")
         cfg = SIZE_CONFIGS[config]
         self.config = config
 
@@ -133,7 +133,7 @@ class LibreECDETModel(nn.Module):
         return self
 
 
-class ECDetExportWrapper(nn.Module):
+class ECDETExportWrapper(nn.Module):
     """Tracing-friendly wrapper for ONNX/TorchScript export."""
 
     def __init__(self, model: LibreECDETModel):

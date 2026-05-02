@@ -471,7 +471,7 @@ The ones below have actually burned integrations in this repo. Each line is a on
     upstream `lr_gamma` values.** `FlatCosineScheduler` computes
     `min_lr = lr * min_lr_ratio`, so the ratio is the upstream `lr_gamma`
     by another name. Different families pick different values
-    (D-FINE: `1.0` = no cosine decay, by design; DEIM: `0.5`; ECDet:
+    (D-FINE: `1.0` = no cosine decay, by design; DEIM: `0.5`; ECDET:
     `0.5`); within a family, sizes can disagree too (DEIM-N overrides
     to `1.0`). The trap is picking *any* uniform value without
     cross-checking. A ratio of `1.0` is correct when upstream's

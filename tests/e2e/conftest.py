@@ -75,7 +75,7 @@ def pytest_configure(config):
     config.addinivalue_line(
         "markers", "deimv2: tests covering the DEIMv2 model family"
     )
-    config.addinivalue_line("markers", "ecdet: tests covering the ECDet model family")
+    config.addinivalue_line("markers", "ecdet: tests covering the ECDET model family")
     config.addinivalue_line(
         "markers", "rtdetr: tests covering the RT-DETR model family"
     )

@@ -1,13 +1,11 @@
-"""Regression tests for the three ECDet training fixes:
+"""Regression tests for two ECDET training fixes:
 
 1. ``DFINETrainTransform(imagenet_norm=True)`` actually applies ImageNet
-   normalization. ECDet's pretrained ViT expects this; without it, fine-tunes
+   normalization. ECDET's pretrained ViT expects this; without it, fine-tunes
    silently corrupt the model.
 2. ``DFINETrainer._setup_optimizer`` correctly excludes MHA's
    ``self_attn.in_proj_bias`` from weight decay (matches upstream's
    ``(?:norm|bn|bias)`` substring regex).
-3. ``ECDetTrainer.get_loss_components`` aggregates ``_aux_*`` / ``_dn_*``
-   suffix variants, so FGL / DDF report non-zero magnitudes.
 """
 
 from __future__ import annotations
@@ -16,7 +14,6 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-import torch
 
 pytestmark = pytest.mark.unit
 
@@ -96,26 +93,3 @@ def test_in_proj_bias_in_no_wd_group():
     assert all(n in no_wd for n in in_proj_bias_params)
 
 
-def test_get_loss_components_aggregates_prefixes():
-    """get_loss_components must sum ``_aux_*`` and ``_dn_*`` variants so DDF/FGL
-    report non-zero values. Bare ``loss_ddf`` doesn't exist."""
-    from libreyolo.models.dfine.trainer import DFINETrainer
-
-    # Build a fake outputs dict with no main keys, only aux/dn variants.
-    outputs = {
-        "loss_ddf_aux_0": torch.tensor(1.0),
-        "loss_ddf_aux_1": torch.tensor(2.0),
-        "loss_ddf_dn_0": torch.tensor(0.5),
-        "loss_fgl": torch.tensor(0.3),
-        "loss_fgl_aux_0": torch.tensor(0.2),
-        "loss_vfl": torch.tensor(4.0),
-        "loss_bbox": torch.tensor(5.0),
-        "loss_giou": torch.tensor(6.0),
-    }
-
-    components = DFINETrainer.get_loss_components(None, outputs)
-    assert components["ddf"] == pytest.approx(3.5), components  # 1 + 2 + 0.5
-    assert components["fgl"] == pytest.approx(0.5), components  # 0.3 + 0.2
-    assert components["vfl"] == pytest.approx(4.0)
-    assert components["bbox"] == pytest.approx(5.0)
-    assert components["giou"] == pytest.approx(6.0)

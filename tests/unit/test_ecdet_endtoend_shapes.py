@@ -1,4 +1,4 @@
-"""Random-weight forward-pass shape tests for ECDet (backbone + encoder + decoder)."""
+"""Random-weight forward-pass shape tests for ECDET (backbone + encoder + decoder)."""
 
 from __future__ import annotations
 
