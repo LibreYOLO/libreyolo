@@ -166,19 +166,25 @@ def postprocess(
     scores = scores[0]  # (N, nc)
     boxes = boxes[0]    # (N, 4)
 
-    max_scores, class_ids = torch.max(scores, dim=1)
-    mask = max_scores > conf_thres
+    # Multi-label per anchor: each (anchor, class) pair above conf is a
+    # separate candidate. Matches Bo's ``filter_scores_and_topk`` pipeline,
+    # which is what produces the upstream mAP. The argmax-per-anchor path
+    # we used previously costs ~1.5 mAP because anchors with two strong
+    # classes (e.g. "person" and "skier") only emitted the single max.
+    mask = scores > conf_thres
     if not mask.any():
         return {"boxes": [], "scores": [], "classes": [], "num_detections": 0}
 
-    boxes = boxes[mask]
-    valid_scores = max_scores[mask]
-    valid_classes = class_ids[mask]
+    nz = mask.nonzero(as_tuple=False)
+    anchor_idx = nz[:, 0]
+    class_ids = nz[:, 1]
+    valid_scores = scores[anchor_idx, class_ids]
+    valid_boxes = boxes[anchor_idx]
 
     return postprocess_detections(
-        boxes=boxes,
+        boxes=valid_boxes,
         scores=valid_scores,
-        class_ids=valid_classes,
+        class_ids=class_ids,
         conf_thres=conf_thres,
         iou_thres=iou_thres,
         input_size=input_size,
