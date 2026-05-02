@@ -34,8 +34,6 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-import torch
-
 from _conversion_utils import (
     add_repo_root_to_path,
     extract_state_dict,

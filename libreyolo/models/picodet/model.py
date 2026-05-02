@@ -195,11 +195,9 @@ class LibrePicoDet(BaseModel):
                 "clear the 5%% mAP floor due to model capacity and the "
                 "no-aug upstream recipe. Pass allow_experimental=True to "
                 "proceed.\n"
-                "What's validated: inference parity (max_diff ~1e-5 vs Bo on "
-                "all 3 sizes), ONNX/TorchScript/NCNN/OpenVINO export, full "
-                "COCO val2017 mAP within 0.05 of upstream. What's NOT "
-                "validated: small-dataset fine-tune convergence, multi-GPU, "
-                "augmentation policy beyond hflip."
+                "What's validated: inference, ONNX/TorchScript/NCNN/OpenVINO "
+                "export. What's NOT validated: small-dataset fine-tune "
+                "convergence, multi-GPU, augmentation policy beyond hflip."
             )
         from pathlib import Path
 

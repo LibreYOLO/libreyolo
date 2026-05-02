@@ -24,7 +24,6 @@ from .utils.utils import named_apply
 
 class Weights(Enum):
     LVD1689M = "LVD1689M"
-    SAT493M = "SAT493M"
 
 
 configs = {

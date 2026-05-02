@@ -172,29 +172,6 @@ class VGGBlock(nn.Module):
         return kernel * t, beta - running_mean * gamma / std
 
 
-class ELAN(nn.Module):
-    def __init__(
-        self, c1, c2, c3, c4, n=2, bias=False, act="silu", bottletype=VGGBlock
-    ):
-        super().__init__()
-        self.c = c3
-        self.cv1 = ConvNormLayer_fuse(c1, c3, 1, 1, bias=bias, act=act)
-        self.cv2 = nn.Sequential(
-            bottletype(c3 // 2, c4, act=get_activation(act)),
-            ConvNormLayer_fuse(c4, c4, 3, 1, bias=bias, act=act),
-        )
-        self.cv3 = nn.Sequential(
-            bottletype(c4, c4, act=get_activation(act)),
-            ConvNormLayer_fuse(c4, c4, 3, 1, bias=bias, act=act),
-        )
-        self.cv4 = ConvNormLayer_fuse(c3 + (2 * c4), c2, 1, 1, bias=bias, act=act)
-
-    def forward(self, x):
-        y = list(self.cv1(x).chunk(2, 1))
-        y.extend((m(y[-1])) for m in [self.cv2, self.cv3])
-        return self.cv4(torch.cat(y, 1))
-
-
 class CSPLayer(nn.Module):
     def __init__(
         self,
@@ -248,11 +225,6 @@ class RepNCSPELAN4(nn.Module):
             ConvNormLayer_fuse(c4, c4, 3, 1, bias=bias, act=act),
         )
         self.cv4 = ConvNormLayer_fuse(c3 + (2 * c4), c2, 1, 1, bias=bias, act=act)
-
-    def forward_chunk(self, x):
-        y = list(self.cv1(x).chunk(2, 1))
-        y.extend((m(y[-1])) for m in [self.cv2, self.cv3])
-        return self.cv4(torch.cat(y, 1))
 
     def forward(self, x):
         y = list(self.cv1(x).split((self.c, self.c), 1))

@@ -143,10 +143,10 @@ class YOLO9Config(TrainConfig):
 class DFINEConfig(TrainConfig):
     """D-FINE-specific training defaults.
 
-    Inference matches upstream byte-for-byte; training is a v1 cut: AdamW with
-    no-wd on norms/biases, flat LR with warmup + cosine tail, hflip-only aug,
-    no mosaic/mixup. AMP off by default — D-FINE's decoder clamps activations
-    to ±65504 (FP16 max) which strongly suggests FP32 is required.
+    Training is a v1 cut: AdamW with no-wd on norms/biases, flat LR with
+    warmup + cosine tail, hflip-only aug, no mosaic/mixup. AMP off by
+    default — D-FINE's decoder clamps activations to ±65504 (FP16 max)
+    which strongly suggests FP32 is required.
     """
 
     optimizer: str = "adamw"

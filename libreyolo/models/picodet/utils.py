@@ -90,53 +90,6 @@ def _integral(bbox_pred: torch.Tensor, reg_max: int) -> torch.Tensor:
     return x.reshape(*shape[:-1], 4)
 
 
-def decode_outputs(
-    cls_scores: List[torch.Tensor],
-    bbox_preds: List[torch.Tensor],
-    strides: Sequence[int] = (8, 16, 32, 64),
-    reg_max: int = 7,
-) -> Tuple[torch.Tensor, torch.Tensor]:
-    """Decode PicoHead outputs (training-mode list-of-tensors form).
-
-    Args:
-        cls_scores: per-level (B, num_classes, H, W).
-        bbox_preds: per-level (B, 4*(reg_max+1), H, W).
-        strides: per-level pixel stride.
-
-    Returns:
-        scores: (B, N_total, num_classes) **after sigmoid**.
-        boxes:  (B, N_total, 4) in xyxy pixel coords on the input canvas.
-    """
-    assert len(cls_scores) == len(bbox_preds) == len(strides)
-    B = cls_scores[0].shape[0]
-    device, dtype = cls_scores[0].device, cls_scores[0].dtype
-    nc = cls_scores[0].shape[1]
-
-    all_scores: List[torch.Tensor] = []
-    all_boxes: List[torch.Tensor] = []
-    for cls_score, bbox_pred, stride in zip(cls_scores, bbox_preds, strides):
-        _, _, h, w = cls_score.shape
-        n = h * w
-
-        scores = torch.sigmoid(cls_score).permute(0, 2, 3, 1).reshape(B, n, nc)
-
-        # (B, n, 4*(reg_max+1)) -> (B, n, 4) distances in pixels
-        bp = bbox_pred.permute(0, 2, 3, 1).reshape(B, n, 4 * (reg_max + 1))
-        distances = _integral(bp, reg_max) * stride
-
-        centers = _grid_centers(h, w, stride, device, dtype).unsqueeze(0).expand(B, -1, -1)
-        x1 = centers[..., 0] - distances[..., 0]
-        y1 = centers[..., 1] - distances[..., 1]
-        x2 = centers[..., 0] + distances[..., 2]
-        y2 = centers[..., 1] + distances[..., 3]
-        boxes = torch.stack([x1, y1, x2, y2], dim=-1)
-
-        all_scores.append(scores)
-        all_boxes.append(boxes)
-
-    return torch.cat(all_scores, dim=1), torch.cat(all_boxes, dim=1)
-
-
 def _per_level_filter_topk(
     cls_scores: List[torch.Tensor],
     bbox_preds: List[torch.Tensor],
