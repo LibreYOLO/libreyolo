@@ -38,6 +38,20 @@ class BaseValPreprocessor(ABC):
         """Whether this preprocessor uses letterbox (aspect-preserving) resize."""
         return False
 
+    @property
+    def wants_unresized_image(self) -> bool:
+        """If True, the dataset should hand over the original-resolution image
+        and let the preprocessor own all resizing.
+
+        ``COCODataset.load_resized_img`` letterbox-resizes by default to keep
+        the YOLOX path on its happy path. Families that do plain stretch
+        resize end up with a double-resize (letterbox → stretch) which costs
+        ~1 mAP from the extra interpolation pass. Setting this True skips
+        the dataset-level resize and lets the preprocessor go straight from
+        the original image to the target size in a single ``cv2.resize``.
+        """
+        return False
+
     def _pad_targets(self, targets: np.ndarray, n_valid: int) -> np.ndarray:
         """Pad targets to fixed size for batching."""
         padded = np.zeros((self.max_labels, 5), dtype=np.float32)
@@ -295,6 +309,37 @@ class ECDetValPreprocessor(StandardValPreprocessor):
         )
         chw = chw / 255.0
         chw = (chw - self._IMAGENET_MEAN) / self._IMAGENET_STD
+        return chw.astype(np.float32), padded_targets
+
+
+class PicoDetValPreprocessor(StandardValPreprocessor):
+    """PicoDet preprocessor: simple resize, RGB, ImageNet mean/std in 0-255 space.
+
+    Matches Bo's upstream val pipeline (``Resize(keep_ratio=False)`` then
+    ``Normalize(mean=[123.675, 116.28, 103.53], std=[58.395, 57.12, 57.375], to_rgb=True)``).
+    Skipping the normalisation costs several mAP on COCO val2017.
+    """
+
+    _MEAN = np.array([123.675, 116.28, 103.53], dtype=np.float32).reshape(3, 1, 1)
+    _STD = np.array([58.395, 57.12, 57.375], dtype=np.float32).reshape(3, 1, 1)
+
+    @property
+    def custom_normalization(self) -> bool:
+        return True
+
+    @property
+    def wants_unresized_image(self) -> bool:
+        return True  # avoid the dataset's letterbox-then-stretch double resize
+
+    def __call__(
+        self, img: np.ndarray, targets: np.ndarray, input_size: Tuple[int, int]
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        # BGR -> RGB then standard simple-resize path; no /255 (mean/std are
+        # already in 0-255 space).
+        chw, padded_targets = super().__call__(
+            img[:, :, ::-1].copy(), targets, input_size
+        )
+        chw = (chw - self._MEAN) / self._STD
         return chw.astype(np.float32), padded_targets
 
 
