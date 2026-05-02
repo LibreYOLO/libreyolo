@@ -14,9 +14,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from functools import partial
 
-from .utils import get_activation
-
-from ..core import register
+from libreyolo.models.deim.ms_deform import get_activation
 from .hybrid_encoder import ConvNormLayer_fuse
 from .hybrid_encoder import RepNCSPELAN4
 
@@ -39,7 +37,6 @@ class GAP_Fusion(nn.Module):
 
 
 # Two-scale encoder
-@register()
 class LiteEncoder(nn.Module):
     __share__ = [
         "eval_spatial_size",

@@ -1,8 +1,4 @@
-"""Top-level DEIMv2 model wiring.
-
-The implementation vendors the upstream DEIMv2 engine and builds the component
-graphs from the upstream COCO YAMLs and released Hugging Face configs.
-"""
+"""Top-level DEIMv2 model wiring."""
 
 from __future__ import annotations
 
@@ -12,8 +8,9 @@ from typing import Any
 import torch
 import torch.nn as nn
 
+from libreyolo.models.deim.backbone import HGNetv2
+
 from .engine.backbone.dinov3_adapter import DINOv3STAs
-from .engine.backbone.hgnetv2 import HGNetv2
 from .engine.deim.deim_decoder import DEIMTransformer
 from .engine.deim.hybrid_encoder import HybridEncoder
 from .engine.deim.lite_encoder import LiteEncoder

@@ -1,1 +1,1 @@
-from .vision_transformer import DinoVisionTransformer
+"""Minimal DINOv3 backbone package for DEIMv2."""

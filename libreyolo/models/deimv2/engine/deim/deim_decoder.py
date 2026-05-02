@@ -17,17 +17,11 @@ import torch.nn.functional as F
 import torch.nn.init as init
 from typing import List
 
-from ..core import register
-from .denoising import get_contrastive_denoising_training_group
-from .utils import (
-    deformable_attention_core_func_v2,
-    get_activation,
-    inverse_sigmoid,
-    bias_init_with_prob,
-)
+from libreyolo.models.deim.decoder import LQE, MSDeformableAttention
+from libreyolo.models.deim.denoising import get_contrastive_denoising_training_group
+from libreyolo.models.deim.fdr import Integral, distance2bbox, weighting_function
+from libreyolo.models.deim.ms_deform import bias_init_with_prob, inverse_sigmoid
 
-from .dfine_decoder import MSDeformableAttention, LQE, Integral
-from .dfine_utils import weighting_function, distance2bbox
 from .deim_utils import RMSNorm, SwiGLUFFN, Gate, MLP
 
 __all__ = ["DEIMTransformer"]
@@ -283,7 +277,6 @@ class TransformerDecoder(nn.Module):
         )
 
 
-@register()
 class DEIMTransformer(nn.Module):
     __share__ = ["num_classes", "eval_spatial_size"]
 

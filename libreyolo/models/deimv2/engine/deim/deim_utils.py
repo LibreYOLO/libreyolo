@@ -3,7 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.nn.init as init
 
-from .utils import get_activation, bias_init_with_prob
+from libreyolo.models.deim.ms_deform import bias_init_with_prob, get_activation
 
 
 class RMSNorm(nn.Module):
