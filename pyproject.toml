@@ -52,6 +52,19 @@ tracking = [
     "scipy>=1.7.0",
 ]
 rtdetr = ["scipy>=1.7.0"]
+# Experimental open-vocab detection: SAM3 stack + CRADIOv4 vision encoder swap.
+# - timm/einops: vendored sam3 + RADIO both need them
+# - huggingface_hub: SAM3 checkpoint download
+# - iopath: file-IO indirection used by sam3.model_builder
+# - ftfy/regex: CLIP-style BPE tokenizer used by sam3.text_encoder_ve
+vocab1 = [
+    "einops>=0.6.0",
+    "timm>=0.9.0",
+    "huggingface_hub>=0.20.0",
+    "iopath>=0.1.10",
+    "ftfy>=6.1.0",
+    "regex>=2023.0.0",
+]
 all = [
     "libreyolo[onnx]",
     "libreyolo[rfdetr]",
