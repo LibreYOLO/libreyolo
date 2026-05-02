@@ -154,6 +154,11 @@ class BaseBackend(ABC):
                 image, effective_imgsz, color_format
             )
             return tensor, img, size, 1.0
+        elif self.model_family == "picodet":
+            tensor, img, size = self._preprocess_picodet(
+                image, effective_imgsz, color_format
+            )
+            return tensor, img, size, 1.0
         else:
             tensor, img, size = preprocess_image(
                 image, input_size=effective_imgsz, color_format=color_format
@@ -234,6 +239,19 @@ class BaseBackend(ABC):
         return img_tensor, original_img, original_size
 
     @staticmethod
+    def _preprocess_picodet(image, input_size, color_format):
+        """PicoDet preprocessing: simple resize + RGB + ImageNet mean/std (0-255 space)."""
+        from ..models.picodet.utils import preprocess_numpy as picodet_preprocess_numpy
+
+        img = ImageLoader.load(image, color_format=color_format)
+        original_size = img.size
+        original_img = img.copy()
+
+        img_chw, _ = picodet_preprocess_numpy(np.array(img), input_size)
+        img_tensor = torch.from_numpy(img_chw).unsqueeze(0)
+        return img_tensor, original_img, original_size
+
+    @staticmethod
     def _preprocess_rtdetr(image, input_size, color_format):
         """RT-DETR preprocessing: direct resize + normalize to [0,1]."""
         from ..models.rtdetr.utils import preprocess_numpy as rtdetr_preprocess_numpy
@@ -290,6 +308,11 @@ class BaseBackend(ABC):
         elif self.model_family == "rtdetr":
             boxes, scores, cls = self._parse_rtdetr(all_outputs, orig_w, orig_h, conf)
             return boxes, scores, cls, None
+        elif self.model_family == "picodet":
+            boxes, scores, cls = self._parse_picodet(
+                all_outputs, effective_imgsz, orig_w, orig_h, conf
+            )
+            return boxes, scores, cls, None
         else:
             boxes, scores, cls = self._parse_yolo9(
                 all_outputs, effective_imgsz, orig_w, orig_h, conf
@@ -324,6 +347,35 @@ class BaseBackend(ABC):
         boxes = np.stack([x1, y1, x2, y2], axis=1)
 
         boxes /= ratio
+        boxes[:, [0, 2]] = np.clip(boxes[:, [0, 2]], 0, orig_w)
+        boxes[:, [1, 3]] = np.clip(boxes[:, [1, 3]], 0, orig_h)
+
+        return boxes, max_scores, class_ids
+
+    def _parse_picodet(self, all_outputs, effective_imgsz, orig_w, orig_h, conf):
+        """Parse PicoDet output: (B, N, 4+nc) — xyxy (input-canvas pixels) + sigmoid scores.
+
+        PicoDet exports use simple resize (not letterbox), so the inverse
+        scale is independent x/y ratios from input canvas back to the
+        original image.
+        """
+        outputs = all_outputs[0][0]  # (N, 4+nc)
+        boxes = outputs[:, :4]
+        scores = outputs[:, 4:]
+
+        max_scores = np.max(scores, axis=1)
+        class_ids = np.argmax(scores, axis=1)
+
+        mask = max_scores > conf
+        boxes, max_scores, class_ids = boxes[mask], max_scores[mask], class_ids[mask]
+
+        if len(boxes) == 0:
+            return boxes, max_scores, class_ids
+
+        scale_x = orig_w / effective_imgsz
+        scale_y = orig_h / effective_imgsz
+        boxes[:, [0, 2]] *= scale_x
+        boxes[:, [1, 3]] *= scale_y
         boxes[:, [0, 2]] = np.clip(boxes[:, [0, 2]], 0, orig_w)
         boxes[:, [1, 3]] = np.clip(boxes[:, [1, 3]], 0, orig_h)
 

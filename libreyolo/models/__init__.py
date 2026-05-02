@@ -40,6 +40,7 @@ from .yolonas.model import LibreYOLONAS  # noqa: E402
 from .deimv2.model import LibreDEIMv2  # noqa: E402
 from .dfine.model import LibreDFINE  # noqa: E402
 from .deim.model import LibreDEIM  # noqa: E402
+from .picodet.model import LibrePicoDet  # noqa: E402
 from .rtdetr.model import LibreYOLORTDETR  # noqa: E402
 
 
@@ -413,6 +414,7 @@ __all__ = [
     "LibreDEIM",
     "LibreDEIMv2",
     "LibreECDET",
+    "LibrePicoDet",
     "LibreYOLORTDETR",
     "try_ensure_rfdetr",
 ]

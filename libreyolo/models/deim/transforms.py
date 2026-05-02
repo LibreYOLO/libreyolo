@@ -77,7 +77,7 @@ class DEIMTrainTransform:
     # HGNetv2 was pretrained on /255-only inputs and disables normalization.
     _IMAGENET_MEAN = np.array([0.485, 0.456, 0.406], dtype=np.float32).reshape(3, 1, 1)
     _IMAGENET_STD = np.array([0.229, 0.224, 0.225], dtype=np.float32).reshape(3, 1, 1)
-    expects_original_image = True
+    wants_unresized_image = True
 
     def __init__(
         self,

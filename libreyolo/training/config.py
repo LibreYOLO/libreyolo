@@ -530,3 +530,44 @@ class YOLONASConfig(TrainConfig):
     ema_decay: float = 0.9997
     amp: bool = False
     name: str = "yolonas_exp"
+
+
+@dataclass(kw_only=True)
+class PicoDetConfig(TrainConfig):
+    """PicoDet-specific training defaults.
+
+    Bo's recipe (configs/picodet/picodet_s_320_coco.py):
+    - SGD, lr 0.4 (4 GPUs * 0.1) momentum 0.9 weight_decay 4e-5
+    - Cosine schedule, 300 epochs, linear warmup 300 iters @ ratio 0.1
+    - Pipeline: MinIoURandomCrop -> multiscale Resize -> RandomFlip ->
+      PhotoMetricDistortion -> Normalize(ImageNet) -> Pad
+
+    LibreYOLO v1 cut: SGD + cosine + hflip + ImageNet normalise. Multi-scale
+    resize and PhotoMetricDistortion are deferred to a follow-up commit
+    (skill §6: aim for fine-tune parity, not paper parity).
+    """
+
+    optimizer: str = "sgd"
+    lr0: float = 0.1
+    momentum: float = 0.9
+    weight_decay: float = 4e-5
+
+    scheduler: str = "cos"
+    warmup_epochs: int = 1
+    warmup_lr_start: float = 0.01
+    no_aug_epochs: int = 0
+    min_lr_ratio: float = 0.0
+
+    # No mosaic/mixup; PicoDet doesn't use them.
+    mosaic_prob: float = 0.0
+    mixup_prob: float = 0.0
+    hsv_prob: float = 0.0
+    flip_prob: float = 0.5
+    degrees: float = 0.0
+    shear: float = 0.0
+    translate: float = 0.0
+
+    ema_decay: float = 0.9998
+    epochs: int = 300
+    amp: bool = True
+    name: str = "picodet_exp"

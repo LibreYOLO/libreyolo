@@ -465,6 +465,9 @@ MODEL_CATALOG = [
     ("rtdetr", "r50", "LibreRTDETRr50.pt"),
     ("rtdetr", "r50m", "LibreRTDETRr50m.pt"),
     ("rtdetr", "r101", "LibreRTDETRr101.pt"),
+    ("picodet", "s", "LibrePicoDets.pt"),
+    ("picodet", "m", "LibrePicoDetm.pt"),
+    ("picodet", "l", "LibrePicoDetl.pt"),
 ]
 
 # Derived lists (no manual maintenance)
@@ -478,6 +481,7 @@ DEIM_SIZES = [s for f, s, _ in MODEL_CATALOG if f == "deim"]
 DEIMV2_SIZES = [s for f, s, _ in MODEL_CATALOG if f == "deimv2"]
 ECDET_SIZES = [s for f, s, _ in MODEL_CATALOG if f == "ecdet"]
 RTDETR_SIZES = [s for f, s, _ in MODEL_CATALOG if f == "rtdetr"]
+PICODET_SIZES = [s for f, s, _ in MODEL_CATALOG if f == "picodet"]
 
 ALL_MODELS = [(f, s) for f, s, _ in MODEL_CATALOG]
 ALL_MODELS_WITH_WEIGHTS = MODEL_CATALOG
@@ -506,6 +510,7 @@ FAMILY_MARKERS = {
     "deimv2": pytest.mark.deimv2,
     "ecdet": pytest.mark.ecdet,
     "rtdetr": pytest.mark.rtdetr,
+    "picodet": pytest.mark.picodet,
 }
 
 

@@ -14,6 +14,7 @@ from .models import (
     LibreDEIM,
     LibreDEIMv2,
     LibreECDET,
+    LibrePicoDet,
     LibreYOLORTDETR,
 )
 from .utils.results import Results, Boxes, Masks
@@ -70,6 +71,7 @@ __all__ = [
     "LibreDEIM",
     "LibreDEIMv2",
     "LibreECDET",
+    "LibrePicoDet",
     # Results
     "Results",
     "Boxes",
