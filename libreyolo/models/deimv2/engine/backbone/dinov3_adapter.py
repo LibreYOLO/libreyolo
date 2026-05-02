@@ -18,9 +18,8 @@ import torch.nn.functional as F
 import torch.utils.checkpoint as cp
 
 from functools import partial
-from ..core import register
 from .vit_tiny import VisionTransformer
-from .dinov3 import DinoVisionTransformer
+from .dinov3.vision_transformer import DinoVisionTransformer
 
 
 class SpatialPriorModulev2(nn.Module):
@@ -90,7 +89,6 @@ class SpatialPriorModulev2(nn.Module):
         return c2, c3, c4
 
 
-@register()
 class DINOv3STAs(nn.Module):
     def __init__(
         self,

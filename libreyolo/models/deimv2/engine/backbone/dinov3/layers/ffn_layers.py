@@ -8,7 +8,7 @@ from typing import Callable, List, Optional
 import torch.nn.functional as F
 from torch import Tensor, nn
 
-from ..utils import cat_keep_shapes, uncat_with_shapes
+from ..utils.utils import cat_keep_shapes, uncat_with_shapes
 
 
 class ListForwardMixin(object):

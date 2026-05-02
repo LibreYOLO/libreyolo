@@ -13,9 +13,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from .utils import get_activation
-
-from ..core import register
+from libreyolo.models.deim.ms_deform import get_activation
 
 __all__ = ["HybridEncoder"]
 
@@ -407,7 +405,6 @@ class TransformerEncoder(nn.Module):
         return output
 
 
-@register()
 class HybridEncoder(nn.Module):
     __share__ = [
         "eval_spatial_size",

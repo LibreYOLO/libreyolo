@@ -13,16 +13,13 @@ import torch
 import torch.nn.init
 from torch import Tensor, nn
 
-from .layers import (
-    LayerScale,
-    Mlp,
-    PatchEmbed,
-    RMSNorm,
-    RopePositionEmbedding,
-    SelfAttentionBlock,
-    SwiGLUFFN,
-)
-from .utils import named_apply
+from .layers.block import SelfAttentionBlock
+from .layers.ffn_layers import Mlp, SwiGLUFFN
+from .layers.layer_scale import LayerScale
+from .layers.patch_embed import PatchEmbed
+from .layers.rms_norm import RMSNorm
+from .layers.rope_position_encoding import RopePositionEmbedding
+from .utils.utils import named_apply
 
 
 class Weights(Enum):
