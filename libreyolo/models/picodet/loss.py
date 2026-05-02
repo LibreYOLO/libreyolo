@@ -52,6 +52,17 @@ def bbox_iou_xyxy(boxes_a: torch.Tensor, boxes_b: torch.Tensor) -> torch.Tensor:
     return inter / (union + 1e-16)
 
 
+def _pairwise_iou_aligned(boxes_a: torch.Tensor, boxes_b: torch.Tensor) -> torch.Tensor:
+    """Aligned IoU: boxes_a[i] vs boxes_b[i]. Returns (N,)."""
+    tl = torch.max(boxes_a[:, :2], boxes_b[:, :2])
+    br = torch.min(boxes_a[:, 2:], boxes_b[:, 2:])
+    wh = (br - tl).clamp(min=0)
+    inter = wh[..., 0] * wh[..., 1]
+    area_a = (boxes_a[:, 2] - boxes_a[:, 0]).clamp(0) * (boxes_a[:, 3] - boxes_a[:, 1]).clamp(0)
+    area_b = (boxes_b[:, 2] - boxes_b[:, 0]).clamp(0) * (boxes_b[:, 3] - boxes_b[:, 1]).clamp(0)
+    return inter / (area_a + area_b - inter + 1e-16)
+
+
 def giou_loss(pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
     """1 - GIoU per-pair on xyxy boxes. Both inputs (N, 4); returns (N,)."""
     tl = torch.max(pred[:, :2], target[:, :2])
@@ -422,19 +433,31 @@ class PicoDetLoss(nn.Module):
         gt_boxes_list: List[torch.Tensor],
         gt_labels_list: List[torch.Tensor],
     ) -> dict:
+        """Mirrors Bo's ``picodet_head.loss``:
+
+        * SimOTA assigner per image, taking *current* decoded boxes as input.
+        * VFL soft target = pairwise IoU between current decoded prediction
+          and matched GT (recomputed each iteration, not the assigner-time
+          IoU). VFL ``avg_factor = num_pos_total`` across the full batch.
+        * Each positive carries a quality weight
+          ``weight_target = cls_score.detach().sigmoid().max()`` (GFL paper).
+        * Box and DFL losses are sum-reduced and weighted by
+          ``weight_target``, then divided by ``sum(weight_targets)`` across
+          the batch (so loss magnitude is independent of positive count).
+        * DFL targets are in *bucket* units: distances from prior centre to
+          GT edges in feature-space, clamped to ``reg_max - eps``.
+        """
         device = cls_scores[0].device
         dtype = cls_scores[0].dtype
         feat_shapes = [(c.shape[-2], c.shape[-1]) for c in cls_scores]
 
         priors = _generate_priors(feat_shapes, self.strides, device, dtype)
-        # Per-level prior count and stride, expanded to per-prior tensor.
         per_level_n = [h * w for h, w in feat_shapes]
         strides_per_prior = torch.cat([
             torch.full((n,), float(s), device=device, dtype=dtype)
             for n, s in zip(per_level_n, self.strides)
         ])
 
-        # Flatten predictions across all levels: (B, N_total, ...)
         B = cls_scores[0].shape[0]
         cls_flat = torch.cat([
             cs.permute(0, 2, 3, 1).reshape(B, -1, self.num_classes) for cs in cls_scores
@@ -444,83 +467,112 @@ class PicoDetLoss(nn.Module):
             for bp in bbox_preds
         ], dim=1)
 
-        # Decode each prior to xyxy via DFL integral (per-level stride is
-        # already encoded in ``strides_per_prior``).
         decoded = self._batch_decode(bbox_flat, priors, strides_per_prior)
-
-        total_loss_cls = bbox_flat.new_zeros(())
-        total_loss_bbox = bbox_flat.new_zeros(())
-        total_loss_dfl = bbox_flat.new_zeros(())
-        num_pos_total = 0
-
-        # SimOTA expects sigmoid'd scores
         cls_sigmoid = cls_flat.sigmoid()
+        cls_max_quality = cls_sigmoid.max(dim=-1).values  # (B, N) per-prior cls quality
+
+        # Pass 1: assignment + collect per-positive info per image.
+        # cls_targets is the VFL soft-label tensor across the full batch.
+        cls_targets = bbox_flat.new_zeros(cls_flat.shape)  # (B, N, num_classes)
+        pos_records: List[dict] = []
+        num_pos_total = 0
 
         for b in range(B):
             gt_boxes = gt_boxes_list[b]
             gt_labels = gt_labels_list[b]
             if gt_boxes.numel() == 0:
-                # All-negative image — only the focal "negative" branch fires
-                target = bbox_flat.new_zeros(cls_flat[b].shape)
-                total_loss_cls = total_loss_cls + self.vfl(cls_flat[b], target)
                 continue
-
-            assigned_gt_inds, assigned_labels, max_overlaps, pos_mask = self.assigner.assign(
+            assigned_gt_inds, assigned_labels, _max_overlaps, pos_mask = self.assigner.assign(
                 priors=priors,
                 decoded_bboxes=decoded[b],
                 cls_pred=cls_sigmoid[b],
                 gt_bboxes=gt_boxes,
                 gt_labels=gt_labels,
             )
+            if not pos_mask.any():
+                continue
 
-            # Build VFL soft targets: positives carry their assigned IoU; negatives are 0.
-            cls_target = bbox_flat.new_zeros(cls_flat[b].shape)
-            if pos_mask.any():
-                pos_labels = assigned_labels[pos_mask]
-                pos_ious = max_overlaps[pos_mask].detach()
-                cls_target[pos_mask, pos_labels] = pos_ious
+            pos_labels = assigned_labels[pos_mask]
+            pos_decoded = decoded[b][pos_mask]
+            pos_gt = gt_boxes[assigned_gt_inds[pos_mask] - 1]
 
-            num_pos = int(pos_mask.sum().item())
-            num_pos_total += num_pos
-            avg_factor = max(num_pos, 1)
+            # Dynamic IoU between current decoded prediction and GT
+            pos_ious = _pairwise_iou_aligned(pos_decoded, pos_gt).detach().clamp(min=1e-6)
+            cls_targets[b, pos_mask.nonzero(as_tuple=True)[0], pos_labels] = pos_ious
 
-            total_loss_cls = total_loss_cls + self.vfl(
-                cls_flat[b], cls_target, avg_factor=avg_factor,
-            )
+            weight_targets = cls_max_quality[b][pos_mask].detach()
 
-            if num_pos > 0:
-                pos_priors = priors[pos_mask]
-                pos_decoded = decoded[b][pos_mask]
-                pos_gt = gt_boxes[assigned_gt_inds[pos_mask] - 1]
+            pos_records.append({
+                "weight_targets": weight_targets,
+                "pos_decoded": pos_decoded,
+                "pos_gt": pos_gt,
+                "pos_priors": priors[pos_mask],
+                "pos_strides": strides_per_prior[pos_mask],
+                "pos_bbox_pred": bbox_flat[b][pos_mask],
+            })
+            num_pos_total += int(pos_mask.sum().item())
 
-                # GIoU on decoded vs target
-                bbox_loss = giou_loss(pos_decoded, pos_gt).mean() * self.bbox_loss_weight
-                total_loss_bbox = total_loss_bbox + bbox_loss
+        # VFL across the whole batch (single call), normalised by total positives.
+        avg_factor = max(num_pos_total, 1)
+        loss_cls = self.vfl(
+            cls_flat.reshape(-1, self.num_classes),
+            cls_targets.reshape(-1, self.num_classes),
+            avg_factor=avg_factor,
+        )
 
-                # DFL: target distances divided by stride to land in [0, reg_max].
-                pos_strides = strides_per_prior[pos_mask]
-                target_dist = _bbox_to_distance(
-                    pos_priors[:, :2], pos_gt, max_dis=self.reg_max, eps=0.1
-                )  # in pixels
-                target_dist = target_dist / pos_strides[:, None]  # bucket units
+        if not pos_records:
+            zero = bbox_flat.new_zeros(())
+            return {
+                "total_loss": loss_cls,
+                "loss_cls": loss_cls.detach(),
+                "loss_bbox": zero,
+                "loss_dfl": zero,
+                "num_pos": 0.0,
+            }
 
-                pos_bbox_pred = bbox_flat[b][pos_mask]  # (P, 4*(reg_max+1))
-                pos_bbox_pred = pos_bbox_pred.reshape(-1, self.reg_max + 1)  # (P*4, reg_max+1)
-                target_dist = target_dist.reshape(-1)
-                total_loss_dfl = total_loss_dfl + self.dfl(pos_bbox_pred, target_dist).mean()
+        # Box + DFL: weight each positive by ``weight_targets`` and normalise
+        # by the sum of weights across the batch (Bo's avg_factor convention).
+        all_weights = torch.cat([r["weight_targets"] for r in pos_records])
+        weight_sum = all_weights.sum().clamp(min=1e-6)
 
-        # Average across batch
-        total_loss_cls = total_loss_cls / max(B, 1)
-        total_loss_bbox = total_loss_bbox / max(B, 1)
-        total_loss_dfl = total_loss_dfl / max(B, 1)
-        total = total_loss_cls + total_loss_bbox + total_loss_dfl
+        loss_bbox = bbox_flat.new_zeros(())
+        loss_dfl = bbox_flat.new_zeros(())
+        for r in pos_records:
+            w = r["weight_targets"]
+            pos_decoded = r["pos_decoded"]
+            pos_gt = r["pos_gt"]
+            pos_priors = r["pos_priors"]
+            pos_strides = r["pos_strides"]
+            pos_bbox_pred = r["pos_bbox_pred"]
+
+            # GIoU per positive, weighted by cls quality.
+            giou = giou_loss(pos_decoded, pos_gt)  # (P,)
+            loss_bbox = loss_bbox + (w * giou).sum()
+
+            # DFL targets in *bucket units* — feature-space distances clamped
+            # to [0, reg_max - eps]. Compute centres + GT in feature space.
+            pos_centers_feat = pos_priors[:, :2] / pos_strides[:, None]
+            pos_gt_feat = pos_gt / pos_strides[:, None]
+            target_dist = _bbox_to_distance(
+                pos_centers_feat, pos_gt_feat, max_dis=self.reg_max, eps=0.1
+            )  # (P, 4)
+            pred_corners = pos_bbox_pred.reshape(-1, self.reg_max + 1)  # (P*4, reg_max+1)
+            target_corners = target_dist.reshape(-1)
+            dfl_per_corner = self.dfl(pred_corners, target_corners)  # (P*4,)
+            side_weight = w[:, None].expand(-1, 4).reshape(-1)
+            loss_dfl = loss_dfl + (side_weight * dfl_per_corner).sum()
+
+        loss_bbox = loss_bbox * self.bbox_loss_weight / weight_sum
+        # DFL has 4 sides per positive — divide by 4 to get per-side average,
+        # matching Bo's ``avg_factor=4`` inside the per-level call.
+        loss_dfl = loss_dfl / (4.0 * weight_sum)
+
+        total = loss_cls + loss_bbox + loss_dfl
         return {
             "total_loss": total,
-            # Aliases used by tests / loggers that look at the per-component
-            # values rather than the orchestrated total.
-            "loss_cls": total_loss_cls.detach(),
-            "loss_bbox": total_loss_bbox.detach(),
-            "loss_dfl": total_loss_dfl.detach(),
+            "loss_cls": loss_cls.detach(),
+            "loss_bbox": loss_bbox.detach(),
+            "loss_dfl": loss_dfl.detach(),
             "num_pos": float(num_pos_total),
         }
 

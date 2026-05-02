@@ -34,9 +34,9 @@ def test_loss_runs_and_backprops():
     ]
 
     out = loss_fn(cs, bp, gts, gtl)
-    assert torch.isfinite(out["loss"])
+    assert torch.isfinite(out["total_loss"])
     assert out["num_pos"] > 0, "SimOTA must match at least one prior to a real GT"
-    out["loss"].backward()
+    out["total_loss"].backward()
 
     # All parameters that received gradient should have a real .grad
     has_grad = sum(1 for p in m.parameters() if p.grad is not None)
