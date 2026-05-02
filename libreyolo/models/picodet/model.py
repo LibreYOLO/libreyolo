@@ -154,6 +154,7 @@ class LibrePicoDet(BaseModel):
         self,
         data: str,
         *,
+        allow_experimental: bool = False,
         epochs: int = _TRAIN_DEFAULTS.epochs,
         batch: int = _TRAIN_DEFAULTS.batch,
         imgsz: int | None = None,
@@ -172,14 +173,34 @@ class LibrePicoDet(BaseModel):
         allow_download_scripts: bool = False,
         **kwargs: Any,
     ) -> dict:
-        """Train the PicoDet model on a dataset.
+        """Fine-tune PicoDet on a YOLO-format dataset.
 
-        v1 cut: SGD + cosine LR + hflip + ImageNet normalisation. Bo's full
-        upstream pipeline (multiscale resize, MinIoURandomCrop,
-        PhotoMetricDistortion) is a known recipe gap and lands in a
-        follow-up commit per skill §6's "fine-tune parity, not paper parity"
-        guidance.
+        **EXPERIMENTAL.** Loss components and assigner mirror Bo's upstream
+        recipe (VFL + DFL + GIoU + SimOTA, with cls-quality weighting and
+        dynamic-IoU VFL targets). Inference is bit-equivalent to upstream
+        on the same checkpoint. Training has *not* been validated to clear
+        LibreYOLO's RF1 floor on small custom datasets — PicoDet-s/320's
+        tiny 1.17M-param ESNet + 320 input is a poor fit for the
+        30-image/2-class fine-tunes RF1 stresses (see skill §6
+        "fine-tune parity, not paper parity"). Use it for full-COCO scale
+        training or accept that small-dataset transfer is rough.
+
+        Pass ``allow_experimental=True`` to acknowledge.
         """
+        if not allow_experimental:
+            raise RuntimeError(
+                "PicoDet training is experimental. The loss + assigner match "
+                "Bo's upstream recipe and the trainer runs end-to-end, but "
+                "small-dataset fine-tunes (e.g. RF1's marbles) don't reliably "
+                "clear the 5%% mAP floor due to model capacity and the "
+                "no-aug upstream recipe. Pass allow_experimental=True to "
+                "proceed.\n"
+                "What's validated: inference parity (max_diff ~1e-5 vs Bo on "
+                "all 3 sizes), ONNX/TorchScript/NCNN/OpenVINO export, full "
+                "COCO val2017 mAP within 0.05 of upstream. What's NOT "
+                "validated: small-dataset fine-tune convergence, multi-GPU, "
+                "augmentation policy beyond hflip."
+            )
         from pathlib import Path
 
         from libreyolo.data import load_data_config
