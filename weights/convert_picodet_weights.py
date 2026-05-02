@@ -163,7 +163,7 @@ repackaged for LibreYOLO.
 
 ## Source
 
-Derived from [Bo396543018/Picodet_Pytorch](https://github.com/Bo396543543018/Picodet_Pytorch),
+Derived from [Bo396543018/Picodet_Pytorch](https://github.com/Bo396543018/Picodet_Pytorch),
 which itself ports PaddlePaddle's PicoDet to PyTorch via mmdet/mmcv.
 Copyright (c) 2018-2023 OpenMMLab. Licensed under the Apache License,
 Version 2.0.
