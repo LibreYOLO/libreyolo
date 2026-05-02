@@ -99,36 +99,37 @@ class LibreVocab1(BaseModel):
             raise ValueError(
                 f"LibreVocab1 size must be one of {sorted(_RADIO_VERSION_BY_SIZE)}; got {size!r}"
             )
-        self._size = size
-        self._device = device
+        # Stash builder args before super().__init__() because BaseModel.__init__
+        # will call self._init_model() and we need them readable from there.
+        self._radio_version = _RADIO_VERSION_BY_SIZE[size]
         self._sam3_checkpoint_path = sam3_checkpoint_path
         self._confidence_threshold = confidence_threshold
         self._vitdet_window_size = vitdet_window_size
-        # BaseModel.__init__ wants a path; we don't have one — pass None and
-        # bypass the standard load flow.
-        # NOTE: we deliberately do not call super().__init__() to avoid
-        # triggering the LibreYOLO checkpoint-load machinery. The Path A
-        # composition is unconventional vs. the existing families. This will
-        # be revisited once the contract is finalized.
-        nn.Module.__init__(self)
-        self.size = size
-        self.input_size = self.INPUT_SIZES[size]
-        self.device = device
-        self.nb_classes = nb_classes
-        self.model: nn.Module
-        self.processor: Any
-        self.model, self.processor = self._init_model()
+        # Route through BaseModel: it does not load any LibreYOLO checkpoint
+        # when model_path is None, but it does set self.size / self.device /
+        # self.nb_classes / self.input_size and call self._init_model().
+        super().__init__(
+            model_path=None,
+            size=size,
+            nb_classes=nb_classes if nb_classes is not None else 80,
+            device=device,
+        )
+        # BaseModel sets train() when model_path is None; we want eval for
+        # inference parity with sam3-radio's demo.
+        self.model.eval()
 
-    def _init_model(self):
+    def _init_model(self) -> nn.Module:
         from .builder import build_librevocab1
-        return build_librevocab1(
-            radio_model_version=_RADIO_VERSION_BY_SIZE[self._size],
+        sam3_model, processor = build_librevocab1(
+            radio_model_version=self._radio_version,
             sam3_checkpoint_path=self._sam3_checkpoint_path,
             load_sam3_from_hf=self._sam3_checkpoint_path is None,
             confidence_threshold=self._confidence_threshold,
             vitdet_window_size=self._vitdet_window_size,
-            device=self._device,
+            device=str(self.device),
         )
+        self.processor = processor
+        return sam3_model
 
     # ------------------------------------------------------------------
     # BaseModel surface (placeholders until inference parity is verified)
