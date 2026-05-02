@@ -186,15 +186,25 @@ class LibreVocab1(BaseModel):
         from PIL import Image as _Image
         if isinstance(image, str):
             image = _Image.open(image).convert("RGB")
+        img_w, img_h = image.size
         state = self.processor.set_image(image)
         results = []
         for prompt in prompts:
             # set_text_prompt erases any previous text prompt and runs
             # inference. The returned state has boxes/masks/scores set.
             state = self.processor.set_text_prompt(prompt, state)
+            boxes = state.get("boxes")
+            if boxes is not None and boxes.numel() > 0:
+                # Sam3Processor unscales sigmoid outputs by image size without a
+                # final clip; slight overshoots (≈1 px) are common at edges.
+                # Clamp to the image bounds so downstream consumers can trust
+                # the box rectangle is inside the image.
+                boxes = boxes.clone()
+                boxes[:, 0::2] = boxes[:, 0::2].clamp(min=0, max=img_w)
+                boxes[:, 1::2] = boxes[:, 1::2].clamp(min=0, max=img_h)
             results.append({
                 "prompt": prompt,
-                "boxes": state.get("boxes"),
+                "boxes": boxes,
                 "masks": state.get("masks"),
                 "scores": state.get("scores"),
             })

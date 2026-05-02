@@ -142,7 +142,8 @@ def replace_sam3_encoder(sam3_model, radio_model, device: str = 'cuda'):
 
 def create_sam3_radio_processor(sam3_model,
                                 confidence_threshold: float = 0.5,
-                                resolution: Optional[int] = None) -> Sam3Processor:
+                                resolution: Optional[int] = None,
+                                device: str = "cuda") -> Sam3Processor:
     """
     Create a Sam3Processor configured for use with RADIO encoder.
 
@@ -161,11 +162,12 @@ def create_sam3_radio_processor(sam3_model,
     if resolution is None:
         resolution = DEFAULT_RADIO_RESOLUTION
 
-    print(f"Creating Sam3Processor with resolution={resolution}")
+    print(f"Creating Sam3Processor with resolution={resolution}, device={device}")
     processor = Sam3Processor(
         sam3_model,
         resolution=resolution,
-        confidence_threshold=confidence_threshold
+        confidence_threshold=confidence_threshold,
+        device=device,
     )
 
     return processor

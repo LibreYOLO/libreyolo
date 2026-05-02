@@ -91,6 +91,7 @@ def build_librevocab1(
         sam3_model,
         confidence_threshold=confidence_threshold,
         resolution=None,  # uses DEFAULT_RADIO_RESOLUTION (1152) from sam3_radio_utils
+        device=device,
     )
 
     return sam3_model, processor

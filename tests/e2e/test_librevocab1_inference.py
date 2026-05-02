@@ -71,12 +71,14 @@ def test_librevocab1_text_prompt_inference():
     # boxes/masks/scores can be empty (no detections) but must be present.
     assert "boxes" in r and "masks" in r and "scores" in r
     if r["boxes"] is not None and len(r["boxes"]) > 0:
-        # boxes are xyxy in pixel coords; must be inside the image bounds.
+        # boxes are xyxy in pixel coords; predict() clamps to image bounds.
         from PIL import Image
         w, h = Image.open(image_path).size
         b = r["boxes"]
-        assert (b[:, 0] >= 0).all() and (b[:, 2] <= w + 1).all()
-        assert (b[:, 1] >= 0).all() and (b[:, 3] <= h + 1).all()
+        assert (b[:, 0] >= 0).all() and (b[:, 2] <= w).all()
+        assert (b[:, 1] >= 0).all() and (b[:, 3] <= h).all()
+        # x1 < x2, y1 < y2 (degenerate boxes would mean a postprocess bug).
+        assert (b[:, 2] > b[:, 0]).all() and (b[:, 3] > b[:, 1]).all()
         # scores in [0, 1].
         s = r["scores"]
         assert (s >= 0).all() and (s <= 1).all()
