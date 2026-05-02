@@ -61,15 +61,3 @@ class FrozenBatchNorm2d(nn.Module):
 
     def extra_repr(self):
         return f"{self.num_features}, eps={self.eps}"
-
-
-def freeze_batch_norm2d(module: nn.Module) -> nn.Module:
-    """Recursively convert BatchNorm2d layers to FrozenBatchNorm2d in-place."""
-    if isinstance(module, nn.BatchNorm2d):
-        module = FrozenBatchNorm2d(module.num_features)
-    else:
-        for name, child in module.named_children():
-            _child = freeze_batch_norm2d(child)
-            if _child is not child:
-                setattr(module, name, _child)
-    return module

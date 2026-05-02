@@ -117,32 +117,6 @@ def remap_state_dict(state_dict: dict) -> dict:
     return out
 
 
-# ``mmdet``'s ``CycleEMAHook`` flattens parameter names by replacing dots with
-# underscores and prefixes with ``ema_``. Recover the original dotted names by
-# matching against the regular (non-EMA) keys present in the same checkpoint.
-def use_ema_weights(state_dict: dict) -> dict:
-    """Return a fresh dict where every regular key is replaced by its EMA
-    counterpart when one exists; otherwise the regular value is kept.
-
-    Bo's checkpoints store both copies. EMA weights are the ones Bo evaluates
-    with — using the regular (non-EMA) weights costs ~1-2 mAP on COCO.
-    """
-    out: Dict[str, torch.Tensor] = {}
-    dropped = 0
-    for k, v in state_dict.items():
-        if k.startswith("ema_"):
-            continue  # handled via the lookup below
-        ema_flat = "ema_" + k.replace(".", "_")
-        if ema_flat in state_dict:
-            out[k] = state_dict[ema_flat]
-        else:
-            out[k] = v
-            dropped += 1
-    if dropped:
-        print(f"  {dropped} regular keys had no EMA counterpart; using regular values for those.")
-    return out
-
-
 # ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
@@ -270,8 +244,8 @@ def main() -> None:
     # 26.9 mAP corresponds to this regular set, not the EMA copy.
     print(f"Filtering EMA keys; keeping regular weights from {len(sd)} keys")
     sd = {k: v for k, v in sd.items() if not k.startswith("ema_")}
-    # Drop the integral.project buffer — LibreYOLO registers it as
-    # ``persistent=False`` and rebuilds it on the fly.
+    # Drop the integral.project buffer — LibreYOLO computes DFL inline in
+    # PicoHead, so this constant linspace buffer is not needed.
     sd = {k: v for k, v in sd.items() if not k.endswith("integral.project")}
 
     print(f"Remapping {len(sd)} keys")

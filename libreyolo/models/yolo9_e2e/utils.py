@@ -4,8 +4,6 @@ from typing import Dict, Tuple
 
 import torch
 
-from ..yolo9.utils import decode_boxes, preprocess_image, preprocess_numpy
-
 
 def _scale_and_clip_boxes(
     boxes: torch.Tensor,
@@ -112,6 +110,3 @@ def postprocess(
         "classes": class_ids,
         "num_detections": len(boxes),
     }
-
-
-__all__ = ["preprocess_numpy", "preprocess_image", "decode_boxes", "postprocess"]

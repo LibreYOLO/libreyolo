@@ -15,9 +15,7 @@ import os
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import torch.utils.checkpoint as cp
 
-from functools import partial
 from .vit_tiny import VisionTransformer
 from .dinov3.vision_transformer import DinoVisionTransformer
 

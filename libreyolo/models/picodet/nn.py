@@ -482,25 +482,6 @@ class CSPPAN(nn.Module):
 # ---------------------------------------------------------------------------
 
 
-class Integral(nn.Module):
-    """Discrete -> continuous regression via softmax expectation (DFL)."""
-
-    def __init__(self, reg_max: int = 7) -> None:
-        super().__init__()
-        self.reg_max = reg_max
-        self.register_buffer("project", torch.linspace(0, reg_max, reg_max + 1), persistent=False)
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        # x: (..., 4 * (reg_max + 1)) -> (..., 4)
-        shape = x.shape
-        x = x.reshape(-1, self.reg_max + 1)
-        x = F.softmax(x, dim=-1)
-        if self.project.dtype != x.dtype:  # type: ignore[attr-defined]
-            self.project = self.project.to(dtype=x.dtype)  # type: ignore[assignment]
-        x = F.linear(x, self.project.view(1, -1)).squeeze(-1)  # type: ignore[attr-defined]
-        return x.reshape(*shape[:-1], 4)
-
-
 class PicoHead(nn.Module):
     """Per-level shared cls/reg head.
 
