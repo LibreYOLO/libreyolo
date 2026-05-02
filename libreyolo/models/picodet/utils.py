@@ -144,6 +144,7 @@ def _per_level_filter_topk(
     reg_max: int,
     score_thr: float,
     nms_pre: int,
+    canvas_size: Tuple[int, int] | None = None,
 ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     """Bo's ``filter_scores_and_topk`` per level: each level applies
     ``score_thr`` to the *flattened* (anchor*classes) score table, then keeps
@@ -202,6 +203,16 @@ def _per_level_filter_topk(
         y2 = centers[:, 1] + distances[:, 3]
         boxes = torch.stack([x1, y1, x2, y2], dim=-1)
 
+        # Bo's distance2bbox clamps to image_shape (input canvas) before NMS.
+        # Skipping this lets boxes extend off-canvas; oversized boxes can
+        # distort per-class IoU during NMS and suppress legitimate detections.
+        if canvas_size is not None:
+            ch, cw = canvas_size
+            boxes[:, 0].clamp_(0, cw)
+            boxes[:, 1].clamp_(0, ch)
+            boxes[:, 2].clamp_(0, cw)
+            boxes[:, 3].clamp_(0, ch)
+
         out_scores.append(kept_scores)
         out_classes.append(class_idx)
         out_boxes.append(boxes)
@@ -252,6 +263,7 @@ def postprocess(
     valid_scores, class_ids, valid_boxes = _per_level_filter_topk(
         cls_scores, bbox_preds, strides=strides, reg_max=reg_max,
         score_thr=conf_thres, nms_pre=1000,
+        canvas_size=(input_size, input_size),
     )
     if valid_scores.numel() == 0:
         return {"boxes": [], "scores": [], "classes": [], "num_detections": 0}

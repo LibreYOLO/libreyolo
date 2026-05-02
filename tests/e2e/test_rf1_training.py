@@ -215,6 +215,12 @@ def rf1_train_kwargs(family: str, size: str) -> dict:
         }
     if family == "ecdet":
         return {"allow_experimental": True}
+    if family == "picodet":
+        # Bo's from-scratch recipe is SGD lr=0.4 on 4 GPUs (per-GPU batch 128).
+        # That's catastrophic for a 10-epoch marbles fine-tune at batch=8 —
+        # the model diverges in the first epoch. Drop lr0 ~100x to a
+        # standard fine-tune value and skip the warmup.
+        return {"lr0": 1e-3, "warmup_epochs": 0, "warmup_lr_start": 0.0}
     return {}
 
 

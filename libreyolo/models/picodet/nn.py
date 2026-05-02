@@ -21,20 +21,24 @@ import torch.nn.functional as F
 
 
 class HSigmoid(nn.Module):
-    """Hard sigmoid: ``clip((x + bias) / divisor, 0, max_value / divisor)``.
+    """mmcv-flavoured hard sigmoid: ``clip((x + bias) / divisor, 0, max_value)``.
 
-    Defaults match mmcv's ``HSigmoid`` (``bias=3, divisor=6, max=6``), which
-    is what PicoDet's SE gate uses.
+    Bo's PicoDet config uses ``bias=3, divisor=6, max_value=6``, which lets
+    the SE gate produce values in ``[0, 6]`` (not the standard hardsigmoid
+    range ``[0, 1]``). The earlier version of this module incorrectly
+    divided ``max_value`` by ``divisor`` to get an upper bound of 1, so the
+    SE gates were silently capped at 1 across every block of the backbone.
+    Skipping that ~6x amplification headroom cost ~1+ mAP on COCO.
     """
 
     def __init__(self, bias: float = 3.0, divisor: float = 6.0, max_value: float = 6.0) -> None:
         super().__init__()
         self.bias = bias
         self.divisor = divisor
-        self.upper = max_value / divisor
+        self.max_value = max_value
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return torch.clamp((x + self.bias) / self.divisor, 0.0, self.upper)
+        return torch.clamp((x + self.bias) / self.divisor, 0.0, self.max_value)
 
 
 def _make_act(act: str | None) -> nn.Module:

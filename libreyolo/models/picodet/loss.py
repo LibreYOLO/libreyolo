@@ -515,7 +515,9 @@ class PicoDetLoss(nn.Module):
         total_loss_dfl = total_loss_dfl / max(B, 1)
         total = total_loss_cls + total_loss_bbox + total_loss_dfl
         return {
-            "loss": total,
+            "total_loss": total,
+            # Aliases used by tests / loggers that look at the per-component
+            # values rather than the orchestrated total.
             "loss_cls": total_loss_cls.detach(),
             "loss_bbox": total_loss_bbox.detach(),
             "loss_dfl": total_loss_dfl.detach(),
