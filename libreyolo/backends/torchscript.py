@@ -45,6 +45,7 @@ class TorchScriptBackend(BaseBackend):
 
         input_size = 640
         model_family = metadata.get("model_family")
+        model_size = metadata.get("model_size")
         if "imgsz" in metadata:
             input_size = int(metadata["imgsz"])
 
@@ -72,6 +73,7 @@ class TorchScriptBackend(BaseBackend):
             imgsz=input_size,
             model_family=model_family,
             names=names,
+            model_size=model_size,
         )
 
     def _run_inference(self, blob: np.ndarray) -> list:

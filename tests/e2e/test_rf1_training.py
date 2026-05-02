@@ -2,8 +2,9 @@
 RF1: Training test for all catalog models.
 
 Runs a short marbles fine-tune and then validates on the test split.
-Convolutional families use 10 epochs; DETR-style families (D-FINE, DEIM, RT-DETR)
-use 20 because they converge materially slower on tiny custom datasets.
+Convolutional families use 10 epochs; DETR-style families (D-FINE, DEIM,
+DEIMv2, RT-DETR) use 20 because they converge materially slower on tiny custom
+datasets.
 The dataset auto-downloads from HuggingFace — no API keys needed.
 
 Usage:
@@ -172,7 +173,7 @@ def dataset_data_yaml(dataset):
 
 
 MIN_MAP = 0.05
-DETR_RF1_FAMILIES = {"dfine", "deim", "rtdetr"}
+DETR_RF1_FAMILIES = {"dfine", "deim", "deimv2", "rtdetr"}
 
 
 def rf1_epochs(family: str) -> int:
@@ -204,6 +205,21 @@ def rf1_train_kwargs(family: str, size: str) -> dict:
             "lr0": {"n": 8e-4, "s": 4e-4, "m": 4e-4, "l": 5e-4, "x": 5e-4}[
                 size
             ],
+            "multi_scale": False,
+            "aug_stop_epoch_ratio": 0.0,
+        }
+    if family == "deimv2":
+        return {
+            "lr0": {
+                "atto": 2e-3,
+                "femto": 1.6e-3,
+                "pico": 1.6e-3,
+                "n": 8e-4,
+                "s": 5e-4,
+                "m": 5e-4,
+                "l": 5e-4,
+                "x": 5e-4,
+            }[size],
             "multi_scale": False,
             "aug_stop_epoch_ratio": 0.0,
         }
@@ -284,11 +300,11 @@ def test_rf1_training(family, size, weights, dataset_coco, dataset_data_yaml, tm
         shutil.rmtree(tmp_path, ignore_errors=True)
         return
 
-    # D-FINE/DEIM converge reliably in a clean interpreter with the same RF1
+    # D-FINE/DEIM/DEIMv2 converge reliably in a clean interpreter with the same RF1
     # recipe, but under pytest's long-lived host process the larger cases become
     # flaky. Run them in a subprocess so RF1 measures the actual fine-tune path
     # instead of pytest process state.
-    if family in {"dfine", "deim"}:
+    if family in {"dfine", "deim", "deimv2"}:
         run_name = f"{family}_{size}"
         train_kwargs = rf1_train_kwargs(family, size)
         run_direct_subprocess(
@@ -488,7 +504,7 @@ def test_load_finetuned_checkpoint(
     train_epochs = rf1_epochs(family)
     workers, val_workers = rf1_workers(family)
 
-    if family in {"dfine", "deim"}:
+    if family in {"dfine", "deim", "deimv2"}:
         run_name = f"{family}_{size}"
         train_kwargs = rf1_train_kwargs(family, size)
         run_direct_subprocess(

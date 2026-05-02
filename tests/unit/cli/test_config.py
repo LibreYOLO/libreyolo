@@ -33,6 +33,13 @@ class TestResolveModelName:
         assert resolve_model_name("yolo9-t") == "LibreYOLO9t.pt"
         assert resolve_model_name("yolo9-m") == "LibreYOLO9m.pt"
 
+    def test_deimv2_sizes(self):
+        assert resolve_model_name("deimv2-atto") == "LibreDEIMv2Atto.pt"
+        assert resolve_model_name("deimv2-femto") == "LibreDEIMv2Femto.pt"
+        assert resolve_model_name("deimv2-pico") == "LibreDEIMv2Pico.pt"
+        assert resolve_model_name("deimv2-n") == "LibreDEIMv2n.pt"
+        assert resolve_model_name("deimv2-x") == "LibreDEIMv2x.pt"
+
     def test_case_insensitive(self):
         assert resolve_model_name("YOLOX-S") == "LibreYOLOXs.pt"
         assert resolve_model_name("Yolo9-T") == "LibreYOLO9t.pt"
@@ -80,6 +87,7 @@ class TestDetectFamilyFromModelRef:
         assert detect_family_from_weight_filename("LibreYOLOXs.pt") == "yolox"
         assert detect_family_from_weight_filename("weights/LibreYOLO9t.pt") == "yolo9"
         assert detect_family_from_weight_filename("LibreRTDETRr18.pt") == "rtdetr"
+        assert detect_family_from_weight_filename("LibreDEIMv2Atto.pt") == "deimv2"
 
     def test_model_ref_uses_alias_or_resolved_filename(self):
         assert (
@@ -87,6 +95,7 @@ class TestDetectFamilyFromModelRef:
         )
         assert detect_family_from_model_ref("LibreRTDETRr18.pt") == "rtdetr"
         assert detect_family_from_model_ref("/tmp/models/LibreRTDETRr18.pt") == "rtdetr"
+        assert detect_family_from_model_ref("deimv2-atto") == "deimv2"
 
     def test_unknown_checkpoint_name_returns_none(self):
         assert detect_family_from_model_ref("best.pt") is None

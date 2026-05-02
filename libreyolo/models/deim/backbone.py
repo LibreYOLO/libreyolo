@@ -17,6 +17,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from .common import FrozenBatchNorm2d
+from .ms_deform import get_activation
 
 
 class LearnableAffineBlock(nn.Module):
@@ -40,6 +41,7 @@ class ConvBNAct(nn.Module):
         padding="",
         use_act=True,
         use_lab=False,
+        act="relu",
     ):
         super().__init__()
         self.use_act = use_act
@@ -62,7 +64,7 @@ class ConvBNAct(nn.Module):
                 bias=False,
             )
         self.bn = nn.BatchNorm2d(out_chs)
-        self.act = nn.ReLU() if self.use_act else nn.Identity()
+        self.act = get_activation(act) if self.use_act else nn.Identity()
         self.lab = (
             LearnableAffineBlock() if (self.use_act and self.use_lab) else nn.Identity()
         )
@@ -76,7 +78,15 @@ class ConvBNAct(nn.Module):
 
 
 class LightConvBNAct(nn.Module):
-    def __init__(self, in_chs, out_chs, kernel_size, groups=1, use_lab=False):
+    def __init__(
+        self,
+        in_chs,
+        out_chs,
+        kernel_size,
+        groups=1,
+        use_lab=False,
+        act="relu",
+    ):
         super().__init__()
         self.conv1 = ConvBNAct(
             in_chs,
@@ -84,6 +94,7 @@ class LightConvBNAct(nn.Module):
             kernel_size=1,
             use_act=False,
             use_lab=use_lab,
+            act=act,
         )
         self.conv2 = ConvBNAct(
             out_chs,
@@ -92,6 +103,7 @@ class LightConvBNAct(nn.Module):
             groups=out_chs,
             use_act=True,
             use_lab=use_lab,
+            act=act,
         )
 
     def forward(self, x):
@@ -101,22 +113,22 @@ class LightConvBNAct(nn.Module):
 
 
 class StemBlock(nn.Module):
-    def __init__(self, in_chs, mid_chs, out_chs, use_lab=False):
+    def __init__(self, in_chs, mid_chs, out_chs, use_lab=False, act="relu"):
         super().__init__()
         self.stem1 = ConvBNAct(
-            in_chs, mid_chs, kernel_size=3, stride=2, use_lab=use_lab
+            in_chs, mid_chs, kernel_size=3, stride=2, use_lab=use_lab, act=act
         )
         self.stem2a = ConvBNAct(
-            mid_chs, mid_chs // 2, kernel_size=2, stride=1, use_lab=use_lab
+            mid_chs, mid_chs // 2, kernel_size=2, stride=1, use_lab=use_lab, act=act
         )
         self.stem2b = ConvBNAct(
-            mid_chs // 2, mid_chs, kernel_size=2, stride=1, use_lab=use_lab
+            mid_chs // 2, mid_chs, kernel_size=2, stride=1, use_lab=use_lab, act=act
         )
         self.stem3 = ConvBNAct(
-            mid_chs * 2, mid_chs, kernel_size=3, stride=2, use_lab=use_lab
+            mid_chs * 2, mid_chs, kernel_size=3, stride=2, use_lab=use_lab, act=act
         )
         self.stem4 = ConvBNAct(
-            mid_chs, out_chs, kernel_size=1, stride=1, use_lab=use_lab
+            mid_chs, out_chs, kernel_size=1, stride=1, use_lab=use_lab, act=act
         )
         self.pool = nn.MaxPool2d(kernel_size=2, stride=1, ceil_mode=True)
 
@@ -160,6 +172,7 @@ class HG_Block(nn.Module):
         use_lab=False,
         agg="ese",
         drop_path=0.0,
+        act="relu",
     ):
         super().__init__()
         self.residual = residual
@@ -173,6 +186,7 @@ class HG_Block(nn.Module):
                         mid_chs,
                         kernel_size=kernel_size,
                         use_lab=use_lab,
+                        act=act,
                     )
                 )
             else:
@@ -183,6 +197,7 @@ class HG_Block(nn.Module):
                         kernel_size=kernel_size,
                         stride=1,
                         use_lab=use_lab,
+                        act=act,
                     )
                 )
 
@@ -194,6 +209,7 @@ class HG_Block(nn.Module):
                 kernel_size=1,
                 stride=1,
                 use_lab=use_lab,
+                act=act,
             )
             aggregation_excitation_conv = ConvBNAct(
                 out_chs // 2,
@@ -201,6 +217,7 @@ class HG_Block(nn.Module):
                 kernel_size=1,
                 stride=1,
                 use_lab=use_lab,
+                act=act,
             )
             self.aggregation = nn.Sequential(
                 aggregation_squeeze_conv,
@@ -213,6 +230,7 @@ class HG_Block(nn.Module):
                 kernel_size=1,
                 stride=1,
                 use_lab=use_lab,
+                act=act,
             )
             att = EseModule(out_chs)
             self.aggregation = nn.Sequential(aggregation_conv, att)
@@ -246,6 +264,7 @@ class HG_Stage(nn.Module):
         use_lab=False,
         agg="se",
         drop_path=0.0,
+        act="relu",
     ):
         super().__init__()
         self.downsample = downsample
@@ -258,6 +277,7 @@ class HG_Stage(nn.Module):
                 groups=in_chs,
                 use_act=False,
                 use_lab=use_lab,
+                act=act,
             )
         else:
             self.downsample = nn.Identity()
@@ -278,6 +298,7 @@ class HG_Stage(nn.Module):
                     drop_path=drop_path[i]
                     if isinstance(drop_path, (list, tuple))
                     else drop_path,
+                    act=act,
                 )
             )
         self.blocks = nn.Sequential(*blocks_list)
@@ -292,7 +313,7 @@ class HGNetv2(nn.Module):
     """HGNetV2 backbone.
 
     Args:
-        name: One of ``"B0","B1","B2","B3","B4","B5","B6"``.
+        name: One of ``"Atto"``, ``"Femto"``, ``"Pico"``, or ``"B0"``-``"B6"``.
         use_lab: Use LearnableAffineBlock after activations (N/S/M).
         return_idx: Indices of stages to return as outputs.
             DEIM uses ``[2, 3]`` for N (2-level FPN) and ``[1, 2, 3]`` for S/M/L/X.
@@ -303,6 +324,30 @@ class HGNetv2(nn.Module):
     """
 
     arch_configs = {
+        "Atto": {
+            "stem_channels": [3, 16, 16],
+            "stage_config": {
+                "stage1": [16, 16, 64, 1, False, False, 3, 3],
+                "stage2": [64, 32, 256, 1, True, False, 3, 3],
+                "stage3": [256, 64, 256, 1, True, True, 3, 3],
+            },
+        },
+        "Femto": {
+            "stem_channels": [3, 16, 16],
+            "stage_config": {
+                "stage1": [16, 16, 64, 1, False, False, 3, 3],
+                "stage2": [64, 32, 256, 1, True, False, 3, 3],
+                "stage3": [256, 64, 512, 1, True, True, 5, 3],
+            },
+        },
+        "Pico": {
+            "stem_channels": [3, 16, 16],
+            "stage_config": {
+                "stage1": [16, 16, 64, 1, False, False, 3, 3],
+                "stage2": [64, 32, 256, 1, True, False, 3, 3],
+                "stage3": [256, 64, 512, 2, True, True, 5, 3],
+            },
+        },
         "B0": {
             "stem_channels": [3, 16, 16],
             "stage_config": {
@@ -377,6 +422,7 @@ class HGNetv2(nn.Module):
         freeze_at=0,
         freeze_norm=True,
         pretrained=False,
+        act="relu",
     ):
         super().__init__()
         self.use_lab = use_lab
@@ -393,6 +439,7 @@ class HGNetv2(nn.Module):
             mid_chs=stem_channels[1],
             out_chs=stem_channels[2],
             use_lab=use_lab,
+            act=act,
         )
 
         self.stages = nn.ModuleList()
@@ -418,6 +465,7 @@ class HGNetv2(nn.Module):
                     light_block,
                     kernel_size,
                     use_lab,
+                    act=act,
                 )
             )
 

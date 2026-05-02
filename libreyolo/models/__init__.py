@@ -37,6 +37,7 @@ from .yolox.model import LibreYOLOX  # noqa: E402
 from .yolo9_e2e.model import LibreYOLO9E2E  # noqa: E402
 from .yolo9.model import LibreYOLO9  # noqa: E402
 from .yolonas.model import LibreYOLONAS  # noqa: E402
+from .deimv2.model import LibreDEIMv2  # noqa: E402
 from .dfine.model import LibreDFINE  # noqa: E402
 from .deim.model import LibreDEIM  # noqa: E402
 from .picodet.model import LibrePicoDet  # noqa: E402
@@ -233,11 +234,22 @@ def LibreYOLO(
 
     # Load weights once
     try:
-        state_dict = load_untrusted_torch_file(
-            model_path,
-            map_location="cpu",
-            context="model inspection",
-        )
+        if Path(model_path).suffix == ".safetensors":
+            try:
+                from safetensors.torch import load_file as load_safetensors_file
+            except ImportError as e:
+                raise ImportError(
+                    "Loading safetensors weights requires safetensors. "
+                    "Install with: pip install safetensors"
+                ) from e
+
+            state_dict = load_safetensors_file(model_path, device="cpu")
+        else:
+            state_dict = load_untrusted_torch_file(
+                model_path,
+                map_location="cpu",
+                context="model inspection",
+            )
     except Exception as e:
         raise RuntimeError(
             f"Failed to load model weights from {model_path}: {e}"
@@ -280,11 +292,13 @@ def LibreYOLO(
     if matched_cls is None:
         matching_classes = _matching_model_classes(weights_dict)
         matching_families = {cls.FAMILY for cls in matching_classes}
-        # Only raise on a true D-FINE/DEIM tie. ECDet also serializes
-        # ``decoder.pre_bbox_head.*`` keys, so a strict ``issubset`` check would
-        # misfire on ECDet checkpoints that also match the more-specific ECDet
-        # ``can_load``.
-        if matching_families == {"dfine", "deim"}:
+        # Only raise on a true D-FINE/DEIM tie. Some optional families can add
+        # broader false-positive matches after lazy registration, while ECDet
+        # and DEIMv2 legitimately match D-FINE/DEIM-ish decoder keys and should
+        # be allowed to win via their more-specific detectors.
+        if {"dfine", "deim"}.issubset(matching_families) and not (
+            matching_families & {"ecdet", "deimv2"}
+        ):
             raise ValueError(
                 "Ambiguous D-FINE/DEIM checkpoint: both families share the same "
                 "DEIM-D-FINE architecture keys.\n"
@@ -299,7 +313,7 @@ def LibreYOLO(
     if matched_cls is None:
         raise ValueError(
             "Could not detect model architecture from state dict keys.\n"
-            "Supported architectures: YOLOX, YOLOv9, YOLOv9-E2E, YOLO-NAS, RT-DETR, RF-DETR, D-FINE, DEIM."
+            "Supported architectures: YOLOX, YOLOv9, YOLOv9-E2E, YOLO-NAS, RT-DETR, RF-DETR, D-FINE, DEIM, DEIMv2."
         )
 
     # Auto-detect size
@@ -366,7 +380,11 @@ def LibreYOLO(
             size=size,
             nb_classes=nb_classes,
             device=device,
-            **({"reg_max": reg_max} if matched_cls.FAMILY in ("yolo9", "yolo9_e2e") else {}),
+            **(
+                {"reg_max": reg_max}
+                if matched_cls.FAMILY in ("yolo9", "yolo9_e2e")
+                else {}
+            ),
         )
     else:
         # Pretrained checkpoint — pass extracted state dict
@@ -375,7 +393,11 @@ def LibreYOLO(
             size=size,
             nb_classes=nb_classes,
             device=device,
-            **({"reg_max": reg_max} if matched_cls.FAMILY in ("yolo9", "yolo9_e2e") else {}),
+            **(
+                {"reg_max": reg_max}
+                if matched_cls.FAMILY in ("yolo9", "yolo9_e2e")
+                else {}
+            ),
         )
 
     model.model_path = model_path
@@ -390,6 +412,7 @@ __all__ = [
     "LibreYOLONAS",
     "LibreDFINE",
     "LibreDEIM",
+    "LibreDEIMv2",
     "LibreECDET",
     "LibrePicoDet",
     "LibreYOLORTDETR",

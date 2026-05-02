@@ -105,6 +105,8 @@ class COCOEvaluator:
 
         coco_dt = self.coco_gt.loadRes(self.results)
         coco_eval = COCOeval(self.coco_gt, coco_dt, self.iou_type)
+        if self._img_ids:
+            coco_eval.params.imgIds = sorted(self._img_ids)
         coco_eval.evaluate()
         coco_eval.accumulate()
         coco_eval.summarize()

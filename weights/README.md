@@ -28,6 +28,18 @@ Nature of the conversion:
 
 This is a metadata-wrap conversion. There is no model-specific key remapping.
 
+### DEIMv2
+
+Script: [`convert_deimv2_weights.py`](convert_deimv2_weights.py)
+
+Nature of the conversion:
+- unwrap the upstream checkpoint layout
+- keep parameter names unchanged
+- add LibreYOLO metadata: `model_family`, `size`, `nc`, `names`
+
+This is a metadata-wrap conversion. The LibreYOLO native implementation vendors
+the DEIMv2 component graph so upstream parameter names remain loadable.
+
 ### RT-DETR HGNetv2
 
 Script: [`convert_rtdetr_hgnetv2_weights.py`](convert_rtdetr_hgnetv2_weights.py)

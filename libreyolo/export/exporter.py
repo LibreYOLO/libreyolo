@@ -5,6 +5,7 @@ implements ``_export()``, while the template method in ``__call__`` handles
 validation, model setup/teardown, calibration, and intermediate ONNX export.
 """
 
+import copy
 import json
 import logging
 import warnings
@@ -141,7 +142,7 @@ class BaseExporter(ABC):
             # runtimes.
             opset = (
                 17
-                if self.model._get_model_name() in ("dfine", "deim", "ecdet")
+                if self.model._get_model_name() in ("dfine", "deim", "deimv2", "ecdet")
                 else 13
             )
 
@@ -177,6 +178,7 @@ class BaseExporter(ABC):
                     output_path,
                     opset,
                     simplify,
+                    dynamic,
                 )
                 if self.requires_onnx
                 else None
@@ -247,8 +249,16 @@ class BaseExporter(ABC):
         return half, int8
 
     def _resolve_params(self, output_path, imgsz, device, half, int8):
+        native_imgsz = self.model._get_input_size()
         if imgsz is None:
-            imgsz = self.model._get_input_size()
+            imgsz = native_imgsz
+        elif self.model._get_model_name() == "deimv2" and int(imgsz) != int(
+            native_imgsz
+        ):
+            raise ValueError(
+                "DEIMv2 export uses fixed decoder anchors; imgsz must match "
+                f"the native size {native_imgsz}, got {imgsz}."
+            )
         if device is None:
             device = self.model.device
         else:
@@ -291,6 +301,13 @@ class BaseExporter(ABC):
             from ..models.deim.nn import DEIMExportWrapper
 
             nn_model = DEIMExportWrapper(nn_model).to(device)
+            nn_model.eval()
+            dfine_wrapped = True
+        elif family == "deimv2":
+            from ..models.deimv2.nn import DEIMv2ExportWrapper
+
+            nn_model = copy.deepcopy(nn_model)
+            nn_model = DEIMv2ExportWrapper(nn_model).to(device)
             nn_model.eval()
             dfine_wrapped = True
         elif family == "ecdet":
@@ -394,7 +411,9 @@ class BaseExporter(ABC):
         )
         return calibration_data
 
-    def _export_intermediate_onnx(self, nn_model, dummy, output_path, opset, simplify):
+    def _export_intermediate_onnx(
+        self, nn_model, dummy, output_path, opset, simplify, dynamic
+    ):
         onnx_output = str(Path(output_path).with_suffix(".onnx"))
         logger.info("Step 1/2: Exporting to ONNX (%s)", onnx_output)
         return export_onnx(
@@ -403,9 +422,9 @@ class BaseExporter(ABC):
             output_path=onnx_output,
             opset=opset,
             simplify=simplify,
-            dynamic=False,
+            dynamic=dynamic,
             half=False,
-            metadata=self._build_onnx_metadata(dynamic=False, half=False),
+            metadata=self._build_onnx_metadata(dynamic=dynamic, half=False),
         )
 
     def _build_metadata(
@@ -615,6 +634,7 @@ class NcnnExporter(BaseExporter):
         unsupported_family_names = {
             "dfine": "D-FINE",
             "deim": "DEIM",
+            "deimv2": "DEIMv2",
             "rtdetr": "RT-DETR",
             "ecdet": "ECDet",
         }

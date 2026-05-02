@@ -11,8 +11,8 @@ Tests the complete pipeline:
 
 Known ncnn/PNNX limitations:
 - RF-DETR: torch.tile is unsupported by ncnn. All inference tests are xfail.
-- D-FINE / DEIM / RT-DETR: DETR query-selection ops are unsupported by ncnn. All
-  inference tests are xfail.
+- D-FINE / DEIM / DEIMv2 / ECDet / RT-DETR: DETR query-selection ops are
+  unsupported by ncnn. All inference tests are xfail.
 """
 
 from pathlib import Path
@@ -64,7 +64,7 @@ _detr_ncnn_xfail = pytest.mark.xfail(
     strict=True,
 )
 
-_DETR_NCNN_XFAIL_FAMILIES = {"dfine", "deim", "rtdetr"}
+_DETR_NCNN_XFAIL_FAMILIES = {"dfine", "deim", "deimv2", "ecdet", "rtdetr"}
 
 
 def _ncnn_case(model_type: str, size: str, *, marks=None):
