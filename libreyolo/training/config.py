@@ -184,6 +184,70 @@ class DFINEConfig(TrainConfig):
 
 
 @dataclass(kw_only=True)
+class LibreVocab1Phase2Config(TrainConfig):
+    """LibreVocab1 Phase 2 (open-vocab DETR) training defaults.
+
+    Path A architecture: CRADIOv4 backbone (frozen) + LibreYOLO-owned
+    DEIMv2-style decoder + SigLIP2 text encoder (frozen) + cosine
+    classification head. Optimizer / schedule defaults are the DEIMv2
+    AdamW / flat-cosine recipe.
+    """
+
+    # Phase 2 specifics --------------------------------------------------
+    # CRADIOv4 backbone version: ``c-radio_v4-so400m`` or ``c-radio_v4-h``.
+    radio_version: str = "c-radio_v4-so400m"
+    # Path to the on-disk SigLIP2 text-embedding cache (built once via
+    # OpenVocabCOCODataset.class_names + CRADIOv4Backbone.encode_text).
+    text_emb_cache_path: Optional[str] = None
+    # Prompt template for class names. Matches CLIP/SigLIP2 conventions.
+    text_prompt_template: str = "a photo of a {}"
+    # Per-batch negative class names sampled on top of the positives in
+    # the batch. With 80 COCO classes, 32 negatives covers ~half the
+    # vocab per step.
+    num_negatives: int = 32
+
+    # Optimizer ----------------------------------------------------------
+    # Backbone is frozen; the rest gets a single param group at lr0.
+    optimizer: str = "adamw"
+    lr0: float = 1e-4
+    weight_decay: float = 1e-4
+    momentum: float = 0.9  # unused with adamw; here for surface consistency
+
+    # Schedule -----------------------------------------------------------
+    scheduler: str = "flat_cosine"
+    warmup_epochs: int = 1
+    warmup_lr_start: float = 1e-6
+    no_aug_epochs: int = 0
+    min_lr_ratio: float = 0.1
+
+    # Augmentation (none in v0; mosaic / mixup land later) ---------------
+    mosaic_prob: float = 0.0
+    mixup_prob: float = 0.0
+    hsv_prob: float = 0.0
+    flip_prob: float = 0.0
+    degrees: float = 0.0
+    translate: float = 0.0
+    shear: float = 0.0
+
+    # Training features --------------------------------------------------
+    ema: bool = True
+    ema_decay: float = 0.9999
+    amp: bool = False
+    clip_max_norm: float = 0.1
+
+    # Loss weights -------------------------------------------------------
+    loss_weight_class: float = 1.0
+    loss_weight_bbox: float = 5.0
+    loss_weight_giou: float = 2.0
+
+    # Defaults for the A100 smoke run ------------------------------------
+    epochs: int = 1
+    batch: int = 8
+    imgsz: int = 640
+    name: str = "librevocab1_phase2_exp"
+
+
+@dataclass(kw_only=True)
 class DEIMConfig(TrainConfig):
     """DEIM-D-FINE fine-tuning defaults.
 

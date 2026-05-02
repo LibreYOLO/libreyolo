@@ -1,0 +1,61 @@
+# LibreVocab1 Phase 2 — H200 Round 1 production pretrain on Objects365 v2.
+#
+# Goal: real flagship numbers. Per PHASE2_PLAN.md decision rule:
+#   COCO mAP >= 45 AND LVIS-rare AP_r >= 22 -> ship as flagship.
+# Wall-clock estimate on 8x H200: ~24-36 h.
+
+# Phase 2 specifics
+size: s
+radio_version: c-radio_v4-so400m
+text_emb_cache_path: cache/siglip2_text_emb_o365.pt
+text_prompt_template: "a photo of a {}"
+num_negatives: 32
+
+# Data — point this at your Objects365 v2 root.
+data_dir: ./datasets/objects365v2
+ann_file: instances_train2017.json   # adjust to your O365 layout
+img_subdir: train
+imgsz: 800
+num_classes: 365
+
+# Training
+epochs: 12
+batch: 32     # per-GPU batch; 8x H200 -> effective 256
+device: cuda
+workers: 8
+
+# Optimizer
+optimizer: adamw
+lr0: 1.0e-4
+weight_decay: 1.0e-4
+
+# Schedule
+scheduler: flat_cosine
+warmup_epochs: 1
+warmup_lr_start: 1.0e-6
+min_lr_ratio: 0.1
+
+# Augmentation off in v0; mosaic / mixup land later.
+mosaic_prob: 0.0
+mixup_prob: 0.0
+hsv_prob: 0.0
+flip_prob: 0.0
+
+# Stability
+ema: true
+ema_decay: 0.9999
+amp: true     # H200 supports bf16; AMP is a real win
+clip_max_norm: 0.1
+
+# Loss weights
+loss_weight_class: 1.0
+loss_weight_bbox: 5.0
+loss_weight_giou: 2.0
+
+# Output
+project: runs/librevocab1_phase2
+name: round1_so400m_o365
+save_period: 1
+eval_interval: 1
+log_interval: 50
+seed: 0

@@ -1,0 +1,58 @@
+# LibreVocab1 Phase 2 — A100 6-hour smoke run on COCO.
+#
+# Goal: validate the engineering pipeline end-to-end. Not a results run.
+# See libreyolo/models/librevocab1/PHASE2_PLAN.md for the criteria gate.
+
+# Phase 2 specifics
+size: s
+radio_version: c-radio_v4-so400m
+text_emb_cache_path: cache/siglip2_text_emb_coco.pt
+text_prompt_template: "a photo of a {}"
+num_negatives: 32
+
+# Data — point this at your COCO root.
+data_dir: ./datasets/coco
+imgsz: 640
+num_classes: 80
+
+# Training — single epoch, batch 8 → fits 6h on a single A100 80GB.
+epochs: 1
+batch: 8
+device: cuda
+workers: 4
+
+# Optimizer (DEIMv2-style)
+optimizer: adamw
+lr0: 1.0e-4
+weight_decay: 1.0e-4
+
+# Schedule
+scheduler: flat_cosine
+warmup_epochs: 0
+warmup_lr_start: 1.0e-6
+min_lr_ratio: 0.1
+
+# Augmentation off in v0; mosaic / mixup land later.
+mosaic_prob: 0.0
+mixup_prob: 0.0
+hsv_prob: 0.0
+flip_prob: 0.0
+
+# Stability
+ema: true
+ema_decay: 0.9999
+amp: false
+clip_max_norm: 0.1
+
+# Loss weights
+loss_weight_class: 1.0
+loss_weight_bbox: 5.0
+loss_weight_giou: 2.0
+
+# Output
+project: runs/librevocab1_phase2
+name: smoketest_so400m_coco_a100
+save_period: 1
+eval_interval: 1
+log_interval: 10
+seed: 0
