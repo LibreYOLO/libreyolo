@@ -224,13 +224,8 @@ class DEIMTrainer(BaseTrainer):
 
         return torch.optim.AdamW(param_groups, betas=(0.9, 0.999))
 
-    def on_forward(self, imgs: torch.Tensor, targets: torch.Tensor) -> Dict:
-        """Forward + loss in one go.
-
-        Translates the ``(B, max_labels, 5)`` ``[class, cx, cy, w, h]`` pixel
-        target tensor into DEIM's per-image dict list with cxcywh-normalized
-        boxes, then runs model + criterion.
-        """
+    def _targets_to_detr(self, imgs: torch.Tensor, targets: torch.Tensor):
+        """Translate padded LibreYOLO labels to DETR target dictionaries."""
         B = targets.shape[0]
         # Read actual image size from the batch — multi-scale collate may have
         # resized to a non-default value (576..704), so we cannot trust
@@ -261,16 +256,31 @@ class DEIMTrainer(BaseTrainer):
                     }
                 )
 
-        outputs = self.model(imgs, targets=target_list)
-        losses = self.criterion(outputs, target_list)
-        total = sum(losses.values())
+        return target_list
 
+    def _compute_criterion_losses(self, outputs: Dict, target_list) -> Dict:
+        return self.criterion(outputs, target_list)
+
+    def _format_loss_outputs(self, losses: Dict) -> Dict:
+        total = sum(losses.values())
         # Expose every named loss (including aux_/dn_/pre/enc variants) so
         # ``get_loss_components`` can aggregate by prefix. FGL/DDF appear only
         # in the aux/dn paths — bare ``loss_ddf`` would always be 0 otherwise.
         result = {"total_loss": total}
         result.update(losses)
         return result
+
+    def on_forward(self, imgs: torch.Tensor, targets: torch.Tensor) -> Dict:
+        """Forward + loss in one go.
+
+        Translates the ``(B, max_labels, 5)`` ``[class, cx, cy, w, h]`` pixel
+        target tensor into DEIM's per-image dict list with cxcywh-normalized
+        boxes, then runs model + criterion.
+        """
+        target_list = self._targets_to_detr(imgs, targets)
+        outputs = self.model(imgs, targets=target_list)
+        losses = self._compute_criterion_losses(outputs, target_list)
+        return self._format_loss_outputs(losses)
 
     # =========================================================================
     # _setup_data override — wire DEIMMultiScaleCollate (when enabled)
@@ -376,7 +386,7 @@ class DEIMTrainer(BaseTrainer):
         if getattr(self.config, "multi_scale", False):
             collate_fn = DEIMMultiScaleCollate(
                 base_size=self.config.imgsz,
-                base_size_repeat=3,
+                base_size_repeat=getattr(self.config, "base_size_repeat", 3),
                 stop_epoch=stop_epoch,
             )
         else:
@@ -437,9 +447,12 @@ class DEIMTrainer(BaseTrainer):
             targets = targets.to(self.device, non_blocking=True)
 
             if self.scaler is not None:
+                target_list = self._targets_to_detr(imgs, targets)
                 with autocast("cuda"):
-                    outputs = self.on_forward(imgs, targets)
-                    loss = outputs["total_loss"]
+                    model_outputs = self.model(imgs, targets=target_list)
+                losses = self._compute_criterion_losses(model_outputs, target_list)
+                outputs = self._format_loss_outputs(losses)
+                loss = outputs["total_loss"]
                 self.optimizer.zero_grad()
                 self.scaler.scale(loss).backward()
                 if clip_max_norm > 0:

@@ -393,6 +393,43 @@ def build_family_train_kwargs(
         return _build_rfdetr_train_kwargs(
             params, model_path=model_path, user_provided=user_provided
         )
+    if family == "deimv2":
+        kwargs = build_train_kwargs(params)
+        provided = user_provided or set()
+        from .aliases import TRAIN_ALIASES
+
+        internal_to_cli = {v: k for k, v in TRAIN_ALIASES.items()}
+        size_defaulted = {
+            "epochs",
+            "batch",
+            "imgsz",
+            "optimizer",
+            "lr0",
+            "weight_decay",
+            "scheduler",
+            "warmup_epochs",
+            "warmup_lr_start",
+            "no_aug_epochs",
+            "min_lr_ratio",
+            "mosaic_prob",
+            "mixup_prob",
+            "hsv_prob",
+            "flip_prob",
+            "degrees",
+            "translate",
+            "shear",
+            "mosaic_scale",
+            "mixup_scale",
+            "ema",
+            "ema_decay",
+            "amp",
+            "name",
+        }
+        for internal_name in size_defaulted:
+            cli_name = internal_to_cli.get(internal_name, internal_name)
+            if cli_name not in provided:
+                kwargs.pop(internal_name, None)
+        return kwargs
     return build_train_kwargs(params)
 
 

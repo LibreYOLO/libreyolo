@@ -254,8 +254,17 @@ class YOLODataset(Dataset):
     def pull_item(self, index: int):
         """Get item without preprocessing."""
         label, origin_image_size, _, _ = self.annotations[index]
-        img = self.load_resized_img(index)
-        return img, copy.deepcopy(label), origin_image_size, index
+        if getattr(self.preproc, "expects_original_image", False):
+            img = self.load_image(index)
+            label = copy.deepcopy(label)
+            height, width = origin_image_size
+            r = min(self.img_size[0] / height, self.img_size[1] / width)
+            if len(label):
+                label[:, :4] /= r
+        else:
+            img = self.load_resized_img(index)
+            label = copy.deepcopy(label)
+        return img, label, origin_image_size, index
 
     def __getitem__(self, index: int):
         """Get preprocessed item."""
@@ -446,9 +455,15 @@ class COCODataset(Dataset):
             # Plain-resize DETR-style validators must match upstream COCO
             # evaluation: original image -> configured square resize.
             img = self.load_image(index)
+            label = copy.deepcopy(label)
+            height, width = origin_image_size
+            r = min(self.img_size[0] / height, self.img_size[1] / width)
+            if len(label):
+                label[:, :4] /= r
         else:
             img = self.load_resized_img(index)
-        return img, copy.deepcopy(label), origin_image_size, id_
+            label = copy.deepcopy(label)
+        return img, label, origin_image_size, id_
 
     def __getitem__(self, index: int):
         """Get preprocessed item."""

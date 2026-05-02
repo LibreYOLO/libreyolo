@@ -4,7 +4,7 @@
 [![PyPI](https://img.shields.io/pypi/v/libreyolo)](https://pypi.org/project/libreyolo/)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
-MIT-licensed object detection library with training and inference support across YOLOv9 (`t`, `s`, `m`, `c`), YOLOX (`n`, `t`, `s`, `m`, `l`, `x`), YOLO-NAS (`s`, `m`, `l`), RF-DETR (`n`, `s`, `m`, `l`), D-FINE (`n`, `s`, `m`, `l`, `x`), and DEIM (`n`, `s`, `m`, `l`, `x`), plus inference/export support for DEIMv2 (`atto`, `femto`, `pico`, `n`, `s`, `m`, `l`, `x`).
+MIT-licensed object detection library with training and inference support across YOLOv9 (`t`, `s`, `m`, `c`), YOLOX (`n`, `t`, `s`, `m`, `l`, `x`), YOLO-NAS (`s`, `m`, `l`), RF-DETR (`n`, `s`, `m`, `l`), D-FINE (`n`, `s`, `m`, `l`, `x`), DEIM (`n`, `s`, `m`, `l`, `x`), and DEIMv2 (`atto`, `femto`, `pico`, `n`, `s`, `m`, `l`, `x`).
 
 ![LibreYOLO Detection Example](libreyolo/assets/parkour_result.jpg)
 

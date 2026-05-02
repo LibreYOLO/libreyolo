@@ -77,6 +77,7 @@ class DEIMTrainTransform:
     # HGNetv2 was pretrained on /255-only inputs and disables normalization.
     _IMAGENET_MEAN = np.array([0.485, 0.456, 0.406], dtype=np.float32).reshape(3, 1, 1)
     _IMAGENET_STD = np.array([0.229, 0.224, 0.225], dtype=np.float32).reshape(3, 1, 1)
+    expects_original_image = True
 
     def __init__(
         self,
@@ -88,12 +89,14 @@ class DEIMTrainTransform:
         iou_crop_p: float = 0.8,
         strong_augs: bool = True,
         imagenet_norm: bool = False,
+        sanitize_min_size: int = 1,
     ):
         self.max_labels = max_labels
         self.imgsz = imgsz
         self.flip_prob = flip_prob
         self.strong_augs = strong_augs
         self.imagenet_norm = imagenet_norm
+        self.sanitize_min_size = sanitize_min_size
 
         # Strong (early-training) ops — disabled at stop_epoch.
         # ``RandomIoUCrop`` has no built-in ``p``; wrap with ``RandomApply`` to
@@ -104,7 +107,9 @@ class DEIMTrainTransform:
                 tv2.RandomPhotometricDistort(p=photometric_p),
                 tv2.RandomZoomOut(fill=zoomout_fill),
                 tv2.RandomApply([tv2.RandomIoUCrop()], p=iou_crop_p),
-                tv2.SanitizeBoundingBoxes(min_size=1, labels_getter=_labels_at_index_2),
+                tv2.SanitizeBoundingBoxes(
+                    min_size=sanitize_min_size, labels_getter=_labels_at_index_2
+                ),
             ]
         )
         # Weak (always-on) ops.
@@ -112,7 +117,9 @@ class DEIMTrainTransform:
             [
                 tv2.RandomHorizontalFlip(p=flip_prob),
                 tv2.Resize(size=(imgsz, imgsz), antialias=True),
-                tv2.SanitizeBoundingBoxes(min_size=1, labels_getter=_labels_at_index_2),
+                tv2.SanitizeBoundingBoxes(
+                    min_size=sanitize_min_size, labels_getter=_labels_at_index_2
+                ),
             ]
         )
 

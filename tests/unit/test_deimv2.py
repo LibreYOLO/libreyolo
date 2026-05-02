@@ -24,14 +24,17 @@ DEIMV2_SIZE_CASES = [
 def test_deimv2_is_registered_and_detects_filenames():
     from libreyolo import LibreDEIMv2
     from libreyolo.models.base.model import BaseModel
+    from libreyolo.training.config import DEIMv2Config
 
     assert any(cls.__name__ == "LibreDEIMv2" for cls in BaseModel._registry)
     assert LibreDEIMv2.FAMILY == "deimv2"
+    assert LibreDEIMv2.TRAIN_CONFIG is DEIMv2Config
     assert LibreDEIMv2.detect_size_from_filename("LibreDEIMv2Atto.pt") == "atto"
     assert (
         LibreDEIMv2.detect_size_from_filename("deimv2_hgnetv2_pico_coco.pth") == "pico"
     )
     assert LibreDEIMv2.detect_size_from_filename("deimv2_dinov3_s_coco.pth") == "s"
+    assert LibreDEIMv2.detect_size_from_filename("deimv2_hgnetv2_s_coco.pth") is None
 
 
 @pytest.mark.parametrize(("size", "input_size", "queries"), DEIMV2_SIZE_CASES)
@@ -86,6 +89,12 @@ def test_deimv2_dino_sizes_use_imagenet_preprocessing():
     assert dino.size in {"s", "m", "l", "x"}
     assert atto.model.uses_imagenet_norm is False
     assert dino.model.uses_imagenet_norm is True
+
+    img = np.zeros((2, 2, 3), dtype=np.uint8)
+    atto_chw, _ = atto._get_preprocess_numpy()(img, input_size=2)
+    dino_chw, _ = dino._get_preprocess_numpy()(img, input_size=2)
+    np.testing.assert_allclose(atto_chw, 0.0)
+    assert dino_chw.mean() < -1.0
 
 
 def test_deimv2_val_preprocessor_matches_upstream_pil_resize():

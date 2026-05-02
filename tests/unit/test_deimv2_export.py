@@ -179,3 +179,16 @@ def test_deimv2_ncnn_export_is_blocked(tmp_path):
         match="NCNN export is not supported for DEIMv2",
     ):
         model.export("ncnn", output_path=str(tmp_path / "deimv2_ncnn"))
+
+
+def test_deimv2_export_rejects_non_native_imgsz(tmp_path):
+    from libreyolo import LibreDEIMv2
+
+    model = LibreDEIMv2(None, size="atto", device="cpu")
+    with pytest.raises(ValueError, match="fixed decoder anchors"):
+        model.export(
+            "onnx",
+            output_path=str(tmp_path / "bad.onnx"),
+            imgsz=640,
+            simplify=False,
+        )

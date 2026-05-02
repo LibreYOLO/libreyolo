@@ -2,11 +2,25 @@
 
 import gc
 import multiprocessing
+import os
 from functools import lru_cache
 from pathlib import Path
 
 import pytest
 import torch
+
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+
+
+def _repo_python_env() -> dict[str, str]:
+    """Return an env that makes one-shot test scripts import local sources."""
+    env = os.environ.copy()
+    existing = env.get("PYTHONPATH")
+    paths = [str(_REPO_ROOT)]
+    if existing:
+        paths.append(existing)
+    env["PYTHONPATH"] = os.pathsep.join(paths)
+    return env
 
 # ---------------------------------------------------------------------------
 # Force 'spawn' multiprocessing to prevent CUDA + fork segfaults.
@@ -226,6 +240,8 @@ def _start_worker():
         stdin=_sp.PIPE,
         stdout=_sp.PIPE,
         stderr=_sp.DEVNULL,
+        cwd=str(_REPO_ROOT),
+        env=_repo_python_env(),
         text=True,
     )
 
@@ -297,6 +313,8 @@ def run_direct_subprocess(script: str, *, timeout: int = 300) -> str:
         result = subprocess.run(
             [sys.executable, path],
             capture_output=True,
+            cwd=str(_REPO_ROOT),
+            env=_repo_python_env(),
             text=True,
             timeout=timeout,
         )
@@ -430,6 +448,14 @@ MODEL_CATALOG = [
     ("deim", "m", "weights/LibreDEIMm.pt"),
     ("deim", "l", "weights/LibreDEIMl.pt"),
     ("deim", "x", "weights/LibreDEIMx.pt"),
+    ("deimv2", "atto", "LibreDEIMv2Atto.pt"),
+    ("deimv2", "femto", "LibreDEIMv2Femto.pt"),
+    ("deimv2", "pico", "LibreDEIMv2Pico.pt"),
+    ("deimv2", "n", "LibreDEIMv2n.pt"),
+    ("deimv2", "s", "LibreDEIMv2s.pt"),
+    ("deimv2", "m", "LibreDEIMv2m.pt"),
+    ("deimv2", "l", "LibreDEIMv2l.pt"),
+    ("deimv2", "x", "LibreDEIMv2x.pt"),
     ("ecdet", "s", "LibreECDETs.pt"),
     ("ecdet", "m", "LibreECDETm.pt"),
     ("ecdet", "l", "LibreECDETl.pt"),

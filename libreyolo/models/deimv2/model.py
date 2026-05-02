@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from functools import partial
 import re
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
@@ -9,6 +10,7 @@ from typing import Any, Dict, Optional, Tuple
 import torch
 import torch.nn as nn
 
+from ...training.config import DEIMv2Config
 from ...utils.image_loader import ImageInput
 from ...utils.serialization import load_untrusted_torch_file
 from ...validation.preprocessors import (
@@ -35,7 +37,7 @@ class LibreDEIMv2(BaseModel):
     FAMILY = "deimv2"
     FILENAME_PREFIX = "LibreDEIMv2"
     INPUT_SIZES = {size: int(cfg["input_size"]) for size, cfg in SIZE_CONFIGS.items()}
-    TRAIN_CONFIG = None
+    TRAIN_CONFIG = DEIMv2Config
     val_preprocessor_class = DEIMv2ValPreprocessor
 
     @classmethod
@@ -50,10 +52,13 @@ class LibreDEIMv2(BaseModel):
     @classmethod
     def detect_size_from_filename(cls, filename: str) -> Optional[str]:
         lower = filename.lower()
-        m = re.search(
-            r"(?:libredeimv2|deimv2_(?:hgnetv2|dinov3)_)(atto|femto|pico|[nsmlx])",
-            lower,
-        )
+        m = re.search(r"libredeimv2(atto|femto|pico|[nsmlx])", lower)
+        if m:
+            return normalize_size(m.group(1))
+        m = re.search(r"deimv2_hgnetv2_(atto|femto|pico|n)", lower)
+        if m:
+            return normalize_size(m.group(1))
+        m = re.search(r"deimv2_dinov3_([smlx])", lower)
         if m:
             return normalize_size(m.group(1))
         return None
@@ -150,9 +155,8 @@ class LibreDEIMv2(BaseModel):
             layers["backbone_sta"] = self.model.backbone.sta
         return layers
 
-    @staticmethod
-    def _get_preprocess_numpy():
-        return preprocess_numpy
+    def _get_preprocess_numpy(self):
+        return partial(preprocess_numpy, imagenet_norm=self.size in DINO_SIZES)
 
     def _get_val_preprocessor(self, img_size: int | None = None):
         if img_size is None:
@@ -171,6 +175,11 @@ class LibreDEIMv2(BaseModel):
         input_size: Optional[int] = None,
     ) -> Tuple[torch.Tensor, Any, Tuple[int, int], float]:
         effective_size = input_size if input_size is not None else self.input_size
+        if effective_size != self.input_size:
+            raise ValueError(
+                "DEIMv2 uses fixed decoder anchors; input_size must match "
+                f"the native size {self.input_size}, got {effective_size}."
+            )
         return preprocess_image(
             image,
             input_size=effective_size,
@@ -200,6 +209,107 @@ class LibreDEIMv2(BaseModel):
 
     def _strict_loading(self) -> bool:
         return False
+
+    def train(
+        self,
+        data: str,
+        *,
+        epochs: Optional[int] = None,
+        batch: Optional[int] = None,
+        imgsz: Optional[int] = None,
+        lr0: Optional[float] = None,
+        device: str = "",
+        workers: Optional[int] = None,
+        seed: int = 0,
+        project: str = "runs/train",
+        name: Optional[str] = None,
+        exist_ok: bool = False,
+        resume: bool = False,
+        amp: Optional[bool] = None,
+        patience: int = 50,
+        **kwargs,
+    ) -> dict:
+        """Fine-tune DEIMv2 on a YOLO-format dataset config."""
+        from libreyolo.data import load_data_config
+
+        from .trainer import DEIMv2Trainer
+
+        kwargs.pop("pretrained", None)
+
+        try:
+            data_config = load_data_config(data, autodownload=True)
+            data = data_config.get("yaml_file", data)
+        except Exception as e:
+            raise FileNotFoundError(f"Failed to load dataset config '{data}': {e}")
+
+        yaml_nc = data_config.get("nc")
+        yaml_names = data_config.get("names")
+        if yaml_nc is not None and yaml_nc != self.nb_classes:
+            self._rebuild_for_new_classes(yaml_nc)
+        if yaml_names is not None:
+            if isinstance(yaml_names, list):
+                yaml_names = {i: n for i, n in enumerate(yaml_names)}
+            self.names = self._sanitize_names(yaml_names, self.nb_classes)
+
+        if seed >= 0:
+            import random
+
+            import numpy as np
+
+            random.seed(seed)
+            np.random.seed(seed)
+            torch.manual_seed(seed)
+            if torch.cuda.is_available():
+                torch.cuda.manual_seed_all(seed)
+
+        trainer_kwargs = {
+            "model": self.model,
+            "wrapper_model": self,
+            "size": self.size,
+            "num_classes": self.nb_classes,
+            "data": data,
+            "device": device if device else "auto",
+            "seed": seed,
+            "project": project,
+            "exist_ok": exist_ok,
+            "resume": resume,
+            "patience": patience,
+            **kwargs,
+        }
+        optional = {
+            "epochs": epochs,
+            "batch": batch,
+            "imgsz": imgsz,
+            "lr0": lr0,
+            "workers": workers,
+            "name": name,
+            "amp": amp,
+        }
+        trainer_kwargs.update({k: v for k, v in optional.items() if v is not None})
+
+        trainer = DEIMv2Trainer(**trainer_kwargs)
+
+        if resume:
+            if not self.model_path:
+                raise ValueError(
+                    "resume=True requires a checkpoint. Load one first: "
+                    "model = LibreDEIMv2('path/to/last.pt'); "
+                    "model.train(data=..., resume=True)"
+                )
+            trainer.setup()
+            trainer.resume(str(self.model_path))
+            return trainer.train()
+
+        results = trainer.train()
+
+        best_ckpt = results.get("best_checkpoint")
+        if best_ckpt and Path(best_ckpt).exists():
+            self.model_path = best_ckpt
+            self._load_weights(best_ckpt)
+
+        self.model.to(self.device)
+
+        return results
 
     @staticmethod
     def _expand_shared_head_aliases(state_dict: dict, size: str) -> dict:
@@ -247,8 +357,9 @@ class LibreDEIMv2(BaseModel):
             state_dict, strict=self._strict_loading()
         )
         if unexpected:
+            preview = sorted(unexpected)[:10]
             raise RuntimeError(
-                f"Unexpected keys when loading DEIMv2 weights: {sorted(unexpected)[:10]}"
+                f"Unexpected keys when loading DEIMv2 weights: {preview}"
                 + (f" (+{len(unexpected) - 10} more)" if len(unexpected) > 10 else "")
             )
 
