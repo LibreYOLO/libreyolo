@@ -80,6 +80,10 @@ class DEIMv2Trainer(DEIMTrainer):
 
         recipe = DEIMV2_SIZE_DEFAULTS[size]
         for key, value in recipe.items():
+            # Upstream's absolute warmup_iters is tuned for the recipe's full
+            # epoch budget; on epoch override, fall back to warmup_epochs so
+            # the scheduler scales to the shorter run instead of consuming a
+            # disproportionate fraction of training as warmup.
             if key == "warmup_iters" and epochs_overridden:
                 continue
             if kwargs.get(key) is None:
