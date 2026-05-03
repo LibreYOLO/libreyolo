@@ -387,6 +387,17 @@ class TestByteTracker:
         assert cpu_r.track_id.device.type == "cpu"
         assert torch.equal(cpu_r.track_id, torch.tensor([1, 2]))
 
+    def test_update_accepts_numpy_results(self):
+        tracker = ByteTracker()
+        r = _make_results([[100, 100, 200, 200]], [0.9], [0]).numpy()
+
+        tracked = tracker.update(r)
+
+        assert isinstance(tracked.track_id, np.ndarray)
+        assert tracked.track_id.dtype == np.int64
+        assert tracked.boxes.id is tracked.track_id
+        assert tracked.track_id.tolist() == [1]
+
 
 def _make_results_with_masks(boxes_list, confs, classes, orig_shape=(480, 640)):
     """Build a Results object with fake instance masks for testing."""

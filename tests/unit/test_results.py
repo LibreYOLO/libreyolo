@@ -4,7 +4,7 @@ import pytest
 import torch
 import numpy as np
 
-from libreyolo.utils.results import Boxes, Results
+from libreyolo.utils.results import Boxes, Keypoints, Masks, OBB, Probs, Results
 
 pytestmark = pytest.mark.unit
 
@@ -56,6 +56,30 @@ class TestBoxes:
         assert data[0, 4].item() == pytest.approx(0.9)
         assert data[0, 5].item() == pytest.approx(3.0)
 
+    def test_tracking_id_data(self):
+        boxes = Boxes(
+            torch.tensor([[10.0, 20.0, 50.0, 60.0]]),
+            torch.tensor([0.9]),
+            torch.tensor([3.0]),
+            id=torch.tensor([7]),
+        )
+
+        assert boxes.is_track
+        assert boxes.id.tolist() == [7]
+        assert boxes.data.shape == (1, 7)
+        assert boxes.data[0, 4].item() == 7
+
+    def test_normalized_boxes_require_orig_shape(self):
+        boxes = Boxes(
+            torch.tensor([[10.0, 20.0, 50.0, 60.0]]),
+            torch.tensor([0.9]),
+            torch.tensor([3.0]),
+            orig_shape=(100, 200),
+        )
+
+        assert boxes.xyxyn[0, 0].item() == pytest.approx(0.05)
+        assert boxes.xywhn[0, 2].item() == pytest.approx(0.2)
+
     def test_cpu(self):
         b = torch.tensor([[1.0, 2.0, 3.0, 4.0]])
         boxes = Boxes(b, torch.tensor([0.5]), torch.tensor([1.0]))
@@ -104,6 +128,11 @@ class TestResults:
         assert len(result) == 0
         assert result.path is None
         assert result.names == {}
+        assert result.masks is None
+        assert result.keypoints is None
+        assert result.probs is None
+        assert result.obb is None
+        assert result.speed == {}
 
     def test_populated_results(self):
         result = self._make_results(5)
@@ -118,6 +147,85 @@ class TestResults:
         assert cpu_result.boxes.xyxy.device.type == "cpu"
         assert cpu_result.path == result.path
         assert cpu_result.orig_shape == result.orig_shape
+
+    def test_getitem_preserves_flat_payloads(self):
+        result = self._make_results(3)
+        result.track_id = torch.tensor([10, 11, 12])
+        result.boxes._id = result.track_id
+
+        sliced = result[[0, 2]]
+
+        assert len(sliced) == 2
+        assert sliced.boxes.is_track
+        assert sliced.boxes.id.tolist() == [10, 12]
+
+    def test_select_preserves_all_instance_payloads(self):
+        result = self._make_results(3)
+        result.masks = Masks(torch.ones((3, 480, 640), dtype=torch.uint8), result.orig_shape)
+        result.keypoints = Keypoints(torch.ones((3, 2, 3)), result.orig_shape)
+        result.obb = OBB(torch.ones((3, 5)), result.orig_shape)
+
+        sliced = result._select([0, 2])
+
+        assert len(sliced.boxes) == 2
+        assert len(sliced.masks) == 2
+        assert len(sliced.keypoints) == 2
+        assert len(sliced.obb) == 2
+
+    def test_update_mutates_flat_slots(self):
+        result = self._make_results(1)
+        new_boxes = Boxes(
+            torch.tensor([[0.0, 0.0, 10.0, 10.0]]),
+            torch.tensor([0.5]),
+            torch.tensor([1.0]),
+        )
+
+        returned = result.update(boxes=new_boxes, track_id=torch.tensor([42]))
+
+        assert returned is result
+        assert result.boxes.id.tolist() == [42]
+        assert result.track_id.tolist() == [42]
+
+    def test_summary_and_json(self):
+        result = self._make_results(1)
+
+        rows = result.summary()
+        payload = result.to_json()
+
+        assert rows[0]["class"] == int(result.boxes.cls[0])
+        assert "confidence" in rows[0]
+        assert isinstance(payload, str)
+
+    def test_classify_probs_result(self):
+        probs = Probs(torch.tensor([0.1, 0.7, 0.2]))
+        result = Results(
+            boxes=None,
+            orig_shape=(1, 1),
+            probs=probs,
+            names={0: "a", 1: "b", 2: "c"},
+        )
+
+        assert len(result) == 1
+        assert result.probs.top1 == 1
+        assert result.probs.top5 == [1, 2, 0]
+        assert result.summary()[0]["name"] == "b"
+
+    def test_keypoints_and_obb_accessors(self):
+        keypoints = Keypoints(torch.tensor([[[10.0, 20.0, 0.9]]]), (100, 200))
+        obb = OBB(torch.tensor([[10.0, 20.0, 30.0, 40.0, 0.0, 0.8, 2.0]]), (100, 200))
+
+        assert keypoints.xy.shape == (1, 1, 2)
+        assert keypoints.xyn[0, 0, 0].item() == pytest.approx(0.05)
+        assert keypoints.conf[0, 0].item() == pytest.approx(0.9)
+        assert keypoints.has_visible[0, 0].item() is True
+        assert obb.xywhr.shape == (1, 5)
+        assert obb.conf[0].item() == pytest.approx(0.8)
+        assert obb.cls[0].item() == pytest.approx(2.0)
+        assert obb.id is None
+        assert obb.is_track is False
+        assert obb.xyxyxyxy.shape == (1, 4, 2)
+        assert obb.xyxy.shape == (1, 4)
+        assert obb.xyxyxyxyn[0, 0, 0].item() == pytest.approx(-0.025)
 
     def test_repr(self):
         result = self._make_results(2)

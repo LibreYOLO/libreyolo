@@ -17,7 +17,7 @@ from .models import (
     LibrePicoDet,
     LibreYOLORTDETR,
 )
-from .utils.results import Results, Boxes, Masks
+from .utils.results import Results, Boxes, Masks, Keypoints, Probs, OBB
 
 SAMPLE_IMAGE = str(_Path(__file__).parent / "assets" / "parkour.jpg")
 
@@ -37,6 +37,7 @@ def __getattr__(name):
         "NcnnBackend": (".backends.ncnn", "NcnnBackend"),
         "BaseExporter": (".export", "BaseExporter"),
         "DetectionValidator": (".validation", "DetectionValidator"),
+        "SegmentationValidator": (".validation", "SegmentationValidator"),
         "ValidationConfig": (".validation", "ValidationConfig"),
         "ByteTracker": (".tracking", "ByteTracker"),
         "TrackConfig": (".tracking", "TrackConfig"),
@@ -76,6 +77,9 @@ __all__ = [
     "Results",
     "Boxes",
     "Masks",
+    "Keypoints",
+    "Probs",
+    "OBB",
     # Assets
     "SAMPLE_IMAGE",
     # Tracking
@@ -88,6 +92,7 @@ __all__ = [
     "NcnnBackend",
     "BaseExporter",
     "DetectionValidator",
+    "SegmentationValidator",
     "ValidationConfig",
     "DATASETS_DIR",
     "load_data_config",
