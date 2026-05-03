@@ -19,7 +19,17 @@ NOOP_PREDICT_KWARGS = {
     "verbose",
 }
 REJECTED_PREDICT_KWARGS = {"visualize", "embed"}
-ACCEPTED_PREDICT_KWARGS = {"device"}
+ACCEPTED_PREDICT_KWARGS = {
+    "classes",
+    "conf",
+    "device",
+    "imgsz",
+    "iou",
+    "max_det",
+    "save",
+    "stream",
+    "vid_stride",
+}
 
 
 def normalize_predict_kwargs(kwargs: dict, passthrough: set[str] | None = None) -> dict:

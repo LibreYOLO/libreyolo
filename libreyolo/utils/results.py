@@ -361,6 +361,17 @@ class Probs(_TensorPayload):
 
 
 class OBB(_TensorPayload):
+    def __init__(self, data: TensorLike, orig_shape: Tuple[int, int] | None = None):
+        if data.ndim == 1:
+            data = data[None, :]
+        n = data.shape[-1]
+        if n not in {7, 8}:
+            raise ValueError(
+                f"expected 7 or 8 OBB values but got {n}: "
+                "xywhr, optional track_id, conf, cls"
+            )
+        super().__init__(data, orig_shape)
+
     @property
     def xywhr(self) -> TensorLike:
         return self.data[:, :5]
@@ -371,7 +382,7 @@ class OBB(_TensorPayload):
 
     @property
     def id(self) -> TensorLike | None:
-        return self.data[:, 5] if self.is_track else None
+        return self.data[:, -3] if self.is_track else None
 
     @property
     def conf(self) -> TensorLike:

@@ -101,6 +101,18 @@ def test_trainer_does_not_use_vfl_loss():
     assert not any(k == "loss_vfl" for k in out)
 
 
+def test_amp_train_loop_uses_on_forward_for_polygon_passthrough():
+    """The AMP branch must not bypass on_forward, or segment polygons get dropped."""
+    import inspect
+
+    from libreyolo.models.deim.trainer import DEIMTrainer
+
+    source = inspect.getsource(DEIMTrainer._train_epoch)
+
+    assert "self.on_forward(imgs, targets, polygons=polygons)" in source
+    assert "model_outputs = self.model(imgs, targets=target_list)" not in source
+
+
 def test_trainer_handles_empty_targets():
     """A batch where one image has zero GT boxes still works (no NaN)."""
     wrapper = LibreDEIM(None, size="n", device="cpu")

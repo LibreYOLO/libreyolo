@@ -68,6 +68,8 @@ class TestBoxes:
         assert boxes.id.tolist() == [7]
         assert boxes.data.shape == (1, 7)
         assert boxes.data[0, 4].item() == 7
+        assert boxes.data[0, 5].item() == pytest.approx(0.9)
+        assert boxes.data[0, 6].item() == pytest.approx(3.0)
 
     def test_normalized_boxes_require_orig_shape(self):
         boxes = Boxes(
@@ -163,7 +165,7 @@ class TestResults:
         result = self._make_results(3)
         result.masks = Masks(torch.ones((3, 480, 640), dtype=torch.uint8), result.orig_shape)
         result.keypoints = Keypoints(torch.ones((3, 2, 3)), result.orig_shape)
-        result.obb = OBB(torch.ones((3, 5)), result.orig_shape)
+        result.obb = OBB(torch.ones((3, 7)), result.orig_shape)
 
         sliced = result._select([0, 2])
 
@@ -208,6 +210,8 @@ class TestResults:
         assert len(result) == 1
         assert result.probs.top1 == 1
         assert result.probs.top5 == [1, 2, 0]
+        assert result.probs.top1conf.item() == pytest.approx(0.7)
+        assert result.probs.top5conf.tolist() == pytest.approx([0.7, 0.2, 0.1])
         assert result.summary()[0]["name"] == "b"
 
     def test_keypoints_and_obb_accessors(self):
@@ -226,6 +230,20 @@ class TestResults:
         assert obb.xyxyxyxy.shape == (1, 4, 2)
         assert obb.xyxy.shape == (1, 4)
         assert obb.xyxyxyxyn[0, 0, 0].item() == pytest.approx(-0.025)
+
+    def test_obb_tracking_and_shape_validation(self):
+        obb = OBB(
+            torch.tensor([[10.0, 20.0, 30.0, 40.0, 0.0, 99.0, 0.8, 2.0]]),
+            (100, 200),
+        )
+
+        assert obb.is_track is True
+        assert obb.id.tolist() == [99.0]
+        assert obb.conf.tolist() == pytest.approx([0.8])
+        assert obb.cls.tolist() == pytest.approx([2.0])
+
+        with pytest.raises(ValueError, match="expected 7 or 8 OBB values"):
+            OBB(torch.zeros((1, 6)), (100, 200))
 
     def test_repr(self):
         result = self._make_results(2)

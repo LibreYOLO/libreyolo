@@ -44,3 +44,10 @@ def test_resolve_task_rejects_unsupported_task():
 
 def test_normalize_supported_tasks_accepts_exported_json_string():
     assert normalize_supported_tasks('["detect", "segment"]') == ("detect", "segment")
+
+
+def test_suffix_to_task_returns_none_for_unknown_suffix():
+    from libreyolo.tasks import suffix_to_task
+
+    assert suffix_to_task("-seg") == "segment"
+    assert suffix_to_task("-unknown") is None

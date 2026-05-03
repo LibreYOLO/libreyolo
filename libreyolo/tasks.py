@@ -56,7 +56,7 @@ def suffix_to_task(suffix: str | None) -> str | None:
     """Return the canonical task for a filename suffix."""
     if not suffix:
         return None
-    return normalize_task(SUFFIX_TO_TASK.get(suffix.lstrip("-").lower(), suffix))
+    return SUFFIX_TO_TASK.get(suffix.lstrip("-").lower())
 
 
 def normalize_supported_tasks(

@@ -452,12 +452,9 @@ class DEIMTrainer(BaseTrainer):
             targets = targets.to(self.device, non_blocking=True)
 
             if self.scaler is not None:
-                target_list = self._targets_to_detr(imgs, targets)
                 with autocast("cuda"):
-                    model_outputs = self.model(imgs, targets=target_list)
-                losses = self._compute_criterion_losses(model_outputs, target_list)
-                outputs = self._format_loss_outputs(losses)
-                loss = outputs["total_loss"]
+                    outputs = self.on_forward(imgs, targets, polygons=polygons)
+                    loss = outputs["total_loss"]
                 self.optimizer.zero_grad()
                 self.scaler.scale(loss).backward()
                 if clip_max_norm > 0:

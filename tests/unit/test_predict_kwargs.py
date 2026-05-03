@@ -40,8 +40,22 @@ def test_rejected_predict_kwargs_fail_clearly():
         normalize_predict_kwargs({"visualize": True})
 
 
-def test_device_kwarg_is_accepted():
-    assert normalize_predict_kwargs({"device": "cpu"}) == {}
+@pytest.mark.parametrize(
+    "key,value",
+    [
+        ("classes", [0]),
+        ("conf", 0.25),
+        ("device", "cpu"),
+        ("imgsz", 640),
+        ("iou", 0.45),
+        ("max_det", 300),
+        ("save", False),
+        ("stream", False),
+        ("vid_stride", 1),
+    ],
+)
+def test_supported_predict_kwargs_are_accepted(key, value):
+    assert normalize_predict_kwargs({key: value}) == {}
 
 
 def test_native_passthrough_kwargs_are_forwarded_explicitly():
