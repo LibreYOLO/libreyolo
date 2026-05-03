@@ -1,0 +1,363 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 56;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		111111111111111111111111 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 222222222222222222222222 /* AppDelegate.swift */; };
+		111111111111111111111112 /* CoreMLSmokeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 222222222222222222222223 /* CoreMLSmokeTests.swift */; };
+		111111111111111111111113 /* Resources in Resources */ = {isa = PBXBuildFile; fileRef = 222222222222222222222224 /* Resources */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		333333333333333333333333 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 444444444444444444444444 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 555555555555555555555555;
+			remoteInfo = CoreMLSmokeApp;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXFileReference section */
+		222222222222222222222222 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
+		222222222222222222222223 /* CoreMLSmokeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoreMLSmokeTests.swift; sourceTree = "<group>"; };
+		222222222222222222222224 /* Resources */ = {isa = PBXFileReference; lastKnownFileType = folder; path = Resources; sourceTree = "<group>"; };
+		222222222222222222222225 /* CoreMLSmokeApp.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = CoreMLSmokeApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		222222222222222222222226 /* CoreMLSmokeTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = CoreMLSmokeTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		666666666666666666666661 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		666666666666666666666662 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		777777777777777777777771 = {
+			isa = PBXGroup;
+			children = (
+				777777777777777777777772 /* CoreMLSmokeApp */,
+				777777777777777777777773 /* CoreMLSmokeTests */,
+				777777777777777777777774 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		777777777777777777777772 /* CoreMLSmokeApp */ = {
+			isa = PBXGroup;
+			children = (
+				222222222222222222222222 /* AppDelegate.swift */,
+			);
+			path = CoreMLSmokeApp;
+			sourceTree = "<group>";
+		};
+		777777777777777777777773 /* CoreMLSmokeTests */ = {
+			isa = PBXGroup;
+			children = (
+				222222222222222222222223 /* CoreMLSmokeTests.swift */,
+				222222222222222222222224 /* Resources */,
+			);
+			path = Tests/CoreMLSmokeTests;
+			sourceTree = "<group>";
+		};
+		777777777777777777777774 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				222222222222222222222225 /* CoreMLSmokeApp.app */,
+				222222222222222222222226 /* CoreMLSmokeTests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		555555555555555555555555 /* CoreMLSmokeApp */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 888888888888888888888881 /* Build configuration list for PBXNativeTarget "CoreMLSmokeApp" */;
+			buildPhases = (
+				999999999999999999999991 /* Sources */,
+				666666666666666666666661 /* Frameworks */,
+				999999999999999999999992 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = CoreMLSmokeApp;
+			productName = CoreMLSmokeApp;
+			productReference = 222222222222222222222225 /* CoreMLSmokeApp.app */;
+			productType = "com.apple.product-type.application";
+		};
+		555555555555555555555556 /* CoreMLSmokeTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 888888888888888888888882 /* Build configuration list for PBXNativeTarget "CoreMLSmokeTests" */;
+			buildPhases = (
+				999999999999999999999993 /* Sources */,
+				666666666666666666666662 /* Frameworks */,
+				999999999999999999999994 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				AAAAAAAAAAAAAAAAAAAAAAAA /* PBXTargetDependency */,
+			);
+			name = CoreMLSmokeTests;
+			productName = CoreMLSmokeTests;
+			productReference = 222222222222222222222226 /* CoreMLSmokeTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		444444444444444444444444 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 2641;
+				LastUpgradeCheck = 2641;
+				TargetAttributes = {
+					555555555555555555555555 = {
+						CreatedOnToolsVersion = 26.4.1;
+					};
+					555555555555555555555556 = {
+						CreatedOnToolsVersion = 26.4.1;
+						TestTargetID = 555555555555555555555555;
+					};
+				};
+			};
+			buildConfigurationList = 888888888888888888888880 /* Build configuration list for PBXProject "CoreMLSmoke" */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = 777777777777777777777771;
+			productRefGroup = 777777777777777777777774 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				555555555555555555555555 /* CoreMLSmokeApp */,
+				555555555555555555555556 /* CoreMLSmokeTests */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		999999999999999999999992 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		999999999999999999999994 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				111111111111111111111113 /* Resources in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		999999999999999999999991 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				111111111111111111111111 /* AppDelegate.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		999999999999999999999993 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				111111111111111111111112 /* CoreMLSmokeTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		AAAAAAAAAAAAAAAAAAAAAAAA /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 555555555555555555555555 /* CoreMLSmokeApp */;
+			targetProxy = 333333333333333333333333 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		BBBBBBBBBBBBBBBBBBBBBB01 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		BBBBBBBBBBBBBBBBBBBBBB02 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_NO_COMMON_BLOCKS = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+		BBBBBBBBBBBBBBBBBBBBBB03 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = GHDDYR5CCV;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.allvarezz10.libreyolo.CoreMLSmoke;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		BBBBBBBBBBBBBBBBBBBBBB04 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = GHDDYR5CCV;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.allvarezz10.libreyolo.CoreMLSmoke;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		BBBBBBBBBBBBBBBBBBBBBB05 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = GHDDYR5CCV;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.allvarezz10.libreyolo.CoreMLSmokeTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_VERSION = 5.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/CoreMLSmokeApp.app/CoreMLSmokeApp";
+				WRAPPER_EXTENSION = xctest;
+			};
+			name = Debug;
+		};
+		BBBBBBBBBBBBBBBBBBBBBB06 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = GHDDYR5CCV;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.allvarezz10.libreyolo.CoreMLSmokeTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_VERSION = 5.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/CoreMLSmokeApp.app/CoreMLSmokeApp";
+				WRAPPER_EXTENSION = xctest;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		888888888888888888888880 /* Build configuration list for PBXProject "CoreMLSmoke" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				BBBBBBBBBBBBBBBBBBBBBB01 /* Debug */,
+				BBBBBBBBBBBBBBBBBBBBBB02 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		888888888888888888888881 /* Build configuration list for PBXNativeTarget "CoreMLSmokeApp" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				BBBBBBBBBBBBBBBBBBBBBB03 /* Debug */,
+				BBBBBBBBBBBBBBBBBBBBBB04 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		888888888888888888888882 /* Build configuration list for PBXNativeTarget "CoreMLSmokeTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				BBBBBBBBBBBBBBBBBBBBBB05 /* Debug */,
+				BBBBBBBBBBBBBBBBBBBBBB06 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = 444444444444444444444444 /* Project object */;
+}
