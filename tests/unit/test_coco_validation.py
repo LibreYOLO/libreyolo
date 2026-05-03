@@ -159,6 +159,29 @@ def test_coco_evaluator_uses_mask_area_for_segmentation(tmp_path):
 
 
 @pytest.mark.unit
+def test_detection_validator_emits_bbox_alias_metrics():
+    from types import SimpleNamespace
+
+    from libreyolo.validation.detection_validator import DetectionValidator
+
+    validator = DetectionValidator.__new__(DetectionValidator)
+    validator.config = SimpleNamespace(verbose=False, save_json=False)
+    validator.save_dir = None
+    validator.coco_evaluator = _DummyEvaluator(_coco_metrics(0.2))
+
+    metrics = validator._compute_metrics()
+
+    assert metrics["metrics/precision"] == pytest.approx(0.201)
+    assert metrics["metrics/precision(B)"] == pytest.approx(0.201)
+    assert metrics["metrics/recall"] == pytest.approx(0.202)
+    assert metrics["metrics/recall(B)"] == pytest.approx(0.202)
+    assert metrics["metrics/mAP50"] == pytest.approx(0.21)
+    assert metrics["metrics/mAP50(B)"] == pytest.approx(0.21)
+    assert metrics["metrics/mAP50-95"] == pytest.approx(0.2)
+    assert metrics["metrics/mAP50-95(B)"] == pytest.approx(0.2)
+
+
+@pytest.mark.unit
 def test_segmentation_validator_updates_bbox_and_mask_evaluators():
     from types import SimpleNamespace
 
