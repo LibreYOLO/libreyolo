@@ -6,6 +6,7 @@
 
 [![Documentation](https://img.shields.io/badge/docs-libreyolo.com-blue)](https://www.libreyolo.com/docs)
 [![PyPI](https://img.shields.io/pypi/v/libreyolo)](https://pypi.org/project/libreyolo/)
+[![PyPI Downloads](https://static.pepy.tech/badge/libreyolo)](https://pepy.tech/projects/libreyolo)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
 MIT-licensed object detection library with training and inference support across YOLOv9, YOLOX, YOLO-NAS, RF-DETR, D-FINE, and RT-DETR.
