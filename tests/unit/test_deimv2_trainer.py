@@ -186,6 +186,45 @@ def test_deimv2_checkpoint_preserves_train_and_ema_state(tmp_path):
     assert ckpt["best_epoch"] == 2
 
 
+def test_resume_resets_best_metric_when_metric_key_changes(tmp_path, caplog):
+    from libreyolo.models.deimv2.trainer import DEIMv2Trainer
+
+    wrapper = LibreDEIMv2(None, size="atto", device="cpu")
+    trainer = DEIMv2Trainer(
+        model=wrapper.model,
+        wrapper_model=wrapper,
+        size="atto",
+        num_classes=80,
+        data=None,
+        device="cpu",
+        ema=False,
+        eval_interval=-1,
+    )
+    trainer.best_metric_key = "metrics/mAP50-95(M)"
+
+    checkpoint_path = tmp_path / "detect_best.pt"
+    torch.save(
+        {
+            "epoch": 3,
+            "model": wrapper.model.state_dict(),
+            "best_mAP50_95": 0.65,
+            "best_mAP50": 0.80,
+            "best_epoch": 2,
+            "best_metric_key": "metrics/mAP50-95(B)",
+        },
+        checkpoint_path,
+    )
+
+    with caplog.at_level("WARNING"):
+        trainer.resume(str(checkpoint_path))
+
+    assert "differs from current key" in caplog.text
+    assert trainer.start_epoch == 4
+    assert trainer.best_mAP50_95 == 0.0
+    assert trainer.best_mAP50 == 0.0
+    assert trainer.best_epoch == 0
+
+
 def test_deimv2_trainer_target_translation_smoke():
     from libreyolo.models.deimv2.trainer import DEIMv2Trainer
 

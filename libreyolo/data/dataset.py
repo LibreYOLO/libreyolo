@@ -25,6 +25,30 @@ from .utils import polygon_to_cxcywh
 logger = logging.getLogger(__name__)
 
 
+def _yolo_coords_to_rings(
+    coords: List[float], width: int, height: int
+) -> List[np.ndarray]:
+    """Convert one normalized YOLO polygon row to the shared ring contract."""
+    ring = np.array(coords, dtype=np.float32).reshape(-1, 2)
+    ring[:, 0] *= width
+    ring[:, 1] *= height
+    return [ring]
+
+
+def _coco_segmentation_to_rings(segmentation) -> List[np.ndarray]:
+    """Convert COCO polygon segmentation to pixel-space rings."""
+    if not isinstance(segmentation, list):
+        return []
+
+    rings = []
+    for polygon in segmentation:
+        if polygon is None or len(polygon) < 6:
+            continue
+        ring = np.array(polygon, dtype=np.float32).reshape(-1, 2)
+        rings.append(ring)
+    return rings
+
+
 class YOLODataset(Dataset):
     """
     YOLO format dataset supporting both directory and file list modes.
@@ -199,14 +223,11 @@ class YOLODataset(Dataset):
                             coords = [float(p) for p in parts[1:]]
                             cx, cy, w, h = polygon_to_cxcywh(coords)
                             if self.load_segments:
-                                segment = np.array(coords, dtype=np.float32).reshape(-1, 2)
-                                segment[:, 0] *= width
-                                segment[:, 1] *= height
-                                segments.append(segment)
+                                segments.append(_yolo_coords_to_rings(coords, width, height))
                         else:
                             cx, cy, w, h = map(float, parts[1:5])
                             if self.load_segments:
-                                segments.append(np.zeros((0, 2), dtype=np.float32))
+                                segments.append([])
 
                         # Convert normalized xywh to pixel xyxy
                         x1 = (cx - w / 2) * width
@@ -440,7 +461,9 @@ class COCODataset(Dataset):
                 obj["clean_bbox"] = [x1, y1, x2, y2]
                 objs.append(obj)
                 if self.load_segments:
-                    segments.append(copy.deepcopy(obj.get("segmentation", [])))
+                    segments.append(
+                        _coco_segmentation_to_rings(obj.get("segmentation", []))
+                    )
 
         num_objs = len(objs)
         res = np.zeros((num_objs, 5), dtype=np.float32)

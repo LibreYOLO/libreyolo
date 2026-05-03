@@ -133,7 +133,19 @@ class BaseTrainer(ABC):
         targets: torch.Tensor,
         polygons: Optional[List] = None,
     ) -> Dict:
-        """Run the model forward pass. Override if call signature differs."""
+        """Run the model forward pass. Override if call signature differs.
+
+        When ``load_segments=True`` is enabled, ``polygons`` follows the shared
+        preservation contract:
+
+        - list length equals batch size
+        - each image entry is a list of instances matching that image's target rows
+        - each instance is a list of polygon rings
+        - each ring is an ``Nx2`` array in original image pixel coordinates
+
+        Detection rows without polygon labels use an empty ring list for that
+        instance. Detection-only trainers may ignore ``polygons``.
+        """
         return self.model(imgs, targets)
 
     # =========================================================================
@@ -685,13 +697,26 @@ class BaseTrainer(ABC):
                 logger.warning(f"Could not load optimizer state: {e}")
 
         if "best_mAP50_95" in checkpoint:
-            self.best_mAP50_95 = checkpoint["best_mAP50_95"]
-            self.best_mAP50 = checkpoint.get("best_mAP50", 0.0)
-            self.best_epoch = checkpoint.get("best_epoch", 0)
-            logger.info(
-                f"Restored best metrics: mAP50={self.best_mAP50:.4f}, "
-                f"mAP50-95={self.best_mAP50_95:.4f} (epoch {self.best_epoch})"
-            )
+            checkpoint_metric_key = checkpoint.get("best_metric_key", "metrics/mAP50-95")
+            current_metric_key = getattr(self, "best_metric_key", "metrics/mAP50-95")
+            if checkpoint_metric_key != current_metric_key:
+                logger.warning(
+                    "Checkpoint best metric key %s differs from current key %s. "
+                    "Resetting best metric tracking for this run.",
+                    checkpoint_metric_key,
+                    current_metric_key,
+                )
+                self.best_mAP50_95 = 0.0
+                self.best_mAP50 = 0.0
+                self.best_epoch = 0
+            else:
+                self.best_mAP50_95 = checkpoint["best_mAP50_95"]
+                self.best_mAP50 = checkpoint.get("best_mAP50", 0.0)
+                self.best_epoch = checkpoint.get("best_epoch", 0)
+                logger.info(
+                    f"Restored best metrics: mAP50={self.best_mAP50:.4f}, "
+                    f"mAP50-95={self.best_mAP50_95:.4f} (epoch {self.best_epoch})"
+                )
         elif "loss" in checkpoint:
             logger.warning(
                 "Old checkpoint format detected (loss-based). Converting to mAP tracking."

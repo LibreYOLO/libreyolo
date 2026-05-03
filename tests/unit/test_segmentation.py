@@ -326,21 +326,23 @@ class TestPolygonLabelParsing:
 
             assert default_ds.segments is None
             assert seg_ds.segments is not None
-            assert seg_ds.segments[0][0].shape == (4, 2)
-            assert seg_ds.segments[0][0][0].tolist() == [20.0, 20.0]
+            assert len(seg_ds.segments[0][0]) == 1
+            assert seg_ds.segments[0][0][0].shape == (4, 2)
+            assert seg_ds.segments[0][0][0][0].tolist() == [20.0, 20.0]
 
             item = seg_ds[0]
             assert len(item) == 5
             _, _, _, _, segments = item
-            assert segments[0].shape == (4, 2)
-            assert segments[0][2].tolist() == [80.0, 80.0]
+            assert len(segments[0]) == 1
+            assert segments[0][0].shape == (4, 2)
+            assert segments[0][0][2].tolist() == [80.0, 80.0]
 
     def test_yolo_collate_preserves_segments_when_present(self):
         from libreyolo.data.dataset import yolox_collate_fn
 
         img = np.zeros((3, 32, 32), dtype=np.float32)
         target = np.zeros((2, 5), dtype=np.float32)
-        segment = [np.array([[1.0, 2.0], [3.0, 4.0]], dtype=np.float32)]
+        segment = [[np.array([[1.0, 2.0], [3.0, 4.0]], dtype=np.float32)]]
 
         batch = [
             (img, target, (32, 32), 0, segment),
@@ -353,7 +355,71 @@ class TestPolygonLabelParsing:
         assert targets.shape == (2, 2, 5)
         assert img_infos == ((32, 32), (32, 32))
         assert img_ids == (0, 1)
-        assert segments[0][0].tolist() == [[1.0, 2.0], [3.0, 4.0]]
+        assert segments[0][0][0].tolist() == [[1.0, 2.0], [3.0, 4.0]]
+
+    def test_coco_dataset_preserves_multiple_segment_rings(self, tmp_path):
+        import json
+
+        from PIL import Image
+        from libreyolo.data.dataset import COCODataset
+
+        images_dir = tmp_path / "train2017"
+        ann_dir = tmp_path / "annotations"
+        images_dir.mkdir()
+        ann_dir.mkdir()
+
+        Image.new("RGB", (20, 10)).save(images_dir / "img.jpg")
+        (ann_dir / "instances_train2017.json").write_text(
+            json.dumps(
+                {
+                    "images": [
+                        {
+                            "id": 1,
+                            "file_name": "img.jpg",
+                            "width": 20,
+                            "height": 10,
+                        }
+                    ],
+                    "annotations": [
+                        {
+                            "id": 1,
+                            "image_id": 1,
+                            "category_id": 1,
+                            "bbox": [1, 1, 13, 4],
+                            "area": 32,
+                            "iscrowd": 0,
+                            "segmentation": [
+                                [1, 1, 5, 1, 5, 5, 1, 5],
+                                [10, 1, 14, 1, 14, 5, 10, 5],
+                            ],
+                        }
+                    ],
+                    "categories": [{"id": 1, "name": "cat"}],
+                }
+            )
+        )
+
+        dataset = COCODataset(
+            data_dir=str(tmp_path),
+            json_file="instances_train2017.json",
+            name="train2017",
+            img_size=(10, 20),
+            load_segments=True,
+        )
+
+        assert len(dataset.segments[0][0]) == 2
+        assert dataset.segments[0][0][0].tolist() == [
+            [1.0, 1.0],
+            [5.0, 1.0],
+            [5.0, 5.0],
+            [1.0, 5.0],
+        ]
+        assert dataset.segments[0][0][1].tolist() == [
+            [10.0, 1.0],
+            [14.0, 1.0],
+            [14.0, 5.0],
+            [10.0, 5.0],
+        ]
 
 
 class TestDrawMasks:
