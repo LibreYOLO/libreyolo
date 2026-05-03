@@ -78,6 +78,22 @@ class TestExporterFormats:
         assert TorchScriptExporter.apply_model_half is True
         assert NcnnExporter.supports_int8 is False
 
+    def test_metadata_includes_task_contract(self):
+        wrapper = _make_wrapper()
+        wrapper.task = "segment"
+        wrapper.SUPPORTED_TASKS = ("detect", "segment")
+        wrapper.DEFAULT_TASK = "detect"
+
+        metadata = TensorRTExporter(wrapper)._build_metadata(
+            precision="fp32",
+            dynamic=False,
+            onnx_path=None,
+        )
+
+        assert metadata["task"] == "segment"
+        assert metadata["supported_tasks"] == ["detect", "segment"]
+        assert metadata["default_task"] == "detect"
+
 
 class TestExporterValidation:
     def test_invalid_format_raises(self):

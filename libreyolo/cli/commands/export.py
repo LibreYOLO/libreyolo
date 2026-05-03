@@ -126,7 +126,11 @@ def export_cmd(
     else:
         size_mb = 0.0
 
-    input_size = loaded_model.INPUT_SIZES.get(loaded_model.size, 640)
+    input_size = (
+        loaded_model._get_input_size()
+        if hasattr(loaded_model, "_get_input_size")
+        else loaded_model.INPUT_SIZES.get(loaded_model.size, 640)
+    )
     if imgsz is not None:
         input_size = imgsz
 

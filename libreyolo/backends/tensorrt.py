@@ -7,6 +7,7 @@ from typing import Dict, List, Optional, Tuple
 import numpy as np
 import torch
 
+from ..tasks import normalize_supported_tasks, normalize_task, resolve_task
 from .base import BaseBackend
 
 
@@ -29,7 +30,11 @@ class TensorRTBackend(BaseBackend):
     """
 
     def __init__(
-        self, engine_path: str, nb_classes: int | None = None, device: str = "auto"
+        self,
+        engine_path: str,
+        nb_classes: int | None = None,
+        device: str = "auto",
+        task: str | None = None,
     ):
         try:
             import tensorrt as trt
@@ -58,6 +63,17 @@ class TensorRTBackend(BaseBackend):
             else self._metadata.get("nb_classes", 80)
         )
         model_family = self._metadata.get("model_family")
+        default_task = normalize_task(self._metadata.get("default_task"), default="detect")
+        metadata_task = normalize_task(self._metadata.get("task"), default=default_task)
+        supported_tasks = normalize_supported_tasks(
+            self._metadata.get("supported_tasks", (metadata_task,))
+        )
+        resolved_task = resolve_task(
+            explicit_task=task,
+            checkpoint_task=metadata_task,
+            default_task=default_task,
+            supported_tasks=supported_tasks,
+        )
         self._sidecar_size = self._metadata.get("model_size")
 
         sidecar_names = self._metadata.get("names")
@@ -115,6 +131,9 @@ class TensorRTBackend(BaseBackend):
             model_family=model_family,
             names=names,
             model_size=self._sidecar_size,
+            task=resolved_task,
+            supported_tasks=supported_tasks,
+            default_task=default_task,
         )
 
     # =========================================================================

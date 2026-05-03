@@ -431,10 +431,14 @@ class BaseExporter(ABC):
         self, precision: str, dynamic: bool, onnx_path: Optional[str]
     ) -> dict:
         """Build metadata dict for non-ONNX formats (native Python types)."""
+        task, supported_tasks, default_task = self._task_metadata()
         meta = {
             "libreyolo_version": _get_version(),
             "model_family": self.model._get_model_name(),
             "model_size": self.model.size,
+            "task": task,
+            "supported_tasks": supported_tasks,
+            "default_task": default_task,
             "nb_classes": self.model.nb_classes,
             "names": {str(k): v for k, v in self.model.names.items()},
             "imgsz": self.model._get_input_size(),
@@ -447,10 +451,14 @@ class BaseExporter(ABC):
 
     def _build_onnx_metadata(self, *, dynamic: bool, half: bool) -> dict:
         """Build metadata dict for ONNX (all-string values, JSON-encoded names)."""
+        task, supported_tasks, default_task = self._task_metadata()
         return {
             "libreyolo_version": _get_version(),
             "model_family": self.model._get_model_name(),
             "model_size": self.model.size,
+            "task": task,
+            "supported_tasks": json.dumps(supported_tasks),
+            "default_task": default_task,
             "nb_classes": str(self.model.nb_classes),
             "names": json.dumps({str(k): v for k, v in self.model.names.items()}),
             "imgsz": str(self.model._get_input_size()),
@@ -458,6 +466,18 @@ class BaseExporter(ABC):
             "half": str(half),
             "segmentation": str(getattr(self.model, "_is_segmentation", False)).lower(),
         }
+
+    def _task_metadata(self) -> tuple[str, list[str], str]:
+        task = getattr(self.model, "task", "detect")
+        if not isinstance(task, str):
+            task = "detect"
+        supported_tasks = getattr(self.model, "SUPPORTED_TASKS", ("detect",))
+        if not isinstance(supported_tasks, (list, tuple)):
+            supported_tasks = ("detect",)
+        default_task = getattr(self.model, "DEFAULT_TASK", "detect")
+        if not isinstance(default_task, str):
+            default_task = "detect"
+        return task, list(supported_tasks), default_task
 
     def _print_summary(self, result: str, precision: str, imgsz: int):
         logger.info(

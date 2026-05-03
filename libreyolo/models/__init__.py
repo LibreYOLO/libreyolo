@@ -13,6 +13,7 @@ import logging
 from pathlib import Path
 
 from .base import BaseModel
+from ..tasks import resolve_task
 from ..utils.download import download_weights
 from ..utils.logging import ensure_default_logging
 from ..utils.serialization import load_untrusted_torch_file
@@ -148,6 +149,7 @@ def LibreYOLO(
     reg_max: int = 16,
     nb_classes: int | None = None,
     device: str = "auto",
+    task: str | None = None,
 ):
     """
     Unified factory that detects model family from weights and returns
@@ -160,6 +162,7 @@ def LibreYOLO(
         reg_max: Regression max for DFL (YOLOv9 only, default: 16).
         nb_classes: Number of classes (auto-detected if omitted).
         device: Device for inference ("auto", "cuda", "cpu", "mps").
+        task: Optional explicit task ("detect", "segment", "pose", "classify").
 
     Returns:
         Model instance (LibreYOLOX, LibreYOLO9, LibreYOLORFDETR, or inference backend).
@@ -167,26 +170,37 @@ def LibreYOLO(
     ensure_default_logging()
     model_path = _resolve_weights_path(model_path)
 
+    if task is not None:
+        filename = Path(model_path).name
+        for cls in BaseModel._registry:
+            if cls.detect_size_from_filename(filename) is not None:
+                resolve_task(
+                    explicit_task=task,
+                    default_task=cls.DEFAULT_TASK,
+                    supported_tasks=cls.SUPPORTED_TASKS,
+                )
+                break
+
     # Non-PyTorch formats: delegate to inference backends
     if model_path.endswith(".onnx"):
         from ..backends.onnx import OnnxBackend
 
-        return OnnxBackend(model_path, nb_classes=nb_classes or 80, device=device)
+        return OnnxBackend(model_path, nb_classes=nb_classes or 80, device=device, task=task)
 
     if model_path.endswith(".torchscript"):
         from ..backends.torchscript import TorchScriptBackend
 
-        return TorchScriptBackend(model_path, nb_classes=nb_classes, device=device)
+        return TorchScriptBackend(model_path, nb_classes=nb_classes, device=device, task=task)
 
     if model_path.endswith((".engine", ".tensorrt")):
         from ..backends.tensorrt import TensorRTBackend
 
-        return TensorRTBackend(model_path, nb_classes=nb_classes, device=device)
+        return TensorRTBackend(model_path, nb_classes=nb_classes, device=device, task=task)
 
     if Path(model_path).is_dir() and (Path(model_path) / "model.xml").exists():
         from ..backends.openvino import OpenVINOBackend
 
-        return OpenVINOBackend(model_path, nb_classes=nb_classes, device=device)
+        return OpenVINOBackend(model_path, nb_classes=nb_classes, device=device, task=task)
 
     if Path(model_path).is_dir():
         ncnn_param = Path(model_path) / "model.ncnn.param"
@@ -194,7 +208,7 @@ def LibreYOLO(
         if ncnn_param.exists() and ncnn_bin.exists():
             from ..backends.ncnn import NcnnBackend
 
-            return NcnnBackend(model_path, nb_classes=nb_classes, device=device)
+            return NcnnBackend(model_path, nb_classes=nb_classes, device=device, task=task)
 
     # Download if missing
     if not Path(model_path).exists():
@@ -356,13 +370,23 @@ def LibreYOLO(
             if nb_classes is None:
                 nb_classes = 80
 
-    # Check for -seg suffix on models that don't support segmentation
-    task = matched_cls.detect_task_from_filename(Path(model_path).name)
-    if task == "seg" and matched_cls.FAMILY != "rfdetr":
-        raise ValueError(
-            f"{matched_cls.__name__} does not support segmentation. "
-            f"Only RF-DETR models support instance segmentation (-seg suffix)."
-        )
+    checkpoint_task = (
+        state_dict.get("task")
+        if isinstance(state_dict, dict) and isinstance(state_dict.get("task"), str)
+        else None
+    )
+    if checkpoint_task is None and matched_cls.FAMILY == "rfdetr":
+        if any(k.startswith("segmentation_head") for k in weights_dict):
+            checkpoint_task = "segment"
+
+    filename_task = matched_cls.detect_task_from_filename(Path(model_path).name)
+    resolved_task = resolve_task(
+        explicit_task=task,
+        checkpoint_task=checkpoint_task,
+        filename_task=filename_task,
+        default_task=matched_cls.DEFAULT_TASK,
+        supported_tasks=matched_cls.SUPPORTED_TASKS,
+    )
 
     if matched_cls.FAMILY == "rfdetr":
         # RF-DETR always needs the path (handles its own loading internally)
@@ -371,7 +395,7 @@ def LibreYOLO(
             size=size,
             nb_classes=nb_classes,
             device=device,
-            segmentation=(task == "seg"),
+            task=resolved_task,
         )
     elif has_metadata:
         # Our trainer checkpoint — pass path for metadata handling
@@ -380,6 +404,7 @@ def LibreYOLO(
             size=size,
             nb_classes=nb_classes,
             device=device,
+            task=resolved_task,
             **(
                 {"reg_max": reg_max}
                 if matched_cls.FAMILY in ("yolo9", "yolo9_e2e")
@@ -393,6 +418,7 @@ def LibreYOLO(
             size=size,
             nb_classes=nb_classes,
             device=device,
+            task=resolved_task,
             **(
                 {"reg_max": reg_max}
                 if matched_cls.FAMILY in ("yolo9", "yolo9_e2e")

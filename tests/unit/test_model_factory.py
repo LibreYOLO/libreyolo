@@ -57,3 +57,8 @@ def test_factory_loads_yolo9_t_metadata_checkpoint_with_coco_class_width(tmp_pat
     assert loaded.nb_classes == 2
     assert loaded.names == {0: "red", 1: "white"}
     assert loaded.model.head.cv3[0][0].conv.weight.shape[0] == 80
+
+
+def test_factory_rejects_unsupported_explicit_task_from_filename():
+    with pytest.raises(ValueError, match="not supported"):
+        LibreYOLO("LibreYOLOXs.pt", task="segment")

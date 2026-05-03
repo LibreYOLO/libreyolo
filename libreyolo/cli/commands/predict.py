@@ -76,6 +76,8 @@ def _build_predict_kwargs(
         for name in _NATIVE_ONLY_PREDICT_KWARGS
         if not _call_accepts_kwarg(call, name)
     }
+    if hasattr(loaded_model, "_run_inference"):
+        unsupported.update(_NATIVE_ONLY_PREDICT_KWARGS)
 
     requested_unsupported = []
     if "tiling" in unsupported and tiling:

@@ -14,9 +14,11 @@ from PIL import Image
 from ..models.yolo9.utils import preprocess_image
 from ..models.yolonas.utils import preprocess_image as yolonas_preprocess_image
 from ..models.yolox.utils import preprocess_image as yolox_preprocess_image
+from ..tasks import normalize_supported_tasks, normalize_task, resolve_task
 from ..utils.drawing import draw_boxes, draw_masks
 from ..utils.general import COCO_CLASSES, get_safe_stem
 from ..utils.image_loader import ImageLoader
+from ..utils.predict_args import normalize_predict_kwargs
 from ..utils.results import Boxes, Masks, Results
 from ..utils.video import collect_video_results, is_video_file, run_video_inference
 
@@ -82,13 +84,24 @@ class BaseBackend(ABC):
         model_family: Optional[str],
         names: Dict[int, str],
         model_size: Optional[str] = None,
+        task: str | None = None,
+        supported_tasks=None,
+        default_task: str | None = None,
     ):
         self.model_path = model_path
         self.nb_classes = nb_classes
         self.device = device
         self.imgsz = imgsz
         self.model_family = model_family
+        self.family = model_family
         self.model_size = model_size
+        self.DEFAULT_TASK = normalize_task(default_task, default="detect")
+        self.SUPPORTED_TASKS = normalize_supported_tasks(supported_tasks or (self.DEFAULT_TASK,))
+        self.task = resolve_task(
+            explicit_task=task,
+            default_task=self.DEFAULT_TASK,
+            supported_tasks=self.SUPPORTED_TASKS,
+        )
         self.names = names
 
     # =========================================================================
@@ -815,6 +828,7 @@ class BaseBackend(ABC):
         conf: float = 0.25,
         iou: float = 0.45,
         imgsz: Optional[int] = None,
+        device: str | None = None,
         classes: Optional[List[int]] = None,
         max_det: int = 300,
         save: bool = False,
@@ -825,8 +839,19 @@ class BaseBackend(ABC):
         show: bool = False,
         output_path: str | None = None,
         color_format: str = "auto",
+        **kwargs,
     ) -> Union[Results, List[Results], Generator[Results, None, None]]:
         """Run inference on an image, directory, or video."""
+        normalize_predict_kwargs(kwargs)
+        if device not in (None, "", "auto", self.device):
+            logger.warning(
+                "Backend was loaded on device=%s; predict(device=%s) is ignored. "
+                "Load the backend with device=%s to change runtime device.",
+                self.device,
+                device,
+                device,
+            )
+
         # Handle video input
         if is_video_file(source):
             gen = self._predict_video(

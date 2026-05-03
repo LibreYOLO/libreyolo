@@ -15,6 +15,13 @@ import torch
 import torch.nn as nn
 from PIL import Image
 
+from ...tasks import (
+    detect_task_suffix,
+    normalize_task,
+    resolve_task,
+    task_suffix_pattern,
+    task_to_suffix,
+)
 from ...training.config import TrainConfig
 from ...utils.general import COCO_CLASSES
 from ...utils.image_loader import ImageInput
@@ -43,6 +50,9 @@ class BaseModel(ABC):
     FILENAME_PREFIX: ClassVar[str] = ""
     WEIGHT_EXT: ClassVar[str] = ".pt"
     INPUT_SIZES: ClassVar[dict[str, int]] = {}
+    SUPPORTED_TASKS: ClassVar[tuple[str, ...]] = ("detect",)
+    DEFAULT_TASK: ClassVar[str] = "detect"
+    TASK_INPUT_SIZES: ClassVar[dict[str, dict[str, int]]] = {}
     TRAIN_CONFIG: ClassVar[Optional[type[TrainConfig]]] = None
     val_preprocessor_class = StandardValPreprocessor
 
@@ -68,9 +78,12 @@ class BaseModel(ABC):
         size: str,
         nb_classes: int = 80,
         device: str = "auto",
+        task: str | None = None,
         **kwargs,
     ):
         ensure_default_logging()
+        self.family = self.FAMILY
+        self.task = self._resolve_task(task)
         valid_sizes = self._get_valid_sizes()
         if size not in valid_sizes:
             raise ValueError(
@@ -89,7 +102,7 @@ class BaseModel(ABC):
 
         self.size = size
         self.nb_classes = nb_classes
-        self.input_size = self.INPUT_SIZES[size]
+        self.input_size = self._get_task_input_sizes()[size]
 
         if nb_classes == 80:
             self.names: Dict[int, str] = {i: n for i, n in enumerate(COCO_CLASSES)}
@@ -190,7 +203,23 @@ class BaseModel(ABC):
     # =========================================================================
 
     def _get_valid_sizes(self) -> List[str]:
-        return list(self.INPUT_SIZES.keys())
+        return list(self._get_task_input_sizes().keys())
+
+    @classmethod
+    def _supported_tasks(cls) -> tuple[str, ...]:
+        return tuple(normalize_task(task) for task in cls.SUPPORTED_TASKS)
+
+    def _resolve_task(self, task: str | None) -> str:
+        return resolve_task(
+            explicit_task=task,
+            default_task=self.DEFAULT_TASK,
+            supported_tasks=self.SUPPORTED_TASKS,
+        )
+
+    def _get_task_input_sizes(self) -> dict[str, int]:
+        if self.TASK_INPUT_SIZES:
+            return self.TASK_INPUT_SIZES.get(self.task, self.INPUT_SIZES)
+        return self.INPUT_SIZES
 
     def _get_model_name(self) -> str:
         return self.FAMILY
@@ -229,10 +258,18 @@ class BaseModel(ABC):
         """Compile regex for matching weight filenames with optional task suffix."""
         if not cls.INPUT_SIZES or not cls.FILENAME_PREFIX:
             return None
-        sizes_pattern = "".join(cls.INPUT_SIZES.keys())
+        all_sizes = set(cls.INPUT_SIZES)
+        for task_sizes in cls.TASK_INPUT_SIZES.values():
+            all_sizes.update(task_sizes)
+        sizes = sorted(all_sizes, key=len, reverse=True)
+        sizes_pattern = "|".join(re.escape(size) for size in sizes)
         prefix = cls.FILENAME_PREFIX.lower()
         ext = re.escape(cls.WEIGHT_EXT)
-        return re.compile(rf"{prefix}([{sizes_pattern}])(-seg)?{ext}")
+        suffixes = task_suffix_pattern(cls.SUPPORTED_TASKS)
+        suffix_group = rf"(?P<task>{suffixes})?" if suffixes else ""
+        return re.compile(
+            rf"{prefix}(?P<size>{sizes_pattern}){suffix_group}{ext}"
+        )
 
     @classmethod
     def detect_size_from_filename(cls, filename: str) -> Optional[str]:
@@ -241,17 +278,18 @@ class BaseModel(ABC):
         if pattern is None:
             return None
         m = pattern.search(filename.lower())
-        return m.group(1) if m else None
+        return m.group("size") if m else None
 
     @classmethod
     def detect_task_from_filename(cls, filename: str) -> Optional[str]:
-        """Extract task suffix from a weight filename (e.g. 'seg')."""
+        """Extract canonical task from a weight filename (e.g. '-seg' -> 'segment')."""
         pattern = cls._filename_regex()
         if pattern is None:
-            return None
+            return detect_task_suffix(filename)
         m = pattern.search(filename.lower())
-        if m and m.group(2):
-            return m.group(2).lstrip("-")
+        task_suffix = m.groupdict().get("task") if m else None
+        if task_suffix:
+            return normalize_task(task_suffix.lstrip("-"))
         return None
 
     @classmethod
@@ -261,7 +299,8 @@ class BaseModel(ABC):
         if size is None:
             return None
         task = cls.detect_task_from_filename(filename)
-        suffix = f"-{task}" if task else ""
+        task_suffix = task_to_suffix(task)
+        suffix = f"-{task_suffix}" if task_suffix else ""
         name = f"{cls.FILENAME_PREFIX}{size}{suffix}"
         return f"https://huggingface.co/LibreYOLO/{name}/resolve/main/{name}{cls.WEIGHT_EXT}"
 
@@ -345,6 +384,16 @@ class BaseModel(ABC):
                         f"but is being loaded into '{own_family}'. "
                         f"Use the correct model class for this checkpoint."
                     )
+
+                ckpt_task = loaded.get("task")
+                if ckpt_task is not None:
+                    normalized_ckpt_task = normalize_task(ckpt_task)
+                    if normalized_ckpt_task != self.task:
+                        raise RuntimeError(
+                            f"Checkpoint was trained for task='{normalized_ckpt_task}' "
+                            f"but this model was initialized for task='{self.task}'. "
+                            "Pass the matching task or use the correct checkpoint."
+                        )
 
                 ckpt_nc = loaded.get("nc")
                 if ckpt_nc is not None and ckpt_nc != self.nb_classes:
@@ -552,7 +601,7 @@ class BaseModel(ABC):
             Dictionary with metrics/precision, metrics/recall,
             metrics/mAP50, metrics/mAP50-95.
         """
-        from libreyolo.validation import DetectionValidator, ValidationConfig
+        from libreyolo.validation import DetectionValidator, SegmentationValidator, ValidationConfig
 
         if imgsz is None:
             imgsz = self._get_input_size()
@@ -572,5 +621,6 @@ class BaseModel(ABC):
             **kwargs,
         )
 
-        validator = DetectionValidator(model=self, config=config)
+        validator_cls = SegmentationValidator if self.task == "segment" else DetectionValidator
+        validator = validator_cls(model=self, config=config)
         return validator()

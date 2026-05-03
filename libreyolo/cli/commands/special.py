@@ -281,7 +281,11 @@ def info_cmd(
     loaded = load_model_or_exit(out, model=model, model_path=model_path, device="cpu")
 
     num_params = sum(p.numel() for p in loaded.model.parameters())
-    input_size = loaded.INPUT_SIZES.get(loaded.size, 640)
+    input_size = (
+        loaded._get_input_size()
+        if hasattr(loaded, "_get_input_size")
+        else loaded.INPUT_SIZES.get(loaded.size, 640)
+    )
 
     class_names = {}
     if hasattr(loaded, "names") and loaded.names:

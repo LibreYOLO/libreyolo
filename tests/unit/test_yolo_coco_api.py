@@ -71,6 +71,22 @@ class TestParseYOLOLabelLine:
         result = parse_yolo_label_line(line, img_w=100, img_h=100, num_classes=80)
         assert result is None
 
+    def test_polygon_segment_return_is_opt_in(self):
+        line = "0 0.1 0.1 0.3 0.1 0.3 0.3"
+
+        default = parse_yolo_label_line(line, img_w=100, img_h=100, num_classes=80)
+        with_segment = parse_yolo_label_line(
+            line,
+            img_w=100,
+            img_h=100,
+            num_classes=80,
+            return_segment=True,
+        )
+
+        assert len(default) == 6
+        assert len(with_segment) == 7
+        assert with_segment[-1] == [10.0, 10.0, 30.0, 10.0, 30.0, 30.0]
+
 
 class TestYOLOCocoAPI:
     """Test YOLOCocoAPI COCO-compatible interface."""
@@ -143,6 +159,63 @@ class TestYOLOCocoAPI:
         assert "bbox" in ann  # Should be [x, y, w, h] format
         assert "area" in ann
         assert "iscrowd" in ann
+
+    def test_yolo_coco_api_preserves_segments_when_requested(self, tmp_path):
+        images_dir = tmp_path / "images"
+        labels_dir = tmp_path / "labels"
+        images_dir.mkdir()
+        labels_dir.mkdir()
+
+        from PIL import Image
+
+        Image.new("RGB", (100, 100)).save(images_dir / "img1.jpg")
+        (labels_dir / "img1.txt").write_text("0 0.1 0.1 0.3 0.1 0.3 0.3\n")
+
+        api = YOLOCocoAPI(images_dir, labels_dir, ["cat"], load_segments=True)
+        ann = api.loadAnns()[0]
+
+        assert ann["segmentation"] == [[10.0, 10.0, 30.0, 10.0, 30.0, 30.0]]
+
+    def test_yolo_coco_api_preserves_explicit_file_order(self, tmp_path):
+        images_dir = tmp_path / "images"
+        labels_dir = tmp_path / "labels"
+        images_dir.mkdir()
+        labels_dir.mkdir()
+
+        from PIL import Image
+
+        Image.new("RGB", (100, 100)).save(images_dir / "b.jpg")
+        Image.new("RGB", (100, 100)).save(images_dir / "a.jpg")
+        (labels_dir / "b.txt").write_text("0 0.5 0.5 0.2 0.2\n")
+        (labels_dir / "a.txt").write_text("0 0.2 0.2 0.2 0.2\n")
+
+        api = YOLOCocoAPI(
+            images_dir,
+            labels_dir,
+            ["cat"],
+            image_files=[images_dir / "b.jpg", images_dir / "a.jpg"],
+            label_files=[labels_dir / "b.txt", labels_dir / "a.txt"],
+        )
+
+        assert api.loadImgs([0])[0]["file_name"] == "b.jpg"
+        assert api.loadImgs([1])[0]["file_name"] == "a.jpg"
+
+    def test_yolo_coco_api_empty_segmentation_decodes_to_empty_mask(self, tmp_path):
+        images_dir = tmp_path / "images"
+        labels_dir = tmp_path / "labels"
+        images_dir.mkdir()
+        labels_dir.mkdir()
+
+        from PIL import Image
+
+        Image.new("RGB", (20, 10)).save(images_dir / "img.jpg")
+        (labels_dir / "img.txt").write_text("0 0.5 0.5 0.4 0.4\n")
+
+        api = YOLOCocoAPI(images_dir, labels_dir, ["cat"], load_segments=True)
+        mask = api.annToMask(api.loadAnns()[0])
+
+        assert mask.shape == (10, 20)
+        assert mask.sum() == 0
 
     def test_yolo_coco_api_get_ann_ids(self, mock_yolo_dataset):
         """Test getAnnIds method."""

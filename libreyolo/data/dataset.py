@@ -48,6 +48,7 @@ class YOLODataset(Dataset):
         preproc=None,
         img_files: List[Path] | None = None,
         label_files: List[Path] | None = None,
+        load_segments: bool = False,
     ):
         """
         Initialize YOLO dataset.
@@ -63,6 +64,7 @@ class YOLODataset(Dataset):
         self.img_size = img_size
         self.preproc = preproc
         self._input_dim = img_size
+        self.load_segments = load_segments
 
         if img_files is not None:
             # File list mode (.txt format)
@@ -155,6 +157,11 @@ class YOLODataset(Dataset):
             source,
             time.perf_counter() - start,
         )
+        if self.load_segments:
+            self.segments = [item[1] for item in annotations]
+            annotations = [item[0] for item in annotations]
+        else:
+            self.segments = None
         return annotations
 
     def _annotation_source(self) -> str:
@@ -179,6 +186,7 @@ class YOLODataset(Dataset):
 
         # Load labels
         labels = []
+        segments = []
         if label_file.exists():
             with open(label_file, "r") as f:
                 for line in f:
@@ -190,8 +198,15 @@ class YOLODataset(Dataset):
                             # Segmentation format: derive bbox from polygon vertices
                             coords = [float(p) for p in parts[1:]]
                             cx, cy, w, h = polygon_to_cxcywh(coords)
+                            if self.load_segments:
+                                segment = np.array(coords, dtype=np.float32).reshape(-1, 2)
+                                segment[:, 0] *= width
+                                segment[:, 1] *= height
+                                segments.append(segment)
                         else:
                             cx, cy, w, h = map(float, parts[1:5])
+                            if self.load_segments:
+                                segments.append(np.zeros((0, 2), dtype=np.float32))
 
                         # Convert normalized xywh to pixel xyxy
                         x1 = (cx - w / 2) * width
@@ -216,7 +231,10 @@ class YOLODataset(Dataset):
         resized_info = (int(height * r), int(width * r))
         file_name = img_file.name
 
-        return (res, img_info, resized_info, file_name)
+        annotation = (res, img_info, resized_info, file_name)
+        if self.load_segments:
+            return annotation, segments
+        return annotation
 
     def __len__(self):
         return self.num_imgs
@@ -251,9 +269,15 @@ class YOLODataset(Dataset):
         ).astype(np.uint8)
         return resized_img
 
+    def _load_segments(self, index: int):
+        if self.segments is None:
+            return None
+        return copy.deepcopy(self.segments[index])
+
     def pull_item(self, index: int):
         """Get item without preprocessing."""
         label, origin_image_size, _, _ = self.annotations[index]
+        segments = self._load_segments(index)
         if getattr(self.preproc, "wants_unresized_image", False):
             img = self.load_image(index)
             label = copy.deepcopy(label)
@@ -262,17 +286,28 @@ class YOLODataset(Dataset):
                 r = min(target_h / origin_image_size[0], target_w / origin_image_size[1])
                 if r > 0:
                     label[:, :4] = label[:, :4] / r
+            if self.load_segments:
+                return img, label, origin_image_size, index, segments
             return img, label, origin_image_size, index
         img = self.load_resized_img(index)
+        if self.load_segments:
+            return img, copy.deepcopy(label), origin_image_size, index, segments
         return img, copy.deepcopy(label), origin_image_size, index
 
     def __getitem__(self, index: int):
         """Get preprocessed item."""
-        img, target, img_info, img_id = self.pull_item(index)
+        item = self.pull_item(index)
+        if len(item) == 5:
+            img, target, img_info, img_id, segments = item
+        else:
+            img, target, img_info, img_id = item
+            segments = None
 
         if self.preproc is not None:
             img, target = self.preproc(img, target, self.input_dim)
 
+        if self.load_segments:
+            return img, target, img_info, img_id, segments
         return img, target, img_info, img_id
 
 
@@ -298,6 +333,7 @@ class COCODataset(Dataset):
         name: str = "train2017",
         img_size: Tuple[int, int] = (640, 640),
         preproc=None,
+        load_segments: bool = False,
     ):
         """
         Initialize COCO dataset.
@@ -323,6 +359,7 @@ class COCODataset(Dataset):
         self.img_size = img_size
         self._input_dim = img_size
         self.preproc = preproc
+        self.load_segments = load_segments
 
         # Load COCO annotations
         ann_file = os.path.join(data_dir, "annotations", json_file)
@@ -350,8 +387,9 @@ class COCODataset(Dataset):
             img.pop("coco_url", None)
             img.pop("date_captured", None)
             img.pop("flickr_url", None)
-        for anno in dataset.get("annotations", []):
-            anno.pop("segmentation", None)
+        if not self.load_segments:
+            for anno in dataset.get("annotations", []):
+                anno.pop("segmentation", None)
 
     def _load_coco_annotations(self) -> List:
         """Load all annotations."""
@@ -375,6 +413,11 @@ class COCODataset(Dataset):
             source,
             time.perf_counter() - start,
         )
+        if self.load_segments:
+            self.segments = [item[1] for item in annotations]
+            annotations = [item[0] for item in annotations]
+        else:
+            self.segments = None
         return annotations
 
     def _load_anno_from_id(self, id_: int) -> Tuple:
@@ -387,6 +430,7 @@ class COCODataset(Dataset):
         annotations = self.coco.loadAnns(anno_ids)
 
         objs = []
+        segments = []
         for obj in annotations:
             x1 = max(0, obj["bbox"][0])
             y1 = max(0, obj["bbox"][1])
@@ -395,6 +439,8 @@ class COCODataset(Dataset):
             if obj["area"] > 0 and x2 >= x1 and y2 >= y1:
                 obj["clean_bbox"] = [x1, y1, x2, y2]
                 objs.append(obj)
+                if self.load_segments:
+                    segments.append(copy.deepcopy(obj.get("segmentation", [])))
 
         num_objs = len(objs)
         res = np.zeros((num_objs, 5), dtype=np.float32)
@@ -411,7 +457,10 @@ class COCODataset(Dataset):
         resized_info = (int(height * r), int(width * r))
         file_name = im_ann.get("file_name", f"{id_:012}.jpg")
 
-        return (res, img_info, resized_info, file_name)
+        annotation = (res, img_info, resized_info, file_name)
+        if self.load_segments:
+            return annotation, segments
+        return annotation
 
     def __len__(self):
         return self.num_imgs
@@ -447,10 +496,16 @@ class COCODataset(Dataset):
         ).astype(np.uint8)
         return resized_img
 
+    def _load_segments(self, index: int):
+        if self.segments is None:
+            return None
+        return copy.deepcopy(self.segments[index])
+
     def pull_item(self, index: int):
         """Get item without preprocessing."""
         id_ = self.ids[index]
         label, origin_image_size, _, _ = self.annotations[index]
+        segments = self._load_segments(index)
         if getattr(self.preproc, "wants_unresized_image", False):
             # Preprocessor handles all resizing in one pass (avoids the
             # letterbox-then-stretch double-resize). Targets are already
@@ -464,17 +519,28 @@ class COCODataset(Dataset):
                 r = min(target_h / origin_image_size[0], target_w / origin_image_size[1])
                 if r > 0:
                     label[:, :4] = label[:, :4] / r
+            if self.load_segments:
+                return img, label, origin_image_size, id_, segments
             return img, label, origin_image_size, id_
         img = self.load_resized_img(index)
+        if self.load_segments:
+            return img, copy.deepcopy(label), origin_image_size, id_, segments
         return img, copy.deepcopy(label), origin_image_size, id_
 
     def __getitem__(self, index: int):
         """Get preprocessed item."""
-        img, target, img_info, img_id = self.pull_item(index)
+        item = self.pull_item(index)
+        if len(item) == 5:
+            img, target, img_info, img_id, segments = item
+        else:
+            img, target, img_info, img_id = item
+            segments = None
 
         if self.preproc is not None:
             img, target = self.preproc(img, target, self.input_dim)
 
+        if self.load_segments:
+            return img, target, img_info, img_id, segments
         return img, target, img_info, img_id
 
 
@@ -488,7 +554,11 @@ def yolox_collate_fn(batch):
         img_infos: tuple of image info
         img_ids: tuple of image ids
     """
-    imgs, targets, img_infos, img_ids = zip(*batch)
+    has_segments = len(batch[0]) == 5
+    if has_segments:
+        imgs, targets, img_infos, img_ids, segments = zip(*batch)
+    else:
+        imgs, targets, img_infos, img_ids = zip(*batch)
 
     # Stack images
     imgs = torch.from_numpy(np.stack(imgs))
@@ -496,6 +566,8 @@ def yolox_collate_fn(batch):
     # Stack targets (already padded to max_labels)
     targets = torch.from_numpy(np.stack(targets))
 
+    if has_segments:
+        return imgs, targets, img_infos, img_ids, list(segments)
     return imgs, targets, img_infos, img_ids
 
 

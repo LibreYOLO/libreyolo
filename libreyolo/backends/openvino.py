@@ -5,6 +5,7 @@ from typing import Dict
 
 import numpy as np
 
+from ..tasks import normalize_supported_tasks, normalize_task, resolve_task
 from .base import BaseBackend
 
 
@@ -24,7 +25,11 @@ class OpenVINOBackend(BaseBackend):
     """
 
     def __init__(
-        self, model_dir: str | Path, nb_classes: int | None = None, device: str = "auto"
+        self,
+        model_dir: str | Path,
+        nb_classes: int | None = None,
+        device: str = "auto",
+        task: str | None = None,
     ):
         try:
             import openvino as ov
@@ -42,16 +47,39 @@ class OpenVINOBackend(BaseBackend):
         if not xml_path.exists():
             raise FileNotFoundError(f"model.xml not found in {model_dir}")
 
+        explicit_task = task
         model_family = None
         model_size = None
+        task = "detect"
+        default_task = "detect"
+        supported_tasks = ("detect",)
         imgsz = 640
         resolved_nb_classes = nb_classes if nb_classes is not None else 80
         names = self.build_names(resolved_nb_classes)
 
         metadata_path = model_dir / "metadata.yaml"
         if metadata_path.exists():
-            model_family, model_size, imgsz, resolved_nb_classes, names = (
-                self._read_metadata(metadata_path, nb_classes)
+            (
+                model_family,
+                model_size,
+                metadata_task,
+                supported_tasks,
+                default_task,
+                imgsz,
+                resolved_nb_classes,
+                names,
+            ) = self._read_metadata(metadata_path, nb_classes)
+            task = resolve_task(
+                explicit_task=explicit_task,
+                checkpoint_task=metadata_task,
+                default_task=default_task,
+                supported_tasks=supported_tasks,
+            )
+        else:
+            task = resolve_task(
+                explicit_task=explicit_task,
+                default_task=default_task,
+                supported_tasks=supported_tasks,
             )
 
         # Map device strings to OpenVINO format
@@ -86,6 +114,9 @@ class OpenVINOBackend(BaseBackend):
             model_family=model_family,
             names=names,
             model_size=model_size,
+            task=task,
+            supported_tasks=supported_tasks,
+            default_task=default_task,
         )
 
     @staticmethod
@@ -93,7 +124,7 @@ class OpenVINOBackend(BaseBackend):
         """Read metadata from metadata.yaml file.
 
         Returns:
-            Tuple of (model_family, model_size, imgsz, nb_classes, names).
+            Tuple of (model_family, model_size, task, supported_tasks, default_task, imgsz, nb_classes, names).
         """
         import yaml
 
@@ -102,6 +133,9 @@ class OpenVINOBackend(BaseBackend):
 
         model_family = meta.get("model_family")
         model_size = meta.get("model_size")
+        default_task = normalize_task(meta.get("default_task"), default="detect")
+        task = normalize_task(meta.get("task"), default=default_task)
+        supported_tasks = normalize_supported_tasks(meta.get("supported_tasks", (task,)))
         imgsz = int(meta["imgsz"]) if "imgsz" in meta else 640
 
         if nb_classes_override is not None:
@@ -116,7 +150,7 @@ class OpenVINOBackend(BaseBackend):
         else:
             names = BaseBackend.build_names(nb_classes)
 
-        return model_family, model_size, imgsz, nb_classes, names
+        return model_family, model_size, task, supported_tasks, default_task, imgsz, nb_classes, names
 
     def _run_inference(self, blob: np.ndarray) -> list:
         """Run OpenVINO inference."""

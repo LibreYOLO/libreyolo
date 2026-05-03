@@ -194,7 +194,7 @@ class TestFactorySegDetection:
     def test_detect_task_from_seg_filename(self):
         from libreyolo.models.rfdetr.model import LibreYOLORFDETR
 
-        assert LibreYOLORFDETR.detect_task_from_filename("LibreRFDETRs-seg.pt") == "seg"
+        assert LibreYOLORFDETR.detect_task_from_filename("LibreRFDETRs-seg.pt") == "segment"
         assert LibreYOLORFDETR.detect_task_from_filename("LibreRFDETRs.pt") is None
 
     def test_det_filename_still_works(self):
@@ -227,6 +227,8 @@ class TestFactorySegDetection:
 
         assert LibreYOLOX.detect_size_from_filename("LibreYOLOXs.pt") == "s"
         assert LibreYOLOX.detect_task_from_filename("LibreYOLOXs.pt") is None
+        assert LibreYOLOX.detect_size_from_filename("LibreYOLOXs-seg.pt") is None
+        assert LibreYOLOX.get_download_url("LibreYOLOXs-seg.pt") is None
         assert LibreYOLO9.detect_size_from_filename("LibreYOLO9s.pt") == "s"
         assert LibreYOLO9.detect_task_from_filename("LibreYOLO9s.pt") is None
 
@@ -297,6 +299,61 @@ class TestPolygonLabelParsing:
             assert abs(y1 - 20) < 1
             assert abs(x2 - 80) < 1
             assert abs(y2 - 80) < 1
+
+    def test_yolo_dataset_preserves_segments_when_requested(self):
+        import tempfile
+        from pathlib import Path
+
+        from PIL import Image
+        from libreyolo.data.dataset import YOLODataset
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            img_dir = Path(tmpdir) / "images" / "train"
+            lbl_dir = Path(tmpdir) / "labels" / "train"
+            img_dir.mkdir(parents=True)
+            lbl_dir.mkdir(parents=True)
+
+            Image.new("RGB", (100, 100)).save(img_dir / "test.jpg")
+            (lbl_dir / "test.txt").write_text("0 0.2 0.2 0.8 0.2 0.8 0.8 0.2 0.8\n")
+
+            default_ds = YOLODataset(data_dir=tmpdir, split="train", img_size=(100, 100))
+            seg_ds = YOLODataset(
+                data_dir=tmpdir,
+                split="train",
+                img_size=(100, 100),
+                load_segments=True,
+            )
+
+            assert default_ds.segments is None
+            assert seg_ds.segments is not None
+            assert seg_ds.segments[0][0].shape == (4, 2)
+            assert seg_ds.segments[0][0][0].tolist() == [20.0, 20.0]
+
+            item = seg_ds[0]
+            assert len(item) == 5
+            _, _, _, _, segments = item
+            assert segments[0].shape == (4, 2)
+            assert segments[0][2].tolist() == [80.0, 80.0]
+
+    def test_yolo_collate_preserves_segments_when_present(self):
+        from libreyolo.data.dataset import yolox_collate_fn
+
+        img = np.zeros((3, 32, 32), dtype=np.float32)
+        target = np.zeros((2, 5), dtype=np.float32)
+        segment = [np.array([[1.0, 2.0], [3.0, 4.0]], dtype=np.float32)]
+
+        batch = [
+            (img, target, (32, 32), 0, segment),
+            (img, target, (32, 32), 1, []),
+        ]
+
+        imgs, targets, img_infos, img_ids, segments = yolox_collate_fn(batch)
+
+        assert imgs.shape == (2, 3, 32, 32)
+        assert targets.shape == (2, 2, 5)
+        assert img_infos == ((32, 32), (32, 32))
+        assert img_ids == (0, 1)
+        assert segments[0][0].tolist() == [[1.0, 2.0], [3.0, 4.0]]
 
 
 class TestDrawMasks:
@@ -436,8 +493,19 @@ class TestDetectSegmentation:
         """Filename-based detection avoids loading weights."""
         from libreyolo.models.rfdetr.model import LibreYOLORFDETR
 
-        assert LibreYOLORFDETR.detect_task_from_filename("LibreRFDETRn-seg.pt") == "seg"
+        assert LibreYOLORFDETR.detect_task_from_filename("LibreRFDETRn-seg.pt") == "segment"
         assert LibreYOLORFDETR.detect_task_from_filename("LibreRFDETRn.pt") is None
+
+    def test_segmentation_flag_is_derived_from_task(self):
+        from libreyolo.models.rfdetr.model import LibreYOLORFDETR
+
+        model = LibreYOLORFDETR.__new__(LibreYOLORFDETR)
+        model.task = "segment"
+        assert model._is_segmentation is True
+
+        model.task = "detect"
+        assert model._is_segmentation is False
+        assert "_is_segmentation" not in model.__dict__
 
 
 class TestPolygonToCxcywh:

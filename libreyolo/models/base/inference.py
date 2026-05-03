@@ -18,6 +18,7 @@ import torch
 from ...utils.drawing import draw_boxes, draw_masks, draw_tile_grid
 from ...utils.general import get_safe_stem, get_slice_bboxes, nms, resolve_save_path
 from ...utils.image_loader import ImageInput, ImageLoader
+from ...utils.predict_args import normalize_predict_kwargs
 from ...utils.results import Boxes, Masks, Results
 from ...utils.video import collect_video_results, is_video_file, run_video_inference
 
@@ -40,6 +41,7 @@ class InferenceRunner:
         conf: float = 0.25,
         iou: float = 0.45,
         imgsz: Optional[int] = None,
+        device: str | None = None,
         classes: Optional[List[int]] = None,
         max_det: int = 300,
         save: bool = False,
@@ -82,6 +84,10 @@ class InferenceRunner:
         Returns:
             Results, list of Results, or generator of Results (video + stream).
         """
+        kwargs = normalize_predict_kwargs(kwargs, passthrough={"num_select"})
+        if device is not None:
+            self._set_device(device)
+
         if output_file_format is not None:
             output_file_format = output_file_format.lower().lstrip(".")
             if output_file_format not in ("jpg", "jpeg", "png", "webp"):
@@ -161,6 +167,18 @@ class InferenceRunner:
             output_file_format=output_file_format,
             **kwargs,
         )
+
+    def _set_device(self, device: str) -> None:
+        """Move the wrapped model when predict(device=...) is supplied."""
+        device_str = str(device).strip().lower()
+        if device_str in ("", "auto"):
+            return
+        if device_str.isdigit():
+            device_str = f"cuda:{device_str}"
+        target = torch.device(device_str)
+        if target != self.model.device:
+            self.model.device = target
+            self.model.model.to(target)
 
     def _process_in_batches(
         self,
