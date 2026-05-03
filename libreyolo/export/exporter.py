@@ -16,7 +16,7 @@ from typing import Optional
 
 import torch
 
-from .onnx import _get_version, export_onnx
+from .onnx import _get_version, _uses_dfine_style_export_wrapper, export_onnx
 from .torchscript import export_torchscript
 
 logger = logging.getLogger(__name__)
@@ -142,7 +142,7 @@ class BaseExporter(ABC):
             # runtimes.
             opset = (
                 17
-                if self.model._get_model_name() in ("dfine", "deim", "deimv2", "ecdet")
+                if _uses_dfine_style_export_wrapper(self.model._get_model_name())
                 else 13
             )
 

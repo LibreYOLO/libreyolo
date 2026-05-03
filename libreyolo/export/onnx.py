@@ -16,6 +16,16 @@ def _get_version() -> str:
         return "0.0.0.dev0"
 
 
+def _uses_dfine_style_export_wrapper(model_family) -> bool:
+    """Whether the family uses the ``(pred_logits, pred_boxes)`` export wrapper.
+
+    These DETR-style families wrap the eval-mode model with a tracing-friendly
+    module that returns a 2-tuple. ONNX export can skip the dynamic output
+    probe for them, and they all need opset 17 for ``aten::scaled_dot_product``.
+    """
+    return model_family in {"dfine", "deim", "deimv2", "ecdet"}
+
+
 def _postprocess_onnx(
     path: str,
     *,
@@ -107,11 +117,9 @@ def export_onnx(
     # DETR detection families we already know the output schema, so skip
     # the probe forward pass entirely and reuse the count below.
     is_seg = metadata.get("segmentation") == "true"
-    known_detr_detection = metadata.get("model_family") in {
-        "dfine",
-        "deim",
-        "deimv2",
-    }
+    known_detr_detection = _uses_dfine_style_export_wrapper(
+        metadata.get("model_family")
+    )
     num_outputs = None
     if not is_seg and not known_detr_detection:
         num_outputs = _detect_num_outputs(nn_model, dummy)

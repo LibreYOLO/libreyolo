@@ -82,7 +82,6 @@ Nature of the conversion:
 - unwrap mmcv's `ConvModule` inside SE layers (`*.se.conv{1,2}.conv.X
   -> *.se.conv{1,2}.X`)
 - add LibreYOLO metadata
-- optionally emit the 5-file HuggingFace upload bundle via `--hf-bundle`
 
 This is a light structural adaptation: every learned tensor maps 1-to-1,
 no DFL injection or auxiliary-head dropping needed. Round-trip

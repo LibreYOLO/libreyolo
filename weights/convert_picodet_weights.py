@@ -1,12 +1,5 @@
 """Convert Bo396543018/Picodet_Pytorch checkpoints to LibreYOLO format.
 
-With ``--hf-bundle <dir>`` the script also emits the 5-file repo layout
-expected by the ``libreyolo-upload-hf-model`` skill (README, LICENSE,
-NOTICE, .gitattributes, and the canonical ``LibrePicoDet<size>.pt``).
-After conversion::
-
-    huggingface-cli upload LibreYOLO/LibrePicoDet<size> <hf-bundle-dir> .
-
 Per-size repos: ``LibrePicoDets``, ``LibrePicoDetm``, ``LibrePicoDetl``.
 
 Bo's checkpoints carry mmdet-style key naming because his ``ESNet`` /
@@ -32,7 +25,6 @@ from __future__ import annotations
 
 import argparse
 import re
-from pathlib import Path
 from typing import Dict
 
 import torch
@@ -122,111 +114,12 @@ def remap_state_dict(state_dict: dict) -> dict:
 # ---------------------------------------------------------------------------
 
 
-README_TEMPLATE = """---
-license: apache-2.0
-library_name: libreyolo
-tags:
-  - object-detection
-  - picodet
----
-
-# LibrePicoDet{size}
-
-PicoDet-{size_upper} (ESNet backbone, CSP-PAN neck, GFL/DFL head),
-repackaged for LibreYOLO.
-
-## Source
-
-Derived from [Bo396543018/Picodet_Pytorch](https://github.com/Bo396543018/Picodet_Pytorch),
-which itself ports PaddlePaddle's PicoDet to PyTorch via mmdet/mmcv.
-Copyright (c) 2018-2023 OpenMMLab. Licensed under the Apache License,
-Version 2.0.
-
-## Modifications
-
-State-dict key remapping only: ``bbox_head.* -> head.*``,
-``backbone.<stage>_<i>.* -> backbone.blocks.<flat>.*``,
-``neck.trans.trans.* -> neck.trans.*``, and unwrapping mmcv's
-``ConvModule`` inside SE layers. Learned parameters are unchanged.
-See ``weights/convert_picodet_weights.py`` in the
-[LibreYOLO source repository](https://github.com/LibreYOLO/libreyolo).
-
-## License
-
-Apache License 2.0. See the [`LICENSE`](./LICENSE) and
-[`NOTICE`](./NOTICE) files in this repository.
-"""
-
-
-NOTICE_TEMPLATE = """LibrePicoDet weights
---------------------
-
-This product contains weights derived from Bo396543018/Picodet_Pytorch
-(https://github.com/Bo396543018/Picodet_Pytorch).
-Copyright (c) 2018-2023 OpenMMLab.
-Licensed under the Apache License, Version 2.0.
-
-The PicoDet architecture originated at PaddlePaddle (PaddleDetection,
-Apache-2.0); see the upstream README for full attribution chain.
-"""
-
-
-GITATTRIBUTES = """*.pt filter=lfs diff=lfs merge=lfs -text
-*.pth filter=lfs diff=lfs merge=lfs -text
-*.bin filter=lfs diff=lfs merge=lfs -text
-*.onnx filter=lfs diff=lfs merge=lfs -text
-*.engine filter=lfs diff=lfs merge=lfs -text
-*.tflite filter=lfs diff=lfs merge=lfs -text
-"""
-
-
-def write_hf_bundle(bundle_dir: Path, size: str, ckpt_path: Path, license_src: Path) -> None:
-    """Emit the 5-file HF upload layout next to a converted checkpoint."""
-    bundle_dir = Path(bundle_dir)
-    bundle_dir.mkdir(parents=True, exist_ok=True)
-
-    # Canonical filename
-    canonical = bundle_dir / f"LibrePicoDet{size}.pt"
-    if canonical.resolve() != ckpt_path.resolve():
-        import shutil
-
-        shutil.copy2(ckpt_path, canonical)
-
-    (bundle_dir / "README.md").write_text(
-        README_TEMPLATE.format(size=size, size_upper=size.upper())
-    )
-    (bundle_dir / "NOTICE").write_text(NOTICE_TEMPLATE)
-    (bundle_dir / ".gitattributes").write_text(GITATTRIBUTES)
-
-    if license_src is not None and license_src.exists():
-        (bundle_dir / "LICENSE").write_text(license_src.read_text())
-    else:
-        # Fallback: a minimal Apache-2.0 marker. The user must replace
-        # this with the verbatim upstream LICENSE before uploading.
-        (bundle_dir / "LICENSE").write_text(
-            "TODO: copy verbatim Apache-2.0 LICENSE text from\n"
-            "https://github.com/Bo396543018/Picodet_Pytorch/blob/master/LICENSE\n"
-        )
-
-
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--src", required=True, help="Path to Bo's .pth checkpoint")
     parser.add_argument("--dst", required=True, help="Output LibreYOLO checkpoint path")
     parser.add_argument("--size", required=True, choices=["s", "m", "l"])
     parser.add_argument("--nc", type=int, default=80, help="Number of classes")
-    parser.add_argument(
-        "--hf-bundle",
-        type=str,
-        default=None,
-        help="Optional dir to emit the 5-file HuggingFace upload layout into.",
-    )
-    parser.add_argument(
-        "--upstream-license",
-        type=str,
-        default=None,
-        help="Path to upstream LICENSE file (copied verbatim into the HF bundle).",
-    )
     args = parser.parse_args()
 
     add_repo_root_to_path()
@@ -270,13 +163,6 @@ def main() -> None:
     )
     out = save_checkpoint(wrapped, args.dst)
     print(f"Wrote {out}")
-
-    if args.hf_bundle:
-        bundle = Path(args.hf_bundle)
-        license_src = Path(args.upstream_license) if args.upstream_license else None
-        write_hf_bundle(bundle, args.size, out, license_src)
-        print(f"HF upload bundle ready in {bundle}")
-        print(f"  Next: huggingface-cli upload LibreYOLO/LibrePicoDet{args.size} {bundle} .")
 
 
 if __name__ == "__main__":
