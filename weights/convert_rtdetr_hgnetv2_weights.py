@@ -40,6 +40,7 @@ from _conversion_utils import (
     load_checkpoint,
     repo_root,
     save_checkpoint,
+    wrap_libreyolo_checkpoint,
 )
 
 
@@ -101,7 +102,7 @@ def remap_key(k: str) -> str:
     return k
 
 
-def convert(src_path: Path, dst_path: Path) -> dict:
+def convert(src_path: Path, dst_path: Path, size: str) -> dict:
     """Load lyuwenyu v2 ckpt, remap keys, save as LibreYOLO state_dict."""
     print(f"Loading {src_path} ...")
     sd_v2 = extract_state_dict(load_checkpoint(src_path))
@@ -120,7 +121,10 @@ def convert(src_path: Path, dst_path: Path) -> dict:
     for k in dropped:
         print(f"    drop: {k}")
 
-    save_checkpoint(out, dst_path)
+    wrapped = wrap_libreyolo_checkpoint(
+        out, model_family="rtdetr", size=size, nc=80,
+    )
+    save_checkpoint(wrapped, dst_path)
     print(f"  saved -> {dst_path}")
     return out
 
@@ -163,7 +167,7 @@ def main() -> None:
         if not src.exists():
             raise SystemExit(f"missing source {src}; download from {cfg['url']} first")
         print(f"\n=== Converting RT-DETR HGNetv2-{size.upper()} ===")
-        sd = convert(src, dst)
+        sd = convert(src, dst, size)
         verify(sd, size)
 
 

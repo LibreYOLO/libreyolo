@@ -25,6 +25,7 @@ from _conversion_utils import (
     load_checkpoint,
     save_checkpoint,
     strip_state_dict_prefix,
+    wrap_libreyolo_checkpoint,
 )
 
 
@@ -378,7 +379,10 @@ def convert_weights(
 
     # Save converted weights
     print(f"\nSaving converted weights to {output_path}")
-    save_checkpoint(converted, output_path)
+    wrapped = wrap_libreyolo_checkpoint(
+        converted, model_family="yolo9", size=config, nc=80,
+    )
+    save_checkpoint(wrapped, output_path)
 
     return converted
 
@@ -391,8 +395,9 @@ def verify_conversion(converted_path: str, config: str) -> bool:
 
     print(f"\nVerifying weights can be loaded into yolo9-{config} model...")
 
-    # Load converted weights
-    converted = load_checkpoint(converted_path)
+    # Load converted weights (now metadata-wrapped — extract the state_dict).
+    raw = load_checkpoint(converted_path)
+    converted = extract_state_dict(raw)
 
     # Create model
     model = LibreYOLO9Model(config=config, reg_max=16, nb_classes=80)
