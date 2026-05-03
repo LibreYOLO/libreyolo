@@ -159,7 +159,7 @@ class RTDETRTrainer(BaseTrainer):
         self.criterion = RTDETRLoss(num_classes=self.config.num_classes)
         self.criterion.to(self.device)
 
-    def on_forward(self, imgs: torch.Tensor, targets: torch.Tensor) -> Dict:
+    def on_forward(self, imgs: torch.Tensor, targets: torch.Tensor, polygons=None) -> Dict:
         """Run the model forward pass with DETR-specific target conversion.
 
         Args:

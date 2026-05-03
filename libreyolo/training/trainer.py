@@ -32,6 +32,8 @@ class BaseTrainer(ABC):
     loss extraction, and family-specific behaviour.
     """
 
+    best_metric_key: str = "metrics/mAP50-95"
+
     def __init__(
         self,
         model: nn.Module,
@@ -125,7 +127,12 @@ class BaseTrainer(ABC):
         if hasattr(self.train_loader.dataset, "close_mosaic"):
             self.train_loader.dataset.close_mosaic()
 
-    def on_forward(self, imgs: torch.Tensor, targets: torch.Tensor) -> Dict:
+    def on_forward(
+        self,
+        imgs: torch.Tensor,
+        targets: torch.Tensor,
+        polygons: Optional[List] = None,
+    ) -> Dict:
         """Run the model forward pass. Override if call signature differs."""
         return self.model(imgs, targets)
 
@@ -428,7 +435,12 @@ class BaseTrainer(ABC):
         total_loss = 0.0
         num_batches = 0
 
-        for batch_idx, (imgs, targets, img_infos, img_ids) in enumerate(pbar):
+        for batch_idx, batch in enumerate(pbar):
+            if len(batch) == 5:
+                imgs, targets, img_infos, img_ids, polygons = batch
+            else:
+                imgs, targets, img_infos, img_ids = batch
+                polygons = None
             self.current_iter = epoch * len(self.train_loader) + batch_idx
 
             imgs = imgs.to(self.device, non_blocking=True)
@@ -437,14 +449,14 @@ class BaseTrainer(ABC):
             # Forward + backward
             if self.scaler is not None:
                 with autocast("cuda"):
-                    outputs = self.on_forward(imgs, targets)
+                    outputs = self.on_forward(imgs, targets, polygons=polygons)
                     loss = outputs["total_loss"]
                 self.optimizer.zero_grad()
                 self.scaler.scale(loss).backward()
                 self.scaler.step(self.optimizer)
                 self.scaler.update()
             else:
-                outputs = self.on_forward(imgs, targets)
+                outputs = self.on_forward(imgs, targets, polygons=polygons)
                 loss = outputs["total_loss"]
                 self.optimizer.zero_grad()
                 loss.backward()
@@ -511,7 +523,7 @@ class BaseTrainer(ABC):
 
     def _validate_epoch(self, epoch: int) -> Optional[Dict[str, float]]:
         try:
-            from libreyolo.validation import DetectionValidator, ValidationConfig
+            from libreyolo.validation import DetectionValidator, SegmentationValidator, ValidationConfig
 
             logger.info(f"Running validation for epoch {epoch + 1}")
 
@@ -538,16 +550,23 @@ class BaseTrainer(ABC):
             self.wrapper_model.model = eval_pytorch_model
 
             try:
-                validator = DetectionValidator(
-                    model=self.wrapper_model, config=val_config
+                validator_cls = (
+                    SegmentationValidator
+                    if getattr(self.wrapper_model, "task", "detect") == "segment"
+                    else DetectionValidator
                 )
+                validator = validator_cls(model=self.wrapper_model, config=val_config)
                 results = validator.run()
             finally:
                 self.wrapper_model.model = original_model
 
+            best_key = getattr(self, "best_metric_key", "metrics/mAP50-95")
+            best_metric = results.get(best_key, results.get("metrics/mAP50-95", 0.0))
             metrics = {
-                "mAP50": results.get("metrics/mAP50", 0.0),
-                "mAP50_95": results.get("metrics/mAP50-95", 0.0),
+                "mAP50": results.get("metrics/mAP50", results.get("metrics/mAP50(B)", 0.0)),
+                "mAP50_95": best_metric,
+                "best_metric": best_metric,
+                "best_metric_key": best_key,
             }
 
             logger.debug(
@@ -574,9 +593,14 @@ class BaseTrainer(ABC):
     def _save_checkpoint(
         self, epoch: int, loss: float, val_metrics: Optional[Dict[str, float]] = None
     ):
-        is_best = bool(val_metrics and val_metrics["mAP50_95"] > self.best_mAP50_95)
+        best_metric = (
+            val_metrics.get("best_metric", val_metrics.get("mAP50_95", 0.0))
+            if val_metrics
+            else 0.0
+        )
+        is_best = bool(val_metrics and best_metric > self.best_mAP50_95)
         if is_best:
-            self.best_mAP50_95 = val_metrics["mAP50_95"]
+            self.best_mAP50_95 = best_metric
             self.best_mAP50 = val_metrics["mAP50"]
             self.best_epoch = epoch + 1
             self.patience_counter = 0
@@ -593,10 +617,19 @@ class BaseTrainer(ABC):
             "loss": loss,
             "best_mAP50_95": self.best_mAP50_95,
             "best_mAP50": self.best_mAP50,
+            "best_metric_key": (
+                val_metrics.get(
+                    "best_metric_key",
+                    getattr(self, "best_metric_key", "metrics/mAP50-95"),
+                )
+                if val_metrics
+                else getattr(self, "best_metric_key", "metrics/mAP50-95")
+            ),
             "best_epoch": self.best_epoch,
             "nc": self.config.num_classes,
             "size": self.config.size,
             "model_family": self.get_model_family(),
+            "task": getattr(self.wrapper_model, "task", "detect"),
         }
         if self.wrapper_model is not None:
             checkpoint["names"] = self.wrapper_model.names

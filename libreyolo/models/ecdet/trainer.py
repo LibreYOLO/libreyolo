@@ -120,7 +120,7 @@ class ECDETTrainer(DFINETrainer):
             reg_max=32,
         ).to(self.device)
 
-    def on_forward(self, imgs: torch.Tensor, targets: torch.Tensor) -> Dict:
+    def on_forward(self, imgs: torch.Tensor, targets: torch.Tensor, polygons=None) -> Dict:
         """Same target-format translation as D-FINE; only the loss key names differ."""
         B = targets.shape[0]
         H, W = imgs.shape[-2], imgs.shape[-1]

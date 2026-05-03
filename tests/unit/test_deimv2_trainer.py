@@ -163,10 +163,27 @@ def test_deimv2_checkpoint_preserves_train_and_ema_state(tmp_path):
     ckpt = torch.load(tmp_path / "weights" / "best.pt", map_location="cpu")
     assert ckpt["best_mAP50_95"] == pytest.approx(0.42)
     assert ckpt["best_mAP50"] == pytest.approx(0.5)
+    assert ckpt["best_metric_key"] == "metrics/mAP50-95"
     assert ckpt["best_epoch"] == 1
     assert "train_model" in ckpt
     assert "ema" in ckpt
     assert ckpt["ema_updates"] == 7
+
+    trainer._save_checkpoint(
+        1,
+        loss=0.9,
+        val_metrics={
+            "mAP50_95": 0.10,
+            "mAP50": 0.6,
+            "best_metric": 0.50,
+            "best_metric_key": "metrics/mAP50-95(M)",
+        },
+    )
+
+    ckpt = torch.load(tmp_path / "weights" / "best.pt", map_location="cpu")
+    assert ckpt["best_mAP50_95"] == pytest.approx(0.50)
+    assert ckpt["best_metric_key"] == "metrics/mAP50-95(M)"
+    assert ckpt["best_epoch"] == 2
 
 
 def test_deimv2_trainer_target_translation_smoke():

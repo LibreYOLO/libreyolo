@@ -237,7 +237,7 @@ class DEIMv2Trainer(DEIMTrainer):
 
         return torch.optim.AdamW(param_groups, betas=(0.9, 0.999))
 
-    def on_forward(self, imgs: torch.Tensor, targets: torch.Tensor) -> Dict:
+    def on_forward(self, imgs: torch.Tensor, targets: torch.Tensor, polygons=None) -> Dict:
         target_list = self._targets_to_detr(imgs, targets)
         outputs = self.model(imgs, targets=target_list)
         losses = self._compute_criterion_losses(outputs, target_list)

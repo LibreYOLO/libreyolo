@@ -78,7 +78,7 @@ class PicoDetTrainer(BaseTrainer):
             strides=strides,
         ).to(self.device)
 
-    def on_forward(self, imgs: torch.Tensor, targets: torch.Tensor) -> Dict:
+    def on_forward(self, imgs: torch.Tensor, targets: torch.Tensor, polygons=None) -> Dict:
         cls_scores, bbox_preds = self.model(imgs)
 
         # Targets: (B, max_labels, 5) [class, cx, cy, w, h] in pixel coords,

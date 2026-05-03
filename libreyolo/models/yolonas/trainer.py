@@ -59,7 +59,7 @@ class YOLONASTrainer(BaseTrainer):
             "dfl": _scalar(outputs.get("dfl", 0)),
         }
 
-    def on_forward(self, imgs: torch.Tensor, targets: torch.Tensor) -> Dict:
+    def on_forward(self, imgs: torch.Tensor, targets: torch.Tensor, polygons=None) -> Dict:
         model_outputs = self.model(imgs)
         total_loss, log_losses = self.loss_fn(model_outputs, targets)
         return {

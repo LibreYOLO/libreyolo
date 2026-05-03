@@ -64,5 +64,5 @@ class YOLOXTrainer(BaseTrainer):
         self.train_loader.dataset.close_mosaic()
         self.model.head.use_l1 = True
 
-    def on_forward(self, imgs: torch.Tensor, targets: torch.Tensor) -> Dict:
+    def on_forward(self, imgs: torch.Tensor, targets: torch.Tensor, polygons=None) -> Dict:
         return self.model(imgs, targets)

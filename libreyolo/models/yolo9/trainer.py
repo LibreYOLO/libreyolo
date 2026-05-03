@@ -68,5 +68,5 @@ class YOLO9Trainer(BaseTrainer):
             "dfl": _scalar(outputs.get("dfl", 0)),
         }
 
-    def on_forward(self, imgs: torch.Tensor, targets: torch.Tensor) -> Dict:
+    def on_forward(self, imgs: torch.Tensor, targets: torch.Tensor, polygons=None) -> Dict:
         return self.model(imgs, targets=targets)
