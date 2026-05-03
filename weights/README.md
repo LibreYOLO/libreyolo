@@ -69,7 +69,7 @@ Nature of the conversion:
 This is the heaviest conversion in this folder because the upstream naming
 scheme and module structure differ substantially from LibreYOLO's.
 
-### PicoDet
+### PICODET
 
 Script: [`convert_picodet_weights.py`](convert_picodet_weights.py)
 

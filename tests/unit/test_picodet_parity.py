@@ -1,14 +1,14 @@
-"""PicoDet conversion-script parity test.
+"""PICODET conversion-script parity test.
 
 Bo's checkpoints aren't available in CI without installing mmcv-full +
 mmdet (a non-trivial chain on modern Python). To still validate the
 conversion logic, this test:
 
-1. Builds a fresh ``LibrePicoDetModel``.
+1. Builds a fresh ``LibrePICODETModel``.
 2. Reverses the conversion key remap on its ``state_dict`` to produce
    a synthetic "Bo-format" state dict.
 3. Runs ``convert_picodet_weights.remap_state_dict`` on it.
-4. Loads the result back into a *fresh* ``LibrePicoDetModel`` and asserts
+4. Loads the result back into a *fresh* ``LibrePICODETModel`` and asserts
    bit-equivalent forward outputs.
 
 This proves the remap is a clean bijection. When real Bo checkpoints
@@ -35,7 +35,7 @@ from convert_picodet_weights import (  # type: ignore[import-not-found]
     ESNET_STAGE_REPEATS,
     remap_state_dict,
 )
-from libreyolo.models.picodet.nn import LibrePicoDetModel
+from libreyolo.models.picodet.nn import LibrePICODETModel
 
 
 def _flat_to_token() -> dict[int, str]:
@@ -90,7 +90,7 @@ def _make_bo_state_dict(model: torch.nn.Module) -> dict[str, torch.Tensor]:
 @pytest.mark.parametrize("size", ["s", "m", "l"])
 def test_conversion_roundtrip_bit_equivalent(size: str) -> None:
     torch.manual_seed(0)
-    src = LibrePicoDetModel(size=size, nb_classes=80).eval()
+    src = LibrePICODETModel(size=size, nb_classes=80).eval()
     sd_orig = src.state_dict()
 
     # Produce a synthetic Bo-format state dict, then run our converter.
@@ -107,7 +107,7 @@ def test_conversion_roundtrip_bit_equivalent(size: str) -> None:
         assert torch.equal(converted[k], sd_orig[k]), f"Tensor mismatch at {k!r}"
 
     # Forward equivalence.
-    dst = LibrePicoDetModel(size=size, nb_classes=80).eval()
+    dst = LibrePICODETModel(size=size, nb_classes=80).eval()
     dst.load_state_dict(converted, strict=True)
 
     isz = {"s": 320, "m": 416, "l": 640}[size]

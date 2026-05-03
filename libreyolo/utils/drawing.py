@@ -208,6 +208,84 @@ def draw_masks(
     return result.convert("RGB")
 
 
+# COCO 17-keypoint skeleton + colors (matches super-gradients defaults).
+COCO_KEYPOINT_EDGES: Tuple[Tuple[int, int], ...] = (
+    (0, 1), (0, 2), (1, 2), (1, 3), (2, 4),
+    (5, 6), (5, 7), (7, 9), (6, 8), (8, 10),
+    (5, 11), (6, 12), (11, 12),
+    (11, 13), (13, 15), (12, 14), (14, 16),
+)
+COCO_KEYPOINT_COLOR: Tuple[int, int, int] = (51, 153, 255)
+COCO_EDGE_COLOR: Tuple[int, int, int] = (255, 128, 0)
+
+
+def draw_keypoints(
+    img: Image.Image,
+    keypoints: np.ndarray,
+    edges: Tuple[Tuple[int, int], ...] = COCO_KEYPOINT_EDGES,
+    point_color: Tuple[int, int, int] = COCO_KEYPOINT_COLOR,
+    edge_color: Tuple[int, int, int] = COCO_EDGE_COLOR,
+    point_radius: int | None = None,
+    edge_width: int | None = None,
+    conf_thres: float = 0.5,
+) -> Image.Image:
+    """Draw keypoints + skeleton edges for one or more instances.
+
+    Args:
+        img: PIL image to draw on.
+        keypoints: ``(N, K, 2)`` or ``(N, K, 3)`` array. The third channel,
+            when present, is per-keypoint confidence; keypoints with
+            ``conf < conf_thres`` are skipped.
+        edges: Pairs of keypoint indices to connect.
+        point_color: RGB color for keypoint dots.
+        edge_color: RGB color for skeleton edges.
+        point_radius: Dot radius in pixels (auto-scaled if None).
+        edge_width: Edge line width in pixels (auto-scaled if None).
+        conf_thres: Per-keypoint confidence cutoff for visibility.
+    """
+    arr = np.asarray(keypoints)
+    if arr.ndim == 2:
+        arr = arr[None, ...]
+    if arr.size == 0:
+        return img
+
+    img_draw = img.copy()
+    draw = ImageDraw.Draw(img_draw)
+
+    img_diag = (img.width ** 2 + img.height ** 2) ** 0.5
+    if point_radius is None:
+        point_radius = max(2, int(round(img_diag / 400)))
+    if edge_width is None:
+        edge_width = max(1, int(round(img_diag / 600)))
+
+    has_conf = arr.shape[-1] >= 3
+
+    for instance in arr:
+        visible = (
+            instance[:, 2] >= conf_thres if has_conf
+            else np.ones(instance.shape[0], dtype=bool)
+        )
+        for a, b in edges:
+            if a >= len(instance) or b >= len(instance):
+                continue
+            if not (visible[a] and visible[b]):
+                continue
+            xa, ya = float(instance[a, 0]), float(instance[a, 1])
+            xb, yb = float(instance[b, 0]), float(instance[b, 1])
+            draw.line([(xa, ya), (xb, yb)], fill=edge_color, width=edge_width)
+        for k, (x, y) in enumerate(instance[:, :2]):
+            if not visible[k]:
+                continue
+            cx, cy = float(x), float(y)
+            draw.ellipse(
+                [cx - point_radius, cy - point_radius,
+                 cx + point_radius, cy + point_radius],
+                fill=point_color,
+                outline=(0, 0, 0),
+            )
+    return img_draw
+
+
 def draw_tile_grid(
     img: Image.Image,
     tile_coords: List[Tuple[int, int, int, int]],

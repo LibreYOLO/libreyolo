@@ -23,7 +23,7 @@ def _uses_dfine_style_export_wrapper(model_family) -> bool:
     module that returns a 2-tuple. ONNX export can skip the dynamic output
     probe for them, and they all need opset 17 for ``aten::scaled_dot_product``.
     """
-    return model_family in {"dfine", "deim", "deimv2", "ecdet"}
+    return model_family in {"dfine", "deim", "deimv2", "ec"}
 
 
 def _postprocess_onnx(

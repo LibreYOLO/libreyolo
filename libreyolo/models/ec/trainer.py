@@ -1,16 +1,16 @@
-"""ECDETTrainer — D-FINE-style trainer adapted for ECDET (EXPERIMENTAL).
+"""ECTrainer — D-FINE-style trainer adapted for EC (EXPERIMENTAL).
 
-Subclasses ``DFINETrainer`` and overrides only the points where ECDET's recipe
+Subclasses ``DFINETrainer`` and overrides only the points where EC's recipe
 diverges from D-FINE's:
 
 * ``on_setup`` swaps the criterion to ``ECCriterion`` with MAL classification
-  loss (upstream's default), the ECDET weight_dict, and the ECDET loss list
+  loss (upstream's default), the EC weight_dict, and the EC loss list
   ``["mal", "boxes", "local"]``.
 * ``get_loss_components`` reports ``mal`` instead of ``vfl``.
 * ``get_model_family`` / ``get_model_tag`` / ``_config_class`` updated.
 
 Training has not been validated on a real fine-tune run; this is shipped
-behind an explicit ``allow_experimental`` gate on ``LibreECDET.train()``.
+behind an explicit ``allow_experimental`` gate on ``LibreEC.train()``.
 """
 
 from __future__ import annotations
@@ -20,28 +20,28 @@ from typing import Dict, Type
 
 import torch
 
-from ...training.config import ECDETConfig, TrainConfig
+from ...training.config import ECConfig, TrainConfig
 from ..dfine.matcher import HungarianMatcher
 from ..dfine.trainer import DFINETrainer
 from ..dfine.transforms import DFINEPassThroughDataset, DFINETrainTransform
 from .loss import ECCriterion
 
 
-class ECDETTrainer(DFINETrainer):
+class ECTrainer(DFINETrainer):
     @classmethod
     def _config_class(cls) -> Type[TrainConfig]:
-        return ECDETConfig
+        return ECConfig
 
     def get_model_family(self) -> str:
-        return "ecdet"
+        return "ec"
 
     def get_model_tag(self) -> str:
-        return f"ECDET-{self.config.size}"
+        return f"EC-{self.config.size}"
 
     def _setup_device(self) -> torch.device:
-        """Override the D-FINE blanket CPU-fallback for ECDET.
+        """Override the D-FINE blanket CPU-fallback for EC.
 
-        ECDET's training was hitting two MPS issues:
+        EC's training was hitting two MPS issues:
           1. ``mps_linear_backward`` on ``Integral.forward``'s 33-bin
              ``F.linear`` matmul. **Fixed in our Integral** by replacing the
              1-D matmul with ``(softmax_x * project).sum(-1)``.
@@ -60,13 +60,13 @@ class ECDETTrainer(DFINETrainer):
             import logging
 
             logging.getLogger(__name__).info(
-                "ECDET training on MPS: enabling PYTORCH_ENABLE_MPS_FALLBACK=1 "
+                "EC training on MPS: enabling PYTORCH_ENABLE_MPS_FALLBACK=1 "
                 "(deformable attention's grid_sample backward runs on CPU)."
             )
         return device
 
     def create_transforms(self):
-        # ECDET's pretrained ViT backbone expects ImageNet-normalized inputs at
+        # EC's pretrained ViT backbone expects ImageNet-normalized inputs at
         # both train and eval time; the inference path applies the same norm
         # (see commit cc14dd20). Without this, the train/eval input distribution
         # diverges and fine-tuning silently corrupts the model.

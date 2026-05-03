@@ -107,18 +107,33 @@ def wrap_libreyolo_checkpoint(
     size: str,
     nc: int,
     names: dict[int, str] | None = None,
+    task: str | None = None,
+    supported_tasks: tuple[str, ...] | list[str] | None = None,
+    default_task: str | None = None,
 ) -> dict[str, Any]:
-    """Build the standard metadata-wrapped LibreYOLO checkpoint format."""
+    """Build the standard metadata-wrapped LibreYOLO checkpoint format.
+
+    The optional ``task`` / ``supported_tasks`` / ``default_task`` fields are
+    persisted so backends and the factory can route without sniffing
+    state-dict keys (multi-task families require this).
+    """
     if names is None:
         names = build_class_names(nc)
 
-    return {
+    ckpt: dict[str, Any] = {
         "model": state_dict,
         "model_family": model_family,
         "size": size,
         "nc": nc,
         "names": names,
     }
+    if task is not None:
+        ckpt["task"] = task
+    if supported_tasks is not None:
+        ckpt["supported_tasks"] = list(supported_tasks)
+    if default_task is not None:
+        ckpt["default_task"] = default_task
+    return ckpt
 
 
 def save_checkpoint(checkpoint: Any, output_path: str | Path) -> Path:

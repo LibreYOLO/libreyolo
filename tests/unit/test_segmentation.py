@@ -158,12 +158,13 @@ class TestClassesFilterWithMasks:
         cls = torch.tensor([0.0, 1.0, 0.0])
         masks = torch.randint(0, 2, (3, 64, 64), dtype=torch.bool)
 
-        filtered_boxes, filtered_conf, filtered_cls, filtered_masks = (
+        filtered_boxes, filtered_conf, filtered_cls, filtered_masks, filtered_kpts = (
             InferenceRunner._apply_classes_filter(boxes, conf, cls, [0], masks)
         )
 
         assert len(filtered_boxes) == 2
         assert len(filtered_masks) == 2
+        assert filtered_kpts is None
 
     def test_filter_without_masks(self):
         from libreyolo.models.base.inference import InferenceRunner
@@ -172,12 +173,13 @@ class TestClassesFilterWithMasks:
         conf = torch.tensor([0.9, 0.8])
         cls = torch.tensor([0.0, 1.0])
 
-        filtered_boxes, filtered_conf, filtered_cls, filtered_masks = (
+        filtered_boxes, filtered_conf, filtered_cls, filtered_masks, filtered_kpts = (
             InferenceRunner._apply_classes_filter(boxes, conf, cls, [0])
         )
 
         assert len(filtered_boxes) == 1
         assert filtered_masks is None
+        assert filtered_kpts is None
 
 
 class TestFactorySegDetection:

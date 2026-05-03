@@ -1,4 +1,4 @@
-"""ECDET decoder helpers.
+"""EC decoder helpers.
 
 Ported from EdgeCrafter (Apache-2.0). Functions kept byte-equivalent to upstream
 to lock in numerical parity for the decoder + criterion. Only the import of
@@ -125,6 +125,20 @@ def weighting_function(reg_max: int, up: torch.Tensor, reg_scale, deploy: bool =
             + [upper_bound2]
         )
         return torch.cat(values, 0)
+
+
+def distance2pose(
+    points: torch.Tensor, distance: torch.Tensor, reg_scale
+) -> torch.Tensor:
+    """Decode per-keypoint distance offsets onto reference points.
+
+    Used by the pose decoder. Mirrors upstream's
+    ``ecpose/engine/edgecrafter/detrpose_transformer.distance2pose``.
+    """
+    reg_scale = abs(reg_scale)
+    x = points[..., 0] + distance[..., 0] / reg_scale
+    y = points[..., 1] + distance[..., 1] / reg_scale
+    return torch.stack([x, y], -1)
 
 
 def distance2bbox(

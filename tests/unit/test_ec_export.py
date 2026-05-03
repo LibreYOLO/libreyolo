@@ -1,6 +1,6 @@
-"""ONNX export + ONNX-backend round-trip tests for ECDET.
+"""ONNX export + ONNX-backend round-trip tests for EC.
 
-Skipped if ``onnx`` / ``onnxruntime`` are not installed, or if the ECDET-S
+Skipped if ``onnx`` / ``onnxruntime`` are not installed, or if the EC-S
 checkpoint is absent.
 """
 
@@ -22,13 +22,13 @@ if (
     pytest.skip("onnx/onnxruntime not installed", allow_module_level=True)
 
 
-def test_ecdet_export_wrapper_returns_tuple():
+def test_ec_export_wrapper_returns_tuple():
     """Trace-friendly wrapper must return a 2-tuple, not a dict."""
-    from libreyolo import LibreECDET
-    from libreyolo.models.ecdet.nn import ECDETExportWrapper
+    from libreyolo import LibreEC
+    from libreyolo.models.ec.nn import ECExportWrapper
 
-    wrapper = LibreECDET(None, size="s", device="cpu")
-    exp = ECDETExportWrapper(wrapper.model)
+    wrapper = LibreEC(None, size="s", device="cpu")
+    exp = ECExportWrapper(wrapper.model)
     exp.eval()
     with torch.no_grad():
         out = exp(torch.randn(1, 3, 640, 640))
@@ -38,20 +38,20 @@ def test_ecdet_export_wrapper_returns_tuple():
     assert pred_boxes.shape == (1, 300, 4)
 
 
-CKPT_PATH = Path("weights/LibreECDETs.pt")
+CKPT_PATH = Path("weights/LibreECs.pt")
 
 
 @pytest.mark.skipif(not CKPT_PATH.exists(), reason=f"{CKPT_PATH} not present")
-def test_ecdet_onnx_export_s_roundtrip(tmp_path):
+def test_ec_onnx_export_s_roundtrip(tmp_path):
     """Export S to ONNX, run via onnxruntime, verify graph + numeric parity vs PyTorch."""
     import onnx
     import onnxruntime as ort
 
-    from libreyolo import LibreECDET
-    from libreyolo.models.ecdet.postprocess import preprocess_numpy
+    from libreyolo import LibreEC
+    from libreyolo.models.ec.postprocess import preprocess_numpy
 
-    m = LibreECDET(str(CKPT_PATH), size="s", device="cpu")
-    out_path = tmp_path / "LibreECDETs.onnx"
+    m = LibreEC(str(CKPT_PATH), size="s", device="cpu")
+    out_path = tmp_path / "LibreECs.onnx"
     m.export("onnx", output_path=str(out_path), simplify=False, dynamic=False, opset=17)
 
     # Graph inspection
@@ -60,7 +60,7 @@ def test_ecdet_onnx_export_s_roundtrip(tmp_path):
     assert output_names == ["pred_logits", "pred_boxes"], output_names
 
     metadata = {p.key: p.value for p in proto.metadata_props}
-    assert metadata.get("model_family") == "ecdet"
+    assert metadata.get("model_family") == "ec"
     assert metadata.get("model_size") == "s"
 
     # Numeric round-trip: same input → same output between PyTorch and ONNX.
@@ -80,7 +80,7 @@ def test_ecdet_onnx_export_s_roundtrip(tmp_path):
     # BN-fusion in deploy() reorders fp32 ops, and onnxruntime's CPU EP uses
     # MLAS kernels with different summation order. Raw-tensor tolerance is
     # ~5e-3; final detections (post sigmoid + top-K) are bit-equivalent in
-    # practice — see test_ecdet_onnx_backend_predict.
+    # practice — see test_ec_onnx_backend_predict.
     assert np.allclose(pt_logits, ox_logits, atol=1e-2), (
         f"max err {np.abs(pt_logits - ox_logits).max():.2e}"
     )
@@ -90,18 +90,18 @@ def test_ecdet_onnx_export_s_roundtrip(tmp_path):
 
 
 @pytest.mark.skipif(not CKPT_PATH.exists(), reason=f"{CKPT_PATH} not present")
-def test_ecdet_onnx_backend_predict(tmp_path):
+def test_ec_onnx_backend_predict(tmp_path):
     """Exported ONNX, loaded through the unified factory, produces matching detections."""
     from libreyolo import LibreYOLO, SAMPLE_IMAGE
 
     pt = LibreYOLO(str(CKPT_PATH), device="cpu")
-    onnx_path = tmp_path / "LibreECDETs.onnx"
+    onnx_path = tmp_path / "LibreECs.onnx"
     pt.export(
         "onnx", output_path=str(onnx_path), simplify=False, dynamic=False, opset=17
     )
 
     ox = LibreYOLO(str(onnx_path), nb_classes=80)
-    assert ox.model_family == "ecdet"
+    assert ox.model_family == "ec"
 
     pt_r = pt.predict(SAMPLE_IMAGE, conf=0.3)
     ox_r = ox.predict(SAMPLE_IMAGE, conf=0.3)

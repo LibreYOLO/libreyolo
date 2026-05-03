@@ -601,7 +601,12 @@ class BaseModel(ABC):
             Dictionary with metrics/precision, metrics/recall,
             metrics/mAP50, metrics/mAP50-95.
         """
-        from libreyolo.validation import DetectionValidator, SegmentationValidator, ValidationConfig
+        from libreyolo.validation import (
+            DetectionValidator,
+            PoseValidator,
+            SegmentationValidator,
+            ValidationConfig,
+        )
 
         if imgsz is None:
             imgsz = self._get_input_size()
@@ -621,6 +626,11 @@ class BaseModel(ABC):
             **kwargs,
         )
 
-        validator_cls = SegmentationValidator if self.task == "segment" else DetectionValidator
+        if self.task == "pose":
+            validator_cls = PoseValidator
+        elif self.task == "segment":
+            validator_cls = SegmentationValidator
+        else:
+            validator_cls = DetectionValidator
         validator = validator_cls(model=self, config=config)
         return validator()

@@ -62,7 +62,7 @@ def _is_nms_free_family(model_family: Optional[str]) -> bool:
     selection. Applying YOLO-style IoU suppression on top of that can remove
     valid detections and make exported runtimes diverge from native PyTorch.
     """
-    return model_family in {"dfine", "deim", "deimv2", "ecdet", "rfdetr", "rtdetr"}
+    return model_family in {"dfine", "deim", "deimv2", "ec", "rfdetr", "rtdetr"}
 
 
 class BaseBackend(ABC):
@@ -157,8 +157,8 @@ class BaseBackend(ABC):
                 image, effective_imgsz, color_format, self.model_size
             )
             return tensor, img, size, 1.0
-        elif self.model_family == "ecdet":
-            tensor, img, size = self._preprocess_ecdet(
+        elif self.model_family == "ec":
+            tensor, img, size = self._preprocess_ec(
                 image, effective_imgsz, color_format
             )
             return tensor, img, size, 1.0
@@ -237,23 +237,23 @@ class BaseBackend(ABC):
         return img_tensor, original_img, original_size
 
     @staticmethod
-    def _preprocess_ecdet(image, input_size, color_format):
-        """ECDET preprocessing: plain resize + RGB + /255 + ImageNet (mean, std)."""
-        from ..models.ecdet.postprocess import (
-            preprocess_numpy as ecdet_preprocess_numpy,
+    def _preprocess_ec(image, input_size, color_format):
+        """EC preprocessing: plain resize + RGB + /255 + ImageNet (mean, std)."""
+        from ..models.ec.postprocess import (
+            preprocess_numpy as ec_preprocess_numpy,
         )
 
         img = ImageLoader.load(image, color_format=color_format)
         original_size = img.size
         original_img = img.copy()
 
-        img_chw, _ = ecdet_preprocess_numpy(np.array(img), input_size)
+        img_chw, _ = ec_preprocess_numpy(np.array(img), input_size)
         img_tensor = torch.from_numpy(img_chw).unsqueeze(0)
         return img_tensor, original_img, original_size
 
     @staticmethod
     def _preprocess_picodet(image, input_size, color_format):
-        """PicoDet preprocessing: simple resize + RGB + ImageNet mean/std (0-255 space)."""
+        """PICODET preprocessing: simple resize + RGB + ImageNet mean/std (0-255 space)."""
         from ..models.picodet.utils import preprocess_numpy as picodet_preprocess_numpy
 
         img = ImageLoader.load(image, color_format=color_format)
@@ -313,8 +313,8 @@ class BaseBackend(ABC):
         elif self.model_family == "deimv2":
             boxes, scores, cls = self._parse_dfine(all_outputs, orig_w, orig_h, conf)
             return boxes, scores, cls, None
-        elif self.model_family == "ecdet":
-            # ECDET emits the same {pred_logits, pred_boxes} schema as D-FINE
+        elif self.model_family == "ec":
+            # EC emits the same {pred_logits, pred_boxes} schema as D-FINE
             # so the parser is shared.
             boxes, scores, cls = self._parse_dfine(all_outputs, orig_w, orig_h, conf)
             return boxes, scores, cls, None
@@ -366,9 +366,9 @@ class BaseBackend(ABC):
         return boxes, max_scores, class_ids
 
     def _parse_picodet(self, all_outputs, effective_imgsz, orig_w, orig_h, conf):
-        """Parse PicoDet output: (B, N, 4+nc) — xyxy (input-canvas pixels) + sigmoid scores.
+        """Parse PICODET output: (B, N, 4+nc) — xyxy (input-canvas pixels) + sigmoid scores.
 
-        PicoDet exports use simple resize (not letterbox), so the inverse
+        PICODET exports use simple resize (not letterbox), so the inverse
         scale is independent x/y ratios from input canvas back to the
         original image.
         """

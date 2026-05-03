@@ -695,14 +695,15 @@ class YoloNASBackbone(nn.Module):
     def __init__(self, config: dict, in_channels: int = 3):
         super().__init__()
         activation_type = nn.ReLU
-        self.stem = YoloNASStem(in_channels, 48)
-        stage_out = [96, 192, 384, 768]
-        stage_blocks = [2, 3, 5, 2]
+        stem_ch = config["stem_channels"]
+        stage_out = config["stage_out"]
+        stage_blocks = config["stage_blocks"]
         stage_hidden = config["stage_hidden"]
         stage_concat = config["stage_concat"]
 
+        self.stem = YoloNASStem(in_channels, stem_ch)
         self.stage1 = YoloNASStage(
-            48,
+            stem_ch,
             stage_out[0],
             stage_blocks[0],
             activation_type,
@@ -736,7 +737,7 @@ class YoloNASBackbone(nn.Module):
         self.context_module = SPP(
             stage_out[3], stage_out[3], (5, 9, 13), activation_type
         )
-        self._out_channels = (stage_out[0], stage_out[1], stage_out[2], stage_out[3])
+        self._out_channels = tuple(stage_out)
 
     @property
     def out_channels(self):
@@ -757,10 +758,11 @@ class YoloNASPANNeckWithC2(nn.Module):
         super().__init__()
         c2_out, c3_out, c4_out, c5_out = in_channels
         activation_type = nn.ReLU
+        neck_out = config["neck_out"]  # (neck1, neck2, neck3, neck4)
 
         self.neck1 = YoloNASUpStage(
             [c5_out, c4_out, c3_out],
-            out_channels=192,
+            out_channels=neck_out[0],
             num_blocks=config["up_blocks"][0],
             hidden_channels=config["up_hidden"][0],
             width_mult=1.0,
@@ -770,7 +772,7 @@ class YoloNASPANNeckWithC2(nn.Module):
         )
         self.neck2 = YoloNASUpStage(
             [self.neck1.out_channels[1], c3_out, c2_out],
-            out_channels=96,
+            out_channels=neck_out[1],
             num_blocks=config["up_blocks"][1],
             hidden_channels=config["up_hidden"][1],
             width_mult=1.0,
@@ -780,7 +782,7 @@ class YoloNASPANNeckWithC2(nn.Module):
         )
         self.neck3 = YoloNASDownStage(
             [self.neck2.out_channels[1], self.neck2.out_channels[0]],
-            out_channels=192,
+            out_channels=neck_out[2],
             num_blocks=config["down_blocks"][0],
             hidden_channels=config["down_hidden"][0],
             width_mult=1.0,
@@ -789,7 +791,7 @@ class YoloNASPANNeckWithC2(nn.Module):
         )
         self.neck4 = YoloNASDownStage(
             [self.neck3.out_channels, self.neck1.out_channels[0]],
-            out_channels=384,
+            out_channels=neck_out[3],
             num_blocks=config["down_blocks"][1],
             hidden_channels=config["down_hidden"][1],
             width_mult=1.0,
@@ -1166,10 +1168,32 @@ class NDFLHeads(nn.Module):
         return decoded_predictions, raw_predictions
 
 
+# Per-size config for backbone, neck, and detect head. The `n` variant only
+# ships pretrained pose weights upstream, but the architecture is described
+# here so the same backbone/neck primitives serve both detect and pose.
+# `stem_channels`, `stage_out`, `stage_blocks`, and `neck_out` parameterize
+# values that were previously hardcoded inside the backbone/neck modules.
 _VARIANT_CONFIGS = {
+    "n": {
+        "stem_channels": 32,
+        "stage_out": (64, 128, 256, 512),
+        "stage_blocks": (2, 3, 4, 2),
+        "stage_hidden": [32, 48, 64, 128],
+        "stage_concat": [False, False, False, False],
+        "neck_out": (128, 64, 128, 256),
+        "up_blocks": [2, 2],
+        "up_hidden": [48, 32],
+        "down_blocks": [2, 2],
+        "down_hidden": [48, 48],
+        "head_width_mult": 0.33,
+    },
     "s": {
+        "stem_channels": 48,
+        "stage_out": (96, 192, 384, 768),
+        "stage_blocks": (2, 3, 5, 2),
         "stage_hidden": [32, 64, 96, 192],
         "stage_concat": [False, False, False, False],
+        "neck_out": (192, 96, 192, 384),
         "up_blocks": [2, 2],
         "up_hidden": [64, 48],
         "down_blocks": [2, 2],
@@ -1177,8 +1201,12 @@ _VARIANT_CONFIGS = {
         "head_width_mult": 0.5,
     },
     "m": {
+        "stem_channels": 48,
+        "stage_out": (96, 192, 384, 768),
+        "stage_blocks": (2, 3, 5, 2),
         "stage_hidden": [64, 128, 256, 384],
         "stage_concat": [True, True, True, False],
+        "neck_out": (192, 96, 192, 384),
         "up_blocks": [2, 3],
         "up_hidden": [192, 64],
         "down_blocks": [2, 3],
@@ -1186,8 +1214,12 @@ _VARIANT_CONFIGS = {
         "head_width_mult": 0.75,
     },
     "l": {
+        "stem_channels": 48,
+        "stage_out": (96, 192, 384, 768),
+        "stage_blocks": (2, 3, 5, 2),
         "stage_hidden": [96, 128, 256, 512],
         "stage_concat": [True, True, True, True],
+        "neck_out": (192, 96, 192, 384),
         "up_blocks": [4, 4],
         "up_hidden": [128, 128],
         "down_blocks": [4, 4],
@@ -1260,3 +1292,308 @@ class LibreYOLONASModel(nn.Module):
         x = self.backbone(x)
         x = self.neck(x)
         return self.heads(x)
+
+
+# ---------------------------------------------------------------------------
+# Pose head + pose model
+# ---------------------------------------------------------------------------
+
+# Per-stride pose head (matches super-gradients heads_list across all sizes).
+_POSE_HEAD_BBOX_INTER = (128, 256, 512)
+_POSE_HEAD_POSE_INTER = (128, 512, 512)
+_POSE_HEAD_REG_BLOCKS = (2, 2, 3)
+_POSE_HEAD_STRIDES = (8, 16, 32)
+
+
+class YoloNASPoseDFLHead(nn.Module):
+    """Per-stride pose head: DFL bbox + per-keypoint xy regression + visibility.
+
+    Layout matches super-gradients YoloNASPoseDFLHead with
+    ``pose_conf_in_class_head=True``, ``shared_stem=False``,
+    ``pose_block_use_repvgg=False`` — the configuration shared by all
+    released yolo_nas_pose_{n,s,m,l} checkpoints.
+    """
+
+    def __init__(
+        self,
+        in_channels: int,
+        bbox_inter_channels: int,
+        pose_inter_channels: int,
+        pose_regression_blocks: int,
+        width_mult: float,
+        num_keypoints: int,
+        stride: int,
+        reg_max: int = 16,
+    ):
+        super().__init__()
+        bbox_inter = width_multiplier(bbox_inter_channels, width_mult, 8)
+        pose_inter = width_multiplier(pose_inter_channels, width_mult, 8)
+
+        self.num_keypoints = num_keypoints
+        self.stride = stride
+        self.reg_max = reg_max
+        self.prior_prob = 1e-2
+
+        # shared_stem=False — separate stems for bbox vs pose.
+        self.stem = nn.Identity()
+        self.pose_stem = ConvBNReLU(
+            in_channels, pose_inter, kernel_size=1, stride=1, padding=0, bias=False
+        )
+        self.bbox_stem = ConvBNReLU(
+            in_channels, bbox_inter, kernel_size=1, stride=1, padding=0, bias=False
+        )
+
+        self.cls_convs = nn.Sequential(
+            ConvBNReLU(bbox_inter, bbox_inter, kernel_size=3, stride=1, padding=1, bias=False),
+        )
+        self.reg_convs = nn.Sequential(
+            ConvBNReLU(bbox_inter, bbox_inter, kernel_size=3, stride=1, padding=1, bias=False),
+        )
+
+        pose_block = partial(ConvBNReLU, kernel_size=3, stride=1, padding=1, bias=False)
+        self.pose_convs = nn.Sequential(
+            *[pose_block(pose_inter, pose_inter) for _ in range(pose_regression_blocks)]
+        )
+
+        # pose_conf_in_class_head=True: cls outputs 1 (objectness) + K (visibility).
+        self.cls_pred = nn.Conv2d(bbox_inter, 1 + num_keypoints, 1, 1, 0)
+        self.reg_pred = nn.Conv2d(bbox_inter, 4 * (reg_max + 1), 1, 1, 0)
+        self.pose_pred = nn.Conv2d(pose_inter, 2 * num_keypoints, 1, 1, 0)
+
+        self.cls_dropout_rate = nn.Identity()
+        self.reg_dropout_rate = nn.Identity()
+
+        self._initialize_biases()
+
+    def _initialize_biases(self):
+        prior_bias = -math.log((1 - self.prior_prob) / self.prior_prob)
+        torch.nn.init.constant_(self.cls_pred.bias, prior_bias)
+
+    def forward(self, x: Tensor) -> Tuple[Tensor, Tensor, Tensor, Tensor]:
+        x = self.stem(x)
+        pose_features = self.pose_stem(x)
+        bbox_features = self.bbox_stem(x)
+
+        cls_feat = self.cls_dropout_rate(self.cls_convs(bbox_features))
+        cls_output = self.cls_pred(cls_feat)
+        reg_feat = self.reg_dropout_rate(self.reg_convs(bbox_features))
+        reg_output = self.reg_pred(reg_feat)
+
+        pose_feat = self.reg_dropout_rate(self.pose_convs(pose_features))
+        pose_output = self.pose_pred(pose_feat)
+
+        # Split objectness and per-keypoint visibility from cls head.
+        pose_logits = cls_output[:, 1:, :, :]
+        cls_output = cls_output[:, 0:1, :, :]
+        pose_regression = pose_output.reshape(
+            (pose_output.size(0), self.num_keypoints, 2, pose_output.size(2), pose_output.size(3))
+        )
+        return reg_output, cls_output, pose_regression, pose_logits
+
+
+class YoloNASPoseNDFLHeads(nn.Module):
+    """Aggregator over 3 strides + anchor decoding for pose.
+
+    Inference-only: forward always returns the decoded 4-tuple
+    ``(pred_bboxes, pred_scores, pred_pose_xy, pred_pose_scores)`` — the
+    raw training outputs are not produced.
+    """
+
+    def __init__(
+        self,
+        in_channels: Tuple[int, int, int],
+        num_keypoints: int = 17,
+        width_mult: float = 1.0,
+        reg_max: int = 16,
+        grid_cell_offset: float = 0.5,
+        compensate_grid_cell_offset: bool = True,
+        pose_offset_multiplier: float = 1.0,
+        eval_size: Optional[Tuple[int, int]] = None,
+    ):
+        super().__init__()
+        self.in_channels = tuple(in_channels)
+        self.num_keypoints = num_keypoints
+        self.reg_max = reg_max
+        self.grid_cell_offset = grid_cell_offset
+        self.compensate_grid_cell_offset = compensate_grid_cell_offset
+        self.pose_offset_multiplier = pose_offset_multiplier
+        self.eval_size = eval_size
+        self.fpn_strides = _POSE_HEAD_STRIDES
+
+        proj = torch.linspace(0, reg_max, reg_max + 1).reshape([1, reg_max + 1, 1, 1])
+        self.register_buffer("proj_conv", proj, persistent=False)
+
+        for i, stride in enumerate(self.fpn_strides):
+            head = YoloNASPoseDFLHead(
+                in_channels=in_channels[i],
+                bbox_inter_channels=_POSE_HEAD_BBOX_INTER[i],
+                pose_inter_channels=_POSE_HEAD_POSE_INTER[i],
+                pose_regression_blocks=_POSE_HEAD_REG_BLOCKS[i],
+                width_mult=width_mult,
+                num_keypoints=num_keypoints,
+                stride=stride,
+                reg_max=reg_max,
+            )
+            setattr(self, f"head{i + 1}", head)
+
+        self.num_heads = 3
+
+    @torch.jit.ignore
+    def cache_anchors(self, input_size: Tuple[int, int]):
+        self.eval_size = input_size
+        device = next(self.parameters()).device
+        dtype = next(self.parameters()).dtype
+        anchor_points, stride_tensor = self._generate_anchors(dtype=dtype, device=device)
+        self.register_buffer("anchor_points", anchor_points, persistent=False)
+        self.register_buffer("stride_tensor", stride_tensor, persistent=False)
+
+    def _generate_anchors(self, feats=None, dtype=None, device=None):
+        anchor_points = []
+        stride_tensor = []
+        dtype = dtype or feats[0].dtype
+        device = device or feats[0].device
+
+        for i, stride in enumerate(self.fpn_strides):
+            if feats is not None:
+                _, _, h, w = feats[i].shape
+            else:
+                h = int(self.eval_size[0] / stride)
+                w = int(self.eval_size[1] / stride)
+            shift_x = torch.arange(end=w, device=device) + self.grid_cell_offset
+            shift_y = torch.arange(end=h, device=device) + self.grid_cell_offset
+            shift_y, shift_x = torch.meshgrid(shift_y, shift_x, indexing="ij")
+            anchor_point = torch.stack([shift_x, shift_y], dim=-1).to(dtype=dtype)
+            anchor_points.append(anchor_point.reshape([-1, 2]))
+            stride_tensor.append(
+                torch.full([h * w, 1], stride, dtype=dtype, device=device)
+            )
+        return torch.cat(anchor_points), torch.cat(stride_tensor)
+
+    def forward(self, feats: Tuple[Tensor, ...]) -> Tuple[Tensor, Tensor, Tensor, Tensor]:
+        cls_score_list, reg_dist_reduced_list = [], []
+        pose_regression_list, pose_logits_list = [], []
+
+        for i, feat in enumerate(feats):
+            b, _, h, w = feat.shape
+            hw = h * w
+            reg_distri, cls_logit, pose_regression, pose_logits = getattr(
+                self, f"head{i + 1}"
+            )(feat)
+
+            reg_dist_reduced = torch.permute(
+                reg_distri.reshape([-1, 4, self.reg_max + 1, hw]), [0, 2, 3, 1]
+            )
+            reg_dist_reduced = (
+                F.softmax(reg_dist_reduced, dim=1).mul(self.proj_conv).sum(1)
+            )
+
+            cls_score_list.append(cls_logit.reshape([b, -1, hw]))
+            reg_dist_reduced_list.append(reg_dist_reduced)
+            # [B, K, 2, H, W] -> [B, H*W, K, 2]
+            pose_regression_list.append(
+                torch.permute(pose_regression.flatten(3), [0, 3, 1, 2])
+            )
+            # [B, K, H, W] -> [B, H*W, K]
+            pose_logits_list.append(torch.permute(pose_logits.flatten(2), [0, 2, 1]))
+
+        cls_score_list = torch.cat(cls_score_list, dim=-1)
+        cls_score_list = torch.permute(cls_score_list, [0, 2, 1])  # [B, A, 1]
+        reg_dist_reduced_list = torch.cat(reg_dist_reduced_list, dim=1)  # [B, A, 4]
+        pose_regression_list = torch.cat(pose_regression_list, dim=1)  # [B, A, K, 2]
+        pose_logits_list = torch.cat(pose_logits_list, dim=1)  # [B, A, K]
+
+        if self.eval_size and hasattr(self, "anchor_points"):
+            anchor_points = self.anchor_points
+            stride_tensor = self.stride_tensor
+        else:
+            anchor_points, stride_tensor = self._generate_anchors(feats)
+
+        pred_scores = cls_score_list.sigmoid()
+        pred_bboxes = (
+            batch_distance2bbox(anchor_points, reg_dist_reduced_list) * stride_tensor
+        )
+
+        if self.pose_offset_multiplier != 1.0:
+            pose_regression_list = pose_regression_list * self.pose_offset_multiplier
+        if self.compensate_grid_cell_offset:
+            pose_regression_list = (
+                pose_regression_list
+                + anchor_points.unsqueeze(0).unsqueeze(2)
+                - self.grid_cell_offset
+            )
+        else:
+            pose_regression_list = (
+                pose_regression_list + anchor_points.unsqueeze(0).unsqueeze(2)
+            )
+
+        pose_regression_list = pose_regression_list * stride_tensor.unsqueeze(0).unsqueeze(2)
+        pred_pose_scores = pose_logits_list.sigmoid()
+        return pred_bboxes, pred_scores, pose_regression_list, pred_pose_scores
+
+
+class LibreYOLONASPoseModel(nn.Module):
+    """Native YOLO-NAS pose model (inference-only).
+
+    Reuses :class:`YoloNASBackbone` and :class:`YoloNASPANNeckWithC2`
+    (parameterized by ``_VARIANT_CONFIGS``) and swaps the detection head for
+    :class:`YoloNASPoseNDFLHeads`.
+    """
+
+    def __init__(
+        self,
+        config: str = "s",
+        num_keypoints: int = 17,
+        in_channels: int = 3,
+        reg_max: int = 16,
+        eval_size: Optional[Tuple[int, int]] = None,
+        bn_eps: float = 1e-3,
+        bn_momentum: float = 0.03,
+        inplace_act: bool = True,
+    ):
+        super().__init__()
+        if config not in _VARIANT_CONFIGS:
+            raise ValueError(f"Unknown YOLO-NAS config '{config}'")
+
+        variant = _VARIANT_CONFIGS[config]
+        self.config = config
+        self.num_keypoints = num_keypoints
+        self.reg_max = reg_max
+
+        self.backbone = YoloNASBackbone(variant, in_channels=in_channels)
+        self.neck = YoloNASPANNeckWithC2(list(self.backbone.out_channels), variant)
+        self.heads = YoloNASPoseNDFLHeads(
+            in_channels=tuple(self.neck.out_channels),
+            num_keypoints=num_keypoints,
+            width_mult=variant["head_width_mult"],
+            reg_max=reg_max,
+            eval_size=eval_size,
+        )
+        self._initialize_weights(bn_eps, bn_momentum, inplace_act)
+
+    def _initialize_weights(self, bn_eps: float, bn_momentum: float, inplace_act: bool):
+        for m in self.modules():
+            if isinstance(m, nn.BatchNorm2d):
+                m.eps = bn_eps
+                m.momentum = bn_momentum
+            elif inplace_act and isinstance(
+                m, (nn.Hardswish, nn.LeakyReLU, nn.ReLU, nn.ReLU6, nn.SiLU, nn.Mish)
+            ):
+                m.inplace = True
+
+    def prep_model_for_conversion(
+        self, input_size=None, full_fusion: bool = False, **kwargs
+    ):
+        for module in self.modules():
+            if module is not self and hasattr(module, "prep_model_for_conversion"):
+                module.prep_model_for_conversion(
+                    input_size=input_size, full_fusion=full_fusion, **kwargs
+                )
+
+    def fuse_reparam(self, full_fusion: bool = False):
+        self.prep_model_for_conversion(full_fusion=full_fusion)
+        return self
+
+    def forward(self, x: Tensor) -> Tuple[Tensor, Tensor, Tensor, Tensor]:
+        feats = self.backbone(x)
+        feats = self.neck(feats)
+        return self.heads(feats)

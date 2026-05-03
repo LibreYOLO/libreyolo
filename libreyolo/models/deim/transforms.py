@@ -72,7 +72,7 @@ class DEIMTrainTransform:
 
     STRONG_OP_NAMES = ("RandomPhotometricDistort", "RandomZoomOut", "RandomIoUCrop")
 
-    # ImageNet stats (used only when ``imagenet_norm=True``). ECDET's pretrained
+    # ImageNet stats (used only when ``imagenet_norm=True``). EC's pretrained
     # ViT backbone expects normalized inputs at both train and eval; DEIM's
     # HGNetv2 was pretrained on /255-only inputs and disables normalization.
     _IMAGENET_MEAN = np.array([0.485, 0.456, 0.406], dtype=np.float32).reshape(3, 1, 1)

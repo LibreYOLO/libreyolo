@@ -170,8 +170,8 @@ class TensorRTBackend(BaseBackend):
         stem = Path(self.model_path).stem.lower()
         if "deimv2" in stem:
             return "deimv2"
-        if "ecdet" in stem:
-            return "ecdet"
+        if "ec" in stem:
+            return "ec"
         if "dfine" in stem:
             return "dfine"
         if "deim" in stem:
@@ -381,8 +381,8 @@ class TensorRTBackend(BaseBackend):
             return "deimv2"
         elif self.model_family == "rtdetr":
             return "rtdetr"
-        elif self.model_family == "ecdet":
-            return "ecdet"
+        elif self.model_family == "ec":
+            return "ec"
         return "libreyolo"
 
     def _get_input_size(self) -> int:

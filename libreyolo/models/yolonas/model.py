@@ -1,4 +1,4 @@
-"""LibreYOLO YOLO-NAS wrapper."""
+"""LibreYOLO YOLO-NAS wrapper (detect + pose)."""
 
 from __future__ import annotations
 
@@ -9,20 +9,33 @@ import torch
 import torch.nn as nn
 
 from ..base import BaseModel
+from ...tasks import normalize_task
 from ...utils.image_loader import ImageInput
+from ...utils.serialization import load_untrusted_torch_file
 from ...validation.preprocessors import YOLONASValPreprocessor
-from .nn import LibreYOLONASModel
+from .nn import LibreYOLONASModel, LibreYOLONASPoseModel
 from .utils import (
     postprocess,
+    postprocess_pose,
     preprocess_image,
     unwrap_yolonas_checkpoint,
 )
+
+_POSE_HEAD_KEY = "heads.head1.pose_pred.weight"
 
 
 class LibreYOLONAS(BaseModel):
     FAMILY = "yolonas"
     FILENAME_PREFIX = "LibreYOLONAS"
     INPUT_SIZES = {"s": 640, "m": 640, "l": 640}
+    POSE_INPUT_SIZES = {"n": 640, "s": 640, "m": 640, "l": 640}
+    SUPPORTED_TASKS = ("detect", "pose")
+    DEFAULT_TASK = "detect"
+    TASK_INPUT_SIZES = {
+        "detect": INPUT_SIZES,
+        "pose": POSE_INPUT_SIZES,
+    }
+    POSE_NUM_KEYPOINTS = 17
     val_preprocessor_class = YOLONASValPreprocessor
 
     _REQUIRED_SIGNATURE_KEYS = (
@@ -33,6 +46,7 @@ class LibreYOLONAS(BaseModel):
         "heads.head1.reg_pred.weight",
     )
     _SIZE_FROM_HEAD_WIDTH = {64: "s", 96: "m", 128: "l"}
+    _SIZE_FROM_HEAD_WIDTH_POSE = {48: "n", 64: "s", 96: "m", 128: "l"}
     _NUM_CLASSES_KEY = "heads.head1.cls_pred.weight"
 
     _DECI_CDN_BASE = "https://d2gjn4b69gu75n.cloudfront.net/models"
@@ -42,12 +56,19 @@ class LibreYOLONAS(BaseModel):
         return all(key in weights_dict for key in cls._REQUIRED_SIGNATURE_KEYS)
 
     @classmethod
+    def is_pose_state_dict(cls, weights_dict: dict) -> bool:
+        return _POSE_HEAD_KEY in weights_dict
+
+    @classmethod
     def get_download_url(cls, filename: str) -> Optional[str]:
         # YOLO-NAS weights are under Deci's proprietary license — LibreYOLO
         # links to Deci's public CDN instead of mirroring on its own HF org.
         size = cls.detect_size_from_filename(filename)
         if size is None:
             return None
+        task = cls.detect_task_from_filename(filename)
+        if task == "pose":
+            return f"{cls._DECI_CDN_BASE}/yolo_nas_pose_{size}_coco_pose.pth"
         return f"{cls._DECI_CDN_BASE}/yolo_nas_{size}_coco.pth"
 
     @classmethod
@@ -55,14 +76,38 @@ class LibreYOLONAS(BaseModel):
         tensor = weights_dict.get(cls._NUM_CLASSES_KEY)
         if tensor is None or tensor.ndim < 2:
             return None
-        return cls._SIZE_FROM_HEAD_WIDTH.get(tensor.shape[1])
+        size_map = (
+            cls._SIZE_FROM_HEAD_WIDTH_POSE
+            if cls.is_pose_state_dict(weights_dict)
+            else cls._SIZE_FROM_HEAD_WIDTH
+        )
+        return size_map.get(tensor.shape[1])
 
     @classmethod
     def detect_nb_classes(cls, weights_dict: dict) -> Optional[int]:
         tensor = weights_dict.get(cls._NUM_CLASSES_KEY)
         if tensor is None or tensor.ndim == 0:
             return None
+        if cls.is_pose_state_dict(weights_dict):
+            # Pose has 1 detection class (person); the cls head's extra
+            # channels are per-keypoint visibility logits.
+            return 1
         return int(tensor.shape[0])
+
+    @staticmethod
+    def _detect_pose(model_path) -> bool:
+        if not isinstance(model_path, str):
+            return False
+        try:
+            ckpt = load_untrusted_torch_file(
+                model_path, map_location="cpu", context="YOLO-NAS task probe"
+            )
+            if isinstance(ckpt, dict) and isinstance(ckpt.get("task"), str):
+                return normalize_task(ckpt["task"]) == "pose"
+            state = unwrap_yolonas_checkpoint(ckpt)
+            return _POSE_HEAD_KEY in state
+        except Exception:
+            return False
 
     def __init__(
         self,
@@ -71,22 +116,37 @@ class LibreYOLONAS(BaseModel):
         nb_classes: int = 80,
         device: str = "auto",
         reg_max: int = 16,
+        task: str | None = None,
         **kwargs,
     ):
         self.reg_max = reg_max
         if isinstance(model_path, dict):
             model_path = unwrap_yolonas_checkpoint(model_path)
+        # For pose, override classes to single-class person detection regardless
+        # of how many classes the user passed (which defaults to 80 for COCO).
+        resolved_task = normalize_task(task) if task is not None else None
+        if resolved_task == "pose":
+            nb_classes = 1
         super().__init__(
             model_path=model_path,
             size=size,
             nb_classes=nb_classes,
             device=device,
+            task=resolved_task,
             **kwargs,
         )
+        if self.task == "pose":
+            self.names = {0: "person"}
         if isinstance(model_path, str):
             self._load_weights(model_path)
 
     def _init_model(self) -> nn.Module:
+        if self.task == "pose":
+            return LibreYOLONASPoseModel(
+                config=self.size,
+                num_keypoints=self.POSE_NUM_KEYPOINTS,
+                reg_max=self.reg_max,
+            )
         return LibreYOLONASModel(
             config=self.size,
             nb_classes=self.nb_classes,
@@ -109,6 +169,10 @@ class LibreYOLONAS(BaseModel):
         }
 
     def _rebuild_for_new_classes(self, new_nb_classes: int):
+        if self.task == "pose":
+            # Pose head has fixed single-class detection; classes are not
+            # configurable at load time.
+            return
         self.nb_classes = new_nb_classes
         self.model.nc = new_nb_classes
         self.model.heads.replace_num_classes(new_nb_classes)
@@ -135,6 +199,18 @@ class LibreYOLONAS(BaseModel):
 
     def _forward(self, input_tensor: torch.Tensor) -> Any:
         output = self.model(input_tensor)
+        if self.task == "pose":
+            # Heads return the inference 4-tuple
+            # (bboxes, scores, pose_xy, pose_scores).
+            if isinstance(output, tuple) and len(output) == 4:
+                bboxes, scores, pose_xy, pose_scores = output
+                return {
+                    "boxes": bboxes,
+                    "scores": scores,
+                    "keypoints_xy": pose_xy,
+                    "keypoints_conf": pose_scores,
+                }
+            return output
         if isinstance(output, tuple):
             if len(output) == 2 and isinstance(output[0], tuple):
                 boxes, scores = output[0]
@@ -158,6 +234,16 @@ class LibreYOLONAS(BaseModel):
         **kwargs,
     ) -> Dict:
         actual_input_size = kwargs.get("input_size", self.input_size)
+        if self.task == "pose":
+            return postprocess_pose(
+                output,
+                conf_thres=conf_thres,
+                iou_thres=iou_thres,
+                input_size=actual_input_size,
+                original_size=original_size,
+                post_nms_max_predictions=max_det,
+                letterbox=kwargs.get("letterbox", True),
+            )
         return postprocess(
             output,
             conf_thres=conf_thres,
@@ -180,6 +266,20 @@ class LibreYOLONAS(BaseModel):
             state_dict = unwrap_yolonas_checkpoint(loaded)
             state_dict = self._strip_ddp_prefix(dict(state_dict))
             state_dict = self._prepare_state_dict(state_dict)
+
+            ckpt_is_pose = self.is_pose_state_dict(state_dict)
+            if ckpt_is_pose and self.task != "pose":
+                raise RuntimeError(
+                    "Checkpoint is a YOLO-NAS pose model but this instance was "
+                    "initialized for detection. Pass task='pose' or use a "
+                    "detection checkpoint."
+                )
+            if not ckpt_is_pose and self.task == "pose":
+                raise RuntimeError(
+                    "Checkpoint is a YOLO-NAS detection model but this instance "
+                    "was initialized for pose. Pass task='detect' or use a pose "
+                    "checkpoint."
+                )
 
             if isinstance(loaded, dict):
                 ckpt_family = loaded.get("model_family", "")
@@ -226,6 +326,13 @@ class LibreYOLONAS(BaseModel):
         patience: int = 50,
         **kwargs,
     ) -> dict:
+        if self.task == "pose":
+            raise NotImplementedError(
+                "YOLO-NAS pose training is not yet implemented. Use task='detect' "
+                "to train detection variants, or run pose inference from the "
+                "pretrained checkpoints."
+            )
+
         from libreyolo.data import load_data_config
 
         from .trainer import YOLONASTrainer

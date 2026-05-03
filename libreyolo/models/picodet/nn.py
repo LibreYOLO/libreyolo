@@ -1,4 +1,4 @@
-"""PicoDet network: ESNet backbone + CSP-PAN neck + PicoHead.
+"""PICODET network: ESNet backbone + CSP-PAN neck + PicoHead.
 
 Faithful port of Bo396543018/Picodet_Pytorch, with mmcv stripped out.
 Activations match upstream exactly (HardSwish in backbone/neck/head,
@@ -23,7 +23,7 @@ import torch.nn.functional as F
 class HSigmoid(nn.Module):
     """mmcv-flavoured hard sigmoid: ``clip((x + bias) / divisor, 0, max_value)``.
 
-    Bo's PicoDet config uses ``bias=3, divisor=6, max_value=6``, which lets
+    Bo's PICODET config uses ``bias=3, divisor=6, max_value=6``, which lets
     the SE gate produce values in ``[0, 6]`` (not the standard hardsigmoid
     range ``[0, 1]``). The earlier version of this module incorrectly
     divided ``max_value`` by ``divisor`` to get an upper bound of 1, so the
@@ -342,7 +342,7 @@ class CSPLayer(nn.Module):
     * ``expand_ratio`` — CSP split: ``mid = out_channels * expand_ratio`` (default 0.5).
       This drives ``main_conv`` / ``short_conv`` / inner-bottleneck channels.
     * ``expansion``    — inner ratio of each :class:`DarknetBottleneck`
-      (default 1.0 in PicoDet, which means the bottleneck's hidden dim
+      (default 1.0 in PICODET, which means the bottleneck's hidden dim
       equals its in/out dim).
     """
 
@@ -653,13 +653,13 @@ SIZE_SPEC = {
 }
 
 
-class LibrePicoDetModel(nn.Module):
-    """Top-level PicoDet network: backbone -> neck -> head."""
+class LibrePICODETModel(nn.Module):
+    """Top-level PICODET network: backbone -> neck -> head."""
 
     def __init__(self, size: str = "s", nb_classes: int = 80) -> None:
         super().__init__()
         if size not in SIZE_SPEC:
-            raise ValueError(f"PicoDet size must be one of {list(SIZE_SPEC)}, got {size!r}")
+            raise ValueError(f"PICODET size must be one of {list(SIZE_SPEC)}, got {size!r}")
         spec = SIZE_SPEC[size]
 
         self.backbone = ESNet(model_size=spec["backbone"])  # type: ignore[arg-type]

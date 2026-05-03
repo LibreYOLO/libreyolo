@@ -455,8 +455,8 @@ class DEIMv2Config(TrainConfig):
 
 
 @dataclass(kw_only=True)
-class ECDETConfig(TrainConfig):
-    """ECDET-specific training defaults (experimental).
+class ECConfig(TrainConfig):
+    """EC-specific training defaults (experimental).
 
     Fine-tune defaults follow upstream EdgeCrafter's published recipe (S/M):
     AdamW with backbone-LR multiplier 0.05 (≈2.5e-5 vs head 5e-4), no-decay
@@ -476,7 +476,7 @@ class ECDETConfig(TrainConfig):
     warmup_epochs: int = 2
     warmup_lr_start: float = 1e-6
     no_aug_epochs: int = 4
-    min_lr_ratio: float = 0.5  # ECDET's lr_gamma in upstream
+    min_lr_ratio: float = 0.5  # EC's lr_gamma in upstream
 
     mosaic_prob: float = 0.75
     mixup_prob: float = 0.75
@@ -492,7 +492,7 @@ class ECDETConfig(TrainConfig):
     ema_decay: float = 0.9999
     ema_restart_decay: float = 0.9999
 
-    # ECDET-specific knobs.
+    # EC-specific knobs.
     backbone_lr_mult: float = 0.05  # 2.5e-5 / 5e-4 ≈ 0.05 for S/M; L/X use 0.01
     clip_max_norm: float = 0.1
     multi_scale: bool = (
@@ -502,7 +502,7 @@ class ECDETConfig(TrainConfig):
 
     amp: bool = True
     epochs: int = 74
-    name: str = "ecdet_exp"
+    name: str = "ec_exp"
 
 
 @dataclass(kw_only=True)
@@ -533,8 +533,8 @@ class YOLONASConfig(TrainConfig):
 
 
 @dataclass(kw_only=True)
-class PicoDetConfig(TrainConfig):
-    """PicoDet-specific training defaults.
+class PICODETConfig(TrainConfig):
+    """PICODET-specific training defaults.
 
     Bo's recipe (configs/picodet/picodet_s_320_coco.py):
     - SGD, lr 0.4 (4 GPUs * 0.1) momentum 0.9 weight_decay 4e-5
@@ -558,7 +558,7 @@ class PicoDetConfig(TrainConfig):
     no_aug_epochs: int = 0
     min_lr_ratio: float = 0.0
 
-    # No mosaic/mixup; PicoDet doesn't use them.
+    # No mosaic/mixup; PICODET doesn't use them.
     mosaic_prob: float = 0.0
     mixup_prob: float = 0.0
     hsv_prob: float = 0.0

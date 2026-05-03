@@ -1,6 +1,6 @@
-"""PicoDet preprocessing and postprocessing.
+"""PICODET preprocessing and postprocessing.
 
-PicoDet upstream uses **non-letterbox** simple resize + ImageNet
+PICODET upstream uses **non-letterbox** simple resize + ImageNet
 normalisation (RGB, mean=[123.675, 116.28, 103.53],
 std=[58.395, 57.12, 57.375]). Output decoding follows the GFL/DFL
 recipe: softmax-expectation over the discrete distribution buckets,
@@ -21,7 +21,7 @@ from ...utils.image_loader import ImageInput, ImageLoader
 from ...utils.general import postprocess_detections
 
 
-# ImageNet stats Bo's repo uses (shared across all PicoDet sizes)
+# ImageNet stats Bo's repo uses (shared across all PICODET sizes)
 IMAGENET_MEAN = (123.675, 116.28, 103.53)
 IMAGENET_STD = (58.395, 57.12, 57.375)
 
@@ -35,9 +35,9 @@ def preprocess_numpy(
     img_rgb_hwc: np.ndarray,
     input_size: int = 320,
 ) -> Tuple[np.ndarray, float]:
-    """Preprocess an RGB HWC uint8 image for PicoDet inference.
+    """Preprocess an RGB HWC uint8 image for PICODET inference.
 
-    Returns ``(chw_float32, ratio)``. ``ratio`` is unused by PicoDet's
+    Returns ``(chw_float32, ratio)``. ``ratio`` is unused by PICODET's
     non-letterbox resize but kept in the signature so it can flow through
     the same postprocess pipeline as letterbox-based families.
     """
@@ -186,7 +186,7 @@ def postprocess(
     strides: Sequence[int] = (8, 16, 32, 64),
     reg_max: int = 7,
 ) -> dict:
-    """Decode PicoDet head output to a single image's detections.
+    """Decode PICODET head output to a single image's detections.
 
     Defaults match Bo's ``test_cfg`` (score_thr=0.025, iou_threshold=0.6,
     max_per_img=100). Caller usually overrides ``conf_thres`` to 0.25 for
@@ -208,7 +208,7 @@ def postprocess(
     if valid_scores.numel() == 0:
         return {"boxes": [], "scores": [], "classes": [], "num_detections": 0}
 
-    # Rescale to original image (PicoDet uses simple resize, not letterbox)
+    # Rescale to original image (PICODET uses simple resize, not letterbox)
     if original_size is not None:
         scale_x = original_size[0] / input_size
         scale_y = original_size[1] / input_size

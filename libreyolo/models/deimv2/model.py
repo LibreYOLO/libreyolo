@@ -64,12 +64,6 @@ class LibreDEIMv2(BaseModel):
         return None
 
     @classmethod
-    def format_weight_filename(cls, size: str) -> str:
-        size = normalize_size(size)
-        token = {"atto": "Atto", "femto": "Femto", "pico": "Pico"}.get(size, size)
-        return f"{cls.FILENAME_PREFIX}{token}{cls.WEIGHT_EXT}"
-
-    @classmethod
     def detect_size(cls, weights_dict: dict) -> Optional[str]:
         key = "decoder.dec_score_head.0.weight"
         if key not in weights_dict:
@@ -102,15 +96,6 @@ class LibreDEIMv2(BaseModel):
         if key in weights_dict:
             return int(weights_dict[key].shape[0])
         return None
-
-    @classmethod
-    def get_download_url(cls, filename: str) -> Optional[str]:
-        size = cls.detect_size_from_filename(filename)
-        if size is None:
-            return None
-        token = {"atto": "Atto", "femto": "Femto", "pico": "Pico"}.get(size, size)
-        name = f"{cls.FILENAME_PREFIX}{token}"
-        return f"https://huggingface.co/LibreYOLO/{name}/resolve/main/{name}.pt"
 
     def __init__(
         self,

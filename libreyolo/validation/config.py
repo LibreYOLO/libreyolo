@@ -71,9 +71,20 @@ class ValidationConfig:
     half: bool = False
     allow_download_scripts: bool = False
 
+    # Pose validation
+    keypoints_json: Optional[str] = None
+    images_dir: Optional[str] = None
+
     def __post_init__(self) -> None:
-        if self.data is None and self.data_dir is None:
-            raise ValueError("Either 'data' or 'data_dir' must be specified")
+        if (
+            self.data is None
+            and self.data_dir is None
+            and self.keypoints_json is None
+        ):
+            raise ValueError(
+                "Specify one of: 'data' (yaml), 'data_dir' (detection/segmentation), "
+                "or 'keypoints_json' + 'images_dir' (pose)"
+            )
 
         if self.split not in ("val", "test", "train"):
             raise ValueError(

@@ -448,9 +448,9 @@ MODEL_CATALOG = [
     ("deim", "m", "weights/LibreDEIMm.pt"),
     ("deim", "l", "weights/LibreDEIMl.pt"),
     ("deim", "x", "weights/LibreDEIMx.pt"),
-    ("deimv2", "atto", "LibreDEIMv2Atto.pt"),
-    ("deimv2", "femto", "LibreDEIMv2Femto.pt"),
-    ("deimv2", "pico", "LibreDEIMv2Pico.pt"),
+    ("deimv2", "atto", "LibreDEIMv2atto.pt"),
+    ("deimv2", "femto", "LibreDEIMv2femto.pt"),
+    ("deimv2", "pico", "LibreDEIMv2pico.pt"),
     ("deimv2", "n", "LibreDEIMv2n.pt"),
     ("deimv2", "s", "LibreDEIMv2s.pt"),
     ("deimv2", "m", "LibreDEIMv2m.pt"),
@@ -465,9 +465,9 @@ MODEL_CATALOG = [
     ("rtdetr", "r50", "LibreRTDETRr50.pt"),
     ("rtdetr", "r50m", "LibreRTDETRr50m.pt"),
     ("rtdetr", "r101", "LibreRTDETRr101.pt"),
-    ("picodet", "s", "LibrePicoDets.pt"),
-    ("picodet", "m", "LibrePicoDetm.pt"),
-    ("picodet", "l", "LibrePicoDetl.pt"),
+    ("picodet", "s", "LibrePICODETs.pt"),
+    ("picodet", "m", "LibrePICODETm.pt"),
+    ("picodet", "l", "LibrePICODETl.pt"),
 ]
 
 # Derived lists (no manual maintenance)

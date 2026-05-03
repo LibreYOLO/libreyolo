@@ -19,6 +19,7 @@ pytestmark = pytest.mark.unit
 
 UPSTREAM_PATH = Path(os.environ.get("UPSTREAM_PATH", "downloads/EdgeCrafter/ecdetseg"))
 CKPT_PATH = Path("downloads/ec_weights/ecdet_s.pth")
+LIBRE_CKPT_PATH = Path("weights/LibreECs.pt")
 
 
 def _try_import_upstream():
@@ -34,7 +35,7 @@ def _try_import_upstream():
 
 
 def _seeded_outputs_and_targets(device="cpu"):
-    """Synthetic ECDET training-mode outputs that mimic the model's structure."""
+    """Synthetic EC training-mode outputs that mimic the model's structure."""
     torch.manual_seed(0)
     B, Q, NC, RM = 2, 300, 80, 32
 
@@ -88,7 +89,7 @@ def _seeded_outputs_and_targets(device="cpu"):
 def test_eccriterion_loss_parity_vs_upstream():
     UpECCriterion, UpMatcher = _try_import_upstream()
     from libreyolo.models.dfine.matcher import HungarianMatcher as LibreMatcher
-    from libreyolo.models.ecdet.loss import ECCriterion as LibreECCriterion
+    from libreyolo.models.ec.loss import ECCriterion as LibreECCriterion
 
     cost_weights = {"cost_class": 2.0, "cost_bbox": 5.0, "cost_giou": 2.0}
     weight_dict = {
@@ -145,8 +146,11 @@ def test_eccriterion_loss_parity_vs_upstream():
         )
 
 
-@pytest.mark.skipif(not CKPT_PATH.exists(), reason=f"{CKPT_PATH} not present")
-def test_ecdet_one_step_training_smoke():
+@pytest.mark.skipif(
+    not (CKPT_PATH.exists() and LIBRE_CKPT_PATH.exists()),
+    reason=f"requires both {CKPT_PATH} and {LIBRE_CKPT_PATH}",
+)
+def test_ec_one_step_training_smoke():
     """Single training step: forward + criterion + backward + optimizer step.
 
     Asserts the loss is finite and a backward pass produces non-zero gradients.
@@ -154,9 +158,9 @@ def test_ecdet_one_step_training_smoke():
     """
     from libreyolo import LibreYOLO
     from libreyolo.models.dfine.matcher import HungarianMatcher
-    from libreyolo.models.ecdet.loss import ECCriterion
+    from libreyolo.models.ec.loss import ECCriterion
 
-    m = LibreYOLO("weights/LibreECDETs.pt", device="cpu")
+    m = LibreYOLO("weights/LibreECs.pt", device="cpu")
     m.model.train()
 
     matcher = HungarianMatcher(

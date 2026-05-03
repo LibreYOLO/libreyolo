@@ -1,14 +1,14 @@
-"""Random-weight forward-pass shape tests for ECDET (backbone + encoder + decoder)."""
+"""Random-weight forward-pass shape tests for EC (backbone + encoder + decoder)."""
 
 from __future__ import annotations
 
 import pytest
 import torch
 
-from libreyolo.models.ecdet.backbone import ViTAdapter
-from libreyolo.models.ecdet.decoder import ECTransformer
-from libreyolo.models.ecdet.encoder import HybridEncoder
-from libreyolo.models.ecdet.nn import SIZE_CONFIGS
+from libreyolo.models.ec.backbone import ViTAdapter
+from libreyolo.models.ec.decoder import ECTransformer
+from libreyolo.models.ec.encoder import HybridEncoder
+from libreyolo.models.ec.nn import SIZE_CONFIGS
 
 pytestmark = pytest.mark.unit
 

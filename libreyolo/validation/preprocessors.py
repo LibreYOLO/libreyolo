@@ -338,8 +338,8 @@ class DEIMv2ValPreprocessor(DEIMValPreprocessor):
         return resized_img, padded_targets
 
 
-class ECDETValPreprocessor(StandardValPreprocessor):
-    """ECDET preprocessor: plain resize, RGB, /255, ImageNet normalize.
+class ECValPreprocessor(StandardValPreprocessor):
+    """EC preprocessor: plain resize, RGB, /255, ImageNet normalize.
 
     Same skeleton as D-FINE's preprocessor but adds ImageNet (mean, std)
     normalization, matching upstream's val transforms:
@@ -369,8 +369,8 @@ class ECDETValPreprocessor(StandardValPreprocessor):
 class DEIMv2DINOValPreprocessor(DEIMv2ValPreprocessor):
     """DEIMv2 DINOv3 validation preprocessor: PIL resize plus ImageNet norm."""
 
-    _IMAGENET_MEAN = ECDETValPreprocessor._IMAGENET_MEAN
-    _IMAGENET_STD = ECDETValPreprocessor._IMAGENET_STD
+    _IMAGENET_MEAN = ECValPreprocessor._IMAGENET_MEAN
+    _IMAGENET_STD = ECValPreprocessor._IMAGENET_STD
 
     @property
     def custom_normalization(self) -> bool:
@@ -386,8 +386,8 @@ class DEIMv2DINOValPreprocessor(DEIMv2ValPreprocessor):
         return chw.astype(np.float32), padded_targets
 
 
-class PicoDetValPreprocessor(StandardValPreprocessor):
-    """PicoDet preprocessor: simple resize, RGB, ImageNet mean/std in 0-255 space.
+class PICODETValPreprocessor(StandardValPreprocessor):
+    """PICODET preprocessor: simple resize, RGB, ImageNet mean/std in 0-255 space.
 
     Matches Bo's upstream val pipeline (``Resize(keep_ratio=False)`` then
     ``Normalize(mean=[123.675, 116.28, 103.53], std=[58.395, 57.12, 57.375], to_rgb=True)``).

@@ -26,14 +26,14 @@ logger = logging.getLogger(__name__)
 # =============================================================================
 
 # Always-available models (importing triggers __init_subclass__ registration)
-# Order matters: more-specific can_load() checks must run first. ECDET's ViT
+# Order matters: more-specific can_load() checks must run first. EC's ViT
 # backbone keys ("backbone.backbone.register_token") are uniquely identifying,
 # so register it before YOLOX which matches the broader "backbone.backbone"
 # prefix (skill landmine §9.3).
 # NOTE: LibreYOLO9E2E *must* be imported before LibreYOLO9.  E2E checkpoints
 # contain all the same backbone/neck key patterns that LibreYOLO9.can_load
 # matches, so the E2E discriminator (one2one_cv2 / one2one_cv3) must win first.
-from .ecdet.model import LibreECDET  # noqa: E402
+from .ec.model import LibreEC  # noqa: E402
 from .yolox.model import LibreYOLOX  # noqa: E402
 from .yolo9_e2e.model import LibreYOLO9E2E  # noqa: E402
 from .yolo9.model import LibreYOLO9  # noqa: E402
@@ -41,7 +41,7 @@ from .yolonas.model import LibreYOLONAS  # noqa: E402
 from .deimv2.model import LibreDEIMv2  # noqa: E402
 from .dfine.model import LibreDFINE  # noqa: E402
 from .deim.model import LibreDEIM  # noqa: E402
-from .picodet.model import LibrePicoDet  # noqa: E402
+from .picodet.model import LibrePICODET  # noqa: E402
 from .rtdetr.model import LibreYOLORTDETR  # noqa: E402
 
 
@@ -307,11 +307,11 @@ def LibreYOLO(
         matching_classes = _matching_model_classes(weights_dict)
         matching_families = {cls.FAMILY for cls in matching_classes}
         # Only raise on a true D-FINE/DEIM tie. Some optional families can add
-        # broader false-positive matches after lazy registration, while ECDET
+        # broader false-positive matches after lazy registration, while EC
         # and DEIMv2 legitimately match D-FINE/DEIM-ish decoder keys and should
         # be allowed to win via their more-specific detectors.
         if {"dfine", "deim"}.issubset(matching_families) and not (
-            matching_families & {"ecdet", "deimv2"}
+            matching_families & {"ec", "deimv2"}
         ):
             raise ValueError(
                 "Ambiguous D-FINE/DEIM checkpoint: both families share the same "
@@ -378,6 +378,16 @@ def LibreYOLO(
     if checkpoint_task is None and matched_cls.FAMILY == "rfdetr":
         if any(k.startswith("segmentation_head") for k in weights_dict):
             checkpoint_task = "segment"
+    if checkpoint_task is None and matched_cls.FAMILY == "yolonas":
+        if "heads.head1.pose_pred.weight" in weights_dict:
+            checkpoint_task = "pose"
+    if checkpoint_task is None and matched_cls.FAMILY == "ec":
+        if "decoder.keypoint_embedding.weight" in weights_dict:
+            checkpoint_task = "pose"
+        elif any(
+            k.startswith("decoder.decoder.segmentation_head") for k in weights_dict
+        ):
+            checkpoint_task = "segment"
 
     filename_task = matched_cls.detect_task_from_filename(Path(model_path).name)
     resolved_task = resolve_task(
@@ -439,8 +449,8 @@ __all__ = [
     "LibreDFINE",
     "LibreDEIM",
     "LibreDEIMv2",
-    "LibreECDET",
-    "LibrePicoDet",
+    "LibreEC",
+    "LibrePICODET",
     "LibreYOLORTDETR",
     "try_ensure_rfdetr",
 ]

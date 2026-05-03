@@ -29,7 +29,7 @@ def test_deimv2_is_registered_and_detects_filenames():
     assert any(cls.__name__ == "LibreDEIMv2" for cls in BaseModel._registry)
     assert LibreDEIMv2.FAMILY == "deimv2"
     assert LibreDEIMv2.TRAIN_CONFIG is DEIMv2Config
-    assert LibreDEIMv2.detect_size_from_filename("LibreDEIMv2Atto.pt") == "atto"
+    assert LibreDEIMv2.detect_size_from_filename("LibreDEIMv2atto.pt") == "atto"
     assert (
         LibreDEIMv2.detect_size_from_filename("deimv2_hgnetv2_pico_coco.pth") == "pico"
     )

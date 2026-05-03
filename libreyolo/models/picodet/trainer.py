@@ -1,4 +1,4 @@
-"""PicoDet trainer.
+"""PICODET trainer.
 
 Thin subclass of :class:`BaseTrainer` that:
 
@@ -9,7 +9,7 @@ Thin subclass of :class:`BaseTrainer` that:
   faithful augmentations land in a follow-up.
 * Converts BaseTrainer's padded ``(B, max_labels, 5)`` ``[class, cx, cy, w, h]``
   pixel-coord targets into the ``(gt_boxes_xyxy, gt_labels)`` per-image
-  lists that :class:`PicoDetLoss` consumes.
+  lists that :class:`PICODETLoss` consumes.
 * Returns the loss dict.
 """
 
@@ -20,27 +20,27 @@ from typing import Dict, Type
 import torch
 
 from ...training.augment import MosaicMixupDataset, TrainTransform
-from ...training.config import PicoDetConfig, TrainConfig
+from ...training.config import PICODETConfig, TrainConfig
 from ...training.scheduler import WarmupCosineScheduler
 from ...training.trainer import BaseTrainer
-from .loss import PicoDetLoss
+from .loss import PICODETLoss
 
 
-class PicoDetTrainer(BaseTrainer):
-    """PicoDet trainer."""
+class PICODETTrainer(BaseTrainer):
+    """PICODET trainer."""
 
     @classmethod
     def _config_class(cls) -> Type[TrainConfig]:
-        return PicoDetConfig
+        return PICODETConfig
 
     def get_model_family(self) -> str:
         return "picodet"
 
     def get_model_tag(self) -> str:
-        return f"PicoDet-{self.config.size}"
+        return f"PICODET-{self.config.size}"
 
     def create_transforms(self):
-        # Mosaic prob 0 + mixup prob 0 in PicoDetConfig effectively makes
+        # Mosaic prob 0 + mixup prob 0 in PICODETConfig effectively makes
         # this a hflip + normalisation pipeline.
         preproc = TrainTransform(
             max_labels=50,
@@ -72,7 +72,7 @@ class PicoDetTrainer(BaseTrainer):
         nc = getattr(self.model.head, "num_classes", 80)
         reg_max = getattr(self.model.head, "reg_max", 7)
         strides = tuple(getattr(self.model.head, "strides", (8, 16, 32, 64)))
-        self._loss_fn = PicoDetLoss(
+        self._loss_fn = PICODETLoss(
             num_classes=nc,
             reg_max=reg_max,
             strides=strides,

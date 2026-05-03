@@ -13,7 +13,7 @@ from .config import ValidationConfig
 
 logger = logging.getLogger(__name__)
 
-COCO_TOPK_FAMILIES = {"dfine", "deim", "deimv2", "ecdet", "rfdetr", "rtdetr"}
+COCO_TOPK_FAMILIES = {"dfine", "deim", "deimv2", "ec", "rfdetr", "rtdetr"}
 
 if TYPE_CHECKING:
     from libreyolo.models.base import BaseModel
@@ -401,7 +401,7 @@ class DetectionValidator(BaseValidator):
         elif isinstance(preds, torch.Tensor):
             return preds[batch_idx : batch_idx + 1]
         elif isinstance(preds, (list, tuple)):
-            # Recurse so nested list-of-tensor outputs (e.g. PicoDet's per-level
+            # Recurse so nested list-of-tensor outputs (e.g. PICODET's per-level
             # ``(List[cls_scores], List[bbox_preds])``) are sliced too. Without
             # this every per-image postprocess gets the full batch's tensors
             # and ``[0]``-indexing yields the first image's slice for every

@@ -13,8 +13,8 @@ from .models import (
     LibreDFINE,
     LibreDEIM,
     LibreDEIMv2,
-    LibreECDET,
-    LibrePicoDet,
+    LibreEC,
+    LibrePICODET,
     LibreYOLORTDETR,
 )
 from .utils.results import Results, Boxes, Masks, Keypoints, Probs, OBB
@@ -38,6 +38,7 @@ def __getattr__(name):
         "BaseExporter": (".export", "BaseExporter"),
         "DetectionValidator": (".validation", "DetectionValidator"),
         "SegmentationValidator": (".validation", "SegmentationValidator"),
+        "PoseValidator": (".validation", "PoseValidator"),
         "ValidationConfig": (".validation", "ValidationConfig"),
         "ByteTracker": (".tracking", "ByteTracker"),
         "TrackConfig": (".tracking", "TrackConfig"),
@@ -71,8 +72,8 @@ __all__ = [
     "LibreDFINE",
     "LibreDEIM",
     "LibreDEIMv2",
-    "LibreECDET",
-    "LibrePicoDet",
+    "LibreEC",
+    "LibrePICODET",
     # Results
     "Results",
     "Boxes",
@@ -93,6 +94,7 @@ __all__ = [
     "BaseExporter",
     "DetectionValidator",
     "SegmentationValidator",
+    "PoseValidator",
     "ValidationConfig",
     "DATASETS_DIR",
     "load_data_config",

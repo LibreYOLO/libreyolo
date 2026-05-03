@@ -242,7 +242,7 @@ def test_rf1_training(family, size, weights, dataset_coco, dataset_data_yaml, tm
     """Train on marbles, verify the model learns and clears a basic mAP floor."""
     if family == "picodet":
         pytest.skip(
-            "PicoDet training is experimental and not expected to clear the "
+            "PICODET training is experimental and not expected to clear the "
             "RF1 mAP floor on small datasets (skill §6: fine-tune parity, not "
             "paper parity). Inference parity is verified separately."
         )

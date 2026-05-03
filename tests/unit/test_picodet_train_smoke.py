@@ -1,4 +1,4 @@
-"""PicoDet training-path smoke test.
+"""PICODET training-path smoke test.
 
 Verifies the loss + assigner stack is callable end-to-end and produces
 a finite scalar loss with a non-empty backward graph. Does *not* check
@@ -10,16 +10,16 @@ from __future__ import annotations
 import pytest
 import torch
 
-from libreyolo.models.picodet.loss import PicoDetLoss, SimOTAAssigner, bbox_iou_xyxy
-from libreyolo.models.picodet.nn import LibrePicoDetModel
+from libreyolo.models.picodet.loss import PICODETLoss, SimOTAAssigner, bbox_iou_xyxy
+from libreyolo.models.picodet.nn import LibrePICODETModel
 
 pytestmark = [pytest.mark.unit, pytest.mark.picodet]
 
 
 def test_loss_runs_and_backprops():
     torch.manual_seed(0)
-    m = LibrePicoDetModel(size="s", nb_classes=80).train()
-    loss_fn = PicoDetLoss(num_classes=80)
+    m = LibrePICODETModel(size="s", nb_classes=80).train()
+    loss_fn = PICODETLoss(num_classes=80)
 
     x = torch.randn(2, 3, 320, 320)
     cs, bp = m(x)
