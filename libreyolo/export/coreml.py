@@ -110,5 +110,40 @@ def export_coreml(
 
 
 def _wrap_with_nms(mlmodel: Any, *, model_family: str | None) -> Any:
-    """Stub — implemented in Task 4. Defined here so export_coreml type-checks."""
-    raise NotImplementedError("NMS pipeline not yet implemented")
+    """Wrap a detector mlmodel in a Pipeline that embeds Apple's NMS layer.
+
+    Output names: 'confidence' (N x nb_classes), 'coordinates' (N x 4 normalized xywh).
+    """
+    if model_family == "rfdetr":
+        raise NotImplementedError(
+            "nms=True is not supported for RF-DETR; export with nms=False and run "
+            "NMS in your application."
+        )
+
+    import coremltools as ct
+    from coremltools.models import pipeline as ct_pipeline
+
+    # Build an NMS model spec. Defaults match LibreYOLO's runtime defaults.
+    nms_spec = ct.proto.Model_pb2.Model()
+    nms_spec.specificationVersion = 5
+    nms = nms_spec.nonMaximumSuppression
+    nms.iouThreshold = 0.45
+    nms.confidenceThreshold = 0.25
+    nms.confidenceInputFeatureName = "confidence"
+    nms.coordinatesInputFeatureName = "coordinates"
+    nms.confidenceOutputFeatureName = "confidence"
+    nms.coordinatesOutputFeatureName = "coordinates"
+    nms.iouThresholdInputFeatureName = "iouThreshold"
+    nms.confidenceThresholdInputFeatureName = "confidenceThreshold"
+
+    nms_model = ct.models.MLModel(nms_spec)
+
+    pipeline = ct_pipeline.Pipeline(
+        input_features=[("image", None)],
+        output_features=[("confidence", None), ("coordinates", None)],
+    )
+    pipeline.add_model(mlmodel)
+    pipeline.add_model(nms_model)
+    # Carry compute_unit forward
+    pipeline.spec.compute_unit = mlmodel.compute_unit
+    return ct.models.MLModel(pipeline.spec)
