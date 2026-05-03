@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
 import torch
 
@@ -103,14 +105,74 @@ def test_trainer_does_not_use_vfl_loss():
 
 def test_amp_train_loop_uses_on_forward_for_polygon_passthrough():
     """The AMP branch must not bypass on_forward, or segment polygons get dropped."""
-    import inspect
-
     from libreyolo.models.deim.trainer import DEIMTrainer
 
-    source = inspect.getsource(DEIMTrainer._train_epoch)
+    class OneBatchLoader:
+        def __init__(self, batch):
+            self.batch = batch
+            self.dataset = SimpleNamespace()
+            self.collate_fn = None
 
-    assert "self.on_forward(imgs, targets, polygons=polygons)" in source
-    assert "model_outputs = self.model(imgs, targets=target_list)" not in source
+        def __iter__(self):
+            yield self.batch
+
+        def __len__(self):
+            return 1
+
+    class FakeScaler:
+        def scale(self, loss):
+            return loss
+
+        def unscale_(self, optimizer):
+            return None
+
+        def step(self, optimizer):
+            optimizer.step()
+
+        def update(self):
+            return None
+
+    param = torch.nn.Parameter(torch.tensor(1.0))
+    polygons = [[[
+        torch.tensor([[1.0, 2.0], [3.0, 4.0]]).numpy(),
+    ]]]
+    imgs = torch.zeros(1, 3, 16, 16)
+    targets = torch.zeros(1, 2, 5)
+    batch = (imgs, targets, ((16, 16),), (0,), polygons)
+
+    trainer = DEIMTrainer.__new__(DEIMTrainer)
+    trainer.train_loader = OneBatchLoader(batch)
+    trainer.config = SimpleNamespace(
+        epochs=1,
+        clip_max_norm=0.0,
+        log_interval=1,
+        eval_interval=-1,
+    )
+    trainer.model = torch.nn.Linear(1, 1)
+    trainer.device = torch.device("cpu")
+    trainer.scaler = FakeScaler()
+    trainer.optimizer = torch.optim.SGD([param], lr=0.1)
+    trainer.ema_model = None
+    trainer.tensorboard_writer = None
+    trainer.lr_scheduler = SimpleNamespace(update_lr=lambda _: 0.1)
+    trainer.get_loss_components = lambda outputs: {}
+
+    seen = {}
+
+    def on_forward(batch_imgs, batch_targets, polygons=None):
+        seen["imgs"] = batch_imgs
+        seen["targets"] = batch_targets
+        seen["polygons"] = polygons
+        return {"total_loss": param.sum() * 0.0 + 1.0}
+
+    trainer.on_forward = on_forward
+
+    avg_loss, val_metrics = DEIMTrainer._train_epoch(trainer, 0)
+
+    assert avg_loss == pytest.approx(1.0)
+    assert val_metrics is None
+    assert seen["polygons"] is polygons
+    assert seen["imgs"].device.type == "cpu"
 
 
 def test_trainer_handles_empty_targets():

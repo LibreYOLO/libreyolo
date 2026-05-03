@@ -217,6 +217,30 @@ class TestYOLOCocoAPI:
         assert mask.shape == (10, 20)
         assert mask.sum() == 0
 
+    def test_yolo_coco_api_preserves_multiple_polygon_rings(self, tmp_path):
+        images_dir = tmp_path / "images"
+        labels_dir = tmp_path / "labels"
+        images_dir.mkdir()
+        labels_dir.mkdir()
+
+        from PIL import Image
+
+        Image.new("RGB", (20, 10)).save(images_dir / "img.jpg")
+        (labels_dir / "img.txt").write_text("0 0.5 0.5 0.4 0.4\n")
+
+        api = YOLOCocoAPI(images_dir, labels_dir, ["cat"], load_segments=True)
+        ann = api.loadAnns()[0]
+        ann["segmentation"] = [
+            [1.0, 1.0, 5.0, 1.0, 5.0, 5.0, 1.0, 5.0],
+            [10.0, 1.0, 14.0, 1.0, 14.0, 5.0, 10.0, 5.0],
+        ]
+
+        mask = api.annToMask(ann)
+
+        assert mask.shape == (10, 20)
+        assert mask[:, :7].sum() > 0
+        assert mask[:, 9:].sum() > 0
+
     def test_yolo_coco_api_get_ann_ids(self, mock_yolo_dataset):
         """Test getAnnIds method."""
         images_dir, labels_dir, class_names = mock_yolo_dataset
