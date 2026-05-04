@@ -1,4 +1,4 @@
-"""LibreYOLORTDETR implementation for LibreYOLO."""
+"""LibreRTDETR implementation for LibreYOLO."""
 
 import os
 import re
@@ -112,7 +112,7 @@ RTDETR_CONFIGS = {
 }
 
 
-class LibreYOLORTDETR(BaseModel):
+class LibreRTDETR(BaseModel):
     """RT-DETR model for object detection.
 
     RT-DETR is a real-time Detection Transformer using ResNet backbone with
@@ -126,7 +126,7 @@ class LibreYOLORTDETR(BaseModel):
 
     Example::
 
-        >>> model = LibreYOLORTDETR(size="r50")
+        >>> model = LibreRTDETR(size="r50")
         >>> detections = model.predict("path/to/image.jpg")
     """
 
@@ -575,7 +575,7 @@ class LibreYOLORTDETR(BaseModel):
             if not self.model_path:
                 raise ValueError(
                     "resume=True requires a checkpoint. Load one first: "
-                    "model = LibreYOLORTDETR('path/to/last.pt'); model.train(data=..., resume=True)"
+                    "model = LibreRTDETR('path/to/last.pt'); model.train(data=..., resume=True)"
                 )
             trainer.resume(str(self.model_path))
 
