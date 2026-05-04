@@ -8,6 +8,7 @@ from pathlib import Path
 import numpy as np
 import torch
 
+from ..tasks import normalize_supported_tasks, normalize_task, resolve_task
 from ..utils.general import COCO_CLASSES
 from .base import BaseBackend
 
@@ -16,7 +17,11 @@ class TorchScriptBackend(BaseBackend):
     """TorchScript inference backend for LibreYOLO models."""
 
     def __init__(
-        self, model_path: str, nb_classes: int | None = None, device: str = "auto"
+        self,
+        model_path: str,
+        nb_classes: int | None = None,
+        device: str = "auto",
+        task: str | None = None,
     ):
         if not Path(model_path).exists():
             raise FileNotFoundError(f"TorchScript model not found: {model_path}")
@@ -46,6 +51,17 @@ class TorchScriptBackend(BaseBackend):
         input_size = 640
         model_family = metadata.get("model_family")
         model_size = metadata.get("model_size")
+        default_task = normalize_task(metadata.get("default_task"), default="detect")
+        metadata_task = normalize_task(metadata.get("task"), default=default_task)
+        supported_tasks = normalize_supported_tasks(
+            metadata.get("supported_tasks", (metadata_task,))
+        )
+        resolved_task = resolve_task(
+            explicit_task=task,
+            checkpoint_task=metadata_task,
+            default_task=default_task,
+            supported_tasks=supported_tasks,
+        )
         if "imgsz" in metadata:
             input_size = int(metadata["imgsz"])
 
@@ -74,6 +90,9 @@ class TorchScriptBackend(BaseBackend):
             model_family=model_family,
             names=names,
             model_size=model_size,
+            task=resolved_task,
+            supported_tasks=supported_tasks,
+            default_task=default_task,
         )
 
     def _run_inference(self, blob: np.ndarray) -> list:

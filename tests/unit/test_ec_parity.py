@@ -1,4 +1,4 @@
-"""Layer-by-layer parity test for ECDET vs upstream EdgeCrafter.
+"""Layer-by-layer parity test for EC vs upstream EdgeCrafter.
 
 Builds the same model with the same weights in both implementations, feeds an
 identical input, and asserts intermediate tensors agree at 1e-5. Skipped if
@@ -9,7 +9,7 @@ Setup the environment to run this test by adding upstream to PYTHONPATH:
     cd downloads/EdgeCrafter/ecdetseg
     pip install tensorboard pyyaml  # missing transitive deps
     cd ../../..
-    UPSTREAM_PATH=downloads/EdgeCrafter/ecdetseg pytest tests/unit/test_ecdet_parity.py -v
+    UPSTREAM_PATH=downloads/EdgeCrafter/ecdetseg pytest tests/unit/test_ec_parity.py -v
 """
 
 from __future__ import annotations
@@ -85,7 +85,7 @@ def test_backbone_parity(params):
     if not ckpt.exists():
         pytest.skip(f"{ckpt} not found")
     UpBB, _, _ = _try_import_upstream()
-    from libreyolo.models.ecdet.backbone import ViTAdapter as LibreBB
+    from libreyolo.models.ec.backbone import ViTAdapter as LibreBB
 
     up_kw = dict(
         name=upstream_name,
@@ -153,9 +153,9 @@ def test_full_pipeline_parity(params):
     if not ckpt.exists():
         pytest.skip(f"{ckpt} not found")
     UpBB, UpEnc, UpDec = _try_import_upstream()
-    from libreyolo.models.ecdet.backbone import ViTAdapter as LBB
-    from libreyolo.models.ecdet.encoder import HybridEncoder as LEnc
-    from libreyolo.models.ecdet.decoder import ECTransformer as LDec
+    from libreyolo.models.ec.backbone import ViTAdapter as LBB
+    from libreyolo.models.ec.encoder import HybridEncoder as LEnc
+    from libreyolo.models.ec.decoder import ECTransformer as LDec
 
     enc_kwargs = dict(
         in_channels=[enc_hidden] * 3,

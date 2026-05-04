@@ -1,9 +1,9 @@
 """Convert Bo396543018/Picodet_Pytorch checkpoints to LibreYOLO format.
 
-Per-size repos: ``LibrePicoDets``, ``LibrePicoDetm``, ``LibrePicoDetl``.
+Per-size repos: ``LibrePICODETs``, ``LibrePICODETm``, ``LibrePICODETl``.
 
 Bo's checkpoints carry mmdet-style key naming because his ``ESNet`` /
-``CSPPAN`` / ``PicoDetHead`` are wrapped in mmcv's ``ConvModule`` /
+``CSPPAN`` / ``PICODETHead`` are wrapped in mmcv's ``ConvModule`` /
 ``DepthwiseSeparableConvModule`` / ``SELayer`` and registered as a
 detector via ``@DETECTORS``. LibreYOLO's port keeps the same numerics
 but flattens those wrappers, so the key remap is purely syntactic:
@@ -18,7 +18,7 @@ Usage::
     python weights/convert_picodet_weights.py \
         --src ~/picodet_s_320_coco-some-epoch.pth \
         --size s --nc 80 \
-        --dst weights/LibrePicoDets.pt
+        --dst weights/LibrePICODETs.pt
 """
 
 from __future__ import annotations
@@ -123,7 +123,7 @@ def main() -> None:
     args = parser.parse_args()
 
     add_repo_root_to_path()
-    from libreyolo.models.picodet.nn import LibrePicoDetModel
+    from libreyolo.models.picodet.nn import LibrePICODETModel
 
     print(f"Loading {args.src}")
     raw = load_checkpoint(args.src)
@@ -145,7 +145,7 @@ def main() -> None:
     sd = remap_state_dict(sd)
 
     # Sanity-load into a fresh LibreYOLO model and report missing/unexpected.
-    target = LibrePicoDetModel(size=args.size, nb_classes=args.nc)
+    target = LibrePICODETModel(size=args.size, nb_classes=args.nc)
     missing, unexpected = target.load_state_dict(sd, strict=False)
     if missing:
         print(f"Missing keys (in target, not in source): {len(missing)}")

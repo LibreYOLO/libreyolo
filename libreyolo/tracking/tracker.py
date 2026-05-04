@@ -10,7 +10,7 @@ from __future__ import annotations
 import numpy as np
 import torch
 
-from ..utils.results import Boxes, Masks, Results
+from ..utils.results import Results
 from .config import TrackConfig
 from .kalman_filter import KalmanFilterXYAH
 from .matching import fuse_score, iou_distance, linear_assignment
@@ -64,17 +64,17 @@ class ByteTracker:
             results: Detection results from any detector.
 
         Returns:
-            New Results with ``track_id`` attribute set as an (N,) int tensor.
+            New Results with ``track_id`` matching the input box backend.
         """
         self._frame_id += 1
         cfg = self.config
 
         # ------------------------------------------------------------------
-        # 1. Extract detections (torch → numpy boundary)
+        # 1. Extract detections (torch/NumPy -> NumPy boundary)
         # ------------------------------------------------------------------
-        boxes_np = results.boxes.xyxy.cpu().numpy().astype(np.float64)
-        scores_np = results.boxes.conf.cpu().numpy().astype(np.float64)
-        classes_np = results.boxes.cls.cpu().numpy().astype(np.float64)
+        boxes_np = _as_numpy(results.boxes.xyxy).astype(np.float64)
+        scores_np = _as_numpy(results.boxes.conf).astype(np.float64)
+        classes_np = _as_numpy(results.boxes.cls).astype(np.float64)
 
         # Filter below track_low_thresh and build STrack candidates.
         keep = scores_np >= cfg.track_low_thresh
@@ -249,45 +249,38 @@ class ByteTracker:
         ]
 
         if len(output_stracks) == 0:
-            empty_boxes = Boxes(
-                torch.zeros((0, 4), dtype=torch.float32),
-                torch.zeros((0,), dtype=torch.float32),
-                torch.zeros((0,), dtype=torch.float32),
-            )
-            return Results(
-                boxes=empty_boxes,
-                orig_shape=results.orig_shape,
-                path=results.path,
-                names=results.names,
-                track_id=torch.zeros((0,), dtype=torch.int64),
-            )
+            tracked = results._select([])
+            tracked.track_id = _make_track_ids([], results)
+            tracked.boxes._id = tracked.track_id
+            return tracked
 
         # Slice original detections by detection_index.
         indices = [t.detection_index for t in output_stracks]
-        out_boxes = results.boxes.xyxy[indices]
-        out_conf = results.boxes.conf[indices]
-        out_cls = results.boxes.cls[indices]
-        track_ids = torch.tensor(
-            [t.track_id for t in output_stracks], dtype=torch.int64
-        )
-
-        out_masks = None
-        if results.masks is not None:
-            out_masks = Masks(results.masks.data[indices], results.orig_shape)
-
-        return Results(
-            boxes=Boxes(out_boxes, out_conf, out_cls),
-            orig_shape=results.orig_shape,
-            path=results.path,
-            names=results.names,
-            masks=out_masks,
-            track_id=track_ids,
-        )
+        track_ids = _make_track_ids([t.track_id for t in output_stracks], results)
+        tracked = results._select(indices)
+        tracked.track_id = track_ids
+        tracked.boxes._id = track_ids
+        return tracked
 
 
 # --------------------------------------------------------------------------
 # Module-level helpers
 # --------------------------------------------------------------------------
+
+
+def _as_numpy(data) -> np.ndarray:
+    """Convert a tensor-like result payload to a NumPy array."""
+    if isinstance(data, torch.Tensor):
+        return data.detach().cpu().numpy()
+    return np.asarray(data)
+
+
+def _make_track_ids(ids: list[int], results: Results):
+    """Create track IDs on the same tensor/array backend as the source boxes."""
+    boxes = results.boxes.xyxy
+    if isinstance(boxes, torch.Tensor):
+        return torch.tensor(ids, dtype=torch.int64, device=boxes.device)
+    return np.asarray(ids, dtype=np.int64)
 
 
 def _joint_stracks(a: list[STrack], b: list[STrack]) -> list[STrack]:

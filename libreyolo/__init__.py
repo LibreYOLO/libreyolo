@@ -13,11 +13,11 @@ from .models import (
     LibreDFINE,
     LibreDEIM,
     LibreDEIMv2,
-    LibreECDET,
-    LibrePicoDet,
+    LibreEC,
+    LibrePICODET,
     LibreYOLORTDETR,
 )
-from .utils.results import Results, Boxes, Masks
+from .utils.results import Results, Boxes, Masks, Keypoints, Probs, OBB
 
 SAMPLE_IMAGE = str(_Path(__file__).parent / "assets" / "parkour.jpg")
 
@@ -37,6 +37,8 @@ def __getattr__(name):
         "NcnnBackend": (".backends.ncnn", "NcnnBackend"),
         "BaseExporter": (".export", "BaseExporter"),
         "DetectionValidator": (".validation", "DetectionValidator"),
+        "SegmentationValidator": (".validation", "SegmentationValidator"),
+        "PoseValidator": (".validation", "PoseValidator"),
         "ValidationConfig": (".validation", "ValidationConfig"),
         "ByteTracker": (".tracking", "ByteTracker"),
         "TrackConfig": (".tracking", "TrackConfig"),
@@ -70,12 +72,15 @@ __all__ = [
     "LibreDFINE",
     "LibreDEIM",
     "LibreDEIMv2",
-    "LibreECDET",
-    "LibrePicoDet",
+    "LibreEC",
+    "LibrePICODET",
     # Results
     "Results",
     "Boxes",
     "Masks",
+    "Keypoints",
+    "Probs",
+    "OBB",
     # Assets
     "SAMPLE_IMAGE",
     # Tracking
@@ -88,6 +93,8 @@ __all__ = [
     "NcnnBackend",
     "BaseExporter",
     "DetectionValidator",
+    "SegmentationValidator",
+    "PoseValidator",
     "ValidationConfig",
     "DATASETS_DIR",
     "load_data_config",

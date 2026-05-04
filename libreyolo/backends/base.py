@@ -14,9 +14,11 @@ from PIL import Image
 from ..models.yolo9.utils import preprocess_image
 from ..models.yolonas.utils import preprocess_image as yolonas_preprocess_image
 from ..models.yolox.utils import preprocess_image as yolox_preprocess_image
+from ..tasks import normalize_supported_tasks, normalize_task, resolve_task
 from ..utils.drawing import draw_boxes, draw_masks
 from ..utils.general import COCO_CLASSES, get_safe_stem
 from ..utils.image_loader import ImageLoader
+from ..utils.predict_args import normalize_predict_kwargs
 from ..utils.results import Boxes, Masks, Results
 from ..utils.video import collect_video_results, is_video_file, run_video_inference
 
@@ -60,7 +62,7 @@ def _is_nms_free_family(model_family: Optional[str]) -> bool:
     selection. Applying YOLO-style IoU suppression on top of that can remove
     valid detections and make exported runtimes diverge from native PyTorch.
     """
-    return model_family in {"dfine", "deim", "deimv2", "ecdet", "rfdetr", "rtdetr"}
+    return model_family in {"dfine", "deim", "deimv2", "ec", "rfdetr", "rtdetr"}
 
 
 class BaseBackend(ABC):
@@ -82,13 +84,24 @@ class BaseBackend(ABC):
         model_family: Optional[str],
         names: Dict[int, str],
         model_size: Optional[str] = None,
+        task: str | None = None,
+        supported_tasks=None,
+        default_task: str | None = None,
     ):
         self.model_path = model_path
         self.nb_classes = nb_classes
         self.device = device
         self.imgsz = imgsz
         self.model_family = model_family
+        self.family = model_family
         self.model_size = model_size
+        self.DEFAULT_TASK = normalize_task(default_task, default="detect")
+        self.SUPPORTED_TASKS = normalize_supported_tasks(supported_tasks or (self.DEFAULT_TASK,))
+        self.task = resolve_task(
+            explicit_task=task,
+            default_task=self.DEFAULT_TASK,
+            supported_tasks=self.SUPPORTED_TASKS,
+        )
         self.names = names
 
     # =========================================================================
@@ -144,8 +157,8 @@ class BaseBackend(ABC):
                 image, effective_imgsz, color_format, self.model_size
             )
             return tensor, img, size, 1.0
-        elif self.model_family == "ecdet":
-            tensor, img, size = self._preprocess_ecdet(
+        elif self.model_family == "ec":
+            tensor, img, size = self._preprocess_ec(
                 image, effective_imgsz, color_format
             )
             return tensor, img, size, 1.0
@@ -224,23 +237,23 @@ class BaseBackend(ABC):
         return img_tensor, original_img, original_size
 
     @staticmethod
-    def _preprocess_ecdet(image, input_size, color_format):
-        """ECDET preprocessing: plain resize + RGB + /255 + ImageNet (mean, std)."""
-        from ..models.ecdet.postprocess import (
-            preprocess_numpy as ecdet_preprocess_numpy,
+    def _preprocess_ec(image, input_size, color_format):
+        """EC preprocessing: plain resize + RGB + /255 + ImageNet (mean, std)."""
+        from ..models.ec.postprocess import (
+            preprocess_numpy as ec_preprocess_numpy,
         )
 
         img = ImageLoader.load(image, color_format=color_format)
         original_size = img.size
         original_img = img.copy()
 
-        img_chw, _ = ecdet_preprocess_numpy(np.array(img), input_size)
+        img_chw, _ = ec_preprocess_numpy(np.array(img), input_size)
         img_tensor = torch.from_numpy(img_chw).unsqueeze(0)
         return img_tensor, original_img, original_size
 
     @staticmethod
     def _preprocess_picodet(image, input_size, color_format):
-        """PicoDet preprocessing: simple resize + RGB + ImageNet mean/std (0-255 space)."""
+        """PICODET preprocessing: simple resize + RGB + ImageNet mean/std (0-255 space)."""
         from ..models.picodet.utils import preprocess_numpy as picodet_preprocess_numpy
 
         img = ImageLoader.load(image, color_format=color_format)
@@ -300,8 +313,8 @@ class BaseBackend(ABC):
         elif self.model_family == "deimv2":
             boxes, scores, cls = self._parse_dfine(all_outputs, orig_w, orig_h, conf)
             return boxes, scores, cls, None
-        elif self.model_family == "ecdet":
-            # ECDET emits the same {pred_logits, pred_boxes} schema as D-FINE
+        elif self.model_family == "ec":
+            # EC emits the same {pred_logits, pred_boxes} schema as D-FINE
             # so the parser is shared.
             boxes, scores, cls = self._parse_dfine(all_outputs, orig_w, orig_h, conf)
             return boxes, scores, cls, None
@@ -353,9 +366,9 @@ class BaseBackend(ABC):
         return boxes, max_scores, class_ids
 
     def _parse_picodet(self, all_outputs, effective_imgsz, orig_w, orig_h, conf):
-        """Parse PicoDet output: (B, N, 4+nc) — xyxy (input-canvas pixels) + sigmoid scores.
+        """Parse PICODET output: (B, N, 4+nc) — xyxy (input-canvas pixels) + sigmoid scores.
 
-        PicoDet exports use simple resize (not letterbox), so the inverse
+        PICODET exports use simple resize (not letterbox), so the inverse
         scale is independent x/y ratios from input canvas back to the
         original image.
         """
@@ -815,6 +828,7 @@ class BaseBackend(ABC):
         conf: float = 0.25,
         iou: float = 0.45,
         imgsz: Optional[int] = None,
+        device: str | None = None,
         classes: Optional[List[int]] = None,
         max_det: int = 300,
         save: bool = False,
@@ -825,8 +839,19 @@ class BaseBackend(ABC):
         show: bool = False,
         output_path: str | None = None,
         color_format: str = "auto",
+        **kwargs,
     ) -> Union[Results, List[Results], Generator[Results, None, None]]:
         """Run inference on an image, directory, or video."""
+        normalize_predict_kwargs(kwargs)
+        if device not in (None, "", "auto", self.device):
+            logger.warning(
+                "Backend was loaded on device=%s; predict(device=%s) is ignored. "
+                "Load the backend with device=%s to change runtime device.",
+                self.device,
+                device,
+                device,
+            )
+
         # Handle video input
         if is_video_file(source):
             gen = self._predict_video(

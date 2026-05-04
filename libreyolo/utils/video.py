@@ -256,6 +256,7 @@ def run_video_inference(
     show: bool = False,
     output_path: Union[str, None] = None,
     annotate_fn: Union[Callable, None] = None,
+    progress: bool = True,
 ) -> Generator:
     """Generic video inference loop shared by all backends.
 
@@ -270,6 +271,7 @@ def run_video_inference(
         annotate_fn: Optional callable ``(pil_img, result) -> pil_img`` for
             custom annotation (e.g. tracking labels). When *None*, the default
             ``draw_boxes()`` annotation is used.
+        progress: Show a tqdm progress bar (frames processed, fps).
 
     Yields:
         ``Results`` for each processed frame.
@@ -277,8 +279,9 @@ def run_video_inference(
     import cv2
     import torch
     from PIL import Image
+    from tqdm import tqdm
 
-    from .drawing import draw_boxes, draw_masks
+    from .drawing import draw_boxes, draw_keypoints, draw_masks
 
     with VideoSource(source, vid_stride=vid_stride) as video_src:
         writer = None
@@ -289,6 +292,13 @@ def run_video_inference(
             writer = VideoWriter(
                 out_path, effective_fps, video_src.width, video_src.height
             )
+
+        total = video_src.total_frames // max(1, vid_stride) or None
+        pbar = (
+            tqdm(total=total, desc=Path(source).name, unit="frame", dynamic_ncols=True)
+            if progress
+            else None
+        )
 
         try:
             for frame_bgr, frame_idx in video_src:
@@ -322,6 +332,11 @@ def run_video_inference(
                             result.boxes.cls.tolist(),
                             class_names=result.names,
                         )
+                        if result.keypoints is not None:
+                            kpts_np = result.keypoints.data
+                            if isinstance(kpts_np, torch.Tensor):
+                                kpts_np = kpts_np.cpu().numpy()
+                            annotated_pil = draw_keypoints(annotated_pil, kpts_np)
                     else:
                         annotated_pil = pil_img
 
@@ -337,9 +352,16 @@ def run_video_inference(
                         if cv2.waitKey(1) & 0xFF == ord("q"):
                             break
 
+                if pbar is not None:
+                    n_dets = len(result) if result is not None else 0
+                    pbar.set_postfix(dets=n_dets, refresh=False)
+                    pbar.update(1)
+
                 yield result
 
         finally:
+            if pbar is not None:
+                pbar.close()
             if writer is not None:
                 writer.release()
                 logger.info("Video saved to %s", out_path)

@@ -13,6 +13,7 @@ import logging
 from pathlib import Path
 
 from .base import BaseModel
+from ..tasks import resolve_task
 from ..utils.download import download_weights
 from ..utils.logging import ensure_default_logging
 from ..utils.serialization import load_untrusted_torch_file
@@ -25,14 +26,14 @@ logger = logging.getLogger(__name__)
 # =============================================================================
 
 # Always-available models (importing triggers __init_subclass__ registration)
-# Order matters: more-specific can_load() checks must run first. ECDET's ViT
+# Order matters: more-specific can_load() checks must run first. EC's ViT
 # backbone keys ("backbone.backbone.register_token") are uniquely identifying,
 # so register it before YOLOX which matches the broader "backbone.backbone"
 # prefix (skill landmine §9.3).
 # NOTE: LibreYOLO9E2E *must* be imported before LibreYOLO9.  E2E checkpoints
 # contain all the same backbone/neck key patterns that LibreYOLO9.can_load
 # matches, so the E2E discriminator (one2one_cv2 / one2one_cv3) must win first.
-from .ecdet.model import LibreECDET  # noqa: E402
+from .ec.model import LibreEC  # noqa: E402
 from .yolox.model import LibreYOLOX  # noqa: E402
 from .yolo9_e2e.model import LibreYOLO9E2E  # noqa: E402
 from .yolo9.model import LibreYOLO9  # noqa: E402
@@ -40,7 +41,7 @@ from .yolonas.model import LibreYOLONAS  # noqa: E402
 from .deimv2.model import LibreDEIMv2  # noqa: E402
 from .dfine.model import LibreDFINE  # noqa: E402
 from .deim.model import LibreDEIM  # noqa: E402
-from .picodet.model import LibrePicoDet  # noqa: E402
+from .picodet.model import LibrePICODET  # noqa: E402
 from .rtdetr.model import LibreYOLORTDETR  # noqa: E402
 
 
@@ -148,6 +149,7 @@ def LibreYOLO(
     reg_max: int = 16,
     nb_classes: int | None = None,
     device: str = "auto",
+    task: str | None = None,
 ):
     """
     Unified factory that detects model family from weights and returns
@@ -160,6 +162,7 @@ def LibreYOLO(
         reg_max: Regression max for DFL (YOLOv9 only, default: 16).
         nb_classes: Number of classes (auto-detected if omitted).
         device: Device for inference ("auto", "cuda", "cpu", "mps").
+        task: Optional explicit task ("detect", "segment", "pose", "classify").
 
     Returns:
         Model instance (LibreYOLOX, LibreYOLO9, LibreYOLORFDETR, or inference backend).
@@ -167,26 +170,37 @@ def LibreYOLO(
     ensure_default_logging()
     model_path = _resolve_weights_path(model_path)
 
+    if task is not None:
+        filename = Path(model_path).name
+        for cls in BaseModel._registry:
+            if cls.detect_size_from_filename(filename) is not None:
+                resolve_task(
+                    explicit_task=task,
+                    default_task=cls.DEFAULT_TASK,
+                    supported_tasks=cls.SUPPORTED_TASKS,
+                )
+                break
+
     # Non-PyTorch formats: delegate to inference backends
     if model_path.endswith(".onnx"):
         from ..backends.onnx import OnnxBackend
 
-        return OnnxBackend(model_path, nb_classes=nb_classes or 80, device=device)
+        return OnnxBackend(model_path, nb_classes=nb_classes or 80, device=device, task=task)
 
     if model_path.endswith(".torchscript"):
         from ..backends.torchscript import TorchScriptBackend
 
-        return TorchScriptBackend(model_path, nb_classes=nb_classes, device=device)
+        return TorchScriptBackend(model_path, nb_classes=nb_classes, device=device, task=task)
 
     if model_path.endswith((".engine", ".tensorrt")):
         from ..backends.tensorrt import TensorRTBackend
 
-        return TensorRTBackend(model_path, nb_classes=nb_classes, device=device)
+        return TensorRTBackend(model_path, nb_classes=nb_classes, device=device, task=task)
 
     if Path(model_path).is_dir() and (Path(model_path) / "model.xml").exists():
         from ..backends.openvino import OpenVINOBackend
 
-        return OpenVINOBackend(model_path, nb_classes=nb_classes, device=device)
+        return OpenVINOBackend(model_path, nb_classes=nb_classes, device=device, task=task)
 
     if Path(model_path).is_dir():
         ncnn_param = Path(model_path) / "model.ncnn.param"
@@ -194,7 +208,7 @@ def LibreYOLO(
         if ncnn_param.exists() and ncnn_bin.exists():
             from ..backends.ncnn import NcnnBackend
 
-            return NcnnBackend(model_path, nb_classes=nb_classes, device=device)
+            return NcnnBackend(model_path, nb_classes=nb_classes, device=device, task=task)
 
     # Download if missing
     if not Path(model_path).exists():
@@ -293,11 +307,11 @@ def LibreYOLO(
         matching_classes = _matching_model_classes(weights_dict)
         matching_families = {cls.FAMILY for cls in matching_classes}
         # Only raise on a true D-FINE/DEIM tie. Some optional families can add
-        # broader false-positive matches after lazy registration, while ECDET
+        # broader false-positive matches after lazy registration, while EC
         # and DEIMv2 legitimately match D-FINE/DEIM-ish decoder keys and should
         # be allowed to win via their more-specific detectors.
         if {"dfine", "deim"}.issubset(matching_families) and not (
-            matching_families & {"ecdet", "deimv2"}
+            matching_families & {"ec", "deimv2"}
         ):
             raise ValueError(
                 "Ambiguous D-FINE/DEIM checkpoint: both families share the same "
@@ -356,13 +370,33 @@ def LibreYOLO(
             if nb_classes is None:
                 nb_classes = 80
 
-    # Check for -seg suffix on models that don't support segmentation
-    task = matched_cls.detect_task_from_filename(Path(model_path).name)
-    if task == "seg" and matched_cls.FAMILY != "rfdetr":
-        raise ValueError(
-            f"{matched_cls.__name__} does not support segmentation. "
-            f"Only RF-DETR models support instance segmentation (-seg suffix)."
-        )
+    checkpoint_task = (
+        state_dict.get("task")
+        if isinstance(state_dict, dict) and isinstance(state_dict.get("task"), str)
+        else None
+    )
+    if checkpoint_task is None and matched_cls.FAMILY == "rfdetr":
+        if any(k.startswith("segmentation_head") for k in weights_dict):
+            checkpoint_task = "segment"
+    if checkpoint_task is None and matched_cls.FAMILY == "yolonas":
+        if "heads.head1.pose_pred.weight" in weights_dict:
+            checkpoint_task = "pose"
+    if checkpoint_task is None and matched_cls.FAMILY == "ec":
+        if "decoder.keypoint_embedding.weight" in weights_dict:
+            checkpoint_task = "pose"
+        elif any(
+            k.startswith("decoder.decoder.segmentation_head") for k in weights_dict
+        ):
+            checkpoint_task = "segment"
+
+    filename_task = matched_cls.detect_task_from_filename(Path(model_path).name)
+    resolved_task = resolve_task(
+        explicit_task=task,
+        checkpoint_task=checkpoint_task,
+        filename_task=filename_task,
+        default_task=matched_cls.DEFAULT_TASK,
+        supported_tasks=matched_cls.SUPPORTED_TASKS,
+    )
 
     if matched_cls.FAMILY == "rfdetr":
         # RF-DETR always needs the path (handles its own loading internally)
@@ -371,7 +405,7 @@ def LibreYOLO(
             size=size,
             nb_classes=nb_classes,
             device=device,
-            segmentation=(task == "seg"),
+            task=resolved_task,
         )
     elif has_metadata:
         # Our trainer checkpoint — pass path for metadata handling
@@ -380,6 +414,7 @@ def LibreYOLO(
             size=size,
             nb_classes=nb_classes,
             device=device,
+            task=resolved_task,
             **(
                 {"reg_max": reg_max}
                 if matched_cls.FAMILY in ("yolo9", "yolo9_e2e")
@@ -393,6 +428,7 @@ def LibreYOLO(
             size=size,
             nb_classes=nb_classes,
             device=device,
+            task=resolved_task,
             **(
                 {"reg_max": reg_max}
                 if matched_cls.FAMILY in ("yolo9", "yolo9_e2e")
@@ -413,8 +449,8 @@ __all__ = [
     "LibreDFINE",
     "LibreDEIM",
     "LibreDEIMv2",
-    "LibreECDET",
-    "LibrePicoDet",
+    "LibreEC",
+    "LibrePICODET",
     "LibreYOLORTDETR",
     "try_ensure_rfdetr",
 ]

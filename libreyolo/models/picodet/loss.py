@@ -1,4 +1,4 @@
-"""PicoDet loss components: VFL + DFL + GIoU + SimOTA assignment.
+"""PICODET loss components: VFL + DFL + GIoU + SimOTA assignment.
 
 This file ports Bo's loss/assigner stack (which in turn ports Paddle's)
 into self-contained PyTorch with no mmcv/mmdet dependency. The pieces:
@@ -11,12 +11,12 @@ into self-contained PyTorch with no mmcv/mmdet dependency. The pieces:
   Loss weight 2.0 in upstream.
 * :class:`SimOTAAssigner` — VFL-aware Sim-OTA matcher: dynamic top-k
   positive selection per GT via the (cls + iou + center) cost matrix.
-* :class:`PicoDetLoss` — orchestrator that runs the assigner per image
+* :class:`PICODETLoss` — orchestrator that runs the assigner per image
   and computes weighted total loss.
 
 Recipe gaps vs Bo's upstream (documented per skill §6):
 - We use SimOTA as upstream does, but the ``iou_weight=6`` cost weight is
-  exposed via :class:`PicoDetLoss` so it can be tuned. Bo uses 6.
+  exposed via :class:`PICODETLoss` so it can be tuned. Bo uses 6.
 - ``sync_num_pos`` (DDP averaging of positive-sample counts) is wired
   via ``torch.distributed`` if available; falls back to local-only
   count for single-GPU training.
@@ -376,8 +376,8 @@ def _generate_priors(
     return torch.cat(out, dim=0)
 
 
-class PicoDetLoss(nn.Module):
-    """Compute the full PicoDet training loss.
+class PICODETLoss(nn.Module):
+    """Compute the full PICODET training loss.
 
     ``forward(cls_scores, bbox_preds, gt_boxes_list, gt_labels_list)``
     where:

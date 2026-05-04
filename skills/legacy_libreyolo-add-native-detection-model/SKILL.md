@@ -1,15 +1,17 @@
 ---
-name: libreyolo-add-native-detection-model
+name: legacy_libreyolo-add-native-detection-model
 description: >-
-  Add a detection model to LibreYOLO. Covers both YOLO-grid families (YOLOX,
-  YOLOv9, YOLO-NAS) and DETR-style families (RF-DETR, D-FINE; future RT-DETR).
-  Includes the universal contract (BaseModel / BaseTrainer / TrainConfig /
-  BaseValPreprocessor), the per-family integration patterns from real ports,
-  and the trade-off LibreYOLO has explicitly made: best-in-class fine-tuning
-  UX, not from-scratch paper-recipe reproduction.
+  Legacy guide for adding a detection model to LibreYOLO before the explicit
+  task-paradigm refactor. Covers both YOLO-grid families (YOLOX, YOLOv9,
+  YOLO-NAS) and DETR-style families (RF-DETR, D-FINE; future RT-DETR), but
+  should be treated as pre-task-architecture guidance.
 ---
 
-# Adding a detection model to LibreYOLO
+# Legacy: adding a detection model to LibreYOLO
+
+This skill documents the pre-task-refactor detection-model workflow. Prefer a
+new task-aware skill for future detection, segmentation, pose, or classification
+model additions.
 
 ## 1. What LibreYOLO is
 

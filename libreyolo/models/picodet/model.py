@@ -1,4 +1,4 @@
-"""LibrePicoDet: BaseModel subclass wiring PicoDet into the LibreYOLO factory."""
+"""LibrePICODET: BaseModel subclass wiring PICODET into the LibreYOLO factory."""
 
 from __future__ import annotations
 
@@ -9,41 +9,41 @@ import torch
 import torch.nn as nn
 from PIL import Image
 
-from ...training.config import PicoDetConfig
+from ...training.config import PICODETConfig
 from ...utils.image_loader import ImageInput
-from ...validation.preprocessors import PicoDetValPreprocessor
+from ...validation.preprocessors import PICODETValPreprocessor
 from ..base import BaseModel
-from .nn import LibrePicoDetModel
+from .nn import LibrePICODETModel
 from .utils import postprocess as _picodet_postprocess
 from .utils import preprocess_image as _picodet_preprocess
 
 
-_TRAIN_DEFAULTS = PicoDetConfig()
+_TRAIN_DEFAULTS = PICODETConfig()
 
 
-class LibrePicoDet(BaseModel):
-    """PicoDet object detector (s/m/l).
+class LibrePICODET(BaseModel):
+    """PICODET object detector (s/m/l).
 
     Examples::
 
-        >>> model = LibreYOLO("LibrePicoDets.pt")
+        >>> model = LibreYOLO("LibrePICODETs.pt")
         >>> dets = model(image="image.jpg")
 
-        >>> model = LibrePicoDet(size="s")
+        >>> model = LibrePICODET(size="s")
         >>> model.train(data="coco128.yaml", epochs=10)
     """
 
     FAMILY = "picodet"
-    FILENAME_PREFIX = "LibrePicoDet"
+    FILENAME_PREFIX = "LibrePICODET"
     INPUT_SIZES = {"s": 320, "m": 416, "l": 640}
-    TRAIN_CONFIG = PicoDetConfig
-    val_preprocessor_class = PicoDetValPreprocessor
+    TRAIN_CONFIG = PICODETConfig
+    val_preprocessor_class = PICODETValPreprocessor
 
     # ---- registry --------------------------------------------------------
 
     @classmethod
     def can_load(cls, weights_dict: dict) -> bool:
-        # Tokens unique to PicoDet: shared GFL head + ESNet block list.
+        # Tokens unique to PICODET: shared GFL head + ESNet block list.
         # Avoids matching YOLOX (``head.stems``), YOLOv9, DETR families, etc.
         has_gfl = any("head.gfl_cls" in k for k in weights_dict)
         has_esnet = any("backbone.blocks" in k for k in weights_dict)
@@ -68,7 +68,7 @@ class LibrePicoDet(BaseModel):
         if key not in weights_dict:
             return None
         # Shared cls/reg head: out_channels = num_classes + 4 * (reg_max + 1).
-        # PicoDet uses reg_max=7 -> 32 reg channels. Subtract.
+        # PICODET uses reg_max=7 -> 32 reg channels. Subtract.
         out_ch = int(weights_dict[key].shape[0])
         nc = out_ch - 32
         return nc if nc > 0 else None
@@ -94,7 +94,7 @@ class LibrePicoDet(BaseModel):
             self._load_weights(model_path)
 
     def _init_model(self) -> nn.Module:
-        return LibrePicoDetModel(size=self.size, nb_classes=self.nb_classes)
+        return LibrePICODETModel(size=self.size, nb_classes=self.nb_classes)
 
     def _get_available_layers(self) -> Dict[str, nn.Module]:
         return {
@@ -173,13 +173,13 @@ class LibrePicoDet(BaseModel):
         allow_download_scripts: bool = False,
         **kwargs: Any,
     ) -> dict:
-        """Fine-tune PicoDet on a YOLO-format dataset.
+        """Fine-tune PICODET on a YOLO-format dataset.
 
         **EXPERIMENTAL.** Loss components and assigner mirror Bo's upstream
         recipe (VFL + DFL + GIoU + SimOTA, with cls-quality weighting and
         dynamic-IoU VFL targets). Inference is bit-equivalent to upstream
         on the same checkpoint. Training has *not* been validated to clear
-        LibreYOLO's RF1 floor on small custom datasets — PicoDet-s/320's
+        LibreYOLO's RF1 floor on small custom datasets — PICODET-s/320's
         tiny 1.17M-param ESNet + 320 input is a poor fit for the
         30-image/2-class fine-tunes RF1 stresses (see skill §6
         "fine-tune parity, not paper parity"). Use it for full-COCO scale
@@ -189,7 +189,7 @@ class LibrePicoDet(BaseModel):
         """
         if not allow_experimental:
             raise RuntimeError(
-                "PicoDet training is experimental. The loss + assigner match "
+                "PICODET training is experimental. The loss + assigner match "
                 "Bo's upstream recipe and the trainer runs end-to-end, but "
                 "small-dataset fine-tunes (e.g. RF1's marbles) don't reliably "
                 "clear the 5%% mAP floor due to model capacity and the "
@@ -203,7 +203,7 @@ class LibrePicoDet(BaseModel):
 
         from libreyolo.data import load_data_config
 
-        from .trainer import PicoDetTrainer
+        from .trainer import PICODETTrainer
 
         if imgsz is None:
             imgsz = self.input_size
@@ -233,7 +233,7 @@ class LibrePicoDet(BaseModel):
             if torch.cuda.is_available():
                 torch.cuda.manual_seed_all(seed)
 
-        trainer = PicoDetTrainer(
+        trainer = PICODETTrainer(
             model=self.model,
             wrapper_model=self,
             size=self.size,
@@ -261,7 +261,7 @@ class LibrePicoDet(BaseModel):
             if not self.model_path:
                 raise ValueError(
                     "resume=True requires a checkpoint. Load one first: "
-                    "model = LibrePicoDet('path/to/last.pt'); model.train(data=..., resume=True)"
+                    "model = LibrePICODET('path/to/last.pt'); model.train(data=..., resume=True)"
                 )
             trainer.setup()
             trainer.resume(str(self.model_path))

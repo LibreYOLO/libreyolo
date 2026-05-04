@@ -1,4 +1,4 @@
-"""ECDET backbone: ECViT + adapter.
+"""EC backbone: ECViT + adapter.
 
 Ported from EdgeCrafter (Apache-2.0):
     https://github.com/Intellindust-AI-Lab/EdgeCrafter

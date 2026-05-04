@@ -131,12 +131,14 @@ def test_rfdetr_seg_training(dataset, tmp_path):
         )
         assert model._is_segmentation, "Model should be in segmentation mode"
 
-        # 2. Baseline mAP BEFORE training (box mAP on fire-smoke-seg)
+        # 2. Baseline mask mAP BEFORE training on fire-smoke-seg
         pre = model.val(
             data="{data_yaml}", split="test", batch=8, conf=0.001, iou=0.6
         )
-        pre_map = pre["metrics/mAP50-95"]
-        print(f"Pre-training box mAP50-95: {{pre_map:.4f}}")
+        assert "metrics/mAP50-95(M)" in pre, "Validation did not return mask mAP"
+        pre_map = pre["metrics/mAP50-95(M)"]
+        assert pre["metrics/mAP50-95"] == pre_map
+        print(f"Pre-training mask mAP50-95: {{pre_map:.4f}}")
 
         # 3. Train on fire-smoke-seg dataset
         model.train(
@@ -162,12 +164,14 @@ def test_rfdetr_seg_training(dataset, tmp_path):
         assert len(seg_keys) > 0, "Checkpoint missing segmentation_head keys"
         print(f"Checkpoint has {{len(seg_keys)}} segmentation_head keys")
 
-        # 6. Post-training mAP (box mAP — seg mAP requires SegmentationValidator)
+        # 6. Post-training mask mAP
         post = model.val(
             data="{data_yaml}", split="test", batch=8, conf=0.001, iou=0.6
         )
-        post_map = post["metrics/mAP50-95"]
-        print(f"Post-training box mAP50-95: {{post_map:.4f}}")
+        assert "metrics/mAP50-95(M)" in post, "Validation did not return mask mAP"
+        post_map = post["metrics/mAP50-95(M)"]
+        assert post["metrics/mAP50-95"] == post_map
+        print(f"Post-training mask mAP50-95: {{post_map:.4f}}")
 
         assert post_map >= 0.05, f"mAP50-95={{post_map:.4f}} below 0.05"
         assert post_map > pre_map, (

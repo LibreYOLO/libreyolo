@@ -13,6 +13,7 @@ import warnings
 from pathlib import Path
 from typing import List, Optional, Tuple
 
+import numpy as np
 from PIL import Image
 
 from .utils import polygon_to_cxcywh
@@ -26,7 +27,8 @@ def parse_yolo_label_line(
     img_h: int,
     num_classes: int,
     label_path: Optional[Path] = None,
-) -> Optional[Tuple[int, float, float, float, float, float]]:
+    return_segment: bool = False,
+) -> Optional[Tuple]:
     """
     Parse a single line from a YOLO label file.
 
@@ -56,10 +58,20 @@ def parse_yolo_label_line(
     try:
         class_id = int(parts[0])
 
+        segment = None
         if len(parts) > 5:
             # Segmentation format: derive bbox from polygon vertices.
             coords = [float(p) for p in parts[1:]]
             cx, cy, bw, bh = polygon_to_cxcywh(coords)
+            if return_segment and len(coords) >= 6:
+                segment = []
+                for x, y in zip(coords[0::2], coords[1::2]):
+                    segment.extend(
+                        [
+                            float(max(0, min(img_w, x * img_w))),
+                            float(max(0, min(img_h, y * img_h))),
+                        ]
+                    )
         else:
             # Detection format: class_id cx cy w h
             cx = float(parts[1])
@@ -99,7 +111,10 @@ def parse_yolo_label_line(
     # Compute area from clamped box
     area = (x2 - x1) * (y2 - y1)
 
-    return (class_id, x1, y1, x2, y2, area)
+    result = (class_id, x1, y1, x2, y2, area)
+    if return_segment:
+        return (*result, segment)
+    return result
 
 
 class YOLOCocoAPI:
@@ -127,9 +142,12 @@ class YOLOCocoAPI:
 
     def __init__(
         self,
-        images_dir: Path,
-        labels_dir: Path,
+        images_dir: Path | None,
+        labels_dir: Path | None,
         class_names: List[str],
+        load_segments: bool = False,
+        image_files: List[Path] | None = None,
+        label_files: List[Path] | None = None,
     ):
         """
         Initialize COCO API for a YOLO dataset.
@@ -139,9 +157,10 @@ class YOLOCocoAPI:
             labels_dir: Directory containing .txt label files
             class_names: List of class names (from data.yaml)
         """
-        self.images_dir = Path(images_dir)
-        self.labels_dir = Path(labels_dir)
+        self.images_dir = Path(images_dir) if images_dir is not None else None
+        self.labels_dir = Path(labels_dir) if labels_dir is not None else None
         self.class_names = class_names
+        self.load_segments = load_segments
         num_classes = len(class_names)
 
         # Build COCO-style data structures
@@ -150,26 +169,42 @@ class YOLOCocoAPI:
         self.cats = {}
         self.imgToAnns = {}
 
-        # Find all images
-        image_files = []
-        extensions = [
-            "*.jpg",
-            "*.jpeg",
-            "*.png",
-            "*.bmp",
-            "*.webp",
-            "*.tiff",
-            "*.tif",
-            "*.gif",
-        ]
-        for ext in extensions:
-            image_files.extend(list(self.images_dir.glob(ext)))
-            image_files.extend(list(self.images_dir.glob(ext.upper())))
+        if image_files is not None:
+            image_files = [Path(p) for p in image_files]
+            if label_files is not None:
+                label_files = [Path(p) for p in label_files]
+            elif self.labels_dir is not None:
+                label_files = [self.labels_dir / f"{p.stem}.txt" for p in image_files]
+            else:
+                label_files = [
+                    Path(str(p).replace("/images/", "/labels/")).with_suffix(".txt")
+                    for p in image_files
+                ]
+        else:
+            if self.images_dir is None:
+                raise ValueError("images_dir or image_files must be provided")
+            image_files = []
+            extensions = [
+                "*.jpg",
+                "*.jpeg",
+                "*.png",
+                "*.bmp",
+                "*.webp",
+                "*.tiff",
+                "*.tif",
+                "*.gif",
+            ]
+            for ext in extensions:
+                image_files.extend(list(self.images_dir.glob(ext)))
+                image_files.extend(list(self.images_dir.glob(ext.upper())))
 
-        image_files = sorted(image_files)
+            image_files = sorted(image_files)
+            if self.labels_dir is None:
+                raise ValueError("labels_dir must be provided when image_files is omitted")
+            label_files = [self.labels_dir / f"{p.stem}.txt" for p in image_files]
 
         if len(image_files) == 0:
-            raise ValueError(f"No images found in {self.images_dir}")
+            raise ValueError(f"No images found in {self.images_dir or 'image_files'}")
 
         logger.info("Building COCO API for %d images...", len(image_files))
 
@@ -189,17 +224,26 @@ class YOLOCocoAPI:
             self.imgToAnns[img_id] = []
 
             # Parse labels using shared function (same filtering as dataset __getitem__)
-            label_path = self.labels_dir / (img_path.stem + ".txt")
+            label_path = label_files[idx]
             if label_path.exists():
                 with open(label_path, "r") as f:
                     for line in f:
                         parsed = parse_yolo_label_line(
-                            line, w, h, num_classes, label_path
+                            line,
+                            w,
+                            h,
+                            num_classes,
+                            label_path,
+                            return_segment=load_segments,
                         )
                         if parsed is None:
                             continue
 
-                        class_id, x1, y1, x2, y2, area = parsed
+                        if load_segments:
+                            class_id, x1, y1, x2, y2, area, segment = parsed
+                        else:
+                            class_id, x1, y1, x2, y2, area = parsed
+                            segment = None
 
                         # Convert to COCO bbox format [x, y, width, height]
                         box_w = x2 - x1
@@ -213,6 +257,11 @@ class YOLOCocoAPI:
                             "area": area,
                             "iscrowd": 0,
                         }
+                        if load_segments:
+                            if segment:
+                                ann["segmentation"] = [segment]
+                            else:
+                                ann["segmentation"] = []
                         self.anns[ann_id] = ann
                         self.imgToAnns[img_id].append(ann)
                         ann_id += 1
@@ -364,6 +413,8 @@ class YOLOCocoAPI:
                 "iscrowd": 0,
                 "score": result.get("score", 1.0),
             }
+            if "segmentation" in result:
+                ann["segmentation"] = result["segmentation"]
             res_coco.anns[ann_id] = ann
 
             img_id = result["image_id"]
@@ -372,8 +423,43 @@ class YOLOCocoAPI:
 
         return res_coco
 
+    def annToRLE(self, ann):
+        """Convert an annotation segmentation to pycocotools RLE."""
+        try:
+            from pycocotools import mask as mask_utils
+        except ImportError:
+            raise ImportError(
+                "pycocotools not installed. Install with: pip install pycocotools"
+            )
 
-def create_yolo_coco_api(data_yaml_path: str, split: str = "val") -> YOLOCocoAPI:
+        img = self.imgs[ann["image_id"]]
+        h, w = img["height"], img["width"]
+        segm = ann.get("segmentation")
+
+        if isinstance(segm, list) and len(segm) > 0:
+            rles = mask_utils.frPyObjects(segm, h, w)
+            return mask_utils.merge(rles)
+        if isinstance(segm, dict):
+            rle = dict(segm)
+            if isinstance(rle.get("counts"), list):
+                rle = mask_utils.frPyObjects(rle, h, w)
+            elif isinstance(rle.get("counts"), str):
+                rle["counts"] = rle["counts"].encode("ascii")
+            return rle
+
+        empty = np.zeros((h, w), dtype=np.uint8)
+        return mask_utils.encode(np.asfortranarray(empty))
+
+    def annToMask(self, ann):
+        """Convert an annotation segmentation to a binary mask."""
+        from pycocotools import mask as mask_utils
+
+        return mask_utils.decode(self.annToRLE(ann))
+
+
+def create_yolo_coco_api(
+    data_yaml_path: str, split: str = "val", load_segments: bool = False
+) -> YOLOCocoAPI:
     """
     Create YOLOCocoAPI from a data.yaml file.
 
@@ -441,4 +527,5 @@ def create_yolo_coco_api(data_yaml_path: str, split: str = "val") -> YOLOCocoAPI
         images_dir=images_dir,
         labels_dir=labels_dir,
         class_names=class_names,
+        load_segments=load_segments,
     )

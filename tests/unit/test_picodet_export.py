@@ -1,4 +1,4 @@
-"""PicoDet export tests: ONNX + TorchScript shape and numerics."""
+"""PICODET export tests: ONNX + TorchScript shape and numerics."""
 
 from __future__ import annotations
 
@@ -23,9 +23,9 @@ def test_export_onnx_round_trip_matches_eager():
     onnx = pytest.importorskip("onnx")  # noqa: F841
     pytest.importorskip("onnxruntime")
 
-    from libreyolo import LibrePicoDet, LibreYOLO
+    from libreyolo import LibrePICODET, LibreYOLO
 
-    eager = LibrePicoDet(size="s", nb_classes=80, device="cpu")
+    eager = LibrePICODET(size="s", nb_classes=80, device="cpu")
 
     # Run eager forward in export mode
     eager.model.head.export = True
@@ -53,9 +53,9 @@ def test_export_onnx_round_trip_matches_eager():
 
 
 def test_export_torchscript_runs():
-    from libreyolo import LibrePicoDet
+    from libreyolo import LibrePICODET
 
-    m = LibrePicoDet(size="s", nb_classes=80, device="cpu")
+    m = LibrePICODET(size="s", nb_classes=80, device="cpu")
     with tempfile.TemporaryDirectory() as d:
         out = os.path.join(d, "picodet_s.torchscript")
         path = m.export(format="torchscript", imgsz=320, half=False, output_path=out)
