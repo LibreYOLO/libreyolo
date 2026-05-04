@@ -1,5 +1,5 @@
 """RT-DETR object detection models."""
 
-from .model import LibreYOLORTDETR
+from .model import LibreRTDETR
 
-__all__ = ["LibreYOLORTDETR"]
+__all__ = ["LibreRTDETR"]

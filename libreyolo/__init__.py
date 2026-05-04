@@ -15,7 +15,7 @@ from .models import (
     LibreDEIMv2,
     LibreEC,
     LibrePICODET,
-    LibreYOLORTDETR,
+    LibreRTDETR,
 )
 from .utils.results import Results, Boxes, Masks, Keypoints, Probs, OBB
 
@@ -30,7 +30,7 @@ except PackageNotFoundError:
 # Lazy imports for optional/heavy modules
 def __getattr__(name):
     _lazy = {
-        "LibreYOLORFDETR": (".models.rfdetr.model", "LibreYOLORFDETR"),
+        "LibreRFDETR": (".models.rfdetr.model", "LibreRFDETR"),
         "OnnxBackend": (".backends.onnx", "OnnxBackend"),
         "OpenVINOBackend": (".backends.openvino", "OpenVINOBackend"),
         "TensorRTBackend": (".backends.tensorrt", "TensorRTBackend"),
@@ -46,7 +46,7 @@ def __getattr__(name):
         "load_data_config": (".data", "load_data_config"),
         "check_dataset": (".data", "check_dataset"),
     }
-    if name == "LibreYOLORFDETR":
+    if name == "LibreRFDETR":
         # RF-DETR needs dependency check before import
         from .models import _ensure_rfdetr
 
@@ -67,8 +67,8 @@ __all__ = [
     "LibreYOLO9E2E",
     "LibreYOLONAS",
     "LibreYOLOX",
-    "LibreYOLORTDETR",
-    "LibreYOLORFDETR",
+    "LibreRTDETR",
+    "LibreRFDETR",
     "LibreDFINE",
     "LibreDEIM",
     "LibreDEIMv2",
