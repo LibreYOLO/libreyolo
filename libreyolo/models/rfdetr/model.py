@@ -9,6 +9,7 @@ import torchvision.transforms.functional as F
 from PIL import Image
 
 from ..base import BaseModel
+from ...tasks import normalize_task
 from ...utils.image_loader import ImageInput, ImageLoader
 from ...utils.serialization import load_trusted_torch_file
 from .nn import LibreRFDETRModel
@@ -128,6 +129,11 @@ class LibreYOLORFDETR(BaseModel):
     FILENAME_PREFIX = "LibreRFDETR"
     INPUT_SIZES = {"n": 384, "s": 512, "m": 576, "l": 704}
     SEG_INPUT_SIZES = {"n": 312, "s": 384, "m": 432, "l": 504}
+    SUPPORTED_TASKS = ("detect", "segment")
+    TASK_INPUT_SIZES = {
+        "detect": INPUT_SIZES,
+        "segment": SEG_INPUT_SIZES,
+    }
     TRAIN_CONFIG = RFDETRConfig
     val_preprocessor_class = RFDETRValPreprocessor
 
@@ -228,6 +234,7 @@ class LibreYOLORFDETR(BaseModel):
         nb_classes: int = 80,
         device: str = "auto",
         segmentation: bool = False,
+        task: str | None = None,
         **kwargs,
     ):
         # Convert empty dict (from factory) to None for RF-DETR config compatibility
@@ -238,20 +245,33 @@ class LibreYOLORFDETR(BaseModel):
         else:
             self._pretrain_weights = model_path
 
-        self._is_segmentation = segmentation
+        if task is not None and segmentation and normalize_task(task) != "segment":
+            raise ValueError(
+                "Conflicting RF-DETR task options: segmentation=True requires "
+                "task='segment'."
+            )
 
-        # Auto-detect segmentation from filename first (avoids loading weights twice)
-        if not segmentation and self._pretrain_weights is not None:
-            task = self.detect_task_from_filename(str(self._pretrain_weights))
-            if task == "seg":
-                self._is_segmentation = True
-            else:
-                self._is_segmentation = self._detect_segmentation(
-                    self._pretrain_weights
+        resolved_task = task
+        if resolved_task is None and segmentation:
+            resolved_task = "segment"
+
+        if self._pretrain_weights is not None:
+            filename_task = self.detect_task_from_filename(str(self._pretrain_weights))
+            checkpoint_is_segment = False
+            if filename_task != "segment":
+                checkpoint_is_segment = self._detect_segmentation(self._pretrain_weights)
+            if resolved_task is None:
+                resolved_task = filename_task or (
+                    "segment" if checkpoint_is_segment else None
                 )
-
-        if self._is_segmentation:
-            self.INPUT_SIZES = self.SEG_INPUT_SIZES
+            elif (
+                normalize_task(resolved_task) == "detect"
+                and (filename_task == "segment" or checkpoint_is_segment)
+            ):
+                raise ValueError(
+                    "RF-DETR checkpoint appears to be a segmentation model, "
+                    "but task='detect' was requested."
+                )
 
         # RF-DETR COCO checkpoints have 90 arch-classes (91 outputs incl.
         # background), but libreyolo uses 80 YOLO-contiguous classes with a
@@ -265,12 +285,18 @@ class LibreYOLORFDETR(BaseModel):
             size=size,
             nb_classes=user_nb_classes,
             device=device,
+            task=resolved_task,
             **kwargs,
         )
 
         # RF-DETR loads its own weights in _init_model() via pretrain_weights
         if self._pretrain_weights is not None:
             self.model.eval()
+
+    @property
+    def _is_segmentation(self) -> bool:
+        """Adapter flag derived from the canonical task state."""
+        return self.task == "segment"
 
     @staticmethod
     def _detect_segmentation(model_path) -> bool:
@@ -279,6 +305,8 @@ class LibreYOLORFDETR(BaseModel):
             return False
         try:
             ckpt = torch.load(model_path, map_location="cpu", weights_only=False)
+            if isinstance(ckpt, dict) and ckpt.get("task") is not None:
+                return normalize_task(ckpt.get("task")) == "segment"
             state = ckpt.get("model", ckpt)
             return any(k.startswith("segmentation_head") for k in state)
         except Exception:
@@ -443,6 +471,21 @@ class LibreYOLORFDETR(BaseModel):
             segmentation=self._is_segmentation,
             **kwargs,
         )
+
+        for ckpt_key in ("best_checkpoint", "last_checkpoint"):
+            ckpt_path = result.get(ckpt_key)
+            if not ckpt_path or not Path(ckpt_path).exists():
+                continue
+            checkpoint = load_trusted_torch_file(
+                ckpt_path,
+                map_location="cpu",
+                context="RF-DETR checkpoint metadata update",
+            )
+            if isinstance(checkpoint, dict):
+                checkpoint.setdefault("model_family", self.FAMILY)
+                checkpoint.setdefault("size", self.size)
+                checkpoint["task"] = self.task
+                torch.save(checkpoint, ckpt_path)
 
         best_ckpt = Path(result["output_dir"]) / "checkpoint_best_total.pth"
         if best_ckpt.exists():

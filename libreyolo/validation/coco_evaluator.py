@@ -45,6 +45,7 @@ class COCOEvaluator:
         boxes = predictions["boxes"]
         scores = predictions["scores"]
         classes = predictions["classes"]
+        masks = predictions.get("masks")
 
         if isinstance(boxes, torch.Tensor):
             boxes = boxes.cpu().numpy()
@@ -52,12 +53,19 @@ class COCOEvaluator:
             scores = scores.cpu().numpy()
         if isinstance(classes, torch.Tensor):
             classes = classes.cpu().numpy()
+        if isinstance(masks, torch.Tensor):
+            masks = masks.cpu().numpy()
 
         boxes = np.array(boxes) if not isinstance(boxes, np.ndarray) else boxes
         scores = np.array(scores) if not isinstance(scores, np.ndarray) else scores
         classes = np.array(classes) if not isinstance(classes, np.ndarray) else classes
+        masks = np.array(masks) if masks is not None and not isinstance(masks, np.ndarray) else masks
 
-        for box, score, label in zip(boxes, scores, classes):
+        if self.iou_type == "segm" and masks is None:
+            self._img_ids.add(image_id)
+            return
+
+        for idx, (box, score, label) in enumerate(zip(boxes, scores, classes)):
             x1, y1, x2, y2 = box
             w, h = x2 - x1, y2 - y1
 
@@ -68,16 +76,40 @@ class COCOEvaluator:
                 else label
             )
 
-            self.results.append(
-                {
-                    "image_id": int(image_id),
-                    "category_id": int(category_id),
-                    "bbox": [float(x1), float(y1), float(w), float(h)],  # COCO xywh
-                    "score": float(score),
-                }
-            )
+            result = {
+                "image_id": int(image_id),
+                "category_id": int(category_id),
+                "bbox": [float(x1), float(y1), float(w), float(h)],  # COCO xywh
+                "score": float(score),
+            }
+            if self.iou_type == "segm":
+                mask = masks[idx]
+                result["segmentation"] = self._encode_mask(mask)
+                result["area"] = float((mask > 0).sum())
+            self.results.append(result)
 
         self._img_ids.add(image_id)
+
+    @staticmethod
+    def _encode_mask(mask: np.ndarray) -> dict:
+        """Encode a binary mask to JSON-safe COCO RLE."""
+        try:
+            from pycocotools import mask as mask_utils
+        except ImportError:
+            raise ImportError(
+                "pycocotools not installed. Install with: pip install pycocotools"
+            )
+
+        mask = np.asarray(mask)
+        if mask.ndim != 2:
+            raise ValueError(f"Expected 2D mask for COCO RLE, got shape {mask.shape}")
+        mask = (mask > 0).astype(np.uint8)
+        rle = mask_utils.encode(np.asfortranarray(mask))
+        counts = rle.get("counts")
+        if isinstance(counts, bytes):
+            rle["counts"] = counts.decode("ascii")
+        rle["size"] = [int(mask.shape[0]), int(mask.shape[1])]
+        return rle
 
     def compute(self, save_json: Optional[str] = None) -> Dict[str, float]:
         """
@@ -113,7 +145,11 @@ class COCOEvaluator:
 
         # stats layout: [mAP, mAP50, mAP75, AP_s, AP_m, AP_l,
         #                AR1, AR10, AR100, AR_s, AR_m, AR_l]
+        precision = self._mean_valid(coco_eval.eval["precision"][:, :, :, 0, -1])
+        recall = self._mean_valid(coco_eval.eval["recall"][:, :, 0, -1])
         return {
+            "precision": precision,
+            "recall": recall,
             "mAP": float(coco_eval.stats[0]),
             "mAP50": float(coco_eval.stats[1]),
             "mAP75": float(coco_eval.stats[2]),
@@ -131,6 +167,8 @@ class COCOEvaluator:
     def _empty_metrics(self) -> Dict[str, float]:
         """Return all-zero metrics dict."""
         return {
+            "precision": 0.0,
+            "recall": 0.0,
             "mAP": 0.0,
             "mAP50": 0.0,
             "mAP75": 0.0,
@@ -149,3 +187,11 @@ class COCOEvaluator:
         """Clear all accumulated results."""
         self.results = []
         self._img_ids = set()
+
+    @staticmethod
+    def _mean_valid(values: np.ndarray) -> float:
+        """Mean over COCOeval arrays while ignoring absent -1 entries."""
+        valid = values[values > -1]
+        if valid.size == 0:
+            return 0.0
+        return float(valid.mean())

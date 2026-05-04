@@ -24,7 +24,7 @@ def _bare_tensorrt_backend(path: str, model_family: str | None = None):
     ("path", "family"),
     [
         ("LibreDEIMv2_s.engine", "deimv2"),
-        ("LibreECDET_s.engine", "ecdet"),
+        ("LibreEC_s.engine", "ec"),
         ("LibreDFINE_s.engine", "dfine"),
         ("LibreDEIM_s.engine", "deim"),
         ("LibreRTDETR_s.engine", "rtdetr"),

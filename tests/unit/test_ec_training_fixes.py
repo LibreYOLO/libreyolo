@@ -1,7 +1,7 @@
-"""Regression tests for two ECDET training fixes:
+"""Regression tests for two EC training fixes:
 
 1. ``DFINETrainTransform(imagenet_norm=True)`` actually applies ImageNet
-   normalization. ECDET's pretrained ViT expects this; without it, fine-tunes
+   normalization. EC's pretrained ViT expects this; without it, fine-tunes
    silently corrupt the model.
 2. ``DFINETrainer._setup_optimizer`` correctly excludes MHA's
    ``self_attn.in_proj_bias`` from weight decay (matches upstream's
@@ -17,7 +17,7 @@ import pytest
 
 pytestmark = pytest.mark.unit
 
-CKPT_PATH = Path("weights/LibreECDETs.pt")
+CKPT_PATH = Path("weights/LibreECs.pt")
 
 
 def test_imagenet_norm_applied_when_flag_true():

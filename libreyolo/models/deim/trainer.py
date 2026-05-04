@@ -270,7 +270,7 @@ class DEIMTrainer(BaseTrainer):
         result.update(losses)
         return result
 
-    def on_forward(self, imgs: torch.Tensor, targets: torch.Tensor) -> Dict:
+    def on_forward(self, imgs: torch.Tensor, targets: torch.Tensor, polygons=None) -> Dict:
         """Forward + loss in one go.
 
         Translates the ``(B, max_labels, 5)`` ``[class, cx, cy, w, h]`` pixel
@@ -440,19 +440,21 @@ class DEIMTrainer(BaseTrainer):
         total_loss = 0.0
         num_batches = 0
 
-        for batch_idx, (imgs, targets, img_infos, img_ids) in enumerate(pbar):
+        for batch_idx, batch in enumerate(pbar):
+            if len(batch) == 5:
+                imgs, targets, img_infos, img_ids, polygons = batch
+            else:
+                imgs, targets, img_infos, img_ids = batch
+                polygons = None
             self.current_iter = epoch * len(self.train_loader) + batch_idx
 
             imgs = imgs.to(self.device, non_blocking=True)
             targets = targets.to(self.device, non_blocking=True)
 
             if self.scaler is not None:
-                target_list = self._targets_to_detr(imgs, targets)
                 with autocast("cuda"):
-                    model_outputs = self.model(imgs, targets=target_list)
-                losses = self._compute_criterion_losses(model_outputs, target_list)
-                outputs = self._format_loss_outputs(losses)
-                loss = outputs["total_loss"]
+                    outputs = self.on_forward(imgs, targets, polygons=polygons)
+                    loss = outputs["total_loss"]
                 self.optimizer.zero_grad()
                 self.scaler.scale(loss).backward()
                 if clip_max_norm > 0:
@@ -463,7 +465,7 @@ class DEIMTrainer(BaseTrainer):
                 self.scaler.step(self.optimizer)
                 self.scaler.update()
             else:
-                outputs = self.on_forward(imgs, targets)
+                outputs = self.on_forward(imgs, targets, polygons=polygons)
                 loss = outputs["total_loss"]
                 self.optimizer.zero_grad()
                 loss.backward()

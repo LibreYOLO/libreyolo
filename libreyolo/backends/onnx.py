@@ -5,6 +5,7 @@ from pathlib import Path
 
 import numpy as np
 
+from ..tasks import normalize_supported_tasks, normalize_task, resolve_task
 from ..utils.general import COCO_CLASSES
 from .base import BaseBackend
 
@@ -25,7 +26,13 @@ class OnnxBackend(BaseBackend):
         >>> print(result.boxes.xyxy)
     """
 
-    def __init__(self, onnx_path: str, nb_classes: int = 80, device: str = "auto"):
+    def __init__(
+        self,
+        onnx_path: str,
+        nb_classes: int = 80,
+        device: str = "auto",
+        task: str | None = None,
+    ):
         try:
             import onnxruntime as ort
         except ImportError as e:
@@ -66,8 +73,19 @@ class OnnxBackend(BaseBackend):
         else:
             imgsz = 640  # dynamic shape; use default
 
-        model_family, model_size, names = self._read_onnx_metadata(
-            onnx_path, nb_classes
+        (
+            model_family,
+            model_size,
+            metadata_task,
+            supported_tasks,
+            default_task,
+            names,
+        ) = self._read_onnx_metadata(onnx_path, nb_classes)
+        resolved_task = resolve_task(
+            explicit_task=task,
+            checkpoint_task=metadata_task,
+            default_task=default_task,
+            supported_tasks=supported_tasks,
         )
 
         super().__init__(
@@ -78,6 +96,9 @@ class OnnxBackend(BaseBackend):
             model_family=model_family,
             names=names if names is not None else self.build_names(nb_classes),
             model_size=model_size,
+            task=resolved_task,
+            supported_tasks=supported_tasks,
+            default_task=default_task,
         )
 
     @staticmethod
@@ -85,10 +106,13 @@ class OnnxBackend(BaseBackend):
         """Read libreyolo metadata embedded in an ONNX model file.
 
         Returns:
-            Tuple of (model_family, names_dict_or_None).
+            Tuple of (model_family, model_size, task, supported_tasks, default_task, names).
         """
         model_family = None
         model_size = None
+        task = "detect"
+        default_task = "detect"
+        supported_tasks = ("detect",)
         names = None
         try:
             import onnx
@@ -100,6 +124,16 @@ class OnnxBackend(BaseBackend):
                 model_family = meta["model_family"]
             if "model_size" in meta:
                 model_size = meta["model_size"]
+            if "default_task" in meta:
+                default_task = normalize_task(meta["default_task"], default="detect")
+            if "task" in meta:
+                task = normalize_task(meta["task"], default=default_task)
+            elif meta.get("segmentation") == "true":
+                task = "segment"
+            if "supported_tasks" in meta:
+                supported_tasks = normalize_supported_tasks(meta["supported_tasks"])
+            else:
+                supported_tasks = normalize_supported_tasks((task,))
 
             if "names" in meta:
                 import json
@@ -116,7 +150,7 @@ class OnnxBackend(BaseBackend):
         except Exception as e:
             logger.warning("Failed to read ONNX metadata from %s: %s", onnx_path, e)
 
-        return model_family, model_size, names
+        return model_family, model_size, task, supported_tasks, default_task, names
 
     def _run_inference(self, blob: np.ndarray) -> list:
         """Run ONNX Runtime inference."""

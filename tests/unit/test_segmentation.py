@@ -158,12 +158,13 @@ class TestClassesFilterWithMasks:
         cls = torch.tensor([0.0, 1.0, 0.0])
         masks = torch.randint(0, 2, (3, 64, 64), dtype=torch.bool)
 
-        filtered_boxes, filtered_conf, filtered_cls, filtered_masks = (
+        filtered_boxes, filtered_conf, filtered_cls, filtered_masks, filtered_kpts = (
             InferenceRunner._apply_classes_filter(boxes, conf, cls, [0], masks)
         )
 
         assert len(filtered_boxes) == 2
         assert len(filtered_masks) == 2
+        assert filtered_kpts is None
 
     def test_filter_without_masks(self):
         from libreyolo.models.base.inference import InferenceRunner
@@ -172,12 +173,13 @@ class TestClassesFilterWithMasks:
         conf = torch.tensor([0.9, 0.8])
         cls = torch.tensor([0.0, 1.0])
 
-        filtered_boxes, filtered_conf, filtered_cls, filtered_masks = (
+        filtered_boxes, filtered_conf, filtered_cls, filtered_masks, filtered_kpts = (
             InferenceRunner._apply_classes_filter(boxes, conf, cls, [0])
         )
 
         assert len(filtered_boxes) == 1
         assert filtered_masks is None
+        assert filtered_kpts is None
 
 
 class TestFactorySegDetection:
@@ -194,7 +196,7 @@ class TestFactorySegDetection:
     def test_detect_task_from_seg_filename(self):
         from libreyolo.models.rfdetr.model import LibreYOLORFDETR
 
-        assert LibreYOLORFDETR.detect_task_from_filename("LibreRFDETRs-seg.pt") == "seg"
+        assert LibreYOLORFDETR.detect_task_from_filename("LibreRFDETRs-seg.pt") == "segment"
         assert LibreYOLORFDETR.detect_task_from_filename("LibreRFDETRs.pt") is None
 
     def test_det_filename_still_works(self):
@@ -227,6 +229,8 @@ class TestFactorySegDetection:
 
         assert LibreYOLOX.detect_size_from_filename("LibreYOLOXs.pt") == "s"
         assert LibreYOLOX.detect_task_from_filename("LibreYOLOXs.pt") is None
+        assert LibreYOLOX.detect_size_from_filename("LibreYOLOXs-seg.pt") is None
+        assert LibreYOLOX.get_download_url("LibreYOLOXs-seg.pt") is None
         assert LibreYOLO9.detect_size_from_filename("LibreYOLO9s.pt") == "s"
         assert LibreYOLO9.detect_task_from_filename("LibreYOLO9s.pt") is None
 
@@ -297,6 +301,127 @@ class TestPolygonLabelParsing:
             assert abs(y1 - 20) < 1
             assert abs(x2 - 80) < 1
             assert abs(y2 - 80) < 1
+
+    def test_yolo_dataset_preserves_segments_when_requested(self):
+        import tempfile
+        from pathlib import Path
+
+        from PIL import Image
+        from libreyolo.data.dataset import YOLODataset
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            img_dir = Path(tmpdir) / "images" / "train"
+            lbl_dir = Path(tmpdir) / "labels" / "train"
+            img_dir.mkdir(parents=True)
+            lbl_dir.mkdir(parents=True)
+
+            Image.new("RGB", (100, 100)).save(img_dir / "test.jpg")
+            (lbl_dir / "test.txt").write_text("0 0.2 0.2 0.8 0.2 0.8 0.8 0.2 0.8\n")
+
+            default_ds = YOLODataset(data_dir=tmpdir, split="train", img_size=(100, 100))
+            seg_ds = YOLODataset(
+                data_dir=tmpdir,
+                split="train",
+                img_size=(100, 100),
+                load_segments=True,
+            )
+
+            assert default_ds.segments is None
+            assert seg_ds.segments is not None
+            assert len(seg_ds.segments[0][0]) == 1
+            assert seg_ds.segments[0][0][0].shape == (4, 2)
+            assert seg_ds.segments[0][0][0][0].tolist() == [20.0, 20.0]
+
+            item = seg_ds[0]
+            assert len(item) == 5
+            _, _, _, _, segments = item
+            assert len(segments[0]) == 1
+            assert segments[0][0].shape == (4, 2)
+            assert segments[0][0][2].tolist() == [80.0, 80.0]
+
+    def test_yolo_collate_preserves_segments_when_present(self):
+        from libreyolo.data.dataset import yolox_collate_fn
+
+        img = np.zeros((3, 32, 32), dtype=np.float32)
+        target = np.zeros((2, 5), dtype=np.float32)
+        segment = [[np.array([[1.0, 2.0], [3.0, 4.0]], dtype=np.float32)]]
+
+        batch = [
+            (img, target, (32, 32), 0, segment),
+            (img, target, (32, 32), 1, []),
+        ]
+
+        imgs, targets, img_infos, img_ids, segments = yolox_collate_fn(batch)
+
+        assert imgs.shape == (2, 3, 32, 32)
+        assert targets.shape == (2, 2, 5)
+        assert img_infos == ((32, 32), (32, 32))
+        assert img_ids == (0, 1)
+        assert segments[0][0][0].tolist() == [[1.0, 2.0], [3.0, 4.0]]
+
+    def test_coco_dataset_preserves_multiple_segment_rings(self, tmp_path):
+        import json
+
+        from PIL import Image
+        from libreyolo.data.dataset import COCODataset
+
+        images_dir = tmp_path / "train2017"
+        ann_dir = tmp_path / "annotations"
+        images_dir.mkdir()
+        ann_dir.mkdir()
+
+        Image.new("RGB", (20, 10)).save(images_dir / "img.jpg")
+        (ann_dir / "instances_train2017.json").write_text(
+            json.dumps(
+                {
+                    "images": [
+                        {
+                            "id": 1,
+                            "file_name": "img.jpg",
+                            "width": 20,
+                            "height": 10,
+                        }
+                    ],
+                    "annotations": [
+                        {
+                            "id": 1,
+                            "image_id": 1,
+                            "category_id": 1,
+                            "bbox": [1, 1, 13, 4],
+                            "area": 32,
+                            "iscrowd": 0,
+                            "segmentation": [
+                                [1, 1, 5, 1, 5, 5, 1, 5],
+                                [10, 1, 14, 1, 14, 5, 10, 5],
+                            ],
+                        }
+                    ],
+                    "categories": [{"id": 1, "name": "cat"}],
+                }
+            )
+        )
+
+        dataset = COCODataset(
+            data_dir=str(tmp_path),
+            json_file="instances_train2017.json",
+            name="train2017",
+            img_size=(10, 20),
+            load_segments=True,
+        )
+
+        assert len(dataset.segments[0][0]) == 2
+        assert dataset.segments[0][0][0].tolist() == [
+            [1.0, 1.0],
+            [5.0, 1.0],
+            [5.0, 5.0],
+            [1.0, 5.0],
+        ]
+        assert dataset.segments[0][0][1].tolist() == [
+            [10.0, 1.0],
+            [14.0, 1.0],
+            [14.0, 5.0],
+            [10.0, 5.0],
+        ]
 
 
 class TestDrawMasks:
@@ -436,8 +561,19 @@ class TestDetectSegmentation:
         """Filename-based detection avoids loading weights."""
         from libreyolo.models.rfdetr.model import LibreYOLORFDETR
 
-        assert LibreYOLORFDETR.detect_task_from_filename("LibreRFDETRn-seg.pt") == "seg"
+        assert LibreYOLORFDETR.detect_task_from_filename("LibreRFDETRn-seg.pt") == "segment"
         assert LibreYOLORFDETR.detect_task_from_filename("LibreRFDETRn.pt") is None
+
+    def test_segmentation_flag_is_derived_from_task(self):
+        from libreyolo.models.rfdetr.model import LibreYOLORFDETR
+
+        model = LibreYOLORFDETR.__new__(LibreYOLORFDETR)
+        model.task = "segment"
+        assert model._is_segmentation is True
+
+        model.task = "detect"
+        assert model._is_segmentation is False
+        assert "_is_segmentation" not in model.__dict__
 
 
 class TestPolygonToCxcywh:
