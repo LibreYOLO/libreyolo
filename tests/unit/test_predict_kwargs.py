@@ -9,7 +9,7 @@ pytestmark = pytest.mark.unit
 
 def test_noop_predict_kwargs_warn_and_are_removed():
     with pytest.warns(UserWarning, match="no-op"):
-        remaining = normalize_predict_kwargs({"augment": True})
+        remaining = normalize_predict_kwargs({"verbose": True})
     assert remaining == {}
 
 
@@ -17,7 +17,6 @@ def test_noop_predict_kwargs_warn_and_are_removed():
     "key",
     [
         "agnostic_nms",
-        "augment",
         "boxes",
         "dnn",
         "half",
@@ -43,6 +42,7 @@ def test_rejected_predict_kwargs_fail_clearly():
 @pytest.mark.parametrize(
     "key,value",
     [
+        ("augment", True),
         ("classes", [0]),
         ("conf", 0.25),
         ("device", "cpu"),
