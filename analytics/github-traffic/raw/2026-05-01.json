@@ -1,0 +1,313 @@
+{
+  "clones_day": {
+    "clones": [
+      {
+        "count": 3,
+        "timestamp": "2026-04-16T00:00:00Z",
+        "uniques": 3
+      },
+      {
+        "count": 7,
+        "timestamp": "2026-04-17T00:00:00Z",
+        "uniques": 5
+      },
+      {
+        "count": 134,
+        "timestamp": "2026-04-18T00:00:00Z",
+        "uniques": 13
+      },
+      {
+        "count": 35,
+        "timestamp": "2026-04-19T00:00:00Z",
+        "uniques": 18
+      },
+      {
+        "count": 8,
+        "timestamp": "2026-04-20T00:00:00Z",
+        "uniques": 8
+      },
+      {
+        "count": 309,
+        "timestamp": "2026-04-21T00:00:00Z",
+        "uniques": 56
+      },
+      {
+        "count": 191,
+        "timestamp": "2026-04-22T00:00:00Z",
+        "uniques": 80
+      },
+      {
+        "count": 150,
+        "timestamp": "2026-04-23T00:00:00Z",
+        "uniques": 49
+      },
+      {
+        "count": 410,
+        "timestamp": "2026-04-24T00:00:00Z",
+        "uniques": 81
+      },
+      {
+        "count": 2677,
+        "timestamp": "2026-04-25T00:00:00Z",
+        "uniques": 192
+      },
+      {
+        "count": 1796,
+        "timestamp": "2026-04-26T00:00:00Z",
+        "uniques": 171
+      },
+      {
+        "count": 1230,
+        "timestamp": "2026-04-27T00:00:00Z",
+        "uniques": 114
+      },
+      {
+        "count": 986,
+        "timestamp": "2026-04-28T00:00:00Z",
+        "uniques": 116
+      },
+      {
+        "count": 999,
+        "timestamp": "2026-04-29T00:00:00Z",
+        "uniques": 53
+      }
+    ],
+    "count": 8935,
+    "uniques": 854
+  },
+  "clones_week": {
+    "clones": [
+      {
+        "count": 179,
+        "timestamp": "2026-04-16T00:00:00Z",
+        "uniques": 37
+      },
+      {
+        "count": 5541,
+        "timestamp": "2026-04-20T00:00:00Z",
+        "uniques": 600
+      },
+      {
+        "count": 3215,
+        "timestamp": "2026-04-27T00:00:00Z",
+        "uniques": 268
+      }
+    ],
+    "count": 8935,
+    "uniques": 854
+  },
+  "collected_at": "2026-05-01T06:22:49.245513+00:00",
+  "owner": "LibreYOLO",
+  "paths": [
+    {
+      "count": 1260,
+      "path": "/LibreYOLO/libreyolo",
+      "title": "Overview",
+      "uniques": 568
+    },
+    {
+      "count": 311,
+      "path": "/LibreYOLO/libreyolo/issues",
+      "title": "/issues",
+      "uniques": 76
+    },
+    {
+      "count": 156,
+      "path": "/LibreYOLO/libreyolo/pulls",
+      "title": "/pulls",
+      "uniques": 38
+    },
+    {
+      "count": 143,
+      "path": "/LibreYOLO/libreyolo/tree/main/libreyolo",
+      "title": "/tree/main/libreyolo",
+      "uniques": 81
+    },
+    {
+      "count": 67,
+      "path": "/LibreYOLO/libreyolo/tree/main/libreyolo/models",
+      "title": "/tree/main/libreyolo/models",
+      "uniques": 43
+    },
+    {
+      "count": 64,
+      "path": "/LibreYOLO/libreyolo/tree/main/weights",
+      "title": "/tree/main/weights",
+      "uniques": 45
+    },
+    {
+      "count": 52,
+      "path": "/LibreYOLO/libreyolo/stargazers",
+      "title": "/stargazers",
+      "uniques": 4
+    },
+    {
+      "count": 48,
+      "path": "/LibreYOLO/libreyolo/tree/main",
+      "title": "/tree/main",
+      "uniques": 28
+    },
+    {
+      "count": 44,
+      "path": "/LibreYOLO/libreyolo/issues/84",
+      "title": "/issues/84",
+      "uniques": 12
+    },
+    {
+      "count": 40,
+      "path": "/LibreYOLO/libreyolo/tree/main/libreyolo/training",
+      "title": "/tree/main/libreyolo/training",
+      "uniques": 24
+    }
+  ],
+  "referrers": [
+    {
+      "count": 523,
+      "referrer": "Google",
+      "uniques": 131
+    },
+    {
+      "count": 471,
+      "referrer": "github.com",
+      "uniques": 51
+    },
+    {
+      "count": 307,
+      "referrer": "reddit.com",
+      "uniques": 115
+    },
+    {
+      "count": 134,
+      "referrer": "com.reddit.frontpage",
+      "uniques": 59
+    },
+    {
+      "count": 39,
+      "referrer": "Bing",
+      "uniques": 5
+    },
+    {
+      "count": 30,
+      "referrer": "statics.teams.cdn.office.net",
+      "uniques": 9
+    },
+    {
+      "count": 10,
+      "referrer": "huggingface.co",
+      "uniques": 4
+    },
+    {
+      "count": 7,
+      "referrer": "libreyolo.com",
+      "uniques": 2
+    },
+    {
+      "count": 6,
+      "referrer": "138.4.144.36",
+      "uniques": 1
+    },
+    {
+      "count": 6,
+      "referrer": "l.messenger.com",
+      "uniques": 1
+    }
+  ],
+  "repo": "libreyolo",
+  "views_day": {
+    "count": 3795,
+    "uniques": 587,
+    "views": [
+      {
+        "count": 103,
+        "timestamp": "2026-04-16T00:00:00Z",
+        "uniques": 22
+      },
+      {
+        "count": 53,
+        "timestamp": "2026-04-17T00:00:00Z",
+        "uniques": 17
+      },
+      {
+        "count": 467,
+        "timestamp": "2026-04-18T00:00:00Z",
+        "uniques": 151
+      },
+      {
+        "count": 285,
+        "timestamp": "2026-04-19T00:00:00Z",
+        "uniques": 90
+      },
+      {
+        "count": 333,
+        "timestamp": "2026-04-20T00:00:00Z",
+        "uniques": 81
+      },
+      {
+        "count": 333,
+        "timestamp": "2026-04-21T00:00:00Z",
+        "uniques": 50
+      },
+      {
+        "count": 269,
+        "timestamp": "2026-04-22T00:00:00Z",
+        "uniques": 55
+      },
+      {
+        "count": 131,
+        "timestamp": "2026-04-23T00:00:00Z",
+        "uniques": 44
+      },
+      {
+        "count": 383,
+        "timestamp": "2026-04-24T00:00:00Z",
+        "uniques": 57
+      },
+      {
+        "count": 365,
+        "timestamp": "2026-04-25T00:00:00Z",
+        "uniques": 25
+      },
+      {
+        "count": 360,
+        "timestamp": "2026-04-26T00:00:00Z",
+        "uniques": 24
+      },
+      {
+        "count": 255,
+        "timestamp": "2026-04-27T00:00:00Z",
+        "uniques": 29
+      },
+      {
+        "count": 299,
+        "timestamp": "2026-04-28T00:00:00Z",
+        "uniques": 49
+      },
+      {
+        "count": 159,
+        "timestamp": "2026-04-29T00:00:00Z",
+        "uniques": 50
+      }
+    ]
+  },
+  "views_week": {
+    "count": 3795,
+    "uniques": 587,
+    "views": [
+      {
+        "count": 908,
+        "timestamp": "2026-04-16T00:00:00Z",
+        "uniques": 261
+      },
+      {
+        "count": 2174,
+        "timestamp": "2026-04-20T00:00:00Z",
+        "uniques": 261
+      },
+      {
+        "count": 713,
+        "timestamp": "2026-04-27T00:00:00Z",
+        "uniques": 109
+      }
+    ]
+  }
+}
