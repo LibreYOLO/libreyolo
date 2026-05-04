@@ -56,6 +56,7 @@ class InferenceRunner:
         tiling: bool = False,
         overlap_ratio: float = 0.2,
         output_file_format: Optional[str] = None,
+        augment: bool = False,
         **kwargs,
     ) -> Union[Results, List[Results], Generator[Results, None, None]]:
         """
@@ -79,6 +80,10 @@ class InferenceRunner:
             tiling: Enable tiled inference for large images.
             overlap_ratio: Tile overlap ratio.
             output_file_format: Output format ("jpg", "png", "webp").
+            augment: If True, enable Test Time Augmentation (TTA). Runs
+                inference at three scales (0.83×, 1.0×, 1.33×) with and
+                without horizontal flip, then merges via class-wise NMS.
+                Detection only; ignored for video.
             **kwargs: Additional arguments for postprocessing.
 
         Returns:
@@ -134,6 +139,7 @@ class InferenceRunner:
                 tiling=tiling,
                 overlap_ratio=overlap_ratio,
                 output_file_format=output_file_format,
+                augment=augment,
                 **kwargs,
             )
 
@@ -150,6 +156,21 @@ class InferenceRunner:
                 max_det=max_det,
                 color_format=color_format,
                 overlap_ratio=overlap_ratio,
+                output_file_format=output_file_format,
+                **kwargs,
+            )
+
+        if augment:
+            return self._predict_tta(
+                source,
+                save=save,
+                output_path=output_path,
+                conf=conf,
+                iou=iou,
+                imgsz=imgsz,
+                classes=classes,
+                max_det=max_det,
+                color_format=color_format,
                 output_file_format=output_file_format,
                 **kwargs,
             )
@@ -195,6 +216,7 @@ class InferenceRunner:
         tiling: bool = False,
         overlap_ratio: float = 0.2,
         output_file_format: Optional[str] = None,
+        augment: bool = False,
         **kwargs,
     ) -> List[Results]:
         """Process multiple images in batches."""
@@ -215,6 +237,22 @@ class InferenceRunner:
                             max_det=max_det,
                             color_format=color_format,
                             overlap_ratio=overlap_ratio,
+                            output_file_format=output_file_format,
+                            **kwargs,
+                        )
+                    )
+                elif augment:
+                    results.append(
+                        self._predict_tta(
+                            path,
+                            save=save,
+                            output_path=output_path,
+                            conf=conf,
+                            iou=iou,
+                            imgsz=imgsz,
+                            classes=classes,
+                            max_det=max_det,
+                            color_format=color_format,
                             output_file_format=output_file_format,
                             **kwargs,
                         )
@@ -412,6 +450,148 @@ class InferenceRunner:
                 image_path,
                 ext=ext,
             )
+            annotated_img.save(save_path)
+            result.saved_path = str(save_path)
+
+        return result
+
+    def _predict_tta(
+        self,
+        image: ImageInput,
+        save: bool = False,
+        output_path: str | None = None,
+        conf: float = 0.25,
+        iou: float = 0.45,
+        imgsz: Optional[int] = None,
+        classes: Optional[List[int]] = None,
+        max_det: int = 300,
+        color_format: str = "auto",
+        output_file_format: Optional[str] = None,
+        **kwargs,
+    ) -> Results:
+        """Run TTA inference (detection only).
+
+        Augments at three scales (0.83×, 1.0×, 1.33×) × {original, h-flip},
+        collects all predictions in original image space, then merges via
+        class-wise NMS.
+        """
+        from PIL import Image as PILImage
+
+        if self.model.task != "detect":
+            raise NotImplementedError(
+                f"TTA is only supported for detection, not '{self.model.task}'."
+            )
+
+        image_path = image if isinstance(image, (str, Path)) else None
+        img_pil = ImageLoader.load(image, color_format=color_format)
+        orig_w, orig_h = img_pil.size
+
+        all_boxes: List[torch.Tensor] = []
+        all_scores: List[torch.Tensor] = []
+        all_classes: List[torch.Tensor] = []
+
+        for scale in (0.83, 1.0, 1.33):
+            for flipped in (False, True):
+                if scale == 1.0:
+                    aug = img_pil
+                else:
+                    new_w = int(orig_w * scale)
+                    new_h = int(orig_h * scale)
+                    aug = img_pil.resize(
+                        (new_w, new_h), PILImage.Resampling.BILINEAR
+                    )
+
+                if flipped:
+                    aug = aug.transpose(PILImage.Transpose.FLIP_LEFT_RIGHT)
+
+                result = self._predict_single(
+                    aug,
+                    save=False,
+                    conf=conf,
+                    iou=iou,
+                    imgsz=imgsz,
+                    max_det=max_det,
+                    **kwargs,
+                )
+
+                if len(result) == 0:
+                    continue
+
+                boxes = result.boxes.xyxy.clone()  # (N, 4) in aug image space
+                scaled_w = int(orig_w * scale)
+
+                if flipped:
+                    x1 = scaled_w - boxes[:, 2]
+                    x2 = scaled_w - boxes[:, 0]
+                    boxes = torch.stack([x1, boxes[:, 1], x2, boxes[:, 3]], dim=1)
+
+                boxes = boxes / scale
+                boxes[:, 0::2].clamp_(0, orig_w)
+                boxes[:, 1::2].clamp_(0, orig_h)
+
+                all_boxes.append(boxes)
+                all_scores.append(result.boxes.conf)
+                all_classes.append(result.boxes.cls)
+
+        if not all_boxes:
+            detections: Dict = {
+                "boxes": torch.zeros((0, 4), dtype=torch.float32),
+                "scores": torch.zeros((0,), dtype=torch.float32),
+                "classes": torch.zeros((0,), dtype=torch.float32),
+                "num_detections": 0,
+            }
+            return self._wrap_results(
+                detections, (orig_w, orig_h), image_path, classes
+            )
+
+        boxes_t = torch.cat(all_boxes, dim=0)
+        scores_t = torch.cat(all_scores, dim=0)
+        classes_t = torch.cat(all_classes, dim=0)
+
+        # Class-wise NMS on merged detections from all augmentations
+        keep_boxes: List[torch.Tensor] = []
+        keep_scores: List[torch.Tensor] = []
+        keep_classes: List[torch.Tensor] = []
+        for cls_id in classes_t.unique():
+            mask = classes_t == cls_id
+            keep = nms(boxes_t[mask], scores_t[mask], iou)
+            keep_boxes.append(boxes_t[mask][keep])
+            keep_scores.append(scores_t[mask][keep])
+            keep_classes.append(classes_t[mask][keep])
+
+        merged_boxes = torch.cat(keep_boxes, dim=0)
+        merged_scores = torch.cat(keep_scores, dim=0)
+        merged_classes = torch.cat(keep_classes, dim=0)
+
+        if len(merged_scores) > max_det:
+            _, top_idx = merged_scores.topk(max_det)
+            merged_boxes = merged_boxes[top_idx]
+            merged_scores = merged_scores[top_idx]
+            merged_classes = merged_classes[top_idx]
+
+        detections = {
+            "boxes": merged_boxes,
+            "scores": merged_scores,
+            "classes": merged_classes,
+            "num_detections": len(merged_boxes),
+        }
+        result = self._wrap_results(
+            detections, (orig_w, orig_h), image_path, classes
+        )
+
+        if save:
+            if len(result) > 0:
+                annotated_img = draw_boxes(
+                    img_pil,
+                    result.boxes.xyxy.tolist(),
+                    result.boxes.conf.tolist(),
+                    result.boxes.cls.tolist(),
+                    class_names=result.names,
+                )
+            else:
+                annotated_img = img_pil.copy()
+            ext = output_file_format or "jpg"
+            save_path = resolve_save_path(output_path, image_path, ext=ext)
             annotated_img.save(save_path)
             result.saved_path = str(save_path)
 

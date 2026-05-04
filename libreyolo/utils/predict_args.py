@@ -7,7 +7,6 @@ import warnings
 
 NOOP_PREDICT_KWARGS = {
     "agnostic_nms",
-    "augment",
     "boxes",
     "dnn",
     "half",
@@ -20,6 +19,7 @@ NOOP_PREDICT_KWARGS = {
 }
 REJECTED_PREDICT_KWARGS = {"visualize", "embed"}
 ACCEPTED_PREDICT_KWARGS = {
+    "augment",
     "classes",
     "conf",
     "device",
