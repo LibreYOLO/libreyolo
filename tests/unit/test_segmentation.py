@@ -186,38 +186,38 @@ class TestFactorySegDetection:
     """Tests for -seg suffix detection in filenames."""
 
     def test_detect_size_from_seg_filename(self):
-        from libreyolo.models.rfdetr.model import LibreYOLORFDETR
+        from libreyolo.models.rfdetr.model import LibreRFDETR
 
-        assert LibreYOLORFDETR.detect_size_from_filename("LibreRFDETRs-seg.pt") == "s"
-        assert LibreYOLORFDETR.detect_size_from_filename("LibreRFDETRn-seg.pt") == "n"
-        assert LibreYOLORFDETR.detect_size_from_filename("LibreRFDETRm-seg.pt") == "m"
-        assert LibreYOLORFDETR.detect_size_from_filename("LibreRFDETRl-seg.pt") == "l"
+        assert LibreRFDETR.detect_size_from_filename("LibreRFDETRs-seg.pt") == "s"
+        assert LibreRFDETR.detect_size_from_filename("LibreRFDETRn-seg.pt") == "n"
+        assert LibreRFDETR.detect_size_from_filename("LibreRFDETRm-seg.pt") == "m"
+        assert LibreRFDETR.detect_size_from_filename("LibreRFDETRl-seg.pt") == "l"
 
     def test_detect_task_from_seg_filename(self):
-        from libreyolo.models.rfdetr.model import LibreYOLORFDETR
+        from libreyolo.models.rfdetr.model import LibreRFDETR
 
-        assert LibreYOLORFDETR.detect_task_from_filename("LibreRFDETRs-seg.pt") == "segment"
-        assert LibreYOLORFDETR.detect_task_from_filename("LibreRFDETRs.pt") is None
+        assert LibreRFDETR.detect_task_from_filename("LibreRFDETRs-seg.pt") == "segment"
+        assert LibreRFDETR.detect_task_from_filename("LibreRFDETRs.pt") is None
 
     def test_det_filename_still_works(self):
-        from libreyolo.models.rfdetr.model import LibreYOLORFDETR
+        from libreyolo.models.rfdetr.model import LibreRFDETR
 
-        assert LibreYOLORFDETR.detect_size_from_filename("LibreRFDETRs.pt") == "s"
-        assert LibreYOLORFDETR.detect_task_from_filename("LibreRFDETRs.pt") is None
+        assert LibreRFDETR.detect_size_from_filename("LibreRFDETRs.pt") == "s"
+        assert LibreRFDETR.detect_task_from_filename("LibreRFDETRs.pt") is None
 
     def test_download_url_seg(self):
-        from libreyolo.models.rfdetr.model import LibreYOLORFDETR
+        from libreyolo.models.rfdetr.model import LibreRFDETR
 
-        url = LibreYOLORFDETR.get_download_url("LibreRFDETRs-seg.pt")
+        url = LibreRFDETR.get_download_url("LibreRFDETRs-seg.pt")
         assert (
             url
             == "https://huggingface.co/LibreYOLO/LibreRFDETRs-seg/resolve/main/LibreRFDETRs-seg.pt"
         )
 
     def test_download_url_det(self):
-        from libreyolo.models.rfdetr.model import LibreYOLORFDETR
+        from libreyolo.models.rfdetr.model import LibreRFDETR
 
-        url = LibreYOLORFDETR.get_download_url("LibreRFDETRs.pt")
+        url = LibreRFDETR.get_download_url("LibreRFDETRs.pt")
         assert (
             url
             == "https://huggingface.co/LibreYOLO/LibreRFDETRs/resolve/main/LibreRFDETRs.pt"
@@ -532,7 +532,7 @@ class TestDetectSegmentation:
         import tempfile
         from pathlib import Path
 
-        from libreyolo.models.rfdetr.model import LibreYOLORFDETR
+        from libreyolo.models.rfdetr.model import LibreRFDETR
 
         with tempfile.TemporaryDirectory() as tmpdir:
             path = str(Path(tmpdir) / "seg_model.pt")
@@ -540,14 +540,14 @@ class TestDetectSegmentation:
                 {"model": {"segmentation_head.weight": torch.zeros(1)}},
                 path,
             )
-            assert LibreYOLORFDETR._detect_segmentation(path) is True
+            assert LibreRFDETR._detect_segmentation(path) is True
 
     def test_detect_det_from_checkpoint(self):
         """_detect_segmentation returns False for detection-only checkpoints."""
         import tempfile
         from pathlib import Path
 
-        from libreyolo.models.rfdetr.model import LibreYOLORFDETR
+        from libreyolo.models.rfdetr.model import LibreRFDETR
 
         with tempfile.TemporaryDirectory() as tmpdir:
             path = str(Path(tmpdir) / "det_model.pt")
@@ -555,19 +555,19 @@ class TestDetectSegmentation:
                 {"model": {"class_embed.weight": torch.zeros(1)}},
                 path,
             )
-            assert LibreYOLORFDETR._detect_segmentation(path) is False
+            assert LibreRFDETR._detect_segmentation(path) is False
 
     def test_detect_seg_from_filename(self):
         """Filename-based detection avoids loading weights."""
-        from libreyolo.models.rfdetr.model import LibreYOLORFDETR
+        from libreyolo.models.rfdetr.model import LibreRFDETR
 
-        assert LibreYOLORFDETR.detect_task_from_filename("LibreRFDETRn-seg.pt") == "segment"
-        assert LibreYOLORFDETR.detect_task_from_filename("LibreRFDETRn.pt") is None
+        assert LibreRFDETR.detect_task_from_filename("LibreRFDETRn-seg.pt") == "segment"
+        assert LibreRFDETR.detect_task_from_filename("LibreRFDETRn.pt") is None
 
     def test_segmentation_flag_is_derived_from_task(self):
-        from libreyolo.models.rfdetr.model import LibreYOLORFDETR
+        from libreyolo.models.rfdetr.model import LibreRFDETR
 
-        model = LibreYOLORFDETR.__new__(LibreYOLORFDETR)
+        model = LibreRFDETR.__new__(LibreRFDETR)
         model.task = "segment"
         assert model._is_segmentation is True
 
