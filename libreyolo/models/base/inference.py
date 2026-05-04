@@ -15,10 +15,11 @@ from typing import TYPE_CHECKING, Dict, Generator, List, Optional, Tuple, Union
 
 import torch
 
-from ...utils.drawing import draw_boxes, draw_masks, draw_tile_grid
+from ...utils.drawing import draw_boxes, draw_keypoints, draw_masks, draw_tile_grid
 from ...utils.general import get_safe_stem, get_slice_bboxes, nms, resolve_save_path
 from ...utils.image_loader import ImageInput, ImageLoader
-from ...utils.results import Boxes, Masks, Results
+from ...utils.predict_args import normalize_predict_kwargs
+from ...utils.results import Boxes, Keypoints, Masks, Results
 from ...utils.video import collect_video_results, is_video_file, run_video_inference
 
 logger = logging.getLogger(__name__)
@@ -40,6 +41,7 @@ class InferenceRunner:
         conf: float = 0.25,
         iou: float = 0.45,
         imgsz: Optional[int] = None,
+        device: str | None = None,
         classes: Optional[List[int]] = None,
         max_det: int = 300,
         save: bool = False,
@@ -82,6 +84,10 @@ class InferenceRunner:
         Returns:
             Results, list of Results, or generator of Results (video + stream).
         """
+        kwargs = normalize_predict_kwargs(kwargs, passthrough={"num_select"})
+        if device is not None:
+            self._set_device(device)
+
         if output_file_format is not None:
             output_file_format = output_file_format.lower().lstrip(".")
             if output_file_format not in ("jpg", "jpeg", "png", "webp"):
@@ -162,6 +168,18 @@ class InferenceRunner:
             **kwargs,
         )
 
+    def _set_device(self, device: str) -> None:
+        """Move the wrapped model when predict(device=...) is supplied."""
+        device_str = str(device).strip().lower()
+        if device_str in ("", "auto"):
+            return
+        if device_str.isdigit():
+            device_str = f"cuda:{device_str}"
+        target = torch.device(device_str)
+        if target != self.model.device:
+            self.model.device = target
+            self.model.model.to(target)
+
     def _process_in_batches(
         self,
         image_paths: List[Path],
@@ -226,13 +244,18 @@ class InferenceRunner:
         cls_t: torch.Tensor,
         classes: List[int],
         masks_t: Optional[torch.Tensor] = None,
-    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, Optional[torch.Tensor]]:
+        keypoints_t: Optional[torch.Tensor] = None,
+    ) -> Tuple[
+        torch.Tensor, torch.Tensor, torch.Tensor,
+        Optional[torch.Tensor], Optional[torch.Tensor],
+    ]:
         """Filter detections to keep only the requested class IDs."""
         mask = torch.zeros(len(cls_t), dtype=torch.bool, device=cls_t.device)
         for cid in classes:
             mask |= cls_t == cid
         filtered_masks = masks_t[mask] if masks_t is not None else None
-        return boxes_t[mask], conf_t[mask], cls_t[mask], filtered_masks
+        filtered_kpts = keypoints_t[mask] if keypoints_t is not None else None
+        return boxes_t[mask], conf_t[mask], cls_t[mask], filtered_masks, filtered_kpts
 
     def _wrap_results(
         self,
@@ -245,12 +268,13 @@ class InferenceRunner:
 
         Args:
             detections: Dict with 'boxes', 'scores', 'classes', 'num_detections',
-                and optionally 'masks'.
+                and optionally 'masks' and/or 'keypoints'.
             original_size: (width, height) from preprocessing.
             image_path: Source path or None.
             classes: Optional class filter list.
         """
         masks_t = None
+        keypoints_t = None
 
         if detections["num_detections"] == 0:
             boxes_t = torch.zeros((0, 4), dtype=torch.float32)
@@ -282,10 +306,17 @@ class InferenceRunner:
                 else:
                     masks_t = torch.tensor(raw_masks)
 
+            raw_kpts = detections.get("keypoints")
+            if raw_kpts is not None:
+                if isinstance(raw_kpts, torch.Tensor):
+                    keypoints_t = raw_kpts.float()
+                else:
+                    keypoints_t = torch.as_tensor(raw_kpts).float()
+
         # Apply class filter
         if classes is not None and len(boxes_t) > 0:
-            boxes_t, conf_t, cls_t, masks_t = self._apply_classes_filter(
-                boxes_t, conf_t, cls_t, classes, masks_t
+            boxes_t, conf_t, cls_t, masks_t, keypoints_t = self._apply_classes_filter(
+                boxes_t, conf_t, cls_t, classes, masks_t, keypoints_t
             )
 
         # original_size from preprocess is (W, H); orig_shape is (H, W)
@@ -296,12 +327,17 @@ class InferenceRunner:
         if masks_t is not None:
             masks_obj = Masks(masks_t, orig_shape)
 
+        keypoints_obj = None
+        if keypoints_t is not None:
+            keypoints_obj = Keypoints(keypoints_t, orig_shape)
+
         return Results(
             boxes=Boxes(boxes_t, conf_t, cls_t),
             orig_shape=orig_shape,
             path=str(image_path) if image_path else None,
             names=self.model.names,
             masks=masks_obj,
+            keypoints=keypoints_obj,
         )
 
     def _predict_single(
@@ -362,6 +398,11 @@ class InferenceRunner:
                     result.boxes.cls.tolist(),
                     class_names=result.names,
                 )
+                if result.keypoints is not None:
+                    kpts_np = result.keypoints.data
+                    if isinstance(kpts_np, torch.Tensor):
+                        kpts_np = kpts_np.cpu().numpy()
+                    annotated_img = draw_keypoints(annotated_img, kpts_np)
             else:
                 annotated_img = original_img
 

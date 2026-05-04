@@ -14,9 +14,11 @@ from PIL import Image
 from ..models.yolo9.utils import preprocess_image
 from ..models.yolonas.utils import preprocess_image as yolonas_preprocess_image
 from ..models.yolox.utils import preprocess_image as yolox_preprocess_image
+from ..tasks import normalize_supported_tasks, normalize_task, resolve_task
 from ..utils.drawing import draw_boxes, draw_masks
 from ..utils.general import COCO_CLASSES, get_safe_stem
 from ..utils.image_loader import ImageLoader
+from ..utils.predict_args import normalize_predict_kwargs
 from ..utils.results import Boxes, Masks, Results
 from ..utils.video import collect_video_results, is_video_file, run_video_inference
 
@@ -60,7 +62,7 @@ def _is_nms_free_family(model_family: Optional[str]) -> bool:
     selection. Applying YOLO-style IoU suppression on top of that can remove
     valid detections and make exported runtimes diverge from native PyTorch.
     """
-    return model_family in {"dfine", "rfdetr", "rtdetr"}
+    return model_family in {"dfine", "deim", "deimv2", "ec", "rfdetr", "rtdetr"}
 
 
 class BaseBackend(ABC):
@@ -81,12 +83,25 @@ class BaseBackend(ABC):
         imgsz: int,
         model_family: Optional[str],
         names: Dict[int, str],
+        model_size: Optional[str] = None,
+        task: str | None = None,
+        supported_tasks=None,
+        default_task: str | None = None,
     ):
         self.model_path = model_path
         self.nb_classes = nb_classes
         self.device = device
         self.imgsz = imgsz
         self.model_family = model_family
+        self.family = model_family
+        self.model_size = model_size
+        self.DEFAULT_TASK = normalize_task(default_task, default="detect")
+        self.SUPPORTED_TASKS = normalize_supported_tasks(supported_tasks or (self.DEFAULT_TASK,))
+        self.task = resolve_task(
+            explicit_task=task,
+            default_task=self.DEFAULT_TASK,
+            supported_tasks=self.SUPPORTED_TASKS,
+        )
         self.names = names
 
     # =========================================================================
@@ -132,8 +147,28 @@ class BaseBackend(ABC):
                 image, effective_imgsz, color_format
             )
             return tensor, img, size, 1.0
+        elif self.model_family == "deim":
+            tensor, img, size = self._preprocess_deim(
+                image, effective_imgsz, color_format
+            )
+            return tensor, img, size, 1.0
+        elif self.model_family == "deimv2":
+            tensor, img, size = self._preprocess_deimv2(
+                image, effective_imgsz, color_format, self.model_size
+            )
+            return tensor, img, size, 1.0
+        elif self.model_family == "ec":
+            tensor, img, size = self._preprocess_ec(
+                image, effective_imgsz, color_format
+            )
+            return tensor, img, size, 1.0
         elif self.model_family == "rtdetr":
             tensor, img, size = self._preprocess_rtdetr(
+                image, effective_imgsz, color_format
+            )
+            return tensor, img, size, 1.0
+        elif self.model_family == "picodet":
+            tensor, img, size = self._preprocess_picodet(
                 image, effective_imgsz, color_format
             )
             return tensor, img, size, 1.0
@@ -168,6 +203,65 @@ class BaseBackend(ABC):
         img_chw, _ = dfine_preprocess_numpy(np.array(img), input_size)
         img_tensor = torch.from_numpy(img_chw).unsqueeze(0)
 
+        return img_tensor, original_img, original_size
+
+    @staticmethod
+    def _preprocess_deim(image, input_size, color_format):
+        """DEIM-D-FINE preprocessing: plain resize + RGB + /255."""
+        from ..models.deim.utils import preprocess_numpy as deim_preprocess_numpy
+
+        img = ImageLoader.load(image, color_format=color_format)
+        original_size = img.size
+        original_img = img.copy()
+
+        img_chw, _ = deim_preprocess_numpy(np.array(img), input_size)
+        img_tensor = torch.from_numpy(img_chw).unsqueeze(0)
+
+        return img_tensor, original_img, original_size
+
+    @staticmethod
+    def _preprocess_deimv2(image, input_size, color_format, model_size=None):
+        """DEIMv2 preprocessing; DINO-backed sizes use ImageNet normalization."""
+        from ..models.deimv2.nn import DINO_SIZES
+        from ..models.deimv2.utils import preprocess_numpy as deimv2_preprocess_numpy
+
+        img = ImageLoader.load(image, color_format=color_format)
+        original_size = img.size
+        original_img = img.copy()
+
+        img_chw, _ = deimv2_preprocess_numpy(
+            np.array(img), input_size, imagenet_norm=model_size in DINO_SIZES
+        )
+        img_tensor = torch.from_numpy(img_chw).unsqueeze(0)
+
+        return img_tensor, original_img, original_size
+
+    @staticmethod
+    def _preprocess_ec(image, input_size, color_format):
+        """EC preprocessing: plain resize + RGB + /255 + ImageNet (mean, std)."""
+        from ..models.ec.postprocess import (
+            preprocess_numpy as ec_preprocess_numpy,
+        )
+
+        img = ImageLoader.load(image, color_format=color_format)
+        original_size = img.size
+        original_img = img.copy()
+
+        img_chw, _ = ec_preprocess_numpy(np.array(img), input_size)
+        img_tensor = torch.from_numpy(img_chw).unsqueeze(0)
+        return img_tensor, original_img, original_size
+
+    @staticmethod
+    def _preprocess_picodet(image, input_size, color_format):
+        """PICODET preprocessing: simple resize + RGB + ImageNet mean/std (0-255 space)."""
+        from ..models.picodet.utils import preprocess_numpy as picodet_preprocess_numpy
+
+        img = ImageLoader.load(image, color_format=color_format)
+        original_size = img.size
+        original_img = img.copy()
+
+        img_chw, _ = picodet_preprocess_numpy(np.array(img), input_size)
+        img_tensor = torch.from_numpy(img_chw).unsqueeze(0)
         return img_tensor, original_img, original_size
 
     @staticmethod
@@ -213,8 +307,24 @@ class BaseBackend(ABC):
         elif self.model_family == "dfine":
             boxes, scores, cls = self._parse_dfine(all_outputs, orig_w, orig_h, conf)
             return boxes, scores, cls, None
+        elif self.model_family == "deim":
+            boxes, scores, cls = self._parse_dfine(all_outputs, orig_w, orig_h, conf)
+            return boxes, scores, cls, None
+        elif self.model_family == "deimv2":
+            boxes, scores, cls = self._parse_dfine(all_outputs, orig_w, orig_h, conf)
+            return boxes, scores, cls, None
+        elif self.model_family == "ec":
+            # EC emits the same {pred_logits, pred_boxes} schema as D-FINE
+            # so the parser is shared.
+            boxes, scores, cls = self._parse_dfine(all_outputs, orig_w, orig_h, conf)
+            return boxes, scores, cls, None
         elif self.model_family == "rtdetr":
             boxes, scores, cls = self._parse_rtdetr(all_outputs, orig_w, orig_h, conf)
+            return boxes, scores, cls, None
+        elif self.model_family == "picodet":
+            boxes, scores, cls = self._parse_picodet(
+                all_outputs, effective_imgsz, orig_w, orig_h, conf
+            )
             return boxes, scores, cls, None
         else:
             boxes, scores, cls = self._parse_yolo9(
@@ -250,6 +360,35 @@ class BaseBackend(ABC):
         boxes = np.stack([x1, y1, x2, y2], axis=1)
 
         boxes /= ratio
+        boxes[:, [0, 2]] = np.clip(boxes[:, [0, 2]], 0, orig_w)
+        boxes[:, [1, 3]] = np.clip(boxes[:, [1, 3]], 0, orig_h)
+
+        return boxes, max_scores, class_ids
+
+    def _parse_picodet(self, all_outputs, effective_imgsz, orig_w, orig_h, conf):
+        """Parse PICODET output: (B, N, 4+nc) — xyxy (input-canvas pixels) + sigmoid scores.
+
+        PICODET exports use simple resize (not letterbox), so the inverse
+        scale is independent x/y ratios from input canvas back to the
+        original image.
+        """
+        outputs = all_outputs[0][0]  # (N, 4+nc)
+        boxes = outputs[:, :4]
+        scores = outputs[:, 4:]
+
+        max_scores = np.max(scores, axis=1)
+        class_ids = np.argmax(scores, axis=1)
+
+        mask = max_scores > conf
+        boxes, max_scores, class_ids = boxes[mask], max_scores[mask], class_ids[mask]
+
+        if len(boxes) == 0:
+            return boxes, max_scores, class_ids
+
+        scale_x = orig_w / effective_imgsz
+        scale_y = orig_h / effective_imgsz
+        boxes[:, [0, 2]] *= scale_x
+        boxes[:, [1, 3]] *= scale_y
         boxes[:, [0, 2]] = np.clip(boxes[:, [0, 2]], 0, orig_w)
         boxes[:, [1, 3]] = np.clip(boxes[:, [1, 3]], 0, orig_h)
 
@@ -689,6 +828,7 @@ class BaseBackend(ABC):
         conf: float = 0.25,
         iou: float = 0.45,
         imgsz: Optional[int] = None,
+        device: str | None = None,
         classes: Optional[List[int]] = None,
         max_det: int = 300,
         save: bool = False,
@@ -699,8 +839,19 @@ class BaseBackend(ABC):
         show: bool = False,
         output_path: str | None = None,
         color_format: str = "auto",
+        **kwargs,
     ) -> Union[Results, List[Results], Generator[Results, None, None]]:
         """Run inference on an image, directory, or video."""
+        normalize_predict_kwargs(kwargs)
+        if device not in (None, "", "auto", self.device):
+            logger.warning(
+                "Backend was loaded on device=%s; predict(device=%s) is ignored. "
+                "Load the backend with device=%s to change runtime device.",
+                self.device,
+                device,
+                device,
+            )
+
         # Handle video input
         if is_video_file(source):
             gen = self._predict_video(

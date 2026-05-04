@@ -5,6 +5,7 @@ implements ``_export()``, while the template method in ``__call__`` handles
 validation, model setup/teardown, calibration, and intermediate ONNX export.
 """
 
+import copy
 import json
 import logging
 import warnings
@@ -15,7 +16,7 @@ from typing import Optional
 
 import torch
 
-from .onnx import _get_version, export_onnx
+from .onnx import _get_version, _uses_dfine_style_export_wrapper, export_onnx
 from .torchscript import export_torchscript
 
 logger = logging.getLogger(__name__)
@@ -135,10 +136,15 @@ class BaseExporter(ABC):
         half, int8 = self._validate(half, int8, data)
 
         if opset is None:
-            # D-FINE uses ``F.grid_sample`` (deformable attention) which
-            # requires opset 16+. Default the rest of the families to 13 to
-            # preserve compatibility with the broadest set of ONNX runtimes.
-            opset = 17 if self.model._get_model_name() == "dfine" else 13
+            # D-FINE and EC use ``F.grid_sample`` (deformable attention)
+            # which requires opset 16+. Default the rest of the families to
+            # 13 to preserve compatibility with the broadest set of ONNX
+            # runtimes.
+            opset = (
+                17
+                if _uses_dfine_style_export_wrapper(self.model._get_model_name())
+                else 13
+            )
 
         imgsz, device, output_path = self._resolve_params(
             output_path,
@@ -172,6 +178,7 @@ class BaseExporter(ABC):
                     output_path,
                     opset,
                     simplify,
+                    dynamic,
                 )
                 if self.requires_onnx
                 else None
@@ -242,8 +249,16 @@ class BaseExporter(ABC):
         return half, int8
 
     def _resolve_params(self, output_path, imgsz, device, half, int8):
+        native_imgsz = self.model._get_input_size()
         if imgsz is None:
-            imgsz = self.model._get_input_size()
+            imgsz = native_imgsz
+        elif self.model._get_model_name() == "deimv2" and int(imgsz) != int(
+            native_imgsz
+        ):
+            raise ValueError(
+                "DEIMv2 export uses fixed decoder anchors; imgsz must match "
+                f"the native size {native_imgsz}, got {imgsz}."
+            )
         if device is None:
             device = self.model.device
         else:
@@ -270,16 +285,37 @@ class BaseExporter(ABC):
         original_device = next(nn_model.parameters()).device
         nn_model.to(device)
 
-        # D-FINE export mode: wrap model so it returns a tuple instead of dict
-        # and apply ``model.deploy()`` (BN fusion + prune non-eval decoder layers).
-        # The wrapper is what gets traced; the original model is restored on exit.
+        # DETR-family export mode: wrap model so it returns a tuple instead
+        # of dict and apply ``model.deploy()`` (BN fusion + prune non-eval
+        # decoder layers). The wrapper is what gets traced; the original
+        # model is restored on exit.
         dfine_wrapped = False
-        if self.model._get_model_name() == "dfine":
+        family = self.model._get_model_name()
+        if family == "dfine":
             from ..models.dfine.nn import DFINEExportWrapper
 
             nn_model = DFINEExportWrapper(nn_model).to(device)
             nn_model.eval()
             dfine_wrapped = True
+        elif family == "deim":
+            from ..models.deim.nn import DEIMExportWrapper
+
+            nn_model = DEIMExportWrapper(nn_model).to(device)
+            nn_model.eval()
+            dfine_wrapped = True
+        elif family == "deimv2":
+            from ..models.deimv2.nn import DEIMv2ExportWrapper
+
+            nn_model = copy.deepcopy(nn_model)
+            nn_model = DEIMv2ExportWrapper(nn_model).to(device)
+            nn_model.eval()
+            dfine_wrapped = True
+        elif family == "ec":
+            from ..models.ec.nn import ECExportWrapper
+
+            nn_model = ECExportWrapper(nn_model).to(device)
+            nn_model.eval()
+            dfine_wrapped = True  # share the YOLOX-head-export skip path below
 
         # Set export mode for YOLOX/YOLOv9 heads
         original_export = None
@@ -375,7 +411,9 @@ class BaseExporter(ABC):
         )
         return calibration_data
 
-    def _export_intermediate_onnx(self, nn_model, dummy, output_path, opset, simplify):
+    def _export_intermediate_onnx(
+        self, nn_model, dummy, output_path, opset, simplify, dynamic
+    ):
         onnx_output = str(Path(output_path).with_suffix(".onnx"))
         logger.info("Step 1/2: Exporting to ONNX (%s)", onnx_output)
         return export_onnx(
@@ -384,19 +422,23 @@ class BaseExporter(ABC):
             output_path=onnx_output,
             opset=opset,
             simplify=simplify,
-            dynamic=False,
+            dynamic=dynamic,
             half=False,
-            metadata=self._build_onnx_metadata(dynamic=False, half=False),
+            metadata=self._build_onnx_metadata(dynamic=dynamic, half=False),
         )
 
     def _build_metadata(
         self, precision: str, dynamic: bool, onnx_path: Optional[str]
     ) -> dict:
         """Build metadata dict for non-ONNX formats (native Python types)."""
+        task, supported_tasks, default_task = self._task_metadata()
         meta = {
             "libreyolo_version": _get_version(),
             "model_family": self.model._get_model_name(),
             "model_size": self.model.size,
+            "task": task,
+            "supported_tasks": supported_tasks,
+            "default_task": default_task,
             "nb_classes": self.model.nb_classes,
             "names": {str(k): v for k, v in self.model.names.items()},
             "imgsz": self.model._get_input_size(),
@@ -409,10 +451,14 @@ class BaseExporter(ABC):
 
     def _build_onnx_metadata(self, *, dynamic: bool, half: bool) -> dict:
         """Build metadata dict for ONNX (all-string values, JSON-encoded names)."""
+        task, supported_tasks, default_task = self._task_metadata()
         return {
             "libreyolo_version": _get_version(),
             "model_family": self.model._get_model_name(),
             "model_size": self.model.size,
+            "task": task,
+            "supported_tasks": json.dumps(supported_tasks),
+            "default_task": default_task,
             "nb_classes": str(self.model.nb_classes),
             "names": json.dumps({str(k): v for k, v in self.model.names.items()}),
             "imgsz": str(self.model._get_input_size()),
@@ -420,6 +466,18 @@ class BaseExporter(ABC):
             "half": str(half),
             "segmentation": str(getattr(self.model, "_is_segmentation", False)).lower(),
         }
+
+    def _task_metadata(self) -> tuple[str, list[str], str]:
+        task = getattr(self.model, "task", "detect")
+        if not isinstance(task, str):
+            task = "detect"
+        supported_tasks = getattr(self.model, "SUPPORTED_TASKS", ("detect",))
+        if not isinstance(supported_tasks, (list, tuple)):
+            supported_tasks = ("detect",)
+        default_task = getattr(self.model, "DEFAULT_TASK", "detect")
+        if not isinstance(default_task, str):
+            default_task = "detect"
+        return task, list(supported_tasks), default_task
 
     def _print_summary(self, result: str, precision: str, imgsz: int):
         logger.info(
@@ -593,7 +651,13 @@ class NcnnExporter(BaseExporter):
         # NCNN can't handle DETR-style query selection: its op registry doesn't
         # include the topk/gather variants used by D-FINE and RT-DETR decoders.
         # Block early rather than producing a broken export directory.
-        unsupported_family_names = {"dfine": "D-FINE", "rtdetr": "RT-DETR"}
+        unsupported_family_names = {
+            "dfine": "D-FINE",
+            "deim": "DEIM",
+            "deimv2": "DEIMv2",
+            "rtdetr": "RT-DETR",
+            "ec": "EC",
+        }
         model_family = metadata.get("model_family") if metadata else None
         if model_family in unsupported_family_names:
             raise NotImplementedError(

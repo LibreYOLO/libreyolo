@@ -6,6 +6,8 @@
   asks for it.
 - Humans handle issue creation, PR creation, review submission, and final merge
   decisions.
+- Agents may reply with a one-click GitHub URL (no description pre-filled) so
+  the human can open the PR or issue themselves.
 
 ## Commit policy
 - Do not add LLMs or agent tools as co-authors in commits.

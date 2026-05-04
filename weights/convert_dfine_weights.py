@@ -21,60 +21,39 @@ run a smoke inference, confirming round-trip integrity.
 from __future__ import annotations
 
 import argparse
-import sys
-from pathlib import Path
 
 import torch
 
-
-def _unwrap(checkpoint):
-    """Extract the raw state_dict from upstream's checkpoint layout."""
-    if not isinstance(checkpoint, dict):
-        return checkpoint
-    ema = checkpoint.get("ema")
-    if isinstance(ema, dict):
-        module = ema.get("module")
-        if isinstance(module, dict):
-            return module
-    for key in ("model", "state_dict"):
-        value = checkpoint.get(key)
-        if isinstance(value, dict):
-            return value
-    return checkpoint
+from _conversion_utils import (
+    add_repo_root_to_path,
+    extract_state_dict,
+    load_checkpoint,
+    save_checkpoint,
+    wrap_libreyolo_checkpoint,
+)
 
 
 def convert_weights(input_path: str, output_path: str, size: str, nc: int = 80) -> dict:
-    sys.path.insert(0, str(Path(__file__).parent.parent))
-
-    from libreyolo.utils.general import COCO_CLASSES
-
     print(f"Loading upstream weights from {input_path}")
-    raw = torch.load(input_path, map_location="cpu", weights_only=False)
-    state_dict = _unwrap(raw)
+    raw = load_checkpoint(input_path)
+    state_dict = extract_state_dict(raw)
     print(f"Found {len(state_dict)} parameter entries")
 
-    if nc == 80:
-        names = {i: n for i, n in enumerate(COCO_CLASSES)}
-    else:
-        names = {i: f"class_{i}" for i in range(nc)}
+    libreyolo_ckpt = wrap_libreyolo_checkpoint(
+        state_dict,
+        model_family="dfine",
+        size=size,
+        nc=nc,
+    )
 
-    libreyolo_ckpt = {
-        "model": state_dict,
-        "model_family": "dfine",
-        "size": size,
-        "nc": nc,
-        "names": names,
-    }
-
-    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
-    torch.save(libreyolo_ckpt, output_path)
+    save_checkpoint(libreyolo_ckpt, output_path)
     print(f"Saved LibreYOLO-format checkpoint to {output_path}")
     return libreyolo_ckpt
 
 
 def verify_conversion(converted_path: str, size: str) -> bool:
     """Load via LibreDFINE wrapper and run a smoke forward pass."""
-    sys.path.insert(0, str(Path(__file__).parent.parent))
+    add_repo_root_to_path()
     from libreyolo import LibreDFINE
 
     print(f"\nLoading converted weights into LibreDFINE-{size}...")

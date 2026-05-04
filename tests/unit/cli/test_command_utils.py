@@ -181,6 +181,39 @@ def test_export_runtime_error_includes_stage_context(failing_app):
     assert data["message"] == "Export failed: disk full"
 
 
+def test_export_cli_leaves_opset_auto_by_default(monkeypatch, tmp_path):
+    captured = {}
+
+    class _ExportModel:
+        FAMILY = "deimv2"
+        size = "atto"
+        INPUT_SIZES = {"atto": 320}
+
+        def export(self, **kwargs):
+            captured.update(kwargs)
+            out = tmp_path / "model.onnx"
+            out.write_bytes(b"onnx")
+            return str(out)
+
+    monkeypatch.setattr(
+        "libreyolo.cli.commands.export.resolve_model_or_exit",
+        lambda out, model: model,
+    )
+    monkeypatch.setattr(
+        "libreyolo.cli.commands.export.load_model_or_exit",
+        lambda *args, **kwargs: _ExportModel(),
+    )
+    app = _make_app([("export", export.export_cmd), ("info", special.info_cmd)])
+
+    result = runner.invoke(
+        app,
+        ["export", "model=deimv2-atto", "format=onnx", "--json"],
+    )
+
+    assert result.exit_code == 0
+    assert captured["opset"] is None
+
+
 # ---------------------------------------------------------------------------
 # Model reference validation
 # ---------------------------------------------------------------------------

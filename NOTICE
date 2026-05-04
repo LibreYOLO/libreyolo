@@ -1,0 +1,44 @@
+LibreYOLO
+Copyright (c) The LibreYOLO contributors.
+
+LibreYOLO is licensed under the MIT License (see LICENSE).
+
+This product bundles third-party source code under non-MIT licenses. The
+bundled files retain their original copyright headers. A copy of each
+upstream license accompanies the corresponding code.
+
+------------------------------------------------------------------------
+Bundled third-party source code
+------------------------------------------------------------------------
+
+DINOv3 (Meta DINOv3 License Agreement)
+    Path:    libreyolo/models/deimv2/engine/backbone/dinov3/
+    License: libreyolo/models/deimv2/engine/backbone/dinov3/LICENSE.md
+    Source:  https://github.com/facebookresearch/dinov3
+
+    The DINOv3 backbone code shipped with the DEIMv2 family is
+    redistributed under the DINOv3 License Agreement, a custom
+    non-OSI license from Meta Platforms, Inc.
+
+    Key obligations propagated to downstream users (see LICENSE.md
+    for the authoritative text):
+      * Redistribution must include a copy of the DINOv3 License
+        Agreement (provided as LICENSE.md alongside the code).
+      * The DINO Materials may not be used for activities subject
+        to ITAR, military or warfare purposes, nuclear industries,
+        espionage, or weapons development.
+      * The DINO Materials are provided "as is" without warranty.
+
+    These terms apply only to the DINOv3 subtree listed above. The
+    rest of LibreYOLO remains under the MIT License.
+
+------------------------------------------------------------------------
+Pretrained model weights
+------------------------------------------------------------------------
+
+No pretrained weights are distributed in this source tree. LibreYOLO
+weights are published separately on Hugging Face under the LibreYOLO
+organization (https://huggingface.co/LibreYOLO). Each Hugging Face
+model repository ships its own LICENSE and NOTICE reflecting the
+license of the upstream project the weights were derived from. See
+weights/LICENSE_NOTICE.txt for a per-family summary.

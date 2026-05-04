@@ -101,7 +101,7 @@ names:
 # Download script (auto-downloads if dataset not found locally)
 download: |
   from pathlib import Path
-  from libreyolo.utils.downloads import ASSETS_URL, download
+  from libreyolo.data.utils import ASSETS_URL, download
 
   dir = Path(yaml["path"])
 

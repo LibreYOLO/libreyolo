@@ -46,11 +46,13 @@ The e2e suite mirrors this policy with pytest markers: `supported_backend` for O
 | YOLO-NAS | ✓ | ✓ | ✓ | ✓ | ✓ |
 | RF-DETR | ✓ | ~ | ✓ | ✓ | ~ |
 | D-FINE | ✓ | ✓ | ✓ | ✓ | — |
+| DEIM | ✓ | ✓ | ✓ | ✓ | — |
+| DEIMv2 | ✓ | ✓ | ✓ | ✓ | — |
 | RT-DETR | ✓ | ✓ | ✓ | ✓ | — |
 
 Notes:
 - RF-DETR TorchScript export exists, but tracing can still be brittle on some checkpoints and shapes.
-- NCNN is intentionally blocked for D-FINE and RT-DETR because the runtime lacks required DETR query-selection ops.
+- NCNN is intentionally blocked for D-FINE, DEIM, DEIMv2, and RT-DETR because the runtime lacks required DETR query-selection ops.
 - RF-DETR on NCNN is not blocked at export time, but current e2e coverage still tracks known runtime limitations.
 
 ## Quick Start

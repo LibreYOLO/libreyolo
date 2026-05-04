@@ -7,6 +7,7 @@ from typing import Dict, List, Optional, Tuple
 import numpy as np
 import torch
 
+from ..tasks import normalize_supported_tasks, normalize_task, resolve_task
 from .base import BaseBackend
 
 
@@ -29,7 +30,11 @@ class TensorRTBackend(BaseBackend):
     """
 
     def __init__(
-        self, engine_path: str, nb_classes: int | None = None, device: str = "auto"
+        self,
+        engine_path: str,
+        nb_classes: int | None = None,
+        device: str = "auto",
+        task: str | None = None,
     ):
         try:
             import tensorrt as trt
@@ -58,6 +63,17 @@ class TensorRTBackend(BaseBackend):
             else self._metadata.get("nb_classes", 80)
         )
         model_family = self._metadata.get("model_family")
+        default_task = normalize_task(self._metadata.get("default_task"), default="detect")
+        metadata_task = normalize_task(self._metadata.get("task"), default=default_task)
+        supported_tasks = normalize_supported_tasks(
+            self._metadata.get("supported_tasks", (metadata_task,))
+        )
+        resolved_task = resolve_task(
+            explicit_task=task,
+            checkpoint_task=metadata_task,
+            default_task=default_task,
+            supported_tasks=supported_tasks,
+        )
         self._sidecar_size = self._metadata.get("model_size")
 
         sidecar_names = self._metadata.get("names")
@@ -114,6 +130,10 @@ class TensorRTBackend(BaseBackend):
             imgsz=imgsz,
             model_family=model_family,
             names=names,
+            model_size=self._sidecar_size,
+            task=resolved_task,
+            supported_tasks=supported_tasks,
+            default_task=default_task,
         )
 
     # =========================================================================
@@ -144,8 +164,26 @@ class TensorRTBackend(BaseBackend):
 
     def _detect_model_family(self) -> Optional[str]:
         """Detect model family from output shapes when sidecar metadata is absent."""
-        # D-FINE exports name its outputs ``pred_logits`` and ``pred_boxes`` —
-        # this is the unambiguous signal.
+        # DETR exports share ``pred_logits``/``pred_boxes`` output names; the
+        # sidecar is authoritative, but filename hints keep sidecar-less engines
+        # routed to the right family when the user keeps LibreYOLO's names.
+        stem = Path(self.model_path).stem.lower()
+        if "deimv2" in stem:
+            return "deimv2"
+        if "ec" in stem:
+            return "ec"
+        if "dfine" in stem:
+            return "dfine"
+        if "deim" in stem:
+            return "deim"
+        if "rtdetr" in stem or "rt-detr" in stem:
+            return "rtdetr"
+        if "rfdetr" in stem or "rf-detr" in stem:
+            return "rfdetr"
+
+        # Without metadata or filename hints, this two-output schema is known
+        # to be DETR-style detection but cannot distinguish D-FINE/DEIM/DEIMv2.
+        # Keep the historical fallback for compatibility.
         if "pred_logits" in self.output_names and "pred_boxes" in self.output_names:
             return "dfine"
         if "output" in self.output_shapes:
@@ -283,7 +321,7 @@ class TensorRTBackend(BaseBackend):
                     batch_outputs[name][idx : idx + 1] for name in self.output_names
                 ]
 
-                boxes, max_scores, class_ids = self._parse_outputs(
+                boxes, max_scores, class_ids, masks = self._parse_outputs(
                     per_image,
                     effective_imgsz,
                     orig_size,
@@ -297,6 +335,7 @@ class TensorRTBackend(BaseBackend):
                     boxes,
                     max_scores,
                     class_ids,
+                    masks=masks,
                     orig_shape=orig_shape,
                     image_path=path,
                     iou=iou,
@@ -334,8 +373,16 @@ class TensorRTBackend(BaseBackend):
             return "yolox"
         elif self.model_family == "rfdetr":
             return "rfdetr"
+        elif self.model_family == "dfine":
+            return "dfine"
+        elif self.model_family == "deim":
+            return "deim"
+        elif self.model_family == "deimv2":
+            return "deimv2"
         elif self.model_family == "rtdetr":
             return "rtdetr"
+        elif self.model_family == "ec":
+            return "ec"
         return "libreyolo"
 
     def _get_input_size(self) -> int:

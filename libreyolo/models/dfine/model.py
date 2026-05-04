@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 
@@ -34,6 +35,16 @@ class LibreDFINE(BaseModel):
         # D-FINE but absent from RT-DETR (which otherwise shares
         # ``dec_bbox_head``, ``denoising_class_embed``, and ``enc_bbox_head``).
         return any("decoder.pre_bbox_head." in k for k in weights_dict)
+
+    @classmethod
+    def detect_size_from_filename(cls, filename: str) -> Optional[str]:
+        detected = super().detect_size_from_filename(filename)
+        if detected is not None:
+            return detected
+        m = re.search(r"dfine(?:_hgnetv2)?_([nsmlx])(?:_|\.|$)", filename.lower())
+        if m:
+            return m.group(1)
+        return None
 
     @classmethod
     def detect_size(cls, weights_dict: dict) -> Optional[str]:

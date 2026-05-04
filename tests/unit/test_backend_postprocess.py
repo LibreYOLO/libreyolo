@@ -9,7 +9,12 @@ pytestmark = pytest.mark.unit
 
 
 class _DummyBackend(BaseBackend):
-    def __init__(self, model_family: str):
+    def __init__(
+        self,
+        model_family: str,
+        task: str | None = None,
+        supported_tasks=("detect",),
+    ):
         super().__init__(
             model_path="dummy",
             nb_classes=2,
@@ -17,6 +22,8 @@ class _DummyBackend(BaseBackend):
             imgsz=640,
             model_family=model_family,
             names={0: "class_0", 1: "class_1"},
+            task=task,
+            supported_tasks=supported_tasks,
         )
 
     def _run_inference(self, blob: np.ndarray) -> list:
@@ -84,3 +91,15 @@ def test_yolo_backend_still_applies_nms():
     )
 
     assert len(result.boxes) == 1
+
+
+def test_backend_call_accepts_device_kwarg(monkeypatch):
+    backend = _DummyBackend("yolo9")
+    monkeypatch.setattr(backend, "_predict_single", lambda source, **kwargs: "ok")
+
+    assert backend("image.jpg", device="cpu") == "ok"
+
+
+def test_backend_rejects_unsupported_explicit_task():
+    with pytest.raises(ValueError, match="not supported"):
+        _DummyBackend("yolo9", task="segment", supported_tasks=("detect",))

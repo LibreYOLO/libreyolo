@@ -18,7 +18,7 @@ class ValidationConfig:
         split: Dataset split to validate on ("val" or "test").
         batch_size: Batch size for validation.
         imgsz: Image size for validation (assumes square input).
-        conf_thres: Confidence threshold. Use low value (0.001) for mAP calculation.
+        conf_thres: Confidence threshold. Use 0.0 or a low value for mAP calculation.
         iou_thres: IoU threshold for NMS.
         max_det: Maximum detections per image.
         iou_thresholds: IoU thresholds for mAP calculation (default: 0.50 to 0.95).
@@ -71,17 +71,28 @@ class ValidationConfig:
     half: bool = False
     allow_download_scripts: bool = False
 
+    # Pose validation
+    keypoints_json: Optional[str] = None
+    images_dir: Optional[str] = None
+
     def __post_init__(self) -> None:
-        if self.data is None and self.data_dir is None:
-            raise ValueError("Either 'data' or 'data_dir' must be specified")
+        if (
+            self.data is None
+            and self.data_dir is None
+            and self.keypoints_json is None
+        ):
+            raise ValueError(
+                "Specify one of: 'data' (yaml), 'data_dir' (detection/segmentation), "
+                "or 'keypoints_json' + 'images_dir' (pose)"
+            )
 
         if self.split not in ("val", "test", "train"):
             raise ValueError(
                 f"Invalid split: {self.split}. Must be 'val', 'test', or 'train'"
             )
 
-        if not 0 < self.conf_thres < 1:
-            raise ValueError(f"conf_thres must be in (0, 1), got {self.conf_thres}")
+        if not 0 <= self.conf_thres < 1:
+            raise ValueError(f"conf_thres must be in [0, 1), got {self.conf_thres}")
 
         if not 0 < self.iou_thres < 1:
             raise ValueError(f"iou_thres must be in (0, 1), got {self.iou_thres}")

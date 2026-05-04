@@ -32,6 +32,8 @@ class BaseTrainer(ABC):
     loss extraction, and family-specific behaviour.
     """
 
+    best_metric_key: str = "metrics/mAP50-95"
+
     def __init__(
         self,
         model: nn.Module,
@@ -125,8 +127,25 @@ class BaseTrainer(ABC):
         if hasattr(self.train_loader.dataset, "close_mosaic"):
             self.train_loader.dataset.close_mosaic()
 
-    def on_forward(self, imgs: torch.Tensor, targets: torch.Tensor) -> Dict:
-        """Run the model forward pass. Override if call signature differs."""
+    def on_forward(
+        self,
+        imgs: torch.Tensor,
+        targets: torch.Tensor,
+        polygons: Optional[List] = None,
+    ) -> Dict:
+        """Run the model forward pass. Override if call signature differs.
+
+        When ``load_segments=True`` is enabled, ``polygons`` follows the shared
+        preservation contract:
+
+        - list length equals batch size
+        - each image entry is a list of instances matching that image's target rows
+        - each instance is a list of polygon rings
+        - each ring is an ``Nx2`` array in original image pixel coordinates
+
+        Detection rows without polygon labels use an empty ring list for that
+        instance. Detection-only trainers may ignore ``polygons``.
+        """
         return self.model(imgs, targets)
 
     # =========================================================================
@@ -428,7 +447,12 @@ class BaseTrainer(ABC):
         total_loss = 0.0
         num_batches = 0
 
-        for batch_idx, (imgs, targets, img_infos, img_ids) in enumerate(pbar):
+        for batch_idx, batch in enumerate(pbar):
+            if len(batch) == 5:
+                imgs, targets, img_infos, img_ids, polygons = batch
+            else:
+                imgs, targets, img_infos, img_ids = batch
+                polygons = None
             self.current_iter = epoch * len(self.train_loader) + batch_idx
 
             imgs = imgs.to(self.device, non_blocking=True)
@@ -437,14 +461,14 @@ class BaseTrainer(ABC):
             # Forward + backward
             if self.scaler is not None:
                 with autocast("cuda"):
-                    outputs = self.on_forward(imgs, targets)
+                    outputs = self.on_forward(imgs, targets, polygons=polygons)
                     loss = outputs["total_loss"]
                 self.optimizer.zero_grad()
                 self.scaler.scale(loss).backward()
                 self.scaler.step(self.optimizer)
                 self.scaler.update()
             else:
-                outputs = self.on_forward(imgs, targets)
+                outputs = self.on_forward(imgs, targets, polygons=polygons)
                 loss = outputs["total_loss"]
                 self.optimizer.zero_grad()
                 loss.backward()
@@ -511,7 +535,7 @@ class BaseTrainer(ABC):
 
     def _validate_epoch(self, epoch: int) -> Optional[Dict[str, float]]:
         try:
-            from libreyolo.validation import DetectionValidator, ValidationConfig
+            from libreyolo.validation import DetectionValidator, SegmentationValidator, ValidationConfig
 
             logger.info(f"Running validation for epoch {epoch + 1}")
 
@@ -538,16 +562,23 @@ class BaseTrainer(ABC):
             self.wrapper_model.model = eval_pytorch_model
 
             try:
-                validator = DetectionValidator(
-                    model=self.wrapper_model, config=val_config
+                validator_cls = (
+                    SegmentationValidator
+                    if getattr(self.wrapper_model, "task", "detect") == "segment"
+                    else DetectionValidator
                 )
+                validator = validator_cls(model=self.wrapper_model, config=val_config)
                 results = validator.run()
             finally:
                 self.wrapper_model.model = original_model
 
+            best_key = getattr(self, "best_metric_key", "metrics/mAP50-95")
+            best_metric = results.get(best_key, results.get("metrics/mAP50-95", 0.0))
             metrics = {
-                "mAP50": results.get("metrics/mAP50", 0.0),
-                "mAP50_95": results.get("metrics/mAP50-95", 0.0),
+                "mAP50": results.get("metrics/mAP50", results.get("metrics/mAP50(B)", 0.0)),
+                "mAP50_95": best_metric,
+                "best_metric": best_metric,
+                "best_metric_key": best_key,
             }
 
             logger.debug(
@@ -574,6 +605,20 @@ class BaseTrainer(ABC):
     def _save_checkpoint(
         self, epoch: int, loss: float, val_metrics: Optional[Dict[str, float]] = None
     ):
+        best_metric = (
+            val_metrics.get("best_metric", val_metrics.get("mAP50_95", 0.0))
+            if val_metrics
+            else 0.0
+        )
+        is_best = bool(val_metrics and best_metric > self.best_mAP50_95)
+        if is_best:
+            self.best_mAP50_95 = best_metric
+            self.best_mAP50 = val_metrics["mAP50"]
+            self.best_epoch = epoch + 1
+            self.patience_counter = 0
+        elif val_metrics:
+            self.patience_counter += 1
+
         model_to_save = self.ema_model.ema if self.ema_model else self.model
 
         checkpoint = {
@@ -584,14 +629,25 @@ class BaseTrainer(ABC):
             "loss": loss,
             "best_mAP50_95": self.best_mAP50_95,
             "best_mAP50": self.best_mAP50,
+            "best_metric_key": (
+                val_metrics.get(
+                    "best_metric_key",
+                    getattr(self, "best_metric_key", "metrics/mAP50-95"),
+                )
+                if val_metrics
+                else getattr(self, "best_metric_key", "metrics/mAP50-95")
+            ),
             "best_epoch": self.best_epoch,
             "nc": self.config.num_classes,
             "size": self.config.size,
             "model_family": self.get_model_family(),
+            "task": getattr(self.wrapper_model, "task", "detect"),
         }
         if self.wrapper_model is not None:
             checkpoint["names"] = self.wrapper_model.names
         if self.ema_model is not None:
+            checkpoint["train_model"] = self.model.state_dict()
+            checkpoint["ema"] = self.ema_model.ema.state_dict()
             checkpoint["ema_updates"] = self.ema_model.updates
 
         weights_dir = self.save_dir / "weights"
@@ -600,19 +656,13 @@ class BaseTrainer(ABC):
         latest_path = weights_dir / "last.pt"
         torch.save(checkpoint, latest_path)
 
-        if val_metrics and val_metrics["mAP50_95"] > self.best_mAP50_95:
-            self.best_mAP50_95 = val_metrics["mAP50_95"]
-            self.best_mAP50 = val_metrics["mAP50"]
-            self.best_epoch = epoch + 1
-            self.patience_counter = 0
+        if is_best:
             best_path = weights_dir / "best.pt"
             torch.save(checkpoint, best_path)
             logger.info(
                 f"New best model saved - Epoch {epoch + 1}: "
                 f"mAP50={self.best_mAP50:.4f}, mAP50-95={self.best_mAP50_95:.4f}"
             )
-        elif val_metrics:
-            self.patience_counter += 1
 
         if (epoch + 1) % self.config.save_period == 0:
             epoch_path = weights_dir / f"epoch_{epoch + 1}.pt"
@@ -632,7 +682,8 @@ class BaseTrainer(ABC):
         )
 
         try:
-            self.model.load_state_dict(checkpoint["model"])
+            model_state = checkpoint.get("train_model", checkpoint["model"])
+            self.model.load_state_dict(model_state)
         except Exception as e:
             raise RuntimeError(f"Cannot resume: model architecture mismatch - {e}")
 
@@ -646,13 +697,26 @@ class BaseTrainer(ABC):
                 logger.warning(f"Could not load optimizer state: {e}")
 
         if "best_mAP50_95" in checkpoint:
-            self.best_mAP50_95 = checkpoint["best_mAP50_95"]
-            self.best_mAP50 = checkpoint.get("best_mAP50", 0.0)
-            self.best_epoch = checkpoint.get("best_epoch", 0)
-            logger.info(
-                f"Restored best metrics: mAP50={self.best_mAP50:.4f}, "
-                f"mAP50-95={self.best_mAP50_95:.4f} (epoch {self.best_epoch})"
-            )
+            checkpoint_metric_key = checkpoint.get("best_metric_key", "metrics/mAP50-95")
+            current_metric_key = getattr(self, "best_metric_key", "metrics/mAP50-95")
+            if checkpoint_metric_key != current_metric_key:
+                logger.warning(
+                    "Checkpoint best metric key %s differs from current key %s. "
+                    "Resetting best metric tracking for this run.",
+                    checkpoint_metric_key,
+                    current_metric_key,
+                )
+                self.best_mAP50_95 = 0.0
+                self.best_mAP50 = 0.0
+                self.best_epoch = 0
+            else:
+                self.best_mAP50_95 = checkpoint["best_mAP50_95"]
+                self.best_mAP50 = checkpoint.get("best_mAP50", 0.0)
+                self.best_epoch = checkpoint.get("best_epoch", 0)
+                logger.info(
+                    f"Restored best metrics: mAP50={self.best_mAP50:.4f}, "
+                    f"mAP50-95={self.best_mAP50_95:.4f} (epoch {self.best_epoch})"
+                )
         elif "loss" in checkpoint:
             logger.warning(
                 "Old checkpoint format detected (loss-based). Converting to mAP tracking."
@@ -662,6 +726,12 @@ class BaseTrainer(ABC):
             self.best_epoch = 0
 
         if self.ema_model and "ema_updates" in checkpoint:
+            if "ema" in checkpoint:
+                try:
+                    self.ema_model.ema.load_state_dict(checkpoint["ema"])
+                    logger.info("EMA weights restored")
+                except Exception as e:
+                    logger.warning(f"Could not load EMA weights: {e}")
             self.ema_model.updates = checkpoint["ema_updates"]
             logger.info(f"EMA updates restored: {self.ema_model.updates}")
 

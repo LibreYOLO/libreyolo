@@ -26,7 +26,9 @@ def export_cmd(
     int8: bool = typer.Option(False, help="INT8 quantization"),
     dynamic: bool = typer.Option(False, help="Dynamic input shapes (ONNX)"),
     simplify: bool = typer.Option(True, help="ONNX graph simplification"),
-    opset: int = typer.Option(13, help="ONNX opset version"),
+    opset: Optional[int] = typer.Option(
+        None, help="ONNX opset version (auto if omitted)"
+    ),
     data: Optional[str] = typer.Option(None, help="Calibration data for INT8"),
     fraction: float = typer.Option(1.0, help="Fraction of calibration data"),
     device: str = typer.Option("auto", help="Device for tracing"),
@@ -124,7 +126,11 @@ def export_cmd(
     else:
         size_mb = 0.0
 
-    input_size = loaded_model.INPUT_SIZES.get(loaded_model.size, 640)
+    input_size = (
+        loaded_model._get_input_size()
+        if hasattr(loaded_model, "_get_input_size")
+        else loaded_model.INPUT_SIZES.get(loaded_model.size, 640)
+    )
     if imgsz is not None:
         input_size = imgsz
 

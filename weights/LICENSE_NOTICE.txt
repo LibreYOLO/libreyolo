@@ -32,3 +32,9 @@ The LICENSE and NOTICE files on each Hugging Face model card are the
 authoritative source for redistribution terms. Users converting
 third-party checkpoints locally are responsible for complying with the
 upstream license of those checkpoints.
+
+Third-party SOURCE CODE bundled inside the LibreYOLO Python package
+(separate from weights) is disclosed in the top-level NOTICE file.
+Notably, the DEIMv2 family bundles DINOv3 backbone code under Meta's
+non-OSI DINOv3 License Agreement; see NOTICE and
+libreyolo/models/deimv2/engine/backbone/dinov3/LICENSE.md.

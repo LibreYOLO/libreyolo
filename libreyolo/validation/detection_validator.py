@@ -13,13 +13,18 @@ from .config import ValidationConfig
 
 logger = logging.getLogger(__name__)
 
+COCO_TOPK_FAMILIES = {"dfine", "deim", "deimv2", "ec", "rfdetr", "rtdetr"}
+
 if TYPE_CHECKING:
     from libreyolo.models.base import BaseModel
 
 
 def val_collate_fn(batch):
     """Collate validation batch: stack preprocessed images and padded targets."""
-    imgs, targets, img_infos, img_ids = zip(*batch)
+    if len(batch[0]) == 5:
+        imgs, targets, img_infos, img_ids, _segments = zip(*batch)
+    else:
+        imgs, targets, img_infos, img_ids = zip(*batch)
     imgs = torch.from_numpy(np.stack(imgs))
     targets = torch.from_numpy(np.stack(targets))
     return imgs, targets, img_infos, img_ids
@@ -48,10 +53,20 @@ class DetectionValidator(BaseValidator):
         self.iou_thresholds = torch.tensor(self.config.iou_thresholds)
         self.nc = model.nb_classes
         self.val_preproc = None  # set in _setup_dataloader
+        self._coco_annotation_file: Optional[Path] = None
+        self._coco_label_to_category_id: Optional[Dict[int, int]] = None
+        self._yolo_coco_img_files: Optional[List[Path]] = None
+        self._yolo_coco_label_files: Optional[List[Path]] = None
 
     # =========================================================================
     # Setup
     # =========================================================================
+
+    def _dataset_kwargs(self) -> Dict[str, Any]:
+        return {}
+
+    def _coco_api_kwargs(self) -> Dict[str, Any]:
+        return {}
 
     def _setup_dataloader(self) -> DataLoader:
         """
@@ -139,17 +154,43 @@ class DetectionValidator(BaseValidator):
             self.class_names = None
 
         self.val_preproc = self.model._get_val_preprocessor(img_size=actual_imgsz)
+        dataset_kwargs = self._dataset_kwargs()
 
         # Determine dataset format
         data_path = Path(data_dir)
+        self._coco_annotation_file = None
+        self._coco_label_to_category_id = None
+        self._yolo_coco_img_files = None
+        self._yolo_coco_label_files = None
+        coco_annotation_file = self._find_coco_annotation_file(data_path)
 
-        if img_files is not None:
+        if coco_annotation_file is not None:
+            # Prefer official COCO JSON when it is present. This preserves
+            # COCO image ids, category ids, crowd annotations, and area ranges.
+            json_file = coco_annotation_file.name
+            split_name = self._resolve_coco_image_dir(data_path, json_file)
+
+            dataset = COCODataset(
+                data_dir=str(data_path),
+                json_file=json_file,
+                name=split_name,
+                img_size=img_size,
+                preproc=self.val_preproc,
+                **dataset_kwargs,
+            )
+            self._coco_annotation_file = coco_annotation_file
+            self._coco_label_to_category_id = {
+                label: category_id
+                for label, category_id in enumerate(dataset.class_ids)
+            }
+        elif img_files is not None:
             # File list mode (.txt format)
             dataset = YOLODataset(
                 img_files=img_files,
                 label_files=label_files,
                 img_size=img_size,
                 preproc=self.val_preproc,
+                **dataset_kwargs,
             )
         elif (data_path / "annotations").exists():
             # COCO format (JSON annotations)
@@ -169,6 +210,7 @@ class DetectionValidator(BaseValidator):
                 name=split_name,
                 img_size=img_size,
                 preproc=self.val_preproc,
+                **dataset_kwargs,
             )
         else:
             # YOLO directory format
@@ -177,7 +219,12 @@ class DetectionValidator(BaseValidator):
                 split=split_name,
                 img_size=img_size,
                 preproc=self.val_preproc,
+                **dataset_kwargs,
             )
+
+        if isinstance(dataset, YOLODataset):
+            self._yolo_coco_img_files = list(dataset.img_files)
+            self._yolo_coco_label_files = list(dataset.label_files)
 
         use_cuda = torch.cuda.is_available() and self.device.type == "cuda"
         nw = self.config.num_workers
@@ -196,6 +243,30 @@ class DetectionValidator(BaseValidator):
 
         return dataloader
 
+    def _find_coco_annotation_file(self, data_path: Path) -> Optional[Path]:
+        annotations_dir = data_path / "annotations"
+        if not annotations_dir.exists():
+            return None
+
+        candidates = [
+            annotations_dir / f"instances_{self.config.split}2017.json",
+            annotations_dir / f"instances_{self.config.split}.json",
+        ]
+        for candidate in candidates:
+            if candidate.exists():
+                return candidate
+        return None
+
+    def _resolve_coco_image_dir(self, data_path: Path, json_file: str) -> str:
+        split_name = (
+            f"{self.config.split}2017"
+            if f"{self.config.split}2017" in json_file
+            else self.config.split
+        )
+        if (data_path / "images" / split_name).exists():
+            return f"images/{split_name}"
+        return split_name
+
     def _init_metrics(self) -> None:
         from libreyolo.data import load_data_config
         from libreyolo.data.yolo_coco_api import YOLOCocoAPI
@@ -209,6 +280,29 @@ class DetectionValidator(BaseValidator):
                 "config.data must be set to a yaml path or registry name "
                 "to initialize the COCO evaluator."
             )
+
+        if self._coco_annotation_file is not None:
+            try:
+                from pycocotools.coco import COCO
+            except ImportError:
+                raise ImportError(
+                    "pycocotools is required for COCO format. "
+                    "Install with: pip install pycocotools"
+                )
+
+            coco_api = COCO(str(self._coco_annotation_file))
+            self.coco_evaluator = COCOEvaluator(
+                coco_api,
+                iou_type="bbox",
+                label_to_category_id=self._coco_label_to_category_id,
+            )
+            if self.config.verbose:
+                logger.info(
+                    "COCO evaluator initialized from %s with %d images",
+                    self._coco_annotation_file,
+                    len(coco_api.imgs),
+                )
+            return
 
         # Resolve the (possibly registry-name) data argument through
         # load_data_config — that handles both relative `path:` fields and
@@ -237,11 +331,18 @@ class DetectionValidator(BaseValidator):
         labels_dir = (
             Path(label_files[0]).parent if label_files else images_dir.parent / "labels"
         )
+        image_files = self._yolo_coco_img_files or [Path(p) for p in img_files]
+        yolo_label_files = self._yolo_coco_label_files or (
+            [Path(p) for p in label_files] if label_files else None
+        )
 
         coco_api = YOLOCocoAPI(
             images_dir=images_dir,
             labels_dir=labels_dir,
             class_names=class_names,
+            image_files=image_files,
+            label_files=yolo_label_files,
+            **self._coco_api_kwargs(),
         )
         self.coco_evaluator = COCOEvaluator(coco_api, iou_type="bbox")
 
@@ -300,9 +401,13 @@ class DetectionValidator(BaseValidator):
         elif isinstance(preds, torch.Tensor):
             return preds[batch_idx : batch_idx + 1]
         elif isinstance(preds, (list, tuple)):
+            # Recurse so nested list-of-tensor outputs (e.g. PICODET's per-level
+            # ``(List[cls_scores], List[bbox_preds])``) are sliced too. Without
+            # this every per-image postprocess gets the full batch's tensors
+            # and ``[0]``-indexing yields the first image's slice for every
+            # image in the batch.
             return type(preds)(
-                p[batch_idx : batch_idx + 1] if isinstance(p, torch.Tensor) else p
-                for p in preds
+                self._slice_batch_predictions(p, batch_idx) for p in preds
             )
         else:
             return preds
@@ -327,13 +432,24 @@ class DetectionValidator(BaseValidator):
             uses_letterbox = (
                 self.val_preproc is not None and self.val_preproc.uses_letterbox
             )
+            conf_thres = self.config.conf_thres
+            if (
+                self._coco_annotation_file is not None
+                and self.model.FAMILY in COCO_TOPK_FAMILIES
+            ):
+                # Upstream DETR-style COCO eval keeps the ranked top-k set and
+                # lets pycocotools handle score ordering, rather than applying
+                # a pre-eval confidence cutoff.
+                conf_thres = 0.0
+
             result = self.model._postprocess(
                 single_preds,
-                conf_thres=self.config.conf_thres,
+                conf_thres=conf_thres,
                 iou_thres=self.config.iou_thres,
                 original_size=(orig_w, orig_h),  # (width, height)
                 input_size=self._actual_imgsz,
                 letterbox=uses_letterbox,
+                max_det=self.config.max_det,
             )
 
             if result["num_detections"] > 0:
@@ -346,18 +462,29 @@ class DetectionValidator(BaseValidator):
                 classes = torch.tensor(
                     result["classes"], dtype=torch.int64, device=self.device
                 )
+                raw_masks = result.get("masks")
+                if raw_masks is not None:
+                    masks = (
+                        raw_masks.to(self.device)
+                        if isinstance(raw_masks, torch.Tensor)
+                        else torch.tensor(raw_masks, device=self.device)
+                    )
+                else:
+                    masks = None
             else:
                 boxes = torch.zeros((0, 4), dtype=torch.float32, device=self.device)
                 scores = torch.zeros(0, dtype=torch.float32, device=self.device)
                 classes = torch.zeros(0, dtype=torch.int64, device=self.device)
+                masks = None
 
-            detections.append(
-                {
-                    "boxes": boxes,
-                    "scores": scores,
-                    "classes": classes,
-                }
-            )
+            det = {
+                "boxes": boxes,
+                "scores": scores,
+                "classes": classes,
+            }
+            if masks is not None:
+                det["masks"] = masks
+            detections.append(det)
 
         return detections
 
@@ -391,9 +518,15 @@ class DetectionValidator(BaseValidator):
         coco_metrics = self.coco_evaluator.compute(save_json=save_json)
 
         return {
+            "metrics/precision": coco_metrics["precision"],
+            "metrics/recall": coco_metrics["recall"],
             "metrics/mAP50-95": coco_metrics["mAP"],
             "metrics/mAP50": coco_metrics["mAP50"],
             "metrics/mAP75": coco_metrics["mAP75"],
+            "metrics/precision(B)": coco_metrics["precision"],
+            "metrics/recall(B)": coco_metrics["recall"],
+            "metrics/mAP50(B)": coco_metrics["mAP50"],
+            "metrics/mAP50-95(B)": coco_metrics["mAP"],
             "metrics/mAP_small": coco_metrics["mAP_small"],
             "metrics/mAP_medium": coco_metrics["mAP_medium"],
             "metrics/mAP_large": coco_metrics["mAP_large"],
@@ -403,4 +536,79 @@ class DetectionValidator(BaseValidator):
             "metrics/AR_small": coco_metrics["AR_small"],
             "metrics/AR_medium": coco_metrics["AR_medium"],
             "metrics/AR_large": coco_metrics["AR_large"],
+        }
+
+
+class SegmentationValidator(DetectionValidator):
+    """Validator for instance segmentation models."""
+
+    task = "segment"
+
+    def _dataset_kwargs(self) -> Dict[str, Any]:
+        return {"load_segments": True}
+
+    def _coco_api_kwargs(self) -> Dict[str, Any]:
+        return {"load_segments": True}
+
+    def _init_metrics(self) -> None:
+        from libreyolo.validation import COCOEvaluator
+
+        super()._init_metrics()
+        self.bbox_evaluator = self.coco_evaluator
+        self.mask_evaluator = COCOEvaluator(
+            self.bbox_evaluator.coco_gt,
+            iou_type="segm",
+            label_to_category_id=self._coco_label_to_category_id,
+        )
+
+    def _update_metrics(
+        self,
+        preds: List[Dict[str, torch.Tensor]],
+        targets: torch.Tensor,
+        img_info: List,
+        img_ids: List | None = None,
+    ) -> None:
+        if img_ids is None:
+            raise RuntimeError(
+                "img_ids are required for COCO evaluation but were not provided "
+                "by the dataloader."
+            )
+        for i in range(len(preds)):
+            self.bbox_evaluator.update(preds[i], img_ids[i])
+            self.mask_evaluator.update(preds[i], img_ids[i])
+
+    def _compute_metrics(self) -> Dict[str, float]:
+        if self.config.verbose:
+            logger.info("Computing bbox and mask COCO metrics...")
+
+        bbox_json = None
+        mask_json = None
+        if self.config.save_json:
+            bbox_json = str(self.save_dir / "predictions_bbox.json")
+            mask_json = str(self.save_dir / "predictions_masks.json")
+
+        bbox = self.bbox_evaluator.compute(save_json=bbox_json)
+        mask = self.mask_evaluator.compute(save_json=mask_json)
+
+        return {
+            "metrics/mAP50-95": mask["mAP"],
+            "metrics/mAP50": mask["mAP50"],
+            "metrics/mAP75": mask["mAP75"],
+            "metrics/mAP_small": mask["mAP_small"],
+            "metrics/mAP_medium": mask["mAP_medium"],
+            "metrics/mAP_large": mask["mAP_large"],
+            "metrics/AR1": mask["AR1"],
+            "metrics/AR10": mask["AR10"],
+            "metrics/AR100": mask["AR100"],
+            "metrics/AR_small": mask["AR_small"],
+            "metrics/AR_medium": mask["AR_medium"],
+            "metrics/AR_large": mask["AR_large"],
+            "metrics/precision(B)": bbox["precision"],
+            "metrics/recall(B)": bbox["recall"],
+            "metrics/mAP50(B)": bbox["mAP50"],
+            "metrics/mAP50-95(B)": bbox["mAP"],
+            "metrics/precision(M)": mask["precision"],
+            "metrics/recall(M)": mask["recall"],
+            "metrics/mAP50(M)": mask["mAP50"],
+            "metrics/mAP50-95(M)": mask["mAP"],
         }
