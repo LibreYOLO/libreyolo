@@ -455,6 +455,15 @@ class InferenceRunner:
 
         return result
 
+    # Families that resize directly to a fixed square (no letterbox, ratio=1.0).
+    # Multi-scale TTA is a no-op for them because _preprocess always rescales
+    # the PIL image back to the same fixed resolution regardless of its input
+    # size — so a 0.83× or 1.33× PIL image ends up identical to the original
+    # at the network level. Only horizontal flip adds genuine augmentation.
+    _FIXED_SIZE_FAMILIES: frozenset[str] = frozenset(
+        {"rfdetr", "rtdetr", "dfine", "deim", "deimv2", "ec"}
+    )
+
     def _predict_tta(
         self,
         image: ImageInput,
@@ -471,9 +480,16 @@ class InferenceRunner:
     ) -> Results:
         """Run TTA inference (detection only).
 
-        Augments at three scales (0.83×, 1.0×, 1.33×) × {original, h-flip},
-        collects all predictions in original image space, then merges via
-        class-wise NMS.
+        Letterbox families (YOLOX, YOLOv9, YOLO-NAS, PicoDet):
+            3 scales × 2 flips = 6 passes. Scaling the PIL image genuinely
+            changes what the network sees because letterbox preserves aspect
+            ratio and embeds scale information in the ratio used for decoding.
+
+        Fixed-size families (RF-DETR, RT-DETR, D-FINE, DEIM, EC):
+            Flip-only (2 passes). These models resize the PIL image to a fixed
+            square regardless of its input dimensions, so a 0.83× or 1.33×
+            variant would be stretched back to the same resolution at the
+            network level — adding cost with no benefit.
         """
         from PIL import Image as PILImage
 
@@ -486,11 +502,14 @@ class InferenceRunner:
         img_pil = ImageLoader.load(image, color_format=color_format)
         orig_w, orig_h = img_pil.size
 
+        fixed_size = self.model.FAMILY in self._FIXED_SIZE_FAMILIES
+        scales = (1.0,) if fixed_size else (0.83, 1.0, 1.33)
+
         all_boxes: List[torch.Tensor] = []
         all_scores: List[torch.Tensor] = []
         all_classes: List[torch.Tensor] = []
 
-        for scale in (0.83, 1.0, 1.33):
+        for scale in scales:
             for flipped in (False, True):
                 if scale == 1.0:
                     aug = img_pil
