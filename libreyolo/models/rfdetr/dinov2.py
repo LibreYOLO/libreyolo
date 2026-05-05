@@ -207,7 +207,7 @@ class WindowedDinov2WithRegistersConfig(BackboneConfigMixin, PretrainedConfig):
 
     Example:
 
-    >>> from rfdetr.models.backbone.dinov2_with_windowed_attn import WindowedDinov2WithRegistersConfig
+    >>> from libreyolo.models.rfdetr.dinov2 import WindowedDinov2WithRegistersConfig
 
     >>> # Initializing a tiny configuration suitable for doctests
     >>> configuration = WindowedDinov2WithRegistersConfig(
@@ -962,7 +962,7 @@ class WindowedDinov2WithRegistersModel(WindowedDinov2WithRegistersPreTrainedMode
 
         Example::
 
-            >>> from rfdetr.models.backbone.dinov2_with_windowed_attn import (
+            >>> from libreyolo.models.rfdetr.dinov2 import (
             ...     WindowedDinov2WithRegistersConfig,
             ...     WindowedDinov2WithRegistersModel,
             ... )
@@ -1004,7 +1004,7 @@ class WindowedDinov2WithRegistersModel(WindowedDinov2WithRegistersPreTrainedMode
         Examples:
 
         >>> import torch
-        >>> from rfdetr.models.backbone.dinov2_with_windowed_attn import (
+        >>> from libreyolo.models.rfdetr.dinov2 import (
         ...     WindowedDinov2WithRegistersConfig,
         ...     WindowedDinov2WithRegistersModel,
         ... )
@@ -1118,7 +1118,7 @@ class WindowedDinov2WithRegistersForImageClassification(WindowedDinov2WithRegist
         Example:
 
         >>> import torch
-        >>> from rfdetr.models.backbone.dinov2_with_windowed_attn import (
+        >>> from libreyolo.models.rfdetr.dinov2 import (
         ...     WindowedDinov2WithRegistersConfig,
         ...     WindowedDinov2WithRegistersForImageClassification,
         ... )
@@ -1231,7 +1231,7 @@ class WindowedDinov2WithRegistersBackbone(WindowedDinov2WithRegistersPreTrainedM
         Examples:
 
         >>> import torch
-        >>> from rfdetr.models.backbone.dinov2_with_windowed_attn import (
+        >>> from libreyolo.models.rfdetr.dinov2 import (
         ...     WindowedDinov2WithRegistersBackbone,
         ...     WindowedDinov2WithRegistersConfig,
         ... )

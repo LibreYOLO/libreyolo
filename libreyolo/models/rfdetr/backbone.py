@@ -29,7 +29,7 @@ import torch.nn as nn
 import torch.nn.functional as F  # noqa: N812
 from transformers import AutoBackbone
 
-from .dinov2_with_windowed_attn import (
+from .dinov2 import (
     WindowedDinov2WithRegistersBackbone,
     WindowedDinov2WithRegistersConfig,
 )
