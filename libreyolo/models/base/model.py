@@ -6,10 +6,12 @@ Provides shared functionality for all YOLO model variants.
 
 from __future__ import annotations
 
+import functools
+import inspect
 import re
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Any, ClassVar, Dict, Generator, List, Optional, Tuple, Type, Union
+from typing import Any, Callable, ClassVar, Dict, Generator, List, Optional, Tuple, Type, Union
 
 import torch
 import torch.nn as nn
@@ -22,13 +24,43 @@ from ...tasks import (
     task_suffix_pattern,
     task_to_suffix,
 )
-from ...training.config import TrainConfig
+from ...training.config import TrainConfig, load_train_cfg
 from ...utils.general import COCO_CLASSES
 from ...utils.image_loader import ImageInput
 from ...utils.logging import ensure_default_logging
 from ...utils.results import Results
 from ...utils.serialization import load_untrusted_torch_file
 from ...validation.preprocessors import StandardValPreprocessor
+
+
+def _wrap_train_with_cfg(train_fn: Callable) -> Callable:
+    """Decorate a family ``train()`` method to accept ``cfg='path/to/yaml'``.
+
+    Loads the yaml as a dict and merges it into kwargs with user-provided
+    kwargs winning. Keys consumed by positional args are dropped from the
+    cfg dict to avoid ``TypeError: got multiple values``.
+    """
+    sig = inspect.signature(train_fn)
+    pos_names = [
+        p.name
+        for p in sig.parameters.values()
+        if p.kind in (p.POSITIONAL_ONLY, p.POSITIONAL_OR_KEYWORD)
+    ]
+    if pos_names and pos_names[0] == "self":
+        pos_names = pos_names[1:]
+
+    @functools.wraps(train_fn)
+    def wrapper(self, *args, cfg=None, **user_kwargs):
+        if cfg is None:
+            return train_fn(self, *args, **user_kwargs)
+        cfg_kwargs = load_train_cfg(cfg)
+        consumed = set(pos_names[: len(args)])
+        merged = {k: v for k, v in cfg_kwargs.items() if k not in consumed}
+        merged.update(user_kwargs)
+        return train_fn(self, *args, **merged)
+
+    wrapper._libreyolo_cfg_wrapped = True  # type: ignore[attr-defined]
+    return wrapper
 
 
 class BaseModel(ABC):
@@ -67,6 +99,11 @@ class BaseModel(ABC):
             and cls not in BaseModel._registry
         ):
             BaseModel._registry.append(cls)
+
+        if "train" in cls.__dict__ and not getattr(
+            cls.train, "_libreyolo_cfg_wrapped", False
+        ):
+            cls.train = _wrap_train_with_cfg(cls.train)
 
     # =========================================================================
     # Initialization
