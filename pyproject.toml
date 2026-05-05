@@ -36,7 +36,8 @@ onnx = [
     "onnxruntime>=1.16.0",
 ]
 rfdetr = [
-    "rfdetr>=1.6.2,<2.0.0",
+    "transformers>=4.40.0",
+    "scipy>=1.7.0",
 ]
 tensorrt = [
     "tensorrt-cu12",
