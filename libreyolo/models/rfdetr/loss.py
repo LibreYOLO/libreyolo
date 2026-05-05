@@ -21,7 +21,16 @@ from .segmentation import (
 )
 from .math import accuracy
 from . import box_ops
-from .distributed import get_world_size, is_dist_avail_and_initialized
+
+
+def is_dist_avail_and_initialized() -> bool:
+    return torch.distributed.is_available() and torch.distributed.is_initialized()
+
+
+def get_world_size() -> int:
+    if not is_dist_avail_and_initialized():
+        return 1
+    return torch.distributed.get_world_size()
 
 
 def sigmoid_focal_loss(inputs, targets, num_boxes, alpha: float = 0.25, gamma: float = 2):
