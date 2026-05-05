@@ -1,7 +1,7 @@
-"""
-Utility functions for LibreYOLO RF-DETR.
+"""Inference-side preprocess + DETR-style postprocess for LibreYOLO RF-DETR.
 
-Postprocessing matches the original rfdetr implementation exactly.
+Behavior matches upstream RF-DETR (https://github.com/roboflow/rf-detr) so weights
+load and produce numerically equivalent detections.
 """
 
 import numpy as np

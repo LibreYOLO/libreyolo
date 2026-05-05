@@ -1,8 +1,8 @@
-# ------------------------------------------------------------------------
-# RF-DETR
-# Copyright (c) 2025 Roboflow. All Rights Reserved.
-# Licensed under the Apache License, Version 2.0 [see LICENSE for details]
-# ------------------------------------------------------------------------
+"""SegmentationHead and point-sampling helpers for RF-DETR instance seg.
+
+Ported from RF-DETR (https://github.com/roboflow/rf-detr).
+Copyright (c) 2025 Roboflow, Inc. All Rights Reserved.
+"""
 
 from typing import Any, Callable
 

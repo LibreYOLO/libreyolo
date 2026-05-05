@@ -1,15 +1,11 @@
-# ------------------------------------------------------------------------
-# RF-DETR
-# Copyright (c) 2025 Roboflow. All Rights Reserved.
-# Licensed under the Apache License, Version 2.0 [see LICENSE for details]
-# ------------------------------------------------------------------------
-# Modified from HuggingFace Transformers (https://github.com/huggingface/transformers)
-# Copyright 2022 The HuggingFace Team. All rights reserved.        (pytorch_utils.py)
-# Copyright 2023 The HuggingFace Inc. team. All rights reserved.   (backbone_utils.py)
-# Copyright 2024 Meta Inc. and the HuggingFace Inc. team. All rights reserved. (DINOv2)
-# Licensed under the Apache License, Version 2.0
-# ------------------------------------------------------------------------
 """DINOv2-with-Registers backbone with windowed self-attention.
+
+Ported from RF-DETR (https://github.com/roboflow/rf-detr).
+Copyright (c) 2025 Roboflow, Inc. All Rights Reserved.
+Modified from HuggingFace Transformers (https://github.com/huggingface/transformers).
+Copyright 2022-2024 The HuggingFace Team. All Rights Reserved.
+Modified from DINOv2 (https://github.com/facebookresearch/dinov2).
+Copyright (c) Meta Platforms, Inc. and affiliates.
 
 This module is a local copy of the HuggingFace Transformers DINOv2-with-Registers
 implementation, extended with windowed attention support for RF-DETR.  It targets
