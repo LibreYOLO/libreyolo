@@ -1,19 +1,15 @@
-# ------------------------------------------------------------------------
-# RF-DETR
-# Copyright (c) 2025 Roboflow. All Rights Reserved.
-# Licensed under the Apache License, Version 2.0 [see LICENSE for details]
-# ------------------------------------------------------------------------
-# Copied and modified from LW-DETR (https://github.com/Atten4Vis/LW-DETR)
-# Copyright (c) 2024 Baidu. All Rights Reserved.
-# ------------------------------------------------------------------------
-# Modified from Conditional DETR (https://github.com/Atten4Vis/ConditionalDETR)
-# Copyright (c) 2021 Microsoft. All Rights Reserved.
-# ------------------------------------------------------------------------
-# Modified from DETR (https://github.com/facebookresearch/detr)
-# Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
-# ------------------------------------------------------------------------
-"""
-Transformer class
+"""Transformer (encoder + decoder) and multi-scale deformable attention for RF-DETR.
+
+Ported from RF-DETR (https://github.com/roboflow/rf-detr).
+Copyright (c) 2025 Roboflow, Inc. All Rights Reserved.
+Modified from LW-DETR (https://github.com/Atten4Vis/LW-DETR).
+Copyright (c) 2024 Baidu. All Rights Reserved.
+Modified from Conditional DETR (https://github.com/Atten4Vis/ConditionalDETR).
+Copyright (c) 2021 Microsoft. All Rights Reserved.
+Modified from DETR (https://github.com/facebookresearch/detr).
+Copyright (c) Facebook, Inc. and its affiliates.
+Modified from Deformable DETR (https://github.com/fundamentalvision/Deformable-DETR).
+Copyright (c) 2020 SenseTime. All Rights Reserved.
 """
 
 import copy

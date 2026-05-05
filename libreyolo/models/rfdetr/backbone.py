@@ -1,22 +1,16 @@
-# ------------------------------------------------------------------------
-# RF-DETR
-# Copyright (c) 2025 Roboflow. All Rights Reserved.
-# Licensed under the Apache License, Version 2.0 [see LICENSE for details]
-# ------------------------------------------------------------------------
-# Copied and modified from LW-DETR (https://github.com/Atten4Vis/LW-DETR)
-# Copyright (c) 2024 Baidu. All Rights Reserved.
-# ------------------------------------------------------------------------
-# Modified from Conditional DETR (https://github.com/Atten4Vis/ConditionalDETR)
-# Copyright (c) 2021 Microsoft. All Rights Reserved.
-# ------------------------------------------------------------------------
-# Copied from DETR (https://github.com/facebookresearch/detr)
-# Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
-# ------------------------------------------------------------------------
-# Modified from ViTDet (https://github.com/facebookresearch/detectron2/tree/main/projects/ViTDet)
-# Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
-# ------------------------------------------------------------------------
+"""RF-DETR backbone, projector, position encoding, and DINOv2 glue.
 
-"""RF-DETR backbone, projector, position encoding, and DINOv2 glue."""
+Ported from RF-DETR (https://github.com/roboflow/rf-detr).
+Copyright (c) 2025 Roboflow, Inc. All Rights Reserved.
+Modified from LW-DETR (https://github.com/Atten4Vis/LW-DETR).
+Copyright (c) 2024 Baidu. All Rights Reserved.
+Modified from Conditional DETR (https://github.com/Atten4Vis/ConditionalDETR).
+Copyright (c) 2021 Microsoft. All Rights Reserved.
+Modified from DETR (https://github.com/facebookresearch/detr).
+Copyright (c) Facebook, Inc. and its affiliates.
+Modified from ViTDet (https://github.com/facebookresearch/detectron2/tree/main/projects/ViTDet).
+Copyright (c) Facebook, Inc. and its affiliates.
+"""
 
 import logging
 import math

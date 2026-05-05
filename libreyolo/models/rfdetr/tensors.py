@@ -1,17 +1,12 @@
-# ------------------------------------------------------------------------
-# RF-DETR
-# Copyright (c) 2025 Roboflow. All Rights Reserved.
-# Licensed under the Apache License, Version 2.0 [see LICENSE for details]
-# ------------------------------------------------------------------------
-# Copied and modified from LW-DETR (https://github.com/Atten4Vis/LW-DETR)
-# Copyright (c) 2024 Baidu. All Rights Reserved.
-# Licensed under the Apache License, Version 2.0 [see LICENSE for details]
-# ------------------------------------------------------------------------
-# Copied from DETR (https://github.com/facebookresearch/detr)
-# Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
-# ------------------------------------------------------------------------
+"""Tensor utilities: NestedTensor, _bilinear_grid_sample, collate helpers.
 
-"""Tensor utilities: NestedTensor, collate_fn, and helpers."""
+Ported from RF-DETR (https://github.com/roboflow/rf-detr).
+Copyright (c) 2025 Roboflow, Inc. All Rights Reserved.
+Modified from LW-DETR (https://github.com/Atten4Vis/LW-DETR).
+Copyright (c) 2024 Baidu. All Rights Reserved.
+Modified from DETR (https://github.com/facebookresearch/detr).
+Copyright (c) Facebook, Inc. and its affiliates.
+"""
 
 from functools import partial
 from typing import Any, Callable
