@@ -352,7 +352,7 @@ class BaseExporter(ABC):
                 rfdetr_export_activated = True
 
             try:
-                from ..models.rfdetr.projector import LayerNorm as RFDETRLayerNorm
+                from ..models.rfdetr.backbone import LayerNorm as RFDETRLayerNorm
 
                 for m in nn_model.modules():
                     if isinstance(m, RFDETRLayerNorm):
