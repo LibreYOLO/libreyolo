@@ -447,11 +447,12 @@ class TestONNXSegmentation:
         exported = pt_model.export(format="onnx", output_path=onnx_path, simplify=False)
         assert Path(exported).exists()
 
-        # Verify ONNX has 3 outputs (boxes, scores, masks)
+        # Verify ONNX has 3 outputs (boxes, logits, masks).
+        # RF-DETR uses the pred_* naming convention (matches the PyTorch dict output).
         onnx_model = onnx.load(exported)
         output_names = [o.name for o in onnx_model.graph.output]
         assert len(output_names) == 3, f"Expected 3 outputs, got {output_names}"
-        assert "masks" in output_names
+        assert "pred_masks" in output_names
 
         # Verify segmentation metadata
         meta = {p.key: p.value for p in onnx_model.metadata_props}
