@@ -33,11 +33,20 @@ from ...utils.serialization import load_untrusted_torch_file
 from ...validation.preprocessors import StandardValPreprocessor
 
 
+# Keys that come from the model wrapper instance (``self.size``,
+# ``self.nb_classes``) and are passed explicitly to the family trainer. If a
+# cfg yaml carries them too, they would collide with the explicit kwargs and
+# raise ``TypeError: got multiple values``. ``TrainConfig.to_yaml()`` writes
+# both, so a user-generated starter yaml hits this naturally.
+_WRAPPER_OWNED_CFG_KEYS = frozenset({"size", "num_classes"})
+
+
 def _wrap_train_with_cfg(train_fn: Callable) -> Callable:
     """Decorate a family ``train()`` method to accept ``cfg='path/to/yaml'``.
 
     Loads the yaml as a dict and merges it into kwargs with user-provided
-    kwargs winning. Keys consumed by positional args are dropped from the
+    kwargs winning. Keys consumed by positional args (and a small set of
+    wrapper-owned keys like ``size``/``num_classes``) are dropped from the
     cfg dict to avoid ``TypeError: got multiple values``.
     """
     sig = inspect.signature(train_fn)
@@ -54,7 +63,7 @@ def _wrap_train_with_cfg(train_fn: Callable) -> Callable:
         if cfg is None:
             return train_fn(self, *args, **user_kwargs)
         cfg_kwargs = load_train_cfg(cfg)
-        consumed = set(pos_names[: len(args)])
+        consumed = set(pos_names[: len(args)]) | _WRAPPER_OWNED_CFG_KEYS
         merged = {k: v for k, v in cfg_kwargs.items() if k not in consumed}
         merged.update(user_kwargs)
         return train_fn(self, *args, **merged)

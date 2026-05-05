@@ -142,6 +142,47 @@ def test_wrapper_missing_cfg_file_raises(tmp_path):
         wrapped(_FakeWrapper(), "data.yaml", cfg=str(tmp_path / "nope.yaml"))
 
 
+def test_wrapper_drops_size_and_num_classes_from_cfg(tmp_path):
+    """``size`` and ``num_classes`` come from the wrapper instance — not the
+    yaml. Every family's train() spreads ``**kwargs`` into a trainer call that
+    already has ``size=self.size`` and ``num_classes=self.nb_classes``, so
+    forwarding these from cfg would raise ``TypeError: got multiple values``.
+
+    Regression for: a yaml produced by ``TrainConfig().to_yaml(...)`` carrying
+    ``size: s`` and ``num_classes: 80`` was crashing every family's train.
+    """
+    cfg = tmp_path / "train.yaml"
+    cfg.write_text("size: s\nnum_classes: 80\nepochs: 50\n")
+
+    def family_like_train(self, data, *, epochs=10, **kwargs):
+        # Mirrors the shape of every family's train() body:
+        #     trainer = FooTrainer(size=self.size, num_classes=self.nb_classes,
+        #                          data=data, epochs=epochs, ..., **kwargs)
+        return _trainer_call(
+            size=self.size,
+            num_classes=self.nb_classes,
+            data=data,
+            epochs=epochs,
+            **kwargs,
+        )
+
+    def _trainer_call(**kw):
+        return kw
+
+    class _Wrapper:
+        size = "m"
+        nb_classes = 100
+
+    wrapped = _wrap_train_with_cfg(family_like_train)
+    out = wrapped(_Wrapper(), "data.yaml", cfg=str(cfg))
+    # Wrapper instance state wins; cfg's size/num_classes were dropped.
+    assert out["size"] == "m"
+    assert out["num_classes"] == 100
+    # Other cfg keys still flow through.
+    assert out["epochs"] == 50
+    assert out["data"] == "data.yaml"
+
+
 # ---------------------------------------------------------------------------
 # Auto-wrapping is applied to real family classes
 # ---------------------------------------------------------------------------
