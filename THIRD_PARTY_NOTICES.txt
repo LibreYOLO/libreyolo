@@ -77,7 +77,71 @@ DINOv2 (Meta AI / facebookresearch)
 Source: https://github.com/facebookresearch/dinov2
 License: Apache License 2.0
 Copyright (c) Meta Platforms, Inc. and affiliates.
-Used for: vision transformer backbone consumed by RF-DETR.
+Used for: vision transformer backbone consumed by RF-DETR. The local
+          DINOv2 implementation lives at libreyolo/models/rfdetr/dinov2.py.
+
+--------------------------------------------------------------------
+HuggingFace Transformers
+--------------------------------------------------------------------
+Source: https://github.com/huggingface/transformers
+License: Apache License 2.0
+Copyright 2022-2024 The HuggingFace Team. All Rights Reserved.
+Used for: DINOv2-with-Registers reference implementation that
+          libreyolo/models/rfdetr/dinov2.py adapts to add windowed
+          self-attention. Also a runtime dependency loaded via
+          AutoBackbone for the non-windowed DinoV2 path.
+
+--------------------------------------------------------------------
+LW-DETR (Atten4Vis / Baidu)
+--------------------------------------------------------------------
+Source: https://github.com/Atten4Vis/LW-DETR
+License: Apache License 2.0
+Copyright (c) 2024 Baidu. All Rights Reserved.
+Used for: backbone, transformer, matcher, loss, postprocess, and
+          tensor utilities consumed by RF-DETR
+          (libreyolo/models/rfdetr/{backbone,transformer,matcher,
+          loss,lwdetr,tensors,box_ops}.py).
+
+--------------------------------------------------------------------
+Conditional DETR (Atten4Vis / Microsoft)
+--------------------------------------------------------------------
+Source: https://github.com/Atten4Vis/ConditionalDETR
+License: Apache License 2.0
+Copyright (c) 2021 Microsoft. All Rights Reserved.
+Used for: position-encoding, transformer, matcher, and loss
+          building blocks reused by RF-DETR via LW-DETR
+          (libreyolo/models/rfdetr/{backbone,transformer,matcher,
+          loss,lwdetr,box_ops}.py).
+
+--------------------------------------------------------------------
+DETR (facebookresearch / Meta)
+--------------------------------------------------------------------
+Source: https://github.com/facebookresearch/detr
+License: Apache License 2.0
+Copyright (c) Facebook, Inc. and its affiliates.
+Used for: NestedTensor, position-encoding, matcher, set-criterion,
+          and box utilities reused by RF-DETR via LW-DETR
+          (libreyolo/models/rfdetr/{backbone,transformer,matcher,
+          loss,lwdetr,tensors,box_ops}.py).
+
+--------------------------------------------------------------------
+Deformable DETR (fundamentalvision / SenseTime)
+--------------------------------------------------------------------
+Source: https://github.com/fundamentalvision/Deformable-DETR
+License: Apache License 2.0
+Copyright (c) 2020 SenseTime. All Rights Reserved.
+Used for: multi-scale deformable attention reused by RF-DETR
+          (libreyolo/models/rfdetr/transformer.py: MSDeformAttn,
+          ms_deform_attn_core_pytorch).
+
+--------------------------------------------------------------------
+ViTDet (facebookresearch detectron2)
+--------------------------------------------------------------------
+Source: https://github.com/facebookresearch/detectron2/tree/main/projects/ViTDet
+License: Apache License 2.0
+Copyright (c) Facebook, Inc. and its affiliates.
+Used for: MultiScaleProjector / SimpleProjector primitives reused by
+          RF-DETR (libreyolo/models/rfdetr/backbone.py).
 
 --------------------------------------------------------------------
 PaddleClas (PaddlePaddle)
