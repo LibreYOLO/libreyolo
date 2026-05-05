@@ -11,6 +11,32 @@ import yaml
 logger = logging.getLogger(__name__)
 
 
+def load_train_cfg(path) -> dict:
+    """Load a training-config yaml as a dict suitable for ``model.train(**out)``.
+
+    Args:
+        path: Path to a yaml file containing training parameters.
+
+    Returns:
+        Dict of training kwargs parsed from the yaml.
+
+    Raises:
+        FileNotFoundError: If the yaml file does not exist.
+        ValueError: If the yaml content is not a mapping.
+    """
+    yaml_path = Path(path)
+    if not yaml_path.exists():
+        raise FileNotFoundError(f"Training cfg yaml not found: {yaml_path}")
+    with open(yaml_path) as f:
+        raw = yaml.safe_load(f) or {}
+    if not isinstance(raw, dict):
+        raise ValueError(
+            f"Training cfg {yaml_path} must be a yaml mapping, "
+            f"got {type(raw).__name__}."
+        )
+    return raw
+
+
 @dataclass(kw_only=True)
 class TrainConfig:
     """Base training configuration. Subclasses override defaults per model family."""
