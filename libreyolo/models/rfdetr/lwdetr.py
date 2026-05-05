@@ -25,8 +25,10 @@ import math
 from typing import Any, Callable, Optional
 
 import torch
+import torch.nn.functional as F  # noqa: N812
 from torch import nn
 
+from . import box_ops
 from .backbone import build_backbone
 
 # Backward-compat re-exports: loss functions that used to live in this module
@@ -42,10 +44,96 @@ from .loss import (  # noqa: F401 — backward compat
 )
 from .segmentation import SegmentationHead
 from .matcher import build_matcher
-from .math import MLP
-from .postprocess import PostProcess
 from .transformer import build_transformer
 from .tensors import NestedTensor, nested_tensor_from_tensor_list
+
+
+# ---------------------------------------------------------------------------
+# Mathematical building blocks (originally DETR / Facebook).
+# ---------------------------------------------------------------------------
+
+
+class MLP(nn.Module):
+    """Very simple multi-layer perceptron (also called FFN)."""
+
+    def __init__(self, input_dim, hidden_dim, output_dim, num_layers):
+        super().__init__()
+        self.num_layers = num_layers
+        h = [hidden_dim] * (num_layers - 1)
+        self.layers = nn.ModuleList(nn.Linear(n, k) for n, k in zip([input_dim] + h, h + [output_dim]))
+
+    def forward(self, x):
+        for i, layer in enumerate(self.layers):
+            x = F.relu(layer(x)) if i < self.num_layers - 1 else layer(x)
+        return x
+
+
+# ---------------------------------------------------------------------------
+# Postprocess head (top-K + cxcywh→xyxy + optional masks).
+# ---------------------------------------------------------------------------
+
+
+class PostProcess(nn.Module):
+    """Convert raw model outputs to COCO-API-compatible per-image results."""
+
+    def __init__(self, num_select=300) -> None:
+        super().__init__()
+        self.num_select = num_select
+
+    @torch.no_grad()
+    def forward(self, outputs, target_sizes):
+        """Perform the computation
+        Parameters:
+            outputs: raw outputs of the model
+            target_sizes: tensor of dimension [batch_size x 2] containing the size of each images of the batch
+                          For evaluation, this must be the original image size (before any data augmentation)
+                          For visualization, this should be the image size after data augment, but before padding
+        """
+        out_logits, out_bbox = outputs["pred_logits"], outputs["pred_boxes"]
+        out_masks = outputs.get("pred_masks", None)
+
+        assert len(out_logits) == len(target_sizes)
+        assert target_sizes.shape[1] == 2
+
+        prob = out_logits.sigmoid()
+        topk_values, topk_indexes = torch.topk(prob.view(out_logits.shape[0], -1), self.num_select, dim=1)
+        scores = topk_values
+        topk_boxes = topk_indexes // out_logits.shape[2]
+        labels = topk_indexes % out_logits.shape[2]
+        boxes = box_ops.box_cxcywh_to_xyxy(out_bbox)
+        boxes = torch.gather(boxes, 1, topk_boxes.unsqueeze(-1).repeat(1, 1, 4))
+
+        # and from relative [0, 1] to absolute [0, height] coordinates
+        img_h, img_w = target_sizes.unbind(1)
+        scale_fct = torch.stack([img_w, img_h, img_w, img_h], dim=1)
+        boxes = boxes * scale_fct[:, None, :]
+
+        # Optionally gather masks corresponding to the same top-K queries and resize to original size
+        results = []
+        if out_masks is not None:
+            for i in range(out_masks.shape[0]):
+                res_i = {"scores": scores[i], "labels": labels[i], "boxes": boxes[i]}
+                k_idx = topk_boxes[i]
+                masks_i = torch.gather(
+                    out_masks[i],
+                    0,
+                    k_idx.unsqueeze(-1).unsqueeze(-1).repeat(1, out_masks.shape[-2], out_masks.shape[-1]),
+                )  # [K, Hm, Wm]
+                h, w = target_sizes[i].tolist()
+                masks_i = F.interpolate(
+                    masks_i.unsqueeze(1),
+                    size=(int(h), int(w)),
+                    mode="bilinear",
+                    align_corners=False,
+                )  # [K,1,H,W]
+                res_i["masks"] = masks_i > 0.0
+                results.append(res_i)
+        else:
+            results = [
+                {"scores": score, "labels": label, "boxes": box} for score, label, box in zip(scores, labels, boxes)
+            ]
+
+        return results
 
 
 def _resize_linear(linear: nn.Linear, num_classes: int) -> nn.Linear:
