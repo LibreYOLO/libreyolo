@@ -134,7 +134,7 @@ def has_ncnn():
 
 
 def has_rfdetr_deps():
-    """Check if RF-DETR dependencies are installed."""
+    """Check if native RF-DETR dependencies are installed."""
     try:
         from libreyolo.models.rfdetr.model import LibreRFDETR  # noqa: F401
 
@@ -163,7 +163,7 @@ requires_ncnn = pytest.mark.skipif(
 
 requires_rfdetr = pytest.mark.skipif(
     not has_rfdetr_deps(),
-    reason="RF-DETR dependencies not installed (pip install libreyolo[rfdetr])",
+    reason="native RF-DETR dependencies not installed (pip install libreyolo[rfdetr])",
 )
 
 
