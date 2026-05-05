@@ -72,6 +72,30 @@ def test_rfdetr_backend_skips_generic_nms():
     assert len(result.boxes) == 2
 
 
+def test_rfdetr_backend_uses_topk_over_queries_and_classes():
+    backend = _DummyBackend("rfdetr")
+
+    boxes = np.array(
+        [[[0.5, 0.5, 0.25, 0.25], [0.25, 0.25, 0.1, 0.1]]],
+        dtype=np.float32,
+    )
+    logits = np.array([[[10.0, 9.0], [-10.0, -10.0]]], dtype=np.float32)
+
+    parsed_boxes, scores, classes, masks = backend._parse_rfdetr(
+        [boxes, logits],
+        orig_w=100,
+        orig_h=100,
+        conf=0.5,
+    )
+
+    assert masks is None
+    assert len(parsed_boxes) == 2
+    assert classes.tolist() == [0, 1]
+    assert scores[0] > scores[1] > 0.5
+    np.testing.assert_allclose(parsed_boxes[0], [37.5, 37.5, 62.5, 62.5])
+    np.testing.assert_allclose(parsed_boxes[1], [37.5, 37.5, 62.5, 62.5])
+
+
 def test_yolo_backend_still_applies_nms():
     backend = _DummyBackend("yolo9")
 
