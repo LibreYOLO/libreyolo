@@ -15,7 +15,7 @@ from .models import (
     LibreDEIMv2,
     LibreEC,
     LibrePICODET,
-    LibreYOLORTDETR,
+    LibreRTDETR,
 )
 from .utils.results import Results, Boxes, Masks, Keypoints, Probs, OBB
 
@@ -27,10 +27,35 @@ except PackageNotFoundError:
     __version__ = "0.0.0.dev0"
 
 
+# Old class names that were renamed for nomenclature consistency. Resolved
+# via __getattr__ with a DeprecationWarning so existing imports keep working.
+_DEPRECATED_ALIASES = {
+    "LibreYOLORTDETR": "LibreRTDETR",
+    "LibreYOLORFDETR": "LibreRFDETR",
+}
+
+
 # Lazy imports for optional/heavy modules
 def __getattr__(name):
+    if name in _DEPRECATED_ALIASES:
+        new_name = _DEPRECATED_ALIASES[name]
+        import sys
+        import warnings
+
+        warnings.warn(
+            f"{name} has been renamed to {new_name}. Update your imports — "
+            "the old name will be removed in a future release.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        # ``getattr`` on the module object resolves both eager imports
+        # (``LibreRTDETR`` in globals) and the lazy ``__getattr__`` path
+        # (``LibreRFDETR``); recursing into ``__getattr__`` directly would
+        # skip the eager case.
+        return getattr(sys.modules[__name__], new_name)
+
     _lazy = {
-        "LibreYOLORFDETR": (".models.rfdetr.model", "LibreYOLORFDETR"),
+        "LibreRFDETR": (".models.rfdetr.model", "LibreRFDETR"),
         "OnnxBackend": (".backends.onnx", "OnnxBackend"),
         "OpenVINOBackend": (".backends.openvino", "OpenVINOBackend"),
         "TensorRTBackend": (".backends.tensorrt", "TensorRTBackend"),
@@ -46,7 +71,7 @@ def __getattr__(name):
         "load_data_config": (".data", "load_data_config"),
         "check_dataset": (".data", "check_dataset"),
     }
-    if name == "LibreYOLORFDETR":
+    if name == "LibreRFDETR":
         # RF-DETR needs dependency check before import
         from .models import _ensure_rfdetr
 
@@ -67,8 +92,8 @@ __all__ = [
     "LibreYOLO9E2E",
     "LibreYOLONAS",
     "LibreYOLOX",
-    "LibreYOLORTDETR",
-    "LibreYOLORFDETR",
+    "LibreRTDETR",
+    "LibreRFDETR",
     "LibreDFINE",
     "LibreDEIM",
     "LibreDEIMv2",

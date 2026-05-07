@@ -186,6 +186,9 @@ class YOLODataset(Dataset):
             annotations = [item[0] for item in annotations]
         else:
             self.segments = None
+
+        if sum(a[0].shape[0] for a in annotations) == 0:
+            logger.warning("No labels found in %d files from %s.", total, source)
         return annotations
 
     def _annotation_source(self) -> str:
@@ -439,6 +442,9 @@ class COCODataset(Dataset):
             annotations = [item[0] for item in annotations]
         else:
             self.segments = None
+
+        if sum(a[0].shape[0] for a in annotations) == 0:
+            logger.warning("No labels found in %d files from %s.", total, source)
         return annotations
 
     def _load_anno_from_id(self, id_: int) -> Tuple:
