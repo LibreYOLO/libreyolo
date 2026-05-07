@@ -104,6 +104,10 @@ class BaseValidator(ABC):
     def _run_validation(self) -> None:
         self.model.model.eval()
 
+        if self.config.augment:
+            self._run_validation_augmented()
+            return
+
         pbar = tqdm(
             self.dataloader,
             desc="Validating",
@@ -132,6 +136,10 @@ class BaseValidator(ABC):
                 self.seen += len(images)
 
         self.speed["total"] = time.time() - total_start
+
+    def _run_validation_augmented(self) -> None:
+        """TTA validation — subclasses override to call model._predict_augment per image."""
+        raise NotImplementedError
 
     def _finalize(self) -> Dict[str, float]:
         metrics = self._compute_metrics()
