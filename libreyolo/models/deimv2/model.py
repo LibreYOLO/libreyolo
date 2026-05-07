@@ -39,6 +39,7 @@ class LibreDEIMv2(BaseModel):
     INPUT_SIZES = {size: int(cfg["input_size"]) for size, cfg in SIZE_CONFIGS.items()}
     TRAIN_CONFIG = DEIMv2Config
     val_preprocessor_class = DEIMv2ValPreprocessor
+    TTA_FIXED_SIZE = True  # fixed decoder anchors require a fixed size; multi-scale TTA is invalid
 
     @classmethod
     def can_load(cls, weights_dict: dict) -> bool:

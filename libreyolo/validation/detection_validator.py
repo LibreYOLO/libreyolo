@@ -412,6 +412,121 @@ class DetectionValidator(BaseValidator):
         else:
             return preds
 
+    def _det_from_result(self, result) -> Dict[str, torch.Tensor]:
+        """Convert a Results object (from _predict_augment) to a detection dict."""
+        if len(result) == 0:
+            det: Dict[str, torch.Tensor] = {
+                "boxes": torch.zeros((0, 4), dtype=torch.float32, device=self.device),
+                "scores": torch.zeros(0, dtype=torch.float32, device=self.device),
+                "classes": torch.zeros(0, dtype=torch.int64, device=self.device),
+            }
+            return det
+        det = {
+            "boxes": result.boxes.xyxy.to(self.device),
+            "scores": result.boxes.conf.to(self.device),
+            "classes": result.boxes.cls.long().to(self.device),
+        }
+        if result.masks is not None:
+            det["masks"] = result.masks.data.to(self.device)
+        return det
+
+    def _resolve_img_path(self, dataset, global_idx: int, img_id) -> Optional[str]:
+        """Resolve the file path for an image given its dataset index and COCO id."""
+        from torch.utils.data import Subset
+        if isinstance(dataset, Subset):
+            actual_idx = dataset.indices[global_idx]
+            actual_dataset = dataset.dataset
+        else:
+            actual_idx = global_idx
+            actual_dataset = dataset
+
+        img_files = getattr(actual_dataset, "img_files", None)
+        if img_files is not None and actual_idx < len(img_files):
+            return str(img_files[actual_idx])
+        if hasattr(actual_dataset, "coco") and hasattr(actual_dataset, "data_dir"):
+            coco_img = actual_dataset.coco.loadImgs(int(img_id))[0]
+            img_dir = Path(actual_dataset.data_dir) / getattr(actual_dataset, "name", "images")
+            return str(img_dir / coco_img["file_name"])
+        return None
+
+    def _run_validation_augmented(self) -> None:
+        """Per-image TTA validation using model._predict_augment (PIL-level flip+scale)."""
+        import sys
+        import time
+        from tqdm import tqdm
+
+        self.model.model.eval()
+        dataset = self.dataloader.dataset
+        n_images = len(dataset)
+        n_passes = 2  # original + hflip
+
+        if self.config.verbose:
+            logger.info(
+                "TTA enabled — %d augmentation passes per image (original + hflip). "
+                "Running per-image inference on %d images.",
+                n_passes,
+                n_images,
+            )
+
+        pbar = tqdm(
+            self.dataloader,
+            desc=f"Validating (TTA ×{n_passes})",
+            total=len(self.dataloader),
+            disable=not self.config.verbose or not sys.stderr.isatty(),
+            file=sys.stderr,
+        )
+
+        conf_thres = self.config.conf_thres
+        if self._coco_annotation_file is not None and self.model.FAMILY in COCO_TOPK_FAMILIES:
+            conf_thres = 0.0
+
+        total_start = time.time()
+        global_idx = 0
+
+        with torch.no_grad():
+            for batch in pbar:
+                _, targets, img_info, img_ids = batch
+                batch_size = len(img_ids)
+
+                t0 = time.time()
+                detections = []
+                for i in range(batch_size):
+                    path = self._resolve_img_path(dataset, global_idx + i, img_ids[i])
+                    if path is None:
+                        detections.append({
+                            "boxes": torch.zeros((0, 4), dtype=torch.float32, device=self.device),
+                            "scores": torch.zeros(0, dtype=torch.float32, device=self.device),
+                            "classes": torch.zeros(0, dtype=torch.int64, device=self.device),
+                        })
+                        continue
+                    result = self.model._predict_augment(
+                        path,
+                        conf=conf_thres,
+                        iou=self.config.iou_thres,
+                        imgsz=self._actual_imgsz,
+                        max_det=self.config.max_det,
+                    )
+                    detections.append(self._det_from_result(result))
+
+                elapsed = time.time() - t0
+                self.speed["inference"] += elapsed
+                ms_per_img = elapsed / batch_size * 1000
+                pbar.set_postfix({"ms/img": f"{ms_per_img:.1f}"}, refresh=False)
+
+                self._update_metrics(detections, targets, img_info, img_ids)
+                self.seen += batch_size
+                global_idx += batch_size
+
+        self.speed["total"] = time.time() - total_start
+        if self.config.verbose:
+            total_s = self.speed["total"]
+            logger.info(
+                "TTA validation complete — %d images in %.1fs (%.1f ms/img)",
+                self.seen,
+                total_s,
+                total_s / self.seen * 1000 if self.seen else 0,
+            )
+
     def _postprocess_predictions(
         self, preds: Any, batch: Tuple
     ) -> List[Dict[str, torch.Tensor]]:
@@ -423,62 +538,46 @@ class DetectionValidator(BaseValidator):
         """
         images, targets, img_info, img_ids = batch
         batch_size = len(img_info)
+        uses_letterbox = self.val_preproc is not None and self.val_preproc.uses_letterbox
+
+        conf_thres = self.config.conf_thres
+        if (
+            self._coco_annotation_file is not None
+            and self.model.FAMILY in COCO_TOPK_FAMILIES
+        ):
+            conf_thres = 0.0
 
         detections = []
         for i in range(batch_size):
             orig_h, orig_w = img_info[i]
-            single_preds = self._slice_batch_predictions(preds, i)
-
-            uses_letterbox = (
-                self.val_preproc is not None and self.val_preproc.uses_letterbox
-            )
-            conf_thres = self.config.conf_thres
-            if self.model.FAMILY in COCO_TOPK_FAMILIES:
-                # Upstream DETR-style COCO eval keeps the ranked top-k set and
-                # lets pycocotools handle score ordering, rather than applying
-                # a pre-eval confidence cutoff.
-                conf_thres = 0.0
-
             result = self.model._postprocess(
-                single_preds,
+                self._slice_batch_predictions(preds, i),
                 conf_thres=conf_thres,
                 iou_thres=self.config.iou_thres,
-                original_size=(orig_w, orig_h),  # (width, height)
+                original_size=(orig_w, orig_h),
                 input_size=self._actual_imgsz,
                 letterbox=uses_letterbox,
                 max_det=self.config.max_det,
             )
-
             if result["num_detections"] > 0:
-                boxes = torch.tensor(
-                    result["boxes"], dtype=torch.float32, device=self.device
-                )
-                scores = torch.tensor(
-                    result["scores"], dtype=torch.float32, device=self.device
-                )
-                classes = torch.tensor(
-                    result["classes"], dtype=torch.int64, device=self.device
-                )
+                raw = result["boxes"]
+                boxes = raw.to(self.device) if isinstance(raw, torch.Tensor) else torch.tensor(raw, dtype=torch.float32, device=self.device)
+                raw = result["scores"]
+                scores = raw.to(self.device) if isinstance(raw, torch.Tensor) else torch.tensor(raw, dtype=torch.float32, device=self.device)
+                raw = result["classes"]
+                classes = raw.to(self.device) if isinstance(raw, torch.Tensor) else torch.tensor(raw, dtype=torch.int64, device=self.device)
                 raw_masks = result.get("masks")
-                if raw_masks is not None:
-                    masks = (
-                        raw_masks.to(self.device)
-                        if isinstance(raw_masks, torch.Tensor)
-                        else torch.tensor(raw_masks, device=self.device)
-                    )
-                else:
-                    masks = None
+                masks = (
+                    raw_masks.to(self.device) if isinstance(raw_masks, torch.Tensor)
+                    else torch.tensor(raw_masks, device=self.device) if raw_masks is not None
+                    else None
+                )
             else:
                 boxes = torch.zeros((0, 4), dtype=torch.float32, device=self.device)
                 scores = torch.zeros(0, dtype=torch.float32, device=self.device)
                 classes = torch.zeros(0, dtype=torch.int64, device=self.device)
                 masks = None
-
-            det = {
-                "boxes": boxes,
-                "scores": scores,
-                "classes": classes,
-            }
+            det: Dict[str, torch.Tensor] = {"boxes": boxes, "scores": scores, "classes": classes}
             if masks is not None:
                 det["masks"] = masks
             detections.append(det)
