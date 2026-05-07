@@ -30,6 +30,7 @@ class LibreDEIM(BaseModel):
     INPUT_SIZES = {"n": 640, "s": 640, "m": 640, "l": 640, "x": 640}
     TRAIN_CONFIG = DEIMConfig
     val_preprocessor_class = DEIMValPreprocessor
+    TTA_FIXED_SIZE = True  # resizes to a fixed square; multi-scale TTA is a no-op
 
     @classmethod
     def can_load(cls, weights_dict: dict) -> bool:
