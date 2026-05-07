@@ -65,7 +65,7 @@ class BaseModel(ABC):
     # Each scale × 2 flips = N passes. Default (1.0,) is flip-only.
     # Override with e.g. (0.83, 1.0, 1.33) for 6-pass multi-scale TTA.
     # Ignored when TTA_FIXED_SIZE is True.
-    TTA_SCALES: ClassVar[Tuple[float, ...]] = (1.0)
+    TTA_SCALES: ClassVar[Tuple[float, ...]] = (1.0,)
 
     # Model registry — auto-populated by __init_subclass__
     _registry: ClassVar[List[Type["BaseModel"]]] = []
