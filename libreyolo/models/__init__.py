@@ -42,12 +42,12 @@ from .deimv2.model import LibreDEIMv2  # noqa: E402
 from .dfine.model import LibreDFINE  # noqa: E402
 from .deim.model import LibreDEIM  # noqa: E402
 from .picodet.model import LibrePICODET  # noqa: E402
-from .rtdetr.model import LibreYOLORTDETR  # noqa: E402
+from .rtdetr.model import LibreRTDETR  # noqa: E402
 
 
 def _ensure_rfdetr():
     """Lazily register RF-DETR if its dependencies are installed."""
-    if any(c.__name__ == "LibreYOLORFDETR" for c in BaseModel._registry):
+    if any(c.__name__ == "LibreRFDETR" for c in BaseModel._registry):
         return
     import importlib.util
 
@@ -56,7 +56,7 @@ def _ensure_rfdetr():
             "RF-DETR support requires extra dependencies.\n"
             "Install with: pip install libreyolo[rfdetr]"
         )
-    from .rfdetr.model import LibreYOLORFDETR  # noqa: F401  (import triggers registration)
+    from .rfdetr.model import LibreRFDETR  # noqa: F401  (import triggers registration)
 
 
 def try_ensure_rfdetr():
@@ -66,7 +66,7 @@ def try_ensure_rfdetr():
     except (ImportError, ModuleNotFoundError):
         return None
     for cls in BaseModel._registry:
-        if cls.__name__ == "LibreYOLORFDETR":
+        if cls.__name__ == "LibreRFDETR":
             return cls
     return None
 
@@ -114,7 +114,7 @@ def _unwrap_state_dict(state_dict: dict) -> dict:
 
 def _needs_rfdetr_registration(weights_dict: dict) -> bool:
     """Return True when checkpoint keys require lazy RF-DETR registration."""
-    if LibreYOLORTDETR.can_load(weights_dict):
+    if LibreRTDETR.can_load(weights_dict):
         return False
 
     keys_lower = [k.lower() for k in weights_dict]
@@ -165,7 +165,7 @@ def LibreYOLO(
         task: Optional explicit task ("detect", "segment", "pose", "classify").
 
     Returns:
-        Model instance (LibreYOLOX, LibreYOLO9, LibreYOLORFDETR, or inference backend).
+        Model instance (LibreYOLOX, LibreYOLO9, LibreRFDETR, or inference backend).
     """
     ensure_default_logging()
     model_path = _resolve_weights_path(model_path)
@@ -451,6 +451,6 @@ __all__ = [
     "LibreDEIMv2",
     "LibreEC",
     "LibrePICODET",
-    "LibreYOLORTDETR",
+    "LibreRTDETR",
     "try_ensure_rfdetr",
 ]
