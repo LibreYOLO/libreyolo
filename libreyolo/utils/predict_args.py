@@ -7,7 +7,6 @@ import warnings
 
 NOOP_PREDICT_KWARGS = {
     "agnostic_nms",
-    "augment",
     "boxes",
     "dnn",
     "half",
@@ -26,6 +25,7 @@ ACCEPTED_PREDICT_KWARGS = {
     "imgsz",
     "iou",
     "max_det",
+    "augment",
     "save",
     "stream",
     "vid_stride",

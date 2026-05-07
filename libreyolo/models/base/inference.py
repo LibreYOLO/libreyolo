@@ -44,6 +44,7 @@ class InferenceRunner:
         device: str | None = None,
         classes: Optional[List[int]] = None,
         max_det: int = 300,
+        augment: bool = False,
         save: bool = False,
         batch: int = 1,
         # video parameters
@@ -136,6 +137,14 @@ class InferenceRunner:
                 output_file_format=output_file_format,
                 **kwargs,
             )
+  
+
+        if tiling and augment:
+            raise ValueError(
+                "tiling and augment cannot be used together. "
+                "Disable one of them."
+            )
+
 
         # Use tiled inference if enabled
         if tiling:
@@ -151,6 +160,18 @@ class InferenceRunner:
                 color_format=color_format,
                 overlap_ratio=overlap_ratio,
                 output_file_format=output_file_format,
+                **kwargs,
+            )
+        
+        if augment and getattr(self.model, "TTA_ENABLED", False):
+            return self.model._predict_augment(
+                source,
+                conf=conf,
+                iou=iou,
+                imgsz=imgsz,
+                classes=classes,
+                max_det=max_det,
+                color_format=color_format,
                 **kwargs,
             )
 

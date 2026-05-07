@@ -71,6 +71,9 @@ class ValidationConfig:
     half: bool = False
     allow_download_scripts: bool = False
 
+    # TTA
+    augment: bool = False
+
     # Pose validation
     keypoints_json: Optional[str] = None
     images_dir: Optional[str] = None
