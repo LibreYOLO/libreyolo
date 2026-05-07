@@ -58,6 +58,14 @@ class BaseModel(ABC):
 
     # TTA policy — subclasses may override
     TTA_ENABLED: ClassVar[bool] = True
+    # True for families that resize to a fixed square regardless of input size
+    # (DETR-style). Multi-scale TTA is a no-op for them; only flip adds value.
+    TTA_FIXED_SIZE: ClassVar[bool] = False
+    # Scale factors applied to the PIL image before each TTA pass.
+    # Each scale × 2 flips = N passes. Default (1.0,) is flip-only.
+    # Override with e.g. (0.83, 1.0, 1.33) for 6-pass multi-scale TTA.
+    # Ignored when TTA_FIXED_SIZE is True.
+    TTA_SCALES: ClassVar[Tuple[float, ...]] = (1.0,)
 
     # Model registry — auto-populated by __init_subclass__
     _registry: ClassVar[List[Type["BaseModel"]]] = []
@@ -453,7 +461,12 @@ class BaseModel(ABC):
         color_format: str = "auto",
         **kwargs,
     ) -> Results:
-        """Run TTA inference (original + hflip) and merge via per-class NMS."""
+        """Run TTA inference and merge via per-class NMS.
+
+        Scales are read from TTA_SCALES (class variable); each scale x 2 flips
+        = one batch of passes. TTA_FIXED_SIZE models always use flip-only.
+        """
+        from PIL import Image as PILImage
         from ...utils.image_loader import ImageLoader
 
         effective_imgsz = imgsz if imgsz is not None else self._get_input_size()
@@ -461,18 +474,28 @@ class BaseModel(ABC):
         image_path = image if isinstance(image, (str, Path)) else None
         orig_w, orig_h = img_pil.size
 
+        scales = (1.0,) if self.TTA_FIXED_SIZE else self.TTA_SCALES
+
         aug_dets = []
-        for is_flipped in (False, True):
-            src = img_pil.transpose(Image.FLIP_LEFT_RIGHT) if is_flipped else img_pil
-            tensor, _, orig_size, ratio = self._preprocess(
-                src, color_format, input_size=effective_imgsz
-            )
-            with torch.no_grad():
-                raw = self._forward(tensor.to(self.device))
-            det = self._postprocess(
-                raw, conf, iou, orig_size, max_det=max_det, ratio=ratio, **kwargs
-            )
-            aug_dets.append((det, orig_size, is_flipped))
+        for scale in scales:
+            if scale == 1.0:
+                scaled = img_pil
+            else:
+                scaled = img_pil.resize(
+                    (int(orig_w * scale), int(orig_h * scale)),
+                    PILImage.Resampling.BILINEAR,
+                )
+            for is_flipped in (False, True):
+                src = scaled.transpose(PILImage.Transpose.FLIP_LEFT_RIGHT) if is_flipped else scaled
+                tensor, _, orig_size, ratio = self._preprocess(
+                    src, color_format, input_size=effective_imgsz
+                )
+                with torch.no_grad():
+                    raw = self._forward(tensor.to(self.device))
+                det = self._postprocess(
+                    raw, conf, iou, orig_size, max_det=max_det, ratio=ratio, **kwargs
+                )
+                aug_dets.append((det, orig_size, is_flipped, scale))
 
         return self._merge_tta(aug_dets, iou, image_path, (orig_w, orig_h), classes)
 
@@ -497,11 +520,11 @@ class BaseModel(ABC):
         all_masks: List[Optional[torch.Tensor]] = []
         has_masks = False
 
-        for det, orig_size, is_flipped in aug_dets:
+        for det, orig_size, is_flipped, scale in aug_dets:
             if det["num_detections"] == 0:
                 continue
 
-            w = orig_size[0]
+            w = orig_size[0]  # width of the (possibly scaled) augmented image
             boxes = torch.as_tensor(det["boxes"], dtype=torch.float32)
             scores = torch.as_tensor(det["scores"], dtype=torch.float32)
             cls = torch.as_tensor(det["classes"], dtype=torch.float32)
@@ -512,9 +535,16 @@ class BaseModel(ABC):
                     dim=1,
                 )
 
+            if scale != 1.0:
+                boxes = boxes / scale
+                orig_w_val, orig_h_val = original_size
+                boxes[:, 0::2].clamp_(0, orig_w_val)
+                boxes[:, 1::2].clamp_(0, orig_h_val)
+
             raw_m = det.get("masks")
             m = None
-            if raw_m is not None:
+            # Masks in scaled views are in the wrong pixel space; skip them
+            if raw_m is not None and scale == 1.0:
                 has_masks = True
                 m = raw_m if isinstance(raw_m, torch.Tensor) else torch.as_tensor(raw_m)
                 if is_flipped:

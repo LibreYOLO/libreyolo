@@ -135,6 +135,7 @@ class InferenceRunner:
                 tiling=tiling,
                 overlap_ratio=overlap_ratio,
                 output_file_format=output_file_format,
+                augment=augment,
                 **kwargs,
             )
   
@@ -164,7 +165,7 @@ class InferenceRunner:
             )
         
         if augment and getattr(self.model, "TTA_ENABLED", False):
-            return self.model._predict_augment(
+            result = self.model._predict_augment(
                 source,
                 conf=conf,
                 iou=iou,
@@ -174,6 +175,24 @@ class InferenceRunner:
                 color_format=color_format,
                 **kwargs,
             )
+            if save:
+                image_path = source if isinstance(source, (str, Path)) else None
+                img_pil = ImageLoader.load(source, color_format=color_format)
+                ext = output_file_format or "jpg"
+                save_path = resolve_save_path(output_path, image_path, ext=ext)
+                if len(result) > 0:
+                    annotated_img = draw_boxes(
+                        img_pil,
+                        result.boxes.xyxy.tolist(),
+                        result.boxes.conf.tolist(),
+                        result.boxes.cls.tolist(),
+                        class_names=result.names,
+                    )
+                else:
+                    annotated_img = img_pil.copy()
+                annotated_img.save(save_path)
+                result.saved_path = str(save_path)
+            return result
 
         return self._predict_single(
             source,
@@ -216,6 +235,7 @@ class InferenceRunner:
         tiling: bool = False,
         overlap_ratio: float = 0.2,
         output_file_format: Optional[str] = None,
+        augment: bool = False,
         **kwargs,
     ) -> List[Results]:
         """Process multiple images in batches."""
@@ -240,6 +260,34 @@ class InferenceRunner:
                             **kwargs,
                         )
                     )
+                elif augment and getattr(self.model, "TTA_ENABLED", False):
+                    result = self.model._predict_augment(
+                        path,
+                        conf=conf,
+                        iou=iou,
+                        imgsz=imgsz,
+                        classes=classes,
+                        max_det=max_det,
+                        color_format=color_format,
+                        **kwargs,
+                    )
+                    if save:
+                        ext = output_file_format or "jpg"
+                        save_path = resolve_save_path(output_path, path, ext=ext)
+                        if len(result) > 0:
+                            img_pil = ImageLoader.load(path, color_format=color_format)
+                            annotated_img = draw_boxes(
+                                img_pil,
+                                result.boxes.xyxy.tolist(),
+                                result.boxes.conf.tolist(),
+                                result.boxes.cls.tolist(),
+                                class_names=result.names,
+                            )
+                        else:
+                            annotated_img = ImageLoader.load(path, color_format=color_format)
+                        annotated_img.save(save_path)
+                        result.saved_path = str(save_path)
+                    results.append(result)
                 else:
                     results.append(
                         self._predict_single(
