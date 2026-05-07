@@ -132,10 +132,10 @@ def convert(src_path: Path, dst_path: Path, size: str) -> dict:
 def verify(state_dict: dict, size: str) -> None:
     """Round-trip: load state_dict into a LibreYOLO RTDETR model strict=True."""
     add_repo_root_to_path()
-    from libreyolo.models.rtdetr.model import RTDETR_CONFIGS, LibreYOLORTDETR
+    from libreyolo.models.rtdetr.model import RTDETR_CONFIGS, LibreRTDETR
 
     RTDETR_CONFIGS[size]["backbone_pretrained"] = False
-    model = LibreYOLORTDETR(nb_classes=80, size=size, device="cpu")
+    model = LibreRTDETR(nb_classes=80, size=size, device="cpu")
     missing, unexpected = model.model.load_state_dict(state_dict, strict=False)
     if missing:
         raise RuntimeError(

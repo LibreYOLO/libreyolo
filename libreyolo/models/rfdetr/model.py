@@ -1,4 +1,4 @@
-"""LibreYOLORFDETR implementation for LibreYOLO."""
+"""LibreRFDETR implementation for LibreYOLO."""
 
 from pathlib import Path
 from typing import Any, ClassVar, Dict, Optional, Tuple
@@ -105,7 +105,7 @@ _COCO91_TO_COCO80 = {
 }
 
 
-class LibreYOLORFDETR(BaseModel):
+class LibreRFDETR(BaseModel):
     """RF-DETR model for object detection and instance segmentation.
 
     RF-DETR is a Detection Transformer using DINOv2 backbone with
@@ -120,7 +120,7 @@ class LibreYOLORFDETR(BaseModel):
 
     Example::
 
-        >>> model = LibreYOLORFDETR(size="s")
+        >>> model = LibreRFDETR(size="s")
         >>> detections = model.predict("path/to/image.jpg")
     """
 
