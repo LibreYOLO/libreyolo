@@ -433,10 +433,7 @@ class DetectionValidator(BaseValidator):
                 self.val_preproc is not None and self.val_preproc.uses_letterbox
             )
             conf_thres = self.config.conf_thres
-            if (
-                self._coco_annotation_file is not None
-                and self.model.FAMILY in COCO_TOPK_FAMILIES
-            ):
+            if self.model.FAMILY in COCO_TOPK_FAMILIES:
                 # Upstream DETR-style COCO eval keeps the ranked top-k set and
                 # lets pycocotools handle score ordering, rather than applying
                 # a pre-eval confidence cutoff.
