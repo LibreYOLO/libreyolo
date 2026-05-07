@@ -205,6 +205,8 @@ def benchmark_model(
     device: str = "auto",
     runtime_format: str = "pytorch",
     runtime_precision: str = "fp32",
+    augment: bool = False,
+    allow_download_scripts: bool = True,
 ) -> Dict[str, Any]:
     """
     Benchmark a single model on COCO val2017 using proper validation API.
@@ -240,14 +242,16 @@ def benchmark_model(
 
     # Run validation using proper API
     # Don't pass imgsz — let model.val() use the model's native resolution
-    print(f"\nRunning COCO validation (batch_size={batch_size}, imgsz={input_size})...")
+    tta_label = " + TTA" if augment else ""
+    print(f"\nRunning COCO validation (batch_size={batch_size}, imgsz={input_size}{tta_label})...")
     val_results = model.val(
         data=coco_yaml,
         batch=batch_size,
         conf=0.001,
         iou=0.6,
         verbose=True,
-        plots=False,
+        augment=augment,
+        allow_download_scripts=allow_download_scripts,
     )
 
     # Extract metrics from validation results
@@ -259,10 +263,9 @@ def benchmark_model(
         "mAP_50_95": val_results.get("metrics/mAP50-95", 0.0),
         "precision": val_results.get("metrics/precision", 0.0),
         "recall": val_results.get("metrics/recall", 0.0),
-        # Note: Size-specific mAP not available from .val() API currently
-        "mAP_small": 0.0,
-        "mAP_medium": 0.0,
-        "mAP_large": 0.0,
+        "mAP_small": val_results.get("metrics/mAP_small", 0.0),
+        "mAP_medium": val_results.get("metrics/mAP_medium", 0.0),
+        "mAP_large": val_results.get("metrics/mAP_large", 0.0),
     }
 
     # Timing metrics from the validation pass (already timed over all images)
@@ -349,6 +352,8 @@ def benchmark_model(
         "metadata": {
             "benchmark_date": datetime.now().strftime("%Y-%m-%d"),
             "benchmark_version": "1.0",
+            "augment": augment,
+            "allow_download_scripts": allow_download_scripts,
         },
     }
 
@@ -409,6 +414,16 @@ def main():
         default="fp32",
         help="Runtime precision (fp32, fp16, int8)",
     )
+    parser.add_argument(
+        "--augment",
+        action="store_true",
+        help="Enable TTA (original + horizontal flip) during validation",
+    )
+    parser.add_argument(
+        "--no-download-scripts",
+        action="store_true",
+        help="Disable execution of Python download scripts embedded in dataset YAML files",
+    )
 
     args = parser.parse_args()
 
@@ -460,10 +475,13 @@ def main():
                 device=args.device,
                 runtime_format=args.runtime_format,
                 runtime_precision=args.runtime_precision,
+                augment=args.augment,
+                allow_download_scripts=not args.no_download_scripts,
             )
 
             # Save individual JSON
-            output_file = args.output_dir / f"{model_name}_benchmark.json"
+            tta_suffix = "_tta" if args.augment else ""
+            output_file = args.output_dir / f"{model_name}_benchmark{tta_suffix}.json"
             with open(output_file, "w") as f:
                 json.dump(results, f, indent=2)
             print(f"Saved results to {output_file}")
@@ -487,6 +505,8 @@ def main():
                     "model": r["model"]["name"],
                     "family": r["model"]["family"],
                     "variant": r["model"]["variant"],
+                    "augment": r["metadata"]["augment"],
+                    "allow_download_scripts": r["metadata"]["allow_download_scripts"],
                     "runtime_format": r["runtime"]["format"],
                     "runtime_precision": r["runtime"]["precision"],
                     "runtime_device": r["runtime"]["device"],
@@ -505,7 +525,8 @@ def main():
             )
 
         df = pd.DataFrame(csv_rows)
-        csv_file = args.output_dir / "benchmark_summary.csv"
+        tta_suffix = "_tta" if args.augment else ""
+        csv_file = args.output_dir / f"benchmark_summary{tta_suffix}.csv"
         df.to_csv(csv_file, index=False)
         print(f"Saved summary to {csv_file}")
 
