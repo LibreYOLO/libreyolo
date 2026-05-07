@@ -103,6 +103,12 @@ download: |
 
   dir = Path(yaml["path"])
 
+  # Download annotations (COCO JSON) - required for proper COCO evaluation
+  download(
+      [ASSETS_URL + "/instances_val2017.json"],
+      dir=dir / "annotations",
+  )
+
   # Download labels (YOLO format) - includes both train and val labels
   download([ASSETS_URL + "/coco2017labels.zip"], dir=dir.parent)
 
