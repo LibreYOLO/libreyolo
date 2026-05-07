@@ -136,6 +136,7 @@ class LibreRFDETR(BaseModel):
     }
     TRAIN_CONFIG = RFDETRConfig
     val_preprocessor_class = RFDETRValPreprocessor
+    TTA_FIXED_SIZE = True  # resizes to a fixed square; multi-scale TTA is a no-op
 
     # CLI parameters not supported by RF-DETR's training API
     UNSUPPORTED_TRAIN_PARAMS: ClassVar[set[str]] = {

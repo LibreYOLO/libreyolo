@@ -133,6 +133,7 @@ class LibreRTDETR(BaseModel):
     # Class-level metadata
     FAMILY = "rtdetr"
     FILENAME_PREFIX = "LibreRTDETR"
+    TTA_FIXED_SIZE = True  # resizes to a fixed square; multi-scale TTA is a no-op
     INPUT_SIZES = {
         "r18": 640,
         "r34": 640,
