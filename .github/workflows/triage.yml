@@ -1,0 +1,17 @@
+name: Triage new issues
+
+on:
+  issues:
+    types: [opened]
+
+jobs:
+  triage:
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
+      - run: |
+          gh label create triage --color FBCA04 --force -R $GITHUB_REPOSITORY
+          gh issue edit ${{ github.event.issue.number }} --add-label triage -R $GITHUB_REPOSITORY
+        env:
+          GH_TOKEN: ${{ github.token }}
