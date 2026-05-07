@@ -28,6 +28,7 @@ class LibreDFINE(BaseModel):
     FILENAME_PREFIX = "LibreDFINE"
     INPUT_SIZES = {"n": 640, "s": 640, "m": 640, "l": 640, "x": 640}
     val_preprocessor_class = DFINEValPreprocessor
+    TTA_FIXED_SIZE = True  # resizes to a fixed square; multi-scale TTA is a no-op
 
     @classmethod
     def can_load(cls, weights_dict: dict) -> bool:
