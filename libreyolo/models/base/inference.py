@@ -96,6 +96,12 @@ class InferenceRunner:
                     f"Invalid output_file_format: {output_file_format}. "
                     "Must be one of: 'jpg', 'png', 'webp'"
                 )
+            
+        if tiling and augment:
+            raise ValueError(
+                "tiling and augment cannot be used together. "
+                "Disable one of them."
+            )
 
         # Handle video input
         if is_video_file(source):
@@ -138,13 +144,6 @@ class InferenceRunner:
                 augment=augment,
                 **kwargs,
             )
-  
-
-        if tiling and augment:
-            raise ValueError(
-                "tiling and augment cannot be used together. "
-                "Disable one of them."
-            )
 
 
         # Use tiled inference if enabled
@@ -180,18 +179,7 @@ class InferenceRunner:
                 img_pil = ImageLoader.load(source, color_format=color_format)
                 ext = output_file_format or "jpg"
                 save_path = resolve_save_path(output_path, image_path, ext=ext)
-                if len(result) > 0:
-                    annotated_img = draw_boxes(
-                        img_pil,
-                        result.boxes.xyxy.tolist(),
-                        result.boxes.conf.tolist(),
-                        result.boxes.cls.tolist(),
-                        class_names=result.names,
-                    )
-                else:
-                    annotated_img = img_pil.copy()
-                annotated_img.save(save_path)
-                result.saved_path = str(save_path)
+                self._save_annotated_image(result, img_pil, save_path)
             return result
 
         return self._predict_single(
@@ -274,19 +262,8 @@ class InferenceRunner:
                     if save:
                         ext = output_file_format or "jpg"
                         save_path = resolve_save_path(output_path, path, ext=ext)
-                        if len(result) > 0:
-                            img_pil = ImageLoader.load(path, color_format=color_format)
-                            annotated_img = draw_boxes(
-                                img_pil,
-                                result.boxes.xyxy.tolist(),
-                                result.boxes.conf.tolist(),
-                                result.boxes.cls.tolist(),
-                                class_names=result.names,
-                            )
-                        else:
-                            annotated_img = ImageLoader.load(path, color_format=color_format)
-                        annotated_img.save(save_path)
-                        result.saved_path = str(save_path)
+                        img_pil = ImageLoader.load(path, color_format=color_format)
+                        self._save_annotated_image(result, img_pil, save_path)
                     results.append(result)
                 else:
                     results.append(
@@ -305,6 +282,40 @@ class InferenceRunner:
                         )
                     )
         return results
+
+    def _save_annotated_image(self, result: Results, original_img, save_path: Path) -> None:
+        """Internal helper to draw boxes, masks, and keypoints and save to disk."""
+        if len(result) > 0:
+            annotated_img = original_img
+            # Draw masks first (underneath boxes)
+            if result.masks is not None:
+                masks_np = result.masks.data
+                if isinstance(masks_np, torch.Tensor):
+                    masks_np = masks_np.cpu().numpy()
+                annotated_img = draw_masks(
+                    annotated_img,
+                    masks_np,
+                    result.boxes.cls.tolist(),
+                )
+            # Draw boxes
+            annotated_img = draw_boxes(
+                annotated_img,
+                result.boxes.xyxy.tolist(),
+                result.boxes.conf.tolist(),
+                result.boxes.cls.tolist(),
+                class_names=result.names,
+            )
+            # Draw keypoints
+            if result.keypoints is not None:
+                kpts_np = result.keypoints.data
+                if isinstance(kpts_np, torch.Tensor):
+                    kpts_np = kpts_np.cpu().numpy()
+                annotated_img = draw_keypoints(annotated_img, kpts_np)
+        else:
+            annotated_img = original_img.copy()
+
+        annotated_img.save(save_path)
+        result.saved_path = str(save_path)
 
     @staticmethod
     def _apply_classes_filter(
@@ -448,41 +459,13 @@ class InferenceRunner:
 
         # Save annotated image
         if save:
-            if len(result) > 0:
-                annotated_img = original_img
-                # Draw masks first (underneath boxes)
-                if result.masks is not None:
-                    masks_np = result.masks.data
-                    if isinstance(masks_np, torch.Tensor):
-                        masks_np = masks_np.cpu().numpy()
-                    annotated_img = draw_masks(
-                        annotated_img,
-                        masks_np,
-                        result.boxes.cls.tolist(),
-                    )
-                annotated_img = draw_boxes(
-                    annotated_img,
-                    result.boxes.xyxy.tolist(),
-                    result.boxes.conf.tolist(),
-                    result.boxes.cls.tolist(),
-                    class_names=result.names,
-                )
-                if result.keypoints is not None:
-                    kpts_np = result.keypoints.data
-                    if isinstance(kpts_np, torch.Tensor):
-                        kpts_np = kpts_np.cpu().numpy()
-                    annotated_img = draw_keypoints(annotated_img, kpts_np)
-            else:
-                annotated_img = original_img
-
             ext = output_file_format or "jpg"
             save_path = resolve_save_path(
                 output_path,
                 image_path,
                 ext=ext,
             )
-            annotated_img.save(save_path)
-            result.saved_path = str(save_path)
+            self._save_annotated_image(result, original_img, save_path)
 
         return result
 
