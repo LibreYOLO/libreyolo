@@ -257,12 +257,53 @@ class YOLO9E2EValPreprocessor(YOLO9ValPreprocessor):
 
 
 class YOLONASValPreprocessor(YOLO9ValPreprocessor):
-    """YOLO-NAS preprocessor.
+    """YOLO-NAS preprocessor: resize to 636 (longest side), center-pad to 640, RGB, 0-1.
 
-    The current native port uses LibreYOLO's shared RGB 0-1 letterbox path for
-    consistency across inference and validation. A later parity pass can tighten
-    this toward the exact SG preprocessing contract if needed.
+    Matches ``preprocess_numpy`` in models/yolonas/utils.py exactly so that
+    ``_postprocess(letterbox=True, resize_size=636)`` correctly undoes the
+    coordinate transform.  Without this, the top-left-padded YOLO9 path is
+    used here but the center-pad path is used for inference — an ~81-pixel
+    offset that collapses baseline mAP to near zero on non-square images.
     """
+
+    @property
+    def wants_unresized_image(self) -> bool:
+        # Need the original image so we can apply the 636-resize step in one
+        # pass; the dataset's load_resized_img would give us a pre-letterboxed
+        # frame and we'd double-resize with the wrong ratio.
+        return True
+
+    def __call__(
+        self, img: np.ndarray, targets: np.ndarray, input_size: Tuple[int, int]
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        from ..models.yolonas.utils import YOLO_NAS_RESIZE_SIZE, preprocess_numpy
+
+        orig_h, orig_w = img.shape[:2]
+        target_h, target_w = input_size  # e.g. (640, 640)
+
+        img_rgb = np.ascontiguousarray(img[:, :, ::-1])  # BGR → RGB
+        img_chw, _ = preprocess_numpy(
+            img_rgb,
+            input_size=target_h,
+            resize_size=YOLO_NAS_RESIZE_SIZE,
+        )
+
+        padded_targets = np.zeros((self.max_labels, 5), dtype=np.float32)
+        if len(targets) > 0:
+            targets = np.array(targets).copy()
+            n = min(len(targets), self.max_labels)
+            r = min(YOLO_NAS_RESIZE_SIZE / orig_h, YOLO_NAS_RESIZE_SIZE / orig_w)
+            new_w = int(round(orig_w * r))
+            new_h = int(round(orig_h * r))
+            off_x = (target_w - new_w) // 2
+            off_y = (target_h - new_h) // 2
+            targets[:n, 0] = targets[:n, 0] * r + off_x
+            targets[:n, 1] = targets[:n, 1] * r + off_y
+            targets[:n, 2] = targets[:n, 2] * r + off_x
+            targets[:n, 3] = targets[:n, 3] * r + off_y
+            padded_targets[:n] = targets[:n]
+
+        return img_chw, padded_targets
 
 
 class DFINEValPreprocessor(StandardValPreprocessor):
