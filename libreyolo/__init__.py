@@ -16,6 +16,7 @@ from .models import (
     LibreEC,
     LibrePICODET,
     LibreRTDETR,
+    LibreRTDETRv2,
     LibreRTDETRv4,
 )
 from .utils.results import Results, Boxes, Masks, Keypoints, Probs, OBB
@@ -94,6 +95,7 @@ __all__ = [
     "LibreYOLONAS",
     "LibreYOLOX",
     "LibreRTDETR",
+    "LibreRTDETRv2",
     "LibreRTDETRv4",
     "LibreRFDETR",
     "LibreDFINE",

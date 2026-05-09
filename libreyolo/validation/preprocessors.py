@@ -458,6 +458,58 @@ class PICODETValPreprocessor(StandardValPreprocessor):
         return chw.astype(np.float32), padded_targets
 
 
+class RTDETRv2ValPreprocessor(BaseValPreprocessor):
+    """RT-DETRv2 val preprocessor matching upstream's PIL/torchvision Resize.
+
+    The only difference from ``RTDETRValPreprocessor`` is that this one uses
+    PIL.Image.resize (BILINEAR) on the un-letterboxed source image, mirroring
+    upstream's ``Resize -> ConvertPILImage(scale=True)`` chain. cv2.resize and
+    PIL.Image.resize use different bilinear kernels; the pixel drift cascades
+    to ~0.7 mAP on COCO val2017 for v2-r18 if cv2 is used instead.
+    """
+
+    @property
+    def normalize(self) -> bool:
+        return True
+
+    @property
+    def wants_unresized_image(self) -> bool:
+        return True
+
+    def __call__(
+        self, img: np.ndarray, targets: np.ndarray, input_size: Tuple[int, int]
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        orig_h, orig_w = img.shape[:2]
+        target_h, target_w = input_size
+
+        # img is BGR uint8 from cv2.imread; flip to RGB then PIL-resize.
+        rgb = img[:, :, ::-1]
+        resized = np.array(
+            Image.fromarray(rgb).resize(
+                (target_w, target_h), Image.Resampling.BILINEAR
+            ),
+            dtype=np.float32,
+        )
+        resized = resized / 255.0
+        resized = resized.transpose(2, 0, 1)
+        resized = np.ascontiguousarray(resized, dtype=np.float32)
+
+        padded_targets = np.zeros((self.max_labels, 5), dtype=np.float32)
+        if len(targets) > 0:
+            targets = np.array(targets).copy()
+            n = min(len(targets), self.max_labels)
+            letterbox_r = min(target_h / orig_h, target_w / orig_w)
+            scale_x = target_w / orig_w
+            scale_y = target_h / orig_h
+            targets[:n, 0] = targets[:n, 0] / letterbox_r * scale_x
+            targets[:n, 1] = targets[:n, 1] / letterbox_r * scale_y
+            targets[:n, 2] = targets[:n, 2] / letterbox_r * scale_x
+            targets[:n, 3] = targets[:n, 3] / letterbox_r * scale_y
+            padded_targets[:n] = targets[:n]
+
+        return resized, padded_targets
+
+
 class RTDETRValPreprocessor(BaseValPreprocessor):
     """Preprocessor for RT-DETR validation: resize to fixed size, normalize to [0,1], no letterbox."""
 
