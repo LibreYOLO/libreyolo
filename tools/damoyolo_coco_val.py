@@ -43,13 +43,14 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--weights", required=True, type=Path)
     p.add_argument("--coco", required=True, type=Path, help="COCO root containing annotations/ and images/")
     p.add_argument("--split", default="val2017")
-    p.add_argument("--size", default="t", choices=["t"])
+    p.add_argument("--size", default="t", choices=["t", "s"])
     p.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     p.add_argument("--input-size", type=int, default=640)
     p.add_argument("--conf-thres", type=float, default=0.05)
     p.add_argument("--iou-thres", type=float, default=0.7)
     p.add_argument("--max-det", type=int, default=100)
     p.add_argument("--limit", type=int, default=0, help="Process only N images (0 = all)")
+    p.add_argument("--batch", type=int, default=1, help="Batch size for inference")
     p.add_argument("--save-json", type=Path, default=None)
     return p.parse_args()
 
@@ -112,22 +113,34 @@ def main() -> int:
     input_size = (args.input_size, args.input_size)
     t0 = time.time()
     with torch.no_grad():
-        for img_id in tqdm(img_ids, desc="val"):
-            info = coco_gt.loadImgs(img_id)[0]
-            img_path = img_dir / info["file_name"]
-            tensor, (ow, oh) = preprocess_image(img_path, input_size=input_size)
-            tensor = tensor.unsqueeze(0).to(args.device)
-            cls_scores, boxes = model(tensor)
-            preds = postprocess_predictions(
-                cls_scores,
-                boxes,
-                orig_sizes=[(ow, oh)],
-                input_size=input_size,
-                conf_thres=args.conf_thres,
-                iou_thres=args.iou_thres,
-                max_det=args.max_det,
-            )[0]
-            evaluator.update(preds, image_id=img_id)
+        # Process in mini-batches: stretch resize → fixed (H, W) means we
+        # can stack tensors directly. Original sizes are tracked per image
+        # so postprocess can rescale back.
+        with tqdm(total=len(img_ids), desc="val") as pbar:
+            for start in range(0, len(img_ids), args.batch):
+                batch_ids = img_ids[start : start + args.batch]
+                tensors = []
+                orig_sizes = []
+                for img_id in batch_ids:
+                    info = coco_gt.loadImgs(img_id)[0]
+                    img_path = img_dir / info["file_name"]
+                    t, (ow, oh) = preprocess_image(img_path, input_size=input_size)
+                    tensors.append(t)
+                    orig_sizes.append((ow, oh))
+                batch = torch.stack(tensors, dim=0).to(args.device)
+                cls_scores, boxes = model(batch)
+                preds_list = postprocess_predictions(
+                    cls_scores,
+                    boxes,
+                    orig_sizes=orig_sizes,
+                    input_size=input_size,
+                    conf_thres=args.conf_thres,
+                    iou_thres=args.iou_thres,
+                    max_det=args.max_det,
+                )
+                for img_id, preds in zip(batch_ids, preds_list):
+                    evaluator.update(preds, image_id=img_id)
+                pbar.update(len(batch_ids))
     dt = time.time() - t0
     log.info("Inference complete (%.1fs, %.1f img/s)", dt, len(img_ids) / max(dt, 1e-6))
 
