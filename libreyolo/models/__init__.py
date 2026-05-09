@@ -39,6 +39,7 @@ from .yolo9_e2e.model import LibreYOLO9E2E  # noqa: E402
 from .yolo9.model import LibreYOLO9  # noqa: E402
 from .yolonas.model import LibreYOLONAS  # noqa: E402
 from .deimv2.model import LibreDEIMv2  # noqa: E402
+from .rtdetrv4.model import LibreRTDETRv4  # noqa: E402  (must precede LibreDFINE — sibling arch, more-specific can_load)
 from .dfine.model import LibreDFINE  # noqa: E402
 from .deim.model import LibreDEIM  # noqa: E402
 from .picodet.model import LibrePICODET  # noqa: E402
@@ -452,5 +453,6 @@ __all__ = [
     "LibreEC",
     "LibrePICODET",
     "LibreRTDETR",
+    "LibreRTDETRv4",
     "try_ensure_rfdetr",
 ]

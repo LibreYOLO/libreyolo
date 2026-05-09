@@ -272,11 +272,11 @@ class TransformerDecoderLayer(nn.Module):
 
 
 class LQE(nn.Module):
-    def __init__(self, k, hidden_dim, num_layers, reg_max):
+    def __init__(self, k, hidden_dim, num_layers, reg_max, act="relu"):
         super().__init__()
         self.k = k
         self.reg_max = reg_max
-        self.reg_conf = MLP(4 * (k + 1), hidden_dim, 1, num_layers)
+        self.reg_conf = MLP(4 * (k + 1), hidden_dim, 1, num_layers, act=act)
         init.constant_(self.reg_conf.layers[-1].bias, 0)
         init.constant_(self.reg_conf.layers[-1].weight, 0)
 
@@ -304,6 +304,7 @@ class TransformerDecoder(nn.Module):
         up,
         eval_idx=-1,
         layer_scale=2,
+        activation="relu",
     ):
         super().__init__()
         self.hidden_dim = hidden_dim
@@ -322,7 +323,7 @@ class TransformerDecoder(nn.Module):
             ]
         )
         self.lqe_layers = nn.ModuleList(
-            [copy.deepcopy(LQE(4, 64, 2, reg_max)) for _ in range(num_layers)]
+            [copy.deepcopy(LQE(4, 64, 2, reg_max, act=activation)) for _ in range(num_layers)]
         )
 
     def value_op(
@@ -533,6 +534,7 @@ class DFINETransformer(nn.Module):
             self.up,
             eval_idx,
             layer_scale,
+            activation=activation,
         )
 
         self.num_denoising = num_denoising
@@ -547,7 +549,7 @@ class DFINETransformer(nn.Module):
         self.learn_query_content = learn_query_content
         if learn_query_content:
             self.tgt_embed = nn.Embedding(num_queries, hidden_dim)
-        self.query_pos_head = MLP(4, 2 * hidden_dim, hidden_dim, 2)
+        self.query_pos_head = MLP(4, 2 * hidden_dim, hidden_dim, 2, act=activation)
 
         self.enc_output = nn.Sequential(
             OrderedDict(
@@ -563,7 +565,7 @@ class DFINETransformer(nn.Module):
         else:
             self.enc_score_head = nn.Linear(hidden_dim, num_classes)
 
-        self.enc_bbox_head = MLP(hidden_dim, hidden_dim, 4, 3)
+        self.enc_bbox_head = MLP(hidden_dim, hidden_dim, 4, 3, act=activation)
 
         self.eval_idx = eval_idx if eval_idx >= 0 else num_layers + eval_idx
         self.dec_score_head = nn.ModuleList(
@@ -573,14 +575,14 @@ class DFINETransformer(nn.Module):
                 for _ in range(num_layers - self.eval_idx - 1)
             ]
         )
-        self.pre_bbox_head = MLP(hidden_dim, hidden_dim, 4, 3)
+        self.pre_bbox_head = MLP(hidden_dim, hidden_dim, 4, 3, act=activation)
         self.dec_bbox_head = nn.ModuleList(
             [
-                MLP(hidden_dim, hidden_dim, 4 * (self.reg_max + 1), 3)
+                MLP(hidden_dim, hidden_dim, 4 * (self.reg_max + 1), 3, act=activation)
                 for _ in range(self.eval_idx + 1)
             ]
             + [
-                MLP(scaled_dim, scaled_dim, 4 * (self.reg_max + 1), 3)
+                MLP(scaled_dim, scaled_dim, 4 * (self.reg_max + 1), 3, act=activation)
                 for _ in range(num_layers - self.eval_idx - 1)
             ]
         )
