@@ -37,7 +37,7 @@ class LibreDAMOYOLO(BaseModel):
 
     FAMILY = "damoyolo"
     FILENAME_PREFIX = "LibreDAMOYOLO"
-    INPUT_SIZES = {"ns": 640, "nm": 640, "nl": 640, "t": 640, "s": 640, "m": 640, "l": 640}
+    INPUT_SIZES = {"ns": 416, "nm": 416, "nl": 416, "t": 640, "s": 640, "m": 640, "l": 640}
     TRAIN_CONFIG = DAMOYOLOConfig
     val_preprocessor_class = DAMOYOLOValPreprocessor
 
@@ -88,6 +88,25 @@ class LibreDAMOYOLO(BaseModel):
         return None
 
     @classmethod
+    def get_download_url(cls, filename: str) -> Optional[str]:
+        # DAMO-YOLO-L pretrained weights are unrecoverable. Original Aliyun
+        # bucket is hard-deleted (NoSuchBucket); HF, ModelScope, Gitee,
+        # Roboflow, and Wayback all only have T/S/M and Nano. ONNX exports
+        # of L_508 and L_519 do exist in the wild but the PyTorch
+        # state_dict has been lost. Raise a useful error rather than
+        # routing to a 404 HF repo.
+        size = cls.detect_size_from_filename(filename)
+        if size == "l":
+            raise FileNotFoundError(
+                "DAMO-YOLO-L pretrained weights are not available — Alibaba's "
+                "Aliyun bucket was deleted before any mirror picked them up "
+                "(see github.com/tinyvision/DAMO-YOLO/issues/144). Use size t, "
+                "s, m, ns, nm, or nl instead, or build size='l' from scratch "
+                "for training (LibreDAMOYOLO(size='l').train(allow_experimental=True))."
+            )
+        return super().get_download_url(filename)
+
+    @classmethod
     def detect_nb_classes(cls, weights_dict: dict) -> Optional[int]:
         # Default canonical layout is legacy=False, so cls_out == num_classes.
         # The earlier pre-distill T/S/M weights (ModelScope) used legacy=True
@@ -128,6 +147,14 @@ class LibreDAMOYOLO(BaseModel):
     def _init_model(self) -> nn.Module:
         if self.size not in SIZES:
             raise ValueError(f"DAMO-YOLO size {self.size!r} not yet ported. Available: {sorted(SIZES)}")
+        if self.size == "l" and not isinstance(getattr(self, "model_path", None), str):
+            import warnings as _w
+            _w.warn(
+                "DAMO-YOLO-L pretrained weights are unavailable (Aliyun bucket "
+                "deleted, no mirror exists). Building with random init — "
+                "predictions will be meaningless until you train(allow_experimental=True).",
+                stacklevel=3,
+            )
         return build_damoyolo(size=self.size, num_classes=self.nb_classes)
 
     def _get_available_layers(self) -> Dict[str, nn.Module]:
