@@ -142,6 +142,7 @@ markers = [
     "ec: tests covering the ECDet model family",
     "rtdetr: tests covering the RT-DETR model family",
     "picodet: tests covering the PICODET model family",
+    "damoyolo: tests covering the DAMO-YOLO model family",
     "rf1: RF1 training tests",
     "rf5: RF5 training benchmark tests",
     "slow: slow tests that may take several minutes",
