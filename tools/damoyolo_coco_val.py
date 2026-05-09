@@ -43,7 +43,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--weights", required=True, type=Path)
     p.add_argument("--coco", required=True, type=Path, help="COCO root containing annotations/ and images/")
     p.add_argument("--split", default="val2017")
-    p.add_argument("--size", default="t", choices=["t", "s"])
+    p.add_argument("--size", default="t", choices=["ns", "nm", "nl", "t", "s", "m", "l"])
     p.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     p.add_argument("--input-size", type=int, default=640)
     p.add_argument("--conf-thres", type=float, default=0.05)
