@@ -24,6 +24,17 @@ TINYNAS_L20_K1KX = [
 ]
 
 
+# tinynas_L25_k1kx.txt → DAMO-YOLO-S
+TINYNAS_L25_K1KX = [
+    {"class": "ConvKXBNRELU", "in": 3, "k": 3, "out": 32, "s": 1},
+    {"L": 1, "btn": 24, "class": "SuperResConvK1KX", "in": 32, "k": 3, "out": 128, "s": 2},
+    {"L": 5, "btn": 88, "class": "SuperResConvK1KX", "in": 128, "k": 3, "out": 128, "s": 2},
+    {"L": 3, "btn": 128, "class": "SuperResConvK1KX", "in": 128, "k": 3, "out": 256, "s": 2},
+    {"L": 2, "btn": 120, "class": "SuperResConvK1KX", "in": 256, "k": 3, "out": 256, "s": 1},
+    {"L": 1, "btn": 144, "class": "SuperResConvK1KX", "in": 256, "k": 3, "out": 512, "s": 2},
+]
+
+
 @dataclass(frozen=True)
 class FamilyConfig:
     """A complete DAMO-YOLO family member spec."""
@@ -76,6 +87,28 @@ DAMOYOLO_T = FamilyConfig(
 )
 
 
+DAMOYOLO_S = FamilyConfig(
+    structure=TINYNAS_L25_K1KX,
+    backbone_with_spp=True,
+    backbone_use_focus=True,
+    backbone_act="relu",
+    backbone_reparam=True,
+    backbone_out_indices=(2, 4, 5),
+    neck_in_channels=(128, 256, 512),
+    neck_out_channels=(128, 256, 512),
+    neck_depth=1.0,
+    neck_hidden_ratio=0.75,
+    neck_act="relu",
+    neck_spp=False,
+    head_in_channels=(128, 256, 512),
+    head_stacked_convs=0,
+    head_reg_max=16,
+    head_act="silu",
+    head_legacy=True,
+)
+
+
 SIZES: Dict[str, FamilyConfig] = {
     "t": DAMOYOLO_T,
+    "s": DAMOYOLO_S,
 }
