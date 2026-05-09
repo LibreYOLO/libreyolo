@@ -37,7 +37,7 @@ class LibreDAMOYOLO(BaseModel):
 
     FAMILY = "damoyolo"
     FILENAME_PREFIX = "LibreDAMOYOLO"
-    INPUT_SIZES = {"ns": 416, "nm": 416, "nl": 416, "t": 640, "s": 640, "m": 640, "l": 640}
+    INPUT_SIZES = {"ns": 640, "nm": 640, "nl": 640, "t": 640, "s": 640, "m": 640, "l": 640}
     TRAIN_CONFIG = DAMOYOLOConfig
     val_preprocessor_class = DAMOYOLOValPreprocessor
 
@@ -89,16 +89,16 @@ class LibreDAMOYOLO(BaseModel):
 
     @classmethod
     def detect_nb_classes(cls, weights_dict: dict) -> Optional[int]:
-        # Account for legacy=True: cls_out = num_classes + 1.
+        # Default canonical layout is legacy=False, so cls_out == num_classes.
+        # The earlier pre-distill T/S/M weights (ModelScope) used legacy=True
+        # with cls_out = num_classes + 1; LibreYOLO no longer ships those by
+        # default. If the user loads one of those into a legacy=False model
+        # build, ``_load_weights`` will fail strict and the caller can rebuild
+        # with the correct flag.
         key = "head.gfl_cls.0.weight"
         if key not in weights_dict:
             return None
-        out_ch = int(weights_dict[key].shape[0])
-        # Try legacy (out_ch - 1) first, then non-legacy.
-        for guess in (out_ch - 1, out_ch):
-            if guess > 0:
-                return guess
-        return None
+        return int(weights_dict[key].shape[0])
 
     # ---- init ------------------------------------------------------------
 
