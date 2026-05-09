@@ -554,7 +554,8 @@ class BaseModel(ABC):
         classes: Optional[List[int]] = None,
     ) -> Results:
         """Merge TTA detections from multiple augmented views via per-class NMS."""
-        from ...utils.general import nms as _nms
+        from torchvision.ops import batched_nms
+
         from ...utils.results import Boxes, Masks, Results
 
         orig_w, orig_h = original_size
@@ -632,18 +633,10 @@ class BaseModel(ABC):
         scores_cat = torch.cat(all_scores, dim=0)
         classes_cat = torch.cat(all_classes, dim=0)
 
-        # Per-class NMS — collect global indices of kept boxes
-        keep_idx: List[int] = []
-        for cls_id in torch.unique(classes_cat):
-            mask = classes_cat == cls_id
-            global_idx = torch.where(mask)[0]
-            local_keep = _nms(boxes_cat[mask], scores_cat[mask], iou_thres)
-            keep_idx.extend(global_idx[local_keep].tolist())
-
-        if not keep_idx:
+        # Per-class NMS in a single batched dispatch (class-offset trick).
+        keep = batched_nms(boxes_cat, scores_cat, classes_cat.long(), iou_thres)
+        if len(keep) == 0:
             return _empty_results()
-
-        keep = torch.tensor(keep_idx, dtype=torch.long)
         final_boxes = boxes_cat[keep]
         final_scores = scores_cat[keep]
         final_classes = classes_cat[keep]
