@@ -314,7 +314,12 @@ def _depthwise_conv(i: int, o: int, kernel_size: int, stride: int = 1, padding: 
 
 
 class MobileV3Block(nn.Module):
-    """Inverted-residual block: 1x1 expand → 5x5 depthwise → optional SE → 1x1 project."""
+    """Backbone-flavor inverted-residual block.
+
+    Mirrors ``damo/base_models/backbones/tinynas_mob.py::MobileV3Block``:
+    9-slot Sequential (1x1 expand, BN, act, 5x5 depthwise, BN, SE-or-Identity,
+    act, 1x1 project, BN). Variable expansion ratio via ``block_pos``.
+    """
 
     def __init__(
         self,
@@ -334,14 +339,45 @@ class MobileV3Block(nn.Module):
         self.stride = stride
         exp_ratio = 2.5 if block_pos is None else 3.5 + (block_pos - 1) * 0.5
         branch = make_divisible(int(math.ceil(out_c * exp_ratio)))
-        SELayer = SEModule if use_se else nn.Identity
+        # Always materialize a slot at index 5: SEModule when use_se, else
+        # nn.Identity. Upstream serializes the same way so both checkpoint
+        # layouts (with/without SE) round-trip strict.
+        se_layer = SEModule(branch) if use_se else nn.Identity()
         self.conv = nn.Sequential(
             nn.Conv2d(in_c, branch, kernel_size=1, stride=1, padding=0, bias=False),
             nn.BatchNorm2d(branch),
             get_activation(act),
             _depthwise_conv(branch, branch, kernel_size=5, stride=stride, padding=2),
             nn.BatchNorm2d(branch),
-            SELayer(branch),
+            se_layer,
+            get_activation(act),
+            nn.Conv2d(branch, out_c, kernel_size=1, stride=1, padding=0, bias=False),
+            nn.BatchNorm2d(out_c),
+        )
+        self.use_shotcut = stride == 1 and in_c == out_c
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return x + self.conv(x) if self.use_shotcut else self.conv(x)
+
+
+class _MobileV3BlockNeck(nn.Module):
+    """Neck-flavor inverted-residual block (no SE, fixed exp_ratio=3.0).
+
+    Mirrors ``damo/base_models/core/ops.py::MobileV3Block``: 8-slot Sequential
+    (1x1 expand, BN, act, 5x5 depthwise, BN, act, 1x1 project, BN). Used
+    by ``BasicBlock_3x3_Reverse(depthwise=True)`` in GiraffeNeckV2.
+    """
+
+    def __init__(self, in_c: int, out_c: int, kernel_size: int = 5, stride: int = 1, act: str = "silu") -> None:
+        super().__init__()
+        self.stride = stride
+        branch = make_divisible(int(math.ceil(out_c * 3.0)))
+        self.conv = nn.Sequential(
+            nn.Conv2d(in_c, branch, kernel_size=1, stride=1, padding=0, bias=False),
+            nn.BatchNorm2d(branch),
+            get_activation(act),
+            _depthwise_conv(branch, branch, kernel_size=5, stride=stride, padding=2),
+            nn.BatchNorm2d(branch),
             get_activation(act),
             nn.Conv2d(branch, out_c, kernel_size=1, stride=1, padding=0, bias=False),
             nn.BatchNorm2d(out_c),
@@ -411,8 +447,8 @@ class BasicBlock_3x3_Reverse(nn.Module):
             self.conv1 = ConvBNAct(ch_hidden, ch_out, 3, stride=1, act=act)
             self.conv2 = RepConv(ch_in, ch_hidden, 3, stride=1, act=act)
         else:
-            # Mob-style nano block: single MobileV3Block with 5x5 depthwise.
-            self.conv = MobileV3Block(in_c=ch_in, out_c=ch_out, kernel_size=5, stride=1, act=act)
+            # Nano neck block: 8-slot _MobileV3BlockNeck (no SE, exp_ratio 3.0).
+            self.conv = _MobileV3BlockNeck(in_c=ch_in, out_c=ch_out, kernel_size=5, stride=1, act=act)
         self.shortcut = shortcut
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
