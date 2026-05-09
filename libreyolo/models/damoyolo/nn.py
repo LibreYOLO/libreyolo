@@ -269,6 +269,126 @@ class RepConv(nn.Module):
 
 
 # ---------------------------------------------------------------------------
+# MobileNet-style blocks (used by TinyNAS_mob and depthwise GiraffeNeckV2)
+# ---------------------------------------------------------------------------
+
+
+def make_divisible(v: float, divisor: int = 8, min_value: int = None) -> int:
+    if min_value is None:
+        min_value = divisor
+    new_v = max(min_value, int(v + divisor / 2) // divisor * divisor)
+    if new_v < 0.9 * v:
+        new_v += divisor
+    return new_v
+
+
+class Hsigmoid(nn.Module):
+    def __init__(self, inplace: bool = True) -> None:
+        super().__init__()
+        self.inplace = inplace
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return F.relu6(x + 3.0, inplace=self.inplace) / 6.0
+
+
+class SEModule(nn.Module):
+    def __init__(self, channel: int, reduction: int = 4) -> None:
+        super().__init__()
+        self.avg_pool = nn.AdaptiveAvgPool2d(1)
+        self.fc = nn.Sequential(
+            nn.Linear(channel, channel // reduction, bias=False),
+            nn.ReLU(inplace=True),
+            nn.Linear(channel // reduction, channel, bias=False),
+            Hsigmoid(),
+        )
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        b, c, _, _ = x.size()
+        y = self.avg_pool(x).view(b, c)
+        y = self.fc(y).view(b, c, 1, 1)
+        return x * y.expand_as(x)
+
+
+def _depthwise_conv(i: int, o: int, kernel_size: int, stride: int = 1, padding: int = 0, bias: bool = False) -> nn.Conv2d:
+    return nn.Conv2d(i, o, kernel_size, stride, padding, bias=bias, groups=i)
+
+
+class MobileV3Block(nn.Module):
+    """Inverted-residual block: 1x1 expand → 5x5 depthwise → optional SE → 1x1 project."""
+
+    def __init__(
+        self,
+        in_c: int,
+        out_c: int,
+        btn_c=None,
+        kernel_size: int = 5,
+        stride: int = 1,
+        act: str = "silu",
+        reparam: bool = False,
+        block_type: str = "k1kx",
+        depthwise: bool = False,
+        use_se: bool = False,
+        block_pos=None,
+    ) -> None:
+        super().__init__()
+        self.stride = stride
+        exp_ratio = 2.5 if block_pos is None else 3.5 + (block_pos - 1) * 0.5
+        branch = make_divisible(int(math.ceil(out_c * exp_ratio)))
+        SELayer = SEModule if use_se else nn.Identity
+        self.conv = nn.Sequential(
+            nn.Conv2d(in_c, branch, kernel_size=1, stride=1, padding=0, bias=False),
+            nn.BatchNorm2d(branch),
+            get_activation(act),
+            _depthwise_conv(branch, branch, kernel_size=5, stride=stride, padding=2),
+            nn.BatchNorm2d(branch),
+            SELayer(branch),
+            get_activation(act),
+            nn.Conv2d(branch, out_c, kernel_size=1, stride=1, padding=0, bias=False),
+            nn.BatchNorm2d(out_c),
+        )
+        self.use_shotcut = stride == 1 and in_c == out_c
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return x + self.conv(x) if self.use_shotcut else self.conv(x)
+
+
+class DepthwiseConv(nn.Module):
+    """Mob-style depthwise conv: dw conv → dwnorm → act → pointwise conv → pwnorm → act."""
+
+    def __init__(
+        self,
+        in_channels: int,
+        out_channels: int,
+        kernel_size: int,
+        stride: int = 1,
+        padding=None,
+        dilation: int = 1,
+        bias=False,
+        norm_cfg: str = "bn",
+        act: str = "relu",
+    ) -> None:
+        super().__init__()
+        if padding is None:
+            padding = (kernel_size - 1) // 2
+        self.depthwise = nn.Conv2d(
+            in_channels, in_channels, kernel_size, stride=stride, padding=padding,
+            dilation=dilation, groups=in_channels, bias=bias,
+        )
+        self.dwnorm = get_norm(norm_cfg, in_channels)
+        self.pointwise = nn.Conv2d(in_channels, out_channels, kernel_size=1, stride=1, padding=0, bias=bias)
+        self.pwnorm = get_norm(norm_cfg, out_channels)
+        self.act = get_activation(act)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x = self.depthwise(x)
+        x = self.dwnorm(x)
+        x = self.act(x)
+        x = self.pointwise(x)
+        x = self.pwnorm(x)
+        return self.act(x)
+
+
+# ---------------------------------------------------------------------------
 # Neck building blocks
 # ---------------------------------------------------------------------------
 
@@ -281,15 +401,23 @@ class BasicBlock_3x3_Reverse(nn.Module):
         ch_out: int,
         act: str = "relu",
         shortcut: bool = True,
+        depthwise: bool = False,
     ) -> None:
         super().__init__()
         assert ch_in == ch_out
-        ch_hidden = int(ch_in * ch_hidden_ratio)
-        self.conv1 = ConvBNAct(ch_hidden, ch_out, 3, stride=1, act=act)
-        self.conv2 = RepConv(ch_in, ch_hidden, 3, stride=1, act=act)
+        self.depthwise = depthwise
+        if not depthwise:
+            ch_hidden = int(ch_in * ch_hidden_ratio)
+            self.conv1 = ConvBNAct(ch_hidden, ch_out, 3, stride=1, act=act)
+            self.conv2 = RepConv(ch_in, ch_hidden, 3, stride=1, act=act)
+        else:
+            # Mob-style nano block: single MobileV3Block with 5x5 depthwise.
+            self.conv = MobileV3Block(in_c=ch_in, out_c=ch_out, kernel_size=5, stride=1, act=act)
         self.shortcut = shortcut
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        if self.depthwise:
+            return self.conv(x)
         y = self.conv2(x)
         y = self.conv1(y)
         return x + y if self.shortcut else y
@@ -321,6 +449,7 @@ class CSPStage(nn.Module):
         n: int,
         act: str = "swish",
         spp: bool = False,
+        depthwise: bool = False,
     ) -> None:
         super().__init__()
         split_ratio = 2
@@ -334,7 +463,9 @@ class CSPStage(nn.Module):
             if block_fn == "BasicBlock_3x3_Reverse":
                 self.convs.add_module(
                     str(i),
-                    BasicBlock_3x3_Reverse(next_ch_in, ch_hidden_ratio, ch_mid, act=act, shortcut=True),
+                    BasicBlock_3x3_Reverse(
+                        next_ch_in, ch_hidden_ratio, ch_mid, act=act, shortcut=True, depthwise=depthwise,
+                    ),
                 )
             else:
                 raise NotImplementedError(block_fn)
@@ -464,6 +595,231 @@ class SuperResStem(nn.Module):
         return x
 
 
+class CSPStem(nn.Module):
+    """List of ``ResConvBlock``s without SPP (CSP backbone uses an outer wrapper for that)."""
+
+    def __init__(
+        self,
+        in_c: int,
+        out_c: int,
+        btn_c: int,
+        stride: int,
+        kernel_size: int,
+        num_blocks: int,
+        act: str = "silu",
+        reparam: bool = False,
+        block_type: str = "k1kx",
+    ) -> None:
+        super().__init__()
+        self.in_channels = in_c
+        self.out_channels = out_c
+        self.stride = stride
+        # When the CSP wrapper handles downsampling, the stem itself runs at
+        # stride 1; subtract one block so total layer count matches upstream.
+        self.num_blocks = num_blocks - 1 if stride == 2 else num_blocks
+        out_c_half = out_c // 2
+
+        self.block_list = nn.ModuleList()
+        for block_id in range(self.num_blocks):
+            this_in = (in_c // 2) if (stride == 1 and block_id == 0) else out_c_half
+            self.block_list.append(
+                ResConvBlock(
+                    this_in, out_c_half, btn_c, kernel_size, stride=1,
+                    act=act, reparam=reparam, block_type=block_type,
+                )
+            )
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        for b in self.block_list:
+            x = b(x)
+        return x
+
+
+class CSPWrapper(nn.Module):
+    """Wraps one or two CSP stems with downsample + cross-stage shortcut + fuse."""
+
+    def __init__(self, convstem, act: str = "relu", with_spp: bool = False) -> None:
+        super().__init__()
+        self.with_spp = with_spp
+        if isinstance(convstem, tuple):
+            in_c = convstem[0].in_channels
+            out_c = convstem[-1].out_channels
+            hidden_dim = convstem[0].out_channels // 2
+            blocks = []
+            for stem in convstem:
+                for layer in stem.block_list:
+                    blocks.append(layer)
+        else:
+            in_c = convstem.in_channels
+            out_c = convstem.out_channels
+            hidden_dim = out_c // 2
+            blocks = list(convstem.block_list)
+
+        self.convstem = nn.ModuleList(blocks)
+        self.downsampler = ConvKXBNRELU(in_c, hidden_dim * 2, 3, 2, act=act)
+        if self.with_spp:
+            self.spp = SPPBottleneck(hidden_dim * 2, hidden_dim * 2)
+        if len(self.convstem) > 0:
+            self.conv_start = ConvKXBNRELU(hidden_dim * 2, hidden_dim, 1, 1, act=act)
+            self.conv_shortcut = ConvKXBNRELU(hidden_dim * 2, out_c // 2, 1, 1, act=act)
+            self.conv_fuse = ConvKXBNRELU(out_c, out_c, 1, 1, act=act)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x = self.downsampler(x)
+        if self.with_spp:
+            x = self.spp(x)
+        if len(self.convstem) > 0:
+            shortcut = self.conv_shortcut(x)
+            x = self.conv_start(x)
+            for b in self.convstem:
+                x = b(x)
+            x = torch.cat((x, shortcut), dim=1)
+            x = self.conv_fuse(x)
+        return x
+
+
+class TinyNASCSP(nn.Module):
+    """TinyNAS_csp backbone — used by DAMO-YOLO-M."""
+
+    def __init__(
+        self,
+        structure_info,
+        out_indices=(2, 3, 4),
+        with_spp: bool = False,
+        use_focus: bool = False,
+        act: str = "silu",
+        reparam: bool = False,
+    ) -> None:
+        super().__init__()
+        self.out_indices = tuple(out_indices)
+
+        # Build the 6 "raw" stems first (Focus/Conv stem + 5 CSPStems).
+        raw = []
+        for idx, info in enumerate(structure_info):
+            cls = info["class"]
+            if cls == "ConvKXBNRELU":
+                if use_focus and idx == 0:
+                    raw.append(Focus(info["in"], info["out"], info["k"], act=act))
+                else:
+                    raw.append(ConvKXBNRELU(info["in"], info["out"], info["k"], info["s"], act=act))
+            elif cls in ("SuperResConvK1KX", "SuperResConvKXKX"):
+                block_type = "k1kx" if cls == "SuperResConvK1KX" else "kxkx"
+                raw.append(
+                    CSPStem(
+                        info["in"], info["out"], info["btn"],
+                        info["s"], info["k"], info["L"],
+                        act=act, reparam=reparam, block_type=block_type,
+                    )
+                )
+            else:
+                raise NotImplementedError(cls)
+
+        # Re-bundle into 5 csp_stage entries: stem + 4 CSPWrappers, with the
+        # 4th wrapper combining stems 3 and 4 (upstream's pattern). The
+        # wrapper's downsample/conv_{start,shortcut,fuse} layers always use
+        # ReLU regardless of the stems' activation — upstream's CSPWrapper
+        # constructor defaults ``act='relu'`` and TinyNAS doesn't override.
+        self.csp_stage = nn.ModuleList(
+            [
+                raw[0],
+                CSPWrapper(raw[1]),
+                CSPWrapper(raw[2]),
+                CSPWrapper((raw[3], raw[4])),
+                CSPWrapper(raw[5], with_spp=with_spp),
+            ]
+        )
+
+    def forward(self, x: torch.Tensor) -> List[torch.Tensor]:
+        out: List[torch.Tensor] = []
+        for idx, block in enumerate(self.csp_stage):
+            x = block(x)
+            if idx in self.out_indices:
+                out.append(x)
+        return out
+
+
+class _SuperResStemMob(nn.Module):
+    """Mob-style stage: list of MobileV3Blocks (no ResConvBlock, no RepConv)."""
+
+    def __init__(
+        self,
+        in_c: int,
+        out_c: int,
+        btn_c: int,
+        kernel_size: int,
+        stride: int,
+        num_blocks: int,
+        with_spp: bool = False,
+        act: str = "silu",
+        depthwise: bool = False,
+        use_se: bool = False,
+        block_pos=None,
+    ) -> None:
+        super().__init__()
+        self.block_list = nn.ModuleList()
+        for block_id in range(num_blocks):
+            in_channels = in_c if block_id == 0 else out_c
+            this_stride = stride if block_id == 0 else 1
+            self.block_list.append(
+                MobileV3Block(
+                    in_channels, out_c, btn_c, kernel_size, this_stride,
+                    act=act, depthwise=depthwise, use_se=use_se, block_pos=block_pos,
+                )
+            )
+            if block_id == 0 and with_spp:
+                self.block_list.append(SPPBottleneck(out_c, out_c))
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        for b in self.block_list:
+            x = b(x)
+        return x
+
+
+class TinyNASMob(nn.Module):
+    """TinyNAS_mob backbone — used by DAMO-YOLO Nano sizes."""
+
+    def __init__(
+        self,
+        structure_info,
+        out_indices=(2, 4, 5),
+        with_spp: bool = False,
+        use_focus: bool = False,
+        act: str = "silu",
+        reparam: bool = False,
+        depthwise: bool = True,
+        use_se: bool = False,
+    ) -> None:
+        super().__init__()
+        self.out_indices = tuple(out_indices)
+        self.block_list = nn.ModuleList()
+        for idx, info in enumerate(structure_info):
+            cls = info["class"]
+            if cls == "ConvKXBNRELU":
+                if use_focus:
+                    block = Focus(info["in"], info["out"], info["k"], act=act)
+                else:
+                    # Upstream tinynas_mob hardcodes in=3, stride=2 here.
+                    block = ConvKXBNRELU(3, info["out"], info["k"], 2, act=act)
+            elif cls in ("SuperResConvK1KX", "SuperResConvKXKX"):
+                block_type = "k1kx" if cls == "SuperResConvK1KX" else "kxkx"
+                spp = with_spp if idx == len(structure_info) - 1 else False
+                block = _SuperResStemMob(
+                    info["in"], info["out"], info["btn"], info["k"], info["s"], info["L"],
+                    with_spp=spp, act=act, depthwise=depthwise, use_se=use_se, block_pos=idx,
+                )
+            else:
+                raise NotImplementedError(cls)
+            self.block_list.append(block)
+
+    def forward(self, x: torch.Tensor) -> List[torch.Tensor]:
+        out: List[torch.Tensor] = []
+        for idx, block in enumerate(self.block_list):
+            x = block(x)
+            if idx in self.out_indices:
+                out.append(x)
+        return out
+
+
 class TinyNAS(nn.Module):
     def __init__(
         self,
@@ -528,64 +884,40 @@ class GiraffeNeckV2(nn.Module):
         act: str = "silu",
         spp: bool = False,
         block_name: str = "BasicBlock_3x3_Reverse",
+        depthwise: bool = False,
     ) -> None:
         super().__init__()
-        Conv = ConvBNAct
+        Conv = DepthwiseConv if depthwise else ConvBNAct
         self.upsample = nn.Upsample(scale_factor=2, mode="nearest")
 
         self.bu_conv13 = Conv(in_channels[1], in_channels[1], 3, 2, act=act)
         self.merge_3 = CSPStage(
-            block_name,
-            in_channels[1] + in_channels[2],
-            hidden_ratio,
-            in_channels[2],
-            round(3 * depth),
-            act=act,
-            spp=spp,
+            block_name, in_channels[1] + in_channels[2], hidden_ratio, in_channels[2],
+            round(3 * depth), act=act, spp=spp, depthwise=depthwise,
         )
 
         self.bu_conv24 = Conv(in_channels[0], in_channels[0], 3, 2, act=act)
         self.merge_4 = CSPStage(
-            block_name,
-            in_channels[0] + in_channels[1] + in_channels[2],
-            hidden_ratio,
-            in_channels[1],
-            round(3 * depth),
-            act=act,
-            spp=spp,
+            block_name, in_channels[0] + in_channels[1] + in_channels[2], hidden_ratio, in_channels[1],
+            round(3 * depth), act=act, spp=spp, depthwise=depthwise,
         )
 
         self.merge_5 = CSPStage(
-            block_name,
-            in_channels[1] + in_channels[0],
-            hidden_ratio,
-            out_channels[0],
-            round(3 * depth),
-            act=act,
-            spp=spp,
+            block_name, in_channels[1] + in_channels[0], hidden_ratio, out_channels[0],
+            round(3 * depth), act=act, spp=spp, depthwise=depthwise,
         )
 
         self.bu_conv57 = Conv(out_channels[0], out_channels[0], 3, 2, act=act)
         self.merge_7 = CSPStage(
-            block_name,
-            out_channels[0] + in_channels[1],
-            hidden_ratio,
-            out_channels[1],
-            round(3 * depth),
-            act=act,
-            spp=spp,
+            block_name, out_channels[0] + in_channels[1], hidden_ratio, out_channels[1],
+            round(3 * depth), act=act, spp=spp, depthwise=depthwise,
         )
 
         self.bu_conv46 = Conv(in_channels[1], in_channels[1], 3, 2, act=act)
         self.bu_conv76 = Conv(out_channels[1], out_channels[1], 3, 2, act=act)
         self.merge_6 = CSPStage(
-            block_name,
-            in_channels[1] + out_channels[1] + in_channels[2],
-            hidden_ratio,
-            out_channels[2],
-            round(3 * depth),
-            act=act,
-            spp=spp,
+            block_name, in_channels[1] + out_channels[1] + in_channels[2], hidden_ratio, out_channels[2],
+            round(3 * depth), act=act, spp=spp, depthwise=depthwise,
         )
 
     def forward(self, features) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:

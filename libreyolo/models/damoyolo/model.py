@@ -37,7 +37,7 @@ class LibreDAMOYOLO(BaseModel):
 
     FAMILY = "damoyolo"
     FILENAME_PREFIX = "LibreDAMOYOLO"
-    INPUT_SIZES = {"t": 640, "s": 640}
+    INPUT_SIZES = {"ns": 416, "nm": 416, "nl": 416, "t": 640, "s": 640, "m": 640, "l": 640}
     TRAIN_CONFIG = DAMOYOLOConfig
     val_preprocessor_class = DAMOYOLOValPreprocessor
 
@@ -48,21 +48,44 @@ class LibreDAMOYOLO(BaseModel):
         # Tokens unique to DAMO-YOLO: TinyNAS backbone + GiraffeNeckV2 +
         # GFL ZeroHead. The ``head.gfl_cls.0`` head pattern matches PicoDet
         # too, so we additionally require ``neck.merge_3`` (GiraffeNeckV2's
-        # signature node) and ``backbone.block_list`` (TinyNAS).
+        # signature node) and a TinyNAS backbone (either ``block_list``
+        # for the res variant or ``csp_stage`` for M's csp variant).
         has_giraffe = any(k.startswith("neck.merge_3.") for k in weights_dict)
-        has_tinynas = any(k.startswith("backbone.block_list.") for k in weights_dict)
+        has_tinynas = any(
+            k.startswith(("backbone.block_list.", "backbone.csp_stage.")) for k in weights_dict
+        )
         has_gfl = any("head.gfl_cls" in k or "head.gfl_reg" in k for k in weights_dict)
         return has_giraffe and has_tinynas and has_gfl
 
     @classmethod
     def detect_size(cls, weights_dict: dict) -> Optional[str]:
-        # Per-size head input channel for the stride-8 scale.
-        # T = 64, S = 128, M = 128 (csp backbone, not yet ported), L = 160.
+        # Head input channel width per size:
+        #   Ns = 40, Nm = 64, Nl = 80 (Nano sizes use reg_max=7),
+        #   T  = 64 (TinyNAS_res, reg_max=16),
+        #   S  = 128 (TinyNAS_res),
+        #   M  = 128 (TinyNAS_csp, csp_stage.1.convstem has 1 block),
+        #   L  = 128 (TinyNAS_csp, csp_stage.1.convstem has 2+ blocks).
+        # reg_max=7 vs 16 disambiguates Nm vs T (both have 64-ch head).
         key = "head.gfl_cls.0.weight"
         if key not in weights_dict:
             return None
         in_ch = int(weights_dict[key].shape[1])
-        return {64: "t", 128: "s"}.get(in_ch)
+        reg_key = "head.gfl_reg.0.weight"
+        reg_ch = int(weights_dict[reg_key].shape[0]) if reg_key in weights_dict else 0
+        is_nano = reg_ch == 32  # 4 * (reg_max=7 + 1)
+        is_csp = any(k.startswith("backbone.csp_stage.") for k in weights_dict)
+        if is_nano:
+            return {40: "ns", 64: "nm", 80: "nl"}.get(in_ch)
+        if in_ch == 64:
+            return "t"
+        if in_ch == 128:
+            if not is_csp:
+                return "s"
+            has_deep_stage1 = any(
+                k.startswith("backbone.csp_stage.1.convstem.1.") for k in weights_dict
+            )
+            return "l" if has_deep_stage1 else "m"
+        return None
 
     @classmethod
     def detect_nb_classes(cls, weights_dict: dict) -> Optional[int]:
