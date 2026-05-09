@@ -1,17 +1,20 @@
-"""DAMO-YOLO model modules (inference-first port).
+"""DAMO-YOLO nn.Module classes, per-size architecture table, and factory.
 
 Class hierarchy and attribute names mirror upstream
 (github.com/tinyvision/DAMO-YOLO, Apache-2.0) so upstream `.pth` checkpoints
 load directly via ``state_dict``.
 
-Coverage right now: forward pass + RepConv switch_to_deploy. Training-time
-code paths (assigner, loss, target generation) are intentionally absent.
+Layout:
+- nn.Module classes (backbones, neck, head, ops) — bulk of the file
+- ``FamilyConfig`` dataclass + per-size ``SIZES`` table near the end
+- ``build_damoyolo(size, num_classes)`` factory at the bottom
 """
 
 from __future__ import annotations
 
 import math
-from typing import List, Tuple
+from dataclasses import dataclass
+from typing import Dict, List, Tuple
 
 import numpy as np
 import torch
@@ -1068,8 +1071,12 @@ class ZeroHead(nn.Module):
     def _ensure_train_modules(self) -> None:
         if self._assigner is not None:
             return
-        from .assigner import AlignOTAAssigner
-        from .loss import DistributionFocalLoss, GIoULoss, QualityFocalLoss
+        from .loss import (
+            AlignOTAAssigner,
+            DistributionFocalLoss,
+            GIoULoss,
+            QualityFocalLoss,
+        )
 
         self._assigner = AlignOTAAssigner(center_radius=2.5, cls_weight=1.0, iou_weight=3.0)
         self._loss_cls = QualityFocalLoss(use_sigmoid=False, beta=2.0, loss_weight=1.0)
@@ -1384,3 +1391,318 @@ class Detector(nn.Module):
         for m in self.modules():
             if isinstance(m, RepConv):
                 m.switch_to_deploy()
+
+
+# ===========================================================================
+# Per-size architecture metadata (formerly structures.py)
+# ===========================================================================
+
+# ---- TinyNAS_res structures (used by N / T / S / L) ----------------------
+
+# tinynas_L20_k1kx.txt → DAMO-YOLO-T
+TINYNAS_L20_K1KX = [
+    {"class": "ConvKXBNRELU", "in": 3, "k": 3, "out": 24, "s": 1},
+    {"L": 2, "btn": 24, "class": "SuperResConvK1KX", "in": 24, "k": 3, "out": 64, "s": 2},
+    {"L": 2, "btn": 64, "class": "SuperResConvK1KX", "in": 64, "k": 3, "out": 96, "s": 2},
+    {"L": 2, "btn": 96, "class": "SuperResConvK1KX", "in": 96, "k": 3, "out": 192, "s": 2},
+    {"L": 2, "btn": 152, "class": "SuperResConvK1KX", "in": 192, "k": 3, "out": 192, "s": 1},
+    {"L": 1, "btn": 192, "class": "SuperResConvK1KX", "in": 192, "k": 3, "out": 384, "s": 2},
+]
+
+
+# tinynas_L25_k1kx.txt → DAMO-YOLO-S
+TINYNAS_L25_K1KX = [
+    {"class": "ConvKXBNRELU", "in": 3, "k": 3, "out": 32, "s": 1},
+    {"L": 1, "btn": 24, "class": "SuperResConvK1KX", "in": 32, "k": 3, "out": 128, "s": 2},
+    {"L": 5, "btn": 88, "class": "SuperResConvK1KX", "in": 128, "k": 3, "out": 128, "s": 2},
+    {"L": 3, "btn": 128, "class": "SuperResConvK1KX", "in": 128, "k": 3, "out": 256, "s": 2},
+    {"L": 2, "btn": 120, "class": "SuperResConvK1KX", "in": 256, "k": 3, "out": 256, "s": 1},
+    {"L": 1, "btn": 144, "class": "SuperResConvK1KX", "in": 256, "k": 3, "out": 512, "s": 2},
+]
+
+
+# tinynas_L35_kxkx.txt → DAMO-YOLO-M (uses TinyNAS_csp backbone, kxkx blocks)
+TINYNAS_L35_KXKX = [
+    {"class": "ConvKXBNRELU", "in": 3, "k": 3, "out": 32, "s": 1},
+    {"L": 2, "btn": 64, "class": "SuperResConvKXKX", "in": 32, "k": 3, "out": 128, "s": 2},
+    {"L": 4, "btn": 64, "class": "SuperResConvKXKX", "in": 128, "k": 3, "out": 128, "s": 2},
+    {"L": 4, "btn": 256, "class": "SuperResConvKXKX", "in": 128, "k": 3, "out": 256, "s": 2},
+    {"L": 4, "btn": 256, "class": "SuperResConvKXKX", "in": 256, "k": 3, "out": 256, "s": 1},
+    {"L": 3, "btn": 256, "class": "SuperResConvKXKX", "in": 256, "k": 3, "out": 512, "s": 2},
+]
+
+
+# tinynas_L45_kxkx.txt → DAMO-YOLO-L (TinyNAS_csp, kxkx). Pretrained
+# weights are not currently downloadable (Aliyun bucket is 404 and
+# ModelScope hosts only T/S/M). Structure is registered for
+# from-scratch training; download routing falls through to the user.
+TINYNAS_L45_KXKX = [
+    {"class": "ConvKXBNRELU", "in": 3, "k": 3, "out": 32, "s": 1},
+    {"L": 3, "btn": 96, "class": "SuperResConvKXKX", "in": 32, "k": 3, "out": 128, "s": 2},
+    {"L": 5, "btn": 96, "class": "SuperResConvKXKX", "in": 128, "k": 3, "out": 128, "s": 2},
+    {"L": 5, "btn": 384, "class": "SuperResConvKXKX", "in": 128, "k": 3, "out": 256, "s": 2},
+    {"L": 5, "btn": 384, "class": "SuperResConvKXKX", "in": 256, "k": 3, "out": 256, "s": 1},
+    {"L": 4, "btn": 384, "class": "SuperResConvKXKX", "in": 256, "k": 3, "out": 512, "s": 2},
+]
+
+
+@dataclass(frozen=True)
+class FamilyConfig:
+    """A complete DAMO-YOLO family member spec."""
+
+    structure: List[Dict]
+    backbone_class: str   # "tinynas_res", "tinynas_csp", or "tinynas_mob"
+    backbone_with_spp: bool
+    backbone_use_focus: bool
+    backbone_act: str
+    backbone_reparam: bool
+    backbone_out_indices: Tuple[int, int, int]
+    neck_in_channels: Tuple[int, int, int]
+    neck_out_channels: Tuple[int, int, int]
+    neck_depth: float
+    neck_hidden_ratio: float
+    neck_act: str
+    neck_spp: bool
+    head_in_channels: Tuple[int, int, int]
+    head_stacked_convs: int
+    head_reg_max: int
+    head_act: str
+    head_legacy: bool
+    head_feat_channels: int = 256
+    head_last_kernel_size: int = 3
+    backbone_depthwise: bool = False
+    backbone_use_se: bool = False
+    neck_depthwise: bool = False
+
+
+# ---- DAMO-YOLO-T (42.0 mAP, target for first-pass parity) ----------------
+
+DAMOYOLO_T = FamilyConfig(
+    structure=TINYNAS_L20_K1KX,
+    backbone_class="tinynas_res",
+    backbone_with_spp=True,
+    backbone_use_focus=True,
+    backbone_act="relu",
+    backbone_reparam=True,
+    backbone_out_indices=(2, 4, 5),
+    neck_in_channels=(96, 192, 384),
+    neck_out_channels=(64, 128, 256),
+    neck_depth=1.0,
+    neck_hidden_ratio=1.0,
+    neck_act="relu",
+    neck_spp=False,
+    head_in_channels=(64, 128, 256),
+    head_stacked_convs=0,
+    head_reg_max=16,
+    head_act="silu",
+    # legacy=False matches the post-distill release weights (T 42.0,
+    # S 46.0, M 50.2) recovered from the Internet Archive. The earlier
+    # ModelScope-hosted pre-distill weights used legacy=True (cls head
+    # emits num_classes + 1 channels with the trailing channel unused).
+    head_legacy=False,
+)
+
+
+DAMOYOLO_S = FamilyConfig(
+    structure=TINYNAS_L25_K1KX,
+    backbone_class="tinynas_res",
+    backbone_with_spp=True,
+    backbone_use_focus=True,
+    backbone_act="relu",
+    backbone_reparam=True,
+    backbone_out_indices=(2, 4, 5),
+    neck_in_channels=(128, 256, 512),
+    neck_out_channels=(128, 256, 512),
+    neck_depth=1.0,
+    neck_hidden_ratio=0.75,
+    neck_act="relu",
+    neck_spp=False,
+    head_in_channels=(128, 256, 512),
+    head_stacked_convs=0,
+    head_reg_max=16,
+    head_act="silu",
+    head_legacy=False,
+)
+
+
+DAMOYOLO_M = FamilyConfig(
+    structure=TINYNAS_L35_KXKX,
+    backbone_class="tinynas_csp",
+    backbone_with_spp=True,
+    backbone_use_focus=True,
+    backbone_act="silu",
+    backbone_reparam=True,
+    # CSP backbone outputs from csp_stage indices (5-element list,
+    # not the 6-element raw block list).
+    backbone_out_indices=(2, 3, 4),
+    neck_in_channels=(128, 256, 512),
+    neck_out_channels=(128, 256, 512),
+    neck_depth=1.5,
+    neck_hidden_ratio=1.0,
+    neck_act="silu",
+    neck_spp=False,
+    head_in_channels=(128, 256, 512),
+    head_stacked_convs=0,
+    head_reg_max=16,
+    head_act="silu",
+    head_legacy=False,
+)
+
+
+# tinynas_nano_*.txt → DAMO-YOLO Nano variants (TinyNAS_mob backbone, depthwise everywhere)
+TINYNAS_NANO_SMALL = [
+    {"class": "ConvKXBNRELU", "in": 3, "k": 3, "out": 16, "s": 1},
+    {"L": 1, "btn": 24, "class": "SuperResConvK1KX", "in": 16, "k": 3, "out": 24, "s": 2},
+    {"L": 2, "btn": 64, "class": "SuperResConvK1KX", "in": 24, "k": 3, "out": 40, "s": 2},
+    {"L": 2, "btn": 40, "class": "SuperResConvK1KX", "in": 40, "k": 3, "out": 64, "s": 2},
+    {"L": 2, "btn": 152, "class": "SuperResConvK1KX", "in": 64, "k": 3, "out": 80, "s": 1},
+    {"L": 2, "btn": 192, "class": "SuperResConvK1KX", "in": 80, "k": 3, "out": 160, "s": 2},
+]
+
+TINYNAS_NANO_MIDDLE = [
+    {"class": "ConvKXBNRELU", "in": 3, "k": 3, "out": 16, "s": 1},
+    {"L": 2, "btn": 24, "class": "SuperResConvK1KX", "in": 16, "k": 3, "out": 40, "s": 2},
+    {"L": 2, "btn": 64, "class": "SuperResConvK1KX", "in": 40, "k": 3, "out": 64, "s": 2},
+    {"L": 2, "btn": 40, "class": "SuperResConvK1KX", "in": 64, "k": 3, "out": 112, "s": 2},
+    {"L": 2, "btn": 152, "class": "SuperResConvK1KX", "in": 112, "k": 3, "out": 128, "s": 1},
+    {"L": 1, "btn": 192, "class": "SuperResConvK1KX", "in": 128, "k": 3, "out": 256, "s": 2},
+]
+
+TINYNAS_NANO_LARGE = [
+    {"class": "ConvKXBNRELU", "in": 3, "k": 3, "out": 24, "s": 1},
+    {"L": 1, "btn": 24, "class": "SuperResConvK1KX", "in": 24, "k": 3, "out": 48, "s": 2},
+    {"L": 2, "btn": 64, "class": "SuperResConvK1KX", "in": 48, "k": 3, "out": 80, "s": 2},
+    {"L": 2, "btn": 40, "class": "SuperResConvK1KX", "in": 80, "k": 3, "out": 160, "s": 2},
+    {"L": 3, "btn": 152, "class": "SuperResConvK1KX", "in": 160, "k": 3, "out": 160, "s": 1},
+    {"L": 2, "btn": 192, "class": "SuperResConvK1KX", "in": 160, "k": 3, "out": 320, "s": 2},
+]
+
+
+def _make_nano_config(structure, neck_io: Tuple[int, int, int]) -> "FamilyConfig":
+    return FamilyConfig(
+        structure=structure,
+        backbone_class="tinynas_mob",
+        backbone_with_spp=True,
+        backbone_use_focus=False,
+        backbone_act="silu",
+        backbone_reparam=False,
+        backbone_out_indices=(2, 4, 5),
+        backbone_depthwise=True,
+        backbone_use_se=False,
+        neck_in_channels=neck_io,
+        neck_out_channels=neck_io,
+        neck_depth=0.5,
+        neck_hidden_ratio=0.5,
+        neck_act="silu",
+        neck_spp=False,
+        neck_depthwise=True,
+        head_in_channels=neck_io,
+        head_stacked_convs=0,
+        head_reg_max=7,
+        head_act="silu",
+        head_legacy=False,
+        head_last_kernel_size=1,
+    )
+
+
+DAMOYOLO_NS = _make_nano_config(TINYNAS_NANO_SMALL, (40, 80, 160))
+DAMOYOLO_NM = _make_nano_config(TINYNAS_NANO_MIDDLE, (64, 128, 256))
+DAMOYOLO_NL = _make_nano_config(TINYNAS_NANO_LARGE, (80, 160, 320))
+
+
+DAMOYOLO_L = FamilyConfig(
+    structure=TINYNAS_L45_KXKX,
+    backbone_class="tinynas_csp",
+    backbone_with_spp=True,
+    backbone_use_focus=True,
+    backbone_act="silu",
+    backbone_reparam=True,
+    backbone_out_indices=(2, 3, 4),
+    neck_in_channels=(128, 256, 512),
+    neck_out_channels=(128, 256, 512),
+    neck_depth=2.0,        # upstream: depth 2.0 for L
+    neck_hidden_ratio=1.0,
+    neck_act="silu",
+    neck_spp=False,
+    head_in_channels=(128, 256, 512),
+    head_stacked_convs=0,
+    head_reg_max=16,
+    head_act="silu",
+    head_legacy=False,
+)
+
+
+SIZES: Dict[str, FamilyConfig] = {
+    "ns": DAMOYOLO_NS,
+    "nm": DAMOYOLO_NM,
+    "nl": DAMOYOLO_NL,
+    "t": DAMOYOLO_T,
+    "s": DAMOYOLO_S,
+    "m": DAMOYOLO_M,
+    "l": DAMOYOLO_L,
+}
+
+
+# ===========================================================================
+# Factory builders (formerly builder.py)
+# ===========================================================================
+
+_BACKBONES = {
+    "tinynas_res": TinyNAS,
+    "tinynas_csp": TinyNASCSP,
+    "tinynas_mob": TinyNASMob,
+}
+
+
+def _build_backbone(cfg: FamilyConfig):
+    cls = _BACKBONES[cfg.backbone_class]
+    kwargs = dict(
+        structure_info=cfg.structure,
+        out_indices=cfg.backbone_out_indices,
+        with_spp=cfg.backbone_with_spp,
+        use_focus=cfg.backbone_use_focus,
+        act=cfg.backbone_act,
+        reparam=cfg.backbone_reparam,
+    )
+    if cfg.backbone_class == "tinynas_mob":
+        kwargs["depthwise"] = cfg.backbone_depthwise
+        kwargs["use_se"] = cfg.backbone_use_se
+    return cls(**kwargs)
+
+
+def _build_neck(cfg: FamilyConfig) -> GiraffeNeckV2:
+    return GiraffeNeckV2(
+        depth=cfg.neck_depth,
+        hidden_ratio=cfg.neck_hidden_ratio,
+        in_channels=cfg.neck_in_channels,
+        out_channels=cfg.neck_out_channels,
+        act=cfg.neck_act,
+        spp=cfg.neck_spp,
+        block_name="BasicBlock_3x3_Reverse",
+        depthwise=cfg.neck_depthwise,
+    )
+
+
+def _build_head(cfg: FamilyConfig, num_classes: int) -> ZeroHead:
+    return ZeroHead(
+        num_classes=num_classes,
+        in_channels=cfg.head_in_channels,
+        stacked_convs=cfg.head_stacked_convs,
+        feat_channels=cfg.head_feat_channels,
+        reg_max=cfg.head_reg_max,
+        strides=(8, 16, 32),
+        act=cfg.head_act,
+        legacy=cfg.head_legacy,
+        last_kernel_size=cfg.head_last_kernel_size,
+    )
+
+
+def build_damoyolo(size: str = "t", num_classes: int = 80) -> nn.Module:
+    """Build a DAMO-YOLO Detector for the given size."""
+    if size not in SIZES:
+        raise ValueError(f"Unknown DAMO-YOLO size {size!r}. Available: {sorted(SIZES)}")
+    cfg = SIZES[size]
+    backbone = _build_backbone(cfg)
+    neck = _build_neck(cfg)
+    head = _build_head(cfg, num_classes=num_classes)
+    return Detector(backbone, neck, head)

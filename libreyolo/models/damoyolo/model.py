@@ -15,8 +15,7 @@ from ...training.config import DAMOYOLOConfig
 from ...utils.image_loader import ImageInput
 from ...validation.preprocessors import DAMOYOLOValPreprocessor
 from ..base import BaseModel
-from .builder import build_damoyolo
-from .structures import SIZES
+from .nn import SIZES, build_damoyolo
 from .utils import postprocess_predictions
 
 

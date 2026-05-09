@@ -25,7 +25,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from libreyolo.models.damoyolo.builder import build_damoyolo  # noqa: E402
+from libreyolo.models.damoyolo.nn import build_damoyolo  # noqa: E402
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
 log = logging.getLogger("damoyolo-onnx")
