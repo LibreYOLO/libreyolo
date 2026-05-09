@@ -42,6 +42,7 @@ from .deimv2.model import LibreDEIMv2  # noqa: E402
 from .dfine.model import LibreDFINE  # noqa: E402
 from .deim.model import LibreDEIM  # noqa: E402
 from .picodet.model import LibrePICODET  # noqa: E402
+from .damoyolo.model import LibreDAMOYOLO  # noqa: E402
 from .rtdetr.model import LibreRTDETR  # noqa: E402
 
 
