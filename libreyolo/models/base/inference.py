@@ -14,13 +14,13 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Dict, Generator, List, Optional, Tuple, Union
 
 import torch
+from torchvision.ops import batched_nms
 
 from ...utils.drawing import draw_boxes, draw_keypoints, draw_masks, draw_tile_grid
 from ...utils.general import (
     get_safe_stem,
     get_slice_bboxes,
     log_saved_result,
-    nms,
     resolve_save_path,
 )
 from ...utils.image_loader import ImageInput, ImageLoader
@@ -530,24 +530,19 @@ class InferenceRunner:
         if not boxes:
             return [], [], []
 
+        from torchvision.ops import batched_nms
+
         boxes_t = torch.tensor(boxes, dtype=torch.float32, device=self.model.device)
         scores_t = torch.tensor(scores, dtype=torch.float32, device=self.model.device)
         classes_t = torch.tensor(classes, dtype=torch.int64, device=self.model.device)
 
-        final_boxes, final_scores, final_classes = [], [], []
-
-        for cls_id in torch.unique(classes_t):
-            mask = classes_t == cls_id
-            cls_boxes = boxes_t[mask]
-            cls_scores = scores_t[mask]
-
-            keep = nms(cls_boxes, cls_scores, iou_thres)
-
-            final_boxes.extend(cls_boxes[keep].cpu().tolist())
-            final_scores.extend(cls_scores[keep].cpu().tolist())
-            final_classes.extend([cls_id.item()] * len(keep))
-
-        return final_boxes, final_scores, final_classes
+        # Single per-class-batched dispatch instead of one NMS call per class.
+        keep = batched_nms(boxes_t, scores_t, classes_t, iou_thres)
+        return (
+            boxes_t[keep].cpu().tolist(),
+            scores_t[keep].cpu().tolist(),
+            classes_t[keep].cpu().tolist(),
+        )
 
     def _predict_tiled(
         self,
