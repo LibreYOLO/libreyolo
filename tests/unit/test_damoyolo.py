@@ -18,9 +18,8 @@ pytestmark = [pytest.mark.unit, pytest.mark.damoyolo]
 
 
 from libreyolo.models.base import BaseModel  # noqa: E402
-from libreyolo.models.damoyolo.builder import build_damoyolo  # noqa: E402
 from libreyolo.models.damoyolo.model import LibreDAMOYOLO  # noqa: E402
-from libreyolo.models.damoyolo.structures import SIZES  # noqa: E402
+from libreyolo.models.damoyolo.nn import SIZES, build_damoyolo  # noqa: E402
 
 
 # Param count budget per size. Upper bound is ~10 percent above the
