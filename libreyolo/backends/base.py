@@ -62,7 +62,7 @@ def _is_nms_free_family(model_family: Optional[str]) -> bool:
     selection. Applying YOLO-style IoU suppression on top of that can remove
     valid detections and make exported runtimes diverge from native PyTorch.
     """
-    return model_family in {"dfine", "deim", "deimv2", "ec", "rfdetr", "rtdetr"}
+    return model_family in {"dfine", "deim", "deimv2", "ec", "rfdetr", "rtdetr", "rtdetrv4"}
 
 
 class BaseBackend(ABC):
@@ -142,7 +142,7 @@ class BaseBackend(ABC):
                 image, effective_imgsz, color_format
             )
             return tensor, img, size, 1.0
-        elif self.model_family == "dfine":
+        elif self.model_family in ("dfine", "rtdetrv4"):
             tensor, img, size = self._preprocess_dfine(
                 image, effective_imgsz, color_format
             )
@@ -304,7 +304,7 @@ class BaseBackend(ABC):
             return boxes, scores, cls, None
         elif self.model_family == "rfdetr":
             return self._parse_rfdetr(all_outputs, orig_w, orig_h, conf)
-        elif self.model_family == "dfine":
+        elif self.model_family in ("dfine", "rtdetrv4"):
             boxes, scores, cls = self._parse_dfine(all_outputs, orig_w, orig_h, conf)
             return boxes, scores, cls, None
         elif self.model_family == "deim":
