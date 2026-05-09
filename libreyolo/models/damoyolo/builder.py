@@ -4,12 +4,20 @@ from __future__ import annotations
 
 import torch.nn as nn
 
-from .nn import Detector, GiraffeNeckV2, TinyNAS, ZeroHead
+from .nn import Detector, GiraffeNeckV2, TinyNAS, TinyNASCSP, TinyNASMob, ZeroHead
 from .structures import SIZES, FamilyConfig
 
 
-def _build_backbone(cfg: FamilyConfig) -> TinyNAS:
-    return TinyNAS(
+_BACKBONES = {
+    "tinynas_res": TinyNAS,
+    "tinynas_csp": TinyNASCSP,
+    "tinynas_mob": TinyNASMob,
+}
+
+
+def _build_backbone(cfg: FamilyConfig):
+    cls = _BACKBONES[cfg.backbone_class]
+    kwargs = dict(
         structure_info=cfg.structure,
         out_indices=cfg.backbone_out_indices,
         with_spp=cfg.backbone_with_spp,
@@ -17,6 +25,10 @@ def _build_backbone(cfg: FamilyConfig) -> TinyNAS:
         act=cfg.backbone_act,
         reparam=cfg.backbone_reparam,
     )
+    if cfg.backbone_class == "tinynas_mob":
+        kwargs["depthwise"] = cfg.backbone_depthwise
+        kwargs["use_se"] = cfg.backbone_use_se
+    return cls(**kwargs)
 
 
 def _build_neck(cfg: FamilyConfig) -> GiraffeNeckV2:
@@ -28,6 +40,7 @@ def _build_neck(cfg: FamilyConfig) -> GiraffeNeckV2:
         act=cfg.neck_act,
         spp=cfg.neck_spp,
         block_name="BasicBlock_3x3_Reverse",
+        depthwise=cfg.neck_depthwise,
     )
 
 
@@ -41,6 +54,7 @@ def _build_head(cfg: FamilyConfig, num_classes: int) -> ZeroHead:
         strides=(8, 16, 32),
         act=cfg.head_act,
         legacy=cfg.head_legacy,
+        last_kernel_size=cfg.head_last_kernel_size,
     )
 
 
