@@ -254,6 +254,16 @@ class DEIMConfig(TrainConfig):
     name: str = "deim_exp"
 
 
+@dataclass(kw_only=True)
+class RTDETRv4Config(DEIMConfig):
+    """RT-DETRv4 fine-tuning defaults."""
+
+    lr0: float = 5e-4
+    weight_decay: float = 1.25e-4
+    epochs: int = 58
+    name: str = "rtdetrv4_exp"
+
+
 DEIMV2_SIZE_DEFAULTS = {
     # Released DEIMv2 COCO recipes, flattened from /configs/deimv2/*.yml in
     # Intellindust-AI-Lab/DEIMv2. The tiny HGNetv2 models intentionally omit

@@ -79,6 +79,12 @@ def pytest_configure(config):
     config.addinivalue_line(
         "markers", "rtdetr: tests covering the RT-DETR model family"
     )
+    config.addinivalue_line(
+        "markers", "rtdetrv2: tests covering the RT-DETRv2 model family"
+    )
+    config.addinivalue_line(
+        "markers", "rtdetrv4: tests covering the RT-DETRv4 model family"
+    )
     config.addinivalue_line("markers", "slow: slow tests that may take several minutes")
     config.addinivalue_line("markers", "rf1: RF1 training tests")
     config.addinivalue_line("markers", "rf5: RF5 training benchmark tests")
@@ -465,6 +471,8 @@ MODEL_CATALOG = [
     ("rtdetr", "r50", "LibreRTDETRr50.pt"),
     ("rtdetr", "r50m", "LibreRTDETRr50m.pt"),
     ("rtdetr", "r101", "LibreRTDETRr101.pt"),
+    ("rtdetrv2", "r18", "weights/LibreRTDETRv2r18.pt"),
+    ("rtdetrv4", "s", "weights/LibreRTDETRv4s.pt"),
     ("picodet", "s", "LibrePICODETs.pt"),
     ("picodet", "m", "LibrePICODETm.pt"),
     ("picodet", "l", "LibrePICODETl.pt"),
@@ -481,6 +489,8 @@ DEIM_SIZES = [s for f, s, _ in MODEL_CATALOG if f == "deim"]
 DEIMV2_SIZES = [s for f, s, _ in MODEL_CATALOG if f == "deimv2"]
 ECDET_SIZES = [s for f, s, _ in MODEL_CATALOG if f == "ecdet"]
 RTDETR_SIZES = [s for f, s, _ in MODEL_CATALOG if f == "rtdetr"]
+RTDETRV2_SIZES = [s for f, s, _ in MODEL_CATALOG if f == "rtdetrv2"]
+RTDETRV4_SIZES = [s for f, s, _ in MODEL_CATALOG if f == "rtdetrv4"]
 PICODET_SIZES = [s for f, s, _ in MODEL_CATALOG if f == "picodet"]
 
 ALL_MODELS = [(f, s) for f, s, _ in MODEL_CATALOG]
@@ -510,6 +520,8 @@ FAMILY_MARKERS = {
     "deimv2": pytest.mark.deimv2,
     "ecdet": pytest.mark.ecdet,
     "rtdetr": pytest.mark.rtdetr,
+    "rtdetrv2": pytest.mark.rtdetrv2,
+    "rtdetrv4": pytest.mark.rtdetrv4,
     "picodet": pytest.mark.picodet,
 }
 
