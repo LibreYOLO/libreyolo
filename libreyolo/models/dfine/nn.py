@@ -155,6 +155,7 @@ class LibreDFINEModel(nn.Module):
         config: str,
         nb_classes: int = 80,
         eval_spatial_size: tuple[int, int] | None = (640, 640),
+        activation: str = "relu",
     ):
         super().__init__()
         if config not in SIZE_CONFIGS:
@@ -193,6 +194,7 @@ class LibreDFINEModel(nn.Module):
             eval_spatial_size=eval_spatial_size,
             eval_idx=cfg["dec_eval_idx"],
             reg_scale=cfg["reg_scale"],
+            activation=activation,
         )
 
     def forward(self, x: torch.Tensor, targets: List[dict] | None = None):
