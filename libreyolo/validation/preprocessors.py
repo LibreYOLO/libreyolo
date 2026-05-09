@@ -427,6 +427,31 @@ class DEIMv2DINOValPreprocessor(DEIMv2ValPreprocessor):
         return chw.astype(np.float32), padded_targets
 
 
+class DAMOYOLOValPreprocessor(StandardValPreprocessor):
+    """DAMO-YOLO val preprocessor: simple stretch resize, BGR→RGB, 0-255 float32.
+
+    Mirrors upstream's inference pipeline (``damo/utils/demo_utils.py``):
+    PIL.convert("RGB") + ``T.Resize(image_max_range=(640,640), keep_ratio=False)`` +
+    ``T.ToTensor()`` + ``T.Normalize(mean=[0,0,0], std=[1,1,1])`` (no-op).
+    """
+
+    @property
+    def normalize(self) -> bool:
+        return False  # already in 0-255 range, validator must NOT divide by 255
+
+    @property
+    def wants_unresized_image(self) -> bool:
+        return True  # avoid the dataset's letterbox-then-stretch double resize
+
+    def __call__(
+        self, img: np.ndarray, targets: np.ndarray, input_size: Tuple[int, int]
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        # super() does the simple resize + target rescaling. Pass an
+        # RGB-converted copy because upstream loads via PIL ('RGB').
+        chw, padded_targets = super().__call__(img[:, :, ::-1].copy(), targets, input_size)
+        return chw, padded_targets
+
+
 class PICODETValPreprocessor(StandardValPreprocessor):
     """PICODET preprocessor: simple resize, RGB, ImageNet mean/std in 0-255 space.
 
