@@ -569,6 +569,46 @@ class YOLONASConfig(TrainConfig):
 
 
 @dataclass(kw_only=True)
+class DAMOYOLOConfig(TrainConfig):
+    """DAMO-YOLO-specific training defaults.
+
+    Upstream T config (``configs/damoyolo_tinynasL20_T.py``):
+    - SGD, base_lr_per_img=0.01/64 (so eff. lr scales with batch), momentum 0.9, wd 5e-4
+    - 300 epochs, no_aug 16, warmup 5, min_lr_ratio 0.05
+    - Mosaic + mixup (mixup_prob 0.15), degrees 10, shear 2.0, mosaic_scale (0.1, 2.0)
+    - Image input 640x640, no keep_ratio, RGB float32 [0, 255], no normalisation
+
+    LibreYOLO v1: SGD + cosine + mosaic+mixup + hflip. SADA box-level
+    autoaugment is *not* ported.
+    """
+
+    optimizer: str = "sgd"
+    lr0: float = 0.01
+    momentum: float = 0.9
+    weight_decay: float = 5e-4
+
+    scheduler: str = "yoloxwarmcos"
+    warmup_epochs: int = 5
+    warmup_lr_start: float = 0.0
+    no_aug_epochs: int = 16
+    min_lr_ratio: float = 0.05
+
+    mosaic_prob: float = 1.0
+    mixup_prob: float = 0.15
+    hsv_prob: float = 1.0
+    flip_prob: float = 0.5
+    degrees: float = 10.0
+    translate: float = 0.2
+    shear: float = 2.0
+    mosaic_scale: Tuple[float, float] = (0.1, 2.0)
+
+    ema_decay: float = 0.9998
+    epochs: int = 300
+    amp: bool = True
+    name: str = "damoyolo_exp"
+
+
+@dataclass(kw_only=True)
 class PICODETConfig(TrainConfig):
     """PICODET-specific training defaults.
 
