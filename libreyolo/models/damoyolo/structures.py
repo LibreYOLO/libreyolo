@@ -109,12 +109,11 @@ DAMOYOLO_T = FamilyConfig(
     head_stacked_convs=0,
     head_reg_max=16,
     head_act="silu",
-    # The publicly hosted ModelScope `damoyolo_tinynasL20_T.pt` was trained
-    # with legacy=True (cls head emits num_classes + 1 channels — extra
-    # channel is unused). The newer `_420.pth` release used legacy=False
-    # but Aliyun took those down, so we mirror the actually-loadable
-    # checkpoint's layout.
-    head_legacy=True,
+    # legacy=False matches the post-distill release weights (T 42.0,
+    # S 46.0, M 50.2) recovered from the Internet Archive. The earlier
+    # ModelScope-hosted pre-distill weights used legacy=True (cls head
+    # emits num_classes + 1 channels with the trailing channel unused).
+    head_legacy=False,
 )
 
 
@@ -136,7 +135,7 @@ DAMOYOLO_S = FamilyConfig(
     head_stacked_convs=0,
     head_reg_max=16,
     head_act="silu",
-    head_legacy=True,
+    head_legacy=False,
 )
 
 
@@ -160,7 +159,7 @@ DAMOYOLO_M = FamilyConfig(
     head_stacked_convs=0,
     head_reg_max=16,
     head_act="silu",
-    head_legacy=True,
+    head_legacy=False,
 )
 
 
@@ -243,7 +242,7 @@ DAMOYOLO_L = FamilyConfig(
     head_stacked_convs=0,
     head_reg_max=16,
     head_act="silu",
-    head_legacy=True,
+    head_legacy=False,
 )
 
 
