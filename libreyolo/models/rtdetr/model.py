@@ -342,6 +342,13 @@ class LibreRTDETR(BaseModel):
         """RTDETR uses non-strict loading to handle variable layer counts."""
         return False
 
+    @classmethod
+    def _get_trainer_class(cls):
+        """Hook for sibling families to override; defaults to v1's trainer."""
+        from .trainer import RTDETRTrainer
+
+        return RTDETRTrainer
+
     # =========================================================================
     # Inference pipeline
     # =========================================================================
@@ -420,7 +427,7 @@ class LibreRTDETR(BaseModel):
 
         # Match upstream RTDETRPostProcessor: top-K across the flattened (Q*C)
         # score matrix, allowing multiple classes per query. The previous
-        # per-query ``scores.max(dim=-1)`` cost ~0.7-0.9 mAP on COCO val2017
+        # per-query ``scores.max(dim=-1)`` cost ~0.7–0.9 mAP on COCO val2017
         # because non-argmax classes that would still rank in the top-300
         # globally were silently discarded before COCO eval saw them.
         scores_per_class = torch.sigmoid(pred_logits[0])  # [Q, C]
@@ -514,7 +521,7 @@ class LibreRTDETR(BaseModel):
         Returns:
             Training results dict with final_loss, best_mAP50, best_mAP50_95, etc.
         """
-        from .trainer import RTDETRTrainer
+        trainer_cls = self._get_trainer_class()
         from libreyolo.data import load_data_config
 
         try:
@@ -548,7 +555,7 @@ class LibreRTDETR(BaseModel):
             if torch.cuda.is_available():
                 torch.cuda.manual_seed_all(seed)
 
-        trainer = RTDETRTrainer(
+        trainer = trainer_cls(
             model=self.model,
             wrapper_model=self,
             size=self.size,
@@ -586,5 +593,10 @@ class LibreRTDETR(BaseModel):
 
         if Path(results["best_checkpoint"]).exists():
             self._load_weights(results["best_checkpoint"])
+
+        # Restore wrapper-side device after possible MPS->CPU trainer fallback
+        # (no-op if the trainer didn't change device). Matches the D-FINE
+        # pattern; safe for v1 since trainer there doesn't fall back.
+        self.model.to(self.device)
 
         return results

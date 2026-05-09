@@ -13,7 +13,7 @@ from .config import ValidationConfig
 
 logger = logging.getLogger(__name__)
 
-COCO_TOPK_FAMILIES = {"dfine", "deim", "deimv2", "ec", "rfdetr", "rtdetr"}
+COCO_TOPK_FAMILIES = {"dfine", "deim", "deimv2", "ec", "rfdetr", "rtdetr", "rtdetrv2", "rtdetrv4"}
 
 if TYPE_CHECKING:
     from libreyolo.models.base import BaseModel

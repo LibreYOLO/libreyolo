@@ -62,7 +62,7 @@ def _is_nms_free_family(model_family: Optional[str]) -> bool:
     selection. Applying YOLO-style IoU suppression on top of that can remove
     valid detections and make exported runtimes diverge from native PyTorch.
     """
-    return model_family in {"dfine", "deim", "deimv2", "ec", "rfdetr", "rtdetr", "rtdetrv4"}
+    return model_family in {"dfine", "deim", "deimv2", "ec", "rfdetr", "rtdetr", "rtdetrv2", "rtdetrv4"}
 
 
 class BaseBackend(ABC):
@@ -162,7 +162,7 @@ class BaseBackend(ABC):
                 image, effective_imgsz, color_format
             )
             return tensor, img, size, 1.0
-        elif self.model_family == "rtdetr":
+        elif self.model_family in ("rtdetr", "rtdetrv2"):
             tensor, img, size = self._preprocess_rtdetr(
                 image, effective_imgsz, color_format
             )
@@ -318,7 +318,7 @@ class BaseBackend(ABC):
             # so the parser is shared.
             boxes, scores, cls = self._parse_dfine(all_outputs, orig_w, orig_h, conf)
             return boxes, scores, cls, None
-        elif self.model_family == "rtdetr":
+        elif self.model_family in ("rtdetr", "rtdetrv2"):
             boxes, scores, cls = self._parse_rtdetr(all_outputs, orig_w, orig_h, conf)
             return boxes, scores, cls, None
         elif self.model_family == "picodet":
