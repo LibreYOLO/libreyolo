@@ -342,6 +342,13 @@ class LibreRTDETR(BaseModel):
         """RTDETR uses non-strict loading to handle variable layer counts."""
         return False
 
+    @classmethod
+    def _get_trainer_class(cls):
+        """Hook for sibling families to override; defaults to v1's trainer."""
+        from .trainer import RTDETRTrainer
+
+        return RTDETRTrainer
+
     # =========================================================================
     # Inference pipeline
     # =========================================================================
@@ -418,15 +425,22 @@ class LibreRTDETR(BaseModel):
         pred_logits = output["pred_logits"]  # [1, Q, C]
         pred_boxes = output["pred_boxes"]  # [1, Q, 4] cxcywh normalized
 
-        # Get scores and labels
-        scores = torch.sigmoid(pred_logits[0])  # [Q, C]
-        max_scores, labels = scores.max(dim=-1)  # [Q], [Q]
+        # Match upstream RTDETRPostProcessor: top-K across the flattened (Q*C)
+        # score matrix, allowing multiple classes per query. The previous
+        # per-query ``scores.max(dim=-1)`` cost ~0.7–0.9 mAP on COCO val2017
+        # because non-argmax classes that would still rank in the top-300
+        # globally were silently discarded before COCO eval saw them.
+        scores_per_class = torch.sigmoid(pred_logits[0])  # [Q, C]
+        num_classes = scores_per_class.shape[-1]
+        flat = scores_per_class.flatten()
+        k = min(max_det, flat.numel())
+        topk_scores, topk_indices = torch.topk(flat, k)
+        query_idx = topk_indices // num_classes
+        class_idx = topk_indices % num_classes
 
-        # Filter by confidence
-        mask = max_scores > conf_thres
-        scores = max_scores[mask]
-        labels = labels[mask]
-        boxes = pred_boxes[0][mask]  # [N, 4] cxcywh normalized
+        boxes = pred_boxes[0][query_idx]  # [k, 4] cxcywh normalized
+        scores = topk_scores
+        labels = class_idx
 
         # Convert cxcywh normalized to xyxy pixel coords
         orig_w, orig_h = original_size
@@ -437,16 +451,11 @@ class LibreRTDETR(BaseModel):
         y2 = (cy + h / 2) * orig_h
         boxes_xyxy = torch.stack([x1, y1, x2, y2], dim=-1)
 
-        # Clamp to image bounds
-        boxes_xyxy[:, 0::2] = boxes_xyxy[:, 0::2].clamp(0, orig_w)
-        boxes_xyxy[:, 1::2] = boxes_xyxy[:, 1::2].clamp(0, orig_h)
-
-        # Limit to max_det (sort by score)
-        if len(scores) > max_det:
-            topk_indices = scores.argsort(descending=True)[:max_det]
-            scores = scores[topk_indices]
-            labels = labels[topk_indices]
-            boxes_xyxy = boxes_xyxy[topk_indices]
+        # Filter by confidence after top-K (matches upstream + D-FINE).
+        mask = scores > conf_thres
+        scores = scores[mask]
+        labels = labels[mask]
+        boxes_xyxy = boxes_xyxy[mask]
 
         return {
             "boxes": boxes_xyxy.cpu(),
@@ -512,7 +521,7 @@ class LibreRTDETR(BaseModel):
         Returns:
             Training results dict with final_loss, best_mAP50, best_mAP50_95, etc.
         """
-        from .trainer import RTDETRTrainer
+        trainer_cls = self._get_trainer_class()
         from libreyolo.data import load_data_config
 
         try:
@@ -546,7 +555,7 @@ class LibreRTDETR(BaseModel):
             if torch.cuda.is_available():
                 torch.cuda.manual_seed_all(seed)
 
-        trainer = RTDETRTrainer(
+        trainer = trainer_cls(
             model=self.model,
             wrapper_model=self,
             size=self.size,
@@ -584,5 +593,10 @@ class LibreRTDETR(BaseModel):
 
         if Path(results["best_checkpoint"]).exists():
             self._load_weights(results["best_checkpoint"])
+
+        # Restore wrapper-side device after possible MPS->CPU trainer fallback
+        # (no-op if the trainer didn't change device). Matches the D-FINE
+        # pattern; safe for v1 since trainer there doesn't fall back.
+        self.model.to(self.device)
 
         return results

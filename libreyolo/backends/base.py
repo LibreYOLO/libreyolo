@@ -62,7 +62,7 @@ def _is_nms_free_family(model_family: Optional[str]) -> bool:
     selection. Applying YOLO-style IoU suppression on top of that can remove
     valid detections and make exported runtimes diverge from native PyTorch.
     """
-    return model_family in {"dfine", "deim", "deimv2", "ec", "rfdetr", "rtdetr"}
+    return model_family in {"dfine", "deim", "deimv2", "ec", "rfdetr", "rtdetr", "rtdetrv2", "rtdetrv4"}
 
 
 class BaseBackend(ABC):
@@ -142,7 +142,7 @@ class BaseBackend(ABC):
                 image, effective_imgsz, color_format
             )
             return tensor, img, size, 1.0
-        elif self.model_family == "dfine":
+        elif self.model_family in ("dfine", "rtdetrv4"):
             tensor, img, size = self._preprocess_dfine(
                 image, effective_imgsz, color_format
             )
@@ -162,7 +162,7 @@ class BaseBackend(ABC):
                 image, effective_imgsz, color_format
             )
             return tensor, img, size, 1.0
-        elif self.model_family == "rtdetr":
+        elif self.model_family in ("rtdetr", "rtdetrv2"):
             tensor, img, size = self._preprocess_rtdetr(
                 image, effective_imgsz, color_format
             )
@@ -304,7 +304,7 @@ class BaseBackend(ABC):
             return boxes, scores, cls, None
         elif self.model_family == "rfdetr":
             return self._parse_rfdetr(all_outputs, orig_w, orig_h, conf)
-        elif self.model_family == "dfine":
+        elif self.model_family in ("dfine", "rtdetrv4"):
             boxes, scores, cls = self._parse_dfine(all_outputs, orig_w, orig_h, conf)
             return boxes, scores, cls, None
         elif self.model_family == "deim":
@@ -318,7 +318,7 @@ class BaseBackend(ABC):
             # so the parser is shared.
             boxes, scores, cls = self._parse_dfine(all_outputs, orig_w, orig_h, conf)
             return boxes, scores, cls, None
-        elif self.model_family == "rtdetr":
+        elif self.model_family in ("rtdetr", "rtdetrv2"):
             boxes, scores, cls = self._parse_rtdetr(all_outputs, orig_w, orig_h, conf)
             return boxes, scores, cls, None
         elif self.model_family == "picodet":
@@ -583,17 +583,23 @@ class BaseBackend(ABC):
                 logits = second
                 boxes_raw = first
 
-        scores = 1.0 / (1.0 + np.exp(-logits.astype(np.float64))).astype(np.float32)
+        # Match upstream RTDETRPostProcessor (and _parse_dfine): top-K across the
+        # flattened (Q*nc) score matrix, allowing multiple classes per query.
+        # Per-query argmax (the previous logic) silently dropped valid non-max
+        # detections and cost ~0.7-0.9 mAP on COCO val2017.
+        Q, nc = logits.shape
+        prob = 1.0 / (1.0 + np.exp(-logits.astype(np.float64)))
+        prob = prob.astype(np.float32)
 
-        max_scores = np.max(scores, axis=1)
-        class_ids = np.argmax(scores, axis=1)
+        max_det = 300
+        flat = prob.reshape(-1)
+        k = min(max_det, flat.size)
+        idx = np.argpartition(-flat, k - 1)[:k]
+        idx = idx[np.argsort(-flat[idx])]
 
-        mask = max_scores > conf
-        boxes_raw = boxes_raw[mask]
-        max_scores, class_ids = max_scores[mask], class_ids[mask]
-
-        if len(boxes_raw) == 0:
-            return boxes_raw, max_scores, class_ids
+        scores = flat[idx]
+        query_idx = idx // nc
+        class_ids = idx % nc
 
         cx, cy, w, h = (
             boxes_raw[:, 0],
@@ -601,16 +607,17 @@ class BaseBackend(ABC):
             boxes_raw[:, 2],
             boxes_raw[:, 3],
         )
-        x1 = (cx - w / 2) * orig_w
-        y1 = (cy - h / 2) * orig_h
-        x2 = (cx + w / 2) * orig_w
-        y2 = (cy + h / 2) * orig_h
-        boxes = np.stack([x1, y1, x2, y2], axis=1)
-
+        boxes_xyxy = np.stack(
+            [cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2], axis=1
+        )
+        boxes = boxes_xyxy[query_idx]
+        boxes[:, [0, 2]] *= orig_w
+        boxes[:, [1, 3]] *= orig_h
         boxes[:, [0, 2]] = np.clip(boxes[:, [0, 2]], 0, orig_w)
         boxes[:, [1, 3]] = np.clip(boxes[:, [1, 3]], 0, orig_h)
 
-        return boxes, max_scores, class_ids
+        mask = scores > conf
+        return boxes[mask], scores[mask], class_ids[mask]
 
     # =========================================================================
     # Result building
