@@ -37,7 +37,7 @@ class LibreDAMOYOLO(BaseModel):
 
     FAMILY = "damoyolo"
     FILENAME_PREFIX = "LibreDAMOYOLO"
-    INPUT_SIZES = {"t": 640}
+    INPUT_SIZES = {"t": 640, "s": 640}
     TRAIN_CONFIG = DAMOYOLOConfig
     val_preprocessor_class = DAMOYOLOValPreprocessor
 
@@ -56,14 +56,13 @@ class LibreDAMOYOLO(BaseModel):
 
     @classmethod
     def detect_size(cls, weights_dict: dict) -> Optional[str]:
-        # The neck's merge_3 input dim distinguishes T (96+384=480 → out 384)
-        # from S/M/L (different in/out channels). For now only T is wired.
+        # Per-size head input channel for the stride-8 scale.
+        # T = 64, S = 128, M = 128 (csp backbone, not yet ported), L = 160.
         key = "head.gfl_cls.0.weight"
         if key not in weights_dict:
             return None
         in_ch = int(weights_dict[key].shape[1])
-        # T config: head input channel for stride 8 is 64.
-        return {64: "t"}.get(in_ch)
+        return {64: "t", 128: "s"}.get(in_ch)
 
     @classmethod
     def detect_nb_classes(cls, weights_dict: dict) -> Optional[int]:
