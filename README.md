@@ -1,79 +1,87 @@
 # LibreYOLO
 
-> ⭐ **Support LibreYOLO.** The best way to help is to **[star the repo](https://github.com/LibreYOLO/libreyolo)**. Feel free to [open an issue](https://github.com/LibreYOLO/libreyolo/issues/new) if you encounter problems or have suggestions, and code contributions are very welcome (see [CONTRIBUTING.md](CONTRIBUTING.md)). We are also looking for sponsors to donate GPU resources to the project. If you or your company can help, please [reach out on LinkedIn](https://www.linkedin.com/in/xuban-ceccon).
-
-> **v1.1 released!** New model families (YOLO-NAS, D-FINE, RT-DETR), instance segmentation, ByteTrack tracking, video inference, and a brand-new CLI. [See the release notes](https://github.com/LibreYOLO/libreyolo/releases/tag/v1.1.0).
+> ⭐ **Support LibreYOLO.** The best way to help is to **star the repo**. Feel free to [open an issue](https://github.com/LibreYOLO/libreyolo/issues/new) if you encounter problems or have suggestions, and code contributions are very welcome (see [CONTRIBUTING.md](CONTRIBUTING.md)). We are also looking for sponsors to donate GPU resources to the project. If you or your company can help, please [reach out on LinkedIn](https://www.linkedin.com/in/xuban-ceccon).
 
 [![Documentation](https://img.shields.io/badge/docs-libreyolo.com-blue)](https://www.libreyolo.com/docs)
 [![PyPI](https://img.shields.io/pypi/v/libreyolo)](https://pypi.org/project/libreyolo/)
 [![PyPI Downloads](https://static.pepy.tech/badge/libreyolo)](https://pepy.tech/projects/libreyolo)
+[![Hugging Face](https://img.shields.io/badge/%F0%9F%A4%97%20Hugging%20Face-LibreYOLO-yellow)](https://huggingface.co/LibreYOLO)
+[![Benchmarks](https://img.shields.io/badge/benchmarks-visionanalysis.org-purple)](https://www.visionanalysis.org/)
+[![LinkedIn](https://img.shields.io/badge/LinkedIn-LibreYOLO-blue?logo=linkedin)](https://www.linkedin.com/company/libreyolo/)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
-MIT-licensed object detection library with training and inference support across YOLOv9, YOLOX, YOLO-NAS, RF-DETR, D-FINE, and RT-DETR.
+MIT-licensed computer vision library with inference and training support for a variety of models. Same API as Ultralytics: if you use Ultralytics, you already know how to use LibreYOLO, and your existing scripts work out of the box.
 
 ![LibreYOLO Detection Example](libreyolo/assets/parkour_result.jpg)
 
-## Installation
+## Installation & Quick start
 
 ```bash
 pip install libreyolo
 ```
 
-For optional runtime and export dependencies such as ONNX Runtime, OpenVINO, TensorRT, NCNN, and RF-DETR, see the full docs.
+To install the latest `main` in editable mode (for development or to track unreleased changes):
 
-## Inference Backend and Export Support
+```bash
+git clone https://github.com/LibreYOLO/libreyolo.git
+cd libreyolo
+pip install -e .
+```
 
-### Format Status
-
-| Format | Export | Runtime backend | Status | Precision | Notes |
-|--------|--------|-----------------|--------|-----------|-------|
-| ONNX | Yes | ONNX Runtime | Supported | FP32, FP16 | Release-blocking export path and the broadest tested runtime target. |
-| TorchScript | Yes | PyTorch JIT | Experimental | FP32, FP16 | Useful compatibility target, but not a release gate. |
-| TensorRT (`tensorrt` / `trt`) | Yes | TensorRT | Experimental | FP32, FP16, INT8 | CUDA-only path. INT8 requires calibration data. |
-| OpenVINO | Yes | OpenVINO | Experimental | FP32, FP16, INT8 | Runtime-specific path with CPU-oriented deployment coverage. |
-| NCNN | Yes | NCNN | Experimental | FP32, FP16 | Highest maintenance overhead today. No INT8 path, and some DETR-family models are not supported. |
-
-The e2e suite mirrors this policy with pytest markers: `supported_backend` for ONNX and `experimental_backend` for the other export backends.
-
-### Model Family Matrix
-
-`✓` supported, `~` supported with caveats, `—` intentionally unsupported
-
-| Model family | ONNX | TorchScript | TensorRT | OpenVINO | NCNN |
-|--------------|------|-------------|----------|----------|------|
-| YOLOX | ✓ | ✓ | ✓ | ✓ | ✓ |
-| YOLOv9 | ✓ | ✓ | ✓ | ✓ | ✓ |
-| YOLO-NAS | ✓ | ✓ | ✓ | ✓ | ✓ |
-| RF-DETR | ✓ | ~ | ✓ | ✓ | ~ |
-| D-FINE | ✓ | ✓ | ✓ | ✓ | — |
-| DEIM | ✓ | ✓ | ✓ | ✓ | — |
-| DEIMv2 | ✓ | ✓ | ✓ | ✓ | — |
-| RT-DETR | ✓ | ✓ | ✓ | ✓ | — |
-
-Notes:
-- RF-DETR TorchScript export exists, but tracing can still be brittle on some checkpoints and shapes.
-- NCNN is intentionally blocked for D-FINE, DEIM, DEIMv2, and RT-DETR because the runtime lacks required DETR query-selection ops.
-- RF-DETR on NCNN is not blocked at export time, but current e2e coverage still tracks known runtime limitations.
-
-## Quick Start
+For optional runtime and export dependencies such as ONNX Runtime, OpenVINO, TensorRT, NCNN, and RF-DETR, see the [full docs](https://www.libreyolo.com/docs).
 
 ```python
 from libreyolo import LibreYOLO, SAMPLE_IMAGE
 
-# Auto-detect family and size from the checkpoint name
-model = LibreYOLO("LibreYOLOXs.pt")
+model = LibreYOLO("LibreYOLO9t.pt")
 result = model(SAMPLE_IMAGE, save=True)
-
-print(f"Detected {len(result)} objects")
-print(result.boxes.xyxy)
-print(result.saved_path)
 ```
 
-## Documentation
+## Compatibility
 
-Full documentation at [libreyolo.com/docs](https://www.libreyolo.com/docs).
+`✓` supported, `exp` experimental. Empty cells are not currently supported.
+
+<table>
+  <thead>
+    <tr>
+      <th rowspan="2">Model family</th>
+      <th colspan="3">Inference</th>
+      <th rowspan="2">Training</th>
+      <th colspan="5">Export formats</th>
+    </tr>
+    <tr>
+      <th>Detection</th>
+      <th>Segmentation</th>
+      <th>Pose</th>
+      <th>ONNX</th>
+      <th>TorchScript</th>
+      <th>TensorRT</th>
+      <th>OpenVINO</th>
+      <th>NCNN</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr><td>YOLOX</td><td>✓</td><td></td><td></td><td>✓</td><td>✓</td><td>✓</td><td>✓</td><td>✓</td><td>✓</td></tr>
+    <tr><td>YOLOv9</td><td>✓</td><td></td><td></td><td>✓</td><td>✓</td><td>✓</td><td>✓</td><td>✓</td><td>✓</td></tr>
+    <tr><td>YOLOv9-E2E</td><td>✓</td><td></td><td></td><td>✓</td><td></td><td></td><td></td><td></td><td></td></tr>
+    <tr><td>YOLO-NAS</td><td>✓</td><td></td><td>✓</td><td>✓</td><td>✓</td><td>✓</td><td>✓</td><td>✓</td><td>✓</td></tr>
+    <tr><td>RF-DETR</td><td>✓</td><td>✓</td><td></td><td>exp</td><td>✓</td><td></td><td>✓</td><td>✓</td><td></td></tr>
+    <tr><td>D-FINE</td><td>✓</td><td></td><td></td><td>exp</td><td>✓</td><td>✓</td><td>✓</td><td>✓</td><td></td></tr>
+    <tr><td>DEIM</td><td>✓</td><td></td><td></td><td>exp</td><td>✓</td><td>✓</td><td>✓</td><td>✓</td><td></td></tr>
+    <tr><td>DEIMv2</td><td>✓</td><td></td><td></td><td>exp</td><td>✓</td><td>✓</td><td>✓</td><td>✓</td><td></td></tr>
+    <tr><td>RT-DETR</td><td>✓</td><td></td><td></td><td>✓</td><td>✓</td><td>✓</td><td>✓</td><td>✓</td><td></td></tr>
+    <tr><td>RT-DETRv2</td><td>✓</td><td></td><td></td><td>exp</td><td></td><td></td><td></td><td></td><td></td></tr>
+    <tr><td>RT-DETRv4</td><td>✓</td><td></td><td></td><td>exp</td><td></td><td></td><td></td><td></td><td></td></tr>
+    <tr><td>PicoDet</td><td>✓</td><td></td><td></td><td>exp</td><td></td><td></td><td></td><td></td><td></td></tr>
+    <tr><td>EC</td><td>✓</td><td>✓</td><td>✓</td><td>exp</td><td></td><td></td><td></td><td></td><td></td></tr>
+  </tbody>
+</table>
 
 ## License
 
 - **Code:** MIT License
-- **Weights:** Pre-trained weights may inherit licensing from the original source
+- **Weights:** Pre-trained weights may inherit licensing from the original source. Check the license in the specific HF repo of weights that you are interested in. LibreYOLO HF models always have a license.
+
+## Releases
+
+- **v1.1.0** (2026-04-27): New model families (YOLO-NAS, D-FINE, RT-DETR), instance segmentation, ByteTrack tracking, video inference, and a brand-new CLI. [See the release notes](https://github.com/LibreYOLO/libreyolo/releases/tag/v1.1.0).
