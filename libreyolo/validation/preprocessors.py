@@ -578,3 +578,53 @@ class RTDETRValPreprocessor(BaseValPreprocessor):
             padded_targets[:n] = targets[:n]
 
         return resized_img, padded_targets
+
+
+class RTMDetValPreprocessor(BaseValPreprocessor):
+    """RTMDet preprocessor: BGR letterbox at pad 114, mmdet mean/std normalization.
+
+    The mmdet config uses ``bgr_to_rgb=False`` with mean ``[103.53, 116.28, 123.675]``
+    and std ``[57.375, 57.12, 58.395]`` applied to the BGR image (not RGB).
+    """
+
+    BGR_MEAN = np.array([103.53, 116.28, 123.675], dtype=np.float32)
+    BGR_STD = np.array([57.375, 57.12, 58.395], dtype=np.float32)
+    PAD_VALUE = 114
+
+    @property
+    def normalize(self) -> bool:
+        return False
+
+    @property
+    def custom_normalization(self) -> bool:
+        return True
+
+    @property
+    def uses_letterbox(self) -> bool:
+        return True
+
+    def __call__(
+        self, img: np.ndarray, targets: np.ndarray, input_size: Tuple[int, int]
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        orig_h, orig_w = img.shape[:2]
+        target_h, target_w = input_size
+
+        ratio = min(target_h / orig_h, target_w / orig_w)
+        new_h = int(orig_h * ratio)
+        new_w = int(orig_w * ratio)
+
+        resized_img = cv2.resize(img, (new_w, new_h), interpolation=cv2.INTER_LINEAR)
+
+        padded_img = np.full((target_h, target_w, 3), self.PAD_VALUE, dtype=np.uint8)
+        padded_img[:new_h, :new_w] = resized_img
+
+        # img comes in as BGR (cv2). Apply mmdet mean/std in BGR space.
+        normed = (padded_img.astype(np.float32) - self.BGR_MEAN) / self.BGR_STD
+        normed = np.ascontiguousarray(normed.transpose(2, 0, 1), dtype=np.float32)
+
+        padded_targets = np.zeros((self.max_labels, 5), dtype=np.float32)
+        if len(targets) > 0:
+            n = min(len(targets), self.max_labels)
+            padded_targets[:n] = np.asarray(targets[:n], dtype=np.float32)
+
+        return normed, padded_targets

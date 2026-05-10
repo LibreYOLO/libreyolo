@@ -46,6 +46,7 @@ from .picodet.model import LibrePICODET  # noqa: E402
 from .rtdetr.model import LibreRTDETR  # noqa: E402  (registered before LibreRTDETRv2 so metadata-less ckpts default to v1)
 from .rtdetrv2.model import LibreRTDETRv2  # noqa: E402
 from .damoyolo.model import LibreDAMOYOLO  # noqa: E402
+from .rtmdet.model import LibreRTMDet  # noqa: E402
 
 
 def _ensure_rfdetr():
