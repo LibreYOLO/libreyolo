@@ -11,6 +11,14 @@ from .base import BaseBackend
 
 logger = logging.getLogger(__name__)
 
+# ONNX Runtime advertises input tensor dtype as a string; map the ones a
+# LibreYOLO export can emit (fp32 default, fp16 via half=True) to numpy.
+# Other types fall back to float32, matching the preprocessor's output.
+_ORT_INPUT_DTYPES = {
+    "tensor(float)": np.float32,
+    "tensor(float16)": np.float16,
+}
+
 
 class OnnxBackend(BaseBackend):
     """ONNX runtime inference backend for LibreYOLO models.
@@ -65,9 +73,11 @@ class OnnxBackend(BaseBackend):
             resolved_device = "cpu"
 
         self.session = ort.InferenceSession(onnx_path, providers=providers)
-        self.input_name = self.session.get_inputs()[0].name
+        model_input = self.session.get_inputs()[0]
+        self.input_name = model_input.name
+        self.input_dtype = _ORT_INPUT_DTYPES.get(model_input.type, np.float32)
 
-        input_shape = self.session.get_inputs()[0].shape
+        input_shape = model_input.shape
         if len(input_shape) == 4 and isinstance(input_shape[2], int):
             imgsz = input_shape[2]
         else:
@@ -154,4 +164,6 @@ class OnnxBackend(BaseBackend):
 
     def _run_inference(self, blob: np.ndarray) -> list:
         """Run ONNX Runtime inference."""
+        if blob.dtype != self.input_dtype:
+            blob = blob.astype(self.input_dtype, copy=False)
         return self.session.run(None, {self.input_name: blob})

@@ -163,6 +163,13 @@ class TestONNXExportHalf:
         input_type = onnx_model.graph.input[0].type.tensor_type.elem_type
         assert input_type == onnx.TensorProto.FLOAT16, "Input should be FP16"
 
+        # Smoke-test inference: backend must cast the float32 preprocessed
+        # blob to the model's declared float16 input dtype.
+        from libreyolo import LibreYOLO
+
+        onnx_model_runner = LibreYOLO(model_path=exported_path)
+        onnx_model_runner(sample_image)
+
 
 class TestONNXMetadata:
     """Test ONNX export metadata."""
