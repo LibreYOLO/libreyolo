@@ -7,6 +7,7 @@ import logging
 import sys
 import time
 from abc import ABC, abstractmethod
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Type
 
@@ -15,6 +16,7 @@ import torch.nn as nn
 from torch.amp import GradScaler, autocast
 from tqdm import tqdm
 
+from .callbacks import TrainCallbackList, TrainCallbacks, TrainEpochEvent
 from .config import TrainConfig
 from .ema import ModelEMA
 from ..data.dataset import YOLODataset, COCODataset, create_dataloader
@@ -38,11 +40,13 @@ class BaseTrainer(ABC):
         self,
         model: nn.Module,
         wrapper_model: Optional[Any] = None,
+        callbacks: TrainCallbacks = None,
         **kwargs,
     ):
         self.config = self._config_class().from_kwargs(**kwargs)
         self.model = model
         self.wrapper_model = wrapper_model
+        self.callbacks = TrainCallbackList(callbacks)
 
         # Device
         self.device = self._setup_device()
@@ -395,14 +399,34 @@ class BaseTrainer(ABC):
                 )
                 self.on_mosaic_disable()
 
-            epoch_loss, val_metrics = self._train_epoch(epoch)
+            epoch_start_time = time.time()
+            epoch_result = self._train_epoch(epoch)
+            epoch_seconds = time.time() - epoch_start_time
+            epoch_loss, val_metrics, loss_items, lr = self._normalize_epoch_result(
+                epoch_result
+            )
             self.final_loss = epoch_loss
             self.epoch_losses.append(epoch_loss)
 
-            if (
-                epoch + 1
-            ) % self.config.save_period == 0 or epoch == self.config.epochs - 1:
-                self._save_checkpoint(epoch, epoch_loss, val_metrics)
+            is_best = self._update_best_state(epoch, val_metrics)
+            should_save = (
+                (epoch + 1) % self.config.save_period == 0
+                or epoch == self.config.epochs - 1
+                or is_best
+            )
+            if should_save:
+                self._save_checkpoint(epoch, epoch_loss, val_metrics, is_best=is_best)
+
+            event = self._build_train_epoch_event(
+                epoch=epoch,
+                train_loss=epoch_loss,
+                train_loss_items=loss_items,
+                lr=lr,
+                val_metrics=val_metrics,
+                is_best=is_best,
+                epoch_seconds=epoch_seconds,
+            )
+            self.callbacks.on_train_epoch_end(event)
 
             if self.patience_counter >= self.config.patience:
                 logger.info(
@@ -433,7 +457,141 @@ class BaseTrainer(ABC):
         """Hook for per-group LR scaling. Override in subclasses."""
         return base_lr
 
-    def _train_epoch(self, epoch: int) -> Tuple[float, Optional[Dict[str, float]]]:
+    @staticmethod
+    def _as_float(value: Any) -> Optional[float]:
+        if isinstance(value, torch.Tensor):
+            if value.numel() != 1:
+                return None
+            return float(value.detach().item())
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return None
+
+    def _scalar_mapping(self, values: Optional[Mapping]) -> Dict[str, float]:
+        if not isinstance(values, Mapping):
+            return {}
+
+        scalars = {}
+        for name, value in values.items():
+            scalar = self._as_float(value)
+            if scalar is not None:
+                scalars[str(name)] = scalar
+        return scalars
+
+    def _current_lrs(self) -> Dict[str, float]:
+        if self.optimizer is None:
+            return {}
+        return {
+            f"group{i}": float(param_group.get("lr", 0.0))
+            for i, param_group in enumerate(self.optimizer.param_groups)
+        }
+
+    def _normalize_epoch_result(
+        self, epoch_result: Tuple
+    ) -> Tuple[float, Optional[Dict[str, Any]], Dict[str, float], Dict[str, float]]:
+        if not isinstance(epoch_result, tuple):
+            raise TypeError("_train_epoch must return a tuple")
+
+        if len(epoch_result) == 2:
+            epoch_loss, val_metrics = epoch_result
+            loss_items = {}
+            lr = self._current_lrs()
+        elif len(epoch_result) == 4:
+            epoch_loss, val_metrics, loss_items, lr = epoch_result
+            loss_items = self._scalar_mapping(loss_items)
+            lr = self._scalar_mapping(lr) or self._current_lrs()
+        else:
+            raise ValueError(
+                "_train_epoch must return (loss, val_metrics) or "
+                "(loss, val_metrics, loss_items, lr)"
+            )
+
+        return float(epoch_loss), val_metrics, dict(loss_items), dict(lr)
+
+    def _best_metric_value(self, val_metrics: Optional[Dict[str, Any]]) -> float:
+        if not val_metrics:
+            return 0.0
+
+        value = val_metrics.get("best_metric", val_metrics.get("mAP50_95", 0.0))
+        scalar = self._as_float(value)
+        return scalar if scalar is not None else 0.0
+
+    def _best_metric_name(self, val_metrics: Optional[Dict[str, Any]]) -> str:
+        if val_metrics:
+            return str(
+                val_metrics.get(
+                    "best_metric_key",
+                    getattr(self, "best_metric_key", "metrics/mAP50-95"),
+                )
+            )
+        return str(getattr(self, "best_metric_key", "metrics/mAP50-95"))
+
+    def _validation_metrics_for_event(
+        self, val_metrics: Optional[Dict[str, Any]]
+    ) -> Dict[str, float]:
+        if not val_metrics:
+            return {}
+
+        raw_metrics = val_metrics.get("metrics")
+        if isinstance(raw_metrics, Mapping):
+            return self._scalar_mapping(raw_metrics)
+        return self._scalar_mapping(val_metrics)
+
+    def _build_train_epoch_event(
+        self,
+        *,
+        epoch: int,
+        train_loss: float,
+        train_loss_items: Mapping[str, float],
+        lr: Mapping[str, float],
+        val_metrics: Optional[Dict[str, Any]],
+        is_best: bool,
+        epoch_seconds: float,
+    ) -> TrainEpochEvent:
+        best_metric = self._best_metric_value(val_metrics) if val_metrics else None
+        best_metric_name = self._best_metric_name(val_metrics) if val_metrics else None
+
+        return TrainEpochEvent(
+            epoch=epoch + 1,
+            total_epochs=self.config.epochs,
+            model_family=self.get_model_family(),
+            model_size=getattr(self.config, "size", None),
+            task=getattr(self.wrapper_model, "task", "detect"),
+            save_dir=str(self.save_dir),
+            train_loss=float(train_loss),
+            train_loss_items=self._scalar_mapping(train_loss_items),
+            lr=self._scalar_mapping(lr),
+            val_metrics=self._validation_metrics_for_event(val_metrics),
+            validated=bool(val_metrics),
+            is_best=is_best,
+            best_metric=best_metric,
+            best_metric_name=best_metric_name,
+            best_epoch=self.best_epoch if self.best_epoch else None,
+            epoch_seconds=float(epoch_seconds),
+        )
+
+    def _update_best_state(
+        self, epoch: int, val_metrics: Optional[Dict[str, Any]]
+    ) -> bool:
+        if not val_metrics:
+            return False
+
+        best_metric = self._best_metric_value(val_metrics)
+        is_best = best_metric > self.best_mAP50_95
+        if is_best:
+            self.best_mAP50_95 = best_metric
+            mAP50 = self._as_float(val_metrics.get("mAP50", 0.0))
+            self.best_mAP50 = mAP50 if mAP50 is not None else 0.0
+            self.best_epoch = epoch + 1
+            self.patience_counter = 0
+        else:
+            self.patience_counter += 1
+        return is_best
+
+    def _train_epoch(
+        self, epoch: int
+    ) -> Tuple[float, Optional[Dict[str, Any]], Dict[str, float], Dict[str, float]]:
         self.model.train()
 
         pbar = tqdm(
@@ -446,6 +604,7 @@ class BaseTrainer(ABC):
 
         total_loss = 0.0
         num_batches = 0
+        loss_component_sums: Dict[str, float] = {}
 
         for batch_idx, batch in enumerate(pbar):
             if len(batch) == 5:
@@ -479,8 +638,10 @@ class BaseTrainer(ABC):
                 self.ema_model.update(self.model)
 
             loss_val = loss.item()
-            loss_components = self.get_loss_components(outputs)
+            loss_components = self._scalar_mapping(self.get_loss_components(outputs))
             total_loss += loss_val
+            for name, value in loss_components.items():
+                loss_component_sums[name] = loss_component_sums.get(name, 0.0) + value
 
             del outputs, loss
 
@@ -506,7 +667,11 @@ class BaseTrainer(ABC):
                         f"train/{name}", val, self.current_iter
                     )
 
-        avg_loss = total_loss / num_batches
+        avg_loss = total_loss / max(num_batches, 1)
+        avg_loss_components = {
+            name: value / max(num_batches, 1)
+            for name, value in loss_component_sums.items()
+        }
         logger.info(f"Epoch {epoch + 1} - Average loss: {avg_loss:.4f}")
 
         if self.tensorboard_writer:
@@ -527,15 +692,19 @@ class BaseTrainer(ABC):
                     "val/mAP50_95", val_metrics["mAP50_95"], epoch
                 )
 
-        return avg_loss, val_metrics
+        return avg_loss, val_metrics, avg_loss_components, self._current_lrs()
 
     # =========================================================================
     # Validation
     # =========================================================================
 
-    def _validate_epoch(self, epoch: int) -> Optional[Dict[str, float]]:
+    def _validate_epoch(self, epoch: int) -> Optional[Dict[str, Any]]:
         try:
-            from libreyolo.validation import DetectionValidator, SegmentationValidator, ValidationConfig
+            from libreyolo.validation import (
+                DetectionValidator,
+                SegmentationValidator,
+                ValidationConfig,
+            )
 
             logger.info(f"Running validation for epoch {epoch + 1}")
 
@@ -572,13 +741,19 @@ class BaseTrainer(ABC):
             finally:
                 self.wrapper_model.model = original_model
 
+            raw_metrics = self._scalar_mapping(results)
             best_key = getattr(self, "best_metric_key", "metrics/mAP50-95")
-            best_metric = results.get(best_key, results.get("metrics/mAP50-95", 0.0))
+            best_metric = raw_metrics.get(
+                best_key, raw_metrics.get("metrics/mAP50-95", 0.0)
+            )
             metrics = {
-                "mAP50": results.get("metrics/mAP50", results.get("metrics/mAP50(B)", 0.0)),
+                "mAP50": raw_metrics.get(
+                    "metrics/mAP50", raw_metrics.get("metrics/mAP50(B)", 0.0)
+                ),
                 "mAP50_95": best_metric,
                 "best_metric": best_metric,
                 "best_metric_key": best_key,
+                "metrics": raw_metrics,
             }
 
             logger.debug(
@@ -603,21 +778,14 @@ class BaseTrainer(ABC):
     # =========================================================================
 
     def _save_checkpoint(
-        self, epoch: int, loss: float, val_metrics: Optional[Dict[str, float]] = None
+        self,
+        epoch: int,
+        loss: float,
+        val_metrics: Optional[Dict[str, Any]] = None,
+        is_best: Optional[bool] = None,
     ):
-        best_metric = (
-            val_metrics.get("best_metric", val_metrics.get("mAP50_95", 0.0))
-            if val_metrics
-            else 0.0
-        )
-        is_best = bool(val_metrics and best_metric > self.best_mAP50_95)
-        if is_best:
-            self.best_mAP50_95 = best_metric
-            self.best_mAP50 = val_metrics["mAP50"]
-            self.best_epoch = epoch + 1
-            self.patience_counter = 0
-        elif val_metrics:
-            self.patience_counter += 1
+        if is_best is None:
+            is_best = self._update_best_state(epoch, val_metrics)
 
         model_to_save = self.ema_model.ema if self.ema_model else self.model
 
