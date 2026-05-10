@@ -2,7 +2,10 @@
 
 Cleanroom port of RTMDet (Lyu et al., 2022) from open-mmlab/mmdetection
 (Apache-2.0). Sizes: t / s / m / l / x. Detection-only in the first PR;
-RTMDet-Ins (segmentation) and trainer land as follow-ups.
+RTMDet-Ins (segmentation) lands as a follow-up.
+
+Training is wired but experimental: ``model.train(..., allow_experimental=True)``.
+Inference is bit-equivalent to upstream mmdet on the same checkpoint.
 """
 
 from __future__ import annotations
@@ -14,6 +17,7 @@ import torch
 import torch.nn as nn
 from PIL import Image
 
+from ...training.config import RTMDetConfig
 from ...utils.image_loader import ImageInput
 from ...validation.preprocessors import RTMDetValPreprocessor
 from ..base import BaseModel
@@ -21,6 +25,8 @@ from .nn import LibreRTMDetModel
 from .utils import postprocess as _postprocess
 from .utils import preprocess_image as _rtmdet_preprocess
 from .utils import preprocess_numpy as _preprocess_numpy
+
+_TRAIN_DEFAULTS = RTMDetConfig()
 
 
 class LibreRTMDet(BaseModel):
@@ -43,7 +49,7 @@ class LibreRTMDet(BaseModel):
     INPUT_SIZES = {"t": 640, "s": 640, "m": 640, "l": 640, "x": 640}
     SUPPORTED_TASKS = ("detect",)
     DEFAULT_TASK = "detect"
-    TRAIN_CONFIG = None  # inference-only first PR; trainer follow-up
+    TRAIN_CONFIG = RTMDetConfig
     val_preprocessor_class = RTMDetValPreprocessor
 
     # =========================================================================
@@ -168,12 +174,130 @@ class LibreRTMDet(BaseModel):
         )
 
     # =========================================================================
-    # Training surface (inference-only for now)
+    # Training (experimental)
     # =========================================================================
 
-    def train(self, *args, **kwargs):  # noqa: D401
-        raise NotImplementedError(
-            "RTMDet training is not yet implemented in LibreYOLO. "
-            "The first PR ships inference-only across t/s/m/l/x sizes; "
-            "trainer (loss + assigner + 2-stage pipeline switch) is a follow-up."
+    def train(
+        self,
+        data: str,
+        *,
+        allow_experimental: bool = False,
+        epochs: int = _TRAIN_DEFAULTS.epochs,
+        batch: int = _TRAIN_DEFAULTS.batch,
+        imgsz: int | None = None,
+        lr0: float = _TRAIN_DEFAULTS.lr0,
+        optimizer: str = _TRAIN_DEFAULTS.optimizer,
+        device: str = "",
+        workers: int = _TRAIN_DEFAULTS.workers,
+        seed: int = _TRAIN_DEFAULTS.seed,
+        project: str = _TRAIN_DEFAULTS.project,
+        name: str = _TRAIN_DEFAULTS.name,
+        exist_ok: bool = _TRAIN_DEFAULTS.exist_ok,
+        pretrained: bool = True,
+        resume: bool = _TRAIN_DEFAULTS.resume,
+        amp: bool = _TRAIN_DEFAULTS.amp,
+        patience: int = _TRAIN_DEFAULTS.patience,
+        allow_download_scripts: bool = False,
+        **kwargs: Any,
+    ) -> dict:
+        """Fine-tune LibreRTMDet on a YOLO-format dataset.
+
+        **EXPERIMENTAL.** The QualityFocalLoss + GIoU + BatchDynamicSoftLabelAssigner
+        components are cleanroom-ported from mmyolo and the trainer runs
+        end-to-end. What is NOT validated:
+
+        - small-dataset fine-tune convergence (RF1-floor parity)
+        - paper-parity training-from-scratch (reproducing the 41.1 val mAP)
+        - cached Mosaic + MixUp throughput (we use the standard non-cached pair)
+        - the strict two-stage pipeline switch (we approximate via the shared
+          ``no_aug_epochs`` mechanism)
+        - paramwise weight decay overrides (norm_decay_mult=0, bias_decay_mult=0)
+
+        What IS validated: forward + ONNX export bit-equivalent to upstream
+        mmdet, postprocess matches mmdet's output to within 0.001 mAP on
+        val2017 subsets. See the family docstring for the full contract.
+
+        Pass ``allow_experimental=True`` to acknowledge.
+        """
+        if not allow_experimental:
+            raise RuntimeError(
+                "RTMDet training is experimental. The loss + assigner mirror "
+                "mmyolo's BatchDynamicSoftLabelAssigner + QualityFocalLoss + "
+                "GIoULoss recipe and the trainer runs end-to-end, but small-"
+                "dataset fine-tune convergence and from-scratch paper parity "
+                "have NOT been verified. Pass allow_experimental=True to "
+                "proceed.\n"
+                "Validated: inference, ONNX export, bit-equivalent to upstream "
+                "mmdet on val2017 subsets within 0.001 mAP. "
+                "Not validated: training convergence, multi-GPU, the strict "
+                "two-stage pipeline switch, cached Mosaic/MixUp throughput."
+            )
+        from libreyolo.data import load_data_config
+
+        from .trainer import RTMDetTrainer
+
+        if imgsz is None:
+            imgsz = self.input_size
+
+        try:
+            data_config = load_data_config(
+                data, autodownload=True, allow_scripts=allow_download_scripts,
+            )
+            data = data_config.get("yaml_file", data)
+        except Exception as e:
+            raise FileNotFoundError(f"Failed to load dataset config '{data}': {e}")
+
+        yaml_nc = data_config.get("nc")
+        yaml_names = data_config.get("names")
+        if yaml_nc is not None and yaml_nc != self.nb_classes:
+            self._rebuild_for_new_classes(yaml_nc)
+        if yaml_names is not None:
+            if isinstance(yaml_names, list):
+                yaml_names = {i: n for i, n in enumerate(yaml_names)}
+            self.names = self._sanitize_names(yaml_names, self.nb_classes)
+
+        if seed >= 0:
+            import random
+            import numpy as np
+
+            random.seed(seed); np.random.seed(seed); torch.manual_seed(seed)
+            if torch.cuda.is_available():
+                torch.cuda.manual_seed_all(seed)
+
+        trainer = RTMDetTrainer(
+            model=self.model,
+            wrapper_model=self,
+            size=self.size,
+            num_classes=self.nb_classes,
+            data=data,
+            epochs=epochs,
+            batch=batch,
+            imgsz=imgsz,
+            lr0=lr0,
+            optimizer=optimizer.lower(),
+            device=device if device else "auto",
+            workers=workers,
+            seed=seed,
+            project=project,
+            name=name,
+            exist_ok=exist_ok,
+            resume=resume,
+            amp=amp,
+            patience=patience,
+            allow_download_scripts=allow_download_scripts,
+            **kwargs,
         )
+
+        if resume:
+            if not self.model_path:
+                raise ValueError(
+                    "resume=True requires a checkpoint. Load one first: "
+                    "model = LibreRTMDet('path/to/last.pt'); model.train(data=..., resume=True)"
+                )
+            trainer.setup()
+            trainer.resume(str(self.model_path))
+
+        results = trainer.train()
+        if Path(results["best_checkpoint"]).exists():
+            self._load_weights(results["best_checkpoint"])
+        return results
