@@ -233,6 +233,7 @@ class LibreYOLO9(BaseModel):
         amp: bool = _TRAIN_DEFAULTS.amp,
         patience: int = _TRAIN_DEFAULTS.patience,
         allow_download_scripts: bool = False,
+        callbacks=None,
         **kwargs,
     ) -> dict:
         """Train the YOLOv9 model on a dataset.
@@ -253,6 +254,7 @@ class LibreYOLO9(BaseModel):
             resume: If True, resume training from checkpoint.
             amp: Enable automatic mixed precision training.
             patience: Early stopping patience.
+            callbacks: Optional training callback or iterable of callbacks.
 
         Returns:
             Training results dict with final_loss, best_mAP50, best_mAP50_95, etc.
@@ -312,6 +314,7 @@ class LibreYOLO9(BaseModel):
             amp=amp,
             patience=patience,
             allow_download_scripts=allow_download_scripts,
+            callbacks=callbacks,
             **kwargs,
         )
 

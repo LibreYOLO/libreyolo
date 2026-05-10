@@ -131,26 +131,40 @@ class RTDETRTrainer(BaseTrainer):
         """Extract per-component losses for logging.
 
         The outputs dict comes from SetCriterion.forward() which includes
-        total_loss and individual components.
+        total_loss and individual weighted components. Auxiliary and denoising
+        losses share the same prefixes as the main losses, with suffixes such as
+        ``_aux_0`` and ``_dn_0``.
         """
 
         def _scalar(v):
             return v.item() if isinstance(v, torch.Tensor) else v
 
-        components = {"total": _scalar(outputs.get("total_loss", 0))}
+        def _sum_by_prefix(prefix: str):
+            total = 0.0
+            seen = False
+            prefix_with_suffix = f"{prefix}_"
+            for key, value in outputs.items():
+                if key == prefix or key.startswith(prefix_with_suffix):
+                    total += float(_scalar(value))
+                    seen = True
+            return total if seen else None
 
-        # Main loss components
-        if "loss_vfl" in outputs:
-            components["vfl"] = _scalar(outputs["loss_vfl"])
-        elif "loss_focal" in outputs:
-            components["focal"] = _scalar(outputs["loss_focal"])
-        elif "loss_bce" in outputs:
-            components["bce"] = _scalar(outputs["loss_bce"])
+        components = {}
 
-        if "loss_bbox" in outputs:
-            components["bbox"] = _scalar(outputs["loss_bbox"])
-        if "loss_giou" in outputs:
-            components["giou"] = _scalar(outputs["loss_giou"])
+        for name, prefix in (
+            ("vfl", "loss_vfl"),
+            ("focal", "loss_focal"),
+            ("bce", "loss_bce"),
+        ):
+            value = _sum_by_prefix(prefix)
+            if value is not None:
+                components[name] = value
+                break
+
+        for name, prefix in (("bbox", "loss_bbox"), ("giou", "loss_giou")):
+            value = _sum_by_prefix(prefix)
+            if value is not None:
+                components[name] = value
 
         return components
 
