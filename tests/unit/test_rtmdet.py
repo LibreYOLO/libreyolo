@@ -128,3 +128,62 @@ def test_export_mode_returns_flat_tensor():
         out = model(x)
     assert isinstance(out, torch.Tensor)
     assert out.shape == (1, 8400, 84)  # 80*80 + 40*40 + 20*20 = 8400; 4 box + 80 cls
+
+
+def test_train_gated_without_allow_experimental():
+    """``model.train(...)`` raises a clear error unless allow_experimental=True."""
+    m = LibreRTMDet(size="t", nb_classes=80)
+    with pytest.raises(RuntimeError, match="experimental"):
+        m.train(data="coco128.yaml", epochs=1)
+
+
+def test_loss_forward_backward_smoke():
+    """RTMDetLoss runs forward + backward and produces non-zero gradients."""
+    from libreyolo.models.rtmdet.loss import RTMDetLoss
+
+    model = LibreRTMDetModel(size="t", nc=80).train()
+    x = torch.randn(2, 3, 640, 640, requires_grad=False)
+    cls_scores, bbox_preds = model(x)
+
+    gt_boxes = [
+        torch.tensor([[100.0, 100.0, 300.0, 300.0], [200.0, 50.0, 400.0, 250.0]]),
+        torch.tensor([[10.0, 10.0, 50.0, 50.0]]),
+    ]
+    gt_labels = [torch.tensor([0, 1]), torch.tensor([5])]
+
+    loss_fn = RTMDetLoss(num_classes=80)
+    out = loss_fn(cls_scores, bbox_preds, gt_boxes, gt_labels)
+    assert "total_loss" in out
+    assert torch.is_tensor(out["total_loss"]) and out["total_loss"].requires_grad
+    out["total_loss"].backward()
+    n_with_grad = sum(
+        1 for p in model.parameters() if p.grad is not None and p.grad.abs().sum() > 0
+    )
+    n_total = sum(1 for p in model.parameters() if p.requires_grad)
+    # Random init means some BN weights may produce zero outputs and zero grads
+    # for the corresponding column on a small synthetic batch. With EMA-loaded
+    # weights all 240 see grads; with random init we see ~95%. Either is fine
+    # for a smoke test — the contract is "non-trivial coverage", not "100%".
+    assert n_with_grad / n_total >= 0.9, f"only {n_with_grad}/{n_total} params got grads"
+
+
+def test_assigner_handles_empty_gt():
+    """BatchDynamicSoftLabelAssigner returns sensible output when an image has no GT."""
+    from libreyolo.models.rtmdet.loss import (
+        BatchDynamicSoftLabelAssigner,
+        MlvlPointGenerator,
+    )
+
+    priors = MlvlPointGenerator((8, 16, 32)).grid_priors(
+        [(80, 80), (40, 40), (20, 20)], device="cpu"
+    )
+    pred_bboxes = torch.zeros(2, priors.shape[0], 4)
+    pred_scores = torch.zeros(2, priors.shape[0], 80)
+    gt_bboxes = torch.zeros(2, 1, 4)
+    gt_labels = torch.zeros(2, 1, 1)
+    pad_flag = torch.zeros(2, 1, 1)  # all padding, no real GTs
+
+    assigner = BatchDynamicSoftLabelAssigner(num_classes=80)
+    out = assigner(pred_bboxes, pred_scores, priors, gt_labels, gt_bboxes, pad_flag)
+    # All priors should be background (label = num_classes)
+    assert (out["assigned_labels"] == 80).all()
