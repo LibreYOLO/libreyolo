@@ -172,6 +172,11 @@ class BaseBackend(ABC):
                 image, effective_imgsz, color_format
             )
             return tensor, img, size, 1.0
+        elif self.model_family == "rtmdet":
+            tensor, img, size, ratio = self._preprocess_rtmdet(
+                image, effective_imgsz, color_format
+            )
+            return tensor, img, size, ratio
         else:
             tensor, img, size = preprocess_image(
                 image, input_size=effective_imgsz, color_format=color_format
@@ -265,6 +270,19 @@ class BaseBackend(ABC):
         return img_tensor, original_img, original_size
 
     @staticmethod
+    def _preprocess_rtmdet(image, input_size, color_format):
+        """RTMDet preprocessing: BGR letterbox + mmdet mean/std normalization."""
+        from ..models.rtmdet.utils import preprocess_numpy as rtmdet_preprocess_numpy
+
+        img = ImageLoader.load(image, color_format=color_format)
+        original_size = img.size  # (W, H)
+        original_img = img.copy()
+
+        img_chw, ratio = rtmdet_preprocess_numpy(np.array(img), input_size)
+        img_tensor = torch.from_numpy(img_chw).unsqueeze(0)
+        return img_tensor, original_img, original_size, ratio
+
+    @staticmethod
     def _preprocess_rtdetr(image, input_size, color_format):
         """RT-DETR preprocessing: direct resize + normalize to [0,1]."""
         from ..models.rtdetr.utils import preprocess_numpy as rtdetr_preprocess_numpy
@@ -326,6 +344,11 @@ class BaseBackend(ABC):
                 all_outputs, effective_imgsz, orig_w, orig_h, conf
             )
             return boxes, scores, cls, None
+        elif self.model_family == "rtmdet":
+            boxes, scores, cls = self._parse_rtmdet(
+                all_outputs, orig_w, orig_h, conf, ratio
+            )
+            return boxes, scores, cls, None
         else:
             boxes, scores, cls = self._parse_yolo9(
                 all_outputs, effective_imgsz, orig_w, orig_h, conf
@@ -360,6 +383,31 @@ class BaseBackend(ABC):
         boxes = np.stack([x1, y1, x2, y2], axis=1)
 
         boxes /= ratio
+        boxes[:, [0, 2]] = np.clip(boxes[:, [0, 2]], 0, orig_w)
+        boxes[:, [1, 3]] = np.clip(boxes[:, [1, 3]], 0, orig_h)
+
+        return boxes, max_scores, class_ids
+
+    def _parse_rtmdet(self, all_outputs, orig_w, orig_h, conf, ratio=1.0):
+        """Parse RTMDet export-mode output: (B, N, 4 + nc) — xyxy (input-canvas pixels) + sigmoid scores.
+
+        RTMDet exports use letterbox preprocessing, so the inverse scale is a
+        single ``ratio`` (aspect-preserving), like YOLOX.
+        """
+        outputs = all_outputs[0][0]  # (N, 4 + nc)
+        boxes = outputs[:, :4]
+        scores = outputs[:, 4:]
+
+        max_scores = np.max(scores, axis=1)
+        class_ids = np.argmax(scores, axis=1)
+
+        mask = max_scores > conf
+        boxes, max_scores, class_ids = boxes[mask], max_scores[mask], class_ids[mask]
+
+        if len(boxes) == 0:
+            return boxes, max_scores, class_ids
+
+        boxes = boxes / ratio
         boxes[:, [0, 2]] = np.clip(boxes[:, [0, 2]], 0, orig_w)
         boxes[:, [1, 3]] = np.clip(boxes[:, [1, 3]], 0, orig_h)
 
