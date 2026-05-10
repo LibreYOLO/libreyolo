@@ -18,6 +18,7 @@ from .models import (
     LibreRTDETR,
     LibreRTDETRv2,
     LibreRTDETRv4,
+    LibreRTMDet,
 )
 from .utils.results import Results, Boxes, Masks, Keypoints, Probs, OBB
 
@@ -103,6 +104,7 @@ __all__ = [
     "LibreDEIMv2",
     "LibreEC",
     "LibrePICODET",
+    "LibreRTMDet",
     # Results
     "Results",
     "Boxes",
