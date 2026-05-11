@@ -272,6 +272,11 @@ class LibreYOLO9(BaseModel):
 
         yaml_nc = data_config.get("nc")
         yaml_names = data_config.get("names")
+
+        # If no nc in data.yaml, infer it by counting.
+        if yaml_nc is None and yaml_names is not None:
+            yaml_nc = len(yaml_names)
+
         if yaml_nc is not None and yaml_nc != self.nb_classes:
             self._rebuild_for_new_classes(yaml_nc)
 
