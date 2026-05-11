@@ -197,6 +197,24 @@ class TestExportCoreML:
         assert boxes.shape == (1, 300, 4)
 
 
+class TestUnsupportedFamily:
+    def test_unknown_family_raises(self, tmp_path, monkeypatch):
+        _patch_ct(monkeypatch)
+        from libreyolo.export.coreml import export_coreml
+
+        with pytest.raises(NotImplementedError, match="not supported"):
+            export_coreml(
+                _DummyModel().eval(),
+                torch.randn(1, 3, 640, 640),
+                output_path=str(tmp_path / "m.mlpackage"),
+                precision="fp32",
+                compute_units="all",
+                nms=False,
+                metadata={"model_family": "yolonas"},
+                model_family="yolonas",
+            )
+
+
 class TestNMSWrap:
     def test_rfdetr_raises(self, tmp_path, monkeypatch):
         fake, mlmodel = _patch_ct(monkeypatch)

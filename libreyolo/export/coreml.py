@@ -23,6 +23,22 @@ import torch.nn as nn
 _IMAGENET_MEAN = (0.485, 0.456, 0.406)
 _IMAGENET_STD = (0.229, 0.224, 0.225)
 
+# Families with explicit preprocess wrappers and validated trace behavior.
+# Others fall outside the family-aware preprocess switch and have not been
+# validated end-to-end; block them up front rather than silently producing
+# a model with wrong normalization or untraceable graph.
+_SUPPORTED_FAMILIES = {"yolox", "yolo9", "rtdetr", "rfdetr"}
+
+# Families that fundamentally cannot use Apple's NonMaximumSuppression
+# layer (DETR set-prediction: top-k over queries × classes, no IoU step).
+_NMS_FREE_FAMILIES = {
+    "rfdetr": "RF-DETR",
+    "dfine": "D-FINE",
+    "deim": "DEIM",
+    "deimv2": "DEIMv2",
+    "ec": "EC",
+}
+
 
 class _YoloxPreprocess(nn.Module):
     """Map canonical RGB[0,1] input → BGR[0,255] expected by YOLOX."""
@@ -225,10 +241,18 @@ def export_coreml(
     import coremltools as ct
 
     family = (model_family or "").lower()
-    if nms and family == "rfdetr":
+    if family not in _SUPPORTED_FAMILIES:
         raise NotImplementedError(
-            "nms=True is not supported for RF-DETR; export with nms=False and run "
-            "NMS in your application."
+            f"CoreML export is not supported for model family {family!r}. "
+            f"Supported: {sorted(_SUPPORTED_FAMILIES)}. "
+            "Other families have not been validated end-to-end; "
+            "use ONNX or TorchScript instead."
+        )
+    if nms and family in _NMS_FREE_FAMILIES:
+        raise NotImplementedError(
+            f"nms=True is not supported for {_NMS_FREE_FAMILIES[family]} "
+            "(DETR set-prediction). Export with nms=False and run NMS in your "
+            "application."
         )
 
     if family == "rtdetr":
@@ -296,12 +320,6 @@ def _wrap_with_nms(mlmodel: Any, *, model_family: str | None) -> Any:
 
     Output names: 'confidence' (N x nb_classes), 'coordinates' (N x 4 normalized xywh).
     """
-    if (model_family or "").lower() == "rfdetr":
-        raise NotImplementedError(
-            "nms=True is not supported for RF-DETR; export with nms=False and run "
-            "NMS in your application."
-        )
-
     import coremltools as ct
 
     model_spec = mlmodel.get_spec()
