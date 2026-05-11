@@ -14,15 +14,14 @@ from pathlib import Path
 from typing import Optional
 
 import numpy as np
+import torch
 from PIL import Image
 
 from ..utils.general import COCO_CLASSES
+from ..utils.image_loader import ImageLoader
 from .base import BaseBackend
 
 logger = logging.getLogger(__name__)
-
-_IMAGENET_MEAN = (0.485, 0.456, 0.406)
-_IMAGENET_STD = (0.229, 0.224, 0.225)
 
 
 def _to_compute_unit(compute_units: str):
@@ -174,6 +173,42 @@ class CoreMLBackend(BaseBackend):
             iou = 1.0
         return super()._build_result(*args, iou=iou, **kwargs)
 
+    def _preprocess(self, image, effective_imgsz, color_format):
+        """Produce a canonical RGB uint8 tensor matching the exported graph's input.
+
+        The .mlpackage was traced with a wrapper that converts canonical RGB[0,1]
+        to whatever the family expects internally (YOLOX BGR/0-255, RF-DETR
+        ImageNet-normalized, etc.). Feeding it the family's already-normalized
+        blob and then un-normalizing is lossy; instead we hand CoreML the
+        canonical RGB uint8 image directly and let the traced wrapper do its job.
+        """
+        img = ImageLoader.load(image, color_format=color_format)
+        original_size = img.size  # (W, H)
+        original_img = img.copy()
+
+        family = (self.model_family or "").lower()
+        if family == "yolox":
+            # YOLOX uses letterbox + gray padding (no BGR swap, no /255 here —
+            # the traced graph applies those transforms internally).
+            arr = np.array(img)
+            orig_h, orig_w = arr.shape[:2]
+            ratio = min(effective_imgsz / orig_h, effective_imgsz / orig_w)
+            new_w, new_h = int(orig_w * ratio), int(orig_h * ratio)
+            resized = img.resize((new_w, new_h), Image.Resampling.BILINEAR)
+            padded = Image.new("RGB", (effective_imgsz, effective_imgsz), (114, 114, 114))
+            padded.paste(resized, (0, 0))
+            chw = np.array(padded).transpose(2, 0, 1).astype(np.float32)
+        else:
+            # yolo9, rtdetr, rfdetr: plain resize to (imgsz, imgsz).
+            ratio = 1.0
+            resized = img.resize(
+                (effective_imgsz, effective_imgsz), Image.Resampling.BILINEAR
+            )
+            chw = np.array(resized).transpose(2, 0, 1).astype(np.float32)
+
+        tensor = torch.from_numpy(chw).unsqueeze(0)
+        return tensor, original_img, original_size, ratio
+
     def _parse_embedded_nms(
         self,
         all_outputs: list,
@@ -237,38 +272,19 @@ class CoreMLBackend(BaseBackend):
         return boxes, max_scores, class_ids, None
 
     def _run_inference(self, blob: np.ndarray) -> list:
-        """Run CoreML inference on a (1, C, H, W) preprocessed float blob.
+        """Run CoreML inference on a (1, 3, H, W) canonical RGB uint8 blob.
 
-        The exported model takes a canonical RGB uint8 image; family-specific
-        transforms (e.g. YOLOX BGR/0-255, RF-DETR ImageNet normalization) are
-        baked into the .mlpackage by the exporter wrapper. Here we reconstruct
-        a canonical RGB uint8 PIL image from each family's preprocessed blob.
+        ``_preprocess`` produces RGB uint8 (stored as float32 for tensor compat);
+        the .mlpackage's ImageType input handles the [0,1] scaling and any
+        family-specific transform inside the traced wrapper.
         """
         if blob.ndim != 4 or blob.shape[0] != 1:
             raise ValueError(
                 f"CoreMLBackend expects (1, C, H, W) blob; got {blob.shape}"
             )
 
-        family = (self.model_family or "").lower()
-        chw = blob[0]
-
-        if family == "yolox":
-            # blob is BGR float in [0, 255] → swap channels to RGB.
-            hwc = np.transpose(chw, (1, 2, 0))[..., ::-1]
-            arr = hwc
-        elif family == "rfdetr":
-            # blob is RGB float, ImageNet-normalized → un-normalize to [0, 1] then ×255.
-            mean = np.array(_IMAGENET_MEAN, dtype=np.float32).reshape(3, 1, 1)
-            std = np.array(_IMAGENET_STD, dtype=np.float32).reshape(3, 1, 1)
-            chw_unnorm = chw * std + mean
-            hwc = np.transpose(chw_unnorm, (1, 2, 0))
-            arr = hwc * 255.0
-        else:
-            # yolo9, rtdetr, default: RGB float in [0, 1] → ×255.
-            hwc = np.transpose(chw, (1, 2, 0))
-            arr = hwc * 255.0
-
-        uint8 = np.ascontiguousarray(np.clip(arr, 0, 255).astype(np.uint8))
+        hwc = np.transpose(blob[0], (1, 2, 0))
+        uint8 = np.ascontiguousarray(np.clip(hwc, 0, 255).astype(np.uint8))
         pil = Image.fromarray(uint8)
 
         out = self.model.predict({"image": pil})
