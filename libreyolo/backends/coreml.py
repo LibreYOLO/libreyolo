@@ -59,6 +59,7 @@ class CoreMLBackend(BaseBackend):
         nb_classes: int = 80,
         device: str = "auto",
         compute_units: str = "all",
+        task: str | None = None,
     ):
         if sys.platform != "darwin":
             raise RuntimeError(
@@ -103,6 +104,7 @@ class CoreMLBackend(BaseBackend):
             imgsz=imgsz,
             model_family=model_family,
             names=names if names else self.build_names(nb_classes),
+            task=task,
         )
 
     @staticmethod
