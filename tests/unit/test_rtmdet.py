@@ -105,6 +105,33 @@ def test_postprocess_shape_contract():
     assert out["boxes"] == []
 
 
+def test_postprocess_clips_to_original_size_after_letterbox_inverse():
+    cls = (
+        torch.zeros(1, 80, 80, 80) - 10.0,
+        torch.zeros(1, 80, 40, 40) - 10.0,
+        torch.zeros(1, 80, 20, 20) - 10.0,
+    )
+    reg = (
+        torch.full((1, 4, 80, 80), 1.0),
+        torch.full((1, 4, 40, 40), 1.0),
+        torch.full((1, 4, 20, 20), 1.0),
+    )
+    cls[0][0, 0, 0, 0] = 10.0
+    reg[0][0, :, 0, 0] = torch.tensor([10.0, 10.0, 700.0, 640.0])
+
+    out = postprocess(
+        (cls, reg),
+        conf_thres=0.25,
+        iou_thres=0.65,
+        input_size=640,
+        original_size=(640, 320),
+        ratio=1.0,
+    )
+
+    assert out["num_detections"] == 1
+    assert out["boxes"][0] == [0.0, 0.0, 640.0, 320.0]
+
+
 def test_factory_registration():
     """LibreYOLO factory recognises a converted LibreRTMDet checkpoint."""
     # We test the discriminator classmethods directly, no I/O.

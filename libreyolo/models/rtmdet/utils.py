@@ -194,6 +194,9 @@ def postprocess(
 
     if original_size is not None:
         boxes = boxes / ratio
+        orig_w, orig_h = original_size
+        boxes[:, [0, 2]] = torch.clamp(boxes[:, [0, 2]], 0, orig_w)
+        boxes[:, [1, 3]] = torch.clamp(boxes[:, [1, 3]], 0, orig_h)
         widths = boxes[:, 2] - boxes[:, 0]
         heights = boxes[:, 3] - boxes[:, 1]
         valid = (widths > 0) & (heights > 0)
