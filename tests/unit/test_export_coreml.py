@@ -255,7 +255,7 @@ class TestNMSWrap:
             ("TensorType", {"name": "confidence"}),
             ("TensorType", {"name": "coordinates"}),
         ]
-        wrap.assert_called_once_with(mlmodel, model_family="yolox")
+        wrap.assert_called_once_with(mlmodel, model_family="yolox", iou=0.45, conf=0.25)
         assert mlmodel.user_defined_metadata["nms"] == "True"
 
 

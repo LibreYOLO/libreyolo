@@ -214,6 +214,8 @@ def export_coreml(
     precision: str = "fp32",
     compute_units: str = "all",
     nms: bool = False,
+    iou: float = 0.45,
+    conf: float = 0.25,
     metadata: dict | None = None,
     model_family: str | None = None,
 ) -> str:
@@ -230,7 +232,9 @@ def export_coreml(
         precision: 'fp32' or 'fp16'.
         compute_units: 'all' | 'cpu_and_gpu' | 'cpu_and_ne' | 'cpu_only'.
         nms: If True, embed Apple's NonMaximumSuppression as a CoreML pipeline.
-            Not supported for RF-DETR.
+            Not supported for DETR-style families (RF-DETR, D-FINE, DEIM, EC).
+        iou: IoU threshold for embedded NMS (default 0.45). Ignored when nms=False.
+        conf: Confidence threshold for embedded NMS (default 0.25). Ignored when nms=False.
         metadata: Dict of metadata to embed under user_defined_metadata.
         model_family: Family string (yolox | yolo9 | rtdetr | rfdetr) — selects
             the preprocess wrapper.
@@ -303,10 +307,10 @@ def export_coreml(
     mlmodel.compute_unit = _to_compute_unit(compute_units)
 
     if nms:
-        mlmodel = _wrap_with_nms(mlmodel, model_family=model_family)
+        mlmodel = _wrap_with_nms(mlmodel, model_family=model_family, iou=iou, conf=conf)
         if metadata is None:
             metadata = {}
-        metadata = {**metadata, "nms": True}
+        metadata = {**metadata, "nms": True, "nms_iou": iou, "nms_conf": conf}
 
     if metadata:
         mlmodel.user_defined_metadata.update(_stringify_metadata(metadata))
@@ -315,7 +319,13 @@ def export_coreml(
     return output_path
 
 
-def _wrap_with_nms(mlmodel: Any, *, model_family: str | None) -> Any:
+def _wrap_with_nms(
+    mlmodel: Any,
+    *,
+    model_family: str | None,
+    iou: float = 0.45,
+    conf: float = 0.25,
+) -> Any:
     """Wrap a detector mlmodel in a Pipeline that embeds Apple's NMS layer.
 
     Output names: 'confidence' (N x nb_classes), 'coordinates' (N x 4 normalized xywh).
@@ -354,8 +364,8 @@ def _wrap_with_nms(mlmodel: Any, *, model_family: str | None) -> Any:
     )
 
     nms = nms_spec.nonMaximumSuppression
-    nms.iouThreshold = 0.45
-    nms.confidenceThreshold = 0.25
+    nms.iouThreshold = iou
+    nms.confidenceThreshold = conf
     nms.confidenceInputFeatureName = "confidence"
     nms.coordinatesInputFeatureName = "coordinates"
     nms.confidenceOutputFeatureName = "confidence"
