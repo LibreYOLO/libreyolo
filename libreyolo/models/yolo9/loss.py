@@ -195,6 +195,9 @@ class Vec2Box:
         self.anchor_grid = anchor_grid.to(device)
         self.scaler = scaler.to(device)
 
+        # Lazy init for DFL cache
+        self.proj = None
+
     def update(self, image_size: List[int]):
         """Update anchors for new image size."""
         if self.image_size == image_size:
@@ -244,11 +247,17 @@ class Vec2Box:
             # Decode boxes using DFL (softmax + weighted sum)
             # (B, H*W, 4, reg_max) -> softmax over reg_max -> (B, H*W, 4)
             pred_dist = F.softmax(pred_anc, dim=3)
+
+            # Create a cache for tensor once (or whenever AMP kicks in), otherwise use cache.
+            if self.proj is None or self.proj.dtype != pred_dist.dtype:
+                self.proj = torch.arange(
+                    self.reg_max, dtype=pred_dist.dtype, device=pred_dist.device
+                )
+            pred_box = (pred_dist * self.proj.view(1, 1, 1, -1)).sum(dim=3)
+
             # Weighted sum: multiply by [0, 1, 2, ..., reg_max-1]
-            proj = torch.arange(
-                self.reg_max, dtype=pred_dist.dtype, device=pred_dist.device
-            )
-            pred_box = (pred_dist * proj.view(1, 1, 1, -1)).sum(dim=3)  # (B, H*W, 4)
+            # proj = torch.arange(self.reg_max, dtype=pred_dist.dtype, device=pred_dist.device)
+            # pred_box = (pred_dist * proj.view(1, 1, 1, -1)).sum(dim=3)  # (B, H*W, 4)
             preds_box_list.append(pred_box)
 
         # Concatenate across scales
@@ -523,6 +532,9 @@ class YOLO9Loss:
         self.matcher = None
         self.vec2box = None
 
+        # Lazy init of tensor cache
+        self.target_scale = None
+
         # Initialize Vec2Box if image_size provided
         if image_size is not None:
             self._init_vec2box(image_size)
@@ -551,6 +563,7 @@ class YOLO9Loss:
         """Update anchors for new image size."""
         if self.vec2box is None or self.vec2box.image_size != image_size:
             self._init_vec2box(image_size)
+            self.target_scale = None # Clear tensor cache
 
     def __call__(
         self, predictions: List[Tensor], targets: Tensor
@@ -574,13 +587,21 @@ class YOLO9Loss:
         # Convert predictions to loss-ready format
         preds_cls, preds_anc, preds_box = self.vec2box(predictions)
 
+        # Create tensor once (as needed), then simply reuse
+        if self.target_scale is None or self.target_scale.dtype != targets.dtype:
+            W, H = self.vec2box.image_size
+            self.target_scale = torch.tensor(
+                [1, W, H, W, H], device=targets.device, dtype=targets.dtype
+            )
+
         # Scale targets from normalized to pixel coordinates
         B = targets.shape[0]
-        W, H = self.vec2box.image_size
-        scale = torch.tensor(
-            [1, W, H, W, H], device=targets.device, dtype=targets.dtype
-        )
-        targets_scaled = targets * scale
+        targets_scaled = targets * self.target_scale
+        # W, H = self.vec2box.image_size
+        # scale = torch.tensor(
+        #    [1, W, H, W, H], device=targets.device, dtype=targets.dtype
+        # )
+        # targets_scaled = targets * scale
 
         # Run Task Aligned Assignment
         align_targets, valid_masks = self.matcher(

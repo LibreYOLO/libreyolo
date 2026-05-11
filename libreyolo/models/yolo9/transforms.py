@@ -18,19 +18,35 @@ def augment_hsv(img, hgain=5, sgain=30, vgain=30):
     hsv_augs = hsv_augs.astype(np.int16)
     img_hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV).astype(np.int16)
 
-    img_hsv[..., 0] = (img_hsv[..., 0] + hsv_augs[0]) % 180
-    img_hsv[..., 1] = np.clip(img_hsv[..., 1] + hsv_augs[1], 0, 255)
-    img_hsv[..., 2] = np.clip(img_hsv[..., 2] + hsv_augs[2], 0, 255)
+    # Look-Up Table speedup
+    lut_h = ((np.arange(0, 256, dtype=np.int16) + hsv_augs[0]) % 180).astype(np.uint8)
+    lut_s = np.clip(np.arange(0, 256, dtype=np.int16) + hsv_augs[1], 0, 255).astype(np.uint8)
+    lut_v = np.clip(np.arange(0, 256, dtype=np.int16) + hsv_augs[2], 0, 255).astype(np.uint8)
+    # Convert to HSV in uint8
+    img_hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
+    h, s, v = cv2.split(img_hsv)
+    # Fast mapping
+    h = cv2.LUT(h, lut_h)
+    s = cv2.LUT(s, lut_s)
+    v = cv2.LUT(v, lut_v)
+    img_hsv = cv2.merge((h, s, v))
+    cv2.cvtColor(img_hsv, cv2.COLOR_HSV2BGR, dst=img)
 
-    cv2.cvtColor(img_hsv.astype(img.dtype), cv2.COLOR_HSV2BGR, dst=img)
-
+    #img_hsv[..., 0] = (img_hsv[..., 0] + hsv_augs[0]) % 180
+    #img_hsv[..., 1] = np.clip(img_hsv[..., 1] + hsv_augs[1], 0, 255)
+    #img_hsv[..., 2] = np.clip(img_hsv[..., 2] + hsv_augs[2], 0, 255)
+    #cv2.cvtColor(img_hsv.astype(img.dtype), cv2.COLOR_HSV2BGR, dst=img)
 
 def preproc(img, input_size, swap=(2, 0, 1)):
     """Preprocess image: resize with letterbox padding, transpose."""
     if len(img.shape) == 3:
-        padded_img = np.ones((input_size[0], input_size[1], 3), dtype=np.uint8) * 114
+        # Use np.full instead. Faster.
+        padded_img = np.full((input_size[0], input_size[1], 3), 114, dtype=np.uint8)
+        #padded_img = np.ones((input_size[0], input_size[1], 3), dtype=np.uint8) * 114
     else:
-        padded_img = np.ones(input_size, dtype=np.uint8) * 114
+        # Use np.full instead. Faster.
+        padded_img = np.full(input_size, 114, dtype=np.uint8)
+        #padded_img = np.ones(input_size, dtype=np.uint8) * 114
 
     r = min(input_size[0] / img.shape[0], input_size[1] / img.shape[1])
     resized_img = cv2.resize(
@@ -44,9 +60,9 @@ def preproc(img, input_size, swap=(2, 0, 1)):
     padded_img = padded_img[:, :, ::-1]
 
     padded_img = padded_img.transpose(swap)
-    padded_img = np.ascontiguousarray(padded_img, dtype=np.float32) / 255.0
+    padded_img = np.ascontiguousarray(padded_img, dtype=np.float32)
+    padded_img /= 255.0 # Prevent unnecesary duplication of array just to divide by 255
     return padded_img, r
-
 
 def mirror(image, boxes, prob=0.5):
     """Apply horizontal flip with probability."""
@@ -55,7 +71,6 @@ def mirror(image, boxes, prob=0.5):
         image = image[:, ::-1]
         boxes[:, 0::2] = width - boxes[:, 2::-2]
     return image, boxes
-
 
 class YOLO9TrainTransform:
     """
@@ -132,11 +147,14 @@ class YOLO9TrainTransform:
 
         # Normalize coordinates to [0, 1]
         h_out, w_out = input_dim
-        boxes_norm = boxes_t.copy()
-        boxes_norm[:, 0] /= w_out  # x1
-        boxes_norm[:, 1] /= h_out  # y1
-        boxes_norm[:, 2] /= w_out  # x2
-        boxes_norm[:, 3] /= h_out  # y2
+        # Vectorized division. Faster.
+        scale_arr = np.array([w_out, h_out, w_out, h_out], dtype=boxes_t.dtype)
+        boxes_norm = boxes_t / scale_arr
+        #boxes_norm = boxes_t.copy()
+        #boxes_norm[:, 0] /= w_out  # x1
+        #boxes_norm[:, 1] /= h_out  # y1
+        #boxes_norm[:, 2] /= w_out  # x2
+        #boxes_norm[:, 3] /= h_out  # y2
 
         # Clip to [0, 1]
         boxes_norm = np.clip(boxes_norm, 0, 1)
@@ -348,9 +366,9 @@ class YOLO9MosaicMixupDataset:
         idx2 = random.randint(0, len(self.dataset) - 1)
         img2, labels2, _, _ = self._get_normal_item(idx2)
 
-        # Mix images
-        r = np.random.beta(32.0, 32.0)
-        img = (img * r + img2 * (1 - r)).astype(img.dtype)
+        # Mix images. Make it float32 instead of normal float64 to avoid NumPy calc in float64.
+        r = np.float32(np.random.beta(32.0, 32.0))
+        img = (img * r + img2 * (np.float32(1.0) - r)).astype(img.dtype)
 
         # Concatenate labels (from both images)
         if labels2 is not None and len(labels2) > 0 and labels2[0, 0] >= 0:
