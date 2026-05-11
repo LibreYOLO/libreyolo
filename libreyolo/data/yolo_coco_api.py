@@ -16,7 +16,7 @@ from typing import List, Optional, Tuple
 import numpy as np
 from PIL import Image
 
-from .utils import polygon_to_cxcywh
+from .utils import img2label_paths, polygon_to_cxcywh
 
 logger = logging.getLogger(__name__)
 
@@ -176,10 +176,7 @@ class YOLOCocoAPI:
             elif self.labels_dir is not None:
                 label_files = [self.labels_dir / f"{p.stem}.txt" for p in image_files]
             else:
-                label_files = [
-                    Path(str(p).replace("/images/", "/labels/")).with_suffix(".txt")
-                    for p in image_files
-                ]
+                label_files = img2label_paths(image_files)
         else:
             if self.images_dir is None:
                 raise ValueError("images_dir or image_files must be provided")
@@ -198,7 +195,7 @@ class YOLOCocoAPI:
                 image_files.extend(list(self.images_dir.glob(ext)))
                 image_files.extend(list(self.images_dir.glob(ext.upper())))
 
-            image_files = sorted(image_files)
+            image_files = sorted(set(image_files))
             if self.labels_dir is None:
                 raise ValueError("labels_dir must be provided when image_files is omitted")
             label_files = [self.labels_dir / f"{p.stem}.txt" for p in image_files]

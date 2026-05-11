@@ -214,7 +214,7 @@ def img2label_paths(img_paths: List[Path]) -> List[Path]:
 
         # Replace 'images' with 'labels' (handles various positions)
         # Common patterns: /images/, \images\, /images, images/
-        for sep in [os.sep, "/"]:
+        for sep in (os.sep, "/", "\\"):
             path_str = path_str.replace(f"{sep}images{sep}", f"{sep}labels{sep}")
             path_str = path_str.replace(f"{sep}images", f"{sep}labels")
 
