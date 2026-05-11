@@ -214,6 +214,7 @@ def LibreYOLO(
             nb_classes=nb_classes or 80,
             device=device,
             compute_units=compute_units,
+            task=task,
         )
 
     if Path(model_path).is_dir():
