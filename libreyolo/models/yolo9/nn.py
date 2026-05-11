@@ -22,7 +22,7 @@ def autopad(k, p=None, d=1):
 class Conv(nn.Module):
     """Standard convolution: Conv2d + BatchNorm + activation."""
 
-    default_act = nn.SiLU()  # default activation
+    default_act = nn.SiLU(inplace=True)  # Defaulting activation to use inplace
 
     def __init__(self, c1, c2, k=1, s=1, p=None, g=1, d=1, act=True):
         """
@@ -67,7 +67,7 @@ class RepConvN(nn.Module):
     During inference: Single fused 3x3 conv
     """
 
-    default_act = nn.SiLU()
+    default_act = nn.SiLU(inplace=True) # Defaulting activation to use inplace
 
     def __init__(
         self, c1, c2, k=3, s=1, p=1, g=1, d=1, act=True, bn=False, deploy=False

@@ -134,7 +134,8 @@ class DFLoss(nn.Module):
         bbox_lt, bbox_rb = targets_bbox.chunk(2, -1)  # each (B, anchors, 2)
         targets_dist = torch.cat(
             ((anchors_norm - bbox_lt), (bbox_rb - anchors_norm)), -1
-        ).clamp(0, self.reg_max - 1.01)  # (B, anchors, 4)
+        )
+        targets_dist.clamp_(0, self.reg_max - 1.01)  # (B, anchors, 4). Defaulting to clamp_ to use PyTorch's inplace.
 
         # Select valid targets: (B, anchors, 4)[mask] -> (num_valid, 4) -> flatten to (num_valid * 4,)
         picked_targets = targets_dist[valid_bbox].view(-1)
