@@ -569,6 +569,46 @@ class YOLONASConfig(TrainConfig):
 
 
 @dataclass(kw_only=True)
+class DAMOYOLOConfig(TrainConfig):
+    """DAMO-YOLO-specific training defaults.
+
+    Upstream T config (``configs/damoyolo_tinynasL20_T.py``):
+    - SGD, base_lr_per_img=0.01/64 (so eff. lr scales with batch), momentum 0.9, wd 5e-4
+    - 300 epochs, no_aug 16, warmup 5, min_lr_ratio 0.05
+    - Mosaic + mixup (mixup_prob 0.15), degrees 10, shear 2.0, mosaic_scale (0.1, 2.0)
+    - Image input 640x640, no keep_ratio, RGB float32 [0, 255], no normalisation
+
+    LibreYOLO v1: SGD + cosine + mosaic+mixup + hflip. SADA box-level
+    autoaugment is *not* ported.
+    """
+
+    optimizer: str = "sgd"
+    lr0: float = 0.01
+    momentum: float = 0.9
+    weight_decay: float = 5e-4
+
+    scheduler: str = "yoloxwarmcos"
+    warmup_epochs: int = 5
+    warmup_lr_start: float = 0.0
+    no_aug_epochs: int = 16
+    min_lr_ratio: float = 0.05
+
+    mosaic_prob: float = 1.0
+    mixup_prob: float = 0.15
+    hsv_prob: float = 1.0
+    flip_prob: float = 0.5
+    degrees: float = 10.0
+    translate: float = 0.2
+    shear: float = 2.0
+    mosaic_scale: Tuple[float, float] = (0.1, 2.0)
+
+    ema_decay: float = 0.9998
+    epochs: int = 300
+    amp: bool = True
+    name: str = "damoyolo_exp"
+
+
+@dataclass(kw_only=True)
 class PICODETConfig(TrainConfig):
     """PICODET-specific training defaults.
 
@@ -607,3 +647,50 @@ class PICODETConfig(TrainConfig):
     epochs: int = 300
     amp: bool = True
     name: str = "picodet_exp"
+
+
+@dataclass
+class RTMDetConfig(TrainConfig):
+    """RTMDet training defaults.
+
+    Upstream recipe (mmdetection/configs/rtmdet/rtmdet_l_8xb32-300e_coco.py):
+    - AdamW, lr 0.004 (8 GPUs * 32 batch), weight_decay 0.05
+    - Linear warmup 1000 iters from start_factor 1e-5
+    - Cosine annealing from epoch 150 to 300, eta_min = 5% of base_lr
+    - 300 epochs, last 20 epochs ('stage 2') turn off Mosaic + MixUp
+    - Mean=[103.53, 116.28, 123.675] / Std=[57.375, 57.12, 58.395] in BGR
+    - paramwise: norm_decay_mult=0, bias_decay_mult=0
+    - Cached Mosaic (img_scale=640, max_cached=40) + Cached MixUp (max_cached=20)
+    - DynamicSoftLabelAssigner (topk=13)
+    - QualityFocalLoss (beta=2.0, weight=1.0) + GIoULoss (weight=2.0)
+
+    Status: training is NOT yet implemented in LibreYOLO. This config exists so
+    callers can introspect intended hyperparameters. ``LibreRTMDet.train()``
+    raises ``NotImplementedError`` until the follow-up PR lands the loss,
+    DynamicSoftLabelAssigner, BatchDynamicSoftLabelAssigner, MlvlPointGenerator,
+    and the 2-stage pipeline-switch hook.
+    """
+
+    optimizer: str = "adamw"
+    lr0: float = 0.004
+    momentum: float = 0.9  # unused for adamw; kept for TrainConfig compatibility
+    weight_decay: float = 0.05
+
+    scheduler: str = "cos"
+    warmup_epochs: int = 1  # ~1000 iters at batch 32 / 8GPUs equates to roughly 1 epoch
+    warmup_lr_start: float = 4e-8  # 1e-5 * 0.004
+    no_aug_epochs: int = 20  # stage-2 epochs without Mosaic+MixUp
+    min_lr_ratio: float = 0.05
+
+    mosaic_prob: float = 1.0
+    mixup_prob: float = 1.0
+    hsv_prob: float = 1.0
+    flip_prob: float = 0.5
+    degrees: float = 0.0
+    shear: float = 0.0
+    translate: float = 0.0
+
+    ema_decay: float = 0.9998
+    epochs: int = 300
+    amp: bool = True
+    name: str = "rtmdet_exp"

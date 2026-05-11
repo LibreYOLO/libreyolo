@@ -15,9 +15,11 @@ from .models import (
     LibreDEIMv2,
     LibreEC,
     LibrePICODET,
+    LibreDAMOYOLO,
     LibreRTDETR,
     LibreRTDETRv2,
     LibreRTDETRv4,
+    LibreRTMDet,
 )
 from .utils.results import Results, Boxes, Masks, Keypoints, Probs, OBB
 
@@ -103,6 +105,8 @@ __all__ = [
     "LibreDEIMv2",
     "LibreEC",
     "LibrePICODET",
+    "LibreDAMOYOLO",
+    "LibreRTMDet",
     # Results
     "Results",
     "Boxes",

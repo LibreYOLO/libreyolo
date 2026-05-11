@@ -476,6 +476,9 @@ MODEL_CATALOG = [
     ("picodet", "s", "LibrePICODETs.pt"),
     ("picodet", "m", "LibrePICODETm.pt"),
     ("picodet", "l", "LibrePICODETl.pt"),
+    ("damoyolo", "t", "LibreDAMOYOLOt.pt"),
+    ("damoyolo", "s", "LibreDAMOYOLOs.pt"),
+    ("damoyolo", "m", "LibreDAMOYOLOm.pt"),
 ]
 
 # Derived lists (no manual maintenance)
@@ -492,6 +495,7 @@ RTDETR_SIZES = [s for f, s, _ in MODEL_CATALOG if f == "rtdetr"]
 RTDETRV2_SIZES = [s for f, s, _ in MODEL_CATALOG if f == "rtdetrv2"]
 RTDETRV4_SIZES = [s for f, s, _ in MODEL_CATALOG if f == "rtdetrv4"]
 PICODET_SIZES = [s for f, s, _ in MODEL_CATALOG if f == "picodet"]
+DAMOYOLO_SIZES = [s for f, s, _ in MODEL_CATALOG if f == "damoyolo"]
 
 ALL_MODELS = [(f, s) for f, s, _ in MODEL_CATALOG]
 ALL_MODELS_WITH_WEIGHTS = MODEL_CATALOG
@@ -523,6 +527,7 @@ FAMILY_MARKERS = {
     "rtdetrv2": pytest.mark.rtdetrv2,
     "rtdetrv4": pytest.mark.rtdetrv4,
     "picodet": pytest.mark.picodet,
+    "damoyolo": pytest.mark.damoyolo,
 }
 
 

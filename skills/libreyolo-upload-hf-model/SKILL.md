@@ -49,6 +49,60 @@ file = name + ".pt"
 
 **Ask the user** if: the size code isn't obvious, the family isn't one of the above, or the filename doesn't match what the loader at `libreyolo/models/base/model.py:get_download_url` builds. Do not guess.
 
+## Canonical filename whitelist
+
+Before creating the HF repo or uploading, **verify that the `.pt` filename you are about to ship appears verbatim in this list**. If it doesn't, stop and ask the user — either a new family/size/task is being introduced (skill should be updated) or the name is wrong.
+
+Authoritative list of all valid weight filenames (matches the schema enforced by `BaseModel._filename_regex` and the family table in `docs/nomenclature.md`):
+
+```
+LibreYOLOXn.pt, LibreYOLOXt.pt, LibreYOLOXs.pt, LibreYOLOXm.pt,
+LibreYOLOXl.pt, LibreYOLOXx.pt,
+
+LibreYOLO9t.pt, LibreYOLO9s.pt, LibreYOLO9m.pt, LibreYOLO9c.pt,
+
+LibreYOLO9E2Et.pt, LibreYOLO9E2Es.pt, LibreYOLO9E2Em.pt,
+LibreYOLO9E2Ec.pt,
+
+LibreYOLONASs.pt, LibreYOLONASm.pt, LibreYOLONASl.pt,
+LibreYOLONASn-pose.pt, LibreYOLONASs-pose.pt,
+LibreYOLONASm-pose.pt, LibreYOLONASl-pose.pt,
+
+LibreDFINEn.pt, LibreDFINEs.pt, LibreDFINEm.pt, LibreDFINEl.pt,
+LibreDFINEx.pt,
+
+LibreDEIMn.pt, LibreDEIMs.pt, LibreDEIMm.pt, LibreDEIMl.pt,
+LibreDEIMx.pt,
+
+LibreDEIMv2atto.pt, LibreDEIMv2femto.pt, LibreDEIMv2pico.pt,
+LibreDEIMv2n.pt, LibreDEIMv2s.pt, LibreDEIMv2m.pt,
+LibreDEIMv2l.pt, LibreDEIMv2x.pt,
+
+LibrePICODETs.pt, LibrePICODETm.pt, LibrePICODETl.pt,
+
+LibreRTDETRr18.pt, LibreRTDETRr34.pt, LibreRTDETRr50.pt,
+LibreRTDETRr50m.pt, LibreRTDETRr101.pt, LibreRTDETRl.pt,
+LibreRTDETRx.pt,
+
+LibreRFDETRn.pt, LibreRFDETRs.pt, LibreRFDETRm.pt,
+LibreRFDETRl.pt, LibreRFDETRn-seg.pt, LibreRFDETRs-seg.pt,
+LibreRFDETRm-seg.pt, LibreRFDETRl-seg.pt,
+
+LibreECs.pt, LibreECm.pt, LibreECl.pt, LibreECx.pt,
+LibreECs-pose.pt, LibreECm-pose.pt, LibreECl-pose.pt,
+LibreECx-pose.pt, LibreECs-seg.pt, LibreECm-seg.pt,
+LibreECl-seg.pt, LibreECx-seg.pt
+```
+
+Common rule violations to reject before upload:
+
+- Wrong casing on the size — `LibreDEIMv2Atto.pt` (PascalCase). Sizes are always lowercase.
+- Old class-name forms in the file — `LibreYOLORTDETR*.pt` or `LibreECDET*.pt`. The library renamed those.
+- Detect carrying an explicit `-det` suffix — `LibreECs-det.pt`. Detect is implicit, no suffix.
+- Lowercase prefix — `librerfdetrn.pt` (Hugging Face is case-insensitive on lookup but the file inside the repo must use the canonical case).
+
+If a candidate filename isn't in the list and isn't a brand-new family being introduced now, **stop and ask** rather than uploading.
+
 ## README template
 
 ```markdown
@@ -120,10 +174,11 @@ Add via HF UI or `huggingface_hub.add_collection_item(collection_slug, item_id=<
 
 1. Build the 5 files locally in a clean directory.
 2. Verify canonical filename matches `BaseModel.get_download_url()` output for this family + size.
-3. Create the HF repo (skip if it exists): `huggingface-cli repo create LibreYOLO/<RepoName> --type model`.
-4. Upload: `huggingface-cli upload LibreYOLO/<RepoName> <local-dir> . --commit-message "Initial upload"`.
-5. Smoke test: `YOLO.from_pretrained("LibreYOLO/<RepoName>")` on a fresh machine / cleared cache.
-6. Add to the matching collection.
+3. **Cross-check the filename against the whitelist above.** If it isn't in the list, halt and ask the user — don't paper over it with a manual override.
+4. Create the HF repo (skip if it exists): `huggingface-cli repo create LibreYOLO/<RepoName> --type model`.
+5. Upload: `huggingface-cli upload LibreYOLO/<RepoName> <local-dir> . --commit-message "Initial upload"`.
+6. Smoke test: `YOLO.from_pretrained("LibreYOLO/<RepoName>")` on a fresh machine / cleared cache.
+7. Add to the matching collection.
 
 One commit per file if iterating — easier to revert than a batch commit.
 
