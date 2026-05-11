@@ -167,6 +167,13 @@ class CoreMLBackend(BaseBackend):
             all_outputs, effective_imgsz, original_size, conf, ratio=ratio
         )
 
+    def _build_result(self, *args, iou: float, **kwargs):
+        # Apple's NMS already ran inside the .mlpackage when embedded NMS is on;
+        # neutralize BaseBackend's numpy NMS by using a threshold that never matches.
+        if self._has_embedded_nms:
+            iou = 1.0
+        return super()._build_result(*args, iou=iou, **kwargs)
+
     def _parse_embedded_nms(
         self,
         all_outputs: list,
