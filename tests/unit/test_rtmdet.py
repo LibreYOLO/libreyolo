@@ -8,7 +8,6 @@ mAP rather than a per-tensor diff (mmdet/mmcv aren't a runtime dep).
 
 from __future__ import annotations
 
-import numpy as np
 import pytest
 import torch
 
@@ -135,6 +134,40 @@ def test_train_gated_without_allow_experimental():
     m = LibreRTMDet(size="t", nb_classes=80)
     with pytest.raises(RuntimeError, match="experimental"):
         m.train(data="coco128.yaml", epochs=1)
+
+
+def test_trainer_filters_targets_by_width_and_height():
+    """Zero-height boxes are padding/invalid; cy=0 is still a valid coordinate."""
+    from libreyolo.models.rtmdet.trainer import RTMDetTrainer
+
+    class DummyModel:
+        def __call__(self, imgs):
+            return (), ()
+
+    captured = {}
+
+    def loss_fn(cls_scores, bbox_preds, gt_boxes_list, gt_labels_list):
+        captured["boxes"] = gt_boxes_list
+        captured["labels"] = gt_labels_list
+        return {"total_loss": torch.tensor(0.0)}
+
+    trainer = RTMDetTrainer.__new__(RTMDetTrainer)
+    trainer.model = DummyModel()
+    trainer._loss_fn = loss_fn
+
+    targets = torch.tensor(
+        [
+            [
+                [0.0, 10.0, 20.0, 5.0, 0.0],
+                [1.0, 10.0, 0.0, 6.0, 8.0],
+            ]
+        ]
+    )
+
+    trainer.on_forward(torch.zeros(1, 3, 32, 32), targets)
+
+    assert captured["labels"][0].tolist() == [1]
+    assert captured["boxes"][0].tolist() == [[7.0, -4.0, 13.0, 4.0]]
 
 
 def test_loss_forward_backward_smoke():

@@ -87,7 +87,7 @@ class RTMDetTrainer(BaseTrainer):
         gt_labels_list = []
         for b in range(targets.shape[0]):
             t = targets[b]
-            valid = (t[:, 2:4] > 0).all(dim=1)  # w > 0 and h > 0
+            valid = (t[:, 3:5] > 0).all(dim=1)  # w > 0 and h > 0
             t = t[valid]
             if t.shape[0] == 0:
                 gt_boxes_list.append(t.new_zeros((0, 4)))
