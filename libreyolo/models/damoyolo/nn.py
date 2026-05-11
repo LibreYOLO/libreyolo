@@ -840,7 +840,6 @@ class TinyNASMob(nn.Module):
                     # Upstream tinynas_mob hardcodes in=3, stride=2 here.
                     block = ConvKXBNRELU(3, info["out"], info["k"], 2, act=act)
             elif cls in ("SuperResConvK1KX", "SuperResConvKXKX"):
-                block_type = "k1kx" if cls == "SuperResConvK1KX" else "kxkx"
                 spp = with_spp if idx == len(structure_info) - 1 else False
                 block = _SuperResStemMob(
                     info["in"], info["out"], info["btn"], info["k"], info["s"], info["L"],
@@ -1242,7 +1241,6 @@ class ZeroHead(nn.Module):
         dfl_targets_all = []
         bbox_weights_all = []
         num_pos_total = 0
-        num_total_anchors = mlvl_priors.size(1)
         for b in range(cls_scores.size(0)):
             t = targets[b]
             res = self._assign_one(
