@@ -142,7 +142,7 @@ class DetectionValidator(BaseValidator):
                             img_files_list.extend(full_split_path.glob(ext.upper()))
 
                         if img_files_list:
-                            img_files = sorted(img_files_list)
+                            img_files = sorted(set(img_files_list))
                             label_files = img2label_paths(img_files)
                     else:
                         if "/" in str(split_path_str):
