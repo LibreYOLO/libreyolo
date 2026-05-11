@@ -455,6 +455,8 @@ __all__ = [
     "LibreDEIMv2",
     "LibreEC",
     "LibrePICODET",
+    "LibreDAMOYOLO",
+    "LibreRTMDet",
     "LibreRTDETR",
     "LibreRTDETRv2",
     "LibreRTDETRv4",
