@@ -200,6 +200,23 @@ class TestYOLOCocoAPI:
         assert api.loadImgs([0])[0]["file_name"] == "b.jpg"
         assert api.loadImgs([1])[0]["file_name"] == "a.jpg"
 
+    def test_yolo_coco_api_infers_labels_from_image_files(self, tmp_path):
+        images_dir = tmp_path / "images" / "val"
+        labels_dir = tmp_path / "labels" / "val"
+        images_dir.mkdir(parents=True)
+        labels_dir.mkdir(parents=True)
+
+        from PIL import Image
+
+        image_path = images_dir / "img.jpg"
+        Image.new("RGB", (100, 100)).save(image_path)
+        (labels_dir / "img.txt").write_text("0 0.5 0.5 0.2 0.2\n")
+
+        api = YOLOCocoAPI(None, None, ["cat"], image_files=[image_path])
+
+        assert len(api.imgs) == 1
+        assert len(api.anns) == 1
+
     def test_yolo_coco_api_empty_segmentation_decodes_to_empty_mask(self, tmp_path):
         images_dir = tmp_path / "images"
         labels_dir = tmp_path / "labels"
