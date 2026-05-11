@@ -194,6 +194,7 @@ class BaseModel(ABC):
         original_size: Tuple[int, int],
         max_det: int = 300,
         ratio: float = 1.0,
+        **kwargs,
     ) -> Dict:
         """Postprocess model output to detections."""
         pass
