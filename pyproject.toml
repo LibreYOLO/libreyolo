@@ -39,8 +39,11 @@ rfdetr = [
     "rfdetr>=1.6.2,<2.0.0",
 ]
 tensorrt = [
-    "tensorrt-cu12",
-    "pycuda>=2022.1",
+    # NVIDIA publishes wheels for Linux (x86_64 + aarch64 for Jetson/Grace)
+    # and Windows. macOS has no CUDA support, so skip there. Markers let
+    # `pip install .[all]` succeed on macOS by silently dropping these.
+    "tensorrt-cu12; sys_platform != 'darwin'",
+    "pycuda>=2022.1; sys_platform != 'darwin'",
 ]
 openvino = [
     "openvino>=2024.0.0",
