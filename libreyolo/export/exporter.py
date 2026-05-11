@@ -686,6 +686,7 @@ class CoreMLExporter(BaseExporter):
     suffix = ".mlpackage"
     requires_onnx = False
     supports_int8 = False
+    supports_fp16 = True
     apply_model_half = False  # ct.convert handles precision via compute_precision
 
     def _export(
