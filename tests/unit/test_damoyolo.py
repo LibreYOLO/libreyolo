@@ -22,6 +22,12 @@ from libreyolo.models.damoyolo.model import LibreDAMOYOLO  # noqa: E402
 from libreyolo.models.damoyolo.nn import SIZES, build_damoyolo  # noqa: E402
 
 
+def test_top_level_export():
+    from libreyolo import LibreDAMOYOLO as TopLevelDAMOYOLO
+
+    assert TopLevelDAMOYOLO is LibreDAMOYOLO
+
+
 # Param count budget per size. Upper bound is ~10 percent above the
 # build figure; this catches accidental architecture drift.
 _EXPECTED_PARAMS_M = {

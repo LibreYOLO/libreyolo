@@ -15,6 +15,7 @@ from .models import (
     LibreDEIMv2,
     LibreEC,
     LibrePICODET,
+    LibreDAMOYOLO,
     LibreRTDETR,
     LibreRTDETRv2,
     LibreRTDETRv4,
@@ -104,6 +105,7 @@ __all__ = [
     "LibreDEIMv2",
     "LibreEC",
     "LibrePICODET",
+    "LibreDAMOYOLO",
     "LibreRTMDet",
     # Results
     "Results",
