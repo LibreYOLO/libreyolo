@@ -53,6 +53,9 @@ tracking = [
     "scipy>=1.7.0",
 ]
 rtdetr = ["scipy>=1.7.0"]
+coreml = [
+    "coremltools>=8.0",
+]
 all = [
     "libreyolo[onnx]",
     "libreyolo[rfdetr]",
@@ -61,6 +64,7 @@ all = [
     "libreyolo[ncnn]",
     "libreyolo[tracking]",
     "libreyolo[rtdetr]",
+    "libreyolo[coreml]",
 ]
 
 [project.scripts]
@@ -132,6 +136,7 @@ markers = [
     "trt: alias for TensorRT tests requiring TensorRT",
     "openvino: tests requiring OpenVINO",
     "ncnn: tests requiring ncnn",
+    "coreml: tests requiring CoreML (macOS only)",
     "yolox: tests covering the YOLOX model family",
     "yolo9: tests covering the YOLO9 model family",
     "yolonas: tests covering the YOLO-NAS model family",
