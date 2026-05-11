@@ -699,6 +699,8 @@ class CoreMLExporter(BaseExporter):
         metadata,
         compute_units="all",
         nms=False,
+        iou=0.45,
+        conf=0.25,
         **kwargs,
     ):
         from .coreml import export_coreml
@@ -710,6 +712,8 @@ class CoreMLExporter(BaseExporter):
             precision=precision,
             compute_units=compute_units,
             nms=nms,
+            iou=iou,
+            conf=conf,
             metadata=metadata,
             model_family=self.model._get_model_name(),
         )
