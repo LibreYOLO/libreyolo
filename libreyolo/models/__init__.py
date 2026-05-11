@@ -150,6 +150,7 @@ def LibreYOLO(
     nb_classes: int | None = None,
     device: str = "auto",
     task: str | None = None,
+    compute_units: str = "all",
 ):
     """
     Unified factory that detects model family from weights and returns
@@ -163,6 +164,9 @@ def LibreYOLO(
         nb_classes: Number of classes (auto-detected if omitted).
         device: Device for inference ("auto", "cuda", "cpu", "mps").
         task: Optional explicit task ("detect", "segment", "pose", "classify").
+        compute_units: CoreML-only — Apple silicon routing for .mlpackage loads.
+                       One of "all", "cpu_only", "cpu_and_gpu", "cpu_and_ne".
+                       Ignored for non-CoreML formats.
 
     Returns:
         Model instance (LibreYOLOX, LibreYOLO9, LibreYOLORFDETR, or inference backend).
@@ -205,7 +209,12 @@ def LibreYOLO(
     if Path(model_path).is_dir() and Path(model_path).suffix == ".mlpackage":
         from ..backends.coreml import CoreMLBackend
 
-        return CoreMLBackend(model_path, nb_classes=nb_classes or 80, device=device)
+        return CoreMLBackend(
+            model_path,
+            nb_classes=nb_classes or 80,
+            device=device,
+            compute_units=compute_units,
+        )
 
     if Path(model_path).is_dir():
         ncnn_param = Path(model_path) / "model.ncnn.param"
