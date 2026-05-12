@@ -95,6 +95,23 @@ def _wrap_for_family(nn_model: nn.Module, model_family: str | None) -> nn.Module
     return nn_model
 
 
+def _prepare_yolo9_static_eval(nn_model: nn.Module) -> None:
+    """Convert YOLOv9 head.stride from tensor to a Python list of ints.
+
+    The head's _make_anchors iterates ``self.stride`` to build per-scale anchor
+    grids. When ``stride`` is a tensor, torch.jit.trace records length-1 int
+    tensors that coremltools 9+ rejects in its `int` cast op (numpy 2.x stopped
+    accepting int(array([n])) for shape-(1,) arrays). A plain Python list
+    iterates as Python ints and the trace stays clean.
+    """
+    head = getattr(nn_model, "head", None)
+    if head is None:
+        return
+    stride = getattr(head, "stride", None)
+    if isinstance(stride, torch.Tensor):
+        head.stride = stride.tolist()
+
+
 def _prepare_rtdetr_static_eval(nn_model: nn.Module, height: int, width: int) -> None:
     """Precompute RT-DETR eval tensors for the fixed CoreML export image size."""
     device = next(nn_model.parameters(), torch.empty(0)).device
@@ -265,6 +282,8 @@ def export_coreml(
             height=int(dummy.shape[2]),
             width=int(dummy.shape[3]),
         )
+    elif family == "yolo9":
+        _prepare_yolo9_static_eval(nn_model)
 
     wrapped = _wrap_for_family(nn_model.eval(), model_family).eval()
     if nms:
