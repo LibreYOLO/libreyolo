@@ -23,31 +23,26 @@ def _macos_only():
     pytest.importorskip("coremltools")
 
 
-def _load_yolox_nano():
+def _load_or_skip(filename: str):
+    """Load a model via the LibreYOLO factory (which auto-downloads on miss).
+
+    Skips the test only if the factory itself errors — e.g. network failure
+    or unknown filename pattern.
+    """
     from libreyolo import LibreYOLO
 
-    candidates = [
-        REPO_ROOT / "weights" / "LibreYOLOXn.pt",
-        REPO_ROOT / "weights" / "yolox_nano.pt",
-    ]
-    for p in candidates:
-        if p.exists():
-            return LibreYOLO(str(p))
     try:
-        from libreyolo import download_weights
-        download_weights("weights/LibreYOLOXn.pt", "nano")
-        return LibreYOLO("weights/LibreYOLOXn.pt")
-    except Exception:
-        pytest.skip("No YOLOX nano .pt model found and could not download one")
+        return LibreYOLO(filename)
+    except Exception as e:
+        pytest.skip(f"Could not load {filename}: {e}")
+
+
+def _load_yolox_nano():
+    return _load_or_skip("LibreYOLOXn.pt")
 
 
 def _load_yolo9_tiny():
-    from libreyolo import LibreYOLO
-
-    p = REPO_ROOT / "weights" / "LibreYOLO9t.pt"
-    if not p.exists():
-        pytest.skip("YOLO9-t weights not present")
-    return LibreYOLO(str(p))
+    return _load_or_skip("LibreYOLO9t.pt")
 
 
 def _assert_parity(pt_res, cm_res, *, conf_tol: float = 1e-3) -> None:
@@ -146,13 +141,7 @@ def test_compute_units_kwarg_accepted(tmp_path):
 
 
 def test_rfdetr_nms_true_raises(tmp_path):
-    from libreyolo import LibreYOLO
-
-    rfdetr_model_path = REPO_ROOT / "weights" / "rf-detr-nano.pth"
-    if not rfdetr_model_path.exists():
-        pytest.skip("RF-DETR model not found in weights/rf-detr-nano.pth")
-
-    rfdetr = LibreYOLO("rf-detr-nano.pth")
+    rfdetr = _load_or_skip("LibreRFDETRn.pt")
     with pytest.raises(NotImplementedError, match="RF-DETR"):
         rfdetr.export(
             format="coreml",
