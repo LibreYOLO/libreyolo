@@ -39,10 +39,9 @@ rfdetr = [
     "rfdetr>=1.6.2,<2.0.0",
 ]
 tensorrt = [
-    # NVIDIA publishes wheels for Linux (x86_64 + aarch64 for Jetson/Grace)
-    # and Windows. macOS has no CUDA support, so skip there. Markers let
-    # `pip install .[all]` succeed on macOS by silently dropping these.
-    "tensorrt-cu12; sys_platform != 'darwin'",
+    # No CUDA on macOS; marker drops these. Version pin must match the
+    # [[tool.uv.dependency-metadata]] blocks below.
+    "tensorrt-cu12==10.16.1.11; sys_platform != 'darwin'",
     "pycuda>=2022.1; sys_platform != 'darwin'",
 ]
 openvino = [
@@ -89,6 +88,29 @@ include = ["libreyolo*"]
 [build-system]
 requires = ["setuptools>=61", "wheel"]
 build-backend = "setuptools.build_meta"
+
+# tensorrt-cu12 is sdist-only and its setup.py refuses to run on macOS, so
+# uv's universal lock can't extract its metadata on darwin hosts. Static
+# metadata lets uv resolve the non-darwin fork without building. Bump in
+# lockstep with the version pin in [project.optional-dependencies].tensorrt.
+[[tool.uv.dependency-metadata]]
+name = "tensorrt-cu12"
+version = "10.16.1.11"
+requires-dist = [
+    "tensorrt-cu12-libs==10.16.1.11",
+    "tensorrt-cu12-bindings==10.16.1.11",
+]
+requires-python = ">=3.8"
+
+[[tool.uv.dependency-metadata]]
+name = "tensorrt-cu12-libs"
+version = "10.16.1.11"
+requires-dist = []
+
+[[tool.uv.dependency-metadata]]
+name = "tensorrt-cu12-bindings"
+version = "10.16.1.11"
+requires-dist = []
 
 [tool.ruff]
 # Vendored from upstream DEIMv2. Keep local lint focused on the LibreYOLO
