@@ -141,6 +141,11 @@ def test_compute_units_kwarg_accepted(tmp_path):
 
 
 def test_rfdetr_nms_true_raises(tmp_path):
+    # RF-DETR auto-detection requires the rfdetr extra to be installed
+    # (the LibreYOLORFDETR wrapper is registered lazily via _ensure_rfdetr).
+    # Without it, the factory can't resolve size from the filename and the
+    # download path fails. Install with: pip install -e ".[coreml,rfdetr]"
+    pytest.importorskip("rfdetr")
     rfdetr = _load_or_skip("LibreRFDETRn.pt")
     with pytest.raises(NotImplementedError, match="RF-DETR"):
         rfdetr.export(
