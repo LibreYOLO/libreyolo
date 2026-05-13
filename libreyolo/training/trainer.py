@@ -402,10 +402,18 @@ class BaseTrainer(ABC):
             self._dispatch_artifact_callbacks("on_train_start", start_event)
             self.callbacks.on_train_start(start_event)
 
+            no_aug_start = self.config.epochs - self.config.no_aug_epochs
+            if self.config.no_aug_epochs > 0 and self.start_epoch > no_aug_start:
+                logger.info(
+                    f"Resumed past no-aug threshold (epoch {self.start_epoch} > {no_aug_start}), "
+                    f"disabling mosaic/mixup immediately"
+                )
+                self.on_mosaic_disable()
+
             for epoch in range(self.start_epoch, self.config.epochs):
                 self.current_epoch = epoch
 
-                if epoch == self.config.epochs - self.config.no_aug_epochs:
+                if epoch == no_aug_start:
                     logger.info(
                         f"Disabling mosaic/mixup for final {self.config.no_aug_epochs} epochs"
                     )
