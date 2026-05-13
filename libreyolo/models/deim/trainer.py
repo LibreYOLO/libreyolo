@@ -498,7 +498,7 @@ class DEIMTrainer(BaseTrainer):
                 for pg in self.optimizer.param_groups:
                     pg["lr"] = base_lr * pg.get("lr_mult", 1.0)
 
-            loss_val = loss.item() * accum
+            loss_val = loss.item() * actual_window
             loss_components = self.get_loss_components(outputs)
             total_loss += loss_val
             num_batches += 1

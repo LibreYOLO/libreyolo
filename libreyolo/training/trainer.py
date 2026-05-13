@@ -85,8 +85,9 @@ class BaseTrainer(ABC):
 
     @property
     def effective_lr(self) -> float:
-        """Learning rate scaled by batch size (linear scaling rule)."""
-        return self.config.lr0 * self.config.batch / 64
+        """Learning rate scaled by effective batch size (linear scaling rule)."""
+        effective_batch = self.config.batch * max(1, self.config.grad_accum_steps)
+        return self.config.lr0 * effective_batch / 64
 
     @property
     def input_size(self) -> Tuple[int, int]:
@@ -497,7 +498,7 @@ class BaseTrainer(ABC):
                 for param_group in self.optimizer.param_groups:
                     param_group["lr"] = self._scale_lr(lr, param_group)
 
-            loss_val = loss.item() * accum
+            loss_val = loss.item() * actual_window
             loss_components = self.get_loss_components(outputs)
             total_loss += loss_val
             num_batches += 1
