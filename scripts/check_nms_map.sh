@@ -87,14 +87,16 @@ else
     git checkout "$BASELINE_BRANCH"
     echo "  >>> Now on branch: $(git rev-parse --abbrev-ref HEAD)"
     echo
+    _TMP_BASELINE="$(mktemp /tmp/baseline_XXXXXX.json)"
     BASELINE_EXIT=0
     python "$_TMP_SCRIPT" \
-        --save-baseline "$BASELINE_FILE" \
+        --save-baseline "$_TMP_BASELINE" \
         --device "$DEVICE" \
         "${MODELS_ARGS[@]+"${MODELS_ARGS[@]}"}" || BASELINE_EXIT=$?
     echo
     echo "  >>> Switching back to branch: $FEATURE_BRANCH"
     git checkout "$FEATURE_BRANCH"
+    mv "$_TMP_BASELINE" "$BASELINE_FILE"
     rm -f "$_TMP_SCRIPT"
     echo "  >>> Now on branch: $(git rev-parse --abbrev-ref HEAD)"
     echo
