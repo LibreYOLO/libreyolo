@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Dict, Generator, List, Optional, Tuple, Union
 
 import torch
+from torchvision.ops import batched_nms
 
 from ...utils.drawing import draw_boxes, draw_keypoints, draw_masks, draw_tile_grid
 from ...utils.general import get_safe_stem, get_slice_bboxes, resolve_save_path
@@ -523,8 +524,6 @@ class InferenceRunner:
         """Merge detections from tiles using class-wise NMS."""
         if not boxes:
             return [], [], []
-
-        from torchvision.ops import batched_nms
 
         boxes_t = torch.tensor(boxes, dtype=torch.float32, device=self.model.device)
         scores_t = torch.tensor(scores, dtype=torch.float32, device=self.model.device)

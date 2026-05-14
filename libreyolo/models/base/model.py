@@ -16,6 +16,7 @@ from typing import Any, Callable, ClassVar, Dict, Generator, List, Optional, Tup
 import torch
 import torch.nn as nn
 from PIL import Image
+from torchvision.ops import batched_nms
 
 from ...tasks import (
     detect_task_suffix,
@@ -554,8 +555,6 @@ class BaseModel(ABC):
         classes: Optional[List[int]] = None,
     ) -> Results:
         """Merge TTA detections from multiple augmented views via per-class NMS."""
-        from torchvision.ops import batched_nms
-
         from ...utils.results import Boxes, Masks, Results
 
         orig_w, orig_h = original_size
