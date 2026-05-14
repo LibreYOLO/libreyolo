@@ -79,19 +79,23 @@ if [[ $SKIP_BASELINE -eq 1 ]]; then
 else
     header "Stage 1 — baseline on '$BASELINE_BRANCH'"
     guard_clean_tree
+    # Copy the script before switching branches — it only exists on the feature branch.
+    _TMP_SCRIPT="$(mktemp /tmp/spot_check_val_map_XXXXXX.py)"
+    cp scripts/spot_check_val_map.py "$_TMP_SCRIPT"
     echo
     echo "  >>> Switching to branch: $BASELINE_BRANCH"
     git checkout "$BASELINE_BRANCH"
     echo "  >>> Now on branch: $(git rev-parse --abbrev-ref HEAD)"
     echo
     BASELINE_EXIT=0
-    python scripts/spot_check_val_map.py \
+    python "$_TMP_SCRIPT" \
         --save-baseline "$BASELINE_FILE" \
         --device "$DEVICE" \
         "${MODELS_ARGS[@]+"${MODELS_ARGS[@]}"}" || BASELINE_EXIT=$?
     echo
     echo "  >>> Switching back to branch: $FEATURE_BRANCH"
     git checkout "$FEATURE_BRANCH"
+    rm -f "$_TMP_SCRIPT"
     echo "  >>> Now on branch: $(git rev-parse --abbrev-ref HEAD)"
     echo
     if [[ $BASELINE_EXIT -ne 0 ]]; then
