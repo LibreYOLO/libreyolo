@@ -5,6 +5,7 @@ from typing import Dict, List, Tuple, Union
 from urllib.parse import urlparse
 
 import torch
+import torchvision.ops
 
 
 # =============================================================================
@@ -370,16 +371,22 @@ def postprocess_detections(
     if len(boxes) == 0:
         return {"boxes": [], "scores": [], "classes": [], "num_detections": 0}
 
-    # Per-class NMS
-    # Single batched-NMS call across all classes. Equivalent to the previous
-    # ``for cls in unique_classes: torchvision.ops.nms(boxes + cls*max_wh, ...)``
-    # loop but in one CUDA dispatch instead of one per class — eliminates the
-    # ~80-iteration Python loop on COCO (especially during validation, which
-    # forces conf_thres=0.0 and so cannot rely on the conf prefilter to shrink
-    # ``unique_classes``). torchvision is a hard dependency via torch itself,
-    # so no fallback is needed.
-    import torchvision.ops
+    # Drop NaN/Inf boxes — batched_nms has undefined behaviour on non-finite
+    # values and can return wrong indices or raise on CUDA.
+    finite_mask = torch.isfinite(boxes).all(dim=1) & torch.isfinite(scores)
+    if not finite_mask.all():
+        boxes = boxes[finite_mask]
+        scores = scores[finite_mask]
+        class_ids = class_ids[finite_mask]
 
+    if len(boxes) == 0:
+        return {"boxes": [], "scores": [], "classes": [], "num_detections": 0}
+
+    # Per-class NMS — single batched dispatch instead of one kernel per class.
+    # Equivalent to the previous ``for cls in unique_classes: ops.nms(...)``
+    # loop (same class-offset trick, same CUDA kernel) but avoids the ~80-
+    # iteration Python loop on COCO, especially during validation which forces
+    # conf_thres=0.0 and so cannot rely on the conf prefilter to shrink classes.
     keep_indices = torchvision.ops.batched_nms(boxes, scores, class_ids, iou_thres)
 
     if len(keep_indices) == 0:
