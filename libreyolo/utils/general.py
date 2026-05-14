@@ -403,10 +403,11 @@ def postprocess_detections(
     if len(keep_indices) == 0:
         return {"boxes": [], "scores": [], "classes": [], "num_detections": 0}
 
-    # ``batched_nms`` returns indices already sorted by descending score, so
-    # the first ``max_det`` are the top-K — no extra topk needed.
+    # Use topk rather than relying on batched_nms output order, which is an
+    # undocumented implementation detail that could change across torchvision versions.
     if len(keep_indices) > max_det:
-        keep_indices = keep_indices[:max_det]
+        _, top_indices = torch.topk(scores[keep_indices], max_det)
+        keep_indices = keep_indices[top_indices]
 
     final_boxes = boxes[keep_indices].cpu().numpy()
     final_scores = scores[keep_indices].cpu().numpy()

@@ -530,8 +530,6 @@ class InferenceRunner:
         if not boxes:
             return [], [], []
 
-        from torchvision.ops import batched_nms
-
         boxes_t = torch.tensor(boxes, dtype=torch.float32, device=self.model.device)
         scores_t = torch.tensor(scores, dtype=torch.float32, device=self.model.device)
         classes_t = torch.tensor(classes, dtype=torch.int64, device=self.model.device)
