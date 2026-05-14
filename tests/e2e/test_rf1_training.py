@@ -16,6 +16,7 @@ Usage:
 import json
 import shutil
 import subprocess
+import urllib.request
 from pathlib import Path
 
 import pytest
@@ -39,26 +40,56 @@ pytestmark = [pytest.mark.e2e, pytest.mark.rf1]
 DATASET_ROOT = Path.home() / ".cache" / "libreyolo" / "marbles"
 HF_REPO = "LibreYOLO/marbles"
 HF_REPO_URL = f"https://huggingface.co/datasets/{HF_REPO}"
+_HF_RESOLVE = f"https://huggingface.co/datasets/{HF_REPO}/resolve/main"
+_LFS_MAGIC = b"version https://git-lfs.github.com/spec/v1"
+
+
+def _is_lfs_pointer(path: Path) -> bool:
+    """Return True when path contains a Git LFS pointer instead of real data."""
+    try:
+        return path.read_bytes().startswith(_LFS_MAGIC)
+    except OSError:
+        return False
+
+
+def _fetch_lfs_files(root: Path) -> None:
+    """Replace any Git LFS pointer files under root with real content via HTTPS.
+
+    git clone without git-lfs installed leaves pointer stubs. We resolve them
+    by downloading directly from HuggingFace's resolve endpoint, which handles
+    LFS transparently — no git-lfs binary required.
+    """
+    pointers = [p for p in root.rglob("*") if p.is_file() and _is_lfs_pointer(p)]
+    if not pointers:
+        return
+
+    print(f"\nFetching {len(pointers)} LFS file(s) from HuggingFace ...")
+    for path in pointers:
+        rel = path.relative_to(root)
+        url = f"{_HF_RESOLVE}/{rel.as_posix()}"
+        urllib.request.urlretrieve(url, path)
+    print("LFS fetch complete.")
 
 
 def download_marbles_dataset():
     """Download the marbles dataset from HuggingFace if not already cached."""
-    if DATASET_ROOT.exists() and (DATASET_ROOT / "data.yaml").exists():
-        return
+    if not (DATASET_ROOT.exists() and (DATASET_ROOT / "data.yaml").exists()):
+        print(f"\nDownloading dataset {HF_REPO} from HuggingFace ...")
+        DATASET_ROOT.parent.mkdir(parents=True, exist_ok=True)
 
-    print(f"\nDownloading dataset {HF_REPO} from HuggingFace ...")
-    DATASET_ROOT.parent.mkdir(parents=True, exist_ok=True)
+        subprocess.run(
+            [
+                "git",
+                "clone",
+                f"https://huggingface.co/datasets/{HF_REPO}",
+                str(DATASET_ROOT),
+            ],
+            check=True,
+        )
+        print(f"Dataset downloaded to {DATASET_ROOT}")
 
-    subprocess.run(
-        [
-            "git",
-            "clone",
-            f"https://huggingface.co/datasets/{HF_REPO}",
-            str(DATASET_ROOT),
-        ],
-        check=True,
-    )
-    print(f"Dataset downloaded to {DATASET_ROOT}")
+    # Resolve any LFS pointers left by a git clone without git-lfs installed.
+    _fetch_lfs_files(DATASET_ROOT)
 
 
 def patch_data_yaml():
