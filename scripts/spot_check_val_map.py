@@ -59,8 +59,8 @@ MODEL_REGISTRY: dict[str, tuple[str, str]] = {
 }
 
 VAL_KWARGS = dict(
-    data="coco128.yaml",
-    batch=16,
+    data="coco.yaml",
+    batch=32,
     conf=0.001,   # COCO-standard low threshold to exercise NMS fully
     iou=0.6,
     verbose=False,
@@ -178,8 +178,8 @@ def parse_args() -> argparse.Namespace:
     )
     p.add_argument(
         "--device",
-        default="auto",
-        help="Device string passed to LibreYOLO (default: auto).",
+        default="cuda",
+        help="Device string passed to LibreYOLO (default: cuda).",
     )
     return p.parse_args()
 
