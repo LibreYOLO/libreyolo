@@ -95,21 +95,42 @@ def _wrap_for_family(nn_model: nn.Module, model_family: str | None) -> nn.Module
     return nn_model
 
 
-def _prepare_yolo9_static_eval(nn_model: nn.Module) -> None:
-    """Convert YOLOv9 head.stride from tensor to a Python list of ints.
+def _prepare_yolo9_static_eval(nn_model: nn.Module, dummy: torch.Tensor):
+    """Bake YOLOv9 head anchors as constants for the fixed CoreML export size.
 
-    The head's _make_anchors iterates ``self.stride`` to build per-scale anchor
-    grids. When ``stride`` is a tensor, torch.jit.trace records length-1 int
-    tensors that coremltools 9+ rejects in its `int` cast op (numpy 2.x stopped
-    accepting int(array([n])) for shape-(1,) arrays). A plain Python list
-    iterates as Python ints and the trace stays clean.
+    The head's ``_make_anchors`` rebuilds per-scale anchor grids from traced
+    feature-map shapes on every forward. Tracing that produces length-1 int
+    tensors (``h * w`` products) that coremltools 9+ rejects in its ``int``
+    cast op (numpy 2.x stopped accepting ``int(array([n]))``). A warm-up
+    forward populates ``head.anchors`` / ``head.strides``; we then swap
+    ``_make_anchors`` for a stub returning those frozen tensors, so the traced
+    graph carries constants instead of shape arithmetic.
+
+    Returns a callable that restores the original ``_make_anchors``.
     """
     head = getattr(nn_model, "head", None)
-    if head is None:
-        return
-    stride = getattr(head, "stride", None)
-    if isinstance(stride, torch.Tensor):
-        head.stride = stride.tolist()
+    if head is None or not hasattr(head, "_make_anchors"):
+        return lambda: None
+
+    # Warm-up forward: input values are irrelevant — anchors depend only on
+    # the feature-map geometry, which is fixed by dummy's H/W.
+    with torch.no_grad():
+        nn_model(dummy)
+
+    frozen_anchors = head.anchors.detach().clone()
+    frozen_strides = head.strides.detach().clone()
+
+    def _const_make_anchors(feats, strides, grid_cell_offset=0.5):
+        # The head transposes each returned tensor; pre-transpose so the
+        # round-trip reproduces the frozen (post-transpose) values.
+        return frozen_anchors.transpose(0, 1), frozen_strides.transpose(0, 1)
+
+    head._make_anchors = _const_make_anchors
+
+    def _restore():
+        head.__dict__.pop("_make_anchors", None)
+
+    return _restore
 
 
 def _prepare_rtdetr_static_eval(nn_model: nn.Module, height: int, width: int) -> None:
@@ -276,6 +297,7 @@ def export_coreml(
             "application."
         )
 
+    yolo9_restore = None
     if family == "rtdetr":
         _prepare_rtdetr_static_eval(
             nn_model,
@@ -283,7 +305,7 @@ def export_coreml(
             width=int(dummy.shape[3]),
         )
     elif family == "yolo9":
-        _prepare_yolo9_static_eval(nn_model)
+        yolo9_restore = _prepare_yolo9_static_eval(nn_model, dummy)
 
     wrapped = _wrap_for_family(nn_model.eval(), model_family).eval()
     if nms:
@@ -296,7 +318,11 @@ def export_coreml(
     )
     if nms and canonical_dummy.shape[0] != 1:
         raise RuntimeError("CoreML embedded NMS export currently requires batch=1")
-    traced = torch.jit.trace(wrapped, canonical_dummy)
+    try:
+        traced = torch.jit.trace(wrapped, canonical_dummy)
+    finally:
+        if yolo9_restore is not None:
+            yolo9_restore()
 
     image_input = ct.ImageType(
         name="image",
