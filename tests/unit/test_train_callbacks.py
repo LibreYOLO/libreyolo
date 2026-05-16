@@ -45,6 +45,8 @@ def _event() -> TrainEpochEvent:
         val_metrics={},
         validated=False,
         is_best=False,
+        current_metric=None,
+        current_metric_name=None,
         best_metric=None,
         best_metric_name=None,
         best_epoch=None,
@@ -105,20 +107,22 @@ class CallbackTrainer(DummyTrainer):
         self._is_setup = True
 
     def _train_epoch(self, epoch: int):
+        metric = 0.7 if epoch == 0 else 0.5
+        map50 = 0.6 if epoch == 0 else 0.4
         return (
-            1.5,
+            1.5 + epoch,
             {
-                "mAP50": 0.6,
-                "mAP50_95": 0.7,
-                "best_metric": 0.7,
+                "mAP50": map50,
+                "mAP50_95": metric,
+                "best_metric": metric,
                 "best_metric_key": "metrics/mAP50-95",
                 "metrics": {
-                    "metrics/mAP50": 0.6,
-                    "metrics/mAP50-95": 0.7,
+                    "metrics/mAP50": map50,
+                    "metrics/mAP50-95": metric,
                     "ignored/list": [1, 2],
                 },
             },
-            {"box": torch.tensor(0.2), "cls": 0.3},
+            {"box": torch.tensor(0.2), "cls": 0.3, "dfl": 0.4},
             {"group0": 0.01},
         )
 
@@ -142,8 +146,8 @@ def test_train_emits_epoch_callback_after_best_update_and_checkpoint(tmp_path):
         data=None,
         device="cpu",
         ema=False,
-        epochs=1,
-        save_period=1,
+        epochs=2,
+        save_period=10,
         callbacks=received.append,
     )
     trainer._test_save_dir = tmp_path
@@ -151,19 +155,54 @@ def test_train_emits_epoch_callback_after_best_update_and_checkpoint(tmp_path):
 
     results = trainer.train()
 
-    assert results["final_loss"] == pytest.approx(1.5)
-    assert len(received) == 1
+    assert results["final_loss"] == pytest.approx(2.5)
+    assert results["epoch_losses"] == [pytest.approx(1.5), pytest.approx(2.5)]
+    assert results["epoch_lrs"] == [
+        {"group0": pytest.approx(0.01)},
+        {"group0": pytest.approx(0.01)},
+    ]
+    assert results["epoch_loss_items"] == [
+        {
+            "box": pytest.approx(0.2),
+            "cls": pytest.approx(0.3),
+            "dfl": pytest.approx(0.4),
+        },
+        {
+            "box": pytest.approx(0.2),
+            "cls": pytest.approx(0.3),
+            "dfl": pytest.approx(0.4),
+        },
+    ]
+    assert results["val_metrics"] == [
+        {
+            "metrics/mAP50": pytest.approx(0.6),
+            "metrics/mAP50-95": pytest.approx(0.7),
+        },
+        {
+            "metrics/mAP50": pytest.approx(0.4),
+            "metrics/mAP50-95": pytest.approx(0.5),
+        },
+    ]
+    assert results["epoch_metrics"][0]["train_loss"] == pytest.approx(1.5)
+    assert results["epoch_metrics"][0]["is_best"] is True
+    assert results["epoch_metrics"][0]["current_metric"] == pytest.approx(0.7)
+    assert results["epoch_metrics"][0]["best_metric"] == pytest.approx(0.7)
+    assert results["epoch_metrics"][1]["current_metric"] == pytest.approx(0.5)
+    assert results["epoch_metrics"][1]["best_metric"] == pytest.approx(0.7)
+    assert len(received) == 2
     assert trainer.saved_checkpoints[0]["is_best"] is True
+    assert trainer.saved_checkpoints[1]["is_best"] is False
 
     event = received[0]
     assert event.epoch == 1
-    assert event.total_epochs == 1
+    assert event.total_epochs == 2
     assert event.model_family == "dummy"
     assert event.task == "detect"
     assert event.train_loss == pytest.approx(1.5)
     assert dict(event.train_loss_items) == {
         "box": pytest.approx(0.2),
         "cls": pytest.approx(0.3),
+        "dfl": pytest.approx(0.4),
     }
     assert dict(event.lr) == {"group0": 0.01}
     assert event.validated is True
@@ -172,6 +211,16 @@ def test_train_emits_epoch_callback_after_best_update_and_checkpoint(tmp_path):
         "metrics/mAP50-95": 0.7,
     }
     assert event.is_best is True
+    assert event.current_metric == pytest.approx(0.7)
+    assert event.current_metric_name == "metrics/mAP50-95"
+    assert event.best_metric == pytest.approx(0.7)
+    assert event.best_metric_name == "metrics/mAP50-95"
+    assert event.best_epoch == 1
+
+    event = received[1]
+    assert event.is_best is False
+    assert event.current_metric == pytest.approx(0.5)
+    assert event.current_metric_name == "metrics/mAP50-95"
     assert event.best_metric == pytest.approx(0.7)
     assert event.best_metric_name == "metrics/mAP50-95"
     assert event.best_epoch == 1
@@ -192,6 +241,25 @@ def test_legacy_two_value_epoch_result_still_normalizes_lr():
     assert val_metrics is None
     assert loss_items == {}
     assert lr == {"group0": 0.25}
+
+
+def test_yolo9_loss_components_match_epoch_event_names():
+    from libreyolo.models.yolo9.trainer import YOLO9Trainer
+
+    components = YOLO9Trainer.get_loss_components(
+        None,
+        {
+            "box": torch.tensor(0.2),
+            "cls": torch.tensor(0.3),
+            "dfl": torch.tensor(0.4),
+        },
+    )
+
+    assert components == {
+        "box": pytest.approx(0.2),
+        "cls": pytest.approx(0.3),
+        "dfl": pytest.approx(0.4),
+    }
 
 
 def test_rtdetr_loss_components_sum_main_aux_and_denoising_terms():

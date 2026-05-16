@@ -410,7 +410,9 @@ class DEIMTrainer(BaseTrainer):
     # _train_epoch override — set_epoch propagation, grad clip, per-group LR
     # =========================================================================
 
-    def _train_epoch(self, epoch: int) -> Tuple[float, Optional[Dict[str, float]]]:
+    def _train_epoch(
+        self, epoch: int
+    ) -> Tuple[float, Optional[Dict[str, float]], Dict[str, float], Dict[str, float]]:
         """Copy of ``BaseTrainer._train_epoch`` with three DEIM-specific tweaks:
 
         1. Propagate the current epoch to dataset + collate (drives stop_epoch
@@ -439,6 +441,7 @@ class DEIMTrainer(BaseTrainer):
 
         total_loss = 0.0
         num_batches = 0
+        loss_component_sums: Dict[str, float] = {}
 
         for batch_idx, batch in enumerate(pbar):
             if len(batch) == 5:
@@ -479,8 +482,10 @@ class DEIMTrainer(BaseTrainer):
                 self.ema_model.update(self.model)
 
             loss_val = loss.item()
-            loss_components = self.get_loss_components(outputs)
+            loss_components = self._scalar_mapping(self.get_loss_components(outputs))
             total_loss += loss_val
+            for name, value in loss_components.items():
+                loss_component_sums[name] = loss_component_sums.get(name, 0.0) + value
             del outputs, loss
 
             # 3. Per-group LR (scheduler returns one base LR; each group
@@ -506,7 +511,11 @@ class DEIMTrainer(BaseTrainer):
                         f"train/{name}", val, self.current_iter
                     )
 
-        avg_loss = total_loss / max(num_batches, 1)
+        num_batches = max(num_batches, 1)
+        avg_loss = total_loss / num_batches
+        avg_loss_components = {
+            name: value / num_batches for name, value in loss_component_sums.items()
+        }
 
         if self.tensorboard_writer:
             self.tensorboard_writer.add_scalar("epoch/loss", avg_loss, epoch)
@@ -525,4 +534,4 @@ class DEIMTrainer(BaseTrainer):
                     "val/mAP50_95", val_metrics["mAP50_95"], epoch
                 )
 
-        return avg_loss, val_metrics
+        return avg_loss, val_metrics, avg_loss_components, self._current_lrs()

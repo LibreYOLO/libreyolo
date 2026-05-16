@@ -62,6 +62,7 @@ class BaseTrainer(ABC):
         self.best_epoch = 0
         self.final_loss = 0.0
         self.epoch_losses: List[float] = []
+        self.epoch_events: List[TrainEpochEvent] = []
         self.patience_counter = 0
 
         # Initialised in setup()
@@ -426,6 +427,7 @@ class BaseTrainer(ABC):
                 is_best=is_best,
                 epoch_seconds=epoch_seconds,
             )
+            self.epoch_events.append(event)
             self.callbacks.on_train_epoch_end(event)
 
             if self.patience_counter >= self.config.patience:
@@ -442,9 +444,16 @@ class BaseTrainer(ABC):
             self.tensorboard_writer.close()
 
         weights_dir = self.save_dir / "weights"
+        epoch_metrics = [self._event_to_dict(event) for event in self.epoch_events]
         return {
             "final_loss": self.final_loss,
             "epoch_losses": list(self.epoch_losses),
+            "epoch_lrs": [dict(event.lr) for event in self.epoch_events],
+            "epoch_loss_items": [
+                dict(event.train_loss_items) for event in self.epoch_events
+            ],
+            "val_metrics": [dict(event.val_metrics) for event in self.epoch_events],
+            "epoch_metrics": epoch_metrics,
             "best_mAP50": self.best_mAP50,
             "best_mAP50_95": self.best_mAP50_95,
             "best_epoch": self.best_epoch,
@@ -485,6 +494,29 @@ class BaseTrainer(ABC):
         return {
             f"group{i}": float(param_group.get("lr", 0.0))
             for i, param_group in enumerate(self.optimizer.param_groups)
+        }
+
+    @staticmethod
+    def _event_to_dict(event: TrainEpochEvent) -> Dict[str, Any]:
+        return {
+            "epoch": event.epoch,
+            "total_epochs": event.total_epochs,
+            "model_family": event.model_family,
+            "model_size": event.model_size,
+            "task": event.task,
+            "save_dir": event.save_dir,
+            "train_loss": event.train_loss,
+            "train_loss_items": dict(event.train_loss_items),
+            "lr": dict(event.lr),
+            "val_metrics": dict(event.val_metrics),
+            "validated": event.validated,
+            "is_best": event.is_best,
+            "current_metric": event.current_metric,
+            "current_metric_name": event.current_metric_name,
+            "best_metric": event.best_metric,
+            "best_metric_name": event.best_metric_name,
+            "best_epoch": event.best_epoch,
+            "epoch_seconds": event.epoch_seconds,
         }
 
     def _normalize_epoch_result(
@@ -549,8 +581,14 @@ class BaseTrainer(ABC):
         is_best: bool,
         epoch_seconds: float,
     ) -> TrainEpochEvent:
-        best_metric = self._best_metric_value(val_metrics) if val_metrics else None
-        best_metric_name = self._best_metric_name(val_metrics) if val_metrics else None
+        current_metric = self._best_metric_value(val_metrics) if val_metrics else None
+        current_metric_name = (
+            self._best_metric_name(val_metrics) if val_metrics else None
+        )
+        best_metric = self.best_mAP50_95 if self.best_epoch else None
+        best_metric_name = (
+            self._best_metric_name(val_metrics) if self.best_epoch else None
+        )
 
         return TrainEpochEvent(
             epoch=epoch + 1,
@@ -565,6 +603,8 @@ class BaseTrainer(ABC):
             val_metrics=self._validation_metrics_for_event(val_metrics),
             validated=bool(val_metrics),
             is_best=is_best,
+            current_metric=current_metric,
+            current_metric_name=current_metric_name,
             best_metric=best_metric,
             best_metric_name=best_metric_name,
             best_epoch=self.best_epoch if self.best_epoch else None,

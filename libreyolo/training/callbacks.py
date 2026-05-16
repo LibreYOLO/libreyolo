@@ -7,7 +7,12 @@ from typing import Callable, Iterable, Mapping, Protocol
 
 @dataclass(frozen=True)
 class TrainEpochEvent:
-    """Data emitted after a training epoch has completed."""
+    """Data emitted after a training epoch has completed.
+
+    ``current_metric`` is the selected validation metric for this epoch.
+    ``best_metric`` is the trainer's best-so-far value after this epoch updates
+    best-state tracking.
+    """
 
     epoch: int
     total_epochs: int
@@ -21,6 +26,8 @@ class TrainEpochEvent:
     val_metrics: Mapping[str, float]
     validated: bool
     is_best: bool
+    current_metric: float | None
+    current_metric_name: str | None
     best_metric: float | None
     best_metric_name: str | None
     best_epoch: int | None
