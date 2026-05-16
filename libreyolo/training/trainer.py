@@ -16,7 +16,14 @@ import torch.nn as nn
 from torch.amp import GradScaler, autocast
 from tqdm import tqdm
 
-from .callbacks import TrainCallbackList, TrainCallbacks, TrainEpochEvent
+from .callbacks import (
+    TrainCallbackList,
+    TrainCallbacks,
+    TrainEndEvent,
+    TrainEpochEvent,
+    TrainExceptionEvent,
+    TrainStartEvent,
+)
 from .config import TrainConfig
 from .ema import ModelEMA
 from ..data.dataset import YOLODataset, COCODataset, create_dataloader
@@ -382,67 +389,86 @@ class BaseTrainer(ABC):
         self._is_setup = True
 
     def train(self) -> Dict:
-        self.setup()
-
-        logger.info(f"Starting training for {self.config.epochs} epochs")
-        logger.info(f"Model: {self.get_model_tag()}")
-        logger.info(f"Batch size: {self.config.batch}")
-        logger.info(f"Learning rate: {self.effective_lr}")
-
         start_time = time.time()
+        try:
+            self.setup()
 
-        for epoch in range(self.start_epoch, self.config.epochs):
-            self.current_epoch = epoch
+            logger.info(f"Starting training for {self.config.epochs} epochs")
+            logger.info(f"Model: {self.get_model_tag()}")
+            logger.info(f"Batch size: {self.config.batch}")
+            logger.info(f"Learning rate: {self.effective_lr}")
 
-            if epoch == self.config.epochs - self.config.no_aug_epochs:
-                logger.info(
-                    f"Disabling mosaic/mixup for final {self.config.no_aug_epochs} epochs"
+            self.callbacks.on_train_start(self._build_train_start_event())
+
+            for epoch in range(self.start_epoch, self.config.epochs):
+                self.current_epoch = epoch
+
+                if epoch == self.config.epochs - self.config.no_aug_epochs:
+                    logger.info(
+                        f"Disabling mosaic/mixup for final {self.config.no_aug_epochs} epochs"
+                    )
+                    self.on_mosaic_disable()
+
+                epoch_start_time = time.time()
+                epoch_result = self._train_epoch(epoch)
+                epoch_seconds = time.time() - epoch_start_time
+                epoch_loss, val_metrics, loss_items, lr = self._normalize_epoch_result(
+                    epoch_result
                 )
-                self.on_mosaic_disable()
+                self.final_loss = epoch_loss
+                self.epoch_losses.append(epoch_loss)
 
-            epoch_start_time = time.time()
-            epoch_result = self._train_epoch(epoch)
-            epoch_seconds = time.time() - epoch_start_time
-            epoch_loss, val_metrics, loss_items, lr = self._normalize_epoch_result(
-                epoch_result
-            )
-            self.final_loss = epoch_loss
-            self.epoch_losses.append(epoch_loss)
-
-            is_best = self._update_best_state(epoch, val_metrics)
-            should_save = (
-                (epoch + 1) % self.config.save_period == 0
-                or epoch == self.config.epochs - 1
-                or is_best
-            )
-            if should_save:
-                self._save_checkpoint(epoch, epoch_loss, val_metrics, is_best=is_best)
-
-            event = self._build_train_epoch_event(
-                epoch=epoch,
-                train_loss=epoch_loss,
-                train_loss_items=loss_items,
-                lr=lr,
-                val_metrics=val_metrics,
-                is_best=is_best,
-                epoch_seconds=epoch_seconds,
-            )
-            self.epoch_events.append(event)
-            self.callbacks.on_train_epoch_end(event)
-
-            if self.patience_counter >= self.config.patience:
-                logger.info(
-                    f"Early stopping triggered after {epoch + 1} epochs "
-                    f"(patience={self.config.patience}, no improvement for {self.patience_counter} epochs)"
+                is_best = self._update_best_state(epoch, val_metrics)
+                should_save = (
+                    (epoch + 1) % self.config.save_period == 0
+                    or epoch == self.config.epochs - 1
+                    or is_best
                 )
-                break
+                if should_save:
+                    self._save_checkpoint(
+                        epoch, epoch_loss, val_metrics, is_best=is_best
+                    )
 
-        total_time = time.time() - start_time
-        logger.info(f"Training complete in {total_time / 3600:.2f} hours")
+                event = self._build_train_epoch_event(
+                    epoch=epoch,
+                    train_loss=epoch_loss,
+                    train_loss_items=loss_items,
+                    lr=lr,
+                    val_metrics=val_metrics,
+                    is_best=is_best,
+                    epoch_seconds=epoch_seconds,
+                )
+                self.epoch_events.append(event)
+                self.callbacks.on_train_epoch_end(event)
 
-        if self.tensorboard_writer:
-            self.tensorboard_writer.close()
+                if self.patience_counter >= self.config.patience:
+                    logger.info(
+                        f"Early stopping triggered after {epoch + 1} epochs "
+                        f"(patience={self.config.patience}, no improvement for {self.patience_counter} epochs)"
+                    )
+                    break
 
+            total_time = time.time() - start_time
+            logger.info(f"Training complete in {total_time / 3600:.2f} hours")
+
+            results = self._build_train_results()
+            self.callbacks.on_train_end(self._build_train_end_event(total_time, results))
+            return results
+
+        except BaseException as exc:
+            elapsed_seconds = time.time() - start_time
+            try:
+                self.callbacks.on_train_exception(
+                    self._build_train_exception_event(exc, elapsed_seconds)
+                )
+            except Exception:
+                logger.exception("Training exception callback failed")
+            raise
+        finally:
+            if self.tensorboard_writer:
+                self.tensorboard_writer.close()
+
+    def _build_train_results(self) -> Dict[str, Any]:
         weights_dir = self.save_dir / "weights"
         epoch_metrics = [self._event_to_dict(event) for event in self.epoch_events]
         return {
@@ -461,6 +487,46 @@ class BaseTrainer(ABC):
             "best_checkpoint": str(weights_dir / "best.pt"),
             "last_checkpoint": str(weights_dir / "last.pt"),
         }
+
+    def _event_context(self) -> Dict[str, Any]:
+        return {
+            "total_epochs": self.config.epochs,
+            "model_family": self.get_model_family(),
+            "model_size": getattr(self.config, "size", None),
+            "task": getattr(self.wrapper_model, "task", "detect"),
+            "save_dir": str(getattr(self, "save_dir", "")),
+        }
+
+    def _build_train_start_event(self) -> TrainStartEvent:
+        return TrainStartEvent(
+            start_epoch=self.start_epoch + 1,
+            **self._event_context(),
+        )
+
+    def _build_train_end_event(
+        self, total_seconds: float, results: Mapping[str, Any]
+    ) -> TrainEndEvent:
+        return TrainEndEvent(
+            completed_epochs=len(self.epoch_events),
+            final_loss=self.final_loss,
+            best_metric=self.best_mAP50_95 if self.best_epoch else None,
+            best_epoch=self.best_epoch if self.best_epoch else None,
+            total_seconds=total_seconds,
+            results=results,
+            **self._event_context(),
+        )
+
+    def _build_train_exception_event(
+        self, exc: BaseException, elapsed_seconds: float
+    ) -> TrainExceptionEvent:
+        return TrainExceptionEvent(
+            epoch=self.current_epoch + 1 if self._is_setup else None,
+            exception=exc,
+            exception_type=type(exc).__name__,
+            exception_message=str(exc),
+            elapsed_seconds=elapsed_seconds,
+            **self._event_context(),
+        )
 
     def _scale_lr(self, base_lr: float, param_group: dict) -> float:
         """Hook for per-group LR scaling. Override in subclasses."""
@@ -618,7 +684,7 @@ class BaseTrainer(ABC):
             return False
 
         best_metric = self._best_metric_value(val_metrics)
-        is_best = best_metric > self.best_mAP50_95
+        is_best = self.best_epoch == 0 or best_metric > self.best_mAP50_95
         if is_best:
             self.best_mAP50_95 = best_metric
             mAP50 = self._as_float(val_metrics.get("mAP50", 0.0))
