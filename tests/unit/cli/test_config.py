@@ -151,7 +151,9 @@ class TestGetFamilyDefaults:
         assert diffs["batch"] == 4
         assert diffs["optimizer"] == "adamw"
         assert diffs["lr0"] == 0.0001
-        assert diffs["scheduler"] == "linear"
+        assert diffs["scheduler"] == "constant"
+        assert diffs["mosaic_prob"] == 0.0
+        assert diffs["hsv_prob"] == 0.5
         assert "lr_backbone" not in diffs
 
 
