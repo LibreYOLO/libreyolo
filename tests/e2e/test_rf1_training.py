@@ -126,10 +126,14 @@ def rf1_workers(family: str) -> tuple[int, int]:
 def rf1_train_kwargs(family: str, size: str) -> dict:
     """Return RF1-only train overrides for families that need them."""
     if family == "dfine":
-        # BaseTrainer scales lr as lr0 * batch / 64. On RF1's tiny batches,
-        # dfine-s/m underfit badly at the family default lr0=2e-4, while
-        # n/l/x already clear the gate with the default test-side recipe.
-        lr0 = 8e-4 if size in {"s", "m"} else 2e-4
+        # BaseTrainer scales the optimizer lr as lr0 * batch / 64. dfine-s/m
+        # converge decisively on RF1's marbles fine-tune at an effective lr of
+        # ~1e-4 (lr0=8e-4, batch=8). n/l/x previously used lr0=2e-4 which —
+        # with l/x's batch=4 — gave an effective lr of 1.25e-5..2.5e-5: too low
+        # to clear the 0.05 mAP floor in 20 epochs, so the test flaked. Pick lr0
+        # per batch size (8 for n/s/m, 4 for l/x) so every size trains at the
+        # same proven effective lr ~1e-4.
+        lr0 = 8e-4 if size in {"n", "s", "m"} else 1.6e-3
         return {
             "lr0": lr0,
             "multi_scale": False,
@@ -699,8 +703,8 @@ def test_load_finetuned_checkpoint_rfdetr(
 
         # 4. Verify checkpoint metadata
         ckpt = torch.load(candidates[0], map_location="cpu", weights_only=False)
-        assert ckpt["model_family"] == "rfdetr", (
-            f"Expected model_family='rfdetr', got {{ckpt.get('model_family')}}"
+        assert ckpt["model_family"] == "{family}", (
+            f"Expected model_family='{family}', got {{ckpt.get('model_family')}}"
         )
         assert ckpt["nc"] == 2, f"Expected nc=2 (marbles), got {{ckpt['nc']}}"
         print(
