@@ -387,6 +387,9 @@ def LibreYOLO(
     if checkpoint_task is None and matched_cls.FAMILY == "yolonas":
         if "heads.head1.pose_pred.weight" in weights_dict:
             checkpoint_task = "pose"
+    if checkpoint_task is None and matched_cls.FAMILY == "yolo9":
+        if any(k.startswith("head.proto") or k.startswith("head.cv4") for k in weights_dict):
+            checkpoint_task = "segment"
     if checkpoint_task is None and matched_cls.FAMILY == "ec":
         if "decoder.keypoint_embedding.weight" in weights_dict:
             checkpoint_task = "pose"
