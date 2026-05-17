@@ -19,6 +19,7 @@ from .utils import (
     postprocess,
     postprocess_pose,
     preprocess_image,
+    preprocess_pose_image,
     unwrap_yolonas_checkpoint,
 )
 
@@ -228,6 +229,12 @@ class LibreYOLONAS(BaseModel):
         input_size: Optional[int] = None,
     ) -> Tuple[torch.Tensor, Any, Tuple[int, int], float]:
         effective_size = input_size if input_size is not None else self.input_size
+        if self.task == "pose":
+            return preprocess_pose_image(
+                image,
+                input_size=effective_size,
+                color_format=color_format,
+            )
         return preprocess_image(
             image,
             input_size=effective_size,
@@ -356,7 +363,7 @@ class LibreYOLONAS(BaseModel):
         self,
         data: str,
         *,
-        epochs: int = 300,
+        epochs: Optional[int] = None,
         batch: int = 16,
         imgsz: int = 640,
         lr0: Optional[float] = None,
@@ -368,13 +375,17 @@ class LibreYOLONAS(BaseModel):
         name: Optional[str] = None,
         exist_ok: bool = False,
         resume: bool = False,
-        amp: bool = False,
+        amp: Optional[bool] = None,
         patience: int = 50,
         **kwargs,
     ) -> dict:
         # Task-specific defaults for arguments left unset by the caller.
         if lr0 is None:
             lr0 = 2e-3 if self.task == "pose" else 5e-4
+        if epochs is None:
+            epochs = 1000 if self.task == "pose" else 300
+        if amp is None:
+            amp = self.task == "pose"
 
         if self.task == "pose":
             return self._train_pose(
@@ -535,6 +546,10 @@ class LibreYOLONAS(BaseModel):
                 self.num_keypoints,
             )
             self._rebuild_for_new_keypoints(num_keypoints)
+
+        if self.size in {"m", "l"}:
+            kwargs.setdefault("dfl_loss_weight", 0.5)
+            kwargs.setdefault("pose_reg_loss_weight", 10.0)
 
         if seed >= 0:
             import random

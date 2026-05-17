@@ -1566,11 +1566,11 @@ class YoloNASPoseNDFLHeads(nn.Module):
         pred_pose_scores = pose_logits_list.sigmoid()
         decoded = (pred_bboxes, pred_scores, pose_regression_list, pred_pose_scores)
 
-        if torch.jit.is_tracing() or not self.training:
+        if torch.jit.is_tracing():
             return decoded
 
-        # Training: also emit the raw tensors the loss needs. ``anchor_points``
-        # above is in feature-grid units; the loss wants pixel-unit anchors.
+        # The loss needs raw tensors in both train and eval validation.
+        # ``anchor_points`` above is grid-unit; the loss wants pixel-unit anchors.
         anchors_t, anchor_points_t, num_anchors_list, stride_tensor_t = (
             generate_anchors_for_grid_cell(
                 feats, self.fpn_strides, 5.0, self.grid_cell_offset

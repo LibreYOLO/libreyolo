@@ -83,6 +83,7 @@ class YOLOPoseDataset(Dataset):
         img_size: Tuple[int, int] = (640, 640),
         preproc=None,
         keypoint_dim: int = 3,
+        decode_scale: int = 1,
     ):
         if num_keypoints < 1:
             raise ValueError(f"num_keypoints must be >= 1, got {num_keypoints}")
@@ -94,6 +95,9 @@ class YOLOPoseDataset(Dataset):
         self.img_size = img_size
         self._input_dim = img_size
         self.preproc = preproc
+        if decode_scale not in (1, 2, 4, 8):
+            raise ValueError(f"decode_scale must be one of 1, 2, 4, 8; got {decode_scale}")
+        self.decode_scale = decode_scale
 
         self.img_files = [Path(f) for f in img_files]
         if label_files is not None:
@@ -179,7 +183,13 @@ class YOLOPoseDataset(Dataset):
         self._input_dim = value
 
     def load_image(self, index: int) -> np.ndarray:
-        img = cv2.imread(str(self.img_files[index]))
+        flags = {
+            1: cv2.IMREAD_COLOR,
+            2: cv2.IMREAD_REDUCED_COLOR_2,
+            4: cv2.IMREAD_REDUCED_COLOR_4,
+            8: cv2.IMREAD_REDUCED_COLOR_8,
+        }[self.decode_scale]
+        img = cv2.imread(str(self.img_files[index]), flags)
         if img is None:
             raise FileNotFoundError(f"Failed to load image: {self.img_files[index]}")
         return img

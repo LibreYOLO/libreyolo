@@ -576,10 +576,10 @@ class YOLONASPoseConfig(YOLONASConfig):
     applies to a single-GPU fine-tune: AdamW, low weight decay, cosine LR.
     ``num_keypoints`` is resolved from the dataset ``kpt_shape`` by
     ``LibreYOLONAS.train()``. ``oks_sigmas`` may be overridden per dataset;
-    when ``None`` the trainer uses the COCO-17 sigmas (17 keypoints) or a
-    uniform fallback otherwise.
+    when ``None`` the trainer uses the COCO-17 sigmas (17 keypoints) or the
+    Ultralytics custom-keypoint fallback ``1 / num_keypoints`` otherwise.
 
-    best.pt is selected by validation loss (no per-epoch OKS-AP), so
+    best.pt is selected by pose AP when validation is available, so
     ``eval_interval`` defaults to every epoch.
     """
 
@@ -587,11 +587,35 @@ class YOLONASPoseConfig(YOLONASConfig):
     num_keypoints: int = 17
     keypoint_dim: int = 3
     oks_sigmas: Optional[List[float]] = None
+    classification_loss_type: str = "focal"
+    regression_iou_loss_type: str = "ciou"
+    classification_loss_weight: float = 1.0
+    iou_loss_weight: float = 2.5
+    dfl_loss_weight: float = 0.01
+    pose_cls_loss_weight: float = 1.0
+    pose_reg_loss_weight: float = 34.0
+    pose_classification_loss_type: str = "focal"
+    bbox_assigner_topk: int = 13
+    bbox_assigned_alpha: float = 1.0
+    bbox_assigned_beta: float = 6.0
+    assigner_multiply_by_pose_oks: bool = True
+    rescale_pose_loss_with_assigned_score: bool = True
+    brightness_contrast_prob: float = 0.5
+    affine_prob: float = 0.75
+    pose_scale: Tuple[float, float] = (0.75, 1.5)
+    affine_interpolation: str = "linear"
+    pin_memory: bool = False
+    prefetch_factor: int = 1
+    persistent_workers: bool = True
+    decode_scale: int = 1
 
     lr0: float = 2e-3
     weight_decay: float = 1e-6
-    warmup_epochs: int = 1
-    epochs: int = 100
+    warmup_epochs: int = 10
+    min_lr_ratio: float = 0.05
+    epochs: int = 1000
+    ema_decay: float = 0.997
+    amp: bool = True
     eval_interval: int = 1
     name: str = "yolonas_pose_exp"
 

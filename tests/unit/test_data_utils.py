@@ -6,7 +6,7 @@ import pytest
 import yaml
 from PIL import Image
 
-from libreyolo.data.utils import img2label_paths, load_data_config
+from libreyolo.data.utils import get_img_files, img2label_paths, load_data_config
 
 pytestmark = pytest.mark.unit
 
@@ -100,3 +100,13 @@ def test_img2label_paths_handles_platform_path_styles(image_path, expected_label
     labels = img2label_paths([image_path])
 
     assert str(labels[0]).replace("\\", "/") == expected_label.replace("\\", "/")
+
+
+def test_get_img_files_txt_keeps_existing_and_unmaterialized_entries(tmp_path):
+    image_path = tmp_path / "sample.jpg"
+    Image.new("RGB", (16, 16), color="white").save(image_path)
+    missing_path = tmp_path / "later.jpg"
+    txt_path = tmp_path / "images.txt"
+    txt_path.write_text(f"{image_path.name}\n{missing_path.name}\nnotes.txt\n")
+
+    assert get_img_files(txt_path) == [missing_path, image_path]
