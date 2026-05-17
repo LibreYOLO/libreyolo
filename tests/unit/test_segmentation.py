@@ -233,6 +233,8 @@ class TestFactorySegDetection:
         assert LibreYOLOX.get_download_url("LibreYOLOXs-seg.pt") is None
         assert LibreYOLO9.detect_size_from_filename("LibreYOLO9s.pt") == "s"
         assert LibreYOLO9.detect_task_from_filename("LibreYOLO9s.pt") is None
+        assert LibreYOLO9.detect_size_from_filename("LibreYOLO9s-seg.pt") == "s"
+        assert LibreYOLO9.detect_task_from_filename("LibreYOLO9s-seg.pt") == "segment"
 
 
 class TestPolygonLabelParsing:
@@ -358,6 +360,49 @@ class TestPolygonLabelParsing:
         assert img_infos == ((32, 32), (32, 32))
         assert img_ids == (0, 1)
         assert segments[0][0][0].tolist() == [[1.0, 2.0], [3.0, 4.0]]
+
+    def test_yolo_collate_stacks_segmentation_masks(self):
+        from libreyolo.data.dataset import yolox_collate_fn
+
+        img = np.zeros((3, 32, 32), dtype=np.float32)
+        target = np.zeros((2, 5), dtype=np.float32)
+        masks = np.zeros((2, 8, 8), dtype=np.float32)
+        masks[0, 2:6, 2:6] = 1
+
+        batch = [
+            (img, target, (32, 32), 0, masks),
+            (img, target, (32, 32), 1, masks),
+        ]
+
+        imgs, targets, img_infos, img_ids, stacked_masks = yolox_collate_fn(batch)
+
+        assert imgs.shape == (2, 3, 32, 32)
+        assert targets.shape == (2, 2, 5)
+        assert stacked_masks.shape == (2, 2, 8, 8)
+        assert stacked_masks[0, 0].sum() == 16
+
+    def test_yolo9_seg_transform_rasterizes_polygons(self):
+        from libreyolo.models.yolo9.transforms import YOLO9TrainTransform
+
+        image = np.zeros((64, 64, 3), dtype=np.uint8)
+        targets = np.array([[16, 16, 48, 48, 0]], dtype=np.float32)
+        segments = [
+            [np.array([[16, 16], [48, 16], [48, 48], [16, 48]], dtype=np.float32)]
+        ]
+        transform = YOLO9TrainTransform(
+            max_labels=4,
+            flip_prob=0.0,
+            hsv_prob=0.0,
+            mask_downsample_ratio=4,
+        )
+
+        img, labels, masks = transform(image, targets, (64, 64), segments)
+
+        assert img.shape == (3, 64, 64)
+        assert labels.shape == (4, 5)
+        assert masks.shape == (4, 16, 16)
+        assert labels[0, 0] == 0
+        assert masks[0].sum() > 0
 
     def test_coco_dataset_preserves_multiple_segment_rings(self, tmp_path):
         import json

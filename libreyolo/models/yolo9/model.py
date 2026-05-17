@@ -39,6 +39,7 @@ class LibreYOLO9(BaseModel):
     FAMILY = "yolo9"
     FILENAME_PREFIX = "LibreYOLO9"
     INPUT_SIZES = {"t": 640, "s": 640, "m": 640, "c": 640}
+    SUPPORTED_TASKS = ("detect", "segment")
     TRAIN_CONFIG = YOLO9Config
     val_preprocessor_class = YOLO9ValPreprocessor
 
@@ -92,11 +93,15 @@ class LibreYOLO9(BaseModel):
         model_path,
         size: str,
         reg_max: int = 16,
+        num_masks: int = 32,
+        proto_channels: int = 256,
         nb_classes: int = 80,
         device: str = "auto",
         **kwargs,
     ):
         self.reg_max = reg_max
+        self.num_masks = num_masks
+        self.proto_channels = proto_channels
         super().__init__(
             model_path=model_path,
             size=size,
@@ -108,13 +113,22 @@ class LibreYOLO9(BaseModel):
         if isinstance(model_path, str):
             self._load_weights(model_path)
 
+    @property
+    def _is_segmentation(self) -> bool:
+        return self.task == "segment"
+
     # =========================================================================
     # Model lifecycle
     # =========================================================================
 
     def _init_model(self) -> nn.Module:
         return LibreYOLO9Model(
-            config=self.size, reg_max=self.reg_max, nb_classes=self.nb_classes
+            config=self.size,
+            reg_max=self.reg_max,
+            nb_classes=self.nb_classes,
+            segmentation=self._is_segmentation,
+            num_masks=self.num_masks,
+            proto_channels=self.proto_channels,
         )
 
     def _get_available_layers(self) -> Dict[str, nn.Module]:
@@ -163,6 +177,8 @@ class LibreYOLO9(BaseModel):
 
         detect._init_bias()
         detect._loss_fn = None
+        if hasattr(detect, "_seg_loss_fn"):
+            detect._seg_loss_fn = None
         detect.to(next(self.model.parameters()).device)
 
     # =========================================================================

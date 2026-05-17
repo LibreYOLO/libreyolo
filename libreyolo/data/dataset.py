@@ -596,6 +596,10 @@ def yolox_collate_fn(batch):
     targets = torch.from_numpy(np.stack(targets))
 
     if has_segments:
+        if all(isinstance(s, np.ndarray) for s in segments):
+            return imgs, targets, img_infos, img_ids, torch.from_numpy(np.stack(segments))
+        if all(isinstance(s, torch.Tensor) for s in segments):
+            return imgs, targets, img_infos, img_ids, torch.stack(segments)
         return imgs, targets, img_infos, img_ids, list(segments)
     return imgs, targets, img_infos, img_ids
 
