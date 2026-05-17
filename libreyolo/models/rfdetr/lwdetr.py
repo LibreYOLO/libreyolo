@@ -149,7 +149,16 @@ def _resize_linear(linear: nn.Linear, num_classes: int) -> nn.Linear:
     num_repeats = int(math.ceil(num_classes / base))
     new_weight = linear.weight.detach().repeat(num_repeats, 1)[:num_classes]
     new_bias = linear.bias.detach().repeat(num_repeats)[:num_classes] if linear.bias is not None else None
-    new_linear = nn.Linear(linear.in_features, num_classes, bias=new_bias is not None)
+    # Build the replacement on the source layer's device/dtype — otherwise the
+    # resized head lands on CPU while the rest of the model is on CUDA, which
+    # breaks fine-tuning and fine-tuned-checkpoint reloads.
+    new_linear = nn.Linear(
+        linear.in_features,
+        num_classes,
+        bias=new_bias is not None,
+        device=linear.weight.device,
+        dtype=linear.weight.dtype,
+    )
     # Copy resized weights/bias into the new layer while preserving requires_grad flags.
     with torch.no_grad():
         new_linear.weight.copy_(new_weight)
