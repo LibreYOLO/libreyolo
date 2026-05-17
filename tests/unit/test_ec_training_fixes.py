@@ -57,6 +57,49 @@ def test_imagenet_norm_applied_when_flag_true():
     assert img_n.std() > 1.0, f"normalized std is {img_n.std():.3f}, expected > 1.0"
 
 
+def test_ec_train_applies_dataset_class_names_before_trainer(monkeypatch, tmp_path):
+    from libreyolo.models.ec import trainer as trainer_module
+    from libreyolo.models.ec.model import LibreEC
+
+    data_yaml = tmp_path / "data.yaml"
+    data_yaml.write_text(
+        "\n".join(
+            [
+                f"path: {tmp_path}",
+                "train: images/train",
+                "val: images/val",
+                "nc: 2",
+                "names: [red, white]",
+            ]
+        )
+    )
+    captured = {}
+
+    class FakeTrainer:
+        def __init__(self, *, wrapper_model, num_classes, data, **kwargs):
+            captured["wrapper_names"] = dict(wrapper_model.names)
+            captured["wrapper_nc"] = wrapper_model.nb_classes
+            captured["num_classes"] = num_classes
+            captured["data"] = data
+
+        def train(self):
+            return {"best_checkpoint": ""}
+
+    monkeypatch.setattr(trainer_module, "ECTrainer", FakeTrainer)
+
+    model = LibreEC(model_path=None, size="s", nb_classes=80, device="cpu")
+    model.train(data=str(data_yaml), allow_experimental=True, seed=0)
+
+    assert model.nb_classes == 2
+    assert model.names == {0: "red", 1: "white"}
+    assert captured == {
+        "wrapper_names": {0: "red", 1: "white"},
+        "wrapper_nc": 2,
+        "num_classes": 2,
+        "data": str(data_yaml),
+    }
+
+
 @pytest.mark.skipif(not CKPT_PATH.exists(), reason=f"{CKPT_PATH} not present")
 def test_in_proj_bias_in_no_wd_group():
     """Self-attn ``in_proj_bias`` parameters must land in the no-weight-decay
@@ -91,5 +134,4 @@ def test_in_proj_bias_in_no_wd_group():
     misclassified = [n for n in in_proj_bias_params if n in wd]
     assert not misclassified, f"in_proj_bias params got weight decay: {misclassified}"
     assert all(n in no_wd for n in in_proj_bias_params)
-
 

@@ -153,7 +153,6 @@ def test_amp_train_loop_uses_on_forward_for_polygon_passthrough():
     trainer.scaler = FakeScaler()
     trainer.optimizer = torch.optim.SGD([param], lr=0.1)
     trainer.ema_model = None
-    trainer.tensorboard_writer = None
     trainer.lr_scheduler = SimpleNamespace(update_lr=lambda _: 0.1)
     trainer.get_loss_components = lambda outputs: {}
 

@@ -1,10 +1,13 @@
 """Shared general utility functions."""
 
+import logging
 from pathlib import Path
 from typing import Dict, List, Tuple, Union
 from urllib.parse import urlparse
 
 import torch
+
+logger = logging.getLogger(__name__)
 
 
 # =============================================================================
@@ -218,6 +221,14 @@ def resolve_save_path(
     else:
         save_path.parent.mkdir(parents=True, exist_ok=True)
         return save_path
+
+
+def log_saved_result(result, save_path: Union[str, Path]) -> str:
+    """Attach and log the path where an inference result was saved."""
+    saved_path = str(save_path)
+    result.saved_path = saved_path
+    logger.info("Results saved to %s", saved_path)
+    return saved_path
 
 
 # =============================================================================
