@@ -1,0 +1,218 @@
+"""Unit tests for BaseTrainer gradient clipping."""
+
+from __future__ import annotations
+
+from types import SimpleNamespace
+
+import pytest
+import torch
+from torch import nn
+
+from libreyolo.training.trainer import BaseTrainer
+
+pytestmark = pytest.mark.unit
+
+
+class TinyTrainer(BaseTrainer):
+    def get_model_family(self) -> str:
+        return "tiny"
+
+    def get_model_tag(self) -> str:
+        return "tiny"
+
+    def create_transforms(self):
+        raise NotImplementedError
+
+    def create_scheduler(self, iters_per_epoch: int):
+        raise NotImplementedError
+
+    def get_loss_components(self, outputs):
+        return {}
+
+
+class OneBatchLoader:
+    def __init__(self):
+        self.dataset = SimpleNamespace()
+
+    def __iter__(self):
+        imgs = torch.zeros(1, 1)
+        targets = torch.zeros(1, 1)
+        yield imgs, targets, (None,), (0,)
+
+    def __len__(self):
+        return 1
+
+
+class DummyLoss:
+    def __init__(self, param, events):
+        self.param = param
+        self.events = events
+
+    def backward(self):
+        self.events.append("backward")
+        self.param.grad = torch.ones_like(self.param)
+
+    def item(self):
+        return 1.0
+
+
+class ScaledLoss:
+    def __init__(self, loss, events):
+        self.loss = loss
+        self.events = events
+
+    def backward(self):
+        self.events.append("scaled_backward")
+        self.loss.backward()
+
+
+class FakeScaler:
+    def __init__(self, events, fail_on_unscale=False):
+        self.events = events
+        self.fail_on_unscale = fail_on_unscale
+
+    def scale(self, loss):
+        self.events.append("scale")
+        return ScaledLoss(loss, self.events)
+
+    def unscale_(self, optimizer):
+        if self.fail_on_unscale:
+            raise AssertionError("unscale_ should not be called")
+        self.events.append("unscale")
+
+    def step(self, optimizer):
+        self.events.append("scaler_step")
+        optimizer.step()
+
+    def update(self):
+        self.events.append("scaler_update")
+
+
+def _build_trainer(*, clip_max_norm=None, scaler=None, events=None):
+    events = events if events is not None else []
+    trainer = TinyTrainer.__new__(TinyTrainer)
+    trainer.model = nn.Linear(1, 1, bias=False)
+    param = next(trainer.model.parameters())
+    trainer.train_loader = OneBatchLoader()
+    trainer.config = SimpleNamespace(
+        epochs=1,
+        log_interval=999,
+        eval_interval=-1,
+    )
+    if clip_max_norm != "missing":
+        trainer.config.clip_max_norm = clip_max_norm
+    trainer.device = torch.device("cpu")
+    trainer.optimizer = torch.optim.SGD([param], lr=0.1)
+    trainer.scaler = scaler
+    trainer.ema_model = None
+    trainer.tensorboard_writer = None
+    trainer.lr_scheduler = SimpleNamespace(update_lr=lambda _: 0.1)
+    trainer.wrapper_model = SimpleNamespace(task="detect")
+
+    def on_forward(imgs, targets, polygons=None):
+        events.append("forward")
+        return {"total_loss": DummyLoss(param, events)}
+
+    trainer.on_forward = on_forward
+    return trainer, param, events
+
+
+def _wrap_optimizer_steps(trainer, events):
+    original_zero_grad = trainer.optimizer.zero_grad
+    original_step = trainer.optimizer.step
+
+    def zero_grad(*args, **kwargs):
+        events.append("zero_grad")
+        return original_zero_grad(*args, **kwargs)
+
+    def step(*args, **kwargs):
+        events.append("step")
+        return original_step(*args, **kwargs)
+
+    trainer.optimizer.zero_grad = zero_grad
+    trainer.optimizer.step = step
+
+
+@pytest.mark.parametrize("clip_max_norm", ["missing", None, 0.0])
+def test_gradient_clipping_disabled_is_noop(monkeypatch, clip_max_norm):
+    events = []
+    scaler = FakeScaler(events, fail_on_unscale=True)
+    trainer, _, events = _build_trainer(
+        clip_max_norm=clip_max_norm,
+        scaler=scaler,
+        events=events,
+    )
+
+    def fail_clip(*args, **kwargs):
+        raise AssertionError("clip_grad_norm_ should not be called")
+
+    monkeypatch.setattr(torch.nn.utils, "clip_grad_norm_", fail_clip)
+
+    avg_loss, val_metrics, loss_items, lr = TinyTrainer._train_epoch(trainer, 0)
+
+    assert avg_loss == pytest.approx(1.0)
+    assert val_metrics is None
+    assert loss_items == {}
+    assert lr == {"group0": pytest.approx(0.1)}
+    assert "unscale" not in events
+
+
+def test_non_amp_gradient_clipping_runs_between_backward_and_step(monkeypatch):
+    events = []
+    trainer, param, events = _build_trainer(clip_max_norm=0.1, events=events)
+    _wrap_optimizer_steps(trainer, events)
+
+    def fake_clip(params, max_norm):
+        clipped = list(params)
+        events.append("clip")
+        assert clipped == [param]
+        assert max_norm == pytest.approx(0.1)
+        return torch.tensor(1.0)
+
+    monkeypatch.setattr(torch.nn.utils, "clip_grad_norm_", fake_clip)
+
+    TinyTrainer._train_epoch(trainer, 0)
+
+    assert events[:5] == ["forward", "zero_grad", "backward", "clip", "step"]
+
+
+def test_amp_gradient_clipping_unscales_before_clip(monkeypatch):
+    events = []
+    scaler = FakeScaler(events)
+    trainer, param, events = _build_trainer(
+        clip_max_norm=0.1,
+        scaler=scaler,
+        events=events,
+    )
+    _wrap_optimizer_steps(trainer, events)
+
+    def fake_clip(params, max_norm):
+        clipped = list(params)
+        events.append("clip")
+        assert clipped == [param]
+        assert max_norm == pytest.approx(0.1)
+        return torch.tensor(1.0)
+
+    monkeypatch.setattr(torch.nn.utils, "clip_grad_norm_", fake_clip)
+
+    TinyTrainer._train_epoch(trainer, 0)
+
+    assert events[:8] == [
+        "forward",
+        "zero_grad",
+        "scale",
+        "scaled_backward",
+        "backward",
+        "unscale",
+        "clip",
+        "scaler_step",
+    ]
+    assert events[8:10] == ["step", "scaler_update"]
+
+
+@pytest.mark.parametrize("clip_max_norm", [-0.1, float("nan"), float("inf"), "bad"])
+def test_invalid_clip_max_norm_raises(clip_max_norm):
+    trainer, _, _ = _build_trainer(clip_max_norm=clip_max_norm)
+
+    with pytest.raises(ValueError, match="clip_max_norm"):
+        trainer._get_clip_max_norm()

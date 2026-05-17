@@ -232,3 +232,4 @@ class TestRTDETRConfig:
         config = RTDETRConfig(data="dummy.yaml")
         assert config.lr_backbone == 0.00001
         assert config.betas == (0.9, 0.999)
+        assert config.clip_max_norm == 0.1
