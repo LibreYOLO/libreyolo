@@ -17,6 +17,7 @@ import torch.nn as nn
 from torch.amp import GradScaler, autocast
 from tqdm import tqdm
 
+from .artifacts import TrainingArtifactsCallback
 from .callbacks import (
     TrainCallbackList,
     TrainCallbacks,
@@ -43,6 +44,7 @@ class BaseTrainer(ABC):
     """
 
     best_metric_key: str = "metrics/mAP50-95"
+    artifact_model_families: Tuple[str, ...] = ()
 
     def __init__(
         self,
@@ -55,6 +57,9 @@ class BaseTrainer(ABC):
         self.model = model
         self.wrapper_model = wrapper_model
         self.callbacks = TrainCallbackList(callbacks)
+        self.artifact_callbacks = TrainCallbackList(
+            TrainingArtifactsCallback(enabled_families=self.artifact_model_families)
+        )
 
         # Device
         self.device = self._setup_device()
@@ -79,7 +84,6 @@ class BaseTrainer(ABC):
         self.scaler = None
         self.ema_model = None
         self.train_loader = None
-        self.tensorboard_writer = None
         self._is_setup = False
 
     # =========================================================================
@@ -126,7 +130,7 @@ class BaseTrainer(ABC):
 
     @abstractmethod
     def get_loss_components(self, outputs: Dict) -> Dict[str, float]:
-        """Extract per-component losses for progress bar / TensorBoard.
+        """Extract per-component losses for progress bar and epoch metrics.
 
         Returns:
             Dict mapping loss name → scalar value.
@@ -375,17 +379,6 @@ class BaseTrainer(ABC):
 
         self.config.to_yaml(self.save_dir / "train_config.yaml")
 
-        # TensorBoard
-        try:
-            from torch.utils.tensorboard import SummaryWriter
-
-            self.tensorboard_writer = SummaryWriter(self.save_dir / "tensorboard")
-            logger.info(f"TensorBoard logging to {self.save_dir / 'tensorboard'}")
-        except Exception as e:
-            self.tensorboard_writer = None
-            logger.warning(f"TensorBoard not available (skipping): {type(e).__name__}")
-            logger.info("Training will continue without TensorBoard logging")
-
         logger.info(f"Saving to: {self.save_dir}")
         self._is_setup = True
 
@@ -399,7 +392,9 @@ class BaseTrainer(ABC):
             logger.info(f"Batch size: {self.config.batch}")
             logger.info(f"Learning rate: {self.effective_lr}")
 
-            self.callbacks.on_train_start(self._build_train_start_event())
+            start_event = self._build_train_start_event()
+            self._dispatch_artifact_callbacks("on_train_start", start_event)
+            self.callbacks.on_train_start(start_event)
 
             for epoch in range(self.start_epoch, self.config.epochs):
                 self.current_epoch = epoch
@@ -440,6 +435,7 @@ class BaseTrainer(ABC):
                     epoch_seconds=epoch_seconds,
                 )
                 self.epoch_events.append(event)
+                self._dispatch_artifact_callbacks("on_train_epoch_end", event)
                 self.callbacks.on_train_epoch_end(event)
 
                 if self.patience_counter >= self.config.patience:
@@ -453,21 +449,26 @@ class BaseTrainer(ABC):
             logger.info(f"Training complete in {total_time / 3600:.2f} hours")
 
             results = self._build_train_results()
-            self.callbacks.on_train_end(self._build_train_end_event(total_time, results))
+            end_event = self._build_train_end_event(total_time, results)
+            self._dispatch_artifact_callbacks("on_train_end", end_event)
+            self.callbacks.on_train_end(end_event)
             return results
 
         except BaseException as exc:
             elapsed_seconds = time.time() - start_time
+            exception_event = self._build_train_exception_event(exc, elapsed_seconds)
+            self._dispatch_artifact_callbacks("on_train_exception", exception_event)
             try:
-                self.callbacks.on_train_exception(
-                    self._build_train_exception_event(exc, elapsed_seconds)
-                )
+                self.callbacks.on_train_exception(exception_event)
             except Exception:
                 logger.exception("Training exception callback failed")
             raise
-        finally:
-            if self.tensorboard_writer:
-                self.tensorboard_writer.close()
+
+    def _dispatch_artifact_callbacks(self, method_name: str, event) -> None:
+        try:
+            getattr(self.artifact_callbacks, method_name)(event)
+        except Exception:
+            logger.exception("Training artifact callback failed")
 
     def _build_train_results(self) -> Dict[str, Any]:
         weights_dir = self.save_dir / "weights"
@@ -811,26 +812,12 @@ class BaseTrainer(ABC):
             postfix.update({k: f"{v:.4f}" for k, v in loss_components.items()})
             pbar.set_postfix(postfix)
 
-            # TensorBoard
-            if self.tensorboard_writer and batch_idx % self.config.log_interval == 0:
-                self.tensorboard_writer.add_scalar(
-                    "train/loss", loss_val, self.current_iter
-                )
-                self.tensorboard_writer.add_scalar("train/lr", lr, self.current_iter)
-                for name, val in loss_components.items():
-                    self.tensorboard_writer.add_scalar(
-                        f"train/{name}", val, self.current_iter
-                    )
-
         avg_loss = total_loss / max(num_batches, 1)
         avg_loss_components = {
             name: value / max(num_batches, 1)
             for name, value in loss_component_sums.items()
         }
         logger.info(f"Epoch {epoch + 1} - Average loss: {avg_loss:.4f}")
-
-        if self.tensorboard_writer:
-            self.tensorboard_writer.add_scalar("epoch/loss", avg_loss, epoch)
 
         # Validation
         val_metrics = None
@@ -839,13 +826,6 @@ class BaseTrainer(ABC):
             and (epoch + 1) % self.config.eval_interval == 0
         ):
             val_metrics = self._validate_epoch(epoch)
-            if val_metrics and self.tensorboard_writer:
-                self.tensorboard_writer.add_scalar(
-                    "val/mAP50", val_metrics["mAP50"], epoch
-                )
-                self.tensorboard_writer.add_scalar(
-                    "val/mAP50_95", val_metrics["mAP50_95"], epoch
-                )
 
         return avg_loss, val_metrics, avg_loss_components, self._current_lrs()
 

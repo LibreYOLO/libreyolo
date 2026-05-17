@@ -16,7 +16,13 @@ from typing import TYPE_CHECKING, Dict, Generator, List, Optional, Tuple, Union
 import torch
 
 from ...utils.drawing import draw_boxes, draw_keypoints, draw_masks, draw_tile_grid
-from ...utils.general import get_safe_stem, get_slice_bboxes, nms, resolve_save_path
+from ...utils.general import (
+    get_safe_stem,
+    get_slice_bboxes,
+    log_saved_result,
+    nms,
+    resolve_save_path,
+)
 from ...utils.image_loader import ImageInput, ImageLoader
 from ...utils.predict_args import normalize_predict_kwargs
 from ...utils.results import Boxes, Keypoints, Masks, Results
@@ -315,7 +321,7 @@ class InferenceRunner:
             annotated_img = original_img.copy()
 
         annotated_img.save(save_path)
-        result.saved_path = str(save_path)
+        log_saved_result(result, save_path)
 
     @staticmethod
     def _apply_classes_filter(
@@ -708,7 +714,7 @@ class InferenceRunner:
             with open(save_dir / "metadata.json", "w") as f:
                 json.dump(metadata, f, indent=2)
 
-            result.saved_path = str(save_dir)
+            log_saved_result(result, save_dir)
             result.tiles_path = str(tiles_dir)
             result.grid_path = str(grid_path)
 

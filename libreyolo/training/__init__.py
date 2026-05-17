@@ -1,5 +1,6 @@
 """Shared training infrastructure (EMA, schedulers, augmentation, config)."""
 
+from .artifacts import TrainingArtifactsCallback as TrainingArtifactsCallback
 from .callbacks import (
     TrainCallback as TrainCallback,
     TrainCallbackList as TrainCallbackList,
