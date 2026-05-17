@@ -1369,6 +1369,27 @@ class YoloNASPoseDFLHead(nn.Module):
         prior_bias = -math.log((1 - self.prior_prob) / self.prior_prob)
         torch.nn.init.constant_(self.cls_pred.bias, prior_bias)
 
+    def replace_num_keypoints(self, num_keypoints: int):
+        """Rebuild the keypoint-dependent layers for a new keypoint count.
+
+        Used when fine-tuning a COCO (17-keypoint) checkpoint onto a dataset
+        with a different number of keypoints. The objectness channel of
+        ``cls_pred`` is preserved; the per-keypoint visibility channels and
+        ``pose_pred`` are reinitialised.
+        """
+        old_cls = self.cls_pred
+        new_cls = nn.Conv2d(old_cls.in_channels, 1 + num_keypoints, 1, 1, 0)
+        prior_bias = -math.log((1 - self.prior_prob) / self.prior_prob)
+        torch.nn.init.constant_(new_cls.bias, prior_bias)
+        with torch.no_grad():
+            new_cls.weight[0:1].copy_(old_cls.weight[0:1])
+            new_cls.bias[0:1].copy_(old_cls.bias[0:1])
+        self.cls_pred = new_cls
+        self.pose_pred = nn.Conv2d(
+            self.pose_pred.in_channels, 2 * num_keypoints, 1, 1, 0
+        )
+        self.num_keypoints = num_keypoints
+
     def forward(self, x: Tensor) -> Tuple[Tensor, Tensor, Tensor, Tensor]:
         x = self.stem(x)
         pose_features = self.pose_stem(x)
@@ -1394,9 +1415,13 @@ class YoloNASPoseDFLHead(nn.Module):
 class YoloNASPoseNDFLHeads(nn.Module):
     """Aggregator over 3 strides + anchor decoding for pose.
 
-    Inference-only: forward always returns the decoded 4-tuple
-    ``(pred_bboxes, pred_scores, pred_pose_xy, pred_pose_scores)`` — the
-    raw training outputs are not produced.
+    In ``eval()`` mode forward returns the decoded 4-tuple
+    ``(pred_bboxes, pred_scores, pred_pose_xy, pred_pose_scores)``.
+
+    In ``train()`` mode forward additionally returns the raw 8-tuple
+    ``(pred_scores, pred_distri, pred_pose_coords, pred_pose_logits, anchors,
+    anchor_points, num_anchors_list, stride_tensor)`` consumed by
+    :class:`~libreyolo.models.yolonas.loss.YoloNASPoseLoss`.
     """
 
     def __init__(
@@ -1438,6 +1463,12 @@ class YoloNASPoseNDFLHeads(nn.Module):
 
         self.num_heads = 3
 
+    def replace_num_keypoints(self, num_keypoints: int):
+        """Rebuild every per-stride head for a new keypoint count."""
+        for i in range(self.num_heads):
+            getattr(self, f"head{i + 1}").replace_num_keypoints(num_keypoints)
+        self.num_keypoints = num_keypoints
+
     @torch.jit.ignore
     def cache_anchors(self, input_size: Tuple[int, int]):
         self.eval_size = input_size
@@ -1469,8 +1500,9 @@ class YoloNASPoseNDFLHeads(nn.Module):
             )
         return torch.cat(anchor_points), torch.cat(stride_tensor)
 
-    def forward(self, feats: Tuple[Tensor, ...]) -> Tuple[Tensor, Tensor, Tensor, Tensor]:
+    def forward(self, feats: Tuple[Tensor, ...]):
         cls_score_list, reg_dist_reduced_list = [], []
+        reg_distri_list = []
         pose_regression_list, pose_logits_list = [], []
 
         for i, feat in enumerate(feats):
@@ -1489,6 +1521,9 @@ class YoloNASPoseNDFLHeads(nn.Module):
 
             cls_score_list.append(cls_logit.reshape([b, -1, hw]))
             reg_dist_reduced_list.append(reg_dist_reduced)
+            # Raw DFL distribution [B, 4*(reg_max+1), H, W] -> [B, H*W, 4*(reg_max+1)]
+            # kept for the DFL term of the training loss.
+            reg_distri_list.append(torch.permute(reg_distri.flatten(2), [0, 2, 1]))
             # [B, K, 2, H, W] -> [B, H*W, K, 2]
             pose_regression_list.append(
                 torch.permute(pose_regression.flatten(3), [0, 3, 1, 2])
@@ -1497,12 +1532,13 @@ class YoloNASPoseNDFLHeads(nn.Module):
             pose_logits_list.append(torch.permute(pose_logits.flatten(2), [0, 2, 1]))
 
         cls_score_list = torch.cat(cls_score_list, dim=-1)
-        cls_score_list = torch.permute(cls_score_list, [0, 2, 1])  # [B, A, 1]
+        cls_score_list = torch.permute(cls_score_list, [0, 2, 1])  # [B, A, 1] logits
         reg_dist_reduced_list = torch.cat(reg_dist_reduced_list, dim=1)  # [B, A, 4]
+        reg_distri_list = torch.cat(reg_distri_list, dim=1)  # [B, A, 4*(reg_max+1)]
         pose_regression_list = torch.cat(pose_regression_list, dim=1)  # [B, A, K, 2]
-        pose_logits_list = torch.cat(pose_logits_list, dim=1)  # [B, A, K]
+        pose_logits_list = torch.cat(pose_logits_list, dim=1)  # [B, A, K] logits
 
-        if self.eval_size and hasattr(self, "anchor_points"):
+        if self.eval_size and hasattr(self, "anchor_points") and not self.training:
             anchor_points = self.anchor_points
             stride_tensor = self.stride_tensor
         else:
@@ -1528,7 +1564,29 @@ class YoloNASPoseNDFLHeads(nn.Module):
 
         pose_regression_list = pose_regression_list * stride_tensor.unsqueeze(0).unsqueeze(2)
         pred_pose_scores = pose_logits_list.sigmoid()
-        return pred_bboxes, pred_scores, pose_regression_list, pred_pose_scores
+        decoded = (pred_bboxes, pred_scores, pose_regression_list, pred_pose_scores)
+
+        if torch.jit.is_tracing() or not self.training:
+            return decoded
+
+        # Training: also emit the raw tensors the loss needs. ``anchor_points``
+        # above is in feature-grid units; the loss wants pixel-unit anchors.
+        anchors_t, anchor_points_t, num_anchors_list, stride_tensor_t = (
+            generate_anchors_for_grid_cell(
+                feats, self.fpn_strides, 5.0, self.grid_cell_offset
+            )
+        )
+        raw_predictions = (
+            cls_score_list,        # [B, A, 1] classification logits
+            reg_distri_list,       # [B, A, 4*(reg_max+1)] raw DFL distribution
+            pose_regression_list,  # [B, A, K, 2] decoded pose coords (image px)
+            pose_logits_list,      # [B, A, K] keypoint visibility logits
+            anchors_t,
+            anchor_points_t,
+            num_anchors_list,
+            stride_tensor_t,
+        )
+        return decoded, raw_predictions
 
 
 class LibreYOLONASPoseModel(nn.Module):
@@ -1580,6 +1638,11 @@ class LibreYOLONASPoseModel(nn.Module):
             ):
                 m.inplace = True
 
+    def replace_num_keypoints(self, num_keypoints: int):
+        """Rebuild the pose head for a new keypoint count (fine-tuning hook)."""
+        self.heads.replace_num_keypoints(num_keypoints)
+        self.num_keypoints = num_keypoints
+
     def prep_model_for_conversion(
         self, input_size=None, full_fusion: bool = False, **kwargs
     ):
@@ -1593,7 +1656,7 @@ class LibreYOLONASPoseModel(nn.Module):
         self.prep_model_for_conversion(full_fusion=full_fusion)
         return self
 
-    def forward(self, x: Tensor) -> Tuple[Tensor, Tensor, Tensor, Tensor]:
+    def forward(self, x: Tensor):
         feats = self.backbone(x)
         feats = self.neck(feats)
         return self.heads(feats)
