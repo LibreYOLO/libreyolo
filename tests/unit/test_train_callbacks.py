@@ -212,7 +212,6 @@ class CallbackTrainer(DummyTrainer):
     def setup(self):
         self.save_dir = self._test_save_dir
         self.optimizer = torch.optim.SGD(self.model.parameters(), lr=0.01)
-        self.tensorboard_writer = None
         self._is_setup = True
 
     def _train_epoch(self, epoch: int):

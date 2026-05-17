@@ -79,7 +79,6 @@ class BaseTrainer(ABC):
         self.scaler = None
         self.ema_model = None
         self.train_loader = None
-        self.tensorboard_writer = None
         self._is_setup = False
 
     # =========================================================================
@@ -126,7 +125,7 @@ class BaseTrainer(ABC):
 
     @abstractmethod
     def get_loss_components(self, outputs: Dict) -> Dict[str, float]:
-        """Extract per-component losses for progress bar / TensorBoard.
+        """Extract per-component losses for progress bar and epoch metrics.
 
         Returns:
             Dict mapping loss name → scalar value.
@@ -375,17 +374,6 @@ class BaseTrainer(ABC):
 
         self.config.to_yaml(self.save_dir / "train_config.yaml")
 
-        # TensorBoard
-        try:
-            from torch.utils.tensorboard import SummaryWriter
-
-            self.tensorboard_writer = SummaryWriter(self.save_dir / "tensorboard")
-            logger.info(f"TensorBoard logging to {self.save_dir / 'tensorboard'}")
-        except Exception as e:
-            self.tensorboard_writer = None
-            logger.warning(f"TensorBoard not available (skipping): {type(e).__name__}")
-            logger.info("Training will continue without TensorBoard logging")
-
         logger.info(f"Saving to: {self.save_dir}")
         self._is_setup = True
 
@@ -465,9 +453,6 @@ class BaseTrainer(ABC):
             except Exception:
                 logger.exception("Training exception callback failed")
             raise
-        finally:
-            if self.tensorboard_writer:
-                self.tensorboard_writer.close()
 
     def _build_train_results(self) -> Dict[str, Any]:
         weights_dir = self.save_dir / "weights"
@@ -811,26 +796,12 @@ class BaseTrainer(ABC):
             postfix.update({k: f"{v:.4f}" for k, v in loss_components.items()})
             pbar.set_postfix(postfix)
 
-            # TensorBoard
-            if self.tensorboard_writer and batch_idx % self.config.log_interval == 0:
-                self.tensorboard_writer.add_scalar(
-                    "train/loss", loss_val, self.current_iter
-                )
-                self.tensorboard_writer.add_scalar("train/lr", lr, self.current_iter)
-                for name, val in loss_components.items():
-                    self.tensorboard_writer.add_scalar(
-                        f"train/{name}", val, self.current_iter
-                    )
-
         avg_loss = total_loss / max(num_batches, 1)
         avg_loss_components = {
             name: value / max(num_batches, 1)
             for name, value in loss_component_sums.items()
         }
         logger.info(f"Epoch {epoch + 1} - Average loss: {avg_loss:.4f}")
-
-        if self.tensorboard_writer:
-            self.tensorboard_writer.add_scalar("epoch/loss", avg_loss, epoch)
 
         # Validation
         val_metrics = None
@@ -839,13 +810,6 @@ class BaseTrainer(ABC):
             and (epoch + 1) % self.config.eval_interval == 0
         ):
             val_metrics = self._validate_epoch(epoch)
-            if val_metrics and self.tensorboard_writer:
-                self.tensorboard_writer.add_scalar(
-                    "val/mAP50", val_metrics["mAP50"], epoch
-                )
-                self.tensorboard_writer.add_scalar(
-                    "val/mAP50_95", val_metrics["mAP50_95"], epoch
-                )
 
         return avg_loss, val_metrics, avg_loss_components, self._current_lrs()
 
