@@ -10,6 +10,8 @@ import torch
 from libreyolo.models.dfine.model import LibreDFINE
 from libreyolo.models.rtdetr.config import RTDETRConfig
 from libreyolo.models.rtdetr.model import LibreRTDETR
+from libreyolo.models.rtdetr.trainer import RTDETRTrainer
+from libreyolo.training.scheduler import ConstantLRScheduler
 from libreyolo.validation.preprocessors import RTDETRValPreprocessor
 
 pytestmark = pytest.mark.unit
@@ -230,6 +232,28 @@ class TestRTDETRConfig:
     def test_rtdetr_config_defaults(self):
         """RTDETRConfig should have RTDETR-specific defaults."""
         config = RTDETRConfig(data="dummy.yaml")
-        assert config.lr_backbone == 0.00001
+        assert config.scheduler == "constant"
+        assert config.lr_backbone == 0.000005
         assert config.betas == (0.9, 0.999)
         assert config.clip_max_norm == 0.1
+        assert config.ema_decay == 0.9999
+        assert config.mosaic_prob == 0.0
+        assert config.hsv_prob == 0.5
+
+
+def test_rtdetr_constant_scheduler_factory():
+    trainer = RTDETRTrainer.__new__(RTDETRTrainer)
+    trainer.config = RTDETRConfig(
+        data="dummy.yaml",
+        batch=16,
+        lr0=0.001,
+        warmup_epochs=2,
+        warmup_lr_start=1e-6,
+    )
+
+    scheduler = RTDETRTrainer.create_scheduler(trainer, iters_per_epoch=10)
+
+    assert isinstance(scheduler, ConstantLRScheduler)
+    assert scheduler.update_lr(0) == pytest.approx(1e-6)
+    assert scheduler.update_lr(20) == pytest.approx(0.001)
+    assert scheduler.update_lr(100) == pytest.approx(0.001)

@@ -107,6 +107,30 @@ class LinearLRScheduler(BaseScheduler):
         return lr
 
 
+class ConstantLRScheduler(BaseScheduler):
+    """Constant learning rate with optional linear warmup."""
+
+    def __init__(
+        self,
+        lr: float,
+        iters_per_epoch: int,
+        total_epochs: int,
+        warmup_epochs: int = 0,
+        warmup_lr_start: float = 0.0,
+        min_lr_ratio: float = 1.0,
+    ):
+        super().__init__(lr, iters_per_epoch, total_epochs)
+        self.warmup_iters = iters_per_epoch * warmup_epochs
+        self.warmup_lr_start = warmup_lr_start
+
+    def update_lr(self, iters: int) -> float:
+        if iters <= self.warmup_iters and self.warmup_iters > 0:
+            return (
+                self.lr - self.warmup_lr_start
+            ) * iters / self.warmup_iters + self.warmup_lr_start
+        return self.lr
+
+
 class FlatCosineScheduler(BaseScheduler):
     """Flat learning rate after warmup, with cosine decay over the final phase.
 

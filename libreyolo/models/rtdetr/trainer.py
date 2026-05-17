@@ -13,7 +13,11 @@ import torch
 
 from libreyolo.training.trainer import BaseTrainer
 from libreyolo.training.config import TrainConfig
-from libreyolo.training.scheduler import LinearLRScheduler, CosineAnnealingScheduler
+from libreyolo.training.scheduler import (
+    ConstantLRScheduler,
+    CosineAnnealingScheduler,
+    LinearLRScheduler,
+)
 from libreyolo.models.yolo9.transforms import (
     YOLO9TrainTransform,
     YOLO9MosaicMixupDataset,
@@ -123,6 +127,14 @@ class RTDETRTrainer(BaseTrainer):
                 warmup_epochs=self.config.warmup_epochs,
                 warmup_lr_start=self.config.warmup_lr_start,
                 min_lr_ratio=self.config.min_lr_ratio,
+            )
+        elif scheduler_name == "constant":
+            return ConstantLRScheduler(
+                lr=self.effective_lr,
+                iters_per_epoch=iters_per_epoch,
+                total_epochs=self.config.epochs,
+                warmup_epochs=self.config.warmup_epochs,
+                warmup_lr_start=self.config.warmup_lr_start,
             )
         else:
             raise ValueError(f"Unknown scheduler: {scheduler_name}")
