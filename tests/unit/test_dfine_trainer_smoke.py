@@ -204,6 +204,33 @@ def test_scheduler_warmup_then_flat():
     assert abs(final - 0.001 * 0.05) < 1e-5
 
 
+def test_constant_scheduler_warmup_then_constant():
+    """ConstantLRScheduler: optional warmup, then no LR decay."""
+    from libreyolo.training.scheduler import ConstantLRScheduler
+
+    sched = ConstantLRScheduler(
+        lr=0.001,
+        iters_per_epoch=10,
+        total_epochs=10,
+        warmup_epochs=2,
+        warmup_lr_start=1e-6,
+    )
+    assert abs(sched.update_lr(0) - 1e-6) < 1e-7
+    assert abs(sched.update_lr(10) - 0.0005005) < 1e-7
+    assert abs(sched.update_lr(20) - 0.001) < 1e-7
+    assert abs(sched.update_lr(100) - 0.001) < 1e-7
+
+    no_warmup = ConstantLRScheduler(
+        lr=0.001,
+        iters_per_epoch=10,
+        total_epochs=10,
+        warmup_epochs=0,
+        warmup_lr_start=1e-6,
+    )
+    assert no_warmup.update_lr(0) == pytest.approx(0.001)
+    assert no_warmup.update_lr(100) == pytest.approx(0.001)
+
+
 def test_optimizer_backbone_lr_mult():
     """4 param groups with backbone groups carrying lr_mult=backbone_lr_mult."""
     from libreyolo.models.dfine.trainer import DFINETrainer

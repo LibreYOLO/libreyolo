@@ -44,7 +44,7 @@ def test_train_dry_run_uses_rtdetr_defaults():
     assert data["resolved_config"]["batch"] == 4
     assert data["resolved_config"]["optimizer"] == "adamw"
     assert data["resolved_config"]["lr0"] == 0.0001
-    assert data["resolved_config"]["scheduler"] == "linear"
+    assert data["resolved_config"]["scheduler"] == "constant"
 
 
 def test_train_dry_run_uses_rtdetr_defaults_for_weight_filename():
@@ -67,7 +67,7 @@ def test_train_dry_run_uses_rtdetr_defaults_for_weight_filename():
     assert data["resolved_config"]["batch"] == 4
     assert data["resolved_config"]["optimizer"] == "adamw"
     assert data["resolved_config"]["lr0"] == 0.0001
-    assert data["resolved_config"]["scheduler"] == "linear"
+    assert data["resolved_config"]["scheduler"] == "constant"
 
 
 def test_train_dry_run_uses_rfdetr_defaults():
