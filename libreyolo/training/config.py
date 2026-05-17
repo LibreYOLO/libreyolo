@@ -163,6 +163,7 @@ class YOLO9Config(TrainConfig):
     ema_decay: float = 0.9999
     name: str = "yolo9_exp"
     workers: int = 8
+    mask_downsample_ratio: int = 4
 
 
 @dataclass(kw_only=True)

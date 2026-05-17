@@ -350,9 +350,12 @@ class BaseBackend(ABC):
             )
             return boxes, scores, cls, None
         else:
-            boxes, scores, cls = self._parse_yolo9(
+            parsed = self._parse_yolo9(
                 all_outputs, effective_imgsz, orig_w, orig_h, conf
             )
+            if len(parsed) == 4:
+                return parsed
+            boxes, scores, cls = parsed
             return boxes, scores, cls, None
 
     def _parse_yolox(
@@ -446,16 +449,21 @@ class BaseBackend(ABC):
         """Parse YOLO9 output: (B, 4+nc, N) — xyxy + class_scores."""
         outputs = all_outputs[0][0].T  # (N, 4+nc)
 
-        boxes = outputs[:, :4]
+        boxes_input = outputs[:, :4]
+        boxes = boxes_input.copy()
         scores = outputs[:, 4:]
 
         max_scores = np.max(scores, axis=1)
         class_ids = np.argmax(scores, axis=1)
 
         mask = max_scores > conf
-        boxes, max_scores, class_ids = boxes[mask], max_scores[mask], class_ids[mask]
+        boxes = boxes[mask]
+        boxes_input = boxes_input[mask]
+        max_scores, class_ids = max_scores[mask], class_ids[mask]
 
         if len(boxes) == 0:
+            if self.task == "segment":
+                return boxes, max_scores, class_ids, None
             return boxes, max_scores, class_ids
 
         scale_x = orig_w / effective_imgsz
@@ -464,6 +472,21 @@ class BaseBackend(ABC):
         boxes[:, [1, 3]] *= scale_y
         boxes[:, [0, 2]] = np.clip(boxes[:, [0, 2]], 0, orig_w)
         boxes[:, [1, 3]] = np.clip(boxes[:, [1, 3]], 0, orig_h)
+
+        if self.task == "segment" and len(all_outputs) >= 3:
+            from ..models.yolo9.utils import _process_masks
+
+            proto = torch.from_numpy(all_outputs[1][0]).float()
+            coeffs = torch.from_numpy(all_outputs[2][0].T[mask]).float()
+            boxes_input_t = torch.from_numpy(boxes_input).float()
+            masks_out = _process_masks(
+                proto,
+                coeffs,
+                boxes_input_t,
+                input_shape=(effective_imgsz, effective_imgsz),
+                original_size=(orig_w, orig_h),
+            ).numpy()
+            return boxes, max_scores, class_ids, masks_out
 
         return boxes, max_scores, class_ids
 
