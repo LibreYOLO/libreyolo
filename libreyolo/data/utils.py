@@ -355,13 +355,21 @@ def check_dataset(
     exists = False
     for split in ("train", "val"):
         if split in config and config[split]:
-            split_path = dataset_path / config[split]
-            # Check if it's a directory with contents or a .txt file that exists
-            if split_path.is_dir() and any(split_path.iterdir()):
-                exists = True
-                break
-            elif split_path.is_file():
-                exists = True
+            split_values = config[split]
+            if not isinstance(split_values, list):
+                split_values = [split_values]
+            for split_value in split_values:
+                split_path = Path(split_value)
+                if not split_path.is_absolute():
+                    split_path = dataset_path / split_path
+                # Check if it's a directory with contents or a .txt file that exists
+                if split_path.is_dir() and any(split_path.iterdir()):
+                    exists = True
+                    break
+                elif split_path.is_file():
+                    exists = True
+                    break
+            if exists:
                 break
 
     if exists:
