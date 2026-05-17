@@ -7,7 +7,7 @@ the upstream EdgeCrafter sources or dependencies are not present.
 Setup the environment to run this test by adding upstream to PYTHONPATH:
 
     cd downloads/EdgeCrafter/ecdetseg
-    pip install tensorboard pyyaml  # missing transitive deps
+    pip install pyyaml  # missing transitive deps
     cd ../../..
     UPSTREAM_PATH=downloads/EdgeCrafter/ecdetseg pytest tests/unit/test_ec_parity.py -v
 """

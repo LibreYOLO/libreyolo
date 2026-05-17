@@ -105,7 +105,6 @@ def _build_trainer(*, clip_max_norm=None, scaler=None, events=None):
     trainer.optimizer = torch.optim.SGD([param], lr=0.1)
     trainer.scaler = scaler
     trainer.ema_model = None
-    trainer.tensorboard_writer = None
     trainer.lr_scheduler = SimpleNamespace(update_lr=lambda _: 0.1)
     trainer.wrapper_model = SimpleNamespace(task="detect")
 

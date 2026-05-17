@@ -499,26 +499,11 @@ class DEIMTrainer(BaseTrainer):
             postfix.update({k: f"{v:.4f}" for k, v in loss_components.items()})
             pbar.set_postfix(postfix)
 
-            if self.tensorboard_writer and batch_idx % self.config.log_interval == 0:
-                self.tensorboard_writer.add_scalar(
-                    "train/loss", loss_val, self.current_iter
-                )
-                self.tensorboard_writer.add_scalar(
-                    "train/lr", base_lr, self.current_iter
-                )
-                for name, val in loss_components.items():
-                    self.tensorboard_writer.add_scalar(
-                        f"train/{name}", val, self.current_iter
-                    )
-
         num_batches = max(num_batches, 1)
         avg_loss = total_loss / num_batches
         avg_loss_components = {
             name: value / num_batches for name, value in loss_component_sums.items()
         }
-
-        if self.tensorboard_writer:
-            self.tensorboard_writer.add_scalar("epoch/loss", avg_loss, epoch)
 
         val_metrics = None
         if (
@@ -526,12 +511,5 @@ class DEIMTrainer(BaseTrainer):
             and (epoch + 1) % self.config.eval_interval == 0
         ):
             val_metrics = self._validate_epoch(epoch)
-            if val_metrics and self.tensorboard_writer:
-                self.tensorboard_writer.add_scalar(
-                    "val/mAP50", val_metrics["mAP50"], epoch
-                )
-                self.tensorboard_writer.add_scalar(
-                    "val/mAP50_95", val_metrics["mAP50_95"], epoch
-                )
 
         return avg_loss, val_metrics, avg_loss_components, self._current_lrs()
