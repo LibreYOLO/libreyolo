@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 
@@ -20,6 +21,8 @@ from .utils import (
     preprocess_image,
     unwrap_yolonas_checkpoint,
 )
+
+logger = logging.getLogger(__name__)
 
 _POSE_HEAD_KEY = "heads.head1.pose_pred.weight"
 
@@ -94,6 +97,17 @@ class LibreYOLONAS(BaseModel):
             return 1
         return int(tensor.shape[0])
 
+    @classmethod
+    def detect_num_keypoints(cls, weights_dict: dict) -> Optional[int]:
+        """Infer the keypoint count from a pose state dict.
+
+        ``pose_pred`` emits ``2 * K`` channels (x, y per keypoint).
+        """
+        tensor = weights_dict.get(_POSE_HEAD_KEY)
+        if tensor is None or tensor.ndim == 0:
+            return None
+        return int(tensor.shape[0]) // 2
+
     @staticmethod
     def _detect_pose(model_path) -> bool:
         if not isinstance(model_path, str):
@@ -120,6 +134,9 @@ class LibreYOLONAS(BaseModel):
         **kwargs,
     ):
         self.reg_max = reg_max
+        # Default keypoint count; overridden from the checkpoint in
+        # _load_weights or from the dataset kpt_shape in train().
+        self.num_keypoints = self.POSE_NUM_KEYPOINTS
         if isinstance(model_path, dict):
             model_path = unwrap_yolonas_checkpoint(model_path)
         # For pose, override classes to single-class person detection regardless
@@ -144,7 +161,7 @@ class LibreYOLONAS(BaseModel):
         if self.task == "pose":
             return LibreYOLONASPoseModel(
                 config=self.size,
-                num_keypoints=self.POSE_NUM_KEYPOINTS,
+                num_keypoints=self.num_keypoints,
                 reg_max=self.reg_max,
             )
         return LibreYOLONASModel(
@@ -176,6 +193,22 @@ class LibreYOLONAS(BaseModel):
         self.nb_classes = new_nb_classes
         self.model.nc = new_nb_classes
         self.model.heads.replace_num_classes(new_nb_classes)
+        self.model.to(self.device)
+
+    def _rebuild_for_new_keypoints(self, new_num_keypoints: int):
+        """Rebuild the pose head for a different keypoint count.
+
+        Used to fine-tune a COCO (17-keypoint) checkpoint on a dataset with a
+        different number of keypoints: the backbone, neck and box layers keep
+        their pretrained weights; only the keypoint-dependent head layers are
+        reinitialised.
+        """
+        if self.task != "pose":
+            return
+        if new_num_keypoints == self.num_keypoints:
+            return
+        self.model.replace_num_keypoints(new_num_keypoints)
+        self.num_keypoints = new_num_keypoints
         self.model.to(self.device)
 
     @staticmethod
@@ -281,6 +314,13 @@ class LibreYOLONAS(BaseModel):
                     "checkpoint."
                 )
 
+            # Match the pose head to the checkpoint's keypoint count before
+            # loading (e.g. a 4-keypoint fine-tune of a COCO-17 model).
+            if ckpt_is_pose:
+                ckpt_k = self.detect_num_keypoints(state_dict)
+                if ckpt_k is not None and ckpt_k != self.num_keypoints:
+                    self._rebuild_for_new_keypoints(ckpt_k)
+
             if isinstance(loaded, dict):
                 ckpt_family = loaded.get("model_family", "")
                 own_family = self._get_model_name()
@@ -313,26 +353,44 @@ class LibreYOLONAS(BaseModel):
         epochs: int = 300,
         batch: int = 16,
         imgsz: int = 640,
-        lr0: float = 5e-4,
+        lr0: Optional[float] = None,
         optimizer: str = "AdamW",
         device: str = "",
         workers: int = 8,
         seed: int = 0,
         project: str = "runs/train",
-        name: str = "yolonas_exp",
+        name: Optional[str] = None,
         exist_ok: bool = False,
         resume: bool = False,
         amp: bool = False,
         patience: int = 50,
         **kwargs,
     ) -> dict:
+        # Task-specific defaults for arguments left unset by the caller.
+        if lr0 is None:
+            lr0 = 2e-3 if self.task == "pose" else 5e-4
+
         if self.task == "pose":
-            raise NotImplementedError(
-                "YOLO-NAS pose training is not yet implemented. Use task='detect' "
-                "to train detection variants, or run pose inference from the "
-                "pretrained checkpoints."
+            return self._train_pose(
+                data,
+                epochs=epochs,
+                batch=batch,
+                imgsz=imgsz,
+                lr0=lr0,
+                optimizer=optimizer,
+                device=device,
+                workers=workers,
+                seed=seed,
+                project=project,
+                name=name or "yolonas_pose_exp",
+                exist_ok=exist_ok,
+                resume=resume,
+                amp=amp,
+                patience=patience,
+                **kwargs,
             )
 
+        name = name or "yolonas_exp"
         from libreyolo.data import load_data_config
 
         from .trainer import YOLONASTrainer
@@ -392,6 +450,120 @@ class LibreYOLONAS(BaseModel):
                 raise ValueError(
                     "resume=True requires a checkpoint. Load one first: "
                     "model = LibreYOLONAS('path/to/last.pt'); model.train(data=..., resume=True)"
+                )
+            trainer.setup()
+            trainer.resume(str(self.model_path))
+            return trainer.train()
+
+        results = trainer.train()
+
+        best_ckpt = results.get("best_checkpoint")
+        if best_ckpt and Path(best_ckpt).exists():
+            self.model_path = best_ckpt
+            self._load_weights(best_ckpt)
+
+        return results
+
+    def _train_pose(
+        self,
+        data: str,
+        *,
+        epochs: int,
+        batch: int,
+        imgsz: int,
+        lr0: float,
+        optimizer: str,
+        device: str,
+        workers: int,
+        seed: int,
+        project: str,
+        name: str,
+        exist_ok: bool,
+        resume: bool,
+        amp: bool,
+        patience: int,
+        **kwargs,
+    ) -> dict:
+        """Train the YOLO-NAS pose head on a YOLO-format keypoint dataset.
+
+        The dataset ``data.yaml`` must declare ``kpt_shape: [num_keypoints, 3]``
+        (Ultralytics YOLO-pose format). If the keypoint count differs from the
+        loaded checkpoint, the pose head is rebuilt for the new count while the
+        backbone/neck keep their pretrained weights.
+        """
+        from libreyolo.data import load_data_config
+
+        from .pose_trainer import YOLONASPoseTrainer
+
+        try:
+            data_config = load_data_config(data, autodownload=True)
+            data = data_config.get("yaml_file", data)
+        except Exception as e:
+            raise FileNotFoundError(f"Failed to load dataset config '{data}': {e}")
+
+        kpt_shape = data_config.get("kpt_shape")
+        if not kpt_shape or len(kpt_shape) < 1:
+            raise ValueError(
+                "Pose training requires 'kpt_shape: [num_keypoints, 3]' in the "
+                "dataset data.yaml (Ultralytics YOLO-pose format)."
+            )
+        num_keypoints = int(kpt_shape[0])
+
+        # Pose is single-class; carry the dataset's class name into checkpoints.
+        yaml_names = data_config.get("names")
+        if yaml_names is not None:
+            if isinstance(yaml_names, list):
+                yaml_names = {i: n for i, n in enumerate(yaml_names)}
+            self.names = self._sanitize_names(yaml_names, 1)
+        if num_keypoints != self.num_keypoints:
+            logger.info(
+                "Rebuilding YOLO-NAS pose head for %d keypoints (was %d)",
+                num_keypoints,
+                self.num_keypoints,
+            )
+            self._rebuild_for_new_keypoints(num_keypoints)
+
+        if seed >= 0:
+            import random
+
+            import numpy as np
+
+            random.seed(seed)
+            np.random.seed(seed)
+            torch.manual_seed(seed)
+            if torch.cuda.is_available():
+                torch.cuda.manual_seed_all(seed)
+
+        trainer = YOLONASPoseTrainer(
+            model=self.model,
+            wrapper_model=self,
+            size=self.size,
+            num_classes=1,
+            num_keypoints=num_keypoints,
+            data=data,
+            epochs=epochs,
+            batch=batch,
+            imgsz=imgsz,
+            lr0=lr0,
+            optimizer=optimizer.lower(),
+            device=device if device else "auto",
+            workers=workers,
+            seed=seed,
+            project=project,
+            name=name,
+            exist_ok=exist_ok,
+            resume=resume,
+            amp=amp,
+            patience=patience,
+            **kwargs,
+        )
+
+        if resume:
+            if not self.model_path:
+                raise ValueError(
+                    "resume=True requires a checkpoint. Load one first: "
+                    "model = LibreYOLONAS('path/to/last.pt', task='pose'); "
+                    "model.train(data=..., resume=True)"
                 )
             trainer.setup()
             trainer.resume(str(self.model_path))

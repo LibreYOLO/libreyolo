@@ -4,7 +4,7 @@ import logging
 import warnings
 from dataclasses import asdict, dataclass, fields
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import List, Optional, Tuple
 
 import yaml
 
@@ -566,6 +566,33 @@ class YOLONASConfig(TrainConfig):
     ema_decay: float = 0.9997
     amp: bool = False
     name: str = "yolonas_exp"
+
+
+@dataclass(kw_only=True)
+class YOLONASPoseConfig(YOLONASConfig):
+    """YOLO-NAS pose-estimation training defaults.
+
+    Mirrors the SuperGradients ``coco2017_yolo_nas_pose`` recipe where it
+    applies to a single-GPU fine-tune: AdamW, low weight decay, cosine LR.
+    ``num_keypoints`` is resolved from the dataset ``kpt_shape`` by
+    ``LibreYOLONAS.train()``. ``oks_sigmas`` may be overridden per dataset;
+    when ``None`` the trainer uses the COCO-17 sigmas (17 keypoints) or a
+    uniform fallback otherwise.
+
+    best.pt is selected by validation loss (no per-epoch OKS-AP), so
+    ``eval_interval`` defaults to every epoch.
+    """
+
+    num_classes: int = 1
+    num_keypoints: int = 17
+    oks_sigmas: Optional[List[float]] = None
+
+    lr0: float = 2e-3
+    weight_decay: float = 1e-6
+    warmup_epochs: int = 1
+    epochs: int = 100
+    eval_interval: int = 1
+    name: str = "yolonas_pose_exp"
 
 
 @dataclass(kw_only=True)
