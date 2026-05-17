@@ -14,6 +14,8 @@ from .transforms import YOLONASAffineMixupDataset, YOLONASTrainTransform
 
 
 class YOLONASTrainer(BaseTrainer):
+    artifact_model_families = ("yolonas",)
+
     @classmethod
     def _config_class(cls) -> Type[TrainConfig]:
         return YOLONASConfig
