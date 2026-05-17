@@ -17,6 +17,7 @@ import torch.nn as nn
 from torch.amp import GradScaler, autocast
 from tqdm import tqdm
 
+from .artifacts import TrainingArtifactsCallback
 from .callbacks import (
     TrainCallbackList,
     TrainCallbacks,
@@ -43,6 +44,7 @@ class BaseTrainer(ABC):
     """
 
     best_metric_key: str = "metrics/mAP50-95"
+    artifact_model_families: Tuple[str, ...] = ()
 
     def __init__(
         self,
@@ -55,6 +57,9 @@ class BaseTrainer(ABC):
         self.model = model
         self.wrapper_model = wrapper_model
         self.callbacks = TrainCallbackList(callbacks)
+        self.artifact_callbacks = TrainCallbackList(
+            TrainingArtifactsCallback(enabled_families=self.artifact_model_families)
+        )
 
         # Device
         self.device = self._setup_device()
@@ -387,7 +392,9 @@ class BaseTrainer(ABC):
             logger.info(f"Batch size: {self.config.batch}")
             logger.info(f"Learning rate: {self.effective_lr}")
 
-            self.callbacks.on_train_start(self._build_train_start_event())
+            start_event = self._build_train_start_event()
+            self._dispatch_artifact_callbacks("on_train_start", start_event)
+            self.callbacks.on_train_start(start_event)
 
             for epoch in range(self.start_epoch, self.config.epochs):
                 self.current_epoch = epoch
@@ -428,6 +435,7 @@ class BaseTrainer(ABC):
                     epoch_seconds=epoch_seconds,
                 )
                 self.epoch_events.append(event)
+                self._dispatch_artifact_callbacks("on_train_epoch_end", event)
                 self.callbacks.on_train_epoch_end(event)
 
                 if self.patience_counter >= self.config.patience:
@@ -441,18 +449,26 @@ class BaseTrainer(ABC):
             logger.info(f"Training complete in {total_time / 3600:.2f} hours")
 
             results = self._build_train_results()
-            self.callbacks.on_train_end(self._build_train_end_event(total_time, results))
+            end_event = self._build_train_end_event(total_time, results)
+            self._dispatch_artifact_callbacks("on_train_end", end_event)
+            self.callbacks.on_train_end(end_event)
             return results
 
         except BaseException as exc:
             elapsed_seconds = time.time() - start_time
+            exception_event = self._build_train_exception_event(exc, elapsed_seconds)
+            self._dispatch_artifact_callbacks("on_train_exception", exception_event)
             try:
-                self.callbacks.on_train_exception(
-                    self._build_train_exception_event(exc, elapsed_seconds)
-                )
+                self.callbacks.on_train_exception(exception_event)
             except Exception:
                 logger.exception("Training exception callback failed")
             raise
+
+    def _dispatch_artifact_callbacks(self, method_name: str, event) -> None:
+        try:
+            getattr(self.artifact_callbacks, method_name)(event)
+        except Exception:
+            logger.exception("Training artifact callback failed")
 
     def _build_train_results(self) -> Dict[str, Any]:
         weights_dir = self.save_dir / "weights"

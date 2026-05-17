@@ -17,6 +17,8 @@ from .transforms import YOLO9TrainTransform, YOLO9MosaicMixupDataset
 class YOLO9Trainer(BaseTrainer):
     """YOLOv9-specific trainer."""
 
+    artifact_model_families = ("yolo9", "yolo9_e2e")
+
     @classmethod
     def _config_class(cls) -> Type[TrainConfig]:
         return YOLO9Config
