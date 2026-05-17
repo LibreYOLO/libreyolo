@@ -156,6 +156,49 @@ class TestYOLONASNativeModel:
         assert model.model.heads.head2.cls_pred.weight.shape[0] == 5
         assert model.model.heads.head3.cls_pred.weight.shape[0] == 5
 
+    def test_train_applies_dataset_class_names_before_trainer(
+        self, monkeypatch, tmp_path
+    ):
+        from libreyolo.models.yolonas import trainer as trainer_module
+
+        data_yaml = tmp_path / "data.yaml"
+        data_yaml.write_text(
+            "\n".join(
+                [
+                    f"path: {tmp_path}",
+                    "train: images/train",
+                    "val: images/val",
+                    "nc: 2",
+                    "names: [red, white]",
+                ]
+            )
+        )
+        captured = {}
+
+        class FakeTrainer:
+            def __init__(self, *, wrapper_model, num_classes, data, **kwargs):
+                captured["wrapper_names"] = dict(wrapper_model.names)
+                captured["wrapper_nc"] = wrapper_model.nb_classes
+                captured["num_classes"] = num_classes
+                captured["data"] = data
+
+            def train(self):
+                return {"best_checkpoint": ""}
+
+        monkeypatch.setattr(trainer_module, "YOLONASTrainer", FakeTrainer)
+
+        model = LibreYOLONAS(model_path=None, size="s", nb_classes=80, device="cpu")
+        model.train(data=str(data_yaml), seed=-1)
+
+        assert model.nb_classes == 2
+        assert model.names == {0: "red", 1: "white"}
+        assert captured == {
+            "wrapper_names": {0: "red", 1: "white"},
+            "wrapper_nc": 2,
+            "num_classes": 2,
+            "data": str(data_yaml),
+        }
+
     def test_loss_backward_with_synthetic_targets(self):
         model = LibreYOLONASModel("s", nb_classes=80)
         model.train()
