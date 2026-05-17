@@ -57,6 +57,76 @@ def mirror(image, boxes, prob=0.5):
     return image, boxes
 
 
+def _copy_segments(segments):
+    if segments is None:
+        return None
+    return [[ring.copy() for ring in instance] for instance in segments]
+
+
+def _transform_segments(segments, scale=1.0, padw=0.0, padh=0.0, width=None, height=None):
+    if segments is None:
+        return None
+    transformed = []
+    for instance in segments:
+        rings = []
+        for ring in instance:
+            r = ring.astype(np.float32, copy=True)
+            r[:, 0] = r[:, 0] * scale + padw
+            r[:, 1] = r[:, 1] * scale + padh
+            if width is not None:
+                r[:, 0] = np.clip(r[:, 0], 0, width)
+            if height is not None:
+                r[:, 1] = np.clip(r[:, 1], 0, height)
+            rings.append(r)
+        transformed.append(rings)
+    return transformed
+
+
+def _flip_segments_lr(segments, width):
+    if segments is None:
+        return None
+    flipped = []
+    for instance in segments:
+        rings = []
+        for ring in instance:
+            r = ring.astype(np.float32, copy=True)
+            r[:, 0] = width - r[:, 0]
+            rings.append(r)
+        flipped.append(rings)
+    return flipped
+
+
+def _filter_segments(segments, keep_mask):
+    if segments is None:
+        return None
+    keep = np.asarray(keep_mask, dtype=bool)
+    return [segments[i] for i in range(min(len(segments), len(keep))) if keep[i]]
+
+
+def _rasterize_segments(segments, image_shape, mask_shape, max_masks):
+    masks = np.zeros((max_masks, mask_shape[0], mask_shape[1]), dtype=np.float32)
+    if not segments:
+        return masks
+
+    img_h, img_w = image_shape
+    mask_h, mask_w = mask_shape
+    sx = mask_w / max(float(img_w), 1.0)
+    sy = mask_h / max(float(img_h), 1.0)
+
+    for idx, instance in enumerate(segments[:max_masks]):
+        polygons = []
+        for ring in instance:
+            if ring is None or len(ring) < 3:
+                continue
+            poly = ring.astype(np.float32, copy=True)
+            poly[:, 0] *= sx
+            poly[:, 1] *= sy
+            polygons.append(np.round(poly).astype(np.int32))
+        if polygons:
+            cv2.fillPoly(masks[idx], polygons, color=1)
+    return masks
+
+
 class YOLO9TrainTransform:
     """
     Transform for YOLOv9 training data.
@@ -65,7 +135,13 @@ class YOLO9TrainTransform:
     are normalized to [0, 1] range.
     """
 
-    def __init__(self, max_labels=100, flip_prob=0.5, hsv_prob=1.0):
+    def __init__(
+        self,
+        max_labels=100,
+        flip_prob=0.5,
+        hsv_prob=1.0,
+        mask_downsample_ratio=4,
+    ):
         """
         Args:
             max_labels: Maximum number of labels per image
@@ -75,8 +151,9 @@ class YOLO9TrainTransform:
         self.max_labels = max_labels
         self.flip_prob = flip_prob
         self.hsv_prob = hsv_prob
+        self.mask_downsample_ratio = mask_downsample_ratio
 
-    def __call__(self, image, targets, input_dim):
+    def __call__(self, image, targets, input_dim, segments=None):
         """
         Apply transformations.
 
@@ -89,33 +166,55 @@ class YOLO9TrainTransform:
             image: Transformed image (C, H, W) as float32
             padded_labels: [max_labels, 5] with [class, x1, y1, x2, y2] normalized
         """
+        return_masks = segments is not None
         boxes = targets[:, :4].copy()
         labels = targets[:, 4].copy()
+        segments_t = _copy_segments(segments)
+        mask_shape = (
+            input_dim[0] // self.mask_downsample_ratio,
+            input_dim[1] // self.mask_downsample_ratio,
+        )
 
         if len(boxes) == 0:
             padded_labels = np.zeros((self.max_labels, 5), dtype=np.float32)
             # Fill class with -1 to indicate padding (empty slots)
             padded_labels[:, 0] = -1
             image, _ = preproc(image, input_dim)
+            if return_masks:
+                return (
+                    image,
+                    padded_labels,
+                    np.zeros((self.max_labels, *mask_shape), dtype=np.float32),
+                )
             return image, padded_labels
 
         # Store original for fallback
         image_o = image.copy()
         boxes_o = boxes.copy()
         labels_o = labels.copy()
+        segments_o = _copy_segments(segments_t)
 
         # Apply HSV augmentation
         if random.random() < self.hsv_prob:
             augment_hsv(image)
 
         # Apply horizontal flip
-        image_t, boxes = mirror(image, boxes, self.flip_prob)
+        _, width, _ = image.shape
+        if random.random() < self.flip_prob:
+            image_t = image[:, ::-1]
+            boxes[:, [0, 2]] = width - boxes[:, [2, 0]]
+            segments_t = _flip_segments_lr(segments_t, width)
+        else:
+            image_t = image
 
         # Resize with letterbox
         image_t, r = preproc(image_t, input_dim)
 
         # Scale boxes by resize ratio
         boxes = boxes * r
+        segments_t = _transform_segments(
+            segments_t, scale=r, width=input_dim[1], height=input_dim[0]
+        )
 
         # Filter out tiny boxes (after resize)
         w = boxes[:, 2] - boxes[:, 0]
@@ -123,12 +222,16 @@ class YOLO9TrainTransform:
         mask = (w > 1) & (h > 1)
         boxes_t = boxes[mask]
         labels_t = labels[mask]
+        segments_t = _filter_segments(segments_t, mask)
 
         # Fallback to original if all boxes filtered
         if len(boxes_t) == 0:
             image_t, r = preproc(image_o, input_dim)
             boxes_t = boxes_o * r
             labels_t = labels_o
+            segments_t = _transform_segments(
+                segments_o, scale=r, width=input_dim[1], height=input_dim[0]
+            )
 
         # Normalize coordinates to [0, 1]
         h_out, w_out = input_dim
@@ -152,6 +255,15 @@ class YOLO9TrainTransform:
 
         n = min(len(targets_t), self.max_labels)
         padded_labels[:n] = targets_t[:n]
+
+        if return_masks:
+            masks = _rasterize_segments(
+                segments_t,
+                image_shape=input_dim,
+                mask_shape=mask_shape,
+                max_masks=self.max_labels,
+            )
+            return image_t, padded_labels, masks
 
         return image_t, padded_labels
 
@@ -251,7 +363,14 @@ class YOLO9MosaicMixupDataset:
 
     def _get_normal_item(self, idx):
         """Get a single item without mosaic."""
-        img, label, img_info, img_id = self.dataset.pull_item(idx)
+        item = self.dataset.pull_item(idx)
+        if len(item) == 5:
+            img, label, img_info, img_id, segments = item
+            output = self.preproc(img, label, self.input_dim, segments)
+            img, label, masks = output
+            return img, label, img_info, img_id, masks
+
+        img, label, img_info, img_id = item
         img, label = self.preproc(img, label, self.input_dim)
         return img, label, img_info, img_id
 
@@ -269,9 +388,17 @@ class YOLO9MosaicMixupDataset:
         # Create mosaic canvas
         mosaic_img = np.full((input_h * 2, input_w * 2, 3), 114, dtype=np.uint8)
         mosaic_labels = []
+        mosaic_segments = []
+        has_segments = False
 
         for i, index in enumerate(indices):
-            img, _labels, _, _ = self.dataset.pull_item(index)
+            item = self.dataset.pull_item(index)
+            if len(item) == 5:
+                img, _labels, _, _, segments = item
+                has_segments = True
+            else:
+                img, _labels, _, _ = item
+                segments = None
             h0, w0 = img.shape[:2]
 
             # Scale for mosaic
@@ -311,6 +438,16 @@ class YOLO9MosaicMixupDataset:
                 labels[:, 2] += padw  # x2
                 labels[:, 3] += padh  # y2
                 mosaic_labels.append(labels)
+                if has_segments:
+                    tile_segments = _transform_segments(
+                        segments,
+                        scale=scale,
+                        padw=padw,
+                        padh=padh,
+                        width=input_w * 2,
+                        height=input_h * 2,
+                    )
+                    mosaic_segments.extend(tile_segments or [[] for _ in labels])
 
         if len(mosaic_labels) > 0:
             mosaic_labels = np.concatenate(mosaic_labels, 0)
@@ -325,6 +462,10 @@ class YOLO9MosaicMixupDataset:
         # Resize mosaic to target size
         mosaic_img = cv2.resize(mosaic_img, (input_w, input_h))
         mosaic_labels[:, :4] = mosaic_labels[:, :4] / 2
+        if has_segments:
+            mosaic_segments = _transform_segments(
+                mosaic_segments, scale=0.5, width=input_w, height=input_h
+            )
 
         # Filter small boxes
         if len(mosaic_labels) > 0:
@@ -332,14 +473,28 @@ class YOLO9MosaicMixupDataset:
             h = mosaic_labels[:, 3] - mosaic_labels[:, 1]
             mask = (w > 2) & (h > 2)
             mosaic_labels = mosaic_labels[mask]
+            if has_segments:
+                mosaic_segments = _filter_segments(mosaic_segments, mask)
 
         # Apply preprocessing (HSV, flip, normalize)
-        img, labels = self.preproc(mosaic_img, mosaic_labels, self.input_dim)
+        if has_segments:
+            img, labels, masks = self.preproc(
+                mosaic_img, mosaic_labels, self.input_dim, mosaic_segments
+            )
+        else:
+            img, labels = self.preproc(mosaic_img, mosaic_labels, self.input_dim)
 
         # Apply mixup if enabled
-        if self.enable_mixup and random.random() < self.mixup_prob and len(labels) > 0:
+        if (
+            not has_segments
+            and self.enable_mixup
+            and random.random() < self.mixup_prob
+            and len(labels) > 0
+        ):
             img, labels = self._mixup(img, labels)
 
+        if has_segments:
+            return img, labels, (input_h, input_w), idx, masks
         return img, labels, (input_h, input_w), idx
 
     def _mixup(self, img, labels):

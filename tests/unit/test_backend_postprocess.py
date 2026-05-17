@@ -117,6 +117,38 @@ def test_yolo_backend_still_applies_nms():
     assert len(result.boxes) == 1
 
 
+def test_yolo9_segment_backend_parses_masks():
+    backend = _DummyBackend(
+        "yolo9", task="segment", supported_tasks=("detect", "segment")
+    )
+
+    num_anchors = 4
+    num_classes = 2
+    num_masks = 32
+    pred = np.zeros((1, 4 + num_classes, num_anchors), dtype=np.float32)
+    pred[0, :4] = np.array(
+        [
+            [10, 12, 11, 200],
+            [10, 12, 11, 200],
+            [50, 60, 55, 240],
+            [50, 60, 55, 240],
+        ],
+        dtype=np.float32,
+    )
+    pred[0, 4:] = np.array([[0.9, 0.2, 0.95, 0.1], [0.1, 0.8, 0.05, 0.7]])
+    proto = np.random.randn(1, num_masks, 16, 16).astype(np.float32)
+    coeffs = np.random.randn(1, num_masks, num_anchors).astype(np.float32)
+
+    boxes, scores, classes, masks = backend._parse_outputs(
+        [pred, proto, coeffs], 64, (128, 96), conf=0.25
+    )
+
+    assert boxes.shape[0] == 4
+    assert scores.shape[0] == 4
+    assert classes.shape[0] == 4
+    assert masks.shape == (4, 96, 128)
+
+
 def test_backend_call_accepts_device_kwarg(monkeypatch):
     backend = _DummyBackend("yolo9")
     monkeypatch.setattr(backend, "_predict_single", lambda source, **kwargs: "ok")

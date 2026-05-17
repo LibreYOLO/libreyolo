@@ -117,6 +117,10 @@ def export_onnx(
     # DETR detection families we already know the output schema, so skip
     # the probe forward pass entirely and reuse the count below.
     is_seg = metadata.get("segmentation") == "true"
+    is_yolo9_seg = (
+        metadata.get("model_family") == "yolo9"
+        and metadata.get("task") == "segment"
+    )
     known_detr_detection = _uses_dfine_style_export_wrapper(
         metadata.get("model_family")
     )
@@ -126,7 +130,20 @@ def export_onnx(
         is_seg = num_outputs >= 3
 
     model_family = metadata.get("model_family")
-    if is_seg:
+    if is_yolo9_seg:
+        output_names = ["predictions", "proto", "mask_coeffs"]
+        dynamic_axes = (
+            {
+                "images": {0: "batch"},
+                "predictions": {0: "batch", 2: "anchors"},
+                "proto": {0: "batch", 2: "mask_height", 3: "mask_width"},
+                "mask_coeffs": {0: "batch", 2: "anchors"},
+            }
+            if dynamic
+            else None
+        )
+        metadata["segmentation"] = "true"
+    elif is_seg:
         output_names = (
             ["pred_boxes", "pred_logits", "pred_masks"]
             if model_family == "rfdetr"

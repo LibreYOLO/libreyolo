@@ -34,7 +34,10 @@ class YOLO9Trainer(BaseTrainer):
             max_labels=100,
             flip_prob=self.config.flip_prob,
             hsv_prob=self.config.hsv_prob,
+            mask_downsample_ratio=getattr(self.config, "mask_downsample_ratio", 4),
         )
+        if getattr(self.wrapper_model, "task", "detect") == "segment":
+            preproc.wants_unresized_image = True
         return preproc, YOLO9MosaicMixupDataset
 
     def create_scheduler(self, iters_per_epoch: int):
@@ -64,11 +67,16 @@ class YOLO9Trainer(BaseTrainer):
         def _scalar(v):
             return v.item() if isinstance(v, torch.Tensor) else v
 
-        return {
+        components = {
             "box": _scalar(outputs.get("box", 0)),
             "cls": _scalar(outputs.get("cls", 0)),
             "dfl": _scalar(outputs.get("dfl", 0)),
         }
+        if "seg" in outputs:
+            components["seg"] = _scalar(outputs.get("seg", 0))
+        return components
 
     def on_forward(self, imgs: torch.Tensor, targets: torch.Tensor, polygons=None) -> Dict:
+        if getattr(self.wrapper_model, "task", "detect") == "segment":
+            return self.model(imgs, targets=targets, masks=polygons)
         return self.model(imgs, targets=targets)
