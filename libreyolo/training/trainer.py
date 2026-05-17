@@ -4,6 +4,7 @@ Model-specific trainers subclass BaseTrainer and override hooks.
 """
 
 import logging
+import math
 import sys
 import time
 from abc import ABC, abstractmethod
@@ -695,6 +696,50 @@ class BaseTrainer(ABC):
             self.patience_counter += 1
         return is_best
 
+    def _get_clip_max_norm(self) -> float:
+        value = getattr(self.config, "clip_max_norm", 0.0)
+        if value is None:
+            return 0.0
+        try:
+            max_norm = float(value)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                f"clip_max_norm must be a finite non-negative number, got {value!r}"
+            ) from exc
+        if max_norm < 0.0 or not math.isfinite(max_norm):
+            raise ValueError(
+                f"clip_max_norm must be a finite non-negative number, got {value!r}"
+            )
+        return max_norm
+
+    def _should_clip_gradients(self) -> bool:
+        return self._get_clip_max_norm() > 0.0
+
+    def _gradient_clip_parameters(self) -> List[torch.nn.Parameter]:
+        if self.optimizer is None:
+            return []
+        params = []
+        seen = set()
+        for group in self.optimizer.param_groups:
+            for param in group.get("params", ()):
+                if param.grad is None:
+                    continue
+                param_id = id(param)
+                if param_id in seen:
+                    continue
+                seen.add(param_id)
+                params.append(param)
+        return params
+
+    def _clip_gradients(self) -> Optional[torch.Tensor]:
+        max_norm = self._get_clip_max_norm()
+        if max_norm <= 0.0:
+            return None
+        return torch.nn.utils.clip_grad_norm_(
+            self._gradient_clip_parameters(),
+            max_norm,
+        )
+
     def _train_epoch(
         self, epoch: int
     ) -> Tuple[float, Optional[Dict[str, Any]], Dict[str, float], Dict[str, float]]:
@@ -730,6 +775,9 @@ class BaseTrainer(ABC):
                     loss = outputs["total_loss"]
                 self.optimizer.zero_grad()
                 self.scaler.scale(loss).backward()
+                if self._should_clip_gradients():
+                    self.scaler.unscale_(self.optimizer)
+                    self._clip_gradients()
                 self.scaler.step(self.optimizer)
                 self.scaler.update()
             else:
@@ -737,6 +785,7 @@ class BaseTrainer(ABC):
                 loss = outputs["total_loss"]
                 self.optimizer.zero_grad()
                 loss.backward()
+                self._clip_gradients()
                 self.optimizer.step()
 
             # EMA

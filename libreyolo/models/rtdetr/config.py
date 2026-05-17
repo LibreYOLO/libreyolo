@@ -27,6 +27,7 @@ class RTDETRConfig(TrainConfig):
 
     # Optimizer overrides (RT-DETR uses lighter regularisation than YOLO)
     weight_decay: float = 1e-4
+    clip_max_norm: float = 0.1
 
     # Scheduler overrides (RT-DETR uses no warmup / no-aug tail by default)
     warmup_epochs: int = 0
