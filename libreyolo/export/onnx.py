@@ -125,21 +125,39 @@ def export_onnx(
         num_outputs = _detect_num_outputs(nn_model, dummy)
         is_seg = num_outputs >= 3
 
+    model_family = metadata.get("model_family")
     if is_seg:
-        output_names = ["boxes", "scores", "masks"]
+        output_names = (
+            ["pred_boxes", "pred_logits", "pred_masks"]
+            if model_family == "rfdetr"
+            else ["boxes", "scores", "masks"]
+        )
         dynamic_axes = (
             {
                 "images": {0: "batch"},
-                "boxes": {0: "batch"},
-                "scores": {0: "batch"},
-                "masks": {0: "batch"},
+                output_names[0]: {0: "batch"},
+                output_names[1]: {0: "batch"},
+                output_names[2]: {0: "batch"},
             }
             if dynamic
             else None
         )
         metadata["segmentation"] = "true"
+    elif model_family == "rfdetr":
+        # RF-DETR's RFDETRExportWrapper returns (pred_boxes, pred_logits) — the
+        # tuple order is the inverse of D-FINE / DEIM / EC's (pred_logits, pred_boxes).
+        output_names = ["pred_boxes", "pred_logits"]
+        dynamic_axes = (
+            {
+                "images": {0: "batch"},
+                "pred_boxes": {0: "batch"},
+                "pred_logits": {0: "batch"},
+            }
+            if dynamic
+            else None
+        )
     elif known_detr_detection or num_outputs == 2:
-        # DETR-style detection: {pred_logits, pred_boxes} as a tuple
+        # DETR-style detection: (pred_logits, pred_boxes) as a tuple
         output_names = ["pred_logits", "pred_boxes"]
         dynamic_axes = (
             {

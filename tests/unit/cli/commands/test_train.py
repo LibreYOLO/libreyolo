@@ -71,8 +71,7 @@ def test_train_dry_run_uses_rtdetr_defaults_for_weight_filename():
 
 
 def test_train_dry_run_uses_rfdetr_defaults():
-    """Dry-run shows RF-DETR adapter defaults instead of generic YOLO defaults."""
-    pytest.importorskip("rfdetr")
+    """Dry-run shows native RF-DETR defaults instead of generic YOLO defaults."""
     app = _make_app()
     result = runner.invoke(
         app,
@@ -101,7 +100,6 @@ def test_train_dry_run_uses_rfdetr_defaults():
 
 
 def test_train_dry_run_rfdetr_user_override_wins():
-    pytest.importorskip("rfdetr")
     app = _make_app()
     result = runner.invoke(
         app,
@@ -126,7 +124,6 @@ def test_train_dry_run_rfdetr_user_override_wins():
 
 def test_train_rfdetr_actual_call_uses_reported_defaults(monkeypatch, tmp_path):
     """RF-DETR train should receive the same defaults shown by dry-run."""
-    pytest.importorskip("rfdetr")
     app = _make_app()
     captured = {}
 

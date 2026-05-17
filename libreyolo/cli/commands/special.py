@@ -80,7 +80,15 @@ def checks_cmd(
             )
 
     packages: dict[str, Optional[str]] = {}
-    for pkg in ("onnx", "onnxruntime", "tensorrt", "openvino", "ncnn", "rfdetr"):
+    for pkg in (
+        "onnx",
+        "onnxruntime",
+        "tensorrt",
+        "openvino",
+        "ncnn",
+        "transformers",
+        "scipy",
+    ):
         try:
             from importlib.metadata import version
 

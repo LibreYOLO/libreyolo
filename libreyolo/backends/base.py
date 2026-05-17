@@ -544,14 +544,27 @@ class BaseBackend(ABC):
         For segmentation models a third output is present:
         masks (B,300,Hm,Wm) raw mask logits at model resolution.
         """
-        boxes_raw = all_outputs[0][0]  # (300, 4) normalized cxcywh
-        logits = all_outputs[1][0]  # (300, nc) raw logits
+        first = all_outputs[0][0]
+        second = all_outputs[1][0]
+        if first.shape[-1] == 4:
+            boxes_all = first
+            logits = second
+        else:
+            logits = first
+            boxes_all = second
         raw_masks = all_outputs[2][0] if len(all_outputs) >= 3 else None
 
         scores = 1.0 / (1.0 + np.exp(-logits.astype(np.float64))).astype(np.float32)
-
-        max_scores = np.max(scores, axis=1)
-        class_ids = np.argmax(scores, axis=1)
+        num_queries, num_classes = scores.shape
+        k = min(300, num_queries * num_classes)
+        flat_indexes = np.argpartition(scores.reshape(-1), -k)[-k:]
+        flat_indexes = flat_indexes[np.argsort(scores.reshape(-1)[flat_indexes])[::-1]]
+        max_scores = scores.reshape(-1)[flat_indexes]
+        query_idx = flat_indexes // num_classes
+        class_ids = flat_indexes % num_classes
+        boxes_raw = boxes_all[query_idx]
+        if raw_masks is not None:
+            raw_masks = raw_masks[query_idx]
 
         mask = max_scores > conf
         boxes_raw = boxes_raw[mask]
@@ -563,7 +576,7 @@ class BaseBackend(ABC):
             return boxes_raw, max_scores, class_ids, None
 
         # COCO 91→80 class mapping
-        if logits.shape[1] == 91 and self.nb_classes == 80:
+        if num_classes == 91 and self.nb_classes == 80:
             from ..models.rfdetr.model import _COCO91_TO_COCO80
 
             mapped = np.array([_COCO91_TO_COCO80.get(int(c), -1) for c in class_ids])

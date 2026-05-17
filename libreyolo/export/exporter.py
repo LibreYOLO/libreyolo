@@ -136,10 +136,9 @@ class BaseExporter(ABC):
         half, int8 = self._validate(half, int8, data)
 
         if opset is None:
-            # D-FINE and EC use ``F.grid_sample`` (deformable attention)
-            # which requires opset 16+. Default the rest of the families to
-            # 13 to preserve compatibility with the broadest set of ONNX
-            # runtimes.
+            # DETR-style families use deformable attention / layer norm ops
+            # which require opset 16+ (or 17 for ``aten::scaled_dot_product``
+            # in the tuple export wrapper). Other families default to 13.
             opset = (
                 17
                 if _uses_dfine_style_export_wrapper(self.model._get_model_name())
@@ -290,6 +289,8 @@ class BaseExporter(ABC):
         # decoder layers). The wrapper is what gets traced; the original
         # model is restored on exit.
         dfine_wrapped = False
+        rfdetr_export_activated = False
+        rfdetr_inner = None
         family = self.model._get_model_name()
         if family == "dfine":
             from ..models.dfine.nn import DFINEExportWrapper
@@ -316,6 +317,15 @@ class BaseExporter(ABC):
             nn_model = ECExportWrapper(nn_model).to(device)
             nn_model.eval()
             dfine_wrapped = True  # share the YOLOX-head-export skip path below
+        elif family == "rfdetr":
+            from ..models.rfdetr.nn import RFDETRExportWrapper
+
+            rfdetr_inner = getattr(nn_model, "model", None)
+            was_exported = getattr(rfdetr_inner, "_export", False)
+            nn_model = RFDETRExportWrapper(nn_model).to(device)
+            nn_model.eval()
+            dfine_wrapped = True
+            rfdetr_export_activated = not was_exported
 
         # Set export mode for YOLOX/YOLOv9 heads
         original_export = None
@@ -330,9 +340,8 @@ class BaseExporter(ABC):
             nn_model.head.export = True
 
         # RF-DETR export mode
-        rfdetr_export_activated = False
         rfdetr_layernorm_patches = []
-        inner = getattr(nn_model, "model", None)
+        inner = rfdetr_inner or getattr(nn_model, "model", None)
         if (
             inner is not None
             and hasattr(inner, "forward_export")
@@ -343,9 +352,7 @@ class BaseExporter(ABC):
                 rfdetr_export_activated = True
 
             try:
-                from rfdetr.models.backbone.projector import (
-                    LayerNorm as RFDETRLayerNorm,
-                )
+                from ..models.rfdetr.backbone import LayerNorm as RFDETRLayerNorm
 
                 for m in nn_model.modules():
                     if isinstance(m, RFDETRLayerNorm):
@@ -380,8 +387,11 @@ class BaseExporter(ABC):
             if original_export is not None:
                 getattr(nn_model, export_attr).export = original_export
             if rfdetr_export_activated:
-                inner._export = False
-                inner.forward = inner._forward_origin
+                for module in inner.modules():
+                    if hasattr(module, "_forward_origin"):
+                        module.forward = module._forward_origin
+                    if hasattr(module, "_export"):
+                        module._export = False
             for m, orig_fwd in rfdetr_layernorm_patches:
                 m.forward = orig_fwd
 

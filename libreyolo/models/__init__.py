@@ -55,7 +55,9 @@ def _ensure_rfdetr():
         return
     import importlib.util
 
-    if importlib.util.find_spec("rfdetr") is None:
+    # Native port: no longer depends on the rfdetr PyPI package; transformers
+    # is what we need (DINOv2 backbone via AutoBackbone, plus segmentation).
+    if importlib.util.find_spec("transformers") is None:
         raise ModuleNotFoundError(
             "RF-DETR support requires extra dependencies.\n"
             "Install with: pip install libreyolo[rfdetr]"

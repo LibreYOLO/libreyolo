@@ -332,9 +332,8 @@ def _build_rfdetr_train_kwargs(
 ) -> dict[str, Any]:
     """Build RF-DETR kwargs from resolved family-aware CLI params.
 
-    RF-DETR uses a different training API than the YOLO-family wrappers. The CLI
-    translates only the parameters it intentionally supports; unsupported YOLO
-    family options stay out of the upstream adapter call.
+    RF-DETR uses a different training signature than the YOLO-family wrappers.
+    The CLI translates only the parameters it intentionally supports.
     """
     from libreyolo.utils.general import increment_path
 
@@ -354,11 +353,17 @@ def _build_rfdetr_train_kwargs(
         "weight_decay": "weight_decay",
         "eval_interval": "eval_interval",
         "warmup_epochs": "warmup_epochs",
+        "warmup_lr_start": "warmup_lr_start",
+        "min_lr_ratio": "min_lr_ratio",
+        "no_aug_epochs": "no_aug_epochs",
         "ema": "use_ema",
         "ema_decay": "ema_decay",
         "save_period": "checkpoint_interval",
         "seed": "seed",
         "device": "device",
+        "flip_prob": "flip_prob",
+        "amp": "amp",
+        "log_interval": "log_interval",
     }
 
     for cli_name, target_name in direct_mappings.items():

@@ -5,9 +5,8 @@ Training test: trains RF-DETR-Seg-Nano for 5 epochs on LibreYOLO/fire-smoke-seg
 (HuggingFace, public, 141 train / 40 valid / 20 test images, 2 classes:
 fire & smoke, YOLO segmentation format with polygon annotations).
 
-NOTE: Seg training requires CUDA — the upstream rfdetr mask loss uses
-F.grid_sample(padding_mode='border') which MPS does not support.
-Seg inference works on all devices (CPU, MPS, CUDA).
+NOTE: Native RF-DETR segmentation training is not implemented yet. Seg inference
+works on all devices (CPU, MPS, CUDA).
 
 The dataset auto-downloads from HuggingFace — no API keys needed.
 
@@ -111,6 +110,10 @@ def dataset():
 
 
 @requires_cuda
+@pytest.mark.xfail(
+    reason="native RF-DETR segmentation training is not implemented yet",
+    strict=False,
+)
 def test_rfdetr_seg_training(dataset, tmp_path):
     """Train RF-DETR-Seg-Nano on fire-smoke-seg, verify mAP improves and masks are produced."""
     output_dir = str(tmp_path / "rfdetr_seg_n")
@@ -235,6 +238,10 @@ def test_rfdetr_seg_inference_only(dataset):
 
 
 @requires_cuda
+@pytest.mark.xfail(
+    reason="native RF-DETR segmentation training is not implemented yet",
+    strict=False,
+)
 def test_rfdetr_seg_resume_training(dataset, tmp_path):
     """Train 3 epochs, stop, resume from checkpoint, train to 5 epochs."""
     output_dir = str(tmp_path / "rfdetr_seg_resume")

@@ -75,7 +75,9 @@ def pytest_configure(config):
     config.addinivalue_line(
         "markers", "deimv2: tests covering the DEIMv2 model family"
     )
-    config.addinivalue_line("markers", "ecdet: tests covering the ECDET model family")
+    config.addinivalue_line(
+        "markers", "ec: tests covering the EC (EdgeCrafter) model family"
+    )
     config.addinivalue_line(
         "markers", "rtdetr: tests covering the RT-DETR model family"
     )
@@ -134,7 +136,7 @@ def has_ncnn():
 
 
 def has_rfdetr_deps():
-    """Check if RF-DETR dependencies are installed."""
+    """Check if native RF-DETR dependencies are installed."""
     try:
         from libreyolo.models.rfdetr.model import LibreRFDETR  # noqa: F401
 
@@ -163,7 +165,7 @@ requires_ncnn = pytest.mark.skipif(
 
 requires_rfdetr = pytest.mark.skipif(
     not has_rfdetr_deps(),
-    reason="RF-DETR dependencies not installed (pip install libreyolo[rfdetr])",
+    reason="native RF-DETR dependencies not installed (pip install libreyolo[rfdetr])",
 )
 
 
@@ -462,10 +464,10 @@ MODEL_CATALOG = [
     ("deimv2", "m", "LibreDEIMv2m.pt"),
     ("deimv2", "l", "LibreDEIMv2l.pt"),
     ("deimv2", "x", "LibreDEIMv2x.pt"),
-    ("ecdet", "s", "LibreECDETs.pt"),
-    ("ecdet", "m", "LibreECDETm.pt"),
-    ("ecdet", "l", "LibreECDETl.pt"),
-    ("ecdet", "x", "LibreECDETx.pt"),
+    ("ec", "s", "LibreECs.pt"),
+    ("ec", "m", "LibreECm.pt"),
+    ("ec", "l", "LibreECl.pt"),
+    ("ec", "x", "LibreECx.pt"),
     ("rtdetr", "r18", "LibreRTDETRr18.pt"),
     ("rtdetr", "r34", "LibreRTDETRr34.pt"),
     ("rtdetr", "r50", "LibreRTDETRr50.pt"),
@@ -490,7 +492,7 @@ RFDETR_SIZES = [s for f, s, _ in MODEL_CATALOG if f == "rfdetr"]
 DFINE_SIZES = [s for f, s, _ in MODEL_CATALOG if f == "dfine"]
 DEIM_SIZES = [s for f, s, _ in MODEL_CATALOG if f == "deim"]
 DEIMV2_SIZES = [s for f, s, _ in MODEL_CATALOG if f == "deimv2"]
-ECDET_SIZES = [s for f, s, _ in MODEL_CATALOG if f == "ecdet"]
+EC_SIZES = [s for f, s, _ in MODEL_CATALOG if f == "ec"]
 RTDETR_SIZES = [s for f, s, _ in MODEL_CATALOG if f == "rtdetr"]
 RTDETRV2_SIZES = [s for f, s, _ in MODEL_CATALOG if f == "rtdetrv2"]
 RTDETRV4_SIZES = [s for f, s, _ in MODEL_CATALOG if f == "rtdetrv4"]
@@ -522,7 +524,7 @@ FAMILY_MARKERS = {
     "dfine": pytest.mark.dfine,
     "deim": pytest.mark.deim,
     "deimv2": pytest.mark.deimv2,
-    "ecdet": pytest.mark.ecdet,
+    "ec": pytest.mark.ec,
     "rtdetr": pytest.mark.rtdetr,
     "rtdetrv2": pytest.mark.rtdetrv2,
     "rtdetrv4": pytest.mark.rtdetrv4,
