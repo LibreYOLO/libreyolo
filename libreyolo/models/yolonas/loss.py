@@ -848,7 +848,13 @@ def batch_pose_oks(
 
     joints1_visibility = gt_keypoints[:, :, :, 2].gt(0).float().unsqueeze(2)
     num_visible = joints1_visibility.sum(dim=-1, keepdim=False)
-    return (oks * joints1_visibility).sum(dim=-1, keepdim=False) / (num_visible + eps)
+    oks = (oks * joints1_visibility).sum(dim=-1, keepdim=False) / (
+        num_visible + eps
+    )
+    # If an object has no labelled keypoints, do not suppress its bbox
+    # assignment. That target should train boxes/classes but contribute no
+    # keypoint-regression signal.
+    return torch.where(num_visible > 0, oks, torch.ones_like(oks))
 
 
 @dataclass
@@ -1321,10 +1327,10 @@ class YoloNASPoseLoss(nn.Module):
                 sigmas=self.oks_sigmas.to(pred_pose_logits.device),
             )
         else:
-            loss_iou = torch.zeros([], device=pred_bboxes.device)
-            loss_dfl = torch.zeros([], device=pred_bboxes.device)
-            loss_pose_cls = torch.zeros([], device=pred_bboxes.device)
-            loss_pose_reg = torch.zeros([], device=pred_bboxes.device)
+            loss_iou = pred_bboxes.sum() * 0.0
+            loss_dfl = pred_dist.sum() * 0.0
+            loss_pose_cls = pred_pose_logits.sum() * 0.0
+            loss_pose_reg = pred_pose_coords.sum() * 0.0
         return loss_iou, loss_dfl, loss_pose_cls, loss_pose_reg
 
     def _bbox_decode(self, anchor_points: Tensor, pred_dist: Tensor) -> Tuple[Tensor, int]:

@@ -133,15 +133,19 @@ class LibreYOLONAS(BaseModel):
         task: str | None = None,
         **kwargs,
     ):
-        self.reg_max = reg_max
-        # Default keypoint count; overridden from the checkpoint in
-        # _load_weights or from the dataset kpt_shape in train().
-        self.num_keypoints = self.POSE_NUM_KEYPOINTS
-        if isinstance(model_path, dict):
-            model_path = unwrap_yolonas_checkpoint(model_path)
         # For pose, override classes to single-class person detection regardless
         # of how many classes the user passed (which defaults to 80 for COCO).
         resolved_task = normalize_task(task) if task is not None else None
+        self.reg_max = reg_max
+        # Default keypoint count; overridden from checkpoint metadata/state
+        # before model construction or from dataset kpt_shape in train().
+        self.num_keypoints = self.POSE_NUM_KEYPOINTS
+        if isinstance(model_path, dict):
+            model_path = unwrap_yolonas_checkpoint(model_path)
+            if resolved_task == "pose":
+                ckpt_k = self.detect_num_keypoints(model_path)
+                if ckpt_k is not None:
+                    self.num_keypoints = ckpt_k
         if resolved_task == "pose":
             nb_classes = 1
         super().__init__(
@@ -233,6 +237,8 @@ class LibreYOLONAS(BaseModel):
     def _forward(self, input_tensor: torch.Tensor) -> Any:
         output = self.model(input_tensor)
         if self.task == "pose":
+            if isinstance(output, tuple) and len(output) == 2 and isinstance(output[0], tuple):
+                output = output[0]
             # Heads return the inference 4-tuple
             # (bboxes, scores, pose_xy, pose_scores).
             if isinstance(output, tuple) and len(output) == 4:
@@ -461,6 +467,7 @@ class LibreYOLONAS(BaseModel):
         if best_ckpt and Path(best_ckpt).exists():
             self.model_path = best_ckpt
             self._load_weights(best_ckpt)
+            self.model.eval()
 
         return results
 
@@ -486,7 +493,7 @@ class LibreYOLONAS(BaseModel):
     ) -> dict:
         """Train the YOLO-NAS pose head on a YOLO-format keypoint dataset.
 
-        The dataset ``data.yaml`` must declare ``kpt_shape: [num_keypoints, 3]``
+        The dataset ``data.yaml`` must declare ``kpt_shape: [num_keypoints, 2|3]``
         (Ultralytics YOLO-pose format). If the keypoint count differs from the
         loaded checkpoint, the pose head is rebuilt for the new count while the
         backbone/neck keep their pretrained weights.
@@ -504,10 +511,16 @@ class LibreYOLONAS(BaseModel):
         kpt_shape = data_config.get("kpt_shape")
         if not kpt_shape or len(kpt_shape) < 1:
             raise ValueError(
-                "Pose training requires 'kpt_shape: [num_keypoints, 3]' in the "
+                "Pose training requires 'kpt_shape: [num_keypoints, 2|3]' in the "
                 "dataset data.yaml (Ultralytics YOLO-pose format)."
             )
         num_keypoints = int(kpt_shape[0])
+        keypoint_dim = int(kpt_shape[1]) if len(kpt_shape) > 1 else 3
+        if keypoint_dim not in (2, 3):
+            raise ValueError(
+                "Pose training requires kpt_shape second value to be 2 or 3 "
+                f"(got {keypoint_dim})."
+            )
 
         # Pose is single-class; carry the dataset's class name into checkpoints.
         yaml_names = data_config.get("names")
@@ -540,6 +553,7 @@ class LibreYOLONAS(BaseModel):
             size=self.size,
             num_classes=1,
             num_keypoints=num_keypoints,
+            keypoint_dim=keypoint_dim,
             data=data,
             epochs=epochs,
             batch=batch,
@@ -575,5 +589,6 @@ class LibreYOLONAS(BaseModel):
         if best_ckpt and Path(best_ckpt).exists():
             self.model_path = best_ckpt
             self._load_weights(best_ckpt)
+            self.model.eval()
 
         return results

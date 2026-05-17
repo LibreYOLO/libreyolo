@@ -9,8 +9,8 @@ take a raw BGR image plus normalized labels and return:
 
 Augmentation is intentionally minimal: HSV jitter and a keypoint-aware
 horizontal flip (using the dataset ``flip_idx`` permutation). Letterboxing
-matches the YOLO-NAS inference path — resize by a single ratio, pad to the
-bottom-right with value 114.
+matches the YOLO-NAS inference path — resize by a single ratio, center-pad
+with value 114.
 """
 
 from __future__ import annotations
@@ -22,18 +22,36 @@ import cv2
 import numpy as np
 
 from ...training.augment import augment_hsv
+from .utils import YOLO_NAS_RESIZE_SIZE
 
 
-def _letterbox(img: np.ndarray, input_dim) -> tuple[np.ndarray, float]:
-    """Resize-and-pad an image into ``input_dim``; return padded image + ratio."""
+def _letterbox(img: np.ndarray, input_dim) -> tuple[np.ndarray, float, int, int]:
+    """Resize-and-center-pad into ``input_dim``; return image, ratio, x/y pad."""
     ih, iw = input_dim
     h, w = img.shape[:2]
-    r = min(ih / h, iw / w)
+    resize_size = min(YOLO_NAS_RESIZE_SIZE, ih, iw)
+    r = min(resize_size / h, resize_size / w)
     nh, nw = int(round(h * r)), int(round(w * r))
     resized = cv2.resize(img, (nw, nh), interpolation=cv2.INTER_LINEAR)
     canvas = np.full((ih, iw, 3), 114, dtype=np.uint8)
-    canvas[:nh, :nw] = resized
-    return canvas, r
+    pad_x = (iw - nw) // 2
+    pad_y = (ih - nh) // 2
+    canvas[pad_y : pad_y + nh, pad_x : pad_x + nw] = resized
+    return canvas, r, pad_x, pad_y
+
+
+def _apply_letterbox_to_targets(
+    bboxes: np.ndarray, kpts: np.ndarray, ratio: float, pad_x: int, pad_y: int
+):
+    """Transform cxcywh boxes and xy keypoints into letterboxed pixel space."""
+    if len(bboxes) == 0:
+        return
+    bboxes *= ratio
+    bboxes[:, 0] += pad_x
+    bboxes[:, 1] += pad_y
+    kpts[..., :2] *= ratio
+    kpts[..., 0] += pad_x
+    kpts[..., 1] += pad_y
 
 
 def _build_target(
@@ -110,10 +128,8 @@ class YOLONASPoseTrainTransform:
                 kpts[..., 0] = w - kpts[..., 0]
                 kpts = kpts[:, self.flip_idx, :]
 
-        img, r = _letterbox(np.ascontiguousarray(img), input_dim)
-        if len(bboxes):
-            bboxes *= r
-            kpts[..., :2] *= r
+        img, r, pad_x, pad_y = _letterbox(np.ascontiguousarray(img), input_dim)
+        _apply_letterbox_to_targets(bboxes, kpts, r, pad_x, pad_y)
 
         target = _build_target(
             cls, bboxes, kpts, self.num_keypoints, self.max_labels
@@ -140,10 +156,8 @@ class YOLONASPoseValTransform:
         kpts[..., 1] *= h
         cls = cls.astype(np.float32).reshape(-1)
 
-        img, r = _letterbox(np.ascontiguousarray(img), input_dim)
-        if len(bboxes):
-            bboxes *= r
-            kpts[..., :2] *= r
+        img, r, pad_x, pad_y = _letterbox(np.ascontiguousarray(img), input_dim)
+        _apply_letterbox_to_targets(bboxes, kpts, r, pad_x, pad_y)
 
         target = _build_target(
             cls, bboxes, kpts, self.num_keypoints, self.max_labels

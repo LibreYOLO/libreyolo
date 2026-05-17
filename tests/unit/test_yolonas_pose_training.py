@@ -15,8 +15,14 @@ import cv2
 import numpy as np
 import pytest
 import torch
+import yaml
 
-from libreyolo.data import YOLOPoseDataset, parse_yolo_pose_label_line, pose_collate_fn
+from libreyolo.data import (
+    YOLOPoseDataset,
+    load_data_config,
+    parse_yolo_pose_label_line,
+    pose_collate_fn,
+)
 from libreyolo.models.yolonas.loss import YoloNASPoseLoss
 from libreyolo.models.yolonas.model import LibreYOLONAS
 from libreyolo.models.yolonas.nn import LibreYOLONASPoseModel
@@ -24,7 +30,11 @@ from libreyolo.models.yolonas.pose_transforms import (
     YOLONASPoseTrainTransform,
     YOLONASPoseValTransform,
 )
-from libreyolo.models.yolonas.pose_trainer import default_oks_sigmas
+from libreyolo.models.yolonas.pose_trainer import (
+    YOLONASPoseTrainer,
+    default_oks_sigmas,
+)
+from libreyolo.models.yolonas.utils import YOLO_NAS_RESIZE_SIZE
 
 pytestmark = [pytest.mark.unit, pytest.mark.yolonas]
 
@@ -49,6 +59,16 @@ class TestPoseLabelParsing:
         parts = "0 0.5 0.5 0.2 0.3".split()  # bbox only, no keypoints
         with pytest.raises(ValueError):
             parse_yolo_pose_label_line(parts, num_keypoints=4)
+
+    def test_xy_only_keypoint_labels_are_promoted_to_visible(self):
+        parts = "0 0.5 0.5 0.2 0.3 0.4 0.4 0.6 0.6".split()
+        cls, bbox, kpts = parse_yolo_pose_label_line(
+            parts, num_keypoints=2, keypoint_dim=2
+        )
+        assert cls == 0
+        assert bbox.shape == (4,)
+        assert kpts.shape == (2, 3)
+        assert np.all(kpts[:, 2] == 2.0)
 
 
 # ---------------------------------------------------------------------------
@@ -87,6 +107,18 @@ class TestPoseHeadTrainingOutputs:
         model = LibreYOLONASPoseModel(config="s", num_keypoints=4)
         sd = model.state_dict()
         assert LibreYOLONAS.detect_num_keypoints(sd) == 4
+
+    def test_wrapper_loads_custom_keypoint_state_dict(self):
+        model = LibreYOLONASPoseModel(config="s", num_keypoints=4)
+        wrapper = LibreYOLONAS(model.state_dict(), size="s", task="pose", device="cpu")
+        assert wrapper.num_keypoints == 4
+
+    def test_wrapper_postprocess_accepts_train_mode_pose_output(self):
+        model = LibreYOLONAS(None, size="s", task="pose", device="cpu")
+        model.model.train()
+        output = model._forward(torch.zeros(1, 3, 640, 640))
+        detections = model._postprocess(output, 1.1, 0.45, (640, 640))
+        assert detections["num_detections"] == 0
 
 
 # ---------------------------------------------------------------------------
@@ -176,6 +208,20 @@ class TestPoseDatasetAndTransforms:
         valid = (target[:, 3] > 0) & (target[:, 4] > 0)
         assert valid.sum() == 1
 
+    def test_val_transform_matches_yolonas_center_letterbox_geometry(self, tmp_path):
+        K = 4
+        img_path = _write_pose_sample(tmp_path, K)
+        ds = YOLOPoseDataset(
+            img_files=[img_path],
+            num_keypoints=K,
+            preproc=YOLONASPoseValTransform(K),
+        )
+        target = ds[0][1][0]
+        ratio = YOLO_NAS_RESIZE_SIZE / 640
+        pad_y = (640 - int(round(480 * ratio))) // 2
+        assert target[1] == pytest.approx(320.0, abs=1.0)
+        assert target[2] == pytest.approx(240.0 * ratio + pad_y, abs=1.0)
+
     def test_val_transform_and_collate(self, tmp_path):
         K = 4
         img_path = _write_pose_sample(tmp_path, K)
@@ -203,3 +249,69 @@ class TestPoseDatasetAndTransforms:
         tp = ds_p[0][1][0]  # plain target row
         # Keypoint 0 of the flipped sample mirrors keypoint 1 of the plain one.
         assert tf[5] == pytest.approx(640.0 - tp[5 + 3], abs=1.0)
+
+    def test_dataset_accepts_kpt_shape_two_labels(self, tmp_path):
+        K = 2
+        img_dir = tmp_path / "images" / "train"
+        lbl_dir = tmp_path / "labels" / "train"
+        img_dir.mkdir(parents=True)
+        lbl_dir.mkdir(parents=True)
+        img_path = img_dir / "sample.jpg"
+        cv2.imwrite(str(img_path), np.full((64, 64, 3), 127, dtype=np.uint8))
+        (lbl_dir / "sample.txt").write_text("0 0.5 0.5 0.5 0.5 0.25 0.25 0.75 0.75\n")
+        ds = YOLOPoseDataset(
+            img_files=[img_path],
+            num_keypoints=K,
+            keypoint_dim=2,
+            preproc=YOLONASPoseValTransform(K),
+        )
+        target = ds[0][1][0]
+        assert target.shape == (5 + 3 * K,)
+        assert target[7] == 2.0
+        assert target[10] == 2.0
+
+    def test_load_data_config_accepts_list_splits_with_autodownload(self, tmp_path):
+        img_a = _write_pose_sample(tmp_path / "a", 4)
+        img_b = _write_pose_sample(tmp_path / "b", 4)
+        data_yaml = tmp_path / "data.yaml"
+        data_yaml.write_text(
+            yaml.safe_dump(
+                {
+                    "path": str(tmp_path),
+                    "train": [
+                        str(img_a.parent.relative_to(tmp_path)),
+                        str(img_b.parent.relative_to(tmp_path)),
+                    ],
+                    "val": str(img_a.parent.relative_to(tmp_path)),
+                    "names": ["object"],
+                    "kpt_shape": [4, 3],
+                }
+            )
+        )
+        cfg = load_data_config(str(data_yaml), autodownload=True)
+        assert len(cfg["train_img_files"]) == 2
+
+    def test_pose_trainer_keeps_partial_small_batch(self, tmp_path):
+        img_path = _write_pose_sample(tmp_path, 4)
+        data_yaml = tmp_path / "data.yaml"
+        data_yaml.write_text(
+            yaml.safe_dump(
+                {
+                    "path": str(tmp_path),
+                    "train": str(img_path.parent.relative_to(tmp_path)),
+                    "names": ["object"],
+                    "kpt_shape": [4, 3],
+                }
+            )
+        )
+        trainer = YOLONASPoseTrainer(
+            model=torch.nn.Identity(),
+            size="s",
+            num_keypoints=4,
+            data=str(data_yaml),
+            batch=4,
+            workers=0,
+            device="cpu",
+        )
+        trainer._setup_data()
+        assert len(trainer.train_loader) == 1

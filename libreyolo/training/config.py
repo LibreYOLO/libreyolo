@@ -585,6 +585,7 @@ class YOLONASPoseConfig(YOLONASConfig):
 
     num_classes: int = 1
     num_keypoints: int = 17
+    keypoint_dim: int = 3
     oks_sigmas: Optional[List[float]] = None
 
     lr0: float = 2e-3

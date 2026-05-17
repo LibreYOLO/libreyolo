@@ -106,6 +106,7 @@ class YOLONASPoseTrainer(BaseTrainer):
             label_files=label_files,
             img_size=self.input_size,
             preproc=preproc,
+            keypoint_dim=self.config.keypoint_dim,
         )
 
     def _setup_data(self):
@@ -135,13 +136,14 @@ class YOLONASPoseTrainer(BaseTrainer):
             hsv_prob=self.config.hsv_prob,
         )
         train_ds = self._build_dataset(train_imgs, train_lbls, train_tf)
+        drop_last = len(train_ds) >= self.config.batch
         self.train_loader = DataLoader(
             train_ds,
             batch_size=self.config.batch,
             shuffle=True,
             num_workers=self.config.workers,
             pin_memory=True,
-            drop_last=True,
+            drop_last=drop_last,
             collate_fn=pose_collate_fn,
         )
 

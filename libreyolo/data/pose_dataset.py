@@ -28,21 +28,29 @@ from torch.utils.data import Dataset
 logger = logging.getLogger(__name__)
 
 
-def parse_yolo_pose_label_line(parts: Sequence[str], num_keypoints: int):
+def parse_yolo_pose_label_line(
+    parts: Sequence[str], num_keypoints: int, keypoint_dim: int = 3
+):
     """Parse one YOLO pose label line into ``(cls, bbox, keypoints)``.
 
     Args:
         parts: Whitespace-split tokens of the line.
         num_keypoints: Expected keypoint count ``K``.
+        keypoint_dim: Number of values per keypoint in the label file. YOLO pose
+            YAML uses ``kpt_shape: [K, 2]`` for xy-only labels and
+            ``kpt_shape: [K, 3]`` for xyv labels.
 
     Returns:
         Tuple of ``(cls_id: int, bbox: (4,) cxcywh float32,
-        keypoints: (K, 3) float32)`` — all coordinates normalized.
+        keypoints: (K, 3) float32)`` — all coordinates normalized. xy-only
+        labels are promoted to xyv with visibility ``2``.
 
     Raises:
-        ValueError: If the line does not have exactly ``5 + 3K`` fields.
+        ValueError: If the line does not have exactly ``5 + keypoint_dim*K`` fields.
     """
-    expected = 5 + 3 * num_keypoints
+    if keypoint_dim not in (2, 3):
+        raise ValueError(f"Unsupported keypoint_dim {keypoint_dim}; expected 2 or 3")
+    expected = 5 + keypoint_dim * num_keypoints
     if len(parts) != expected:
         raise ValueError(
             f"Expected {expected} fields for a {num_keypoints}-keypoint pose "
@@ -50,7 +58,12 @@ def parse_yolo_pose_label_line(parts: Sequence[str], num_keypoints: int):
         )
     cls_id = int(float(parts[0]))
     bbox = np.array(parts[1:5], dtype=np.float32)
-    keypoints = np.array(parts[5:], dtype=np.float32).reshape(num_keypoints, 3)
+    keypoints = np.array(parts[5:], dtype=np.float32).reshape(
+        num_keypoints, keypoint_dim
+    )
+    if keypoint_dim == 2:
+        visibility = np.full((num_keypoints, 1), 2.0, dtype=np.float32)
+        keypoints = np.concatenate([keypoints, visibility], axis=1)
     return cls_id, bbox, keypoints
 
 
@@ -69,11 +82,15 @@ class YOLOPoseDataset(Dataset):
         label_files: Optional[Sequence[Path]] = None,
         img_size: Tuple[int, int] = (640, 640),
         preproc=None,
+        keypoint_dim: int = 3,
     ):
         if num_keypoints < 1:
             raise ValueError(f"num_keypoints must be >= 1, got {num_keypoints}")
+        if keypoint_dim not in (2, 3):
+            raise ValueError(f"keypoint_dim must be 2 or 3, got {keypoint_dim}")
 
         self.num_keypoints = num_keypoints
+        self.keypoint_dim = keypoint_dim
         self.img_size = img_size
         self._input_dim = img_size
         self.preproc = preproc
@@ -117,7 +134,7 @@ class YOLOPoseDataset(Dataset):
                             continue
                         try:
                             cls_id, bbox, kpts = parse_yolo_pose_label_line(
-                                parts, self.num_keypoints
+                                parts, self.num_keypoints, self.keypoint_dim
                             )
                         except ValueError:
                             bad_lines += 1
