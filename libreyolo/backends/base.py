@@ -16,7 +16,7 @@ from ..models.yolonas.utils import preprocess_image as yolonas_preprocess_image
 from ..models.yolox.utils import preprocess_image as yolox_preprocess_image
 from ..tasks import normalize_supported_tasks, normalize_task, resolve_task
 from ..utils.drawing import draw_boxes, draw_masks
-from ..utils.general import COCO_CLASSES, get_safe_stem
+from ..utils.general import COCO_CLASSES, get_safe_stem, log_saved_result
 from ..utils.image_loader import ImageLoader
 from ..utils.predict_args import normalize_predict_kwargs
 from ..utils.results import Boxes, Masks, Results
@@ -775,7 +775,7 @@ class BaseBackend(ABC):
             final_path = save_dir / f"{stem}_{model_tag}_{timestamp}{ext}"
 
         annotated_img.save(final_path)
-        result.saved_path = str(final_path)
+        log_saved_result(result, final_path)
 
     # =========================================================================
     # Helpers
