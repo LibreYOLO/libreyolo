@@ -174,7 +174,7 @@ def get_img_files(path: Union[str, Path, List], prefix: str = "") -> List[Path]:
                     if not img_path.is_absolute():
                         # Relative to txt file's parent directory
                         img_path = path.parent / img_path
-                    if img_path.exists() and img_path.suffix.lower() in IMG_FORMATS:
+                    if img_path.suffix.lower() in IMG_FORMATS:
                         img_files.append(img_path)
         return sorted(img_files)
 

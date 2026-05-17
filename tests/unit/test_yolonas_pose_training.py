@@ -34,7 +34,7 @@ from libreyolo.models.yolonas.pose_trainer import (
     YOLONASPoseTrainer,
     default_oks_sigmas,
 )
-from libreyolo.models.yolonas.utils import YOLO_NAS_RESIZE_SIZE
+from libreyolo.models.yolonas.pose_transforms import YOLO_NAS_POSE_RESIZE_SIZE
 
 pytestmark = [pytest.mark.unit, pytest.mark.yolonas]
 
@@ -91,9 +91,9 @@ class TestPoseHeadTrainingOutputs:
     def test_eval_mode_returns_decoded_only(self):
         model = LibreYOLONASPoseModel(config="s", num_keypoints=17).eval()
         with torch.no_grad():
-            out = model(torch.zeros(1, 3, 640, 640))
-        assert len(out) == 4
-        assert all(torch.is_tensor(t) for t in out)
+            decoded, raw = model(torch.zeros(1, 3, 640, 640))
+        assert len(decoded) == 4
+        assert len(raw) == 8
 
     def test_replace_num_keypoints_rebuilds_head(self):
         model = LibreYOLONASPoseModel(config="s", num_keypoints=17)
@@ -160,6 +160,16 @@ class TestPoseLoss:
         loss, _ = loss_fn(model(torch.zeros(2, 3, 640, 640)), empty)
         assert torch.isfinite(loss)
 
+    def test_eval_mode_outputs_work_with_loss(self):
+        K = 4
+        model = LibreYOLONASPoseModel(config="s", num_keypoints=K).eval()
+        loss_fn = YoloNASPoseLoss(oks_sigmas=default_oks_sigmas(K))
+        targets = _synthetic_pose_targets(1, 4, K)
+        with torch.no_grad():
+            loss, logs = loss_fn(model(torch.zeros(1, 3, 640, 640)), targets)
+        assert torch.isfinite(loss)
+        assert logs.shape == (6,)
+
     def test_unpack_padded_targets_front_packs(self):
         loss_fn = YoloNASPoseLoss(oks_sigmas=default_oks_sigmas(4))
         targets = _synthetic_pose_targets(2, 12, 4)
@@ -172,6 +182,33 @@ class TestPoseLoss:
     def test_oks_sigmas_length_mismatch_is_caught_by_trainer_helper(self):
         assert len(default_oks_sigmas(17)) == 17
         assert len(default_oks_sigmas(4)) == 4
+
+    def test_custom_pose_loss_weights_are_honored(self, tmp_path):
+        img_path = _write_pose_sample(tmp_path, 4)
+        data_yaml = tmp_path / "data.yaml"
+        data_yaml.write_text(
+            yaml.safe_dump(
+                {
+                    "path": str(tmp_path),
+                    "train": str(img_path.parent.relative_to(tmp_path)),
+                    "names": ["object"],
+                    "kpt_shape": [4, 3],
+                }
+            )
+        )
+        trainer = YOLONASPoseTrainer(
+            model=torch.nn.Identity(),
+            size="s",
+            num_keypoints=4,
+            data=str(data_yaml),
+            dfl_loss_weight=0.5,
+            pose_reg_loss_weight=10.0,
+            workers=0,
+            device="cpu",
+        )
+        trainer.on_setup()
+        assert trainer.loss_fn.dfl_loss_weight == pytest.approx(0.5)
+        assert trainer.loss_fn.pose_reg_loss_weight == pytest.approx(10.0)
 
 
 # ---------------------------------------------------------------------------
@@ -198,7 +235,13 @@ class TestPoseDatasetAndTransforms:
     def test_dataset_with_train_transform(self, tmp_path):
         K = 4
         img_path = _write_pose_sample(tmp_path, K)
-        tf = YOLONASPoseTrainTransform(K, flip_idx=[1, 0, 3, 2])
+        tf = YOLONASPoseTrainTransform(
+            K,
+            flip_idx=[1, 0, 3, 2],
+            hsv_prob=0.0,
+            brightness_contrast_prob=0.0,
+            affine_prob=0.0,
+        )
         ds = YOLOPoseDataset(
             img_files=[img_path], num_keypoints=K, img_size=(640, 640), preproc=tf
         )
@@ -217,10 +260,25 @@ class TestPoseDatasetAndTransforms:
             preproc=YOLONASPoseValTransform(K),
         )
         target = ds[0][1][0]
-        ratio = YOLO_NAS_RESIZE_SIZE / 640
-        pad_y = (640 - int(round(480 * ratio))) // 2
+        ratio = YOLO_NAS_POSE_RESIZE_SIZE / 640
+        pad_y = 0
         assert target[1] == pytest.approx(320.0, abs=1.0)
         assert target[2] == pytest.approx(240.0 * ratio + pad_y, abs=1.0)
+
+    def test_pose_transform_keeps_bgr_channel_order(self, tmp_path):
+        K = 4
+        img_path = _write_pose_sample(tmp_path, K)
+        bgr = np.zeros((32, 32, 3), dtype=np.uint8)
+        bgr[..., 0] = 255
+        cv2.imwrite(str(img_path), bgr)
+        ds = YOLOPoseDataset(
+            img_files=[img_path],
+            num_keypoints=K,
+            preproc=YOLONASPoseValTransform(K),
+        )
+        img = ds[0][0]
+        assert img[0, 0, 0] > 0.95
+        assert img[2, 0, 0] == pytest.approx(0.0)
 
     def test_val_transform_and_collate(self, tmp_path):
         K = 4
@@ -240,7 +298,12 @@ class TestPoseDatasetAndTransforms:
         img_path = _write_pose_sample(tmp_path, K)
         # flip_prob=1 always flips; flip_idx swaps (0<->1, 2<->3).
         flipped = YOLONASPoseTrainTransform(
-            K, flip_idx=[1, 0, 3, 2], flip_prob=1.0, hsv_prob=0.0
+            K,
+            flip_idx=[1, 0, 3, 2],
+            flip_prob=1.0,
+            hsv_prob=0.0,
+            brightness_contrast_prob=0.0,
+            affine_prob=0.0,
         )
         plain = YOLONASPoseValTransform(K)
         ds_f = YOLOPoseDataset(img_files=[img_path], num_keypoints=K, preproc=flipped)
@@ -315,3 +378,56 @@ class TestPoseDatasetAndTransforms:
         )
         trainer._setup_data()
         assert len(trainer.train_loader) == 1
+
+    def test_pose_trainer_does_not_scale_lr_by_batch(self, tmp_path):
+        img_path = _write_pose_sample(tmp_path, 4)
+        data_yaml = tmp_path / "data.yaml"
+        data_yaml.write_text(
+            yaml.safe_dump(
+                {
+                    "path": str(tmp_path),
+                    "train": str(img_path.parent.relative_to(tmp_path)),
+                    "names": ["object"],
+                    "kpt_shape": [4, 3],
+                }
+            )
+        )
+        trainer = YOLONASPoseTrainer(
+            model=torch.nn.Identity(),
+            size="s",
+            num_keypoints=4,
+            data=str(data_yaml),
+            batch=128,
+            lr0=2e-3,
+            workers=0,
+            device="cpu",
+        )
+        assert trainer.effective_lr == pytest.approx(2e-3)
+
+    def test_pose_checkpoint_metadata_includes_keypoint_shape(self, tmp_path):
+        class Wrapper:
+            task = "pose"
+            names = {0: "object"}
+
+        trainer = YOLONASPoseTrainer(
+            model=torch.nn.Linear(1, 1),
+            wrapper_model=Wrapper(),
+            size="s",
+            num_keypoints=4,
+            keypoint_dim=3,
+            data=None,
+            workers=0,
+            device="cpu",
+            ema=False,
+        )
+        trainer.save_dir = tmp_path
+        trainer.optimizer = torch.optim.SGD(trainer.model.parameters(), lr=0.01)
+        trainer._save_checkpoint(0, 1.0, val_metrics=None, is_best=False)
+
+        ckpt = torch.load(tmp_path / "weights" / "last.pt", map_location="cpu")
+        assert ckpt["task"] == "pose"
+        assert ckpt["num_keypoints"] == 4
+        assert ckpt["keypoint_dim"] == 3
+        assert ckpt["oks_sigmas"] == default_oks_sigmas(4)
+        assert ckpt["best_metric"] == ckpt["best_mAP50_95"]
+        assert ckpt["best_metric_name"] == ckpt["best_metric_key"]

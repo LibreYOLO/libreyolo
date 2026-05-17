@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass, asdict
 from pathlib import Path
-from typing import Optional, Tuple, Union
+from typing import List, Optional, Tuple, Union
 
 import yaml
 
@@ -77,6 +77,7 @@ class ValidationConfig:
     # Pose validation
     keypoints_json: Optional[str] = None
     images_dir: Optional[str] = None
+    oks_sigmas: Optional[List[float]] = None
 
     def __post_init__(self) -> None:
         if (
@@ -86,7 +87,7 @@ class ValidationConfig:
         ):
             raise ValueError(
                 "Specify one of: 'data' (yaml), 'data_dir' (detection/segmentation), "
-                "or 'keypoints_json' + 'images_dir' (pose)"
+                "or 'data' / 'keypoints_json' + 'images_dir' (pose)"
             )
 
         if self.split not in ("val", "test", "train"):

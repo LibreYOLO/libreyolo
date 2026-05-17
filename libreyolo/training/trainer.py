@@ -946,6 +946,9 @@ class BaseTrainer(ABC):
             "model_family": self.get_model_family(),
             "task": getattr(self.wrapper_model, "task", "detect"),
         }
+        checkpoint.update(self._checkpoint_extra_metadata())
+        checkpoint["best_metric"] = self.best_mAP50_95
+        checkpoint["best_metric_name"] = checkpoint["best_metric_key"]
         if self.wrapper_model is not None:
             checkpoint["names"] = self.wrapper_model.names
         if self.ema_model is not None:
@@ -962,9 +965,11 @@ class BaseTrainer(ABC):
         if is_best:
             best_path = weights_dir / "best.pt"
             torch.save(checkpoint, best_path)
+            metric_key = checkpoint["best_metric_key"]
+            metric_value = self.best_mAP50_95
             logger.info(
                 f"New best model saved - Epoch {epoch + 1}: "
-                f"mAP50={self.best_mAP50:.4f}, mAP50-95={self.best_mAP50_95:.4f}"
+                f"{metric_key}={metric_value:.4f}"
             )
 
         if (epoch + 1) % self.config.save_period == 0:
@@ -972,6 +977,9 @@ class BaseTrainer(ABC):
             torch.save(checkpoint, epoch_path)
 
         logger.info(f"Checkpoint saved: {latest_path}")
+
+    def _checkpoint_extra_metadata(self) -> Dict[str, Any]:
+        return {}
 
     def resume(self, checkpoint_path: str):
         if not Path(checkpoint_path).exists():

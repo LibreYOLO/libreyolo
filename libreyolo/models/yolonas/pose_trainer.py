@@ -5,18 +5,18 @@ Unlike the detection trainer this trainer owns its data pipeline: it builds
 transforms, padded ``(B, max_labels, 5 + 3K)`` targets) rather than going
 through the shared mosaic/detection dataset path.
 
-best.pt is selected by validation loss — there is no per-epoch OKS-AP
-validation. The validation pass runs the model in ``train()`` mode (so the
-head emits the raw training tensors the loss needs) under ``no_grad`` and
-snapshots/restores BatchNorm running statistics so the val data does not
-perturb them.
+best.pt is selected by keypoint OKS-AP when metric validation is available,
+with validation loss as the fallback signal.
 """
 
 from __future__ import annotations
 
 import logging
+import random
 from typing import Dict, Type
 
+import cv2
+import numpy as np
 import torch
 from torch.utils.data import DataLoader
 
@@ -42,17 +42,26 @@ _COCO17_OKS_SIGMAS = [
 ]
 
 
+def _pose_worker_init_fn(worker_id: int) -> None:
+    cv2.setNumThreads(0)
+    torch.set_num_threads(1)
+    seed = (torch.initial_seed() + worker_id) % 2**32
+    random.seed(seed)
+    np.random.seed(seed)
+
+
 def default_oks_sigmas(num_keypoints: int) -> list[float]:
-    """Per-keypoint OKS sigmas: COCO values for 17 keypoints, else uniform."""
+    """Per-keypoint OKS sigmas matching Ultralytics pose defaults."""
     if num_keypoints == 17:
         return list(_COCO17_OKS_SIGMAS)
-    return [0.05] * num_keypoints
+    return [1.0 / num_keypoints] * num_keypoints
 
 
 class YOLONASPoseTrainer(BaseTrainer):
     """Trainer for YOLO-NAS pose models."""
 
-    best_metric_key = "loss/val"
+    artifact_model_families = ("yolonas",)
+    best_metric_key = "metrics/keypoints_mAP50-95"
 
     @classmethod
     def _config_class(cls) -> Type[TrainConfig]:
@@ -67,6 +76,10 @@ class YOLONASPoseTrainer(BaseTrainer):
     @property
     def num_keypoints(self) -> int:
         return self.config.num_keypoints
+
+    @property
+    def effective_lr(self) -> float:
+        return self.config.lr0
 
     # create_transforms is abstract on BaseTrainer; the pose trainer overrides
     # _setup_data entirely, so this hook is never exercised.
@@ -95,7 +108,22 @@ class YOLONASPoseTrainer(BaseTrainer):
         return default_oks_sigmas(self.num_keypoints)
 
     def on_setup(self):
-        self.loss_fn = YoloNASPoseLoss(oks_sigmas=self._resolve_oks_sigmas())
+        self.loss_fn = YoloNASPoseLoss(
+            oks_sigmas=self._resolve_oks_sigmas(),
+            classification_loss_type=self.config.classification_loss_type,
+            regression_iou_loss_type=self.config.regression_iou_loss_type,
+            classification_loss_weight=self.config.classification_loss_weight,
+            iou_loss_weight=self.config.iou_loss_weight,
+            dfl_loss_weight=self.config.dfl_loss_weight,
+            pose_cls_loss_weight=self.config.pose_cls_loss_weight,
+            pose_reg_loss_weight=self.config.pose_reg_loss_weight,
+            pose_classification_loss_type=self.config.pose_classification_loss_type,
+            bbox_assigner_topk=self.config.bbox_assigner_topk,
+            bbox_assigned_alpha=self.config.bbox_assigned_alpha,
+            bbox_assigned_beta=self.config.bbox_assigned_beta,
+            assigner_multiply_by_pose_oks=self.config.assigner_multiply_by_pose_oks,
+            rescale_pose_loss_with_assigned_score=self.config.rescale_pose_loss_with_assigned_score,
+        )
         self.loss_fn = self.loss_fn.to(self.device)
         self.val_loader = None
 
@@ -107,6 +135,7 @@ class YOLONASPoseTrainer(BaseTrainer):
             img_size=self.input_size,
             preproc=preproc,
             keypoint_dim=self.config.keypoint_dim,
+            decode_scale=self.config.decode_scale,
         )
 
     def _setup_data(self):
@@ -134,17 +163,31 @@ class YOLONASPoseTrainer(BaseTrainer):
             flip_idx=flip_idx,
             flip_prob=self.config.flip_prob,
             hsv_prob=self.config.hsv_prob,
+            brightness_contrast_prob=self.config.brightness_contrast_prob,
+            affine_prob=self.config.affine_prob,
+            degrees=self.config.degrees,
+            translate=self.config.translate,
+            scale=self.config.pose_scale,
+            affine_interpolation=self.config.affine_interpolation,
         )
         train_ds = self._build_dataset(train_imgs, train_lbls, train_tf)
         drop_last = len(train_ds) >= self.config.batch
+        loader_kwargs = {}
+        if self.config.workers > 0:
+            loader_kwargs.update(
+                worker_init_fn=_pose_worker_init_fn,
+                persistent_workers=self.config.persistent_workers,
+                prefetch_factor=self.config.prefetch_factor,
+            )
         self.train_loader = DataLoader(
             train_ds,
             batch_size=self.config.batch,
             shuffle=True,
             num_workers=self.config.workers,
-            pin_memory=True,
+            pin_memory=self.config.pin_memory,
             drop_last=drop_last,
             collate_fn=pose_collate_fn,
+            **loader_kwargs,
         )
 
         val_imgs = cfg.get("val_img_files")
@@ -164,9 +207,10 @@ class YOLONASPoseTrainer(BaseTrainer):
                 batch_size=self.config.batch,
                 shuffle=False,
                 num_workers=self.config.workers,
-                pin_memory=True,
+                pin_memory=self.config.pin_memory,
                 drop_last=False,
                 collate_fn=pose_collate_fn,
+                **loader_kwargs,
             )
             logger.info("Validation dataset: %d images", len(val_ds))
         else:
@@ -183,6 +227,13 @@ class YOLONASPoseTrainer(BaseTrainer):
     def get_loss_components(self, outputs: Dict) -> Dict[str, float]:
         keys = ("cls", "iou", "dfl", "pose_cls", "pose_reg")
         return {k: outputs.get(k, 0.0) for k in keys}
+
+    def _checkpoint_extra_metadata(self) -> Dict:
+        return {
+            "num_keypoints": self.num_keypoints,
+            "keypoint_dim": self.config.keypoint_dim,
+            "oks_sigmas": self._resolve_oks_sigmas(),
+        }
 
     def on_forward(self, imgs: torch.Tensor, targets: torch.Tensor, polygons=None) -> Dict:
         outputs = self.model(imgs)
@@ -203,20 +254,10 @@ class YOLONASPoseTrainer(BaseTrainer):
 
         model = self.ema_model.ema if self.ema_model else self.model
         was_training = model.training
-        # The head only emits the raw loss tensors in train() mode.
-        model.train()
-        bn_snapshot = [
-            (
-                m,
-                m.running_mean.clone(),
-                m.running_var.clone(),
-                m.num_batches_tracked.clone(),
-            )
-            for m in model.modules()
-            if isinstance(m, torch.nn.BatchNorm2d) and m.running_mean is not None
-        ]
+        model.eval()
 
         total_loss, num_batches = 0.0, 0
+        pose_metrics = None
         try:
             with torch.no_grad():
                 for batch in self.val_loader:
@@ -225,20 +266,75 @@ class YOLONASPoseTrainer(BaseTrainer):
                     loss, _ = self.loss_fn(model(imgs), targets)
                     total_loss += float(loss.item())
                     num_batches += 1
+
+            pose_metrics = self._run_pose_metric_validation(model, epoch)
         finally:
-            for module, mean, var, count in bn_snapshot:
-                module.running_mean.copy_(mean)
-                module.running_var.copy_(var)
-                module.num_batches_tracked.copy_(count)
-            if not was_training:
-                model.eval()
+            if was_training:
+                model.train()
 
         avg_loss = total_loss / max(num_batches, 1)
+        metrics = {"loss/val": avg_loss}
+        if pose_metrics:
+            metrics.update(self._scalar_mapping(pose_metrics))
+            mAP50 = metrics.get("metrics/keypoints_mAP50")
+            mAP50_95 = metrics.get("metrics/keypoints_mAP50-95")
+            logger.info(
+                "Validation - loss/val: %.4f, keypoints_mAP50: %.4f, "
+                "keypoints_mAP50-95: %.4f",
+                avg_loss,
+                mAP50 if mAP50 is not None else 0.0,
+                mAP50_95 if mAP50_95 is not None else 0.0,
+            )
+            return {
+                "best_metric": mAP50_95 if mAP50_95 is not None else 0.0,
+                "best_metric_key": self.best_metric_key,
+                "mAP50": mAP50,
+                "mAP50_95": mAP50_95,
+                "metrics": metrics,
+            }
+
         logger.info("Validation - loss/val: %.4f", avg_loss)
         return {
             "best_metric": -avg_loss,  # higher-is-better convention; lower loss wins
-            "best_metric_key": self.best_metric_key,
-            "mAP50": 0.0,
-            "mAP50_95": -avg_loss,
-            "metrics": {"loss/val": avg_loss},
+            "best_metric_key": "loss/val",
+            "mAP50": None,
+            "mAP50_95": None,
+            "metrics": metrics,
         }
+
+    def _run_pose_metric_validation(
+        self, eval_model: torch.nn.Module, epoch: int
+    ) -> Dict[str, float] | None:
+        if self.wrapper_model is None:
+            logger.warning("Skipping pose mAP validation: wrapper_model is missing")
+            return None
+
+        try:
+            from libreyolo.validation import PoseValidator, ValidationConfig
+
+            val_config = ValidationConfig(
+                data=self.config.data,
+                split="val",
+                batch_size=self.config.batch,
+                imgsz=self.config.imgsz,
+                conf_thres=0.001,
+                iou_thres=0.65,
+                device=str(self.device),
+                half=self.config.amp and self.device.type == "cuda",
+                verbose=False,
+                num_workers=self.config.workers,
+                allow_download_scripts=self.config.allow_download_scripts,
+                oks_sigmas=self._resolve_oks_sigmas(),
+                save_dir=str(self.save_dir / "val"),
+            )
+
+            original_model = self.wrapper_model.model
+            self.wrapper_model.model = eval_model
+            try:
+                validator = PoseValidator(model=self.wrapper_model, config=val_config)
+                return validator.run()
+            finally:
+                self.wrapper_model.model = original_model
+        except Exception as exc:
+            logger.error("Pose mAP validation failed at epoch %d: %s", epoch + 1, exc)
+            return None

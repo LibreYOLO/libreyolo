@@ -177,9 +177,66 @@ def test_yolo9_trainer_artifacts_cover_e2e_family():
 
 
 def test_yolonas_trainer_opts_into_artifacts():
+    from libreyolo.models.yolonas.pose_trainer import YOLONASPoseTrainer
     from libreyolo.models.yolonas.trainer import YOLONASTrainer
 
     assert YOLONASTrainer.artifact_model_families == ("yolonas",)
+    assert YOLONASPoseTrainer.artifact_model_families == ("yolonas",)
+
+
+def test_yolonas_pose_trainer_writes_artifacts_through_base_path(tmp_path):
+    from libreyolo.models.yolonas.pose_trainer import YOLONASPoseTrainer
+
+    class Wrapper:
+        task = "pose"
+        names = {0: "object"}
+
+    class StubYOLONASPoseTrainer(YOLONASPoseTrainer):
+        def setup(self):
+            self.save_dir = self._test_save_dir
+            self.optimizer = torch.optim.SGD(self.model.parameters(), lr=0.01)
+            self._is_setup = True
+
+        def _train_epoch(self, epoch: int):
+            val_metrics = {
+                "best_metric": -0.5,
+                "best_metric_key": "loss/val",
+                "mAP50": None,
+                "mAP50_95": None,
+                "metrics": {"loss/val": 0.5},
+            }
+            return (
+                1.0,
+                val_metrics,
+                {"cls": 0.2, "pose_reg": 0.3},
+                {"group0": 0.01},
+            )
+
+        def _save_checkpoint(self, epoch, loss, val_metrics=None, is_best=None):
+            return None
+
+    trainer = StubYOLONASPoseTrainer(
+        model=nn.Linear(1, 1),
+        wrapper_model=Wrapper(),
+        data=None,
+        device="cpu",
+        ema=False,
+        epochs=1,
+        num_keypoints=4,
+    )
+    trainer._test_save_dir = tmp_path
+
+    trainer.train()
+
+    rows = _read_csv(tmp_path / "results.csv")
+    assert rows[0]["epoch"] == "1"
+    assert rows[0]["train/cls_loss"] == "0.2"
+    assert rows[0]["train/pose_reg_loss"] == "0.3"
+    assert rows[0]["loss/val"] == "0.5"
+
+    summary = json.loads((tmp_path / "summary.json").read_text())
+    assert summary["model_family"] == "yolonas"
+    assert summary["task"] == "pose"
 
 
 def test_yolonas_trainer_writes_artifacts_through_base_path(tmp_path):
