@@ -16,7 +16,7 @@ def augment_hsv(img, hgain=5, sgain=30, vgain=30):
     hsv_augs = np.random.uniform(-1, 1, 3) * [hgain, sgain, vgain]
     hsv_augs *= np.random.randint(0, 2, 3)
     hsv_augs = hsv_augs.astype(np.int16)
-    img_hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV).astype(np.int16)
+    # img_hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV).astype(np.int16) # redundant
 
     # Look-Up Table speedup
     lut_h = ((np.arange(0, 256, dtype=np.int16) + hsv_augs[0]) % 180).astype(np.uint8)
@@ -149,7 +149,7 @@ class YOLO9TrainTransform:
         h_out, w_out = input_dim
         # Vectorized division. Faster.
         scale_arr = np.array([w_out, h_out, w_out, h_out], dtype=boxes_t.dtype)
-        boxes_norm = boxes_t / scale_arr
+        boxes_t /= scale_arr # In place operation
         #boxes_norm = boxes_t.copy()
         #boxes_norm[:, 0] /= w_out  # x1
         #boxes_norm[:, 1] /= h_out  # y1
@@ -157,11 +157,11 @@ class YOLO9TrainTransform:
         #boxes_norm[:, 3] /= h_out  # y2
 
         # Clip to [0, 1]
-        boxes_norm = np.clip(boxes_norm, 0, 1)
+        np.clip(boxes_t, 0, 1, out=boxes_t) #In place clip
 
         # Format: [class, x1, y1, x2, y2]
         labels_t = np.expand_dims(labels_t, 1)
-        targets_t = np.hstack((labels_t, boxes_norm))
+        targets_t = np.hstack((labels_t, boxes_t))
 
         # Pad to max_labels
         padded_labels = np.zeros((self.max_labels, 5), dtype=np.float32)

@@ -67,6 +67,7 @@ class BaseTrainer(ABC):
         self.ema_model = None
         self.train_loader = None
         self.tensorboard_writer = None
+        self.validator = None # Validator palceholder
         self._is_setup = False
 
     # =========================================================================
@@ -539,36 +540,41 @@ class BaseTrainer(ABC):
 
             logger.info(f"Running validation for epoch {epoch + 1}")
 
-            val_config = ValidationConfig(
-                data=self.config.data,
-                batch_size=self.config.batch,
-                imgsz=self.config.imgsz,
-                conf_thres=0.001,
-                iou_thres=0.65,
-                device=str(self.device),
-                half=self.config.amp and self.device.type == "cuda",
-                verbose=False,
-                num_workers=self.config.workers,
-            )
-
             if self.wrapper_model is None:
                 logger.error(
                     "Validation requires wrapper_model to be provided to trainer"
                 )
                 return None
 
-            eval_pytorch_model = self.ema_model.ema if self.ema_model else self.model
-            original_model = self.wrapper_model.model
-            self.wrapper_model.model = eval_pytorch_model
+            # Build validator and dataloader once
+            if getattr(self, 'validator', None) is None:
+                logger.info("Initializing Validator and Dataloaders (this only happens once)...")
+                val_config = ValidationConfig(
+                    data=self.config.data,
+                    batch_size=self.config.batch,
+                    imgsz=self.config.imgsz,
+                    conf_thres=0.001,
+                    iou_thres=0.65,
+                    device=str(self.device),
+                    half=self.config.amp and self.device.type == "cuda",
+                    verbose=False,
+                    num_workers=self.config.workers,
+                )
 
-            try:
                 validator_cls = (
                     SegmentationValidator
                     if getattr(self.wrapper_model, "task", "detect") == "segment"
                     else DetectionValidator
                 )
-                validator = validator_cls(model=self.wrapper_model, config=val_config)
-                results = validator.run()
+                self.validator = validator_cls(model=self.wrapper_model, config=val_config)
+            
+            eval_pytorch_model = self.ema_model.ema if self.ema_model else self.model
+            original_model = self.wrapper_model.model
+            self.wrapper_model.model = eval_pytorch_model
+
+            try:
+                # Run the persistent validator
+                results = self.validator.run()
             finally:
                 self.wrapper_model.model = original_model
 

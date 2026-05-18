@@ -326,7 +326,7 @@ class BoxMatcher:
         targets_dist = torch.stack(
             (x_min_dist, y_min_dist, x_max_dist, y_max_dist), dim=-1
         )
-        targets_dist /= self.scaler[None, None, :, None]
+        targets_dist.div_(self.scaler[None, None, :, None]) #In place operation
 
         min_reg_dist, max_reg_dist = (
             targets_dist.amin(dim=-1),

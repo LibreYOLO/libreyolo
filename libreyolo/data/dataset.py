@@ -625,4 +625,5 @@ def create_dataloader(
         pin_memory=pin_memory,
         collate_fn=yolox_collate_fn,
         drop_last=True,
+        persistent_workers=True if num_workers > 0 else False
     )
