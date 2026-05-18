@@ -135,7 +135,7 @@ class DFLoss(nn.Module):
         targets_dist = torch.cat(
             ((anchors_norm - bbox_lt), (bbox_rb - anchors_norm)), -1
         )
-        targets_dist.clamp(0, self.reg_max - 1.01)  # (B, anchors, 4). Reverting clamp_. Seems to make PyTorch compiler mad and worsens perf.
+        targets_dist = targets_dist.clamp(0, self.reg_max - 1.01)  # (B, anchors, 4). Reverting clamp_. Seems to make PyTorch compiler mad and worsens perf.
 
         # Select valid targets: (B, anchors, 4)[mask] -> (num_valid, 4) -> flatten to (num_valid * 4,)
         # picked_targets = targets_dist[valid_bbox].view(-1)
@@ -689,23 +689,35 @@ class YOLO9Loss:
         total_loss = loss_box_weighted + loss_dfl_weighted + loss_cls_weighted
 
         # Return dict format consistent with YOLOX
+        #loss_dict = {
+        #    "total_loss": total_loss,
+        #    # Loss components (tensor form for backward)
+        #    "box_loss": loss_box_weighted,
+        #    "dfl_loss": loss_dfl_weighted,
+        #    "cls_loss": loss_cls_weighted,
+        #    # Scalar values for logging
+        #    "box": loss_box_weighted.item()
+        #    if isinstance(loss_box_weighted, Tensor)
+        #    else loss_box_weighted,
+        #    "dfl": loss_dfl_weighted.item()
+        #    if isinstance(loss_dfl_weighted, Tensor)
+        #    else loss_dfl_weighted,
+        #    "cls": loss_cls_weighted.item()
+        #    if isinstance(loss_cls_weighted, Tensor)
+        #    else loss_cls_weighted,
+        #   "num_fg": valid_masks.sum().item() / max(B, 1),
+        #}
+        # Hopefully this fixes the graph error.
         loss_dict = {
             "total_loss": total_loss,
-            # Loss components (tensor form for backward)
             "box_loss": loss_box_weighted,
             "dfl_loss": loss_dfl_weighted,
             "cls_loss": loss_cls_weighted,
-            # Scalar values for logging
-            "box": loss_box_weighted.item()
-            if isinstance(loss_box_weighted, Tensor)
-            else loss_box_weighted,
-            "dfl": loss_dfl_weighted.item()
-            if isinstance(loss_dfl_weighted, Tensor)
-            else loss_dfl_weighted,
-            "cls": loss_cls_weighted.item()
-            if isinstance(loss_cls_weighted, Tensor)
-            else loss_cls_weighted,
-            "num_fg": valid_masks.sum().item() / max(B, 1),
+            # Pass raw tensors; trainer.py will safely call .item() outside the graph!
+            "box": loss_box_weighted,
+            "dfl": loss_dfl_weighted,
+            "cls": loss_cls_weighted,
+            "num_fg": valid_masks.sum() / max(B, 1),
         }
 
         return loss_dict
