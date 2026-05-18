@@ -135,7 +135,7 @@ class DFLoss(nn.Module):
         targets_dist = torch.cat(
             ((anchors_norm - bbox_lt), (bbox_rb - anchors_norm)), -1
         )
-        targets_dist.clamp_(0, self.reg_max - 1.01)  # (B, anchors, 4). Defaulting to clamp_ to use PyTorch's inplace.
+        targets_dist.clamp(0, self.reg_max - 1.01)  # (B, anchors, 4). Reverting clamp_. Seems to make PyTorch compiler mad and worsens perf.
 
         # Select valid targets: (B, anchors, 4)[mask] -> (num_valid, 4) -> flatten to (num_valid * 4,)
         # picked_targets = targets_dist[valid_bbox].view(-1)
@@ -345,7 +345,8 @@ class BoxMatcher:
         targets_dist = torch.stack(
             (x_min_dist, y_min_dist, x_max_dist, y_max_dist), dim=-1
         )
-        targets_dist.mul_(1.0 / self.scaler[None, None, :, None]) # In place operation. Reciprocal mul is faster than div
+        # Reverting in-place op. Seems to make Torch mad. Worse perf. Reciprocal mul is faster than div
+        targets_dist = targets_dist * (1.0 / self.scaler[None, None, :, None]) 
 
         min_reg_dist, max_reg_dist = (
             targets_dist.amin(dim=-1),
@@ -384,7 +385,7 @@ class BoxMatcher:
         Returns:
             IoU matrix [B, targets, anchors]
         """
-        return calculate_iou(target_bbox, predict_bbox, "ciou").clamp_(0, 1) # Changed to clamp_ for in-place op
+        return calculate_iou(target_bbox, predict_bbox, "ciou").clamp(0, 1) # Reverting in-place op. Seems to make Torch mad. Worse perf.
 
     def filter_topk(
         self, target_matrix: Tensor, grid_mask: Tensor, topk: int = 10
@@ -402,7 +403,8 @@ class BoxMatcher:
         """Ensure each valid target gets at least one anchor."""
         values, indices = target_matrix.max(dim=-1)
         best_anchor_mask = torch.zeros_like(target_matrix, dtype=torch.bool)
-        best_anchor_mask.scatter_(-1, index=indices[..., None], src=~best_anchor_mask)
+        # best_anchor_mask.scatter_(-1, index=indices[..., None], src=~best_anchor_mask)
+        best_anchor_mask.scatter_(-1, index=indices[..., None], value=True) # Eliminate usage of src=~best_anchor_mask to scatter 'True'. Perf.
         matched_anchor_num = torch.sum(topk_mask, dim=-1)
         target_without_anchor = (matched_anchor_num == 0) & (values > 0)
         topk_mask = torch.where(
@@ -462,7 +464,7 @@ class BoxMatcher:
             return anchor_matched_targets, valid_mask
 
         target_cls, target_bbox = target.split([1, 4], dim=-1)
-        target_cls = target_cls.long().clamp_(0) # In-place operator
+        target_cls = target_cls.long().clamp(0, self.num_classes - 1) # Reverting in-place op. Seems to make Torch mad. Worse perf.
 
         # Get valid matrix (which anchors can predict which targets)
         grid_mask = self.get_valid_matrix(target_bbox)
@@ -663,7 +665,8 @@ class YOLO9Loss:
         targets_bbox_norm = targets_bbox * inv_scaler[None, :, None]
 
         # Compute normalization factors
-        cls_norm = max(targets_cls.sum(), 1)
+        # cls_norm = max(targets_cls.sum(), 1)
+        cls_norm = targets_cls.sum().clamp(min=1.0) # Use clamp() to avoid torch graph break for perf.
         box_norm = targets_cls.sum(-1)[valid_masks]
 
         # Compute losses

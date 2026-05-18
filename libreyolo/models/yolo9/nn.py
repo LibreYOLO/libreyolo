@@ -373,32 +373,22 @@ class DFL(nn.Module):
 
     def __init__(self, c1=16):
         super().__init__()
+        self.conv = nn.Conv2d(c1, 1, 1, bias=False).requires_grad_(False)
+        x = torch.arange(c1, dtype=torch.float)
+        self.conv.weight.data[:] = nn.Parameter(x.view(1, c1, 1, 1))
         self.c1 = c1
-        # register_buffer moves the projection tensor moves to the GPU
-        self.register_buffer("project", torch.arange(c1, dtype=torch.float))
-        # OLD:
-        # self.conv = nn.Conv2d(c1, 1, 1, bias=False).requires_grad_(False)
-        # x = torch.arange(c1, dtype=torch.float)
-        # self.conv.weight.data[:] = nn.Parameter(x.view(1, c1, 1, 1))
-        # self.c1 = c1
 
     def forward(self, x):
         b, c, a = x.shape  # batch, 4*reg_max, anchors
-        # OLD: Reshape to (b, 4, reg_max, a) and transpose to (b, reg_max, 4, a)
-        # x = x.view(b, 4, self.c1, a).transpose(1, 2)
-        # NEW: View as (b, 4, reg_max, a). Transpose no longer needed.
-        x = x.view(b, 4, self.c1, a)
+        # Reshape to (b, 4, reg_max, a) and transpose to (b, reg_max, 4, a)
+        x = x.view(b, 4, self.c1, a).transpose(1, 2)
+        # Apply softmax over reg_max dimension (now dim 1)
+        x = F.softmax(x, dim=1)
+        # Apply weighted sum via conv: reshape to (b, reg_max, 4*a) for Conv2d
+        x = self.conv(x.reshape(b, self.c1, 4, a))
+        # Reshape back to (b, 4, a)
+        return x.view(b, 4, a)
 
-        # OLD: Apply softmax over reg_max dimension (now dim 1)
-        # x = F.softmax(x, dim=1)
-        # NEW: Apply softmax over the reg_max dimension
-        x = F.softmax(x, dim=2)
-
-        # OLD: Apply weighted sum via conv: reshape to (b, reg_max, 4*a) for Conv2d
-        # x = self.conv(x.reshape(b, self.c1, 4, a))
-        # OLD: Reshape back to (b, 4, a)
-        # return x.view(b, 4, a)
-        return (x * self.project.view(1, 1, self.c1, 1)).sum(dim=2)
 
 class DDetect(nn.Module):
     """
