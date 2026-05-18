@@ -67,7 +67,7 @@ class BCELoss(nn.Module):
             targets_cls: Target class distribution [B, anchors, num_classes]
             cls_norm: Normalization factor (total positive samples)
         """
-        return self.bce(predicts_cls, targets_cls).sum() / cls_norm
+        return self.bce(predicts_cls, targets_cls).sum() * (1.0 / cls_norm) # Changed to multiplication by reciprocal
 
 
 class BoxLoss(nn.Module):
@@ -92,13 +92,13 @@ class BoxLoss(nn.Module):
             box_norm: Per-anchor weights [num_positive]
             cls_norm: Normalization factor
         """
-        valid_bbox = valid_masks[..., None].expand(-1, -1, 4)
-        picked_predict = predicts_bbox[valid_bbox].view(-1, 4)
-        picked_targets = targets_bbox[valid_bbox].view(-1, 4)
+        
+        picked_predict = predicts_bbox[valid_masks] # shape: (N, 4)
+        picked_targets = targets_bbox[valid_masks] # shape: (N, 4)
 
         iou = calculate_iou(picked_predict, picked_targets, "ciou", pairwise=False)
         loss_iou = 1.0 - iou
-        loss_iou = (loss_iou * box_norm).sum() / cls_norm
+        loss_iou = (loss_iou * box_norm).sum() * (1.0 / cls_norm) # Changed to multiplication by reciprocal
         return loss_iou
 
 
@@ -128,7 +128,7 @@ class DFLoss(nn.Module):
             cls_norm: Normalization factor
         """
         # valid_masks is (B, anchors), expand to (B, anchors, 4) for bbox selection
-        valid_bbox = valid_masks[..., None].expand(-1, -1, 4)
+        # valid_bbox = valid_masks[..., None].expand(-1, -1, 4)
 
         # Compute target distances from anchors: (anchors, 2) broadcast with (B, anchors, 2)
         bbox_lt, bbox_rb = targets_bbox.chunk(2, -1)  # each (B, anchors, 2)
@@ -138,19 +138,28 @@ class DFLoss(nn.Module):
         targets_dist.clamp_(0, self.reg_max - 1.01)  # (B, anchors, 4). Defaulting to clamp_ to use PyTorch's inplace.
 
         # Select valid targets: (B, anchors, 4)[mask] -> (num_valid, 4) -> flatten to (num_valid * 4,)
-        picked_targets = targets_dist[valid_bbox].view(-1)
+        # picked_targets = targets_dist[valid_bbox].view(-1)
 
         # predicts_anc is (B, anchors, 4, reg_max)
         # Select valid predictions: need to expand mask to (B, anchors, 4, reg_max)
-        valid_anc = valid_bbox[..., None].expand(-1, -1, -1, self.reg_max)
-        picked_predict = predicts_anc[valid_anc].view(-1, self.reg_max)
+        # valid_anc = valid_bbox[..., None].expand(-1, -1, -1, self.reg_max)
+        # picked_predict = predicts_anc[valid_anc].view(-1, self.reg_max)
+
+        picked_targets = targets_dist[valid_masks].flatten()  # shape: (N * 4)
+        picked_predict = predicts_anc[valid_masks].view(-1, self.reg_max) # shape: (N * 4, reg_max)
 
         # Soft label assignment between adjacent bins
-        label_left, label_right = picked_targets.floor(), picked_targets.floor() + 1
-        weight_left, weight_right = (
-            label_right - picked_targets,
-            picked_targets - label_left,
-        )
+        # label_left, label_right = picked_targets.floor(), picked_targets.floor() + 1
+        # weight_left, weight_right = (
+        #    label_right - picked_targets,
+        #    picked_targets - label_left,
+        # )
+        # Speedup, calculate .floor() once,
+        label_left = picked_targets.floor()
+        label_right = label_left + 1.0
+        weight_right = picked_targets - label_left
+        weight_left = label_right - picked_targets
+        
 
         loss_left = F.cross_entropy(
             picked_predict, label_left.to(torch.long), reduction="none"
@@ -160,7 +169,7 @@ class DFLoss(nn.Module):
         )
         loss_dfl = loss_left * weight_left + loss_right * weight_right
         loss_dfl = loss_dfl.view(-1, 4).mean(-1)
-        loss_dfl = (loss_dfl * box_norm).sum() / cls_norm
+        loss_dfl = (loss_dfl * box_norm).sum() * (1.0 / cls_norm) # Changed to multiplication by reciprocal
         return loss_dfl
 
 
@@ -221,21 +230,35 @@ class Vec2Box:
             preds_anc: (B, total_anchors, reg_max, 4) - raw anchor distributions
             preds_box: (B, total_anchors, 4) - decoded boxes in xyxy (pixel coords)
         """
-        preds_cls_list = []
-        preds_anc_list = []
-        preds_box_list = []
+
+        # Extract batch size, device, and dtype from the first prediction
+        B = predicts[0].shape[0]
+        device = predicts[0].device
+        dtype = predicts[0].dtype
+        
+        # Calculate total anchors from our pre-generated grid
+        total_anchors = self.anchor_grid.shape[0]
         box_channels = 4 * self.reg_max
 
+        # Pre-allocate empty tensors on the GPU
+        preds_cls = torch.empty((B, total_anchors, self.num_classes), dtype=dtype, device=device)
+        preds_anc = torch.empty((B, total_anchors, 4, self.reg_max), dtype=dtype, device=device)
+        preds_box = torch.empty((B, total_anchors, 4), dtype=dtype, device=device)
+
+        start_idx = 0
+
         for pred in predicts:
-            B, C, H, W = pred.shape
+            _, _, H, W = pred.shape
+            num_anchors_level = H * W
+            end_idx = start_idx + num_anchors_level
 
             # Split channels: box (4*reg_max) | class (nc)
-            pred_box_raw = pred[:, :box_channels, :, :]  # (B, 4*reg_max, H, W)
-            pred_cls = pred[:, box_channels:, :, :]  # (B, nc, H, W)
+            pred_box_raw = pred[:, :box_channels, :, :]
+            pred_cls_raw = pred[:, box_channels:, :, :]
 
             # Reshape class predictions: (B, nc, H, W) -> (B, H*W, nc)
-            pred_cls = pred_cls.permute(0, 2, 3, 1).reshape(B, H * W, -1)
-            preds_cls_list.append(pred_cls)
+            pred_cls = pred_cls_raw.permute(0, 2, 3, 1).reshape(B, H * W, -1)
+            preds_cls[:, start_idx:end_idx, :] = pred_cls
 
             # Reshape box predictions for DFL: (B, 4*reg_max, H, W) -> (B, H*W, 4, reg_max)
             # Format: (B, anchors, 4, reg_max) matches YOLO repo for DFL loss
@@ -243,7 +266,7 @@ class Vec2Box:
             pred_anc = pred_anc.permute(0, 3, 4, 1, 2).reshape(
                 B, H * W, 4, self.reg_max
             )
-            preds_anc_list.append(pred_anc)
+            preds_anc[:, start_idx:end_idx, :, :] = pred_anc
 
             # Decode boxes using DFL (softmax + weighted sum)
             # (B, H*W, 4, reg_max) -> softmax over reg_max -> (B, H*W, 4)
@@ -252,21 +275,17 @@ class Vec2Box:
             # Create a cache for tensor once (or whenever AMP kicks in), otherwise use cache.
             if self.proj is None or self.proj.dtype != pred_dist.dtype:
                 self.proj = torch.arange(
-                    self.reg_max, dtype=pred_dist.dtype, device=pred_dist.device
+                    self.reg_max, dtype=pred_dist.dtype, device=device
                 )
-            pred_box = (pred_dist * self.proj.view(1, 1, 1, -1)).sum(dim=3)
-
+            
             # Weighted sum: multiply by [0, 1, 2, ..., reg_max-1]
             # proj = torch.arange(self.reg_max, dtype=pred_dist.dtype, device=pred_dist.device)
             # pred_box = (pred_dist * proj.view(1, 1, 1, -1)).sum(dim=3)  # (B, H*W, 4)
-            preds_box_list.append(pred_box)
+            preds_box[:, start_idx:end_idx, :] = (pred_dist * self.proj.view(1, 1, 1, -1)).sum(dim=3)
 
-        # Concatenate across scales
-        preds_cls = torch.cat(preds_cls_list, dim=1)  # (B, total_anchors, nc)
-        preds_anc = torch.cat(preds_anc_list, dim=1)  # (B, total_anchors, 4, reg_max)
-        preds_box = torch.cat(
-            preds_box_list, dim=1
-        )  # (B, total_anchors, 4) - LTRB distances
+            start_idx = end_idx
+
+        # (Note: Concatenation across scales removed in favor of pre-allocated tensors)
 
         # Convert LTRB distances to xyxy coordinates (pixel space)
         # pred_box is in "grid units", scale by stride
@@ -326,7 +345,7 @@ class BoxMatcher:
         targets_dist = torch.stack(
             (x_min_dist, y_min_dist, x_max_dist, y_max_dist), dim=-1
         )
-        targets_dist.div_(self.scaler[None, None, :, None]) #In place operation
+        targets_dist.mul_(1.0 / self.scaler[None, None, :, None]) # In place operation. Reciprocal mul is faster than div
 
         min_reg_dist, max_reg_dist = (
             targets_dist.amin(dim=-1),
@@ -365,7 +384,7 @@ class BoxMatcher:
         Returns:
             IoU matrix [B, targets, anchors]
         """
-        return calculate_iou(target_bbox, predict_bbox, "ciou").clamp(0, 1)
+        return calculate_iou(target_bbox, predict_bbox, "ciou").clamp_(0, 1) # Changed to clamp_ for in-place op
 
     def filter_topk(
         self, target_matrix: Tensor, grid_mask: Tensor, topk: int = 10
@@ -373,10 +392,11 @@ class BoxMatcher:
         """Filter top-k anchors for each target."""
         masked_target_matrix = grid_mask * target_matrix
         values, indices = masked_target_matrix.topk(topk, dim=-1)
-        topk_targets = torch.zeros_like(target_matrix, device=target_matrix.device)
-        topk_targets.scatter_(dim=-1, index=indices, src=values)
-        topk_mask = topk_targets > 0
-        return topk_targets, topk_mask
+        valid_topk = values > 0 # Create boolean mask of just the top-k elements when score > 0
+        # Allocate the final boolean mask and scatter the valid_topk booleans into it
+        topk_mask = torch.zeros_like(target_matrix, dtype=torch.bool)
+        topk_mask.scatter_(dim=-1, index=indices, src=valid_topk)
+        return topk_mask
 
     def ensure_one_anchor(self, target_matrix: Tensor, topk_mask: Tensor) -> Tensor:
         """Ensure each valid target gets at least one anchor."""
@@ -394,9 +414,12 @@ class BoxMatcher:
         self, iou_mat: Tensor, topk_mask: Tensor
     ) -> Tuple[Tensor, Tensor, Tensor]:
         """Remove duplicate assignments (one anchor -> multiple targets)."""
-        duplicates = (topk_mask.sum(1, keepdim=True) > 1).repeat(
-            [1, topk_mask.size(1), 1]
-        )
+        # duplicates = (topk_mask.sum(1, keepdim=True) > 1).repeat(
+        #    [1, topk_mask.size(1), 1]
+        #)
+        # PyTorch natively broadcasts the dimension.
+        duplicates = topk_mask.sum(1, keepdim=True) > 1
+
         masked_iou_mat = topk_mask * iou_mat
         best_indices = masked_iou_mat.argmax(1)[:, None, :]
         best_target_mask = torch.zeros_like(duplicates, dtype=torch.bool)
@@ -433,7 +456,7 @@ class BoxMatcher:
             return anchor_matched_targets, valid_mask
 
         target_cls, target_bbox = target.split([1, 4], dim=-1)
-        target_cls = target_cls.long().clamp(0)
+        target_cls = target_cls.long().clamp_(0) # In-place operator
 
         # Get valid matrix (which anchors can predict which targets)
         grid_mask = self.get_valid_matrix(target_bbox)
@@ -445,10 +468,13 @@ class BoxMatcher:
         cls_mat = self.get_cls_matrix(predict_cls.sigmoid(), target_cls)
 
         # Compute task-aligned score
-        target_matrix = (iou_mat**self.iou_factor) * (cls_mat**self.cls_factor)
+        # target_matrix = (iou_mat**self.iou_factor) * (cls_mat**self.cls_factor)
+        # Use specific PyTorch .sqrt() functions when cls_factor is 0.5 for speed.
+        cls_score = cls_mat.sqrt() if self.cls_factor == 0.5 else cls_mat ** self.cls_factor
+        target_matrix = (iou_mat ** self.iou_factor) * cls_score
 
         # Select top-k anchors per target
-        topk_targets, topk_mask = self.filter_topk(
+        topk_mask = self.filter_topk(
             target_matrix, grid_mask, topk=self.topk
         )
 
@@ -463,17 +489,26 @@ class BoxMatcher:
         # Gather assigned targets
         align_bbox = torch.gather(target_bbox, 1, unique_indices.repeat(1, 1, 4))
         align_cls_indices = torch.gather(target_cls, 1, unique_indices)
-        align_cls = torch.zeros_like(align_cls_indices, dtype=torch.bool).repeat(
-            1, 1, self.num_classes
-        )
-        align_cls.scatter_(-1, index=align_cls_indices, src=~align_cls)
+        #align_cls = torch.zeros_like(align_cls_indices, dtype=torch.bool).repeat(
+        #    1, 1, self.num_classes
+        #)
+        # Directly allocate the exact shape once
+        B, num_targets = align_cls_indices.shape[:2]
+        align_cls = torch.zeros((B, num_targets, self.num_classes), dtype=torch.bool, device=align_cls_indices.device)
+        # align_cls.scatter_(-1, index=align_cls_indices, src=~align_cls)
+        align_cls.scatter_(dim=-1, index=align_cls_indices, value=True) # Scatter True directly instead of not the whole align_cls
+
 
         # Normalize class distribution by task-aligned score
         iou_mat *= topk_mask
         target_matrix *= topk_mask
         max_target = target_matrix.amax(dim=-1, keepdim=True)
         max_iou = iou_mat.amax(dim=-1, keepdim=True)
-        normalize_term = (target_matrix / (max_target + 1e-9)) * max_iou
+        # normalize_term = (target_matrix / (max_target + 1e-9)) * max_iou
+        # Divide first, then do fast multiplication
+        scaling_ratio = max_iou / (max_target + 1e-9)
+        normalize_term = target_matrix * scaling_ratio
+
         normalize_term = normalize_term.permute(0, 2, 1).gather(2, unique_indices)
         align_cls = align_cls * normalize_term * valid_mask[:, :, None]
 
@@ -614,9 +649,12 @@ class YOLO9Loss:
             align_targets, (self.num_classes, 4), dim=-1
         )
 
+        # Calculate reciprocal division once
+        inv_scaler = 1.0 / self.vec2box.scaler
+
         # Normalize predicted boxes to same scale as targets
-        preds_box_norm = preds_box / self.vec2box.scaler[None, :, None]
-        targets_bbox_norm = targets_bbox / self.vec2box.scaler[None, :, None]
+        preds_box_norm = preds_box * inv_scaler[None, :, None] # Changed to multiplication of reciprocal
+        targets_bbox_norm = targets_bbox * inv_scaler[None, :, None]
 
         # Compute normalization factors
         cls_norm = max(targets_cls.sum(), 1)
@@ -629,7 +667,7 @@ class YOLO9Loss:
         )
 
         # DFL loss needs normalized anchor grid
-        anchors_norm = (self.vec2box.anchor_grid / self.vec2box.scaler[:, None])[None]
+        anchors_norm = (self.vec2box.anchor_grid * inv_scaler[:, None])[None]
         loss_dfl = self.dfl_loss(
             preds_anc, targets_bbox_norm, anchors_norm, valid_masks, box_norm, cls_norm
         )

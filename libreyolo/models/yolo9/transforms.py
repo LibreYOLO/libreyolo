@@ -61,7 +61,7 @@ def preproc(img, input_size, swap=(2, 0, 1)):
 
     padded_img = padded_img.transpose(swap)
     padded_img = np.ascontiguousarray(padded_img, dtype=np.float32)
-    padded_img /= 255.0 # Prevent unnecesary duplication of array just to divide by 255
+    padded_img *= (1.0 / 255.0) # Changed div to multiplication of reciprocal of 255
     return padded_img, r
 
 def mirror(image, boxes, prob=0.5):
@@ -342,7 +342,7 @@ class YOLO9MosaicMixupDataset:
 
         # Resize mosaic to target size
         mosaic_img = cv2.resize(mosaic_img, (input_w, input_h))
-        mosaic_labels[:, :4] = mosaic_labels[:, :4] / 2
+        mosaic_labels[:, :4] *= 0.5 # Changed to in-place multiplication by 0.5 instead of div by 2
 
         # Filter small boxes
         if len(mosaic_labels) > 0:
