@@ -419,11 +419,17 @@ class BoxMatcher:
         #)
         # PyTorch natively broadcasts the dimension.
         duplicates = topk_mask.sum(1, keepdim=True) > 1
-
         masked_iou_mat = topk_mask * iou_mat
         best_indices = masked_iou_mat.argmax(1)[:, None, :]
-        best_target_mask = torch.zeros_like(duplicates, dtype=torch.bool)
-        best_target_mask.scatter_(1, index=best_indices, src=~best_target_mask)
+
+        # Explicitly allocate the full target shape instead of copying duplicates.
+        B, targets, anchors = topk_mask.shape
+        best_target_mask = torch.zeros((B, targets, anchors), dtype=torch.bool, device=topk_mask.device)
+        
+        # Scatter using our scalar optimization
+        best_target_mask.scatter_(1, index=best_indices, value=True)
+        
+        # PyTorch broadcasts duplicates (B, 1, anchors) during the where operation
         topk_mask = torch.where(duplicates, best_target_mask, topk_mask)
         unique_indices = topk_mask.to(torch.uint8).argmax(dim=1)
         return unique_indices[..., None], topk_mask.any(dim=1), topk_mask
