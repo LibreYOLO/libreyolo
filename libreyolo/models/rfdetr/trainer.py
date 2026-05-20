@@ -13,6 +13,7 @@ from ...training.scheduler import FlatCosineScheduler
 from ...training.trainer import BaseTrainer
 from .config import RFDETRConfig
 from ..dfine.transforms import DFINEPassThroughDataset, DFINETrainTransform
+from .seg_transforms import RFDETRSegPassThroughDataset, RFDETRSegTransform
 
 
 class RFDETRTrainer(BaseTrainer):
@@ -46,6 +47,14 @@ class RFDETRTrainer(BaseTrainer):
         return f"LibreRFDETR-{self.config.size}"
 
     def create_transforms(self):
+        if getattr(self.wrapper_model, "task", "detect") == "segment":
+            preproc = RFDETRSegTransform(
+                max_labels=300,
+                flip_prob=self.config.flip_prob,
+                imgsz=self.config.imgsz,
+                mask_downsample_ratio=4,
+            )
+            return preproc, RFDETRSegPassThroughDataset
         preproc = DFINETrainTransform(
             max_labels=300,
             flip_prob=self.config.flip_prob,
@@ -129,6 +138,12 @@ class RFDETRTrainer(BaseTrainer):
         batch_size = targets.shape[0]
         height, width = imgs.shape[-2], imgs.shape[-1]
         scale = torch.tensor([width, height, width, height], device=targets.device, dtype=targets.dtype)
+        is_seg = getattr(self.wrapper_model, "task", "detect") == "segment"
+        # ``polygons`` here is the collate-stacked output of RFDETRSegTransform:
+        # a [B, max_labels, mask_h, mask_w] float32 tensor whose slot i aligns
+        # with target slot i. Slice by the same ``valid`` box mask to hand the
+        # criterion per-image ``[N_valid, mask_h, mask_w]`` tensors.
+        masks_batch = polygons if is_seg and isinstance(polygons, torch.Tensor) else None
 
         target_list = []
         for batch_idx in range(batch_size):
@@ -136,19 +151,22 @@ class RFDETRTrainer(BaseTrainer):
             valid = (t[:, 3] > 0) & (t[:, 4] > 0)
             t_valid = t[valid]
             if t_valid.numel() == 0:
-                target_list.append(
-                    {
-                        "labels": torch.zeros(0, dtype=torch.int64, device=self.device),
-                        "boxes": torch.zeros(0, 4, dtype=torch.float32, device=self.device),
-                    }
-                )
+                entry = {
+                    "labels": torch.zeros(0, dtype=torch.int64, device=self.device),
+                    "boxes": torch.zeros(0, 4, dtype=torch.float32, device=self.device),
+                }
+                if masks_batch is not None:
+                    mh, mw = masks_batch.shape[-2], masks_batch.shape[-1]
+                    entry["masks"] = torch.zeros(0, mh, mw, dtype=torch.bool, device=self.device)
             else:
-                target_list.append(
-                    {
-                        "labels": t_valid[:, 0].long(),
-                        "boxes": (t_valid[:, 1:] / scale).clamp(0.0, 1.0),
-                    }
-                )
+                entry = {
+                    "labels": t_valid[:, 0].long(),
+                    "boxes": (t_valid[:, 1:] / scale).clamp(0.0, 1.0),
+                }
+                if masks_batch is not None:
+                    m = masks_batch[batch_idx][valid]
+                    entry["masks"] = m.to(device=self.device, dtype=torch.bool)
+            target_list.append(entry)
 
         outputs = self.model(imgs, targets=target_list)
         loss_dict = self.criterion(outputs, target_list)
@@ -166,11 +184,15 @@ class RFDETRTrainer(BaseTrainer):
                     total += value.item() if isinstance(value, torch.Tensor) else float(value)
             return total
 
-        return {
+        components = {
             "ce": _sum_with_prefix("loss_ce"),
             "bbox": _sum_with_prefix("loss_bbox"),
             "giou": _sum_with_prefix("loss_giou"),
         }
+        if getattr(self.wrapper_model, "task", "detect") == "segment":
+            components["mask_ce"] = _sum_with_prefix("loss_mask_ce")
+            components["mask_dice"] = _sum_with_prefix("loss_mask_dice")
+        return components
 
 
 def train_rfdetr(
