@@ -590,6 +590,7 @@ class LibreRTDETR(BaseModel):
                     "resume=True requires a checkpoint. Load one first: "
                     "model = LibreRTDETR('path/to/last.pt'); model.train(data=..., resume=True)"
                 )
+            trainer.setup()
             trainer.resume(str(self.model_path))
 
         results = trainer.train()
