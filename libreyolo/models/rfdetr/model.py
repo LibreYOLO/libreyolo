@@ -562,9 +562,6 @@ class LibreRFDETR(BaseModel):
         **kwargs,
     ) -> Dict:
         """Fine-tune RF-DETR through LibreYOLO's native trainer."""
-        if self._is_segmentation:
-            raise NotImplementedError("Native RF-DETR segmentation training is not implemented yet.")
-
         output_path = Path(output_dir)
         train_kwargs = dict(kwargs)
         train_kwargs.update(
