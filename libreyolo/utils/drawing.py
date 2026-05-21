@@ -1,8 +1,9 @@
 """Drawing utility functions for visualization."""
 
 import colorsys
+import math
 from functools import lru_cache
-from typing import Dict, List, Tuple
+from typing import Dict, List, Sequence, Tuple
 
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
@@ -283,6 +284,77 @@ def draw_keypoints(
                 fill=point_color,
                 outline=(0, 0, 0),
             )
+    return img_draw
+
+
+def draw_gaze_arrows(
+    img: Image.Image,
+    boxes: Sequence[Sequence[float]],
+    pitch_rad: Sequence[float],
+    yaw_rad: Sequence[float],
+    color: Tuple[int, int, int] = (0, 200, 255),
+    arrow_length_ratio: float = 0.6,
+    arrow_thickness: int | None = None,
+) -> Image.Image:
+    """Draw a gaze direction arrow per face on the image.
+
+    The arrow originates at the face bbox center and points in the direction
+    encoded by ``(pitch, yaw)``. The 2D projection matches upstream L2CS-Net's
+    convention: ``dx = -L * sin(yaw) * cos(pitch)``, ``dy = -L * sin(pitch)``.
+
+    Args:
+        img: PIL Image (RGB) to draw on.
+        boxes: Iterable of ``(x1, y1, x2, y2)`` face boxes — one per face.
+        pitch_rad: Per-face pitch angle in radians.
+        yaw_rad: Per-face yaw angle in radians.
+        color: RGB tuple for the arrow.
+        arrow_length_ratio: Arrow length as a fraction of the face bbox's
+            smaller side. Default 0.6 — long enough to read, short enough to
+            stay inside crowded scenes.
+        arrow_thickness: Optional override for line thickness. When None,
+            scales with image size to stay legible on both webcams and 4K.
+
+    Returns:
+        New PIL Image with arrows drawn on top of the input.
+    """
+    img_draw = img.copy()
+    draw = ImageDraw.Draw(img_draw)
+
+    max_dim = max(img.size)
+    scale = max_dim / 640.0
+    thickness = (
+        arrow_thickness if arrow_thickness is not None else max(2, int(3 * scale))
+    )
+
+    head_color = color
+
+    for box, pitch, yaw in zip(boxes, pitch_rad, yaw_rad):
+        x1, y1, x2, y2 = (float(v) for v in box)
+        w = x2 - x1
+        h = y2 - y1
+        if w <= 0 or h <= 0:
+            continue
+
+        cx = x1 + w / 2.0
+        cy = y1 + h / 2.0
+        length = arrow_length_ratio * min(w, h)
+        # Upstream L2CS convention: see l2cs/vis.py:draw_gaze.
+        dx = -length * math.sin(float(yaw)) * math.cos(float(pitch))
+        dy = -length * math.sin(float(pitch))
+        ex = cx + dx
+        ey = cy + dy
+
+        draw.line([(cx, cy), (ex, ey)], fill=color, width=thickness)
+
+        # Arrowhead: two short segments rotated ±25° from the shaft direction.
+        head_len = max(6.0, length * 0.18)
+        shaft_angle = math.atan2(dy, dx)
+        for side in (1, -1):
+            angle = shaft_angle + side * math.radians(150.0)
+            hx = ex + head_len * math.cos(angle)
+            hy = ey + head_len * math.sin(angle)
+            draw.line([(ex, ey), (hx, hy)], fill=head_color, width=thickness)
+
     return img_draw
 
 

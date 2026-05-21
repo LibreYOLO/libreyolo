@@ -54,6 +54,14 @@ tracking = [
     "scipy>=1.7.0",
 ]
 rtdetr = ["scipy>=1.7.0"]
+gaze-retinaface = [
+    # Optional: parity with upstream L2CS-Net's face detector. Installs an
+    # unmaintained git-only package; only pull this in if you specifically
+    # want the original pipeline. Most users should plug their own face
+    # detector via libreyolo.models.l2cs.CallableFaceDetector or
+    # LibreYOLOFaceDetector instead.
+    "face_detection @ git+https://github.com/elliottzheng/face-detection",
+]
 all = [
     "libreyolo[onnx]",
     "libreyolo[rfdetr]",
@@ -144,6 +152,7 @@ markers = [
     "rtdetr: tests covering the RT-DETR model family",
     "picodet: tests covering the PICODET model family",
     "damoyolo: tests covering the DAMO-YOLO model family",
+    "l2cs: tests covering the L2CS gaze estimation family",
     "rf1: RF1 training tests",
     "rf5: RF5 training benchmark tests",
     "slow: slow tests that may take several minutes",

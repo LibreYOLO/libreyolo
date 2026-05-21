@@ -47,6 +47,7 @@ from .rtdetr.model import LibreRTDETR  # noqa: E402  (registered before LibreRTD
 from .rtdetrv2.model import LibreRTDETRv2  # noqa: E402
 from .damoyolo.model import LibreDAMOYOLO  # noqa: E402
 from .rtmdet.model import LibreRTMDet  # noqa: E402
+from .l2cs.model import LibreL2CS  # noqa: E402
 
 
 def _ensure_rfdetr():

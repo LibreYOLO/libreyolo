@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 import numpy as np
@@ -469,10 +470,70 @@ class OBB(_TensorPayload):
         return np.stack([x.min(axis=1), y.min(axis=1), x.max(axis=1), y.max(axis=1)], axis=1)
 
 
+class Gaze(_TensorPayload):
+    """Per-face gaze angles in radians.
+
+    Data shape: (N, 2) where column 0 is pitch and column 1 is yaw.
+    Aligned row-by-row with the parent Results.boxes (face boxes).
+    The L2CS convention is used: positive yaw rotates the gaze toward
+    the subject's left, positive pitch rotates it downward.
+    """
+
+    def __init__(self, data: TensorLike, orig_shape: Tuple[int, int] | None = None):
+        if data.ndim == 1:
+            if isinstance(data, torch.Tensor):
+                data = data.unsqueeze(0)
+            else:
+                data = data[None, :]
+        if data.shape[-1] != 2:
+            raise ValueError(
+                f"expected (N, 2) pitch/yaw, got shape {tuple(data.shape)}"
+            )
+        super().__init__(data, orig_shape)
+
+    @property
+    def pitch(self) -> TensorLike:
+        return self.data[..., 0]
+
+    @property
+    def yaw(self) -> TensorLike:
+        return self.data[..., 1]
+
+    @property
+    def pitch_deg(self) -> TensorLike:
+        return self.pitch * (180.0 / math.pi)
+
+    @property
+    def yaw_deg(self) -> TensorLike:
+        return self.yaw * (180.0 / math.pi)
+
+    @property
+    def direction_3d(self) -> TensorLike:
+        """Unit gaze direction in the camera frame: (N, 3), columns (x, y, z).
+
+        Matches upstream L2CS-Net ``gazeto3d``: (-cos(p)*sin(y), -sin(p), -cos(p)*cos(y)).
+        """
+        p, y = self.pitch, self.yaw
+        if isinstance(self.data, torch.Tensor):
+            cos_p, sin_p = torch.cos(p), torch.sin(p)
+            cos_y, sin_y = torch.cos(y), torch.sin(y)
+            return torch.stack([-cos_p * sin_y, -sin_p, -cos_p * cos_y], dim=-1)
+        cos_p, sin_p = np.cos(p), np.sin(p)
+        cos_y, sin_y = np.cos(y), np.sin(y)
+        return np.stack([-cos_p * sin_y, -sin_p, -cos_p * cos_y], axis=-1)
+
+    def __repr__(self) -> str:
+        return (
+            f"Gaze(n={len(self)}, "
+            f"shape={tuple(self.data.shape)}, "
+            f"orig_shape={self.orig_shape})"
+        )
+
+
 class Results:
     """Single-image result with flat Ultralytics-compatible slots."""
 
-    _keys = ("boxes", "masks", "probs", "keypoints", "obb")
+    _keys = ("boxes", "masks", "probs", "keypoints", "obb", "gaze")
 
     def __init__(
         self,
@@ -484,6 +545,7 @@ class Results:
         keypoints: Optional[Keypoints] = None,
         probs: Optional[Probs] = None,
         obb: Optional[OBB] = None,
+        gaze: Optional[Gaze] = None,
         speed: Optional[Dict[str, float]] = None,
         track_id: Optional[TensorLike] = None,
         frame_idx: Optional[int] = None,
@@ -498,6 +560,7 @@ class Results:
         self.keypoints = keypoints
         self.probs = probs
         self.obb = obb
+        self.gaze = gaze
         self.orig_shape = orig_shape
         self.path = path
         self.names = names or {}
@@ -515,6 +578,7 @@ class Results:
             "keypoints": self.keypoints,
             "probs": self.probs,
             "obb": self.obb,
+            "gaze": self.gaze,
             "speed": dict(self.speed),
             "track_id": self.track_id,
             "frame_idx": self.frame_idx,
@@ -564,6 +628,7 @@ class Results:
         probs: Optional[Probs] = None,
         keypoints: Optional[Keypoints] = None,
         obb: Optional[OBB] = None,
+        gaze: Optional[Gaze] = None,
         track_id: Optional[TensorLike] = None,
     ) -> "Results":
         if boxes is not None:
@@ -576,6 +641,8 @@ class Results:
             self.keypoints = keypoints
         if obb is not None:
             self.obb = obb
+        if gaze is not None:
+            self.gaze = gaze
         if track_id is not None:
             self.track_id = track_id
             if self.boxes is not None:
@@ -620,6 +687,14 @@ class Results:
                 row["segments"] = {
                     "x": [round(float(x), decimals) for x in segment[:, 0]],
                     "y": [round(float(y), decimals) for y in segment[:, 1]],
+                }
+            if self.gaze is not None and i < len(self.gaze):
+                gaze_np = self.gaze.numpy() if isinstance(self.gaze.data, torch.Tensor) else self.gaze
+                row["gaze"] = {
+                    "pitch_rad": round(float(gaze_np.data[i, 0]), decimals),
+                    "yaw_rad": round(float(gaze_np.data[i, 1]), decimals),
+                    "pitch_deg": round(float(gaze_np.data[i, 0]) * 180.0 / math.pi, decimals),
+                    "yaw_deg": round(float(gaze_np.data[i, 1]) * 180.0 / math.pi, decimals),
                 }
             if track_ids is not None:
                 row["track_id"] = int(track_ids[i])

@@ -214,11 +214,17 @@ def predict_cmd(
     # Format output
     result_list = []
     human_lines = []
+    import math as _math
     for r in results:
         boxes = r.boxes
         detections = []
         # Count detections per class
         class_counts: dict[str, int] = {}
+        gaze_data = r.gaze if getattr(r, "gaze", None) is not None else None
+        if gaze_data is not None and hasattr(gaze_data.data, "cpu"):
+            gaze_np = gaze_data.numpy()
+        else:
+            gaze_np = gaze_data
         for i in range(len(boxes)):
             cls_id = int(boxes.cls[i])
             cls_name = r.names.get(cls_id, str(cls_id))
@@ -228,6 +234,15 @@ def predict_cmd(
                 "confidence": round(float(boxes.conf[i]), 4),
                 "bbox_xyxy": [round(float(c), 1) for c in boxes.xyxy[i]],
             }
+            if gaze_np is not None and i < len(gaze_np):
+                pitch = float(gaze_np.data[i, 0])
+                yaw = float(gaze_np.data[i, 1])
+                det["gaze"] = {
+                    "pitch_rad": round(pitch, 4),
+                    "yaw_rad": round(yaw, 4),
+                    "pitch_deg": round(pitch * 180.0 / _math.pi, 2),
+                    "yaw_deg": round(yaw * 180.0 / _math.pi, 2),
+                }
             detections.append(det)
             class_counts[cls_name] = class_counts.get(cls_name, 0) + 1
 

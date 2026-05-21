@@ -860,6 +860,12 @@ class BaseModel(ABC):
             **kwargs,
         )
 
+        if self.task == "gaze":
+            raise NotImplementedError(
+                "Validation against gaze ground-truth datasets (MPIIGaze, Gaze360) "
+                "is out of scope for LibreYOLO. Evaluate upstream at "
+                "https://github.com/Ahmednull/L2CS-Net."
+            )
         if self.task == "pose":
             validator_cls = PoseValidator
         elif self.task == "segment":

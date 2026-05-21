@@ -159,3 +159,40 @@ Apache License 2.0 (full text)
 The full text of the Apache License, Version 2.0 is available at
 https://www.apache.org/licenses/LICENSE-2.0 and applies to the
 Apache-2.0 upstreams listed above.
+
+--------------------------------------------------------------------
+L2CS-Net
+--------------------------------------------------------------------
+Source: https://github.com/Ahmednull/L2CS-Net
+License: MIT
+Copyright (c) 2022 Ahmed Abdelrahman
+Citation: Abdelrahman, A. A., Hempel, T., Khalifa, A., Al-Hamadi, A.,
+          and Dinges, L. "L2CS-Net: Fine-Grained Gaze Estimation in
+          Unconstrained Environments." IEEE International Conference
+          on Image Processing (ICIP), 2022.
+Used for: L2CS gaze estimation network (libreyolo/models/l2cs/nn.py),
+          bin-expectation angle decoding and crop preprocessing
+          (libreyolo/models/l2cs/utils.py), and gaze arrow visualization
+          (libreyolo/utils/drawing.py:draw_gaze_arrows).
+
+MIT License
+
+Copyright (c) 2022 Ahmed Abdelrahman
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
