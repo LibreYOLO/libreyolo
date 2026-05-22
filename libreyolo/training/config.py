@@ -84,6 +84,12 @@ class TrainConfig:
     ema: bool = True
     ema_decay: float = 0.9998
     amp: bool = True
+    # Nominal (effective) batch size for gradient accumulation, Ultralytics
+    # style. When set, the trainer accumulates ``round(nbs / batch)``
+    # micro-batches per optimizer step so the effective batch size is ``nbs``.
+    # Left as None (the default), gradient accumulation is disabled and
+    # training is unchanged.
+    nbs: Optional[int] = None
 
     # Checkpointing / output
     project: str = "runs/train"
