@@ -44,16 +44,21 @@ class LibreL2CS(BaseModel):
     DEFAULT_TASK = "gaze"
     NUM_BINS = 90
 
+    # Per-checkpoint bin geometry: {num_bins: (bin_width_deg, offset_deg)}.
+    # Gaze360 L2CS uses 90 bins of 4 deg spanning [-180, 180); MPIIGaze uses
+    # 28 bins of 3 deg spanning [-42, 42). These decode constants are not
+    # derivable from the bin count alone, so they are pinned per known
+    # upstream training configuration.
+    _BIN_GEOMETRY: ClassVar[Dict[int, tuple]] = {
+        90: (4.0, -180.0),  # Gaze360
+        28: (3.0, -42.0),   # MPIIGaze
+    }
+
     # TTA, tiling, and validation all make no sense for two-stage gaze.
     TTA_ENABLED = False
 
     # State-dict fingerprint shared by every L2CS checkpoint.
     _SIGNATURE_KEYS = ("fc_yaw_gaze.weight", "fc_pitch_gaze.weight")
-
-    # Upstream checkpoints include a vestigial ``fc_finetune`` layer that
-    # is never invoked in forward. We drop those keys before loading and
-    # therefore tolerate the absence of strict matching.
-    _DROPPED_KEY_PREFIXES = ("fc_finetune.",)
 
     # =========================================================================
     # Detection of weights belonging to this family
@@ -77,6 +82,37 @@ class LibreL2CS(BaseModel):
         # the surrounding factory plumbing has a sensible value.
         return 1
 
+    @staticmethod
+    def _detect_num_bins(model_path) -> Optional[int]:
+        """Infer the angle-bin count from a checkpoint's ``fc_yaw_gaze`` weight.
+
+        Accepts a state-dict (the factory's pretrained path) or a file path.
+        Returns None when the count cannot be determined.
+        """
+        state: Optional[dict] = None
+        if isinstance(model_path, dict):
+            state = model_path
+        elif isinstance(model_path, (str, Path)):
+            try:
+                from ...utils.serialization import load_untrusted_torch_file
+
+                resolved = BaseModel._resolve_weights_path(str(model_path))
+                if not Path(resolved).exists():
+                    return None
+                loaded = load_untrusted_torch_file(
+                    resolved, map_location="cpu", context="L2CS bin-count probe"
+                )
+                if isinstance(loaded, dict):
+                    state = loaded.get("model", loaded.get("state_dict", loaded))
+            except Exception:
+                return None
+        if not isinstance(state, dict):
+            return None
+        weight = state.get("fc_yaw_gaze.weight")
+        if weight is not None and getattr(weight, "ndim", 0) >= 1:
+            return int(weight.shape[0])
+        return None
+
     # =========================================================================
     # Construction
     # =========================================================================
@@ -88,11 +124,30 @@ class LibreL2CS(BaseModel):
         nb_classes: int = 1,
         device: str = "auto",
         task: str | None = None,
-        num_bins: int = NUM_BINS,
+        num_bins: int | None = None,
         face_detector: Optional[FaceDetector] = None,
         **kwargs,
     ):
-        self.num_bins = num_bins
+        # The angle-bin count must match the checkpoint's head width exactly,
+        # so infer it from the weights when possible; fall back to an explicit
+        # num_bins, then to the Gaze360 default.
+        detected_bins = self._detect_num_bins(model_path)
+        self.num_bins = (
+            detected_bins
+            if detected_bins is not None
+            else (num_bins if num_bins is not None else self.NUM_BINS)
+        )
+        if self.num_bins in self._BIN_GEOMETRY:
+            self.bin_width_deg, self.offset_deg = self._BIN_GEOMETRY[self.num_bins]
+        else:
+            self.bin_width_deg, self.offset_deg = self._BIN_GEOMETRY[self.NUM_BINS]
+            logger.warning(
+                "L2CS checkpoint has %d angle bins; no known decode geometry "
+                "for that bin count. Falling back to Gaze360 (4 deg / -180 deg) "
+                "— decoded angles may be wrong. Use a 90-bin Gaze360 or 28-bin "
+                "MPIIGaze checkpoint for correct results.",
+                self.num_bins,
+            )
         super().__init__(
             model_path=model_path,
             size=size,
@@ -153,14 +208,10 @@ class LibreL2CS(BaseModel):
         )
 
     def _strict_loading(self) -> bool:
+        # Upstream L2CS checkpoints carry a vestigial ``fc_finetune`` layer that
+        # this port omits. Non-strict loading lets those unused keys be ignored
+        # on load instead of raising.
         return False
-
-    def _prepare_state_dict(self, state_dict: dict) -> dict:
-        return {
-            k: v
-            for k, v in state_dict.items()
-            if not any(k.startswith(p) for p in self._DROPPED_KEY_PREFIXES)
-        }
 
     # =========================================================================
     # Override the runner

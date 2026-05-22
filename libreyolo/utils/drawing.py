@@ -298,9 +298,10 @@ def draw_gaze_arrows(
 ) -> Image.Image:
     """Draw a gaze direction arrow per face on the image.
 
-    The arrow originates at the face bbox center and points in the direction
-    encoded by ``(pitch, yaw)``. The 2D projection matches upstream L2CS-Net's
-    convention: ``dx = -L * sin(yaw) * cos(pitch)``, ``dy = -L * sin(pitch)``.
+    The arrow originates at the face bbox center and points in the gaze
+    direction. The 2D projection is the standard appearance-based-gaze
+    formula: ``dx = -L * sin(yaw) * cos(pitch)``, ``dy = -L * sin(pitch)``
+    (horizontal displacement driven by yaw, vertical by pitch).
 
     Args:
         img: PIL Image (RGB) to draw on.
@@ -338,7 +339,7 @@ def draw_gaze_arrows(
         cx = x1 + w / 2.0
         cy = y1 + h / 2.0
         length = arrow_length_ratio * min(w, h)
-        # Upstream L2CS convention: see l2cs/vis.py:draw_gaze.
+        # Standard gaze projection: yaw drives horizontal, pitch drives vertical.
         dx = -length * math.sin(float(yaw)) * math.cos(float(pitch))
         dy = -length * math.sin(float(pitch))
         ex = cx + dx
