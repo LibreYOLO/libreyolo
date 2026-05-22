@@ -28,6 +28,8 @@ The integration tricks in this file:
 
 from __future__ import annotations
 
+import math
+import sys
 from pathlib import Path
 from typing import Dict, Optional, Tuple, Type
 
@@ -437,11 +439,16 @@ class DEIMTrainer(BaseTrainer):
             self.train_loader,
             desc=f"Epoch {epoch + 1}/{self.config.epochs}",
             total=len(self.train_loader),
+            disable=not sys.stderr.isatty(),
         )
 
+        accum = max(1, self.config.grad_accum_steps)
+        steps_per_epoch = max(1, math.ceil(len(self.train_loader) / accum))
         total_loss = 0.0
         num_batches = 0
         loss_component_sums: Dict[str, float] = {}
+        actual_window = accum
+        base_lr = self.optimizer.param_groups[0]["lr"]
 
         for batch_idx, batch in enumerate(pbar):
             if len(batch) == 5:
@@ -449,51 +456,58 @@ class DEIMTrainer(BaseTrainer):
             else:
                 imgs, targets, img_infos, img_ids = batch
                 polygons = None
-            self.current_iter = epoch * len(self.train_loader) + batch_idx
+
+            is_opt_step = (batch_idx + 1) % accum == 0 or batch_idx == len(self.train_loader) - 1
+            opt_step = epoch * steps_per_epoch + batch_idx // accum
+            self.current_iter = opt_step
 
             imgs = imgs.to(self.device, non_blocking=True)
             targets = targets.to(self.device, non_blocking=True)
 
+            if batch_idx % accum == 0:
+                self.optimizer.zero_grad(set_to_none=True)
+                actual_window = min(accum, len(self.train_loader) - batch_idx)
+
             if self.scaler is not None:
                 with autocast("cuda"):
                     outputs = self.on_forward(imgs, targets, polygons=polygons)
-                    loss = outputs["total_loss"]
-                self.optimizer.zero_grad()
+                    loss = outputs["total_loss"] / actual_window
                 self.scaler.scale(loss).backward()
-                if clip_max_norm > 0:
-                    self.scaler.unscale_(self.optimizer)
-                    torch.nn.utils.clip_grad_norm_(
-                        self.model.parameters(), clip_max_norm
-                    )
-                self.scaler.step(self.optimizer)
-                self.scaler.update()
+                if is_opt_step:
+                    if clip_max_norm > 0:
+                        self.scaler.unscale_(self.optimizer)
+                        torch.nn.utils.clip_grad_norm_(
+                            self.model.parameters(), clip_max_norm
+                        )
+                    self.scaler.step(self.optimizer)
+                    self.scaler.update()
             else:
                 outputs = self.on_forward(imgs, targets, polygons=polygons)
-                loss = outputs["total_loss"]
-                self.optimizer.zero_grad()
+                loss = outputs["total_loss"] / actual_window
                 loss.backward()
-                if clip_max_norm > 0:
-                    torch.nn.utils.clip_grad_norm_(
-                        self.model.parameters(), clip_max_norm
-                    )
-                self.optimizer.step()
+                if is_opt_step:
+                    if clip_max_norm > 0:
+                        torch.nn.utils.clip_grad_norm_(
+                            self.model.parameters(), clip_max_norm
+                        )
+                    self.optimizer.step()
 
-            if self.ema_model is not None:
-                self.ema_model.update(self.model)
+            if is_opt_step:
+                if self.ema_model is not None:
+                    self.ema_model.update(self.model)
+                # 3. Per-group LR (scheduler returns one base LR; each group
+                # multiplies by its ``lr_mult``).
+                base_lr = self.lr_scheduler.update_lr(opt_step + 1)
+                for pg in self.optimizer.param_groups:
+                    pg["lr"] = base_lr * pg.get("lr_mult", 1.0)
 
-            loss_val = loss.item()
+            loss_val = loss.item() * actual_window
             loss_components = self._scalar_mapping(self.get_loss_components(outputs))
             total_loss += loss_val
             for name, value in loss_components.items():
                 loss_component_sums[name] = loss_component_sums.get(name, 0.0) + value
-            del outputs, loss
-
-            # 3. Per-group LR (scheduler returns one base LR; each group
-            # multiplies by its ``lr_mult``).
-            base_lr = self.lr_scheduler.update_lr(self.current_iter + 1)
-            for pg in self.optimizer.param_groups:
-                pg["lr"] = base_lr * pg.get("lr_mult", 1.0)
             num_batches += 1
+            del outputs, loss
 
             postfix = {"loss": f"{loss_val:.4f}", "lr": f"{base_lr:.6f}"}
             postfix.update({k: f"{v:.4f}" for k, v in loss_components.items()})

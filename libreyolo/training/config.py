@@ -84,6 +84,7 @@ class TrainConfig:
     ema: bool = True
     ema_decay: float = 0.9998
     amp: bool = True
+    grad_accum_steps: int = 1
 
     # Checkpointing / output
     project: str = "runs/train"

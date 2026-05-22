@@ -85,14 +85,15 @@ class RTDETRTrainer(BaseTrainer):
 
     @property
     def effective_lr(self) -> float:
-        """LR scaled by batch size using RT-DETR's batch/16 normalization.
+        """LR scaled by effective batch size using RT-DETR's batch/16 normalization.
 
         The original RT-DETR implementation normalises by 16 (its reference
         batch size), not 64 as used by YOLO models.  With the default batch=4
         this would otherwise produce a 4x lower LR than intended, slowing
         convergence and hurting final AP.
         """
-        return self.config.lr0 * self.config.batch / 16
+        effective_batch = self.config.batch * max(1, self.config.grad_accum_steps)
+        return self.config.lr0 * effective_batch / 16
 
     def get_model_family(self) -> str:
         return "rtdetr"

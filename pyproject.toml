@@ -20,6 +20,7 @@ dependencies = [
     "pycocotools>=2.0.0",
     "typer>=0.9.0",
     "safetensors>=0.4.0",
+    "scipy>=1.15.3",
 ]
 
 [dependency-groups]
