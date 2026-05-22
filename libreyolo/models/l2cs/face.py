@@ -218,16 +218,19 @@ def _from_array(arr: np.ndarray, min_score: float) -> List[FaceBox]:
 def resolve_face_detector(spec: Any) -> Optional[FaceDetector]:
     """Coerce a user-supplied detector spec into a ``FaceDetector`` or None.
 
-    Accepts: None (no detector), a ``FaceDetector``-protocol object,
-    a plain callable, or a LibreYOLO model wrapper (anything with a
-    ``__call__`` that returns Results with ``.boxes``).
+    Accepts: None (no detector), a ``FaceDetector`` instance, a LibreYOLO
+    detection model, or a plain callable ``image -> boxes``.
     """
     if spec is None:
         return None
     if isinstance(spec, (CallableFaceDetector, LibreYOLOFaceDetector, RetinaFaceAdapter)):
         return spec
-    # Duck-type a LibreYOLO model: has a `_runner` attribute and a `predict` method
-    if hasattr(spec, "_runner") or hasattr(spec, "predict"):
+    # A LibreYOLO detection model — wrap so its boxes feed the gaze head.
+    # Detected precisely via the base class rather than duck-typing on a
+    # ``.predict`` attribute, which unrelated objects also expose.
+    from ..base.model import BaseModel
+
+    if isinstance(spec, BaseModel):
         return LibreYOLOFaceDetector(model=spec)
     if callable(spec):
         return CallableFaceDetector(fn=spec)

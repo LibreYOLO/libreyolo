@@ -15,14 +15,16 @@ _IMAGENET_MEAN = (0.485, 0.456, 0.406)
 _IMAGENET_STD = (0.229, 0.224, 0.225)
 
 
-# Upstream L2CS preprocessing: ``ToPILImage → Resize(448) → ToTensor →
-# Normalize(ImageNet)``. We keep ``Resize(448)`` as-is because the released
-# checkpoints were trained against that exact transform's bilinear behavior;
-# changing the interpolation backend silently shifts predicted angles by
-# a fraction of a degree.
+# Upstream L2CS forces every face crop to a square 224x224 via ``cv2.resize``
+# and then upsamples to 448x448 with ``transforms.Resize(448)``. The net
+# effect is a fixed 448x448 square input with the face stretched to square.
+# We resize straight to ``(448, 448)`` — the tuple matters: a single int
+# (``Resize(448)``) resizes only the *shorter* edge and preserves aspect
+# ratio, leaving crops at non-uniform sizes that break ``torch.stack`` when
+# an image has multiple faces.
 _TRANSFORM = transforms.Compose(
     [
-        transforms.Resize(448),
+        transforms.Resize((448, 448)),
         transforms.ToTensor(),
         transforms.Normalize(mean=list(_IMAGENET_MEAN), std=list(_IMAGENET_STD)),
     ]

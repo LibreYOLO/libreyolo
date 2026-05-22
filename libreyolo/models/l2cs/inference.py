@@ -74,6 +74,13 @@ class GazeInferenceRunner:
             raise ValueError(
                 "Tiled inference is not supported for gaze (face crops would be split)."
             )
+        if output_file_format is not None:
+            output_file_format = output_file_format.lower().lstrip(".")
+            if output_file_format not in ("jpg", "jpeg", "png", "webp"):
+                raise ValueError(
+                    f"Invalid output_file_format: {output_file_format}. "
+                    "Must be one of: 'jpg', 'png', 'webp'."
+                )
         if device is not None:
             self._set_device(device)
 
@@ -262,9 +269,17 @@ class GazeInferenceRunner:
         device = self.model.device
         batch = preprocess_face_crops(crops, device=device)
         with torch.no_grad():
-            yaw_logits, pitch_logits = self.model.model(batch)
+            # L2CS.forward returns (fc_yaw_gaze, fc_pitch_gaze). Despite the
+            # layer names, upstream training (L2CS-Net train.py) supervises
+            # fc_yaw_gaze on pitch labels and fc_pitch_gaze on yaw labels, so
+            # forward position 0 is the pitch head and position 1 the yaw head.
+            pitch_logits, yaw_logits = self.model.model(batch)
         angles = bin_logits_to_angles(
-            yaw_logits, pitch_logits, num_bins=self.model.num_bins
+            yaw_logits,
+            pitch_logits,
+            num_bins=self.model.num_bins,
+            bin_width_deg=self.model.bin_width_deg,
+            offset_deg=self.model.offset_deg,
         ).cpu()
 
         xyxy = torch.tensor(
