@@ -391,3 +391,15 @@ def test_missing_weights_gives_helpful_error():
     assert "Gaze360" in msg
     assert "non-commercial" in msg
     assert "L2CSNet_gaze360.pkl" in msg
+
+
+def test_autodownload_failure_falls_back_to_instructions(tmp_path, monkeypatch):
+    """When auto-download fails, _load_weights raises the manual instructions."""
+    monkeypatch.chdir(tmp_path)  # isolate the weights/ directory
+    # Simulate a failed download (gdown missing, Drive throttling, etc.).
+    monkeypatch.setattr(
+        LibreL2CS, "_try_autodownload", classmethod(lambda cls, dest: None)
+    )
+    with pytest.raises(FileNotFoundError, match=r"drive\.google\.com") as exc:
+        LibreL2CS("LibreL2CSr50.pt", size="r50", device="cpu")
+    assert "Gaze360" in str(exc.value)
