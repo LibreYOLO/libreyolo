@@ -12,9 +12,8 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Any, ClassVar, Dict, Optional
+from typing import ClassVar, Dict, Optional
 
-import torch
 import torch.nn as nn
 
 from ..base.model import BaseModel
