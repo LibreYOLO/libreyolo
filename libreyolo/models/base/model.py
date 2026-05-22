@@ -397,10 +397,19 @@ class BaseModel(ABC):
                         )
 
                 ckpt_nc = loaded.get("nc")
+                ckpt_names = loaded.get("names")
+
+                # Infer nc from names if missing from checkpoint
+                if ckpt_nc is None and ckpt_names is not None:
+                    ckpt_nc = len(ckpt_names)
+
+                # Infer nc from existing tensor detect_nb_classes
+                if ckpt_nc is None and hasattr(self, "detect_nb_classes"):
+                    ckpt_nc = self.detect_nb_classes(state_dict)
+
                 if ckpt_nc is not None and ckpt_nc != self.nb_classes:
                     self._rebuild_for_new_classes(ckpt_nc)
 
-                ckpt_names = loaded.get("names")
                 effective_nc = ckpt_nc if ckpt_nc is not None else self.nb_classes
                 if ckpt_names is not None:
                     self.names = self._sanitize_names(ckpt_names, effective_nc)
