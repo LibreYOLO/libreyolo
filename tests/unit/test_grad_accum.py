@@ -3,12 +3,13 @@
 Two families of tests:
 
 1. Gradient equivalence — the core mathematical claim: accumulating N
-   mini-batches of size B with ``grad_accum_steps=N`` must produce the same
-   parameter gradients as a single forward pass over a full batch of size N*B
-   (given mean loss reduction and the ``loss / accum`` scaling in the loop).
+   mini-batches of size B (``nbs`` set so ``round(nbs / batch) == N``) must
+   produce the same parameter gradients as a single forward pass over a full
+   batch of size N*B (given mean loss reduction and the ``loss / accum``
+   scaling in the loop).
 
 2. Trainer wiring — that ``optimizer.step()`` and ``zero_grad()`` fire at the
-   right frequency when ``_train_epoch`` runs with accum > 1.
+   right frequency when ``_train_epoch_accum`` runs with accum > 1.
 """
 
 from __future__ import annotations
@@ -96,7 +97,7 @@ def _make_trainer(model: nn.Module, accum: int = 1, num_batches: int = 4):
         device="cpu",
         amp=False,
         ema=False,
-        grad_accum_steps=accum,
+        nbs=2 * accum,  # helpers use batch=2, so round(nbs / batch) == accum
     )
     trainer.optimizer = torch.optim.SGD(model.parameters(), lr=0.01)
     trainer.lr_scheduler = _ConstScheduler()
@@ -316,7 +317,14 @@ def test_partial_window_gradient_scale():
 
 @_requires_libreyolo
 def test_scheduler_receives_optimizer_steps_per_epoch():
-    """setup() passes ``len(loader) // accum`` to create_scheduler, not raw batch count."""
+    """create_scheduler receives ceil(len(loader) / accum) — the optimizer-step count.
+
+    N is deliberately not divisible by accum (ceil=3, floor would be 2) so the
+    partial-window rounding is observable, and the test exercises the real
+    production helper ``_scheduler_steps_per_epoch`` rather than re-deriving it.
+    """
+    import math
+
     received = {}
 
     class _CapturingTrainer(_BaseTrainer):
@@ -328,7 +336,7 @@ def test_scheduler_receives_optimizer_steps_per_epoch():
             return _ConstScheduler()
         def get_loss_components(self, outputs): return {}
 
-    N, accum = 8, 4
+    N, accum = 10, 4  # ceil(10/4) = 3 optimizer steps; floor would be 2
 
     trainer = _CapturingTrainer(
         model=_TinyModel(),
@@ -338,17 +346,18 @@ def test_scheduler_receives_optimizer_steps_per_epoch():
         device="cpu",
         amp=False,
         ema=False,
-        grad_accum_steps=accum,
+        nbs=2 * accum,  # helpers use batch=2, so round(nbs / batch) == accum
     )
-    # Replicate just the scheduler-creation slice of setup() without a real DataLoader.
     trainer.train_loader = _fake_loader(N)
     trainer.optimizer = torch.optim.SGD(trainer.model.parameters(), lr=0.01)
-    _accum = max(1, trainer.config.grad_accum_steps)
-    steps_per_epoch = max(1, len(trainer.train_loader) // _accum)
-    trainer.lr_scheduler = trainer.create_scheduler(steps_per_epoch)
+    # Exercise the real production helper used by setup(), not a re-derivation.
+    trainer.lr_scheduler = trainer.create_scheduler(
+        trainer._scheduler_steps_per_epoch()
+    )
 
-    assert received["iters_per_epoch"] == N // accum, (
-        f"expected iters_per_epoch={N // accum}, got {received['iters_per_epoch']}"
+    assert received["iters_per_epoch"] == math.ceil(N / accum) == 3, (
+        f"expected ceil({N}/{accum})=3 optimizer steps, "
+        f"got {received['iters_per_epoch']}"
     )
 
 
@@ -395,7 +404,7 @@ def _make_deim_trainer(model: nn.Module, accum: int = 1, num_batches: int = 4):
         device="cpu",
         amp=False,
         ema=False,
-        grad_accum_steps=accum,
+        nbs=2 * accum,  # helpers use batch=2, so round(nbs / batch) == accum
         clip_max_norm=0.0,
     )
     trainer.optimizer = torch.optim.SGD(model.parameters(), lr=0.01)
@@ -427,7 +436,7 @@ def _make_dfine_trainer(model: nn.Module, accum: int = 1, num_batches: int = 4):
         device="cpu",
         amp=False,
         ema=False,
-        grad_accum_steps=accum,
+        nbs=2 * accum,  # helpers use batch=2, so round(nbs / batch) == accum
         clip_max_norm=0.0,
     )
     trainer.optimizer = torch.optim.SGD(model.parameters(), lr=0.01)
@@ -575,4 +584,114 @@ def test_dfine_zero_grad_fires_at_accum_boundaries():
 
     assert len(zg_calls) == math.ceil(N / accum), (
         f"DFINE zero_grad: expected {math.ceil(N / accum)}, got {len(zg_calls)}"
+    )
+
+
+# =========================================================================
+# 4. AMP and EMA wiring under accumulation
+#
+# The wiring tests above run with amp=False / ema=False. These cover the
+# remaining branches of _train_epoch_accum: the AMP (GradScaler) path and the
+# EMA update. Stand-ins keep both exercisable on CPU without CUDA.
+# =========================================================================
+
+
+class _FakeScaler:
+    """Minimal ``GradScaler`` stand-in that records the AMP call sequence."""
+
+    def __init__(self):
+        self.scale_calls = 0
+        self.unscale_calls = 0
+        self.step_calls = 0
+        self.update_calls = 0
+
+    def scale(self, loss):
+        self.scale_calls += 1
+        return loss
+
+    def unscale_(self, optimizer):
+        self.unscale_calls += 1
+
+    def step(self, optimizer):
+        self.step_calls += 1
+        optimizer.step()
+
+    def update(self):
+        self.update_calls += 1
+
+
+class _FakeEMA:
+    """EMA stand-in that counts ``update()`` calls."""
+
+    def __init__(self):
+        self.updates = 0
+
+    def update(self, model):
+        self.updates += 1
+
+
+@_requires_libreyolo
+def test_amp_accum_steps_once_per_window():
+    """AMP path: scaler.step/update fire once per window; scale fires every batch."""
+    import math
+    N, accum = 7, 3  # ceil(7/3) = 3 windows
+
+    trainer = _make_trainer(_TinyModel(), accum=accum, num_batches=N)
+    scaler = _FakeScaler()
+    trainer.scaler = scaler
+
+    trainer._train_epoch(0)
+
+    assert scaler.scale_calls == N, (
+        f"scaler.scale should fire every batch: {scaler.scale_calls} != {N}"
+    )
+    assert scaler.step_calls == math.ceil(N / accum), (
+        f"scaler.step should fire once per window: "
+        f"{scaler.step_calls} != {math.ceil(N / accum)}"
+    )
+    assert scaler.update_calls == math.ceil(N / accum), (
+        f"scaler.update should fire once per window: "
+        f"{scaler.update_calls} != {math.ceil(N / accum)}"
+    )
+
+
+@_requires_libreyolo
+def test_amp_accum_clips_once_per_window():
+    """AMP path with clipping on: unscale_ fires once per window, not per batch.
+
+    Guards the conflict resolution that gated BaseTrainer's gradient clipping
+    on the optimizer step. Clipping a half-accumulated gradient on every
+    micro-batch would be wrong — and would call unscale_ N times instead of
+    ceil(N / accum).
+    """
+    import math
+    N, accum = 7, 3
+
+    trainer = _make_trainer(_TinyModel(), accum=accum, num_batches=N)
+    trainer.scaler = _FakeScaler()
+    trainer.config.clip_max_norm = 1.0  # enable BaseTrainer gradient clipping
+
+    trainer._train_epoch(0)
+
+    assert trainer.scaler.unscale_calls == math.ceil(N / accum), (
+        f"unscale_ (clipping) should fire once per window: "
+        f"{trainer.scaler.unscale_calls} != {math.ceil(N / accum)}"
+    )
+
+
+@_requires_libreyolo
+def test_ema_updates_once_per_optimizer_step():
+    """EMA updates once per optimizer step under accumulation, not per micro-batch."""
+    import math
+    N, accum = 7, 3
+
+    trainer = _make_trainer(_TinyModel(), accum=accum, num_batches=N)
+    ema = _FakeEMA()
+    trainer.ema_model = ema
+
+    trainer._train_epoch(0)
+
+    assert ema.updates == math.ceil(N / accum), (
+        f"EMA should update once per optimizer step: "
+        f"{ema.updates} != {math.ceil(N / accum)}"
     )

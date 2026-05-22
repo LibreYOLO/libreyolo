@@ -92,7 +92,7 @@ class RTDETRTrainer(BaseTrainer):
         this would otherwise produce a 4x lower LR than intended, slowing
         convergence and hurting final AP.
         """
-        effective_batch = self.config.batch * max(1, self.config.grad_accum_steps)
+        effective_batch = self.config.batch * self._accum_steps
         return self.config.lr0 * effective_batch / 16
 
     def get_model_family(self) -> str:

@@ -424,6 +424,111 @@ class DEIMTrainer(BaseTrainer):
         3. Apply per-group LR multipliers (the scheduler returns one base LR;
            each param group's ``lr_mult`` scales it).
         """
+        # Gradient accumulation is opt-in; delegate when enabled.
+        if self._accum_steps > 1:
+            return self._train_epoch_accum(epoch)
+
+        # 1. Epoch propagation.
+        ds = self.train_loader.dataset
+        if hasattr(ds, "set_epoch"):
+            ds.set_epoch(epoch)
+        cf = getattr(self.train_loader, "collate_fn", None)
+        if cf is not None and hasattr(cf, "set_epoch"):
+            cf.set_epoch(epoch)
+
+        clip_max_norm = float(getattr(self.config, "clip_max_norm", 0.0))
+
+        self.model.train()
+        pbar = tqdm(
+            self.train_loader,
+            desc=f"Epoch {epoch + 1}/{self.config.epochs}",
+            total=len(self.train_loader),
+        )
+
+        total_loss = 0.0
+        num_batches = 0
+        loss_component_sums: Dict[str, float] = {}
+
+        for batch_idx, batch in enumerate(pbar):
+            if len(batch) == 5:
+                imgs, targets, img_infos, img_ids, polygons = batch
+            else:
+                imgs, targets, img_infos, img_ids = batch
+                polygons = None
+            self.current_iter = epoch * len(self.train_loader) + batch_idx
+
+            imgs = imgs.to(self.device, non_blocking=True)
+            targets = targets.to(self.device, non_blocking=True)
+
+            if self.scaler is not None:
+                with autocast("cuda"):
+                    outputs = self.on_forward(imgs, targets, polygons=polygons)
+                    loss = outputs["total_loss"]
+                self.optimizer.zero_grad()
+                self.scaler.scale(loss).backward()
+                if clip_max_norm > 0:
+                    self.scaler.unscale_(self.optimizer)
+                    torch.nn.utils.clip_grad_norm_(
+                        self.model.parameters(), clip_max_norm
+                    )
+                self.scaler.step(self.optimizer)
+                self.scaler.update()
+            else:
+                outputs = self.on_forward(imgs, targets, polygons=polygons)
+                loss = outputs["total_loss"]
+                self.optimizer.zero_grad()
+                loss.backward()
+                if clip_max_norm > 0:
+                    torch.nn.utils.clip_grad_norm_(
+                        self.model.parameters(), clip_max_norm
+                    )
+                self.optimizer.step()
+
+            if self.ema_model is not None:
+                self.ema_model.update(self.model)
+
+            loss_val = loss.item()
+            loss_components = self._scalar_mapping(self.get_loss_components(outputs))
+            total_loss += loss_val
+            for name, value in loss_components.items():
+                loss_component_sums[name] = loss_component_sums.get(name, 0.0) + value
+            del outputs, loss
+
+            # 3. Per-group LR (scheduler returns one base LR; each group
+            # multiplies by its ``lr_mult``).
+            base_lr = self.lr_scheduler.update_lr(self.current_iter + 1)
+            for pg in self.optimizer.param_groups:
+                pg["lr"] = base_lr * pg.get("lr_mult", 1.0)
+            num_batches += 1
+
+            postfix = {"loss": f"{loss_val:.4f}", "lr": f"{base_lr:.6f}"}
+            postfix.update({k: f"{v:.4f}" for k, v in loss_components.items()})
+            pbar.set_postfix(postfix)
+
+        num_batches = max(num_batches, 1)
+        avg_loss = total_loss / num_batches
+        avg_loss_components = {
+            name: value / num_batches for name, value in loss_component_sums.items()
+        }
+
+        val_metrics = None
+        if (
+            self.config.eval_interval > 0
+            and (epoch + 1) % self.config.eval_interval == 0
+        ):
+            val_metrics = self._validate_epoch(epoch)
+
+        return avg_loss, val_metrics, avg_loss_components, self._current_lrs()
+
+    def _train_epoch_accum(
+        self, epoch: int
+    ) -> Tuple[float, Optional[Dict[str, float]], Dict[str, float], Dict[str, float]]:
+        """``_train_epoch`` variant with gradient accumulation (``_accum_steps`` > 1).
+
+        Same DEIM tweaks as ``_train_epoch`` (epoch propagation, clipping,
+        per-group LR), but gradients accumulate over ``accum`` micro-batches and
+        the optimizer step, clipping, EMA and LR update fire once per window.
+        """
         # 1. Epoch propagation.
         ds = self.train_loader.dataset
         if hasattr(ds, "set_epoch"):
@@ -442,7 +547,7 @@ class DEIMTrainer(BaseTrainer):
             disable=not sys.stderr.isatty(),
         )
 
-        accum = max(1, self.config.grad_accum_steps)
+        accum = self._accum_steps
         steps_per_epoch = max(1, math.ceil(len(self.train_loader) / accum))
         total_loss = 0.0
         num_batches = 0
