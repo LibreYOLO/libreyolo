@@ -18,9 +18,13 @@ import torch
 from PIL import Image
 
 from libreyolo import LibreL2CS
-from libreyolo.models.l2cs.face import CallableFaceDetector, FaceBox
+from libreyolo.models.l2cs.face import (
+    CallableFaceDetector,
+    FaceBox,
+    resolve_face_detector,
+)
 from libreyolo.models.l2cs.nn import build_l2cs, detect_size_from_state_dict
-from libreyolo.models.l2cs.utils import bin_logits_to_angles
+from libreyolo.models.l2cs.utils import bin_logits_to_angles, preprocess_face_crops
 from libreyolo.utils.results import Gaze, Results
 
 
@@ -258,3 +262,117 @@ def test_libre_l2cs_blocks_train_val_export(tmp_path):
         model.val()
     with pytest.raises(NotImplementedError):
         model.export("torchscript")
+
+
+# ---------------------------------------------------------------------------
+# Regression tests for code-review findings
+# ---------------------------------------------------------------------------
+
+
+def test_preprocess_multiface_uniform_shapes():
+    """Finding #1: crops of differing aspect ratio must batch without crashing."""
+    crops = [
+        Image.fromarray(np.zeros((160, 120, 3), dtype=np.uint8)),  # 4:3
+        Image.fromarray(np.zeros((100, 200, 3), dtype=np.uint8)),  # 1:2
+        Image.fromarray(np.zeros((90, 90, 3), dtype=np.uint8)),    # 1:1
+    ]
+    batch = preprocess_face_crops(crops)
+    assert batch.shape == (3, 3, 448, 448)
+
+
+def test_preprocess_nonsquare_single():
+    """A single non-square crop is resized to the fixed 448x448 square input."""
+    batch = preprocess_face_crops(
+        [Image.fromarray(np.zeros((300, 100, 3), dtype=np.uint8))]
+    )
+    assert batch.shape == (1, 3, 448, 448)
+
+
+def test_libre_l2cs_multiface_end_to_end(tmp_path):
+    """Finding #1 end-to-end: an image with two differently-shaped faces runs."""
+    sd = _make_dummy_state_dict("r18")
+    wp = tmp_path / "LibreL2CSr18.pt"
+    torch.save(sd, wp)
+    model = LibreL2CS(str(wp), size="r18", device="cpu")
+    img = Image.fromarray(np.zeros((200, 200, 3), dtype=np.uint8))
+    result = model(img, face_boxes=[(10, 10, 90, 150), (100, 20, 180, 90)])
+    assert len(result.gaze) == 2
+    assert result.gaze.data.shape == (2, 2)
+    assert torch.isfinite(result.gaze.data).all()
+
+
+def _craft_l2cs(tmp_path, yaw_bin, pitch_bin, num_bins=90):
+    """Build an L2CS whose fc_yaw_gaze/fc_pitch_gaze heads fire fixed bins."""
+    net = build_l2cs("r18", num_bins=num_bins)
+    with torch.no_grad():
+        net.fc_yaw_gaze.weight.zero_()
+        net.fc_pitch_gaze.weight.zero_()
+        net.fc_yaw_gaze.bias.zero_()
+        net.fc_pitch_gaze.bias.zero_()
+        net.fc_yaw_gaze.bias[yaw_bin] = 50.0
+        net.fc_pitch_gaze.bias[pitch_bin] = 50.0
+    wp = tmp_path / "LibreL2CSr18.pt"
+    torch.save(net.state_dict(), wp)
+    return str(wp)
+
+
+def test_pitch_yaw_head_assignment(tmp_path):
+    """Finding #2: result.gaze.pitch must come from fc_yaw_gaze (the pitch head).
+
+    Per upstream L2CS-Net training, forward position 0 (fc_yaw_gaze) is
+    supervised on pitch labels and position 1 (fc_pitch_gaze) on yaw labels.
+    So result.gaze.pitch == decode(fc_yaw_gaze) and .yaw == decode(fc_pitch_gaze).
+    """
+    # fc_yaw_gaze -> bin 80 -> 80*4-180 = +140 deg; fc_pitch_gaze -> bin 10 -> -140 deg
+    wp = _craft_l2cs(tmp_path, yaw_bin=80, pitch_bin=10)
+    model = LibreL2CS(wp, size="r18", device="cpu")
+    img = Image.fromarray(np.zeros((64, 64, 3), dtype=np.uint8))
+    res = model(img, face_boxes=[(0, 0, 64, 64)])
+    assert float(res.gaze.pitch_deg[0]) == pytest.approx(140.0, abs=1.0)
+    assert float(res.gaze.yaw_deg[0]) == pytest.approx(-140.0, abs=1.0)
+
+
+def test_28bin_checkpoint_loads_and_decodes(tmp_path):
+    """Finding #4: a 28-bin MPIIGaze-style checkpoint loads with correct geometry."""
+    net = build_l2cs("r18", num_bins=28)
+    wp = tmp_path / "LibreL2CSr18.pt"
+    torch.save(net.state_dict(), wp)
+    model = LibreL2CS(str(wp), size="r18", device="cpu")
+    assert model.num_bins == 28
+    assert model.bin_width_deg == 3.0
+    assert model.offset_deg == -42.0
+    img = Image.fromarray(np.zeros((64, 64, 3), dtype=np.uint8))
+    res = model(img, face_boxes=[(0, 0, 64, 64)])
+    assert torch.isfinite(res.gaze.data).all()
+
+
+def test_num_bins_inferred_from_state_dict():
+    """Finding #4: num_bins is read off the checkpoint, not assumed to be 90."""
+    assert LibreL2CS._detect_num_bins(build_l2cs("r18", num_bins=28).state_dict()) == 28
+    assert LibreL2CS._detect_num_bins(build_l2cs("r18", num_bins=90).state_dict()) == 90
+    assert LibreL2CS._detect_num_bins({"not": "a checkpoint"}) is None
+
+
+def test_resolve_face_detector_rejects_unknown():
+    """Finding #7: a non-model, non-callable object is rejected, not mis-wrapped."""
+
+    class HasPredict:
+        def predict(self):  # noqa: D102
+            ...
+
+    with pytest.raises(TypeError, match="Unsupported face_detector"):
+        resolve_face_detector(HasPredict())
+    # Plain callables and None are still accepted.
+    assert isinstance(resolve_face_detector(lambda img: []), CallableFaceDetector)
+    assert resolve_face_detector(None) is None
+
+
+def test_invalid_output_file_format_raises(tmp_path):
+    """Finding #8: an unsupported output_file_format fails fast with ValueError."""
+    sd = _make_dummy_state_dict("r18")
+    wp = tmp_path / "LibreL2CSr18.pt"
+    torch.save(sd, wp)
+    model = LibreL2CS(str(wp), size="r18", device="cpu")
+    img = Image.fromarray(np.zeros((64, 64, 3), dtype=np.uint8))
+    with pytest.raises(ValueError, match="output_file_format"):
+        model(img, face_boxes=[(0, 0, 64, 64)], save=True, output_file_format="tif")
