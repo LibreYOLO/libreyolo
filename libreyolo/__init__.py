@@ -20,8 +20,9 @@ from .models import (
     LibreRTDETRv2,
     LibreRTDETRv4,
     LibreRTMDet,
+    LibreL2CS,
 )
-from .utils.results import Results, Boxes, Masks, Keypoints, Probs, OBB
+from .utils.results import Results, Boxes, Masks, Keypoints, Probs, OBB, Gaze
 
 SAMPLE_IMAGE = str(_Path(__file__).parent / "assets" / "parkour.jpg")
 
@@ -107,6 +108,7 @@ __all__ = [
     "LibrePICODET",
     "LibreDAMOYOLO",
     "LibreRTMDet",
+    "LibreL2CS",
     # Results
     "Results",
     "Boxes",
@@ -114,6 +116,7 @@ __all__ = [
     "Keypoints",
     "Probs",
     "OBB",
+    "Gaze",
     # Assets
     "SAMPLE_IMAGE",
     # Tracking

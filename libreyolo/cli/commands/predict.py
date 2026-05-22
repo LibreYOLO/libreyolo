@@ -122,6 +122,11 @@ def predict_cmd(
         None, help="Output format: jpg, png, webp"
     ),
     device: str = typer.Option("auto", help="Device: 0, cpu, mps, auto"),
+    face_detector: Optional[str] = typer.Option(
+        None,
+        "--face-detector",
+        help="Face detector model (path or CLI name); required for gaze models",
+    ),
     project: str = typer.Option("runs/detect", help="Output directory root"),
     name: str = typer.Option("predict", help="Experiment name"),
     exist_ok: bool = typer.Option(False, help="Reuse existing output directory"),
@@ -155,6 +160,26 @@ def predict_cmd(
     loaded_model = load_model_or_exit(
         out, model=model, model_path=model_path, device=device
     )
+
+    # Gaze models (LibreL2CS) are two-stage: they need an upstream face
+    # detector. The factory builds them without one, so wire it here from
+    # the --face-detector option.
+    if getattr(loaded_model, "task", None) == "gaze":
+        if face_detector is None:
+            exit_with_error(
+                out,
+                "config_unsupported",
+                "Gaze models require a face detector. Pass --face-detector "
+                "<model> (a LibreYOLO detector trained on faces).",
+                suggestion="e.g. --face-detector path/to/face-detector.pt",
+            )
+        fd_path = resolve_model_or_exit(out, face_detector)
+        fd_model = load_model_or_exit(
+            out, model=face_detector, model_path=fd_path, device=device
+        )
+        from libreyolo.models.l2cs.face import resolve_face_detector
+
+        loaded_model.face_detector = resolve_face_detector(fd_model)
 
     # NOTE: half for PyTorch inference is not yet supported in the inference
     # pipeline (model converts to FP16 but input stays FP32 → dtype mismatch).
@@ -214,11 +239,17 @@ def predict_cmd(
     # Format output
     result_list = []
     human_lines = []
+    import math as _math
     for r in results:
         boxes = r.boxes
         detections = []
         # Count detections per class
         class_counts: dict[str, int] = {}
+        gaze_data = r.gaze if getattr(r, "gaze", None) is not None else None
+        if gaze_data is not None and hasattr(gaze_data.data, "cpu"):
+            gaze_np = gaze_data.numpy()
+        else:
+            gaze_np = gaze_data
         for i in range(len(boxes)):
             cls_id = int(boxes.cls[i])
             cls_name = r.names.get(cls_id, str(cls_id))
@@ -228,6 +259,15 @@ def predict_cmd(
                 "confidence": round(float(boxes.conf[i]), 4),
                 "bbox_xyxy": [round(float(c), 1) for c in boxes.xyxy[i]],
             }
+            if gaze_np is not None and i < len(gaze_np):
+                pitch = float(gaze_np.data[i, 0])
+                yaw = float(gaze_np.data[i, 1])
+                det["gaze"] = {
+                    "pitch_rad": round(pitch, 4),
+                    "yaw_rad": round(yaw, 4),
+                    "pitch_deg": round(pitch * 180.0 / _math.pi, 2),
+                    "yaw_deg": round(yaw * 180.0 / _math.pi, 2),
+                }
             detections.append(det)
             class_counts[cls_name] = class_counts.get(cls_name, 0) + 1
 
