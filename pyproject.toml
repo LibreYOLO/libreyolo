@@ -54,6 +54,12 @@ tracking = [
     "scipy>=1.7.0",
 ]
 rtdetr = ["scipy>=1.7.0"]
+gaze = [
+    # Enables best-effort auto-download of the L2CS Gaze360 checkpoint from
+    # the official Google Drive (large-file confirm-token handling). Without
+    # it, LibreL2CS prints manual download instructions instead.
+    "gdown>=5.1.0",
+]
 gaze-retinaface = [
     # Optional: parity with upstream L2CS-Net's face detector. Installs an
     # unmaintained git-only package; only pull this in if you specifically
@@ -70,6 +76,7 @@ all = [
     "libreyolo[ncnn]",
     "libreyolo[tracking]",
     "libreyolo[rtdetr]",
+    "libreyolo[gaze]",
 ]
 
 [project.scripts]
