@@ -101,8 +101,35 @@ class BaseTrainer(ABC):
 
     @property
     def effective_lr(self) -> float:
-        """Learning rate scaled by batch size (linear scaling rule)."""
-        return self.config.lr0 * self.config.batch / 64
+        """Learning rate scaled by effective batch size (linear scaling rule)."""
+        effective_batch = self.config.batch * self._accum_steps
+        return self.config.lr0 * effective_batch / 64
+
+    @property
+    def _accum_steps(self) -> int:
+        """Micro-batches accumulated per optimizer step (1 disables accumulation).
+
+        Derived from ``config.nbs`` (nominal batch size) the way Ultralytics
+        derives accumulation — ``round(nbs / batch)``. When ``nbs`` is unset the
+        trainer runs the standard one-optimizer-step-per-batch loop, unchanged
+        from a build without this feature.
+        """
+        nbs = getattr(self.config, "nbs", None)
+        if nbs is None:
+            return 1
+        return max(1, round(nbs / self.config.batch))
+
+    def _scheduler_steps_per_epoch(self) -> int:
+        """Optimizer steps per epoch — the unit the LR schedule advances in.
+
+        Equals ``len(train_loader)`` without accumulation; with accumulation it
+        is ``ceil(len / accum)`` so the schedule still advances exactly once per
+        optimizer step. Requires ``train_loader`` to be set.
+        """
+        steps = len(self.train_loader)
+        if self._accum_steps > 1:
+            steps = max(1, math.ceil(steps / self._accum_steps))
+        return steps
 
     @property
     def input_size(self) -> Tuple[int, int]:
@@ -369,7 +396,7 @@ class BaseTrainer(ABC):
 
         self._setup_data()
         self.optimizer = self._setup_optimizer()
-        self.lr_scheduler = self.create_scheduler(len(self.train_loader))
+        self.lr_scheduler = self.create_scheduler(self._scheduler_steps_per_epoch())
 
         if self.config.amp and self.device.type == "cuda":
             self.scaler = GradScaler("cuda")
@@ -760,6 +787,12 @@ class BaseTrainer(ABC):
     ) -> Tuple[float, Optional[Dict[str, Any]], Dict[str, float], Dict[str, float]]:
         self.model.train()
 
+        # Gradient accumulation is opt-in. When enabled, delegate to the
+        # accumulation loop; otherwise fall through to the standard
+        # one-optimizer-step-per-batch loop below, unchanged.
+        if self._accum_steps > 1:
+            return self._train_epoch_accum(epoch)
+
         pbar = tqdm(
             self.train_loader,
             desc=f"Epoch {epoch + 1}/{self.config.epochs}",
@@ -820,6 +853,115 @@ class BaseTrainer(ABC):
             for param_group in self.optimizer.param_groups:
                 param_group["lr"] = self._scale_lr(lr, param_group)
             num_batches += 1
+
+            # Progress bar
+            postfix = {"loss": f"{loss_val:.4f}", "lr": f"{lr:.6f}"}
+            postfix.update({k: f"{v:.4f}" for k, v in loss_components.items()})
+            pbar.set_postfix(postfix)
+
+        avg_loss = total_loss / max(num_batches, 1)
+        avg_loss_components = {
+            name: value / max(num_batches, 1)
+            for name, value in loss_component_sums.items()
+        }
+        logger.info(f"Epoch {epoch + 1} - Average loss: {avg_loss:.4f}")
+
+        # Validation
+        val_metrics = None
+        if (
+            self.config.eval_interval > 0
+            and (epoch + 1) % self.config.eval_interval == 0
+        ):
+            val_metrics = self._validate_epoch(epoch)
+
+        return avg_loss, val_metrics, avg_loss_components, self._current_lrs()
+
+    def _train_epoch_accum(
+        self, epoch: int
+    ) -> Tuple[float, Optional[Dict[str, Any]], Dict[str, float], Dict[str, float]]:
+        """``_train_epoch`` variant with gradient accumulation enabled.
+
+        Accumulates gradients over ``accum`` micro-batches before each optimizer
+        step. The micro-batch loss is divided by the accumulation window so the
+        summed gradient equals the mean over the effective batch; the optimizer
+        step, gradient clipping, EMA update and LR scheduler each advance once
+        per optimizer step. Reached only when ``_accum_steps > 1``.
+        """
+        self.model.train()
+
+        pbar = tqdm(
+            self.train_loader,
+            desc=f"Epoch {epoch + 1}/{self.config.epochs}",
+            total=len(self.train_loader),
+            disable=not sys.stderr.isatty(),
+            file=sys.stderr,
+        )
+
+        accum = self._accum_steps
+        steps_per_epoch = max(1, math.ceil(len(self.train_loader) / accum))
+        total_loss = 0.0
+        num_batches = 0
+        loss_component_sums: Dict[str, float] = {}
+        actual_window = accum
+        lr = self.optimizer.param_groups[0]["lr"]
+
+        for batch_idx, batch in enumerate(pbar):
+            if len(batch) == 5:
+                imgs, targets, img_infos, img_ids, polygons = batch
+            else:
+                imgs, targets, img_infos, img_ids = batch
+                polygons = None
+
+            is_opt_step = (batch_idx + 1) % accum == 0 or batch_idx == len(self.train_loader) - 1
+            opt_step = epoch * steps_per_epoch + batch_idx // accum
+            self.current_iter = opt_step
+
+            imgs = imgs.to(self.device, non_blocking=True)
+            targets = targets.to(self.device, non_blocking=True)
+
+            if batch_idx % accum == 0:
+                self.optimizer.zero_grad(set_to_none=True)
+                actual_window = min(accum, len(self.train_loader) - batch_idx)
+
+            # Forward + backward. Gradients accumulate across the window; the
+            # optimizer step, clipping, EMA and LR update fire only on the
+            # window boundary (``is_opt_step``).
+            if self.scaler is not None:
+                with autocast("cuda"):
+                    outputs = self.on_forward(imgs, targets, polygons=polygons)
+                    loss = outputs["total_loss"] / actual_window
+                self.scaler.scale(loss).backward()
+                if is_opt_step:
+                    if self._should_clip_gradients():
+                        self.scaler.unscale_(self.optimizer)
+                        self._clip_gradients()
+                    self.scaler.step(self.optimizer)
+                    self.scaler.update()
+            else:
+                outputs = self.on_forward(imgs, targets, polygons=polygons)
+                loss = outputs["total_loss"] / actual_window
+                loss.backward()
+                if is_opt_step:
+                    self._clip_gradients()
+                    self.optimizer.step()
+
+            if is_opt_step:
+                # EMA
+                if self.ema_model is not None:
+                    self.ema_model.update(self.model)
+                # LR update
+                lr = self.lr_scheduler.update_lr(opt_step + 1)
+                for param_group in self.optimizer.param_groups:
+                    param_group["lr"] = self._scale_lr(lr, param_group)
+
+            loss_val = loss.item() * actual_window
+            loss_components = self._scalar_mapping(self.get_loss_components(outputs))
+            total_loss += loss_val
+            num_batches += 1
+            for name, value in loss_components.items():
+                loss_component_sums[name] = loss_component_sums.get(name, 0.0) + value
+
+            del outputs, loss
 
             # Progress bar
             postfix = {"loss": f"{loss_val:.4f}", "lr": f"{lr:.6f}"}
