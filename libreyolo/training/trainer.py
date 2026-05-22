@@ -101,8 +101,9 @@ class BaseTrainer(ABC):
 
     @property
     def effective_lr(self) -> float:
-        """Learning rate scaled by batch size (linear scaling rule)."""
-        return self.config.lr0 * self.config.batch / 64
+        """Learning rate scaled by effective batch size (linear scaling rule)."""
+        effective_batch = self.config.batch * max(1, self.config.grad_accum_steps)
+        return self.config.lr0 * effective_batch / 64
 
     @property
     def input_size(self) -> Tuple[int, int]:
@@ -369,7 +370,9 @@ class BaseTrainer(ABC):
 
         self._setup_data()
         self.optimizer = self._setup_optimizer()
-        self.lr_scheduler = self.create_scheduler(len(self.train_loader))
+        accum = max(1, self.config.grad_accum_steps)
+        steps_per_epoch = max(1, math.ceil(len(self.train_loader) / accum))
+        self.lr_scheduler = self.create_scheduler(steps_per_epoch)
 
         if self.config.amp and self.device.type == "cuda":
             self.scaler = GradScaler("cuda")
@@ -768,9 +771,13 @@ class BaseTrainer(ABC):
             file=sys.stderr,
         )
 
+        accum = max(1, self.config.grad_accum_steps)
+        steps_per_epoch = max(1, math.ceil(len(self.train_loader) / accum))
         total_loss = 0.0
         num_batches = 0
         loss_component_sums: Dict[str, float] = {}
+        actual_window = accum
+        lr = self.optimizer.param_groups[0]["lr"]
 
         for batch_idx, batch in enumerate(pbar):
             if len(batch) == 5:
@@ -778,48 +785,51 @@ class BaseTrainer(ABC):
             else:
                 imgs, targets, img_infos, img_ids = batch
                 polygons = None
-            self.current_iter = epoch * len(self.train_loader) + batch_idx
+
+            is_opt_step = (batch_idx + 1) % accum == 0 or batch_idx == len(self.train_loader) - 1
+            opt_step = epoch * steps_per_epoch + batch_idx // accum
+            self.current_iter = opt_step
 
             imgs = imgs.to(self.device, non_blocking=True)
             targets = targets.to(self.device, non_blocking=True)
+
+            if batch_idx % accum == 0:
+                self.optimizer.zero_grad(set_to_none=True)
+                actual_window = min(accum, len(self.train_loader) - batch_idx)
 
             # Forward + backward
             if self.scaler is not None:
                 with autocast("cuda"):
                     outputs = self.on_forward(imgs, targets, polygons=polygons)
-                    loss = outputs["total_loss"]
-                self.optimizer.zero_grad()
+                    loss = outputs["total_loss"] / actual_window
                 self.scaler.scale(loss).backward()
-                if self._should_clip_gradients():
-                    self.scaler.unscale_(self.optimizer)
-                    self._clip_gradients()
-                self.scaler.step(self.optimizer)
-                self.scaler.update()
+                if is_opt_step:
+                    self.scaler.step(self.optimizer)
+                    self.scaler.update()
             else:
                 outputs = self.on_forward(imgs, targets, polygons=polygons)
-                loss = outputs["total_loss"]
-                self.optimizer.zero_grad()
+                loss = outputs["total_loss"] / actual_window
                 loss.backward()
-                self._clip_gradients()
-                self.optimizer.step()
+                if is_opt_step:
+                    self.optimizer.step()
 
-            # EMA
-            if self.ema_model is not None:
-                self.ema_model.update(self.model)
+            if is_opt_step:
+                # EMA
+                if self.ema_model is not None:
+                    self.ema_model.update(self.model)
+                # LR update
+                lr = self.lr_scheduler.update_lr(opt_step + 1)
+                for param_group in self.optimizer.param_groups:
+                    param_group["lr"] = self._scale_lr(lr, param_group)
 
-            loss_val = loss.item()
+            loss_val = loss.item() * actual_window
             loss_components = self._scalar_mapping(self.get_loss_components(outputs))
             total_loss += loss_val
+            num_batches += 1
             for name, value in loss_components.items():
                 loss_component_sums[name] = loss_component_sums.get(name, 0.0) + value
 
             del outputs, loss
-
-            # LR update
-            lr = self.lr_scheduler.update_lr(self.current_iter + 1)
-            for param_group in self.optimizer.param_groups:
-                param_group["lr"] = self._scale_lr(lr, param_group)
-            num_batches += 1
 
             # Progress bar
             postfix = {"loss": f"{loss_val:.4f}", "lr": f"{lr:.6f}"}
