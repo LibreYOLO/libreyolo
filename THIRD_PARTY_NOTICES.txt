@@ -175,6 +175,20 @@ Used for: L2CS gaze estimation network (libreyolo/models/l2cs/nn.py),
           (libreyolo/models/l2cs/utils.py), and gaze arrow visualization
           (libreyolo/utils/drawing.py:draw_gaze_arrows).
 
+NOTE — code vs. weights: The MIT license below covers the L2CS-Net
+*source code*, which is what libreyolo/models/l2cs/ is ported from.
+It does NOT cover the pretrained weights. The published L2CS gaze
+checkpoints (e.g. L2CSNet_gaze360.pkl) are trained on the Gaze360
+dataset and are bound by the Gaze360 dataset license — research /
+non-commercial use only, no redistribution:
+  https://github.com/erkil1452/gaze360/blob/master/LICENSE.md
+LibreYOLO therefore does NOT bundle, mirror, or auto-download L2CS
+weights. Users obtain them from the official L2CS-Net distribution and
+are responsible for complying with the Gaze360 license. Required
+dataset citation: Kellnhofer, Recasens, Stent, Matusik, Torralba,
+"Gaze360: Physically Unconstrained Gaze Estimation in the Wild",
+ICCV 2019.
+
 MIT License
 
 Copyright (c) 2022 Ahmed Abdelrahman
