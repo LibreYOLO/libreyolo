@@ -5,6 +5,8 @@ Tests that COCO evaluator is properly integrated into the validation pipeline
 using mock data (no GPU or real datasets needed).
 """
 
+from types import SimpleNamespace
+
 import pytest
 import yaml
 from PIL import Image
@@ -78,6 +80,28 @@ def create_mock_yolo_dataset(tmp_path):
         yaml.dump(data_yaml, f)
 
     return yaml_path
+
+
+@pytest.mark.unit
+def test_detection_validator_honors_explicit_imgsz_override():
+    from libreyolo.validation.detection_validator import DetectionValidator
+
+    validator = DetectionValidator.__new__(DetectionValidator)
+    validator.config = SimpleNamespace(imgsz=1920)
+    validator.model = SimpleNamespace(_get_input_size=lambda: 640)
+
+    assert validator._resolve_imgsz() == 1920
+
+
+@pytest.mark.unit
+def test_detection_validator_uses_model_imgsz_when_unspecified():
+    from libreyolo.validation.detection_validator import DetectionValidator
+
+    validator = DetectionValidator.__new__(DetectionValidator)
+    validator.config = SimpleNamespace(imgsz=None)
+    validator.model = SimpleNamespace(_get_input_size=lambda: 416)
+
+    assert validator._resolve_imgsz() == 416
 
 
 @pytest.mark.unit
@@ -160,8 +184,6 @@ def test_coco_evaluator_uses_mask_area_for_segmentation(tmp_path):
 
 @pytest.mark.unit
 def test_detection_validator_emits_bbox_alias_metrics():
-    from types import SimpleNamespace
-
     from libreyolo.validation.detection_validator import DetectionValidator
 
     validator = DetectionValidator.__new__(DetectionValidator)
