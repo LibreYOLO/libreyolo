@@ -60,6 +60,17 @@ class LibreL2CS(BaseModel):
     # State-dict fingerprint shared by every L2CS checkpoint.
     _SIGNATURE_KEYS = ("fc_yaw_gaze.weight", "fc_pitch_gaze.weight")
 
+    # Bring-your-own weights. The L2CS Gaze360 checkpoint cannot be mirrored by
+    # LibreYOLO — the Gaze360 dataset license forbids redistributing models
+    # trained on it — so there is no auto-download. The user fetches it from
+    # the official L2CS-Net distribution.
+    _WEIGHTS_URL = (
+        "https://drive.google.com/file/d/18S956r4jnHtSeT8z8t3z8AoJZjVnNqPJ/view"
+    )
+    _GAZE360_LICENSE_URL = (
+        "https://github.com/erkil1452/gaze360/blob/master/LICENSE.md"
+    )
+
     # =========================================================================
     # Detection of weights belonging to this family
     # =========================================================================
@@ -112,6 +123,32 @@ class LibreL2CS(BaseModel):
         if weight is not None and getattr(weight, "ndim", 0) >= 1:
             return int(weight.shape[0])
         return None
+
+    @classmethod
+    def get_download_url(cls, filename: str) -> None:
+        # L2CS gaze weights are trained on the Gaze360 dataset, whose license
+        # forbids redistributing models derived from it. They cannot be
+        # mirrored on the LibreYOLO HuggingFace org, so there is intentionally
+        # no auto-download URL — weights are bring-your-own. See _weights_help.
+        return None
+
+    @classmethod
+    def _weights_help(cls, requested: str) -> str:
+        """User-facing guidance shown when L2CS weights are missing."""
+        return (
+            f"L2CS gaze weights not found: {requested}\n\n"
+            "LibreYOLO does not bundle or mirror L2CS weights. The model is "
+            "trained on the Gaze360 dataset, whose license forbids "
+            "redistributing derived models, so the checkpoint cannot be "
+            "auto-downloaded.\n\n"
+            "1. Download the official checkpoint 'L2CSNet_gaze360.pkl' "
+            "(ResNet-50, Gaze360) from:\n"
+            f"     {cls._WEIGHTS_URL}\n"
+            "2. Pass its path explicitly, e.g.:\n"
+            "     LibreL2CS(r'C:\\path\\to\\L2CSNet_gaze360.pkl')\n\n"
+            "The Gaze360 weights are licensed for research / non-commercial "
+            f"use only:\n     {cls._GAZE360_LICENSE_URL}"
+        )
 
     # =========================================================================
     # Construction
@@ -212,6 +249,20 @@ class LibreL2CS(BaseModel):
         # this port omits. Non-strict loading lets those unused keys be ignored
         # on load instead of raising.
         return False
+
+    def _load_weights(self, model_path: str) -> None:
+        # L2CS has no auto-download (see get_download_url). When the file is
+        # missing, fail fast with actionable guidance — the official download
+        # link and the license — instead of the generic "could not determine
+        # download URL" error from the shared download path.
+        path = Path(model_path)
+        if not path.exists():
+            alt = Path("weights") / path.name
+            if alt.exists():
+                path = alt
+            else:
+                raise FileNotFoundError(self._weights_help(model_path))
+        super()._load_weights(str(path))
 
     # =========================================================================
     # Override the runner

@@ -376,3 +376,18 @@ def test_invalid_output_file_format_raises(tmp_path):
     img = Image.fromarray(np.zeros((64, 64, 3), dtype=np.uint8))
     with pytest.raises(ValueError, match="output_file_format"):
         model(img, face_boxes=[(0, 0, 64, 64)], save=True, output_file_format="tif")
+
+
+def test_get_download_url_is_none():
+    """L2CS weights are never auto-downloaded — Gaze360 license forbids mirroring."""
+    assert LibreL2CS.get_download_url("LibreL2CSr50.pt") is None
+
+
+def test_missing_weights_gives_helpful_error():
+    """A missing checkpoint raises an actionable error with the download link."""
+    with pytest.raises(FileNotFoundError, match=r"drive\.google\.com") as exc:
+        LibreL2CS("definitely_missing_l2cs.pkl", size="r18", device="cpu")
+    msg = str(exc.value)
+    assert "Gaze360" in msg
+    assert "non-commercial" in msg
+    assert "L2CSNet_gaze360.pkl" in msg
