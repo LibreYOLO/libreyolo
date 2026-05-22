@@ -60,16 +60,18 @@ class LibreL2CS(BaseModel):
     # State-dict fingerprint shared by every L2CS checkpoint.
     _SIGNATURE_KEYS = ("fc_yaw_gaze.weight", "fc_pitch_gaze.weight")
 
-    # Bring-your-own weights. The L2CS Gaze360 checkpoint cannot be mirrored by
-    # LibreYOLO — the Gaze360 dataset license forbids redistributing models
-    # trained on it — so there is no auto-download. The user fetches it from
-    # the official L2CS-Net distribution.
+    # The L2CS Gaze360 checkpoint cannot be mirrored by LibreYOLO — the Gaze360
+    # dataset license forbids redistributing models trained on it. Auto-download
+    # therefore fetches it directly from the authors' official Google Drive
+    # (best effort), falling back to manual instructions on any failure.
+    _WEIGHTS_DRIVE_ID = "18S956r4jnHtSeT8z8t3z8AoJZjVnNqPJ"
     _WEIGHTS_URL = (
         "https://drive.google.com/file/d/18S956r4jnHtSeT8z8t3z8AoJZjVnNqPJ/view"
     )
     _GAZE360_LICENSE_URL = (
         "https://github.com/erkil1452/gaze360/blob/master/LICENSE.md"
     )
+    _LICENSE_NOTICE_SHOWN = False
 
     # =========================================================================
     # Detection of weights belonging to this family
@@ -126,28 +128,83 @@ class LibreL2CS(BaseModel):
 
     @classmethod
     def get_download_url(cls, filename: str) -> None:
-        # L2CS gaze weights are trained on the Gaze360 dataset, whose license
-        # forbids redistributing models derived from it. They cannot be
-        # mirrored on the LibreYOLO HuggingFace org, so there is intentionally
-        # no auto-download URL — weights are bring-your-own. See _weights_help.
+        # No plain-HTTP URL: the Gaze360 checkpoint lives on Google Drive
+        # (large-file confirm-token flow), so auto-download is handled in
+        # _load_weights via gdown rather than the shared requests-based path.
+        # It is never mirrored on the LibreYOLO HF org — the Gaze360 license
+        # forbids redistributing models derived from the dataset.
+        return None
+
+    @classmethod
+    def _notify_license_once(cls) -> None:
+        """Print the Gaze360 weights license once, before an auto-download."""
+        if cls._LICENSE_NOTICE_SHOWN:
+            return
+        cls._LICENSE_NOTICE_SHOWN = True
+        print(
+            "\n"
+            "----------------------------------------------------------------\n"
+            "L2CS gaze weights are trained on the Gaze360 dataset and licensed\n"
+            "for research / non-commercial use only, with no redistribution.\n"
+            "By downloading them you accept those terms. Full license:\n"
+            f"  {cls._GAZE360_LICENSE_URL}\n"
+            "----------------------------------------------------------------\n"
+        )
+
+    @classmethod
+    def _try_autodownload(cls, dest: Path) -> Optional[Path]:
+        """Best-effort fetch of the Gaze360 ResNet-50 checkpoint via gdown.
+
+        Returns the saved path on success, or None on any failure (gdown not
+        installed, Drive quota throttling, network error) so the caller can
+        fall back to manual instructions.
+        """
+        try:
+            import gdown
+        except ImportError:
+            logger.info(
+                "gdown is not installed — skipping L2CS auto-download. "
+                'Enable it with:  pip install "libreyolo[gaze]"'
+            )
+            return None
+
+        cls._notify_license_once()
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        logger.info("Downloading L2CS Gaze360 weights from Google Drive ...")
+        try:
+            out = gdown.download(
+                id=cls._WEIGHTS_DRIVE_ID, output=str(dest), quiet=False
+            )
+        except Exception as e:  # noqa: BLE001 - any failure -> manual fallback
+            logger.warning("L2CS auto-download failed: %s", e)
+            out = None
+        if out and Path(out).exists():
+            return Path(out)
+        if dest.exists():  # drop a partial / HTML error page gdown may leave
+            try:
+                dest.unlink()
+            except OSError:
+                pass
         return None
 
     @classmethod
     def _weights_help(cls, requested: str) -> str:
-        """User-facing guidance shown when L2CS weights are missing."""
+        """Guidance shown when L2CS weights are missing and not auto-fetched."""
         return (
             f"L2CS gaze weights not found: {requested}\n\n"
-            "LibreYOLO does not bundle or mirror L2CS weights. The model is "
-            "trained on the Gaze360 dataset, whose license forbids "
-            "redistributing derived models, so the checkpoint cannot be "
-            "auto-downloaded.\n\n"
-            "1. Download the official checkpoint 'L2CSNet_gaze360.pkl' "
-            "(ResNet-50, Gaze360) from:\n"
-            f"     {cls._WEIGHTS_URL}\n"
-            "2. Pass its path explicitly, e.g.:\n"
-            "     LibreL2CS(r'C:\\path\\to\\L2CSNet_gaze360.pkl')\n\n"
-            "The Gaze360 weights are licensed for research / non-commercial "
-            f"use only:\n     {cls._GAZE360_LICENSE_URL}"
+            "LibreYOLO could not obtain the checkpoint automatically — gdown "
+            "is not installed, or Google Drive throttled the download (it "
+            "rate-limits popular files).\n\n"
+            "To get the weights:\n"
+            '  - Automatic:  pip install "libreyolo[gaze]"   then retry.\n'
+            "  - Manual:     download 'L2CSNet_gaze360.pkl' (ResNet-50, "
+            "Gaze360) from\n"
+            f"                  {cls._WEIGHTS_URL}\n"
+            "                and pass its path:  "
+            "LibreL2CS(r'C:\\path\\to\\L2CSNet_gaze360.pkl')\n\n"
+            "L2CS weights are not mirrored by LibreYOLO — the Gaze360 dataset "
+            "license forbids redistribution. Research / non-commercial use "
+            f"only:\n  {cls._GAZE360_LICENSE_URL}"
         )
 
     # =========================================================================
@@ -251,18 +308,26 @@ class LibreL2CS(BaseModel):
         return False
 
     def _load_weights(self, model_path: str) -> None:
-        # L2CS has no auto-download (see get_download_url). When the file is
-        # missing, fail fast with actionable guidance — the official download
-        # link and the license — instead of the generic "could not determine
-        # download URL" error from the shared download path.
+        # No plain-HTTP download URL (see get_download_url). When the checkpoint
+        # is missing, make a best-effort auto-download from the official Google
+        # Drive, and fall back to manual instructions if that fails (gdown not
+        # installed, Drive throttling, network error).
         path = Path(model_path)
-        if not path.exists():
-            alt = Path("weights") / path.name
-            if alt.exists():
-                path = alt
-            else:
-                raise FileNotFoundError(self._weights_help(model_path))
-        super()._load_weights(str(path))
+        if path.exists():
+            super()._load_weights(str(path))
+            return
+        alt = Path("weights") / path.name
+        if alt.exists():
+            super()._load_weights(str(alt))
+            return
+        # Only the published Gaze360 ResNet-50 checkpoint exists upstream, so
+        # auto-download is offered for that size only.
+        if self.size == "r50":
+            downloaded = self._try_autodownload(alt)
+            if downloaded is not None:
+                super()._load_weights(str(downloaded))
+                return
+        raise FileNotFoundError(self._weights_help(model_path))
 
     # =========================================================================
     # Override the runner
