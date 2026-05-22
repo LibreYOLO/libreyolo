@@ -41,6 +41,13 @@ model = LibreYOLO("LibreYOLO9t.pt")
 result = model(SAMPLE_IMAGE, save=True)
 ```
 
+## 旗舰模型
+
+LibreYOLO 推荐以下模型系列，因为它们在性能上达到最佳平衡，并且接受最充分的测试：
+
+- **YOLOv9**：基于 CNN 的 YOLO 模型。
+- **RF-DETR**：基于 Transformer 的检测与分割模型。
+
 ## 兼容性
 
 `✓` 表示支持，`exp` 表示实验性支持。空单元格表示当前不支持。
@@ -65,11 +72,11 @@ result = model(SAMPLE_IMAGE, save=True)
     </tr>
   </thead>
   <tbody>
-    <tr><td>YOLOX</td><td>✓</td><td></td><td></td><td>✓</td><td>✓</td><td>✓</td><td>✓</td><td>✓</td><td>✓</td></tr>
     <tr><td>YOLOv9</td><td>✓</td><td></td><td></td><td>✓</td><td>✓</td><td>✓</td><td>✓</td><td>✓</td><td>✓</td></tr>
+    <tr><td>RF-DETR</td><td>✓</td><td>✓</td><td></td><td>exp</td><td>✓</td><td></td><td>✓</td><td>✓</td><td></td></tr>
+    <tr><td>YOLOX</td><td>✓</td><td></td><td></td><td>✓</td><td>✓</td><td>✓</td><td>✓</td><td>✓</td><td>✓</td></tr>
     <tr><td>YOLOv9-E2E</td><td>✓</td><td></td><td></td><td>✓</td><td></td><td></td><td></td><td></td><td></td></tr>
     <tr><td>YOLO-NAS</td><td>✓</td><td></td><td>✓</td><td>✓</td><td>✓</td><td>✓</td><td>✓</td><td>✓</td><td>✓</td></tr>
-    <tr><td>RF-DETR</td><td>✓</td><td>✓</td><td></td><td>exp</td><td>✓</td><td></td><td>✓</td><td>✓</td><td></td></tr>
     <tr><td>D-FINE</td><td>✓</td><td></td><td></td><td>exp</td><td>✓</td><td>✓</td><td>✓</td><td>✓</td><td></td></tr>
     <tr><td>DEIM</td><td>✓</td><td></td><td></td><td>exp</td><td>✓</td><td>✓</td><td>✓</td><td>✓</td><td></td></tr>
     <tr><td>DEIMv2</td><td>✓</td><td></td><td></td><td>exp</td><td>✓</td><td>✓</td><td>✓</td><td>✓</td><td></td></tr>
