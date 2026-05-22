@@ -19,12 +19,9 @@ for composition with external detectors).
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Callable, Iterable, List, Optional, Protocol, Sequence
+from typing import Any, Callable, List, Optional, Protocol
 
 import numpy as np
-
-if TYPE_CHECKING:
-    from PIL import Image
 
 
 @dataclass

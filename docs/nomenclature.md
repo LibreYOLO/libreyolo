@@ -22,7 +22,7 @@ Libre<FAMILY><size>[-<task>].pt
 
 ## Family prefixes
 
-The 11 families currently registered:
+The 12 families currently registered:
 
 | Family id (`FAMILY`) | Filename prefix | Casing rule applied |
 |---|---|---|
@@ -37,6 +37,7 @@ The 11 families currently registered:
 | `rfdetr`    | `LibreRFDETR`   | All-caps acronym (hyphen dropped from `RF-DETR`) |
 | `picodet`   | `LibrePICODET`  | All-caps (`PicoDet` rendered uppercase) |
 | `ec`     | `LibreEC`    | Short form of EdgeCrafter — used as the family alias for the three sibling upstream models `ECDet`, `ECPose`, `ECSeg` |
+| `l2cs`      | `LibreL2CS`     | All-caps acronym (`L2CS` gaze estimation) — inference-only |
 
 Casing rules observed in the table:
 
@@ -76,6 +77,7 @@ ships:
 | `rfdetr`    | `n`, `s`, `m`, `l` |
 | `picodet`   | `s`, `m`, `l` (320 / 416 / 640 input) |
 | `ec`     | `s`, `m`, `l`, `x` |
+| `l2cs`      | `r18`, `r34`, `r50`, `r101`, `r152` (ResNet backbone depth) |
 
 Notes:
 
@@ -95,6 +97,7 @@ From `libreyolo/tasks.py`:
 | `segment`     | `-seg` |
 | `pose`        | `-pose` |
 | `classify`    | `-cls` |
+| `gaze`        | `-gaze` |
 
 The factory accepts upstream-style aliases (`detection`, `det`, `segmentation`,
 `keypoints`, `cls`, …) at the API boundary; only the canonical names above
@@ -115,6 +118,7 @@ appear in filenames.
 | `rfdetr`    | `("detect", "segment")`             | detect | seg uses smaller sizes |
 | `yolonas`   | `("detect", "pose")`                | detect | pose adds size `n` |
 | `ec`     | `("detect", "pose", "segment")`     | detect | all three tasks |
+| `l2cs`      | `("gaze",)`                         | gaze   | inference-only; two-stage (face detector + gaze head); not trainable in LibreYOLO |
 
 Families that override `SUPPORTED_TASKS` also declare `TASK_INPUT_SIZES` so
 each task can use a different per-size input resolution (relevant for RF-DETR).
@@ -156,6 +160,17 @@ LibreECs.pt             # detect (default)
 LibreECs-pose.pt        # pose
 LibreECs-seg.pt         # segment
 ```
+
+### Gaze (inference-only)
+
+```text
+LibreL2CSr50.pt           # L2CS gaze estimation (ResNet-50, Gaze360 weights)
+```
+
+`gaze` is L2CS's only task, so — like `detect` for the detection families —
+it carries no suffix in the canonical filename; `-gaze` is accepted but
+redundant. L2CS weights are not hosted by LibreYOLO (the Gaze360 dataset
+license forbids redistribution); see `libreyolo/models/l2cs/model.py`.
 
 ## Resolution precedence
 
