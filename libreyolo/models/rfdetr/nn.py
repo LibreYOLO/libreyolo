@@ -109,6 +109,28 @@ RFDETR_SEG_CONFIGS: dict[str, RFDETRSizeConfig] = {
         pretrain_weights="rf-detr-seg-large.pt",
         segmentation_head=True,
     ),
+    "x": RFDETRSizeConfig(
+        patch_size=12,
+        num_windows=2,
+        dec_layers=6,
+        resolution=624,
+        positional_encoding_size=52,
+        num_queries=300,
+        num_select=300,
+        pretrain_weights="rf-detr-seg-xlarge.pt",
+        segmentation_head=True,
+    ),
+    "xx": RFDETRSizeConfig(
+        patch_size=12,
+        num_windows=2,
+        dec_layers=6,
+        resolution=768,
+        positional_encoding_size=64,
+        num_queries=300,
+        num_select=300,
+        pretrain_weights="rf-detr-seg-xxlarge.pt",
+        segmentation_head=True,
+    ),
 }
 
 
@@ -232,6 +254,70 @@ def _resize_query_param(tensor: torch.Tensor, target_rows: int) -> torch.Tensor:
     return tensor.repeat(repeats, *([1] * (tensor.ndim - 1)))[:target_rows]
 
 
+def _get_arg(args: Any, name: str) -> Any:
+    if args is None:
+        return None
+    if isinstance(args, dict):
+        return args.get(name)
+    return getattr(args, name, None)
+
+
+def _slice_query_param_per_group(
+    tensor: torch.Tensor,
+    *,
+    ckpt_num_queries: int,
+    ckpt_group_detr: int,
+    target_num_queries: int,
+    target_group_detr: int,
+) -> torch.Tensor:
+    """Resize packed Group-DETR query rows without mixing group slots."""
+    if ckpt_num_queries <= 0 or ckpt_group_detr <= 0 or target_num_queries <= 0 or target_group_detr <= 0:
+        return tensor[: target_num_queries * target_group_detr]
+
+    expected_rows = ckpt_num_queries * ckpt_group_detr
+    if tensor.shape[0] != expected_rows:
+        return tensor[: target_num_queries * target_group_detr]
+
+    if ckpt_num_queries == target_num_queries and ckpt_group_detr == target_group_detr:
+        return tensor
+
+    keep_groups = min(ckpt_group_detr, target_group_detr)
+    keep_queries = min(ckpt_num_queries, target_num_queries)
+    pieces = [
+        tensor[group_idx * ckpt_num_queries : group_idx * ckpt_num_queries + keep_queries]
+        for group_idx in range(keep_groups)
+    ]
+    return torch.cat(pieces, dim=0)
+
+
+def _resize_query_param_from_checkpoint(
+    tensor: torch.Tensor,
+    *,
+    checkpoint_args: Any,
+    target_num_queries: int,
+    target_group_detr: int,
+) -> torch.Tensor:
+    ckpt_num_queries = _get_arg(checkpoint_args, "num_queries")
+    ckpt_group_detr = _get_arg(checkpoint_args, "group_detr")
+    try:
+        ckpt_num_queries = int(ckpt_num_queries) if ckpt_num_queries is not None else None
+        ckpt_group_detr = int(ckpt_group_detr) if ckpt_group_detr is not None else None
+    except (TypeError, ValueError):
+        ckpt_num_queries = None
+        ckpt_group_detr = None
+
+    if ckpt_num_queries is not None and ckpt_group_detr is not None:
+        return _slice_query_param_per_group(
+            tensor,
+            ckpt_num_queries=ckpt_num_queries,
+            ckpt_group_detr=ckpt_group_detr,
+            target_num_queries=target_num_queries,
+            target_group_detr=target_group_detr,
+        )
+
+    return _resize_query_param(tensor, target_num_queries * target_group_detr)
+
+
 class LibreRFDETRModel(nn.Module):
     """RF-DETR model built from LibreYOLO-local RF-DETR modules."""
 
@@ -276,6 +362,7 @@ class LibreRFDETRModel(nn.Module):
         return build_criterion_and_postprocessors(self.args)
 
     def load_state_dict(self, state_dict: dict[str, Any], strict: bool = True):
+        checkpoint_args = state_dict.get("args") if isinstance(state_dict, dict) else None
         state_dict = _unwrap_state_dict(state_dict)
 
         class_bias = state_dict.get("class_embed.bias")
@@ -284,10 +371,14 @@ class LibreRFDETRModel(nn.Module):
             self.nb_classes = int(class_bias.shape[0]) - 1
             self.args.num_classes = self.nb_classes
 
-        desired_queries = self.args.num_queries * self.args.group_detr
         for key in ("refpoint_embed.weight", "query_feat.weight"):
             if key in state_dict:
-                state_dict[key] = _resize_query_param(state_dict[key], desired_queries)
+                state_dict[key] = _resize_query_param_from_checkpoint(
+                    state_dict[key],
+                    checkpoint_args=checkpoint_args,
+                    target_num_queries=self.args.num_queries,
+                    target_group_detr=self.args.group_detr,
+                )
 
         interpolate_position_embeddings(state_dict, self.args.positional_encoding_size)
         return self.model.load_state_dict(state_dict, strict=strict)
@@ -339,4 +430,5 @@ __all__ = [
     "PostProcess",
     "create_rfdetr_model",
     "interpolate_position_embeddings",
+    "_slice_query_param_per_group",
 ]

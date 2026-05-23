@@ -447,12 +447,13 @@ class TestONNXSegmentation:
         exported = pt_model.export(format="onnx", output_path=onnx_path, simplify=False)
         assert Path(exported).exists()
 
-        # Verify ONNX has 3 outputs (boxes, logits, masks).
-        # RF-DETR uses the pred_* naming convention (matches the PyTorch dict output).
+        # Verify ONNX has upstream RF-DETR output names (boxes, logits, masks).
         onnx_model = onnx.load(exported)
+        input_names = [i.name for i in onnx_model.graph.input]
         output_names = [o.name for o in onnx_model.graph.output]
+        assert input_names == ["input"]
         assert len(output_names) == 3, f"Expected 3 outputs, got {output_names}"
-        assert "pred_masks" in output_names
+        assert output_names == ["dets", "labels", "masks"]
 
         # Verify segmentation metadata
         meta = {p.key: p.value for p in onnx_model.metadata_props}
@@ -492,3 +493,32 @@ class TestONNXSegmentation:
         assert abs(pt_count - onnx_count) <= max(3, pt_count * 0.3), (
             f"Detection count mismatch: PT={pt_count}, ONNX={onnx_count}"
         )
+
+    def test_dynamic_onnx_seg_export_produces_masks(self, sample_image, tmp_path):
+        """Dynamic ONNX RF-DETR-seg export should load back and return masks."""
+        from libreyolo import LibreYOLO
+
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+
+        pt_model = LibreYOLO("LibreRFDETRn-seg.pt", device=device)
+        onnx_path = str(tmp_path / "rfdetr_n_seg_dynamic.onnx")
+        exported = pt_model.export(
+            format="onnx", output_path=onnx_path, simplify=False, dynamic=True
+        )
+
+        onnx_model = onnx.load(exported)
+        output_names = [o.name for o in onnx_model.graph.output]
+        assert output_names == ["dets", "labels", "masks"]
+        input_dims = [
+            d.dim_param or d.dim_value
+            for d in onnx_model.graph.input[0].type.tensor_type.shape.dim
+        ]
+        assert input_dims[0] == "batch"
+
+        onnx_model_loaded = LibreYOLO(exported, device=device)
+        result = onnx_model_loaded(sample_image, conf=0.25)
+
+        if len(result) > 0:
+            assert result.masks is not None, "Dynamic ONNX seg model should return masks"
+            assert len(result.masks) == len(result), "One mask per detection"
+            assert result.masks.data.shape[1:] == result.orig_shape

@@ -23,7 +23,7 @@ def _uses_dfine_style_export_wrapper(model_family) -> bool:
     module that returns a 2-tuple. ONNX export can skip the dynamic output
     probe for them, and they all need opset 17 for ``aten::scaled_dot_product``.
     """
-    return model_family in {"dfine", "deim", "deimv2", "ec", "rtdetrv4"}
+    return model_family in {"dfine", "deim", "deimv2", "ec", "rfdetr", "rtdetrv4"}
 
 
 def _postprocess_onnx(
@@ -145,13 +145,14 @@ def export_onnx(
         metadata["segmentation"] = "true"
     elif is_seg:
         output_names = (
-            ["pred_boxes", "pred_logits", "pred_masks"]
+            ["dets", "labels", "masks"]
             if model_family == "rfdetr"
             else ["boxes", "scores", "masks"]
         )
+        input_name = "input" if model_family == "rfdetr" else "images"
         dynamic_axes = (
             {
-                "images": {0: "batch"},
+                input_name: {0: "batch"},
                 output_names[0]: {0: "batch"},
                 output_names[1]: {0: "batch"},
                 output_names[2]: {0: "batch"},
@@ -161,14 +162,15 @@ def export_onnx(
         )
         metadata["segmentation"] = "true"
     elif model_family == "rfdetr":
-        # RF-DETR's RFDETRExportWrapper returns (pred_boxes, pred_logits) — the
-        # tuple order is the inverse of D-FINE / DEIM / EC's (pred_logits, pred_boxes).
-        output_names = ["pred_boxes", "pred_logits"]
+        # RF-DETR's RFDETRExportWrapper returns (boxes, logits), and upstream
+        # names those ONNX outputs dets/labels.
+        input_name = "input"
+        output_names = ["dets", "labels"]
         dynamic_axes = (
             {
-                "images": {0: "batch"},
-                "pred_boxes": {0: "batch"},
-                "pred_logits": {0: "batch"},
+                input_name: {0: "batch"},
+                "dets": {0: "batch"},
+                "labels": {0: "batch"},
             }
             if dynamic
             else None
@@ -191,11 +193,12 @@ def export_onnx(
             {"images": {0: "batch"}, "output": {0: "batch"}} if dynamic else None
         )
 
+    input_names = ["input"] if model_family == "rfdetr" else ["images"]
     export_kwargs = {
         "export_params": True,
         "opset_version": opset,
         "do_constant_folding": True,
-        "input_names": ["images"],
+        "input_names": input_names,
         "output_names": output_names,
         "dynamic_axes": dynamic_axes,
     }

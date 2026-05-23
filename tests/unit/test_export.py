@@ -16,6 +16,7 @@ from libreyolo.export.exporter import (
     TensorRTExporter,
     TorchScriptExporter,
 )
+from libreyolo.export.onnx import export_onnx
 
 pytestmark = pytest.mark.unit
 
@@ -39,6 +40,25 @@ class _TinyModel(nn.Module):
         x = self.pool(x)
         x = x.view(x.size(0), -1)
         return self.fc(x)
+
+
+class _TinyRFDETRExport(nn.Module):
+    """Small RF-DETR-shaped export module for ONNX schema tests."""
+
+    def __init__(self, *, segmentation=False):
+        super().__init__()
+        self.segmentation = segmentation
+        self.anchor = nn.Parameter(torch.zeros(()))
+
+    def forward(self, x):
+        batch = x.shape[0]
+        signal = x.mean(dim=(1, 2, 3), keepdim=True) + self.anchor
+        boxes = signal.reshape(batch, 1, 1).expand(batch, 3, 4)
+        logits = signal.reshape(batch, 1, 1).expand(batch, 3, 2)
+        if self.segmentation:
+            masks = signal.expand(batch, 3, 8, 8)
+            return boxes, logits, masks
+        return boxes, logits
 
 
 def _make_wrapper(nb_classes=4, model_name="TESTYOLO", size="s", input_size=32):
@@ -94,6 +114,171 @@ class TestExporterFormats:
         assert metadata["supported_tasks"] == ["detect", "segment"]
         assert metadata["default_task"] == "detect"
 
+    def test_rfdetr_export_metadata_is_single_task(self):
+        wrapper = _make_wrapper(model_name="rfdetr")
+        wrapper.task = "segment"
+        wrapper.SUPPORTED_TASKS = ("detect", "segment")
+        wrapper.DEFAULT_TASK = "detect"
+
+        metadata = TensorRTExporter(wrapper)._build_metadata(
+            precision="fp32",
+            dynamic=False,
+            onnx_path=None,
+        )
+
+        assert metadata["task"] == "segment"
+        assert metadata["supported_tasks"] == ["segment"]
+        assert metadata["default_task"] == "segment"
+
+    def test_tensorrt_export_forwards_dynamic_batch_profile(
+        self, monkeypatch, tmp_path
+    ):
+        wrapper = _make_wrapper(model_name="rfdetr")
+        captured = {}
+
+        def fake_export_tensorrt(**kwargs):
+            captured.update(kwargs)
+            return str(tmp_path / "model.engine")
+
+        monkeypatch.setattr(
+            "libreyolo.export.tensorrt.export_tensorrt",
+            fake_export_tensorrt,
+        )
+
+        metadata = {"model_family": "rfdetr"}
+        TensorRTExporter(wrapper)._export(
+            wrapper.model,
+            torch.zeros(1, 3, 32, 32),
+            output_path=str(tmp_path / "model.engine"),
+            precision="fp16",
+            metadata=metadata,
+            calibration_data=None,
+            onnx_path=str(tmp_path / "model.onnx"),
+            half=True,
+            int8=False,
+            dynamic=True,
+            verbose=False,
+            min_batch=2,
+            opt_batch=4,
+            max_batch=16,
+        )
+
+        assert captured["min_batch"] == 2
+        assert captured["opt_batch"] == 4
+        assert captured["max_batch"] == 16
+        assert captured["metadata"]["trt_min_batch"] == 2
+        assert captured["metadata"]["trt_opt_batch"] == 4
+        assert captured["metadata"]["trt_max_batch"] == 16
+        assert "trt_max_batch" not in metadata
+
+    def test_rfdetr_export_defaults_to_cpu(self):
+        wrapper = _make_wrapper(model_name="rfdetr")
+        wrapper.device = torch.device("cuda")
+
+        imgsz, device, output_path = OnnxExporter(wrapper)._resolve_params(
+            output_path=None,
+            imgsz=None,
+            device=None,
+            half=False,
+            int8=False,
+        )
+
+        assert imgsz == 32
+        assert device == torch.device("cpu")
+        assert output_path.endswith(".onnx")
+
+    def test_rfdetr_export_auto_device_defaults_to_cpu(self):
+        wrapper = _make_wrapper(model_name="rfdetr")
+        wrapper.device = torch.device("cuda")
+
+        _imgsz, device, _output_path = OnnxExporter(wrapper)._resolve_params(
+            output_path=None,
+            imgsz=None,
+            device="auto",
+            half=False,
+            int8=False,
+        )
+
+        assert device == torch.device("cpu")
+
+    def test_rfdetr_export_auto_opset_is_17(self, monkeypatch, tmp_path):
+        captured = {}
+        wrapper = _make_wrapper(model_name="rfdetr")
+        wrapper.model = _TinyRFDETRExport(segmentation=False)
+        wrapper.task = "detect"
+        wrapper.SUPPORTED_TASKS = ("detect",)
+        wrapper.DEFAULT_TASK = "detect"
+
+        def fake_export_onnx(_nn_model, _dummy, **kwargs):
+            captured.update(kwargs)
+            Path(kwargs["output_path"]).write_bytes(b"onnx")
+            return kwargs["output_path"]
+
+        monkeypatch.setattr("libreyolo.export.exporter.export_onnx", fake_export_onnx)
+        output_path = tmp_path / "rfdetr.onnx"
+
+        exported = OnnxExporter(wrapper)(
+            output_path=str(output_path),
+            simplify=False,
+            dynamic=False,
+            device="cpu",
+        )
+
+        assert exported == str(output_path)
+        assert captured["opset"] == 17
+
+    @pytest.mark.parametrize(
+        ("segmentation", "expected_outputs"),
+        [
+            (False, ["dets", "labels"]),
+            (True, ["dets", "labels", "masks"]),
+        ],
+    )
+    def test_rfdetr_onnx_uses_upstream_io_names(
+        self, tmp_path, segmentation, expected_outputs
+    ):
+        onnx = pytest.importorskip("onnx")
+        output_path = tmp_path / "rfdetr.onnx"
+
+        export_onnx(
+            _TinyRFDETRExport(segmentation=segmentation),
+            torch.zeros(1, 3, 32, 32),
+            output_path=str(output_path),
+            opset=17,
+            simplify=False,
+            dynamic=False,
+            half=False,
+            metadata={
+                "model_family": "rfdetr",
+                "task": "segment" if segmentation else "detect",
+                "segmentation": "true" if segmentation else "false",
+            },
+        )
+
+        proto = onnx.load(output_path)
+        assert [i.name for i in proto.graph.input] == ["input"]
+        assert [o.name for o in proto.graph.output] == expected_outputs
+
+    def test_onnx_metadata_uses_export_imgsz_override(self, tmp_path):
+        onnx = pytest.importorskip("onnx")
+        wrapper = _make_wrapper(model_name="TESTYOLO", input_size=32)
+        output_path = tmp_path / "custom_imgsz.onnx"
+
+        OnnxExporter(wrapper)(
+            output_path=str(output_path),
+            imgsz=48,
+            simplify=False,
+            dynamic=False,
+        )
+
+        proto = onnx.load(output_path)
+        meta = {p.key: p.value for p in proto.metadata_props}
+        assert meta["imgsz"] == "48"
+
+        from libreyolo.backends.onnx import OnnxBackend
+
+        assert OnnxBackend._read_onnx_metadata(str(output_path), 4)[-1] == 48
+
 
 class TestExporterValidation:
     def test_invalid_format_raises(self):
@@ -128,6 +313,17 @@ class TestOutputPathGeneration:
             finally:
                 os.chdir(orig)
 
+    def test_auto_path_includes_segmentation_task(self):
+        wrapper = _make_wrapper(model_name="rfdetr", size="n")
+        wrapper.task = "segment"
+        exporter = OnnxExporter(wrapper)
+        assert exporter._auto_output_path(half=False, int8=False) == str(
+            Path("weights") / "rfdetr_n_seg.onnx"
+        )
+        assert exporter._auto_output_path(half=True, int8=False) == str(
+            Path("weights") / "rfdetr_n_seg_fp16.onnx"
+        )
+
     def test_explicit_path(self):
         wrapper = _make_wrapper()
         exporter = TorchScriptExporter(wrapper)
@@ -153,6 +349,88 @@ class TestTorchScriptExport:
             dummy = torch.randn(1, 3, 32, 32)
             result = loaded(dummy)
             assert result.shape == (1, 4)
+
+    def test_rfdetr_position_embedding_dim_buffer_not_checkpointed(self):
+        from libreyolo.models.rfdetr.backbone import PositionEmbeddingSine
+
+        module = PositionEmbeddingSine(num_pos_feats=8, normalize=True)
+
+        assert "dim_t" not in module.state_dict()
+
+    @pytest.mark.skipif(not torch.cuda.is_available(), reason="requires CUDA")
+    def test_rfdetr_position_embedding_torchscript_loads_on_cuda(self, tmp_path):
+        from libreyolo.models.rfdetr.backbone import PositionEmbeddingSine
+
+        module = PositionEmbeddingSine(num_pos_feats=8, normalize=True)
+        module.export()
+        mask = torch.zeros(1, 4, 4, dtype=torch.bool)
+        traced = torch.jit.trace(module, mask)
+        path = tmp_path / "position_embedding.pt"
+        torch.jit.save(traced, str(path))
+
+        loaded = torch.jit.load(str(path), map_location="cuda")
+        out = loaded(mask.to("cuda"))
+
+        assert out.device.type == "cuda"
+
+    @pytest.mark.skipif(not torch.cuda.is_available(), reason="requires CUDA")
+    def test_rfdetr_proposal_grid_torchscript_loads_on_cuda(self, tmp_path):
+        from libreyolo.models.rfdetr.transformer import gen_encoder_output_proposals
+
+        class ProposalModule(nn.Module):
+            def forward(self, memory):
+                _, proposals = gen_encoder_output_proposals(
+                    memory,
+                    spatial_shapes=[(2, 2)],
+                    unsigmoid=False,
+                )
+                return proposals
+
+        module = ProposalModule()
+        memory = torch.zeros(1, 4, 8)
+        traced = torch.jit.trace(module, memory)
+        path = tmp_path / "proposal_grid.pt"
+        torch.jit.save(traced, str(path))
+
+        loaded = torch.jit.load(str(path), map_location="cuda")
+        out = loaded(memory.to("cuda"))
+
+        assert out.device.type == "cuda"
+
+    @pytest.mark.skipif(not torch.cuda.is_available(), reason="requires CUDA")
+    def test_rfdetr_sine_embedding_torchscript_loads_on_cuda(self, tmp_path):
+        from libreyolo.models.rfdetr.transformer import gen_sineembed_for_position
+
+        class SineModule(nn.Module):
+            def forward(self, pos):
+                return gen_sineembed_for_position(pos, 128.0)
+
+        module = SineModule()
+        pos = torch.rand(2, 3, 4)
+        traced = torch.jit.trace(module, pos)
+        path = tmp_path / "sine_embedding.pt"
+        torch.jit.save(traced, str(path))
+
+        loaded = torch.jit.load(str(path), map_location="cuda")
+        out = loaded(pos.to("cuda"))
+
+        assert out.device.type == "cuda"
+
+    @pytest.mark.skipif(not torch.cuda.is_available(), reason="requires CUDA")
+    def test_rfdetr_seg_depthwise_block_torchscript_loads_on_cuda(self, tmp_path):
+        from libreyolo.models.rfdetr.segmentation import DepthwiseConvBlock
+
+        module = DepthwiseConvBlock(4)
+        module.export()
+        x = torch.randn(1, 4, 8, 8)
+        traced = torch.jit.trace(module, x)
+        path = tmp_path / "seg_depthwise_block.pt"
+        torch.jit.save(traced, str(path))
+
+        loaded = torch.jit.load(str(path), map_location="cuda")
+        out = loaded(x.to("cuda"))
+
+        assert out.device.type == "cuda"
 
 
 class TestModelStateRestored:
