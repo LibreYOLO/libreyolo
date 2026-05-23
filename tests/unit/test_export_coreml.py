@@ -1,9 +1,9 @@
 """Unit tests for CoreML export. Mocks coremltools so it runs on every platform."""
 
 import sys
-from unittest.mock import MagicMock, patch
+from types import SimpleNamespace
+from unittest.mock import MagicMock
 
-import numpy as np
 import pytest
 import torch
 
@@ -24,7 +24,7 @@ except ImportError:
     _fake_ct.target.iOS15 = "iOS15"
     sys.modules["coremltools"] = _fake_ct
 
-from libreyolo.export.coreml import _to_compute_unit  # noqa: E402
+from libreyolo.export.coreml import _stringify_metadata, _to_compute_unit  # noqa: E402
 
 
 pytestmark = pytest.mark.unit
@@ -187,6 +187,18 @@ class TestExportCoreML:
         decoded = json.loads(mlmodel.user_defined_metadata["names"])
         assert decoded == {"0": "person", "1": "cat"}
 
+    def test_supported_tasks_json_encoded(self):
+        import json
+
+        metadata = _stringify_metadata(
+            {
+                "supported_tasks": ["detect", "segment"],
+                "default_task": "detect",
+            }
+        )
+
+        assert json.loads(metadata["supported_tasks"]) == ["detect", "segment"]
+
     def test_rtdetr_dict_output_is_flattened_for_trace(self):
         from libreyolo.export.coreml import _wrap_for_family
 
@@ -296,3 +308,59 @@ class TestCoreMLBackendModule:
         from libreyolo.models import LibreYOLO
         LibreYOLO(str(pkg), nb_classes=80, device="cpu")
         sentinel.assert_called_once()
+
+    def test_backend_preserves_task_metadata(self, tmp_path, monkeypatch):
+        fake, mlmodel = _patch_ct(monkeypatch)
+        monkeypatch.setattr(sys, "platform", "darwin")
+
+        pkg = tmp_path / "fake.mlpackage"
+        pkg.mkdir()
+
+        mlmodel.user_defined_metadata = {
+            "model_family": "rfdetr",
+            "model_size": "n",
+            "task": "segment",
+            "default_task": "detect",
+            "supported_tasks": '["detect", "segment"]',
+            "names": '{"0": "person"}',
+            "imgsz": "512",
+        }
+        mlmodel.get_spec.return_value = SimpleNamespace(
+            description=SimpleNamespace(
+                output=[
+                    SimpleNamespace(name="boxes"),
+                    SimpleNamespace(name="logits"),
+                    SimpleNamespace(name="masks"),
+                ]
+            )
+        )
+        fake.models.MLModel.return_value = mlmodel
+
+        from libreyolo.backends.coreml import CoreMLBackend
+
+        backend = CoreMLBackend(str(pkg), nb_classes=80)
+
+        assert backend.model_family == "rfdetr"
+        assert backend.model_size == "n"
+        assert backend.size == "n"
+        assert backend.task == "segment"
+        assert backend.DEFAULT_TASK == "detect"
+        assert backend.SUPPORTED_TASKS == ("detect", "segment")
+        assert backend.imgsz == 512
+        assert backend.names == {0: "person"}
+
+    def test_backend_parses_legacy_supported_tasks_repr(self):
+        from libreyolo.backends.coreml import CoreMLBackend
+
+        parsed = CoreMLBackend._parse_metadata(
+            {
+                "task": "segment",
+                "default_task": "detect",
+                "supported_tasks": "['detect', 'segment']",
+            },
+            default_nb_classes=80,
+        )
+
+        assert parsed[2] == "segment"
+        assert parsed[3] == ("detect", "segment")
+        assert parsed[4] == "detect"
