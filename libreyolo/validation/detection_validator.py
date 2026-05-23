@@ -449,6 +449,12 @@ class DetectionValidator(BaseValidator):
             return str(img_dir / coco_img["file_name"])
         return None
 
+    def _uses_topk_coco_scoring(self) -> bool:
+        family = getattr(self.model, "FAMILY", None) or getattr(
+            self.model, "model_family", None
+        )
+        return family in COCO_TOPK_FAMILIES
+
     def _run_validation_augmented(self) -> None:
         """Per-image TTA validation using model._predict_augment (PIL-level flip+scale)."""
         import sys
@@ -477,7 +483,7 @@ class DetectionValidator(BaseValidator):
         )
 
         conf_thres = self.config.conf_thres
-        if self._coco_annotation_file is not None and self.model.FAMILY in COCO_TOPK_FAMILIES:
+        if self._uses_topk_coco_scoring():
             conf_thres = 0.0
 
         total_start = time.time()
@@ -541,10 +547,7 @@ class DetectionValidator(BaseValidator):
         uses_letterbox = self.val_preproc is not None and self.val_preproc.uses_letterbox
 
         conf_thres = self.config.conf_thres
-        if (
-            self._coco_annotation_file is not None
-            and self.model.FAMILY in COCO_TOPK_FAMILIES
-        ):
+        if self._uses_topk_coco_scoring():
             conf_thres = 0.0
 
         detections = []

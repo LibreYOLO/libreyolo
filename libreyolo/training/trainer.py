@@ -397,6 +397,7 @@ class BaseTrainer(ABC):
         self._setup_data()
         self.optimizer = self._setup_optimizer()
         self.lr_scheduler = self.create_scheduler(self._scheduler_steps_per_epoch())
+        self._initialize_scheduler_lr()
 
         if self.config.amp and self.device.type == "cuda":
             self.scaler = GradScaler("cuda")
@@ -405,8 +406,13 @@ class BaseTrainer(ABC):
             self.scaler = None
 
         if self.config.ema:
-            self.ema_model = ModelEMA(self.model, decay=self.config.ema_decay)
-            logger.info(f"Using EMA with decay={self.config.ema_decay}")
+            ema_tau = getattr(self.config, "ema_tau", 2000)
+            self.ema_model = ModelEMA(
+                self.model, decay=self.config.ema_decay, tau=ema_tau
+            )
+            logger.info(
+                "Using EMA with decay=%s, tau=%s", self.config.ema_decay, ema_tau
+            )
 
         self.save_dir = self._get_save_dir()
 
@@ -479,7 +485,10 @@ class BaseTrainer(ABC):
                 self._dispatch_artifact_callbacks("on_train_epoch_end", event)
                 self.callbacks.on_train_epoch_end(event)
 
-                if self.patience_counter >= self.config.patience:
+                if (
+                    self.config.patience > 0
+                    and self.patience_counter >= self.config.patience
+                ):
                     logger.info(
                         f"Early stopping triggered after {epoch + 1} epochs "
                         f"(patience={self.config.patience}, no improvement for {self.patience_counter} epochs)"
@@ -757,6 +766,18 @@ class BaseTrainer(ABC):
     def _should_clip_gradients(self) -> bool:
         return self._get_clip_max_norm() > 0.0
 
+    def _set_optimizer_lr(self, base_lr: float) -> None:
+        for param_group in self.optimizer.param_groups:
+            param_group["lr"] = self._scale_lr(base_lr, param_group)
+
+    def _initialize_scheduler_lr(self) -> None:
+        if self.optimizer is None or self.lr_scheduler is None:
+            return
+        warmup_iters = getattr(self.lr_scheduler, "warmup_iters", 0)
+        if warmup_iters is None or warmup_iters <= 0:
+            return
+        self._set_optimizer_lr(self.lr_scheduler.update_lr(0))
+
     def _gradient_clip_parameters(self) -> List[torch.nn.Parameter]:
         if self.optimizer is None:
             return []
@@ -815,6 +836,13 @@ class BaseTrainer(ABC):
 
             imgs = imgs.to(self.device, non_blocking=True)
             targets = targets.to(self.device, non_blocking=True)
+            if hasattr(self, "_apply_multi_scale_batch"):
+                imgs, targets, polygons = self._apply_multi_scale_batch(
+                    imgs,
+                    targets,
+                    polygons,
+                    step=self.current_iter,
+                )
 
             # Forward + backward
             if self.scaler is not None:
@@ -850,8 +878,7 @@ class BaseTrainer(ABC):
 
             # LR update
             lr = self.lr_scheduler.update_lr(self.current_iter + 1)
-            for param_group in self.optimizer.param_groups:
-                param_group["lr"] = self._scale_lr(lr, param_group)
+            self._set_optimizer_lr(lr)
             num_batches += 1
 
             # Progress bar
@@ -918,6 +945,13 @@ class BaseTrainer(ABC):
 
             imgs = imgs.to(self.device, non_blocking=True)
             targets = targets.to(self.device, non_blocking=True)
+            if hasattr(self, "_apply_multi_scale_batch"):
+                imgs, targets, polygons = self._apply_multi_scale_batch(
+                    imgs,
+                    targets,
+                    polygons,
+                    step=opt_step,
+                )
 
             if batch_idx % accum == 0:
                 self.optimizer.zero_grad(set_to_none=True)
@@ -951,8 +985,7 @@ class BaseTrainer(ABC):
                     self.ema_model.update(self.model)
                 # LR update
                 lr = self.lr_scheduler.update_lr(opt_step + 1)
-                for param_group in self.optimizer.param_groups:
-                    param_group["lr"] = self._scale_lr(lr, param_group)
+                self._set_optimizer_lr(lr)
 
             loss_val = loss.item() * actual_window
             loss_components = self._scalar_mapping(self.get_loss_components(outputs))

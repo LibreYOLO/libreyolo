@@ -183,7 +183,12 @@ class BaseExporter(ABC):
                 else None
             )
 
-            metadata = self._build_metadata(precision, dynamic, onnx_path)
+            metadata = self._build_metadata(
+                precision,
+                dynamic,
+                onnx_path,
+                imgsz=imgsz,
+            )
 
             result = self._export(
                 nn_model,
@@ -258,8 +263,11 @@ class BaseExporter(ABC):
                 "DEIMv2 export uses fixed decoder anchors; imgsz must match "
                 f"the native size {native_imgsz}, got {imgsz}."
             )
-        if device is None:
-            device = self.model.device
+        if device is None or str(device).lower() == "auto":
+            if self.model._get_model_name() == "rfdetr":
+                device = torch.device("cpu")
+            else:
+                device = self.model.device
         else:
             device = torch.device(device)
         if output_path is None:
@@ -268,10 +276,13 @@ class BaseExporter(ABC):
 
     def _auto_output_path(self, half: bool, int8: bool) -> str:
         model_name = self.model._get_model_name().lower()
+        task = getattr(self.model, "task", "detect")
+        is_segment = task == "segment" or getattr(self.model, "_is_segmentation", False) is True
+        task_suffix = "_seg" if is_segment else ""
         precision_suffix = "_int8" if int8 else ("_fp16" if half else "")
         return str(
             Path("weights")
-            / f"{model_name}_{self.model.size}{precision_suffix}{self.suffix}"
+            / f"{model_name}_{self.model.size}{task_suffix}{precision_suffix}{self.suffix}"
         )
 
     @contextmanager
@@ -434,14 +445,23 @@ class BaseExporter(ABC):
             simplify=simplify,
             dynamic=dynamic,
             half=False,
-            metadata=self._build_onnx_metadata(dynamic=dynamic, half=False),
+            metadata=self._build_onnx_metadata(
+                dynamic=dynamic,
+                half=False,
+                imgsz=int(dummy.shape[-1]),
+            ),
         )
 
     def _build_metadata(
-        self, precision: str, dynamic: bool, onnx_path: Optional[str]
+        self,
+        precision: str,
+        dynamic: bool,
+        onnx_path: Optional[str],
+        imgsz: Optional[int] = None,
     ) -> dict:
         """Build metadata dict for non-ONNX formats (native Python types)."""
         task, supported_tasks, default_task = self._task_metadata()
+        metadata_imgsz = int(imgsz if imgsz is not None else self.model._get_input_size())
         meta = {
             "libreyolo_version": _get_version(),
             "model_family": self.model._get_model_name(),
@@ -451,7 +471,7 @@ class BaseExporter(ABC):
             "default_task": default_task,
             "nb_classes": self.model.nb_classes,
             "names": {str(k): v for k, v in self.model.names.items()},
-            "imgsz": self.model._get_input_size(),
+            "imgsz": metadata_imgsz,
             "precision": precision,
             "dynamic": dynamic,
         }
@@ -459,9 +479,16 @@ class BaseExporter(ABC):
             meta["exported_from"] = str(Path(onnx_path).name)
         return meta
 
-    def _build_onnx_metadata(self, *, dynamic: bool, half: bool) -> dict:
+    def _build_onnx_metadata(
+        self,
+        *,
+        dynamic: bool,
+        half: bool,
+        imgsz: Optional[int] = None,
+    ) -> dict:
         """Build metadata dict for ONNX (all-string values, JSON-encoded names)."""
         task, supported_tasks, default_task = self._task_metadata()
+        metadata_imgsz = int(imgsz if imgsz is not None else self.model._get_input_size())
         return {
             "libreyolo_version": _get_version(),
             "model_family": self.model._get_model_name(),
@@ -471,7 +498,7 @@ class BaseExporter(ABC):
             "default_task": default_task,
             "nb_classes": str(self.model.nb_classes),
             "names": json.dumps({str(k): v for k, v in self.model.names.items()}),
-            "imgsz": str(self.model._get_input_size()),
+            "imgsz": str(metadata_imgsz),
             "dynamic": str(dynamic),
             "half": str(half),
             "segmentation": str(getattr(self.model, "_is_segmentation", False)).lower(),
@@ -487,6 +514,8 @@ class BaseExporter(ABC):
         default_task = getattr(self.model, "DEFAULT_TASK", "detect")
         if not isinstance(default_task, str):
             default_task = "detect"
+        if self.model._get_model_name() == "rfdetr":
+            return task, [task], task
         return task, list(supported_tasks), default_task
 
     def _print_summary(self, result: str, precision: str, imgsz: int):
@@ -540,7 +569,11 @@ class OnnxExporter(BaseExporter):
             simplify=simplify,
             dynamic=dynamic,
             half=half,
-            metadata=self._build_onnx_metadata(dynamic=dynamic, half=half),
+            metadata=self._build_onnx_metadata(
+                dynamic=dynamic,
+                half=half,
+                imgsz=int(dummy.shape[-1]),
+            ),
         )
 
 
@@ -581,12 +614,25 @@ class TensorRTExporter(BaseExporter):
         dynamic,
         verbose,
         workspace=4.0,
+        min_batch=1,
+        opt_batch=1,
+        max_batch=8,
         hardware_compatibility="none",
         gpu_device=0,
         trt_config=None,
         **kwargs,
     ):
         from .tensorrt import export_tensorrt
+
+        trt_metadata = dict(metadata or {})
+        if dynamic:
+            trt_metadata.update(
+                {
+                    "trt_min_batch": int(min_batch),
+                    "trt_opt_batch": int(opt_batch),
+                    "trt_max_batch": int(max_batch),
+                }
+            )
 
         logger.info("Step 2/2: Building TensorRT engine")
         return export_tensorrt(
@@ -598,10 +644,13 @@ class TensorRTExporter(BaseExporter):
             calibration_data=calibration_data,
             dynamic=dynamic,
             verbose=verbose,
+            min_batch=min_batch,
+            opt_batch=opt_batch,
+            max_batch=max_batch,
             hardware_compatibility=hardware_compatibility,
             device=gpu_device,
             config=trt_config,
-            metadata=metadata,
+            metadata=trt_metadata,
         )
 
 
@@ -649,8 +698,8 @@ class NcnnExporter(BaseExporter):
     supports_fp16 = False
     apply_model_half = False
 
-    def _build_metadata(self, precision, dynamic, onnx_path):
-        meta = super()._build_metadata(precision, dynamic, onnx_path)
+    def _build_metadata(self, precision, dynamic, onnx_path, imgsz=None):
+        meta = super()._build_metadata(precision, dynamic, onnx_path, imgsz=imgsz)
         meta["dynamic"] = False
         meta.pop("exported_from", None)
         return meta

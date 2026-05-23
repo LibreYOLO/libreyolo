@@ -63,6 +63,32 @@ class TestTorchScriptExport:
         """Test RF-DETR models (requires extra dependencies)."""
         self._run_export_test(model_type, size, tmp_path)
 
+    @requires_rfdetr
+    @pytest.mark.slow
+    def test_torchscript_export_rfdetr_seg(self, tmp_path):
+        """Test RF-DETR segmentation export returns mask logits."""
+        from libreyolo import LibreYOLO
+
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        pt_model = LibreYOLO("LibreRFDETRn-seg.pt", device=device)
+
+        ts_path = str(tmp_path / "rfdetr_n_seg.torchscript")
+        exported_path = pt_model.export(format="torchscript", output_path=ts_path)
+        assert Path(exported_path).exists(), "TorchScript file not created"
+        assert Path(exported_path).stat().st_size > 0, "TorchScript file is empty"
+
+        loaded = torch.jit.load(exported_path, map_location=device)
+        loaded.eval()
+
+        input_size = pt_model._get_input_size()
+        dummy_input = torch.randn(1, 3, input_size, input_size, device=device)
+        with torch.no_grad():
+            output = loaded(dummy_input)
+
+        assert isinstance(output, tuple)
+        assert len(output) == 3
+        assert output[2].ndim == 4
+
     def _run_export_test(self, model_type, size, tmp_path):
         """Common TorchScript export test implementation."""
         device = "cuda" if torch.cuda.is_available() else "cpu"

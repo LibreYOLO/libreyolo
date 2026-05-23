@@ -32,20 +32,129 @@ def _yolo_coords_to_rings(
     ring = np.array(coords, dtype=np.float32).reshape(-1, 2)
     ring[:, 0] *= width
     ring[:, 1] *= height
-    return [ring]
+    return _attach_dense_mask([ring], width=width, height=height)
 
 
-def _coco_segmentation_to_rings(segmentation) -> List[np.ndarray]:
-    """Convert COCO polygon segmentation to pixel-space rings."""
-    if not isinstance(segmentation, list):
+def _yolo_box_to_ring(cx: float, cy: float, w: float, h: float, width: int, height: int) -> List[np.ndarray]:
+    """Convert one normalized YOLO bbox row to a rectangular ring."""
+    x1 = (cx - w / 2) * width
+    y1 = (cy - h / 2) * height
+    x2 = (cx + w / 2) * width
+    y2 = (cy + h / 2) * height
+    ring = np.array(
+        [[x1, y1], [x2, y1], [x2, y2], [x1, y2]],
+        dtype=np.float32,
+    )
+    ring[:, 0] = np.clip(ring[:, 0], 0.0, float(width))
+    ring[:, 1] = np.clip(ring[:, 1], 0.0, float(height))
+    return _attach_dense_mask([ring], width=width, height=height)
+
+
+class DenseMaskRing(np.ndarray):
+    """Polygon ring carrying the original dense mask for mask-aware transforms."""
+
+    def __new__(cls, ring: np.ndarray, mask: np.ndarray):
+        obj = np.asarray(ring, dtype=np.float32).view(cls)
+        obj.dense_mask = np.ascontiguousarray(mask.astype(np.uint8))
+        return obj
+
+    def __array_finalize__(self, obj):
+        if obj is None:
+            return
+        self.dense_mask = getattr(obj, "dense_mask", None)
+
+    def copy(self, order="C"):
+        copied = super().copy(order).view(type(self))
+        copied.dense_mask = None if self.dense_mask is None else self.dense_mask.copy()
+        return copied
+
+
+def _attach_dense_mask(
+    rings: List[np.ndarray],
+    *,
+    width: int,
+    height: int,
+) -> List[np.ndarray]:
+    """Attach a rasterized mask to polygon rings for mask-aware crop transforms."""
+    valid_rings = [
+        np.asarray(ring, dtype=np.float32)
+        for ring in rings
+        if ring is not None and len(ring) >= 3
+    ]
+    if not valid_rings:
+        return rings
+
+    mask = np.zeros((height, width), dtype=np.uint8)
+    polygons = [np.round(ring).astype(np.int32) for ring in valid_rings]
+    cv2.fillPoly(mask, polygons, color=1)
+
+    out = [np.asarray(ring, dtype=np.float32).copy() for ring in rings]
+    for idx, ring in enumerate(out):
+        if ring is not None and len(ring) >= 3:
+            out[idx] = DenseMaskRing(ring, mask)
+            break
+    return out
+
+
+def _mask_to_rings(mask: np.ndarray) -> List[np.ndarray]:
+    """Convert a binary mask to polygon rings using OpenCV contours."""
+    mask_u8 = np.ascontiguousarray(mask.astype(np.uint8))
+    contours, _ = cv2.findContours(mask_u8, cv2.RETR_CCOMP, cv2.CHAIN_APPROX_SIMPLE)
+    rings = []
+    for contour in contours:
+        ring = contour.reshape(-1, 2)
+        if ring.shape[0] >= 3:
+            rings.append(ring.astype(np.float32))
+    if rings or mask_u8.sum() == 0:
+        return rings
+
+    ys, xs = np.where(mask_u8 > 0)
+    x1, x2 = float(xs.min()), float(xs.max() + 1)
+    y1, y2 = float(ys.min()), float(ys.max() + 1)
+    return [
+        np.array(
+            [[x1, y1], [x2, y1], [x2, y2], [x1, y2]],
+            dtype=np.float32,
+        )
+    ]
+
+
+def _coco_segmentation_to_rings(
+    segmentation,
+    *,
+    height: int | None = None,
+    width: int | None = None,
+) -> List[np.ndarray]:
+    """Convert COCO polygon or RLE segmentation to pixel-space rings."""
+    if isinstance(segmentation, list):
+        rings = []
+        for polygon in segmentation:
+            if polygon is None or len(polygon) < 6:
+                continue
+            ring = np.array(polygon, dtype=np.float32).reshape(-1, 2)
+            rings.append(ring)
+        if height is not None and width is not None:
+            return _attach_dense_mask(rings, width=width, height=height)
+        return rings
+
+    if not isinstance(segmentation, dict):
+        return []
+    try:
+        from pycocotools import mask as mask_utils
+    except ImportError:
         return []
 
-    rings = []
-    for polygon in segmentation:
-        if polygon is None or len(polygon) < 6:
-            continue
-        ring = np.array(polygon, dtype=np.float32).reshape(-1, 2)
-        rings.append(ring)
+    rle = segmentation
+    if isinstance(rle.get("counts"), list):
+        if height is None or width is None:
+            return []
+        rle = mask_utils.frPyObjects(rle, height, width)
+    decoded = mask_utils.decode(rle)
+    if decoded.ndim == 3:
+        decoded = decoded.any(axis=2)
+    rings = _mask_to_rings(decoded)
+    if rings:
+        rings[0] = DenseMaskRing(rings[0], decoded)
     return rings
 
 
@@ -230,7 +339,7 @@ class YOLODataset(Dataset):
                         else:
                             cx, cy, w, h = map(float, parts[1:5])
                             if self.load_segments:
-                                segments.append([])
+                                segments.append(_yolo_box_to_ring(cx, cy, w, h, width, height))
 
                         # Convert normalized xywh to pixel xyxy
                         x1 = (cx - w / 2) * width
@@ -468,7 +577,11 @@ class COCODataset(Dataset):
                 objs.append(obj)
                 if self.load_segments:
                     segments.append(
-                        _coco_segmentation_to_rings(obj.get("segmentation", []))
+                        _coco_segmentation_to_rings(
+                            obj.get("segmentation", []),
+                            height=height,
+                            width=width,
+                        )
                     )
 
         num_objs = len(objs)
