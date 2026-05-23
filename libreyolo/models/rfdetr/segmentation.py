@@ -151,8 +151,15 @@ class DepthwiseConvBlock(nn.Module):
             if layer_scale_init_value > 0
             else None
         )
+        self._export = False
+
+    def export(self):
+        self._export = True
 
     def _depthwise_conv(self, x: torch.Tensor) -> torch.Tensor:
+        if self._export:
+            return self.dwconv(x)
+
         # Custom autograd Function so cuDNN is disabled in both forward AND
         # backward.  A plain context-manager only covers forward; the backward
         # for nn.Conv2d runs outside that scope and re-enables cuDNN,
