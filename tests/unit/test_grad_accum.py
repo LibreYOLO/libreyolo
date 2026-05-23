@@ -15,6 +15,8 @@ Two families of tests:
 from __future__ import annotations
 
 import copy
+import hashlib
+import math
 
 import pytest
 import torch
@@ -78,6 +80,29 @@ def _fake_loader(num_batches: int, batch_size: int = 2, feat_dim: int = 8):
     ]
 
 
+def _fake_image_loader(
+    num_batches: int,
+    batch_size: int = 2,
+    imgsz: int = 320,
+    max_labels: int = 30,
+    num_classes: int = 2,
+):
+    """Synthetic image batches with one valid xywh target per image."""
+    batches = []
+    for _ in range(num_batches):
+        imgs = torch.randn(batch_size, 3, imgsz, imgsz)
+        targets = torch.zeros(batch_size, max_labels, 5)
+        for i in range(batch_size):
+            cls = float(i % num_classes)
+            cx = imgsz * (0.35 + 0.1 * (i % 2))
+            cy = imgsz * (0.40 + 0.1 * (i % 2))
+            targets[i, 0] = torch.tensor(
+                [cls, cx, cy, imgsz * 0.25, imgsz * 0.20]
+            )
+        batches.append((imgs, targets, [{}] * batch_size, list(range(batch_size))))
+    return batches
+
+
 def _make_trainer(model: nn.Module, accum: int = 1, num_batches: int = 4):
     """Build a minimal concrete BaseTrainer with fake loader already wired in."""
     class _MinimalTrainer(_BaseTrainer):
@@ -107,6 +132,15 @@ def _make_trainer(model: nn.Module, accum: int = 1, num_batches: int = 4):
     trainer.config.log_interval = 9999  # suppress TB logging
     trainer.train_loader = _fake_loader(num_batches)
     return trainer
+
+
+def _hash_state_dict(model: nn.Module) -> str:
+    """Stable byte hash for tensors in a state_dict."""
+    h = hashlib.sha256()
+    for name, tensor in model.state_dict().items():
+        h.update(name.encode("utf-8"))
+        h.update(tensor.detach().cpu().contiguous().numpy().tobytes())
+    return h.hexdigest()
 
 
 # =========================================================================
@@ -695,3 +729,451 @@ def test_ema_updates_once_per_optimizer_step():
         f"EMA should update once per optimizer step: "
         f"{ema.updates} != {math.ceil(N / accum)}"
     )
+
+
+# =========================================================================
+# 5. Stress paths added after PR #236 review
+# =========================================================================
+
+
+@_requires_libreyolo
+@pytest.mark.parametrize(
+    ("nbs", "expected_accum"),
+    [
+        (None, 1),
+        (1, 1),  # nbs < batch
+        (2, 1),  # nbs == batch
+    ],
+)
+def test_nbs_edge_values_keep_standard_path(nbs, expected_accum):
+    """nbs unset, below batch, or equal to batch must not dispatch to accum."""
+    trainer = _make_trainer(_TinyModel(), accum=1, num_batches=3)
+    trainer.config.nbs = nbs
+
+    def _should_not_run(epoch):
+        raise AssertionError("_train_epoch_accum should not run when accum is 1")
+
+    trainer._train_epoch_accum = _should_not_run
+    step_calls = []
+    orig = trainer.optimizer.step
+
+    def _counting_step(*args, **kwargs):
+        step_calls.append(1)
+        return orig(*args, **kwargs)
+
+    trainer.optimizer.step = _counting_step
+    trainer._train_epoch(0)
+
+    assert trainer._accum_steps == expected_accum
+    assert len(step_calls) == len(trainer.train_loader)
+
+
+@_requires_libreyolo
+def test_nbs_larger_than_epoch_still_steps_once():
+    """When accum exceeds loader length, the final partial window still steps."""
+    N, accum = 3, 10
+    trainer = _make_trainer(_TinyModel(), accum=accum, num_batches=N)
+
+    step_calls = []
+    scheduler_calls = []
+    zero_grad_calls = []
+    orig_step = trainer.optimizer.step
+    orig_zero_grad = trainer.optimizer.zero_grad
+    orig_update_lr = trainer.lr_scheduler.update_lr
+
+    def _counting_step(*args, **kwargs):
+        step_calls.append(1)
+        return orig_step(*args, **kwargs)
+
+    def _counting_zero_grad(*args, **kwargs):
+        zero_grad_calls.append(1)
+        return orig_zero_grad(*args, **kwargs)
+
+    def _counting_update_lr(iteration):
+        scheduler_calls.append(iteration)
+        return orig_update_lr(iteration)
+
+    trainer.optimizer.step = _counting_step
+    trainer.optimizer.zero_grad = _counting_zero_grad
+    trainer.lr_scheduler.update_lr = _counting_update_lr
+
+    trainer._train_epoch(0)
+
+    assert len(step_calls) == 1
+    assert len(zero_grad_calls) == 1
+    assert scheduler_calls == [1]
+
+
+@_requires_libreyolo
+def test_nondivisible_actual_train_loop_scales_partial_window_by_actual_count():
+    """The real accum loop divides a short final window by its own length."""
+
+    class _ScalarModel(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.weight = nn.Parameter(torch.tensor(1.0))
+
+        def forward(self, coeff):
+            return self.weight * coeff.squeeze()
+
+    class _ScalarTrainer(_BaseTrainer):
+        def get_model_family(self): return "test"
+        def get_model_tag(self): return "test"
+        def create_transforms(self): return None, None
+        def create_scheduler(self, iters_per_epoch): return _ConstScheduler()
+        def get_loss_components(self, outputs): return {}
+        def on_forward(self, imgs, targets, polygons=None):
+            return {"total_loss": self.model(imgs)}
+
+    model = _ScalarModel()
+    trainer = _ScalarTrainer(
+        model=model,
+        num_classes=1,
+        epochs=1,
+        batch=2,
+        device="cpu",
+        amp=False,
+        ema=False,
+        nbs=4,  # accum=2
+    )
+    trainer.optimizer = torch.optim.SGD(model.parameters(), lr=0.0)
+    trainer.lr_scheduler = _ConstScheduler()
+    trainer.scaler = None
+    trainer.ema_model = None
+    trainer.tensorboard_writer = None
+    trainer.config.log_interval = 9999
+    trainer.train_loader = [
+        (torch.tensor([2.0]), torch.zeros(1, 5), [{}], [0]),
+        (torch.tensor([4.0]), torch.zeros(1, 5), [{}], [1]),
+        (torch.tensor([6.0]), torch.zeros(1, 5), [{}], [2]),
+    ]
+
+    grads_at_step = []
+    orig_step = trainer.optimizer.step
+
+    def _recording_step(*args, **kwargs):
+        grads_at_step.append(model.weight.grad.detach().item())
+        return orig_step(*args, **kwargs)
+
+    trainer.optimizer.step = _recording_step
+    trainer._train_epoch(0)
+
+    assert grads_at_step == pytest.approx([3.0, 6.0])
+
+
+class _CountingRealScaler:
+    """Delegates to torch.amp.GradScaler while recording call order."""
+
+    def __init__(self):
+        self.inner = torch.amp.GradScaler("cpu")
+        self.events = []
+
+    def scale(self, loss):
+        self.events.append("scale")
+        return self.inner.scale(loss)
+
+    def unscale_(self, optimizer):
+        self.events.append("unscale")
+        return self.inner.unscale_(optimizer)
+
+    def step(self, optimizer):
+        self.events.append("step")
+        return self.inner.step(optimizer)
+
+    def update(self):
+        self.events.append("update")
+        return self.inner.update()
+
+
+@_requires_libreyolo
+def test_real_grad_scaler_steps_once_per_accum_window():
+    """A real torch GradScaler advances unscale/step/update once per window."""
+    N, accum = 5, 2
+    trainer = _make_trainer(_TinyModel(), accum=accum, num_batches=N)
+    trainer.scaler = _CountingRealScaler()
+    trainer.config.clip_max_norm = 1.0
+
+    trainer._train_epoch(0)
+
+    assert trainer.scaler.events == [
+        "scale", "scale", "unscale", "step", "update",
+        "scale", "scale", "unscale", "step", "update",
+        "scale", "unscale", "step", "update",
+    ]
+
+
+@_requires_libreyolo
+def test_base_accum_gradient_clipping_sees_accumulated_norm(monkeypatch):
+    """Clipping runs once after both micro-batches have contributed gradients."""
+    torch.manual_seed(123)
+    data = [
+        (
+            torch.randn(2, 8),
+            torch.zeros(2, 5),
+            [{}] * 2,
+            [0, 1],
+        ),
+        (
+            torch.randn(2, 8),
+            torch.zeros(2, 5),
+            [{}] * 2,
+            [2, 3],
+        ),
+    ]
+    model = _TinyModel()
+    expected_model = copy.deepcopy(model)
+
+    expected_model.zero_grad()
+    for imgs, *_ in data:
+        (expected_model(imgs).mean() / 2).backward()
+    expected_norm = torch.linalg.vector_norm(
+        torch.stack(
+            [
+                p.grad.detach().norm(2)
+                for p in expected_model.parameters()
+                if p.grad is not None
+            ]
+        ),
+        ord=2,
+    )
+
+    trainer = _make_trainer(model, accum=2, num_batches=2)
+    trainer.train_loader = data
+    trainer.config.clip_max_norm = 0.05
+
+    orig_clip = torch.nn.utils.clip_grad_norm_
+    seen_norms = []
+
+    def _recording_clip(parameters, max_norm, *args, **kwargs):
+        params = list(parameters)
+        seen_norms.append(
+            torch.linalg.vector_norm(
+                torch.stack(
+                    [
+                        p.grad.detach().norm(2)
+                        for p in params
+                        if p.grad is not None
+                    ]
+                ),
+                ord=2,
+            )
+        )
+        return orig_clip(params, max_norm, *args, **kwargs)
+
+    monkeypatch.setattr(torch.nn.utils, "clip_grad_norm_", _recording_clip)
+    trainer._train_epoch(0)
+
+    assert len(seen_norms) == 1
+    torch.testing.assert_close(seen_norms[0], expected_norm, rtol=1e-6, atol=1e-6)
+
+
+@_requires_libreyolo
+def test_scheduler_advances_ceil_windows_for_nondivisible_epoch():
+    """Scheduler update count follows ceil(N / accum), including partial window."""
+    N, accum = 10, 3
+    trainer = _make_trainer(_TinyModel(), accum=accum, num_batches=N)
+
+    calls = []
+    orig = trainer.lr_scheduler.update_lr
+
+    def _counting_update_lr(iteration):
+        calls.append(iteration)
+        return orig(iteration)
+
+    trainer.lr_scheduler.update_lr = _counting_update_lr
+    trainer._train_epoch(0)
+
+    assert calls == [1, 2, 3, 4]
+    assert len(calls) == math.ceil(N / accum)
+
+
+@_requires_libreyolo
+def test_real_ema_updates_and_stays_finite_per_optimizer_step():
+    """ModelEMA uses optimizer-step cadence, not micro-batch cadence."""
+    from libreyolo.training.ema import ModelEMA
+
+    N, accum = 5, 2
+    model = _TinyModel()
+    trainer = _make_trainer(model, accum=accum, num_batches=N)
+    ema = ModelEMA(model, decay=0.9)
+    before = _hash_state_dict(ema.ema)
+    trainer.ema_model = ema
+
+    trainer._train_epoch(0)
+
+    assert ema.updates == math.ceil(N / accum)
+    assert _hash_state_dict(ema.ema) != before
+    assert all(torch.isfinite(p).all() for p in ema.ema.parameters())
+
+
+@_requires_libreyolo
+def test_resume_checkpoint_preserves_nbs_and_optimizer_step_iter(tmp_path):
+    """Saved config carries nbs; resumed accum current_iter remains step-based."""
+    trainer = _make_trainer(_TinyModel(), accum=2, num_batches=3)
+    trainer.save_dir = tmp_path / "first"
+    trainer.save_dir.mkdir()
+    trainer._save_checkpoint(epoch=0, loss=1.0, is_best=True)
+    checkpoint_path = trainer.save_dir / "weights" / "last.pt"
+
+    checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
+    assert checkpoint["config"]["nbs"] == 4
+
+    resumed = _make_trainer(_TinyModel(), accum=2, num_batches=3)
+    resumed.save_dir = tmp_path / "second"
+    resumed.resume(str(checkpoint_path))
+    assert resumed.start_epoch == 1
+    assert resumed.config.nbs == 4
+
+    resumed._train_epoch(resumed.start_epoch)
+    assert resumed.current_iter == 3
+
+
+@_requires_libreyolo
+def test_default_path_hash_matches_accum_disabled_reference():
+    """nbs=None is byte-identical to explicit accum=1 on the standard path."""
+    torch.manual_seed(2026)
+    batches = _fake_loader(4)
+    model_default = _TinyModel()
+    model_reference = copy.deepcopy(model_default)
+
+    trainer_default = _make_trainer(model_default, accum=1, num_batches=4)
+    trainer_reference = _make_trainer(model_reference, accum=1, num_batches=4)
+    trainer_default.train_loader = batches
+    trainer_reference.train_loader = copy.deepcopy(batches)
+    trainer_default.config.nbs = None
+    trainer_reference.config.nbs = trainer_reference.config.batch
+
+    trainer_default._train_epoch(0)
+    trainer_reference._train_epoch(0)
+
+    assert _hash_state_dict(model_default) == _hash_state_dict(model_reference)
+
+
+def _run_real_accum_epoch(trainer, num_batches: int):
+    trainer.optimizer = torch.optim.AdamW(trainer.model.parameters(), lr=1e-4)
+    trainer.lr_scheduler = _ConstScheduler()
+    trainer.scaler = None
+    trainer.ema_model = None
+    trainer.tensorboard_writer = None
+    trainer.config.log_interval = 9999
+    trainer.train_loader = _FakeLoader(
+        _fake_image_loader(
+            num_batches,
+            batch_size=trainer.config.batch,
+            imgsz=trainer.config.imgsz,
+            max_labels=120,
+            num_classes=trainer.config.num_classes,
+        )
+    )
+
+    step_calls = []
+    orig_step = trainer.optimizer.step
+
+    def _counting_step(*args, **kwargs):
+        step_calls.append(1)
+        return orig_step(*args, **kwargs)
+
+    trainer.optimizer.step = _counting_step
+    avg_loss, *_ = trainer._train_epoch(0)
+    return avg_loss, step_calls
+
+
+@_requires_libreyolo
+@pytest.mark.parametrize("family", ["yolo9", "dfine", "deim", "rfdetr"])
+def test_real_models_accum_epoch_finite_loss_and_step_count(family):
+    """Real model/trainers run one accum epoch on CPU with finite loss."""
+    torch.manual_seed(1234)
+    N, accum = 3, 2
+
+    if family == "yolo9":
+        from libreyolo import LibreYOLO9
+        from libreyolo.models.yolo9.trainer import YOLO9Trainer
+
+        wrapper = LibreYOLO9(None, size="t", nb_classes=2, device="cpu")
+        trainer = YOLO9Trainer(
+            model=wrapper.model,
+            wrapper_model=wrapper,
+            size="t",
+            num_classes=2,
+            data=None,
+            epochs=1,
+            batch=2,
+            imgsz=320,
+            device="cpu",
+            amp=False,
+            ema=False,
+            eval_interval=-1,
+            nbs=4,
+        )
+    elif family == "dfine":
+        from libreyolo import LibreDFINE
+        from libreyolo.models.dfine.trainer import DFINETrainer
+
+        wrapper = LibreDFINE(None, size="n", nb_classes=2, device="cpu")
+        trainer = DFINETrainer(
+            model=wrapper.model,
+            wrapper_model=wrapper,
+            size="n",
+            num_classes=2,
+            data=None,
+            epochs=1,
+            batch=2,
+            imgsz=320,
+            device="cpu",
+            amp=False,
+            ema=False,
+            eval_interval=-1,
+            nbs=4,
+            clip_max_norm=0.0,
+        )
+        trainer.on_setup()
+    elif family == "deim":
+        from libreyolo import LibreDEIM
+        from libreyolo.models.deim.trainer import DEIMTrainer
+
+        wrapper = LibreDEIM(None, size="n", nb_classes=2, device="cpu")
+        trainer = DEIMTrainer(
+            model=wrapper.model,
+            wrapper_model=wrapper,
+            size="n",
+            num_classes=2,
+            data=None,
+            epochs=1,
+            batch=2,
+            imgsz=320,
+            device="cpu",
+            amp=False,
+            ema=False,
+            eval_interval=-1,
+            nbs=4,
+            clip_max_norm=0.0,
+        )
+        trainer.on_setup()
+    else:
+        from libreyolo.models.rfdetr.model import LibreRFDETR
+        from libreyolo.models.rfdetr.trainer import RFDETRTrainer
+
+        wrapper = LibreRFDETR(model_path={}, size="n", nb_classes=2, device="cpu")
+        trainer = RFDETRTrainer(
+            model=wrapper.model,
+            wrapper_model=wrapper,
+            size="n",
+            num_classes=2,
+            data=None,
+            epochs=1,
+            batch=2,
+            imgsz=320,
+            device="cpu",
+            amp=False,
+            ema=False,
+            eval_interval=-1,
+            nbs=4,
+            clip_max_norm=0.0,
+        )
+        trainer.on_setup()
+
+    avg_loss, step_calls = _run_real_accum_epoch(trainer, N)
+
+    assert math.isfinite(avg_loss)
+    assert avg_loss > 0
+    assert len(step_calls) == math.ceil(N / accum)
