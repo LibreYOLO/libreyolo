@@ -214,12 +214,21 @@ def broadcast_ema_buffers(ema_module: nn.Module, src: int = 0) -> None:
 
 
 def scale_loss_for_ddp(loss: torch.Tensor) -> torch.Tensor:
-    """Multiply loss by world_size so per-rank gradients sum correctly under DDP.
+    """Multiply loss by world_size so DDP gradient averaging composes correctly.
 
-    DDP averages gradients across ranks during ``backward()``. Multiplying
-    the loss by ``world_size`` before backward makes the averaged result
-    equal the sum-of-local-losses divided by world_size×world_size = mean,
-    which matches single-GPU semantics for sum-reduction losses.
+    DDP all-reduces gradients during ``backward()`` and divides by world_size
+    (an average). For sum-style losses we want the final gradient to be
+    ``sum_r dL_r/dθ``, not ``mean_r dL_r/dθ``. Pre-multiplying by world_size
+    cancels DDP's 1/N averaging exactly:
+
+        per-rank grad after backward = N * dL_r/dθ
+        DDP-averaged grad            = (1/N) * sum_r (N * dL_r/dθ) = sum_r dL_r/dθ
+
+    Matches Ultralytics's pattern (loss *= world_size before backward, no
+    no_sync() for accumulation). For mean-normalized losses (yolo9's
+    cls_norm, DETR's num_boxes) the result diverges slightly from single-GPU
+    semantics — that divergence is the per-rank-normalizer effect and is
+    accepted as intentional Ultralytics-mirror behavior.
 
     No-op outside DDP.
     """

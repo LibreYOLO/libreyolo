@@ -385,6 +385,66 @@ def test_parse_device_arg_and_wants_distributed():
     assert not wants_distributed("auto")
 
 
+def test_syncbn_weights_land_in_no_weight_decay_group():
+    """Regression: SyncBatchNorm is a sibling of BatchNorm2d (both subclass
+    ``_BatchNorm``), not a subclass of it. An ``isinstance(v, nn.BatchNorm2d)``
+    check silently moves SyncBN weights into the weight-decay group post
+    conversion — masquerades as a tiny training-quality regression under
+    DDP+sync_bn=True. Verify _setup_optimizer's grouping covers all batch-
+    norm flavours.
+    """
+    from libreyolo import LibreYOLO9
+    from libreyolo.models.yolo9.trainer import YOLO9Trainer
+
+    wrapper = LibreYOLO9(None, size="t", device="cpu")
+    # Convert plain BN to SyncBN as ``setup()`` would under DDP+sync_bn.
+    wrapper.model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(wrapper.model)
+
+    trainer = YOLO9Trainer(
+        model=wrapper.model,
+        wrapper_model=wrapper,
+        size="t",
+        num_classes=80,
+        data=None,
+        epochs=1,
+        batch=2,
+        imgsz=320,
+        device="cpu",
+        amp=False,
+        ema=False,
+        no_aug_epochs=0,
+        warmup_epochs=0,
+        eval_interval=-1,
+    )
+    optimizer = trainer._setup_optimizer()
+
+    # Find every SyncBN weight tensor and verify it's in pg0 (no-WD group).
+    bn_param_ids = {
+        id(m.weight)
+        for m in wrapper.model.modules()
+        if isinstance(m, torch.nn.SyncBatchNorm) and m.weight is not None
+    }
+    assert bn_param_ids, "test precondition: expected at least one SyncBN layer"
+
+    pg0_param_ids = {id(p) for p in optimizer.param_groups[0]["params"]}
+    pg_with_wd_ids = {
+        id(p)
+        for g in optimizer.param_groups
+        if g.get("weight_decay", 0.0) > 0
+        for p in g["params"]
+    }
+
+    misplaced = bn_param_ids - pg0_param_ids
+    assert not misplaced, (
+        f"{len(misplaced)} SyncBN weights missing from no-WD pg0 — "
+        "the isinstance check probably excludes SyncBN"
+    )
+    leaked = bn_param_ids & pg_with_wd_ids
+    assert not leaked, (
+        f"{len(leaked)} SyncBN weights ended up in a weight-decay group"
+    )
+
+
 def test_multi_gpu_device_raises_without_torchrun():
     """If the user passes ``device=[0,1]`` without launching with torchrun
     the trainer must fail with a clear message pointing them at it."""
