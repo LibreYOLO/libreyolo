@@ -111,12 +111,14 @@ def dataset():
 
 
 @requires_cuda
-def test_rfdetr_seg_training(dataset, tmp_path):
-    """Train RF-DETR-Seg-Nano on fire-smoke-seg, verify training produces a seg checkpoint."""
-    output_dir = str(tmp_path / "rfdetr_seg_n")
+@pytest.mark.parametrize("size", ["n", "s", "m", "l"])
+def test_rfdetr_seg_training(dataset, tmp_path, size):
+    """Train RF-DETR-Seg on fire-smoke-seg, verify training produces a seg checkpoint."""
+    output_dir = str(tmp_path / f"rfdetr_seg_{size}")
     data_yaml = str(dataset / "data.yaml")
     output_dir_py = repr(output_dir)
     data_yaml_py = repr(data_yaml)
+    weights = f"LibreRFDETR{size}-seg.pt"
 
     run_in_subprocess(
         f"""
@@ -126,8 +128,8 @@ def test_rfdetr_seg_training(dataset, tmp_path):
 
         # 1. Load segmentation model
         model = LibreRFDETR(
-            model_path="LibreRFDETRn-seg.pt",
-            size="n",
+            model_path="{weights}",
+            size="{size}",
             segmentation=True,
         )
         assert model._is_segmentation, "Model should be in segmentation mode"
