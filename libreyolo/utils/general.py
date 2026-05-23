@@ -6,6 +6,7 @@ from typing import Dict, List, Tuple, Union
 from urllib.parse import urlparse
 
 import torch
+import torchvision.ops
 
 logger = logging.getLogger(__name__)
 
@@ -282,81 +283,6 @@ def get_slice_bboxes(
 # =============================================================================
 
 
-def nms(
-    boxes: torch.Tensor, scores: torch.Tensor, iou_threshold: float = 0.45
-) -> torch.Tensor:
-    """
-    Non-Maximum Suppression using torch operations.
-
-    Args:
-        boxes: Boxes in xyxy format (N, 4)
-        scores: Confidence scores (N,)
-        iou_threshold: IoU threshold for suppression
-
-    Returns:
-        Indices of boxes to keep
-    """
-    if len(boxes) == 0:
-        return torch.tensor([], dtype=torch.long, device=boxes.device)
-
-    # Filter out boxes with NaN or Inf values
-    valid_mask = torch.isfinite(boxes).all(dim=1) & torch.isfinite(scores)
-    if not valid_mask.any():
-        return torch.tensor([], dtype=torch.long, device=boxes.device)
-
-    if not valid_mask.all():
-        valid_indices = torch.where(valid_mask)[0]
-        boxes = boxes[valid_mask]
-        scores = scores[valid_mask]
-    else:
-        valid_indices = None
-
-    _, order = scores.sort(0, descending=True)
-    keep = []
-
-    while len(order) > 0:
-        i = order[0]
-        keep.append(i.item())
-
-        if len(order) == 1:
-            break
-
-        box_i = boxes[i]
-        boxes_remaining = boxes[order[1:]]
-
-        x1_i, y1_i, x2_i, y2_i = box_i
-        x1_r, y1_r, x2_r, y2_r = (
-            boxes_remaining[:, 0],
-            boxes_remaining[:, 1],
-            boxes_remaining[:, 2],
-            boxes_remaining[:, 3],
-        )
-
-        x1_inter = torch.max(x1_i, x1_r)
-        y1_inter = torch.max(y1_i, y1_r)
-        x2_inter = torch.min(x2_i, x2_r)
-        y2_inter = torch.min(y2_i, y2_r)
-
-        inter_area = torch.clamp(x2_inter - x1_inter, min=0) * torch.clamp(
-            y2_inter - y1_inter, min=0
-        )
-
-        area_i = (x2_i - x1_i) * (y2_i - y1_i)
-        area_r = (x2_r - x1_r) * (y2_r - y1_r)
-        union_area = area_i + area_r - inter_area
-
-        iou = inter_area / (union_area + 1e-7)
-        order = order[1:][iou < iou_threshold]
-
-    keep_tensor = torch.tensor(keep, dtype=torch.long, device=boxes.device)
-
-    # Map back to original indices if we filtered invalid boxes
-    if valid_indices is not None:
-        keep_tensor = valid_indices[keep_tensor]
-
-    return keep_tensor
-
-
 def make_anchors(
     feats: List[torch.Tensor], strides: List[int], grid_cell_offset: float = 0.5
 ) -> Tuple[torch.Tensor, torch.Tensor]:
@@ -426,6 +352,18 @@ def postprocess_detections(
     if len(boxes) == 0:
         return {"boxes": [], "scores": [], "classes": [], "num_detections": 0}
 
+    # Drop NaN/Inf rows FIRST, before scaling/clamping can mask `inf` by
+    # clipping it to the image bounds (which would otherwise let a bogus
+    # row survive the guard later).
+    finite_mask = torch.isfinite(boxes).all(dim=1) & torch.isfinite(scores)
+    if not finite_mask.all():
+        boxes = boxes[finite_mask]
+        scores = scores[finite_mask]
+        class_ids = class_ids[finite_mask]
+
+    if len(boxes) == 0:
+        return {"boxes": [], "scores": [], "classes": [], "num_detections": 0}
+
     # Scale boxes to original image size
     if original_size is not None:
         if letterbox:
@@ -456,44 +394,33 @@ def postprocess_detections(
     if len(boxes) == 0:
         return {"boxes": [], "scores": [], "classes": [], "num_detections": 0}
 
-    # Per-class NMS
-    try:
-        import torchvision.ops
+    # Cast to fp32 — batched_nms applies a per-class offset of (boxes.max() + 1)
+    # which overflows fp16 (max 65504) for typical letterbox coords × num_classes
+    # and silently merges classes that should stay separate. Detectron2 carries
+    # this same wrapper for the same reason. scores is cast alongside because
+    # torchvision.ops.nms requires matching dtypes; check both inputs.
+    if boxes.dtype == torch.float16 or scores.dtype == torch.float16:
+        boxes = boxes.float()
+        scores = scores.float()
 
-        use_torchvision_nms = True
-    except ImportError:
-        use_torchvision_nms = False
+    # Per-class NMS — single batched dispatch instead of one kernel per class.
+    # batched_nms's class-offset trick uses (boxes.max() + 1) and only
+    # separates classes when all coords are non-negative. Callers may pass
+    # boxes with negative coords (e.g. YOLOX with ratio==1.0 skips the
+    # pre-clamp); shift to neutralise. NMS IoU is translation-invariant so
+    # kept indices are unchanged.
+    nms_boxes = boxes - boxes.min().clamp(max=0)
+    keep_indices = torchvision.ops.batched_nms(nms_boxes, scores, class_ids, iou_thres)
 
-    unique_classes = torch.unique(class_ids)
-    keep_indices_list = []
-
-    for cls in unique_classes:
-        cls_mask = class_ids == cls
-        cls_boxes = boxes[cls_mask]
-        cls_scores = scores[cls_mask]
-
-        if len(cls_boxes) == 0:
-            continue
-
-        if use_torchvision_nms:
-            max_wh = 7680.0
-            boxes_for_nms = cls_boxes + cls.float() * max_wh
-            cls_keep = torchvision.ops.nms(boxes_for_nms, cls_scores, iou_thres)
-        else:
-            cls_keep = nms(cls_boxes, cls_scores, iou_thres)
-
-        cls_indices = torch.where(cls_mask)[0]
-        keep_indices_list.append(cls_indices[cls_keep])
-
-    if len(keep_indices_list) == 0:
+    if len(keep_indices) == 0:
         return {"boxes": [], "scores": [], "classes": [], "num_detections": 0}
 
-    keep_indices = torch.cat(keep_indices_list)
-
-    if len(keep_indices) > max_det:
-        final_scores_temp = scores[keep_indices]
-        _, top_indices = torch.topk(final_scores_temp, max_det)
-        keep_indices = keep_indices[top_indices]
+    # Always sort by descending score — guarantees the output contract
+    # regardless of batched_nms's internal ordering across torchvision
+    # versions, and also handles the max_det truncation in one step.
+    k = min(len(keep_indices), max_det)
+    _, top_indices = torch.topk(scores[keep_indices], k)
+    keep_indices = keep_indices[top_indices]
 
     final_boxes = boxes[keep_indices].cpu().numpy()
     final_scores = scores[keep_indices].cpu().numpy()
@@ -505,124 +432,3 @@ def postprocess_detections(
         "classes": final_classes.tolist(),
         "num_detections": len(final_boxes),
     }
-
-
-def postprocess_batch(
-    batch_boxes: torch.Tensor,
-    batch_scores: torch.Tensor,
-    batch_class_ids: torch.Tensor,
-    batch_indices: torch.Tensor,
-    batch_size: int,
-    conf_thres: float = 0.25,
-    iou_thres: float = 0.45,
-    input_size: int = 640,
-    original_sizes: List[Tuple[int, int]] | None = None,
-    max_det: int = 300,
-    device: torch.device | None = None,
-) -> List[Dict]:
-    """
-    Batched post-processing for efficient validation.
-
-    Processes all detections from a batch at once using GPU-accelerated operations,
-    then splits results per image. This is much faster than processing images
-    one at a time in a Python loop.
-
-    Args:
-        batch_boxes: All boxes from batch (N_total, 4) in xyxy format
-        batch_scores: All scores from batch (N_total,)
-        batch_class_ids: All class IDs from batch (N_total,)
-        batch_indices: Image index for each detection (N_total,) - which image each box belongs to
-        batch_size: Number of images in batch
-        conf_thres: Confidence threshold (already applied if boxes are pre-filtered)
-        iou_thres: IoU threshold for NMS
-        input_size: Model input size for scaling
-        original_sizes: List of (width, height) tuples for each image
-        max_det: Maximum detections per image
-        device: Device for computations
-
-    Returns:
-        List of detection dicts, one per image in batch
-    """
-    try:
-        import torchvision.ops
-
-        has_torchvision = True
-    except ImportError:
-        has_torchvision = False
-
-    results = []
-
-    if len(batch_boxes) == 0:
-        for _ in range(batch_size):
-            results.append(
-                {
-                    "boxes": torch.zeros((0, 4), device=device),
-                    "scores": torch.zeros(0, device=device),
-                    "classes": torch.zeros(0, dtype=torch.int64, device=device),
-                    "num_detections": 0,
-                }
-            )
-        return results
-
-    # Batched NMS using class offsets: offset boxes by batch_idx and class_id
-    # to prevent cross-image and cross-class suppression in a single call
-    if has_torchvision:
-        max_wh = 7680.0  # max expected image dimension
-        max_batch_offset = max_wh * 100  # large offset between batches
-
-        combined_idx = (
-            batch_indices.float() * max_batch_offset + batch_class_ids.float() * max_wh
-        )
-        boxes_for_nms = batch_boxes + combined_idx.unsqueeze(1)
-        keep = torchvision.ops.nms(boxes_for_nms, batch_scores, iou_thres)
-
-        batch_boxes = batch_boxes[keep]
-        batch_scores = batch_scores[keep]
-        batch_class_ids = batch_class_ids[keep]
-        batch_indices = batch_indices[keep]
-
-    # Split results by image
-    for img_idx in range(batch_size):
-        img_mask = batch_indices == img_idx
-
-        if not img_mask.any():
-            results.append(
-                {
-                    "boxes": torch.zeros((0, 4), device=device),
-                    "scores": torch.zeros(0, device=device),
-                    "classes": torch.zeros(0, dtype=torch.int64, device=device),
-                    "num_detections": 0,
-                }
-            )
-            continue
-
-        img_boxes = batch_boxes[img_mask].detach()
-        img_scores = batch_scores[img_mask].detach()
-        img_classes = batch_class_ids[img_mask].detach()
-
-        if original_sizes is not None and img_idx < len(original_sizes):
-            orig_w, orig_h = original_sizes[img_idx]
-            scale_x = orig_w / input_size
-            scale_y = orig_h / input_size
-            img_boxes = img_boxes.clone()
-            img_boxes[:, [0, 2]] *= scale_x
-            img_boxes[:, [1, 3]] *= scale_y
-            img_boxes[:, [0, 2]] = torch.clamp(img_boxes[:, [0, 2]], 0, orig_w)
-            img_boxes[:, [1, 3]] = torch.clamp(img_boxes[:, [1, 3]], 0, orig_h)
-
-        if len(img_boxes) > max_det:
-            _, top_k = torch.topk(img_scores, max_det)
-            img_boxes = img_boxes[top_k]
-            img_scores = img_scores[top_k]
-            img_classes = img_classes[top_k]
-
-        results.append(
-            {
-                "boxes": img_boxes,
-                "scores": img_scores,
-                "classes": img_classes,
-                "num_detections": len(img_boxes),
-            }
-        )
-
-    return results
