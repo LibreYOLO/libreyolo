@@ -257,6 +257,13 @@ class BaseTrainer(ABC):
         # Single-process mode. Accept list/comma device only as an intent signal
         # — fail loudly with a torchrun pointer rather than silently degrading.
         raw_device = self.config.device
+
+        # Normalise single-element list/tuple to its int (Ultralytics accepts
+        # ``device=[0]`` as equivalent to ``device=0``). Multi-element forms
+        # fall through to the wants_distributed check below.
+        if isinstance(raw_device, (list, tuple)) and len(raw_device) == 1:
+            raw_device = raw_device[0]
+
         if wants_distributed(raw_device):
             if not torch.cuda.is_available():
                 raise RuntimeError(
@@ -291,10 +298,15 @@ class BaseTrainer(ABC):
 
     def _setup_optimizer(self) -> torch.optim.Optimizer:
         pg0, pg1, pg2 = [], [], []
+        # Catch every batch-norm flavour, including SyncBN: BatchNorm{1,2,3}d
+        # and SyncBatchNorm are all siblings under ``_BatchNorm``. The naive
+        # ``isinstance(v, nn.BatchNorm2d)`` check would silently put SyncBN
+        # weights into the weight-decay group post sync_bn conversion.
+        bn_types = nn.modules.batchnorm._BatchNorm
         for _k, v in self.model.named_modules():
             if hasattr(v, "bias") and isinstance(v.bias, nn.Parameter):
                 pg2.append(v.bias)
-            if isinstance(v, nn.BatchNorm2d):
+            if isinstance(v, bn_types):
                 pg0.append(v.weight)
             elif hasattr(v, "weight") and isinstance(v.weight, nn.Parameter):
                 pg1.append(v.weight)
@@ -525,14 +537,23 @@ class BaseTrainer(ABC):
                 logger.info(f"Using EMA with decay={self.config.ema_decay}")
 
         # Save-dir creation, config dump, and TB writer all live on rank 0.
-        # Non-zero ranks compute the same path for log/metric writes that
-        # don't need disk creation.
+        # The resolved name (which may include an auto-increment suffix when
+        # exist_ok=False and a previous run exists) is broadcast to other
+        # ranks so every rank's ``self.save_dir`` agrees and event-level
+        # paths emitted by callbacks are consistent.
         if is_main_process():
             self.save_dir = self._get_save_dir()
             self.config.to_yaml(self.save_dir / "train_config.yaml")
             logger.info(f"Saving to: {self.save_dir}")
         else:
             self.save_dir = Path(self.config.project) / self.config.name
+
+        if self.is_distributed:
+            import torch.distributed as _dist
+
+            container = [str(self.save_dir)] if is_main_process() else [None]
+            _dist.broadcast_object_list(container, src=0)
+            self.save_dir = Path(container[0])
 
         # Wait for rank 0 to finish dir creation before any rank proceeds.
         barrier()
@@ -587,8 +608,12 @@ class BaseTrainer(ABC):
             logger.info(f"Learning rate: {self.effective_lr}")
 
             start_event = self._build_train_start_event()
-            self._dispatch_artifact_callbacks("on_train_start", start_event)
-            self.callbacks.on_train_start(start_event)
+            # Artifact + user callbacks fire on rank 0 only — they write
+            # files (results.json, TensorBoard, etc.) that would race on
+            # shared paths otherwise.
+            if is_main_process():
+                self._dispatch_artifact_callbacks("on_train_start", start_event)
+                self.callbacks.on_train_start(start_event)
 
             no_aug_start = self.config.epochs - self.config.no_aug_epochs
             if self.config.no_aug_epochs > 0 and self.start_epoch > no_aug_start:
@@ -637,14 +662,28 @@ class BaseTrainer(ABC):
                     epoch_seconds=epoch_seconds,
                 )
                 self.epoch_events.append(event)
-                self._dispatch_artifact_callbacks("on_train_epoch_end", event)
-                self.callbacks.on_train_epoch_end(event)
+                if is_main_process():
+                    self._dispatch_artifact_callbacks("on_train_epoch_end", event)
+                    self.callbacks.on_train_epoch_end(event)
 
-                if self.patience_counter >= self.config.patience:
-                    logger.info(
-                        f"Early stopping triggered after {epoch + 1} epochs "
-                        f"(patience={self.config.patience}, no improvement for {self.patience_counter} epochs)"
-                    )
+                # Early-stop decision lives on rank 0 only (patience_counter
+                # is updated from val_metrics, which only rank 0 receives).
+                # We broadcast the stop flag so every rank exits the loop in
+                # lockstep — otherwise non-rank-0 ranks proceed into the
+                # next epoch's collective backward() and deadlock.
+                should_stop = self.patience_counter >= self.config.patience
+                if self.is_distributed:
+                    import torch.distributed as _dist
+
+                    flag = torch.tensor(int(should_stop), dtype=torch.int)
+                    _dist.broadcast(flag, src=0)
+                    should_stop = bool(flag.item())
+                if should_stop:
+                    if is_main_process():
+                        logger.info(
+                            f"Early stopping triggered after {epoch + 1} epochs "
+                            f"(patience={self.config.patience}, no improvement)"
+                        )
                     break
 
             total_time = time.time() - start_time
@@ -652,18 +691,20 @@ class BaseTrainer(ABC):
 
             results = self._build_train_results()
             end_event = self._build_train_end_event(total_time, results)
-            self._dispatch_artifact_callbacks("on_train_end", end_event)
-            self.callbacks.on_train_end(end_event)
+            if is_main_process():
+                self._dispatch_artifact_callbacks("on_train_end", end_event)
+                self.callbacks.on_train_end(end_event)
             return results
 
         except BaseException as exc:
             elapsed_seconds = time.time() - start_time
             exception_event = self._build_train_exception_event(exc, elapsed_seconds)
-            self._dispatch_artifact_callbacks("on_train_exception", exception_event)
-            try:
-                self.callbacks.on_train_exception(exception_event)
-            except Exception:
-                logger.exception("Training exception callback failed")
+            if is_main_process():
+                self._dispatch_artifact_callbacks("on_train_exception", exception_event)
+                try:
+                    self.callbacks.on_train_exception(exception_event)
+                except Exception:
+                    logger.exception("Training exception callback failed")
             raise
 
     def _dispatch_artifact_callbacks(self, method_name: str, event) -> None:
@@ -991,8 +1032,8 @@ class BaseTrainer(ABC):
             if self.scaler is not None:
                 with autocast("cuda"):
                     outputs = self.on_forward(imgs, targets, polygons=polygons)
-                    loss = outputs["total_loss"]
-                loss = scale_loss_for_ddp(loss)
+                    total_loss_raw = outputs["total_loss"]
+                loss = scale_loss_for_ddp(total_loss_raw)
                 self.optimizer.zero_grad()
                 self.scaler.scale(loss).backward()
                 if self._should_clip_gradients():
@@ -1002,8 +1043,8 @@ class BaseTrainer(ABC):
                 self.scaler.update()
             else:
                 outputs = self.on_forward(imgs, targets, polygons=polygons)
-                loss = outputs["total_loss"]
-                loss = scale_loss_for_ddp(loss)
+                total_loss_raw = outputs["total_loss"]
+                loss = scale_loss_for_ddp(total_loss_raw)
                 self.optimizer.zero_grad()
                 loss.backward()
                 self._clip_gradients()
@@ -1013,7 +1054,10 @@ class BaseTrainer(ABC):
             if self.ema_model is not None:
                 self.ema_model.update(self.model)
 
-            loss_val = loss.item()
+            # Logging captures the pre-scale value so single-GPU and DDP
+            # report identical magnitudes (single-GPU semantics). ``.item()``
+            # already returns a Python float and detaches from autograd.
+            loss_val = float(total_loss_raw.item())
             loss_components = self._scalar_mapping(self.get_loss_components(outputs))
             total_loss += loss_val
             for name, value in loss_components.items():
