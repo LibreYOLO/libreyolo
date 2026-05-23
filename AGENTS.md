@@ -9,6 +9,7 @@
 - Agents may reply with a one-click GitHub URL (no description pre-filled) so
   the human can open the PR or issue themselves.
 - When possible, work in git worktrees
+- The default branch is dev
 ## Commit policy
 - Do not add LLMs or agent tools as co-authors in commits.
 - Keep commit messages short and factual.
