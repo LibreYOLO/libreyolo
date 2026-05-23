@@ -612,8 +612,8 @@ class LibreRFDETR(BaseModel):
         self,
         data: str,
         epochs: int = 100,
-        batch_size: int = 4,
-        lr: float = 1e-4,
+        batch_size: int | None = None,
+        lr: float | None = None,
         output_dir: str = "runs/train",
         resume: str | None = None,
         **kwargs,
@@ -621,12 +621,29 @@ class LibreRFDETR(BaseModel):
         """Fine-tune RF-DETR through LibreYOLO's native trainer."""
         output_path = Path(output_dir)
         train_kwargs = dict(kwargs)
+        batch = train_kwargs.pop("batch", None)
+        lr0 = train_kwargs.pop("lr0", None)
+
+        if batch is not None and batch_size is not None and batch != batch_size:
+            raise ValueError(
+                f"Conflicting RF-DETR batch values: batch={batch} and batch_size={batch_size}"
+            )
+        if lr0 is not None and lr is not None and lr0 != lr:
+            raise ValueError(f"Conflicting RF-DETR LR values: lr0={lr0} and lr={lr}")
+
+        resolved_batch = batch if batch is not None else batch_size
+        resolved_lr0 = lr0 if lr0 is not None else lr
+        if resolved_batch is None:
+            resolved_batch = 4
+        if resolved_lr0 is None:
+            resolved_lr0 = 1e-4
+
         train_kwargs.update(
             {
                 "data": data,
                 "epochs": epochs,
-                "batch": batch_size,
-                "lr0": lr,
+                "batch": resolved_batch,
+                "lr0": resolved_lr0,
                 "project": str(output_path.parent),
                 "name": output_path.name,
                 "exist_ok": True,
