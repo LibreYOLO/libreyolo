@@ -2,9 +2,9 @@
 
 import logging
 import warnings
-from dataclasses import asdict, dataclass, fields
+from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import List, Optional, Tuple, Union
 
 import yaml
 
@@ -52,8 +52,18 @@ class TrainConfig:
 
     # Training
     epochs: int = 300
+    # Global batch size. Under multi-GPU DDP the per-rank batch is
+    # ``batch // world_size`` (Ultralytics-mirror semantics).
     batch: int = 16
-    device: str = "auto"
+    # Single device or multi-device spec. Accepts:
+    #   - "auto" / "" → auto-pick (cuda → mps → cpu)
+    #   - "cpu", "mps", "0", "cuda:0", 0 → single device
+    #   - [0, 1] or "0,1" → multi-GPU, requires torchrun launch
+    device: Union[str, int, List[int]] = "auto"
+    # SyncBatchNorm across ranks under DDP. Off here; per-family configs
+    # override (yolo9 defaults True per upstream MultimediaTechLab). No-op
+    # when not distributed.
+    sync_bn: bool = False
 
     # Optimizer
     optimizer: str = "sgd"
@@ -170,6 +180,10 @@ class YOLO9Config(TrainConfig):
     name: str = "yolo9_exp"
     workers: int = 8
     mask_downsample_ratio: int = 4
+    # MultimediaTechLab's upstream YOLOv9 hardcodes sync_batchnorm=True in
+    # its Lightning trainer. Carry that default here for multi-GPU runs;
+    # single-GPU runs ignore the flag (conversion only fires under DDP).
+    sync_bn: bool = True
 
 
 @dataclass(kw_only=True)

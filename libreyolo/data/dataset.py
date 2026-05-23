@@ -723,6 +723,7 @@ def create_dataloader(
     num_workers: int = 4,
     shuffle: bool = True,
     pin_memory: bool = True,
+    sampler=None,
 ):
     """
     Create a DataLoader for YOLOX training.
@@ -731,13 +732,18 @@ def create_dataloader(
         dataset: Dataset instance
         batch_size: Batch size
         num_workers: Number of worker processes
-        shuffle: Shuffle data
+        shuffle: Shuffle data (ignored when ``sampler`` is given — PyTorch
+            forbids passing both)
         pin_memory: Pin memory for faster GPU transfer
+        sampler: Optional sampler (e.g. ``DistributedSampler`` for DDP). When
+            provided, the sampler's own shuffling takes over and ``shuffle``
+            is forced to False to satisfy PyTorch's mutual-exclusion check.
     """
     return DataLoader(
         dataset,
         batch_size=batch_size,
-        shuffle=shuffle,
+        shuffle=False if sampler is not None else shuffle,
+        sampler=sampler,
         num_workers=num_workers,
         pin_memory=pin_memory,
         collate_fn=yolox_collate_fn,
