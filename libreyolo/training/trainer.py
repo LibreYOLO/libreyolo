@@ -27,6 +27,22 @@ from .callbacks import (
     TrainStartEvent,
 )
 from .config import TrainConfig
+from .distributed import (
+    barrier,
+    broadcast_ema_buffers,
+    get_local_rank,
+    get_rank,
+    get_world_size,
+    has_torchrun_env,
+    init_distributed,
+    is_distributed,
+    is_main_process,
+    parse_device_arg,
+    scale_loss_for_ddp,
+    seed_for_rank,
+    unwrap_model,
+    wants_distributed,
+)
 from .ema import ModelEMA
 from ..data.dataset import YOLODataset, COCODataset, create_dataloader
 from ..data import load_data_config, get_img_files, img2label_paths
@@ -60,6 +76,25 @@ class BaseTrainer(ABC):
         self.artifact_callbacks = TrainCallbackList(
             TrainingArtifactsCallback(enabled_families=self.artifact_model_families)
         )
+
+        # Distributed state. We init the process group eagerly when launched
+        # under torchrun (LOCAL_RANK set in env) — this also covers the case
+        # where the user passed device=[0,1] and ran with torchrun. If the
+        # user passed a list-form device but did NOT launch with torchrun,
+        # we raise a clear error in _setup_device pointing them at it.
+        if has_torchrun_env() and not is_distributed():
+            init_distributed()
+        self.rank = get_rank()
+        self.local_rank = get_local_rank()
+        self.world_size = get_world_size()
+        self.is_distributed = is_distributed()
+
+        # Per-rank seed so dataloader/aug RNG differs across ranks.
+        if self.is_distributed and getattr(self.config, "seed", None) is not None:
+            seed = seed_for_rank(int(self.config.seed))
+            torch.manual_seed(seed)
+            if torch.cuda.is_available():
+                torch.cuda.manual_seed_all(seed)
 
         # Device
         self.device = self._setup_device()
@@ -197,25 +232,60 @@ class BaseTrainer(ABC):
     # =========================================================================
 
     def _setup_device(self) -> torch.device:
-        device_str = str(self.config.device).strip().lower()
-        if device_str in ("", "auto"):
+        # Distributed mode: device is dictated by LOCAL_RANK + intent.
+        # The user can force CPU/MPS even with CUDA available (useful for
+        # CPU-DDP smoke tests with gloo). Otherwise default to cuda:LOCAL_RANK.
+        if self.is_distributed:
+            cfg_device = str(self.config.device).strip().lower() if not isinstance(self.config.device, (list, tuple, int)) else None
+            forced_cpu = cfg_device == "cpu"
+            forced_mps = cfg_device == "mps"
+            if forced_cpu:
+                device = torch.device("cpu")
+            elif forced_mps and torch.backends.mps.is_available():
+                device = torch.device("mps")
+            elif torch.cuda.is_available():
+                torch.cuda.set_device(self.local_rank)
+                device = torch.device(f"cuda:{self.local_rank}")
+            else:
+                device = torch.device("cpu")
+            if is_main_process():
+                logger.info(
+                    f"DDP active: rank={self.rank}/{self.world_size} device={device}"
+                )
+            return device
+
+        # Single-process mode. Accept list/comma device only as an intent signal
+        # — fail loudly with a torchrun pointer rather than silently degrading.
+        raw_device = self.config.device
+        if wants_distributed(raw_device):
+            if not torch.cuda.is_available():
+                raise RuntimeError(
+                    f"Multi-GPU requested (device={raw_device!r}) but CUDA is not "
+                    "available."
+                )
+            n = len(parse_device_arg(raw_device))
+            raise RuntimeError(
+                f"Multi-GPU device {raw_device!r} requires launching with torchrun. "
+                f"Example: `torchrun --nproc_per_node={n} your_script.py`. "
+                "Inside the script, leave your model.train(...) call unchanged."
+            )
+
+        device_str = str(raw_device).strip().lower() if not isinstance(raw_device, int) else str(raw_device)
+        if isinstance(raw_device, int):
+            device_str = f"cuda:{raw_device}"
+        elif device_str in ("", "auto"):
             if torch.cuda.is_available():
                 device = torch.device("cuda")
             elif torch.backends.mps.is_available():
                 device = torch.device("mps")
             else:
                 device = torch.device("cpu")
-        else:
-            if "," in device_str:
-                raise NotImplementedError(
-                    f"Multi-GPU training is not supported yet "
-                    f"(got device={self.config.device!r}). Pass a single "
-                    "index like '0' or 'cuda:0'."
-                )
-            # YOLO-style "0" -> "cuda:0"
-            if device_str.isdigit():
-                device_str = f"cuda:{device_str}"
-            device = torch.device(device_str)
+            logger.info(f"Using device: {device}")
+            return device
+        # YOLO-style "0" -> "cuda:0"
+        if device_str.isdigit():
+            device_str = f"cuda:{device_str}"
+        device = torch.device(device_str)
         logger.info(f"Using device: {device}")
         return device
 
@@ -369,16 +439,36 @@ class BaseTrainer(ABC):
             mixup_prob=self.config.mixup_prob,
         )
 
+        # Ultralytics-mirror semantics: ``batch`` is the GLOBAL batch under
+        # DDP. Each rank's loader is built with ``batch // world_size``.
+        per_rank_batch = max(1, self.config.batch // max(self.world_size, 1))
+        sampler = None
+        if self.is_distributed:
+            from torch.utils.data.distributed import DistributedSampler
+
+            sampler = DistributedSampler(
+                train_dataset,
+                num_replicas=self.world_size,
+                rank=self.rank,
+                shuffle=True,
+                drop_last=True,
+            )
+
         self.train_loader = create_dataloader(
             train_dataset,
-            batch_size=self.config.batch,
+            batch_size=per_rank_batch,
             num_workers=self.config.workers,
             shuffle=True,
             pin_memory=True,
+            sampler=sampler,
         )
 
-        logger.info(f"Training dataset: {len(train_dataset)} images")
-        logger.info(f"Iterations per epoch: {len(self.train_loader)}")
+        if is_main_process():
+            logger.info(f"Training dataset: {len(train_dataset)} images")
+            logger.info(
+                f"Iterations per epoch: {len(self.train_loader)} "
+                f"(batch_per_rank={per_rank_batch}, world_size={self.world_size})"
+            )
         return train_dataset
 
     # =========================================================================
@@ -389,8 +479,16 @@ class BaseTrainer(ABC):
         if self._is_setup:
             return
 
-        logger.info("Setting up training...")
+        if is_main_process():
+            logger.info("Setting up training...")
         self.model.to(self.device)
+
+        # SyncBatchNorm conversion: only meaningful under DDP. Single-GPU
+        # runs skip this regardless of the flag so single-GPU is unchanged.
+        if self.is_distributed and getattr(self.config, "sync_bn", False):
+            self.model = nn.SyncBatchNorm.convert_sync_batchnorm(self.model)
+            if is_main_process():
+                logger.info("Converted BatchNorm to SyncBatchNorm")
 
         self.on_setup()
 
@@ -398,22 +496,85 @@ class BaseTrainer(ABC):
         self.optimizer = self._setup_optimizer()
         self.lr_scheduler = self.create_scheduler(self._scheduler_steps_per_epoch())
 
+        # DDP wrap AFTER optimizer setup so _setup_optimizer's
+        # named_parameters() sees the raw model. EMA below also reads the
+        # raw model — ModelEMA already unwraps via is_parallel() check.
+        if self.is_distributed:
+            ddp_kwargs = self._ddp_kwargs()
+            if self.device.type == "cuda":
+                ddp_kwargs["device_ids"] = [self.local_rank]
+                ddp_kwargs["output_device"] = self.local_rank
+            self.model = nn.parallel.DistributedDataParallel(self.model, **ddp_kwargs)
+            if is_main_process():
+                logger.info(
+                    f"Wrapped model in DDP ("
+                    + ", ".join(f"{k}={v}" for k, v in ddp_kwargs.items() if k not in ("device_ids", "output_device"))
+                    + ")"
+                )
+
         if self.config.amp and self.device.type == "cuda":
             self.scaler = GradScaler("cuda")
-            logger.info("Using mixed precision training (AMP)")
+            if is_main_process():
+                logger.info("Using mixed precision training (AMP)")
         else:
             self.scaler = None
 
         if self.config.ema:
             self.ema_model = ModelEMA(self.model, decay=self.config.ema_decay)
-            logger.info(f"Using EMA with decay={self.config.ema_decay}")
+            if is_main_process():
+                logger.info(f"Using EMA with decay={self.config.ema_decay}")
 
-        self.save_dir = self._get_save_dir()
+        # Save-dir creation, config dump, and TB writer all live on rank 0.
+        # Non-zero ranks compute the same path for log/metric writes that
+        # don't need disk creation.
+        if is_main_process():
+            self.save_dir = self._get_save_dir()
+            self.config.to_yaml(self.save_dir / "train_config.yaml")
+            logger.info(f"Saving to: {self.save_dir}")
+        else:
+            self.save_dir = Path(self.config.project) / self.config.name
 
-        self.config.to_yaml(self.save_dir / "train_config.yaml")
-
-        logger.info(f"Saving to: {self.save_dir}")
+        # Wait for rank 0 to finish dir creation before any rank proceeds.
+        barrier()
         self._is_setup = True
+
+    def _ddp_find_unused_parameters(self) -> bool:
+        """Subclasses override to flip when their forward graph is conditional.
+
+        Default False matches PyTorch's default and Ultralytics. rf-detr
+        flips True when a segmentation head is present (the sparse branch
+        leaves some params un-grad'd on some batches).
+        """
+        return False
+
+    def _ddp_static_graph(self) -> bool:
+        """Whether to pass ``static_graph=True`` to DDP.
+
+        ``static_graph=True`` defers DDP's reducer analysis until after
+        the first iteration, which correctly handles models whose
+        gradients land with non-contiguous strides (e.g. multi-head
+        attention QKV projections). It can only be combined with
+        ``find_unused_parameters=False`` — when the forward graph has
+        conditional branches, static_graph is unsound.
+
+        Default: enabled when find_unused is False. Subclasses can
+        override for finer control.
+        """
+        return not self._ddp_find_unused_parameters()
+
+    def _ddp_kwargs(self) -> Dict[str, Any]:
+        """Assemble DDP constructor kwargs. Subclasses can override.
+
+        gradient_as_bucket_view defaults False because some flagship
+        models (RF-DETR's transformer) produce gradient tensors whose
+        strides don't match DDP's bucket view, causing silent sync
+        misses. The memory cost is small for the models in scope.
+        """
+        return {
+            "find_unused_parameters": self._ddp_find_unused_parameters(),
+            "static_graph": self._ddp_static_graph(),
+            "gradient_as_bucket_view": False,
+        }
 
     def train(self) -> Dict:
         start_time = time.time()
@@ -793,11 +954,18 @@ class BaseTrainer(ABC):
         if self._accum_steps > 1:
             return self._train_epoch_accum(epoch)
 
+        # DistributedSampler needs its epoch set so shuffling differs per
+        # epoch while staying deterministic for resume.
+        if is_distributed() and hasattr(self.train_loader, "sampler"):
+            sampler = self.train_loader.sampler
+            if hasattr(sampler, "set_epoch"):
+                sampler.set_epoch(epoch)
+
         pbar = tqdm(
             self.train_loader,
             desc=f"Epoch {epoch + 1}/{self.config.epochs}",
             total=len(self.train_loader),
-            disable=not sys.stderr.isatty(),
+            disable=not sys.stderr.isatty() or not is_main_process(),
             file=sys.stderr,
         )
 
@@ -816,11 +984,15 @@ class BaseTrainer(ABC):
             imgs = imgs.to(self.device, non_blocking=True)
             targets = targets.to(self.device, non_blocking=True)
 
-            # Forward + backward
+            # Forward + backward. Under DDP we multiply loss by world_size
+            # so that the gradient averaging that happens inside backward()
+            # produces the same sum-of-per-rank gradients as single-GPU
+            # would (Ultralytics-mirror pattern). No-op outside DDP.
             if self.scaler is not None:
                 with autocast("cuda"):
                     outputs = self.on_forward(imgs, targets, polygons=polygons)
                     loss = outputs["total_loss"]
+                loss = scale_loss_for_ddp(loss)
                 self.optimizer.zero_grad()
                 self.scaler.scale(loss).backward()
                 if self._should_clip_gradients():
@@ -831,6 +1003,7 @@ class BaseTrainer(ABC):
             else:
                 outputs = self.on_forward(imgs, targets, polygons=polygons)
                 loss = outputs["total_loss"]
+                loss = scale_loss_for_ddp(loss)
                 self.optimizer.zero_grad()
                 loss.backward()
                 self._clip_gradients()
@@ -889,11 +1062,16 @@ class BaseTrainer(ABC):
         """
         self.model.train()
 
+        if is_distributed() and hasattr(self.train_loader, "sampler"):
+            sampler = self.train_loader.sampler
+            if hasattr(sampler, "set_epoch"):
+                sampler.set_epoch(epoch)
+
         pbar = tqdm(
             self.train_loader,
             desc=f"Epoch {epoch + 1}/{self.config.epochs}",
             total=len(self.train_loader),
-            disable=not sys.stderr.isatty(),
+            disable=not sys.stderr.isatty() or not is_main_process(),
             file=sys.stderr,
         )
 
@@ -925,11 +1103,16 @@ class BaseTrainer(ABC):
 
             # Forward + backward. Gradients accumulate across the window; the
             # optimizer step, clipping, EMA and LR update fire only on the
-            # window boundary (``is_opt_step``).
+            # window boundary (``is_opt_step``). Under DDP we additionally
+            # multiply the per-micro-batch loss by world_size so DDP's
+            # gradient-averaging composes correctly with the division-by-
+            # window scheme (Ultralytics-mirror pattern).
             if self.scaler is not None:
                 with autocast("cuda"):
                     outputs = self.on_forward(imgs, targets, polygons=polygons)
-                    loss = outputs["total_loss"] / actual_window
+                    total_loss_raw = outputs["total_loss"]
+                    loss = total_loss_raw / actual_window
+                loss = scale_loss_for_ddp(loss)
                 self.scaler.scale(loss).backward()
                 if is_opt_step:
                     if self._should_clip_gradients():
@@ -939,7 +1122,9 @@ class BaseTrainer(ABC):
                     self.scaler.update()
             else:
                 outputs = self.on_forward(imgs, targets, polygons=polygons)
-                loss = outputs["total_loss"] / actual_window
+                total_loss_raw = outputs["total_loss"]
+                loss = total_loss_raw / actual_window
+                loss = scale_loss_for_ddp(loss)
                 loss.backward()
                 if is_opt_step:
                     self._clip_gradients()
@@ -954,7 +1139,8 @@ class BaseTrainer(ABC):
                 for param_group in self.optimizer.param_groups:
                     param_group["lr"] = self._scale_lr(lr, param_group)
 
-            loss_val = loss.item() * actual_window
+            # Logging uses the raw pre-scale value (single-GPU semantics).
+            loss_val = float(total_loss_raw.detach().item())
             loss_components = self._scalar_mapping(self.get_loss_components(outputs))
             total_loss += loss_val
             num_batches += 1
@@ -990,6 +1176,19 @@ class BaseTrainer(ABC):
     # =========================================================================
 
     def _validate_epoch(self, epoch: int) -> Optional[Dict[str, Any]]:
+        # First-cut policy: validation runs on rank 0 only. Non-zero ranks
+        # barrier-wait so the next epoch's set_epoch fires in lockstep.
+        # Rank 0 barriers once at the bottom regardless of outcome.
+        if self.is_distributed and not is_main_process():
+            barrier()
+            return None
+        try:
+            return self._run_validation(epoch)
+        finally:
+            if self.is_distributed:
+                barrier()
+
+    def _run_validation(self, epoch: int) -> Optional[Dict[str, Any]]:
         try:
             from libreyolo.validation import (
                 DetectionValidator,
@@ -1017,7 +1216,10 @@ class BaseTrainer(ABC):
                 )
                 return None
 
-            eval_pytorch_model = self.ema_model.ema if self.ema_model else self.model
+            # Validator wants the un-DDP-wrapped module.
+            eval_pytorch_model = (
+                self.ema_model.ema if self.ema_model else unwrap_model(self.model)
+            )
             original_model = self.wrapper_model.model
             self.wrapper_model.model = eval_pytorch_model
 
@@ -1078,7 +1280,14 @@ class BaseTrainer(ABC):
         if is_best is None:
             is_best = self._update_best_state(epoch, val_metrics)
 
-        model_to_save = self.ema_model.ema if self.ema_model else self.model
+        # Only rank 0 writes checkpoint files. Other ranks skip silently.
+        if not is_main_process():
+            return
+
+        # Always unwrap DDP/compile wrappers before reading state_dict so the
+        # checkpoint is interchangeable with single-GPU runs.
+        raw_model = unwrap_model(self.model)
+        model_to_save = self.ema_model.ema if self.ema_model else raw_model
 
         checkpoint = {
             "epoch": epoch,
@@ -1108,7 +1317,7 @@ class BaseTrainer(ABC):
         if self.wrapper_model is not None:
             checkpoint["names"] = self.wrapper_model.names
         if self.ema_model is not None:
-            checkpoint["train_model"] = self.model.state_dict()
+            checkpoint["train_model"] = raw_model.state_dict()
             checkpoint["ema"] = self.ema_model.ema.state_dict()
             checkpoint["ema_updates"] = self.ema_model.updates
 
@@ -1150,7 +1359,9 @@ class BaseTrainer(ABC):
 
         try:
             model_state = checkpoint.get("train_model", checkpoint["model"])
-            self.model.load_state_dict(model_state)
+            # Checkpoint state dict is always unwrapped — feed it to the
+            # unwrapped module so the DDP "module." prefix doesn't trip us.
+            unwrap_model(self.model).load_state_dict(model_state)
         except Exception as e:
             raise RuntimeError(f"Cannot resume: model architecture mismatch - {e}")
 

@@ -433,7 +433,16 @@ class DDetect(nn.Module):
         self.nl = len(ch)  # number of detection layers
         self.reg_max = reg_max
         self.no = nc + reg_max * 4  # number of outputs per anchor
-        self.stride = torch.tensor(stride) if stride else torch.zeros(self.nl)
+        # Register stride as a buffer so .to(device) moves it. Plain
+        # attribute assignment leaves it on CPU even after model.to("cuda")
+        # which silently breaks device-mismatch checks under DDP. dtype
+        # matches the original (int64 when ``stride`` is an int tuple, else
+        # float zeros) — downstream code in loss.py interprets it as
+        # both int and float depending on path.
+        stride_tensor = (
+            torch.tensor(stride) if stride else torch.zeros(self.nl)
+        )
+        self.register_buffer("stride", stride_tensor, persistent=False)
 
         self._loss_fn = None
 
