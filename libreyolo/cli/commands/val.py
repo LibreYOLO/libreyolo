@@ -15,6 +15,23 @@ from ..command_utils import (
 from ..output import OutputHandler
 
 
+def _rounded_metric(metrics: dict, key: str) -> float | None:
+    if key not in metrics:
+        return None
+    return round(float(metrics[key]), 4)
+
+
+def _metric_group(metrics: dict, suffix: str) -> dict[str, float] | None:
+    group = {
+        "mAP50": _rounded_metric(metrics, f"metrics/mAP50{suffix}"),
+        "mAP50_95": _rounded_metric(metrics, f"metrics/mAP50-95{suffix}"),
+        "precision": _rounded_metric(metrics, f"metrics/precision{suffix}"),
+        "recall": _rounded_metric(metrics, f"metrics/recall{suffix}"),
+    }
+    out = {k: v for k, v in group.items() if v is not None}
+    return out or None
+
+
 def val_cmd(
     model: str = typer.Option(..., help="Model weights path"),
     data: str = typer.Option(
@@ -88,7 +105,6 @@ def val_cmd(
             verbose=verbose and not quiet,
             save_dir=save_dir,
             data_dir=data_dir,
-            use_coco_eval=use_coco_eval,
             half=half,
             max_det=max_det,
         )
@@ -100,8 +116,14 @@ def val_cmd(
     # Extract metrics (keys like "metrics/mAP50", "metrics/mAP50-95")
     mAP50 = metrics.get("metrics/mAP50", 0.0)
     mAP50_95 = metrics.get("metrics/mAP50-95", metrics.get("metrics/mAP50_95", 0.0))
-    precision = metrics.get("metrics/precision", 0.0)
-    recall = metrics.get("metrics/recall", 0.0)
+    precision = metrics.get(
+        "metrics/precision",
+        metrics.get("metrics/precision(M)", metrics.get("metrics/precision(B)", 0.0)),
+    )
+    recall = metrics.get(
+        "metrics/recall",
+        metrics.get("metrics/recall(M)", metrics.get("metrics/recall(B)", 0.0)),
+    )
 
     data_out = {
         "model": model,
@@ -116,12 +138,29 @@ def val_cmd(
             "recall": round(recall, 4),
         },
     }
+    box_metrics = _metric_group(metrics, "(B)")
+    mask_metrics = _metric_group(metrics, "(M)")
+    if box_metrics is not None:
+        data_out["box_metrics"] = box_metrics
+    if mask_metrics is not None:
+        data_out["mask_metrics"] = mask_metrics
 
     if not json_output:
-        data_out["_human_text"] = (
+        human_text = (
             f"Validating {loaded_model.FAMILY}-{loaded_model.size} on {data} ({split}):\n"
             f"  mAP50: {mAP50:.4f}  mAP50-95: {mAP50_95:.4f}  "
             f"P: {precision:.4f}  R: {recall:.4f}"
         )
+        if box_metrics is not None:
+            human_text += (
+                f"\n  Box mAP50: {box_metrics.get('mAP50', 0.0):.4f}  "
+                f"Box mAP50-95: {box_metrics.get('mAP50_95', 0.0):.4f}"
+            )
+        if mask_metrics is not None:
+            human_text += (
+                f"\n  Mask mAP50: {mask_metrics.get('mAP50', 0.0):.4f}  "
+                f"Mask mAP50-95: {mask_metrics.get('mAP50_95', 0.0):.4f}"
+            )
+        data_out["_human_text"] = human_text
 
     out.result(data_out)

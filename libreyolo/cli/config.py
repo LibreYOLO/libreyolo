@@ -57,6 +57,10 @@ def _build_name_map() -> None:
             _CLI_NAME_TO_WEIGHTS[cli_name] = _weight_filename_for_cli(
                 rfcls, size_code
             )
+        for size_code in getattr(rfcls, "SEG_INPUT_SIZES", {}):
+            cli_name = f"{rfcls.FAMILY}-{size_code}-seg"
+            weight_name = f"{rfcls.FILENAME_PREFIX}{size_code}-seg{rfcls.WEIGHT_EXT}"
+            _CLI_NAME_TO_WEIGHTS[cli_name] = weight_name
 
 
 def get_all_cli_names() -> list[str]:
@@ -356,6 +360,8 @@ def _build_rfdetr_train_kwargs(
         "warmup_lr_start": "warmup_lr_start",
         "min_lr_ratio": "min_lr_ratio",
         "no_aug_epochs": "no_aug_epochs",
+        "scheduler": "scheduler",
+        "lr_drop": "lr_drop",
         "ema": "use_ema",
         "ema_decay": "ema_decay",
         "save_period": "checkpoint_interval",
