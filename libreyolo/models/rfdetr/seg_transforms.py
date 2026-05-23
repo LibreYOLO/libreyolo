@@ -1,44 +1,107 @@
-"""RF-DETR segmentation transforms: letterbox + flip + ImageNet norm + polygon rasterization.
+"""RF-DETR transforms: resize/crop policy + flip + ImageNet norm + mask rasterization.
 
 Mirrors DFINETrainTransform's output contract for detection (cxcywh pixel coords on the
 resized canvas, ImageNet-normalized CHW float32 RGB) and additionally rasterizes per-instance
-polygon rings to a dense (max_labels, mask_h, mask_w) float32 tensor. The mask resolution is
-input_dim / mask_downsample_ratio (default 4) to match the SegmentationHead's downsample.
+polygon rings to a dense (max_labels, H, W) float32 tensor at the transformed image resolution.
 
-Strong augmentations (mosaic, mixup, photometric distort, IoU crop, zoom out) are intentionally
-omitted: torchvision.v2 supports Mask tv_tensors but the polygon-rings → boxes consistency under
-those ops needs explicit per-instance copies that are out of scope for the initial seg port.
+Mosaic, mixup, photometric distort, IoU crop, and zoom-out are intentionally omitted; RF-DETR
+training uses a direct square canvas with an optional upstream-style random resize/crop branch.
 """
 
 from __future__ import annotations
 
 import random
-from typing import List, Optional, Sequence
 
 import cv2
 import numpy as np
-import torch
 
 
 _IMAGENET_MEAN = np.array([0.485, 0.456, 0.406], dtype=np.float32).reshape(3, 1, 1)
 _IMAGENET_STD = np.array([0.229, 0.224, 0.225], dtype=np.float32).reshape(3, 1, 1)
 
 
-def _letterbox(img: np.ndarray, input_dim) -> tuple[np.ndarray, float]:
-    """BGR HWC → padded RGB HWC, returning the resize ratio."""
-    padded = np.full((input_dim[0], input_dim[1], 3), 114, dtype=np.uint8)
-    r = min(input_dim[0] / img.shape[0], input_dim[1] / img.shape[1])
-    new_w, new_h = int(round(img.shape[1] * r)), int(round(img.shape[0] * r))
+def compute_multi_scale_scales(
+    resolution: int,
+    expanded_scales: bool = False,
+    patch_size: int = 16,
+    num_windows: int = 4,
+) -> list[int]:
+    divisor = patch_size * num_windows
+    base_num_patches_per_window = resolution // divisor
+    offsets = (
+        [-5, -4, -3, -2, -1, 0, 1, 2, 3, 4, 5]
+        if expanded_scales
+        else [-3, -2, -1, 0, 1, 2, 3, 4]
+    )
+    return [
+        (base_num_patches_per_window + offset) * divisor
+        for offset in offsets
+        if (base_num_patches_per_window + offset) * divisor >= divisor * 2
+    ]
+
+
+def _resolve_training_size(
+    imgsz: int,
+    *,
+    multi_scale: bool,
+    expanded_scales: bool,
+    do_random_resize_via_padding: bool,
+    patch_size: int,
+    num_windows: int,
+) -> int:
+    if not multi_scale:
+        return imgsz
+    scales = compute_multi_scale_scales(imgsz, expanded_scales, patch_size, num_windows)
+    if not scales:
+        return imgsz
+    # LibreYOLO stacks per-sample transform outputs directly. Upstream's
+    # default also disables per-step random resize and uses the largest expanded
+    # square scale, so keep one stable canvas per dataloader.
+    if not do_random_resize_via_padding:
+        return scales[-1]
+    return imgsz
+
+
+def _resize_square(img: np.ndarray, input_dim) -> tuple[np.ndarray, float, float]:
+    """BGR HWC -> resized RGB HWC, returning x/y scale factors."""
+    target_h, target_w = input_dim
+    scale_x = target_w / img.shape[1]
+    scale_y = target_h / img.shape[0]
+    resized = cv2.resize(img, (target_w, target_h), interpolation=cv2.INTER_LINEAR)
+    resized = resized[:, :, ::-1]  # BGR -> RGB
+    return resized, scale_x, scale_y
+
+
+def _resize_shortest_side(img: np.ndarray, size: int) -> tuple[np.ndarray, float, float]:
+    h, w = img.shape[:2]
+    scale = size / max(1, min(h, w))
+    new_w = max(1, int(round(w * scale)))
+    new_h = max(1, int(round(h * scale)))
     resized = cv2.resize(img, (new_w, new_h), interpolation=cv2.INTER_LINEAR)
-    padded[:new_h, :new_w] = resized
-    padded = padded[:, :, ::-1]  # BGR → RGB
-    return padded, r
+    return resized, scale, scale
 
 
 def _copy_segments(segments):
     if segments is None:
         return None
     return [[ring.copy() for ring in instance] for instance in segments]
+
+
+def _dense_mask(ring):
+    return getattr(ring, "dense_mask", None)
+
+
+def _set_dense_mask(ring, mask):
+    if hasattr(ring, "dense_mask"):
+        ring.dense_mask = np.ascontiguousarray(mask.astype(np.uint8))
+
+
+def _instance_dense_mask(instance):
+    for ring in instance:
+        mask = _dense_mask(ring)
+        if mask is not None:
+            return mask
+    return None
 
 
 def _flip_segments_lr(segments, width):
@@ -53,12 +116,15 @@ def _flip_segments_lr(segments, width):
                 continue
             r = ring.copy()
             r[:, 0] = width - r[:, 0]
+            mask = _dense_mask(r)
+            if mask is not None:
+                _set_dense_mask(r, mask[:, ::-1])
             flipped.append(r)
         out.append(flipped)
     return out
 
 
-def _scale_segments(segments, scale: float):
+def _scale_segments_xy(segments, scale_x: float, scale_y: float):
     if segments is None:
         return None
     out = []
@@ -68,8 +134,44 @@ def _scale_segments(segments, scale: float):
             if ring is None or len(ring) == 0:
                 scaled.append(ring)
                 continue
-            scaled.append(ring.astype(np.float32, copy=True) * scale)
+            mask = _dense_mask(ring)
+            ring_scaled = ring.astype(np.float32, copy=True)
+            if mask is not None:
+                ring_scaled = ring_scaled.view(type(ring))
+            ring_scaled[:, 0] *= scale_x
+            ring_scaled[:, 1] *= scale_y
+            if mask is not None:
+                new_w = max(1, int(round(mask.shape[1] * scale_x)))
+                new_h = max(1, int(round(mask.shape[0] * scale_y)))
+                scaled_mask = cv2.resize(
+                    mask,
+                    (new_w, new_h),
+                    interpolation=cv2.INTER_NEAREST,
+                )
+                _set_dense_mask(ring_scaled, scaled_mask)
+            scaled.append(ring_scaled)
         out.append(scaled)
+    return out
+
+
+def _crop_segments(segments, left: int, top: int, width: int, height: int):
+    if segments is None:
+        return None
+    out = []
+    for instance in segments:
+        cropped = []
+        for ring in instance:
+            if ring is None or len(ring) == 0:
+                cropped.append(ring)
+                continue
+            mask = _dense_mask(ring)
+            r = ring.copy()
+            r[:, 0] = np.clip(r[:, 0] - left, 0.0, float(width))
+            r[:, 1] = np.clip(r[:, 1] - top, 0.0, float(height))
+            if mask is not None:
+                _set_dense_mask(r, mask[top : top + height, left : left + width])
+            cropped.append(r)
+        out.append(cropped)
     return out
 
 
@@ -97,6 +199,14 @@ def _rasterize_segments(segments, image_shape, mask_shape, max_masks):
     sy = mask_h / max(float(img_h), 1.0)
 
     for idx, instance in enumerate(segments[:max_masks]):
+        dense_mask = _instance_dense_mask(instance)
+        if dense_mask is not None:
+            mask = dense_mask
+            if mask.shape != mask_shape:
+                mask = cv2.resize(mask, (mask_w, mask_h), interpolation=cv2.INTER_NEAREST)
+            masks[idx] = (mask > 0).astype(np.float32)
+            continue
+
         polygons = []
         for ring in instance:
             if ring is None or len(ring) < 3:
@@ -111,7 +221,7 @@ def _rasterize_segments(segments, image_shape, mask_shape, max_masks):
 
 
 class RFDETRSegTransform:
-    """Per-sample seg transform: letterbox + flip + ImageNet norm + polygon rasterization.
+    """Per-sample seg transform: square resize + flip + ImageNet norm + polygon rasterization.
 
     Output: ``(img_chw_float_rgb_imagenet, padded_labels [max_labels, 5] cxcywh-pixel,
     masks [max_labels, mask_h, mask_w] float32)``.
@@ -121,7 +231,7 @@ class RFDETRSegTransform:
     """
 
     # Surfaced so YOLODataset/COCODataset hand us the original image, not the
-    # pre-letterboxed one — we need original pixel coords for polygon scaling.
+    # pre-resized one — we need original pixel coords for polygon scaling.
     wants_unresized_image = True
 
     def __init__(
@@ -130,18 +240,45 @@ class RFDETRSegTransform:
         flip_prob: float = 0.5,
         imgsz: int = 512,
         mask_downsample_ratio: int = 4,
+        multi_scale: bool = False,
+        expanded_scales: bool = False,
+        do_random_resize_via_padding: bool = False,
+        patch_size: int = 16,
+        num_windows: int = 4,
+        crop_resize_prob: float = 0.0,
+        crop_intermediate_sizes: tuple[int, ...] = (400, 500, 600),
+        crop_min_size: int = 384,
+        crop_max_size: int = 600,
     ):
         self.max_labels = max_labels
         self.flip_prob = flip_prob
         self.imgsz = imgsz
         self.mask_downsample_ratio = mask_downsample_ratio
+        self.multi_scale = multi_scale
+        self.expanded_scales = expanded_scales
+        self.do_random_resize_via_padding = do_random_resize_via_padding
+        self.patch_size = patch_size
+        self.num_windows = num_windows
+        self.crop_resize_prob = crop_resize_prob
+        self.crop_intermediate_sizes = crop_intermediate_sizes
+        self.crop_min_size = crop_min_size
+        self.crop_max_size = crop_max_size
+        self.target_size = _resolve_training_size(
+            imgsz,
+            multi_scale=multi_scale,
+            expanded_scales=expanded_scales,
+            do_random_resize_via_padding=do_random_resize_via_padding,
+            patch_size=patch_size,
+            num_windows=num_windows,
+        )
 
     def disable_strong_augs(self):
         # Compatibility shim: no strong augs to disable.
         return
 
     def __call__(self, image: np.ndarray, targets: np.ndarray, input_dim, segments=None):
-        target_h, target_w = input_dim
+        del input_dim
+        target_h = target_w = self.target_size
         boxes = targets[:, :4].astype(np.float32, copy=True) if len(targets) else np.zeros((0, 4), np.float32)
         labels = targets[:, 4].astype(np.float32, copy=True) if len(targets) else np.zeros((0,), np.float32)
         segments_t = _copy_segments(segments)
@@ -154,11 +291,34 @@ class RFDETRSegTransform:
                 boxes[:, [0, 2]] = w_orig - boxes[:, [2, 0]]
             segments_t = _flip_segments_lr(segments_t, w_orig)
 
-        # Letterbox-resize. Same logic as YOLO9's preproc — returns ratio r.
-        img_rgb, r = _letterbox(image, input_dim)
+        if len(boxes) and self.crop_resize_prob > 0 and random.random() < self.crop_resize_prob:
+            image, scale_x, scale_y = _resize_shortest_side(
+                image,
+                random.choice(self.crop_intermediate_sizes),
+            )
+            boxes[:, [0, 2]] *= scale_x
+            boxes[:, [1, 3]] *= scale_y
+            segments_t = _scale_segments_xy(segments_t, scale_x, scale_y)
+
+            h_mid, w_mid = image.shape[:2]
+            max_crop = min(self.crop_max_size, h_mid, w_mid)
+            min_crop = min(self.crop_min_size, max_crop)
+            if max_crop >= 2:
+                crop_size = random.randint(min_crop, max_crop)
+                top = random.randint(0, max(0, h_mid - crop_size))
+                left = random.randint(0, max(0, w_mid - crop_size))
+                image = image[top : top + crop_size, left : left + crop_size]
+                boxes[:, [0, 2]] = np.clip(boxes[:, [0, 2]] - left, 0.0, float(crop_size))
+                boxes[:, [1, 3]] = np.clip(boxes[:, [1, 3]] - top, 0.0, float(crop_size))
+                segments_t = _crop_segments(segments_t, left, top, crop_size, crop_size)
+
+        # RF-DETR's square training/inference path resizes directly to the model
+        # canvas, so boxes and masks use independent x/y scale factors.
+        img_rgb, scale_x, scale_y = _resize_square(image, (target_h, target_w))
         if len(boxes):
-            boxes *= r
-        segments_t = _scale_segments(segments_t, r)
+            boxes[:, [0, 2]] *= scale_x
+            boxes[:, [1, 3]] *= scale_y
+        segments_t = _scale_segments_xy(segments_t, scale_x, scale_y)
 
         # Drop boxes that collapsed below 1px after resize. Apply the same keep mask
         # to segments so per-instance alignment is preserved.
@@ -191,10 +351,7 @@ class RFDETRSegTransform:
         img_out = (img_out - _IMAGENET_MEAN) / _IMAGENET_STD
         img_out = np.ascontiguousarray(img_out)
 
-        mask_shape = (
-            target_h // self.mask_downsample_ratio,
-            target_w // self.mask_downsample_ratio,
-        )
+        mask_shape = (target_h, target_w)
         masks = _rasterize_segments(
             segments_t,
             image_shape=(target_h, target_w),
@@ -203,6 +360,14 @@ class RFDETRSegTransform:
         )
 
         return img_out, padded, masks
+
+
+class RFDETRDetTransform(RFDETRSegTransform):
+    """RF-DETR detection transform using the same square geometry."""
+
+    def __call__(self, image: np.ndarray, targets: np.ndarray, input_dim):
+        img, labels, _ = super().__call__(image, targets, input_dim, segments=None)
+        return img, labels
 
 
 class RFDETRSegPassThroughDataset:

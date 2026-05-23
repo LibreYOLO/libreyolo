@@ -40,9 +40,15 @@ class TestResolveModelName:
         assert resolve_model_name("deimv2-n") == "LibreDEIMv2n.pt"
         assert resolve_model_name("deimv2-x") == "LibreDEIMv2x.pt"
 
+    def test_rfdetr_seg_sizes(self):
+        assert resolve_model_name("rfdetr-n-seg") == "LibreRFDETRn-seg.pt"
+        assert resolve_model_name("rfdetr-x-seg") == "LibreRFDETRx-seg.pt"
+        assert resolve_model_name("rfdetr-xx-seg") == "LibreRFDETRxx-seg.pt"
+
     def test_case_insensitive(self):
         assert resolve_model_name("YOLOX-S") == "LibreYOLOXs.pt"
         assert resolve_model_name("Yolo9-T") == "LibreYOLO9t.pt"
+        assert resolve_model_name("RFDETR-N-SEG") == "LibreRFDETRn-seg.pt"
 
     def test_local_path_passthrough(self):
         assert resolve_model_name("best.pt") == "best.pt"
@@ -58,6 +64,8 @@ class TestResolveModelName:
     def test_known_weight_filename_detection(self):
         assert is_known_weight_filename("LibreYOLOXs.pt") is True
         assert is_known_weight_filename("weights/LibreYOLOXs.pt") is True
+        assert is_known_weight_filename("LibreRFDETRn-seg.pt") is True
+        assert is_known_weight_filename("weights/LibreRFDETRxx-seg.pt") is True
         assert is_known_weight_filename("not-a-real-model.pt") is False
 
 
