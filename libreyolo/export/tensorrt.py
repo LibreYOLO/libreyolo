@@ -240,6 +240,17 @@ def export_tensorrt(
             opt_batch = cfg.dynamic.opt_batch
             max_batch = cfg.dynamic.max_batch
 
+    if metadata is not None:
+        metadata = dict(metadata)
+        if dynamic:
+            metadata.update(
+                {
+                    "trt_min_batch": int(min_batch),
+                    "trt_opt_batch": int(opt_batch),
+                    "trt_max_batch": int(max_batch),
+                }
+            )
+
     check_tensorrt_available()
     import tensorrt as trt
 

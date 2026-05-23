@@ -25,6 +25,11 @@ from ..utils.video import collect_video_results, is_video_file, run_video_infere
 logger = logging.getLogger(__name__)
 
 
+class _BackendEvalProxy:
+    def eval(self):
+        return self
+
+
 def _nms_numpy(
     boxes: np.ndarray, scores: np.ndarray, iou_threshold: float = 0.45
 ) -> list:
@@ -65,6 +70,13 @@ def _is_nms_free_family(model_family: Optional[str]) -> bool:
     return model_family in {"dfine", "deim", "deimv2", "ec", "rfdetr", "rtdetr", "rtdetrv2", "rtdetrv4"}
 
 
+def _rfdetr_num_select(task: str, model_size: Optional[str]) -> int:
+    """Return RF-DETR's configured top-k selection for exported backends."""
+    if task == "segment":
+        return {"n": 100, "s": 100, "m": 200, "l": 200}.get(model_size or "", 300)
+    return 300
+
+
 class BaseBackend(ABC):
     """Abstract base class for all inference backends.
 
@@ -103,6 +115,15 @@ class BaseBackend(ABC):
             supported_tasks=self.SUPPORTED_TASKS,
         )
         self.names = names
+        self.FAMILY = model_family or "export"
+        try:
+            self.size = model_size or "export"
+        except AttributeError:
+            # Some concrete backends expose size as a computed read-only property.
+            pass
+        self.input_size = imgsz
+        if not hasattr(self, "model"):
+            self.model = _BackendEvalProxy()
 
     # =========================================================================
     # Abstract interface
@@ -579,7 +600,11 @@ class BaseBackend(ABC):
 
         scores = 1.0 / (1.0 + np.exp(-logits.astype(np.float64))).astype(np.float32)
         num_queries, num_classes = scores.shape
-        k = min(300, num_queries * num_classes)
+        model_size = self.model_size or getattr(self, "size", None)
+        k = min(
+            _rfdetr_num_select(self.task, model_size),
+            num_queries * num_classes,
+        )
         flat_indexes = np.argpartition(scores.reshape(-1), -k)[-k:]
         flat_indexes = flat_indexes[np.argsort(scores.reshape(-1)[flat_indexes])[::-1]]
         max_scores = scores.reshape(-1)[flat_indexes]
@@ -823,6 +848,182 @@ class BaseBackend(ABC):
         if nb_classes == 80:
             return {i: n for i, n in enumerate(COCO_CLASSES)}
         return {i: f"class_{i}" for i in range(nb_classes)}
+
+    def eval(self):
+        return self
+
+    def _get_model_name(self) -> str:
+        return self.model_family or "export"
+
+    def _get_input_size(self) -> int:
+        return self.imgsz
+
+    def _get_val_preprocessor(self, img_size: int | None = None):
+        if img_size is None:
+            img_size = self._get_input_size()
+
+        from ..validation.preprocessors import (
+            DAMOYOLOValPreprocessor,
+            DEIMValPreprocessor,
+            DEIMv2ValPreprocessor,
+            DFINEValPreprocessor,
+            ECValPreprocessor,
+            PICODETValPreprocessor,
+            RFDETRValPreprocessor,
+            RTDETRValPreprocessor,
+            RTDETRv2ValPreprocessor,
+            RTMDetValPreprocessor,
+            StandardValPreprocessor,
+            YOLO9E2EValPreprocessor,
+            YOLO9ValPreprocessor,
+            YOLONASValPreprocessor,
+            YOLOXValPreprocessor,
+        )
+
+        preprocessor_cls = {
+            "damoyolo": DAMOYOLOValPreprocessor,
+            "deim": DEIMValPreprocessor,
+            "deimv2": DEIMv2ValPreprocessor,
+            "dfine": DFINEValPreprocessor,
+            "ec": ECValPreprocessor,
+            "picodet": PICODETValPreprocessor,
+            "rfdetr": RFDETRValPreprocessor,
+            "rtdetr": RTDETRValPreprocessor,
+            "rtdetrv2": RTDETRv2ValPreprocessor,
+            "rtdetrv4": DFINEValPreprocessor,
+            "rtmdet": RTMDetValPreprocessor,
+            "yolo9": YOLO9ValPreprocessor,
+            "yolo9_e2e": YOLO9E2EValPreprocessor,
+            "yolonas": YOLONASValPreprocessor,
+            "yolox": YOLOXValPreprocessor,
+        }.get(self.model_family, StandardValPreprocessor)
+        return preprocessor_cls(img_size=(img_size, img_size))
+
+    def _forward(self, input_tensor: torch.Tensor):
+        blob = input_tensor.detach().cpu().numpy()
+        try:
+            outputs = self._run_inference(blob)
+        except Exception:
+            if blob.shape[0] <= 1:
+                raise
+            per_image_outputs = [
+                self._run_inference(blob[i : i + 1]) for i in range(blob.shape[0])
+            ]
+            outputs = [
+                np.concatenate(
+                    [np.asarray(item[j]) for item in per_image_outputs], axis=0
+                )
+                for j in range(len(per_image_outputs[0]))
+            ]
+        return [torch.from_numpy(np.asarray(output)) for output in outputs]
+
+    @staticmethod
+    def _as_numpy_outputs(output) -> list:
+        if isinstance(output, torch.Tensor):
+            return [output.detach().cpu().numpy()]
+        if isinstance(output, np.ndarray):
+            return [output]
+        if isinstance(output, (list, tuple)):
+            arrays = []
+            for item in output:
+                if isinstance(item, torch.Tensor):
+                    arrays.append(item.detach().cpu().numpy())
+                else:
+                    arrays.append(np.asarray(item))
+            return arrays
+        return [np.asarray(output)]
+
+    def _postprocess(
+        self,
+        output,
+        conf_thres: float,
+        iou_thres: float,
+        original_size: Tuple[int, int],
+        input_size: int | None = None,
+        letterbox: bool = False,
+        max_det: int = 300,
+        ratio: float = 1.0,
+        **kwargs,
+    ) -> Dict:
+        effective_imgsz = input_size if input_size is not None else self.imgsz
+        outputs = self._as_numpy_outputs(output)
+        boxes, max_scores, class_ids, masks = self._parse_outputs(
+            outputs, effective_imgsz, original_size, conf_thres, ratio=ratio
+        )
+        result = self._build_result(
+            boxes,
+            max_scores,
+            class_ids,
+            masks=masks,
+            orig_shape=(int(original_size[1]), int(original_size[0])),
+            image_path=None,
+            iou=iou_thres,
+            classes=None,
+            max_det=max_det,
+        )
+
+        det: Dict[str, object] = {
+            "num_detections": len(result),
+            "boxes": result.boxes.xyxy,
+            "scores": result.boxes.conf,
+            "classes": result.boxes.cls.to(torch.int64),
+        }
+        if result.masks is not None:
+            det["masks"] = result.masks.data
+        return det
+
+    def val(
+        self,
+        data: str | None = None,
+        batch: int = 16,
+        imgsz: int | None = None,
+        conf: float = 0.001,
+        iou: float = 0.6,
+        workers: int = 4,
+        allow_download_scripts: bool = False,
+        device: str | None = None,
+        split: str = "val",
+        augment: bool = False,
+        save_json: bool = False,
+        verbose: bool = True,
+        **kwargs,
+    ) -> Dict:
+        from ..validation import (
+            DetectionValidator,
+            SegmentationValidator,
+            ValidationConfig,
+        )
+
+        if augment:
+            raise ValueError(
+                "Augmented validation is not supported for exported backends"
+            )
+        if imgsz is None:
+            imgsz = self._get_input_size()
+
+        validation_device = device or (
+            "cuda" if self.device == "cuda" and torch.cuda.is_available() else "cpu"
+        )
+        config = ValidationConfig(
+            data=data,
+            batch_size=batch,
+            imgsz=imgsz,
+            conf_thres=conf,
+            iou_thres=iou,
+            num_workers=workers,
+            allow_download_scripts=allow_download_scripts,
+            device=validation_device,
+            split=split,
+            augment=augment,
+            save_json=save_json,
+            verbose=verbose,
+            **kwargs,
+        )
+        validator_cls = (
+            SegmentationValidator if self.task == "segment" else DetectionValidator
+        )
+        validator = validator_cls(model=self, config=config)
+        return validator()
 
     # =========================================================================
     # Inference pipeline

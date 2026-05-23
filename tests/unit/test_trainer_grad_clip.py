@@ -43,6 +43,21 @@ class OneBatchLoader:
         return 1
 
 
+class MultiBatchLoader:
+    def __init__(self, num_batches):
+        self.dataset = SimpleNamespace()
+        self.num_batches = num_batches
+
+    def __iter__(self):
+        for _ in range(self.num_batches):
+            imgs = torch.zeros(1, 1)
+            targets = torch.zeros(1, 1)
+            yield imgs, targets, (None,), (0,)
+
+    def __len__(self):
+        return self.num_batches
+
+
 class DummyLoss:
     def __init__(self, param, events):
         self.param = param
@@ -96,6 +111,7 @@ def _build_trainer(*, clip_max_norm=None, scaler=None, events=None):
     trainer.train_loader = OneBatchLoader()
     trainer.config = SimpleNamespace(
         epochs=1,
+        batch=1,
         log_interval=999,
         eval_interval=-1,
     )
@@ -207,6 +223,55 @@ def test_amp_gradient_clipping_unscales_before_clip(monkeypatch):
         "scaler_step",
     ]
     assert events[8:10] == ["step", "scaler_update"]
+
+
+def test_nbs_accumulation_delays_optimizer_step():
+    events = []
+    trainer, param, events = _build_trainer(clip_max_norm=0.0, events=events)
+    trainer.train_loader = MultiBatchLoader(num_batches=3)
+    trainer.config.nbs = trainer.config.batch * 2
+    _wrap_optimizer_steps(trainer, events)
+
+    def on_forward(imgs, targets, polygons=None):
+        events.append("forward")
+        return {"total_loss": (param * 0).sum() + 1.0}
+
+    trainer.on_forward = on_forward
+
+    TinyTrainer._train_epoch(trainer, 0)
+
+    assert events == [
+        "zero_grad",
+        "forward",
+        "forward",
+        "step",
+        "zero_grad",
+        "forward",
+        "step",
+    ]
+
+
+def test_scheduler_warmup_lr_is_applied_before_first_step():
+    trainer, param, _ = _build_trainer(clip_max_norm=0.0)
+    trainer.optimizer = torch.optim.SGD(
+        [
+            {"params": [param], "lr": 0.1, "lr_mult": 0.5},
+        ],
+        lr=0.1,
+    )
+    trainer._scale_lr = lambda base_lr, group: base_lr * group.get("lr_mult", 1.0)
+
+    class WarmupScheduler:
+        warmup_iters = 4
+
+        def update_lr(self, iters):
+            return 0.01 if iters == 0 else 0.1
+
+    trainer.lr_scheduler = WarmupScheduler()
+
+    trainer._initialize_scheduler_lr()
+
+    assert trainer.optimizer.param_groups[0]["lr"] == pytest.approx(0.005)
 
 
 @pytest.mark.parametrize("clip_max_norm", [-0.1, float("nan"), float("inf"), "bad"])

@@ -192,6 +192,8 @@ class TestFactorySegDetection:
         assert LibreRFDETR.detect_size_from_filename("LibreRFDETRn-seg.pt") == "n"
         assert LibreRFDETR.detect_size_from_filename("LibreRFDETRm-seg.pt") == "m"
         assert LibreRFDETR.detect_size_from_filename("LibreRFDETRl-seg.pt") == "l"
+        assert LibreRFDETR.detect_size_from_filename("LibreRFDETRx-seg.pt") == "x"
+        assert LibreRFDETR.detect_size_from_filename("LibreRFDETRxx-seg.pt") == "xx"
 
     def test_detect_task_from_seg_filename(self):
         from libreyolo.models.rfdetr.model import LibreRFDETR
@@ -212,6 +214,22 @@ class TestFactorySegDetection:
         assert (
             url
             == "https://huggingface.co/LibreYOLO/LibreRFDETRs-seg/resolve/main/LibreRFDETRs-seg.pt"
+        )
+
+    def test_download_url_upstream_default_weights(self):
+        from libreyolo.models.rfdetr.model import LibreRFDETR
+
+        assert (
+            LibreRFDETR.get_download_url("rf-detr-seg-nano.pt")
+            == "https://storage.googleapis.com/rfdetr/rf-detr-seg-n-ft.pth"
+        )
+        assert (
+            LibreRFDETR.get_download_url("rf-detr-seg-xlarge.pt")
+            == "https://storage.googleapis.com/rfdetr/rf-detr-seg-xl-ft.pth"
+        )
+        assert (
+            LibreRFDETR.get_download_url("rf-detr-seg-xxlarge.pt")
+            == "https://storage.googleapis.com/rfdetr/rf-detr-seg-2xl-ft.pth"
         )
 
     def test_download_url_det(self):
@@ -340,6 +358,39 @@ class TestPolygonLabelParsing:
             assert len(segments[0]) == 1
             assert segments[0][0].shape == (4, 2)
             assert segments[0][0][2].tolist() == [80.0, 80.0]
+            assert getattr(segments[0][0], "dense_mask", None) is not None
+
+    def test_yolo_dataset_bbox_rows_become_rectangle_segments_when_requested(self):
+        import tempfile
+        from pathlib import Path
+
+        from libreyolo.data.dataset import YOLODataset
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            img_dir = Path(tmpdir) / "images" / "train"
+            lbl_dir = Path(tmpdir) / "labels" / "train"
+            img_dir.mkdir(parents=True)
+            lbl_dir.mkdir(parents=True)
+
+            Image.new("RGB", (100, 80)).save(img_dir / "test.jpg")
+            (lbl_dir / "test.txt").write_text("0 0.5 0.5 0.4 0.5\n")
+
+            seg_ds = YOLODataset(
+                data_dir=tmpdir,
+                split="train",
+                img_size=(100, 100),
+                load_segments=True,
+            )
+
+            ring = seg_ds.segments[0][0][0]
+            assert ring.shape == (4, 2)
+            assert ring.tolist() == [
+                [30.0, 20.0],
+                [70.0, 20.0],
+                [70.0, 60.0],
+                [30.0, 60.0],
+            ]
+            assert getattr(ring, "dense_mask", None) is not None
 
     def test_yolo_collate_preserves_segments_when_present(self):
         from libreyolo.data.dataset import yolox_collate_fn
@@ -404,6 +455,149 @@ class TestPolygonLabelParsing:
         assert labels[0, 0] == 0
         assert masks[0].sum() > 0
 
+    def test_rfdetr_seg_transform_keeps_full_resolution_masks(self):
+        from libreyolo.models.rfdetr.seg_transforms import RFDETRSegTransform
+
+        image = np.zeros((64, 64, 3), dtype=np.uint8)
+        targets = np.array([[16, 16, 48, 48, 0]], dtype=np.float32)
+        segments = [
+            [np.array([[16, 16], [48, 16], [48, 48], [16, 48]], dtype=np.float32)]
+        ]
+        transform = RFDETRSegTransform(
+            max_labels=4,
+            flip_prob=0.0,
+            imgsz=64,
+            mask_downsample_ratio=4,
+        )
+
+        img, labels, masks = transform(image, targets, (64, 64), segments)
+
+        assert img.shape == (3, 64, 64)
+        assert labels.shape == (4, 5)
+        assert masks.shape == (4, 64, 64)
+        assert labels[0, 0] == 0
+        assert masks[0].sum() > 0
+
+    def test_rfdetr_seg_transform_square_resizes_non_square_images(self):
+        from libreyolo.models.rfdetr.seg_transforms import RFDETRSegTransform
+
+        image = np.zeros((40, 80, 3), dtype=np.uint8)
+        targets = np.array([[20, 10, 60, 30, 0]], dtype=np.float32)
+        segments = [
+            [np.array([[20, 10], [60, 10], [60, 30], [20, 30]], dtype=np.float32)]
+        ]
+        transform = RFDETRSegTransform(max_labels=4, flip_prob=0.0, imgsz=80)
+
+        _, labels, masks = transform(image, targets, (80, 80), segments)
+
+        assert labels[0].tolist() == pytest.approx([0, 40, 40, 40, 40])
+        assert masks[0, 40, 40] == 1
+
+    def test_rfdetr_multi_scale_matches_upstream_scale_grid(self):
+        from libreyolo.models.rfdetr.seg_transforms import (
+            RFDETRDetTransform,
+            compute_multi_scale_scales,
+        )
+
+        scales = compute_multi_scale_scales(
+            384,
+            expanded_scales=True,
+            patch_size=16,
+            num_windows=2,
+        )
+
+        assert scales == [224, 256, 288, 320, 352, 384, 416, 448, 480, 512, 544]
+
+        transform = RFDETRDetTransform(
+            max_labels=4,
+            flip_prob=0.0,
+            imgsz=384,
+            multi_scale=True,
+            expanded_scales=True,
+            patch_size=16,
+            num_windows=2,
+        )
+
+        image = np.zeros((100, 100, 3), dtype=np.uint8)
+        targets = np.array([[25, 25, 75, 75, 0]], dtype=np.float32)
+        img, labels = transform(image, targets, (384, 384))
+
+        assert img.shape == (3, 544, 544)
+        assert labels[0].tolist() == pytest.approx([0, 272, 272, 272, 272])
+
+    def test_rfdetr_crop_resize_branch_updates_boxes_and_masks(self, monkeypatch):
+        from libreyolo.models.rfdetr.seg_transforms import RFDETRSegTransform
+
+        monkeypatch.setattr("libreyolo.models.rfdetr.seg_transforms.random.random", lambda: 0.0)
+        monkeypatch.setattr("libreyolo.models.rfdetr.seg_transforms.random.choice", lambda seq: seq[0])
+
+        randint_values = iter([20, 10, 10])
+        monkeypatch.setattr(
+            "libreyolo.models.rfdetr.seg_transforms.random.randint",
+            lambda _a, _b: next(randint_values),
+        )
+
+        image = np.zeros((40, 40, 3), dtype=np.uint8)
+        targets = np.array([[10, 10, 30, 30, 0]], dtype=np.float32)
+        segments = [
+            [np.array([[10, 10], [30, 10], [30, 30], [10, 30]], dtype=np.float32)]
+        ]
+        transform = RFDETRSegTransform(
+            max_labels=4,
+            flip_prob=0.0,
+            imgsz=40,
+            crop_resize_prob=1.0,
+            crop_intermediate_sizes=(40,),
+            crop_min_size=20,
+            crop_max_size=20,
+        )
+
+        _, labels, masks = transform(image, targets, (40, 40), segments)
+
+        assert labels[0].tolist() == pytest.approx([0, 20, 20, 40, 40])
+        assert masks[0, 20, 20] == 1
+
+    def test_rfdetr_crop_uses_dense_polygon_mask(self, monkeypatch):
+        import cv2
+
+        from libreyolo.data.dataset import DenseMaskRing
+        from libreyolo.models.rfdetr.seg_transforms import RFDETRSegTransform
+
+        monkeypatch.setattr("libreyolo.models.rfdetr.seg_transforms.random.random", lambda: 0.0)
+        monkeypatch.setattr("libreyolo.models.rfdetr.seg_transforms.random.choice", lambda seq: seq[0])
+
+        randint_values = iter([20, 10, 10])
+        monkeypatch.setattr(
+            "libreyolo.models.rfdetr.seg_transforms.random.randint",
+            lambda _a, _b: next(randint_values),
+        )
+
+        image = np.zeros((40, 40, 3), dtype=np.uint8)
+        targets = np.array([[0, 0, 40, 40, 0]], dtype=np.float32)
+        ring = np.array([[0, 0], [40, 20], [0, 40]], dtype=np.float32)
+        dense = np.zeros((40, 40), dtype=np.uint8)
+        cv2.fillPoly(dense, [ring.astype(np.int32)], color=1)
+        segments = [[DenseMaskRing(ring, dense)]]
+        transform = RFDETRSegTransform(
+            max_labels=4,
+            flip_prob=0.0,
+            imgsz=40,
+            crop_resize_prob=1.0,
+            crop_intermediate_sizes=(40,),
+            crop_min_size=20,
+            crop_max_size=20,
+        )
+
+        _, _, masks = transform(image, targets, (40, 40), segments)
+
+        expected = cv2.resize(
+            dense[10:30, 10:30],
+            (40, 40),
+            interpolation=cv2.INTER_NEAREST,
+        )
+        assert masks[0].sum() == pytest.approx(float(expected.sum()))
+        assert np.array_equal(masks[0] > 0, expected > 0)
+
     def test_coco_dataset_preserves_multiple_segment_rings(self, tmp_path):
         import json
 
@@ -467,6 +661,158 @@ class TestPolygonLabelParsing:
             [14.0, 5.0],
             [10.0, 5.0],
         ]
+        assert getattr(dataset.segments[0][0][0], "dense_mask", None) is not None
+
+    def test_coco_dataset_decodes_rle_segments_when_requested(self, tmp_path):
+        import json
+
+        from PIL import Image
+        from pycocotools import mask as mask_utils
+
+        from libreyolo.data.dataset import COCODataset
+
+        images_dir = tmp_path / "train2017"
+        ann_dir = tmp_path / "annotations"
+        images_dir.mkdir()
+        ann_dir.mkdir()
+
+        Image.new("RGB", (20, 10)).save(images_dir / "img.jpg")
+        mask = np.zeros((10, 20), dtype=np.uint8)
+        mask[2:6, 3:9] = 1
+        rle = mask_utils.encode(np.asfortranarray(mask))
+        rle["counts"] = rle["counts"].decode("ascii")
+
+        (ann_dir / "instances_train2017.json").write_text(
+            json.dumps(
+                {
+                    "images": [
+                        {
+                            "id": 1,
+                            "file_name": "img.jpg",
+                            "width": 20,
+                            "height": 10,
+                        }
+                    ],
+                    "annotations": [
+                        {
+                            "id": 1,
+                            "image_id": 1,
+                            "category_id": 1,
+                            "bbox": [3, 2, 6, 4],
+                            "area": int(mask.sum()),
+                            "iscrowd": 0,
+                            "segmentation": rle,
+                        }
+                    ],
+                    "categories": [{"id": 1, "name": "cat"}],
+                }
+            )
+        )
+
+        dataset = COCODataset(
+            data_dir=str(tmp_path),
+            json_file="instances_train2017.json",
+            name="train2017",
+            img_size=(10, 20),
+            load_segments=True,
+        )
+
+        rings = dataset.segments[0][0]
+        assert rings
+        assert sum(len(ring) for ring in rings) >= 4
+
+    def test_coco_rle_segments_preserve_holes_for_rfdetr(self, tmp_path):
+        import json
+
+        from PIL import Image
+        from pycocotools import mask as mask_utils
+
+        from libreyolo.data.dataset import COCODataset
+        from libreyolo.models.rfdetr.seg_transforms import RFDETRSegTransform
+
+        images_dir = tmp_path / "train2017"
+        ann_dir = tmp_path / "annotations"
+        images_dir.mkdir()
+        ann_dir.mkdir()
+
+        Image.new("RGB", (12, 12)).save(images_dir / "img.jpg")
+        mask = np.zeros((12, 12), dtype=np.uint8)
+        mask[2:10, 2:10] = 1
+        mask[5:8, 5:8] = 0
+        rle = mask_utils.encode(np.asfortranarray(mask))
+        rle["counts"] = rle["counts"].decode("ascii")
+
+        (ann_dir / "instances_train2017.json").write_text(
+            json.dumps(
+                {
+                    "images": [
+                        {
+                            "id": 1,
+                            "file_name": "img.jpg",
+                            "width": 12,
+                            "height": 12,
+                        }
+                    ],
+                    "annotations": [
+                        {
+                            "id": 1,
+                            "image_id": 1,
+                            "category_id": 1,
+                            "bbox": [2, 2, 8, 8],
+                            "area": int(mask.sum()),
+                            "iscrowd": 0,
+                            "segmentation": rle,
+                        }
+                    ],
+                    "categories": [{"id": 1, "name": "cat"}],
+                }
+            )
+        )
+
+        dataset = COCODataset(
+            data_dir=str(tmp_path),
+            json_file="instances_train2017.json",
+            name="train2017",
+            img_size=(12, 12),
+            load_segments=True,
+        )
+        transform = RFDETRSegTransform(max_labels=4, flip_prob=0.0, imgsz=12)
+
+        _, _, masks = transform(
+            np.array(Image.open(images_dir / "img.jpg"))[:, :, ::-1],
+            dataset.annotations[0][0],
+            (12, 12),
+            dataset.segments[0],
+        )
+
+        assert masks[0, 3, 3] == 1
+        assert masks[0, 6, 6] == 0
+
+    def test_coco_rle_segments_preserve_sparse_masks_for_rfdetr(self):
+        from pycocotools import mask as mask_utils
+
+        from libreyolo.data.dataset import _coco_segmentation_to_rings
+        from libreyolo.models.rfdetr.seg_transforms import RFDETRSegTransform
+
+        mask = np.zeros((16, 16), dtype=np.uint8)
+        np.fill_diagonal(mask, 1)
+        rle = mask_utils.encode(np.asfortranarray(mask))
+        rle["counts"] = rle["counts"].decode("ascii")
+
+        segments = [
+            _coco_segmentation_to_rings(
+                rle,
+                height=mask.shape[0],
+                width=mask.shape[1],
+            )
+        ]
+        image = np.zeros((16, 16, 3), dtype=np.uint8)
+        targets = np.array([[0, 0, 16, 16, 0]], dtype=np.float32)
+        transform = RFDETRSegTransform(max_labels=1, flip_prob=0.0, imgsz=16)
+
+        _, _, masks = transform(image, targets, (16, 16), segments)
+
+        np.testing.assert_array_equal(masks[0].astype(np.uint8), mask)
 
 
 class TestDrawMasks:
@@ -619,6 +965,316 @@ class TestDetectSegmentation:
         model.task = "detect"
         assert model._is_segmentation is False
         assert "_is_segmentation" not in model.__dict__
+
+    def test_detect_size_uses_segmentation_position_embedding_tokens(self):
+        from libreyolo.models.rfdetr.model import LibreRFDETR
+
+        weights = {
+            "segmentation_head.blocks.0.dwconv.weight": torch.zeros(1),
+            "backbone.0.encoder.encoder.embeddings.position_embeddings": torch.zeros(1, 26 * 26 + 1, 384),
+        }
+
+        assert LibreRFDETR.detect_size(weights) == "n"
+
+    def test_default_none_uses_upstream_pretrained_weight_name(self, monkeypatch):
+        from libreyolo.models.rfdetr.model import LibreRFDETR
+
+        monkeypatch.setattr(
+            LibreRFDETR,
+            "_resolve_weights_path",
+            staticmethod(lambda name: f"resolved/{name}"),
+        )
+        monkeypatch.setattr(
+            LibreRFDETR,
+            "_detect_segmentation",
+            staticmethod(lambda _path: False),
+        )
+        monkeypatch.setattr(LibreRFDETR, "_load_weights", lambda self, _path: None)
+
+        model = LibreRFDETR(model_path=None, size="n", device="cpu")
+
+        assert model._weight_source == "resolved/rf-detr-nano.pth"
+
+    def test_default_none_uses_segmentation_pretrained_weight_name(self, monkeypatch):
+        from libreyolo.models.rfdetr.model import LibreRFDETR
+
+        monkeypatch.setattr(
+            LibreRFDETR,
+            "_resolve_weights_path",
+            staticmethod(lambda name: f"resolved/{name}"),
+        )
+        monkeypatch.setattr(LibreRFDETR, "_load_weights", lambda self, _path: None)
+
+        model = LibreRFDETR(
+            model_path=None,
+            size="n",
+            segmentation=True,
+            device="cpu",
+        )
+
+        assert model._weight_source == "resolved/rf-detr-seg-nano.pt"
+
+    def test_upstream_seg_xlarge_configs_are_available(self):
+        from libreyolo.models.rfdetr.model import LibreRFDETR
+        from libreyolo.models.rfdetr.nn import RFDETR_SEG_CONFIGS
+
+        assert LibreRFDETR.SEG_INPUT_SIZES["x"] == 624
+        assert LibreRFDETR.SEG_INPUT_SIZES["xx"] == 768
+        assert RFDETR_SEG_CONFIGS["x"].pretrain_weights == "rf-detr-seg-xlarge.pt"
+        assert RFDETR_SEG_CONFIGS["xx"].pretrain_weights == "rf-detr-seg-xxlarge.pt"
+        assert RFDETR_SEG_CONFIGS["x"].num_select == 300
+        assert RFDETR_SEG_CONFIGS["xx"].num_select == 300
+
+
+class TestRFDETRQueryLoading:
+    """Tests for RF-DETR Group-DETR query tensor resizing."""
+
+    def test_query_resize_preserves_per_group_layout(self):
+        from libreyolo.models.rfdetr.nn import _slice_query_param_per_group
+
+        tensor = torch.arange(6).view(6, 1)
+        resized = _slice_query_param_per_group(
+            tensor,
+            ckpt_num_queries=3,
+            ckpt_group_detr=2,
+            target_num_queries=2,
+            target_group_detr=2,
+        )
+
+        assert resized.squeeze(1).tolist() == [0, 1, 3, 4]
+
+    def test_wrapper_preserves_checkpoint_args_for_model_load(self):
+        from libreyolo.models.rfdetr.model import LibreRFDETR
+
+        wrapper = LibreRFDETR(model_path={}, size="n", device="cpu")
+        checkpoint = {"model": {}, "args": {"num_queries": 3, "group_detr": 2}}
+        seen = {}
+
+        def fake_load_state_dict(state_dict, strict=False):
+            seen["state_dict"] = state_dict
+            seen["strict"] = strict
+            return [], []
+
+        wrapper.model.load_state_dict = fake_load_state_dict
+
+        wrapper._load_weights(checkpoint)
+
+        assert seen["state_dict"] is checkpoint
+        assert seen["strict"] is False
+
+
+class TestRFDETRSegTrainer:
+    """Tests for RF-DETR segmentation trainer plumbing."""
+
+    def test_rfdetr_training_defaults_are_windows_safe(self):
+        from libreyolo.models.rfdetr.config import RFDETRConfig
+
+        assert RFDETRConfig().workers == 0
+
+    def test_rfdetr_training_uses_upstream_lr_and_accumulation_defaults(self):
+        from libreyolo.models.rfdetr.config import RFDETRConfig
+        from libreyolo.models.rfdetr.trainer import RFDETRTrainer
+
+        trainer = RFDETRTrainer.__new__(RFDETRTrainer)
+        trainer.config = RFDETRConfig(batch=2, lr0=1e-4)
+
+        assert trainer.config.nbs == 16
+        assert trainer._accum_steps == 8
+        assert trainer.config.scheduler == "step"
+        assert trainer.config.lr_drop == 100
+        assert trainer.effective_lr == pytest.approx(1e-4)
+
+    def test_rfdetr_step_scheduler_matches_upstream_default(self):
+        from libreyolo.models.rfdetr.config import RFDETRConfig
+        from libreyolo.models.rfdetr.trainer import RFDETRTrainer
+
+        trainer = RFDETRTrainer.__new__(RFDETRTrainer)
+        trainer.config = RFDETRConfig(
+            epochs=100,
+            batch=4,
+            nbs=16,
+            lr0=1e-4,
+            warmup_epochs=0,
+            lr_drop=100,
+        )
+
+        scheduler = trainer.create_scheduler(iters_per_epoch=7)
+
+        assert scheduler.update_lr(1) == pytest.approx(1e-4)
+        assert scheduler.update_lr(699) == pytest.approx(1e-4)
+        assert scheduler.update_lr(700) == pytest.approx(1e-5)
+
+    def test_rfdetr_step_scheduler_warmup_uses_optimizer_steps(self):
+        from libreyolo.models.rfdetr.config import RFDETRConfig
+        from libreyolo.models.rfdetr.trainer import RFDETRTrainer
+
+        trainer = RFDETRTrainer.__new__(RFDETRTrainer)
+        trainer.config = RFDETRConfig(
+            epochs=2,
+            batch=4,
+            nbs=16,
+            lr0=1e-4,
+            warmup_epochs=1,
+            lr_drop=100,
+        )
+
+        scheduler = trainer.create_scheduler(iters_per_epoch=7)
+
+        assert scheduler.update_lr(1) == pytest.approx(1e-4 / 7)
+        assert scheduler.update_lr(7) == pytest.approx(1e-4)
+
+    def test_rfdetr_detection_transform_uses_original_images(self):
+        from libreyolo.models.rfdetr.config import RFDETRConfig
+        from libreyolo.models.rfdetr.trainer import RFDETRTrainer
+
+        trainer = RFDETRTrainer.__new__(RFDETRTrainer)
+        trainer.config = RFDETRConfig(imgsz=384)
+        trainer.model = type("Model", (), {"patch_size": 16, "num_windows": 2})()
+        trainer.wrapper_model = type("Wrapper", (), {"task": "detect"})()
+
+        preproc, _ = trainer.create_transforms()
+
+        assert preproc.wants_unresized_image is True
+        assert preproc.target_size == 544
+
+    def test_rfdetr_trainer_applies_batch_multi_scale_to_images_boxes_and_masks(self):
+        from types import MethodType
+
+        from libreyolo.models.rfdetr.config import RFDETRConfig
+        from libreyolo.models.rfdetr.trainer import RFDETRTrainer
+
+        trainer = RFDETRTrainer.__new__(RFDETRTrainer)
+        trainer.config = RFDETRConfig(imgsz=64, multi_scale=True)
+        trainer._multi_scale_scales = MethodType(lambda self: [32], trainer)
+
+        imgs = torch.ones(2, 3, 64, 64)
+        targets = torch.zeros(2, 4, 5)
+        targets[:, 0] = torch.tensor([1.0, 32.0, 32.0, 16.0, 16.0])
+        masks = torch.zeros(2, 4, 64, 64)
+        masks[:, 0, 16:48, 16:48] = 1
+
+        imgs_out, targets_out, masks_out = trainer._apply_multi_scale_batch(
+            imgs,
+            targets,
+            masks,
+            step=0,
+        )
+
+        assert imgs_out.shape[-2:] == (32, 32)
+        assert masks_out.shape[-2:] == (32, 32)
+        expected = torch.tensor(
+            [[1.0, 16.0, 16.0, 8.0, 8.0], [1.0, 16.0, 16.0, 8.0, 8.0]]
+        )
+        assert torch.allclose(targets_out[:, 0], expected)
+        assert masks_out[:, 0].sum().item() == pytest.approx(2 * 16 * 16)
+
+    def test_rfdetr_optimizer_uses_upstream_param_lrs(self):
+        from types import SimpleNamespace
+
+        from libreyolo.models.rfdetr.config import RFDETRConfig
+        from libreyolo.models.rfdetr.trainer import RFDETRTrainer
+
+        class FakeBackboneEncoder(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.encoder_weight = torch.nn.Parameter(torch.ones(()))
+
+            def get_named_param_lr_pairs(self, args, prefix="backbone.0"):
+                lr = args.lr_encoder * args.lr_component_decay**2
+                return {
+                    f"{prefix}.encoder_weight": {
+                        "params": self.encoder_weight,
+                        "lr": lr,
+                        "weight_decay": args.weight_decay,
+                    }
+                }
+
+        class FakeCore(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.backbone = torch.nn.ModuleList([FakeBackboneEncoder()])
+                self.transformer = torch.nn.Module()
+                self.transformer.decoder = torch.nn.Linear(1, 1)
+                self.head = torch.nn.Linear(1, 1)
+
+        class FakeWrapper(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.model = FakeCore()
+                self.args = SimpleNamespace(
+                    lr_encoder=2e-4,
+                    lr_component_decay=0.5,
+                    lr_vit_layer_decay=0.8,
+                    out_feature_indexes=[0],
+                    weight_decay=1e-4,
+                )
+
+        trainer = RFDETRTrainer.__new__(RFDETRTrainer)
+        trainer.config = RFDETRConfig(lr0=1e-4, weight_decay=0.01)
+        trainer.model = FakeWrapper()
+
+        optimizer = trainer._setup_optimizer()
+        groups_by_param = {
+            id(group["params"][0]): group
+            for group in optimizer.param_groups
+        }
+        core = trainer.model.model
+        backbone_group = groups_by_param[id(core.backbone[0].encoder_weight)]
+        decoder_group = groups_by_param[id(core.transformer.decoder.weight)]
+        head_group = groups_by_param[id(core.head.weight)]
+
+        assert backbone_group["lr"] == pytest.approx(5e-5)
+        assert backbone_group["weight_decay"] == pytest.approx(0.01)
+        assert backbone_group["lr_mult"] == pytest.approx(0.5)
+        assert decoder_group["lr"] == pytest.approx(5e-5)
+        assert decoder_group["lr_mult"] == pytest.approx(0.5)
+        assert head_group["lr"] == pytest.approx(1e-4)
+        assert head_group["lr_mult"] == pytest.approx(1.0)
+        assert trainer._scale_lr(1e-5, backbone_group) == pytest.approx(5e-6)
+
+    def test_rfdetr_validation_defaults_are_windows_safe(self):
+        import inspect
+
+        from libreyolo.models.rfdetr.model import LibreRFDETR
+
+        assert inspect.signature(LibreRFDETR.val).parameters["workers"].default == 0
+
+    @pytest.mark.skipif(not torch.cuda.is_available(), reason="requires CUDA")
+    def test_seg_masks_move_to_training_device_before_indexing(self):
+        from libreyolo.models.rfdetr.trainer import RFDETRTrainer
+
+        class DummyModel(torch.nn.Module):
+            def forward(self, imgs, targets=None):
+                return {
+                    "loss": torch.ones(
+                        (), device=imgs.device, requires_grad=True
+                    )
+                }
+
+        class DummyCriterion:
+            weight_dict = {"loss": 1.0}
+
+            def __call__(self, outputs, targets):
+                self.targets = targets
+                return {"loss": outputs["loss"]}
+
+        trainer = object.__new__(RFDETRTrainer)
+        trainer.device = torch.device("cuda")
+        trainer.wrapper_model = type("Wrapper", (), {"task": "segment"})()
+        trainer.model = DummyModel().to(trainer.device)
+        trainer.criterion = DummyCriterion()
+
+        imgs = torch.zeros(1, 3, 8, 8, device=trainer.device)
+        targets = torch.tensor(
+            [[[0.0, 4.0, 4.0, 2.0, 2.0]]],
+            device=trainer.device,
+        )
+        cpu_masks = torch.ones(1, 1, 8, 8)
+
+        out = trainer.on_forward(imgs, targets, polygons=cpu_masks)
+
+        assert out["total_loss"].device.type == "cuda"
+        assert trainer.criterion.targets[0]["masks"].device.type == "cuda"
 
 
 class TestPolygonToCxcywh:

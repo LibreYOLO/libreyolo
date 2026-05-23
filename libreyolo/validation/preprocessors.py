@@ -164,21 +164,30 @@ class RFDETRValPreprocessor(BaseValPreprocessor):
     def custom_normalization(self) -> bool:
         return True  # ImageNet mean/std applied here; validator must not rescale
 
+    @property
+    def wants_unresized_image(self) -> bool:
+        # RF-DETR's validation/inference pipeline is a single direct resize from
+        # the source image to the square model canvas.
+        return True
+
     def __call__(
         self, img: np.ndarray, targets: np.ndarray, input_size: Tuple[int, int]
     ) -> Tuple[np.ndarray, np.ndarray]:
         orig_h, orig_w = img.shape[:2]
         target_h, target_w = input_size
 
-        resized_img = cv2.resize(
-            img, (target_w, target_h), interpolation=cv2.INTER_LINEAR
-        )
+        rgb_img = img[:, :, ::-1]  # BGR -> RGB
+        if target_h == target_w:
+            from ..models.rfdetr.utils import preprocess_numpy
 
-        resized_img = resized_img[:, :, ::-1]  # BGR → RGB
-        resized_img = resized_img.astype(np.float32) / 255.0
-        resized_img = (resized_img - self.MEAN) / self.STD  # ImageNet normalization
-
-        resized_img = resized_img.transpose(2, 0, 1)  # HWC → CHW
+            resized_img, _ = preprocess_numpy(rgb_img, target_h)
+        else:
+            pil_img = Image.fromarray(rgb_img).resize(
+                (target_w, target_h), Image.Resampling.BILINEAR
+            )
+            resized_img = np.array(pil_img, dtype=np.float32) / 255.0
+            resized_img = (resized_img - self.MEAN) / self.STD
+            resized_img = resized_img.transpose(2, 0, 1)
         resized_img = np.ascontiguousarray(resized_img, dtype=np.float32)
 
         padded_targets = np.zeros((self.max_labels, 5), dtype=np.float32)

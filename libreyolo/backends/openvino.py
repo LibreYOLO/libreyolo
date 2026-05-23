@@ -98,13 +98,9 @@ class OpenVINOBackend(BaseBackend):
         ov_model = core.read_model(str(xml_path))
         self.compiled_model = core.compile_model(ov_model, ov_device)
 
-        input_shape = ov_model.inputs[0].shape
-        if (
-            len(input_shape) == 4
-            and isinstance(input_shape[2], int)
-            and input_shape[2] > 0
-        ):
-            imgsz = input_shape[2]
+        static_imgsz = self._read_static_input_imgsz(ov_model)
+        if static_imgsz is not None:
+            imgsz = static_imgsz
 
         super().__init__(
             model_path=str(model_dir),
@@ -118,6 +114,20 @@ class OpenVINOBackend(BaseBackend):
             supported_tasks=supported_tasks,
             default_task=default_task,
         )
+
+    @staticmethod
+    def _read_static_input_imgsz(ov_model) -> int | None:
+        try:
+            input_shape = ov_model.inputs[0].shape
+        except RuntimeError:
+            # Some converted models keep a dynamic input shape. In that case,
+            # use the exported metadata size read before compiling.
+            return None
+
+        input_h = input_shape[2] if len(input_shape) == 4 else None
+        if isinstance(input_h, int) and input_h > 0:
+            return input_h
+        return None
 
     @staticmethod
     def _read_metadata(metadata_path: Path, nb_classes_override: int | None = None):

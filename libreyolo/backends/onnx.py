@@ -67,12 +67,6 @@ class OnnxBackend(BaseBackend):
         self.session = ort.InferenceSession(onnx_path, providers=providers)
         self.input_name = self.session.get_inputs()[0].name
 
-        input_shape = self.session.get_inputs()[0].shape
-        if len(input_shape) == 4 and isinstance(input_shape[2], int):
-            imgsz = input_shape[2]
-        else:
-            imgsz = 640  # dynamic shape; use default
-
         (
             model_family,
             model_size,
@@ -80,7 +74,15 @@ class OnnxBackend(BaseBackend):
             supported_tasks,
             default_task,
             names,
+            metadata_imgsz,
         ) = self._read_onnx_metadata(onnx_path, nb_classes)
+        input_shape = self.session.get_inputs()[0].shape
+        if len(input_shape) == 4 and isinstance(input_shape[2], int):
+            imgsz = input_shape[2]
+        elif metadata_imgsz is not None:
+            imgsz = metadata_imgsz
+        else:
+            imgsz = 640  # dynamic shape without metadata; use default
         resolved_task = resolve_task(
             explicit_task=task,
             checkpoint_task=metadata_task,
@@ -106,7 +108,8 @@ class OnnxBackend(BaseBackend):
         """Read libreyolo metadata embedded in an ONNX model file.
 
         Returns:
-            Tuple of (model_family, model_size, task, supported_tasks, default_task, names).
+            Tuple of (model_family, model_size, task, supported_tasks,
+            default_task, names, imgsz).
         """
         model_family = None
         model_size = None
@@ -114,6 +117,7 @@ class OnnxBackend(BaseBackend):
         default_task = "detect"
         supported_tasks = ("detect",)
         names = None
+        imgsz = None
         try:
             import onnx
 
@@ -124,6 +128,8 @@ class OnnxBackend(BaseBackend):
                 model_family = meta["model_family"]
             if "model_size" in meta:
                 model_size = meta["model_size"]
+            if "imgsz" in meta:
+                imgsz = int(meta["imgsz"])
             if "default_task" in meta:
                 default_task = normalize_task(meta["default_task"], default="detect")
             if "task" in meta:
@@ -150,7 +156,7 @@ class OnnxBackend(BaseBackend):
         except Exception as e:
             logger.warning("Failed to read ONNX metadata from %s: %s", onnx_path, e)
 
-        return model_family, model_size, task, supported_tasks, default_task, names
+        return model_family, model_size, task, supported_tasks, default_task, names, imgsz
 
     def _run_inference(self, blob: np.ndarray) -> list:
         """Run ONNX Runtime inference."""
