@@ -446,6 +446,9 @@ class InferenceRunner:
         # Resolve input size
         effective_imgsz = imgsz if imgsz is not None else self.model._get_input_size()
 
+        # Pass "effective_imgsz" immediately to kwargs
+        kwargs["input_size"] = effective_imgsz
+        
         # Preprocess
         input_tensor, original_img, original_size, ratio = self.model._preprocess(
             image, color_format, input_size=effective_imgsz
@@ -492,6 +495,9 @@ class InferenceRunner:
     ) -> Generator[Results, None, None]:
         """Run inference on a video file, yielding per-frame Results."""
         effective_imgsz = imgsz if imgsz is not None else self.model._get_input_size()
+
+        # Pass "effective_imgsz" immediately to kwargs
+        kwargs["input_size"] = effective_imgsz
 
         def predict_frame(pil_img):
             input_tensor, original_img, original_size, ratio = self.model._preprocess(
