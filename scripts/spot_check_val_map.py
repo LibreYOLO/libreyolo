@@ -56,6 +56,10 @@ MODEL_REGISTRY: dict[str, tuple[str, str]] = {
     "yolo9-s": ("LibreYOLO9s.pt", "s"),
     "yolo9-m": ("LibreYOLO9m.pt", "m"),
     "yolo9-c": ("LibreYOLO9c.pt", "c"),
+    "rfdetr-n": ("LibreRFDETRn.pt", "n"),
+    "rfdetr-s": ("LibreRFDETRs.pt", "s"),
+    "rfdetr-m": ("LibreRFDETRm.pt", "m"),
+    "rfdetr-l": ("LibreRFDETRl.pt", "l"),
 }
 
 VAL_KWARGS = dict(
