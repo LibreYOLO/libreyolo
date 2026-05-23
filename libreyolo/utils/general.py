@@ -393,6 +393,15 @@ def postprocess_detections(
     if len(boxes) == 0:
         return {"boxes": [], "scores": [], "classes": [], "num_detections": 0}
 
+    # Cast to fp32 — batched_nms applies a per-class offset of (boxes.max() + 1)
+    # which overflows fp16 (max 65504) for typical letterbox coords × num_classes
+    # and silently merges classes that should stay separate. Detectron2 carries
+    # this same wrapper for the same reason. scores is cast too because
+    # torchvision.ops.nms requires matching dtypes for boxes and scores.
+    if boxes.dtype == torch.float16:
+        boxes = boxes.float()
+        scores = scores.float()
+
     # Per-class NMS — single batched dispatch instead of one kernel per class.
     # Equivalent to the previous ``for cls in unique_classes: ops.nms(...)``
     # loop (same class-offset trick, same CUDA kernel) but avoids the ~80-

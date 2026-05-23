@@ -632,6 +632,17 @@ class BaseModel(ABC):
         scores_cat = torch.cat(all_scores, dim=0)
         classes_cat = torch.cat(all_classes, dim=0)
 
+        # Drop non-finite rows — batched_nms is undefined on NaN/Inf inputs.
+        finite_mask = torch.isfinite(boxes_cat).all(dim=1) & torch.isfinite(scores_cat)
+        if not finite_mask.all():
+            boxes_cat = boxes_cat[finite_mask]
+            scores_cat = scores_cat[finite_mask]
+            classes_cat = classes_cat[finite_mask]
+            if masks_cat is not None:
+                masks_cat = masks_cat[finite_mask]
+            if boxes_cat.numel() == 0:
+                return _empty_results()
+
         # Per-class NMS in a single batched dispatch (class-offset trick).
         keep = batched_nms(boxes_cat, scores_cat, classes_cat.long(), iou_thres)
         if len(keep) == 0:
