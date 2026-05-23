@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import math
-
 import pytest
 import torch
 
@@ -165,6 +163,26 @@ def test_all_nan_returns_empty():
 # ---------------------------------------------------------------------------
 # Scaling / original_size
 # ---------------------------------------------------------------------------
+
+
+def test_letterbox_inverse_uniform_scale_and_clip():
+    # Letterbox-inverse uses r = min(input/orig_h, input/orig_w) so x and y
+    # scale by the SAME factor (preserves aspect ratio), unlike simple resize.
+    # For input=640, orig=(1280,960): r = min(640/960, 640/1280) = 0.5
+    # So a 320×320 box at input scale becomes 640×640 in original coords —
+    # but clipped to (1280, 960). x2 stays at 640; y2 stays at 640.
+    boxes, scores, class_ids = _make([[0, 0, 320, 320]], [0.9], [0])
+    result = postprocess_detections(
+        boxes, scores, class_ids,
+        input_size=640,
+        original_size=(1280, 960),
+        letterbox=True,
+    )
+    b = result["boxes"][0]
+    assert b[0] == pytest.approx(0.0)
+    assert b[1] == pytest.approx(0.0)
+    assert b[2] == pytest.approx(640.0)   # 320 / 0.5 = 640
+    assert b[3] == pytest.approx(640.0)   # 320 / 0.5 = 640
 
 
 def test_boxes_scaled_to_original_size():
