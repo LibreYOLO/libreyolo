@@ -109,7 +109,11 @@ def _nms_keep_indices(
     else:
         valid_indices = None
 
-    keep = batched_nms(boxes, scores, class_ids, iou_thres)
+    # Shift to non-negative coords — batched_nms's class-offset trick uses
+    # (boxes.max() + 1) and only separates classes when all coords are
+    # non-negative. Translation-invariant for IoU.
+    nms_boxes = boxes - boxes.min().clamp(max=0)
+    keep = batched_nms(nms_boxes, scores, class_ids, iou_thres)
     if len(keep) == 0:
         return torch.zeros(0, dtype=torch.long, device=boxes.device)
 
