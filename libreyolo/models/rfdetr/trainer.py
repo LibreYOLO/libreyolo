@@ -77,6 +77,14 @@ class RFDETRTrainer(BaseTrainer):
     def get_model_tag(self) -> str:
         return f"LibreRFDETR-{self.config.size}"
 
+    def _ddp_find_unused_parameters(self) -> bool:
+        """RF-DETR's segmentation head has conditional branches in its sparse
+        forward path that leave some parameters un-grad'd on some batches.
+        Auto-flip the DDP flag when segmentation is the active task — matches
+        upstream Roboflow rf-detr's pattern (their trainer.py:165-172).
+        """
+        return getattr(self.wrapper_model, "task", "detect") == "segment"
+
     def create_transforms(self):
         patch_size = int(getattr(self.model, "patch_size", 16))
         num_windows = int(getattr(self.model, "num_windows", 4))
