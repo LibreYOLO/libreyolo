@@ -352,6 +352,18 @@ def postprocess_detections(
     if len(boxes) == 0:
         return {"boxes": [], "scores": [], "classes": [], "num_detections": 0}
 
+    # Drop NaN/Inf rows FIRST, before scaling/clamping can mask `inf` by
+    # clipping it to the image bounds (which would otherwise let a bogus
+    # row survive the guard later).
+    finite_mask = torch.isfinite(boxes).all(dim=1) & torch.isfinite(scores)
+    if not finite_mask.all():
+        boxes = boxes[finite_mask]
+        scores = scores[finite_mask]
+        class_ids = class_ids[finite_mask]
+
+    if len(boxes) == 0:
+        return {"boxes": [], "scores": [], "classes": [], "num_detections": 0}
+
     # Scale boxes to original image size
     if original_size is not None:
         if letterbox:
@@ -382,41 +394,33 @@ def postprocess_detections(
     if len(boxes) == 0:
         return {"boxes": [], "scores": [], "classes": [], "num_detections": 0}
 
-    # Drop NaN/Inf boxes — batched_nms has undefined behaviour on non-finite
-    # values and can return wrong indices or raise on CUDA.
-    finite_mask = torch.isfinite(boxes).all(dim=1) & torch.isfinite(scores)
-    if not finite_mask.all():
-        boxes = boxes[finite_mask]
-        scores = scores[finite_mask]
-        class_ids = class_ids[finite_mask]
-
-    if len(boxes) == 0:
-        return {"boxes": [], "scores": [], "classes": [], "num_detections": 0}
-
     # Cast to fp32 — batched_nms applies a per-class offset of (boxes.max() + 1)
     # which overflows fp16 (max 65504) for typical letterbox coords × num_classes
     # and silently merges classes that should stay separate. Detectron2 carries
-    # this same wrapper for the same reason. scores is cast too because
-    # torchvision.ops.nms requires matching dtypes for boxes and scores.
-    if boxes.dtype == torch.float16:
+    # this same wrapper for the same reason. scores is cast alongside because
+    # torchvision.ops.nms requires matching dtypes; check both inputs.
+    if boxes.dtype == torch.float16 or scores.dtype == torch.float16:
         boxes = boxes.float()
         scores = scores.float()
 
     # Per-class NMS — single batched dispatch instead of one kernel per class.
-    # Equivalent to the previous ``for cls in unique_classes: ops.nms(...)``
-    # loop (same class-offset trick, same CUDA kernel) but avoids the ~80-
-    # iteration Python loop on COCO, especially during validation which forces
-    # conf_thres=0.0 and so cannot rely on the conf prefilter to shrink classes.
-    keep_indices = torchvision.ops.batched_nms(boxes, scores, class_ids, iou_thres)
+    # batched_nms's class-offset trick uses (boxes.max() + 1) and only
+    # separates classes when all coords are non-negative. Callers may pass
+    # boxes with negative coords (e.g. YOLOX with ratio==1.0 skips the
+    # pre-clamp); shift to neutralise. NMS IoU is translation-invariant so
+    # kept indices are unchanged.
+    nms_boxes = boxes - boxes.min().clamp(max=0)
+    keep_indices = torchvision.ops.batched_nms(nms_boxes, scores, class_ids, iou_thres)
 
     if len(keep_indices) == 0:
         return {"boxes": [], "scores": [], "classes": [], "num_detections": 0}
 
-    # Use topk rather than relying on batched_nms output order, which is an
-    # undocumented implementation detail that could change across torchvision versions.
-    if len(keep_indices) > max_det:
-        _, top_indices = torch.topk(scores[keep_indices], max_det)
-        keep_indices = keep_indices[top_indices]
+    # Always sort by descending score — guarantees the output contract
+    # regardless of batched_nms's internal ordering across torchvision
+    # versions, and also handles the max_det truncation in one step.
+    k = min(len(keep_indices), max_det)
+    _, top_indices = torch.topk(scores[keep_indices], k)
+    keep_indices = keep_indices[top_indices]
 
     final_boxes = boxes[keep_indices].cpu().numpy()
     final_scores = scores[keep_indices].cpu().numpy()

@@ -203,6 +203,67 @@ def test_boxes_scaled_to_original_size():
 # ---------------------------------------------------------------------------
 
 
+def test_negative_coords_do_not_cross_suppress_classes():
+    # batched_nms's class-offset trick fails on negative coords; the shift-to-
+    # non-negative fix preserves per-class independence even when boxes have
+    # negative coordinates (real YOLOX path with ratio==1.0).
+    boxes, scores, class_ids = _make(
+        [[-100.5, -100.5, 1.5, 1.5], [-100.5, -100.5, 1.5, 1.5]],
+        [0.9, 0.8],
+        [0, 1],
+    )
+    # Pass original_size=None so the clamping does NOT run (mirrors YOLOX call).
+    result = postprocess_detections(
+        boxes, scores, class_ids, iou_thres=0.5, original_size=None
+    )
+    assert result["num_detections"] == 2
+    assert set(result["classes"]) == {0, 1}
+
+
+def test_inf_box_dropped_even_with_scaling():
+    # Pre-fix bug: clamping by original_size converts inf to a finite value
+    # BEFORE the finite guard runs, letting a bogus row survive. The fix
+    # moves the guard ahead of the clamp.
+    boxes, scores, class_ids = _make(
+        [[0, 0, float("inf"), 10], [20, 20, 30, 30]],
+        [0.95, 0.6],
+        [0, 0],
+    )
+    result = postprocess_detections(
+        boxes, scores, class_ids,
+        input_size=100,
+        original_size=(100, 100),  # clamping would normally turn inf into 100
+    )
+    # Only the clean row survives; the inf row is dropped before clamping.
+    assert result["num_detections"] == 1
+    assert result["scores"][0] == pytest.approx(0.6)
+
+
+def test_output_always_sorted_even_below_max_det():
+    # Locks the contract that output is descending-score sorted regardless
+    # of whether topk truncation kicked in.
+    boxes, scores, class_ids = _make(
+        [[0, 0, 10, 10], [20, 20, 30, 30], [40, 40, 50, 50]],
+        [0.5, 0.9, 0.7],
+        [0, 1, 2],
+    )
+    result = postprocess_detections(boxes, scores, class_ids, max_det=10)
+    s = result["scores"]
+    assert s == sorted(s, reverse=True)
+
+
+def test_fp16_scores_with_fp32_boxes_does_not_error():
+    # Pre-fix bug: cast triggered only on boxes.dtype, leaving mixed-dtype
+    # inputs to crash inside torchvision.ops.nms.
+    boxes = torch.tensor([[0, 0, 10, 10]], dtype=torch.float32)
+    scores = torch.tensor([0.9], dtype=torch.float16)
+    class_ids = torch.tensor([0], dtype=torch.int64)
+
+    result = postprocess_detections(boxes, scores, class_ids)
+    assert result["num_detections"] == 1
+    assert result["scores"][0] == pytest.approx(0.9, rel=1e-2)
+
+
 def test_fp16_boxes_do_not_overflow_class_offset():
     # 80 COCO classes × letterbox-sized boxes: (boxes.max()+1) * num_classes
     # exceeds fp16 max (65504), so without the float() cast batched_nms would

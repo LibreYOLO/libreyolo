@@ -543,8 +543,12 @@ class InferenceRunner:
             if boxes_t.numel() == 0:
                 return [], [], []
 
+        # Shift to non-negative coords — batched_nms's class-offset trick
+        # uses (boxes.max() + 1), which only separates classes when all
+        # coords are non-negative. Translation-invariant for IoU.
+        nms_boxes = boxes_t - boxes_t.min().clamp(max=0)
         # Single per-class-batched dispatch instead of one NMS call per class.
-        keep = batched_nms(boxes_t, scores_t, classes_t, iou_thres)
+        keep = batched_nms(nms_boxes, scores_t, classes_t, iou_thres)
         return (
             boxes_t[keep].cpu().tolist(),
             scores_t[keep].cpu().tolist(),

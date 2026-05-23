@@ -643,8 +643,12 @@ class BaseModel(ABC):
             if boxes_cat.numel() == 0:
                 return _empty_results()
 
+        # Shift to non-negative coords — batched_nms's class-offset trick
+        # uses (boxes.max() + 1), which only separates classes when all
+        # coords are non-negative. Translation-invariant for IoU.
+        nms_boxes = boxes_cat - boxes_cat.min().clamp(max=0)
         # Per-class NMS in a single batched dispatch (class-offset trick).
-        keep = batched_nms(boxes_cat, scores_cat, classes_cat.long(), iou_thres)
+        keep = batched_nms(nms_boxes, scores_cat, classes_cat.long(), iou_thres)
         if len(keep) == 0:
             return _empty_results()
         final_boxes = boxes_cat[keep]

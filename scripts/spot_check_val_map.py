@@ -3,7 +3,7 @@
 spot_check_val_map.py — Verify that postprocess_detections refactors leave
 mAP bit-equivalent on YOLOX and YOLO9.
 
-Runs model.val() on coco128 (128 images, ~30 s per model on CPU, <10 s on GPU)
+Runs model.val() on COCO val2017 (configured via VAL_KWARGS["data"]="coco.yaml")
 for one or more models, then either:
   - Saves a baseline JSON  (first run, or --save-baseline)
   - Compares against a stored baseline  (subsequent runs)
