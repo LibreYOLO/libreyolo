@@ -178,3 +178,25 @@ def test_boxes_scaled_to_original_size():
     b = result["boxes"][0]
     assert b[2] == pytest.approx(640.0)   # 320 * (1280/640)
     assert b[3] == pytest.approx(480.0)   # 320 * (960/640)
+
+
+# ---------------------------------------------------------------------------
+# fp16 safety — batched_nms's class-offset trick overflows fp16 with many classes
+# ---------------------------------------------------------------------------
+
+
+def test_fp16_boxes_do_not_overflow_class_offset():
+    # 80 COCO classes × letterbox-sized boxes: (boxes.max()+1) * num_classes
+    # exceeds fp16 max (65504), so without the float() cast batched_nms would
+    # silently merge classes that should stay separate.
+    boxes = torch.tensor(
+        [[0.0, 0.0, 640.0, 640.0], [0.0, 0.0, 640.0, 640.0]],
+        dtype=torch.float16,
+    )
+    scores = torch.tensor([0.9, 0.8], dtype=torch.float16)
+    class_ids = torch.tensor([0, 79], dtype=torch.int64)  # first and last COCO class
+
+    result = postprocess_detections(boxes, scores, class_ids, iou_thres=0.5)
+    # Both classes must survive — different-class boxes must not cross-suppress.
+    assert result["num_detections"] == 2
+    assert set(result["classes"]) == {0, 79}

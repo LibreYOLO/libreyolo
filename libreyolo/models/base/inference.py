@@ -534,6 +534,15 @@ class InferenceRunner:
         scores_t = torch.tensor(scores, dtype=torch.float32, device=self.model.device)
         classes_t = torch.tensor(classes, dtype=torch.int64, device=self.model.device)
 
+        # Drop non-finite rows — batched_nms is undefined on NaN/Inf inputs.
+        finite_mask = torch.isfinite(boxes_t).all(dim=1) & torch.isfinite(scores_t)
+        if not finite_mask.all():
+            boxes_t = boxes_t[finite_mask]
+            scores_t = scores_t[finite_mask]
+            classes_t = classes_t[finite_mask]
+            if boxes_t.numel() == 0:
+                return [], [], []
+
         # Single per-class-batched dispatch instead of one NMS call per class.
         keep = batched_nms(boxes_t, scores_t, classes_t, iou_thres)
         return (
