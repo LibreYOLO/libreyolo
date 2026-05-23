@@ -351,8 +351,8 @@ def _build_rfdetr_train_kwargs(
 
     direct_mappings = {
         "epochs": "epochs",
-        "batch": "batch_size",
-        "lr0": "lr",
+        "batch": "batch",
+        "lr0": "lr0",
         "workers": "num_workers",
         "weight_decay": "weight_decay",
         "eval_interval": "eval_interval",

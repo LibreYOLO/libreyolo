@@ -162,8 +162,8 @@ def test_train_rfdetr_actual_call_uses_reported_defaults(monkeypatch, tmp_path):
     assert captured["data"] == "dummy.yaml"
     kwargs = captured["kwargs"]
     assert kwargs["epochs"] == 100
-    assert kwargs["batch_size"] == 4
-    assert kwargs["lr"] == 0.0001
+    assert kwargs["batch"] == 4
+    assert kwargs["lr0"] == 0.0001
     assert kwargs["num_workers"] == 0
     assert kwargs["weight_decay"] == 0.0001
     assert kwargs["eval_interval"] == 1
