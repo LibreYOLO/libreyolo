@@ -257,3 +257,17 @@ def test_rtdetr_constant_scheduler_factory():
     assert scheduler.update_lr(0) == pytest.approx(1e-6)
     assert scheduler.update_lr(20) == pytest.approx(0.001)
     assert scheduler.update_lr(100) == pytest.approx(0.001)
+
+
+def test_rtdetr_effective_lr_is_absolute_under_accumulation():
+    trainer = RTDETRTrainer.__new__(RTDETRTrainer)
+    trainer.config = RTDETRConfig(
+        data="dummy.yaml",
+        batch=4,
+        lr0=0.001,
+        nbs=64,
+    )
+    trainer.world_size = 4
+
+    assert trainer._accum_steps == 16
+    assert trainer.effective_lr == pytest.approx(0.001)

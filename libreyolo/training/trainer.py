@@ -29,7 +29,6 @@ from .callbacks import (
 from .config import TrainConfig
 from .distributed import (
     barrier,
-    broadcast_ema_buffers,
     get_local_rank,
     get_rank,
     get_world_size,
@@ -136,9 +135,8 @@ class BaseTrainer(ABC):
 
     @property
     def effective_lr(self) -> float:
-        """Learning rate scaled by effective batch size (linear scaling rule)."""
-        effective_batch = self.config.batch * self._accum_steps
-        return self.config.lr0 * effective_batch / 64
+        """Optimizer base learning rate."""
+        return self.config.lr0
 
     @property
     def _accum_steps(self) -> int:
@@ -203,8 +201,9 @@ class BaseTrainer(ABC):
 
     def on_mosaic_disable(self):
         """Called when mosaic is disabled for final no-aug epochs."""
-        if hasattr(self.train_loader.dataset, "close_mosaic"):
-            self.train_loader.dataset.close_mosaic()
+        dataset = getattr(self.train_loader, "dataset", None)
+        if hasattr(dataset, "close_mosaic"):
+            dataset.close_mosaic()
 
     def on_forward(
         self,
@@ -520,7 +519,7 @@ class BaseTrainer(ABC):
             self.model = nn.parallel.DistributedDataParallel(self.model, **ddp_kwargs)
             if is_main_process():
                 logger.info(
-                    f"Wrapped model in DDP ("
+                    "Wrapped model in DDP ("
                     + ", ".join(f"{k}={v}" for k, v in ddp_kwargs.items() if k not in ("device_ids", "output_device"))
                     + ")"
                 )
