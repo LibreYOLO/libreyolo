@@ -16,6 +16,7 @@ from typing import Any, Callable, ClassVar, Dict, Generator, List, Optional, Tup
 import torch
 import torch.nn as nn
 from PIL import Image
+from torchvision.ops import batched_nms
 
 from ...tasks import (
     detect_task_suffix,
@@ -554,7 +555,6 @@ class BaseModel(ABC):
         classes: Optional[List[int]] = None,
     ) -> Results:
         """Merge TTA detections from multiple augmented views via per-class NMS."""
-        from ...utils.general import nms as _nms
         from ...utils.results import Boxes, Masks, Results
 
         orig_w, orig_h = original_size
@@ -632,18 +632,25 @@ class BaseModel(ABC):
         scores_cat = torch.cat(all_scores, dim=0)
         classes_cat = torch.cat(all_classes, dim=0)
 
-        # Per-class NMS — collect global indices of kept boxes
-        keep_idx: List[int] = []
-        for cls_id in torch.unique(classes_cat):
-            mask = classes_cat == cls_id
-            global_idx = torch.where(mask)[0]
-            local_keep = _nms(boxes_cat[mask], scores_cat[mask], iou_thres)
-            keep_idx.extend(global_idx[local_keep].tolist())
+        # Drop non-finite rows — batched_nms is undefined on NaN/Inf inputs.
+        finite_mask = torch.isfinite(boxes_cat).all(dim=1) & torch.isfinite(scores_cat)
+        if not finite_mask.all():
+            boxes_cat = boxes_cat[finite_mask]
+            scores_cat = scores_cat[finite_mask]
+            classes_cat = classes_cat[finite_mask]
+            if masks_cat is not None:
+                masks_cat = masks_cat[finite_mask]
+            if boxes_cat.numel() == 0:
+                return _empty_results()
 
-        if not keep_idx:
+        # Shift to non-negative coords — batched_nms's class-offset trick
+        # uses (boxes.max() + 1), which only separates classes when all
+        # coords are non-negative. Translation-invariant for IoU.
+        nms_boxes = boxes_cat - boxes_cat.min().clamp(max=0)
+        # Per-class NMS in a single batched dispatch (class-offset trick).
+        keep = batched_nms(nms_boxes, scores_cat, classes_cat.long(), iou_thres)
+        if len(keep) == 0:
             return _empty_results()
-
-        keep = torch.tensor(keep_idx, dtype=torch.long)
         final_boxes = boxes_cat[keep]
         final_scores = scores_cat[keep]
         final_classes = classes_cat[keep]
