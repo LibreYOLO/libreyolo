@@ -271,13 +271,17 @@ def predict_cmd(
             detections.append(det)
             class_counts[cls_name] = class_counts.get(cls_name, 0) + 1
 
-        result_list.append(
-            {
-                "path": r.path or str(source),
-                "original_shape": list(r.orig_shape),
-                "detections": detections,
+        result_data = {
+            "path": r.path or str(source),
+            "original_shape": list(r.orig_shape),
+            "detections": detections,
+        }
+        if r.masks is not None:
+            result_data["masks"] = {
+                "count": len(r.masks),
+                "shape": list(r.masks.data.shape),
             }
-        )
+        result_list.append(result_data)
         # Human summary line (ultralytics format):
         # image 1/3 parkour.jpg: 640x480 3 persons, 2 skateboards, 45.2ms
         h, w = r.orig_shape

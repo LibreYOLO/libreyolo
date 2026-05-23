@@ -48,6 +48,7 @@ def train_cmd(
     warmup_epochs: int = typer.Option(5, help="Warmup duration"),
     warmup_lr_start: float = typer.Option(0.0, help="Initial warmup LR"),
     min_lr_ratio: float = typer.Option(0.05, help="Minimum LR ratio"),
+    lr_drop: int = typer.Option(100, help="RF-DETR step LR drop epoch"),
     # Augmentation
     mosaic: float = typer.Option(1.0, help="Mosaic probability"),
     mixup: float = typer.Option(1.0, help="Mixup probability"),
@@ -151,6 +152,7 @@ def train_cmd(
         "warmup_epochs": warmup_epochs,
         "warmup_lr_start": warmup_lr_start,
         "min_lr_ratio": min_lr_ratio,
+        "lr_drop": lr_drop,
         "mosaic": mosaic,
         "mixup": mixup,
         "hsv_prob": hsv_prob,
@@ -213,6 +215,7 @@ def train_cmd(
                 "weight_decay": params["weight_decay"],
                 "eval_interval": params["eval_interval"],
                 "warmup_epochs": params["warmup_epochs"],
+                "lr_drop": params["lr_drop"],
                 "ema": params["ema"],
                 "ema_decay": params["ema_decay"],
                 "save_period": params["save_period"],

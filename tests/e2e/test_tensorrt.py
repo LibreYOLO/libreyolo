@@ -97,6 +97,41 @@ class TestTensorRTExportFP16:
         torch.cuda.empty_cache()
 
 
+@requires_tensorrt
+@requires_rfdetr
+@pytest.mark.rfdetr
+class TestTensorRTRFDETRSegmentation:
+    """Test TensorRT export and inference for RF-DETR segmentation."""
+
+    def test_tensorrt_seg_export_produces_masks(self, sample_image, tmp_path):
+        import json
+
+        from libreyolo import LibreYOLO
+
+        pt_model = LibreYOLO("LibreRFDETRn-seg.pt", device="cuda")
+        engine_path = str(tmp_path / "rfdetr_n_seg.engine")
+        exported_path = pt_model.export(
+            format="tensorrt",
+            output_path=engine_path,
+            half=True,
+        )
+
+        engine = Path(exported_path)
+        assert engine.exists(), "TensorRT engine not created"
+        metadata_path = Path(str(engine) + ".json")
+        assert metadata_path.exists(), "TensorRT metadata sidecar not created"
+        metadata = json.loads(metadata_path.read_text())
+        assert metadata["model_family"] == "rfdetr"
+        assert metadata["task"] == "segment"
+
+        trt_model = LibreYOLO(exported_path, device="cuda")
+        result = trt_model(sample_image, conf=0.25)
+        if len(result) > 0:
+            assert result.masks is not None, "TensorRT seg model should return masks"
+            assert len(result.masks) == len(result), "One mask per detection"
+            assert result.masks.data.shape[1:] == result.orig_shape
+
+
 class TestTensorRTExportFP32:
     """Test TensorRT FP32 export for all models."""
 

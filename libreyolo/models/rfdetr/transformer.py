@@ -44,8 +44,9 @@ def gen_sineembed_for_position(pos_tensor, dim=128):
     # n_query, bs, _ = pos_tensor.size()
     # sineembed_tensor = torch.zeros(n_query, bs, 256)
     scale = 2 * math.pi
-    dim_t = torch.arange(dim, dtype=pos_tensor.dtype, device=pos_tensor.device)
-    dim_t = 10000 ** (2 * (dim_t // 2) / dim)
+    dim = int(dim)
+    dim_t = pos_tensor.new_ones((dim,), dtype=pos_tensor.dtype).cumsum(0) - 1
+    dim_t = 10000 ** (2 * torch.div(dim_t, 2, rounding_mode="floor") / dim)
     x_embed = pos_tensor[:, :, 0] * scale
     y_embed = pos_tensor[:, :, 1] * scale
     pos_x = x_embed[:, :, None] / dim_t
@@ -94,11 +95,8 @@ def gen_encoder_output_proposals(memory, memory_padding_mask=None, spatial_shape
             valid_height = torch.zeros_like(memory[:, 0, 0]).long() + height
             valid_width = torch.zeros_like(memory[:, 0, 0]).long() + width
 
-        grid_y, grid_x = torch.meshgrid(
-            torch.linspace(0, height - 1, height, dtype=torch.float32, device=memory.device),
-            torch.linspace(0, width - 1, width, dtype=torch.float32, device=memory.device),
-            indexing="ij",
-        )
+        grid_y = memory.new_ones((height, width), dtype=torch.float32).cumsum(0) - 1
+        grid_x = memory.new_ones((height, width), dtype=torch.float32).cumsum(1) - 1
         grid = torch.cat([grid_x.unsqueeze(-1), grid_y.unsqueeze(-1)], -1)  # height, width, 2
 
         # reshape(-1, ...) and unsqueeze(0) broadcasting avoid hardcoding N_ in ONNX

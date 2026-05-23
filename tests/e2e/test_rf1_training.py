@@ -199,6 +199,8 @@ def test_rf1_training(family, size, weights, dataset_data_yaml, tmp_path):
     # that causes SIGSEGV when export tests have run beforehand in the same process.
     if family == "rfdetr":
         output_dir = str(tmp_path / f"rfdetr_{size}")
+        data_yaml_py = repr(str(dataset_data_yaml))
+        output_dir_py = repr(output_dir)
         run_in_subprocess(
             f"""
             from libreyolo import LibreYOLO
@@ -206,19 +208,19 @@ def test_rf1_training(family, size, weights, dataset_data_yaml, tmp_path):
             model = LibreYOLO("{weights}", size="{size}")
 
             pre = model.val(
-                data="{dataset_data_yaml}", split="test", batch=8, conf=0.001, iou=0.6
+                data={data_yaml_py}, split="test", batch=8, conf=0.001, iou=0.6
             )
             pre_map = pre["metrics/mAP50-95"]
 
             model.train(
-                data="{dataset_data_yaml}",
+                data={data_yaml_py},
                 epochs=10,
                 batch_size=2,
-                output_dir="{output_dir}",
+                output_dir={output_dir_py},
             )
 
             post = model.val(
-                data="{dataset_data_yaml}", split="test", batch=8, conf=0.001, iou=0.6
+                data={data_yaml_py}, split="test", batch=8, conf=0.001, iou=0.6
             )
             post_map = post["metrics/mAP50-95"]
 
