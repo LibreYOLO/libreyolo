@@ -215,7 +215,7 @@ def _stringify_metadata(metadata: dict) -> dict:
     """
     out: dict[str, str] = {}
     for k, v in metadata.items():
-        if isinstance(v, dict):
+        if isinstance(v, (dict, list, tuple)):
             out[str(k)] = json.dumps(v)
         else:
             out[str(k)] = str(v)

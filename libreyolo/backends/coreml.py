@@ -7,6 +7,7 @@ rest of LibreYOLO (Results, drawing, etc.) sees the same interface.
 
 from __future__ import annotations
 
+import ast
 import json
 import logging
 import sys
@@ -17,6 +18,7 @@ import numpy as np
 import torch
 from PIL import Image
 
+from ..tasks import normalize_supported_tasks, normalize_task, resolve_task
 from ..utils.general import COCO_CLASSES
 from ..utils.image_loader import ImageLoader
 from .base import BaseBackend
@@ -41,6 +43,19 @@ def _to_compute_unit(compute_units: str):
             f"Must be one of: {sorted(mapping)}"
         )
     return mapping[key]
+
+
+def _normalize_metadata_supported_tasks(value) -> tuple[str, ...]:
+    try:
+        return normalize_supported_tasks(value)
+    except ValueError:
+        if isinstance(value, str):
+            try:
+                parsed = ast.literal_eval(value)
+            except (SyntaxError, ValueError):
+                raise
+            return normalize_supported_tasks(parsed)
+        raise
 
 
 class CoreMLBackend(BaseBackend):
@@ -89,10 +104,25 @@ class CoreMLBackend(BaseBackend):
             if self.model.user_defined_metadata
             else {}
         )
-        model_family, names, imgsz, has_embedded_nms = self._parse_metadata(
+        (
+            model_family,
+            model_size,
+            metadata_task,
+            supported_tasks,
+            default_task,
+            names,
+            imgsz,
+            has_embedded_nms,
+        ) = self._parse_metadata(
             meta,
             nb_classes,
             output_names=self.output_names,
+        )
+        resolved_task = resolve_task(
+            explicit_task=task,
+            checkpoint_task=metadata_task,
+            default_task=default_task,
+            supported_tasks=supported_tasks,
         )
 
         self._has_embedded_nms = has_embedded_nms
@@ -104,7 +134,10 @@ class CoreMLBackend(BaseBackend):
             imgsz=imgsz,
             model_family=model_family,
             names=names if names else self.build_names(nb_classes),
-            task=task,
+            model_size=model_size,
+            task=resolved_task,
+            supported_tasks=supported_tasks,
+            default_task=default_task,
         )
 
     @staticmethod
@@ -115,6 +148,12 @@ class CoreMLBackend(BaseBackend):
         output_names: list[str] | None = None,
     ):
         model_family: Optional[str] = meta.get("model_family") or None
+        model_size: Optional[str] = meta.get("model_size") or None
+        default_task = normalize_task(meta.get("default_task"), default="detect")
+        metadata_task = normalize_task(meta.get("task"), default=default_task)
+        supported_tasks = _normalize_metadata_supported_tasks(
+            meta.get("supported_tasks", (metadata_task,))
+        )
         names: Optional[dict] = None
         imgsz = 640
         has_embedded_nms = False
@@ -150,7 +189,16 @@ class CoreMLBackend(BaseBackend):
                 "coordinates",
             }
 
-        return model_family, names, imgsz, has_embedded_nms
+        return (
+            model_family,
+            model_size,
+            metadata_task,
+            supported_tasks,
+            default_task,
+            names,
+            imgsz,
+            has_embedded_nms,
+        )
 
     def _parse_outputs(
         self,
