@@ -143,6 +143,16 @@ def _hash_state_dict(model: nn.Module) -> str:
     return h.hexdigest()
 
 
+@_requires_libreyolo
+def test_base_effective_lr_is_absolute_under_accumulation():
+    trainer = _make_trainer(_TinyModel(), accum=4)
+    trainer.config.lr0 = 0.123
+    trainer.world_size = 4
+
+    assert trainer._accum_steps == 4
+    assert trainer.effective_lr == pytest.approx(0.123)
+
+
 # =========================================================================
 # 1. Gradient equivalence
 # =========================================================================

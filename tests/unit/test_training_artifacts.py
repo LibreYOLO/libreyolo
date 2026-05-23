@@ -5,6 +5,7 @@ from __future__ import annotations
 import csv
 import json
 import math
+from pathlib import Path
 
 import pytest
 import torch
@@ -293,7 +294,8 @@ def test_training_artifacts_write_yolo9_results_csv_and_summary(tmp_path):
     assert summary["model_family"] == "yolo9"
     assert summary["completed_epochs"] == 2
     assert summary["final_loss"] == pytest.approx(2.5)
-    assert summary["results"]["best_checkpoint"].endswith("weights/best.pt")
+    best_checkpoint = Path(summary["results"]["best_checkpoint"])
+    assert best_checkpoint.parts[-2:] == ("weights", "best.pt")
 
 
 def test_training_artifacts_support_yolonas_and_growing_csv_columns(tmp_path):

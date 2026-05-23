@@ -85,15 +85,8 @@ class RTDETRTrainer(BaseTrainer):
 
     @property
     def effective_lr(self) -> float:
-        """LR scaled by effective batch size using RT-DETR's batch/16 normalization.
-
-        The original RT-DETR implementation normalises by 16 (its reference
-        batch size), not 64 as used by YOLO models.  With the default batch=4
-        this would otherwise produce a 4x lower LR than intended, slowing
-        convergence and hurting final AP.
-        """
-        effective_batch = self.config.batch * self._accum_steps
-        return self.config.lr0 * effective_batch / 16
+        """Optimizer base learning rate."""
+        return self.config.lr0
 
     def get_model_family(self) -> str:
         return "rtdetr"
@@ -216,13 +209,13 @@ class RTDETRTrainer(BaseTrainer):
         """Setup optimizer with regex-based parameter group matching.
 
         Parameter groups (matched in order, first match wins):
-          1. backbone + norm      -> lr=effective_lr*(lr_backbone/lr0), weight_decay=0
-          2. backbone + non-norm  -> lr=effective_lr*(lr_backbone/lr0)
+          1. backbone + norm      -> lr=lr_backbone, weight_decay=0
+          2. backbone + non-norm  -> lr=lr_backbone
           3. encoder/decoder + norm/bias -> weight_decay=0
           4. everything else      -> default lr and weight_decay
 
-        LR ratios are derived from raw config values (lr_backbone / lr0) so that
-        the backbone/head balance is independent of batch size scaling.
+        LR ratios are derived from raw config values (lr_backbone / lr0) so the
+        scheduler preserves the configured backbone/head balance.
         """
         config = self.config
         base_lr = self.effective_lr
@@ -231,14 +224,7 @@ class RTDETRTrainer(BaseTrainer):
         betas = config.betas
         lr_bb = config.lr_backbone
 
-        # Compute backbone LR ratio from raw config values (lr_backbone / lr0), not
-        # from effective_lr.  effective_lr = lr0 * batch/64 already folds in the
-        # batch-size scaling; dividing an absolute lr_backbone by effective_lr would
-        # inadvertently encode batch size into the ratio and give the wrong backbone/
-        # head balance at any batch size other than 64.
         bb_ratio = lr_bb / lr0
-        # Initial backbone LR expressed in the same batch-scaled units as base_lr
-        # so the optimizer starts at the right value before the scheduler runs.
         bb_lr = base_lr * bb_ratio
 
         # Define param group rules: (regex_pattern, overrides)
