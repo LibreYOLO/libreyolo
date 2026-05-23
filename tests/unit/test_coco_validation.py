@@ -182,6 +182,29 @@ def test_detection_validator_emits_bbox_alias_metrics():
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize(
+    ("family", "expected"),
+    [
+        ("rfdetr", True),
+        ("dfine", True),
+        ("yolox", False),
+    ],
+)
+def test_detection_validator_topk_coco_scoring_applies_to_yolo_coco_api(
+    family, expected
+):
+    from types import SimpleNamespace
+
+    from libreyolo.validation.detection_validator import DetectionValidator
+
+    validator = DetectionValidator.__new__(DetectionValidator)
+    validator.model = SimpleNamespace(FAMILY=family)
+    validator._coco_annotation_file = None
+
+    assert validator._uses_topk_coco_scoring() is expected
+
+
+@pytest.mark.unit
 def test_segmentation_validator_updates_bbox_and_mask_evaluators():
     from types import SimpleNamespace
 

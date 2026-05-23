@@ -114,8 +114,9 @@ def dataset():
 def test_rfdetr_seg_training(dataset, tmp_path):
     """Train RF-DETR-Seg-Nano on fire-smoke-seg, verify training produces a seg checkpoint."""
     output_dir = str(tmp_path / "rfdetr_seg_n")
-    dataset_dir = str(dataset)
     data_yaml = str(dataset / "data.yaml")
+    output_dir_py = repr(output_dir)
+    data_yaml_py = repr(data_yaml)
 
     run_in_subprocess(
         f"""
@@ -135,10 +136,10 @@ def test_rfdetr_seg_training(dataset, tmp_path):
         # 2. Train on fire-smoke-seg dataset (short run — smoke that the
         # train loop runs end-to-end and writes a LibreYOLO-style checkpoint).
         result = model.train(
-            data="{data_yaml}",
+            data={data_yaml_py},
             epochs=2,
             batch_size=2,
-            output_dir="{output_dir}",
+            output_dir={output_dir_py},
         )
 
         # 3. Verify checkpoint was produced under LibreYOLO conventions:
@@ -168,7 +169,7 @@ def test_rfdetr_seg_training(dataset, tmp_path):
         # 6. Post-training mask mAP — only a sanity floor, not an improvement check
         # (2-epoch run on 141 train images is too short to guarantee improvement).
         post = model.val(
-            data="{data_yaml}", split="test", batch=4, conf=0.001, iou=0.6
+            data={data_yaml_py}, split="test", batch=4, conf=0.001, iou=0.6
         )
         assert "metrics/mAP50-95(M)" in post, "Validation did not return mask mAP"
         post_map = post["metrics/mAP50-95(M)"]
@@ -183,6 +184,7 @@ def test_rfdetr_seg_training(dataset, tmp_path):
 
 def test_rfdetr_seg_inference_only(dataset):
     """Verify seg model inference produces valid masks on dataset images."""
+    dataset_py = repr(str(dataset))
     run_in_subprocess(
         f"""
         from pathlib import Path
@@ -195,7 +197,7 @@ def test_rfdetr_seg_inference_only(dataset):
         )
 
         # Run inference on a few test images
-        test_dir = Path("{dataset}") / "test" / "images"
+        test_dir = Path({dataset_py}) / "test" / "images"
         test_images = sorted(test_dir.glob("*.jpg"))[:5]
         assert len(test_images) > 0, "No test images found"
 
@@ -229,6 +231,8 @@ def test_rfdetr_seg_resume_training(dataset, tmp_path):
     """Train 1 epoch, resume from best.pt, train 1 more epoch — verify seg keys survive."""
     output_dir = str(tmp_path / "rfdetr_seg_resume")
     data_yaml = str(dataset / "data.yaml")
+    output_dir_py = repr(output_dir)
+    data_yaml_py = repr(data_yaml)
 
     run_in_subprocess(
         f"""
@@ -237,7 +241,7 @@ def test_rfdetr_seg_resume_training(dataset, tmp_path):
         from pathlib import Path
         from libreyolo.models.rfdetr.model import LibreRFDETR
 
-        output_dir = "{output_dir}"
+        output_dir = {output_dir_py}
 
         # Phase 1: Train 1 epoch
         print("Phase 1: Training 1 epoch...")
@@ -247,7 +251,7 @@ def test_rfdetr_seg_resume_training(dataset, tmp_path):
             segmentation=True,
         )
         result = model.train(
-            data="{data_yaml}",
+            data={data_yaml_py},
             epochs=1,
             batch_size=2,
             output_dir=output_dir,
@@ -273,8 +277,8 @@ def test_rfdetr_seg_resume_training(dataset, tmp_path):
             segmentation=True,
         )
         result2 = model2.train(
-            data="{data_yaml}",
-            epochs=1,
+            data={data_yaml_py},
+            epochs=2,
             batch_size=2,
             output_dir=output_dir,
             resume=best_ckpt,
@@ -282,6 +286,7 @@ def test_rfdetr_seg_resume_training(dataset, tmp_path):
         best2 = result2.get("best_checkpoint")
         assert best2 and Path(best2).exists(), "Phase 2 best.pt missing"
         ckpt2 = torch.load(best2, map_location="cpu", weights_only=False)
+        assert ckpt2.get("epoch", -1) >= 1, "Resume did not run an additional epoch"
         state2 = ckpt2.get("model", ckpt2)
         seg_keys2 = [k for k in state2 if "segmentation_head" in k]
         assert len(seg_keys2) > 0, "Resumed checkpoint missing segmentation_head keys"

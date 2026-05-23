@@ -114,6 +114,33 @@ class TestOpenVINOExportFP32:
         assert Path(exported_path).is_dir(), "OpenVINO output directory not created"
 
 
+@requires_openvino
+@requires_rfdetr
+@pytest.mark.rfdetr
+class TestOpenVINORFDETRSegmentation:
+    """Test OpenVINO export and inference for RF-DETR segmentation."""
+
+    def test_openvino_seg_export_produces_masks(self, sample_image, tmp_path):
+        from libreyolo import LibreYOLO
+
+        pt_model = LibreYOLO("LibreRFDETRn-seg.pt", device="cpu")
+        ov_path = str(tmp_path / "rfdetr_n_seg_openvino")
+        exported_path = pt_model.export(
+            format="openvino", output_path=ov_path, half=True
+        )
+
+        exported_dir = Path(exported_path)
+        assert (exported_dir / "model.xml").exists(), "model.xml not found"
+        assert (exported_dir / "model.bin").exists(), "model.bin not found"
+
+        ov_model = LibreYOLO(exported_path, device="cpu")
+        result = ov_model(sample_image, conf=0.25)
+        if len(result) > 0:
+            assert result.masks is not None, "OpenVINO seg model should return masks"
+            assert len(result.masks) == len(result), "One mask per detection"
+            assert result.masks.data.shape[1:] == result.orig_shape
+
+
 class TestOpenVINOMetadata:
     """Test OpenVINO metadata export."""
 

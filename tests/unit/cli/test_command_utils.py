@@ -18,7 +18,7 @@ from libreyolo.cli.command_utils import (
     get_loaded_model_input_size,
 )
 from libreyolo.cli.parsing import KeyValueCommand
-from libreyolo.utils.results import Boxes, Results
+from libreyolo.utils.results import Boxes, Masks, Results
 
 pytestmark = pytest.mark.unit
 
@@ -167,6 +167,68 @@ def test_val_runtime_error_includes_stage_context(failing_app):
     data = json.loads(result.stdout)
     assert data["error"] == "io_error"
     assert data["message"] == "Validation failed: disk full"
+
+
+def test_val_json_reports_segmentation_metric_groups(monkeypatch):
+    app = _make_app([("val", val.val_cmd), ("info", special.info_cmd)])
+
+    class _SegModel:
+        FAMILY = "rfdetr"
+        size = "n"
+        device = "cpu"
+
+        def val(self, **kwargs):
+            assert "use_coco_eval" not in kwargs
+            return {
+                "metrics/mAP50": 0.7,
+                "metrics/mAP50-95": 0.6,
+                "metrics/mAP50(B)": 0.55,
+                "metrics/mAP50-95(B)": 0.45,
+                "metrics/precision(M)": 0.82,
+                "metrics/recall(M)": 0.52,
+                "metrics/mAP50(M)": 0.72,
+                "metrics/mAP50-95(M)": 0.62,
+            }
+
+    monkeypatch.setattr(
+        "libreyolo.cli.commands.val.resolve_model_or_exit",
+        lambda out, model: model,
+    )
+    monkeypatch.setattr(
+        "libreyolo.cli.commands.val.load_model_or_exit",
+        lambda out, model, model_path, device: _SegModel(),
+    )
+    monkeypatch.setattr(
+        "libreyolo.utils.general.increment_path",
+        lambda path, exist_ok=False, mkdir=False: Path(path),
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "val",
+            "data=fire-smoke.yaml",
+            "model=LibreRFDETRn-seg.pt",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0
+    data = json.loads(result.stdout)
+    assert data["model_family"] == "rfdetr"
+    assert data["metrics"]["mAP50_95"] == 0.6
+    assert data["metrics"]["precision"] == 0.82
+    assert data["metrics"]["recall"] == 0.52
+    assert data["box_metrics"] == {
+        "mAP50": 0.55,
+        "mAP50_95": 0.45,
+    }
+    assert data["mask_metrics"] == {
+        "mAP50": 0.72,
+        "mAP50_95": 0.62,
+        "precision": 0.82,
+        "recall": 0.52,
+    }
 
 
 def test_export_runtime_error_includes_stage_context(failing_app):
@@ -436,6 +498,57 @@ def test_predict_exported_backend_does_not_receive_native_only_kwargs(monkeypatc
     data = json.loads(result.stdout)
     assert data["model_family"] == "yolox"
     assert data["results"][0]["detections"][0]["class"] == "person"
+
+
+def test_predict_json_reports_segmentation_masks(monkeypatch):
+    app = _make_app([("predict", predict.predict_cmd), ("info", special.info_cmd)])
+
+    class _SegBackendLike:
+        model_family = "rfdetr"
+        imgsz = 312
+        device = "cpu"
+
+        def __call__(self, source, **kwargs):
+            boxes = Boxes(
+                torch.tensor([[1.0, 2.0, 3.0, 4.0]]),
+                torch.tensor([0.9]),
+                torch.tensor([0]),
+            )
+            masks = Masks(torch.ones(1, 10, 20, dtype=torch.bool), (10, 20))
+            return Results(
+                boxes=boxes,
+                masks=masks,
+                orig_shape=(10, 20),
+                path=source,
+                names={0: "person"},
+            )
+
+    monkeypatch.setattr(
+        "libreyolo.cli.commands.predict.resolve_model_or_exit",
+        lambda out, model: model,
+    )
+    monkeypatch.setattr(
+        "libreyolo.cli.commands.predict.load_model_or_exit",
+        lambda out, model, model_path, device: _SegBackendLike(),
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "predict",
+            "source=libreyolo/assets/parkour.jpg",
+            "model=rfdetr-seg.onnx",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0
+    data = json.loads(result.stdout)
+    assert data["model_family"] == "rfdetr"
+    assert data["results"][0]["masks"] == {
+        "count": 1,
+        "shape": [1, 10, 20],
+    }
 
 
 @pytest.mark.parametrize(
