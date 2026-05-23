@@ -16,3 +16,7 @@
 ## Documentation
 
 - Contributor-facing policy lives in `CONTRIBUTING.md`.
+
+## General library constraints
+- Generally every user facing API (Python, yamls, etc) has to follow the Ultralytics YOLO standard
+- The Flagship models of LibreYOLO are YOLO9 (CNNs) and RF-DETR (transformers), and new features have to at least cover this two
