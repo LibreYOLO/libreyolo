@@ -13,6 +13,7 @@
 ## Commit policy
 - Do not add LLMs or agent tools as co-authors in commits.
 - Keep commit messages short and factual.
+- Avoid pushing docs, artifacts, helper scripts, or anything that should not go into the upstream LibreYOLO library
 
 ## Documentation
 
