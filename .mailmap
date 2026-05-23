@@ -1,0 +1,12 @@
+# Canonical author identities for `git shortlog`, `git log --use-mailmap`,
+# `git blame --use-mailmap`, and the GitHub contributors page.
+#
+# Format:  Canonical Name <canonical@email>  Original Name <original@email>
+# See `git help shortlog` for full syntax.
+
+Xuban Ceccon <xuban.ceccon@gmail.com>  xuban ceccon <xuban.ceccon@gmail.com>
+Xuban Ceccon <xuban.ceccon@gmail.com>  xubanceccon <xuban.ceccon@gmail.com>
+Xuban Ceccon <xuban.ceccon@gmail.com>  EHxuban11 <xuban.ceccon@gmail.com>
+Xuban Ceccon <xuban.ceccon@gmail.com>  ehxuban11 <xuban.ceccon@gmail.com>
+Xuban Ceccon <xuban.ceccon@gmail.com>  Xuban <59646791+EHxuban11@users.noreply.github.com>
+Xuban Ceccon <xuban.ceccon@gmail.com>  Vision Analysis Bench <xuban.ceccon@gmail.com>
