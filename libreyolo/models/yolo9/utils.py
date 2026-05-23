@@ -7,10 +7,10 @@ Provides preprocessing and postprocessing functions for YOLOv9 inference.
 import numpy as np
 import torch
 import torch.nn.functional as F
+from torchvision.ops import batched_nms
 from typing import Tuple, Dict
 from PIL import Image
 
-from ...utils.general import nms
 from ...utils.image_loader import ImageLoader, ImageInput
 
 
@@ -94,22 +94,32 @@ def _nms_keep_indices(
     iou_thres: float,
     max_det: int,
 ) -> torch.Tensor:
-    keep_indices = []
-    for cls in torch.unique(class_ids):
-        cls_mask = class_ids == cls
-        if not cls_mask.any():
-            continue
-        cls_indices = torch.where(cls_mask)[0]
-        cls_keep = nms(boxes[cls_mask], scores[cls_mask], iou_thres)
-        keep_indices.append(cls_indices[cls_keep])
-
-    if not keep_indices:
+    if boxes.numel() == 0:
         return torch.zeros(0, dtype=torch.long, device=boxes.device)
 
-    keep = torch.cat(keep_indices)
+    # Drop non-finite rows — batched_nms is undefined on NaN/Inf inputs.
+    finite_mask = torch.isfinite(boxes).all(dim=1) & torch.isfinite(scores)
+    if not finite_mask.all():
+        valid_indices = torch.where(finite_mask)[0]
+        if len(valid_indices) == 0:
+            return torch.zeros(0, dtype=torch.long, device=boxes.device)
+        boxes = boxes[finite_mask]
+        scores = scores[finite_mask]
+        class_ids = class_ids[finite_mask]
+    else:
+        valid_indices = None
+
+    keep = batched_nms(boxes, scores, class_ids, iou_thres)
+    if len(keep) == 0:
+        return torch.zeros(0, dtype=torch.long, device=boxes.device)
+
     if len(keep) > max_det:
         _, order = torch.topk(scores[keep], max_det)
         keep = keep[order]
+
+    # Map back to original indices when we filtered non-finite rows above.
+    if valid_indices is not None:
+        keep = valid_indices[keep]
     return keep
 
 
