@@ -40,8 +40,10 @@ rfdetr = [
     "scipy>=1.7.0",
 ]
 tensorrt = [
-    "tensorrt-cu12",
-    "pycuda>=2022.1",
+    # No CUDA on macOS; marker drops these. Version pin must match the
+    # [[tool.uv.dependency-metadata]] blocks below.
+    "tensorrt-cu12==10.16.1.11; sys_platform != 'darwin'",
+    "pycuda>=2022.1; sys_platform != 'darwin'",
 ]
 openvino = [
     "openvino>=2024.0.0",
@@ -68,6 +70,9 @@ gaze-retinaface = [
     # LibreYOLOFaceDetector instead.
     "face_detection @ git+https://github.com/elliottzheng/face-detection",
 ]
+coreml = [
+    "coremltools>=8.0",
+]
 all = [
     "libreyolo[onnx]",
     "libreyolo[rfdetr]",
@@ -77,6 +82,7 @@ all = [
     "libreyolo[tracking]",
     "libreyolo[rtdetr]",
     "libreyolo[gaze]",
+    "libreyolo[coreml]",
 ]
 
 [project.scripts]
@@ -98,6 +104,29 @@ include = ["libreyolo*"]
 [build-system]
 requires = ["setuptools>=61", "wheel"]
 build-backend = "setuptools.build_meta"
+
+# tensorrt-cu12 is sdist-only and its setup.py refuses to run on macOS, so
+# uv's universal lock can't extract its metadata on darwin hosts. Static
+# metadata lets uv resolve the non-darwin fork without building. Bump in
+# lockstep with the version pin in [project.optional-dependencies].tensorrt.
+[[tool.uv.dependency-metadata]]
+name = "tensorrt-cu12"
+version = "10.16.1.11"
+requires-dist = [
+    "tensorrt-cu12-libs==10.16.1.11",
+    "tensorrt-cu12-bindings==10.16.1.11",
+]
+requires-python = ">=3.8"
+
+[[tool.uv.dependency-metadata]]
+name = "tensorrt-cu12-libs"
+version = "10.16.1.11"
+requires-dist = []
+
+[[tool.uv.dependency-metadata]]
+name = "tensorrt-cu12-bindings"
+version = "10.16.1.11"
+requires-dist = []
 
 [tool.ruff]
 # Vendored from upstream DEIMv2. Keep local lint focused on the LibreYOLO
@@ -148,6 +177,7 @@ markers = [
     "trt: alias for TensorRT tests requiring TensorRT",
     "openvino: tests requiring OpenVINO",
     "ncnn: tests requiring ncnn",
+    "coreml: tests requiring CoreML (macOS only)",
     "yolox: tests covering the YOLOX model family",
     "yolo9: tests covering the YOLO9 model family",
     "yolonas: tests covering the YOLO-NAS model family",
