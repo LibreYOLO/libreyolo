@@ -68,6 +68,17 @@ class DetectionValidator(BaseValidator):
     def _coco_api_kwargs(self) -> Dict[str, Any]:
         return {}
 
+    def _resolve_imgsz(self) -> int:
+        """Return the validation image size, falling back to the model native size."""
+        if self.config.imgsz is not None:
+            return int(self.config.imgsz)
+
+        get_input_size = getattr(self.model, "_get_input_size", None)
+        if callable(get_input_size):
+            return int(get_input_size())
+
+        return 640
+
     def _setup_dataloader(self) -> DataLoader:
         """
         Create validation dataloader from config.
@@ -78,17 +89,8 @@ class DetectionValidator(BaseValidator):
         from libreyolo.data.dataset import YOLODataset, COCODataset
         from torch.utils.data import DataLoader
 
-        # Use model's native input size if available (e.g. YOLOX nano uses 416)
-        model_input_size = (
-            self.model._get_input_size()
-            if hasattr(self.model, "_get_input_size")
-            else None
-        )
-        if model_input_size is not None and model_input_size != self.config.imgsz:
-            actual_imgsz = model_input_size
-        else:
-            actual_imgsz = self.config.imgsz
-
+        actual_imgsz = self._resolve_imgsz()
+        self.config.imgsz = actual_imgsz
         self._actual_imgsz = actual_imgsz
         img_size = (actual_imgsz, actual_imgsz)
 

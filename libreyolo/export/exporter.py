@@ -738,3 +738,41 @@ class NcnnExporter(BaseExporter):
             simplify=simplify,
             metadata=metadata,
         )
+
+
+class CoreMLExporter(BaseExporter):
+    format_name = "coreml"
+    suffix = ".mlpackage"
+    requires_onnx = False
+    supports_int8 = False
+    supports_fp16 = True
+    apply_model_half = False  # ct.convert handles precision via compute_precision
+
+    def _export(
+        self,
+        nn_model,
+        dummy,
+        *,
+        output_path,
+        precision,
+        metadata,
+        compute_units="all",
+        nms=False,
+        iou=0.45,
+        conf=0.25,
+        **kwargs,
+    ):
+        from .coreml import export_coreml
+
+        return export_coreml(
+            nn_model,
+            dummy,
+            output_path=output_path,
+            precision=precision,
+            compute_units=compute_units,
+            nms=nms,
+            iou=iou,
+            conf=conf,
+            metadata=metadata,
+            model_family=self.model._get_model_name(),
+        )

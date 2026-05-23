@@ -197,7 +197,7 @@ class LibreYOLO9(BaseModel):
         color_format: str = "auto",
         input_size: Optional[int] = None,
     ) -> Tuple[torch.Tensor, Image.Image, Tuple[int, int], float]:
-        effective_size = input_size if input_size is not None else 640
+        effective_size = input_size if input_size is not None else self._get_input_size()
         tensor, img, size = preprocess_image(
             image, input_size=effective_size, color_format=color_format
         )
@@ -213,9 +213,10 @@ class LibreYOLO9(BaseModel):
         iou_thres: float,
         original_size: Tuple[int, int],
         max_det: int = 300,
+        ratio: float = 1.0,
         **kwargs,
     ) -> Dict:
-        actual_input_size = kwargs.get("input_size", 640)
+        actual_input_size = kwargs.get("input_size", self._get_input_size())
         return postprocess(
             output,
             conf_thres=conf_thres,
@@ -290,6 +291,11 @@ class LibreYOLO9(BaseModel):
 
         yaml_nc = data_config.get("nc")
         yaml_names = data_config.get("names")
+
+        # If no nc in data.yaml, infer it by counting.
+        if yaml_nc is None and yaml_names is not None:
+            yaml_nc = len(yaml_names)
+
         if yaml_nc is not None and yaml_nc != self.nb_classes:
             self._rebuild_for_new_classes(yaml_nc)
 
