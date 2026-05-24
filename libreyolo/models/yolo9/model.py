@@ -258,11 +258,13 @@ class LibreYOLO9(BaseModel):
         Args:
             data: Path to data.yaml file (required).
             epochs: Number of epochs to train.
-            batch: Batch size.
+            batch: Batch size (global — divided by world_size per GPU under DDP).
             imgsz: Input image size.
             lr0: Initial learning rate.
             optimizer: Optimizer name ('SGD', 'Adam', 'AdamW').
-            device: Device to train on ('' = auto-detect).
+            device: Device(s) to train on. Single GPU: ``"0"``; multi-GPU:
+                ``"0,1"`` or ``[0, 1]``. Multi-GPU from a plain script spawns
+                DDP workers automatically (no torchrun required).
             workers: Number of dataloader workers.
             seed: Random seed for reproducibility.
             project: Root directory for training runs.
@@ -272,10 +274,26 @@ class LibreYOLO9(BaseModel):
             amp: Enable automatic mixed precision training.
             patience: Early stopping patience.
             callbacks: Optional training callback or iterable of callbacks.
+                Not propagated to DDP workers when auto-spawning.
 
         Returns:
             Training results dict with final_loss, best_mAP50, best_mAP50_95, etc.
         """
+        from libreyolo.training.distributed import parse_device_arg, has_torchrun_env
+
+        devices = parse_device_arg(device)
+        if len(devices) > 1 and not has_torchrun_env():
+            train_kw = dict(
+                data=data,
+                epochs=epochs, batch=batch, imgsz=imgsz, lr0=lr0,
+                optimizer=optimizer, device=device, workers=workers,
+                seed=seed, project=project, name=name, exist_ok=exist_ok,
+                resume=resume, amp=amp, patience=patience,
+                allow_download_scripts=allow_download_scripts,
+                **kwargs,
+            )
+            return _yolo9_spawn_ddp(self, train_kw, len(devices))
+
         from .trainer import YOLO9Trainer
         from libreyolo.data import load_data_config
 
@@ -355,3 +373,93 @@ class LibreYOLO9(BaseModel):
             self._load_weights(results["best_checkpoint"])
 
         return results
+
+
+# =============================================================================
+# DDP auto-spawn helpers (module-level so mp.spawn can pickle them by name)
+# =============================================================================
+
+
+def _yolo9_ddp_worker(
+    rank: int,
+    nprocs: int,
+    master_addr: str,
+    master_port: int,
+    result_path: str,
+    weights_path: str,
+    init_kw: dict,
+    train_kw: dict,
+) -> None:
+    """Worker function run in each spawned DDP process for YOLO9 training."""
+    import json
+    import os
+    from pathlib import Path
+
+    os.environ["RANK"] = str(rank)
+    os.environ["LOCAL_RANK"] = str(rank)
+    os.environ["WORLD_SIZE"] = str(nprocs)
+    os.environ["MASTER_ADDR"] = master_addr
+    os.environ["MASTER_PORT"] = str(master_port)
+
+    from libreyolo.models.yolo9.model import LibreYOLO9
+
+    model = LibreYOLO9(weights_path, **init_kw)
+    result = model.train(**train_kw)
+
+    if rank == 0:
+        safe = {k: v for k, v in result.items() if isinstance(v, (int, float, str, bool, type(None)))}
+        Path(result_path).write_text(json.dumps(safe))
+
+
+def _yolo9_spawn_ddp(model_instance: "LibreYOLO9", train_kw: dict, nprocs: int) -> dict:
+    """Save weights to a temp file, spawn DDP workers, and collect results."""
+    import json
+    import os
+    import tempfile
+    from pathlib import Path
+
+    import torch
+
+    from libreyolo.training.distributed import spawn_ddp_train
+
+    fd, tmp_weights = tempfile.mkstemp(suffix=".pt")
+    os.close(fd)
+    torch.save(
+        {"model": {k: v.cpu() for k, v in model_instance.model.state_dict().items()}},
+        tmp_weights,
+    )
+
+    init_kw = {
+        "size": model_instance.size,
+        "reg_max": model_instance.reg_max,
+        "num_masks": model_instance.num_masks,
+        "proto_channels": model_instance.proto_channels,
+        "nb_classes": model_instance.nb_classes,
+        "device": "auto",
+        "task": model_instance.task,
+    }
+
+    fd, tmp_result = tempfile.mkstemp(suffix=".json")
+    os.close(fd)
+
+    try:
+        spawn_ddp_train(
+            _yolo9_ddp_worker,
+            spawn_args=(tmp_weights, init_kw, train_kw),
+            nprocs=nprocs,
+            result_path=tmp_result,
+        )
+    finally:
+        Path(tmp_weights).unlink(missing_ok=True)
+
+    result: dict = {}
+    tmp_result_path = Path(tmp_result)
+    if tmp_result_path.exists():
+        result = json.loads(tmp_result_path.read_text())
+        tmp_result_path.unlink()
+
+    best = result.get("best_checkpoint")
+    if best and Path(best).exists():
+        model_instance._load_weights(best)
+
+    return result

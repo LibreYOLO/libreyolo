@@ -271,9 +271,11 @@ class BaseTrainer(ABC):
                 )
             n = len(parse_device_arg(raw_device))
             raise RuntimeError(
-                f"Multi-GPU device {raw_device!r} requires launching with torchrun. "
-                f"Example: `torchrun --nproc_per_node={n} your_script.py`. "
-                "Inside the script, leave your model.train(...) call unchanged."
+                f"Multi-GPU device {raw_device!r} was passed directly to the trainer "
+                "without an active process group. Use the model API instead — it "
+                f"spawns DDP workers automatically: model.train(data=..., device={raw_device!r}). "
+                f"Alternatively launch with torchrun: "
+                f"`torchrun --nproc_per_node={n} your_script.py`."
             )
 
         device_str = str(raw_device).strip().lower() if not isinstance(raw_device, int) else str(raw_device)
