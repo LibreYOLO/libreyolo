@@ -18,6 +18,7 @@ import torch
 
 from .onnx import _get_version, _uses_dfine_style_export_wrapper, export_onnx
 from .torchscript import export_torchscript
+from ..utils.serialization import SCHEMA_VERSION
 
 logger = logging.getLogger(__name__)
 
@@ -462,13 +463,18 @@ class BaseExporter(ABC):
         """Build metadata dict for non-ONNX formats (native Python types)."""
         task, supported_tasks, default_task = self._task_metadata()
         metadata_imgsz = int(imgsz if imgsz is not None else self.model._get_input_size())
+        # TODO(schema-v1.1): keep legacy model_size/nb_classes aliases for one
+        # transition window, then prefer the canonical size/nc keys only.
         meta = {
+            "schema_version": SCHEMA_VERSION,
             "libreyolo_version": _get_version(),
             "model_family": self.model._get_model_name(),
+            "size": self.model.size,
             "model_size": self.model.size,
             "task": task,
             "supported_tasks": supported_tasks,
             "default_task": default_task,
+            "nc": self.model.nb_classes,
             "nb_classes": self.model.nb_classes,
             "names": {str(k): v for k, v in self.model.names.items()},
             "imgsz": metadata_imgsz,
@@ -489,13 +495,18 @@ class BaseExporter(ABC):
         """Build metadata dict for ONNX (all-string values, JSON-encoded names)."""
         task, supported_tasks, default_task = self._task_metadata()
         metadata_imgsz = int(imgsz if imgsz is not None else self.model._get_input_size())
+        # TODO(schema-v1.1): keep legacy model_size/nb_classes aliases for one
+        # transition window, then prefer the canonical size/nc keys only.
         return {
+            "schema_version": SCHEMA_VERSION,
             "libreyolo_version": _get_version(),
             "model_family": self.model._get_model_name(),
+            "size": self.model.size,
             "model_size": self.model.size,
             "task": task,
             "supported_tasks": json.dumps(supported_tasks),
             "default_task": default_task,
+            "nc": str(self.model.nb_classes),
             "nb_classes": str(self.model.nb_classes),
             "names": json.dumps({str(k): v for k, v in self.model.names.items()}),
             "imgsz": str(metadata_imgsz),

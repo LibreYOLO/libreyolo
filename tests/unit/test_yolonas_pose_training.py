@@ -425,9 +425,18 @@ class TestPoseDatasetAndTransforms:
         trainer._save_checkpoint(0, 1.0, val_metrics=None, is_best=False)
 
         ckpt = torch.load(tmp_path / "weights" / "last.pt", map_location="cpu")
+        assert ckpt["schema_version"] == "1.0"
+        assert ckpt["libreyolo_version"]
+        assert ckpt["model_family"] == "yolonas"
+        assert ckpt["size"] == "s"
         assert ckpt["task"] == "pose"
+        assert ckpt["nc"] == 1
+        assert ckpt["names"] == {0: "object"}
+        assert ckpt["imgsz"] == trainer.config.imgsz
         assert ckpt["num_keypoints"] == 4
         assert ckpt["keypoint_dim"] == 3
         assert ckpt["oks_sigmas"] == default_oks_sigmas(4)
+        assert ckpt["best_metric_value"] == ckpt["best_mAP50_95"]
+        assert ckpt["is_ema_weights"] is False
         assert ckpt["best_metric"] == ckpt["best_mAP50_95"]
         assert ckpt["best_metric_name"] == ckpt["best_metric_key"]

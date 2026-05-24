@@ -1,12 +1,16 @@
 """OpenVINO inference backend for LibreYOLO."""
 
+import logging
 from pathlib import Path
 from typing import Dict
 
 import numpy as np
 
 from ..tasks import normalize_supported_tasks, normalize_task, resolve_task
+from ..utils.serialization import warn_on_metadata_schema_version
 from .base import BaseBackend
+
+logger = logging.getLogger(__name__)
 
 
 class OpenVINOBackend(BaseBackend):
@@ -140,9 +144,14 @@ class OpenVINOBackend(BaseBackend):
 
         with open(metadata_path) as f:
             meta = yaml.safe_load(f) or {}
+        warn_on_metadata_schema_version(
+            meta,
+            artifact=f"OpenVINO metadata sidecar {metadata_path}",
+            logger=logger,
+        )
 
         model_family = meta.get("model_family")
-        model_size = meta.get("model_size")
+        model_size = meta.get("model_size") or meta.get("size")
         default_task = normalize_task(meta.get("default_task"), default="detect")
         task = normalize_task(meta.get("task"), default=default_task)
         supported_tasks = normalize_supported_tasks(meta.get("supported_tasks", (task,)))
@@ -150,8 +159,8 @@ class OpenVINOBackend(BaseBackend):
 
         if nb_classes_override is not None:
             nb_classes = nb_classes_override
-        elif "nb_classes" in meta:
-            nb_classes = int(meta["nb_classes"])
+        elif "nb_classes" in meta or "nc" in meta:
+            nb_classes = int(meta.get("nb_classes", meta.get("nc")))
         else:
             nb_classes = 80
 

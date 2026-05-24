@@ -1,6 +1,7 @@
 """TensorRT inference backend for LibreYOLO."""
 
 import json
+import logging
 import re
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
@@ -9,7 +10,10 @@ import numpy as np
 import torch
 
 from ..tasks import normalize_supported_tasks, normalize_task, resolve_task
+from ..utils.serialization import warn_on_metadata_schema_version
 from .base import BaseBackend
+
+logger = logging.getLogger(__name__)
 
 
 class TensorRTBackend(BaseBackend):
@@ -56,12 +60,17 @@ class TensorRTBackend(BaseBackend):
         if sidecar_path.exists():
             with open(sidecar_path) as f:
                 self._metadata = json.load(f)
+        warn_on_metadata_schema_version(
+            self._metadata,
+            artifact=f"TensorRT metadata sidecar {sidecar_path}",
+            logger=logger,
+        )
 
         # Priority: explicit arg > sidecar > default (80)
         resolved_nb_classes = (
             nb_classes
             if nb_classes is not None
-            else self._metadata.get("nb_classes", 80)
+            else self._metadata.get("nb_classes", self._metadata.get("nc", 80))
         )
         model_family = self._metadata.get("model_family")
         default_task = normalize_task(self._metadata.get("default_task"), default="detect")
@@ -69,7 +78,7 @@ class TensorRTBackend(BaseBackend):
         supported_tasks = normalize_supported_tasks(
             self._metadata.get("supported_tasks", (metadata_task,))
         )
-        self._sidecar_size = self._metadata.get("model_size")
+        self._sidecar_size = self._metadata.get("model_size") or self._metadata.get("size")
 
         sidecar_names = self._metadata.get("names")
         if sidecar_names is not None and nb_classes is None:

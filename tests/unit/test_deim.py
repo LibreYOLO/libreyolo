@@ -5,6 +5,8 @@ from __future__ import annotations
 import torch
 import pytest
 
+from libreyolo.utils.serialization import wrap_libreyolo_checkpoint
+
 
 pytestmark = pytest.mark.unit
 
@@ -31,7 +33,7 @@ def test_deim_forward_shapes():
     assert out["pred_boxes"].shape == (1, 300, 4)
 
 
-def test_deim_filename_hint_wins_over_dfine_for_ambiguous_architecture(tmp_path):
+def test_deim_filename_hint_still_loads_upstream_style_checkpoint(tmp_path):
     from libreyolo import LibreDEIM, LibreYOLO
 
     src = LibreDEIM(None, size="n", device="cpu")
@@ -43,7 +45,7 @@ def test_deim_filename_hint_wins_over_dfine_for_ambiguous_architecture(tmp_path)
     assert loaded.size == "n"
 
 
-def test_dfine_filename_hint_wins_over_deim_for_ambiguous_architecture(tmp_path):
+def test_dfine_filename_hint_still_loads_upstream_style_checkpoint(tmp_path):
     from libreyolo import LibreDFINE, LibreYOLO
 
     src = LibreDFINE(None, size="n", device="cpu")
@@ -75,7 +77,18 @@ def test_ec_checkpoint_does_not_trip_dfine_deim_ambiguity(tmp_path):
 
     src = LibreEC(None, size="s", device="cpu")
     ckpt = tmp_path / "ec_s_coco.pth"
-    torch.save({"model": src.model.state_dict()}, ckpt)
+    torch.save(
+        wrap_libreyolo_checkpoint(
+            src.model.state_dict(),
+            model_family="ec",
+            size="s",
+            task="detect",
+            nc=80,
+            names={i: f"class_{i}" for i in range(80)},
+            imgsz=640,
+        ),
+        ckpt,
+    )
 
     loaded = LibreYOLO(str(ckpt), device="cpu")
     assert loaded.FAMILY == "ec"
@@ -88,12 +101,15 @@ def test_deim_metadata_hint_wins_over_dfine_for_libreyolo_checkpoint(tmp_path):
     src = LibreDEIM(None, size="n", device="cpu")
     ckpt = tmp_path / "ambiguous.pt"
     torch.save(
-        {
-            "model": src.model.state_dict(),
-            "model_family": "deim",
-            "size": "n",
-            "nc": 80,
-        },
+        wrap_libreyolo_checkpoint(
+            src.model.state_dict(),
+            model_family="deim",
+            size="n",
+            task="detect",
+            nc=80,
+            names={i: f"class_{i}" for i in range(80)},
+            imgsz=640,
+        ),
         ckpt,
     )
 

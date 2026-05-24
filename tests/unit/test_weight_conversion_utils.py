@@ -14,7 +14,7 @@ WEIGHTS_DIR = Path(__file__).resolve().parents[2] / "weights"
 if str(WEIGHTS_DIR) not in sys.path:
     sys.path.insert(0, str(WEIGHTS_DIR))
 
-import _conversion_utils as conversion_utils
+import _conversion_utils as conversion_utils  # noqa: E402
 
 
 class DummyModel:
@@ -62,17 +62,42 @@ def test_wrap_libreyolo_checkpoint_uses_provided_names():
         {"layer.weight": 1},
         model_family="dfine",
         size="n",
+        task="detect",
         nc=2,
         names={0: "cat", 1: "dog"},
+        imgsz=640,
     )
 
+    assert checkpoint["libreyolo_version"]
+    checkpoint = {k: v for k, v in checkpoint.items() if k != "libreyolo_version"}
     assert checkpoint == {
         "model": {"layer.weight": 1},
+        "schema_version": "1.0",
         "model_family": "dfine",
         "size": "n",
+        "task": "detect",
         "nc": 2,
         "names": {0: "cat", 1: "dog"},
+        "imgsz": 640,
     }
+
+
+def test_wrap_libreyolo_checkpoint_does_not_write_task_catalog_fields():
+    checkpoint = conversion_utils.wrap_libreyolo_checkpoint(
+        {"layer.weight": 1},
+        model_family="ec",
+        size="s",
+        task="pose",
+        nc=1,
+        names={0: "person"},
+        imgsz=640,
+        supported_tasks=("detect", "pose", "segment"),
+        default_task="detect",
+    )
+
+    assert checkpoint["task"] == "pose"
+    assert "supported_tasks" not in checkpoint
+    assert "default_task" not in checkpoint
 
 
 def test_save_checkpoint_creates_parent_directory(tmp_path):
