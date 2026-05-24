@@ -13,8 +13,9 @@ DDP everything is a no-op.
 from __future__ import annotations
 
 import os
+import socket
 from datetime import timedelta
-from typing import List, Optional, Union
+from typing import Any, Callable, List, Optional, Tuple, Union
 
 import torch
 import torch.distributed as dist
@@ -252,6 +253,55 @@ def seed_for_rank(base_seed: int) -> int:
     return base_seed + 1 + get_rank()
 
 
+# =============================================================================
+# Auto-spawn DDP helpers
+# =============================================================================
+
+
+def _find_free_port() -> int:
+    """Bind to port 0 and let the OS pick a free port."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(("", 0))
+        return s.getsockname()[1]
+
+
+def spawn_ddp_train(
+    worker_fn: Callable,
+    spawn_args: Tuple,
+    nprocs: int,
+    result_path: str,
+    master_addr: str = "127.0.0.1",
+    master_port: Optional[int] = None,
+) -> None:
+    """Spawn *nprocs* DDP workers via :func:`torch.multiprocessing.spawn`.
+
+    Each worker is called as::
+
+        worker_fn(rank, nprocs, master_addr, master_port, result_path, *spawn_args)
+
+    The worker is responsible for setting RANK/LOCAL_RANK/WORLD_SIZE/MASTER_*
+    env vars, initialising the process group, running training, and writing a
+    result JSON to *result_path* (rank 0 only).
+
+    This is the internal engine behind the auto-spawn path triggered when a
+    user calls ``model.train(device="0,1")`` from a plain Python script (no
+    torchrun). The model's ``train()`` method calls this helper, collects the
+    result JSON from *result_path*, and returns it to the caller — so the user
+    gets a clean blocking call without any subprocess plumbing.
+    """
+    import torch.multiprocessing as mp
+
+    if master_port is None:
+        master_port = _find_free_port()
+
+    mp.spawn(
+        worker_fn,
+        args=(nprocs, master_addr, master_port, result_path) + spawn_args,
+        nprocs=nprocs,
+        join=True,
+    )
+
+
 __all__ = [
     "DeviceArg",
     "barrier",
@@ -267,6 +317,7 @@ __all__ = [
     "scale_loss_for_ddp",
     "seed_for_rank",
     "shutdown_distributed",
+    "spawn_ddp_train",
     "unwrap_model",
     "wants_distributed",
 ]
