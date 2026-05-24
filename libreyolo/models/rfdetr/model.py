@@ -637,6 +637,7 @@ class LibreRFDETR(BaseModel):
         device = kwargs.get("device", "")
         devices = parse_device_arg(device)
         if len(devices) > 1 and not has_torchrun_env():
+            from libreyolo.training.ddp_spawn import spawn_for_model
             train_kw = dict(
                 data=data,
                 epochs=epochs,
@@ -646,7 +647,7 @@ class LibreRFDETR(BaseModel):
                 resume=resume,
                 **kwargs,
             )
-            return _rfdetr_spawn_ddp(self, train_kw, len(devices))
+            return spawn_for_model(self, train_kw, len(devices), batch_key="batch_size")
 
         output_path = Path(output_dir)
         train_kwargs = dict(kwargs)
@@ -710,108 +711,3 @@ class LibreRFDETR(BaseModel):
 
 
 # =============================================================================
-# DDP auto-spawn helpers (module-level so mp.spawn can pickle them by name)
-# =============================================================================
-
-
-def _rfdetr_ddp_worker(
-    rank: int,
-    nprocs: int,
-    master_addr: str,
-    master_port: int,
-    result_path: str,
-    weights_path: str,
-    init_kw: dict,
-    train_kw: dict,
-) -> None:
-    """Worker function run in each spawned DDP process for RF-DETR training."""
-    import json
-    import os
-    from pathlib import Path
-
-    os.environ["RANK"] = str(rank)
-    os.environ["LOCAL_RANK"] = str(rank)
-    os.environ["WORLD_SIZE"] = str(nprocs)
-    os.environ["MASTER_ADDR"] = master_addr
-    os.environ["MASTER_PORT"] = str(master_port)
-
-    from libreyolo.models.rfdetr.model import LibreRFDETR
-
-    model = LibreRFDETR(weights_path, **init_kw)
-    result = model.train(**train_kw)
-
-    if rank == 0:
-        safe = {k: v for k, v in result.items() if isinstance(v, (int, float, str, bool, type(None)))}
-        Path(result_path).write_text(json.dumps(safe))
-
-
-def _rfdetr_spawn_ddp(model_instance: "LibreRFDETR", train_kw: dict, nprocs: int) -> dict:
-    """Save weights to a temp file, spawn DDP workers, and collect results."""
-    import json
-    import os
-    import tempfile
-    from pathlib import Path
-
-    import torch
-
-    from libreyolo.training.distributed import spawn_ddp_train
-
-    fd, tmp_weights = tempfile.mkstemp(suffix=".pt")
-    os.close(fd)
-    torch.save(
-        {"model": {k: v.cpu() for k, v in model_instance.model.state_dict().items()}},
-        tmp_weights,
-    )
-
-    # Resolve batch_size=-1 here (main process, before spawning) so workers
-    # receive a concrete value and need no inter-process coordination.
-    if train_kw.get("batch_size") == -1:
-        from libreyolo.training.autobatch import autobatch as _autobatch
-
-        probe_device = torch.device("cuda", 0) if torch.cuda.is_available() else torch.device("cpu")
-        model_instance.model.to(probe_device)
-        nbs = train_kw.get("nbs") or 32
-        resolved = _autobatch(
-            model_instance.model,
-            imgsz=train_kw.get("imgsz", 640),
-            amp=train_kw.get("amp", True),
-            max_probe=nbs,
-        )
-        resolved = max(nprocs, (resolved // nprocs) * nprocs)
-        train_kw = {**train_kw, "batch_size": resolved}
-        model_instance.model.cpu()
-        torch.cuda.empty_cache()
-
-    init_kw = {
-        "size": model_instance.size,
-        "nb_classes": model_instance.nb_classes,
-        "device": "auto",
-        "task": model_instance.task,
-    }
-
-    fd, tmp_result = tempfile.mkstemp(suffix=".json")
-    os.close(fd)
-
-    try:
-        spawn_ddp_train(
-            _rfdetr_ddp_worker,
-            spawn_args=(tmp_weights, init_kw, train_kw),
-            nprocs=nprocs,
-            result_path=tmp_result,
-        )
-    finally:
-        Path(tmp_weights).unlink(missing_ok=True)
-
-    result: dict = {}
-    tmp_result_path = Path(tmp_result)
-    if tmp_result_path.exists():
-        result = json.loads(tmp_result_path.read_text())
-        tmp_result_path.unlink()
-
-    best = result.get("best_checkpoint")
-    if best and Path(best).exists():
-        model_instance.model_path = best
-        model_instance._load_weights(best)
-        model_instance.model.to(model_instance.device).eval()
-
-    return result

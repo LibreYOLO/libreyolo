@@ -171,7 +171,12 @@ class DistributionFocalLoss(nn.Module):
 @_weighted
 def _quality_focal_loss(pred, target, beta: float = 2.0, use_sigmoid: bool = True):
     label, score = target  # both shape (N,)
-    func = F.binary_cross_entropy_with_logits if use_sigmoid else F.binary_cross_entropy
+    if use_sigmoid:
+        func = F.binary_cross_entropy_with_logits
+    else:
+        # F.binary_cross_entropy is unsafe under AMP autocast — promote to float32
+        def func(inp, tgt, **kw):
+            return F.binary_cross_entropy(inp.float(), tgt.float(), **kw)
     pred_sigmoid = pred.sigmoid() if use_sigmoid else pred
     scale_factor = pred_sigmoid
     zerolabel = scale_factor.new_zeros(pred.shape)
@@ -290,9 +295,11 @@ class AlignOTAAssigner:
         valid_pred_rep = valid_pred.unsqueeze(1).repeat(1, num_gt, 1)
 
         soft_label = gt_onehot * pairwise_ious[..., None]
-        scale_factor = soft_label - valid_pred_rep
+        valid_pred_rep_f = valid_pred_rep.float()
+        soft_label_f = soft_label.float()
+        scale_factor = soft_label_f - valid_pred_rep_f
         cls_cost = (
-            F.binary_cross_entropy(valid_pred_rep, soft_label, reduction="none")
+            F.binary_cross_entropy(valid_pred_rep_f, soft_label_f, reduction="none")
             * scale_factor.abs().pow(2.0)
         ).sum(dim=-1)
 
