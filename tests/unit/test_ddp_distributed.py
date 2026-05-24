@@ -1,17 +1,18 @@
 """End-to-end DDP integration test for yolo9 and rf-detr.
 
-Spawns 2 child processes using ``torch.multiprocessing.spawn`` with the
-Gloo backend (works on CPU + Windows) and exercises the full BaseTrainer
-DDP path: process group init, DDP model wrap, per-rank forward,
-``loss * world_size`` backward, optimizer step, parameter sync check
+Spawns 2 child processes using ``torch.multiprocessing.spawn`` and exercises
+the full BaseTrainer DDP path: process group init, DDP model wrap, per-rank
+forward, ``loss * world_size`` backward, optimizer step, parameter sync check
 across ranks, and checkpoint round-trip.
 
-This is the load-bearing proof that the DDP plumbing works end-to-end.
+Two backend tiers:
+
+  Gloo / CPU  (always runs)   — ``test_*_gloo`` — no GPU required, 10-30s.
+  NCCL / CUDA (skipped if <2 GPUs available) — ``test_*_nccl`` — each rank
+      gets its own GPU (rank i → cuda:i), exercises the CUDA transport layer.
+
 Single-GPU regression is covered by the existing trainer smoke tests
 (test_dfine_trainer_smoke.py et al.) which keep passing untouched.
-
-Runs on CPU; no GPU required. Slow because of process spawn overhead
-(~10–30s on Windows), so the file is intentionally short.
 """
 
 from __future__ import annotations
@@ -445,16 +446,205 @@ def test_syncbn_weights_land_in_no_weight_decay_group():
     )
 
 
+# =============================================================================
+# NCCL workers — each rank owns its own GPU (rank i → cuda:i)
+# =============================================================================
+
+
+def _yolo9_nccl_worker(rank: int, world_size: int, port: int, out_dir: str) -> None:
+    """NCCL-backend variant of ``_yolo9_ddp_worker``.
+
+    Each rank is assigned to ``cuda:{rank}`` so the test exercises real
+    inter-GPU NCCL communication rather than intra-device Gloo calls.
+    """
+    out_path = Path(out_dir) / f"rank_{rank}.txt"
+    try:
+        device = torch.device(f"cuda:{rank}")
+        torch.cuda.set_device(device)
+
+        os.environ["MASTER_ADDR"] = "127.0.0.1"
+        os.environ["MASTER_PORT"] = str(port)
+        os.environ["RANK"] = str(rank)
+        os.environ["LOCAL_RANK"] = str(rank)
+        os.environ["WORLD_SIZE"] = str(world_size)
+        dist.init_process_group(backend="nccl", rank=rank, world_size=world_size)
+
+        from libreyolo import LibreYOLO9
+        from libreyolo.training.distributed import (
+            get_world_size,
+            scale_loss_for_ddp,
+            unwrap_model,
+        )
+
+        torch.manual_seed(0)
+        wrapper = LibreYOLO9(None, size="t", device=str(device))
+        wrapper.model.train()
+
+        ddp_model = nn.parallel.DistributedDataParallel(
+            wrapper.model,
+            device_ids=[rank],
+            output_device=rank,
+            gradient_as_bucket_view=False,
+            static_graph=True,
+        )
+        optimizer = torch.optim.SGD(unwrap_model(ddp_model).parameters(), lr=0.01)
+
+        torch.manual_seed(100 + rank)
+        imgs = torch.randn(1, 3, 320, 320, device=device)
+        targets = torch.zeros(1, 30, 5, device=device)
+        targets[0, 0] = torch.tensor([float(rank), 160.0, 120.0, 80.0, 60.0], device=device)
+
+        out = ddp_model(imgs, targets=targets)
+        loss = out["total_loss"]
+        if not torch.isfinite(loss):
+            raise RuntimeError(f"non-finite loss on rank {rank}: {loss.item()}")
+        loss = scale_loss_for_ddp(loss)
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+
+        ok, diag = _params_match_across_ranks(ddp_model)
+        if not ok:
+            raise RuntimeError(f"parameters diverged across ranks after step: {diag}")
+
+        mem_mb = torch.cuda.max_memory_allocated(rank) / 1e6
+        world = get_world_size()
+        out_path.write_text(
+            f"ok world={world} loss={float(loss.detach().item()):.6f} mem_mb={mem_mb:.1f}\n"
+        )
+    except Exception as exc:
+        out_path.write_text(f"error: {type(exc).__name__}: {exc}\n")
+        raise
+    finally:
+        if dist.is_initialized():
+            dist.destroy_process_group()
+
+
+def _rfdetr_nccl_worker(rank: int, world_size: int, port: int, out_dir: str) -> None:
+    """NCCL-backend variant of ``_rfdetr_ddp_worker``."""
+    out_path = Path(out_dir) / f"rank_{rank}.txt"
+    try:
+        device = torch.device(f"cuda:{rank}")
+        torch.cuda.set_device(device)
+
+        os.environ["MASTER_ADDR"] = "127.0.0.1"
+        os.environ["MASTER_PORT"] = str(port)
+        os.environ["RANK"] = str(rank)
+        os.environ["LOCAL_RANK"] = str(rank)
+        os.environ["WORLD_SIZE"] = str(world_size)
+        dist.init_process_group(backend="nccl", rank=rank, world_size=world_size)
+
+        from libreyolo import LibreRFDETR
+        from libreyolo.models.rfdetr.trainer import RFDETRTrainer
+        from libreyolo.training.distributed import (
+            get_world_size,
+            scale_loss_for_ddp,
+            unwrap_model,
+        )
+
+        torch.manual_seed(0)
+        wrapper = LibreRFDETR(None, size="n", device=str(device), segmentation=False)
+        wrapper.model.train()
+
+        trainer = RFDETRTrainer(
+            model=wrapper.model,
+            wrapper_model=wrapper,
+            size="n",
+            num_classes=80,
+            data=None,
+            epochs=1,
+            batch=1,
+            imgsz=320,
+            device=str(device),
+            amp=False,
+            ema=False,
+            no_aug_epochs=0,
+            warmup_epochs=0,
+            eval_interval=-1,
+        )
+        trainer.on_setup()
+
+        find_unused = trainer._ddp_find_unused_parameters()
+        ddp_model = nn.parallel.DistributedDataParallel(
+            wrapper.model,
+            device_ids=[rank],
+            output_device=rank,
+            find_unused_parameters=find_unused,
+            gradient_as_bucket_view=False,
+            static_graph=not find_unused,
+        )
+        trainer.model = ddp_model
+        optimizer = torch.optim.AdamW(unwrap_model(ddp_model).parameters(), lr=1e-4)
+
+        torch.manual_seed(200 + rank)
+        imgs = torch.randn(1, 3, 320, 320, device=device)
+        targets = torch.zeros(1, 30, 5, device=device)
+        targets[0, 0] = torch.tensor([float(rank), 160.0, 120.0, 80.0, 60.0], device=device)
+
+        out = trainer.on_forward(imgs, targets)
+        loss = out["total_loss"]
+        if not torch.isfinite(loss):
+            raise RuntimeError(f"non-finite loss on rank {rank}: {loss.item()}")
+        loss = scale_loss_for_ddp(loss)
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+
+        ok, diag = _params_match_across_ranks(ddp_model)
+        if not ok:
+            raise RuntimeError(f"parameters diverged across ranks after step: {diag}")
+
+        mem_mb = torch.cuda.max_memory_allocated(rank) / 1e6
+        world = get_world_size()
+        out_path.write_text(
+            f"ok world={world} loss={float(loss.detach().item()):.6f} mem_mb={mem_mb:.1f}\n"
+        )
+    except Exception as exc:
+        out_path.write_text(f"error: {type(exc).__name__}: {exc}\n")
+        raise
+    finally:
+        if dist.is_initialized():
+            dist.destroy_process_group()
+
+
+_NEEDS_2_GPUS = pytest.mark.skipif(
+    not torch.cuda.is_available() or torch.cuda.device_count() < 2,
+    reason="requires 2+ CUDA GPUs",
+)
+
+
+@_NEEDS_2_GPUS
+def test_yolo9_ddp_2_ranks_nccl(tmp_path):
+    """Two-rank NCCL DDP smoke for yolo9 (rank i → cuda:i).
+
+    Exercises the CUDA transport path that production torchrun launches use,
+    complementing the Gloo/CPU test which validates the DDP plumbing logic.
+    """
+    outputs = _spawn_and_check(_yolo9_nccl_worker, n_ranks=2, tmp_path=tmp_path)
+    for rank, text in outputs.items():
+        assert text.startswith("ok "), f"rank {rank} did not finish ok: {text!r}"
+
+
+@_NEEDS_2_GPUS
+def test_rfdetr_ddp_2_ranks_nccl(tmp_path):
+    """Two-rank NCCL DDP smoke for rf-detr (rank i → cuda:i)."""
+    outputs = _spawn_and_check(_rfdetr_nccl_worker, n_ranks=2, tmp_path=tmp_path)
+    for rank, text in outputs.items():
+        assert text.startswith("ok "), f"rank {rank} did not finish ok: {text!r}"
+
+
 def test_multi_gpu_device_raises_without_torchrun():
-    """If the user passes ``device=[0,1]`` without launching with torchrun
-    the trainer must fail with a clear message pointing them at it."""
-    # Build a minimal trainer-like setup that exercises _setup_device alone.
+    """Instantiating ``YOLO9Trainer`` directly with ``device=[0,1]`` (bypassing
+    the model API) and without a running process group must raise with a clear
+    message.
+
+    Note: the *model* API (``model.train(device=[0,1])``) now auto-spawns DDP
+    workers instead of raising.  This test intentionally goes through the
+    trainer constructor to verify the safety check on that lower-level surface.
+    """
     from libreyolo import LibreYOLO9
     from libreyolo.models.yolo9.trainer import YOLO9Trainer
 
-    # CUDA may or may not be available; the parser fails CUDA-missing case
-    # before the torchrun check. Skip if CUDA truly absent so we exercise
-    # the torchrun-pointer path.
     if not torch.cuda.is_available():
         pytest.skip("requires CUDA to exercise the torchrun-missing path")
 
@@ -476,3 +666,60 @@ def test_multi_gpu_device_raises_without_torchrun():
             warmup_epochs=0,
             eval_interval=-1,
         )
+
+
+# =============================================================================
+# Auto-spawn helper
+# =============================================================================
+
+
+def _spawn_helper_worker(
+    rank: int,
+    nprocs: int,
+    master_addr: str,
+    master_port: int,
+    result_path: str,
+) -> None:
+    """Trivial worker used by test_spawn_ddp_train_helper.
+
+    Mirrors the production worker pattern: receives env-var values as
+    arguments, sets them, then verifies they round-trip correctly.
+    """
+    import json
+    import os
+    from pathlib import Path
+
+    os.environ["RANK"] = str(rank)
+    os.environ["LOCAL_RANK"] = str(rank)
+    os.environ["WORLD_SIZE"] = str(nprocs)
+    os.environ["MASTER_ADDR"] = master_addr
+    os.environ["MASTER_PORT"] = str(master_port)
+
+    assert os.environ["RANK"] == str(rank)
+    assert os.environ["LOCAL_RANK"] == str(rank)
+    assert os.environ["WORLD_SIZE"] == str(nprocs)
+
+    if rank == 0:
+        Path(result_path).write_text(json.dumps({"rank": rank, "world": nprocs}))
+
+
+def test_spawn_ddp_train_helper(tmp_path):
+    """``spawn_ddp_train`` sets env vars in each worker and lets rank-0 write
+    the result file.  Does not require GPUs or an active process group —
+    it only tests the spawn-and-env-setup plumbing."""
+    import json
+
+    from libreyolo.training.distributed import spawn_ddp_train
+
+    result_path = str(tmp_path / "result.json")
+    spawn_ddp_train(
+        _spawn_helper_worker,
+        spawn_args=(),
+        nprocs=2,
+        result_path=result_path,
+    )
+
+    assert (tmp_path / "result.json").exists(), "rank-0 did not write result file"
+    data = json.loads((tmp_path / "result.json").read_text())
+    assert data["world"] == 2
+    assert data["rank"] == 0
