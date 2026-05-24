@@ -506,6 +506,19 @@ class BaseTrainer(ABC):
 
         self.on_setup()
 
+        if getattr(self.config, "batch", 16) == -1:
+            from libreyolo.training.autobatch import resolve_auto_batch
+
+            self.config.batch = resolve_auto_batch(
+                self.model,
+                imgsz=self.config.imgsz,
+                amp=self.config.amp,
+                world_size=self.world_size,
+                nbs=getattr(self.config, "nbs", None),
+            )
+            if is_main_process():
+                logger.info("AutoBatch: resolved global batch size = %d", self.config.batch)
+
         self._setup_data()
         self.optimizer = self._setup_optimizer()
         self.lr_scheduler = self.create_scheduler(self._scheduler_steps_per_epoch())
