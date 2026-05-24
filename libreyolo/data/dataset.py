@@ -32,7 +32,7 @@ def _yolo_coords_to_rings(
     ring = np.array(coords, dtype=np.float32).reshape(-1, 2)
     ring[:, 0] *= width
     ring[:, 1] *= height
-    return _attach_dense_mask([ring], width=width, height=height)
+    return [ring]
 
 
 def _yolo_box_to_ring(cx: float, cy: float, w: float, h: float, width: int, height: int) -> List[np.ndarray]:
@@ -47,11 +47,17 @@ def _yolo_box_to_ring(cx: float, cy: float, w: float, h: float, width: int, heig
     )
     ring[:, 0] = np.clip(ring[:, 0], 0.0, float(width))
     ring[:, 1] = np.clip(ring[:, 1], 0.0, float(height))
-    return _attach_dense_mask([ring], width=width, height=height)
+    return [ring]
 
 
 class DenseMaskRing(np.ndarray):
-    """Polygon ring carrying the original dense mask for mask-aware transforms."""
+    """Polygon ring carrying a dense mask for mask-aware transforms.
+
+    Used when the polygon ring is a lossy approximation of the true mask
+    (e.g., a contour extracted from an RLE-decoded mask). For polygon-sourced
+    annotations the ring is itself exact, so a plain ndarray is stored instead
+    and consumers that need crop-fidelity materialize the mask on demand.
+    """
 
     def __new__(cls, ring: np.ndarray, mask: np.ndarray):
         obj = np.asarray(ring, dtype=np.float32).view(cls)
@@ -67,33 +73,6 @@ class DenseMaskRing(np.ndarray):
         copied = super().copy(order).view(type(self))
         copied.dense_mask = None if self.dense_mask is None else self.dense_mask.copy()
         return copied
-
-
-def _attach_dense_mask(
-    rings: List[np.ndarray],
-    *,
-    width: int,
-    height: int,
-) -> List[np.ndarray]:
-    """Attach a rasterized mask to polygon rings for mask-aware crop transforms."""
-    valid_rings = [
-        np.asarray(ring, dtype=np.float32)
-        for ring in rings
-        if ring is not None and len(ring) >= 3
-    ]
-    if not valid_rings:
-        return rings
-
-    mask = np.zeros((height, width), dtype=np.uint8)
-    polygons = [np.round(ring).astype(np.int32) for ring in valid_rings]
-    cv2.fillPoly(mask, polygons, color=1)
-
-    out = [np.asarray(ring, dtype=np.float32).copy() for ring in rings]
-    for idx, ring in enumerate(out):
-        if ring is not None and len(ring) >= 3:
-            out[idx] = DenseMaskRing(ring, mask)
-            break
-    return out
 
 
 def _mask_to_rings(mask: np.ndarray) -> List[np.ndarray]:
@@ -133,8 +112,6 @@ def _coco_segmentation_to_rings(
                 continue
             ring = np.array(polygon, dtype=np.float32).reshape(-1, 2)
             rings.append(ring)
-        if height is not None and width is not None:
-            return _attach_dense_mask(rings, width=width, height=height)
         return rings
 
     if not isinstance(segmentation, dict):
