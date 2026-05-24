@@ -54,6 +54,9 @@ class TrainConfig:
     epochs: int = 300
     # Global batch size. Under multi-GPU DDP the per-rank batch is
     # ``batch // world_size`` (Ultralytics-mirror semantics).
+    # Set to -1 to enable automatic selection: the trainer probes GPU memory
+    # at small batch sizes, fits a linear model, and picks the largest batch
+    # that fits within 60 % of free VRAM (same approach as Ultralytics).
     batch: int = 16
     # Single device or multi-device spec. Accepts:
     #   - "auto" / "" → auto-pick (cuda → mps → cpu)

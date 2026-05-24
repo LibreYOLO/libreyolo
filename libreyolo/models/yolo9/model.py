@@ -429,6 +429,25 @@ def _yolo9_spawn_ddp(model_instance: "LibreYOLO9", train_kw: dict, nprocs: int) 
         tmp_weights,
     )
 
+    # Resolve batch=-1 here (main process, before spawning) so workers receive
+    # a concrete value and need no inter-process coordination for autobatch.
+    if train_kw.get("batch") == -1:
+        from libreyolo.training.autobatch import autobatch as _autobatch
+
+        probe_device = torch.device("cuda", 0) if torch.cuda.is_available() else torch.device("cpu")
+        model_instance.model.to(probe_device)
+        nbs = train_kw.get("nbs") or 64
+        resolved = _autobatch(
+            model_instance.model,
+            imgsz=train_kw.get("imgsz", 640),
+            amp=train_kw.get("amp", True),
+            max_probe=nbs,
+        )
+        resolved = max(nprocs, (resolved // nprocs) * nprocs)
+        train_kw = {**train_kw, "batch": resolved}
+        model_instance.model.cpu()
+        torch.cuda.empty_cache()
+
     init_kw = {
         "size": model_instance.size,
         "reg_max": model_instance.reg_max,
