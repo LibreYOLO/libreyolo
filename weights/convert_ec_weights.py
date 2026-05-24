@@ -2,9 +2,8 @@
 LibreYOLO format.
 
 Upstream releases ship as ``{"model": state_dict}``. LibreYOLO checkpoints add
-metadata (``model_family``, ``task``, ``supported_tasks``, ``default_task``,
-``nc``, ``size``, ``names``) so the unified ``LibreYOLO()`` factory can route
-without filename heuristics.
+metadata (``model_family``, ``task``, ``nc``, ``size``, ``names``, ``imgsz``)
+so the unified ``LibreYOLO()`` factory can route without filename heuristics.
 
 EC, ECPose, and ECSeg module names already match the LibreEC port
 byte-for-byte, so this is a metadata wrap — no key remapping required.

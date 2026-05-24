@@ -1,7 +1,8 @@
-"""Special commands: version, checks, models, formats, cfg, info."""
+"""Special commands: version, checks, models, formats, cfg, info, metadata."""
 
 import sys
-from typing import Optional
+from pathlib import Path
+from typing import Any, Optional
 
 import typer
 
@@ -14,6 +15,24 @@ from ..output import OutputHandler
 # =========================================================================
 def _get_output(json_output: bool, quiet: bool) -> OutputHandler:
     return OutputHandler(json_mode=json_output, quiet=quiet)
+
+
+def _metadata_value_for_cli(value: Any) -> Any:
+    """Return a compact JSON-safe representation for raw checkpoint metadata."""
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    if isinstance(value, Path):
+        return str(value)
+    if hasattr(value, "shape") and hasattr(value, "dtype"):
+        shape = tuple(int(dim) for dim in getattr(value, "shape", ()))
+        return {"type": type(value).__name__, "shape": shape, "dtype": str(value.dtype)}
+    if isinstance(value, (list, tuple)):
+        return [_metadata_value_for_cli(item) for item in value]
+    if isinstance(value, dict):
+        if len(value) > 200:
+            return {"type": "dict", "keys": len(value)}
+        return {str(key): _metadata_value_for_cli(item) for key, item in value.items()}
+    return str(value)
 
 
 # =========================================================================
@@ -325,3 +344,78 @@ def info_cmd(
         data["_human_text"] = "\n".join(lines)
 
     out.result(data)
+
+
+# =========================================================================
+# metadata
+# =========================================================================
+
+
+def metadata_cmd(
+    path: str = typer.Option(..., help="Path to a .pt checkpoint"),
+    json_output: bool = typer.Option(False, "--json", help="JSON output to stdout"),
+    quiet: bool = typer.Option(False, "--quiet", help="Suppress stderr"),
+) -> None:
+    """Inspect raw LibreYOLO checkpoint metadata without constructing a model."""
+    from libreyolo.utils.serialization import (
+        REQUIRED_CHECKPOINT_METADATA_KEYS,
+        load_untrusted_torch_file,
+        validate_checkpoint_metadata,
+    )
+
+    out = _get_output(json_output, quiet)
+    checkpoint_path = Path(path)
+    if not checkpoint_path.exists():
+        out.error(
+            code="file_not_found",
+            message=f"Checkpoint not found: {path}",
+        )
+        raise typer.Exit(1)
+
+    loaded = load_untrusted_torch_file(
+        checkpoint_path,
+        map_location="cpu",
+        context="checkpoint metadata",
+    )
+    errors = validate_checkpoint_metadata(loaded, strict=False)
+    metadata = {}
+    if isinstance(loaded, dict):
+        metadata = {
+            key: (
+                {"type": "dict", "keys": len(value)}
+                if key in {"train_model", "ema", "optimizer"} and isinstance(value, dict)
+                else _metadata_value_for_cli(value)
+            )
+            for key, value in loaded.items()
+            if key != "model"
+        }
+
+    data = {
+        "path": str(checkpoint_path),
+        "valid": not errors,
+        "errors": errors,
+        "metadata": metadata,
+    }
+    if not json_output:
+        lines = [
+            f"Checkpoint: {checkpoint_path}",
+            f"Valid LibreYOLO metadata: {'yes' if not errors else 'no'}",
+        ]
+        if metadata:
+            lines.append("")
+            lines.append("Metadata:")
+            ordered_keys = [
+                key for key in REQUIRED_CHECKPOINT_METADATA_KEYS if key in metadata
+            ]
+            ordered_keys.extend(key for key in metadata if key not in ordered_keys)
+            for key in ordered_keys:
+                lines.append(f"  {key}: {metadata[key]}")
+        if errors:
+            lines.append("")
+            lines.append("Errors:")
+            lines.extend(f"  - {error}" for error in errors)
+        data["_human_text"] = "\n".join(lines)
+
+    out.result(data)
+    if errors:
+        raise typer.Exit(1)
