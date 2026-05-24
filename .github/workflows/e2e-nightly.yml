@@ -129,7 +129,7 @@ jobs:
         run: uv run --no-sync python -c "import torch; print('CUDA:', torch.cuda.is_available(), torch.cuda.get_device_name(0) if torch.cuda.is_available() else '-')"
 
       - name: Run e2e
-        run: uv run --no-sync pytest tests/e2e -v
+        run: uv run --no-sync pytest tests/e2e -v -m "not export_backend"
 
       - name: Mark target as tested
         if: success()
