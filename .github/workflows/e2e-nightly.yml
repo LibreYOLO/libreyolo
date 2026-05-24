@@ -1,0 +1,157 @@
+# Drop this file into libreyolo at .github/workflows/e2e-nightly.yml
+#
+# SECURITY: do NOT add `pull_request` to the triggers. A self-hosted runner
+# attached to a public repo will execute arbitrary code from fork PRs if
+# pull_request is enabled. Keep triggers limited to schedule + manual.
+
+name: E2E nightly
+
+on:
+  schedule:
+    - cron: '0 3 * * *'   # 03:00 UTC daily
+  workflow_dispatch:
+    inputs:
+      force:
+        description: "Run all targets regardless of SHA cache"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  guard:
+    name: Resolve stale targets
+    runs-on: ubuntu-latest
+    outputs:
+      stale: ${{ steps.diff.outputs.stale }}
+      dev_sha: ${{ steps.resolve.outputs.dev }}
+      main_sha: ${{ steps.resolve.outputs.main }}
+      pypi_ver: ${{ steps.resolve.outputs.pypi }}
+    steps:
+      - id: resolve
+        name: Resolve current SHAs and PyPI version
+        run: |
+          set -euo pipefail
+          DEV_SHA=$(git ls-remote https://github.com/LibreYOLO/libreyolo refs/heads/dev   | cut -f1)
+          MAIN_SHA=$(git ls-remote https://github.com/LibreYOLO/libreyolo refs/heads/main | cut -f1)
+          PYPI_VER=$(curl -fsSL https://pypi.org/pypi/libreyolo/json | jq -r .info.version)
+          echo "dev=$DEV_SHA"   >> "$GITHUB_OUTPUT"
+          echo "main=$MAIN_SHA" >> "$GITHUB_OUTPUT"
+          echo "pypi=$PYPI_VER" >> "$GITHUB_OUTPUT"
+          echo "Resolved: dev=$DEV_SHA main=$MAIN_SHA pypi=$PYPI_VER"
+
+      - id: cache-dev
+        uses: actions/cache@v4
+        with:
+          path: .last-dev
+          key: last-tested-dev-${{ steps.resolve.outputs.dev }}
+
+      - id: cache-main
+        uses: actions/cache@v4
+        with:
+          path: .last-main
+          key: last-tested-main-${{ steps.resolve.outputs.main }}
+
+      - id: cache-pypi
+        uses: actions/cache@v4
+        with:
+          path: .last-pypi
+          key: last-tested-pypi-${{ steps.resolve.outputs.pypi }}
+
+      - id: diff
+        name: Compute stale target list
+        env:
+          FORCE: ${{ inputs.force }}
+          HIT_DEV:  ${{ steps.cache-dev.outputs.cache-hit }}
+          HIT_MAIN: ${{ steps.cache-main.outputs.cache-hit }}
+          HIT_PYPI: ${{ steps.cache-pypi.outputs.cache-hit }}
+        run: |
+          set -euo pipefail
+          if [ "${FORCE:-false}" = "true" ]; then
+            STALE='["dev","main","pypi"]'
+          else
+            STALE_ARR=()
+            [ "${HIT_DEV:-}"  != "true" ] && STALE_ARR+=("dev")
+            [ "${HIT_MAIN:-}" != "true" ] && STALE_ARR+=("main")
+            [ "${HIT_PYPI:-}" != "true" ] && STALE_ARR+=("pypi")
+            if [ ${#STALE_ARR[@]} -eq 0 ]; then
+              STALE='[]'
+            else
+              STALE=$(printf '%s\n' "${STALE_ARR[@]}" | jq -R . | jq -sc .)
+            fi
+          fi
+          echo "stale=$STALE" >> "$GITHUB_OUTPUT"
+          echo "Stale targets: $STALE"
+
+  e2e:
+    name: e2e (${{ matrix.target }})
+    needs: guard
+    if: needs.guard.outputs.stale != '[]'
+    runs-on: [self-hosted, gpu, libreyolo-e2e]
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        target: ${{ fromJSON(needs.guard.outputs.stale) }}
+    steps:
+      - name: Checkout source (dev / main)
+        if: matrix.target != 'pypi'
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ matrix.target }}
+
+      - name: Checkout PyPI tag (pypi target)
+        if: matrix.target == 'pypi'
+        uses: actions/checkout@v4
+        with:
+          ref: v${{ needs.guard.outputs.pypi_ver }}
+
+      - uses: astral-sh/setup-uv@v4
+
+      - name: Create venv
+        run: uv venv --python 3.10
+
+      - name: Install from source (dev / main)
+        if: matrix.target != 'pypi'
+        run: uv pip install --no-sources --torch-backend cu128 --group dev -e ".[rfdetr]"
+
+      - name: Install from PyPI (pypi target)
+        if: matrix.target == 'pypi'
+        run: |
+          # Replace the editable source install with the wheel from PyPI,
+          # pinned to the version we just checked out the tests for.
+          uv pip install --torch-backend cu128 \
+            "libreyolo[rfdetr]==${{ needs.guard.outputs.pypi_ver }}" \
+            pytest
+
+      - name: GPU sanity
+        run: uv run --no-sync python -c "import torch; print('CUDA:', torch.cuda.is_available(), torch.cuda.get_device_name(0) if torch.cuda.is_available() else '-')"
+
+      - name: Run e2e
+        run: uv run --no-sync pytest tests/e2e -v
+
+      - name: Mark target as tested
+        if: success()
+        run: echo "ok ${{ github.run_id }}" > .last-${{ matrix.target }}
+
+      - name: Save tested-SHA cache (dev)
+        if: success() && matrix.target == 'dev'
+        uses: actions/cache/save@v4
+        with:
+          path: .last-dev
+          key: last-tested-dev-${{ needs.guard.outputs.dev_sha }}
+
+      - name: Save tested-SHA cache (main)
+        if: success() && matrix.target == 'main'
+        uses: actions/cache/save@v4
+        with:
+          path: .last-main
+          key: last-tested-main-${{ needs.guard.outputs.main_sha }}
+
+      - name: Save tested-version cache (pypi)
+        if: success() && matrix.target == 'pypi'
+        uses: actions/cache/save@v4
+        with:
+          path: .last-pypi
+          key: last-tested-pypi-${{ needs.guard.outputs.pypi_ver }}
