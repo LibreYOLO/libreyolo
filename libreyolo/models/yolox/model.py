@@ -213,6 +213,19 @@ class LibreYOLOX(BaseModel):
         Returns:
             Training results dict with final_loss, best_mAP50, best_mAP50_95, etc.
         """
+        from libreyolo.training.distributed import parse_device_arg, has_torchrun_env
+        _devices = parse_device_arg(device)
+        if len(_devices) > 1 and not has_torchrun_env():
+            from libreyolo.training.ddp_spawn import spawn_for_model
+            train_kw = dict(
+                data=data, epochs=epochs, batch=batch, imgsz=imgsz, lr0=lr0,
+                optimizer=optimizer, device=device, workers=workers, seed=seed,
+                project=project, name=name, exist_ok=exist_ok, pretrained=pretrained,
+                resume=resume, amp=amp, patience=patience,
+                allow_download_scripts=allow_download_scripts, **kwargs,
+            )
+            return spawn_for_model(self, train_kw, len(_devices))
+
         from .trainer import YOLOXTrainer
         from libreyolo.data import load_data_config
 
