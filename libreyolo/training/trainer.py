@@ -332,10 +332,11 @@ class BaseTrainer(ABC):
         )
         optimizer.add_param_group({"params": pg2, "lr": lr})
 
-        logger.info(f"Optimizer: {opt_name}")
-        logger.info(f"  - pg0 (BN): {len(pg0)} params")
-        logger.info(f"  - pg1 (Conv, wd={self.config.weight_decay}): {len(pg1)} params")
-        logger.info(f"  - pg2 (Bias): {len(pg2)} params")
+        if is_main_process():
+            logger.info(f"Optimizer: {opt_name}")
+            logger.info(f"  - pg0 (BN): {len(pg0)} params")
+            logger.info(f"  - pg1 (Conv, wd={self.config.weight_decay}): {len(pg1)} params")
+            logger.info(f"  - pg2 (Bias): {len(pg2)} params")
         return optimizer
 
     def _get_save_dir(self) -> Path:
@@ -609,10 +610,11 @@ class BaseTrainer(ABC):
         try:
             self.setup()
 
-            logger.info(f"Starting training for {self.config.epochs} epochs")
-            logger.info(f"Model: {self.get_model_tag()}")
-            logger.info(f"Batch size: {self.config.batch}")
-            logger.info(f"Learning rate: {self.effective_lr}")
+            if is_main_process():
+                logger.info(f"Starting training for {self.config.epochs} epochs")
+                logger.info(f"Model: {self.get_model_tag()}")
+                logger.info(f"Batch size: {self.config.batch}")
+                logger.info(f"Learning rate: {self.effective_lr}")
 
             start_event = self._build_train_start_event()
             # Artifact + user callbacks fire on rank 0 only — they write
@@ -623,7 +625,7 @@ class BaseTrainer(ABC):
                 self.callbacks.on_train_start(start_event)
 
             no_aug_start = self.config.epochs - self.config.no_aug_epochs
-            if self.config.no_aug_epochs > 0 and self.start_epoch > no_aug_start:
+            if is_main_process() and self.config.no_aug_epochs > 0 and self.start_epoch > no_aug_start:
                 logger.info(
                     f"Resumed past no-aug threshold (epoch {self.start_epoch} > {no_aug_start}), "
                     f"disabling mosaic/mixup immediately"
@@ -634,9 +636,10 @@ class BaseTrainer(ABC):
                 self.current_epoch = epoch
 
                 if epoch == no_aug_start:
-                    logger.info(
-                        f"Disabling mosaic/mixup for final {self.config.no_aug_epochs} epochs"
-                    )
+                    if is_main_process():
+                        logger.info(
+                            f"Disabling mosaic/mixup for final {self.config.no_aug_epochs} epochs"
+                        )
                     self.on_mosaic_disable()
 
                 epoch_start_time = time.time()
@@ -685,7 +688,7 @@ class BaseTrainer(ABC):
                 if self.is_distributed:
                     import torch.distributed as _dist
 
-                    flag = torch.tensor(int(should_stop), dtype=torch.int)
+                    flag = torch.tensor(int(should_stop), dtype=torch.int, device=self.device)
                     _dist.broadcast(flag, src=0)
                     should_stop = bool(flag.item())
                 if should_stop:
@@ -697,7 +700,8 @@ class BaseTrainer(ABC):
                     break
 
             total_time = time.time() - start_time
-            logger.info(f"Training complete in {total_time / 3600:.2f} hours")
+            if is_main_process():
+                logger.info(f"Training complete in {total_time / 3600:.2f} hours")
 
             results = self._build_train_results()
             end_event = self._build_train_end_event(total_time, results)
