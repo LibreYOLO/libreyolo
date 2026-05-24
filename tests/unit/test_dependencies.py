@@ -1,7 +1,11 @@
 """Tests for declared dependency floors."""
 
 from pathlib import Path
-import tomllib
+
+try:
+    import tomllib
+except ModuleNotFoundError:  # Python 3.10
+    import tomli as tomllib
 
 import pytest
 
