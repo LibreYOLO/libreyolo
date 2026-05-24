@@ -18,6 +18,7 @@
 ## Documentation
 
 - Contributor-facing policy lives in `CONTRIBUTING.md`.
+- Exceptionally important schemas and contracts such as the checkpoint metadata standard live under /docs in the libreyolo repository. They are short and factual.
 
 ## General library constraints
 - Generally every user facing API (Python, yamls, etc) has to follow the Ultralytics YOLO standard
