@@ -174,9 +174,11 @@ def _quality_focal_loss(pred, target, beta: float = 2.0, use_sigmoid: bool = Tru
     if use_sigmoid:
         func = F.binary_cross_entropy_with_logits
     else:
-        # F.binary_cross_entropy is unsafe under AMP autocast — promote to float32
+        # F.binary_cross_entropy is blocked inside AMP autocast regions regardless of dtype.
+        # Step outside autocast and promote to float32.
         def func(inp, tgt, **kw):
-            return F.binary_cross_entropy(inp.float(), tgt.float(), **kw)
+            with torch.amp.autocast("cuda", enabled=False):
+                return F.binary_cross_entropy(inp.float(), tgt.float(), **kw)
     pred_sigmoid = pred.sigmoid() if use_sigmoid else pred
     scale_factor = pred_sigmoid
     zerolabel = scale_factor.new_zeros(pred.shape)
