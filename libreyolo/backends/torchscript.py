@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 
 import numpy as np
@@ -10,7 +11,10 @@ import torch
 
 from ..tasks import normalize_supported_tasks, normalize_task, resolve_task
 from ..utils.general import COCO_CLASSES
+from ..utils.serialization import warn_on_metadata_schema_version
 from .base import BaseBackend
+
+logger = logging.getLogger(__name__)
 
 
 class TorchScriptBackend(BaseBackend):
@@ -47,10 +51,15 @@ class TorchScriptBackend(BaseBackend):
         raw_meta = extra_files.get("libreyolo_metadata.json", "")
         if raw_meta:
             metadata = json.loads(raw_meta)
+        warn_on_metadata_schema_version(
+            metadata,
+            artifact=f"TorchScript metadata for {model_path}",
+            logger=logger,
+        )
 
         input_size = 640
         model_family = metadata.get("model_family")
-        model_size = metadata.get("model_size")
+        model_size = metadata.get("model_size") or metadata.get("size")
         default_task = normalize_task(metadata.get("default_task"), default="detect")
         metadata_task = normalize_task(metadata.get("task"), default=default_task)
         supported_tasks = normalize_supported_tasks(
@@ -67,8 +76,8 @@ class TorchScriptBackend(BaseBackend):
 
         if nb_classes is not None:
             resolved_nb_classes = nb_classes
-        elif "nb_classes" in metadata:
-            resolved_nb_classes = int(metadata["nb_classes"])
+        elif "nb_classes" in metadata or "nc" in metadata:
+            resolved_nb_classes = int(metadata.get("nb_classes", metadata.get("nc")))
         else:
             resolved_nb_classes = 80
 

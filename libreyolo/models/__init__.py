@@ -16,9 +16,20 @@ from .base import BaseModel
 from ..tasks import resolve_task
 from ..utils.download import download_weights
 from ..utils.logging import ensure_default_logging
-from ..utils.serialization import load_untrusted_torch_file
+from ..utils.serialization import (
+    REQUIRED_CHECKPOINT_METADATA_KEYS,
+    validate_checkpoint_metadata,
+    load_untrusted_torch_file,
+)
 
 logger = logging.getLogger(__name__)
+
+_METADATA_CONVERSION_HELP = (
+    "LibreYOLO checkpoints must include metadata keys: "
+    f"{', '.join(REQUIRED_CHECKPOINT_METADATA_KEYS)}. "
+    "Convert upstream weights with the appropriate weights/convert_*.py script "
+    "for that model family, or inspect the file with `libreyolo metadata path=...`."
+)
 
 # =============================================================================
 # Model registry — auto-populated by BaseModel.__init_subclass__
@@ -47,7 +58,7 @@ from .rtdetr.model import LibreRTDETR  # noqa: E402  (registered before LibreRTD
 from .rtdetrv2.model import LibreRTDETRv2  # noqa: E402
 from .damoyolo.model import LibreDAMOYOLO  # noqa: E402
 from .rtmdet.model import LibreRTMDet  # noqa: E402
-from .l2cs.model import LibreL2CS  # noqa: E402
+from .l2cs.model import LibreL2CS  # noqa: E402,F401  (import registers family)
 
 
 def _ensure_rfdetr():
@@ -143,6 +154,17 @@ def _find_registered_family(family: str):
 
 def _matching_model_classes(weights_dict: dict):
     return [cls for cls in BaseModel._registry if cls.can_load(weights_dict)]
+
+
+def _looks_like_libreyolo_filename(model_path: str) -> bool:
+    return Path(model_path).name.lower().startswith("libre")
+
+
+def _has_any_libreyolo_metadata(loaded: object) -> bool:
+    if not isinstance(loaded, dict):
+        return False
+    metadata_keys = set(REQUIRED_CHECKPOINT_METADATA_KEYS) - {"model"}
+    return bool(metadata_keys & set(loaded))
 
 
 # =============================================================================
@@ -279,9 +301,9 @@ def LibreYOLO(
                     "Install with: pip install safetensors"
                 ) from e
 
-            state_dict = load_safetensors_file(model_path, device="cpu")
+            loaded = load_safetensors_file(model_path, device="cpu")
         else:
-            state_dict = load_untrusted_torch_file(
+            loaded = load_untrusted_torch_file(
                 model_path,
                 map_location="cpu",
                 context="model inspection",
@@ -291,7 +313,33 @@ def LibreYOLO(
             f"Failed to load model weights from {model_path}: {e}"
         ) from e
 
-    weights_dict = _unwrap_state_dict(state_dict)
+    metadata_errors = validate_checkpoint_metadata(loaded, strict=False)
+    has_v1_metadata = not metadata_errors
+    has_partial_metadata = _has_any_libreyolo_metadata(loaded)
+    is_legacy_libreyolo = (
+        not has_v1_metadata
+        and isinstance(loaded, dict)
+        and (has_partial_metadata or _looks_like_libreyolo_filename(model_path))
+    )
+    if not has_v1_metadata:
+        if is_legacy_libreyolo:
+            logger.warning(
+                "LibreYOLO checkpoint metadata is missing or incomplete for %s: %s. "
+                "Loading through the legacy compatibility path. %s",
+                model_path,
+                "; ".join(metadata_errors),
+                _METADATA_CONVERSION_HELP,
+            )
+        else:
+            logger.warning(
+                "LibreYOLO metadata was not found in %s. Loading through the "
+                "legacy architecture-detection path. This appears to be an "
+                "upstream or foreign checkpoint, not a LibreYOLO v1.0 checkpoint. %s",
+                model_path,
+                _METADATA_CONVERSION_HELP,
+            )
+
+    weights_dict = _unwrap_state_dict(loaded)
 
     # Ensure RF-DETR is registered if its keys are present, but avoid
     # treating RT-DETR checkpoints as RF-DETR. D-FINE also has
@@ -308,9 +356,9 @@ def LibreYOLO(
     # coexist without one stealing the other's LibreYOLO-format checkpoints.
     matched_cls = None
     metadata_family = (
-        state_dict.get("model_family")
-        if isinstance(state_dict, dict)
-        and isinstance(state_dict.get("model_family"), str)
+        loaded.get("model_family")
+        if isinstance(loaded, dict)
+        and isinstance(loaded.get("model_family"), str)
         else None
     )
     if metadata_family:
@@ -356,7 +404,7 @@ def LibreYOLO(
     if size is None:
         if matched_cls.FAMILY == "rfdetr":
             # RF-DETR needs the full checkpoint for args-based detection
-            size = matched_cls.detect_size(weights_dict, state_dict=state_dict)
+            size = matched_cls.detect_size(weights_dict, state_dict=loaded)
         else:
             size = matched_cls.detect_size(weights_dict)
 
@@ -375,7 +423,7 @@ def LibreYOLO(
     # Checkpoints from our trainers have metadata (nc, names, model_family).
     # For those, pass the file path so _load_weights() handles nc rebuild + names.
     # For old/pretrained checkpoints, pass the extracted state_dict directly.
-    has_metadata = isinstance(state_dict, dict) and "nc" in state_dict
+    has_metadata = has_v1_metadata or has_partial_metadata
 
     # Auto-detect nb_classes.
     #
@@ -393,8 +441,8 @@ def LibreYOLO(
                 nb_classes = 80
 
     checkpoint_task = (
-        state_dict.get("task")
-        if isinstance(state_dict, dict) and isinstance(state_dict.get("task"), str)
+        loaded.get("task")
+        if isinstance(loaded, dict) and isinstance(loaded.get("task"), str)
         else None
     )
     if checkpoint_task is None and matched_cls.FAMILY == "rfdetr":

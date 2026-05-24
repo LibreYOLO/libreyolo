@@ -91,13 +91,10 @@ def strip_state_dict_prefix(
 
 def build_class_names(nc: int) -> dict[int, str]:
     """Return COCO names for 80 classes, else a generic indexed mapping."""
-    if nc == 80:
-        add_repo_root_to_path()
-        from libreyolo.utils.general import COCO_CLASSES
+    add_repo_root_to_path()
+    from libreyolo.utils.serialization import build_class_names as _build_class_names
 
-        return {index: name for index, name in enumerate(COCO_CLASSES)}
-
-    return {index: f"class_{index}" for index in range(nc)}
+    return _build_class_names(nc)
 
 
 def wrap_libreyolo_checkpoint(
@@ -107,33 +104,33 @@ def wrap_libreyolo_checkpoint(
     size: str,
     nc: int,
     names: dict[int, str] | None = None,
-    task: str | None = None,
+    task: str = "detect",
+    imgsz: int | None = None,
     supported_tasks: tuple[str, ...] | list[str] | None = None,
     default_task: str | None = None,
 ) -> dict[str, Any]:
     """Build the standard metadata-wrapped LibreYOLO checkpoint format.
 
-    The optional ``task`` / ``supported_tasks`` / ``default_task`` fields are
-    persisted so backends and the factory can route without sniffing
-    state-dict keys (multi-task families require this).
+    Conversion scripts delegate schema validation to the library helper so
+    trainer, loader, and converter outputs share the same v1.0 contract.
+    ``supported_tasks`` and ``default_task`` are accepted for older converter
+    call sites but are not part of the `.pt` checkpoint schema.
     """
-    if names is None:
-        names = build_class_names(nc)
+    _ = supported_tasks, default_task
+    add_repo_root_to_path()
+    from libreyolo.utils.serialization import (
+        wrap_libreyolo_checkpoint as _wrap_libreyolo_checkpoint,
+    )
 
-    ckpt: dict[str, Any] = {
-        "model": state_dict,
-        "model_family": model_family,
-        "size": size,
-        "nc": nc,
-        "names": names,
-    }
-    if task is not None:
-        ckpt["task"] = task
-    if supported_tasks is not None:
-        ckpt["supported_tasks"] = list(supported_tasks)
-    if default_task is not None:
-        ckpt["default_task"] = default_task
-    return ckpt
+    return _wrap_libreyolo_checkpoint(
+        state_dict,
+        model_family=model_family,
+        size=size,
+        task=task,
+        nc=nc,
+        names=names,
+        imgsz=imgsz,
+    )
 
 
 def save_checkpoint(checkpoint: Any, output_path: str | Path) -> Path:

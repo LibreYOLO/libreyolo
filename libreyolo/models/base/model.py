@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import functools
 import inspect
+import logging
 import re
 from abc import ABC, abstractmethod
 from pathlib import Path
@@ -30,8 +31,14 @@ from ...utils.general import COCO_CLASSES
 from ...utils.image_loader import ImageInput
 from ...utils.logging import ensure_default_logging
 from ...utils.results import Results
-from ...utils.serialization import load_untrusted_torch_file
+from ...utils.serialization import (
+    REQUIRED_CHECKPOINT_METADATA_KEYS,
+    load_untrusted_torch_file,
+    validate_checkpoint_metadata,
+)
 from ...validation.preprocessors import StandardValPreprocessor
+
+logger = logging.getLogger(__name__)
 
 
 # Keys that come from the model wrapper instance (``self.size``,
@@ -425,6 +432,19 @@ class BaseModel(ABC):
             )
 
             if isinstance(loaded, dict):
+                metadata_keys = set(REQUIRED_CHECKPOINT_METADATA_KEYS) - {"model"}
+                if metadata_keys & set(loaded):
+                    metadata_errors = validate_checkpoint_metadata(
+                        loaded,
+                        strict=False,
+                    )
+                    if metadata_errors:
+                        logger.warning(
+                            "LibreYOLO checkpoint metadata is missing or incomplete "
+                            "for %s: %s. Loading through the legacy compatibility path.",
+                            model_path,
+                            "; ".join(metadata_errors),
+                        )
                 if "model" in loaded:
                     state_dict = loaded["model"]
                 elif "state_dict" in loaded:

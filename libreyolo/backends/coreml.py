@@ -21,6 +21,7 @@ from PIL import Image
 from ..tasks import normalize_supported_tasks, normalize_task, resolve_task
 from ..utils.general import COCO_CLASSES
 from ..utils.image_loader import ImageLoader
+from ..utils.serialization import warn_on_metadata_schema_version
 from .base import BaseBackend
 
 logger = logging.getLogger(__name__)
@@ -104,6 +105,11 @@ class CoreMLBackend(BaseBackend):
             if self.model.user_defined_metadata
             else {}
         )
+        warn_on_metadata_schema_version(
+            meta,
+            artifact=f"CoreML metadata for {path}",
+            logger=logger,
+        )
         (
             model_family,
             model_size,
@@ -148,7 +154,7 @@ class CoreMLBackend(BaseBackend):
         output_names: list[str] | None = None,
     ):
         model_family: Optional[str] = meta.get("model_family") or None
-        model_size: Optional[str] = meta.get("model_size") or None
+        model_size: Optional[str] = meta.get("model_size") or meta.get("size") or None
         default_task = normalize_task(meta.get("default_task"), default="detect")
         metadata_task = normalize_task(meta.get("task"), default=default_task)
         supported_tasks = _normalize_metadata_supported_tasks(
@@ -165,9 +171,9 @@ class CoreMLBackend(BaseBackend):
             except (ValueError, TypeError) as e:
                 logger.warning("Failed to parse names metadata: %s", e)
 
-        if names is None and meta.get("nb_classes"):
+        if names is None and (meta.get("nb_classes") or meta.get("nc")):
             try:
-                nc = int(meta["nb_classes"])
+                nc = int(meta.get("nb_classes", meta.get("nc")))
                 names = (
                     {i: n for i, n in enumerate(COCO_CLASSES)}
                     if nc == 80
