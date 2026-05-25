@@ -620,20 +620,7 @@ class LibreRFDETR(BaseModel):
         resume: str | None = None,
         **kwargs,
     ) -> Dict:
-        """Fine-tune RF-DETR through LibreYOLO's native trainer.
-
-        Args:
-            data: Path to data.yaml.
-            epochs: Training epochs.
-            batch_size: Global batch size (divided by world_size per GPU under DDP).
-            lr: Initial learning rate.
-            output_dir: Root output directory.
-            resume: Path to checkpoint to resume from.
-            **kwargs: Extra trainer kwargs, including ``device``. Pass
-                ``device="0,1"`` (or a list) to enable multi-GPU training from
-                a plain Python script — DDP workers are spawned automatically,
-                no torchrun required.
-        """
+        """Fine-tune RF-DETR through LibreYOLO's native trainer."""
         output_path = Path(output_dir)
         train_kwargs = dict(kwargs)
         batch = train_kwargs.pop("batch", None)
