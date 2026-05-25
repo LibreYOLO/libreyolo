@@ -229,13 +229,14 @@ def resolve_auto_batch(
 ) -> int:
     """Run ``autobatch`` on rank 0 and broadcast the result to all ranks.
 
-    Under DDP all ranks call this function; only rank 0 runs the probe.
-    The result is rounded down to the nearest multiple of *world_size* so
-    ``batch // world_size`` gives every rank the same number of samples.
+    The probe runs on a single GPU and returns the per-GPU capacity.  Under
+    DDP that capacity is scaled by *world_size* to form the global batch,
+    capped at *nbs* so the effective batch (global x accumulation steps) never
+    exceeds the nominal batch size.  This means adding GPUs reduces the number
+    of accumulation steps rather than shrinking per-GPU batch size.
 
-    When *nbs* is provided it is used as *max_probe* so the probe covers all
-    batch sizes up to nbs.  The result is a power of 2 which always divides
-    any power-of-2 nbs, so ``accum_steps = nbs // batch`` is exact.
+    When *nbs* is not provided the global batch is simply rounded down to the
+    nearest multiple of *world_size*.
 
     Args:
         model: Model on the target device (not yet DDP-wrapped).
@@ -244,24 +245,26 @@ def resolve_auto_batch(
         fraction: Target fraction of total VRAM (default 0.70).
         world_size: Number of DDP ranks (1 for single-GPU).
         default: Fallback when CUDA is unavailable.
-        nbs: Nominal batch size — used as the upper probe limit.
+        nbs: Nominal batch size — caps the global batch and sets the probe
+            limit so per-GPU capacity never exceeds nbs.
 
     Returns:
-        Global batch size (power of 2), divisible by *world_size* and ≥ 1.
+        Global batch size, divisible by *world_size* and ≥ 1.
     """
+    ws = max(1, world_size)
     max_probe = nbs if (nbs is not None and nbs > 0) else _DEFAULT_MAX_PROBE
 
     if is_main_process():
         try:
-            result = autobatch(
+            per_gpu = autobatch(
                 model, imgsz=imgsz, amp=amp, fraction=fraction,
                 default=default, max_probe=max_probe,
             )
         except Exception as exc:
             logger.warning("AutoBatch: probe failed (%s) — using default %d", exc, default)
-            result = default
+            per_gpu = default
     else:
-        result = 0
+        per_gpu = 0
 
     if is_distributed():
         import torch.distributed as dist
@@ -270,24 +273,27 @@ def resolve_auto_batch(
         # silently on NCCL when rank 0 is delayed; a long tensor broadcast is
         # a simpler and more reliable primitive for a single integer.
         device = next(model.parameters()).device
-        t = torch.tensor([result], dtype=torch.long, device=device)
+        t = torch.tensor([per_gpu], dtype=torch.long, device=device)
         dist.broadcast(t, src=0)
-        result = int(t.item())
+        per_gpu = int(t.item())
 
-    ws = max(1, world_size)
-    result = max(ws, (result // ws) * ws)
+    if nbs is not None and nbs > 0:
+        # Scale per-GPU capacity to global, capped at nbs so that more GPUs
+        # reduce accumulation steps rather than shrinking per-GPU batch.
+        global_batch = min(per_gpu * ws, nbs)
+        # Round down to a multiple of world_size (each rank gets equal share).
+        global_batch = max(ws, (global_batch // ws) * ws)
+        if global_batch > nbs:
+            logger.warning(
+                "AutoBatch: world_size=%d exceeds nbs=%d — global batch is %d. "
+                "Gradient accumulation will not reach the intended effective batch size.",
+                ws, nbs, global_batch,
+            )
+    else:
+        global_batch = max(ws, (per_gpu // ws) * ws)
 
-    if nbs is not None and nbs > 0 and result > nbs:
-        logger.warning(
-            "AutoBatch: world_size=%d exceeds nbs=%d — global batch floored to %d "
-            "(each rank needs at least 1 sample). Gradient accumulation will not "
-            "reach the intended effective batch size.",
-            world_size,
-            nbs,
-            result,
-        )
-
-    return result
+    logger.info("AutoBatch: per-GPU=%d  world_size=%d  global=%d", per_gpu, ws, global_batch)
+    return global_batch
 
 
 __all__ = ["autobatch", "resolve_auto_batch", "_fit_batch_size", "_floor_pow2_strict"]

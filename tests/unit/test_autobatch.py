@@ -348,6 +348,63 @@ def test_trainer_batch_minus1_calls_resolve_auto_batch():
     assert trainer.config.batch == 24
 
 
+# =============================================================================
+# resolve_auto_batch — nbs-aware per-GPU scaling
+# =============================================================================
+
+
+def test_resolve_nbs_1gpu_uses_accumulation():
+    """1 GPU: global = per_gpu (≤ nbs), accumulation makes up the rest."""
+    # per_gpu=16, nbs=32, world_size=1 → global=min(16,32)=16
+    with patch("libreyolo.training.autobatch.autobatch", return_value=16):
+        result = resolve_auto_batch(
+            nn.Linear(4, 2), imgsz=32, amp=False, world_size=1, nbs=32,
+        )
+    assert result == 16  # accumulate=round(32/16)=2 → effective=32=nbs
+
+
+def test_resolve_nbs_2gpu_scales_to_nbs():
+    """2 GPUs: global = per_gpu * world_size capped at nbs — no accumulation needed."""
+    # per_gpu=16, nbs=32, world_size=2 → global=min(32,32)=32
+    with patch("libreyolo.training.autobatch.autobatch", return_value=16):
+        result = resolve_auto_batch(
+            nn.Linear(4, 2), imgsz=32, amp=False, world_size=2, nbs=32,
+        )
+    assert result == 32  # per-rank=16, accumulate=1 → effective=32=nbs
+
+
+def test_resolve_nbs_4gpu_caps_at_nbs():
+    """4 GPUs with headroom: global is capped at nbs, not per_gpu * world_size."""
+    # per_gpu=16, nbs=32, world_size=4 → min(64,32)=32 → round to mult of 4 → 32
+    with patch("libreyolo.training.autobatch.autobatch", return_value=16):
+        result = resolve_auto_batch(
+            nn.Linear(4, 2), imgsz=32, amp=False, world_size=4, nbs=32,
+        )
+    assert result == 32  # per-rank=8, accumulate=1 → effective=32=nbs
+
+
+def test_resolve_nbs_result_divisible_by_world_size():
+    """Global batch is always divisible by world_size."""
+    with patch("libreyolo.training.autobatch.autobatch", return_value=16):
+        for ws in (1, 2, 4, 8):
+            result = resolve_auto_batch(
+                nn.Linear(4, 2), imgsz=32, amp=False, world_size=ws, nbs=64,
+            )
+            assert result % ws == 0, f"world_size={ws}: {result} not divisible"
+
+
+def test_resolve_nbs_world_size_exceeds_nbs_warns(caplog):
+    """world_size > nbs forces global > nbs — a warning must be emitted."""
+    import logging
+    with patch("libreyolo.training.autobatch.autobatch", return_value=4):
+        with caplog.at_level(logging.WARNING, logger="libreyolo.training.autobatch"):
+            result = resolve_auto_batch(
+                nn.Linear(4, 2), imgsz=32, amp=False, world_size=8, nbs=4,
+            )
+    assert result >= 8
+    assert any("world_size" in r.message and "nbs" in r.message for r in caplog.records)
+
+
 @_requires_trainer
 def test_trainer_explicit_batch_skips_resolve():
     """Explicit batch > 0 must never trigger autobatch."""

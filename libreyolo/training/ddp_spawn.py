@@ -127,19 +127,19 @@ def spawn_for_model(
     # Resolve batch=-1 here (main process, before spawning) so every worker
     # receives a concrete integer and needs no inter-process coordination.
     if train_kw.get(batch_key) == -1:
-        from libreyolo.training.autobatch import autobatch as _autobatch
+        from libreyolo.training.autobatch import resolve_auto_batch
 
         probe_device = torch.device("cuda", 0) if torch.cuda.is_available() else torch.device("cpu")
         model_instance.model.to(probe_device)
         nbs = train_kw.get("nbs") or 64
         imgsz = train_kw.get("imgsz") or getattr(model_instance, "input_size", None) or 640
-        resolved = _autobatch(
+        resolved = resolve_auto_batch(
             model_instance.model,
             imgsz=int(imgsz),
             amp=bool(train_kw.get("amp", True)),
-            max_probe=nbs,
+            world_size=nprocs,
+            nbs=nbs,
         )
-        resolved = max(nprocs, (resolved // nprocs) * nprocs)
         train_kw = {**train_kw, batch_key: resolved}
         model_instance.model.cpu()
         torch.cuda.empty_cache()
