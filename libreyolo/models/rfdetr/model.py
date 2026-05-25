@@ -708,6 +708,3 @@ class LibreRFDETR(BaseModel):
             self.model.to(self.device).eval()
 
         return result
-
-
-# =============================================================================
