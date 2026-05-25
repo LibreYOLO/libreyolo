@@ -8,6 +8,7 @@ from typing import Any, Dict, Optional, Tuple
 
 import torch
 import torch.nn as nn
+from libreyolo.training.ddp_spawn import ddp_aware
 
 from ..base import BaseModel
 from ...tasks import normalize_task
@@ -359,6 +360,7 @@ class LibreYOLONAS(BaseModel):
                 f"Failed to load YOLO-NAS weights from {model_path}: {e}"
             ) from e
 
+    @ddp_aware()
     def train(
         self,
         data: str,
@@ -406,18 +408,6 @@ class LibreYOLONAS(BaseModel):
                 patience=patience,
                 **kwargs,
             )
-
-        from libreyolo.training.distributed import parse_device_arg, has_torchrun_env
-        _devices = parse_device_arg(device)
-        if len(_devices) > 1 and not has_torchrun_env():
-            from libreyolo.training.ddp_spawn import spawn_for_model
-            train_kw = dict(
-                data=data, epochs=epochs, batch=batch, imgsz=imgsz, lr0=lr0,
-                optimizer=optimizer, device=device, workers=workers, seed=seed,
-                project=project, name=name, exist_ok=exist_ok, resume=resume,
-                amp=amp, patience=patience, **kwargs,
-            )
-            return spawn_for_model(self, train_kw, len(_devices))
 
         name = name or "yolonas_exp"
         from libreyolo.data import load_data_config

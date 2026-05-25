@@ -8,6 +8,7 @@ from typing import Optional
 
 import torch
 import torch.nn as nn
+from libreyolo.training.ddp_spawn import ddp_aware
 
 from ...training.config import RTDETRv4Config
 from ..dfine.model import LibreDFINE
@@ -49,6 +50,7 @@ class LibreRTDETRv4(LibreDFINE):
             activation="silu",
         )
 
+    @ddp_aware()
     def train(
         self,
         data: str,
@@ -68,18 +70,6 @@ class LibreRTDETRv4(LibreDFINE):
         patience: int = 50,
         **kwargs,
     ) -> dict:
-        from libreyolo.training.distributed import parse_device_arg, has_torchrun_env
-        _devices = parse_device_arg(device)
-        if len(_devices) > 1 and not has_torchrun_env():
-            from libreyolo.training.ddp_spawn import spawn_for_model
-            train_kw = dict(
-                data=data, epochs=epochs, batch=batch, imgsz=imgsz, lr0=lr0,
-                device=device, workers=workers, seed=seed, project=project,
-                name=name, exist_ok=exist_ok, resume=resume, amp=amp,
-                patience=patience, **kwargs,
-            )
-            return spawn_for_model(self, train_kw, len(_devices))
-
         from libreyolo.data import load_data_config
 
         from .trainer import RTDETRv4Trainer

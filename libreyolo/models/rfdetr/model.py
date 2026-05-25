@@ -6,6 +6,7 @@ from typing import Any, ClassVar, Dict, Optional, Tuple
 import numpy as np
 import torch
 import torch.nn as nn
+from libreyolo.training.ddp_spawn import ddp_aware
 from PIL import Image
 
 from ..base import BaseModel
@@ -608,6 +609,7 @@ class LibreRFDETR(BaseModel):
         """Run RF-DETR validation with a Windows-safe worker default."""
         return super().val(*args, workers=workers, **kwargs)
 
+    @ddp_aware(batch_key="batch_size")
     def train(
         self,
         data: str,
@@ -632,23 +634,6 @@ class LibreRFDETR(BaseModel):
                 a plain Python script — DDP workers are spawned automatically,
                 no torchrun required.
         """
-        from libreyolo.training.distributed import parse_device_arg, has_torchrun_env
-
-        device = kwargs.get("device", "")
-        devices = parse_device_arg(device)
-        if len(devices) > 1 and not has_torchrun_env():
-            from libreyolo.training.ddp_spawn import spawn_for_model
-            train_kw = dict(
-                data=data,
-                epochs=epochs,
-                batch_size=batch_size,
-                lr=lr,
-                output_dir=output_dir,
-                resume=resume,
-                **kwargs,
-            )
-            return spawn_for_model(self, train_kw, len(devices), batch_key="batch_size")
-
         output_path = Path(output_dir)
         train_kwargs = dict(kwargs)
         batch = train_kwargs.pop("batch", None)

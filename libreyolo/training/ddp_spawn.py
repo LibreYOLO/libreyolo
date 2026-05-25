@@ -16,6 +16,7 @@ worker (RANK env var is set).
 """
 from __future__ import annotations
 
+import functools
 import inspect
 import json
 import logging
@@ -186,4 +187,60 @@ def spawn_for_model(
     return result
 
 
-__all__ = ["spawn_for_model", "_libreyolo_ddp_worker", "_build_init_kw"]
+# ---------------------------------------------------------------------------
+# DDP-aware decorator
+# ---------------------------------------------------------------------------
+
+
+def ddp_aware(batch_key: str = "batch", experimental_key: str | None = None):
+    """Decorator that adds automatic DDP spawn to a model ``train()`` method.
+
+    When the decorated method is called with a multi-GPU device spec from
+    outside a torchrun process, it captures all arguments via
+    :mod:`inspect`, delegates to :func:`spawn_for_model`, and returns the
+    result without running the method body on the calling process.
+
+    Args:
+        batch_key: Key in the captured kwargs that holds the batch size.
+            Defaults to ``"batch"``; RF-DETR uses ``"batch_size"``.
+        experimental_key: If set, names a boolean kwarg (e.g.
+            ``"allow_experimental"``) that must be truthy before DDP spawn
+            is attempted. When it is falsy the decorator falls through to
+            the function body immediately, letting the body raise its own
+            validation error on the main process rather than inside a
+            spawned worker.
+    """
+    def decorator(train_fn):
+        @functools.wraps(train_fn)
+        def wrapper(self, *args, **kwargs):
+            from libreyolo.training.distributed import parse_device_arg, has_torchrun_env
+
+            sig = inspect.signature(train_fn)
+            bound = sig.bind(self, *args, **kwargs)
+            bound.apply_defaults()
+
+            train_kw: dict = {}
+            for k, v in bound.arguments.items():
+                if k == "self":
+                    continue
+                elif k == "kwargs":  # **kwargs parameter — flatten into train_kw
+                    train_kw.update(v)
+                else:
+                    train_kw[k] = v
+
+            device = train_kw.get("device", "")
+            devices = parse_device_arg(device)
+            if len(devices) > 1 and not has_torchrun_env():
+                if experimental_key and not train_kw.get(experimental_key, True):
+                    # Guard not satisfied — fall through so the function body
+                    # raises its validation error cleanly on the main process.
+                    return train_fn(self, *args, **kwargs)
+                return spawn_for_model(self, train_kw, len(devices), batch_key=batch_key)
+
+            return train_fn(self, *args, **kwargs)
+
+        return wrapper
+    return decorator
+
+
+__all__ = ["ddp_aware", "spawn_for_model", "_libreyolo_ddp_worker", "_build_init_kw"]

@@ -6,6 +6,7 @@ from typing import Any, Dict, Optional, Tuple
 
 import torch
 import torch.nn as nn
+from libreyolo.training.ddp_spawn import ddp_aware
 from PIL import Image
 
 from ..base import BaseModel
@@ -231,6 +232,7 @@ class LibreYOLO9(BaseModel):
     # Public API
     # =========================================================================
 
+    @ddp_aware()
     def train(
         self,
         data: str,
@@ -274,27 +276,11 @@ class LibreYOLO9(BaseModel):
             amp: Enable automatic mixed precision training.
             patience: Early stopping patience.
             callbacks: Optional training callback or iterable of callbacks.
-                Not propagated to DDP workers when auto-spawning.
+                Must be picklable when using DDP auto-spawn.
 
         Returns:
             Training results dict with final_loss, best_mAP50, best_mAP50_95, etc.
         """
-        from libreyolo.training.distributed import parse_device_arg, has_torchrun_env
-
-        devices = parse_device_arg(device)
-        if len(devices) > 1 and not has_torchrun_env():
-            from libreyolo.training.ddp_spawn import spawn_for_model
-            train_kw = dict(
-                data=data,
-                epochs=epochs, batch=batch, imgsz=imgsz, lr0=lr0,
-                optimizer=optimizer, device=device, workers=workers,
-                seed=seed, project=project, name=name, exist_ok=exist_ok,
-                resume=resume, amp=amp, patience=patience,
-                allow_download_scripts=allow_download_scripts,
-                **kwargs,
-            )
-            return spawn_for_model(self, train_kw, len(devices))
-
         from .trainer import YOLO9Trainer
         from libreyolo.data import load_data_config
 

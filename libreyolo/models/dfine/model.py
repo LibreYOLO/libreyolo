@@ -8,6 +8,7 @@ from typing import Any, Dict, Optional, Tuple
 
 import torch
 import torch.nn as nn
+from libreyolo.training.ddp_spawn import ddp_aware
 
 from ...utils.image_loader import ImageInput
 from ...validation.preprocessors import DFINEValPreprocessor
@@ -174,6 +175,7 @@ class LibreDFINE(BaseModel):
         # regenerated at forward time from eval_spatial_size. Tolerate drift.
         return False
 
+    @ddp_aware()
     def train(
         self,
         data: str,
@@ -198,18 +200,6 @@ class LibreDFINE(BaseModel):
         For v1 inference-only usage, just don't call this. To fine-tune from
         upstream weights, pass ``data="coco128.yaml"`` (or your own data yaml).
         """
-        from libreyolo.training.distributed import parse_device_arg, has_torchrun_env
-        _devices = parse_device_arg(device)
-        if len(_devices) > 1 and not has_torchrun_env():
-            from libreyolo.training.ddp_spawn import spawn_for_model
-            train_kw = dict(
-                data=data, epochs=epochs, batch=batch, imgsz=imgsz, lr0=lr0,
-                device=device, workers=workers, seed=seed, project=project,
-                name=name, exist_ok=exist_ok, resume=resume, amp=amp,
-                patience=patience, **kwargs,
-            )
-            return spawn_for_model(self, train_kw, len(_devices))
-
         from libreyolo.data import load_data_config
 
         from .trainer import DFINETrainer

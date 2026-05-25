@@ -7,6 +7,7 @@ from typing import Any, Dict, Optional, Tuple
 
 import torch
 import torch.nn as nn
+from libreyolo.training.ddp_spawn import ddp_aware
 
 from ...tasks import normalize_task
 from ...utils.image_loader import ImageInput
@@ -262,6 +263,7 @@ class LibreEC(BaseModel):
         # forward time. Mirror the D-FINE policy.
         return False
 
+    @ddp_aware(experimental_key="allow_experimental")
     def train(
         self,
         data: str,
@@ -312,18 +314,6 @@ class LibreEC(BaseModel):
                 "validated: full fine-tune convergence, multi-GPU, the "
                 "stop_aug_epoch best-reload trick, Obj365→COCO class remap."
             )
-
-        from libreyolo.training.distributed import parse_device_arg, has_torchrun_env
-        _devices = parse_device_arg(device)
-        if len(_devices) > 1 and not has_torchrun_env():
-            from libreyolo.training.ddp_spawn import spawn_for_model
-            train_kw = dict(
-                data=data, allow_experimental=allow_experimental, epochs=epochs,
-                batch=batch, imgsz=imgsz, lr0=lr0, device=device, workers=workers,
-                seed=seed, project=project, name=name, exist_ok=exist_ok,
-                resume=resume, amp=amp, patience=patience, **kwargs,
-            )
-            return spawn_for_model(self, train_kw, len(_devices))
 
         from pathlib import Path
 

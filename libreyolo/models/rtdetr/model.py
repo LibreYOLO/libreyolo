@@ -8,6 +8,7 @@ from typing import Any, Dict, Optional, Tuple
 import numpy as np
 import torch
 import torch.nn as nn
+from libreyolo.training.ddp_spawn import ddp_aware
 from PIL import Image
 
 from ..base import BaseModel
@@ -472,6 +473,7 @@ class LibreRTDETR(BaseModel):
         """Export model. RTDETR requires opset >= 17 for deformable attention (F.grid_sample)."""
         return super().export(format, opset=opset, **kwargs)
 
+    @ddp_aware()
     def train(
         self,
         data: str,
@@ -523,21 +525,6 @@ class LibreRTDETR(BaseModel):
         Returns:
             Training results dict with final_loss, best_mAP50, best_mAP50_95, etc.
         """
-        from libreyolo.training.distributed import parse_device_arg, has_torchrun_env
-        _devices = parse_device_arg(device)
-        if len(_devices) > 1 and not has_torchrun_env():
-            from libreyolo.training.ddp_spawn import spawn_for_model
-            train_kw = dict(
-                data=data, epochs=epochs, batch=batch, imgsz=imgsz, lr0=lr0,
-                lr_backbone=lr_backbone, optimizer=optimizer, scheduler=scheduler,
-                device=device, workers=workers, seed=seed, project=project,
-                name=name, exist_ok=exist_ok, pretrained=pretrained, resume=resume,
-                amp=amp, patience=patience,
-                allow_download_scripts=allow_download_scripts, callbacks=callbacks,
-                **kwargs,
-            )
-            return spawn_for_model(self, train_kw, len(_devices))
-
         trainer_cls = self._get_trainer_class()
         from libreyolo.data import load_data_config
 

@@ -7,6 +7,7 @@ from typing import Any, Dict, Optional, Tuple
 
 import torch
 import torch.nn as nn
+from libreyolo.training.ddp_spawn import ddp_aware
 from PIL import Image
 
 from ...training.config import PICODETConfig
@@ -150,6 +151,7 @@ class LibrePICODET(BaseModel):
 
     # ---- training --------------------------------------------------------
 
+    @ddp_aware(experimental_key="allow_experimental")
     def train(
         self,
         data: str,
@@ -199,20 +201,6 @@ class LibrePICODET(BaseModel):
                 "export. What's NOT validated: small-dataset fine-tune "
                 "convergence, multi-GPU, augmentation policy beyond hflip."
             )
-        from libreyolo.training.distributed import parse_device_arg, has_torchrun_env
-        _devices = parse_device_arg(device)
-        if len(_devices) > 1 and not has_torchrun_env():
-            from libreyolo.training.ddp_spawn import spawn_for_model
-            train_kw = dict(
-                data=data, allow_experimental=allow_experimental, epochs=epochs,
-                batch=batch, imgsz=imgsz, lr0=lr0, optimizer=optimizer,
-                device=device, workers=workers, seed=seed, project=project,
-                name=name, exist_ok=exist_ok, pretrained=pretrained, resume=resume,
-                amp=amp, patience=patience,
-                allow_download_scripts=allow_download_scripts, **kwargs,
-            )
-            return spawn_for_model(self, train_kw, len(_devices))
-
         from pathlib import Path
 
         from libreyolo.data import load_data_config
