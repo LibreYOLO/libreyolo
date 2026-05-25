@@ -118,12 +118,21 @@ def spawn_for_model(
     """
     from libreyolo.training.distributed import spawn_ddp_train
 
-    fd, tmp_weights = tempfile.mkstemp(suffix=".pt")
-    os.close(fd)
-    torch.save(
-        {"model": {k: v.cpu() for k, v in model_instance.model.state_dict().items()}},
-        tmp_weights,
-    )
+    # When resuming, workers must load from the real checkpoint so that
+    # trainer.resume() can read 'epoch', 'optimizer', etc.  The temp-weights
+    # file only carries {"model": ...} which lacks those keys.
+    resuming = bool(train_kw.get("resume")) and getattr(model_instance, "model_path", None)
+    if resuming:
+        tmp_weights = str(model_instance.model_path)
+        tmp_weights_to_delete = None
+    else:
+        fd, tmp_weights = tempfile.mkstemp(suffix=".pt")
+        os.close(fd)
+        torch.save(
+            {"model": {k: v.cpu() for k, v in model_instance.model.state_dict().items()}},
+            tmp_weights,
+        )
+        tmp_weights_to_delete = tmp_weights
 
     # Resolve batch=-1 here (main process, before spawning) so every worker
     # receives a concrete integer and needs no inter-process coordination.
@@ -159,7 +168,8 @@ def spawn_for_model(
             result_path=tmp_result,
         )
     finally:
-        Path(tmp_weights).unlink(missing_ok=True)
+        if tmp_weights_to_delete:
+            Path(tmp_weights_to_delete).unlink(missing_ok=True)
 
     result: dict = {}
     tmp_result_path = Path(tmp_result)
