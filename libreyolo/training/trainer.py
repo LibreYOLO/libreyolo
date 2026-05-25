@@ -528,10 +528,10 @@ class BaseTrainer(ABC):
         self._setup_data()
         self.optimizer = self._setup_optimizer()
         self.lr_scheduler = self.create_scheduler(self._scheduler_steps_per_epoch())
-        self._initialize_scheduler_lr()
 
         # resume() may be called before setup() when the optimizer doesn't exist
-        # yet. Apply the deferred state now so momentum buffers and LR are restored.
+        # yet. Apply the deferred state now so momentum buffers are restored before
+        # _initialize_scheduler_lr() sets the correct LR on top.
         if getattr(self, "_resume_optimizer_state", None) is not None:
             try:
                 self.optimizer.load_state_dict(self._resume_optimizer_state)
@@ -540,6 +540,8 @@ class BaseTrainer(ABC):
                 logger.warning(f"Could not load deferred optimizer state: {e}")
             finally:
                 self._resume_optimizer_state = None
+
+        self._initialize_scheduler_lr()
 
         # DDP wrap AFTER optimizer setup so _setup_optimizer's
         # named_parameters() sees the raw model. EMA below also reads the
@@ -1012,11 +1014,6 @@ class BaseTrainer(ABC):
     def _initialize_scheduler_lr(self) -> None:
         if self.optimizer is None or self.lr_scheduler is None:
             return
-        warmup_iters = getattr(self.lr_scheduler, "warmup_iters", 0)
-        if warmup_iters is None or warmup_iters <= 0:
-            return
-        # When resuming, fast-forward to the correct schedule position rather
-        # than resetting to the warmup-start LR.
         init_iter = getattr(self, "start_epoch", 0) * self._scheduler_steps_per_epoch()
         self._set_optimizer_lr(self.lr_scheduler.update_lr(init_iter))
 
@@ -1575,3 +1572,9 @@ class BaseTrainer(ABC):
             f"Resumed from epoch {self.start_epoch} "
             f"(will train to epoch {self.config.epochs})"
         )
+
+        # setup() may have already run (immediate path: setup → resume). Re-sync
+        # the LR now that start_epoch is known — _initialize_scheduler_lr() is
+        # idempotent and fast-forwards to the correct schedule position.
+        if self.lr_scheduler is not None and self.train_loader is not None:
+            self._initialize_scheduler_lr()
