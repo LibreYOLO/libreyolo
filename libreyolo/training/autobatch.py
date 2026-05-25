@@ -183,7 +183,7 @@ def autobatch(
         logger.warning("AutoBatch: non-positive slope — keeping batch=%d", default)
         return default
 
-    raw = (target_gib - intercept) / slope
+    raw = min((target_gib - intercept) / slope, max_probe)
     result = _floor_pow2_strict(raw)
     result = max(1, min(result, _BATCH_SAFE_MAX))
 
@@ -276,6 +276,17 @@ def resolve_auto_batch(
 
     ws = max(1, world_size)
     result = max(ws, (result // ws) * ws)
+
+    if nbs is not None and nbs > 0 and result > nbs:
+        logger.warning(
+            "AutoBatch: world_size=%d exceeds nbs=%d — global batch floored to %d "
+            "(each rank needs at least 1 sample). Gradient accumulation will not "
+            "reach the intended effective batch size.",
+            world_size,
+            nbs,
+            result,
+        )
+
     return result
 
 
