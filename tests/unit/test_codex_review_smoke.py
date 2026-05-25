@@ -14,3 +14,7 @@ def test_codex_review_smoke_second_push():
 
 def test_codex_review_smoke_configured_push():
     assert "codex".upper() == "CODEX"
+
+
+def test_codex_review_smoke_post_confirmed_config():
+    assert len("review") == 6
