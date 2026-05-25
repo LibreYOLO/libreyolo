@@ -10,3 +10,7 @@ def test_codex_review_smoke_branch_exists():
 
 def test_codex_review_smoke_second_push():
     assert 1 + 1 == 2
+
+
+def test_codex_review_smoke_configured_push():
+    assert "codex".upper() == "CODEX"
