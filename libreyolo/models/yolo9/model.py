@@ -260,13 +260,11 @@ class LibreYOLO9(BaseModel):
         Args:
             data: Path to data.yaml file (required).
             epochs: Number of epochs to train.
-            batch: Batch size (global — divided by world_size per GPU under DDP).
+            batch: Batch size.
             imgsz: Input image size.
             lr0: Initial learning rate.
             optimizer: Optimizer name ('SGD', 'Adam', 'AdamW').
-            device: Device(s) to train on. Single GPU: ``"0"``; multi-GPU:
-                ``"0,1"`` or ``[0, 1]``. Multi-GPU from a plain script spawns
-                DDP workers automatically (no torchrun required).
+            device: Device to train on ('' = auto-detect).
             workers: Number of dataloader workers.
             seed: Random seed for reproducibility.
             project: Root directory for training runs.
@@ -276,7 +274,6 @@ class LibreYOLO9(BaseModel):
             amp: Enable automatic mixed precision training.
             patience: Early stopping patience.
             callbacks: Optional training callback or iterable of callbacks.
-                Must be picklable when using DDP auto-spawn.
 
         Returns:
             Training results dict with final_loss, best_mAP50, best_mAP50_95, etc.
