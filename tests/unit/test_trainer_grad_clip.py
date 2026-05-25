@@ -280,3 +280,69 @@ def test_invalid_clip_max_norm_raises(clip_max_norm):
 
     with pytest.raises(ValueError, match="clip_max_norm"):
         trainer._get_clip_max_norm()
+
+
+def test_initialize_scheduler_lr_fastforwards_on_resume():
+    """On resume, _initialize_scheduler_lr fast-forwards past warmup instead of resetting to iter 0."""
+    trainer, param, _ = _build_trainer(clip_max_norm=0.0)
+    trainer.optimizer = torch.optim.SGD(
+        [{"params": [param], "lr": 0.1, "lr_mult": 1.0}],
+        lr=0.1,
+    )
+    trainer._scale_lr = lambda base_lr, group: base_lr * group.get("lr_mult", 1.0)
+
+    class WarmupScheduler:
+        warmup_iters = 4
+
+        def update_lr(self, iters):
+            # Warmup-start (iter 0) is near-zero; post-warmup (iter > 4) is 0.1.
+            return 0.0001 if iters == 0 else 0.1
+
+    trainer.lr_scheduler = WarmupScheduler()
+    # Simulate a resume from epoch 5 (warmup is long past).
+    # OneBatchLoader has len=1, so steps_per_epoch=1, init_iter=5.
+    trainer.start_epoch = 5
+
+    trainer._initialize_scheduler_lr()
+
+    # Must use post-warmup LR, not the near-zero warmup-start.
+    assert trainer.optimizer.param_groups[0]["lr"] == pytest.approx(0.1)
+
+
+def test_resume_before_setup_defers_optimizer_state(tmp_path):
+    """Optimizer state is deferred when resume() is called before setup() exists."""
+    # Build a trainer and do one step to populate SGD momentum buffers.
+    trainer, param, _ = _build_trainer(clip_max_norm=0.0)
+    param.grad = torch.ones_like(param)
+    trainer.optimizer.step()
+    saved_lr = trainer.optimizer.param_groups[0]["lr"]
+    saved_opt_state = trainer.optimizer.state_dict()
+
+    # Persist a minimal checkpoint (validate_checkpoint_metadata warns but doesn't raise).
+    ckpt_path = tmp_path / "last.pt"
+    torch.save(
+        {
+            "model": trainer.model.state_dict(),
+            "epoch": 2,
+            "optimizer": saved_opt_state,
+        },
+        ckpt_path,
+    )
+
+    # New trainer with no optimizer yet (simulates pre-setup() state).
+    trainer2, param2, _ = _build_trainer(clip_max_norm=0.0)
+    trainer2.optimizer = None
+
+    trainer2.resume(str(ckpt_path))
+
+    # State must be deferred, not silently dropped.
+    assert getattr(trainer2, "_resume_optimizer_state", None) is not None
+    assert trainer2.start_epoch == 3
+
+    # Simulate what setup() does: create optimizer then apply deferred state.
+    trainer2.optimizer = torch.optim.SGD([param2], lr=0.9)  # wrong LR on purpose
+    trainer2.optimizer.load_state_dict(trainer2._resume_optimizer_state)
+    trainer2._resume_optimizer_state = None
+
+    # The restored optimizer must carry the saved LR, not the initialisation LR.
+    assert trainer2.optimizer.param_groups[0]["lr"] == pytest.approx(saved_lr)

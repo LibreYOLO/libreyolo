@@ -514,6 +514,17 @@ class BaseTrainer(ABC):
         self.lr_scheduler = self.create_scheduler(self._scheduler_steps_per_epoch())
         self._initialize_scheduler_lr()
 
+        # resume() may be called before setup() when the optimizer doesn't exist
+        # yet. Apply the deferred state now so momentum buffers and LR are restored.
+        if getattr(self, "_resume_optimizer_state", None) is not None:
+            try:
+                self.optimizer.load_state_dict(self._resume_optimizer_state)
+                logger.info("Optimizer state restored from resume checkpoint")
+            except Exception as e:
+                logger.warning(f"Could not load deferred optimizer state: {e}")
+            finally:
+                self._resume_optimizer_state = None
+
         # DDP wrap AFTER optimizer setup so _setup_optimizer's
         # named_parameters() sees the raw model. EMA below also reads the
         # raw model — ModelEMA already unwraps via is_parallel() check.
@@ -985,7 +996,10 @@ class BaseTrainer(ABC):
         warmup_iters = getattr(self.lr_scheduler, "warmup_iters", 0)
         if warmup_iters is None or warmup_iters <= 0:
             return
-        self._set_optimizer_lr(self.lr_scheduler.update_lr(0))
+        # When resuming, fast-forward to the correct schedule position rather
+        # than resetting to the warmup-start LR.
+        init_iter = getattr(self, "start_epoch", 0) * self._scheduler_steps_per_epoch()
+        self._set_optimizer_lr(self.lr_scheduler.update_lr(init_iter))
 
     def _gradient_clip_parameters(self) -> List[torch.nn.Parameter]:
         if self.optimizer is None:
@@ -1483,12 +1497,17 @@ class BaseTrainer(ABC):
 
         self.start_epoch = checkpoint["epoch"] + 1
 
-        if self.optimizer is not None and "optimizer" in checkpoint:
-            try:
-                self.optimizer.load_state_dict(checkpoint["optimizer"])
-                logger.info("Optimizer state restored")
-            except Exception as e:
-                logger.warning(f"Could not load optimizer state: {e}")
+        if "optimizer" in checkpoint:
+            if self.optimizer is not None:
+                try:
+                    self.optimizer.load_state_dict(checkpoint["optimizer"])
+                    logger.info("Optimizer state restored")
+                except Exception as e:
+                    logger.warning(f"Could not load optimizer state: {e}")
+            else:
+                # setup() hasn't run yet — defer until the optimizer exists.
+                self._resume_optimizer_state = checkpoint["optimizer"]
+                logger.info("Optimizer state deferred until after setup()")
 
         if "best_metric_value" in checkpoint or "best_mAP50_95" in checkpoint:
             checkpoint_metric_key = checkpoint.get("best_metric_key", "metrics/mAP50-95")
