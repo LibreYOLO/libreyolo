@@ -56,7 +56,7 @@ class TrainConfig:
     # ``batch // world_size`` (Ultralytics-mirror semantics).
     # Set to -1 to enable automatic selection: the trainer probes GPU memory
     # at small batch sizes, fits a linear model, and picks the largest batch
-    # that fits within 60 % of free VRAM (same approach as Ultralytics).
+    # that fits within 70 % of total VRAM.
     batch: int = 16
     # Single device or multi-device spec. Accepts:
     #   - "auto" / "" → auto-pick (cuda → mps → cpu)

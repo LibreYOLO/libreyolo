@@ -374,6 +374,3 @@ class LibreYOLO9(BaseModel):
             self._load_weights(results["best_checkpoint"])
 
         return results
-
-
-# =============================================================================
