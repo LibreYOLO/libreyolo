@@ -16,8 +16,14 @@ def test_rfdetr_extra_uses_native_dependencies():
     pyproject = tomllib.loads(Path("pyproject.toml").read_text())
     deps = pyproject["project"]["optional-dependencies"]["rfdetr"]
     assert "transformers>=4.40.0" in deps
-    assert "scipy>=1.7.0" in deps
+    assert "scipy>=1.7.0" not in deps
     assert all(not dep.startswith("rfdetr") for dep in deps)
+
+
+def test_core_dependencies_include_import_chain_requirements():
+    pyproject = tomllib.loads(Path("pyproject.toml").read_text())
+    deps = pyproject["project"]["dependencies"]
+    assert "scipy>=1.7.0" in deps
 
 
 def test_torch_floor_supports_weights_only_load():

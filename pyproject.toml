@@ -38,7 +38,6 @@ onnx = [
 ]
 rfdetr = [
     "transformers>=4.40.0",
-    "scipy>=1.7.0",
 ]
 tensorrt = [
     # No CUDA on macOS; marker drops these. Version pin must match the
@@ -53,10 +52,8 @@ ncnn = [
     "pnnx",
     "ncnn",
 ]
-tracking = [
-    "scipy>=1.7.0",
-]
-rtdetr = ["scipy>=1.7.0"]
+tracking = []
+rtdetr = []
 gaze = [
     # Enables best-effort auto-download of the L2CS Gaze360 checkpoint from
     # the official Google Drive (large-file confirm-token handling). Without

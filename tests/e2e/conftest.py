@@ -3,6 +3,7 @@
 import gc
 import multiprocessing
 import os
+import re
 from functools import lru_cache
 from pathlib import Path
 
@@ -41,80 +42,18 @@ def _repo_python_env() -> dict[str, str]:
 multiprocessing.set_start_method("spawn", force=True)
 
 
-def pytest_configure(config):
-    """Register custom markers (e2e marker registered in root conftest)."""
-    config.addinivalue_line(
-        "markers",
-        "general_nightly: broad nightly inference checks across all model families",
-    )
-    config.addinivalue_line(
-        "markers",
-        "flagship_nightly: heavier nightly checks for flagship YOLO9/RF-DETR models",
-    )
-    config.addinivalue_line(
-        "markers",
-        "export_backend: tests covering an export backend or serialized runtime format",
-    )
-    config.addinivalue_line(
-        "markers",
-        "supported_backend: tests covering a release-blocking supported backend",
-    )
-    config.addinivalue_line(
-        "markers", "experimental_backend: tests covering an experimental backend"
-    )
-    config.addinivalue_line("markers", "onnx: tests covering ONNX export or inference")
-    config.addinivalue_line(
-        "markers", "torchscript: tests covering TorchScript export or inference"
-    )
-    config.addinivalue_line("markers", "tensorrt: tests requiring TensorRT")
-    config.addinivalue_line(
-        "markers", "trt: alias for TensorRT tests requiring TensorRT"
-    )
-    config.addinivalue_line("markers", "openvino: tests requiring OpenVINO")
-    config.addinivalue_line("markers", "ncnn: tests requiring ncnn")
-    config.addinivalue_line("markers", "yolox: tests covering the YOLOX model family")
-    config.addinivalue_line("markers", "yolo9: tests covering the YOLO9 model family")
-    config.addinivalue_line(
-        "markers", "yolo9_e2e: tests covering the YOLOv9-E2E model family"
-    )
-    config.addinivalue_line(
-        "markers", "yolonas: tests covering the YOLO-NAS model family"
-    )
-    config.addinivalue_line(
-        "markers", "rfdetr: tests covering the RF-DETR model family"
-    )
-    config.addinivalue_line("markers", "dfine: tests covering the D-FINE model family")
-    config.addinivalue_line("markers", "deim: tests covering the DEIM model family")
-    config.addinivalue_line("markers", "deimv2: tests covering the DEIMv2 model family")
-    config.addinivalue_line(
-        "markers", "ec: tests covering the EC (EdgeCrafter) model family"
-    )
-    config.addinivalue_line(
-        "markers", "rtdetr: tests covering the RT-DETR model family"
-    )
-    config.addinivalue_line(
-        "markers", "rtdetrv2: tests covering the RT-DETRv2 model family"
-    )
-    config.addinivalue_line(
-        "markers", "rtdetrv4: tests covering the RT-DETRv4 model family"
-    )
-    config.addinivalue_line(
-        "markers", "picodet: tests covering the PICODET model family"
-    )
-    config.addinivalue_line(
-        "markers", "damoyolo: tests covering the DAMO-YOLO model family"
-    )
-    config.addinivalue_line("markers", "rtmdet: tests covering the RTMDet model family")
-    config.addinivalue_line("markers", "l2cs: tests covering the L2CS gaze family")
-    config.addinivalue_line("markers", "slow: slow tests that may take several minutes")
-    config.addinivalue_line("markers", "rf1: RF1 training tests")
-    config.addinivalue_line("markers", "rf5: RF5 training benchmark tests")
+def _marker_expr_selects_nightly(marker_expr: str) -> bool:
+    tokens = re.findall(r"\bnot\b|\b[A-Za-z_][A-Za-z0-9_]*\b", marker_expr)
+    for index, token in enumerate(tokens):
+        if token in _NIGHTLY_MARKERS and (index == 0 or tokens[index - 1] != "not"):
+            return True
+    return False
 
 
 def pytest_report_header(config):
     """Print the versioned nightly contract when a nightly marker is selected."""
     marker_expr = getattr(config.option, "markexpr", "") or ""
-    if "nightly" in marker_expr:
+    if _marker_expr_selects_nightly(marker_expr):
         return nightly_summary_line()
     return None
 
@@ -137,6 +76,7 @@ def pytest_runtest_makereport(item, call):
 
     reason = str(report.longrepr)
     report.outcome = "failed"
+    # Pytest accepts a string longrepr here; keep the CI failure compact.
     report.longrepr = (
         f"Nightly-selected tests must execute, not skip.\nOriginal skip: {reason}"
     )
