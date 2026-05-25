@@ -230,35 +230,24 @@ class Vec2Box:
             preds_anc: (B, total_anchors, reg_max, 4) - raw anchor distributions
             preds_box: (B, total_anchors, 4) - decoded boxes in xyxy (pixel coords)
         """
-
-        # Extract batch size, device, and dtype from the first prediction
-        B = predicts[0].shape[0]
-        device = predicts[0].device
-        dtype = predicts[0].dtype
-        
-        # Calculate total anchors from our pre-generated grid
-        total_anchors = self.anchor_grid.shape[0]
+        preds_cls_list = []
+        preds_anc_list = []
+        preds_box_list = []
         box_channels = 4 * self.reg_max
-
-        # Pre-allocate empty tensors on the GPU
-        preds_cls = torch.empty((B, total_anchors, self.num_classes), dtype=dtype, device=device)
-        preds_anc = torch.empty((B, total_anchors, 4, self.reg_max), dtype=dtype, device=device)
-        preds_box = torch.empty((B, total_anchors, 4), dtype=dtype, device=device)
-
-        start_idx = 0
+        
+        # Optimization: Extract device for lazy cache initialization
+        device = predicts[0].device
 
         for pred in predicts:
-            _, _, H, W = pred.shape
-            num_anchors_level = H * W
-            end_idx = start_idx + num_anchors_level
+            B, C, H, W = pred.shape
 
             # Split channels: box (4*reg_max) | class (nc)
-            pred_box_raw = pred[:, :box_channels, :, :]
-            pred_cls_raw = pred[:, box_channels:, :, :]
+            pred_box_raw = pred[:, :box_channels, :, :]  # (B, 4*reg_max, H, W)
+            pred_cls = pred[:, box_channels:, :, :]  # (B, nc, H, W)
 
             # Reshape class predictions: (B, nc, H, W) -> (B, H*W, nc)
-            pred_cls = pred_cls_raw.permute(0, 2, 3, 1).reshape(B, H * W, -1)
-            preds_cls[:, start_idx:end_idx, :] = pred_cls
+            pred_cls = pred_cls.permute(0, 2, 3, 1).reshape(B, H * W, -1)
+            preds_cls_list.append(pred_cls)
 
             # Reshape box predictions for DFL: (B, 4*reg_max, H, W) -> (B, H*W, 4, reg_max)
             # Format: (B, anchors, 4, reg_max) matches YOLO repo for DFL loss
@@ -266,26 +255,27 @@ class Vec2Box:
             pred_anc = pred_anc.permute(0, 3, 4, 1, 2).reshape(
                 B, H * W, 4, self.reg_max
             )
-            preds_anc[:, start_idx:end_idx, :, :] = pred_anc
+            preds_anc_list.append(pred_anc)
 
             # Decode boxes using DFL (softmax + weighted sum)
             # (B, H*W, 4, reg_max) -> softmax over reg_max -> (B, H*W, 4)
             pred_dist = F.softmax(pred_anc, dim=3)
-
-            # Create a cache for tensor once (or whenever AMP kicks in), otherwise use cache.
+            # Weighted sum: multiply by [0, 1, 2, ..., reg_max-1]
+            
+            # --- HYBRID OPTIMIZATION: Lazy init cache for DFL projection ---
             if self.proj is None or self.proj.dtype != pred_dist.dtype:
                 self.proj = torch.arange(
                     self.reg_max, dtype=pred_dist.dtype, device=device
                 )
-            
-            # Weighted sum: multiply by [0, 1, 2, ..., reg_max-1]
-            # proj = torch.arange(self.reg_max, dtype=pred_dist.dtype, device=pred_dist.device)
-            # pred_box = (pred_dist * proj.view(1, 1, 1, -1)).sum(dim=3)  # (B, H*W, 4)
-            preds_box[:, start_idx:end_idx, :] = (pred_dist * self.proj.view(1, 1, 1, -1)).sum(dim=3)
+            pred_box = (pred_dist * self.proj.view(1, 1, 1, -1)).sum(dim=3)  # (B, H*W, 4)
+            preds_box_list.append(pred_box)
 
-            start_idx = end_idx
-
-        # (Note: Concatenation across scales removed in favor of pre-allocated tensors)
+        # Concatenate across scales
+        preds_cls = torch.cat(preds_cls_list, dim=1)  # (B, total_anchors, nc)
+        preds_anc = torch.cat(preds_anc_list, dim=1)  # (B, total_anchors, 4, reg_max)
+        preds_box = torch.cat(
+            preds_box_list, dim=1
+        )  # (B, total_anchors, 4) - LTRB distances
 
         # Convert LTRB distances to xyxy coordinates (pixel space)
         # pred_box is in "grid units", scale by stride

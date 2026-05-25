@@ -366,9 +366,12 @@ class YOLO9MosaicMixupDataset:
         idx2 = random.randint(0, len(self.dataset) - 1)
         img2, labels2, _, _ = self._get_normal_item(idx2)
 
-        # Mix images. Use cv2.addWeighted
+        # Mix images. Use in-place NumPy operations.
         r = float(np.random.beta(32.0, 32.0))
-        img = cv2.addWeighted(img, r, img2, 1.0 - r, 0.0)
+        # Operate without allocating intermediate arrays in RAM
+        np.multiply(img, r, out=img)          # Overwrite img with (img * r)
+        np.multiply(img2, 1.0 - r, out=img2)  # Overwrite img2 with (img2 * (1 - r))
+        np.add(img, img2, out=img)            # Overwrite img with the final sum
 
         # Concatenate labels (from both images)
         if labels2 is not None and len(labels2) > 0 and labels2[0, 0] >= 0:

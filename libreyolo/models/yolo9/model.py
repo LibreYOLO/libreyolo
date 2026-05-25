@@ -113,9 +113,24 @@ class LibreYOLO9(BaseModel):
     # =========================================================================
 
     def _init_model(self) -> nn.Module:
-        return LibreYOLO9Model(
+        model = LibreYOLO9Model(
             config=self.size, reg_max=self.reg_max, nb_classes=self.nb_classes
         )
+
+        # --- THE ULTIMATE HOOK ---
+        # Intercept any direct calls to the raw PyTorch model's load_state_dict
+        original_load = model.load_state_dict
+
+        def patched_load(state_dict, strict=True, assign=False):
+            print("\n[HOOK] Intercepted direct load_state_dict call! Routing to peeler...")
+            # Force the dictionary through our aggressive peeler
+            clean_dict = self._prepare_state_dict(state_dict)
+            # Pass the scrubbed dictionary back to the original PyTorch loader
+            return original_load(clean_dict, strict=strict, assign=assign)
+
+        # Bind our custom loader to the model instance
+        model.load_state_dict = patched_load
+        return model
 
     def _get_available_layers(self) -> Dict[str, nn.Module]:
         return {
@@ -136,16 +151,60 @@ class LibreYOLO9(BaseModel):
         }
 
     def _strict_loading(self) -> bool:
-        return False
+        return True
 
     def _prepare_state_dict(self, state_dict: dict) -> dict:
-        """Remap legacy 'detect.*' keys to 'head.*' for backward compatibility."""
+        """Remap legacy keys, handle DFL, and aggressively peel compiler/trainer prefixes."""
         remapped = {}
+        scrubbed_count = 0  # Track how many keys were altered
+        
+        # --- 1. DEBUG: Print the first 3 keys to see checkpoint structure ---
+        keys_list = list(state_dict.keys())
+        if len(keys_list) > 0:
+            print("\n[DEBUG] Found these keys inside the incoming checkpoint (showing first 3):")
+            for k in keys_list[:3]:
+                print(f"  - {k}")
+            print("-" * 50)
+
+        # --- 2. AGGRESSIVE PREFIX PEELER ---
         for key, value in state_dict.items():
-            new_key = (
-                key.replace("detect.", "head.", 1) if key.startswith("detect.") else key
-            )
+            new_key = key
+            
+            # Keep peeling wrapper until raw architecture ('backbone', 'neck', etc.)
+            prefixes = ["_orig_mod.", "module.", "model.", "ema."]
+            peeling = True
+            while peeling:
+                peeling = False
+                for p in prefixes:
+                    if new_key.startswith(p):
+                        new_key = new_key[len(p):] # Strip the prefix
+                        peeling = True # Check again in case it's nested (e.g. ema.module.model.)
+            
+            # Remap legacy detect to head
+            if new_key.startswith("detect."):
+                new_key = new_key.replace("detect.", "head.", 1)
+                
+            # If the key changed at all during peeling or remapping, tally it
+            if new_key != key:
+                scrubbed_count += 1
+                
             remapped[new_key] = value
+
+        # --- 3. DFL Compat (Allow older weights to work with new DFL non-Conv2d method) ---
+        dfl_patched = False
+        if "head.dfl.conv.weight" in remapped and "head.dfl.project" not in remapped:
+            print("[HOOK] Transforming legacy DFL Conv2d weights into modern tensor math buffer...")
+            conv_weight = remapped.pop("head.dfl.conv.weight")
+            remapped["head.dfl.project"] = conv_weight.view(-1).clone()
+            dfl_patched = True
+
+        # --- 4. REPORT STATUS ---
+        if scrubbed_count == 0 and not dfl_patched:
+            print("[HOOK] Loaded weights are OK! No prefix peeling or DFL translations were needed.\n")
+        elif scrubbed_count > 0:
+            print(f"[HOOK] Successfully scrubbed prefixes from {scrubbed_count} layers.\n")
+        elif dfl_patched and scrubbed_count == 0:
+            print("[HOOK] Prefixes were OK! DFL module required a translation.\n")
         return remapped
 
     def _rebuild_for_new_classes(self, new_nc: int):
