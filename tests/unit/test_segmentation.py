@@ -634,6 +634,51 @@ class TestPolygonLabelParsing:
         assert masks[0].sum() == pytest.approx(float(expected.sum()))
         assert np.array_equal(masks[0] > 0, expected > 0)
 
+    def test_rfdetr_crop_lazily_materializes_plain_polygon_mask(self, monkeypatch):
+        import cv2
+
+        from libreyolo.models.rfdetr.seg_transforms import RFDETRSegTransform
+
+        monkeypatch.setattr(
+            "libreyolo.models.rfdetr.seg_transforms.random.random", lambda: 0.0
+        )
+        monkeypatch.setattr(
+            "libreyolo.models.rfdetr.seg_transforms.random.choice", lambda seq: seq[0]
+        )
+
+        randint_values = iter([20, 10, 10])
+        monkeypatch.setattr(
+            "libreyolo.models.rfdetr.seg_transforms.random.randint",
+            lambda _a, _b: next(randint_values),
+        )
+
+        image = np.zeros((40, 40, 3), dtype=np.uint8)
+        targets = np.array([[0, 0, 40, 40, 0]], dtype=np.float32)
+        ring = np.array([[0, 0], [40, 20], [0, 40]], dtype=np.float32)
+        segments = [[ring]]
+        transform = RFDETRSegTransform(
+            max_labels=4,
+            flip_prob=0.0,
+            imgsz=40,
+            crop_resize_prob=1.0,
+            crop_intermediate_sizes=(40,),
+            crop_min_size=20,
+            crop_max_size=20,
+        )
+
+        _, _, masks = transform(image, targets, (40, 40), segments)
+
+        dense = np.zeros((40, 40), dtype=np.uint8)
+        cv2.fillPoly(dense, [ring.astype(np.int32)], color=1)
+        expected = cv2.resize(
+            dense[10:30, 10:30],
+            (40, 40),
+            interpolation=cv2.INTER_NEAREST,
+        )
+        assert masks[0].sum() == pytest.approx(float(expected.sum()))
+        assert np.array_equal(masks[0] > 0, expected > 0)
+        assert getattr(ring, "dense_mask", None) is None
+
     def test_coco_dataset_preserves_multiple_segment_rings(self, tmp_path):
         import json
 
