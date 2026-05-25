@@ -182,9 +182,10 @@ When loading via `LibreYOLO("...")`, the task is resolved with this priority
 explicit task=    →    checkpoint["task"]    →    filename suffix    →    family DEFAULT_TASK
 ```
 
-The factory additionally inspects state-dict keys for multi-task families
-(e.g. presence of `decoder.keypoint_embedding.weight` → `pose` for `ec`)
-so a raw upstream checkpoint without a `task` field still routes correctly.
+Official LibreYOLO v1.0 checkpoints must carry `task` metadata; see
+[`checkpoint_schema.md`](checkpoint_schema.md). State-dict key inspection is a
+legacy compatibility path for old LibreYOLO checkpoints, not the standard for
+new artifacts.
 
 ## Filename regex
 

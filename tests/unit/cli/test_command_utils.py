@@ -19,6 +19,7 @@ from libreyolo.cli.command_utils import (
 )
 from libreyolo.cli.parsing import KeyValueCommand
 from libreyolo.utils.results import Boxes, Masks, Results
+from libreyolo.utils.serialization import wrap_libreyolo_checkpoint
 
 pytestmark = pytest.mark.unit
 
@@ -98,6 +99,83 @@ def test_info_unknown_model_exits_with_model_error_code():
     assert result.exit_code == 4
     data = json.loads(result.stdout)
     assert data["error"] == "model_not_found"
+
+
+def test_metadata_command_inspects_checkpoint_without_loading_model(tmp_path):
+    app = _make_app([("metadata", special.metadata_cmd), ("info", special.info_cmd)])
+    checkpoint_path = tmp_path / "model.pt"
+    torch.save(
+        wrap_libreyolo_checkpoint(
+            {"layer.weight": torch.ones(1)},
+            model_family="yolo9",
+            size="t",
+            task="detect",
+            nc=1,
+            names={0: "object"},
+            imgsz=640,
+        ),
+        checkpoint_path,
+    )
+
+    result = runner.invoke(
+        app,
+        ["metadata", f"path={checkpoint_path}", "--json"],
+    )
+
+    assert result.exit_code == 0
+    data = json.loads(result.stdout)
+    assert data["valid"] is True
+    assert data["metadata"]["schema_version"] == "1.0"
+    assert data["metadata"]["task"] == "detect"
+
+
+def test_metadata_command_shows_training_fields(tmp_path):
+    app = _make_app([("metadata", special.metadata_cmd), ("info", special.info_cmd)])
+    checkpoint_path = tmp_path / "last.pt"
+    torch.save(
+        wrap_libreyolo_checkpoint(
+            {"layer.weight": torch.ones(1)},
+            model_family="yolo9",
+            size="t",
+            task="detect",
+            nc=1,
+            names={0: "object"},
+            imgsz=640,
+            epoch=3,
+            best_metric_value=0.5,
+            is_ema_weights=False,
+            train_model={"layer.weight": torch.ones(1)},
+        ),
+        checkpoint_path,
+    )
+
+    result = runner.invoke(
+        app,
+        ["metadata", f"path={checkpoint_path}", "--json"],
+    )
+
+    assert result.exit_code == 0
+    data = json.loads(result.stdout)
+    assert data["metadata"]["epoch"] == 3
+    assert data["metadata"]["best_metric_value"] == 0.5
+    assert data["metadata"]["is_ema_weights"] is False
+    assert data["metadata"]["train_model"] == {"type": "dict", "keys": 1}
+
+
+def test_metadata_command_exits_nonzero_for_invalid_checkpoint(tmp_path):
+    app = _make_app([("metadata", special.metadata_cmd), ("info", special.info_cmd)])
+    checkpoint_path = tmp_path / "bad.pt"
+    torch.save({"model": {"layer.weight": torch.ones(1)}}, checkpoint_path)
+
+    result = runner.invoke(
+        app,
+        ["metadata", f"path={checkpoint_path}", "--json"],
+    )
+
+    assert result.exit_code == 1
+    data = json.loads(result.stdout)
+    assert data["valid"] is False
+    assert "missing required key: schema_version" in data["errors"]
 
 
 # ---------------------------------------------------------------------------

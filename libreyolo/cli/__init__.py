@@ -82,7 +82,7 @@ def entrypoint() -> None:
     from .parsing import KeyValueCommand
 
     # Special commands
-    for cmd_name in ("version", "checks", "models", "formats", "cfg", "info"):
+    for cmd_name in ("version", "checks", "models", "formats", "cfg", "info", "metadata"):
         app.command(cmd_name, cls=KeyValueCommand)(getattr(special, f"{cmd_name}_cmd"))
 
     # Core mode commands

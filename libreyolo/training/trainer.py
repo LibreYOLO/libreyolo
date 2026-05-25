@@ -45,7 +45,13 @@ from .distributed import (
 from .ema import ModelEMA
 from ..data.dataset import YOLODataset, COCODataset, create_dataloader
 from ..data import load_data_config, get_img_files, img2label_paths
-from ..utils.serialization import load_trusted_torch_file
+from ..utils.serialization import (
+    SCHEMA_VERSION,
+    build_class_names,
+    load_trusted_torch_file,
+    validate_checkpoint_metadata,
+    wrap_libreyolo_checkpoint,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -524,6 +530,17 @@ class BaseTrainer(ABC):
         self.lr_scheduler = self.create_scheduler(self._scheduler_steps_per_epoch())
         self._initialize_scheduler_lr()
 
+        # resume() may be called before setup() when the optimizer doesn't exist
+        # yet. Apply the deferred state now so momentum buffers and LR are restored.
+        if getattr(self, "_resume_optimizer_state", None) is not None:
+            try:
+                self.optimizer.load_state_dict(self._resume_optimizer_state)
+                logger.info("Optimizer state restored from resume checkpoint")
+            except Exception as e:
+                logger.warning(f"Could not load deferred optimizer state: {e}")
+            finally:
+                self._resume_optimizer_state = None
+
         # DDP wrap AFTER optimizer setup so _setup_optimizer's
         # named_parameters() sees the raw model. EMA below also reads the
         # raw model — ModelEMA already unwraps via is_parallel() check.
@@ -998,7 +1015,10 @@ class BaseTrainer(ABC):
         warmup_iters = getattr(self.lr_scheduler, "warmup_iters", 0)
         if warmup_iters is None or warmup_iters <= 0:
             return
-        self._set_optimizer_lr(self.lr_scheduler.update_lr(0))
+        # When resuming, fast-forward to the correct schedule position rather
+        # than resetting to the warmup-start LR.
+        init_iter = getattr(self, "start_epoch", 0) * self._scheduler_steps_per_epoch()
+        self._set_optimizer_lr(self.lr_scheduler.update_lr(init_iter))
 
     def _gradient_clip_parameters(self) -> List[torch.nn.Parameter]:
         if self.optimizer is None:
@@ -1386,37 +1406,58 @@ class BaseTrainer(ABC):
         raw_model = unwrap_model(self.model)
         model_to_save = self.ema_model.ema if self.ema_model else raw_model
 
-        checkpoint = {
-            "epoch": epoch,
-            "model": model_to_save.state_dict(),
-            "optimizer": self.optimizer.state_dict(),
-            "config": self.config.to_dict(),
-            "loss": loss,
-            "best_mAP50_95": self.best_mAP50_95,
-            "best_mAP50": self.best_mAP50,
-            "best_metric_key": (
-                val_metrics.get(
-                    "best_metric_key",
-                    getattr(self, "best_metric_key", "metrics/mAP50-95"),
-                )
-                if val_metrics
-                else getattr(self, "best_metric_key", "metrics/mAP50-95")
-            ),
-            "best_epoch": self.best_epoch,
-            "nc": self.config.num_classes,
-            "size": self.config.size,
-            "model_family": self.get_model_family(),
-            "task": getattr(self.wrapper_model, "task", "detect"),
-        }
+        best_metric_key = (
+            val_metrics.get(
+                "best_metric_key",
+                getattr(self, "best_metric_key", "metrics/mAP50-95"),
+            )
+            if val_metrics
+            else getattr(self, "best_metric_key", "metrics/mAP50-95")
+        )
+        names = (
+            self.wrapper_model.names
+            if self.wrapper_model is not None and hasattr(self.wrapper_model, "names")
+            else build_class_names(self.config.num_classes)
+        )
+        checkpoint_imgsz = getattr(self.config, "imgsz", None)
+        if checkpoint_imgsz is None and self.wrapper_model is not None:
+            get_input_size = getattr(self.wrapper_model, "_get_input_size", None)
+            if callable(get_input_size):
+                checkpoint_imgsz = get_input_size()
+        if checkpoint_imgsz is None:
+            checkpoint_imgsz = 640
+            logger.warning(
+                "Training config has no imgsz. Writing checkpoint metadata "
+                "imgsz=640; set config.imgsz to avoid this compatibility fallback."
+            )
+
+        checkpoint = wrap_libreyolo_checkpoint(
+            model_to_save.state_dict(),
+            model_family=self.get_model_family(),
+            size=self.config.size,
+            task=getattr(self.wrapper_model, "task", "detect"),
+            nc=self.config.num_classes,
+            names=names,
+            imgsz=int(checkpoint_imgsz),
+            epoch=epoch,
+            optimizer=self.optimizer.state_dict(),
+            config=self.config.to_dict(),
+            loss=loss,
+            best_mAP50_95=self.best_mAP50_95,
+            best_mAP50=self.best_mAP50,
+            best_metric_key=best_metric_key,
+            best_metric_value=self.best_mAP50_95,
+            best_epoch=self.best_epoch,
+            is_ema_weights=self.ema_model is not None,
+        )
         checkpoint.update(self._checkpoint_extra_metadata())
         checkpoint["best_metric"] = self.best_mAP50_95
         checkpoint["best_metric_name"] = checkpoint["best_metric_key"]
-        if self.wrapper_model is not None:
-            checkpoint["names"] = self.wrapper_model.names
         if self.ema_model is not None:
             checkpoint["train_model"] = raw_model.state_dict()
             checkpoint["ema"] = self.ema_model.ema.state_dict()
             checkpoint["ema_updates"] = self.ema_model.updates
+        validate_checkpoint_metadata(checkpoint, strict=True)
 
         weights_dir = self.save_dir / "weights"
         weights_dir.mkdir(exist_ok=True)
@@ -1453,6 +1494,17 @@ class BaseTrainer(ABC):
             map_location=self.device,
             context="training resume checkpoint",
         )
+        metadata_errors = validate_checkpoint_metadata(checkpoint, strict=False)
+        if metadata_errors:
+            logger.warning(
+                "Resume checkpoint %s predates LibreYOLO checkpoint metadata v%s "
+                "or is incomplete: %s. Training will resume through compatibility "
+                "mode; the next saved checkpoint will be written with v%s metadata.",
+                checkpoint_path,
+                SCHEMA_VERSION,
+                "; ".join(metadata_errors),
+                SCHEMA_VERSION,
+            )
 
         try:
             model_state = checkpoint.get("train_model", checkpoint["model"])
@@ -1464,14 +1516,19 @@ class BaseTrainer(ABC):
 
         self.start_epoch = checkpoint["epoch"] + 1
 
-        if self.optimizer is not None and "optimizer" in checkpoint:
-            try:
-                self.optimizer.load_state_dict(checkpoint["optimizer"])
-                logger.info("Optimizer state restored")
-            except Exception as e:
-                logger.warning(f"Could not load optimizer state: {e}")
+        if "optimizer" in checkpoint:
+            if self.optimizer is not None:
+                try:
+                    self.optimizer.load_state_dict(checkpoint["optimizer"])
+                    logger.info("Optimizer state restored")
+                except Exception as e:
+                    logger.warning(f"Could not load optimizer state: {e}")
+            else:
+                # setup() hasn't run yet — defer until the optimizer exists.
+                self._resume_optimizer_state = checkpoint["optimizer"]
+                logger.info("Optimizer state deferred until after setup()")
 
-        if "best_mAP50_95" in checkpoint:
+        if "best_metric_value" in checkpoint or "best_mAP50_95" in checkpoint:
             checkpoint_metric_key = checkpoint.get("best_metric_key", "metrics/mAP50-95")
             current_metric_key = getattr(self, "best_metric_key", "metrics/mAP50-95")
             if checkpoint_metric_key != current_metric_key:
@@ -1485,7 +1542,10 @@ class BaseTrainer(ABC):
                 self.best_mAP50 = 0.0
                 self.best_epoch = 0
             else:
-                self.best_mAP50_95 = checkpoint["best_mAP50_95"]
+                self.best_mAP50_95 = checkpoint.get(
+                    "best_metric_value",
+                    checkpoint.get("best_mAP50_95", 0.0),
+                )
                 self.best_mAP50 = checkpoint.get("best_mAP50", 0.0)
                 self.best_epoch = checkpoint.get("best_epoch", 0)
                 logger.info(
