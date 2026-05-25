@@ -20,6 +20,7 @@ dependencies = [
     "pycocotools>=2.0.0",
     "typer>=0.9.0",
     "safetensors>=0.4.0",
+    "scipy>=1.7.0",
 ]
 
 [dependency-groups]
@@ -37,7 +38,6 @@ onnx = [
 ]
 rfdetr = [
     "transformers>=4.40.0",
-    "scipy>=1.7.0",
 ]
 tensorrt = [
     # No CUDA on macOS; marker drops these. Version pin must match the
@@ -52,10 +52,8 @@ ncnn = [
     "pnnx",
     "ncnn",
 ]
-tracking = [
-    "scipy>=1.7.0",
-]
-rtdetr = ["scipy>=1.7.0"]
+tracking = []
+rtdetr = []
 gaze = [
     # Enables best-effort auto-download of the L2CS Gaze360 checkpoint from
     # the official Google Drive (large-file confirm-token handling). Without
@@ -185,6 +183,8 @@ testpaths = ["tests"]
 markers = [
     "unit: fast tests that avoid external weights or large files",
     "e2e: end-to-end tests requiring full model loading and inference",
+    "general_nightly: broad nightly inference checks across all model families",
+    "flagship_nightly: heavier nightly checks for flagship YOLO9/RF-DETR models",
     "export_backend: tests covering an export backend or serialized runtime format",
     "supported_backend: tests covering a release-blocking supported backend",
     "experimental_backend: tests covering an experimental backend",
@@ -197,6 +197,7 @@ markers = [
     "coreml: tests requiring CoreML (macOS only)",
     "yolox: tests covering the YOLOX model family",
     "yolo9: tests covering the YOLO9 model family",
+    "yolo9_e2e: tests covering the YOLOv9-E2E model family",
     "yolonas: tests covering the YOLO-NAS model family",
     "rfdetr: tests covering the RF-DETR model family",
     "dfine: tests covering the D-FINE model family",
@@ -204,8 +205,11 @@ markers = [
     "deimv2: tests covering the DEIMv2 model family",
     "ec: tests covering the ECDet model family",
     "rtdetr: tests covering the RT-DETR model family",
+    "rtdetrv2: tests covering the RT-DETRv2 model family",
+    "rtdetrv4: tests covering the RT-DETRv4 model family",
     "picodet: tests covering the PICODET model family",
     "damoyolo: tests covering the DAMO-YOLO model family",
+    "rtmdet: tests covering the RTMDet model family",
     "l2cs: tests covering the L2CS gaze estimation family",
     "rf1: RF1 training tests",
     "rf5: RF5 training benchmark tests",

@@ -176,6 +176,7 @@ class TestTrackingYOLOX:
 # ── YOLO9 ────────────────────────────────────────────────────────────────────
 
 
+@pytest.mark.flagship_nightly
 @pytest.mark.yolo9
 class TestTrackingYOLO9:
     """Tracking e2e with the smallest YOLO9 model."""
@@ -263,6 +264,7 @@ class TestTrackingYOLONAS:
 
 
 @requires_rfdetr
+@pytest.mark.flagship_nightly
 @pytest.mark.rfdetr
 class TestTrackingRFDETR:
     """Tracking e2e with the smallest RF-DETR model."""
@@ -305,6 +307,7 @@ class TestTrackingRFDETR:
 
 
 @requires_rfdetr
+@pytest.mark.flagship_nightly
 @pytest.mark.rfdetr
 class TestTrackingRFDETRSeg:
     """Tracking e2e with a segmentation model: masks must survive tracking."""

@@ -3,13 +3,18 @@
 import gc
 import multiprocessing
 import os
+import re
 from functools import lru_cache
 from pathlib import Path
 
 import pytest
 import torch
 
+from tests.e2e.nightly_contract import nightly_summary_line
+
 _REPO_ROOT = Path(__file__).resolve().parents[2]
+_FAIL_ON_NIGHTLY_SKIP_ENV = "LIBREYOLO_FAIL_ON_NIGHTLY_SKIP"
+_NIGHTLY_MARKERS = ("general_nightly", "flagship_nightly")
 
 
 def _repo_python_env() -> dict[str, str]:
@@ -21,6 +26,7 @@ def _repo_python_env() -> dict[str, str]:
         paths.append(existing)
     env["PYTHONPATH"] = os.pathsep.join(paths)
     return env
+
 
 # ---------------------------------------------------------------------------
 # Force 'spawn' multiprocessing to prevent CUDA + fork segfaults.
@@ -36,60 +42,44 @@ def _repo_python_env() -> dict[str, str]:
 multiprocessing.set_start_method("spawn", force=True)
 
 
-def pytest_configure(config):
-    """Register custom markers (e2e marker registered in root conftest)."""
-    config.addinivalue_line(
-        "markers",
-        "export_backend: tests covering an export backend or serialized runtime format",
+def _marker_expr_selects_nightly(marker_expr: str) -> bool:
+    tokens = re.findall(r"\bnot\b|\b[A-Za-z_][A-Za-z0-9_]*\b", marker_expr)
+    for index, token in enumerate(tokens):
+        if token in _NIGHTLY_MARKERS and (index == 0 or tokens[index - 1] != "not"):
+            return True
+    return False
+
+
+def pytest_report_header(config):
+    """Print the versioned nightly contract when a nightly marker is selected."""
+    marker_expr = getattr(config.option, "markexpr", "") or ""
+    if _marker_expr_selects_nightly(marker_expr):
+        return nightly_summary_line()
+    return None
+
+
+@pytest.hookimpl(hookwrapper=True)
+def pytest_runtest_makereport(item, call):
+    """Turn selected nightly skips into failures when the Make targets request it."""
+    outcome = yield
+    report = outcome.get_result()
+    if os.environ.get(_FAIL_ON_NIGHTLY_SKIP_ENV, "").lower() not in {
+        "1",
+        "true",
+        "yes",
+    }:
+        return
+    if report.outcome != "skipped":
+        return
+    if not any(item.get_closest_marker(marker) for marker in _NIGHTLY_MARKERS):
+        return
+
+    reason = str(report.longrepr)
+    report.outcome = "failed"
+    # Pytest accepts a string longrepr here; keep the CI failure compact.
+    report.longrepr = (
+        f"Nightly-selected tests must execute, not skip.\nOriginal skip: {reason}"
     )
-    config.addinivalue_line(
-        "markers",
-        "supported_backend: tests covering a release-blocking supported backend",
-    )
-    config.addinivalue_line(
-        "markers", "experimental_backend: tests covering an experimental backend"
-    )
-    config.addinivalue_line("markers", "onnx: tests covering ONNX export or inference")
-    config.addinivalue_line(
-        "markers", "torchscript: tests covering TorchScript export or inference"
-    )
-    config.addinivalue_line("markers", "tensorrt: tests requiring TensorRT")
-    config.addinivalue_line(
-        "markers", "trt: alias for TensorRT tests requiring TensorRT"
-    )
-    config.addinivalue_line("markers", "openvino: tests requiring OpenVINO")
-    config.addinivalue_line("markers", "ncnn: tests requiring ncnn")
-    config.addinivalue_line("markers", "yolox: tests covering the YOLOX model family")
-    config.addinivalue_line("markers", "yolo9: tests covering the YOLO9 model family")
-    config.addinivalue_line(
-        "markers", "yolo9_e2e: tests covering the YOLOv9-E2E model family"
-    )
-    config.addinivalue_line(
-        "markers", "yolonas: tests covering the YOLO-NAS model family"
-    )
-    config.addinivalue_line(
-        "markers", "rfdetr: tests covering the RF-DETR model family"
-    )
-    config.addinivalue_line("markers", "dfine: tests covering the D-FINE model family")
-    config.addinivalue_line("markers", "deim: tests covering the DEIM model family")
-    config.addinivalue_line(
-        "markers", "deimv2: tests covering the DEIMv2 model family"
-    )
-    config.addinivalue_line(
-        "markers", "ec: tests covering the EC (EdgeCrafter) model family"
-    )
-    config.addinivalue_line(
-        "markers", "rtdetr: tests covering the RT-DETR model family"
-    )
-    config.addinivalue_line(
-        "markers", "rtdetrv2: tests covering the RT-DETRv2 model family"
-    )
-    config.addinivalue_line(
-        "markers", "rtdetrv4: tests covering the RT-DETRv4 model family"
-    )
-    config.addinivalue_line("markers", "slow: slow tests that may take several minutes")
-    config.addinivalue_line("markers", "rf1: RF1 training tests")
-    config.addinivalue_line("markers", "rf5: RF5 training benchmark tests")
 
 
 # ---------------------------------------------------------------------------
@@ -483,6 +473,30 @@ MODEL_CATALOG = [
     ("damoyolo", "m", "LibreDAMOYOLOm.pt"),
 ]
 
+FLAGSHIP_FAMILIES = {"yolo9", "rfdetr"}
+
+# One smallest inference case per public family. Keep this separate from
+# MODEL_CATALOG: that catalog feeds validation/training tests, while this one is
+# the general nightly contract that every family can load and run inference.
+GENERAL_NIGHTLY_INFERENCE_MODELS = [
+    ("yolox", "n", "LibreYOLOXn.pt"),
+    ("yolo9", "t", "LibreYOLO9t.pt"),
+    ("yolo9_e2e", "t", "LibreYOLO9E2Et.pt"),
+    ("yolonas", "s", "downloads/yolonas/yolo_nas_s_coco.pth"),
+    ("rfdetr", "n", "LibreRFDETRn.pt"),
+    ("dfine", "n", "LibreDFINEn.pt"),
+    ("deim", "n", "weights/LibreDEIMn.pt"),
+    ("deimv2", "atto", "LibreDEIMv2atto.pt"),
+    ("ec", "s", "LibreECs.pt"),
+    ("rtdetr", "r18", "LibreRTDETRr18.pt"),
+    ("rtdetrv2", "r18", "weights/LibreRTDETRv2r18.pt"),
+    ("rtdetrv4", "s", "weights/LibreRTDETRv4s.pt"),
+    ("picodet", "s", "LibrePICODETs.pt"),
+    ("damoyolo", "t", "LibreDAMOYOLOt.pt"),
+    ("rtmdet", "t", "LibreRTMDett.pt"),
+    ("l2cs", "r50", "LibreL2CSr50.pt"),
+]
+
 # Derived lists (no manual maintenance)
 YOLOX_SIZES = [s for f, s, _ in MODEL_CATALOG if f == "yolox"]
 YOLO9_SIZES = [s for f, s, _ in MODEL_CATALOG if f == "yolo9"]
@@ -530,6 +544,8 @@ FAMILY_MARKERS = {
     "rtdetrv4": pytest.mark.rtdetrv4,
     "picodet": pytest.mark.picodet,
     "damoyolo": pytest.mark.damoyolo,
+    "rtmdet": pytest.mark.rtmdet,
+    "l2cs": pytest.mark.l2cs,
 }
 
 
@@ -545,6 +561,18 @@ def _normalize_marks(marks):
 def family_marks(family: str, marks=None):
     """Return pytest marks for a model family plus any extra marks."""
     return [FAMILY_MARKERS[family], *_normalize_marks(marks)]
+
+
+def flagship_nightly_marks(family: str, *_):
+    """Return the flagship nightly mark for YOLO9/RF-DETR parametrized cases."""
+    if family in FLAGSHIP_FAMILIES:
+        return pytest.mark.flagship_nightly
+    return None
+
+
+def general_nightly_marks(*_):
+    """Return the general nightly mark for broad inference parametrized cases."""
+    return pytest.mark.general_nightly
 
 
 def model_case(family: str, size: str, *, weights: str | None = None, marks=None):
@@ -568,7 +596,16 @@ def model_cases(models, *, with_weights: bool = False, marks_resolver=None):
 QUICK_TEST_PARAMS = model_cases(QUICK_TEST_MODELS)
 FULL_TEST_PARAMS = model_cases(FULL_TEST_MODELS)
 RFDETR_TEST_PARAMS = model_cases(RFDETR_TEST_MODELS)
-ALL_MODEL_WEIGHT_PARAMS = model_cases(ALL_MODELS_WITH_WEIGHTS, with_weights=True)
+ALL_MODEL_WEIGHT_PARAMS = model_cases(
+    ALL_MODELS_WITH_WEIGHTS,
+    with_weights=True,
+    marks_resolver=flagship_nightly_marks,
+)
+GENERAL_NIGHTLY_INFERENCE_PARAMS = model_cases(
+    GENERAL_NIGHTLY_INFERENCE_MODELS,
+    with_weights=True,
+    marks_resolver=general_nightly_marks,
+)
 
 
 def get_model_weights(family: str, size: str) -> str:
