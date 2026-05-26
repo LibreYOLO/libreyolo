@@ -181,19 +181,26 @@ def spawn_for_model(
 
         first_device = devices[0] if devices else 0
         probe_device = torch.device("cuda", first_device) if torch.cuda.is_available() else torch.device("cpu")
-        model_instance.model.to(probe_device)
-        nbs = train_kw.get("nbs")  # None = uncapped, matches trainer path
-        imgsz = train_kw.get("imgsz") or getattr(model_instance, "input_size", None) or 640
-        resolved = resolve_auto_batch(
-            model_instance.model,
-            imgsz=int(imgsz),
-            amp=bool(train_kw.get("amp", True)),
-            world_size=nprocs,
-            nbs=nbs,
-        )
-        train_kw = {**train_kw, batch_key: resolved}
-        model_instance.model.cpu()
-        torch.cuda.empty_cache()
+        _param = next(iter(model_instance.model.parameters()), None)
+        _original_device = _param.device if _param is not None else torch.device("cpu")
+        try:
+            model_instance.model.to(probe_device)
+            nbs = train_kw.get("nbs")  # None = uncapped, matches trainer path
+            imgsz = train_kw.get("imgsz") or getattr(model_instance, "input_size", None) or 640
+            resolved = resolve_auto_batch(
+                model_instance.model,
+                imgsz=int(imgsz),
+                amp=bool(train_kw.get("amp", True)),
+                world_size=nprocs,
+                nbs=nbs,
+            )
+            train_kw = {**train_kw, batch_key: resolved}
+            model_instance.model.cpu()
+            torch.cuda.empty_cache()
+        except Exception:
+            model_instance.model.to(_original_device)
+            torch.cuda.empty_cache()
+            raise
         logger.info("AutoBatch (pre-spawn): resolved global batch = %d", resolved)
 
     init_kw = _build_init_kw(model_instance)
