@@ -54,6 +54,9 @@ class TrainConfig:
     epochs: int = 300
     # Global batch size. Under multi-GPU DDP the per-rank batch is
     # ``batch // world_size`` (Ultralytics-mirror semantics).
+    # Set to -1 to enable automatic selection: the trainer probes GPU memory
+    # at small batch sizes, fits a linear model, and picks the largest batch
+    # that fits within 70 % of total VRAM.
     batch: int = 16
     # Single device or multi-device spec. Accepts:
     #   - "auto" / "" → auto-pick (cuda → mps → cpu)
@@ -180,10 +183,7 @@ class YOLO9Config(TrainConfig):
     name: str = "yolo9_exp"
     workers: int = 8
     mask_downsample_ratio: int = 4
-    # MultimediaTechLab's upstream YOLOv9 hardcodes sync_batchnorm=True in
-    # its Lightning trainer. Carry that default here for multi-GPU runs;
-    # single-GPU runs ignore the flag (conversion only fires under DDP).
-    sync_bn: bool = True
+    sync_bn: bool = False
 
 
 @dataclass(kw_only=True)

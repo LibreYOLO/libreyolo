@@ -7,6 +7,7 @@ from typing import Any, Dict, Optional, Tuple
 
 import torch
 import torch.nn as nn
+from libreyolo.training.ddp_spawn import ddp_aware
 
 from ...tasks import normalize_task
 from ...utils.image_loader import ImageInput
@@ -262,6 +263,7 @@ class LibreEC(BaseModel):
         # forward time. Mirror the D-FINE policy.
         return False
 
+    @ddp_aware(experimental_key="allow_experimental")
     def train(
         self,
         data: str,
@@ -341,7 +343,7 @@ class LibreEC(BaseModel):
             _r.seed(seed)
             _np.random.seed(seed)
             torch.manual_seed(seed)
-            if torch.cuda.is_available():
+            if str(device).lower() not in ("cpu", "mps") and torch.cuda.is_available():
                 torch.cuda.manual_seed_all(seed)
 
         trainer = ECTrainer(

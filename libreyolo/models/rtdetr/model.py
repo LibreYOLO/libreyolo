@@ -8,6 +8,7 @@ from typing import Any, Dict, Optional, Tuple
 import numpy as np
 import torch
 import torch.nn as nn
+from libreyolo.training.ddp_spawn import ddp_aware
 from PIL import Image
 
 from ..base import BaseModel
@@ -300,6 +301,11 @@ class LibreRTDETR(BaseModel):
     def _init_model(self) -> nn.Module:
         """Initialize the RTDETR model."""
         cfg = RTDETR_CONFIGS[self.size]
+        # Skip pretrained download when weights will be loaded immediately after
+        # (_loading_from_weights) or when called from _rebuild_for_new_classes
+        # (_in_rebuild) — in both cases the backbone weights are overwritten anyway.
+        skip = getattr(self, "_in_rebuild", False) or getattr(self, "_loading_from_weights", False)
+        pretrained = cfg["backbone_pretrained"] and not skip
         backbone_kwargs: Dict[str, Any] = {}
         if cfg.get("backbone_type") == "hgnetv2":
             from .hgnetv2 import HGNetv2
@@ -309,14 +315,14 @@ class LibreRTDETR(BaseModel):
                 return_idx=[1, 2, 3],
                 freeze_at=cfg["backbone_freeze_at"],
                 freeze_norm=cfg["backbone_freeze_norm"],
-                pretrained=cfg["backbone_pretrained"],
+                pretrained=pretrained,
             )
         else:
             backbone_kwargs.update(
                 backbone_depth=cfg["backbone_depth"],
                 backbone_freeze_at=cfg["backbone_freeze_at"],
                 backbone_freeze_norm=cfg["backbone_freeze_norm"],
-                backbone_pretrained=cfg["backbone_pretrained"],
+                backbone_pretrained=pretrained,
             )
         return RTDETRModel(
             num_classes=self.nb_classes,
@@ -472,6 +478,7 @@ class LibreRTDETR(BaseModel):
         """Export model. RTDETR requires opset >= 17 for deformable attention (F.grid_sample)."""
         return super().export(format, opset=opset, **kwargs)
 
+    @ddp_aware()
     def train(
         self,
         data: str,
@@ -554,7 +561,7 @@ class LibreRTDETR(BaseModel):
             random.seed(seed)
             np.random.seed(seed)
             torch.manual_seed(seed)
-            if torch.cuda.is_available():
+            if str(device).lower() not in ("cpu", "mps") and torch.cuda.is_available():
                 torch.cuda.manual_seed_all(seed)
 
         trainer = trainer_cls(

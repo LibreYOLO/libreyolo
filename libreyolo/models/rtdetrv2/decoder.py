@@ -596,7 +596,7 @@ class RTDETRTransformerv2(nn.Module):
     def forward(self, feats, targets=None):
         memory, spatial_shapes = self._get_encoder_input(feats)
 
-        if self.training and self.num_denoising > 0:
+        if self.training and self.num_denoising > 0 and targets is not None:
             (
                 denoising_logits,
                 denoising_bbox_unact,

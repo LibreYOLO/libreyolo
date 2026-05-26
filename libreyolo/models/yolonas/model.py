@@ -8,6 +8,7 @@ from typing import Any, Dict, Optional, Tuple
 
 import torch
 import torch.nn as nn
+from libreyolo.training.ddp_spawn import ddp_aware
 
 from ..base import BaseModel
 from ...tasks import normalize_task
@@ -359,6 +360,7 @@ class LibreYOLONAS(BaseModel):
                 f"Failed to load YOLO-NAS weights from {model_path}: {e}"
             ) from e
 
+    @ddp_aware()
     def train(
         self,
         data: str,
@@ -436,7 +438,7 @@ class LibreYOLONAS(BaseModel):
             random.seed(seed)
             np.random.seed(seed)
             torch.manual_seed(seed)
-            if torch.cuda.is_available():
+            if str(device).lower() not in ("cpu", "mps") and torch.cuda.is_available():
                 torch.cuda.manual_seed_all(seed)
 
         trainer = YOLONASTrainer(
@@ -559,7 +561,7 @@ class LibreYOLONAS(BaseModel):
             random.seed(seed)
             np.random.seed(seed)
             torch.manual_seed(seed)
-            if torch.cuda.is_available():
+            if str(device).lower() not in ("cpu", "mps") and torch.cuda.is_available():
                 torch.cuda.manual_seed_all(seed)
 
         trainer = YOLONASPoseTrainer(

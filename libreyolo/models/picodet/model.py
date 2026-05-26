@@ -7,6 +7,7 @@ from typing import Any, Dict, Optional, Tuple
 
 import torch
 import torch.nn as nn
+from libreyolo.training.ddp_spawn import ddp_aware
 from PIL import Image
 
 from ...training.config import PICODETConfig
@@ -150,6 +151,7 @@ class LibrePICODET(BaseModel):
 
     # ---- training --------------------------------------------------------
 
+    @ddp_aware(experimental_key="allow_experimental")
     def train(
         self,
         data: str,
@@ -230,7 +232,7 @@ class LibrePICODET(BaseModel):
             import numpy as np
 
             random.seed(seed); np.random.seed(seed); torch.manual_seed(seed)
-            if torch.cuda.is_available():
+            if str(device).lower() not in ("cpu", "mps") and torch.cuda.is_available():
                 torch.cuda.manual_seed_all(seed)
 
         trainer = PICODETTrainer(

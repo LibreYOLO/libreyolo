@@ -1154,8 +1154,7 @@ class ZeroHead(nn.Module):
         """Dispatch to train/eval. Eval returns ``(cls, boxes)`` (xyxy in
         model-input pixels). Train returns a dict of loss components.
         """
-        if self.training:
-            assert targets is not None, "ZeroHead.forward(targets=None) in train mode"
+        if self.training and targets is not None:
             return self._forward_train(xin, targets)
         return self._forward_eval(xin)
 
