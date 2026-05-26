@@ -263,9 +263,9 @@ def test_resolve_rounds_down_to_world_size_multiple():
         result = resolve_auto_batch(
             nn.Linear(4, 2), imgsz=32, amp=False, world_size=4, default=16
         )
-    # 13 // 4 * 4 = 12
+    # per-GPU=13 scaled to global: 13 * 4 = 52
     assert result % 4 == 0
-    assert result == 12
+    assert result == 52
 
 
 def test_resolve_minimum_is_world_size():
@@ -278,12 +278,13 @@ def test_resolve_minimum_is_world_size():
 
 
 def test_resolve_exact_multiple_unchanged():
-    """An autobatch result already divisible by world_size is returned as-is."""
+    """Global batch is per-GPU * world_size (no nbs cap)."""
     with patch("libreyolo.training.autobatch.autobatch", return_value=32):
         result = resolve_auto_batch(
             nn.Linear(4, 2), imgsz=32, amp=False, world_size=8, default=16
         )
-    assert result == 32
+    # per-GPU=32 scaled to global: 32 * 8 = 256
+    assert result == 256
 
 
 # =============================================================================
