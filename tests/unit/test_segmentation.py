@@ -358,7 +358,11 @@ class TestPolygonLabelParsing:
             assert len(segments[0]) == 1
             assert segments[0][0].shape == (4, 2)
             assert segments[0][0][2].tolist() == [80.0, 80.0]
-            assert getattr(segments[0][0], "dense_mask", None) is not None
+            # Polygon-sourced rings should NOT carry a dataset-resident dense
+            # mask: that would OOM on full COCO (issue #270). Crop fidelity
+            # is preserved by materializing the mask lazily inside the
+            # RF-DETR transform when the crop branch fires.
+            assert getattr(segments[0][0], "dense_mask", None) is None
 
     def test_yolo_dataset_bbox_rows_become_rectangle_segments_when_requested(self):
         import tempfile
@@ -390,7 +394,7 @@ class TestPolygonLabelParsing:
                 [70.0, 60.0],
                 [30.0, 60.0],
             ]
-            assert getattr(ring, "dense_mask", None) is not None
+            assert getattr(ring, "dense_mask", None) is None
 
     def test_yolo_collate_preserves_segments_when_present(self):
         from libreyolo.data.dataset import yolox_collate_fn
@@ -557,6 +561,38 @@ class TestPolygonLabelParsing:
         assert labels[0].tolist() == pytest.approx([0, 20, 20, 40, 40])
         assert masks[0, 20, 20] == 1
 
+    def test_yolo_dataset_polygon_segments_do_not_allocate_dense_masks(self, tmp_path):
+        """Issue #270 regression: opening a polygon dataset must stay cheap.
+
+        Loading many polygon-annotated images must not allocate full-resolution
+        uint8 rasters per polygon; otherwise full-COCO loaders OOM-kill before
+        the first batch.
+        """
+        from libreyolo.data.dataset import YOLODataset
+
+        img_dir = tmp_path / "images" / "train"
+        lbl_dir = tmp_path / "labels" / "train"
+        img_dir.mkdir(parents=True)
+        lbl_dir.mkdir(parents=True)
+
+        for i in range(8):
+            Image.new("RGB", (640, 480)).save(img_dir / f"img_{i}.jpg")
+            (lbl_dir / f"img_{i}.txt").write_text(
+                "0 0.2 0.2 0.8 0.2 0.8 0.8 0.2 0.8\n" * 4
+            )
+
+        dataset = YOLODataset(
+            data_dir=str(tmp_path),
+            split="train",
+            img_size=(640, 640),
+            load_segments=True,
+        )
+
+        for instance_segments in dataset.segments:
+            for instance in instance_segments:
+                for ring in instance:
+                    assert getattr(ring, "dense_mask", None) is None
+
     def test_rfdetr_crop_uses_dense_polygon_mask(self, monkeypatch):
         import cv2
 
@@ -597,6 +633,51 @@ class TestPolygonLabelParsing:
         )
         assert masks[0].sum() == pytest.approx(float(expected.sum()))
         assert np.array_equal(masks[0] > 0, expected > 0)
+
+    def test_rfdetr_crop_lazily_materializes_plain_polygon_mask(self, monkeypatch):
+        import cv2
+
+        from libreyolo.models.rfdetr.seg_transforms import RFDETRSegTransform
+
+        monkeypatch.setattr(
+            "libreyolo.models.rfdetr.seg_transforms.random.random", lambda: 0.0
+        )
+        monkeypatch.setattr(
+            "libreyolo.models.rfdetr.seg_transforms.random.choice", lambda seq: seq[0]
+        )
+
+        randint_values = iter([20, 10, 10])
+        monkeypatch.setattr(
+            "libreyolo.models.rfdetr.seg_transforms.random.randint",
+            lambda _a, _b: next(randint_values),
+        )
+
+        image = np.zeros((40, 40, 3), dtype=np.uint8)
+        targets = np.array([[0, 0, 40, 40, 0]], dtype=np.float32)
+        ring = np.array([[0, 0], [40, 20], [0, 40]], dtype=np.float32)
+        segments = [[ring]]
+        transform = RFDETRSegTransform(
+            max_labels=4,
+            flip_prob=0.0,
+            imgsz=40,
+            crop_resize_prob=1.0,
+            crop_intermediate_sizes=(40,),
+            crop_min_size=20,
+            crop_max_size=20,
+        )
+
+        _, _, masks = transform(image, targets, (40, 40), segments)
+
+        dense = np.zeros((40, 40), dtype=np.uint8)
+        cv2.fillPoly(dense, [ring.astype(np.int32)], color=1)
+        expected = cv2.resize(
+            dense[10:30, 10:30],
+            (40, 40),
+            interpolation=cv2.INTER_NEAREST,
+        )
+        assert masks[0].sum() == pytest.approx(float(expected.sum()))
+        assert np.array_equal(masks[0] > 0, expected > 0)
+        assert getattr(ring, "dense_mask", None) is None
 
     def test_coco_dataset_preserves_multiple_segment_rings(self, tmp_path):
         import json
@@ -661,7 +742,8 @@ class TestPolygonLabelParsing:
             [14.0, 5.0],
             [10.0, 5.0],
         ]
-        assert getattr(dataset.segments[0][0][0], "dense_mask", None) is not None
+        # Polygon-sourced rings store no eager dense mask (issue #270).
+        assert getattr(dataset.segments[0][0][0], "dense_mask", None) is None
 
     def test_coco_dataset_decodes_rle_segments_when_requested(self, tmp_path):
         import json

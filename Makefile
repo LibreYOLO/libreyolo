@@ -1,7 +1,7 @@
 UV := uv run --no-sync
 
 .DEFAULT_GOAL := help
-.PHONY: help setup format lint typecheck test test_e2e test_rf5 build clean
+.PHONY: help setup format lint typecheck test test_install_smoke test_e2e print_nightly_suite test_general_nightly test_flagship_nightly test_nightly test_rf5 build clean
 
 help:
 	@echo "═══════════════════════════════════════════════════════════════════════════════"
@@ -14,10 +14,15 @@ help:
 	@echo "  lint                          - Run linter"
 	@echo "  typecheck                     - Run type checker"
 	@echo "  test                          - Run fast unit tests (no weights needed)"
+	@echo "  test_install_smoke            - Run clean install smoke (MODE=editable|wheel|sdist|pypi)"
 	@echo "  test_e2e                      - Run all e2e tests (needs GPU + model weights)"
 	@echo "  test_e2e FROM=<file>          - Resume from a test file (e.g. FROM=test_rf1_training.py or FROM=rf1_training)"
 	@echo "  test_e2e MARKERS='<expr>'     - Run only matching e2e markers (e.g. MARKERS='e2e and not experimental_backend')"
 	@echo "  test_e2e MARKER='<expr>'      - Alias for MARKERS=..., also works with FROM=..."
+	@echo "  print_nightly_suite           - Print nightly suite version and contract"
+	@echo "  test_general_nightly          - Run broad native inference nightly checks"
+	@echo "  test_flagship_nightly         - Run heavy YOLO9/RF-DETR nightly checks"
+	@echo "  test_nightly                  - Run general + flagship nightly checks"
 	@echo "  test_rf5                      - Run RF5 training benchmark tests"
 	@echo "  build                         - Build package"
 	@echo "  clean                         - Remove build and test cache artifacts"
@@ -40,9 +45,12 @@ typecheck:
 test:
 	$(UV) pytest
 
+test_install_smoke:
+	$(UV) python tests/smoke/run_install_smoke.py --mode $${MODE:-editable}
+
 test_e2e:
 	@if [ -z "$(FROM)" ]; then $(MAKE) clean; fi
-	@files=$$(ls tests/e2e/test_*.py); \
+	@files=$$(find tests/e2e -name 'test_*.py' | sort); \
 	total=$$(echo "$$files" | wc -w); \
 	markers="$(MARKERS)"; \
 	if [ -z "$$markers" ]; then markers="$(MARKER)"; fi; \
@@ -106,6 +114,19 @@ test_e2e:
 	echo "══════════════════════════════════════════════════════════════"; \
 	echo "  all done: $$passed passed, $$skipped skipped, $$failed failed"; \
 	echo "══════════════════════════════════════════════════════════════"
+
+print_nightly_suite:
+	@$(UV) python -c "from tests.e2e.nightly_contract import nightly_summary_line; print(nightly_summary_line())"
+
+test_general_nightly: print_nightly_suite
+	LIBREYOLO_FAIL_ON_NIGHTLY_SKIP=1 $(MAKE) test_e2e MARKERS='general_nightly'
+
+test_flagship_nightly: print_nightly_suite
+	LIBREYOLO_FAIL_ON_NIGHTLY_SKIP=1 $(MAKE) test_e2e MARKERS='flagship_nightly and not export_backend'
+
+test_nightly: print_nightly_suite
+	LIBREYOLO_FAIL_ON_NIGHTLY_SKIP=1 $(MAKE) test_e2e MARKERS='general_nightly'
+	LIBREYOLO_FAIL_ON_NIGHTLY_SKIP=1 $(MAKE) test_e2e MARKERS='flagship_nightly and not export_backend'
 
 test_rf5: clean
 	$(UV) pytest tests/e2e/test_rf5_training.py -m rf5 -v

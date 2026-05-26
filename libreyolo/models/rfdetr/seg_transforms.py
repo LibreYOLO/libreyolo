@@ -104,6 +104,44 @@ def _instance_dense_mask(instance):
     return None
 
 
+def _materialize_dense_masks_for_crop(segments, image_shape):
+    if segments is None:
+        return None
+
+    from ...data.dataset import DenseMaskRing
+
+    height, width = image_shape
+    out = []
+    for instance in segments:
+        if _instance_dense_mask(instance) is not None:
+            out.append(instance)
+            continue
+
+        valid_rings = [
+            np.asarray(ring, dtype=np.float32)
+            for ring in instance
+            if ring is not None and len(ring) >= 3
+        ]
+        if not valid_rings:
+            out.append(instance)
+            continue
+
+        mask = np.zeros((height, width), dtype=np.uint8)
+        polygons = [np.round(ring).astype(np.int32) for ring in valid_rings]
+        cv2.fillPoly(mask, polygons, color=1)
+
+        wrapped = []
+        attached = False
+        for ring in instance:
+            if not attached and ring is not None and len(ring) >= 3:
+                wrapped.append(DenseMaskRing(ring, mask))
+                attached = True
+            else:
+                wrapped.append(ring)
+        out.append(wrapped)
+    return out
+
+
 def _flip_segments_lr(segments, width):
     if segments is None:
         return None
@@ -307,6 +345,7 @@ class RFDETRSegTransform:
                 crop_size = random.randint(min_crop, max_crop)
                 top = random.randint(0, max(0, h_mid - crop_size))
                 left = random.randint(0, max(0, w_mid - crop_size))
+                segments_t = _materialize_dense_masks_for_crop(segments_t, (h_mid, w_mid))
                 image = image[top : top + crop_size, left : left + crop_size]
                 boxes[:, [0, 2]] = np.clip(boxes[:, [0, 2]] - left, 0.0, float(crop_size))
                 boxes[:, [1, 3]] = np.clip(boxes[:, [1, 3]] - top, 0.0, float(crop_size))

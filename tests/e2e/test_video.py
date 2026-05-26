@@ -177,6 +177,7 @@ class TestVideoYOLOX:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.flagship_nightly
 @pytest.mark.yolo9
 class TestVideoYOLO9:
     """Video inference with YOLO9."""
@@ -298,6 +299,7 @@ class TestVideoYOLO9:
 
 
 @requires_rfdetr
+@pytest.mark.flagship_nightly
 @pytest.mark.rfdetr
 class TestVideoRFDETR:
     """Video inference with RF-DETR."""
