@@ -182,7 +182,13 @@ class BaseModel(ABC):
         if isinstance(model_path, str):
             model_path = self._resolve_weights_path(model_path)
 
-        self.model = self._init_model()
+        # Signal _init_model that weights will be loaded immediately after, so
+        # subclasses can skip pretrained backbone downloads that would be wasted.
+        self._loading_from_weights = isinstance(model_path, (str, dict))
+        try:
+            self.model = self._init_model()
+        finally:
+            self._loading_from_weights = False
 
         if model_path is None:
             self.model_path = None
@@ -309,7 +315,14 @@ class BaseModel(ABC):
         old_state = self.model.state_dict()
         self.nb_classes = new_nb_classes
         self.names = {i: f"class_{i}" for i in range(new_nb_classes)}
-        self.model = self._init_model()
+        # Signal _init_model to skip pretrained backbone downloads — old_state
+        # already holds all backbone weights which are restored below, so
+        # downloading pretrained weights here is pure waste.
+        self._in_rebuild = True
+        try:
+            self.model = self._init_model()
+        finally:
+            self._in_rebuild = False
 
         new_state = self.model.state_dict()
         for key in old_state:
