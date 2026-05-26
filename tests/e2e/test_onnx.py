@@ -13,9 +13,10 @@ Tests the complete pipeline:
 import json
 from pathlib import Path
 
-import onnx
 import pytest
 import torch
+
+onnx = pytest.importorskip("onnx")
 
 from .conftest import (
     FULL_TEST_PARAMS,
