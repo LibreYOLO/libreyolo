@@ -315,7 +315,19 @@ def spawn_ddp_train(
     worker maps to the N-th requested physical GPU.  The original value is
     restored after spawning completes.
     """
+    import multiprocessing
     import torch.multiprocessing as mp
+
+    if multiprocessing.current_process().name != "MainProcess":
+        raise RuntimeError(
+            "spawn_ddp_train() was called from inside a spawned subprocess. "
+            "This usually means your script calls model.train(device=...) at "
+            "the top level without a 'if __name__ == \"__main__\":' guard. "
+            "Each spawned worker re-imports __main__, which re-launches "
+            "training and causes infinite recursion. Wrap your training call:\n\n"
+            "    if __name__ == '__main__':\n"
+            "        model.train(device='0,1')\n"
+        )
 
     port_sock = None
     if master_port is None:

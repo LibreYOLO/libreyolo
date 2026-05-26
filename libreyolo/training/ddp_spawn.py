@@ -174,17 +174,21 @@ def spawn_for_model(
         )
         tmp_weights_to_delete = tmp_weights
 
-    # Resolve batch=-1 here (main process, before spawning) so every worker
-    # receives a concrete integer and needs no inter-process coordination.
-    if train_kw.get(batch_key) == -1:
-        from libreyolo.training.autobatch import resolve_auto_batch
+    # Capture original device so it can be restored if any pre-spawn step fails.
+    _param = next(iter(model_instance.model.parameters()), None)
+    _original_device = _param.device if _param is not None else torch.device("cpu")
+    _model_moved = False
 
-        first_device = devices[0] if devices else 0
-        probe_device = torch.device("cuda", first_device) if torch.cuda.is_available() else torch.device("cpu")
-        _param = next(iter(model_instance.model.parameters()), None)
-        _original_device = _param.device if _param is not None else torch.device("cpu")
-        try:
+    try:
+        # Resolve batch=-1 here (main process, before spawning) so every worker
+        # receives a concrete integer and needs no inter-process coordination.
+        if train_kw.get(batch_key) == -1:
+            from libreyolo.training.autobatch import resolve_auto_batch
+
+            first_device = devices[0] if devices else 0
+            probe_device = torch.device("cuda", first_device) if torch.cuda.is_available() else torch.device("cpu")
             model_instance.model.to(probe_device)
+            _model_moved = True
             nbs = train_kw.get("nbs")  # None = uncapped, matches trainer path
             imgsz = train_kw.get("imgsz") or getattr(model_instance, "input_size", None) or 640
             resolved = resolve_auto_batch(
@@ -197,14 +201,15 @@ def spawn_for_model(
             train_kw = {**train_kw, batch_key: resolved}
             model_instance.model.cpu()
             torch.cuda.empty_cache()
-        except Exception:
+            logger.info("AutoBatch (pre-spawn): resolved global batch = %d", resolved)
+
+        init_kw = _build_init_kw(model_instance)
+        safe_train_kw = _filter_picklable(train_kw)
+    except Exception:
+        if _model_moved:
             model_instance.model.to(_original_device)
             torch.cuda.empty_cache()
-            raise
-        logger.info("AutoBatch (pre-spawn): resolved global batch = %d", resolved)
-
-    init_kw = _build_init_kw(model_instance)
-    safe_train_kw = _filter_picklable(train_kw)
+        raise
 
     fd, tmp_result = tempfile.mkstemp(suffix=".json")
     os.close(fd)

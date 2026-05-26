@@ -719,6 +719,59 @@ def _spawn_helper_worker(
         Path(result_path).write_text(json.dumps({"rank": rank, "world": nprocs}))
 
 
+def _spawn_ddp_train_from_subprocess(
+    rank: int,
+    nprocs: int,
+    master_addr: str,
+    master_port: int,
+    result_path: str,
+) -> None:
+    """Worker that tries to call spawn_ddp_train from inside a subprocess.
+
+    Used by test_spawn_ddp_train_raises_from_subprocess to verify the guard.
+    Writes 'ok' if RuntimeError is raised, 'fail' otherwise.
+    """
+    import json
+    from pathlib import Path
+
+    from libreyolo.training.distributed import spawn_ddp_train
+
+    try:
+        spawn_ddp_train(lambda *a: None, spawn_args=(), nprocs=1, result_path=result_path)
+    except RuntimeError as exc:
+        if "__main__" in str(exc) or "spawned subprocess" in str(exc):
+            if rank == 0:
+                Path(result_path).write_text(json.dumps({"guard": "raised"}))
+        return
+    # No error raised — guard is missing.
+    if rank == 0:
+        Path(result_path).write_text(json.dumps({"guard": "missing"}))
+
+
+def test_spawn_ddp_train_raises_from_subprocess(tmp_path):
+    """spawn_ddp_train must raise RuntimeError with a helpful message when
+    called from inside a spawned subprocess (the recursive-launch pattern that
+    happens when a user's top-level script lacks an if __name__=='__main__' guard).
+    """
+    import json
+
+    from libreyolo.training.distributed import spawn_ddp_train
+
+    result_path = str(tmp_path / "guard_result.json")
+    spawn_ddp_train(
+        _spawn_ddp_train_from_subprocess,
+        spawn_args=(),
+        nprocs=1,
+        result_path=result_path,
+    )
+
+    assert (tmp_path / "guard_result.json").exists(), "worker did not write result"
+    data = json.loads((tmp_path / "guard_result.json").read_text())
+    assert data.get("guard") == "raised", (
+        "spawn_ddp_train did not raise RuntimeError when called from a subprocess"
+    )
+
+
 def test_spawn_ddp_train_helper(tmp_path):
     """``spawn_ddp_train`` sets env vars in each worker and lets rank-0 write
     the result file.  Does not require GPUs or an active process group —
@@ -850,6 +903,66 @@ def test_spawn_for_model_propagates_autobatch_error_on_cpu_path():
 
     # Model must still be accessible on cpu.
     assert next(inner_model.parameters()).device.type == "cpu"
+
+
+def test_spawn_for_model_restores_model_device_when_filter_picklable_fails():
+    """If _filter_picklable raises after a successful autobatch probe (model now
+    on CPU), spawn_for_model must restore the model to its original device.
+
+    Uses the same _TrackingModel approach so .to() calls are logged without
+    real CUDA ops on CPU-only machines.
+    """
+    from unittest.mock import MagicMock, patch
+
+    from libreyolo.training.ddp_spawn import spawn_for_model
+
+    device_log: list = []
+
+    class _TrackingModel(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self._inner = nn.Linear(4, 2)
+
+        def forward(self, x):
+            return self._inner(x)
+
+        def parameters(self, recurse=True):
+            return self._inner.parameters(recurse)
+
+        def state_dict(self, *a, **kw):
+            return self._inner.state_dict(*a, **kw)
+
+        def to(self, device, **kw):
+            device_log.append(device)
+            if not (isinstance(device, torch.device) and device.type == "cuda"):
+                self._inner.to(device, **kw)
+            return self
+
+        def cpu(self):
+            return self.to(torch.device("cpu"))
+
+    tracking = _TrackingModel()
+    model_instance = MagicMock()
+    model_instance.model = tracking
+    model_instance.model_path = None
+
+    with patch("torch.save"), \
+         patch("torch.cuda.is_available", return_value=True), \
+         patch("torch.cuda.empty_cache"), \
+         patch("libreyolo.training.autobatch.resolve_auto_batch", return_value=8), \
+         patch("libreyolo.training.ddp_spawn._filter_picklable",
+               side_effect=TypeError("unpicklable callback")):
+        with pytest.raises(TypeError, match="unpicklable callback"):
+            spawn_for_model(model_instance, train_kw={"batch": -1}, nprocs=2, devices=[0])
+
+    # Autobatch succeeded: model moved to cuda:0 then to cpu.
+    # _filter_picklable then failed: model must be restored to original (cpu).
+    assert any(
+        isinstance(d, torch.device) and d.type == "cuda" for d in device_log
+    ), f"model never moved to probe device: {device_log}"
+    assert device_log[-1] == torch.device("cpu"), (
+        f"model not restored to original device after filter_picklable error: {device_log}"
+    )
 
 
 def test_spawn_for_model_writes_flat_state_dict(tmp_path):
