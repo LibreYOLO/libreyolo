@@ -26,7 +26,9 @@ from .conftest import (
     ALL_MODEL_WEIGHT_PARAMS,
     ALL_MODELS_WITH_WEIGHTS,
     cuda_cleanup,
+    flagship_nightly_marks,
     make_ids,
+    model_cases,
     require_test_weights,
     run_direct_subprocess,
     run_in_subprocess,
@@ -413,11 +415,15 @@ _RELOAD_MODELS = [(f, s, w) for f, s, w in ALL_MODELS_WITH_WEIGHTS if f != "rfde
 
 
 @pytest.mark.parametrize(
-    "family,size,weights", _RELOAD_MODELS, ids=make_ids(_RELOAD_MODELS)
+    "family,size,weights",
+    model_cases(
+        _RELOAD_MODELS,
+        with_weights=True,
+        marks_resolver=flagship_nightly_marks,
+    ),
+    ids=make_ids(_RELOAD_MODELS),
 )
-def test_load_finetuned_checkpoint(
-    family, size, weights, dataset_data_yaml, tmp_path
-):
+def test_load_finetuned_checkpoint(family, size, weights, dataset_data_yaml, tmp_path):
     """Train, save checkpoint, load into fresh model, validate.
 
     Verifies that fine-tuned checkpoints can be loaded in a new session
@@ -648,7 +654,13 @@ _RELOAD_RFDETR = [("rfdetr", "n", "LibreRFDETRn.pt")]
 
 
 @pytest.mark.parametrize(
-    "family,size,weights", _RELOAD_RFDETR, ids=make_ids(_RELOAD_RFDETR)
+    "family,size,weights",
+    model_cases(
+        _RELOAD_RFDETR,
+        with_weights=True,
+        marks_resolver=flagship_nightly_marks,
+    ),
+    ids=make_ids(_RELOAD_RFDETR),
 )
 def test_load_finetuned_checkpoint_rfdetr(
     family, size, weights, dataset_data_yaml, tmp_path
