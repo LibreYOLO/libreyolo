@@ -61,7 +61,12 @@ def _libreyolo_ddp_worker(
     cls = getattr(importlib.import_module(module_path), class_name)
 
     model = cls(weights_path, **init_kw)
-    result = model.train(**train_kw)
+    try:
+        result = model.train(**train_kw)
+    finally:
+        import torch.distributed as dist
+        if dist.is_available() and dist.is_initialized():
+            dist.destroy_process_group()
 
     if rank == 0:
         safe = {k: v for k, v in result.items() if isinstance(v, (int, float, str, bool, type(None)))}

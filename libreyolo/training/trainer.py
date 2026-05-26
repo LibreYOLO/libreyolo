@@ -479,7 +479,7 @@ class BaseTrainer(ABC):
             batch_size=per_rank_batch,
             num_workers=self.config.workers,
             shuffle=True,
-            pin_memory=True,
+            pin_memory=self.device.type == "cuda",
             sampler=sampler,
         )
 
