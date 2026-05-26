@@ -175,7 +175,7 @@ def spawn_for_model(
         first_device = devices[0] if devices else 0
         probe_device = torch.device("cuda", first_device) if torch.cuda.is_available() else torch.device("cpu")
         model_instance.model.to(probe_device)
-        nbs = train_kw.get("nbs") or 64
+        nbs = train_kw.get("nbs")  # None = uncapped, matches trainer path
         imgsz = train_kw.get("imgsz") or getattr(model_instance, "input_size", None) or 640
         resolved = resolve_auto_batch(
             model_instance.model,
@@ -230,6 +230,7 @@ def spawn_for_model(
                 else torch.device("cpu")
             )
             model_instance.model.to(target).eval()
+            model_instance.device = target
 
     return result
 

@@ -235,8 +235,7 @@ def resolve_auto_batch(
     exceeds the nominal batch size.  This means adding GPUs reduces the number
     of accumulation steps rather than shrinking per-GPU batch size.
 
-    When *nbs* is not provided the global batch is simply rounded down to the
-    nearest multiple of *world_size*.
+    When *nbs* is not provided the global batch is ``per_gpu * world_size``.
 
     Args:
         model: Model on the target device (not yet DDP-wrapped).
@@ -290,7 +289,8 @@ def resolve_auto_batch(
                 ws, nbs, global_batch,
             )
     else:
-        global_batch = max(ws, (per_gpu // ws) * ws)
+        # Scale per-GPU capacity to global; per_gpu * ws is always divisible by ws.
+        global_batch = max(ws, per_gpu * ws)
 
     logger.info("AutoBatch: per-GPU=%d  world_size=%d  global=%d", per_gpu, ws, global_batch)
     return global_batch

@@ -659,11 +659,12 @@ class BaseTrainer(ABC):
                 self.callbacks.on_train_start(start_event)
 
             no_aug_start = self.config.epochs - self.config.no_aug_epochs
-            if is_main_process() and self.config.no_aug_epochs > 0 and self.start_epoch > no_aug_start:
-                logger.info(
-                    f"Resumed past no-aug threshold (epoch {self.start_epoch} > {no_aug_start}), "
-                    f"disabling mosaic/mixup immediately"
-                )
+            if self.config.no_aug_epochs > 0 and self.start_epoch > no_aug_start:
+                if is_main_process():
+                    logger.info(
+                        f"Resumed past no-aug threshold (epoch {self.start_epoch} > {no_aug_start}), "
+                        f"disabling mosaic/mixup immediately"
+                    )
                 self.on_mosaic_disable()
 
             for epoch in range(self.start_epoch, self.config.epochs):
