@@ -155,10 +155,15 @@ def init_distributed(timeout_seconds: int = 10800) -> None:
         "rank": int(os.environ["RANK"]),
         "world_size": int(os.environ["WORLD_SIZE"]),
     }
-    # device_id was added in PyTorch 2.0; guard so we stay compatible with older builds
-    pg_sig = inspect.signature(dist.init_process_group)
-    if "device_id" in pg_sig.parameters and torch.cuda.is_available():
-        init_kwargs["device_id"] = torch.device("cuda", local_rank)
+    # device_id was added in PyTorch 2.0; guard so we stay compatible with older builds.
+    # inspect.signature() can raise ValueError/TypeError on some C-extension builds,
+    # so wrap defensively and omit the kwarg on failure.
+    try:
+        pg_sig = inspect.signature(dist.init_process_group)
+        if "device_id" in pg_sig.parameters and torch.cuda.is_available():
+            init_kwargs["device_id"] = torch.device("cuda", local_rank)
+    except (TypeError, ValueError):
+        pass
     dist.init_process_group(**init_kwargs)
 
 

@@ -55,6 +55,9 @@ def _libreyolo_ddp_worker(
     os.environ["MASTER_ADDR"] = master_addr
     os.environ["MASTER_PORT"] = str(master_port)
 
+    if torch.cuda.is_available():
+        torch.cuda.set_device(rank)
+
     init_kw = dict(init_kw)  # copy — don't mutate caller's dict
     module_path = init_kw.pop("_module")
     class_name = init_kw.pop("_class")
@@ -106,23 +109,27 @@ def _build_init_kw(model_instance: Any) -> dict:
 
 
 def _filter_picklable(kw: dict) -> dict:
-    """Return a copy of *kw* with non-picklable values removed.
+    """Raise RuntimeError if any value in *kw* is not picklable.
 
     mp.spawn serialises its args via pickle; callbacks and locally-defined
-    functions will crash workers at start-up.  We drop them with a warning
-    rather than propagating a confusing PicklingError deep in spawn.
+    functions will crash workers at start-up.  Raising early with a clear
+    message is better than a confusing PicklingError deep inside spawn, or
+    silently missing training kwargs.
     """
-    safe = {}
+    bad = []
     for k, v in kw.items():
         try:
             pickle.dumps(v)
-            safe[k] = v
         except Exception:
-            logger.warning(
-                "DDP spawn: dropping non-picklable kwarg %r (type: %s)",
-                k, type(v).__name__,
-            )
-    return safe
+            bad.append(f"{k!r} (type: {type(v).__name__})")
+    if bad:
+        raise RuntimeError(
+            "DDP spawn: the following train() kwargs are not picklable and "
+            "cannot be passed to worker processes:\n"
+            + "\n".join(f"  {b}" for b in bad)
+            + "\nRemove or replace them before calling train() with a multi-GPU device."
+        )
+    return dict(kw)
 
 
 # ---------------------------------------------------------------------------

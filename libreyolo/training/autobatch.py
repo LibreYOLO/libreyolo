@@ -143,6 +143,20 @@ def autobatch(
     probe_sizes: List[int] = []
     probe_mem: List[float] = []
 
+    _bn_types = (
+        nn.BatchNorm1d, nn.BatchNorm2d, nn.BatchNorm3d,
+        nn.SyncBatchNorm,
+    )
+    bn_bufs: dict = {}
+    for name, mod in model.named_modules():
+        if isinstance(mod, _bn_types):
+            saved = {}
+            for attr in ("running_mean", "running_var", "num_batches_tracked"):
+                buf = getattr(mod, attr, None)
+                if buf is not None:
+                    saved[attr] = buf.clone()
+            bn_bufs[name] = saved
+
     was_training = model.training
     model.train()
     try:
@@ -172,6 +186,10 @@ def autobatch(
                 raise
     finally:
         model.train(was_training)
+        for name, mod in model.named_modules():
+            if isinstance(mod, _bn_types) and name in bn_bufs:
+                for attr, val in bn_bufs[name].items():
+                    getattr(mod, attr).copy_(val)
         torch.cuda.empty_cache()
 
     if len(probe_sizes) < 2:
