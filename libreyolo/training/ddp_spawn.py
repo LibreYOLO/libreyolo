@@ -21,6 +21,7 @@ import inspect
 import json
 import logging
 import os
+import pickle
 import tempfile
 from pathlib import Path
 from typing import Any
@@ -93,6 +94,26 @@ def _build_init_kw(model_instance: Any) -> dict:
     return kw
 
 
+def _filter_picklable(kw: dict) -> dict:
+    """Return a copy of *kw* with non-picklable values removed.
+
+    mp.spawn serialises its args via pickle; callbacks and locally-defined
+    functions will crash workers at start-up.  We drop them with a warning
+    rather than propagating a confusing PicklingError deep in spawn.
+    """
+    safe = {}
+    for k, v in kw.items():
+        try:
+            pickle.dumps(v)
+            safe[k] = v
+        except Exception:
+            logger.warning(
+                "DDP spawn: dropping non-picklable kwarg %r (type: %s)",
+                k, type(v).__name__,
+            )
+    return safe
+
+
 # ---------------------------------------------------------------------------
 # Public entry point
 # ---------------------------------------------------------------------------
@@ -103,6 +124,7 @@ def spawn_for_model(
     train_kw: dict,
     nprocs: int,
     *,
+    devices: list | None = None,
     batch_key: str = "batch",
 ) -> dict:
     """Save weights, optionally probe autobatch, spawn DDP workers, return results.
@@ -139,7 +161,8 @@ def spawn_for_model(
     if train_kw.get(batch_key) == -1:
         from libreyolo.training.autobatch import resolve_auto_batch
 
-        probe_device = torch.device("cuda", 0) if torch.cuda.is_available() else torch.device("cpu")
+        first_device = devices[0] if devices else 0
+        probe_device = torch.device("cuda", first_device) if torch.cuda.is_available() else torch.device("cpu")
         model_instance.model.to(probe_device)
         nbs = train_kw.get("nbs") or 64
         imgsz = train_kw.get("imgsz") or getattr(model_instance, "input_size", None) or 640
@@ -156,6 +179,7 @@ def spawn_for_model(
         logger.info("AutoBatch (pre-spawn): resolved global batch = %d", resolved)
 
     init_kw = _build_init_kw(model_instance)
+    safe_train_kw = _filter_picklable(train_kw)
 
     fd, tmp_result = tempfile.mkstemp(suffix=".json")
     os.close(fd)
@@ -163,9 +187,10 @@ def spawn_for_model(
     try:
         spawn_ddp_train(
             _libreyolo_ddp_worker,
-            spawn_args=(tmp_weights, init_kw, train_kw),
+            spawn_args=(tmp_weights, init_kw, safe_train_kw),
             nprocs=nprocs,
             result_path=tmp_result,
+            devices=devices,
         )
     finally:
         if tmp_weights_to_delete:
@@ -187,8 +212,9 @@ def spawn_for_model(
             model_instance.model_path = ckpt
         model_instance._load_weights(ckpt)
         if hasattr(model_instance, "model"):
+            first_device = devices[0] if devices else 0
             target = (
-                torch.device("cuda", 0)
+                torch.device("cuda", first_device)
                 if torch.cuda.is_available()
                 else torch.device("cpu")
             )
@@ -241,11 +267,16 @@ def ddp_aware(batch_key: str = "batch", experimental_key: str | None = None):
             device = train_kw.get("device", "")
             devices = parse_device_arg(device)
             if len(devices) > 1 and not has_torchrun_env():
+                if not torch.cuda.is_available():
+                    raise RuntimeError(
+                        f"Multi-GPU DDP requires CUDA. Got device={device!r} but "
+                        "CUDA is not available on this machine."
+                    )
                 if experimental_key and not train_kw.get(experimental_key, True):
                     # Guard not satisfied — fall through so the function body
                     # raises its validation error cleanly on the main process.
                     return train_fn(self, *args, **kwargs)
-                return spawn_for_model(self, train_kw, len(devices), batch_key=batch_key)
+                return spawn_for_model(self, train_kw, len(devices), devices=devices, batch_key=batch_key)
 
             return train_fn(self, *args, **kwargs)
 

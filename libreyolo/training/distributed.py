@@ -272,6 +272,7 @@ def spawn_ddp_train(
     result_path: str,
     master_addr: str = "127.0.0.1",
     master_port: Optional[int] = None,
+    devices: Optional[List[int]] = None,
 ) -> None:
     """Spawn *nprocs* DDP workers via :func:`torch.multiprocessing.spawn`.
 
@@ -288,18 +289,33 @@ def spawn_ddp_train(
     torchrun). The model's ``train()`` method calls this helper, collects the
     result JSON from *result_path*, and returns it to the caller — so the user
     gets a clean blocking call without any subprocess plumbing.
+
+    When *devices* is provided, ``CUDA_VISIBLE_DEVICES`` is set to the
+    comma-joined device indices before spawning so that ``cuda:N`` inside each
+    worker maps to the N-th requested physical GPU.  The original value is
+    restored after spawning completes.
     """
     import torch.multiprocessing as mp
 
     if master_port is None:
         master_port = _find_free_port()
 
-    mp.spawn(
-        worker_fn,
-        args=(nprocs, master_addr, master_port, result_path) + spawn_args,
-        nprocs=nprocs,
-        join=True,
-    )
+    prev_cvd = os.environ.get("CUDA_VISIBLE_DEVICES")
+    if devices:
+        os.environ["CUDA_VISIBLE_DEVICES"] = ",".join(str(d) for d in devices)
+    try:
+        mp.spawn(
+            worker_fn,
+            args=(nprocs, master_addr, master_port, result_path) + spawn_args,
+            nprocs=nprocs,
+            join=True,
+        )
+    finally:
+        if devices:
+            if prev_cvd is None:
+                os.environ.pop("CUDA_VISIBLE_DEVICES", None)
+            else:
+                os.environ["CUDA_VISIBLE_DEVICES"] = prev_cvd
 
 
 __all__ = [
