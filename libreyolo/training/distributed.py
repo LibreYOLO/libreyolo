@@ -13,8 +13,9 @@ DDP everything is a no-op.
 from __future__ import annotations
 
 import os
+import socket
 from datetime import timedelta
-from typing import List, Optional, Union
+from typing import Any, Callable, List, Optional, Tuple, Union
 
 import torch
 import torch.distributed as dist
@@ -134,6 +135,8 @@ def init_distributed(timeout_seconds: int = 10800) -> None:
     Expects ``RANK``, ``LOCAL_RANK``, ``WORLD_SIZE`` to be set in the
     environment (which torchrun does automatically).
     """
+    import inspect
+
     if not dist.is_available():
         raise RuntimeError("torch.distributed is not available in this build")
     if dist.is_initialized():
@@ -145,12 +148,23 @@ def init_distributed(timeout_seconds: int = 10800) -> None:
             "`torchrun --nproc_per_node=2 your_script.py`."
         )
     backend = _select_backend()
-    dist.init_process_group(
-        backend=backend,
-        timeout=timedelta(seconds=timeout_seconds),
-        rank=int(os.environ["RANK"]),
-        world_size=int(os.environ["WORLD_SIZE"]),
-    )
+    local_rank = int(os.environ["LOCAL_RANK"])
+    init_kwargs: dict = {
+        "backend": backend,
+        "timeout": timedelta(seconds=timeout_seconds),
+        "rank": int(os.environ["RANK"]),
+        "world_size": int(os.environ["WORLD_SIZE"]),
+    }
+    # device_id was added in PyTorch 2.0; guard so we stay compatible with older builds.
+    # inspect.signature() can raise ValueError/TypeError on some C-extension builds,
+    # so wrap defensively and omit the kwarg on failure.
+    try:
+        pg_sig = inspect.signature(dist.init_process_group)
+        if "device_id" in pg_sig.parameters and backend == "nccl" and torch.cuda.is_available():
+            init_kwargs["device_id"] = torch.device("cuda", local_rank)
+    except (TypeError, ValueError):
+        pass
+    dist.init_process_group(**init_kwargs)
 
 
 def shutdown_distributed() -> None:
@@ -252,6 +266,109 @@ def seed_for_rank(base_seed: int) -> int:
     return base_seed + 1 + get_rank()
 
 
+# =============================================================================
+# Auto-spawn DDP helpers
+# =============================================================================
+
+
+def _find_free_port() -> tuple:
+    """Bind to port 0 and return ``(port, socket)``.
+
+    The caller is responsible for closing the socket.  Keeping it open
+    until just before ``mp.spawn`` is called minimises the TOCTOU window
+    between OS port selection and torch.distributed's TCPStore binding.
+    """
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    s.bind(("", 0))
+    port = s.getsockname()[1]
+    return port, s
+
+
+def spawn_ddp_train(
+    worker_fn: Callable,
+    spawn_args: Tuple,
+    nprocs: int,
+    result_path: str,
+    master_addr: str = "127.0.0.1",
+    master_port: Optional[int] = None,
+    devices: Optional[List[int]] = None,
+) -> None:
+    """Spawn *nprocs* DDP workers via :func:`torch.multiprocessing.spawn`.
+
+    Each worker is called as::
+
+        worker_fn(rank, nprocs, master_addr, master_port, result_path, *spawn_args)
+
+    The worker is responsible for setting RANK/LOCAL_RANK/WORLD_SIZE/MASTER_*
+    env vars, initialising the process group, running training, and writing a
+    result JSON to *result_path* (rank 0 only).
+
+    This is the internal engine behind the auto-spawn path triggered when a
+    user calls ``model.train(device="0,1")`` from a plain Python script (no
+    torchrun). The model's ``train()`` method calls this helper, collects the
+    result JSON from *result_path*, and returns it to the caller — so the user
+    gets a clean blocking call without any subprocess plumbing.
+
+    When *devices* is provided, ``CUDA_VISIBLE_DEVICES`` is set to the
+    comma-joined device indices before spawning so that ``cuda:N`` inside each
+    worker maps to the N-th requested physical GPU.  The original value is
+    restored after spawning completes.
+    """
+    import multiprocessing
+    import torch.multiprocessing as mp
+
+    if multiprocessing.current_process().name != "MainProcess":
+        raise RuntimeError(
+            "spawn_ddp_train() was called from inside a spawned subprocess. "
+            "This usually means your script calls model.train(device=...) at "
+            "the top level without a 'if __name__ == \"__main__\":' guard. "
+            "Each spawned worker re-imports __main__, which re-launches "
+            "training and causes infinite recursion. Wrap your training call:\n\n"
+            "    if __name__ == '__main__':\n"
+            "        model.train(device='0,1')\n"
+        )
+
+    port_sock = None
+    if master_port is None:
+        master_port, port_sock = _find_free_port()
+
+    prev_cvd = os.environ.get("CUDA_VISIBLE_DEVICES")
+    if devices:
+        if prev_cvd is not None:
+            # devices are logical indices into the existing mask — translate to
+            # physical GPU IDs so the new mask is correct inside spawned workers.
+            existing = [x.strip() for x in prev_cvd.split(",") if x.strip()]
+            try:
+                new_cvd = ",".join(existing[d] for d in devices)
+            except IndexError:
+                new_cvd = ",".join(str(d) for d in devices)
+        else:
+            new_cvd = ",".join(str(d) for d in devices)
+        os.environ["CUDA_VISIBLE_DEVICES"] = new_cvd
+    try:
+        # Close the reservation socket as late as possible — just before
+        # spawning — so the OS cannot hand the port to another process in the
+        # gap between our bind(0) call and torch.distributed's TCPStore bind.
+        if port_sock is not None:
+            port_sock.close()
+            port_sock = None
+        mp.spawn(
+            worker_fn,
+            args=(nprocs, master_addr, master_port, result_path) + spawn_args,
+            nprocs=nprocs,
+            join=True,
+        )
+    finally:
+        if port_sock is not None:
+            port_sock.close()
+        if devices:
+            if prev_cvd is None:
+                os.environ.pop("CUDA_VISIBLE_DEVICES", None)
+            else:
+                os.environ["CUDA_VISIBLE_DEVICES"] = prev_cvd
+
+
 __all__ = [
     "DeviceArg",
     "barrier",
@@ -267,6 +384,7 @@ __all__ = [
     "scale_loss_for_ddp",
     "seed_for_rank",
     "shutdown_distributed",
+    "spawn_ddp_train",
     "unwrap_model",
     "wants_distributed",
 ]

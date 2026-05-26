@@ -45,7 +45,7 @@ class WarmupCosineScheduler(BaseScheduler):
         self.min_lr = lr * min_lr_ratio
 
     def update_lr(self, iters: int) -> float:
-        if iters <= self.warmup_iters:
+        if self.warmup_iters > 0 and iters <= self.warmup_iters:
             # Quadratic warmup
             lr = (self.lr - self.warmup_lr_start) * pow(
                 iters / float(self.warmup_iters), 2

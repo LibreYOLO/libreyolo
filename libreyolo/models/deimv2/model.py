@@ -9,6 +9,7 @@ from typing import Any, Dict, Optional, Tuple
 
 import torch
 import torch.nn as nn
+from libreyolo.training.ddp_spawn import ddp_aware
 
 from ...training.config import DEIMv2Config
 from ...utils.image_loader import ImageInput
@@ -196,6 +197,7 @@ class LibreDEIMv2(BaseModel):
     def _strict_loading(self) -> bool:
         return False
 
+    @ddp_aware()
     def train(
         self,
         data: str,
@@ -245,7 +247,7 @@ class LibreDEIMv2(BaseModel):
             random.seed(seed)
             np.random.seed(seed)
             torch.manual_seed(seed)
-            if torch.cuda.is_available():
+            if str(device).lower() not in ("cpu", "mps") and torch.cuda.is_available():
                 torch.cuda.manual_seed_all(seed)
 
         trainer_kwargs = {

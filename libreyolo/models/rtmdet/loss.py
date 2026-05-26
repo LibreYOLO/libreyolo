@@ -329,7 +329,7 @@ class BatchDynamicSoftLabelAssigner(nn.Module):
         assigned_bboxes[fg_mask] = gt_bboxes[batch_index, matched_gt_inds]
 
         assign_metrics = gt_bboxes.new_zeros(pred_scores[..., 0].shape)
-        assign_metrics[fg_mask] = matched_pred_ious
+        assign_metrics[fg_mask] = matched_pred_ious.to(assign_metrics.dtype)
 
         return {
             "assigned_labels": assigned_labels,

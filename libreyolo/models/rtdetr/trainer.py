@@ -11,6 +11,7 @@ from typing import Dict, List, Type
 
 import torch
 
+from libreyolo.training.distributed import is_main_process
 from libreyolo.training.trainer import BaseTrainer
 from libreyolo.training.config import TrainConfig
 from libreyolo.training.scheduler import (
@@ -82,6 +83,13 @@ class RTDETRTrainer(BaseTrainer):
     @classmethod
     def _config_class(cls) -> Type[TrainConfig]:
         return RTDETRConfig
+
+    def _ddp_find_unused_parameters(self) -> bool:
+        # RT-DETR's denoising_class_embed is skipped when a batch has no GT
+        # boxes (get_contrastive_denoising_training_group returns None).
+        # DDP must re-scan the graph each iteration rather than assuming a
+        # fixed set of used parameters (static_graph=True is incompatible here).
+        return True
 
     @property
     def effective_lr(self) -> float:
@@ -292,12 +300,12 @@ class RTDETRTrainer(BaseTrainer):
         else:
             raise ValueError(f"Unsupported optimizer: {config.optimizer}")
 
-        # Log parameter groups
-        logger.info(f"Optimizer: {optimizer_name}")
-        for i, g in enumerate(opt_groups):
-            logger.info(
-                f"  - Group {i}: lr={g['lr']:.6f}, wd={g.get('weight_decay', base_wd):.6f}, "
-                f"lr_ratio={g.get('lr_ratio', 1.0):.4f}, params={len(g['params'])}"
-            )
+        if is_main_process():
+            logger.info(f"Optimizer: {optimizer_name}")
+            for i, g in enumerate(opt_groups):
+                logger.info(
+                    f"  - Group {i}: lr={g['lr']:.6f}, wd={g.get('weight_decay', base_wd):.6f}, "
+                    f"lr_ratio={g.get('lr_ratio', 1.0):.4f}, params={len(g['params'])}"
+                )
 
         return optimizer

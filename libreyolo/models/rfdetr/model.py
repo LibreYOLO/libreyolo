@@ -6,6 +6,7 @@ from typing import Any, ClassVar, Dict, Optional, Tuple
 import numpy as np
 import torch
 import torch.nn as nn
+from libreyolo.training.ddp_spawn import ddp_aware
 from PIL import Image
 
 from ..base import BaseModel
@@ -608,6 +609,7 @@ class LibreRFDETR(BaseModel):
         """Run RF-DETR validation with a Windows-safe worker default."""
         return super().val(*args, workers=workers, **kwargs)
 
+    @ddp_aware(batch_key="batch_size")
     def train(
         self,
         data: str,

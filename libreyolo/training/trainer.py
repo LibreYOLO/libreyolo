@@ -277,9 +277,11 @@ class BaseTrainer(ABC):
                 )
             n = len(parse_device_arg(raw_device))
             raise RuntimeError(
-                f"Multi-GPU device {raw_device!r} requires launching with torchrun. "
-                f"Example: `torchrun --nproc_per_node={n} your_script.py`. "
-                "Inside the script, leave your model.train(...) call unchanged."
+                f"Multi-GPU device {raw_device!r} was passed directly to the trainer "
+                "without an active process group. Use the model API instead — it "
+                f"spawns DDP workers automatically: model.train(data=..., device={raw_device!r}). "
+                f"Alternatively launch with torchrun: "
+                f"`torchrun --nproc_per_node={n} your_script.py`."
             )
 
         device_str = str(raw_device).strip().lower() if not isinstance(raw_device, int) else str(raw_device)
@@ -338,10 +340,11 @@ class BaseTrainer(ABC):
         )
         optimizer.add_param_group({"params": pg2, "lr": lr})
 
-        logger.info(f"Optimizer: {opt_name}")
-        logger.info(f"  - pg0 (BN): {len(pg0)} params")
-        logger.info(f"  - pg1 (Conv, wd={self.config.weight_decay}): {len(pg1)} params")
-        logger.info(f"  - pg2 (Bias): {len(pg2)} params")
+        if is_main_process():
+            logger.info(f"Optimizer: {opt_name}")
+            logger.info(f"  - pg0 (BN): {len(pg0)} params")
+            logger.info(f"  - pg1 (Conv, wd={self.config.weight_decay}): {len(pg1)} params")
+            logger.info(f"  - pg2 (Bias): {len(pg2)} params")
         return optimizer
 
     def _get_save_dir(self) -> Path:
@@ -476,7 +479,7 @@ class BaseTrainer(ABC):
             batch_size=per_rank_batch,
             num_workers=self.config.workers,
             shuffle=True,
-            pin_memory=True,
+            pin_memory=self.device.type == "cuda",
             sampler=sampler,
         )
 
@@ -509,9 +512,35 @@ class BaseTrainer(ABC):
 
         self.on_setup()
 
+        if getattr(self.config, "batch", 16) == -1:
+            from libreyolo.training.autobatch import resolve_auto_batch
+
+            self.config.batch = resolve_auto_batch(
+                self.model,
+                imgsz=self.config.imgsz,
+                amp=self.config.amp,
+                world_size=self.world_size,
+                nbs=getattr(self.config, "nbs", None),
+            )
+            if is_main_process():
+                logger.info("AutoBatch: resolved global batch size = %d", self.config.batch)
+
         self._setup_data()
         self.optimizer = self._setup_optimizer()
         self.lr_scheduler = self.create_scheduler(self._scheduler_steps_per_epoch())
+
+        # resume() may be called before setup() when the optimizer doesn't exist
+        # yet. Apply the deferred state now so momentum buffers are restored before
+        # _initialize_scheduler_lr() sets the correct LR on top.
+        if getattr(self, "_resume_optimizer_state", None) is not None:
+            try:
+                self.optimizer.load_state_dict(self._resume_optimizer_state)
+                logger.info("Optimizer state restored from resume checkpoint")
+            except Exception as e:
+                logger.warning(f"Could not load deferred optimizer state: {e}")
+            finally:
+                self._resume_optimizer_state = None
+
         self._initialize_scheduler_lr()
 
         # DDP wrap AFTER optimizer setup so _setup_optimizer's
@@ -615,10 +644,11 @@ class BaseTrainer(ABC):
         try:
             self.setup()
 
-            logger.info(f"Starting training for {self.config.epochs} epochs")
-            logger.info(f"Model: {self.get_model_tag()}")
-            logger.info(f"Batch size: {self.config.batch}")
-            logger.info(f"Learning rate: {self.effective_lr}")
+            if is_main_process():
+                logger.info(f"Starting training for {self.config.epochs} epochs")
+                logger.info(f"Model: {self.get_model_tag()}")
+                logger.info(f"Batch size: {self.config.batch}")
+                logger.info(f"Learning rate: {self.effective_lr}")
 
             start_event = self._build_train_start_event()
             # Artifact + user callbacks fire on rank 0 only — they write
@@ -630,19 +660,21 @@ class BaseTrainer(ABC):
 
             no_aug_start = self.config.epochs - self.config.no_aug_epochs
             if self.config.no_aug_epochs > 0 and self.start_epoch > no_aug_start:
-                logger.info(
-                    f"Resumed past no-aug threshold (epoch {self.start_epoch} > {no_aug_start}), "
-                    f"disabling mosaic/mixup immediately"
-                )
+                if is_main_process():
+                    logger.info(
+                        f"Resumed past no-aug threshold (epoch {self.start_epoch} > {no_aug_start}), "
+                        f"disabling mosaic/mixup immediately"
+                    )
                 self.on_mosaic_disable()
 
             for epoch in range(self.start_epoch, self.config.epochs):
                 self.current_epoch = epoch
 
                 if epoch == no_aug_start:
-                    logger.info(
-                        f"Disabling mosaic/mixup for final {self.config.no_aug_epochs} epochs"
-                    )
+                    if is_main_process():
+                        logger.info(
+                            f"Disabling mosaic/mixup for final {self.config.no_aug_epochs} epochs"
+                        )
                     self.on_mosaic_disable()
 
                 epoch_start_time = time.time()
@@ -691,7 +723,7 @@ class BaseTrainer(ABC):
                 if self.is_distributed:
                     import torch.distributed as _dist
 
-                    flag = torch.tensor(int(should_stop), dtype=torch.int)
+                    flag = torch.tensor(int(should_stop), dtype=torch.int, device=self.device)
                     _dist.broadcast(flag, src=0)
                     should_stop = bool(flag.item())
                 if should_stop:
@@ -703,7 +735,8 @@ class BaseTrainer(ABC):
                     break
 
             total_time = time.time() - start_time
-            logger.info(f"Training complete in {total_time / 3600:.2f} hours")
+            if is_main_process():
+                logger.info(f"Training complete in {total_time / 3600:.2f} hours")
 
             results = self._build_train_results()
             end_event = self._build_train_end_event(total_time, results)
@@ -982,10 +1015,8 @@ class BaseTrainer(ABC):
     def _initialize_scheduler_lr(self) -> None:
         if self.optimizer is None or self.lr_scheduler is None:
             return
-        warmup_iters = getattr(self.lr_scheduler, "warmup_iters", 0)
-        if warmup_iters is None or warmup_iters <= 0:
-            return
-        self._set_optimizer_lr(self.lr_scheduler.update_lr(0))
+        init_iter = getattr(self, "start_epoch", 0) * self._scheduler_steps_per_epoch()
+        self._set_optimizer_lr(self.lr_scheduler.update_lr(init_iter))
 
     def _gradient_clip_parameters(self) -> List[torch.nn.Parameter]:
         if self.optimizer is None:
@@ -1115,7 +1146,8 @@ class BaseTrainer(ABC):
             name: value / max(num_batches, 1)
             for name, value in loss_component_sums.items()
         }
-        logger.info(f"Epoch {epoch + 1} - Average loss: {avg_loss:.4f}")
+        if is_main_process():
+            logger.info(f"Epoch {epoch + 1} - Average loss: {avg_loss:.4f}")
 
         # Validation
         val_metrics = None
@@ -1243,7 +1275,8 @@ class BaseTrainer(ABC):
             name: value / max(num_batches, 1)
             for name, value in loss_component_sums.items()
         }
-        logger.info(f"Epoch {epoch + 1} - Average loss: {avg_loss:.4f}")
+        if is_main_process():
+            logger.info(f"Epoch {epoch + 1} - Average loss: {avg_loss:.4f}")
 
         # Validation
         val_metrics = None
@@ -1483,12 +1516,17 @@ class BaseTrainer(ABC):
 
         self.start_epoch = checkpoint["epoch"] + 1
 
-        if self.optimizer is not None and "optimizer" in checkpoint:
-            try:
-                self.optimizer.load_state_dict(checkpoint["optimizer"])
-                logger.info("Optimizer state restored")
-            except Exception as e:
-                logger.warning(f"Could not load optimizer state: {e}")
+        if "optimizer" in checkpoint:
+            if self.optimizer is not None:
+                try:
+                    self.optimizer.load_state_dict(checkpoint["optimizer"])
+                    logger.info("Optimizer state restored")
+                except Exception as e:
+                    logger.warning(f"Could not load optimizer state: {e}")
+            else:
+                # setup() hasn't run yet — defer until the optimizer exists.
+                self._resume_optimizer_state = checkpoint["optimizer"]
+                logger.info("Optimizer state deferred until after setup()")
 
         if "best_metric_value" in checkpoint or "best_mAP50_95" in checkpoint:
             checkpoint_metric_key = checkpoint.get("best_metric_key", "metrics/mAP50-95")
@@ -1537,3 +1575,9 @@ class BaseTrainer(ABC):
             f"Resumed from epoch {self.start_epoch} "
             f"(will train to epoch {self.config.epochs})"
         )
+
+        # setup() may have already run (immediate path: setup → resume). Re-sync
+        # the LR now that start_epoch is known — _initialize_scheduler_lr() is
+        # idempotent and fast-forwards to the correct schedule position.
+        if self.lr_scheduler is not None and self.train_loader is not None:
+            self._initialize_scheduler_lr()

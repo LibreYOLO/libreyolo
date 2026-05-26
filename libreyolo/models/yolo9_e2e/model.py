@@ -17,6 +17,7 @@ from typing import Any, Dict, Optional, Tuple
 
 import torch
 import torch.nn as nn
+from libreyolo.training.ddp_spawn import ddp_aware
 
 from ..yolo9.model import LibreYOLO9
 from .config import YOLO9E2EConfig
@@ -149,6 +150,7 @@ class LibreYOLO9E2E(LibreYOLO9):
     # Public API
     # =====================================================================
 
+    @ddp_aware()
     def train(
         self,
         data: str,
@@ -223,7 +225,7 @@ class LibreYOLO9E2E(LibreYOLO9):
             random.seed(seed)
             np.random.seed(seed)
             torch.manual_seed(seed)
-            if torch.cuda.is_available():
+            if str(device).lower() not in ("cpu", "mps") and torch.cuda.is_available():
                 torch.cuda.manual_seed_all(seed)
 
         trainer = YOLO9E2ETrainer(

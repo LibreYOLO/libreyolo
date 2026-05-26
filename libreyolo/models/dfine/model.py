@@ -8,6 +8,7 @@ from typing import Any, Dict, Optional, Tuple
 
 import torch
 import torch.nn as nn
+from libreyolo.training.ddp_spawn import ddp_aware
 
 from ...utils.image_loader import ImageInput
 from ...validation.preprocessors import DFINEValPreprocessor
@@ -174,6 +175,7 @@ class LibreDFINE(BaseModel):
         # regenerated at forward time from eval_spatial_size. Tolerate drift.
         return False
 
+    @ddp_aware()
     def train(
         self,
         data: str,
@@ -225,7 +227,7 @@ class LibreDFINE(BaseModel):
             random.seed(seed)
             np.random.seed(seed)
             torch.manual_seed(seed)
-            if torch.cuda.is_available():
+            if str(device).lower() not in ("cpu", "mps") and torch.cuda.is_available():
                 torch.cuda.manual_seed_all(seed)
 
         trainer = DFINETrainer(

@@ -142,6 +142,11 @@ def get_user_provided_params() -> Set[str]:
     ctx = click.get_current_context(silent=True)
     if ctx is None:
         return set()
+    # KeyValueCommand.parse_args stores the set in ctx.meta for reliable access
+    # regardless of click version or test-runner context behaviour.
+    if "user_provided" in ctx.meta:
+        return ctx.meta["user_provided"]
+    # Fallback for plain click commands not using KeyValueCommand.
     return {
         p.name
         for p in ctx.command.params
