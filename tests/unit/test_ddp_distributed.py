@@ -766,6 +766,92 @@ def test_spawn_ddp_train_translates_existing_cuda_visible_devices(tmp_path, monk
     assert os.environ.get("CUDA_VISIBLE_DEVICES") == "2,3", "original mask not restored"
 
 
+def test_spawn_for_model_restores_model_device_on_autobatch_probe_error():
+    """If resolve_auto_batch raises during the pre-spawn probe, the model must be
+    moved back to its original device and the exception must propagate.
+
+    Uses a thin wrapper model so .to() calls are tracked without real CUDA ops.
+    torch.cuda.is_available is patched True so the probe_device is cuda:0 (the
+    interesting path); the wrapper's .to() skips the actual CUDA move so the
+    test works on CPU-only machines.
+    """
+    from unittest.mock import MagicMock, patch
+
+    from libreyolo.training.ddp_spawn import spawn_for_model
+
+    device_log: list = []
+
+    class _TrackingModel(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self._inner = nn.Linear(4, 2)
+
+        def forward(self, x):
+            return self._inner(x)
+
+        def parameters(self, recurse=True):
+            return self._inner.parameters(recurse)
+
+        def state_dict(self, *a, **kw):
+            return self._inner.state_dict(*a, **kw)
+
+        def to(self, device, **kw):
+            device_log.append(device)
+            # Skip real CUDA moves so the test runs on CPU-only machines.
+            if not (isinstance(device, torch.device) and device.type == "cuda"):
+                self._inner.to(device, **kw)
+            return self
+
+        def cpu(self):
+            return self.to(torch.device("cpu"))
+
+    tracking = _TrackingModel()
+    model_instance = MagicMock()
+    model_instance.model = tracking
+    model_instance.model_path = None
+
+    with patch("torch.save"), \
+         patch("torch.cuda.is_available", return_value=True), \
+         patch("torch.cuda.empty_cache"), \
+         patch("libreyolo.training.autobatch.resolve_auto_batch",
+               side_effect=RuntimeError("probe failed")):
+        with pytest.raises(RuntimeError, match="probe failed"):
+            spawn_for_model(model_instance, train_kw={"batch": -1}, nprocs=2, devices=[0])
+
+    # Model must have been moved to probe_device (cuda:0) …
+    assert any(
+        isinstance(d, torch.device) and d.type == "cuda" for d in device_log
+    ), f"model never moved to probe device: {device_log}"
+    # … and then restored to the original device (cpu) by the except handler.
+    assert device_log[-1] == torch.device("cpu"), (
+        f"model not restored to cpu after probe error: {device_log}"
+    )
+
+
+def test_spawn_for_model_propagates_autobatch_error_on_cpu_path():
+    """CPU-only path (cuda unavailable): autobatch failure must propagate even
+    though probe_device == original_device == cpu (no real device move)."""
+    from unittest.mock import MagicMock, patch
+
+    from libreyolo.training.ddp_spawn import spawn_for_model
+
+    inner_model = nn.Linear(4, 2)
+    model_instance = MagicMock()
+    model_instance.model = inner_model
+    model_instance.model_path = None
+
+    with patch("torch.save"), \
+         patch("torch.cuda.is_available", return_value=False), \
+         patch("torch.cuda.empty_cache"), \
+         patch("libreyolo.training.autobatch.resolve_auto_batch",
+               side_effect=RuntimeError("cpu probe error")):
+        with pytest.raises(RuntimeError, match="cpu probe error"):
+            spawn_for_model(model_instance, train_kw={"batch": -1}, nprocs=2, devices=[0])
+
+    # Model must still be accessible on cpu.
+    assert next(inner_model.parameters()).device.type == "cpu"
+
+
 def test_spawn_for_model_writes_flat_state_dict(tmp_path):
     """Bootstrap temp-weights file must be a plain tensor dict, not wrapped in
     {\"model\": ...}, so all loaders (including RF-DETR) can call load_state_dict
