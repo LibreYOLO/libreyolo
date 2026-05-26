@@ -69,7 +69,13 @@ def _libreyolo_ddp_worker(
             dist.destroy_process_group()
 
     if rank == 0:
-        safe = {k: v for k, v in result.items() if isinstance(v, (int, float, str, bool, type(None)))}
+        safe = {}
+        for k, v in result.items():
+            try:
+                json.dumps(v)
+                safe[k] = v
+            except (TypeError, ValueError):
+                pass
         Path(result_path).write_text(json.dumps(safe))
 
 
@@ -254,7 +260,13 @@ def ddp_aware(batch_key: str = "batch", experimental_key: str | None = None):
     def decorator(train_fn):
         @functools.wraps(train_fn)
         def wrapper(self, *args, **kwargs):
+            import multiprocessing
             from libreyolo.training.distributed import parse_device_arg, has_torchrun_env
+
+            # Prevent recursive spawn: if we're already inside a spawned worker
+            # process, fall straight through to the single-device training path.
+            if multiprocessing.parent_process() is not None:
+                return train_fn(self, *args, **kwargs)
 
             sig = inspect.signature(train_fn)
             bound = sig.bind(self, *args, **kwargs)

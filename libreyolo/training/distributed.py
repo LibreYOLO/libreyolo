@@ -135,6 +135,8 @@ def init_distributed(timeout_seconds: int = 10800) -> None:
     Expects ``RANK``, ``LOCAL_RANK``, ``WORLD_SIZE`` to be set in the
     environment (which torchrun does automatically).
     """
+    import inspect
+
     if not dist.is_available():
         raise RuntimeError("torch.distributed is not available in this build")
     if dist.is_initialized():
@@ -147,14 +149,17 @@ def init_distributed(timeout_seconds: int = 10800) -> None:
         )
     backend = _select_backend()
     local_rank = int(os.environ["LOCAL_RANK"])
-    device_id = torch.device("cuda", local_rank) if torch.cuda.is_available() else None
-    dist.init_process_group(
-        backend=backend,
-        timeout=timedelta(seconds=timeout_seconds),
-        rank=int(os.environ["RANK"]),
-        world_size=int(os.environ["WORLD_SIZE"]),
-        device_id=device_id,
-    )
+    init_kwargs: dict = {
+        "backend": backend,
+        "timeout": timedelta(seconds=timeout_seconds),
+        "rank": int(os.environ["RANK"]),
+        "world_size": int(os.environ["WORLD_SIZE"]),
+    }
+    # device_id was added in PyTorch 2.0; guard so we stay compatible with older builds
+    pg_sig = inspect.signature(dist.init_process_group)
+    if "device_id" in pg_sig.parameters and torch.cuda.is_available():
+        init_kwargs["device_id"] = torch.device("cuda", local_rank)
+    dist.init_process_group(**init_kwargs)
 
 
 def shutdown_distributed() -> None:
@@ -261,11 +266,18 @@ def seed_for_rank(base_seed: int) -> int:
 # =============================================================================
 
 
-def _find_free_port() -> int:
-    """Bind to port 0 and let the OS pick a free port."""
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.bind(("", 0))
-        return s.getsockname()[1]
+def _find_free_port() -> tuple:
+    """Bind to port 0 and return ``(port, socket)``.
+
+    The caller is responsible for closing the socket.  Keeping it open
+    until just before ``mp.spawn`` is called minimises the TOCTOU window
+    between OS port selection and torch.distributed's TCPStore binding.
+    """
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    s.bind(("", 0))
+    port = s.getsockname()[1]
+    return port, s
 
 
 def spawn_ddp_train(
@@ -300,13 +312,20 @@ def spawn_ddp_train(
     """
     import torch.multiprocessing as mp
 
+    port_sock = None
     if master_port is None:
-        master_port = _find_free_port()
+        master_port, port_sock = _find_free_port()
 
     prev_cvd = os.environ.get("CUDA_VISIBLE_DEVICES")
     if devices:
         os.environ["CUDA_VISIBLE_DEVICES"] = ",".join(str(d) for d in devices)
     try:
+        # Close the reservation socket as late as possible — just before
+        # spawning — so the OS cannot hand the port to another process in the
+        # gap between our bind(0) call and torch.distributed's TCPStore bind.
+        if port_sock is not None:
+            port_sock.close()
+            port_sock = None
         mp.spawn(
             worker_fn,
             args=(nprocs, master_addr, master_port, result_path) + spawn_args,
@@ -314,6 +333,8 @@ def spawn_ddp_train(
             join=True,
         )
     finally:
+        if port_sock is not None:
+            port_sock.close()
         if devices:
             if prev_cvd is None:
                 os.environ.pop("CUDA_VISIBLE_DEVICES", None)
