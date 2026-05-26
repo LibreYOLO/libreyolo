@@ -311,11 +311,17 @@ class SetCriterion(nn.Module):
         # Match last layer outputs to targets
         indices = self.matcher(outputs_without_aux, targets)
 
-        # Compute number of target boxes for normalization
+        # Compute number of target boxes for normalization.
+        # Under DDP, all-reduce so every rank divides by the global count,
+        # not just its own per-rank batch. Without this, losses would be
+        # scaled by per-rank box counts, which diverge from single-GPU semantics.
         num_boxes = sum(len(t["labels"]) for t in targets)
         num_boxes = torch.as_tensor(
             [num_boxes], dtype=torch.float, device=next(iter(outputs.values())).device
         )
+        import torch.distributed as _dist
+        if _dist.is_available() and _dist.is_initialized():
+            _dist.all_reduce(num_boxes, op=_dist.ReduceOp.SUM)
         num_boxes = torch.clamp(num_boxes, min=1).item()
 
         # Compute all requested losses

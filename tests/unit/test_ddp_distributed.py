@@ -289,6 +289,121 @@ def _rfdetr_ddp_worker(rank: int, world_size: int, port: int, out_dir: str) -> N
             dist.destroy_process_group()
 
 
+def _rtdetr_ddp_worker(rank: int, world_size: int, port: int, out_dir: str) -> None:
+    """Two-rank DDP smoke for RT-DETR.
+
+    Exercises two forward passes:
+      1. Normal batch (has GT boxes) — denoising_class_embed is active.
+      2. All-empty batch (no GT boxes) — denoising path returns None, so
+         denoising_class_embed has no gradient. With find_unused_parameters=True
+         DDP handles this correctly; with False + static_graph=True it would
+         silently corrupt training (or hang under NCCL).
+    Also verifies that RTDETRLoss.all_reduce(num_boxes) fires when a process
+    group is active.
+    """
+    out_path = Path(out_dir) / f"rank_{rank}.txt"
+    try:
+        _setup_pg(rank, world_size, port)
+
+        from libreyolo import LibreRTDETR
+        from libreyolo.models.rtdetr.trainer import RTDETRTrainer
+        from libreyolo.training.distributed import (
+            get_world_size,
+            scale_loss_for_ddp,
+            unwrap_model,
+        )
+
+        torch.manual_seed(0)
+        wrapper = LibreRTDETR(None, size="r18", device="cpu")
+        wrapper.model.train()
+
+        trainer = RTDETRTrainer(
+            model=wrapper.model,
+            wrapper_model=wrapper,
+            size="r18",
+            num_classes=wrapper.nb_classes,  # match model (default 80)
+            data=None,
+            epochs=1,
+            batch=1,
+            imgsz=320,
+            device="cpu",
+            amp=False,
+            ema=False,
+            no_aug_epochs=0,
+            warmup_epochs=0,
+            eval_interval=-1,
+        )
+        trainer.on_setup()  # builds criterion
+
+        # Verify the fix: RT-DETR must use find_unused_parameters=True so that
+        # empty-target batches (where denoising_class_embed is unused) don't
+        # cause DDP to mishandle the gradient for that parameter.
+        assert trainer._ddp_find_unused_parameters(), (
+            "RTDETRTrainer must return True from _ddp_find_unused_parameters() "
+            "because denoising_class_embed is conditionally used."
+        )
+        find_unused = trainer._ddp_find_unused_parameters()
+        ddp_model = nn.parallel.DistributedDataParallel(
+            wrapper.model,
+            find_unused_parameters=find_unused,
+            gradient_as_bucket_view=False,
+            static_graph=not find_unused,
+        )
+        trainer.model = ddp_model
+        optimizer = torch.optim.AdamW(unwrap_model(ddp_model).parameters(), lr=1e-4)
+
+        # --- Pass 1: normal batch (GT boxes present, denoising path active) ---
+        torch.manual_seed(100 + rank)
+        imgs = torch.randn(1, 3, 320, 320)
+        targets = torch.zeros(1, 30, 5)
+        # Each rank gets a box with a different class label so per-rank num_boxes differ
+        targets[0, 0] = torch.tensor([float(rank % 2), 160.0, 120.0, 80.0, 60.0])
+
+        out1 = trainer.on_forward(imgs, targets)
+        loss1 = out1["total_loss"]
+        if not torch.isfinite(loss1):
+            raise RuntimeError(f"non-finite loss (pass 1) on rank {rank}: {loss1.item()}")
+        loss1_scaled = scale_loss_for_ddp(loss1)
+        optimizer.zero_grad()
+        loss1_scaled.backward()
+        optimizer.step()
+
+        ok, diag = _params_match_across_ranks(ddp_model)
+        if not ok:
+            raise RuntimeError(f"parameters diverged after pass 1: {diag}")
+
+        # --- Pass 2: all-empty batch (no GT boxes → denoising_class_embed unused) ---
+        torch.manual_seed(200 + rank)
+        imgs2 = torch.randn(1, 3, 320, 320)
+        targets2 = torch.zeros(1, 30, 5)  # all-zero targets = no valid boxes
+
+        out2 = trainer.on_forward(imgs2, targets2)
+        loss2 = out2["total_loss"]
+        if not torch.isfinite(loss2):
+            raise RuntimeError(f"non-finite loss (pass 2) on rank {rank}: {loss2.item()}")
+        loss2_scaled = scale_loss_for_ddp(loss2)
+        optimizer.zero_grad()
+        loss2_scaled.backward()
+        optimizer.step()
+
+        ok, diag = _params_match_across_ranks(ddp_model)
+        if not ok:
+            raise RuntimeError(f"parameters diverged after pass 2 (empty targets): {diag}")
+
+        world = get_world_size()
+        out_path.write_text(
+            f"ok world={world} loss1={float(loss1.detach().item()):.6f} "
+            f"loss2={float(loss2.detach().item()):.6f}\n"
+        )
+
+    except Exception as exc:
+        out_path.write_text(f"error: {type(exc).__name__}: {exc}\n")
+        raise
+    finally:
+        if dist.is_initialized():
+            dist.destroy_process_group()
+
+
 # =============================================================================
 # Helpers
 # =============================================================================
@@ -361,6 +476,27 @@ def test_rfdetr_ddp_2_ranks_cpu_gloo(tmp_path):
     but it's never exercised without an actual process group.
     """
     outputs = _spawn_and_check(_rfdetr_ddp_worker, n_ranks=2, tmp_path=tmp_path)
+    for rank, text in outputs.items():
+        assert text.startswith("ok "), f"rank {rank} did not finish ok: {text!r}"
+
+
+@pytest.mark.skipif(
+    sys.platform == "win32" and sys.version_info < (3, 8),
+    reason="mp.spawn on Windows needs Python 3.8+",
+)
+def test_rtdetr_ddp_2_ranks_cpu_gloo(tmp_path):
+    """Two-rank DDP smoke for RT-DETR.
+
+    Covers two regressions specific to RT-DETR DDP:
+      1. find_unused_parameters=True — RTDETRTrainer must declare this so
+         denoising_class_embed (unused when a batch has no GT boxes) is
+         handled correctly by DDP's reducer.
+      2. dist.all_reduce(num_boxes) in RTDETRLoss — ensures every rank
+         normalises losses by the *global* box count, not just its own.
+    The second forward pass uses an all-zero target tensor (no valid boxes)
+    to exercise the empty-target code path where denoising is skipped.
+    """
+    outputs = _spawn_and_check(_rtdetr_ddp_worker, n_ranks=2, tmp_path=tmp_path)
     for rank, text in outputs.items():
         assert text.startswith("ok "), f"rank {rank} did not finish ok: {text!r}"
 

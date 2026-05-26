@@ -84,6 +84,13 @@ class RTDETRTrainer(BaseTrainer):
     def _config_class(cls) -> Type[TrainConfig]:
         return RTDETRConfig
 
+    def _ddp_find_unused_parameters(self) -> bool:
+        # RT-DETR's denoising_class_embed is skipped when a batch has no GT
+        # boxes (get_contrastive_denoising_training_group returns None).
+        # DDP must re-scan the graph each iteration rather than assuming a
+        # fixed set of used parameters (static_graph=True is incompatible here).
+        return True
+
     @property
     def effective_lr(self) -> float:
         """Optimizer base learning rate."""
