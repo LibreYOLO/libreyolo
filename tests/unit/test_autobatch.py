@@ -214,6 +214,27 @@ def test_autobatch_clamps_to_safe_max():
     assert result <= _BATCH_SAFE_MAX
 
 
+def test_autobatch_extrapolation_not_capped_at_max_probe():
+    """Extrapolated raw value must not be capped at max_probe before rounding.
+
+    slope=0.05 GiB/sample, intercept=0, total=8 GiB, fraction=0.70 →
+    raw = 5.6 / 0.05 = 112, which exceeds the default max_probe=64.
+    _floor_pow2_strict(112) = 64.  The old (incorrect) code would clamp raw to
+    64 first, giving _floor_pow2_strict(64) = 32.
+    """
+    slope_gib = 0.05
+
+    def mem_fn(b):
+        return int(slope_gib * b * 1024**3)
+
+    model = nn.Linear(4, 2)
+    with _make_cuda_patches(mem_fn, total_gib=8.0, model=model):
+        result = autobatch(model, imgsz=32, amp=False, fraction=0.70, default=16)
+
+    # raw ≈ 112  →  _floor_pow2_strict(112) = 64
+    assert result == _floor_pow2_strict(8.0 * 0.70 / slope_gib)
+
+
 def test_autobatch_returns_default_on_oom_at_first_probe():
     """OOM on batch=1 → < 2 probe points → return default."""
     call_count = [0]

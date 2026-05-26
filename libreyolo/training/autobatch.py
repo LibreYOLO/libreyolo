@@ -201,7 +201,7 @@ def autobatch(
         logger.warning("AutoBatch: non-positive slope — keeping batch=%d", default)
         return default
 
-    raw = min((target_gib - intercept) / slope, max_probe)
+    raw = (target_gib - intercept) / slope
     result = _floor_pow2_strict(raw)
     result = max(1, min(result, _BATCH_SAFE_MAX))
 

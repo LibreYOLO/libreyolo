@@ -160,7 +160,7 @@ def spawn_for_model(
 
     # When resuming, workers must load from the real checkpoint so that
     # trainer.resume() can read 'epoch', 'optimizer', etc.  The temp-weights
-    # file only carries {"model": ...} which lacks those keys.
+    # file only carries a plain state dict which lacks those keys.
     resuming = bool(train_kw.get("resume")) and getattr(model_instance, "model_path", None)
     if resuming:
         tmp_weights = str(model_instance.model_path)
@@ -169,7 +169,7 @@ def spawn_for_model(
         fd, tmp_weights = tempfile.mkstemp(suffix=".pt")
         os.close(fd)
         torch.save(
-            {"model": {k: v.cpu() for k, v in model_instance.model.state_dict().items()}},
+            {k: v.cpu() for k, v in model_instance.model.state_dict().items()},
             tmp_weights,
         )
         tmp_weights_to_delete = tmp_weights

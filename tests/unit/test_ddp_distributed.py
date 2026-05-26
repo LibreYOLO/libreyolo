@@ -673,6 +673,22 @@ def test_multi_gpu_device_raises_without_torchrun():
 # =============================================================================
 
 
+def _cvd_recording_worker(
+    rank: int,
+    nprocs: int,
+    master_addr: str,
+    master_port: int,
+    result_path: str,
+) -> None:
+    """Worker that writes the inherited CUDA_VISIBLE_DEVICES to the result file."""
+    import json
+
+    if rank == 0:
+        Path(result_path).write_text(json.dumps({
+            "cvd": os.environ.get("CUDA_VISIBLE_DEVICES", ""),
+        }))
+
+
 def _spawn_helper_worker(
     rank: int,
     nprocs: int,
@@ -723,3 +739,69 @@ def test_spawn_ddp_train_helper(tmp_path):
     data = json.loads((tmp_path / "result.json").read_text())
     assert data["world"] == 2
     assert data["rank"] == 0
+
+
+def test_spawn_ddp_train_translates_existing_cuda_visible_devices(tmp_path, monkeypatch):
+    """When CUDA_VISIBLE_DEVICES is already set, spawn_ddp_train must translate
+    requested device indices through the existing mask rather than overwriting
+    with raw indices.  devices=[0,1] with mask "2,3" → workers see "2,3"."""
+    import json
+
+    from libreyolo.training.distributed import spawn_ddp_train
+
+    monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "2,3")
+    result_path = str(tmp_path / "result.json")
+    spawn_ddp_train(
+        _cvd_recording_worker,
+        spawn_args=(),
+        nprocs=2,
+        result_path=result_path,
+        devices=[0, 1],
+    )
+
+    data = json.loads((tmp_path / "result.json").read_text())
+    assert data["cvd"] == "2,3", (
+        f"expected CUDA_VISIBLE_DEVICES='2,3' inside worker, got {data['cvd']!r}"
+    )
+    assert os.environ.get("CUDA_VISIBLE_DEVICES") == "2,3", "original mask not restored"
+
+
+def test_spawn_for_model_writes_flat_state_dict(tmp_path):
+    """Bootstrap temp-weights file must be a plain tensor dict, not wrapped in
+    {\"model\": ...}, so all loaders (including RF-DETR) can call load_state_dict
+    directly on it without unexpected-key errors."""
+    import json
+    from unittest.mock import MagicMock, patch
+
+    from libreyolo.training.ddp_spawn import spawn_for_model
+
+    inner_model = nn.Linear(4, 2)
+
+    model_instance = MagicMock()
+    model_instance.model = inner_model
+    model_instance.model_path = None
+
+    saved: dict = {}
+
+    def capture_save(obj, path):
+        saved["obj"] = obj
+
+    def fake_spawn(worker_fn, spawn_args, nprocs, result_path, **kw):
+        Path(result_path).write_text("{}")
+
+    with patch("torch.save", side_effect=capture_save), \
+         patch("libreyolo.training.distributed.spawn_ddp_train", side_effect=fake_spawn), \
+         patch("libreyolo.training.ddp_spawn._build_init_kw", return_value={}), \
+         patch("libreyolo.training.ddp_spawn._filter_picklable", side_effect=lambda x: x):
+        spawn_for_model(model_instance, train_kw={}, nprocs=2, devices=[0, 1])
+
+    assert saved, "torch.save was never called"
+    obj = saved["obj"]
+    assert isinstance(obj, dict), "saved object must be a dict"
+    assert "model" not in obj, (
+        "bootstrap weights must not be wrapped in {'model': ...}; "
+        "RF-DETR's loader passes the dict directly to load_state_dict"
+    )
+    assert all(isinstance(v, torch.Tensor) for v in obj.values()), (
+        "all values in the bootstrap state dict must be tensors"
+    )

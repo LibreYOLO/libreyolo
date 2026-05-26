@@ -323,7 +323,17 @@ def spawn_ddp_train(
 
     prev_cvd = os.environ.get("CUDA_VISIBLE_DEVICES")
     if devices:
-        os.environ["CUDA_VISIBLE_DEVICES"] = ",".join(str(d) for d in devices)
+        if prev_cvd is not None:
+            # devices are logical indices into the existing mask — translate to
+            # physical GPU IDs so the new mask is correct inside spawned workers.
+            existing = [x.strip() for x in prev_cvd.split(",") if x.strip()]
+            try:
+                new_cvd = ",".join(existing[d] for d in devices)
+            except IndexError:
+                new_cvd = ",".join(str(d) for d in devices)
+        else:
+            new_cvd = ",".join(str(d) for d in devices)
+        os.environ["CUDA_VISIBLE_DEVICES"] = new_cvd
     try:
         # Close the reservation socket as late as possible — just before
         # spawning — so the OS cannot hand the port to another process in the
