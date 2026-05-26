@@ -49,14 +49,51 @@ class KeyValueCommand(TyperCommand):
     """Typer command that accepts both key=value and --key value syntax."""
 
     def parse_args(self, ctx: click.Context, args: list[str]) -> list[str]:
-        # Identify boolean flag parameter names from the command definition
+        # Build bool_flags and a CLI-name → param-name reverse map.
+        # Use getattr throughout to be robust across typer/click versions
+        # (TyperOption may not be a direct subclass of click.Option in all envs).
         bool_flags: set[str] = set()
+        cli_to_param: dict[str, str] = {}
         for param in self.params:
-            if isinstance(param, click.Option) and param.is_flag:
+            if not getattr(param, "opts", None):
+                continue
+            param_name = getattr(param, "name", None)
+            for opt in param.opts:
+                if opt.startswith("--"):
+                    cli_key = opt.lstrip("-").replace("-", "_")
+                    if param_name:
+                        cli_to_param[cli_key] = param_name
+            for opt in getattr(param, "secondary_opts", []):
+                if opt.startswith("--"):
+                    cli_key = opt.lstrip("-").replace("-", "_")
+                    if param_name:
+                        cli_to_param[cli_key] = param_name
+            if getattr(param, "is_flag", False):
                 for opt in param.opts:
-                    bool_flags.add(opt.lstrip("-"))
-                for opt in param.secondary_opts:
-                    bool_flags.add(opt.lstrip("-"))
+                    if opt.startswith("--"):
+                        bool_flags.add(opt.lstrip("-"))
+                for opt in getattr(param, "secondary_opts", []):
+                    if opt.startswith("--"):
+                        bool_flags.add(opt.lstrip("-"))
+
+        # Compute which params the user explicitly provided from the raw args,
+        # and store them in ctx.meta so get_user_provided_params() can retrieve
+        # them without relying on click's ParameterSource tracking (which can
+        # be unreliable inside typer's test runner on some Python versions).
+        user_provided: set[str] = set()
+        for arg in args:
+            if arg.startswith("--"):
+                raw = arg.lstrip("-").split("=")[0].replace("-", "_")
+                user_provided.add(cli_to_param.get(raw, raw))
+            elif re.match(r"^[a-zA-Z_][a-zA-Z0-9_-]*=", arg):
+                key = arg.split("=")[0].replace("-", "_")
+                user_provided.add(cli_to_param.get(key, key))
+            elif re.match(r"^[a-zA-Z_][a-zA-Z0-9_-]*$", arg):
+                # Bare word: only counts if it's a known bool flag
+                key = arg.replace("-", "_")
+                if arg.replace("_", "-") in bool_flags or arg in bool_flags:
+                    user_provided.add(cli_to_param.get(key, key))
+        ctx.meta["user_provided"] = user_provided
 
         new_args = rewrite_known_bool_flags(args, bool_flags)
         parsed_args: list[str] = []
