@@ -1146,7 +1146,8 @@ class BaseTrainer(ABC):
             name: value / max(num_batches, 1)
             for name, value in loss_component_sums.items()
         }
-        logger.info(f"Epoch {epoch + 1} - Average loss: {avg_loss:.4f}")
+        if is_main_process():
+            logger.info(f"Epoch {epoch + 1} - Average loss: {avg_loss:.4f}")
 
         # Validation
         val_metrics = None
@@ -1274,7 +1275,8 @@ class BaseTrainer(ABC):
             name: value / max(num_batches, 1)
             for name, value in loss_component_sums.items()
         }
-        logger.info(f"Epoch {epoch + 1} - Average loss: {avg_loss:.4f}")
+        if is_main_process():
+            logger.info(f"Epoch {epoch + 1} - Average loss: {avg_loss:.4f}")
 
         # Validation
         val_metrics = None

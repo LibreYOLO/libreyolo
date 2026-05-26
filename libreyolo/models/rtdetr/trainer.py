@@ -11,6 +11,7 @@ from typing import Dict, List, Type
 
 import torch
 
+from libreyolo.training.distributed import is_main_process
 from libreyolo.training.trainer import BaseTrainer
 from libreyolo.training.config import TrainConfig
 from libreyolo.training.scheduler import (
@@ -292,12 +293,12 @@ class RTDETRTrainer(BaseTrainer):
         else:
             raise ValueError(f"Unsupported optimizer: {config.optimizer}")
 
-        # Log parameter groups
-        logger.info(f"Optimizer: {optimizer_name}")
-        for i, g in enumerate(opt_groups):
-            logger.info(
-                f"  - Group {i}: lr={g['lr']:.6f}, wd={g.get('weight_decay', base_wd):.6f}, "
-                f"lr_ratio={g.get('lr_ratio', 1.0):.4f}, params={len(g['params'])}"
-            )
+        if is_main_process():
+            logger.info(f"Optimizer: {optimizer_name}")
+            for i, g in enumerate(opt_groups):
+                logger.info(
+                    f"  - Group {i}: lr={g['lr']:.6f}, wd={g.get('weight_decay', base_wd):.6f}, "
+                    f"lr_ratio={g.get('lr_ratio', 1.0):.4f}, params={len(g['params'])}"
+                )
 
         return optimizer

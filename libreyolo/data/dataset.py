@@ -21,6 +21,7 @@ from PIL import Image, UnidentifiedImageError
 from tqdm import tqdm
 
 from .utils import polygon_to_cxcywh
+from libreyolo.training.distributed import is_main_process
 
 logger = logging.getLogger(__name__)
 
@@ -228,7 +229,9 @@ class YOLODataset(Dataset):
         """Load all annotations."""
         total = len(self.img_files)
         source = self._annotation_source()
-        logger.info("Loading %d YOLO annotations from %s...", total, source)
+        main = is_main_process()
+        if main:
+            logger.info("Loading %d YOLO annotations from %s...", total, source)
         start = time.perf_counter()
 
         pairs = list(zip(self.img_files, self.label_files))
@@ -238,6 +241,7 @@ class YOLODataset(Dataset):
             img_file, label_file = pair
             return self._load_label(label_file, img_file)
 
+        tqdm_disable = not (main and sys.stderr.isatty())
         if max_workers > 1:
             with ThreadPoolExecutor(max_workers=max_workers) as executor:
                 annotations = list(
@@ -246,7 +250,7 @@ class YOLODataset(Dataset):
                         total=total,
                         desc=f"Loading YOLO annotations ({source})",
                         file=sys.stderr,
-                        disable=not sys.stderr.isatty(),
+                        disable=tqdm_disable,
                     )
                 )
         else:
@@ -257,16 +261,17 @@ class YOLODataset(Dataset):
                     total=total,
                     desc=f"Loading YOLO annotations ({source})",
                     file=sys.stderr,
-                    disable=not sys.stderr.isatty(),
+                    disable=tqdm_disable,
                 )
             ]
 
-        logger.info(
-            "Loaded %d YOLO annotations from %s in %.2fs",
-            total,
-            source,
-            time.perf_counter() - start,
-        )
+        if main:
+            logger.info(
+                "Loaded %d YOLO annotations from %s in %.2fs",
+                total,
+                source,
+                time.perf_counter() - start,
+            )
         if self.load_segments:
             self.segments = [item[1] for item in annotations]
             annotations = [item[0] for item in annotations]
