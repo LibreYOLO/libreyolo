@@ -183,10 +183,7 @@ class YOLO9Config(TrainConfig):
     name: str = "yolo9_exp"
     workers: int = 8
     mask_downsample_ratio: int = 4
-    # MultimediaTechLab's upstream YOLOv9 hardcodes sync_batchnorm=True in
-    # its Lightning trainer. Carry that default here for multi-GPU runs;
-    # single-GPU runs ignore the flag (conversion only fires under DDP).
-    sync_bn: bool = True
+    sync_bn: bool = False
 
 
 @dataclass(kw_only=True)
