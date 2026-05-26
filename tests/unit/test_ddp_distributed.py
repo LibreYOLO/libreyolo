@@ -294,12 +294,14 @@ def _rtdetr_ddp_worker(rank: int, world_size: int, port: int, out_dir: str) -> N
 
     Exercises two forward passes:
       1. Normal batch (has GT boxes) — denoising_class_embed is active.
+         Asserted via presence of '_dn_' keys in the loss dict.
       2. All-empty batch (no GT boxes) — denoising path returns None, so
          denoising_class_embed has no gradient. With find_unused_parameters=True
          DDP handles this correctly; with False + static_graph=True it would
          silently corrupt training (or hang under NCCL).
-    Also verifies that RTDETRLoss.all_reduce(num_boxes) fires when a process
-    group is active.
+         Asserted via absence of '_dn_' keys in the loss dict.
+    Each rank contributes a different box count so the all_reduce(num_boxes)
+    path in RTDETRLoss is exercised with a non-trivial reduction.
     """
     out_path = Path(out_dir) / f"rank_{rank}.txt"
     try:
@@ -338,11 +340,11 @@ def _rtdetr_ddp_worker(rank: int, world_size: int, port: int, out_dir: str) -> N
         # Verify the fix: RT-DETR must use find_unused_parameters=True so that
         # empty-target batches (where denoising_class_embed is unused) don't
         # cause DDP to mishandle the gradient for that parameter.
-        assert trainer._ddp_find_unused_parameters(), (
+        find_unused = trainer._ddp_find_unused_parameters()
+        assert find_unused, (
             "RTDETRTrainer must return True from _ddp_find_unused_parameters() "
             "because denoising_class_embed is conditionally used."
         )
-        find_unused = trainer._ddp_find_unused_parameters()
         ddp_model = nn.parallel.DistributedDataParallel(
             wrapper.model,
             find_unused_parameters=find_unused,
@@ -365,6 +367,13 @@ def _rtdetr_ddp_worker(rank: int, world_size: int, port: int, out_dir: str) -> N
         loss1 = out1["total_loss"]
         if not torch.isfinite(loss1):
             raise RuntimeError(f"non-finite loss (pass 1) on rank {rank}: {loss1.item()}")
+        # Denoising path must be active: valid box → max_gt_num > 0 → _dn_ loss keys appear.
+        dn_keys1 = [k for k in out1 if "_dn_" in k]
+        if not dn_keys1:
+            raise RuntimeError(
+                f"pass 1: denoising path was not exercised on rank {rank} "
+                f"(no '_dn_' keys in loss dict); target box coordinates may be invalid"
+            )
         loss1_scaled = scale_loss_for_ddp(loss1)
         optimizer.zero_grad()
         loss1_scaled.backward()
@@ -383,6 +392,13 @@ def _rtdetr_ddp_worker(rank: int, world_size: int, port: int, out_dir: str) -> N
         loss2 = out2["total_loss"]
         if not torch.isfinite(loss2):
             raise RuntimeError(f"non-finite loss (pass 2) on rank {rank}: {loss2.item()}")
+        # Denoising path must be inactive: no valid boxes → max_gt_num == 0 → no _dn_ keys.
+        dn_keys2 = [k for k in out2 if "_dn_" in k]
+        if dn_keys2:
+            raise RuntimeError(
+                f"pass 2: expected denoising to be skipped on rank {rank} "
+                f"(all-zero targets) but found {dn_keys2}"
+            )
         loss2_scaled = scale_loss_for_ddp(loss2)
         optimizer.zero_grad()
         loss2_scaled.backward()
