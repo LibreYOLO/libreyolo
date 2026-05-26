@@ -250,6 +250,9 @@ def spawn_for_model(
             )
             model_instance.model.to(target).eval()
             model_instance.device = target
+    elif _model_moved:
+        model_instance.model.to(_original_device)
+        torch.cuda.empty_cache()
 
     return result
 
@@ -280,13 +283,7 @@ def ddp_aware(batch_key: str = "batch", experimental_key: str | None = None):
     def decorator(train_fn):
         @functools.wraps(train_fn)
         def wrapper(self, *args, **kwargs):
-            import multiprocessing
             from libreyolo.training.distributed import parse_device_arg, has_torchrun_env
-
-            # Prevent recursive spawn: if we're already inside a spawned worker
-            # process, fall straight through to the single-device training path.
-            if multiprocessing.parent_process() is not None:
-                return train_fn(self, *args, **kwargs)
 
             sig = inspect.signature(train_fn)
             bound = sig.bind(self, *args, **kwargs)
