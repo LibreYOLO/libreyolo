@@ -146,11 +146,14 @@ def init_distributed(timeout_seconds: int = 10800) -> None:
             "`torchrun --nproc_per_node=2 your_script.py`."
         )
     backend = _select_backend()
+    local_rank = int(os.environ["LOCAL_RANK"])
+    device_id = torch.device("cuda", local_rank) if torch.cuda.is_available() else None
     dist.init_process_group(
         backend=backend,
         timeout=timedelta(seconds=timeout_seconds),
         rank=int(os.environ["RANK"]),
         world_size=int(os.environ["WORLD_SIZE"]),
+        device_id=device_id,
     )
 
 
