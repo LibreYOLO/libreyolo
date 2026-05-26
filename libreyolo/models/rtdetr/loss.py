@@ -13,6 +13,7 @@ Reference: https://github.com/lyuwenyu/RT-DETR
 """
 
 import torch
+import torch.distributed as dist
 import torch.nn as nn
 import torch.nn.functional as F
 import torchvision
@@ -319,9 +320,8 @@ class SetCriterion(nn.Module):
         num_boxes = torch.as_tensor(
             [num_boxes], dtype=torch.float, device=next(iter(outputs.values())).device
         )
-        import torch.distributed as _dist
-        if _dist.is_available() and _dist.is_initialized():
-            _dist.all_reduce(num_boxes, op=_dist.ReduceOp.SUM)
+        if dist.is_available() and dist.is_initialized():
+            dist.all_reduce(num_boxes, op=dist.ReduceOp.SUM)
         num_boxes = torch.clamp(num_boxes, min=1).item()
 
         # Compute all requested losses

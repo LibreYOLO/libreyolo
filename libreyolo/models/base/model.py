@@ -184,7 +184,7 @@ class BaseModel(ABC):
 
         # Signal _init_model that weights will be loaded immediately after, so
         # subclasses can skip pretrained backbone downloads that would be wasted.
-        self._loading_from_weights = isinstance(model_path, (str, dict))
+        self._loading_from_weights = isinstance(model_path, (str, Path, dict))
         try:
             self.model = self._init_model()
         finally:

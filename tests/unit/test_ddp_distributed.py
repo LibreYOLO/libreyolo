@@ -356,8 +356,10 @@ def _rtdetr_ddp_worker(rank: int, world_size: int, port: int, out_dir: str) -> N
         torch.manual_seed(100 + rank)
         imgs = torch.randn(1, 3, 320, 320)
         targets = torch.zeros(1, 30, 5)
-        # Each rank gets a box with a different class label so per-rank num_boxes differ
-        targets[0, 0] = torch.tensor([float(rank % 2), 160.0, 120.0, 80.0, 60.0])
+        # Each rank gets a box with a different class label so per-rank num_boxes differ.
+        # Format: [cls, x1, y1, x2, y2] — x2 > x1 and y2 > y1 required for the box
+        # to survive the convert_targets_for_detr validity filter.
+        targets[0, 0] = torch.tensor([float(rank % 2), 80.0, 60.0, 160.0, 120.0])
 
         out1 = trainer.on_forward(imgs, targets)
         loss1 = out1["total_loss"]
