@@ -48,6 +48,8 @@ class RFDETRStepScheduler(BaseScheduler):
 
 
 class RFDETRTrainer(BaseTrainer):
+    artifact_model_families = ("rfdetr",)
+
     @classmethod
     def _config_class(cls) -> Type[TrainConfig]:
         return RFDETRConfig
