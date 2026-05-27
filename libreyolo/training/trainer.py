@@ -513,7 +513,7 @@ class BaseTrainer(ABC):
         self.on_setup()
 
         if getattr(self.config, "batch", 16) == -1:
-            from libreyolo.training.autobatch import resolve_auto_batch
+            from libreyolo.training.autobatch import resolve_auto_batch, _DEFAULT_FRACTION
 
             self.config.batch = resolve_auto_batch(
                 self.model,
@@ -521,6 +521,7 @@ class BaseTrainer(ABC):
                 amp=self.config.amp,
                 world_size=self.world_size,
                 nbs=getattr(self.config, "nbs", None),
+                fraction=getattr(self.wrapper_model, "autobatch_fraction", _DEFAULT_FRACTION),
             )
             if is_main_process():
                 logger.info("AutoBatch: resolved global batch size = %d", self.config.batch)
