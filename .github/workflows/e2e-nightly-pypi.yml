@@ -1,0 +1,138 @@
+# SECURITY: do not add `pull_request` to this workflow. A self-hosted runner
+# attached to a public repo would execute arbitrary code from fork PRs.
+
+name: E2E nightly (PyPI)
+
+on:
+  schedule:
+    - cron: "0 5 * * *"
+  workflow_dispatch:
+    inputs:
+      force:
+        description: "Run regardless of version cache"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  guard:
+    name: Resolve stale PyPI target
+    runs-on: ubuntu-latest
+    outputs:
+      should_run: ${{ steps.diff.outputs.should_run }}
+      pypi_ver: ${{ steps.resolve.outputs.pypi_ver }}
+      cache_hit: ${{ steps.cache-target.outputs.cache-hit }}
+    steps:
+      - id: resolve
+        name: Resolve current PyPI version
+        run: |
+          set -euo pipefail
+          PYPI_VER=$(curl -fsSL https://pypi.org/pypi/libreyolo/json | jq -r .info.version)
+          echo "pypi_ver=$PYPI_VER" >> "$GITHUB_OUTPUT"
+          echo "Resolved: pypi=$PYPI_VER"
+
+      - id: cache-target
+        uses: actions/cache@v4
+        with:
+          path: .last-pypi
+          key: last-tested-nightly-pypi-${{ steps.resolve.outputs.pypi_ver }}
+
+      - id: diff
+        name: Decide whether PyPI needs testing
+        env:
+          FORCE: ${{ inputs.force }}
+          HIT_TARGET: ${{ steps.cache-target.outputs.cache-hit }}
+        run: |
+          set -euo pipefail
+          if [ "${FORCE:-false}" = "true" ]; then
+            SHOULD_RUN=true
+          elif [ "${HIT_TARGET:-}" = "true" ]; then
+            SHOULD_RUN=false
+          else
+            SHOULD_RUN=true
+          fi
+          echo "should_run=$SHOULD_RUN" >> "$GITHUB_OUTPUT"
+          echo "Should run PyPI: $SHOULD_RUN"
+
+  e2e:
+    name: e2e (pypi)
+    needs: guard
+    if: needs.guard.outputs.should_run == 'true'
+    runs-on: [self-hosted, gpu, libreyolo-e2e]
+    timeout-minutes: 180
+    steps:
+      - name: Checkout PyPI tag
+        uses: actions/checkout@v4
+        with:
+          ref: v${{ needs.guard.outputs.pypi_ver }}
+
+      - uses: astral-sh/setup-uv@v4
+
+      - name: Create venv
+        run: uv venv --python 3.10
+
+      - name: Install from PyPI
+        run: |
+          uv pip install --torch-backend cu128 \
+            "libreyolo[rfdetr,onnx]==${{ needs.guard.outputs.pypi_ver }}" \
+            pytest
+
+      - name: GPU sanity
+        run: uv run --no-sync python -c "import torch; print('CUDA:', torch.cuda.is_available(), torch.cuda.get_device_name(0) if torch.cuda.is_available() else '-')"
+
+      - name: Record nightly suite contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -f tests/e2e/nightly_contract.py ]; then
+            uv run --no-sync python - <<'PY'
+          import os
+          from pathlib import Path
+
+          from tests.e2e.nightly_contract import (
+              nightly_markdown_summary,
+              nightly_summary_line,
+          )
+
+          print(nightly_summary_line())
+          summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
+          if summary_path:
+              with Path(summary_path).open("a", encoding="utf-8") as f:
+                  f.write(nightly_markdown_summary())
+                  f.write("\n")
+          PY
+          else
+            msg="LibreYOLO nightly e2e suite: legacy pre-v1.0 (checked-out target has no versioned contract)"
+            echo "$msg"
+            if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
+              {
+                echo "### $msg"
+                echo
+                echo "This target predates the versioned nightly test contract."
+              } >> "$GITHUB_STEP_SUMMARY"
+            fi
+          fi
+
+      - name: Run e2e
+        shell: bash
+        run: |
+          set -euo pipefail
+          if grep -q '^test_nightly:' Makefile; then
+            make test_nightly
+          else
+            echo "test_nightly target not present; running legacy pre-v1.0 e2e command"
+            uv run --no-sync pytest tests/e2e -v -m "not export_backend"
+          fi
+
+      - name: Mark PyPI as tested
+        if: success()
+        run: echo "ok ${{ github.run_id }}" > .last-pypi
+
+      - name: Save tested-version cache
+        if: success() && needs.guard.outputs.cache_hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: .last-pypi
+          key: last-tested-nightly-pypi-${{ needs.guard.outputs.pypi_ver }}
