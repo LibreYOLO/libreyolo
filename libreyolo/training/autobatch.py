@@ -35,7 +35,7 @@ from libreyolo.training.distributed import (
 
 logger = logging.getLogger(__name__)
 
-_DEFAULT_FRACTION: float = 0.70
+_DEFAULT_FRACTION: float = 0.60
 _DEFAULT_MAX_PROBE: int = 64
 _BATCH_SAFE_MAX: int = 1024
 
@@ -48,7 +48,7 @@ _BATCH_SAFE_MAX: int = 1024
 def _floor_pow2_strict(x: float) -> int:
     """Return the largest power of 2 *strictly less than* x.
 
-    This is intentionally conservative: the probe targets 70 % of VRAM but
+    This is intentionally conservative: the probe targets 60 % of VRAM but
     the fit is an approximation, so we never bet on the exact extrapolated
     value.  Returns 1 for x ≤ 2.
 
@@ -109,7 +109,7 @@ def autobatch(
         model: Model already resident on the target CUDA device.
         imgsz: Square input size (height == width).
         amp: Whether AMP (autocast) will be used during training.
-        fraction: Target fraction of *total* VRAM to occupy (default 0.70).
+        fraction: Target fraction of *total* VRAM to occupy (default 0.60).
         default: Fallback batch size for non-CUDA devices or probe failures.
         max_probe: Largest batch size to probe (default 64; set to nbs).
 
@@ -259,7 +259,7 @@ def resolve_auto_batch(
         model: Model on the target device (not yet DDP-wrapped).
         imgsz: Square input size.
         amp: Whether AMP is active.
-        fraction: Target fraction of total VRAM (default 0.70).
+        fraction: Target fraction of total VRAM (default 0.60).
         world_size: Number of DDP ranks (1 for single-GPU).
         default: Fallback when CUDA is unavailable.
         nbs: Nominal batch size — caps the global batch and sets the probe
@@ -310,7 +310,11 @@ def resolve_auto_batch(
         # Scale per-GPU capacity to global; per_gpu * ws is always divisible by ws.
         global_batch = max(ws, per_gpu * ws)
 
-    logger.info("AutoBatch: per-GPU=%d  world_size=%d  global=%d", per_gpu, ws, global_batch)
+    if is_main_process():
+        logger.info(
+            "AutoBatch: per-GPU=%d  world_size=%d  global=%d",
+            global_batch // ws, ws, global_batch,
+        )
     return global_batch
 
 
