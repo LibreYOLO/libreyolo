@@ -214,3 +214,57 @@ class TestEdgeCases:
         assert captured["name"] == "default"
         assert captured["count"] == 0
         assert captured["half"] is False
+
+
+class TestUserProvidedParams:
+    """get_user_provided_params() must see args the caller explicitly passed.
+
+    typer >= 0.26 vendors click as typer._click with a separate context
+    stack.  The bridge in get_user_provided_params() must handle both the
+    legacy (typer < 0.26, one shared click stack) and the vendored-click
+    (typer >= 0.26, typer._click stack) case — otherwise user overrides
+    are silently ignored and family defaults take over.
+    """
+
+    def _make_capturing_app(self):
+        from libreyolo.cli.command_utils import get_user_provided_params
+
+        app = typer.Typer()
+        captured: dict = {}
+
+        @app.command(cls=KeyValueCommand)
+        def cmd(
+            epochs: int = typer.Option(300),
+            scheduler: str = typer.Option("cosine"),
+            save: bool = typer.Option(False),
+        ):
+            captured["user_provided"] = get_user_provided_params()
+
+        return app, captured
+
+    def test_key_value_arg_is_detected(self):
+        app, captured = self._make_capturing_app()
+        result = runner.invoke(app, ["epochs=5"])
+        assert result.exit_code == 0
+        assert "epochs" in captured["user_provided"]
+        assert "scheduler" not in captured["user_provided"]
+
+    def test_double_dash_arg_is_detected(self):
+        app, captured = self._make_capturing_app()
+        result = runner.invoke(app, ["--epochs", "5"])
+        assert result.exit_code == 0
+        assert "epochs" in captured["user_provided"]
+        assert "scheduler" not in captured["user_provided"]
+
+    def test_bool_flag_is_detected(self):
+        app, captured = self._make_capturing_app()
+        result = runner.invoke(app, ["save=true"])
+        assert result.exit_code == 0
+        assert "save" in captured["user_provided"]
+        assert "epochs" not in captured["user_provided"]
+
+    def test_no_args_returns_empty_set(self):
+        app, captured = self._make_capturing_app()
+        result = runner.invoke(app, [])
+        assert result.exit_code == 0
+        assert captured["user_provided"] == set()
