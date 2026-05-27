@@ -1,0 +1,121 @@
+# SECURITY: do not add `pull_request` to this workflow. A self-hosted runner
+# attached to a public repo would execute arbitrary code from fork PRs.
+
+name: E2E nightly
+
+on:
+  schedule:
+    - cron: '0 3 * * *'
+  workflow_dispatch:
+    inputs:
+      force:
+        description: "Run regardless of SHA cache"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  guard:
+    name: Resolve stale target
+    runs-on: ubuntu-latest
+    outputs:
+      stale: ${{ steps.diff.outputs.stale }}
+      main_sha: ${{ steps.resolve.outputs.main }}
+    steps:
+      - id: resolve
+        name: Resolve current main SHA
+        run: |
+          set -euo pipefail
+          MAIN_SHA=$(git ls-remote https://github.com/LibreYOLO/libreyolo refs/heads/main | cut -f1)
+          echo "main=$MAIN_SHA" >> "$GITHUB_OUTPUT"
+          echo "Resolved: main=$MAIN_SHA"
+
+      - id: cache-main
+        uses: actions/cache@v4
+        with:
+          path: .last-main
+          key: last-tested-main-${{ steps.resolve.outputs.main }}
+
+      - id: diff
+        name: Compute stale target list
+        env:
+          FORCE: ${{ inputs.force }}
+          HIT_MAIN: ${{ steps.cache-main.outputs.cache-hit }}
+        run: |
+          set -euo pipefail
+          if [ "${FORCE:-false}" = "true" ]; then
+            STALE='["main"]'
+          elif [ "${HIT_MAIN:-}" = "true" ]; then
+            STALE='[]'
+          else
+            STALE='["main"]'
+          fi
+          echo "stale=$STALE" >> "$GITHUB_OUTPUT"
+          echo "Stale targets: $STALE"
+
+  e2e:
+    name: e2e (${{ matrix.target }})
+    needs: guard
+    if: needs.guard.outputs.stale != '[]'
+    runs-on: [self-hosted, gpu, libreyolo-e2e]
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        target: ${{ fromJSON(needs.guard.outputs.stale) }}
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ matrix.target }}
+
+      - uses: astral-sh/setup-uv@v4
+
+      - name: Create venv
+        run: uv venv --python 3.10
+
+      - name: Install from source
+        run: uv pip install --no-sources --torch-backend cu128 --group dev -e ".[rfdetr,onnx]"
+
+      - name: GPU sanity
+        run: uv run --no-sync python -c "import torch; print('CUDA:', torch.cuda.is_available(), torch.cuda.get_device_name(0) if torch.cuda.is_available() else '-')"
+
+      - name: Record nightly suite contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run --no-sync python - <<'PY'
+          import os
+          from pathlib import Path
+
+          from tests.e2e.nightly_contract import (
+              nightly_markdown_summary,
+              nightly_summary_line,
+          )
+
+          print(nightly_summary_line())
+          summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
+          if summary_path:
+              with Path(summary_path).open("a", encoding="utf-8") as f:
+                  f.write(nightly_markdown_summary())
+                  f.write("\n")
+          PY
+
+      - name: Run e2e
+        shell: bash
+        run: |
+          set -euo pipefail
+          make test_nightly
+
+      - name: Mark target as tested
+        if: success()
+        run: echo "ok ${{ github.run_id }}" > .last-${{ matrix.target }}
+
+      - name: Save tested-SHA cache
+        if: success() && matrix.target == 'main'
+        uses: actions/cache/save@v4
+        with:
+          path: .last-main
+          key: last-tested-main-${{ needs.guard.outputs.main_sha }}

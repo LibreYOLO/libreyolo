@@ -19,6 +19,7 @@ dependencies = [
     "tqdm>=4.65.0",
     "pycocotools>=2.0.0",
     "typer>=0.9.0",
+    "click>=8.0.0",
     "safetensors>=0.4.0",
 ]
 
@@ -36,7 +37,7 @@ onnx = [
     "onnxruntime>=1.16.0",
 ]
 rfdetr = [
-    "rfdetr>=1.6.2,<2.0.0",
+    "rfdetr[train,loggers]>=1.6.2,<2.0.0",
 ]
 tensorrt = [
     # No CUDA on macOS; marker drops these. Version pin must match the
@@ -152,6 +153,8 @@ testpaths = ["tests"]
 markers = [
     "unit: fast tests that avoid external weights or large files",
     "e2e: end-to-end tests requiring full model loading and inference",
+    "general_nightly: broad nightly inference contract",
+    "flagship_nightly: focused nightly flagship model contract",
     "export_backend: tests covering an export backend or serialized runtime format",
     "supported_backend: tests covering a release-blocking supported backend",
     "experimental_backend: tests covering an experimental backend",

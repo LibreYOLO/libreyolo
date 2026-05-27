@@ -42,6 +42,20 @@ OFFICIAL_YOLONAS_WEIGHTS = {
     "m": Path("downloads/yolonas/yolo_nas_m_coco.pth"),
     "l": Path("downloads/yolonas/yolo_nas_l_coco.pth"),
 }
+FLAGSHIP_ONNX_COMPARE_PARAMS = [
+    pytest.param(
+        "yolo9",
+        "t",
+        marks=[pytest.mark.yolo9, pytest.mark.flagship_nightly],
+        id="yolo9-t",
+    ),
+    pytest.param(
+        "rfdetr",
+        "n",
+        marks=[requires_rfdetr, pytest.mark.rfdetr, pytest.mark.flagship_nightly],
+        id="rfdetr-n",
+    ),
+]
 
 
 # ---------------------------------------------------------------------------
@@ -51,6 +65,13 @@ OFFICIAL_YOLONAS_WEIGHTS = {
 
 class TestONNXExport:
     """Test ONNX export for all models."""
+
+    @pytest.mark.parametrize("model_type,size", FLAGSHIP_ONNX_COMPARE_PARAMS)
+    def test_flagship_onnx_export_inference(
+        self, model_type, size, sample_image, tmp_path
+    ):
+        """Nightly flagship ONNX export and inference parity for YOLO9/RF-DETR."""
+        self._run_onnx_test(model_type, size, sample_image, tmp_path)
 
     @pytest.mark.parametrize("model_type,size", QUICK_TEST_PARAMS)
     def test_onnx_export_quick(self, model_type, size, sample_image, tmp_path):

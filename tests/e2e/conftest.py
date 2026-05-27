@@ -10,6 +10,8 @@ import pytest
 import torch
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
+_FAIL_ON_NIGHTLY_SKIP_ENV = "LIBREYOLO_FAIL_ON_NIGHTLY_SKIP"
+_NIGHTLY_MARKERS = ("general_nightly", "flagship_nightly")
 
 
 def _repo_python_env() -> dict[str, str]:
@@ -21,6 +23,36 @@ def _repo_python_env() -> dict[str, str]:
         paths.append(existing)
     env["PYTHONPATH"] = os.pathsep.join(paths)
     return env
+
+
+def _has_nightly_marker(item) -> bool:
+    return any(
+        item.get_closest_marker(marker) is not None for marker in _NIGHTLY_MARKERS
+    )
+
+
+@pytest.hookimpl(hookwrapper=True)
+def pytest_runtest_makereport(item, call):
+    """Turn selected nightly skips into failures when the Make targets request it."""
+    outcome = yield
+    report = outcome.get_result()
+    if os.environ.get(_FAIL_ON_NIGHTLY_SKIP_ENV, "").lower() not in {
+        "1",
+        "true",
+        "yes",
+    }:
+        return
+    if report.when != "call" or report.outcome != "skipped":
+        return
+    if not _has_nightly_marker(item):
+        return
+
+    reason = str(report.longrepr)
+    report.outcome = "failed"
+    report.longrepr = (
+        f"Nightly-selected tests must execute, not skip.\nOriginal skip: {reason}"
+    )
+
 
 # ---------------------------------------------------------------------------
 # Force 'spawn' multiprocessing to prevent CUDA + fork segfaults.
@@ -38,6 +70,12 @@ multiprocessing.set_start_method("spawn", force=True)
 
 def pytest_configure(config):
     """Register custom markers (e2e marker registered in root conftest)."""
+    config.addinivalue_line(
+        "markers", "general_nightly: broad nightly inference contract"
+    )
+    config.addinivalue_line(
+        "markers", "flagship_nightly: focused nightly flagship model contract"
+    )
     config.addinivalue_line(
         "markers",
         "export_backend: tests covering an export backend or serialized runtime format",
@@ -72,9 +110,7 @@ def pytest_configure(config):
     )
     config.addinivalue_line("markers", "dfine: tests covering the D-FINE model family")
     config.addinivalue_line("markers", "deim: tests covering the DEIM model family")
-    config.addinivalue_line(
-        "markers", "deimv2: tests covering the DEIMv2 model family"
-    )
+    config.addinivalue_line("markers", "deimv2: tests covering the DEIMv2 model family")
     config.addinivalue_line("markers", "ecdet: tests covering the ECDET model family")
     config.addinivalue_line(
         "markers", "rtdetr: tests covering the RT-DETR model family"
@@ -486,6 +522,20 @@ PICODET_SIZES = [s for f, s, _ in MODEL_CATALOG if f == "picodet"]
 ALL_MODELS = [(f, s) for f, s, _ in MODEL_CATALOG]
 ALL_MODELS_WITH_WEIGHTS = MODEL_CATALOG
 NON_RFDETR_MODELS = [(f, s) for f, s, _ in MODEL_CATALOG if f != "rfdetr"]
+FLAGSHIP_NIGHTLY_TRAINING_MODELS = {
+    ("yolo9", "t"),
+    ("rfdetr", "n"),
+}
+GENERAL_NIGHTLY_INFERENCE_MODELS = [
+    ("yolo9", "t", "LibreYOLO9t.pt"),
+    ("yolo9", "s", "LibreYOLO9s.pt"),
+    ("yolo9", "m", "LibreYOLO9m.pt"),
+    ("yolo9", "c", "LibreYOLO9c.pt"),
+    ("rfdetr", "n", "LibreRFDETRn.pt"),
+    ("rfdetr", "s", "LibreRFDETRs.pt"),
+    ("rfdetr", "m", "LibreRFDETRm.pt"),
+    ("rfdetr", "l", "LibreRFDETRl.pt"),
+]
 
 # Quick test set (for CI — smallest auto-available models only)
 QUICK_TEST_MODELS = [("yolox", "n"), ("yolo9", "t"), ("rtdetr", "r18")]
@@ -546,10 +596,36 @@ def model_cases(models, *, with_weights: bool = False, marks_resolver=None):
     return params
 
 
+def flagship_training_nightly_marks(family: str, size: str, *_):
+    """Return the flagship nightly mark for the smallest training cases only."""
+    if (family, size) in FLAGSHIP_NIGHTLY_TRAINING_MODELS:
+        return pytest.mark.flagship_nightly
+    return None
+
+
+def general_nightly_marks(*_):
+    """Return the general nightly mark for focused inference cases."""
+    return pytest.mark.general_nightly
+
+
 QUICK_TEST_PARAMS = model_cases(QUICK_TEST_MODELS)
 FULL_TEST_PARAMS = model_cases(FULL_TEST_MODELS)
 RFDETR_TEST_PARAMS = model_cases(RFDETR_TEST_MODELS)
 ALL_MODEL_WEIGHT_PARAMS = model_cases(ALL_MODELS_WITH_WEIGHTS, with_weights=True)
+NIGHTLY_TRAINING_WEIGHT_PARAMS = model_cases(
+    ALL_MODELS_WITH_WEIGHTS,
+    with_weights=True,
+    marks_resolver=flagship_training_nightly_marks,
+)
+FLAGSHIP_NIGHTLY_LOAD_PARAMS = model_cases(
+    GENERAL_NIGHTLY_INFERENCE_MODELS,
+    with_weights=True,
+)
+GENERAL_NIGHTLY_INFERENCE_PARAMS = model_cases(
+    GENERAL_NIGHTLY_INFERENCE_MODELS,
+    with_weights=True,
+    marks_resolver=general_nightly_marks,
+)
 
 
 def get_model_weights(family: str, size: str) -> str:
