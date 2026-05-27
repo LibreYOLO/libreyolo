@@ -8,6 +8,7 @@ Supports ResNet-18/34/50/101 with variant 'd' (3x3 stem + AvgPool shortcut).
 """
 
 import logging
+import os
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -278,7 +279,20 @@ class PResNet(nn.Module):
             self._freeze_norm(self)
 
         if pretrained:
-            state = torch.hub.load_state_dict_from_url(download_url[depth])
+            import torch.distributed as dist
+
+            is_dist = dist.is_available() and dist.is_initialized()
+            local_rank = int(os.environ.get("LOCAL_RANK", 0)) if is_dist else 0
+
+            if not is_dist or local_rank == 0:
+                state = torch.hub.load_state_dict_from_url(download_url[depth])
+
+            if is_dist:
+                dist.barrier()
+
+            if local_rank != 0:
+                state = torch.hub.load_state_dict_from_url(download_url[depth])
+
             self.load_state_dict(state)
             logger.info("Loaded PResNet%d state_dict", depth)
 
