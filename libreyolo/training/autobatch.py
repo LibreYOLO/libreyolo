@@ -4,7 +4,7 @@ Probes the model at small batch sizes in *training mode with a backward pass*,
 fits a line to the (batch → GPU memory) curve, and extrapolates to find the
 largest global batch that stays within a target fraction of total VRAM.
 
-Why train mode + backward (not eval + no_grad like Ultralytics):
+Why train mode + backward:
   Eval+no_grad only measures inference memory.  During training PyTorch retains
   all intermediate activations for backward, and gradient tensors are allocated.
   For deep CNNs like YOLO9 this adds 5-10× the memory seen at inference.
@@ -13,8 +13,8 @@ Why train mode + backward (not eval + no_grad like Ultralytics):
 Result is always a power of 2 strictly below the extrapolated value, so it
 composes cleanly with power-of-2 nbs values for gradient accumulation.
 
-Global batch semantics (Ultralytics-mirror): the returned value is the GLOBAL
-batch. Under DDP the trainer divides it by world_size for per-rank loaders.
+Global batch semantics: the returned value is the global batch. Under DDP the
+trainer divides it by world_size for per-rank loaders.
 """
 
 from __future__ import annotations

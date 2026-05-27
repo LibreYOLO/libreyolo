@@ -51,7 +51,7 @@ def _pose_worker_init_fn(worker_id: int) -> None:
 
 
 def default_oks_sigmas(num_keypoints: int) -> list[float]:
-    """Per-keypoint OKS sigmas matching Ultralytics pose defaults."""
+    """Per-keypoint OKS sigmas for COCO-style pose evaluation."""
     if num_keypoints == 17:
         return list(_COCO17_OKS_SIGMAS)
     return [1.0 / num_keypoints] * num_keypoints

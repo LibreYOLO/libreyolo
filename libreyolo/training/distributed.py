@@ -4,10 +4,10 @@ Thin helpers around ``torch.distributed`` so the rest of the trainer can stay
 backend-agnostic. All helpers degrade to no-ops when distributed is not
 initialised — single-GPU code paths continue to work unchanged.
 
-User-facing surface mirrors Ultralytics: pass ``device=[0, 1]`` (or
-``device="0,1"``) and launch with ``torchrun --nproc_per_node=N``. Inside
-each child process ``init_distributed()`` is called by the trainer; outside
-DDP everything is a no-op.
+User-facing surface accepts ``device=[0, 1]`` (or ``device="0,1"``) and
+launches with ``torchrun --nproc_per_node=N``. Inside each child process
+``init_distributed()`` is called by the trainer; outside DDP everything is a
+no-op.
 """
 
 from __future__ import annotations
@@ -209,10 +209,10 @@ def unwrap_model(model: nn.Module) -> nn.Module:
 def broadcast_ema_buffers(ema_module: nn.Module, src: int = 0) -> None:
     """Broadcast all buffers of ``ema_module`` from ``src`` rank to all others.
 
-    Required because EMA is only updated on rank 0 (to match Ultralytics's
-    pattern, where the optimizer step also fires per-rank but EMA state
-    diverges across ranks if updated everywhere). Before validation runs
-    on a non-zero rank, EMA buffers need to be the same as rank 0's.
+    Required because EMA is only updated on rank 0. When optimizer steps run
+    per rank, EMA state would diverge if every rank updated it independently.
+    Before validation runs on a non-zero rank, EMA buffers need to be the same
+    as rank 0's.
     """
     if not is_distributed():
         return
@@ -238,11 +238,9 @@ def scale_loss_for_ddp(loss: torch.Tensor) -> torch.Tensor:
         per-rank grad after backward = N * dL_r/dθ
         DDP-averaged grad            = (1/N) * sum_r (N * dL_r/dθ) = sum_r dL_r/dθ
 
-    Matches Ultralytics's pattern (loss *= world_size before backward, no
-    no_sync() for accumulation). For mean-normalized losses (yolo9's
-    cls_norm, DETR's num_boxes) the result diverges slightly from single-GPU
-    semantics — that divergence is the per-rank-normalizer effect and is
-    accepted as intentional Ultralytics-mirror behavior.
+    For mean-normalized losses (yolo9's cls_norm, DETR's num_boxes) the
+    result diverges slightly from single-GPU semantics. That divergence comes
+    from each rank using its own local normalizer.
 
     No-op outside DDP.
     """
@@ -259,9 +257,9 @@ def scale_loss_for_ddp(loss: torch.Tensor) -> torch.Tensor:
 def seed_for_rank(base_seed: int) -> int:
     """Per-rank seed: ``base_seed + 1 + rank``.
 
-    Matches Ultralytics's convention. Ensures different augmentation /
-    dataloader shuffling across ranks while keeping the run reproducible
-    when ``base_seed`` and ``world_size`` are fixed.
+    Ensures different augmentation / dataloader shuffling across ranks while
+    keeping the run reproducible when ``base_seed`` and ``world_size`` are
+    fixed.
     """
     return base_seed + 1 + get_rank()
 

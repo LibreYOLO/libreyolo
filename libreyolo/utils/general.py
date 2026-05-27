@@ -297,20 +297,26 @@ def make_anchors(
     Returns:
         Tuple of (anchor_points, stride_tensor)
     """
-    anchor_points = []
-    stride_tensor = []
+    centers_by_level = []
+    stride_by_level = []
 
-    for feat, stride in zip(feats, strides):
-        _, _, h, w = feat.shape
-        dtype, device = feat.dtype, feat.device
+    for feature, stride in zip(feats, strides):
+        dtype, device = feature.dtype, feature.device
+        height, width = feature.shape[-2:]
+        y_coords = torch.arange(height, device=device, dtype=dtype).add(
+            grid_cell_offset
+        )
+        x_coords = torch.arange(width, device=device, dtype=dtype).add(
+            grid_cell_offset
+        )
+        grid_y, grid_x = torch.meshgrid(y_coords, x_coords, indexing="ij")
+        centers = torch.stack((grid_x.reshape(-1), grid_y.reshape(-1)), dim=1)
+        stride_value = torch.as_tensor(stride, device=device, dtype=dtype)
 
-        sx = torch.arange(end=w, device=device, dtype=dtype) + grid_cell_offset
-        sy = torch.arange(end=h, device=device, dtype=dtype) + grid_cell_offset
-        sy, sx = torch.meshgrid(sy, sx, indexing="ij")
-        anchor_points.append(torch.stack((sx, sy), -1).view(-1, 2))
-        stride_tensor.append(torch.full((h * w, 1), stride, dtype=dtype, device=device))
+        centers_by_level.append(centers)
+        stride_by_level.append(stride_value.expand(centers.shape[0], 1))
 
-    return torch.cat(anchor_points), torch.cat(stride_tensor)
+    return torch.cat(centers_by_level, dim=0), torch.cat(stride_by_level, dim=0)
 
 
 def postprocess_detections(

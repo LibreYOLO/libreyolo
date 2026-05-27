@@ -148,8 +148,8 @@ class BaseTrainer(ABC):
     def _accum_steps(self) -> int:
         """Micro-batches accumulated per optimizer step (1 disables accumulation).
 
-        Derived from ``config.nbs`` (nominal batch size) the way Ultralytics
-        derives accumulation — ``round(nbs / batch)``. When ``nbs`` is unset the
+        Derived from ``config.nbs`` (nominal batch size) as
+        ``round(nbs / batch)``. When ``nbs`` is unset the
         trainer runs the standard one-optimizer-step-per-batch loop, unchanged
         from a build without this feature.
         """
@@ -263,8 +263,7 @@ class BaseTrainer(ABC):
         # — fail loudly with a torchrun pointer rather than silently degrading.
         raw_device = self.config.device
 
-        # Normalise single-element list/tuple to its int (Ultralytics accepts
-        # ``device=[0]`` as equivalent to ``device=0``). Multi-element forms
+        # Normalise single-element list/tuple to its int. Multi-element forms
         # fall through to the wants_distributed check below.
         if isinstance(raw_device, (list, tuple)) and len(raw_device) == 1:
             raw_device = raw_device[0]
@@ -459,8 +458,8 @@ class BaseTrainer(ABC):
             mixup_prob=self.config.mixup_prob,
         )
 
-        # Ultralytics-mirror semantics: ``batch`` is the GLOBAL batch under
-        # DDP. Each rank's loader is built with ``batch // world_size``.
+        # ``batch`` is the global batch under DDP. Each rank's loader is built
+        # with ``batch // world_size``.
         per_rank_batch = max(1, self.config.batch // max(self.world_size, 1))
         sampler = None
         if self.is_distributed:
@@ -605,9 +604,9 @@ class BaseTrainer(ABC):
     def _ddp_find_unused_parameters(self) -> bool:
         """Subclasses override to flip when their forward graph is conditional.
 
-        Default False matches PyTorch's default and Ultralytics. rf-detr
-        flips True when a segmentation head is present (the sparse branch
-        leaves some params un-grad'd on some batches).
+        Default False matches PyTorch's default. rf-detr flips True when a
+        segmentation head is present because the sparse branch leaves some
+        params un-grad'd on some batches.
         """
         return False
 
@@ -1093,9 +1092,8 @@ class BaseTrainer(ABC):
                 )
 
             # Forward + backward. Under DDP we multiply loss by world_size
-            # so that the gradient averaging that happens inside backward()
-            # produces the same sum-of-per-rank gradients as single-GPU
-            # would (Ultralytics-mirror pattern). No-op outside DDP.
+            # so that backward() gradient averaging produces the same
+            # sum-of-per-rank gradients as single-GPU. No-op outside DDP.
             if self.scaler is not None:
                 with autocast("cuda"):
                     outputs = self.on_forward(imgs, targets, polygons=polygons)
@@ -1223,8 +1221,8 @@ class BaseTrainer(ABC):
             # optimizer step, clipping, EMA and LR update fire only on the
             # window boundary (``is_opt_step``). Under DDP we additionally
             # multiply the per-micro-batch loss by world_size so DDP's
-            # gradient-averaging composes correctly with the division-by-
-            # window scheme (Ultralytics-mirror pattern).
+            # gradient averaging composes correctly with the division-by-
+            # window scheme.
             if self.scaler is not None:
                 with autocast("cuda"):
                     outputs = self.on_forward(imgs, targets, polygons=polygons)

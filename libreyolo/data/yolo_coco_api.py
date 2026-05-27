@@ -1,5 +1,5 @@
 """
-YOLOCocoAPI - COCO-compatible evaluation interface for Ultralytics YOLO format datasets.
+YOLOCocoAPI - COCO-compatible evaluation interface for YOLO text-label datasets.
 
 Ported from RF-DETR to enable COCO evaluation on YOLO format datasets.
 This provides the pycocotools-compatible interface needed for standard COCO metrics.
@@ -119,13 +119,13 @@ def parse_yolo_label_line(
 
 class YOLOCocoAPI:
     """
-    Minimal COCO-compatible API for Ultralytics YOLO format datasets.
+    Minimal COCO-compatible API for YOLO text-label datasets.
 
     Provides the interface needed by pycocotools.cocoeval.COCOeval for
     evaluating predictions on YOLO format datasets.
 
     This enables using COCO evaluation metrics (AP, AR, AP50, AP75, etc.)
-    on datasets in Ultralytics format without converting to COCO JSON.
+    on YOLO-format datasets without converting to COCO JSON.
 
     Example:
         >>> # For validation dataset
