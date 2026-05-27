@@ -1,7 +1,7 @@
 UV := uv run --no-sync
 
 .DEFAULT_GOAL := help
-.PHONY: help setup format lint typecheck test test_e2e test_rf5 build clean
+.PHONY: help setup format lint typecheck test test_e2e test_general_nightly test_flagship_nightly test_nightly print_nightly_suite test_rf5 build clean
 
 help:
 	@echo "═══════════════════════════════════════════════════════════════════════════════"
@@ -18,6 +18,10 @@ help:
 	@echo "  test_e2e FROM=<file>          - Resume from a test file (e.g. FROM=test_rf1_training.py or FROM=rf1_training)"
 	@echo "  test_e2e MARKERS='<expr>'     - Run only matching e2e markers (e.g. MARKERS='e2e and not experimental_backend')"
 	@echo "  test_e2e MARKER='<expr>'      - Alias for MARKERS=..., also works with FROM=..."
+	@echo "  print_nightly_suite           - Print nightly suite version and contract"
+	@echo "  test_general_nightly          - Run YOLO9/RF-DETR all-size inference checks"
+	@echo "  test_flagship_nightly         - Run focused YOLO9/RF-DETR load, RF1, and ONNX checks"
+	@echo "  test_nightly                  - Run general + flagship nightly checks"
 	@echo "  test_rf5                      - Run RF5 training benchmark tests"
 	@echo "  build                         - Build package"
 	@echo "  clean                         - Remove build and test cache artifacts"
@@ -106,6 +110,19 @@ test_e2e:
 	echo "══════════════════════════════════════════════════════════════"; \
 	echo "  all done: $$passed passed, $$skipped skipped, $$failed failed"; \
 	echo "══════════════════════════════════════════════════════════════"
+
+print_nightly_suite:
+	@$(UV) python -c "from tests.e2e.nightly_contract import nightly_summary_line; print(nightly_summary_line())"
+
+test_general_nightly: print_nightly_suite
+	LIBREYOLO_FAIL_ON_NIGHTLY_SKIP=1 $(MAKE) test_e2e MARKERS='general_nightly'
+
+test_flagship_nightly: print_nightly_suite
+	LIBREYOLO_FAIL_ON_NIGHTLY_SKIP=1 $(MAKE) test_e2e MARKERS='flagship_nightly'
+
+test_nightly: print_nightly_suite
+	LIBREYOLO_FAIL_ON_NIGHTLY_SKIP=1 $(MAKE) test_e2e MARKERS='general_nightly'
+	LIBREYOLO_FAIL_ON_NIGHTLY_SKIP=1 $(MAKE) test_e2e MARKERS='flagship_nightly'
 
 test_rf5: clean
 	$(UV) pytest tests/e2e/test_rf5_training.py -m rf5 -v

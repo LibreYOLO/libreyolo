@@ -27,6 +27,7 @@ from libreyolo import LibreYOLO
 from .conftest import (
     ALL_MODEL_WEIGHT_PARAMS,
     ALL_MODELS_WITH_WEIGHTS,
+    NIGHTLY_TRAINING_WEIGHT_PARAMS,
     cuda_cleanup,
     make_ids,
     require_test_weights,
@@ -183,7 +184,7 @@ def rf1_epochs(family: str) -> int:
 
 def rf1_workers(family: str) -> tuple[int, int]:
     """Return (train_workers, val_workers) for RF1 stability."""
-    if family in DETR_RF1_FAMILIES:
+    if family in DETR_RF1_FAMILIES or family == "yolo9":
         return 0, 0
     return 2, 4
 
@@ -236,7 +237,7 @@ def rf1_train_kwargs(family: str, size: str) -> dict:
 
 @pytest.mark.parametrize(
     "family,size,weights",
-    ALL_MODEL_WEIGHT_PARAMS,
+    NIGHTLY_TRAINING_WEIGHT_PARAMS,
 )
 def test_rf1_training(family, size, weights, dataset_coco, dataset_data_yaml, tmp_path):
     """Train on marbles, verify the model learns and clears a basic mAP floor."""
