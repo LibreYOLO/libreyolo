@@ -185,6 +185,12 @@ def test_yolonas_trainer_opts_into_artifacts():
     assert YOLONASPoseTrainer.artifact_model_families == ("yolonas",)
 
 
+def test_rfdetr_trainer_opts_into_artifacts():
+    from libreyolo.models.rfdetr.trainer import RFDETRTrainer
+
+    assert "rfdetr" in RFDETRTrainer.artifact_model_families
+
+
 def test_yolonas_pose_trainer_writes_artifacts_through_base_path(tmp_path):
     from libreyolo.models.yolonas.pose_trainer import YOLONASPoseTrainer
 
