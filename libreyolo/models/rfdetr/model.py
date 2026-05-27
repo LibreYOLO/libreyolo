@@ -145,6 +145,11 @@ class LibreRFDETR(BaseModel):
     multi-scale deformable attention. Segmentation variants add a
     lightweight mask head for instance segmentation.
 
+    autobatch_fraction is lower than the default 0.60 because the probe's
+    fake backward underestimates RF-DETR's real training memory (the loss
+    backward runs through SetCriterion and 6 aux-loss decoder layers), and
+    DDP adds gradient buckets on top.
+
     Args:
         model_path: Path to weights, pre-loaded state_dict, or None for pretrained.
         size: Model size variant ("n", "s", "m", "l").
@@ -156,6 +161,8 @@ class LibreRFDETR(BaseModel):
         >>> model = LibreRFDETR(size="s")
         >>> detections = model.predict("path/to/image.jpg")
     """
+
+    autobatch_fraction: float = 0.45
 
     # Class-level metadata
     FAMILY = "rfdetr"
