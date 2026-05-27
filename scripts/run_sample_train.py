@@ -26,6 +26,10 @@ Custom dataset and longer run:
 
 Resume from a checkpoint:
     python scripts/run_sample_train.py --resume runs/train/rfdetr_1gpu/best.pt
+
+Note: --allow-download-scripts is required when the data YAML contains an
+embedded Python download block.  coco128.yaml uses a plain URL and does not
+need it.  Only pass the flag for datasets you trust.
 """
 
 from __future__ import annotations
@@ -52,7 +56,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument(
         "--size",
         default=None,
-        help="Model size variant — rfdetr: n/s/b/l, yolo9: s/m/c  (default: n for rfdetr, s for yolo9)",
+        help="Model size variant — rfdetr: n/s/m/l, yolo9: s/m/c  (default: n for rfdetr, s for yolo9)",
     )
     p.add_argument(
         "--data",
@@ -77,11 +81,11 @@ def parse_args() -> argparse.Namespace:
     p.add_argument(
         "--nbs",
         type=int,
-        default=64,
+        default=None,
         help=(
-            "Nominal batch size for gradient accumulation  (default: 64). "
-            "When --batch < nbs the trainer accumulates gradients over "
-            "nbs/batch steps so the effective batch matches nbs."
+            "Nominal batch size for gradient accumulation. "
+            "When --batch < nbs the trainer accumulates gradients over nbs/batch steps. "
+            "Defaults to each model's built-in value (rfdetr: 16, yolo9: 64)."
         ),
     )
     p.add_argument(
@@ -111,6 +115,16 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Path to a checkpoint to resume training from",
     )
+    p.add_argument(
+        "--allow-download-scripts",
+        action="store_true",
+        default=False,
+        dest="allow_download_scripts",
+        help=(
+            "Allow the data YAML's embedded Python download block to run. "
+            "Not needed for coco128.yaml (URL-only). Only use for datasets you trust."
+        ),
+    )
     return p.parse_args()
 
 
@@ -129,18 +143,19 @@ def train_rfdetr(args: argparse.Namespace) -> None:
         data=args.data,
         epochs=args.epochs,
         batch=args.batch,       # -1 → AutoBatch; positive int → fixed batch
-        nbs=args.nbs,
         device=args.devices,
         workers=args.workers,
         output_dir=output,
         amp=True,               # mixed-precision — keeps VRAM usage lower
         seed=42,
-        allow_download_scripts=True,
+        allow_download_scripts=args.allow_download_scripts,
         exist_ok=True,
         resume=args.resume,
+        # imgsz is intentionally omitted: RF-DETR derives it from the size
+        # variant (n→384, s→512, m→576, l→704) and ignores any override.
     )
-    if args.imgsz is not None:
-        train_kwargs["imgsz"] = args.imgsz
+    if args.nbs is not None:
+        train_kwargs["nbs"] = args.nbs  # otherwise RFDETRConfig default (nbs=16) applies
 
     result = model.train(**train_kwargs)
 
@@ -158,24 +173,26 @@ def train_yolo9(args: argparse.Namespace) -> None:
     ngpu = len(args.devices.split(","))
     output = args.output or f"runs/train/yolo9_{ngpu}gpu"
 
-    # First positional argument is model_path; None = start from pretrained weights.
-    model = LibreYOLO9(None, size=size)
+    # Pass the checkpoint path when resuming so that model_path is set before
+    # train(resume=True) is called; pass None for a fresh pretrained model.
+    model = LibreYOLO9(args.resume, size=size)
 
     train_kwargs = dict(
         data=args.data,
         epochs=args.epochs,
         batch=args.batch,       # -1 → AutoBatch; positive int → fixed batch
-        nbs=args.nbs,
         device=args.devices,
         workers=args.workers,
         project=str(Path(output).parent),
         name=Path(output).name,
         amp=True,
         seed=42,
-        allow_download_scripts=True,
+        allow_download_scripts=args.allow_download_scripts,
         exist_ok=True,
         resume=bool(args.resume),
     )
+    if args.nbs is not None:
+        train_kwargs["nbs"] = args.nbs  # otherwise TrainConfig default (nbs=None, no cap) applies
     if args.imgsz is not None:
         train_kwargs["imgsz"] = args.imgsz
 
