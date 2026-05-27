@@ -11,10 +11,9 @@ from ..yolo9.loss import YOLO9Loss
 class YOLO9E2ELoss:
     """Combined one-to-many + one-to-one loss for NMS-free training.
 
-    The one-to-many branch uses TaskAlignedAssigner with topk=10 (dense
-    supervision). The one-to-one branch uses topk=1 (exclusive assignment)
-    so that each ground-truth box is claimed by exactly one prediction,
-    enabling NMS-free inference via top-K selection.
+    The dense branch uses TaskAlignedAssigner with topk=10. The exclusive
+    branch uses topk=1 so that each ground-truth box is claimed by exactly
+    one prediction, enabling NMS-free inference via top-K selection.
     """
 
     def __init__(
@@ -32,7 +31,7 @@ class YOLO9E2ELoss:
         iou_factor: float = 6.0,
         cls_factor: float = 0.5,
     ):
-        self.one2many = YOLO9Loss(
+        self.dense_loss = YOLO9Loss(
             num_classes=num_classes,
             reg_max=reg_max,
             strides=strides,
@@ -45,7 +44,7 @@ class YOLO9E2ELoss:
             iou_factor=iou_factor,
             cls_factor=cls_factor,
         )
-        self.one2one = YOLO9Loss(
+        self.exclusive_loss = YOLO9Loss(
             num_classes=num_classes,
             reg_max=reg_max,
             strides=strides,
@@ -61,18 +60,18 @@ class YOLO9E2ELoss:
 
     def update_anchors(self, image_size: List[int]):
         """Update anchor grids for both branches."""
-        self.one2many.update_anchors(image_size)
-        self.one2one.update_anchors(image_size)
+        self.dense_loss.update_anchors(image_size)
+        self.exclusive_loss.update_anchors(image_size)
 
     def __call__(
         self,
-        preds_one2many,
-        preds_one2one,
+        dense_preds,
+        exclusive_preds,
         targets,
     ) -> Dict[str, Tensor]:
         """Compute the summed dual-branch loss."""
-        loss_many = self.one2many(preds_one2many, targets)
-        loss_one = self.one2one(preds_one2one, targets)
+        loss_many = self.dense_loss(dense_preds, targets)
+        loss_one = self.exclusive_loss(exclusive_preds, targets)
 
         total_loss = loss_many["total_loss"] + loss_one["total_loss"]
         box_loss = loss_many["box_loss"] + loss_one["box_loss"]

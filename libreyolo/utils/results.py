@@ -1,4 +1,4 @@
-"""Ultralytics-style flat result containers for LibreYOLO."""
+"""Flat result containers for LibreYOLO."""
 
 from __future__ import annotations
 
@@ -531,7 +531,7 @@ class Gaze(_TensorPayload):
 
 
 class Results:
-    """Single-image result with flat Ultralytics-compatible slots."""
+    """Single-image result with flat detection/segmentation slots."""
 
     _keys = ("boxes", "masks", "probs", "keypoints", "obb", "gaze")
 

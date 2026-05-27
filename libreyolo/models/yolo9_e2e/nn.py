@@ -1,6 +1,5 @@
 """Neural network architecture for YOLOv9 end-to-end (NMS-free)."""
 
-import copy
 import math
 
 import torch
@@ -26,9 +25,23 @@ class YOLO9E2EDetect(DDetect):
         super().__init__(
             nc=nc, ch=ch, reg_max=reg_max, stride=stride, use_group=use_group
         )
-        self.one2one_cv2 = copy.deepcopy(self.cv2)
-        self.one2one_cv3 = copy.deepcopy(self.cv3)
+        self.one2one_cv2 = self._build_box_towers(
+            ch,
+            self._box_hidden_channels,
+            self._box_output_channels,
+            self._box_groups,
+        )
+        self.one2one_cv3 = self._build_class_towers(
+            ch, self._class_hidden_channels, nc
+        )
+        self._copy_branch_weights(self.cv2, self.one2one_cv2)
+        self._copy_branch_weights(self.cv3, self.one2one_cv3)
         self._init_one2one_bias()
+
+    @staticmethod
+    def _copy_branch_weights(source, target):
+        """Start the auxiliary branch from the same initialized weights."""
+        target.load_state_dict(source.state_dict())
 
     def _init_one2one_bias(self):
         """Initialize biases for the one-to-one branch."""
@@ -77,8 +90,8 @@ class YOLO9E2EDetect(DDetect):
     def forward(self, x, targets=None, img_size=None):
         """Run dual-branch training or single one-to-one inference."""
         if self.training:
-            one2many = self._forward_head(x, self.cv2, self.cv3)
-            one2one = self._forward_head(
+            dense_outputs = self._forward_head(x, self.cv2, self.cv3)
+            exclusive_outputs = self._forward_head(
                 [xi.detach() for xi in x], self.one2one_cv2, self.one2one_cv3
             )
 
@@ -86,12 +99,12 @@ class YOLO9E2EDetect(DDetect):
                 loss_fn = self._get_loss_fn(x[0].device)
                 if img_size is not None:
                     loss_fn.update_anchors(list(img_size))
-                return loss_fn(one2many, one2one, targets)
-            return {"one2many": one2many, "one2one": one2one}
+                return loss_fn(dense_outputs, exclusive_outputs, targets)
+            return {"one2many": dense_outputs, "one2one": exclusive_outputs}
 
         # Inference: use only the one-to-one branch
-        one2one = self._forward_head(x, self.one2one_cv2, self.one2one_cv3)
-        return self._inference(one2one)
+        exclusive_outputs = self._forward_head(x, self.one2one_cv2, self.one2one_cv3)
+        return self._inference(exclusive_outputs)
 
 
 class LibreYOLO9E2EModel(LibreYOLO9Model):

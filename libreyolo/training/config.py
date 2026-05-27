@@ -53,7 +53,7 @@ class TrainConfig:
     # Training
     epochs: int = 300
     # Global batch size. Under multi-GPU DDP the per-rank batch is
-    # ``batch // world_size`` (Ultralytics-mirror semantics).
+    # ``batch // world_size``.
     # Set to -1 to enable automatic selection: the trainer probes GPU memory
     # at small batch sizes, fits a linear model, and picks the largest batch
     # that fits within 70 % of total VRAM.
@@ -97,9 +97,9 @@ class TrainConfig:
     ema: bool = True
     ema_decay: float = 0.9998
     amp: bool = True
-    # Nominal (effective) batch size for gradient accumulation, Ultralytics
-    # style. When set, the trainer accumulates ``round(nbs / batch)``
-    # micro-batches per optimizer step so the effective batch size is ``nbs``.
+    # Nominal (effective) batch size for gradient accumulation. When set, the
+    # trainer accumulates ``round(nbs / batch)`` micro-batches per optimizer
+    # step so the effective batch size is ``nbs``.
     # Left as None (the default), gradient accumulation is disabled and
     # training is unchanged.
     nbs: Optional[int] = None
@@ -597,8 +597,8 @@ class YOLONASPoseConfig(YOLONASConfig):
     applies to a single-GPU fine-tune: AdamW, low weight decay, cosine LR.
     ``num_keypoints`` is resolved from the dataset ``kpt_shape`` by
     ``LibreYOLONAS.train()``. ``oks_sigmas`` may be overridden per dataset;
-    when ``None`` the trainer uses the COCO-17 sigmas (17 keypoints) or the
-    Ultralytics custom-keypoint fallback ``1 / num_keypoints`` otherwise.
+    when ``None`` the trainer uses the COCO-17 sigmas (17 keypoints) or
+    ``1 / num_keypoints`` otherwise.
 
     best.pt is selected by pose AP when validation is available, so
     ``eval_interval`` defaults to every epoch.

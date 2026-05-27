@@ -372,10 +372,8 @@ def convert_weights(
         if len(failed) > 20:
             print(f"  ... and {len(failed) - 20} more")
 
-    # Add DFL fixed weights
-    dfl_weight = torch.arange(reg_max, dtype=torch.float32).view(1, reg_max, 1, 1)
-    converted["head.dfl.conv.weight"] = dfl_weight
-    print("  Added DFL fixed weights (head.dfl.conv.weight)")
+    # DFL projection is now derived inside the model and is not serialized.
+    print("  DFL projection is model-derived; no fixed DFL weights added")
 
     # Save converted weights
     print(f"\nSaving converted weights to {output_path}")

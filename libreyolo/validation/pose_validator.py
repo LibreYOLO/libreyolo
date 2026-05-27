@@ -3,7 +3,7 @@
 Computes COCO-style keypoint metrics (OKS-AP) via pycocotools'
 ``COCOeval(iouType='keypoints')``. Inputs can be either:
 
-- Ultralytics YOLO-pose ``data.yaml`` with ``kpt_shape`` and YOLO labels.
+- YOLO-pose ``data.yaml`` with ``kpt_shape`` and YOLO labels.
 - COCO keypoints JSON plus ``images_dir``.
 """
 
@@ -153,8 +153,8 @@ class PoseValidator(BaseValidator):
 
         if not self.config.data:
             raise ValueError(
-                "PoseValidator requires either Ultralytics YOLO-pose data.yaml "
-                "via data=... or keypoints_json + images_dir."
+                "PoseValidator requires either YOLO-pose data.yaml via data=... "
+                "or keypoints_json + images_dir."
             )
         self._kpts_json, self._images_dir = self._build_coco_gt_from_yolo()
 

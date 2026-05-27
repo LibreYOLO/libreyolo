@@ -1,6 +1,6 @@
 """Mode-aware alias resolution for CLI parameter names.
 
-Translates user-facing ultralytics names to internal library field names.
+Translates user-facing shorthand names to internal library field names.
 This is the single source of truth for name translation.
 """
 
