@@ -141,6 +141,16 @@ def get_user_provided_params() -> Set[str]:
     """Return parameter names explicitly provided on the current command line."""
     ctx = click.get_current_context(silent=True)
     if ctx is None:
+        # typer >= 0.26 vendors its own click as typer._click with a separate
+        # context stack — fall back to it so the test runner sees the same ctx
+        # that KeyValueCommand.parse_args wrote user_provided into.
+        try:
+            from typer._click.globals import get_current_context as _typer_get_ctx
+
+            ctx = _typer_get_ctx(silent=True)
+        except ImportError:
+            pass
+    if ctx is None:
         return set()
     # KeyValueCommand.parse_args stores the set in ctx.meta for reliable access
     # regardless of click version or test-runner context behaviour.
