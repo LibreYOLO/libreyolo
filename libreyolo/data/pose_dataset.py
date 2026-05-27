@@ -1,6 +1,6 @@
 """YOLO-format pose-estimation dataset for LibreYOLO.
 
-Reads Ultralytics-style YOLO pose labels: one object per line as
+Reads YOLO-format pose labels: one object per line as
 
     class cx cy w h  kx1 ky1 v1  kx2 ky2 v2  ...  kxK kyK vK
 

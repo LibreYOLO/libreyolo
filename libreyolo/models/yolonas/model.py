@@ -506,10 +506,10 @@ class LibreYOLONAS(BaseModel):
     ) -> dict:
         """Train the YOLO-NAS pose head on a YOLO-format keypoint dataset.
 
-        The dataset ``data.yaml`` must declare ``kpt_shape: [num_keypoints, 2|3]``
-        (Ultralytics YOLO-pose format). If the keypoint count differs from the
-        loaded checkpoint, the pose head is rebuilt for the new count while the
-        backbone/neck keep their pretrained weights.
+        The dataset ``data.yaml`` must declare ``kpt_shape: [num_keypoints, 2|3]``.
+        If the keypoint count differs from the loaded checkpoint, the pose head
+        is rebuilt for the new count while the backbone/neck keep their
+        pretrained weights.
         """
         from libreyolo.data import load_data_config
 
@@ -525,7 +525,7 @@ class LibreYOLONAS(BaseModel):
         if not kpt_shape or len(kpt_shape) < 1:
             raise ValueError(
                 "Pose training requires 'kpt_shape: [num_keypoints, 2|3]' in the "
-                "dataset data.yaml (Ultralytics YOLO-pose format)."
+                "dataset data.yaml."
             )
         num_keypoints = int(kpt_shape[0])
         keypoint_dim = int(kpt_shape[1]) if len(kpt_shape) > 1 else 3

@@ -10,51 +10,100 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 
-def autopad(k, p=None, d=1):
-    """Pad to 'same' shape outputs."""
-    if d > 1:
-        k = d * (k - 1) + 1 if isinstance(k, int) else [d * (x - 1) + 1 for x in k]
-    if p is None:
-        p = k // 2 if isinstance(k, int) else [x // 2 for x in k]
-    return p
+def auto_pad(kernel_size, padding=None, dilation=1):
+    """Return symmetric padding for stride-preserving convolutions."""
+    if padding is not None:
+        return padding
+    if isinstance(kernel_size, int):
+        return ((kernel_size - 1) * dilation) // 2
+    if isinstance(dilation, int):
+        dilation = [dilation] * len(kernel_size)
+    return [((size - 1) * dil) // 2 for size, dil in zip(kernel_size, dilation)]
+
+
+def create_activation(activation=True):
+    """Build an activation module from the YOLOv9 config convention."""
+    if isinstance(activation, nn.Module):
+        return activation
+    if activation is True:
+        return nn.SiLU()
+    if activation in (False, None):
+        return nn.Identity()
+    if isinstance(activation, str):
+        if activation.lower() in {"false", "none", "identity"}:
+            return nn.Identity()
+        activation_cls = getattr(nn, activation, None)
+        if activation_cls is None:
+            raise ValueError(f"Unsupported activation: {activation}")
+        try:
+            return activation_cls(inplace=True)
+        except TypeError:
+            return activation_cls()
+    raise TypeError(f"Unsupported activation specifier: {activation!r}")
 
 
 class Conv(nn.Module):
     """Standard convolution: Conv2d + BatchNorm + activation."""
 
-    default_act = nn.SiLU()  # default activation
-
-    def __init__(self, c1, c2, k=1, s=1, p=None, g=1, d=1, act=True):
+    def __init__(
+        self,
+        in_channels,
+        out_channels,
+        kernel_size=1,
+        stride=1,
+        padding=None,
+        groups=1,
+        dilation=1,
+        activation=True,
+        **legacy_kwargs,
+    ):
         """
         Initialize Conv layer.
 
         Args:
-            c1: Input channels
-            c2: Output channels
-            k: Kernel size
-            s: Stride
-            p: Padding
-            g: Groups
-            d: Dilation
-            act: Activation (True for default, False for none, or nn.Module)
+            in_channels: Input channels
+            out_channels: Output channels
+            kernel_size: Kernel size
+            stride: Stride
+            padding: Padding override
+            groups: Convolution groups
+            dilation: Dilation
+            activation: Activation specifier
         """
         super().__init__()
+        if "k" in legacy_kwargs:
+            kernel_size = legacy_kwargs.pop("k")
+        if "s" in legacy_kwargs:
+            stride = legacy_kwargs.pop("s")
+        if "p" in legacy_kwargs:
+            padding = legacy_kwargs.pop("p")
+        if "g" in legacy_kwargs:
+            groups = legacy_kwargs.pop("g")
+        if "d" in legacy_kwargs:
+            dilation = legacy_kwargs.pop("d")
+        if "act" in legacy_kwargs:
+            activation = legacy_kwargs.pop("act")
+        if legacy_kwargs:
+            unknown = ", ".join(sorted(legacy_kwargs))
+            raise TypeError(f"Unexpected Conv arguments: {unknown}")
+
         self.conv = nn.Conv2d(
-            c1, c2, k, s, autopad(k, p, d), groups=g, dilation=d, bias=False
+            in_channels,
+            out_channels,
+            kernel_size,
+            stride,
+            auto_pad(kernel_size, padding, dilation),
+            groups=groups,
+            dilation=dilation,
+            bias=False,
         )
-        self.bn = nn.BatchNorm2d(c2, eps=0.001, momentum=0.03)
-        self.act = (
-            self.default_act
-            if act is True
-            else act
-            if isinstance(act, nn.Module)
-            else nn.Identity()
-        )
+        self.bn = nn.BatchNorm2d(out_channels, eps=0.001, momentum=0.03)
+        self.act = create_activation(activation)
 
     def forward(self, x):
         return self.act(self.bn(self.conv(x)))
 
-    def forward_fuse(self, x):
+    def forward_without_bn(self, x):
         """Forward pass for fused Conv (inference only)."""
         return self.act(self.conv(x))
 
@@ -67,8 +116,6 @@ class RepConvN(nn.Module):
     During inference: Single fused 3x3 conv
     """
 
-    default_act = nn.SiLU()
-
     def __init__(
         self, c1, c2, k=3, s=1, p=1, g=1, d=1, act=True, bn=False, deploy=False
     ):
@@ -77,13 +124,7 @@ class RepConvN(nn.Module):
         self.g = g
         self.c1 = c1
         self.c2 = c2
-        self.act = (
-            self.default_act
-            if act is True
-            else act
-            if isinstance(act, nn.Module)
-            else nn.Identity()
-        )
+        self.act = create_activation(act)
 
         self.bn = nn.BatchNorm2d(c2) if bn and c2 == c1 and s == 1 else None
         self.conv1 = Conv(c1, c2, k, s, p=p, g=g, act=False)
@@ -94,7 +135,7 @@ class RepConvN(nn.Module):
         id_out = 0 if self.bn is None else self.bn(x)
         return self.act(self.conv1(x) + self.conv2(x) + id_out)
 
-    def forward_fuse(self, x):
+    def forward_deployed(self, x):
         """Forward pass for fused RepConv."""
         return self.act(self.conv(x))
 
@@ -122,6 +163,7 @@ class RepConvN(nn.Module):
             self.__delattr__("bn")
         if hasattr(self, "id_tensor"):
             self.__delattr__("id_tensor")
+        self.forward = self.forward_deployed
 
     def _fuse_bn_tensor(self, branch):
         """Fuse batch norm into conv weights."""
@@ -325,7 +367,7 @@ class ADown(nn.Module):
 class SPPELAN(nn.Module):
     """SPP + ELAN block for global context.
 
-    Architecture matches official YOLO SPPELAN:
+    Architecture follows the YOLOv9 SPPELAN layout:
     - conv1: in_channels -> neck_channels
     - pools: 3x MaxPool2d (no weights)
     - conv5: 4*neck_channels -> out_channels
@@ -373,21 +415,40 @@ class DFL(nn.Module):
 
     def __init__(self, c1=16):
         super().__init__()
-        self.conv = nn.Conv2d(c1, 1, 1, bias=False).requires_grad_(False)
-        x = torch.arange(c1, dtype=torch.float)
-        self.conv.weight.data[:] = nn.Parameter(x.view(1, c1, 1, 1))
         self.c1 = c1
+        self.register_buffer(
+            "project",
+            torch.arange(c1, dtype=torch.float32).view(1, 1, c1, 1),
+            persistent=False,
+        )
+
+    def _load_from_state_dict(
+        self,
+        state_dict,
+        prefix,
+        local_metadata,
+        strict,
+        missing_keys,
+        unexpected_keys,
+        error_msgs,
+    ):
+        state_dict.pop(prefix + "conv.weight", None)
+        super()._load_from_state_dict(
+            state_dict,
+            prefix,
+            local_metadata,
+            strict,
+            missing_keys,
+            unexpected_keys,
+            error_msgs,
+        )
 
     def forward(self, x):
-        b, c, a = x.shape  # batch, 4*reg_max, anchors
-        # Reshape to (b, 4, reg_max, a) and transpose to (b, reg_max, 4, a)
-        x = x.view(b, 4, self.c1, a).transpose(1, 2)
-        # Apply softmax over reg_max dimension (now dim 1)
-        x = F.softmax(x, dim=1)
-        # Apply weighted sum via conv: reshape to (b, reg_max, 4*a) for Conv2d
-        x = self.conv(x.reshape(b, self.c1, 4, a))
-        # Reshape back to (b, 4, a)
-        return x.view(b, 4, a)
+        batch, _, anchors = x.shape
+        logits = x.reshape(batch, 4, self.c1, anchors)
+        weights = logits.softmax(dim=2)
+        project = self.project.to(device=x.device, dtype=x.dtype)
+        return (weights * project).sum(dim=2)
 
 
 class MaskProto(nn.Module):
@@ -409,7 +470,7 @@ class DDetect(nn.Module):
     Decoupled Detection Head for yolo9.
     Anchor-free detection with DFL for box regression.
 
-    Uses grouped convolutions (groups=4) in the box branch to match YOLO.
+    Uses grouped convolutions (groups=4) in the box branch.
     Supports training mode with loss computation when targets are provided.
     """
 
@@ -419,6 +480,36 @@ class DDetect(nn.Module):
     anchors = torch.empty(0)
     strides = torch.empty(0)
 
+    @staticmethod
+    def _box_branch_width(input_channels, groups, output_channels, reg_max):
+        """Choose the hidden width used by the box-regression towers."""
+        grouped_width = ((input_channels // 4 + groups - 1) // groups) * groups
+        return max(grouped_width, output_channels, reg_max)
+
+    @staticmethod
+    def _build_box_towers(input_channels, hidden_channels, output_channels, groups):
+        """Build box-regression towers for each feature-map scale."""
+        return nn.ModuleList(
+            nn.Sequential(
+                Conv(channels, hidden_channels, 3),
+                Conv(hidden_channels, hidden_channels, 3, g=groups),
+                nn.Conv2d(hidden_channels, output_channels, 1, groups=groups),
+            )
+            for channels in input_channels
+        )
+
+    @staticmethod
+    def _build_class_towers(input_channels, hidden_channels, num_classes):
+        """Build class-score towers for each feature-map scale."""
+        return nn.ModuleList(
+            nn.Sequential(
+                Conv(channels, hidden_channels, 3),
+                Conv(hidden_channels, hidden_channels, 3),
+                nn.Conv2d(hidden_channels, num_classes, 1),
+            )
+            for channels in input_channels
+        )
+
     def __init__(self, nc=80, ch=(), reg_max=16, stride=(), use_group=True):
         """
         Args:
@@ -426,7 +517,7 @@ class DDetect(nn.Module):
             ch: Input channels for each scale
             reg_max: Maximum value for DFL regression
             stride: Stride for each scale
-            use_group: Use grouped convolutions in box branch (default True for YOLO compat)
+            use_group: Use grouped convolutions in the box branch.
         """
         super().__init__()
         self.nc = nc
@@ -446,34 +537,20 @@ class DDetect(nn.Module):
 
         self._loss_fn = None
 
-        # Groups for box branch (YOLO uses groups=4)
-        groups = 4 if use_group else 1
-        anchor_channels = 4 * reg_max  # 64
-
-        # Box branch channel calculation (match YOLO's round_up logic)
-        # anchor_neck = max(round_up(first_neck // 4, groups), anchor_channels, reg_max)
-        # For ch[0]=256: 256//4=64, round to groups=4 -> 64, max(64, 64, 16) = 64
-        c2 = max((ch[0] // 4 + groups - 1) // groups * groups, anchor_channels, reg_max)
-
-        # Class branch (no grouping)
-        c3 = max(ch[0], min(nc, 100))
-
-        # Box branch with grouped convolutions
-        self.cv2 = nn.ModuleList(
-            nn.Sequential(
-                Conv(x, c2, 3),  # Regular conv: in -> 64
-                Conv(c2, c2, 3, g=groups),  # Grouped conv: 64->64, groups=4
-                nn.Conv2d(
-                    c2, anchor_channels, 1, groups=groups
-                ),  # Grouped conv: 64->64
-            )
-            for x in ch
+        self._box_groups = 4 if use_group else 1
+        self._box_output_channels = 4 * reg_max
+        self._box_hidden_channels = self._box_branch_width(
+            ch[0], self._box_groups, self._box_output_channels, reg_max
         )
-        # Class branch (no grouping)
-        self.cv3 = nn.ModuleList(
-            nn.Sequential(Conv(x, c3, 3), Conv(c3, c3, 3), nn.Conv2d(c3, nc, 1))
-            for x in ch
+        self._class_hidden_channels = max(ch[0], min(nc, 100))
+
+        self.cv2 = self._build_box_towers(
+            ch,
+            self._box_hidden_channels,
+            self._box_output_channels,
+            self._box_groups,
         )
+        self.cv3 = self._build_class_towers(ch, self._class_hidden_channels, nc)
         self.dfl = DFL(reg_max) if reg_max > 1 else nn.Identity()
 
         self._init_bias()
@@ -554,20 +631,24 @@ class DDetect(nn.Module):
 
     def _make_anchors(self, feats, strides, grid_cell_offset=0.5):
         """Generate anchors from feature maps."""
-        anchor_points, stride_tensor = [], []
-        dtype, device = feats[0].dtype, feats[0].device
-
-        for i, stride in enumerate(strides):
-            _, _, h, w = feats[i].shape
-            sx = torch.arange(end=w, device=device, dtype=dtype) + grid_cell_offset
-            sy = torch.arange(end=h, device=device, dtype=dtype) + grid_cell_offset
-            sy, sx = torch.meshgrid(sy, sx, indexing="ij")
-            anchor_points.append(torch.stack((sx, sy), -1).view(-1, 2))
-            stride_tensor.append(
-                torch.full((h * w, 1), stride, dtype=dtype, device=device)
+        centers_by_level = []
+        stride_by_level = []
+        for feature, stride in zip(feats, strides):
+            dtype, device = feature.dtype, feature.device
+            height, width = feature.shape[-2:]
+            y_coords = torch.arange(height, device=device, dtype=dtype).add(
+                grid_cell_offset
             )
+            x_coords = torch.arange(width, device=device, dtype=dtype).add(
+                grid_cell_offset
+            )
+            grid_y, grid_x = torch.meshgrid(y_coords, x_coords, indexing="ij")
+            centers = torch.stack((grid_x.reshape(-1), grid_y.reshape(-1)), dim=1)
+            stride_value = torch.as_tensor(stride, device=device, dtype=dtype)
+            centers_by_level.append(centers)
+            stride_by_level.append(stride_value.expand(centers.shape[0], 1))
 
-        return torch.cat(anchor_points), torch.cat(stride_tensor)
+        return torch.cat(centers_by_level, dim=0), torch.cat(stride_by_level, dim=0)
 
     def _decode_bboxes(self, bboxes, anchors):
         """Decode bboxes from DFL output."""
@@ -1071,7 +1152,7 @@ class LibreYOLO9Model(nn.Module):
                 # Fuse Conv+BN
                 m.conv = self._fuse_conv_bn(m.conv, m.bn)
                 delattr(m, "bn")
-                m.forward = m.forward_fuse
+                m.forward = m.forward_without_bn
         return self
 
     def _fuse_conv_bn(self, conv, bn):

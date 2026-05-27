@@ -282,7 +282,7 @@ def predict_cmd(
                 "shape": list(r.masks.data.shape),
             }
         result_list.append(result_data)
-        # Human summary line (ultralytics format):
+        # Human summary line:
         # image 1/3 parkour.jpg: 640x480 3 persons, 2 skateboards, 45.2ms
         h, w = r.orig_shape
         counts_str = ", ".join(

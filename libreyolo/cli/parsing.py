@@ -2,8 +2,8 @@
 
 Subclasses TyperCommand and rewrites key=value tokens into --key value
 before Click's parser sees them. This preserves all Typer features
-(auto-help, type validation, shell completion) while supporting
-ultralytics-compatible syntax.
+(auto-help, type validation, shell completion) while supporting key=value
+syntax.
 """
 
 import ast

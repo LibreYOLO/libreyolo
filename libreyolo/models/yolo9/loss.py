@@ -1,8 +1,7 @@
 """
-YOLOv9 Loss functions for training.
+YOLOv9 loss functions for training.
 
-Ported from https://github.com/WongKinYiu/YOLO (MIT License)
-Adapted for LibreYOLO's yolo9 architecture.
+Adapted from MultimediaTechLab/YOLO under the MIT License.
 """
 
 from typing import Dict, List, Optional, Tuple

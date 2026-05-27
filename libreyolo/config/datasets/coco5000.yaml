@@ -111,7 +111,7 @@ download: |
   dir = Path(yaml["path"])
   dir.mkdir(parents=True, exist_ok=True)
 
-  # Download val2017 images from official COCO (not Ultralytics)
+  # Download val2017 images from official COCO.
   download(
       ["http://images.cocodataset.org/zips/val2017.zip"],
       dir=dir,
