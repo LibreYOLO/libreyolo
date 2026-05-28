@@ -1,18 +1,7 @@
-"""Smoke test that reproduces the user's training scenario locally.
+"""Smoke tests for RF-DETR-Seg trainer: imgsz handling, DDP compatibility, and device sync.
 
-Scenario:
-    LibreRFDETR(size="l", task="segment").train(imgsz=624, device="0,1,2,3")
-
-Two bugs were fixed:
-  1. imgsz=624 was silently overridden by self.input_size (504 for l-seg).
-  2. _multi_scale_scales() read patch_size/num_windows via getattr on a
-     DDP-wrapped model, always falling back to wrong defaults (16/4), so
-     the divisor was 64 instead of 24, producing scale 512 which fails
-     the backbone's assertion (512 % 24 != 0).
-
-These tests exercise the whole path on CPU with size="s" (smallest seg
-variant that shares block_size=24 / num_windows=2 with "l") and the same
-user-supplied imgsz=624 so every check is faithful to the production failure.
+Tests run on CPU with size="s" (block_size=24 / num_windows=2, same as "l") to keep
+them fast while covering the same code paths as a full multi-GPU run.
 """
 
 from __future__ import annotations
@@ -229,6 +218,49 @@ def test_seg_trainer_ddp_uses_static_graph_not_find_unused(gloo_pg):
     )
     assert kwargs.get("find_unused_parameters") is False, (
         f"Expected find_unused_parameters=False for seg trainer, got {kwargs}"
+    )
+
+
+# ---- Bug 4: setup() must sync wrapper_model.device to trainer.device --------
+
+
+@pytest.mark.unit
+def test_setup_syncs_wrapper_device_to_trainer_device():
+    """BaseTrainer.setup() must write trainer.device into wrapper_model.device.
+
+    Before the fix, model.to(self.device) moved the weights but wrapper_model.device
+    stayed at whatever the wrapper was constructed with (e.g. "cpu" while the trainer
+    resolved "cuda:0" under DDP).  Any inference called via the wrapper after setup
+    would silently use the wrong device for tensor allocation.
+    """
+    from pathlib import Path
+    from unittest.mock import MagicMock, patch
+
+    import torch.optim as optim
+
+    wrapper, trainer = _build_wrapper_and_trainer(size="s", imgsz=384)
+
+    # Poison the wrapper's device attribute so the sync is unambiguously visible.
+    wrapper.device = torch.device("meta")
+
+    dummy_opt = optim.SGD(trainer.model.parameters(), lr=0.01)
+
+    with (
+        patch.object(trainer, "on_setup"),
+        patch.object(trainer, "_setup_data"),
+        patch.object(trainer, "_setup_optimizer", return_value=dummy_opt),
+        patch.object(trainer, "_scheduler_steps_per_epoch", return_value=10),
+        patch.object(trainer, "create_scheduler", return_value=MagicMock()),
+        patch.object(trainer, "_initialize_scheduler_lr"),
+        patch.object(trainer, "_get_save_dir", return_value=Path("/tmp/test_sync_device")),
+        patch.object(trainer.config, "to_yaml"),
+        patch("libreyolo.training.trainer.barrier"),
+    ):
+        trainer.setup()
+
+    assert wrapper.device == trainer.device, (
+        f"wrapper_model.device ({wrapper.device}) was not synced to "
+        f"trainer.device ({trainer.device}) after setup()"
     )
 
 
