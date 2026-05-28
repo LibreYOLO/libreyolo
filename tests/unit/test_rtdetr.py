@@ -161,6 +161,37 @@ class TestRTDETRDetectSize:
         assert LibreRTDETR.detect_size(weights) == "x"
 
 
+class TestRTDETRSizeDetectionFromFilename:
+    """Test LibreRTDETR.detect_size_from_filename."""
+
+    @pytest.mark.parametrize("size", ["r18", "r34", "r50", "r50m", "r101", "l", "x"])
+    def test_all_sizes_via_libre_prefix(self, size):
+        assert LibreRTDETR.detect_size_from_filename(f"LibreRTDETR-{size}.pt") == size
+
+    @pytest.mark.parametrize(
+        "filename,expected",
+        [
+            ("rtdetr_r18vd_6ep_coco_from_paddle.pth", "r18"),
+            ("rtdetr_r34vd_6ep_coco_from_paddle.pth", "r34"),
+            ("rtdetr_r50vd_6ep_coco_from_paddle.pth", "r50"),
+            ("rtdetr_r50vd_m_6ep_coco_from_paddle.pth", "r50m"),
+            ("rtdetr_r101vd_6ep_coco_from_paddle.pth", "r101"),
+        ],
+    )
+    def test_upstream_v1_vd_checkpoints(self, filename, expected):
+        assert LibreRTDETR.detect_size_from_filename(filename) == expected
+
+    def test_l_no_false_positive_in_large(self):
+        # The word-boundary fix: "LibreRTDETR-large" must not match size "l"
+        assert LibreRTDETR.detect_size_from_filename("LibreRTDETR-large.pt") is None
+
+    def test_x_no_false_positive_in_xl(self):
+        assert LibreRTDETR.detect_size_from_filename("LibreRTDETR-xl.pt") is None
+
+    def test_unknown_filename_returns_none(self):
+        assert LibreRTDETR.detect_size_from_filename("yolov8n.pt") is None
+
+
 class TestRTDETRDetectNbClasses:
     """Test RTDETR class count detection."""
 

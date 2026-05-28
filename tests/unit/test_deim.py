@@ -11,6 +11,40 @@ from libreyolo.utils.serialization import wrap_libreyolo_checkpoint
 pytestmark = pytest.mark.unit
 
 
+class TestDFINESizeDetectionFromFilename:
+    """Test LibreDFINE.detect_size_from_filename."""
+
+    @pytest.mark.parametrize("size", ["n", "s", "m", "l", "x"])
+    def test_all_sizes_via_libre_prefix(self, size):
+        from libreyolo.models.dfine.model import LibreDFINE
+
+        assert LibreDFINE.detect_size_from_filename(f"LibreDFINE{size}.pt") == size
+
+    @pytest.mark.parametrize(
+        "filename,expected",
+        [
+            ("dfine_hgnetv2_n_coco.pth", "n"),
+            ("dfine_hgnetv2_s_coco.pth", "s"),
+            ("dfine_hgnetv2_l_coco.pth", "l"),
+            ("dfine_x_coco.pth", "x"),
+        ],
+    )
+    def test_upstream_dfine_checkpoints(self, filename, expected):
+        from libreyolo.models.dfine.model import LibreDFINE
+
+        assert LibreDFINE.detect_size_from_filename(filename) == expected
+
+    def test_no_false_positive_for_xl_suffix(self):
+        from libreyolo.models.dfine.model import LibreDFINE
+
+        assert LibreDFINE.detect_size_from_filename("dfine_hgnetv2_xl_coco.pth") is None
+
+    def test_unknown_filename_returns_none(self):
+        from libreyolo.models.dfine.model import LibreDFINE
+
+        assert LibreDFINE.detect_size_from_filename("yolov8n.pt") is None
+
+
 def test_deim_is_registered_and_detects_upstream_filename():
     from libreyolo import LibreDEIM
     from libreyolo.models.base.model import BaseModel

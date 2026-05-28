@@ -32,15 +32,15 @@ class LibreRTDETRv2(LibreRTDETR):
 
     @classmethod
     def detect_size_from_filename(cls, filename: str) -> Optional[str]:
-        detected = super().detect_size_from_filename(filename)
-        if detected is not None:
-            return detected
+        # Must run before super() to prevent "_r50" substring from shadowing "r50m".
         basename = os.path.basename(filename).lower()
-        m = re.search(r"rtdetrv2_r(\d+)vd(_m)?_", basename)
+        m = re.search(r"rtdetrv2_r(\d+)vd(_m)?", basename)
         if m:
             depth, m_suffix = m.group(1), m.group(2)
-            return f"r{depth}m" if m_suffix else f"r{depth}"
-        return None
+            candidate = f"r{depth}m" if m_suffix else f"r{depth}"
+            if candidate in cls.INPUT_SIZES:
+                return candidate
+        return super().detect_size_from_filename(filename)
 
     @classmethod
     def _get_trainer_class(cls):

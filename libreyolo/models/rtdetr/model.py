@@ -257,17 +257,36 @@ class LibreRTDETR(BaseModel):
         sizes = list(cls.INPUT_SIZES.keys())
         # Sort by length descending to match r50m before r50
         sizes_sorted = sorted(sizes, key=len, reverse=True)
-        basename = os.path.basename(filename)
+        basename = os.path.basename(filename).lower()
+        prefix = cls.FILENAME_PREFIX.lower()
+
+        # Upstream RT-DETR v1 checkpoint names: rtdetr_r50vd_..., rtdetr_r18vd_...
+        m = re.search(r"rtdetr_r(\d+)vd(_m)?", basename)
+        if m:
+            depth, m_suffix = m.group(1), m.group(2)
+            candidate = f"r{depth}m" if m_suffix else f"r{depth}"
+            if candidate in cls.INPUT_SIZES:
+                return candidate
+
         for size in sizes_sorted:
-            pattern = rf"{cls.FILENAME_PREFIX}[-_]?{re.escape(size)}[^a-z0-9]"
+            pattern = rf"{prefix}[-_]?{re.escape(size)}[^a-z0-9]"
             if re.search(pattern, basename):
                 return size
-            # Require a word boundary after the size code so that e.g. "-l"
-            # doesn't match inside "-large" when size=="l".
-            if re.search(rf"[-_]{re.escape(size)}(?:[^a-z0-9]|$)", basename):
-                return size
-            if basename.startswith(f"{size}"):
-                return size
+            if len(size) == 1:
+                # Single-char sizes (l, x) need a word boundary to avoid matching
+                # inside longer words, e.g. "-l" inside "-large".
+                if re.search(rf"[-_]{re.escape(size)}(?:[^a-z0-9]|$)", basename):
+                    return size
+                if re.search(rf"^{re.escape(size)}[-_]", basename):
+                    return size
+            else:
+                # Multi-char sizes (r50, r101, …) are specific enough that a plain
+                # substring check is safe and preserves upstream filename hints like
+                # rtdetr_r50vd_... that don't use the LibreRTDETR prefix.
+                if f"-{size}" in basename or f"_{size}" in basename:
+                    return size
+                if basename.startswith(f"{size}"):
+                    return size
         return None
 
     # =========================================================================
