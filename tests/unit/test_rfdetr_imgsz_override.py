@@ -8,9 +8,48 @@
 
 from __future__ import annotations
 
+import os
+
 import pytest
+import torch.distributed as dist
+import torch.nn as nn
 
 pytestmark = pytest.mark.unit
+
+
+_DDP_ENV_KEYS = ("MASTER_ADDR", "MASTER_PORT", "RANK", "LOCAL_RANK", "WORLD_SIZE")
+
+
+@pytest.fixture()
+def gloo_pg():
+    """Init a single-rank gloo process group and fully clean up after the test.
+
+    Destroys the process group AND restores the DDP env vars so that
+    has_torchrun_env() / is_distributed() return False for later tests.
+    """
+    already_up = dist.is_initialized()
+    saved_env = {k: os.environ.get(k) for k in _DDP_ENV_KEYS}
+
+    if not already_up:
+        os.environ.update({
+            "MASTER_ADDR": "127.0.0.1",
+            "MASTER_PORT": "29510",
+            "RANK": "0",
+            "LOCAL_RANK": "0",
+            "WORLD_SIZE": "1",
+        })
+        dist.init_process_group(backend="gloo", rank=0, world_size=1)
+
+    yield
+
+    if not already_up:
+        if dist.is_initialized():
+            dist.destroy_process_group()
+        for k, v in saved_env.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
 
 
 # ---------------------------------------------------------------------------
@@ -18,14 +57,16 @@ pytestmark = pytest.mark.unit
 # ---------------------------------------------------------------------------
 
 
-def _build_train_kwargs(model, imgsz: int | None = None) -> dict:
-    """Call the same path that model.train() uses to assemble train_kwargs,
-    but stop before constructing a trainer (no data / GPU required)."""
+_SENTINEL = object()
+
+
+def _build_train_kwargs(model, imgsz=_SENTINEL) -> dict:
+    """Replicate the kwarg assembly path from model.train(), without a trainer."""
     from pathlib import Path
 
     output_path = Path("runs/train/test_run")
     train_kwargs: dict = {}
-    if imgsz is not None:
+    if imgsz is not _SENTINEL:
         train_kwargs["imgsz"] = imgsz
 
     train_kwargs.update(
@@ -41,7 +82,8 @@ def _build_train_kwargs(model, imgsz: int | None = None) -> dict:
             "num_classes": model.nb_classes,
         }
     )
-    train_kwargs.setdefault("imgsz", model.input_size)
+    if train_kwargs.get("imgsz") is None:
+        train_kwargs["imgsz"] = model.input_size
     return train_kwargs
 
 
@@ -64,9 +106,21 @@ def test_default_imgsz_applied_when_not_supplied():
     from libreyolo.models.rfdetr.model import LibreRFDETR
 
     model = LibreRFDETR(model_path={}, size="l", task="segment", device="cpu")
-    kwargs = _build_train_kwargs(model, imgsz=None)
+    kwargs = _build_train_kwargs(model)  # no imgsz kwarg at all
     assert kwargs["imgsz"] == model.input_size, (
         f"Expected default imgsz={model.input_size}, got {kwargs['imgsz']}"
+    )
+
+
+def test_imgsz_none_falls_back_to_model_default():
+    """imgsz=None must not be forwarded to the trainer — treat it as unset."""
+    from libreyolo.models.rfdetr.model import LibreRFDETR
+
+    model = LibreRFDETR(model_path={}, size="l", task="segment", device="cpu")
+    kwargs = _build_train_kwargs(model, imgsz=None)
+    assert kwargs["imgsz"] == model.input_size, (
+        f"imgsz=None should fall back to model default {model.input_size}, "
+        f"got {kwargs['imgsz']}"
     )
 
 
@@ -77,39 +131,26 @@ def test_default_imgsz_applied_when_not_supplied():
 
 
 def _make_ddp_wrapped_rfdetr_model(size: str = "l", task: str = "segment"):
-    """Return an RFDETRModel nn.Module wrapped in a CPU DDP container
-    (using the gloo backend so no GPU is required).
+    """Return an RFDETRModel nn.Module wrapped in a CPU DDP container.
+
+    Requires the gloo_pg fixture to be active — the fixture owns init/teardown.
     """
-    import os
-    import torch.distributed as dist
-    import torch.nn as nn
     from libreyolo.models.rfdetr.nn import RFDETR_SEG_CONFIGS, RFDETR_CONFIGS
 
     configs = RFDETR_SEG_CONFIGS if task == "segment" else RFDETR_CONFIGS
     cfg = configs[size]
 
-    # Build a minimal stand-in that just has the two attributes we care about.
     class _FakeRFDETRModel(nn.Module):
         def __init__(self):
             super().__init__()
             self.patch_size = cfg.patch_size
             self.num_windows = cfg.num_windows
-            # Need at least one parameter for DDP
             self.dummy = nn.Linear(1, 1, bias=False)
 
         def forward(self, x):
             return x
 
     raw = _FakeRFDETRModel()
-
-    if not dist.is_initialized():
-        os.environ.setdefault("MASTER_ADDR", "127.0.0.1")
-        os.environ.setdefault("MASTER_PORT", "29510")
-        os.environ.setdefault("RANK", "0")
-        os.environ.setdefault("LOCAL_RANK", "0")
-        os.environ.setdefault("WORLD_SIZE", "1")
-        dist.init_process_group(backend="gloo", rank=0, world_size=1)
-
     ddp = nn.parallel.DistributedDataParallel(raw)
     return raw, ddp, cfg
 
@@ -119,7 +160,7 @@ def _make_ddp_wrapped_rfdetr_model(size: str = "l", task: str = "segment"):
     ("s", "segment"),
     ("x", "segment"),
 ])
-def test_patch_size_survives_ddp_wrap(size, task):
+def test_patch_size_survives_ddp_wrap(gloo_pg, size, task):
     """getattr on a DDP-wrapped model must NOT fall back to wrong defaults."""
     from libreyolo.training.distributed import unwrap_model
     from libreyolo.models.rfdetr.nn import RFDETR_SEG_CONFIGS

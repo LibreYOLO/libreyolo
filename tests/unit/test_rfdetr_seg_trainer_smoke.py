@@ -31,15 +31,40 @@ pytestmark = pytest.mark.unit
 _GLOO_PORT = "29513"
 
 
-def _maybe_init_gloo() -> None:
-    """Init a single-rank gloo process group for DDP wrapping, idempotent."""
-    if not dist.is_initialized():
-        os.environ.setdefault("MASTER_ADDR", "127.0.0.1")
-        os.environ.setdefault("MASTER_PORT", _GLOO_PORT)
-        os.environ.setdefault("RANK", "0")
-        os.environ.setdefault("LOCAL_RANK", "0")
-        os.environ.setdefault("WORLD_SIZE", "1")
+_DDP_ENV_KEYS = ("MASTER_ADDR", "MASTER_PORT", "RANK", "LOCAL_RANK", "WORLD_SIZE")
+
+
+@pytest.fixture()
+def gloo_pg():
+    """Init a single-rank gloo process group and fully clean up after the test.
+
+    Destroys the process group AND restores the DDP env vars so that
+    has_torchrun_env() / is_distributed() return False for later tests —
+    preventing scale_loss_for_ddp() from treating the next trainer as DDP.
+    """
+    already_up = dist.is_initialized()
+    saved_env = {k: os.environ.get(k) for k in _DDP_ENV_KEYS}
+
+    if not already_up:
+        os.environ.update({
+            "MASTER_ADDR": "127.0.0.1",
+            "MASTER_PORT": _GLOO_PORT,
+            "RANK": "0",
+            "LOCAL_RANK": "0",
+            "WORLD_SIZE": "1",
+        })
         dist.init_process_group(backend="gloo", rank=0, world_size=1)
+
+    yield
+
+    if not already_up:
+        if dist.is_initialized():
+            dist.destroy_process_group()
+        for k, v in saved_env.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
 
 
 def _build_wrapper_and_trainer(size: str, imgsz: int, multi_scale: bool = True):
@@ -113,10 +138,9 @@ def test_trainer_receives_user_imgsz():
 # ---- Bug 2: DDP wrap must not break patch_size / num_windows lookup ---------
 
 
-def test_multi_scale_scales_correct_after_ddp_wrap():
+def test_multi_scale_scales_correct_after_ddp_wrap(gloo_pg):
     """After DDP wrapping, _multi_scale_scales() must use the real patch_size and
     num_windows (12 / 2 → block_size 24), not the wrong fallbacks (16 / 4 → 64)."""
-    _maybe_init_gloo()
 
     wrapper, trainer = _build_wrapper_and_trainer(size="s", imgsz=624, multi_scale=True)
 
