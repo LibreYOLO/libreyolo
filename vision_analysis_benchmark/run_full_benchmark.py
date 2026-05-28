@@ -2,10 +2,9 @@
 """
 Run full benchmark of all LibreYOLO models on COCO val2017.
 
-This will benchmark all 15 model variants:
-- YOLOv8: n, s, m, l, x (5 models)
+This will benchmark all 14 model variants:
+- RF-DETR: n, s, m, l (4 models)
 - YOLOv9: t, s, m, c (4 models)
-- YOLOv11: n, s, m, l, x (5 models)
 - YOLOX: nano, tiny, s, m, l, x (6 models)
 
 Results will be saved to: ./benchmark_results/
@@ -21,7 +20,7 @@ OUTPUT_DIR = "./benchmark_results"
 BATCH_SIZE = 16  # Use batch size 16 for faster processing
 
 # Models to benchmark (leave empty to benchmark ALL)
-# To benchmark specific models, add them like: ["yolov8n", "yolov11s"]
+# To benchmark specific models, add them like: ["yolo9t", "rfdetrs"]
 MODELS_TO_BENCHMARK = []  # Empty = all models
 
 

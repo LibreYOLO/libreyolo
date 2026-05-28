@@ -46,6 +46,44 @@ def test_load_data_config_can_opt_in_to_embedded_scripts(tmp_path):
     assert marker_path.read_text() == "ran"
 
 
+def test_embedded_scripts_map_common_yolo_helper_imports(tmp_path, monkeypatch):
+    import libreyolo.data.utils as data_utils
+
+    marker_path = tmp_path / "marker.txt"
+    yaml_path = tmp_path / "scripted.yaml"
+    yaml_path.write_text(
+        "\n".join(
+            [
+                f"path: {tmp_path / 'dataset'}",
+                "train: images/train",
+                "val: images/val",
+                "download: |",
+                "  from ultralytics.utils.downloads import download",
+                "  from ultralytics.utils import ASSETS_URL",
+                f'  Path(r"{marker_path}").write_text(ASSETS_URL)',
+                "  download([ASSETS_URL + '/labels.zip'], dir=path)",
+            ]
+        )
+    )
+
+    monkeypatch.setattr(data_utils, "ASSETS_URL", "libreyolo-assets")
+    called = {}
+
+    def fake_download(urls, dir=".", unzip=True, delete=True, threads=1):
+        called["urls"] = urls
+        called["dir"] = dir
+
+    monkeypatch.setattr(data_utils, "download", fake_download)
+
+    load_data_config(str(yaml_path), autodownload=True, allow_scripts=True)
+
+    assert marker_path.read_text() == "libreyolo-assets"
+    assert called == {
+        "urls": ["libreyolo-assets/labels.zip"],
+        "dir": tmp_path / "dataset",
+    }
+
+
 def test_load_data_config_resolves_directory_test_split(tmp_path):
     dataset_root = tmp_path / "dataset"
     images_dir = dataset_root / "test" / "images"

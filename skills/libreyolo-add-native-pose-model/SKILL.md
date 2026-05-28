@@ -51,7 +51,7 @@ Task resolution already follows:
 explicit task= -> checkpoint["task"] -> filename suffix -> family default
 ```
 
-Use LibreYOLO-branded weights with the Ultralytics-style pose suffix:
+Use LibreYOLO-branded weights with the pose task suffix:
 
 ```text
 LibreMyFamilyn-pose.pt
@@ -76,7 +76,7 @@ Backends should read the same metadata and initialize with the resolved task.
 
 ## 4. Return Flat Results
 
-Public results must stay Ultralytics-style and flat:
+Public results must keep the flat LibreYOLO result shape:
 
 ```python
 Results(..., boxes=boxes, keypoints=keypoints)

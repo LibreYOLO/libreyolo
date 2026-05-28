@@ -18,7 +18,7 @@ Libre<FAMILY><size>[-<task>].pt
 - `<size>` — single-letter or backbone-named size code. Always **lowercase**,
   attached directly to the family prefix with no separator.
 - `<task>` — optional task suffix, hyphen-prefixed.
-  Detect is **implicit** (no suffix), matching the Ultralytics convention.
+  Detect is **implicit** (no suffix), following the common YOLO naming convention.
 
 ## Family prefixes
 

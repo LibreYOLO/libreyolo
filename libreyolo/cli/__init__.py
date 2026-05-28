@@ -1,4 +1,4 @@
-"""LibreYOLO CLI — ultralytics-compatible command-line interface.
+"""LibreYOLO CLI — high-level command-line interface.
 
 Entry point registered in pyproject.toml as ``libreyolo``.
 """
