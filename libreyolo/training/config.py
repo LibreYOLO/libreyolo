@@ -119,6 +119,19 @@ class TrainConfig:
     seed: int = 0
     allow_download_scripts: bool = False
 
+    # Image cache. Mirrors Ultralytics ``cache`` semantics:
+    #   False / None : no caching (default).
+    #   True / "ram" : decode + resize every image once at dataset construction
+    #                  and keep the resulting numpy arrays in RAM. Skips JPG
+    #                  decode and resize on every subsequent epoch.
+    #   "disk"       : save decoded images as ``.npy`` files next to the
+    #                  originals. Subsequent epochs load ``.npy`` (no JPG
+    #                  decode) and resize at runtime.
+    # A pre-flight RAM/disk capacity check with a 50% safety margin runs
+    # before allocating; if it fails the dataset logs a warning and silently
+    # falls back to no cache.
+    cache: Union[bool, str, None] = False
+
     @classmethod
     def from_kwargs(cls, **kwargs):
         """Construct config, warning on unknown keys."""

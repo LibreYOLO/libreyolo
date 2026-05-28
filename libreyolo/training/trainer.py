@@ -364,6 +364,7 @@ class BaseTrainer(ABC):
         img_size = self.input_size
         preproc, MosaicDatasetClass = self.create_transforms()
         load_segments = getattr(self.wrapper_model, "task", "detect") == "segment"
+        cache = getattr(self.config, "cache", False)
 
         if self.config.data:
             data_cfg = load_data_config(
@@ -386,6 +387,7 @@ class BaseTrainer(ABC):
                     img_size=img_size,
                     preproc=preproc,
                     load_segments=load_segments,
+                    cache=cache,
                 )
             elif ann_file.exists():
                 train_dataset = COCODataset(
@@ -395,6 +397,7 @@ class BaseTrainer(ABC):
                     img_size=img_size,
                     preproc=preproc,
                     load_segments=load_segments,
+                    cache=cache,
                 )
             else:
                 train_path = data_cfg.get("train", "images/train")
@@ -418,6 +421,7 @@ class BaseTrainer(ABC):
                     img_size=img_size,
                     preproc=preproc,
                     load_segments=load_segments,
+                    cache=cache,
                 )
         elif self.config.data_dir:
             data_dir = self.config.data_dir
@@ -431,6 +435,7 @@ class BaseTrainer(ABC):
                     img_size=img_size,
                     preproc=preproc,
                     load_segments=load_segments,
+                    cache=cache,
                 )
             else:
                 train_dataset = YOLODataset(
@@ -439,6 +444,7 @@ class BaseTrainer(ABC):
                     img_size=img_size,
                     preproc=preproc,
                     load_segments=load_segments,
+                    cache=cache,
                 )
         else:
             raise ValueError("Either 'data' or 'data_dir' must be specified")

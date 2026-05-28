@@ -7,11 +7,13 @@ Supports both COCO JSON format and YOLO txt format.
 import copy
 import logging
 import os
+import random
 import sys
 import time
 from concurrent.futures import ThreadPoolExecutor
+from multiprocessing.pool import ThreadPool
 from pathlib import Path
-from typing import List, Tuple
+from typing import List, Optional, Tuple, Union
 
 import cv2
 import numpy as np
@@ -24,6 +26,154 @@ from .utils import polygon_to_cxcywh
 from libreyolo.training.distributed import is_main_process
 
 logger = logging.getLogger(__name__)
+
+# Mirrors Ultralytics' NUM_THREADS choice for the image cache thread pool.
+_CACHE_NUM_THREADS = min(8, max(1, (os.cpu_count() or 1) - 1))
+
+
+def _normalize_cache(cache: Union[bool, str, None]) -> Optional[str]:
+    """Normalise ``cache`` argument to ``None`` / ``"ram"`` / ``"disk"``."""
+    if cache is False or cache is None:
+        return None
+    if cache is True:
+        return "ram"
+    value = str(cache).strip().lower()
+    if value in ("ram", "disk"):
+        return value
+    if value in ("false", "none", ""):
+        return None
+    if value == "true":
+        return "ram"
+    logger.warning("Unknown image cache mode %r — disabling cache", cache)
+    return None
+
+
+def _available_memory_bytes() -> int:
+    """Best-effort available RAM in bytes; 0 means "unknown"."""
+    try:
+        import psutil  # type: ignore
+    except ImportError:
+        psutil = None
+    if psutil is not None:
+        try:
+            return int(psutil.virtual_memory().available)
+        except Exception:  # pragma: no cover - defensive
+            pass
+    # Fall back to POSIX sysconf where available (Linux/macOS).
+    try:
+        return int(os.sysconf("SC_PAGE_SIZE")) * int(os.sysconf("SC_AVPHYS_PAGES"))
+    except (AttributeError, ValueError, OSError):
+        pass
+    try:
+        return int(os.sysconf("SC_PAGE_SIZE")) * int(os.sysconf("SC_PHYS_PAGES"))
+    except (AttributeError, ValueError, OSError):
+        return 0
+
+
+def _available_disk_bytes(path: Path) -> int:
+    """Free disk space in bytes for ``path``'s filesystem; 0 means "unknown"."""
+    try:
+        return int(os.statvfs(str(path)).f_bavail * os.statvfs(str(path)).f_frsize)
+    except (AttributeError, OSError):
+        pass
+    try:
+        import shutil
+        return int(shutil.disk_usage(str(path)).free)
+    except OSError:
+        return 0
+
+
+def _check_cache_ram(
+    image_paths: List[Path],
+    img_size: Tuple[int, int],
+    safety_margin: float = 0.5,
+) -> Tuple[bool, float]:
+    """Estimate RAM required to cache all resized images.
+
+    Mirrors Ultralytics ``check_cache_ram``: samples up to 30 images,
+    extrapolates by ``n_total / n_sample`` and applies ``1 + safety_margin``.
+    Returns ``(fits, required_bytes)``.
+    """
+    n_total = len(image_paths)
+    if n_total == 0:
+        return False, 0.0
+    n_sample = min(n_total, 30)
+    samples = random.sample(image_paths, n_sample)
+    target_long = max(img_size)
+    bytes_seen = 0
+    n_ok = 0
+    for path in samples:
+        im = cv2.imread(str(path))
+        if im is None:
+            continue
+        h, w = im.shape[:2]
+        long_side = max(h, w)
+        if long_side > 0:
+            r = target_long / long_side
+        else:
+            r = 1.0
+        if r != 1.0:
+            new_h = max(1, int(round(h * r)))
+            new_w = max(1, int(round(w * r)))
+            bytes_seen += new_h * new_w * 3
+        else:
+            bytes_seen += im.size
+        n_ok += 1
+    if n_ok == 0:
+        return False, 0.0
+    required = bytes_seen * (n_total / n_ok) * (1.0 + safety_margin)
+    available = _available_memory_bytes()
+    fits = bool(available) and required < available
+    return fits, float(required)
+
+
+def _check_cache_disk(
+    image_paths: List[Path],
+    safety_margin: float = 0.5,
+) -> Tuple[bool, float]:
+    """Estimate disk space required to cache all ``.npy`` decoded images.
+
+    Mirrors Ultralytics ``check_cache_disk``: decoded numpy size scales with
+    the source image's decoded pixel count, so we sample 30 images and
+    extrapolate. Returns ``(fits, required_bytes)``.
+    """
+    n_total = len(image_paths)
+    if n_total == 0:
+        return False, 0.0
+    n_sample = min(n_total, 30)
+    samples = random.sample(image_paths, n_sample)
+    bytes_seen = 0
+    n_ok = 0
+    for path in samples:
+        im = cv2.imread(str(path))
+        if im is None:
+            continue
+        bytes_seen += im.nbytes
+        n_ok += 1
+    if n_ok == 0:
+        return False, 0.0
+    required = bytes_seen * (n_total / n_ok) * (1.0 + safety_margin)
+    # Use the first image's directory as a free-space probe.
+    available = _available_disk_bytes(Path(image_paths[0]).parent)
+    fits = bool(available) and required < available
+    return fits, float(required)
+
+
+def _cache_image_to_disk(npy_path: Path, src_path: Path) -> int:
+    """Decode ``src_path`` and write it to ``npy_path``. Returns bytes written."""
+    if npy_path.exists():
+        try:
+            return npy_path.stat().st_size
+        except OSError:
+            return 0
+    im = cv2.imread(str(src_path))
+    if im is None:
+        return 0
+    np.save(str(npy_path), im, allow_pickle=False)
+    try:
+        return npy_path.stat().st_size
+    except OSError:
+        return int(im.nbytes)
 
 
 def _yolo_coords_to_rings(
@@ -160,6 +310,7 @@ class YOLODataset(Dataset):
         img_files: List[Path] | None = None,
         label_files: List[Path] | None = None,
         load_segments: bool = False,
+        cache: Union[bool, str, None] = False,
     ):
         """
         Initialize YOLO dataset.
@@ -171,6 +322,10 @@ class YOLODataset(Dataset):
             preproc: Preprocessing transform.
             img_files: List of image paths (for file list mode).
             label_files: List of label paths (optional, inferred if not provided).
+            cache: Image cache mode. ``False`` / ``None`` disables caching
+                (default), ``True`` / ``"ram"`` decodes + resizes all images
+                once at construction and keeps them in RAM, ``"disk"`` saves
+                decoded images as ``.npy`` files next to the originals.
         """
         self.img_size = img_size
         self.preproc = preproc
@@ -224,6 +379,13 @@ class YOLODataset(Dataset):
 
         # Pre-load annotations
         self.annotations = self._load_annotations()
+
+        # Optional Ultralytics-style image cache. Default ``cache_mode`` is None
+        # so ``load_image`` / ``load_resized_img`` behave exactly as before.
+        self.cache_mode: Optional[str] = None
+        self.ims: List[Optional[np.ndarray]] = []
+        self.npy_files: List[Path] = []
+        self._init_image_cache(cache)
 
     def _load_annotations(self) -> List:
         """Load all annotations."""
@@ -366,15 +528,30 @@ class YOLODataset(Dataset):
         """Load annotation for given index."""
         return self.annotations[index][0]
 
+    def _source_image_path(self, index: int) -> Path:
+        """Return the on-disk path of the source image for ``index``."""
+        return self.img_files[index]
+
     def load_image(self, index: int) -> np.ndarray:
-        """Load image for given index."""
-        img_file = self.img_files[index]
+        """Load image for given index (unresized)."""
+        if self.cache_mode == "disk" and self.npy_files:
+            npy = self.npy_files[index]
+            if npy.exists():
+                try:
+                    return np.load(str(npy))
+                except (OSError, ValueError) as exc:  # pragma: no cover - defensive
+                    logger.warning("Failed to load cached %s (%s); reading source", npy, exc)
+        img_file = self._source_image_path(index)
         img = cv2.imread(str(img_file))
         assert img is not None, f"Failed to load {img_file}"
         return img
 
     def load_resized_img(self, index: int) -> np.ndarray:
-        """Load and resize image."""
+        """Load and resize image, consulting the image cache when enabled."""
+        if self.cache_mode == "ram" and self.ims:
+            cached = self.ims[index]
+            if cached is not None:
+                return cached
         img = self.load_image(index)
         r = min(self.img_size[0] / img.shape[0], self.img_size[1] / img.shape[1])
         resized_img = cv2.resize(
@@ -383,6 +560,91 @@ class YOLODataset(Dataset):
             interpolation=cv2.INTER_LINEAR,
         ).astype(np.uint8)
         return resized_img
+
+    # =========================================================================
+    # Image caching (Ultralytics parity)
+    # =========================================================================
+
+    def _init_image_cache(self, cache: Union[bool, str, None]) -> None:
+        """Pre-flight + populate the image cache. Falls back silently on failure."""
+        mode = _normalize_cache(cache)
+        if mode is None:
+            return
+        paths = [Path(p) for p in self.img_files]
+        if mode == "ram":
+            fits, required = _check_cache_ram(paths, self.img_size)
+            if not fits:
+                if is_main_process():
+                    logger.warning(
+                        "Skipping RAM image cache: estimated %.1f GB required "
+                        "exceeds available memory. Falling back to no cache.",
+                        required / 1e9,
+                    )
+                return
+            self.ims = [None] * self.num_imgs
+        else:  # "disk"
+            fits, required = _check_cache_disk(paths)
+            if not fits:
+                if is_main_process():
+                    logger.warning(
+                        "Skipping disk image cache: estimated %.1f GB required "
+                        "exceeds free disk space. Falling back to no cache.",
+                        required / 1e9,
+                    )
+                return
+            self.npy_files = [p.with_suffix(".npy") for p in paths]
+
+        self.cache_mode = mode
+        self._populate_image_cache()
+
+    def _populate_image_cache(self) -> None:
+        """Decode + resize (RAM) or write ``.npy`` (disk) for every image."""
+        mode = self.cache_mode
+        if mode is None:
+            return
+        storage = "RAM" if mode == "ram" else "Disk"
+        main = is_main_process()
+        disable_pbar = not (main and sys.stderr.isatty())
+        gb = 0
+        n = self.num_imgs
+
+        def _job(i: int) -> int:
+            if mode == "ram":
+                img = self.load_image(i)
+                h0, w0 = img.shape[:2]
+                r = min(self.img_size[0] / h0, self.img_size[1] / w0)
+                if r != 1.0:
+                    img = cv2.resize(
+                        img,
+                        (int(w0 * r), int(h0 * r)),
+                        interpolation=cv2.INTER_LINEAR,
+                    )
+                img = img.astype(np.uint8, copy=False)
+                self.ims[i] = img
+                return int(img.nbytes)
+            # disk
+            return _cache_image_to_disk(self.npy_files[i], self._source_image_path(i))
+
+        with ThreadPool(_CACHE_NUM_THREADS) as pool:
+            iterator = pool.imap(_job, range(n))
+            pbar = tqdm(
+                iterator,
+                total=n,
+                desc=f"Caching images (0.0GB {storage})",
+                file=sys.stderr,
+                disable=disable_pbar,
+            )
+            for nbytes in pbar:
+                gb += int(nbytes)
+                pbar.set_description_str(f"Caching images ({gb / 1e9:.1f}GB {storage})")
+            pbar.close()
+        if main:
+            logger.info(
+                "Image cache ready: %d images (%.2f GB %s)",
+                n,
+                gb / 1e9,
+                storage,
+            )
 
     def _load_segments(self, index: int):
         if self.segments is None:
@@ -449,6 +711,7 @@ class COCODataset(Dataset):
         img_size: Tuple[int, int] = (640, 640),
         preproc=None,
         load_segments: bool = False,
+        cache: Union[bool, str, None] = False,
     ):
         """
         Initialize COCO dataset.
@@ -459,6 +722,8 @@ class COCODataset(Dataset):
             name: Image folder name (e.g., 'train2017')
             img_size: Target image size (height, width)
             preproc: Preprocessing transform
+            cache: Image cache mode (False/None/True/"ram"/"disk"). See
+                :class:`YOLODataset` for details.
         """
         try:
             from pycocotools.coco import COCO
@@ -491,6 +756,12 @@ class COCODataset(Dataset):
 
         # Pre-load annotations
         self.annotations = self._load_coco_annotations()
+
+        # Optional Ultralytics-style image cache.
+        self.cache_mode: Optional[str] = None
+        self.ims: List[Optional[np.ndarray]] = []
+        self.npy_files: List[Path] = []
+        self._init_image_cache(cache)
 
     def _remove_useless_info(self):
         """Remove useless info from COCO to save memory."""
@@ -601,16 +872,31 @@ class COCODataset(Dataset):
         """Load annotation for given index."""
         return self.annotations[index][0]
 
-    def load_image(self, index: int) -> np.ndarray:
-        """Load image for given index."""
+    def _source_image_path(self, index: int) -> Path:
+        """Return the on-disk path of the source image for ``index``."""
         file_name = self.annotations[index][3]
-        img_file = os.path.join(self.data_dir, self.name, file_name)
-        img = cv2.imread(img_file)
+        return Path(self.data_dir) / self.name / file_name
+
+    def load_image(self, index: int) -> np.ndarray:
+        """Load image for given index (unresized)."""
+        if self.cache_mode == "disk" and self.npy_files:
+            npy = self.npy_files[index]
+            if npy.exists():
+                try:
+                    return np.load(str(npy))
+                except (OSError, ValueError) as exc:  # pragma: no cover - defensive
+                    logger.warning("Failed to load cached %s (%s); reading source", npy, exc)
+        img_file = self._source_image_path(index)
+        img = cv2.imread(str(img_file))
         assert img is not None, f"Failed to load {img_file}"
         return img
 
     def load_resized_img(self, index: int) -> np.ndarray:
-        """Load and resize image."""
+        """Load and resize image, consulting the image cache when enabled."""
+        if self.cache_mode == "ram" and self.ims:
+            cached = self.ims[index]
+            if cached is not None:
+                return cached
         img = self.load_image(index)
         r = min(self.img_size[0] / img.shape[0], self.img_size[1] / img.shape[1])
         resized_img = cv2.resize(
@@ -619,6 +905,86 @@ class COCODataset(Dataset):
             interpolation=cv2.INTER_LINEAR,
         ).astype(np.uint8)
         return resized_img
+
+    # =========================================================================
+    # Image caching (Ultralytics parity) — mirrors YOLODataset
+    # =========================================================================
+
+    def _init_image_cache(self, cache: Union[bool, str, None]) -> None:
+        """Pre-flight + populate the image cache. Falls back silently on failure."""
+        mode = _normalize_cache(cache)
+        if mode is None:
+            return
+        paths = [self._source_image_path(i) for i in range(self.num_imgs)]
+        if mode == "ram":
+            fits, required = _check_cache_ram(paths, self.img_size)
+            if not fits:
+                logger.warning(
+                    "Skipping RAM image cache: estimated %.1f GB required "
+                    "exceeds available memory. Falling back to no cache.",
+                    required / 1e9,
+                )
+                return
+            self.ims = [None] * self.num_imgs
+        else:  # "disk"
+            fits, required = _check_cache_disk(paths)
+            if not fits:
+                logger.warning(
+                    "Skipping disk image cache: estimated %.1f GB required "
+                    "exceeds free disk space. Falling back to no cache.",
+                    required / 1e9,
+                )
+                return
+            self.npy_files = [p.with_suffix(".npy") for p in paths]
+
+        self.cache_mode = mode
+        self._populate_image_cache()
+
+    def _populate_image_cache(self) -> None:
+        """Decode + resize (RAM) or write ``.npy`` (disk) for every image."""
+        mode = self.cache_mode
+        if mode is None:
+            return
+        storage = "RAM" if mode == "ram" else "Disk"
+        disable_pbar = not sys.stderr.isatty()
+        gb = 0
+        n = self.num_imgs
+
+        def _job(i: int) -> int:
+            if mode == "ram":
+                img = self.load_image(i)
+                h0, w0 = img.shape[:2]
+                r = min(self.img_size[0] / h0, self.img_size[1] / w0)
+                if r != 1.0:
+                    img = cv2.resize(
+                        img,
+                        (int(w0 * r), int(h0 * r)),
+                        interpolation=cv2.INTER_LINEAR,
+                    )
+                img = img.astype(np.uint8, copy=False)
+                self.ims[i] = img
+                return int(img.nbytes)
+            return _cache_image_to_disk(self.npy_files[i], self._source_image_path(i))
+
+        with ThreadPool(_CACHE_NUM_THREADS) as pool:
+            iterator = pool.imap(_job, range(n))
+            pbar = tqdm(
+                iterator,
+                total=n,
+                desc=f"Caching images (0.0GB {storage})",
+                file=sys.stderr,
+                disable=disable_pbar,
+            )
+            for nbytes in pbar:
+                gb += int(nbytes)
+                pbar.set_description_str(f"Caching images ({gb / 1e9:.1f}GB {storage})")
+            pbar.close()
+        logger.info(
+            "Image cache ready: %d images (%.2f GB %s)",
+            n,
+            gb / 1e9,
+            storage,
+        )
 
     def _load_segments(self, index: int):
         if self.segments is None:
