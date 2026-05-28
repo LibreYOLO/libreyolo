@@ -262,12 +262,11 @@ class LibreRTDETR(BaseModel):
             pattern = rf"{cls.FILENAME_PREFIX}[-_]?{re.escape(size)}[^a-z0-9]"
             if re.search(pattern, basename):
                 return size
-            # Also try just the size code anywhere in the filename
-            if (
-                f"-{size}" in basename
-                or f"_{size}" in basename
-                or basename.startswith(f"{size}")
-            ):
+            # Require a word boundary after the size code so that e.g. "-l"
+            # doesn't match inside "-large" when size=="l".
+            if re.search(rf"[-_]{re.escape(size)}(?:[^a-z0-9]|$)", basename):
+                return size
+            if basename.startswith(f"{size}"):
                 return size
         return None
 
