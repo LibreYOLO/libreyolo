@@ -79,6 +79,7 @@ class BaseValidator(ABC):
 
     def _setup(self, **kwargs) -> None:
         self.model.model.to(self.device)
+        self.model.device = self.device  # keep wrapper device in sync with inner module
 
         if self.config.save_dir:
             self.save_dir = Path(self.config.save_dir)

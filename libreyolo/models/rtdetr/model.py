@@ -280,10 +280,11 @@ class LibreRTDETR(BaseModel):
                 if re.search(rf"^{re.escape(size)}[-_]", basename):
                     return size
             else:
-                # Multi-char sizes (r50, r101, …) are specific enough that a plain
-                # substring check is safe and preserves upstream filename hints like
-                # rtdetr_r50vd_... that don't use the LibreRTDETR prefix.
-                if f"-{size}" in basename or f"_{size}" in basename:
+                # Multi-char sizes (r50, r101, …): require a word boundary after
+                # the code so "_r50vd" (RT-DETRv2 upstream names) doesn't match
+                # "r50".  Upstream v1 filenames (rtdetr_r50vd_…) are already
+                # handled by the upstream regex above and never reach this branch.
+                if re.search(rf"[-_]{re.escape(size)}(?:[^a-z0-9]|$)", basename):
                     return size
                 if basename.startswith(f"{size}"):
                     return size

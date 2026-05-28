@@ -191,6 +191,20 @@ class TestRTDETRSizeDetectionFromFilename:
     def test_unknown_filename_returns_none(self):
         assert LibreRTDETR.detect_size_from_filename("yolov8n.pt") is None
 
+    @pytest.mark.parametrize(
+        "filename",
+        [
+            "rtdetrv2_r50vd_6x_coco_ema.pth",
+            "rtdetrv2_r18vd_120e_coco_rerun.pth",
+            "rtdetrv2_r101vd_6x_coco_ema.pth",
+        ],
+    )
+    def test_v1_does_not_claim_upstream_v2_filenames(self, filename):
+        # Regression: word-boundary fix must prevent "_r50" substring in
+        # "rtdetrv2_r50vd_..." from matching the v1 fallback.  v2 filenames
+        # must route through LibreRTDETRv2, not LibreRTDETR.
+        assert LibreRTDETR.detect_size_from_filename(filename) is None
+
 
 class TestRTDETRDetectNbClasses:
     """Test RTDETR class count detection."""
