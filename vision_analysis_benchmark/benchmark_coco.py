@@ -391,7 +391,7 @@ def main():
     parser.add_argument(
         "--models",
         nargs="+",
-        help="Specific models to benchmark (e.g., yolov8n yolov11s). Default: all",
+        help="Specific models to benchmark (e.g., yolo9t rfdetrs). Default: all",
     )
     parser.add_argument(
         "--batch-size",
@@ -434,10 +434,10 @@ def main():
     if args.models:
         models_to_benchmark = []
         for model_spec in args.models:
-            # Parse model spec (e.g., "yolov8n")
+            # Parse model spec (e.g., "yolo9t")
             for family, info in LIBREYOLO_MODELS.items():
                 for variant in info["variants"]:
-                    # family is like 'yolov8', so just add variant
+                    # family is like 'yolo9', so just add variant
                     model_name = f"{family}{variant}"
                     if model_spec == model_name:
                         weights = info["weights_pattern"].format(variant=variant)

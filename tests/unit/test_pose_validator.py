@@ -18,7 +18,7 @@ class _DummyPoseModel:
         return "dummy"
 
 
-def test_pose_validator_accepts_ultralytics_yolo_pose_yaml(tmp_path):
+def test_pose_validator_accepts_yolo_pose_yaml(tmp_path):
     images_dir = tmp_path / "images" / "val"
     labels_dir = tmp_path / "labels" / "val"
     images_dir.mkdir(parents=True)

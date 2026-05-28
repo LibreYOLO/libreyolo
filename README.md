@@ -12,7 +12,7 @@
 [![LinkedIn](https://img.shields.io/badge/LinkedIn-LibreYOLO-blue?logo=linkedin)](https://www.linkedin.com/company/libreyolo/)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
-MIT-licensed computer vision library with inference and training support for a variety of models. Same API as Ultralytics: if you use Ultralytics, you already know how to use LibreYOLO, and your existing scripts work out of the box.
+MIT-licensed computer vision library with inference and training support for a variety of models. It provides a familiar high-level Python and CLI interface and reads common YOLO-format datasets, so existing workflows port over with minimal changes.
 
 ![LibreYOLO Detection Example](libreyolo/assets/parkour_result.jpg)
 
