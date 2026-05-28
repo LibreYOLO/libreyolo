@@ -179,7 +179,7 @@ include = ["vision_analysis_benchmark/**", "tests/**"]
 unresolved-import = "ignore"
 
 [tool.pytest.ini_options]
-addopts = "-m unit"
+addopts = "-m unit and not slow"
 testpaths = ["tests"]
 markers = [
     "unit: fast tests that avoid external weights or large files",

@@ -468,6 +468,7 @@ def _spawn_and_check(worker, n_ranks: int, tmp_path) -> dict:
 # =============================================================================
 
 
+@pytest.mark.slow
 @pytest.mark.skipif(
     sys.platform == "win32" and sys.version_info < (3, 8),
     reason="mp.spawn on Windows needs Python 3.8+",
@@ -482,6 +483,7 @@ def test_yolo9_ddp_2_ranks_cpu_gloo(tmp_path):
         assert text.startswith("ok "), f"rank {rank} did not finish ok: {text!r}"
 
 
+@pytest.mark.slow
 @pytest.mark.skipif(
     sys.platform == "win32" and sys.version_info < (3, 8),
     reason="mp.spawn on Windows needs Python 3.8+",
@@ -498,6 +500,7 @@ def test_rfdetr_ddp_2_ranks_cpu_gloo(tmp_path):
         assert text.startswith("ok "), f"rank {rank} did not finish ok: {text!r}"
 
 
+@pytest.mark.slow
 @pytest.mark.skipif(
     sys.platform == "win32" and sys.version_info < (3, 8),
     reason="mp.spawn on Windows needs Python 3.8+",
@@ -540,6 +543,7 @@ def test_parse_device_arg_and_wants_distributed():
     assert not wants_distributed("auto")
 
 
+@pytest.mark.slow
 def test_syncbn_weights_land_in_no_weight_decay_group():
     """Regression: SyncBatchNorm is a sibling of BatchNorm2d (both subclass
     ``_BatchNorm``), not a subclass of it. An ``isinstance(v, nn.BatchNorm2d)``
