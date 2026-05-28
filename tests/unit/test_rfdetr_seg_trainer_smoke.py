@@ -197,6 +197,28 @@ def test_all_multi_scale_sizes_divisible_by_block_size():
     assert not bad, f"Bad scales for l-seg imgsz=624: {bad}"
 
 
+# ---- Bug 3: DDP "marked ready twice" for segmentation_head.bias -------------
+
+
+def test_seg_trainer_ddp_uses_static_graph_not_find_unused(gloo_pg):
+    """RFDETRTrainer must use static_graph=True / find_unused_parameters=False.
+
+    The segmentation head is called twice per two-stage forward pass (once for
+    decoder queries, once for encoder queries), so its parameters receive
+    gradients from two branches.  find_unused_parameters=True registers
+    per-parameter autograd hooks that both fire → 'marked ready twice' error.
+    static_graph=True avoids this without losing unused-parameter protection.
+    """
+    _wrapper, trainer = _build_wrapper_and_trainer(size="s", imgsz=624)
+    kwargs = trainer._ddp_kwargs()
+    assert kwargs.get("static_graph") is True, (
+        f"Expected static_graph=True for seg trainer, got {kwargs}"
+    )
+    assert kwargs.get("find_unused_parameters") is False, (
+        f"Expected find_unused_parameters=False for seg trainer, got {kwargs}"
+    )
+
+
 # ---- End-to-end: forward pass must not crash --------------------------------
 
 

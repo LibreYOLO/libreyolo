@@ -81,12 +81,18 @@ class RFDETRTrainer(BaseTrainer):
         return f"LibreRFDETR-{self.config.size}"
 
     def _ddp_find_unused_parameters(self) -> bool:
-        """RF-DETR's segmentation head has conditional branches in its sparse
-        forward path that leave some parameters un-grad'd on some batches.
-        Auto-flip the DDP flag when segmentation is the active task — matches
-        upstream Roboflow rf-detr's pattern (their trainer.py:165-172).
+        return False
+
+    def _ddp_static_graph(self) -> bool:
+        """RF-DETR's segmentation head is called twice per forward in the
+        two-stage path (once for decoder queries, once for encoder queries),
+        so the same parameters receive gradients from two branches.
+        find_unused_parameters=True registers per-parameter autograd hooks
+        that both fire → "marked ready twice" DDP error.
+        static_graph=True avoids this: DDP locks the reducer after the first
+        iteration and handles unused parameters without per-iteration hooks.
         """
-        return getattr(self.wrapper_model, "task", "detect") == "segment"
+        return True
 
     def create_transforms(self):
         patch_size = int(getattr(self.model, "patch_size", 16))
