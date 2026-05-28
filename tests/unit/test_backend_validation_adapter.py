@@ -87,6 +87,14 @@ def test_backend_forward_falls_back_for_fixed_batch_exports():
     assert outputs[0][:, 0, 0].tolist() == [48.0, 48.0, 48.0]
 
 
+def test_backend_eval_proxy_has_no_to():
+    from libreyolo.backends.base import _BackendEvalProxy
+
+    proxy = _BackendEvalProxy()
+    assert not hasattr(proxy, "to")
+    assert hasattr(proxy, "eval")
+
+
 def test_backend_init_allows_read_only_size_property():
     class _ReadOnlySizeBackend(_Backend):
         @property
