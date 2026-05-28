@@ -33,7 +33,7 @@ ACCEPTED_PREDICT_KWARGS = {
 
 
 def normalize_predict_kwargs(kwargs: dict, passthrough: set[str] | None = None) -> dict:
-    """Warn or fail for Ultralytics kwargs LibreYOLO does not implement."""
+    """Warn or fail for YOLO predict kwargs LibreYOLO does not implement."""
     passthrough = passthrough or set()
     remaining = dict(kwargs)
 
@@ -47,7 +47,7 @@ def normalize_predict_kwargs(kwargs: dict, passthrough: set[str] | None = None) 
     noops = sorted(k for k in remaining if k in NOOP_PREDICT_KWARGS)
     for key in noops:
         warnings.warn(
-            f"Predict option {key!r} is accepted for Ultralytics compatibility "
+            f"Predict option {key!r} is accepted for compatibility "
             "but is currently a no-op in LibreYOLO.",
             stacklevel=3,
         )

@@ -238,7 +238,7 @@ def predict_cmd(
                 "detections": detections,
             }
         )
-        # Human summary line (ultralytics format):
+        # Human summary line (YOLO-style format):
         # image 1/3 parkour.jpg: 640x480 3 persons, 2 skateboards, 45.2ms
         h, w = r.orig_shape
         counts_str = ", ".join(

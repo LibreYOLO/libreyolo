@@ -56,7 +56,7 @@ Task resolution already follows:
 explicit task= -> checkpoint["task"] -> filename suffix -> family default
 ```
 
-Use LibreYOLO-branded weight names with Ultralytics-style task suffixes:
+Use LibreYOLO-branded weight names with task suffixes:
 
 ```text
 LibreMyFamilyn-seg.pt
@@ -78,7 +78,7 @@ Backends should read the same metadata and initialize with the resolved task.
 
 ## 4. Return Flat Results
 
-Public results must stay Ultralytics-style and flat:
+Public results must keep the flat LibreYOLO result shape:
 
 ```python
 Results(..., boxes=boxes, masks=masks)
@@ -152,8 +152,8 @@ For segment training, set the trainer best metric to the mask key:
 best_metric_key = "metrics/mAP50-95(M)"
 ```
 
-`model.val()` still returns a dict in this refactor. Typed Ultralytics metric
-objects are not part of the current contract.
+`model.val()` still returns a dict in this refactor. Typed metric objects are
+not part of the current contract.
 
 ## 7. Minimum Tests
 
