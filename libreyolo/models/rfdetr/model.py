@@ -658,9 +658,11 @@ class LibreRFDETR(BaseModel):
                 "exist_ok": True,
                 "size": self.size,
                 "num_classes": self.nb_classes,
-                "imgsz": self.input_size,
             }
         )
+        # Only apply the model's default input size when the caller hasn't
+        # already supplied imgsz — explicit user values must not be overridden.
+        train_kwargs.setdefault("imgsz", self.input_size)
 
         aliases = {
             "num_workers": "workers",

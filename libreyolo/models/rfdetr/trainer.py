@@ -13,6 +13,7 @@ import torch.nn.functional as F
 from ...data import load_data_config
 from ...training.config import TrainConfig
 from ...training.scheduler import BaseScheduler, CosineAnnealingScheduler, FlatCosineScheduler
+from ...training.distributed import unwrap_model
 from ...training.trainer import BaseTrainer
 from .config import RFDETRConfig
 from ..dfine.transforms import DFINEPassThroughDataset
@@ -149,8 +150,9 @@ class RFDETRTrainer(BaseTrainer):
     def _multi_scale_scales(self) -> list[int]:
         if not self.config.multi_scale or self.config.do_random_resize_via_padding:
             return []
-        patch_size = int(getattr(self.model, "patch_size", 16))
-        num_windows = int(getattr(self.model, "num_windows", 4))
+        raw = unwrap_model(self.model)
+        patch_size = int(getattr(raw, "patch_size", 16))
+        num_windows = int(getattr(raw, "num_windows", 4))
         return compute_multi_scale_scales(
             self.config.imgsz,
             self.config.expanded_scales,
