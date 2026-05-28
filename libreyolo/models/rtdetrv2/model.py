@@ -34,7 +34,7 @@ class LibreRTDETRv2(LibreRTDETR):
     def detect_size_from_filename(cls, filename: str) -> Optional[str]:
         # Must run before super() to prevent "_r50" substring from shadowing "r50m".
         basename = os.path.basename(filename).lower()
-        m = re.search(r"rtdetrv2_r(\d+)vd(_m)?", basename)
+        m = re.search(r"rtdetrv2_r(\d+)vd(_m)?(?=[-_.]|$)", basename)
         if m:
             depth, m_suffix = m.group(1), m.group(2)
             candidate = f"r{depth}m" if m_suffix else f"r{depth}"

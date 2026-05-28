@@ -261,7 +261,7 @@ class LibreRTDETR(BaseModel):
         prefix = cls.FILENAME_PREFIX.lower()
 
         # Upstream RT-DETR v1 checkpoint names: rtdetr_r50vd_..., rtdetr_r18vd_...
-        m = re.search(r"rtdetr_r(\d+)vd(_m)?", basename)
+        m = re.search(r"rtdetr_r(\d+)vd(_m)?(?=[-_.]|$)", basename)
         if m:
             depth, m_suffix = m.group(1), m.group(2)
             candidate = f"r{depth}m" if m_suffix else f"r{depth}"
