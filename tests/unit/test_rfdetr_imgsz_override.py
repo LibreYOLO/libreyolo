@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import os
+from types import SimpleNamespace
 
 import pytest
 import torch.distributed as dist
@@ -87,10 +88,18 @@ def _build_train_kwargs(model, imgsz=_SENTINEL) -> dict:
     return train_kwargs
 
 
-def test_explicit_imgsz_is_not_overridden():
+def _rfdetr_seg_stub(size: str = "l") -> SimpleNamespace:
+    """Lightweight stand-in for LibreRFDETR used in kwarg-assembly tests.
+
+    Reads only the class-level SEG_INPUT_SIZES dict — no model is constructed.
+    """
     from libreyolo.models.rfdetr.model import LibreRFDETR
 
-    model = LibreRFDETR(model_path={}, size="l", task="segment", device="cpu")
+    return SimpleNamespace(size=size, nb_classes=80, input_size=LibreRFDETR.SEG_INPUT_SIZES[size])
+
+
+def test_explicit_imgsz_is_not_overridden():
+    model = _rfdetr_seg_stub("l")
     default_size = model.input_size  # 504 for l-seg
     user_size = 624
     assert user_size != default_size, "precondition: user_size must differ from default"
@@ -103,9 +112,7 @@ def test_explicit_imgsz_is_not_overridden():
 
 
 def test_default_imgsz_applied_when_not_supplied():
-    from libreyolo.models.rfdetr.model import LibreRFDETR
-
-    model = LibreRFDETR(model_path={}, size="l", task="segment", device="cpu")
+    model = _rfdetr_seg_stub("l")
     kwargs = _build_train_kwargs(model)  # no imgsz kwarg at all
     assert kwargs["imgsz"] == model.input_size, (
         f"Expected default imgsz={model.input_size}, got {kwargs['imgsz']}"
@@ -114,9 +121,7 @@ def test_default_imgsz_applied_when_not_supplied():
 
 def test_imgsz_none_falls_back_to_model_default():
     """imgsz=None must not be forwarded to the trainer — treat it as unset."""
-    from libreyolo.models.rfdetr.model import LibreRFDETR
-
-    model = LibreRFDETR(model_path={}, size="l", task="segment", device="cpu")
+    model = _rfdetr_seg_stub("l")
     kwargs = _build_train_kwargs(model, imgsz=None)
     assert kwargs["imgsz"] == model.input_size, (
         f"imgsz=None should fall back to model default {model.input_size}, "

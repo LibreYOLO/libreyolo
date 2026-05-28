@@ -377,6 +377,9 @@ def _build_rfdetr_train_kwargs(
             kwargs[target_name] = params[cli_name]
 
     provided = user_provided or set()
+    if "imgsz" in provided and params.get("imgsz") is not None:
+        kwargs["imgsz"] = params["imgsz"]
+
     if "patience" in params:
         kwargs["early_stopping"] = params["patience"] > 0
         kwargs["early_stopping_patience"] = params["patience"]

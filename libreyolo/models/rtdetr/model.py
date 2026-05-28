@@ -262,6 +262,9 @@ class LibreRTDETR(BaseModel):
             pattern = rf"{cls.FILENAME_PREFIX}[-_]?{re.escape(size)}[^a-z0-9]"
             if re.search(pattern, basename):
                 return size
+            # Match upstream "vd" backbone variants (e.g. rtdetr_r50vd_... → r50).
+            if re.search(rf"[-_]{re.escape(size)}vd(?:[^a-z0-9]|$)", basename):
+                return size
             # Require a word boundary after the size code so that e.g. "-l"
             # doesn't match inside "-large" when size=="l".
             if re.search(rf"[-_]{re.escape(size)}(?:[^a-z0-9]|$)", basename):
