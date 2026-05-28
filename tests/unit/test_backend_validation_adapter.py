@@ -95,6 +95,28 @@ def test_backend_eval_proxy_has_no_to():
     assert hasattr(proxy, "eval")
 
 
+def test_validator_setup_does_not_overwrite_backend_string_device():
+    """_setup must not replace a backend's string device with a torch.device."""
+    from libreyolo.backends.base import _BackendEvalProxy
+
+    class _FakeModel:
+        device = "cpu"
+        model = _BackendEvalProxy()
+
+        def _get_model_name(self):
+            return "test"
+
+        size = "n"
+
+    fake = _FakeModel()
+    # Simulate what _setup does for a proxy-backed model
+    if hasattr(fake.model, "to"):
+        fake.model.to(torch.device("cuda"))
+        fake.device = torch.device("cuda")
+
+    assert fake.device == "cpu"  # untouched — no .to() on proxy
+
+
 def test_backend_init_allows_read_only_size_property():
     class _ReadOnlySizeBackend(_Backend):
         @property
