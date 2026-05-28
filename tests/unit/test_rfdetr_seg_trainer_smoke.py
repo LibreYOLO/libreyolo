@@ -24,8 +24,6 @@ import torch
 import torch.distributed as dist
 import torch.nn as nn
 
-pytestmark = pytest.mark.unit
-
 # ---- helpers ----------------------------------------------------------------
 
 _GLOO_PORT = "29513"
@@ -97,6 +95,7 @@ def _build_wrapper_and_trainer(size: str, imgsz: int, multi_scale: bool = True):
 # ---- Bug 1: imgsz must not be overridden ------------------------------------
 
 
+@pytest.mark.unit
 def test_explicit_imgsz_lands_in_trainer_config():
     """imgsz=624 must survive the train() kwarg assembly and reach the trainer."""
     from libreyolo.models.rfdetr.model import LibreRFDETR
@@ -128,6 +127,7 @@ def test_explicit_imgsz_lands_in_trainer_config():
     )
 
 
+@pytest.mark.unit
 def test_trainer_receives_user_imgsz():
     """The trainer's config.imgsz must equal what the caller passed."""
     _wrapper, trainer = _build_wrapper_and_trainer(size="s", imgsz=624)
@@ -139,6 +139,7 @@ def test_trainer_receives_user_imgsz():
 # ---- imgsz validation: non-divisible value must raise early -----------------
 
 
+@pytest.mark.unit
 def test_imgsz_not_divisible_by_block_size_raises():
     """create_transforms() raises ValueError when imgsz is the literal backbone
     input (multi_scale=False) and is not divisible by block_size=24."""
@@ -148,6 +149,7 @@ def test_imgsz_not_divisible_by_block_size_raises():
         trainer.create_transforms()
 
 
+@pytest.mark.unit
 def test_imgsz_not_divisible_allowed_with_multi_scale():
     """With multi_scale=True, a non-block-aligned imgsz is accepted because
     compute_multi_scale_scales() always rounds to valid multiples of block_size."""
@@ -155,6 +157,7 @@ def test_imgsz_not_divisible_allowed_with_multi_scale():
     trainer.create_transforms()  # must not raise
 
 
+@pytest.mark.unit
 def test_imgsz_divisible_by_block_size_does_not_raise():
     """create_transforms() must not raise for a valid imgsz (multiple of 24)."""
     _wrapper, trainer = _build_wrapper_and_trainer(size="s", imgsz=480, multi_scale=False)
@@ -164,6 +167,7 @@ def test_imgsz_divisible_by_block_size_does_not_raise():
 # ---- Bug 2: DDP wrap must not break patch_size / num_windows lookup ---------
 
 
+@pytest.mark.unit
 def test_multi_scale_scales_correct_after_ddp_wrap(gloo_pg):
     """After DDP wrapping, _multi_scale_scales() must use the real patch_size and
     num_windows (12 / 2 → block_size 24), not the wrong fallbacks (16 / 4 → 64)."""
@@ -186,6 +190,7 @@ def test_multi_scale_scales_correct_after_ddp_wrap(gloo_pg):
     )
 
 
+@pytest.mark.unit
 def test_all_multi_scale_sizes_divisible_by_block_size():
     """Every scale for l-seg with imgsz=624 is divisible by block_size=24."""
     from libreyolo.models.rfdetr.nn import RFDETR_SEG_CONFIGS
@@ -207,6 +212,7 @@ def test_all_multi_scale_sizes_divisible_by_block_size():
 # ---- Bug 3: DDP "marked ready twice" for segmentation_head.bias -------------
 
 
+@pytest.mark.unit
 def test_seg_trainer_ddp_uses_static_graph_not_find_unused(gloo_pg):
     """RFDETRTrainer must use static_graph=True / find_unused_parameters=False.
 
@@ -247,11 +253,15 @@ def _make_seg_batch(batch_size: int, imgsz: int, max_labels: int = 100, mask_dow
     return imgs, targets, polygons
 
 
+@pytest.mark.slow
 def test_on_forward_at_user_imgsz_does_not_crash():
     """The backbone's divisibility assertion must not fire when imgsz=624 is used.
 
     Uses size="s" (same block_size=24 as "l") so the test finishes quickly on CPU
     while exercising the exact path that was failing in production.
+
+    Marked slow (not unit): runs a full RF-DETR-s forward on a 624×624 CPU batch.
+    Divisibility is already regression-guarded by the lightweight unit tests above.
     """
     _wrapper, trainer = _build_wrapper_and_trainer(size="s", imgsz=624, multi_scale=False)
 
@@ -263,6 +273,7 @@ def test_on_forward_at_user_imgsz_does_not_crash():
     assert out["total_loss"].item() > 0
 
 
+@pytest.mark.slow
 def test_on_forward_at_default_imgsz_when_no_override():
     """Without a user override, the model's default imgsz is used (384 for s-seg)
     and the forward must also succeed."""
