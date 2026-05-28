@@ -89,8 +89,7 @@ def test_explicit_imgsz_lands_in_trainer_config():
     """imgsz=624 must survive the train() kwarg assembly and reach the trainer."""
     from libreyolo.models.rfdetr.model import LibreRFDETR
 
-    model = LibreRFDETR(model_path={}, size="l", task="segment", device="cpu")
-    default_size = model.input_size  # 504 for l-seg
+    default_size = LibreRFDETR.SEG_INPUT_SIZES["l"]  # 504 — no model construction needed
 
     # Replicate what model.train() does when the user passes imgsz=624.
     train_kwargs: dict = {"imgsz": 624}
@@ -103,8 +102,8 @@ def test_explicit_imgsz_lands_in_trainer_config():
             "project": "runs/train",
             "name": "test",
             "exist_ok": True,
-            "size": model.size,
-            "num_classes": model.nb_classes,
+            "size": "l",
+            "num_classes": 80,
         }
     )
     if train_kwargs.get("imgsz") is None:

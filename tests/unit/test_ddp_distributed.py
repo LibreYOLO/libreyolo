@@ -30,7 +30,7 @@ import torch.distributed as dist
 import torch.multiprocessing as mp
 import torch.nn as nn
 
-pytestmark = pytest.mark.unit
+# No module-level pytestmark: slow DDP spawn tests must not be selected by -m unit.
 
 
 # =============================================================================
@@ -522,6 +522,7 @@ def test_rtdetr_ddp_2_ranks_cpu_gloo(tmp_path):
         assert text.startswith("ok "), f"rank {rank} did not finish ok: {text!r}"
 
 
+@pytest.mark.unit
 def test_parse_device_arg_and_wants_distributed():
     """Unit-only sanity checks for the device-argument parser. These run in
     the parent test process and don't need spawn."""
@@ -977,6 +978,7 @@ def test_spawn_ddp_train_translates_existing_cuda_visible_devices(tmp_path, monk
     assert os.environ.get("CUDA_VISIBLE_DEVICES") == "2,3", "original mask not restored"
 
 
+@pytest.mark.unit
 def test_spawn_for_model_restores_model_device_on_autobatch_probe_error():
     """If resolve_auto_batch raises during the pre-spawn probe, the model must be
     moved back to its original device and the exception must propagate.
@@ -1039,6 +1041,7 @@ def test_spawn_for_model_restores_model_device_on_autobatch_probe_error():
     )
 
 
+@pytest.mark.unit
 def test_spawn_for_model_propagates_autobatch_error_on_cpu_path():
     """CPU-only path (cuda unavailable): autobatch failure must propagate even
     though probe_device == original_device == cpu (no real device move)."""
@@ -1063,6 +1066,7 @@ def test_spawn_for_model_propagates_autobatch_error_on_cpu_path():
     assert next(inner_model.parameters()).device.type == "cpu"
 
 
+@pytest.mark.unit
 def test_spawn_for_model_restores_model_device_when_filter_picklable_fails():
     """If _filter_picklable raises after a successful autobatch probe (model now
     on CPU), spawn_for_model must restore the model to its original device.
@@ -1123,6 +1127,7 @@ def test_spawn_for_model_restores_model_device_when_filter_picklable_fails():
     )
 
 
+@pytest.mark.unit
 def test_spawn_for_model_writes_flat_state_dict(tmp_path):
     """Bootstrap temp-weights file must be a plain tensor dict, not wrapped in
     {\"model\": ...}, so all loaders (including RF-DETR) can call load_state_dict
