@@ -4,14 +4,13 @@
 from __future__ import annotations
 
 import argparse
+import shutil
 import sys
 import time
-import urllib.request
 from pathlib import Path
 
 SAMPLE_IMAGES = {
-    "street": "https://ultralytics.com/images/bus.jpg",
-    "zidane": "https://ultralytics.com/images/zidane.jpg",
+    "parkour": Path(__file__).resolve().parents[1] / "libreyolo" / "assets" / "parkour.jpg",
 }
 
 
@@ -37,14 +36,14 @@ def discover_models(weights_dir: Path) -> tuple[list[str], list[str]]:
     return detect, seg
 
 
-def download_samples(images_dir: Path) -> list[Path]:
+def prepare_samples(images_dir: Path) -> list[Path]:
     images_dir.mkdir(parents=True, exist_ok=True)
     paths = []
-    for name, url in SAMPLE_IMAGES.items():
+    for name, source in SAMPLE_IMAGES.items():
         dest = images_dir / f"{name}.jpg"
         if not dest.exists():
-            print(f"  Downloading {name}.jpg ...")
-            urllib.request.urlretrieve(url, dest)
+            print(f"  Copying {name}.jpg ...")
+            shutil.copy2(source, dest)
         paths.append(dest)
     return paths
 
@@ -99,8 +98,8 @@ def main() -> None:
         print(f"No Libre*.pt weights found in {weights_dir}/", file=sys.stderr)
         sys.exit(1)
 
-    print("── Downloading sample images ──────────────────────")
-    images = download_samples(images_dir)
+    print("── Preparing sample images ────────────────────────")
+    images = prepare_samples(images_dir)
     print(f"  {len(images)} image(s) in {images_dir}/\n")
 
     print(f"── Running {len(detect_models)} detection + {len(seg_models)} segmentation model(s) ─")

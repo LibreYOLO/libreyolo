@@ -70,13 +70,13 @@ python benchmark_coco.py \
 # Single model
 python benchmark_coco.py \
     --coco-yaml vision_analysis_benchmark/coco_benchmark.yaml \
-    --models yolov8n \
+    --models yolo9t \
     --output-dir ./results
 
 # Multiple models
 python benchmark_coco.py \
     --coco-yaml vision_analysis_benchmark/coco_benchmark.yaml \
-    --models yolov8n yolov8s yolov11m \
+    --models yolo9t rfdetrn yoloxs \
     --output-dir ./results
 ```
 
@@ -100,7 +100,7 @@ Each model generates a detailed JSON file with:
 - Throughput metrics (FPS, latency percentiles)
 - Model statistics (parameters, GFLOPs)
 
-Example: `results/yolov8n_benchmark.json`
+Example: `results/yolo9t_benchmark.json`
 
 ### Summary CSV
 
@@ -113,9 +113,8 @@ results/benchmark_summary.csv
 
 | Family   | Variants          |
 |----------|-------------------|
-| YOLOv8   | n, s, m, l, x     |
+| RF-DETR  | n, s, m, l        |
 | YOLOv9   | t, s, m, c        |
-| YOLOv11  | n, s, m, l, x     |
 | YOLOX    | nano, tiny, s, m, l, x |
 
 ## Publishing Results

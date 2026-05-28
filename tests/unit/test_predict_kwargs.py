@@ -28,7 +28,7 @@ def test_noop_predict_kwargs_warn_and_are_removed():
         "verbose",
     ],
 )
-def test_ultralytics_compat_noop_kwargs_warn_and_are_removed(key):
+def test_supported_noop_predict_kwargs_warn_and_are_removed(key):
     with pytest.warns(UserWarning, match="no-op"):
         remaining = normalize_predict_kwargs({key: True})
     assert remaining == {}

@@ -436,7 +436,7 @@ def _execute_download_script(
     """
     logger.info("Executing download script...")
 
-    # Auto-replace common import patterns with libreyolo equivalents
+    # Map common YOLO dataset-script helper imports to LibreYOLO equivalents.
     script = script.replace(
         "from ultralytics.utils.downloads import download",
         "from libreyolo.data.utils import download",
