@@ -49,7 +49,7 @@
   evidence.
 
 ## Pull Request (PR) policy
-
+- The main development branch is "dev", "main" is for releases, generally do the PR's to dev, not main
 - Before reviewing or changing PRs, read the relevant files under /docs,
   especially documented schemas, contracts, and architecture decisions.
 - Prefer one PR per problem, or per small group of tightly related problems.
