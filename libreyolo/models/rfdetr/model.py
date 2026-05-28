@@ -180,7 +180,6 @@ class LibreRFDETR(BaseModel):
 
     # CLI parameters intentionally ignored by native RF-DETR training.
     UNSUPPORTED_TRAIN_PARAMS: ClassVar[set[str]] = {
-        "imgsz",
         "mosaic",
         "mixup",
         "degrees",

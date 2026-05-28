@@ -119,7 +119,8 @@ def test_explicit_imgsz_lands_in_trainer_config():
             "num_classes": model.nb_classes,
         }
     )
-    train_kwargs.setdefault("imgsz", default_size)
+    if train_kwargs.get("imgsz") is None:
+        train_kwargs["imgsz"] = default_size
 
     assert train_kwargs["imgsz"] == 624, (
         f"imgsz was overridden: expected 624, got {train_kwargs['imgsz']} "
@@ -133,6 +134,24 @@ def test_trainer_receives_user_imgsz():
     assert trainer.config.imgsz == 624, (
         f"Trainer received imgsz={trainer.config.imgsz}, expected 624"
     )
+
+
+# ---- imgsz validation: non-divisible value must raise early -----------------
+
+
+def test_imgsz_not_divisible_by_block_size_raises():
+    """create_transforms() must raise ValueError before any data loads when
+    imgsz is not divisible by block_size (patch_size × num_windows = 24)."""
+    # 500 % 24 == 20 — invalid for this backbone
+    _wrapper, trainer = _build_wrapper_and_trainer(size="s", imgsz=500)
+    with pytest.raises(ValueError, match="not divisible by 24"):
+        trainer.create_transforms()
+
+
+def test_imgsz_divisible_by_block_size_does_not_raise():
+    """create_transforms() must not raise for a valid imgsz (multiple of 24)."""
+    _wrapper, trainer = _build_wrapper_and_trainer(size="s", imgsz=480)
+    trainer.create_transforms()  # 480 == 20 × 24 — should be fine
 
 
 # ---- Bug 2: DDP wrap must not break patch_size / num_windows lookup ---------
