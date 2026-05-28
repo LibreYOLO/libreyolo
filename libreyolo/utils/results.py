@@ -1,4 +1,4 @@
-"""Ultralytics-style flat result containers for LibreYOLO."""
+"""Flat result containers for LibreYOLO."""
 
 from __future__ import annotations
 
@@ -470,7 +470,7 @@ class OBB(_TensorPayload):
 
 
 class Results:
-    """Single-image result with flat Ultralytics-compatible slots."""
+    """Single-image result with flat result slots."""
 
     _keys = ("boxes", "masks", "probs", "keypoints", "obb")
 

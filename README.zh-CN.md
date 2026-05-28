@@ -14,7 +14,7 @@
 [![LinkedIn](https://img.shields.io/badge/LinkedIn-LibreYOLO-blue?logo=linkedin)](https://www.linkedin.com/company/libreyolo/)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
-LibreYOLO 是一个采用 MIT 许可证的计算机视觉库，支持多种模型的推理和训练。它使用与 Ultralytics 相同的 API：如果你使用过 Ultralytics，就已经知道如何使用 LibreYOLO，并且现有脚本可以直接运行。
+LibreYOLO 是一个采用 MIT 许可证的计算机视觉库，支持多种模型的推理和训练。它提供熟悉的高层 Python 和命令行接口，并可读取常见的 YOLO 格式数据集，因此现有工作流只需少量改动即可迁移。
 
 ![LibreYOLO 检测示例](libreyolo/assets/parkour_result.jpg)
 

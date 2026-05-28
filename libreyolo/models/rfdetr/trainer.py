@@ -1,6 +1,6 @@
 """
 Training module for RF-DETR.
-Wraps the original rfdetr training API with Ultralytics-compatible interface.
+Wraps the original rfdetr training API with a LibreYOLO-style interface.
 """
 
 from pathlib import Path
