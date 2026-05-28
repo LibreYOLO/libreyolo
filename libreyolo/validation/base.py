@@ -70,7 +70,11 @@ class BaseValidator(ABC):
             else:
                 device = torch.device("cpu")
         else:
-            device = torch.device(self.config.device)
+            # bare index "0" / "0,1" -> "cuda:0"
+            dev = self.config.device.split(",")[0].strip()
+            if dev.isdigit():
+                dev = f"cuda:{dev}"
+            device = torch.device(dev)
         return device
 
     def _setup(self, **kwargs) -> None:
