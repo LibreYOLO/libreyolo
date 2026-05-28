@@ -140,17 +140,24 @@ def test_trainer_receives_user_imgsz():
 
 
 def test_imgsz_not_divisible_by_block_size_raises():
-    """create_transforms() must raise ValueError before any data loads when
-    imgsz is not divisible by block_size (patch_size × num_windows = 24)."""
-    # 500 % 24 == 20 — invalid for this backbone
-    _wrapper, trainer = _build_wrapper_and_trainer(size="s", imgsz=500)
+    """create_transforms() raises ValueError when imgsz is the literal backbone
+    input (multi_scale=False) and is not divisible by block_size=24."""
+    # 500 % 24 == 20 — invalid only when multi_scale is off
+    _wrapper, trainer = _build_wrapper_and_trainer(size="s", imgsz=500, multi_scale=False)
     with pytest.raises(ValueError, match="not divisible by 24"):
         trainer.create_transforms()
 
 
+def test_imgsz_not_divisible_allowed_with_multi_scale():
+    """With multi_scale=True, a non-block-aligned imgsz is accepted because
+    compute_multi_scale_scales() always rounds to valid multiples of block_size."""
+    _wrapper, trainer = _build_wrapper_and_trainer(size="s", imgsz=500, multi_scale=True)
+    trainer.create_transforms()  # must not raise
+
+
 def test_imgsz_divisible_by_block_size_does_not_raise():
     """create_transforms() must not raise for a valid imgsz (multiple of 24)."""
-    _wrapper, trainer = _build_wrapper_and_trainer(size="s", imgsz=480)
+    _wrapper, trainer = _build_wrapper_and_trainer(size="s", imgsz=480, multi_scale=False)
     trainer.create_transforms()  # 480 == 20 × 24 — should be fine
 
 
@@ -289,9 +296,14 @@ def test_on_forward_at_default_imgsz_when_no_override():
     assert torch.isfinite(out["total_loss"])
 
 
+@pytest.mark.slow
 def test_backward_produces_gradients_at_user_imgsz():
     """Gradients flow back through the model at imgsz=624; regression guard for
-    a silent forward-only breakage."""
+    a silent forward-only breakage.
+
+    Marked slow (not unit) because it runs a full RF-DETR-s forward+backward on
+    CPU and can be memory/time intensive on small CI runners.
+    """
     _wrapper, trainer = _build_wrapper_and_trainer(size="s", imgsz=624, multi_scale=False)
     _wrapper.model.train()
 

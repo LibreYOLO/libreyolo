@@ -81,24 +81,40 @@ class RFDETRTrainer(BaseTrainer):
         return f"LibreRFDETR-{self.config.size}"
 
     def _ddp_find_unused_parameters(self) -> bool:
-        return False
+        # Segmentation uses static_graph=True instead (see _ddp_static_graph).
+        return getattr(self.wrapper_model, "task", "detect") != "segment"
 
     def _ddp_static_graph(self) -> bool:
-        """RF-DETR's segmentation head is called twice per forward in the
-        two-stage path (once for decoder queries, once for encoder queries),
-        so the same parameters receive gradients from two branches.
-        find_unused_parameters=True registers per-parameter autograd hooks
-        that both fire → "marked ready twice" DDP error.
-        static_graph=True avoids this: DDP locks the reducer after the first
-        iteration and handles unused parameters without per-iteration hooks.
+        """Enable static DDP graph only for the segmentation task.
+
+        RF-DETR's two-stage seg head is called from both the encoder and decoder
+        branches in a single forward, so its parameters receive gradients twice.
+        find_unused_parameters=True fires a per-parameter hook on each gradient
+        accumulation → "marked ready twice" crash.  static_graph=True locks the
+        reducer after the first iteration, so hooks are never re-registered and
+        the double-accumulation is handled correctly.
+
+        Limitation: the parameter-usage pattern must be stable; an all-empty
+        batch where the seg head contributes nothing to the loss would leave its
+        parameters without gradients for that step.  In practice PyTorch keeps
+        the bucket assignments fixed under static_graph and handles this without
+        errors, but training on pathologically sparse datasets should be watched.
+
+        Detection models use the standard find_unused_parameters path and do not
+        need static_graph.
         """
-        return True
+        return getattr(self.wrapper_model, "task", "detect") == "segment"
 
     def create_transforms(self):
         patch_size = int(getattr(self.model, "patch_size", 16))
         num_windows = int(getattr(self.model, "num_windows", 4))
         block_size = patch_size * num_windows
-        if self.config.imgsz % block_size != 0:
+        # Only enforce divisibility when imgsz is the literal backbone input.
+        # With multi_scale=True, _apply_multi_scale_batch() always picks from
+        # compute_multi_scale_scales() which already guarantees block alignment,
+        # so imgsz just seeds the range and need not be a multiple of block_size.
+        fixed_size = not self.config.multi_scale or self.config.do_random_resize_via_padding
+        if fixed_size and self.config.imgsz % block_size != 0:
             lo = (self.config.imgsz // block_size) * block_size
             hi = lo + block_size
             raise ValueError(
