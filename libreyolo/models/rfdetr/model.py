@@ -1,5 +1,6 @@
 """LibreRFDETR implementation for LibreYOLO."""
 
+import re
 from pathlib import Path
 from typing import Any, ClassVar, Dict, Optional, Tuple
 
@@ -120,6 +121,21 @@ _RFDETR_UPSTREAM_WEIGHT_URLS = {
 }
 
 
+_UPSTREAM_LONG_TO_SHORT: dict[str, str] = {
+    "xxlarge": "xx",
+    "xlarge": "x",
+    "large": "l",
+    "medium": "m",
+    "small": "s",
+    "nano": "n",
+}
+
+# Matches upstream filenames: rf-detr[-seg]-{size_name}[...].{ext}
+_UPSTREAM_FILENAME_RE = re.compile(
+    r"rf-detr(?:-seg)?-(?P<name>xxlarge|xlarge|large|medium|small|nano)"
+)
+
+
 def _checkpoint_model_state(checkpoint: dict[str, Any]) -> dict[str, torch.Tensor]:
     """Extract a tensor state dict from RF-DETR/LibreYOLO checkpoint variants."""
     if "model" in checkpoint and isinstance(checkpoint["model"], dict):
@@ -152,7 +168,10 @@ class LibreRFDETR(BaseModel):
 
     Args:
         model_path: Path to weights, pre-loaded state_dict, or None for pretrained.
-        size: Model size variant ("n", "s", "m", "l").
+        size: Model size variant ("n", "s", "m", "l"). Defaults to None, which
+            auto-detects from the weight filename (both LibreRFDETR-*.pt and
+            upstream rf-detr-{nano,small,medium,large}*.pth names); falls back
+            to "s" when detection is not possible.
         nb_classes: Number of classes (default: 80 for COCO).
         device: Device for inference.
 
@@ -269,6 +288,16 @@ class LibreRFDETR(BaseModel):
         return None
 
     @classmethod
+    def detect_size_from_filename(cls, filename: str) -> Optional[str]:
+        detected = super().detect_size_from_filename(filename)
+        if detected is not None:
+            return detected
+        m = _UPSTREAM_FILENAME_RE.search(filename.lower())
+        if m:
+            return _UPSTREAM_LONG_TO_SHORT[m.group("name")]
+        return None
+
+    @classmethod
     def detect_nb_classes(cls, weights_dict: dict) -> Optional[int]:
         # RF-DETR class_embed has (num_classes + 1) outputs (includes background)
         if "class_embed.bias" in weights_dict:
@@ -289,7 +318,7 @@ class LibreRFDETR(BaseModel):
     def __init__(
         self,
         model_path: str | None = None,
-        size: str = "s",
+        size: str | None = None,
         nb_classes: int = 80,
         device: str = "auto",
         segmentation: bool = False,
@@ -313,7 +342,7 @@ class LibreRFDETR(BaseModel):
                 if normalize_task(resolved_task) == "segment"
                 else RFDETR_CONFIGS
             )
-            cfg = cfgs.get(size)
+            cfg = cfgs.get(size or "s")
             default_weights = cfg.pretrain_weights if cfg is not None else None
             weight_source = (
                 self._resolve_weights_path(default_weights)
@@ -326,6 +355,14 @@ class LibreRFDETR(BaseModel):
             weight_source = model_path
 
         self._weight_source = weight_source
+
+        # Auto-detect size from the weight filename when the caller did not
+        # specify one explicitly.  Handles both LibreRFDETR-*.pt names and
+        # upstream rf-detr-{large,medium,...} names.
+        if size is None:
+            if isinstance(weight_source, str):
+                size = self.detect_size_from_filename(Path(weight_source).name)
+            size = size or "s"
 
         if weight_source is not None:
             filename_task = (
