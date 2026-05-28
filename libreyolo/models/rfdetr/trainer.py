@@ -81,8 +81,9 @@ class RFDETRTrainer(BaseTrainer):
         return f"LibreRFDETR-{self.config.size}"
 
     def _ddp_find_unused_parameters(self) -> bool:
-        # Segmentation uses static_graph=True instead (see _ddp_static_graph).
-        return getattr(self.wrapper_model, "task", "detect") != "segment"
+        # Both detect and seg use False: seg relies on static_graph=True instead
+        # (see _ddp_static_graph), and detect has no unused parameters to traverse.
+        return False
 
     def _ddp_static_graph(self) -> bool:
         """Enable static DDP graph only for the segmentation task.
