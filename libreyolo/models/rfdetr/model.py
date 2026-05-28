@@ -132,7 +132,7 @@ _UPSTREAM_LONG_TO_SHORT: dict[str, str] = {
 
 # Matches upstream filenames: rf-detr[-seg]-{size_name}[...].{ext}
 _UPSTREAM_FILENAME_RE = re.compile(
-    r"rf-detr(?:-seg)?-(?P<name>xxlarge|xlarge|large|medium|small|nano)"
+    r"rf-detr(?P<seg>-seg)?-(?P<name>xxlarge|xlarge|large|medium|small|nano)"
 )
 
 
@@ -295,6 +295,16 @@ class LibreRFDETR(BaseModel):
         m = _UPSTREAM_FILENAME_RE.search(filename.lower())
         if m:
             return _UPSTREAM_LONG_TO_SHORT[m.group("name")]
+        return None
+
+    @classmethod
+    def detect_task_from_filename(cls, filename: str) -> Optional[str]:
+        detected = super().detect_task_from_filename(filename)
+        if detected is not None:
+            return detected
+        m = _UPSTREAM_FILENAME_RE.search(filename.lower())
+        if m and m.group("seg"):
+            return "segment"
         return None
 
     @classmethod
