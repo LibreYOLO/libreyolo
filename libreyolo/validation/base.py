@@ -78,7 +78,8 @@ class BaseValidator(ABC):
         return device
 
     def _setup(self, **kwargs) -> None:
-        self.model.model.to(self.device)
+        if hasattr(self.model.model, "to"):
+            self.model.model.to(self.device)
         self.model.device = self.device  # keep wrapper device in sync with inner module
 
         if self.config.save_dir:
