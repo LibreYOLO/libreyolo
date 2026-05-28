@@ -27,6 +27,27 @@
   tests, and manual validation policy.
 - `/docs/adr/` documents architecture decisions and design contracts.
 
+## Licensing policy
+
+- LibreYOLO faithfully respects open-source licenses.
+- Agents must not copy, adapt, paraphrase, or derive code from any third-party
+  project unless that project is explicitly licensed under MIT or Apache-2.0
+  and is compatible with LibreYOLO's licensing requirements.
+- If an agent may have been exposed to, influenced by, or contaminated by code
+  under GPL, AGPL, LGPL, proprietary, unknown, or otherwise incompatible terms,
+  the agent must immediately flag the contamination risk to the developer and
+  avoid contributing the affected code.
+
+## Review guidelines
+
+- These guidelines apply to agents performing PR reviews, not agents
+  implementing code changes.
+- PR-review agents must read `REVIEW.md` before reviewing pull requests.
+- Treat `REVIEW.md` as repository context for scope, contracts, and common
+  regression risks.
+- If a PR conflicts with `REVIEW.md`, flag the conflict with concrete file
+  evidence.
+
 ## Pull Request (PR) policy
 
 - Before reviewing or changing PRs, read the relevant files under /docs,
