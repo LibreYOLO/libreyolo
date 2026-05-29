@@ -1,31 +1,58 @@
-"""RF-DETR seg trainer smoke tests — wiring only, no data."""
+"""BaseTrainer device-sync smoke tests — wiring only, no data."""
 
 from __future__ import annotations
 
 import tempfile
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
 import torch
+import torch.nn as nn
 
 pytestmark = pytest.mark.unit
 
 
-def _make_trainer(task="segment"):
-    from libreyolo import LibreRFDETR
-    from libreyolo.models.rfdetr.trainer import RFDETRTrainer
+class _MinimalTrainer:
+    """Minimal concrete BaseTrainer that satisfies all abstract methods."""
 
-    wrapper = LibreRFDETR(None, size="s", task=task, device="cpu")
-    trainer = RFDETRTrainer(
-        model=wrapper.model,
+    def get_model_family(self):
+        return "test"
+
+    def get_model_tag(self):
+        return "test-s"
+
+    def create_transforms(self):
+        return None, None
+
+    def create_scheduler(self, _iters_per_epoch):
+        sched = MagicMock()
+        sched.update_lr = MagicMock(return_value=1e-4)
+        return sched
+
+    def get_loss_components(self, _outputs):
+        return {}
+
+
+def _make_trainer(wrapper_device="meta"):
+    from libreyolo.training.trainer import BaseTrainer
+
+    # Dynamically create a concrete subclass.
+    Trainer = type("_T", (_MinimalTrainer, BaseTrainer), {})
+
+    model = nn.Linear(4, 4)
+    wrapper = SimpleNamespace(device=torch.device(wrapper_device), task="detect")
+
+    trainer = Trainer(
+        model=model,
         wrapper_model=wrapper,
         size="s",
-        num_classes=80,
+        num_classes=2,
         data=None,
         epochs=1,
         batch=2,
-        imgsz=560,
+        imgsz=64,
         device="cpu",
         amp=False,
         ema=False,
@@ -36,42 +63,23 @@ def _make_trainer(task="segment"):
     return wrapper, trainer
 
 
-def _fake_train_loader(n=2):
-    loader = MagicMock()
-    loader.__len__ = MagicMock(return_value=n)
-    return loader
-
-
-def _fake_scheduler():
-    sched = MagicMock()
-    sched.update_lr = MagicMock(return_value=1e-4)
-    return sched
-
-
-def _fake_optimizer(model):
-    dummy = torch.nn.Linear(2, 2)
-    return torch.optim.AdamW(dummy.parameters(), lr=1e-4)
-
-
 def test_setup_syncs_wrapper_device_to_trainer_device():
     """wrapper_model.device must equal trainer.device after setup()."""
-    wrapper, trainer = _make_trainer(task="segment")
-
-    # Poison the wrapper device so we can detect that setup() corrects it.
-    wrapper.device = torch.device("meta")
+    wrapper, trainer = _make_trainer(wrapper_device="meta")
     assert wrapper.device != trainer.device
+
+    fake_loader = MagicMock()
+    fake_loader.__len__ = MagicMock(return_value=2)
 
     with tempfile.TemporaryDirectory() as tmp:
         with (
-            patch.object(trainer, "_setup_data", side_effect=lambda: setattr(trainer, "train_loader", _fake_train_loader())),
-            patch.object(trainer, "_setup_optimizer", side_effect=lambda: _fake_optimizer(trainer.model)),
-            patch.object(trainer, "create_scheduler", return_value=_fake_scheduler()),
-            patch.object(trainer, "on_setup"),
+            patch.object(trainer, "_setup_data", side_effect=lambda: setattr(trainer, "train_loader", fake_loader)),
+            patch.object(trainer, "_setup_optimizer", return_value=torch.optim.SGD(trainer.model.parameters(), lr=1e-4)),
             patch("libreyolo.training.trainer.barrier"),
             patch.object(trainer, "_get_save_dir", return_value=Path(tmp)),
         ):
             trainer.setup()
 
     assert wrapper.device == trainer.device, (
-        f"wrapper.device={wrapper.device!r} was not synced to trainer.device={trainer.device!r}"
+        f"wrapper.device={wrapper.device!r} not synced to trainer.device={trainer.device!r}"
     )
