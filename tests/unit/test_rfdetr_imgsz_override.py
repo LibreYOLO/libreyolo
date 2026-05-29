@@ -116,8 +116,8 @@ def test_imgsz_not_divisible_by_block_size_raises():
         trainer.create_transforms()
 
 
-def test_imgsz_not_divisible_allowed_with_multi_scale():
-    """With multi_scale=True the divisibility check is skipped."""
+def test_imgsz_not_divisible_raises_with_multi_scale_too():
+    """Validation always uses literal imgsz, so divisibility is required even with multi_scale=True."""
     trainer = _make_trainer(imgsz=500, multi_scale=True)
-    # Must not raise; we don't care about the return value here.
-    trainer.create_transforms()
+    with pytest.raises(ValueError, match="not divisible by 24"):
+        trainer.create_transforms()

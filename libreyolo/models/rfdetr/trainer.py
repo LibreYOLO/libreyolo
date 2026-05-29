@@ -91,11 +91,9 @@ class RFDETRTrainer(BaseTrainer):
         patch_size = int(getattr(self.model, "patch_size", 16))
         num_windows = int(getattr(self.model, "num_windows", 4))
         block_size = patch_size * num_windows
-        # Only enforce divisibility when imgsz is the literal backbone input.
-        # With multi_scale=True the scale list is always block-aligned by
-        # compute_multi_scale_scales(), so imgsz just seeds the range.
-        fixed_size = not self.config.multi_scale or self.config.do_random_resize_via_padding
-        if fixed_size and self.config.imgsz % block_size != 0:
+        # Validation always uses the literal imgsz, so divisibility is required
+        # regardless of multi_scale mode.
+        if self.config.imgsz % block_size != 0:
             lo = (self.config.imgsz // block_size) * block_size
             hi = lo + block_size
             raise ValueError(
