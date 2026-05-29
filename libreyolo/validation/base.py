@@ -70,7 +70,7 @@ class BaseValidator(ABC):
             else:
                 device = torch.device("cpu")
         else:
-            device_str = self.config.device
+            device_str = str(self.config.device)
             if device_str.isdigit():
                 device_str = f"cuda:{device_str}"
             device = torch.device(device_str)

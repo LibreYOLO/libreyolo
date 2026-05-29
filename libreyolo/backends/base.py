@@ -1002,7 +1002,7 @@ class BaseBackend(ABC):
             imgsz = self._get_input_size()
 
         validation_device = device or (
-            "cuda" if self.device == "cuda" and torch.cuda.is_available() else "cpu"
+            self.device if torch.device(self.device).type == "cuda" and torch.cuda.is_available() else "cpu"
         )
         config = ValidationConfig(
             data=data,
