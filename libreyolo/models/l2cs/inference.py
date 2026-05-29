@@ -343,4 +343,5 @@ class GazeInferenceRunner:
         target = torch.device(device_str)
         if target != self.model.device:
             self.model.device = target
-            self.model.model.to(target)
+            if hasattr(self.model.model, "to"):
+                self.model.model.to(target)
