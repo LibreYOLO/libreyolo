@@ -39,6 +39,17 @@ class BaseValPreprocessor(ABC):
         """Whether this preprocessor uses letterbox (aspect-preserving) resize."""
         return False
 
+    def letterbox_scale(
+        self, orig_h: int, orig_w: int, imgsz: int
+    ) -> Tuple[float, float, float]:
+        """Return (r, off_x, off_y) needed to invert the letterbox coordinate transform.
+
+        Default: top-left padding — uniform scale r, zero offsets.
+        Override for center-padded preprocessors (e.g. YOLO-NAS).
+        """
+        r = min(imgsz / orig_h, imgsz / orig_w)
+        return r, 0.0, 0.0
+
     @property
     def wants_unresized_image(self) -> bool:
         """If True, the dataset should hand over the original-resolution image
@@ -281,6 +292,18 @@ class YOLONASValPreprocessor(YOLO9ValPreprocessor):
         # pass; the dataset's load_resized_img would give us a pre-letterboxed
         # frame and we'd double-resize with the wrong ratio.
         return True
+
+    def letterbox_scale(
+        self, orig_h: int, orig_w: int, imgsz: int
+    ) -> Tuple[float, float, float]:
+        # YOLO-NAS resizes to YOLO_NAS_RESIZE_SIZE first, then center-pads to imgsz.
+        from ..models.yolonas.utils import YOLO_NAS_RESIZE_SIZE
+        r = min(YOLO_NAS_RESIZE_SIZE / orig_h, YOLO_NAS_RESIZE_SIZE / orig_w)
+        new_w = int(round(orig_w * r))
+        new_h = int(round(orig_h * r))
+        off_x = (imgsz - new_w) // 2
+        off_y = (imgsz - new_h) // 2
+        return r, float(off_x), float(off_y)
 
     def __call__(
         self, img: np.ndarray, targets: np.ndarray, input_size: Tuple[int, int]

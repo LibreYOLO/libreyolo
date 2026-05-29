@@ -616,7 +616,8 @@ class DetectionValidator(BaseValidator):
         for i in range(len(preds)):
             self.coco_evaluator.update(preds[i], img_ids[i])
 
-        if self.config.save_plots:
+        cfg = getattr(self, "config", None)
+        if getattr(cfg, "save_plots", False):
             self._track_plots_data(preds, targets, img_info, img_ids)
 
     def _parse_gt_boxes(
@@ -647,8 +648,11 @@ class DetectionValidator(BaseValidator):
             # each axis independently: x *= imgsz/orig_w, y *= imgsz/orig_h.
             uses_lb = getattr(self.val_preproc, "uses_letterbox", False)
             if uses_lb:
-                r = min(self._actual_imgsz / orig_h, self._actual_imgsz / orig_w)
-                gt_boxes = (vgt[:, :4] / r).astype(np.float32)
+                r, off_x, off_y = self.val_preproc.letterbox_scale(orig_h, orig_w, self._actual_imgsz)
+                coords = vgt[:, :4].copy()
+                coords[:, [0, 2]] -= off_x
+                coords[:, [1, 3]] -= off_y
+                gt_boxes = (coords / r).astype(np.float32)
             else:
                 sx = self._actual_imgsz / orig_w
                 sy = self._actual_imgsz / orig_h
