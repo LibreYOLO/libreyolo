@@ -180,7 +180,6 @@ class LibreRFDETR(BaseModel):
 
     # CLI parameters intentionally ignored by native RF-DETR training.
     UNSUPPORTED_TRAIN_PARAMS: ClassVar[set[str]] = {
-        "imgsz",
         "mosaic",
         "mixup",
         "degrees",
@@ -658,9 +657,10 @@ class LibreRFDETR(BaseModel):
                 "exist_ok": True,
                 "size": self.size,
                 "num_classes": self.nb_classes,
-                "imgsz": self.input_size,
             }
         )
+        if train_kwargs.get("imgsz") is None:
+            train_kwargs["imgsz"] = self.input_size
 
         aliases = {
             "num_workers": "workers",
