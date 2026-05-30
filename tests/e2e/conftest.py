@@ -633,7 +633,10 @@ def _has_libreyolo_download_route(weights: str) -> bool:
 
     filename = Path(weights).name
     for cls in BaseModel._registry:
-        url = cls.get_download_url(filename)
+        try:
+            url = cls.get_download_url(filename)
+        except Exception:
+            continue
         if url and url.startswith("https://huggingface.co/LibreYOLO/"):
             return True
     return False
