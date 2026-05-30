@@ -615,6 +615,26 @@ class LibreRFDETR(BaseModel):
         """Run RF-DETR validation with a Windows-safe worker default."""
         return super().val(*args, workers=workers, **kwargs)
 
+    def _restore_after_training(self, result: dict) -> None:
+        """Reload the saved checkpoint and leave real torch models in eval mode."""
+        checkpoint = None
+        for key in ("best_checkpoint", "last_checkpoint"):
+            path = result.get(key)
+            if path and Path(path).exists():
+                checkpoint = str(path)
+                break
+
+        if checkpoint is not None:
+            self.model_path = checkpoint
+            self._load_weights(checkpoint)
+
+        model = getattr(self, "model", None)
+        device = getattr(self, "device", None)
+        if model is not None and device is not None and hasattr(model, "to"):
+            model.to(device)
+        if model is not None and hasattr(model, "eval"):
+            model.eval()
+
     @ddp_aware(batch_key="batch_size")
     def train(
         self,
@@ -680,10 +700,6 @@ class LibreRFDETR(BaseModel):
         result = trainer.train()
         result["output_dir"] = result.get("save_dir", output_dir)
 
-        best_ckpt = result.get("best_checkpoint")
-        if best_ckpt and Path(best_ckpt).exists():
-            self.model_path = best_ckpt
-            self._load_weights(best_ckpt)
-            self.model.to(self.device).eval()
+        self._restore_after_training(result)
 
         return result

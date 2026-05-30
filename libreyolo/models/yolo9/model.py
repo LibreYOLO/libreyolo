@@ -182,6 +182,21 @@ class LibreYOLO9(BaseModel):
             detect._seg_loss_fn = None
         detect.to(next(self.model.parameters()).device)
 
+    def _restore_after_training(self, results: dict) -> None:
+        """Reload the saved checkpoint and leave the model ready for inference."""
+        checkpoint = None
+        for key in ("best_checkpoint", "last_checkpoint"):
+            path = results.get(key)
+            if path and Path(path).exists():
+                checkpoint = str(path)
+                break
+
+        if checkpoint is not None:
+            self.model_path = checkpoint
+            self._load_weights(checkpoint)
+
+        self.model.to(self.device).eval()
+
     # =========================================================================
     # Inference pipeline
     # =========================================================================
@@ -353,7 +368,6 @@ class LibreYOLO9(BaseModel):
 
         results = trainer.train()
 
-        if Path(results["best_checkpoint"]).exists():
-            self._load_weights(results["best_checkpoint"])
+        self._restore_after_training(results)
 
         return results
