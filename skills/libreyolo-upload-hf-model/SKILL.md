@@ -45,6 +45,9 @@ file = name + ".pt"
 | YOLO9 | `LibreYOLO9` | `LibreYOLO9m.pt` |
 | RFDETR | `LibreRFDETR` | `LibreRFDETRn.pt`, `LibreRFDETRn-seg.pt` |
 | RTDETR | `LibreRTDETR` | `LibreRTDETRr50.pt` |
+| RTDETRv2 | `LibreRTDETRv2` | `LibreRTDETRv2r50.pt` |
+| RTDETRv4 | `LibreRTDETRv4` | `LibreRTDETRv4s.pt` |
+| RTMDet | `LibreRTMDet` | `LibreRTMDets.pt` |
 | YOLONAS | `LibreYOLONAS` | `LibreYOLONASs.pt` |
 
 **Ask the user** if: the size code isn't obvious, the family isn't one of the above, or the filename doesn't match what the loader at `libreyolo/models/base/model.py:get_download_url` builds. Do not guess.
@@ -83,6 +86,15 @@ LibrePICODETs.pt, LibrePICODETm.pt, LibrePICODETl.pt,
 LibreRTDETRr18.pt, LibreRTDETRr34.pt, LibreRTDETRr50.pt,
 LibreRTDETRr50m.pt, LibreRTDETRr101.pt, LibreRTDETRl.pt,
 LibreRTDETRx.pt,
+
+LibreRTDETRv2r18.pt, LibreRTDETRv2r34.pt, LibreRTDETRv2r50.pt,
+LibreRTDETRv2r50m.pt, LibreRTDETRv2r101.pt,
+
+LibreRTDETRv4s.pt, LibreRTDETRv4m.pt, LibreRTDETRv4l.pt,
+LibreRTDETRv4x.pt,
+
+LibreRTMDett.pt, LibreRTMDets.pt, LibreRTMDetm.pt,
+LibreRTMDetl.pt, LibreRTMDetx.pt,
 
 LibreRFDETRn.pt, LibreRFDETRs.pt, LibreRFDETRm.pt,
 LibreRFDETRl.pt, LibreRFDETRn-seg.pt, LibreRFDETRs-seg.pt,
