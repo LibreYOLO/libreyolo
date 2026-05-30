@@ -1,0 +1,4 @@
+interface:
+  display_name: "Reddit Post Emulator"
+  short_description: "Preview and screenshot Reddit-style posts"
+  default_prompt: "Use -post-emulator to preview this Reddit post with the local emulator and screenshot it."

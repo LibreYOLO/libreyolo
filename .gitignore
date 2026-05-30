@@ -43,6 +43,7 @@ tests/output/
 temporary/
 runs/
 /data/
+/reddit/outputs/
 *.log
 
 # Model weights & exports

@@ -1,0 +1,60 @@
+{
+  "default_preset": "mobile-feed-gif",
+  "presets": {
+    "mobile-feed-gif": {
+      "width": 1080,
+      "height": 1350,
+      "aspect_ratio": "4:5",
+      "fps": 12,
+      "duration_seconds": 4,
+      "max_mb": 20,
+      "fit": "cover",
+      "description": "Mobile-first organic image/GIF post canvas with tall feed presence."
+    },
+    "strict-gif": {
+      "width": 1080,
+      "height": 1350,
+      "aspect_ratio": "4:5",
+      "fps": 10,
+      "duration_seconds": 4,
+      "max_mb": 3,
+      "fit": "cover",
+      "description": "Strict 3 MB GIF target for ad-like specs or conservative communities."
+    },
+    "square-gif": {
+      "width": 1080,
+      "height": 1080,
+      "aspect_ratio": "1:1",
+      "fps": 12,
+      "duration_seconds": 4,
+      "max_mb": 20,
+      "fit": "cover",
+      "description": "Square post canvas for communities that crop tall media aggressively."
+    },
+    "desktop-landscape-gif": {
+      "width": 1440,
+      "height": 1080,
+      "aspect_ratio": "4:3",
+      "fps": 12,
+      "duration_seconds": 4,
+      "max_mb": 20,
+      "fit": "cover",
+      "description": "Cross-device landscape canvas useful for desktop-heavy audiences."
+    },
+    "mobile-video-reference": {
+      "width": 1200,
+      "height": 1500,
+      "aspect_ratio": "4:5",
+      "fps": 30,
+      "duration_seconds": 8,
+      "max_mb": 300,
+      "fit": "cover",
+      "description": "Reference for native Reddit video exports, not GIF output."
+    }
+  },
+  "copy_limits": {
+    "title_max_chars": 300,
+    "title_recommended_chars": 150,
+    "visible_title_hint_chars": 80
+  }
+}

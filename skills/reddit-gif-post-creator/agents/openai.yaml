@@ -1,0 +1,4 @@
+interface:
+  display_name: "Reddit GIF Post Creator"
+  short_description: "Create optimized Reddit GIF post assets"
+  default_prompt: "Use -gif-post-creator to turn this idea or media into an optimized Reddit GIF post pack."
