@@ -60,6 +60,19 @@ def _nms_numpy(
     return keep
 
 
+def _is_pytorch_cuda_device(device_str: str) -> bool:
+    """Return True only when device_str is a valid PyTorch CUDA device string.
+
+    Non-PyTorch runtimes (OpenVINO "gpu", CoreML "coreml", ncnn "ncnn") store
+    backend-specific device identifiers in self.device that are not parseable
+    by torch.device(); calling torch.device() on them raises RuntimeError.
+    """
+    try:
+        return torch.device(device_str).type == "cuda"
+    except RuntimeError:
+        return False
+
+
 def _is_nms_free_family(model_family: Optional[str]) -> bool:
     """Whether backend outputs should bypass generic NMS.
 
@@ -1002,7 +1015,7 @@ class BaseBackend(ABC):
             imgsz = self._get_input_size()
 
         validation_device = device or (
-            "cuda" if self.device == "cuda" and torch.cuda.is_available() else "cpu"
+            self.device if _is_pytorch_cuda_device(self.device) and torch.cuda.is_available() else "cpu"
         )
         config = ValidationConfig(
             data=data,
