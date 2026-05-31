@@ -14,6 +14,7 @@ def test_yolo9_e2e_is_registered_and_detects_filename():
 
     assert any(cls.__name__ == "LibreYOLO9E2E" for cls in BaseModel._registry)
     assert LibreYOLO9E2E.FAMILY == "yolo9_e2e"
+    assert LibreYOLO9E2E.SUPPORTED_TASKS == ("detect",)
     assert LibreYOLO9E2E.detect_size_from_filename("LibreYOLO9E2Et.pt") == "t"
     assert LibreYOLO9E2E.detect_size_from_filename("LibreYOLO9E2Ec.pt") == "c"
 

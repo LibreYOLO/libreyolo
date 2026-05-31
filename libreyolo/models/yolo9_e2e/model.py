@@ -49,6 +49,7 @@ class LibreYOLO9E2E(LibreYOLO9):
     FAMILY = "yolo9_e2e"
     FILENAME_PREFIX = "LibreYOLO9E2E"
     # INPUT_SIZES inherited from LibreYOLO9 (t/s/m/c → 640)
+    SUPPORTED_TASKS = ("detect",)
     TRAIN_CONFIG = YOLO9E2EConfig
     val_preprocessor_class = YOLO9E2EValPreprocessor
 
