@@ -101,10 +101,10 @@ class ConfusionMatrix:
                 gi, pi = int(gi), int(pi)
                 if gi in matched_gt or pi in matched_pred:
                     continue
-                matched_gt.add(gi)
-                matched_pred.add(pi)
                 gc_i, pc_i = int(gt_classes[gi]), int(pred_classes[pi])
                 if gc_i < self.nc and pc_i < self.nc:
+                    matched_gt.add(gi)
+                    matched_pred.add(pi)
                     self.matrix[gc_i, pc_i] += 1
 
         for i, gc in enumerate(gt_classes):
