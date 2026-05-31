@@ -60,6 +60,25 @@ def _nms_numpy(
     return keep
 
 
+def _batched_nms_numpy(
+    boxes: np.ndarray,
+    scores: np.ndarray,
+    class_ids: np.ndarray,
+    iou_threshold: float = 0.45,
+) -> list:
+    """Class-aware NMS matching torchvision.ops.batched_nms ordering."""
+    keep = []
+    for cls in np.unique(class_ids):
+        cls_indices = np.where(class_ids == cls)[0]
+        cls_keep = _nms_numpy(boxes[cls_indices], scores[cls_indices], iou_threshold)
+        keep.extend(cls_indices[cls_keep].tolist())
+
+    if not keep:
+        return []
+    keep = np.asarray(keep, dtype=np.int64)
+    return keep[np.argsort(scores[keep])[::-1]].tolist()
+
+
 def _is_pytorch_cuda_device(device_str: str) -> bool:
     """Return True only when device_str is a valid PyTorch CUDA device string.
 
@@ -515,14 +534,17 @@ class BaseBackend(ABC):
             scores = first
             boxes = second
 
-        max_scores = np.max(scores, axis=1)
-        class_ids = np.argmax(scores, axis=1)
+        valid = scores > conf
+        if not valid.any():
+            return (
+                np.empty((0, 4), dtype=boxes.dtype),
+                np.empty((0,), dtype=scores.dtype),
+                np.empty((0,), dtype=np.int64),
+            )
 
-        mask = max_scores > conf
-        boxes, max_scores, class_ids = boxes[mask], max_scores[mask], class_ids[mask]
-
-        if len(boxes) == 0:
-            return boxes, max_scores, class_ids
+        box_indices, class_ids = np.nonzero(valid)
+        boxes = boxes[box_indices].copy()
+        max_scores = scores[box_indices, class_ids]
 
         scale_x = orig_w / effective_imgsz
         scale_y = orig_h / effective_imgsz
@@ -825,7 +847,10 @@ class BaseBackend(ABC):
             )
 
         if not _is_nms_free_family(self.model_family):
-            keep = _nms_numpy(boxes, max_scores, iou)
+            if self.model_family == "damoyolo":
+                keep = _batched_nms_numpy(boxes, max_scores, class_ids, iou)
+            else:
+                keep = _nms_numpy(boxes, max_scores, iou)
             boxes, max_scores, class_ids = (
                 boxes[keep],
                 max_scores[keep],

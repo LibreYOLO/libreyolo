@@ -212,7 +212,7 @@ def test_damoyolo_backend_preprocess_uses_stretch_resize():
 
 def test_damoyolo_backend_parse_uses_stretch_inverse():
     backend = _DummyBackend("damoyolo")
-    cls_scores = np.array([[[0.1, 0.8]]], dtype=np.float32)
+    cls_scores = np.array([[[0.9, 0.8]]], dtype=np.float32)
     boxes = np.array([[[10.0, 20.0, 30.0, 40.0]]], dtype=np.float32)
 
     parsed_boxes, scores, classes, masks = backend._parse_outputs(
@@ -220,9 +220,12 @@ def test_damoyolo_backend_parse_uses_stretch_inverse():
     )
 
     assert masks is None
-    np.testing.assert_allclose(parsed_boxes, [[20.0, 10.0, 60.0, 20.0]])
-    np.testing.assert_allclose(scores, [0.8])
-    np.testing.assert_array_equal(classes, [1])
+    np.testing.assert_allclose(
+        parsed_boxes,
+        [[20.0, 10.0, 60.0, 20.0], [20.0, 10.0, 60.0, 20.0]],
+    )
+    np.testing.assert_allclose(scores, [0.9, 0.8])
+    np.testing.assert_array_equal(classes, [0, 1])
 
 
 def test_yolo9_segment_backend_parses_masks():
