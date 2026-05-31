@@ -164,21 +164,30 @@ class RFDETRValPreprocessor(BaseValPreprocessor):
     def custom_normalization(self) -> bool:
         return True  # ImageNet mean/std applied here; validator must not rescale
 
+    @property
+    def wants_unresized_image(self) -> bool:
+        # RF-DETR's validation/inference pipeline is a single direct resize from
+        # the source image to the square model canvas.
+        return True
+
     def __call__(
         self, img: np.ndarray, targets: np.ndarray, input_size: Tuple[int, int]
     ) -> Tuple[np.ndarray, np.ndarray]:
         orig_h, orig_w = img.shape[:2]
         target_h, target_w = input_size
 
-        resized_img = cv2.resize(
-            img, (target_w, target_h), interpolation=cv2.INTER_LINEAR
-        )
+        rgb_img = img[:, :, ::-1]  # BGR -> RGB
+        if target_h == target_w:
+            from ..models.rfdetr.utils import preprocess_numpy
 
-        resized_img = resized_img[:, :, ::-1]  # BGR → RGB
-        resized_img = resized_img.astype(np.float32) / 255.0
-        resized_img = (resized_img - self.MEAN) / self.STD  # ImageNet normalization
-
-        resized_img = resized_img.transpose(2, 0, 1)  # HWC → CHW
+            resized_img, _ = preprocess_numpy(rgb_img, target_h)
+        else:
+            pil_img = Image.fromarray(rgb_img).resize(
+                (target_w, target_h), Image.Resampling.BILINEAR
+            )
+            resized_img = np.array(pil_img, dtype=np.float32) / 255.0
+            resized_img = (resized_img - self.MEAN) / self.STD
+            resized_img = resized_img.transpose(2, 0, 1)
         resized_img = np.ascontiguousarray(resized_img, dtype=np.float32)
 
         padded_targets = np.zeros((self.max_labels, 5), dtype=np.float32)
@@ -257,12 +266,53 @@ class YOLO9E2EValPreprocessor(YOLO9ValPreprocessor):
 
 
 class YOLONASValPreprocessor(YOLO9ValPreprocessor):
-    """YOLO-NAS preprocessor.
+    """YOLO-NAS preprocessor: resize to 636 (longest side), center-pad to 640, RGB, 0-1.
 
-    The current native port uses LibreYOLO's shared RGB 0-1 letterbox path for
-    consistency across inference and validation. A later parity pass can tighten
-    this toward the exact SG preprocessing contract if needed.
+    Matches ``preprocess_numpy`` in models/yolonas/utils.py exactly so that
+    ``_postprocess(letterbox=True, resize_size=636)`` correctly undoes the
+    coordinate transform.  Without this, the top-left-padded YOLO9 path is
+    used here but the center-pad path is used for inference — an ~81-pixel
+    offset that collapses baseline mAP to near zero on non-square images.
     """
+
+    @property
+    def wants_unresized_image(self) -> bool:
+        # Need the original image so we can apply the 636-resize step in one
+        # pass; the dataset's load_resized_img would give us a pre-letterboxed
+        # frame and we'd double-resize with the wrong ratio.
+        return True
+
+    def __call__(
+        self, img: np.ndarray, targets: np.ndarray, input_size: Tuple[int, int]
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        from ..models.yolonas.utils import YOLO_NAS_RESIZE_SIZE, preprocess_numpy
+
+        orig_h, orig_w = img.shape[:2]
+        target_h, target_w = input_size  # e.g. (640, 640)
+
+        img_rgb = np.ascontiguousarray(img[:, :, ::-1])  # BGR → RGB
+        img_chw, _ = preprocess_numpy(
+            img_rgb,
+            input_size=target_h,
+            resize_size=YOLO_NAS_RESIZE_SIZE,
+        )
+
+        padded_targets = np.zeros((self.max_labels, 5), dtype=np.float32)
+        if len(targets) > 0:
+            targets = np.array(targets).copy()
+            n = min(len(targets), self.max_labels)
+            r = min(YOLO_NAS_RESIZE_SIZE / orig_h, YOLO_NAS_RESIZE_SIZE / orig_w)
+            new_w = int(round(orig_w * r))
+            new_h = int(round(orig_h * r))
+            off_x = (target_w - new_w) // 2
+            off_y = (target_h - new_h) // 2
+            targets[:n, 0] = targets[:n, 0] * r + off_x
+            targets[:n, 1] = targets[:n, 1] * r + off_y
+            targets[:n, 2] = targets[:n, 2] * r + off_x
+            targets[:n, 3] = targets[:n, 3] * r + off_y
+            padded_targets[:n] = targets[:n]
+
+        return img_chw, padded_targets
 
 
 class DFINEValPreprocessor(StandardValPreprocessor):
@@ -386,6 +436,31 @@ class DEIMv2DINOValPreprocessor(DEIMv2ValPreprocessor):
         return chw.astype(np.float32), padded_targets
 
 
+class DAMOYOLOValPreprocessor(StandardValPreprocessor):
+    """DAMO-YOLO val preprocessor: simple stretch resize, BGR→RGB, 0-255 float32.
+
+    Mirrors upstream's inference pipeline (``damo/utils/demo_utils.py``):
+    PIL.convert("RGB") + ``T.Resize(image_max_range=(640,640), keep_ratio=False)`` +
+    ``T.ToTensor()`` + ``T.Normalize(mean=[0,0,0], std=[1,1,1])`` (no-op).
+    """
+
+    @property
+    def normalize(self) -> bool:
+        return False  # already in 0-255 range, validator must NOT divide by 255
+
+    @property
+    def wants_unresized_image(self) -> bool:
+        return True  # avoid the dataset's letterbox-then-stretch double resize
+
+    def __call__(
+        self, img: np.ndarray, targets: np.ndarray, input_size: Tuple[int, int]
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        # super() does the simple resize + target rescaling. Pass an
+        # RGB-converted copy because upstream loads via PIL ('RGB').
+        chw, padded_targets = super().__call__(img[:, :, ::-1].copy(), targets, input_size)
+        return chw, padded_targets
+
+
 class PICODETValPreprocessor(StandardValPreprocessor):
     """PICODET preprocessor: simple resize, RGB, ImageNet mean/std in 0-255 space.
 
@@ -415,6 +490,58 @@ class PICODETValPreprocessor(StandardValPreprocessor):
         )
         chw = (chw - self._MEAN) / self._STD
         return chw.astype(np.float32), padded_targets
+
+
+class RTDETRv2ValPreprocessor(BaseValPreprocessor):
+    """RT-DETRv2 val preprocessor matching upstream's PIL/torchvision Resize.
+
+    The only difference from ``RTDETRValPreprocessor`` is that this one uses
+    PIL.Image.resize (BILINEAR) on the un-letterboxed source image, mirroring
+    upstream's ``Resize -> ConvertPILImage(scale=True)`` chain. cv2.resize and
+    PIL.Image.resize use different bilinear kernels; the pixel drift cascades
+    to ~0.7 mAP on COCO val2017 for v2-r18 if cv2 is used instead.
+    """
+
+    @property
+    def normalize(self) -> bool:
+        return True
+
+    @property
+    def wants_unresized_image(self) -> bool:
+        return True
+
+    def __call__(
+        self, img: np.ndarray, targets: np.ndarray, input_size: Tuple[int, int]
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        orig_h, orig_w = img.shape[:2]
+        target_h, target_w = input_size
+
+        # img is BGR uint8 from cv2.imread; flip to RGB then PIL-resize.
+        rgb = img[:, :, ::-1]
+        resized = np.array(
+            Image.fromarray(rgb).resize(
+                (target_w, target_h), Image.Resampling.BILINEAR
+            ),
+            dtype=np.float32,
+        )
+        resized = resized / 255.0
+        resized = resized.transpose(2, 0, 1)
+        resized = np.ascontiguousarray(resized, dtype=np.float32)
+
+        padded_targets = np.zeros((self.max_labels, 5), dtype=np.float32)
+        if len(targets) > 0:
+            targets = np.array(targets).copy()
+            n = min(len(targets), self.max_labels)
+            letterbox_r = min(target_h / orig_h, target_w / orig_w)
+            scale_x = target_w / orig_w
+            scale_y = target_h / orig_h
+            targets[:n, 0] = targets[:n, 0] / letterbox_r * scale_x
+            targets[:n, 1] = targets[:n, 1] / letterbox_r * scale_y
+            targets[:n, 2] = targets[:n, 2] / letterbox_r * scale_x
+            targets[:n, 3] = targets[:n, 3] / letterbox_r * scale_y
+            padded_targets[:n] = targets[:n]
+
+        return resized, padded_targets
 
 
 class RTDETRValPreprocessor(BaseValPreprocessor):
@@ -460,3 +587,53 @@ class RTDETRValPreprocessor(BaseValPreprocessor):
             padded_targets[:n] = targets[:n]
 
         return resized_img, padded_targets
+
+
+class RTMDetValPreprocessor(BaseValPreprocessor):
+    """RTMDet preprocessor: BGR letterbox at pad 114, mmdet mean/std normalization.
+
+    The mmdet config uses ``bgr_to_rgb=False`` with mean ``[103.53, 116.28, 123.675]``
+    and std ``[57.375, 57.12, 58.395]`` applied to the BGR image (not RGB).
+    """
+
+    BGR_MEAN = np.array([103.53, 116.28, 123.675], dtype=np.float32)
+    BGR_STD = np.array([57.375, 57.12, 58.395], dtype=np.float32)
+    PAD_VALUE = 114
+
+    @property
+    def normalize(self) -> bool:
+        return False
+
+    @property
+    def custom_normalization(self) -> bool:
+        return True
+
+    @property
+    def uses_letterbox(self) -> bool:
+        return True
+
+    def __call__(
+        self, img: np.ndarray, targets: np.ndarray, input_size: Tuple[int, int]
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        orig_h, orig_w = img.shape[:2]
+        target_h, target_w = input_size
+
+        ratio = min(target_h / orig_h, target_w / orig_w)
+        new_h = int(orig_h * ratio)
+        new_w = int(orig_w * ratio)
+
+        resized_img = cv2.resize(img, (new_w, new_h), interpolation=cv2.INTER_LINEAR)
+
+        padded_img = np.full((target_h, target_w, 3), self.PAD_VALUE, dtype=np.uint8)
+        padded_img[:new_h, :new_w] = resized_img
+
+        # img comes in as BGR (cv2). Apply mmdet mean/std in BGR space.
+        normed = (padded_img.astype(np.float32) - self.BGR_MEAN) / self.BGR_STD
+        normed = np.ascontiguousarray(normed.transpose(2, 0, 1), dtype=np.float32)
+
+        padded_targets = np.zeros((self.max_labels, 5), dtype=np.float32)
+        if len(targets) > 0:
+            n = min(len(targets), self.max_labels)
+            padded_targets[:n] = np.asarray(targets[:n], dtype=np.float32)
+
+        return normed, padded_targets

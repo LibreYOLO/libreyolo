@@ -1,12 +1,12 @@
 """Tests for dataset config loading safety and path resolution."""
 
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 
 import pytest
 import yaml
 from PIL import Image
 
-from libreyolo.data.utils import load_data_config
+from libreyolo.data.utils import get_img_files, img2label_paths, load_data_config
 
 pytestmark = pytest.mark.unit
 
@@ -115,3 +115,36 @@ def test_load_data_config_resolves_directory_test_split(tmp_path):
     assert config["test"] == str(images_dir)
     assert config["test_img_files"] == [image_path]
     assert config["test_label_files"] == [label_path]
+
+
+@pytest.mark.parametrize(
+    ("image_path", "expected_label"),
+    [
+        (
+            PurePosixPath("/home/user/dataset/images/train/sample.jpg"),
+            "/home/user/dataset/labels/train/sample.txt",
+        ),
+        (
+            PurePosixPath("/Users/user/dataset/images/val/sample.jpg"),
+            "/Users/user/dataset/labels/val/sample.txt",
+        ),
+        (
+            PureWindowsPath(r"C:\Users\user\dataset\images\test\sample.jpg"),
+            r"C:\Users\user\dataset\labels\test\sample.txt",
+        ),
+    ],
+)
+def test_img2label_paths_handles_platform_path_styles(image_path, expected_label):
+    labels = img2label_paths([image_path])
+
+    assert str(labels[0]).replace("\\", "/") == expected_label.replace("\\", "/")
+
+
+def test_get_img_files_txt_keeps_existing_and_unmaterialized_entries(tmp_path):
+    image_path = tmp_path / "sample.jpg"
+    Image.new("RGB", (16, 16), color="white").save(image_path)
+    missing_path = tmp_path / "later.jpg"
+    txt_path = tmp_path / "images.txt"
+    txt_path.write_text(f"{image_path.name}\n{missing_path.name}\nnotes.txt\n")
+
+    assert get_img_files(txt_path) == [missing_path, image_path]

@@ -16,13 +16,18 @@ from ..models.yolonas.utils import preprocess_image as yolonas_preprocess_image
 from ..models.yolox.utils import preprocess_image as yolox_preprocess_image
 from ..tasks import normalize_supported_tasks, normalize_task, resolve_task
 from ..utils.drawing import draw_boxes, draw_masks
-from ..utils.general import COCO_CLASSES, get_safe_stem
+from ..utils.general import COCO_CLASSES, get_safe_stem, log_saved_result
 from ..utils.image_loader import ImageLoader
 from ..utils.predict_args import normalize_predict_kwargs
 from ..utils.results import Boxes, Masks, Results
 from ..utils.video import collect_video_results, is_video_file, run_video_inference
 
 logger = logging.getLogger(__name__)
+
+
+class _BackendEvalProxy:
+    def eval(self):
+        return self
 
 
 def _nms_numpy(
@@ -55,6 +60,38 @@ def _nms_numpy(
     return keep
 
 
+def _batched_nms_numpy(
+    boxes: np.ndarray,
+    scores: np.ndarray,
+    class_ids: np.ndarray,
+    iou_threshold: float = 0.45,
+) -> list:
+    """Class-aware NMS matching torchvision.ops.batched_nms ordering."""
+    keep = []
+    for cls in np.unique(class_ids):
+        cls_indices = np.where(class_ids == cls)[0]
+        cls_keep = _nms_numpy(boxes[cls_indices], scores[cls_indices], iou_threshold)
+        keep.extend(cls_indices[cls_keep].tolist())
+
+    if not keep:
+        return []
+    keep = np.asarray(keep, dtype=np.int64)
+    return keep[np.argsort(scores[keep])[::-1]].tolist()
+
+
+def _is_pytorch_cuda_device(device_str: str) -> bool:
+    """Return True only when device_str is a valid PyTorch CUDA device string.
+
+    Non-PyTorch runtimes (OpenVINO "gpu", CoreML "coreml", ncnn "ncnn") store
+    backend-specific device identifiers in self.device that are not parseable
+    by torch.device(); calling torch.device() on them raises RuntimeError.
+    """
+    try:
+        return torch.device(device_str).type == "cuda"
+    except RuntimeError:
+        return False
+
+
 def _is_nms_free_family(model_family: Optional[str]) -> bool:
     """Whether backend outputs should bypass generic NMS.
 
@@ -62,7 +99,14 @@ def _is_nms_free_family(model_family: Optional[str]) -> bool:
     selection. Applying YOLO-style IoU suppression on top of that can remove
     valid detections and make exported runtimes diverge from native PyTorch.
     """
-    return model_family in {"dfine", "deim", "deimv2", "ec", "rfdetr", "rtdetr"}
+    return model_family in {"dfine", "deim", "deimv2", "ec", "rfdetr", "rtdetr", "rtdetrv2", "rtdetrv4"}
+
+
+def _rfdetr_num_select(task: str, model_size: Optional[str]) -> int:
+    """Return RF-DETR's configured top-k selection for exported backends."""
+    if task == "segment":
+        return {"n": 100, "s": 100, "m": 200, "l": 200}.get(model_size or "", 300)
+    return 300
 
 
 class BaseBackend(ABC):
@@ -103,6 +147,15 @@ class BaseBackend(ABC):
             supported_tasks=self.SUPPORTED_TASKS,
         )
         self.names = names
+        self.FAMILY = model_family or "export"
+        try:
+            self.size = model_size or "export"
+        except AttributeError:
+            # Some concrete backends expose size as a computed read-only property.
+            pass
+        self.input_size = imgsz
+        if not hasattr(self, "model"):
+            self.model = _BackendEvalProxy()
 
     # =========================================================================
     # Abstract interface
@@ -142,7 +195,7 @@ class BaseBackend(ABC):
                 image, effective_imgsz, color_format
             )
             return tensor, img, size, 1.0
-        elif self.model_family == "dfine":
+        elif self.model_family in ("dfine", "rtdetrv4"):
             tensor, img, size = self._preprocess_dfine(
                 image, effective_imgsz, color_format
             )
@@ -162,13 +215,23 @@ class BaseBackend(ABC):
                 image, effective_imgsz, color_format
             )
             return tensor, img, size, 1.0
-        elif self.model_family == "rtdetr":
+        elif self.model_family in ("rtdetr", "rtdetrv2"):
             tensor, img, size = self._preprocess_rtdetr(
                 image, effective_imgsz, color_format
             )
             return tensor, img, size, 1.0
         elif self.model_family == "picodet":
             tensor, img, size = self._preprocess_picodet(
+                image, effective_imgsz, color_format
+            )
+            return tensor, img, size, 1.0
+        elif self.model_family == "rtmdet":
+            tensor, img, size, ratio = self._preprocess_rtmdet(
+                image, effective_imgsz, color_format
+            )
+            return tensor, img, size, ratio
+        elif self.model_family == "damoyolo":
+            tensor, img, size = self._preprocess_damoyolo(
                 image, effective_imgsz, color_format
             )
             return tensor, img, size, 1.0
@@ -265,6 +328,34 @@ class BaseBackend(ABC):
         return img_tensor, original_img, original_size
 
     @staticmethod
+    def _preprocess_damoyolo(image, input_size, color_format):
+        """DAMO-YOLO preprocessing: stretch resize + RGB float32 in [0,255]."""
+        from ..models.damoyolo.utils import (
+            preprocess_numpy as damoyolo_preprocess_numpy,
+        )
+
+        img = ImageLoader.load(image, color_format=color_format)
+        original_size = img.size
+        original_img = img.copy()
+
+        img_chw, _ = damoyolo_preprocess_numpy(np.array(img), input_size)
+        img_tensor = torch.from_numpy(img_chw).unsqueeze(0)
+        return img_tensor, original_img, original_size
+
+    @staticmethod
+    def _preprocess_rtmdet(image, input_size, color_format):
+        """RTMDet preprocessing: BGR letterbox + mmdet mean/std normalization."""
+        from ..models.rtmdet.utils import preprocess_numpy as rtmdet_preprocess_numpy
+
+        img = ImageLoader.load(image, color_format=color_format)
+        original_size = img.size  # (W, H)
+        original_img = img.copy()
+
+        img_chw, ratio = rtmdet_preprocess_numpy(np.array(img), input_size)
+        img_tensor = torch.from_numpy(img_chw).unsqueeze(0)
+        return img_tensor, original_img, original_size, ratio
+
+    @staticmethod
     def _preprocess_rtdetr(image, input_size, color_format):
         """RT-DETR preprocessing: direct resize + normalize to [0,1]."""
         from ..models.rtdetr.utils import preprocess_numpy as rtdetr_preprocess_numpy
@@ -304,7 +395,7 @@ class BaseBackend(ABC):
             return boxes, scores, cls, None
         elif self.model_family == "rfdetr":
             return self._parse_rfdetr(all_outputs, orig_w, orig_h, conf)
-        elif self.model_family == "dfine":
+        elif self.model_family in ("dfine", "rtdetrv4"):
             boxes, scores, cls = self._parse_dfine(all_outputs, orig_w, orig_h, conf)
             return boxes, scores, cls, None
         elif self.model_family == "deim":
@@ -318,7 +409,7 @@ class BaseBackend(ABC):
             # so the parser is shared.
             boxes, scores, cls = self._parse_dfine(all_outputs, orig_w, orig_h, conf)
             return boxes, scores, cls, None
-        elif self.model_family == "rtdetr":
+        elif self.model_family in ("rtdetr", "rtdetrv2"):
             boxes, scores, cls = self._parse_rtdetr(all_outputs, orig_w, orig_h, conf)
             return boxes, scores, cls, None
         elif self.model_family == "picodet":
@@ -326,10 +417,23 @@ class BaseBackend(ABC):
                 all_outputs, effective_imgsz, orig_w, orig_h, conf
             )
             return boxes, scores, cls, None
-        else:
-            boxes, scores, cls = self._parse_yolo9(
+        elif self.model_family == "rtmdet":
+            boxes, scores, cls = self._parse_rtmdet(
+                all_outputs, orig_w, orig_h, conf, ratio
+            )
+            return boxes, scores, cls, None
+        elif self.model_family == "damoyolo":
+            boxes, scores, cls = self._parse_damoyolo(
                 all_outputs, effective_imgsz, orig_w, orig_h, conf
             )
+            return boxes, scores, cls, None
+        else:
+            parsed = self._parse_yolo9(
+                all_outputs, effective_imgsz, orig_w, orig_h, conf
+            )
+            if len(parsed) == 4:
+                return parsed
+            boxes, scores, cls = parsed
             return boxes, scores, cls, None
 
     def _parse_yolox(
@@ -365,6 +469,31 @@ class BaseBackend(ABC):
 
         return boxes, max_scores, class_ids
 
+    def _parse_rtmdet(self, all_outputs, orig_w, orig_h, conf, ratio=1.0):
+        """Parse RTMDet export-mode output: (B, N, 4 + nc) — xyxy (input-canvas pixels) + sigmoid scores.
+
+        RTMDet exports use letterbox preprocessing, so the inverse scale is a
+        single ``ratio`` (aspect-preserving), like YOLOX.
+        """
+        outputs = all_outputs[0][0]  # (N, 4 + nc)
+        boxes = outputs[:, :4]
+        scores = outputs[:, 4:]
+
+        max_scores = np.max(scores, axis=1)
+        class_ids = np.argmax(scores, axis=1)
+
+        mask = max_scores > conf
+        boxes, max_scores, class_ids = boxes[mask], max_scores[mask], class_ids[mask]
+
+        if len(boxes) == 0:
+            return boxes, max_scores, class_ids
+
+        boxes = boxes / ratio
+        boxes[:, [0, 2]] = np.clip(boxes[:, [0, 2]], 0, orig_w)
+        boxes[:, [1, 3]] = np.clip(boxes[:, [1, 3]], 0, orig_h)
+
+        return boxes, max_scores, class_ids
+
     def _parse_picodet(self, all_outputs, effective_imgsz, orig_w, orig_h, conf):
         """Parse PICODET output: (B, N, 4+nc) — xyxy (input-canvas pixels) + sigmoid scores.
 
@@ -394,21 +523,28 @@ class BaseBackend(ABC):
 
         return boxes, max_scores, class_ids
 
-    def _parse_yolo9(self, all_outputs, effective_imgsz, orig_w, orig_h, conf):
-        """Parse YOLO9 output: (B, 4+nc, N) — xyxy + class_scores."""
-        outputs = all_outputs[0][0].T  # (N, 4+nc)
+    def _parse_damoyolo(self, all_outputs, effective_imgsz, orig_w, orig_h, conf):
+        """Parse DAMO-YOLO output: (cls_scores, boxes) with stretch-resize inverse."""
+        first = all_outputs[0][0]
+        second = all_outputs[1][0]
+        if first.shape[-1] == 4 and second.shape[-1] != 4:
+            boxes = first
+            scores = second
+        else:
+            scores = first
+            boxes = second
 
-        boxes = outputs[:, :4]
-        scores = outputs[:, 4:]
+        valid = scores > conf
+        if not valid.any():
+            return (
+                np.empty((0, 4), dtype=boxes.dtype),
+                np.empty((0,), dtype=scores.dtype),
+                np.empty((0,), dtype=np.int64),
+            )
 
-        max_scores = np.max(scores, axis=1)
-        class_ids = np.argmax(scores, axis=1)
-
-        mask = max_scores > conf
-        boxes, max_scores, class_ids = boxes[mask], max_scores[mask], class_ids[mask]
-
-        if len(boxes) == 0:
-            return boxes, max_scores, class_ids
+        box_indices, class_ids = np.nonzero(valid)
+        boxes = boxes[box_indices].copy()
+        max_scores = scores[box_indices, class_ids]
 
         scale_x = orig_w / effective_imgsz
         scale_y = orig_h / effective_imgsz
@@ -416,6 +552,50 @@ class BaseBackend(ABC):
         boxes[:, [1, 3]] *= scale_y
         boxes[:, [0, 2]] = np.clip(boxes[:, [0, 2]], 0, orig_w)
         boxes[:, [1, 3]] = np.clip(boxes[:, [1, 3]], 0, orig_h)
+
+        return boxes, max_scores, class_ids
+
+    def _parse_yolo9(self, all_outputs, effective_imgsz, orig_w, orig_h, conf):
+        """Parse YOLO9 output: (B, 4+nc, N) — xyxy + class_scores."""
+        outputs = all_outputs[0][0].T  # (N, 4+nc)
+
+        boxes_input = outputs[:, :4]
+        boxes = boxes_input.copy()
+        scores = outputs[:, 4:]
+
+        max_scores = np.max(scores, axis=1)
+        class_ids = np.argmax(scores, axis=1)
+
+        mask = max_scores > conf
+        boxes = boxes[mask]
+        boxes_input = boxes_input[mask]
+        max_scores, class_ids = max_scores[mask], class_ids[mask]
+
+        if len(boxes) == 0:
+            if self.task == "segment":
+                return boxes, max_scores, class_ids, None
+            return boxes, max_scores, class_ids
+
+        ratio = min(effective_imgsz / orig_h, effective_imgsz / orig_w)
+        boxes[:, :4] /= ratio
+        boxes[:, [0, 2]] = np.clip(boxes[:, [0, 2]], 0, orig_w)
+        boxes[:, [1, 3]] = np.clip(boxes[:, [1, 3]], 0, orig_h)
+
+        if self.task == "segment" and len(all_outputs) >= 3:
+            from ..models.yolo9.utils import _process_masks
+
+            proto = torch.from_numpy(all_outputs[1][0]).float()
+            coeffs = torch.from_numpy(all_outputs[2][0].T[mask]).float()
+            boxes_input_t = torch.from_numpy(boxes_input).float()
+            masks_out = _process_masks(
+                proto,
+                coeffs,
+                boxes_input_t,
+                input_shape=(effective_imgsz, effective_imgsz),
+                original_size=(orig_w, orig_h),
+                letterbox=True,
+            ).numpy()
+            return boxes, max_scores, class_ids, masks_out
 
         return boxes, max_scores, class_ids
 
@@ -496,14 +676,31 @@ class BaseBackend(ABC):
         For segmentation models a third output is present:
         masks (B,300,Hm,Wm) raw mask logits at model resolution.
         """
-        boxes_raw = all_outputs[0][0]  # (300, 4) normalized cxcywh
-        logits = all_outputs[1][0]  # (300, nc) raw logits
+        first = all_outputs[0][0]
+        second = all_outputs[1][0]
+        if first.shape[-1] == 4:
+            boxes_all = first
+            logits = second
+        else:
+            logits = first
+            boxes_all = second
         raw_masks = all_outputs[2][0] if len(all_outputs) >= 3 else None
 
         scores = 1.0 / (1.0 + np.exp(-logits.astype(np.float64))).astype(np.float32)
-
-        max_scores = np.max(scores, axis=1)
-        class_ids = np.argmax(scores, axis=1)
+        num_queries, num_classes = scores.shape
+        model_size = self.model_size or getattr(self, "size", None)
+        k = min(
+            _rfdetr_num_select(self.task, model_size),
+            num_queries * num_classes,
+        )
+        flat_indexes = np.argpartition(scores.reshape(-1), -k)[-k:]
+        flat_indexes = flat_indexes[np.argsort(scores.reshape(-1)[flat_indexes])[::-1]]
+        max_scores = scores.reshape(-1)[flat_indexes]
+        query_idx = flat_indexes // num_classes
+        class_ids = flat_indexes % num_classes
+        boxes_raw = boxes_all[query_idx]
+        if raw_masks is not None:
+            raw_masks = raw_masks[query_idx]
 
         mask = max_scores > conf
         boxes_raw = boxes_raw[mask]
@@ -515,7 +712,7 @@ class BaseBackend(ABC):
             return boxes_raw, max_scores, class_ids, None
 
         # COCO 91→80 class mapping
-        if logits.shape[1] == 91 and self.nb_classes == 80:
+        if num_classes == 91 and self.nb_classes == 80:
             from ..models.rfdetr.model import _COCO91_TO_COCO80
 
             mapped = np.array([_COCO91_TO_COCO80.get(int(c), -1) for c in class_ids])
@@ -583,17 +780,23 @@ class BaseBackend(ABC):
                 logits = second
                 boxes_raw = first
 
-        scores = 1.0 / (1.0 + np.exp(-logits.astype(np.float64))).astype(np.float32)
+        # Match upstream RTDETRPostProcessor (and _parse_dfine): top-K across the
+        # flattened (Q*nc) score matrix, allowing multiple classes per query.
+        # Per-query argmax (the previous logic) silently dropped valid non-max
+        # detections and cost ~0.7-0.9 mAP on COCO val2017.
+        Q, nc = logits.shape
+        prob = 1.0 / (1.0 + np.exp(-logits.astype(np.float64)))
+        prob = prob.astype(np.float32)
 
-        max_scores = np.max(scores, axis=1)
-        class_ids = np.argmax(scores, axis=1)
+        max_det = 300
+        flat = prob.reshape(-1)
+        k = min(max_det, flat.size)
+        idx = np.argpartition(-flat, k - 1)[:k]
+        idx = idx[np.argsort(-flat[idx])]
 
-        mask = max_scores > conf
-        boxes_raw = boxes_raw[mask]
-        max_scores, class_ids = max_scores[mask], class_ids[mask]
-
-        if len(boxes_raw) == 0:
-            return boxes_raw, max_scores, class_ids
+        scores = flat[idx]
+        query_idx = idx // nc
+        class_ids = idx % nc
 
         cx, cy, w, h = (
             boxes_raw[:, 0],
@@ -601,16 +804,17 @@ class BaseBackend(ABC):
             boxes_raw[:, 2],
             boxes_raw[:, 3],
         )
-        x1 = (cx - w / 2) * orig_w
-        y1 = (cy - h / 2) * orig_h
-        x2 = (cx + w / 2) * orig_w
-        y2 = (cy + h / 2) * orig_h
-        boxes = np.stack([x1, y1, x2, y2], axis=1)
-
+        boxes_xyxy = np.stack(
+            [cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2], axis=1
+        )
+        boxes = boxes_xyxy[query_idx]
+        boxes[:, [0, 2]] *= orig_w
+        boxes[:, [1, 3]] *= orig_h
         boxes[:, [0, 2]] = np.clip(boxes[:, [0, 2]], 0, orig_w)
         boxes[:, [1, 3]] = np.clip(boxes[:, [1, 3]], 0, orig_h)
 
-        return boxes, max_scores, class_ids
+        mask = scores > conf
+        return boxes[mask], scores[mask], class_ids[mask]
 
     # =========================================================================
     # Result building
@@ -643,7 +847,10 @@ class BaseBackend(ABC):
             )
 
         if not _is_nms_free_family(self.model_family):
-            keep = _nms_numpy(boxes, max_scores, iou)
+            if self.model_family == "damoyolo":
+                keep = _batched_nms_numpy(boxes, max_scores, class_ids, iou)
+            else:
+                keep = _nms_numpy(boxes, max_scores, iou)
             boxes, max_scores, class_ids = (
                 boxes[keep],
                 max_scores[keep],
@@ -720,7 +927,7 @@ class BaseBackend(ABC):
             final_path = save_dir / f"{stem}_{model_tag}_{timestamp}{ext}"
 
         annotated_img.save(final_path)
-        result.saved_path = str(final_path)
+        log_saved_result(result, final_path)
 
     # =========================================================================
     # Helpers
@@ -732,6 +939,182 @@ class BaseBackend(ABC):
         if nb_classes == 80:
             return {i: n for i, n in enumerate(COCO_CLASSES)}
         return {i: f"class_{i}" for i in range(nb_classes)}
+
+    def eval(self):
+        return self
+
+    def _get_model_name(self) -> str:
+        return self.model_family or "export"
+
+    def _get_input_size(self) -> int:
+        return self.imgsz
+
+    def _get_val_preprocessor(self, img_size: int | None = None):
+        if img_size is None:
+            img_size = self._get_input_size()
+
+        from ..validation.preprocessors import (
+            DAMOYOLOValPreprocessor,
+            DEIMValPreprocessor,
+            DEIMv2ValPreprocessor,
+            DFINEValPreprocessor,
+            ECValPreprocessor,
+            PICODETValPreprocessor,
+            RFDETRValPreprocessor,
+            RTDETRValPreprocessor,
+            RTDETRv2ValPreprocessor,
+            RTMDetValPreprocessor,
+            StandardValPreprocessor,
+            YOLO9E2EValPreprocessor,
+            YOLO9ValPreprocessor,
+            YOLONASValPreprocessor,
+            YOLOXValPreprocessor,
+        )
+
+        preprocessor_cls = {
+            "damoyolo": DAMOYOLOValPreprocessor,
+            "deim": DEIMValPreprocessor,
+            "deimv2": DEIMv2ValPreprocessor,
+            "dfine": DFINEValPreprocessor,
+            "ec": ECValPreprocessor,
+            "picodet": PICODETValPreprocessor,
+            "rfdetr": RFDETRValPreprocessor,
+            "rtdetr": RTDETRValPreprocessor,
+            "rtdetrv2": RTDETRv2ValPreprocessor,
+            "rtdetrv4": DFINEValPreprocessor,
+            "rtmdet": RTMDetValPreprocessor,
+            "yolo9": YOLO9ValPreprocessor,
+            "yolo9_e2e": YOLO9E2EValPreprocessor,
+            "yolonas": YOLONASValPreprocessor,
+            "yolox": YOLOXValPreprocessor,
+        }.get(self.model_family, StandardValPreprocessor)
+        return preprocessor_cls(img_size=(img_size, img_size))
+
+    def _forward(self, input_tensor: torch.Tensor):
+        blob = input_tensor.detach().cpu().numpy()
+        try:
+            outputs = self._run_inference(blob)
+        except Exception:
+            if blob.shape[0] <= 1:
+                raise
+            per_image_outputs = [
+                self._run_inference(blob[i : i + 1]) for i in range(blob.shape[0])
+            ]
+            outputs = [
+                np.concatenate(
+                    [np.asarray(item[j]) for item in per_image_outputs], axis=0
+                )
+                for j in range(len(per_image_outputs[0]))
+            ]
+        return [torch.from_numpy(np.asarray(output)) for output in outputs]
+
+    @staticmethod
+    def _as_numpy_outputs(output) -> list:
+        if isinstance(output, torch.Tensor):
+            return [output.detach().cpu().numpy()]
+        if isinstance(output, np.ndarray):
+            return [output]
+        if isinstance(output, (list, tuple)):
+            arrays = []
+            for item in output:
+                if isinstance(item, torch.Tensor):
+                    arrays.append(item.detach().cpu().numpy())
+                else:
+                    arrays.append(np.asarray(item))
+            return arrays
+        return [np.asarray(output)]
+
+    def _postprocess(
+        self,
+        output,
+        conf_thres: float,
+        iou_thres: float,
+        original_size: Tuple[int, int],
+        input_size: int | None = None,
+        letterbox: bool = False,
+        max_det: int = 300,
+        ratio: float = 1.0,
+        **kwargs,
+    ) -> Dict:
+        effective_imgsz = input_size if input_size is not None else self.imgsz
+        outputs = self._as_numpy_outputs(output)
+        boxes, max_scores, class_ids, masks = self._parse_outputs(
+            outputs, effective_imgsz, original_size, conf_thres, ratio=ratio
+        )
+        result = self._build_result(
+            boxes,
+            max_scores,
+            class_ids,
+            masks=masks,
+            orig_shape=(int(original_size[1]), int(original_size[0])),
+            image_path=None,
+            iou=iou_thres,
+            classes=None,
+            max_det=max_det,
+        )
+
+        det: Dict[str, object] = {
+            "num_detections": len(result),
+            "boxes": result.boxes.xyxy,
+            "scores": result.boxes.conf,
+            "classes": result.boxes.cls.to(torch.int64),
+        }
+        if result.masks is not None:
+            det["masks"] = result.masks.data
+        return det
+
+    def val(
+        self,
+        data: str | None = None,
+        batch: int = 16,
+        imgsz: int | None = None,
+        conf: float = 0.001,
+        iou: float = 0.6,
+        workers: int = 4,
+        allow_download_scripts: bool = False,
+        device: str | None = None,
+        split: str = "val",
+        augment: bool = False,
+        save_json: bool = False,
+        verbose: bool = True,
+        **kwargs,
+    ) -> Dict:
+        from ..validation import (
+            DetectionValidator,
+            SegmentationValidator,
+            ValidationConfig,
+        )
+
+        if augment:
+            raise ValueError(
+                "Augmented validation is not supported for exported backends"
+            )
+        if imgsz is None:
+            imgsz = self._get_input_size()
+
+        validation_device = device or (
+            self.device if _is_pytorch_cuda_device(self.device) and torch.cuda.is_available() else "cpu"
+        )
+        config = ValidationConfig(
+            data=data,
+            batch_size=batch,
+            imgsz=imgsz,
+            conf_thres=conf,
+            iou_thres=iou,
+            num_workers=workers,
+            allow_download_scripts=allow_download_scripts,
+            device=validation_device,
+            split=split,
+            augment=augment,
+            save_json=save_json,
+            verbose=verbose,
+            **kwargs,
+        )
+        validator_cls = (
+            SegmentationValidator if self.task == "segment" else DetectionValidator
+        )
+        validator = validator_cls(model=self, config=config)
+        return validator()
 
     # =========================================================================
     # Inference pipeline

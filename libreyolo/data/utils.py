@@ -174,7 +174,7 @@ def get_img_files(path: Union[str, Path, List], prefix: str = "") -> List[Path]:
                     if not img_path.is_absolute():
                         # Relative to txt file's parent directory
                         img_path = path.parent / img_path
-                    if img_path.exists() and img_path.suffix.lower() in IMG_FORMATS:
+                    if img_path.suffix.lower() in IMG_FORMATS:
                         img_files.append(img_path)
         return sorted(img_files)
 
@@ -214,7 +214,7 @@ def img2label_paths(img_paths: List[Path]) -> List[Path]:
 
         # Replace 'images' with 'labels' (handles various positions)
         # Common patterns: /images/, \images\, /images, images/
-        for sep in [os.sep, "/"]:
+        for sep in (os.sep, "/", "\\"):
             path_str = path_str.replace(f"{sep}images{sep}", f"{sep}labels{sep}")
             path_str = path_str.replace(f"{sep}images", f"{sep}labels")
 
@@ -355,13 +355,21 @@ def check_dataset(
     exists = False
     for split in ("train", "val"):
         if split in config and config[split]:
-            split_path = dataset_path / config[split]
-            # Check if it's a directory with contents or a .txt file that exists
-            if split_path.is_dir() and any(split_path.iterdir()):
-                exists = True
-                break
-            elif split_path.is_file():
-                exists = True
+            split_values = config[split]
+            if not isinstance(split_values, list):
+                split_values = [split_values]
+            for split_value in split_values:
+                split_path = Path(split_value)
+                if not split_path.is_absolute():
+                    split_path = dataset_path / split_path
+                # Check if it's a directory with contents or a .txt file that exists
+                if split_path.is_dir() and any(split_path.iterdir()):
+                    exists = True
+                    break
+                elif split_path.is_file():
+                    exists = True
+                    break
+            if exists:
                 break
 
     if exists:

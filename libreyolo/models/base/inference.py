@@ -14,9 +14,15 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Dict, Generator, List, Optional, Tuple, Union
 
 import torch
+from torchvision.ops import batched_nms
 
 from ...utils.drawing import draw_boxes, draw_keypoints, draw_masks, draw_tile_grid
-from ...utils.general import get_safe_stem, get_slice_bboxes, nms, resolve_save_path
+from ...utils.general import (
+    get_safe_stem,
+    get_slice_bboxes,
+    log_saved_result,
+    resolve_save_path,
+)
 from ...utils.image_loader import ImageInput, ImageLoader
 from ...utils.predict_args import normalize_predict_kwargs
 from ...utils.results import Boxes, Keypoints, Masks, Results
@@ -44,6 +50,7 @@ class InferenceRunner:
         device: str | None = None,
         classes: Optional[List[int]] = None,
         max_det: int = 300,
+        augment: bool = False,
         save: bool = False,
         batch: int = 1,
         # video parameters
@@ -95,6 +102,12 @@ class InferenceRunner:
                     f"Invalid output_file_format: {output_file_format}. "
                     "Must be one of: 'jpg', 'png', 'webp'"
                 )
+            
+        if tiling and augment:
+            raise ValueError(
+                "tiling and augment cannot be used together. "
+                "Disable one of them."
+            )
 
         # Handle video input
         if is_video_file(source):
@@ -134,8 +147,10 @@ class InferenceRunner:
                 tiling=tiling,
                 overlap_ratio=overlap_ratio,
                 output_file_format=output_file_format,
+                augment=augment,
                 **kwargs,
             )
+
 
         # Use tiled inference if enabled
         if tiling:
@@ -153,6 +168,25 @@ class InferenceRunner:
                 output_file_format=output_file_format,
                 **kwargs,
             )
+        
+        if augment and getattr(self.model, "TTA_ENABLED", False):
+            result = self.model._predict_augment(
+                source,
+                conf=conf,
+                iou=iou,
+                imgsz=imgsz,
+                classes=classes,
+                max_det=max_det,
+                color_format=color_format,
+                **kwargs,
+            )
+            if save:
+                image_path = source if isinstance(source, (str, Path)) else None
+                img_pil = ImageLoader.load(source, color_format=color_format)
+                ext = output_file_format or "jpg"
+                save_path = resolve_save_path(output_path, image_path, ext=ext)
+                self._save_annotated_image(result, img_pil, save_path)
+            return result
 
         return self._predict_single(
             source,
@@ -195,6 +229,7 @@ class InferenceRunner:
         tiling: bool = False,
         overlap_ratio: float = 0.2,
         output_file_format: Optional[str] = None,
+        augment: bool = False,
         **kwargs,
     ) -> List[Results]:
         """Process multiple images in batches."""
@@ -219,6 +254,23 @@ class InferenceRunner:
                             **kwargs,
                         )
                     )
+                elif augment and getattr(self.model, "TTA_ENABLED", False):
+                    result = self.model._predict_augment(
+                        path,
+                        conf=conf,
+                        iou=iou,
+                        imgsz=imgsz,
+                        classes=classes,
+                        max_det=max_det,
+                        color_format=color_format,
+                        **kwargs,
+                    )
+                    if save:
+                        ext = output_file_format or "jpg"
+                        save_path = resolve_save_path(output_path, path, ext=ext)
+                        img_pil = ImageLoader.load(path, color_format=color_format)
+                        self._save_annotated_image(result, img_pil, save_path)
+                    results.append(result)
                 else:
                     results.append(
                         self._predict_single(
@@ -236,6 +288,40 @@ class InferenceRunner:
                         )
                     )
         return results
+
+    def _save_annotated_image(self, result: Results, original_img, save_path: Path) -> None:
+        """Internal helper to draw boxes, masks, and keypoints and save to disk."""
+        if len(result) > 0:
+            annotated_img = original_img
+            # Draw masks first (underneath boxes)
+            if result.masks is not None:
+                masks_np = result.masks.data
+                if isinstance(masks_np, torch.Tensor):
+                    masks_np = masks_np.cpu().numpy()
+                annotated_img = draw_masks(
+                    annotated_img,
+                    masks_np,
+                    result.boxes.cls.tolist(),
+                )
+            # Draw boxes
+            annotated_img = draw_boxes(
+                annotated_img,
+                result.boxes.xyxy.tolist(),
+                result.boxes.conf.tolist(),
+                result.boxes.cls.tolist(),
+                class_names=result.names,
+            )
+            # Draw keypoints
+            if result.keypoints is not None:
+                kpts_np = result.keypoints.data
+                if isinstance(kpts_np, torch.Tensor):
+                    kpts_np = kpts_np.cpu().numpy()
+                annotated_img = draw_keypoints(annotated_img, kpts_np)
+        else:
+            annotated_img = original_img.copy()
+
+        annotated_img.save(save_path)
+        log_saved_result(result, save_path)
 
     @staticmethod
     def _apply_classes_filter(
@@ -382,41 +468,13 @@ class InferenceRunner:
 
         # Save annotated image
         if save:
-            if len(result) > 0:
-                annotated_img = original_img
-                # Draw masks first (underneath boxes)
-                if result.masks is not None:
-                    masks_np = result.masks.data
-                    if isinstance(masks_np, torch.Tensor):
-                        masks_np = masks_np.cpu().numpy()
-                    annotated_img = draw_masks(
-                        annotated_img,
-                        masks_np,
-                        result.boxes.cls.tolist(),
-                    )
-                annotated_img = draw_boxes(
-                    annotated_img,
-                    result.boxes.xyxy.tolist(),
-                    result.boxes.conf.tolist(),
-                    result.boxes.cls.tolist(),
-                    class_names=result.names,
-                )
-                if result.keypoints is not None:
-                    kpts_np = result.keypoints.data
-                    if isinstance(kpts_np, torch.Tensor):
-                        kpts_np = kpts_np.cpu().numpy()
-                    annotated_img = draw_keypoints(annotated_img, kpts_np)
-            else:
-                annotated_img = original_img
-
             ext = output_file_format or "jpg"
             save_path = resolve_save_path(
                 output_path,
                 image_path,
                 ext=ext,
             )
-            annotated_img.save(save_path)
-            result.saved_path = str(save_path)
+            self._save_annotated_image(result, original_img, save_path)
 
         return result
 
@@ -482,20 +540,26 @@ class InferenceRunner:
         scores_t = torch.tensor(scores, dtype=torch.float32, device=self.model.device)
         classes_t = torch.tensor(classes, dtype=torch.int64, device=self.model.device)
 
-        final_boxes, final_scores, final_classes = [], [], []
+        # Drop non-finite rows — batched_nms is undefined on NaN/Inf inputs.
+        finite_mask = torch.isfinite(boxes_t).all(dim=1) & torch.isfinite(scores_t)
+        if not finite_mask.all():
+            boxes_t = boxes_t[finite_mask]
+            scores_t = scores_t[finite_mask]
+            classes_t = classes_t[finite_mask]
+            if boxes_t.numel() == 0:
+                return [], [], []
 
-        for cls_id in torch.unique(classes_t):
-            mask = classes_t == cls_id
-            cls_boxes = boxes_t[mask]
-            cls_scores = scores_t[mask]
-
-            keep = nms(cls_boxes, cls_scores, iou_thres)
-
-            final_boxes.extend(cls_boxes[keep].cpu().tolist())
-            final_scores.extend(cls_scores[keep].cpu().tolist())
-            final_classes.extend([cls_id.item()] * len(keep))
-
-        return final_boxes, final_scores, final_classes
+        # Shift to non-negative coords — batched_nms's class-offset trick
+        # uses (boxes.max() + 1), which only separates classes when all
+        # coords are non-negative. Translation-invariant for IoU.
+        nms_boxes = boxes_t - boxes_t.min().clamp(max=0)
+        # Single per-class-batched dispatch instead of one NMS call per class.
+        keep = batched_nms(nms_boxes, scores_t, classes_t, iou_thres)
+        return (
+            boxes_t[keep].cpu().tolist(),
+            scores_t[keep].cpu().tolist(),
+            classes_t[keep].cpu().tolist(),
+        )
 
     def _predict_tiled(
         self,
@@ -662,7 +726,7 @@ class InferenceRunner:
             with open(save_dir / "metadata.json", "w") as f:
                 json.dump(metadata, f, indent=2)
 
-            result.saved_path = str(save_dir)
+            log_saved_result(result, save_dir)
             result.tiles_path = str(tiles_dir)
             result.grid_path = str(grid_path)
 

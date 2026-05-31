@@ -12,6 +12,8 @@ from PIL import Image
 from ...utils.image_loader import ImageInput, ImageLoader
 
 YOLO_NAS_RESIZE_SIZE = 636
+YOLO_NAS_POSE_RESIZE_SIZE = 640
+YOLO_NAS_POSE_PAD_VALUE = 127
 YOLO_NAS_PRE_NMS_TOP_K = 1000
 
 
@@ -40,6 +42,7 @@ def preprocess_numpy(
     input_size: int = 640,
     pad_value: int = 114,
     resize_size: int = YOLO_NAS_RESIZE_SIZE,
+    padding_mode: str = "center",
 ) -> Tuple[np.ndarray, float]:
     """Resize longest side to ``resize_size``, center-pad to ``input_size``."""
     orig_h, orig_w = img_rgb_hwc.shape[:2]
@@ -53,8 +56,12 @@ def preprocess_numpy(
     padded = Image.new(
         "RGB", (input_size, input_size), (pad_value, pad_value, pad_value)
     )
-    offset_x = (input_size - new_w) // 2
-    offset_y = (input_size - new_h) // 2
+    if padding_mode == "bottom_right":
+        offset_x = 0
+        offset_y = 0
+    else:
+        offset_x = (input_size - new_w) // 2
+        offset_y = (input_size - new_h) // 2
     padded.paste(img_resized, (offset_x, offset_y))
 
     arr = np.array(padded, dtype=np.float32) / 255.0
@@ -71,6 +78,27 @@ def preprocess_image(
     original_img = img.copy()
 
     img_chw, ratio = preprocess_numpy(np.array(img), input_size=input_size)
+    img_tensor = torch.from_numpy(img_chw).unsqueeze(0)
+    return img_tensor, original_img, original_size, ratio
+
+
+def preprocess_pose_image(
+    image: ImageInput,
+    input_size: int = 640,
+    color_format: str = "auto",
+) -> Tuple[torch.Tensor, Image.Image, Tuple[int, int], float]:
+    img = ImageLoader.load(image, color_format=color_format)
+    original_size = img.size
+    original_img = img.copy()
+    rgb = np.array(img)
+    bgr = rgb[:, :, ::-1]
+    img_chw, ratio = preprocess_numpy(
+        bgr,
+        input_size=input_size,
+        pad_value=YOLO_NAS_POSE_PAD_VALUE,
+        resize_size=YOLO_NAS_POSE_RESIZE_SIZE,
+        padding_mode="bottom_right",
+    )
     img_tensor = torch.from_numpy(img_chw).unsqueeze(0)
     return img_tensor, original_img, original_size, ratio
 
@@ -180,13 +208,18 @@ def _undo_letterbox_xyxy(
     input_size: int,
     original_size: Tuple[int, int],
     resize_size: int,
+    padding_mode: str = "center",
 ) -> torch.Tensor:
     orig_w, orig_h = original_size
     r = min(resize_size / orig_h, resize_size / orig_w)
     new_w = int(round(orig_w * r))
     new_h = int(round(orig_h * r))
-    offset_x = (input_size - new_w) // 2
-    offset_y = (input_size - new_h) // 2
+    if padding_mode == "bottom_right":
+        offset_x = 0
+        offset_y = 0
+    else:
+        offset_x = (input_size - new_w) // 2
+        offset_y = (input_size - new_h) // 2
     boxes = boxes.clone()
     boxes[:, 0::2] = (boxes[:, 0::2] - offset_x) / r
     boxes[:, 1::2] = (boxes[:, 1::2] - offset_y) / r
@@ -198,14 +231,19 @@ def _undo_letterbox_xy(
     input_size: int,
     original_size: Tuple[int, int],
     resize_size: int,
+    padding_mode: str = "center",
 ) -> torch.Tensor:
     """Map ``(..., 2)`` points from letterbox space back to original-image pixels."""
     orig_w, orig_h = original_size
     r = min(resize_size / orig_h, resize_size / orig_w)
     new_w = int(round(orig_w * r))
     new_h = int(round(orig_h * r))
-    offset_x = (input_size - new_w) // 2
-    offset_y = (input_size - new_h) // 2
+    if padding_mode == "bottom_right":
+        offset_x = 0
+        offset_y = 0
+    else:
+        offset_x = (input_size - new_w) // 2
+        offset_y = (input_size - new_h) // 2
     pts = points.clone()
     pts[..., 0] = (pts[..., 0] - offset_x) / r
     pts[..., 1] = (pts[..., 1] - offset_y) / r
@@ -221,7 +259,8 @@ def postprocess_pose(
     pre_nms_max_predictions: int = 1000,
     post_nms_max_predictions: int = 300,
     letterbox: bool = True,
-    resize_size: int = YOLO_NAS_RESIZE_SIZE,
+    resize_size: int = YOLO_NAS_POSE_RESIZE_SIZE,
+    padding_mode: str = "bottom_right",
     **_,
 ):
     """Pose postprocess: top-K + per-image NMS + letterbox-aware decode.
@@ -237,6 +276,8 @@ def postprocess_pose(
         scores = output["scores"]
         pose_xy = output["keypoints_xy"]
         pose_conf = output["keypoints_conf"]
+    elif isinstance(output, tuple) and len(output) == 2 and isinstance(output[0], tuple):
+        bboxes, scores, pose_xy, pose_conf = output[0]
     else:
         bboxes, scores, pose_xy, pose_conf = output
 
@@ -272,8 +313,12 @@ def postprocess_pose(
 
     if original_size is not None:
         if letterbox:
-            bboxes = _undo_letterbox_xyxy(bboxes, input_size, original_size, resize_size)
-            pose_xy = _undo_letterbox_xy(pose_xy, input_size, original_size, resize_size)
+            bboxes = _undo_letterbox_xyxy(
+                bboxes, input_size, original_size, resize_size, padding_mode
+            )
+            pose_xy = _undo_letterbox_xy(
+                pose_xy, input_size, original_size, resize_size, padding_mode
+            )
         else:
             scale_x = original_size[0] / input_size
             scale_y = original_size[1] / input_size

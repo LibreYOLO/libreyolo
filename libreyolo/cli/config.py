@@ -57,6 +57,10 @@ def _build_name_map() -> None:
             _CLI_NAME_TO_WEIGHTS[cli_name] = _weight_filename_for_cli(
                 rfcls, size_code
             )
+        for size_code in getattr(rfcls, "SEG_INPUT_SIZES", {}):
+            cli_name = f"{rfcls.FAMILY}-{size_code}-seg"
+            weight_name = f"{rfcls.FILENAME_PREFIX}{size_code}-seg{rfcls.WEIGHT_EXT}"
+            _CLI_NAME_TO_WEIGHTS[cli_name] = weight_name
 
 
 def get_all_cli_names() -> list[str]:
@@ -332,9 +336,8 @@ def _build_rfdetr_train_kwargs(
 ) -> dict[str, Any]:
     """Build RF-DETR kwargs from resolved family-aware CLI params.
 
-    RF-DETR uses a different training API than the YOLO-family wrappers. The CLI
-    translates only the parameters it intentionally supports; unsupported YOLO
-    family options stay out of the upstream adapter call.
+    RF-DETR uses a different training signature than the YOLO-family wrappers.
+    The CLI translates only the parameters it intentionally supports.
     """
     from libreyolo.utils.general import increment_path
 
@@ -348,17 +351,25 @@ def _build_rfdetr_train_kwargs(
 
     direct_mappings = {
         "epochs": "epochs",
-        "batch": "batch_size",
-        "lr0": "lr",
+        "batch": "batch",
+        "lr0": "lr0",
         "workers": "num_workers",
         "weight_decay": "weight_decay",
         "eval_interval": "eval_interval",
         "warmup_epochs": "warmup_epochs",
+        "warmup_lr_start": "warmup_lr_start",
+        "min_lr_ratio": "min_lr_ratio",
+        "no_aug_epochs": "no_aug_epochs",
+        "scheduler": "scheduler",
+        "lr_drop": "lr_drop",
         "ema": "use_ema",
         "ema_decay": "ema_decay",
         "save_period": "checkpoint_interval",
         "seed": "seed",
         "device": "device",
+        "flip_prob": "flip_prob",
+        "amp": "amp",
+        "log_interval": "log_interval",
     }
 
     for cli_name, target_name in direct_mappings.items():
@@ -366,6 +377,9 @@ def _build_rfdetr_train_kwargs(
             kwargs[target_name] = params[cli_name]
 
     provided = user_provided or set()
+    if "imgsz" in provided and params.get("imgsz") is not None:
+        kwargs["imgsz"] = params["imgsz"]
+
     if "patience" in params:
         kwargs["early_stopping"] = params["patience"] > 0
         kwargs["early_stopping_patience"] = params["patience"]

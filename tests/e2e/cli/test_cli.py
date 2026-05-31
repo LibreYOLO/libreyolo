@@ -12,6 +12,8 @@ from typer.testing import CliRunner
 
 from libreyolo.cli.parsing import KeyValueCommand
 
+from ..conftest import requires_rfdetr
+
 pytestmark = pytest.mark.e2e
 
 runner = CliRunner()
@@ -446,6 +448,7 @@ class TestVal:
         assert "mAP50" in data["metrics"]
 
     @pytest.mark.yolo9
+    @pytest.mark.flagship_nightly
     def test_val_yolo9(self, app):
         """YOLOv9 validation through CLI."""
         result = runner.invoke(
@@ -487,7 +490,6 @@ class TestVal:
 # =========================================================================
 
 
-@pytest.mark.yolo9
 class TestPredictMultiFamily:
     """Test predict across model families to verify factory routing."""
 
@@ -495,6 +497,8 @@ class TestPredictMultiFamily:
     def app(self):
         return _build_app()
 
+    @pytest.mark.yolo9
+    @pytest.mark.flagship_nightly
     def test_predict_yolo9(self, app):
         """YOLO9 model loads and produces detections through the same CLI."""
         result = runner.invoke(
@@ -509,6 +513,26 @@ class TestPredictMultiFamily:
         assert result.exit_code == 0
         data = _parse_json_output(result.output)
         assert data["model_family"] == "yolo9"
+        assert len(data["results"]) == 1
+        assert len(data["results"][0]["detections"]) > 0
+
+    @requires_rfdetr
+    @pytest.mark.rfdetr
+    @pytest.mark.flagship_nightly
+    def test_predict_rfdetr(self, app):
+        """RF-DETR model loads and produces detections through the same CLI."""
+        result = runner.invoke(
+            app,
+            [
+                "predict",
+                "source=libreyolo/assets/parkour.jpg",
+                "model=rfdetr-n",
+                "--json",
+            ],
+        )
+        assert result.exit_code == 0
+        data = _parse_json_output(result.output)
+        assert data["model_family"] == "rfdetr"
         assert len(data["results"]) == 1
         assert len(data["results"][0]["detections"]) > 0
 
@@ -539,6 +563,7 @@ class TestTrainDryRun:
         assert cfg["scheduler"] == "yoloxwarmcos"
 
     @pytest.mark.yolo9
+    @pytest.mark.flagship_nightly
     def test_yolo9_defaults(self, app):
         result = runner.invoke(
             app,

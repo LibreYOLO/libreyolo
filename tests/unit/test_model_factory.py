@@ -6,6 +6,7 @@ import pytest
 from libreyolo import LibreYOLO
 from libreyolo.models import _needs_rfdetr_registration
 from libreyolo.models.yolo9.nn import LibreYOLO9Model
+from libreyolo.utils.serialization import wrap_libreyolo_checkpoint
 
 pytestmark = pytest.mark.unit
 
@@ -42,13 +43,15 @@ def test_factory_loads_yolo9_t_metadata_checkpoint_with_coco_class_width(tmp_pat
 
     ckpt_path = tmp_path / "yolo9_t_best.pt"
     torch.save(
-        {
-            "model": model.state_dict(),
-            "nc": 2,
-            "names": {0: "red", 1: "white"},
-            "model_family": "yolo9",
-            "size": "t",
-        },
+        wrap_libreyolo_checkpoint(
+            model.state_dict(),
+            model_family="yolo9",
+            size="t",
+            task="detect",
+            nc=2,
+            names={0: "red", 1: "white"},
+            imgsz=640,
+        ),
         ckpt_path,
     )
 
@@ -57,6 +60,37 @@ def test_factory_loads_yolo9_t_metadata_checkpoint_with_coco_class_width(tmp_pat
     assert loaded.nb_classes == 2
     assert loaded.names == {0: "red", 1: "white"}
     assert loaded.model.head.cv3[0][0].conv.weight.shape[0] == 80
+
+
+def test_factory_warns_for_legacy_libreyolo_metadata_checkpoint(tmp_path, caplog):
+    model = LibreYOLO9Model(config="t", nb_classes=80)
+    ckpt_path = tmp_path / "LibreYOLO9t.pt"
+    torch.save(
+        {
+            "model": model.state_dict(),
+            "nc": 80,
+            "names": {i: f"class_{i}" for i in range(80)},
+            "model_family": "yolo9",
+            "size": "t",
+        },
+        ckpt_path,
+    )
+
+    loaded = LibreYOLO(str(ckpt_path), size="t", device="cpu")
+
+    assert loaded.nb_classes == 80
+    assert "legacy compatibility path" in caplog.text
+
+
+def test_factory_warns_for_foreign_metadata_less_checkpoint(tmp_path, caplog):
+    model = LibreYOLO9Model(config="t", nb_classes=80)
+    ckpt_path = tmp_path / "upstream_yolo9.pt"
+    torch.save(model.state_dict(), ckpt_path)
+
+    loaded = LibreYOLO(str(ckpt_path), size="t", device="cpu")
+
+    assert loaded.FAMILY == "yolo9"
+    assert "LibreYOLO metadata was not found" in caplog.text
 
 
 def test_factory_rejects_unsupported_explicit_task_from_filename():

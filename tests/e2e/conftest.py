@@ -3,11 +3,14 @@
 import gc
 import multiprocessing
 import os
+import re
 from functools import lru_cache
 from pathlib import Path
 
 import pytest
 import torch
+
+from tests.e2e.nightly_contract import nightly_summary_line
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _FAIL_ON_NIGHTLY_SKIP_ENV = "LIBREYOLO_FAIL_ON_NIGHTLY_SKIP"
@@ -25,35 +28,6 @@ def _repo_python_env() -> dict[str, str]:
     return env
 
 
-def _has_nightly_marker(item) -> bool:
-    return any(
-        item.get_closest_marker(marker) is not None for marker in _NIGHTLY_MARKERS
-    )
-
-
-@pytest.hookimpl(hookwrapper=True)
-def pytest_runtest_makereport(item, call):
-    """Turn selected nightly skips into failures when the Make targets request it."""
-    outcome = yield
-    report = outcome.get_result()
-    if os.environ.get(_FAIL_ON_NIGHTLY_SKIP_ENV, "").lower() not in {
-        "1",
-        "true",
-        "yes",
-    }:
-        return
-    if report.when != "call" or report.outcome != "skipped":
-        return
-    if not _has_nightly_marker(item):
-        return
-
-    reason = str(report.longrepr)
-    report.outcome = "failed"
-    report.longrepr = (
-        f"Nightly-selected tests must execute, not skip.\nOriginal skip: {reason}"
-    )
-
-
 # ---------------------------------------------------------------------------
 # Force 'spawn' multiprocessing to prevent CUDA + fork segfaults.
 #
@@ -68,56 +42,44 @@ def pytest_runtest_makereport(item, call):
 multiprocessing.set_start_method("spawn", force=True)
 
 
-def pytest_configure(config):
-    """Register custom markers (e2e marker registered in root conftest)."""
-    config.addinivalue_line(
-        "markers", "general_nightly: broad nightly inference contract"
+def _marker_expr_selects_nightly(marker_expr: str) -> bool:
+    tokens = re.findall(r"\bnot\b|\b[A-Za-z_][A-Za-z0-9_]*\b", marker_expr)
+    for index, token in enumerate(tokens):
+        if token in _NIGHTLY_MARKERS and (index == 0 or tokens[index - 1] != "not"):
+            return True
+    return False
+
+
+def pytest_report_header(config):
+    """Print the versioned nightly contract when a nightly marker is selected."""
+    marker_expr = getattr(config.option, "markexpr", "") or ""
+    if _marker_expr_selects_nightly(marker_expr):
+        return nightly_summary_line()
+    return None
+
+
+@pytest.hookimpl(hookwrapper=True)
+def pytest_runtest_makereport(item, call):
+    """Turn selected nightly skips into failures when the Make targets request it."""
+    outcome = yield
+    report = outcome.get_result()
+    if os.environ.get(_FAIL_ON_NIGHTLY_SKIP_ENV, "").lower() not in {
+        "1",
+        "true",
+        "yes",
+    }:
+        return
+    if report.outcome != "skipped":
+        return
+    if not any(item.get_closest_marker(marker) for marker in _NIGHTLY_MARKERS):
+        return
+
+    reason = str(report.longrepr)
+    report.outcome = "failed"
+    # Pytest accepts a string longrepr here; keep the CI failure compact.
+    report.longrepr = (
+        f"Nightly-selected tests must execute, not skip.\nOriginal skip: {reason}"
     )
-    config.addinivalue_line(
-        "markers", "flagship_nightly: focused nightly flagship model contract"
-    )
-    config.addinivalue_line(
-        "markers",
-        "export_backend: tests covering an export backend or serialized runtime format",
-    )
-    config.addinivalue_line(
-        "markers",
-        "supported_backend: tests covering a release-blocking supported backend",
-    )
-    config.addinivalue_line(
-        "markers", "experimental_backend: tests covering an experimental backend"
-    )
-    config.addinivalue_line("markers", "onnx: tests covering ONNX export or inference")
-    config.addinivalue_line(
-        "markers", "torchscript: tests covering TorchScript export or inference"
-    )
-    config.addinivalue_line("markers", "tensorrt: tests requiring TensorRT")
-    config.addinivalue_line(
-        "markers", "trt: alias for TensorRT tests requiring TensorRT"
-    )
-    config.addinivalue_line("markers", "openvino: tests requiring OpenVINO")
-    config.addinivalue_line("markers", "ncnn: tests requiring ncnn")
-    config.addinivalue_line("markers", "yolox: tests covering the YOLOX model family")
-    config.addinivalue_line("markers", "yolo9: tests covering the YOLO9 model family")
-    config.addinivalue_line(
-        "markers", "yolo9_e2e: tests covering the YOLOv9-E2E model family"
-    )
-    config.addinivalue_line(
-        "markers", "yolonas: tests covering the YOLO-NAS model family"
-    )
-    config.addinivalue_line(
-        "markers", "rfdetr: tests covering the RF-DETR model family"
-    )
-    config.addinivalue_line("markers", "dfine: tests covering the D-FINE model family")
-    config.addinivalue_line("markers", "deim: tests covering the DEIM model family")
-    config.addinivalue_line("markers", "deimv2: tests covering the DEIMv2 model family")
-    config.addinivalue_line("markers", "ecdet: tests covering the ECDET model family")
-    config.addinivalue_line(
-        "markers", "rtdetr: tests covering the RT-DETR model family"
-    )
-    config.addinivalue_line("markers", "slow: slow tests that may take several minutes")
-    config.addinivalue_line("markers", "rf1: RF1 training tests")
-    config.addinivalue_line("markers", "rf5: RF5 training benchmark tests")
 
 
 # ---------------------------------------------------------------------------
@@ -164,9 +126,9 @@ def has_ncnn():
 
 
 def has_rfdetr_deps():
-    """Check if RF-DETR dependencies are installed."""
+    """Check if native RF-DETR dependencies are installed."""
     try:
-        from libreyolo.models.rfdetr.model import LibreYOLORFDETR  # noqa: F401
+        from libreyolo.models.rfdetr.model import LibreRFDETR  # noqa: F401
 
         return True
     except Exception:
@@ -193,7 +155,7 @@ requires_ncnn = pytest.mark.skipif(
 
 requires_rfdetr = pytest.mark.skipif(
     not has_rfdetr_deps(),
-    reason="RF-DETR dependencies not installed (pip install libreyolo[rfdetr])",
+    reason="native RF-DETR dependencies not installed (pip install libreyolo[rfdetr])",
 )
 
 
@@ -492,18 +454,47 @@ MODEL_CATALOG = [
     ("deimv2", "m", "LibreDEIMv2m.pt"),
     ("deimv2", "l", "LibreDEIMv2l.pt"),
     ("deimv2", "x", "LibreDEIMv2x.pt"),
-    ("ecdet", "s", "LibreECDETs.pt"),
-    ("ecdet", "m", "LibreECDETm.pt"),
-    ("ecdet", "l", "LibreECDETl.pt"),
-    ("ecdet", "x", "LibreECDETx.pt"),
+    ("ec", "s", "LibreECs.pt"),
+    ("ec", "m", "LibreECm.pt"),
+    ("ec", "l", "LibreECl.pt"),
+    ("ec", "x", "LibreECx.pt"),
     ("rtdetr", "r18", "LibreRTDETRr18.pt"),
     ("rtdetr", "r34", "LibreRTDETRr34.pt"),
     ("rtdetr", "r50", "LibreRTDETRr50.pt"),
     ("rtdetr", "r50m", "LibreRTDETRr50m.pt"),
     ("rtdetr", "r101", "LibreRTDETRr101.pt"),
+    ("rtdetrv2", "r18", "weights/LibreRTDETRv2r18.pt"),
+    ("rtdetrv4", "s", "weights/LibreRTDETRv4s.pt"),
     ("picodet", "s", "LibrePICODETs.pt"),
     ("picodet", "m", "LibrePICODETm.pt"),
     ("picodet", "l", "LibrePICODETl.pt"),
+    ("damoyolo", "t", "LibreDAMOYOLOt.pt"),
+    ("damoyolo", "s", "LibreDAMOYOLOs.pt"),
+    ("damoyolo", "m", "LibreDAMOYOLOm.pt"),
+]
+
+FLAGSHIP_FAMILIES = {"yolo9", "rfdetr"}
+
+# One smallest inference case per public family. Keep this separate from
+# MODEL_CATALOG: that catalog feeds validation/training tests, while this one is
+# the general nightly contract that every family can load and run inference.
+GENERAL_NIGHTLY_INFERENCE_MODELS = [
+    ("yolox", "n", "LibreYOLOXn.pt"),
+    ("yolo9", "t", "LibreYOLO9t.pt"),
+    ("yolo9_e2e", "t", "LibreYOLO9E2Et.pt"),
+    ("yolonas", "s", "downloads/yolonas/yolo_nas_s_coco.pth"),
+    ("rfdetr", "n", "LibreRFDETRn.pt"),
+    ("dfine", "n", "LibreDFINEn.pt"),
+    ("deim", "n", "weights/LibreDEIMn.pt"),
+    ("deimv2", "atto", "LibreDEIMv2atto.pt"),
+    ("ec", "s", "LibreECs.pt"),
+    ("rtdetr", "r18", "LibreRTDETRr18.pt"),
+    ("rtdetrv2", "r18", "weights/LibreRTDETRv2r18.pt"),
+    ("rtdetrv4", "s", "weights/LibreRTDETRv4s.pt"),
+    ("picodet", "s", "LibrePICODETs.pt"),
+    ("damoyolo", "t", "LibreDAMOYOLOt.pt"),
+    ("rtmdet", "t", "LibreRTMDett.pt"),
+    ("l2cs", "r50", "LibreL2CSr50.pt"),
 ]
 
 # Derived lists (no manual maintenance)
@@ -515,27 +506,16 @@ RFDETR_SIZES = [s for f, s, _ in MODEL_CATALOG if f == "rfdetr"]
 DFINE_SIZES = [s for f, s, _ in MODEL_CATALOG if f == "dfine"]
 DEIM_SIZES = [s for f, s, _ in MODEL_CATALOG if f == "deim"]
 DEIMV2_SIZES = [s for f, s, _ in MODEL_CATALOG if f == "deimv2"]
-ECDET_SIZES = [s for f, s, _ in MODEL_CATALOG if f == "ecdet"]
+EC_SIZES = [s for f, s, _ in MODEL_CATALOG if f == "ec"]
 RTDETR_SIZES = [s for f, s, _ in MODEL_CATALOG if f == "rtdetr"]
+RTDETRV2_SIZES = [s for f, s, _ in MODEL_CATALOG if f == "rtdetrv2"]
+RTDETRV4_SIZES = [s for f, s, _ in MODEL_CATALOG if f == "rtdetrv4"]
 PICODET_SIZES = [s for f, s, _ in MODEL_CATALOG if f == "picodet"]
+DAMOYOLO_SIZES = [s for f, s, _ in MODEL_CATALOG if f == "damoyolo"]
 
 ALL_MODELS = [(f, s) for f, s, _ in MODEL_CATALOG]
 ALL_MODELS_WITH_WEIGHTS = MODEL_CATALOG
 NON_RFDETR_MODELS = [(f, s) for f, s, _ in MODEL_CATALOG if f != "rfdetr"]
-FLAGSHIP_NIGHTLY_TRAINING_MODELS = {
-    ("yolo9", "t"),
-    ("rfdetr", "n"),
-}
-GENERAL_NIGHTLY_INFERENCE_MODELS = [
-    ("yolo9", "t", "LibreYOLO9t.pt"),
-    ("yolo9", "s", "LibreYOLO9s.pt"),
-    ("yolo9", "m", "LibreYOLO9m.pt"),
-    ("yolo9", "c", "LibreYOLO9c.pt"),
-    ("rfdetr", "n", "LibreRFDETRn.pt"),
-    ("rfdetr", "s", "LibreRFDETRs.pt"),
-    ("rfdetr", "m", "LibreRFDETRm.pt"),
-    ("rfdetr", "l", "LibreRFDETRl.pt"),
-]
 
 # Quick test set (for CI — smallest auto-available models only)
 QUICK_TEST_MODELS = [("yolox", "n"), ("yolo9", "t"), ("rtdetr", "r18")]
@@ -558,9 +538,14 @@ FAMILY_MARKERS = {
     "dfine": pytest.mark.dfine,
     "deim": pytest.mark.deim,
     "deimv2": pytest.mark.deimv2,
-    "ecdet": pytest.mark.ecdet,
+    "ec": pytest.mark.ec,
     "rtdetr": pytest.mark.rtdetr,
+    "rtdetrv2": pytest.mark.rtdetrv2,
+    "rtdetrv4": pytest.mark.rtdetrv4,
     "picodet": pytest.mark.picodet,
+    "damoyolo": pytest.mark.damoyolo,
+    "rtmdet": pytest.mark.rtmdet,
+    "l2cs": pytest.mark.l2cs,
 }
 
 
@@ -576,6 +561,18 @@ def _normalize_marks(marks):
 def family_marks(family: str, marks=None):
     """Return pytest marks for a model family plus any extra marks."""
     return [FAMILY_MARKERS[family], *_normalize_marks(marks)]
+
+
+def flagship_nightly_marks(family: str, *_):
+    """Return the flagship nightly mark for YOLO9/RF-DETR parametrized cases."""
+    if family in FLAGSHIP_FAMILIES:
+        return pytest.mark.flagship_nightly
+    return None
+
+
+def general_nightly_marks(*_):
+    """Return the general nightly mark for broad inference parametrized cases."""
+    return pytest.mark.general_nightly
 
 
 def model_case(family: str, size: str, *, weights: str | None = None, marks=None):
@@ -596,30 +593,13 @@ def model_cases(models, *, with_weights: bool = False, marks_resolver=None):
     return params
 
 
-def flagship_training_nightly_marks(family: str, size: str, *_):
-    """Return the flagship nightly mark for the smallest training cases only."""
-    if (family, size) in FLAGSHIP_NIGHTLY_TRAINING_MODELS:
-        return pytest.mark.flagship_nightly
-    return None
-
-
-def general_nightly_marks(*_):
-    """Return the general nightly mark for focused inference cases."""
-    return pytest.mark.general_nightly
-
-
 QUICK_TEST_PARAMS = model_cases(QUICK_TEST_MODELS)
 FULL_TEST_PARAMS = model_cases(FULL_TEST_MODELS)
 RFDETR_TEST_PARAMS = model_cases(RFDETR_TEST_MODELS)
-ALL_MODEL_WEIGHT_PARAMS = model_cases(ALL_MODELS_WITH_WEIGHTS, with_weights=True)
-NIGHTLY_TRAINING_WEIGHT_PARAMS = model_cases(
+ALL_MODEL_WEIGHT_PARAMS = model_cases(
     ALL_MODELS_WITH_WEIGHTS,
     with_weights=True,
-    marks_resolver=flagship_training_nightly_marks,
-)
-FLAGSHIP_NIGHTLY_LOAD_PARAMS = model_cases(
-    GENERAL_NIGHTLY_INFERENCE_MODELS,
-    with_weights=True,
+    marks_resolver=flagship_nightly_marks,
 )
 GENERAL_NIGHTLY_INFERENCE_PARAMS = model_cases(
     GENERAL_NIGHTLY_INFERENCE_MODELS,
@@ -645,11 +625,30 @@ def _detect_local_weights_family(weights: str) -> str:
     return model.FAMILY
 
 
+@lru_cache(maxsize=None)
+def _has_libreyolo_download_route(weights: str) -> bool:
+    """Return whether a missing test weight has a canonical LibreYOLO HF route."""
+    import libreyolo.models  # noqa: F401  (import registers model families)
+    from libreyolo.models.base.model import BaseModel
+
+    filename = Path(weights).name
+    for cls in BaseModel._registry:
+        try:
+            url = cls.get_download_url(filename)
+        except Exception:
+            continue
+        if url and url.startswith("https://huggingface.co/LibreYOLO/"):
+            return True
+    return False
+
+
 def require_test_weights(weights: str, expected_family: str | None = None) -> str:
     """Skip cleanly if a test depends on missing or obviously wrong local weights."""
     path = Path(weights)
     if path.parent != Path("."):
         if not path.exists():
+            if _has_libreyolo_download_route(weights):
+                return weights
             pytest.skip(f"Required local weights not found: {weights}")
         if expected_family is not None:
             try:

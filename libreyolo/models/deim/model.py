@@ -8,6 +8,7 @@ from typing import Any, Dict, Optional, Tuple
 
 import torch
 import torch.nn as nn
+from libreyolo.training.ddp_spawn import ddp_aware
 
 from ...utils.image_loader import ImageInput
 from ...training.config import DEIMConfig
@@ -30,6 +31,7 @@ class LibreDEIM(BaseModel):
     INPUT_SIZES = {"n": 640, "s": 640, "m": 640, "l": 640, "x": 640}
     TRAIN_CONFIG = DEIMConfig
     val_preprocessor_class = DEIMValPreprocessor
+    TTA_FIXED_SIZE = True  # resizes to a fixed square; multi-scale TTA is a no-op
 
     @classmethod
     def can_load(cls, weights_dict: dict) -> bool:
@@ -175,6 +177,7 @@ class LibreDEIM(BaseModel):
         # regenerated at forward time from eval_spatial_size. Tolerate drift.
         return False
 
+    @ddp_aware()
     def train(
         self,
         data: str,
@@ -226,7 +229,7 @@ class LibreDEIM(BaseModel):
             random.seed(seed)
             np.random.seed(seed)
             torch.manual_seed(seed)
-            if torch.cuda.is_available():
+            if str(device).lower() not in ("cpu", "mps") and torch.cuda.is_available():
                 torch.cuda.manual_seed_all(seed)
 
         trainer = DEIMTrainer(

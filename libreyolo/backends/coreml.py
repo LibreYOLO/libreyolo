@@ -7,6 +7,7 @@ rest of LibreYOLO (Results, drawing, etc.) sees the same interface.
 
 from __future__ import annotations
 
+import ast
 import json
 import logging
 import sys
@@ -17,8 +18,10 @@ import numpy as np
 import torch
 from PIL import Image
 
+from ..tasks import normalize_supported_tasks, normalize_task, resolve_task
 from ..utils.general import COCO_CLASSES
 from ..utils.image_loader import ImageLoader
+from ..utils.serialization import warn_on_metadata_schema_version
 from .base import BaseBackend
 
 logger = logging.getLogger(__name__)
@@ -41,6 +44,19 @@ def _to_compute_unit(compute_units: str):
             f"Must be one of: {sorted(mapping)}"
         )
     return mapping[key]
+
+
+def _normalize_metadata_supported_tasks(value) -> tuple[str, ...]:
+    try:
+        return normalize_supported_tasks(value)
+    except ValueError:
+        if isinstance(value, str):
+            try:
+                parsed = ast.literal_eval(value)
+            except (SyntaxError, ValueError):
+                raise
+            return normalize_supported_tasks(parsed)
+        raise
 
 
 class CoreMLBackend(BaseBackend):
@@ -89,10 +105,30 @@ class CoreMLBackend(BaseBackend):
             if self.model.user_defined_metadata
             else {}
         )
-        model_family, names, imgsz, has_embedded_nms = self._parse_metadata(
+        warn_on_metadata_schema_version(
+            meta,
+            artifact=f"CoreML metadata for {path}",
+            logger=logger,
+        )
+        (
+            model_family,
+            model_size,
+            metadata_task,
+            supported_tasks,
+            default_task,
+            names,
+            imgsz,
+            has_embedded_nms,
+        ) = self._parse_metadata(
             meta,
             nb_classes,
             output_names=self.output_names,
+        )
+        resolved_task = resolve_task(
+            explicit_task=task,
+            checkpoint_task=metadata_task,
+            default_task=default_task,
+            supported_tasks=supported_tasks,
         )
 
         self._has_embedded_nms = has_embedded_nms
@@ -104,7 +140,10 @@ class CoreMLBackend(BaseBackend):
             imgsz=imgsz,
             model_family=model_family,
             names=names if names else self.build_names(nb_classes),
-            task=task,
+            model_size=model_size,
+            task=resolved_task,
+            supported_tasks=supported_tasks,
+            default_task=default_task,
         )
 
     @staticmethod
@@ -115,6 +154,12 @@ class CoreMLBackend(BaseBackend):
         output_names: list[str] | None = None,
     ):
         model_family: Optional[str] = meta.get("model_family") or None
+        model_size: Optional[str] = meta.get("model_size") or meta.get("size") or None
+        default_task = normalize_task(meta.get("default_task"), default="detect")
+        metadata_task = normalize_task(meta.get("task"), default=default_task)
+        supported_tasks = _normalize_metadata_supported_tasks(
+            meta.get("supported_tasks", (metadata_task,))
+        )
         names: Optional[dict] = None
         imgsz = 640
         has_embedded_nms = False
@@ -126,9 +171,9 @@ class CoreMLBackend(BaseBackend):
             except (ValueError, TypeError) as e:
                 logger.warning("Failed to parse names metadata: %s", e)
 
-        if names is None and meta.get("nb_classes"):
+        if names is None and (meta.get("nb_classes") or meta.get("nc")):
             try:
-                nc = int(meta["nb_classes"])
+                nc = int(meta.get("nb_classes", meta.get("nc")))
                 names = (
                     {i: n for i, n in enumerate(COCO_CLASSES)}
                     if nc == 80
@@ -150,7 +195,16 @@ class CoreMLBackend(BaseBackend):
                 "coordinates",
             }
 
-        return model_family, names, imgsz, has_embedded_nms
+        return (
+            model_family,
+            model_size,
+            metadata_task,
+            supported_tasks,
+            default_task,
+            names,
+            imgsz,
+            has_embedded_nms,
+        )
 
     def _parse_outputs(
         self,

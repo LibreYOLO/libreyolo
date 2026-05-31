@@ -77,7 +77,71 @@ DINOv2 (Meta AI / facebookresearch)
 Source: https://github.com/facebookresearch/dinov2
 License: Apache License 2.0
 Copyright (c) Meta Platforms, Inc. and affiliates.
-Used for: vision transformer backbone consumed by RF-DETR.
+Used for: vision transformer backbone consumed by RF-DETR. The local
+          DINOv2 implementation lives at libreyolo/models/rfdetr/dinov2.py.
+
+--------------------------------------------------------------------
+HuggingFace Transformers
+--------------------------------------------------------------------
+Source: https://github.com/huggingface/transformers
+License: Apache License 2.0
+Copyright 2022-2024 The HuggingFace Team. All Rights Reserved.
+Used for: DINOv2-with-Registers reference implementation that
+          libreyolo/models/rfdetr/dinov2.py adapts to add windowed
+          self-attention. Also a runtime dependency loaded via
+          AutoBackbone for the non-windowed DinoV2 path.
+
+--------------------------------------------------------------------
+LW-DETR (Atten4Vis / Baidu)
+--------------------------------------------------------------------
+Source: https://github.com/Atten4Vis/LW-DETR
+License: Apache License 2.0
+Copyright (c) 2024 Baidu. All Rights Reserved.
+Used for: backbone, transformer, matcher, loss, postprocess, and
+          tensor utilities consumed by RF-DETR
+          (libreyolo/models/rfdetr/{backbone,transformer,matcher,
+          loss,lwdetr,tensors,box_ops}.py).
+
+--------------------------------------------------------------------
+Conditional DETR (Atten4Vis / Microsoft)
+--------------------------------------------------------------------
+Source: https://github.com/Atten4Vis/ConditionalDETR
+License: Apache License 2.0
+Copyright (c) 2021 Microsoft. All Rights Reserved.
+Used for: position-encoding, transformer, matcher, and loss
+          building blocks reused by RF-DETR via LW-DETR
+          (libreyolo/models/rfdetr/{backbone,transformer,matcher,
+          loss,lwdetr,box_ops}.py).
+
+--------------------------------------------------------------------
+DETR (facebookresearch / Meta)
+--------------------------------------------------------------------
+Source: https://github.com/facebookresearch/detr
+License: Apache License 2.0
+Copyright (c) Facebook, Inc. and its affiliates.
+Used for: NestedTensor, position-encoding, matcher, set-criterion,
+          and box utilities reused by RF-DETR via LW-DETR
+          (libreyolo/models/rfdetr/{backbone,transformer,matcher,
+          loss,lwdetr,tensors,box_ops}.py).
+
+--------------------------------------------------------------------
+Deformable DETR (fundamentalvision / SenseTime)
+--------------------------------------------------------------------
+Source: https://github.com/fundamentalvision/Deformable-DETR
+License: Apache License 2.0
+Copyright (c) 2020 SenseTime. All Rights Reserved.
+Used for: multi-scale deformable attention reused by RF-DETR
+          (libreyolo/models/rfdetr/transformer.py: MSDeformAttn,
+          ms_deform_attn_core_pytorch).
+
+--------------------------------------------------------------------
+ViTDet (facebookresearch detectron2)
+--------------------------------------------------------------------
+Source: https://github.com/facebookresearch/detectron2/tree/main/projects/ViTDet
+License: Apache License 2.0
+Copyright (c) Facebook, Inc. and its affiliates.
+Used for: MultiScaleProjector / SimpleProjector primitives reused by
+          RF-DETR (libreyolo/models/rfdetr/backbone.py).
 
 --------------------------------------------------------------------
 PaddleClas (PaddlePaddle)
@@ -95,3 +159,54 @@ Apache License 2.0 (full text)
 The full text of the Apache License, Version 2.0 is available at
 https://www.apache.org/licenses/LICENSE-2.0 and applies to the
 Apache-2.0 upstreams listed above.
+
+--------------------------------------------------------------------
+L2CS-Net
+--------------------------------------------------------------------
+Source: https://github.com/Ahmednull/L2CS-Net
+License: MIT
+Copyright (c) 2022 Ahmed Abdelrahman
+Citation: Abdelrahman, A. A., Hempel, T., Khalifa, A., Al-Hamadi, A.,
+          and Dinges, L. "L2CS-Net: Fine-Grained Gaze Estimation in
+          Unconstrained Environments." IEEE International Conference
+          on Image Processing (ICIP), 2022.
+Used for: L2CS gaze estimation network (libreyolo/models/l2cs/nn.py),
+          bin-expectation angle decoding and crop preprocessing
+          (libreyolo/models/l2cs/utils.py), and gaze arrow visualization
+          (libreyolo/utils/drawing.py:draw_gaze_arrows).
+
+NOTE — code vs. weights: The MIT license below covers the L2CS-Net
+*source code*, which is what libreyolo/models/l2cs/ is ported from.
+It does NOT cover the pretrained weights. The published L2CS gaze
+checkpoints (e.g. L2CSNet_gaze360.pkl) are trained on the Gaze360
+dataset and are bound by the Gaze360 dataset license — research /
+non-commercial use only, no redistribution:
+  https://github.com/erkil1452/gaze360/blob/master/LICENSE.md
+LibreYOLO therefore does NOT bundle, mirror, or auto-download L2CS
+weights. Users obtain them from the official L2CS-Net distribution and
+are responsible for complying with the Gaze360 license. Required
+dataset citation: Kellnhofer, Recasens, Stent, Matusik, Torralba,
+"Gaze360: Physically Unconstrained Gaze Estimation in the Wild",
+ICCV 2019.
+
+MIT License
+
+Copyright (c) 2022 Ahmed Abdelrahman
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.

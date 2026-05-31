@@ -1,5 +1,5 @@
 """
-YOLOCocoAPI - COCO-compatible evaluation interface for YOLO-format datasets.
+YOLOCocoAPI - COCO-compatible evaluation interface for YOLO text-label datasets.
 
 Ported from RF-DETR to enable COCO evaluation on YOLO format datasets.
 This provides the pycocotools-compatible interface needed for standard COCO metrics.
@@ -16,7 +16,7 @@ from typing import List, Optional, Tuple
 import numpy as np
 from PIL import Image
 
-from .utils import polygon_to_cxcywh
+from .utils import img2label_paths, polygon_to_cxcywh
 
 logger = logging.getLogger(__name__)
 
@@ -119,13 +119,13 @@ def parse_yolo_label_line(
 
 class YOLOCocoAPI:
     """
-    Minimal COCO-compatible API for YOLO-format datasets.
+    Minimal COCO-compatible API for YOLO text-label datasets.
 
     Provides the interface needed by pycocotools.cocoeval.COCOeval for
     evaluating predictions on YOLO format datasets.
 
     This enables using COCO evaluation metrics (AP, AR, AP50, AP75, etc.)
-    on datasets in YOLO format without converting to COCO JSON.
+    on YOLO-format datasets without converting to COCO JSON.
 
     Example:
         >>> # For validation dataset
@@ -176,10 +176,7 @@ class YOLOCocoAPI:
             elif self.labels_dir is not None:
                 label_files = [self.labels_dir / f"{p.stem}.txt" for p in image_files]
             else:
-                label_files = [
-                    Path(str(p).replace("/images/", "/labels/")).with_suffix(".txt")
-                    for p in image_files
-                ]
+                label_files = img2label_paths(image_files)
         else:
             if self.images_dir is None:
                 raise ValueError("images_dir or image_files must be provided")
@@ -198,7 +195,7 @@ class YOLOCocoAPI:
                 image_files.extend(list(self.images_dir.glob(ext)))
                 image_files.extend(list(self.images_dir.glob(ext.upper())))
 
-            image_files = sorted(image_files)
+            image_files = sorted(set(image_files))
             if self.labels_dir is None:
                 raise ValueError("labels_dir must be provided when image_files is omitted")
             label_files = [self.labels_dir / f"{p.stem}.txt" for p in image_files]
@@ -493,6 +490,17 @@ def create_yolo_coco_api(
 
     # Get split paths
     split_key = split.split("_")[0]  # Handle 'val_speed' etc.
+    img_files = data.get(f"{split_key}_img_files")
+    if img_files:
+        return YOLOCocoAPI(
+            images_dir=None,
+            labels_dir=None,
+            class_names=class_names,
+            load_segments=load_segments,
+            image_files=img_files,
+            label_files=data.get(f"{split_key}_label_files"),
+        )
+
     images_subpath = data.get(split_key, f"images/{split_key}")
     images_dir = Path(images_subpath)
     if not images_dir.is_absolute():

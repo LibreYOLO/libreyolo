@@ -4,6 +4,7 @@ import logging
 import sys
 import time
 from abc import ABC, abstractmethod
+from contextlib import nullcontext
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Optional, TYPE_CHECKING
@@ -70,7 +71,10 @@ class BaseValidator(ABC):
             else:
                 device = torch.device("cpu")
         else:
-            device = torch.device(self.config.device)
+            device_str = str(self.config.device)
+            if device_str.isdigit():
+                device_str = f"cuda:{device_str}"
+            device = torch.device(device_str)
         return device
 
     def _setup(self, **kwargs) -> None:
@@ -104,6 +108,10 @@ class BaseValidator(ABC):
     def _run_validation(self) -> None:
         self.model.model.eval()
 
+        if self.config.augment:
+            self._run_validation_augmented()
+            return
+
         pbar = tqdm(
             self.dataloader,
             desc="Validating",
@@ -133,6 +141,10 @@ class BaseValidator(ABC):
 
         self.speed["total"] = time.time() - total_start
 
+    def _run_validation_augmented(self) -> None:
+        """TTA validation — subclasses override to call model._predict_augment per image."""
+        raise NotImplementedError
+
     def _finalize(self) -> Dict[str, float]:
         metrics = self._compute_metrics()
 
@@ -158,9 +170,14 @@ class BaseValidator(ABC):
     def _inference(self, images: torch.Tensor) -> Any:
         """Run model inference on a batch of images (B, C, H, W)."""
         use_non_blocking = self.device.type == "cuda"
-        return self.model._forward(
-            images.to(self.device, non_blocking=use_non_blocking)
-        )
+        images = images.to(self.device, non_blocking=use_non_blocking)
+        with self._autocast_context():
+            return self.model._forward(images)
+
+    def _autocast_context(self):
+        if self.config.half and self.device.type == "cuda":
+            return torch.amp.autocast("cuda")
+        return nullcontext()
 
     def _warmup_model(self, n_warmup: int = 3) -> None:
         """Run dummy inference passes to trigger JIT compilation and CUDA kernel caching."""
@@ -184,7 +201,8 @@ class BaseValidator(ABC):
         with torch.no_grad():
             for _ in range(n_warmup):
                 try:
-                    _ = self.model._forward(dummy_input)
+                    with self._autocast_context():
+                        _ = self.model._forward(dummy_input)
                 except Exception as e:
                     if self.config.verbose:
                         logger.warning("Warmup failed (non-fatal): %s", e)

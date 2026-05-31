@@ -21,6 +21,7 @@ from PIL import Image, UnidentifiedImageError
 from tqdm import tqdm
 
 from .utils import polygon_to_cxcywh
+from libreyolo.training.distributed import is_main_process
 
 logger = logging.getLogger(__name__)
 
@@ -35,17 +36,103 @@ def _yolo_coords_to_rings(
     return [ring]
 
 
-def _coco_segmentation_to_rings(segmentation) -> List[np.ndarray]:
-    """Convert COCO polygon segmentation to pixel-space rings."""
-    if not isinstance(segmentation, list):
+def _yolo_box_to_ring(cx: float, cy: float, w: float, h: float, width: int, height: int) -> List[np.ndarray]:
+    """Convert one normalized YOLO bbox row to a rectangular ring."""
+    x1 = (cx - w / 2) * width
+    y1 = (cy - h / 2) * height
+    x2 = (cx + w / 2) * width
+    y2 = (cy + h / 2) * height
+    ring = np.array(
+        [[x1, y1], [x2, y1], [x2, y2], [x1, y2]],
+        dtype=np.float32,
+    )
+    ring[:, 0] = np.clip(ring[:, 0], 0.0, float(width))
+    ring[:, 1] = np.clip(ring[:, 1], 0.0, float(height))
+    return [ring]
+
+
+class DenseMaskRing(np.ndarray):
+    """Polygon ring carrying a dense mask for mask-aware transforms.
+
+    Used when the polygon ring is a lossy approximation of the true mask
+    (e.g., a contour extracted from an RLE-decoded mask). For polygon-sourced
+    annotations the ring is itself exact, so a plain ndarray is stored instead
+    and consumers that need crop-fidelity materialize the mask on demand.
+    """
+
+    def __new__(cls, ring: np.ndarray, mask: np.ndarray):
+        obj = np.asarray(ring, dtype=np.float32).view(cls)
+        obj.dense_mask = np.ascontiguousarray(mask.astype(np.uint8))
+        return obj
+
+    def __array_finalize__(self, obj):
+        if obj is None:
+            return
+        self.dense_mask = getattr(obj, "dense_mask", None)
+
+    def copy(self, order="C"):
+        copied = super().copy(order).view(type(self))
+        copied.dense_mask = None if self.dense_mask is None else self.dense_mask.copy()
+        return copied
+
+
+def _mask_to_rings(mask: np.ndarray) -> List[np.ndarray]:
+    """Convert a binary mask to polygon rings using OpenCV contours."""
+    mask_u8 = np.ascontiguousarray(mask.astype(np.uint8))
+    contours, _ = cv2.findContours(mask_u8, cv2.RETR_CCOMP, cv2.CHAIN_APPROX_SIMPLE)
+    rings = []
+    for contour in contours:
+        ring = contour.reshape(-1, 2)
+        if ring.shape[0] >= 3:
+            rings.append(ring.astype(np.float32))
+    if rings or mask_u8.sum() == 0:
+        return rings
+
+    ys, xs = np.where(mask_u8 > 0)
+    x1, x2 = float(xs.min()), float(xs.max() + 1)
+    y1, y2 = float(ys.min()), float(ys.max() + 1)
+    return [
+        np.array(
+            [[x1, y1], [x2, y1], [x2, y2], [x1, y2]],
+            dtype=np.float32,
+        )
+    ]
+
+
+def _coco_segmentation_to_rings(
+    segmentation,
+    *,
+    height: int | None = None,
+    width: int | None = None,
+) -> List[np.ndarray]:
+    """Convert COCO polygon or RLE segmentation to pixel-space rings."""
+    if isinstance(segmentation, list):
+        rings = []
+        for polygon in segmentation:
+            if polygon is None or len(polygon) < 6:
+                continue
+            ring = np.array(polygon, dtype=np.float32).reshape(-1, 2)
+            rings.append(ring)
+        return rings
+
+    if not isinstance(segmentation, dict):
+        return []
+    try:
+        from pycocotools import mask as mask_utils
+    except ImportError:
         return []
 
-    rings = []
-    for polygon in segmentation:
-        if polygon is None or len(polygon) < 6:
-            continue
-        ring = np.array(polygon, dtype=np.float32).reshape(-1, 2)
-        rings.append(ring)
+    rle = segmentation
+    if isinstance(rle.get("counts"), list):
+        if height is None or width is None:
+            return []
+        rle = mask_utils.frPyObjects(rle, height, width)
+    decoded = mask_utils.decode(rle)
+    if decoded.ndim == 3:
+        decoded = decoded.any(axis=2)
+    rings = _mask_to_rings(decoded)
+    if rings:
+        rings[0] = DenseMaskRing(rings[0], decoded)
     return rings
 
 
@@ -123,7 +210,7 @@ class YOLODataset(Dataset):
             for ext in ["*.jpg", "*.jpeg", "*.png", "*.bmp"]:
                 self.img_files.extend(self.img_dir.glob(ext))
                 self.img_files.extend(self.img_dir.glob(ext.upper()))
-            self.img_files = sorted(self.img_files)
+            self.img_files = sorted(set(self.img_files))
 
             # Generate corresponding label file paths
             self.label_files = [
@@ -142,7 +229,9 @@ class YOLODataset(Dataset):
         """Load all annotations."""
         total = len(self.img_files)
         source = self._annotation_source()
-        logger.info("Loading %d YOLO annotations from %s...", total, source)
+        main = is_main_process()
+        if main:
+            logger.info("Loading %d YOLO annotations from %s...", total, source)
         start = time.perf_counter()
 
         pairs = list(zip(self.img_files, self.label_files))
@@ -152,6 +241,7 @@ class YOLODataset(Dataset):
             img_file, label_file = pair
             return self._load_label(label_file, img_file)
 
+        tqdm_disable = not (main and sys.stderr.isatty())
         if max_workers > 1:
             with ThreadPoolExecutor(max_workers=max_workers) as executor:
                 annotations = list(
@@ -160,7 +250,7 @@ class YOLODataset(Dataset):
                         total=total,
                         desc=f"Loading YOLO annotations ({source})",
                         file=sys.stderr,
-                        disable=not sys.stderr.isatty(),
+                        disable=tqdm_disable,
                     )
                 )
         else:
@@ -171,16 +261,17 @@ class YOLODataset(Dataset):
                     total=total,
                     desc=f"Loading YOLO annotations ({source})",
                     file=sys.stderr,
-                    disable=not sys.stderr.isatty(),
+                    disable=tqdm_disable,
                 )
             ]
 
-        logger.info(
-            "Loaded %d YOLO annotations from %s in %.2fs",
-            total,
-            source,
-            time.perf_counter() - start,
-        )
+        if main:
+            logger.info(
+                "Loaded %d YOLO annotations from %s in %.2fs",
+                total,
+                source,
+                time.perf_counter() - start,
+            )
         if self.load_segments:
             self.segments = [item[1] for item in annotations]
             annotations = [item[0] for item in annotations]
@@ -230,7 +321,7 @@ class YOLODataset(Dataset):
                         else:
                             cx, cy, w, h = map(float, parts[1:5])
                             if self.load_segments:
-                                segments.append([])
+                                segments.append(_yolo_box_to_ring(cx, cy, w, h, width, height))
 
                         # Convert normalized xywh to pixel xyxy
                         x1 = (cx - w / 2) * width
@@ -468,7 +559,11 @@ class COCODataset(Dataset):
                 objs.append(obj)
                 if self.load_segments:
                     segments.append(
-                        _coco_segmentation_to_rings(obj.get("segmentation", []))
+                        _coco_segmentation_to_rings(
+                            obj.get("segmentation", []),
+                            height=height,
+                            width=width,
+                        )
                     )
 
         num_objs = len(objs)
@@ -596,6 +691,10 @@ def yolox_collate_fn(batch):
     targets = torch.from_numpy(np.stack(targets))
 
     if has_segments:
+        if all(isinstance(s, np.ndarray) for s in segments):
+            return imgs, targets, img_infos, img_ids, torch.from_numpy(np.stack(segments))
+        if all(isinstance(s, torch.Tensor) for s in segments):
+            return imgs, targets, img_infos, img_ids, torch.stack(segments)
         return imgs, targets, img_infos, img_ids, list(segments)
     return imgs, targets, img_infos, img_ids
 
@@ -606,6 +705,7 @@ def create_dataloader(
     num_workers: int = 4,
     shuffle: bool = True,
     pin_memory: bool = True,
+    sampler=None,
 ):
     """
     Create a DataLoader for YOLOX training.
@@ -614,15 +714,25 @@ def create_dataloader(
         dataset: Dataset instance
         batch_size: Batch size
         num_workers: Number of worker processes
-        shuffle: Shuffle data
+        shuffle: Shuffle data (ignored when ``sampler`` is given — PyTorch
+            forbids passing both)
         pin_memory: Pin memory for faster GPU transfer
+        sampler: Optional sampler (e.g. ``DistributedSampler`` for DDP). When
+            provided, the sampler's own shuffling takes over and ``shuffle``
+            is forced to False to satisfy PyTorch's mutual-exclusion check.
     """
+    try:
+        visible_samples = len(sampler) if sampler is not None else len(dataset)
+    except TypeError:
+        visible_samples = len(dataset)
+    drop_last = visible_samples >= batch_size
     return DataLoader(
         dataset,
         batch_size=batch_size,
-        shuffle=shuffle,
+        shuffle=False if sampler is not None else shuffle,
+        sampler=sampler,
         num_workers=num_workers,
         pin_memory=pin_memory,
         collate_fn=yolox_collate_fn,
-        drop_last=True,
+        drop_last=drop_last,
     )

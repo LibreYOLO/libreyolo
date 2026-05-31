@@ -200,6 +200,23 @@ class TestYOLOCocoAPI:
         assert api.loadImgs([0])[0]["file_name"] == "b.jpg"
         assert api.loadImgs([1])[0]["file_name"] == "a.jpg"
 
+    def test_yolo_coco_api_infers_labels_from_image_files(self, tmp_path):
+        images_dir = tmp_path / "images" / "val"
+        labels_dir = tmp_path / "labels" / "val"
+        images_dir.mkdir(parents=True)
+        labels_dir.mkdir(parents=True)
+
+        from PIL import Image
+
+        image_path = images_dir / "img.jpg"
+        Image.new("RGB", (100, 100)).save(image_path)
+        (labels_dir / "img.txt").write_text("0 0.5 0.5 0.2 0.2\n")
+
+        api = YOLOCocoAPI(None, None, ["cat"], image_files=[image_path])
+
+        assert len(api.imgs) == 1
+        assert len(api.anns) == 1
+
     def test_yolo_coco_api_empty_segmentation_decodes_to_empty_mask(self, tmp_path):
         images_dir = tmp_path / "images"
         labels_dir = tmp_path / "labels"
@@ -298,6 +315,40 @@ class TestCreateYOLOCocoAPI:
         assert api is not None
         assert len(api.imgs) >= 0  # May have images
         assert len(api.cats) == 3  # Should have 3 classes
+
+    def test_create_yolo_coco_api_accepts_list_valued_splits(self, tmp_path):
+        """List-valued splits should use load_data_config's resolved file lists."""
+        from PIL import Image
+        import yaml
+
+        for split_name in ("val_a", "val_b"):
+            image_dir = tmp_path / "images" / split_name
+            label_dir = tmp_path / "labels" / split_name
+            image_dir.mkdir(parents=True)
+            label_dir.mkdir(parents=True)
+
+            Image.new("RGB", (100, 80)).save(image_dir / f"{split_name}.jpg")
+            (label_dir / f"{split_name}.txt").write_text("0 0.5 0.5 0.2 0.1\n")
+
+        yaml_path = tmp_path / "data.yaml"
+        with open(yaml_path, "w") as f:
+            yaml.dump(
+                {
+                    "path": str(tmp_path),
+                    "val": ["images/val_a", "images/val_b"],
+                    "names": ["cat"],
+                },
+                f,
+            )
+
+        api = create_yolo_coco_api(str(yaml_path), split="val")
+
+        assert len(api.imgs) == 2
+        assert {img["file_name"] for img in api.imgs.values()} == {
+            "val_a.jpg",
+            "val_b.jpg",
+        }
+        assert len(api.anns) == 2
 
 
 class TestCOCOEvaluatorIntegration:

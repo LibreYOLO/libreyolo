@@ -1,6 +1,8 @@
 """TensorRT inference backend for LibreYOLO."""
 
 import json
+import logging
+import re
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
@@ -8,7 +10,10 @@ import numpy as np
 import torch
 
 from ..tasks import normalize_supported_tasks, normalize_task, resolve_task
+from ..utils.serialization import warn_on_metadata_schema_version
 from .base import BaseBackend
+
+logger = logging.getLogger(__name__)
 
 
 class TensorRTBackend(BaseBackend):
@@ -55,12 +60,17 @@ class TensorRTBackend(BaseBackend):
         if sidecar_path.exists():
             with open(sidecar_path) as f:
                 self._metadata = json.load(f)
+        warn_on_metadata_schema_version(
+            self._metadata,
+            artifact=f"TensorRT metadata sidecar {sidecar_path}",
+            logger=logger,
+        )
 
         # Priority: explicit arg > sidecar > default (80)
         resolved_nb_classes = (
             nb_classes
             if nb_classes is not None
-            else self._metadata.get("nb_classes", 80)
+            else self._metadata.get("nb_classes", self._metadata.get("nc", 80))
         )
         model_family = self._metadata.get("model_family")
         default_task = normalize_task(self._metadata.get("default_task"), default="detect")
@@ -68,13 +78,7 @@ class TensorRTBackend(BaseBackend):
         supported_tasks = normalize_supported_tasks(
             self._metadata.get("supported_tasks", (metadata_task,))
         )
-        resolved_task = resolve_task(
-            explicit_task=task,
-            checkpoint_task=metadata_task,
-            default_task=default_task,
-            supported_tasks=supported_tasks,
-        )
-        self._sidecar_size = self._metadata.get("model_size")
+        self._sidecar_size = self._metadata.get("model_size") or self._metadata.get("size")
 
         sidecar_names = self._metadata.get("names")
         if sidecar_names is not None and nb_classes is None:
@@ -116,12 +120,25 @@ class TensorRTBackend(BaseBackend):
 
         imgsz = self.input_shape[2]  # (B, C, H, W); assumes square
         self._dynamic_batch = self.input_shape[0] == -1  # -1 = dynamic batch
-        self._max_batch = 1 if self._dynamic_batch else self.input_shape[0]
+        self._max_batch = self._detect_max_batch()
 
         self._allocate_buffers()
 
         if model_family is None:
             model_family = self._detect_model_family()
+        if not self._metadata:
+            inferred_task = self._detect_task_from_filename()
+            if inferred_task is not None:
+                metadata_task = inferred_task
+                default_task = inferred_task
+                supported_tasks = (inferred_task,)
+
+        resolved_task = resolve_task(
+            explicit_task=task,
+            checkpoint_task=metadata_task,
+            default_task=default_task,
+            supported_tasks=supported_tasks,
+        )
 
         super().__init__(
             model_path=engine_path,
@@ -161,6 +178,26 @@ class TensorRTBackend(BaseBackend):
             shape = _resolve_shape(self.output_shapes[name])
             size = int(np.prod(shape))
             self.outputs[name] = torch.zeros(size, dtype=torch.float32, device="cuda")
+
+    def _detect_max_batch(self) -> int:
+        """Return the largest batch size this engine can execute."""
+        if not self._dynamic_batch:
+            return int(self.input_shape[0])
+
+        try:
+            profile_shapes = self.engine.get_tensor_profile_shape(self.input_name, 0)
+            return int(profile_shapes[2][0])
+        except (AttributeError, IndexError, TypeError, ValueError):
+            pass
+
+        metadata_max = self._metadata.get("trt_max_batch")
+        if metadata_max is not None:
+            try:
+                return max(1, int(metadata_max))
+            except (TypeError, ValueError):
+                pass
+
+        return 1
 
     def _detect_model_family(self) -> Optional[str]:
         """Detect model family from output shapes when sidecar metadata is absent."""
@@ -203,6 +240,17 @@ class TensorRTBackend(BaseBackend):
             has_pred_boxes = any("pred_boxes" in n for n in self.output_names)
             if has_pred_logits and has_pred_boxes:
                 return "rtdetr"
+        return None
+
+    def _detect_task_from_filename(self) -> Optional[str]:
+        stem = Path(self.model_path).stem.lower()
+        if re.search(r"(?:^|[_-])(?:seg|segment)(?:[_-]|$)", stem):
+            return "segment"
+        if re.search(
+            r"(?:rfdetr|rf-detr)[_-]?(?:xx|2xl|xl|[nsmlx])[_-]?(?:seg|segment)",
+            stem,
+        ):
+            return "segment"
         return None
 
     def _infer(self, input_array: np.ndarray) -> Dict[str, np.ndarray]:
@@ -278,7 +326,14 @@ class TensorRTBackend(BaseBackend):
         together in a single forward pass. Otherwise falls back to sequential
         processing.
         """
-        can_batch = batch > 1 and (self._dynamic_batch or self._max_batch >= batch)
+        effective_batch = batch
+        if self._dynamic_batch:
+            effective_batch = min(batch, self._max_batch)
+
+        can_batch = batch > 1 and (
+            (self._dynamic_batch and effective_batch > 1)
+            or (not self._dynamic_batch and self._max_batch >= batch)
+        )
         if not can_batch:
             return super()._process_in_batches(
                 image_paths,
@@ -296,8 +351,8 @@ class TensorRTBackend(BaseBackend):
         effective_imgsz = imgsz if imgsz is not None else self.imgsz
         results = []
 
-        for i in range(0, len(image_paths), batch):
-            chunk_paths = image_paths[i : i + batch]
+        for i in range(0, len(image_paths), effective_batch):
+            chunk_paths = image_paths[i : i + effective_batch]
 
             tensors = []
             preprocess_info = []
@@ -360,9 +415,18 @@ class TensorRTBackend(BaseBackend):
         if self._sidecar_size is not None:
             return self._sidecar_size
         stem = Path(self.model_path).stem.lower()
-        for s in ["n", "t", "s", "m", "l", "x", "c"]:
-            if s in stem:
-                return s
+        for pattern in (
+            r"(?:rfdetr|rf-detr)[_-]?(xx|2xl|xl|[nsmlx])(?:[_-]|$|seg|segment)",
+            r"(?:rfdetr|rf-detr)[_-]?(?:seg|segment)[_-]?(xx|2xl|xl|[nsmlx])(?:[_-]|$)",
+        ):
+            rfdetr_match = re.search(pattern, stem)
+            if rfdetr_match is not None:
+                size = rfdetr_match.group(1)
+                return {"xl": "x", "2xl": "xx"}.get(size, size)
+
+        token_match = re.search(r"(?:^|[_-])(xx|[ntsmlxc])(?:[_-]|$)", stem)
+        if token_match is not None:
+            return token_match.group(1)
         return "unknown"
 
     def _get_model_name(self) -> str:

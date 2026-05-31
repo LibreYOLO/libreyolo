@@ -55,14 +55,14 @@ class YOLOXTrainer(BaseTrainer):
         }
 
     def on_setup(self):
-        if hasattr(self.model, "head") and hasattr(
-            self.model.head, "initialize_biases"
-        ):
-            self.model.head.initialize_biases(0.01)
+        raw = getattr(self.model, "module", self.model)
+        if hasattr(raw, "head") and hasattr(raw.head, "initialize_biases"):
+            raw.head.initialize_biases(0.01)
 
     def on_mosaic_disable(self):
         self.train_loader.dataset.close_mosaic()
-        self.model.head.use_l1 = True
+        raw = getattr(self.model, "module", self.model)
+        raw.head.use_l1 = True
 
     def on_forward(self, imgs: torch.Tensor, targets: torch.Tensor, polygons=None) -> Dict:
         return self.model(imgs, targets)

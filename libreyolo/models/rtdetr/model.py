@@ -1,4 +1,4 @@
-"""LibreYOLORTDETR implementation for LibreYOLO."""
+"""LibreRTDETR implementation for LibreYOLO."""
 
 import os
 import re
@@ -8,6 +8,7 @@ from typing import Any, Dict, Optional, Tuple
 import numpy as np
 import torch
 import torch.nn as nn
+from libreyolo.training.ddp_spawn import ddp_aware
 from PIL import Image
 
 from ..base import BaseModel
@@ -112,7 +113,7 @@ RTDETR_CONFIGS = {
 }
 
 
-class LibreYOLORTDETR(BaseModel):
+class LibreRTDETR(BaseModel):
     """RT-DETR model for object detection.
 
     RT-DETR is a real-time Detection Transformer using ResNet backbone with
@@ -126,13 +127,14 @@ class LibreYOLORTDETR(BaseModel):
 
     Example::
 
-        >>> model = LibreYOLORTDETR(size="r50")
+        >>> model = LibreRTDETR(size="r50")
         >>> detections = model.predict("path/to/image.jpg")
     """
 
     # Class-level metadata
     FAMILY = "rtdetr"
     FILENAME_PREFIX = "LibreRTDETR"
+    TTA_FIXED_SIZE = True  # resizes to a fixed square; multi-scale TTA is a no-op
     INPUT_SIZES = {
         "r18": 640,
         "r34": 640,
@@ -299,6 +301,11 @@ class LibreYOLORTDETR(BaseModel):
     def _init_model(self) -> nn.Module:
         """Initialize the RTDETR model."""
         cfg = RTDETR_CONFIGS[self.size]
+        # Skip pretrained download when weights will be loaded immediately after
+        # (_loading_from_weights) or when called from _rebuild_for_new_classes
+        # (_in_rebuild) — in both cases the backbone weights are overwritten anyway.
+        skip = getattr(self, "_in_rebuild", False) or getattr(self, "_loading_from_weights", False)
+        pretrained = cfg["backbone_pretrained"] and not skip
         backbone_kwargs: Dict[str, Any] = {}
         if cfg.get("backbone_type") == "hgnetv2":
             from .hgnetv2 import HGNetv2
@@ -308,14 +315,14 @@ class LibreYOLORTDETR(BaseModel):
                 return_idx=[1, 2, 3],
                 freeze_at=cfg["backbone_freeze_at"],
                 freeze_norm=cfg["backbone_freeze_norm"],
-                pretrained=cfg["backbone_pretrained"],
+                pretrained=pretrained,
             )
         else:
             backbone_kwargs.update(
                 backbone_depth=cfg["backbone_depth"],
                 backbone_freeze_at=cfg["backbone_freeze_at"],
                 backbone_freeze_norm=cfg["backbone_freeze_norm"],
-                backbone_pretrained=cfg["backbone_pretrained"],
+                backbone_pretrained=pretrained,
             )
         return RTDETRModel(
             num_classes=self.nb_classes,
@@ -340,6 +347,13 @@ class LibreYOLORTDETR(BaseModel):
     def _strict_loading(self) -> bool:
         """RTDETR uses non-strict loading to handle variable layer counts."""
         return False
+
+    @classmethod
+    def _get_trainer_class(cls):
+        """Hook for sibling families to override; defaults to v1's trainer."""
+        from .trainer import RTDETRTrainer
+
+        return RTDETRTrainer
 
     # =========================================================================
     # Inference pipeline
@@ -417,15 +431,22 @@ class LibreYOLORTDETR(BaseModel):
         pred_logits = output["pred_logits"]  # [1, Q, C]
         pred_boxes = output["pred_boxes"]  # [1, Q, 4] cxcywh normalized
 
-        # Get scores and labels
-        scores = torch.sigmoid(pred_logits[0])  # [Q, C]
-        max_scores, labels = scores.max(dim=-1)  # [Q], [Q]
+        # Match upstream RTDETRPostProcessor: top-K across the flattened (Q*C)
+        # score matrix, allowing multiple classes per query. The previous
+        # per-query ``scores.max(dim=-1)`` cost ~0.7–0.9 mAP on COCO val2017
+        # because non-argmax classes that would still rank in the top-300
+        # globally were silently discarded before COCO eval saw them.
+        scores_per_class = torch.sigmoid(pred_logits[0])  # [Q, C]
+        num_classes = scores_per_class.shape[-1]
+        flat = scores_per_class.flatten()
+        k = min(max_det, flat.numel())
+        topk_scores, topk_indices = torch.topk(flat, k)
+        query_idx = topk_indices // num_classes
+        class_idx = topk_indices % num_classes
 
-        # Filter by confidence
-        mask = max_scores > conf_thres
-        scores = max_scores[mask]
-        labels = labels[mask]
-        boxes = pred_boxes[0][mask]  # [N, 4] cxcywh normalized
+        boxes = pred_boxes[0][query_idx]  # [k, 4] cxcywh normalized
+        scores = topk_scores
+        labels = class_idx
 
         # Convert cxcywh normalized to xyxy pixel coords
         orig_w, orig_h = original_size
@@ -436,16 +457,11 @@ class LibreYOLORTDETR(BaseModel):
         y2 = (cy + h / 2) * orig_h
         boxes_xyxy = torch.stack([x1, y1, x2, y2], dim=-1)
 
-        # Clamp to image bounds
-        boxes_xyxy[:, 0::2] = boxes_xyxy[:, 0::2].clamp(0, orig_w)
-        boxes_xyxy[:, 1::2] = boxes_xyxy[:, 1::2].clamp(0, orig_h)
-
-        # Limit to max_det (sort by score)
-        if len(scores) > max_det:
-            topk_indices = scores.argsort(descending=True)[:max_det]
-            scores = scores[topk_indices]
-            labels = labels[topk_indices]
-            boxes_xyxy = boxes_xyxy[topk_indices]
+        # Filter by confidence after top-K (matches upstream + D-FINE).
+        mask = scores > conf_thres
+        scores = scores[mask]
+        labels = labels[mask]
+        boxes_xyxy = boxes_xyxy[mask]
 
         return {
             "boxes": boxes_xyxy.cpu(),
@@ -462,6 +478,7 @@ class LibreYOLORTDETR(BaseModel):
         """Export model. RTDETR requires opset >= 17 for deformable attention (F.grid_sample)."""
         return super().export(format, opset=opset, **kwargs)
 
+    @ddp_aware()
     def train(
         self,
         data: str,
@@ -484,6 +501,7 @@ class LibreYOLORTDETR(BaseModel):
         amp: bool = _TRAIN_DEFAULTS.amp,
         patience: int = _TRAIN_DEFAULTS.patience,
         allow_download_scripts: bool = False,
+        callbacks=None,
         **kwargs,
     ) -> dict:
         """Train the RT-DETR model on a dataset.
@@ -507,11 +525,12 @@ class LibreYOLORTDETR(BaseModel):
             resume: If True, resume training from the loaded checkpoint.
             amp: Enable automatic mixed precision training.
             patience: Early stopping patience.
+            callbacks: Optional training callback or iterable of callbacks.
 
         Returns:
             Training results dict with final_loss, best_mAP50, best_mAP50_95, etc.
         """
-        from .trainer import RTDETRTrainer
+        trainer_cls = self._get_trainer_class()
         from libreyolo.data import load_data_config
 
         try:
@@ -542,10 +561,10 @@ class LibreYOLORTDETR(BaseModel):
             random.seed(seed)
             np.random.seed(seed)
             torch.manual_seed(seed)
-            if torch.cuda.is_available():
+            if str(device).lower() not in ("cpu", "mps") and torch.cuda.is_available():
                 torch.cuda.manual_seed_all(seed)
 
-        trainer = RTDETRTrainer(
+        trainer = trainer_cls(
             model=self.model,
             wrapper_model=self,
             size=self.size,
@@ -568,6 +587,7 @@ class LibreYOLORTDETR(BaseModel):
             amp=amp,
             patience=patience,
             allow_download_scripts=allow_download_scripts,
+            callbacks=callbacks,
             **kwargs,
         )
 
@@ -575,13 +595,20 @@ class LibreYOLORTDETR(BaseModel):
             if not self.model_path:
                 raise ValueError(
                     "resume=True requires a checkpoint. Load one first: "
-                    "model = LibreYOLORTDETR('path/to/last.pt'); model.train(data=..., resume=True)"
+                    "model = LibreRTDETR('path/to/last.pt'); model.train(data=..., resume=True)"
                 )
+            trainer.setup()
             trainer.resume(str(self.model_path))
 
         results = trainer.train()
 
-        if Path(results["best_checkpoint"]).exists():
-            self._load_weights(results["best_checkpoint"])
+        best_ckpt = results.get("best_checkpoint")
+        if best_ckpt and Path(best_ckpt).exists():
+            self._load_weights(best_ckpt)
+
+        # Restore wrapper-side device after possible MPS->CPU trainer fallback
+        # (no-op if the trainer didn't change device). Matches the D-FINE
+        # pattern; safe for v1 since trainer there doesn't fall back.
+        self.model.to(self.device)
 
         return results

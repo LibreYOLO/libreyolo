@@ -1,21 +1,22 @@
-"""LibreYOLORFDETR implementation for LibreYOLO."""
+"""LibreRFDETR implementation for LibreYOLO."""
 
 from pathlib import Path
 from typing import Any, ClassVar, Dict, Optional, Tuple
 
+import numpy as np
 import torch
 import torch.nn as nn
-import torchvision.transforms.functional as F
+from libreyolo.training.ddp_spawn import ddp_aware
 from PIL import Image
 
 from ..base import BaseModel
 from ...tasks import normalize_task
 from ...utils.image_loader import ImageInput, ImageLoader
 from ...utils.serialization import load_trusted_torch_file
-from .nn import LibreRFDETRModel
+from .nn import LibreRFDETRModel, RFDETR_CONFIGS, RFDETR_SEG_CONFIGS
 from .config import RFDETRConfig
-from .utils import postprocess, IMAGENET_MEAN, IMAGENET_STD
-from .trainer import train_rfdetr
+from .utils import postprocess, preprocess_numpy
+from .trainer import RFDETRTrainer
 from ...validation.preprocessors import RFDETRValPreprocessor
 
 # COCO 91-class to 80-class mapping.
@@ -105,12 +106,49 @@ _COCO91_TO_COCO80 = {
 }
 
 
-class LibreYOLORFDETR(BaseModel):
+_RFDETR_UPSTREAM_WEIGHT_URLS = {
+    "rf-detr-nano.pth": "https://storage.googleapis.com/rfdetr/nano_coco/checkpoint_best_regular.pth",
+    "rf-detr-small.pth": "https://storage.googleapis.com/rfdetr/small_coco/checkpoint_best_regular.pth",
+    "rf-detr-medium.pth": "https://storage.googleapis.com/rfdetr/medium_coco/checkpoint_best_regular.pth",
+    "rf-detr-large-2026.pth": "https://storage.googleapis.com/rfdetr/rf-detr-large-2026.pth",
+    "rf-detr-seg-nano.pt": "https://storage.googleapis.com/rfdetr/rf-detr-seg-n-ft.pth",
+    "rf-detr-seg-small.pt": "https://storage.googleapis.com/rfdetr/rf-detr-seg-s-ft.pth",
+    "rf-detr-seg-medium.pt": "https://storage.googleapis.com/rfdetr/rf-detr-seg-m-ft.pth",
+    "rf-detr-seg-large.pt": "https://storage.googleapis.com/rfdetr/rf-detr-seg-l-ft.pth",
+    "rf-detr-seg-xlarge.pt": "https://storage.googleapis.com/rfdetr/rf-detr-seg-xl-ft.pth",
+    "rf-detr-seg-xxlarge.pt": "https://storage.googleapis.com/rfdetr/rf-detr-seg-2xl-ft.pth",
+}
+
+
+def _checkpoint_model_state(checkpoint: dict[str, Any]) -> dict[str, torch.Tensor]:
+    """Extract a tensor state dict from RF-DETR/LibreYOLO checkpoint variants."""
+    if "model" in checkpoint and isinstance(checkpoint["model"], dict):
+        checkpoint = checkpoint["model"]
+    elif "state_dict" in checkpoint and isinstance(checkpoint["state_dict"], dict):
+        checkpoint = checkpoint["state_dict"]
+
+    state = {}
+    for key, value in checkpoint.items():
+        if not isinstance(value, torch.Tensor):
+            continue
+        key = key.removeprefix("module.")
+        key = key.removeprefix("model.")
+        key = key.removeprefix("_orig_mod.")
+        state[key] = value
+    return state
+
+
+class LibreRFDETR(BaseModel):
     """RF-DETR model for object detection and instance segmentation.
 
     RF-DETR is a Detection Transformer using DINOv2 backbone with
     multi-scale deformable attention. Segmentation variants add a
     lightweight mask head for instance segmentation.
+
+    autobatch_fraction is lower than the default 0.60 because the probe's
+    fake backward underestimates RF-DETR's real training memory (the loss
+    backward runs through SetCriterion and 6 aux-loss decoder layers), and
+    DDP adds gradient buckets on top.
 
     Args:
         model_path: Path to weights, pre-loaded state_dict, or None for pretrained.
@@ -120,15 +158,17 @@ class LibreYOLORFDETR(BaseModel):
 
     Example::
 
-        >>> model = LibreYOLORFDETR(size="s")
+        >>> model = LibreRFDETR(size="s")
         >>> detections = model.predict("path/to/image.jpg")
     """
+
+    autobatch_fraction: float = 0.45
 
     # Class-level metadata
     FAMILY = "rfdetr"
     FILENAME_PREFIX = "LibreRFDETR"
     INPUT_SIZES = {"n": 384, "s": 512, "m": 576, "l": 704}
-    SEG_INPUT_SIZES = {"n": 312, "s": 384, "m": 432, "l": 504}
+    SEG_INPUT_SIZES = {"n": 312, "s": 384, "m": 432, "l": 504, "x": 624, "xx": 768}
     SUPPORTED_TASKS = ("detect", "segment")
     TASK_INPUT_SIZES = {
         "detect": INPUT_SIZES,
@@ -136,29 +176,22 @@ class LibreYOLORFDETR(BaseModel):
     }
     TRAIN_CONFIG = RFDETRConfig
     val_preprocessor_class = RFDETRValPreprocessor
+    TTA_FIXED_SIZE = True  # resizes to a fixed square; multi-scale TTA is a no-op
 
-    # CLI parameters not supported by RF-DETR's training API
+    # CLI parameters intentionally ignored by native RF-DETR training.
     UNSUPPORTED_TRAIN_PARAMS: ClassVar[set[str]] = {
-        "imgsz",
         "mosaic",
         "mixup",
         "degrees",
         "shear",
-        "scheduler",
-        "warmup_lr_start",
-        "min_lr_ratio",
         "mosaic_scale",
         "mixup_scale",
-        "no_aug_epochs",
         "optimizer",
         "momentum",
         "nesterov",
         "hsv_prob",
-        "flip_prob",
         "translate",
-        "amp",
         "pretrained",
-        "log_interval",
     }
 
     # =========================================================================
@@ -187,7 +220,14 @@ class LibreYOLORFDETR(BaseModel):
         is_seg = any(k.startswith("segmentation_head") for k in weights_dict)
 
         RESOLUTION_TO_SIZE = {384: "n", 512: "s", 576: "m", 704: "l"}
-        SEG_RESOLUTION_TO_SIZE = {312: "n", 384: "s", 432: "m", 504: "l"}
+        SEG_RESOLUTION_TO_SIZE = {
+            312: "n",
+            384: "s",
+            432: "m",
+            504: "l",
+            624: "x",
+            768: "xx",
+        }
         res_map = SEG_RESOLUTION_TO_SIZE if is_seg else RESOLUTION_TO_SIZE
 
         args = full_ckpt.get("args")
@@ -206,13 +246,24 @@ class LibreYOLORFDETR(BaseModel):
         pos_key = "backbone.0.encoder.encoder.embeddings.position_embeddings"
         if pos_key in weights_dict:
             pos_tokens = weights_dict[pos_key].shape[1]
-            if pos_tokens == 577:
-                return "n"
-            if pos_tokens == 1025:
-                return "s"
-            if pos_tokens == 1297:
-                return "m"
-            return "l"
+            token_map = (
+                {
+                    26 * 26 + 1: "n",
+                    32 * 32 + 1: "s",
+                    36 * 36 + 1: "m",
+                    42 * 42 + 1: "l",
+                    52 * 52 + 1: "x",
+                    64 * 64 + 1: "xx",
+                }
+                if is_seg
+                else {
+                    24 * 24 + 1: "n",
+                    32 * 32 + 1: "s",
+                    36 * 36 + 1: "m",
+                    44 * 44 + 1: "l",
+                }
+            )
+            return token_map.get(pos_tokens)
 
         return None
 
@@ -223,6 +274,13 @@ class LibreYOLORFDETR(BaseModel):
             return weights_dict["class_embed.bias"].shape[0] - 1
         return None
 
+    @classmethod
+    def get_download_url(cls, filename: str) -> Optional[str]:
+        upstream_url = _RFDETR_UPSTREAM_WEIGHT_URLS.get(Path(filename).name.lower())
+        if upstream_url is not None:
+            return upstream_url
+        return super().get_download_url(filename)
+
     # =========================================================================
     # Initialization
     # =========================================================================
@@ -230,36 +288,64 @@ class LibreYOLORFDETR(BaseModel):
     def __init__(
         self,
         model_path: str | None = None,
-        size: str = "s",
+        size: str | None = None,
         nb_classes: int = 80,
         device: str = "auto",
         segmentation: bool = False,
         task: str | None = None,
         **kwargs,
     ):
-        # Convert empty dict (from factory) to None for RF-DETR config compatibility
-        if isinstance(model_path, dict) and not model_path:
-            self._pretrain_weights = None
-        elif isinstance(model_path, str):
-            self._pretrain_weights = self._resolve_weights_path(model_path)
-        else:
-            self._pretrain_weights = model_path
-
+        # Resolve task: explicit `task` > legacy `segmentation` flag > filename / checkpoint inference.
         if task is not None and segmentation and normalize_task(task) != "segment":
             raise ValueError(
-                "Conflicting RF-DETR task options: segmentation=True requires "
-                "task='segment'."
+                "Conflicting RF-DETR task options: segmentation=True requires task='segment'."
             )
-
         resolved_task = task
         if resolved_task is None and segmentation:
             resolved_task = "segment"
+        if size is None and (
+            model_path is None or (isinstance(model_path, dict) and not model_path)
+        ):
+            size = "s"
 
-        if self._pretrain_weights is not None:
-            filename_task = self.detect_task_from_filename(str(self._pretrain_weights))
+        if isinstance(model_path, dict) and not model_path:
+            weight_source = None
+        elif model_path is None:
+            cfgs = (
+                RFDETR_SEG_CONFIGS
+                if normalize_task(resolved_task) == "segment"
+                else RFDETR_CONFIGS
+            )
+            cfg = cfgs.get(size)
+            default_weights = cfg.pretrain_weights if cfg is not None else None
+            weight_source = (
+                self._resolve_weights_path(default_weights)
+                if default_weights is not None
+                else None
+            )
+        elif isinstance(model_path, str):
+            weight_source = self._resolve_weights_path(model_path)
+        else:
+            weight_source = model_path
+
+        self._weight_source = weight_source
+        if size is None:
+            size = self._detect_size_from_source(weight_source)
+            if size is None:
+                raise ValueError(
+                    "Could not automatically detect RF-DETR model size. "
+                    "Pass size='n', 's', 'm', 'l', 'x', or 'xx'."
+                )
+
+        if weight_source is not None:
+            filename_task = (
+                self.detect_task_from_filename(str(weight_source))
+                if isinstance(weight_source, str)
+                else None
+            )
             checkpoint_is_segment = False
             if filename_task != "segment":
-                checkpoint_is_segment = self._detect_segmentation(self._pretrain_weights)
+                checkpoint_is_segment = self._detect_segmentation(weight_source)
             if resolved_task is None:
                 resolved_task = filename_task or (
                     "segment" if checkpoint_is_segment else None
@@ -273,11 +359,14 @@ class LibreYOLORFDETR(BaseModel):
                     "but task='detect' was requested."
                 )
 
-        # RF-DETR COCO checkpoints have 90 arch-classes (91 outputs incl.
-        # background), but libreyolo uses 80 YOLO-contiguous classes with a
-        # 91→80 mapping in _postprocess.  Store the arch count for rfdetr
-        # config and present 80 to the rest of the framework.
         self._model_num_classes = nb_classes
+        if isinstance(weight_source, dict):
+            detected_classes = self.detect_nb_classes(_checkpoint_model_state(weight_source))
+            if detected_classes is not None:
+                self._model_num_classes = detected_classes
+
+        # RF-DETR COCO checkpoints have 90 arch-classes (91 outputs including
+        # background), while LibreYOLO exposes the contiguous COCO-80 interface.
         user_nb_classes = 80 if nb_classes == 90 else nb_classes
 
         super().__init__(
@@ -289,8 +378,8 @@ class LibreYOLORFDETR(BaseModel):
             **kwargs,
         )
 
-        # RF-DETR loads its own weights in _init_model() via pretrain_weights
-        if self._pretrain_weights is not None:
+        if weight_source is not None:
+            self._load_weights(weight_source)
             self.model.eval()
 
     @property
@@ -299,15 +388,49 @@ class LibreYOLORFDETR(BaseModel):
         return self.task == "segment"
 
     @staticmethod
-    def _detect_segmentation(model_path) -> bool:
+    def _detect_size_from_source(model_path: str | dict[str, Any] | None) -> str | None:
+        if model_path is None:
+            return None
+        if isinstance(model_path, str):
+            try:
+                ckpt = load_trusted_torch_file(
+                    model_path,
+                    map_location="cpu",
+                    context="RF-DETR size detection",
+                )
+            except Exception:
+                return LibreRFDETR.detect_size_from_filename(model_path)
+        else:
+            ckpt = model_path
+
+        if not isinstance(ckpt, dict):
+            if isinstance(model_path, str):
+                return LibreRFDETR.detect_size_from_filename(model_path)
+            return None
+        if isinstance(metadata_size := ckpt.get("size"), str):
+            return metadata_size
+        detected_size = LibreRFDETR.detect_size(_checkpoint_model_state(ckpt), ckpt)
+        if detected_size is not None:
+            return detected_size
+        if isinstance(model_path, str):
+            return LibreRFDETR.detect_size_from_filename(model_path)
+        return None
+
+    @staticmethod
+    def _detect_segmentation(model_path: str | dict[str, Any]) -> bool:
         """Check if weights contain a segmentation head."""
-        if not isinstance(model_path, str):
-            return False
         try:
-            ckpt = torch.load(model_path, map_location="cpu", weights_only=False)
+            if isinstance(model_path, str):
+                ckpt = load_trusted_torch_file(
+                    model_path,
+                    map_location="cpu",
+                    context="RF-DETR segmentation detection",
+                )
+            else:
+                ckpt = model_path
             if isinstance(ckpt, dict) and ckpt.get("task") is not None:
                 return normalize_task(ckpt.get("task")) == "segment"
-            state = ckpt.get("model", ckpt)
+            state = _checkpoint_model_state(ckpt)
             return any(k.startswith("segmentation_head") for k in state)
         except Exception:
             return False
@@ -320,7 +443,6 @@ class LibreYOLORFDETR(BaseModel):
         return LibreRFDETRModel(
             config=self.size,
             nb_classes=self._model_num_classes,
-            pretrain_weights=self._pretrain_weights,
             device=str(self.device),
             segmentation=self._is_segmentation,
         )
@@ -331,10 +453,18 @@ class LibreYOLORFDETR(BaseModel):
             actual_model = self.model.model
             if hasattr(actual_model, "backbone"):
                 layers["backbone"] = actual_model.backbone
-            if hasattr(actual_model, "encoder"):
-                layers["encoder"] = actual_model.encoder
-            if hasattr(actual_model, "decoder"):
-                layers["decoder"] = actual_model.decoder
+            if hasattr(actual_model, "transformer"):
+                layers["transformer"] = actual_model.transformer
+                if hasattr(actual_model.transformer, "encoder"):
+                    layers["encoder"] = actual_model.transformer.encoder
+                if hasattr(actual_model.transformer, "decoder"):
+                    layers["decoder"] = actual_model.transformer.decoder
+            if hasattr(actual_model, "class_embed"):
+                layers["class_embed"] = actual_model.class_embed
+            if hasattr(actual_model, "bbox_embed"):
+                layers["bbox_embed"] = actual_model.bbox_embed
+            if getattr(actual_model, "segmentation_head", None) is not None:
+                layers["segmentation_head"] = actual_model.segmentation_head
         return layers
 
     def _strict_loading(self) -> bool:
@@ -363,10 +493,8 @@ class LibreYOLORFDETR(BaseModel):
         orig_w, orig_h = img.size
         orig_size = (orig_w, orig_h)
 
-        img_tensor = F.to_tensor(img)
-        img_tensor = F.normalize(img_tensor, IMAGENET_MEAN, IMAGENET_STD)
-        img_tensor = F.resize(img_tensor, (effective_res, effective_res))
-        img_tensor = img_tensor.unsqueeze(0)
+        img_chw, _ = preprocess_numpy(np.array(img), effective_res)
+        img_tensor = torch.from_numpy(img_chw).unsqueeze(0)
 
         return img_tensor, img, orig_size, 1.0
 
@@ -382,7 +510,20 @@ class LibreYOLORFDETR(BaseModel):
         max_det: int = 300,
         **kwargs,
     ) -> Dict:
-        num_select = kwargs.get("num_select", max_det)
+        if isinstance(output, tuple):
+            output = {
+                "pred_boxes": output[0],
+                "pred_logits": output[1],
+                **({"pred_masks": output[2]} if len(output) > 2 else {}),
+            }
+
+        logits = output["pred_logits"]
+        default_num_select = getattr(self.model, "num_select", max_det)
+        requested_num_select = kwargs.get(
+            "num_select",
+            default_num_select if max_det == 300 else max_det,
+        )
+        num_select = min(requested_num_select, logits.shape[-2] * logits.shape[-1])
 
         # original_size is (width, height); rfdetr postprocess expects (height, width)
         orig_w, orig_h = original_size
@@ -409,6 +550,7 @@ class LibreYOLORFDETR(BaseModel):
             mapped = torch.tensor(
                 [_COCO91_TO_COCO80.get(int(c), -1) for c in labels.cpu()],
                 dtype=labels.dtype,
+                device=labels.device,
             )
             valid = mapped >= 0
             boxes = boxes[valid]
@@ -428,6 +570,80 @@ class LibreYOLORFDETR(BaseModel):
         return det
 
     # =========================================================================
+    # Weights
+    # =========================================================================
+
+    def _load_weights(self, model_path: str | dict[str, Any]):
+        try:
+            if isinstance(model_path, str):
+                if not Path(model_path).exists():
+                    from ...utils.download import download_weights
+
+                    download_weights(model_path, self.size)
+                loaded = load_trusted_torch_file(
+                    model_path,
+                    map_location="cpu",
+                    context="RF-DETR weights",
+                )
+            else:
+                loaded = model_path
+
+            if not isinstance(loaded, dict):
+                raise TypeError("RF-DETR checkpoints must be dictionaries")
+
+            ckpt_family = loaded.get("model_family", "")
+            if ckpt_family and ckpt_family != self.FAMILY:
+                raise RuntimeError(
+                    f"Checkpoint was trained with model_family='{ckpt_family}' "
+                    f"but is being loaded into '{self.FAMILY}'."
+                )
+
+            missing, unexpected = self.model.load_state_dict(loaded, strict=False)
+            if unexpected:
+                raise RuntimeError(
+                    f"Unexpected RF-DETR checkpoint keys: {sorted(unexpected)[:10]}"
+                    + (f" (+{len(unexpected) - 10} more)" if len(unexpected) > 10 else "")
+                )
+
+            ckpt_nc = loaded.get("nc")
+            if ckpt_nc is not None:
+                self.nb_classes = int(ckpt_nc)
+            else:
+                self.nb_classes = 80 if self.model.nb_classes == 90 else self.model.nb_classes
+
+            self._model_num_classes = self.model.nb_classes
+            if self.nb_classes == 80:
+                from ...utils.general import COCO_CLASSES
+
+                self.names = {i: n for i, n in enumerate(COCO_CLASSES)}
+            else:
+                self.names = {i: f"class_{i}" for i in range(self.nb_classes)}
+
+            ckpt_names = loaded.get("names")
+            if ckpt_names is not None:
+                self.names = self._sanitize_names(ckpt_names, self.nb_classes)
+
+            args = loaded.get("args") or loaded.get("hyper_parameters") or {}
+            class_names = args.get("class_names") if isinstance(args, dict) else getattr(args, "class_names", None)
+            if class_names:
+                self.names = {i: str(name) for i, name in enumerate(class_names[: self.nb_classes])}
+
+            if missing:
+                # ``strict=False`` is expected for class/head adaptation and older
+                # checkpoints, but missing non-head tensors should stay visible.
+                ignored = ("class_embed.", "transformer.enc_out_class_embed.")
+                important = [k for k in missing if not k.startswith(ignored)]
+                if important:
+                    raise RuntimeError(
+                        f"Missing RF-DETR checkpoint keys: {sorted(important)[:10]}"
+                        + (f" (+{len(important) - 10} more)" if len(important) > 10 else "")
+                    )
+        except RuntimeError:
+            raise
+        except Exception as e:
+            raise RuntimeError(f"Failed to load RF-DETR weights: {e}") from e
+
+    # =========================================================================
     # Public API
     # =========================================================================
 
@@ -435,80 +651,104 @@ class LibreYOLORFDETR(BaseModel):
         """Export model. RF-DETR requires opset >= 17 for LayerNormalization."""
         return super().export(format, opset=opset, **kwargs)
 
+    def val(self, *args, workers: int = 0, **kwargs) -> Dict:
+        """Run RF-DETR validation with a Windows-safe worker default."""
+        return super().val(*args, workers=workers, **kwargs)
+
+    def _restore_after_training(self, result: dict) -> None:
+        """Reload the saved checkpoint and leave real torch models in eval mode."""
+        checkpoint = None
+        for key in ("best_checkpoint", "last_checkpoint"):
+            path = result.get(key)
+            if path and Path(path).exists():
+                checkpoint = str(path)
+                break
+
+        if checkpoint is not None:
+            self.model_path = checkpoint
+            self._load_weights(checkpoint)
+
+        model = getattr(self, "model", None)
+        device = getattr(self, "device", None)
+        if model is not None and device is not None and hasattr(model, "to"):
+            model.to(device)
+        if model is not None and hasattr(model, "eval"):
+            model.eval()
+
+    @ddp_aware(batch_key="batch_size")
     def train(
         self,
         data: str,
         epochs: int = 100,
-        batch_size: int = 4,
-        lr: float = 1e-4,
+        batch_size: int | None = None,
+        lr: float | None = None,
         output_dir: str = "runs/train",
-        resume: str | None = None,
+        resume: str | Path | bool | None = None,
         **kwargs,
     ) -> Dict:
-        """Train using the original RF-DETR training implementation.
+        """Fine-tune RF-DETR through LibreYOLO's native trainer."""
+        output_path = Path(output_dir)
+        train_kwargs = dict(kwargs)
+        project = train_kwargs.pop("project", None)
+        name = train_kwargs.pop("name", None)
+        exist_ok = train_kwargs.pop("exist_ok", True)
+        batch = train_kwargs.pop("batch", None)
+        lr0 = train_kwargs.pop("lr0", None)
+        if project is None:
+            project = output_path.parent
+        if name is None:
+            name = output_path.name
+        run_dir = Path(project) / str(name)
 
-        Args:
-            data: Path to dataset in Roboflow/COCO format.
-            epochs: Number of training epochs.
-            batch_size: Batch size.
-            lr: Learning rate.
-            output_dir: Directory to save outputs.
-            resume: Path to checkpoint to resume from.
-            **kwargs: Additional args passed to rfdetr train().
+        if batch is not None and batch_size is not None and batch != batch_size:
+            raise ValueError(
+                f"Conflicting RF-DETR batch values: batch={batch} and batch_size={batch_size}"
+            )
+        if lr0 is not None and lr is not None and lr0 != lr:
+            raise ValueError(f"Conflicting RF-DETR LR values: lr0={lr0} and lr={lr}")
 
-        Returns:
-            Dictionary with training results including output_dir.
-        """
-        result = train_rfdetr(
-            data=data,
-            size=self.size,
-            epochs=epochs,
-            batch_size=batch_size,
-            lr=lr,
-            output_dir=output_dir,
-            resume=resume,
-            pretrain_weights=self._pretrain_weights,
-            segmentation=self._is_segmentation,
-            **kwargs,
+        resolved_batch = batch if batch is not None else batch_size
+        resolved_lr0 = lr0 if lr0 is not None else lr
+        if resolved_batch is None:
+            resolved_batch = 4
+        if resolved_lr0 is None:
+            resolved_lr0 = 1e-4
+
+        train_kwargs.update(
+            {
+                "data": data,
+                "epochs": epochs,
+                "batch": resolved_batch,
+                "lr0": resolved_lr0,
+                "project": str(project),
+                "name": str(name),
+                "exist_ok": exist_ok,
+                "size": self.size,
+                "num_classes": self.nb_classes,
+            }
         )
+        if train_kwargs.get("imgsz") is None:
+            train_kwargs["imgsz"] = self.input_size
 
-        for ckpt_key in ("best_checkpoint", "last_checkpoint"):
-            ckpt_path = result.get(ckpt_key)
-            if not ckpt_path or not Path(ckpt_path).exists():
-                continue
-            checkpoint = load_trusted_torch_file(
-                ckpt_path,
-                map_location="cpu",
-                context="RF-DETR checkpoint metadata update",
-            )
-            if isinstance(checkpoint, dict):
-                checkpoint.setdefault("model_family", self.FAMILY)
-                checkpoint.setdefault("size", self.size)
-                checkpoint["task"] = self.task
-                torch.save(checkpoint, ckpt_path)
+        aliases = {
+            "num_workers": "workers",
+            "use_ema": "ema",
+            "checkpoint_interval": "save_period",
+            "early_stopping_patience": "patience",
+        }
+        for src, dst in aliases.items():
+            if src in train_kwargs:
+                train_kwargs[dst] = train_kwargs.pop(src)
+        train_kwargs.pop("early_stopping", None)
 
-        best_ckpt = Path(result["output_dir"]) / "checkpoint_best_total.pth"
-        if best_ckpt.exists():
-            checkpoint = load_trusted_torch_file(
-                best_ckpt,
-                map_location="cpu",
-                context="RF-DETR best checkpoint reload",
-            )
-            state_dict = checkpoint["model"]
+        trainer = RFDETRTrainer(self.model, wrapper_model=self, **train_kwargs)
+        if resume:
+            trainer.setup()
+            resume_path = run_dir / "weights" / "last.pt" if resume is True else resume
+            trainer.resume(str(resume_path))
+        result = trainer.train()
+        result["output_dir"] = result.get("save_dir", str(run_dir))
 
-            # RF-DETR uses num_classes + 1 internally (background class)
-            num_classes_internal = state_dict["class_embed.bias"].shape[0]
-            num_classes = num_classes_internal - 1
-
-            if num_classes_internal != self.model.model.class_embed.bias.shape[0]:
-                self.model.model.reinitialize_detection_head(num_classes_internal)
-
-            self.model.model.load_state_dict(state_dict, strict=False)
-            self.model.model.eval()
-            self.model.model.to(self.device)
-
-            self.nb_classes = num_classes
-            self.model.nb_classes = num_classes
-            self.names = {i: f"class_{i}" for i in range(num_classes)}
+        self._restore_after_training(result)
 
         return result

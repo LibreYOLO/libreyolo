@@ -28,6 +28,8 @@ The integration tricks in this file:
 
 from __future__ import annotations
 
+import math
+import sys
 from pathlib import Path
 from typing import Dict, Optional, Tuple, Type
 
@@ -410,7 +412,9 @@ class DEIMTrainer(BaseTrainer):
     # _train_epoch override — set_epoch propagation, grad clip, per-group LR
     # =========================================================================
 
-    def _train_epoch(self, epoch: int) -> Tuple[float, Optional[Dict[str, float]]]:
+    def _train_epoch(
+        self, epoch: int
+    ) -> Tuple[float, Optional[Dict[str, float]], Dict[str, float], Dict[str, float]]:
         """Copy of ``BaseTrainer._train_epoch`` with three DEIM-specific tweaks:
 
         1. Propagate the current epoch to dataset + collate (drives stop_epoch
@@ -420,6 +424,10 @@ class DEIMTrainer(BaseTrainer):
         3. Apply per-group LR multipliers (the scheduler returns one base LR;
            each param group's ``lr_mult`` scales it).
         """
+        # Gradient accumulation is opt-in; delegate when enabled.
+        if self._accum_steps > 1:
+            return self._train_epoch_accum(epoch)
+
         # 1. Epoch propagation.
         ds = self.train_loader.dataset
         if hasattr(ds, "set_epoch"):
@@ -439,6 +447,7 @@ class DEIMTrainer(BaseTrainer):
 
         total_loss = 0.0
         num_batches = 0
+        loss_component_sums: Dict[str, float] = {}
 
         for batch_idx, batch in enumerate(pbar):
             if len(batch) == 5:
@@ -479,8 +488,10 @@ class DEIMTrainer(BaseTrainer):
                 self.ema_model.update(self.model)
 
             loss_val = loss.item()
-            loss_components = self.get_loss_components(outputs)
+            loss_components = self._scalar_mapping(self.get_loss_components(outputs))
             total_loss += loss_val
+            for name, value in loss_components.items():
+                loss_component_sums[name] = loss_component_sums.get(name, 0.0) + value
             del outputs, loss
 
             # 3. Per-group LR (scheduler returns one base LR; each group
@@ -494,22 +505,11 @@ class DEIMTrainer(BaseTrainer):
             postfix.update({k: f"{v:.4f}" for k, v in loss_components.items()})
             pbar.set_postfix(postfix)
 
-            if self.tensorboard_writer and batch_idx % self.config.log_interval == 0:
-                self.tensorboard_writer.add_scalar(
-                    "train/loss", loss_val, self.current_iter
-                )
-                self.tensorboard_writer.add_scalar(
-                    "train/lr", base_lr, self.current_iter
-                )
-                for name, val in loss_components.items():
-                    self.tensorboard_writer.add_scalar(
-                        f"train/{name}", val, self.current_iter
-                    )
-
-        avg_loss = total_loss / max(num_batches, 1)
-
-        if self.tensorboard_writer:
-            self.tensorboard_writer.add_scalar("epoch/loss", avg_loss, epoch)
+        num_batches = max(num_batches, 1)
+        avg_loss = total_loss / num_batches
+        avg_loss_components = {
+            name: value / num_batches for name, value in loss_component_sums.items()
+        }
 
         val_metrics = None
         if (
@@ -517,12 +517,118 @@ class DEIMTrainer(BaseTrainer):
             and (epoch + 1) % self.config.eval_interval == 0
         ):
             val_metrics = self._validate_epoch(epoch)
-            if val_metrics and self.tensorboard_writer:
-                self.tensorboard_writer.add_scalar(
-                    "val/mAP50", val_metrics["mAP50"], epoch
-                )
-                self.tensorboard_writer.add_scalar(
-                    "val/mAP50_95", val_metrics["mAP50_95"], epoch
-                )
 
-        return avg_loss, val_metrics
+        return avg_loss, val_metrics, avg_loss_components, self._current_lrs()
+
+    def _train_epoch_accum(
+        self, epoch: int
+    ) -> Tuple[float, Optional[Dict[str, float]], Dict[str, float], Dict[str, float]]:
+        """``_train_epoch`` variant with gradient accumulation (``_accum_steps`` > 1).
+
+        Same DEIM tweaks as ``_train_epoch`` (epoch propagation, clipping,
+        per-group LR), but gradients accumulate over ``accum`` micro-batches and
+        the optimizer step, clipping, EMA and LR update fire once per window.
+        """
+        # 1. Epoch propagation.
+        ds = self.train_loader.dataset
+        if hasattr(ds, "set_epoch"):
+            ds.set_epoch(epoch)
+        cf = getattr(self.train_loader, "collate_fn", None)
+        if cf is not None and hasattr(cf, "set_epoch"):
+            cf.set_epoch(epoch)
+
+        clip_max_norm = float(getattr(self.config, "clip_max_norm", 0.0))
+
+        self.model.train()
+        pbar = tqdm(
+            self.train_loader,
+            desc=f"Epoch {epoch + 1}/{self.config.epochs}",
+            total=len(self.train_loader),
+            disable=not sys.stderr.isatty(),
+        )
+
+        accum = self._accum_steps
+        steps_per_epoch = max(1, math.ceil(len(self.train_loader) / accum))
+        total_loss = 0.0
+        num_batches = 0
+        loss_component_sums: Dict[str, float] = {}
+        actual_window = accum
+        base_lr = self.optimizer.param_groups[0]["lr"]
+
+        for batch_idx, batch in enumerate(pbar):
+            if len(batch) == 5:
+                imgs, targets, img_infos, img_ids, polygons = batch
+            else:
+                imgs, targets, img_infos, img_ids = batch
+                polygons = None
+
+            is_opt_step = (batch_idx + 1) % accum == 0 or batch_idx == len(self.train_loader) - 1
+            opt_step = epoch * steps_per_epoch + batch_idx // accum
+            self.current_iter = opt_step
+
+            imgs = imgs.to(self.device, non_blocking=True)
+            targets = targets.to(self.device, non_blocking=True)
+
+            if batch_idx % accum == 0:
+                self.optimizer.zero_grad(set_to_none=True)
+                actual_window = min(accum, len(self.train_loader) - batch_idx)
+
+            if self.scaler is not None:
+                with autocast("cuda"):
+                    outputs = self.on_forward(imgs, targets, polygons=polygons)
+                    loss = outputs["total_loss"] / actual_window
+                self.scaler.scale(loss).backward()
+                if is_opt_step:
+                    if clip_max_norm > 0:
+                        self.scaler.unscale_(self.optimizer)
+                        torch.nn.utils.clip_grad_norm_(
+                            self.model.parameters(), clip_max_norm
+                        )
+                    self.scaler.step(self.optimizer)
+                    self.scaler.update()
+            else:
+                outputs = self.on_forward(imgs, targets, polygons=polygons)
+                loss = outputs["total_loss"] / actual_window
+                loss.backward()
+                if is_opt_step:
+                    if clip_max_norm > 0:
+                        torch.nn.utils.clip_grad_norm_(
+                            self.model.parameters(), clip_max_norm
+                        )
+                    self.optimizer.step()
+
+            if is_opt_step:
+                if self.ema_model is not None:
+                    self.ema_model.update(self.model)
+                # 3. Per-group LR (scheduler returns one base LR; each group
+                # multiplies by its ``lr_mult``).
+                base_lr = self.lr_scheduler.update_lr(opt_step + 1)
+                for pg in self.optimizer.param_groups:
+                    pg["lr"] = base_lr * pg.get("lr_mult", 1.0)
+
+            loss_val = loss.item() * actual_window
+            loss_components = self._scalar_mapping(self.get_loss_components(outputs))
+            total_loss += loss_val
+            for name, value in loss_components.items():
+                loss_component_sums[name] = loss_component_sums.get(name, 0.0) + value
+            num_batches += 1
+            del outputs, loss
+
+            postfix = {"loss": f"{loss_val:.4f}", "lr": f"{base_lr:.6f}"}
+            postfix.update({k: f"{v:.4f}" for k, v in loss_components.items()})
+            pbar.set_postfix(postfix)
+
+        num_batches = max(num_batches, 1)
+        avg_loss = total_loss / num_batches
+        avg_loss_components = {
+            name: value / num_batches for name, value in loss_component_sums.items()
+        }
+
+        val_metrics = None
+        if (
+            self.config.eval_interval > 0
+            and (epoch + 1) % self.config.eval_interval == 0
+        ):
+            val_metrics = self._validate_epoch(epoch)
+
+        return avg_loss, val_metrics, avg_loss_components, self._current_lrs()

@@ -6,6 +6,7 @@ from typing import Any, Dict, Optional, Tuple
 
 import torch
 import torch.nn as nn
+from libreyolo.training.ddp_spawn import ddp_aware
 from PIL import Image
 
 from ..base import BaseModel
@@ -39,6 +40,7 @@ class LibreYOLO9(BaseModel):
     FAMILY = "yolo9"
     FILENAME_PREFIX = "LibreYOLO9"
     INPUT_SIZES = {"t": 640, "s": 640, "m": 640, "c": 640}
+    SUPPORTED_TASKS = ("detect", "segment")
     TRAIN_CONFIG = YOLO9Config
     val_preprocessor_class = YOLO9ValPreprocessor
 
@@ -92,11 +94,15 @@ class LibreYOLO9(BaseModel):
         model_path,
         size: str,
         reg_max: int = 16,
+        num_masks: int = 32,
+        proto_channels: int = 256,
         nb_classes: int = 80,
         device: str = "auto",
         **kwargs,
     ):
         self.reg_max = reg_max
+        self.num_masks = num_masks
+        self.proto_channels = proto_channels
         super().__init__(
             model_path=model_path,
             size=size,
@@ -108,13 +114,22 @@ class LibreYOLO9(BaseModel):
         if isinstance(model_path, str):
             self._load_weights(model_path)
 
+    @property
+    def _is_segmentation(self) -> bool:
+        return self.task == "segment"
+
     # =========================================================================
     # Model lifecycle
     # =========================================================================
 
     def _init_model(self) -> nn.Module:
         return LibreYOLO9Model(
-            config=self.size, reg_max=self.reg_max, nb_classes=self.nb_classes
+            config=self.size,
+            reg_max=self.reg_max,
+            nb_classes=self.nb_classes,
+            segmentation=self._is_segmentation,
+            num_masks=self.num_masks,
+            proto_channels=self.proto_channels,
         )
 
     def _get_available_layers(self) -> Dict[str, nn.Module]:
@@ -163,7 +178,24 @@ class LibreYOLO9(BaseModel):
 
         detect._init_bias()
         detect._loss_fn = None
+        if hasattr(detect, "_seg_loss_fn"):
+            detect._seg_loss_fn = None
         detect.to(next(self.model.parameters()).device)
+
+    def _restore_after_training(self, results: dict) -> None:
+        """Reload the saved checkpoint and leave the model ready for inference."""
+        checkpoint = None
+        for key in ("best_checkpoint", "last_checkpoint"):
+            path = results.get(key)
+            if path and Path(path).exists():
+                checkpoint = str(path)
+                break
+
+        if checkpoint is not None:
+            self.model_path = checkpoint
+            self._load_weights(checkpoint)
+
+        self.model.to(self.device).eval()
 
     # =========================================================================
     # Inference pipeline
@@ -208,13 +240,14 @@ class LibreYOLO9(BaseModel):
             input_size=actual_input_size,
             original_size=original_size,
             max_det=max_det,
-            letterbox=kwargs.get("letterbox", False),
+            letterbox=kwargs.get("letterbox", True),
         )
 
     # =========================================================================
     # Public API
     # =========================================================================
 
+    @ddp_aware()
     def train(
         self,
         data: str,
@@ -234,6 +267,7 @@ class LibreYOLO9(BaseModel):
         amp: bool = _TRAIN_DEFAULTS.amp,
         patience: int = _TRAIN_DEFAULTS.patience,
         allow_download_scripts: bool = False,
+        callbacks=None,
         **kwargs,
     ) -> dict:
         """Train the YOLOv9 model on a dataset.
@@ -254,6 +288,7 @@ class LibreYOLO9(BaseModel):
             resume: If True, resume training from checkpoint.
             amp: Enable automatic mixed precision training.
             patience: Early stopping patience.
+            callbacks: Optional training callback or iterable of callbacks.
 
         Returns:
             Training results dict with final_loss, best_mAP50, best_mAP50_95, etc.
@@ -294,7 +329,7 @@ class LibreYOLO9(BaseModel):
             random.seed(seed)
             np.random.seed(seed)
             torch.manual_seed(seed)
-            if torch.cuda.is_available():
+            if str(device).lower() not in ("cpu", "mps") and torch.cuda.is_available():
                 torch.cuda.manual_seed_all(seed)
 
         trainer = YOLO9Trainer(
@@ -318,6 +353,7 @@ class LibreYOLO9(BaseModel):
             amp=amp,
             patience=patience,
             allow_download_scripts=allow_download_scripts,
+            callbacks=callbacks,
             **kwargs,
         )
 
@@ -332,7 +368,6 @@ class LibreYOLO9(BaseModel):
 
         results = trainer.train()
 
-        if Path(results["best_checkpoint"]).exists():
-            self._load_weights(results["best_checkpoint"])
+        self._restore_after_training(results)
 
         return results

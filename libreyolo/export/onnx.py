@@ -23,7 +23,7 @@ def _uses_dfine_style_export_wrapper(model_family) -> bool:
     module that returns a 2-tuple. ONNX export can skip the dynamic output
     probe for them, and they all need opset 17 for ``aten::scaled_dot_product``.
     """
-    return model_family in {"dfine", "deim", "deimv2", "ec"}
+    return model_family in {"dfine", "deim", "deimv2", "ec", "rfdetr", "rtdetrv4"}
 
 
 def _postprocess_onnx(
@@ -117,6 +117,10 @@ def export_onnx(
     # DETR detection families we already know the output schema, so skip
     # the probe forward pass entirely and reuse the count below.
     is_seg = metadata.get("segmentation") == "true"
+    is_yolo9_seg = (
+        metadata.get("model_family") == "yolo9"
+        and metadata.get("task") == "segment"
+    )
     known_detr_detection = _uses_dfine_style_export_wrapper(
         metadata.get("model_family")
     )
@@ -125,21 +129,54 @@ def export_onnx(
         num_outputs = _detect_num_outputs(nn_model, dummy)
         is_seg = num_outputs >= 3
 
-    if is_seg:
-        output_names = ["boxes", "scores", "masks"]
+    model_family = metadata.get("model_family")
+    if is_yolo9_seg:
+        output_names = ["predictions", "proto", "mask_coeffs"]
         dynamic_axes = (
             {
                 "images": {0: "batch"},
-                "boxes": {0: "batch"},
-                "scores": {0: "batch"},
-                "masks": {0: "batch"},
+                "predictions": {0: "batch", 2: "anchors"},
+                "proto": {0: "batch", 2: "mask_height", 3: "mask_width"},
+                "mask_coeffs": {0: "batch", 2: "anchors"},
             }
             if dynamic
             else None
         )
         metadata["segmentation"] = "true"
+    elif is_seg:
+        output_names = (
+            ["dets", "labels", "masks"]
+            if model_family == "rfdetr"
+            else ["boxes", "scores", "masks"]
+        )
+        input_name = "input" if model_family == "rfdetr" else "images"
+        dynamic_axes = (
+            {
+                input_name: {0: "batch"},
+                output_names[0]: {0: "batch"},
+                output_names[1]: {0: "batch"},
+                output_names[2]: {0: "batch"},
+            }
+            if dynamic
+            else None
+        )
+        metadata["segmentation"] = "true"
+    elif model_family == "rfdetr":
+        # RF-DETR's RFDETRExportWrapper returns (boxes, logits), and upstream
+        # names those ONNX outputs dets/labels.
+        input_name = "input"
+        output_names = ["dets", "labels"]
+        dynamic_axes = (
+            {
+                input_name: {0: "batch"},
+                "dets": {0: "batch"},
+                "labels": {0: "batch"},
+            }
+            if dynamic
+            else None
+        )
     elif known_detr_detection or num_outputs == 2:
-        # DETR-style detection: {pred_logits, pred_boxes} as a tuple
+        # DETR-style detection: (pred_logits, pred_boxes) as a tuple
         output_names = ["pred_logits", "pred_boxes"]
         dynamic_axes = (
             {
@@ -156,11 +193,12 @@ def export_onnx(
             {"images": {0: "batch"}, "output": {0: "batch"}} if dynamic else None
         )
 
+    input_names = ["input"] if model_family == "rfdetr" else ["images"]
     export_kwargs = {
         "export_params": True,
         "opset_version": opset,
         "do_constant_folding": True,
-        "input_names": ["images"],
+        "input_names": input_names,
         "output_names": output_names,
         "dynamic_axes": dynamic_axes,
     }

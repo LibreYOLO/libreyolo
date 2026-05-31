@@ -1,12 +1,16 @@
 """OpenVINO inference backend for LibreYOLO."""
 
+import logging
 from pathlib import Path
 from typing import Dict
 
 import numpy as np
 
 from ..tasks import normalize_supported_tasks, normalize_task, resolve_task
+from ..utils.serialization import warn_on_metadata_schema_version
 from .base import BaseBackend
+
+logger = logging.getLogger(__name__)
 
 
 class OpenVINOBackend(BaseBackend):
@@ -98,13 +102,9 @@ class OpenVINOBackend(BaseBackend):
         ov_model = core.read_model(str(xml_path))
         self.compiled_model = core.compile_model(ov_model, ov_device)
 
-        input_shape = ov_model.inputs[0].shape
-        if (
-            len(input_shape) == 4
-            and isinstance(input_shape[2], int)
-            and input_shape[2] > 0
-        ):
-            imgsz = input_shape[2]
+        static_imgsz = self._read_static_input_imgsz(ov_model)
+        if static_imgsz is not None:
+            imgsz = static_imgsz
 
         super().__init__(
             model_path=str(model_dir),
@@ -120,6 +120,20 @@ class OpenVINOBackend(BaseBackend):
         )
 
     @staticmethod
+    def _read_static_input_imgsz(ov_model) -> int | None:
+        try:
+            input_shape = ov_model.inputs[0].shape
+        except RuntimeError:
+            # Some converted models keep a dynamic input shape. In that case,
+            # use the exported metadata size read before compiling.
+            return None
+
+        input_h = input_shape[2] if len(input_shape) == 4 else None
+        if isinstance(input_h, int) and input_h > 0:
+            return input_h
+        return None
+
+    @staticmethod
     def _read_metadata(metadata_path: Path, nb_classes_override: int | None = None):
         """Read metadata from metadata.yaml file.
 
@@ -130,9 +144,14 @@ class OpenVINOBackend(BaseBackend):
 
         with open(metadata_path) as f:
             meta = yaml.safe_load(f) or {}
+        warn_on_metadata_schema_version(
+            meta,
+            artifact=f"OpenVINO metadata sidecar {metadata_path}",
+            logger=logger,
+        )
 
         model_family = meta.get("model_family")
-        model_size = meta.get("model_size")
+        model_size = meta.get("model_size") or meta.get("size")
         default_task = normalize_task(meta.get("default_task"), default="detect")
         task = normalize_task(meta.get("task"), default=default_task)
         supported_tasks = normalize_supported_tasks(meta.get("supported_tasks", (task,)))
@@ -140,8 +159,8 @@ class OpenVINOBackend(BaseBackend):
 
         if nb_classes_override is not None:
             nb_classes = nb_classes_override
-        elif "nb_classes" in meta:
-            nb_classes = int(meta["nb_classes"])
+        elif "nb_classes" in meta or "nc" in meta:
+            nb_classes = int(meta.get("nb_classes", meta.get("nc")))
         else:
             nb_classes = 80
 

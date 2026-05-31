@@ -9,7 +9,9 @@ import torch
 
 from libreyolo.models.dfine.model import LibreDFINE
 from libreyolo.models.rtdetr.config import RTDETRConfig
-from libreyolo.models.rtdetr.model import LibreYOLORTDETR
+from libreyolo.models.rtdetr.model import LibreRTDETR
+from libreyolo.models.rtdetr.trainer import RTDETRTrainer
+from libreyolo.training.scheduler import ConstantLRScheduler
 from libreyolo.validation.preprocessors import RTDETRValPreprocessor
 
 pytestmark = pytest.mark.unit
@@ -19,11 +21,11 @@ class TestRTDETRRegistry:
     """Test RTDETR model registration."""
 
     def test_rtdetr_is_registered(self):
-        """LibreYOLORTDETR should be in the BaseModel registry."""
+        """LibreRTDETR should be in the BaseModel registry."""
         from libreyolo.models.base.model import BaseModel
 
-        assert LibreYOLORTDETR in BaseModel._registry or any(
-            cls.__name__ == "LibreYOLORTDETR" for cls in BaseModel._registry
+        assert LibreRTDETR in BaseModel._registry or any(
+            cls.__name__ == "LibreRTDETR" for cls in BaseModel._registry
         )
 
 
@@ -39,7 +41,7 @@ class TestRTDETRCanLoad:
             "decoder.dec_score_head.0.weight": torch.zeros(80, 256),
             "decoder.dec_score_head.0.bias": torch.zeros(80),
         }
-        assert LibreYOLORTDETR.can_load(fake_weights) is True
+        assert LibreRTDETR.can_load(fake_weights) is True
 
     def test_rtdetr_can_load_with_hgnetv2_keys(self):
         """can_load() should return True for HGNetv2-backbone (L/X) weight keys."""
@@ -51,7 +53,7 @@ class TestRTDETRCanLoad:
             "decoder.input_proj.0.conv.weight": torch.zeros(256, 256, 1, 1),
             "decoder.dec_score_head.0.weight": torch.zeros(80, 256),
         }
-        assert LibreYOLORTDETR.can_load(fake_weights) is True
+        assert LibreRTDETR.can_load(fake_weights) is True
 
     def test_rtdetr_does_not_claim_dfine_keys(self):
         """can_load() should not claim D-FINE checkpoints with overlapping keys."""
@@ -65,7 +67,7 @@ class TestRTDETRCanLoad:
             "decoder.dec_bbox_head.0.layers.0.weight": torch.zeros(256, 256),
         }
         assert LibreDFINE.can_load(fake_dfine_weights) is True
-        assert LibreYOLORTDETR.can_load(fake_dfine_weights) is False
+        assert LibreRTDETR.can_load(fake_dfine_weights) is False
 
     def test_dfine_does_not_claim_rtdetr_overlap_keys(self):
         """D-FINE should not match RT-DETR decoder heads that share names."""
@@ -78,7 +80,7 @@ class TestRTDETRCanLoad:
             "decoder.dec_bbox_head.0.layers.0.weight": torch.zeros(256, 256),
             "decoder.dec_score_head.0.bias": torch.zeros(80),
         }
-        assert LibreYOLORTDETR.can_load(fake_rtdetr_weights) is True
+        assert LibreRTDETR.can_load(fake_rtdetr_weights) is True
         assert LibreDFINE.can_load(fake_rtdetr_weights) is False
 
     def test_rtdetr_cannot_load_rfdetr_keys(self):
@@ -87,7 +89,7 @@ class TestRTDETRCanLoad:
             "model.backbone.0.body.layer1.0.conv1.weight": torch.zeros(64, 64, 1, 1),
             "model.encoder_projection.weight": torch.zeros(256, 512),
         }
-        assert LibreYOLORTDETR.can_load(fake_rfdetr_weights) is False
+        assert LibreRTDETR.can_load(fake_rfdetr_weights) is False
 
 
 class TestRTDETRDetectSize:
@@ -104,7 +106,7 @@ class TestRTDETRDetectSize:
             ),
             "encoder.input_proj.0.0.weight": torch.zeros(256, 128, 1, 1),
         }
-        assert LibreYOLORTDETR.detect_size(weights) == "r18"
+        assert LibreRTDETR.detect_size(weights) == "r18"
 
     def test_detect_size_resnet50(self):
         """Bottleneck + full-width encoder expansion -> 'r50'."""
@@ -115,7 +117,7 @@ class TestRTDETRDetectSize:
             "encoder.input_proj.0.0.weight": torch.zeros(256, 512, 1, 1),
             "encoder.fpn_blocks.0.conv1.conv.weight": torch.zeros(256, 512, 1, 1),
         }
-        assert LibreYOLORTDETR.detect_size(weights) == "r50"
+        assert LibreRTDETR.detect_size(weights) == "r50"
 
     def test_detect_size_resnet50m(self):
         """Bottleneck + half-width encoder expansion -> 'r50m'."""
@@ -126,7 +128,7 @@ class TestRTDETRDetectSize:
             "encoder.input_proj.0.0.weight": torch.zeros(256, 512, 1, 1),
             "encoder.fpn_blocks.0.conv1.conv.weight": torch.zeros(128, 512, 1, 1),
         }
-        assert LibreYOLORTDETR.detect_size(weights) == "r50m"
+        assert LibreRTDETR.detect_size(weights) == "r50m"
 
     def test_detect_size_resnet101(self):
         """Hidden dim 384 identifies the R101 variant."""
@@ -136,7 +138,7 @@ class TestRTDETRDetectSize:
             ),
             "encoder.input_proj.0.0.weight": torch.zeros(384, 512, 1, 1),
         }
-        assert LibreYOLORTDETR.detect_size(weights) == "r101"
+        assert LibreRTDETR.detect_size(weights) == "r101"
 
     def test_detect_size_hgnetv2_l(self):
         """HGNetv2 + encoder hidden_dim 256 → 'l'."""
@@ -146,7 +148,7 @@ class TestRTDETRDetectSize:
             ),
             "encoder.input_proj.0.0.weight": torch.zeros(256, 512, 1, 1),
         }
-        assert LibreYOLORTDETR.detect_size(weights) == "l"
+        assert LibreRTDETR.detect_size(weights) == "l"
 
     def test_detect_size_hgnetv2_x(self):
         """HGNetv2 + encoder hidden_dim 384 → 'x'."""
@@ -156,7 +158,7 @@ class TestRTDETRDetectSize:
             ),
             "encoder.input_proj.0.0.weight": torch.zeros(384, 512, 1, 1),
         }
-        assert LibreYOLORTDETR.detect_size(weights) == "x"
+        assert LibreRTDETR.detect_size(weights) == "x"
 
 
 class TestRTDETRDetectNbClasses:
@@ -169,22 +171,22 @@ class TestRTDETRDetectNbClasses:
             "decoder.dec_score_head.1.bias": torch.zeros(80),
             "decoder.dec_score_head.2.bias": torch.zeros(80),
         }
-        assert LibreYOLORTDETR.detect_nb_classes(fake_weights) == 80
+        assert LibreRTDETR.detect_nb_classes(fake_weights) == 80
 
     def test_rtdetr_detect_nb_classes_custom(self):
         """detect_nb_classes() should work with non-COCO class counts."""
         fake_weights = {
             "decoder.dec_score_head.0.bias": torch.zeros(10),
         }
-        assert LibreYOLORTDETR.detect_nb_classes(fake_weights) == 10
+        assert LibreRTDETR.detect_nb_classes(fake_weights) == 10
 
 
 class TestRTDETRModelInstantiation:
     """Test RTDETR model creation."""
 
     def test_rtdetr_model_instantiation(self):
-        """LibreYOLORTDETR should be instantiatable from scratch."""
-        model = LibreYOLORTDETR(nb_classes=80, size="r18")
+        """LibreRTDETR should be instantiatable from scratch."""
+        model = LibreRTDETR(nb_classes=80, size="r18")
         assert model is not None
         assert model.nb_classes == 80
         assert model.size == "r18"
@@ -212,12 +214,12 @@ class TestRTDETRExportMetadata:
 
     def test_rtdetr_export_metadata(self):
         """RTDETR model family should be 'rtdetr'."""
-        model = LibreYOLORTDETR(nc=80, size="r18")
+        model = LibreRTDETR(nc=80, size="r18")
         assert model.FAMILY == "rtdetr"
 
     def test_ncnn_export_is_blocked_for_rtdetr(self, tmp_path):
         """NCNN cannot run RT-DETR's DETR-style query selection."""
-        model = LibreYOLORTDETR(nc=80, size="r18", device="cpu")
+        model = LibreRTDETR(nc=80, size="r18", device="cpu")
         with pytest.raises(
             NotImplementedError, match="NCNN export is not supported for RT-DETR"
         ):
@@ -230,5 +232,42 @@ class TestRTDETRConfig:
     def test_rtdetr_config_defaults(self):
         """RTDETRConfig should have RTDETR-specific defaults."""
         config = RTDETRConfig(data="dummy.yaml")
-        assert config.lr_backbone == 0.00001
+        assert config.scheduler == "constant"
+        assert config.lr_backbone == 0.000005
         assert config.betas == (0.9, 0.999)
+        assert config.clip_max_norm == 0.1
+        assert config.ema_decay == 0.9999
+        assert config.mosaic_prob == 0.0
+        assert config.hsv_prob == 0.5
+
+
+def test_rtdetr_constant_scheduler_factory():
+    trainer = RTDETRTrainer.__new__(RTDETRTrainer)
+    trainer.config = RTDETRConfig(
+        data="dummy.yaml",
+        batch=16,
+        lr0=0.001,
+        warmup_epochs=2,
+        warmup_lr_start=1e-6,
+    )
+
+    scheduler = RTDETRTrainer.create_scheduler(trainer, iters_per_epoch=10)
+
+    assert isinstance(scheduler, ConstantLRScheduler)
+    assert scheduler.update_lr(0) == pytest.approx(1e-6)
+    assert scheduler.update_lr(20) == pytest.approx(0.001)
+    assert scheduler.update_lr(100) == pytest.approx(0.001)
+
+
+def test_rtdetr_effective_lr_is_absolute_under_accumulation():
+    trainer = RTDETRTrainer.__new__(RTDETRTrainer)
+    trainer.config = RTDETRConfig(
+        data="dummy.yaml",
+        batch=4,
+        lr0=0.001,
+        nbs=64,
+    )
+    trainer.world_size = 4
+
+    assert trainer._accum_steps == 16
+    assert trainer.effective_lr == pytest.approx(0.001)

@@ -1,6 +1,7 @@
 """Unit tests for YOLOv9 layers."""
 
 import pytest
+import numpy as np
 import torch
 
 from libreyolo.models.yolo9.nn import (
@@ -17,11 +18,13 @@ from libreyolo.models.yolo9.nn import (
     Concat,
     DFL,
     DDetect,
+    DDetectSeg,
     Backbone9,
     Neck9,
     LibreYOLO9Model,
 )
 from libreyolo.models.yolo9 import utils as yolo9_utils
+from libreyolo.validation.preprocessors import YOLO9ValPreprocessor
 
 pytestmark = pytest.mark.unit
 
@@ -189,6 +192,27 @@ class TestYOLO9DetectionHead:
         assert decoded.shape[0] == 1
         assert decoded.shape[1] == 4 + 80  # 84 (decoded boxes + class scores)
 
+    def test_ddetect_seg_forward(self):
+        """Test segmented DDetect head forward pass."""
+        layer = DDetectSeg(
+            nc=2,
+            ch=(64, 128, 256),
+            reg_max=16,
+            stride=(8, 16, 32),
+            num_masks=32,
+        )
+        layer.eval()
+        x = [
+            torch.randn(1, 64, 8, 8),
+            torch.randn(1, 128, 4, 4),
+            torch.randn(1, 256, 2, 2),
+        ]
+        decoded, raw, proto, coeffs = layer(x)
+        assert decoded.shape == (1, 6, 84)
+        assert len(raw) == 3
+        assert proto.shape == (1, 32, 16, 16)
+        assert coeffs.shape == (1, 32, 84)
+
 
 class TestYOLO9FullModel:
     """Test full model architecture."""
@@ -225,20 +249,85 @@ class TestYOLO9FullModel:
         assert isinstance(out, dict)
         assert "predictions" in out
 
+    def test_segment_model_forward(self):
+        """Test full LibreYOLO9 segmentation model forward pass."""
+        model = LibreYOLO9Model(config="t", nb_classes=2, segmentation=True)
+        model.eval()
+        x = torch.randn(1, 3, 64, 64)
+        out = model(x)
+        assert isinstance(out, dict)
+        assert out["predictions"].shape == (1, 6, 84)
+        assert out["proto"].shape == (1, 32, 16, 16)
+        assert out["mask_coeffs"].shape == (1, 32, 84)
+
+    def test_segment_training_loss(self):
+        """Segmentation model computes box, class, DFL, and mask losses."""
+        model = LibreYOLO9Model(config="t", nb_classes=2, segmentation=True)
+        model.train()
+        targets = torch.zeros(2, 100, 5)
+        targets[:, :, 0] = -1
+        targets[0, 0] = torch.tensor([0, 0.2, 0.2, 0.7, 0.7])
+        targets[1, 0] = torch.tensor([1, 0.1, 0.1, 0.6, 0.6])
+        masks = torch.zeros(2, 100, 16, 16)
+        masks[0, 0, 3:11, 3:11] = 1
+        masks[1, 0, 2:10, 2:10] = 1
+
+        out = model(torch.randn(2, 3, 64, 64), targets=targets, masks=masks)
+
+        assert out["total_loss"].requires_grad
+        assert out["seg_loss"].requires_grad
+        assert out["seg"] >= 0
+
 
 class TestYOLO9Utils:
     """Test utility functions."""
 
     def test_preprocess_image(self):
         """Test image preprocessing."""
-        import numpy as np
-
         img = np.zeros((100, 100, 3), dtype=np.uint8)
         tensor, original_img, original_size = yolo9_utils.preprocess_image(
             img, input_size=640
         )
         assert tensor.shape == (1, 3, 640, 640)
         assert original_size == (100, 100)
+
+    def test_preprocess_image_letterboxes_non_square_like_validation(self):
+        """Predict preprocessing must match YOLO9 validation geometry."""
+        img = np.zeros((4, 8, 3), dtype=np.uint8)
+
+        tensor, _, original_size = yolo9_utils.preprocess_image(
+            img, input_size=8, color_format="rgb"
+        )
+        val_tensor, _ = YOLO9ValPreprocessor((8, 8), max_labels=1)(
+            img[:, :, ::-1].copy(),
+            np.zeros((0, 5), dtype=np.float32),
+            (8, 8),
+        )
+
+        assert original_size == (8, 4)
+        torch.testing.assert_close(tensor[0], torch.from_numpy(val_tensor))
+        torch.testing.assert_close(
+            tensor[0, :, 4:, :],
+            torch.full((3, 4, 8), 114 / 255.0, dtype=tensor.dtype),
+        )
+
+    def test_postprocess_defaults_to_letterbox_inverse(self):
+        """YOLO9 postprocess default matches letterboxed predict inputs."""
+        pred = torch.zeros(1, 6, 1)
+        pred[0, :4, 0] = torch.tensor([0.0, 0.0, 320.0, 320.0])
+        pred[0, 4, 0] = 0.9
+
+        out = yolo9_utils.postprocess(
+            {"predictions": pred},
+            input_size=640,
+            original_size=(1280, 960),
+        )
+
+        assert out["num_detections"] == 1
+        torch.testing.assert_close(
+            torch.as_tensor(out["boxes"]),
+            torch.tensor([[0.0, 0.0, 640.0, 640.0]]),
+        )
 
     def test_make_anchors(self):
         """Test anchor generation.
@@ -260,3 +349,36 @@ class TestYOLO9Utils:
         assert anchors.shape[1] == 2
         assert strides.shape[0] == 8400
         assert strides.shape[1] == 1
+
+    def test_postprocess_segment_outputs_masks(self):
+        """YOLO9 segment postprocess keeps mask coefficients aligned through NMS."""
+        num_anchors = 4
+        num_classes = 2
+        num_masks = 32
+        pred = torch.zeros(1, 4 + num_classes, num_anchors)
+        pred[0, :4] = torch.tensor(
+            [
+                [10, 12, 11, 200],
+                [10, 12, 11, 200],
+                [50, 60, 55, 240],
+                [50, 60, 55, 240],
+            ],
+            dtype=torch.float32,
+        )
+        pred[0, 4:] = torch.tensor(
+            [[0.9, 0.2, 0.95, 0.1], [0.1, 0.8, 0.05, 0.7]]
+        )
+        proto = torch.randn(1, num_masks, 16, 16)
+        coeffs = torch.randn(1, num_masks, num_anchors)
+
+        out = yolo9_utils.postprocess(
+            {"predictions": pred, "proto": proto, "mask_coeffs": coeffs},
+            conf_thres=0.25,
+            iou_thres=0.5,
+            input_size=64,
+            original_size=(128, 96),
+            max_det=3,
+        )
+
+        assert out["num_detections"] == 2
+        assert out["masks"].shape == (2, 96, 128)

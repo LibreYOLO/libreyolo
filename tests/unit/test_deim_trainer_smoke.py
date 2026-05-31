@@ -153,7 +153,6 @@ def test_amp_train_loop_uses_on_forward_for_polygon_passthrough():
     trainer.scaler = FakeScaler()
     trainer.optimizer = torch.optim.SGD([param], lr=0.1)
     trainer.ema_model = None
-    trainer.tensorboard_writer = None
     trainer.lr_scheduler = SimpleNamespace(update_lr=lambda _: 0.1)
     trainer.get_loss_components = lambda outputs: {}
 
@@ -167,10 +166,12 @@ def test_amp_train_loop_uses_on_forward_for_polygon_passthrough():
 
     trainer.on_forward = on_forward
 
-    avg_loss, val_metrics = DEIMTrainer._train_epoch(trainer, 0)
+    avg_loss, val_metrics, loss_items, lr = DEIMTrainer._train_epoch(trainer, 0)
 
     assert avg_loss == pytest.approx(1.0)
     assert val_metrics is None
+    assert loss_items == {}
+    assert lr == {"group0": pytest.approx(0.1)}
     assert seen["polygons"] is polygons
     assert seen["imgs"].device.type == "cpu"
 

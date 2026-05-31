@@ -7,6 +7,7 @@ import numpy as np
 
 from ..tasks import normalize_supported_tasks, normalize_task, resolve_task
 from ..utils.general import COCO_CLASSES
+from ..utils.serialization import warn_on_metadata_schema_version
 from .base import BaseBackend
 
 logger = logging.getLogger(__name__)
@@ -67,12 +68,6 @@ class OnnxBackend(BaseBackend):
         self.session = ort.InferenceSession(onnx_path, providers=providers)
         self.input_name = self.session.get_inputs()[0].name
 
-        input_shape = self.session.get_inputs()[0].shape
-        if len(input_shape) == 4 and isinstance(input_shape[2], int):
-            imgsz = input_shape[2]
-        else:
-            imgsz = 640  # dynamic shape; use default
-
         (
             model_family,
             model_size,
@@ -80,7 +75,15 @@ class OnnxBackend(BaseBackend):
             supported_tasks,
             default_task,
             names,
+            metadata_imgsz,
         ) = self._read_onnx_metadata(onnx_path, nb_classes)
+        input_shape = self.session.get_inputs()[0].shape
+        if len(input_shape) == 4 and isinstance(input_shape[2], int):
+            imgsz = input_shape[2]
+        elif metadata_imgsz is not None:
+            imgsz = metadata_imgsz
+        else:
+            imgsz = 640  # dynamic shape without metadata; use default
         resolved_task = resolve_task(
             explicit_task=task,
             checkpoint_task=metadata_task,
@@ -106,7 +109,8 @@ class OnnxBackend(BaseBackend):
         """Read libreyolo metadata embedded in an ONNX model file.
 
         Returns:
-            Tuple of (model_family, model_size, task, supported_tasks, default_task, names).
+            Tuple of (model_family, model_size, task, supported_tasks,
+            default_task, names, imgsz).
         """
         model_family = None
         model_size = None
@@ -114,16 +118,24 @@ class OnnxBackend(BaseBackend):
         default_task = "detect"
         supported_tasks = ("detect",)
         names = None
+        imgsz = None
         try:
             import onnx
 
             model_proto = onnx.load(onnx_path)
             meta = {p.key: p.value for p in model_proto.metadata_props}
+            warn_on_metadata_schema_version(
+                meta,
+                artifact=f"ONNX metadata for {onnx_path}",
+                logger=logger,
+            )
 
             if "model_family" in meta:
                 model_family = meta["model_family"]
-            if "model_size" in meta:
-                model_size = meta["model_size"]
+            if "model_size" in meta or "size" in meta:
+                model_size = meta.get("model_size") or meta.get("size")
+            if "imgsz" in meta:
+                imgsz = int(meta["imgsz"])
             if "default_task" in meta:
                 default_task = normalize_task(meta["default_task"], default="detect")
             if "task" in meta:
@@ -141,8 +153,8 @@ class OnnxBackend(BaseBackend):
                 names_raw = json.loads(meta["names"])
                 names = {int(k): v for k, v in names_raw.items()}
 
-            if "nb_classes" in meta and names is None:
-                nc = int(meta["nb_classes"])
+            if ("nb_classes" in meta or "nc" in meta) and names is None:
+                nc = int(meta.get("nb_classes", meta.get("nc")))
                 if nc == 80:
                     names = {i: n for i, n in enumerate(COCO_CLASSES)}
                 else:
@@ -150,7 +162,7 @@ class OnnxBackend(BaseBackend):
         except Exception as e:
             logger.warning("Failed to read ONNX metadata from %s: %s", onnx_path, e)
 
-        return model_family, model_size, task, supported_tasks, default_task, names
+        return model_family, model_size, task, supported_tasks, default_task, names, imgsz
 
     def _run_inference(self, blob: np.ndarray) -> list:
         """Run ONNX Runtime inference."""

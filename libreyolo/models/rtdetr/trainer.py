@@ -11,9 +11,14 @@ from typing import Dict, List, Type
 
 import torch
 
+from libreyolo.training.distributed import is_main_process
 from libreyolo.training.trainer import BaseTrainer
 from libreyolo.training.config import TrainConfig
-from libreyolo.training.scheduler import LinearLRScheduler, CosineAnnealingScheduler
+from libreyolo.training.scheduler import (
+    ConstantLRScheduler,
+    CosineAnnealingScheduler,
+    LinearLRScheduler,
+)
 from libreyolo.models.yolo9.transforms import (
     YOLO9TrainTransform,
     YOLO9MosaicMixupDataset,
@@ -79,16 +84,17 @@ class RTDETRTrainer(BaseTrainer):
     def _config_class(cls) -> Type[TrainConfig]:
         return RTDETRConfig
 
+    def _ddp_find_unused_parameters(self) -> bool:
+        # RT-DETR's denoising_class_embed is skipped when a batch has no GT
+        # boxes (get_contrastive_denoising_training_group returns None).
+        # DDP must re-scan the graph each iteration rather than assuming a
+        # fixed set of used parameters (static_graph=True is incompatible here).
+        return True
+
     @property
     def effective_lr(self) -> float:
-        """LR scaled by batch size using RT-DETR's batch/16 normalization.
-
-        The original RT-DETR implementation normalises by 16 (its reference
-        batch size), not 64 as used by YOLO models.  With the default batch=4
-        this would otherwise produce a 4x lower LR than intended, slowing
-        convergence and hurting final AP.
-        """
-        return self.config.lr0 * self.config.batch / 16
+        """Optimizer base learning rate."""
+        return self.config.lr0
 
     def get_model_family(self) -> str:
         return "rtdetr"
@@ -124,6 +130,14 @@ class RTDETRTrainer(BaseTrainer):
                 warmup_lr_start=self.config.warmup_lr_start,
                 min_lr_ratio=self.config.min_lr_ratio,
             )
+        elif scheduler_name == "constant":
+            return ConstantLRScheduler(
+                lr=self.effective_lr,
+                iters_per_epoch=iters_per_epoch,
+                total_epochs=self.config.epochs,
+                warmup_epochs=self.config.warmup_epochs,
+                warmup_lr_start=self.config.warmup_lr_start,
+            )
         else:
             raise ValueError(f"Unknown scheduler: {scheduler_name}")
 
@@ -131,26 +145,40 @@ class RTDETRTrainer(BaseTrainer):
         """Extract per-component losses for logging.
 
         The outputs dict comes from SetCriterion.forward() which includes
-        total_loss and individual components.
+        total_loss and individual weighted components. Auxiliary and denoising
+        losses share the same prefixes as the main losses, with suffixes such as
+        ``_aux_0`` and ``_dn_0``.
         """
 
         def _scalar(v):
             return v.item() if isinstance(v, torch.Tensor) else v
 
-        components = {"total": _scalar(outputs.get("total_loss", 0))}
+        def _sum_by_prefix(prefix: str):
+            total = 0.0
+            seen = False
+            prefix_with_suffix = f"{prefix}_"
+            for key, value in outputs.items():
+                if key == prefix or key.startswith(prefix_with_suffix):
+                    total += float(_scalar(value))
+                    seen = True
+            return total if seen else None
 
-        # Main loss components
-        if "loss_vfl" in outputs:
-            components["vfl"] = _scalar(outputs["loss_vfl"])
-        elif "loss_focal" in outputs:
-            components["focal"] = _scalar(outputs["loss_focal"])
-        elif "loss_bce" in outputs:
-            components["bce"] = _scalar(outputs["loss_bce"])
+        components = {}
 
-        if "loss_bbox" in outputs:
-            components["bbox"] = _scalar(outputs["loss_bbox"])
-        if "loss_giou" in outputs:
-            components["giou"] = _scalar(outputs["loss_giou"])
+        for name, prefix in (
+            ("vfl", "loss_vfl"),
+            ("focal", "loss_focal"),
+            ("bce", "loss_bce"),
+        ):
+            value = _sum_by_prefix(prefix)
+            if value is not None:
+                components[name] = value
+                break
+
+        for name, prefix in (("bbox", "loss_bbox"), ("giou", "loss_giou")):
+            value = _sum_by_prefix(prefix)
+            if value is not None:
+                components[name] = value
 
         return components
 
@@ -189,13 +217,13 @@ class RTDETRTrainer(BaseTrainer):
         """Setup optimizer with regex-based parameter group matching.
 
         Parameter groups (matched in order, first match wins):
-          1. backbone + norm      -> lr=effective_lr*(lr_backbone/lr0), weight_decay=0
-          2. backbone + non-norm  -> lr=effective_lr*(lr_backbone/lr0)
+          1. backbone + norm      -> lr=lr_backbone, weight_decay=0
+          2. backbone + non-norm  -> lr=lr_backbone
           3. encoder/decoder + norm/bias -> weight_decay=0
           4. everything else      -> default lr and weight_decay
 
-        LR ratios are derived from raw config values (lr_backbone / lr0) so that
-        the backbone/head balance is independent of batch size scaling.
+        LR ratios are derived from raw config values (lr_backbone / lr0) so the
+        scheduler preserves the configured backbone/head balance.
         """
         config = self.config
         base_lr = self.effective_lr
@@ -204,14 +232,7 @@ class RTDETRTrainer(BaseTrainer):
         betas = config.betas
         lr_bb = config.lr_backbone
 
-        # Compute backbone LR ratio from raw config values (lr_backbone / lr0), not
-        # from effective_lr.  effective_lr = lr0 * batch/64 already folds in the
-        # batch-size scaling; dividing an absolute lr_backbone by effective_lr would
-        # inadvertently encode batch size into the ratio and give the wrong backbone/
-        # head balance at any batch size other than 64.
         bb_ratio = lr_bb / lr0
-        # Initial backbone LR expressed in the same batch-scaled units as base_lr
-        # so the optimizer starts at the right value before the scheduler runs.
         bb_lr = base_lr * bb_ratio
 
         # Define param group rules: (regex_pattern, overrides)
@@ -279,12 +300,12 @@ class RTDETRTrainer(BaseTrainer):
         else:
             raise ValueError(f"Unsupported optimizer: {config.optimizer}")
 
-        # Log parameter groups
-        logger.info(f"Optimizer: {optimizer_name}")
-        for i, g in enumerate(opt_groups):
-            logger.info(
-                f"  - Group {i}: lr={g['lr']:.6f}, wd={g.get('weight_decay', base_wd):.6f}, "
-                f"lr_ratio={g.get('lr_ratio', 1.0):.4f}, params={len(g['params'])}"
-            )
+        if is_main_process():
+            logger.info(f"Optimizer: {optimizer_name}")
+            for i, g in enumerate(opt_groups):
+                logger.info(
+                    f"  - Group {i}: lr={g['lr']:.6f}, wd={g.get('weight_decay', base_wd):.6f}, "
+                    f"lr_ratio={g.get('lr_ratio', 1.0):.4f}, params={len(g['params'])}"
+                )
 
         return optimizer

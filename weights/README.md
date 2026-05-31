@@ -15,6 +15,12 @@ This folder keeps family-specific conversion scripts, plus shared helpers in
 - metadata wrapping
 - saving
 
+All converted LibreYOLO `.pt` files must satisfy
+[`docs/checkpoint_schema.md`](../docs/checkpoint_schema.md). In v1.0 that means
+every converted checkpoint carries `model`, `schema_version`,
+`libreyolo_version`, `model_family`, `size`, `task`, `nc`, `names`, and `imgsz`
+at the top level.
+
 ## Conversions
 
 ### D-FINE
@@ -24,7 +30,7 @@ Script: [`convert_dfine_weights.py`](convert_dfine_weights.py)
 Nature of the conversion:
 - unwrap the upstream checkpoint layout
 - keep parameter names unchanged
-- add LibreYOLO metadata: `model_family`, `size`, `nc`, `names`
+- add LibreYOLO metadata required by schema v1.0
 
 This is a metadata-wrap conversion. There is no model-specific key remapping.
 
@@ -35,7 +41,7 @@ Script: [`convert_deimv2_weights.py`](convert_deimv2_weights.py)
 Nature of the conversion:
 - unwrap the upstream checkpoint layout
 - keep parameter names unchanged
-- add LibreYOLO metadata: `model_family`, `size`, `nc`, `names`
+- add LibreYOLO metadata required by schema v1.0
 
 This is a metadata-wrap conversion. The LibreYOLO native implementation vendors
 the DEIMv2 component graph so upstream parameter names remain loadable.

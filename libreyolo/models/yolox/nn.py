@@ -543,6 +543,8 @@ class YOLOXHead(nn.Module):
             outputs.append(output)
 
         if self.training:
+            if labels is None:
+                return torch.cat(outputs, 1)
             return self.get_losses(
                 imgs,
                 x_shifts,

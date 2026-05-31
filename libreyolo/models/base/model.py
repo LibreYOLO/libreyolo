@@ -6,14 +6,18 @@ Provides shared functionality for all YOLO model variants.
 
 from __future__ import annotations
 
+import functools
+import inspect
+import logging
 import re
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Any, ClassVar, Dict, Generator, List, Optional, Tuple, Type, Union
+from typing import Any, Callable, ClassVar, Dict, Generator, List, Optional, Tuple, Type, Union
 
 import torch
 import torch.nn as nn
 from PIL import Image
+from torchvision.ops import batched_nms
 
 from ...tasks import (
     detect_task_suffix,
@@ -22,13 +26,58 @@ from ...tasks import (
     task_suffix_pattern,
     task_to_suffix,
 )
-from ...training.config import TrainConfig
+from ...training.config import TrainConfig, load_train_cfg
 from ...utils.general import COCO_CLASSES
 from ...utils.image_loader import ImageInput
 from ...utils.logging import ensure_default_logging
 from ...utils.results import Results
-from ...utils.serialization import load_untrusted_torch_file
+from ...utils.serialization import (
+    REQUIRED_CHECKPOINT_METADATA_KEYS,
+    load_untrusted_torch_file,
+    validate_checkpoint_metadata,
+)
 from ...validation.preprocessors import StandardValPreprocessor
+
+logger = logging.getLogger(__name__)
+
+
+# Keys that come from the model wrapper instance (``self.size``,
+# ``self.nb_classes``) and are passed explicitly to the family trainer. If a
+# cfg yaml carries them too, they would collide with the explicit kwargs and
+# raise ``TypeError: got multiple values``. ``TrainConfig.to_yaml()`` writes
+# both, so a user-generated starter yaml hits this naturally.
+_WRAPPER_OWNED_CFG_KEYS = frozenset({"size", "num_classes"})
+
+
+def _wrap_train_with_cfg(train_fn: Callable) -> Callable:
+    """Decorate a family ``train()`` method to accept ``cfg='path/to/yaml'``.
+
+    Loads the yaml as a dict and merges it into kwargs with user-provided
+    kwargs winning. Keys consumed by positional args (and a small set of
+    wrapper-owned keys like ``size``/``num_classes``) are dropped from the
+    cfg dict to avoid ``TypeError: got multiple values``.
+    """
+    sig = inspect.signature(train_fn)
+    pos_names = [
+        p.name
+        for p in sig.parameters.values()
+        if p.kind in (p.POSITIONAL_ONLY, p.POSITIONAL_OR_KEYWORD)
+    ]
+    if pos_names and pos_names[0] == "self":
+        pos_names = pos_names[1:]
+
+    @functools.wraps(train_fn)
+    def wrapper(self, *args, cfg=None, **user_kwargs):
+        if cfg is None:
+            return train_fn(self, *args, **user_kwargs)
+        cfg_kwargs = load_train_cfg(cfg)
+        consumed = set(pos_names[: len(args)]) | _WRAPPER_OWNED_CFG_KEYS
+        merged = {k: v for k, v in cfg_kwargs.items() if k not in consumed}
+        merged.update(user_kwargs)
+        return train_fn(self, *args, **merged)
+
+    wrapper._libreyolo_cfg_wrapped = True  # type: ignore[attr-defined]
+    return wrapper
 
 
 class BaseModel(ABC):
@@ -56,6 +105,17 @@ class BaseModel(ABC):
     TRAIN_CONFIG: ClassVar[Optional[type[TrainConfig]]] = None
     val_preprocessor_class = StandardValPreprocessor
 
+    # TTA policy — subclasses may override
+    TTA_ENABLED: ClassVar[bool] = True
+    # True for families that resize to a fixed square regardless of input size
+    # (DETR-style). Multi-scale TTA is a no-op for them; only flip adds value.
+    TTA_FIXED_SIZE: ClassVar[bool] = False
+    # Scale factors applied to the PIL image before each TTA pass.
+    # Each scale × 2 flips = N passes. Default (1.0,) is flip-only.
+    # Override with e.g. (0.83, 1.0, 1.33) for 6-pass multi-scale TTA.
+    # Ignored when TTA_FIXED_SIZE is True.
+    TTA_SCALES: ClassVar[Tuple[float, ...]] = (1.0,)
+
     # Model registry — auto-populated by __init_subclass__
     _registry: ClassVar[List[Type["BaseModel"]]] = []
 
@@ -67,6 +127,11 @@ class BaseModel(ABC):
             and cls not in BaseModel._registry
         ):
             BaseModel._registry.append(cls)
+
+        if "train" in cls.__dict__ and not getattr(
+            cls.train, "_libreyolo_cfg_wrapped", False
+        ):
+            cls.train = _wrap_train_with_cfg(cls.train)
 
     # =========================================================================
     # Initialization
@@ -117,7 +182,13 @@ class BaseModel(ABC):
         if isinstance(model_path, str):
             model_path = self._resolve_weights_path(model_path)
 
-        self.model = self._init_model()
+        # Signal _init_model that weights will be loaded immediately after, so
+        # subclasses can skip pretrained backbone downloads that would be wasted.
+        self._loading_from_weights = isinstance(model_path, (str, Path, dict))
+        try:
+            self.model = self._init_model()
+        finally:
+            self._loading_from_weights = False
 
         if model_path is None:
             self.model_path = None
@@ -244,7 +315,14 @@ class BaseModel(ABC):
         old_state = self.model.state_dict()
         self.nb_classes = new_nb_classes
         self.names = {i: f"class_{i}" for i in range(new_nb_classes)}
-        self.model = self._init_model()
+        # Signal _init_model to skip pretrained backbone downloads — old_state
+        # already holds all backbone weights which are restored below, so
+        # downloading pretrained weights here is pure waste.
+        self._in_rebuild = True
+        try:
+            self.model = self._init_model()
+        finally:
+            self._in_rebuild = False
 
         new_state = self.model.state_dict()
         for key in old_state:
@@ -367,6 +445,19 @@ class BaseModel(ABC):
             )
 
             if isinstance(loaded, dict):
+                metadata_keys = set(REQUIRED_CHECKPOINT_METADATA_KEYS) - {"model"}
+                if metadata_keys & set(loaded):
+                    metadata_errors = validate_checkpoint_metadata(
+                        loaded,
+                        strict=False,
+                    )
+                    if metadata_errors:
+                        logger.warning(
+                            "LibreYOLO checkpoint metadata is missing or incomplete "
+                            "for %s: %s. Loading through the legacy compatibility path.",
+                            model_path,
+                            "; ".join(metadata_errors),
+                        )
                 if "model" in loaded:
                     state_dict = loaded["model"]
                 elif "state_dict" in loaded:
@@ -448,6 +539,186 @@ class BaseModel(ABC):
     ) -> Union[Results, List[Results], Generator[Results, None, None]]:
         """Alias for __call__ method."""
         return self(*args, **kwargs)
+    
+    def _predict_augment(
+        self,
+        image,
+        conf: float = 0.25,
+        iou: float = 0.45,
+        imgsz: Optional[int] = None,
+        classes: Optional[List[int]] = None,
+        max_det: int = 300,
+        color_format: str = "auto",
+        **kwargs,
+    ) -> Results:
+        """Run TTA inference and merge via per-class NMS.
+
+        Scales are read from TTA_SCALES (class variable); each scale x 2 flips
+        = one batch of passes. TTA_FIXED_SIZE models always use flip-only.
+        """
+        from PIL import Image as PILImage
+        from ...utils.image_loader import ImageLoader
+
+        effective_imgsz = imgsz if imgsz is not None else self._get_input_size()
+        img_pil = ImageLoader.load(image, color_format=color_format)
+        image_path = image if isinstance(image, (str, Path)) else None
+        orig_w, orig_h = img_pil.size
+
+        scales = (1.0,) if self.TTA_FIXED_SIZE else self.TTA_SCALES
+
+        aug_dets = []
+        for scale in scales:
+            if scale == 1.0:
+                scaled = img_pil
+            else:
+                scaled = img_pil.resize(
+                    (int(orig_w * scale), int(orig_h * scale)),
+                    PILImage.Resampling.BILINEAR,
+                )
+            for is_flipped in (False, True):
+                src = scaled.transpose(PILImage.Transpose.FLIP_LEFT_RIGHT) if is_flipped else scaled
+                tensor, _, orig_size, ratio = self._preprocess(
+                    src, color_format, input_size=effective_imgsz
+                )
+                with torch.no_grad():
+                    raw = self._forward(tensor.to(self.device))
+                det = self._postprocess(
+                    raw, conf, iou, orig_size, max_det=max_det, ratio=ratio, **kwargs
+                )
+                aug_dets.append((det, orig_size, is_flipped, scale))
+
+        return self._merge_tta(aug_dets, iou, image_path, (orig_w, orig_h), classes)
+
+    def _merge_tta(
+        self,
+        aug_dets: list,
+        iou_thres: float,
+        image_path,
+        original_size: Tuple[int, int],
+        classes: Optional[List[int]] = None,
+    ) -> Results:
+        """Merge TTA detections from multiple augmented views via per-class NMS."""
+        from ...utils.results import Boxes, Masks, Results
+
+        orig_w, orig_h = original_size
+        orig_shape = (orig_h, orig_w)
+
+        all_boxes: List[torch.Tensor] = []
+        all_scores: List[torch.Tensor] = []
+        all_classes: List[torch.Tensor] = []
+        all_masks: List[Optional[torch.Tensor]] = []
+        has_masks = False
+
+        for det, orig_size, is_flipped, scale in aug_dets:
+            if det["num_detections"] == 0:
+                continue
+
+            w = orig_size[0]  # width of the (possibly scaled) augmented image
+            boxes = torch.as_tensor(det["boxes"], dtype=torch.float32)
+            scores = torch.as_tensor(det["scores"], dtype=torch.float32)
+            cls = torch.as_tensor(det["classes"], dtype=torch.float32)
+
+            if is_flipped:
+                boxes = torch.stack(
+                    [w - boxes[:, 2], boxes[:, 1], w - boxes[:, 0], boxes[:, 3]],
+                    dim=1,
+                )
+
+            if scale != 1.0:
+                boxes = boxes / scale
+                orig_w_val, orig_h_val = original_size
+                boxes[:, 0::2].clamp_(0, orig_w_val)
+                boxes[:, 1::2].clamp_(0, orig_h_val)
+
+            raw_m = det.get("masks")
+            m = None
+            # Masks in scaled views are in the wrong pixel space; skip them
+            if raw_m is not None and scale == 1.0:
+                has_masks = True
+                m = raw_m if isinstance(raw_m, torch.Tensor) else torch.as_tensor(raw_m)
+                if is_flipped:
+                    m = m.flip(-1)
+
+            all_boxes.append(boxes)
+            all_scores.append(scores)
+            all_classes.append(cls)
+            all_masks.append(m)
+
+        def _empty_results():
+            return Results(
+                boxes=Boxes(
+                    torch.zeros((0, 4), dtype=torch.float32),
+                    torch.zeros(0, dtype=torch.float32),
+                    torch.zeros(0, dtype=torch.float32),
+                ),
+                orig_shape=orig_shape,
+                path=str(image_path) if image_path else None,
+                names=self.names,
+            )
+
+        if not all_boxes:
+            return _empty_results()
+
+        masks_cat: Optional[torch.Tensor] = None
+        if has_masks:
+            # Drop aug views that returned boxes but no masks to keep rows aligned
+            paired = [
+                (b, s, c, m)
+                for b, s, c, m in zip(all_boxes, all_scores, all_classes, all_masks)
+                if m is not None
+            ]
+            if paired:
+                all_boxes, all_scores, all_classes, mask_list = map(list, zip(*paired))
+                masks_cat = torch.cat(mask_list, dim=0)
+
+        boxes_cat = torch.cat(all_boxes, dim=0)
+        scores_cat = torch.cat(all_scores, dim=0)
+        classes_cat = torch.cat(all_classes, dim=0)
+
+        # Drop non-finite rows — batched_nms is undefined on NaN/Inf inputs.
+        finite_mask = torch.isfinite(boxes_cat).all(dim=1) & torch.isfinite(scores_cat)
+        if not finite_mask.all():
+            boxes_cat = boxes_cat[finite_mask]
+            scores_cat = scores_cat[finite_mask]
+            classes_cat = classes_cat[finite_mask]
+            if masks_cat is not None:
+                masks_cat = masks_cat[finite_mask]
+            if boxes_cat.numel() == 0:
+                return _empty_results()
+
+        # Shift to non-negative coords — batched_nms's class-offset trick
+        # uses (boxes.max() + 1), which only separates classes when all
+        # coords are non-negative. Translation-invariant for IoU.
+        nms_boxes = boxes_cat - boxes_cat.min().clamp(max=0)
+        # Per-class NMS in a single batched dispatch (class-offset trick).
+        keep = batched_nms(nms_boxes, scores_cat, classes_cat.long(), iou_thres)
+        if len(keep) == 0:
+            return _empty_results()
+        final_boxes = boxes_cat[keep]
+        final_scores = scores_cat[keep]
+        final_classes = classes_cat[keep]
+
+        if classes is not None:
+            cls_mask = torch.zeros(len(final_classes), dtype=torch.bool)
+            for cid in classes:
+                cls_mask |= final_classes == cid
+            final_boxes = final_boxes[cls_mask]
+            final_scores = final_scores[cls_mask]
+            final_classes = final_classes[cls_mask]
+            keep = keep[cls_mask]
+
+        masks_obj = None
+        if masks_cat is not None:
+            masks_obj = Masks(masks_cat[keep], orig_shape)
+
+        return Results(
+            boxes=Boxes(final_boxes, final_scores, final_classes),
+            orig_shape=orig_shape,
+            path=str(image_path) if image_path else None,
+            names=self.names,
+            masks=masks_obj,
+        )
+
 
     def track(
         self,
@@ -463,6 +734,7 @@ class BaseModel(ABC):
         vid_stride: int = 1,
         output_path: Optional[str] = None,
         tracker_config=None,
+        augment: bool = False,
         **tracker_kwargs,
     ) -> Generator[Results, None, None]:
         """Track objects across video frames.
@@ -588,6 +860,7 @@ class BaseModel(ABC):
         allow_download_scripts: bool = False,
         device: str | None = None,
         split: str = "val",
+        augment: bool = False,
         save_json: bool = False,
         verbose: bool = True,
         **kwargs,
@@ -631,11 +904,18 @@ class BaseModel(ABC):
             allow_download_scripts=allow_download_scripts,
             device=device or str(self.device),
             split=split,
+            augment=augment,
             save_json=save_json,
             verbose=verbose,
             **kwargs,
         )
 
+        if self.task == "gaze":
+            raise NotImplementedError(
+                "Validation against gaze ground-truth datasets (MPIIGaze, Gaze360) "
+                "is out of scope for LibreYOLO. Evaluate upstream at "
+                "https://github.com/Ahmednull/L2CS-Net."
+            )
         if self.task == "pose":
             validator_cls = PoseValidator
         elif self.task == "segment":

@@ -14,7 +14,7 @@ def test_normalize_task_aliases():
 
 
 def test_task_type_literal_is_public():
-    assert set(TaskType.__args__) == {"detect", "segment", "pose", "classify"}
+    assert set(TaskType.__args__) == {"detect", "segment", "pose", "classify", "gaze"}
 
 
 def test_resolve_task_precedence():

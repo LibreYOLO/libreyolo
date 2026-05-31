@@ -2,13 +2,39 @@
 
 import logging
 import warnings
-from dataclasses import asdict, dataclass, fields
+from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import List, Optional, Tuple, Union
 
 import yaml
 
 logger = logging.getLogger(__name__)
+
+
+def load_train_cfg(path) -> dict:
+    """Load a training-config yaml as a dict suitable for ``model.train(**out)``.
+
+    Args:
+        path: Path to a yaml file containing training parameters.
+
+    Returns:
+        Dict of training kwargs parsed from the yaml.
+
+    Raises:
+        FileNotFoundError: If the yaml file does not exist.
+        ValueError: If the yaml content is not a mapping.
+    """
+    yaml_path = Path(path)
+    if not yaml_path.exists():
+        raise FileNotFoundError(f"Training cfg yaml not found: {yaml_path}")
+    with open(yaml_path) as f:
+        raw = yaml.safe_load(f) or {}
+    if not isinstance(raw, dict):
+        raise ValueError(
+            f"Training cfg {yaml_path} must be a yaml mapping, "
+            f"got {type(raw).__name__}."
+        )
+    return raw
 
 
 @dataclass(kw_only=True)
@@ -26,8 +52,21 @@ class TrainConfig:
 
     # Training
     epochs: int = 300
+    # Global batch size. Under multi-GPU DDP the per-rank batch is
+    # ``batch // world_size``.
+    # Set to -1 to enable automatic selection: the trainer probes GPU memory
+    # at small batch sizes, fits a linear model, and picks the largest batch
+    # that fits within 70 % of total VRAM.
     batch: int = 16
-    device: str = "auto"
+    # Single device or multi-device spec. Accepts:
+    #   - "auto" / "" → auto-pick (cuda → mps → cpu)
+    #   - "cpu", "mps", "0", "cuda:0", 0 → single device
+    #   - [0, 1] or "0,1" → multi-GPU, requires torchrun launch
+    device: Union[str, int, List[int]] = "auto"
+    # SyncBatchNorm across ranks under DDP. Off here; per-family configs
+    # override (yolo9 defaults True per upstream MultimediaTechLab). No-op
+    # when not distributed.
+    sync_bn: bool = False
 
     # Optimizer
     optimizer: str = "sgd"
@@ -58,6 +97,12 @@ class TrainConfig:
     ema: bool = True
     ema_decay: float = 0.9998
     amp: bool = True
+    # Nominal (effective) batch size for gradient accumulation. When set, the
+    # trainer accumulates ``round(nbs / batch)`` micro-batches per optimizer
+    # step so the effective batch size is ``nbs``.
+    # Left as None (the default), gradient accumulation is disabled and
+    # training is unchanged.
+    nbs: Optional[int] = None
 
     # Checkpointing / output
     project: str = "runs/train"
@@ -137,6 +182,8 @@ class YOLO9Config(TrainConfig):
     ema_decay: float = 0.9999
     name: str = "yolo9_exp"
     workers: int = 8
+    mask_downsample_ratio: int = 4
+    sync_bn: bool = False
 
 
 @dataclass(kw_only=True)
@@ -226,6 +273,16 @@ class DEIMConfig(TrainConfig):
     amp: bool = False
     epochs: int = 132
     name: str = "deim_exp"
+
+
+@dataclass(kw_only=True)
+class RTDETRv4Config(DEIMConfig):
+    """RT-DETRv4 fine-tuning defaults."""
+
+    lr0: float = 5e-4
+    weight_decay: float = 1.25e-4
+    epochs: int = 58
+    name: str = "rtdetrv4_exp"
 
 
 DEIMV2_SIZE_DEFAULTS = {
@@ -533,6 +590,98 @@ class YOLONASConfig(TrainConfig):
 
 
 @dataclass(kw_only=True)
+class YOLONASPoseConfig(YOLONASConfig):
+    """YOLO-NAS pose-estimation training defaults.
+
+    Mirrors the SuperGradients ``coco2017_yolo_nas_pose`` recipe where it
+    applies to a single-GPU fine-tune: AdamW, low weight decay, cosine LR.
+    ``num_keypoints`` is resolved from the dataset ``kpt_shape`` by
+    ``LibreYOLONAS.train()``. ``oks_sigmas`` may be overridden per dataset;
+    when ``None`` the trainer uses the COCO-17 sigmas (17 keypoints) or
+    ``1 / num_keypoints`` otherwise.
+
+    best.pt is selected by pose AP when validation is available, so
+    ``eval_interval`` defaults to every epoch.
+    """
+
+    num_classes: int = 1
+    num_keypoints: int = 17
+    keypoint_dim: int = 3
+    oks_sigmas: Optional[List[float]] = None
+    classification_loss_type: str = "focal"
+    regression_iou_loss_type: str = "ciou"
+    classification_loss_weight: float = 1.0
+    iou_loss_weight: float = 2.5
+    dfl_loss_weight: float = 0.01
+    pose_cls_loss_weight: float = 1.0
+    pose_reg_loss_weight: float = 34.0
+    pose_classification_loss_type: str = "focal"
+    bbox_assigner_topk: int = 13
+    bbox_assigned_alpha: float = 1.0
+    bbox_assigned_beta: float = 6.0
+    assigner_multiply_by_pose_oks: bool = True
+    rescale_pose_loss_with_assigned_score: bool = True
+    brightness_contrast_prob: float = 0.5
+    affine_prob: float = 0.75
+    pose_scale: Tuple[float, float] = (0.75, 1.5)
+    affine_interpolation: str = "linear"
+    pin_memory: bool = False
+    prefetch_factor: int = 1
+    persistent_workers: bool = True
+    decode_scale: int = 1
+
+    lr0: float = 2e-3
+    weight_decay: float = 1e-6
+    warmup_epochs: int = 10
+    min_lr_ratio: float = 0.05
+    epochs: int = 1000
+    ema_decay: float = 0.997
+    amp: bool = True
+    eval_interval: int = 1
+    name: str = "yolonas_pose_exp"
+
+
+@dataclass(kw_only=True)
+class DAMOYOLOConfig(TrainConfig):
+    """DAMO-YOLO-specific training defaults.
+
+    Upstream T config (``configs/damoyolo_tinynasL20_T.py``):
+    - SGD, base_lr_per_img=0.01/64 (so eff. lr scales with batch), momentum 0.9, wd 5e-4
+    - 300 epochs, no_aug 16, warmup 5, min_lr_ratio 0.05
+    - Mosaic + mixup (mixup_prob 0.15), degrees 10, shear 2.0, mosaic_scale (0.1, 2.0)
+    - Image input 640x640, no keep_ratio, RGB float32 [0, 255], no normalisation
+
+    LibreYOLO v1: SGD + cosine + mosaic+mixup + hflip. SADA box-level
+    autoaugment is *not* ported.
+    """
+
+    optimizer: str = "sgd"
+    lr0: float = 0.01
+    momentum: float = 0.9
+    weight_decay: float = 5e-4
+
+    scheduler: str = "yoloxwarmcos"
+    warmup_epochs: int = 5
+    warmup_lr_start: float = 0.0
+    no_aug_epochs: int = 16
+    min_lr_ratio: float = 0.05
+
+    mosaic_prob: float = 1.0
+    mixup_prob: float = 0.15
+    hsv_prob: float = 1.0
+    flip_prob: float = 0.5
+    degrees: float = 10.0
+    translate: float = 0.2
+    shear: float = 2.0
+    mosaic_scale: Tuple[float, float] = (0.1, 2.0)
+
+    ema_decay: float = 0.9998
+    epochs: int = 300
+    amp: bool = True
+    name: str = "damoyolo_exp"
+
+
+@dataclass(kw_only=True)
 class PICODETConfig(TrainConfig):
     """PICODET-specific training defaults.
 
@@ -571,3 +720,50 @@ class PICODETConfig(TrainConfig):
     epochs: int = 300
     amp: bool = True
     name: str = "picodet_exp"
+
+
+@dataclass
+class RTMDetConfig(TrainConfig):
+    """RTMDet training defaults.
+
+    Upstream recipe (mmdetection/configs/rtmdet/rtmdet_l_8xb32-300e_coco.py):
+    - AdamW, lr 0.004 (8 GPUs * 32 batch), weight_decay 0.05
+    - Linear warmup 1000 iters from start_factor 1e-5
+    - Cosine annealing from epoch 150 to 300, eta_min = 5% of base_lr
+    - 300 epochs, last 20 epochs ('stage 2') turn off Mosaic + MixUp
+    - Mean=[103.53, 116.28, 123.675] / Std=[57.375, 57.12, 58.395] in BGR
+    - paramwise: norm_decay_mult=0, bias_decay_mult=0
+    - Cached Mosaic (img_scale=640, max_cached=40) + Cached MixUp (max_cached=20)
+    - DynamicSoftLabelAssigner (topk=13)
+    - QualityFocalLoss (beta=2.0, weight=1.0) + GIoULoss (weight=2.0)
+
+    Status: training is NOT yet implemented in LibreYOLO. This config exists so
+    callers can introspect intended hyperparameters. ``LibreRTMDet.train()``
+    raises ``NotImplementedError`` until the follow-up PR lands the loss,
+    DynamicSoftLabelAssigner, BatchDynamicSoftLabelAssigner, MlvlPointGenerator,
+    and the 2-stage pipeline-switch hook.
+    """
+
+    optimizer: str = "adamw"
+    lr0: float = 0.004
+    momentum: float = 0.9  # unused for adamw; kept for TrainConfig compatibility
+    weight_decay: float = 0.05
+
+    scheduler: str = "cos"
+    warmup_epochs: int = 1  # ~1000 iters at batch 32 / 8GPUs equates to roughly 1 epoch
+    warmup_lr_start: float = 4e-8  # 1e-5 * 0.004
+    no_aug_epochs: int = 20  # stage-2 epochs without Mosaic+MixUp
+    min_lr_ratio: float = 0.05
+
+    mosaic_prob: float = 1.0
+    mixup_prob: float = 1.0
+    hsv_prob: float = 1.0
+    flip_prob: float = 0.5
+    degrees: float = 0.0
+    shear: float = 0.0
+    translate: float = 0.0
+
+    ema_decay: float = 0.9998
+    epochs: int = 300
+    amp: bool = True
+    name: str = "rtmdet_exp"

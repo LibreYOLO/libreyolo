@@ -13,6 +13,7 @@ Reference: https://github.com/lyuwenyu/RT-DETR
 """
 
 import torch
+import torch.distributed as dist
 import torch.nn as nn
 import torch.nn.functional as F
 import torchvision
@@ -311,11 +312,16 @@ class SetCriterion(nn.Module):
         # Match last layer outputs to targets
         indices = self.matcher(outputs_without_aux, targets)
 
-        # Compute number of target boxes for normalization
+        # Compute number of target boxes for normalization.
+        # Under DDP, all-reduce so every rank divides by the global count,
+        # not just its own per-rank batch. Without this, losses would be
+        # scaled by per-rank box counts, which diverge from single-GPU semantics.
         num_boxes = sum(len(t["labels"]) for t in targets)
         num_boxes = torch.as_tensor(
             [num_boxes], dtype=torch.float, device=next(iter(outputs.values())).device
         )
+        if dist.is_available() and dist.is_initialized():
+            dist.all_reduce(num_boxes, op=dist.ReduceOp.SUM)
         num_boxes = torch.clamp(num_boxes, min=1).item()
 
         # Compute all requested losses

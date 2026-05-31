@@ -6,6 +6,8 @@ import numpy as np
 import torch
 import pytest
 
+from libreyolo.utils.serialization import wrap_libreyolo_checkpoint
+
 
 pytestmark = pytest.mark.unit
 
@@ -50,6 +52,30 @@ def test_deimv2_forward_shapes(size, input_size, queries):
     assert out["pred_boxes"].shape == (1, queries, 4)
 
 
+def test_deimv2_factory_loads_v1_metadata_checkpoint(tmp_path):
+    from libreyolo import LibreDEIMv2, LibreYOLO
+
+    src = LibreDEIMv2(None, size="atto", device="cpu")
+    ckpt = tmp_path / "LibreDEIMv2atto.pt"
+    torch.save(
+        wrap_libreyolo_checkpoint(
+            src.model.state_dict(),
+            model_family="deimv2",
+            size="atto",
+            task="detect",
+            nc=80,
+            names={i: f"class_{i}" for i in range(80)},
+            imgsz=320,
+        ),
+        ckpt,
+    )
+
+    loaded = LibreYOLO(str(ckpt), device="cpu")
+    assert loaded.FAMILY == "deimv2"
+    assert loaded.size == "atto"
+    assert loaded.input_size == 320
+
+
 def test_deimv2_factory_detects_upstream_style_checkpoint(tmp_path):
     from libreyolo import LibreDEIMv2, LibreYOLO
 
@@ -63,7 +89,7 @@ def test_deimv2_factory_detects_upstream_style_checkpoint(tmp_path):
     assert loaded.input_size == 320
 
 
-def test_deimv2_factory_loads_safetensors_checkpoint(tmp_path):
+def test_deimv2_factory_loads_metadata_less_safetensors_checkpoint(tmp_path):
     pytest.importorskip("safetensors")
     from safetensors.torch import save_model
 

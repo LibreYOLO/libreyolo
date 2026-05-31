@@ -1,27 +1,413 @@
-"""
-Training module for RF-DETR.
-Wraps the original rfdetr training API with a LibreYOLO-style interface.
-"""
+"""Native RF-DETR trainer for LibreYOLO."""
 
+from __future__ import annotations
+
+import random
 from pathlib import Path
-from typing import Dict
+from types import SimpleNamespace
+from typing import Dict, List, Optional, Type
 
-from rfdetr import RFDETRLarge, RFDETRNano, RFDETRSmall, RFDETRMedium
-from rfdetr import RFDETRSegLarge, RFDETRSegNano, RFDETRSegSmall, RFDETRSegMedium
+import torch
+import torch.nn.functional as F
 
-RFDETR_TRAINERS = {
-    "n": RFDETRNano,
-    "s": RFDETRSmall,
-    "m": RFDETRMedium,
-    "l": RFDETRLarge,
-}
+from ...data import load_data_config
+from ...training.config import TrainConfig
+from ...training.distributed import unwrap_model
+from ...training.scheduler import BaseScheduler, CosineAnnealingScheduler, FlatCosineScheduler
+from ...training.trainer import BaseTrainer
+from .config import RFDETRConfig
+from ..dfine.transforms import DFINEPassThroughDataset
+from .seg_transforms import (
+    RFDETRDetTransform,
+    RFDETRSegPassThroughDataset,
+    RFDETRSegTransform,
+    compute_multi_scale_scales,
+)
 
-RFDETR_SEG_TRAINERS = {
-    "n": RFDETRSegNano,
-    "s": RFDETRSegSmall,
-    "m": RFDETRSegMedium,
-    "l": RFDETRSegLarge,
-}
+
+class RFDETRStepScheduler(BaseScheduler):
+    """RF-DETR upstream-style warmup plus step decay schedule."""
+
+    def __init__(
+        self,
+        lr: float,
+        iters_per_epoch: int,
+        total_epochs: int,
+        warmup_epochs: float = 0.0,
+        lr_drop: int = 100,
+    ):
+        super().__init__(lr, iters_per_epoch, total_epochs)
+        self.warmup_iters = int(iters_per_epoch * warmup_epochs)
+        self.drop_iter = int(iters_per_epoch * lr_drop)
+
+    def update_lr(self, iters: int) -> float:
+        if self.warmup_iters > 0 and iters < self.warmup_iters:
+            return self.lr * float(iters) / float(max(1, self.warmup_iters))
+        if iters < self.drop_iter:
+            return self.lr
+        return self.lr * 0.1
+
+
+class RFDETRTrainer(BaseTrainer):
+    artifact_model_families = ("rfdetr",)
+
+    @classmethod
+    def _config_class(cls) -> Type[TrainConfig]:
+        return RFDETRConfig
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._class_names = None
+        if self.config.data:
+            data_cfg = load_data_config(
+                self.config.data,
+                allow_scripts=self.config.allow_download_scripts,
+            )
+            self.config.num_classes = int(data_cfg.get("nc", self.config.num_classes))
+            names = data_cfg.get("names")
+            if isinstance(names, dict):
+                self._class_names = {int(k): str(v) for k, v in names.items()}
+            elif isinstance(names, (list, tuple)):
+                self._class_names = {i: str(v) for i, v in enumerate(names)}
+
+    @property
+    def effective_lr(self) -> float:
+        return self.config.lr0
+
+    def get_model_family(self) -> str:
+        return "rfdetr"
+
+    def get_model_tag(self) -> str:
+        return f"LibreRFDETR-{self.config.size}"
+
+    def _ddp_find_unused_parameters(self) -> bool:
+        # Detection only: at least one transformer parameter receives no
+        # gradient on some forward passes, so DDP must skip reduction for it.
+        # Segmentation uses static_graph=True instead (see _ddp_static_graph).
+        return getattr(self.wrapper_model, "task", "detect") == "detect"
+
+    def _ddp_static_graph(self) -> bool:
+        # Segmentation only: the seg head is invoked from both encoder and
+        # decoder branches in one forward, so its parameters accumulate
+        # gradients from two call sites. With find_unused_parameters=True the
+        # DDP hook fires twice per step → "marked ready twice" crash.
+        # static_graph=True locks the reducer after iteration 1 and handles
+        # double accumulation correctly. Detection keeps the default (False)
+        # because find_unused_parameters=True requires dynamic graph traversal.
+        return getattr(self.wrapper_model, "task", "detect") == "segment"
+
+    def create_transforms(self):
+        patch_size = int(getattr(self.model, "patch_size", 16))
+        num_windows = int(getattr(self.model, "num_windows", 4))
+        block_size = patch_size * num_windows
+        # Validation always uses the literal imgsz, so divisibility is required
+        # regardless of multi_scale mode.
+        if self.config.imgsz % block_size != 0:
+            lo = (self.config.imgsz // block_size) * block_size
+            hi = lo + block_size
+            raise ValueError(
+                f"imgsz={self.config.imgsz} is not divisible by {block_size} "
+                f"(patch_size={patch_size} x num_windows={num_windows}). "
+                f"Use {lo} or {hi}."
+            )
+        if getattr(self.wrapper_model, "task", "detect") == "segment":
+            preproc = RFDETRSegTransform(
+                max_labels=300,
+                flip_prob=self.config.flip_prob,
+                imgsz=self.config.imgsz,
+                mask_downsample_ratio=4,
+                multi_scale=self.config.multi_scale,
+                expanded_scales=self.config.expanded_scales,
+                do_random_resize_via_padding=self.config.do_random_resize_via_padding,
+                patch_size=patch_size,
+                num_windows=num_windows,
+                crop_resize_prob=self.config.crop_resize_prob,
+            )
+            return preproc, RFDETRSegPassThroughDataset
+        preproc = RFDETRDetTransform(
+            max_labels=300,
+            flip_prob=self.config.flip_prob,
+            imgsz=self.config.imgsz,
+            multi_scale=self.config.multi_scale,
+            expanded_scales=self.config.expanded_scales,
+            do_random_resize_via_padding=self.config.do_random_resize_via_padding,
+            patch_size=patch_size,
+            num_windows=num_windows,
+            crop_resize_prob=self.config.crop_resize_prob,
+        )
+        return preproc, DFINEPassThroughDataset
+
+    def create_scheduler(self, iters_per_epoch: int):
+        scheduler = str(getattr(self.config, "scheduler", "step")).lower()
+        if scheduler == "step":
+            return RFDETRStepScheduler(
+                lr=self.effective_lr,
+                iters_per_epoch=iters_per_epoch,
+                total_epochs=self.config.epochs,
+                warmup_epochs=self.config.warmup_epochs,
+                lr_drop=getattr(self.config, "lr_drop", self.config.epochs),
+            )
+        if scheduler == "cosine":
+            return CosineAnnealingScheduler(
+                lr=self.effective_lr,
+                iters_per_epoch=iters_per_epoch,
+                total_epochs=self.config.epochs,
+                warmup_epochs=self.config.warmup_epochs,
+                warmup_lr_start=0.0,
+                min_lr_ratio=self.config.min_lr_ratio,
+            )
+        return FlatCosineScheduler(
+            lr=self.effective_lr,
+            iters_per_epoch=iters_per_epoch,
+            total_epochs=self.config.epochs,
+            warmup_epochs=self.config.warmup_epochs,
+            warmup_lr_start=self.config.warmup_lr_start,
+            no_aug_epochs=self.config.no_aug_epochs,
+            min_lr_ratio=self.config.min_lr_ratio,
+        )
+
+    def _multi_scale_scales(self) -> list[int]:
+        if not self.config.multi_scale or self.config.do_random_resize_via_padding:
+            return []
+        raw = unwrap_model(self.model)
+        patch_size = int(getattr(raw, "patch_size", 16))
+        num_windows = int(getattr(raw, "num_windows", 4))
+        return compute_multi_scale_scales(
+            self.config.imgsz,
+            self.config.expanded_scales,
+            patch_size,
+            num_windows,
+        )
+
+    def _apply_multi_scale_batch(
+        self,
+        imgs: torch.Tensor,
+        targets: torch.Tensor,
+        polygons,
+        *,
+        step: int,
+    ):
+        scales = self._multi_scale_scales()
+        if not scales:
+            return imgs, targets, polygons
+
+        rng = random.Random(step)
+        scale = rng.choice(scales)
+        current_h, current_w = imgs.shape[-2:]
+        if current_h == scale and current_w == scale:
+            return imgs, targets, polygons
+
+        scale_x = scale / float(current_w)
+        scale_y = scale / float(current_h)
+        imgs = F.interpolate(
+            imgs,
+            size=(scale, scale),
+            mode="bilinear",
+            align_corners=False,
+        )
+
+        targets = targets.clone()
+        targets[..., 1] *= scale_x
+        targets[..., 2] *= scale_y
+        targets[..., 3] *= scale_x
+        targets[..., 4] *= scale_y
+
+        if isinstance(polygons, torch.Tensor):
+            polygons = F.interpolate(
+                polygons.float(),
+                size=(scale, scale),
+                mode="nearest",
+            )
+
+        return imgs, targets, polygons
+
+    def on_setup(self):
+        if self.model.nb_classes != self.config.num_classes:
+            self.model.model.reinitialize_detection_head(self.config.num_classes + 1)
+            self.model.nb_classes = self.config.num_classes
+            self.model.args.num_classes = self.config.num_classes
+
+        self.criterion, _ = self.model.build_criterion_and_postprocess()
+        self.criterion.to(self.device)
+
+        if self.wrapper_model is not None:
+            self.wrapper_model.nb_classes = self.config.num_classes
+            if self._class_names:
+                self.wrapper_model.names = self.wrapper_model._sanitize_names(
+                    self._class_names,
+                    self.config.num_classes,
+                )
+            else:
+                self.wrapper_model.names = {
+                    i: f"class_{i}" for i in range(self.config.num_classes)
+                }
+
+    def _setup_optimizer(self) -> torch.optim.Optimizer:
+        upstream_groups = self._setup_upstream_optimizer_groups()
+        if upstream_groups:
+            return torch.optim.AdamW(
+                upstream_groups,
+                lr=self.effective_lr,
+                weight_decay=self.config.weight_decay,
+                betas=(0.9, 0.999),
+            )
+
+        backbone_wd, backbone_no_wd, head_wd, head_no_wd = [], [], [], []
+        for name, param in self.model.named_parameters():
+            if not param.requires_grad:
+                continue
+            is_backbone = name.startswith("model.backbone.")
+            no_wd = "norm" in name or "bias" in name or "pos_embed" in name or "position_embeddings" in name
+            if is_backbone and no_wd:
+                backbone_no_wd.append(param)
+            elif is_backbone:
+                backbone_wd.append(param)
+            elif no_wd:
+                head_no_wd.append(param)
+            else:
+                head_wd.append(param)
+
+        lr = self.effective_lr
+        wd = self.config.weight_decay
+        bb_mult = float(self.config.backbone_lr_mult)
+        groups = []
+        if head_wd:
+            groups.append({"params": head_wd, "lr": lr, "weight_decay": wd, "lr_mult": 1.0})
+        if head_no_wd:
+            groups.append({"params": head_no_wd, "lr": lr, "weight_decay": 0.0, "lr_mult": 1.0})
+        if backbone_wd:
+            groups.append({"params": backbone_wd, "lr": lr * bb_mult, "weight_decay": wd, "lr_mult": bb_mult})
+        if backbone_no_wd:
+            groups.append({"params": backbone_no_wd, "lr": lr * bb_mult, "weight_decay": 0.0, "lr_mult": bb_mult})
+        return torch.optim.AdamW(groups, betas=(0.9, 0.999))
+
+    def _setup_upstream_optimizer_groups(self) -> list[dict]:
+        core_model = getattr(self.model, "model", self.model)
+        backbone = getattr(core_model, "backbone", None)
+        if backbone is None:
+            return []
+        try:
+            backbone_encoder = backbone[0]
+        except (TypeError, IndexError):
+            return []
+        if not hasattr(backbone_encoder, "get_named_param_lr_pairs"):
+            return []
+
+        model_args = getattr(self.model, "args", getattr(core_model, "args", None))
+        if model_args is None:
+            return []
+        args = SimpleNamespace(**vars(model_args))
+        args.lr = self.effective_lr
+        args.weight_decay = self.config.weight_decay
+
+        backbone_param_by_name = backbone_encoder.get_named_param_lr_pairs(
+            args,
+            prefix="backbone.0",
+        )
+        if not backbone_param_by_name:
+            return []
+
+        base_lr = max(float(self.effective_lr), 1e-12)
+        decoder_key = "transformer.decoder"
+        groups = []
+        decoder_params = []
+        other_params = []
+        for name, param in core_model.named_parameters():
+            if not param.requires_grad:
+                continue
+            if name in backbone_param_by_name:
+                continue
+            if decoder_key in name:
+                decoder_params.append(param)
+            else:
+                other_params.append(param)
+
+        for param in other_params:
+            groups.append({"params": param, "lr": self.effective_lr, "lr_mult": 1.0})
+
+        for param_group in backbone_param_by_name.values():
+            group = dict(param_group)
+            group["lr_mult"] = float(group["lr"]) / base_lr
+            groups.append(group)
+
+        decoder_lr = self.effective_lr * float(getattr(args, "lr_component_decay", 1.0))
+        decoder_lr_mult = decoder_lr / base_lr
+        for param in decoder_params:
+            groups.append({"params": param, "lr": decoder_lr, "lr_mult": decoder_lr_mult})
+
+        return groups
+
+    def _scale_lr(self, base_lr: float, param_group: dict) -> float:
+        return base_lr * float(param_group.get("lr_mult", 1.0))
+
+    def on_forward(
+        self,
+        imgs: torch.Tensor,
+        targets: torch.Tensor,
+        polygons: Optional[List] = None,
+    ) -> Dict:
+        batch_size = targets.shape[0]
+        height, width = imgs.shape[-2], imgs.shape[-1]
+        scale = torch.tensor([width, height, width, height], device=targets.device, dtype=targets.dtype)
+        is_seg = getattr(self.wrapper_model, "task", "detect") == "segment"
+        # ``polygons`` here is the collate-stacked output of RFDETRSegTransform:
+        # a [B, max_labels, mask_h, mask_w] float32 tensor whose slot i aligns
+        # with target slot i. Slice by the same ``valid`` box mask to hand the
+        # criterion per-image ``[N_valid, mask_h, mask_w]`` tensors.
+        masks_batch = (
+            polygons.to(self.device, non_blocking=True)
+            if is_seg and isinstance(polygons, torch.Tensor)
+            else None
+        )
+
+        target_list = []
+        for batch_idx in range(batch_size):
+            t = targets[batch_idx]
+            valid = (t[:, 3] > 0) & (t[:, 4] > 0)
+            t_valid = t[valid]
+            if t_valid.numel() == 0:
+                entry = {
+                    "labels": torch.zeros(0, dtype=torch.int64, device=self.device),
+                    "boxes": torch.zeros(0, 4, dtype=torch.float32, device=self.device),
+                }
+                if masks_batch is not None:
+                    mh, mw = masks_batch.shape[-2], masks_batch.shape[-1]
+                    entry["masks"] = torch.zeros(0, mh, mw, dtype=torch.bool, device=self.device)
+            else:
+                entry = {
+                    "labels": t_valid[:, 0].long(),
+                    "boxes": (t_valid[:, 1:] / scale).clamp(0.0, 1.0),
+                }
+                if masks_batch is not None:
+                    m = masks_batch[batch_idx][valid]
+                    entry["masks"] = m.to(device=self.device, dtype=torch.bool)
+            target_list.append(entry)
+
+        outputs = self.model(imgs, targets=target_list)
+        loss_dict = self.criterion(outputs, target_list)
+        weight_dict = self.criterion.weight_dict
+        total = sum(loss_dict[key] * weight_dict[key] for key in loss_dict if key in weight_dict)
+        result = {"total_loss": total}
+        result.update(loss_dict)
+        return result
+
+    def get_loss_components(self, outputs: Dict) -> Dict[str, float]:
+        def _sum_with_prefix(prefix: str) -> float:
+            total = 0.0
+            for key, value in outputs.items():
+                if key == prefix or key.startswith(prefix + "_"):
+                    total += value.item() if isinstance(value, torch.Tensor) else float(value)
+            return total
+
+        components = {
+            "ce": _sum_with_prefix("loss_ce"),
+            "bbox": _sum_with_prefix("loss_bbox"),
+            "giou": _sum_with_prefix("loss_giou"),
+        }
+        if getattr(self.wrapper_model, "task", "detect") == "segment":
+            components["mask_ce"] = _sum_with_prefix("loss_mask_ce")
+            components["mask_dice"] = _sum_with_prefix("loss_mask_dice")
+        return components
 
 
 def train_rfdetr(
@@ -36,71 +422,24 @@ def train_rfdetr(
     segmentation: bool = False,
     **kwargs,
 ) -> Dict:
-    """
-    Train RF-DETR using the original training implementation.
+    """Compatibility helper around :class:`LibreRFDETR.train`."""
+    from .model import LibreRFDETR
 
-    This wraps the official rfdetr training API which includes:
-    - EMA (Exponential Moving Average)
-    - Proper warmup and cosine LR schedule
-    - Hungarian matching loss
-    - Distributed training support
-
-    Args:
-        data: Path to dataset (Roboflow format with COCO annotations)
-        size: Model size ('n', 's', 'm', 'l')
-        epochs: Number of training epochs
-        batch_size: Batch size per GPU
-        lr: Learning rate
-        output_dir: Directory to save outputs
-        resume: Path to checkpoint to resume from
-        pretrain_weights: Path to pretrained weights. When provided the
-            upstream rfdetr trainer reuses these instead of downloading
-            its own copy from Google Cloud Storage.
-        **kwargs: Additional args passed to rfdetr train()
-
-    Returns:
-        Dictionary with training results
-
-    Example:
-        >>> from libreyolo.rfdetr import train_rfdetr
-        >>> train_rfdetr(data="path/to/dataset", size="s", epochs=50)
-    """
-    trainers = RFDETR_SEG_TRAINERS if segmentation else RFDETR_TRAINERS
-    if size not in trainers:
-        raise ValueError(
-            f"Invalid size: {size}. Must be one of {list(trainers.keys())}"
-        )
-
-    trainer_cls = trainers[size]
-    init_kwargs = {}
-    if pretrain_weights is not None:
-        init_kwargs["pretrain_weights"] = pretrain_weights
-    model = trainer_cls(**init_kwargs)
-
-    model.train(
-        dataset_dir=data,
+    model = LibreRFDETR(
+        model_path=pretrain_weights,
+        size=size,
+        device=kwargs.pop("device", "auto"),
+        segmentation=segmentation,
+    )
+    return model.train(
+        data=data,
         epochs=epochs,
         batch_size=batch_size,
         lr=lr,
-        output_dir=output_dir,
+        output_dir=str(Path(output_dir)),
         resume=resume,
         **kwargs,
     )
 
-    output_path = Path(output_dir)
-    best_checkpoint = output_path / "checkpoint_best_total.pth"
-    last_candidates = (
-        output_path / "checkpoint_last_total.pth",
-        output_path / "checkpoint_last.pth",
-        output_path / "last.pth",
-        output_path / "last.ckpt",
-    )
-    last_checkpoint = next((p for p in last_candidates if p.exists()), None)
 
-    return {
-        "output_dir": output_dir,
-        "save_dir": output_dir,
-        "best_checkpoint": str(best_checkpoint) if best_checkpoint.exists() else None,
-        "last_checkpoint": str(last_checkpoint) if last_checkpoint else None,
-        "model": model,
-    }
+__all__ = ["RFDETRTrainer", "train_rfdetr"]

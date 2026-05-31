@@ -13,6 +13,9 @@ is limited. Keep changes focused, tested, and aligned with the project.
 - PRs must link to an issue (for anything non-trivial)
 - A good PR solves one clearly described problem.
 - Use common sense and keep scope tight.
+- Changes that add, remove, or reinterpret checkpoint metadata must update
+  `docs/checkpoint_schema.md` and the shared helpers in
+  `libreyolo/utils/serialization.py`.
 
 ## LLM policy
 
