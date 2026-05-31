@@ -677,26 +677,32 @@ def test_load_finetuned_checkpoint_rfdetr(
     Runs in a subprocess to avoid CUDA driver state corruption.
     """
     output_dir = str(tmp_path / f"rfdetr_{size}")
+    data_yaml_py = repr(str(dataset_data_yaml))
+    family_py = repr(family)
+    output_dir_py = repr(output_dir)
+    size_py = repr(size)
+    weights_py = repr(str(weights))
     run_in_subprocess(
         f"""
         import torch
         from pathlib import Path
         from libreyolo import LibreYOLO
 
-        weights = "{weights}"
-        size = "{size}"
-        output_dir = "{output_dir}"
+        weights = {weights_py}
+        size = {size_py}
+        family = {family_py}
+        output_dir = {output_dir_py}
 
         # 1. Baseline mAP before training
         model = LibreYOLO(weights, size=size)
         pre_results = model.val(
-            data="{dataset_data_yaml}", split="test", batch=8, conf=0.001, iou=0.6
+            data={data_yaml_py}, split="test", batch=8, conf=0.001, iou=0.6
         )
         pre_map = pre_results["metrics/mAP50-95"]
 
         # 2. Train
         model.train(
-            data="{dataset_data_yaml}",
+            data={data_yaml_py},
             epochs=10,
             batch_size=2,
             output_dir=output_dir,
@@ -711,8 +717,8 @@ def test_load_finetuned_checkpoint_rfdetr(
 
         # 4. Verify checkpoint metadata
         ckpt = torch.load(candidates[0], map_location="cpu", weights_only=False)
-        assert ckpt["model_family"] == "{family}", (
-            f"Expected model_family='{family}', got {{ckpt.get('model_family')}}"
+        assert ckpt["model_family"] == family, (
+            f"Expected model_family={{family!r}}, got {{ckpt.get('model_family')}}"
         )
         assert ckpt["nc"] == 2, f"Expected nc=2 (marbles), got {{ckpt['nc']}}"
         print(
@@ -729,7 +735,7 @@ def test_load_finetuned_checkpoint_rfdetr(
                 f"Expected nb_classes=2 after reload, got {{fresh.nb_classes}}"
             )
             post = fresh.val(
-                data="{dataset_data_yaml}", split="test", batch=8, conf=0.001, iou=0.6
+                data={data_yaml_py}, split="test", batch=8, conf=0.001, iou=0.6
             )
             candidate_map = post["metrics/mAP50-95"]
             print(f"  reloaded {{checkpoint.name}} mAP50-95={{candidate_map:.4f}}")
