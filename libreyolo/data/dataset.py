@@ -210,7 +210,7 @@ class YOLODataset(Dataset):
             for ext in ["*.jpg", "*.jpeg", "*.png", "*.bmp"]:
                 self.img_files.extend(self.img_dir.glob(ext))
                 self.img_files.extend(self.img_dir.glob(ext.upper()))
-            self.img_files = sorted(self.img_files)
+            self.img_files = sorted(set(self.img_files))
 
             # Generate corresponding label file paths
             self.label_files = [
