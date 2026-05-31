@@ -144,7 +144,7 @@ class LibreYOLO9E2E(LibreYOLO9):
             input_size=actual_input_size,
             original_size=original_size,
             max_det=max_det,
-            letterbox=kwargs.get("letterbox", False),
+            letterbox=kwargs.get("letterbox", True),
         )
 
     # =====================================================================

@@ -1,6 +1,7 @@
 """Unit tests for YOLOv9 layers."""
 
 import pytest
+import numpy as np
 import torch
 
 from libreyolo.models.yolo9.nn import (
@@ -23,6 +24,7 @@ from libreyolo.models.yolo9.nn import (
     LibreYOLO9Model,
 )
 from libreyolo.models.yolo9 import utils as yolo9_utils
+from libreyolo.validation.preprocessors import YOLO9ValPreprocessor
 
 pytestmark = pytest.mark.unit
 
@@ -282,14 +284,50 @@ class TestYOLO9Utils:
 
     def test_preprocess_image(self):
         """Test image preprocessing."""
-        import numpy as np
-
         img = np.zeros((100, 100, 3), dtype=np.uint8)
         tensor, original_img, original_size = yolo9_utils.preprocess_image(
             img, input_size=640
         )
         assert tensor.shape == (1, 3, 640, 640)
         assert original_size == (100, 100)
+
+    def test_preprocess_image_letterboxes_non_square_like_validation(self):
+        """Predict preprocessing must match YOLO9 validation geometry."""
+        img = np.zeros((4, 8, 3), dtype=np.uint8)
+
+        tensor, _, original_size = yolo9_utils.preprocess_image(
+            img, input_size=8, color_format="rgb"
+        )
+        val_tensor, _ = YOLO9ValPreprocessor((8, 8), max_labels=1)(
+            img[:, :, ::-1].copy(),
+            np.zeros((0, 5), dtype=np.float32),
+            (8, 8),
+        )
+
+        assert original_size == (8, 4)
+        torch.testing.assert_close(tensor[0], torch.from_numpy(val_tensor))
+        torch.testing.assert_close(
+            tensor[0, :, 4:, :],
+            torch.full((3, 4, 8), 114 / 255.0, dtype=tensor.dtype),
+        )
+
+    def test_postprocess_defaults_to_letterbox_inverse(self):
+        """YOLO9 postprocess default matches letterboxed predict inputs."""
+        pred = torch.zeros(1, 6, 1)
+        pred[0, :4, 0] = torch.tensor([0.0, 0.0, 320.0, 320.0])
+        pred[0, 4, 0] = 0.9
+
+        out = yolo9_utils.postprocess(
+            {"predictions": pred},
+            input_size=640,
+            original_size=(1280, 960),
+        )
+
+        assert out["num_detections"] == 1
+        torch.testing.assert_close(
+            torch.as_tensor(out["boxes"]),
+            torch.tensor([[0.0, 0.0, 640.0, 640.0]]),
+        )
 
     def test_make_anchors(self):
         """Test anchor generation.

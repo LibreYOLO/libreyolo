@@ -500,10 +500,8 @@ class BaseBackend(ABC):
                 return boxes, max_scores, class_ids, None
             return boxes, max_scores, class_ids
 
-        scale_x = orig_w / effective_imgsz
-        scale_y = orig_h / effective_imgsz
-        boxes[:, [0, 2]] *= scale_x
-        boxes[:, [1, 3]] *= scale_y
+        ratio = min(effective_imgsz / orig_h, effective_imgsz / orig_w)
+        boxes[:, :4] /= ratio
         boxes[:, [0, 2]] = np.clip(boxes[:, [0, 2]], 0, orig_w)
         boxes[:, [1, 3]] = np.clip(boxes[:, [1, 3]], 0, orig_h)
 
@@ -519,6 +517,7 @@ class BaseBackend(ABC):
                 boxes_input_t,
                 input_shape=(effective_imgsz, effective_imgsz),
                 original_size=(orig_w, orig_h),
+                letterbox=True,
             ).numpy()
             return boxes, max_scores, class_ids, masks_out
 

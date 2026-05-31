@@ -180,6 +180,22 @@ def test_yolo_backend_still_applies_nms():
     assert len(result.boxes) == 1
 
 
+def test_yolo9_backend_parse_uses_letterbox_inverse():
+    backend = _DummyBackend("yolo9")
+    pred = np.zeros((1, 6, 1), dtype=np.float32)
+    pred[0, :4, 0] = [0.0, 0.0, 320.0, 320.0]
+    pred[0, 4, 0] = 0.9
+
+    boxes, scores, classes, masks = backend._parse_outputs(
+        [pred], 640, (1280, 960), conf=0.25
+    )
+
+    assert masks is None
+    np.testing.assert_allclose(boxes, [[0.0, 0.0, 640.0, 640.0]])
+    np.testing.assert_allclose(scores, [0.9])
+    np.testing.assert_array_equal(classes, [0])
+
+
 def test_yolo9_segment_backend_parses_masks():
     backend = _DummyBackend(
         "yolo9", task="segment", supported_tasks=("detect", "segment")
