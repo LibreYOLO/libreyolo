@@ -678,14 +678,22 @@ class LibreRFDETR(BaseModel):
         batch_size: int | None = None,
         lr: float | None = None,
         output_dir: str = "runs/train",
-        resume: str | None = None,
+        resume: str | Path | bool | None = None,
         **kwargs,
     ) -> Dict:
         """Fine-tune RF-DETR through LibreYOLO's native trainer."""
         output_path = Path(output_dir)
         train_kwargs = dict(kwargs)
+        project = train_kwargs.pop("project", None)
+        name = train_kwargs.pop("name", None)
+        exist_ok = train_kwargs.pop("exist_ok", True)
         batch = train_kwargs.pop("batch", None)
         lr0 = train_kwargs.pop("lr0", None)
+        if project is None:
+            project = output_path.parent
+        if name is None:
+            name = output_path.name
+        run_dir = Path(project) / str(name)
 
         if batch is not None and batch_size is not None and batch != batch_size:
             raise ValueError(
@@ -707,9 +715,9 @@ class LibreRFDETR(BaseModel):
                 "epochs": epochs,
                 "batch": resolved_batch,
                 "lr0": resolved_lr0,
-                "project": str(output_path.parent),
-                "name": output_path.name,
-                "exist_ok": True,
+                "project": str(project),
+                "name": str(name),
+                "exist_ok": exist_ok,
                 "size": self.size,
                 "num_classes": self.nb_classes,
             }
@@ -731,9 +739,10 @@ class LibreRFDETR(BaseModel):
         trainer = RFDETRTrainer(self.model, wrapper_model=self, **train_kwargs)
         if resume:
             trainer.setup()
-            trainer.resume(str(resume))
+            resume_path = run_dir / "weights" / "last.pt" if resume is True else resume
+            trainer.resume(str(resume_path))
         result = trainer.train()
-        result["output_dir"] = result.get("save_dir", output_dir)
+        result["output_dir"] = result.get("save_dir", str(run_dir))
 
         self._restore_after_training(result)
 
