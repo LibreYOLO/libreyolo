@@ -54,6 +54,8 @@ class PoseValidator(BaseValidator):
         self._predictions: List[dict] = []
         self._num_keypoints: int | None = None
         self._category_id: int = 0
+        self._last_coco_eval = None
+        self._val_sample_records: List[dict] = []
 
     # PoseValidator runs a per-image loop driven by COCO JSON, so it does not
     # use the BaseValidator dataloader-template path. The required hooks below
@@ -115,6 +117,12 @@ class PoseValidator(BaseValidator):
 
         metrics = self._evaluate_oks_ap()
         self.config.to_yaml(self.save_dir / "config.yaml")
+
+        if self.config.save_plots:
+            try:
+                self._save_plots(metrics)
+            except Exception as exc:
+                logger.warning("Failed to save validation plots: %s", exc)
 
         if self.seen > 0:
             metrics["speed/total_ms"] = self.speed["total"] / self.seen * 1000
@@ -322,6 +330,23 @@ class PoseValidator(BaseValidator):
             imgsz=self.config.imgsz,
             max_det=self.config.max_det,
         )
+
+        if self.config.save_plots and len(self._val_sample_records) < 8:
+            pb = result.boxes.xyxy.cpu().numpy() if len(result) > 0 else np.zeros((0, 4), np.float32)
+            ps = result.boxes.conf.cpu().numpy() if len(result) > 0 else np.zeros(0, np.float32)
+            pc = result.boxes.cls.cpu().numpy().astype(int) if len(result) > 0 else np.zeros(0, int)
+            kp = (result.keypoints.data.cpu().numpy()
+                  if len(result) > 0 and result.keypoints is not None
+                  else None)
+            self._val_sample_records.append({
+                "img_path": img_path,
+                "image_id": image_id,
+                "pred_boxes": pb,
+                "pred_scores": ps,
+                "pred_classes": pc,
+                "pred_keypoints": kp,
+            })
+
         if result.keypoints is None or len(result) == 0:
             return
 
@@ -380,6 +405,7 @@ class PoseValidator(BaseValidator):
         coco_eval.evaluate()
         coco_eval.accumulate()
         coco_eval.summarize()
+        self._last_coco_eval = coco_eval
 
         stats = coco_eval.stats  # length 10 for keypoints
         return {
@@ -394,6 +420,76 @@ class PoseValidator(BaseValidator):
             "metrics/keypoints_AR_M": float(stats[8]),
             "metrics/keypoints_AR_L": float(stats[9]),
         }
+
+    def _save_plots(self, metrics: Dict[str, float]) -> None:
+        from .val_plotter import ValPlotter, _POSE_METRIC_GROUPS  # noqa: PLC0415
+
+        plots_dir = self.save_dir / "plots"
+
+        def _safe(fn, *args, **kwargs):
+            try:
+                fn(*args, **kwargs)
+            except Exception as exc:
+                logger.warning("Plot failed (%s): %s", fn.__name__, exc)
+
+        # Remap keypoints_ keys to the short lookup keys expected by _POSE_METRIC_GROUPS
+        key_map = {
+            "metrics/keypoints_mAP50-95": "kp_map50-95",
+            "metrics/keypoints_mAP50":    "kp_map50",
+            "metrics/keypoints_mAP75":    "kp_map75",
+            "metrics/keypoints_mAP_M":    "kp_map_m",
+            "metrics/keypoints_mAP_L":    "kp_map_l",
+            "metrics/keypoints_AR50-95":  "kp_ar50-95",
+            "metrics/keypoints_AR50":     "kp_ar50",
+            "metrics/keypoints_AR75":     "kp_ar75",
+            "metrics/keypoints_AR_M":     "kp_ar_m",
+            "metrics/keypoints_AR_L":     "kp_ar_l",
+        }
+        pm = {key_map[k]: v for k, v in metrics.items() if k in key_map}
+        if pm:
+            _safe(ValPlotter.plot_metrics_bar, pm,
+                  plots_dir / "pose_metrics.png",
+                  title="Pose Metrics (OKS-AP)",
+                  groups=_POSE_METRIC_GROUPS)
+
+        # PR / P-conf / R-conf curves from the keypoints COCOeval
+        if self._last_coco_eval is not None and self._coco_gt is not None:
+            cat_names = [c.get("name", str(c["id"]))
+                         for c in self._coco_gt.loadCats(self._coco_gt.getCatIds())]
+            _safe(ValPlotter.plot_pr_curves,
+                  self._last_coco_eval, cat_names, plots_dir, "keypoints")
+
+        # Sample images — GT boxes from COCO + pred boxes/keypoints
+        if self._val_sample_records and self._coco_gt is not None:
+            try:
+                import cv2  # noqa: PLC0415
+            except ImportError:
+                logger.warning("opencv-python not found — skipping pose sample images")
+                return
+            samples_dir = plots_dir / "samples"
+            for idx, sample in enumerate(self._val_sample_records):
+                img_bgr = cv2.imread(str(sample["img_path"]))
+                if img_bgr is None:
+                    continue
+                h, w = img_bgr.shape[:2]
+                # GT: bounding boxes derived from COCO annotations
+                ann_ids = self._coco_gt.getAnnIds(imgIds=[sample["image_id"]])
+                anns = self._coco_gt.loadAnns(ann_ids)
+                gt_boxes = np.array(
+                    [[a["bbox"][0], a["bbox"][1],
+                      a["bbox"][0] + a["bbox"][2], a["bbox"][1] + a["bbox"][3]]
+                     for a in anns], dtype=np.float32
+                ) if anns else np.zeros((0, 4), np.float32)
+                gt_classes = np.zeros(len(anns), int)
+                _safe(
+                    ValPlotter.plot_val_sample,
+                    img_bgr,
+                    gt_boxes, gt_classes,
+                    sample["pred_boxes"], sample["pred_classes"], sample["pred_scores"],
+                    None,  # class_names — poses are category-agnostic visually
+                    samples_dir / f"val_sample_{idx:02d}.jpg",
+                )
+        logger.info("Pose plots saved → %s", plots_dir)
 
     def _log_metrics(self, metrics: Dict[str, float]) -> None:
         for key in (

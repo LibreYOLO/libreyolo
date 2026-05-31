@@ -26,6 +26,15 @@ _METRIC_GROUPS = [
      [("r50-95", "R@50-95"), ("r50", "R@50"), ("r75", "R@75")]),
 ]
 
+_POSE_METRIC_GROUPS = [
+    ("OKS-AP", "#4C8EDA",
+     [("kp_map50-95", "AP50-95"), ("kp_map50", "AP50"), ("kp_map75", "AP75"),
+      ("kp_map_m", "AP_M"), ("kp_map_l", "AP_L")]),
+    ("OKS-AR", "#F5A623",
+     [("kp_ar50-95", "AR50-95"), ("kp_ar50", "AR50"), ("kp_ar75", "AR75"),
+      ("kp_ar_m", "AR_M"), ("kp_ar_l", "AR_L")]),
+]
+
 
 # ---------------------------------------------------------------------------
 # IoU helper (numpy-only, no torch dependency)
@@ -130,6 +139,7 @@ class ValPlotter:
         metrics: Dict[str, float],
         save_path: Path,
         title: str = "Metrics",
+        groups=None,
     ) -> None:
         plt = ValPlotter._require_matplotlib()
 
@@ -146,7 +156,7 @@ class ValPlotter:
 
         # Build active groups (only those with at least one matching key)
         active = []
-        for grp_name, grp_color, key_pairs in _METRIC_GROUPS:
+        for grp_name, grp_color, key_pairs in (groups or _METRIC_GROUPS):
             entries = [(lbl, lookup[lk]) for lk, lbl in key_pairs if lk in lookup]
             if entries:
                 active.append((grp_name, grp_color, entries))
