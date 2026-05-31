@@ -602,8 +602,9 @@ class LibreRTDETR(BaseModel):
 
         results = trainer.train()
 
-        if Path(results["best_checkpoint"]).exists():
-            self._load_weights(results["best_checkpoint"])
+        best_ckpt = results.get("best_checkpoint")
+        if best_ckpt and Path(best_ckpt).exists():
+            self._load_weights(best_ckpt)
 
         # Restore wrapper-side device after possible MPS->CPU trainer fallback
         # (no-op if the trainer didn't change device). Matches the D-FINE

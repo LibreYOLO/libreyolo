@@ -152,6 +152,22 @@ def test_base_trainer_writes_artifacts_for_yolo9(tmp_path):
     assert (tmp_path / "summary.json").exists()
 
 
+def test_base_trainer_returns_none_for_missing_checkpoints(tmp_path):
+    trainer = ArtifactTrainer(
+        model=nn.Linear(1, 1),
+        data=None,
+        device="cpu",
+        ema=False,
+        epochs=1,
+    )
+    trainer._test_save_dir = tmp_path
+
+    results = trainer.train()
+
+    assert results["best_checkpoint"] is None
+    assert results["last_checkpoint"] is None
+
+
 def test_base_trainer_default_remains_artifact_free(tmp_path):
     trainer = UnsupportedArtifactTrainer(
         model=nn.Linear(1, 1),
