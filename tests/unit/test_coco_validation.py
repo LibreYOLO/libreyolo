@@ -234,6 +234,7 @@ def test_segmentation_validator_updates_bbox_and_mask_evaluators():
 
     validator = SegmentationValidator.__new__(SegmentationValidator)
     validator.bbox_evaluator = _DummyEvaluator()
+    validator.coco_evaluator = validator.bbox_evaluator  # alias mirrors _init_metrics
     validator.mask_evaluator = _DummyEvaluator()
 
     pred = {"boxes": [], "scores": [], "classes": [], "masks": []}

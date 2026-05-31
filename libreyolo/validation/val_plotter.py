@@ -340,8 +340,9 @@ class ValPlotter:
     ) -> None:
         plt = ValPlotter._require_matplotlib()
 
-        nc = len(class_names)
-        labels = list(class_names) + ["background"]
+        nc = matrix.shape[0] - 1  # matrix is (nc+1, nc+1)
+        labels = [class_names[k] if class_names and k < len(class_names) else str(k) for k in range(nc)]
+        labels.append("background")
 
         disp = matrix.astype(float)
         if normalize:
@@ -431,7 +432,7 @@ class ValPlotter:
 
         rec_thrs = np.linspace(0.0, 1.0, 101)
         nc = p_mat.shape[1]
-        names = class_names or [str(i) for i in range(nc)]
+        names = [class_names[k] if class_names and k < len(class_names) else str(k) for k in range(nc)]
         show_legend = nc <= 5
 
         cmap_cls = plt.get_cmap("tab20" if nc > 10 else "tab10")

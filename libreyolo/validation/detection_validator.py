@@ -723,7 +723,8 @@ class DetectionValidator(BaseValidator):
         from .val_plotter import ValPlotter  # noqa: PLC0415
 
         plots_dir = self.save_dir / "plots"
-        names = self.class_names or [str(i) for i in range(self.nc)]
+        _raw = self.class_names or []
+        names = [_raw[i] if i < len(_raw) else str(i) for i in range(self.nc)]
 
         def _safe(fn, *args, **kwargs):
             try:
@@ -755,14 +756,14 @@ class DetectionValidator(BaseValidator):
                     return float(v.mean()) if len(v) else 0.0
                 bm["p50-95"] = float(np.mean([_mp(t) for t in range(prec_arr.shape[0])]))
                 bm["p50"]    = _mp(0)
-                bm["p75"]    = _mp(4)
+                bm["p75"]    = _mp(5)  # IoU thresholds: [.50,.55,.60,.65,.70,.75,...]; index 5 = 0.75
             if rec_arr is not None:
                 def _mr(t, _ra=rec_arr):
                     r = _ra[t, :, 0, -1]; v = r[r > -1]
                     return float(v.mean()) if len(v) else 0.0
                 bm["r50-95"] = float(np.mean([_mr(t) for t in range(rec_arr.shape[0])]))
                 bm["r50"]    = _mr(0)
-                bm["r75"]    = _mr(4)
+                bm["r75"]    = _mr(5)  # index 5 = IoU 0.75
 
         if bm:
             _safe(ValPlotter.plot_metrics_bar, bm, plots_dir / "box_metrics.png",
@@ -932,7 +933,8 @@ class SegmentationValidator(DetectionValidator):
         super()._save_plots(metrics)  # box metrics, CM, PR curves, sample images
 
         plots_dir = self.save_dir / "plots"
-        names = self.class_names or [str(i) for i in range(self.nc)]
+        _raw = self.class_names or []
+        names = [_raw[i] if i < len(_raw) else str(i) for i in range(self.nc)]
 
         def _safe(fn, *args, **kwargs):
             try:
@@ -965,14 +967,14 @@ class SegmentationValidator(DetectionValidator):
                     return float(v.mean()) if len(v) else 0.0
                 mm["p50-95"] = float(np.mean([_mmp(t) for t in range(prec_arr.shape[0])]))
                 mm["p50"]    = _mmp(0)
-                mm["p75"]    = _mmp(4)
+                mm["p75"]    = _mmp(5)  # IoU thresholds: [.50,.55,...,.75,...]; index 5 = 0.75
             if rec_arr is not None:
                 def _mmr(t, _ra=rec_arr):
                     r = _ra[t, :, 0, -1]; v = r[r > -1]
                     return float(v.mean()) if len(v) else 0.0
                 mm["r50-95"] = float(np.mean([_mmr(t) for t in range(rec_arr.shape[0])]))
                 mm["r50"]    = _mmr(0)
-                mm["r75"]    = _mmr(4)
+                mm["r75"]    = _mmr(5)  # index 5 = IoU 0.75
 
         if mm:
             _safe(ValPlotter.plot_metrics_bar, mm, plots_dir / "mask_metrics.png",
