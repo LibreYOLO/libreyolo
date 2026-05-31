@@ -6,8 +6,26 @@ on:
       - "v*"
 
 jobs:
+  verify-release-source:
+    name: Verify release source
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Require tag commit on main
+        run: |
+          git fetch origin main:refs/remotes/origin/main
+          TAG_COMMIT="$(git rev-parse HEAD)"
+          if ! git merge-base --is-ancestor "$TAG_COMMIT" origin/main; then
+            echo "::error::Release tags must point to a commit reachable from origin/main."
+            exit 1
+          fi
+
   build:
     name: Build package
+    needs: verify-release-source
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

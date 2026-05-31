@@ -12,10 +12,12 @@ Maintainer-only notes for publishing LibreYOLO to PyPI.
 1. Bump the version in `pyproject.toml` and treat it as the source of truth.
 2. Commit the version bump and push it to `main`.
 3. Confirm tests and install smoke checks have passed for the release commit before tagging.
-4. Create and publish a GitHub release with tag `vX.Y.Z`:
+4. Create and publish a GitHub release with tag `vX.Y.Z` targeting `main`:
    `https://github.com/LibreYOLO/libreyolo/releases/new`
 5. Open the Actions run and approve the final publish step:
    `https://github.com/LibreYOLO/libreyolo/actions`
+
+The publish workflow rejects release tags that are not reachable from `main`.
 
 ## Security
 
