@@ -10,19 +10,31 @@ from PIL import Image, ImageDraw, ImageFont
 
 from .general import COCO_CLASSES
 
+FONT_CANDIDATES = (
+    "arial.ttf",
+    "segoeui.ttf",
+    "C:/Windows/Fonts/arial.ttf",
+    "C:/Windows/Fonts/segoeui.ttf",
+    "/System/Library/Fonts/Helvetica.ttc",
+    "/Library/Fonts/Arial.ttf",
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+    "/usr/share/fonts/dejavu/DejaVuSans.ttf",
+)
+
 
 @lru_cache(maxsize=16)
 def _get_font(font_size: int) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
     """Load and cache a font at the given size."""
-    try:
-        return ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", font_size)
-    except OSError:
+    for font in FONT_CANDIDATES:
         try:
-            return ImageFont.truetype(
-                "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", font_size
-            )
+            return ImageFont.truetype(font, font_size)
         except OSError:
-            return ImageFont.load_default()
+            continue
+
+    try:
+        return ImageFont.load_default(size=font_size)
+    except TypeError:
+        return ImageFont.load_default()
 
 
 def _get_class_color_rgb(class_id: int) -> Tuple[int, int, int]:

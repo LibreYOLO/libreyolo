@@ -8,6 +8,7 @@ import pytest
 from libreyolo.utils.video import (
     VideoSource,
     VideoWriter,
+    _codec_candidates,
     collect_video_results,
     is_video_file,
 )
@@ -146,6 +147,64 @@ class TestVideoSource:
 
 
 class TestVideoWriter:
+    def test_mp4_prefers_h264_codec(self, tmp_path, monkeypatch):
+        assert _codec_candidates("output.mp4")[0] == "avc1"
+
+        calls = []
+        avc1 = cv2.VideoWriter_fourcc(*"avc1")
+
+        class FakeWriter:
+            def __init__(self, opened):
+                self.opened = opened
+                self.released = False
+
+            def isOpened(self):
+                return self.opened
+
+            def release(self):
+                self.released = True
+
+        def fake_video_writer(path, fourcc, fps, size):
+            calls.append(fourcc)
+            return FakeWriter(opened=fourcc == avc1)
+
+        monkeypatch.setattr(cv2, "VideoWriter", fake_video_writer)
+
+        writer = VideoWriter(tmp_path / "output.mp4", fps=10.0, width=32, height=32)
+        writer.release()
+
+        assert writer.codec == "avc1"
+        assert calls == [avc1]
+
+    def test_mp4_falls_back_to_mp4v(self, tmp_path, monkeypatch, caplog):
+        calls = []
+        avc1 = cv2.VideoWriter_fourcc(*"avc1")
+        mp4v = cv2.VideoWriter_fourcc(*"mp4v")
+
+        class FakeWriter:
+            def __init__(self, opened):
+                self.opened = opened
+                self.released = False
+
+            def isOpened(self):
+                return self.opened
+
+            def release(self):
+                self.released = True
+
+        def fake_video_writer(path, fourcc, fps, size):
+            calls.append(fourcc)
+            return FakeWriter(opened=fourcc == mp4v)
+
+        monkeypatch.setattr(cv2, "VideoWriter", fake_video_writer)
+
+        writer = VideoWriter(tmp_path / "output.mp4", fps=10.0, width=32, height=32)
+        writer.release()
+
+        assert writer.codec == "mp4v"
+        assert calls == [avc1, mp4v]
+        assert "falling back to mp4v" in caplog.text
+
     def test_write_and_read_back(self, tmp_path):
         out_path = str(tmp_path / "output.mp4")
         writer = VideoWriter(out_path, fps=10.0, width=32, height=32)

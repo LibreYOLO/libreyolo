@@ -11,6 +11,8 @@ from .general import increment_path
 
 logger = logging.getLogger(__name__)
 
+MP4_CODEC_CANDIDATES = ("avc1", "mp4v")
+
 # Video extensions supported via OpenCV's VideoCapture
 VIDEO_EXTENSIONS = {
     ".asf",
@@ -33,6 +35,12 @@ def is_video_file(source) -> bool:
     if not isinstance(source, (str, Path)):
         return False
     return Path(source).suffix.lower() in VIDEO_EXTENSIONS
+
+
+def _codec_candidates(path: Union[str, Path]) -> Tuple[str, ...]:
+    if Path(path).suffix.lower() == ".mp4":
+        return MP4_CODEC_CANDIDATES
+    return ("mp4v",)
 
 
 def resolve_video_save_path(
@@ -188,10 +196,26 @@ class VideoWriter:
         self._path = str(path)
         Path(path).parent.mkdir(parents=True, exist_ok=True)
 
-        fourcc = cv2.VideoWriter_fourcc(*"mp4v")
-        self._writer = cv2.VideoWriter(self._path, fourcc, fps, (width, height))
-        if not self._writer.isOpened():
+        self.codec = None
+        self._writer = None
+        for codec in _codec_candidates(self._path):
+            fourcc = cv2.VideoWriter_fourcc(*codec)
+            writer = cv2.VideoWriter(self._path, fourcc, fps, (width, height))
+            if writer.isOpened():
+                self.codec = codec
+                self._writer = writer
+                break
+            writer.release()
+
+        if self._writer is None:
             raise ValueError(f"Cannot open video writer for: {self._path}")
+
+        if self.codec != "avc1" and Path(self._path).suffix.lower() == ".mp4":
+            logger.warning(
+                "Could not open H.264 video writer; falling back to %s for %s",
+                self.codec,
+                self._path,
+            )
 
     # ------------------------------------------------------------------
     # Context manager
