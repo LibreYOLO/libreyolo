@@ -288,7 +288,7 @@ class LibreRFDETR(BaseModel):
     def __init__(
         self,
         model_path: str | None = None,
-        size: str = "s",
+        size: str | None = None,
         nb_classes: int = 80,
         device: str = "auto",
         segmentation: bool = False,
@@ -303,6 +303,10 @@ class LibreRFDETR(BaseModel):
         resolved_task = task
         if resolved_task is None and segmentation:
             resolved_task = "segment"
+        if size is None and (
+            model_path is None or (isinstance(model_path, dict) and not model_path)
+        ):
+            size = "s"
 
         if isinstance(model_path, dict) and not model_path:
             weight_source = None
@@ -325,6 +329,13 @@ class LibreRFDETR(BaseModel):
             weight_source = model_path
 
         self._weight_source = weight_source
+        if size is None:
+            size = self._detect_size_from_source(weight_source)
+            if size is None:
+                raise ValueError(
+                    "Could not automatically detect RF-DETR model size. "
+                    "Pass size='n', 's', 'm', 'l', 'x', or 'xx'."
+                )
 
         if weight_source is not None:
             filename_task = (
@@ -375,6 +386,35 @@ class LibreRFDETR(BaseModel):
     def _is_segmentation(self) -> bool:
         """Adapter flag derived from the canonical task state."""
         return self.task == "segment"
+
+    @staticmethod
+    def _detect_size_from_source(model_path: str | dict[str, Any] | None) -> str | None:
+        if model_path is None:
+            return None
+        if isinstance(model_path, str):
+            try:
+                ckpt = load_trusted_torch_file(
+                    model_path,
+                    map_location="cpu",
+                    context="RF-DETR size detection",
+                )
+            except Exception:
+                return LibreRFDETR.detect_size_from_filename(model_path)
+        else:
+            ckpt = model_path
+
+        if not isinstance(ckpt, dict):
+            if isinstance(model_path, str):
+                return LibreRFDETR.detect_size_from_filename(model_path)
+            return None
+        if isinstance(metadata_size := ckpt.get("size"), str):
+            return metadata_size
+        detected_size = LibreRFDETR.detect_size(_checkpoint_model_state(ckpt), ckpt)
+        if detected_size is not None:
+            return detected_size
+        if isinstance(model_path, str):
+            return LibreRFDETR.detect_size_from_filename(model_path)
+        return None
 
     @staticmethod
     def _detect_segmentation(model_path: str | dict[str, Any]) -> bool:
@@ -643,14 +683,22 @@ class LibreRFDETR(BaseModel):
         batch_size: int | None = None,
         lr: float | None = None,
         output_dir: str = "runs/train",
-        resume: str | None = None,
+        resume: str | Path | bool | None = None,
         **kwargs,
     ) -> Dict:
         """Fine-tune RF-DETR through LibreYOLO's native trainer."""
         output_path = Path(output_dir)
         train_kwargs = dict(kwargs)
+        project = train_kwargs.pop("project", None)
+        name = train_kwargs.pop("name", None)
+        exist_ok = train_kwargs.pop("exist_ok", True)
         batch = train_kwargs.pop("batch", None)
         lr0 = train_kwargs.pop("lr0", None)
+        if project is None:
+            project = output_path.parent
+        if name is None:
+            name = output_path.name
+        run_dir = Path(project) / str(name)
 
         if batch is not None and batch_size is not None and batch != batch_size:
             raise ValueError(
@@ -672,9 +720,9 @@ class LibreRFDETR(BaseModel):
                 "epochs": epochs,
                 "batch": resolved_batch,
                 "lr0": resolved_lr0,
-                "project": str(output_path.parent),
-                "name": output_path.name,
-                "exist_ok": True,
+                "project": str(project),
+                "name": str(name),
+                "exist_ok": exist_ok,
                 "size": self.size,
                 "num_classes": self.nb_classes,
             }
@@ -696,9 +744,10 @@ class LibreRFDETR(BaseModel):
         trainer = RFDETRTrainer(self.model, wrapper_model=self, **train_kwargs)
         if resume:
             trainer.setup()
-            trainer.resume(str(resume))
+            resume_path = run_dir / "weights" / "last.pt" if resume is True else resume
+            trainer.resume(str(resume_path))
         result = trainer.train()
-        result["output_dir"] = result.get("save_dir", output_dir)
+        result["output_dir"] = result.get("save_dir", str(run_dir))
 
         self._restore_after_training(result)
 

@@ -269,6 +269,7 @@ class LibrePICODET(BaseModel):
             trainer.resume(str(self.model_path))
 
         results = trainer.train()
-        if Path(results["best_checkpoint"]).exists():
-            self._load_weights(results["best_checkpoint"])
+        best_ckpt = results.get("best_checkpoint")
+        if best_ckpt and Path(best_ckpt).exists():
+            self._load_weights(best_ckpt)
         return results

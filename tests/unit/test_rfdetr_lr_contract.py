@@ -8,6 +8,35 @@ rfdetr_model = pytest.importorskip("libreyolo.models.rfdetr.model")
 rfdetr_trainer = pytest.importorskip("libreyolo.models.rfdetr.trainer")
 
 
+def _make_wrapper():
+    wrapper = rfdetr_model.LibreRFDETR.__new__(rfdetr_model.LibreRFDETR)
+    wrapper.model = object()
+    wrapper.size = "n"
+    wrapper.nb_classes = 2
+    wrapper.input_size = 560
+    return wrapper
+
+
+def _install_dummy_trainer(monkeypatch, result):
+    captured = {}
+
+    class _DummyTrainer:
+        def __init__(self, model, wrapper_model=None, **kwargs):
+            captured["kwargs"] = kwargs
+
+        def setup(self):
+            captured["setup"] = True
+
+        def resume(self, checkpoint_path):
+            captured["resume"] = checkpoint_path
+
+        def train(self):
+            return result
+
+    monkeypatch.setattr(rfdetr_model, "RFDETRTrainer", _DummyTrainer)
+    return captured
+
+
 def test_rfdetr_effective_lr_is_absolute_under_accumulation():
     trainer = rfdetr_trainer.RFDETRTrainer.__new__(
         rfdetr_trainer.RFDETRTrainer
@@ -25,26 +54,9 @@ def test_rfdetr_effective_lr_is_absolute_under_accumulation():
 
 
 def test_rfdetr_train_prefers_canonical_batch_and_lr0(monkeypatch, tmp_path):
-    captured = {}
+    captured = _install_dummy_trainer(monkeypatch, {"save_dir": str(tmp_path / "exp")})
 
-    class _DummyTrainer:
-        def __init__(self, model, wrapper_model=None, **kwargs):
-            captured["model"] = model
-            captured["wrapper_model"] = wrapper_model
-            captured["kwargs"] = kwargs
-
-        def train(self):
-            return {"save_dir": str(tmp_path / "exp")}
-
-    monkeypatch.setattr(rfdetr_model, "RFDETRTrainer", _DummyTrainer)
-
-    wrapper = rfdetr_model.LibreRFDETR.__new__(rfdetr_model.LibreRFDETR)
-    wrapper.model = object()
-    wrapper.size = "n"
-    wrapper.nb_classes = 2
-    wrapper.input_size = 560
-
-    result = wrapper.train(
+    result = _make_wrapper().train(
         data="data.yaml",
         batch=2,
         lr0=0.001,
@@ -54,27 +66,15 @@ def test_rfdetr_train_prefers_canonical_batch_and_lr0(monkeypatch, tmp_path):
     assert result["output_dir"] == str(tmp_path / "exp")
     assert captured["kwargs"]["batch"] == 2
     assert captured["kwargs"]["lr0"] == pytest.approx(0.001)
+    assert captured["kwargs"]["project"] == str(tmp_path)
+    assert captured["kwargs"]["name"] == "canonical"
+    assert captured["kwargs"]["exist_ok"] is True
 
 
 def test_rfdetr_train_accepts_legacy_aliases(monkeypatch, tmp_path):
-    captured = {}
+    captured = _install_dummy_trainer(monkeypatch, {"save_dir": str(tmp_path / "exp")})
 
-    class _DummyTrainer:
-        def __init__(self, model, wrapper_model=None, **kwargs):
-            captured["kwargs"] = kwargs
-
-        def train(self):
-            return {"save_dir": str(tmp_path / "exp")}
-
-    monkeypatch.setattr(rfdetr_model, "RFDETRTrainer", _DummyTrainer)
-
-    wrapper = rfdetr_model.LibreRFDETR.__new__(rfdetr_model.LibreRFDETR)
-    wrapper.model = object()
-    wrapper.size = "n"
-    wrapper.nb_classes = 2
-    wrapper.input_size = 560
-
-    wrapper.train(
+    _make_wrapper().train(
         data="data.yaml",
         batch_size=3,
         lr=0.002,
@@ -83,6 +83,46 @@ def test_rfdetr_train_accepts_legacy_aliases(monkeypatch, tmp_path):
 
     assert captured["kwargs"]["batch"] == 3
     assert captured["kwargs"]["lr0"] == pytest.approx(0.002)
+
+
+def test_rfdetr_train_honors_explicit_run_kwargs(monkeypatch, tmp_path):
+    captured = _install_dummy_trainer(monkeypatch, {})
+
+    result = _make_wrapper().train(
+        data="data.yaml",
+        output_dir=str(tmp_path / "ignored"),
+        project=str(tmp_path / "project"),
+        name="custom",
+        exist_ok=False,
+    )
+
+    assert captured["kwargs"]["project"] == str(tmp_path / "project")
+    assert captured["kwargs"]["name"] == "custom"
+    assert captured["kwargs"]["exist_ok"] is False
+    assert result["output_dir"] == str(tmp_path / "project" / "custom")
+
+
+@pytest.mark.parametrize("resume_arg", [True, "explicit"])
+def test_rfdetr_train_resolves_resume_paths(monkeypatch, tmp_path, resume_arg):
+    captured = _install_dummy_trainer(monkeypatch, {"save_dir": str(tmp_path / "exp")})
+    checkpoint_path = tmp_path / "resume.pt"
+    resume = checkpoint_path if resume_arg == "explicit" else True
+    expected = (
+        tmp_path / "project" / "custom" / "weights" / "last.pt"
+        if resume is True
+        else checkpoint_path
+    )
+
+    _make_wrapper().train(
+        data="data.yaml",
+        output_dir=str(tmp_path / "ignored"),
+        project=str(tmp_path / "project"),
+        name="custom",
+        resume=resume,
+    )
+
+    assert captured["setup"] is True
+    assert captured["resume"] == str(expected)
 
 
 def test_rfdetr_train_rejects_conflicting_lr_aliases(tmp_path):

@@ -4,6 +4,7 @@ import logging
 import sys
 import time
 from abc import ABC, abstractmethod
+from contextlib import nullcontext
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Optional, TYPE_CHECKING
@@ -175,9 +176,14 @@ class BaseValidator(ABC):
     def _inference(self, images: torch.Tensor) -> Any:
         """Run model inference on a batch of images (B, C, H, W)."""
         use_non_blocking = self.device.type == "cuda"
-        return self.model._forward(
-            images.to(self.device, non_blocking=use_non_blocking)
-        )
+        images = images.to(self.device, non_blocking=use_non_blocking)
+        with self._autocast_context():
+            return self.model._forward(images)
+
+    def _autocast_context(self):
+        if self.config.half and self.device.type == "cuda":
+            return torch.amp.autocast("cuda")
+        return nullcontext()
 
     def _warmup_model(self, n_warmup: int = 3) -> None:
         """Run dummy inference passes to trigger JIT compilation and CUDA kernel caching."""
@@ -201,7 +207,8 @@ class BaseValidator(ABC):
         with torch.no_grad():
             for _ in range(n_warmup):
                 try:
-                    _ = self.model._forward(dummy_input)
+                    with self._autocast_context():
+                        _ = self.model._forward(dummy_input)
                 except Exception as e:
                     if self.config.verbose:
                         logger.warning("Warmup failed (non-fatal): %s", e)

@@ -14,6 +14,7 @@ def test_yolo9_e2e_is_registered_and_detects_filename():
 
     assert any(cls.__name__ == "LibreYOLO9E2E" for cls in BaseModel._registry)
     assert LibreYOLO9E2E.FAMILY == "yolo9_e2e"
+    assert LibreYOLO9E2E.SUPPORTED_TASKS == ("detect",)
     assert LibreYOLO9E2E.detect_size_from_filename("LibreYOLO9E2Et.pt") == "t"
     assert LibreYOLO9E2E.detect_size_from_filename("LibreYOLO9E2Ec.pt") == "c"
 
@@ -149,6 +150,27 @@ def test_yolo9_e2e_postprocess_topk_no_nms_caps_at_max_det():
     # Scores must be sorted descending (top-K guarantees this).
     diffs = out["scores"][1:] - out["scores"][:-1]
     assert (diffs <= 1e-6).all()
+
+
+def test_yolo9_e2e_postprocess_defaults_to_letterbox_inverse():
+    """E2E predict geometry matches YOLO9 letterboxed inputs."""
+    from libreyolo.models.yolo9_e2e.utils import postprocess
+
+    predictions = torch.zeros(1, 6, 1)
+    predictions[0, :4, 0] = torch.tensor([0.0, 0.0, 320.0, 320.0])
+    predictions[0, 4, 0] = 0.9
+
+    out = postprocess(
+        {"predictions": predictions},
+        input_size=640,
+        original_size=(1280, 960),
+    )
+
+    assert out["num_detections"] == 1
+    torch.testing.assert_close(
+        out["boxes"],
+        torch.tensor([[0.0, 0.0, 640.0, 640.0]]),
+    )
 
 
 def test_yolo9_e2e_postprocess_returns_empty_when_below_threshold():

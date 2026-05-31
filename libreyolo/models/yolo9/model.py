@@ -240,7 +240,7 @@ class LibreYOLO9(BaseModel):
             input_size=actual_input_size,
             original_size=original_size,
             max_det=max_det,
-            letterbox=kwargs.get("letterbox", False),
+            letterbox=kwargs.get("letterbox", True),
         )
 
     # =========================================================================

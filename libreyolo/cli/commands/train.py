@@ -287,10 +287,8 @@ def train_cmd(
     save_dir = results.get("save_dir") or results.get(
         "output_dir", f"{project}/{params['name']}"
     )
-    best_weights = results.get("best_checkpoint") or f"{save_dir}/weights/best.pt"
+    best_weights = results.get("best_checkpoint")
     last_weights = results.get("last_checkpoint")
-    if last_weights is None and loaded_family != "rfdetr":
-        last_weights = f"{save_dir}/weights/last.pt"
 
     data_out = {
         "status": "complete",

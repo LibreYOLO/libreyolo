@@ -119,8 +119,8 @@ class LibreYOLOFaceDetector:
 class RetinaFaceAdapter:
     """Optional adapter around ``face_detection.RetinaFace`` for upstream parity.
 
-    Requires the ``gaze-retinaface`` optional extra (``pip install
-    libreyolo[gaze-retinaface]``). Not imported eagerly.
+    Requires manually installing the git-only ``face_detection`` package. Not
+    imported eagerly.
     """
 
     min_score: float = 0.5
@@ -135,7 +135,8 @@ class RetinaFaceAdapter:
         except ImportError as e:  # pragma: no cover - depends on env
             raise ImportError(
                 "RetinaFaceAdapter requires the optional 'face_detection' package. "
-                "Install with: pip install libreyolo[gaze-retinaface]"
+                "Install it manually from https://github.com/elliottzheng/face-detection "
+                "or pass another face detector."
             ) from e
         self._impl = RetinaFace() if self.gpu_id is None else RetinaFace(gpu_id=self.gpu_id)
 

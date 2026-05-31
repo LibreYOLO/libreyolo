@@ -316,6 +316,40 @@ class TestCreateYOLOCocoAPI:
         assert len(api.imgs) >= 0  # May have images
         assert len(api.cats) == 3  # Should have 3 classes
 
+    def test_create_yolo_coco_api_accepts_list_valued_splits(self, tmp_path):
+        """List-valued splits should use load_data_config's resolved file lists."""
+        from PIL import Image
+        import yaml
+
+        for split_name in ("val_a", "val_b"):
+            image_dir = tmp_path / "images" / split_name
+            label_dir = tmp_path / "labels" / split_name
+            image_dir.mkdir(parents=True)
+            label_dir.mkdir(parents=True)
+
+            Image.new("RGB", (100, 80)).save(image_dir / f"{split_name}.jpg")
+            (label_dir / f"{split_name}.txt").write_text("0 0.5 0.5 0.2 0.1\n")
+
+        yaml_path = tmp_path / "data.yaml"
+        with open(yaml_path, "w") as f:
+            yaml.dump(
+                {
+                    "path": str(tmp_path),
+                    "val": ["images/val_a", "images/val_b"],
+                    "names": ["cat"],
+                },
+                f,
+            )
+
+        api = create_yolo_coco_api(str(yaml_path), split="val")
+
+        assert len(api.imgs) == 2
+        assert {img["file_name"] for img in api.imgs.values()} == {
+            "val_a.jpg",
+            "val_b.jpg",
+        }
+        assert len(api.anns) == 2
+
 
 class TestCOCOEvaluatorIntegration:
     """Test COCOEvaluator integration with YOLOCocoAPI."""
