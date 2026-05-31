@@ -21,7 +21,6 @@ import contextlib
 import os
 import socket
 import sys
-import tempfile
 from pathlib import Path
 
 import pytest
@@ -1119,11 +1118,30 @@ def test_spawn_for_model_restores_model_device_when_filter_picklable_fails():
     )
 
 
+def test_build_init_kw_preserves_task_for_kwargs_constructor():
+    """Wrappers that accept BaseModel kwargs must keep task across DDP spawn."""
+    from libreyolo.training.ddp_spawn import _build_init_kw
+
+    class _KwargsWrapper:
+        def __init__(self, model_path, size, **kwargs):
+            pass
+
+    model_instance = _KwargsWrapper(None, size="t")
+    model_instance.size = "t"
+    model_instance.task = "segment"
+    model_instance.nb_classes = 2
+
+    init_kw = _build_init_kw(model_instance)
+
+    assert init_kw["size"] == "t"
+    assert init_kw["task"] == "segment"
+    assert init_kw["nb_classes"] == 2
+
+
 def test_spawn_for_model_writes_flat_state_dict(tmp_path):
     """Bootstrap temp-weights file must be a plain tensor dict, not wrapped in
     {\"model\": ...}, so all loaders (including RF-DETR) can call load_state_dict
     directly on it without unexpected-key errors."""
-    import json
     from unittest.mock import MagicMock, patch
 
     from libreyolo.training.ddp_spawn import spawn_for_model

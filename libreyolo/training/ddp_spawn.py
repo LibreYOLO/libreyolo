@@ -95,7 +95,16 @@ def _build_init_kw(model_instance: Any) -> dict:
     """
     cls = type(model_instance)
     sig = inspect.signature(cls.__init__)
-    supported = set(sig.parameters) - {"self", "model_path", "kwargs"}
+    supports_kwargs = any(
+        param.kind == inspect.Parameter.VAR_KEYWORD
+        for param in sig.parameters.values()
+    )
+    supported = {
+        name
+        for name, param in sig.parameters.items()
+        if name not in {"self", "model_path"}
+        and param.kind not in {inspect.Parameter.VAR_POSITIONAL, inspect.Parameter.VAR_KEYWORD}
+    }
 
     kw: dict = {
         "_module": cls.__module__,
@@ -103,7 +112,7 @@ def _build_init_kw(model_instance: Any) -> dict:
         "device": "auto",
     }
     for attr in ("size", "nb_classes", "reg_max", "task", "num_masks", "proto_channels", "num_keypoints"):
-        if attr in supported and hasattr(model_instance, attr):
+        if (attr in supported or supports_kwargs) and hasattr(model_instance, attr):
             kw[attr] = getattr(model_instance, attr)
     return kw
 
