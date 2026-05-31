@@ -17,7 +17,10 @@ global-exclude *.mp4
 
 # Re-include packaged sample assets (overrides global-exclude above)
 recursive-include libreyolo/assets *.jpg
+recursive-include libreyolo *.yaml
 
 # Bundled third-party license texts (must ship with the wheel)
 recursive-include libreyolo/models *.md
+include THIRD_PARTY_NOTICES.txt
+include weights/LICENSE_NOTICE.txt
 include NOTICE
