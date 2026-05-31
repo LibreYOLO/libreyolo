@@ -501,6 +501,8 @@ class BaseTrainer(ABC):
         if is_main_process():
             logger.info("Setting up training...")
         self.model.to(self.device)
+        if self.wrapper_model is not None:
+            self.wrapper_model.device = self.device
 
         # SyncBatchNorm conversion: only meaningful under DDP. Single-GPU
         # runs skip this regardless of the flag so single-GPU is unchanged.

@@ -625,11 +625,30 @@ def _detect_local_weights_family(weights: str) -> str:
     return model.FAMILY
 
 
+@lru_cache(maxsize=None)
+def _has_libreyolo_download_route(weights: str) -> bool:
+    """Return whether a missing test weight has a canonical LibreYOLO HF route."""
+    import libreyolo.models  # noqa: F401  (import registers model families)
+    from libreyolo.models.base.model import BaseModel
+
+    filename = Path(weights).name
+    for cls in BaseModel._registry:
+        try:
+            url = cls.get_download_url(filename)
+        except Exception:
+            continue
+        if url and url.startswith("https://huggingface.co/LibreYOLO/"):
+            return True
+    return False
+
+
 def require_test_weights(weights: str, expected_family: str | None = None) -> str:
     """Skip cleanly if a test depends on missing or obviously wrong local weights."""
     path = Path(weights)
     if path.parent != Path("."):
         if not path.exists():
+            if _has_libreyolo_download_route(weights):
+                return weights
             pytest.skip(f"Required local weights not found: {weights}")
         if expected_family is not None:
             try:

@@ -1,10 +1,10 @@
-"""Regression tests for known unfixed bugs.
+"""Regression tests for training bugs.
 
-Each bug gets its own xfail(strict=True) test. When a bug is fixed,
-the test will XPASS and strict=True turns that into a FAILURE —
-forcing the developer to remove the xfail marker.
+Known unfixed bugs keep xfail(strict=True). Fixed bugs remain as plain
+regression checks so they cannot silently regress.
 
 Trains yolo9-t once (module-scoped fixture) to keep CI cost minimal.
+Trains rfdetr-n once for the post-training inference restore path.
 """
 
 import subprocess
@@ -16,7 +16,7 @@ import yaml
 
 from libreyolo import LibreYOLO
 
-pytestmark = [pytest.mark.e2e, pytest.mark.yolo9]
+pytestmark = [pytest.mark.e2e]
 
 DATASET_ROOT = Path.home() / ".cache" / "libreyolo" / "marbles"
 HF_REPO = "LibreYOLO/marbles"
@@ -45,7 +45,7 @@ def marbles_yaml():
 
 
 @pytest.fixture(scope="module")
-def trained_model(marbles_yaml, tmp_path_factory):
+def trained_yolo9_model(marbles_yaml, tmp_path_factory):
     """Train yolo9-t on marbles for 3 epochs. Returns (model, results)."""
     tmp = tmp_path_factory.mktemp("training_regression")
     model = LibreYOLO("LibreYOLO9t.pt", size="t")
@@ -61,36 +61,49 @@ def trained_model(marbles_yaml, tmp_path_factory):
     return model, results
 
 
-@pytest.mark.xfail(
-    reason="model left in train() mode after .train() — no .eval() call",
-    strict=True,
-)
-def test_predict_after_train(trained_model, marbles_yaml):
-    model, _ = trained_model
+@pytest.mark.yolo9
+def test_yolo9_predict_after_train(trained_yolo9_model, marbles_yaml):
+    model, _ = trained_yolo9_model
     img = next((DATASET_ROOT / "test" / "images").glob("*.jpg"))
     result = model.predict(str(img), conf=0.1)
     assert hasattr(result, "boxes")
 
 
-@pytest.mark.xfail(
-    reason="model.names not updated from data.yaml during training",
-    strict=True,
-)
-def test_names_updated_after_train(trained_model):
-    model, _ = trained_model
+@pytest.mark.yolo9
+def test_yolo9_names_updated_after_train(trained_yolo9_model):
+    model, _ = trained_yolo9_model
     assert len(model.names) == 2
     assert model.names[0] != "person", f"Still COCO names: {model.names}"
 
 
-@pytest.mark.xfail(
-    reason="checkpoint saves stale COCO names instead of dataset names",
-    strict=True,
-)
-def test_checkpoint_saves_correct_names(trained_model):
-    _, results = trained_model
+@pytest.mark.yolo9
+def test_yolo9_checkpoint_saves_correct_names(trained_yolo9_model):
+    _, results = trained_yolo9_model
     ckpt_path = results.get("best_checkpoint", "")
     if not Path(ckpt_path).exists():
         ckpt_path = str(Path(ckpt_path).parent / "last.pt")
     ckpt = torch.load(ckpt_path, map_location="cpu", weights_only=False)
     names = ckpt.get("names", {})
     assert names.get(0) != "person", f"Checkpoint has stale COCO names: {names}"
+
+
+@pytest.fixture(scope="module")
+def trained_rfdetr_model(marbles_yaml, tmp_path_factory):
+    """Train rfdetr-n on marbles for 1 epoch. Returns (model, results)."""
+    tmp = tmp_path_factory.mktemp("training_regression_rfdetr")
+    model = LibreYOLO("LibreRFDETRn.pt", size="n")
+    results = model.train(
+        data=marbles_yaml,
+        epochs=1,
+        batch_size=2,
+        output_dir=str(tmp / "rfdetr_n"),
+    )
+    return model, results
+
+
+@pytest.mark.rfdetr
+def test_rfdetr_predict_after_train(trained_rfdetr_model, marbles_yaml):
+    model, _ = trained_rfdetr_model
+    img = next((DATASET_ROOT / "test" / "images").glob("*.jpg"))
+    result = model.predict(str(img), conf=0.1)
+    assert hasattr(result, "boxes")
