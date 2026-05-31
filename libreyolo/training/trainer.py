@@ -470,7 +470,7 @@ class BaseTrainer(ABC):
                 num_replicas=self.world_size,
                 rank=self.rank,
                 shuffle=True,
-                drop_last=True,
+                drop_last=len(train_dataset) >= self.world_size,
             )
 
         self.train_loader = create_dataloader(

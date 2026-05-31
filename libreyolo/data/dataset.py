@@ -721,6 +721,11 @@ def create_dataloader(
             provided, the sampler's own shuffling takes over and ``shuffle``
             is forced to False to satisfy PyTorch's mutual-exclusion check.
     """
+    try:
+        visible_samples = len(sampler) if sampler is not None else len(dataset)
+    except TypeError:
+        visible_samples = len(dataset)
+    drop_last = visible_samples >= batch_size
     return DataLoader(
         dataset,
         batch_size=batch_size,
@@ -729,5 +734,5 @@ def create_dataloader(
         num_workers=num_workers,
         pin_memory=pin_memory,
         collate_fn=yolox_collate_fn,
-        drop_last=True,
+        drop_last=drop_last,
     )

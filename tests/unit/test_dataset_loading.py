@@ -4,8 +4,9 @@ import numpy as np
 import pytest
 from pathlib import Path
 from PIL import Image
+from torch.utils.data import SubsetRandomSampler
 
-from libreyolo.data.dataset import YOLODataset
+from libreyolo.data.dataset import YOLODataset, create_dataloader
 
 pytestmark = pytest.mark.unit
 
@@ -81,3 +82,33 @@ def test_yolo_dataset_directory_mode_dedupes_case_insensitive_glob(
     assert dataset.num_imgs == 1
     assert dataset.img_files == [image_dir / "sample.jpg"]
     assert dataset.label_files == [label_dir / "sample.txt"]
+
+
+@pytest.mark.parametrize(
+    ("dataset_len", "batch_size", "expected_batches"),
+    [(2, 4, 1), (5, 2, 2)],
+)
+def test_create_dataloader_drop_last_only_when_safe(
+    dataset_len, batch_size, expected_batches
+):
+    loader = create_dataloader(
+        [None] * dataset_len,
+        batch_size=batch_size,
+        num_workers=0,
+        shuffle=False,
+    )
+
+    assert len(loader) == expected_batches
+
+
+def test_create_dataloader_uses_sampler_visible_size():
+    sampler = SubsetRandomSampler([0, 1])
+    loader = create_dataloader(
+        [None] * 10,
+        batch_size=4,
+        num_workers=0,
+        shuffle=True,
+        sampler=sampler,
+    )
+
+    assert len(loader) == 1
