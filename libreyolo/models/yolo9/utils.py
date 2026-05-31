@@ -4,6 +4,7 @@ Utility functions for YOLO9.
 Provides preprocessing and postprocessing functions for YOLOv9 inference.
 """
 
+import cv2
 import numpy as np
 import torch
 import torch.nn.functional as F
@@ -21,7 +22,7 @@ def preprocess_numpy(
     """
     Preprocess RGB HWC uint8 image for YOLOv9 inference.
 
-    Simple resize + normalize to 0-1 range.
+    Letterbox resize + normalize to 0-1 range.
 
     Args:
         img_rgb_hwc: Input image as RGB HWC uint8 numpy array.
@@ -30,11 +31,17 @@ def preprocess_numpy(
     Returns:
         Tuple of (preprocessed CHW float32 array in RGB 0-1, ratio).
     """
-    img_resized = Image.fromarray(img_rgb_hwc).resize(
-        (input_size, input_size), Image.Resampling.BILINEAR
-    )
-    arr = np.array(img_resized, dtype=np.float32) / 255.0
-    return arr.transpose(2, 0, 1), 1.0
+    orig_h, orig_w = img_rgb_hwc.shape[:2]
+    ratio = min(input_size / orig_h, input_size / orig_w)
+    new_h = int(orig_h * ratio)
+    new_w = int(orig_w * ratio)
+
+    resized = cv2.resize(img_rgb_hwc, (new_w, new_h), interpolation=cv2.INTER_LINEAR)
+    padded = np.full((input_size, input_size, 3), 114, dtype=np.uint8)
+    padded[:new_h, :new_w] = resized
+
+    arr = np.ascontiguousarray(padded, dtype=np.float32) / 255.0
+    return arr.transpose(2, 0, 1), ratio
 
 
 def preprocess_image(
@@ -149,7 +156,7 @@ def _process_masks(
     boxes_input: torch.Tensor,
     input_shape: Tuple[int, int],
     original_size: Tuple[int, int] | None,
-    letterbox: bool = False,
+    letterbox: bool = True,
 ) -> torch.Tensor:
     if coeffs.numel() == 0:
         h = original_size[1] if original_size is not None else input_shape[0]
@@ -198,7 +205,7 @@ def postprocess(
     input_size: int = 640,
     original_size: Tuple[int, int] | None = None,
     max_det: int = 300,
-    letterbox: bool = False,
+    letterbox: bool = True,
 ) -> Dict:
     """
     Postprocess YOLOv9 model outputs to get final detections.

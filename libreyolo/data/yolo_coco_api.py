@@ -490,6 +490,17 @@ def create_yolo_coco_api(
 
     # Get split paths
     split_key = split.split("_")[0]  # Handle 'val_speed' etc.
+    img_files = data.get(f"{split_key}_img_files")
+    if img_files:
+        return YOLOCocoAPI(
+            images_dir=None,
+            labels_dir=None,
+            class_names=class_names,
+            load_segments=load_segments,
+            image_files=img_files,
+            label_files=data.get(f"{split_key}_label_files"),
+        )
+
     images_subpath = data.get(split_key, f"images/{split_key}")
     images_dir = Path(images_subpath)
     if not images_dir.is_absolute():

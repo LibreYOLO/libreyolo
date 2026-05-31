@@ -38,7 +38,7 @@ def postprocess(
     input_size: int = 640,
     original_size: Tuple[int, int] | None = None,
     max_det: int = 300,
-    letterbox: bool = False,
+    letterbox: bool = True,
 ) -> Dict:
     """Postprocess YOLOv9 E2E outputs with top-K selection (no NMS).
 

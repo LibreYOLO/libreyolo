@@ -470,7 +470,7 @@ class BaseTrainer(ABC):
                 num_replicas=self.world_size,
                 rank=self.rank,
                 shuffle=True,
-                drop_last=True,
+                drop_last=len(train_dataset) >= self.world_size,
             )
 
         self.train_loader = create_dataloader(
@@ -766,6 +766,8 @@ class BaseTrainer(ABC):
 
     def _build_train_results(self) -> Dict[str, Any]:
         weights_dir = self.save_dir / "weights"
+        best_checkpoint = weights_dir / "best.pt"
+        last_checkpoint = weights_dir / "last.pt"
         epoch_metrics = [self._event_to_dict(event) for event in self.epoch_events]
         return {
             "final_loss": self.final_loss,
@@ -780,8 +782,12 @@ class BaseTrainer(ABC):
             "best_mAP50_95": self.best_mAP50_95,
             "best_epoch": self.best_epoch,
             "save_dir": str(self.save_dir),
-            "best_checkpoint": str(weights_dir / "best.pt"),
-            "last_checkpoint": str(weights_dir / "last.pt"),
+            "best_checkpoint": (
+                str(best_checkpoint) if best_checkpoint.exists() else None
+            ),
+            "last_checkpoint": (
+                str(last_checkpoint) if last_checkpoint.exists() else None
+            ),
         }
 
     def _event_context(self) -> Dict[str, Any]:

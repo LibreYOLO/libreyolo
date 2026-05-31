@@ -60,6 +60,25 @@ def _nms_numpy(
     return keep
 
 
+def _batched_nms_numpy(
+    boxes: np.ndarray,
+    scores: np.ndarray,
+    class_ids: np.ndarray,
+    iou_threshold: float = 0.45,
+) -> list:
+    """Class-aware NMS matching torchvision.ops.batched_nms ordering."""
+    keep = []
+    for cls in np.unique(class_ids):
+        cls_indices = np.where(class_ids == cls)[0]
+        cls_keep = _nms_numpy(boxes[cls_indices], scores[cls_indices], iou_threshold)
+        keep.extend(cls_indices[cls_keep].tolist())
+
+    if not keep:
+        return []
+    keep = np.asarray(keep, dtype=np.int64)
+    return keep[np.argsort(scores[keep])[::-1]].tolist()
+
+
 def _is_pytorch_cuda_device(device_str: str) -> bool:
     """Return True only when device_str is a valid PyTorch CUDA device string.
 
@@ -211,6 +230,11 @@ class BaseBackend(ABC):
                 image, effective_imgsz, color_format
             )
             return tensor, img, size, ratio
+        elif self.model_family == "damoyolo":
+            tensor, img, size = self._preprocess_damoyolo(
+                image, effective_imgsz, color_format
+            )
+            return tensor, img, size, 1.0
         else:
             tensor, img, size = preprocess_image(
                 image, input_size=effective_imgsz, color_format=color_format
@@ -304,6 +328,21 @@ class BaseBackend(ABC):
         return img_tensor, original_img, original_size
 
     @staticmethod
+    def _preprocess_damoyolo(image, input_size, color_format):
+        """DAMO-YOLO preprocessing: stretch resize + RGB float32 in [0,255]."""
+        from ..models.damoyolo.utils import (
+            preprocess_numpy as damoyolo_preprocess_numpy,
+        )
+
+        img = ImageLoader.load(image, color_format=color_format)
+        original_size = img.size
+        original_img = img.copy()
+
+        img_chw, _ = damoyolo_preprocess_numpy(np.array(img), input_size)
+        img_tensor = torch.from_numpy(img_chw).unsqueeze(0)
+        return img_tensor, original_img, original_size
+
+    @staticmethod
     def _preprocess_rtmdet(image, input_size, color_format):
         """RTMDet preprocessing: BGR letterbox + mmdet mean/std normalization."""
         from ..models.rtmdet.utils import preprocess_numpy as rtmdet_preprocess_numpy
@@ -381,6 +420,11 @@ class BaseBackend(ABC):
         elif self.model_family == "rtmdet":
             boxes, scores, cls = self._parse_rtmdet(
                 all_outputs, orig_w, orig_h, conf, ratio
+            )
+            return boxes, scores, cls, None
+        elif self.model_family == "damoyolo":
+            boxes, scores, cls = self._parse_damoyolo(
+                all_outputs, effective_imgsz, orig_w, orig_h, conf
             )
             return boxes, scores, cls, None
         else:
@@ -479,6 +523,38 @@ class BaseBackend(ABC):
 
         return boxes, max_scores, class_ids
 
+    def _parse_damoyolo(self, all_outputs, effective_imgsz, orig_w, orig_h, conf):
+        """Parse DAMO-YOLO output: (cls_scores, boxes) with stretch-resize inverse."""
+        first = all_outputs[0][0]
+        second = all_outputs[1][0]
+        if first.shape[-1] == 4 and second.shape[-1] != 4:
+            boxes = first
+            scores = second
+        else:
+            scores = first
+            boxes = second
+
+        valid = scores > conf
+        if not valid.any():
+            return (
+                np.empty((0, 4), dtype=boxes.dtype),
+                np.empty((0,), dtype=scores.dtype),
+                np.empty((0,), dtype=np.int64),
+            )
+
+        box_indices, class_ids = np.nonzero(valid)
+        boxes = boxes[box_indices].copy()
+        max_scores = scores[box_indices, class_ids]
+
+        scale_x = orig_w / effective_imgsz
+        scale_y = orig_h / effective_imgsz
+        boxes[:, [0, 2]] *= scale_x
+        boxes[:, [1, 3]] *= scale_y
+        boxes[:, [0, 2]] = np.clip(boxes[:, [0, 2]], 0, orig_w)
+        boxes[:, [1, 3]] = np.clip(boxes[:, [1, 3]], 0, orig_h)
+
+        return boxes, max_scores, class_ids
+
     def _parse_yolo9(self, all_outputs, effective_imgsz, orig_w, orig_h, conf):
         """Parse YOLO9 output: (B, 4+nc, N) — xyxy + class_scores."""
         outputs = all_outputs[0][0].T  # (N, 4+nc)
@@ -500,10 +576,8 @@ class BaseBackend(ABC):
                 return boxes, max_scores, class_ids, None
             return boxes, max_scores, class_ids
 
-        scale_x = orig_w / effective_imgsz
-        scale_y = orig_h / effective_imgsz
-        boxes[:, [0, 2]] *= scale_x
-        boxes[:, [1, 3]] *= scale_y
+        ratio = min(effective_imgsz / orig_h, effective_imgsz / orig_w)
+        boxes[:, :4] /= ratio
         boxes[:, [0, 2]] = np.clip(boxes[:, [0, 2]], 0, orig_w)
         boxes[:, [1, 3]] = np.clip(boxes[:, [1, 3]], 0, orig_h)
 
@@ -519,6 +593,7 @@ class BaseBackend(ABC):
                 boxes_input_t,
                 input_shape=(effective_imgsz, effective_imgsz),
                 original_size=(orig_w, orig_h),
+                letterbox=True,
             ).numpy()
             return boxes, max_scores, class_ids, masks_out
 
@@ -772,7 +847,10 @@ class BaseBackend(ABC):
             )
 
         if not _is_nms_free_family(self.model_family):
-            keep = _nms_numpy(boxes, max_scores, iou)
+            if self.model_family == "damoyolo":
+                keep = _batched_nms_numpy(boxes, max_scores, class_ids, iou)
+            else:
+                keep = _nms_numpy(boxes, max_scores, iou)
             boxes, max_scores, class_ids = (
                 boxes[keep],
                 max_scores[keep],

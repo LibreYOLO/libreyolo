@@ -180,6 +180,54 @@ def test_yolo_backend_still_applies_nms():
     assert len(result.boxes) == 1
 
 
+def test_yolo9_backend_parse_uses_letterbox_inverse():
+    backend = _DummyBackend("yolo9")
+    pred = np.zeros((1, 6, 1), dtype=np.float32)
+    pred[0, :4, 0] = [0.0, 0.0, 320.0, 320.0]
+    pred[0, 4, 0] = 0.9
+
+    boxes, scores, classes, masks = backend._parse_outputs(
+        [pred], 640, (1280, 960), conf=0.25
+    )
+
+    assert masks is None
+    np.testing.assert_allclose(boxes, [[0.0, 0.0, 640.0, 640.0]])
+    np.testing.assert_allclose(scores, [0.9])
+    np.testing.assert_array_equal(classes, [0])
+
+
+def test_damoyolo_backend_preprocess_uses_stretch_resize():
+    from libreyolo.models.damoyolo.utils import preprocess_numpy
+
+    backend = _DummyBackend("damoyolo")
+    image = np.arange(2 * 4 * 3, dtype=np.uint8).reshape(2, 4, 3)
+
+    tensor, _, size, ratio = backend._preprocess(image, 4, "rgb")
+    expected, _ = preprocess_numpy(image, 4)
+
+    assert size == (4, 2)
+    assert ratio == 1.0
+    np.testing.assert_allclose(tensor.numpy()[0], expected)
+
+
+def test_damoyolo_backend_parse_uses_stretch_inverse():
+    backend = _DummyBackend("damoyolo")
+    cls_scores = np.array([[[0.9, 0.8]]], dtype=np.float32)
+    boxes = np.array([[[10.0, 20.0, 30.0, 40.0]]], dtype=np.float32)
+
+    parsed_boxes, scores, classes, masks = backend._parse_outputs(
+        [cls_scores, boxes], 100, (200, 50), conf=0.25
+    )
+
+    assert masks is None
+    np.testing.assert_allclose(
+        parsed_boxes,
+        [[20.0, 10.0, 60.0, 20.0], [20.0, 10.0, 60.0, 20.0]],
+    )
+    np.testing.assert_allclose(scores, [0.9, 0.8])
+    np.testing.assert_array_equal(classes, [0, 1])
+
+
 def test_yolo9_segment_backend_parses_masks():
     backend = _DummyBackend(
         "yolo9", task="segment", supported_tasks=("detect", "segment")

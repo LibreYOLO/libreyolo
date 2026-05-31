@@ -79,9 +79,8 @@ def test_yolo9_names_updated_after_train(trained_yolo9_model):
 @pytest.mark.yolo9
 def test_yolo9_checkpoint_saves_correct_names(trained_yolo9_model):
     _, results = trained_yolo9_model
-    ckpt_path = results.get("best_checkpoint", "")
-    if not Path(ckpt_path).exists():
-        ckpt_path = str(Path(ckpt_path).parent / "last.pt")
+    ckpt_path = results.get("best_checkpoint") or results.get("last_checkpoint")
+    assert ckpt_path and Path(ckpt_path).exists()
     ckpt = torch.load(ckpt_path, map_location="cpu", weights_only=False)
     names = ckpt.get("names", {})
     assert names.get(0) != "person", f"Checkpoint has stale COCO names: {names}"
