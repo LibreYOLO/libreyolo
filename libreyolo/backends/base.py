@@ -211,6 +211,11 @@ class BaseBackend(ABC):
                 image, effective_imgsz, color_format
             )
             return tensor, img, size, ratio
+        elif self.model_family == "damoyolo":
+            tensor, img, size = self._preprocess_damoyolo(
+                image, effective_imgsz, color_format
+            )
+            return tensor, img, size, 1.0
         else:
             tensor, img, size = preprocess_image(
                 image, input_size=effective_imgsz, color_format=color_format
@@ -304,6 +309,21 @@ class BaseBackend(ABC):
         return img_tensor, original_img, original_size
 
     @staticmethod
+    def _preprocess_damoyolo(image, input_size, color_format):
+        """DAMO-YOLO preprocessing: stretch resize + RGB float32 in [0,255]."""
+        from ..models.damoyolo.utils import (
+            preprocess_numpy as damoyolo_preprocess_numpy,
+        )
+
+        img = ImageLoader.load(image, color_format=color_format)
+        original_size = img.size
+        original_img = img.copy()
+
+        img_chw, _ = damoyolo_preprocess_numpy(np.array(img), input_size)
+        img_tensor = torch.from_numpy(img_chw).unsqueeze(0)
+        return img_tensor, original_img, original_size
+
+    @staticmethod
     def _preprocess_rtmdet(image, input_size, color_format):
         """RTMDet preprocessing: BGR letterbox + mmdet mean/std normalization."""
         from ..models.rtmdet.utils import preprocess_numpy as rtmdet_preprocess_numpy
@@ -383,6 +403,11 @@ class BaseBackend(ABC):
                 all_outputs, orig_w, orig_h, conf, ratio
             )
             return boxes, scores, cls, None
+        elif self.model_family == "damoyolo":
+            boxes, scores, cls = self._parse_damoyolo(
+                all_outputs, effective_imgsz, orig_w, orig_h, conf
+            )
+            return boxes, scores, cls, None
         else:
             parsed = self._parse_yolo9(
                 all_outputs, effective_imgsz, orig_w, orig_h, conf
@@ -460,6 +485,35 @@ class BaseBackend(ABC):
         outputs = all_outputs[0][0]  # (N, 4+nc)
         boxes = outputs[:, :4]
         scores = outputs[:, 4:]
+
+        max_scores = np.max(scores, axis=1)
+        class_ids = np.argmax(scores, axis=1)
+
+        mask = max_scores > conf
+        boxes, max_scores, class_ids = boxes[mask], max_scores[mask], class_ids[mask]
+
+        if len(boxes) == 0:
+            return boxes, max_scores, class_ids
+
+        scale_x = orig_w / effective_imgsz
+        scale_y = orig_h / effective_imgsz
+        boxes[:, [0, 2]] *= scale_x
+        boxes[:, [1, 3]] *= scale_y
+        boxes[:, [0, 2]] = np.clip(boxes[:, [0, 2]], 0, orig_w)
+        boxes[:, [1, 3]] = np.clip(boxes[:, [1, 3]], 0, orig_h)
+
+        return boxes, max_scores, class_ids
+
+    def _parse_damoyolo(self, all_outputs, effective_imgsz, orig_w, orig_h, conf):
+        """Parse DAMO-YOLO output: (cls_scores, boxes) with stretch-resize inverse."""
+        first = all_outputs[0][0]
+        second = all_outputs[1][0]
+        if first.shape[-1] == 4 and second.shape[-1] != 4:
+            boxes = first
+            scores = second
+        else:
+            scores = first
+            boxes = second
 
         max_scores = np.max(scores, axis=1)
         class_ids = np.argmax(scores, axis=1)
