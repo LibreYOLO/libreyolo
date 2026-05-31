@@ -288,7 +288,7 @@ class LibreRFDETR(BaseModel):
     def __init__(
         self,
         model_path: str | None = None,
-        size: str = "s",
+        size: str | None = None,
         nb_classes: int = 80,
         device: str = "auto",
         segmentation: bool = False,
@@ -303,6 +303,10 @@ class LibreRFDETR(BaseModel):
         resolved_task = task
         if resolved_task is None and segmentation:
             resolved_task = "segment"
+        if size is None and (
+            model_path is None or (isinstance(model_path, dict) and not model_path)
+        ):
+            size = "s"
 
         if isinstance(model_path, dict) and not model_path:
             weight_source = None
@@ -325,6 +329,13 @@ class LibreRFDETR(BaseModel):
             weight_source = model_path
 
         self._weight_source = weight_source
+        if size is None:
+            size = self._detect_size_from_source(weight_source)
+            if size is None:
+                raise ValueError(
+                    "Could not automatically detect RF-DETR model size. "
+                    "Pass size='n', 's', 'm', 'l', 'x', or 'xx'."
+                )
 
         if weight_source is not None:
             filename_task = (
@@ -375,6 +386,30 @@ class LibreRFDETR(BaseModel):
     def _is_segmentation(self) -> bool:
         """Adapter flag derived from the canonical task state."""
         return self.task == "segment"
+
+    @staticmethod
+    def _detect_size_from_source(model_path: str | dict[str, Any] | None) -> str | None:
+        if model_path is None:
+            return None
+        if isinstance(model_path, str):
+            if filename_size := LibreRFDETR.detect_size_from_filename(model_path):
+                return filename_size
+            try:
+                ckpt = load_trusted_torch_file(
+                    model_path,
+                    map_location="cpu",
+                    context="RF-DETR size detection",
+                )
+            except Exception:
+                return None
+        else:
+            ckpt = model_path
+
+        if not isinstance(ckpt, dict):
+            return None
+        if isinstance(metadata_size := ckpt.get("size"), str):
+            return metadata_size
+        return LibreRFDETR.detect_size(_checkpoint_model_state(ckpt), ckpt)
 
     @staticmethod
     def _detect_segmentation(model_path: str | dict[str, Any]) -> bool:

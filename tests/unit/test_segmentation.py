@@ -1107,6 +1107,18 @@ class TestDetectSegmentation:
         assert RFDETR_SEG_CONFIGS["x"].num_select == 300
         assert RFDETR_SEG_CONFIGS["xx"].num_select == 300
 
+    def test_direct_rfdetr_constructor_detects_size_from_filename(self, monkeypatch):
+        from libreyolo.models.rfdetr.model import LibreRFDETR
+
+        monkeypatch.setattr(LibreRFDETR, "_load_weights", lambda self, _path: None)
+        monkeypatch.setattr(LibreRFDETR, "_init_model", lambda self: torch.nn.Identity())
+
+        model = LibreRFDETR("LibreRFDETRx-seg.pt", device="cpu")
+
+        assert model.size == "x"
+        assert model.task == "segment"
+        assert model.input_size == 624
+
 
 class TestRFDETRQueryLoading:
     """Tests for RF-DETR Group-DETR query tensor resizing."""
