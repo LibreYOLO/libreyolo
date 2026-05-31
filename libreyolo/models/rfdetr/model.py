@@ -392,8 +392,6 @@ class LibreRFDETR(BaseModel):
         if model_path is None:
             return None
         if isinstance(model_path, str):
-            if filename_size := LibreRFDETR.detect_size_from_filename(model_path):
-                return filename_size
             try:
                 ckpt = load_trusted_torch_file(
                     model_path,
@@ -401,15 +399,22 @@ class LibreRFDETR(BaseModel):
                     context="RF-DETR size detection",
                 )
             except Exception:
-                return None
+                return LibreRFDETR.detect_size_from_filename(model_path)
         else:
             ckpt = model_path
 
         if not isinstance(ckpt, dict):
+            if isinstance(model_path, str):
+                return LibreRFDETR.detect_size_from_filename(model_path)
             return None
         if isinstance(metadata_size := ckpt.get("size"), str):
             return metadata_size
-        return LibreRFDETR.detect_size(_checkpoint_model_state(ckpt), ckpt)
+        detected_size = LibreRFDETR.detect_size(_checkpoint_model_state(ckpt), ckpt)
+        if detected_size is not None:
+            return detected_size
+        if isinstance(model_path, str):
+            return LibreRFDETR.detect_size_from_filename(model_path)
+        return None
 
     @staticmethod
     def _detect_segmentation(model_path: str | dict[str, Any]) -> bool:

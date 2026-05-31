@@ -1119,6 +1119,14 @@ class TestDetectSegmentation:
         assert model.task == "segment"
         assert model.input_size == 624
 
+    def test_rfdetr_size_metadata_overrides_stale_filename(self, tmp_path):
+        from libreyolo.models.rfdetr.model import LibreRFDETR
+
+        checkpoint = tmp_path / "LibreRFDETRl.pt"
+        torch.save({"model": {}, "size": "n"}, checkpoint)
+
+        assert LibreRFDETR._detect_size_from_source(str(checkpoint)) == "n"
+
 
 class TestRFDETRQueryLoading:
     """Tests for RF-DETR Group-DETR query tensor resizing."""
