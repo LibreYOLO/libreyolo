@@ -80,11 +80,13 @@ class ConfusionMatrix:
             return
         if n_pred == 0:
             for gc in gt_classes:
-                self.matrix[int(gc), self.nc] += 1
+                if int(gc) < self.nc:
+                    self.matrix[int(gc), self.nc] += 1
             return
         if n_gt == 0:
             for pc in pred_classes:
-                self.matrix[self.nc, int(pc)] += 1
+                if int(pc) < self.nc:
+                    self.matrix[self.nc, int(pc)] += 1
             return
 
         iou = _box_iou_numpy(gt_boxes, pred_boxes)  # (M, N)
@@ -101,13 +103,15 @@ class ConfusionMatrix:
                     continue
                 matched_gt.add(gi)
                 matched_pred.add(pi)
-                self.matrix[int(gt_classes[gi]), int(pred_classes[pi])] += 1
+                gc_i, pc_i = int(gt_classes[gi]), int(pred_classes[pi])
+                if gc_i < self.nc and pc_i < self.nc:
+                    self.matrix[gc_i, pc_i] += 1
 
         for i, gc in enumerate(gt_classes):
-            if i not in matched_gt:
+            if i not in matched_gt and int(gc) < self.nc:
                 self.matrix[int(gc), self.nc] += 1
         for j, pc in enumerate(pred_classes):
-            if j not in matched_pred:
+            if j not in matched_pred and int(pc) < self.nc:
                 self.matrix[self.nc, int(pc)] += 1
 
 
