@@ -887,6 +887,7 @@ class BaseModel(ABC):
         from libreyolo.validation import (
             DetectionValidator,
             PoseValidator,
+            PointValidator,
             SegmentationValidator,
             ValidationConfig,
         )
@@ -918,6 +919,8 @@ class BaseModel(ABC):
             )
         if self.task == "pose":
             validator_cls = PoseValidator
+        elif self.task == "point":
+            validator_cls = PointValidator
         elif self.task == "segment":
             validator_cls = SegmentationValidator
         else:

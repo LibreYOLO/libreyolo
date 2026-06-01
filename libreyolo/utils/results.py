@@ -338,6 +338,43 @@ class Keypoints(_TensorPayload):
         return conf > 0
 
 
+class Points(_TensorPayload):
+    """Point detections with rows ``(x, y, class, confidence)``."""
+
+    def __init__(self, data: TensorLike, orig_shape: Tuple[int, int] | None = None):
+        if data.ndim == 1:
+            if isinstance(data, torch.Tensor):
+                data = data.unsqueeze(0)
+            else:
+                data = data[None, :]
+        if data.shape[-1] != 4:
+            raise ValueError(f"expected point rows (x, y, cls, conf), got {tuple(data.shape)}")
+        super().__init__(data, orig_shape)
+
+    @property
+    def xy(self) -> TensorLike:
+        return self.data[:, :2]
+
+    @property
+    def xyn(self) -> TensorLike:
+        if self.orig_shape is None:
+            raise ValueError("orig_shape is required for normalized point coordinates")
+        h, w = self.orig_shape
+        if isinstance(self.data, torch.Tensor):
+            scale = torch.tensor([w, h], dtype=self.data.dtype, device=self.data.device)
+        else:
+            scale = np.array([w, h], dtype=self.data.dtype)
+        return self.xy / scale
+
+    @property
+    def cls(self) -> TensorLike:
+        return self.data[:, 2]
+
+    @property
+    def conf(self) -> TensorLike:
+        return self.data[:, 3]
+
+
 class Probs(_TensorPayload):
     @property
     def top1(self) -> int:
@@ -533,7 +570,7 @@ class Gaze(_TensorPayload):
 class Results:
     """Single-image result with flat detection/segmentation slots."""
 
-    _keys = ("boxes", "masks", "probs", "keypoints", "obb", "gaze")
+    _keys = ("boxes", "masks", "probs", "keypoints", "points", "obb", "gaze")
 
     def __init__(
         self,
@@ -543,6 +580,7 @@ class Results:
         names: Optional[Dict[int, str]] = None,
         masks: Optional[Masks] = None,
         keypoints: Optional[Keypoints] = None,
+        points: Optional[Points] = None,
         probs: Optional[Probs] = None,
         obb: Optional[OBB] = None,
         gaze: Optional[Gaze] = None,
@@ -558,6 +596,7 @@ class Results:
         self.boxes = boxes
         self.masks = masks
         self.keypoints = keypoints
+        self.points = points
         self.probs = probs
         self.obb = obb
         self.gaze = gaze
@@ -576,6 +615,7 @@ class Results:
             "names": self.names,
             "masks": self.masks,
             "keypoints": self.keypoints,
+            "points": self.points,
             "probs": self.probs,
             "obb": self.obb,
             "gaze": self.gaze,
@@ -627,6 +667,7 @@ class Results:
         masks: Optional[Masks] = None,
         probs: Optional[Probs] = None,
         keypoints: Optional[Keypoints] = None,
+        points: Optional[Points] = None,
         obb: Optional[OBB] = None,
         gaze: Optional[Gaze] = None,
         track_id: Optional[TensorLike] = None,
@@ -639,6 +680,8 @@ class Results:
             self.probs = probs
         if keypoints is not None:
             self.keypoints = keypoints
+        if points is not None:
+            self.points = points
         if obb is not None:
             self.obb = obb
         if gaze is not None:
@@ -651,6 +694,24 @@ class Results:
 
     def summary(self, normalize: bool = False, decimals: int = 5) -> List[Dict[str, Any]]:
         if self.boxes is None:
+            if self.points is not None:
+                points_np = self.points.numpy() if isinstance(self.points.data, torch.Tensor) else self.points
+                point_values = points_np.xyn if normalize else points_np.xy
+                rows = []
+                for i in range(len(points_np)):
+                    cls_id = int(points_np.cls[i])
+                    rows.append(
+                        {
+                            "name": self.names.get(cls_id, str(cls_id)),
+                            "class": cls_id,
+                            "confidence": round(float(points_np.conf[i]), decimals),
+                            "point": {
+                                "x": round(float(point_values[i, 0]), decimals),
+                                "y": round(float(point_values[i, 1]), decimals),
+                            },
+                        }
+                    )
+                return rows
             if self.probs is None:
                 return []
             probs_np = _numpy(self.probs.data)
@@ -707,6 +768,8 @@ class Results:
     def __len__(self) -> int:
         if self.boxes is not None:
             return len(self.boxes)
+        if self.points is not None:
+            return len(self.points)
         if self.probs is not None:
             return 1
         return 0

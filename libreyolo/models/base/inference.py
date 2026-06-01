@@ -25,7 +25,7 @@ from ...utils.general import (
 )
 from ...utils.image_loader import ImageInput, ImageLoader
 from ...utils.predict_args import normalize_predict_kwargs
-from ...utils.results import Boxes, Keypoints, Masks, Results
+from ...utils.results import Boxes, Keypoints, Masks, Points, Results
 from ...utils.video import collect_video_results, is_video_file, run_video_inference
 
 logger = logging.getLogger(__name__)
@@ -293,6 +293,18 @@ class InferenceRunner:
         """Internal helper to draw boxes, masks, and keypoints and save to disk."""
         if len(result) > 0:
             annotated_img = original_img
+            if result.points is not None:
+                from PIL import ImageDraw
+
+                draw = ImageDraw.Draw(annotated_img)
+                points = result.points.cpu().data
+                for x, y, _cls, conf in points.tolist():
+                    r = 4
+                    draw.ellipse((x - r, y - r, x + r, y + r), outline="lime", width=2)
+                    draw.text((x + r + 1, y - r), f"{conf:.2f}", fill="lime")
+                annotated_img.save(save_path)
+                log_saved_result(result, save_path)
+                return
             # Draw masks first (underneath boxes)
             if result.masks is not None:
                 masks_np = result.masks.data
@@ -361,6 +373,32 @@ class InferenceRunner:
         """
         masks_t = None
         keypoints_t = None
+        points_t = None
+
+        if "points" in detections:
+            raw_points = detections.get("points")
+            raw_scores = detections.get("scores")
+            raw_cls = detections.get("classes")
+            if raw_points is None or raw_scores is None or raw_cls is None:
+                raise ValueError("point detections require points, scores, and classes")
+            xy = raw_points.float() if isinstance(raw_points, torch.Tensor) else torch.as_tensor(raw_points).float()
+            scores = raw_scores.float() if isinstance(raw_scores, torch.Tensor) else torch.as_tensor(raw_scores).float()
+            cls = raw_cls.float() if isinstance(raw_cls, torch.Tensor) else torch.as_tensor(raw_cls).float()
+            if classes is not None and len(xy) > 0:
+                mask = torch.zeros(len(cls), dtype=torch.bool, device=cls.device)
+                for cid in classes:
+                    mask |= cls == cid
+                xy, scores, cls = xy[mask], scores[mask], cls[mask]
+            points_t = torch.cat((xy, cls.reshape(-1, 1), scores.reshape(-1, 1)), dim=1)
+            orig_w, orig_h = original_size
+            orig_shape = (orig_h, orig_w)
+            return Results(
+                boxes=None,
+                orig_shape=orig_shape,
+                path=str(image_path) if image_path else None,
+                names=self.model.names,
+                points=Points(points_t, orig_shape),
+            )
 
         if detections["num_detections"] == 0:
             boxes_t = torch.zeros((0, 4), dtype=torch.float32)

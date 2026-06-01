@@ -54,6 +54,7 @@ from .rtdetrv4.model import LibreRTDETRv4  # noqa: E402  (must precede LibreDFIN
 from .dfine.model import LibreDFINE  # noqa: E402
 from .deim.model import LibreDEIM  # noqa: E402
 from .picodet.model import LibrePICODET  # noqa: E402
+from .librefomo.model import LibreFOMO  # noqa: E402
 from .rtdetr.model import LibreRTDETR  # noqa: E402  (registered before LibreRTDETRv2 so metadata-less ckpts default to v1)
 from .rtdetrv2.model import LibreRTDETRv2  # noqa: E402
 from .damoyolo.model import LibreDAMOYOLO  # noqa: E402
@@ -397,7 +398,7 @@ def LibreYOLO(
     if matched_cls is None:
         raise ValueError(
             "Could not detect model architecture from state dict keys.\n"
-            "Supported architectures: YOLOX, YOLOv9, YOLOv9-E2E, YOLO-NAS, RT-DETR, RF-DETR, D-FINE, DEIM, DEIMv2."
+            "Supported architectures: YOLOX, YOLOv9, YOLOv9-E2E, YOLO-NAS, RT-DETR, RF-DETR, D-FINE, DEIM, DEIMv2, LibreFOMO."
         )
 
     # Auto-detect size
@@ -524,6 +525,7 @@ __all__ = [
     "LibreDEIMv2",
     "LibreEC",
     "LibrePICODET",
+    "LibreFOMO",
     "LibreDAMOYOLO",
     "LibreRTMDet",
     "LibreRTDETR",

@@ -79,6 +79,10 @@ class ValidationConfig:
     images_dir: Optional[str] = None
     oks_sigmas: Optional[List[float]] = None
 
+    # Point validation
+    point_distance_tolerance: float = 1.5
+    point_nms_radius: int = 1
+
     def __post_init__(self) -> None:
         if (
             self.data is None

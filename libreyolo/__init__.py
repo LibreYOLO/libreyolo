@@ -15,6 +15,7 @@ from .models import (
     LibreDEIMv2,
     LibreEC,
     LibrePICODET,
+    LibreFOMO,
     LibreDAMOYOLO,
     LibreRTDETR,
     LibreRTDETRv2,
@@ -22,7 +23,7 @@ from .models import (
     LibreRTMDet,
     LibreL2CS,
 )
-from .utils.results import Results, Boxes, Masks, Keypoints, Probs, OBB, Gaze
+from .utils.results import Results, Boxes, Masks, Keypoints, Points, Probs, OBB, Gaze
 
 SAMPLE_IMAGE = str(_Path(__file__).parent / "assets" / "parkour.jpg")
 
@@ -70,6 +71,7 @@ def __getattr__(name):
         "DetectionValidator": (".validation", "DetectionValidator"),
         "SegmentationValidator": (".validation", "SegmentationValidator"),
         "PoseValidator": (".validation", "PoseValidator"),
+        "PointValidator": (".validation", "PointValidator"),
         "ValidationConfig": (".validation", "ValidationConfig"),
         "ByteTracker": (".tracking", "ByteTracker"),
         "TrackConfig": (".tracking", "TrackConfig"),
@@ -107,6 +109,7 @@ __all__ = [
     "LibreDEIMv2",
     "LibreEC",
     "LibrePICODET",
+    "LibreFOMO",
     "LibreDAMOYOLO",
     "LibreRTMDet",
     "LibreL2CS",
@@ -115,6 +118,7 @@ __all__ = [
     "Boxes",
     "Masks",
     "Keypoints",
+    "Points",
     "Probs",
     "OBB",
     "Gaze",
@@ -133,6 +137,7 @@ __all__ = [
     "DetectionValidator",
     "SegmentationValidator",
     "PoseValidator",
+    "PointValidator",
     "ValidationConfig",
     "DATASETS_DIR",
     "load_data_config",

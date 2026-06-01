@@ -209,6 +209,49 @@ class RFDETRValPreprocessor(BaseValPreprocessor):
         return resized_img, padded_targets
 
 
+class LibreFOMOValPreprocessor(BaseValPreprocessor):
+    """LibreFOMO preprocessor: direct RGB resize with [-1, 1] normalization."""
+
+    MEAN = np.array([0.5, 0.5, 0.5], dtype=np.float32)
+    STD = np.array([0.5, 0.5, 0.5], dtype=np.float32)
+
+    @property
+    def normalize(self) -> bool:
+        return False
+
+    @property
+    def custom_normalization(self) -> bool:
+        return True
+
+    @property
+    def wants_unresized_image(self) -> bool:
+        return True
+
+    def __call__(
+        self, img: np.ndarray, targets: np.ndarray, input_size: Tuple[int, int]
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        orig_h, orig_w = img.shape[:2]
+        target_h, target_w = input_size
+        rgb_img = img[:, :, ::-1]
+        resized = cv2.resize(rgb_img, (target_w, target_h), interpolation=cv2.INTER_LINEAR)
+        resized = resized.astype(np.float32) / 255.0
+        resized = (resized - self.MEAN) / self.STD
+        resized = np.ascontiguousarray(resized.transpose(2, 0, 1), dtype=np.float32)
+
+        padded_targets = np.zeros((self.max_labels, 5), dtype=np.float32)
+        if len(targets) > 0:
+            targets = np.array(targets).copy()
+            n = min(len(targets), self.max_labels)
+            scale_x = target_w / orig_w
+            scale_y = target_h / orig_h
+            targets[:n, 0] *= scale_x
+            targets[:n, 1] *= scale_y
+            targets[:n, 2] *= scale_x
+            targets[:n, 3] *= scale_y
+            padded_targets[:n] = targets[:n]
+        return resized, padded_targets
+
+
 class YOLO9ValPreprocessor(BaseValPreprocessor):
     """YOLOv9 preprocessor: letterbox with gray padding, 0-1 range, RGB format."""
 
