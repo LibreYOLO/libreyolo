@@ -69,6 +69,8 @@ def _detect_family_from_filename(filename: str) -> Optional[str]:
         return "yolox"
     if re.search(r"libreyolo9", fl):
         return "yolo9"
+    if re.search(r"librefomo", fl):
+        return "librefomo"
     return None
 
 

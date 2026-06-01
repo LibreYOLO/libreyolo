@@ -331,6 +331,7 @@ class BaseModel(ABC):
 
         self.model.load_state_dict(new_state)
         self.model.to(self.device)
+        self.model.eval()
 
     @classmethod
     def _filename_regex(cls) -> Optional[re.Pattern]:

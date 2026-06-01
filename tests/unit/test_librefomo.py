@@ -2,10 +2,12 @@ import torch
 import pytest
 
 from libreyolo import LibreFOMO, Points
+from libreyolo.models.base.inference import InferenceRunner
 from libreyolo.models.librefomo.utils import decode_points_from_logits, postprocess
 from libreyolo.tasks import normalize_task, resolve_task
 from libreyolo.utils.results import Results
 from libreyolo.validation.point_validator import PointValidator
+from libreyolo.utils.download import _detect_family_from_filename
 
 
 pytestmark = pytest.mark.unit
@@ -14,6 +16,7 @@ pytestmark = pytest.mark.unit
 def test_point_task_normalization():
     assert normalize_task("points") == "point"
     assert resolve_task(default_task="point", supported_tasks=("point",)) == "point"
+    assert _detect_family_from_filename("LibreFOMOs.pt") == "librefomo"
 
 
 def test_librefomo_forward_shapes():
@@ -47,6 +50,26 @@ def test_points_results_summary_and_len():
         "confidence": 0.9,
         "point": {"x": 10.0, "y": 20.0},
     }
+
+
+def test_inference_runner_wraps_empty_points():
+    model = LibreFOMO(model_path=None, size="s", nb_classes=1, device="cpu")
+    runner = InferenceRunner(model)
+    result = runner._wrap_results(
+        {
+            "points": torch.zeros((0, 2)),
+            "scores": torch.zeros((0,)),
+            "classes": torch.zeros((0,)),
+            "num_detections": 0,
+        },
+        original_size=(80, 40),
+        image_path=None,
+        classes=None,
+    )
+    assert result.boxes is None
+    assert result.points is not None
+    assert len(result) == 0
+    assert result.summary() == []
 
 
 def test_point_validator_metrics_match_centers():

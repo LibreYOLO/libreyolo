@@ -22,7 +22,7 @@ Libre<FAMILY><size>[-<task>].pt
 
 ## Family prefixes
 
-The 12 families currently registered:
+The 13 families currently registered:
 
 | Family id (`FAMILY`) | Filename prefix | Casing rule applied |
 |---|---|---|
@@ -37,6 +37,7 @@ The 12 families currently registered:
 | `rfdetr`    | `LibreRFDETR`   | All-caps acronym (hyphen dropped from `RF-DETR`) |
 | `picodet`   | `LibrePICODET`  | All-caps (`PicoDet` rendered uppercase) |
 | `ec`     | `LibreEC`    | Short form of EdgeCrafter — used as the family alias for the three sibling upstream models `ECDet`, `ECPose`, `ECSeg` |
+| `librefomo` | `LibreFOMO` | All-caps acronym (`FOMO`) |
 | `l2cs`      | `LibreL2CS`     | All-caps acronym (`L2CS` gaze estimation) — inference-only |
 
 Casing rules observed in the table:
@@ -77,6 +78,7 @@ ships:
 | `rfdetr`    | `n`, `s`, `m`, `l` |
 | `picodet`   | `s`, `m`, `l` (320 / 416 / 640 input) |
 | `ec`     | `s`, `m`, `l`, `x` |
+| `librefomo` | `s`, `m`, `l` (96 / 192 / 224 input) |
 | `l2cs`      | `r18`, `r34`, `r50`, `r101`, `r152` (ResNet backbone depth) |
 
 Notes:
@@ -98,6 +100,7 @@ From `libreyolo/tasks.py`:
 | `pose`        | `-pose` |
 | `classify`    | `-cls` |
 | `gaze`        | `-gaze` |
+| `point`       | `-point` |
 
 The factory accepts upstream-style aliases (`detection`, `det`, `segmentation`,
 `keypoints`, `cls`, …) at the API boundary; only the canonical names above
@@ -118,6 +121,7 @@ appear in filenames.
 | `rfdetr`    | `("detect", "segment")`             | detect | seg uses smaller sizes |
 | `yolonas`   | `("detect", "pose")`                | detect | pose adds size `n` |
 | `ec`     | `("detect", "pose", "segment")`     | detect | all three tasks |
+| `librefomo` | `("point",)`                       | point | point-localization; external weights |
 | `l2cs`      | `("gaze",)`                         | gaze   | inference-only; two-stage (face detector + gaze head); not trainable in LibreYOLO |
 
 Families that override `SUPPORTED_TASKS` also declare `TASK_INPUT_SIZES` so
@@ -159,6 +163,14 @@ LibreRFDETRn-seg.pt        # segment
 LibreECs.pt             # detect (default)
 LibreECs-pose.pt        # pose
 LibreECs-seg.pt         # segment
+```
+
+### Point Localization
+
+```text
+LibreFOMOs.pt           # point (default)
+LibreFOMOm.pt
+LibreFOMOl.pt
 ```
 
 ### Gaze (inference-only)
