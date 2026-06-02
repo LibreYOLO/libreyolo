@@ -114,7 +114,8 @@ class PointValidator(DetectionValidator):
                 self.total_fn += len(true_xy)
                 continue
 
-            dist_np = dist.detach().cpu().numpy()
+            dist_finite = torch.where(finite, dist, torch.tensor(1e9, device=dist.device))
+            dist_np = dist_finite.detach().cpu().numpy()
             rows, cols = _scipy_lsa(dist_np)
             matched_preds = set()
             matched_trues = set()

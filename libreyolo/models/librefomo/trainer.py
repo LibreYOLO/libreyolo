@@ -177,8 +177,19 @@ class LibreFOMOTrainer(BaseTrainer):
                 )
         self.config.num_classes = dataset_nc
 
-        # Propagate dataset class names to the wrapper so checkpoints record
-        # the real labels instead of the generic "class_0", "class_1", … defaults.
+        # Re-build the loss function after the final dataset class count is resolved
+        fg_weight = getattr(self.config, "fg_weight", 100.0)
+        self._loss_fn = LibreFOMOLoss(
+            num_classes=dataset_nc,
+            fg_weight=fg_weight,
+            device=self.device,
+        ).to(self.device)
+        if is_main_process():
+            logger.info(
+                "LibreFOMOLoss rebuilt with resolved dataset nc=%d", dataset_nc
+            )
+
+        # Propagate dataset class names to the wrapper so checkpoints record the real labels
         raw_names = data_cfg.get("names")
         if raw_names is not None and self.wrapper_model is not None:
             from ..base import BaseModel

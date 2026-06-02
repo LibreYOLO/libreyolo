@@ -302,3 +302,80 @@ def test_point_validator_rejects_augment():
     validator = PointValidator.__new__(PointValidator)
     with pytest.raises(ValueError, match="augment=True"):
         validator._run_validation_augmented()
+
+
+def test_loss_rebuilt_on_class_count_change(tmp_path):
+    """Trainer must rebuild self._loss_fn when dataset class count resolves to a new value."""
+    import yaml
+    import numpy as np
+    from PIL import Image as PILImage
+    from libreyolo.models.librefomo.trainer import LibreFOMOTrainer
+
+    img_dir = tmp_path / "images" / "train"
+    lbl_dir = tmp_path / "labels" / "train"
+    img_dir.mkdir(parents=True)
+    lbl_dir.mkdir(parents=True)
+    PILImage.fromarray(np.zeros((96, 96, 3), dtype=np.uint8)).save(img_dir / "img0.jpg")
+    (lbl_dir / "img0.txt").write_text("")
+
+    data_yaml = tmp_path / "data.yaml"
+    data_yaml.write_text(yaml.dump({
+        "path": str(tmp_path),
+        "train": "images/train",
+        "val": "images/train",
+        "nc": 3,
+        "names": {0: "cat", 1: "dog", 2: "fish"},
+    }))
+
+    wrapper = LibreFOMO(model_path=None, size="s", nb_classes=1, device="cpu")
+    trainer = LibreFOMOTrainer(
+        wrapper.model, wrapper_model=wrapper,
+        data=str(data_yaml), epochs=1, imgsz=96,
+    )
+    # Mock self.device and self.on_setup() to instantiate the initial loss with nc=1
+    trainer.device = torch.device("cpu")
+    trainer.on_setup()
+    assert len(trainer._loss_fn.weights) == 2
+
+    # Running _build_yolo_datasets should trigger a rebuild to nc=3
+    trainer._build_yolo_datasets(96, 12)
+    assert trainer.config.num_classes == 3
+    assert len(trainer._loss_fn.weights) == 4
+
+
+def test_point_validator_hungarian_matching_all_inf():
+    """PointValidator._update_metrics must not crash when cost matrix contains infs (class mismatches)."""
+    from libreyolo.validation.point_validator import PointValidator
+
+    validator = PointValidator.__new__(PointValidator)
+    validator.config = type(
+        "Cfg",
+        (),
+        {
+            "imgsz": 32,
+            "conf_thres": 0.5,
+            "max_det": 300,
+            "point_distance_tolerance": 1.5,
+            "point_nms_radius": 1,
+        },
+    )()
+    validator.distance_tolerance = 1.5
+    validator.nms_radius = 1
+    validator.model = LibreFOMO(model_path=None, size="s", nb_classes=2, device="cpu")
+    validator._last_metric_shape = (4, 4)
+    validator._init_metrics()
+
+    # Create predictions and targets with class mismatch (e.g. pred is class 0, target is class 1)
+    preds = [torch.tensor([[1.0, 2.0, 0.0, 0.99]])]
+    targets = torch.zeros(1, 120, 5)
+    targets[0, 0] = torch.tensor([4.0, 12.0, 12.0, 20.0, 1.0])  # class 1
+
+    # Should not raise ValueError (from scipy.optimize.linear_sum_assignment)
+    validator._update_metrics(preds, targets, None)
+
+    metrics = validator._compute_metrics()
+    assert metrics["metrics/precision"] == 0.0
+    assert metrics["metrics/recall"] == 0.0
+    assert validator.total_fp == 1
+    assert validator.total_fn == 1
+
