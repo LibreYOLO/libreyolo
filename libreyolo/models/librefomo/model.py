@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import torch
 import torch.nn as nn
 from PIL import Image
 
+from ...training.config import FOMOConfig
 from ...utils.image_loader import ImageInput
 from ...validation.preprocessors import LibreFOMOValPreprocessor
 from ..base import BaseModel
@@ -29,7 +30,7 @@ class LibreFOMO(BaseModel):
     INPUT_SIZES = {k: int(v["imgsz"]) for k, v in CONFIGS.items()}
     SUPPORTED_TASKS = ("point",)
     DEFAULT_TASK = "point"
-    TRAIN_CONFIG = None
+    TRAIN_CONFIG = FOMOConfig
     val_preprocessor_class = LibreFOMOValPreprocessor
     TTA_ENABLED = False
 
@@ -178,8 +179,51 @@ class LibreFOMO(BaseModel):
         self._notify_license_once()
         return super()._load_weights(model_path)
 
-    def train(self, *args, **kwargs):
-        raise NotImplementedError(
-            "LibreFOMO training is not wired into LibreYOLO yet. "
-            "Use the point validator and prepared checkpoints for inference/evaluation."
+    def train(self, allow_experimental: bool = False, **kwargs):
+        """Train this LibreFOMO model.
+
+        Training is marked experimental in v1. Pass ``allow_experimental=True``
+        to enable. Stable inference and validation do not require this flag.
+
+        Args:
+            allow_experimental: Must be ``True`` to start training.
+            **kwargs: Training config overrides forwarded to
+                :class:`~libreyolo.models.librefomo.trainer.LibreFOMOTrainer`.
+                Notable keys: ``data`` (YOLO data.yaml path), ``epochs``, ``batch``,
+                ``lr0``, ``fg_weight``, ``device``, ``project``, ``name``.
+
+        Returns:
+            Training results dict (see :meth:`BaseTrainer.train`).
+        """
+        if not allow_experimental:
+            raise NotImplementedError(
+                "LibreFOMO training is experimental in this version. "
+                "Pass allow_experimental=True to model.train() to enable it."
+            )
+
+        from .trainer import LibreFOMOTrainer
+
+        # imgsz is determined by the model size unless the caller overrides it
+        if "imgsz" not in kwargs:
+            kwargs["imgsz"] = self.input_size
+        if "size" not in kwargs:
+            kwargs["size"] = self.size
+        if "num_classes" not in kwargs:
+            kwargs["num_classes"] = self.nb_classes
+
+        trainer = LibreFOMOTrainer(
+            model=self.model,
+            wrapper_model=self,
+            **kwargs,
         )
+        results = trainer.train()
+        # Reload the best (or last) checkpoint so the wrapper is the trained model
+        from pathlib import Path
+
+        best_ckpt = results.get("best_checkpoint", "")
+        last_ckpt = results.get("last_checkpoint", "")
+        reload_path = best_ckpt if Path(best_ckpt).exists() else last_ckpt
+        if reload_path and Path(reload_path).exists():
+            self._load_weights(reload_path)
+        return results
+

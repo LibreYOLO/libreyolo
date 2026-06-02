@@ -179,14 +179,18 @@ class LibreFOMOModel(nn.Module):
 
 
 def detect_size_from_state_dict(state_dict: dict) -> str | None:
-    weight = state_dict.get("head.weight")
-    if weight is None:
-        return None
-    in_ch = int(weight.shape[1])
-    if in_ch == 192:
+    # "l" has unique head_in_channels=192; s and m both use 96.
+    head_weight = state_dict.get("head.weight")
+    if head_weight is not None and int(head_weight.shape[1]) == 192:
         return "l"
-    if in_ch == 96:
-        conv1 = state_dict.get("backbone.conv1.1.weight")
-        if conv1 is not None:
-            return {16: "s", 24: "m"}.get(int(conv1.shape[0]))
+
+    # Distinguish "s" from "m" via block_2's expansion conv hidden channels.
+    # InvertedResidual(in=c2, out=c2, expand=6):
+    #   "s": c2=8  → hidden = 8*6 = 48  → conv.0.0.conv.weight shape[0] = 48
+    #   "m": c2=16 → hidden = 16*6 = 96 → conv.0.0.conv.weight shape[0] = 96
+    # (backbone.conv1.1.weight = BN(c0) is ambiguous: c0=16 for both s and m.)
+    block2 = state_dict.get("backbone.block_2.conv.0.0.conv.weight")
+    if block2 is not None:
+        return {48: "s", 96: "m"}.get(int(block2.shape[0]))
+
     return None

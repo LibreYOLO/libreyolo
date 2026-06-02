@@ -546,6 +546,7 @@ FAMILY_MARKERS = {
     "damoyolo": pytest.mark.damoyolo,
     "rtmdet": pytest.mark.rtmdet,
     "l2cs": pytest.mark.l2cs,
+    "librefomo": pytest.mark.fomo,
 }
 
 

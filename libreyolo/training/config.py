@@ -767,3 +767,63 @@ class RTMDetConfig(TrainConfig):
     epochs: int = 300
     amp: bool = True
     name: str = "rtmdet_exp"
+
+
+@dataclass(kw_only=True)
+class FOMOConfig(TrainConfig):
+    """LibreFOMO point-localizer training defaults.
+
+    - Adam optimizer, lr=3e-4
+    - ReduceLROnPlateau on val F1 (factor=0.5, patience=3, min_lr=1e-5)
+    - Weighted CrossEntropy: background=1.0, foreground=fg_weight (100×)
+    - No mosaic/mixup/HSV/flip augmentation (plain stretch resize + [-1,1] norm)
+    - Validate every epoch so the plateau scheduler has F1 to step on
+    - EMA and AMP disabled for simplicity in v1
+
+    Pass a standard YOLO ``data.yaml`` path via ``data=`` to ``model.train()``.
+    Training is gated experimental; pass ``allow_experimental=True`` to enable.
+    """
+
+    optimizer: str = "adam"
+    lr0: float = 3e-4
+    weight_decay: float = 0.0  # Adam without wd, matching reference
+
+    # ReduceLROnPlateau knobs (used by LibreFOMOTrainer side-channel)
+    plateau_patience: int = 3
+    plateau_factor: float = 0.5
+    min_lr: float = 1e-5
+
+    # Foreground class weight in weighted CrossEntropyLoss
+    fg_weight: float = 100.0
+
+    # No traditional LR schedule — constant + plateau
+    scheduler: str = "constant"
+    warmup_epochs: int = 0
+    warmup_lr_start: float = 0.0
+    no_aug_epochs: int = 0
+    min_lr_ratio: float = 1.0
+
+    # No augmentation — plain resize only
+    mosaic_prob: float = 0.0
+    mixup_prob: float = 0.0
+    hsv_prob: float = 0.0
+    flip_prob: float = 0.0
+    degrees: float = 0.0
+    translate: float = 0.0
+    shear: float = 0.0
+
+    # LibreFOMO doesn't use EMA or AMP in v1
+    ema: bool = False
+    amp: bool = False
+
+    # Training schedule
+    epochs: int = 40
+    batch: int = 32
+    eval_interval: int = 1  # validate every epoch for plateau stepping
+
+    # Validation sweep parameters (mirror reference evaluate_sweep)
+    conf_thresholds: Tuple[float, ...] = (0.25, 0.35, 0.50, 0.65, 0.80, 0.90)
+    nms_radii: Tuple[int, ...] = (1, 2)
+    distance_tolerance: float = 1.5
+
+    name: str = "librefomo_exp"

@@ -6,3 +6,6 @@ def pytest_configure(config):
     config.addinivalue_line(
         "markers", "unit: mark test as unit test (fast, no external deps)"
     )
+    config.addinivalue_line(
+        "markers", "fomo: mark test as LibreFOMO-specific (requires HF datasets + scipy)"
+    )
