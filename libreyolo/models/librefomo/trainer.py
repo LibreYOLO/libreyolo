@@ -158,14 +158,35 @@ class LibreFOMOTrainer(BaseTrainer):
                 val_img_files, val_label_files = [], []
 
         dataset_nc = data_cfg.get("nc", self.config.num_classes)
-        if dataset_nc != getattr(self.model, "nb_classes", self.config.num_classes):
+        if dataset_nc != getattr(self.model, "nc", self.config.num_classes):
             logger.info(
                 "Dataset nc=%d differs from model nc=%d — rebuilding head.",
                 dataset_nc,
-                getattr(self.model, "nb_classes", self.config.num_classes),
+                getattr(self.model, "nc", self.config.num_classes),
             )
-            self.model._rebuild_for_new_classes(dataset_nc)
+            if self.wrapper_model is not None:
+                self.wrapper_model._rebuild_for_new_classes(dataset_nc)
+                # Keep self.model pointing at the freshly-built nn.Module.
+                self.model = self.wrapper_model.model
+            else:
+                # Fallback: no wrapper available (unusual, but safe to skip rebuild).
+                logger.warning(
+                    "wrapper_model is None — cannot rebuild head for nc=%d. "
+                    "Training will continue with the original head.",
+                    dataset_nc,
+                )
         self.config.num_classes = dataset_nc
+
+        # Propagate dataset class names to the wrapper so checkpoints record
+        # the real labels instead of the generic "class_0", "class_1", … defaults.
+        raw_names = data_cfg.get("names")
+        if raw_names is not None and self.wrapper_model is not None:
+            from ..base import BaseModel
+            self.wrapper_model.names = BaseModel._sanitize_names(
+                raw_names if isinstance(raw_names, dict)
+                else {i: n for i, n in enumerate(raw_names)},
+                dataset_nc,
+            )
 
         train_ds = FOMOYOLODataset(train_img_files, train_label_files, input_size, grid_size)
         val_ds = FOMOYOLODataset(val_img_files or [], val_label_files or [], input_size, grid_size)
@@ -432,10 +453,25 @@ class LibreFOMOTrainer(BaseTrainer):
                     )
                     B = logits_cpu.shape[0]
                     for b in range(B):
-                        rows = decoded[b]
-                        preds_xy = rows[:, :2].numpy() if len(rows) else np.zeros((0, 2))
-                        ys, xs = torch.where(targets_cpu[b] == 1)
-                        trues_xy = torch.stack((xs, ys), dim=1).float().numpy() if ys.numel() else np.zeros((0, 2))
+                        rows = decoded[b]  # (N, 4): x, y, class_id (0-based), conf
+
+                        # All foreground cells — grid value encodes class as (class+1).
+                        fg_mask = targets_cpu[b] >= 1
+                        ys, xs = torch.where(fg_mask)
+                        if ys.numel():
+                            true_cls = targets_cpu[b][ys, xs] - 1  # 0-based class
+                            trues_xy = torch.stack((xs, ys), dim=1).float().numpy()
+                            true_cls_np = true_cls.numpy()
+                        else:
+                            trues_xy = np.zeros((0, 2))
+                            true_cls_np = np.zeros(0, dtype=np.int64)
+
+                        if len(rows) > 0:
+                            preds_xy = rows[:, :2].numpy()
+                            preds_cls = rows[:, 2].long().numpy()  # 0-based
+                        else:
+                            preds_xy = np.zeros((0, 2))
+                            preds_cls = np.zeros(0, dtype=np.int64)
 
                         if len(preds_xy) == 0 and len(trues_xy) == 0:
                             continue
@@ -447,12 +483,21 @@ class LibreFOMOTrainer(BaseTrainer):
                             continue
 
                         dist_mat = cdist(preds_xy, trues_xy)
-                        row_ind, col_ind = linear_sum_assignment(dist_mat)
+                        # Penalise class mismatches — set distance to inf so the
+                        # Hungarian solver never matches cross-class pairs.
+                        for pi in range(len(preds_cls)):
+                            for ti in range(len(true_cls_np)):
+                                if preds_cls[pi] != true_cls_np[ti]:
+                                    dist_mat[pi, ti] = np.inf
+
+                        row_ind, col_ind = linear_sum_assignment(
+                            np.where(np.isfinite(dist_mat), dist_mat, 1e9)
+                        )
                         matched_preds: set = set()
                         matched_trues: set = set()
                         for r, c in zip(row_ind, col_ind):
                             d = dist_mat[r, c]
-                            if d <= distance_tolerance:
+                            if np.isfinite(d) and d <= distance_tolerance:
                                 total_tp += 1
                                 total_dist += d
                                 matched_preds.add(r)

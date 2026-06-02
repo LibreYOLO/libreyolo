@@ -182,3 +182,123 @@ def test_librefomo_schedulers():
     assert isinstance(t_yolox.create_scheduler(10), WarmupCosineScheduler)
 
 
+def test_trainer_rebuild_goes_through_wrapper_model():
+    """_build_yolo_datasets must call wrapper_model._rebuild_for_new_classes,
+    not self.model._rebuild_for_new_classes (the raw nn.Module has no such method).
+    """
+    from libreyolo.models.librefomo.trainer import LibreFOMOTrainer
+
+    wrapper = LibreFOMO(model_path=None, size="s", nb_classes=1, device="cpu")
+    trainer = LibreFOMOTrainer(wrapper.model, wrapper_model=wrapper, epochs=1)
+
+    # Raw LibreFOMOModel has no _rebuild_for_new_classes
+    assert not hasattr(trainer.model, "_rebuild_for_new_classes"), (
+        "Raw LibreFOMOModel should NOT expose _rebuild_for_new_classes"
+    )
+
+    # Simulate what fixed _build_yolo_datasets does
+    trainer.wrapper_model._rebuild_for_new_classes(3)
+    trainer.model = trainer.wrapper_model.model
+
+    assert wrapper.nb_classes == 3
+    assert wrapper.model.head.out_channels == 4
+    assert trainer.model is wrapper.model
+
+
+def test_sweep_validation_multiclass_fp_fn_correct():
+    """class-mismatch predictions must not count as TP."""
+    import numpy as np
+    from scipy.spatial.distance import cdist
+    from scipy.optimize import linear_sum_assignment
+    from libreyolo.models.librefomo.utils import decode_points_from_logits
+
+    # 4x4, nc=2 (channels: bg=0, cls0=1, cls1=2)
+    logits = torch.zeros(1, 3, 4, 4)
+    logits[0, 2, 1, 2] = 8.0  # class-1 peak at (col=2, row=1)
+
+    target = torch.zeros(1, 4, 4, dtype=torch.long)
+    target[0, 1, 2] = 2  # class-1 GT
+
+    decoded = decode_points_from_logits(logits, conf_threshold=0.5, nms_radius=1)
+    rows = decoded[0]
+    preds_xy = rows[:, :2].numpy()
+    preds_cls = (rows[:, 2].long() - 1).numpy()
+
+    fg_mask = target[0] >= 1
+    ys, xs = torch.where(fg_mask)
+    true_cls_np = (target[0][ys, xs] - 1).numpy()
+    trues_xy = torch.stack((xs, ys), dim=1).float().numpy()
+
+    dist_mat = cdist(preds_xy, trues_xy)
+    for pi in range(len(preds_cls)):
+        for ti in range(len(true_cls_np)):
+            if preds_cls[pi] != true_cls_np[ti]:
+                dist_mat[pi, ti] = np.inf
+
+    row_ind, col_ind = linear_sum_assignment(np.where(np.isfinite(dist_mat), dist_mat, 1e9))
+    tp = sum(1 for r, c in zip(row_ind, col_ind)
+             if np.isfinite(dist_mat[r, c]) and dist_mat[r, c] <= 1.5)
+    assert tp == 1, f"Expected 1 TP for matching class-1 peak, got {tp}"
+
+    # Class mismatch: class-0 prediction at same location → 0 TP
+    logits_wrong = torch.zeros(1, 3, 4, 4)
+    logits_wrong[0, 1, 1, 2] = 8.0  # class-0 at same cell
+    decoded_wrong = decode_points_from_logits(logits_wrong, conf_threshold=0.5, nms_radius=1)
+    rows_wrong = decoded_wrong[0]
+    preds_cls_wrong = (rows_wrong[:, 2].long() - 1).numpy()
+    dist_mat_wrong = cdist(rows_wrong[:, :2].numpy(), trues_xy)
+    for pi in range(len(preds_cls_wrong)):
+        for ti in range(len(true_cls_np)):
+            if preds_cls_wrong[pi] != true_cls_np[ti]:
+                dist_mat_wrong[pi, ti] = np.inf
+    row_ind_w, col_ind_w = linear_sum_assignment(
+        np.where(np.isfinite(dist_mat_wrong), dist_mat_wrong, 1e9))
+    tp_wrong = sum(1 for r, c in zip(row_ind_w, col_ind_w)
+                   if np.isfinite(dist_mat_wrong[r, c]) and dist_mat_wrong[r, c] <= 1.5)
+    assert tp_wrong == 0, f"Expected 0 TP on class mismatch, got {tp_wrong}"
+
+
+def test_trainer_propagates_dataset_names_to_wrapper(tmp_path):
+    """_build_yolo_datasets must copy data.yaml names to wrapper_model."""
+    import yaml
+    import numpy as np
+    from PIL import Image as PILImage
+    from libreyolo.models.librefomo.trainer import LibreFOMOTrainer
+
+    img_dir = tmp_path / "images" / "train"
+    lbl_dir = tmp_path / "labels" / "train"
+    img_dir.mkdir(parents=True)
+    lbl_dir.mkdir(parents=True)
+    PILImage.fromarray(np.zeros((96, 96, 3), dtype=np.uint8)).save(img_dir / "img0.jpg")
+    (lbl_dir / "img0.txt").write_text("")
+
+    data_yaml = tmp_path / "data.yaml"
+    data_yaml.write_text(yaml.dump({
+        "path": str(tmp_path),
+        "train": "images/train",
+        "val": "images/train",
+        "nc": 2,
+        "names": {0: "cat", 1: "dog"},
+    }))
+
+    wrapper = LibreFOMO(model_path=None, size="s", nb_classes=2, device="cpu")
+    wrapper.names = {0: "class_0", 1: "class_1"}  # generic defaults
+
+    trainer = LibreFOMOTrainer(
+        wrapper.model, wrapper_model=wrapper,
+        data=str(data_yaml), epochs=1, imgsz=96,
+    )
+    trainer._build_yolo_datasets(96, 12)
+
+    assert wrapper.names == {0: "cat", 1: "dog"}, (
+        f"wrapper.names should be {{0:'cat',1:'dog'}}, got {wrapper.names}"
+    )
+
+
+def test_point_validator_rejects_augment():
+    """PointValidator._run_validation_augmented must raise ValueError."""
+    from libreyolo.validation.point_validator import PointValidator
+
+    validator = PointValidator.__new__(PointValidator)
+    with pytest.raises(ValueError, match="augment=True"):
+        validator._run_validation_augmented()

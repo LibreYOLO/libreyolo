@@ -5,40 +5,13 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
 import torch
+from scipy.optimize import linear_sum_assignment as _scipy_lsa
 
 from .detection_validator import DetectionValidator
 from .config import ValidationConfig
 
 if TYPE_CHECKING:
     from libreyolo.models.base import BaseModel
-
-
-def _linear_sum_assignment(cost: torch.Tensor) -> tuple[list[int], list[int]]:
-    try:
-        from scipy.optimize import linear_sum_assignment
-
-        rows, cols = linear_sum_assignment(cost.detach().cpu().numpy())
-        return rows.tolist(), cols.tolist()
-    except Exception:
-        rows: list[int] = []
-        cols: list[int] = []
-        remaining_rows = set(range(cost.shape[0]))
-        remaining_cols = set(range(cost.shape[1]))
-        while remaining_rows and remaining_cols:
-            best = None
-            for r in remaining_rows:
-                for c in remaining_cols:
-                    value = float(cost[r, c])
-                    if best is None or value < best[0]:
-                        best = (value, r, c)
-            if best is None:
-                break
-            _, r, c = best
-            rows.append(r)
-            cols.append(c)
-            remaining_rows.remove(r)
-            remaining_cols.remove(c)
-        return rows, cols
 
 
 class PointValidator(DetectionValidator):
@@ -141,7 +114,8 @@ class PointValidator(DetectionValidator):
                 self.total_fn += len(true_xy)
                 continue
 
-            rows, cols = _linear_sum_assignment(dist)
+            dist_np = dist.detach().cpu().numpy()
+            rows, cols = _scipy_lsa(dist_np)
             matched_preds = set()
             matched_trues = set()
             for r, c in zip(rows, cols):
@@ -154,6 +128,19 @@ class PointValidator(DetectionValidator):
 
             self.total_fp += len(pred_xy) - len(matched_preds)
             self.total_fn += len(true_xy) - len(matched_trues)
+
+    def _run_validation_augmented(self) -> None:
+        """Point-task validators do not support box-level TTA.
+
+        The inherited ``DetectionValidator._run_validation_augmented`` calls
+        ``_det_from_result``, which reads ``result.boxes`` — a key that does
+        not exist for point-localization outputs.  Raise an explicit error
+        instead of silently producing wrong metrics or an obscure KeyError.
+        """
+        raise ValueError(
+            "PointValidator does not support augment=True. "
+            "Point-localization TTA is not implemented; pass augment=False."
+        )
 
     def _compute_metrics(self) -> Dict[str, float]:
         precision = self.total_tp / (self.total_tp + self.total_fp) if (self.total_tp + self.total_fp) else 0.0
