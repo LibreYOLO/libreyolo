@@ -468,7 +468,9 @@ class LibreFOMOTrainer(BaseTrainer):
 
                         if len(rows) > 0:
                             preds_xy = rows[:, :2].numpy()
-                            preds_cls = rows[:, 2].long().numpy()  # 0-based
+                            # rows[:, 2] is the argmax channel index (bg=0, class0=1, …);
+                            # subtract 1 to get 0-based class id matching true_cls_np.
+                            preds_cls = (rows[:, 2].long() - 1).numpy()
                         else:
                             preds_xy = np.zeros((0, 2))
                             preds_cls = np.zeros(0, dtype=np.int64)
