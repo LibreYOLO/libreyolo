@@ -12,7 +12,7 @@ import warnings
 from abc import ABC, abstractmethod
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Tuple, Union
 
 import torch
 
@@ -99,7 +99,7 @@ class BaseExporter(ABC):
         self,
         *,
         output_path: Optional[str] = None,
-        imgsz: Optional[int] = None,
+        imgsz: Optional[Union[int, Tuple[int, int]]] = None,
         opset: Optional[int] = None,
         simplify: bool = True,
         dynamic: bool = True,
@@ -117,7 +117,8 @@ class BaseExporter(ABC):
 
         Args:
             output_path: Output file path (auto-generated if None).
-            imgsz: Input resolution (default: model's native size).
+            imgsz: Input resolution as ``(height, width)`` tuple or a single
+                int for square (default: model's native size).
             opset: ONNX opset version (default: 13).
             simplify: Run ONNX graph simplification (default: True).
             dynamic: Enable dynamic axes for ONNX (default: True).
@@ -159,10 +160,11 @@ class BaseExporter(ABC):
         precision = _resolve_precision(half, int8)
 
         with self._model_context(device, half, batch, imgsz) as (nn_model, dummy):
+            calib_imgsz = imgsz[0] if isinstance(imgsz, tuple) else imgsz
             calibration_data = (
                 self._load_calibration(
                     data,
-                    imgsz,
+                    calib_imgsz,
                     batch,
                     fraction,
                     allow_download_scripts,
@@ -256,7 +258,12 @@ class BaseExporter(ABC):
     def _resolve_params(self, output_path, imgsz, device, half, int8):
         native_imgsz = self.model._get_input_size()
         if imgsz is None:
-            imgsz = native_imgsz
+            imgsz = (native_imgsz, native_imgsz)
+        elif isinstance(imgsz, tuple):
+            if len(imgsz) != 2:
+                raise ValueError(
+                    f"imgsz tuple must be (height, width), got {imgsz}"
+                )
         elif self.model._get_model_name() == "deimv2" and int(imgsz) != int(
             native_imgsz
         ):
@@ -264,6 +271,8 @@ class BaseExporter(ABC):
                 "DEIMv2 export uses fixed decoder anchors; imgsz must match "
                 f"the native size {native_imgsz}, got {imgsz}."
             )
+        else:
+            imgsz = (int(imgsz), int(imgsz))
         if device is None or str(device).lower() == "auto":
             if self.model._get_model_name() == "rfdetr":
                 device = torch.device("cpu")
@@ -382,7 +391,8 @@ class BaseExporter(ABC):
             except ImportError:
                 pass
 
-        dummy = torch.randn(batch, 3, imgsz, imgsz, device=device)
+        h, w = imgsz
+        dummy = torch.randn(batch, 3, h, w, device=device)
 
         if half and self.apply_model_half:
             nn_model.half()
@@ -449,7 +459,7 @@ class BaseExporter(ABC):
             metadata=self._build_onnx_metadata(
                 dynamic=dynamic,
                 half=False,
-                imgsz=int(dummy.shape[-1]),
+                imgsz=(dummy.shape[-2], dummy.shape[-1]),
             ),
         )
 
@@ -458,11 +468,22 @@ class BaseExporter(ABC):
         precision: str,
         dynamic: bool,
         onnx_path: Optional[str],
-        imgsz: Optional[int] = None,
+        imgsz: Optional[Union[int, Tuple[int, int]]] = None,
     ) -> dict:
         """Build metadata dict for non-ONNX formats (native Python types)."""
         task, supported_tasks, default_task = self._task_metadata()
-        metadata_imgsz = int(imgsz if imgsz is not None else self.model._get_input_size())
+        if imgsz is not None:
+            if isinstance(imgsz, tuple):
+                h, w = imgsz
+                metadata_imgsz = max(h, w)
+                meta_h, meta_w = h, w
+            else:
+                metadata_imgsz = int(imgsz)
+                meta_h = meta_w = int(imgsz)
+        else:
+            native = self.model._get_input_size()
+            metadata_imgsz = int(native)
+            meta_h = meta_w = int(native)
         # TODO(schema-v1.1): keep legacy model_size/nb_classes aliases for one
         # transition window, then prefer the canonical size/nc keys only.
         meta = {
@@ -478,6 +499,8 @@ class BaseExporter(ABC):
             "nb_classes": self.model.nb_classes,
             "names": {str(k): v for k, v in self.model.names.items()},
             "imgsz": metadata_imgsz,
+            "imgsz_h": meta_h,
+            "imgsz_w": meta_w,
             "precision": precision,
             "dynamic": dynamic,
         }
@@ -490,11 +513,23 @@ class BaseExporter(ABC):
         *,
         dynamic: bool,
         half: bool,
-        imgsz: Optional[int] = None,
+        imgsz: Optional[Union[int, Tuple[int, int]]] = None,
     ) -> dict:
         """Build metadata dict for ONNX (all-string values, JSON-encoded names)."""
         task, supported_tasks, default_task = self._task_metadata()
-        metadata_imgsz = int(imgsz if imgsz is not None else self.model._get_input_size())
+        if imgsz is not None:
+            if isinstance(imgsz, tuple):
+                h, w = imgsz
+                metadata_imgsz = str(max(h, w))
+                meta_h = str(h)
+                meta_w = str(w)
+            else:
+                metadata_imgsz = str(int(imgsz))
+                meta_h = meta_w = str(int(imgsz))
+        else:
+            native = self.model._get_input_size()
+            metadata_imgsz = str(native)
+            meta_h = meta_w = str(native)
         # TODO(schema-v1.1): keep legacy model_size/nb_classes aliases for one
         # transition window, then prefer the canonical size/nc keys only.
         return {
@@ -509,7 +544,9 @@ class BaseExporter(ABC):
             "nc": str(self.model.nb_classes),
             "nb_classes": str(self.model.nb_classes),
             "names": json.dumps({str(k): v for k, v in self.model.names.items()}),
-            "imgsz": str(metadata_imgsz),
+            "imgsz": metadata_imgsz,
+            "imgsz_h": meta_h,
+            "imgsz_w": meta_w,
             "dynamic": str(dynamic),
             "half": str(half),
             "segmentation": str(getattr(self.model, "_is_segmentation", False)).lower(),
@@ -529,7 +566,11 @@ class BaseExporter(ABC):
             return task, [task], task
         return task, list(supported_tasks), default_task
 
-    def _print_summary(self, result: str, precision: str, imgsz: int):
+    def _print_summary(self, result: str, precision: str, imgsz: Union[int, Tuple[int, int]]):
+        if isinstance(imgsz, tuple):
+            h, w = imgsz
+        else:
+            h = w = imgsz
         logger.info(
             "Export complete: %s\n"
             "  Model: %s %s\n"
@@ -541,8 +582,8 @@ class BaseExporter(ABC):
             self.model.size,
             self.format_name,
             _precision_label(precision),
-            imgsz,
-            imgsz,
+            w,
+            h,
         )
 
 
@@ -583,7 +624,7 @@ class OnnxExporter(BaseExporter):
             metadata=self._build_onnx_metadata(
                 dynamic=dynamic,
                 half=half,
-                imgsz=int(dummy.shape[-1]),
+                imgsz=(dummy.shape[-2], dummy.shape[-1]),
             ),
         )
 

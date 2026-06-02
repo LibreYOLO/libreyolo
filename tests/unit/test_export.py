@@ -183,7 +183,7 @@ class TestExporterFormats:
             int8=False,
         )
 
-        assert imgsz == 32
+        assert imgsz == (32, 32)
         assert device == torch.device("cpu")
         assert output_path.endswith(".onnx")
 
