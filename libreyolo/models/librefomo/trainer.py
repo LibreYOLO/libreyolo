@@ -186,29 +186,69 @@ class LibreFOMOTrainer(BaseTrainer):
             device=self.device,
         ).to(self.device)
 
-        # ReduceLROnPlateau state (side-channel, not part of BaseScheduler)
-        self._plateau_best = 0.0
-        self._plateau_wait = 0
-        self._plateau_factor = float(getattr(self.config, "plateau_factor", 0.5))
-        self._plateau_patience = int(getattr(self.config, "plateau_patience", 3))
-        self._plateau_min_lr = float(getattr(self.config, "min_lr", 1e-5))
-
         if is_main_process():
             logger.info(
                 f"LibreFOMOLoss: nc={nc}, fg_weight={fg_weight}"
             )
 
     # -------------------------------------------------------------------------
-    # Scheduler — constant LR; actual LR changes come from plateau hook
+    # Scheduler — constant/plateau, cosine, linear
     # -------------------------------------------------------------------------
 
     def create_scheduler(self, iters_per_epoch: int):
+        sched_type = getattr(self.config, "scheduler", "cosine")
+
+        if sched_type in ("cosine", "cos"):
+            from ...training.scheduler import CosineAnnealingScheduler
+            return CosineAnnealingScheduler(
+                lr=self.effective_lr,
+                iters_per_epoch=iters_per_epoch,
+                total_epochs=self.config.epochs,
+                warmup_epochs=getattr(self.config, "warmup_epochs", 0),
+                warmup_lr_start=getattr(self.config, "warmup_lr_start", 0.0),
+                min_lr_ratio=getattr(self.config, "min_lr_ratio", 0.05),
+            )
+        elif sched_type == "flat_cosine":
+            from ...training.scheduler import FlatCosineScheduler
+            return FlatCosineScheduler(
+                lr=self.effective_lr,
+                iters_per_epoch=iters_per_epoch,
+                total_epochs=self.config.epochs,
+                warmup_epochs=getattr(self.config, "warmup_epochs", 0),
+                warmup_lr_start=getattr(self.config, "warmup_lr_start", 0.0),
+                no_aug_epochs=getattr(self.config, "no_aug_epochs", 0),
+                min_lr_ratio=getattr(self.config, "min_lr_ratio", 0.05),
+            )
+        elif sched_type == "linear":
+            from ...training.scheduler import LinearLRScheduler
+            return LinearLRScheduler(
+                lr=self.effective_lr,
+                iters_per_epoch=iters_per_epoch,
+                total_epochs=self.config.epochs,
+                warmup_epochs=getattr(self.config, "warmup_epochs", 0),
+                warmup_lr_start=getattr(self.config, "warmup_lr_start", 0.0001),
+                min_lr_ratio=getattr(self.config, "min_lr_ratio", 0.01),
+            )
+        elif sched_type == "yoloxwarmcos":
+            from ...training.scheduler import WarmupCosineScheduler
+            return WarmupCosineScheduler(
+                lr=self.effective_lr,
+                iters_per_epoch=iters_per_epoch,
+                total_epochs=self.config.epochs,
+                warmup_epochs=getattr(self.config, "warmup_epochs", 5),
+                warmup_lr_start=getattr(self.config, "warmup_lr_start", 0.0),
+                plateau_epochs=getattr(self.config, "no_aug_epochs", 15),
+                min_lr_ratio=getattr(self.config, "min_lr_ratio", 0.05),
+            )
+
+        # Fallback to constant LR scheduler
+        from ...training.scheduler import ConstantLRScheduler
         return ConstantLRScheduler(
             lr=self.effective_lr,
             iters_per_epoch=iters_per_epoch,
             total_epochs=self.config.epochs,
-            warmup_epochs=0,
-            warmup_lr_start=0.0,
+            warmup_epochs=getattr(self.config, "warmup_epochs", 0),
+            warmup_lr_start=getattr(self.config, "warmup_lr_start", 0.0),
         )
 
     # -------------------------------------------------------------------------
@@ -289,24 +329,6 @@ class LibreFOMOTrainer(BaseTrainer):
             fp = best_result["fp"]
             fn = best_result["fn"]
 
-            # Step ReduceLROnPlateau on F1
-            self._step_plateau_lr(f1)
-            current_lr = self.optimizer.param_groups[0]["lr"]
-
-            if is_main_process():
-                logger.info(
-                    f"Epoch {epoch + 1} val | "
-                    f"loss={avg_val_loss:.4f} | "
-                    f"F1={f1:.4f} | "
-                    f"P={precision:.4f} | "
-                    f"R={recall:.4f} | "
-                    f"MeanDist={mean_dist:.3f} | "
-                    f"thresh={best_result['threshold']:.2f} | "
-                    f"nms_r={best_result['nms_radius']} | "
-                    f"TP={tp} FP={fp} FN={fn} | "
-                    f"LR={current_lr:.6f}"
-                )
-
             metrics = {
                 "best_metric": f1,
                 "best_metric_key": "metrics/F1",
@@ -325,6 +347,23 @@ class LibreFOMOTrainer(BaseTrainer):
                     "decode/nms_radius": float(best_result["nms_radius"]),
                 },
             }
+
+            current_lr = self.optimizer.param_groups[0]["lr"]
+
+            if is_main_process():
+                logger.info(
+                    f"Epoch {epoch + 1} val | "
+                    f"loss={avg_val_loss:.4f} | "
+                    f"F1={f1:.4f} | "
+                    f"P={precision:.4f} | "
+                    f"R={recall:.4f} | "
+                    f"MeanDist={mean_dist:.3f} | "
+                    f"thresh={best_result['threshold']:.2f} | "
+                    f"nms_r={best_result['nms_radius']} | "
+                    f"TP={tp} FP={fp} FN={fn} | "
+                    f"LR={current_lr:.6f}"
+                )
+
             return metrics
 
         except Exception as exc:
@@ -444,32 +483,7 @@ class LibreFOMOTrainer(BaseTrainer):
 
         return avg_val_loss, best
 
-    # -------------------------------------------------------------------------
-    # ReduceLROnPlateau side-channel
-    # -------------------------------------------------------------------------
 
-    def _step_plateau_lr(self, f1: float) -> None:
-        """Step the ReduceLROnPlateau logic, mutating the optimizer LR directly."""
-        if f1 > self._plateau_best:
-            self._plateau_best = f1
-            self._plateau_wait = 0
-        else:
-            self._plateau_wait += 1
-
-        if self._plateau_wait >= self._plateau_patience:
-            self._plateau_wait = 0
-            for pg in self.optimizer.param_groups:
-                old_lr = pg["lr"]
-                new_lr = max(old_lr * self._plateau_factor, self._plateau_min_lr)
-                pg["lr"] = new_lr
-                if is_main_process() and new_lr < old_lr:
-                    logger.info(
-                        f"ReduceLROnPlateau: LR {old_lr:.2e} → {new_lr:.2e} "
-                        f"(no improvement for {self._plateau_patience} epochs)"
-                    )
-            # Sync the constant scheduler's internal LR so it stays consistent
-            if self.lr_scheduler is not None:
-                self.lr_scheduler.lr = self.optimizer.param_groups[0]["lr"]
 
     # -------------------------------------------------------------------------
     # Checkpoint extra metadata — record best decode config

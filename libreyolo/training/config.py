@@ -788,20 +788,15 @@ class FOMOConfig(TrainConfig):
     lr0: float = 3e-4
     weight_decay: float = 0.0  # Adam without wd, matching reference
 
-    # ReduceLROnPlateau knobs (used by LibreFOMOTrainer side-channel)
-    plateau_patience: int = 3
-    plateau_factor: float = 0.5
-    min_lr: float = 1e-5
-
     # Foreground class weight in weighted CrossEntropyLoss
     fg_weight: float = 100.0
 
-    # No traditional LR schedule — constant + plateau
-    scheduler: str = "constant"
+    # Standard LR schedule
+    scheduler: str = "cos"
     warmup_epochs: int = 0
     warmup_lr_start: float = 0.0
     no_aug_epochs: int = 0
-    min_lr_ratio: float = 1.0
+    min_lr_ratio: float = 0.05
 
     # No augmentation — plain resize only
     mosaic_prob: float = 0.0

@@ -143,3 +143,42 @@ def test_librefomo_rebuild_for_new_classes():
     new_backbone_w = model.model.backbone.conv1[0].conv.weight
     assert torch.equal(old_backbone_w, new_backbone_w)
 
+
+def test_librefomo_schedulers():
+    from libreyolo.models.librefomo.trainer import LibreFOMOTrainer
+    from libreyolo.models.librefomo.model import LibreFOMO
+    from libreyolo.training.scheduler import (
+        ConstantLRScheduler,
+        CosineAnnealingScheduler,
+        FlatCosineScheduler,
+        LinearLRScheduler,
+        WarmupCosineScheduler,
+    )
+
+    model = LibreFOMO(model_path=None, size="s", nb_classes=1, device="cpu")
+
+    # Test create_scheduler selections
+    # constant
+    t_const = LibreFOMOTrainer(model.model, wrapper_model=model, scheduler="constant", epochs=10)
+    assert isinstance(t_const.create_scheduler(10), ConstantLRScheduler)
+
+    # cosine / cos
+    t_cos = LibreFOMOTrainer(model.model, wrapper_model=model, scheduler="cos", epochs=10)
+    assert isinstance(t_cos.create_scheduler(10), CosineAnnealingScheduler)
+
+    t_cosine = LibreFOMOTrainer(model.model, wrapper_model=model, scheduler="cosine", epochs=10)
+    assert isinstance(t_cosine.create_scheduler(10), CosineAnnealingScheduler)
+
+    # flat_cosine
+    t_flat = LibreFOMOTrainer(model.model, wrapper_model=model, scheduler="flat_cosine", epochs=10)
+    assert isinstance(t_flat.create_scheduler(10), FlatCosineScheduler)
+
+    # linear
+    t_lin = LibreFOMOTrainer(model.model, wrapper_model=model, scheduler="linear", epochs=10)
+    assert isinstance(t_lin.create_scheduler(10), LinearLRScheduler)
+
+    # yoloxwarmcos
+    t_yolox = LibreFOMOTrainer(model.model, wrapper_model=model, scheduler="yoloxwarmcos", epochs=10)
+    assert isinstance(t_yolox.create_scheduler(10), WarmupCosineScheduler)
+
+
