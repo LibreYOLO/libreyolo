@@ -774,10 +774,10 @@ class FOMOConfig(TrainConfig):
     """LibreFOMO point-localizer training defaults.
 
     - Adam optimizer, lr=3e-4
-    - ReduceLROnPlateau on val F1 (factor=0.5, patience=3, min_lr=1e-5)
+    - Cosine learning rate scheduler (cos, min_lr_ratio=0.05)
     - Weighted CrossEntropy: background=1.0, foreground=fg_weight (100×)
     - No mosaic/mixup/HSV/flip augmentation (plain stretch resize + [-1,1] norm)
-    - Validate every epoch so the plateau scheduler has F1 to step on
+    - Validate every epoch (best model selected by validation F1 score)
     - EMA and AMP disabled for simplicity in v1
 
     Pass a standard YOLO ``data.yaml`` path via ``data=`` to ``model.train()``.

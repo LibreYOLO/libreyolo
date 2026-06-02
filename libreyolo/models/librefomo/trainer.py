@@ -5,9 +5,7 @@ Thin subclass of BaseTrainer that:
 * Completely overrides ``_setup_data`` to serve FOMO grid targets
   ``(B, H_grid, W_grid)`` instead of the standard box-format
   ``(B, max_labels, 5)`` used by the YOLO/DETR pipeline.
-* Uses a ``ConstantLRScheduler`` as the per-iteration LR holder, with a
-  ``ReduceLROnPlateau`` side-channel that adjusts the LR after each epoch
-  validation, matching the reference training script.
+* Uses standard LR schedulers (defaulting to Cosine Annealing).
 * Overrides ``_run_validation`` to use ``PointValidator`` and an F1 threshold
   sweep (mirroring the reference ``evaluate_sweep``).
 * Sets ``best_metric_key = "metrics/F1"`` so ``_update_best_state`` and
