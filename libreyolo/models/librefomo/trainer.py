@@ -159,7 +159,15 @@ class LibreFOMOTrainer(BaseTrainer):
             except (FileNotFoundError, ValueError):
                 val_img_files, val_label_files = [], []
 
-        self.config.num_classes = data_cfg.get("nc", self.config.num_classes)
+        dataset_nc = data_cfg.get("nc", self.config.num_classes)
+        if dataset_nc != getattr(self.model, "nb_classes", self.config.num_classes):
+            logger.info(
+                "Dataset nc=%d differs from model nc=%d — rebuilding head.",
+                dataset_nc,
+                getattr(self.model, "nb_classes", self.config.num_classes),
+            )
+            self.model._rebuild_for_new_classes(dataset_nc)
+        self.config.num_classes = dataset_nc
 
         train_ds = FOMOYOLODataset(train_img_files, train_label_files, input_size, grid_size)
         val_ds = FOMOYOLODataset(val_img_files or [], val_label_files or [], input_size, grid_size)

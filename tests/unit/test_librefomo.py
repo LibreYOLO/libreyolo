@@ -101,3 +101,45 @@ def test_point_validator_metrics_match_centers():
     assert metrics["metrics/recall"] == 1.0
     assert metrics["metrics/F1"] == 1.0
     assert metrics["metrics/mean_distance"] == 0.0
+
+
+def test_librefomo_multiclass_forward_and_loss():
+    """nc>1 must produce (B, nc+1, H, W) output and a finite loss."""
+    from libreyolo.models.librefomo.loss import LibreFOMOLoss
+
+    NC = 3
+    GRID = 12
+    IMGSZ = 96
+
+    model = LibreFOMO(model_path=None, size="s", nb_classes=NC, device="cpu")
+    out = model._forward(torch.zeros(1, 3, IMGSZ, IMGSZ))
+    assert out.shape == (1, NC + 1, GRID, GRID), (
+        f"Expected (1, {NC+1}, {GRID}, {GRID}), got {tuple(out.shape)}"
+    )
+
+    # Build a target grid: one peak at cell (2, 3), class 1
+    target = torch.zeros(1, NC + 1, GRID, GRID)
+    target[0, 0] = 1.0          # background everywhere
+    target[0, 0, 2, 3] = 0.0   # suppress background at peak
+    target[0, 2, 2, 3] = 1.0   # class 1 (channel index 2)
+
+    loss_fn = LibreFOMOLoss(num_classes=NC, fg_weight=100.0, device="cpu")
+    loss_dict = loss_fn(out, target)
+    assert torch.isfinite(loss_dict["total_loss"]), f"Loss is not finite: {loss_dict}"
+
+
+def test_librefomo_rebuild_for_new_classes():
+    """_rebuild_for_new_classes must resize the head and preserve backbone weights."""
+    model = LibreFOMO(model_path=None, size="s", nb_classes=1, device="cpu")
+    old_backbone_w = model.model.backbone.conv1[0].conv.weight.clone()
+
+    model._rebuild_for_new_classes(3)
+
+    # Head output channels must now be nc+1 = 4
+    assert model.model.head.out_channels == 4
+    # nb_classes updated on the wrapper
+    assert model.nb_classes == 3
+    # Backbone weights preserved
+    new_backbone_w = model.model.backbone.conv1[0].conv.weight
+    assert torch.equal(old_backbone_w, new_backbone_w)
+
