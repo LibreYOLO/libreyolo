@@ -14,7 +14,12 @@ import pytest
 import torch
 from PIL import Image
 
-pytestmark = pytest.mark.e2e
+from .conftest import cuda_cleanup
+
+# Marked with the per-family ``l2cs`` marker (not ``general_nightly``) so
+# targeted family jobs / `pytest -m l2cs` include this gaze check, while the
+# gated nightly never turns its weight-absent skip into a failure.
+pytestmark = [pytest.mark.e2e, pytest.mark.l2cs]
 
 _L2CS_WEIGHTS = "LibreL2CSr50.pt"
 
@@ -46,18 +51,22 @@ def test_l2cs_gaze_inference_is_stable():
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
     model = LibreL2CS(weights, size="r50", device=device)
-    image = Image.new("RGB", (96, 96), color=(128, 128, 128))
-    kwargs = {"face_boxes": [(8, 8, 88, 88)]}
-    first = model(image, **kwargs)
-    second = model(image, **kwargs)
+    try:
+        image = Image.new("RGB", (96, 96), color=(128, 128, 128))
+        kwargs = {"face_boxes": [(8, 8, 88, 88)]}
+        first = model(image, **kwargs)
+        second = model(image, **kwargs)
 
-    assert first.gaze is not None, "l2cs did not return gaze output"
-    assert second.gaze is not None, "l2cs did not return gaze output"
-    assert len(first.gaze) == 1
-    assert len(second.gaze) == 1
-    torch.testing.assert_close(
-        _tensor(first.gaze.data),
-        _tensor(second.gaze.data),
-        rtol=1e-5,
-        atol=1e-5,
-    )
+        assert first.gaze is not None, "l2cs did not return gaze output"
+        assert second.gaze is not None, "l2cs did not return gaze output"
+        assert len(first.gaze) == 1
+        assert len(second.gaze) == 1
+        torch.testing.assert_close(
+            _tensor(first.gaze.data),
+            _tensor(second.gaze.data),
+            rtol=1e-5,
+            atol=1e-5,
+        )
+    finally:
+        del model
+        cuda_cleanup()

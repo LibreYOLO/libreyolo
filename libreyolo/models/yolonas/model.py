@@ -327,15 +327,56 @@ class LibreYOLONAS(BaseModel):
     def _strict_loading(self) -> bool:
         return False
 
+    # SHA-256 of the official Deci CDN detection checkpoints. Auto-downloaded
+    # YOLO-NAS weights are third-party pickles that must be loaded with
+    # weights_only=False, so they are verified against these pins before being
+    # unpickled; a compromised/tampered CDN object then fails closed instead of
+    # executing code during model construction. Locally staged files are the
+    # user's own trust decision and are not re-verified.
+    _DECI_CHECKPOINT_SHA256 = {
+        "yolo_nas_s_coco.pth": "c1b1d9148ab8ae5d5984699547e850955ff9efccaf568c67b3d605acb4bfe1cb",
+        "yolo_nas_m_coco.pth": "b194fc7fa196f76161c6356558bedf04fb99a62325a74a36a4bec3ca8ba48250",
+        "yolo_nas_l_coco.pth": "91a06beaa1ce1a651d6691e3198061da996eafc8890503238dedacbd4c392a32",
+    }
+
+    @classmethod
+    def _verify_downloaded_checkpoint(cls, model_path: str) -> None:
+        import hashlib
+
+        name = Path(model_path).name
+        expected = cls._DECI_CHECKPOINT_SHA256.get(name)
+        if expected is None:
+            Path(model_path).unlink(missing_ok=True)
+            raise RuntimeError(
+                f"Refusing to auto-load YOLO-NAS checkpoint '{name}': no pinned "
+                "checksum is known for it, so the freshly downloaded third-party "
+                "pickle cannot be verified before loading. Download it manually "
+                "from a source you trust and pass its path instead."
+            )
+        digest = hashlib.sha256()
+        with open(model_path, "rb") as handle:
+            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                digest.update(chunk)
+        actual = digest.hexdigest()
+        if actual != expected:
+            Path(model_path).unlink(missing_ok=True)
+            raise RuntimeError(
+                f"Checksum mismatch for downloaded YOLO-NAS checkpoint '{name}': "
+                f"expected {expected}, got {actual}. Refusing to load a possibly "
+                "tampered file."
+            )
+
     def _load_weights(self, model_path: str):
         if not Path(model_path).exists():
             # YOLO-NAS weights are not mirrored on the LibreYOLO HF org (Deci's
             # proprietary license), so fetch them on demand from Deci's public
             # CDN — the same auto-download path every other family uses — rather
-            # than hard-failing on a missing file.
+            # than hard-failing on a missing file. Verify the fetched pickle
+            # against a pinned checksum before it is unpickled below.
             from ...utils.download import download_weights
 
             download_weights(model_path, self.size)
+            self._verify_downloaded_checkpoint(model_path)
         if not Path(model_path).exists():
             raise FileNotFoundError(f"Model weights file not found: {model_path}")
 

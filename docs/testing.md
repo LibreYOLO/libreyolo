@@ -81,13 +81,17 @@ make test_flagship_nightly
 make test_nightly
 ```
 
-V1 contract:
+V2 contract:
 
-- `general_nightly`: one smallest native inference case for every public family;
-  currently 16 tests.
+- `general_nightly`: one smallest native inference case for every public
+  detector family that has a public auto-download route (LibreYOLO HF, or Deci's
+  CDN for YOLO-NAS); currently 15 tests.
 - `flagship_nightly`: heavier YOLO9/RF-DETR native validation, training, video,
   tracking, and CLI; currently 57 tests with `not export_backend`.
-- L2CS covers gaze inference; detector families cover detection.
+- Detector families cover detection. L2CS gaze is non-redistributable (no public
+  download route), so it runs as a non-gated per-family suite
+  (`tests/e2e/test_l2cs_gaze.py`) that skips when the weight is not staged
+  locally, rather than gating the nightly.
 - Export backends are outside default nightly.
 - Nightly-selected skips are failures.
 
@@ -98,9 +102,10 @@ pytest tests/e2e --collect-only -q -m general_nightly
 pytest tests/e2e --collect-only -q -m "flagship_nightly and not export_backend"
 ```
 
-Missing local weights before full green: `downloads/yolonas/yolo_nas_s_coco.pth`,
-`weights/LibreDEIM*.pt`, `weights/LibreRTDETRv2r18.pt`,
-`weights/LibreRTDETRv4s.pt`, possibly `weights/LibreL2CSr50.pt`.
+Missing local weights before full green: `weights/LibreDEIM*.pt`,
+`weights/LibreRTDETRv2r18.pt`, `weights/LibreRTDETRv4s.pt`. YOLO-NAS now
+auto-downloads from Deci's CDN (checksum-verified), and L2CS gaze is non-gated
+and skips when `weights/LibreL2CSr50.pt` is absent.
 
 ## Versioning
 
