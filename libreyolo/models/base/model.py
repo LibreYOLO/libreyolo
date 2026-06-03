@@ -383,6 +383,17 @@ class BaseModel(ABC):
         name = f"{cls.FILENAME_PREFIX}{size}{suffix}"
         return f"https://huggingface.co/LibreYOLO/{name}/resolve/main/{name}{cls.WEIGHT_EXT}"
 
+    @classmethod
+    def verify_downloaded_file(cls, local_path: str, source_url: str) -> None:
+        """Verify a freshly auto-downloaded weight file before it is loaded.
+
+        Hook called by ``download_weights`` after a successful download. The
+        default trusts LibreYOLO's own Hugging Face mirror and does nothing;
+        families that fetch third-party objects (e.g. YOLO-NAS from Deci's CDN)
+        override this to checksum-pin the download and fail closed on mismatch.
+        """
+        return None
+
     def _get_val_preprocessor(self, img_size: int | None = None):
         """Return the validation preprocessor for this model."""
         if img_size is None:

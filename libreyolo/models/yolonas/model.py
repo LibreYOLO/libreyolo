@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 
@@ -65,6 +66,28 @@ class LibreYOLONAS(BaseModel):
         return _POSE_HEAD_KEY in weights_dict
 
     @classmethod
+    def detect_size_from_filename(cls, filename: str) -> Optional[str]:
+        # Accept the LibreYOLO convention (LibreYOLONAS<size>.pt) handled by the
+        # base regex, and also the native Deci filenames the CDN serves
+        # (yolo_nas_<size>_coco.pth / yolo_nas_pose_<size>_coco_pose.pth) so the
+        # checkpoints auto-download by their canonical upstream names.
+        size = super().detect_size_from_filename(filename)
+        if size is not None:
+            return size
+        match = re.search(r"yolo_nas(?:_pose)?_([nsml])_coco", filename.lower())
+        return match.group(1) if match else None
+
+    @classmethod
+    def detect_task_from_filename(cls, filename: str) -> Optional[str]:
+        # Native Deci pose checkpoints are named yolo_nas_pose_<size>_coco_pose.pth.
+        # Detect that here so get_download_url routes to the pose CDN URL; without
+        # it the base regex sees no task and a pose request fetches detection
+        # weights, which then fail the pose/detection checkpoint guard.
+        if re.search(r"yolo_nas_pose_[nsml]_coco", filename.lower()):
+            return "pose"
+        return super().detect_task_from_filename(filename)
+
+    @classmethod
     def get_download_url(cls, filename: str) -> Optional[str]:
         # YOLO-NAS weights are under Deci's proprietary license — LibreYOLO
         # links to Deci's public CDN instead of mirroring on its own HF org.
@@ -73,7 +96,16 @@ class LibreYOLONAS(BaseModel):
             return None
         task = cls.detect_task_from_filename(filename)
         if task == "pose":
-            return f"{cls._DECI_CDN_BASE}/yolo_nas_pose_{size}_coco_pose.pth"
+            # Pose checkpoints are intentionally NOT auto-downloadable: their
+            # SHA-256 is not pinned (only the detection s/m/l checkpoints are, see
+            # _DECI_CHECKPOINT_SHA256 / verify_downloaded_file), so we return no
+            # route rather than fetch an unverifiable third-party pickle that the
+            # checksum gate would then refuse. Pose weights must be staged
+            # manually. Detecting the task here still prevents a pose request from
+            # mis-routing to the detection URL.
+            return None
+        if size not in cls.INPUT_SIZES:
+            return None
         return f"{cls._DECI_CDN_BASE}/yolo_nas_{size}_coco.pth"
 
     @classmethod
@@ -304,7 +336,65 @@ class LibreYOLONAS(BaseModel):
     def _strict_loading(self) -> bool:
         return False
 
+    # SHA-256 of the official Deci CDN detection checkpoints. Auto-downloaded
+    # YOLO-NAS weights are third-party pickles that must be loaded with
+    # weights_only=False, so they are verified against these pins before being
+    # unpickled; a compromised/tampered CDN object then fails closed instead of
+    # executing code during model construction. Locally staged files are the
+    # user's own trust decision and are not re-verified.
+    _DECI_CHECKPOINT_SHA256 = {
+        "yolo_nas_s_coco.pth": "c1b1d9148ab8ae5d5984699547e850955ff9efccaf568c67b3d605acb4bfe1cb",
+        "yolo_nas_m_coco.pth": "b194fc7fa196f76161c6356558bedf04fb99a62325a74a36a4bec3ca8ba48250",
+        "yolo_nas_l_coco.pth": "91a06beaa1ce1a651d6691e3198061da996eafc8890503238dedacbd4c392a32",
+    }
+
+    @classmethod
+    def verify_downloaded_file(cls, local_path: str, source_url: str) -> None:
+        """Verify a freshly auto-downloaded YOLO-NAS checkpoint before it loads.
+
+        Called by ``download_weights`` for every download (the factory and the
+        direct loader both flow through it), so the gate cannot be bypassed and
+        keys on the *source* filename — the destination may use the LibreYOLO
+        convention (e.g. ``weights/LibreYOLONASs.pt``) while the CDN object is
+        ``yolo_nas_s_coco.pth``.
+        """
+        import hashlib
+        from urllib.parse import urlparse
+
+        name = Path(urlparse(source_url).path).name
+        expected = cls._DECI_CHECKPOINT_SHA256.get(name)
+        if expected is None:
+            Path(local_path).unlink(missing_ok=True)
+            raise RuntimeError(
+                f"Refusing to auto-load YOLO-NAS checkpoint '{name}': no pinned "
+                "checksum is known for it, so this freshly downloaded third-party "
+                "pickle cannot be verified before loading. Download it manually "
+                "from a source you trust and pass its path instead."
+            )
+        digest = hashlib.sha256()
+        with open(local_path, "rb") as handle:
+            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                digest.update(chunk)
+        actual = digest.hexdigest()
+        if actual != expected:
+            Path(local_path).unlink(missing_ok=True)
+            raise RuntimeError(
+                f"Checksum mismatch for downloaded YOLO-NAS checkpoint '{name}': "
+                f"expected {expected}, got {actual}. Refusing to load a possibly "
+                "tampered file."
+            )
+
     def _load_weights(self, model_path: str):
+        if not Path(model_path).exists():
+            # YOLO-NAS weights are not mirrored on the LibreYOLO HF org (Deci's
+            # proprietary license), so fetch them on demand from Deci's public
+            # CDN — the same auto-download path every other family uses — rather
+            # than hard-failing on a missing file. download_weights checksum-
+            # verifies the fetched pickle (via verify_downloaded_file) before we
+            # unpickle it below.
+            from ...utils.download import download_weights
+
+            download_weights(model_path, self.size)
         if not Path(model_path).exists():
             raise FileNotFoundError(f"Model weights file not found: {model_path}")
 
