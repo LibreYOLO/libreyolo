@@ -1,11 +1,13 @@
 """Versioned contract for the nightly e2e test suite."""
 
-NIGHTLY_E2E_SUITE_VERSION = "1.0"
+NIGHTLY_E2E_SUITE_VERSION = "2.0"
 NIGHTLY_E2E_SUITE_CONTRACT = (
-    "general=smallest native inference case for every public family; "
-    "L2CS covers gaze inference while detector families cover detection; "
+    "general=native inference stability across the YOLO9 and RF-DETR flagship "
+    "size range, using auto-downloadable LibreYOLO HF weights only; "
     "flagship=heavier native YOLO9/RF-DETR validation, training, video, "
-    "tracking, and CLI checks; export backends remain outside the default nightly"
+    "tracking, and CLI checks; the wider model zoo and non-redistributable "
+    "weights (e.g. YOLO-NAS, L2CS) run in non-gated per-family suites; "
+    "export backends remain outside the default nightly"
 )
 NIGHTLY_E2E_SUITE_CHANGE_POLICY = (
     "Bump minor for meaningful coverage additions or threshold/runtime changes; "

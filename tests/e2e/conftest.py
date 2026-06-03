@@ -475,26 +475,25 @@ MODEL_CATALOG = [
 
 FLAGSHIP_FAMILIES = {"yolo9", "rfdetr"}
 
-# One smallest inference case per public family. Keep this separate from
-# MODEL_CATALOG: that catalog feeds validation/training tests, while this one is
-# the general nightly contract that every family can load and run inference.
+# Flagship inference sweep for the gated nightly. Deliberately lean: the two
+# flagship families (YOLO9, RF-DETR) across their size range. Both are the most
+# actively developed surfaces and ship weights from the LibreYOLO HF org, so
+# every case auto-downloads with no manual provisioning on the runner.
+#
+# Kept separate from MODEL_CATALOG (which feeds validation/training tests). The
+# wider model zoo is exercised by per-family suites; do NOT add families whose
+# weights are not redistributable via LibreYOLO HF (e.g. YOLO-NAS on Deci's CDN,
+# L2CS/Gaze360) here -- a skip-means-failure gate cannot auto-provision them and
+# will fail every night. See test_weight_requirements / require_test_weights.
 GENERAL_NIGHTLY_INFERENCE_MODELS = [
-    ("yolox", "n", "LibreYOLOXn.pt"),
     ("yolo9", "t", "LibreYOLO9t.pt"),
-    ("yolo9_e2e", "t", "LibreYOLO9E2Et.pt"),
-    ("yolonas", "s", "downloads/yolonas/yolo_nas_s_coco.pth"),
+    ("yolo9", "s", "LibreYOLO9s.pt"),
+    ("yolo9", "m", "LibreYOLO9m.pt"),
+    ("yolo9", "c", "LibreYOLO9c.pt"),
     ("rfdetr", "n", "LibreRFDETRn.pt"),
-    ("dfine", "n", "LibreDFINEn.pt"),
-    ("deim", "n", "weights/LibreDEIMn.pt"),
-    ("deimv2", "atto", "LibreDEIMv2atto.pt"),
-    ("ec", "s", "LibreECs.pt"),
-    ("rtdetr", "r18", "LibreRTDETRr18.pt"),
-    ("rtdetrv2", "r18", "weights/LibreRTDETRv2r18.pt"),
-    ("rtdetrv4", "s", "weights/LibreRTDETRv4s.pt"),
-    ("picodet", "s", "LibrePICODETs.pt"),
-    ("damoyolo", "t", "LibreDAMOYOLOt.pt"),
-    ("rtmdet", "t", "LibreRTMDett.pt"),
-    ("l2cs", "r50", "LibreL2CSr50.pt"),
+    ("rfdetr", "s", "LibreRFDETRs.pt"),
+    ("rfdetr", "m", "LibreRFDETRm.pt"),
+    ("rfdetr", "l", "LibreRFDETRl.pt"),
 ]
 
 # Derived lists (no manual maintenance)
