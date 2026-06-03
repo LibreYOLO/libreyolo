@@ -104,6 +104,8 @@ class LibreYOLONAS(BaseModel):
             # manually. Detecting the task here still prevents a pose request from
             # mis-routing to the detection URL.
             return None
+        if size not in cls.INPUT_SIZES:
+            return None
         return f"{cls._DECI_CDN_BASE}/yolo_nas_{size}_coco.pth"
 
     @classmethod

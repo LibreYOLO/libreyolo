@@ -1,6 +1,6 @@
 # LibreYOLO Testing Strategy
 
-Version: 1.0
+Version: 2.0
 
 This is the CI/test contract for LibreYOLO. Times are UTC.
 
