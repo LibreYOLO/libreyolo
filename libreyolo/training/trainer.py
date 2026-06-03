@@ -386,6 +386,7 @@ class BaseTrainer(ABC):
                     img_size=img_size,
                     preproc=preproc,
                     load_segments=load_segments,
+                    filter_empty_annotations=load_segments,
                 )
             elif ann_file.exists():
                 train_dataset = COCODataset(
@@ -418,6 +419,7 @@ class BaseTrainer(ABC):
                     img_size=img_size,
                     preproc=preproc,
                     load_segments=load_segments,
+                    filter_empty_annotations=load_segments,
                 )
         elif self.config.data_dir:
             data_dir = self.config.data_dir
@@ -439,6 +441,7 @@ class BaseTrainer(ABC):
                     img_size=img_size,
                     preproc=preproc,
                     load_segments=load_segments,
+                    filter_empty_annotations=load_segments,
                 )
         else:
             raise ValueError("Either 'data' or 'data_dir' must be specified")

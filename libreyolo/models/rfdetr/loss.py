@@ -394,10 +394,14 @@ class SetCriterion(nn.Module):
             spatial_features = outputs["pred_masks"]["spatial_features"]
             query_features = outputs["pred_masks"]["query_features"]
             bias = outputs["pred_masks"]["bias"]
-            # If there are no matches, return an empty tensor like the Tensor branch does.
             if idx[0].numel() == 0:
-                device = spatial_features.device
-                src_masks = torch.tensor([], device=device)
+                # Return zero losses that ARE connected to the mask head tensors so
+                # every mask-head parameter still receives a (zero) gradient.
+                # torch.tensor([]) has no grad_fn and silently drops those params from
+                # the backward graph, which violates DDP static_graph=True and causes
+                # a "finished reduction" crash whenever a rank sees an all-unlabeled batch.
+                zero = spatial_features.sum() * 0.0 + query_features.sum() * 0.0 + bias * 0.0
+                return {"loss_mask_ce": zero, "loss_mask_dice": zero}
             else:
                 batched_selected_masks = []
                 per_batch_counts = idx[0].unique(return_counts=True)[1]
