@@ -1,5 +1,6 @@
 """Tests for dataset annotation loading."""
 
+import logging
 import numpy as np
 import pytest
 from pathlib import Path
@@ -99,6 +100,71 @@ def test_create_dataloader_drop_last_only_when_safe(
     )
 
     assert len(loader) == expected_batches
+
+
+def _build_mixed_dataset(tmp_path, label_contents, **kwargs):
+    """Create a YOLODataset from a list of label file bodies (empty string = unlabeled)."""
+    image_dir = tmp_path / "images"
+    label_dir = tmp_path / "labels"
+    image_dir.mkdir(exist_ok=True)
+    label_dir.mkdir(exist_ok=True)
+
+    img_files, label_files = [], []
+    for i, body in enumerate(label_contents):
+        img = image_dir / f"img_{i}.jpg"
+        lbl = label_dir / f"img_{i}.txt"
+        Image.new("RGB", (64, 64), color="white").save(img)
+        lbl.write_text(body)
+        img_files.append(img)
+        label_files.append(lbl)
+
+    return YOLODataset(img_files=img_files, label_files=label_files, img_size=(64, 64), **kwargs)
+
+
+def test_filter_empty_annotations_drops_unlabeled_images(tmp_path):
+    labeled = "0 0.5 0.5 0.25 0.5\n"
+    ds = _build_mixed_dataset(tmp_path, [labeled, "", labeled], filter_empty_annotations=True)
+
+    assert ds.num_imgs == 2
+    assert len(ds.annotations) == 2
+    assert len(ds.img_files) == 2
+    assert len(ds.label_files) == 2
+    assert all(ann[0].shape[0] > 0 for ann in ds.annotations)
+    assert [f.name for f in ds.img_files] == ["img_0.jpg", "img_2.jpg"]
+
+
+def test_filter_empty_annotations_logs_warning(tmp_path, caplog):
+    labeled = "0 0.5 0.5 0.25 0.5\n"
+    with caplog.at_level(logging.WARNING, logger="libreyolo.data.dataset"):
+        _build_mixed_dataset(tmp_path, [labeled, "", ""], filter_empty_annotations=True)
+
+    warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+    assert len(warnings) == 1
+    msg = warnings[0].getMessage()
+    assert "2" in msg and "1" in msg  # 2 dropped, 1 remain
+
+
+def test_filter_empty_annotations_raises_when_all_unlabeled(tmp_path):
+    with pytest.raises(ValueError, match="No labeled images remain"):
+        _build_mixed_dataset(tmp_path, ["", ""], filter_empty_annotations=True)
+
+
+def test_filter_empty_annotations_false_keeps_unlabeled(tmp_path):
+    labeled = "0 0.5 0.5 0.25 0.5\n"
+    ds = _build_mixed_dataset(tmp_path, [labeled, ""], filter_empty_annotations=False)
+
+    assert ds.num_imgs == 2
+
+
+def test_filter_empty_annotations_syncs_segments(tmp_path):
+    # Polygon label: class + 4 xy pairs (> 5 parts triggers segment parsing)
+    poly = "0 0.1 0.1 0.9 0.1 0.9 0.9 0.1 0.9\n"
+    ds = _build_mixed_dataset(
+        tmp_path, [poly, "", poly], filter_empty_annotations=True, load_segments=True
+    )
+
+    assert ds.num_imgs == 2
+    assert len(ds.segments) == 2
 
 
 def test_create_dataloader_uses_sampler_visible_size():
