@@ -78,6 +78,16 @@ class LibreYOLONAS(BaseModel):
         return match.group(1) if match else None
 
     @classmethod
+    def detect_task_from_filename(cls, filename: str) -> Optional[str]:
+        # Native Deci pose checkpoints are named yolo_nas_pose_<size>_coco_pose.pth.
+        # Detect that here so get_download_url routes to the pose CDN URL; without
+        # it the base regex sees no task and a pose request fetches detection
+        # weights, which then fail the pose/detection checkpoint guard.
+        if re.search(r"yolo_nas_pose_[nsml]_coco", filename.lower()):
+            return "pose"
+        return super().detect_task_from_filename(filename)
+
+    @classmethod
     def get_download_url(cls, filename: str) -> Optional[str]:
         # YOLO-NAS weights are under Deci's proprietary license — LibreYOLO
         # links to Deci's public CDN instead of mirroring on its own HF org.
