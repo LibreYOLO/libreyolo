@@ -340,26 +340,35 @@ class LibreYOLONAS(BaseModel):
     }
 
     @classmethod
-    def _verify_downloaded_checkpoint(cls, model_path: str) -> None:
-        import hashlib
+    def verify_downloaded_file(cls, local_path: str, source_url: str) -> None:
+        """Verify a freshly auto-downloaded YOLO-NAS checkpoint before it loads.
 
-        name = Path(model_path).name
+        Called by ``download_weights`` for every download (the factory and the
+        direct loader both flow through it), so the gate cannot be bypassed and
+        keys on the *source* filename — the destination may use the LibreYOLO
+        convention (e.g. ``weights/LibreYOLONASs.pt``) while the CDN object is
+        ``yolo_nas_s_coco.pth``.
+        """
+        import hashlib
+        from urllib.parse import urlparse
+
+        name = Path(urlparse(source_url).path).name
         expected = cls._DECI_CHECKPOINT_SHA256.get(name)
         if expected is None:
-            Path(model_path).unlink(missing_ok=True)
+            Path(local_path).unlink(missing_ok=True)
             raise RuntimeError(
                 f"Refusing to auto-load YOLO-NAS checkpoint '{name}': no pinned "
-                "checksum is known for it, so the freshly downloaded third-party "
+                "checksum is known for it, so this freshly downloaded third-party "
                 "pickle cannot be verified before loading. Download it manually "
                 "from a source you trust and pass its path instead."
             )
         digest = hashlib.sha256()
-        with open(model_path, "rb") as handle:
+        with open(local_path, "rb") as handle:
             for chunk in iter(lambda: handle.read(1024 * 1024), b""):
                 digest.update(chunk)
         actual = digest.hexdigest()
         if actual != expected:
-            Path(model_path).unlink(missing_ok=True)
+            Path(local_path).unlink(missing_ok=True)
             raise RuntimeError(
                 f"Checksum mismatch for downloaded YOLO-NAS checkpoint '{name}': "
                 f"expected {expected}, got {actual}. Refusing to load a possibly "
@@ -371,12 +380,12 @@ class LibreYOLONAS(BaseModel):
             # YOLO-NAS weights are not mirrored on the LibreYOLO HF org (Deci's
             # proprietary license), so fetch them on demand from Deci's public
             # CDN — the same auto-download path every other family uses — rather
-            # than hard-failing on a missing file. Verify the fetched pickle
-            # against a pinned checksum before it is unpickled below.
+            # than hard-failing on a missing file. download_weights checksum-
+            # verifies the fetched pickle (via verify_downloaded_file) before we
+            # unpickle it below.
             from ...utils.download import download_weights
 
             download_weights(model_path, self.size)
-            self._verify_downloaded_checkpoint(model_path)
         if not Path(model_path).exists():
             raise FileNotFoundError(f"Model weights file not found: {model_path}")
 
