@@ -1,9 +1,11 @@
 """Versioned contract for the nightly e2e test suite."""
 
-NIGHTLY_E2E_SUITE_VERSION = "1.0"
+NIGHTLY_E2E_SUITE_VERSION = "2.0"
 NIGHTLY_E2E_SUITE_CONTRACT = (
-    "general=smallest native inference case for every public family; "
-    "L2CS covers gaze inference while detector families cover detection; "
+    "general=smallest native inference case for every public detector family, "
+    "each pulled from a public auto-download route (LibreYOLO HF, or Deci's CDN "
+    "for YOLO-NAS); gaze (L2CS/Gaze360) is non-redistributable and runs only in "
+    "the non-gated per-family suite, not the gated nightly; "
     "flagship=heavier native YOLO9/RF-DETR validation, training, video, "
     "tracking, and CLI checks; export backends remain outside the default nightly"
 )

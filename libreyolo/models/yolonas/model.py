@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 
@@ -63,6 +64,18 @@ class LibreYOLONAS(BaseModel):
     @classmethod
     def is_pose_state_dict(cls, weights_dict: dict) -> bool:
         return _POSE_HEAD_KEY in weights_dict
+
+    @classmethod
+    def detect_size_from_filename(cls, filename: str) -> Optional[str]:
+        # Accept the LibreYOLO convention (LibreYOLONAS<size>.pt) handled by the
+        # base regex, and also the native Deci filenames the CDN serves
+        # (yolo_nas_<size>_coco.pth / yolo_nas_pose_<size>_coco_pose.pth) so the
+        # checkpoints auto-download by their canonical upstream names.
+        size = super().detect_size_from_filename(filename)
+        if size is not None:
+            return size
+        match = re.search(r"yolo_nas(?:_pose)?_([nsml])_coco", filename.lower())
+        return match.group(1) if match else None
 
     @classmethod
     def get_download_url(cls, filename: str) -> Optional[str]:
@@ -305,6 +318,14 @@ class LibreYOLONAS(BaseModel):
         return False
 
     def _load_weights(self, model_path: str):
+        if not Path(model_path).exists():
+            # YOLO-NAS weights are not mirrored on the LibreYOLO HF org (Deci's
+            # proprietary license), so fetch them on demand from Deci's public
+            # CDN — the same auto-download path every other family uses — rather
+            # than hard-failing on a missing file.
+            from ...utils.download import download_weights
+
+            download_weights(model_path, self.size)
         if not Path(model_path).exists():
             raise FileNotFoundError(f"Model weights file not found: {model_path}")
 
