@@ -96,7 +96,14 @@ class LibreYOLONAS(BaseModel):
             return None
         task = cls.detect_task_from_filename(filename)
         if task == "pose":
-            return f"{cls._DECI_CDN_BASE}/yolo_nas_pose_{size}_coco_pose.pth"
+            # Pose checkpoints are intentionally NOT auto-downloadable: their
+            # SHA-256 is not pinned (only the detection s/m/l checkpoints are, see
+            # _DECI_CHECKPOINT_SHA256 / verify_downloaded_file), so we return no
+            # route rather than fetch an unverifiable third-party pickle that the
+            # checksum gate would then refuse. Pose weights must be staged
+            # manually. Detecting the task here still prevents a pose request from
+            # mis-routing to the detection URL.
+            return None
         return f"{cls._DECI_CDN_BASE}/yolo_nas_{size}_coco.pth"
 
     @classmethod
