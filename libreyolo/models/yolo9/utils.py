@@ -18,35 +18,46 @@ from ...utils.image_loader import ImageLoader, ImageInput
 def preprocess_numpy(
     img_rgb_hwc: np.ndarray,
     input_size: int = 640,
-) -> Tuple[np.ndarray, float]:
+) -> Tuple[np.ndarray, float, Tuple[float, float]]:
     """
     Preprocess RGB HWC uint8 image for YOLOv9 inference.
 
-    Letterbox resize + normalize to 0-1 range.
+    Centered letterbox resize (matches the reference WongKinYiu/yolov9
+    ``utils.augmentations.letterbox``: aspect-preserving resize, the
+    remaining padding split evenly between the two sides) + normalize to
+    0-1 range.
 
     Args:
         img_rgb_hwc: Input image as RGB HWC uint8 numpy array.
         input_size: Target size for the model.
 
     Returns:
-        Tuple of (preprocessed CHW float32 array in RGB 0-1, ratio).
+        Tuple of ``(preprocessed CHW float32 array in RGB 0-1, ratio,
+        (pad_w, pad_h))`` where ``ratio`` is the resize gain and
+        ``(pad_w, pad_h)`` is the left/top padding applied (so postprocess
+        can undo it as ``(coord - pad) / ratio``).
     """
     orig_h, orig_w = img_rgb_hwc.shape[:2]
     ratio = min(input_size / orig_h, input_size / orig_w)
-    new_h = int(orig_h * ratio)
-    new_w = int(orig_w * ratio)
+    new_w = int(round(orig_w * ratio))
+    new_h = int(round(orig_h * ratio))
+
+    dw = (input_size - new_w) / 2.0
+    dh = (input_size - new_h) / 2.0
 
     resized = cv2.resize(img_rgb_hwc, (new_w, new_h), interpolation=cv2.INTER_LINEAR)
     padded = np.full((input_size, input_size, 3), 114, dtype=np.uint8)
-    padded[:new_h, :new_w] = resized
+    top = int(round(dh - 0.1))
+    left = int(round(dw - 0.1))
+    padded[top : top + new_h, left : left + new_w] = resized
 
     arr = np.ascontiguousarray(padded, dtype=np.float32) / 255.0
-    return arr.transpose(2, 0, 1), ratio
+    return arr.transpose(2, 0, 1), ratio, (float(left), float(top))
 
 
 def preprocess_image(
     image: ImageInput, input_size: int = 640, color_format: str = "auto"
-) -> Tuple[torch.Tensor, Image.Image, Tuple[int, int]]:
+) -> Tuple[torch.Tensor, Image.Image, Tuple[int, int], float, Tuple[float, float]]:
     """
     Preprocess image for YOLOv9 inference.
 
@@ -56,15 +67,16 @@ def preprocess_image(
         color_format: Color format hint ("auto", "rgb", "bgr")
 
     Returns:
-        Tuple of (preprocessed_tensor, original_image, original_size)
+        Tuple of ``(preprocessed_tensor, original_image, original_size,
+        ratio, (pad_w, pad_h))``.
     """
     img = ImageLoader.load(image, color_format=color_format)
     original_size = img.size  # (width, height)
     original_img = img.copy()
 
-    img_chw, _ = preprocess_numpy(np.array(img), input_size)
+    img_chw, ratio, pad = preprocess_numpy(np.array(img), input_size)
     img_tensor = torch.from_numpy(img_chw).unsqueeze(0)
-    return img_tensor, original_img, original_size
+    return img_tensor, original_img, original_size, ratio, pad
 
 
 def decode_boxes(
@@ -157,6 +169,7 @@ def _process_masks(
     input_shape: Tuple[int, int],
     original_size: Tuple[int, int] | None,
     letterbox: bool = True,
+    pad: Tuple[float, float] | None = None,
 ) -> torch.Tensor:
     if coeffs.numel() == 0:
         h = original_size[1] if original_size is not None else input_shape[0]
@@ -175,15 +188,21 @@ def _process_masks(
     if original_size is not None and letterbox:
         orig_w, orig_h = original_size
         ratio = min(input_h / orig_h, input_w / orig_w)
-        new_h = max(int(orig_h * ratio), 1)
-        new_w = max(int(orig_w * ratio), 1)
+        # Use int(round(...)) to match the centered letterbox in
+        # preprocess_numpy: the resized content occupies exactly
+        # [top:top+new_h, left:left+new_w], so truncating here would crop the
+        # mask 1px off from where the image was actually placed.
+        new_h = max(int(round(orig_h * ratio)), 1)
+        new_w = max(int(round(orig_w * ratio)), 1)
         masks = F.interpolate(
             masks[:, None],
             size=(int(input_h), int(input_w)),
             mode="bilinear",
             align_corners=False,
         )[:, 0]
-        masks = masks[:, :new_h, :new_w]
+        left = int(round(pad[0])) if pad is not None else 0
+        top = int(round(pad[1])) if pad is not None else 0
+        masks = masks[:, top : top + new_h, left : left + new_w]
         out_h, out_w = orig_h, orig_w
     elif original_size is not None:
         out_h, out_w = original_size[1], original_size[0]
@@ -206,6 +225,8 @@ def postprocess(
     original_size: Tuple[int, int] | None = None,
     max_det: int = 300,
     letterbox: bool = True,
+    pad: Tuple[float, float] | None = None,
+    multi_label: bool = True,
 ) -> Dict:
     """
     Postprocess YOLOv9 model outputs to get final detections.
@@ -217,6 +238,15 @@ def postprocess(
         input_size: Input image size (default: 640)
         original_size: Original image size (width, height) for scaling
         max_det: Maximum number of detections to return (default: 300)
+        letterbox: Whether the input was letterboxed (aspect-preserving).
+        pad: ``(pad_w, pad_h)`` left/top padding applied at preprocess time,
+            used to undo a centered letterbox. ``None`` falls back to the
+            legacy top-left-padding assumption (no pad offset).
+        multi_label: When True (the reference WongKinYiu/yolov9 ``val.py``
+            default), every class whose score exceeds ``conf_thres`` emits a
+            detection for that anchor instead of only the argmax class. This
+            matches the original COCO eval protocol and is worth ~+0.7 mAP at
+            the low conf thresholds used for benchmarking.
 
     Returns:
         Dictionary with boxes, scores, classes, num_detections
@@ -231,31 +261,64 @@ def postprocess(
     # Transpose to (total_anchors, 4+nc)
     pred = pred.transpose(0, 1)
 
-    boxes_input = pred[:, :4]  # xyxy format in model input pixels
+    boxes_all = pred[:, :4]  # xyxy format in model input pixels
     scores = pred[:, 4:]  # class scores (already sigmoid applied in model)
-
-    max_scores, class_ids = torch.max(scores, dim=1)
-
-    mask = max_scores > conf_thres
-    if not mask.any():
-        return {"boxes": [], "scores": [], "classes": [], "num_detections": 0}
-
-    boxes_input = boxes_input[mask]
-    boxes = boxes_input.clone()
-    max_scores = max_scores[mask]
-    class_ids = class_ids[mask]
 
     mask_coeffs = output.get("mask_coeffs")
     proto = output.get("proto")
-    coeffs = None
+    coeffs_all = None
     if mask_coeffs is not None and proto is not None:
-        coeffs_all = mask_coeffs[0].transpose(0, 1) if mask_coeffs.dim() == 3 else mask_coeffs
-        coeffs = coeffs_all[mask]
+        coeffs_all = (
+            mask_coeffs[0].transpose(0, 1) if mask_coeffs.dim() == 3 else mask_coeffs
+        )
+
+    # multi_label only helps when masks are not requested (segmentation uses
+    # one coeff vector per anchor, so stick to the best-class path there).
+    if multi_label and coeffs_all is None:
+        # Candidate guard (matches WongKinYiu/yolov9 non_max_suppression): first
+        # keep only anchors whose *best* class beats conf_thres. Every class
+        # above conf necessarily lives in such an anchor, so the result is
+        # identical to scanning the full 8400xnc score matrix — but the
+        # ``(scores > conf_thres).nonzero()`` below then runs on a few hundred
+        # rows instead of ~600k, bounding memory/time at conf=0.001.
+        cand = scores.amax(dim=1) > conf_thres
+        if not cand.any():
+            return {"boxes": [], "scores": [], "classes": [], "num_detections": 0}
+        cand_idx = cand.nonzero(as_tuple=True)[0]
+        scores_c = scores[cand_idx]
+        sub_anchor, class_ids = (scores_c > conf_thres).nonzero(as_tuple=True)
+        anchor_idx = cand_idx[sub_anchor]
+        boxes_input = boxes_all[anchor_idx]
+        boxes = boxes_input.clone()
+        max_scores = scores[anchor_idx, class_ids]
+        # Cap to max_nms candidates by score before NMS (upstream uses 30000),
+        # so a pathological frame cannot blow up the NMS pairwise IoU.
+        max_nms = 30000
+        if max_scores.numel() > max_nms:
+            topk = torch.topk(max_scores, max_nms).indices
+            boxes_input = boxes_input[topk]
+            boxes = boxes[topk]
+            max_scores = max_scores[topk]
+            class_ids = class_ids[topk]
+        coeffs = None
+    else:
+        max_scores, class_ids = torch.max(scores, dim=1)
+        mask = max_scores > conf_thres
+        if not mask.any():
+            return {"boxes": [], "scores": [], "classes": [], "num_detections": 0}
+        boxes_input = boxes_all[mask]
+        boxes = boxes_input.clone()
+        max_scores = max_scores[mask]
+        class_ids = class_ids[mask]
+        coeffs = coeffs_all[mask] if coeffs_all is not None else None
 
     if original_size is not None:
         if letterbox:
             orig_w, orig_h = original_size
             ratio = min(input_size / orig_h, input_size / orig_w)
+            if pad is not None:
+                boxes[:, [0, 2]] -= pad[0]
+                boxes[:, [1, 3]] -= pad[1]
             boxes[:, :4] = boxes[:, :4] / ratio
         else:
             scale_x = original_size[0] / input_size
@@ -303,6 +366,7 @@ def postprocess(
             input_shape=(input_size, input_size),
             original_size=original_size,
             letterbox=letterbox,
+            pad=pad,
         )
         result["masks"] = masks.detach().cpu()
 

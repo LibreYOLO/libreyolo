@@ -316,9 +316,11 @@ class TestImageLoaderIntegration:
         ]
 
         for source in formats_to_test:
-            tensor, original, size = preprocess_image(source)
+            tensor, original, size, ratio, pad = preprocess_image(source)
 
             assert isinstance(tensor, torch.Tensor)
             assert tensor.shape[0] == 1  # Batch dimension
             assert tensor.shape[1] == 3  # Channels
             assert isinstance(original, Image.Image)
+            assert isinstance(ratio, float)
+            assert len(pad) == 2  # (pad_w, pad_h)

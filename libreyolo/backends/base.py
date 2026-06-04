@@ -236,10 +236,14 @@ class BaseBackend(ABC):
             )
             return tensor, img, size, 1.0
         else:
-            tensor, img, size = preprocess_image(
+            # YOLOv9 (and yolo9_e2e / yolo9-seg) use a centered letterbox.
+            # preprocess_image now returns (tensor, img, size, ratio, pad);
+            # pack the resize gain + left/top padding into the shared ``ratio``
+            # slot so _parse_outputs can undo the even padding precisely.
+            tensor, img, size, ratio, pad = preprocess_image(
                 image, input_size=effective_imgsz, color_format=color_format
             )
-            return tensor, img, size, 1.0
+            return tensor, img, size, (ratio, pad[0], pad[1])
 
     @staticmethod
     def _preprocess_rfdetr(image, input_size, color_format):
@@ -428,8 +432,14 @@ class BaseBackend(ABC):
             )
             return boxes, scores, cls, None
         else:
+            # ``ratio`` for the yolo9 family carries (resize_gain, pad_w, pad_h)
+            # from the centered-letterbox _preprocess; tolerate the legacy
+            # scalar form (no pad offset).
+            pad = None
+            if isinstance(ratio, (tuple, list)) and len(ratio) == 3:
+                pad = (float(ratio[1]), float(ratio[2]))
             parsed = self._parse_yolo9(
-                all_outputs, effective_imgsz, orig_w, orig_h, conf
+                all_outputs, effective_imgsz, orig_w, orig_h, conf, pad=pad
             )
             if len(parsed) == 4:
                 return parsed
@@ -555,8 +565,16 @@ class BaseBackend(ABC):
 
         return boxes, max_scores, class_ids
 
-    def _parse_yolo9(self, all_outputs, effective_imgsz, orig_w, orig_h, conf):
-        """Parse YOLO9 output: (B, 4+nc, N) — xyxy + class_scores."""
+    def _parse_yolo9(
+        self, all_outputs, effective_imgsz, orig_w, orig_h, conf, pad=None
+    ):
+        """Parse YOLO9 output: (B, 4+nc, N) — xyxy + class_scores.
+
+        ``pad`` is the ``(pad_w, pad_h)`` left/top padding from the centered
+        letterbox; it is subtracted before the ratio divide so box geometry
+        matches the eager predict path. ``None`` falls back to the legacy
+        top-left assumption (no pad offset).
+        """
         outputs = all_outputs[0][0].T  # (N, 4+nc)
 
         boxes_input = outputs[:, :4]
@@ -577,6 +595,9 @@ class BaseBackend(ABC):
             return boxes, max_scores, class_ids
 
         ratio = min(effective_imgsz / orig_h, effective_imgsz / orig_w)
+        if pad is not None:
+            boxes[:, [0, 2]] -= pad[0]
+            boxes[:, [1, 3]] -= pad[1]
         boxes[:, :4] /= ratio
         boxes[:, [0, 2]] = np.clip(boxes[:, [0, 2]], 0, orig_w)
         boxes[:, [1, 3]] = np.clip(boxes[:, [1, 3]], 0, orig_h)
@@ -594,6 +615,7 @@ class BaseBackend(ABC):
                 input_shape=(effective_imgsz, effective_imgsz),
                 original_size=(orig_w, orig_h),
                 letterbox=True,
+                pad=pad,
             ).numpy()
             return boxes, max_scores, class_ids, masks_out
 

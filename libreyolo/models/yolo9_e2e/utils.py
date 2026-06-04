@@ -10,6 +10,7 @@ def _scale_and_clip_boxes(
     input_size: int,
     original_size: Tuple[int, int] | None,
     letterbox: bool,
+    pad: Tuple[float, float] | None = None,
 ) -> torch.Tensor:
     if original_size is None or len(boxes) == 0:
         return boxes
@@ -19,6 +20,9 @@ def _scale_and_clip_boxes(
 
     if letterbox:
         ratio = min(input_size / orig_h, input_size / orig_w)
+        if pad is not None:
+            boxes[:, [0, 2]] -= pad[0]
+            boxes[:, [1, 3]] -= pad[1]
         boxes[:, :4] = boxes[:, :4] / ratio
     else:
         scale_x = orig_w / input_size
@@ -39,6 +43,7 @@ def postprocess(
     original_size: Tuple[int, int] | None = None,
     max_det: int = 300,
     letterbox: bool = True,
+    pad: Tuple[float, float] | None = None,
 ) -> Dict:
     """Postprocess YOLOv9 E2E outputs with top-K selection (no NMS).
 
@@ -93,7 +98,7 @@ def postprocess(
     boxes = boxes[keep]
     scores = scores[keep]
     class_ids = class_ids[keep]
-    boxes = _scale_and_clip_boxes(boxes, input_size, original_size, letterbox)
+    boxes = _scale_and_clip_boxes(boxes, input_size, original_size, letterbox, pad)
 
     widths = boxes[:, 2] - boxes[:, 0]
     heights = boxes[:, 3] - boxes[:, 1]

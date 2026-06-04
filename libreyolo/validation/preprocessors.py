@@ -209,14 +209,57 @@ class RFDETRValPreprocessor(BaseValPreprocessor):
         return resized_img, padded_targets
 
 
+def yolo9_letterbox_pad(
+    orig_h: int, orig_w: int, input_size: int
+) -> Tuple[float, float, float]:
+    """Centered-letterbox geometry for YOLOv9.
+
+    Mirrors ``models.yolo9.utils.preprocess_numpy`` exactly so the predict and
+    validation paths share identical box geometry: aspect-preserving resize
+    (``int(round(orig * ratio))``) with the remaining padding split evenly
+    (``int(round(dw - 0.1))`` left / ``int(round(dh - 0.1))`` top).
+
+    Returns ``(ratio, pad_w, pad_h)`` where ``ratio`` is the resize gain and
+    ``(pad_w, pad_h)`` is the left/top padding in input-canvas pixels.
+    """
+    ratio = min(input_size / orig_h, input_size / orig_w)
+    new_w = int(round(orig_w * ratio))
+    new_h = int(round(orig_h * ratio))
+    dw = (input_size - new_w) / 2.0
+    dh = (input_size - new_h) / 2.0
+    left = int(round(dw - 0.1))
+    top = int(round(dh - 0.1))
+    return ratio, float(left), float(top)
+
+
 class YOLO9ValPreprocessor(BaseValPreprocessor):
-    """YOLOv9 preprocessor: letterbox with gray padding, 0-1 range, RGB format."""
+    """YOLOv9 preprocessor: centered letterbox with gray padding, 0-1, RGB.
+
+    Matches ``models.yolo9.utils.preprocess_numpy``: aspect-preserving resize
+    with the padding split evenly between both sides (centered), so the
+    validation path produces the exact same input-canvas geometry the predict
+    path does. ``wants_unresized_image`` is True so this preprocessor owns the
+    single ``cv2.resize`` (with ``int(round(...))`` rounding) rather than
+    inheriting the dataset's top-left ``int(...)`` resize — otherwise val and
+    predict could disagree by ~1px and the pad offset would not round-trip.
+    """
 
     def __init__(
         self, img_size: Tuple[int, int], max_labels: int = 120, pad_value: int = 114
     ):
         super().__init__(img_size, max_labels)
         self.pad_value = pad_value
+
+    @property
+    def wants_unresized_image(self) -> bool:
+        # Own the resize so val rounding (int(round)) matches predict exactly.
+        return True
+
+    def letterbox_pad(
+        self, orig_h: int, orig_w: int, input_size: int
+    ) -> Tuple[float, float, float]:
+        """Return ``(ratio, pad_w, pad_h)`` for the validator to undo at postprocess."""
+        return yolo9_letterbox_pad(orig_h, orig_w, input_size)
 
     @property
     def normalize(self) -> bool:
@@ -232,25 +275,35 @@ class YOLO9ValPreprocessor(BaseValPreprocessor):
         orig_h, orig_w = img.shape[:2]
         target_h, target_w = input_size
 
-        # Letterbox resize maintaining aspect ratio
+        # Centered letterbox (matches preprocess_numpy): aspect-preserving
+        # resize with int(round), padding split evenly between both sides.
         ratio = min(target_h / orig_h, target_w / orig_w)
-        new_h = int(orig_h * ratio)
-        new_w = int(orig_w * ratio)
+        new_w = int(round(orig_w * ratio))
+        new_h = int(round(orig_h * ratio))
+        dw = (target_w - new_w) / 2.0
+        dh = (target_h - new_h) / 2.0
+        left = int(round(dw - 0.1))
+        top = int(round(dh - 0.1))
 
         resized_img = cv2.resize(img, (new_w, new_h), interpolation=cv2.INTER_LINEAR)
 
         padded_img = np.full((target_h, target_w, 3), self.pad_value, dtype=np.uint8)
-        padded_img[:new_h, :new_w] = resized_img
+        padded_img[top : top + new_h, left : left + new_w] = resized_img
 
         padded_img = padded_img[:, :, ::-1]  # BGR → RGB
         padded_img = padded_img.transpose(2, 0, 1)  # HWC → CHW
         padded_img = np.ascontiguousarray(padded_img, dtype=np.float32) / 255.0
 
-        # Targets are already in letterbox coords
+        # Targets arrive in original-image coords (wants_unresized_image); shift
+        # them into the centered-letterbox canvas so debugging/visualization is
+        # consistent. COCO mAP is scored from coco_gt by image_id, so this does
+        # not affect the metric, but keeping targets canvas-aligned is correct.
         padded_targets = np.zeros((self.max_labels, 5), dtype=np.float32)
         if len(targets) > 0:
             targets = np.array(targets).copy()
             n = min(len(targets), self.max_labels)
+            targets[:n, [0, 2]] = targets[:n, [0, 2]] * ratio + left
+            targets[:n, [1, 3]] = targets[:n, [1, 3]] * ratio + top
             padded_targets[:n] = targets[:n]
 
         return padded_img, padded_targets
@@ -281,6 +334,12 @@ class YOLONASValPreprocessor(YOLO9ValPreprocessor):
         # pass; the dataset's load_resized_img would give us a pre-letterboxed
         # frame and we'd double-resize with the wrong ratio.
         return True
+
+    def letterbox_pad(self, orig_h, orig_w, input_size):  # noqa: D401, ARG002
+        # YOLO-NAS undoes its own 636-resize center-pad inside _postprocess
+        # (resize_size=636); it must NOT receive the YOLOv9 640-canvas pad, so
+        # opt out of the centered-pad threading the base class enables.
+        return None
 
     def __call__(
         self, img: np.ndarray, targets: np.ndarray, input_size: Tuple[int, int]

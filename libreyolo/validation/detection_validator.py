@@ -547,6 +547,11 @@ class DetectionValidator(BaseValidator):
         images, targets, img_info, img_ids = batch
         batch_size = len(img_info)
         uses_letterbox = self.val_preproc is not None and self.val_preproc.uses_letterbox
+        # Some preprocessors (YOLOv9 family) use a *centered* letterbox; they
+        # expose ``letterbox_pad`` so postprocess can undo the even padding
+        # precisely. Without this the predict path (centered) and the val path
+        # would disagree on box geometry on non-square images.
+        letterbox_pad_fn = getattr(self.val_preproc, "letterbox_pad", None)
 
         conf_thres = self.config.conf_thres
         if self._uses_topk_coco_scoring():
@@ -555,6 +560,15 @@ class DetectionValidator(BaseValidator):
         detections = []
         for i in range(batch_size):
             orig_h, orig_w = img_info[i]
+            postprocess_kwargs = {}
+            if letterbox_pad_fn is not None:
+                # Pack (resize_gain, pad_w, pad_h) into the shared ``ratio``
+                # slot, matching the model's _preprocess→_postprocess contract.
+                # A preprocessor may return None to opt out (e.g. YOLO-NAS,
+                # which undoes its own center-pad geometry internally).
+                lb = letterbox_pad_fn(int(orig_h), int(orig_w), self._actual_imgsz)
+                if lb is not None:
+                    postprocess_kwargs["ratio"] = lb
             result = self.model._postprocess(
                 self._slice_batch_predictions(preds, i),
                 conf_thres=conf_thres,
@@ -563,6 +577,7 @@ class DetectionValidator(BaseValidator):
                 input_size=self._actual_imgsz,
                 letterbox=uses_letterbox,
                 max_det=self.config.max_det,
+                **postprocess_kwargs,
             )
             if result["num_detections"] > 0:
                 raw = result["boxes"]

@@ -134,9 +134,15 @@ class LibreYOLO9E2E(LibreYOLO9):
         iou_thres: float,
         original_size: Tuple[int, int],
         max_det: int = 300,
+        ratio: Any = 1.0,
         **kwargs,
     ) -> Dict:
         actual_input_size = kwargs.get("input_size", 640)
+        # ``ratio`` carries (resize_gain, pad_w, pad_h) from the inherited
+        # centered-letterbox ``_preprocess``. Tolerate the legacy scalar form.
+        pad = None
+        if isinstance(ratio, (tuple, list)) and len(ratio) == 3:
+            pad = (float(ratio[1]), float(ratio[2]))
         return postprocess(
             output,
             conf_thres=conf_thres,
@@ -145,6 +151,7 @@ class LibreYOLO9E2E(LibreYOLO9):
             original_size=original_size,
             max_det=max_det,
             letterbox=kwargs.get("letterbox", True),
+            pad=pad,
         )
 
     # =====================================================================

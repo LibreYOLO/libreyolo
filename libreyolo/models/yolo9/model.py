@@ -212,12 +212,15 @@ class LibreYOLO9(BaseModel):
         image: ImageInput,
         color_format: str = "auto",
         input_size: Optional[int] = None,
-    ) -> Tuple[torch.Tensor, Image.Image, Tuple[int, int], float]:
+    ) -> Tuple[torch.Tensor, Image.Image, Tuple[int, int], Any]:
         effective_size = input_size if input_size is not None else self._get_input_size()
-        tensor, img, size = preprocess_image(
+        tensor, img, size, ratio, pad = preprocess_image(
             image, input_size=effective_size, color_format=color_format
         )
-        return tensor, img, size, 1.0
+        # Pack the resize gain + centered-letterbox padding into the ``ratio``
+        # slot of the shared (tensor, img, size, ratio) contract so the
+        # matching ``_postprocess`` can undo the padding precisely.
+        return tensor, img, size, (ratio, pad[0], pad[1])
 
     def _forward(self, input_tensor: torch.Tensor) -> Any:
         return self.model(input_tensor)
@@ -229,10 +232,15 @@ class LibreYOLO9(BaseModel):
         iou_thres: float,
         original_size: Tuple[int, int],
         max_det: int = 300,
-        ratio: float = 1.0,
+        ratio: Any = 1.0,
         **kwargs,
     ) -> Dict:
         actual_input_size = kwargs.get("input_size", self._get_input_size())
+        # ``ratio`` carries (resize_gain, pad_w, pad_h) from ``_preprocess``.
+        # Tolerate the legacy scalar form (no centered-letterbox padding).
+        pad = None
+        if isinstance(ratio, (tuple, list)) and len(ratio) == 3:
+            pad = (float(ratio[1]), float(ratio[2]))
         return postprocess(
             output,
             conf_thres=conf_thres,
@@ -241,6 +249,8 @@ class LibreYOLO9(BaseModel):
             original_size=original_size,
             max_det=max_det,
             letterbox=kwargs.get("letterbox", True),
+            pad=pad,
+            multi_label=kwargs.get("multi_label", True),
         )
 
     # =========================================================================

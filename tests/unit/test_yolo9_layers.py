@@ -285,17 +285,20 @@ class TestYOLO9Utils:
     def test_preprocess_image(self):
         """Test image preprocessing."""
         img = np.zeros((100, 100, 3), dtype=np.uint8)
-        tensor, original_img, original_size = yolo9_utils.preprocess_image(
-            img, input_size=640
+        tensor, original_img, original_size, ratio, pad = (
+            yolo9_utils.preprocess_image(img, input_size=640)
         )
         assert tensor.shape == (1, 3, 640, 640)
         assert original_size == (100, 100)
+        # Square input → unit ratio, no padding.
+        assert ratio == 0.64 or ratio == 640 / 100
+        assert pad == (0.0, 0.0)
 
     def test_preprocess_image_letterboxes_non_square_like_validation(self):
         """Predict preprocessing must match YOLO9 validation geometry."""
         img = np.zeros((4, 8, 3), dtype=np.uint8)
 
-        tensor, _, original_size = yolo9_utils.preprocess_image(
+        tensor, _, original_size, ratio, pad = yolo9_utils.preprocess_image(
             img, input_size=8, color_format="rgb"
         )
         val_tensor, _ = YOLO9ValPreprocessor((8, 8), max_labels=1)(
@@ -305,10 +308,26 @@ class TestYOLO9Utils:
         )
 
         assert original_size == (8, 4)
+        # ratio 1.0, new_h=4, dh=2 → top=round(2-0.1)=2: image centered in rows
+        # [2:6], 2px of gray pad above (rows 0:2) and below (rows 6:8).
+        assert ratio == 1.0
+        assert pad == (0.0, 2.0)
+        # Predict and centered-letterbox validation must produce identical
+        # input-canvas geometry.
         torch.testing.assert_close(tensor[0], torch.from_numpy(val_tensor))
+        gray = 114 / 255.0
+        # Top and bottom 2 rows are padding; the middle 4 rows are the image.
         torch.testing.assert_close(
-            tensor[0, :, 4:, :],
-            torch.full((3, 4, 8), 114 / 255.0, dtype=tensor.dtype),
+            tensor[0, :, :2, :],
+            torch.full((3, 2, 8), gray, dtype=tensor.dtype),
+        )
+        torch.testing.assert_close(
+            tensor[0, :, 6:, :],
+            torch.full((3, 2, 8), gray, dtype=tensor.dtype),
+        )
+        torch.testing.assert_close(
+            tensor[0, :, 2:6, :],
+            torch.zeros((3, 4, 8), dtype=tensor.dtype),
         )
 
     def test_postprocess_defaults_to_letterbox_inverse(self):
@@ -382,3 +401,159 @@ class TestYOLO9Utils:
 
         assert out["num_detections"] == 2
         assert out["masks"].shape == (2, 96, 128)
+
+
+class TestYOLO9CenteredLetterbox:
+    """Centered-letterbox geometry, pad round-trip, multi_label, R5 guard."""
+
+    def test_centered_pad_math_matches_preprocess_numpy(self):
+        """val helper yolo9_letterbox_pad == preprocess_numpy geometry."""
+        from libreyolo.validation.preprocessors import yolo9_letterbox_pad
+
+        for orig_h, orig_w, size in [
+            (480, 640, 640),
+            (375, 500, 640),
+            (1080, 1920, 640),
+            (333, 500, 416),
+        ]:
+            img = np.zeros((orig_h, orig_w, 3), dtype=np.uint8)
+            _, ratio_np, pad_np = yolo9_utils.preprocess_numpy(img, size)
+            ratio_v, pad_w, pad_h = yolo9_letterbox_pad(orig_h, orig_w, size)
+            assert ratio_v == pytest.approx(ratio_np)
+            assert (pad_w, pad_h) == pad_np
+
+    def test_pad_round_trip_in_postprocess(self):
+        """A box placed in the padded canvas maps back to original coords."""
+        orig_w, orig_h, size = 800, 400, 640
+        img = np.zeros((orig_h, orig_w, 3), dtype=np.uint8)
+        _, ratio, pad = yolo9_utils.preprocess_numpy(img, size)
+        # Original box (100,50)-(300,250) → forward into padded canvas.
+        x1, y1, x2, y2 = 100.0, 50.0, 300.0, 250.0
+        bx1 = x1 * ratio + pad[0]
+        by1 = y1 * ratio + pad[1]
+        bx2 = x2 * ratio + pad[0]
+        by2 = y2 * ratio + pad[1]
+        pred = torch.zeros(1, 5, 1)
+        pred[0, :4, 0] = torch.tensor([bx1, by1, bx2, by2])
+        pred[0, 4, 0] = 0.9
+        out = yolo9_utils.postprocess(
+            {"predictions": pred},
+            conf_thres=0.25,
+            input_size=size,
+            original_size=(orig_w, orig_h),
+            pad=pad,
+        )
+        assert out["num_detections"] == 1
+        torch.testing.assert_close(
+            torch.as_tensor(out["boxes"]),
+            torch.tensor([[x1, y1, x2, y2]]),
+            atol=1.0,
+            rtol=0.0,
+        )
+
+    def test_legacy_scalar_ratio_pad_none_backward_compat(self):
+        """pad=None falls back to top-left-pad assumption (no offset)."""
+        pred = torch.zeros(1, 5, 1)
+        pred[0, :4, 0] = torch.tensor([0.0, 0.0, 320.0, 320.0])
+        pred[0, 4, 0] = 0.9
+        out = yolo9_utils.postprocess(
+            {"predictions": pred},
+            conf_thres=0.25,
+            input_size=640,
+            original_size=(1280, 960),
+            pad=None,
+        )
+        assert out["num_detections"] == 1
+        # ratio = 640/1280 = 0.5 → box /0.5 = (0,0,640,640), no pad shift.
+        torch.testing.assert_close(
+            torch.as_tensor(out["boxes"]),
+            torch.tensor([[0.0, 0.0, 640.0, 640.0]]),
+        )
+
+    def test_multi_label_emits_multiple_dets_per_anchor(self):
+        """multi_label=True emits one det per above-conf class on an anchor."""
+        # One anchor, two classes both above conf.
+        pred = torch.zeros(1, 6, 1)
+        pred[0, :4, 0] = torch.tensor([10.0, 10.0, 50.0, 50.0])
+        pred[0, 4, 0] = 0.8  # class 0
+        pred[0, 5, 0] = 0.7  # class 1
+        out_multi = yolo9_utils.postprocess(
+            {"predictions": pred},
+            conf_thres=0.25,
+            iou_thres=0.9,  # high IoU so the two near-identical boxes both survive
+            input_size=64,
+            original_size=(64, 64),
+            multi_label=True,
+        )
+        assert out_multi["num_detections"] == 2
+        assert set(out_multi["classes"]) == {0, 1}
+
+        out_single = yolo9_utils.postprocess(
+            {"predictions": pred},
+            conf_thres=0.25,
+            iou_thres=0.9,
+            input_size=64,
+            original_size=(64, 64),
+            multi_label=False,
+        )
+        assert out_single["num_detections"] == 1
+        assert out_single["classes"] == [0]  # argmax class only
+
+    def test_multi_label_candidate_guard_matches_full_scan(self):
+        """R5: pre-topk candidate guard yields identical dets to a naive scan."""
+        torch.manual_seed(0)
+        num_anchors = 8400
+        num_classes = 80
+        pred = torch.zeros(1, 4 + num_classes, num_anchors)
+        # Random plausible boxes in 640 canvas.
+        cx = torch.rand(num_anchors) * 640
+        cy = torch.rand(num_anchors) * 640
+        pred[0, 0] = cx - 5
+        pred[0, 1] = cy - 5
+        pred[0, 2] = cx + 5
+        pred[0, 3] = cy + 5
+        # Mostly low scores, a handful of strong detections.
+        pred[0, 4:] = torch.rand(num_classes, num_anchors) * 0.0005
+        pred[0, 4, 100] = 0.9
+        pred[0, 7, 100] = 0.6  # second class on same anchor
+        pred[0, 20, 5000] = 0.8
+
+        out = yolo9_utils.postprocess(
+            {"predictions": pred},
+            conf_thres=0.001,
+            iou_thres=0.7,
+            input_size=640,
+            original_size=(640, 640),
+            multi_label=True,
+            max_det=300,
+        )
+        # The three strong (class,anchor) detections must all appear.
+        assert out["num_detections"] >= 3
+        top = sorted(out["scores"], reverse=True)[:3]
+        assert top[0] == pytest.approx(0.9, abs=1e-3)
+        assert top[1] == pytest.approx(0.8, abs=1e-3)
+        assert top[2] == pytest.approx(0.6, abs=1e-3)
+
+    def test_process_masks_crop_respects_pad(self):
+        """Seg mask crop uses the centered pad offset (E1)."""
+        from libreyolo.models.yolo9.utils import _process_masks
+
+        orig_w, orig_h, size = 128, 64, 64
+        img = np.zeros((orig_h, orig_w, 3), dtype=np.uint8)
+        _, _, pad = yolo9_utils.preprocess_numpy(img, size)
+        proto = torch.randn(32, 16, 16)
+        coeffs = torch.randn(2, 32)
+        boxes_input = torch.tensor(
+            [[10.0, 20.0, 40.0, 50.0], [5.0, 8.0, 30.0, 40.0]]
+        )
+        masks = _process_masks(
+            proto,
+            coeffs,
+            boxes_input,
+            input_shape=(size, size),
+            original_size=(orig_w, orig_h),
+            letterbox=True,
+            pad=pad,
+        )
+        # Output masks are upsampled to the original frame size.
+        assert masks.shape == (2, orig_h, orig_w)

@@ -50,8 +50,12 @@ class CalibrationDataLoader:
             batch: Batch size for calibration.
             fraction: Fraction of dataset to use (0.0-1.0). Use smaller values
                      for faster calibration with slight accuracy tradeoff.
-            preprocess_fn: Callable ``(img_rgb_hwc, input_size) -> (chw_float32, ratio)``.
-                Obtained from ``model._get_preprocess_numpy()``.
+            preprocess_fn: Callable ``(img_rgb_hwc, input_size) -> tuple`` whose
+                first element is the preprocessed ``chw_float32`` array. The
+                remaining elements vary by family (``(ratio,)`` for most,
+                ``(ratio, (pad_w, pad_h))`` for the centered-letterbox YOLOv9
+                family) and are ignored here. Obtained from
+                ``model._get_preprocess_numpy()``.
             allow_download_scripts: Allow embedded Python in dataset YAML downloads.
         """
         self.imgsz = imgsz
@@ -97,7 +101,10 @@ class CalibrationDataLoader:
             raise FileNotFoundError(f"Cannot read image: {img_path}")
         img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
 
-        result, _ = self._preprocess_fn(img_rgb, self.imgsz)
+        # preprocess_fn returns (chw_float32, ratio) for most families and
+        # (chw_float32, ratio, pad) for the centered-letterbox YOLOv9 family.
+        # Only the image array is needed for calibration, so discard the rest.
+        result = self._preprocess_fn(img_rgb, self.imgsz)[0]
         return result
 
     def __iter__(self) -> Iterator[np.ndarray]:
