@@ -575,6 +575,13 @@ def flagship_nightly_marks(family: str, *_):
     return None
 
 
+def rf1_flagship_nightly_marks(family: str, size: str, *_):
+    """Return the RF1 nightly mark for one size per flagship family."""
+    if (family, size) in {("yolo9", "t"), ("rfdetr", "n")}:
+        return pytest.mark.flagship_nightly
+    return None
+
+
 def general_nightly_marks(*_):
     """Return the general nightly mark for broad inference parametrized cases."""
     return pytest.mark.general_nightly

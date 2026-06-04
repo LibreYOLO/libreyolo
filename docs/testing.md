@@ -1,6 +1,6 @@
 # LibreYOLO Testing Strategy
 
-Version: 2.0
+Version: 2.1
 
 This is the CI/test contract for LibreYOLO. Times are UTC.
 
@@ -10,7 +10,7 @@ This is the CI/test contract for LibreYOLO. Times are UTC.
 | --- | --- | --- | --- | --- |
 | Unit | `.github/workflows/unit-tests.yml` | GitHub Linux, macOS, Windows; Python 3.10 | push to `dev`, PR to `dev`, manual | CPU-safe library and CLI/API behavior works. |
 | Install smoke | `.github/workflows/install-smoke.yml` | GitHub clean VMs; Python 3.10 | push to `dev`, PR to `dev`, manual, daily, publish | A clean user env can install, import, and start LibreYOLO. |
-| GPU e2e nightly | `.github/workflows/e2e-nightly.yml` | self-hosted `gpu`, `libreyolo-e2e` tower runner | daily `03:00`, manual | Selected real-model GPU tests execute and pass. |
+| GPU e2e nightly | `.github/workflows/e2e-nightly-{main,dev,pypi}.yml` | self-hosted `gpu`, `libreyolo-e2e` tower runner | daily staggered schedule, manual | Selected real-model GPU tests execute and pass. |
 | Manual QA | humans | human machine | before releases/demos/hackathons | Representative user behavior was checked by a human. |
 
 Boundaries:
@@ -66,12 +66,17 @@ and visual inspection.
 
 ## GPU E2E Nightly
 
-Files: `tests/e2e/nightly_contract.py`, `tests/e2e/conftest.py`,
-`tests/e2e/test_deterministic_inference.py`, `Makefile`.
+Files: `.github/workflows/e2e-nightly-main.yml`,
+`.github/workflows/e2e-nightly-dev.yml`,
+`.github/workflows/e2e-nightly-pypi.yml`,
+`tests/e2e/nightly_contract.py`, `tests/e2e/conftest.py`,
+`tests/e2e/test_deterministic_inference.py`,
+`tests/e2e/test_rf1_training.py`, `Makefile`.
 
 Execution: targets `dev`, `main`, latest PyPI; 180 minute timeout per target;
 SHA/version cache skips unchanged targets; manual `force=true` runs all targets.
-Do not add a `pull_request` trigger.
+Schedules are staggered at `03:00` UTC for `main`, `04:00` UTC for `dev`,
+and `05:00` UTC for PyPI. Do not add a `pull_request` trigger.
 
 Commands:
 
@@ -81,13 +86,15 @@ make test_flagship_nightly
 make test_nightly
 ```
 
-V2 contract:
+V2.1 contract:
 
 - `general_nightly`: one smallest native inference case for every public
   detector family that has a public auto-download route (LibreYOLO HF, or Deci's
   CDN for YOLO-NAS); currently 15 tests.
-- `flagship_nightly`: heavier YOLO9/RF-DETR native validation, training, video,
-  tracking, and CLI; currently 57 tests with `not export_backend`.
+- `flagship_nightly`: heavier YOLO9/RF-DETR native validation, video, tracking,
+  CLI, and one RF1 training/reload size per flagship family; currently 48 tests
+  with `not export_backend`. The full RF1 size matrix remains available under
+  `-m rf1` for manual or future full-matrix runs.
 - Detector families cover detection. L2CS gaze is non-redistributable (no public
   download route), so it runs as a non-gated per-family suite
   (`tests/e2e/test_l2cs_gaze.py`) that skips when the weight is not staged
@@ -98,6 +105,7 @@ V2 contract:
 Collect:
 
 ```bash
+uv pip install --group dev -e ".[rfdetr,onnx]"
 pytest tests/e2e --collect-only -q -m general_nightly
 pytest tests/e2e --collect-only -q -m "flagship_nightly and not export_backend"
 ```
