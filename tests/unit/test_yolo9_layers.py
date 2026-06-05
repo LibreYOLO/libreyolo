@@ -329,6 +329,39 @@ class TestYOLO9Utils:
             torch.tensor([[0.0, 0.0, 640.0, 640.0]]),
         )
 
+    def test_postprocess_detection_is_multilabel(self):
+        """Detection postprocess emits one detection per class above conf on an
+        anchor (multi-label), matching MultimediaTechLab/YOLO ``bbox_nms``."""
+        pred = torch.zeros(1, 6, 1)
+        pred[0, :4, 0] = torch.tensor([0.0, 0.0, 100.0, 100.0])
+        pred[0, 4:, 0] = torch.tensor([0.9, 0.8])  # two classes over conf
+
+        out = yolo9_utils.postprocess(
+            {"predictions": pred}, conf_thres=0.25, iou_thres=0.5
+        )
+
+        assert out["num_detections"] == 2
+        assert sorted(out["classes"]) == [0, 1]
+
+    def test_postprocess_segment_keeps_best_class(self):
+        """Segment postprocess stays best-class (not multi-label) so each
+        detection keeps a single mask-coefficient vector."""
+        pred = torch.zeros(1, 6, 1)
+        pred[0, :4, 0] = torch.tensor([0.0, 0.0, 100.0, 100.0])
+        pred[0, 4:, 0] = torch.tensor([0.9, 0.8])  # two classes over conf
+        proto = torch.randn(1, 32, 16, 16)
+        coeffs = torch.randn(1, 32, 1)
+
+        out = yolo9_utils.postprocess(
+            {"predictions": pred, "proto": proto, "mask_coeffs": coeffs},
+            conf_thres=0.25,
+            iou_thres=0.5,
+            original_size=(100, 100),
+        )
+
+        assert out["num_detections"] == 1
+        assert out["classes"] == [0]
+
     def test_make_anchors(self):
         """Test anchor generation.
 
