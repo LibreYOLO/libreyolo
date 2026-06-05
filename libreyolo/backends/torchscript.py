@@ -71,7 +71,16 @@ class TorchScriptBackend(BaseBackend):
             default_task=default_task,
             supported_tasks=supported_tasks,
         )
-        if "imgsz" in metadata:
+        if "imgsz_h" in metadata and "imgsz_w" in metadata:
+            imgsz_h = int(metadata["imgsz_h"])
+            imgsz_w = int(metadata["imgsz_w"])
+            if imgsz_h != imgsz_w:
+                raise NotImplementedError(
+                    "Rectangular TorchScript exports are not supported by "
+                    "LibreYOLO backend inference yet."
+                )
+            input_size = imgsz_h
+        elif "imgsz" in metadata:
             input_size = int(metadata["imgsz"])
 
         if nb_classes is not None:

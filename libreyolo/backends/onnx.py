@@ -134,7 +134,16 @@ class OnnxBackend(BaseBackend):
                 model_family = meta["model_family"]
             if "model_size" in meta or "size" in meta:
                 model_size = meta.get("model_size") or meta.get("size")
-            if "imgsz" in meta:
+            if "imgsz_h" in meta and "imgsz_w" in meta:
+                imgsz_h = int(meta["imgsz_h"])
+                imgsz_w = int(meta["imgsz_w"])
+                if imgsz_h != imgsz_w:
+                    raise NotImplementedError(
+                        "Rectangular ONNX exports are not supported by "
+                        "LibreYOLO backend inference yet."
+                    )
+                imgsz = imgsz_h
+            elif "imgsz" in meta:
                 imgsz = int(meta["imgsz"])
             if "default_task" in meta:
                 default_task = normalize_task(meta["default_task"], default="detect")
@@ -159,6 +168,8 @@ class OnnxBackend(BaseBackend):
                     names = {i: n for i, n in enumerate(COCO_CLASSES)}
                 else:
                     names = {i: f"class_{i}" for i in range(nc)}
+        except NotImplementedError:
+            raise
         except Exception as e:
             logger.warning("Failed to read ONNX metadata from %s: %s", onnx_path, e)
 

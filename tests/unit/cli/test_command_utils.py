@@ -354,6 +354,48 @@ def test_export_cli_leaves_opset_auto_by_default(monkeypatch, tmp_path):
     assert captured["opset"] is None
 
 
+def test_export_cli_forwards_rectangular_imgsz(monkeypatch, tmp_path):
+    captured = {}
+
+    class _ExportModel:
+        FAMILY = "yolo9"
+        size = "t"
+        INPUT_SIZES = {"t": 640}
+
+        def export(self, **kwargs):
+            captured.update(kwargs)
+            out = tmp_path / "model.onnx"
+            out.write_bytes(b"onnx")
+            return str(out)
+
+    monkeypatch.setattr(
+        "libreyolo.cli.commands.export.resolve_model_or_exit",
+        lambda out, model: model,
+    )
+    monkeypatch.setattr(
+        "libreyolo.cli.commands.export.load_model_or_exit",
+        lambda *args, **kwargs: _ExportModel(),
+    )
+    app = _make_app([("export", export.export_cmd), ("info", special.info_cmd)])
+
+    result = runner.invoke(
+        app,
+        [
+            "export",
+            "model=yolo9-t",
+            "format=onnx",
+            "imgsz=320,640",
+            "batch=2",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert captured["imgsz"] == (320, 640)
+    data = json.loads(result.stdout)
+    assert data["input_shape"] == [2, 3, 320, 640]
+
+
 # ---------------------------------------------------------------------------
 # Model reference validation
 # ---------------------------------------------------------------------------
