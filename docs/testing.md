@@ -10,7 +10,7 @@ This is the CI/test contract for LibreYOLO. Times are UTC.
 | --- | --- | --- | --- | --- |
 | Unit | `.github/workflows/unit-tests.yml` | GitHub Linux, macOS, Windows; Python 3.10 | push to `dev`, PR to `dev`, manual | CPU-safe library and CLI/API behavior works. |
 | Install smoke | `.github/workflows/install-smoke.yml` | GitHub clean VMs; Python 3.10 | push to `dev`, PR to `dev`, manual, daily, publish | A clean user env can install, import, and start LibreYOLO. |
-| GPU e2e nightly | `.github/workflows/e2e-nightly.yml` | self-hosted `gpu`, `libreyolo-e2e` tower runner | daily `03:00`, manual | Selected real-model GPU tests execute and pass. |
+| GPU e2e nightly | `.github/workflows/e2e-nightly-{release,dev,pypi}.yml` | self-hosted `gpu`, `libreyolo-e2e` tower runner | daily staggered schedule, manual | Selected real-model GPU tests execute and pass. |
 | Manual QA | humans | human machine | before releases/demos/hackathons | Representative user behavior was checked by a human. |
 
 Boundaries:
@@ -69,7 +69,7 @@ and visual inspection.
 Files: `tests/e2e/nightly_contract.py`, `tests/e2e/conftest.py`,
 `tests/e2e/test_deterministic_inference.py`, `Makefile`.
 
-Execution: targets `dev`, `main`, latest PyPI; 180 minute timeout per target;
+Execution: targets `dev`, `release`, latest PyPI; 180 minute timeout per target;
 SHA/version cache skips unchanged targets; manual `force=true` runs all targets.
 Do not add a `pull_request` trigger.
 
