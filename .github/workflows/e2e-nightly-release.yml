@@ -4,8 +4,6 @@
 name: E2E nightly (release)
 
 on:
-  schedule:
-    - cron: "0 3 * * *"
   workflow_dispatch:
     inputs:
       force:
