@@ -292,11 +292,11 @@ class ValPlotter:
 
         cat_ids = list(coco_eval.params.catIds)
         nc = len(cat_ids)
-        # IoU=0.5 (index 0), all areas (index 0), maxDet=100 (index -1)
         rec_vals, rec_names = [], []
         for k in range(nc):
-            r = recall[0, k, 0, -1]
-            rec_vals.append(float(r) if r > -1 else 0.0)
+            r = recall[:, k, 0, -1]
+            valid = r[r > -1]
+            rec_vals.append(float(valid.mean()) if len(valid) else 0.0)
             name = class_names[k] if class_names and k < len(class_names) else f"cls{cat_ids[k]}"
             rec_names.append(name)
 
@@ -318,8 +318,8 @@ class ValPlotter:
         ax.set_yticks(range(nc))
         ax.set_yticklabels(rec_names, fontsize=max(6, 9 - nc // 15))
         ax.set_xlim(0, 1.08)
-        ax.set_title(f"Per-class Recall@IoU=0.5 ({label}) — sorted", fontsize=11, fontweight="bold")
-        ax.set_xlabel("Recall")
+        ax.set_title(f"Per-class Recall@50-95 ({label}) — sorted", fontsize=11, fontweight="bold")
+        ax.set_xlabel("Recall@50-95")
         ax.grid(axis="x", alpha=0.25, linestyle="--")
         ax.spines["top"].set_visible(False)
         ax.spines["right"].set_visible(False)
@@ -572,6 +572,8 @@ class ValPlotter:
         save_path: Path,
         pred_masks: Optional[np.ndarray] = None,  # (N, H, W) original pixel space
         gt_masks: Optional[np.ndarray] = None,    # (M, H, W) original pixel space
+        gt_keypoints: Optional[np.ndarray] = None,
+        pred_keypoints: Optional[np.ndarray] = None,
         conf_thres: float = 0.25,
     ) -> None:
         """Save a side-by-side composite: Ground Truth (left) | Predictions (right)."""
@@ -597,6 +599,33 @@ class ValPlotter:
                 cv2.putText(canvas, text, (x1 + 2, y + th),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.42, (255, 255, 255), 1, cv2.LINE_AA)
 
+        def _draw_keypoints(
+            canvas: np.ndarray,
+            keypoints: Optional[np.ndarray],
+            color_bgr: tuple,
+        ) -> np.ndarray:
+            if keypoints is None:
+                return canvas
+            arr = np.asarray(keypoints)
+            if arr.size == 0:
+                return canvas
+            if arr.ndim == 2:
+                arr = arr[None, ...]
+
+            from PIL import Image  # noqa: PLC0415
+            from libreyolo.utils.drawing import draw_keypoints  # noqa: PLC0415
+
+            rgb = cv2.cvtColor(canvas, cv2.COLOR_BGR2RGB)
+            pil = Image.fromarray(rgb)
+            drawn = draw_keypoints(
+                pil,
+                arr,
+                point_color=color_bgr[::-1],
+                edge_color=color_bgr[::-1],
+                conf_thres=conf_thres,
+            )
+            return cv2.cvtColor(np.asarray(drawn), cv2.COLOR_RGB2BGR)
+
         # ---- Left panel: Ground Truth ----
         img_gt = img_bgr.copy()
         if gt_masks is not None and len(gt_masks):
@@ -612,6 +641,7 @@ class ValPlotter:
             x1, y1, x2, y2 = int(box[0]), int(box[1]), int(box[2]), int(box[3])
             cv2.rectangle(img_gt, (x1, y1), (x2, y2), _COLOR_GT, 2)
             _put_label(img_gt, _cls_name(int(gt_classes[i])), x1, y1, _COLOR_GT, above=True)
+        img_gt = _draw_keypoints(img_gt, gt_keypoints, _COLOR_GT)
 
         # ---- Right panel: Predictions ----
         img_pred = img_bgr.copy()
@@ -634,6 +664,10 @@ class ValPlotter:
             cv2.rectangle(img_pred, (x1, y1), (x2, y2), _COLOR_PRED, 2)
             text = f"{_cls_name(int(pred_classes[i]))} {pred_scores[i]:.2f}"
             _put_label(img_pred, text, x1, y2, _COLOR_PRED, above=False)
+        pred_kpts = pred_keypoints
+        if pred_kpts is not None and len(pred_scores):
+            pred_kpts = np.asarray(pred_kpts)[np.asarray(pred_scores) >= conf_thres]
+        img_pred = _draw_keypoints(img_pred, pred_kpts, _COLOR_PRED)
 
         # ---- Header bar with panel labels ----
         header_h = 26
@@ -665,7 +699,7 @@ class ValPlotter:
         except ImportError:
             raise ImportError(
                 "matplotlib is required for save_plots. "
-                "Install with: pip install matplotlib"
+                "Install with: pip install 'libreyolo[plots]'"
             )
 
     @staticmethod

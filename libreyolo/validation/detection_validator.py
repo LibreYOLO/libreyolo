@@ -635,6 +635,39 @@ class DetectionValidator(BaseValidator):
         """
         arr = gt_row.cpu().numpy().astype(np.float32)
 
+        # The validator dataloaders emit [x1, y1, x2, y2, cls] rows in scaled
+        # pixel space. Prefer that schema whenever it forms a valid box so
+        # tiny boxes near the origin are not mistaken for normalized YOLO rows.
+        cls_col = arr[:, 4]
+        class_like = (
+            (cls_col >= 0)
+            & (cls_col < self.nc)
+            & np.isclose(cls_col, np.round(cls_col))
+        )
+        valid_xyxy = (
+            class_like & (arr[:, 2] > arr[:, 0]) & (arr[:, 3] > arr[:, 1])
+        )
+        vgt_xyxy = arr[valid_xyxy]
+        if len(vgt_xyxy):
+            uses_lb = getattr(self.val_preproc, "uses_letterbox", False)
+            if uses_lb:
+                r, off_x, off_y = self.val_preproc.letterbox_scale(
+                    orig_h, orig_w, self._actual_imgsz
+                )
+                coords = vgt_xyxy[:, :4].copy()
+                coords[:, [0, 2]] -= off_x
+                coords[:, [1, 3]] -= off_y
+                gt_boxes = (coords / r).astype(np.float32)
+            else:
+                sx = self._actual_imgsz / orig_w
+                sy = self._actual_imgsz / orig_h
+                gt = vgt_xyxy[:, :4].copy()
+                gt[:, [0, 2]] /= sx  # x1, x2
+                gt[:, [1, 3]] /= sy  # y1, y2
+                gt_boxes = gt.astype(np.float32)
+            gt_classes = np.clip(vgt_xyxy[:, 4].astype(int), 0, self.nc - 1)
+            return gt_boxes, gt_classes
+
         # If any value in columns 1-4 exceeds 1.5 the coords must be pixels
         is_coco_xyxy = (len(arr) > 0) and (float(np.abs(arr[:, 1:5]).max()) > 1.5)
 

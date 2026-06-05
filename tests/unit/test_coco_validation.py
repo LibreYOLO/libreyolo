@@ -8,6 +8,7 @@ using mock data (no GPU or real datasets needed).
 from types import SimpleNamespace
 
 import pytest
+import torch
 import yaml
 from PIL import Image
 
@@ -224,6 +225,30 @@ def test_detection_validator_topk_coco_scoring_applies_to_yolo_coco_api(
     validator._coco_annotation_file = None
 
     assert validator._uses_topk_coco_scoring() is expected
+
+
+@pytest.mark.unit
+def test_detection_validator_parses_tiny_pixel_xyxy_targets():
+    from libreyolo.validation.detection_validator import DetectionValidator
+
+    validator = DetectionValidator.__new__(DetectionValidator)
+    validator.val_preproc = SimpleNamespace(uses_letterbox=False)
+    validator._actual_imgsz = 640
+    validator.nc = 2
+
+    targets = torch.tensor(
+        [
+            [0.0, 0.0, 1.0, 1.0, 0.0],
+            [0.0, 0.0, 0.0, 0.0, 0.0],
+        ],
+        dtype=torch.float32,
+    )
+
+    boxes, classes = validator._parse_gt_boxes(targets, orig_h=640, orig_w=640)
+
+    assert boxes.shape == (1, 4)
+    assert boxes[0].tolist() == pytest.approx([0.0, 0.0, 1.0, 1.0])
+    assert classes.tolist() == [0]
 
 
 @pytest.mark.unit

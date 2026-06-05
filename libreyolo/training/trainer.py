@@ -729,6 +729,11 @@ class BaseTrainer(ABC):
                     _dist.broadcast(flag, src=0)
                     should_stop = bool(flag.item())
                 if should_stop:
+                    if (
+                        bool(getattr(self.config, "save_plots", False))
+                        and not self._is_final_epoch(epoch)
+                    ):
+                        self._validate_epoch(epoch, save_plots=True)
                     if is_main_process():
                         logger.info(
                             f"Early stopping triggered after {epoch + 1} epochs "
@@ -1158,10 +1163,7 @@ class BaseTrainer(ABC):
 
         # Validation
         val_metrics = None
-        if (
-            self.config.eval_interval > 0
-            and (epoch + 1) % self.config.eval_interval == 0
-        ):
+        if self._should_validate_epoch(epoch):
             val_metrics = self._validate_epoch(epoch)
 
         return avg_loss, val_metrics, avg_loss_components, self._current_lrs()
@@ -1287,10 +1289,7 @@ class BaseTrainer(ABC):
 
         # Validation
         val_metrics = None
-        if (
-            self.config.eval_interval > 0
-            and (epoch + 1) % self.config.eval_interval == 0
-        ):
+        if self._should_validate_epoch(epoch):
             val_metrics = self._validate_epoch(epoch)
 
         return avg_loss, val_metrics, avg_loss_components, self._current_lrs()
@@ -1299,7 +1298,23 @@ class BaseTrainer(ABC):
     # Validation
     # =========================================================================
 
-    def _validate_epoch(self, epoch: int) -> Optional[Dict[str, Any]]:
+    def _should_validate_epoch(self, epoch: int) -> bool:
+        scheduled = (
+            self.config.eval_interval > 0
+            and (epoch + 1) % self.config.eval_interval == 0
+        )
+        final_plot = (
+            bool(getattr(self.config, "save_plots", False))
+            and self._is_final_epoch(epoch)
+        )
+        return scheduled or final_plot
+
+    def _is_final_epoch(self, epoch: int) -> bool:
+        return (epoch + 1) >= self.config.epochs
+
+    def _validate_epoch(
+        self, epoch: int, *, save_plots: bool | None = None
+    ) -> Optional[Dict[str, Any]]:
         # First-cut policy: validation runs on rank 0 only. Non-zero ranks
         # barrier-wait so the next epoch's set_epoch fires in lockstep.
         # Rank 0 barriers once at the bottom regardless of outcome.
@@ -1307,12 +1322,14 @@ class BaseTrainer(ABC):
             barrier()
             return None
         try:
-            return self._run_validation(epoch)
+            return self._run_validation(epoch, save_plots=save_plots)
         finally:
             if self.is_distributed:
                 barrier()
 
-    def _run_validation(self, epoch: int) -> Optional[Dict[str, Any]]:
+    def _run_validation(
+        self, epoch: int, *, save_plots: bool | None = None
+    ) -> Optional[Dict[str, Any]]:
         try:
             from libreyolo.validation import (
                 DetectionValidator,
@@ -1323,9 +1340,11 @@ class BaseTrainer(ABC):
             logger.info(f"Running validation for epoch {epoch + 1}")
 
             # Only save plots on the final epoch when explicitly requested.
-            is_final_epoch = (epoch + 1) >= self.config.epochs
+            is_final_epoch = self._is_final_epoch(epoch)
             val_save_plots = (
-                bool(getattr(self.config, "save_plots", False)) and is_final_epoch
+                bool(save_plots)
+                if save_plots is not None
+                else bool(getattr(self.config, "save_plots", False)) and is_final_epoch
             )
             val_save_dir = (
                 str(self.save_dir / "val") if val_save_plots else None

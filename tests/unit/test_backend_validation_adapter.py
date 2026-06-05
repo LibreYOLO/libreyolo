@@ -55,6 +55,7 @@ def test_backend_val_uses_exported_model_adapter(monkeypatch):
         workers=0,
         device="cpu",
         split="test",
+        plots=True,
     )
 
     assert metrics == {"metrics/mAP50": 0.5}
@@ -62,6 +63,7 @@ def test_backend_val_uses_exported_model_adapter(monkeypatch):
     assert captured["config"].imgsz == 560
     assert captured["config"].batch_size == 4
     assert captured["config"].conf_thres == 0.01
+    assert captured["config"].save_plots is True
     assert backend.FAMILY == "rfdetr"
     assert backend.size == "n"
 

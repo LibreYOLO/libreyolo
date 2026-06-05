@@ -103,6 +103,8 @@ class PoseValidator(BaseValidator):
         self._load_coco_gt()
 
         self._predictions = []
+        self._last_coco_eval = None
+        self._val_sample_records = []
         self.seen = 0
         self.speed = {
             "preprocess": 0.0,
@@ -488,7 +490,6 @@ class PoseValidator(BaseValidator):
                 img_bgr = cv2.imread(str(sample["img_path"]))
                 if img_bgr is None:
                     continue
-                h, w = img_bgr.shape[:2]
                 # GT: bounding boxes derived from COCO annotations
                 ann_ids = self._coco_gt.getAnnIds(imgIds=[sample["image_id"]])
                 anns = self._coco_gt.loadAnns(ann_ids)
@@ -497,6 +498,16 @@ class PoseValidator(BaseValidator):
                       a["bbox"][0] + a["bbox"][2], a["bbox"][1] + a["bbox"][3]]
                      for a in anns], dtype=np.float32
                 ) if anns else np.zeros((0, 4), np.float32)
+                gt_keypoints = []
+                for ann in anns:
+                    kpts = ann.get("keypoints")
+                    if kpts:
+                        gt_keypoints.append(
+                            np.asarray(kpts, dtype=np.float32).reshape(-1, 3)
+                        )
+                gt_keypoints_arr = (
+                    np.stack(gt_keypoints) if gt_keypoints else None
+                )
                 gt_classes = np.zeros(len(anns), int)
                 _safe(
                     ValPlotter.plot_val_sample,
@@ -505,6 +516,8 @@ class PoseValidator(BaseValidator):
                     sample["pred_boxes"], sample["pred_classes"], sample["pred_scores"],
                     None,  # class_names — poses are category-agnostic visually
                     samples_dir / f"val_sample_{idx:02d}.jpg",
+                    gt_keypoints=gt_keypoints_arr,
+                    pred_keypoints=sample.get("pred_keypoints"),
                 )
         logger.info("Pose plots saved → %s", plots_dir)
 

@@ -1076,6 +1076,7 @@ class BaseBackend(ABC):
         split: str = "val",
         augment: bool = False,
         save_json: bool = False,
+        plots: bool | None = None,
         verbose: bool = True,
         **kwargs,
     ) -> Dict:
@@ -1091,6 +1092,8 @@ class BaseBackend(ABC):
             )
         if imgsz is None:
             imgsz = self._get_input_size()
+        if plots is not None and "save_plots" not in kwargs:
+            kwargs["save_plots"] = plots
 
         validation_device = device or (
             self.device if _is_pytorch_cuda_device(self.device) and torch.cuda.is_available() else "cpu"

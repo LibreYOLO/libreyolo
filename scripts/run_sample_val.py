@@ -42,6 +42,7 @@ Evaluate on a test split with a larger batch on a specific GPU:
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import sys
 from pathlib import Path
 
@@ -89,8 +90,8 @@ def parse_args() -> argparse.Namespace:
     )
     p.add_argument(
         "--data",
-        default="coco.yaml",
-        help="Path to a YOLO-format dataset YAML (default: coco.yaml)",
+        default="coco8.yaml",
+        help="Path to a YOLO-format dataset YAML (default: coco8.yaml)",
     )
     p.add_argument(
         "--batch",
@@ -162,6 +163,15 @@ def parse_args() -> argparse.Namespace:
 def _normalize_device(device: str) -> str:
     text = str(device)
     return f"cuda:{text}" if text.isdigit() else text
+
+
+def _require_plot_dependencies() -> None:
+    if importlib.util.find_spec("matplotlib") is not None:
+        return
+    sys.exit(
+        "Error: validation sample plots require matplotlib.\n"
+        "Install with: pip install 'libreyolo[plots]'"
+    )
 
 
 def _val_kwargs(args: argparse.Namespace) -> dict:
@@ -249,6 +259,7 @@ def val_yolo9(args: argparse.Namespace) -> None:
 
 def main() -> None:
     args = parse_args()
+    _require_plot_dependencies()
     dispatch = {"rfdetr": val_rfdetr, "yolo9": val_yolo9}
     dispatch[args.model](args)
 
