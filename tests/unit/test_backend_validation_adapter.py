@@ -100,3 +100,59 @@ def test_backend_init_allows_read_only_size_property():
 
     assert backend.size == "n"
     assert backend.FAMILY == "rfdetr"
+
+
+def test_backend_eval_proxy_has_no_to():
+    from libreyolo.backends.base import _BackendEvalProxy
+
+    proxy = _BackendEvalProxy()
+    assert not hasattr(proxy, "to")
+    assert hasattr(proxy, "eval")
+
+
+def test_set_device_does_not_call_to_on_backend_proxy():
+    """_set_device must not raise when model.model is a _BackendEvalProxy."""
+    from types import SimpleNamespace
+    from unittest.mock import patch
+
+    from libreyolo.backends.base import _BackendEvalProxy
+    from libreyolo.models.base.inference import InferenceRunner
+
+    proxy = _BackendEvalProxy()
+    fake_model = SimpleNamespace(
+        device=torch.device("cpu"),
+        model=proxy,
+    )
+
+    runner = object.__new__(InferenceRunner)
+    runner.model = fake_model
+
+    # Calling _set_device with a different device must not raise AttributeError.
+    with patch("torch.cuda.is_available", return_value=True):
+        runner._set_device("cuda:0")
+
+    # model.device is updated; proxy is left untouched (no .to() call).
+    assert fake_model.device == torch.device("cuda:0")
+
+
+def test_l2cs_set_device_does_not_call_to_on_backend_proxy():
+    """GazeInferenceRunner._set_device must also tolerate _BackendEvalProxy."""
+    from types import SimpleNamespace
+    from unittest.mock import patch
+
+    from libreyolo.backends.base import _BackendEvalProxy
+    from libreyolo.models.l2cs.inference import GazeInferenceRunner
+
+    proxy = _BackendEvalProxy()
+    fake_model = SimpleNamespace(
+        device=torch.device("cpu"),
+        model=proxy,
+    )
+
+    runner = object.__new__(GazeInferenceRunner)
+    runner.model = fake_model
+
+    with patch("torch.cuda.is_available", return_value=True):
+        runner._set_device("cuda:0")
+
+    assert fake_model.device == torch.device("cuda:0")

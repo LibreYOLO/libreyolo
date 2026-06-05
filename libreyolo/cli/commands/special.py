@@ -105,6 +105,8 @@ def checks_cmd(
         "tensorrt",
         "openvino",
         "ncnn",
+        "onnx2tf",
+        "ai-edge-litert",
         "transformers",
         "scipy",
     ):

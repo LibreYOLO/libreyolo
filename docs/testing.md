@@ -1,6 +1,6 @@
 # LibreYOLO Testing Strategy
 
-Version: 1.0
+Version: 2.2
 
 This is the CI/test contract for LibreYOLO. Times are UTC.
 
@@ -10,7 +10,8 @@ This is the CI/test contract for LibreYOLO. Times are UTC.
 | --- | --- | --- | --- | --- |
 | Unit | `.github/workflows/unit-tests.yml` | GitHub Linux, macOS, Windows; Python 3.10 | push to `dev`, PR to `dev`, manual | CPU-safe library and CLI/API behavior works. |
 | Install smoke | `.github/workflows/install-smoke.yml` | GitHub clean VMs; Python 3.10 | push to `dev`, PR to `dev`, manual, daily, publish | A clean user env can install, import, and start LibreYOLO. |
-| GPU e2e nightly | `.github/workflows/e2e-nightly.yml` | self-hosted `gpu`, `libreyolo-e2e` tower runner | daily `03:00`, manual | Selected real-model GPU tests execute and pass. |
+| GPU e2e nightly | `.github/workflows/e2e-nightly-dev.yml` | self-hosted `gpu`, `libreyolo-e2e` tower runner | daily schedule, manual | Selected real-model GPU tests execute and pass on latest `dev`. |
+| GPU e2e manual | `.github/workflows/e2e-nightly-{release,pypi}.yml` | self-hosted `gpu`, `libreyolo-e2e` tower runner | manual | Selected real-model GPU tests execute and pass on `release` or latest PyPI when explicitly requested. |
 | Manual QA | humans | human machine | before releases/demos/hackathons | Representative user behavior was checked by a human. |
 
 Boundaries:
@@ -25,11 +26,36 @@ Boundaries:
 Command:
 
 ```bash
-uv run --no-sync pytest tests/unit -m unit
+make test_pr_gate
+
+# Equivalent command used by the cross-platform GitHub workflow:
+LIBREYOLO_PR_GATE=1 uv run --no-sync pytest tests/unit -m "unit and not external_data and not network"
 ```
 
 Scope: CPU-safe behavior, config, parsing, errors, serialization, and CLI/API
 logic.
+
+### PR Gate v1.0
+
+The PR gate is the merge-blocking unit-test contract for pushes and pull
+requests to `dev`.
+
+Contract:
+
+- No external HTTP/network access. Localhost sockets remain allowed so local
+  distributed-training unit tests can run.
+- No live dataset, model-weight, Hugging Face, GitHub release, cloud bucket, or
+  CDN downloads.
+- No dependency on staged external datasets, staged external weights, secrets,
+  GPU hardware, CUDA, or vendor export runtimes.
+- Tests that intentionally require staged datasets/weights must use
+  `@pytest.mark.external_data` and remain outside the PR-gate marker expression.
+- Tests that intentionally require non-local network access must use
+  `@pytest.mark.network` and remain outside the PR-gate marker expression.
+
+New unit tests are in the PR gate by default. If a test cannot satisfy this
+contract, prefer a local fixture or mock. If real external data is essential,
+move the coverage to the appropriate e2e, nightly, or manual suite.
 
 ## Install Smoke
 
@@ -66,12 +92,18 @@ and visual inspection.
 
 ## GPU E2E Nightly
 
-Files: `tests/e2e/nightly_contract.py`, `tests/e2e/conftest.py`,
-`tests/e2e/test_deterministic_inference.py`, `Makefile`.
+Files: `.github/workflows/e2e-nightly-release.yml`,
+`.github/workflows/e2e-nightly-dev.yml`,
+`.github/workflows/e2e-nightly-pypi.yml`,
+`tests/e2e/nightly_contract.py`, `tests/e2e/conftest.py`,
+`tests/e2e/test_deterministic_inference.py`,
+`tests/e2e/test_rf1_training.py`, `Makefile`.
 
-Execution: targets `dev`, `main`, latest PyPI; 180 minute timeout per target;
-SHA/version cache skips unchanged targets; manual `force=true` runs all targets.
-Do not add a `pull_request` trigger.
+Execution: scheduled nightly targets latest `dev` only; manual workflows can
+target `release` and latest PyPI. Each target has a 180 minute timeout;
+SHA/version cache skips unchanged targets; manual `force=true` runs the selected
+target. The scheduled `dev` run starts at `04:00` UTC. Do not add a
+`pull_request` trigger.
 
 Commands:
 
@@ -81,26 +113,34 @@ make test_flagship_nightly
 make test_nightly
 ```
 
-V1 contract:
+V2.1 contract:
 
-- `general_nightly`: one smallest native inference case for every public family;
-  currently 16 tests.
-- `flagship_nightly`: heavier YOLO9/RF-DETR native validation, training, video,
-  tracking, and CLI; currently 57 tests with `not export_backend`.
-- L2CS covers gaze inference; detector families cover detection.
+- `general_nightly`: one smallest native inference case for every public
+  detector family that has a public auto-download route (LibreYOLO HF, or Deci's
+  CDN for YOLO-NAS); currently 15 tests.
+- `flagship_nightly`: heavier YOLO9/RF-DETR native validation, video, tracking,
+  CLI, and one RF1 training/reload size per flagship family; currently 48 tests
+  with `not export_backend`. The full RF1 size matrix remains available under
+  `-m rf1` for manual or future full-matrix runs.
+- Detector families cover detection. L2CS gaze is non-redistributable (no public
+  download route), so it runs as a non-gated per-family suite
+  (`tests/e2e/test_l2cs_gaze.py`) that skips when the weight is not staged
+  locally, rather than gating the nightly.
 - Export backends are outside default nightly.
 - Nightly-selected skips are failures.
 
 Collect:
 
 ```bash
+uv pip install --group dev -e ".[rfdetr,onnx]"
 pytest tests/e2e --collect-only -q -m general_nightly
 pytest tests/e2e --collect-only -q -m "flagship_nightly and not export_backend"
 ```
 
-Missing local weights before full green: `downloads/yolonas/yolo_nas_s_coco.pth`,
-`weights/LibreDEIM*.pt`, `weights/LibreRTDETRv2r18.pt`,
-`weights/LibreRTDETRv4s.pt`, possibly `weights/LibreL2CSr50.pt`.
+Missing local weights before full green: `weights/LibreDEIM*.pt`,
+`weights/LibreRTDETRv2r18.pt`, `weights/LibreRTDETRv4s.pt`. YOLO-NAS now
+auto-downloads from Deci's CDN (checksum-verified), and L2CS gaze is non-gated
+and skips when `weights/LibreL2CSr50.pt` is absent.
 
 ## Versioning
 

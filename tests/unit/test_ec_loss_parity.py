@@ -15,7 +15,7 @@ from pathlib import Path
 import pytest
 import torch
 
-pytestmark = pytest.mark.unit
+pytestmark = [pytest.mark.unit, pytest.mark.external_data]
 
 UPSTREAM_PATH = Path(os.environ.get("UPSTREAM_PATH", "downloads/EdgeCrafter/ecdetseg"))
 CKPT_PATH = Path("downloads/ec_weights/ecdet_s.pth")

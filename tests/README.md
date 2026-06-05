@@ -33,10 +33,16 @@ tests/
 ### Unit Tests (Fast, CPU)
 
 ```bash
-pytest tests/unit/ -v
+make test_pr_gate
+
+# Direct equivalent
+LIBREYOLO_PR_GATE=1 uv run --no-sync pytest tests/unit/ -m "unit and not external_data and not network" -v
+
+# Run all unit-marked tests, including opt-in external-data tests
+uv run --no-sync pytest tests/unit/ -v
 
 # Run specific test
-pytest tests/unit/test_yolo9_layers.py -v
+uv run --no-sync pytest tests/unit/test_yolo9_layers.py -v
 ```
 
 ### E2E Tests (Export + Training)

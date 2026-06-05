@@ -8,12 +8,14 @@ import pytest
 import torch
 import torch.nn as nn
 
+import libreyolo.export.exporter as exporter_module
 from libreyolo.export.exporter import (
     BaseExporter,
     NcnnExporter,
     OnnxExporter,
     OpenVINOExporter,
     TensorRTExporter,
+    TFLiteExporter,
     TorchScriptExporter,
 )
 from libreyolo.export.onnx import export_onnx
@@ -87,6 +89,7 @@ class TestExporterFormats:
         assert "tensorrt" in BaseExporter._registry
         assert "openvino" in BaseExporter._registry
         assert "ncnn" in BaseExporter._registry
+        assert "tflite" in BaseExporter._registry
 
     def test_suffix_present(self):
         for cls in BaseExporter._registry.values():
@@ -97,6 +100,8 @@ class TestExporterFormats:
         assert TensorRTExporter.requires_onnx is True
         assert TorchScriptExporter.apply_model_half is True
         assert NcnnExporter.supports_int8 is False
+        assert TFLiteExporter.requires_onnx is True
+        assert TFLiteExporter.supports_fp16 is False
 
     def test_metadata_includes_task_contract(self):
         wrapper = _make_wrapper()
@@ -590,7 +595,7 @@ class TestTensorRTValidation:
         with pytest.raises(ValueError, match="calibration data"):
             exporter(int8=True)
 
-    def test_int8_with_data_no_immediate_error(self):
+    def test_int8_with_data_no_immediate_error(self, monkeypatch):
         """INT8 with data parameter should not raise validation error.
 
         Note: Will fail later due to missing TensorRT (or ONNX), but validation should pass.
@@ -604,10 +609,38 @@ class TestTensorRTValidation:
 
         wrapper = _make_wrapper()
         exporter = TensorRTExporter(wrapper)
+        monkeypatch.setattr(
+            exporter,
+            "_load_calibration",
+            lambda *args, **kwargs: pytest.fail("calibration should not load"),
+        )
 
         # Should fail with ImportError (missing onnx or tensorrt), not ValueError
         with pytest.raises(ImportError):
-            exporter(int8=True, data="coco8.yaml")
+            exporter(int8=True, data="unused-local-calibration.yaml")
+
+    def test_int8_with_data_missing_onnx_does_not_load_calibration(
+        self, monkeypatch
+    ):
+        """Missing ONNX should fail before calibration data is resolved."""
+        wrapper = _make_wrapper()
+        exporter = TensorRTExporter(wrapper)
+        original_find_spec = exporter_module.importlib.util.find_spec
+
+        def fake_find_spec(name, *args, **kwargs):
+            if name == "onnx":
+                return None
+            return original_find_spec(name, *args, **kwargs)
+
+        monkeypatch.setattr(exporter_module.importlib.util, "find_spec", fake_find_spec)
+        monkeypatch.setattr(
+            exporter,
+            "_load_calibration",
+            lambda *args, **kwargs: pytest.fail("calibration should not load"),
+        )
+
+        with pytest.raises(ImportError, match="ONNX export requires"):
+            exporter(int8=True, data="unused-local-calibration.yaml")
 
 
 class TestTensorRTImportCheck:
@@ -684,7 +717,7 @@ class TestOpenVINOValidation:
         with pytest.raises(ValueError, match="calibration data"):
             exporter(int8=True)
 
-    def test_int8_with_data_no_immediate_error(self):
+    def test_int8_with_data_no_immediate_error(self, monkeypatch):
         """INT8 with data parameter should not raise validation error.
 
         Note: Will fail later due to missing OpenVINO (or ONNX), but validation should pass.
@@ -698,10 +731,38 @@ class TestOpenVINOValidation:
 
         wrapper = _make_wrapper()
         exporter = OpenVINOExporter(wrapper)
+        monkeypatch.setattr(
+            exporter,
+            "_load_calibration",
+            lambda *args, **kwargs: pytest.fail("calibration should not load"),
+        )
 
         # Should fail with ImportError (missing onnx or openvino), not ValueError
         with pytest.raises(ImportError):
-            exporter(int8=True, data="coco8.yaml")
+            exporter(int8=True, data="unused-local-calibration.yaml")
+
+    def test_int8_with_data_missing_onnx_does_not_load_calibration(
+        self, monkeypatch
+    ):
+        """Missing ONNX should fail before calibration data is resolved."""
+        wrapper = _make_wrapper()
+        exporter = OpenVINOExporter(wrapper)
+        original_find_spec = exporter_module.importlib.util.find_spec
+
+        def fake_find_spec(name, *args, **kwargs):
+            if name == "onnx":
+                return None
+            return original_find_spec(name, *args, **kwargs)
+
+        monkeypatch.setattr(exporter_module.importlib.util, "find_spec", fake_find_spec)
+        monkeypatch.setattr(
+            exporter,
+            "_load_calibration",
+            lambda *args, **kwargs: pytest.fail("calibration should not load"),
+        )
+
+        with pytest.raises(ImportError, match="ONNX export requires"):
+            exporter(int8=True, data="unused-local-calibration.yaml")
 
 
 class TestOpenVINOImportCheck:
@@ -757,7 +818,7 @@ class TestExportPrecisionSuffix:
         with warnings.catch_warnings(record=True) as w:
             warnings.simplefilter("always")
             try:
-                exporter(half=True, int8=True, data="coco8.yaml")
+                exporter(half=True, int8=True, data="unused-local-calibration.yaml")
             except ImportError:
                 # Expected - TensorRT not installed
                 pass

@@ -2,7 +2,7 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-> ⭐ **Support LibreYOLO.** The best way to help is to **star the repo**. Feel free to [open an issue](https://github.com/LibreYOLO/libreyolo/issues/new) if you encounter problems or have suggestions, and code contributions are very welcome (see [CONTRIBUTING.md](CONTRIBUTING.md)). We are also looking for sponsors to donate GPU resources to the project. If you or your company can help, please [reach out on LinkedIn](https://www.linkedin.com/in/xuban-ceccon).
+> ⭐ **Support LibreYOLO.** The best way to help is to **star the repo**. Feel free to [open an issue](https://github.com/LibreYOLO/libreyolo/issues/new) if you encounter problems or have suggestions, and code contributions are very welcome (see [CONTRIBUTING.md](CONTRIBUTING.md)).
 
 [![Documentation](https://img.shields.io/badge/docs-libreyolo.com-blue)](https://www.libreyolo.com/docs)
 [![PyPI](https://img.shields.io/pypi/v/libreyolo)](https://pypi.org/project/libreyolo/)
@@ -22,7 +22,7 @@ MIT-licensed computer vision library with inference and training support for a v
 pip install libreyolo
 ```
 
-To install the latest `main` in editable mode (for development or to track unreleased changes):
+To install from source in editable mode (for development or to track unreleased changes):
 
 ```bash
 git clone https://github.com/LibreYOLO/libreyolo.git
@@ -50,40 +50,48 @@ and receive the heaviest testing:
 ## Compatibility
 
 `✓` supported, `exp` experimental. Empty cells are not currently supported.
+OBB (oriented bounding box) is listed as a future task surface and is not
+implemented yet.
 
 <table>
   <thead>
     <tr>
       <th rowspan="2">Model family</th>
-      <th colspan="3">Inference</th>
+      <th colspan="5">Inference</th>
       <th rowspan="2">Training</th>
-      <th colspan="5">Export formats</th>
+      <th colspan="6">Export formats</th>
     </tr>
     <tr>
       <th>Detection</th>
       <th>Segmentation</th>
       <th>Pose</th>
+      <th>OBB</th>
+      <th>Gaze</th>
       <th>ONNX</th>
       <th>TorchScript</th>
       <th>TensorRT</th>
       <th>OpenVINO</th>
       <th>NCNN</th>
+      <th>TFLite</th>
     </tr>
   </thead>
   <tbody>
-    <tr><td>YOLOv9</td><td>✓</td><td></td><td></td><td>✓</td><td>✓</td><td>✓</td><td>✓</td><td>✓</td><td>✓</td></tr>
-    <tr><td>RF-DETR</td><td>✓</td><td>✓</td><td></td><td>exp</td><td>✓</td><td></td><td>✓</td><td>✓</td><td></td></tr>
-    <tr><td>YOLOX</td><td>✓</td><td></td><td></td><td>✓</td><td>✓</td><td>✓</td><td>✓</td><td>✓</td><td>✓</td></tr>
-    <tr><td>YOLOv9-E2E</td><td>✓</td><td></td><td></td><td>✓</td><td></td><td></td><td></td><td></td><td></td></tr>
-    <tr><td>YOLO-NAS</td><td>✓</td><td></td><td>✓</td><td>✓</td><td>✓</td><td>✓</td><td>✓</td><td>✓</td><td>✓</td></tr>
-    <tr><td>D-FINE</td><td>✓</td><td></td><td></td><td>exp</td><td>✓</td><td>✓</td><td>✓</td><td>✓</td><td></td></tr>
-    <tr><td>DEIM</td><td>✓</td><td></td><td></td><td>exp</td><td>✓</td><td>✓</td><td>✓</td><td>✓</td><td></td></tr>
-    <tr><td>DEIMv2</td><td>✓</td><td></td><td></td><td>exp</td><td>✓</td><td>✓</td><td>✓</td><td>✓</td><td></td></tr>
-    <tr><td>RT-DETR</td><td>✓</td><td></td><td></td><td>✓</td><td>✓</td><td>✓</td><td>✓</td><td>✓</td><td></td></tr>
-    <tr><td>RT-DETRv2</td><td>✓</td><td></td><td></td><td>exp</td><td></td><td></td><td></td><td></td><td></td></tr>
-    <tr><td>RT-DETRv4</td><td>✓</td><td></td><td></td><td>exp</td><td></td><td></td><td></td><td></td><td></td></tr>
-    <tr><td>PicoDet</td><td>✓</td><td></td><td></td><td>exp</td><td></td><td></td><td></td><td></td><td></td></tr>
-    <tr><td>EC</td><td>✓</td><td>✓</td><td>✓</td><td>exp</td><td></td><td></td><td></td><td></td><td></td></tr>
+    <tr><td>YOLOv9</td><td>✓</td><td>✓</td><td></td><td></td><td></td><td>✓</td><td>✓</td><td>✓</td><td>✓</td><td>✓</td><td>✓</td><td></td></tr>
+    <tr><td>RF-DETR</td><td>✓</td><td>✓</td><td></td><td></td><td></td><td>exp</td><td>✓</td><td>✓</td><td>✓</td><td>✓</td><td></td><td></td></tr>
+    <tr><td>YOLOX</td><td>✓</td><td></td><td></td><td></td><td></td><td>✓</td><td>✓</td><td>✓</td><td>✓</td><td>✓</td><td>✓</td><td></td></tr>
+    <tr><td>YOLOv9-E2E</td><td>✓</td><td></td><td></td><td></td><td></td><td>✓</td><td>✓</td><td>✓</td><td></td><td></td><td></td><td></td></tr>
+    <tr><td>YOLO-NAS</td><td>✓</td><td></td><td>✓</td><td></td><td></td><td>✓</td><td>✓</td><td>✓</td><td>✓</td><td>✓</td><td>✓</td><td></td></tr>
+    <tr><td>D-FINE</td><td>✓</td><td></td><td></td><td></td><td></td><td>exp</td><td>✓</td><td>✓</td><td>✓</td><td>✓</td><td></td><td></td></tr>
+    <tr><td>DEIM</td><td>✓</td><td></td><td></td><td></td><td></td><td>exp</td><td>✓</td><td>✓</td><td>✓</td><td>✓</td><td></td><td></td></tr>
+    <tr><td>DEIMv2</td><td>✓</td><td></td><td></td><td></td><td></td><td>exp</td><td>✓</td><td>✓</td><td>✓</td><td>✓</td><td></td><td></td></tr>
+    <tr><td>RT-DETR</td><td>✓</td><td></td><td></td><td></td><td></td><td>✓</td><td>✓</td><td>✓</td><td>✓</td><td>✓</td><td></td><td></td></tr>
+    <tr><td>RT-DETRv2</td><td>✓</td><td></td><td></td><td></td><td></td><td>exp</td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
+    <tr><td>RT-DETRv4</td><td>✓</td><td></td><td></td><td></td><td></td><td>exp</td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
+    <tr><td>PicoDet</td><td>✓</td><td></td><td></td><td></td><td></td><td>exp</td><td>✓</td><td>✓</td><td></td><td></td><td></td><td></td></tr>
+    <tr><td>DAMO-YOLO</td><td>✓</td><td></td><td></td><td></td><td></td><td>exp</td><td>✓</td><td>✓</td><td>✓</td><td>✓</td><td>✓</td><td></td></tr>
+    <tr><td>RTMDet</td><td>✓</td><td></td><td></td><td></td><td></td><td>exp</td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
+    <tr><td>EC</td><td>✓</td><td>✓</td><td>✓</td><td></td><td></td><td>exp</td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
+    <tr><td>L2CS</td><td></td><td></td><td></td><td></td><td>✓</td><td></td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
   </tbody>
 </table>
 
@@ -91,7 +99,3 @@ and receive the heaviest testing:
 
 - **Code:** MIT License
 - **Weights:** Pre-trained weights may inherit licensing from the original source. Check the license in the specific HF repo of weights that you are interested in. LibreYOLO HF models always have a license.
-
-## Releases
-
-- **v1.1.0** (2026-04-27): New model families (YOLO-NAS, D-FINE, RT-DETR), instance segmentation, ByteTrack tracking, video inference, and a brand-new CLI. [See the release notes](https://github.com/LibreYOLO/libreyolo/releases/tag/v1.1.0).

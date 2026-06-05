@@ -98,10 +98,15 @@ From `libreyolo/tasks.py`:
 | `pose`        | `-pose` |
 | `classify`    | `-cls` |
 | `gaze`        | `-gaze` |
+| `obb`         | `-obb` |
 
 The factory accepts upstream-style aliases (`detection`, `det`, `segmentation`,
 `keypoints`, `cls`, …) at the API boundary; only the canonical names above
 appear in filenames.
+
+Dataset and label contracts are documented in
+[`dataset_schema.md`](dataset_schema.md). No model family supports `obb` until
+it appears in that family's `SUPPORTED_TASKS`.
 
 ## Per-family task support
 
