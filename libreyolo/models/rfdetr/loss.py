@@ -400,7 +400,7 @@ class SetCriterion(nn.Module):
                 # torch.tensor([]) has no grad_fn and silently drops those params from
                 # the backward graph, which violates DDP static_graph=True and causes
                 # a "finished reduction" crash whenever a rank sees an all-unlabeled batch.
-                zero = spatial_features.sum() * 0.0 + query_features.sum() * 0.0 + bias * 0.0
+                zero = spatial_features.sum() * 0.0 + query_features.sum() * 0.0 + bias.sum() * 0.0
                 return {"loss_mask_ce": zero, "loss_mask_dice": zero}
             else:
                 batched_selected_masks = []
