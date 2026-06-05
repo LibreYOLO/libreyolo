@@ -160,7 +160,6 @@ class YOLODataset(Dataset):
         img_files: List[Path] | None = None,
         label_files: List[Path] | None = None,
         load_segments: bool = False,
-        filter_empty_annotations: bool = False,
     ):
         """
         Initialize YOLO dataset.
@@ -172,15 +171,11 @@ class YOLODataset(Dataset):
             preproc: Preprocessing transform.
             img_files: List of image paths (for file list mode).
             label_files: List of label paths (optional, inferred if not provided).
-            filter_empty_annotations: Drop images with no annotations and log a warning.
-                Should be True for segmentation training where unlabeled images provide
-                no gradient signal and can cause DDP static_graph crashes.
         """
         self.img_size = img_size
         self.preproc = preproc
         self._input_dim = img_size
         self.load_segments = load_segments
-        self._filter_empty_annotations = filter_empty_annotations
 
         if img_files is not None:
             # File list mode (.txt format)
@@ -229,25 +224,6 @@ class YOLODataset(Dataset):
 
         # Pre-load annotations
         self.annotations = self._load_annotations()
-
-        if self._filter_empty_annotations:
-            keep = [i for i, ann in enumerate(self.annotations) if ann[0].shape[0] > 0]
-            dropped = self.num_imgs - len(keep)
-            if dropped > 0 and is_main_process():
-                logger.warning(
-                    "Dropped %d image(s) with no annotations (filter_empty_annotations=True). "
-                    "%d image(s) remain.",
-                    dropped,
-                    len(keep),
-                )
-            self.annotations = [self.annotations[i] for i in keep]
-            self.img_files = [self.img_files[i] for i in keep]
-            self.label_files = [self.label_files[i] for i in keep]
-            if self.segments is not None:
-                self.segments = [self.segments[i] for i in keep]
-            self.num_imgs = len(self.annotations)
-            if self.num_imgs == 0:
-                raise ValueError("No labeled images remain after filtering empty annotations.")
 
     def _load_annotations(self) -> List:
         """Load all annotations."""
