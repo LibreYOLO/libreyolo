@@ -22,7 +22,7 @@ MIT-licensed computer vision library with inference and training support for a v
 pip install libreyolo
 ```
 
-To install the latest `main` in editable mode (for development or to track unreleased changes):
+To install from source in editable mode (for development or to track unreleased changes):
 
 ```bash
 git clone https://github.com/LibreYOLO/libreyolo.git
