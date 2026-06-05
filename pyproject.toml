@@ -59,6 +59,11 @@ ncnn = [
     "pnnx",
     "ncnn",
 ]
+tflite = [
+    "libreyolo[onnx]",
+    # onnx2tf 2.4.x requires Python 3.12+.
+    "onnx2tf>=2.4.1; python_version >= '3.12'",
+]
 tracking = []
 rtdetr = []
 gaze = [
@@ -199,6 +204,7 @@ markers = [
     "trt: alias for TensorRT tests requiring TensorRT",
     "openvino: tests requiring OpenVINO",
     "ncnn: tests requiring ncnn",
+    "tflite: tests requiring TensorFlow Lite export",
     "coreml: tests requiring CoreML (macOS only)",
     "yolox: tests covering the YOLOX model family",
     "yolo9: tests covering the YOLO9 model family",

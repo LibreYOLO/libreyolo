@@ -18,7 +18,8 @@ from ..output import OutputHandler
 def export_cmd(
     model: str = typer.Option(..., help="Model weights (.pt)"),
     format: str = typer.Option(
-        "onnx", help="Export format: onnx, torchscript, tensorrt, openvino, ncnn"
+        "onnx",
+        help="Export format: onnx, torchscript, tensorrt, openvino, ncnn, tflite",
     ),
     imgsz: Optional[int] = typer.Option(None, help="Input image size"),
     batch: int = typer.Option(1, help="Export batch size"),

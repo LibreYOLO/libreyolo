@@ -15,6 +15,7 @@ from libreyolo.export.exporter import (
     OnnxExporter,
     OpenVINOExporter,
     TensorRTExporter,
+    TFLiteExporter,
     TorchScriptExporter,
 )
 from libreyolo.export.onnx import export_onnx
@@ -88,6 +89,7 @@ class TestExporterFormats:
         assert "tensorrt" in BaseExporter._registry
         assert "openvino" in BaseExporter._registry
         assert "ncnn" in BaseExporter._registry
+        assert "tflite" in BaseExporter._registry
 
     def test_suffix_present(self):
         for cls in BaseExporter._registry.values():
@@ -98,6 +100,8 @@ class TestExporterFormats:
         assert TensorRTExporter.requires_onnx is True
         assert TorchScriptExporter.apply_model_half is True
         assert NcnnExporter.supports_int8 is False
+        assert TFLiteExporter.requires_onnx is True
+        assert TFLiteExporter.supports_fp16 is False
 
     def test_metadata_includes_task_contract(self):
         wrapper = _make_wrapper()

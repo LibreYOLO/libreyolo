@@ -159,59 +159,61 @@ class BaseExporter(ABC):
         Path(output_path).parent.mkdir(parents=True, exist_ok=True)
 
         precision = _resolve_precision(half, int8)
+        onnx_path = None
 
-        with self._model_context(device, half, batch, imgsz) as (nn_model, dummy):
-            calibration_data = (
-                self._load_calibration(
-                    data,
-                    imgsz,
-                    batch,
-                    fraction,
-                    allow_download_scripts,
+        try:
+            with self._model_context(device, half, batch, imgsz) as (nn_model, dummy):
+                calibration_data = (
+                    self._load_calibration(
+                        data,
+                        imgsz,
+                        batch,
+                        fraction,
+                        allow_download_scripts,
+                    )
+                    if int8 and data is not None
+                    else None
                 )
-                if int8 and data is not None
-                else None
-            )
 
-            onnx_path = (
-                self._export_intermediate_onnx(
+                onnx_path = (
+                    self._export_intermediate_onnx(
+                        nn_model,
+                        dummy,
+                        output_path,
+                        opset,
+                        simplify,
+                        dynamic,
+                    )
+                    if self.requires_onnx
+                    else None
+                )
+
+                metadata = self._build_metadata(
+                    precision,
+                    dynamic,
+                    onnx_path,
+                    imgsz=imgsz,
+                )
+
+                result = self._export(
                     nn_model,
                     dummy,
-                    output_path,
-                    opset,
-                    simplify,
-                    dynamic,
+                    output_path=output_path,
+                    precision=precision,
+                    metadata=metadata,
+                    calibration_data=calibration_data,
+                    onnx_path=onnx_path,
+                    half=half,
+                    int8=int8,
+                    dynamic=dynamic,
+                    opset=opset,
+                    simplify=simplify,
+                    verbose=verbose,
+                    **kwargs,
                 )
-                if self.requires_onnx
-                else None
-            )
-
-            metadata = self._build_metadata(
-                precision,
-                dynamic,
-                onnx_path,
-                imgsz=imgsz,
-            )
-
-            result = self._export(
-                nn_model,
-                dummy,
-                output_path=output_path,
-                precision=precision,
-                metadata=metadata,
-                calibration_data=calibration_data,
-                onnx_path=onnx_path,
-                half=half,
-                int8=int8,
-                dynamic=dynamic,
-                opset=opset,
-                simplify=simplify,
-                verbose=verbose,
-                **kwargs,
-            )
-
-        if onnx_path and Path(onnx_path).exists():
-            Path(onnx_path).unlink()
+        finally:
+            if onnx_path and Path(onnx_path).exists():
+                Path(onnx_path).unlink()
 
         self._print_summary(result, precision, imgsz)
         return result
@@ -769,6 +771,74 @@ class NcnnExporter(BaseExporter):
             half=half,
             opset=opset,
             simplify=simplify,
+            metadata=metadata,
+        )
+
+
+class TFLiteExporter(BaseExporter):
+    format_name = "tflite"
+    suffix = ".tflite"
+    requires_onnx = True
+    supports_int8 = False
+    supports_fp16 = False
+    apply_model_half = False
+
+    def __call__(self, *args, dynamic: bool = False, **kwargs) -> str:
+        if dynamic:
+            raise ValueError("TFLite export requires static input shapes.")
+        from .tflite import ensure_tflite_family_supported
+
+        ensure_tflite_family_supported(
+            self.model._get_model_name(),
+            getattr(self.model, "task", "detect"),
+        )
+        return super().__call__(*args, dynamic=False, **kwargs)
+
+    def _validate(self, half: bool, int8: bool, data: Optional[str]):
+        if half:
+            raise ValueError(
+                "TFLite FP16 export is not supported yet. Omit half=True for FP32."
+            )
+        if int8:
+            raise ValueError(
+                "TFLite INT8 quantization is not supported yet. "
+                "Omit int8=True for FP32."
+            )
+        return super()._validate(half, int8, data)
+
+    def _preflight(self, **kwargs):
+        from .tflite import check_tflite_export_available
+
+        check_tflite_export_available()
+        super()._preflight(**kwargs)
+
+    def _export(
+        self,
+        nn_model,
+        dummy,
+        *,
+        output_path,
+        metadata,
+        onnx_path,
+        half,
+        verbose,
+        onnx2tf_args=None,
+        **kwargs,
+    ):
+        from .tflite import ensure_tflite_family_supported, export_tflite
+
+        ensure_tflite_family_supported(
+            metadata.get("model_family") if metadata else None,
+            metadata.get("task") if metadata else None,
+        )
+
+        logger.info("Step 2/2: Converting to TensorFlow Lite")
+        return export_tflite(
+            onnx_path=onnx_path,
+            output_path=output_path,
+            half=half,
+            verbose=verbose,
+            onnx2tf_args=onnx2tf_args,
             metadata=metadata,
         )
 

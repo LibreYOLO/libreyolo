@@ -850,7 +850,7 @@ class BaseModel(ABC):
 
         Args:
             format: Target format ("onnx", "torchscript", "tensorrt",
-                "openvino", "ncnn").
+                "openvino", "ncnn", "tflite").
             **kwargs: Format-specific parameters forwarded to the exporter.
 
         Returns:
