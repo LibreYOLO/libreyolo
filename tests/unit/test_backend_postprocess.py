@@ -3,6 +3,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+import libreyolo.backends.base as backend_base
 from libreyolo.backends.base import BaseBackend
 
 pytestmark = pytest.mark.unit
@@ -194,6 +195,51 @@ def test_yolo9_backend_parse_uses_letterbox_inverse():
     np.testing.assert_allclose(boxes, [[0.0, 0.0, 640.0, 640.0]])
     np.testing.assert_allclose(scores, [0.9])
     np.testing.assert_array_equal(classes, [0])
+
+
+def test_yolo9_backend_parse_detection_is_multilabel():
+    backend = _DummyBackend("yolo9")
+    pred = np.zeros((1, 6, 1), dtype=np.float32)
+    pred[0, :4, 0] = [0.0, 0.0, 100.0, 100.0]
+    pred[0, 4:, 0] = [0.9, 0.8]
+
+    boxes, scores, classes, masks = backend._parse_outputs(
+        [pred], 100, (100, 100), conf=0.25
+    )
+
+    assert masks is None
+    np.testing.assert_allclose(boxes, [[0.0, 0.0, 100.0, 100.0]] * 2)
+    np.testing.assert_allclose(np.sort(scores), [0.8, 0.9])
+    np.testing.assert_array_equal(np.sort(classes), [0, 1])
+
+
+def test_yolo9_backend_parse_caps_multilabel_candidates(monkeypatch):
+    monkeypatch.setattr(backend_base, "_YOLO9_MAX_NMS_CANDIDATES", 3)
+    backend = _DummyBackend("yolo9")
+    pred = np.zeros((1, 6, 4), dtype=np.float32)
+    pred[0, :4] = np.array(
+        [
+            [0.0, 20.0, 40.0, 60.0],
+            [0.0, 0.0, 0.0, 0.0],
+            [10.0, 30.0, 50.0, 70.0],
+            [10.0, 10.0, 10.0, 10.0],
+        ],
+        dtype=np.float32,
+    )
+    pred[0, 4:] = np.array(
+        [[0.1, 0.9, 0.7, 0.5], [0.8, 0.2, 0.6, 0.4]], dtype=np.float32
+    )
+
+    boxes, scores, classes, masks = backend._parse_outputs(
+        [pred], 80, (80, 80), conf=0.01
+    )
+
+    assert masks is None
+    assert boxes.shape[0] == 3
+    np.testing.assert_allclose(
+        np.sort(scores), [0.7, 0.8, 0.9], rtol=0, atol=1e-6
+    )
+    np.testing.assert_array_equal(classes, [0, 1, 0])
 
 
 def test_damoyolo_backend_preprocess_uses_stretch_resize():
