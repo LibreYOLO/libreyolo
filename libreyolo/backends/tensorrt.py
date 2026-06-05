@@ -131,7 +131,7 @@ class TensorRTBackend(BaseBackend):
             model_family,
             artifact=f"TensorRT metadata sidecar {sidecar_path}",
         )
-        imgsz = metadata_imgsz or self._read_static_input_imgsz(self.input_shape) or 640
+        imgsz = self._read_static_input_imgsz(self.input_shape) or metadata_imgsz or 640
         if not self._metadata:
             inferred_task = self._detect_task_from_filename()
             if inferred_task is not None:
@@ -363,7 +363,7 @@ class TensorRTBackend(BaseBackend):
                 color_format=color_format,
             )
 
-        effective_imgsz = imgsz if imgsz is not None else self.imgsz
+        effective_imgsz = self._resolve_predict_imgsz(imgsz)
         results = []
 
         for i in range(0, len(image_paths), effective_batch):

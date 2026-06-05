@@ -221,6 +221,12 @@ def test_backend_rejects_rectangular_imgsz_for_non_yolo9_family():
         backend._resolve_predict_imgsz((320, 640))
 
 
+def test_backend_rectangular_imgsz_guard_normalizes_family_name():
+    backend = _DummyBackend("YOLO9", imgsz=(320, 640))
+
+    assert backend._resolve_predict_imgsz() == (320, 640)
+
+
 def test_backend_metadata_rejects_rectangular_non_yolo9_family():
     from libreyolo.backends.base import _read_metadata_imgsz
 
@@ -230,6 +236,20 @@ def test_backend_metadata_rejects_rectangular_non_yolo9_family():
             "yolox",
             artifact="test metadata",
         )
+
+
+@pytest.mark.parametrize(
+    "metadata",
+    [
+        {"imgsz": "640", "imgsz_h": "320"},
+        {"imgsz": "640", "imgsz_w": "640"},
+    ],
+)
+def test_backend_metadata_rejects_partial_rectangular_imgsz(metadata):
+    from libreyolo.backends.base import _read_metadata_imgsz
+
+    with pytest.raises(ValueError, match="both imgsz_h and imgsz_w"):
+        _read_metadata_imgsz(metadata, "yolo9", artifact="test metadata")
 
 
 def test_yolo9_backend_predict_uses_rectangular_default_imgsz(monkeypatch):

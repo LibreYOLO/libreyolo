@@ -67,7 +67,14 @@ def _read_metadata_imgsz(
     only allowed to describe rectangular runtime inputs for backend families
     that explicitly support them.
     """
-    if "imgsz_h" in meta and "imgsz_w" in meta:
+    has_imgsz_h = "imgsz_h" in meta
+    has_imgsz_w = "imgsz_w" in meta
+    if has_imgsz_h != has_imgsz_w:
+        raise ValueError(
+            f"{artifact} must define both imgsz_h and imgsz_w, or neither."
+        )
+
+    if has_imgsz_h and has_imgsz_w:
         try:
             imgsz = _normalize_imgsz((int(meta["imgsz_h"]), int(meta["imgsz_w"])))
         except (TypeError, ValueError) as e:
@@ -1075,7 +1082,7 @@ class BaseBackend(ABC):
         effective = _normalize_imgsz(imgsz if imgsz is not None else self.imgsz)
         if (
             _is_rectangular_imgsz(effective)
-            and self.model_family not in _RECTANGULAR_BACKEND_FAMILIES
+            and (self.model_family or "").lower() not in _RECTANGULAR_BACKEND_FAMILIES
         ):
             raise NotImplementedError(
                 "Rectangular imgsz backend inference is currently supported "

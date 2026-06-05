@@ -79,10 +79,10 @@ class OnnxBackend(BaseBackend):
         ) = self._read_onnx_metadata(onnx_path, nb_classes)
         input_shape = self.session.get_inputs()[0].shape
         static_imgsz = self._read_static_input_imgsz(input_shape)
-        if metadata_imgsz is not None:
-            imgsz = metadata_imgsz
-        elif static_imgsz is not None:
+        if static_imgsz is not None:
             imgsz = static_imgsz
+        elif metadata_imgsz is not None:
+            imgsz = metadata_imgsz
         else:
             imgsz = 640  # dynamic shape without metadata; use default
         resolved_task = resolve_task(

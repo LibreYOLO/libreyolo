@@ -402,6 +402,33 @@ class TestExporterFormats:
 
         assert OnnxBackend._read_onnx_metadata(str(output_path), 4)[-1] == (16, 32)
 
+    def test_onnx_backend_prefers_rectangular_static_shape_over_legacy_scalar(
+        self, tmp_path
+    ):
+        pytest.importorskip("onnx")
+        pytest.importorskip("onnxruntime")
+        output_path = tmp_path / "rectangular_stale_scalar.onnx"
+
+        export_onnx(
+            _TinyModel(),
+            torch.zeros(1, 3, 16, 32),
+            output_path=str(output_path),
+            opset=13,
+            simplify=False,
+            dynamic=False,
+            half=False,
+            metadata={
+                "model_family": "yolo9",
+                "imgsz": "32",
+                "nc": "4",
+            },
+        )
+
+        from libreyolo.backends.onnx import OnnxBackend
+
+        backend = OnnxBackend(str(output_path), nb_classes=4)
+        assert backend.imgsz == (16, 32)
+
     def test_torchscript_backend_reads_rectangular_metadata(self, tmp_path):
         wrapper = _make_wrapper(model_name="yolo9", input_size=32)
         output_path = tmp_path / "rectangular.torchscript"
