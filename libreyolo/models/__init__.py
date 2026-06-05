@@ -192,7 +192,8 @@ def LibreYOLO(
         reg_max: Regression max for DFL (YOLOv9 only, default: 16).
         nb_classes: Number of classes (auto-detected if omitted).
         device: Device for inference ("auto", "cuda", "cpu", "mps").
-        task: Optional explicit task ("detect", "segment", "pose", "classify").
+        task: Optional explicit task ("detect", "segment", "pose", "classify",
+              "gaze", "obb").
         compute_units: CoreML-only — Apple silicon routing for .mlpackage loads.
                        One of "all", "cpu_only", "cpu_and_gpu", "cpu_and_ne".
                        Ignored for non-CoreML formats.
