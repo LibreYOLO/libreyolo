@@ -104,9 +104,9 @@ The factory accepts upstream-style aliases (`detection`, `det`, `segmentation`,
 `keypoints`, `cls`, …) at the API boundary; only the canonical names above
 appear in filenames.
 
-The OBB dataset and label contract is documented in
-[`obb_dataset_schema.md`](obb_dataset_schema.md). No model family supports
-`obb` until it appears in that family's `SUPPORTED_TASKS`.
+Dataset and label contracts are documented in
+[`dataset_schema.md`](dataset_schema.md). No model family supports `obb` until
+it appears in that family's `SUPPORTED_TASKS`.
 
 ## Per-family task support
 
