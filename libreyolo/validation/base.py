@@ -94,9 +94,6 @@ class BaseValidator(ABC):
         }
 
         self._init_metrics()
-        if hasattr(self.model.model, "to"):
-            self.model.model.to(self.device)
-            self.model.device = self.device
         self._warmup_model()
 
         if self.config.verbose:

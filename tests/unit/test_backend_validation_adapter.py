@@ -135,49 +135,24 @@ def test_set_device_does_not_call_to_on_backend_proxy():
     assert fake_model.device == torch.device("cuda:0")
 
 
-def test_validator_setup_does_not_overwrite_backend_device():
-    """When model.model is a _BackendEvalProxy, _setup() must not touch model.device."""
+def test_l2cs_set_device_does_not_call_to_on_backend_proxy():
+    """GazeInferenceRunner._set_device must also tolerate _BackendEvalProxy."""
     from types import SimpleNamespace
-    from unittest.mock import MagicMock, patch
+    from unittest.mock import patch
 
     from libreyolo.backends.base import _BackendEvalProxy
-    from libreyolo.validation.base import BaseValidator
-    from libreyolo.validation.config import ValidationConfig
-
-    class _StubValidator(BaseValidator):
-        def _setup_dataloader(self): return MagicMock(__len__=lambda s: 0)
-        def _init_metrics(self): pass
-        def _preprocess_batch(self, b): pass
-        def _postprocess_predictions(self, p, b): pass
-        def _update_metrics(self, p, t, i, ids=None): pass
-        def _compute_metrics(self): return {}
+    from libreyolo.models.l2cs.inference import GazeInferenceRunner
 
     proxy = _BackendEvalProxy()
-    original_device = torch.device("cpu")
     fake_model = SimpleNamespace(
-        device=original_device,
+        device=torch.device("cpu"),
         model=proxy,
-        _get_model_name=lambda: "test",
-        size="n",
     )
 
-    config = ValidationConfig(data="x.yaml", device="cpu")
-    v = _StubValidator.__new__(_StubValidator)
-    v.model = fake_model
-    v.config = config
-    v.device = torch.device("cpu")
-    v.dataloader = None
-    v.seen = 0
-    v.speed = {"preprocess": 0.0, "inference": 0.0, "postprocess": 0.0, "total": 0.0}
-    v.save_dir = None
+    runner = object.__new__(GazeInferenceRunner)
+    runner.model = fake_model
 
-    with (
-        patch.object(v, "_setup_dataloader", return_value=MagicMock()),
-        patch.object(v, "_init_metrics"),
-        patch.object(v, "_warmup_model"),
-        patch("pathlib.Path.mkdir"),
-    ):
-        v._setup()
+    with patch("torch.cuda.is_available", return_value=True):
+        runner._set_device("cuda:0")
 
-    # proxy has no .to() so model.device must be unchanged
-    assert fake_model.device is original_device
+    assert fake_model.device == torch.device("cuda:0")
