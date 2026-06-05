@@ -55,6 +55,10 @@ def _is_rectangular_imgsz(imgsz: ImageSize) -> bool:
     return h != w
 
 
+class MetadataImageSizeError(ValueError):
+    """Raised when exported input-size metadata is malformed."""
+
+
 def _read_metadata_imgsz(
     meta: dict,
     model_family: Optional[str],
@@ -70,7 +74,7 @@ def _read_metadata_imgsz(
     has_imgsz_h = "imgsz_h" in meta
     has_imgsz_w = "imgsz_w" in meta
     if has_imgsz_h != has_imgsz_w:
-        raise ValueError(
+        raise MetadataImageSizeError(
             f"{artifact} must define both imgsz_h and imgsz_w, or neither."
         )
 
@@ -78,7 +82,7 @@ def _read_metadata_imgsz(
         try:
             imgsz = _normalize_imgsz((int(meta["imgsz_h"]), int(meta["imgsz_w"])))
         except (TypeError, ValueError) as e:
-            raise ValueError(
+            raise MetadataImageSizeError(
                 f"{artifact} has invalid imgsz_h/imgsz_w metadata."
             ) from e
         if (
@@ -96,7 +100,9 @@ def _read_metadata_imgsz(
         try:
             return _normalize_imgsz(int(meta["imgsz"]))
         except (TypeError, ValueError) as e:
-            raise ValueError(f"{artifact} has invalid imgsz metadata.") from e
+            raise MetadataImageSizeError(
+                f"{artifact} has invalid imgsz metadata."
+            ) from e
 
     return None
 

@@ -8,7 +8,7 @@ import numpy as np
 from ..tasks import normalize_supported_tasks, normalize_task, resolve_task
 from ..utils.general import COCO_CLASSES
 from ..utils.serialization import warn_on_metadata_schema_version
-from .base import BaseBackend, ImageSize, _read_metadata_imgsz
+from .base import BaseBackend, ImageSize, MetadataImageSizeError, _read_metadata_imgsz
 
 logger = logging.getLogger(__name__)
 
@@ -172,7 +172,7 @@ class OnnxBackend(BaseBackend):
                     names = {i: n for i, n in enumerate(COCO_CLASSES)}
                 else:
                     names = {i: f"class_{i}" for i in range(nc)}
-        except NotImplementedError:
+        except (NotImplementedError, MetadataImageSizeError):
             raise
         except Exception as e:
             logger.warning("Failed to read ONNX metadata from %s: %s", onnx_path, e)
