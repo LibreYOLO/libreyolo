@@ -311,6 +311,20 @@ class TestYOLO9Utils:
             torch.full((3, 4, 8), 114 / 255.0, dtype=tensor.dtype),
         )
 
+    def test_preprocess_image_accepts_rectangular_input_size(self):
+        img = np.zeros((4, 8, 3), dtype=np.uint8)
+
+        tensor, _, original_size = yolo9_utils.preprocess_image(
+            img, input_size=(8, 16), color_format="rgb"
+        )
+
+        assert original_size == (8, 4)
+        assert tensor.shape == (1, 3, 8, 16)
+        torch.testing.assert_close(
+            tensor[0, :, :, :16],
+            torch.zeros((3, 8, 16), dtype=tensor.dtype),
+        )
+
     def test_postprocess_defaults_to_letterbox_inverse(self):
         """YOLO9 postprocess default matches letterboxed predict inputs."""
         pred = torch.zeros(1, 6, 1)
@@ -327,6 +341,23 @@ class TestYOLO9Utils:
         torch.testing.assert_close(
             torch.as_tensor(out["boxes"]),
             torch.tensor([[0.0, 0.0, 640.0, 640.0]]),
+        )
+
+    def test_postprocess_accepts_rectangular_input_size(self):
+        pred = torch.zeros(1, 6, 1)
+        pred[0, :4, 0] = torch.tensor([0.0, 0.0, 320.0, 320.0])
+        pred[0, 4, 0] = 0.9
+
+        out = yolo9_utils.postprocess(
+            {"predictions": pred},
+            input_size=(320, 640),
+            original_size=(1280, 960),
+        )
+
+        assert out["num_detections"] == 1
+        torch.testing.assert_close(
+            torch.as_tensor(out["boxes"]),
+            torch.tensor([[0.0, 0.0, 960.0, 960.0]]),
         )
 
     def test_postprocess_detection_is_multilabel(self):

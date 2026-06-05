@@ -112,6 +112,12 @@ def test_tensorrt_dynamic_max_batch_falls_back_to_metadata():
     assert backend._detect_max_batch() == 12
 
 
+def test_tensorrt_backend_reads_static_input_imgsz():
+    assert TensorRTBackend._read_static_input_imgsz((1, 3, 64, 64)) == 64
+    assert TensorRTBackend._read_static_input_imgsz((1, 3, 32, 64)) == (32, 64)
+    assert TensorRTBackend._read_static_input_imgsz((-1, 3, -1, -1)) is None
+
+
 def test_tensorrt_dynamic_batching_caps_requested_batch_to_profile():
     backend = _bare_tensorrt_backend("LibreRFDETR_s.engine", model_family="rfdetr")
     backend._dynamic_batch = True

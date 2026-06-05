@@ -53,9 +53,10 @@ graph exports, exporters may dual-write `imgsz_h` and `imgsz_w` next to the
 legacy scalar `imgsz`; readers that do not understand the rectangular fields
 must not silently treat the scalar as a square runtime contract.
 
-Until rectangular backend inference is fully implemented, LibreYOLO backends
-reject non-square `imgsz_h/imgsz_w` metadata instead of preprocessing those
-artifacts as square inputs.
+Backend support for rectangular runtime metadata is family- and format-scoped.
+YOLO9-family exports may use non-square `imgsz_h/imgsz_w` in supported runtime
+formats; families or formats without explicit rectangular support must reject
+the metadata instead of preprocessing those artifacts as square inputs.
 
 ## Training Checkpoints
 

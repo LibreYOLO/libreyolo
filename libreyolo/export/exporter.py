@@ -51,6 +51,17 @@ _FIXED_SQUARE_EXPORT_FAMILIES = {
     "rtdetr",
     "rtdetrv2",
     "rtdetrv4",
+    "rfdetr",
+}
+_RECTANGULAR_EXPORT_FAMILIES = {"yolo9", "yolo9_e2e"}
+_RECTANGULAR_EXPORT_FORMATS = {
+    "coreml",
+    "ncnn",
+    "onnx",
+    "openvino",
+    "tensorrt",
+    "tflite",
+    "torchscript",
 }
 
 
@@ -179,11 +190,10 @@ class BaseExporter(ABC):
 
         try:
             with self._model_context(device, half, batch, imgsz) as (nn_model, dummy):
-                calib_imgsz = imgsz[0] if isinstance(imgsz, tuple) else imgsz
                 calibration_data = (
                     self._load_calibration(
                         data,
-                        calib_imgsz,
+                        imgsz,
                         batch,
                         fraction,
                         allow_download_scripts,
@@ -308,17 +318,24 @@ class BaseExporter(ABC):
         if _is_rectangular_imgsz(imgsz) and model_name in _FIXED_SQUARE_EXPORT_FAMILIES:
             raise NotImplementedError(
                 f"Rectangular imgsz export is not supported for {model_name}: "
-                "this family uses fixed square export spatial metadata/anchors. "
+                "this family uses a fixed square export/preprocessing spatial contract. "
                 "Use the native square imgsz for now."
             )
-        if _is_rectangular_imgsz(imgsz) and self.format_name not in {
-            "onnx",
-            "torchscript",
-        }:
+        if (
+            _is_rectangular_imgsz(imgsz)
+            and model_name not in _RECTANGULAR_EXPORT_FAMILIES
+        ):
             raise NotImplementedError(
-                "Rectangular imgsz export is currently limited to ONNX and "
-                "TorchScript graph export. Runtime-format export and backend "
-                "round-trip support will be handled separately."
+                "Rectangular imgsz export is currently supported for "
+                "YOLO9-family exports only."
+            )
+        if (
+            _is_rectangular_imgsz(imgsz)
+            and self.format_name not in _RECTANGULAR_EXPORT_FORMATS
+        ):
+            raise NotImplementedError(
+                f"Rectangular imgsz export is not validated for format "
+                f"{self.format_name!r}."
             )
         if device is None or str(device).lower() == "auto":
             if self.model._get_model_name() == "rfdetr":

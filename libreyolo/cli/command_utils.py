@@ -2,7 +2,7 @@
 
 import json
 from pathlib import Path
-from typing import Any, NoReturn, Optional, Set
+from typing import Any, NoReturn, Optional, Set, Tuple, Union
 
 import click
 import typer
@@ -67,30 +67,42 @@ def get_loaded_model_family(loaded_model: Any) -> Optional[str]:
     return None
 
 
+ImageSize = Union[int, Tuple[int, int]]
+
+
+def _coerce_input_size(value: Any) -> ImageSize:
+    if isinstance(value, tuple):
+        if len(value) != 2:
+            raise ValueError(f"input size must be int or (height, width), got {value}")
+        h, w = int(value[0]), int(value[1])
+        return h if h == w else (h, w)
+    return int(value)
+
+
 def get_loaded_model_input_size(
     loaded_model: Any,
     *,
-    imgsz: Optional[int] = None,
+    imgsz: Optional[ImageSize] = None,
     default: int = 640,
-) -> int:
-    """Return the effective square input size for wrapper or backend output."""
+) -> ImageSize:
+    """Return the effective input size for wrapper or backend output."""
     if imgsz is not None:
-        return int(imgsz)
+        return _coerce_input_size(imgsz)
 
     get_input_size = getattr(loaded_model, "_get_input_size", None)
     if callable(get_input_size):
         try:
-            return int(get_input_size())
+            return _coerce_input_size(get_input_size())
         except Exception:
             pass
 
     input_size = getattr(loaded_model, "input_size", None)
     if input_size is not None:
-        return int(input_size)
+        return _coerce_input_size(input_size)
 
     backend_imgsz = getattr(loaded_model, "imgsz", None)
     if backend_imgsz is not None:
-        return int(backend_imgsz)
+        return _coerce_input_size(backend_imgsz)
 
     input_sizes = getattr(loaded_model, "INPUT_SIZES", None)
     size = getattr(loaded_model, "size", None)

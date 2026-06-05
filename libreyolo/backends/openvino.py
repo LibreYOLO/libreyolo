@@ -8,7 +8,7 @@ import numpy as np
 
 from ..tasks import normalize_supported_tasks, normalize_task, resolve_task
 from ..utils.serialization import warn_on_metadata_schema_version
-from .base import BaseBackend
+from .base import BaseBackend, ImageSize, _read_metadata_imgsz
 
 logger = logging.getLogger(__name__)
 
@@ -120,7 +120,7 @@ class OpenVINOBackend(BaseBackend):
         )
 
     @staticmethod
-    def _read_static_input_imgsz(ov_model) -> int | None:
+    def _read_static_input_imgsz(ov_model) -> ImageSize | None:
         try:
             input_shape = ov_model.inputs[0].shape
         except RuntimeError:
@@ -128,9 +128,11 @@ class OpenVINOBackend(BaseBackend):
             # use the exported metadata size read before compiling.
             return None
 
-        input_h = input_shape[2] if len(input_shape) == 4 else None
-        if isinstance(input_h, int) and input_h > 0:
-            return input_h
+        if len(input_shape) != 4:
+            return None
+        h, w = input_shape[2], input_shape[3]
+        if isinstance(h, int) and isinstance(w, int) and h > 0 and w > 0:
+            return h if h == w else (h, w)
         return None
 
     @staticmethod
@@ -155,7 +157,14 @@ class OpenVINOBackend(BaseBackend):
         default_task = normalize_task(meta.get("default_task"), default="detect")
         task = normalize_task(meta.get("task"), default=default_task)
         supported_tasks = normalize_supported_tasks(meta.get("supported_tasks", (task,)))
-        imgsz = int(meta["imgsz"]) if "imgsz" in meta else 640
+        imgsz = (
+            _read_metadata_imgsz(
+                meta,
+                model_family,
+                artifact=f"OpenVINO metadata sidecar {metadata_path}",
+            )
+            or 640
+        )
 
         if nb_classes_override is not None:
             nb_classes = nb_classes_override

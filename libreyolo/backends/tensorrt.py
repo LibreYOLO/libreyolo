@@ -11,7 +11,7 @@ import torch
 
 from ..tasks import normalize_supported_tasks, normalize_task, resolve_task
 from ..utils.serialization import warn_on_metadata_schema_version
-from .base import BaseBackend
+from .base import BaseBackend, ImageSize, _read_metadata_imgsz
 
 logger = logging.getLogger(__name__)
 
@@ -55,6 +55,7 @@ class TensorRTBackend(BaseBackend):
         if not Path(engine_path).exists():
             raise FileNotFoundError(f"TensorRT engine not found: {engine_path}")
 
+        self.model_path = str(engine_path)
         sidecar_path = Path(str(engine_path) + ".json")
         self._metadata = {}
         if sidecar_path.exists():
@@ -118,7 +119,6 @@ class TensorRTBackend(BaseBackend):
         if self.input_name is None:
             raise RuntimeError("No input tensor found in TensorRT engine")
 
-        imgsz = self.input_shape[2]  # (B, C, H, W); assumes square
         self._dynamic_batch = self.input_shape[0] == -1  # -1 = dynamic batch
         self._max_batch = self._detect_max_batch()
 
@@ -126,6 +126,12 @@ class TensorRTBackend(BaseBackend):
 
         if model_family is None:
             model_family = self._detect_model_family()
+        metadata_imgsz = _read_metadata_imgsz(
+            self._metadata,
+            model_family,
+            artifact=f"TensorRT metadata sidecar {sidecar_path}",
+        )
+        imgsz = metadata_imgsz or self._read_static_input_imgsz(self.input_shape) or 640
         if not self._metadata:
             inferred_task = self._detect_task_from_filename()
             if inferred_task is not None:
@@ -156,6 +162,15 @@ class TensorRTBackend(BaseBackend):
     # =========================================================================
     # TensorRT-specific internals
     # =========================================================================
+
+    @staticmethod
+    def _read_static_input_imgsz(input_shape) -> ImageSize | None:
+        if len(input_shape) != 4:
+            return None
+        h, w = input_shape[2], input_shape[3]
+        if isinstance(h, int) and isinstance(w, int) and h > 0 and w > 0:
+            return h if h == w else (h, w)
+        return None
 
     def _allocate_buffers(self, batch_size: int = 1):
         """Allocate CUDA memory for input and output tensors."""
@@ -314,7 +329,7 @@ class TensorRTBackend(BaseBackend):
         output_path: str | None = None,
         conf: float = 0.25,
         iou: float = 0.45,
-        imgsz: Optional[int] = None,
+        imgsz: Optional[ImageSize] = None,
         classes: Optional[List[int]] = None,
         max_det: int = 300,
         color_format: str = "auto",
@@ -449,6 +464,6 @@ class TensorRTBackend(BaseBackend):
             return "ec"
         return "libreyolo"
 
-    def _get_input_size(self) -> int:
+    def _get_input_size(self) -> ImageSize:
         """Return model input size."""
         return self.imgsz

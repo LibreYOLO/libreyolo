@@ -32,6 +32,24 @@ class _Backend(BaseBackend):
         ]
 
 
+class _YoloRectBackend(BaseBackend):
+    def __init__(self):
+        super().__init__(
+            model_path="model.onnx",
+            nb_classes=2,
+            device="cpu",
+            imgsz=(32, 64),
+            model_family="yolo9",
+            names={0: "fire", 1: "smoke"},
+            task="detect",
+            supported_tasks=("detect",),
+            default_task="detect",
+        )
+
+    def _run_inference(self, blob: np.ndarray) -> list:
+        return [np.zeros((blob.shape[0], 6, 0), dtype=np.float32)]
+
+
 def test_backend_val_uses_exported_model_adapter(monkeypatch):
     captured = {}
 
@@ -69,6 +87,11 @@ def test_backend_val_uses_exported_model_adapter(monkeypatch):
 def test_backend_val_rejects_augment():
     with pytest.raises(ValueError, match="Augmented validation"):
         _Backend().val(data="data.yaml", augment=True)
+
+
+def test_backend_val_rejects_rectangular_imgsz():
+    with pytest.raises(NotImplementedError, match="Rectangular exported-backend validation"):
+        _YoloRectBackend().val(data="data.yaml", device="cpu")
 
 
 def test_backend_forward_falls_back_for_fixed_batch_exports():
