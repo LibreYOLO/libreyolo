@@ -99,18 +99,20 @@ names:
 # Download script (VALIDATION ONLY - only downloads val2017)
 download: |
   from pathlib import Path
-  from libreyolo.data.utils import ASSETS_URL, download
+  from libreyolo.data.utils import download
+
+  COCO2017_HF_URL = "https://huggingface.co/datasets/LibreYOLO/coco2017/resolve/main"
 
   dir = Path(yaml["path"])
 
-  # Download annotations (COCO JSON) - required for proper COCO evaluation
+  # Download annotations (COCO JSON) - required for proper COCO evaluation.
   download(
-      [ASSETS_URL + "/instances_val2017.json"],
+      [COCO2017_HF_URL + "/instances_val2017.json"],
       dir=dir / "annotations",
   )
 
-  # Download labels (YOLO format) - includes both train and val labels
-  download([ASSETS_URL + "/coco2017labels.zip"], dir=dir.parent)
+  # Download labels converted from official COCO annotations by LibreYOLO.
+  download([COCO2017_HF_URL + "/coco2017labels-libreyolo.zip"], dir=dir.parent)
 
   # Download ONLY validation images (not train)
   download(
