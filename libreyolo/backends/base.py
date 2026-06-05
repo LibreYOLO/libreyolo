@@ -24,10 +24,81 @@ from ..utils.video import collect_video_results, is_video_file, run_video_infere
 
 logger = logging.getLogger(__name__)
 
+ImageSize = Union[int, Tuple[int, int]]
+_RECTANGULAR_BACKEND_FAMILIES = {"yolo9", "yolo9_e2e"}
+
 
 class _BackendEvalProxy:
     def eval(self):
         return self
+
+
+def _imgsz_hw(imgsz: ImageSize) -> Tuple[int, int]:
+    if isinstance(imgsz, tuple):
+        if len(imgsz) != 2:
+            raise ValueError(f"imgsz must be int or (height, width), got {imgsz}")
+        h, w = int(imgsz[0]), int(imgsz[1])
+    else:
+        h = w = int(imgsz)
+    if h <= 0 or w <= 0:
+        raise ValueError(f"imgsz values must be positive, got {(h, w)}")
+    return h, w
+
+
+def _normalize_imgsz(imgsz: ImageSize) -> ImageSize:
+    h, w = _imgsz_hw(imgsz)
+    return h if h == w else (h, w)
+
+
+def _is_rectangular_imgsz(imgsz: ImageSize) -> bool:
+    h, w = _imgsz_hw(imgsz)
+    return h != w
+
+
+def _read_metadata_imgsz(
+    meta: dict,
+    model_family: Optional[str],
+    *,
+    artifact: str,
+) -> ImageSize | None:
+    """Read exported-runtime input size metadata.
+
+    ``imgsz`` stays as the legacy square scalar. ``imgsz_h``/``imgsz_w`` are
+    only allowed to describe rectangular runtime inputs for backend families
+    that explicitly support them.
+    """
+    has_imgsz_h = "imgsz_h" in meta
+    has_imgsz_w = "imgsz_w" in meta
+    if has_imgsz_h != has_imgsz_w:
+        raise ValueError(
+            f"{artifact} must define both imgsz_h and imgsz_w, or neither."
+        )
+
+    if has_imgsz_h and has_imgsz_w:
+        try:
+            imgsz = _normalize_imgsz((int(meta["imgsz_h"]), int(meta["imgsz_w"])))
+        except (TypeError, ValueError) as e:
+            raise ValueError(
+                f"{artifact} has invalid imgsz_h/imgsz_w metadata."
+            ) from e
+        if (
+            _is_rectangular_imgsz(imgsz)
+            and (model_family or "").lower() not in _RECTANGULAR_BACKEND_FAMILIES
+        ):
+            raise NotImplementedError(
+                "Rectangular exported-backend inference is currently supported "
+                "for YOLO9-family exports only. "
+                f"{artifact} declares model_family={model_family or 'unknown'!r}."
+            )
+        return imgsz
+
+    if "imgsz" in meta:
+        try:
+            return _normalize_imgsz(int(meta["imgsz"]))
+        except (TypeError, ValueError) as e:
+            raise ValueError(f"{artifact} has invalid imgsz metadata.") from e
+
+    return None
 
 
 def _nms_numpy(
@@ -124,7 +195,7 @@ class BaseBackend(ABC):
         model_path: str,
         nb_classes: int,
         device: str,
-        imgsz: int,
+        imgsz: ImageSize,
         model_family: Optional[str],
         names: Dict[int, str],
         model_size: Optional[str] = None,
@@ -135,7 +206,7 @@ class BaseBackend(ABC):
         self.model_path = model_path
         self.nb_classes = nb_classes
         self.device = device
-        self.imgsz = imgsz
+        self.imgsz = _normalize_imgsz(imgsz)
         self.model_family = model_family
         self.family = model_family
         self.model_size = model_size
@@ -153,7 +224,7 @@ class BaseBackend(ABC):
         except AttributeError:
             # Some concrete backends expose size as a computed read-only property.
             pass
-        self.input_size = imgsz
+        self.input_size = self.imgsz
         if not hasattr(self, "model"):
             self.model = _BackendEvalProxy()
 
@@ -375,7 +446,7 @@ class BaseBackend(ABC):
     def _parse_outputs(
         self,
         all_outputs: list,
-        effective_imgsz: int,
+        effective_imgsz: ImageSize,
         original_size: tuple,
         conf: float,
         ratio: float = 1.0,
@@ -588,7 +659,8 @@ class BaseBackend(ABC):
                 return boxes, max_scores, class_ids, None
             return boxes, max_scores, class_ids
 
-        ratio = min(effective_imgsz / orig_h, effective_imgsz / orig_w)
+        input_h, input_w = _imgsz_hw(effective_imgsz)
+        ratio = min(input_h / orig_h, input_w / orig_w)
         boxes[:, :4] /= ratio
         boxes[:, [0, 2]] = np.clip(boxes[:, [0, 2]], 0, orig_w)
         boxes[:, [1, 3]] = np.clip(boxes[:, [1, 3]], 0, orig_h)
@@ -603,7 +675,7 @@ class BaseBackend(ABC):
                 proto,
                 coeffs,
                 boxes_input_t,
-                input_shape=(effective_imgsz, effective_imgsz),
+                input_shape=(input_h, input_w),
                 original_size=(orig_w, orig_h),
                 letterbox=True,
             ).numpy()
@@ -962,10 +1034,10 @@ class BaseBackend(ABC):
     def _get_model_name(self) -> str:
         return self.model_family or "export"
 
-    def _get_input_size(self) -> int:
+    def _get_input_size(self) -> ImageSize:
         return self.imgsz
 
-    def _get_val_preprocessor(self, img_size: int | None = None):
+    def _get_val_preprocessor(self, img_size: ImageSize | None = None):
         if img_size is None:
             img_size = self._get_input_size()
 
@@ -1004,7 +1076,19 @@ class BaseBackend(ABC):
             "yolonas": YOLONASValPreprocessor,
             "yolox": YOLOXValPreprocessor,
         }.get(self.model_family, StandardValPreprocessor)
-        return preprocessor_cls(img_size=(img_size, img_size))
+        return preprocessor_cls(img_size=_imgsz_hw(img_size))
+
+    def _resolve_predict_imgsz(self, imgsz: ImageSize | None = None) -> ImageSize:
+        effective = _normalize_imgsz(imgsz if imgsz is not None else self.imgsz)
+        if (
+            _is_rectangular_imgsz(effective)
+            and (self.model_family or "").lower() not in _RECTANGULAR_BACKEND_FAMILIES
+        ):
+            raise NotImplementedError(
+                "Rectangular imgsz backend inference is currently supported "
+                "for YOLO9-family exports only."
+            )
+        return effective
 
     def _forward(self, input_tensor: torch.Tensor):
         blob = input_tensor.detach().cpu().numpy()
@@ -1046,13 +1130,13 @@ class BaseBackend(ABC):
         conf_thres: float,
         iou_thres: float,
         original_size: Tuple[int, int],
-        input_size: int | None = None,
+        input_size: ImageSize | None = None,
         letterbox: bool = False,
         max_det: int = 300,
         ratio: float = 1.0,
         **kwargs,
     ) -> Dict:
-        effective_imgsz = input_size if input_size is not None else self.imgsz
+        effective_imgsz = self._resolve_predict_imgsz(input_size)
         outputs = self._as_numpy_outputs(output)
         boxes, max_scores, class_ids, masks = self._parse_outputs(
             outputs, effective_imgsz, original_size, conf_thres, ratio=ratio
@@ -1083,7 +1167,7 @@ class BaseBackend(ABC):
         self,
         data: str | None = None,
         batch: int = 16,
-        imgsz: int | None = None,
+        imgsz: ImageSize | None = None,
         conf: float = 0.001,
         iou: float = 0.6,
         workers: int = 4,
@@ -1107,6 +1191,11 @@ class BaseBackend(ABC):
             )
         if imgsz is None:
             imgsz = self._get_input_size()
+        imgsz = self._resolve_predict_imgsz(imgsz)
+        if _is_rectangular_imgsz(imgsz):
+            raise NotImplementedError(
+                "Rectangular exported-backend validation is not supported yet."
+            )
 
         validation_device = device or (
             self.device if _is_pytorch_cuda_device(self.device) and torch.cuda.is_available() else "cpu"
@@ -1143,14 +1232,14 @@ class BaseBackend(ABC):
         output_path: str | None = None,
         conf: float = 0.25,
         iou: float = 0.45,
-        imgsz: Optional[int] = None,
+        imgsz: Optional[ImageSize] = None,
         classes: Optional[List[int]] = None,
         max_det: int = 300,
         color_format: str = "auto",
     ) -> Results:
         """Run inference on a single image."""
         image_path = image if isinstance(image, (str, Path)) else None
-        effective_imgsz = imgsz if imgsz is not None else self.imgsz
+        effective_imgsz = self._resolve_predict_imgsz(imgsz)
 
         input_tensor, original_img, original_size, ratio = self._preprocess(
             image, effective_imgsz, color_format
@@ -1191,7 +1280,7 @@ class BaseBackend(ABC):
         output_path: str | None = None,
         conf: float = 0.25,
         iou: float = 0.45,
-        imgsz: Optional[int] = None,
+        imgsz: Optional[ImageSize] = None,
         classes: Optional[List[int]] = None,
         max_det: int = 300,
         color_format: str = "auto",
@@ -1226,7 +1315,7 @@ class BaseBackend(ABC):
         *,
         conf: float = 0.25,
         iou: float = 0.45,
-        imgsz: Optional[int] = None,
+        imgsz: Optional[ImageSize] = None,
         device: str | None = None,
         classes: Optional[List[int]] = None,
         max_det: int = 300,
@@ -1310,7 +1399,7 @@ class BaseBackend(ABC):
         *,
         conf: float = 0.25,
         iou: float = 0.45,
-        imgsz: Optional[int] = None,
+        imgsz: Optional[ImageSize] = None,
         classes: Optional[List[int]] = None,
         max_det: int = 300,
         save: bool = False,
@@ -1319,7 +1408,7 @@ class BaseBackend(ABC):
         output_path: Optional[str] = None,
     ) -> Generator[Results, None, None]:
         """Run inference on a video file, yielding per-frame Results."""
-        effective_imgsz = imgsz if imgsz is not None else self.imgsz
+        effective_imgsz = self._resolve_predict_imgsz(imgsz)
 
         def predict_frame(pil_img):
             input_tensor, original_img, original_size, ratio = self._preprocess(

@@ -8,7 +8,7 @@ import numpy as np
 from ..tasks import normalize_supported_tasks, normalize_task, resolve_task
 from ..utils.general import COCO_CLASSES
 from ..utils.serialization import warn_on_metadata_schema_version
-from .base import BaseBackend
+from .base import BaseBackend, ImageSize, _read_metadata_imgsz
 
 logger = logging.getLogger(__name__)
 
@@ -78,8 +78,9 @@ class OnnxBackend(BaseBackend):
             metadata_imgsz,
         ) = self._read_onnx_metadata(onnx_path, nb_classes)
         input_shape = self.session.get_inputs()[0].shape
-        if len(input_shape) == 4 and isinstance(input_shape[2], int):
-            imgsz = input_shape[2]
+        static_imgsz = self._read_static_input_imgsz(input_shape)
+        if static_imgsz is not None:
+            imgsz = static_imgsz
         elif metadata_imgsz is not None:
             imgsz = metadata_imgsz
         else:
@@ -103,6 +104,15 @@ class OnnxBackend(BaseBackend):
             supported_tasks=supported_tasks,
             default_task=default_task,
         )
+
+    @staticmethod
+    def _read_static_input_imgsz(input_shape) -> ImageSize | None:
+        if len(input_shape) != 4:
+            return None
+        h, w = input_shape[2], input_shape[3]
+        if not isinstance(h, int) or not isinstance(w, int) or h <= 0 or w <= 0:
+            return None
+        return h if h == w else (h, w)
 
     @staticmethod
     def _read_onnx_metadata(onnx_path: str, default_nb_classes: int):
@@ -134,17 +144,11 @@ class OnnxBackend(BaseBackend):
                 model_family = meta["model_family"]
             if "model_size" in meta or "size" in meta:
                 model_size = meta.get("model_size") or meta.get("size")
-            if "imgsz_h" in meta and "imgsz_w" in meta:
-                imgsz_h = int(meta["imgsz_h"])
-                imgsz_w = int(meta["imgsz_w"])
-                if imgsz_h != imgsz_w:
-                    raise NotImplementedError(
-                        "Rectangular ONNX exports are not supported by "
-                        "LibreYOLO backend inference yet."
-                    )
-                imgsz = imgsz_h
-            elif "imgsz" in meta:
-                imgsz = int(meta["imgsz"])
+            imgsz = _read_metadata_imgsz(
+                meta,
+                model_family,
+                artifact=f"ONNX metadata for {onnx_path}",
+            )
             if "default_task" in meta:
                 default_task = normalize_task(meta["default_task"], default="detect")
             if "task" in meta:

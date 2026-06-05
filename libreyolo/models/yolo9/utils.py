@@ -9,7 +9,7 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 from torchvision.ops import batched_nms
-from typing import Tuple, Dict
+from typing import Dict, Tuple, Union
 from PIL import Image
 
 from ...utils.image_loader import ImageLoader, ImageInput
@@ -17,10 +17,24 @@ from ...utils.image_loader import ImageLoader, ImageInput
 
 _YOLO9_MAX_NMS_CANDIDATES = 30000
 
+ImageSize = Union[int, Tuple[int, int]]
+
+
+def _input_size_hw(input_size: ImageSize) -> Tuple[int, int]:
+    if isinstance(input_size, tuple):
+        if len(input_size) != 2:
+            raise ValueError(f"input_size must be int or (height, width), got {input_size}")
+        h, w = int(input_size[0]), int(input_size[1])
+    else:
+        h = w = int(input_size)
+    if h <= 0 or w <= 0:
+        raise ValueError(f"input_size values must be positive, got {(h, w)}")
+    return h, w
+
 
 def preprocess_numpy(
     img_rgb_hwc: np.ndarray,
-    input_size: int = 640,
+    input_size: ImageSize = 640,
 ) -> Tuple[np.ndarray, float]:
     """
     Preprocess RGB HWC uint8 image for YOLOv9 inference.
@@ -29,18 +43,19 @@ def preprocess_numpy(
 
     Args:
         img_rgb_hwc: Input image as RGB HWC uint8 numpy array.
-        input_size: Target size for the model.
+        input_size: Target size for the model as int or (height, width).
 
     Returns:
         Tuple of (preprocessed CHW float32 array in RGB 0-1, ratio).
     """
     orig_h, orig_w = img_rgb_hwc.shape[:2]
-    ratio = min(input_size / orig_h, input_size / orig_w)
-    new_h = int(orig_h * ratio)
-    new_w = int(orig_w * ratio)
+    input_h, input_w = _input_size_hw(input_size)
+    ratio = min(input_h / orig_h, input_w / orig_w)
+    new_h = max(int(orig_h * ratio), 1)
+    new_w = max(int(orig_w * ratio), 1)
 
     resized = cv2.resize(img_rgb_hwc, (new_w, new_h), interpolation=cv2.INTER_LINEAR)
-    padded = np.full((input_size, input_size, 3), 114, dtype=np.uint8)
+    padded = np.full((input_h, input_w, 3), 114, dtype=np.uint8)
     padded[:new_h, :new_w] = resized
 
     arr = np.ascontiguousarray(padded, dtype=np.float32) / 255.0
@@ -48,14 +63,14 @@ def preprocess_numpy(
 
 
 def preprocess_image(
-    image: ImageInput, input_size: int = 640, color_format: str = "auto"
+    image: ImageInput, input_size: ImageSize = 640, color_format: str = "auto"
 ) -> Tuple[torch.Tensor, Image.Image, Tuple[int, int]]:
     """
     Preprocess image for YOLOv9 inference.
 
     Args:
         image: Input image (path, PIL, numpy, tensor, bytes, etc.)
-        input_size: Target size for resizing (default: 640)
+        input_size: Target size for resizing as int or (height, width).
         color_format: Color format hint ("auto", "rgb", "bgr")
 
     Returns:
@@ -205,7 +220,7 @@ def postprocess(
     output: Dict,
     conf_thres: float = 0.25,
     iou_thres: float = 0.45,
-    input_size: int = 640,
+    input_size: ImageSize = 640,
     original_size: Tuple[int, int] | None = None,
     max_det: int = 300,
     letterbox: bool = True,
@@ -217,13 +232,14 @@ def postprocess(
         output: Model output dictionary with 'predictions' key
         conf_thres: Confidence threshold (default: 0.25)
         iou_thres: IoU threshold for NMS (default: 0.45)
-        input_size: Input image size (default: 640)
+        input_size: Input image size as int or (height, width).
         original_size: Original image size (width, height) for scaling
         max_det: Maximum number of detections to return (default: 300)
 
     Returns:
         Dictionary with boxes, scores, classes, num_detections
     """
+    input_h, input_w = _input_size_hw(input_size)
     predictions = output["predictions"]  # (batch, 4+nc, total_anchors)
 
     if predictions.dim() == 3:
@@ -278,11 +294,11 @@ def postprocess(
     if original_size is not None:
         if letterbox:
             orig_w, orig_h = original_size
-            ratio = min(input_size / orig_h, input_size / orig_w)
+            ratio = min(input_h / orig_h, input_w / orig_w)
             boxes[:, :4] = boxes[:, :4] / ratio
         else:
-            scale_x = original_size[0] / input_size
-            scale_y = original_size[1] / input_size
+            scale_x = original_size[0] / input_w
+            scale_y = original_size[1] / input_h
             boxes[:, [0, 2]] *= scale_x
             boxes[:, [1, 3]] *= scale_y
 
@@ -323,7 +339,7 @@ def postprocess(
             proto_i,
             coeffs[keep],
             boxes_input[keep],
-            input_shape=(input_size, input_size),
+            input_shape=(input_h, input_w),
             original_size=original_size,
             letterbox=letterbox,
         )

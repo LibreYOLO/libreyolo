@@ -212,6 +212,7 @@ def test_tflite_exporter_runs_static_onnx_then_helper(monkeypatch, tmp_path):
 
     def fake_export_onnx(_nn_model, _dummy, **kwargs):
         captured["onnx"] = kwargs
+        captured["onnx_dummy_shape"] = tuple(_dummy.shape)
         Path(kwargs["output_path"]).write_bytes(b"onnx")
         return kwargs["output_path"]
 
@@ -229,14 +230,18 @@ def test_tflite_exporter_runs_static_onnx_then_helper(monkeypatch, tmp_path):
 
     result = exporter(
         output_path=str(output_path),
+        imgsz=(16, 32),
         simplify=False,
         onnx2tf_args=["--flatbuffer_direct_allow_custom_ops"],
     )
 
     assert result == str(output_path)
     assert captured["onnx"]["dynamic"] is False
+    assert captured["onnx_dummy_shape"] == (1, 3, 16, 32)
     assert captured["tflite"]["output_path"] == str(output_path)
     assert captured["tflite"]["metadata"]["model_family"] == "yolo9"
+    assert captured["tflite"]["metadata"]["imgsz_h"] == 16
+    assert captured["tflite"]["metadata"]["imgsz_w"] == 32
     assert captured["tflite"]["onnx2tf_args"] == ["--flatbuffer_direct_allow_custom_ops"]
     assert not Path(captured["tflite"]["onnx_path"]).exists()
 

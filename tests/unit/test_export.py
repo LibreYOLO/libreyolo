@@ -11,6 +11,7 @@ import torch.nn as nn
 import libreyolo.export.exporter as exporter_module
 from libreyolo.export.exporter import (
     BaseExporter,
+    CoreMLExporter,
     NcnnExporter,
     OnnxExporter,
     OpenVINOExporter,
@@ -284,11 +285,43 @@ class TestExporterFormats:
 
         assert OnnxBackend._read_onnx_metadata(str(output_path), 4)[-1] == 48
 
-    def test_rectangular_imgsz_is_limited_to_graph_exports(self):
-        wrapper = _make_wrapper(model_name="TESTYOLO", input_size=32)
+    def test_onnx_backend_reads_rectangular_static_input_imgsz(self):
+        from libreyolo.backends.onnx import OnnxBackend
 
-        with pytest.raises(NotImplementedError, match="Rectangular imgsz export"):
-            TensorRTExporter(wrapper)._resolve_params(
+        assert OnnxBackend._read_static_input_imgsz([1, 3, 32, 64]) == (32, 64)
+        assert OnnxBackend._read_static_input_imgsz([1, 3, -1, -1]) is None
+
+    @pytest.mark.parametrize(
+        "exporter_cls",
+        [
+            OnnxExporter,
+            TorchScriptExporter,
+            TensorRTExporter,
+            OpenVINOExporter,
+            NcnnExporter,
+            TFLiteExporter,
+            CoreMLExporter,
+        ],
+    )
+    def test_rectangular_imgsz_supported_for_yolo9_export_formats(self, exporter_cls):
+        wrapper = _make_wrapper(model_name="yolo9", input_size=32)
+
+        imgsz, device, _output_path = exporter_cls(wrapper)._resolve_params(
+            output_path=None,
+            imgsz=(32, 64),
+            device="cpu",
+            half=False,
+            int8=False,
+        )
+
+        assert imgsz == (32, 64)
+        assert device == torch.device("cpu")
+
+    def test_rectangular_imgsz_is_limited_to_yolo9_family(self):
+        wrapper = _make_wrapper(model_name="yolox", input_size=32)
+
+        with pytest.raises(NotImplementedError, match="YOLO9-family"):
+            OnnxExporter(wrapper)._resolve_params(
                 output_path=None,
                 imgsz=(32, 64),
                 device="cpu",
@@ -298,7 +331,7 @@ class TestExporterFormats:
 
     @pytest.mark.parametrize(
         "family",
-        ["dfine", "deim", "ec", "rtdetr", "rtdetrv2", "rtdetrv4"],
+        ["dfine", "deim", "ec", "rfdetr", "rtdetr", "rtdetrv2", "rtdetrv4"],
     )
     def test_rectangular_imgsz_rejected_for_fixed_square_families(self, family):
         wrapper = _make_wrapper(model_name=family, input_size=32)
@@ -327,7 +360,7 @@ class TestExporterFormats:
     def test_rectangular_onnx_export_writes_shape_metadata_without_onnx(
         self, monkeypatch, tmp_path
     ):
-        wrapper = _make_wrapper(model_name="TESTYOLO", input_size=32)
+        wrapper = _make_wrapper(model_name="yolo9", input_size=32)
         output_path = tmp_path / "rectangular.onnx"
         captured = {}
 
@@ -352,9 +385,9 @@ class TestExporterFormats:
         assert captured["metadata"]["imgsz_h"] == "16"
         assert captured["metadata"]["imgsz_w"] == "32"
 
-    def test_onnx_backend_rejects_rectangular_metadata(self, tmp_path):
+    def test_onnx_backend_reads_rectangular_metadata(self, tmp_path):
         pytest.importorskip("onnx")
-        wrapper = _make_wrapper(model_name="TESTYOLO", input_size=32)
+        wrapper = _make_wrapper(model_name="yolo9", input_size=32)
         output_path = tmp_path / "rectangular.onnx"
 
         OnnxExporter(wrapper)(
@@ -367,11 +400,37 @@ class TestExporterFormats:
 
         from libreyolo.backends.onnx import OnnxBackend
 
-        with pytest.raises(NotImplementedError, match="Rectangular ONNX exports"):
-            OnnxBackend._read_onnx_metadata(str(output_path), 4)
+        assert OnnxBackend._read_onnx_metadata(str(output_path), 4)[-1] == (16, 32)
 
-    def test_torchscript_backend_rejects_rectangular_metadata(self, tmp_path):
-        wrapper = _make_wrapper(model_name="TESTYOLO", input_size=32)
+    def test_onnx_backend_prefers_rectangular_static_shape_over_legacy_scalar(
+        self, tmp_path
+    ):
+        pytest.importorskip("onnx")
+        pytest.importorskip("onnxruntime")
+        output_path = tmp_path / "rectangular_stale_scalar.onnx"
+
+        export_onnx(
+            _TinyModel(),
+            torch.zeros(1, 3, 16, 32),
+            output_path=str(output_path),
+            opset=13,
+            simplify=False,
+            dynamic=False,
+            half=False,
+            metadata={
+                "model_family": "yolo9",
+                "imgsz": "32",
+                "nc": "4",
+            },
+        )
+
+        from libreyolo.backends.onnx import OnnxBackend
+
+        backend = OnnxBackend(str(output_path), nb_classes=4)
+        assert backend.imgsz == (16, 32)
+
+    def test_torchscript_backend_reads_rectangular_metadata(self, tmp_path):
+        wrapper = _make_wrapper(model_name="yolo9", input_size=32)
         output_path = tmp_path / "rectangular.torchscript"
 
         TorchScriptExporter(wrapper)(
@@ -382,10 +441,59 @@ class TestExporterFormats:
 
         from libreyolo.backends.torchscript import TorchScriptBackend
 
-        with pytest.raises(
-            NotImplementedError, match="Rectangular TorchScript exports"
+        backend = TorchScriptBackend(str(output_path), device="cpu")
+        assert backend.imgsz == (16, 32)
+
+    def test_rectangular_int8_calibration_receives_tuple_imgsz(
+        self, monkeypatch, tmp_path
+    ):
+        wrapper = _make_wrapper(model_name="yolo9", input_size=32)
+        exporter = TensorRTExporter(wrapper)
+        output_path = tmp_path / "model.engine"
+        captured = {}
+
+        monkeypatch.setattr(exporter, "_preflight", lambda **kwargs: None)
+        monkeypatch.setattr(
+            exporter,
+            "_export_intermediate_onnx",
+            lambda *args, **kwargs: str(tmp_path / "model.onnx"),
+        )
+
+        def fake_load_calibration(
+            data,
+            imgsz,
+            batch,
+            fraction,
+            allow_download_scripts=False,
         ):
-            TorchScriptBackend(str(output_path), device="cpu")
+            captured["imgsz"] = imgsz
+            captured["batch"] = batch
+            return object()
+
+        def fake_export(nn_model, dummy, *, output_path, calibration_data, **kwargs):
+            captured["dummy_shape"] = tuple(dummy.shape)
+            captured["calibration_data"] = calibration_data
+            return output_path
+
+        monkeypatch.setattr(exporter, "_load_calibration", fake_load_calibration)
+        monkeypatch.setattr(exporter, "_export", fake_export)
+
+        result = exporter(
+            output_path=str(output_path),
+            imgsz=(16, 32),
+            int8=True,
+            data="data.yaml",
+            batch=2,
+            device="cpu",
+            simplify=False,
+            dynamic=False,
+        )
+
+        assert result == str(output_path)
+        assert captured["imgsz"] == (16, 32)
+        assert captured["batch"] == 2
+        assert captured["dummy_shape"] == (2, 3, 16, 32)
+        assert captured["calibration_data"] is not None
 
 
 class TestExporterValidation:
@@ -686,6 +794,16 @@ class TestCalibrationDataLoader:
         # Check that dtype and shape properties are defined
         assert hasattr(CalibrationDataLoader, "shape")
         assert hasattr(CalibrationDataLoader, "dtype")
+
+    def test_calibration_loader_shape_accepts_tuple_imgsz(self):
+        """Rectangular INT8 calibration batches must match export input H/W."""
+        from libreyolo.export.calibration import CalibrationDataLoader
+
+        loader = CalibrationDataLoader.__new__(CalibrationDataLoader)
+        loader.batch = 4
+        loader.imgsz = (16, 32)
+
+        assert loader.shape == (4, 3, 16, 32)
 
 
 # ---------------------------------------------------------------------------

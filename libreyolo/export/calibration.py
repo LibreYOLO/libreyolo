@@ -1,15 +1,29 @@
 """INT8 calibration utilities for TensorRT export."""
 
 import logging
+from pathlib import Path
+from typing import Iterator, Tuple, Union
 
 import cv2
 import numpy as np
-from pathlib import Path
-from typing import Iterator
 
 from libreyolo.data.utils import load_data_config, get_img_files
 
 logger = logging.getLogger(__name__)
+
+ImageSize = Union[int, Tuple[int, int]]
+
+
+def _imgsz_hw(imgsz: ImageSize) -> tuple[int, int]:
+    if isinstance(imgsz, tuple):
+        if len(imgsz) != 2:
+            raise ValueError(f"imgsz must be int or (height, width), got {imgsz}")
+        h, w = int(imgsz[0]), int(imgsz[1])
+    else:
+        h = w = int(imgsz)
+    if h <= 0 or w <= 0:
+        raise ValueError(f"imgsz values must be positive, got {(h, w)}")
+    return h, w
 
 
 class CalibrationDataLoader:
@@ -35,7 +49,7 @@ class CalibrationDataLoader:
     def __init__(
         self,
         data: str,
-        imgsz: int = 640,
+        imgsz: ImageSize = 640,
         batch: int = 8,
         fraction: float = 1.0,
         preprocess_fn=None,
@@ -46,7 +60,7 @@ class CalibrationDataLoader:
 
         Args:
             data: Path to data.yaml configuration file or built-in dataset name.
-            imgsz: Input image size (square).
+            imgsz: Input image size as an int or ``(height, width)`` tuple.
             batch: Batch size for calibration.
             fraction: Fraction of dataset to use (0.0-1.0). Use smaller values
                      for faster calibration with slight accuracy tradeoff.
@@ -129,7 +143,8 @@ class CalibrationDataLoader:
     @property
     def shape(self) -> tuple:
         """Return shape of a single batch: (batch, channels, height, width)."""
-        return (self.batch, 3, self.imgsz, self.imgsz)
+        h, w = _imgsz_hw(self.imgsz)
+        return (self.batch, 3, h, w)
 
     @property
     def dtype(self) -> np.dtype:
@@ -139,7 +154,7 @@ class CalibrationDataLoader:
 
 def get_calibration_dataloader(
     data: str,
-    imgsz: int = 640,
+    imgsz: ImageSize = 640,
     batch: int = 8,
     fraction: float = 1.0,
     preprocess_fn=None,

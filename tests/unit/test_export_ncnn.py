@@ -143,6 +143,27 @@ class TestNCNNMetadataYAML:
             assert loaded["names"]["0"] == "person"
             assert loaded["names"]["1"] == "bicycle"
 
+    def test_backend_reads_rectangular_metadata(self, tmp_path):
+        """ncnn backend metadata must preserve non-square YOLO9 export shape."""
+        from libreyolo.backends.ncnn import NcnnBackend
+
+        metadata_path = tmp_path / "metadata.yaml"
+        metadata_path.write_text(
+            "\n".join(
+                [
+                    "model_family: yolo9",
+                    "imgsz: 640",
+                    "imgsz_h: 320",
+                    "imgsz_w: 640",
+                    "nc: 2",
+                ]
+            )
+        )
+
+        parsed = NcnnBackend._read_metadata(metadata_path)
+
+        assert parsed[5] == (320, 640)
+
 
 class TestNCNNExportValidation:
     """Test ncnn export validation in exporter."""

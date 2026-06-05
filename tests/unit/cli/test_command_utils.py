@@ -497,10 +497,15 @@ def test_loaded_model_metadata_supports_wrappers_and_backends():
         model_family = "yolox"
         imgsz = 320
 
+    class _RectBackend:
+        model_family = "yolo9"
+        imgsz = (320, 640)
+
     assert get_loaded_model_family(_Wrapper()) == "yolox"
     assert get_loaded_model_input_size(_Wrapper()) == 640
     assert get_loaded_model_family(_Backend()) == "yolox"
     assert get_loaded_model_input_size(_Backend()) == 320
+    assert get_loaded_model_input_size(_RectBackend()) == (320, 640)
     assert get_loaded_model_input_size(_Wrapper(), imgsz=416) == 416
 
 
@@ -550,6 +555,51 @@ def test_predict_json_supports_exported_backend_metadata(monkeypatch):
     assert data["model_family"] == "yolox"
     assert data["image_size"] == [320, 320]
     assert data["results"][0]["detections"][0]["class"] == "person"
+
+
+def test_predict_json_reports_rectangular_backend_imgsz(monkeypatch):
+    app = _make_app([("predict", predict.predict_cmd), ("info", special.info_cmd)])
+
+    class _BackendLike:
+        model_family = "yolo9"
+        imgsz = (320, 640)
+        device = "cpu"
+
+        def __call__(self, source, **kwargs):
+            return Results(
+                boxes=Boxes(
+                    torch.zeros((0, 4)),
+                    torch.zeros((0,)),
+                    torch.zeros((0,)),
+                ),
+                orig_shape=(10, 20),
+                path=source,
+                names={},
+            )
+
+    monkeypatch.setattr(
+        "libreyolo.cli.commands.predict.resolve_model_or_exit",
+        lambda out, model: model,
+    )
+    monkeypatch.setattr(
+        "libreyolo.cli.commands.predict.load_model_or_exit",
+        lambda out, model, model_path, device: _BackendLike(),
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "predict",
+            "source=libreyolo/assets/parkour.jpg",
+            "model=model.onnx",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0
+    data = json.loads(result.stdout)
+    assert data["model_family"] == "yolo9"
+    assert data["image_size"] == [320, 640]
 
 
 def test_predict_exported_backend_does_not_receive_native_only_kwargs(monkeypatch):

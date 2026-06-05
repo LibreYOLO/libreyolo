@@ -112,6 +112,12 @@ def test_tensorrt_dynamic_max_batch_falls_back_to_metadata():
     assert backend._detect_max_batch() == 12
 
 
+def test_tensorrt_backend_reads_static_input_imgsz():
+    assert TensorRTBackend._read_static_input_imgsz((1, 3, 64, 64)) == 64
+    assert TensorRTBackend._read_static_input_imgsz((1, 3, 32, 64)) == (32, 64)
+    assert TensorRTBackend._read_static_input_imgsz((-1, 3, -1, -1)) is None
+
+
 def test_tensorrt_dynamic_batching_caps_requested_batch_to_profile():
     backend = _bare_tensorrt_backend("LibreRFDETR_s.engine", model_family="rfdetr")
     backend._dynamic_batch = True
@@ -168,3 +174,13 @@ def test_tensorrt_dynamic_batching_caps_requested_batch_to_profile():
 
     assert infer_batches == [2, 2, 1]
     assert results == ["a.jpg", "b.jpg", "c.jpg", "d.jpg", "e.jpg"]
+
+
+def test_tensorrt_dynamic_batching_rejects_rectangular_non_yolo9_imgsz():
+    backend = _bare_tensorrt_backend("LibreRFDETR_s.engine", model_family="rfdetr")
+    backend._dynamic_batch = True
+    backend._max_batch = 2
+    backend.imgsz = 64
+
+    with pytest.raises(NotImplementedError, match="YOLO9-family"):
+        backend._process_in_batches(["a.jpg", "b.jpg"], batch=2, imgsz=(32, 64))
