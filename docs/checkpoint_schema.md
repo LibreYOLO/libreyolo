@@ -43,8 +43,7 @@ The schema is intentionally flat. Existing LibreYOLO checkpoints and loaders
 already use top-level keys such as `model_family`, `size`, `nc`, `names`, and
 `task`; nesting the metadata would increase migration risk before release.
 The top-level `model` value is deliberately a `state_dict`, matching existing
-LibreYOLO behavior. This differs from Ultralytics checkpoints, where `model`
-may hold a model object.
+LibreYOLO behavior. Other checkpoint formats may differ.
 
 ## Training Checkpoints
 
