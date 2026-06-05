@@ -859,7 +859,11 @@ class BaseBackend(ABC):
             )
 
         if not _is_nms_free_family(self.model_family):
-            if self.model_family == "damoyolo":
+            # YOLO9 (like DAMO) needs class-aware NMS so multi-label detections
+            # on a shared anchor (same box, different class) survive, matching
+            # the native batched_nms path. Class-agnostic NMS would drop the
+            # lower-scored class and make exported runtimes disagree with native.
+            if self.model_family in ("damoyolo", "yolo9", "yolo9_e2e"):
                 keep = _batched_nms_numpy(boxes, max_scores, class_ids, iou)
             else:
                 keep = _nms_numpy(boxes, max_scores, iou)
