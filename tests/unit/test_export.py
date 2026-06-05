@@ -279,6 +279,65 @@ class TestExporterFormats:
 
         assert OnnxBackend._read_onnx_metadata(str(output_path), 4)[-1] == 48
 
+    def test_rectangular_imgsz_is_limited_to_graph_exports(self):
+        wrapper = _make_wrapper(model_name="TESTYOLO", input_size=32)
+
+        with pytest.raises(NotImplementedError, match="Rectangular imgsz export"):
+            TensorRTExporter(wrapper)._resolve_params(
+                output_path=None,
+                imgsz=(32, 64),
+                device="cpu",
+                half=False,
+                int8=False,
+            )
+
+    def test_deimv2_tuple_imgsz_must_match_native(self):
+        wrapper = _make_wrapper(model_name="deimv2", input_size=320)
+
+        with pytest.raises(ValueError, match="fixed decoder anchors"):
+            OnnxExporter(wrapper)._resolve_params(
+                output_path=None,
+                imgsz=(320, 640),
+                device="cpu",
+                half=False,
+                int8=False,
+            )
+
+    def test_onnx_backend_rejects_rectangular_metadata(self, tmp_path):
+        pytest.importorskip("onnx")
+        wrapper = _make_wrapper(model_name="TESTYOLO", input_size=32)
+        output_path = tmp_path / "rectangular.onnx"
+
+        OnnxExporter(wrapper)(
+            output_path=str(output_path),
+            imgsz=(16, 32),
+            simplify=False,
+            dynamic=False,
+            device="cpu",
+        )
+
+        from libreyolo.backends.onnx import OnnxBackend
+
+        with pytest.raises(NotImplementedError, match="Rectangular ONNX exports"):
+            OnnxBackend._read_onnx_metadata(str(output_path), 4)
+
+    def test_torchscript_backend_rejects_rectangular_metadata(self, tmp_path):
+        wrapper = _make_wrapper(model_name="TESTYOLO", input_size=32)
+        output_path = tmp_path / "rectangular.torchscript"
+
+        TorchScriptExporter(wrapper)(
+            output_path=str(output_path),
+            imgsz=(16, 32),
+            device="cpu",
+        )
+
+        from libreyolo.backends.torchscript import TorchScriptBackend
+
+        with pytest.raises(
+            NotImplementedError, match="Rectangular TorchScript exports"
+        ):
+            TorchScriptBackend(str(output_path), device="cpu")
+
 
 class TestExporterValidation:
     def test_invalid_format_raises(self):

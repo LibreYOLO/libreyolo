@@ -38,6 +38,10 @@ def _precision_label(precision: str) -> str:
     return precision.upper()
 
 
+def _is_rectangular_imgsz(imgsz: tuple[int, int]) -> bool:
+    return int(imgsz[0]) != int(imgsz[1])
+
+
 # =============================================================================
 # BaseExporter ABC
 # =============================================================================
@@ -264,15 +268,28 @@ class BaseExporter(ABC):
                 raise ValueError(
                     f"imgsz tuple must be (height, width), got {imgsz}"
                 )
-        elif self.model._get_model_name() == "deimv2" and int(imgsz) != int(
-            native_imgsz
+            imgsz = (int(imgsz[0]), int(imgsz[1]))
+        else:
+            imgsz = (int(imgsz), int(imgsz))
+        if imgsz[0] <= 0 or imgsz[1] <= 0:
+            raise ValueError(f"imgsz values must be positive, got {imgsz}.")
+        if self.model._get_model_name() == "deimv2" and imgsz != (
+            int(native_imgsz),
+            int(native_imgsz),
         ):
             raise ValueError(
                 "DEIMv2 export uses fixed decoder anchors; imgsz must match "
                 f"the native size {native_imgsz}, got {imgsz}."
             )
-        else:
-            imgsz = (int(imgsz), int(imgsz))
+        if _is_rectangular_imgsz(imgsz) and self.format_name not in {
+            "onnx",
+            "torchscript",
+        }:
+            raise NotImplementedError(
+                "Rectangular imgsz export is currently limited to ONNX and "
+                "TorchScript graph export. Runtime-format export and backend "
+                "round-trip support will be handled separately."
+            )
         if device is None or str(device).lower() == "auto":
             if self.model._get_model_name() == "rfdetr":
                 device = torch.device("cpu")
