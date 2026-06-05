@@ -42,6 +42,17 @@ def _is_rectangular_imgsz(imgsz: tuple[int, int]) -> bool:
     return int(imgsz[0]) != int(imgsz[1])
 
 
+_FIXED_SQUARE_EXPORT_FAMILIES = {
+    "dfine",
+    "deim",
+    "deimv2",
+    "ec",
+    "rtdetr",
+    "rtdetrv2",
+    "rtdetrv4",
+}
+
+
 # =============================================================================
 # BaseExporter ABC
 # =============================================================================
@@ -261,6 +272,7 @@ class BaseExporter(ABC):
 
     def _resolve_params(self, output_path, imgsz, device, half, int8):
         native_imgsz = self.model._get_input_size()
+        model_name = self.model._get_model_name()
         if imgsz is None:
             imgsz = (native_imgsz, native_imgsz)
         elif isinstance(imgsz, tuple):
@@ -273,13 +285,19 @@ class BaseExporter(ABC):
             imgsz = (int(imgsz), int(imgsz))
         if imgsz[0] <= 0 or imgsz[1] <= 0:
             raise ValueError(f"imgsz values must be positive, got {imgsz}.")
-        if self.model._get_model_name() == "deimv2" and imgsz != (
+        if model_name == "deimv2" and imgsz != (
             int(native_imgsz),
             int(native_imgsz),
         ):
             raise ValueError(
                 "DEIMv2 export uses fixed decoder anchors; imgsz must match "
                 f"the native size {native_imgsz}, got {imgsz}."
+            )
+        if _is_rectangular_imgsz(imgsz) and model_name in _FIXED_SQUARE_EXPORT_FAMILIES:
+            raise NotImplementedError(
+                f"Rectangular imgsz export is not supported for {model_name}: "
+                "this family uses fixed square export spatial metadata/anchors. "
+                "Use the native square imgsz for now."
             )
         if _is_rectangular_imgsz(imgsz) and self.format_name not in {
             "onnx",

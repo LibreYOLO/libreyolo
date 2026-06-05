@@ -291,6 +291,22 @@ class TestExporterFormats:
                 int8=False,
             )
 
+    @pytest.mark.parametrize(
+        "family",
+        ["dfine", "deim", "ec", "rtdetr", "rtdetrv2", "rtdetrv4"],
+    )
+    def test_rectangular_imgsz_rejected_for_fixed_square_families(self, family):
+        wrapper = _make_wrapper(model_name=family, input_size=32)
+
+        with pytest.raises(NotImplementedError, match="fixed square"):
+            OnnxExporter(wrapper)._resolve_params(
+                output_path=None,
+                imgsz=(32, 64),
+                device="cpu",
+                half=False,
+                int8=False,
+            )
+
     def test_deimv2_tuple_imgsz_must_match_native(self):
         wrapper = _make_wrapper(model_name="deimv2", input_size=320)
 
@@ -302,6 +318,34 @@ class TestExporterFormats:
                 half=False,
                 int8=False,
             )
+
+    def test_rectangular_onnx_export_writes_shape_metadata_without_onnx(
+        self, monkeypatch, tmp_path
+    ):
+        wrapper = _make_wrapper(model_name="TESTYOLO", input_size=32)
+        output_path = tmp_path / "rectangular.onnx"
+        captured = {}
+
+        def fake_export_onnx(_nn_model, dummy, **kwargs):
+            captured["dummy_shape"] = tuple(dummy.shape)
+            captured["metadata"] = kwargs["metadata"]
+            return kwargs["output_path"]
+
+        monkeypatch.setattr("libreyolo.export.exporter.export_onnx", fake_export_onnx)
+
+        exported = OnnxExporter(wrapper)(
+            output_path=str(output_path),
+            imgsz=(16, 32),
+            simplify=False,
+            dynamic=False,
+            device="cpu",
+        )
+
+        assert exported == str(output_path)
+        assert captured["dummy_shape"] == (1, 3, 16, 32)
+        assert captured["metadata"]["imgsz"] == "32"
+        assert captured["metadata"]["imgsz_h"] == "16"
+        assert captured["metadata"]["imgsz_w"] == "32"
 
     def test_onnx_backend_rejects_rectangular_metadata(self, tmp_path):
         pytest.importorskip("onnx")

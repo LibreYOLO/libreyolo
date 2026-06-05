@@ -46,6 +46,18 @@ The top-level `model` value is deliberately a `state_dict`, matching existing
 LibreYOLO behavior. This differs from Ultralytics checkpoints, where `model`
 may hold a model object.
 
+## Export Runtime Metadata
+
+The checkpoint schema above remains square-only. Exported runtime artifacts may
+also carry metadata for graph tracing and backend loading. For rectangular
+graph exports, exporters may dual-write `imgsz_h` and `imgsz_w` next to the
+legacy scalar `imgsz`; readers that do not understand the rectangular fields
+must not silently treat the scalar as a square runtime contract.
+
+Until rectangular backend inference is fully implemented, LibreYOLO backends
+reject non-square `imgsz_h/imgsz_w` metadata instead of preprocessing those
+artifacts as square inputs.
+
 ## Training Checkpoints
 
 Trainer checkpoints use the same required metadata core and may also contain
