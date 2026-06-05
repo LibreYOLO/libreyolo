@@ -402,6 +402,46 @@ class TestExporterFormats:
 
         assert OnnxBackend._read_onnx_metadata(str(output_path), 4)[-1] == (16, 32)
 
+    @pytest.mark.parametrize(
+        "metadata,error_match",
+        [
+            (
+                {"model_family": "yolo9", "imgsz": "32", "imgsz_h": "16"},
+                "both imgsz_h and imgsz_w",
+            ),
+            (
+                {
+                    "model_family": "yolo9",
+                    "imgsz": "32",
+                    "imgsz_h": "bad",
+                    "imgsz_w": "32",
+                },
+                "invalid imgsz_h/imgsz_w",
+            ),
+        ],
+    )
+    def test_onnx_metadata_rejects_malformed_rectangular_imgsz(
+        self, tmp_path, metadata, error_match
+    ):
+        pytest.importorskip("onnx")
+        output_path = tmp_path / "malformed_rectangular.onnx"
+
+        export_onnx(
+            _TinyModel(),
+            torch.zeros(1, 3, 16, 32),
+            output_path=str(output_path),
+            opset=13,
+            simplify=False,
+            dynamic=True,
+            half=False,
+            metadata=metadata,
+        )
+
+        from libreyolo.backends.onnx import OnnxBackend
+
+        with pytest.raises(ValueError, match=error_match):
+            OnnxBackend._read_onnx_metadata(str(output_path), 4)
+
     def test_onnx_backend_prefers_rectangular_static_shape_over_legacy_scalar(
         self, tmp_path
     ):
