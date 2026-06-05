@@ -10,7 +10,8 @@ This is the CI/test contract for LibreYOLO. Times are UTC.
 | --- | --- | --- | --- | --- |
 | Unit | `.github/workflows/unit-tests.yml` | GitHub Linux, macOS, Windows; Python 3.10 | push to `dev`, PR to `dev`, manual | CPU-safe library and CLI/API behavior works. |
 | Install smoke | `.github/workflows/install-smoke.yml` | GitHub clean VMs; Python 3.10 | push to `dev`, PR to `dev`, manual, daily, publish | A clean user env can install, import, and start LibreYOLO. |
-| GPU e2e nightly | `.github/workflows/e2e-nightly-{release,dev,pypi}.yml` | self-hosted `gpu`, `libreyolo-e2e` tower runner | daily staggered schedule, manual | Selected real-model GPU tests execute and pass. |
+| GPU e2e nightly | `.github/workflows/e2e-nightly-dev.yml` | self-hosted `gpu`, `libreyolo-e2e` tower runner | daily schedule, manual | Selected real-model GPU tests execute and pass on latest `dev`. |
+| GPU e2e manual | `.github/workflows/e2e-nightly-{release,pypi}.yml` | self-hosted `gpu`, `libreyolo-e2e` tower runner | manual | Selected real-model GPU tests execute and pass on `release` or latest PyPI when explicitly requested. |
 | Manual QA | humans | human machine | before releases/demos/hackathons | Representative user behavior was checked by a human. |
 
 Boundaries:
@@ -73,10 +74,11 @@ Files: `.github/workflows/e2e-nightly-release.yml`,
 `tests/e2e/test_deterministic_inference.py`,
 `tests/e2e/test_rf1_training.py`, `Makefile`.
 
-Execution: targets `dev`, `release`, latest PyPI; 180 minute timeout per target;
-SHA/version cache skips unchanged targets; manual `force=true` runs all targets.
-Schedules are staggered at `03:00` UTC for `release`, `04:00` UTC for `dev`,
-and `05:00` UTC for PyPI. Do not add a `pull_request` trigger.
+Execution: scheduled nightly targets latest `dev` only; manual workflows can
+target `release` and latest PyPI. Each target has a 180 minute timeout;
+SHA/version cache skips unchanged targets; manual `force=true` runs the selected
+target. The scheduled `dev` run starts at `04:00` UTC. Do not add a
+`pull_request` trigger.
 
 Commands:
 
