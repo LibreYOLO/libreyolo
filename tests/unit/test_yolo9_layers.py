@@ -343,6 +343,33 @@ class TestYOLO9Utils:
         assert out["num_detections"] == 2
         assert sorted(out["classes"]) == [0, 1]
 
+    def test_postprocess_detection_caps_multilabel_candidates(self, monkeypatch):
+        """Detection limits low-threshold multi-label expansion before NMS."""
+        monkeypatch.setattr(yolo9_utils, "_YOLO9_MAX_NMS_CANDIDATES", 3)
+        pred = torch.zeros(1, 6, 4)
+        pred[0, :4] = torch.tensor(
+            [
+                [0.0, 20.0, 40.0, 60.0],
+                [0.0, 0.0, 0.0, 0.0],
+                [10.0, 30.0, 50.0, 70.0],
+                [10.0, 10.0, 10.0, 10.0],
+            ]
+        )
+        pred[0, 4:] = torch.tensor(
+            [[0.1, 0.9, 0.7, 0.5], [0.8, 0.2, 0.6, 0.4]]
+        )
+
+        out = yolo9_utils.postprocess(
+            {"predictions": pred}, conf_thres=0.01, iou_thres=0.5, max_det=3
+        )
+
+        assert out["num_detections"] == 3
+        assert sorted(round(float(s), 1) for s in out["scores"]) == [
+            0.7,
+            0.8,
+            0.9,
+        ]
+
     def test_postprocess_segment_keeps_best_class(self):
         """Segment postprocess stays best-class (not multi-label) so each
         detection keeps a single mask-coefficient vector."""

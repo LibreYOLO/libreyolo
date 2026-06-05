@@ -15,6 +15,9 @@ from PIL import Image
 from ...utils.image_loader import ImageLoader, ImageInput
 
 
+_YOLO9_MAX_NMS_CANDIDATES = 30000
+
+
 def preprocess_numpy(
     img_rgb_hwc: np.ndarray,
     input_size: int = 640,
@@ -252,8 +255,14 @@ def postprocess(
         if anchor_idx.numel() == 0:
             return {"boxes": [], "scores": [], "classes": [], "num_detections": 0}
         boxes_input = boxes_input[anchor_idx]
-        boxes = boxes_input.clone()
         max_scores = scores[anchor_idx, class_ids]
+        max_nms = max(max_det, _YOLO9_MAX_NMS_CANDIDATES)
+        if max_scores.numel() > max_nms:
+            keep = torch.topk(max_scores, max_nms).indices
+            boxes_input = boxes_input[keep]
+            max_scores = max_scores[keep]
+            class_ids = class_ids[keep]
+        boxes = boxes_input.clone()
         coeffs = None
     else:
         max_scores, class_ids = torch.max(scores, dim=1)

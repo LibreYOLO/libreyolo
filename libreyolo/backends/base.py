@@ -11,7 +11,7 @@ import torch
 import torch.nn.functional as F
 from PIL import Image
 
-from ..models.yolo9.utils import preprocess_image
+from ..models.yolo9.utils import _YOLO9_MAX_NMS_CANDIDATES, preprocess_image
 from ..models.yolonas.utils import preprocess_image as yolonas_preprocess_image
 from ..models.yolox.utils import preprocess_image as yolox_preprocess_image
 from ..tasks import normalize_supported_tasks, normalize_task, resolve_task
@@ -559,17 +559,29 @@ class BaseBackend(ABC):
         """Parse YOLO9 output: (B, 4+nc, N) — xyxy + class_scores."""
         outputs = all_outputs[0][0].T  # (N, 4+nc)
 
-        boxes_input = outputs[:, :4]
-        boxes = boxes_input.copy()
+        boxes_input_all = outputs[:, :4]
         scores = outputs[:, 4:]
 
-        max_scores = np.max(scores, axis=1)
-        class_ids = np.argmax(scores, axis=1)
+        if self.task == "segment":
+            max_scores = np.max(scores, axis=1)
+            class_ids = np.argmax(scores, axis=1)
+            mask = max_scores > conf
+            boxes_input = boxes_input_all[mask]
+            max_scores, class_ids = max_scores[mask], class_ids[mask]
+        else:
+            anchor_idx, class_ids = np.nonzero(scores > conf)
+            boxes_input = boxes_input_all[anchor_idx]
+            max_scores = scores[anchor_idx, class_ids]
+            if max_scores.size > _YOLO9_MAX_NMS_CANDIDATES:
+                keep = np.argpartition(
+                    -max_scores, _YOLO9_MAX_NMS_CANDIDATES - 1
+                )[:_YOLO9_MAX_NMS_CANDIDATES]
+                keep = keep[np.argsort(-max_scores[keep])]
+                boxes_input = boxes_input[keep]
+                max_scores = max_scores[keep]
+                class_ids = class_ids[keep]
 
-        mask = max_scores > conf
-        boxes = boxes[mask]
-        boxes_input = boxes_input[mask]
-        max_scores, class_ids = max_scores[mask], class_ids[mask]
+        boxes = boxes_input.copy()
 
         if len(boxes) == 0:
             if self.task == "segment":
