@@ -2,7 +2,7 @@
 
 import logging
 import warnings
-from dataclasses import asdict, dataclass, field, fields
+from dataclasses import asdict, dataclass, fields
 from pathlib import Path
 from typing import List, Optional, Tuple, Union
 
@@ -110,6 +110,7 @@ class TrainConfig:
     exist_ok: bool = False
     save_period: int = 10
     eval_interval: int = 10
+    save_plots: bool = False
 
     # System
     workers: int = 4

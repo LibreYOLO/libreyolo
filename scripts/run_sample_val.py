@@ -73,7 +73,8 @@ def parse_args() -> argparse.Namespace:
             "Model size variant. "
             "rfdetr-detect: n/s/m/l — rfdetr-segment: n/s/m/l/x/xx — "
             "yolo9: t/s/m/c. "
-            "Defaults: rfdetr-detect=n, rfdetr-segment=s, yolo9=m."
+            "Defaults: rfdetr-detect=n, rfdetr-segment=s, yolo9=m. "
+            "Custom checkpoints auto-detect size when possible."
         ),
     )
     p.add_argument(
@@ -117,8 +118,8 @@ def parse_args() -> argparse.Namespace:
     )
     p.add_argument(
         "--device",
-        default="0",
-        help="GPU index or 'cpu' (default: 0)",
+        default="auto",
+        help="Device: auto, cpu, mps, 0, cuda:0 (default: auto)",
     )
     p.add_argument(
         "--workers",
@@ -158,16 +159,22 @@ def parse_args() -> argparse.Namespace:
     return p.parse_args()
 
 
+def _normalize_device(device: str) -> str:
+    text = str(device)
+    return f"cuda:{text}" if text.isdigit() else text
+
+
 def _val_kwargs(args: argparse.Namespace) -> dict:
     kw = dict(
         data=args.data,
         batch=args.batch,
-        device=args.device,
+        device=_normalize_device(args.device),
         workers=args.workers,
         split=args.split,
         conf=args.conf,
         iou=args.iou,
         save_json=args.save_json,
+        save_plots=True,
         allow_download_scripts=args.allow_download_scripts,
     )
     if args.imgsz:
@@ -197,30 +204,45 @@ def val_rfdetr(args: argparse.Namespace) -> None:
     from libreyolo.models.rfdetr.model import LibreRFDETR
 
     is_seg = args.task == "segment"
-    size = args.size or ("s" if is_seg else "n")
-    model = LibreRFDETR(args.weights, size=size, task=args.task)
+    device = _normalize_device(args.device)
+    size = (
+        args.size
+        if args.size is not None
+        else (None if args.weights else ("s" if is_seg else "n"))
+    )
+    model = LibreRFDETR(args.weights, size=size, task=args.task, device=device)
     results = model.val(**_val_kwargs(args))
-    _print_results(f"RF-DETR-{size} ({args.task})", results, args.task)
+    label_size = size or model.size
+    _print_results(f"RF-DETR-{label_size} ({args.task})", results, args.task)
 
 
 def val_yolo9(args: argparse.Namespace) -> None:
     from libreyolo.models.yolo9.model import LibreYOLO9
 
     is_seg = args.task == "segment"
-    size = args.size or "m"
+    device = _normalize_device(args.device)
 
-    if args.weights:
-        weights = args.weights
-    elif is_seg:
-        sys.exit(
-            "Error: --weights is required for YOLOv9 segmentation "
-            "(no pretrained seg weights are available for auto-download).\n"
-            "Example: --weights runs/train/exp/best.pt"
-        )
+    if args.weights and args.size is None:
+        from libreyolo.models import LibreYOLO
+
+        model = LibreYOLO(args.weights, task=args.task, device=device)
+        size = getattr(model, "size", "auto")
     else:
-        weights = f"LibreYOLO9{size}.pt"
+        size = args.size or "m"
 
-    model = LibreYOLO9(weights, size=size, task=args.task)
+        if args.weights:
+            weights = args.weights
+        elif is_seg:
+            sys.exit(
+                "Error: --weights is required for YOLOv9 segmentation "
+                "(no pretrained seg weights are available for auto-download).\n"
+                "Example: --weights runs/train/exp/best.pt"
+            )
+        else:
+            weights = f"LibreYOLO9{size}.pt"
+
+        model = LibreYOLO9(weights, size=size, task=args.task, device=device)
+
     results = model.val(**_val_kwargs(args))
     _print_results(f"YOLOv9-{size} ({args.task})", results, args.task)
 

@@ -1322,10 +1322,13 @@ class BaseTrainer(ABC):
 
             logger.info(f"Running validation for epoch {epoch + 1}")
 
-            # Only save plots on the final epoch to avoid overhead every eval_interval
+            # Only save plots on the final epoch when explicitly requested.
             is_final_epoch = (epoch + 1) >= self.config.epochs
+            val_save_plots = (
+                bool(getattr(self.config, "save_plots", False)) and is_final_epoch
+            )
             val_save_dir = (
-                str(self.save_dir / "val") if is_final_epoch else None
+                str(self.save_dir / "val") if val_save_plots else None
             )
 
             val_config = ValidationConfig(
@@ -1338,7 +1341,7 @@ class BaseTrainer(ABC):
                 half=self.config.amp and self.device.type == "cuda",
                 verbose=False,
                 num_workers=self.config.workers,
-                save_plots=is_final_epoch,
+                save_plots=val_save_plots,
                 save_dir=val_save_dir,
             )
 

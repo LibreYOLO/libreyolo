@@ -618,7 +618,10 @@ class DetectionValidator(BaseValidator):
 
         cfg = getattr(self, "config", None)
         if getattr(cfg, "save_plots", False):
-            self._track_plots_data(preds, targets, img_info, img_ids)
+            try:
+                self._track_plots_data(preds, targets, img_info, img_ids)
+            except Exception as exc:
+                logger.warning("Failed to collect validation plot data: %s", exc)
 
     def _parse_gt_boxes(
         self, gt_row: torch.Tensor, orig_h: int, orig_w: int
@@ -752,14 +755,16 @@ class DetectionValidator(BaseValidator):
             rec_arr  = last_eval.eval.get("recall")       # (T, K, A, M)
             if prec_arr is not None:
                 def _mp(t, _pa=prec_arr):
-                    p = _pa[t, :, :, 0, -1]; v = p[p > -1]
+                    p = _pa[t, :, :, 0, -1]
+                    v = p[p > -1]
                     return float(v.mean()) if len(v) else 0.0
                 bm["p50-95"] = float(np.mean([_mp(t) for t in range(prec_arr.shape[0])]))
                 bm["p50"]    = _mp(0)
                 bm["p75"]    = _mp(5)  # IoU thresholds: [.50,.55,.60,.65,.70,.75,...]; index 5 = 0.75
             if rec_arr is not None:
                 def _mr(t, _ra=rec_arr):
-                    r = _ra[t, :, 0, -1]; v = r[r > -1]
+                    r = _ra[t, :, 0, -1]
+                    v = r[r > -1]
                     return float(v.mean()) if len(v) else 0.0
                 bm["r50-95"] = float(np.mean([_mr(t) for t in range(rec_arr.shape[0])]))
                 bm["r50"]    = _mr(0)
@@ -963,14 +968,16 @@ class SegmentationValidator(DetectionValidator):
             rec_arr  = last_mask_eval.eval.get("recall")
             if prec_arr is not None:
                 def _mmp(t, _pa=prec_arr):
-                    p = _pa[t, :, :, 0, -1]; v = p[p > -1]
+                    p = _pa[t, :, :, 0, -1]
+                    v = p[p > -1]
                     return float(v.mean()) if len(v) else 0.0
                 mm["p50-95"] = float(np.mean([_mmp(t) for t in range(prec_arr.shape[0])]))
                 mm["p50"]    = _mmp(0)
                 mm["p75"]    = _mmp(5)  # IoU thresholds: [.50,.55,...,.75,...]; index 5 = 0.75
             if rec_arr is not None:
                 def _mmr(t, _ra=rec_arr):
-                    r = _ra[t, :, 0, -1]; v = r[r > -1]
+                    r = _ra[t, :, 0, -1]
+                    v = r[r > -1]
                     return float(v.mean()) if len(v) else 0.0
                 mm["r50-95"] = float(np.mean([_mmr(t) for t in range(rec_arr.shape[0])]))
                 mm["r50"]    = _mmr(0)

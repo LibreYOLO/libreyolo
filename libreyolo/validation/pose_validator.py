@@ -332,20 +332,37 @@ class PoseValidator(BaseValidator):
         )
 
         if self.config.save_plots and len(self._val_sample_records) < 8:
-            pb = result.boxes.xyxy.cpu().numpy() if len(result) > 0 else np.zeros((0, 4), np.float32)
-            ps = result.boxes.conf.cpu().numpy() if len(result) > 0 else np.zeros(0, np.float32)
-            pc = result.boxes.cls.cpu().numpy().astype(int) if len(result) > 0 else np.zeros(0, int)
-            kp = (result.keypoints.data.cpu().numpy()
-                  if len(result) > 0 and result.keypoints is not None
-                  else None)
-            self._val_sample_records.append({
-                "img_path": img_path,
-                "image_id": image_id,
-                "pred_boxes": pb,
-                "pred_scores": ps,
-                "pred_classes": pc,
-                "pred_keypoints": kp,
-            })
+            try:
+                pb = (
+                    result.boxes.xyxy.cpu().numpy()
+                    if len(result) > 0
+                    else np.zeros((0, 4), np.float32)
+                )
+                ps = (
+                    result.boxes.conf.cpu().numpy()
+                    if len(result) > 0
+                    else np.zeros(0, np.float32)
+                )
+                pc = (
+                    result.boxes.cls.cpu().numpy().astype(int)
+                    if len(result) > 0
+                    else np.zeros(0, int)
+                )
+                kp = (
+                    result.keypoints.data.cpu().numpy()
+                    if len(result) > 0 and result.keypoints is not None
+                    else None
+                )
+                self._val_sample_records.append({
+                    "img_path": img_path,
+                    "image_id": image_id,
+                    "pred_boxes": pb,
+                    "pred_scores": ps,
+                    "pred_classes": pc,
+                    "pred_keypoints": kp,
+                })
+            except Exception as exc:
+                logger.warning("Failed to collect pose plot sample data: %s", exc)
 
         if result.keypoints is None or len(result) == 0:
             return

@@ -46,7 +46,10 @@ def val_cmd(
     max_det: int = typer.Option(300, help="Max detections per image"),
     half: bool = typer.Option(False, help="FP16 inference"),
     save_json: bool = typer.Option(False, help="Save COCO-format JSON results"),
-    save_plots: bool = typer.Option(True, help="Save validation plots (metrics, per-class AP, confusion matrix, samples)"),
+    save_plots: bool = typer.Option(
+        False,
+        help="Save validation plots (metrics, per-class AP, confusion matrix, samples)",
+    ),
     workers: int = typer.Option(4, help="Dataloader workers"),
     device: str = typer.Option("auto", help="Device"),
     project: str = typer.Option("runs/val", help="Output directory root"),
