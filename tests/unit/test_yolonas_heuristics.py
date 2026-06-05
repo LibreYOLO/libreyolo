@@ -134,6 +134,7 @@ class TestYOLONASNativeModel:
         assert tuple(decoded_boxes.shape) == (1, 8400, 4)
         assert tuple(decoded_scores.shape) == (1, 8400, 80)
 
+    @pytest.mark.external_data
     @pytest.mark.skipif(
         not OFFICIAL_YOLONAS_S.exists(),
         reason="Official YOLO-NAS checkpoint not present in local downloads/",
@@ -147,6 +148,7 @@ class TestYOLONASNativeModel:
         assert missing == []
         assert unexpected == []
 
+    @pytest.mark.external_data
     @pytest.mark.skipif(
         not OFFICIAL_YOLONAS_S.exists(),
         reason="Official YOLO-NAS checkpoint not present in local downloads/",

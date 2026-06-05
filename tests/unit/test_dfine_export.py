@@ -38,6 +38,7 @@ def test_dfine_export_wrapper_returns_tuple():
     assert pred_boxes.shape == (1, 300, 4)
 
 
+@pytest.mark.external_data
 def test_dfine_onnx_export_n_roundtrip(tmp_path):
     """Export N to ONNX, run via onnxruntime, sanity-check output shapes + names."""
     import onnx
@@ -76,6 +77,7 @@ def test_dfine_onnx_export_n_roundtrip(tmp_path):
     )
 
 
+@pytest.mark.external_data
 def test_torchscript_export_roundtrip(tmp_path):
     """TorchScript export traces cleanly + the saved module returns a 2-tuple."""
     import torch as _torch
@@ -99,21 +101,18 @@ def test_torchscript_export_roundtrip(tmp_path):
     assert out[1].shape == (1, 300, 4)
 
 
-def test_ncnn_export_is_blocked_for_dfine():
+def test_ncnn_export_is_blocked_for_dfine(tmp_path):
     """NCNN can't run DETR-style decoders (no topk op); export must error early."""
     from libreyolo import LibreDFINE
 
-    ckpt = Path("weights/dfine_n_coco.pth")
-    if not ckpt.exists():
-        pytest.skip(f"{ckpt} not present")
-
-    m = LibreDFINE(str(ckpt), size="n", device="cpu")
+    m = LibreDFINE(None, size="n", device="cpu")
     with pytest.raises(
         NotImplementedError, match="NCNN export is not supported for D-FINE"
     ):
-        m.export("ncnn", output_path="/tmp/should_not_exist_ncnn")
+        m.export("ncnn", output_path=str(tmp_path / "should_not_exist_ncnn"))
 
 
+@pytest.mark.external_data
 def test_onnx_backend_matches_torch_inference(tmp_path):
     """LibreYOLO(onnx_path)(image) should produce the same top-K detections as
     LibreDFINE(pt_path)(image) within rounding."""

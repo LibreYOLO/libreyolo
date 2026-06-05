@@ -35,5 +35,7 @@ jobs:
       - name: Install dependencies
         run: uv pip install --no-sources --torch-backend cpu --group dev -e ".[rfdetr]"
 
-      - name: Run unit tests
-        run: uv run --no-sync pytest tests/unit -m unit
+      - name: Run PR gate tests
+        env:
+          LIBREYOLO_PR_GATE: "1"
+        run: uv run --no-sync pytest tests/unit -m "unit and not external_data and not network"

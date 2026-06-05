@@ -1,6 +1,6 @@
 # LibreYOLO Testing Strategy
 
-Version: 2.1
+Version: 2.2
 
 This is the CI/test contract for LibreYOLO. Times are UTC.
 
@@ -26,11 +26,36 @@ Boundaries:
 Command:
 
 ```bash
-uv run --no-sync pytest tests/unit -m unit
+make test_pr_gate
+
+# Equivalent command used by the cross-platform GitHub workflow:
+LIBREYOLO_PR_GATE=1 uv run --no-sync pytest tests/unit -m "unit and not external_data and not network"
 ```
 
 Scope: CPU-safe behavior, config, parsing, errors, serialization, and CLI/API
 logic.
+
+### PR Gate v1.0
+
+The PR gate is the merge-blocking unit-test contract for pushes and pull
+requests to `dev`.
+
+Contract:
+
+- No external HTTP/network access. Localhost sockets remain allowed so local
+  distributed-training unit tests can run.
+- No live dataset, model-weight, Hugging Face, GitHub release, cloud bucket, or
+  CDN downloads.
+- No dependency on staged external datasets, staged external weights, secrets,
+  GPU hardware, CUDA, or vendor export runtimes.
+- Tests that intentionally require staged datasets/weights must use
+  `@pytest.mark.external_data` and remain outside the PR-gate marker expression.
+- Tests that intentionally require non-local network access must use
+  `@pytest.mark.network` and remain outside the PR-gate marker expression.
+
+New unit tests are in the PR gate by default. If a test cannot satisfy this
+contract, prefer a local fixture or mock. If real external data is essential,
+move the coverage to the appropriate e2e, nightly, or manual suite.
 
 ## Install Smoke
 

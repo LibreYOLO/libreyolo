@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-pytestmark = pytest.mark.unit
+pytestmark = [pytest.mark.unit, pytest.mark.external_data, pytest.mark.network]
 
 
 def test_dfine_n_validation_mAP_on_coco128():
