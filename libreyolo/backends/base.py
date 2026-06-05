@@ -1183,6 +1183,8 @@ class BaseBackend(ABC):
         augment: bool = False,
         save_json: bool = False,
         verbose: bool = True,
+        *,
+        plots: bool | None = None,
         **kwargs,
     ) -> Dict:
         from ..validation import (
@@ -1202,6 +1204,8 @@ class BaseBackend(ABC):
             raise NotImplementedError(
                 "Rectangular exported-backend validation is not supported yet."
             )
+        if plots is not None and "save_plots" not in kwargs:
+            kwargs["save_plots"] = plots
 
         validation_device = device or (
             self.device if _is_pytorch_cuda_device(self.device) and torch.cuda.is_available() else "cpu"

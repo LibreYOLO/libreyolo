@@ -356,6 +356,7 @@ def _build_rfdetr_train_kwargs(
         "workers": "num_workers",
         "weight_decay": "weight_decay",
         "eval_interval": "eval_interval",
+        "save_plots": "save_plots",
         "warmup_epochs": "warmup_epochs",
         "warmup_lr_start": "warmup_lr_start",
         "min_lr_ratio": "min_lr_ratio",

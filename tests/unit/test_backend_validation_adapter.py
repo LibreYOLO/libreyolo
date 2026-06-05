@@ -1,8 +1,12 @@
+import inspect
+
 import numpy as np
 import pytest
 import torch
 
 from libreyolo.backends.base import BaseBackend
+from libreyolo.models.base.model import BaseModel
+from libreyolo.validation.config import ValidationConfig
 
 
 pytestmark = pytest.mark.unit
@@ -50,6 +54,21 @@ class _YoloRectBackend(BaseBackend):
         return [np.zeros((blob.shape[0], 6, 0), dtype=np.float32)]
 
 
+def test_validation_plot_flags_preserve_positional_abi():
+    assert (
+        inspect.signature(BaseModel.val).parameters["plots"].kind
+        is inspect.Parameter.KEYWORD_ONLY
+    )
+    assert (
+        inspect.signature(BaseBackend.val).parameters["plots"].kind
+        is inspect.Parameter.KEYWORD_ONLY
+    )
+    assert (
+        inspect.signature(ValidationConfig).parameters["save_plots"].kind
+        is inspect.Parameter.KEYWORD_ONLY
+    )
+
+
 def test_backend_val_uses_exported_model_adapter(monkeypatch):
     captured = {}
 
@@ -73,6 +92,7 @@ def test_backend_val_uses_exported_model_adapter(monkeypatch):
         workers=0,
         device="cpu",
         split="test",
+        plots=True,
     )
 
     assert metrics == {"metrics/mAP50": 0.5}
@@ -80,6 +100,7 @@ def test_backend_val_uses_exported_model_adapter(monkeypatch):
     assert captured["config"].imgsz == 560
     assert captured["config"].batch_size == 4
     assert captured["config"].conf_thres == 0.01
+    assert captured["config"].save_plots is True
     assert backend.FAMILY == "rfdetr"
     assert backend.size == "n"
 

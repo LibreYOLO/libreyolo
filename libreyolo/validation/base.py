@@ -153,6 +153,12 @@ class BaseValidator(ABC):
 
         self.config.to_yaml(self.save_dir / "config.yaml")
 
+        if self.config.save_plots:
+            try:
+                self._save_plots(metrics)
+            except Exception as exc:
+                logger.warning("Failed to save validation plots: %s", exc)
+
         # Include timing info so callers (e.g. benchmarks) can use it
         if self.seen > 0:
             ms_per_image = self.speed["total"] / self.seen * 1000
@@ -213,6 +219,9 @@ class BaseValidator(ABC):
 
         if self.device.type == "cuda":
             torch.cuda.synchronize()
+
+    def _save_plots(self, metrics: Dict[str, float]) -> None:
+        """Override in subclasses to save validation plots."""
 
     def _print_results(self, metrics: Dict[str, float]) -> None:
         logger.info("=" * 50)

@@ -874,6 +874,8 @@ class BaseModel(ABC):
         augment: bool = False,
         save_json: bool = False,
         verbose: bool = True,
+        *,
+        plots: bool | None = None,
         **kwargs,
     ) -> Dict:
         """Run validation on a dataset.
@@ -889,6 +891,7 @@ class BaseModel(ABC):
             device: Device to use (default: same as model).
             split: Dataset split ("val", "test").
             save_json: Save predictions in COCO JSON format.
+            plots: Ultralytics-compatible alias for save_plots.
             verbose: Print detailed metrics.
 
         Returns:
@@ -904,6 +907,8 @@ class BaseModel(ABC):
 
         if imgsz is None:
             imgsz = self._get_input_size()
+        if plots is not None and "save_plots" not in kwargs:
+            kwargs["save_plots"] = plots
 
         config = ValidationConfig(
             data=data,

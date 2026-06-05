@@ -154,6 +154,7 @@ def test_train_rfdetr_actual_call_uses_reported_defaults(monkeypatch, tmp_path):
             "model=LibreRFDETRm.pt",
             f"project={tmp_path}",
             "exist_ok=true",
+            "save_plots=true",
             "--json",
         ],
     )
@@ -172,6 +173,7 @@ def test_train_rfdetr_actual_call_uses_reported_defaults(monkeypatch, tmp_path):
     assert kwargs["lr_drop"] == 100
     assert kwargs["use_ema"] is True
     assert kwargs["ema_decay"] == 0.993
+    assert kwargs["save_plots"] is True
     assert kwargs["early_stopping"] is False
 
     data = json.loads(result.stdout)

@@ -46,6 +46,9 @@ onnx = [
 rfdetr = [
     "transformers>=5.1.0",
 ]
+plots = [
+    "matplotlib>=3.7.0",
+]
 tensorrt = [
     # No CUDA on macOS; marker drops these. Version pin must match the
     # [[tool.uv.dependency-metadata]] blocks below.
@@ -78,6 +81,7 @@ coreml = [
 all = [
     "libreyolo[onnx]",
     "libreyolo[rfdetr]",
+    "libreyolo[plots]",
     "libreyolo[tensorrt]",
     "libreyolo[openvino]",
     "libreyolo[ncnn]",

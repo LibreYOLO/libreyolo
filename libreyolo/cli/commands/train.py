@@ -68,6 +68,9 @@ def train_cmd(
     # Validation
     val: bool = typer.Option(True, help="Validate during training"),
     eval_interval: int = typer.Option(10, help="Validate every N epochs"),
+    save_plots: bool = typer.Option(
+        False, help="Save final validation plots during training"
+    ),
     patience: int = typer.Option(50, help="Early stopping patience (0=disabled)"),
     # Output
     project: str = typer.Option("runs/train", help="Output directory root"),
@@ -166,6 +169,7 @@ def train_cmd(
         "ema": ema,
         "ema_decay": ema_decay,
         "eval_interval": eval_interval,
+        "save_plots": save_plots,
         "patience": patience,
         "project": project,
         "name": name,

@@ -33,6 +33,7 @@ class COCOEvaluator:
         )
         self.results = []
         self._img_ids = set()
+        self._last_coco_eval = None
 
     def update(self, predictions: Dict, image_id: int):
         """
@@ -142,6 +143,7 @@ class COCOEvaluator:
         coco_eval.evaluate()
         coco_eval.accumulate()
         coco_eval.summarize()
+        self._last_coco_eval = coco_eval  # kept for per-class AP access
 
         # stats layout: [mAP, mAP50, mAP75, AP_s, AP_m, AP_l,
         #                AR1, AR10, AR100, AR_s, AR_m, AR_l]

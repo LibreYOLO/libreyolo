@@ -1,6 +1,6 @@
 """Validation configuration for LibreYOLO."""
 
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass, asdict, field
 from pathlib import Path
 from typing import List, Optional, Tuple, Union
 
@@ -25,6 +25,8 @@ class ValidationConfig:
         device: Device to use ("auto", "cuda", "mps", "cpu").
         save_dir: Directory to save results.
         save_json: Whether to save predictions in COCO JSON format.
+        save_plots: Whether to save validation plots (metrics bar, per-class AP,
+            confusion matrix, sample images). Default False.
         verbose: Whether to print detailed metrics.
         num_workers: Number of dataloader workers.
         half: Whether to use FP16 inference.
@@ -63,6 +65,7 @@ class ValidationConfig:
     save_dir: Optional[str] = None
     save_json: bool = False
     verbose: bool = True
+    save_plots: bool = field(default=False, kw_only=True)
 
     # Workers
     num_workers: int = 4
