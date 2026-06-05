@@ -2,7 +2,14 @@
 
 import pytest
 
-from libreyolo.tasks import TaskType, normalize_supported_tasks, normalize_task, resolve_task
+from libreyolo.tasks import (
+    TaskType,
+    normalize_supported_tasks,
+    normalize_task,
+    resolve_task,
+    suffix_to_task,
+    task_to_suffix,
+)
 
 pytestmark = pytest.mark.unit
 
@@ -11,10 +18,18 @@ def test_normalize_task_aliases():
     assert normalize_task("det") == "detect"
     assert normalize_task("seg") == "segment"
     assert normalize_task("cls") == "classify"
+    assert normalize_task("obb") == "obb"
 
 
 def test_task_type_literal_is_public():
-    assert set(TaskType.__args__) == {"detect", "segment", "pose", "classify", "gaze"}
+    assert set(TaskType.__args__) == {
+        "detect",
+        "segment",
+        "pose",
+        "classify",
+        "gaze",
+        "obb",
+    }
 
 
 def test_resolve_task_precedence():
@@ -42,12 +57,16 @@ def test_resolve_task_rejects_unsupported_task():
         resolve_task(explicit_task="segment", supported_tasks=("detect",))
 
 
+def test_resolve_task_accepts_obb_when_supported():
+    assert resolve_task(explicit_task="obb", supported_tasks=("detect", "obb")) == "obb"
+
+
 def test_normalize_supported_tasks_accepts_exported_json_string():
     assert normalize_supported_tasks('["detect", "segment"]') == ("detect", "segment")
 
 
-def test_suffix_to_task_returns_none_for_unknown_suffix():
-    from libreyolo.tasks import suffix_to_task
-
+def test_task_suffix_helpers():
     assert suffix_to_task("-seg") == "segment"
+    assert suffix_to_task("-obb") == "obb"
+    assert task_to_suffix("obb") == "obb"
     assert suffix_to_task("-unknown") is None

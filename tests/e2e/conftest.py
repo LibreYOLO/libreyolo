@@ -478,6 +478,12 @@ FLAGSHIP_FAMILIES = {"yolo9", "rfdetr"}
 # One smallest inference case per public family. Keep this separate from
 # MODEL_CATALOG: that catalog feeds validation/training tests, while this one is
 # the general nightly contract that every family can load and run inference.
+#
+# Every entry must have a public auto-download route (LibreYOLO HF, or Deci's
+# CDN for YOLO-NAS) so the gated nightly never depends on a hand-staged weight.
+# L2CS/Gaze360 is intentionally excluded: its license forbids redistribution and
+# it has no plain-HTTP route, so a skip-means-failure gate cannot provision it.
+# Gaze inference stays covered by the non-gated per-family L2CS suite.
 GENERAL_NIGHTLY_INFERENCE_MODELS = [
     ("yolox", "n", "LibreYOLOXn.pt"),
     ("yolo9", "t", "LibreYOLO9t.pt"),
@@ -494,7 +500,6 @@ GENERAL_NIGHTLY_INFERENCE_MODELS = [
     ("picodet", "s", "LibrePICODETs.pt"),
     ("damoyolo", "t", "LibreDAMOYOLOt.pt"),
     ("rtmdet", "t", "LibreRTMDett.pt"),
-    ("l2cs", "r50", "LibreL2CSr50.pt"),
 ]
 
 # Derived lists (no manual maintenance)
@@ -570,6 +575,13 @@ def flagship_nightly_marks(family: str, *_):
     return None
 
 
+def rf1_flagship_nightly_marks(family: str, size: str, *_):
+    """Return the RF1 nightly mark for one size per flagship family."""
+    if (family, size) in {("yolo9", "t"), ("rfdetr", "n")}:
+        return pytest.mark.flagship_nightly
+    return None
+
+
 def general_nightly_marks(*_):
     """Return the general nightly mark for broad inference parametrized cases."""
     return pytest.mark.general_nightly
@@ -627,7 +639,13 @@ def _detect_local_weights_family(weights: str) -> str:
 
 @lru_cache(maxsize=None)
 def _has_libreyolo_download_route(weights: str) -> bool:
-    """Return whether a missing test weight has a canonical LibreYOLO HF route."""
+    """Return whether a missing test weight has a public auto-download route.
+
+    Accepts the canonical LibreYOLO HF mirror plus the upstream hosts that
+    ``libreyolo.utils.download`` knows how to fetch from -- currently Deci's CDN
+    for YOLO-NAS, whose proprietary weights are not mirrored on the LibreYOLO HF
+    org. Weights with no public route at all (e.g. L2CS/Gaze360) still skip.
+    """
     import libreyolo.models  # noqa: F401  (import registers model families)
     from libreyolo.models.base.model import BaseModel
 
@@ -637,7 +655,11 @@ def _has_libreyolo_download_route(weights: str) -> bool:
             url = cls.get_download_url(filename)
         except Exception:
             continue
-        if url and url.startswith("https://huggingface.co/LibreYOLO/"):
+        if url and (
+            url.startswith("https://huggingface.co/LibreYOLO/")
+            or "cloudfront.net" in url
+            or ".deci.ai" in url
+        ):
             return True
     return False
 

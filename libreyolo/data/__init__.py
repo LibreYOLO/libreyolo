@@ -5,6 +5,7 @@ Provides dataset configuration loading, auto-download, and path resolution.
 Supports YAML configs with .txt file paths.
 """
 
+from .obb import parse_yolo_obb_label_line
 from .pose_dataset import YOLOPoseDataset, parse_yolo_pose_label_line, pose_collate_fn
 from .utils import (
     DATASETS_DIR,
@@ -24,6 +25,7 @@ __all__ = [
     "YOLOCocoAPI",
     "create_yolo_coco_api",
     "parse_yolo_label_line",
+    "parse_yolo_obb_label_line",
     "YOLOPoseDataset",
     "parse_yolo_pose_label_line",
     "pose_collate_fn",

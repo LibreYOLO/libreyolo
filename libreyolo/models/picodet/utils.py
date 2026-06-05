@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from typing import List, Sequence, Tuple
 
+import cv2
 import numpy as np
 import torch
 import torch.nn.functional as F
@@ -41,10 +42,11 @@ def preprocess_numpy(
     non-letterbox resize but kept in the signature so it can flow through
     the same postprocess pipeline as letterbox-based families.
     """
-    img = Image.fromarray(img_rgb_hwc).resize(
-        (input_size, input_size), Image.Resampling.BILINEAR
-    )
-    arr = np.array(img, dtype=np.float32)
+    # Upstream PaddleDetection / Bo's port resize with cv2.INTER_LINEAR.
+    # PIL's bilinear kernel differs and drifts ~0.3-0.5 mAP on COCO, so match cv2.
+    arr = cv2.resize(
+        img_rgb_hwc, (input_size, input_size), interpolation=cv2.INTER_LINEAR
+    ).astype(np.float32)
     arr -= np.array(IMAGENET_MEAN, dtype=np.float32)
     arr /= np.array(IMAGENET_STD, dtype=np.float32)
     return arr.transpose(2, 0, 1), 1.0

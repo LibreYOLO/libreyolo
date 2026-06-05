@@ -39,6 +39,7 @@ def test_pose_validator_accepts_yolo_pose_yaml(tmp_path):
                 "names": {0: "runway"},
                 "kpt_shape": [4, 3],
                 "keypoints": ["tl", "tr", "br", "bl"],
+                "skeleton": [[1, 2], [3, 4]],
             }
         )
     )
@@ -57,7 +58,10 @@ def test_pose_validator_accepts_yolo_pose_yaml(tmp_path):
     assert coco["images"][0]["file_name"] == str(images_dir / "img0.jpg")
     assert coco["categories"][0]["name"] == "runway"
     assert coco["categories"][0]["keypoints"] == ["tl", "tr", "br", "bl"]
+    assert coco["categories"][0]["skeleton"] == [[1, 2], [3, 4]]
     assert coco["annotations"][0]["num_keypoints"] == 3
     assert len(coco["annotations"][0]["keypoints"]) == 12
     assert validator._num_keypoints == 4
+    assert validator._normalize_skeleton([[1, 2], [3, 4]]) == ((0, 1), (2, 3))
+    assert validator._normalize_skeleton([[0, 1], [2, 3]]) == ((0, 1), (2, 3))
     assert validator._resolve_oks_sigmas() == [0.25] * 4

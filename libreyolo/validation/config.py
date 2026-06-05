@@ -1,6 +1,6 @@
 """Validation configuration for LibreYOLO."""
 
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass, asdict, field
 from pathlib import Path
 from typing import List, Optional, Tuple, Union
 
@@ -64,8 +64,8 @@ class ValidationConfig:
     # Output
     save_dir: Optional[str] = None
     save_json: bool = False
-    save_plots: bool = False
     verbose: bool = True
+    save_plots: bool = field(default=False, kw_only=True)
 
     # Workers
     num_workers: int = 4

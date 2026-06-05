@@ -131,6 +131,35 @@ class ConfusionMatrix:
 class ValPlotter:
     """Saves validation result visualisations to a plots/ subdirectory."""
 
+    @staticmethod
+    def _coco_category_names(coco_eval, cat_ids: list[int]) -> Dict[int, str]:
+        coco_gt = getattr(coco_eval, "cocoGt", None)
+        if coco_gt is None or not hasattr(coco_gt, "loadCats"):
+            return {}
+        try:
+            cats = coco_gt.loadCats(cat_ids)
+        except Exception:
+            return {}
+        return {int(cat["id"]): str(cat.get("name", cat["id"])) for cat in cats}
+
+    @staticmethod
+    def _class_name(
+        class_names,
+        index: int,
+        category_id: int | None = None,
+        category_names: Optional[Dict[int, str]] = None,
+    ) -> str:
+        if isinstance(class_names, dict):
+            if category_id is not None and category_id in class_names:
+                return str(class_names[category_id])
+            if index in class_names:
+                return str(class_names[index])
+        if category_id is not None and category_names and category_id in category_names:
+            return category_names[category_id]
+        if class_names and not isinstance(class_names, dict) and index < len(class_names):
+            return str(class_names[index])
+        return f"cls{category_id}" if category_id is not None else str(index)
+
     # ------------------------------------------------------------------ #
     # Metrics summary — grouped subplots (mAP | AR | P/R)
     # ------------------------------------------------------------------ #
@@ -222,33 +251,39 @@ class ValPlotter:
             return
 
         cat_ids = list(coco_eval.params.catIds)
+        category_names = ValPlotter._coco_category_names(coco_eval, cat_ids)
         nc = len(cat_ids)
         ap_vals, ap_names = [], []
         for k in range(nc):
             p = precision[:, :, k, 0, -1]
             valid = p[p > -1]
-            ap_vals.append(float(valid.mean()) if len(valid) else 0.0)
-            name = class_names[k] if class_names and k < len(class_names) else f"cls{cat_ids[k]}"
+            if not len(valid):
+                continue
+            ap_vals.append(float(valid.mean()))
+            name = ValPlotter._class_name(
+                class_names, k, int(cat_ids[k]), category_names
+            )
             ap_names.append(name)
 
         if not ap_vals:
             return
+        n_shown = len(ap_vals)
 
         # Sort descending by AP
         order = np.argsort(ap_vals)[::-1]
         ap_vals = [ap_vals[i] for i in order]
         ap_names = [ap_names[i] for i in order]
 
-        fig_h = max(4, nc * 0.32 + 1.5)
+        fig_h = max(4, n_shown * 0.32 + 1.5)
         fig, ax = plt.subplots(figsize=(7, fig_h))
         cmap = plt.get_cmap("RdYlGn")
         bars = ax.barh(
-            range(nc), ap_vals,
+            range(n_shown), ap_vals,
             color=[cmap(v) for v in ap_vals],
             edgecolor="white", linewidth=0.5,
         )
-        ax.set_yticks(range(nc))
-        ax.set_yticklabels(ap_names, fontsize=max(6, 9 - nc // 15))
+        ax.set_yticks(range(n_shown))
+        ax.set_yticklabels(ap_names, fontsize=max(6, 9 - n_shown // 15))
         ax.set_xlim(0, 1.08)
         ax.set_title(f"Per-class mAP50-95 ({label}) — sorted", fontsize=11, fontweight="bold")
         ax.set_xlabel("mAP50-95")
@@ -257,7 +292,7 @@ class ValPlotter:
         ax.spines["right"].set_visible(False)
         ax.invert_yaxis()
 
-        fs_val = max(6, 8 - nc // 20)
+        fs_val = max(6, 8 - n_shown // 20)
         for bar, val in zip(bars, ap_vals):
             ax.text(
                 val + 0.005, bar.get_y() + bar.get_height() / 2,
@@ -291,32 +326,38 @@ class ValPlotter:
             return
 
         cat_ids = list(coco_eval.params.catIds)
+        category_names = ValPlotter._coco_category_names(coco_eval, cat_ids)
         nc = len(cat_ids)
         rec_vals, rec_names = [], []
         for k in range(nc):
             r = recall[:, k, 0, -1]
             valid = r[r > -1]
-            rec_vals.append(float(valid.mean()) if len(valid) else 0.0)
-            name = class_names[k] if class_names and k < len(class_names) else f"cls{cat_ids[k]}"
+            if not len(valid):
+                continue
+            rec_vals.append(float(valid.mean()))
+            name = ValPlotter._class_name(
+                class_names, k, int(cat_ids[k]), category_names
+            )
             rec_names.append(name)
 
         if not rec_vals:
             return
+        n_shown = len(rec_vals)
 
         order = np.argsort(rec_vals)[::-1]
         rec_vals = [rec_vals[i] for i in order]
         rec_names = [rec_names[i] for i in order]
 
-        fig_h = max(4, nc * 0.32 + 1.5)
+        fig_h = max(4, n_shown * 0.32 + 1.5)
         fig, ax = plt.subplots(figsize=(7, fig_h))
         cmap = plt.get_cmap("RdYlGn")
         bars = ax.barh(
-            range(nc), rec_vals,
+            range(n_shown), rec_vals,
             color=[cmap(v) for v in rec_vals],
             edgecolor="white", linewidth=0.5,
         )
-        ax.set_yticks(range(nc))
-        ax.set_yticklabels(rec_names, fontsize=max(6, 9 - nc // 15))
+        ax.set_yticks(range(n_shown))
+        ax.set_yticklabels(rec_names, fontsize=max(6, 9 - n_shown // 15))
         ax.set_xlim(0, 1.08)
         ax.set_title(f"Per-class Recall@50-95 ({label}) — sorted", fontsize=11, fontweight="bold")
         ax.set_xlabel("Recall@50-95")
@@ -325,7 +366,7 @@ class ValPlotter:
         ax.spines["right"].set_visible(False)
         ax.invert_yaxis()
 
-        fs_val = max(6, 8 - nc // 20)
+        fs_val = max(6, 8 - n_shown // 20)
         for bar, val in zip(bars, rec_vals):
             ax.text(
                 val + 0.005, bar.get_y() + bar.get_height() / 2,
@@ -351,7 +392,7 @@ class ValPlotter:
         plt = ValPlotter._require_matplotlib()
 
         nc = matrix.shape[0] - 1  # matrix is (nc+1, nc+1)
-        labels = [class_names[k] if class_names and k < len(class_names) else str(k) for k in range(nc)]
+        labels = [ValPlotter._class_name(class_names, k) for k in range(nc)]
         labels.append("background")
 
         disp = matrix.astype(float)
@@ -442,10 +483,21 @@ class ValPlotter:
 
         rec_thrs = np.linspace(0.0, 1.0, 101)
         nc = p_mat.shape[1]
-        names = [class_names[k] if class_names and k < len(class_names) else str(k) for k in range(nc)]
+        cat_ids = list(getattr(coco_eval.params, "catIds", []))
+        category_names = ValPlotter._coco_category_names(coco_eval, cat_ids)
+        names = [
+            ValPlotter._class_name(
+                class_names,
+                k,
+                int(cat_ids[k]) if k < len(cat_ids) else None,
+                category_names,
+            )
+            for k in range(nc)
+        ]
         show_legend = nc <= 5
 
         cmap_cls = plt.get_cmap("tab20" if nc > 10 else "tab10")
+        threshold_label = "OKS=0.5" if label.lower() == "keypoints" else "IoU=0.5"
 
         p_mean = np.nanmean(p_mat, axis=1)   # (101,)
         s_mean = (np.nanmean(s_mat, axis=1)  # (101,)
@@ -468,7 +520,7 @@ class ValPlotter:
         # -------- 1. Precision–Recall ----------------------------------------
         fig, ax = _base_ax(
             "Recall", "Precision",
-            f"Precision–Recall ({label.upper()}, IoU=0.5)",
+            f"Precision–Recall ({label.upper()}, {threshold_label})",
         )
         for k in range(nc):
             v = ~np.isnan(p_mat[:, k])
@@ -498,7 +550,7 @@ class ValPlotter:
         # -------- 2. Precision–Confidence ------------------------------------
         fig, ax = _base_ax(
             "Confidence threshold", "Precision",
-            f"Precision vs Confidence ({label.upper()}, IoU=0.5)",
+            f"Precision vs Confidence ({label.upper()}, {threshold_label})",
         )
         for k in range(nc):
             v = ~np.isnan(p_mat[:, k]) & ~np.isnan(s_mat[:, k])
@@ -529,7 +581,7 @@ class ValPlotter:
         # -------- 3. Recall–Confidence ---------------------------------------
         fig, ax = _base_ax(
             "Confidence threshold", "Recall",
-            f"Recall vs Confidence ({label.upper()}, IoU=0.5)",
+            f"Recall vs Confidence ({label.upper()}, {threshold_label})",
         )
         for k in range(nc):
             v = ~np.isnan(s_mat[:, k])
@@ -574,6 +626,7 @@ class ValPlotter:
         gt_masks: Optional[np.ndarray] = None,    # (M, H, W) original pixel space
         gt_keypoints: Optional[np.ndarray] = None,
         pred_keypoints: Optional[np.ndarray] = None,
+        keypoint_edges: Optional[tuple[tuple[int, int], ...]] = None,
         conf_thres: float = 0.25,
     ) -> None:
         """Save a side-by-side composite: Ground Truth (left) | Predictions (right)."""
@@ -582,9 +635,7 @@ class ValPlotter:
         h, w = img_bgr.shape[:2]
 
         def _cls_name(c: int) -> str:
-            if class_names and 0 <= c < len(class_names):
-                return class_names[c]
-            return str(c)
+            return ValPlotter._class_name(class_names, c, c)
 
         def _put_label(canvas, text: str, x1: int, y: int, color: tuple, above: bool) -> None:
             (tw, th), _ = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, 0.42, 1)
@@ -622,6 +673,7 @@ class ValPlotter:
                 arr,
                 point_color=color_bgr[::-1],
                 edge_color=color_bgr[::-1],
+                edges=keypoint_edges or (),
                 conf_thres=conf_thres,
             )
             return cv2.cvtColor(np.asarray(drawn), cv2.COLOR_RGB2BGR)

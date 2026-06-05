@@ -56,6 +56,7 @@ class PoseValidator(BaseValidator):
         self._category_id: int = 0
         self._last_coco_eval = None
         self._val_sample_records: List[dict] = []
+        self._pose_skeleton: tuple[tuple[int, int], ...] = ()
 
     # PoseValidator runs a per-image loop driven by COCO JSON, so it does not
     # use the BaseValidator dataloader-template path. The required hooks below
@@ -282,12 +283,32 @@ class PoseValidator(BaseValidator):
         from pycocotools.coco import COCO
 
         self._coco_gt = COCO(str(self._kpts_json))
+        cats = self._coco_gt.loadCats(self._coco_gt.getCatIds())
         self._category_id = self._infer_category_id()
         self._image_records = self._coco_gt.loadImgs(self._coco_gt.getImgIds())
         if self._num_keypoints is None:
-            cats = self._coco_gt.loadCats(self._coco_gt.getCatIds())
             keypoints = cats[0].get("keypoints", []) if cats else []
             self._num_keypoints = len(keypoints) or None
+        skeleton = cats[0].get("skeleton", []) if cats else []
+        self._pose_skeleton = self._normalize_skeleton(skeleton)
+
+    def _normalize_skeleton(self, skeleton) -> tuple[tuple[int, int], ...]:
+        pairs: list[tuple[int, int]] = []
+        for edge in skeleton or []:
+            if not isinstance(edge, (list, tuple)) or len(edge) != 2:
+                continue
+            try:
+                a, b = int(edge[0]), int(edge[1])
+            except (TypeError, ValueError):
+                continue
+            pairs.append((a, b))
+        if not pairs:
+            return ()
+        min_idx = min(min(a, b) for a, b in pairs)
+        max_idx = max(max(a, b) for a, b in pairs)
+        if self._num_keypoints and min_idx >= 1 and max_idx <= self._num_keypoints:
+            pairs = [(a - 1, b - 1) for a, b in pairs]
+        return tuple((a, b) for a, b in pairs if a >= 0 and b >= 0)
 
     def _infer_category_id(self) -> int:
         cats = self._coco_gt.loadCats(self._coco_gt.getCatIds())
@@ -518,6 +539,7 @@ class PoseValidator(BaseValidator):
                     samples_dir / f"val_sample_{idx:02d}.jpg",
                     gt_keypoints=gt_keypoints_arr,
                     pred_keypoints=sample.get("pred_keypoints"),
+                    keypoint_edges=self._pose_skeleton,
                 )
         logger.info("Pose plots saved → %s", plots_dir)
 

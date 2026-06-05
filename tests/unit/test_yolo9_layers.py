@@ -311,6 +311,20 @@ class TestYOLO9Utils:
             torch.full((3, 4, 8), 114 / 255.0, dtype=tensor.dtype),
         )
 
+    def test_preprocess_image_accepts_rectangular_input_size(self):
+        img = np.zeros((4, 8, 3), dtype=np.uint8)
+
+        tensor, _, original_size = yolo9_utils.preprocess_image(
+            img, input_size=(8, 16), color_format="rgb"
+        )
+
+        assert original_size == (8, 4)
+        assert tensor.shape == (1, 3, 8, 16)
+        torch.testing.assert_close(
+            tensor[0, :, :, :16],
+            torch.zeros((3, 8, 16), dtype=tensor.dtype),
+        )
+
     def test_postprocess_defaults_to_letterbox_inverse(self):
         """YOLO9 postprocess default matches letterboxed predict inputs."""
         pred = torch.zeros(1, 6, 1)
@@ -328,6 +342,83 @@ class TestYOLO9Utils:
             torch.as_tensor(out["boxes"]),
             torch.tensor([[0.0, 0.0, 640.0, 640.0]]),
         )
+
+    def test_postprocess_accepts_rectangular_input_size(self):
+        pred = torch.zeros(1, 6, 1)
+        pred[0, :4, 0] = torch.tensor([0.0, 0.0, 320.0, 320.0])
+        pred[0, 4, 0] = 0.9
+
+        out = yolo9_utils.postprocess(
+            {"predictions": pred},
+            input_size=(320, 640),
+            original_size=(1280, 960),
+        )
+
+        assert out["num_detections"] == 1
+        torch.testing.assert_close(
+            torch.as_tensor(out["boxes"]),
+            torch.tensor([[0.0, 0.0, 960.0, 960.0]]),
+        )
+
+    def test_postprocess_detection_is_multilabel(self):
+        """Detection postprocess emits one detection per class above conf on an
+        anchor (multi-label), matching MultimediaTechLab/YOLO ``bbox_nms``."""
+        pred = torch.zeros(1, 6, 1)
+        pred[0, :4, 0] = torch.tensor([0.0, 0.0, 100.0, 100.0])
+        pred[0, 4:, 0] = torch.tensor([0.9, 0.8])  # two classes over conf
+
+        out = yolo9_utils.postprocess(
+            {"predictions": pred}, conf_thres=0.25, iou_thres=0.5
+        )
+
+        assert out["num_detections"] == 2
+        assert sorted(out["classes"]) == [0, 1]
+
+    def test_postprocess_detection_caps_multilabel_candidates(self, monkeypatch):
+        """Detection limits low-threshold multi-label expansion before NMS."""
+        monkeypatch.setattr(yolo9_utils, "_YOLO9_MAX_NMS_CANDIDATES", 3)
+        pred = torch.zeros(1, 6, 4)
+        pred[0, :4] = torch.tensor(
+            [
+                [0.0, 20.0, 40.0, 60.0],
+                [0.0, 0.0, 0.0, 0.0],
+                [10.0, 30.0, 50.0, 70.0],
+                [10.0, 10.0, 10.0, 10.0],
+            ]
+        )
+        pred[0, 4:] = torch.tensor(
+            [[0.1, 0.9, 0.7, 0.5], [0.8, 0.2, 0.6, 0.4]]
+        )
+
+        out = yolo9_utils.postprocess(
+            {"predictions": pred}, conf_thres=0.01, iou_thres=0.5, max_det=3
+        )
+
+        assert out["num_detections"] == 3
+        assert sorted(round(float(s), 1) for s in out["scores"]) == [
+            0.7,
+            0.8,
+            0.9,
+        ]
+
+    def test_postprocess_segment_keeps_best_class(self):
+        """Segment postprocess stays best-class (not multi-label) so each
+        detection keeps a single mask-coefficient vector."""
+        pred = torch.zeros(1, 6, 1)
+        pred[0, :4, 0] = torch.tensor([0.0, 0.0, 100.0, 100.0])
+        pred[0, 4:, 0] = torch.tensor([0.9, 0.8])  # two classes over conf
+        proto = torch.randn(1, 32, 16, 16)
+        coeffs = torch.randn(1, 32, 1)
+
+        out = yolo9_utils.postprocess(
+            {"predictions": pred, "proto": proto, "mask_coeffs": coeffs},
+            conf_thres=0.25,
+            iou_thres=0.5,
+            original_size=(100, 100),
+        )
+
+        assert out["num_detections"] == 1
+        assert out["classes"] == [0]
 
     def test_make_anchors(self):
         """Test anchor generation.

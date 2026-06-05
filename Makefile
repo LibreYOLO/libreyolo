@@ -1,7 +1,7 @@
 UV := uv run --no-sync
 
 .DEFAULT_GOAL := help
-.PHONY: help setup format lint typecheck test test_install_smoke test_e2e print_nightly_suite test_general_nightly test_flagship_nightly test_nightly test_rf5 build clean
+.PHONY: help setup format lint typecheck test test_pr_gate test_install_smoke test_e2e print_nightly_suite test_general_nightly test_flagship_nightly test_nightly test_rf5 build clean
 
 help:
 	@echo "═══════════════════════════════════════════════════════════════════════════════"
@@ -13,7 +13,8 @@ help:
 	@echo "  format                        - Format code with ruff"
 	@echo "  lint                          - Run linter"
 	@echo "  typecheck                     - Run type checker"
-	@echo "  test                          - Run fast unit tests (no weights needed)"
+	@echo "  test                          - Run the PR gate test suite"
+	@echo "  test_pr_gate                  - Run hermetic unit tests for PR/push gating"
 	@echo "  test_install_smoke            - Run clean install smoke (MODE=editable|wheel|sdist|pypi)"
 	@echo "  test_e2e                      - Run all e2e tests (needs GPU + model weights)"
 	@echo "  test_e2e FROM=<file>          - Resume from a test file (e.g. FROM=test_rf1_training.py or FROM=rf1_training)"
@@ -42,8 +43,10 @@ lint:
 typecheck:
 	$(UV) ty check
 
-test:
-	$(UV) pytest
+test: test_pr_gate
+
+test_pr_gate:
+	LIBREYOLO_PR_GATE=1 $(UV) pytest tests/unit -m "unit and not external_data and not network"
 
 test_install_smoke:
 	$(UV) python tests/smoke/run_install_smoke.py --mode $${MODE:-editable}

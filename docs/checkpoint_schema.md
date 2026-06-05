@@ -31,8 +31,8 @@ Required field meanings:
 - `model_family`: registered LibreYOLO family, such as `yolo9`, `rfdetr`,
   `dfine`, or `ec`.
 - `size`: model variant within the family, such as `t`, `s`, `r18`, or `atto`.
-- `task`: canonical task, one of `detect`, `segment`, `pose`, `classify`, or
-  `gaze`.
+- `task`: canonical task, one of `detect`, `segment`, `pose`, `classify`,
+  `gaze`, or `obb`.
 - `nc`: positive integer class count.
 - `names`: `dict[int, str]` with keys in `0..nc-1`. Official checkpoints
   should write every key. Readers may pad missing keys with `class_i` labels for
@@ -43,8 +43,20 @@ The schema is intentionally flat. Existing LibreYOLO checkpoints and loaders
 already use top-level keys such as `model_family`, `size`, `nc`, `names`, and
 `task`; nesting the metadata would increase migration risk before release.
 The top-level `model` value is deliberately a `state_dict`, matching existing
-LibreYOLO behavior. This differs from Ultralytics checkpoints, where `model`
-may hold a model object.
+LibreYOLO behavior. Other checkpoint formats may differ.
+
+## Export Runtime Metadata
+
+The checkpoint schema above remains square-only. Exported runtime artifacts may
+also carry metadata for graph tracing and backend loading. For rectangular
+graph exports, exporters may dual-write `imgsz_h` and `imgsz_w` next to the
+legacy scalar `imgsz`; readers that do not understand the rectangular fields
+must not silently treat the scalar as a square runtime contract.
+
+Backend support for rectangular runtime metadata is family- and format-scoped.
+YOLO9-family exports may use non-square `imgsz_h/imgsz_w` in supported runtime
+formats; families or formats without explicit rectangular support must reject
+the metadata instead of preprocessing those artifacts as square inputs.
 
 ## Training Checkpoints
 

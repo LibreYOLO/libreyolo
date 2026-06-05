@@ -1,8 +1,12 @@
+import inspect
+
 import numpy as np
 import pytest
 import torch
 
 from libreyolo.backends.base import BaseBackend
+from libreyolo.models.base.model import BaseModel
+from libreyolo.validation.config import ValidationConfig
 
 
 pytestmark = pytest.mark.unit
@@ -30,6 +34,39 @@ class _Backend(BaseBackend):
             np.zeros((batch, 100, 2), dtype=np.float32),
             np.zeros((batch, 100, 35, 35), dtype=np.float32),
         ]
+
+
+class _YoloRectBackend(BaseBackend):
+    def __init__(self):
+        super().__init__(
+            model_path="model.onnx",
+            nb_classes=2,
+            device="cpu",
+            imgsz=(32, 64),
+            model_family="yolo9",
+            names={0: "fire", 1: "smoke"},
+            task="detect",
+            supported_tasks=("detect",),
+            default_task="detect",
+        )
+
+    def _run_inference(self, blob: np.ndarray) -> list:
+        return [np.zeros((blob.shape[0], 6, 0), dtype=np.float32)]
+
+
+def test_validation_plot_flags_preserve_positional_abi():
+    assert (
+        inspect.signature(BaseModel.val).parameters["plots"].kind
+        is inspect.Parameter.KEYWORD_ONLY
+    )
+    assert (
+        inspect.signature(BaseBackend.val).parameters["plots"].kind
+        is inspect.Parameter.KEYWORD_ONLY
+    )
+    assert (
+        inspect.signature(ValidationConfig).parameters["save_plots"].kind
+        is inspect.Parameter.KEYWORD_ONLY
+    )
 
 
 def test_backend_val_uses_exported_model_adapter(monkeypatch):
@@ -73,6 +110,11 @@ def test_backend_val_rejects_augment():
         _Backend().val(data="data.yaml", augment=True)
 
 
+def test_backend_val_rejects_rectangular_imgsz():
+    with pytest.raises(NotImplementedError, match="Rectangular exported-backend validation"):
+        _YoloRectBackend().val(data="data.yaml", device="cpu")
+
+
 def test_backend_forward_falls_back_for_fixed_batch_exports():
     class _FixedBatchBackend(_Backend):
         def _run_inference(self, blob: np.ndarray) -> list:
@@ -102,3 +144,59 @@ def test_backend_init_allows_read_only_size_property():
 
     assert backend.size == "n"
     assert backend.FAMILY == "rfdetr"
+
+
+def test_backend_eval_proxy_has_no_to():
+    from libreyolo.backends.base import _BackendEvalProxy
+
+    proxy = _BackendEvalProxy()
+    assert not hasattr(proxy, "to")
+    assert hasattr(proxy, "eval")
+
+
+def test_set_device_does_not_call_to_on_backend_proxy():
+    """_set_device must not raise when model.model is a _BackendEvalProxy."""
+    from types import SimpleNamespace
+    from unittest.mock import patch
+
+    from libreyolo.backends.base import _BackendEvalProxy
+    from libreyolo.models.base.inference import InferenceRunner
+
+    proxy = _BackendEvalProxy()
+    fake_model = SimpleNamespace(
+        device=torch.device("cpu"),
+        model=proxy,
+    )
+
+    runner = object.__new__(InferenceRunner)
+    runner.model = fake_model
+
+    # Calling _set_device with a different device must not raise AttributeError.
+    with patch("torch.cuda.is_available", return_value=True):
+        runner._set_device("cuda:0")
+
+    # model.device is updated; proxy is left untouched (no .to() call).
+    assert fake_model.device == torch.device("cuda:0")
+
+
+def test_l2cs_set_device_does_not_call_to_on_backend_proxy():
+    """GazeInferenceRunner._set_device must also tolerate _BackendEvalProxy."""
+    from types import SimpleNamespace
+    from unittest.mock import patch
+
+    from libreyolo.backends.base import _BackendEvalProxy
+    from libreyolo.models.l2cs.inference import GazeInferenceRunner
+
+    proxy = _BackendEvalProxy()
+    fake_model = SimpleNamespace(
+        device=torch.device("cpu"),
+        model=proxy,
+    )
+
+    runner = object.__new__(GazeInferenceRunner)
+    runner.model = fake_model
+
+    with patch("torch.cuda.is_available", return_value=True):
+        runner._set_device("cuda:0")
+
+    assert fake_model.device == torch.device("cuda:0")

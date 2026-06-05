@@ -299,11 +299,15 @@ def predict_cmd(
         )
 
     image_size = get_loaded_model_input_size(loaded_model, imgsz=imgsz)
+    if isinstance(image_size, tuple):
+        image_shape = [image_size[0], image_size[1]]
+    else:
+        image_shape = [image_size, image_size]
     data = {
         "source": str(source),
         "model": model,
         "model_family": get_loaded_model_family(loaded_model) or "unknown",
-        "image_size": [image_size] * 2,
+        "image_size": image_shape,
         "device": str(loaded_model.device),
         "results": result_list,
     }

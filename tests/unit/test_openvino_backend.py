@@ -27,6 +27,12 @@ def test_openvino_backend_reads_static_input_imgsz():
     assert OpenVINOBackend._read_static_input_imgsz(model) == 384
 
 
+def test_openvino_backend_reads_rectangular_static_input_imgsz():
+    model = _FakeModel([1, 3, 320, 640])
+
+    assert OpenVINOBackend._read_static_input_imgsz(model) == (320, 640)
+
+
 def test_openvino_backend_ignores_dynamic_input_shape():
     model = _FakeModel(RuntimeError("to_shape was called on a dynamic shape"))
 
@@ -45,3 +51,22 @@ def test_openvino_backend_ignores_non_static_input_imgsz(shape):
     model = _FakeModel(shape)
 
     assert OpenVINOBackend._read_static_input_imgsz(model) is None
+
+
+def test_openvino_backend_reads_rectangular_metadata(tmp_path):
+    metadata_path = tmp_path / "metadata.yaml"
+    metadata_path.write_text(
+        "\n".join(
+            [
+                "model_family: yolo9",
+                "imgsz: 640",
+                "imgsz_h: 320",
+                "imgsz_w: 640",
+                "nc: 2",
+            ]
+        )
+    )
+
+    parsed = OpenVINOBackend._read_metadata(metadata_path)
+
+    assert parsed[5] == (320, 640)

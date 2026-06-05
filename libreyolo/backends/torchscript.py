@@ -12,7 +12,7 @@ import torch
 from ..tasks import normalize_supported_tasks, normalize_task, resolve_task
 from ..utils.general import COCO_CLASSES
 from ..utils.serialization import warn_on_metadata_schema_version
-from .base import BaseBackend
+from .base import BaseBackend, _read_metadata_imgsz
 
 logger = logging.getLogger(__name__)
 
@@ -71,8 +71,13 @@ class TorchScriptBackend(BaseBackend):
             default_task=default_task,
             supported_tasks=supported_tasks,
         )
-        if "imgsz" in metadata:
-            input_size = int(metadata["imgsz"])
+        metadata_imgsz = _read_metadata_imgsz(
+            metadata,
+            model_family,
+            artifact=f"TorchScript metadata for {model_path}",
+        )
+        if metadata_imgsz is not None:
+            input_size = metadata_imgsz
 
         if nb_classes is not None:
             resolved_nb_classes = nb_classes

@@ -4,8 +4,6 @@
 name: E2E nightly (PyPI)
 
 on:
-  schedule:
-    - cron: "0 5 * * *"
   workflow_dispatch:
     inputs:
       force:

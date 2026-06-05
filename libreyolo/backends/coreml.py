@@ -22,7 +22,7 @@ from ..tasks import normalize_supported_tasks, normalize_task, resolve_task
 from ..utils.general import COCO_CLASSES
 from ..utils.image_loader import ImageLoader
 from ..utils.serialization import warn_on_metadata_schema_version
-from .base import BaseBackend
+from .base import BaseBackend, ImageSize, _imgsz_hw, _read_metadata_imgsz
 
 logger = logging.getLogger(__name__)
 
@@ -182,11 +182,13 @@ class CoreMLBackend(BaseBackend):
             except ValueError:
                 pass
 
-        if "imgsz" in meta:
-            try:
-                imgsz = int(meta["imgsz"])
-            except ValueError:
-                pass
+        metadata_imgsz = _read_metadata_imgsz(
+            meta,
+            model_family,
+            artifact="CoreML metadata",
+        )
+        if metadata_imgsz is not None:
+            imgsz = metadata_imgsz
 
         has_embedded_nms = str(meta.get("nms", "")).lower() == "true"
         if output_names is not None:
@@ -209,7 +211,7 @@ class CoreMLBackend(BaseBackend):
     def _parse_outputs(
         self,
         all_outputs: list,
-        effective_imgsz: int,
+        effective_imgsz: ImageSize,
         original_size: tuple,
         conf: float,
         ratio: float = 1.0,
@@ -229,7 +231,7 @@ class CoreMLBackend(BaseBackend):
             iou = 1.0
         return super()._build_result(*args, iou=iou, **kwargs)
 
-    def _preprocess(self, image, effective_imgsz, color_format):
+    def _preprocess(self, image, effective_imgsz: ImageSize, color_format):
         """Produce a canonical RGB uint8 tensor matching the exported graph's input.
 
         The .mlpackage was traced with a wrapper that converts canonical RGB[0,1]
@@ -241,6 +243,7 @@ class CoreMLBackend(BaseBackend):
         img = ImageLoader.load(image, color_format=color_format)
         original_size = img.size  # (W, H)
         original_img = img.copy()
+        input_h, input_w = _imgsz_hw(effective_imgsz)
 
         family = (self.model_family or "").lower()
         if family == "yolox":
@@ -248,18 +251,16 @@ class CoreMLBackend(BaseBackend):
             # the traced graph applies those transforms internally).
             arr = np.array(img)
             orig_h, orig_w = arr.shape[:2]
-            ratio = min(effective_imgsz / orig_h, effective_imgsz / orig_w)
+            ratio = min(input_h / orig_h, input_w / orig_w)
             new_w, new_h = int(orig_w * ratio), int(orig_h * ratio)
             resized = img.resize((new_w, new_h), Image.Resampling.BILINEAR)
-            padded = Image.new("RGB", (effective_imgsz, effective_imgsz), (114, 114, 114))
+            padded = Image.new("RGB", (input_w, input_h), (114, 114, 114))
             padded.paste(resized, (0, 0))
             chw = np.array(padded).transpose(2, 0, 1).astype(np.float32)
         else:
-            # yolo9, rtdetr, rfdetr: plain resize to (imgsz, imgsz).
+            # yolo9, rtdetr, rfdetr: plain resize to the exported input.
             ratio = 1.0
-            resized = img.resize(
-                (effective_imgsz, effective_imgsz), Image.Resampling.BILINEAR
-            )
+            resized = img.resize((input_w, input_h), Image.Resampling.BILINEAR)
             chw = np.array(resized).transpose(2, 0, 1).astype(np.float32)
 
         tensor = torch.from_numpy(chw).unsqueeze(0)
@@ -268,7 +269,7 @@ class CoreMLBackend(BaseBackend):
     def _parse_embedded_nms(
         self,
         all_outputs: list,
-        effective_imgsz: int,
+        effective_imgsz: ImageSize,
         original_size: tuple,
         conf: float,
         ratio: float = 1.0,
@@ -318,8 +319,9 @@ class CoreMLBackend(BaseBackend):
             boxes[:, [0, 2]] *= orig_w
             boxes[:, [1, 3]] *= orig_h
         else:
-            scale_x = orig_w / effective_imgsz
-            scale_y = orig_h / effective_imgsz
+            input_h, input_w = _imgsz_hw(effective_imgsz)
+            scale_x = orig_w / input_w
+            scale_y = orig_h / input_h
             boxes[:, [0, 2]] *= scale_x
             boxes[:, [1, 3]] *= scale_y
 

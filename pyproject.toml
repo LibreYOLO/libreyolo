@@ -62,6 +62,11 @@ ncnn = [
     "pnnx",
     "ncnn",
 ]
+tflite = [
+    "libreyolo[onnx]",
+    # onnx2tf 2.4.x requires Python 3.12+.
+    "onnx2tf>=2.4.1; python_version >= '3.12'",
+]
 tracking = []
 rtdetr = []
 gaze = [
@@ -189,6 +194,8 @@ addopts = "-m unit"
 testpaths = ["tests"]
 markers = [
     "unit: fast tests that avoid external weights or large files",
+    "external_data: tests that require external datasets, weights, or staged large files",
+    "network: tests that intentionally use non-local network access",
     "e2e: end-to-end tests requiring full model loading and inference",
     "general_nightly: broad nightly inference checks across all model families",
     "flagship_nightly: heavier nightly checks for flagship YOLO9/RF-DETR models",
@@ -201,6 +208,7 @@ markers = [
     "trt: alias for TensorRT tests requiring TensorRT",
     "openvino: tests requiring OpenVINO",
     "ncnn: tests requiring ncnn",
+    "tflite: tests requiring TensorFlow Lite export",
     "coreml: tests requiring CoreML (macOS only)",
     "yolox: tests covering the YOLOX model family",
     "yolo9: tests covering the YOLO9 model family",

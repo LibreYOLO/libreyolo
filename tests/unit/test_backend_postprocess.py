@@ -3,6 +3,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+import libreyolo.backends.base as backend_base
 from libreyolo.backends.base import BaseBackend
 
 pytestmark = pytest.mark.unit
@@ -15,12 +16,13 @@ class _DummyBackend(BaseBackend):
         task: str | None = None,
         supported_tasks=("detect",),
         model_size: str | None = None,
+        imgsz=640,
     ):
         super().__init__(
             model_path="dummy",
             nb_classes=2,
             device="cpu",
-            imgsz=640,
+            imgsz=imgsz,
             model_family=model_family,
             model_size=model_size,
             names={0: "class_0", 1: "class_1"},
@@ -194,6 +196,122 @@ def test_yolo9_backend_parse_uses_letterbox_inverse():
     np.testing.assert_allclose(boxes, [[0.0, 0.0, 640.0, 640.0]])
     np.testing.assert_allclose(scores, [0.9])
     np.testing.assert_array_equal(classes, [0])
+
+
+def test_yolo9_backend_parse_accepts_rectangular_imgsz():
+    backend = _DummyBackend("yolo9")
+    pred = np.zeros((1, 6, 1), dtype=np.float32)
+    pred[0, :4, 0] = [0.0, 0.0, 320.0, 320.0]
+    pred[0, 4, 0] = 0.9
+
+    boxes, scores, classes, masks = backend._parse_outputs(
+        [pred], (320, 640), (1280, 960), conf=0.25
+    )
+
+    assert masks is None
+    np.testing.assert_allclose(boxes, [[0.0, 0.0, 960.0, 960.0]])
+    np.testing.assert_allclose(scores, [0.9])
+    np.testing.assert_array_equal(classes, [0])
+
+
+def test_backend_rejects_rectangular_imgsz_for_non_yolo9_family():
+    backend = _DummyBackend("yolox")
+
+    with pytest.raises(NotImplementedError, match="YOLO9-family"):
+        backend._resolve_predict_imgsz((320, 640))
+
+
+def test_backend_rectangular_imgsz_guard_normalizes_family_name():
+    backend = _DummyBackend("YOLO9", imgsz=(320, 640))
+
+    assert backend._resolve_predict_imgsz() == (320, 640)
+
+
+def test_backend_metadata_rejects_rectangular_non_yolo9_family():
+    from libreyolo.backends.base import _read_metadata_imgsz
+
+    with pytest.raises(NotImplementedError, match="YOLO9-family"):
+        _read_metadata_imgsz(
+            {"imgsz": "640", "imgsz_h": "320", "imgsz_w": "640"},
+            "yolox",
+            artifact="test metadata",
+        )
+
+
+@pytest.mark.parametrize(
+    "metadata",
+    [
+        {"imgsz": "640", "imgsz_h": "320"},
+        {"imgsz": "640", "imgsz_w": "640"},
+    ],
+)
+def test_backend_metadata_rejects_partial_rectangular_imgsz(metadata):
+    from libreyolo.backends.base import _read_metadata_imgsz
+
+    with pytest.raises(ValueError, match="both imgsz_h and imgsz_w"):
+        _read_metadata_imgsz(metadata, "yolo9", artifact="test metadata")
+
+
+def test_yolo9_backend_predict_uses_rectangular_default_imgsz(monkeypatch):
+    backend = _DummyBackend("yolo9", imgsz=(16, 32))
+    captured = {}
+
+    def run_inference(blob):
+        captured["shape"] = tuple(blob.shape)
+        return [np.zeros((1, 6, 0), dtype=np.float32)]
+
+    monkeypatch.setattr(backend, "_run_inference", run_inference)
+
+    result = backend._predict_single(np.zeros((8, 16, 3), dtype=np.uint8))
+
+    assert captured["shape"] == (1, 3, 16, 32)
+    assert result.orig_shape == (8, 16)
+    assert len(result) == 0
+
+
+def test_yolo9_backend_parse_detection_is_multilabel():
+    backend = _DummyBackend("yolo9")
+    pred = np.zeros((1, 6, 1), dtype=np.float32)
+    pred[0, :4, 0] = [0.0, 0.0, 100.0, 100.0]
+    pred[0, 4:, 0] = [0.9, 0.8]
+
+    boxes, scores, classes, masks = backend._parse_outputs(
+        [pred], 100, (100, 100), conf=0.25
+    )
+
+    assert masks is None
+    np.testing.assert_allclose(boxes, [[0.0, 0.0, 100.0, 100.0]] * 2)
+    np.testing.assert_allclose(np.sort(scores), [0.8, 0.9])
+    np.testing.assert_array_equal(np.sort(classes), [0, 1])
+
+
+def test_yolo9_backend_parse_caps_multilabel_candidates(monkeypatch):
+    monkeypatch.setattr(backend_base, "_YOLO9_MAX_NMS_CANDIDATES", 3)
+    backend = _DummyBackend("yolo9")
+    pred = np.zeros((1, 6, 4), dtype=np.float32)
+    pred[0, :4] = np.array(
+        [
+            [0.0, 20.0, 40.0, 60.0],
+            [0.0, 0.0, 0.0, 0.0],
+            [10.0, 30.0, 50.0, 70.0],
+            [10.0, 10.0, 10.0, 10.0],
+        ],
+        dtype=np.float32,
+    )
+    pred[0, 4:] = np.array(
+        [[0.1, 0.9, 0.7, 0.5], [0.8, 0.2, 0.6, 0.4]], dtype=np.float32
+    )
+
+    boxes, scores, classes, masks = backend._parse_outputs(
+        [pred], 80, (80, 80), conf=0.01
+    )
+
+    assert masks is None
+    assert boxes.shape[0] == 3
+    np.testing.assert_allclose(
+        np.sort(scores), [0.7, 0.8, 0.9], rtol=0, atol=1e-6
+    )
+    np.testing.assert_array_equal(classes, [0, 1, 0])
 
 
 def test_damoyolo_backend_preprocess_uses_stretch_resize():

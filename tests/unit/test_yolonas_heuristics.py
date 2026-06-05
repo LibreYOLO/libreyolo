@@ -109,6 +109,18 @@ class TestYOLONASHeuristics:
     def test_get_download_url_returns_none_for_unknown_filename(self):
         assert LibreYOLONAS.get_download_url("unrelated.pt") is None
 
+    @pytest.mark.parametrize(
+        "filename",
+        [
+            "LibreYOLONASn.pt",
+            "yolo_nas_n_coco.pth",
+            "LibreYOLONASn-pose.pt",
+            "yolo_nas_pose_n_coco_pose.pth",
+        ],
+    )
+    def test_get_download_url_returns_none_for_pose_only_n_size(self, filename):
+        assert LibreYOLONAS.get_download_url(filename) is None
+
 
 class TestYOLONASNativeModel:
     def test_native_model_forward_shapes(self):
@@ -122,6 +134,7 @@ class TestYOLONASNativeModel:
         assert tuple(decoded_boxes.shape) == (1, 8400, 4)
         assert tuple(decoded_scores.shape) == (1, 8400, 80)
 
+    @pytest.mark.external_data
     @pytest.mark.skipif(
         not OFFICIAL_YOLONAS_S.exists(),
         reason="Official YOLO-NAS checkpoint not present in local downloads/",
@@ -135,6 +148,7 @@ class TestYOLONASNativeModel:
         assert missing == []
         assert unexpected == []
 
+    @pytest.mark.external_data
     @pytest.mark.skipif(
         not OFFICIAL_YOLONAS_S.exists(),
         reason="Official YOLO-NAS checkpoint not present in local downloads/",

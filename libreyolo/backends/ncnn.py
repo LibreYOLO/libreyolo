@@ -8,7 +8,7 @@ import numpy as np
 
 from ..tasks import normalize_supported_tasks, normalize_task, resolve_task
 from ..utils.serialization import warn_on_metadata_schema_version
-from .base import BaseBackend
+from .base import BaseBackend, _read_metadata_imgsz
 
 logger = logging.getLogger(__name__)
 
@@ -180,7 +180,14 @@ class NcnnBackend(BaseBackend):
         default_task = normalize_task(meta.get("default_task"), default="detect")
         task = normalize_task(meta.get("task"), default=default_task)
         supported_tasks = normalize_supported_tasks(meta.get("supported_tasks", (task,)))
-        imgsz = int(meta["imgsz"]) if "imgsz" in meta else 640
+        imgsz = (
+            _read_metadata_imgsz(
+                meta,
+                model_family,
+                artifact=f"NCNN metadata sidecar {metadata_path}",
+            )
+            or 640
+        )
 
         if nb_classes_override is not None:
             nb_classes = nb_classes_override

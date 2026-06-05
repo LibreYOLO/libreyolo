@@ -22,6 +22,7 @@ if (
     pytest.skip("onnx/onnxruntime not installed", allow_module_level=True)
 
 
+@pytest.mark.external_data
 def test_deim_onnx_export_n_roundtrip(tmp_path):
     """Export N to ONNX, run via onnxruntime, sanity-check output shapes + names."""
     import onnx
@@ -57,6 +58,7 @@ def test_deim_onnx_export_n_roundtrip(tmp_path):
     )
 
 
+@pytest.mark.external_data
 def test_deim_torchscript_export_roundtrip(tmp_path):
     """TorchScript export traces cleanly + the saved module returns a 2-tuple."""
     from libreyolo import LibreDEIM
@@ -78,19 +80,16 @@ def test_deim_torchscript_export_roundtrip(tmp_path):
     assert out[1].shape == (1, 300, 4)
 
 
-def test_deim_ncnn_export_is_blocked():
+def test_deim_ncnn_export_is_blocked(tmp_path):
     """NCNN can't run DETR-style decoders; export must error early."""
     from libreyolo import LibreDEIM
 
-    ckpt = Path("weights/LibreDEIMn.pt")
-    if not ckpt.exists():
-        pytest.skip(f"{ckpt} not present")
-
-    m = LibreDEIM(str(ckpt), size="n", device="cpu")
+    m = LibreDEIM(None, size="n", device="cpu")
     with pytest.raises(NotImplementedError, match="NCNN export is not supported for DEIM"):
-        m.export("ncnn", output_path="/tmp/should_not_exist_ncnn")
+        m.export("ncnn", output_path=str(tmp_path / "should_not_exist_ncnn"))
 
 
+@pytest.mark.external_data
 def test_deim_openvino_export_backend_predict(tmp_path):
     """OpenVINO export should load through LibreYOLO and run inference."""
     if importlib.util.find_spec("openvino") is None:
@@ -140,6 +139,7 @@ def test_deim_tensorrt_metadata_is_deim():
     assert metadata["exported_from"] == "LibreDEIMn.onnx"
 
 
+@pytest.mark.external_data
 def test_deim_onnx_backend_matches_torch_inference(tmp_path):
     """LibreYOLO(onnx_path)(image) should match PyTorch top-K detections."""
     from libreyolo import LibreDEIM, LibreYOLO, SAMPLE_IMAGE
