@@ -14,12 +14,14 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Require tag commit on main
+      - name: Require tag commit on release
+        env:
+          RELEASE_BRANCH: release
         run: |
-          git fetch origin main:refs/remotes/origin/main
+          git fetch origin "${RELEASE_BRANCH}:refs/remotes/origin/${RELEASE_BRANCH}"
           TAG_COMMIT="$(git rev-parse HEAD)"
-          if ! git merge-base --is-ancestor "$TAG_COMMIT" origin/main; then
-            echo "::error::Release tags must point to a commit reachable from origin/main."
+          if ! git merge-base --is-ancestor "$TAG_COMMIT" "origin/${RELEASE_BRANCH}"; then
+            echo "::error::Release tags must point to a commit reachable from origin/${RELEASE_BRANCH}."
             exit 1
           fi
 

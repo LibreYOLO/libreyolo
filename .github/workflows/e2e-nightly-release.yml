@@ -1,7 +1,7 @@
 # SECURITY: do not add `pull_request` to this workflow. A self-hosted runner
 # attached to a public repo would execute arbitrary code from fork PRs.
 
-name: E2E nightly (main)
+name: E2E nightly (release)
 
 on:
   schedule:
@@ -18,7 +18,7 @@ permissions:
 
 jobs:
   guard:
-    name: Resolve stale main target
+    name: Resolve stale release target
     runs-on: ubuntu-latest
     outputs:
       should_run: ${{ steps.diff.outputs.should_run }}
@@ -26,21 +26,21 @@ jobs:
       cache_hit: ${{ steps.cache-target.outputs.cache-hit }}
     steps:
       - id: resolve
-        name: Resolve current main SHA
+        name: Resolve current release SHA
         run: |
           set -euo pipefail
-          TARGET_SHA=$(git ls-remote https://github.com/LibreYOLO/libreyolo refs/heads/main | cut -f1)
+          TARGET_SHA=$(git ls-remote https://github.com/LibreYOLO/libreyolo refs/heads/release | cut -f1)
           echo "target_sha=$TARGET_SHA" >> "$GITHUB_OUTPUT"
-          echo "Resolved: main=$TARGET_SHA"
+          echo "Resolved: release=$TARGET_SHA"
 
       - id: cache-target
         uses: actions/cache@v4
         with:
-          path: .last-main
-          key: last-tested-nightly-main-${{ steps.resolve.outputs.target_sha }}
+          path: .last-release
+          key: last-tested-nightly-release-${{ steps.resolve.outputs.target_sha }}
 
       - id: diff
-        name: Decide whether main needs testing
+        name: Decide whether release needs testing
         env:
           FORCE: ${{ inputs.force }}
           HIT_TARGET: ${{ steps.cache-target.outputs.cache-hit }}
@@ -54,19 +54,19 @@ jobs:
             SHOULD_RUN=true
           fi
           echo "should_run=$SHOULD_RUN" >> "$GITHUB_OUTPUT"
-          echo "Should run main: $SHOULD_RUN"
+          echo "Should run release: $SHOULD_RUN"
 
   e2e:
-    name: e2e (main)
+    name: e2e (release)
     needs: guard
     if: needs.guard.outputs.should_run == 'true'
     runs-on: [self-hosted, gpu, libreyolo-e2e]
     timeout-minutes: 180
     steps:
-      - name: Checkout main
+      - name: Checkout release
         uses: actions/checkout@v4
         with:
-          ref: main
+          ref: release
 
       - uses: astral-sh/setup-uv@v4
 
@@ -123,13 +123,13 @@ jobs:
             uv run --no-sync pytest tests/e2e -v -m "not export_backend"
           fi
 
-      - name: Mark main as tested
+      - name: Mark release as tested
         if: success()
-        run: echo "ok ${{ github.run_id }}" > .last-main
+        run: echo "ok ${{ github.run_id }}" > .last-release
 
       - name: Save tested-SHA cache
         if: success() && needs.guard.outputs.cache_hit != 'true'
         uses: actions/cache/save@v4
         with:
-          path: .last-main
-          key: last-tested-nightly-main-${{ needs.guard.outputs.target_sha }}
+          path: .last-release
+          key: last-tested-nightly-release-${{ needs.guard.outputs.target_sha }}
