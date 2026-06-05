@@ -41,6 +41,7 @@ def test_ec_export_wrapper_returns_tuple():
 CKPT_PATH = Path("weights/LibreECs.pt")
 
 
+@pytest.mark.external_data
 @pytest.mark.skipif(not CKPT_PATH.exists(), reason=f"{CKPT_PATH} not present")
 def test_ec_onnx_export_s_roundtrip(tmp_path):
     """Export S to ONNX, run via onnxruntime, verify graph + numeric parity vs PyTorch."""
@@ -89,6 +90,7 @@ def test_ec_onnx_export_s_roundtrip(tmp_path):
     )
 
 
+@pytest.mark.external_data
 @pytest.mark.skipif(not CKPT_PATH.exists(), reason=f"{CKPT_PATH} not present")
 def test_ec_onnx_backend_predict(tmp_path):
     """Exported ONNX, loaded through the unified factory, produces matching detections."""

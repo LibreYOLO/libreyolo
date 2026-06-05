@@ -6,6 +6,7 @@ validation, model setup/teardown, calibration, and intermediate ONNX export.
 """
 
 import copy
+import importlib.util
 import json
 import logging
 import warnings
@@ -135,6 +136,7 @@ class BaseExporter(ABC):
             Path to the exported model file.
         """
         half, int8 = self._validate(half, int8, data)
+        self._preflight(half=half, int8=int8, data=data, **kwargs)
 
         if opset is None:
             # DETR-style families use deformable attention / layer norm ops
@@ -252,6 +254,14 @@ class BaseExporter(ABC):
             )
             half = False
         return half, int8
+
+    def _preflight(self, *, half: bool, int8: bool, data: Optional[str], **kwargs):
+        """Run cheap format-specific checks before model or calibration setup."""
+        if self.requires_onnx and importlib.util.find_spec("onnx") is None:
+            raise ImportError(
+                "ONNX export requires the 'onnx' package. "
+                "Install with: uv sync --extra onnx  or  pip install onnx"
+            )
 
     def _resolve_params(self, output_path, imgsz, device, half, int8):
         native_imgsz = self.model._get_input_size()
@@ -610,6 +620,12 @@ class TensorRTExporter(BaseExporter):
     supports_fp16 = True
     apply_model_half = False
 
+    def _preflight(self, **kwargs):
+        super()._preflight(**kwargs)
+        from .tensorrt import check_tensorrt_available
+
+        check_tensorrt_available()
+
     def _export(
         self,
         nn_model,
@@ -672,6 +688,12 @@ class OpenVINOExporter(BaseExporter):
     supports_int8 = True
     supports_fp16 = True
     apply_model_half = False
+
+    def _preflight(self, **kwargs):
+        super()._preflight(**kwargs)
+        from .openvino import check_openvino_available
+
+        check_openvino_available()
 
     def _export(
         self,

@@ -8,7 +8,13 @@ from pathlib import Path
 import pytest
 import torch
 
-pytestmark = [pytest.mark.unit, pytest.mark.deimv2, pytest.mark.slow]
+pytestmark = [
+    pytest.mark.unit,
+    pytest.mark.deimv2,
+    pytest.mark.slow,
+    pytest.mark.external_data,
+    pytest.mark.network,
+]
 
 DEIMV2_OFFICIAL_CASES = [
     ("atto", 320, 100, "Intellindust/DEIMv2_HGNetv2_ATTO_COCO"),

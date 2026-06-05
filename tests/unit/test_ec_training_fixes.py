@@ -100,6 +100,7 @@ def test_ec_train_applies_dataset_class_names_before_trainer(monkeypatch, tmp_pa
     }
 
 
+@pytest.mark.external_data
 @pytest.mark.skipif(not CKPT_PATH.exists(), reason=f"{CKPT_PATH} not present")
 def test_in_proj_bias_in_no_wd_group():
     """Self-attn ``in_proj_bias`` parameters must land in the no-weight-decay
