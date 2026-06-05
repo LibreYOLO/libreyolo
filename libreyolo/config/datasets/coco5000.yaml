@@ -102,11 +102,13 @@ names:
   78: hair drier
   79: toothbrush
 
-# Download script (images from official COCO, labels from third-party)
+# Download script (images from official COCO, labels converted by LibreYOLO)
 download: |
   import shutil
   from pathlib import Path
-  from libreyolo.data.utils import ASSETS_URL, download
+  from libreyolo.data.utils import download
+
+  COCO2017_HF_URL = "https://huggingface.co/datasets/LibreYOLO/coco2017/resolve/main"
 
   dir = Path(yaml["path"])
   dir.mkdir(parents=True, exist_ok=True)
@@ -118,8 +120,8 @@ download: |
       threads=1,
   )
 
-  # Download labels (YOLO format) inside coco5000
-  download([ASSETS_URL + "/coco2017labels.zip"], dir=dir)
+  # Download labels converted from official COCO annotations by LibreYOLO.
+  download([COCO2017_HF_URL + "/coco2017labels-libreyolo.zip"], dir=dir)
 
   # Reorganize into train/val split (4000/1000)
   val2017_dir = dir / "val2017"

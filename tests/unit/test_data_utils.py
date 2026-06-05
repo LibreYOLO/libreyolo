@@ -6,7 +6,12 @@ import pytest
 import yaml
 from PIL import Image
 
-from libreyolo.data.utils import get_img_files, img2label_paths, load_data_config
+from libreyolo.data.utils import (
+    BUILTIN_DATASETS_DIR,
+    get_img_files,
+    img2label_paths,
+    load_data_config,
+)
 
 pytestmark = pytest.mark.unit
 
@@ -82,6 +87,19 @@ def test_embedded_scripts_map_common_yolo_helper_imports(tmp_path, monkeypatch):
         "urls": ["libreyolo-assets/labels.zip"],
         "dir": tmp_path / "dataset",
     }
+
+
+def test_builtin_dataset_yamls_do_not_use_ultralytics_assets():
+    forbidden = ("github.com/ultralytics/assets", "ASSETS_URL", "coco2017labels.zip")
+    offenders = {}
+
+    for yaml_path in BUILTIN_DATASETS_DIR.glob("*.yaml"):
+        text = yaml_path.read_text(encoding="utf-8")
+        matches = [term for term in forbidden if term in text]
+        if matches:
+            offenders[yaml_path.name] = matches
+
+    assert offenders == {}
 
 
 def test_load_data_config_resolves_directory_test_split(tmp_path):
