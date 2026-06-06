@@ -22,6 +22,9 @@ from ..config import (
 from ..output import OutputHandler
 
 
+_LORA_TRAIN_FAMILIES = {"rfdetr"}
+
+
 def train_cmd(
     data: str = typer.Option(
         ..., help="Path to dataset YAML (YOLO format, e.g. coco8.yaml)"
@@ -37,6 +40,11 @@ def train_cmd(
     resume: str = typer.Option("", help="Resume training: true, or path to checkpoint"),
     amp: bool = typer.Option(True, help="Automatic Mixed Precision"),
     pretrained: bool = typer.Option(True, help="Use pretrained weights"),
+    lora: bool = typer.Option(
+        False,
+        "--lora",
+        help="Enable LoRA fine-tuning for supported transformer families",
+    ),
     # Optimizer
     optimizer: str = typer.Option("sgd", help="Optimizer: sgd, adam, adamw"),
     lr0: float = typer.Option(0.01, help="Initial learning rate"),
@@ -146,6 +154,7 @@ def train_cmd(
         "seed": seed,
         "resume": resume_val,
         "amp": amp,
+        "lora": lora,
         "optimizer": optimizer,
         "lr0": lr0,
         "momentum": momentum,
@@ -181,6 +190,14 @@ def train_cmd(
     if family:
         params = apply_family_defaults(
             params, family, "train", user_provided=user_provided
+        )
+
+    if params["lora"] and family is not None and family not in _LORA_TRAIN_FAMILIES:
+        exit_with_error(
+            out,
+            "config_unsupported",
+            f"LoRA fine-tuning (lora=True) is not supported for {family}.",
+            suggestion="Use an RF-DETR model or remove --lora.",
         )
 
     # RF-DETR: warn and ignore unsupported params
@@ -223,6 +240,7 @@ def train_cmd(
                 "ema": params["ema"],
                 "ema_decay": params["ema_decay"],
                 "save_period": params["save_period"],
+                "lora": params["lora"],
             }
 
         data_out = {

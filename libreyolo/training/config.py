@@ -97,6 +97,13 @@ class TrainConfig:
     ema: bool = True
     ema_decay: float = 0.9998
     amp: bool = True
+    # Parameter-efficient fine-tuning. ``lora=True`` injects LoRA adapters into
+    # the backbone of supported transformer families (currently RF-DETR) and
+    # trains only the adapters plus the projector/decoder/head, for low-VRAM
+    # fine-tuning on a custom dataset. Requires the optional ``peft`` dependency
+    # (``pip install "libreyolo[lora]"``). Families that do not support LoRA
+    # raise a clear error rather than silently ignoring the flag.
+    lora: bool = False
     # Nominal (effective) batch size for gradient accumulation. When set, the
     # trainer accumulates ``round(nbs / batch)`` micro-batches per optimizer
     # step so the effective batch size is ``nbs``.

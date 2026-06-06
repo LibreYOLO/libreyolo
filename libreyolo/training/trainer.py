@@ -66,6 +66,9 @@ class BaseTrainer(ABC):
 
     best_metric_key: str = "metrics/mAP50-95"
     artifact_model_families: Tuple[str, ...] = ()
+    # Whether this family supports ``lora=True`` fine-tuning. Overridden to True
+    # by trainers with LoRA-amenable (transformer/nn.Linear) backbones.
+    supports_lora: bool = False
 
     def __init__(
         self,
@@ -562,6 +565,13 @@ class BaseTrainer(ABC):
     def setup(self):
         if self._is_setup:
             return
+
+        if getattr(self.config, "lora", False) and not self.supports_lora:
+            family = self.get_model_family() if hasattr(self, "get_model_family") else "this model"
+            raise ValueError(
+                f"LoRA fine-tuning (lora=True) is not supported for {family}. "
+                "LoRA targets transformer backbones with nn.Linear layers (e.g. RF-DETR)."
+            )
 
         if is_main_process():
             logger.info("Setting up training...")
