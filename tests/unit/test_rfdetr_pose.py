@@ -222,6 +222,67 @@ def test_rfdetr_postprocess_filters_keypoints_in_topk_lockstep():
     assert result["keypoints"][1, :, 0].tolist() == pytest.approx([40.0, 40.0])
 
 
+def test_rfdetr_pose_fresh_model_uses_one_class_logit():
+    from libreyolo.models.rfdetr.model import LibreRFDETR
+
+    model = LibreRFDETR({}, size="n", task="pose", device="cpu")
+
+    assert model.nb_classes == 1
+    assert model.model.nb_classes == 1
+    assert model.model.args.num_classes == 0
+    assert model.model.model.class_embed.out_features == 1
+    assert model.names == {0: "person"}
+
+
+def test_rfdetr_pose_detect_transfer_resizes_to_one_class_logit():
+    from libreyolo.models.rfdetr.model import LibreRFDETR
+
+    model = LibreRFDETR({}, size="n", task="pose", device="cpu")
+    det_model = LibreRFDETR({}, size="n", task="detect", device="cpu")
+    detect_state = {
+        key: value.detach().clone()
+        for key, value in det_model.model.state_dict().items()
+    }
+
+    model._load_weights(
+        {
+            "model_family": "rfdetr",
+            "task": "detect",
+            "nc": 80,
+            "names": {i: f"class_{i}" for i in range(80)},
+            "model": detect_state,
+        }
+    )
+
+    assert model.nb_classes == 1
+    assert model.model.nb_classes == 1
+    assert model.model.args.num_classes == 0
+    assert model.model.model.class_embed.out_features == 1
+    assert model.names == {0: "person"}
+
+
+def test_rfdetr_pose_postprocess_trims_legacy_extra_class_column():
+    from libreyolo.models.rfdetr.model import LibreRFDETR
+
+    model = LibreRFDETR({}, size="n", task="pose", device="cpu")
+    output = {
+        "pred_logits": torch.tensor([[[0.1, 10.0], [5.0, -10.0]]]),
+        "pred_boxes": torch.tensor([[[0.1, 0.1, 0.1, 0.1], [0.5, 0.5, 0.2, 0.2]]]),
+        "pred_keypoints": torch.zeros(1, 2, 2, 3),
+    }
+
+    result = model._postprocess(
+        output,
+        conf_thres=0.01,
+        iou_thres=0.5,
+        original_size=(100, 100),
+        max_det=1,
+    )
+
+    assert result["classes"] == [0]
+    assert result["boxes"][0] == pytest.approx([40.0, 40.0, 60.0, 60.0])
+
+
 def test_rfdetr_pose_ddp_uses_find_unused_not_static_graph():
     from libreyolo.models.rfdetr.trainer import RFDETRTrainer
 
@@ -232,6 +293,38 @@ def test_rfdetr_pose_ddp_uses_find_unused_not_static_graph():
 
     assert kwargs["find_unused_parameters"] is True
     assert kwargs["static_graph"] is False
+
+
+def test_rfdetr_pose_ddp_validation_skips_rank_zero_criterion_collective():
+    from libreyolo.models.rfdetr.trainer import RFDETRTrainer
+
+    class _DummyModel(nn.Module):
+        def forward(self, imgs, targets=None):
+            raise AssertionError("criterion validation forward should be skipped under DDP")
+
+    class _DummyCriterion:
+        weight_dict = {}
+
+        def __call__(self, outputs, targets):
+            raise AssertionError("criterion should be skipped under DDP")
+
+    trainer = RFDETRTrainer.__new__(RFDETRTrainer)
+    trainer.wrapper_model = SimpleNamespace(task="pose")
+    trainer.model = _DummyModel()
+    trainer.ema_model = None
+    trainer.criterion = _DummyCriterion()
+    trainer.val_loader = [(torch.zeros(1, 3, 16, 16), torch.zeros(1, 1, 11))]
+    trainer.device = torch.device("cpu")
+    trainer.is_distributed = True
+    trainer._run_pose_metric_validation = lambda *args, **kwargs: {
+        "metrics/keypoints_mAP50-95": 0.25,
+        "metrics/keypoints_mAP50": 0.5,
+    }
+
+    result = trainer._run_validation(0)
+
+    assert result["best_metric"] == pytest.approx(0.25)
+    assert result["metrics"]["loss/val"] == pytest.approx(0.0)
 
 
 def test_rfdetr_pose_train_resolves_kpt_shape_and_person_class(monkeypatch, tmp_path):

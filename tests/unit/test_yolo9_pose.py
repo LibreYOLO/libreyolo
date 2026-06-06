@@ -49,6 +49,44 @@ def test_yolo9_pose_warm_starts_from_detection_checkpoint(tmp_path):
     assert torch.allclose(loaded_weight, torch.full_like(loaded_weight, 0.125))
 
 
+def test_yolo9_pose_train_preserves_xy_only_label_dim(monkeypatch, tmp_path):
+    from libreyolo.models.yolo9 import model as yolo9_model
+    from libreyolo.models.yolo9 import pose_trainer
+
+    data_yaml = tmp_path / "pose.yaml"
+    data_yaml.write_text(
+        "path: .\ntrain: images/train\nval: images/val\nnc: 1\nnames: [person]\nkpt_shape: [2, 2]\n",
+        encoding="utf-8",
+    )
+    captured = {}
+
+    class _DummyTrainer:
+        def __init__(self, model, wrapper_model=None, **kwargs):
+            captured["model"] = model
+            captured["wrapper"] = wrapper_model
+            captured["kwargs"] = kwargs
+
+        def train(self):
+            return {"save_dir": str(tmp_path / "run")}
+
+    wrapper = yolo9_model.LibreYOLO9(None, size="t", task="pose", device="cpu")
+    monkeypatch.setattr(pose_trainer, "YOLO9PoseTrainer", _DummyTrainer)
+    monkeypatch.setattr(wrapper, "_restore_after_training", lambda _result: None)
+
+    wrapper.train(data=str(data_yaml), epochs=1, batch=1, pretrained=False)
+
+    assert wrapper.keypoint_dim == 3
+    assert captured["kwargs"]["num_keypoints"] == 2
+    assert captured["kwargs"]["keypoint_dim"] == 2
+
+
+def test_yolo9_pose_validation_uses_base_distributed_wrapper():
+    from libreyolo.models.yolo9.pose_trainer import YOLO9PoseTrainer
+    from libreyolo.training.trainer import BaseTrainer
+
+    assert YOLO9PoseTrainer._validate_epoch is BaseTrainer._validate_epoch
+
+
 def test_ddetect_pose_forward_shapes():
     from libreyolo.models.yolo9.nn import DDetectPose
 

@@ -394,7 +394,11 @@ class LibreRFDETR(BaseModel):
             weight_state = _checkpoint_model_state(weight_source)
             detected_classes = self.detect_nb_classes(weight_state)
             if detected_classes is not None:
-                self._model_num_classes = detected_classes
+                self._model_num_classes = (
+                    max(1, detected_classes)
+                    if normalize_task(resolved_task) == "pose"
+                    else detected_classes
+                )
             detected_k = self.detect_num_keypoints(weight_state)
             if detected_k is not None:
                 self.num_keypoints = detected_k
@@ -594,6 +598,10 @@ class LibreRFDETR(BaseModel):
                     output["pred_masks"] = tuple_output[2]
 
         logits = output["pred_logits"]
+        if self._is_pose and logits.shape[-1] > self.nb_classes:
+            output = dict(output)
+            output["pred_logits"] = logits[..., : self.nb_classes]
+            logits = output["pred_logits"]
         default_num_select = getattr(self.model, "num_select", max_det)
         requested_num_select = kwargs.get(
             "num_select",
@@ -697,6 +705,8 @@ class LibreRFDETR(BaseModel):
                     self.task == "obb"
                     and normalized_ckpt_task == "detect"
                     and self._allow_detect_to_obb_transfer
+                ) or (
+                    self._is_pose and normalized_ckpt_task == "detect"
                 )
                 if not allowed:
                     raise RuntimeError(
@@ -733,9 +743,9 @@ class LibreRFDETR(BaseModel):
                 )
 
             if self._is_pose and not pose_checkpoint:
-                self.model.model.reinitialize_detection_head(2)
+                self.model.model.reinitialize_detection_head(self.nb_classes)
                 self.model.nb_classes = 1
-                self.model.args.num_classes = 1
+                self.model.args.num_classes = 0
 
             ckpt_nc = loaded.get("nc")
             if self._is_pose and not pose_checkpoint:
@@ -769,6 +779,8 @@ class LibreRFDETR(BaseModel):
             class_names = args.get("class_names") if isinstance(args, dict) else getattr(args, "class_names", None)
             if class_names:
                 self.names = {i: str(name) for i, name in enumerate(class_names[: self.nb_classes])}
+            if self._is_pose and self.nb_classes == 1:
+                self.names = {0: "person"}
 
             if missing:
                 # ``strict=False`` is expected for class/head adaptation and older

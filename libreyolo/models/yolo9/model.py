@@ -530,6 +530,7 @@ class LibreYOLO9(BaseModel):
         yaml_nc = data_config.get("nc")
         yaml_names = data_config.get("names")
         kpt_shape = data_config.get("kpt_shape")
+        pose_label_keypoint_dim = self.keypoint_dim
 
         if self._is_pose:
             if not kpt_shape or len(kpt_shape) < 1:
@@ -548,6 +549,7 @@ class LibreYOLO9(BaseModel):
                 raise ValueError("YOLO9 pose v1 supports one class: person")
             if yaml_names is None:
                 yaml_names = {0: "person"}
+            pose_label_keypoint_dim = keypoint_dim
             self.keypoint_dim = 3
             if num_keypoints != self.num_keypoints:
                 self._rebuild_for_new_keypoints(num_keypoints)
@@ -628,7 +630,7 @@ class LibreYOLO9(BaseModel):
             trainer_kwargs.update(
                 {
                     "num_keypoints": self.num_keypoints,
-                    "keypoint_dim": self.keypoint_dim,
+                    "keypoint_dim": pose_label_keypoint_dim,
                     "oks_sigmas": data_config.get("oks_sigmas"),
                 }
             )

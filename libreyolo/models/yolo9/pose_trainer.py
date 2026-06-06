@@ -217,11 +217,11 @@ class YOLO9PoseTrainer(BaseTrainer):
     def on_forward(self, imgs: torch.Tensor, targets: torch.Tensor, polygons=None) -> Dict:
         return self.model(imgs, targets=targets)
 
-    def _validate_epoch(self, epoch: int):
+    def _run_validation(self, epoch: int, *, save_plots: bool | None = None):
         if getattr(self, "val_loader", None) is None:
             return None
 
-        model = self.ema_model.ema if self.ema_model else self.model
+        model = self.ema_model.ema if self.ema_model else unwrap_model(self.model)
         was_training = model.training
 
         total_loss, num_batches = 0.0, 0
@@ -239,7 +239,11 @@ class YOLO9PoseTrainer(BaseTrainer):
                     total_loss += float(outputs["total_loss"].item())
                     num_batches += 1
                 model.eval()
-            pose_metrics = self._run_pose_metric_validation(model, epoch)
+            pose_metrics = self._run_pose_metric_validation(
+                model,
+                epoch,
+                save_plots=save_plots,
+            )
         finally:
             if was_training:
                 model.train()
@@ -277,7 +281,11 @@ class YOLO9PoseTrainer(BaseTrainer):
         }
 
     def _run_pose_metric_validation(
-        self, eval_model: torch.nn.Module, epoch: int
+        self,
+        eval_model: torch.nn.Module,
+        epoch: int,
+        *,
+        save_plots: bool | None = None,
     ) -> Dict[str, float] | None:
         if self.wrapper_model is None:
             logger.warning("Skipping pose mAP validation: wrapper_model is missing")
@@ -286,6 +294,12 @@ class YOLO9PoseTrainer(BaseTrainer):
         try:
             from libreyolo.validation import PoseValidator, ValidationConfig
 
+            is_final_epoch = self._is_final_epoch(epoch)
+            val_save_plots = (
+                bool(save_plots)
+                if save_plots is not None
+                else bool(getattr(self.config, "save_plots", False)) and is_final_epoch
+            )
             val_config = ValidationConfig(
                 data=self.config.data,
                 split="val",
@@ -299,7 +313,8 @@ class YOLO9PoseTrainer(BaseTrainer):
                 num_workers=self.config.workers,
                 allow_download_scripts=self.config.allow_download_scripts,
                 oks_sigmas=self._resolve_oks_sigmas(),
-                save_dir=str(self.save_dir / "val"),
+                save_plots=val_save_plots,
+                save_dir=str(self.save_dir / "val") if val_save_plots else None,
             )
 
             original_model = self.wrapper_model.model

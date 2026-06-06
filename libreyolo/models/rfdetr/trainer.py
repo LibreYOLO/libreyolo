@@ -266,7 +266,7 @@ class RFDETRTrainer(BaseTrainer):
         targets[..., 2] *= scale_y
         targets[..., 3] *= scale_x
         targets[..., 4] *= scale_y
-        if targets.shape[-1] > 5:
+        if getattr(self.wrapper_model, "task", "detect") == "pose" and targets.shape[-1] > 5:
             keypoints = targets[..., 5:].view(*targets.shape[:-1], -1, 3)
             keypoints[..., 0] *= scale_x
             keypoints[..., 1] *= scale_y
@@ -436,11 +436,21 @@ class RFDETRTrainer(BaseTrainer):
         return train_ds
 
     def on_setup(self):
+        task = getattr(self.wrapper_model, "task", "detect")
         if self.model.nb_classes != self.config.num_classes:
-            self.model.model.reinitialize_detection_head(self.config.num_classes + 1)
+            head_outputs = (
+                self.config.num_classes
+                if task == "pose"
+                else self.config.num_classes + 1
+            )
+            self.model.model.reinitialize_detection_head(head_outputs)
             self.model.nb_classes = self.config.num_classes
-            self.model.args.num_classes = self.config.num_classes
-        if getattr(self.wrapper_model, "task", "detect") == "pose":
+            self.model.args.num_classes = (
+                max(0, self.config.num_classes - 1)
+                if task == "pose"
+                else self.config.num_classes
+            )
+        if task == "pose":
             if getattr(self.model, "num_keypoints", None) != self.config.num_keypoints:
                 self.model.model.reinitialize_keypoint_head(self.config.num_keypoints)
                 self.model.num_keypoints = self.config.num_keypoints
@@ -466,13 +476,13 @@ class RFDETRTrainer(BaseTrainer):
                     self._class_names,
                     self.config.num_classes,
                 )
-            elif getattr(self.wrapper_model, "task", "detect") == "pose" and self.config.num_classes == 1:
+            elif task == "pose" and self.config.num_classes == 1:
                 self.wrapper_model.names = {0: "person"}
             else:
                 self.wrapper_model.names = {
                     i: f"class_{i}" for i in range(self.config.num_classes)
                 }
-            if getattr(self.wrapper_model, "task", "detect") == "pose":
+            if task == "pose":
                 self.wrapper_model.num_keypoints = self.config.num_keypoints
                 self.wrapper_model.keypoint_dim = self.config.keypoint_dim
 
@@ -729,24 +739,25 @@ class RFDETRTrainer(BaseTrainer):
         num_batches = 0
         pose_metrics = None
         try:
-            with torch.no_grad():
-                for batch in self.val_loader:
-                    imgs = batch[0].to(self.device, non_blocking=True)
-                    targets = batch[1].to(self.device, non_blocking=True)
-                    target_list = self._targets_to_rfdetr_list(
-                        targets,
-                        height=imgs.shape[-2],
-                        width=imgs.shape[-1],
-                    )
-                    outputs = model(imgs, targets=target_list)
-                    loss_dict = self.criterion(outputs, target_list)
-                    total = sum(
-                        loss_dict[key] * self.criterion.weight_dict[key]
-                        for key in loss_dict
-                        if key in self.criterion.weight_dict
-                    )
-                    total_loss += float(total.item())
-                    num_batches += 1
+            if not self.is_distributed:
+                with torch.no_grad():
+                    for batch in self.val_loader:
+                        imgs = batch[0].to(self.device, non_blocking=True)
+                        targets = batch[1].to(self.device, non_blocking=True)
+                        target_list = self._targets_to_rfdetr_list(
+                            targets,
+                            height=imgs.shape[-2],
+                            width=imgs.shape[-1],
+                        )
+                        outputs = model(imgs, targets=target_list)
+                        loss_dict = self.criterion(outputs, target_list)
+                        total = sum(
+                            loss_dict[key] * self.criterion.weight_dict[key]
+                            for key in loss_dict
+                            if key in self.criterion.weight_dict
+                        )
+                        total_loss += float(total.item())
+                        num_batches += 1
             pose_metrics = self._run_pose_metric_validation(model, epoch, save_plots=save_plots)
         finally:
             if was_training:

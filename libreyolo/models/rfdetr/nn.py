@@ -220,7 +220,7 @@ def _make_args(
         num_keypoints=int(num_keypoints),
         oks_sigmas=oks_sigmas,
         num_channels=3,
-        num_classes=nb_classes,
+        num_classes=max(0, nb_classes - 1) if pose else nb_classes,
         position_embedding="sine",
         pretrained_encoder=None,
         rms_norm=False,
@@ -395,9 +395,14 @@ class LibreRFDETRModel(nn.Module):
 
         class_bias = state_dict.get("class_embed.bias")
         if class_bias is not None and class_bias.shape[0] != self.model.class_embed.bias.shape[0]:
-            self.model.reinitialize_detection_head(int(class_bias.shape[0]))
-            self.nb_classes = int(class_bias.shape[0]) - 1
-            self.args.num_classes = self.nb_classes
+            out_features = int(class_bias.shape[0])
+            self.model.reinitialize_detection_head(out_features)
+            if self.pose:
+                self.nb_classes = out_features
+                self.args.num_classes = max(0, out_features - 1)
+            else:
+                self.nb_classes = out_features - 1
+                self.args.num_classes = self.nb_classes
         keypoint_weight = state_dict.get("keypoint_head.layers.2.weight")
         if keypoint_weight is not None and self.model.keypoint_head is not None:
             ckpt_k = int(keypoint_weight.shape[0]) // 3
