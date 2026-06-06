@@ -262,6 +262,9 @@ def postprocess(
     # one mask-coefficient vector per anchor.
     mask_coeffs = output.get("mask_coeffs")
     proto = output.get("proto")
+    keypoints_all = output.get("keypoints")
+    if keypoints_all is not None:
+        keypoints_all = keypoints_all[0] if keypoints_all.dim() == 4 else keypoints_all
     coeffs_all = None
     if mask_coeffs is not None and proto is not None:
         coeffs_all = mask_coeffs[0].transpose(0, 1) if mask_coeffs.dim() == 3 else mask_coeffs
@@ -271,11 +274,14 @@ def postprocess(
         if anchor_idx.numel() == 0:
             return {"boxes": [], "scores": [], "classes": [], "num_detections": 0}
         boxes_input = boxes_input[anchor_idx]
+        keypoints = keypoints_all[anchor_idx].clone() if keypoints_all is not None else None
         max_scores = scores[anchor_idx, class_ids]
         max_nms = max(max_det, _YOLO9_MAX_NMS_CANDIDATES)
         if max_scores.numel() > max_nms:
             keep = torch.topk(max_scores, max_nms).indices
             boxes_input = boxes_input[keep]
+            if keypoints is not None:
+                keypoints = keypoints[keep]
             max_scores = max_scores[keep]
             class_ids = class_ids[keep]
         boxes = boxes_input.clone()
@@ -287,6 +293,7 @@ def postprocess(
             return {"boxes": [], "scores": [], "classes": [], "num_detections": 0}
         boxes_input = boxes_input[mask]
         boxes = boxes_input.clone()
+        keypoints = keypoints_all[mask].clone() if keypoints_all is not None else None
         max_scores = max_scores[mask]
         class_ids = class_ids[mask]
         coeffs = coeffs_all[mask]
@@ -296,14 +303,22 @@ def postprocess(
             orig_w, orig_h = original_size
             ratio = min(input_h / orig_h, input_w / orig_w)
             boxes[:, :4] = boxes[:, :4] / ratio
+            if keypoints is not None:
+                keypoints[..., :2] = keypoints[..., :2] / ratio
         else:
             scale_x = original_size[0] / input_w
             scale_y = original_size[1] / input_h
             boxes[:, [0, 2]] *= scale_x
             boxes[:, [1, 3]] *= scale_y
+            if keypoints is not None:
+                keypoints[..., 0] *= scale_x
+                keypoints[..., 1] *= scale_y
 
         boxes[:, [0, 2]] = torch.clamp(boxes[:, [0, 2]], 0, original_size[0])
         boxes[:, [1, 3]] = torch.clamp(boxes[:, [1, 3]], 0, original_size[1])
+        if keypoints is not None:
+            keypoints[..., 0] = torch.clamp(keypoints[..., 0], 0, original_size[0])
+            keypoints[..., 1] = torch.clamp(keypoints[..., 1], 0, original_size[1])
 
     widths = boxes[:, 2] - boxes[:, 0]
     heights = boxes[:, 3] - boxes[:, 1]
@@ -315,6 +330,8 @@ def postprocess(
         boxes_input = boxes_input[valid]
         max_scores = max_scores[valid]
         class_ids = class_ids[valid]
+        if keypoints is not None:
+            keypoints = keypoints[valid]
         if coeffs is not None:
             coeffs = coeffs[valid]
 
@@ -325,6 +342,7 @@ def postprocess(
     boxes = boxes[keep]
     scores_out = max_scores[keep]
     classes_out = class_ids[keep]
+    keypoints_out = keypoints[keep] if keypoints is not None else None
 
     result = {
         "boxes": boxes.detach().cpu().numpy().tolist(),
@@ -332,6 +350,8 @@ def postprocess(
         "classes": classes_out.detach().cpu().numpy().tolist(),
         "num_detections": len(boxes),
     }
+    if keypoints_out is not None:
+        result["keypoints"] = keypoints_out.detach().cpu()
 
     if coeffs is not None and proto is not None:
         proto_i = proto[0] if proto.dim() == 4 else proto

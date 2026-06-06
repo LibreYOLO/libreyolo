@@ -310,6 +310,29 @@ class BaseModel(ABC):
         """
         return state_dict
 
+    def _adapt_checkpoint_num_classes(
+        self,
+        ckpt_nc: int | None,
+        checkpoint_task: str | None = None,
+    ) -> int | None:
+        """Return the class count to use when adapting checkpoint weights."""
+        return ckpt_nc
+
+    def _filter_incoming_state_dict(
+        self,
+        state_dict: dict,
+        *,
+        loaded: dict | None = None,
+        checkpoint_task: str | None = None,
+    ) -> dict:
+        """Filter checkpoint tensors before loading.
+
+        Families can override this when a permitted cross-task load keeps the
+        reusable backbone/neck tensors but drops incompatible task-specific
+        heads.
+        """
+        return state_dict
+
     def _rebuild_for_new_classes(self, new_nb_classes: int):
         """Rebuild model with a new class count, preserving weights where shapes match."""
         old_state = self.model.state_dict()
@@ -477,6 +500,7 @@ class BaseModel(ABC):
                     state_dict = loaded
 
                 state_dict = self._strip_ddp_prefix(state_dict)
+                state_dict = self._prepare_state_dict(state_dict)
 
                 # Reject cross-family loading
                 own_family = self._get_model_name()
@@ -488,10 +512,13 @@ class BaseModel(ABC):
                         f"Use the correct model class for this checkpoint."
                     )
 
+                normalized_ckpt_task = None
                 ckpt_task = loaded.get("task")
                 if ckpt_task is not None:
                     normalized_ckpt_task = normalize_task(ckpt_task)
-                    if normalized_ckpt_task != self.task:
+                    if normalized_ckpt_task != self.task and not self._allow_checkpoint_task_mismatch(
+                        normalized_ckpt_task
+                    ):
                         raise RuntimeError(
                             f"Checkpoint was trained for task='{normalized_ckpt_task}' "
                             f"but this model was initialized for task='{self.task}'. "
@@ -509,6 +536,16 @@ class BaseModel(ABC):
                 if ckpt_nc is None and hasattr(self, "detect_nb_classes"):
                     ckpt_nc = self.detect_nb_classes(state_dict)
 
+                ckpt_nc = self._adapt_checkpoint_num_classes(
+                    ckpt_nc,
+                    normalized_ckpt_task,
+                )
+                state_dict = self._filter_incoming_state_dict(
+                    state_dict,
+                    loaded=loaded,
+                    checkpoint_task=normalized_ckpt_task,
+                )
+
                 if ckpt_nc is not None and ckpt_nc != self.nb_classes:
                     self._rebuild_for_new_classes(ckpt_nc)
 
@@ -516,13 +553,17 @@ class BaseModel(ABC):
                 if ckpt_names is not None:
                     self.names = self._sanitize_names(ckpt_names, effective_nc)
             else:
-                state_dict = loaded
+                state_dict = self._prepare_state_dict(loaded)
 
             self.model.load_state_dict(state_dict, strict=self._strict_loading())
         except Exception as e:
             raise RuntimeError(
                 f"Failed to load model weights from {model_path}: {e}"
             ) from e
+
+    def _allow_checkpoint_task_mismatch(self, checkpoint_task: str) -> bool:
+        """Return whether a family permits loading a checkpoint from another task."""
+        return False
 
     # =========================================================================
     # Public API

@@ -1,6 +1,7 @@
 """Training configuration for native LibreRFDETR."""
 
 from dataclasses import dataclass
+from typing import List
 
 from libreyolo.training.config import TrainConfig
 
@@ -45,5 +46,16 @@ class RFDETRConfig(TrainConfig):
     amp: bool = True
     backbone_lr_mult: float = 0.1
     clip_max_norm: float = 0.1
+
+    num_keypoints: int = 17
+    keypoint_dim: int = 3
+    oks_sigmas: List[float] | None = None
+    keypoint_l1_loss_coef: float = 10.0
+    keypoint_oks_loss_coef: float = 4.0
+    keypoint_vis_loss_coef: float = 1.0
+    pin_memory: bool = False
+    prefetch_factor: int = 1
+    persistent_workers: bool = True
+    decode_scale: int = 1
 
     name: str = "rfdetr_exp"

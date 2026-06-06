@@ -178,8 +178,10 @@ class LWDETR(nn.Module):
         backbone,
         transformer,
         segmentation_head,
+        keypoint_head,
         num_classes,
         num_queries,
+        num_keypoints=17,
         aux_loss=False,
         group_detr=1,
         two_stage=False,
@@ -204,6 +206,8 @@ class LWDETR(nn.Module):
         self.class_embed = nn.Linear(hidden_dim, num_classes)
         self.bbox_embed = MLP(hidden_dim, hidden_dim, 4, 3)
         self.segmentation_head = segmentation_head
+        self.keypoint_head = keypoint_head
+        self.num_keypoints = int(num_keypoints)
 
         query_dim = 4
         self.refpoint_embed = nn.Embedding(num_queries * group_detr, query_dim)
@@ -231,6 +235,9 @@ class LWDETR(nn.Module):
         # init bbox_mebed
         nn.init.constant_(self.bbox_embed.layers[-1].weight.data, 0)
         nn.init.constant_(self.bbox_embed.layers[-1].bias.data, 0)
+        if self.keypoint_head is not None:
+            nn.init.constant_(self.keypoint_head.layers[-1].weight.data, 0)
+            nn.init.constant_(self.keypoint_head.layers[-1].bias.data, 0)
 
         # two_stage
         self.two_stage = two_stage
@@ -264,6 +271,20 @@ class LWDETR(nn.Module):
             self.transformer.enc_out_class_embed = nn.ModuleList(
                 [_resize_linear(m, num_classes) for m in self.transformer.enc_out_class_embed]
             )
+
+    def reinitialize_keypoint_head(self, num_keypoints: int) -> None:
+        """Resize the keypoint MLP output to ``num_keypoints * 3`` channels."""
+        if self.keypoint_head is None:
+            return
+        hidden_dim = self.transformer.d_model
+        self.num_keypoints = int(num_keypoints)
+        device = self.keypoint_head.layers[-1].weight.device
+        dtype = self.keypoint_head.layers[-1].weight.dtype
+        self.keypoint_head = MLP(hidden_dim, hidden_dim, self.num_keypoints * 3, 3).to(
+            device=device, dtype=dtype
+        )
+        nn.init.constant_(self.keypoint_head.layers[-1].weight.data, 0)
+        nn.init.constant_(self.keypoint_head.layers[-1].bias.data, 0)
 
     def export(self):
         self._export = True
@@ -328,15 +349,21 @@ class LWDETR(nn.Module):
 
             if self.segmentation_head is not None:
                 outputs_masks = seg_head_fwd(features[0].tensors, hs, samples.tensors.shape[-2:])
+            outputs_keypoints = None
+            if self.keypoint_head is not None:
+                outputs_keypoints = self._decode_keypoints(hs, ref_unsigmoid)
 
             out = {"pred_logits": outputs_class[-1], "pred_boxes": outputs_coord[-1]}
             if self.segmentation_head is not None:
                 out["pred_masks"] = outputs_masks[-1]
+            if outputs_keypoints is not None:
+                out["pred_keypoints"] = outputs_keypoints[-1]
             if self.aux_loss:
                 out["aux_outputs"] = self._set_aux_loss(
                     outputs_class,
                     outputs_coord,
                     outputs_masks if self.segmentation_head is not None else None,
+                    outputs_keypoints,
                 )
 
         if self.two_stage:
@@ -358,17 +385,32 @@ class LWDETR(nn.Module):
                     samples.tensors.shape[-2:],
                     skip_blocks=True,
                 )[0]
+            keypoints_enc = None
+            if self.keypoint_head is not None:
+                keypoints_enc = self._decode_keypoints(hs_enc.unsqueeze(0), ref_enc.unsqueeze(0))[0]
 
             if hs is not None:
                 out["enc_outputs"] = {"pred_logits": cls_enc, "pred_boxes": ref_enc}
                 if self.segmentation_head is not None:
                     out["enc_outputs"]["pred_masks"] = masks_enc
+                if keypoints_enc is not None:
+                    out["enc_outputs"]["pred_keypoints"] = keypoints_enc
             else:
                 out = {"pred_logits": cls_enc, "pred_boxes": ref_enc}
                 if self.segmentation_head is not None:
                     out["pred_masks"] = masks_enc
+                if keypoints_enc is not None:
+                    out["pred_keypoints"] = keypoints_enc
 
         return out
+
+    def _decode_keypoints(self, hs, reference):
+        raw = self.keypoint_head(hs).view(*hs.shape[:-1], self.num_keypoints, 3)
+        if self.bbox_reparam:
+            xy = raw[..., :2] * reference[..., None, 2:] + reference[..., None, :2]
+        else:
+            xy = (raw[..., :2] + reference[..., None, :2]).sigmoid()
+        return torch.cat((xy, raw[..., 2:3]), dim=-1)
 
     def forward_export(self, tensors):
         srcs, _, poss = self.backbone(tensors)
@@ -381,6 +423,7 @@ class LWDETR(nn.Module):
         )
 
         outputs_masks = None
+        outputs_keypoints = None
 
         if hs is not None:
             if self.bbox_reparam:
@@ -399,6 +442,8 @@ class LWDETR(nn.Module):
                     ],
                     tensors.shape[-2:],
                 )[0]
+            if self.keypoint_head is not None:
+                outputs_keypoints = self._decode_keypoints(hs, ref_unsigmoid)[-1]
         else:
             assert self.two_stage, "if not using decoder, two_stage must be True"
             outputs_class = self.transformer.enc_out_class_embed[0](hs_enc)
@@ -412,14 +457,18 @@ class LWDETR(nn.Module):
                     tensors.shape[-2:],
                     skip_blocks=True,
                 )[0]
+            if self.keypoint_head is not None:
+                outputs_keypoints = self._decode_keypoints(hs_enc.unsqueeze(0), ref_enc.unsqueeze(0))[0]
 
         if outputs_masks is not None:
             return outputs_coord, outputs_class, outputs_masks
+        elif outputs_keypoints is not None:
+            return outputs_coord, outputs_class, outputs_keypoints
         else:
             return outputs_coord, outputs_class
 
     @torch.jit.unused
-    def _set_aux_loss(self, outputs_class, outputs_coord, outputs_masks):
+    def _set_aux_loss(self, outputs_class, outputs_coord, outputs_masks, outputs_keypoints=None):
         # this is a workaround to make torchscript happy, as torchscript
         # doesn't support dictionary with non-homogeneous values, such
         # as a dict having both a Tensor and a list.
@@ -427,6 +476,13 @@ class LWDETR(nn.Module):
             return [
                 {"pred_logits": a, "pred_boxes": b, "pred_masks": c}
                 for a, b, c in zip(outputs_class[:-1], outputs_coord[:-1], outputs_masks[:-1])
+            ]
+        elif outputs_keypoints is not None:
+            return [
+                {"pred_logits": a, "pred_boxes": b, "pred_keypoints": c}
+                for a, b, c in zip(
+                    outputs_class[:-1], outputs_coord[:-1], outputs_keypoints[:-1]
+                )
             ]
         else:
             return [{"pred_logits": a, "pred_boxes": b} for a, b in zip(outputs_class[:-1], outputs_coord[:-1])]
@@ -533,13 +589,20 @@ def build_model(args: Any):
         if args.segmentation_head
         else None
     )
+    keypoint_head = (
+        MLP(args.hidden_dim, args.hidden_dim, args.num_keypoints * 3, 3)
+        if getattr(args, "keypoint_head", False)
+        else None
+    )
 
     model = LWDETR(
         backbone,
         transformer,
         segmentation_head,
+        keypoint_head,
         num_classes=num_classes,
         num_queries=args.num_queries,
+        num_keypoints=getattr(args, "num_keypoints", 17),
         aux_loss=args.aux_loss,
         group_detr=args.group_detr,
         two_stage=args.two_stage,
@@ -557,6 +620,10 @@ def build_criterion_and_postprocessors(args: Any):
     if args.segmentation_head:
         weight_dict["loss_mask_ce"] = args.mask_ce_loss_coef
         weight_dict["loss_mask_dice"] = args.mask_dice_loss_coef
+    if getattr(args, "keypoint_head", False):
+        weight_dict["loss_keypoints_l1"] = args.keypoint_l1_loss_coef
+        weight_dict["loss_keypoints_oks"] = args.keypoint_oks_loss_coef
+        weight_dict["loss_keypoints_vis"] = args.keypoint_vis_loss_coef
     # TODO this is a hack
     if args.aux_loss:
         aux_weight_dict = {}
@@ -569,6 +636,8 @@ def build_criterion_and_postprocessors(args: Any):
     losses = ["labels", "boxes", "cardinality"]
     if args.segmentation_head:
         losses.append("masks")
+    if getattr(args, "keypoint_head", False):
+        losses.append("keypoints")
 
     sum_group_losses = getattr(args, "sum_group_losses", False)
     if args.segmentation_head:
@@ -584,6 +653,8 @@ def build_criterion_and_postprocessors(args: Any):
             use_position_supervised_loss=args.use_position_supervised_loss,
             ia_bce_loss=args.ia_bce_loss,
             mask_point_sample_ratio=args.mask_point_sample_ratio,
+            num_keypoints=getattr(args, "num_keypoints", 17),
+            oks_sigmas=getattr(args, "oks_sigmas", None),
         )
     else:
         criterion = SetCriterion(
@@ -597,6 +668,8 @@ def build_criterion_and_postprocessors(args: Any):
             use_varifocal_loss=args.use_varifocal_loss,
             use_position_supervised_loss=args.use_position_supervised_loss,
             ia_bce_loss=args.ia_bce_loss,
+            num_keypoints=getattr(args, "num_keypoints", 17),
+            oks_sigmas=getattr(args, "oks_sigmas", None),
         )
     criterion.to(device)
     postprocess = PostProcess(num_select=args.num_select)

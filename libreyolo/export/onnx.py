@@ -121,6 +121,14 @@ def export_onnx(
         metadata.get("model_family") == "yolo9"
         and metadata.get("task") == "segment"
     )
+    is_yolo9_pose = (
+        metadata.get("model_family") == "yolo9"
+        and metadata.get("task") == "pose"
+    )
+    is_rfdetr_pose = (
+        metadata.get("model_family") == "rfdetr"
+        and metadata.get("task") == "pose"
+    )
     known_detr_detection = _uses_dfine_style_export_wrapper(
         metadata.get("model_family")
     )
@@ -143,6 +151,17 @@ def export_onnx(
             else None
         )
         metadata["segmentation"] = "true"
+    elif is_yolo9_pose:
+        output_names = ["predictions", "keypoints"]
+        dynamic_axes = (
+            {
+                "images": {0: "batch"},
+                "predictions": {0: "batch", 2: "anchors"},
+                "keypoints": {0: "batch", 1: "anchors", 2: "keypoints"},
+            }
+            if dynamic
+            else None
+        )
     elif is_seg:
         output_names = (
             ["dets", "labels", "masks"]
@@ -161,6 +180,19 @@ def export_onnx(
             else None
         )
         metadata["segmentation"] = "true"
+    elif is_rfdetr_pose:
+        input_name = "input"
+        output_names = ["dets", "labels", "keypoints"]
+        dynamic_axes = (
+            {
+                input_name: {0: "batch"},
+                "dets": {0: "batch"},
+                "labels": {0: "batch"},
+                "keypoints": {0: "batch"},
+            }
+            if dynamic
+            else None
+        )
     elif model_family == "rfdetr":
         # RF-DETR's RFDETRExportWrapper returns (boxes, logits), and upstream
         # names those ONNX outputs dets/labels.

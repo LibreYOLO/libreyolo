@@ -10,6 +10,7 @@ from libreyolo.training.ddp_spawn import ddp_aware
 from PIL import Image
 
 from ..base import BaseModel
+from ...data import load_data_config
 from ...tasks import normalize_task
 from ...utils.image_loader import ImageInput, ImageLoader
 from ...utils.serialization import load_trusted_torch_file
@@ -169,10 +170,11 @@ class LibreRFDETR(BaseModel):
     FILENAME_PREFIX = "LibreRFDETR"
     INPUT_SIZES = {"n": 384, "s": 512, "m": 576, "l": 704}
     SEG_INPUT_SIZES = {"n": 312, "s": 384, "m": 432, "l": 504, "x": 624, "xx": 768}
-    SUPPORTED_TASKS = ("detect", "segment")
+    SUPPORTED_TASKS = ("detect", "segment", "pose")
     TASK_INPUT_SIZES = {
         "detect": INPUT_SIZES,
         "segment": SEG_INPUT_SIZES,
+        "pose": INPUT_SIZES,
     }
     TRAIN_CONFIG = RFDETRConfig
     val_preprocessor_class = RFDETRValPreprocessor
@@ -275,6 +277,14 @@ class LibreRFDETR(BaseModel):
         return None
 
     @classmethod
+    def detect_num_keypoints(cls, weights_dict: dict) -> Optional[int]:
+        if "keypoint_head.layers.2.weight" in weights_dict:
+            channels = int(weights_dict["keypoint_head.layers.2.weight"].shape[0])
+            if channels % 3 == 0:
+                return channels // 3
+        return None
+
+    @classmethod
     def get_download_url(cls, filename: str) -> Optional[str]:
         upstream_url = _RFDETR_UPSTREAM_WEIGHT_URLS.get(Path(filename).name.lower())
         if upstream_url is not None:
@@ -293,6 +303,8 @@ class LibreRFDETR(BaseModel):
         device: str = "auto",
         segmentation: bool = False,
         task: str | None = None,
+        num_keypoints: int = 17,
+        keypoint_dim: int = 3,
         **kwargs,
     ):
         # Resolve task: explicit `task` > legacy `segmentation` flag > filename / checkpoint inference.
@@ -303,6 +315,10 @@ class LibreRFDETR(BaseModel):
         resolved_task = task
         if resolved_task is None and segmentation:
             resolved_task = "segment"
+        if normalize_task(resolved_task) == "pose" and nb_classes == 80:
+            nb_classes = 1
+        self.num_keypoints = int(num_keypoints)
+        self.keypoint_dim = int(keypoint_dim)
         if size is None and (
             model_path is None or (isinstance(model_path, dict) and not model_path)
         ):
@@ -344,26 +360,41 @@ class LibreRFDETR(BaseModel):
                 else None
             )
             checkpoint_is_segment = False
+            checkpoint_is_pose = False
             if filename_task != "segment":
                 checkpoint_is_segment = self._detect_segmentation(weight_source)
+            if filename_task != "pose":
+                checkpoint_is_pose = self._detect_pose(weight_source)
             if resolved_task is None:
                 resolved_task = filename_task or (
-                    "segment" if checkpoint_is_segment else None
+                    "segment"
+                    if checkpoint_is_segment
+                    else "pose"
+                    if checkpoint_is_pose
+                    else None
                 )
             elif (
                 normalize_task(resolved_task) == "detect"
-                and (filename_task == "segment" or checkpoint_is_segment)
+                and (
+                    filename_task in ("segment", "pose")
+                    or checkpoint_is_segment
+                    or checkpoint_is_pose
+                )
             ):
                 raise ValueError(
-                    "RF-DETR checkpoint appears to be a segmentation model, "
+                    "RF-DETR checkpoint appears to be a non-detection model, "
                     "but task='detect' was requested."
                 )
 
         self._model_num_classes = nb_classes
         if isinstance(weight_source, dict):
-            detected_classes = self.detect_nb_classes(_checkpoint_model_state(weight_source))
+            weight_state = _checkpoint_model_state(weight_source)
+            detected_classes = self.detect_nb_classes(weight_state)
             if detected_classes is not None:
                 self._model_num_classes = detected_classes
+            detected_k = self.detect_num_keypoints(weight_state)
+            if detected_k is not None:
+                self.num_keypoints = detected_k
 
         # RF-DETR COCO checkpoints have 90 arch-classes (91 outputs including
         # background), while LibreYOLO exposes the contiguous COCO-80 interface.
@@ -381,11 +412,18 @@ class LibreRFDETR(BaseModel):
         if weight_source is not None:
             self._load_weights(weight_source)
             self.model.eval()
+        elif self._is_pose and self.nb_classes == 1 and self.names.get(0) == "class_0":
+            self.names = {0: "person"}
 
     @property
     def _is_segmentation(self) -> bool:
         """Adapter flag derived from the canonical task state."""
-        return self.task == "segment"
+        return getattr(self, "task", "detect") == "segment"
+
+    @property
+    def _is_pose(self) -> bool:
+        """Adapter flag derived from the canonical task state."""
+        return getattr(self, "task", "detect") == "pose"
 
     @staticmethod
     def _detect_size_from_source(model_path: str | dict[str, Any] | None) -> str | None:
@@ -435,6 +473,25 @@ class LibreRFDETR(BaseModel):
         except Exception:
             return False
 
+    @staticmethod
+    def _detect_pose(model_path: str | dict[str, Any]) -> bool:
+        """Check if weights contain a keypoint head."""
+        try:
+            if isinstance(model_path, str):
+                ckpt = load_trusted_torch_file(
+                    model_path,
+                    map_location="cpu",
+                    context="RF-DETR pose detection",
+                )
+            else:
+                ckpt = model_path
+            if isinstance(ckpt, dict) and ckpt.get("task") is not None:
+                return normalize_task(ckpt.get("task")) == "pose"
+            state = _checkpoint_model_state(ckpt)
+            return any(k.startswith("keypoint_head") for k in state)
+        except Exception:
+            return False
+
     # =========================================================================
     # Model lifecycle
     # =========================================================================
@@ -445,6 +502,8 @@ class LibreRFDETR(BaseModel):
             nb_classes=self._model_num_classes,
             device=str(self.device),
             segmentation=self._is_segmentation,
+            pose=self._is_pose,
+            num_keypoints=self.num_keypoints,
         )
 
     def _get_available_layers(self) -> Dict[str, nn.Module]:
@@ -465,6 +524,8 @@ class LibreRFDETR(BaseModel):
                 layers["bbox_embed"] = actual_model.bbox_embed
             if getattr(actual_model, "segmentation_head", None) is not None:
                 layers["segmentation_head"] = actual_model.segmentation_head
+            if getattr(actual_model, "keypoint_head", None) is not None:
+                layers["keypoint_head"] = actual_model.keypoint_head
         return layers
 
     def _strict_loading(self) -> bool:
@@ -511,10 +572,11 @@ class LibreRFDETR(BaseModel):
         **kwargs,
     ) -> Dict:
         if isinstance(output, tuple):
+            extra_key = "pred_keypoints" if self._is_pose else "pred_masks"
             output = {
                 "pred_boxes": output[0],
                 "pred_logits": output[1],
-                **({"pred_masks": output[2]} if len(output) > 2 else {}),
+                **({extra_key: output[2]} if len(output) > 2 else {}),
             }
 
         logits = output["pred_logits"]
@@ -536,6 +598,7 @@ class LibreRFDETR(BaseModel):
         labels = result["labels"]
         boxes = result["boxes"]
         masks = result.get("masks")  # (K, H, W) bool or None
+        keypoints = result.get("keypoints")
 
         keep = scores > conf_thres
         scores = scores[keep]
@@ -543,6 +606,8 @@ class LibreRFDETR(BaseModel):
         boxes = boxes[keep]
         if masks is not None:
             masks = masks[keep]
+        if keypoints is not None:
+            keypoints = keypoints[keep]
 
         # Map COCO 91-class IDs to YOLO 80-class indices if needed
         num_output_classes = output["pred_logits"].shape[-1]
@@ -558,6 +623,8 @@ class LibreRFDETR(BaseModel):
             labels = mapped[valid]
             if masks is not None:
                 masks = masks[valid]
+            if keypoints is not None:
+                keypoints = keypoints[valid]
 
         det = {
             "boxes": boxes.cpu().tolist(),
@@ -567,6 +634,8 @@ class LibreRFDETR(BaseModel):
         }
         if masks is not None:
             det["masks"] = masks.cpu()
+        if keypoints is not None:
+            det["keypoints"] = keypoints.cpu()
         return det
 
     # =========================================================================
@@ -610,9 +679,11 @@ class LibreRFDETR(BaseModel):
                 state_dict_has_lora,
             )
 
+            loaded_state = _checkpoint_model_state(loaded)
+            pose_checkpoint = any(k.startswith("keypoint_head.") for k in loaded_state)
             already_lora = module_has_lora(self.model)
             if not already_lora and state_dict_has_lora(
-                _checkpoint_model_state(loaded)
+                loaded_state
             ):
                 apply_lora_to_rfdetr(self.model.model)
 
@@ -623,19 +694,34 @@ class LibreRFDETR(BaseModel):
                     + (f" (+{len(unexpected) - 10} more)" if len(unexpected) > 10 else "")
                 )
 
+            if self._is_pose and not pose_checkpoint:
+                self.model.model.reinitialize_detection_head(2)
+                self.model.nb_classes = 1
+                self.model.args.num_classes = 1
+
             ckpt_nc = loaded.get("nc")
-            if ckpt_nc is not None:
+            if self._is_pose and not pose_checkpoint:
+                self.nb_classes = 1
+            elif ckpt_nc is not None:
                 self.nb_classes = int(ckpt_nc)
             else:
                 self.nb_classes = 80 if self.model.nb_classes == 90 else self.model.nb_classes
 
             self._model_num_classes = self.model.nb_classes
+            ckpt_k = loaded.get("num_keypoints")
+            if ckpt_k is not None:
+                self.num_keypoints = int(ckpt_k)
+            ckpt_kd = loaded.get("keypoint_dim")
+            if ckpt_kd is not None:
+                self.keypoint_dim = int(ckpt_kd)
             if self.nb_classes == 80:
                 from ...utils.general import COCO_CLASSES
 
                 self.names = {i: n for i, n in enumerate(COCO_CLASSES)}
             else:
                 self.names = {i: f"class_{i}" for i in range(self.nb_classes)}
+            if self._is_pose and self.nb_classes == 1:
+                self.names = {0: "person"}
 
             ckpt_names = loaded.get("names")
             if ckpt_names is not None:
@@ -649,8 +735,10 @@ class LibreRFDETR(BaseModel):
             if missing:
                 # ``strict=False`` is expected for class/head adaptation and older
                 # checkpoints, but missing non-head tensors should stay visible.
-                ignored = ("class_embed.", "transformer.enc_out_class_embed.")
-                important = [k for k in missing if not k.startswith(ignored)]
+                ignored = ["class_embed.", "transformer.enc_out_class_embed."]
+                if self._is_pose:
+                    ignored.append("keypoint_head.")
+                important = [k for k in missing if not k.startswith(tuple(ignored))]
                 if important:
                     raise RuntimeError(
                         f"Missing RF-DETR checkpoint keys: {sorted(important)[:10]}"
@@ -757,6 +845,46 @@ class LibreRFDETR(BaseModel):
         if resolved_lr0 is None:
             resolved_lr0 = 1e-4
 
+        pose_train_metadata = {}
+        if self._is_pose:
+            data_cfg = load_data_config(
+                data,
+                allow_scripts=bool(train_kwargs.get("allow_download_scripts", False)),
+            )
+            kpt_shape = data_cfg.get("kpt_shape")
+            if not kpt_shape or len(kpt_shape) < 1:
+                raise ValueError("RF-DETR pose training requires kpt_shape in the dataset yaml")
+            num_keypoints = int(kpt_shape[0])
+            keypoint_dim = int(kpt_shape[1]) if len(kpt_shape) > 1 else 3
+            if keypoint_dim not in (2, 3):
+                raise ValueError(
+                    f"RF-DETR pose training supports keypoint_dim 2 or 3, got {keypoint_dim}"
+                )
+            data_nc = int(data_cfg.get("nc", 1))
+            if data_nc != 1:
+                raise ValueError(
+                    f"RF-DETR pose training expects a person-only dataset with nc=1, got nc={data_nc}"
+                )
+            if self.model.num_keypoints != num_keypoints:
+                self.model.model.reinitialize_keypoint_head(num_keypoints)
+                self.model.num_keypoints = num_keypoints
+                self.model.args.num_keypoints = num_keypoints
+            self.num_keypoints = num_keypoints
+            self.keypoint_dim = keypoint_dim
+            self.nb_classes = 1
+            self.names = {0: "person"}
+            oks_sigmas = train_kwargs.get(
+                "oks_sigmas",
+                data_cfg.get("oks_sigmas", data_cfg.get("sigmas")),
+            )
+            pose_train_metadata = {
+                "num_keypoints": num_keypoints,
+                "keypoint_dim": keypoint_dim,
+                "num_classes": 1,
+            }
+            if oks_sigmas is not None:
+                pose_train_metadata["oks_sigmas"] = oks_sigmas
+
         train_kwargs.update(
             {
                 "data": data,
@@ -770,6 +898,7 @@ class LibreRFDETR(BaseModel):
                 "num_classes": self.nb_classes,
             }
         )
+        train_kwargs.update(pose_train_metadata)
         if train_kwargs.get("imgsz") is None:
             train_kwargs["imgsz"] = self.input_size
 

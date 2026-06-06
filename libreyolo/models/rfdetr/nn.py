@@ -171,6 +171,9 @@ def _make_args(
     nb_classes: int,
     device: str,
     segmentation: bool,
+    pose: bool = False,
+    num_keypoints: int = 17,
+    oks_sigmas=None,
 ) -> SimpleNamespace:
     cfg_values = {
         f.name: list(getattr(cfg, f.name)) if isinstance(getattr(cfg, f.name), tuple) else getattr(cfg, f.name)
@@ -178,6 +181,7 @@ def _make_args(
     }
     cfg_values["pretrain_weights"] = "__libreyolo_no_backbone_download__"
     cfg_values["segmentation_head"] = segmentation
+    cfg_values["keypoint_head"] = pose
     return SimpleNamespace(
         **cfg_values,
         amp=True,
@@ -207,6 +211,11 @@ def _make_args(
         mask_ce_loss_coef=5.0,
         mask_dice_loss_coef=5.0,
         mask_point_sample_ratio=16,
+        keypoint_l1_loss_coef=10.0,
+        keypoint_oks_loss_coef=4.0,
+        keypoint_vis_loss_coef=1.0,
+        num_keypoints=int(num_keypoints),
+        oks_sigmas=oks_sigmas,
         num_channels=3,
         num_classes=nb_classes,
         position_embedding="sine",
@@ -327,10 +336,15 @@ class LibreRFDETRModel(nn.Module):
         nb_classes: int = 80,
         device: str = "cpu",
         segmentation: bool = False,
+        pose: bool = False,
+        num_keypoints: int = 17,
+        oks_sigmas=None,
     ):
         super().__init__()
 
         configs = RFDETR_SEG_CONFIGS if segmentation else RFDETR_CONFIGS
+        if pose:
+            configs = RFDETR_CONFIGS
         if config not in configs:
             raise ValueError(f"Invalid RF-DETR size: {config}. Must be one of {sorted(configs)}")
 
@@ -338,11 +352,16 @@ class LibreRFDETRModel(nn.Module):
         self.config = configs[config]
         self.nb_classes = nb_classes
         self.segmentation = segmentation
+        self.pose = pose
+        self.num_keypoints = int(num_keypoints)
         self.args = _make_args(
             self.config,
             nb_classes=nb_classes,
             device=device,
             segmentation=segmentation,
+            pose=pose,
+            num_keypoints=num_keypoints,
+            oks_sigmas=oks_sigmas,
         )
 
         self.resolution = self.config.resolution
@@ -370,6 +389,13 @@ class LibreRFDETRModel(nn.Module):
             self.model.reinitialize_detection_head(int(class_bias.shape[0]))
             self.nb_classes = int(class_bias.shape[0]) - 1
             self.args.num_classes = self.nb_classes
+        keypoint_weight = state_dict.get("keypoint_head.layers.2.weight")
+        if keypoint_weight is not None and self.model.keypoint_head is not None:
+            ckpt_k = int(keypoint_weight.shape[0]) // 3
+            if ckpt_k != self.num_keypoints:
+                self.model.reinitialize_keypoint_head(ckpt_k)
+                self.num_keypoints = ckpt_k
+                self.args.num_keypoints = ckpt_k
 
         for key in ("refpoint_embed.weight", "query_feat.weight"):
             if key in state_dict:
@@ -402,6 +428,8 @@ class RFDETRExportWrapper(nn.Module):
             return output
         if "pred_masks" in output:
             return output["pred_boxes"], output["pred_logits"], output["pred_masks"]
+        if "pred_keypoints" in output:
+            return output["pred_boxes"], output["pred_logits"], output["pred_keypoints"]
         return output["pred_boxes"], output["pred_logits"]
 
 
@@ -410,12 +438,18 @@ def create_rfdetr_model(
     nb_classes: int = 80,
     device: str = "cpu",
     segmentation: bool = False,
+    pose: bool = False,
+    num_keypoints: int = 17,
+    oks_sigmas=None,
 ) -> LibreRFDETRModel:
     return LibreRFDETRModel(
         config=config,
         nb_classes=nb_classes,
         device=device,
         segmentation=segmentation,
+        pose=pose,
+        num_keypoints=num_keypoints,
+        oks_sigmas=oks_sigmas,
     )
 
 

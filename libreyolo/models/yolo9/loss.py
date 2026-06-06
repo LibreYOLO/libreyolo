@@ -11,6 +11,7 @@ import torch.nn.functional as F
 from torch import Tensor, nn
 from torch.nn import BCEWithLogitsLoss
 
+from libreyolo.data import default_oks_sigmas
 from libreyolo.utils.box_ops import compute_iou as calculate_iou
 
 
@@ -866,6 +867,246 @@ class YOLO9SegmentationLoss(YOLO9Loss):
             "seg": loss_mask_weighted.item()
             if isinstance(loss_mask_weighted, Tensor)
             else loss_mask_weighted,
+            "num_fg": valid_masks.sum().item() / max(bsz, 1),
+        }
+        return loss_dict
+
+
+class YOLO9PoseLoss(YOLO9Loss):
+    """YOLO9 detection loss plus COCO-style keypoint pose loss."""
+
+    def __init__(
+        self,
+        *args,
+        num_keypoints: int = 17,
+        keypoint_dim: int = 3,
+        oks_sigmas: Optional[List[float]] = None,
+        pose_weight: float = 12.0,
+        pose_l1_weight: float = 2.0,
+        pose_vis_weight: float = 1.0,
+        **kwargs,
+    ):
+        super().__init__(*args, **kwargs)
+        if keypoint_dim != 3:
+            raise ValueError("YOLO9PoseLoss expects keypoint_dim=3")
+        self.num_keypoints = int(num_keypoints)
+        self.keypoint_dim = int(keypoint_dim)
+        sigmas = oks_sigmas or default_oks_sigmas(self.num_keypoints)
+        if len(sigmas) != self.num_keypoints:
+            raise ValueError(
+                f"oks_sigmas has {len(sigmas)} entries but num_keypoints={self.num_keypoints}"
+            )
+        self.oks_sigmas = torch.as_tensor(sigmas, dtype=torch.float32)
+        self.pose_weight = pose_weight
+        self.pose_l1_weight = pose_l1_weight
+        self.pose_vis_weight = pose_vis_weight
+        self.pose_vis_loss = BCEWithLogitsLoss(reduction="none")
+
+    def _pose_targets_to_detection_targets(
+        self, targets: Tensor, img_w: int, img_h: int
+    ) -> Tensor:
+        det = targets.new_zeros(targets.shape[:2] + (5,))
+        valid = (targets[..., 3] > 0) & (targets[..., 4] > 0)
+        if valid.any():
+            cxcywh = targets[..., 1:5]
+            xyxy = torch.cat(
+                (
+                    cxcywh[..., :2] - cxcywh[..., 2:] * 0.5,
+                    cxcywh[..., :2] + cxcywh[..., 2:] * 0.5,
+                ),
+                dim=-1,
+            )
+            scale = targets.new_tensor([img_w, img_h, img_w, img_h])
+            det[..., 0] = targets[..., 0]
+            det[..., 1:5] = (xyxy / scale).clamp_(0, 1)
+            det[..., 1:5] = torch.where(valid[..., None], det[..., 1:5], 0.0)
+        return det
+
+    def _decode_keypoints_for_loss(self, keypoints: Tensor) -> tuple[Tensor, Tensor]:
+        bsz = keypoints.shape[0]
+        kpts = keypoints.view(
+            bsz, self.num_keypoints, self.keypoint_dim, -1
+        ).permute(0, 3, 1, 2)
+        anchors_grid = self.vec2box.anchor_grid / self.vec2box.scaler[:, None]
+        xy = (kpts[..., :2] + anchors_grid[None, :, None, :]) * self.vec2box.scaler[
+            None, :, None, None
+        ]
+        vis_logits = kpts[..., 2]
+        return xy, vis_logits
+
+    def _keypoint_losses(
+        self,
+        pred_xy: Tensor,
+        pred_vis_logits: Tensor,
+        gt_keypoints: Tensor,
+        gt_boxes_xyxy: Tensor,
+        weights: Tensor,
+        cls_norm: Tensor,
+    ) -> tuple[Tensor, Tensor, Tensor]:
+        visible = gt_keypoints[..., 2] > 0
+        if pred_xy.numel() == 0:
+            zero = pred_xy.sum() * 0.0
+            return zero, zero, pred_vis_logits.sum() * 0.0
+
+        sigmas = self.oks_sigmas.to(device=pred_xy.device, dtype=pred_xy.dtype)
+        area = (
+            (gt_boxes_xyxy[..., 2] - gt_boxes_xyxy[..., 0]).clamp_min(0)
+            * (gt_boxes_xyxy[..., 3] - gt_boxes_xyxy[..., 1]).clamp_min(0)
+        ).clamp_min(1e-9)
+
+        dist2 = ((pred_xy - gt_keypoints[..., :2]) ** 2).sum(dim=-1)
+        denom = 2.0 * area[:, None] * (2.0 * sigmas[None, :]).pow(2) + 1e-9
+        oks_loss = 1.0 - torch.exp(-dist2 / denom)
+        visible_f = visible.to(dtype=pred_xy.dtype)
+        visible_count = visible_f.sum(dim=1).clamp_min(1.0)
+        per_instance_pose = (oks_loss * visible_f).sum(dim=1) / visible_count
+        per_instance_pose = torch.where(
+            visible.any(dim=1), per_instance_pose, per_instance_pose * 0.0
+        )
+        loss_pose = (per_instance_pose * weights).sum() / cls_norm
+
+        norm = area.sqrt().clamp_min(1.0)[:, None, None]
+        l1 = F.smooth_l1_loss(
+            pred_xy / norm,
+            gt_keypoints[..., :2] / norm,
+            reduction="none",
+            beta=1.0 / 9.0,
+        ).sum(dim=-1)
+        per_instance_l1 = (l1 * visible_f).sum(dim=1) / visible_count
+        per_instance_l1 = torch.where(
+            visible.any(dim=1), per_instance_l1, per_instance_l1 * 0.0
+        )
+        loss_pose_l1 = (per_instance_l1 * weights).sum() / cls_norm
+
+        vis_target = visible.to(dtype=pred_vis_logits.dtype)
+        per_instance_vis = self.pose_vis_loss(pred_vis_logits, vis_target).mean(dim=1)
+        loss_vis = (per_instance_vis * weights).sum() / cls_norm
+        return loss_pose, loss_pose_l1, loss_vis
+
+    def __call__(
+        self,
+        predictions: List[Tensor],
+        targets: Tensor,
+        keypoints: Tensor,
+    ) -> Tuple[Tensor, Dict[str, float]]:
+        if self.vec2box is None:
+            raise RuntimeError("Vec2Box not initialized. Call update_anchors() first.")
+        expected = 5 + self.num_keypoints * self.keypoint_dim
+        if targets.ndim != 3 or targets.shape[-1] != expected:
+            raise ValueError(
+                f"YOLO9PoseLoss expects targets shaped (B, M, {expected}), "
+                f"got {tuple(targets.shape)}"
+            )
+
+        preds_cls, preds_anc, preds_box = self.vec2box(predictions)
+        pred_kpts_xy, pred_kpts_vis = self._decode_keypoints_for_loss(keypoints)
+
+        bsz = targets.shape[0]
+        img_w, img_h = self.vec2box.image_size
+        det_targets = self._pose_targets_to_detection_targets(targets, img_w, img_h)
+        scale = torch.tensor(
+            [1, img_w, img_h, img_w, img_h],
+            device=targets.device,
+            dtype=targets.dtype,
+        )
+        targets_scaled = det_targets * scale
+
+        align_targets, valid_masks, matched_indices = self.matcher(
+            targets_scaled,
+            (preds_cls.detach(), preds_box.detach()),
+            return_indices=True,
+        )
+        targets_cls, targets_bbox = torch.split(
+            align_targets, (self.num_classes, 4), dim=-1
+        )
+
+        preds_box_norm = preds_box / self.vec2box.scaler[None, :, None]
+        targets_bbox_norm = targets_bbox / self.vec2box.scaler[None, :, None]
+
+        cls_norm = max(targets_cls.sum(), 1)
+        box_norm = targets_cls.sum(-1)[valid_masks]
+
+        loss_cls = self.cls_loss(preds_cls, targets_cls, cls_norm)
+        if valid_masks.any():
+            loss_box = self.box_loss(
+                preds_box_norm, targets_bbox_norm, valid_masks, box_norm, cls_norm
+            )
+            anchors_norm = (self.vec2box.anchor_grid / self.vec2box.scaler[:, None])[None]
+            loss_dfl = self.dfl_loss(
+                preds_anc,
+                targets_bbox_norm,
+                anchors_norm,
+                valid_masks,
+                box_norm,
+                cls_norm,
+            )
+
+            gt_keypoints = targets[..., 5:].reshape(
+                bsz, targets.shape[1], self.num_keypoints, self.keypoint_dim
+            )
+            gathered_gt = []
+            for batch_idx in range(bsz):
+                target_idx = matched_indices[batch_idx].clamp(0, targets.shape[1] - 1)
+                gathered_gt.append(gt_keypoints[batch_idx][target_idx])
+            matched_gt_keypoints = torch.stack(gathered_gt, dim=0)
+
+            loss_pose, loss_pose_l1, loss_pose_vis = self._keypoint_losses(
+                pred_kpts_xy[valid_masks],
+                pred_kpts_vis[valid_masks],
+                matched_gt_keypoints[valid_masks],
+                targets_bbox[valid_masks],
+                box_norm,
+                cls_norm,
+            )
+        else:
+            loss_box = preds_box_norm.sum() * 0.0
+            loss_dfl = preds_anc.sum() * 0.0
+            loss_pose = pred_kpts_xy.sum() * 0.0
+            loss_pose_l1 = pred_kpts_xy.sum() * 0.0
+            loss_pose_vis = pred_kpts_vis.sum() * 0.0
+
+        loss_box_weighted = self.box_weight * loss_box
+        loss_dfl_weighted = self.dfl_weight * loss_dfl
+        loss_cls_weighted = self.cls_weight * loss_cls
+        loss_pose_weighted = self.pose_weight * loss_pose
+        loss_pose_l1_weighted = self.pose_l1_weight * loss_pose_l1
+        loss_pose_vis_weighted = self.pose_vis_weight * loss_pose_vis
+
+        total_loss = (
+            loss_box_weighted
+            + loss_dfl_weighted
+            + loss_cls_weighted
+            + loss_pose_weighted
+            + loss_pose_l1_weighted
+            + loss_pose_vis_weighted
+        )
+
+        loss_dict = {
+            "total_loss": total_loss,
+            "box_loss": loss_box_weighted,
+            "dfl_loss": loss_dfl_weighted,
+            "cls_loss": loss_cls_weighted,
+            "pose_loss": loss_pose_weighted,
+            "pose_l1_loss": loss_pose_l1_weighted,
+            "pose_vis_loss": loss_pose_vis_weighted,
+            "box": loss_box_weighted.item()
+            if isinstance(loss_box_weighted, Tensor)
+            else loss_box_weighted,
+            "dfl": loss_dfl_weighted.item()
+            if isinstance(loss_dfl_weighted, Tensor)
+            else loss_dfl_weighted,
+            "cls": loss_cls_weighted.item()
+            if isinstance(loss_cls_weighted, Tensor)
+            else loss_cls_weighted,
+            "pose": loss_pose_weighted.item()
+            if isinstance(loss_pose_weighted, Tensor)
+            else loss_pose_weighted,
+            "pose_l1": loss_pose_l1_weighted.item()
+            if isinstance(loss_pose_l1_weighted, Tensor)
+            else loss_pose_l1_weighted,
+            "pose_vis": loss_pose_vis_weighted.item()
+            if isinstance(loss_pose_vis_weighted, Tensor)
+            else loss_pose_vis_weighted,
             "num_fg": valid_masks.sum().item() / max(bsz, 1),
         }
         return loss_dict

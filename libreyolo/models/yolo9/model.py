@@ -10,7 +10,7 @@ from libreyolo.training.ddp_spawn import ddp_aware
 from PIL import Image
 
 from ..base import BaseModel
-from ...training.config import YOLO9Config
+from ...training.config import YOLO9Config, YOLO9PoseConfig
 from ...utils.image_loader import ImageInput
 from .nn import LibreYOLO9Model
 from .utils import preprocess_image, postprocess
@@ -40,7 +40,7 @@ class LibreYOLO9(BaseModel):
     FAMILY = "yolo9"
     FILENAME_PREFIX = "LibreYOLO9"
     INPUT_SIZES = {"t": 640, "s": 640, "m": 640, "c": 640}
-    SUPPORTED_TASKS = ("detect", "segment")
+    SUPPORTED_TASKS = ("detect", "segment", "pose")
     TRAIN_CONFIG = YOLO9Config
     val_preprocessor_class = YOLO9ValPreprocessor
 
@@ -85,6 +85,15 @@ class LibreYOLO9(BaseModel):
                 return tensor.shape[0]
         return None
 
+    @classmethod
+    def detect_num_keypoints(cls, weights_dict: dict) -> Optional[int]:
+        for key, tensor in weights_dict.items():
+            if re.match(r"head\.cv4\.\d+\.2\.weight", key):
+                channels = int(tensor.shape[0])
+                if channels % 3 == 0:
+                    return channels // 3
+        return None
+
     # =========================================================================
     # Initialization
     # =========================================================================
@@ -96,13 +105,19 @@ class LibreYOLO9(BaseModel):
         reg_max: int = 16,
         num_masks: int = 32,
         proto_channels: int = 256,
+        num_keypoints: int = 17,
+        keypoint_dim: int = 3,
         nb_classes: int = 80,
         device: str = "auto",
         **kwargs,
     ):
+        if kwargs.get("task") == "pose" and nb_classes == 80:
+            nb_classes = 1
         self.reg_max = reg_max
         self.num_masks = num_masks
         self.proto_channels = proto_channels
+        self.num_keypoints = int(num_keypoints)
+        self.keypoint_dim = int(keypoint_dim)
         super().__init__(
             model_path=model_path,
             size=size,
@@ -110,13 +125,23 @@ class LibreYOLO9(BaseModel):
             device=device,
             **kwargs,
         )
+        if self._is_pose and self.nb_classes == 1 and self.names.get(0) == "class_0":
+            self.names = {0: "person"}
 
         if isinstance(model_path, str):
             self._load_weights(model_path)
+            if self._is_pose and self.nb_classes != 1:
+                self._rebuild_for_new_classes(1)
+            if self._is_pose:
+                self.names = {0: "person"}
 
     @property
     def _is_segmentation(self) -> bool:
         return self.task == "segment"
+
+    @property
+    def _is_pose(self) -> bool:
+        return self.task == "pose"
 
     # =========================================================================
     # Model lifecycle
@@ -128,8 +153,11 @@ class LibreYOLO9(BaseModel):
             reg_max=self.reg_max,
             nb_classes=self.nb_classes,
             segmentation=self._is_segmentation,
+            pose=self._is_pose,
             num_masks=self.num_masks,
             proto_channels=self.proto_channels,
+            num_keypoints=self.num_keypoints,
+            keypoint_dim=self.keypoint_dim,
         )
 
     def _get_available_layers(self) -> Dict[str, nn.Module]:
@@ -153,6 +181,34 @@ class LibreYOLO9(BaseModel):
     def _strict_loading(self) -> bool:
         return False
 
+    def _allow_checkpoint_task_mismatch(self, checkpoint_task: str) -> bool:
+        return self._is_pose and checkpoint_task == "detect"
+
+    def _adapt_checkpoint_num_classes(
+        self,
+        ckpt_nc: int | None,
+        checkpoint_task: str | None = None,
+    ) -> int | None:
+        if self._is_pose and checkpoint_task == "detect":
+            return self.nb_classes
+        return ckpt_nc
+
+    def _filter_incoming_state_dict(
+        self,
+        state_dict: dict,
+        *,
+        loaded: dict | None = None,
+        checkpoint_task: str | None = None,
+    ) -> dict:
+        has_pose_head = any(key.startswith("head.cv4.") for key in state_dict)
+        if self._is_pose and (checkpoint_task == "detect" or not has_pose_head):
+            return {
+                key: value
+                for key, value in state_dict.items()
+                if not key.startswith("head.cv3.")
+            }
+        return state_dict
+
     def _prepare_state_dict(self, state_dict: dict) -> dict:
         """Remap legacy 'detect.*' keys to 'head.*' for backward compatibility."""
         remapped = {}
@@ -161,6 +217,10 @@ class LibreYOLO9(BaseModel):
                 key.replace("detect.", "head.", 1) if key.startswith("detect.") else key
             )
             remapped[new_key] = value
+        if self._is_pose:
+            ckpt_k = self.detect_num_keypoints(remapped)
+            if ckpt_k is not None and ckpt_k != self.num_keypoints:
+                self._rebuild_for_new_keypoints(ckpt_k)
         return remapped
 
     def _rebuild_for_new_classes(self, new_nc: int):
@@ -180,7 +240,21 @@ class LibreYOLO9(BaseModel):
         detect._loss_fn = None
         if hasattr(detect, "_seg_loss_fn"):
             detect._seg_loss_fn = None
+        if hasattr(detect, "_pose_loss_fn"):
+            detect._pose_loss_fn = None
         detect.to(next(self.model.parameters()).device)
+
+    def _rebuild_for_new_keypoints(self, new_num_keypoints: int):
+        """Replace only YOLO9 pose keypoint prediction layers."""
+        new_num_keypoints = int(new_num_keypoints)
+        if new_num_keypoints == self.num_keypoints:
+            return
+        if not hasattr(self.model.head, "replace_num_keypoints"):
+            raise RuntimeError("Cannot rebuild keypoints on a non-pose YOLO9 head")
+        self.model.head.replace_num_keypoints(new_num_keypoints)
+        self.model.num_keypoints = new_num_keypoints
+        self.num_keypoints = new_num_keypoints
+        self.model.to(next(self.model.parameters()).device)
 
     def _restore_after_training(self, results: dict) -> None:
         """Reload the saved checkpoint and leave the model ready for inference."""
@@ -308,6 +382,28 @@ class LibreYOLO9(BaseModel):
 
         yaml_nc = data_config.get("nc")
         yaml_names = data_config.get("names")
+        kpt_shape = data_config.get("kpt_shape")
+
+        if self._is_pose:
+            if not kpt_shape or len(kpt_shape) < 1:
+                raise ValueError(
+                    "YOLO9 pose training requires 'kpt_shape: [num_keypoints, 2|3]' "
+                    "in the dataset YAML."
+                )
+            num_keypoints = int(kpt_shape[0])
+            keypoint_dim = int(kpt_shape[1]) if len(kpt_shape) > 1 else 3
+            if keypoint_dim not in (2, 3):
+                raise ValueError(
+                    f"YOLO9 pose training requires keypoint_dim 2 or 3, got {keypoint_dim}."
+                )
+            yaml_nc = 1 if yaml_nc is None else int(yaml_nc)
+            if yaml_nc != 1:
+                raise ValueError("YOLO9 pose v1 supports one class: person")
+            if yaml_names is None:
+                yaml_names = {0: "person"}
+            self.keypoint_dim = 3
+            if num_keypoints != self.num_keypoints:
+                self._rebuild_for_new_keypoints(num_keypoints)
 
         # If no nc in data.yaml, infer it by counting.
         if yaml_nc is None and yaml_names is not None:
@@ -332,7 +428,13 @@ class LibreYOLO9(BaseModel):
             if str(device).lower() not in ("cpu", "mps") and torch.cuda.is_available():
                 torch.cuda.manual_seed_all(seed)
 
-        trainer = YOLO9Trainer(
+        trainer_cls = YOLO9Trainer
+        if self._is_pose:
+            from .pose_trainer import YOLO9PoseTrainer
+
+            trainer_cls = YOLO9PoseTrainer
+
+        trainer_kwargs = dict(
             model=self.model,
             wrapper_model=self,
             size=self.size,
@@ -356,6 +458,15 @@ class LibreYOLO9(BaseModel):
             callbacks=callbacks,
             **kwargs,
         )
+        if self._is_pose:
+            trainer_kwargs.update(
+                {
+                    "num_keypoints": self.num_keypoints,
+                    "keypoint_dim": self.keypoint_dim,
+                    "oks_sigmas": data_config.get("oks_sigmas"),
+                }
+            )
+        trainer = trainer_cls(**trainer_kwargs)
 
         if resume:
             if not self.model_path:
