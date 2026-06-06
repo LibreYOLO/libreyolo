@@ -205,6 +205,9 @@ class BaseTrainer(ABC):
     def on_setup(self):
         """Called after model is on device, before data setup (e.g. bias init)."""
 
+    def on_num_classes_resolved(self):
+        """Called before on_setup() for trainers that pre-sync class counts."""
+
     def on_mosaic_disable(self):
         """Called when mosaic is disabled for final no-aug epochs."""
         dataset = getattr(self.train_loader, "dataset", None)
@@ -490,6 +493,68 @@ class BaseTrainer(ABC):
             )
         return train_dataset
 
+    def _resolve_num_classes_from_data_config(self) -> int:
+        """Resolve dataset class count before criterion construction."""
+        resolved = int(self.config.num_classes)
+        if self.config.data:
+            # Only the YAML's class count is needed here; the dataset itself is
+            # downloaded later in _setup_data.
+            data_cfg = load_data_config(
+                self.config.data,
+                autodownload=False,
+                allow_scripts=self.config.allow_download_scripts,
+            )
+            resolved = int(data_cfg.get("nc", resolved))
+
+        self.num_classes = resolved
+        self.config.num_classes = resolved
+        return resolved
+
+    def _infer_model_num_classes(self) -> Optional[int]:
+        """Best-effort class-count introspection for detector heads."""
+        model = unwrap_model(self.model)
+        for obj in (getattr(model, "decoder", None), getattr(model, "head", None), model):
+            value = getattr(obj, "num_classes", None)
+            if value is not None:
+                return int(value)
+        return None
+
+    def _sync_wrapped_model_num_classes(self, num_classes: int) -> None:
+        """Rebuild wrapper-owned heads or fail before criterion/head desync."""
+        num_classes = int(num_classes)
+        self.num_classes = num_classes
+        self.config.num_classes = num_classes
+
+        wrapper = self.wrapper_model
+        model_nc = self._infer_model_num_classes()
+        wrapper_nc = getattr(wrapper, "nb_classes", None) if wrapper is not None else None
+        needs_rebuild = (
+            (model_nc is not None and model_nc != num_classes)
+            or (wrapper_nc is not None and int(wrapper_nc) != num_classes)
+        )
+
+        if not needs_rebuild:
+            return
+
+        if wrapper is None or not hasattr(wrapper, "_rebuild_for_new_classes"):
+            raise RuntimeError(
+                f"{self.get_model_family()} trainer resolved num_classes={num_classes}, "
+                f"but the model head exposes num_classes={model_nc}. Pass a "
+                "wrapper_model with _rebuild_for_new_classes() or construct the "
+                "raw model with the resolved class count."
+            )
+
+        wrapper._rebuild_for_new_classes(num_classes)
+        self.model = wrapper.model.to(self.device)
+        wrapper.device = self.device
+
+        rebuilt_nc = self._infer_model_num_classes()
+        if rebuilt_nc is not None and rebuilt_nc != num_classes:
+            raise RuntimeError(
+                f"{self.get_model_family()} wrapper rebuild did not sync the model "
+                f"head to num_classes={num_classes}; got {rebuilt_nc}."
+            )
+
     # =========================================================================
     # Setup / train / epoch
     # =========================================================================
@@ -503,6 +568,8 @@ class BaseTrainer(ABC):
         self.model.to(self.device)
         if self.wrapper_model is not None:
             self.wrapper_model.device = self.device
+
+        self.on_num_classes_resolved()
 
         # SyncBatchNorm conversion: only meaningful under DDP. Single-GPU
         # runs skip this regardless of the flag so single-GPU is unchanged.

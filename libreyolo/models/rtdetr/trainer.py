@@ -141,6 +141,10 @@ class RTDETRTrainer(BaseTrainer):
         else:
             raise ValueError(f"Unknown scheduler: {scheduler_name}")
 
+    def on_num_classes_resolved(self):
+        num_classes = self._resolve_num_classes_from_data_config()
+        self._sync_wrapped_model_num_classes(num_classes)
+
     def get_loss_components(self, outputs: Dict) -> Dict[str, float]:
         """Extract per-component losses for logging.
 
