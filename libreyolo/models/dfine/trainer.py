@@ -117,6 +117,10 @@ class DFINETrainer(BaseTrainer):
             return torch.device("cpu")
         return device
 
+    def on_num_classes_resolved(self):
+        num_classes = self._resolve_num_classes_from_data_config()
+        self._sync_wrapped_model_num_classes(num_classes)
+
     def on_setup(self):
         matcher = HungarianMatcher(
             weight_dict={"cost_class": 2.0, "cost_bbox": 5.0, "cost_giou": 2.0},
