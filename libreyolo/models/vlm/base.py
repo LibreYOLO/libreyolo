@@ -58,6 +58,9 @@ class LibreVLMModel(BaseModel):
     # Qwen-style models emit ``bbox_2d`` on a 0-1000 scale. Families override.
     BBOX_KEY: ClassVar[str] = "bbox"
     COORD_DIVISOR: ClassVar[float] = 1.0
+    # Box layout the model emits: "xyxy" (corners, default), "xywh" (top-left +
+    # size), or "cxcywh" (center + size). Set by families whose output differs.
+    BOX_FORMAT: ClassVar[str] = "xyxy"
     # Greedy decoding on a small VLM can fall into a repetition loop, emitting
     # the same box until the token budget is exhausted. A mild penalty breaks
     # the loop (and makes generation much faster) with negligible effect on the
@@ -331,6 +334,7 @@ class LibreVLMModel(BaseModel):
             default_score=self._score_detections(items),
             bbox_key=self.BBOX_KEY,
             coord_divisor=self.COORD_DIVISOR,
+            box_format=self.BOX_FORMAT,
         )
 
     # =========================================================================

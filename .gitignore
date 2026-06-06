@@ -56,6 +56,10 @@ sample_images*/
 *.torchscript
 *.safetensors
 # VLM families autodownload Hugging Face snapshot directories into weights/
+weights/LibreFlorence2*/
+weights/LibreInternVL3*/
+weights/LibreKosmos2*/
 weights/LibreLFM2VL*/
 weights/LibreQwen3VL*/
+weights/LibreSmolVLM2*/
 weights/LibreVLM*/

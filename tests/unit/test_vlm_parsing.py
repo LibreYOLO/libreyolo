@@ -148,6 +148,41 @@ class TestBuildDetectionDict:
             "num_detections": 0,
         }
 
+    def test_box_format_xywh(self):
+        # x,y,w,h: [0.25,0.25,0.25,0.5] -> xyxy [0.25,0.25,0.5,0.75] -> px
+        items = [{"label": "ship", "bbox": [0.25, 0.25, 0.25, 0.5]}]
+        det = build_detection_dict(items, NAME_TO_ID, (100, 100), box_format="xywh")
+        assert det["boxes"][0] == [25.0, 25.0, 50.0, 75.0]
+
+    def test_box_format_cxcywh(self):
+        # center 0.5,0.5 size 0.25,0.5 -> xyxy [0.375,0.25,0.625,0.75] -> px
+        items = [{"label": "ship", "bbox": [0.5, 0.5, 0.25, 0.5]}]
+        det = build_detection_dict(items, NAME_TO_ID, (100, 100), box_format="cxcywh")
+        assert det["boxes"][0] == [37.5, 25.0, 62.5, 75.0]
+
+
+class TestToXyxy:
+    def test_passthrough(self):
+        from libreyolo.models.vlm.parsing import to_xyxy
+
+        assert to_xyxy([0.1, 0.2, 0.3, 0.4], "xyxy") == [0.1, 0.2, 0.3, 0.4]
+
+    def test_xywh(self):
+        from libreyolo.models.vlm.parsing import to_xyxy
+
+        assert to_xyxy([0.25, 0.25, 0.25, 0.5], "xywh") == [0.25, 0.25, 0.5, 0.75]
+
+    def test_cxcywh(self):
+        from libreyolo.models.vlm.parsing import to_xyxy
+
+        assert to_xyxy([0.5, 0.5, 0.25, 0.5], "cxcywh") == [0.375, 0.25, 0.625, 0.75]
+
+    def test_unknown_format_and_bad_shape(self):
+        from libreyolo.models.vlm.parsing import to_xyxy
+
+        assert to_xyxy([0.1, 0.2, 0.3, 0.4], "weird") is None
+        assert to_xyxy([0.1, 0.2, 0.3], "xyxy") is None
+
     def test_qwen_style_bbox_2d_on_0_1000_scale(self):
         # Qwen emits a "bbox_2d" key on a 0-1000 scale; divide by 1000 then scale.
         items = [{"label": "ship", "bbox_2d": [300, 250, 600, 750]}]

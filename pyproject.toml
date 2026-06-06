@@ -50,9 +50,11 @@ plots = [
     "matplotlib>=3.7.0",
 ]
 vlm = [
-    # LFM2-VL and other VLM-as-detector families load through transformers.
+    # VLM-as-detector families load through transformers.
     # huggingface_hub (used for snapshot download) ships with transformers.
     "transformers>=5.1.0",
+    # SmolVLM2's processor requires num2words.
+    "num2words>=0.5.0",
 ]
 tensorrt = [
     # No CUDA on macOS; marker drops these. Version pin must match the

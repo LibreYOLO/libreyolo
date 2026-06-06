@@ -20,8 +20,12 @@ from __future__ import annotations
 from typing import Dict, Tuple, Type
 
 from .base import LibreVLMModel
+from .florence2 import LibreFlorence2
+from .internvl3 import LibreInternVL3
+from .kosmos2 import LibreKosmos2
 from .lfm2 import LibreLFM2VL
 from .qwen3vl import LibreQwen3VL
+from .smolvlm import LibreSmolVLM2
 
 # alias -> (family class, size)
 _ALIASES: Dict[str, Tuple[Type[LibreVLMModel], str]] = {
@@ -32,6 +36,19 @@ _ALIASES: Dict[str, Tuple[Type[LibreVLMModel], str]] = {
     "lfm2-vl": (LibreLFM2VL, "450m"),
     "lfm2-vl-450m": (LibreLFM2VL, "450m"),
     "lfm2-vl-1.6b": (LibreLFM2VL, "1.6b"),
+    "internvl3": (LibreInternVL3, "2b"),
+    "internvl3-1b": (LibreInternVL3, "1b"),
+    "internvl3-2b": (LibreInternVL3, "2b"),
+    "internvl3-8b": (LibreInternVL3, "8b"),
+    "smolvlm2": (LibreSmolVLM2, "2.2b"),
+    "smolvlm2-2.2b": (LibreSmolVLM2, "2.2b"),
+    "smolvlm2-500m": (LibreSmolVLM2, "500m"),
+    "florence-2": (LibreFlorence2, "base"),
+    "florence2": (LibreFlorence2, "base"),
+    "florence-2-base": (LibreFlorence2, "base"),
+    "florence-2-large": (LibreFlorence2, "large"),
+    "kosmos-2": (LibreKosmos2, "224"),
+    "kosmos2": (LibreKosmos2, "224"),
 }
 
 _DEFAULT_MODEL = "qwen3-vl-4b"
@@ -61,4 +78,13 @@ def LibreVLM(model: str = _DEFAULT_MODEL, **kwargs) -> LibreVLMModel:
     return family_cls(size=size, **kwargs)
 
 
-__all__ = ["LibreVLM", "LibreVLMModel", "LibreLFM2VL", "LibreQwen3VL"]
+__all__ = [
+    "LibreVLM",
+    "LibreVLMModel",
+    "LibreLFM2VL",
+    "LibreQwen3VL",
+    "LibreSmolVLM2",
+    "LibreInternVL3",
+    "LibreFlorence2",
+    "LibreKosmos2",
+]

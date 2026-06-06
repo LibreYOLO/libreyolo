@@ -21,6 +21,7 @@ from typing import Dict, List, Optional, Tuple
 __all__ = [
     "extract_detections",
     "normalize_bbox",
+    "to_xyxy",
     "resolve_label",
     "build_detection_dict",
 ]
@@ -124,6 +125,28 @@ def resolve_label(label, name_to_id: Dict[str, int]) -> Optional[int]:
     return name_to_id.get(label.strip().lower())
 
 
+def to_xyxy(box, box_format: str = "xyxy"):
+    """Convert a 4-value box in the given layout to ``[x1, y1, x2, y2]``.
+
+    Supported layouts: ``xyxy`` (corners, the default), ``xywh`` (top-left plus
+    width/height), and ``cxcywh`` (center plus width/height). Returns None if the
+    value is not four finite numbers or the layout is unknown.
+    """
+    if not isinstance(box, (list, tuple)) or len(box) != 4:
+        return None
+    try:
+        a, b, c, d = (float(v) for v in box)
+    except (TypeError, ValueError):
+        return None
+    if box_format == "xyxy":
+        return [a, b, c, d]
+    if box_format == "xywh":
+        return [a, b, a + c, b + d]
+    if box_format == "cxcywh":
+        return [a - c / 2.0, b - d / 2.0, a + c / 2.0, b + d / 2.0]
+    return None
+
+
 def build_detection_dict(
     items: List[dict],
     name_to_id: Dict[str, int],
@@ -133,12 +156,14 @@ def build_detection_dict(
     default_score: float = 1.0,
     bbox_key: str = "bbox",
     coord_divisor: float = 1.0,
+    box_format: str = "xyxy",
 ) -> dict:
     """Turn parsed items into the ``InferenceRunner`` detection dict.
 
     Boxes are read from ``item[bbox_key]``, divided by ``coord_divisor`` to
-    reach the ``[0, 1]`` space (use 1.0 for already-normalized LFM2-VL output,
-    1000.0 for Qwen-style ``bbox_2d`` on a 0-1000 scale), then scaled to pixel
+    reach the ``[0, 1]`` space (1.0 for already-normalized LFM2-VL output, 1000.0
+    for Qwen-style ``bbox_2d`` on a 0-1000 scale), converted from ``box_format``
+    to corner layout (``xyxy`` / ``xywh`` / ``cxcywh``), then scaled to pixel
     ``xyxy`` against ``original_size`` (W, H). Labels outside ``name_to_id`` and
     malformed boxes are skipped. ``default_score`` is the synthetic per-box
     confidence (the VLM emits none); rows below ``conf_thres`` are dropped so
@@ -158,12 +183,13 @@ def build_detection_dict(
         if class_id is None:
             continue
         raw = item.get(bbox_key)
-        if coord_divisor != 1.0 and isinstance(raw, (list, tuple)) and len(raw) == 4:
+        box = None
+        if isinstance(raw, (list, tuple)) and len(raw) == 4:
             try:
-                raw = [float(v) / coord_divisor for v in raw]
+                scaled = [float(v) / coord_divisor for v in raw]
             except (TypeError, ValueError):
-                raw = None
-        box = normalize_bbox(raw)
+                scaled = None
+            box = normalize_bbox(to_xyxy(scaled, box_format)) if scaled else None
         if box is None:
             continue
         if default_score < conf_thres:

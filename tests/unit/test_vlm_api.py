@@ -63,9 +63,21 @@ class TestFactoryResolution:
         from libreyolo.models.vlm import _ALIASES
         from libreyolo.models.vlm.lfm2 import LibreLFM2VL
         from libreyolo.models.vlm.qwen3vl import LibreQwen3VL
+        from libreyolo.models.vlm.smolvlm import LibreSmolVLM2
 
         assert _ALIASES["qwen3-vl-8b"] == (LibreQwen3VL, "8b")
         assert _ALIASES["lfm2-vl-450m"] == (LibreLFM2VL, "450m")
+        assert _ALIASES["smolvlm2"] == (LibreSmolVLM2, "2.2b")
+
+        from libreyolo.models.vlm.internvl3 import LibreInternVL3
+
+        assert _ALIASES["internvl3"] == (LibreInternVL3, "2b")
+
+        from libreyolo.models.vlm.florence2 import LibreFlorence2
+        from libreyolo.models.vlm.kosmos2 import LibreKosmos2
+
+        assert _ALIASES["florence-2"] == (LibreFlorence2, "base")
+        assert _ALIASES["kosmos-2"] == (LibreKosmos2, "224")
 
     def test_unknown_alias_raises_before_loading(self):
         from libreyolo.models.vlm import LibreVLM
