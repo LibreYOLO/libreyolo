@@ -46,6 +46,11 @@ onnx = [
 rfdetr = [
     "transformers>=5.1.0",
 ]
+lora = [
+    # LoRA / PEFT fine-tuning (lora=True) for transformer backbones (RF-DETR).
+    "libreyolo[rfdetr]",
+    "peft>=0.12.0",
+]
 plots = [
     "matplotlib>=3.7.0",
 ]
@@ -81,6 +86,7 @@ coreml = [
 all = [
     "libreyolo[onnx]",
     "libreyolo[rfdetr]",
+    "libreyolo[lora]",
     "libreyolo[plots]",
     "libreyolo[tensorrt]",
     "libreyolo[openvino]",

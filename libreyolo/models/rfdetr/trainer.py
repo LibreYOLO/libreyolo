@@ -50,6 +50,9 @@ class RFDETRStepScheduler(BaseScheduler):
 
 class RFDETRTrainer(BaseTrainer):
     artifact_model_families = ("rfdetr",)
+    # RF-DETR has a DINOv2 ViT backbone whose attention/MLP projections are
+    # nn.Linear layers, so LoRA fine-tuning is supported here.
+    supports_lora = True
 
     @classmethod
     def _config_class(cls) -> Type[TrainConfig]:
@@ -226,6 +229,12 @@ class RFDETRTrainer(BaseTrainer):
             self.model.model.reinitialize_detection_head(self.config.num_classes + 1)
             self.model.nb_classes = self.config.num_classes
             self.model.args.num_classes = self.config.num_classes
+
+        if getattr(self.config, "lora", False):
+            from ...training.lora import apply_lora_to_rfdetr
+
+            core_model = getattr(self.model, "model", self.model)
+            apply_lora_to_rfdetr(core_model)
 
         self.criterion, _ = self.model.build_criterion_and_postprocess()
         self.criterion.to(self.device)

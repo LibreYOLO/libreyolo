@@ -370,6 +370,7 @@ def _build_rfdetr_train_kwargs(
         "device": "device",
         "flip_prob": "flip_prob",
         "amp": "amp",
+        "lora": "lora",
         "log_interval": "log_interval",
     }
 
