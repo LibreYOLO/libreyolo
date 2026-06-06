@@ -10,6 +10,7 @@ All model families register here via ``__init_subclass__``. Adding a new model m
 from __future__ import annotations
 
 import logging
+import re
 from pathlib import Path
 
 from .base import BaseModel
@@ -165,6 +166,23 @@ def _has_any_libreyolo_metadata(loaded: object) -> bool:
         return False
     metadata_keys = set(REQUIRED_CHECKPOINT_METADATA_KEYS) - {"model"}
     return bool(metadata_keys & set(loaded))
+
+
+def _infer_yolo9_head_task(weights_dict: dict) -> str | None:
+    """Infer YOLO9 task from task-specific head branches when metadata is absent."""
+    if any(k.startswith("head.proto") for k in weights_dict):
+        return "segment"
+
+    angle_head_channels = []
+    for key, tensor in weights_dict.items():
+        if re.match(r"head\.cv4\.\d+\.2\.weight", key):
+            shape = getattr(tensor, "shape", None)
+            if shape is not None and len(shape) > 0:
+                angle_head_channels.append(int(shape[0]))
+
+    if angle_head_channels and all(channels == 1 for channels in angle_head_channels):
+        return "obb"
+    return None
 
 
 # =============================================================================
@@ -446,15 +464,19 @@ def LibreYOLO(
         if isinstance(loaded, dict) and isinstance(loaded.get("task"), str)
         else None
     )
+    filename_task = matched_cls.detect_task_from_filename(Path(model_path).name)
     if checkpoint_task is None and matched_cls.FAMILY == "rfdetr":
         if any(k.startswith("segmentation_head") for k in weights_dict):
             checkpoint_task = "segment"
     if checkpoint_task is None and matched_cls.FAMILY == "yolonas":
         if "heads.head1.pose_pred.weight" in weights_dict:
             checkpoint_task = "pose"
-    if checkpoint_task is None and matched_cls.FAMILY == "yolo9":
-        if any(k.startswith("head.proto") or k.startswith("head.cv4") for k in weights_dict):
-            checkpoint_task = "segment"
+    if (
+        checkpoint_task is None
+        and filename_task is None
+        and matched_cls.FAMILY == "yolo9"
+    ):
+        checkpoint_task = _infer_yolo9_head_task(weights_dict)
     if checkpoint_task is None and matched_cls.FAMILY == "ec":
         if "decoder.keypoint_embedding.weight" in weights_dict:
             checkpoint_task = "pose"
@@ -463,7 +485,6 @@ def LibreYOLO(
         ):
             checkpoint_task = "segment"
 
-    filename_task = matched_cls.detect_task_from_filename(Path(model_path).name)
     resolved_task = resolve_task(
         explicit_task=task,
         checkpoint_task=checkpoint_task,

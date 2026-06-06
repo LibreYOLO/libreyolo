@@ -447,7 +447,7 @@ class DFL(nn.Module):
         batch, _, anchors = x.shape
         logits = x.reshape(batch, 4, self.c1, anchors)
         weights = logits.softmax(dim=2)
-        project = self.project.to(device=x.device, dtype=x.dtype)
+        project = self.project.to(dtype=x.dtype)
         return (weights * project).sum(dim=2)
 
 
@@ -608,12 +608,19 @@ class DDetect(nn.Module):
         # Inference mode
         # In export mode, always regenerate anchors to ensure trace consistency
         # (JIT trace runs the model twice and checks for consistency)
-        if self.export or self.dynamic or self.shape != shape:
-            self.anchors, self.strides = (
-                x.transpose(0, 1) for x in self._make_anchors(x, self.stride, 0.5)
+        if self.export:
+            anchors, strides = (
+                generated.transpose(0, 1)
+                for generated in self._make_anchors(x, self.stride, 0.5)
             )
-            if not self.export:
+        else:
+            if self.dynamic or self.shape != shape:
+                self.anchors, self.strides = (
+                    generated.transpose(0, 1)
+                    for generated in self._make_anchors(x, self.stride, 0.5)
+                )
                 self.shape = shape
+            anchors, strides = self.anchors, self.strides
 
         # Flatten and concatenate all scales
         x_cat = torch.cat([xi.view(shape[0], self.no, -1) for xi in x], 2)
@@ -622,7 +629,7 @@ class DDetect(nn.Module):
 
         # DFL decoding
         dbox = (
-            self._decode_bboxes(self.dfl(box), self.anchors.unsqueeze(0)) * self.strides
+            self._decode_bboxes(self.dfl(box), anchors.unsqueeze(0)) * strides
         )
 
         y = torch.cat((dbox, cls.sigmoid()), 1)
@@ -737,6 +744,71 @@ class DDetectSeg(DDetect):
         if self.export:
             return predictions, proto, mask_coeffs
         return predictions, raw_outputs, proto, mask_coeffs
+
+
+class DDetectOBB(DDetect):
+    """YOLO9 detection head with an oriented-box angle branch."""
+
+    angle_channels = 1
+
+    def __init__(self, nc=80, ch=(), reg_max=16, stride=(), use_group=True):
+        super().__init__(nc=nc, ch=ch, reg_max=reg_max, stride=stride, use_group=use_group)
+        self._obb_loss_fn = None
+
+        c4 = max(ch[0] // 4, self.angle_channels)
+        self.cv4 = nn.ModuleList(
+            nn.Sequential(
+                Conv(x, c4, 3),
+                Conv(c4, c4, 3),
+                nn.Conv2d(c4, self.angle_channels, 1),
+            )
+            for x in ch
+        )
+
+    def _get_obb_loss_fn(self, device):
+        if self._obb_loss_fn is None:
+            from .loss import YOLO9OBBLoss
+
+            self._obb_loss_fn = YOLO9OBBLoss(
+                num_classes=self.nc,
+                reg_max=self.reg_max,
+                strides=self.stride.tolist(),
+                image_size=None,
+                device=device,
+            )
+        return self._obb_loss_fn
+
+    @staticmethod
+    def _angle_logits_to_radians(angle_logits):
+        return (angle_logits.sigmoid() - 0.5) * math.pi
+
+    def forward(self, x, targets=None, img_size=None):
+        features = list(x)
+        angle_logits = [self.cv4[i](features[i]) for i in range(self.nl)]
+
+        det_outputs = super().forward(features, targets=None, img_size=img_size)
+
+        if self.training:
+            if targets is not None:
+                loss_fn = self._get_obb_loss_fn(angle_logits[0].device)
+                if img_size is not None:
+                    loss_fn.update_anchors(list(img_size))
+                return loss_fn(det_outputs, targets, angle_logits)
+            return det_outputs, angle_logits
+
+        predictions, raw_outputs = det_outputs
+        batch_size = predictions.shape[0]
+        angle = torch.cat(
+            [
+                self._angle_logits_to_radians(a).view(batch_size, 1, -1)
+                for a in angle_logits
+            ],
+            dim=2,
+        )
+        predictions = torch.cat((predictions[:, :4], angle, predictions[:, 4:]), dim=1)
+        if self.export:
+            return predictions
+        return predictions, raw_outputs, angle_logits
 
 
 # =============================================================================
@@ -1037,6 +1109,7 @@ class LibreYOLO9Model(nn.Module):
         nb_classes=80,
         img_size=640,
         segmentation=False,
+        obb=False,
         num_masks=32,
         proto_channels=256,
     ):
@@ -1061,6 +1134,9 @@ class LibreYOLO9Model(nn.Module):
         self.reg_max = reg_max
         self.img_size = img_size
         self.segmentation = segmentation
+        self.obb = obb
+        if self.segmentation and self.obb:
+            raise ValueError("YOLO9 cannot enable segmentation and OBB heads together")
 
         cfg = YOLO9_CONFIGS[config]
 
@@ -1069,7 +1145,12 @@ class LibreYOLO9Model(nn.Module):
 
         # Detection head - use exact channels from config
         head_channels = cfg["head_channels"]
-        head_cls = DDetectSeg if segmentation else DDetect
+        if obb:
+            head_cls = DDetectOBB
+        elif segmentation:
+            head_cls = DDetectSeg
+        else:
+            head_cls = DDetect
         head_kwargs = {
             "nc": nb_classes,
             "ch": head_channels,
@@ -1124,6 +1205,10 @@ class LibreYOLO9Model(nn.Module):
             if self.head.export:
                 return output
             y, x_list, proto, mask_coeffs = output
+        elif self.obb:
+            if self.head.export:
+                return output
+            y, x_list, angle_logits = output
         else:
             y, x_list = output
 
@@ -1141,6 +1226,9 @@ class LibreYOLO9Model(nn.Module):
         if self.segmentation:
             result["proto"] = proto
             result["mask_coeffs"] = mask_coeffs
+        if self.obb:
+            result["obb"] = True
+            result["angle_logits"] = angle_logits
         return result
 
     def fuse(self):

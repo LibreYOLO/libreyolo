@@ -10,15 +10,14 @@ that the backbone then rejected at runtime.
 from __future__ import annotations
 
 import pytest
-import torch
 import torch.nn as nn
 
 pytestmark = pytest.mark.unit
 
 rfdetr_trainer = pytest.importorskip("libreyolo.models.rfdetr.trainer")
 
-from libreyolo.models.rfdetr.seg_transforms import compute_multi_scale_scales
-from libreyolo.training.distributed import unwrap_model
+from libreyolo.models.rfdetr.seg_transforms import compute_multi_scale_scales  # noqa: E402
+from libreyolo.training.distributed import unwrap_model  # noqa: E402
 
 
 # ---------------------------------------------------------------------------

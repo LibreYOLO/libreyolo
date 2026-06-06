@@ -172,6 +172,107 @@ def draw_boxes(
     return img_draw
 
 
+def _xywhr_to_points(row: Sequence[float]) -> List[Tuple[float, float]]:
+    cx, cy, w, h, angle = (float(v) for v in row[:5])
+    half_w = w / 2.0
+    half_h = h / 2.0
+    cos_a = math.cos(angle)
+    sin_a = math.sin(angle)
+    offsets = (
+        (-half_w, -half_h),
+        (half_w, -half_h),
+        (half_w, half_h),
+        (-half_w, half_h),
+    )
+    return [
+        (cx + dx * cos_a - dy * sin_a, cy + dx * sin_a + dy * cos_a)
+        for dx, dy in offsets
+    ]
+
+
+def draw_obb(
+    img: Image.Image,
+    obb: Sequence[Sequence[float]],
+    scores: Sequence[float],
+    classes: Sequence[float],
+    class_names: List[str] | Dict[int, str] | None = None,
+    track_ids: Sequence[float] | None = None,
+) -> Image.Image:
+    """Draw oriented bounding boxes as rotated polygons."""
+    img_draw = img.copy()
+    draw = ImageDraw.Draw(img_draw)
+
+    if class_names is None:
+        class_names = COCO_CLASSES
+
+    img_width, img_height = img.size
+    max_dim = max(img_width, img_height)
+    scale_factor = max_dim / 640.0
+    box_thickness = max(2, int(2 * scale_factor))
+    font_size = max(12, int(12 * scale_factor))
+    label_padding = max(2, int(2 * scale_factor))
+    font = _get_font(font_size)
+    _track_ids = list(track_ids) if track_ids is not None else [None] * len(obb)
+
+    for row, score, cls_id, tid in zip(obb, scores, classes, _track_ids):
+        cls_id_int = int(cls_id)
+        color = (
+            get_class_color(int(tid))
+            if tid is not None
+            else get_class_color(cls_id_int)
+        )
+
+        points = _xywhr_to_points(row)
+        draw.line(points + [points[0]], fill=color, width=box_thickness)
+
+        if tid is not None:
+            label = f"#{int(tid)} {float(score):.2f}"
+        else:
+            class_name = None
+            if isinstance(class_names, dict):
+                class_name = class_names.get(cls_id_int)
+            elif class_names and cls_id_int < len(class_names):
+                class_name = class_names[cls_id_int]
+            label = (
+                f"{class_name}: {float(score):.2f}"
+                if class_name is not None
+                else f"Class {cls_id_int}: {float(score):.2f}"
+            )
+
+        full_bbox = draw.textbbox((0, 0), label, font=font)
+        text_width = full_bbox[2] - full_bbox[0]
+        text_height = full_bbox[3] - full_bbox[1]
+        x_values = [p[0] for p in points]
+        y_values = [p[1] for p in points]
+        x1 = min(x_values)
+        y1 = min(y_values)
+
+        outside = y1 >= text_height + label_padding * 2
+        label_x = min(x1, img_width - text_width - label_padding * 2)
+        label_x = max(0, label_x)
+        if outside:
+            bg_y0 = y1 - text_height - label_padding * 2
+            bg_y1 = y1
+            text_y = y1 - text_height - label_padding
+        else:
+            bg_y0 = y1
+            bg_y1 = y1 + text_height + label_padding * 2
+            text_y = y1 + label_padding
+
+        draw.rectangle(
+            [label_x, bg_y0, label_x + text_width + label_padding * 2, bg_y1],
+            fill=color,
+        )
+        draw.text(
+            (label_x + label_padding, text_y),
+            label,
+            fill="white",
+            font=font,
+        )
+
+    return img_draw
+
+
 def draw_masks(
     img: Image.Image,
     masks: np.ndarray,

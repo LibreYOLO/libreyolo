@@ -31,11 +31,11 @@ pytestmark = [pytest.mark.unit, pytest.mark.picodet]
 _REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(_REPO / "weights"))
 
-from convert_picodet_weights import (  # type: ignore[import-not-found]
+from convert_picodet_weights import (  # type: ignore[import-not-found] # noqa: E402
     ESNET_STAGE_REPEATS,
     remap_state_dict,
 )
-from libreyolo.models.picodet.nn import LibrePICODETModel
+from libreyolo.models.picodet.nn import LibrePICODETModel  # noqa: E402
 
 
 def _flat_to_token() -> dict[int, str]:

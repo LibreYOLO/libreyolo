@@ -1,5 +1,8 @@
 """Tests for dataset annotation loading."""
 
+import logging
+import math
+
 import numpy as np
 import pytest
 from pathlib import Path
@@ -52,6 +55,120 @@ def test_yolo_annotation_loading_preserves_order_and_shape(tmp_path, monkeypatch
         assert img_info == (height, width)
         assert resized_info == (int(height * scale), int(width * scale))
         assert file_name == f"sample_{index}.jpg"
+
+
+def test_yolo_dataset_loads_obb_rows_as_proxy_box_and_angle(tmp_path):
+    image_dir = tmp_path / "images"
+    label_dir = tmp_path / "labels"
+    image_dir.mkdir()
+    label_dir.mkdir()
+
+    Image.new("RGB", (100, 100), color="white").save(image_dir / "sample.jpg")
+    (label_dir / "sample.txt").write_text(
+        "0 0.10 0.20 0.50 0.20 0.50 0.40 0.10 0.40\n"
+    )
+
+    dataset = YOLODataset(
+        img_files=[image_dir / "sample.jpg"],
+        label_files=[label_dir / "sample.txt"],
+        img_size=(64, 64),
+        load_obb=True,
+    )
+
+    labels, _, _, _ = dataset.annotations[0]
+    assert labels.shape == (1, 6)
+    np.testing.assert_allclose(labels[0, :4], [6.4, 12.8, 32.0, 25.6], atol=1e-5)
+    assert labels[0, 4] == 0
+    assert labels[0, 5] == pytest.approx(0.0, abs=1e-6)
+
+
+def test_yolo_dataset_obb_uses_pixel_geometry_for_rectangular_images(tmp_path):
+    image_dir = tmp_path / "images"
+    label_dir = tmp_path / "labels"
+    image_dir.mkdir()
+    label_dir.mkdir()
+
+    width, height = 200, 100
+    Image.new("RGB", (width, height), color="white").save(image_dir / "sample.jpg")
+
+    cx, cy = 100.0, 50.0
+    box_w, box_h = 80.0, 20.0
+    angle = math.radians(30.0)
+    cos_a, sin_a = math.cos(angle), math.sin(angle)
+    corners = []
+    for dx, dy in [(-box_w / 2, -box_h / 2), (box_w / 2, -box_h / 2),
+                   (box_w / 2, box_h / 2), (-box_w / 2, box_h / 2)]:
+        x = cx + dx * cos_a - dy * sin_a
+        y = cy + dx * sin_a + dy * cos_a
+        corners.extend([x / width, y / height])
+
+    (label_dir / "sample.txt").write_text(
+        "0 " + " ".join(f"{value:.8f}" for value in corners) + "\n"
+    )
+
+    dataset = YOLODataset(
+        img_files=[image_dir / "sample.jpg"],
+        label_files=[label_dir / "sample.txt"],
+        img_size=(height, width),
+        load_obb=True,
+    )
+
+    labels, _, _, _ = dataset.annotations[0]
+    np.testing.assert_allclose(labels[0, :4], [60.0, 40.0, 140.0, 60.0], atol=1e-3)
+    assert labels[0, 5] == pytest.approx(angle, abs=1e-3)
+
+
+def test_yolo_dataset_skips_invalid_obb_rows_with_warning(tmp_path, caplog):
+    image_dir = tmp_path / "images"
+    label_dir = tmp_path / "labels"
+    image_dir.mkdir()
+    label_dir.mkdir()
+
+    Image.new("RGB", (100, 100), color="white").save(image_dir / "sample.jpg")
+    (label_dir / "sample.txt").write_text(
+        "\n".join(
+            [
+                "0 0.10 0.20 0.50 0.20 0.50 0.40 0.10 0.40",
+                "0 0.20 0.20 0.20 0.20 0.20 0.20 0.20 0.20",
+                "0 -0.10 0.20 0.50 0.20 0.50 0.40 0.10 0.40",
+                "1 0.10 0.20 0.50 0.20 0.50 0.40 0.10 0.40",
+            ]
+        )
+        + "\n"
+    )
+
+    with caplog.at_level(logging.WARNING):
+        dataset = YOLODataset(
+            img_files=[image_dir / "sample.jpg"],
+            label_files=[label_dir / "sample.txt"],
+            img_size=(64, 64),
+            load_obb=True,
+            num_classes=1,
+        )
+
+    labels, _, _, _ = dataset.annotations[0]
+    assert labels.shape == (2, 6)
+    assert "Skipped 2 invalid YOLO OBB label rows" in caplog.text
+    assert "sample.txt" in caplog.text
+
+
+def test_yolo_dataset_rejects_segments_and_obb_together(tmp_path):
+    image_dir = tmp_path / "images"
+    label_dir = tmp_path / "labels"
+    image_dir.mkdir()
+    label_dir.mkdir()
+
+    Image.new("RGB", (100, 100), color="white").save(image_dir / "sample.jpg")
+    (label_dir / "sample.txt").write_text("")
+
+    with pytest.raises(ValueError, match="segmentation and OBB"):
+        YOLODataset(
+            img_files=[image_dir / "sample.jpg"],
+            label_files=[label_dir / "sample.txt"],
+            img_size=(64, 64),
+            load_segments=True,
+            load_obb=True,
+        )
 
 
 def test_yolo_dataset_directory_mode_dedupes_case_insensitive_glob(

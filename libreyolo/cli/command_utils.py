@@ -30,13 +30,14 @@ def load_model_or_exit(
     model: str,
     model_path: str,
     device: str,
+    task: str | None = None,
 ) -> Any:
     """Load a model with consistent CLI error handling."""
     from libreyolo import LibreYOLO
 
     out.progress(f"Loading {model}...")
     try:
-        return LibreYOLO(model_path, device=device)
+        return LibreYOLO(model_path, device=device, task=task)
     except Exception as exc:
         exit_with_error(
             out,

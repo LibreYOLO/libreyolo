@@ -66,8 +66,13 @@ class RFDETRTrainer(BaseTrainer):
                 self.config.data,
                 allow_scripts=self.config.allow_download_scripts,
             )
-            self.config.num_classes = int(data_cfg.get("nc", self.config.num_classes))
             names = data_cfg.get("names")
+            data_nc = data_cfg.get("nc")
+            if data_nc is None and names is not None:
+                data_nc = len(names)
+            self.config.num_classes = int(
+                data_nc if data_nc is not None else self.config.num_classes
+            )
             if isinstance(names, dict):
                 self._class_names = {int(k): str(v) for k, v in names.items()}
             elif isinstance(names, (list, tuple)):
@@ -84,10 +89,10 @@ class RFDETRTrainer(BaseTrainer):
         return f"LibreRFDETR-{self.config.size}"
 
     def _ddp_find_unused_parameters(self) -> bool:
-        # Detection only: at least one transformer parameter receives no
-        # gradient on some forward passes, so DDP must skip reduction for it.
+        # Detect/OBB: at least one transformer parameter receives no gradient
+        # on some forward passes, so DDP must skip reduction for it.
         # Segmentation uses static_graph=True instead (see _ddp_static_graph).
-        return getattr(self.wrapper_model, "task", "detect") == "detect"
+        return getattr(self.wrapper_model, "task", "detect") in {"detect", "obb"}
 
     def _ddp_static_graph(self) -> bool:
         # Segmentation only: the seg head is invoked from both encoder and
@@ -95,7 +100,7 @@ class RFDETRTrainer(BaseTrainer):
         # gradients from two call sites. With find_unused_parameters=True the
         # DDP hook fires twice per step → "marked ready twice" crash.
         # static_graph=True locks the reducer after iteration 1 and handles
-        # double accumulation correctly. Detection keeps the default (False)
+        # double accumulation correctly. Detect/OBB keep the default (False)
         # because find_unused_parameters=True requires dynamic graph traversal.
         return getattr(self.wrapper_model, "task", "detect") == "segment"
 
@@ -113,7 +118,8 @@ class RFDETRTrainer(BaseTrainer):
                 f"(patch_size={patch_size} x num_windows={num_windows}). "
                 f"Use {lo} or {hi}."
             )
-        if getattr(self.wrapper_model, "task", "detect") == "segment":
+        task = getattr(self.wrapper_model, "task", "detect")
+        if task == "segment":
             preproc = RFDETRSegTransform(
                 max_labels=300,
                 flip_prob=self.config.flip_prob,
@@ -137,6 +143,7 @@ class RFDETRTrainer(BaseTrainer):
             patch_size=patch_size,
             num_windows=num_windows,
             crop_resize_prob=self.config.crop_resize_prob,
+            target_dim=6 if task == "obb" else 5,
         )
         return preproc, DFINEPassThroughDataset
 
@@ -358,7 +365,9 @@ class RFDETRTrainer(BaseTrainer):
         batch_size = targets.shape[0]
         height, width = imgs.shape[-2], imgs.shape[-1]
         scale = torch.tensor([width, height, width, height], device=targets.device, dtype=targets.dtype)
-        is_seg = getattr(self.wrapper_model, "task", "detect") == "segment"
+        task = getattr(self.wrapper_model, "task", "detect")
+        is_seg = task == "segment"
+        is_obb = task == "obb"
         # ``polygons`` here is the collate-stacked output of RFDETRSegTransform:
         # a [B, max_labels, mask_h, mask_w] float32 tensor whose slot i aligns
         # with target slot i. Slice by the same ``valid`` box mask to hand the
@@ -379,14 +388,18 @@ class RFDETRTrainer(BaseTrainer):
                     "labels": torch.zeros(0, dtype=torch.int64, device=self.device),
                     "boxes": torch.zeros(0, 4, dtype=torch.float32, device=self.device),
                 }
+                if is_obb:
+                    entry["angles"] = torch.zeros(0, dtype=torch.float32, device=self.device)
                 if masks_batch is not None:
                     mh, mw = masks_batch.shape[-2], masks_batch.shape[-1]
                     entry["masks"] = torch.zeros(0, mh, mw, dtype=torch.bool, device=self.device)
             else:
                 entry = {
                     "labels": t_valid[:, 0].long(),
-                    "boxes": (t_valid[:, 1:] / scale).clamp(0.0, 1.0),
+                    "boxes": (t_valid[:, 1:5] / scale).clamp(0.0, 1.0),
                 }
+                if is_obb:
+                    entry["angles"] = t_valid[:, 5].float()
                 if masks_batch is not None:
                     m = masks_batch[batch_idx][valid]
                     entry["masks"] = m.to(device=self.device, dtype=torch.bool)
@@ -416,6 +429,8 @@ class RFDETRTrainer(BaseTrainer):
         if getattr(self.wrapper_model, "task", "detect") == "segment":
             components["mask_ce"] = _sum_with_prefix("loss_mask_ce")
             components["mask_dice"] = _sum_with_prefix("loss_mask_dice")
+        if getattr(self.wrapper_model, "task", "detect") == "obb":
+            components["angle"] = _sum_with_prefix("loss_angle")
         return components
 
 

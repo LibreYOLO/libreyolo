@@ -171,6 +171,7 @@ def _make_args(
     nb_classes: int,
     device: str,
     segmentation: bool,
+    obb: bool = False,
 ) -> SimpleNamespace:
     cfg_values = {
         f.name: list(getattr(cfg, f.name)) if isinstance(getattr(cfg, f.name), tuple) else getattr(cfg, f.name)
@@ -178,6 +179,7 @@ def _make_args(
     }
     cfg_values["pretrain_weights"] = "__libreyolo_no_backbone_download__"
     cfg_values["segmentation_head"] = segmentation
+    cfg_values["obb"] = obb
     return SimpleNamespace(
         **cfg_values,
         amp=True,
@@ -196,6 +198,7 @@ def _make_args(
         force_no_pretrain=False,
         freeze_encoder=False,
         giou_loss_coef=2.0,
+        angle_loss_coef=1.0,
         gradient_checkpointing=False,
         group_detr=13,
         ia_bce_loss=True,
@@ -215,6 +218,7 @@ def _make_args(
         set_cost_bbox=5.0,
         set_cost_class=2.0,
         set_cost_giou=2.0,
+        set_cost_angle=0.5 if obb else 0.0,
         shape=(cfg.resolution, cfg.resolution),
         sum_group_losses=False,
         two_stage=True,
@@ -327,9 +331,12 @@ class LibreRFDETRModel(nn.Module):
         nb_classes: int = 80,
         device: str = "cpu",
         segmentation: bool = False,
+        obb: bool = False,
     ):
         super().__init__()
 
+        if segmentation and obb:
+            raise ValueError("RF-DETR cannot enable segmentation and OBB heads together")
         configs = RFDETR_SEG_CONFIGS if segmentation else RFDETR_CONFIGS
         if config not in configs:
             raise ValueError(f"Invalid RF-DETR size: {config}. Must be one of {sorted(configs)}")
@@ -338,11 +345,13 @@ class LibreRFDETRModel(nn.Module):
         self.config = configs[config]
         self.nb_classes = nb_classes
         self.segmentation = segmentation
+        self.obb = obb
         self.args = _make_args(
             self.config,
             nb_classes=nb_classes,
             device=device,
             segmentation=segmentation,
+            obb=obb,
         )
 
         self.resolution = self.config.resolution
@@ -402,6 +411,8 @@ class RFDETRExportWrapper(nn.Module):
             return output
         if "pred_masks" in output:
             return output["pred_boxes"], output["pred_logits"], output["pred_masks"]
+        if "pred_angles" in output:
+            return output["pred_boxes"], output["pred_logits"], output["pred_angles"]
         return output["pred_boxes"], output["pred_logits"]
 
 
@@ -410,12 +421,14 @@ def create_rfdetr_model(
     nb_classes: int = 80,
     device: str = "cpu",
     segmentation: bool = False,
+    obb: bool = False,
 ) -> LibreRFDETRModel:
     return LibreRFDETRModel(
         config=config,
         nb_classes=nb_classes,
         device=device,
         segmentation=segmentation,
+        obb=obb,
     )
 
 
