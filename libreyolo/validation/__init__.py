@@ -2,6 +2,7 @@
 
 from .config import ValidationConfig
 from .detection_validator import DetectionValidator, SegmentationValidator
+from .classify_validator import ClassifyValidator
 from .coco_evaluator import COCOEvaluator
 from .pose_validator import PoseValidator
 from .val_plotter import ValPlotter, ConfusionMatrix
@@ -10,6 +11,7 @@ __all__ = [
     "ValidationConfig",
     "DetectionValidator",
     "SegmentationValidator",
+    "ClassifyValidator",
     "PoseValidator",
     "COCOEvaluator",
     "ValPlotter",

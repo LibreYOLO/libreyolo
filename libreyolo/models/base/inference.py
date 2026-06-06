@@ -25,7 +25,7 @@ from ...utils.general import (
 )
 from ...utils.image_loader import ImageInput, ImageLoader
 from ...utils.predict_args import normalize_predict_kwargs
-from ...utils.results import Boxes, Keypoints, Masks, Results
+from ...utils.results import Boxes, Keypoints, Masks, Probs, Results
 from ...utils.video import collect_video_results, is_video_file, run_video_inference
 
 logger = logging.getLogger(__name__)
@@ -369,6 +369,24 @@ class InferenceRunner:
             image_path: Source path or None.
             classes: Optional class filter list.
         """
+        # Classification: a probs vector, no boxes. Wrap into Results.probs so
+        # result.probs.top1 / .top5 work like the rest of the ecosystem.
+        probs_data = detections.get("probs")
+        if probs_data is not None:
+            orig_w, orig_h = original_size
+            probs_t = (
+                probs_data.float()
+                if isinstance(probs_data, torch.Tensor)
+                else torch.as_tensor(probs_data, dtype=torch.float32)
+            )
+            return Results(
+                boxes=None,
+                orig_shape=(orig_h, orig_w),
+                path=str(image_path) if image_path else None,
+                names=self.model.names,
+                probs=Probs(probs_t),
+            )
+
         masks_t = None
         keypoints_t = None
 

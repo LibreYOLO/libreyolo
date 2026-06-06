@@ -40,7 +40,14 @@ class LibreYOLO9(BaseModel):
     FAMILY = "yolo9"
     FILENAME_PREFIX = "LibreYOLO9"
     INPUT_SIZES = {"t": 640, "s": 640, "m": 640, "c": 640}
-    SUPPORTED_TASKS = ("detect", "segment")
+    # Classification uses the conventional 224 square input across all sizes.
+    CLS_INPUT_SIZES = {"t": 224, "s": 224, "m": 224, "c": 224}
+    SUPPORTED_TASKS = ("detect", "segment", "classify")
+    TASK_INPUT_SIZES = {
+        "detect": INPUT_SIZES,
+        "segment": INPUT_SIZES,
+        "classify": CLS_INPUT_SIZES,
+    }
     TRAIN_CONFIG = YOLO9Config
     val_preprocessor_class = YOLO9ValPreprocessor
 
@@ -118,6 +125,10 @@ class LibreYOLO9(BaseModel):
     def _is_segmentation(self) -> bool:
         return self.task == "segment"
 
+    @property
+    def _is_classification(self) -> bool:
+        return self.task == "classify"
+
     # =========================================================================
     # Model lifecycle
     # =========================================================================
@@ -128,11 +139,21 @@ class LibreYOLO9(BaseModel):
             reg_max=self.reg_max,
             nb_classes=self.nb_classes,
             segmentation=self._is_segmentation,
+            classification=self._is_classification,
             num_masks=self.num_masks,
             proto_channels=self.proto_channels,
         )
 
     def _get_available_layers(self) -> Dict[str, nn.Module]:
+        if self._is_classification:
+            # Classification model has only backbone + classifier head.
+            return {
+                "backbone_conv0": self.model.backbone.conv0,
+                "backbone_conv1": self.model.backbone.conv1,
+                "backbone_elan1": self.model.backbone.elan1,
+                "backbone_spp": self.model.backbone.spp,
+                "head": self.model.head,
+            }
         return {
             "backbone_conv0": self.model.backbone.conv0,
             "backbone_conv1": self.model.backbone.conv1,
@@ -167,6 +188,15 @@ class LibreYOLO9(BaseModel):
         """Replace only the final classification layers for different number of classes."""
         self.nb_classes = new_nc
         self.model.nc = new_nc
+
+        if self._is_classification:
+            head = self.model.head
+            head.nc = new_nc
+            in_features = head.linear.in_features
+            head.linear = nn.Linear(in_features, new_nc)
+            head.to(next(self.model.parameters()).device)
+            return
+
         detect = self.model.head
         detect.nc = new_nc
         detect.no = new_nc + detect.reg_max * 4
@@ -214,6 +244,14 @@ class LibreYOLO9(BaseModel):
         input_size: Optional[int] = None,
     ) -> Tuple[torch.Tensor, Image.Image, Tuple[int, int], float]:
         effective_size = input_size if input_size is not None else self._get_input_size()
+        if self._is_classification:
+            from ...data.classify_dataset import build_classify_transforms
+            from ...utils.image_loader import ImageLoader
+
+            img = ImageLoader.load(image, color_format=color_format)
+            transform = build_classify_transforms(effective_size, augment=False)
+            tensor = transform(img).unsqueeze(0)
+            return tensor, img, img.size, 1.0
         tensor, img, size = preprocess_image(
             image, input_size=effective_size, color_format=color_format
         )
@@ -232,6 +270,12 @@ class LibreYOLO9(BaseModel):
         ratio: float = 1.0,
         **kwargs,
     ) -> Dict:
+        if self._is_classification:
+            logits = output
+            if isinstance(logits, dict):
+                logits = logits.get("logits", logits.get("predictions"))
+            probs = torch.softmax(logits.float(), dim=1)[0]
+            return {"probs": probs}
         actual_input_size = kwargs.get("input_size", self._get_input_size())
         return postprocess(
             output,
@@ -296,31 +340,47 @@ class LibreYOLO9(BaseModel):
         from .trainer import YOLO9Trainer
         from libreyolo.data import load_data_config
 
-        try:
-            data_config = load_data_config(
-                data,
-                autodownload=True,
-                allow_scripts=allow_download_scripts,
-            )
-            data = data_config.get("yaml_file", data)
-        except Exception as e:
-            raise FileNotFoundError(f"Failed to load dataset config '{data}': {e}")
+        if self._is_classification:
+            # Classification: ``data`` is an ImageFolder root (or known name),
+            # not a YAML. Resolve it, count classes, and sync the head/names so
+            # the trainer/optimizer see the correct output dimension. imgsz
+            # defaults to the conventional classification square (224).
+            from libreyolo.data import get_class_names, resolve_classify_data
 
-        yaml_nc = data_config.get("nc")
-        yaml_names = data_config.get("names")
+            dataset_root = resolve_classify_data(data)
+            data = str(dataset_root)
+            classes = get_class_names(dataset_root, split="train")
+            if len(classes) != self.nb_classes:
+                self._rebuild_for_new_classes(len(classes))
+            self.names = {i: n for i, n in enumerate(classes)}
+            if imgsz == _TRAIN_DEFAULTS.imgsz:
+                imgsz = self._get_input_size()
+        else:
+            try:
+                data_config = load_data_config(
+                    data,
+                    autodownload=True,
+                    allow_scripts=allow_download_scripts,
+                )
+                data = data_config.get("yaml_file", data)
+            except Exception as e:
+                raise FileNotFoundError(f"Failed to load dataset config '{data}': {e}")
 
-        # If no nc in data.yaml, infer it by counting.
-        if yaml_nc is None and yaml_names is not None:
-            yaml_nc = len(yaml_names)
+            yaml_nc = data_config.get("nc")
+            yaml_names = data_config.get("names")
 
-        if yaml_nc is not None and yaml_nc != self.nb_classes:
-            self._rebuild_for_new_classes(yaml_nc)
+            # If no nc in data.yaml, infer it by counting.
+            if yaml_nc is None and yaml_names is not None:
+                yaml_nc = len(yaml_names)
 
-        # Apply custom class names from data config
-        if yaml_names is not None:
-            if isinstance(yaml_names, list):
-                yaml_names = {i: n for i, n in enumerate(yaml_names)}
-            self.names = self._sanitize_names(yaml_names, self.nb_classes)
+            if yaml_nc is not None and yaml_nc != self.nb_classes:
+                self._rebuild_for_new_classes(yaml_nc)
+
+            # Apply custom class names from data config
+            if yaml_names is not None:
+                if isinstance(yaml_names, list):
+                    yaml_names = {i: n for i, n in enumerate(yaml_names)}
+                self.names = self._sanitize_names(yaml_names, self.nb_classes)
 
         if seed >= 0:
             import random

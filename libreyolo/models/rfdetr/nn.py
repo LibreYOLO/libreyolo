@@ -11,7 +11,9 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F  # noqa: N812
 
+from .backbone import build_backbone
 from .lwdetr import LWDETR, MLP, PostProcess, build_criterion_and_postprocessors, build_model
+from .tensors import NestedTensor
 
 
 @dataclass(frozen=True)
@@ -318,6 +320,104 @@ def _resize_query_param_from_checkpoint(
     return _resize_query_param(tensor, target_num_queries * target_group_detr)
 
 
+class RFDETRClassifier(nn.Module):
+    """Image-classification model: RF-DETR's DINOv2 backbone + linear head.
+
+    Reuses the same DINOv2 encoder + multi-scale projector that powers RF-DETR
+    detection, then collapses the projector's feature map with global average
+    pooling and a linear classifier. The backbone is built with patch_size=14
+    and a 518px implied resolution so the standard pretrained DINOv2 weights
+    load cleanly (a randomly initialized ViT would barely train on small
+    datasets); it falls back to random init if the weights cannot be fetched.
+    """
+
+    # DINOv2 native settings that keep ``load_dinov2_weights`` enabled.
+    _PATCH_SIZE = 14
+    _POS_ENC_SIZE = 37  # 37 * 14 == 518, DINOv2's pretrained image_size
+    _NUM_WINDOWS = 1
+
+    def __init__(
+        self,
+        config: str = "s",
+        nb_classes: int = 1000,
+        device: str = "cpu",
+        dropout: float = 0.2,
+    ):
+        super().__init__()
+        if config not in RFDETR_CONFIGS:
+            raise ValueError(
+                f"Invalid RF-DETR size: {config}. Must be one of {sorted(RFDETR_CONFIGS)}"
+            )
+        cfg = RFDETR_CONFIGS[config]
+        self.config_name = config
+        self.nb_classes = nb_classes
+        self.hidden_dim = cfg.hidden_dim
+        # Surfaced for trainer/transforms that introspect these attributes.
+        self.patch_size = self._PATCH_SIZE
+        self.num_windows = self._NUM_WINDOWS
+        self.resolution = 224
+
+        joiner = self._build_backbone(cfg, device)
+        # joiner = Sequential(Backbone, PositionEmbedding); classification only
+        # needs the Backbone (DINOv2 encoder + projector) — drop the position
+        # encoding so its parameters are not carried around unused.
+        self.backbone = joiner[0]
+
+        self.pool = nn.AdaptiveAvgPool2d(1)
+        self.drop = nn.Dropout(p=dropout)
+        self.linear = nn.Linear(self.hidden_dim, nb_classes)
+
+    def _build_backbone(self, cfg: RFDETRSizeConfig, device: str):
+        kwargs = dict(
+            encoder=cfg.encoder,
+            vit_encoder_num_layers=12,
+            pretrained_encoder=None,
+            window_block_indexes=None,
+            drop_path=0.0,
+            out_channels=cfg.hidden_dim,
+            out_feature_indexes=list(cfg.out_feature_indexes),
+            projector_scale=list(cfg.projector_scale),
+            use_cls_token=False,
+            hidden_dim=cfg.hidden_dim,
+            position_embedding="sine",
+            freeze_encoder=False,
+            layer_norm=True,
+            target_shape=(self.resolution, self.resolution),
+            rms_norm=False,
+            backbone_lora=False,
+            force_no_pretrain=False,
+            gradient_checkpointing=False,
+            patch_size=self._PATCH_SIZE,
+            num_windows=self._NUM_WINDOWS,
+            positional_encoding_size=self._POS_ENC_SIZE,
+        )
+        try:
+            return build_backbone(load_dinov2_weights=True, **kwargs)
+        except Exception as exc:  # pragma: no cover - offline / hub failure
+            logger = __import__("logging").getLogger(__name__)
+            logger.warning(
+                "Could not load pretrained DINOv2 weights (%s); building the "
+                "classification backbone from random init.",
+                exc,
+            )
+            return build_backbone(load_dinov2_weights=False, **kwargs)
+
+    def forward(self, x: torch.Tensor, targets=None):
+        b, _, h, w = x.shape
+        mask = torch.zeros((b, h, w), dtype=torch.bool, device=x.device)
+        feats = self.backbone(NestedTensor(x, mask))
+        # Backbone returns a list of NestedTensor pyramid levels; the last is
+        # the coarsest. Global-average-pool it to a per-image embedding.
+        feat = feats[-1].tensors
+        pooled = self.pool(feat).flatten(1)
+        pooled = self.drop(pooled)
+        logits = self.linear(pooled)
+        if self.training and targets is not None:
+            loss = F.cross_entropy(logits, targets.long())
+            return {"total_loss": loss, "cls": loss}
+        return logits
+
+
 class LibreRFDETRModel(nn.Module):
     """RF-DETR model built from LibreYOLO-local RF-DETR modules."""
 
@@ -327,8 +427,27 @@ class LibreRFDETRModel(nn.Module):
         nb_classes: int = 80,
         device: str = "cpu",
         segmentation: bool = False,
+        classification: bool = False,
     ):
         super().__init__()
+
+        self.classification = classification
+        if classification:
+            # Backbone-only classification path: no detection decoder/criterion.
+            self.config_name = config
+            self.config = RFDETR_CONFIGS[config]
+            self.nb_classes = nb_classes
+            self.segmentation = False
+            self.classifier = RFDETRClassifier(
+                config=config, nb_classes=nb_classes, device=device
+            )
+            self.resolution = self.classifier.resolution
+            self.hidden_dim = self.classifier.hidden_dim
+            self.patch_size = self.classifier.patch_size
+            self.num_windows = self.classifier.num_windows
+            self.model = None
+            self.postprocess = None
+            return
 
         configs = RFDETR_SEG_CONFIGS if segmentation else RFDETR_CONFIGS
         if config not in configs:
@@ -356,12 +475,19 @@ class LibreRFDETRModel(nn.Module):
         self.postprocess = PostProcess(num_select=self.num_select)
 
     def forward(self, x: torch.Tensor, targets=None):
+        if self.classification:
+            return self.classifier(x, targets=targets)
         return self.model(x, targets=targets)
 
     def build_criterion_and_postprocess(self):
         return build_criterion_and_postprocessors(self.args)
 
     def load_state_dict(self, state_dict: dict[str, Any], strict: bool = True):
+        if self.classification:
+            return self.classifier.load_state_dict(
+                _unwrap_state_dict(state_dict), strict=strict
+            )
+
         checkpoint_args = state_dict.get("args") if isinstance(state_dict, dict) else None
         state_dict = _unwrap_state_dict(state_dict)
 
@@ -384,6 +510,8 @@ class LibreRFDETRModel(nn.Module):
         return self.model.load_state_dict(state_dict, strict=strict)
 
     def state_dict(self, *args, **kwargs):
+        if self.classification:
+            return self.classifier.state_dict(*args, **kwargs)
         return self.model.state_dict(*args, **kwargs)
 
 
@@ -421,6 +549,7 @@ def create_rfdetr_model(
 
 __all__ = [
     "LibreRFDETRModel",
+    "RFDETRClassifier",
     "RFDETRExportWrapper",
     "RFDETR_CONFIGS",
     "RFDETR_SEG_CONFIGS",

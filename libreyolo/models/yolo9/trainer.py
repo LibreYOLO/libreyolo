@@ -67,6 +67,9 @@ class YOLO9Trainer(BaseTrainer):
         def _scalar(v):
             return v.item() if isinstance(v, torch.Tensor) else v
 
+        if getattr(self.wrapper_model, "task", "detect") == "classify":
+            return {"cls": _scalar(outputs.get("cls", 0))}
+
         components = {
             "box": _scalar(outputs.get("box", 0)),
             "cls": _scalar(outputs.get("cls", 0)),

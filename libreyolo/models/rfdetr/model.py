@@ -169,10 +169,13 @@ class LibreRFDETR(BaseModel):
     FILENAME_PREFIX = "LibreRFDETR"
     INPUT_SIZES = {"n": 384, "s": 512, "m": 576, "l": 704}
     SEG_INPUT_SIZES = {"n": 312, "s": 384, "m": 432, "l": 504, "x": 624, "xx": 768}
-    SUPPORTED_TASKS = ("detect", "segment")
+    # Classification runs the DINOv2 backbone at 224 (divisible by patch_size 14).
+    CLS_INPUT_SIZES = {"n": 224, "s": 224, "m": 224, "l": 224}
+    SUPPORTED_TASKS = ("detect", "segment", "classify")
     TASK_INPUT_SIZES = {
         "detect": INPUT_SIZES,
         "segment": SEG_INPUT_SIZES,
+        "classify": CLS_INPUT_SIZES,
     }
     TRAIN_CONFIG = RFDETRConfig
     val_preprocessor_class = RFDETRValPreprocessor
@@ -310,6 +313,10 @@ class LibreRFDETR(BaseModel):
 
         if isinstance(model_path, dict) and not model_path:
             weight_source = None
+        elif normalize_task(resolved_task) == "classify" and model_path is None:
+            # Classification builds its own ImageNet-pretrained DINOv2 backbone;
+            # the detection checkpoints do not apply.
+            weight_source = None
         elif model_path is None:
             cfgs = (
                 RFDETR_SEG_CONFIGS
@@ -387,6 +394,10 @@ class LibreRFDETR(BaseModel):
         """Adapter flag derived from the canonical task state."""
         return self.task == "segment"
 
+    @property
+    def _is_classification(self) -> bool:
+        return self.task == "classify"
+
     @staticmethod
     def _detect_size_from_source(model_path: str | dict[str, Any] | None) -> str | None:
         if model_path is None:
@@ -445,7 +456,23 @@ class LibreRFDETR(BaseModel):
             nb_classes=self._model_num_classes,
             device=str(self.device),
             segmentation=self._is_segmentation,
+            classification=self._is_classification,
         )
+
+    def _rebuild_for_new_classes(self, new_nc: int):
+        """Swap the classifier head (classify) or rebuild the detector head."""
+        if self._is_classification:
+            self.nb_classes = new_nc
+            self._model_num_classes = new_nc
+            classifier = self.model.classifier
+            in_features = classifier.linear.in_features
+            classifier.linear = nn.Linear(in_features, new_nc)
+            classifier.nb_classes = new_nc
+            self.model.nb_classes = new_nc
+            self.model.to(self.device)
+            self.names = {i: f"class_{i}" for i in range(new_nc)}
+            return
+        super()._rebuild_for_new_classes(new_nc)
 
     def _get_available_layers(self) -> Dict[str, nn.Module]:
         layers = {}
@@ -493,6 +520,13 @@ class LibreRFDETR(BaseModel):
         orig_w, orig_h = img.size
         orig_size = (orig_w, orig_h)
 
+        if self._is_classification:
+            from ...data.classify_dataset import build_classify_transforms
+
+            transform = build_classify_transforms(effective_res, augment=False)
+            img_tensor = transform(img).unsqueeze(0)
+            return img_tensor, img, orig_size, 1.0
+
         img_chw, _ = preprocess_numpy(np.array(img), effective_res)
         img_tensor = torch.from_numpy(img_chw).unsqueeze(0)
 
@@ -510,6 +544,12 @@ class LibreRFDETR(BaseModel):
         max_det: int = 300,
         **kwargs,
     ) -> Dict:
+        if self._is_classification:
+            logits = output
+            if isinstance(logits, dict):
+                logits = logits.get("logits", logits.get("predictions"))
+            probs = torch.softmax(logits.float(), dim=1)[0]
+            return {"probs": probs}
         if isinstance(output, tuple):
             output = {
                 "pred_boxes": output[0],
@@ -573,7 +613,38 @@ class LibreRFDETR(BaseModel):
     # Weights
     # =========================================================================
 
+    def _load_classify_weights(self, model_path: str | dict[str, Any]) -> None:
+        """Load a LibreYOLO classification checkpoint into the classifier head."""
+        if isinstance(model_path, str):
+            loaded = load_trusted_torch_file(
+                model_path,
+                map_location="cpu",
+                context="RF-DETR classify weights",
+            )
+        else:
+            loaded = model_path
+        if not isinstance(loaded, dict):
+            raise TypeError("RF-DETR classification checkpoints must be dictionaries")
+
+        ckpt_nc = loaded.get("nc")
+        if ckpt_nc is None:
+            names = loaded.get("names")
+            ckpt_nc = len(names) if names else None
+        if ckpt_nc is not None and ckpt_nc != self.nb_classes:
+            self._rebuild_for_new_classes(int(ckpt_nc))
+
+        # LibreRFDETRModel.load_state_dict (classification branch) unwraps the
+        # checkpoint's "model" payload before loading into the classifier.
+        self.model.load_state_dict(loaded, strict=False)
+
+        ckpt_names = loaded.get("names")
+        if ckpt_names is not None:
+            self.names = self._sanitize_names(ckpt_names, self.nb_classes)
+        self.model.to(self.device)
+
     def _load_weights(self, model_path: str | dict[str, Any]):
+        if self._is_classification:
+            return self._load_classify_weights(model_path)
         try:
             if isinstance(model_path, str):
                 if not Path(model_path).exists():

@@ -899,6 +899,7 @@ class BaseModel(ABC):
             metrics/mAP50, metrics/mAP50-95.
         """
         from libreyolo.validation import (
+            ClassifyValidator,
             DetectionValidator,
             PoseValidator,
             SegmentationValidator,
@@ -936,6 +937,8 @@ class BaseModel(ABC):
             validator_cls = PoseValidator
         elif self.task == "segment":
             validator_cls = SegmentationValidator
+        elif self.task == "classify":
+            validator_cls = ClassifyValidator
         else:
             validator_cls = DetectionValidator
         validator = validator_cls(model=self, config=config)

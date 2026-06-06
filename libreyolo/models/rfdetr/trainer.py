@@ -61,6 +61,10 @@ class RFDETRTrainer(BaseTrainer):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._class_names = None
+        # Classification resolves its class count from the ImageFolder dataset
+        # in _setup_classify_data, not from a detection YAML.
+        if getattr(self.wrapper_model, "task", "detect") == "classify":
+            return
         if self.config.data:
             data_cfg = load_data_config(
                 self.config.data,
@@ -190,6 +194,8 @@ class RFDETRTrainer(BaseTrainer):
         *,
         step: int,
     ):
+        if getattr(self.wrapper_model, "task", "detect") == "classify":
+            return imgs, targets, polygons
         scales = self._multi_scale_scales()
         if not scales:
             return imgs, targets, polygons
@@ -225,6 +231,11 @@ class RFDETRTrainer(BaseTrainer):
         return imgs, targets, polygons
 
     def on_setup(self):
+        # Classification computes cross-entropy inside the model head and sizes
+        # its head from the dataset in _setup_classify_data — no detection
+        # criterion or head reinitialization is needed.
+        if getattr(self.wrapper_model, "task", "detect") == "classify":
+            return
         if self.model.nb_classes != self.config.num_classes:
             self.model.model.reinitialize_detection_head(self.config.num_classes + 1)
             self.model.nb_classes = self.config.num_classes
@@ -252,6 +263,25 @@ class RFDETRTrainer(BaseTrainer):
                 }
 
     def _setup_optimizer(self) -> torch.optim.Optimizer:
+        if getattr(self.wrapper_model, "task", "detect") == "classify":
+            # The DINOv2 backbone + projector is LayerNorm-only (no BatchNorm),
+            # so the shared BN/conv/bias grouping leaves an empty first group.
+            # Use a standard AdamW with no weight decay on norms/biases — the
+            # conventional recipe for fine-tuning a ViT classifier.
+            decay, no_decay = [], []
+            for name, param in self.model.named_parameters():
+                if not param.requires_grad:
+                    continue
+                if param.ndim <= 1 or name.endswith(".bias") or "norm" in name.lower():
+                    no_decay.append(param)
+                else:
+                    decay.append(param)
+            groups = []
+            if decay:
+                groups.append({"params": decay, "weight_decay": self.config.weight_decay})
+            if no_decay:
+                groups.append({"params": no_decay, "weight_decay": 0.0})
+            return torch.optim.AdamW(groups, lr=self.effective_lr, betas=(0.9, 0.999))
         upstream_groups = self._setup_upstream_optimizer_groups()
         if upstream_groups:
             return torch.optim.AdamW(
@@ -369,6 +399,11 @@ class RFDETRTrainer(BaseTrainer):
             else None
         )
 
+        if getattr(self.wrapper_model, "task", "detect") == "classify":
+            # ``targets`` are class indices [B]; the model head returns the
+            # loss dict directly.
+            return self.model(imgs, targets=targets)
+
         target_list = []
         for batch_idx in range(batch_size):
             t = targets[batch_idx]
@@ -401,6 +436,10 @@ class RFDETRTrainer(BaseTrainer):
         return result
 
     def get_loss_components(self, outputs: Dict) -> Dict[str, float]:
+        if getattr(self.wrapper_model, "task", "detect") == "classify":
+            value = outputs.get("cls", 0)
+            return {"cls": value.item() if isinstance(value, torch.Tensor) else float(value)}
+
         def _sum_with_prefix(prefix: str) -> float:
             total = 0.0
             for key, value in outputs.items():
