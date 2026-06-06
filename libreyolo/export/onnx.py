@@ -121,6 +121,7 @@ def export_onnx(
         metadata.get("model_family") == "yolo9"
         and metadata.get("task") == "segment"
     )
+    is_obb = metadata.get("task") == "obb"
     known_detr_detection = _uses_dfine_style_export_wrapper(
         metadata.get("model_family")
     )
@@ -143,7 +144,7 @@ def export_onnx(
             else None
         )
         metadata["segmentation"] = "true"
-    elif is_seg:
+    elif is_seg and not is_obb:
         output_names = (
             ["dets", "labels", "masks"]
             if model_family == "rfdetr"
@@ -161,6 +162,19 @@ def export_onnx(
             else None
         )
         metadata["segmentation"] = "true"
+    elif model_family == "rfdetr" and is_obb:
+        input_name = "input"
+        output_names = ["dets", "labels", "angles"]
+        dynamic_axes = (
+            {
+                input_name: {0: "batch"},
+                "dets": {0: "batch"},
+                "labels": {0: "batch"},
+                "angles": {0: "batch"},
+            }
+            if dynamic
+            else None
+        )
     elif model_family == "rfdetr":
         # RF-DETR's RFDETRExportWrapper returns (boxes, logits), and upstream
         # names those ONNX outputs dets/labels.

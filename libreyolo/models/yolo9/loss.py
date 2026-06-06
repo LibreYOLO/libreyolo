@@ -1,9 +1,9 @@
-"""
-YOLOv9 loss functions for training.
+"""YOLOv9 loss functions for training.
 
 Adapted from MultimediaTechLab/YOLO under the MIT License.
 """
 
+import math
 from typing import Dict, List, Optional, Tuple
 
 import torch
@@ -657,6 +657,144 @@ class YOLO9Loss:
             "num_fg": valid_masks.sum().item() / max(B, 1),
         }
 
+        return loss_dict
+
+
+def _flatten_angle_predictions(angle_predictions: List[Tensor]) -> Tensor:
+    """Flatten per-level angle logits to ``(B, anchors, 1)``."""
+    flattened = []
+    for pred in angle_predictions:
+        bsz, channels, height, width = pred.shape
+        if channels != 1:
+            raise ValueError(
+                f"YOLO9 OBB angle branch must emit 1 channel, got {channels}"
+            )
+        flattened.append(pred.permute(0, 2, 3, 1).reshape(bsz, height * width, 1))
+    return torch.cat(flattened, dim=1)
+
+
+def _angle_logits_to_radians(angle_logits: Tensor) -> Tensor:
+    """Map angle logits to ``[-pi / 2, pi / 2)`` radians."""
+    return (angle_logits.sigmoid() - 0.5) * math.pi
+
+
+class YOLO9OBBLoss(YOLO9Loss):
+    """YOLO9 OBB loss using horizontal proxy boxes plus periodic angle loss."""
+
+    def __init__(
+        self,
+        *args,
+        angle_weight: float = 1.0,
+        **kwargs,
+    ):
+        super().__init__(*args, **kwargs)
+        self.angle_weight = angle_weight
+
+    def __call__(
+        self,
+        predictions: List[Tensor],
+        targets: Tensor,
+        angle_predictions: List[Tensor],
+    ) -> Tuple[Tensor, Dict[str, float]]:
+        if targets.shape[-1] < 6:
+            raise ValueError(
+                "YOLO9 OBB training requires targets shaped "
+                "[B, max_targets, 6]: class, x1, y1, x2, y2, angle."
+            )
+        if self.vec2box is None:
+            raise RuntimeError("Vec2Box not initialized. Call update_anchors() first.")
+
+        preds_cls, preds_anc, preds_box = self.vec2box(predictions)
+        preds_angle = _angle_logits_to_radians(
+            _flatten_angle_predictions(angle_predictions)
+        )
+
+        bsz = targets.shape[0]
+        img_w, img_h = self.vec2box.image_size
+        scale = torch.tensor(
+            [1, img_w, img_h, img_w, img_h],
+            device=targets.device,
+            dtype=targets.dtype,
+        )
+        targets_box = targets[..., :5] * scale
+        targets_angle = targets[..., 5:6]
+
+        align_targets, valid_masks, matched_indices = self.matcher(
+            targets_box,
+            (preds_cls.detach(), preds_box.detach()),
+            return_indices=True,
+        )
+        targets_cls, targets_bbox = torch.split(
+            align_targets, (self.num_classes, 4), dim=-1
+        )
+
+        preds_box_norm = preds_box / self.vec2box.scaler[None, :, None]
+        targets_bbox_norm = targets_bbox / self.vec2box.scaler[None, :, None]
+
+        cls_norm = max(targets_cls.sum(), 1)
+        box_norm = targets_cls.sum(-1)[valid_masks]
+
+        loss_cls = self.cls_loss(preds_cls, targets_cls, cls_norm)
+        if valid_masks.any():
+            loss_box = self.box_loss(
+                preds_box_norm, targets_bbox_norm, valid_masks, box_norm, cls_norm
+            )
+            anchors_norm = (self.vec2box.anchor_grid / self.vec2box.scaler[:, None])[None]
+            loss_dfl = self.dfl_loss(
+                preds_anc,
+                targets_bbox_norm,
+                anchors_norm,
+                valid_masks,
+                box_norm,
+                cls_norm,
+            )
+
+            matched_angles = torch.gather(
+                targets_angle,
+                1,
+                matched_indices.unsqueeze(-1).clamp_min(0),
+            )
+            angle_delta = preds_angle[valid_masks] - matched_angles[valid_masks]
+            # Rectangles are pi-periodic, so use cos(2 * delta).
+            loss_angle = 0.5 * (1.0 - torch.cos(2.0 * angle_delta.squeeze(-1)))
+            loss_angle = (loss_angle * box_norm).sum() / cls_norm
+        else:
+            loss_box = preds_box_norm.sum() * 0.0
+            loss_dfl = preds_anc.sum() * 0.0
+            loss_angle = preds_angle.sum() * 0.0
+
+        loss_box_weighted = self.box_weight * loss_box
+        loss_dfl_weighted = self.dfl_weight * loss_dfl
+        loss_cls_weighted = self.cls_weight * loss_cls
+        loss_angle_weighted = self.angle_weight * loss_angle
+
+        total_loss = (
+            loss_box_weighted
+            + loss_dfl_weighted
+            + loss_cls_weighted
+            + loss_angle_weighted
+        )
+
+        loss_dict = {
+            "total_loss": total_loss,
+            "box_loss": loss_box_weighted,
+            "dfl_loss": loss_dfl_weighted,
+            "cls_loss": loss_cls_weighted,
+            "angle_loss": loss_angle_weighted,
+            "box": loss_box_weighted.item()
+            if isinstance(loss_box_weighted, Tensor)
+            else loss_box_weighted,
+            "dfl": loss_dfl_weighted.item()
+            if isinstance(loss_dfl_weighted, Tensor)
+            else loss_dfl_weighted,
+            "cls": loss_cls_weighted.item()
+            if isinstance(loss_cls_weighted, Tensor)
+            else loss_cls_weighted,
+            "angle": loss_angle_weighted.item()
+            if isinstance(loss_angle_weighted, Tensor)
+            else loss_angle_weighted,
+            "num_fg": valid_masks.sum().item() / max(bsz, 1),
+        }
         return loss_dict
 
 

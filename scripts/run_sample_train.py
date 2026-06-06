@@ -161,7 +161,7 @@ def train_rfdetr(args: argparse.Namespace) -> None:
 
     best_map = result.get("best_mAP50_95", 0.0)
     save_dir = result.get("output_dir", output)
-    print(f"\nTraining complete.")
+    print("\nTraining complete.")
     print(f"  Best mAP50-95 : {best_map:.4f}")
     print(f"  Weights saved : {save_dir}")
 
@@ -199,7 +199,7 @@ def train_yolo9(args: argparse.Namespace) -> None:
     result = model.train(**train_kwargs)
 
     best_map = result.get("best_mAP50_95", 0.0)
-    print(f"\nTraining complete.")
+    print("\nTraining complete.")
     print(f"  Best mAP50-95 : {best_map:.4f}")
     print(f"  Weights saved : {output}")
 

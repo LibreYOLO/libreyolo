@@ -250,6 +250,11 @@ def predict_cmd(
             gaze_np = gaze_data.numpy()
         else:
             gaze_np = gaze_data
+        obb_data = r.obb if getattr(r, "obb", None) is not None else None
+        if obb_data is not None and hasattr(obb_data.data, "cpu"):
+            obb_np = obb_data.numpy()
+        else:
+            obb_np = obb_data
         for i in range(len(boxes)):
             cls_id = int(boxes.cls[i])
             cls_name = r.names.get(cls_id, str(cls_id))
@@ -259,6 +264,15 @@ def predict_cmd(
                 "confidence": round(float(boxes.conf[i]), 4),
                 "bbox_xyxy": [round(float(c), 1) for c in boxes.xyxy[i]],
             }
+            if obb_np is not None and i < len(obb_np):
+                xywhr = obb_np.xywhr[i]
+                corners = obb_np.xyxyxyxy[i]
+                det["obb"] = {
+                    "xywhr": [round(float(v), 4) for v in xywhr],
+                    "corners": [
+                        [round(float(x), 4), round(float(y), 4)] for x, y in corners
+                    ],
+                }
             if gaze_np is not None and i < len(gaze_np):
                 pitch = float(gaze_np.data[i, 0])
                 yaw = float(gaze_np.data[i, 1])

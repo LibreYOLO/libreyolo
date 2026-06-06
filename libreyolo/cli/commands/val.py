@@ -145,10 +145,13 @@ def val_cmd(
     }
     box_metrics = _metric_group(metrics, "(B)")
     mask_metrics = _metric_group(metrics, "(M)")
+    obb_metrics = _metric_group(metrics, "(OBB)")
     if box_metrics is not None:
         data_out["box_metrics"] = box_metrics
     if mask_metrics is not None:
         data_out["mask_metrics"] = mask_metrics
+    if obb_metrics is not None:
+        data_out["obb_metrics"] = obb_metrics
 
     if not json_output:
         human_text = (
@@ -165,6 +168,11 @@ def val_cmd(
             human_text += (
                 f"\n  Mask mAP50: {mask_metrics.get('mAP50', 0.0):.4f}  "
                 f"Mask mAP50-95: {mask_metrics.get('mAP50_95', 0.0):.4f}"
+            )
+        if obb_metrics is not None:
+            human_text += (
+                f"\n  OBB mAP50: {obb_metrics.get('mAP50', 0.0):.4f}  "
+                f"OBB mAP50-95: {obb_metrics.get('mAP50_95', 0.0):.4f}"
             )
         data_out["_human_text"] = human_text
 

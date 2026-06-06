@@ -10,6 +10,8 @@ import random
 import cv2
 import numpy as np
 
+from libreyolo.data.obb import normalize_obb_angle
+
 
 def augment_hsv(img, hgain=5, sgain=30, vgain=30):
     """Apply HSV augmentation to an image."""
@@ -96,6 +98,20 @@ def _flip_segments_lr(segments, width):
     return flipped
 
 
+def _flip_segments_ud(segments, height):
+    if segments is None:
+        return None
+    flipped = []
+    for instance in segments:
+        rings = []
+        for ring in instance:
+            r = ring.astype(np.float32, copy=True)
+            r[:, 1] = height - r[:, 1]
+            rings.append(r)
+        flipped.append(rings)
+    return flipped
+
+
 def _filter_segments(segments, keep_mask):
     if segments is None:
         return None
@@ -139,19 +155,24 @@ class YOLO9TrainTransform:
         self,
         max_labels=100,
         flip_prob=0.5,
+        vertical_flip_prob=0.0,
         hsv_prob=1.0,
         mask_downsample_ratio=4,
+        output_label_dim=None,
     ):
         """
         Args:
             max_labels: Maximum number of labels per image
             flip_prob: Probability of horizontal flip
+            vertical_flip_prob: Probability of vertical flip
             hsv_prob: Probability of HSV augmentation
         """
         self.max_labels = max_labels
         self.flip_prob = flip_prob
+        self.vertical_flip_prob = vertical_flip_prob
         self.hsv_prob = hsv_prob
         self.mask_downsample_ratio = mask_downsample_ratio
+        self.output_label_dim = output_label_dim
 
     def __call__(self, image, targets, input_dim, segments=None):
         """
@@ -169,14 +190,21 @@ class YOLO9TrainTransform:
         return_masks = segments is not None
         boxes = targets[:, :4].copy()
         labels = targets[:, 4].copy()
+        has_angles = targets.shape[1] >= 6 or self.output_label_dim == 6
+        angles = (
+            targets[:, 5].copy()
+            if targets.shape[1] >= 6
+            else np.zeros((targets.shape[0],), dtype=np.float32)
+        ) if has_angles else None
         segments_t = _copy_segments(segments)
+        label_dim = 6 if has_angles else 5
         mask_shape = (
             input_dim[0] // self.mask_downsample_ratio,
             input_dim[1] // self.mask_downsample_ratio,
         )
 
         if len(boxes) == 0:
-            padded_labels = np.zeros((self.max_labels, 5), dtype=np.float32)
+            padded_labels = np.zeros((self.max_labels, label_dim), dtype=np.float32)
             # Fill class with -1 to indicate padding (empty slots)
             padded_labels[:, 0] = -1
             image, _ = preproc(image, input_dim)
@@ -192,6 +220,7 @@ class YOLO9TrainTransform:
         image_o = image.copy()
         boxes_o = boxes.copy()
         labels_o = labels.copy()
+        angles_o = angles.copy() if angles is not None else None
         segments_o = _copy_segments(segments_t)
 
         # Apply HSV augmentation
@@ -203,9 +232,27 @@ class YOLO9TrainTransform:
         if random.random() < self.flip_prob:
             image_t = image[:, ::-1]
             boxes[:, [0, 2]] = width - boxes[:, [2, 0]]
+            if angles is not None:
+                angles = np.asarray(
+                    [normalize_obb_angle(np.pi - float(a)) for a in angles],
+                    dtype=np.float32,
+                )
             segments_t = _flip_segments_lr(segments_t, width)
         else:
             image_t = image
+
+        # Apply vertical flip. Kept disabled by default because it is not a
+        # natural augmentation for all datasets, but it is useful for aerial OBB.
+        height = image_t.shape[0]
+        if random.random() < self.vertical_flip_prob:
+            image_t = image_t[::-1, :]
+            boxes[:, [1, 3]] = height - boxes[:, [3, 1]]
+            if angles is not None:
+                angles = np.asarray(
+                    [normalize_obb_angle(-float(a)) for a in angles],
+                    dtype=np.float32,
+                )
+            segments_t = _flip_segments_ud(segments_t, height)
 
         # Resize with letterbox
         image_t, r = preproc(image_t, input_dim)
@@ -222,6 +269,7 @@ class YOLO9TrainTransform:
         mask = (w > 1) & (h > 1)
         boxes_t = boxes[mask]
         labels_t = labels[mask]
+        angles_t = angles[mask] if angles is not None else None
         segments_t = _filter_segments(segments_t, mask)
 
         # Fallback to original if all boxes filtered
@@ -229,6 +277,7 @@ class YOLO9TrainTransform:
             image_t, r = preproc(image_o, input_dim)
             boxes_t = boxes_o * r
             labels_t = labels_o
+            angles_t = angles_o
             segments_t = _transform_segments(
                 segments_o, scale=r, width=input_dim[1], height=input_dim[0]
             )
@@ -246,10 +295,13 @@ class YOLO9TrainTransform:
 
         # Format: [class, x1, y1, x2, y2]
         labels_t = np.expand_dims(labels_t, 1)
-        targets_t = np.hstack((labels_t, boxes_norm))
+        if angles_t is not None:
+            targets_t = np.hstack((labels_t, boxes_norm, angles_t[:, None]))
+        else:
+            targets_t = np.hstack((labels_t, boxes_norm))
 
         # Pad to max_labels
-        padded_labels = np.zeros((self.max_labels, 5), dtype=np.float32)
+        padded_labels = np.zeros((self.max_labels, targets_t.shape[1]), dtype=np.float32)
         # Fill class with -1 to indicate padding
         padded_labels[:, 0] = -1
 
@@ -457,7 +509,8 @@ class YOLO9MosaicMixupDataset:
             np.clip(mosaic_labels[:, 2], 0, 2 * input_w, out=mosaic_labels[:, 2])
             np.clip(mosaic_labels[:, 3], 0, 2 * input_h, out=mosaic_labels[:, 3])
         else:
-            mosaic_labels = np.zeros((0, 5))
+            label_dim = getattr(self.preproc, "output_label_dim", None) or 5
+            mosaic_labels = np.zeros((0, label_dim))
 
         # Resize mosaic to target size
         mosaic_img = cv2.resize(mosaic_img, (input_w, input_h))

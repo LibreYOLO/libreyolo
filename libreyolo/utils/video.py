@@ -281,7 +281,7 @@ def run_video_inference(
     from PIL import Image
     from tqdm import tqdm
 
-    from .drawing import draw_boxes, draw_keypoints, draw_masks
+    from .drawing import draw_boxes, draw_keypoints, draw_masks, draw_obb
 
     with VideoSource(source, vid_stride=vid_stride) as video_src:
         writer = None
@@ -325,13 +325,27 @@ def run_video_inference(
                                 masks_np,
                                 result.boxes.cls.tolist(),
                             )
-                        annotated_pil = draw_boxes(
-                            annotated_pil,
-                            result.boxes.xyxy.tolist(),
-                            result.boxes.conf.tolist(),
-                            result.boxes.cls.tolist(),
-                            class_names=result.names,
-                        )
+                        if result.obb is not None:
+                            annotated_pil = draw_obb(
+                                annotated_pil,
+                                result.obb.xywhr.tolist(),
+                                result.obb.conf.tolist(),
+                                result.obb.cls.tolist(),
+                                class_names=result.names,
+                                track_ids=(
+                                    result.obb.id.tolist()
+                                    if result.obb.id is not None
+                                    else None
+                                ),
+                            )
+                        else:
+                            annotated_pil = draw_boxes(
+                                annotated_pil,
+                                result.boxes.xyxy.tolist(),
+                                result.boxes.conf.tolist(),
+                                result.boxes.cls.tolist(),
+                                class_names=result.names,
+                            )
                         if result.keypoints is not None:
                             kpts_np = result.keypoints.data
                             if isinstance(kpts_np, torch.Tensor):

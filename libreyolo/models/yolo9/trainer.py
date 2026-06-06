@@ -30,13 +30,16 @@ class YOLO9Trainer(BaseTrainer):
         return f"YOLOv9-{self.config.size}"
 
     def create_transforms(self):
+        task = getattr(self.wrapper_model, "task", "detect")
         preproc = YOLO9TrainTransform(
             max_labels=100,
             flip_prob=self.config.flip_prob,
+            vertical_flip_prob=self.config.flip_prob if task == "obb" else 0.0,
             hsv_prob=self.config.hsv_prob,
             mask_downsample_ratio=getattr(self.config, "mask_downsample_ratio", 4),
+            output_label_dim=6 if task == "obb" else None,
         )
-        if getattr(self.wrapper_model, "task", "detect") == "segment":
+        if task == "segment":
             preproc.wants_unresized_image = True
         return preproc, YOLO9MosaicMixupDataset
 
@@ -77,6 +80,8 @@ class YOLO9Trainer(BaseTrainer):
         }
         if "seg" in outputs:
             components["seg"] = _scalar(outputs.get("seg", 0))
+        if "angle" in outputs:
+            components["angle"] = _scalar(outputs.get("angle", 0))
         return components
 
     def on_forward(self, imgs: torch.Tensor, targets: torch.Tensor, polygons=None) -> Dict:

@@ -372,7 +372,9 @@ class BaseTrainer(ABC):
 
         img_size = self.input_size
         preproc, MosaicDatasetClass = self.create_transforms()
-        load_segments = getattr(self.wrapper_model, "task", "detect") == "segment"
+        task = getattr(self.wrapper_model, "task", "detect")
+        load_segments = task == "segment"
+        load_obb = task == "obb"
 
         if self.config.data:
             data_cfg = load_data_config(
@@ -380,7 +382,12 @@ class BaseTrainer(ABC):
                 allow_scripts=self.config.allow_download_scripts,
             )
             data_dir = data_cfg["root"]
-            self.num_classes = data_cfg.get("nc", self.config.num_classes)
+            data_nc = data_cfg.get("nc")
+            if data_nc is None and data_cfg.get("names") is not None:
+                data_nc = len(data_cfg["names"])
+            self.num_classes = (
+                int(data_nc) if data_nc is not None else self.config.num_classes
+            )
 
             ann_file = Path(data_dir) / "annotations" / "instances_train2017.json"
 
@@ -395,8 +402,15 @@ class BaseTrainer(ABC):
                     img_size=img_size,
                     preproc=preproc,
                     load_segments=load_segments,
+                    load_obb=load_obb,
+                    num_classes=self.num_classes if load_obb else None,
                 )
             elif ann_file.exists():
+                if load_obb:
+                    raise ValueError(
+                        "YOLO9 OBB training expects YOLO OBB txt labels; "
+                        "COCO JSON OBB loading is not implemented."
+                    )
                 train_dataset = COCODataset(
                     data_dir=data_dir,
                     json_file="instances_train2017.json",
@@ -427,12 +441,19 @@ class BaseTrainer(ABC):
                     img_size=img_size,
                     preproc=preproc,
                     load_segments=load_segments,
+                    load_obb=load_obb,
+                    num_classes=self.num_classes if load_obb else None,
                 )
         elif self.config.data_dir:
             data_dir = self.config.data_dir
             self.num_classes = self.config.num_classes
 
             if (Path(data_dir) / "annotations").exists():
+                if load_obb:
+                    raise ValueError(
+                        "YOLO9 OBB training expects YOLO OBB txt labels; "
+                        "COCO JSON OBB loading is not implemented."
+                    )
                 train_dataset = COCODataset(
                     data_dir=data_dir,
                     json_file="instances_train2017.json",
@@ -448,23 +469,34 @@ class BaseTrainer(ABC):
                     img_size=img_size,
                     preproc=preproc,
                     load_segments=load_segments,
+                    load_obb=load_obb,
+                    num_classes=self.num_classes if load_obb else None,
                 )
         else:
             raise ValueError("Either 'data' or 'data_dir' must be specified")
 
+        self.config.num_classes = int(self.num_classes)
+
+        mosaic_enabled = not load_obb
+        if load_obb and is_main_process():
+            logger.info(
+                "Disabling mosaic/mixup for OBB training until corner-aware "
+                "OBB augmentation is implemented."
+            )
+
         train_dataset = MosaicDatasetClass(
             dataset=train_dataset,
             img_size=img_size,
-            mosaic=True,
+            mosaic=mosaic_enabled,
             preproc=preproc,
             degrees=self.config.degrees,
             translate=self.config.translate,
             mosaic_scale=self.config.mosaic_scale,
             mixup_scale=self.config.mixup_scale,
             shear=self.config.shear,
-            enable_mixup=self.config.mixup_prob > 0,
-            mosaic_prob=self.config.mosaic_prob,
-            mixup_prob=self.config.mixup_prob,
+            enable_mixup=mosaic_enabled and self.config.mixup_prob > 0,
+            mosaic_prob=self.config.mosaic_prob if mosaic_enabled else 0.0,
+            mixup_prob=self.config.mixup_prob if mosaic_enabled else 0.0,
         )
 
         # ``batch`` is the global batch under DDP. Each rank's loader is built
@@ -851,8 +883,12 @@ class BaseTrainer(ABC):
                 self.epoch_losses.append(epoch_loss)
 
                 is_best = self._update_best_state(epoch, val_metrics)
+                periodic_save_due = (
+                    self.config.save_period > 0
+                    and (epoch + 1) % self.config.save_period == 0
+                )
                 should_save = (
-                    (epoch + 1) % self.config.save_period == 0
+                    periodic_save_due
                     or epoch == self.config.epochs - 1
                     or is_best
                 )
@@ -1497,6 +1533,7 @@ class BaseTrainer(ABC):
         try:
             from libreyolo.validation import (
                 DetectionValidator,
+                OBBValidator,
                 SegmentationValidator,
                 ValidationConfig,
             )
@@ -1533,7 +1570,6 @@ class BaseTrainer(ABC):
                     "Validation requires wrapper_model to be provided to trainer"
                 )
                 return None
-
             # Validator wants the un-DDP-wrapped module.
             eval_pytorch_model = (
                 self.ema_model.ema if self.ema_model else unwrap_model(self.model)
@@ -1542,11 +1578,13 @@ class BaseTrainer(ABC):
             self.wrapper_model.model = eval_pytorch_model
 
             try:
-                validator_cls = (
-                    SegmentationValidator
-                    if getattr(self.wrapper_model, "task", "detect") == "segment"
-                    else DetectionValidator
-                )
+                task = getattr(self.wrapper_model, "task", "detect")
+                if task == "segment":
+                    validator_cls = SegmentationValidator
+                elif task == "obb":
+                    validator_cls = OBBValidator
+                else:
+                    validator_cls = DetectionValidator
                 validator = validator_cls(model=self.wrapper_model, config=val_config)
                 results = validator.run()
             finally:
@@ -1670,8 +1708,9 @@ class BaseTrainer(ABC):
         names = (
             self.wrapper_model.names
             if self.wrapper_model is not None and hasattr(self.wrapper_model, "names")
-            else build_class_names(self.config.num_classes)
+            else build_class_names(int(getattr(self, "num_classes", self.config.num_classes)))
         )
+        checkpoint_nc = int(getattr(self, "num_classes", self.config.num_classes))
         checkpoint_imgsz = getattr(self.config, "imgsz", None)
         if checkpoint_imgsz is None and self.wrapper_model is not None:
             get_input_size = getattr(self.wrapper_model, "_get_input_size", None)
@@ -1689,7 +1728,7 @@ class BaseTrainer(ABC):
             model_family=self.get_model_family(),
             size=self.config.size,
             task=getattr(self.wrapper_model, "task", "detect"),
-            nc=self.config.num_classes,
+            nc=checkpoint_nc,
             names=names,
             imgsz=int(checkpoint_imgsz),
             epoch=epoch,
@@ -1728,7 +1767,7 @@ class BaseTrainer(ABC):
                 f"{metric_key}={metric_value:.4f}"
             )
 
-        if (epoch + 1) % self.config.save_period == 0:
+        if self.config.save_period > 0 and (epoch + 1) % self.config.save_period == 0:
             epoch_path = weights_dir / f"epoch_{epoch + 1}.pt"
             torch.save(checkpoint, epoch_path)
 
