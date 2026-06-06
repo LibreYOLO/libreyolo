@@ -201,8 +201,6 @@ class LibrePICODET(BaseModel):
                 "export. What's NOT validated: small-dataset fine-tune "
                 "convergence, multi-GPU, augmentation policy beyond hflip."
             )
-        from pathlib import Path
-
         from libreyolo.data import load_data_config
 
         from .trainer import PICODETTrainer
@@ -231,7 +229,9 @@ class LibrePICODET(BaseModel):
             import random
             import numpy as np
 
-            random.seed(seed); np.random.seed(seed); torch.manual_seed(seed)
+            random.seed(seed)
+            np.random.seed(seed)
+            torch.manual_seed(seed)
             if str(device).lower() not in ("cpu", "mps") and torch.cuda.is_available():
                 torch.cuda.manual_seed_all(seed)
 

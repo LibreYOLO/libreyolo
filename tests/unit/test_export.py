@@ -120,6 +120,28 @@ class TestExporterFormats:
         assert metadata["supported_tasks"] == ["detect", "segment"]
         assert metadata["default_task"] == "detect"
 
+    def test_metadata_includes_obb_task_contract(self):
+        wrapper = _make_wrapper()
+        wrapper.task = "obb"
+        wrapper.SUPPORTED_TASKS = ("detect", "segment", "obb")
+        wrapper.DEFAULT_TASK = "detect"
+
+        metadata = TensorRTExporter(wrapper)._build_metadata(
+            precision="fp32",
+            dynamic=False,
+            onnx_path=None,
+        )
+        onnx_metadata = OnnxExporter(wrapper)._build_onnx_metadata(
+            dynamic=False,
+            half=False,
+        )
+
+        assert metadata["task"] == "obb"
+        assert metadata["obb"] is True
+        assert metadata["supported_tasks"] == ["detect", "segment", "obb"]
+        assert onnx_metadata["task"] == "obb"
+        assert onnx_metadata["obb"] == "true"
+
     def test_rfdetr_export_metadata_is_single_task(self):
         wrapper = _make_wrapper(model_name="rfdetr")
         wrapper.task = "segment"
@@ -578,6 +600,18 @@ class TestOutputPathGeneration:
         )
         assert exporter._auto_output_path(half=True, int8=False) == str(
             Path("weights") / "rfdetr_n_seg_fp16.onnx"
+        )
+
+    def test_auto_path_includes_obb_task(self):
+        wrapper = _make_wrapper(model_name="yolo9", size="t")
+        wrapper.task = "obb"
+        exporter = OnnxExporter(wrapper)
+
+        assert exporter._auto_output_path(half=False, int8=False) == str(
+            Path("weights") / "yolo9_t_obb.onnx"
+        )
+        assert exporter._auto_output_path(half=True, int8=False) == str(
+            Path("weights") / "yolo9_t_obb_fp16.onnx"
         )
 
     def test_explicit_path(self):

@@ -19,7 +19,6 @@ import torch.nn.functional as F
 from PIL import Image
 
 from ...utils.image_loader import ImageInput, ImageLoader
-from ...utils.general import postprocess_detections
 
 
 # ImageNet stats Bo's repo uses (shared across all PICODET sizes)

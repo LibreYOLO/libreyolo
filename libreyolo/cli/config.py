@@ -9,6 +9,8 @@ from dataclasses import MISSING, fields
 from pathlib import Path
 from typing import Any, Optional
 
+from libreyolo.tasks import task_to_suffix
+
 
 def get_unsupported_train_params(family: str | None) -> set[str]:
     """Return the set of CLI parameters ignored by a model family's trainer."""
@@ -36,6 +38,29 @@ def _weight_filename_for_cli(cls, size_code: str) -> str:
     return f"{cls.FILENAME_PREFIX}{size_code}{cls.WEIGHT_EXT}"
 
 
+def _task_sizes_for_cli(cls, task: str) -> dict[str, int]:
+    task_sizes = getattr(cls, "TASK_INPUT_SIZES", {}) or {}
+    return task_sizes.get(task) or cls.INPUT_SIZES
+
+
+def _register_cli_names_for_class(cls) -> None:
+    default_task = getattr(cls, "DEFAULT_TASK", "detect")
+    for size_code in _task_sizes_for_cli(cls, default_task):
+        cli_name = f"{cls.FAMILY}-{size_code}"
+        _CLI_NAME_TO_WEIGHTS[cli_name] = _weight_filename_for_cli(cls, size_code)
+
+    for task in getattr(cls, "SUPPORTED_TASKS", ("detect",)):
+        if task == default_task:
+            continue
+        suffix = task_to_suffix(task)
+        if suffix is None:
+            continue
+        for size_code in _task_sizes_for_cli(cls, task):
+            cli_name = f"{cls.FAMILY}-{size_code}-{suffix}"
+            weight_name = f"{cls.FILENAME_PREFIX}{size_code}-{suffix}{cls.WEIGHT_EXT}"
+            _CLI_NAME_TO_WEIGHTS[cli_name] = weight_name
+
+
 def _build_name_map() -> None:
     """Populate CLI name → weight filename mapping from model registry."""
     if _CLI_NAME_TO_WEIGHTS:
@@ -43,24 +68,14 @@ def _build_name_map() -> None:
     from libreyolo.models.base.model import BaseModel
 
     for cls in BaseModel._registry:
-        for size_code in cls.INPUT_SIZES:
-            cli_name = f"{cls.FAMILY}-{size_code}"
-            _CLI_NAME_TO_WEIGHTS[cli_name] = _weight_filename_for_cli(cls, size_code)
+        _register_cli_names_for_class(cls)
 
     # Also try RF-DETR (lazily registered)
     from libreyolo.models import try_ensure_rfdetr
 
     rfcls = try_ensure_rfdetr()
     if rfcls is not None:
-        for size_code in rfcls.INPUT_SIZES:
-            cli_name = f"{rfcls.FAMILY}-{size_code}"
-            _CLI_NAME_TO_WEIGHTS[cli_name] = _weight_filename_for_cli(
-                rfcls, size_code
-            )
-        for size_code in getattr(rfcls, "SEG_INPUT_SIZES", {}):
-            cli_name = f"{rfcls.FAMILY}-{size_code}-seg"
-            weight_name = f"{rfcls.FILENAME_PREFIX}{size_code}-seg{rfcls.WEIGHT_EXT}"
-            _CLI_NAME_TO_WEIGHTS[cli_name] = weight_name
+        _register_cli_names_for_class(rfcls)
 
 
 def get_all_cli_names() -> list[str]:
@@ -93,11 +108,9 @@ def detect_family_from_name(model_name: str) -> Optional[str]:
     """Detect model family from a CLI model name like 'yolox-s' or 'yolo9-m'."""
     _build_name_map()
     lower = model_name.lower()
-    # Check against all registered families (auto-discovered)
-    for cli_name in _CLI_NAME_TO_WEIGHTS:
-        family = cli_name.rsplit("-", 1)[0]
-        if lower.startswith(f"{family}-"):
-            return family
+    resolved = _CLI_NAME_TO_WEIGHTS.get(lower)
+    if resolved is not None:
+        return detect_family_from_weight_filename(resolved)
     return None
 
 

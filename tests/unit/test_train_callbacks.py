@@ -351,6 +351,26 @@ def test_train_emits_epoch_callback_after_best_update_and_checkpoint(tmp_path):
     assert event.best_epoch == 1
 
 
+def test_train_save_period_zero_disables_periodic_checkpoints(tmp_path):
+    trainer = CallbackTrainer(
+        model=nn.Linear(1, 1),
+        data=None,
+        device="cpu",
+        ema=False,
+        epochs=2,
+        save_period=0,
+    )
+    trainer._test_save_dir = tmp_path
+    trainer.saved_checkpoints = []
+
+    results = trainer.train()
+
+    assert results["final_loss"] == pytest.approx(2.5)
+    assert len(trainer.saved_checkpoints) == 2
+    assert trainer.saved_checkpoints[0]["is_best"] is True
+    assert trainer.saved_checkpoints[1]["is_best"] is False
+
+
 class FailingTrainer(CallbackTrainer):
     def _train_epoch(self, epoch: int):
         raise RuntimeError("training failed")

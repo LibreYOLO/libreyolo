@@ -4,6 +4,11 @@ import math
 from abc import ABC, abstractmethod
 
 
+def _clamp_warmup_lr_start(lr: float, warmup_lr_start: float) -> float:
+    """Keep warmup from overshooting low fine-tuning learning rates."""
+    return min(float(warmup_lr_start), float(lr))
+
+
 class BaseScheduler(ABC):
     """Base class for all LR schedulers."""
 
@@ -40,7 +45,7 @@ class WarmupCosineScheduler(BaseScheduler):
     ):
         super().__init__(lr, iters_per_epoch, total_epochs)
         self.warmup_iters = iters_per_epoch * warmup_epochs
-        self.warmup_lr_start = warmup_lr_start
+        self.warmup_lr_start = _clamp_warmup_lr_start(lr, warmup_lr_start)
         self.plateau_iters = iters_per_epoch * plateau_epochs
         self.min_lr = lr * min_lr_ratio
 
@@ -86,7 +91,7 @@ class LinearLRScheduler(BaseScheduler):
     ):
         super().__init__(lr, iters_per_epoch, total_epochs)
         self.warmup_iters = iters_per_epoch * warmup_epochs
-        self.warmup_lr_start = warmup_lr_start
+        self.warmup_lr_start = _clamp_warmup_lr_start(lr, warmup_lr_start)
         self.min_lr = lr * min_lr_ratio
 
     def update_lr(self, iters: int) -> float:
@@ -121,7 +126,7 @@ class ConstantLRScheduler(BaseScheduler):
     ):
         super().__init__(lr, iters_per_epoch, total_epochs)
         self.warmup_iters = iters_per_epoch * warmup_epochs
-        self.warmup_lr_start = warmup_lr_start
+        self.warmup_lr_start = _clamp_warmup_lr_start(lr, warmup_lr_start)
 
     def update_lr(self, iters: int) -> float:
         if iters <= self.warmup_iters and self.warmup_iters > 0:
@@ -157,7 +162,7 @@ class FlatCosineScheduler(BaseScheduler):
     ):
         super().__init__(lr, iters_per_epoch, total_epochs)
         self.warmup_iters = iters_per_epoch * warmup_epochs
-        self.warmup_lr_start = warmup_lr_start
+        self.warmup_lr_start = _clamp_warmup_lr_start(lr, warmup_lr_start)
         self.cosine_iters = iters_per_epoch * no_aug_epochs
         self.min_lr = lr * min_lr_ratio
 
@@ -193,7 +198,7 @@ class CosineAnnealingScheduler(BaseScheduler):
     ):
         super().__init__(lr, iters_per_epoch, total_epochs)
         self.warmup_iters = iters_per_epoch * warmup_epochs
-        self.warmup_lr_start = warmup_lr_start
+        self.warmup_lr_start = _clamp_warmup_lr_start(lr, warmup_lr_start)
         self.min_lr = lr * min_lr_ratio
 
     def update_lr(self, iters: int) -> float:

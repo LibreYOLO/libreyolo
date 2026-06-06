@@ -217,8 +217,6 @@ class SimOTAAssigner:
         """
         num_priors = priors.shape[0]
         num_gts = gt_bboxes.shape[0]
-        device = priors.device
-
         assigned_gt_inds = priors.new_zeros((num_priors,), dtype=torch.long)
         assigned_labels = priors.new_full((num_priors,), -1, dtype=torch.long)
         max_overlaps = priors.new_zeros((num_priors,))
@@ -279,11 +277,11 @@ class SimOTAAssigner:
         sh = priors[:, 3:4]
 
         # In-GT-bbox check
-        l = cx - gt_bboxes[None, :, 0]
+        left = cx - gt_bboxes[None, :, 0]
         t = cy - gt_bboxes[None, :, 1]
         r = gt_bboxes[None, :, 2] - cx
         b = gt_bboxes[None, :, 3] - cy
-        deltas = torch.stack([l, t, r, b], dim=-1)
+        deltas = torch.stack([left, t, r, b], dim=-1)
         is_in_boxes = deltas.min(dim=-1).values > 0  # (N, M)
 
         # In-center check: distance from each prior centre to GT centre

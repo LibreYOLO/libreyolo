@@ -10,7 +10,6 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 import pytest
-import torch
 
 from libreyolo.models.base.model import BaseModel
 
@@ -20,6 +19,13 @@ pytestmark = pytest.mark.unit
 def _model():
     """Minimal stand-in: _merge_tta only reads self.names."""
     return SimpleNamespace(names={0: "a", 1: "b"})
+
+
+def test_obb_rejects_tta_before_axis_aligned_merge():
+    model = SimpleNamespace(task="obb")
+
+    with pytest.raises(ValueError, match="oriented boxes"):
+        BaseModel._predict_augment(model, image=None)
 
 
 def _det(boxes, scores, classes):

@@ -332,6 +332,10 @@ class BaseModel(ABC):
         self.model.load_state_dict(new_state)
         self.model.to(self.device)
 
+    def _rebuild_for_checkpoint_classes(self, new_nb_classes: int, state_dict: dict):
+        """Rebuild for checkpoint class count before loading its state dict."""
+        self._rebuild_for_new_classes(new_nb_classes)
+
     @classmethod
     def _filename_regex(cls) -> Optional[re.Pattern]:
         """Compile regex for matching weight filenames with optional task suffix."""
@@ -510,7 +514,7 @@ class BaseModel(ABC):
                     ckpt_nc = self.detect_nb_classes(state_dict)
 
                 if ckpt_nc is not None and ckpt_nc != self.nb_classes:
-                    self._rebuild_for_new_classes(ckpt_nc)
+                    self._rebuild_for_checkpoint_classes(ckpt_nc, state_dict)
 
                 effective_nc = ckpt_nc if ckpt_nc is not None else self.nb_classes
                 if ckpt_names is not None:
@@ -519,6 +523,7 @@ class BaseModel(ABC):
                 state_dict = loaded
 
             self.model.load_state_dict(state_dict, strict=self._strict_loading())
+            self.model.to(self.device).eval()
         except Exception as e:
             raise RuntimeError(
                 f"Failed to load model weights from {model_path}: {e}"
@@ -567,6 +572,12 @@ class BaseModel(ABC):
         Scales are read from TTA_SCALES (class variable); each scale x 2 flips
         = one batch of passes. TTA_FIXED_SIZE models always use flip-only.
         """
+        if getattr(self, "task", "detect") == "obb":
+            raise ValueError(
+                "Test-time augmentation does not support oriented boxes yet. "
+                "Use augment=False for OBB models."
+            )
+
         from PIL import Image as PILImage
         from ...utils.image_loader import ImageLoader
 
@@ -776,6 +787,12 @@ class BaseModel(ABC):
         Yields:
             Results with ``track_id`` attribute set as an (N,) int tensor.
         """
+        if getattr(self, "task", "detect") == "obb":
+            raise NotImplementedError(
+                "Tracking does not support oriented boxes yet. "
+                "Use predict() for OBB models."
+            )
+
         from ...tracking import ByteTracker, TrackConfig
         from ...utils.drawing import draw_boxes, draw_masks
         from ...utils.video import run_video_inference
@@ -900,6 +917,7 @@ class BaseModel(ABC):
         """
         from libreyolo.validation import (
             DetectionValidator,
+            OBBValidator,
             PoseValidator,
             SegmentationValidator,
             ValidationConfig,
@@ -909,6 +927,11 @@ class BaseModel(ABC):
             imgsz = self._get_input_size()
         if plots is not None and "save_plots" not in kwargs:
             kwargs["save_plots"] = plots
+        if augment and self.task == "obb":
+            raise ValueError(
+                "Augmented validation does not support oriented boxes yet. "
+                "Use augment=False for OBB models."
+            )
 
         config = ValidationConfig(
             data=data,
@@ -936,6 +959,8 @@ class BaseModel(ABC):
             validator_cls = PoseValidator
         elif self.task == "segment":
             validator_cls = SegmentationValidator
+        elif self.task == "obb":
+            validator_cls = OBBValidator
         else:
             validator_cls = DetectionValidator
         validator = validator_cls(model=self, config=config)

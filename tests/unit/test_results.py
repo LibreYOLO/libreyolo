@@ -3,8 +3,11 @@
 import pytest
 import torch
 import numpy as np
+from PIL import Image
 
+from libreyolo.models.base.inference import InferenceRunner
 from libreyolo.utils.results import Boxes, Keypoints, Masks, OBB, Probs, Results
+from libreyolo.utils.drawing import draw_obb
 
 pytestmark = pytest.mark.unit
 
@@ -231,6 +234,30 @@ class TestResults:
         assert obb.xyxy.shape == (1, 4)
         assert obb.xyxyxyxyn[0, 0, 0].item() == pytest.approx(-0.025)
 
+    def test_summary_includes_obb_payload(self):
+        boxes = Boxes(
+            torch.tensor([[5.0, 10.0, 35.0, 30.0]]),
+            torch.tensor([0.8]),
+            torch.tensor([2.0]),
+        )
+        obb = OBB(torch.tensor([[20.0, 20.0, 30.0, 10.0, 0.5, 0.8, 2.0]]), (100, 200))
+        result = Results(
+            boxes=boxes,
+            obb=obb,
+            orig_shape=(100, 200),
+            names={2: "ship"},
+        )
+
+        row = result.summary(normalize=True, decimals=4)[0]
+
+        assert row["name"] == "ship"
+        assert row["obb"]["x_center"] == pytest.approx(0.1)
+        assert row["obb"]["y_center"] == pytest.approx(0.2)
+        assert row["obb"]["width"] == pytest.approx(0.15)
+        assert row["obb"]["height"] == pytest.approx(0.1)
+        assert row["obb"]["rotation"] == pytest.approx(0.5)
+        assert len(row["corners"]["x"]) == 4
+
     def test_obb_tracking_and_shape_validation(self):
         obb = OBB(
             torch.tensor([[10.0, 20.0, 30.0, 40.0, 0.0, 99.0, 0.8, 2.0]]),
@@ -250,6 +277,21 @@ class TestResults:
         r = repr(result)
         assert "Results" in r
         assert "test.jpg" in r
+
+
+def test_draw_obb_marks_image_pixels():
+    img = Image.new("RGB", (80, 80), "white")
+
+    out = draw_obb(
+        img,
+        [[40.0, 40.0, 30.0, 12.0, 0.5]],
+        [0.9],
+        [0],
+        class_names={0: "ship"},
+    )
+
+    assert out.size == img.size
+    assert np.asarray(out).sum() < np.asarray(img).sum()
 
 
 class TestClassesFilter:
@@ -277,3 +319,35 @@ class TestClassesFilter:
         mask = cl == 0.0
         filtered = Boxes(b[mask], c[mask], cl[mask])
         assert len(filtered) == 0
+
+    def test_inference_runner_filter_preserves_obb_alignment(self):
+        class DummyModel:
+            names = {0: "car", 1: "truck"}
+
+        runner = InferenceRunner(DummyModel())
+        detections = {
+            "boxes": [[0.0, 0.0, 10.0, 10.0], [20.0, 20.0, 40.0, 40.0]],
+            "scores": [0.9, 0.8],
+            "classes": [0, 1],
+            "obb": [
+                [5.0, 5.0, 10.0, 10.0, 0.1, 0.9, 0.0],
+                [30.0, 30.0, 20.0, 20.0, 0.2, 0.8, 1.0],
+            ],
+            "num_detections": 2,
+        }
+
+        result = runner._wrap_results(
+            detections,
+            original_size=(100, 80),
+            image_path=None,
+            classes=[1],
+        )
+
+        assert len(result.boxes) == 1
+        assert result.obb is not None
+        assert result.boxes.cls.tolist() == [1.0]
+        assert result.obb.cls.tolist() == [1.0]
+        torch.testing.assert_close(
+            result.obb.xywhr,
+            torch.tensor([[30.0, 30.0, 20.0, 20.0, 0.2]]),
+        )

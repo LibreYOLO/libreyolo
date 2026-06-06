@@ -11,15 +11,19 @@ import torch
 import torch.nn.functional as F
 from PIL import Image
 
-from ..models.yolo9.utils import _YOLO9_MAX_NMS_CANDIDATES, preprocess_image
+from ..models.yolo9.utils import (
+    _YOLO9_MAX_NMS_CANDIDATES,
+    postprocess as yolo9_postprocess,
+    preprocess_image,
+)
 from ..models.yolonas.utils import preprocess_image as yolonas_preprocess_image
 from ..models.yolox.utils import preprocess_image as yolox_preprocess_image
 from ..tasks import normalize_supported_tasks, normalize_task, resolve_task
-from ..utils.drawing import draw_boxes, draw_masks
-from ..utils.general import COCO_CLASSES, get_safe_stem, log_saved_result
+from ..utils.drawing import draw_boxes, draw_masks, draw_obb
+from ..utils.general import COCO_CLASSES, get_safe_stem, log_saved_result, resolve_save_path
 from ..utils.image_loader import ImageLoader
 from ..utils.predict_args import normalize_predict_kwargs
-from ..utils.results import Boxes, Masks, Results
+from ..utils.results import Boxes, Masks, OBB, Results
 from ..utils.video import collect_video_results, is_video_file, run_video_inference
 
 logger = logging.getLogger(__name__)
@@ -456,8 +460,10 @@ class BaseBackend(ABC):
         original_size: tuple,
         conf: float,
         ratio: float = 1.0,
+        iou: float = 0.45,
+        max_det: int = 300,
     ):
-        """Parse raw outputs into (boxes_xyxy, scores, class_ids, masks_or_None)."""
+        """Parse raw outputs into boxes, scores, classes, masks, and optional OBB."""
         orig_w, orig_h = original_size
 
         if self.model_family == "yolox":
@@ -506,8 +512,10 @@ class BaseBackend(ABC):
             return boxes, scores, cls, None
         else:
             parsed = self._parse_yolo9(
-                all_outputs, effective_imgsz, orig_w, orig_h, conf
+                all_outputs, effective_imgsz, orig_w, orig_h, conf, iou, max_det
             )
+            if len(parsed) == 5:
+                return parsed
             if len(parsed) == 4:
                 return parsed
             boxes, scores, cls = parsed
@@ -632,8 +640,34 @@ class BaseBackend(ABC):
 
         return boxes, max_scores, class_ids
 
-    def _parse_yolo9(self, all_outputs, effective_imgsz, orig_w, orig_h, conf):
+    def _parse_yolo9(
+        self,
+        all_outputs,
+        effective_imgsz,
+        orig_w,
+        orig_h,
+        conf,
+        iou: float = 0.45,
+        max_det: int = 300,
+    ):
         """Parse YOLO9 output: (B, 4+nc, N) — xyxy + class_scores."""
+        if self.task == "obb":
+            output = torch.from_numpy(np.asarray(all_outputs[0]))
+            parsed = yolo9_postprocess(
+                {"predictions": output, "obb": True},
+                conf_thres=conf,
+                iou_thres=iou,
+                input_size=effective_imgsz,
+                original_size=(orig_w, orig_h),
+                max_det=max_det,
+                letterbox=True,
+            )
+            boxes = np.asarray(parsed["boxes"], dtype=np.float32).reshape(-1, 4)
+            max_scores = np.asarray(parsed["scores"], dtype=np.float32)
+            class_ids = np.asarray(parsed["classes"], dtype=np.int64)
+            obb = np.asarray(parsed["obb"], dtype=np.float32).reshape(-1, 7)
+            return boxes, max_scores, class_ids, None, obb
+
         outputs = all_outputs[0][0].T  # (N, 4+nc)
 
         boxes_input_all = outputs[:, :4]
@@ -917,6 +951,7 @@ class BaseBackend(ABC):
         class_ids: np.ndarray,
         *,
         masks: "np.ndarray | None" = None,
+        obb: "np.ndarray | None" = None,
         orig_shape: Tuple[int, int],
         image_path,
         iou: float,
@@ -931,12 +966,15 @@ class BaseBackend(ABC):
                     torch.zeros((0,), dtype=torch.float32),
                     torch.zeros((0,), dtype=torch.float32),
                 ),
+                obb=OBB(torch.zeros((0, 7), dtype=torch.float32), orig_shape)
+                if self.task == "obb"
+                else None,
                 orig_shape=orig_shape,
                 path=str(image_path) if image_path else None,
                 names=self.names,
             )
 
-        if not _is_nms_free_family(self.model_family):
+        if obb is None and not _is_nms_free_family(self.model_family):
             # YOLO9 (like DAMO) needs class-aware NMS so multi-label detections
             # on a shared anchor (same box, different class) survive, matching
             # the native batched_nms path. Class-agnostic NMS would drop the
@@ -960,10 +998,13 @@ class BaseBackend(ABC):
             class_ids = class_ids[top_indices]
             if masks is not None:
                 masks = masks[top_indices]
+            if obb is not None:
+                obb = obb[top_indices]
 
         boxes_t = torch.tensor(boxes, dtype=torch.float32)
         conf_t = torch.tensor(max_scores, dtype=torch.float32)
         cls_t = torch.tensor(class_ids, dtype=torch.float32)
+        obb_t = torch.tensor(obb, dtype=torch.float32) if obb is not None else None
 
         if classes is not None and len(boxes_t) > 0:
             cls_mask = torch.zeros(len(cls_t), dtype=torch.bool)
@@ -974,14 +1015,21 @@ class BaseBackend(ABC):
             cls_t = cls_t[cls_mask]
             if masks is not None:
                 masks = masks[cls_mask.numpy()]
+            if obb_t is not None:
+                obb_t = obb_t[cls_mask]
 
         masks_obj = None
         if masks is not None and len(masks) > 0:
             masks_obj = Masks(torch.from_numpy(masks).bool(), orig_shape=orig_shape)
 
+        obb_obj = None
+        if obb_t is not None:
+            obb_obj = OBB(obb_t, orig_shape)
+
         return Results(
             boxes=Boxes(boxes_t, conf_t, cls_t),
             masks=masks_obj,
+            obb=obb_obj,
             orig_shape=orig_shape,
             path=str(image_path) if image_path else None,
             names=self.names,
@@ -1001,24 +1049,34 @@ class BaseBackend(ABC):
                     result.masks.data.numpy(),
                     result.boxes.cls.tolist(),
                 )
-            annotated_img = draw_boxes(
-                annotated_img,
-                result.boxes.xyxy.tolist(),
-                result.boxes.conf.tolist(),
-                result.boxes.cls.tolist(),
-            )
+            if result.obb is not None:
+                annotated_img = draw_obb(
+                    annotated_img,
+                    result.obb.xywhr.tolist(),
+                    result.obb.conf.tolist(),
+                    result.obb.cls.tolist(),
+                    class_names=self.names,
+                )
+            else:
+                annotated_img = draw_boxes(
+                    annotated_img,
+                    result.boxes.xyxy.tolist(),
+                    result.boxes.conf.tolist(),
+                    result.boxes.cls.tolist(),
+                )
 
+        ext = Path(image_path).suffix.lstrip(".") if image_path else "jpg"
+        if not ext:
+            ext = "jpg"
         if output_path:
-            final_path = Path(output_path)
-            final_path.parent.mkdir(parents=True, exist_ok=True)
+            final_path = resolve_save_path(output_path, image_path, ext=ext)
         else:
             stem = get_safe_stem(image_path) if image_path else "inference"
-            ext = Path(image_path).suffix if image_path else ".jpg"
             model_tag = Path(self.model_path).stem
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
             save_dir = Path("runs/detections")
             save_dir.mkdir(parents=True, exist_ok=True)
-            final_path = save_dir / f"{stem}_{model_tag}_{timestamp}{ext}"
+            final_path = save_dir / f"{stem}_{model_tag}_{timestamp}.{ext}"
 
         annotated_img.save(final_path)
         log_saved_result(result, final_path)
@@ -1144,14 +1202,26 @@ class BaseBackend(ABC):
     ) -> Dict:
         effective_imgsz = self._resolve_predict_imgsz(input_size)
         outputs = self._as_numpy_outputs(output)
-        boxes, max_scores, class_ids, masks = self._parse_outputs(
-            outputs, effective_imgsz, original_size, conf_thres, ratio=ratio
+        parsed = self._parse_outputs(
+            outputs,
+            effective_imgsz,
+            original_size,
+            conf_thres,
+            ratio=ratio,
+            iou=iou_thres,
+            max_det=max_det,
         )
+        if len(parsed) == 5:
+            boxes, max_scores, class_ids, masks, obb = parsed
+        else:
+            boxes, max_scores, class_ids, masks = parsed
+            obb = None
         result = self._build_result(
             boxes,
             max_scores,
             class_ids,
             masks=masks,
+            obb=obb,
             orig_shape=(int(original_size[1]), int(original_size[0])),
             image_path=None,
             iou=iou_thres,
@@ -1167,6 +1237,8 @@ class BaseBackend(ABC):
         }
         if result.masks is not None:
             det["masks"] = result.masks.data
+        if result.obb is not None:
+            det["obb"] = result.obb.data
         return det
 
     def val(
@@ -1189,6 +1261,7 @@ class BaseBackend(ABC):
     ) -> Dict:
         from ..validation import (
             DetectionValidator,
+            OBBValidator,
             SegmentationValidator,
             ValidationConfig,
         )
@@ -1225,9 +1298,12 @@ class BaseBackend(ABC):
             verbose=verbose,
             **kwargs,
         )
-        validator_cls = (
-            SegmentationValidator if self.task == "segment" else DetectionValidator
-        )
+        if self.task == "segment":
+            validator_cls = SegmentationValidator
+        elif self.task == "obb":
+            validator_cls = OBBValidator
+        else:
+            validator_cls = DetectionValidator
         validator = validator_cls(model=self, config=config)
         return validator()
 
@@ -1259,9 +1335,20 @@ class BaseBackend(ABC):
 
         all_outputs = self._run_inference(blob)
 
-        boxes, max_scores, class_ids, masks = self._parse_outputs(
-            all_outputs, effective_imgsz, original_size, conf, ratio=ratio
+        parsed = self._parse_outputs(
+            all_outputs,
+            effective_imgsz,
+            original_size,
+            conf,
+            ratio=ratio,
+            iou=iou,
+            max_det=max_det,
         )
+        if len(parsed) == 5:
+            boxes, max_scores, class_ids, masks, obb = parsed
+        else:
+            boxes, max_scores, class_ids, masks = parsed
+            obb = None
 
         orig_w, orig_h = original_size
         orig_shape = (orig_h, orig_w)
@@ -1270,6 +1357,7 @@ class BaseBackend(ABC):
             max_scores,
             class_ids,
             masks=masks,
+            obb=obb,
             orig_shape=orig_shape,
             image_path=image_path,
             iou=iou,
@@ -1426,15 +1514,27 @@ class BaseBackend(ABC):
             )
             blob = input_tensor.numpy()
             all_outputs = self._run_inference(blob)
-            boxes, max_scores, class_ids, masks = self._parse_outputs(
-                all_outputs, effective_imgsz, original_size, conf, ratio=ratio
+            parsed = self._parse_outputs(
+                all_outputs,
+                effective_imgsz,
+                original_size,
+                conf,
+                ratio=ratio,
+                iou=iou,
+                max_det=max_det,
             )
+            if len(parsed) == 5:
+                boxes, max_scores, class_ids, masks, obb = parsed
+            else:
+                boxes, max_scores, class_ids, masks = parsed
+                obb = None
             orig_w, orig_h = original_size
             return self._build_result(
                 boxes,
                 max_scores,
                 class_ids,
                 masks=masks,
+                obb=obb,
                 orig_shape=(orig_h, orig_w),
                 image_path=str(source),
                 iou=iou,

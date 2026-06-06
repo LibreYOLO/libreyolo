@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
+from PIL import Image
 
 import libreyolo.backends.base as backend_base
 from libreyolo.backends.base import BaseBackend
@@ -312,6 +313,180 @@ def test_yolo9_backend_parse_caps_multilabel_candidates(monkeypatch):
         np.sort(scores), [0.7, 0.8, 0.9], rtol=0, atol=1e-6
     )
     np.testing.assert_array_equal(classes, [0, 1, 0])
+
+
+def test_yolo9_obb_backend_parse_outputs_obb_payload():
+    backend = _DummyBackend(
+        "yolo9",
+        task="obb",
+        supported_tasks=("detect", "segment", "obb"),
+    )
+    pred = np.zeros((1, 7, 2), dtype=np.float32)
+    pred[0, :4] = np.array(
+        [
+            [10.0, 10.0],
+            [20.0, 20.0],
+            [50.0, 50.0],
+            [40.0, 40.0],
+        ],
+        dtype=np.float32,
+    )
+    pred[0, 4] = 0.25
+    pred[0, 5:] = np.array([[0.9, 0.8], [0.1, 0.2]], dtype=np.float32)
+
+    boxes, scores, classes, masks, obb = backend._parse_outputs(
+        [pred], 64, (64, 64), conf=0.25, iou=0.5, max_det=1
+    )
+
+    assert masks is None
+    assert boxes.shape == (1, 4)
+    np.testing.assert_allclose(scores, [0.9])
+    np.testing.assert_array_equal(classes, [0])
+    assert obb.shape == (1, 7)
+    np.testing.assert_allclose(obb[0, :5], [30.0, 30.0, 40.0, 20.0, 0.25])
+
+
+def test_yolo9_obb_backend_parse_uses_letterbox_inverse_for_non_square_images():
+    backend = _DummyBackend(
+        "yolo9",
+        task="obb",
+        supported_tasks=("detect", "segment", "obb"),
+    )
+    pred = np.zeros((1, 7, 1), dtype=np.float32)
+    pred[0, :4, 0] = [100.0, 50.0, 200.0, 150.0]
+    pred[0, 4, 0] = 0.25
+    pred[0, 5:, 0] = [0.9, 0.1]
+
+    boxes, scores, classes, masks, obb = backend._parse_outputs(
+        [pred],
+        640,
+        (1280, 960),
+        conf=0.25,
+        iou=0.5,
+        max_det=300,
+    )
+
+    angle = 0.25
+    envelope = 100.0 * 2.0 * (np.cos(angle) + np.sin(angle))
+    half_envelope = envelope / 2.0
+
+    assert masks is None
+    np.testing.assert_allclose(
+        boxes,
+        [
+            [
+                300.0 - half_envelope,
+                200.0 - half_envelope,
+                300.0 + half_envelope,
+                200.0 + half_envelope,
+            ]
+        ],
+        rtol=1e-6,
+        atol=1e-5,
+    )
+    np.testing.assert_allclose(scores, [0.9])
+    np.testing.assert_array_equal(classes, [0])
+    assert obb.shape == (1, 7)
+    np.testing.assert_allclose(obb[0, :5], [300.0, 200.0, 200.0, 200.0, 0.25])
+
+
+def test_yolo9_obb_backend_postprocess_returns_obb_tensor():
+    backend = _DummyBackend(
+        "yolo9",
+        task="obb",
+        supported_tasks=("detect", "segment", "obb"),
+    )
+    pred = np.zeros((1, 7, 1), dtype=np.float32)
+    pred[0, :4, 0] = [10.0, 20.0, 50.0, 40.0]
+    pred[0, 4, 0] = 0.25
+    pred[0, 5:, 0] = [0.9, 0.1]
+
+    out = backend._postprocess(
+        [pred],
+        conf_thres=0.25,
+        iou_thres=0.5,
+        original_size=(64, 64),
+        input_size=64,
+    )
+
+    assert out["num_detections"] == 1
+    assert "obb" in out
+    np.testing.assert_allclose(out["obb"][0, :5].numpy(), [30.0, 30.0, 40.0, 20.0, 0.25])
+
+
+def test_obb_backend_class_filter_preserves_obb_alignment():
+    backend = _DummyBackend(
+        "yolo9",
+        task="obb",
+        supported_tasks=("detect", "segment", "obb"),
+    )
+    boxes = np.array(
+        [[0.0, 0.0, 10.0, 10.0], [20.0, 20.0, 40.0, 40.0]],
+        dtype=np.float32,
+    )
+    scores = np.array([0.9, 0.8], dtype=np.float32)
+    classes = np.array([0, 1], dtype=np.int64)
+    obb = np.array(
+        [
+            [5.0, 5.0, 10.0, 10.0, 0.1, 0.9, 0.0],
+            [30.0, 30.0, 20.0, 20.0, 0.2, 0.8, 1.0],
+        ],
+        dtype=np.float32,
+    )
+
+    result = backend._build_result(
+        boxes,
+        scores,
+        classes,
+        obb=obb,
+        orig_shape=(80, 100),
+        image_path=None,
+        iou=0.5,
+        classes=[1],
+        max_det=300,
+    )
+
+    assert len(result.boxes) == 1
+    assert result.obb is not None
+    assert result.boxes.cls.tolist() == [1.0]
+    assert result.obb.cls.tolist() == [1.0]
+    np.testing.assert_allclose(result.obb.xywhr.numpy(), [[30.0, 30.0, 20.0, 20.0, 0.2]])
+
+
+def test_backend_save_annotated_accepts_directory_output_path(tmp_path):
+    backend = _DummyBackend("yolo9")
+    image_path = tmp_path / "source.jpg"
+    output_dir = tmp_path / "predictions"
+    result = backend._build_result(
+        np.empty((0, 4), dtype=np.float32),
+        np.empty((0,), dtype=np.float32),
+        np.empty((0,), dtype=np.int64),
+        orig_shape=(8, 8),
+        image_path=image_path,
+        iou=0.5,
+        classes=None,
+        max_det=300,
+    )
+
+    backend._save_annotated(
+        result,
+        Image.new("RGB", (8, 8)),
+        image_path,
+        str(output_dir),
+    )
+
+    expected = output_dir / "source.jpg"
+    assert expected.exists()
+    assert result.saved_path == str(expected)
+
+
+def test_tensorrt_backend_detects_obb_task_from_filename():
+    from libreyolo.backends.tensorrt import TensorRTBackend
+
+    backend = object.__new__(TensorRTBackend)
+    backend.model_path = "weights/yolo9_t_obb.engine"
+
+    assert backend._detect_task_from_filename() == "obb"
 
 
 def test_damoyolo_backend_preprocess_uses_stretch_resize():

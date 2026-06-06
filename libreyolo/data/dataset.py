@@ -21,6 +21,11 @@ from PIL import Image, UnidentifiedImageError
 from tqdm import tqdm
 
 from .utils import polygon_to_cxcywh
+from .obb import (
+    corners_to_xywhr,
+    parse_yolo_obb_label_line,
+    xywhr_to_proxy_xyxy,
+)
 from libreyolo.training.distributed import is_main_process
 
 logger = logging.getLogger(__name__)
@@ -160,6 +165,8 @@ class YOLODataset(Dataset):
         img_files: List[Path] | None = None,
         label_files: List[Path] | None = None,
         load_segments: bool = False,
+        load_obb: bool = False,
+        num_classes: int | None = None,
     ):
         """
         Initialize YOLO dataset.
@@ -171,11 +178,16 @@ class YOLODataset(Dataset):
             preproc: Preprocessing transform.
             img_files: List of image paths (for file list mode).
             label_files: List of label paths (optional, inferred if not provided).
+            num_classes: Optional class-count bound used for OBB label validation.
         """
         self.img_size = img_size
         self.preproc = preproc
         self._input_dim = img_size
         self.load_segments = load_segments
+        self.load_obb = load_obb
+        self.num_classes = num_classes
+        if self.load_segments and self.load_obb:
+            raise ValueError("YOLODataset cannot load segmentation and OBB labels together")
 
         if img_files is not None:
             # File list mode (.txt format)
@@ -272,6 +284,27 @@ class YOLODataset(Dataset):
                 source,
                 time.perf_counter() - start,
             )
+        if self.load_obb:
+            invalid_obb_rows = 0
+            invalid_obb_files = 0
+            first_invalid_obb = None
+            normalized_annotations = []
+            for annotation, skipped_count, first_error in annotations:
+                normalized_annotations.append(annotation)
+                if skipped_count:
+                    invalid_obb_rows += skipped_count
+                    invalid_obb_files += 1
+                    first_invalid_obb = first_invalid_obb or first_error
+            annotations = normalized_annotations
+            if invalid_obb_rows and main:
+                logger.warning(
+                    "Skipped %d invalid YOLO OBB label rows across %d files from %s. "
+                    "First invalid row: %s",
+                    invalid_obb_rows,
+                    invalid_obb_files,
+                    source,
+                    first_invalid_obb,
+                )
         if self.load_segments:
             self.segments = [item[1] for item in annotations]
             annotations = [item[0] for item in annotations]
@@ -305,11 +338,32 @@ class YOLODataset(Dataset):
         # Load labels
         labels = []
         segments = []
+        skipped_obb_rows = 0
+        first_obb_error = None
         if label_file.exists():
             with open(label_file, "r") as f:
                 for line in f:
                     parts = line.strip().split()
-                    if len(parts) >= 5:
+                    if not parts:
+                        continue
+                    if self.load_obb:
+                        try:
+                            cls_id, corners = parse_yolo_obb_label_line(
+                                parts,
+                                num_classes=self.num_classes,
+                                clip=True,
+                            )
+                            pixel_corners = corners.copy()
+                            pixel_corners[:, 0] *= width
+                            pixel_corners[:, 1] *= height
+                            xywhr = corners_to_xywhr(pixel_corners)
+                            proxy = xywhr_to_proxy_xyxy(xywhr)
+                        except ValueError as exc:
+                            skipped_obb_rows += 1
+                            first_obb_error = first_obb_error or f"{label_file.name}: {exc}"
+                            continue
+                        labels.append([*proxy.tolist(), cls_id, float(xywhr[4])])
+                    elif len(parts) >= 5:
                         cls_id = int(parts[0])
 
                         if len(parts) > 5:
@@ -335,7 +389,8 @@ class YOLODataset(Dataset):
         if labels:
             res = np.array(labels, dtype=np.float32)
         else:
-            res = np.zeros((0, 5), dtype=np.float32)
+            width = 6 if self.load_obb else 5
+            res = np.zeros((0, width), dtype=np.float32)
 
         # Scale to target image size
         r = min(self.img_size[0] / height, self.img_size[1] / width)
@@ -349,6 +404,8 @@ class YOLODataset(Dataset):
         annotation = (res, img_info, resized_info, file_name)
         if self.load_segments:
             return annotation, segments
+        if self.load_obb:
+            return annotation, skipped_obb_rows, first_obb_error
         return annotation
 
     def __len__(self):

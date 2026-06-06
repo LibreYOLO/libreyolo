@@ -113,7 +113,7 @@ it appears in that family's `SUPPORTED_TASKS`.
 | Family    | `SUPPORTED_TASKS`                   | Default | Notes |
 |---|---|---|---|
 | `yolox`     | `("detect",)` (default)             | detect | detect-only |
-| `yolo9`     | `("detect",)` (default)             | detect | detect-only |
+| `yolo9`     | `("detect", "segment", "obb")`      | detect | native grid heads |
 | `yolo9_e2e` | `("detect",)` (default)             | detect | detect-only |
 | `dfine`     | `("detect",)` (default)             | detect | detect-only |
 | `deim`      | `("detect",)` (default)             | detect | detect-only |
@@ -135,6 +135,8 @@ each task can use a different per-size input resolution (relevant for RF-DETR).
 ```text
 LibreYOLOXn.pt
 LibreYOLO9s.pt
+LibreYOLO9t-seg.pt
+LibreYOLO9t-obb.pt
 LibreYOLO9E2Es.pt
 LibreYOLONASm.pt
 LibreDFINEl.pt

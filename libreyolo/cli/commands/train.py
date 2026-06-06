@@ -1,6 +1,8 @@
 """Train command: train a model on a dataset."""
 
+from pathlib import Path
 import time
+from typing import Optional
 
 import typer
 
@@ -22,11 +24,70 @@ from ..config import (
 from ..output import OutputHandler
 
 
+def _model_ref_exists(model_path: str) -> bool:
+    path = Path(model_path)
+    if path.exists():
+        return True
+    return path.parent == Path(".") and (Path("weights") / path.name).exists()
+
+
+def _create_explicit_task_train_model(
+    *,
+    family: str | None,
+    model_path: str,
+    task: str | None,
+    resume: bool | str,
+    device: str,
+):
+    """Instantiate task-specific train models that should start from architecture.
+
+    YOLO9 OBB training can use detect checkpoints only as explicit transfer
+    weights inside ``model.train(pretrained=...)``. Loading a detect checkpoint
+    directly into an OBB head is rejected by the checkpoint task contract.
+    """
+    if family != "yolo9" or resume:
+        return None
+
+    from libreyolo.models.yolo9.model import LibreYOLO9
+    from libreyolo.tasks import normalize_task
+
+    filename_task = LibreYOLO9.detect_task_from_filename(Path(model_path).name)
+    train_task = normalize_task(task) if task is not None else filename_task
+    if train_task != "obb":
+        return None
+    if filename_task == "obb" and _model_ref_exists(model_path):
+        return None
+
+    size = LibreYOLO9.detect_size_from_filename(Path(model_path).name)
+    if size is None:
+        return None
+    return LibreYOLO9(None, size=size, task=train_task, device=device)
+
+
+def _create_yolo9_obb_from_loaded_detect_model(loaded_model, device: str):
+    """Switch an already-loaded YOLO9 detect checkpoint to OBB architecture."""
+    if (
+        get_loaded_model_family(loaded_model) != "yolo9"
+        or getattr(loaded_model, "task", "detect") != "detect"
+    ):
+        return None
+
+    from libreyolo.models.yolo9.model import LibreYOLO9
+
+    size = getattr(loaded_model, "size", None)
+    if size is None:
+        return None
+    return LibreYOLO9(None, size=size, task="obb", device=device)
+
+
 def train_cmd(
     data: str = typer.Option(
         ..., help="Path to dataset YAML (YOLO format, e.g. coco8.yaml)"
     ),
     model: str = typer.Option("yolox-s", help="Model name or path to weights"),
+    task: Optional[str] = typer.Option(
+        None, help="Explicit task override: detect, segment, pose, classify, gaze, obb"
+    ),
     # Training
     epochs: int = typer.Option(300, help="Training epochs"),
     batch: int = typer.Option(16, help="Batch size per device"),
@@ -100,6 +161,14 @@ def train_cmd(
 
     out = OutputHandler(json_mode=json_output, quiet=quiet)
     user_provided = get_user_provided_params()
+    normalized_task = None
+    if task is not None:
+        from libreyolo.tasks import normalize_task
+
+        try:
+            normalized_task = normalize_task(task)
+        except ValueError as e:
+            exit_with_error(out, "config_type_error", str(e))
 
     # Parse tuple strings
     try:
@@ -129,11 +198,49 @@ def train_cmd(
     model_path = resolve_model_or_exit(out, model)
     family = detect_family_from_model_ref(model, model_path, inspect_checkpoint=dry_run)
     loaded_model = None
+    train_pretrained = pretrained
     if family is None and not dry_run:
         loaded_model = load_model_or_exit(
             out, model=model, model_path=model_path, device=device
         )
         family = get_loaded_model_family(loaded_model)
+    if loaded_model is None:
+        loaded_model = _create_explicit_task_train_model(
+            family=family,
+            model_path=model_path,
+            task=normalized_task,
+            resume=resume_val,
+            device=device,
+        )
+        if (
+            loaded_model is not None
+            and train_pretrained is True
+            and normalized_task == "obb"
+        ):
+            from libreyolo.models.yolo9.model import LibreYOLO9
+
+            filename_task = LibreYOLO9.detect_task_from_filename(Path(model_path).name)
+            if filename_task != "obb" and Path(model_path).exists():
+                train_pretrained = model_path
+    elif normalized_task is not None:
+        loaded_task = getattr(loaded_model, "task", "detect")
+        if loaded_task != normalized_task:
+            replacement = None
+            if normalized_task == "obb":
+                replacement = _create_yolo9_obb_from_loaded_detect_model(
+                    loaded_model,
+                    device=device,
+                )
+            if replacement is None:
+                exit_with_error(
+                    out,
+                    "config_unsupported",
+                    f"Loaded model task '{loaded_task}' does not match requested task "
+                    f"'{normalized_task}'.",
+                )
+            loaded_model = replacement
+            if train_pretrained is True:
+                train_pretrained = model_path
 
     # All training params in CLI-facing names (single source of truth).
     # build_train_kwargs() maps these to TrainConfig field names automatically.
@@ -208,6 +315,8 @@ def train_cmd(
             "momentum": params["momentum"],
             "scheduler": params["scheduler"],
         }
+        if normalized_task is not None:
+            resolved_config["task"] = normalized_task
         if family == "rfdetr":
             resolved_config = {
                 "model": model,
@@ -224,6 +333,8 @@ def train_cmd(
                 "ema_decay": params["ema_decay"],
                 "save_period": params["save_period"],
             }
+            if normalized_task is not None:
+                resolved_config["task"] = normalized_task
 
         data_out = {
             "valid": True,
@@ -257,7 +368,7 @@ def train_cmd(
     train_kwargs = build_family_train_kwargs(
         params, family, model_path=model_path, user_provided=user_provided
     )
-    train_kwargs["pretrained"] = pretrained  # Not in TrainConfig
+    train_kwargs["pretrained"] = train_pretrained  # Not in TrainConfig
     if family == "rfdetr":
         train_kwargs.pop("pretrained", None)
         if not val and "val" in user_provided:

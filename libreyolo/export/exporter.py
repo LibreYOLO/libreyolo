@@ -352,7 +352,7 @@ class BaseExporter(ABC):
         model_name = self.model._get_model_name().lower()
         task = getattr(self.model, "task", "detect")
         is_segment = task == "segment" or getattr(self.model, "_is_segmentation", False) is True
-        task_suffix = "_seg" if is_segment else ""
+        task_suffix = "_seg" if is_segment else ("_obb" if task == "obb" else "")
         precision_suffix = "_int8" if int8 else ("_fp16" if half else "")
         return str(
             Path("weights")
@@ -567,6 +567,7 @@ class BaseExporter(ABC):
             "imgsz_w": meta_w,
             "precision": precision,
             "dynamic": dynamic,
+            "obb": task == "obb",
         }
         if onnx_path is not None:
             meta["exported_from"] = str(Path(onnx_path).name)
@@ -614,6 +615,7 @@ class BaseExporter(ABC):
             "dynamic": str(dynamic),
             "half": str(half),
             "segmentation": str(getattr(self.model, "_is_segmentation", False)).lower(),
+            "obb": str(task == "obb").lower(),
         }
 
     def _task_metadata(self) -> tuple[str, list[str], str]:
@@ -700,6 +702,11 @@ class TorchScriptExporter(BaseExporter):
     supports_int8 = False
     supports_fp16 = True
     apply_model_half = True
+
+    def _resolve_params(self, output_path, imgsz, device, half, int8):
+        if device is None or str(device).lower() == "auto":
+            device = torch.device("cpu")
+        return super()._resolve_params(output_path, imgsz, device, half, int8)
 
     def _export(self, nn_model, dummy, *, output_path, metadata, **kwargs):
         return export_torchscript(

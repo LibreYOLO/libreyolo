@@ -15,6 +15,7 @@ from libreyolo.tracking.matching import (
 )
 from libreyolo.tracking.strack import STrack, TrackState
 from libreyolo.tracking.tracker import ByteTracker
+from libreyolo.models.base.model import BaseModel
 from libreyolo.utils.results import Boxes, Masks, Results
 
 pytestmark = pytest.mark.unit
@@ -34,6 +35,13 @@ def _make_results(boxes_list, confs, classes, orig_shape=(480, 640)):
         boxes=Boxes(boxes, conf, cls),
         orig_shape=orig_shape,
     )
+
+
+def test_obb_tracking_rejected_before_axis_aligned_tracker():
+    model = type("OBBModel", (), {"task": "obb"})()
+
+    with pytest.raises(NotImplementedError, match="oriented boxes"):
+        next(BaseModel.track(model, "missing.mp4"))
 
 
 # --------------------------------------------------------------------------

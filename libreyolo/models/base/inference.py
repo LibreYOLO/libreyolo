@@ -16,7 +16,13 @@ from typing import TYPE_CHECKING, Dict, Generator, List, Optional, Tuple, Union
 import torch
 from torchvision.ops import batched_nms
 
-from ...utils.drawing import draw_boxes, draw_keypoints, draw_masks, draw_tile_grid
+from ...utils.drawing import (
+    draw_boxes,
+    draw_keypoints,
+    draw_masks,
+    draw_obb,
+    draw_tile_grid,
+)
 from ...utils.general import (
     get_safe_stem,
     get_slice_bboxes,
@@ -25,7 +31,7 @@ from ...utils.general import (
 )
 from ...utils.image_loader import ImageInput, ImageLoader
 from ...utils.predict_args import normalize_predict_kwargs
-from ...utils.results import Boxes, Keypoints, Masks, Results
+from ...utils.results import Boxes, Keypoints, Masks, OBB, Results
 from ...utils.video import collect_video_results, is_video_file, run_video_inference
 
 logger = logging.getLogger(__name__)
@@ -305,13 +311,23 @@ class InferenceRunner:
                     result.boxes.cls.tolist(),
                 )
             # Draw boxes
-            annotated_img = draw_boxes(
-                annotated_img,
-                result.boxes.xyxy.tolist(),
-                result.boxes.conf.tolist(),
-                result.boxes.cls.tolist(),
-                class_names=result.names,
-            )
+            if result.obb is not None:
+                annotated_img = draw_obb(
+                    annotated_img,
+                    result.obb.xywhr.tolist(),
+                    result.obb.conf.tolist(),
+                    result.obb.cls.tolist(),
+                    class_names=result.names,
+                    track_ids=result.obb.id.tolist() if result.obb.id is not None else None,
+                )
+            else:
+                annotated_img = draw_boxes(
+                    annotated_img,
+                    result.boxes.xyxy.tolist(),
+                    result.boxes.conf.tolist(),
+                    result.boxes.cls.tolist(),
+                    class_names=result.names,
+                )
             # Draw keypoints
             if result.keypoints is not None:
                 kpts_np = result.keypoints.data
@@ -362,11 +378,14 @@ class InferenceRunner:
         """
         masks_t = None
         keypoints_t = None
+        obb_t = None
 
         if detections["num_detections"] == 0:
             boxes_t = torch.zeros((0, 4), dtype=torch.float32)
             conf_t = torch.zeros((0,), dtype=torch.float32)
             cls_t = torch.zeros((0,), dtype=torch.float32)
+            if "obb" in detections:
+                obb_t = torch.zeros((0, 7), dtype=torch.float32)
         else:
             raw_boxes = detections["boxes"]
             if isinstance(raw_boxes, torch.Tensor):
@@ -400,11 +419,23 @@ class InferenceRunner:
                 else:
                     keypoints_t = torch.as_tensor(raw_kpts).float()
 
+            raw_obb = detections.get("obb")
+            if raw_obb is not None:
+                if isinstance(raw_obb, torch.Tensor):
+                    obb_t = raw_obb.float()
+                else:
+                    obb_t = torch.as_tensor(raw_obb).float()
+
         # Apply class filter
         if classes is not None and len(boxes_t) > 0:
+            cls_mask = torch.zeros(len(cls_t), dtype=torch.bool, device=cls_t.device)
+            for cid in classes:
+                cls_mask |= cls_t == cid
             boxes_t, conf_t, cls_t, masks_t, keypoints_t = self._apply_classes_filter(
                 boxes_t, conf_t, cls_t, classes, masks_t, keypoints_t
             )
+            if obb_t is not None:
+                obb_t = obb_t[cls_mask]
 
         # original_size from preprocess is (W, H); orig_shape is (H, W)
         orig_w, orig_h = original_size
@@ -418,6 +449,10 @@ class InferenceRunner:
         if keypoints_t is not None:
             keypoints_obj = Keypoints(keypoints_t, orig_shape)
 
+        obb_obj = None
+        if obb_t is not None:
+            obb_obj = OBB(obb_t, orig_shape)
+
         return Results(
             boxes=Boxes(boxes_t, conf_t, cls_t),
             orig_shape=orig_shape,
@@ -425,6 +460,7 @@ class InferenceRunner:
             names=self.model.names,
             masks=masks_obj,
             keypoints=keypoints_obj,
+            obb=obb_obj,
         )
 
     def _predict_single(
@@ -583,6 +619,11 @@ class InferenceRunner:
             raise ValueError(
                 "Tiled inference does not support segmentation masks. "
                 "Use non-tiled inference for instance segmentation."
+            )
+        if getattr(self.model, "task", "detect") == "obb":
+            raise ValueError(
+                "Tiled inference does not support oriented boxes yet. "
+                "Use non-tiled inference for OBB models."
             )
 
         input_size = imgsz if imgsz is not None else self.model._get_input_size()

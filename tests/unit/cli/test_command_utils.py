@@ -18,7 +18,7 @@ from libreyolo.cli.command_utils import (
     get_loaded_model_input_size,
 )
 from libreyolo.cli.parsing import KeyValueCommand
-from libreyolo.utils.results import Boxes, Masks, Results
+from libreyolo.utils.results import Boxes, Masks, OBB, Results
 from libreyolo.utils.serialization import wrap_libreyolo_checkpoint
 
 pytestmark = pytest.mark.unit
@@ -306,6 +306,66 @@ def test_val_json_reports_segmentation_metric_groups(monkeypatch):
         "mAP50_95": 0.62,
         "precision": 0.82,
         "recall": 0.52,
+    }
+
+
+def test_val_json_reports_obb_metric_group(monkeypatch):
+    app = _make_app([("val", val.val_cmd), ("info", special.info_cmd)])
+
+    class _OBBModel:
+        FAMILY = "yolo9"
+        size = "t"
+        device = "cpu"
+
+        def val(self, **kwargs):
+            return {
+                "metrics/mAP50": 0.65,
+                "metrics/mAP50-95": 0.42,
+                "metrics/precision": 0.72,
+                "metrics/recall": 0.58,
+                "metrics/precision(OBB)": 0.72,
+                "metrics/recall(OBB)": 0.58,
+                "metrics/mAP50(OBB)": 0.65,
+                "metrics/mAP50-95(OBB)": 0.42,
+            }
+
+    monkeypatch.setattr(
+        "libreyolo.cli.commands.val.resolve_model_or_exit",
+        lambda out, model: model,
+    )
+    monkeypatch.setattr(
+        "libreyolo.cli.commands.val.load_model_or_exit",
+        lambda out, model, model_path, device: _OBBModel(),
+    )
+    monkeypatch.setattr(
+        "libreyolo.utils.general.increment_path",
+        lambda path, exist_ok=False, mkdir=False: Path(path),
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "val",
+            "data=uav-obb.yaml",
+            "model=LibreYOLO9t-obb.pt",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0
+    data = json.loads(result.stdout)
+    assert data["model_family"] == "yolo9"
+    assert data["metrics"] == {
+        "mAP50": 0.65,
+        "mAP50_95": 0.42,
+        "precision": 0.72,
+        "recall": 0.58,
+    }
+    assert data["obb_metrics"] == {
+        "mAP50": 0.65,
+        "mAP50_95": 0.42,
+        "precision": 0.72,
+        "recall": 0.58,
     }
 
 
@@ -719,6 +779,64 @@ def test_predict_json_reports_segmentation_masks(monkeypatch):
         "count": 1,
         "shape": [1, 10, 20],
     }
+
+
+def test_predict_json_reports_obb_payload(monkeypatch):
+    app = _make_app([("predict", predict.predict_cmd), ("info", special.info_cmd)])
+
+    class _OBBBackendLike:
+        model_family = "yolo9"
+        imgsz = 64
+        device = "cpu"
+
+        def __call__(self, source, **kwargs):
+            boxes = Boxes(
+                torch.tensor([[8.0, 4.0, 12.0, 6.0]]),
+                torch.tensor([0.9]),
+                torch.tensor([0]),
+            )
+            obb = OBB(
+                torch.tensor([[10.0, 5.0, 4.0, 2.0, 0.0, 0.9, 0.0]]),
+                (10, 20),
+            )
+            return Results(
+                boxes=boxes,
+                obb=obb,
+                orig_shape=(10, 20),
+                path=source,
+                names={0: "vehicle"},
+            )
+
+    monkeypatch.setattr(
+        "libreyolo.cli.commands.predict.resolve_model_or_exit",
+        lambda out, model: model,
+    )
+    monkeypatch.setattr(
+        "libreyolo.cli.commands.predict.load_model_or_exit",
+        lambda out, model, model_path, device: _OBBBackendLike(),
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "predict",
+            "source=libreyolo/assets/parkour.jpg",
+            "model=LibreYOLO9t-obb.onnx",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0
+    data = json.loads(result.stdout)
+    detection = data["results"][0]["detections"][0]
+    assert detection["class"] == "vehicle"
+    assert detection["obb"]["xywhr"] == [10.0, 5.0, 4.0, 2.0, 0.0]
+    assert detection["obb"]["corners"] == [
+        [8.0, 4.0],
+        [12.0, 4.0],
+        [12.0, 6.0],
+        [8.0, 6.0],
+    ]
 
 
 @pytest.mark.parametrize(

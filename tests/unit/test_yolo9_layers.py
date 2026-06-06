@@ -3,6 +3,7 @@
 import pytest
 import numpy as np
 import torch
+from PIL import Image
 
 from libreyolo.models.yolo9.nn import (
     Conv,
@@ -19,11 +20,15 @@ from libreyolo.models.yolo9.nn import (
     DFL,
     DDetect,
     DDetectSeg,
+    DDetectOBB,
     Backbone9,
     Neck9,
     LibreYOLO9Model,
 )
+from libreyolo.models.yolo9.loss import YOLO9OBBLoss
 from libreyolo.models.yolo9 import utils as yolo9_utils
+from libreyolo.models.yolo9.trainer import YOLO9Trainer
+from libreyolo.models.yolo9.transforms import YOLO9TrainTransform
 from libreyolo.validation.preprocessors import YOLO9ValPreprocessor
 
 pytestmark = pytest.mark.unit
@@ -213,6 +218,37 @@ class TestYOLO9DetectionHead:
         assert proto.shape == (1, 32, 16, 16)
         assert coeffs.shape == (1, 32, 84)
 
+    def test_ddetect_obb_forward(self):
+        """Test oriented-box DDetect head forward pass."""
+        layer = DDetectOBB(nc=2, ch=(64, 128, 256), reg_max=16, stride=(8, 16, 32))
+        layer.eval()
+        x = [
+            torch.randn(1, 64, 8, 8),
+            torch.randn(1, 128, 4, 4),
+            torch.randn(1, 256, 2, 2),
+        ]
+        decoded, raw, angle_logits = layer(x)
+        assert decoded.shape == (1, 7, 84)
+        assert len(raw) == 3
+        assert len(angle_logits) == 3
+        assert angle_logits[0].shape == (1, 1, 8, 8)
+
+    def test_ddetect_obb_export_forward_returns_prediction_tensor(self):
+        """OBB export mode returns a single traceable prediction tensor."""
+        layer = DDetectOBB(nc=2, ch=(64, 128, 256), reg_max=16, stride=(8, 16, 32))
+        layer.eval()
+        layer.export = True
+        x = [
+            torch.randn(1, 64, 8, 8),
+            torch.randn(1, 128, 4, 4),
+            torch.randn(1, 256, 2, 2),
+        ]
+
+        decoded = layer(x)
+
+        assert isinstance(decoded, torch.Tensor)
+        assert decoded.shape == (1, 7, 84)
+
 
 class TestYOLO9FullModel:
     """Test full model architecture."""
@@ -260,6 +296,16 @@ class TestYOLO9FullModel:
         assert out["proto"].shape == (1, 32, 16, 16)
         assert out["mask_coeffs"].shape == (1, 32, 84)
 
+    def test_obb_model_forward(self):
+        """Test full LibreYOLO9 OBB model forward pass."""
+        model = LibreYOLO9Model(config="t", nb_classes=2, obb=True)
+        model.eval()
+        x = torch.randn(1, 3, 64, 64)
+        out = model(x)
+        assert isinstance(out, dict)
+        assert out["obb"] is True
+        assert out["predictions"].shape == (1, 7, 84)
+
     def test_segment_training_loss(self):
         """Segmentation model computes box, class, DFL, and mask losses."""
         model = LibreYOLO9Model(config="t", nb_classes=2, segmentation=True)
@@ -277,6 +323,67 @@ class TestYOLO9FullModel:
         assert out["total_loss"].requires_grad
         assert out["seg_loss"].requires_grad
         assert out["seg"] >= 0
+
+    def test_obb_training_loss(self):
+        """OBB model computes box, class, DFL, and angle losses."""
+        model = LibreYOLO9Model(config="t", nb_classes=2, obb=True)
+        model.train()
+        targets = torch.zeros(2, 100, 6)
+        targets[:, :, 0] = -1
+        targets[0, 0] = torch.tensor([0, 0.2, 0.2, 0.7, 0.7, 0.25])
+        targets[1, 0] = torch.tensor([1, 0.1, 0.1, 0.6, 0.6, -0.25])
+
+        out = model(torch.randn(2, 3, 64, 64), targets=targets)
+
+        assert out["total_loss"].requires_grad
+        assert out["angle_loss"].requires_grad
+        assert out["angle"] >= 0
+
+
+def test_yolo9_obb_transform_vertical_flip_updates_box_and_angle():
+    image = np.zeros((10, 20, 3), dtype=np.uint8)
+    targets = np.array([[2.0, 1.0, 10.0, 4.0, 0.0, 0.25]], dtype=np.float32)
+    transform = YOLO9TrainTransform(
+        max_labels=2,
+        flip_prob=0.0,
+        vertical_flip_prob=1.0,
+        hsv_prob=0.0,
+        output_label_dim=6,
+    )
+
+    _, labels = transform(image, targets, (10, 20))
+
+    np.testing.assert_allclose(labels[0], [0.0, 0.1, 0.6, 0.5, 0.9, -0.25])
+    assert labels[1, 0] == -1
+
+
+def test_yolo9_obb_transform_horizontal_flip_updates_box_and_angle():
+    image = np.zeros((10, 20, 3), dtype=np.uint8)
+    targets = np.array([[2.0, 1.0, 10.0, 4.0, 0.0, 0.25]], dtype=np.float32)
+    transform = YOLO9TrainTransform(
+        max_labels=2,
+        flip_prob=1.0,
+        vertical_flip_prob=0.0,
+        hsv_prob=0.0,
+        output_label_dim=6,
+    )
+
+    _, labels = transform(image, targets, (10, 20))
+
+    np.testing.assert_allclose(labels[0], [0.0, 0.5, 0.1, 0.9, 0.4, -0.25])
+    assert labels[1, 0] == -1
+
+
+def test_yolo9_obb_loss_default_angle_weight_is_one():
+    loss = YOLO9OBBLoss(
+        num_classes=2,
+        reg_max=16,
+        strides=[8, 16, 32],
+        image_size=None,
+        device=torch.device("cpu"),
+    )
+
+    assert loss.angle_weight == 1.0
 
 
 class TestYOLO9Utils:
@@ -420,6 +527,131 @@ class TestYOLO9Utils:
         assert out["num_detections"] == 1
         assert out["classes"] == [0]
 
+    def test_postprocess_obb_outputs_obb_payload(self):
+        pred = torch.zeros(1, 7, 1)
+        pred[0, :4, 0] = torch.tensor([10.0, 20.0, 50.0, 40.0])
+        pred[0, 4, 0] = 0.25
+        pred[0, 5:, 0] = torch.tensor([0.9, 0.1])
+
+        out = yolo9_utils.postprocess(
+            {"predictions": pred, "obb": True},
+            conf_thres=0.25,
+            iou_thres=0.5,
+            input_size=64,
+            original_size=(64, 64),
+        )
+
+        assert out["num_detections"] == 1
+        assert len(out["obb"]) == 1
+        torch.testing.assert_close(
+            torch.as_tensor(out["obb"])[0, :5],
+            torch.tensor([30.0, 30.0, 40.0, 20.0, 0.25]),
+        )
+
+    def test_postprocess_obb_uses_letterbox_inverse_for_non_square_images(self):
+        pred = torch.zeros(1, 7, 1)
+        pred[0, :4, 0] = torch.tensor([100.0, 50.0, 200.0, 150.0])
+        pred[0, 4, 0] = 0.25
+        pred[0, 5:, 0] = torch.tensor([0.9, 0.1])
+
+        out = yolo9_utils.postprocess(
+            {"predictions": pred, "obb": True},
+            conf_thres=0.25,
+            iou_thres=0.5,
+            input_size=640,
+            original_size=(1280, 960),
+        )
+
+        assert out["num_detections"] == 1
+        torch.testing.assert_close(
+            torch.as_tensor(out["obb"])[0, :5],
+            torch.tensor([300.0, 200.0, 200.0, 200.0, 0.25]),
+        )
+
+    def test_postprocess_obb_uses_classwise_rotated_nms(self):
+        pred = torch.zeros(1, 7, 3)
+        pred[0, :4] = torch.tensor(
+            [
+                [10.0, 10.0, 10.0],
+                [20.0, 20.0, 20.0],
+                [50.0, 50.0, 50.0],
+                [40.0, 40.0, 40.0],
+            ]
+        )
+        pred[0, 4] = 0.25
+        pred[0, 5:] = torch.tensor(
+            [
+                [0.9, 0.8, 0.1],
+                [0.1, 0.2, 0.7],
+            ]
+        )
+
+        out = yolo9_utils.postprocess(
+            {"predictions": pred, "obb": True},
+            conf_thres=0.25,
+            iou_thres=0.5,
+            input_size=64,
+            original_size=(64, 64),
+        )
+
+        assert out["num_detections"] == 2
+        assert out["classes"] == [0, 1]
+        assert [round(score, 2) for score in out["scores"]] == [0.9, 0.7]
+
+    def test_postprocess_obb_prefilters_candidates_before_rotated_nms(self, monkeypatch):
+        num_candidates = 2000
+        pred = torch.zeros(1, 7, num_candidates)
+        pred[0, :4] = torch.tensor([[10.0], [20.0], [50.0], [40.0]]).expand(
+            4, num_candidates
+        )
+        pred[0, 4] = 0.25
+        pred[0, 5] = torch.linspace(0.9, 0.1, num_candidates)
+        pred[0, 6] = 0.01
+
+        exact_candidate_counts = []
+        original_rotated_nms = yolo9_utils._rotated_nms_keep_indices
+
+        def wrapped_rotated_nms(xywhr, scores, class_ids, iou_thres, max_det):
+            exact_candidate_counts.append(int(scores.numel()))
+            return original_rotated_nms(xywhr, scores, class_ids, iou_thres, max_det)
+
+        monkeypatch.setattr(
+            yolo9_utils,
+            "_rotated_nms_keep_indices",
+            wrapped_rotated_nms,
+        )
+
+        out = yolo9_utils.postprocess(
+            {"predictions": pred, "obb": True},
+            conf_thres=0.001,
+            iou_thres=0.5,
+            input_size=64,
+            original_size=(64, 64),
+            max_det=50,
+        )
+
+        assert out["num_detections"] == 1
+        assert exact_candidate_counts
+        assert exact_candidate_counts[0] <= 300
+
+    def test_obb_prefilter_does_not_apply_horizontal_nms(self):
+        num_candidates = 400
+        boxes = torch.tensor([[10.0, 10.0, 50.0, 50.0]]).expand(
+            num_candidates, 4
+        )
+        scores = torch.linspace(1.0, 0.1, num_candidates)
+        classes = torch.zeros(num_candidates, dtype=torch.long)
+
+        keep = yolo9_utils._obb_prefilter_keep_indices(
+            boxes,
+            scores,
+            classes,
+            max_det=50,
+        )
+
+        assert keep.numel() == 300
+        torch.testing.assert_close(scores[keep], scores[:300])
+
     def test_make_anchors(self):
         """Test anchor generation.
 
@@ -441,35 +673,138 @@ class TestYOLO9Utils:
         assert strides.shape[0] == 8400
         assert strides.shape[1] == 1
 
-    def test_postprocess_segment_outputs_masks(self):
-        """YOLO9 segment postprocess keeps mask coefficients aligned through NMS."""
-        num_anchors = 4
-        num_classes = 2
-        num_masks = 32
-        pred = torch.zeros(1, 4 + num_classes, num_anchors)
-        pred[0, :4] = torch.tensor(
-            [
-                [10, 12, 11, 200],
-                [10, 12, 11, 200],
-                [50, 60, 55, 240],
-                [50, 60, 55, 240],
-            ],
-            dtype=torch.float32,
-        )
-        pred[0, 4:] = torch.tensor(
-            [[0.9, 0.2, 0.95, 0.1], [0.1, 0.8, 0.05, 0.7]]
-        )
-        proto = torch.randn(1, num_masks, 16, 16)
-        coeffs = torch.randn(1, num_masks, num_anchors)
 
-        out = yolo9_utils.postprocess(
-            {"predictions": pred, "proto": proto, "mask_coeffs": coeffs},
-            conf_thres=0.25,
-            iou_thres=0.5,
-            input_size=64,
-            original_size=(128, 96),
-            max_det=3,
-        )
+def test_yolo9_trainer_disables_proxy_mosaic_for_obb(tmp_path):
+    image_dir = tmp_path / "train" / "images"
+    label_dir = tmp_path / "train" / "labels"
+    image_dir.mkdir(parents=True)
+    label_dir.mkdir(parents=True)
+    Image.new("RGB", (64, 64), color="white").save(image_dir / "sample.jpg")
+    (label_dir / "sample.txt").write_text(
+        "0 0.25 0.25 0.75 0.25 0.75 0.75 0.25 0.75\n",
+        encoding="utf-8",
+    )
+    data_yaml = tmp_path / "data.yaml"
+    data_yaml.write_text(
+        "path: " + str(tmp_path).replace("\\", "/") + "\n"
+        "train: train/images\n"
+        "val: train/images\n"
+        "nc: '1'\n"
+        "names:\n"
+        "  0: vehicle\n",
+        encoding="utf-8",
+    )
+    wrapper = type(
+        "Wrapper",
+        (),
+        {"task": "obb", "nb_classes": 1, "names": {0: "vehicle"}},
+    )()
+    trainer = YOLO9Trainer(
+        model=torch.nn.Conv2d(3, 3, 1),
+        wrapper_model=wrapper,
+        data=str(data_yaml),
+        epochs=1,
+        batch=1,
+        imgsz=64,
+        workers=0,
+        device="cpu",
+        mosaic_prob=1.0,
+        mixup_prob=1.0,
+    )
 
-        assert out["num_detections"] == 2
-        assert out["masks"].shape == (2, 96, 128)
+    train_dataset = trainer._setup_data()
+
+    assert train_dataset.enable_mosaic is False
+    assert train_dataset.enable_mixup is False
+    assert train_dataset.mosaic_prob == 0.0
+    assert train_dataset.mixup_prob == 0.0
+    assert train_dataset.preproc.vertical_flip_prob == 0.5
+    assert train_dataset.dataset.num_classes == 1
+
+
+def test_yolo9_trainer_checkpoint_uses_resolved_data_classes_for_obb(tmp_path):
+    from libreyolo.utils.serialization import load_trusted_torch_file
+
+    image_dir = tmp_path / "train" / "images"
+    label_dir = tmp_path / "train" / "labels"
+    image_dir.mkdir(parents=True)
+    label_dir.mkdir(parents=True)
+    Image.new("RGB", (64, 64), color="white").save(image_dir / "sample.jpg")
+    (label_dir / "sample.txt").write_text(
+        "0 0.25 0.25 0.75 0.25 0.75 0.75 0.25 0.75\n",
+        encoding="utf-8",
+    )
+    data_yaml = tmp_path / "data.yaml"
+    data_yaml.write_text(
+        "path: " + str(tmp_path).replace("\\", "/") + "\n"
+        "train: train/images\n"
+        "val: train/images\n"
+        "nc: '1'\n"
+        "names:\n"
+        "  0: vehicle\n",
+        encoding="utf-8",
+    )
+    wrapper = type(
+        "Wrapper",
+        (),
+        {"task": "obb", "nb_classes": 1, "names": {0: "vehicle"}},
+    )()
+    trainer = YOLO9Trainer(
+        model=torch.nn.Conv2d(3, 3, 1),
+        wrapper_model=wrapper,
+        data=str(data_yaml),
+        epochs=1,
+        batch=1,
+        imgsz=64,
+        workers=0,
+        device="cpu",
+    )
+
+    trainer._setup_data()
+    trainer.save_dir = tmp_path / "run"
+    trainer.save_dir.mkdir()
+    trainer.optimizer = torch.optim.SGD(trainer.model.parameters(), lr=0.01)
+    trainer._save_checkpoint(epoch=0, loss=1.0, is_best=True)
+
+    checkpoint = load_trusted_torch_file(
+        trainer.save_dir / "weights" / "last.pt",
+        map_location="cpu",
+        context="unit test checkpoint",
+    )
+    assert trainer.config.num_classes == 1
+    assert checkpoint["nc"] == 1
+    assert checkpoint["config"]["num_classes"] == 1
+
+
+def test_postprocess_segment_outputs_masks():
+    """YOLO9 segment postprocess keeps mask coefficients aligned through NMS."""
+    num_anchors = 4
+    num_classes = 2
+    num_masks = 32
+    pred = torch.zeros(1, 4 + num_classes, num_anchors)
+    pred[0, :4] = torch.tensor(
+        [
+            [10, 12, 11, 200],
+            [10, 12, 11, 200],
+            [50, 60, 55, 240],
+            [50, 60, 55, 240],
+        ],
+        dtype=torch.float32,
+    )
+    pred[0, 4:] = torch.tensor(
+        [[0.9, 0.2, 0.95, 0.1], [0.1, 0.8, 0.05, 0.7]]
+    )
+    proto = torch.randn(1, num_masks, 16, 16)
+    coeffs = torch.randn(1, num_masks, num_anchors)
+
+    out = yolo9_utils.postprocess(
+        {"predictions": pred, "proto": proto, "mask_coeffs": coeffs},
+        conf_thres=0.25,
+        iou_thres=0.5,
+        input_size=64,
+        original_size=(128, 96),
+        max_det=3,
+    )
+
+    assert out["num_detections"] == 2
+    assert out["masks"].shape == (2, 96, 128)

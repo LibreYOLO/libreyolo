@@ -50,8 +50,8 @@ and receive the heaviest testing:
 ## Compatibility
 
 `✓` supported, `exp` experimental. Empty cells are not currently supported.
-OBB (oriented bounding box) is listed as a future task surface and is not
-implemented yet.
+YOLOv9 OBB (oriented bounding box) support is experimental and currently uses
+YOLO OBB `.txt` labels.
 
 <table>
   <thead>
@@ -76,7 +76,7 @@ implemented yet.
     </tr>
   </thead>
   <tbody>
-    <tr><td>YOLOv9</td><td>✓</td><td>✓</td><td></td><td></td><td></td><td>✓</td><td>✓</td><td>✓</td><td>✓</td><td>✓</td><td>✓</td><td></td></tr>
+    <tr><td>YOLOv9</td><td>✓</td><td>✓</td><td></td><td>exp</td><td></td><td>✓</td><td>✓</td><td>✓</td><td>✓</td><td>✓</td><td>✓</td><td></td></tr>
     <tr><td>RF-DETR</td><td>✓</td><td>✓</td><td></td><td></td><td></td><td>exp</td><td>✓</td><td>✓</td><td>✓</td><td>✓</td><td></td><td></td></tr>
     <tr><td>YOLOX</td><td>✓</td><td></td><td></td><td></td><td></td><td>✓</td><td>✓</td><td>✓</td><td>✓</td><td>✓</td><td>✓</td><td></td></tr>
     <tr><td>YOLOv9-E2E</td><td>✓</td><td></td><td></td><td></td><td></td><td>✓</td><td>✓</td><td>✓</td><td></td><td></td><td></td><td></td></tr>
