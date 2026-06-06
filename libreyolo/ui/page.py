@@ -2,7 +2,7 @@
 
 Embedded as a string so it ships in the wheel with no package-data wiring and
 no runtime file lookups. Styling mirrors the LibreYOLO website palette
-(libre cyan + slate surfaces, Outfit / JetBrains Mono).
+(libre cyan + slate surfaces).
 """
 
 INDEX_HTML = r"""<!DOCTYPE html>
@@ -11,9 +11,6 @@ INDEX_HTML = r"""<!DOCTYPE html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>LibreYOLO</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
   :root {
     --libre-300: #67e8f9; --libre-400: #06b6d4; --libre-500: #0891b2;
@@ -21,12 +18,14 @@ INDEX_HTML = r"""<!DOCTYPE html>
     --bg: #fafbfd; --panel: #ffffff; --panel-2: #f1f5f9;
     --border: #e2e8f0; --border-2: #cbd5e1; --text: #1e293b; --muted: #64748b;
     --red: #dc2626;
+    --font-sans: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    --font-mono: ui-monospace, "Cascadia Code", "SFMono-Regular", Consolas, "Liberation Mono", monospace;
   }
   * { box-sizing: border-box; }
   html, body { margin: 0; height: 100%; }
   body {
     background-color: var(--bg); color: var(--text);
-    font-family: 'Outfit', system-ui, sans-serif; -webkit-font-smoothing: antialiased;
+    font-family: var(--font-sans); -webkit-font-smoothing: antialiased;
     display: flex; flex-direction: column;
     background-image:
       radial-gradient(at 20% 20%, rgba(8, 145, 178, 0.08) 0%, transparent 50%),
@@ -34,7 +33,7 @@ INDEX_HTML = r"""<!DOCTYPE html>
       radial-gradient(at 50% 50%, rgba(8, 145, 178, 0.03) 0%, transparent 70%);
     background-attachment: fixed;
   }
-  .mono { font-family: 'JetBrains Mono', monospace; }
+  .mono { font-family: var(--font-mono); }
   ::-webkit-scrollbar { width: 8px; height: 8px; }
   ::-webkit-scrollbar-track { background: #f1f5f9; }
   ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
@@ -68,7 +67,7 @@ INDEX_HTML = r"""<!DOCTYPE html>
   .toolbar.drag { border-color: var(--libre-500); background: rgba(8,145,178,.06); box-shadow: 0 10px 40px rgba(8,145,178,.15); }
   .toolbar b { color: var(--text); }
   .toolbar kbd {
-    font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--muted);
+    font-family: var(--font-mono); font-size: 11px; color: var(--muted);
     border: 1px solid var(--border-2); border-bottom-width: 2px; border-radius: 5px; padding: 1px 6px; background: var(--panel);
   }
   .btn {
@@ -91,7 +90,7 @@ INDEX_HTML = r"""<!DOCTYPE html>
     border: 1px solid rgba(16,185,129,.3); font-size: 13px;
   }
   .resbar .check { width: 22px; height: 22px; border-radius: 50%; background: var(--emerald-d); color: #fff; display: grid; place-items: center; flex: none; }
-  .resbar .path { font-family: 'JetBrains Mono', monospace; color: var(--libre-600); font-size: 12.5px; word-break: break-all; }
+  .resbar .path { font-family: var(--font-mono); color: var(--libre-600); font-size: 12.5px; word-break: break-all; }
   .resbar b { color: var(--text); }
 
   .empty {
@@ -122,7 +121,7 @@ INDEX_HTML = r"""<!DOCTYPE html>
   .state .minispin { width: 9px; height: 9px; border: 2px solid rgba(8,145,178,.3); border-top-color: var(--libre-600); border-radius: 50%; animation: spin .7s linear infinite; }
   .card .cap { padding: 10px 12px; display: flex; align-items: center; gap: 8px; }
   .card .cap .nm { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .card .cap .ct { margin-left: auto; flex: none; font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--muted); }
+  .card .cap .ct { margin-left: auto; flex: none; font-family: var(--font-mono); font-size: 12px; color: var(--muted); }
   .card .cap .ct b { color: var(--libre-600); }
 
   .toast {
@@ -132,7 +131,7 @@ INDEX_HTML = r"""<!DOCTYPE html>
     display: flex; align-items: center; gap: 9px; max-width: 80vw;
   }
   .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
-  .toast .pp { font-family: 'JetBrains Mono', monospace; color: var(--libre-300); word-break: break-all; }
+  .toast .pp { font-family: var(--font-mono); color: var(--libre-300); word-break: break-all; }
 
   /* read-only terminal that streams the real CLI run */
   .terminal {
@@ -146,15 +145,15 @@ INDEX_HTML = r"""<!DOCTYPE html>
   }
   .term-head .dot { width: 11px; height: 11px; border-radius: 50%; }
   .term-head .r { background: #ff5f56; } .term-head .y { background: #ffbd2e; } .term-head .g { background: #27c93f; }
-  .term-head .ttl { margin-left: 8px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #64748b; }
+  .term-head .ttl { margin-left: 8px; font-family: var(--font-mono); font-size: 11px; color: #64748b; }
   .term-head .tbtn {
-    margin-left: auto; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #64748b;
+    margin-left: auto; font-family: var(--font-mono); font-size: 11px; color: #64748b;
     background: transparent; border: 1px solid #1e293b; border-radius: 6px; padding: 3px 9px; cursor: pointer;
   }
   .term-head .tbtn:hover { color: #cbd5e1; border-color: #334155; }
   .term-body {
     padding: 12px 15px; height: 280px; min-height: 120px; max-height: 70vh; overflow: auto; resize: vertical;
-    font-family: 'JetBrains Mono', monospace; font-size: 12.5px; line-height: 1.65;
+    font-family: var(--font-mono); font-size: 12.5px; line-height: 1.65;
     color: #cbd5e1; white-space: pre-wrap; word-break: break-word;
   }
   .term-body::-webkit-scrollbar-track { background: #0b1220; }

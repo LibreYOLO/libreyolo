@@ -93,6 +93,8 @@ class _UIState:
         self.device = device
         self._models: dict[str, object] = {}
         self._lock = threading.Lock()  # serialize inference (model not thread-safe)
+        self._upload_lock = threading.Lock()
+        self._used_upload_names: set[str] = set()
         self.run_dir: Path | None = None
         self._input_dir = Path(tempfile.mkdtemp(prefix="libreyolo-ui-"))
 
@@ -114,7 +116,24 @@ class _UIState:
         self.run_dir = increment_path(
             Path("runs/detect") / "predict", mkdir=True
         )
+        with self._upload_lock:
+            self._used_upload_names.clear()
         return self.run_dir
+
+    def _write_upload(self, filename: str, data: bytes) -> tuple[Path, str]:
+        safe = _sanitize_filename(filename)
+        stem = Path(safe).stem or "image"
+        suffix = Path(safe).suffix or ".jpg"
+        with self._upload_lock:
+            upload_name = safe
+            index = 2
+            while upload_name in self._used_upload_names:
+                upload_name = f"{stem}_{index}{suffix}"
+                index += 1
+            self._used_upload_names.add(upload_name)
+            in_path = self._input_dir / upload_name
+            in_path.write_bytes(data)
+        return in_path, safe
 
     def infer(
         self,
@@ -126,13 +145,10 @@ class _UIState:
     ) -> dict:
         """Run inference. If ``emit`` is given, libreyolo log lines (model
         download, save path, ...) are forwarded to it live during the run."""
-        safe = _sanitize_filename(filename)
-        in_path = self._input_dir / safe
-        in_path.write_bytes(data)
-
         with self._lock:
             if self.run_dir is None:
                 self.new_run()
+            in_path, safe = self._write_upload(filename, data)
             lg = logging.getLogger("libreyolo")
             handler = _StreamLogHandler(emit) if emit is not None else None
             prev_level = lg.level
