@@ -55,6 +55,7 @@ class LibreYOLO9(BaseModel):
         "detect": INPUT_SIZES,
         "segment": INPUT_SIZES,
         "classify": CLS_INPUT_SIZES,
+        "obb": INPUT_SIZES,
     }
     TRAIN_CONFIG = YOLO9Config
     val_preprocessor_class = YOLO9ValPreprocessor
@@ -95,6 +96,8 @@ class LibreYOLO9(BaseModel):
 
     @classmethod
     def detect_nb_classes(cls, weights_dict: dict) -> Optional[int]:
+        if "head.linear.weight" in weights_dict:
+            return int(weights_dict["head.linear.weight"].shape[0])
         for key, tensor in weights_dict.items():
             if re.match(r"head\.cv3\.\d+\.2\.weight", key):
                 return tensor.shape[0]
@@ -148,22 +151,18 @@ class LibreYOLO9(BaseModel):
             if isinstance(model_path, str)
             else str(model_path)
         )
-        filename_task = cls.detect_task_from_filename(Path(resolved).name)
-        if filename_task:
-            return filename_task
-
         path = Path(resolved)
-        if not path.exists():
-            return None
-        try:
-            loaded = load_untrusted_torch_file(
-                resolved, map_location="cpu", context="task detection"
-            )
-        except Exception:
-            return None
-        if isinstance(loaded, dict) and isinstance(loaded.get("task"), str):
-            return normalize_task(loaded["task"])
-        return None
+        if path.exists():
+            try:
+                loaded = load_untrusted_torch_file(
+                    resolved, map_location="cpu", context="task detection"
+                )
+            except Exception:
+                loaded = None
+            if isinstance(loaded, dict) and isinstance(loaded.get("task"), str):
+                return normalize_task(loaded["task"])
+
+        return cls.detect_task_from_filename(Path(resolved).name)
 
     @property
     def _is_segmentation(self) -> bool:
@@ -222,6 +221,34 @@ class LibreYOLO9(BaseModel):
 
     def _strict_loading(self) -> bool:
         return False
+
+    def _validate_loaded_state_dict_for_task(
+        self,
+        state_dict: dict,
+        checkpoint: dict | None = None,
+    ) -> None:
+        if not self._is_classification:
+            return
+        if "head.linear.weight" in state_dict:
+            return
+
+        detection_markers = (
+            "head.cv2.",
+            "head.cv3.",
+            "head.cv4.",
+            "head.proto",
+            "detect.",
+        )
+        if any(key.startswith(detection_markers) for key in state_dict):
+            raise RuntimeError(
+                "YOLO9 detection, segmentation, or OBB weights cannot be loaded "
+                "as task='classify' because they do not contain head.linear.* "
+                "classifier weights. Use a classification checkpoint or explicit "
+                "training transfer."
+            )
+        raise RuntimeError(
+            "YOLO9 classification checkpoints must include head.linear.* weights."
+        )
 
     def _prepare_state_dict(self, state_dict: dict) -> dict:
         """Remap legacy 'detect.*' keys to 'head.*' for backward compatibility."""
@@ -421,7 +448,9 @@ class LibreYOLO9(BaseModel):
         color_format: str = "auto",
         input_size: Optional[int] = None,
     ) -> Tuple[torch.Tensor, Image.Image, Tuple[int, int], float]:
-        effective_size = input_size if input_size is not None else self._get_input_size()
+        effective_size = (
+            input_size if input_size is not None else self._get_input_size()
+        )
         if self._is_classification:
             from ...data.classify_dataset import build_classify_transforms
             from ...utils.image_loader import ImageLoader

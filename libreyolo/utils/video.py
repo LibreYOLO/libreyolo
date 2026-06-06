@@ -314,6 +314,11 @@ def run_video_inference(
                 if save or show:
                     if annotate_fn is not None:
                         annotated_pil = annotate_fn(pil_img, result)
+                    elif (
+                        result.boxes is None
+                        and getattr(result, "probs", None) is not None
+                    ):
+                        annotated_pil = pil_img
                     elif len(result) > 0:
                         annotated_pil = pil_img
                         if result.masks is not None:

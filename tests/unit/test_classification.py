@@ -84,12 +84,19 @@ def test_classify_validator_top1_top5(tmp_path):
     from libreyolo.validation import ClassifyValidator, ValidationConfig
 
     classes = _make_imagefolder(tmp_path, n_classes=3, n_per=4)
-    m = LibreYOLO9(None, size="t", task="classify", nb_classes=len(classes), device="cpu")
+    m = LibreYOLO9(
+        None, size="t", task="classify", nb_classes=len(classes), device="cpu"
+    )
     m.model.eval()
 
     cfg = ValidationConfig(
-        data=str(tmp_path), batch_size=4, imgsz=32, device="cpu",
-        num_workers=0, split="val", verbose=False,
+        data=str(tmp_path),
+        batch_size=4,
+        imgsz=32,
+        device="cpu",
+        num_workers=0,
+        split="val",
+        verbose=False,
     )
     metrics = ClassifyValidator(model=m, config=cfg).run()
     assert "metrics/accuracy_top1" in metrics
@@ -103,7 +110,9 @@ def test_yolo9_classify_predict_returns_probs(tmp_path):
     from libreyolo import LibreYOLO9
 
     classes = _make_imagefolder(tmp_path, n_classes=3, n_per=2)
-    m = LibreYOLO9(None, size="t", task="classify", nb_classes=len(classes), device="cpu")
+    m = LibreYOLO9(
+        None, size="t", task="classify", nb_classes=len(classes), device="cpu"
+    )
     m.names = {i: n for i, n in enumerate(classes)}
 
     img_path = next((tmp_path / "val").rglob("*.png"))
@@ -112,6 +121,48 @@ def test_yolo9_classify_predict_returns_probs(tmp_path):
     assert 0 <= result.probs.top1 < len(classes)
     assert len(result.probs.top5) <= len(classes)
     assert result.boxes is None
+
+    aug_result = m.predict(str(img_path), augment=True)
+    assert aug_result.probs is not None
+    assert aug_result.boxes is None
+
+
+def test_yolo9_classify_predict_save_and_tiling_do_not_require_boxes(tmp_path):
+    from libreyolo import LibreYOLO9
+
+    _make_imagefolder(tmp_path, n_classes=2, n_per=2)
+    m = LibreYOLO9(None, size="t", task="classify", nb_classes=2, device="cpu")
+    m.model.eval()
+    img_path = next((tmp_path / "val").rglob("*.png"))
+
+    save_path = tmp_path / "plain.jpg"
+    result = m.predict(str(img_path), save=True, output_path=str(save_path), imgsz=32)
+
+    assert result.boxes is None
+    assert result.probs is not None
+    assert save_path.exists()
+
+    tiled_path = tmp_path / "tiled.jpg"
+    tiled_result = m.predict(
+        str(img_path),
+        save=True,
+        output_path=str(tiled_path),
+        tiling=True,
+        imgsz=32,
+    )
+
+    assert tiled_result.boxes is None
+    assert tiled_result.probs is not None
+    assert tiled_path.exists()
+
+
+def test_yolo9_classify_track_rejected():
+    from libreyolo import LibreYOLO9
+
+    m = LibreYOLO9(None, size="t", task="classify", nb_classes=3, device="cpu")
+
+    with pytest.raises(NotImplementedError, match="classification models"):
+        next(m.track("missing.mp4"))
 
 
 def test_yolo9_classify_train_smoke(tmp_path):
@@ -122,24 +173,41 @@ def test_yolo9_classify_train_smoke(tmp_path):
     m = LibreYOLO9(None, size="t", task="classify", nb_classes=3, device="cpu")
 
     res = m.train(
-        data=str(tmp_path), epochs=3, batch=8, imgsz=64, optimizer="adamw",
-        lr0=1e-3, workers=0, eval_interval=1, project=str(tmp_path / "runs"),
-        name="cls_smoke", exist_ok=True, amp=False, ema=False, warmup_epochs=0,
+        data=str(tmp_path),
+        epochs=3,
+        batch=8,
+        imgsz=64,
+        optimizer="adamw",
+        lr0=1e-3,
+        workers=0,
+        eval_interval=1,
+        project=str(tmp_path / "runs"),
+        name="cls_smoke",
+        exist_ok=True,
+        amp=False,
+        ema=False,
+        warmup_epochs=0,
     )
     losses = res["epoch_losses"]
     assert len(losses) == 3
     assert all(np.isfinite(losses))
     # Trivially-separable data: loss should fall over the run.
     assert losses[-1] < losses[0]
-    assert res["epoch_metrics"][-1]["val_metrics"].get("metrics/accuracy_top1") is not None
+    assert (
+        res["epoch_metrics"][-1]["val_metrics"].get("metrics/accuracy_top1") is not None
+    )
 
 
+@pytest.mark.external_data
+@pytest.mark.network
 @pytest.mark.slow
 def test_rfdetr_classify_forward():
     """RF-DETR classify build + forward (DINOv2 backbone; random-init if offline)."""
     from libreyolo import LibreRFDETR
 
-    m = LibreRFDETR(model_path=None, size="n", task="classify", nb_classes=4, device="cpu")
+    m = LibreRFDETR(
+        model_path=None, size="n", task="classify", nb_classes=4, device="cpu"
+    )
     assert m.task == "classify"
     assert m.input_size == 224
     assert m.model.classification
@@ -174,9 +242,20 @@ def test_yolo9_classify_task_inferred_on_load(tmp_path):
     _make_imagefolder(tmp_path, n_classes=3, n_per=6, size=64)
     m = LibreYOLO9(None, size="t", task="classify", nb_classes=3, device="cpu")
     res = m.train(
-        data=str(tmp_path), epochs=1, batch=8, imgsz=64, optimizer="adamw",
-        lr0=1e-3, workers=0, eval_interval=0, project=str(tmp_path / "runs"),
-        name="ckpt", exist_ok=True, amp=False, ema=False, warmup_epochs=0,
+        data=str(tmp_path),
+        epochs=1,
+        batch=8,
+        imgsz=64,
+        optimizer="adamw",
+        lr0=1e-3,
+        workers=0,
+        eval_interval=0,
+        project=str(tmp_path / "runs"),
+        name="ckpt",
+        exist_ok=True,
+        amp=False,
+        ema=False,
+        warmup_epochs=0,
     )
     ckpt = res.get("last_checkpoint") or res.get("best_checkpoint")
     assert ckpt is not None
@@ -184,6 +263,107 @@ def test_yolo9_classify_task_inferred_on_load(tmp_path):
     reloaded = LibreYOLO9(ckpt, size="t", device="cpu")  # no task= passed
     assert reloaded.task == "classify"
     assert reloaded.nb_classes == 3
+
+
+def test_yolo9_classify_checkpoint_metadata_beats_stale_filename_suffix(tmp_path):
+    from libreyolo import LibreYOLO9
+    from libreyolo.utils.serialization import wrap_libreyolo_checkpoint
+
+    m = LibreYOLO9(None, size="t", task="classify", nb_classes=2, device="cpu")
+    ckpt = wrap_libreyolo_checkpoint(
+        m.model.state_dict(),
+        model_family="yolo9",
+        size="t",
+        task="classify",
+        nc=2,
+        names={0: "a", 1: "b"},
+        imgsz=224,
+    )
+    path = tmp_path / "LibreYOLO9t-seg.pt"
+    torch.save(ckpt, path)
+
+    reloaded = LibreYOLO9(str(path), size="t", device="cpu")
+
+    assert reloaded.task == "classify"
+    assert reloaded.nb_classes == 2
+
+
+def test_yolo9_classify_rejects_metadata_less_detection_weights(tmp_path):
+    from libreyolo import LibreYOLO9
+
+    detect = LibreYOLO9(None, size="t", task="detect", nb_classes=3, device="cpu")
+    path = tmp_path / "detect.pt"
+    torch.save(detect.model.state_dict(), path)
+
+    with pytest.raises(RuntimeError, match="cannot be loaded as task='classify'"):
+        LibreYOLO9(str(path), size="t", task="classify", nb_classes=3, device="cpu")
+
+
+def test_rfdetr_classify_detect_size_uses_metadata():
+    pytest.importorskip("transformers")
+    from libreyolo.models.rfdetr.model import LibreRFDETR
+
+    weights = {
+        "backbone.encoder.encoder.embeddings.position_embeddings": torch.empty(
+            1, 1370, 384
+        ),
+        "linear.weight": torch.empty(4, 256),
+    }
+    checkpoint = {"model_family": "rfdetr", "size": "n", "task": "classify"}
+
+    assert LibreRFDETR.detect_size(weights, state_dict=checkpoint) == "n"
+
+
+def test_rfdetr_classify_load_infers_nc_from_linear_weight(monkeypatch, tmp_path):
+    pytest.importorskip("transformers")
+    from libreyolo.models.rfdetr.model import LibreRFDETR
+
+    class _LoadResult:
+        missing_keys = []
+        unexpected_keys = []
+
+    class _FakeClassifier(torch.nn.Module):
+        def __init__(self, nb_classes):
+            super().__init__()
+            self.linear = torch.nn.Linear(2, nb_classes)
+            self.nb_classes = nb_classes
+
+    class _FakeRFDETRModel(torch.nn.Module):
+        classification = True
+
+        def __init__(self):
+            super().__init__()
+            self.classifier = _FakeClassifier(80)
+            self.nb_classes = 80
+
+        def load_state_dict(self, loaded, strict=False):
+            state = loaded.get("model", loaded)
+            expected = self.classifier.linear.out_features
+            actual = state["linear.weight"].shape[0]
+            if expected != actual:
+                raise RuntimeError(f"expected {expected} classifier rows, got {actual}")
+            return _LoadResult()
+
+    monkeypatch.setattr(LibreRFDETR, "_init_model", lambda self: _FakeRFDETRModel())
+    path = tmp_path / "best.pt"
+    torch.save(
+        {
+            "model": {
+                "backbone.stem.weight": torch.ones(1),
+                "linear.weight": torch.ones(4, 2),
+                "linear.bias": torch.ones(4),
+            },
+            "model_family": "rfdetr",
+            "size": "n",
+            "task": "classify",
+        },
+        path,
+    )
+
+    model = LibreRFDETR(str(path), size="n", task="classify", device="cpu")
+
+    assert model.nb_classes == 4
+    assert model.model.classifier.linear.out_features == 4
 
 
 def test_yolo9_classify_export_onnx(tmp_path):

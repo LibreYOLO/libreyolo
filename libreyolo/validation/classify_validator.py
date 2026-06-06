@@ -64,7 +64,11 @@ class ClassifyValidator(BaseValidator):
 
     def _postprocess_predictions(self, preds: Any, batch: Any) -> Any:
         # ``preds`` are raw logits [B, num_classes]; nothing to decode.
-        return preds
+        if isinstance(preds, (list, tuple)) and len(preds) == 1:
+            preds = preds[0]
+        if isinstance(preds, dict) or isinstance(preds, torch.Tensor):
+            return preds
+        return torch.as_tensor(preds)
 
     def _update_metrics(
         self, preds: Any, targets: Any, img_info: Any, img_ids: Any = None

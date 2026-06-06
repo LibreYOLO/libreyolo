@@ -228,6 +228,8 @@ class LibreRFDETR(BaseModel):
         cls, weights_dict: dict, state_dict: dict | None = None
     ) -> Optional[str]:
         full_ckpt = state_dict if state_dict is not None else weights_dict
+        if isinstance(full_ckpt, dict) and isinstance(full_ckpt.get("size"), str):
+            return full_ckpt["size"]
         is_seg = any(k.startswith("segmentation_head") for k in weights_dict)
 
         RESOLUTION_TO_SIZE = {384: "n", 512: "s", 576: "m", 704: "l"}
@@ -280,6 +282,8 @@ class LibreRFDETR(BaseModel):
 
     @classmethod
     def detect_nb_classes(cls, weights_dict: dict) -> Optional[int]:
+        if "linear.weight" in weights_dict:
+            return int(weights_dict["linear.weight"].shape[0])
         # RF-DETR class_embed has (num_classes + 1) outputs (includes background)
         if "class_embed.bias" in weights_dict:
             return weights_dict["class_embed.bias"].shape[0] - 1
@@ -355,30 +359,27 @@ class LibreRFDETR(BaseModel):
                 )
 
         if weight_source is not None:
-            filename_task = (
-                self.detect_task_from_filename(str(weight_source))
-                if isinstance(weight_source, str)
-                else None
-            )
-            checkpoint_is_segment = False
-            if filename_task != "segment":
-                checkpoint_is_segment = self._detect_segmentation(weight_source)
+            checkpoint_task = self._detect_task_from_source(weight_source)
             if resolved_task is None:
-                resolved_task = filename_task or (
-                    "segment" if checkpoint_is_segment else None
+                resolved_task = checkpoint_task
+            elif checkpoint_task is not None:
+                requested_task = normalize_task(resolved_task)
+                allowed = requested_task == checkpoint_task or (
+                    requested_task == "obb"
+                    and checkpoint_task == "detect"
+                    and self._allow_detect_to_obb_transfer
                 )
-            elif (
-                normalize_task(resolved_task) == "detect"
-                and (filename_task == "segment" or checkpoint_is_segment)
-            ):
-                raise ValueError(
-                    "RF-DETR checkpoint appears to be a segmentation model, "
-                    "but task='detect' was requested."
-                )
+                if not allowed:
+                    raise ValueError(
+                        f"RF-DETR checkpoint appears to be task={checkpoint_task!r}, "
+                        f"but task={requested_task!r} was requested."
+                    )
 
         self._model_num_classes = nb_classes
         if isinstance(weight_source, dict):
-            detected_classes = self.detect_nb_classes(_checkpoint_model_state(weight_source))
+            detected_classes = self.detect_nb_classes(
+                _checkpoint_model_state(weight_source)
+            )
             if detected_classes is not None:
                 self._model_num_classes = detected_classes
 
@@ -440,6 +441,37 @@ class LibreRFDETR(BaseModel):
             return detected_size
         if isinstance(model_path, str):
             return LibreRFDETR.detect_size_from_filename(model_path)
+        return None
+
+    @staticmethod
+    def _detect_task_from_source(model_path: str | dict[str, Any]) -> str | None:
+        filename_task = (
+            LibreRFDETR.detect_task_from_filename(str(model_path))
+            if isinstance(model_path, str)
+            else None
+        )
+        try:
+            if isinstance(model_path, str):
+                ckpt = load_trusted_torch_file(
+                    model_path,
+                    map_location="cpu",
+                    context="RF-DETR task detection",
+                )
+            else:
+                ckpt = model_path
+        except Exception:
+            return filename_task
+
+        if isinstance(ckpt, dict) and isinstance(ckpt.get("task"), str):
+            return normalize_task(ckpt["task"])
+        if filename_task is not None:
+            return filename_task
+
+        state = _checkpoint_model_state(ckpt) if isinstance(ckpt, dict) else {}
+        if "linear.weight" in state and any(k.startswith("backbone.") for k in state):
+            return "classify"
+        if any(k.startswith("segmentation_head") for k in state):
+            return "segment"
         return None
 
     @staticmethod
@@ -670,6 +702,8 @@ class LibreRFDETR(BaseModel):
         if ckpt_nc is None:
             names = loaded.get("names")
             ckpt_nc = len(names) if names else None
+        if ckpt_nc is None:
+            ckpt_nc = self.detect_nb_classes(_checkpoint_model_state(loaded))
         if ckpt_nc is not None and ckpt_nc != self.nb_classes:
             self._rebuild_for_new_classes(int(ckpt_nc))
 
@@ -759,14 +793,20 @@ class LibreRFDETR(BaseModel):
             if unexpected:
                 raise RuntimeError(
                     f"Unexpected RF-DETR checkpoint keys: {sorted(unexpected)[:10]}"
-                    + (f" (+{len(unexpected) - 10} more)" if len(unexpected) > 10 else "")
+                    + (
+                        f" (+{len(unexpected) - 10} more)"
+                        if len(unexpected) > 10
+                        else ""
+                    )
                 )
 
             ckpt_nc = loaded.get("nc")
             if ckpt_nc is not None:
                 self.nb_classes = int(ckpt_nc)
             else:
-                self.nb_classes = 80 if self.model.nb_classes == 90 else self.model.nb_classes
+                self.nb_classes = (
+                    80 if self.model.nb_classes == 90 else self.model.nb_classes
+                )
 
             self._model_num_classes = self.model.nb_classes
             if self.nb_classes == 80:
@@ -781,9 +821,16 @@ class LibreRFDETR(BaseModel):
                 self.names = self._sanitize_names(ckpt_names, self.nb_classes)
 
             args = loaded.get("args") or loaded.get("hyper_parameters") or {}
-            class_names = args.get("class_names") if isinstance(args, dict) else getattr(args, "class_names", None)
+            class_names = (
+                args.get("class_names")
+                if isinstance(args, dict)
+                else getattr(args, "class_names", None)
+            )
             if class_names:
-                self.names = {i: str(name) for i, name in enumerate(class_names[: self.nb_classes])}
+                self.names = {
+                    i: str(name)
+                    for i, name in enumerate(class_names[: self.nb_classes])
+                }
 
             if missing:
                 # ``strict=False`` is expected for class/head adaptation and older
@@ -810,7 +857,11 @@ class LibreRFDETR(BaseModel):
                 if important:
                     raise RuntimeError(
                         f"Missing RF-DETR checkpoint keys: {sorted(important)[:10]}"
-                        + (f" (+{len(important) - 10} more)" if len(important) > 10 else "")
+                        + (
+                            f" (+{len(important) - 10} more)"
+                            if len(important) > 10
+                            else ""
+                        )
                     )
         except RuntimeError:
             raise

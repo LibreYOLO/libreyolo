@@ -12,7 +12,18 @@ import logging
 import re
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Any, Callable, ClassVar, Dict, Generator, List, Optional, Tuple, Type, Union
+from typing import (
+    Any,
+    Callable,
+    ClassVar,
+    Dict,
+    Generator,
+    List,
+    Optional,
+    Tuple,
+    Type,
+    Union,
+)
 
 import torch
 import torch.nn as nn
@@ -198,7 +209,9 @@ class BaseModel(ABC):
             self.model_path = None
         elif isinstance(model_path, dict):
             self.model_path = None
-            self.model.load_state_dict(model_path, strict=self._strict_loading())
+            state_dict = self._prepare_state_dict(self._strip_ddp_prefix(model_path))
+            self._validate_loaded_state_dict_for_task(state_dict, model_path)
+            self.model.load_state_dict(state_dict, strict=self._strict_loading())
         else:
             self.model_path = model_path
 
@@ -340,6 +353,14 @@ class BaseModel(ABC):
         """Rebuild for checkpoint class count before loading its state dict."""
         self._rebuild_for_new_classes(new_nb_classes)
 
+    def _validate_loaded_state_dict_for_task(
+        self,
+        state_dict: dict,
+        checkpoint: dict | None = None,
+    ) -> None:
+        """Validate task-specific state-dict shape before non-strict loading."""
+        return None
+
     @classmethod
     def _filename_regex(cls) -> Optional[re.Pattern]:
         """Compile regex for matching weight filenames with optional task suffix."""
@@ -354,9 +375,7 @@ class BaseModel(ABC):
         ext = re.escape(cls.WEIGHT_EXT)
         suffixes = task_suffix_pattern(cls.SUPPORTED_TASKS)
         suffix_group = rf"(?P<task>{suffixes})?" if suffixes else ""
-        return re.compile(
-            rf"{prefix}(?P<size>{sizes_pattern}){suffix_group}{ext}"
-        )
+        return re.compile(rf"{prefix}(?P<size>{sizes_pattern}){suffix_group}{ext}")
 
     @classmethod
     def detect_size_from_filename(cls, filename: str) -> Optional[str]:
@@ -484,7 +503,9 @@ class BaseModel(ABC):
                 else:
                     state_dict = loaded
 
-                state_dict = self._strip_ddp_prefix(state_dict)
+                state_dict = self._prepare_state_dict(
+                    self._strip_ddp_prefix(state_dict)
+                )
 
                 # Reject cross-family loading
                 own_family = self._get_model_name()
@@ -523,6 +544,7 @@ class BaseModel(ABC):
                 effective_nc = ckpt_nc if ckpt_nc is not None else self.nb_classes
                 if ckpt_names is not None:
                     self.names = self._sanitize_names(ckpt_names, effective_nc)
+                self._validate_loaded_state_dict_for_task(state_dict, loaded)
             else:
                 state_dict = loaded
 
@@ -559,7 +581,7 @@ class BaseModel(ABC):
     ) -> Union[Results, List[Results], Generator[Results, None, None]]:
         """Alias for __call__ method."""
         return self(*args, **kwargs)
-    
+
     def _predict_augment(
         self,
         image,
@@ -602,7 +624,11 @@ class BaseModel(ABC):
                     PILImage.Resampling.BILINEAR,
                 )
             for is_flipped in (False, True):
-                src = scaled.transpose(PILImage.Transpose.FLIP_LEFT_RIGHT) if is_flipped else scaled
+                src = (
+                    scaled.transpose(PILImage.Transpose.FLIP_LEFT_RIGHT)
+                    if is_flipped
+                    else scaled
+                )
                 tensor, _, orig_size, ratio = self._preprocess(
                     src, color_format, input_size=effective_imgsz
                 )
@@ -613,7 +639,38 @@ class BaseModel(ABC):
                 )
                 aug_dets.append((det, orig_size, is_flipped, scale))
 
+        if getattr(self, "task", "detect") == "classify":
+            return self._merge_classify_tta(aug_dets, image_path, (orig_w, orig_h))
+
         return self._merge_tta(aug_dets, iou, image_path, (orig_w, orig_h), classes)
+
+    def _merge_classify_tta(
+        self,
+        aug_dets: list,
+        image_path,
+        original_size: Tuple[int, int],
+    ) -> Results:
+        """Merge classification TTA by averaging probability vectors."""
+        from ...utils.results import Probs, Results
+
+        probs = [
+            torch.as_tensor(det["probs"], dtype=torch.float32)
+            for det, _, _, _ in aug_dets
+            if "probs" in det
+        ]
+        avg_probs = (
+            torch.stack(probs, dim=0).mean(dim=0)
+            if probs
+            else torch.zeros(0, dtype=torch.float32)
+        )
+        orig_w, orig_h = original_size
+        return Results(
+            boxes=None,
+            orig_shape=(orig_h, orig_w),
+            path=str(image_path) if image_path else None,
+            names=self.names,
+            probs=Probs(avg_probs),
+        )
 
     def _merge_tta(
         self,
@@ -745,7 +802,6 @@ class BaseModel(ABC):
             masks=masks_obj,
         )
 
-
     def track(
         self,
         source: str | Path,
@@ -791,7 +847,12 @@ class BaseModel(ABC):
         Yields:
             Results with ``track_id`` attribute set as an (N,) int tensor.
         """
-        if getattr(self, "task", "detect") == "obb":
+        task = getattr(self, "task", "detect")
+        if task == "classify":
+            raise NotImplementedError(
+                "Tracking does not support classification models. Use predict()."
+            )
+        if task == "obb":
             raise NotImplementedError(
                 "Tracking does not support oriented boxes yet. "
                 "Use predict() for OBB models."
