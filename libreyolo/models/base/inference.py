@@ -219,7 +219,16 @@ class InferenceRunner:
         if target != self.model.device:
             self.model.device = target
             if hasattr(self.model.model, "to"):
-                self.model.model.to(target)
+                dtype = None
+                if hasattr(self.model, "_resolve_dtype") and hasattr(
+                    self.model, "_model_dtype"
+                ):
+                    dtype = self.model._resolve_dtype()
+                    self.model._model_dtype = dtype
+                if dtype is not None:
+                    self.model.model.to(device=target, dtype=dtype)
+                else:
+                    self.model.model.to(target)
 
     def _process_in_batches(
         self,
@@ -497,7 +506,14 @@ class InferenceRunner:
 
         # Postprocess
         detections = self.model._postprocess(
-            output, conf, iou, original_size, max_det=max_det, ratio=ratio, **kwargs
+            output,
+            conf,
+            iou,
+            original_size,
+            max_det=max_det,
+            ratio=ratio,
+            classes=classes,
+            **kwargs,
         )
 
         # Wrap into Results
@@ -549,6 +565,7 @@ class InferenceRunner:
                 original_size,
                 max_det=max_det,
                 ratio=ratio,
+                classes=classes,
                 **kwargs,
             )
             return self._wrap_results(detections, original_size, str(source), classes)
@@ -670,6 +687,7 @@ class InferenceRunner:
                 conf=conf,
                 iou=iou,
                 imgsz=imgsz,
+                classes=classes,
                 max_det=max_det,
                 **kwargs,
             )
@@ -687,6 +705,10 @@ class InferenceRunner:
         final_boxes, final_scores, final_classes = self._merge_tile_detections(
             all_boxes, all_scores, all_classes, iou
         )
+        if max_det >= 0:
+            final_boxes = final_boxes[:max_det]
+            final_scores = final_scores[:max_det]
+            final_classes = final_classes[:max_det]
 
         # Build Results
         original_size = (orig_width, orig_height)

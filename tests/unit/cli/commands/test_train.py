@@ -128,6 +128,44 @@ def test_train_dry_run_rfdetr_user_override_wins():
     assert cfg["lr_drop"] == 7
 
 
+def test_train_dry_run_rfdetr_lora_flag_is_visible():
+    app = _make_app()
+    result = runner.invoke(
+        app,
+        [
+            "data=coco8.yaml",
+            "model=LibreRFDETRm.pt",
+            "--lora",
+            "--dry-run",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0
+    data = json.loads(result.stdout)
+    assert data["model_family"] == "rfdetr"
+    assert data["resolved_config"]["lora"] is True
+
+
+def test_train_dry_run_rejects_lora_for_unsupported_family():
+    app = _make_app()
+    result = runner.invoke(
+        app,
+        [
+            "data=coco8.yaml",
+            "model=LibreYOLO9t.pt",
+            "--lora",
+            "--dry-run",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 2
+    data = json.loads(result.stdout)
+    assert data["error"] == "config_unsupported"
+    assert "not supported for yolo9" in data["message"]
+
+
 def test_train_rfdetr_actual_call_uses_reported_defaults(monkeypatch, tmp_path):
     """RF-DETR train should receive the same defaults shown by dry-run."""
     app = _make_app()
@@ -212,6 +250,40 @@ def test_train_rfdetr_scheduler_override_reaches_trainer(monkeypatch, tmp_path):
 
     assert result.exit_code == 0
     assert captured["kwargs"]["scheduler"] == "cosine"
+    assert "ignores these parameters" not in result.output
+
+
+def test_train_rfdetr_lora_flag_reaches_trainer(monkeypatch, tmp_path):
+    app = _make_app()
+    captured = {}
+
+    class _RFDETRLike:
+        FAMILY = "rfdetr"
+        device = "cpu"
+
+        def train(self, data, **kwargs):
+            captured["kwargs"] = kwargs
+            return {"output_dir": str(tmp_path / "rfdetr_exp")}
+
+    monkeypatch.setattr(
+        "libreyolo.cli.commands.train.load_model_or_exit",
+        lambda out, model, model_path, device: _RFDETRLike(),
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "data=dummy.yaml",
+            "model=LibreRFDETRm.pt",
+            "--lora",
+            f"project={tmp_path}",
+            "exist_ok=true",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert captured["kwargs"]["lora"] is True
     assert "ignores these parameters" not in result.output
 
 

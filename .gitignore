@@ -54,3 +54,8 @@ sample_images*/
 *.engine
 *.onnx
 *.torchscript
+*.safetensors
+# VLM families autodownload Hugging Face snapshot directories into weights/.
+# Catch-all so any current or future Libre* family snapshot dir (and the
+# *.bin / config / tokenizer files inside it) can never be committed.
+weights/Libre*/

@@ -618,6 +618,24 @@ class LibreRFDETR(BaseModel):
                     f"but is being loaded into '{self.FAMILY}'."
                 )
 
+            # Replay LoRA injection for adapter checkpoints. A model trained with
+            # lora=True saves its DINOv2 encoder under PeftModel keys; rebuild the
+            # same wrapped graph here (the recipe is fixed, so re-running the
+            # canonical injection reproduces matching modules) before loading, so
+            # the adapter keys line up instead of being rejected as unexpected.
+            # Merged/exported checkpoints carry no adapter keys and skip this.
+            from ...training.lora import (
+                apply_lora_to_rfdetr,
+                module_has_lora,
+                state_dict_has_lora,
+            )
+
+            already_lora = module_has_lora(self.model)
+            if not already_lora and state_dict_has_lora(
+                _checkpoint_model_state(loaded)
+            ):
+                apply_lora_to_rfdetr(self.model.model)
+
             missing, unexpected = self.model.load_state_dict(loaded, strict=False)
             if unexpected:
                 raise RuntimeError(
@@ -699,6 +717,31 @@ class LibreRFDETR(BaseModel):
         if model is not None and hasattr(model, "eval"):
             model.eval()
 
+    def _resume_checkpoint_uses_lora(self, resume_path: str | Path) -> bool:
+        """Return True when a resume checkpoint needs a LoRA-wrapped graph."""
+        path = Path(resume_path)
+        if not path.exists():
+            return False
+
+        checkpoint = load_trusted_torch_file(
+            path,
+            map_location="cpu",
+            context="RF-DETR resume checkpoint probe",
+        )
+        if not isinstance(checkpoint, dict):
+            return False
+
+        config = checkpoint.get("config")
+        if isinstance(config, dict) and bool(config.get("lora", False)):
+            return True
+
+        from ...training.lora import state_dict_has_lora
+
+        model_state = checkpoint.get("train_model", checkpoint.get("model", checkpoint))
+        return isinstance(model_state, dict) and state_dict_has_lora(
+            _checkpoint_model_state(model_state)
+        )
+
     @ddp_aware(batch_key="batch_size")
     def train(
         self,
@@ -765,10 +808,17 @@ class LibreRFDETR(BaseModel):
                 train_kwargs[dst] = train_kwargs.pop(src)
         train_kwargs.pop("early_stopping", None)
 
+        resume_path = None
+        if resume:
+            resume_path = run_dir / "weights" / "last.pt" if resume is True else resume
+            if not train_kwargs.get(
+                "lora", False
+            ) and self._resume_checkpoint_uses_lora(resume_path):
+                train_kwargs["lora"] = True
+
         trainer = RFDETRTrainer(self.model, wrapper_model=self, **train_kwargs)
         if resume:
             trainer.setup()
-            resume_path = run_dir / "weights" / "last.pt" if resume is True else resume
             trainer.resume(str(resume_path))
         result = trainer.train()
         result["output_dir"] = result.get("save_dir", str(run_dir))

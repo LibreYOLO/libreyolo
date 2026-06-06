@@ -65,6 +65,9 @@ class ECTrainer(DFINETrainer):
             )
         return device
 
+    def on_num_classes_resolved(self):
+        """EC training is out of scope for DETR class-count hardening."""
+
     def create_transforms(self):
         # EC's pretrained ViT backbone expects ImageNet-normalized inputs at
         # both train and eval time; the inference path applies the same norm

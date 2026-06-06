@@ -68,8 +68,9 @@ RF-DETR (Roboflow)
 Source: https://github.com/roboflow/rf-detr
 License: Apache License 2.0
 Copyright (c) 2024-2025 Roboflow, Inc.
-Used for: RF-DETR model family (libreyolo/models/rfdetr/), COCO
-          evaluation glue (libreyolo/data/yolo_coco_api.py).
+Used for: RF-DETR model family (libreyolo/models/rfdetr/), LoRA
+          adapter recipe helpers (libreyolo/training/lora.py), and
+          COCO evaluation glue (libreyolo/data/yolo_coco_api.py).
 
 --------------------------------------------------------------------
 DINOv2 (Meta AI / facebookresearch)

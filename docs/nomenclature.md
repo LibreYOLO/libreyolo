@@ -22,7 +22,8 @@ Libre<FAMILY><size>[-<task>].pt
 
 ## Family prefixes
 
-The 12 families currently registered:
+The 12 detector families registered into the model factory (the VLM tier is a
+separate category, covered in the note below):
 
 | Family id (`FAMILY`) | Filename prefix | Casing rule applied |
 |---|---|---|
@@ -55,9 +56,17 @@ Casing rules observed in the table:
    filename prefix `LibreEC` is the short form of EdgeCrafter, with the
    task carried in the `-pose` / `-seg` suffix.
 
-The casing rule is now uniform: **every family prefix is all-caps after
-`Libre`**, with the only mixed-case fragment being the lowercase version
-suffix `DEIMv2`. There are no CamelCase-preserving exceptions.
+For these checkpoint-emitting detector families the casing rule is uniform:
+**every family prefix is all-caps after `Libre`**, with the only mixed-case
+fragment being the lowercase version suffix `DEIMv2`.
+
+The VLM tier is a separate category and does not follow this rule. Its families
+(`LibreQwen3VL`, `LibreLFM2VL`, `LibreSmolVLM2`, `LibreInternVL3`,
+`LibreFlorence2`, `LibreKosmos2`) are not registered into the detector factory
+and do not emit `Libre<FAMILY><size>.pt` checkpoints. Their `FILENAME_PREFIX` is
+only a weights-directory prefix for a downloaded Hugging Face snapshot, so brand
+casing (CamelCase) is intentionally preserved. See
+[`librevlm_design.md`](librevlm_design.md).
 
 ## Size codes
 

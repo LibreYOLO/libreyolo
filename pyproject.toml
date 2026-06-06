@@ -46,8 +46,20 @@ onnx = [
 rfdetr = [
     "transformers>=5.1.0",
 ]
+lora = [
+    # LoRA / PEFT fine-tuning (lora=True) for transformer backbones (RF-DETR).
+    "libreyolo[rfdetr]",
+    "peft>=0.12.0",
+]
 plots = [
     "matplotlib>=3.7.0",
+]
+vlm = [
+    # VLM-as-detector families load through transformers.
+    # huggingface_hub (used for snapshot download) ships with transformers.
+    "transformers>=5.1.0",
+    # SmolVLM2's processor requires num2words.
+    "num2words>=0.5.0",
 ]
 tensorrt = [
     # No CUDA on macOS; marker drops these. Version pin must match the
@@ -81,6 +93,7 @@ coreml = [
 all = [
     "libreyolo[onnx]",
     "libreyolo[rfdetr]",
+    "libreyolo[lora]",
     "libreyolo[plots]",
     "libreyolo[tensorrt]",
     "libreyolo[openvino]",
@@ -89,6 +102,7 @@ all = [
     "libreyolo[rtdetr]",
     "libreyolo[gaze]",
     "libreyolo[coreml]",
+    "libreyolo[vlm]",
 ]
 
 [project.scripts]
@@ -226,6 +240,7 @@ markers = [
     "damoyolo: tests covering the DAMO-YOLO model family",
     "rtmdet: tests covering the RTMDet model family",
     "l2cs: tests covering the L2CS gaze estimation family",
+    "vlm: tests covering the LibreVLM (VLM-as-detector) tier",
     "rf1: RF1 training tests",
     "rf5: RF5 training benchmark tests",
     "slow: slow tests that may take several minutes",
