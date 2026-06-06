@@ -18,7 +18,7 @@ from ...utils.image_loader import ImageLoader, ImageInput
 
 _YOLO9_MAX_NMS_CANDIDATES = 30000
 _YOLO9_OBB_MAX_NMS_CANDIDATES = 1200
-_YOLO9_OBB_PREFILTER_CANDIDATES = 300
+_YOLO9_OBB_PREFILTER_CANDIDATES = _YOLO9_OBB_MAX_NMS_CANDIDATES
 
 ImageSize = Union[int, Tuple[int, int]]
 

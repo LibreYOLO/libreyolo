@@ -632,7 +632,7 @@ class TestYOLO9Utils:
 
         assert out["num_detections"] == 1
         assert exact_candidate_counts
-        assert exact_candidate_counts[0] <= 300
+        assert exact_candidate_counts[0] <= yolo9_utils._YOLO9_OBB_MAX_NMS_CANDIDATES
 
     def test_obb_prefilter_does_not_apply_horizontal_nms(self):
         num_candidates = 400
@@ -649,8 +649,8 @@ class TestYOLO9Utils:
             max_det=50,
         )
 
-        assert keep.numel() == 300
-        torch.testing.assert_close(scores[keep], scores[:300])
+        assert keep.numel() == num_candidates
+        torch.testing.assert_close(scores[keep], scores)
 
     def test_make_anchors(self):
         """Test anchor generation.
