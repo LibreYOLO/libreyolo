@@ -301,7 +301,7 @@ class LibreYOLO9(BaseModel):
             if ckpt_task is not None:
                 normalized_ckpt_task = normalize_task(ckpt_task)
                 allowed = normalized_ckpt_task == self.task or (
-                    self.task == "obb" and normalized_ckpt_task == "detect"
+                    self.task in {"segment", "obb"} and normalized_ckpt_task == "detect"
                 )
                 if not allowed:
                     raise RuntimeError(
@@ -433,8 +433,8 @@ class LibreYOLO9(BaseModel):
             patience: Early stopping patience.
             pretrained: Optional training initialization weights. Use True to
                 load the matching LibreYOLO9 detect checkpoint for transfer
-                learning, or pass a checkpoint path/name. Detect -> OBB transfer
-                is allowed here only as explicit initialization.
+                learning, or pass a checkpoint path/name. Detect -> segment/OBB
+                transfer is allowed here only as explicit initialization.
             callbacks: Optional training callback or iterable of callbacks.
 
         Returns:

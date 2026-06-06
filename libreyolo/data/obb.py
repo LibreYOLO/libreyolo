@@ -36,6 +36,58 @@ def corners_to_xywhr(corners: np.ndarray) -> np.ndarray:
     return canonicalize_xywhr((cx, cy, w, h, math.radians(angle_deg)))
 
 
+def xywhr_to_corners(xywhr: Sequence[float] | np.ndarray) -> np.ndarray:
+    """Convert ``xywhr`` rotated rectangles to four corners."""
+    rects = np.asarray(xywhr, dtype=np.float32)
+    single = rects.ndim == 1
+    rects = rects.reshape(-1, 5)
+
+    cx = rects[:, 0]
+    cy = rects[:, 1]
+    half_w = rects[:, 2] * 0.5
+    half_h = rects[:, 3] * 0.5
+    angle = rects[:, 4]
+    cos = np.cos(angle)
+    sin = np.sin(angle)
+
+    width_vec = np.stack((cos * half_w, sin * half_w), axis=1)
+    height_vec = np.stack((-sin * half_h, cos * half_h), axis=1)
+    centers = np.stack((cx, cy), axis=1)
+    corners = np.stack(
+        (
+            centers - width_vec - height_vec,
+            centers + width_vec - height_vec,
+            centers + width_vec + height_vec,
+            centers - width_vec + height_vec,
+        ),
+        axis=1,
+    ).astype(np.float32, copy=False)
+    return corners[0] if single else corners
+
+
+def scale_xywhr(
+    xywhr: Sequence[float] | np.ndarray,
+    scale_x: float,
+    scale_y: float,
+) -> np.ndarray:
+    """Scale rotated rectangles through corners and refit canonical ``xywhr``.
+
+    Nonuniform x/y scaling turns a rotated rectangle into a parallelogram. The
+    OBB contract still needs a rectangle, so this maps corners through the
+    affine scale and returns OpenCV's minimum-area canonical rectangle.
+    """
+    rects = np.asarray(xywhr, dtype=np.float32)
+    single = rects.ndim == 1
+    rects = rects.reshape(-1, 5)
+    if rects.shape[0] == 0:
+        return np.zeros((0, 5), dtype=np.float32)
+    corners = xywhr_to_corners(rects)
+    corners[..., 0] *= float(scale_x)
+    corners[..., 1] *= float(scale_y)
+    scaled = np.stack([corners_to_xywhr(corner_set) for corner_set in corners])
+    return scaled[0] if single else scaled.astype(np.float32, copy=False)
+
+
 def xywhr_iou(xywhr_a: Sequence[float], xywhr_b: Sequence[float]) -> float:
     """Return exact IoU for two rotated rectangles in ``xywhr`` format."""
     rect_a = np.asarray(xywhr_a, dtype=np.float32)

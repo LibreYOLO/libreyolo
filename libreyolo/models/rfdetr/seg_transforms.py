@@ -15,7 +15,7 @@ import random
 import cv2
 import numpy as np
 
-from ...data.obb import normalize_obb_angle
+from ...data.obb import normalize_obb_angle, scale_xywhr
 
 
 _IMAGENET_MEAN = np.array([0.485, 0.456, 0.406], dtype=np.float32).reshape(3, 1, 1)
@@ -371,8 +371,26 @@ class RFDETRSegTransform:
         # canvas, so boxes and masks use independent x/y scale factors.
         img_rgb, scale_x, scale_y = _resize_square(image, (target_h, target_w))
         if len(boxes):
-            boxes[:, [0, 2]] *= scale_x
-            boxes[:, [1, 3]] *= scale_y
+            if self.target_dim == 6:
+                xywhr = np.stack(
+                    (
+                        (boxes[:, 0] + boxes[:, 2]) * 0.5,
+                        (boxes[:, 1] + boxes[:, 3]) * 0.5,
+                        boxes[:, 2] - boxes[:, 0],
+                        boxes[:, 3] - boxes[:, 1],
+                        angles,
+                    ),
+                    axis=1,
+                )
+                xywhr = scale_xywhr(xywhr, scale_x, scale_y)
+                boxes[:, 0] = xywhr[:, 0] - xywhr[:, 2] * 0.5
+                boxes[:, 1] = xywhr[:, 1] - xywhr[:, 3] * 0.5
+                boxes[:, 2] = xywhr[:, 0] + xywhr[:, 2] * 0.5
+                boxes[:, 3] = xywhr[:, 1] + xywhr[:, 3] * 0.5
+                angles = xywhr[:, 4]
+            else:
+                boxes[:, [0, 2]] *= scale_x
+                boxes[:, [1, 3]] *= scale_y
         segments_t = _scale_segments_xy(segments_t, scale_x, scale_y)
 
         # Drop boxes that collapsed below 1px after resize. Apply the same keep mask

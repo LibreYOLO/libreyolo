@@ -294,6 +294,7 @@ class LibreRFDETR(BaseModel):
         device: str = "auto",
         segmentation: bool = False,
         task: str | None = None,
+        allow_detect_to_obb_transfer: bool = False,
         **kwargs,
     ):
         # Resolve task: explicit `task` > legacy `segmentation` flag > filename / checkpoint inference.
@@ -330,6 +331,7 @@ class LibreRFDETR(BaseModel):
             weight_source = model_path
 
         self._weight_source = weight_source
+        self._allow_detect_to_obb_transfer = bool(allow_detect_to_obb_transfer)
         if size is None:
             size = self._detect_size_from_source(weight_source)
             if size is None:
@@ -618,6 +620,21 @@ class LibreRFDETR(BaseModel):
                     f"but is being loaded into '{self.FAMILY}'."
                 )
 
+            ckpt_task = loaded.get("task")
+            if ckpt_task is not None:
+                normalized_ckpt_task = normalize_task(ckpt_task)
+                allowed = normalized_ckpt_task == self.task or (
+                    self.task == "obb"
+                    and normalized_ckpt_task == "detect"
+                    and self._allow_detect_to_obb_transfer
+                )
+                if not allowed:
+                    raise RuntimeError(
+                        f"Checkpoint was trained for task='{normalized_ckpt_task}' "
+                        f"but this model was initialized for task='{self.task}'. "
+                        "Pass the matching task or use explicit training transfer."
+                    )
+
             # Replay LoRA injection for adapter checkpoints. A model trained with
             # lora=True saves its DINOv2 encoder under PeftModel keys; rebuild the
             # same wrapped graph here (the recipe is fixed, so re-running the
@@ -669,12 +686,25 @@ class LibreRFDETR(BaseModel):
             if missing:
                 # ``strict=False`` is expected for class/head adaptation and older
                 # checkpoints, but missing non-head tensors should stay visible.
-                ignored = (
+                missing_angle = [k for k in missing if k.startswith("angle_embed.")]
+                if (
+                    self.task == "obb"
+                    and missing_angle
+                    and not self._allow_detect_to_obb_transfer
+                ):
+                    raise RuntimeError(
+                        "RF-DETR OBB checkpoints must include angle_embed.* weights. "
+                        "Detect-to-OBB initialization is only supported through "
+                        "explicit training transfer."
+                    )
+
+                ignored = [
                     "class_embed.",
                     "transformer.enc_out_class_embed.",
-                    "angle_embed.",
-                )
-                important = [k for k in missing if not k.startswith(ignored)]
+                ]
+                if self._allow_detect_to_obb_transfer:
+                    ignored.append("angle_embed.")
+                important = [k for k in missing if not k.startswith(tuple(ignored))]
                 if important:
                     raise RuntimeError(
                         f"Missing RF-DETR checkpoint keys: {sorted(important)[:10]}"

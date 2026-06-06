@@ -44,8 +44,9 @@ def _create_explicit_task_train_model(
 ):
     """Instantiate task-specific train models that should start from architecture.
 
-    OBB training can use detect checkpoints only as transfer weights. Create
-    the OBB architecture first so task-specific heads exist before training.
+    Cross-task training can use detect checkpoints only as transfer weights.
+    Create the requested architecture first so task-specific heads exist before
+    training.
     """
     if family not in {"yolo9", "rfdetr"} or resume:
         return None
@@ -59,17 +60,28 @@ def _create_explicit_task_train_model(
 
     filename_task = model_cls.detect_task_from_filename(Path(model_path).name)
     train_task = normalize_task(task) if task is not None else filename_task
-    if train_task != "obb":
+    if train_task is None:
         return None
-    if filename_task == "obb" and _model_ref_exists(model_path):
+    if task is None and filename_task == train_task and _model_ref_exists(model_path):
         return None
 
     size = model_cls.detect_size_from_filename(Path(model_path).name)
-    if family == "rfdetr" and _model_ref_exists(model_path):
-        return model_cls(model_path, size=size, task=train_task, device=device)
     if size is None:
         return None
-    return model_cls(None, size=size, task=train_task, device=device)
+    if family == "rfdetr" and train_task == "obb" and _model_ref_exists(model_path):
+        return model_cls(
+            model_path,
+            size=size,
+            task=train_task,
+            device=device,
+            allow_detect_to_obb_transfer=True,
+        )
+    extra = (
+        {"allow_detect_to_obb_transfer": True}
+        if family == "rfdetr" and train_task == "obb"
+        else {}
+    )
+    return model_cls(None, size=size, task=train_task, device=device, **extra)
 
 
 def _create_yolo9_obb_from_loaded_detect_model(loaded_model, device: str):
@@ -108,7 +120,30 @@ def _create_rfdetr_obb_from_loaded_detect_model(
         size=getattr(loaded_model, "size", None),
         task="obb",
         device=device,
+        allow_detect_to_obb_transfer=True,
     )
+
+
+def _create_yolo9_task_from_loaded_model(loaded_model, task: str, device: str):
+    if get_loaded_model_family(loaded_model) != "yolo9":
+        return None
+
+    from libreyolo.models.yolo9.model import LibreYOLO9
+
+    size = getattr(loaded_model, "size", None)
+    if size is None:
+        return None
+    return LibreYOLO9(None, size=size, task=task, device=device)
+
+
+def _should_use_yolo9_path_as_transfer(model_path: str, task: str | None) -> bool:
+    if task is None or not Path(model_path).exists():
+        return False
+
+    from libreyolo.models.yolo9.model import LibreYOLO9
+
+    filename_task = LibreYOLO9.detect_task_from_filename(Path(model_path).name)
+    return filename_task != task
 
 
 def train_cmd(
@@ -250,19 +285,21 @@ def train_cmd(
         )
         if (
             loaded_model is not None
+            and family == "yolo9"
             and train_pretrained is True
-            and normalized_task == "obb"
+            and _should_use_yolo9_path_as_transfer(model_path, normalized_task)
         ):
-            from libreyolo.models.yolo9.model import LibreYOLO9
-
-            filename_task = LibreYOLO9.detect_task_from_filename(Path(model_path).name)
-            if filename_task != "obb" and Path(model_path).exists():
-                train_pretrained = model_path
+            train_pretrained = model_path
     elif normalized_task is not None:
         loaded_task = getattr(loaded_model, "task", "detect")
         if loaded_task != normalized_task:
             replacement = None
-            if normalized_task == "obb":
+            replacement = _create_yolo9_task_from_loaded_model(
+                loaded_model,
+                normalized_task,
+                device=device,
+            )
+            if replacement is None and normalized_task == "obb":
                 replacement = _create_yolo9_obb_from_loaded_detect_model(
                     loaded_model,
                     device=device,
@@ -281,7 +318,7 @@ def train_cmd(
                     f"'{normalized_task}'.",
                 )
             loaded_model = replacement
-            if train_pretrained is True:
+            if train_pretrained is True and get_loaded_model_family(loaded_model) == "yolo9":
                 train_pretrained = model_path
 
     # All training params in CLI-facing names (single source of truth).
@@ -411,9 +448,15 @@ def train_cmd(
 
     # Load model
     if loaded_model is None:
-        loaded_model = load_model_or_exit(
-            out, model=model, model_path=model_path, device=device
-        )
+        load_kwargs = {
+            "out": out,
+            "model": model,
+            "model_path": model_path,
+            "device": device,
+        }
+        if normalized_task is not None:
+            load_kwargs["task"] = normalized_task
+        loaded_model = load_model_or_exit(**load_kwargs)
     loaded_family = get_loaded_model_family(loaded_model) or family
 
     # Build training kwargs, with family-specific translation where needed.

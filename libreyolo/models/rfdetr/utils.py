@@ -10,6 +10,7 @@ import torch.nn.functional as F
 from typing import List, Dict, Tuple
 from PIL import Image
 
+from ...data.obb import scale_xywhr
 from ...utils.general import cxcywh_to_xyxy
 
 IMAGENET_MEAN = [0.485, 0.456, 0.406]
@@ -96,16 +97,32 @@ def postprocess(
         obb_cxcywh = torch.gather(out_bbox, 1, topk_boxes.unsqueeze(-1).repeat(1, 1, 4))
         obb_angles = torch.gather(out_angles, 1, topk_boxes.unsqueeze(-1)).squeeze(-1)
 
-    # Scale from relative [0, 1] to absolute [0, height/width] coordinates
+    # Scale from relative [0, 1] to absolute [0, height/width] coordinates.
+    # RF-DETR resizes rectangular images directly to a square canvas, so OBBs
+    # must be transformed through corners before refitting xywhr.
     img_h, img_w = target_sizes.unbind(1)
     scale_fct = torch.stack([img_w, img_h, img_w, img_h], dim=1)
     boxes = boxes * scale_fct[:, None, :]
     if out_angles is not None:
-        obb_xywhr = obb_cxcywh * scale_fct[:, None, :]
+        obb_rel = torch.cat((obb_cxcywh, obb_angles.unsqueeze(-1)), dim=-1)
+        obb_rows = []
+        for batch_idx in range(batch_size):
+            scaled = scale_xywhr(
+                obb_rel[batch_idx].detach().cpu().numpy(),
+                float(img_w[batch_idx].detach().cpu().item()),
+                float(img_h[batch_idx].detach().cpu().item()),
+            )
+            obb_rows.append(
+                torch.as_tensor(
+                    scaled,
+                    dtype=obb_cxcywh.dtype,
+                    device=obb_cxcywh.device,
+                )
+            )
+        obb_xywhr = torch.stack(obb_rows, dim=0)
         obb = torch.cat(
             (
                 obb_xywhr,
-                obb_angles.unsqueeze(-1),
                 scores.unsqueeze(-1),
                 labels.to(dtype=obb_xywhr.dtype).unsqueeze(-1),
             ),

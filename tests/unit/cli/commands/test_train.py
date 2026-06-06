@@ -390,6 +390,47 @@ def test_train_obb_uses_task_architecture_without_loading_missing_obb_weights(
     assert data["epochs_completed"] == 1
 
 
+def test_train_yolo9_segment_task_uses_segment_architecture(monkeypatch, tmp_path):
+    app = _make_app()
+    captured = {}
+
+    def fail_load(*_args, **_kwargs):
+        raise AssertionError("Segment training should instantiate the task architecture")
+
+    def fake_train(self, data, **kwargs):
+        captured["task"] = self.task
+        captured["size"] = self.size
+        captured["data"] = data
+        captured["kwargs"] = kwargs
+        return {"output_dir": str(tmp_path / "yolo9_seg_exp")}
+
+    monkeypatch.setattr("libreyolo.cli.commands.train.load_model_or_exit", fail_load)
+    monkeypatch.setattr("libreyolo.models.yolo9.model.LibreYOLO9.train", fake_train)
+
+    result = runner.invoke(
+        app,
+        [
+            "data=coco8-seg.yaml",
+            "model=yolo9-t",
+            "task=segment",
+            "epochs=1",
+            "pretrained=false",
+            f"project={tmp_path}",
+            "exist_ok=true",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert captured["task"] == "segment"
+    assert captured["size"] == "t"
+    assert captured["data"] == "coco8-seg.yaml"
+    assert captured["kwargs"]["pretrained"] is False
+    data = json.loads(result.stdout)
+    assert data["model_family"] == "yolo9"
+    assert data["epochs_completed"] == 1
+
+
 def test_train_rfdetr_obb_uses_task_architecture_without_generic_load(
     monkeypatch, tmp_path
 ):
@@ -400,12 +441,20 @@ def test_train_rfdetr_obb_uses_task_architecture_without_generic_load(
         FAMILY = "rfdetr"
         device = "cpu"
 
-        def __init__(self, model_path=None, size=None, task=None, device="auto"):
+        def __init__(
+            self,
+            model_path=None,
+            size=None,
+            task=None,
+            device="auto",
+            allow_detect_to_obb_transfer=False,
+        ):
             captured["init"] = {
                 "model_path": model_path,
                 "size": size,
                 "task": task,
                 "device": device,
+                "allow_detect_to_obb_transfer": allow_detect_to_obb_transfer,
             }
             self.size = size
             self.task = task
@@ -453,6 +502,7 @@ def test_train_rfdetr_obb_uses_task_architecture_without_generic_load(
         "size": "n",
         "task": "obb",
         "device": "auto",
+        "allow_detect_to_obb_transfer": True,
     }
     assert captured["data"] == "uav-obb.yaml"
     assert "pretrained" not in captured["kwargs"]
@@ -479,12 +529,20 @@ def test_train_rfdetr_detect_checkpoint_switches_to_obb_architecture(
         FAMILY = "rfdetr"
         device = "cpu"
 
-        def __init__(self, model_path=None, size=None, task=None, device="auto"):
+        def __init__(
+            self,
+            model_path=None,
+            size=None,
+            task=None,
+            device="auto",
+            allow_detect_to_obb_transfer=False,
+        ):
             captured["init"] = {
                 "model_path": model_path,
                 "size": size,
                 "task": task,
                 "device": device,
+                "allow_detect_to_obb_transfer": allow_detect_to_obb_transfer,
             }
             self.size = size
             self.task = task
@@ -523,6 +581,7 @@ def test_train_rfdetr_detect_checkpoint_switches_to_obb_architecture(
         "size": "n",
         "task": "obb",
         "device": "auto",
+        "allow_detect_to_obb_transfer": True,
     }
     assert captured["data"] == "uav-obb.yaml"
     assert "pretrained" not in captured["kwargs"]

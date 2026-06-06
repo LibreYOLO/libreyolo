@@ -8,7 +8,7 @@ from types import SimpleNamespace
 pytestmark = pytest.mark.unit
 
 
-def test_rfdetr_obb_transform_preserves_angle_column():
+def test_rfdetr_obb_transform_refits_angle_after_nonuniform_resize():
     from libreyolo.models.rfdetr.seg_transforms import RFDETRDetTransform
 
     image = np.zeros((10, 20, 3), dtype=np.uint8)
@@ -27,7 +27,10 @@ def test_rfdetr_obb_transform_preserves_angle_column():
     assert labels.shape == (2, 6)
     np.testing.assert_allclose(
         labels[0],
-        np.array([2.0, 9.6, 25.6, 12.8, 25.6, 0.25], dtype=np.float32),
+        np.array(
+            [2.0, 9.6, 25.6, 29.717402, 13.104321, -1.4438124],
+            dtype=np.float32,
+        ),
         rtol=1e-6,
         atol=1e-6,
     )
@@ -45,12 +48,92 @@ def test_rfdetr_postprocess_returns_obb_payload():
     results = postprocess(outputs, torch.tensor([[100.0, 200.0]]), num_select=1)
 
     assert "obb" in results[0]
-    torch.testing.assert_close(results[0]["boxes"][0], torch.tensor([80.0, 20.0, 120.0, 30.0]))
+    torch.testing.assert_close(
+        results[0]["boxes"][0],
+        torch.tensor([80.0, 20.0, 120.0, 30.0]),
+    )
     torch.testing.assert_close(
         results[0]["obb"][0],
-        torch.tensor([100.0, 25.0, 40.0, 10.0, 0.3, 0.9999546, 1.0]),
+        torch.tensor(
+            [100.0, 25.0, 43.048557, 10.344515, 0.15345213, 0.9999546, 1.0]
+        ),
         rtol=1e-5,
         atol=1e-5,
+    )
+
+
+def test_rfdetr_obb_load_rejects_detect_checkpoint_without_transfer_flag():
+    from libreyolo.models.rfdetr.model import LibreRFDETR
+
+    class DummyRFDETR(torch.nn.Module):
+        nb_classes = 80
+
+        def load_state_dict(self, state_dict, strict=False):
+            return ["angle_embed.weight", "angle_embed.bias"], []
+
+    wrapper = object.__new__(LibreRFDETR)
+    wrapper.task = "obb"
+    wrapper.model = DummyRFDETR()
+    wrapper.nb_classes = 80
+    wrapper._model_num_classes = 80
+    wrapper._allow_detect_to_obb_transfer = False
+
+    with pytest.raises(RuntimeError, match="task='detect'"):
+        wrapper._load_weights(
+            {
+                "model_family": "rfdetr",
+                "task": "detect",
+                "nc": 80,
+                "names": {i: f"class_{i}" for i in range(80)},
+                "model": {},
+            }
+        )
+
+
+def test_rfdetr_obb_load_rejects_missing_angle_head_without_metadata():
+    from libreyolo.models.rfdetr.model import LibreRFDETR
+
+    class DummyRFDETR(torch.nn.Module):
+        nb_classes = 80
+
+        def load_state_dict(self, state_dict, strict=False):
+            return ["angle_embed.weight", "angle_embed.bias"], []
+
+    wrapper = object.__new__(LibreRFDETR)
+    wrapper.task = "obb"
+    wrapper.model = DummyRFDETR()
+    wrapper.nb_classes = 80
+    wrapper._model_num_classes = 80
+    wrapper._allow_detect_to_obb_transfer = False
+
+    with pytest.raises(RuntimeError, match=r"angle_embed\.\*"):
+        wrapper._load_weights({"class_embed.bias": torch.zeros(81)})
+
+
+def test_rfdetr_obb_load_allows_detect_checkpoint_for_training_transfer():
+    from libreyolo.models.rfdetr.model import LibreRFDETR
+
+    class DummyRFDETR(torch.nn.Module):
+        nb_classes = 80
+
+        def load_state_dict(self, state_dict, strict=False):
+            return ["angle_embed.weight", "angle_embed.bias"], []
+
+    wrapper = object.__new__(LibreRFDETR)
+    wrapper.task = "obb"
+    wrapper.model = DummyRFDETR()
+    wrapper.nb_classes = 80
+    wrapper._model_num_classes = 80
+    wrapper._allow_detect_to_obb_transfer = True
+
+    wrapper._load_weights(
+        {
+            "model_family": "rfdetr",
+            "task": "detect",
+            "nc": 80,
+            "names": {i: f"class_{i}" for i in range(80)},
+            "model": {},
+        }
     )
 
 
