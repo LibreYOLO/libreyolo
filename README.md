@@ -50,9 +50,6 @@ and receive the heaviest testing:
 ## Compatibility
 
 `✓` supported, `exp` experimental. Empty cells are not currently supported.
-YOLOv9 OBB (oriented bounding box) support is experimental and currently uses
-YOLO OBB `.txt` labels.
-
 <table>
   <thead>
     <tr>
