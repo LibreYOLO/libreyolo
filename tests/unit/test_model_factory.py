@@ -5,6 +5,7 @@ import pytest
 
 from libreyolo import LibreYOLO
 from libreyolo.models import _needs_rfdetr_registration
+from libreyolo.models.base.model import BaseModel
 from libreyolo.models.yolo9.model import LibreYOLO9
 from libreyolo.models.yolo9.nn import LibreYOLO9Model
 from libreyolo.utils.serialization import wrap_libreyolo_checkpoint
@@ -30,6 +31,48 @@ def test_rfdetr_lazy_registration_ignores_rtdetr_signature():
     }
 
     assert _needs_rfdetr_registration(weights_dict) is False
+
+
+@pytest.mark.parametrize("device_arg", ["0", 0])
+def test_base_model_normalizes_bare_numeric_device(device_arg):
+    class _NoopModule(torch.nn.Module):
+        def to(self, device):
+            self.moved_to = device
+            return self
+
+    class _DeviceDummy(BaseModel):
+        FAMILY = "_device_dummy"
+        FILENAME_PREFIX = "_DeviceDummy"
+        INPUT_SIZES = {"n": 32}
+
+        def _init_model(self):
+            self.inner = _NoopModule()
+            return self.inner
+
+        def _get_available_layers(self):
+            return {}
+
+        @staticmethod
+        def _get_preprocess_numpy():
+            return None
+
+        def _preprocess(self, image, color_format="auto", input_size=None):
+            raise NotImplementedError
+
+        def _forward(self, input_tensor):
+            raise NotImplementedError
+
+        def _postprocess(self, output, conf_thres, iou_thres, original_size, max_det=300, ratio=1.0, **kwargs):
+            raise NotImplementedError
+
+    try:
+        model = _DeviceDummy(None, size="n", device=device_arg)
+
+        assert str(model.device) == "cuda:0"
+        assert model.inner.moved_to == torch.device("cuda:0")
+    finally:
+        if _DeviceDummy in BaseModel._registry:
+            BaseModel._registry.remove(_DeviceDummy)
 
 
 def test_factory_loads_yolo9_t_metadata_checkpoint_with_coco_class_width(tmp_path):

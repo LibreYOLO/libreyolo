@@ -318,6 +318,147 @@ def test_train_obb_uses_task_architecture_without_loading_missing_obb_weights(
     assert data["epochs_completed"] == 1
 
 
+def test_train_rfdetr_obb_uses_task_architecture_without_generic_load(
+    monkeypatch, tmp_path
+):
+    app = _make_app()
+    captured = {}
+
+    class _RFDETROBBLike:
+        FAMILY = "rfdetr"
+        device = "cpu"
+
+        def __init__(self, model_path=None, size=None, task=None, device="auto"):
+            captured["init"] = {
+                "model_path": model_path,
+                "size": size,
+                "task": task,
+                "device": device,
+            }
+            self.size = size
+            self.task = task
+            self.device = device
+
+        @classmethod
+        def detect_task_from_filename(cls, filename):
+            return "obb" if filename.lower().endswith("-obb.pt") else None
+
+        @classmethod
+        def detect_size_from_filename(cls, filename):
+            return "n" if "rfdetrn" in filename.lower() else None
+
+        def train(self, data, **kwargs):
+            captured["data"] = data
+            captured["kwargs"] = kwargs
+            return {"output_dir": str(tmp_path / "rfdetr_obb_exp")}
+
+    def fail_load(*_args, **_kwargs):
+        raise AssertionError("RF-DETR OBB training should instantiate the task architecture")
+
+    import libreyolo.models.rfdetr.model as rfdetr_model
+
+    monkeypatch.setattr("libreyolo.cli.commands.train.load_model_or_exit", fail_load)
+    monkeypatch.setattr("libreyolo.cli.commands.train._model_ref_exists", lambda _: False)
+    monkeypatch.setattr(rfdetr_model, "LibreRFDETR", _RFDETROBBLike)
+
+    result = runner.invoke(
+        app,
+        [
+            "data=uav-obb.yaml",
+            "model=LibreRFDETRn.pt",
+            "task=obb",
+            "epochs=1",
+            "pretrained=true",
+            f"project={tmp_path}",
+            "exist_ok=true",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert captured["init"] == {
+        "model_path": None,
+        "size": "n",
+        "task": "obb",
+        "device": "auto",
+    }
+    assert captured["data"] == "uav-obb.yaml"
+    assert "pretrained" not in captured["kwargs"]
+    data = json.loads(result.stdout)
+    assert data["model_family"] == "rfdetr"
+    assert data["epochs_completed"] == 1
+
+
+def test_train_rfdetr_detect_checkpoint_switches_to_obb_architecture(
+    monkeypatch, tmp_path
+):
+    app = _make_app()
+    detect_path = tmp_path / "custom-rfdetr.pt"
+    detect_path.write_bytes(b"placeholder")
+    captured = {}
+
+    class _LoadedRFDETRDetect:
+        FAMILY = "rfdetr"
+        task = "detect"
+        size = "n"
+        device = "cpu"
+
+    class _RFDETROBBLike:
+        FAMILY = "rfdetr"
+        device = "cpu"
+
+        def __init__(self, model_path=None, size=None, task=None, device="auto"):
+            captured["init"] = {
+                "model_path": model_path,
+                "size": size,
+                "task": task,
+                "device": device,
+            }
+            self.size = size
+            self.task = task
+            self.device = device
+
+        def train(self, data, **kwargs):
+            captured["data"] = data
+            captured["kwargs"] = kwargs
+            return {"output_dir": str(tmp_path / "rfdetr_obb_custom_transfer")}
+
+    import libreyolo.models.rfdetr.model as rfdetr_model
+
+    monkeypatch.setattr(
+        "libreyolo.cli.commands.train.load_model_or_exit",
+        lambda out, model, model_path, device: _LoadedRFDETRDetect(),
+    )
+    monkeypatch.setattr(rfdetr_model, "LibreRFDETR", _RFDETROBBLike)
+
+    result = runner.invoke(
+        app,
+        [
+            "data=uav-obb.yaml",
+            f"model={detect_path}",
+            "task=obb",
+            "epochs=1",
+            "pretrained=true",
+            f"project={tmp_path}",
+            "exist_ok=true",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert captured["init"] == {
+        "model_path": str(detect_path),
+        "size": "n",
+        "task": "obb",
+        "device": "auto",
+    }
+    assert captured["data"] == "uav-obb.yaml"
+    assert "pretrained" not in captured["kwargs"]
+    data = json.loads(result.stdout)
+    assert data["model_family"] == "rfdetr"
+    assert data["epochs_completed"] == 1
+
+
 def test_train_obb_custom_detect_checkpoint_uses_checkpoint_as_transfer(
     monkeypatch, tmp_path
 ):

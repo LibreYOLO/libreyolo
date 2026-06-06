@@ -41,27 +41,32 @@ def _create_explicit_task_train_model(
 ):
     """Instantiate task-specific train models that should start from architecture.
 
-    YOLO9 OBB training can use detect checkpoints only as explicit transfer
-    weights inside ``model.train(pretrained=...)``. Loading a detect checkpoint
-    directly into an OBB head is rejected by the checkpoint task contract.
+    OBB training can use detect checkpoints only as transfer weights. Create
+    the OBB architecture first so task-specific heads exist before training.
     """
-    if family != "yolo9" or resume:
+    if family not in {"yolo9", "rfdetr"} or resume:
         return None
 
-    from libreyolo.models.yolo9.model import LibreYOLO9
     from libreyolo.tasks import normalize_task
 
-    filename_task = LibreYOLO9.detect_task_from_filename(Path(model_path).name)
+    if family == "yolo9":
+        from libreyolo.models.yolo9.model import LibreYOLO9 as model_cls
+    else:
+        from libreyolo.models.rfdetr.model import LibreRFDETR as model_cls
+
+    filename_task = model_cls.detect_task_from_filename(Path(model_path).name)
     train_task = normalize_task(task) if task is not None else filename_task
     if train_task != "obb":
         return None
     if filename_task == "obb" and _model_ref_exists(model_path):
         return None
 
-    size = LibreYOLO9.detect_size_from_filename(Path(model_path).name)
+    size = model_cls.detect_size_from_filename(Path(model_path).name)
+    if family == "rfdetr" and _model_ref_exists(model_path):
+        return model_cls(model_path, size=size, task=train_task, device=device)
     if size is None:
         return None
-    return LibreYOLO9(None, size=size, task=train_task, device=device)
+    return model_cls(None, size=size, task=train_task, device=device)
 
 
 def _create_yolo9_obb_from_loaded_detect_model(loaded_model, device: str):
@@ -78,6 +83,29 @@ def _create_yolo9_obb_from_loaded_detect_model(loaded_model, device: str):
     if size is None:
         return None
     return LibreYOLO9(None, size=size, task="obb", device=device)
+
+
+def _create_rfdetr_obb_from_loaded_detect_model(
+    loaded_model,
+    *,
+    model_path: str,
+    device: str,
+):
+    """Switch an already-loaded RF-DETR detect checkpoint to OBB architecture."""
+    if (
+        get_loaded_model_family(loaded_model) != "rfdetr"
+        or getattr(loaded_model, "task", "detect") != "detect"
+    ):
+        return None
+
+    from libreyolo.models.rfdetr.model import LibreRFDETR
+
+    return LibreRFDETR(
+        model_path,
+        size=getattr(loaded_model, "size", None),
+        task="obb",
+        device=device,
+    )
 
 
 def train_cmd(
@@ -231,6 +259,12 @@ def train_cmd(
                     loaded_model,
                     device=device,
                 )
+                if replacement is None:
+                    replacement = _create_rfdetr_obb_from_loaded_detect_model(
+                        loaded_model,
+                        model_path=model_path,
+                        device=device,
+                    )
             if replacement is None:
                 exit_with_error(
                     out,

@@ -101,6 +101,34 @@ def test_rfdetr_backend_uses_topk_over_queries_and_classes():
     np.testing.assert_allclose(parsed_boxes[1], [37.5, 37.5, 62.5, 62.5])
 
 
+def test_rfdetr_obb_backend_parses_angle_output():
+    backend = _DummyBackend(
+        "rfdetr",
+        task="obb",
+        supported_tasks=("detect", "segment", "obb"),
+    )
+    boxes = np.array([[[0.5, 0.25, 0.2, 0.1]]], dtype=np.float32)
+    logits = np.array([[[0.0, 10.0]]], dtype=np.float32)
+    angles = np.array([[[0.3]]], dtype=np.float32)
+
+    parsed_boxes, scores, classes, masks, obb = backend._parse_rfdetr(
+        [boxes, logits, angles],
+        orig_w=200,
+        orig_h=100,
+        conf=0.5,
+    )
+
+    assert masks is None
+    assert classes.tolist() == [1]
+    np.testing.assert_allclose(parsed_boxes[0], [80.0, 20.0, 120.0, 30.0])
+    np.testing.assert_allclose(
+        obb[0],
+        [100.0, 25.0, 40.0, 10.0, 0.3, scores[0], 1.0],
+        rtol=1e-6,
+        atol=1e-6,
+    )
+
+
 def test_rfdetr_seg_backend_uses_variant_num_select():
     backend = _DummyBackend(
         "rfdetr",

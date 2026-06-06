@@ -799,6 +799,8 @@ class BaseBackend(ABC):
 
         For segmentation models a third output is present:
         masks (B,300,Hm,Wm) raw mask logits at model resolution.
+        For OBB models a third output is present:
+        angles (B,300,1) in radians.
         """
         first = all_outputs[0][0]
         second = all_outputs[1][0]
@@ -808,7 +810,13 @@ class BaseBackend(ABC):
         else:
             logits = first
             boxes_all = second
-        raw_masks = all_outputs[2][0] if len(all_outputs) >= 3 else None
+        raw_masks = None
+        raw_angles = None
+        if len(all_outputs) >= 3:
+            if self.task == "obb":
+                raw_angles = all_outputs[2][0]
+            else:
+                raw_masks = all_outputs[2][0]
 
         scores = 1.0 / (1.0 + np.exp(-logits.astype(np.float64))).astype(np.float32)
         num_queries, num_classes = scores.shape
@@ -823,16 +831,21 @@ class BaseBackend(ABC):
         query_idx = flat_indexes // num_classes
         class_ids = flat_indexes % num_classes
         boxes_raw = boxes_all[query_idx]
+        angles_raw = raw_angles[query_idx] if raw_angles is not None else None
         if raw_masks is not None:
             raw_masks = raw_masks[query_idx]
 
         mask = max_scores > conf
         boxes_raw = boxes_raw[mask]
         max_scores, class_ids = max_scores[mask], class_ids[mask]
+        if angles_raw is not None:
+            angles_raw = angles_raw[mask]
         if raw_masks is not None:
             raw_masks = raw_masks[mask]
 
         if len(boxes_raw) == 0:
+            if self.task == "obb":
+                return boxes_raw, max_scores, class_ids, None, np.zeros((0, 7), dtype=np.float32)
             return boxes_raw, max_scores, class_ids, None
 
         # COCO 91→80 class mapping
@@ -844,10 +857,14 @@ class BaseBackend(ABC):
             boxes_raw = boxes_raw[valid]
             max_scores = max_scores[valid]
             class_ids = mapped[valid]
+            if angles_raw is not None:
+                angles_raw = angles_raw[valid]
             if raw_masks is not None:
                 raw_masks = raw_masks[valid]
 
         if len(boxes_raw) == 0:
+            if self.task == "obb":
+                return boxes_raw, max_scores, class_ids, None, np.zeros((0, 7), dtype=np.float32)
             return boxes_raw, max_scores, class_ids, None
 
         cx, cy, w, h = (
@@ -865,6 +882,22 @@ class BaseBackend(ABC):
         boxes[:, [0, 2]] = np.clip(boxes[:, [0, 2]], 0, orig_w)
         boxes[:, [1, 3]] = np.clip(boxes[:, [1, 3]], 0, orig_h)
 
+        obb_out = None
+        if angles_raw is not None:
+            angles = np.asarray(angles_raw, dtype=np.float32).reshape(-1)
+            obb_out = np.stack(
+                [
+                    cx * orig_w,
+                    cy * orig_h,
+                    w * orig_w,
+                    h * orig_h,
+                    angles,
+                    max_scores,
+                    class_ids.astype(np.float32),
+                ],
+                axis=1,
+            ).astype(np.float32, copy=False)
+
         # Resize and threshold masks to original image resolution
         masks_out = None
         if raw_masks is not None and len(raw_masks) > 0:
@@ -877,6 +910,8 @@ class BaseBackend(ABC):
             )
             masks_out = (masks_t[:, 0] > 0.0).numpy()  # (N, H, W)
 
+        if self.task == "obb":
+            return boxes, max_scores, class_ids, masks_out, obb_out
         return boxes, max_scores, class_ids, masks_out
 
     def _parse_rtdetr(self, all_outputs, orig_w, orig_h, conf):

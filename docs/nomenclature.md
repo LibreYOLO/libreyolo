@@ -120,7 +120,7 @@ it appears in that family's `SUPPORTED_TASKS`.
 | `deimv2`    | `("detect",)` (default)             | detect | detect-only |
 | `rtdetr`    | `("detect",)` (default)             | detect | detect-only |
 | `picodet`   | `("detect",)` (default)             | detect | detect-only |
-| `rfdetr`    | `("detect", "segment")`             | detect | seg uses smaller sizes |
+| `rfdetr`    | `("detect", "segment", "obb")`      | detect | seg uses smaller sizes; OBB uses detect sizes |
 | `yolonas`   | `("detect", "pose")`                | detect | pose adds size `n` |
 | `ec`     | `("detect", "pose", "segment")`     | detect | all three tasks |
 | `l2cs`      | `("gaze",)`                         | gaze   | inference-only; two-stage (face detector + gaze head); not trainable in LibreYOLO |
@@ -158,9 +158,10 @@ LibreYOLONASs-pose.pt
 LibreYOLONASm-pose.pt
 LibreYOLONASl-pose.pt
 
-# rfdetr — detect + segment
+# rfdetr — detect + segment + obb
 LibreRFDETRn.pt            # detect
 LibreRFDETRn-seg.pt        # segment
+LibreRFDETRn-obb.pt        # obb
 
 # ec — detect + pose + segment
 LibreECs.pt             # detect (default)

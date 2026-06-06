@@ -48,9 +48,10 @@ class _TinyModel(nn.Module):
 class _TinyRFDETRExport(nn.Module):
     """Small RF-DETR-shaped export module for ONNX schema tests."""
 
-    def __init__(self, *, segmentation=False):
+    def __init__(self, *, segmentation=False, obb=False):
         super().__init__()
         self.segmentation = segmentation
+        self.obb = obb
         self.anchor = nn.Parameter(torch.zeros(()))
 
     def forward(self, x):
@@ -61,6 +62,9 @@ class _TinyRFDETRExport(nn.Module):
         if self.segmentation:
             masks = signal.expand(batch, 3, 8, 8)
             return boxes, logits, masks
+        if self.obb:
+            angles = signal.reshape(batch, 1, 1).expand(batch, 3, 1)
+            return boxes, logits, angles
         return boxes, logits
 
 
@@ -229,6 +233,21 @@ class TestExporterFormats:
 
         assert device == torch.device("cpu")
 
+    @pytest.mark.parametrize("device_arg", ["0", 0])
+    def test_export_normalizes_bare_numeric_device(self, device_arg):
+        wrapper = _make_wrapper(model_name="yolo9")
+        wrapper.device = torch.device("cpu")
+
+        _imgsz, device, _output_path = OnnxExporter(wrapper)._resolve_params(
+            output_path=None,
+            imgsz=None,
+            device=device_arg,
+            half=False,
+            int8=False,
+        )
+
+        assert device == torch.device("cuda:0")
+
     def test_rfdetr_export_auto_opset_is_17(self, monkeypatch, tmp_path):
         captured = {}
         wrapper = _make_wrapper(model_name="rfdetr")
@@ -256,20 +275,21 @@ class TestExporterFormats:
         assert captured["opset"] == 17
 
     @pytest.mark.parametrize(
-        ("segmentation", "expected_outputs"),
+        ("task", "segmentation", "obb", "expected_outputs"),
         [
-            (False, ["dets", "labels"]),
-            (True, ["dets", "labels", "masks"]),
+            ("detect", False, False, ["dets", "labels"]),
+            ("segment", True, False, ["dets", "labels", "masks"]),
+            ("obb", False, True, ["dets", "labels", "angles"]),
         ],
     )
     def test_rfdetr_onnx_uses_upstream_io_names(
-        self, tmp_path, segmentation, expected_outputs
+        self, tmp_path, task, segmentation, obb, expected_outputs
     ):
         onnx = pytest.importorskip("onnx")
         output_path = tmp_path / "rfdetr.onnx"
 
         export_onnx(
-            _TinyRFDETRExport(segmentation=segmentation),
+            _TinyRFDETRExport(segmentation=segmentation, obb=obb),
             torch.zeros(1, 3, 32, 32),
             output_path=str(output_path),
             opset=17,
@@ -278,7 +298,7 @@ class TestExporterFormats:
             half=False,
             metadata={
                 "model_family": "rfdetr",
-                "task": "segment" if segmentation else "detect",
+                "task": task,
                 "segmentation": "true" if segmentation else "false",
             },
         )
@@ -612,6 +632,18 @@ class TestOutputPathGeneration:
         )
         assert exporter._auto_output_path(half=True, int8=False) == str(
             Path("weights") / "yolo9_t_obb_fp16.onnx"
+        )
+
+    def test_auto_path_includes_rfdetr_obb_task(self):
+        wrapper = _make_wrapper(model_name="rfdetr", size="n")
+        wrapper.task = "obb"
+        exporter = OnnxExporter(wrapper)
+
+        assert exporter._auto_output_path(half=False, int8=False) == str(
+            Path("weights") / "rfdetr_n_obb.onnx"
+        )
+        assert exporter._auto_output_path(half=True, int8=False) == str(
+            Path("weights") / "rfdetr_n_obb_fp16.onnx"
         )
 
     def test_explicit_path(self):

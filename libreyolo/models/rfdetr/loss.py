@@ -378,6 +378,23 @@ class SetCriterion(nn.Module):
         losses["loss_giou"] = loss_giou.sum() / num_boxes
         return losses
 
+    def loss_angles(self, outputs, targets, indices, num_boxes):
+        """Compute periodic OBB angle loss for matched predictions.
+
+        Angles are in radians. Rotated rectangles are equivalent under pi
+        radians, so the loss uses ``cos(2 * delta)`` instead of direct L1.
+        """
+        assert "pred_angles" in outputs
+        idx = self._get_src_permutation_idx(indices)
+        src_angles_all = outputs["pred_angles"]
+        if idx[0].numel() == 0:
+            return {"loss_angle": src_angles_all.sum() * 0.0}
+
+        src_angles = src_angles_all[idx].squeeze(-1)
+        target_angles = torch.cat([t["angles"][i] for t, (_, i) in zip(targets, indices)], dim=0)
+        loss_angle = 1.0 - torch.cos(2.0 * (src_angles - target_angles))
+        return {"loss_angle": loss_angle.sum() / num_boxes}
+
     def loss_masks(self, outputs, targets, indices, num_boxes):
         """Compute BCE-with-logits and Dice losses for segmentation masks on matched pairs.
         Expects outputs to contain 'pred_masks' of shape [B, Q, H, W] and targets with key 'masks'.
@@ -496,6 +513,7 @@ class SetCriterion(nn.Module):
             "labels": self.loss_labels,
             "cardinality": self.loss_cardinality,
             "boxes": self.loss_boxes,
+            "angles": self.loss_angles,
             "masks": self.loss_masks,
         }
         assert loss in loss_map, f"do you really want to compute {loss} loss?"

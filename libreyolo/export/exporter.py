@@ -343,6 +343,10 @@ class BaseExporter(ABC):
             else:
                 device = self.model.device
         else:
+            if isinstance(device, int):
+                device = f"cuda:{device}"
+            elif isinstance(device, str) and device.isdigit():
+                device = f"cuda:{device}"
             device = torch.device(device)
         if output_path is None:
             output_path = self._auto_output_path(half, int8)

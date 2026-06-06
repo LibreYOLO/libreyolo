@@ -169,10 +169,11 @@ class LibreRFDETR(BaseModel):
     FILENAME_PREFIX = "LibreRFDETR"
     INPUT_SIZES = {"n": 384, "s": 512, "m": 576, "l": 704}
     SEG_INPUT_SIZES = {"n": 312, "s": 384, "m": 432, "l": 504, "x": 624, "xx": 768}
-    SUPPORTED_TASKS = ("detect", "segment")
+    SUPPORTED_TASKS = ("detect", "segment", "obb")
     TASK_INPUT_SIZES = {
         "detect": INPUT_SIZES,
         "segment": SEG_INPUT_SIZES,
+        "obb": INPUT_SIZES,
     }
     TRAIN_CONFIG = RFDETRConfig
     val_preprocessor_class = RFDETRValPreprocessor
@@ -387,6 +388,11 @@ class LibreRFDETR(BaseModel):
         """Adapter flag derived from the canonical task state."""
         return self.task == "segment"
 
+    @property
+    def _is_obb(self) -> bool:
+        """Adapter flag derived from the canonical task state."""
+        return self.task == "obb"
+
     @staticmethod
     def _detect_size_from_source(model_path: str | dict[str, Any] | None) -> str | None:
         if model_path is None:
@@ -445,6 +451,7 @@ class LibreRFDETR(BaseModel):
             nb_classes=self._model_num_classes,
             device=str(self.device),
             segmentation=self._is_segmentation,
+            obb=self._is_obb,
         )
 
     def _get_available_layers(self) -> Dict[str, nn.Module]:
@@ -463,6 +470,8 @@ class LibreRFDETR(BaseModel):
                 layers["class_embed"] = actual_model.class_embed
             if hasattr(actual_model, "bbox_embed"):
                 layers["bbox_embed"] = actual_model.bbox_embed
+            if getattr(actual_model, "angle_embed", None) is not None:
+                layers["angle_embed"] = actual_model.angle_embed
             if getattr(actual_model, "segmentation_head", None) is not None:
                 layers["segmentation_head"] = actual_model.segmentation_head
         return layers
@@ -511,11 +520,13 @@ class LibreRFDETR(BaseModel):
         **kwargs,
     ) -> Dict:
         if isinstance(output, tuple):
-            output = {
-                "pred_boxes": output[0],
-                "pred_logits": output[1],
-                **({"pred_masks": output[2]} if len(output) > 2 else {}),
-            }
+            tuple_output = output
+            output = {"pred_boxes": tuple_output[0], "pred_logits": tuple_output[1]}
+            if len(tuple_output) > 2:
+                if self.task == "obb":
+                    output["pred_angles"] = tuple_output[2]
+                else:
+                    output["pred_masks"] = tuple_output[2]
 
         logits = output["pred_logits"]
         default_num_select = getattr(self.model, "num_select", max_det)
@@ -536,6 +547,7 @@ class LibreRFDETR(BaseModel):
         labels = result["labels"]
         boxes = result["boxes"]
         masks = result.get("masks")  # (K, H, W) bool or None
+        obb = result.get("obb")
 
         keep = scores > conf_thres
         scores = scores[keep]
@@ -543,6 +555,8 @@ class LibreRFDETR(BaseModel):
         boxes = boxes[keep]
         if masks is not None:
             masks = masks[keep]
+        if obb is not None:
+            obb = obb[keep]
 
         # Map COCO 91-class IDs to YOLO 80-class indices if needed
         num_output_classes = output["pred_logits"].shape[-1]
@@ -558,6 +572,10 @@ class LibreRFDETR(BaseModel):
             labels = mapped[valid]
             if masks is not None:
                 masks = masks[valid]
+            if obb is not None:
+                obb = obb[valid]
+                obb[:, 5] = scores
+                obb[:, 6] = labels.float()
 
         det = {
             "boxes": boxes.cpu().tolist(),
@@ -567,6 +585,8 @@ class LibreRFDETR(BaseModel):
         }
         if masks is not None:
             det["masks"] = masks.cpu()
+        if obb is not None:
+            det["obb"] = obb.cpu().tolist()
         return det
 
     # =========================================================================
@@ -631,7 +651,11 @@ class LibreRFDETR(BaseModel):
             if missing:
                 # ``strict=False`` is expected for class/head adaptation and older
                 # checkpoints, but missing non-head tensors should stay visible.
-                ignored = ("class_embed.", "transformer.enc_out_class_embed.")
+                ignored = (
+                    "class_embed.",
+                    "transformer.enc_out_class_embed.",
+                    "angle_embed.",
+                )
                 important = [k for k in missing if not k.startswith(ignored)]
                 if important:
                     raise RuntimeError(
