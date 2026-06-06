@@ -89,10 +89,10 @@ class RFDETRTrainer(BaseTrainer):
         return f"LibreRFDETR-{self.config.size}"
 
     def _ddp_find_unused_parameters(self) -> bool:
-        # Detection only: at least one transformer parameter receives no
-        # gradient on some forward passes, so DDP must skip reduction for it.
+        # Detect/OBB: at least one transformer parameter receives no gradient
+        # on some forward passes, so DDP must skip reduction for it.
         # Segmentation uses static_graph=True instead (see _ddp_static_graph).
-        return getattr(self.wrapper_model, "task", "detect") == "detect"
+        return getattr(self.wrapper_model, "task", "detect") in {"detect", "obb"}
 
     def _ddp_static_graph(self) -> bool:
         # Segmentation only: the seg head is invoked from both encoder and
@@ -100,7 +100,7 @@ class RFDETRTrainer(BaseTrainer):
         # gradients from two call sites. With find_unused_parameters=True the
         # DDP hook fires twice per step → "marked ready twice" crash.
         # static_graph=True locks the reducer after iteration 1 and handles
-        # double accumulation correctly. Detection keeps the default (False)
+        # double accumulation correctly. Detect/OBB keep the default (False)
         # because find_unused_parameters=True requires dynamic graph traversal.
         return getattr(self.wrapper_model, "task", "detect") == "segment"
 
