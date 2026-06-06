@@ -152,3 +152,50 @@ def test_rfdetr_classify_forward():
     m.model.eval()
     with torch.no_grad():
         assert m.model(x).shape == (1, 4)
+
+
+def test_safe_zip_extraction_rejects_path_traversal(tmp_path):
+    import zipfile
+
+    from libreyolo.data.classify_dataset import _safe_extract_zip
+
+    bad_zip = tmp_path / "bad.zip"
+    with zipfile.ZipFile(bad_zip, "w") as zf:
+        zf.writestr("../escape.txt", "payload")
+    with zipfile.ZipFile(bad_zip) as zf:
+        with pytest.raises(ValueError):
+            _safe_extract_zip(zf, tmp_path / "dest")
+
+
+def test_yolo9_classify_task_inferred_on_load(tmp_path):
+    """A saved classification checkpoint loads without re-specifying task=."""
+    from libreyolo import LibreYOLO9
+
+    _make_imagefolder(tmp_path, n_classes=3, n_per=6, size=64)
+    m = LibreYOLO9(None, size="t", task="classify", nb_classes=3, device="cpu")
+    res = m.train(
+        data=str(tmp_path), epochs=1, batch=8, imgsz=64, optimizer="adamw",
+        lr0=1e-3, workers=0, eval_interval=0, project=str(tmp_path / "runs"),
+        name="ckpt", exist_ok=True, amp=False, ema=False, warmup_epochs=0,
+    )
+    ckpt = res.get("last_checkpoint") or res.get("best_checkpoint")
+    assert ckpt is not None
+
+    reloaded = LibreYOLO9(ckpt, size="t", device="cpu")  # no task= passed
+    assert reloaded.task == "classify"
+    assert reloaded.nb_classes == 3
+
+
+def test_yolo9_classify_export_onnx(tmp_path):
+    pytest.importorskip("onnx")
+    ort = pytest.importorskip("onnxruntime")
+    from libreyolo import LibreYOLO9
+
+    m = LibreYOLO9(None, size="t", task="classify", nb_classes=5, device="cpu")
+    path = m.export(format="onnx", output_path=str(tmp_path / "y9_cls.onnx"))
+
+    sess = ort.InferenceSession(path, providers=["CPUExecutionProvider"])
+    inp = sess.get_inputs()[0]
+    shape = [d if isinstance(d, int) else 1 for d in inp.shape]
+    out = sess.run(None, {inp.name: np.zeros(shape, dtype=np.float32)})
+    assert out[0].shape == (1, 5)

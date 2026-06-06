@@ -356,7 +356,14 @@ class BaseExporter(ABC):
         model_name = self.model._get_model_name().lower()
         task = getattr(self.model, "task", "detect")
         is_segment = task == "segment" or getattr(self.model, "_is_segmentation", False) is True
-        task_suffix = "_seg" if is_segment else ("_obb" if task == "obb" else "")
+        if is_segment:
+            task_suffix = "_seg"
+        elif task == "obb":
+            task_suffix = "_obb"
+        elif task == "classify":
+            task_suffix = "_cls"
+        else:
+            task_suffix = ""
         precision_suffix = "_int8" if int8 else ("_fp16" if half else "")
         return str(
             Path("weights")
@@ -406,6 +413,25 @@ class BaseExporter(ABC):
             nn_model = ECExportWrapper(nn_model).to(device)
             nn_model.eval()
             dfine_wrapped = True  # share the YOLOX-head-export skip path below
+        elif family == "rfdetr" and getattr(self.model, "task", None) == "classify":
+            # Classification has no detection decoder; trace the backbone +
+            # linear classifier directly (it returns logits). The detection
+            # export wrapper forwards through ``model.model``, which is None
+            # for classification.
+            nn_model = nn_model.classifier.to(device)
+            nn_model.eval()
+            # Precompute static DINOv2 positional encodings for the fixed export
+            # resolution; otherwise the dynamic bicubic-antialias interpolation
+            # in the backbone is not ONNX-traceable.
+            encoder = getattr(getattr(nn_model, "backbone", None), "encoder", None)
+            if (
+                encoder is not None
+                and hasattr(encoder, "export")
+                and not getattr(encoder, "_export", False)
+            ):
+                encoder.shape = (imgsz[0], imgsz[1])
+                encoder.export()
+            dfine_wrapped = True
         elif family == "rfdetr":
             from ..models.rfdetr.nn import RFDETRExportWrapper
 

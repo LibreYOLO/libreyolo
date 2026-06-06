@@ -52,6 +52,24 @@ _KNOWN_DATASETS: Dict[str, str] = {
 }
 
 
+def _safe_extract_zip(zf: zipfile.ZipFile, dest_dir: Path) -> None:
+    """Extract a zip, rejecting entries that escape ``dest_dir`` (zip-slip).
+
+    Archives can be fetched from arbitrary URLs, so a crafted member with an
+    absolute path or ``..`` components could otherwise write outside the
+    dataset cache. Each resolved member path is verified to stay within
+    ``dest_dir`` before extraction.
+    """
+    dest_root = dest_dir.resolve()
+    for member in zf.namelist():
+        target = (dest_dir / member).resolve()
+        if target != dest_root and dest_root not in target.parents:
+            raise ValueError(
+                f"Unsafe path in archive (escapes dataset directory): {member!r}"
+            )
+    zf.extractall(dest_dir)
+
+
 def _find_train_root(base: Path) -> Path | None:
     """Locate the directory that holds the ``train`` split under ``base``."""
     if not base.is_dir():
@@ -81,7 +99,7 @@ def _download_and_extract(url: str, name: str) -> Path:
             out.write(response.read())
 
     with zipfile.ZipFile(zip_path) as zf:
-        zf.extractall(dest_dir)
+        _safe_extract_zip(zf, dest_dir)
 
     root = _find_train_root(dest_dir)
     if root is None:

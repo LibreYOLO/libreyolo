@@ -205,7 +205,7 @@ class LibreRFDETR(BaseModel):
     @classmethod
     def can_load(cls, weights_dict: dict) -> bool:
         keys_lower = [k.lower() for k in weights_dict]
-        return any(
+        if any(
             "detr" in k
             or "dinov2" in k
             or "transformer" in k
@@ -214,6 +214,13 @@ class LibreRFDETR(BaseModel):
             or "class_embed" in k
             or "bbox_embed" in k
             for k in keys_lower
+        ):
+            return True
+        # Classification checkpoints carry only the DINOv2 backbone + a linear
+        # head, so they lack the detection/decoder markers above. Recognize the
+        # backbone-plus-linear-head signature so the factory can route them.
+        return "linear.weight" in weights_dict and any(
+            k.startswith("backbone.") for k in weights_dict
         )
 
     @classmethod
@@ -648,6 +655,17 @@ class LibreRFDETR(BaseModel):
         if not isinstance(loaded, dict):
             raise TypeError("RF-DETR classification checkpoints must be dictionaries")
 
+        # Guard against loading a detection/segmentation checkpoint into the
+        # classifier: its keys would silently fail to match (strict=False),
+        # leaving a randomly initialized head that "loads" successfully.
+        ckpt_task = loaded.get("task")
+        if isinstance(ckpt_task, str) and normalize_task(ckpt_task) != "classify":
+            raise RuntimeError(
+                f"Checkpoint was trained for task={normalize_task(ckpt_task)!r}, "
+                "but is being loaded into an RF-DETR classification model. "
+                "Load it with the matching task."
+            )
+
         ckpt_nc = loaded.get("nc")
         if ckpt_nc is None:
             names = loaded.get("names")
@@ -657,7 +675,20 @@ class LibreRFDETR(BaseModel):
 
         # LibreRFDETRModel.load_state_dict (classification branch) unwraps the
         # checkpoint's "model" payload before loading into the classifier.
-        self.model.load_state_dict(loaded, strict=False)
+        result = self.model.load_state_dict(loaded, strict=False)
+        missing = list(getattr(result, "missing_keys", []) or [])
+        unexpected = list(getattr(result, "unexpected_keys", []) or [])
+        # The linear head must have been populated; if it is missing (or the
+        # archive is full of detection-only keys), this is not a classifier.
+        if any(k.startswith("linear.") for k in missing) or any(
+            ("class_embed" in k or "transformer" in k or "query" in k)
+            for k in unexpected
+        ):
+            raise RuntimeError(
+                "Checkpoint does not look like an RF-DETR classification model "
+                "(its weights do not match the backbone + linear classifier). "
+                "Load a classification checkpoint or the correct task."
+            )
 
         ckpt_names = loaded.get("names")
         if ckpt_names is not None:

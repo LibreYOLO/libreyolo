@@ -367,12 +367,12 @@ class BaseTrainer(ABC):
         return save_dir
 
     def _setup_data(self):
-        if getattr(self.wrapper_model, "task", "detect") == "classify":
+        if getattr(getattr(self, "wrapper_model", None), "task", "detect") == "classify":
             return self._setup_classify_data()
 
         img_size = self.input_size
         preproc, MosaicDatasetClass = self.create_transforms()
-        task = getattr(self.wrapper_model, "task", "detect")
+        task = getattr(getattr(self, "wrapper_model", None), "task", "detect")
         load_segments = task == "segment"
         load_obb = task == "obb"
 
@@ -588,6 +588,14 @@ class BaseTrainer(ABC):
                 drop_last=len(train_dataset) >= self.world_size,
             )
 
+        # Under DDP each rank only sees ``len(sampler)`` samples, so base the
+        # drop_last decision on the per-rank visible count. Otherwise a small
+        # dataset split across ranks could drop every rank's only partial
+        # batch and leave zero iterations.
+        try:
+            visible_samples = len(sampler) if sampler is not None else len(train_dataset)
+        except TypeError:
+            visible_samples = len(train_dataset)
         self.train_loader = DataLoader(
             train_dataset,
             batch_size=per_rank_batch,
@@ -596,7 +604,7 @@ class BaseTrainer(ABC):
             num_workers=self.config.workers,
             pin_memory=self.device.type == "cuda",
             collate_fn=classify_collate_fn,
-            drop_last=len(train_dataset) >= per_rank_batch,
+            drop_last=visible_samples >= per_rank_batch,
         )
 
         if is_main_process():
@@ -998,7 +1006,7 @@ class BaseTrainer(ABC):
             "total_epochs": self.config.epochs,
             "model_family": self.get_model_family(),
             "model_size": getattr(self.config, "size", None),
-            "task": getattr(self.wrapper_model, "task", "detect"),
+            "task": getattr(getattr(self, "wrapper_model", None), "task", "detect"),
             "save_dir": str(getattr(self, "save_dir", "")),
         }
 
@@ -1166,7 +1174,7 @@ class BaseTrainer(ABC):
             total_epochs=self.config.epochs,
             model_family=self.get_model_family(),
             model_size=getattr(self.config, "size", None),
-            task=getattr(self.wrapper_model, "task", "detect"),
+            task=getattr(getattr(self, "wrapper_model", None), "task", "detect"),
             save_dir=str(self.save_dir),
             train_loss=float(train_loss),
             train_loss_items=self._scalar_mapping(train_loss_items),
@@ -1528,7 +1536,7 @@ class BaseTrainer(ABC):
     def _run_validation(
         self, epoch: int, *, save_plots: bool | None = None
     ) -> Optional[Dict[str, Any]]:
-        if getattr(self.wrapper_model, "task", "detect") == "classify":
+        if getattr(getattr(self, "wrapper_model", None), "task", "detect") == "classify":
             return self._run_classify_validation(epoch)
         try:
             from libreyolo.validation import (
@@ -1578,7 +1586,7 @@ class BaseTrainer(ABC):
             self.wrapper_model.model = eval_pytorch_model
 
             try:
-                task = getattr(self.wrapper_model, "task", "detect")
+                task = getattr(getattr(self, "wrapper_model", None), "task", "detect")
                 if task == "segment":
                     validator_cls = SegmentationValidator
                 elif task == "obb":
@@ -1727,7 +1735,7 @@ class BaseTrainer(ABC):
             model_to_save.state_dict(),
             model_family=self.get_model_family(),
             size=self.config.size,
-            task=getattr(self.wrapper_model, "task", "detect"),
+            task=getattr(getattr(self, "wrapper_model", None), "task", "detect"),
             nc=checkpoint_nc,
             names=names,
             imgsz=int(checkpoint_imgsz),

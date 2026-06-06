@@ -307,6 +307,13 @@ class InferenceRunner:
 
     def _save_annotated_image(self, result: Results, original_img, save_path: Path) -> None:
         """Internal helper to draw boxes, masks, and keypoints and save to disk."""
+        # Classification results carry probs and no boxes; there is nothing to
+        # draw, so persist the source image as-is rather than dereferencing
+        # ``result.boxes`` (which is None).
+        if result.boxes is None and getattr(result, "probs", None) is not None:
+            original_img.save(save_path)
+            log_saved_result(result, save_path)
+            return
         if len(result) > 0:
             annotated_img = original_img
             # Draw masks first (underneath boxes)
@@ -649,6 +656,23 @@ class InferenceRunner:
         **kwargs,
     ) -> Results:
         """Run tiled inference on large images."""
+
+        # Tiling is a detection-time technique; for whole-image classification
+        # it is meaningless, so fall back to a single forward pass.
+        if getattr(self.model, "task", None) == "classify":
+            return self._predict_single(
+                image,
+                save=save,
+                output_path=output_path,
+                conf=conf,
+                iou=iou,
+                imgsz=imgsz,
+                classes=classes,
+                max_det=max_det,
+                color_format=color_format,
+                output_file_format=output_file_format,
+                **kwargs,
+            )
 
         if getattr(self.model, "_is_segmentation", False):
             raise ValueError(

@@ -113,21 +113,57 @@ class LibreYOLO9(BaseModel):
         proto_channels: int = 256,
         nb_classes: int = 80,
         device: str = "auto",
+        task: str | None = None,
         **kwargs,
     ):
         self.reg_max = reg_max
         self.num_masks = num_masks
         self.proto_channels = proto_channels
+        # Task is the checkpoint's source of truth: when not explicitly given,
+        # infer it from the weight filename suffix (e.g. ``-cls``) or the
+        # checkpoint's ``task`` metadata, so a classification/segmentation
+        # checkpoint loads without the caller having to repeat ``task=``.
+        if task is None and isinstance(model_path, (str, Path)):
+            task = self._infer_task_from_source(model_path)
         super().__init__(
             model_path=model_path,
             size=size,
             nb_classes=nb_classes,
             device=device,
+            task=task,
             **kwargs,
         )
 
         if isinstance(model_path, str):
             self._load_weights(model_path)
+
+    @classmethod
+    def _infer_task_from_source(cls, model_path) -> str | None:
+        """Best-effort task inference from a weight filename or checkpoint metadata."""
+        from ...tasks import normalize_task
+        from ...utils.serialization import load_untrusted_torch_file
+
+        resolved = (
+            cls._resolve_weights_path(model_path)
+            if isinstance(model_path, str)
+            else str(model_path)
+        )
+        filename_task = cls.detect_task_from_filename(Path(resolved).name)
+        if filename_task:
+            return filename_task
+
+        path = Path(resolved)
+        if not path.exists():
+            return None
+        try:
+            loaded = load_untrusted_torch_file(
+                resolved, map_location="cpu", context="task detection"
+            )
+        except Exception:
+            return None
+        if isinstance(loaded, dict) and isinstance(loaded.get("task"), str):
+            return normalize_task(loaded["task"])
+        return None
 
     @property
     def _is_segmentation(self) -> bool:
