@@ -62,6 +62,33 @@ def _check_import_surface(expect_source: str, source_root: Path | None) -> None:
     if Results.__name__ != "Results":
         raise AssertionError("Results import did not resolve correctly")
 
+    # The LibreVLM tier exposes a factory plus family classes via lazy imports
+    # (transformers is not required to import these names).
+    from libreyolo import (
+        LibreFlorence2,
+        LibreInternVL3,
+        LibreKosmos2,
+        LibreLFM2VL,
+        LibreQwen3VL,
+        LibreSmolVLM2,
+        LibreVLM,
+    )
+
+    if not callable(LibreVLM):
+        raise AssertionError("LibreVLM import did not resolve to a callable")
+    for family in (
+        LibreQwen3VL,
+        LibreLFM2VL,
+        LibreSmolVLM2,
+        LibreInternVL3,
+        LibreFlorence2,
+        LibreKosmos2,
+    ):
+        if not isinstance(family, type):
+            raise AssertionError(
+                f"VLM family export did not resolve to a class: {family!r}"
+            )
+
     package_version = importlib.metadata.version("libreyolo")
     if package_version != libreyolo.__version__:
         raise AssertionError(
