@@ -172,6 +172,7 @@ def _make_args(
     device: str,
     segmentation: bool,
     pose: bool = False,
+    obb: bool = False,
     num_keypoints: int = 17,
     oks_sigmas=None,
 ) -> SimpleNamespace:
@@ -182,6 +183,7 @@ def _make_args(
     cfg_values["pretrain_weights"] = "__libreyolo_no_backbone_download__"
     cfg_values["segmentation_head"] = segmentation
     cfg_values["keypoint_head"] = pose
+    cfg_values["obb"] = obb
     return SimpleNamespace(
         **cfg_values,
         amp=True,
@@ -200,6 +202,7 @@ def _make_args(
         force_no_pretrain=False,
         freeze_encoder=False,
         giou_loss_coef=2.0,
+        angle_loss_coef=1.0,
         gradient_checkpointing=False,
         group_detr=13,
         ia_bce_loss=True,
@@ -224,6 +227,7 @@ def _make_args(
         set_cost_bbox=5.0,
         set_cost_class=2.0,
         set_cost_giou=2.0,
+        set_cost_angle=0.5 if obb else 0.0,
         shape=(cfg.resolution, cfg.resolution),
         sum_group_losses=False,
         two_stage=True,
@@ -337,13 +341,16 @@ class LibreRFDETRModel(nn.Module):
         device: str = "cpu",
         segmentation: bool = False,
         pose: bool = False,
+        obb: bool = False,
         num_keypoints: int = 17,
         oks_sigmas=None,
     ):
         super().__init__()
 
+        if sum(bool(x) for x in (segmentation, pose, obb)) > 1:
+            raise ValueError("RF-DETR can enable only one of segmentation, pose, or OBB")
         configs = RFDETR_SEG_CONFIGS if segmentation else RFDETR_CONFIGS
-        if pose:
+        if pose or obb:
             configs = RFDETR_CONFIGS
         if config not in configs:
             raise ValueError(f"Invalid RF-DETR size: {config}. Must be one of {sorted(configs)}")
@@ -353,6 +360,7 @@ class LibreRFDETRModel(nn.Module):
         self.nb_classes = nb_classes
         self.segmentation = segmentation
         self.pose = pose
+        self.obb = obb
         self.num_keypoints = int(num_keypoints)
         self.args = _make_args(
             self.config,
@@ -360,6 +368,7 @@ class LibreRFDETRModel(nn.Module):
             device=device,
             segmentation=segmentation,
             pose=pose,
+            obb=obb,
             num_keypoints=num_keypoints,
             oks_sigmas=oks_sigmas,
         )
@@ -430,6 +439,8 @@ class RFDETRExportWrapper(nn.Module):
             return output["pred_boxes"], output["pred_logits"], output["pred_masks"]
         if "pred_keypoints" in output:
             return output["pred_boxes"], output["pred_logits"], output["pred_keypoints"]
+        if "pred_angles" in output:
+            return output["pred_boxes"], output["pred_logits"], output["pred_angles"]
         return output["pred_boxes"], output["pred_logits"]
 
 
@@ -439,6 +450,7 @@ def create_rfdetr_model(
     device: str = "cpu",
     segmentation: bool = False,
     pose: bool = False,
+    obb: bool = False,
     num_keypoints: int = 17,
     oks_sigmas=None,
 ) -> LibreRFDETRModel:
@@ -448,6 +460,7 @@ def create_rfdetr_model(
         device=device,
         segmentation=segmentation,
         pose=pose,
+        obb=obb,
         num_keypoints=num_keypoints,
         oks_sigmas=oks_sigmas,
     )

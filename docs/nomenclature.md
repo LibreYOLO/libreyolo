@@ -122,14 +122,14 @@ it appears in that family's `SUPPORTED_TASKS`.
 | Family    | `SUPPORTED_TASKS`                   | Default | Notes |
 |---|---|---|---|
 | `yolox`     | `("detect",)` (default)             | detect | detect-only |
-| `yolo9`     | `("detect",)` (default)             | detect | detect-only |
+| `yolo9`     | `("detect", "segment", "obb")`      | detect | native grid heads |
 | `yolo9_e2e` | `("detect",)` (default)             | detect | detect-only |
 | `dfine`     | `("detect",)` (default)             | detect | detect-only |
 | `deim`      | `("detect",)` (default)             | detect | detect-only |
 | `deimv2`    | `("detect",)` (default)             | detect | detect-only |
 | `rtdetr`    | `("detect",)` (default)             | detect | detect-only |
 | `picodet`   | `("detect",)` (default)             | detect | detect-only |
-| `rfdetr`    | `("detect", "segment")`             | detect | seg uses smaller sizes |
+| `rfdetr`    | `("detect", "segment", "obb")`      | detect | seg uses smaller sizes; OBB uses detect sizes |
 | `yolonas`   | `("detect", "pose")`                | detect | pose adds size `n` |
 | `ec`     | `("detect", "pose", "segment")`     | detect | all three tasks |
 | `l2cs`      | `("gaze",)`                         | gaze   | inference-only; two-stage (face detector + gaze head); not trainable in LibreYOLO |
@@ -144,6 +144,8 @@ each task can use a different per-size input resolution (relevant for RF-DETR).
 ```text
 LibreYOLOXn.pt
 LibreYOLO9s.pt
+LibreYOLO9t-seg.pt
+LibreYOLO9t-obb.pt
 LibreYOLO9E2Es.pt
 LibreYOLONASm.pt
 LibreDFINEl.pt
@@ -165,9 +167,10 @@ LibreYOLONASs-pose.pt
 LibreYOLONASm-pose.pt
 LibreYOLONASl-pose.pt
 
-# rfdetr — detect + segment
+# rfdetr — detect + segment + obb
 LibreRFDETRn.pt            # detect
 LibreRFDETRn-seg.pt        # segment
+LibreRFDETRn-obb.pt        # obb
 
 # ec — detect + pose + segment
 LibreECs.pt             # detect (default)

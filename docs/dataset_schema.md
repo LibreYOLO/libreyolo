@@ -83,17 +83,32 @@ Row, exactly 9 fields:
 <class_id> <x1> <y1> <x2> <y2> <x3> <y3> <x4> <y4>
 ```
 
-The four points form a non-degenerate oriented rectangle. No angle is stored in
-the label file.
+The four points are normalized image coordinates in `[0, 1]` and form a
+non-degenerate oriented rectangle. No angle is stored in the label file.
+
+The canonical parser is strict by default and rejects out-of-range
+coordinates. Dataset and validation ingestion may clip coordinates to `[0, 1]`
+for otherwise valid crop-boundary labels, then still reject degenerate boxes.
 
 Parsing is task-aware: 9 fields mean `obb` only in `obb` mode; in `segment`
 mode they may be a 4-point polygon.
 
 Canonical row parser: `libreyolo.data.parse_yolo_obb_label_line`.
 
-Internal OBB geometry: keep corners `(N, 4, 2)` canonical; derive `xyxy` for
-box utilities and `xywhr` only at model, metric, or result boundaries. `xywhr`
-angles use radians.
+Internal OBB geometry: parse normalized corners and convert them to canonical
+`xywhr`. The angle is in radians and represents rotation of the width side
+around the box center. Model families may adapt that canonical geometry to
+their own training tensors, but public results should expose OBB detections as
+`xywhr, conf, cls` rows.
+
+YOLO9 OBB currently uses a family-private training adapter that stores targets
+as `class, x1, y1, x2, y2, angle`, where `xyxy` is a horizontal proxy box for
+assignment and DFL, and `angle` is trained with a separate periodic loss. Do
+not treat that proxy tensor as the general OBB contract for other families.
+
+YOLO9 OBB currently accepts YOLO OBB `.txt` labels only. COCO JSON OBB loading
+is not implemented. Mosaic and mixup are disabled for OBB training until
+corner-aware OBB augmentation is implemented.
 
 ## classify
 

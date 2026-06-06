@@ -14,8 +14,6 @@ import pytest
 import torch
 import torch.nn as nn
 
-pytestmark = pytest.mark.unit
-
 from libreyolo.training.autobatch import (
     _BATCH_SAFE_MAX,
     _fit_batch_size,
@@ -23,6 +21,8 @@ from libreyolo.training.autobatch import (
     autobatch,
     resolve_auto_batch,
 )
+
+pytestmark = pytest.mark.unit
 
 
 # =============================================================================

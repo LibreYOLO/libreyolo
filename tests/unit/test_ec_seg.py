@@ -16,7 +16,6 @@ import torch
 from libreyolo.models.ec.model import LibreEC
 from libreyolo.models.ec.nn import LibreECSegModel
 from libreyolo.models.ec.postprocess import postprocess_seg
-from libreyolo.tasks import resolve_task
 
 pytestmark = [pytest.mark.unit, pytest.mark.ec]
 

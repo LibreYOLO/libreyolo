@@ -128,8 +128,6 @@ def test_yolo9_export_fp32_parity(tmp_path):
 
 
 def test_compute_units_kwarg_accepted(tmp_path):
-    from libreyolo import LibreYOLO
-
     model = _load_yolox_nano()
     out_path = tmp_path / "model_cpu.mlpackage"
     model.export(

@@ -12,10 +12,13 @@ from torchvision.ops import batched_nms
 from typing import Dict, Tuple, Union
 from PIL import Image
 
+from ...data.obb import xywhr_iou
 from ...utils.image_loader import ImageLoader, ImageInput
 
 
 _YOLO9_MAX_NMS_CANDIDATES = 30000
+_YOLO9_OBB_MAX_NMS_CANDIDATES = 1200
+_YOLO9_OBB_PREFILTER_CANDIDATES = _YOLO9_OBB_MAX_NMS_CANDIDATES
 
 ImageSize = Union[int, Tuple[int, int]]
 
@@ -152,6 +155,108 @@ def _nms_keep_indices(
     return keep
 
 
+def _xywhr_to_corners(xywhr: torch.Tensor) -> torch.Tensor:
+    xy = xywhr[:, :2]
+    w = xywhr[:, 2] / 2
+    h = xywhr[:, 3] / 2
+    angle = xywhr[:, 4]
+    cos = torch.cos(angle)
+    sin = torch.sin(angle)
+    corners = torch.stack(
+        [
+            torch.stack([-w, -h], dim=1),
+            torch.stack([w, -h], dim=1),
+            torch.stack([w, h], dim=1),
+            torch.stack([-w, h], dim=1),
+        ],
+        dim=1,
+    )
+    rot = torch.stack(
+        [
+            torch.stack([cos, -sin], dim=1),
+            torch.stack([sin, cos], dim=1),
+        ],
+        dim=1,
+    )
+    return torch.matmul(corners, rot.transpose(1, 2)) + xy[:, None, :]
+
+
+def _xywhr_to_xyxy(xywhr: torch.Tensor) -> torch.Tensor:
+    if xywhr.numel() == 0:
+        return torch.zeros((0, 4), dtype=xywhr.dtype, device=xywhr.device)
+    corners = _xywhr_to_corners(xywhr)
+    x = corners[..., 0]
+    y = corners[..., 1]
+    return torch.stack(
+        [x.min(dim=1).values, y.min(dim=1).values, x.max(dim=1).values, y.max(dim=1).values],
+        dim=1,
+    )
+
+
+def _rotated_nms_keep_indices(
+    xywhr: torch.Tensor,
+    scores: torch.Tensor,
+    class_ids: torch.Tensor,
+    iou_thres: float,
+    max_det: int,
+) -> torch.Tensor:
+    if xywhr.numel() == 0:
+        return torch.zeros(0, dtype=torch.long, device=xywhr.device)
+
+    finite_mask = torch.isfinite(xywhr).all(dim=1) & torch.isfinite(scores)
+    if not finite_mask.all():
+        valid_indices = torch.where(finite_mask)[0]
+        if len(valid_indices) == 0:
+            return torch.zeros(0, dtype=torch.long, device=xywhr.device)
+        xywhr = xywhr[finite_mask]
+        scores = scores[finite_mask]
+        class_ids = class_ids[finite_mask]
+    else:
+        valid_indices = None
+
+    order = torch.argsort(scores, descending=True)
+    rects = xywhr.detach().cpu().numpy().astype(np.float32)
+    classes = class_ids.detach().cpu().numpy().astype(np.int64)
+    ordered = order.detach().cpu().numpy().astype(np.int64).tolist()
+
+    keep_local: list[int] = []
+    while ordered and len(keep_local) < max_det:
+        current = ordered.pop(0)
+        keep_local.append(current)
+
+        remaining = []
+        for candidate in ordered:
+            if classes[candidate] != classes[current]:
+                remaining.append(candidate)
+                continue
+            if xywhr_iou(rects[current], rects[candidate]) <= iou_thres:
+                remaining.append(candidate)
+        ordered = remaining
+
+    keep = torch.as_tensor(keep_local, dtype=torch.long, device=xywhr.device)
+    if valid_indices is not None:
+        keep = valid_indices[keep]
+    return keep
+
+
+def _obb_prefilter_keep_indices(
+    boxes: torch.Tensor,
+    scores: torch.Tensor,
+    class_ids: torch.Tensor,
+    max_det: int,
+) -> torch.Tensor:
+    """Cheaply bound candidates before exact rotated NMS without suppressing boxes."""
+    if scores.numel() == 0:
+        return torch.zeros(0, dtype=torch.long, device=scores.device)
+
+    limit = max(max_det, _YOLO9_OBB_PREFILTER_CANDIDATES)
+    if scores.numel() <= limit:
+        return torch.arange(scores.numel(), dtype=torch.long, device=scores.device)
+
+    del boxes, class_ids
+    return torch.topk(scores, min(limit, scores.numel())).indices
+
+
 def _crop_masks(masks: torch.Tensor, boxes: torch.Tensor) -> torch.Tensor:
     n, h, w = masks.shape
     if n == 0:
@@ -241,6 +346,7 @@ def postprocess(
     """
     input_h, input_w = _input_size_hw(input_size)
     predictions = output["predictions"]  # (batch, 4+nc, total_anchors)
+    is_obb = bool(output.get("obb", False))
 
     if predictions.dim() == 3:
         pred = predictions[0]  # (4+nc, total_anchors)
@@ -251,7 +357,12 @@ def postprocess(
     pred = pred.transpose(0, 1)
 
     boxes_input = pred[:, :4]  # xyxy format in model input pixels
-    scores = pred[:, 4:]  # class scores (already sigmoid applied in model)
+    if is_obb:
+        angles_input = pred[:, 4]
+        scores = pred[:, 5:]  # class scores (already sigmoid applied in model)
+    else:
+        angles_input = None
+        scores = pred[:, 4:]  # class scores (already sigmoid applied in model)
 
     # Detection uses multi-label selection: every class whose score exceeds
     # conf_thres yields a detection for that anchor, matching the port source
@@ -268,6 +379,100 @@ def postprocess(
     coeffs_all = None
     if mask_coeffs is not None and proto is not None:
         coeffs_all = mask_coeffs[0].transpose(0, 1) if mask_coeffs.dim() == 3 else mask_coeffs
+
+    if is_obb:
+        max_scores, class_ids = torch.max(scores, dim=1)
+        mask = max_scores > conf_thres
+        if not mask.any():
+            return {
+                "boxes": [],
+                "scores": [],
+                "classes": [],
+                "obb": [],
+                "num_detections": 0,
+            }
+        boxes_input = boxes_input[mask]
+        max_scores = max_scores[mask]
+        class_ids = class_ids[mask]
+        angles_input = angles_input[mask]
+
+        wh = (boxes_input[:, 2:4] - boxes_input[:, 0:2]).clamp_min(0)
+        centers = (boxes_input[:, 0:2] + boxes_input[:, 2:4]) / 2
+        xywhr = torch.cat((centers, wh, angles_input[:, None]), dim=1)
+
+        if original_size is not None:
+            if letterbox:
+                orig_w, orig_h = original_size
+                ratio = min(input_h / orig_h, input_w / orig_w)
+                xywhr[:, :4] = xywhr[:, :4] / ratio
+            else:
+                scale_x = original_size[0] / input_w
+                scale_y = original_size[1] / input_h
+                xywhr[:, [0, 2]] *= scale_x
+                xywhr[:, [1, 3]] *= scale_y
+            xywhr[:, 0].clamp_(0, original_size[0])
+            xywhr[:, 1].clamp_(0, original_size[1])
+
+        boxes = _xywhr_to_xyxy(xywhr)
+        if original_size is not None:
+            boxes[:, [0, 2]] = torch.clamp(boxes[:, [0, 2]], 0, original_size[0])
+            boxes[:, [1, 3]] = torch.clamp(boxes[:, [1, 3]], 0, original_size[1])
+
+        widths = xywhr[:, 2]
+        heights = xywhr[:, 3]
+        valid = (widths > 0) & (heights > 0)
+        if not valid.any():
+            return {
+                "boxes": [],
+                "scores": [],
+                "classes": [],
+                "obb": [],
+                "num_detections": 0,
+            }
+        if not valid.all():
+            xywhr = xywhr[valid]
+            boxes = boxes[valid]
+            max_scores = max_scores[valid]
+            class_ids = class_ids[valid]
+
+        max_nms = max(max_det, _YOLO9_OBB_MAX_NMS_CANDIDATES)
+        if max_scores.numel() > max_nms:
+            top = torch.topk(max_scores, max_nms).indices
+            xywhr = xywhr[top]
+            boxes = boxes[top]
+            max_scores = max_scores[top]
+            class_ids = class_ids[top]
+
+        pre_keep = _obb_prefilter_keep_indices(boxes, max_scores, class_ids, max_det)
+        if pre_keep.numel() != max_scores.numel():
+            xywhr = xywhr[pre_keep]
+            boxes = boxes[pre_keep]
+            max_scores = max_scores[pre_keep]
+            class_ids = class_ids[pre_keep]
+
+        keep = _rotated_nms_keep_indices(xywhr, max_scores, class_ids, iou_thres, max_det)
+        if len(keep) == 0:
+            return {
+                "boxes": [],
+                "scores": [],
+                "classes": [],
+                "obb": [],
+                "num_detections": 0,
+            }
+        boxes = boxes[keep]
+        scores_out = max_scores[keep]
+        classes_out = class_ids[keep]
+        obb_out = torch.cat(
+            (xywhr[keep], scores_out[:, None], classes_out[:, None].float()),
+            dim=1,
+        )
+        return {
+            "boxes": boxes.detach().cpu().numpy().tolist(),
+            "scores": scores_out.detach().cpu().numpy().tolist(),
+            "classes": classes_out.detach().cpu().numpy().tolist(),
+            "obb": obb_out.detach().cpu().numpy().tolist(),
+            "num_detections": len(boxes),
+        }
 
     if coeffs_all is None:
         anchor_idx, class_ids = (scores > conf_thres).nonzero(as_tuple=True)

@@ -1,5 +1,6 @@
 """LibreYOLO9 inference and training wrapper."""
 
+import logging
 import re
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
@@ -10,14 +11,21 @@ from libreyolo.training.ddp_spawn import ddp_aware
 from PIL import Image
 
 from ..base import BaseModel
-from ...training.config import YOLO9Config, YOLO9PoseConfig
+from ...training.config import YOLO9Config
+from ...tasks import normalize_task
 from ...utils.image_loader import ImageInput
+from ...utils.serialization import (
+    REQUIRED_CHECKPOINT_METADATA_KEYS,
+    load_untrusted_torch_file,
+    validate_checkpoint_metadata,
+)
 from .nn import LibreYOLO9Model
 from .utils import preprocess_image, postprocess
 from ...validation.preprocessors import YOLO9ValPreprocessor
 
 # Single source of truth for training defaults
 _TRAIN_DEFAULTS = YOLO9Config()
+logger = logging.getLogger(__name__)
 
 
 class LibreYOLO9(BaseModel):
@@ -40,7 +48,7 @@ class LibreYOLO9(BaseModel):
     FAMILY = "yolo9"
     FILENAME_PREFIX = "LibreYOLO9"
     INPUT_SIZES = {"t": 640, "s": 640, "m": 640, "c": 640}
-    SUPPORTED_TASKS = ("detect", "segment", "pose")
+    SUPPORTED_TASKS = ("detect", "segment", "pose", "obb")
     TRAIN_CONFIG = YOLO9Config
     val_preprocessor_class = YOLO9ValPreprocessor
 
@@ -143,6 +151,10 @@ class LibreYOLO9(BaseModel):
     def _is_pose(self) -> bool:
         return self.task == "pose"
 
+    @property
+    def _is_obb(self) -> bool:
+        return self.task == "obb"
+
     # =========================================================================
     # Model lifecycle
     # =========================================================================
@@ -154,6 +166,7 @@ class LibreYOLO9(BaseModel):
             nb_classes=self.nb_classes,
             segmentation=self._is_segmentation,
             pose=self._is_pose,
+            obb=self._is_obb,
             num_masks=self.num_masks,
             proto_channels=self.proto_channels,
             num_keypoints=self.num_keypoints,
@@ -242,7 +255,29 @@ class LibreYOLO9(BaseModel):
             detect._seg_loss_fn = None
         if hasattr(detect, "_pose_loss_fn"):
             detect._pose_loss_fn = None
+        if hasattr(detect, "_obb_loss_fn"):
+            detect._obb_loss_fn = None
         detect.to(next(self.model.parameters()).device)
+
+    def _rebuild_for_checkpoint_classes(self, new_nc: int, state_dict: dict):
+        """Match YOLO9 checkpoints with either COCO-width or scratch class towers."""
+        hidden_key = "head.cv3.0.0.conv.weight"
+        checkpoint_hidden = (
+            int(state_dict[hidden_key].shape[0]) if hidden_key in state_dict else None
+        )
+        current_hidden = None
+        current_state = self.model.state_dict()
+        if hidden_key in current_state:
+            current_hidden = int(current_state[hidden_key].shape[0])
+
+        if checkpoint_hidden is not None and current_hidden != checkpoint_hidden:
+            self.nb_classes = new_nc
+            self.names = {i: f"class_{i}" for i in range(new_nc)}
+            self.model = self._init_model()
+            self.model.to(self.device)
+            return
+
+        self._rebuild_for_new_classes(new_nc)
 
     def _rebuild_for_new_keypoints(self, new_num_keypoints: int):
         """Replace only YOLO9 pose keypoint prediction layers."""
@@ -270,6 +305,113 @@ class LibreYOLO9(BaseModel):
             self._load_weights(checkpoint)
 
         self.model.to(self.device).eval()
+
+    def _align_class_towers_for_transfer(self, state_dict: dict) -> None:
+        """Match COCO-width class towers before partial transfer loading."""
+        hidden_key = "head.cv3.0.0.conv.weight"
+        if hidden_key not in state_dict:
+            return
+
+        checkpoint_hidden = int(state_dict[hidden_key].shape[0])
+        head = self.model.head
+        current_state = self.model.state_dict()
+        if hidden_key not in current_state:
+            return
+        current_hidden = int(current_state[hidden_key].shape[0])
+        if current_hidden == checkpoint_hidden:
+            return
+
+        channels = [int(seq[0].conv.weight.shape[1]) for seq in head.cv3]
+        head.cv3 = head._build_class_towers(
+            channels,
+            checkpoint_hidden,
+            self.nb_classes,
+        )
+        head._class_hidden_channels = checkpoint_hidden
+        head.nc = self.nb_classes
+        head.no = self.nb_classes + head.reg_max * 4
+        head._init_bias()
+        head._loss_fn = None
+        if hasattr(head, "_seg_loss_fn"):
+            head._seg_loss_fn = None
+        if hasattr(head, "_obb_loss_fn"):
+            head._obb_loss_fn = None
+        head.to(next(self.model.parameters()).device)
+
+    def _load_transfer_weights(self, weights: str | Path) -> dict[str, int]:
+        """Partially load same-family weights for training initialization."""
+        path = Path(self._resolve_weights_path(str(weights)))
+        if not path.exists():
+            from ...utils.download import download_weights
+
+            download_weights(str(path), self.size)
+
+        if not path.exists():
+            raise FileNotFoundError(f"Transfer weights not found at {weights}")
+
+        loaded = load_untrusted_torch_file(
+            str(path),
+            map_location="cpu",
+            context="transfer weights",
+        )
+        if isinstance(loaded, dict):
+            metadata_keys = set(REQUIRED_CHECKPOINT_METADATA_KEYS) - {"model"}
+            if metadata_keys & set(loaded):
+                metadata_errors = validate_checkpoint_metadata(loaded, strict=False)
+                if metadata_errors:
+                    raise RuntimeError(
+                        "Transfer checkpoint metadata is incomplete: "
+                        + "; ".join(metadata_errors)
+                    )
+
+            ckpt_family = loaded.get("model_family", "")
+            if ckpt_family and ckpt_family != self._get_model_name():
+                raise RuntimeError(
+                    f"Transfer checkpoint model_family='{ckpt_family}' does not "
+                    f"match '{self._get_model_name()}'."
+                )
+
+            ckpt_task = loaded.get("task")
+            if ckpt_task is not None:
+                normalized_ckpt_task = normalize_task(ckpt_task)
+                allowed = normalized_ckpt_task == self.task or (
+                    self.task in {"segment", "obb"} and normalized_ckpt_task == "detect"
+                )
+                if not allowed:
+                    raise RuntimeError(
+                        f"Transfer checkpoint task='{normalized_ckpt_task}' is "
+                        f"not compatible with task='{self.task}'."
+                    )
+
+            if "model" in loaded:
+                state_dict = loaded["model"]
+            elif "state_dict" in loaded:
+                state_dict = loaded["state_dict"]
+            else:
+                state_dict = loaded
+        else:
+            state_dict = loaded
+
+        state_dict = self._prepare_state_dict(self._strip_ddp_prefix(state_dict))
+        self._align_class_towers_for_transfer(state_dict)
+
+        current = self.model.state_dict()
+        matched = {
+            key: value
+            for key, value in state_dict.items()
+            if key in current and current[key].shape == value.shape
+        }
+        current.update(matched)
+        self.model.load_state_dict(current, strict=True)
+        self.model.to(self.device)
+        return {
+            "loaded": len(matched),
+            "skipped": max(len(state_dict) - len(matched), 0),
+        }
+
+    def _default_transfer_weights_name(self) -> str:
+        """Return the matching detect checkpoint filename for transfer learning."""
+        return f"{self.FILENAME_PREFIX}{self.size}{self.WEIGHT_EXT}"
 
     # =========================================================================
     # Inference pipeline
@@ -341,6 +483,7 @@ class LibreYOLO9(BaseModel):
         amp: bool = _TRAIN_DEFAULTS.amp,
         patience: int = _TRAIN_DEFAULTS.patience,
         allow_download_scripts: bool = False,
+        pretrained: bool | str | Path | None = None,
         callbacks=None,
         **kwargs,
     ) -> dict:
@@ -362,6 +505,10 @@ class LibreYOLO9(BaseModel):
             resume: If True, resume training from checkpoint.
             amp: Enable automatic mixed precision training.
             patience: Early stopping patience.
+            pretrained: Optional training initialization weights. Use True to
+                load the matching LibreYOLO9 detect checkpoint for transfer
+                learning, or pass a checkpoint path/name. Detect -> segment/OBB
+                transfer is allowed here only as explicit initialization.
             callbacks: Optional training callback or iterable of callbacks.
 
         Returns:
@@ -408,6 +555,8 @@ class LibreYOLO9(BaseModel):
         # If no nc in data.yaml, infer it by counting.
         if yaml_nc is None and yaml_names is not None:
             yaml_nc = len(yaml_names)
+        if yaml_nc is not None:
+            yaml_nc = int(yaml_nc)
 
         if yaml_nc is not None and yaml_nc != self.nb_classes:
             self._rebuild_for_new_classes(yaml_nc)
@@ -417,6 +566,23 @@ class LibreYOLO9(BaseModel):
             if isinstance(yaml_names, list):
                 yaml_names = {i: n for i, n in enumerate(yaml_names)}
             self.names = self._sanitize_names(yaml_names, self.nb_classes)
+
+        if resume and pretrained:
+            raise ValueError("pretrained transfer cannot be combined with resume=True.")
+
+        if pretrained:
+            transfer_weights: str | Path
+            if pretrained is True:
+                transfer_weights = self._default_transfer_weights_name()
+            else:
+                transfer_weights = pretrained
+            stats = self._load_transfer_weights(transfer_weights)
+            logger.info(
+                "Loaded %d transfer tensors from %s; skipped %d incompatible tensors.",
+                stats["loaded"],
+                transfer_weights,
+                stats["skipped"],
+            )
 
         if seed >= 0:
             import random

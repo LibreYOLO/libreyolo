@@ -36,7 +36,7 @@ from pathlib import Path
 import torch
 import torch.distributed as dist
 import torch.nn as nn
-from torch.utils.data import DataLoader, TensorDataset
+from torch.utils.data import TensorDataset
 from torch.utils.data.distributed import DistributedSampler
 
 
@@ -164,7 +164,6 @@ def run_ema_broadcast_test(rank: int, world_size: int, device: torch.device) -> 
     # After broadcast: verify all ranks hold rank-0's EMA values.
     # EMA params have requires_grad=False so _params_match skips them; use
     # all_reduce directly on all params (no grad involved).
-    backend = dist.get_backend()
     for name, p in ema.ema.named_parameters():
         local = p.data.detach().clone()
         summed = p.data.detach().clone()

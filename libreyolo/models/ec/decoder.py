@@ -1238,8 +1238,8 @@ class LQEPose(nn.Module):
         init.constant_(self.reg_conf.layers[-1].bias, 0)
 
     def forward(self, scores, pred_poses, feat):
-        b, l = pred_poses.shape[:2]
-        pred_poses = pred_poses.reshape(b, l, self.num_keypoints, 2)
+        b, length = pred_poses.shape[:2]
+        pred_poses = pred_poses.reshape(b, length, self.num_keypoints, 2)
         sampling_values = F.grid_sample(
             feat,
             2 * pred_poses - 1,
@@ -1249,7 +1249,7 @@ class LQEPose(nn.Module):
         ).permute(0, 2, 3, 1)
         prob_topk = sampling_values.topk(self.k, dim=-1)[0]
         stat = torch.cat([prob_topk, prob_topk.mean(dim=-1, keepdim=True)], dim=-1)
-        return scores + self.reg_conf(stat.reshape(b, l, -1))
+        return scores + self.reg_conf(stat.reshape(b, length, -1))
 
 
 class PoseDeformableTransformerDecoderLayer(nn.Module):

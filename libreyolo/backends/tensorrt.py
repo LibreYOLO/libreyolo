@@ -259,6 +259,8 @@ class TensorRTBackend(BaseBackend):
 
     def _detect_task_from_filename(self) -> Optional[str]:
         stem = Path(self.model_path).stem.lower()
+        if re.search(r"(?:^|[_-])obb(?:[_-]|$)", stem):
+            return "obb"
         if re.search(r"(?:^|[_-])(?:seg|segment)(?:[_-]|$)", stem):
             return "segment"
         if re.search(

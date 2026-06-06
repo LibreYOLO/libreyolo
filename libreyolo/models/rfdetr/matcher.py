@@ -44,6 +44,7 @@ class HungarianMatcher(nn.Module):
         mask_point_sample_ratio: int = 16,
         cost_mask_ce: float = 1,
         cost_mask_dice: float = 1,
+        cost_angle: float = 0,
     ):
         """Creates the matcher.
 
@@ -67,6 +68,7 @@ class HungarianMatcher(nn.Module):
         self.mask_point_sample_ratio = mask_point_sample_ratio
         self.cost_mask_ce = cost_mask_ce
         self.cost_mask_dice = cost_mask_dice
+        self.cost_angle = cost_angle
         self._warned_non_finite_costs = False
 
     @staticmethod
@@ -135,10 +137,14 @@ class HungarianMatcher(nn.Module):
         flat_pred_logits = outputs["pred_logits"].flatten(0, 1)
         out_prob = flat_pred_logits.sigmoid()  # [batch_size * num_queries, num_classes]
         out_bbox = outputs["pred_boxes"].flatten(0, 1)  # [batch_size * num_queries, 4]
+        out_angles = outputs.get("pred_angles")
+        if out_angles is not None:
+            out_angles = out_angles.flatten(0, 1).squeeze(-1)
 
         # Also concat the target labels and boxes
         tgt_ids = torch.cat([v["labels"] for v in targets])
         tgt_bbox = torch.cat([v["boxes"] for v in targets])
+        tgt_angles = torch.cat([v["angles"] for v in targets]) if out_angles is not None and "angles" in targets[0] else None
 
         masks_present = "masks" in targets[0]
 
@@ -159,6 +165,9 @@ class HungarianMatcher(nn.Module):
 
         # Compute the L1 cost between boxes
         cost_bbox = torch.cdist(out_bbox, tgt_bbox, p=1)
+        cost_angle = 0
+        if out_angles is not None and tgt_angles is not None and self.cost_angle:
+            cost_angle = 1.0 - torch.cos(2.0 * (out_angles[:, None] - tgt_angles[None, :]))
 
         if masks_present:
             tgt_masks = torch.cat([v["masks"] for v in targets])
@@ -201,7 +210,12 @@ class HungarianMatcher(nn.Module):
             cost_mask_dice = batch_dice_loss(pred_masks_logits, tgt_masks_flat)
 
         # Final cost matrix
-        cost_matrix = self.cost_bbox * cost_bbox + self.cost_class * cost_class + self.cost_giou * cost_giou
+        cost_matrix = (
+            self.cost_bbox * cost_bbox
+            + self.cost_class * cost_class
+            + self.cost_giou * cost_giou
+            + self.cost_angle * cost_angle
+        )
         if masks_present:
             cost_matrix = cost_matrix + self.cost_mask_ce * cost_mask_ce + self.cost_mask_dice * cost_mask_dice
         cost_matrix = (
@@ -248,6 +262,7 @@ def build_matcher(args):
             cost_bbox=args.set_cost_bbox,
             cost_giou=args.set_cost_giou,
             focal_alpha=args.focal_alpha,
+            cost_angle=getattr(args, "set_cost_angle", 0.0),
             cost_mask_ce=args.mask_ce_loss_coef,
             cost_mask_dice=args.mask_dice_loss_coef,
             mask_point_sample_ratio=args.mask_point_sample_ratio,
@@ -258,4 +273,5 @@ def build_matcher(args):
             cost_bbox=args.set_cost_bbox,
             cost_giou=args.set_cost_giou,
             focal_alpha=args.focal_alpha,
+            cost_angle=getattr(args, "set_cost_angle", 0.0),
         )

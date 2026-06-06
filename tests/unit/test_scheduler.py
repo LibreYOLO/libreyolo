@@ -5,11 +5,15 @@ Focuses on edge cases: zero warmup, LR monotonicity, boundary values.
 
 from __future__ import annotations
 
-import math
-
 import pytest
 
-from libreyolo.training.scheduler import WarmupCosineScheduler
+from libreyolo.training.scheduler import (
+    ConstantLRScheduler,
+    CosineAnnealingScheduler,
+    FlatCosineScheduler,
+    LinearLRScheduler,
+    WarmupCosineScheduler,
+)
 
 pytestmark = pytest.mark.unit
 
@@ -96,3 +100,32 @@ def test_warmup_cosine_cosine_midpoint():
     mid = (iters_per_epoch * total_epochs) // 2
     # cos(pi * 0.5) = 0 → lr = min_lr + 0.5*(lr - min_lr)*(1+0) = lr/2
     assert sched.update_lr(mid) == pytest.approx(0.005, abs=1e-3)
+
+
+@pytest.mark.parametrize(
+    "scheduler_cls,kwargs",
+    [
+        (WarmupCosineScheduler, {"plateau_epochs": 0}),
+        (LinearLRScheduler, {}),
+        (ConstantLRScheduler, {}),
+        (FlatCosineScheduler, {"no_aug_epochs": 2}),
+        (CosineAnnealingScheduler, {}),
+    ],
+)
+def test_warmup_start_is_clamped_to_target_lr_for_low_lr_finetunes(
+    scheduler_cls,
+    kwargs,
+):
+    sched = scheduler_cls(
+        lr=1e-5,
+        iters_per_epoch=10,
+        total_epochs=10,
+        warmup_epochs=2,
+        warmup_lr_start=1e-4,
+        **kwargs,
+    )
+
+    warmup_lrs = [sched.update_lr(i) for i in range(0, 21)]
+
+    assert max(warmup_lrs) <= 1e-5 + 1e-12
+    assert sched.update_lr(0) == pytest.approx(1e-5)

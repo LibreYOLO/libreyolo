@@ -666,6 +666,9 @@ class Results:
             return rows
 
         boxes_np = self.boxes.numpy()
+        obb_np = None
+        if self.obb is not None:
+            obb_np = self.obb.numpy() if isinstance(self.obb.data, torch.Tensor) else self.obb
         track_ids = _numpy(self.track_id)
         rows = []
         for i in range(len(boxes_np)):
@@ -682,6 +685,29 @@ class Results:
                     "y2": round(float(box_values[3]), decimals),
                 },
             }
+            if obb_np is not None and i < len(obb_np):
+                xywhr = np.asarray(obb_np.xywhr[i], dtype=float).copy()
+                corners = np.asarray(
+                    obb_np.xyxyxyxyn[i] if normalize else obb_np.xyxyxyxy[i],
+                    dtype=float,
+                )
+                if normalize:
+                    h, w = self.orig_shape
+                    xywhr[0] /= w
+                    xywhr[1] /= h
+                    xywhr[2] /= w
+                    xywhr[3] /= h
+                row["obb"] = {
+                    "x_center": round(float(xywhr[0]), decimals),
+                    "y_center": round(float(xywhr[1]), decimals),
+                    "width": round(float(xywhr[2]), decimals),
+                    "height": round(float(xywhr[3]), decimals),
+                    "rotation": round(float(xywhr[4]), decimals),
+                }
+                row["corners"] = {
+                    "x": [round(float(x), decimals) for x in corners[:, 0]],
+                    "y": [round(float(y), decimals) for y in corners[:, 1]],
+                }
             if self.masks is not None:
                 segment = self.masks.xyn[i] if normalize else self.masks.xy[i]
                 row["segments"] = {

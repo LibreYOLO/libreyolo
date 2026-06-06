@@ -15,6 +15,8 @@ import random
 import cv2
 import numpy as np
 
+from ...data.obb import normalize_obb_angle, scale_xywhr
+
 
 _IMAGENET_MEAN = np.array([0.485, 0.456, 0.406], dtype=np.float32).reshape(3, 1, 1)
 _IMAGENET_STD = np.array([0.229, 0.224, 0.225], dtype=np.float32).reshape(3, 1, 1)
@@ -287,7 +289,10 @@ class RFDETRSegTransform:
         crop_intermediate_sizes: tuple[int, ...] = (400, 500, 600),
         crop_min_size: int = 384,
         crop_max_size: int = 600,
+        target_dim: int = 5,
     ):
+        if target_dim not in (5, 6):
+            raise ValueError(f"RF-DETR target_dim must be 5 or 6, got {target_dim}")
         self.max_labels = max_labels
         self.flip_prob = flip_prob
         self.imgsz = imgsz
@@ -301,6 +306,7 @@ class RFDETRSegTransform:
         self.crop_intermediate_sizes = crop_intermediate_sizes
         self.crop_min_size = crop_min_size
         self.crop_max_size = crop_max_size
+        self.target_dim = target_dim
         self.target_size = _resolve_training_size(
             imgsz,
             multi_scale=multi_scale,
@@ -319,6 +325,11 @@ class RFDETRSegTransform:
         target_h = target_w = self.target_size
         boxes = targets[:, :4].astype(np.float32, copy=True) if len(targets) else np.zeros((0, 4), np.float32)
         labels = targets[:, 4].astype(np.float32, copy=True) if len(targets) else np.zeros((0,), np.float32)
+        angles = (
+            targets[:, 5].astype(np.float32, copy=True)
+            if self.target_dim == 6 and len(targets) and targets.shape[1] > 5
+            else np.zeros((len(targets),), dtype=np.float32)
+        )
         segments_t = _copy_segments(segments)
 
         # Optional horizontal flip — applied before resize, on the original canvas.
@@ -327,6 +338,11 @@ class RFDETRSegTransform:
             image = image[:, ::-1].copy()
             if len(boxes):
                 boxes[:, [0, 2]] = w_orig - boxes[:, [2, 0]]
+                if self.target_dim == 6:
+                    angles = np.asarray(
+                        [normalize_obb_angle(np.pi - float(a)) for a in angles],
+                        dtype=np.float32,
+                    )
             segments_t = _flip_segments_lr(segments_t, w_orig)
 
         if len(boxes) and self.crop_resize_prob > 0 and random.random() < self.crop_resize_prob:
@@ -355,8 +371,26 @@ class RFDETRSegTransform:
         # canvas, so boxes and masks use independent x/y scale factors.
         img_rgb, scale_x, scale_y = _resize_square(image, (target_h, target_w))
         if len(boxes):
-            boxes[:, [0, 2]] *= scale_x
-            boxes[:, [1, 3]] *= scale_y
+            if self.target_dim == 6:
+                xywhr = np.stack(
+                    (
+                        (boxes[:, 0] + boxes[:, 2]) * 0.5,
+                        (boxes[:, 1] + boxes[:, 3]) * 0.5,
+                        boxes[:, 2] - boxes[:, 0],
+                        boxes[:, 3] - boxes[:, 1],
+                        angles,
+                    ),
+                    axis=1,
+                )
+                xywhr = scale_xywhr(xywhr, scale_x, scale_y)
+                boxes[:, 0] = xywhr[:, 0] - xywhr[:, 2] * 0.5
+                boxes[:, 1] = xywhr[:, 1] - xywhr[:, 3] * 0.5
+                boxes[:, 2] = xywhr[:, 0] + xywhr[:, 2] * 0.5
+                boxes[:, 3] = xywhr[:, 1] + xywhr[:, 3] * 0.5
+                angles = xywhr[:, 4]
+            else:
+                boxes[:, [0, 2]] *= scale_x
+                boxes[:, [1, 3]] *= scale_y
         segments_t = _scale_segments_xy(segments_t, scale_x, scale_y)
 
         # Drop boxes that collapsed below 1px after resize. Apply the same keep mask
@@ -368,6 +402,7 @@ class RFDETRSegTransform:
             if not keep.all():
                 boxes = boxes[keep]
                 labels = labels[keep]
+                angles = angles[keep]
                 segments_t = _filter_segments(segments_t, keep)
 
         # xyxy(pixel) → cxcywh(pixel) on the resized canvas — matches DFINE's contract.
@@ -376,11 +411,14 @@ class RFDETRSegTransform:
             cy = (boxes[:, 1] + boxes[:, 3]) * 0.5
             w = boxes[:, 2] - boxes[:, 0]
             h = boxes[:, 3] - boxes[:, 1]
-            packed = np.stack([labels, cx, cy, w, h], axis=1).astype(np.float32, copy=False)
+            packed_columns = [labels, cx, cy, w, h]
+            if self.target_dim == 6:
+                packed_columns.append(angles)
+            packed = np.stack(packed_columns, axis=1).astype(np.float32, copy=False)
         else:
-            packed = np.zeros((0, 5), dtype=np.float32)
+            packed = np.zeros((0, self.target_dim), dtype=np.float32)
 
-        padded = np.zeros((self.max_labels, 5), dtype=np.float32)
+        padded = np.zeros((self.max_labels, self.target_dim), dtype=np.float32)
         n = min(len(packed), self.max_labels)
         if n:
             padded[:n] = packed[:n]
