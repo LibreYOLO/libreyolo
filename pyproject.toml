@@ -49,6 +49,11 @@ rfdetr = [
 plots = [
     "matplotlib>=3.7.0",
 ]
+vlm = [
+    # LFM2-VL and other VLM-as-detector families load through transformers.
+    # huggingface_hub (used for snapshot download) ships with transformers.
+    "transformers>=5.1.0",
+]
 tensorrt = [
     # No CUDA on macOS; marker drops these. Version pin must match the
     # [[tool.uv.dependency-metadata]] blocks below.
@@ -89,6 +94,7 @@ all = [
     "libreyolo[rtdetr]",
     "libreyolo[gaze]",
     "libreyolo[coreml]",
+    "libreyolo[vlm]",
 ]
 
 [project.scripts]
@@ -226,6 +232,7 @@ markers = [
     "damoyolo: tests covering the DAMO-YOLO model family",
     "rtmdet: tests covering the RTMDet model family",
     "l2cs: tests covering the L2CS gaze estimation family",
+    "vlm: tests covering the LibreVLM (VLM-as-detector) tier",
     "rf1: RF1 training tests",
     "rf5: RF5 training benchmark tests",
     "slow: slow tests that may take several minutes",

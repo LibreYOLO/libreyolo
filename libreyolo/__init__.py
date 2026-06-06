@@ -73,6 +73,9 @@ def __getattr__(name):
         "ValidationConfig": (".validation", "ValidationConfig"),
         "ByteTracker": (".tracking", "ByteTracker"),
         "TrackConfig": (".tracking", "TrackConfig"),
+        "LibreVLM": (".models.vlm", "LibreVLM"),
+        "LibreLFM2VL": (".models.vlm", "LibreLFM2VL"),
+        "LibreQwen3VL": (".models.vlm", "LibreQwen3VL"),
         "DATASETS_DIR": (".data", "DATASETS_DIR"),
         "load_data_config": (".data", "load_data_config"),
         "check_dataset": (".data", "check_dataset"),
@@ -110,6 +113,10 @@ __all__ = [
     "LibreDAMOYOLO",
     "LibreRTMDet",
     "LibreL2CS",
+    # VLM-as-detector tier (optional, requires libreyolo[vlm])
+    "LibreVLM",
+    "LibreLFM2VL",
+    "LibreQwen3VL",
     # Results
     "Results",
     "Boxes",
