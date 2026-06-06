@@ -59,6 +59,47 @@ class TestExtractDetections:
         assert extract_detections("[]") == []
         assert extract_detections(None) == []  # type: ignore[arg-type]
 
+    def test_bracket_in_prose_before_json(self):
+        # A prose bracket like "[0,1]" must not shadow the real detection array.
+        text = 'Coordinates are normalized to [0,1]. [{"label": "person", "bbox": [0, 0, 1, 1]}]'
+        assert extract_detections(text) == [{"label": "person", "bbox": [0, 0, 1, 1]}]
+
+    def test_single_object_without_enclosing_array(self):
+        # A bare object (no outer array) must still be recovered.
+        text = '{"label": "person", "bbox": [0, 0, 1, 1]}'
+        assert extract_detections(text) == [{"label": "person", "bbox": [0, 0, 1, 1]}]
+
+    def test_count_bracket_before_json(self):
+        text = 'I found [2] objects: [{"label": "car", "bbox": [0.1, 0.2, 0.3, 0.4]}]'
+        items = extract_detections(text)
+        assert items and items[0]["label"] == "car"
+
+    def test_metadata_array_does_not_shadow_detections(self):
+        # A dict-bearing but non-detection preamble array must not win.
+        text = 'Classes: [{"id": 1}, {"id": 2}]. Detections: [{"label": "ship", "bbox": [0.1, 0.2, 0.3, 0.4]}]'
+        assert extract_detections(text) == [{"label": "ship", "bbox": [0.1, 0.2, 0.3, 0.4]}]
+
+    def test_schema_echo_does_not_lose_real_detection(self):
+        # A restated schema example is also detection-shaped; collecting across
+        # arrays keeps the real ship (its placeholder label is dropped by vocab).
+        text = (
+            'Format: [{"label": "object", "bbox": [0, 0, 0, 0]}]. '
+            'Found: [{"label": "ship", "bbox": [0.1, 0.2, 0.3, 0.4]}]'
+        )
+        labels = [d["label"] for d in extract_detections(text)]
+        assert "ship" in labels
+
+    def test_truncated_real_array_behind_preamble(self):
+        # A complete schema-echo array, then a real array truncated mid-content:
+        # the real (complete) object is still recovered by the regex supplement.
+        text = (
+            'Format: [{"label": "object", "bbox": [0, 0, 0, 0]}]. '
+            'Detections: [{"label": "ship", "bbox": [0.1, 0.2, 0.3, 0.4]}, '
+            '{"label": "boat", "bbox": [0.5, 0.5, 0.6'
+        )
+        labels = [d["label"] for d in extract_detections(text)]
+        assert "ship" in labels
+
 
 class TestNormalizeBbox:
     def test_passthrough(self):
@@ -69,6 +110,10 @@ class TestNormalizeBbox:
 
     def test_reorders_inverted_corners(self):
         assert normalize_bbox([0.8, 0.9, 0.2, 0.1]) == (0.2, 0.1, 0.8, 0.9)
+
+    def test_rejects_zero_area(self):
+        assert normalize_bbox([0.0, 0.0, 0.0, 0.5]) is None
+        assert normalize_bbox([0.0, 0.0, 0.5, 0.0]) is None
 
     def test_rejects_bad_shapes(self):
         assert normalize_bbox([0.1, 0.2, 0.3]) is None
@@ -125,6 +170,20 @@ class TestBuildDetectionDict:
         det = build_detection_dict(items, NAME_TO_ID, (100, 100), max_det=3)
         assert det["num_detections"] == 3
 
+    def test_max_det_zero_returns_empty(self):
+        items = [{"label": "person", "bbox": [0.1, 0.1, 0.2, 0.2]}]
+        det = build_detection_dict(items, NAME_TO_ID, (100, 100), max_det=0)
+        assert det["num_detections"] == 0
+
+    def test_class_filter_applies_before_max_det(self):
+        items = [
+            {"label": "person", "bbox": [0.1, 0.1, 0.2, 0.2]},
+            {"label": "ship", "bbox": [0.3, 0.3, 0.4, 0.4]},
+        ]
+        det = build_detection_dict(items, NAME_TO_ID, (100, 100), max_det=1, classes=[8])
+        assert det["num_detections"] == 1
+        assert det["classes"] == [8]
+
     def test_dedup_identical_boxes(self):
         # A repetition loop emits the same object many times; collapse to one.
         items = [{"label": "person", "bbox": [0.1, 0.1, 0.2, 0.2]}] * 5
@@ -159,6 +218,17 @@ class TestBuildDetectionDict:
         items = [{"label": "ship", "bbox": [0.5, 0.5, 0.25, 0.5]}]
         det = build_detection_dict(items, NAME_TO_ID, (100, 100), box_format="cxcywh")
         assert det["boxes"][0] == [37.5, 25.0, 62.5, 75.0]
+
+    def test_schema_echo_label_dropped_keeps_real(self):
+        # End to end for the preamble-shadowing fix: the echoed "object" example
+        # is out of vocab and dropped; the real ship survives.
+        items = extract_detections(
+            'Format: [{"label": "object", "bbox": [0, 0, 0, 0]}]. '
+            'Detections: [{"label": "ship", "bbox": [0.1, 0.2, 0.3, 0.4]}]'
+        )
+        det = build_detection_dict(items, NAME_TO_ID, (100, 100))
+        assert det["num_detections"] == 1
+        assert det["classes"] == [8]
 
 
 class TestToXyxy:

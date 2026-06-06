@@ -59,6 +59,7 @@ class LibreKosmos2(LibreVLMModel):
         return inputs, img, img.size, 1.0
 
     def _forward(self, inputs: Any) -> Any:
+        inputs = self._prepare_generation_inputs(inputs)
         return self.model.generate(
             **inputs, max_new_tokens=self.MAX_NEW_TOKENS, do_sample=False
         )
@@ -77,12 +78,30 @@ class LibreKosmos2(LibreVLMModel):
         _caption, entities = self.processor.post_process_generation(text)
         width, height = original_size
         boxes, scores, classes = [], [], []
-        for name, _span, entity_boxes in entities:
+        allowed_classes = (
+            set(kwargs["classes"]) if kwargs.get("classes") is not None else None
+        )
+        if max_det <= 0:
+            return {
+                "boxes": boxes,
+                "scores": scores,
+                "classes": classes,
+                "num_detections": 0,
+            }
+        # Every box carries the placeholder score, so conf filtering is all-or-nothing.
+        scored = entities if self.DEFAULT_SCORE >= conf_thres else []
+        for name, _span, entity_boxes in scored:
+            if len(boxes) >= max_det:
+                break
             class_id = self._match_label(name)
             if class_id is None:
                 continue
+            if allowed_classes is not None and class_id not in allowed_classes:
+                continue
             for box in entity_boxes:  # normalized [0,1] xyxy
                 x1, y1, x2, y2 = box
+                if x2 <= x1 or y2 <= y1:
+                    continue
                 boxes.append([x1 * width, y1 * height, x2 * width, y2 * height])
                 scores.append(self.DEFAULT_SCORE)
                 classes.append(class_id)

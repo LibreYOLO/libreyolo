@@ -55,6 +55,7 @@ class LibreFlorence2(LibreVLMModel):
         return inputs, img, img.size, 1.0
 
     def _forward(self, inputs: Any) -> Any:
+        inputs = self._prepare_generation_inputs(inputs)
         return self.model.generate(
             input_ids=inputs["input_ids"],
             pixel_values=inputs["pixel_values"],
@@ -80,12 +81,34 @@ class LibreFlorence2(LibreVLMModel):
         od = parsed.get(self.TASK, {})
         labels = od.get("bboxes_labels", od.get("labels", []))
         boxes, scores, classes = [], [], []
+        allowed_classes = (
+            set(kwargs["classes"]) if kwargs.get("classes") is not None else None
+        )
+        if max_det <= 0:
+            return {
+                "boxes": boxes,
+                "scores": scores,
+                "classes": classes,
+                "num_detections": 0,
+            }
+        # Every box carries the placeholder score, so conf filtering is all-or-nothing.
+        detections = zip(od.get("bboxes", []), labels) if self.DEFAULT_SCORE >= conf_thres else []
         # Florence returns pixel xyxy already, so no normalize/scale step.
-        for box, label in zip(od.get("bboxes", []), labels):
+        for box, label in detections:
             class_id = self._name_to_id.get(str(label).strip().lower())
             if class_id is None:
                 continue
-            boxes.append([float(v) for v in box])
+            if allowed_classes is not None and class_id not in allowed_classes:
+                continue
+            if not isinstance(box, (list, tuple)) or len(box) != 4:
+                continue
+            try:
+                x1, y1, x2, y2 = (float(v) for v in box)
+            except (TypeError, ValueError):
+                continue
+            if x2 <= x1 or y2 <= y1:
+                continue
+            boxes.append([x1, y1, x2, y2])
             scores.append(self.DEFAULT_SCORE)
             classes.append(class_id)
             if len(boxes) >= max_det:

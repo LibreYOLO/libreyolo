@@ -43,11 +43,24 @@ class TestSetClasses:
         with pytest.raises(ValueError):
             m.set_classes([])
 
+    def test_string_or_scalar_raises(self):
+        # A bare string would enumerate into one-character classes; reject it.
+        m = _bare_model()
+        with pytest.raises(TypeError):
+            m.set_classes("person")
+        with pytest.raises(TypeError):
+            m.set_classes(123)
+
     def test_coerces_to_str(self):
         m = _bare_model()
         m.set_classes(["boat", 7])
         assert m.names == {0: "boat", 1: "7"}
         assert m._name_to_id["7"] == 1
+
+    def test_duplicate_casefolded_names_raise(self):
+        m = _bare_model()
+        with pytest.raises(ValueError):
+            m.set_classes(["Boat", "boat"])
 
 
 class TestFactoryResolution:
@@ -85,3 +98,190 @@ class TestFactoryResolution:
         # Raises during resolution, before any model download/load.
         with pytest.raises(ValueError):
             LibreVLM("definitely-not-a-real-model")
+
+
+class TestSnapshotComplete:
+    """The weights-completeness sentinel (offline; no download)."""
+
+    def _base(self):
+        from libreyolo.models.vlm.base import LibreVLMModel
+
+        return LibreVLMModel
+
+    def _mark_complete(self, path):
+        (path / ".libreyolo_snapshot_complete").write_text("{}")
+
+    def test_single_file_complete(self, tmp_path):
+        (tmp_path / "config.json").write_text("{}")
+        (tmp_path / "model.safetensors").write_text("x")
+        self._mark_complete(tmp_path)
+        assert self._base()._snapshot_complete(tmp_path) is True
+
+    def test_missing_completion_marker_is_incomplete(self, tmp_path):
+        (tmp_path / "config.json").write_text("{}")
+        (tmp_path / "model.safetensors").write_text("x")
+        assert self._base()._snapshot_complete(tmp_path) is False
+
+    def test_missing_config_is_incomplete(self, tmp_path):
+        (tmp_path / "model.safetensors").write_text("x")
+        self._mark_complete(tmp_path)
+        assert self._base()._snapshot_complete(tmp_path) is False
+
+    def test_sharded_incomplete_when_a_shard_missing(self, tmp_path):
+        import json
+
+        (tmp_path / "config.json").write_text("{}")
+        self._mark_complete(tmp_path)
+        (tmp_path / "model.safetensors.index.json").write_text(
+            json.dumps({"weight_map": {"a": "s1.safetensors", "b": "s2.safetensors"}})
+        )
+        (tmp_path / "s1.safetensors").write_text("x")  # only shard 1 of 2
+        assert self._base()._snapshot_complete(tmp_path) is False
+
+    def test_sharded_complete_when_all_shards_present(self, tmp_path):
+        import json
+
+        (tmp_path / "config.json").write_text("{}")
+        self._mark_complete(tmp_path)
+        (tmp_path / "model.safetensors.index.json").write_text(
+            json.dumps({"weight_map": {"a": "s1.safetensors", "b": "s2.safetensors"}})
+        )
+        (tmp_path / "s1.safetensors").write_text("x")
+        (tmp_path / "s2.safetensors").write_text("x")
+        assert self._base()._snapshot_complete(tmp_path) is True
+
+
+class TestCastInputs:
+    def test_casts_float_tensors_inside_mutable_payload(self):
+        import torch
+
+        m = _bare_model()
+        m._model_dtype = torch.float16
+        payload = {
+            "input_ids": torch.tensor([[1, 2]], dtype=torch.int64),
+            "pixel_values": torch.ones((1, 3, 2, 2), dtype=torch.float32),
+            "nested": [{"image_grid_thw": torch.ones((1, 3), dtype=torch.float32)}],
+        }
+
+        out = m._cast_inputs(payload)
+
+        assert out["input_ids"].dtype == torch.int64
+        assert out["pixel_values"].dtype == torch.float16
+        assert out["nested"][0]["image_grid_thw"].dtype == torch.float16
+
+    def test_prepare_generation_inputs_drops_token_type_ids(self):
+        import torch
+
+        m = _bare_model()
+        m._model_dtype = torch.float16
+        payload = {
+            "input_ids": torch.tensor([[1, 2]], dtype=torch.int64),
+            "token_type_ids": torch.tensor([[0, 0]], dtype=torch.int64),
+            "pixel_values": torch.ones((1, 3, 2, 2), dtype=torch.float32),
+        }
+
+        out = m._prepare_generation_inputs(payload)
+
+        assert "token_type_ids" not in out
+        assert out["pixel_values"].dtype == torch.float16
+
+
+class _StubProc:
+    def __init__(self, payload):
+        self._payload = payload
+
+    def batch_decode(self, *args, **kwargs):
+        return ["<decoded>"]
+
+    def post_process_generation(self, *args, **kwargs):
+        return self._payload
+
+
+class TestOverrideConfThreshold:
+    """Florence-2 and Kosmos-2 honor conf= even though they build the dict directly."""
+
+    def _florence(self):
+        from libreyolo.models.vlm.florence2 import LibreFlorence2
+
+        m = object.__new__(LibreFlorence2)
+        m._name_to_id = {"boat": 0}
+        m.processor = _StubProc(
+            {LibreFlorence2.TASK: {"bboxes": [[0, 0, 10, 10]], "bboxes_labels": ["boat"]}}
+        )
+        return m
+
+    def _kosmos(self):
+        from libreyolo.models.vlm.kosmos2 import LibreKosmos2
+
+        m = object.__new__(LibreKosmos2)
+        m._name_to_id = {"boat": 0}
+        m.processor = _StubProc(("a boat", [("boat", (0, 4), [[0.0, 0.0, 0.5, 0.5]])]))
+        return m
+
+    def test_florence_conf_below_score_keeps(self):
+        det = self._florence()._postprocess(None, 0.5, 0.5, (100, 100))
+        assert det["num_detections"] == 1
+
+    def test_florence_conf_above_score_drops_all(self):
+        det = self._florence()._postprocess(None, 1.5, 0.5, (100, 100))
+        assert det["num_detections"] == 0
+
+    def test_kosmos_conf_below_score_keeps(self):
+        det = self._kosmos()._postprocess(None, 0.5, 0.5, (100, 100))
+        assert det["num_detections"] == 1
+
+    def test_kosmos_conf_above_score_drops_all(self):
+        det = self._kosmos()._postprocess(None, 1.5, 0.5, (100, 100))
+        assert det["num_detections"] == 0
+
+
+class TestKosmosMatchLabel:
+    """Kosmos-2's lenient noun-phrase to vocabulary matching (pure, offline)."""
+
+    def _kosmos(self, names):
+        from libreyolo.models.vlm.kosmos2 import LibreKosmos2
+
+        m = object.__new__(LibreKosmos2)
+        m._name_to_id = {n.lower(): i for i, n in enumerate(names)}
+        return m
+
+    def test_exact_match(self):
+        assert self._kosmos(["boat", "person"])._match_label("boat") == 0
+
+    def test_lenient_plural_phrase(self):
+        # Kosmos grounds noun phrases ("the boats"); lenient substring still maps.
+        assert self._kosmos(["boat"])._match_label("the boats") == 0
+
+    def test_out_of_vocab_returns_none(self):
+        assert self._kosmos(["boat"])._match_label("airplane") is None
+
+
+class TestInternVL3Flatten:
+    """InternVL3's nested-box flatten override (pure, offline)."""
+
+    def _flat(self, items):
+        from libreyolo.models.vlm.internvl3 import LibreInternVL3
+
+        return LibreInternVL3._flatten_nested(items)
+
+    def test_nested_boxes_expand_to_one_item_each(self):
+        items = [{"label": "boat", "bbox": [[120, 400, 250, 550], [600, 100, 700, 200]]}]
+        assert self._flat(items) == [
+            {"label": "boat", "bbox": [120, 400, 250, 550]},
+            {"label": "boat", "bbox": [600, 100, 700, 200]},
+        ]
+
+    def test_flat_box_passes_through(self):
+        items = [{"label": "boat", "bbox": [120, 400, 250, 550]}]
+        assert self._flat(items) == items
+
+    def test_mixed_nested_and_flat(self):
+        items = [
+            {"label": "boat", "bbox": [[1, 2, 3, 4], [5, 6, 7, 8]]},
+            {"label": "ship", "bbox": [9, 10, 11, 12]},
+        ]
+        assert self._flat(items) == [
+            {"label": "boat", "bbox": [1, 2, 3, 4]},
+            {"label": "boat", "bbox": [5, 6, 7, 8]},
+            {"label": "ship", "bbox": [9, 10, 11, 12]},
+        ]

@@ -55,11 +55,7 @@ sample_images*/
 *.onnx
 *.torchscript
 *.safetensors
-# VLM families autodownload Hugging Face snapshot directories into weights/
-weights/LibreFlorence2*/
-weights/LibreInternVL3*/
-weights/LibreKosmos2*/
-weights/LibreLFM2VL*/
-weights/LibreQwen3VL*/
-weights/LibreSmolVLM2*/
-weights/LibreVLM*/
+# VLM families autodownload Hugging Face snapshot directories into weights/.
+# Catch-all so any current or future Libre* family snapshot dir (and the
+# *.bin / config / tokenizer files inside it) can never be committed.
+weights/Libre*/

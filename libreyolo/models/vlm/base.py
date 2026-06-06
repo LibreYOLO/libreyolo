@@ -19,7 +19,9 @@ design decisions and the "add a new model" checklist, and
 
 from __future__ import annotations
 
+import json
 import logging
+from collections.abc import MutableMapping
 from pathlib import Path
 from typing import Any, ClassVar, Dict, Optional, Tuple
 
@@ -36,6 +38,7 @@ _INSTALL_HINT = (
     "LibreVLM models require the 'vlm' extra. Install with:\n"
     "    pip install 'libreyolo[vlm]'"
 )
+_SNAPSHOT_COMPLETE_MARKER = ".libreyolo_snapshot_complete"
 
 
 class LibreVLMModel(BaseModel):
@@ -73,6 +76,24 @@ class LibreVLMModel(BaseModel):
     # Family-specific weight license, printed once before the first download.
     _LICENSE_NOTICE: ClassVar[str] = ""
     _LICENSE_NOTICE_SHOWN: ClassVar[bool] = False
+
+    # Off by default: all shipped families load through native transformers
+    # classes, so we never execute third-party repo code. A family that genuinely
+    # needs it must opt in explicitly (and pin a revision).
+    TRUST_REMOTE_CODE: ClassVar[bool] = False
+    # Current shipped VLM repos all provide safetensors. Avoid pulling duplicate
+    # PyTorch binaries and export artifacts when downloading the local snapshot.
+    SNAPSHOT_IGNORE_PATTERNS: ClassVar[tuple[str, ...]] = (
+        "*.bin",
+        "*.bin.index.json",
+        "*.h5",
+        "*.msgpack",
+        "*.onnx",
+        "*.ot",
+        "*.tflite",
+        "onnx/*",
+    )
+    UNSUPPORTED_GENERATE_INPUTS: ClassVar[tuple[str, ...]] = ("token_type_ids",)
 
     # =========================================================================
     # Construction
@@ -115,7 +136,7 @@ class LibreVLMModel(BaseModel):
         if names is not None:
             self.set_classes(names)
         else:
-            self._name_to_id = {v.lower(): k for k, v in self.names.items()}
+            self._name_to_id = {v.strip().lower(): k for k, v in self.names.items()}
         self.model.eval()
 
     # =========================================================================
@@ -131,11 +152,22 @@ class LibreVLMModel(BaseModel):
         work, since the model is prompted with them rather than constrained to a
         fixed head. Returns ``self`` so calls can chain.
         """
+        # Reject a bare string (it would enumerate into one-character classes)
+        # and other non-sequence inputs.
+        if isinstance(classes, str) or not isinstance(classes, (list, tuple)):
+            raise TypeError(
+                "set_classes() expects a list/tuple of label strings, "
+                f"e.g. [\"boat\"], not {type(classes).__name__}."
+            )
         if not classes:
             raise ValueError("set_classes() requires a non-empty list of labels.")
-        self.names = {i: str(c) for i, c in enumerate(classes)}
+        names = [str(c) for c in classes]
+        keys = [name.strip().lower() for name in names]
+        if len(keys) != len(set(keys)):
+            raise ValueError("set_classes() labels must be unique case-insensitively.")
+        self.names = {i: name for i, name in enumerate(names)}
         self.nb_classes = len(self.names)
-        self._name_to_id = {v.lower(): k for k, v in self.names.items()}
+        self._name_to_id = {v.strip().lower(): k for k, v in self.names.items()}
         return self
 
     def chat(
@@ -168,6 +200,7 @@ class LibreVLMModel(BaseModel):
             return_dict=True,
             tokenize=True,
         ).to(self.device)
+        inputs = self._prepare_generation_inputs(inputs)
         with torch.no_grad():
             generated = self.model.generate(
                 **inputs,
@@ -182,12 +215,44 @@ class LibreVLMModel(BaseModel):
     # Weight acquisition (autodownload via Hugging Face, license-gated)
     # =========================================================================
 
+    @staticmethod
+    def _snapshot_complete(local_dir: Path) -> bool:
+        """True only if config.json AND every weight file are present.
+
+        config.json alone is not proof: an interrupted download can leave it
+        without the weight shards. For a sharded checkpoint, every shard named in
+        the index must exist, not just one, so a multi-shard download interrupted
+        between shards is correctly seen as incomplete and resumed.
+        """
+        if not (local_dir / _SNAPSHOT_COMPLETE_MARKER).exists():
+            return False
+        if not (local_dir / "config.json").exists():
+            return False
+        for index_name in (
+            "model.safetensors.index.json",
+            "pytorch_model.bin.index.json",
+        ):
+            index = local_dir / index_name
+            if index.exists():
+                try:
+                    weight_map = json.loads(
+                        index.read_text(encoding="utf-8")
+                    ).get("weight_map", {})
+                except (ValueError, OSError):
+                    return False
+                shards = set(weight_map.values())
+                return bool(shards) and all((local_dir / s).exists() for s in shards)
+        # Single-file checkpoint: any weight file is enough.
+        return any(local_dir.glob("*.safetensors")) or any(local_dir.glob("*.bin"))
+
     @classmethod
     def _notify_license_once(cls) -> None:
+        # Once per process per family. Routed through the logger (not print) so it
+        # survives stdout capture and lands in application logs.
         if cls._LICENSE_NOTICE_SHOWN or not cls._LICENSE_NOTICE:
             return
         cls._LICENSE_NOTICE_SHOWN = True
-        print(cls._LICENSE_NOTICE)
+        logger.warning(cls._LICENSE_NOTICE)
 
     def _ensure_weights(self) -> str:
         """Return a local weights dir for this size, downloading if needed.
@@ -199,34 +264,94 @@ class LibreVLMModel(BaseModel):
         """
         repo = self.HF_REPOS[self.size]
         local_dir = Path("weights") / f"{self.FILENAME_PREFIX}{self.size}"
-        if (local_dir / "config.json").exists():
+        # Only short-circuit on a *complete* snapshot; otherwise (re)download.
+        # snapshot_download skips complete files and resumes partial ones, so
+        # re-calling it is safe and cheap.
+        if self._snapshot_complete(local_dir):
             return str(local_dir)
         try:
             from huggingface_hub import snapshot_download
+            import transformers
         except ImportError as exc:  # ships with transformers
             raise ImportError(_INSTALL_HINT) from exc
+        _ = transformers
         self._notify_license_once()
         logger.info("Downloading %s weights from %s -> %s ...", self.FAMILY, repo, local_dir)
-        snapshot_download(repo, local_dir=str(local_dir))
+        snapshot_download(
+            repo,
+            local_dir=str(local_dir),
+            ignore_patterns=self.SNAPSHOT_IGNORE_PATTERNS,
+        )
+        (local_dir / _SNAPSHOT_COMPLETE_MARKER).write_text(
+            json.dumps({"repo": repo}) + "\n", encoding="utf-8"
+        )
+        if not self._snapshot_complete(local_dir):
+            (local_dir / _SNAPSHOT_COMPLETE_MARKER).unlink(missing_ok=True)
+            raise FileNotFoundError(
+                f"Downloaded snapshot for {repo} is missing config or safetensors files "
+                f"in {local_dir}."
+            )
         return str(local_dir)
+
+    def _resolve_dtype(self) -> "torch.dtype":
+        """bf16 on CUDA only when the device supports it, else fp16; fp32 on CPU."""
+        if self.device.type != "cuda":
+            return torch.float32
+        if torch.cuda.is_bf16_supported():
+            return torch.bfloat16
+        return torch.float16
 
     def _load_pretrained(self, snapshot_dir: str):
         try:
             from transformers import AutoModelForImageTextToText, AutoProcessor
         except ImportError as exc:
             raise ImportError(_INSTALL_HINT) from exc
-        dtype = torch.bfloat16 if self.device.type == "cuda" else torch.float32
         model = AutoModelForImageTextToText.from_pretrained(
-            snapshot_dir, dtype=dtype, trust_remote_code=True
+            snapshot_dir, dtype=self._resolve_dtype(), trust_remote_code=self.TRUST_REMOTE_CODE
         )
-        processor = AutoProcessor.from_pretrained(snapshot_dir, trust_remote_code=True)
+        processor = AutoProcessor.from_pretrained(
+            snapshot_dir, trust_remote_code=self.TRUST_REMOTE_CODE
+        )
         return model, processor
 
     def _init_model(self) -> nn.Module:
         snapshot_dir = self._ensure_weights()
         model, processor = self._load_pretrained(snapshot_dir)
         self.processor = processor
+        # The actual loaded weight dtype (bf16/fp16 on CUDA, fp32 on CPU). Used to
+        # cast the processor's float tensors so a half-precision model never gets
+        # fp32 pixel_values on a vision tower that does not self-cast.
+        self._model_dtype = next(model.parameters()).dtype
         return model
+
+    def _prepare_generation_inputs(self, inputs: Any) -> Any:
+        """Cast inputs and drop processor keys unsupported by ``generate``."""
+        inputs = self._cast_inputs(inputs)
+        if isinstance(inputs, MutableMapping):
+            for key in self.UNSUPPORTED_GENERATE_INPUTS:
+                inputs.pop(key, None)
+        return inputs
+
+    def _cast_inputs(self, inputs: Any) -> Any:
+        """Cast the processor's float tensors (e.g. ``pixel_values``) to the model
+        dtype. Integer ``input_ids`` are left intact. A no-op on CPU (model is fp32)."""
+        dtype = getattr(self, "_model_dtype", None)
+        if dtype is None:
+            return inputs
+        def cast(value: Any) -> Any:
+            if isinstance(value, torch.Tensor):
+                return value.to(dtype=dtype) if value.is_floating_point() else value
+            if isinstance(value, MutableMapping):
+                for key, nested in value.items():
+                    value[key] = cast(nested)
+                return value
+            if isinstance(value, tuple):
+                return tuple(cast(nested) for nested in value)
+            if isinstance(value, list):
+                return [cast(nested) for nested in value]
+            return value
+
+        return cast(inputs)
 
     # =========================================================================
     # Prompt
@@ -299,6 +424,7 @@ class LibreVLMModel(BaseModel):
         return inputs, img, img.size, 1.0
 
     def _forward(self, inputs: Any) -> torch.Tensor:
+        inputs = self._prepare_generation_inputs(inputs)
         input_len = inputs["input_ids"].shape[1]
         generated = self.model.generate(
             **inputs,
@@ -331,6 +457,7 @@ class LibreVLMModel(BaseModel):
             original_size,
             conf_thres=conf_thres,
             max_det=max_det,
+            classes=kwargs.get("classes"),
             default_score=self._score_detections(items),
             bbox_key=self.BBOX_KEY,
             coord_divisor=self.COORD_DIVISOR,
