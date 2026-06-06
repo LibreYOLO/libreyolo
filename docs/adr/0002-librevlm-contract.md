@@ -66,8 +66,14 @@ text = model.chat("image.jpg", "How many cars are pink?")  # raw escape hatch
   keeps `predict()` signature-compatible with the closed-vocab detectors.
 - `names=[...]` at construction is a convenience that calls `set_classes` for you.
 - `chat(image, prompt)` exposes the underlying model for anything the detection
-  wrapper does not cover (free-form questions, custom formats, counting).
-- `prompt="..."` overrides the detection prompt; `max_new_tokens`, `device` as usual.
+  wrapper does not cover (free-form questions, custom formats, counting). It is
+  available on the chat-template families; the task-prompt families (Florence-2,
+  Kosmos-2) are not chat models and their `chat()` raises `NotImplementedError`.
+  `predict()` (the detection layer) is supported on every family.
+- `prompt="..."` overrides the detection prompt on the chat-template families;
+  `max_new_tokens`, `device` as usual. Florence-2 and Kosmos-2 build their prompt
+  from a fixed task / grounding token plus the class list, so `prompt=` is ignored
+  for those two.
 
 ## Internal Contract
 
@@ -86,7 +92,8 @@ To support a new model, subclass it and declare the adapter:
 | `_detection_prompt()` | how to ask THIS model for boxes (override if needed)  |
 | `BBOX_KEY`        | JSON key holding the box (`bbox`, `bbox_2d`, ...)        |
 | `COORD_DIVISOR`   | scale of the coords (1.0 for [0,1], 1000.0 for 0-1000)  |
-| `_LICENSE_NOTICE` | text printed once before the first download (if needed)  |
+| `BOX_FORMAT`      | box layout: `xyxy` (default), `xywh`, or `cxcywh`        |
+| `_LICENSE_NOTICE` | text logged once before the first download (if needed)   |
 
 The base implements the predict/track surface by satisfying the four hooks the
 shared `InferenceRunner` drives:
@@ -123,6 +130,9 @@ constant placeholder (`DEFAULT_SCORE = 1.0`), so `predict`/draw/`track` behave
 normally and `conf=` filtering still functions mechanically. Consequences:
 
 - `conf=` thresholds and ranking are soft, not calibrated.
+- `track()` runs, but because every box is scored 1.0, ByteTrack's two-stage,
+  score-stratified association is inert (no separate low-confidence recovery
+  stage and `new_track_thresh` never bites) until a real score lands.
 - `val()` (mAP) is intentionally unsupported; it would be misleading.
 
 `_score_detections(items)` is the documented override point for a real signal
@@ -133,16 +143,20 @@ normally and `conf=` filtering still functions mechanically. Consequences:
 LibreYOLO ships no VLM source code: families load through the Apache-2.0
 `transformers` API and do not redistribute weights. The default model
 (Qwen3-VL-4B) is Apache-2.0, so it needs no notice. When a model's weights are
-under a non-permissive license (for example LFM2-VL, under the LFM Open License
-v1.0 with a revenue threshold), the download is gated behind a one-time printed
-license notice, following the existing download-notice pattern in
-`libreyolo/utils/download.py` and `libreyolo/models/l2cs/model.py`.
+under a non-permissive license (for example LFM2-VL under the LFM Open License
+v1.0 with a revenue threshold, or InternVL3 whose `-hf` weights carry the Qwen
+License), the download is gated behind a one-time logged license notice,
+following the existing download-notice pattern in `libreyolo/utils/download.py`
+and `libreyolo/models/l2cs/model.py`.
 
 ## Out Of Scope (v1)
 
 - Training / fine-tuning (`train()` raises; fine-tune upstream).
 - Dataset validation / mAP (`val()` raises; see "Confidence").
 - Export to ONNX/TensorRT/etc. (`export()` raises; generative decode).
+- CLI: the `libreyolo` command does not resolve VLM aliases in v1. The tier is a
+  Python-API surface (`LibreVLM(...)`); `predict`/`track` parity is at the API
+  level, not the CLI.
 
 ## Consequences
 
@@ -161,6 +175,10 @@ license notice, following the existing download-notice pattern in
 ## Implementation Status
 
 - `LibreVLMModel` base with `set_classes()` and `chat()`.
-- `LibreQwen3VL` (Qwen3-VL 2B/4B/8B, Apache-2.0) as the default family.
-- `LibreLFM2VL` (LFM2.5-VL 450M/1.6B, license-gated) as a second family.
+- Six families: `LibreQwen3VL` (Qwen3-VL 2B/4B/8B, Apache-2.0, default),
+  `LibreLFM2VL` (LFM2.5-VL, LFM-gated), `LibreInternVL3` (Qwen-gated),
+  `LibreSmolVLM2` (Apache-2.0), `LibreFlorence2` (MIT), and `LibreKosmos2` (MIT).
+  The chat-template families parse JSON boxes; Florence-2 and Kosmos-2 use task /
+  grounding tokens and override the inference hooks. See the Available-models
+  table in [`../librevlm_design.md`](../librevlm_design.md).
 - Offline parser unit tests plus a `vlm`-marked end-to-end smoke test.
