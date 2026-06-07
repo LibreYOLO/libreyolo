@@ -273,6 +273,76 @@ def draw_obb(
     return img_draw
 
 
+def draw_points(
+    img: Image.Image,
+    points: Sequence[Sequence[float]],
+    scores: Sequence[float],
+    classes: Sequence[float],
+    class_names: List[str] | Dict[int, str] | None = None,
+) -> Image.Image:
+    """Draw point-localization predictions as labeled centroids."""
+    img_draw = img.copy()
+    draw = ImageDraw.Draw(img_draw)
+
+    if class_names is None:
+        class_names = COCO_CLASSES
+
+    max_dim = max(img.size)
+    scale = max_dim / 640.0
+    radius = max(3, int(round(4 * scale)))
+    stroke = max(2, int(round(2 * scale)))
+    font = _get_font(max(12, int(12 * scale)))
+    label_padding = max(2, int(2 * scale))
+
+    for point, score, cls_id in zip(points, scores, classes):
+        x, y = float(point[0]), float(point[1])
+        cls_id_int = int(cls_id)
+        color = get_class_color(cls_id_int)
+        draw.ellipse(
+            [x - radius, y - radius, x + radius, y + radius],
+            fill=color,
+            outline=(0, 0, 0),
+            width=stroke,
+        )
+        draw.line([(x - radius * 1.5, y), (x + radius * 1.5, y)], fill=(0, 0, 0), width=1)
+        draw.line([(x, y - radius * 1.5), (x, y + radius * 1.5)], fill=(0, 0, 0), width=1)
+
+        if isinstance(class_names, dict):
+            class_name = class_names.get(cls_id_int)
+        elif class_names and cls_id_int < len(class_names):
+            class_name = class_names[cls_id_int]
+        else:
+            class_name = None
+        label = (
+            f"{class_name}: {float(score):.2f}"
+            if class_name is not None
+            else f"Class {cls_id_int}: {float(score):.2f}"
+        )
+
+        full_bbox = draw.textbbox((0, 0), label, font=font)
+        text_width = full_bbox[2] - full_bbox[0]
+        text_height = full_bbox[3] - full_bbox[1]
+        label_x = min(max(0, x + radius + label_padding), img.width - text_width - label_padding * 2)
+        label_y = min(max(0, y - text_height / 2 - label_padding), img.height - text_height - label_padding * 2)
+        draw.rectangle(
+            [
+                label_x,
+                label_y,
+                label_x + text_width + label_padding * 2,
+                label_y + text_height + label_padding * 2,
+            ],
+            fill=color,
+        )
+        draw.text(
+            (label_x + label_padding, label_y + label_padding),
+            label,
+            fill="white",
+            font=font,
+        )
+
+    return img_draw
+
+
 def draw_masks(
     img: Image.Image,
     masks: np.ndarray,

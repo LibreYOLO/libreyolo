@@ -223,6 +223,11 @@ class BaseExporter(ABC):
         Returns:
             Path to the exported model file.
         """
+        if getattr(self.model, "task", "detect") == "point":
+            raise NotImplementedError(
+                "Export for point-task models is not implemented yet. "
+                "Add a point-aware export/runtime contract before exporting point models."
+            )
         half, int8 = self._validate(half, int8, data)
         self._preflight(half=half, int8=int8, data=data, **kwargs)
         data = self._resolve_calibration_data(int8, data)

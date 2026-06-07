@@ -338,6 +338,58 @@ class Keypoints(_TensorPayload):
         return conf > 0
 
 
+class Points(_TensorPayload):
+    """Wrap point-localization predictions for a single image.
+
+    Data shape is ``(N, 4)`` with rows ``x, y, class, confidence``.
+    Coordinates are absolute image pixels unless accessed through ``xyn``.
+    """
+
+    def __init__(self, data: TensorLike, orig_shape: Tuple[int, int] | None = None):
+        if data.ndim == 1:
+            if isinstance(data, torch.Tensor):
+                data = data.unsqueeze(0)
+            else:
+                data = data[None, :]
+        if data.ndim != 2 or data.shape[-1] != 4:
+            raise ValueError(
+                f"expected (N, 4) point rows but got shape {tuple(data.shape)}: "
+                "x, y, class, confidence"
+            )
+        super().__init__(data, orig_shape)
+
+    @property
+    def xy(self) -> TensorLike:
+        return self.data[:, :2]
+
+    @property
+    def xyn(self) -> TensorLike:
+        if self.orig_shape is None:
+            raise ValueError("orig_shape is required for normalized point coordinates")
+        h, w = self.orig_shape
+        xy = self.xy
+        if isinstance(xy, torch.Tensor):
+            scale = torch.tensor([w, h], dtype=xy.dtype, device=xy.device)
+        else:
+            scale = np.array([w, h], dtype=xy.dtype)
+        return xy / scale
+
+    @property
+    def cls(self) -> TensorLike:
+        return self.data[:, 2]
+
+    @property
+    def conf(self) -> TensorLike:
+        return self.data[:, 3]
+
+    def __repr__(self) -> str:
+        return (
+            f"Points(n={len(self)}, "
+            f"shape={tuple(self.data.shape)}, "
+            f"orig_shape={self.orig_shape})"
+        )
+
+
 class Probs(_TensorPayload):
     @property
     def top1(self) -> int:
@@ -533,7 +585,7 @@ class Gaze(_TensorPayload):
 class Results:
     """Single-image result with flat detection/segmentation slots."""
 
-    _keys = ("boxes", "masks", "probs", "keypoints", "obb", "gaze")
+    _keys = ("boxes", "masks", "probs", "keypoints", "obb", "gaze", "points")
 
     def __init__(
         self,
@@ -546,6 +598,7 @@ class Results:
         probs: Optional[Probs] = None,
         obb: Optional[OBB] = None,
         gaze: Optional[Gaze] = None,
+        points: Optional[Points] = None,
         speed: Optional[Dict[str, float]] = None,
         track_id: Optional[TensorLike] = None,
         frame_idx: Optional[int] = None,
@@ -554,6 +607,8 @@ class Results:
             boxes = boxes.with_orig_shape(orig_shape)
         if boxes is not None and track_id is not None:
             boxes = boxes.with_id(track_id)
+        if points is not None and points.orig_shape is None:
+            points = Points(points.data, orig_shape)
 
         self.boxes = boxes
         self.masks = masks
@@ -561,6 +616,7 @@ class Results:
         self.probs = probs
         self.obb = obb
         self.gaze = gaze
+        self.points = points
         self.orig_shape = orig_shape
         self.path = path
         self.names = names or {}
@@ -579,6 +635,7 @@ class Results:
             "probs": self.probs,
             "obb": self.obb,
             "gaze": self.gaze,
+            "points": self.points,
             "speed": dict(self.speed),
             "track_id": self.track_id,
             "frame_idx": self.frame_idx,
@@ -629,6 +686,7 @@ class Results:
         keypoints: Optional[Keypoints] = None,
         obb: Optional[OBB] = None,
         gaze: Optional[Gaze] = None,
+        points: Optional[Points] = None,
         track_id: Optional[TensorLike] = None,
     ) -> "Results":
         if boxes is not None:
@@ -643,6 +701,8 @@ class Results:
             self.obb = obb
         if gaze is not None:
             self.gaze = gaze
+        if points is not None:
+            self.points = points if points.orig_shape is not None else Points(points.data, self.orig_shape)
         if track_id is not None:
             self.track_id = track_id
             if self.boxes is not None:
@@ -651,6 +711,24 @@ class Results:
 
     def summary(self, normalize: bool = False, decimals: int = 5) -> List[Dict[str, Any]]:
         if self.boxes is None:
+            if self.points is not None:
+                points_np = self.points.numpy()
+                xy_values = points_np.xyn if normalize else points_np.xy
+                rows = []
+                for i in range(len(points_np)):
+                    cls_id = int(points_np.cls[i])
+                    rows.append(
+                        {
+                            "name": self.names.get(cls_id, str(cls_id)),
+                            "class": cls_id,
+                            "confidence": round(float(points_np.conf[i]), decimals),
+                            "point": {
+                                "x": round(float(xy_values[i, 0]), decimals),
+                                "y": round(float(xy_values[i, 1]), decimals),
+                            },
+                        }
+                    )
+                return rows
             if self.probs is None:
                 return []
             probs_np = _numpy(self.probs.data)
@@ -733,6 +811,8 @@ class Results:
     def __len__(self) -> int:
         if self.boxes is not None:
             return len(self.boxes)
+        if self.points is not None:
+            return len(self.points)
         if self.probs is not None:
             return 1
         return 0
@@ -743,6 +823,8 @@ class Results:
             f"orig_shape={self.orig_shape}",
             f"boxes={self.boxes}",
         ]
+        if self.points is not None:
+            parts.append(f"points={self.points}")
         if self.masks is not None:
             parts.append(f"masks={self.masks}")
         if self.track_id is not None:
