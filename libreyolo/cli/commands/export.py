@@ -58,14 +58,9 @@ def export_cmd(
     if fmt == "engine":
         fmt = "tensorrt"
 
-    # Validate precision conflict
     if half and int8:
-        exit_with_error(
-            out,
-            "config_conflict",
-            "Cannot use both half (FP16) and int8 simultaneously.",
-            suggestion="Choose one: half or int8",
-        )
+        out.warning("Both half and int8 were requested. Using INT8 precision.")
+        half = False
 
     model_path = resolve_model_or_exit(out, model)
 
@@ -106,6 +101,7 @@ def export_cmd(
                 exit_with_error(out, "invalid_imgsz", f"Invalid imgsz: {imgsz}. Use e.g. 640 or 640,480.")
     if data is not None:
         export_kwargs["data"] = data
+    if data is not None or int8:
         export_kwargs["fraction"] = fraction
         export_kwargs["allow_download_scripts"] = allow_download_scripts
 
@@ -125,6 +121,8 @@ def export_cmd(
             exit_stage_error(out, stage="Export", detail=e)
     except ImportError as e:
         exit_with_error(out, "export_dep_missing", str(e))
+    except NotImplementedError as e:
+        exit_with_error(out, "format_precision_unsupported", str(e))
     except Exception as e:
         exit_stage_error(out, stage="Export", detail=e)
 
@@ -161,6 +159,7 @@ def export_cmd(
         "input_shape": [batch, 3, input_h, input_w],
         "dynamic": dynamic,
         "half": half,
+        "int8": int8,
     }
 
     if not json_output:
@@ -168,7 +167,7 @@ def export_cmd(
             f"Exported {loaded_model.FAMILY}-{loaded_model.size} to {fmt.upper()}: "
             f"{output_path} ({size_mb:.1f} MB)\n"
             f"  Input: [{batch}, 3, {input_h}, {input_w}], "
-            f"dynamic={dynamic}, half={half}"
+            f"dynamic={dynamic}, half={half}, int8={int8}"
         )
 
     out.result(data_out)
