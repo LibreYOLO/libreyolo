@@ -144,6 +144,14 @@ def test_obb_validation_rejects_augmented_validation_before_base_tta():
         BaseModel.val(_DummyOBBModel(), data="unused.yaml", imgsz=64, augment=True)
 
 
+def test_pose_validation_rejects_augmented_validation_before_base_tta():
+    model = _DummyOBBModel()
+    model.task = "pose"
+
+    with pytest.raises(ValueError, match="pose keypoints"):
+        BaseModel.val(model, data="unused.yaml", imgsz=64, augment=True)
+
+
 def test_obb_validator_runs_on_yolo_obb_dataset(tmp_path):
     data_yaml = _write_obb_dataset(tmp_path)
     config = ValidationConfig(

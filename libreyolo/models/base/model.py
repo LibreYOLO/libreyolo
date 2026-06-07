@@ -643,6 +643,11 @@ class BaseModel(ABC):
                 "Test-time augmentation does not support oriented boxes yet. "
                 "Use augment=False for OBB models."
             )
+        if getattr(self, "task", "detect") == "pose":
+            raise ValueError(
+                "Test-time augmentation does not support pose keypoints yet. "
+                "Use augment=False for pose models."
+            )
 
         from PIL import Image as PILImage
         from ...utils.image_loader import ImageLoader
@@ -1037,6 +1042,11 @@ class BaseModel(ABC):
             raise ValueError(
                 "Augmented validation does not support oriented boxes yet. "
                 "Use augment=False for OBB models."
+            )
+        if augment and self.task == "pose":
+            raise ValueError(
+                "Augmented validation does not support pose keypoints yet. "
+                "Use augment=False for pose models."
             )
 
         config = ValidationConfig(
