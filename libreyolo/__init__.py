@@ -22,7 +22,7 @@ from .models import (
     LibreRTMDet,
     LibreL2CS,
 )
-from .utils.results import Results, Boxes, Masks, Keypoints, Probs, OBB, Gaze
+from .utils.results import Results, Boxes, Masks, Keypoints, Points, Probs, OBB, Gaze
 
 SAMPLE_IMAGE = str(_Path(__file__).parent / "assets" / "parkour.jpg")
 
@@ -130,6 +130,7 @@ __all__ = [
     "Boxes",
     "Masks",
     "Keypoints",
+    "Points",
     "Probs",
     "OBB",
     "Gaze",

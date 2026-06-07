@@ -108,10 +108,16 @@ From `libreyolo/tasks.py`:
 | `classify`    | `-cls` |
 | `gaze`        | `-gaze` |
 | `obb`         | `-obb` |
+| `point`       | `-point` |
 
-The factory accepts upstream-style aliases (`detection`, `det`, `segmentation`,
-`keypoints`, `cls`, …) at the API boundary; only the canonical names above
-appear in filenames.
+The factory accepts selected upstream-style aliases (`detection`, `det`,
+`segmentation`, `keypoints`, `cls`, …) at the API boundary; only the canonical
+names above appear in filenames.
+
+`point` is the task for object-localization models whose learned output is a
+single image coordinate per detection, exposed as `(x, y, class, confidence)`.
+This keeps box detection under `detect` while allowing centroid-style models to
+use point-specific result and validation contracts.
 
 Dataset and label contracts are documented in
 [`dataset_schema.md`](dataset_schema.md). A task is supported by a model family
@@ -136,6 +142,8 @@ only when it appears in that family's `SUPPORTED_TASKS`.
 
 Families that override `SUPPORTED_TASKS` also declare `TASK_INPUT_SIZES` so
 each task can use a different per-size input resolution (relevant for RF-DETR).
+No in-tree model family ships `point` weights yet; point-localization families
+must opt into `SUPPORTED_TASKS = ("point",)` or an equivalent multi-task tuple.
 
 ## Examples by family + task
 

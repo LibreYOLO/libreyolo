@@ -257,7 +257,29 @@ def predict_cmd(
                 "original_shape": list(r.orig_shape),
                 "detections": detections,
             }
-            if getattr(r, "probs", None) is not None:
+            if getattr(r, "points", None) is not None:
+                points_np = r.points.numpy()
+                for i in range(len(points_np)):
+                    cls_id = int(points_np.cls[i])
+                    cls_name = r.names.get(cls_id, str(cls_id))
+                    detections.append(
+                        {
+                            "class": cls_name,
+                            "class_id": cls_id,
+                            "confidence": round(float(points_np.conf[i]), 4),
+                            "point_xy": [
+                                round(float(points_np.xy[i, 0]), 1),
+                                round(float(points_np.xy[i, 1]), 1),
+                            ],
+                        }
+                    )
+                    class_counts[cls_name] = class_counts.get(cls_name, 0) + 1
+                result_data["detections"] = detections
+                summary = ", ".join(
+                    f"{v} {k}{'s' if v > 1 else ''}"
+                    for k, v in class_counts.items()
+                ) or "(no detections)"
+            elif getattr(r, "probs", None) is not None:
                 top_rows = r.summary()
                 result_data["classification"] = top_rows[0] if top_rows else None
                 result_data["top5"] = top_rows

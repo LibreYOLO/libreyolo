@@ -281,7 +281,7 @@ def run_video_inference(
     from PIL import Image
     from tqdm import tqdm
 
-    from .drawing import draw_boxes, draw_keypoints, draw_masks, draw_obb
+    from .drawing import draw_boxes, draw_keypoints, draw_masks, draw_obb, draw_points
 
     with VideoSource(source, vid_stride=vid_stride) as video_src:
         writer = None
@@ -319,6 +319,20 @@ def run_video_inference(
                         and getattr(result, "probs", None) is not None
                     ):
                         annotated_pil = pil_img
+                    elif (
+                        result.boxes is None
+                        and getattr(result, "points", None) is not None
+                    ):
+                        if len(result.points) > 0:
+                            annotated_pil = draw_points(
+                                pil_img,
+                                result.points.xy.tolist(),
+                                result.points.conf.tolist(),
+                                result.points.cls.tolist(),
+                                class_names=result.names,
+                            )
+                        else:
+                            annotated_pil = pil_img
                     elif len(result) > 0:
                         annotated_pil = pil_img
                         if result.masks is not None:

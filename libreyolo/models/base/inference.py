@@ -21,6 +21,7 @@ from ...utils.drawing import (
     draw_keypoints,
     draw_masks,
     draw_obb,
+    draw_points,
     draw_tile_grid,
 )
 from ...utils.general import (
@@ -31,7 +32,7 @@ from ...utils.general import (
 )
 from ...utils.image_loader import ImageInput, ImageLoader
 from ...utils.predict_args import normalize_predict_kwargs
-from ...utils.results import Boxes, Keypoints, Masks, OBB, Probs, Results
+from ...utils.results import Boxes, Keypoints, Masks, OBB, Points, Probs, Results
 from ...utils.video import collect_video_results, is_video_file, run_video_inference
 
 logger = logging.getLogger(__name__)
@@ -113,6 +114,11 @@ class InferenceRunner:
             raise ValueError(
                 "tiling and augment cannot be used together. "
                 "Disable one of them."
+            )
+        if augment and getattr(self.model, "task", None) == "point":
+            raise ValueError(
+                "Test-time augmentation does not support point-task models yet. "
+                "Use augment=False for point models."
             )
 
         # Handle video input
@@ -314,6 +320,20 @@ class InferenceRunner:
             original_img.save(save_path)
             log_saved_result(result, save_path)
             return
+        if result.boxes is None and getattr(result, "points", None) is not None:
+            if len(result.points) > 0:
+                annotated_img = draw_points(
+                    original_img,
+                    result.points.xy.tolist(),
+                    result.points.conf.tolist(),
+                    result.points.cls.tolist(),
+                    class_names=result.names,
+                )
+            else:
+                annotated_img = original_img.copy()
+            annotated_img.save(save_path)
+            log_saved_result(result, save_path)
+            return
         if len(result) > 0:
             annotated_img = original_img
             # Draw masks first (underneath boxes)
@@ -408,6 +428,36 @@ class InferenceRunner:
                 path=str(image_path) if image_path else None,
                 names=self.model.names,
                 probs=Probs(probs_t),
+            )
+
+        points_data = detections.get("points")
+        if points_data is None and getattr(self.model, "task", "detect") == "point":
+            raise ValueError(
+                "Point-task models must return a 'points' payload with rows "
+                "(x, y, class, confidence)."
+            )
+        if points_data is not None:
+            orig_w, orig_h = original_size
+            if isinstance(points_data, torch.Tensor):
+                points_t = points_data.float()
+            else:
+                points_t = torch.as_tensor(points_data, dtype=torch.float32)
+            if points_t.ndim == 1:
+                points_t = points_t.unsqueeze(0)
+            if points_t.numel() == 0:
+                points_t = torch.zeros((0, 4), dtype=torch.float32)
+            points_obj = Points(points_t)
+            if classes is not None and len(points_t) > 0:
+                cls_mask = torch.zeros(len(points_t), dtype=torch.bool, device=points_t.device)
+                for cid in classes:
+                    cls_mask |= points_obj.cls == cid
+                points_obj = Points(points_t[cls_mask])
+            return Results(
+                boxes=None,
+                orig_shape=(orig_h, orig_w),
+                path=str(image_path) if image_path else None,
+                names=self.model.names,
+                points=points_obj,
             )
 
         masks_t = None
@@ -683,6 +733,11 @@ class InferenceRunner:
             raise ValueError(
                 "Tiled inference does not support oriented boxes yet. "
                 "Use non-tiled inference for OBB models."
+            )
+        if getattr(self.model, "task", "detect") == "point":
+            raise ValueError(
+                "Tiled inference does not support point results yet. "
+                "Use non-tiled inference for point models."
             )
 
         input_size = imgsz if imgsz is not None else self.model._get_input_size()

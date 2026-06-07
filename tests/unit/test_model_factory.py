@@ -318,6 +318,108 @@ def test_factory_warns_for_legacy_libreyolo_metadata_checkpoint(tmp_path, caplog
     assert "legacy compatibility path" in caplog.text
 
 
+def test_factory_autoconverts_partial_metadata_upstream_yolo9(
+    tmp_path, monkeypatch
+):
+    upstream_path = tmp_path / "v9-t-custom.pt"
+    converted_path = tmp_path / "LibreYOLO9t.pt"
+    torch.save(
+        {
+            "model": {
+                "0.conv.weight": torch.zeros(16, 3, 3, 3),
+                "0.bn.weight": torch.zeros(16),
+                "22.heads.0.class_conv.2.weight": torch.zeros(3, 16, 1, 1),
+                "22.heads.0.class_conv.2.bias": torch.zeros(3),
+            },
+            "names": ["bolt", "nut", "washer"],
+        },
+        upstream_path,
+    )
+
+    converted = LibreYOLO9Model(config="t", nb_classes=3)
+    torch.save(
+        wrap_libreyolo_checkpoint(
+            converted.state_dict(),
+            model_family="yolo9",
+            size="t",
+            task="detect",
+            nc=3,
+            names={0: "bolt", 1: "nut", 2: "washer"},
+            imgsz=640,
+        ),
+        converted_path,
+    )
+
+    import libreyolo.models.autoconvert as autoconvert_module
+
+    calls = {}
+
+    def fake_autoconvert(model_path, *, loaded=None):
+        calls["model_path"] = model_path
+        calls["loaded"] = loaded
+        return str(converted_path)
+
+    monkeypatch.setattr(
+        autoconvert_module, "autoconvert_upstream_checkpoint", fake_autoconvert
+    )
+
+    loaded = LibreYOLO(str(upstream_path), device="cpu")
+
+    assert calls["model_path"] == str(upstream_path)
+    assert calls["loaded"]["names"] == ["bolt", "nut", "washer"]
+    assert loaded.FAMILY == "yolo9"
+    assert loaded.nb_classes == 3
+    assert loaded.names == {0: "bolt", 1: "nut", 2: "washer"}
+
+
+def test_factory_reloads_same_path_autoconverted_checkpoint(tmp_path, monkeypatch):
+    ckpt_path = tmp_path / "LibreYOLO9t.pt"
+    torch.save(
+        {
+            "model": {
+                "0.conv.weight": torch.zeros(16, 3, 3, 3),
+                "0.bn.weight": torch.zeros(16),
+                "22.heads.0.class_conv.2.weight": torch.zeros(2, 16, 1, 1),
+                "22.heads.0.class_conv.2.bias": torch.zeros(2),
+            },
+            "names": ["bolt", "nut"],
+        },
+        ckpt_path,
+    )
+
+    converted = LibreYOLO9Model(config="t", nb_classes=2)
+    converted_checkpoint = wrap_libreyolo_checkpoint(
+        converted.state_dict(),
+        model_family="yolo9",
+        size="t",
+        task="detect",
+        nc=2,
+        names={0: "bolt", 1: "nut"},
+        imgsz=640,
+    )
+
+    import libreyolo.models.autoconvert as autoconvert_module
+
+    calls = 0
+
+    def fake_autoconvert(model_path, *, loaded=None):
+        nonlocal calls
+        calls += 1
+        torch.save(converted_checkpoint, model_path)
+        return model_path
+
+    monkeypatch.setattr(
+        autoconvert_module, "autoconvert_upstream_checkpoint", fake_autoconvert
+    )
+
+    loaded = LibreYOLO(str(ckpt_path), device="cpu")
+
+    assert calls == 1
+    assert loaded.FAMILY == "yolo9"
+    assert loaded.nb_classes == 2
+    assert loaded.names == {0: "bolt", 1: "nut"}
+
+
 def test_factory_warns_for_foreign_metadata_less_checkpoint(tmp_path, caplog):
     model = LibreYOLO9Model(config="t", nb_classes=80)
     ckpt_path = tmp_path / "upstream_yolo9.pt"

@@ -168,6 +168,15 @@ class TestExporterFormats:
         with pytest.raises(NotImplementedError, match="YOLO9 detection"):
             exporter._preflight(half=False, int8=False, data=None, nms=True)
 
+    def test_point_export_fails_before_artifact_creation(self, tmp_path):
+        wrapper = _make_wrapper()
+        wrapper.task = "point"
+
+        with pytest.raises(NotImplementedError, match="point-task models"):
+            OnnxExporter(wrapper)(output_path=str(tmp_path / "point.onnx"))
+
+        assert not (tmp_path / "point.onnx").exists()
+
     def test_metadata_includes_task_contract(self):
         wrapper = _make_wrapper()
         wrapper.task = "segment"
