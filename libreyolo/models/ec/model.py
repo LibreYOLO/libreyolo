@@ -445,6 +445,17 @@ class LibreEC(BaseModel):
         from libreyolo.data import load_data_config
         from .pose_trainer import ECPoseTrainer
 
+        native_imgsz = int(self.input_size)
+        if int(imgsz) != native_imgsz:
+            raise ValueError(
+                "EC pose fine-tuning currently requires "
+                f"imgsz={native_imgsz}; the ECPose eval anchor grid is built at "
+                "model construction for the native input size."
+            )
+
+        flip_idx_override = object()
+        explicit_flip_idx = kwargs.pop("flip_idx", flip_idx_override)
+
         try:
             data_config = load_data_config(data, autodownload=True)
             data = data_config.get("yaml_file", data)
@@ -489,7 +500,11 @@ class LibreEC(BaseModel):
                 yaml_names = {i: n for i, n in enumerate(yaml_names)}
             self.names = self._sanitize_names(yaml_names, 1)
 
-        flip_idx = data_config.get("flip_idx")
+        flip_idx = (
+            explicit_flip_idx
+            if explicit_flip_idx is not flip_idx_override
+            else data_config.get("flip_idx")
+        )
 
         if seed > 0:
             import random as _r

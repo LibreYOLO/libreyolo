@@ -36,8 +36,8 @@ from ...data import (
 from ...training.config import ECPoseConfig, TrainConfig
 from ...training.scheduler import FlatCosineScheduler
 from ...training.trainer import BaseTrainer
-from ..yolonas.pose_transforms import YOLONASPoseTrainTransform, YOLONASPoseValTransform
 from .pose_loss import ECPoseCriterion, PoseHungarianMatcher, default_oks_sigmas
+from .pose_transforms import ECPoseTrainTransform, ECPoseValTransform
 
 logger = logging.getLogger(__name__)
 
@@ -223,7 +223,7 @@ class ECPoseTrainer(BaseTrainer):
         if not train_imgs:
             raise FileNotFoundError("No training images found for pose training")
 
-        train_tf = YOLONASPoseTrainTransform(
+        train_tf = ECPoseTrainTransform(
             self.num_keypoints,
             flip_idx=flip_idx,
             flip_prob=self.config.flip_prob,
@@ -281,7 +281,7 @@ class ECPoseTrainer(BaseTrainer):
             except (FileNotFoundError, ValueError):
                 val_imgs = None
         if val_imgs:
-            val_tf = YOLONASPoseValTransform(
+            val_tf = ECPoseValTransform(
                 self.num_keypoints, imagenet_norm=True, to_rgb=True
             )
             val_ds = self._build_dataset(val_imgs, val_lbls, val_tf)

@@ -11,6 +11,7 @@ Mirrors test_yolonas_pose.py with EC-specific bits. Covers:
 
 from __future__ import annotations
 
+import numpy as np
 import pytest
 import torch
 
@@ -106,6 +107,69 @@ class TestPoseFamilyClassWiring:
         m = LibreEC(model_path=None, size="s", task="pose")
         with pytest.raises(ValueError, match="single-class pose datasets"):
             m.train(data=str(data_yaml), allow_experimental=True)
+
+    def test_train_pose_rejects_non_native_imgsz(self):
+        m = LibreEC(model_path=None, size="s", task="pose")
+        with pytest.raises(ValueError, match="imgsz=640"):
+            m.train(data="dummy.yaml", allow_experimental=True, imgsz=320)
+
+    def test_train_pose_explicit_flip_idx_overrides_yaml(self, tmp_path, monkeypatch):
+        data_yaml = tmp_path / "pose.yaml"
+        data_yaml.write_text(
+            "\n".join(
+                [
+                    "path: .",
+                    "train: images/train",
+                    "nc: 1",
+                    "names: [person]",
+                    "kpt_shape: [17, 3]",
+                    "flip_idx: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]",
+                ]
+            ),
+            encoding="utf-8",
+        )
+        captured = {}
+
+        class DummyTrainer:
+            def __init__(self, **kwargs):
+                captured.update(kwargs)
+
+            def train(self):
+                return {}
+
+        monkeypatch.setattr("libreyolo.models.ec.pose_trainer.ECPoseTrainer", DummyTrainer)
+        explicit_flip_idx = [0, 2, 1, 4, 3, 6, 5, 8, 7, 10, 9, 12, 11, 14, 13, 16, 15]
+
+        m = LibreEC(model_path=None, size="s", task="pose")
+        m.train(
+            data=str(data_yaml),
+            allow_experimental=True,
+            workers=0,
+            flip_idx=explicit_flip_idx,
+        )
+
+        assert captured["flip_idx"] == explicit_flip_idx
+
+
+class TestPoseTransforms:
+    def test_ec_pose_val_transform_direct_resizes_rectangular_targets(self):
+        from libreyolo.models.ec.pose_transforms import ECPoseValTransform
+
+        img = np.zeros((100, 200, 3), dtype=np.uint8)
+        bboxes = np.array([[0.5, 0.5, 0.2, 0.4]], dtype=np.float32)
+        cls = np.array([0], dtype=np.float32)
+        kpts = np.zeros((1, 17, 3), dtype=np.float32)
+        kpts[..., 0] = 0.25
+        kpts[..., 1] = 0.5
+        kpts[..., 2] = 2.0
+
+        out_img, target = ECPoseValTransform(
+            17, imagenet_norm=False, to_rgb=False
+        )(img, bboxes, cls, kpts, (64, 64))
+
+        assert out_img.shape == (3, 64, 64)
+        assert target[0, 1:5] == pytest.approx([32.0, 32.0, 12.8, 25.6])
+        assert target[0, 5:8] == pytest.approx([16.0, 32.0, 2.0])
 
 
 class TestPoseForwardAndPostprocess:
