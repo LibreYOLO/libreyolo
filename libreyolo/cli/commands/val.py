@@ -118,6 +118,29 @@ def val_cmd(
     except Exception as e:
         exit_stage_error(out, stage="Validation", detail=e)
 
+    if getattr(loaded_model, "task", "detect") == "classify":
+        top1 = metrics.get("metrics/accuracy_top1", 0.0)
+        top5 = metrics.get("metrics/accuracy_top5", 0.0)
+        data_out = {
+            "model": model,
+            "model_family": loaded_model.FAMILY,
+            "data": data,
+            "split": split,
+            "device": str(loaded_model.device),
+            "metrics": {
+                "accuracy_top1": round(float(top1), 4),
+                "accuracy_top5": round(float(top5), 4),
+            },
+        }
+        if not json_output:
+            data_out["_human_text"] = (
+                f"Validating {loaded_model.FAMILY}-{loaded_model.size} "
+                f"on {data} ({split}):\n"
+                f"  top1: {float(top1):.4f}  top5: {float(top5):.4f}"
+            )
+        out.result(data_out)
+        return
+
     # Extract metrics (keys like "metrics/mAP50", "metrics/mAP50-95")
     mAP50 = metrics.get("metrics/mAP50", 0.0)
     mAP50_95 = metrics.get("metrics/mAP50-95", metrics.get("metrics/mAP50_95", 0.0))

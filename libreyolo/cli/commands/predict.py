@@ -240,11 +240,44 @@ def predict_cmd(
     result_list = []
     human_lines = []
     import math as _math
+
     for r in results:
         boxes = r.boxes
         detections = []
         # Count detections per class
         class_counts: dict[str, int] = {}
+        h, w = r.orig_shape
+        img_name = Path(r.path or source).name
+        idx = len(human_lines) + 1
+        elapsed_ms = elapsed * 1000 / max(len(results), 1)
+
+        if boxes is None:
+            result_data = {
+                "path": r.path or str(source),
+                "original_shape": list(r.orig_shape),
+                "detections": detections,
+            }
+            if getattr(r, "probs", None) is not None:
+                top_rows = r.summary()
+                result_data["classification"] = top_rows[0] if top_rows else None
+                result_data["top5"] = top_rows
+                top = top_rows[0] if top_rows else None
+                if top is not None:
+                    summary = f"{top['name']} {top['confidence']:.4f}"
+                else:
+                    summary = "(no classification)"
+            else:
+                summary = "(no detections)"
+
+            result_list.append(result_data)
+            human_lines.append(
+                f"image {idx}/{total_images} {img_name}: "
+                f"{w}x{h} "
+                f"{summary}, "
+                f"{elapsed_ms:.1f}ms avg"
+            )
+            continue
+
         gaze_data = r.gaze if getattr(r, "gaze", None) is not None else None
         if gaze_data is not None and hasattr(gaze_data.data, "cpu"):
             gaze_np = gaze_data.numpy()
@@ -298,13 +331,9 @@ def predict_cmd(
         result_list.append(result_data)
         # Human summary line:
         # image 1/3 parkour.jpg: 640x480 3 persons, 2 skateboards, 45.2ms
-        h, w = r.orig_shape
         counts_str = ", ".join(
             f"{v} {k}{'s' if v > 1 else ''}" for k, v in class_counts.items()
         )
-        img_name = Path(r.path or source).name
-        idx = len(human_lines) + 1
-        elapsed_ms = elapsed * 1000 / max(len(results), 1)
         human_lines.append(
             f"image {idx}/{total_images} {img_name}: "
             f"{w}x{h} "

@@ -369,6 +369,64 @@ def test_val_json_reports_obb_metric_group(monkeypatch):
     }
 
 
+def test_val_json_reports_classification_metrics(monkeypatch):
+    app = _make_app([("val", val.val_cmd), ("info", special.info_cmd)])
+    captured = {}
+
+    class _ClassifyModel:
+        FAMILY = "yolo9"
+        task = "classify"
+        size = "t"
+        device = "cpu"
+
+        def val(self, **kwargs):
+            captured.update(kwargs)
+            return {
+                "metrics/accuracy_top1": 0.81234,
+                "metrics/accuracy_top5": 0.98765,
+            }
+
+    monkeypatch.setattr(
+        "libreyolo.cli.commands.val.resolve_model_or_exit",
+        lambda out, model: model,
+    )
+    monkeypatch.setattr(
+        "libreyolo.cli.commands.val.load_model_or_exit",
+        lambda out, model, model_path, device: _ClassifyModel(),
+    )
+    monkeypatch.setattr(
+        "libreyolo.utils.general.increment_path",
+        lambda path, exist_ok=False, mkdir=False: Path(path),
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "val",
+            "data=imagenet10",
+            "model=LibreYOLO9t-cls.pt",
+            "imgsz=224",
+            "batch=8",
+            "workers=0",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert captured["data"] == "imagenet10"
+    assert captured["imgsz"] == 224
+    assert captured["batch"] == 8
+    assert captured["workers"] == 0
+    data = json.loads(result.stdout)
+    assert data["model_family"] == "yolo9"
+    assert data["metrics"] == {
+        "accuracy_top1": 0.8123,
+        "accuracy_top5": 0.9877,
+    }
+    assert "mAP50" not in data["metrics"]
+    assert "box_metrics" not in data
+
+
 def test_export_runtime_error_includes_stage_context(failing_app):
     result = runner.invoke(
         failing_app,

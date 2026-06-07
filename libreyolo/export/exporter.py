@@ -43,6 +43,57 @@ def _is_rectangular_imgsz(imgsz: tuple[int, int]) -> bool:
     return int(imgsz[0]) != int(imgsz[1])
 
 
+def _snapshot_rfdetr_export_state(root):
+    """Capture RF-DETR export mutations so the live model can be restored."""
+    snapshots = []
+    if root is None or not hasattr(root, "modules"):
+        return snapshots
+
+    for module in root.modules():
+        encoder = getattr(module, "encoder", None)
+        embeddings = getattr(encoder, "embeddings", None)
+        has_export_state = hasattr(module, "_export")
+        has_position_state = embeddings is not None and hasattr(
+            embeddings, "position_embeddings"
+        )
+        if not has_export_state and not has_position_state:
+            continue
+
+        state = {
+            "forward": getattr(module, "forward", None),
+            "had_forward_origin": hasattr(module, "_forward_origin"),
+            "forward_origin": getattr(module, "_forward_origin", None),
+        }
+        if has_export_state:
+            state["export"] = getattr(module, "_export")
+        if hasattr(module, "shape"):
+            state["shape"] = getattr(module, "shape")
+        if has_position_state:
+            state["position_embeddings"] = embeddings.position_embeddings
+            state["interpolate_pos_encoding"] = embeddings.interpolate_pos_encoding
+        snapshots.append((module, state))
+    return snapshots
+
+
+def _restore_rfdetr_export_state(snapshots):
+    for module, state in reversed(snapshots):
+        encoder = getattr(module, "encoder", None)
+        embeddings = getattr(encoder, "embeddings", None)
+        if embeddings is not None and "position_embeddings" in state:
+            embeddings.position_embeddings = state["position_embeddings"]
+            embeddings.interpolate_pos_encoding = state["interpolate_pos_encoding"]
+        if "shape" in state:
+            module.shape = state["shape"]
+        if state.get("forward") is not None:
+            module.forward = state["forward"]
+        if state.get("had_forward_origin"):
+            module._forward_origin = state["forward_origin"]
+        elif hasattr(module, "_forward_origin"):
+            delattr(module, "_forward_origin")
+        if "export" in state:
+            module._export = state["export"]
+
+
 _FIXED_SQUARE_EXPORT_FAMILIES = {
     "dfine",
     "deim",
@@ -299,9 +350,7 @@ class BaseExporter(ABC):
             imgsz = (native_imgsz, native_imgsz)
         elif isinstance(imgsz, tuple):
             if len(imgsz) != 2:
-                raise ValueError(
-                    f"imgsz tuple must be (height, width), got {imgsz}"
-                )
+                raise ValueError(f"imgsz tuple must be (height, width), got {imgsz}")
             imgsz = (int(imgsz[0]), int(imgsz[1]))
         else:
             imgsz = (int(imgsz), int(imgsz))
@@ -355,8 +404,17 @@ class BaseExporter(ABC):
     def _auto_output_path(self, half: bool, int8: bool) -> str:
         model_name = self.model._get_model_name().lower()
         task = getattr(self.model, "task", "detect")
-        is_segment = task == "segment" or getattr(self.model, "_is_segmentation", False) is True
-        task_suffix = "_seg" if is_segment else ("_obb" if task == "obb" else "")
+        is_segment = (
+            task == "segment" or getattr(self.model, "_is_segmentation", False) is True
+        )
+        if is_segment:
+            task_suffix = "_seg"
+        elif task == "obb":
+            task_suffix = "_obb"
+        elif task == "classify":
+            task_suffix = "_cls"
+        else:
+            task_suffix = ""
         precision_suffix = "_int8" if int8 else ("_fp16" if half else "")
         return str(
             Path("weights")
@@ -367,11 +425,12 @@ class BaseExporter(ABC):
     def _model_context(self, device, half, batch, imgsz):
         """Setup model for export and restore state afterwards."""
         nn_model = self.model.model
-        original_training = nn_model.training
-        nn_model.eval()
+        root_model = nn_model
+        original_training = root_model.training
+        root_model.eval()
 
-        original_device = next(nn_model.parameters()).device
-        nn_model.to(device)
+        original_device = next(root_model.parameters()).device
+        root_model.to(device)
 
         # DETR-family export mode: wrap model so it returns a tuple instead
         # of dict and apply ``model.deploy()`` (BN fusion + prune non-eval
@@ -379,6 +438,7 @@ class BaseExporter(ABC):
         # model is restored on exit.
         dfine_wrapped = False
         rfdetr_export_activated = False
+        rfdetr_export_snapshots = []
         rfdetr_inner = None
         family = self.model._get_model_name()
         if family == "dfine":
@@ -406,11 +466,34 @@ class BaseExporter(ABC):
             nn_model = ECExportWrapper(nn_model).to(device)
             nn_model.eval()
             dfine_wrapped = True  # share the YOLOX-head-export skip path below
+        elif family == "rfdetr" and getattr(self.model, "task", None) == "classify":
+            # Classification has no detection decoder; trace the backbone +
+            # linear classifier directly (it returns logits). The detection
+            # export wrapper forwards through ``model.model``, which is None
+            # for classification.
+            nn_model = nn_model.classifier.to(device)
+            nn_model.eval()
+            # Precompute static DINOv2 positional encodings for the fixed export
+            # resolution; otherwise the dynamic bicubic-antialias interpolation
+            # in the backbone is not ONNX-traceable.
+            encoder = getattr(getattr(nn_model, "backbone", None), "encoder", None)
+            if (
+                encoder is not None
+                and hasattr(encoder, "export")
+                and not getattr(encoder, "_export", False)
+            ):
+                rfdetr_export_snapshots = _snapshot_rfdetr_export_state(nn_model)
+                encoder.shape = (imgsz[0], imgsz[1])
+                encoder.export()
+                rfdetr_export_activated = True
+            dfine_wrapped = True
         elif family == "rfdetr":
             from ..models.rfdetr.nn import RFDETRExportWrapper
 
             rfdetr_inner = getattr(nn_model, "model", None)
             was_exported = getattr(rfdetr_inner, "_export", False)
+            if not was_exported:
+                rfdetr_export_snapshots = _snapshot_rfdetr_export_state(rfdetr_inner)
             nn_model = RFDETRExportWrapper(nn_model).to(device)
             nn_model.eval()
             dfine_wrapped = True
@@ -469,14 +552,23 @@ class BaseExporter(ABC):
         try:
             yield nn_model, dummy
         finally:
+            if rfdetr_export_snapshots:
+                _restore_rfdetr_export_state(rfdetr_export_snapshots)
             nn_model.to(original_device)
+            root_model.to(original_device)
             if half and self.apply_model_half:
                 nn_model.float()
+                root_model.float()
             if original_training:
+                root_model.train()
                 nn_model.train()
             if original_export is not None:
                 getattr(nn_model, export_attr).export = original_export
-            if rfdetr_export_activated:
+            if (
+                rfdetr_export_activated
+                and not rfdetr_export_snapshots
+                and inner is not None
+            ):
                 for module in inner.modules():
                     if hasattr(module, "_forward_origin"):
                         module.forward = module._forward_origin
@@ -636,7 +728,9 @@ class BaseExporter(ABC):
             return task, [task], task
         return task, list(supported_tasks), default_task
 
-    def _print_summary(self, result: str, precision: str, imgsz: Union[int, Tuple[int, int]]):
+    def _print_summary(
+        self, result: str, precision: str, imgsz: Union[int, Tuple[int, int]]
+    ):
         if isinstance(imgsz, tuple):
             h, w = imgsz
         else:

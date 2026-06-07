@@ -136,6 +136,11 @@ def _needs_rfdetr_registration(weights_dict: dict) -> bool:
     if LibreRTDETR.can_load(weights_dict):
         return False
 
+    if "linear.weight" in weights_dict and any(
+        k.startswith("backbone.") for k in weights_dict
+    ):
+        return True
+
     keys_lower = [k.lower() for k in weights_dict]
     return any(
         "dinov2" in k
@@ -170,6 +175,9 @@ def _has_any_libreyolo_metadata(loaded: object) -> bool:
 
 def _infer_yolo9_head_task(weights_dict: dict) -> str | None:
     """Infer YOLO9 task from task-specific head branches when metadata is absent."""
+    if "head.linear.weight" in weights_dict:
+        return "classify"
+
     if any(k.startswith("head.proto") for k in weights_dict):
         return "segment"
 
@@ -237,22 +245,30 @@ def LibreYOLO(
     if model_path.endswith(".onnx"):
         from ..backends.onnx import OnnxBackend
 
-        return OnnxBackend(model_path, nb_classes=nb_classes or 80, device=device, task=task)
+        return OnnxBackend(
+            model_path, nb_classes=nb_classes or 80, device=device, task=task
+        )
 
     if model_path.endswith(".torchscript"):
         from ..backends.torchscript import TorchScriptBackend
 
-        return TorchScriptBackend(model_path, nb_classes=nb_classes, device=device, task=task)
+        return TorchScriptBackend(
+            model_path, nb_classes=nb_classes, device=device, task=task
+        )
 
     if model_path.endswith((".engine", ".tensorrt")):
         from ..backends.tensorrt import TensorRTBackend
 
-        return TensorRTBackend(model_path, nb_classes=nb_classes, device=device, task=task)
+        return TensorRTBackend(
+            model_path, nb_classes=nb_classes, device=device, task=task
+        )
 
     if Path(model_path).is_dir() and (Path(model_path) / "model.xml").exists():
         from ..backends.openvino import OpenVINOBackend
 
-        return OpenVINOBackend(model_path, nb_classes=nb_classes, device=device, task=task)
+        return OpenVINOBackend(
+            model_path, nb_classes=nb_classes, device=device, task=task
+        )
 
     if Path(model_path).is_dir() and Path(model_path).suffix == ".mlpackage":
         from ..backends.coreml import CoreMLBackend
@@ -271,7 +287,9 @@ def LibreYOLO(
         if ncnn_param.exists() and ncnn_bin.exists():
             from ..backends.ncnn import NcnnBackend
 
-            return NcnnBackend(model_path, nb_classes=nb_classes, device=device, task=task)
+            return NcnnBackend(
+                model_path, nb_classes=nb_classes, device=device, task=task
+            )
 
     # Download if missing
     if not Path(model_path).exists():
@@ -364,7 +382,14 @@ def LibreYOLO(
     # treating RT-DETR checkpoints as RF-DETR. D-FINE also has
     # ``encoder``/``decoder``-ish keys, so only RF-DETR-specific markers
     # should trigger the lazy import.
-    if _needs_rfdetr_registration(weights_dict):
+    metadata_family_for_registration = (
+        loaded.get("model_family")
+        if isinstance(loaded, dict) and isinstance(loaded.get("model_family"), str)
+        else None
+    )
+    if metadata_family_for_registration == "rfdetr" or _needs_rfdetr_registration(
+        weights_dict
+    ):
         try:
             _ensure_rfdetr()
         except ModuleNotFoundError:
@@ -376,8 +401,7 @@ def LibreYOLO(
     matched_cls = None
     metadata_family = (
         loaded.get("model_family")
-        if isinstance(loaded, dict)
-        and isinstance(loaded.get("model_family"), str)
+        if isinstance(loaded, dict) and isinstance(loaded.get("model_family"), str)
         else None
     )
     if metadata_family:

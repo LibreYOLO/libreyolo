@@ -112,7 +112,24 @@ corner-aware OBB augmentation is implemented.
 
 ## classify
 
-No LibreYOLO dataset-file contract is implemented for `classify`.
+Classification uses an ImageFolder-style directory tree, not label files:
+
+```text
+dataset_root/
+  train/
+    class_a/*.jpg
+    class_b/*.jpg
+  val/
+    class_a/*.jpg
+    class_b/*.jpg
+```
+
+`train/` is required for training and defines the class-to-index mapping by
+sorted folder name. `val/` is required for validation. `test/` may be present
+but is not used by the default train/val commands. Non-training splits must
+contain the same class folder names as the expected train/checkpoint class set.
+Supported image extensions are defined in
+`libreyolo.data.classify_dataset.IMAGE_EXTENSIONS`.
 
 ## gaze
 

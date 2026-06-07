@@ -122,6 +122,7 @@ def export_onnx(
         and metadata.get("task") == "segment"
     )
     is_obb = metadata.get("task") == "obb"
+    is_classify = metadata.get("task") == "classify"
     known_detr_detection = _uses_dfine_style_export_wrapper(
         metadata.get("model_family")
     )
@@ -131,7 +132,14 @@ def export_onnx(
         is_seg = num_outputs >= 3
 
     model_family = metadata.get("model_family")
-    if is_yolo9_seg:
+    if is_classify:
+        # Classification emits a single logits tensor (B, num_classes).
+        input_name = "input" if model_family == "rfdetr" else "images"
+        output_names = ["output"]
+        dynamic_axes = (
+            {input_name: {0: "batch"}, "output": {0: "batch"}} if dynamic else None
+        )
+    elif is_yolo9_seg:
         output_names = ["predictions", "proto", "mask_coeffs"]
         dynamic_axes = (
             {

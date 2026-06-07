@@ -30,7 +30,7 @@ class YOLO9Trainer(BaseTrainer):
         return f"YOLOv9-{self.config.size}"
 
     def create_transforms(self):
-        task = getattr(self.wrapper_model, "task", "detect")
+        task = getattr(getattr(self, "wrapper_model", None), "task", "detect")
         preproc = YOLO9TrainTransform(
             max_labels=100,
             flip_prob=self.config.flip_prob,
@@ -70,6 +70,9 @@ class YOLO9Trainer(BaseTrainer):
         def _scalar(v):
             return v.item() if isinstance(v, torch.Tensor) else v
 
+        if getattr(getattr(self, "wrapper_model", None), "task", "detect") == "classify":
+            return {"cls": _scalar(outputs.get("cls", 0))}
+
         components = {
             "box": _scalar(outputs.get("box", 0)),
             "cls": _scalar(outputs.get("cls", 0)),
@@ -82,6 +85,6 @@ class YOLO9Trainer(BaseTrainer):
         return components
 
     def on_forward(self, imgs: torch.Tensor, targets: torch.Tensor, polygons=None) -> Dict:
-        if getattr(self.wrapper_model, "task", "detect") == "segment":
+        if getattr(getattr(self, "wrapper_model", None), "task", "detect") == "segment":
             return self.model(imgs, targets=targets, masks=polygons)
         return self.model(imgs, targets=targets)

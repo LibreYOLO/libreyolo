@@ -31,7 +31,7 @@ from ...utils.general import (
 )
 from ...utils.image_loader import ImageInput, ImageLoader
 from ...utils.predict_args import normalize_predict_kwargs
-from ...utils.results import Boxes, Keypoints, Masks, OBB, Results
+from ...utils.results import Boxes, Keypoints, Masks, OBB, Probs, Results
 from ...utils.video import collect_video_results, is_video_file, run_video_inference
 
 logger = logging.getLogger(__name__)
@@ -307,6 +307,13 @@ class InferenceRunner:
 
     def _save_annotated_image(self, result: Results, original_img, save_path: Path) -> None:
         """Internal helper to draw boxes, masks, and keypoints and save to disk."""
+        # Classification results carry probs and no boxes; there is nothing to
+        # draw, so persist the source image as-is rather than dereferencing
+        # ``result.boxes`` (which is None).
+        if result.boxes is None and getattr(result, "probs", None) is not None:
+            original_img.save(save_path)
+            log_saved_result(result, save_path)
+            return
         if len(result) > 0:
             annotated_img = original_img
             # Draw masks first (underneath boxes)
@@ -385,6 +392,24 @@ class InferenceRunner:
             image_path: Source path or None.
             classes: Optional class filter list.
         """
+        # Classification: a probs vector, no boxes. Wrap into Results.probs so
+        # result.probs.top1 / .top5 work like the rest of the ecosystem.
+        probs_data = detections.get("probs")
+        if probs_data is not None:
+            orig_w, orig_h = original_size
+            probs_t = (
+                probs_data.float()
+                if isinstance(probs_data, torch.Tensor)
+                else torch.as_tensor(probs_data, dtype=torch.float32)
+            )
+            return Results(
+                boxes=None,
+                orig_shape=(orig_h, orig_w),
+                path=str(image_path) if image_path else None,
+                names=self.model.names,
+                probs=Probs(probs_t),
+            )
+
         masks_t = None
         keypoints_t = None
         obb_t = None
@@ -631,6 +656,23 @@ class InferenceRunner:
         **kwargs,
     ) -> Results:
         """Run tiled inference on large images."""
+
+        # Tiling is a detection-time technique; for whole-image classification
+        # it is meaningless, so fall back to a single forward pass.
+        if getattr(self.model, "task", None) == "classify":
+            return self._predict_single(
+                image,
+                save=save,
+                output_path=output_path,
+                conf=conf,
+                iou=iou,
+                imgsz=imgsz,
+                classes=classes,
+                max_det=max_det,
+                color_format=color_format,
+                output_file_format=output_file_format,
+                **kwargs,
+            )
 
         if getattr(self.model, "_is_segmentation", False):
             raise ValueError(
