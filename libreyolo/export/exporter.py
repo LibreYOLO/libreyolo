@@ -153,9 +153,10 @@ class BaseExporter(ABC):
     format_name: str  # e.g. "onnx"
     suffix: str  # e.g. ".onnx"
     requires_onnx: bool  # TensorRT/OpenVINO need intermediate ONNX
-    supports_int8: bool  # only TensorRT/OpenVINO support INT8 calibration
+    supports_int8: bool  # whether the format supports INT8 calibration
     supports_fp16: bool  # whether the format supports FP16 export
     apply_model_half: bool  # whether to cast model to fp16 (only ONNX/TorchScript)
+    default_int8_calibration_data: bool = False
 
     def __init_subclass__(cls, **kwargs):
         super().__init_subclass__(**kwargs)
@@ -341,11 +342,17 @@ class BaseExporter(ABC):
                 stacklevel=2,
             )
             half = False
+        if int8 and not self.supports_int8:
+            raise NotImplementedError(
+                f"{self.format_name.upper()} INT8 export is not supported."
+            )
+        if int8 and data is None and not self.default_int8_calibration_data:
+            raise ValueError("INT8 export requires calibration data. Pass data=...")
         return half, int8
 
     def _resolve_calibration_data(self, int8: bool, data: Optional[str]) -> Optional[str]:
         """Apply the default INT8 calibration dataset when data is omitted."""
-        if not int8 or data is not None or not self.supports_int8:
+        if not int8 or data is not None or not self.default_int8_calibration_data:
             return data
         logger.warning(
             "INT8 export requested without calibration data; using %s. "
@@ -784,6 +791,7 @@ class OnnxExporter(BaseExporter):
     supports_int8 = True
     supports_fp16 = True
     apply_model_half = True
+    default_int8_calibration_data = True
 
     def _preflight(self, *, half: bool, int8: bool, data: Optional[str], **kwargs):
         if int8:

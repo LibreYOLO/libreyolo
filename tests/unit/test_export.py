@@ -241,6 +241,7 @@ class TestExporterFormats:
         with exporter._model_context(
             torch.device("cpu"),
             half=False,
+            int8=False,
             batch=1,
             imgsz=(16, 16),
         ) as (nn_model, dummy):
@@ -952,16 +953,13 @@ class TestTensorRTFormat:
 class TestTensorRTValidation:
     """Test TensorRT export parameter validation."""
 
-    def test_int8_without_data_uses_default_calibration(self, caplog):
-        """INT8 export without data falls back to coco8.yaml."""
+    def test_int8_without_data_requires_calibration(self):
+        """TensorRT INT8 export requires explicit calibration data."""
         wrapper = _make_wrapper()
         exporter = TensorRTExporter(wrapper)
 
-        with caplog.at_level("WARNING", logger="libreyolo.export.exporter"):
-            data = exporter._resolve_calibration_data(int8=True, data=None)
-
-        assert data == "coco8.yaml"
-        assert "8-image fallback is not representative" in caplog.text
+        with pytest.raises(ValueError, match="requires calibration data"):
+            exporter(int8=True)
 
     def test_int8_with_data_no_immediate_error(self, monkeypatch):
         """INT8 with data parameter should not raise validation error.
@@ -1085,16 +1083,13 @@ class TestOpenVINOFormat:
 class TestOpenVINOValidation:
     """Test OpenVINO export parameter validation."""
 
-    def test_int8_without_data_uses_default_calibration(self, caplog):
-        """INT8 export without data falls back to coco8.yaml."""
+    def test_int8_without_data_requires_calibration(self):
+        """OpenVINO INT8 export requires explicit calibration data."""
         wrapper = _make_wrapper()
         exporter = OpenVINOExporter(wrapper)
 
-        with caplog.at_level("WARNING", logger="libreyolo.export.exporter"):
-            data = exporter._resolve_calibration_data(int8=True, data=None)
-
-        assert data == "coco8.yaml"
-        assert "8-image fallback is not representative" in caplog.text
+        with pytest.raises(ValueError, match="requires calibration data"):
+            exporter(int8=True)
 
     def test_int8_with_data_no_immediate_error(self, monkeypatch):
         """INT8 with data parameter should not raise validation error.

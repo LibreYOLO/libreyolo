@@ -101,6 +101,7 @@ def export_cmd(
                 exit_with_error(out, "invalid_imgsz", f"Invalid imgsz: {imgsz}. Use e.g. 640 or 640,480.")
     if data is not None:
         export_kwargs["data"] = data
+    if data is not None or int8:
         export_kwargs["fraction"] = fraction
         export_kwargs["allow_download_scripts"] = allow_download_scripts
 
@@ -120,6 +121,8 @@ def export_cmd(
             exit_stage_error(out, stage="Export", detail=e)
     except ImportError as e:
         exit_with_error(out, "export_dep_missing", str(e))
+    except NotImplementedError as e:
+        exit_with_error(out, "format_precision_unsupported", str(e))
     except Exception as e:
         exit_stage_error(out, stage="Export", detail=e)
 
