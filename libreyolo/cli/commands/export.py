@@ -19,7 +19,7 @@ def export_cmd(
     model: str = typer.Option(..., help="Model weights (.pt)"),
     format: str = typer.Option(
         "onnx",
-        help="Export format: onnx, torchscript, tensorrt, openvino, ncnn, tflite",
+        help="Export format: onnx, torchscript, tensorrt, openvino, ncnn, tflite, coreml",
     ),
     imgsz: Optional[str] = typer.Option(None, help="Input image size (e.g. 640 or 640,480)"),
     batch: int = typer.Option(1, help="Export batch size"),
@@ -27,6 +27,13 @@ def export_cmd(
     int8: bool = typer.Option(False, help="INT8 quantization"),
     dynamic: bool = typer.Option(False, help="Dynamic input shapes (ONNX)"),
     simplify: bool = typer.Option(True, help="ONNX graph simplification"),
+    nms: bool = typer.Option(
+        False,
+        help="Embed NMS in the model (ONNX YOLO9 detection or CoreML)",
+    ),
+    conf: float = typer.Option(0.25, help="Confidence threshold for embedded NMS"),
+    iou: float = typer.Option(0.45, help="IoU threshold for embedded NMS"),
+    max_det: int = typer.Option(300, help="Maximum detections for ONNX embedded NMS"),
     opset: Optional[int] = typer.Option(
         None, help="ONNX opset version (auto if omitted)"
     ),
@@ -62,6 +69,24 @@ def export_cmd(
         out.warning("Both half and int8 were requested. Using INT8 precision.")
         half = False
 
+    if nms and fmt not in {"onnx", "coreml"}:
+        exit_with_error(
+            out,
+            "nms_unsupported_format",
+            "Embedded NMS (--nms) is only supported for ONNX and CoreML, "
+            f"not {fmt!r}.",
+        )
+    if nms and fmt == "onnx" and dynamic:
+        out.warning("Embedded ONNX NMS uses a fixed batch-1 graph. Using dynamic=False.")
+        dynamic = False
+    if nms and fmt == "coreml" and max_det != 300:
+        exit_with_error(
+            out,
+            "config_unsupported",
+            "max_det is only supported for ONNX embedded NMS; CoreML embedded "
+            "NMS does not expose max_det.",
+        )
+
     model_path = resolve_model_or_exit(out, model)
 
     if allow_download_scripts and data is not None:
@@ -85,6 +110,12 @@ def export_cmd(
         "device": device,
         "verbose": verbose,
     }
+    if nms:
+        export_kwargs["nms"] = True
+        export_kwargs["conf"] = conf
+        export_kwargs["iou"] = iou
+        if fmt == "onnx":
+            export_kwargs["max_det"] = max_det
     if imgsz is not None:
         if "," in imgsz:
             parts = imgsz.split(",")

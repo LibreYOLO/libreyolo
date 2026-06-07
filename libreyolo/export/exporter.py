@@ -156,6 +156,7 @@ class BaseExporter(ABC):
     supports_int8: bool  # whether the format supports INT8 calibration
     supports_fp16: bool  # whether the format supports FP16 export
     apply_model_half: bool  # whether to cast model to fp16 (only ONNX/TorchScript)
+    supports_embedded_nms: bool = False
     default_int8_calibration_data: bool = False
 
     def __init_subclass__(cls, **kwargs):
@@ -364,6 +365,10 @@ class BaseExporter(ABC):
 
     def _preflight(self, *, half: bool, int8: bool, data: Optional[str], **kwargs):
         """Run cheap format-specific checks before model or calibration setup."""
+        if kwargs.get("nms") and not self.supports_embedded_nms:
+            raise NotImplementedError(
+                f"{self.format_name.upper()} embedded NMS export is not supported."
+            )
         if self.requires_onnx and importlib.util.find_spec("onnx") is None:
             raise ImportError(
                 "ONNX export requires the 'onnx' package. "
@@ -791,6 +796,7 @@ class OnnxExporter(BaseExporter):
     supports_int8 = True
     supports_fp16 = True
     apply_model_half = True
+    supports_embedded_nms = True
     default_int8_calibration_data = True
 
     def _preflight(self, *, half: bool, int8: bool, data: Optional[str], **kwargs):
@@ -803,6 +809,15 @@ class OnnxExporter(BaseExporter):
                     "ONNX INT8 export currently supports YOLO9 detection models only."
                 )
             check_onnx_int8_available()
+        if kwargs.get("nms"):
+            task = getattr(self.model, "task", "detect")
+            if not isinstance(task, str):
+                task = "detect"
+            if self.model._get_model_name() != "yolo9" or task != "detect":
+                raise NotImplementedError(
+                    "Embedded NMS ONNX export currently supports YOLO9 "
+                    "detection models only."
+                )
         super()._preflight(half=half, int8=int8, data=data, **kwargs)
 
     def _export(
@@ -818,19 +833,54 @@ class OnnxExporter(BaseExporter):
         dynamic,
         opset,
         simplify,
+        nms=False,
+        iou=0.45,
+        conf=0.25,
+        max_det=300,
         calibrate_method="MinMax",
         nodes_to_exclude=None,
         **kwargs,
     ):
+        imgsz = (dummy.shape[-2], dummy.shape[-1])
+
+        if nms:
+            from .nms import EmbeddedNMSDetector
+
+            if dummy.shape[0] != 1:
+                raise NotImplementedError(
+                    "Embedded NMS ONNX export currently requires batch=1."
+                )
+            if dynamic:
+                logger.warning(
+                    "Embedded NMS uses a fixed batch-1 graph; forcing dynamic=False."
+                )
+                dynamic = False
+            nn_model = EmbeddedNMSDetector(
+                nn_model,
+                conf=conf,
+                iou=iou,
+                max_det=max_det,
+            ).eval()
+
+        def _onnx_metadata(precision_half: bool) -> dict:
+            meta = self._build_onnx_metadata(
+                dynamic=dynamic,
+                half=precision_half,
+                imgsz=imgsz,
+            )
+            if nms:
+                meta["nms"] = "true"
+                meta["nms_conf"] = str(conf)
+                meta["nms_iou"] = str(iou)
+                meta["max_det"] = str(max_det)
+                meta["nms_raw_output"] = "true"
+            return meta
+
         if int8:
             import tempfile
 
             output = Path(output_path)
-            int8_metadata = self._build_onnx_metadata(
-                dynamic=dynamic,
-                half=False,
-                imgsz=(dummy.shape[-2], dummy.shape[-1]),
-            )
+            int8_metadata = _onnx_metadata(precision_half=False)
             int8_metadata["precision"] = "int8"
             with tempfile.TemporaryDirectory(
                 prefix=f"{output.stem}_", dir=str(output.parent)
@@ -845,11 +895,8 @@ class OnnxExporter(BaseExporter):
                     simplify=simplify,
                     dynamic=dynamic,
                     half=False,
-                    metadata=self._build_onnx_metadata(
-                        dynamic=dynamic,
-                        half=False,
-                        imgsz=(dummy.shape[-2], dummy.shape[-1]),
-                    ),
+                    metadata=_onnx_metadata(precision_half=False),
+                    nms=nms,
                 )
                 return quantize_onnx_int8(
                     fp32_path,
@@ -859,6 +906,7 @@ class OnnxExporter(BaseExporter):
                     preprocessed_path=preprocessed_path,
                     calibrate_method=calibrate_method,
                     nodes_to_exclude=nodes_to_exclude,
+                    skip_symbolic_shape=nms,
                 )
 
         return export_onnx(
@@ -869,11 +917,8 @@ class OnnxExporter(BaseExporter):
             simplify=simplify,
             dynamic=dynamic,
             half=half,
-            metadata=self._build_onnx_metadata(
-                dynamic=dynamic,
-                half=half,
-                imgsz=(dummy.shape[-2], dummy.shape[-1]),
-            ),
+            metadata=_onnx_metadata(precision_half=half),
+            nms=nms,
         )
 
 
@@ -1132,6 +1177,30 @@ class CoreMLExporter(BaseExporter):
     supports_int8 = False
     supports_fp16 = True
     apply_model_half = False  # ct.convert handles precision via compute_precision
+    supports_embedded_nms = True
+
+    def _preflight(self, *, half: bool, int8: bool, data: Optional[str], **kwargs):
+        if kwargs.get("nms"):
+            family = self.model._get_model_name()
+            task = getattr(self.model, "task", "detect")
+            if not isinstance(task, str):
+                task = "detect"
+            if family == "yolo9" and task != "detect":
+                raise NotImplementedError(
+                    "CoreML embedded NMS currently supports YOLO9 detection "
+                    "models only."
+                )
+            if family not in {"yolox", "yolo9"}:
+                raise NotImplementedError(
+                    "CoreML embedded NMS currently supports YOLOX and YOLO9 "
+                    "detection models only."
+                )
+            if kwargs.get("max_det", 300) != 300:
+                raise NotImplementedError(
+                    "CoreML embedded NMS does not support max_det. "
+                    "Use ONNX embedded NMS when max_det control is required."
+                )
+        super()._preflight(half=half, int8=int8, data=data, **kwargs)
 
     def _export(
         self,

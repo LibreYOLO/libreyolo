@@ -95,6 +95,7 @@ def export_onnx(
     dynamic: bool,
     half: bool,
     metadata: dict,
+    nms: bool = False,
 ) -> str:
     """Export a PyTorch model to ONNX format.
 
@@ -108,6 +109,10 @@ def export_onnx(
         half: Whether the model/input are FP16.
         metadata: Dict of metadata to embed in the ONNX model
             (keys like model_family, model_size, nb_classes, names, imgsz, etc.).
+        nms: When True, ``nn_model`` embeds NMS and returns the post-NMS
+            ``(batch, max_det, 6)`` detection tensor first, followed by the raw
+            detector tensor used by LibreYOLO backends for native postprocess
+            parity. Skip the segmentation-probe / family output-schema logic.
 
     Returns:
         The output_path string.
@@ -116,6 +121,30 @@ def export_onnx(
         raise ImportError(
             "ONNX export requires the 'onnx' package. "
             "Install with: uv sync --extra onnx  or  pip install onnx"
+        )
+
+    if nms:
+        # Model embeds NMS: first output is the standalone post-NMS tensor; the
+        # raw output lets LibreYOLO preserve native backend postprocess parity.
+        return _export_onnx_graph(
+            nn_model,
+            dummy,
+            output_path=output_path,
+            opset=opset,
+            simplify=simplify,
+            half=half,
+            metadata=metadata,
+            input_names=["images"],
+            output_names=["output", "raw"],
+            dynamic_axes=(
+                {
+                    "images": {0: "batch"},
+                    "output": {0: "batch"},
+                    "raw": {0: "batch", 2: "anchors"},
+                }
+                if dynamic
+                else None
+            ),
         )
 
     # Detect segmentation: prefer metadata flag from exporter, fall back
@@ -222,6 +251,34 @@ def export_onnx(
         )
 
     input_names = ["input"] if model_family == "rfdetr" else ["images"]
+    return _export_onnx_graph(
+        nn_model,
+        dummy,
+        output_path=output_path,
+        opset=opset,
+        simplify=simplify,
+        half=half,
+        metadata=metadata,
+        input_names=input_names,
+        output_names=output_names,
+        dynamic_axes=dynamic_axes,
+    )
+
+
+def _export_onnx_graph(
+    nn_model,
+    dummy,
+    *,
+    output_path: str,
+    opset: int,
+    simplify: bool,
+    half: bool,
+    metadata: dict,
+    input_names: list[str],
+    output_names: list[str],
+    dynamic_axes: dict | None,
+) -> str:
+    """Run ``torch.onnx.export`` with the given IO names, then post-process."""
     export_kwargs = {
         "export_params": True,
         "opset_version": opset,
@@ -240,7 +297,11 @@ def export_onnx(
         torch.onnx.export(nn_model, dummy, output_path, **export_kwargs)
 
     _postprocess_onnx(
-        output_path, simplify=simplify, dynamic=dynamic, half=half, metadata=metadata
+        output_path,
+        simplify=simplify,
+        dynamic=dynamic_axes is not None,
+        half=half,
+        metadata=metadata,
     )
 
     return output_path
@@ -322,6 +383,15 @@ def embed_onnx_metadata(path: str, metadata: dict) -> None:
     onnx.save(model_proto, path)
 
 
+# Quantize only the heavy linear ops. Leaving the detection-head decode
+# (sigmoid, box-distance math, the box+score concat) in float32 is deliberate:
+# that concat mixes pixel-scale box coordinates (~0..imgsz) with [0, 1] class
+# scores, so a single per-tensor activation scale — dominated by the box
+# magnitude — would quantize every score to zero. Restricting quantization to
+# Conv/Gemm keeps the size/speed win on the backbone while preserving scores.
+_INT8_OP_TYPES = ["Conv", "Gemm"]
+
+
 def quantize_onnx_int8(
     fp32_path: str,
     output_path: str,
@@ -331,6 +401,8 @@ def quantize_onnx_int8(
     preprocessed_path: str,
     calibrate_method: str = "MinMax",
     nodes_to_exclude: list[str] | None = None,
+    op_types_to_quantize: list[str] | None = None,
+    skip_symbolic_shape: bool = False,
 ) -> str:
     """Quantize an FP32 ONNX model to QDQ INT8 with float32 inputs/outputs."""
     check_onnx_int8_available()
@@ -344,7 +416,11 @@ def quantize_onnx_int8(
             "Pass data='path/to/data.yaml' or omit data to use coco8.yaml."
         )
 
-    quant_pre_process(fp32_path, preprocessed_path)
+    quant_pre_process(
+        fp32_path,
+        preprocessed_path,
+        skip_symbolic_shape=skip_symbolic_shape,
+    )
     reader = _CalibrationDataReader(
         calibration_data,
         input_name=_first_input_name(preprocessed_path),
@@ -358,7 +434,7 @@ def quantize_onnx_int8(
         weight_type=QuantType.QInt8,
         activation_type=QuantType.QInt8,
         calibrate_method=_resolve_calibration_method(calibrate_method),
-        op_types_to_quantize=None,
+        op_types_to_quantize=op_types_to_quantize or _INT8_OP_TYPES,
         nodes_to_exclude=nodes_to_exclude,
         extra_options={
             "WeightSymmetric": True,

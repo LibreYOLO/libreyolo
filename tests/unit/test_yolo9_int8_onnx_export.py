@@ -6,6 +6,7 @@ import importlib.util
 
 import numpy as np
 import pytest
+import torch
 from PIL import Image
 
 pytestmark = [pytest.mark.unit, pytest.mark.onnx, pytest.mark.export_backend]
@@ -46,6 +47,9 @@ def test_yolo9_detect_onnx_int8_export_loads_and_predicts(tmp_path):
     )
 
     model = LibreYOLO9(None, size="t", nb_classes=2, device="cpu")
+    for block in model.model.head.cv3:
+        convs = [m for m in block.modules() if isinstance(m, torch.nn.Conv2d)]
+        convs[-1].bias.data.fill_(4.0)
     fp32_path = tmp_path / "LibreYOLO9t.onnx"
     int8_path = tmp_path / "LibreYOLO9t_int8.onnx"
 
@@ -81,6 +85,7 @@ def test_yolo9_detect_onnx_int8_export_loads_and_predicts(tmp_path):
     sess = ort.InferenceSession(str(int8_path), providers=["CPUExecutionProvider"])
     outs = sess.run(None, {"images": np.zeros((1, 3, 64, 64), dtype=np.float32)})
     assert outs[0].shape == (1, 6, 84)
+    assert float(outs[0][0, 4:, :].max()) > 0.25
 
     loaded = LibreYOLO(str(int8_path), device="cpu")
     result = loaded.predict(np.zeros((64, 64, 3), dtype=np.uint8), conf=0.0, imgsz=64)

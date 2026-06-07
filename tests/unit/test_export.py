@@ -114,11 +114,59 @@ class TestExporterFormats:
     def test_subclass_attributes(self):
         assert OnnxExporter.suffix == ".onnx"
         assert OnnxExporter.supports_int8 is True
+        assert OnnxExporter.supports_embedded_nms is True
+        assert CoreMLExporter.supports_embedded_nms is True
         assert TensorRTExporter.requires_onnx is True
         assert TorchScriptExporter.apply_model_half is True
+        assert TorchScriptExporter.supports_embedded_nms is False
         assert NcnnExporter.supports_int8 is False
         assert TFLiteExporter.requires_onnx is True
         assert TFLiteExporter.supports_fp16 is False
+
+    def test_unsupported_exporter_rejects_embedded_nms(self):
+        exporter = TorchScriptExporter(_make_wrapper())
+
+        with pytest.raises(NotImplementedError, match="TORCHSCRIPT embedded NMS"):
+            exporter._preflight(half=False, int8=False, data=None, nms=True)
+
+    def test_coreml_exporter_accepts_embedded_nms_preflight(self):
+        wrapper = _make_wrapper(model_name="yolo9")
+        wrapper.task = "detect"
+        exporter = CoreMLExporter(wrapper)
+
+        exporter._preflight(half=False, int8=False, data=None, nms=True)
+
+    def test_coreml_embedded_nms_preflight_rejects_rtdetr(self):
+        wrapper = _make_wrapper(model_name="rtdetr")
+        wrapper.task = "detect"
+        exporter = CoreMLExporter(wrapper)
+
+        with pytest.raises(NotImplementedError, match="YOLOX and YOLO9"):
+            exporter._preflight(half=False, int8=False, data=None, nms=True)
+
+    def test_coreml_embedded_nms_preflight_rejects_yolo9_segment(self):
+        wrapper = _make_wrapper(model_name="yolo9")
+        wrapper.task = "segment"
+        exporter = CoreMLExporter(wrapper)
+
+        with pytest.raises(NotImplementedError, match="YOLO9 detection"):
+            exporter._preflight(half=False, int8=False, data=None, nms=True)
+
+    def test_coreml_embedded_nms_preflight_rejects_max_det(self):
+        wrapper = _make_wrapper(model_name="yolo9")
+        wrapper.task = "detect"
+        exporter = CoreMLExporter(wrapper)
+
+        with pytest.raises(NotImplementedError, match="does not support max_det"):
+            exporter._preflight(
+                half=False, int8=False, data=None, nms=True, max_det=12
+            )
+
+    def test_onnx_embedded_nms_preflight_rejects_non_yolo9_detect(self):
+        exporter = OnnxExporter(_make_wrapper(model_name="yolox"))
+
+        with pytest.raises(NotImplementedError, match="YOLO9 detection"):
+            exporter._preflight(half=False, int8=False, data=None, nms=True)
 
     def test_metadata_includes_task_contract(self):
         wrapper = _make_wrapper()
@@ -359,6 +407,33 @@ class TestExporterFormats:
         from libreyolo.backends.onnx import OnnxBackend
 
         assert OnnxBackend._read_onnx_metadata(str(output_path), 4)[-1] == 48
+
+    def test_onnx_backend_reads_runtime_metadata_without_onnx_load(self):
+        from libreyolo.backends.onnx import OnnxBackend
+
+        metadata = {
+            "model_family": "yolo9",
+            "task": "detect",
+            "nb_classes": "1",
+            "imgsz": "64",
+            "nms": "true",
+            "nms_conf": "0.25",
+            "nms_iou": "0.45",
+            "max_det": "300",
+            "nms_raw_output": "true",
+        }
+
+        parsed = OnnxBackend._read_onnx_metadata(
+            "metadata-from-onnxruntime.onnx",
+            80,
+            runtime_metadata=metadata,
+        )
+
+        assert parsed[0] == "yolo9"
+        assert parsed[2] == "detect"
+        assert parsed[5] == {0: "class_0"}
+        assert parsed[6] is True
+        assert parsed[7] == 64
 
     def test_onnx_backend_reads_rectangular_static_input_imgsz(self):
         from libreyolo.backends.onnx import OnnxBackend
