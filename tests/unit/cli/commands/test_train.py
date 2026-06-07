@@ -608,6 +608,91 @@ def test_train_rfdetr_obb_uses_task_architecture_without_generic_load(
     assert data["epochs_completed"] == 1
 
 
+def test_train_rfdetr_pose_uses_explicit_detect_transfer_flag(monkeypatch, tmp_path):
+    app = _make_app()
+    captured = {}
+
+    class _RFDETRPoseLike:
+        FAMILY = "rfdetr"
+        device = "cpu"
+
+        def __init__(
+            self,
+            model_path=None,
+            size=None,
+            task=None,
+            device="auto",
+            allow_detect_to_obb_transfer=False,
+            allow_detect_to_pose_transfer=False,
+        ):
+            captured["init"] = {
+                "model_path": model_path,
+                "size": size,
+                "task": task,
+                "device": device,
+                "allow_detect_to_obb_transfer": allow_detect_to_obb_transfer,
+                "allow_detect_to_pose_transfer": allow_detect_to_pose_transfer,
+            }
+            self.size = size
+            self.task = task
+            self.device = device
+
+        @classmethod
+        def detect_task_from_filename(cls, filename):
+            return "pose" if filename.lower().endswith("-pose.pt") else None
+
+        @classmethod
+        def detect_size_from_filename(cls, filename):
+            return "n" if "rfdetrn" in filename.lower() else None
+
+        def train(self, data, **kwargs):
+            captured["data"] = data
+            captured["kwargs"] = kwargs
+            return {"output_dir": str(tmp_path / "rfdetr_pose_exp")}
+
+    def fail_load(*_args, **_kwargs):
+        raise AssertionError(
+            "RF-DETR pose training should instantiate the task architecture"
+        )
+
+    import libreyolo.models.rfdetr.model as rfdetr_model
+
+    monkeypatch.setattr("libreyolo.cli.commands.train.load_model_or_exit", fail_load)
+    monkeypatch.setattr(
+        "libreyolo.cli.commands.train._model_ref_exists", lambda _: True
+    )
+    monkeypatch.setattr(rfdetr_model, "LibreRFDETR", _RFDETRPoseLike)
+
+    result = runner.invoke(
+        app,
+        [
+            "data=coco-pose.yaml",
+            "model=LibreRFDETRn.pt",
+            "task=pose",
+            "epochs=1",
+            "pretrained=true",
+            f"project={tmp_path}",
+            "exist_ok=true",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert captured["init"] == {
+        "model_path": "LibreRFDETRn.pt",
+        "size": "n",
+        "task": "pose",
+        "device": "auto",
+        "allow_detect_to_obb_transfer": False,
+        "allow_detect_to_pose_transfer": True,
+    }
+    assert captured["data"] == "coco-pose.yaml"
+    assert "pretrained" not in captured["kwargs"]
+    data = json.loads(result.stdout)
+    assert data["model_family"] == "rfdetr"
+    assert data["epochs_completed"] == 1
+
+
 @pytest.mark.parametrize(
     "model_args",
     [

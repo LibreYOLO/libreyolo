@@ -327,6 +327,7 @@ class LibreRFDETR(BaseModel):
         num_keypoints: int = 17,
         keypoint_dim: int = 3,
         allow_detect_to_obb_transfer: bool = False,
+        allow_detect_to_pose_transfer: bool = False,
         **kwargs,
     ):
         # Resolve task: explicit `task` > legacy `segmentation` flag > filename / checkpoint inference.
@@ -352,6 +353,8 @@ class LibreRFDETR(BaseModel):
             # Classification builds its own ImageNet-pretrained DINOv2 backbone;
             # the detection checkpoints do not apply.
             weight_source = None
+        elif normalize_task(resolved_task) == "pose" and model_path is None:
+            weight_source = None
         elif model_path is None:
             cfgs = (
                 RFDETR_SEG_CONFIGS
@@ -372,6 +375,7 @@ class LibreRFDETR(BaseModel):
 
         self._weight_source = weight_source
         self._allow_detect_to_obb_transfer = bool(allow_detect_to_obb_transfer)
+        self._allow_detect_to_pose_transfer = bool(allow_detect_to_pose_transfer)
         if size is None:
             size = self._detect_size_from_source(weight_source)
             if size is None:
@@ -391,7 +395,9 @@ class LibreRFDETR(BaseModel):
                     and checkpoint_task == "detect"
                     and self._allow_detect_to_obb_transfer
                 ) or (
-                    requested_task == "pose" and checkpoint_task == "detect"
+                    requested_task == "pose"
+                    and checkpoint_task == "detect"
+                    and self._allow_detect_to_pose_transfer
                 )
                 if not allowed:
                     raise ValueError(
@@ -840,7 +846,9 @@ class LibreRFDETR(BaseModel):
                     and normalized_ckpt_task == "detect"
                     and self._allow_detect_to_obb_transfer
                 ) or (
-                    self._is_pose and normalized_ckpt_task == "detect"
+                    self._is_pose
+                    and normalized_ckpt_task == "detect"
+                    and self._allow_detect_to_pose_transfer
                 )
                 if not allowed:
                     raise RuntimeError(
@@ -863,6 +871,11 @@ class LibreRFDETR(BaseModel):
 
             loaded_state = _checkpoint_model_state(loaded)
             pose_checkpoint = any(k.startswith("keypoint_head.") for k in loaded_state)
+            detect_pose_transfer = (
+                self._is_pose
+                and normalized_ckpt_task == "detect"
+                and self._allow_detect_to_pose_transfer
+            )
             if (
                 self._is_pose
                 and normalized_ckpt_task == "pose"
@@ -890,13 +903,20 @@ class LibreRFDETR(BaseModel):
                     )
                 )
 
-            if self._is_pose and not pose_checkpoint:
+            if self._is_pose and not pose_checkpoint and not detect_pose_transfer:
+                raise RuntimeError(
+                    "RF-DETR pose checkpoints must include keypoint_head.* weights. "
+                    "Detect-to-pose initialization is only supported through "
+                    "explicit training transfer."
+                )
+
+            if detect_pose_transfer:
                 self.model.model.reinitialize_detection_head(self.nb_classes)
                 self.model.nb_classes = 1
                 self.model.args.num_classes = 0
 
             ckpt_nc = loaded.get("nc")
-            if self._is_pose and not pose_checkpoint:
+            if detect_pose_transfer:
                 self.nb_classes = 1
             elif ckpt_nc is not None:
                 self.nb_classes = int(ckpt_nc)
@@ -947,7 +967,7 @@ class LibreRFDETR(BaseModel):
                 # ``strict=False`` is expected for class/head adaptation and older
                 # checkpoints, but missing non-head tensors should stay visible.
                 ignored = ["class_embed.", "transformer.enc_out_class_embed."]
-                if self._is_pose and not pose_checkpoint:
+                if detect_pose_transfer:
                     ignored.append("keypoint_head.")
                 missing_angle = [k for k in missing if k.startswith("angle_embed.")]
                 if (
@@ -965,7 +985,7 @@ class LibreRFDETR(BaseModel):
                     "class_embed.",
                     "transformer.enc_out_class_embed.",
                 ]
-                if self._is_pose and not pose_checkpoint:
+                if detect_pose_transfer:
                     ignored.append("keypoint_head.")
                 if self._allow_detect_to_obb_transfer:
                     ignored.append("angle_embed.")

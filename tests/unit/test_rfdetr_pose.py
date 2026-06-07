@@ -249,10 +249,42 @@ def test_rfdetr_pose_fresh_model_uses_one_class_logit():
     assert model.names == {0: "person"}
 
 
+def test_rfdetr_pose_none_builds_scratch_without_default_detect_load(monkeypatch):
+    from libreyolo.models.rfdetr.model import LibreRFDETR
+
+    def fail_load(self, model_path):
+        raise AssertionError("pose scratch construction should not load detect weights")
+
+    monkeypatch.setattr(LibreRFDETR, "_load_weights", fail_load)
+
+    model = LibreRFDETR(None, size="n", task="pose", device="cpu")
+
+    assert model.task == "pose"
+    assert model.nb_classes == 1
+    assert model.names == {0: "person"}
+
+
+def test_rfdetr_pose_direct_load_rejects_detect_checkpoint():
+    from libreyolo.models.rfdetr.model import LibreRFDETR
+
+    with pytest.raises(ValueError, match="task='detect'"):
+        LibreRFDETR(
+            {
+                "model_family": "rfdetr",
+                "task": "detect",
+                "model": {},
+            },
+            size="n",
+            task="pose",
+            device="cpu",
+        )
+
+
 def test_rfdetr_pose_detect_transfer_resizes_to_one_class_logit():
     from libreyolo.models.rfdetr.model import LibreRFDETR
 
     model = LibreRFDETR({}, size="n", task="pose", device="cpu")
+    model._allow_detect_to_pose_transfer = True
     det_model = LibreRFDETR({}, size="n", task="detect", device="cpu")
     detect_state = {
         key: value.detach().clone()
@@ -274,6 +306,28 @@ def test_rfdetr_pose_detect_transfer_resizes_to_one_class_logit():
     assert model.model.args.num_classes == 0
     assert model.model.model.class_embed.out_features == 1
     assert model.names == {0: "person"}
+
+
+def test_rfdetr_pose_load_weights_rejects_detect_without_transfer_flag():
+    from libreyolo.models.rfdetr.model import LibreRFDETR
+
+    model = LibreRFDETR({}, size="n", task="pose", device="cpu")
+    det_model = LibreRFDETR({}, size="n", task="detect", device="cpu")
+    detect_state = {
+        key: value.detach().clone()
+        for key, value in det_model.model.state_dict().items()
+    }
+
+    with pytest.raises(RuntimeError, match="task='detect'"):
+        model._load_weights(
+            {
+                "model_family": "rfdetr",
+                "task": "detect",
+                "nc": 80,
+                "names": {i: f"class_{i}" for i in range(80)},
+                "model": detect_state,
+            }
+        )
 
 
 def test_rfdetr_detect_nb_classes_keeps_raw_pose_at_one_class():
