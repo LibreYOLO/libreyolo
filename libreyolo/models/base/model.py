@@ -115,6 +115,7 @@ class BaseModel(ABC):
     TASK_INPUT_SIZES: ClassVar[dict[str, dict[str, int]]] = {}
     TRAIN_CONFIG: ClassVar[Optional[type[TrainConfig]]] = None
     val_preprocessor_class = StandardValPreprocessor
+    EXPERIMENTAL_WEIGHT_FILENAMES: ClassVar[frozenset[str]] = frozenset()
 
     # TTA policy — subclasses may override
     TTA_ENABLED: ClassVar[bool] = True
@@ -432,6 +433,17 @@ class BaseModel(ABC):
         suffix = f"-{task_suffix}" if task_suffix else ""
         name = f"{cls.FILENAME_PREFIX}{size}{suffix}"
         return f"https://huggingface.co/LibreYOLO/{name}/resolve/main/{name}{cls.WEIGHT_EXT}"
+
+    @classmethod
+    def get_download_notice(cls, filename: str, url: str) -> Optional[str]:
+        """Return an optional warning shown before auto-downloading weights."""
+        if Path(filename).name.lower() not in cls.EXPERIMENTAL_WEIGHT_FILENAMES:
+            return None
+        return (
+            f"{Path(filename).name} is an EXTREMELY experimental preview checkpoint. "
+            "It is provided for early pose-estimation testing and may change without "
+            "compatibility guarantees."
+        )
 
     @classmethod
     def verify_downloaded_file(cls, local_path: str, source_url: str) -> None:
@@ -1018,7 +1030,7 @@ class BaseModel(ABC):
             device: Device to use (default: same as model).
             split: Dataset split ("val", "test").
             save_json: Save predictions in COCO JSON format.
-            plots: Ultralytics-compatible alias for save_plots.
+            plots: Alias for save_plots.
             verbose: Print detailed metrics.
 
         Returns:

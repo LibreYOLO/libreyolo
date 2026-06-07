@@ -2,10 +2,61 @@
 
 from __future__ import annotations
 
+import logging
+
 import pytest
 import torch
 
 pytestmark = pytest.mark.unit
+
+
+def test_yolo9_pose_download_url_and_notice():
+    from libreyolo.models.yolo9.model import LibreYOLO9
+
+    url = LibreYOLO9.get_download_url("LibreYOLO9s-pose.pt")
+
+    assert (
+        url
+        == "https://huggingface.co/LibreYOLO/LibreYOLO9s-pose/resolve/main/LibreYOLO9s-pose.pt"
+    )
+    assert "EXTREMELY experimental" in LibreYOLO9.get_download_notice(
+        "LibreYOLO9s-pose.pt",
+        url,
+    )
+    assert LibreYOLO9.get_download_notice("LibreYOLO9s.pt", url) is None
+
+
+def test_yolo9_pose_autodownload_warns_experimental(monkeypatch, tmp_path, caplog):
+    from libreyolo.models.yolo9.model import LibreYOLO9
+    from libreyolo.utils.download import download_weights
+
+    class _Response:
+        headers = {"content-length": "7"}
+
+        def raise_for_status(self):
+            return None
+
+        def iter_content(self, chunk_size):
+            yield b"weights"
+
+    requested = {}
+
+    def _fake_get(url, stream=True, headers=None):
+        requested["url"] = url
+        requested["stream"] = stream
+        requested["headers"] = headers
+        return _Response()
+
+    monkeypatch.setattr("libreyolo.utils.download.requests.get", _fake_get)
+    monkeypatch.setattr(LibreYOLO9, "verify_downloaded_file", lambda *args: None)
+
+    path = tmp_path / "LibreYOLO9s-pose.pt"
+    with caplog.at_level(logging.WARNING):
+        download_weights(str(path), "s")
+
+    assert path.read_bytes() == b"weights"
+    assert requested["url"] == LibreYOLO9.get_download_url(path.name)
+    assert "EXTREMELY experimental" in caplog.text
 
 
 def test_yolo9_pose_wrapper_defaults_to_person():

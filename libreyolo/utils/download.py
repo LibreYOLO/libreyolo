@@ -84,6 +84,10 @@ def download_weights(model_path: str, size: str):
     if url is None:
         raise ValueError(f"Could not determine download URL for '{path.name}'.")
 
+    notice = cls.get_download_notice(path.name, url)
+    if notice:
+        logger.warning(notice)
+
     logger.info(
         "Model weights not found at %s. Attempting download from %s...",
         model_path,

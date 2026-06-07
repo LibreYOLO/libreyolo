@@ -180,6 +180,7 @@ class LibreRFDETR(BaseModel):
         "classify": CLS_INPUT_SIZES,
         "obb": INPUT_SIZES,
     }
+    EXPERIMENTAL_WEIGHT_FILENAMES = frozenset({"librerfdetrn-pose.pt"})
     TRAIN_CONFIG = RFDETRConfig
     val_preprocessor_class = RFDETRValPreprocessor
     TTA_FIXED_SIZE = True  # resizes to a fixed square; multi-scale TTA is a no-op

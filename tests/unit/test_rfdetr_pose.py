@@ -13,6 +13,22 @@ import torch.nn as nn
 pytestmark = pytest.mark.unit
 
 
+def test_rfdetr_pose_download_url_and_notice():
+    from libreyolo.models.rfdetr.model import LibreRFDETR
+
+    url = LibreRFDETR.get_download_url("LibreRFDETRn-pose.pt")
+
+    assert (
+        url
+        == "https://huggingface.co/LibreYOLO/LibreRFDETRn-pose/resolve/main/LibreRFDETRn-pose.pt"
+    )
+    assert "EXTREMELY experimental" in LibreRFDETR.get_download_notice(
+        "LibreRFDETRn-pose.pt",
+        url,
+    )
+    assert LibreRFDETR.get_download_notice("LibreRFDETRn.pt", url) is None
+
+
 def test_rfdetr_pose_transform_square_resizes_boxes_and_keypoints():
     from libreyolo.models.rfdetr.pose_transforms import RFDETRPoseTransform
 

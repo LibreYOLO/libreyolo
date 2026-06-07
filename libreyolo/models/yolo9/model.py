@@ -58,6 +58,7 @@ class LibreYOLO9(BaseModel):
         "classify": CLS_INPUT_SIZES,
         "obb": INPUT_SIZES,
     }
+    EXPERIMENTAL_WEIGHT_FILENAMES = frozenset({"libreyolo9s-pose.pt"})
     TRAIN_CONFIG = YOLO9Config
     val_preprocessor_class = YOLO9ValPreprocessor
 
