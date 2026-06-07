@@ -325,6 +325,72 @@ def test_backend_rectangular_imgsz_guard_normalizes_family_name():
     assert backend._resolve_predict_imgsz() == (320, 640)
 
 
+def test_classify_backend_postprocess_returns_probs():
+    backend = _DummyBackend(
+        "yolo9",
+        task="classify",
+        supported_tasks=("detect", "classify"),
+        imgsz=8,
+    )
+    logits = np.array([[1.0, 3.0]], dtype=np.float32)
+
+    det = backend._postprocess(
+        [logits],
+        conf_thres=0.25,
+        iou_thres=0.5,
+        original_size=(12, 10),
+        input_size=8,
+    )
+
+    assert set(det) == {"probs"}
+    assert det["probs"].shape == (2,)
+    assert det["probs"].argmax().item() == 1
+
+
+def test_classify_backend_predict_returns_probs_and_saves_original(
+    tmp_path, monkeypatch
+):
+    backend = _DummyBackend(
+        "yolo9",
+        task="classify",
+        supported_tasks=("detect", "classify"),
+        imgsz=8,
+    )
+    captured = {}
+
+    def run_inference(blob):
+        captured["shape"] = tuple(blob.shape)
+        return [np.array([[1.0, 3.0]], dtype=np.float32)]
+
+    monkeypatch.setattr(backend, "_run_inference", run_inference)
+    output_path = tmp_path / "classified.jpg"
+
+    result = backend._predict_single(
+        np.zeros((10, 12, 3), dtype=np.uint8),
+        save=True,
+        output_path=str(output_path),
+    )
+
+    assert captured["shape"] == (1, 3, 8, 8)
+    assert result.boxes is None
+    assert result.probs is not None
+    assert result.probs.top1 == 1
+    assert len(result) == 1
+    assert output_path.exists()
+    assert result.saved_path == str(output_path)
+
+
+def test_classify_validator_accepts_backend_single_output_list():
+    from libreyolo.validation.classify_validator import ClassifyValidator
+
+    validator = object.__new__(ClassifyValidator)
+    logits = np.array([[1.0, 3.0]], dtype=np.float32)
+
+    preds = validator._postprocess_predictions([logits], batch=None)
+
+    np.testing.assert_allclose(preds, logits)
+
+
 def test_backend_metadata_rejects_rectangular_non_yolo9_family():
     from libreyolo.backends.base import _read_metadata_imgsz
 
@@ -406,9 +472,7 @@ def test_yolo9_backend_parse_caps_multilabel_candidates(monkeypatch):
 
     assert masks is None
     assert boxes.shape[0] == 3
-    np.testing.assert_allclose(
-        np.sort(scores), [0.7, 0.8, 0.9], rtol=0, atol=1e-6
-    )
+    np.testing.assert_allclose(np.sort(scores), [0.7, 0.8, 0.9], rtol=0, atol=1e-6)
     np.testing.assert_array_equal(classes, [0, 1, 0])
 
 
@@ -508,7 +572,9 @@ def test_yolo9_obb_backend_postprocess_returns_obb_tensor():
 
     assert out["num_detections"] == 1
     assert "obb" in out
-    np.testing.assert_allclose(out["obb"][0, :5].numpy(), [30.0, 30.0, 40.0, 20.0, 0.25])
+    np.testing.assert_allclose(
+        out["obb"][0, :5].numpy(), [30.0, 30.0, 40.0, 20.0, 0.25]
+    )
 
 
 def test_obb_backend_class_filter_preserves_obb_alignment():
@@ -547,7 +613,9 @@ def test_obb_backend_class_filter_preserves_obb_alignment():
     assert result.obb is not None
     assert result.boxes.cls.tolist() == [1.0]
     assert result.obb.cls.tolist() == [1.0]
-    np.testing.assert_allclose(result.obb.xywhr.numpy(), [[30.0, 30.0, 20.0, 20.0, 0.2]])
+    np.testing.assert_allclose(
+        result.obb.xywhr.numpy(), [[30.0, 30.0, 20.0, 20.0, 0.2]]
+    )
 
 
 def test_backend_save_annotated_accepts_directory_output_path(tmp_path):

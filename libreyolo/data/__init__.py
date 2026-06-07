@@ -5,6 +5,13 @@ Provides dataset configuration loading, auto-download, and path resolution.
 Supports YAML configs with .txt file paths.
 """
 
+from .classify_dataset import (
+    ClassifyDataset,
+    build_classify_transforms,
+    classify_collate_fn,
+    get_class_names,
+    resolve_classify_data,
+)
 from .obb import parse_yolo_obb_label_line
 from .coco_pose import (
     convert_coco_keypoints_json_to_yolo_pose,
@@ -47,4 +54,9 @@ __all__ = [
     "COCO17_OKS_SIGMAS",
     "COCO17_SKELETON",
     "default_oks_sigmas",
+    "ClassifyDataset",
+    "build_classify_transforms",
+    "classify_collate_fn",
+    "get_class_names",
+    "resolve_classify_data",
 ]

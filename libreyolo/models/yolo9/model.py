@@ -48,7 +48,16 @@ class LibreYOLO9(BaseModel):
     FAMILY = "yolo9"
     FILENAME_PREFIX = "LibreYOLO9"
     INPUT_SIZES = {"t": 640, "s": 640, "m": 640, "c": 640}
-    SUPPORTED_TASKS = ("detect", "segment", "pose", "obb")
+    # Classification uses the conventional 224 square input across all sizes.
+    CLS_INPUT_SIZES = {"t": 224, "s": 224, "m": 224, "c": 224}
+    SUPPORTED_TASKS = ("detect", "segment", "pose", "classify", "obb")
+    TASK_INPUT_SIZES = {
+        "detect": INPUT_SIZES,
+        "segment": INPUT_SIZES,
+        "pose": INPUT_SIZES,
+        "classify": CLS_INPUT_SIZES,
+        "obb": INPUT_SIZES,
+    }
     TRAIN_CONFIG = YOLO9Config
     val_preprocessor_class = YOLO9ValPreprocessor
 
@@ -88,6 +97,8 @@ class LibreYOLO9(BaseModel):
 
     @classmethod
     def detect_nb_classes(cls, weights_dict: dict) -> Optional[int]:
+        if "head.linear.weight" in weights_dict:
+            return int(weights_dict["head.linear.weight"].shape[0])
         for key, tensor in weights_dict.items():
             if re.match(r"head\.cv3\.\d+\.2\.weight", key):
                 return tensor.shape[0]
@@ -117,9 +128,16 @@ class LibreYOLO9(BaseModel):
         keypoint_dim: int = 3,
         nb_classes: int = 80,
         device: str = "auto",
+        task: str | None = None,
         **kwargs,
     ):
-        if kwargs.get("task") == "pose" and nb_classes == 80:
+        # Task is the checkpoint's source of truth: when not explicitly given,
+        # infer it from the weight filename suffix (e.g. ``-cls``) or the
+        # checkpoint's ``task`` metadata, so a classification/segmentation
+        # checkpoint loads without the caller having to repeat ``task=``.
+        if task is None and isinstance(model_path, (str, Path)):
+            task = self._infer_task_from_source(model_path)
+        if task is not None and normalize_task(task) == "pose" and nb_classes == 80:
             nb_classes = 1
         self.reg_max = reg_max
         self.num_masks = num_masks
@@ -131,6 +149,7 @@ class LibreYOLO9(BaseModel):
             size=size,
             nb_classes=nb_classes,
             device=device,
+            task=task,
             **kwargs,
         )
         if self._is_pose and self.nb_classes == 1 and self.names.get(0) == "class_0":
@@ -143,6 +162,30 @@ class LibreYOLO9(BaseModel):
             if self._is_pose:
                 self.names = {0: "person"}
 
+    @classmethod
+    def _infer_task_from_source(cls, model_path) -> str | None:
+        """Best-effort task inference from a weight filename or checkpoint metadata."""
+        from ...tasks import normalize_task
+        from ...utils.serialization import load_untrusted_torch_file
+
+        resolved = (
+            cls._resolve_weights_path(model_path)
+            if isinstance(model_path, str)
+            else str(model_path)
+        )
+        path = Path(resolved)
+        if path.exists():
+            try:
+                loaded = load_untrusted_torch_file(
+                    resolved, map_location="cpu", context="task detection"
+                )
+            except Exception:
+                loaded = None
+            if isinstance(loaded, dict) and isinstance(loaded.get("task"), str):
+                return normalize_task(loaded["task"])
+
+        return cls.detect_task_from_filename(Path(resolved).name)
+
     @property
     def _is_segmentation(self) -> bool:
         return self.task == "segment"
@@ -150,6 +193,10 @@ class LibreYOLO9(BaseModel):
     @property
     def _is_pose(self) -> bool:
         return self.task == "pose"
+
+    @property
+    def _is_classification(self) -> bool:
+        return self.task == "classify"
 
     @property
     def _is_obb(self) -> bool:
@@ -166,6 +213,7 @@ class LibreYOLO9(BaseModel):
             nb_classes=self.nb_classes,
             segmentation=self._is_segmentation,
             pose=self._is_pose,
+            classification=self._is_classification,
             obb=self._is_obb,
             num_masks=self.num_masks,
             proto_channels=self.proto_channels,
@@ -174,6 +222,15 @@ class LibreYOLO9(BaseModel):
         )
 
     def _get_available_layers(self) -> Dict[str, nn.Module]:
+        if self._is_classification:
+            # Classification model has only backbone + classifier head.
+            return {
+                "backbone_conv0": self.model.backbone.conv0,
+                "backbone_conv1": self.model.backbone.conv1,
+                "backbone_elan1": self.model.backbone.elan1,
+                "backbone_spp": self.model.backbone.spp,
+                "head": self.model.head,
+            }
         return {
             "backbone_conv0": self.model.backbone.conv0,
             "backbone_conv1": self.model.backbone.conv1,
@@ -222,6 +279,34 @@ class LibreYOLO9(BaseModel):
             }
         return state_dict
 
+    def _validate_loaded_state_dict_for_task(
+        self,
+        state_dict: dict,
+        checkpoint: dict | None = None,
+    ) -> None:
+        if not self._is_classification:
+            return
+        if "head.linear.weight" in state_dict:
+            return
+
+        detection_markers = (
+            "head.cv2.",
+            "head.cv3.",
+            "head.cv4.",
+            "head.proto",
+            "detect.",
+        )
+        if any(key.startswith(detection_markers) for key in state_dict):
+            raise RuntimeError(
+                "YOLO9 detection, segmentation, pose, or OBB weights cannot be loaded "
+                "as task='classify' because they do not contain head.linear.* "
+                "classifier weights. Use a classification checkpoint or explicit "
+                "training transfer."
+            )
+        raise RuntimeError(
+            "YOLO9 classification checkpoints must include head.linear.* weights."
+        )
+
     def _prepare_state_dict(self, state_dict: dict) -> dict:
         """Remap legacy 'detect.*' keys to 'head.*' for backward compatibility."""
         remapped = {}
@@ -240,6 +325,15 @@ class LibreYOLO9(BaseModel):
         """Replace only the final classification layers for different number of classes."""
         self.nb_classes = new_nc
         self.model.nc = new_nc
+
+        if self._is_classification:
+            head = self.model.head
+            head.nc = new_nc
+            in_features = head.linear.in_features
+            head.linear = nn.Linear(in_features, new_nc)
+            head.to(next(self.model.parameters()).device)
+            return
+
         detect = self.model.head
         detect.nc = new_nc
         detect.no = new_nc + detect.reg_max * 4
@@ -375,7 +469,8 @@ class LibreYOLO9(BaseModel):
             if ckpt_task is not None:
                 normalized_ckpt_task = normalize_task(ckpt_task)
                 allowed = normalized_ckpt_task == self.task or (
-                    self.task in {"segment", "obb"} and normalized_ckpt_task == "detect"
+                    self.task in {"segment", "classify", "obb"}
+                    and normalized_ckpt_task == "detect"
                 ) or self._allow_checkpoint_task_mismatch(normalized_ckpt_task)
                 if not allowed:
                     raise RuntimeError(
@@ -438,7 +533,17 @@ class LibreYOLO9(BaseModel):
         color_format: str = "auto",
         input_size: Optional[int] = None,
     ) -> Tuple[torch.Tensor, Image.Image, Tuple[int, int], float]:
-        effective_size = input_size if input_size is not None else self._get_input_size()
+        effective_size = (
+            input_size if input_size is not None else self._get_input_size()
+        )
+        if self._is_classification:
+            from ...data.classify_dataset import build_classify_transforms
+            from ...utils.image_loader import ImageLoader
+
+            img = ImageLoader.load(image, color_format=color_format)
+            transform = build_classify_transforms(effective_size, augment=False)
+            tensor = transform(img).unsqueeze(0)
+            return tensor, img, img.size, 1.0
         tensor, img, size = preprocess_image(
             image, input_size=effective_size, color_format=color_format
         )
@@ -457,6 +562,12 @@ class LibreYOLO9(BaseModel):
         ratio: float = 1.0,
         **kwargs,
     ) -> Dict:
+        if self._is_classification:
+            logits = output
+            if isinstance(logits, dict):
+                logits = logits.get("logits", logits.get("predictions"))
+            probs = torch.softmax(logits.float(), dim=1)[0]
+            return {"probs": probs}
         actual_input_size = kwargs.get("input_size", self._get_input_size())
         return postprocess(
             output,
@@ -527,57 +638,74 @@ class LibreYOLO9(BaseModel):
         from .trainer import YOLO9Trainer
         from libreyolo.data import load_data_config
 
-        try:
-            data_config = load_data_config(
-                data,
-                autodownload=True,
-                allow_scripts=allow_download_scripts,
-            )
-            data = data_config.get("yaml_file", data)
-        except Exception as e:
-            raise FileNotFoundError(f"Failed to load dataset config '{data}': {e}")
-
-        yaml_nc = data_config.get("nc")
-        yaml_names = data_config.get("names")
-        kpt_shape = data_config.get("kpt_shape")
         pose_label_keypoint_dim = self.keypoint_dim
 
-        if self._is_pose:
-            if not kpt_shape or len(kpt_shape) < 1:
-                raise ValueError(
-                    "YOLO9 pose training requires 'kpt_shape: [num_keypoints, 2|3]' "
-                    "in the dataset YAML."
+        if self._is_classification:
+            # Classification: ``data`` is an ImageFolder root (or known name),
+            # not a YAML. Resolve it, count classes, and sync the head/names so
+            # the trainer/optimizer see the correct output dimension. imgsz
+            # defaults to the conventional classification square (224).
+            from libreyolo.data import get_class_names, resolve_classify_data
+
+            dataset_root = resolve_classify_data(data)
+            data = str(dataset_root)
+            classes = get_class_names(dataset_root, split="train")
+            if len(classes) != self.nb_classes:
+                self._rebuild_for_new_classes(len(classes))
+            self.names = {i: n for i, n in enumerate(classes)}
+            if imgsz == _TRAIN_DEFAULTS.imgsz:
+                imgsz = self._get_input_size()
+        else:
+            try:
+                data_config = load_data_config(
+                    data,
+                    autodownload=True,
+                    allow_scripts=allow_download_scripts,
                 )
-            num_keypoints = int(kpt_shape[0])
-            keypoint_dim = int(kpt_shape[1]) if len(kpt_shape) > 1 else 3
-            if keypoint_dim not in (2, 3):
-                raise ValueError(
-                    f"YOLO9 pose training requires keypoint_dim 2 or 3, got {keypoint_dim}."
-                )
-            yaml_nc = 1 if yaml_nc is None else int(yaml_nc)
-            if yaml_nc != 1:
-                raise ValueError("YOLO9 pose v1 supports one class: person")
-            if yaml_names is None:
-                yaml_names = {0: "person"}
-            pose_label_keypoint_dim = keypoint_dim
-            self.keypoint_dim = 3
-            if num_keypoints != self.num_keypoints:
-                self._rebuild_for_new_keypoints(num_keypoints)
+                data = data_config.get("yaml_file", data)
+            except Exception as e:
+                raise FileNotFoundError(f"Failed to load dataset config '{data}': {e}")
 
-        # If no nc in data.yaml, infer it by counting.
-        if yaml_nc is None and yaml_names is not None:
-            yaml_nc = len(yaml_names)
-        if yaml_nc is not None:
-            yaml_nc = int(yaml_nc)
+            yaml_nc = data_config.get("nc")
+            yaml_names = data_config.get("names")
+            kpt_shape = data_config.get("kpt_shape")
 
-        if yaml_nc is not None and yaml_nc != self.nb_classes:
-            self._rebuild_for_new_classes(yaml_nc)
+            if self._is_pose:
+                if not kpt_shape or len(kpt_shape) < 1:
+                    raise ValueError(
+                        "YOLO9 pose training requires 'kpt_shape: [num_keypoints, 2|3]' "
+                        "in the dataset YAML."
+                    )
+                num_keypoints = int(kpt_shape[0])
+                keypoint_dim = int(kpt_shape[1]) if len(kpt_shape) > 1 else 3
+                if keypoint_dim not in (2, 3):
+                    raise ValueError(
+                        f"YOLO9 pose training requires keypoint_dim 2 or 3, got {keypoint_dim}."
+                    )
+                yaml_nc = 1 if yaml_nc is None else int(yaml_nc)
+                if yaml_nc != 1:
+                    raise ValueError("YOLO9 pose v1 supports one class: person")
+                if yaml_names is None:
+                    yaml_names = {0: "person"}
+                pose_label_keypoint_dim = keypoint_dim
+                self.keypoint_dim = 3
+                if num_keypoints != self.num_keypoints:
+                    self._rebuild_for_new_keypoints(num_keypoints)
 
-        # Apply custom class names from data config
-        if yaml_names is not None:
-            if isinstance(yaml_names, list):
-                yaml_names = {i: n for i, n in enumerate(yaml_names)}
-            self.names = self._sanitize_names(yaml_names, self.nb_classes)
+            # If no nc in data.yaml, infer it by counting.
+            if yaml_nc is None and yaml_names is not None:
+                yaml_nc = len(yaml_names)
+            if yaml_nc is not None:
+                yaml_nc = int(yaml_nc)
+
+            if yaml_nc is not None and yaml_nc != self.nb_classes:
+                self._rebuild_for_new_classes(yaml_nc)
+
+            # Apply custom class names from data config
+            if yaml_names is not None:
+                if isinstance(yaml_names, list):
+                    yaml_names = {i: n for i, n in enumerate(yaml_names)}
+                self.names = self._sanitize_names(yaml_names, self.nb_classes)
 
         if resume and pretrained:
             raise ValueError("pretrained transfer cannot be combined with resume=True.")

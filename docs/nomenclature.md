@@ -114,22 +114,22 @@ The factory accepts upstream-style aliases (`detection`, `det`, `segmentation`,
 appear in filenames.
 
 Dataset and label contracts are documented in
-[`dataset_schema.md`](dataset_schema.md). No model family supports `obb` until
-it appears in that family's `SUPPORTED_TASKS`.
+[`dataset_schema.md`](dataset_schema.md). A task is supported by a model family
+only when it appears in that family's `SUPPORTED_TASKS`.
 
 ## Per-family task support
 
 | Family    | `SUPPORTED_TASKS`                   | Default | Notes |
 |---|---|---|---|
 | `yolox`     | `("detect",)` (default)             | detect | detect-only |
-| `yolo9`     | `("detect", "segment", "pose", "obb")` | detect | native grid heads |
+| `yolo9`     | `("detect", "segment", "pose", "classify", "obb")` | detect | native grid and classifier heads |
 | `yolo9_e2e` | `("detect",)` (default)             | detect | detect-only |
 | `dfine`     | `("detect",)` (default)             | detect | detect-only |
 | `deim`      | `("detect",)` (default)             | detect | detect-only |
 | `deimv2`    | `("detect",)` (default)             | detect | detect-only |
 | `rtdetr`    | `("detect",)` (default)             | detect | detect-only |
 | `picodet`   | `("detect",)` (default)             | detect | detect-only |
-| `rfdetr`    | `("detect", "segment", "pose", "obb")` | detect | seg uses smaller sizes; pose/OBB use detect sizes |
+| `rfdetr`    | `("detect", "segment", "pose", "classify", "obb")` | detect | classify uses 224; seg uses smaller sizes; pose/OBB use detect sizes |
 | `yolonas`   | `("detect", "pose")`                | detect | pose adds size `n` |
 | `ec`     | `("detect", "pose", "segment")`     | detect | all three tasks |
 | `l2cs`      | `("gaze",)`                         | gaze   | inference-only; two-stage (face detector + gaze head); not trainable in LibreYOLO |
@@ -146,6 +146,7 @@ LibreYOLOXn.pt
 LibreYOLO9s.pt
 LibreYOLO9t-seg.pt
 LibreYOLO9t-pose.pt
+LibreYOLO9t-cls.pt
 LibreYOLO9t-obb.pt
 LibreYOLO9E2Es.pt
 LibreYOLONASm.pt
@@ -154,6 +155,7 @@ LibreDEIMx.pt
 LibreDEIMv2s.pt
 LibreRTDETRr50.pt
 LibreRFDETRn.pt
+LibreRFDETRn-cls.pt
 LibrePICODETs.pt
 LibreECs.pt
 ```
@@ -168,10 +170,18 @@ LibreYOLONASs-pose.pt
 LibreYOLONASm-pose.pt
 LibreYOLONASl-pose.pt
 
-# rfdetr — detect + segment + pose + obb
+# yolo9 - detect + segment + pose + classify + obb
+LibreYOLO9t.pt             # detect (default)
+LibreYOLO9t-seg.pt         # segment
+LibreYOLO9t-pose.pt        # pose
+LibreYOLO9t-cls.pt         # classify
+LibreYOLO9t-obb.pt         # obb
+
+# rfdetr - detect + segment + pose + classify + obb
 LibreRFDETRn.pt            # detect
 LibreRFDETRn-seg.pt        # segment
 LibreRFDETRn-pose.pt       # pose
+LibreRFDETRn-cls.pt        # classify
 LibreRFDETRn-obb.pt        # obb
 
 # ec — detect + pose + segment

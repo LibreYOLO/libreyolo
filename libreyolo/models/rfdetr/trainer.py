@@ -83,8 +83,13 @@ class RFDETRTrainer(BaseTrainer):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._class_names = None
-        if getattr(self.wrapper_model, "task", "detect") == "pose":
+        task = getattr(getattr(self, "wrapper_model", None), "task", "detect")
+        if task == "pose":
             self.best_metric_key = "metrics/keypoints_mAP50-95"
+        # Classification resolves its class count from the ImageFolder dataset
+        # in _setup_classify_data, not from a detection YAML.
+        if task == "classify":
+            return
         if self.config.data:
             data_cfg = load_data_config(
                 self.config.data,
@@ -101,7 +106,7 @@ class RFDETRTrainer(BaseTrainer):
                 self._class_names = {int(k): str(v) for k, v in names.items()}
             elif isinstance(names, (list, tuple)):
                 self._class_names = {i: str(v) for i, v in enumerate(names)}
-            if getattr(self.wrapper_model, "task", "detect") == "pose":
+            if task == "pose":
                 self.config.num_classes = 1
                 kpt_shape = data_cfg.get("kpt_shape")
                 if kpt_shape is not None:
@@ -122,7 +127,11 @@ class RFDETRTrainer(BaseTrainer):
         # Detect/pose/OBB: at least one transformer parameter receives no gradient
         # on some forward passes, so DDP must skip reduction for it.
         # Segmentation uses static_graph=True instead (see _ddp_static_graph).
-        return getattr(self.wrapper_model, "task", "detect") in {"detect", "pose", "obb"}
+        return getattr(getattr(self, "wrapper_model", None), "task", "detect") in {
+            "detect",
+            "pose",
+            "obb",
+        }
 
     def _ddp_static_graph(self) -> bool:
         # Segmentation only: the seg head is invoked from both encoder and
@@ -133,7 +142,7 @@ class RFDETRTrainer(BaseTrainer):
         # double accumulation correctly. Detect/OBB keep the default (False)
         # because find_unused_parameters=True requires dynamic graph traversal.
         # Pose follows detection and keeps static_graph=False.
-        return getattr(self.wrapper_model, "task", "detect") == "segment"
+        return getattr(getattr(self, "wrapper_model", None), "task", "detect") == "segment"
 
     def create_transforms(self):
         patch_size = int(getattr(self.model, "patch_size", 16))
@@ -149,7 +158,7 @@ class RFDETRTrainer(BaseTrainer):
                 f"(patch_size={patch_size} x num_windows={num_windows}). "
                 f"Use {lo} or {hi}."
             )
-        task = getattr(self.wrapper_model, "task", "detect")
+        task = getattr(getattr(self, "wrapper_model", None), "task", "detect")
         if task == "segment":
             preproc = RFDETRSegTransform(
                 max_labels=300,
@@ -242,6 +251,8 @@ class RFDETRTrainer(BaseTrainer):
         *,
         step: int,
     ):
+        if getattr(getattr(self, "wrapper_model", None), "task", "detect") == "classify":
+            return imgs, targets, polygons
         scales = self._multi_scale_scales()
         if not scales:
             return imgs, targets, polygons
@@ -438,6 +449,11 @@ class RFDETRTrainer(BaseTrainer):
 
     def on_setup(self):
         task = getattr(getattr(self, "wrapper_model", None), "task", "detect")
+        # Classification computes cross-entropy inside the model head and sizes
+        # its head from the dataset in _setup_classify_data — no detection
+        # criterion or head reinitialization is needed.
+        if task == "classify":
+            return
         if self.model.nb_classes != self.config.num_classes:
             head_outputs = (
                 self.config.num_classes
@@ -488,6 +504,25 @@ class RFDETRTrainer(BaseTrainer):
                 self.wrapper_model.keypoint_dim = self.config.keypoint_dim
 
     def _setup_optimizer(self) -> torch.optim.Optimizer:
+        if getattr(getattr(self, "wrapper_model", None), "task", "detect") == "classify":
+            # The DINOv2 backbone + projector is LayerNorm-only (no BatchNorm),
+            # so the shared BN/conv/bias grouping leaves an empty first group.
+            # Use a standard AdamW with no weight decay on norms/biases — the
+            # conventional recipe for fine-tuning a ViT classifier.
+            decay, no_decay = [], []
+            for name, param in self.model.named_parameters():
+                if not param.requires_grad:
+                    continue
+                if param.ndim <= 1 or name.endswith(".bias") or "norm" in name.lower():
+                    no_decay.append(param)
+                else:
+                    decay.append(param)
+            groups = []
+            if decay:
+                groups.append({"params": decay, "weight_decay": self.config.weight_decay})
+            if no_decay:
+                groups.append({"params": no_decay, "weight_decay": 0.0})
+            return torch.optim.AdamW(groups, lr=self.effective_lr, betas=(0.9, 0.999))
         upstream_groups = self._setup_upstream_optimizer_groups()
         if upstream_groups:
             return torch.optim.AdamW(
@@ -595,7 +630,7 @@ class RFDETRTrainer(BaseTrainer):
     ) -> list[dict]:
         batch_size = targets.shape[0]
         scale = torch.tensor([width, height, width, height], device=targets.device, dtype=targets.dtype)
-        task = getattr(self.wrapper_model, "task", "detect")
+        task = getattr(getattr(self, "wrapper_model", None), "task", "detect")
         is_pose = task == "pose"
         is_obb = task == "obb"
         target_list = []
@@ -661,8 +696,14 @@ class RFDETRTrainer(BaseTrainer):
         targets: torch.Tensor,
         polygons: Optional[List] = None,
     ) -> Dict:
+        task = getattr(getattr(self, "wrapper_model", None), "task", "detect")
+        if task == "classify":
+            # ``targets`` are class indices [B]; the model head returns the
+            # loss dict directly.
+            return self.model(imgs, targets=targets)
+
         height, width = imgs.shape[-2], imgs.shape[-1]
-        is_seg = getattr(self.wrapper_model, "task", "detect") == "segment"
+        is_seg = task == "segment"
         # ``polygons`` here is the collate-stacked output of RFDETRSegTransform:
         # a [B, max_labels, mask_h, mask_w] float32 tensor whose slot i aligns
         # with target slot i. Slice by the same ``valid`` box mask to hand the
@@ -689,6 +730,10 @@ class RFDETRTrainer(BaseTrainer):
         return result
 
     def get_loss_components(self, outputs: Dict) -> Dict[str, float]:
+        if getattr(getattr(self, "wrapper_model", None), "task", "detect") == "classify":
+            value = outputs.get("cls", 0)
+            return {"cls": value.item() if isinstance(value, torch.Tensor) else float(value)}
+
         def _sum_with_prefix(prefix: str) -> float:
             total = 0.0
             for key, value in outputs.items():
@@ -701,14 +746,14 @@ class RFDETRTrainer(BaseTrainer):
             "bbox": _sum_with_prefix("loss_bbox"),
             "giou": _sum_with_prefix("loss_giou"),
         }
-        if getattr(self.wrapper_model, "task", "detect") == "segment":
+        if getattr(getattr(self, "wrapper_model", None), "task", "detect") == "segment":
             components["mask_ce"] = _sum_with_prefix("loss_mask_ce")
             components["mask_dice"] = _sum_with_prefix("loss_mask_dice")
-        if getattr(self.wrapper_model, "task", "detect") == "pose":
+        if getattr(getattr(self, "wrapper_model", None), "task", "detect") == "pose":
             components["keypoints_l1"] = _sum_with_prefix("loss_keypoints_l1")
             components["keypoints_oks"] = _sum_with_prefix("loss_keypoints_oks")
             components["keypoints_vis"] = _sum_with_prefix("loss_keypoints_vis")
-        if getattr(self.wrapper_model, "task", "detect") == "obb":
+        if getattr(getattr(self, "wrapper_model", None), "task", "detect") == "obb":
             components["angle"] = _sum_with_prefix("loss_angle")
         return components
 

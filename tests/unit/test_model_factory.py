@@ -22,6 +22,15 @@ def test_rfdetr_lazy_registration_detects_enc_out_markers():
     assert _needs_rfdetr_registration(weights_dict) is True
 
 
+def test_rfdetr_lazy_registration_detects_classifier_signature():
+    weights_dict = {
+        "backbone.encoder.encoder.embeddings.position_embeddings": object(),
+        "linear.weight": object(),
+    }
+
+    assert _needs_rfdetr_registration(weights_dict) is True
+
+
 def test_rfdetr_lazy_registration_ignores_rtdetr_signature():
     weights_dict = {
         "backbone.stages.0.conv.weight": object(),
@@ -62,7 +71,16 @@ def test_base_model_normalizes_bare_numeric_device(device_arg):
         def _forward(self, input_tensor):
             raise NotImplementedError
 
-        def _postprocess(self, output, conf_thres, iou_thres, original_size, max_det=300, ratio=1.0, **kwargs):
+        def _postprocess(
+            self,
+            output,
+            conf_thres,
+            iou_thres,
+            original_size,
+            max_det=300,
+            ratio=1.0,
+            **kwargs,
+        ):
             raise NotImplementedError
 
     try:
