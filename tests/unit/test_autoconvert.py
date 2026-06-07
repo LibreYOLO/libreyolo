@@ -196,6 +196,35 @@ class TestAutoconvertOrchestration:
             "group_detr": 13,
         }
 
+    def test_checkpoint_args_normalizes_dict_class_names_for_rfdetr_loader(self):
+        loaded = {
+            "args": argparse.Namespace(
+                class_names={"0": "bolt", "1": "nut"},
+                num_queries=100,
+                group_detr=13,
+            )
+        }
+
+        assert autoconvert_module._checkpoint_args(loaded) == {
+            "class_names": ["bolt", "nut"],
+            "num_queries": 100,
+            "group_detr": 13,
+        }
+
+    def test_checkpoint_args_omits_sparse_dict_class_names(self):
+        loaded = {
+            "args": argparse.Namespace(
+                class_names={0: "bolt", 2: "washer"},
+                num_queries=100,
+                group_detr=13,
+            )
+        }
+
+        assert autoconvert_module._checkpoint_args(loaded) == {
+            "num_queries": 100,
+            "group_detr": 13,
+        }
+
     def test_preserved_args_remain_weights_only_loadable(self, tmp_path):
         args = autoconvert_module._checkpoint_args(
             {

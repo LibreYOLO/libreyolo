@@ -114,6 +114,22 @@ def _checkpoint_args(loaded: Any) -> dict[str, Any] | None:
     raw_args = loaded.get("args") or loaded.get("hyper_parameters")
     safe_args = _safe_metadata_value(raw_args)
     if isinstance(safe_args, dict) and safe_args:
+        class_names = safe_args.get("class_names")
+        if isinstance(class_names, dict):
+            indexed_names = []
+            for key, value in class_names.items():
+                try:
+                    indexed_names.append((int(key), str(value)))
+                except (TypeError, ValueError):
+                    indexed_names = []
+                    break
+            indexes = [index for index, _value in sorted(indexed_names)]
+            if indexes and indexes == list(range(indexes[-1] + 1)):
+                safe_args["class_names"] = [
+                    value for _index, value in sorted(indexed_names)
+                ]
+            else:
+                safe_args.pop("class_names", None)
         return safe_args
     return None
 
