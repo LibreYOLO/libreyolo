@@ -251,6 +251,12 @@ class BaseBackend(ABC):
             # Some concrete backends expose size as a computed read-only property.
             pass
         self.input_size = self.imgsz
+        # Set by backends that load a model with NMS baked into the graph; such
+        # models emit final (1, max_det, 6) detections instead of raw tensors.
+        if not hasattr(self, "embedded_nms"):
+            self.embedded_nms = False
+        if not hasattr(self, "embedded_nms_raw_output_index"):
+            self.embedded_nms_raw_output_index = None
         if not hasattr(self, "model"):
             self.model = _BackendEvalProxy()
 
@@ -501,6 +507,28 @@ class BaseBackend(ABC):
         """Parse raw outputs into boxes, scores, classes, masks, OBB, and keypoints."""
         orig_w, orig_h = original_size
 
+        if getattr(self, "embedded_nms", False):
+            raw_index = getattr(self, "embedded_nms_raw_output_index", None)
+            if (
+                self.model_family == "yolo9"
+                and isinstance(raw_index, int)
+                and raw_index < len(all_outputs)
+            ):
+                boxes, scores, cls = self._parse_yolo9(
+                    [all_outputs[raw_index]],
+                    effective_imgsz,
+                    orig_w,
+                    orig_h,
+                    conf,
+                    iou=iou,
+                    max_det=max_det,
+                )
+                return boxes, scores, cls, None
+            boxes, scores, cls = self._parse_embedded_nms(
+                all_outputs, effective_imgsz, orig_w, orig_h, conf
+            )
+            return boxes, scores, cls, None
+
         if self.model_family == "yolox":
             boxes, scores, cls = self._parse_yolox(
                 all_outputs, effective_imgsz, orig_w, orig_h, conf, ratio
@@ -675,6 +703,37 @@ class BaseBackend(ABC):
 
         return boxes, max_scores, class_ids
 
+    def _parse_embedded_nms(self, all_outputs, effective_imgsz, orig_w, orig_h, conf):
+        """Parse a graph-embedded-NMS detection output.
+
+        Shape ``(1, max_det, 6)`` with rows ``[x1, y1, x2, y2, score, class]`` in
+        input-canvas (letterbox) pixels. NMS already ran in the graph; here we
+        drop zero-padding / sub-``conf`` rows and undo the letterbox scaling.
+        """
+        det = np.asarray(all_outputs[0], dtype=np.float32)
+        if det.ndim == 3:
+            det = det[0]  # (max_det, 6)
+        keep = det[:, 4] > conf
+        det = det[keep]
+        if det.shape[0] == 0:
+            empty = np.empty((0, 4), dtype=np.float32)
+            return empty, np.empty((0,), np.float32), np.empty((0,), np.int64)
+
+        boxes = det[:, :4].copy()
+        scores = det[:, 4].astype(np.float32)
+        class_ids = det[:, 5].astype(np.int64)
+
+        input_h, input_w = _imgsz_hw(effective_imgsz)
+        ratio = min(input_h / orig_h, input_w / orig_w)
+        boxes /= ratio
+        boxes[:, [0, 2]] = np.clip(boxes[:, [0, 2]], 0, orig_w)
+        boxes[:, [1, 3]] = np.clip(boxes[:, [1, 3]], 0, orig_h)
+        valid = (boxes[:, 2] > boxes[:, 0]) & (boxes[:, 3] > boxes[:, 1])
+        boxes = boxes[valid]
+        scores = scores[valid]
+        class_ids = class_ids[valid]
+        return boxes, scores, class_ids
+
     def _parse_yolo9(
         self,
         all_outputs,
@@ -718,10 +777,9 @@ class BaseBackend(ABC):
             anchor_idx, class_ids = np.nonzero(scores > conf)
             boxes_input = boxes_input_all[anchor_idx]
             max_scores = scores[anchor_idx, class_ids]
-            if max_scores.size > _YOLO9_MAX_NMS_CANDIDATES:
-                keep = np.argpartition(-max_scores, _YOLO9_MAX_NMS_CANDIDATES - 1)[
-                    :_YOLO9_MAX_NMS_CANDIDATES
-                ]
+            max_nms = max(max_det, _YOLO9_MAX_NMS_CANDIDATES)
+            if max_scores.size > max_nms:
+                keep = np.argpartition(-max_scores, max_nms - 1)[:max_nms]
                 keep = keep[np.argsort(-max_scores[keep])]
                 boxes_input = boxes_input[keep]
                 max_scores = max_scores[keep]
@@ -739,12 +797,25 @@ class BaseBackend(ABC):
         boxes[:, :4] /= ratio
         boxes[:, [0, 2]] = np.clip(boxes[:, [0, 2]], 0, orig_w)
         boxes[:, [1, 3]] = np.clip(boxes[:, [1, 3]], 0, orig_h)
+        valid_boxes = (boxes[:, 2] > boxes[:, 0]) & (boxes[:, 3] > boxes[:, 1])
+        if not valid_boxes.any():
+            if self.task == "segment":
+                return boxes[:0], max_scores[:0], class_ids[:0], None
+            return boxes[:0], max_scores[:0], class_ids[:0]
+        if not valid_boxes.all():
+            boxes = boxes[valid_boxes]
+            boxes_input = boxes_input[valid_boxes]
+            max_scores = max_scores[valid_boxes]
+            class_ids = class_ids[valid_boxes]
 
         if self.task == "segment" and len(all_outputs) >= 3:
             from ..models.yolo9.utils import _process_masks
 
             proto = torch.from_numpy(all_outputs[1][0]).float()
-            coeffs = torch.from_numpy(all_outputs[2][0].T[mask]).float()
+            coeffs_np = all_outputs[2][0].T[mask]
+            if not valid_boxes.all():
+                coeffs_np = coeffs_np[valid_boxes]
+            coeffs = torch.from_numpy(coeffs_np).float()
             boxes_input_t = torch.from_numpy(boxes_input).float()
             masks_out = _process_masks(
                 proto,
@@ -1122,11 +1193,17 @@ class BaseBackend(ABC):
                 names=self.names,
             )
 
-        if obb is None and not _is_nms_free_family(self.model_family):
+        if (
+            obb is None
+            and not _is_nms_free_family(self.model_family)
+        ):
             # YOLO9 (like DAMO) needs class-aware NMS so multi-label detections
             # on a shared anchor (same box, different class) survive, matching
             # the native batched_nms path. Class-agnostic NMS would drop the
             # lower-scored class and make exported runtimes disagree with native.
+            # ONNX models with graph-embedded NMS still pass through this after
+            # backend clipping so letterboxed-image behavior stays aligned with
+            # native YOLO9 postprocess.
             if self.model_family in ("damoyolo", "yolo9", "yolo9_e2e"):
                 keep = _batched_nms_numpy(boxes, max_scores, class_ids, iou)
             else:

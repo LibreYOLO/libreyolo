@@ -10,8 +10,8 @@ the per-keypoint visibility flag (``0`` absent, ``1`` labelled-but-occluded,
 come from ``kpt_shape`` / ``flip_idx`` in the dataset ``data.yaml``.
 
 The dataset hands the raw BGR image plus normalized labels to a ``preproc``
-transform, which performs letterboxing / augmentation and returns the padded
-``(max_labels, 5 + 3K)`` target slab the YOLO-NAS pose loss expects.
+transform, which performs resizing / augmentation and returns the padded
+``(max_labels, 5 + 3K)`` target slab the pose loss expects.
 """
 
 from __future__ import annotations

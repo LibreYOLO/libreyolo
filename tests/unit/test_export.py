@@ -113,11 +113,60 @@ class TestExporterFormats:
 
     def test_subclass_attributes(self):
         assert OnnxExporter.suffix == ".onnx"
+        assert OnnxExporter.supports_int8 is True
+        assert OnnxExporter.supports_embedded_nms is True
+        assert CoreMLExporter.supports_embedded_nms is True
         assert TensorRTExporter.requires_onnx is True
         assert TorchScriptExporter.apply_model_half is True
+        assert TorchScriptExporter.supports_embedded_nms is False
         assert NcnnExporter.supports_int8 is False
         assert TFLiteExporter.requires_onnx is True
         assert TFLiteExporter.supports_fp16 is False
+
+    def test_unsupported_exporter_rejects_embedded_nms(self):
+        exporter = TorchScriptExporter(_make_wrapper())
+
+        with pytest.raises(NotImplementedError, match="TORCHSCRIPT embedded NMS"):
+            exporter._preflight(half=False, int8=False, data=None, nms=True)
+
+    def test_coreml_exporter_accepts_embedded_nms_preflight(self):
+        wrapper = _make_wrapper(model_name="yolo9")
+        wrapper.task = "detect"
+        exporter = CoreMLExporter(wrapper)
+
+        exporter._preflight(half=False, int8=False, data=None, nms=True)
+
+    def test_coreml_embedded_nms_preflight_rejects_rtdetr(self):
+        wrapper = _make_wrapper(model_name="rtdetr")
+        wrapper.task = "detect"
+        exporter = CoreMLExporter(wrapper)
+
+        with pytest.raises(NotImplementedError, match="YOLOX and YOLO9"):
+            exporter._preflight(half=False, int8=False, data=None, nms=True)
+
+    def test_coreml_embedded_nms_preflight_rejects_yolo9_segment(self):
+        wrapper = _make_wrapper(model_name="yolo9")
+        wrapper.task = "segment"
+        exporter = CoreMLExporter(wrapper)
+
+        with pytest.raises(NotImplementedError, match="YOLO9 detection"):
+            exporter._preflight(half=False, int8=False, data=None, nms=True)
+
+    def test_coreml_embedded_nms_preflight_rejects_max_det(self):
+        wrapper = _make_wrapper(model_name="yolo9")
+        wrapper.task = "detect"
+        exporter = CoreMLExporter(wrapper)
+
+        with pytest.raises(NotImplementedError, match="does not support max_det"):
+            exporter._preflight(
+                half=False, int8=False, data=None, nms=True, max_det=12
+            )
+
+    def test_onnx_embedded_nms_preflight_rejects_non_yolo9_detect(self):
+        exporter = OnnxExporter(_make_wrapper(model_name="yolox"))
+
+        with pytest.raises(NotImplementedError, match="YOLO9 detection"):
+            exporter._preflight(half=False, int8=False, data=None, nms=True)
 
     def test_metadata_includes_task_contract(self):
         wrapper = _make_wrapper()
@@ -240,6 +289,7 @@ class TestExporterFormats:
         with exporter._model_context(
             torch.device("cpu"),
             half=False,
+            int8=False,
             batch=1,
             imgsz=(16, 16),
         ) as (nn_model, dummy):
@@ -358,6 +408,33 @@ class TestExporterFormats:
 
         assert OnnxBackend._read_onnx_metadata(str(output_path), 4)[-1] == 48
 
+    def test_onnx_backend_reads_runtime_metadata_without_onnx_load(self):
+        from libreyolo.backends.onnx import OnnxBackend
+
+        metadata = {
+            "model_family": "yolo9",
+            "task": "detect",
+            "nb_classes": "1",
+            "imgsz": "64",
+            "nms": "true",
+            "nms_conf": "0.25",
+            "nms_iou": "0.45",
+            "max_det": "300",
+            "nms_raw_output": "true",
+        }
+
+        parsed = OnnxBackend._read_onnx_metadata(
+            "metadata-from-onnxruntime.onnx",
+            80,
+            runtime_metadata=metadata,
+        )
+
+        assert parsed[0] == "yolo9"
+        assert parsed[2] == "detect"
+        assert parsed[5] == {0: "class_0"}
+        assert parsed[6] is True
+        assert parsed[7] == 64
+
     def test_onnx_backend_reads_rectangular_static_input_imgsz(self):
         from libreyolo.backends.onnx import OnnxBackend
 
@@ -457,6 +534,125 @@ class TestExporterFormats:
         assert captured["metadata"]["imgsz"] == "32"
         assert captured["metadata"]["imgsz_h"] == "16"
         assert captured["metadata"]["imgsz_w"] == "32"
+
+    def test_onnx_int8_missing_data_uses_default_calibration(
+        self, monkeypatch, tmp_path, caplog
+    ):
+        wrapper = _make_wrapper(model_name="yolo9", input_size=32)
+        wrapper.task = "detect"
+        exporter = OnnxExporter(wrapper)
+        output_path = tmp_path / "model_int8.onnx"
+        captured = {}
+
+        monkeypatch.setattr(exporter, "_preflight", lambda **kwargs: None)
+
+        def fake_load_calibration(
+            data,
+            imgsz,
+            batch,
+            fraction,
+            allow_download_scripts=False,
+        ):
+            captured["data"] = data
+            captured["imgsz"] = imgsz
+            captured["batch"] = batch
+            return object()
+
+        def fake_export(nn_model, dummy, *, output_path, calibration_data, **kwargs):
+            captured["dummy_dtype"] = dummy.dtype
+            captured["param_dtype"] = next(nn_model.parameters()).dtype
+            captured["calibration_data"] = calibration_data
+            captured["half"] = kwargs["half"]
+            captured["int8"] = kwargs["int8"]
+            return output_path
+
+        monkeypatch.setattr(exporter, "_load_calibration", fake_load_calibration)
+        monkeypatch.setattr(exporter, "_export", fake_export)
+
+        with caplog.at_level("WARNING", logger="libreyolo.export.exporter"):
+            result = exporter(
+                output_path=str(output_path),
+                int8=True,
+                half=True,
+                batch=2,
+                device="cpu",
+                simplify=False,
+                dynamic=False,
+            )
+
+        assert result == str(output_path)
+        assert captured["data"] == "coco8.yaml"
+        assert captured["imgsz"] == (32, 32)
+        assert captured["batch"] == 2
+        assert captured["dummy_dtype"] == torch.float32
+        assert captured["param_dtype"] == torch.float32
+        assert captured["half"] is False
+        assert captured["int8"] is True
+        assert captured["calibration_data"] is not None
+        assert "8-image fallback is not representative" in caplog.text
+
+    @pytest.mark.parametrize(
+        ("family", "task"),
+        [("rfdetr", "detect"), ("yolo9", "segment"), ("yolo9_e2e", "detect")],
+    )
+    def test_onnx_int8_scope_is_yolo9_detect_only(self, family, task):
+        wrapper = _make_wrapper(model_name=family, input_size=32)
+        wrapper.task = task
+
+        with pytest.raises(NotImplementedError, match="YOLO9 detection"):
+            OnnxExporter(wrapper)._preflight(
+                half=False,
+                int8=True,
+                data="data.yaml",
+            )
+
+    def test_onnx_int8_export_uses_fp32_temp_then_quantizes(
+        self, monkeypatch, tmp_path
+    ):
+        wrapper = _make_wrapper(model_name="yolo9", input_size=32)
+        wrapper.task = "detect"
+        exporter = OnnxExporter(wrapper)
+        output_path = tmp_path / "model_int8.onnx"
+        captured = {}
+
+        def fake_export_onnx(_nn_model, _dummy, **kwargs):
+            captured["fp32_export"] = kwargs
+            Path(kwargs["output_path"]).write_bytes(b"fp32")
+            return kwargs["output_path"]
+
+        def fake_quantize_onnx_int8(fp32_path, quant_output_path, **kwargs):
+            captured["quantize"] = {
+                "fp32_path": fp32_path,
+                "output_path": quant_output_path,
+                **kwargs,
+            }
+            Path(quant_output_path).write_bytes(b"int8")
+            return quant_output_path
+
+        monkeypatch.setattr(exporter_module, "export_onnx", fake_export_onnx)
+        monkeypatch.setattr(
+            exporter_module, "quantize_onnx_int8", fake_quantize_onnx_int8
+        )
+
+        result = exporter._export(
+            wrapper.model,
+            torch.zeros(1, 3, 32, 32),
+            output_path=str(output_path),
+            metadata={},
+            calibration_data=object(),
+            half=False,
+            int8=True,
+            dynamic=False,
+            opset=13,
+            simplify=False,
+        )
+
+        assert result == str(output_path)
+        assert Path(captured["fp32_export"]["output_path"]).name == "model_fp32.onnx"
+        assert captured["fp32_export"]["half"] is False
+        assert captured["quantize"]["output_path"] == str(output_path)
+        assert captured["quantize"]["metadata"]["precision"] == "int8"
+        assert captured["quantize"]["metadata"]["half"] == "False"
 
     def test_onnx_backend_reads_rectangular_metadata(self, tmp_path):
         pytest.importorskip("onnx")
@@ -832,12 +1028,12 @@ class TestTensorRTFormat:
 class TestTensorRTValidation:
     """Test TensorRT export parameter validation."""
 
-    def test_int8_requires_data(self):
-        """INT8 export without data should raise ValueError."""
+    def test_int8_without_data_requires_calibration(self):
+        """TensorRT INT8 export requires explicit calibration data."""
         wrapper = _make_wrapper()
         exporter = TensorRTExporter(wrapper)
 
-        with pytest.raises(ValueError, match="calibration data"):
+        with pytest.raises(ValueError, match="requires calibration data"):
             exporter(int8=True)
 
     def test_int8_with_data_no_immediate_error(self, monkeypatch):
@@ -962,12 +1158,12 @@ class TestOpenVINOFormat:
 class TestOpenVINOValidation:
     """Test OpenVINO export parameter validation."""
 
-    def test_int8_requires_data(self):
-        """INT8 export without data should raise ValueError."""
+    def test_int8_without_data_requires_calibration(self):
+        """OpenVINO INT8 export requires explicit calibration data."""
         wrapper = _make_wrapper()
         exporter = OpenVINOExporter(wrapper)
 
-        with pytest.raises(ValueError, match="calibration data"):
+        with pytest.raises(ValueError, match="requires calibration data"):
             exporter(int8=True)
 
     def test_int8_with_data_no_immediate_error(self, monkeypatch):

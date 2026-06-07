@@ -312,6 +312,82 @@ def test_yolo9_backend_parse_accepts_rectangular_imgsz():
     np.testing.assert_array_equal(classes, [0])
 
 
+def test_embedded_nms_backend_parse_drops_boxes_collapsed_by_clipping():
+    backend = _DummyBackend("yolo9")
+    backend.embedded_nms = True
+    det = np.array(
+        [
+            [
+                [-20.0, -20.0, -1.0, -1.0, 0.9, 1.0],
+                [10.0, 20.0, 30.0, 40.0, 0.8, 0.0],
+                [0.0, 0.0, 10.0, 10.0, 0.1, 0.0],
+            ]
+        ],
+        dtype=np.float32,
+    )
+
+    boxes, scores, classes, masks = backend._parse_outputs(
+        [det], 100, (100, 100), conf=0.25
+    )
+
+    assert masks is None
+    np.testing.assert_allclose(boxes, [[10.0, 20.0, 30.0, 40.0]])
+    np.testing.assert_allclose(scores, [0.8])
+    np.testing.assert_array_equal(classes, [0])
+
+
+def test_yolo9_backend_parse_drops_boxes_collapsed_by_clipping():
+    backend = _DummyBackend("yolo9")
+    pred = np.zeros((1, 5, 2), dtype=np.float32)
+    pred[0, :4, 0] = [-20.0, -20.0, -1.0, -1.0]
+    pred[0, :4, 1] = [10.0, 20.0, 30.0, 40.0]
+    pred[0, 4, :] = [0.9, 0.8]
+
+    boxes, scores, classes, masks = backend._parse_outputs(
+        [pred], 100, (100, 100), conf=0.25
+    )
+
+    assert masks is None
+    np.testing.assert_allclose(boxes, [[10.0, 20.0, 30.0, 40.0]])
+    np.testing.assert_allclose(scores, [0.8])
+    np.testing.assert_array_equal(classes, [0])
+
+
+def test_embedded_nms_backend_applies_post_clip_nms():
+    backend = _DummyBackend("yolo9")
+    backend.embedded_nms = True
+    det = np.array(
+        [
+            [
+                [0.0, 0.0, 100.0, 100.0, 0.9, 0.0],
+                [0.0, 0.0, 100.0, 40.0, 0.8, 0.0],
+            ]
+        ],
+        dtype=np.float32,
+    )
+
+    boxes, scores, classes, masks = backend._parse_outputs(
+        [det], 100, (100, 50), conf=0.25
+    )
+    result = backend._build_result(
+        boxes,
+        scores,
+        classes,
+        orig_shape=(50, 100),
+        image_path=None,
+        iou=0.45,
+        classes=None,
+        max_det=300,
+    )
+
+    assert masks is None
+    assert len(result.boxes) == 1
+    np.testing.assert_allclose(
+        result.boxes.xyxy.numpy(), [[0.0, 0.0, 100.0, 50.0]]
+    )
+    np.testing.assert_allclose(result.boxes.conf.numpy(), [0.9])
+
+
 def test_backend_rejects_rectangular_imgsz_for_non_yolo9_family():
     backend = _DummyBackend("yolox")
 
@@ -471,9 +547,11 @@ def test_yolo9_backend_parse_caps_multilabel_candidates(monkeypatch):
     )
 
     assert masks is None
-    assert boxes.shape[0] == 3
-    np.testing.assert_allclose(np.sort(scores), [0.7, 0.8, 0.9], rtol=0, atol=1e-6)
-    np.testing.assert_array_equal(classes, [0, 1, 0])
+    assert boxes.shape[0] == 8
+    np.testing.assert_allclose(
+        np.sort(scores), [0.1, 0.2, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9], rtol=0, atol=1e-6
+    )
+    np.testing.assert_array_equal(classes, [0, 1, 0, 1, 0, 1, 0, 1])
 
 
 def test_yolo9_obb_backend_parse_outputs_obb_payload():
@@ -712,10 +790,10 @@ def test_yolo9_segment_backend_parses_masks():
         [pred, proto, coeffs], 64, (128, 96), conf=0.25
     )
 
-    assert boxes.shape[0] == 4
-    assert scores.shape[0] == 4
-    assert classes.shape[0] == 4
-    assert masks.shape == (4, 96, 128)
+    assert boxes.shape[0] == 3
+    assert scores.shape[0] == 3
+    assert classes.shape[0] == 3
+    assert masks.shape == (3, 96, 128)
 
 
 def test_backend_call_accepts_device_kwarg(monkeypatch):

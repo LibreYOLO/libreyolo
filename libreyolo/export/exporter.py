@@ -17,11 +17,19 @@ from typing import Optional, Tuple, Union
 
 import torch
 
-from .onnx import _get_version, _uses_dfine_style_export_wrapper, export_onnx
+from .onnx import (
+    _get_version,
+    _uses_dfine_style_export_wrapper,
+    check_onnx_int8_available,
+    export_onnx,
+    quantize_onnx_int8,
+)
 from .torchscript import export_torchscript
 from ..utils.serialization import SCHEMA_VERSION
 
 logger = logging.getLogger(__name__)
+
+DEFAULT_INT8_CALIBRATION_DATA = "coco8.yaml"
 
 
 # Precision helpers
@@ -145,9 +153,11 @@ class BaseExporter(ABC):
     format_name: str  # e.g. "onnx"
     suffix: str  # e.g. ".onnx"
     requires_onnx: bool  # TensorRT/OpenVINO need intermediate ONNX
-    supports_int8: bool  # only TensorRT/OpenVINO support INT8 calibration
+    supports_int8: bool  # whether the format supports INT8 calibration
     supports_fp16: bool  # whether the format supports FP16 export
     apply_model_half: bool  # whether to cast model to fp16 (only ONNX/TorchScript)
+    supports_embedded_nms: bool = False
+    default_int8_calibration_data: bool = False
 
     def __init_subclass__(cls, **kwargs):
         super().__init_subclass__(**kwargs)
@@ -215,6 +225,7 @@ class BaseExporter(ABC):
         """
         half, int8 = self._validate(half, int8, data)
         self._preflight(half=half, int8=int8, data=data, **kwargs)
+        data = self._resolve_calibration_data(int8, data)
 
         if opset is None:
             # DETR-style families use deformable attention / layer norm ops
@@ -240,7 +251,10 @@ class BaseExporter(ABC):
         onnx_path = None
 
         try:
-            with self._model_context(device, half, batch, imgsz) as (nn_model, dummy):
+            with self._model_context(device, half, int8, batch, imgsz) as (
+                nn_model,
+                dummy,
+            ):
                 calibration_data = (
                     self._load_calibration(
                         data,
@@ -323,20 +337,38 @@ class BaseExporter(ABC):
 
     def _validate(self, half: bool, int8: bool, data: Optional[str]):
         """Validate precision flags and calibration requirements."""
-        if int8 and data is None and self.supports_int8:
-            raise ValueError(
-                "INT8 quantization requires calibration data.\n"
-                "Provide data='path/to/data.yaml' or data='coco8' for built-in dataset."
-            )
         if half and int8:
             warnings.warn(
-                "Both half=True and int8=True specified. Using INT8 precision."
+                "Both half=True and int8=True specified. Using INT8 precision.",
+                stacklevel=2,
             )
             half = False
+        if int8 and not self.supports_int8:
+            raise NotImplementedError(
+                f"{self.format_name.upper()} INT8 export is not supported."
+            )
+        if int8 and data is None and not self.default_int8_calibration_data:
+            raise ValueError("INT8 export requires calibration data. Pass data=...")
         return half, int8
+
+    def _resolve_calibration_data(self, int8: bool, data: Optional[str]) -> Optional[str]:
+        """Apply the default INT8 calibration dataset when data is omitted."""
+        if not int8 or data is not None or not self.default_int8_calibration_data:
+            return data
+        logger.warning(
+            "INT8 export requested without calibration data; using %s. "
+            "This 8-image fallback is not representative. For accuracy validation, "
+            "use a calibration dataset with roughly 300 or more representative images.",
+            DEFAULT_INT8_CALIBRATION_DATA,
+        )
+        return DEFAULT_INT8_CALIBRATION_DATA
 
     def _preflight(self, *, half: bool, int8: bool, data: Optional[str], **kwargs):
         """Run cheap format-specific checks before model or calibration setup."""
+        if kwargs.get("nms") and not self.supports_embedded_nms:
+            raise NotImplementedError(
+                f"{self.format_name.upper()} embedded NMS export is not supported."
+            )
         if self.requires_onnx and importlib.util.find_spec("onnx") is None:
             raise ImportError(
                 "ONNX export requires the 'onnx' package. "
@@ -424,7 +456,7 @@ class BaseExporter(ABC):
         )
 
     @contextmanager
-    def _model_context(self, device, half, batch, imgsz):
+    def _model_context(self, device, half, int8, batch, imgsz):
         """Setup model for export and restore state afterwards."""
         nn_model = self.model.model
         root_model = nn_model
@@ -547,7 +579,7 @@ class BaseExporter(ABC):
         h, w = imgsz
         dummy = torch.randn(batch, 3, h, w, device=device)
 
-        if half and self.apply_model_half:
+        if half and not int8 and self.apply_model_half:
             nn_model.half()
             dummy = dummy.half()
 
@@ -558,7 +590,7 @@ class BaseExporter(ABC):
                 _restore_rfdetr_export_state(rfdetr_export_snapshots)
             nn_model.to(original_device)
             root_model.to(original_device)
-            if half and self.apply_model_half:
+            if half and not int8 and self.apply_model_half:
                 nn_model.float()
                 root_model.float()
             if original_training:
@@ -718,6 +750,7 @@ class BaseExporter(ABC):
             "imgsz_h": meta_h,
             "imgsz_w": meta_w,
             "dynamic": str(dynamic),
+            "precision": "fp16" if half else "fp32",
             "half": str(half),
             "segmentation": str(getattr(self.model, "_is_segmentation", False)).lower(),
             "obb": str(task == "obb").lower(),
@@ -777,9 +810,32 @@ class OnnxExporter(BaseExporter):
     format_name = "onnx"
     suffix = ".onnx"
     requires_onnx = False
-    supports_int8 = False
+    supports_int8 = True
     supports_fp16 = True
     apply_model_half = True
+    supports_embedded_nms = True
+    default_int8_calibration_data = True
+
+    def _preflight(self, *, half: bool, int8: bool, data: Optional[str], **kwargs):
+        if int8:
+            task = getattr(self.model, "task", "detect")
+            if not isinstance(task, str):
+                task = "detect"
+            if self.model._get_model_name() != "yolo9" or task != "detect":
+                raise NotImplementedError(
+                    "ONNX INT8 export currently supports YOLO9 detection models only."
+                )
+            check_onnx_int8_available()
+        if kwargs.get("nms"):
+            task = getattr(self.model, "task", "detect")
+            if not isinstance(task, str):
+                task = "detect"
+            if self.model._get_model_name() != "yolo9" or task != "detect":
+                raise NotImplementedError(
+                    "Embedded NMS ONNX export currently supports YOLO9 "
+                    "detection models only."
+                )
+        super()._preflight(half=half, int8=int8, data=data, **kwargs)
 
     def _export(
         self,
@@ -788,12 +844,88 @@ class OnnxExporter(BaseExporter):
         *,
         output_path,
         metadata,
+        calibration_data,
         half,
+        int8,
         dynamic,
         opset,
         simplify,
+        nms=False,
+        iou=0.45,
+        conf=0.25,
+        max_det=300,
+        calibrate_method="MinMax",
+        nodes_to_exclude=None,
         **kwargs,
     ):
+        imgsz = (dummy.shape[-2], dummy.shape[-1])
+
+        if nms:
+            from .nms import EmbeddedNMSDetector
+
+            if dummy.shape[0] != 1:
+                raise NotImplementedError(
+                    "Embedded NMS ONNX export currently requires batch=1."
+                )
+            if dynamic:
+                logger.warning(
+                    "Embedded NMS uses a fixed batch-1 graph; forcing dynamic=False."
+                )
+                dynamic = False
+            nn_model = EmbeddedNMSDetector(
+                nn_model,
+                conf=conf,
+                iou=iou,
+                max_det=max_det,
+            ).eval()
+
+        def _onnx_metadata(precision_half: bool) -> dict:
+            meta = self._build_onnx_metadata(
+                dynamic=dynamic,
+                half=precision_half,
+                imgsz=imgsz,
+            )
+            if nms:
+                meta["nms"] = "true"
+                meta["nms_conf"] = str(conf)
+                meta["nms_iou"] = str(iou)
+                meta["max_det"] = str(max_det)
+                meta["nms_raw_output"] = "true"
+            return meta
+
+        if int8:
+            import tempfile
+
+            output = Path(output_path)
+            int8_metadata = _onnx_metadata(precision_half=False)
+            int8_metadata["precision"] = "int8"
+            with tempfile.TemporaryDirectory(
+                prefix=f"{output.stem}_", dir=str(output.parent)
+            ) as tmpdir:
+                fp32_path = str(Path(tmpdir) / "model_fp32.onnx")
+                preprocessed_path = str(Path(tmpdir) / "model_fp32_infer.onnx")
+                export_onnx(
+                    nn_model,
+                    dummy,
+                    output_path=fp32_path,
+                    opset=opset,
+                    simplify=simplify,
+                    dynamic=dynamic,
+                    half=False,
+                    metadata=_onnx_metadata(precision_half=False),
+                    nms=nms,
+                )
+                return quantize_onnx_int8(
+                    fp32_path,
+                    output_path,
+                    calibration_data=calibration_data,
+                    metadata=int8_metadata,
+                    preprocessed_path=preprocessed_path,
+                    calibrate_method=calibrate_method,
+                    nodes_to_exclude=nodes_to_exclude,
+                    skip_symbolic_shape=nms,
+                )
+
         return export_onnx(
             nn_model,
             dummy,
@@ -802,11 +934,8 @@ class OnnxExporter(BaseExporter):
             simplify=simplify,
             dynamic=dynamic,
             half=half,
-            metadata=self._build_onnx_metadata(
-                dynamic=dynamic,
-                half=half,
-                imgsz=(dummy.shape[-2], dummy.shape[-1]),
-            ),
+            metadata=_onnx_metadata(precision_half=half),
+            nms=nms,
         )
 
 
@@ -1065,6 +1194,30 @@ class CoreMLExporter(BaseExporter):
     supports_int8 = False
     supports_fp16 = True
     apply_model_half = False  # ct.convert handles precision via compute_precision
+    supports_embedded_nms = True
+
+    def _preflight(self, *, half: bool, int8: bool, data: Optional[str], **kwargs):
+        if kwargs.get("nms"):
+            family = self.model._get_model_name()
+            task = getattr(self.model, "task", "detect")
+            if not isinstance(task, str):
+                task = "detect"
+            if family == "yolo9" and task != "detect":
+                raise NotImplementedError(
+                    "CoreML embedded NMS currently supports YOLO9 detection "
+                    "models only."
+                )
+            if family not in {"yolox", "yolo9"}:
+                raise NotImplementedError(
+                    "CoreML embedded NMS currently supports YOLOX and YOLO9 "
+                    "detection models only."
+                )
+            if kwargs.get("max_det", 300) != 300:
+                raise NotImplementedError(
+                    "CoreML embedded NMS does not support max_det. "
+                    "Use ONNX embedded NMS when max_det control is required."
+                )
+        super()._preflight(half=half, int8=int8, data=data, **kwargs)
 
     def _export(
         self,

@@ -384,7 +384,9 @@ def _build_rfdetr_train_kwargs(
         "flip_prob": "flip_prob",
         "amp": "amp",
         "lora": "lora",
+        "freeze": "freeze",
         "log_interval": "log_interval",
+        "cache": "cache",
     }
 
     for cli_name, target_name in direct_mappings.items():

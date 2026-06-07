@@ -67,6 +67,24 @@ YOLO9-family exports may use non-square `imgsz_h/imgsz_w` in supported runtime
 formats; families or formats without explicit rectangular support must reject
 the metadata instead of preprocessing those artifacts as square inputs.
 
+Embedded-NMS runtime exports may also write these flat metadata keys:
+
+- `nms`: string boolean. `"true"` means the exported graph includes an
+  embedded post-processing output.
+- `nms_conf`: confidence threshold baked into the embedded NMS graph output.
+- `nms_iou`: IoU threshold baked into the embedded NMS graph output.
+- `max_det`: maximum number of post-NMS detection rows emitted by the embedded
+  graph output.
+- `nms_raw_output`: string boolean. `"true"` means the exported graph also
+  exposes an auxiliary raw detector output for LibreYOLO backend parsing.
+
+For ONNX YOLO9 detection exports with `nms=true`, output `0` / `output` is the
+standalone post-NMS tensor using the export-time `nms_conf`, `nms_iou`, and
+`max_det` values. When `nms_raw_output=true`, output `1` / `raw` is reserved for
+LibreYOLO backends so they can apply native original-canvas clipping and runtime
+`predict(conf=..., iou=..., max_det=...)` semantics. Third-party consumers that
+want graph-embedded NMS should use the first output.
+
 ## Training Checkpoints
 
 Trainer checkpoints use the same required metadata core and may also contain

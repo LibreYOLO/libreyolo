@@ -61,7 +61,28 @@ def test_predict_missing_source_exits_with_data_error_code():
     assert data["error"] == "source_not_found"
 
 
-def test_export_precision_conflict_exits_with_usage_error_code():
+def test_export_precision_conflict_lets_int8_win(monkeypatch, tmp_path):
+    captured = {}
+
+    class _ExportModel:
+        FAMILY = "yolo9"
+        size = "t"
+        INPUT_SIZES = {"t": 640}
+
+        def export(self, **kwargs):
+            captured.update(kwargs)
+            out = tmp_path / "model_int8.onnx"
+            out.write_bytes(b"onnx")
+            return str(out)
+
+    monkeypatch.setattr(
+        "libreyolo.cli.commands.export.resolve_model_or_exit",
+        lambda out, model: model,
+    )
+    monkeypatch.setattr(
+        "libreyolo.cli.commands.export.load_model_or_exit",
+        lambda *args, **kwargs: _ExportModel(),
+    )
     app = _make_app(
         [
             ("predict", predict.predict_cmd),
@@ -81,9 +102,100 @@ def test_export_precision_conflict_exits_with_usage_error_code():
         ],
     )
 
-    assert result.exit_code == 2
+    assert result.exit_code == 0
+    assert captured["half"] is False
+    assert captured["int8"] is True
+    assert captured["fraction"] == 1.0
     data = json.loads(result.stdout)
-    assert data["error"] == "config_conflict"
+    assert data["half"] is False
+    assert data["int8"] is True
+
+
+def test_export_int8_forwards_fraction_without_explicit_data(monkeypatch, tmp_path):
+    captured = {}
+
+    class _ExportModel:
+        FAMILY = "yolo9"
+        size = "t"
+        INPUT_SIZES = {"t": 640}
+
+        def export(self, **kwargs):
+            captured.update(kwargs)
+            out = tmp_path / "model_int8.onnx"
+            out.write_bytes(b"onnx")
+            return str(out)
+
+    monkeypatch.setattr(
+        "libreyolo.cli.commands.export.resolve_model_or_exit",
+        lambda out, model: model,
+    )
+    monkeypatch.setattr(
+        "libreyolo.cli.commands.export.load_model_or_exit",
+        lambda *args, **kwargs: _ExportModel(),
+    )
+    app = _make_app(
+        [
+            ("predict", predict.predict_cmd),
+            ("export", export.export_cmd),
+            ("info", special.info_cmd),
+        ]
+    )
+    result = runner.invoke(
+        app,
+        [
+            "export",
+            "model=yolox-s",
+            "format=onnx",
+            "int8=true",
+            "fraction=0.25",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert captured["int8"] is True
+    assert captured["fraction"] == 0.25
+    assert captured["allow_download_scripts"] is False
+    assert "data" not in captured
+
+
+def test_export_unsupported_precision_uses_export_error_code(monkeypatch):
+    class _ExportModel:
+        def export(self, **kwargs):
+            raise NotImplementedError(
+                "ONNX INT8 export currently supports YOLO9 detection models only."
+            )
+
+    monkeypatch.setattr(
+        "libreyolo.cli.commands.export.resolve_model_or_exit",
+        lambda out, model: model,
+    )
+    monkeypatch.setattr(
+        "libreyolo.cli.commands.export.load_model_or_exit",
+        lambda *args, **kwargs: _ExportModel(),
+    )
+    app = _make_app(
+        [
+            ("predict", predict.predict_cmd),
+            ("export", export.export_cmd),
+            ("info", special.info_cmd),
+        ]
+    )
+    result = runner.invoke(
+        app,
+        [
+            "export",
+            "model=yolox-s",
+            "format=onnx",
+            "int8=true",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 5
+    data = json.loads(result.stdout)
+    assert data["error"] == "format_precision_unsupported"
+    assert "YOLO9 detection" in data["message"]
 
 
 def test_info_unknown_model_exits_with_model_error_code():

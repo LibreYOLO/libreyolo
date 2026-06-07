@@ -6,10 +6,11 @@ and loss extraction.
 """
 
 import torch
-from typing import Dict, Type
+from typing import Dict, List, Type
 
 from libreyolo.training.trainer import BaseTrainer
 from libreyolo.training.config import TrainConfig, YOLO9Config
+from libreyolo.training.freezing import FreezeGroup
 from ...training.scheduler import LinearLRScheduler, CosineAnnealingScheduler
 from .transforms import YOLO9TrainTransform, YOLO9MosaicMixupDataset
 
@@ -28,6 +29,44 @@ class YOLO9Trainer(BaseTrainer):
 
     def get_model_tag(self) -> str:
         return f"YOLOv9-{self.config.size}"
+
+    def get_freeze_groups(self) -> List[FreezeGroup]:
+        model = self.model
+        backbone = getattr(model, "backbone", None)
+        neck = getattr(model, "neck", None)
+        head = getattr(model, "head", None)
+        groups: List[FreezeGroup] = []
+        if backbone is not None:
+            for name in (
+                "conv0",
+                "conv1",
+                "elan1",
+                "down2",
+                "elan2",
+                "down3",
+                "elan3",
+                "down4",
+                "elan4",
+                "spp",
+            ):
+                module = getattr(backbone, name, None)
+                if module is not None:
+                    groups.append((f"backbone.{name}", module))
+        if neck is not None:
+            for name in (
+                "elan_up1",
+                "elan_up2",
+                "down1",
+                "elan_down1",
+                "down2",
+                "elan_down2",
+            ):
+                module = getattr(neck, name, None)
+                if module is not None:
+                    groups.append((f"neck.{name}", module))
+        if head is not None:
+            groups.append(("head", head))
+        return groups or super().get_freeze_groups()
 
     def create_transforms(self):
         task = getattr(getattr(self, "wrapper_model", None), "task", "detect")
