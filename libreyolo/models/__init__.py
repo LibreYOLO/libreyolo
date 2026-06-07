@@ -372,6 +372,24 @@ def LibreYOLO(
         and (has_partial_metadata or _looks_like_libreyolo_filename(model_path))
     )
     if not has_v1_metadata:
+        # Partial metadata such as ``names`` can appear in upstream fine-tunes.
+        # Try recognized flagship conversion before treating the file as an old
+        # LibreYOLO checkpoint; otherwise numbered upstream YOLO9 keys never
+        # reach the converter.
+        from .autoconvert import autoconvert_upstream_checkpoint
+
+        converted_path = autoconvert_upstream_checkpoint(model_path, loaded=loaded)
+        if converted_path is not None and converted_path != model_path:
+            return LibreYOLO(
+                converted_path,
+                size=size,
+                reg_max=reg_max,
+                nb_classes=nb_classes,
+                device=device,
+                task=task,
+                compute_units=compute_units,
+            )
+
         if is_legacy_libreyolo:
             logger.warning(
                 "LibreYOLO checkpoint metadata is missing or incomplete for %s: %s. "
@@ -381,24 +399,6 @@ def LibreYOLO(
                 _METADATA_CONVERSION_HELP,
             )
         else:
-            # Foreign checkpoint. If it's an upstream flagship (YOLO9 / RF-DETR)
-            # we can auto-convert it to a LibreYOLO v1.0 checkpoint and load that
-            # cleanly instead of falling back to the legacy detection path.
-            from .autoconvert import autoconvert_upstream_checkpoint
-
-            converted_path = autoconvert_upstream_checkpoint(
-                model_path, loaded=loaded
-            )
-            if converted_path is not None and converted_path != model_path:
-                return LibreYOLO(
-                    converted_path,
-                    size=size,
-                    reg_max=reg_max,
-                    nb_classes=nb_classes,
-                    device=device,
-                    task=task,
-                    compute_units=compute_units,
-                )
             logger.warning(
                 "LibreYOLO metadata was not found in %s. Loading through the "
                 "legacy architecture-detection path. This appears to be an "

@@ -183,9 +183,9 @@ def autoconvert_upstream_checkpoint(
     Args:
         model_path: Path to the (possibly upstream) checkpoint file.
         loaded: Pre-loaded checkpoint object, when the caller already has it
-            from a safe load. When ``None`` the file is loaded with the trusted
-            loader (needed for RF-DETR, whose ``argparse.Namespace`` breaks the
-            safe loader).
+            from a safe load. When ``None`` the file is loaded through the safe
+            loader with the minimal upstream allowlist needed for RF-DETR
+            ``argparse.Namespace`` metadata.
 
     Returns:
         Path to the converted file written beside the source, or ``None`` if the
