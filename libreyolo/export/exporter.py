@@ -156,6 +156,7 @@ class BaseExporter(ABC):
     supports_int8: bool  # whether the format supports INT8 calibration
     supports_fp16: bool  # whether the format supports FP16 export
     apply_model_half: bool  # whether to cast model to fp16 (only ONNX/TorchScript)
+    supports_embedded_nms: bool = False
     default_int8_calibration_data: bool = False
 
     def __init_subclass__(cls, **kwargs):
@@ -364,6 +365,10 @@ class BaseExporter(ABC):
 
     def _preflight(self, *, half: bool, int8: bool, data: Optional[str], **kwargs):
         """Run cheap format-specific checks before model or calibration setup."""
+        if kwargs.get("nms") and not self.supports_embedded_nms:
+            raise NotImplementedError(
+                f"{self.format_name.upper()} embedded NMS export is not supported."
+            )
         if self.requires_onnx and importlib.util.find_spec("onnx") is None:
             raise ImportError(
                 "ONNX export requires the 'onnx' package. "
@@ -791,6 +796,7 @@ class OnnxExporter(BaseExporter):
     supports_int8 = True
     supports_fp16 = True
     apply_model_half = True
+    supports_embedded_nms = True
     default_int8_calibration_data = True
 
     def _preflight(self, *, half: bool, int8: bool, data: Optional[str], **kwargs):
@@ -1169,6 +1175,7 @@ class CoreMLExporter(BaseExporter):
     supports_int8 = False
     supports_fp16 = True
     apply_model_half = False  # ct.convert handles precision via compute_precision
+    supports_embedded_nms = True
 
     def _export(
         self,

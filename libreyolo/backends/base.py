@@ -710,6 +710,10 @@ class BaseBackend(ABC):
         boxes /= ratio
         boxes[:, [0, 2]] = np.clip(boxes[:, [0, 2]], 0, orig_w)
         boxes[:, [1, 3]] = np.clip(boxes[:, [1, 3]], 0, orig_h)
+        valid = (boxes[:, 2] > boxes[:, 0]) & (boxes[:, 3] > boxes[:, 1])
+        boxes = boxes[valid]
+        scores = scores[valid]
+        class_ids = class_ids[valid]
         return boxes, scores, class_ids
 
     def _parse_yolo9(

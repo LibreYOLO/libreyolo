@@ -25,6 +25,15 @@ NC = 4
 MAX_DET = 100
 
 
+class _RawExportModel(torch.nn.Module):
+    def __init__(self, raw: torch.Tensor):
+        super().__init__()
+        self.register_buffer("raw", raw)
+
+    def forward(self, x):
+        return self.raw
+
+
 def _set_unmatched(rows_a, rows_b, *, box_tol=1e-3, score_tol=1e-4):
     """Count rows in a with no exact (box, score, class) counterpart in b."""
     used = np.zeros(len(rows_b), dtype=bool)
@@ -41,6 +50,33 @@ def _set_unmatched(rows_a, rows_b, *, box_tol=1e-3, score_tol=1e-4):
         else:
             unmatched += 1
     return unmatched
+
+
+def test_embedded_nms_caps_candidates_before_suppression(monkeypatch):
+    from libreyolo.export import nms as nms_mod
+
+    monkeypatch.setattr(nms_mod, "_YOLO9_MAX_NMS_CANDIDATES", 3)
+    raw = torch.zeros(1, 7, 2)
+    raw[0, :4, 0] = torch.tensor([0.0, 0.0, 10.0, 10.0])
+    raw[0, :4, 1] = torch.tensor([20.0, 20.0, 30.0, 30.0])
+    raw[0, 4:, :] = torch.tensor(
+        [
+            [0.9, 0.6],
+            [0.8, 0.5],
+            [0.7, 0.4],
+        ]
+    )
+
+    wrapped = nms_mod.EmbeddedNMSDetector(
+        _RawExportModel(raw), conf=0.1, iou=0.45, max_det=10
+    )
+
+    out = wrapped(torch.zeros(1, 3, 32, 32))[0].detach().numpy()
+    det = out[out[:, 4] > 0]
+
+    assert det.shape[0] == 3
+    np.testing.assert_allclose(det[:, 4], [0.9, 0.8, 0.7])
+    np.testing.assert_array_equal(det[:, 5], [0.0, 1.0, 2.0])
 
 
 @pytest.mark.skipif(not _HAS_ORT, reason="onnx/onnxruntime not installed")

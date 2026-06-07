@@ -114,11 +114,31 @@ class TestExporterFormats:
     def test_subclass_attributes(self):
         assert OnnxExporter.suffix == ".onnx"
         assert OnnxExporter.supports_int8 is True
+        assert OnnxExporter.supports_embedded_nms is True
+        assert CoreMLExporter.supports_embedded_nms is True
         assert TensorRTExporter.requires_onnx is True
         assert TorchScriptExporter.apply_model_half is True
+        assert TorchScriptExporter.supports_embedded_nms is False
         assert NcnnExporter.supports_int8 is False
         assert TFLiteExporter.requires_onnx is True
         assert TFLiteExporter.supports_fp16 is False
+
+    def test_unsupported_exporter_rejects_embedded_nms(self):
+        exporter = TorchScriptExporter(_make_wrapper())
+
+        with pytest.raises(NotImplementedError, match="TORCHSCRIPT embedded NMS"):
+            exporter._preflight(half=False, int8=False, data=None, nms=True)
+
+    def test_coreml_exporter_accepts_embedded_nms_preflight(self):
+        exporter = CoreMLExporter(_make_wrapper())
+
+        exporter._preflight(half=False, int8=False, data=None, nms=True)
+
+    def test_onnx_embedded_nms_preflight_rejects_non_yolo9_detect(self):
+        exporter = OnnxExporter(_make_wrapper(model_name="yolox"))
+
+        with pytest.raises(NotImplementedError, match="YOLO9 detection"):
+            exporter._preflight(half=False, int8=False, data=None, nms=True)
 
     def test_metadata_includes_task_contract(self):
         wrapper = _make_wrapper()

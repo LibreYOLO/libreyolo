@@ -243,6 +243,30 @@ def test_yolo9_backend_parse_accepts_rectangular_imgsz():
     np.testing.assert_array_equal(classes, [0])
 
 
+def test_embedded_nms_backend_parse_drops_boxes_collapsed_by_clipping():
+    backend = _DummyBackend("yolo9")
+    backend.embedded_nms = True
+    det = np.array(
+        [
+            [
+                [-20.0, -20.0, -1.0, -1.0, 0.9, 1.0],
+                [10.0, 20.0, 30.0, 40.0, 0.8, 0.0],
+                [0.0, 0.0, 10.0, 10.0, 0.1, 0.0],
+            ]
+        ],
+        dtype=np.float32,
+    )
+
+    boxes, scores, classes, masks = backend._parse_outputs(
+        [det], 100, (100, 100), conf=0.25
+    )
+
+    assert masks is None
+    np.testing.assert_allclose(boxes, [[10.0, 20.0, 30.0, 40.0]])
+    np.testing.assert_allclose(scores, [0.8])
+    np.testing.assert_array_equal(classes, [0])
+
+
 def test_backend_rejects_rectangular_imgsz_for_non_yolo9_family():
     backend = _DummyBackend("yolox")
 

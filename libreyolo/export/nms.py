@@ -26,6 +26,8 @@ import torch
 import torch.nn as nn
 from torchvision.ops import nms as _nms
 
+from ..models.yolo9.utils import _YOLO9_MAX_NMS_CANDIDATES
+
 
 class EmbeddedNMSDetector(nn.Module):
     """Detector wrapper returning post-NMS detections of shape ``(1, max_det, 6)``.
@@ -54,13 +56,22 @@ class EmbeddedNMSDetector(nn.Module):
 
         # Multi-label candidate selection: every (anchor, class) pair scoring
         # above conf becomes a detection, matching the YOLO9 post-processing.
-        # Thresholding here (before NMS) also keeps suppression off the flood of
-        # low-score anchors that can never be returned.
-        cand = (scores_all > self.conf).nonzero()  # (K, 2): [anchor, class]
-        anchor_idx = cand[:, 0]
-        class_idx = cand[:, 1]
+        # Native YOLO9 caps candidates before NMS; taking the top scores before
+        # thresholding is equivalent to threshold-then-cap, but bounds the ONNX
+        # NonMaxSuppression input for low-conf exports.
+        flat_scores = scores_all.reshape(-1)
+        num_classes = scores_all.shape[1]
+        max_nms = min(flat_scores.shape[0], _YOLO9_MAX_NMS_CANDIDATES)
+        top_scores, top_flat_idx = torch.topk(flat_scores, max_nms)
+        score_mask = top_scores > self.conf
+        top_scores = top_scores[score_mask]
+        top_flat_idx = top_flat_idx[score_mask]
+        anchor_idx = torch.floor(top_flat_idx.to(torch.float32) / float(num_classes)).to(
+            torch.long
+        )
+        class_idx = top_flat_idx - anchor_idx * num_classes
         cand_boxes = boxes_all[anchor_idx]  # (K, 4)
-        cand_scores = scores_all[anchor_idx, class_idx]  # (K,)
+        cand_scores = top_scores  # (K,)
         cand_cls = class_idx.to(boxes_all.dtype)  # (K,)
 
         # Class-aware NMS via the coordinate-offset trick. The per-class step is
