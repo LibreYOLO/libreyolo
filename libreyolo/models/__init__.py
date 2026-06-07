@@ -175,6 +175,9 @@ def _has_any_libreyolo_metadata(loaded: object) -> bool:
 
 def _infer_yolo9_head_task(weights_dict: dict) -> str | None:
     """Infer YOLO9 task from task-specific head branches when metadata is absent."""
+    if "head.linear.weight" in weights_dict:
+        return "classify"
+
     if any(k.startswith("head.proto") for k in weights_dict):
         return "segment"
 

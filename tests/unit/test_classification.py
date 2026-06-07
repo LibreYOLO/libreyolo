@@ -7,6 +7,8 @@ run on CPU with a tiny synthetic ImageFolder so they need no network or GPU.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import numpy as np
 import pytest
 import torch
@@ -38,6 +40,17 @@ def _make_imagefolder(root, n_classes=3, n_per=5, size=64):
     return classes
 
 
+def _make_named_imagefolder(root, classes, n_per=2, size=32):
+    for split in ("train", "val"):
+        for ci, name in enumerate(classes):
+            cls_dir = root / split / name
+            cls_dir.mkdir(parents=True, exist_ok=True)
+            base = np.zeros((size, size, 3), dtype=np.uint8)
+            base[:, :, ci % 3] = 200
+            for j in range(n_per):
+                Image.fromarray(base).save(cls_dir / f"{name}_{j}.png")
+
+
 def test_classify_dataset_and_collate(tmp_path):
     from libreyolo.data import ClassifyDataset, classify_collate_fn, get_class_names
 
@@ -54,6 +67,24 @@ def test_classify_dataset_and_collate(tmp_path):
     assert imgs.shape == (4, 3, 32, 32)
     assert labels.shape == (4,) and labels.dtype == torch.long
     assert len(infos) == 4 and len(ids) == 4
+
+
+def test_classify_dataset_rejects_unknown_split_classes(tmp_path):
+    from libreyolo.data import ClassifyDataset
+
+    _make_named_imagefolder(tmp_path, ["cat"])
+    extra_dir = tmp_path / "val" / "dog"
+    extra_dir.mkdir()
+    Image.new("RGB", (16, 16)).save(extra_dir / "dog.png")
+
+    with pytest.raises(ValueError, match="unknown classes"):
+        ClassifyDataset(
+            tmp_path,
+            split="val",
+            imgsz=32,
+            augment=False,
+            class_to_idx={"cat": 0},
+        )
 
 
 def test_yolo9_classify_forward_and_rebuild():
@@ -104,6 +135,38 @@ def test_classify_validator_top1_top5(tmp_path):
     assert 0.0 <= metrics["metrics/accuracy_top1"] <= 1.0
     # With 3 classes, top-5 collapses to top-3 and must cover everything.
     assert metrics["metrics/accuracy_top5"] == pytest.approx(1.0)
+
+
+def test_classify_validator_uses_model_name_order(tmp_path):
+    from libreyolo.validation import ClassifyValidator, ValidationConfig
+
+    _make_named_imagefolder(tmp_path, ["cat", "dog"])
+
+    class _Model:
+        names = {0: "dog", 1: "cat"}
+        nb_classes = 2
+
+    validator = ClassifyValidator(
+        model=_Model(),
+        config=ValidationConfig(
+            data=str(tmp_path),
+            batch_size=4,
+            imgsz=32,
+            device="cpu",
+            num_workers=0,
+            split="val",
+            verbose=False,
+        ),
+    )
+
+    dataloader = validator._setup_dataloader()
+    labels_by_path = {
+        Path(path).parent.name: int(label)
+        for path, label in dataloader.dataset._impl.samples
+    }
+
+    assert labels_by_path["dog"] == 0
+    assert labels_by_path["cat"] == 1
 
 
 def test_yolo9_classify_predict_returns_probs(tmp_path):
@@ -297,6 +360,45 @@ def test_yolo9_classify_rejects_metadata_less_detection_weights(tmp_path):
 
     with pytest.raises(RuntimeError, match="cannot be loaded as task='classify'"):
         LibreYOLO9(str(path), size="t", task="classify", nb_classes=3, device="cpu")
+
+
+def test_yolo9_classify_allows_detect_transfer_weights(tmp_path):
+    from libreyolo import LibreYOLO9
+    from libreyolo.utils.serialization import wrap_libreyolo_checkpoint
+
+    detect = LibreYOLO9(None, size="t", task="detect", nb_classes=80, device="cpu")
+    transfer_path = tmp_path / "detect.pt"
+    torch.save(
+        wrap_libreyolo_checkpoint(
+            detect.model.state_dict(),
+            model_family="yolo9",
+            size="t",
+            task="detect",
+            nc=80,
+            names=detect.names,
+            imgsz=640,
+        ),
+        transfer_path,
+    )
+
+    classify = LibreYOLO9(None, size="t", task="classify", nb_classes=3, device="cpu")
+    stats = classify._load_transfer_weights(transfer_path)
+
+    assert stats["loaded"] > 0
+    assert classify.model.head.linear.out_features == 3
+
+
+def test_yolo9_raw_classify_checkpoint_infers_task_from_head(tmp_path):
+    from libreyolo import LibreYOLO, LibreYOLO9
+
+    model = LibreYOLO9(None, size="t", task="classify", nb_classes=2, device="cpu")
+    path = tmp_path / "best.pt"
+    torch.save(model.model.state_dict(), path)
+
+    loaded = LibreYOLO(str(path), device="cpu")
+
+    assert loaded.task == "classify"
+    assert loaded.nb_classes == 2
 
 
 def test_rfdetr_classify_detect_size_uses_metadata():

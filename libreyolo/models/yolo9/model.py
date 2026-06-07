@@ -394,7 +394,8 @@ class LibreYOLO9(BaseModel):
             if ckpt_task is not None:
                 normalized_ckpt_task = normalize_task(ckpt_task)
                 allowed = normalized_ckpt_task == self.task or (
-                    self.task in {"segment", "obb"} and normalized_ckpt_task == "detect"
+                    self.task in {"segment", "classify", "obb"}
+                    and normalized_ckpt_task == "detect"
                 )
                 if not allowed:
                     raise RuntimeError(

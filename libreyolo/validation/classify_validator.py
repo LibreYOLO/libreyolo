@@ -18,6 +18,7 @@ from ..data.classify_dataset import (
     get_class_names,
     resolve_classify_data,
 )
+from ..utils.general import COCO_CLASSES
 from .base import BaseValidator
 
 logger = logging.getLogger(__name__)
@@ -28,13 +29,53 @@ class ClassifyValidator(BaseValidator):
 
     task = "classify"
 
+    def _model_class_names(self) -> list[str] | None:
+        names = getattr(self.model, "names", None)
+        if not isinstance(names, dict) or not names:
+            return None
+
+        num_classes = int(getattr(self.model, "nb_classes", len(names)))
+        if any(i not in names for i in range(num_classes)):
+            return None
+
+        ordered = [str(names[i]) for i in range(num_classes)]
+        if ordered == [f"class_{i}" for i in range(num_classes)]:
+            return None
+        if num_classes == len(COCO_CLASSES) and ordered == list(COCO_CLASSES):
+            return None
+        return ordered
+
+    @staticmethod
+    def _format_class_delta(expected: set[str], actual: set[str]) -> str:
+        details = []
+        extra = sorted(actual - expected)
+        missing = sorted(expected - actual)
+        if extra:
+            details.append(f"unknown classes: {extra}")
+        if missing:
+            details.append(f"missing classes: {missing}")
+        return "; ".join(details)
+
     def _setup_dataloader(self) -> DataLoader:
         dataset_root = resolve_classify_data(self.config.data)
         split = self.config.split or "val"
-        # Label indices are pinned to the train split so they line up with the
-        # model head's output channels regardless of split folder ordering.
         train_classes = get_class_names(dataset_root, split="train")
-        class_to_idx = {name: i for i, name in enumerate(train_classes)}
+        model_classes = self._model_class_names()
+        if model_classes is None:
+            class_names = train_classes
+        else:
+            expected = set(model_classes)
+            actual = set(train_classes)
+            if expected != actual:
+                raise ValueError(
+                    "Classification train classes must match the model class names "
+                    f"({self._format_class_delta(expected, actual)})."
+                )
+            class_names = model_classes
+
+        # Label indices are pinned to the model/checkpoint class order when it is
+        # explicit, otherwise to the train split order shared across splits.
+        class_to_idx = {name: i for i, name in enumerate(class_names)}
 
         dataset = ClassifyDataset(
             dataset_root=dataset_root,
@@ -43,7 +84,7 @@ class ClassifyValidator(BaseValidator):
             augment=False,
             class_to_idx=class_to_idx,
         )
-        self._num_classes = len(train_classes)
+        self._num_classes = len(class_names)
         return DataLoader(
             dataset,
             batch_size=self.config.batch_size,

@@ -126,8 +126,10 @@ dataset_root/
 
 `train/` is required for training and defines the class-to-index mapping by
 sorted folder name. `val/` is required for validation. `test/` may be present
-but is not used by the default train/val commands. Supported image extensions
-are defined in `libreyolo.data.classify_dataset.IMAGE_EXTENSIONS`.
+but is not used by the default train/val commands. Non-training splits must
+contain the same class folder names as the expected train/checkpoint class set.
+Supported image extensions are defined in
+`libreyolo.data.classify_dataset.IMAGE_EXTENSIONS`.
 
 ## gaze
 

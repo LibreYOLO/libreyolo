@@ -120,7 +120,9 @@ def resolve_classify_data(data: str | Path) -> Path:
     Returns the dataset root directory (containing ``train``/``val``).
     """
     if data is None:
-        raise ValueError("Classification training requires data= (a dataset root or name).")
+        raise ValueError(
+            "Classification training requires data= (a dataset root or name)."
+        )
 
     data_str = str(data)
     path = Path(data_str)
@@ -161,9 +163,7 @@ def get_class_names(dataset_root: str | Path, split: str = "train") -> List[str]
     split_dir = Path(dataset_root) / split
     if not split_dir.is_dir():
         raise FileNotFoundError(f"Split directory not found: {split_dir}")
-    classes = sorted(
-        entry.name for entry in split_dir.iterdir() if entry.is_dir()
-    )
+    classes = sorted(entry.name for entry in split_dir.iterdir() if entry.is_dir())
     if not classes:
         raise FileNotFoundError(f"No class sub-folders found under {split_dir}.")
     return classes
@@ -224,14 +224,26 @@ class ClassifyDataset(Dataset):
         # Pin the label mapping to the train split when supplied so val labels
         # line up with the head's output indices.
         if class_to_idx is not None:
+            expected = set(class_to_idx)
+            actual = set(self._impl.class_to_idx)
+            unknown = sorted(actual - expected)
+            missing = sorted(expected - actual)
+            if unknown or missing:
+                details = []
+                if unknown:
+                    details.append(f"unknown classes: {unknown}")
+                if missing:
+                    details.append(f"missing classes: {missing}")
+                raise ValueError(
+                    f"Classification split '{split}' classes must match the "
+                    "expected class set from training/checkpoint names "
+                    f"({'; '.join(details)})."
+                )
             remap = {
                 old_idx: class_to_idx[name]
                 for name, old_idx in self._impl.class_to_idx.items()
-                if name in class_to_idx
             }
-            self._impl.samples = [
-                (p, remap[old]) for p, old in self._impl.samples if old in remap
-            ]
+            self._impl.samples = [(p, remap[old]) for p, old in self._impl.samples]
             self._impl.targets = [t for _, t in self._impl.samples]
             self.class_to_idx = class_to_idx
         else:
