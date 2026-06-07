@@ -258,6 +258,9 @@ def test_yolo9_detect_onnx_nms_int8_runs(tmp_path):
 
     torch.manual_seed(0)
     model = LibreYOLO9(None, size="t", nb_classes=NC, device="cpu")
+    for block in model.model.head.cv3:
+        convs = [m for m in block.modules() if isinstance(m, torch.nn.Conv2d)]
+        convs[-1].bias.data.fill_(4.0)
     fp32 = tmp_path / "m32.onnx"
     int8 = tmp_path / "m8.onnx"
     model.export(
@@ -278,5 +281,7 @@ def test_yolo9_detect_onnx_nms_int8_runs(tmp_path):
     assert meta["nms"] == "true"
 
     sess = ort.InferenceSession(str(int8), providers=["CPUExecutionProvider"])
-    out = sess.run(None, {"images": np.zeros((1, 3, IMG, IMG), dtype=np.float32)})[0]
+    x = np.random.default_rng(1).random((1, 3, IMG, IMG), dtype=np.float32)
+    out = sess.run(None, {"images": x})[0]
     assert out.shape == (1, MAX_DET, 6)
+    assert float(out[0, :, 4].max()) > 0.25

@@ -759,10 +759,9 @@ class BaseBackend(ABC):
             anchor_idx, class_ids = np.nonzero(scores > conf)
             boxes_input = boxes_input_all[anchor_idx]
             max_scores = scores[anchor_idx, class_ids]
-            if max_scores.size > _YOLO9_MAX_NMS_CANDIDATES:
-                keep = np.argpartition(-max_scores, _YOLO9_MAX_NMS_CANDIDATES - 1)[
-                    :_YOLO9_MAX_NMS_CANDIDATES
-                ]
+            max_nms = max(max_det, _YOLO9_MAX_NMS_CANDIDATES)
+            if max_scores.size > max_nms:
+                keep = np.argpartition(-max_scores, max_nms - 1)[:max_nms]
                 keep = keep[np.argsort(-max_scores[keep])]
                 boxes_input = boxes_input[keep]
                 max_scores = max_scores[keep]
@@ -1126,14 +1125,14 @@ class BaseBackend(ABC):
         if (
             obb is None
             and not _is_nms_free_family(self.model_family)
-            and not getattr(self, "embedded_nms", False)
         ):
             # YOLO9 (like DAMO) needs class-aware NMS so multi-label detections
             # on a shared anchor (same box, different class) survive, matching
             # the native batched_nms path. Class-agnostic NMS would drop the
             # lower-scored class and make exported runtimes disagree with native.
-            # Models with NMS baked into the graph skip this — they already
-            # emit final detections.
+            # ONNX models with graph-embedded NMS still pass through this after
+            # backend clipping so letterboxed-image behavior stays aligned with
+            # native YOLO9 postprocess.
             if self.model_family in ("damoyolo", "yolo9", "yolo9_e2e"):
                 keep = _batched_nms_numpy(boxes, max_scores, class_ids, iou)
             else:
