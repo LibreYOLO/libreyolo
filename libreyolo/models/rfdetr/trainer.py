@@ -266,7 +266,8 @@ class RFDETRTrainer(BaseTrainer):
         targets[..., 2] *= scale_y
         targets[..., 3] *= scale_x
         targets[..., 4] *= scale_y
-        if getattr(self.wrapper_model, "task", "detect") == "pose" and targets.shape[-1] > 5:
+        task = getattr(getattr(self, "wrapper_model", None), "task", "detect")
+        if task == "pose" and targets.shape[-1] > 5:
             keypoints = targets[..., 5:].view(*targets.shape[:-1], -1, 3)
             keypoints[..., 0] *= scale_x
             keypoints[..., 1] *= scale_y
@@ -436,7 +437,7 @@ class RFDETRTrainer(BaseTrainer):
         return train_ds
 
     def on_setup(self):
-        task = getattr(self.wrapper_model, "task", "detect")
+        task = getattr(getattr(self, "wrapper_model", None), "task", "detect")
         if self.model.nb_classes != self.config.num_classes:
             head_outputs = (
                 self.config.num_classes
