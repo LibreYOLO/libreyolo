@@ -37,9 +37,7 @@ COCO17_OKS_SIGMAS = (
 
 
 def default_oks_sigmas(num_keypoints: int) -> List[float]:
-    if num_keypoints == 17:
-        return list(COCO17_OKS_SIGMAS)
-    return [1.0 / num_keypoints] * num_keypoints
+    return _sigmas_for(num_keypoints).tolist()
 
 
 def _sigmas_for(num_keypoints: int, sigmas: Sequence[float] | None = None) -> np.ndarray:
@@ -50,9 +48,7 @@ def _sigmas_for(num_keypoints: int, sigmas: Sequence[float] | None = None) -> np
             )
         return np.asarray([float(s) for s in sigmas], dtype=np.float32)
     if num_keypoints == 17:
-        return np.array(
-            [.26, .25, .25, .35, .35, .79, .79, .72, .72, .62, .62, 1.07,
-             1.07, .87, .87, .89, .89], dtype=np.float32) / 10.0
+        return np.asarray(COCO17_OKS_SIGMAS, dtype=np.float32)
     if num_keypoints == 14:
         return np.array(
             [.79, .79, .72, .72, .62, .62, 1.07, 1.07, .87, .87, .89, .89,

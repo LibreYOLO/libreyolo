@@ -88,6 +88,25 @@ class TestPoseFamilyClassWiring:
         with pytest.raises(FileNotFoundError):
             m.train(data="definitely_missing.yaml", allow_experimental=True)
 
+    def test_train_pose_rejects_multiclass_yaml(self, tmp_path):
+        data_yaml = tmp_path / "pose.yaml"
+        data_yaml.write_text(
+            "\n".join(
+                [
+                    "path: .",
+                    "train: images/train",
+                    "nc: 2",
+                    "names: [person, dog]",
+                    "kpt_shape: [17, 3]",
+                ]
+            ),
+            encoding="utf-8",
+        )
+
+        m = LibreEC(model_path=None, size="s", task="pose")
+        with pytest.raises(ValueError, match="single-class pose datasets"):
+            m.train(data=str(data_yaml), allow_experimental=True)
+
 
 class TestPoseForwardAndPostprocess:
     @pytest.fixture(scope="class")
@@ -215,3 +234,45 @@ class TestPoseTrainingStep:
         )
         assert matcher.sigmas.tolist() == pytest.approx(sigmas)
         assert criterion.oks.sigmas.tolist() == pytest.approx(sigmas)
+
+    def test_pose_default_oks_sigmas_keep_ec_tables(self):
+        from libreyolo.models.ec.pose_loss import default_oks_sigmas
+
+        assert default_oks_sigmas(14) == pytest.approx(
+            [0.079, 0.079, 0.072, 0.072, 0.062, 0.062, 0.107, 0.107,
+             0.087, 0.087, 0.089, 0.089, 0.079, 0.079]
+        )
+
+    def test_pose_custom_oks_sigmas_reach_denoising(self):
+        from libreyolo.models.ec.pose_denoising import prepare_for_cdn
+
+        K = self.K
+        target = {
+            "labels": torch.zeros(1, dtype=torch.long),
+            "boxes": torch.tensor([[0.2, 0.2, 0.7, 0.8]]),
+            "keypoints": torch.cat(
+                [torch.full((1, 2 * K), 0.5), torch.ones(1, K)], dim=1
+            ),
+            "area": torch.full((1,), 0.3),
+        }
+        label_enc = torch.nn.Embedding(81, 8)
+        pose_enc = torch.nn.Embedding(K, 8)
+        kwargs = dict(
+            dn_args=([target], 20, 0.5),
+            training=True,
+            num_queries=60,
+            num_classes=80,
+            num_keypoints=K,
+            hidden_dim=8,
+            label_enc=label_enc,
+            pose_enc=pose_enc,
+            img_dim=(128, 128),
+            device=torch.device("cpu"),
+        )
+
+        torch.manual_seed(123)
+        default_pose = prepare_for_cdn(**kwargs)[1]
+        torch.manual_seed(123)
+        custom_pose = prepare_for_cdn(**kwargs, sigmas=[0.2] * K)[1]
+
+        assert not torch.allclose(default_pose, custom_pose)

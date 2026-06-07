@@ -13,6 +13,8 @@ EC utils.
 
 from __future__ import annotations
 
+from typing import Sequence
+
 import numpy as np
 import torch
 import torch.nn.functional as F
@@ -20,9 +22,17 @@ import torch.nn.functional as F
 from .utils import inverse_sigmoid
 
 
-def get_sigmas(num_keypoints: int, device) -> torch.Tensor:
+def get_sigmas(
+    num_keypoints: int, device, sigmas: Sequence[float] | None = None
+) -> torch.Tensor:
     """COCO OKS sigmas (with a prepended center sigma), shape ``(1, K+1, 1)``."""
-    if num_keypoints == 17:
+    if sigmas is not None:
+        if len(sigmas) != num_keypoints:
+            raise ValueError(
+                f"sigmas has {len(sigmas)} entries but num_keypoints={num_keypoints}"
+            )
+        sigmas = np.asarray([float(s) for s in sigmas], dtype=np.float32)
+    elif num_keypoints == 17:
         sigmas = np.array(
             [.26, .25, .25, .35, .35, .79, .79, .72, .72, .62, .62, 1.07,
              1.07, .87, .87, .89, .89], dtype=np.float32) / 10.0
@@ -50,6 +60,7 @@ def prepare_for_cdn(
     pose_enc,
     img_dim,
     device,
+    sigmas: Sequence[float] | None = None,
 ):
     """Build the contrastive denoising query group from GT keypoints.
 
@@ -104,7 +115,7 @@ def prepare_for_cdn(
     poses = torch.cat([xy, poses], dim=1)
     non_viz = keypoints[:, (num_keypoints * 2):] == 0
     non_viz = torch.cat((torch.ones_like(non_viz[:, 0:1]).bool(), non_viz), dim=1)
-    vars_ = (2 * get_sigmas(num_keypoints, device)) ** 2
+    vars_ = (2 * get_sigmas(num_keypoints, device, sigmas=sigmas)) ** 2
 
     known_poses = poses.repeat(2 * dn_number, 1).reshape(-1, num_keypoints + 1, 2)
     known_areas = areas.repeat(2 * dn_number)[..., None, None]  # normalized [0,1]

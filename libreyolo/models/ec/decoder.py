@@ -961,6 +961,8 @@ class ECTransformer(nn.Module):
                 enc_topk_logits_list, enc_topk_bboxes_list
             )
             out["pre_outputs"] = {"pred_logits": pre_scores, "pred_boxes": pre_bboxes}
+            if seg_match is not None:
+                out["pre_outputs"]["pred_masks"] = seg_match[-1]
             out["enc_meta"] = {"class_agnostic": self.query_select_method == "agnostic"}
 
             if dn_meta is not None:
@@ -979,6 +981,8 @@ class ECTransformer(nn.Module):
                     "pred_logits": dn_pre_logits,
                     "pred_boxes": dn_pre_bboxes,
                 }
+                if seg_dn is not None:
+                    out["dn_pre_outputs"]["pred_masks"] = seg_dn[-1]
                 out["dn_meta"] = dn_meta
 
         return out
@@ -1621,6 +1625,7 @@ class ECPoseTransformer(nn.Module):
         # embeddings the pretrained checkpoints carry.
         self.dn_number = 20
         self.label_noise_ratio = 0.5
+        self.oks_sigmas = None
 
         decoder_layer = PoseDeformableTransformerDecoderLayer(
             d_model=hidden_dim,
@@ -1846,6 +1851,7 @@ class ECPoseTransformer(nn.Module):
                 pose_enc=self.pose_enc,
                 img_dim=samples.shape[-2:],
                 device=feats[0].device,
+                sigmas=self.oks_sigmas,
             )
             if dn_meta is not None:
                 tgt_pose = torch.cat([input_query_label, tgt_pose], dim=1)

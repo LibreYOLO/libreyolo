@@ -471,8 +471,20 @@ class LibreEC(BaseModel):
                 "fixed at construction; train a model built for that count instead."
             )
 
+        yaml_nc = data_config.get("nc")
+        if yaml_nc is not None and int(yaml_nc) != 1:
+            raise ValueError(
+                "EC pose fine-tuning supports single-class pose datasets only "
+                f"(dataset declares nc={yaml_nc})."
+            )
+
         yaml_names = data_config.get("names")
         if yaml_names is not None:
+            if len(yaml_names) != 1:
+                raise ValueError(
+                    "EC pose fine-tuning supports single-class pose datasets only "
+                    f"(dataset declares {len(yaml_names)} names)."
+                )
             if isinstance(yaml_names, list):
                 yaml_names = {i: n for i, n in enumerate(yaml_names)}
             self.names = self._sanitize_names(yaml_names, 1)

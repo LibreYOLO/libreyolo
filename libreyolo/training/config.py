@@ -593,6 +593,17 @@ class ECSegConfig(ECConfig):
     mask_point_sample_ratio: int = 16
     mask_downsample_ratio: int = 4
 
+    @classmethod
+    def from_kwargs(cls, **kwargs):
+        cfg = super().from_kwargs(**kwargs)
+        size = str(cfg.size).lower()
+        if size in {"l", "x"}:
+            if "backbone_lr_mult" not in kwargs:
+                cfg.backbone_lr_mult = 0.005
+            if "weight_decay" not in kwargs:
+                cfg.weight_decay = 1.25e-4
+        return cfg
+
     name: str = "ec_seg_exp"
 
 

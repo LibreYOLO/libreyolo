@@ -124,6 +124,8 @@ class ECPoseTrainer(BaseTrainer):
     def on_setup(self):
         num_classes = int(getattr(self.model.decoder, "num_classes", 2))
         sigmas = self._resolve_oks_sigmas()
+        if hasattr(self.model, "decoder"):
+            self.model.decoder.oks_sigmas = sigmas
         matcher = PoseHungarianMatcher(
             num_keypoints=self.num_keypoints,
             cost_class=self.config.cls_loss_weight,
@@ -389,7 +391,7 @@ class ECPoseTrainer(BaseTrainer):
         }
 
     def _validate_epoch(self, epoch: int, *, save_plots: bool | None = None):
-        from ...training.distributed import barrier, is_main_process
+        from ...training.distributed import barrier, is_main_process, unwrap_model
 
         if self.is_distributed and not is_main_process():
             barrier()
@@ -400,7 +402,7 @@ class ECPoseTrainer(BaseTrainer):
                 barrier()
             return None
 
-        model = self.ema_model.ema if self.ema_model else self.model
+        model = self.ema_model.ema if self.ema_model else unwrap_model(self.model)
         was_training = model.training
         model.eval()
 

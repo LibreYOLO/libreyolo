@@ -113,7 +113,7 @@ class ECSegTrainer(BaseTrainer):
             losses=["mal", "boxes", "local", "masks"],
             num_classes=self.config.num_classes,
             alpha=0.75,
-            gamma=2.0,
+            gamma=1.5,
             reg_max=32,
             mask_point_sample_ratio=self.config.mask_point_sample_ratio,
         ).to(self.device)

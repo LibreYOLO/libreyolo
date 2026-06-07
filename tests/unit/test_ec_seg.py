@@ -16,6 +16,7 @@ import torch
 from libreyolo.models.ec.model import LibreEC
 from libreyolo.models.ec.nn import LibreECSegModel
 from libreyolo.models.ec.postprocess import postprocess_seg
+from libreyolo.training.config import ECSegConfig
 
 pytestmark = [pytest.mark.unit, pytest.mark.ec]
 
@@ -160,8 +161,22 @@ class TestSegTrainingStep:
                 "loss_mask_ce": 5.0, "loss_mask_dice": 5.0,
             },
             losses=["mal", "boxes", "local", "masks"],
-            num_classes=2, alpha=0.75, gamma=2.0, reg_max=32,
+            num_classes=2, alpha=0.75, gamma=1.5, reg_max=32,
         )
+
+    def test_seg_config_size_specific_optimizer_defaults(self):
+        cfg_l = ECSegConfig.from_kwargs(size="l")
+        assert cfg_l.backbone_lr_mult == pytest.approx(0.005)
+        assert cfg_l.weight_decay == pytest.approx(1.25e-4)
+
+        cfg_x = ECSegConfig.from_kwargs(
+            size="x", backbone_lr_mult=0.2, weight_decay=9e-4
+        )
+        assert cfg_x.backbone_lr_mult == pytest.approx(0.2)
+        assert cfg_x.weight_decay == pytest.approx(9e-4)
+
+    def test_seg_criterion_uses_upstream_mal_gamma(self):
+        assert self._criterion().gamma == pytest.approx(1.5)
 
     def test_seg_train_forward_emits_deferred_masks(self):
         torch.manual_seed(0)
@@ -180,6 +195,8 @@ class TestSegTrainingStep:
         assert isinstance(out["pred_masks"], dict)
         assert {"spatial_features", "query_features", "bias"} <= set(out["pred_masks"])
         assert "pred_masks" in out["aux_outputs"][0]
+        assert "pred_masks" in out["pre_outputs"]
+        assert "pred_masks" in out["dn_pre_outputs"]
 
     def test_seg_loss_backward_reaches_mask_head(self):
         torch.manual_seed(0)
@@ -205,6 +222,10 @@ class TestSegTrainingStep:
         out = model(torch.randn(2, 3, 128, 128), targets=targets)
         losses = self._criterion()(out, targets)
         assert any(k.startswith("loss_mask") for k in losses)
+        assert "loss_mask_ce_pre" in losses
+        assert "loss_mask_dice_pre" in losses
+        assert "loss_mask_ce_dn_pre" in losses
+        assert "loss_mask_dice_dn_pre" in losses
         total = sum(losses.values())
         assert torch.isfinite(total)
         total.backward()
