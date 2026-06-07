@@ -857,6 +857,11 @@ class BaseModel(ABC):
                 "Tracking does not support oriented boxes yet. "
                 "Use predict() for OBB models."
             )
+        if task == "point":
+            raise NotImplementedError(
+                "Tracking does not support point results yet. "
+                "Use predict() for point models."
+            )
 
         from ...tracking import ByteTracker, TrackConfig
         from ...utils.drawing import draw_boxes, draw_masks
@@ -1020,6 +1025,11 @@ class BaseModel(ABC):
                 "Validation against gaze ground-truth datasets (MPIIGaze, Gaze360) "
                 "is out of scope for LibreYOLO. Evaluate upstream at "
                 "https://github.com/Ahmednull/L2CS-Net."
+            )
+        if self.task == "point":
+            raise NotImplementedError(
+                "Point validation requires a point-specific validator. "
+                "Point model families should dispatch to their own PointValidator."
             )
         if self.task == "pose":
             validator_cls = PoseValidator

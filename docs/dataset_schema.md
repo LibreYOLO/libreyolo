@@ -135,3 +135,10 @@ Supported image extensions are defined in
 
 No LibreYOLO training or validation dataset-file contract is implemented for
 `gaze`.
+
+## point
+
+`point` is currently a model-output task, not a canonical dataset-label schema.
+Point model families may adapt existing labels internally, for example by
+deriving object centers from YOLO box rows, but a point-only text label format
+is not defined in this document yet.

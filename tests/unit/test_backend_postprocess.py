@@ -737,3 +737,8 @@ def test_backend_call_accepts_device_kwarg(monkeypatch):
 def test_backend_rejects_unsupported_explicit_task():
     with pytest.raises(ValueError, match="not supported"):
         _DummyBackend("yolo9", task="segment", supported_tasks=("detect",))
+
+
+def test_backend_rejects_point_task_until_parser_exists():
+    with pytest.raises(NotImplementedError, match="point-task inference"):
+        _DummyBackend("librefomo", task="point", supported_tasks=("point",))

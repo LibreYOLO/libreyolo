@@ -7,8 +7,8 @@ from pathlib import Path
 from typing import Iterable, Literal
 
 
-TaskType = Literal["detect", "segment", "pose", "classify", "gaze", "obb"]
-TASKS = ("detect", "segment", "pose", "classify", "gaze", "obb")
+TaskType = Literal["detect", "segment", "pose", "classify", "gaze", "obb", "point"]
+TASKS = ("detect", "segment", "pose", "classify", "gaze", "obb", "point")
 
 TASK_ALIASES = {
     "detect": "detect",
@@ -28,6 +28,7 @@ TASK_ALIASES = {
     "gaze-estimation": "gaze",
     "gaze_estimation": "gaze",
     "obb": "obb",
+    "point": "point",
 }
 
 TASK_TO_SUFFIX = {
@@ -36,6 +37,7 @@ TASK_TO_SUFFIX = {
     "classify": "cls",
     "gaze": "gaze",
     "obb": "obb",
+    "point": "point",
 }
 
 SUFFIX_TO_TASK = {v: k for k, v in TASK_TO_SUFFIX.items()}

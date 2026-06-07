@@ -6,8 +6,8 @@ import numpy as np
 from PIL import Image
 
 from libreyolo.models.base.inference import InferenceRunner
-from libreyolo.utils.results import Boxes, Keypoints, Masks, OBB, Probs, Results
-from libreyolo.utils.drawing import draw_obb
+from libreyolo.utils.results import Boxes, Keypoints, Masks, OBB, Points, Probs, Results
+from libreyolo.utils.drawing import draw_obb, draw_points
 
 pytestmark = pytest.mark.unit
 
@@ -108,6 +108,26 @@ class TestBoxes:
         assert "n=1" in r
 
 
+class TestPoints:
+    """Tests for point-localization result rows."""
+
+    def test_points_accessors_and_normalization(self):
+        points = Points(
+            torch.tensor([[20.0, 10.0, 2.0, 0.75]]),
+            orig_shape=(100, 200),
+        )
+
+        assert len(points) == 1
+        assert points.xy.tolist() == [[20.0, 10.0]]
+        assert points.cls.tolist() == [2.0]
+        assert points.conf.tolist() == [0.75]
+        torch.testing.assert_close(points.xyn, torch.tensor([[0.1, 0.1]]))
+
+    def test_points_validate_row_shape(self):
+        with pytest.raises(ValueError, match="x, y, class, confidence"):
+            Points(torch.zeros((1, 3)))
+
+
 class TestResults:
     """Tests for the Results class."""
 
@@ -135,6 +155,7 @@ class TestResults:
         assert result.names == {}
         assert result.masks is None
         assert result.keypoints is None
+        assert result.points is None
         assert result.probs is None
         assert result.obb is None
         assert result.speed == {}
@@ -234,6 +255,28 @@ class TestResults:
         assert obb.xyxy.shape == (1, 4)
         assert obb.xyxyxyxyn[0, 0, 0].item() == pytest.approx(-0.025)
 
+    def test_point_result_summary_and_json(self):
+        points = Points(torch.tensor([[20.0, 10.0, 1.0, 0.9]]))
+        result = Results(
+            boxes=None,
+            points=points,
+            orig_shape=(100, 200),
+            names={1: "person"},
+        )
+
+        assert len(result) == 1
+        assert result.points.orig_shape == (100, 200)
+
+        row = result.summary(normalize=True, decimals=3)[0]
+
+        assert row == {
+            "name": "person",
+            "class": 1,
+            "confidence": 0.9,
+            "point": {"x": 0.1, "y": 0.1},
+        }
+        assert '"point"' in result.to_json()
+
     def test_summary_includes_obb_payload(self):
         boxes = Boxes(
             torch.tensor([[5.0, 10.0, 35.0, 30.0]]),
@@ -289,6 +332,15 @@ def test_draw_obb_marks_image_pixels():
         [0],
         class_names={0: "ship"},
     )
+
+    assert out.size == img.size
+    assert np.asarray(out).sum() < np.asarray(img).sum()
+
+
+def test_draw_points_marks_image_pixels():
+    img = Image.new("RGB", (80, 80), "white")
+
+    out = draw_points(img, [[40.0, 40.0]], [0.9], [0], class_names={0: "person"})
 
     assert out.size == img.size
     assert np.asarray(out).sum() < np.asarray(img).sum()
@@ -351,3 +403,48 @@ class TestClassesFilter:
             result.obb.xywhr,
             torch.tensor([[30.0, 30.0, 20.0, 20.0, 0.2]]),
         )
+
+    def test_inference_runner_wraps_points_and_filters_classes(self):
+        class DummyModel:
+            names = {0: "cat", 1: "dog"}
+
+        runner = InferenceRunner(DummyModel())
+        detections = {
+            "points": [[5.0, 6.0, 0.0, 0.7], [15.0, 16.0, 1.0, 0.8]],
+            "num_detections": 2,
+        }
+
+        result = runner._wrap_results(
+            detections,
+            original_size=(100, 80),
+            image_path=None,
+            classes=[1],
+        )
+
+        assert result.boxes is None
+        assert result.points is not None
+        assert len(result) == 1
+        torch.testing.assert_close(
+            result.points.data,
+            torch.tensor([[15.0, 16.0, 1.0, 0.8]]),
+        )
+
+    def test_inference_runner_rejects_box_payload_for_point_task(self):
+        class DummyPointModel:
+            task = "point"
+            names = {0: "person"}
+
+        runner = InferenceRunner(DummyPointModel())
+
+        with pytest.raises(ValueError, match="must return a 'points' payload"):
+            runner._wrap_results(
+                {
+                    "boxes": [[0.0, 0.0, 10.0, 10.0]],
+                    "scores": [0.9],
+                    "classes": [0],
+                    "num_detections": 1,
+                },
+                original_size=(100, 80),
+                image_path=None,
+                classes=None,
+            )

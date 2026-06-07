@@ -115,6 +115,21 @@ def test_validate_checkpoint_metadata_accepts_string_name_keys_without_mutation(
     assert checkpoint["names"] == {"0": "cat", "1": "dog"}
 
 
+def test_validate_checkpoint_metadata_accepts_point_task():
+    checkpoint = serialization.wrap_libreyolo_checkpoint(
+        {"layer.weight": object()},
+        model_family="librefomo",
+        size="s",
+        task="point",
+        nc=1,
+        names={0: "person"},
+        imgsz=96,
+    )
+
+    assert checkpoint["task"] == "point"
+    assert serialization.validate_checkpoint_metadata(checkpoint) == []
+
+
 def test_validate_checkpoint_metadata_pads_missing_name_indices():
     checkpoint = {
         "model": {"layer.weight": object()},

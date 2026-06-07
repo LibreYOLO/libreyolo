@@ -243,6 +243,11 @@ class BaseBackend(ABC):
             default_task=self.DEFAULT_TASK,
             supported_tasks=self.SUPPORTED_TASKS,
         )
+        if self.task == "point":
+            raise NotImplementedError(
+                "Exported point-task inference is not implemented yet. "
+                "Use native PyTorch point models until a backend point parser is added."
+            )
         self.names = names
         self.FAMILY = model_family or "export"
         try:
