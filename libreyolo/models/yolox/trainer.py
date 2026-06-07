@@ -10,8 +10,8 @@ from typing import Dict, Type
 
 from libreyolo.training.trainer import BaseTrainer
 from libreyolo.training.config import TrainConfig, YOLOXConfig
+from ...data.augment.yolox import TrainTransform, MosaicMixupDataset
 from ...training.scheduler import WarmupCosineScheduler
-from ...training.augment import TrainTransform, MosaicMixupDataset
 
 
 class YOLOXTrainer(BaseTrainer):
