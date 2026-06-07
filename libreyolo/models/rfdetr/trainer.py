@@ -13,6 +13,7 @@ import torch.nn.functional as F
 from ...data import load_data_config
 from ...training.config import TrainConfig
 from ...training.distributed import unwrap_model
+from ...training.freezing import FreezeGroup
 from ...training.scheduler import BaseScheduler, CosineAnnealingScheduler, FlatCosineScheduler
 from ...training.trainer import BaseTrainer
 from .config import RFDETRConfig
@@ -91,6 +92,93 @@ class RFDETRTrainer(BaseTrainer):
 
     def get_model_tag(self) -> str:
         return f"LibreRFDETR-{self.config.size}"
+
+    def preserve_freeze_param(self, name: str, param: torch.nn.Parameter) -> bool:
+        if not getattr(self.config, "lora", False):
+            return False
+        from ...training.lora import is_lora_parameter_name
+
+        return is_lora_parameter_name(name)
+
+    def get_freeze_groups(self) -> List[FreezeGroup]:
+        core_model = getattr(self.model, "model", self.model)
+        groups: List[FreezeGroup] = []
+
+        classifier = getattr(self.model, "classifier", None) if core_model is None else None
+        if classifier is not None:
+            self._append_backbone_freeze_groups(
+                groups,
+                getattr(classifier, "backbone", None),
+            )
+            head = getattr(classifier, "linear", None)
+            if head is not None:
+                groups.append(("head", head))
+            return groups or super().get_freeze_groups()
+
+        backbone = getattr(core_model, "backbone", None)
+        self._append_backbone_freeze_groups(groups, backbone)
+
+        transformer = getattr(core_model, "transformer", None)
+        decoder = getattr(transformer, "decoder", None) if transformer is not None else None
+        if decoder is not None:
+            decoder_children = tuple(
+                module
+                for name, module in decoder.named_children()
+                if name != "bbox_embed"
+            )
+            groups.append(("decoder", decoder_children or decoder))
+
+        query_modules = (
+            getattr(core_model, "refpoint_embed", None),
+            getattr(core_model, "query_feat", None),
+        )
+        if any(module is not None for module in query_modules):
+            groups.append(("queries", query_modules))
+
+        encoder_output_modules = (
+            getattr(transformer, "enc_output", None) if transformer is not None else None,
+            getattr(transformer, "enc_output_norm", None) if transformer is not None else None,
+        )
+        if any(module is not None for module in encoder_output_modules):
+            groups.append(("transformer.encoder_output", encoder_output_modules))
+
+        head_modules = (
+            getattr(core_model, "class_embed", None),
+            getattr(core_model, "bbox_embed", None),
+            getattr(core_model, "angle_embed", None),
+            getattr(core_model, "segmentation_head", None),
+            getattr(transformer, "enc_out_class_embed", None) if transformer is not None else None,
+            getattr(transformer, "enc_out_bbox_embed", None) if transformer is not None else None,
+        )
+        if any(module is not None for module in head_modules):
+            groups.append(("head", head_modules))
+
+        return groups or super().get_freeze_groups()
+
+    def _append_backbone_freeze_groups(
+        self,
+        groups: List[FreezeGroup],
+        backbone: torch.nn.Module | None,
+    ) -> None:
+        if backbone is None:
+            return
+        backbone_owner = None
+        try:
+            backbone_owner = backbone[0]  # type: ignore[index]
+        except (TypeError, IndexError):
+            backbone_owner = backbone
+        if backbone_owner is not None:
+            group_count = len(groups)
+            encoder = getattr(backbone_owner, "encoder", None)
+            projector = getattr(backbone_owner, "projector", None)
+            if encoder is not None:
+                groups.append(("backbone.encoder", encoder))
+            if projector is not None:
+                groups.append(("backbone.projector", projector))
+            if len(groups) == group_count:
+                groups.append(("backbone", backbone))
+        else:
+            groups.append(("backbone", backbone))
 
     def _ddp_find_unused_parameters(self) -> bool:
         # Detect/OBB: at least one transformer parameter receives no gradient
@@ -325,6 +413,11 @@ class RFDETRTrainer(BaseTrainer):
             groups.append({"params": backbone_wd, "lr": lr * bb_mult, "weight_decay": wd, "lr_mult": bb_mult})
         if backbone_no_wd:
             groups.append({"params": backbone_no_wd, "lr": lr * bb_mult, "weight_decay": 0.0, "lr_mult": bb_mult})
+        if not groups:
+            raise ValueError(
+                "No trainable parameters remain after layer freezing; "
+                "reduce the freeze value or choose a narrower selector."
+            )
         return torch.optim.AdamW(groups, betas=(0.9, 0.999))
 
     def _setup_upstream_optimizer_groups(self) -> list[dict]:
@@ -350,8 +443,6 @@ class RFDETRTrainer(BaseTrainer):
             args,
             prefix="backbone.0",
         )
-        if not backbone_param_by_name:
-            return []
 
         base_lr = max(float(self.effective_lr), 1e-12)
         decoder_key = "transformer.decoder"

@@ -420,6 +420,7 @@ class DFINETrainer(BaseTrainer):
         clip_max_norm = float(getattr(self.config, "clip_max_norm", 0.0))
 
         self.model.train()
+        self._enforce_frozen_bn_eval()
         pbar = tqdm(
             self.train_loader,
             desc=f"Epoch {epoch + 1}/{self.config.epochs}",
@@ -521,6 +522,7 @@ class DFINETrainer(BaseTrainer):
         clip_max_norm = float(getattr(self.config, "clip_max_norm", 0.0))
 
         self.model.train()
+        self._enforce_frozen_bn_eval()
         pbar = tqdm(
             self.train_loader,
             desc=f"Epoch {epoch + 1}/{self.config.epochs}",

@@ -147,6 +147,46 @@ def test_train_dry_run_rfdetr_lora_flag_is_visible():
     assert data["resolved_config"]["lora"] is True
 
 
+def test_train_dry_run_rfdetr_freeze_flag_is_visible():
+    app = _make_app()
+    result = runner.invoke(
+        app,
+        [
+            "data=coco8.yaml",
+            "model=LibreRFDETRm.pt",
+            "--freeze",
+            "backbone",
+            "--dry-run",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0
+    data = json.loads(result.stdout)
+    assert data["model_family"] == "rfdetr"
+    assert data["resolved_config"]["freeze"] == "backbone"
+
+
+def test_train_dry_run_rejects_ambiguous_freeze_true():
+    app = _make_app()
+    result = runner.invoke(
+        app,
+        [
+            "data=coco8.yaml",
+            "model=LibreYOLO9t.pt",
+            "--freeze",
+            "true",
+            "--dry-run",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 2
+    data = json.loads(result.stdout)
+    assert data["error"] == "config_type_error"
+    assert "freeze=True is ambiguous" in data["message"]
+
+
 def test_train_dry_run_rejects_lora_for_unsupported_family():
     app = _make_app()
     result = runner.invoke(
