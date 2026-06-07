@@ -35,6 +35,7 @@ class TestResolveModelName:
 
     def test_yolo9_task_aliases(self):
         assert resolve_model_name("yolo9-t-seg") == "LibreYOLO9t-seg.pt"
+        assert resolve_model_name("yolo9-t-cls") == "LibreYOLO9t-cls.pt"
         assert resolve_model_name("yolo9-t-obb") == "LibreYOLO9t-obb.pt"
 
     def test_deimv2_sizes(self):
@@ -48,6 +49,7 @@ class TestResolveModelName:
         assert resolve_model_name("rfdetr-n-seg") == "LibreRFDETRn-seg.pt"
         assert resolve_model_name("rfdetr-x-seg") == "LibreRFDETRx-seg.pt"
         assert resolve_model_name("rfdetr-xx-seg") == "LibreRFDETRxx-seg.pt"
+        assert resolve_model_name("rfdetr-n-cls") == "LibreRFDETRn-cls.pt"
 
     def test_case_insensitive(self):
         assert resolve_model_name("YOLOX-S") == "LibreYOLOXs.pt"

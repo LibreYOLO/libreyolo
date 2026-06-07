@@ -5,6 +5,13 @@ Provides dataset configuration loading, auto-download, and path resolution.
 Supports YAML configs with .txt file paths.
 """
 
+from .classify_dataset import (
+    ClassifyDataset,
+    build_classify_transforms,
+    classify_collate_fn,
+    get_class_names,
+    resolve_classify_data,
+)
 from .obb import parse_yolo_obb_label_line
 from .pose_dataset import YOLOPoseDataset, parse_yolo_pose_label_line, pose_collate_fn
 from .utils import (
@@ -29,4 +36,9 @@ __all__ = [
     "YOLOPoseDataset",
     "parse_yolo_pose_label_line",
     "pose_collate_fn",
+    "ClassifyDataset",
+    "build_classify_transforms",
+    "classify_collate_fn",
+    "get_class_names",
+    "resolve_classify_data",
 ]

@@ -20,10 +20,15 @@ from ..models.yolonas.utils import preprocess_image as yolonas_preprocess_image
 from ..models.yolox.utils import preprocess_image as yolox_preprocess_image
 from ..tasks import normalize_supported_tasks, normalize_task, resolve_task
 from ..utils.drawing import draw_boxes, draw_masks, draw_obb
-from ..utils.general import COCO_CLASSES, get_safe_stem, log_saved_result, resolve_save_path
+from ..utils.general import (
+    COCO_CLASSES,
+    get_safe_stem,
+    log_saved_result,
+    resolve_save_path,
+)
 from ..utils.image_loader import ImageLoader
 from ..utils.predict_args import normalize_predict_kwargs
-from ..utils.results import Boxes, Masks, OBB, Results
+from ..utils.results import Boxes, Masks, OBB, Probs, Results
 from ..utils.video import collect_video_results, is_video_file, run_video_inference
 
 logger = logging.getLogger(__name__)
@@ -180,7 +185,16 @@ def _is_nms_free_family(model_family: Optional[str]) -> bool:
     selection. Applying YOLO-style IoU suppression on top of that can remove
     valid detections and make exported runtimes diverge from native PyTorch.
     """
-    return model_family in {"dfine", "deim", "deimv2", "ec", "rfdetr", "rtdetr", "rtdetrv2", "rtdetrv4"}
+    return model_family in {
+        "dfine",
+        "deim",
+        "deimv2",
+        "ec",
+        "rfdetr",
+        "rtdetr",
+        "rtdetrv2",
+        "rtdetrv4",
+    }
 
 
 def _rfdetr_num_select(task: str, model_size: Optional[str]) -> int:
@@ -221,7 +235,9 @@ class BaseBackend(ABC):
         self.family = model_family
         self.model_size = model_size
         self.DEFAULT_TASK = normalize_task(default_task, default="detect")
-        self.SUPPORTED_TASKS = normalize_supported_tasks(supported_tasks or (self.DEFAULT_TASK,))
+        self.SUPPORTED_TASKS = normalize_supported_tasks(
+            supported_tasks or (self.DEFAULT_TASK,)
+        )
         self.task = resolve_task(
             explicit_task=task,
             default_task=self.DEFAULT_TASK,
@@ -263,6 +279,8 @@ class BaseBackend(ABC):
         Returns:
             Tuple of (input_tensor, original_img, original_size, ratio).
         """
+        if self.task == "classify":
+            return self._preprocess_classify(image, effective_imgsz, color_format)
         if self.model_family == "yolox":
             return yolox_preprocess_image(
                 image, input_size=effective_imgsz, color_format=color_format
@@ -321,6 +339,23 @@ class BaseBackend(ABC):
                 image, input_size=effective_imgsz, color_format=color_format
             )
             return tensor, img, size, 1.0
+
+    @staticmethod
+    def _preprocess_classify(image, input_size, color_format):
+        """Classification preprocessing: ImageNet-style resize/crop/normalize."""
+        from ..data.classify_dataset import build_classify_transforms
+
+        h, w = _imgsz_hw(input_size)
+        if h != w:
+            raise NotImplementedError(
+                "Classification exported-backend inference supports square imgsz only."
+            )
+
+        img = ImageLoader.load(image, color_format=color_format)
+        original_size = img.size
+        transform = build_classify_transforms(h, augment=False)
+        img_tensor = transform(img).unsqueeze(0)
+        return img_tensor, img, original_size, 1.0
 
     @staticmethod
     def _preprocess_rfdetr(image, input_size, color_format):
@@ -684,9 +719,9 @@ class BaseBackend(ABC):
             boxes_input = boxes_input_all[anchor_idx]
             max_scores = scores[anchor_idx, class_ids]
             if max_scores.size > _YOLO9_MAX_NMS_CANDIDATES:
-                keep = np.argpartition(
-                    -max_scores, _YOLO9_MAX_NMS_CANDIDATES - 1
-                )[:_YOLO9_MAX_NMS_CANDIDATES]
+                keep = np.argpartition(-max_scores, _YOLO9_MAX_NMS_CANDIDATES - 1)[
+                    :_YOLO9_MAX_NMS_CANDIDATES
+                ]
                 keep = keep[np.argsort(-max_scores[keep])]
                 boxes_input = boxes_input[keep]
                 max_scores = max_scores[keep]
@@ -845,7 +880,13 @@ class BaseBackend(ABC):
 
         if len(boxes_raw) == 0:
             if self.task == "obb":
-                return boxes_raw, max_scores, class_ids, None, np.zeros((0, 7), dtype=np.float32)
+                return (
+                    boxes_raw,
+                    max_scores,
+                    class_ids,
+                    None,
+                    np.zeros((0, 7), dtype=np.float32),
+                )
             return boxes_raw, max_scores, class_ids, None
 
         # COCO 91→80 class mapping
@@ -864,7 +905,13 @@ class BaseBackend(ABC):
 
         if len(boxes_raw) == 0:
             if self.task == "obb":
-                return boxes_raw, max_scores, class_ids, None, np.zeros((0, 7), dtype=np.float32)
+                return (
+                    boxes_raw,
+                    max_scores,
+                    class_ids,
+                    None,
+                    np.zeros((0, 7), dtype=np.float32),
+                )
             return boxes_raw, max_scores, class_ids, None
 
         cx, cy, w, h = (
@@ -963,9 +1010,7 @@ class BaseBackend(ABC):
             boxes_raw[:, 2],
             boxes_raw[:, 3],
         )
-        boxes_xyxy = np.stack(
-            [cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2], axis=1
-        )
+        boxes_xyxy = np.stack([cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2], axis=1)
         boxes = boxes_xyxy[query_idx]
         boxes[:, [0, 2]] *= orig_w
         boxes[:, [1, 3]] *= orig_h
@@ -978,6 +1023,34 @@ class BaseBackend(ABC):
     # =========================================================================
     # Result building
     # =========================================================================
+
+    @staticmethod
+    def _parse_classify_probs(all_outputs) -> torch.Tensor:
+        logits = np.asarray(all_outputs[0])
+        if logits.ndim == 1:
+            logits = logits[None, :]
+        if logits.ndim != 2:
+            raise ValueError(
+                "Classification backend output must have shape (batch, classes), "
+                f"got {tuple(logits.shape)}."
+            )
+        logits_t = torch.from_numpy(logits).float()
+        return torch.softmax(logits_t, dim=1)[0]
+
+    def _build_classify_result(
+        self,
+        all_outputs,
+        *,
+        orig_shape: Tuple[int, int],
+        image_path,
+    ) -> Results:
+        return Results(
+            boxes=None,
+            probs=Probs(self._parse_classify_probs(all_outputs)),
+            orig_shape=orig_shape,
+            path=str(image_path) if image_path else None,
+            names=self.names,
+        )
 
     def _build_result(
         self,
@@ -1077,7 +1150,9 @@ class BaseBackend(ABC):
     def _save_annotated(self, result, original_img, image_path, output_path):
         """Save annotated image to disk."""
         annotated_img = original_img
-        if len(result) > 0:
+        if result.boxes is None and getattr(result, "probs", None) is not None:
+            pass
+        elif len(result) > 0:
             if result.masks is not None:
                 annotated_img = draw_masks(
                     annotated_img,
@@ -1237,6 +1312,8 @@ class BaseBackend(ABC):
     ) -> Dict:
         effective_imgsz = self._resolve_predict_imgsz(input_size)
         outputs = self._as_numpy_outputs(output)
+        if self.task == "classify":
+            return {"probs": self._parse_classify_probs(outputs)}
         parsed = self._parse_outputs(
             outputs,
             effective_imgsz,
@@ -1295,6 +1372,7 @@ class BaseBackend(ABC):
         **kwargs,
     ) -> Dict:
         from ..validation import (
+            ClassifyValidator,
             DetectionValidator,
             OBBValidator,
             SegmentationValidator,
@@ -1316,7 +1394,9 @@ class BaseBackend(ABC):
             kwargs["save_plots"] = plots
 
         validation_device = device or (
-            self.device if _is_pytorch_cuda_device(self.device) and torch.cuda.is_available() else "cpu"
+            self.device
+            if _is_pytorch_cuda_device(self.device) and torch.cuda.is_available()
+            else "cpu"
         )
         config = ValidationConfig(
             data=data,
@@ -1333,7 +1413,9 @@ class BaseBackend(ABC):
             verbose=verbose,
             **kwargs,
         )
-        if self.task == "segment":
+        if self.task == "classify":
+            validator_cls = ClassifyValidator
+        elif self.task == "segment":
             validator_cls = SegmentationValidator
         elif self.task == "obb":
             validator_cls = OBBValidator
@@ -1370,6 +1452,18 @@ class BaseBackend(ABC):
 
         all_outputs = self._run_inference(blob)
 
+        orig_w, orig_h = original_size
+        orig_shape = (orig_h, orig_w)
+        if self.task == "classify":
+            result = self._build_classify_result(
+                all_outputs,
+                orig_shape=orig_shape,
+                image_path=image_path,
+            )
+            if save:
+                self._save_annotated(result, original_img, image_path, output_path)
+            return result
+
         parsed = self._parse_outputs(
             all_outputs,
             effective_imgsz,
@@ -1385,8 +1479,6 @@ class BaseBackend(ABC):
             boxes, max_scores, class_ids, masks = parsed
             obb = None
 
-        orig_w, orig_h = original_size
-        orig_shape = (orig_h, orig_w)
         result = self._build_result(
             boxes,
             max_scores,
@@ -1549,6 +1641,14 @@ class BaseBackend(ABC):
             )
             blob = input_tensor.numpy()
             all_outputs = self._run_inference(blob)
+            orig_w, orig_h = original_size
+            orig_shape = (orig_h, orig_w)
+            if self.task == "classify":
+                return self._build_classify_result(
+                    all_outputs,
+                    orig_shape=orig_shape,
+                    image_path=str(source),
+                )
             parsed = self._parse_outputs(
                 all_outputs,
                 effective_imgsz,
@@ -1563,14 +1663,13 @@ class BaseBackend(ABC):
             else:
                 boxes, max_scores, class_ids, masks = parsed
                 obb = None
-            orig_w, orig_h = original_size
             return self._build_result(
                 boxes,
                 max_scores,
                 class_ids,
                 masks=masks,
                 obb=obb,
-                orig_shape=(orig_h, orig_w),
+                orig_shape=orig_shape,
                 image_path=str(source),
                 iou=iou,
                 classes=classes,

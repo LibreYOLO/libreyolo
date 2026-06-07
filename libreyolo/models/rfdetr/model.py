@@ -169,10 +169,13 @@ class LibreRFDETR(BaseModel):
     FILENAME_PREFIX = "LibreRFDETR"
     INPUT_SIZES = {"n": 384, "s": 512, "m": 576, "l": 704}
     SEG_INPUT_SIZES = {"n": 312, "s": 384, "m": 432, "l": 504, "x": 624, "xx": 768}
-    SUPPORTED_TASKS = ("detect", "segment", "obb")
+    # Classification runs the DINOv2 backbone at 224 (divisible by patch_size 14).
+    CLS_INPUT_SIZES = {"n": 224, "s": 224, "m": 224, "l": 224}
+    SUPPORTED_TASKS = ("detect", "segment", "classify", "obb")
     TASK_INPUT_SIZES = {
         "detect": INPUT_SIZES,
         "segment": SEG_INPUT_SIZES,
+        "classify": CLS_INPUT_SIZES,
         "obb": INPUT_SIZES,
     }
     TRAIN_CONFIG = RFDETRConfig
@@ -202,7 +205,7 @@ class LibreRFDETR(BaseModel):
     @classmethod
     def can_load(cls, weights_dict: dict) -> bool:
         keys_lower = [k.lower() for k in weights_dict]
-        return any(
+        if any(
             "detr" in k
             or "dinov2" in k
             or "transformer" in k
@@ -211,6 +214,13 @@ class LibreRFDETR(BaseModel):
             or "class_embed" in k
             or "bbox_embed" in k
             for k in keys_lower
+        ):
+            return True
+        # Classification checkpoints carry only the DINOv2 backbone + a linear
+        # head, so they lack the detection/decoder markers above. Recognize the
+        # backbone-plus-linear-head signature so the factory can route them.
+        return "linear.weight" in weights_dict and any(
+            k.startswith("backbone.") for k in weights_dict
         )
 
     @classmethod
@@ -218,6 +228,8 @@ class LibreRFDETR(BaseModel):
         cls, weights_dict: dict, state_dict: dict | None = None
     ) -> Optional[str]:
         full_ckpt = state_dict if state_dict is not None else weights_dict
+        if isinstance(full_ckpt, dict) and isinstance(full_ckpt.get("size"), str):
+            return full_ckpt["size"]
         is_seg = any(k.startswith("segmentation_head") for k in weights_dict)
 
         RESOLUTION_TO_SIZE = {384: "n", 512: "s", 576: "m", 704: "l"}
@@ -270,6 +282,8 @@ class LibreRFDETR(BaseModel):
 
     @classmethod
     def detect_nb_classes(cls, weights_dict: dict) -> Optional[int]:
+        if "linear.weight" in weights_dict:
+            return int(weights_dict["linear.weight"].shape[0])
         # RF-DETR class_embed has (num_classes + 1) outputs (includes background)
         if "class_embed.bias" in weights_dict:
             return weights_dict["class_embed.bias"].shape[0] - 1
@@ -312,6 +326,10 @@ class LibreRFDETR(BaseModel):
 
         if isinstance(model_path, dict) and not model_path:
             weight_source = None
+        elif normalize_task(resolved_task) == "classify" and model_path is None:
+            # Classification builds its own ImageNet-pretrained DINOv2 backbone;
+            # the detection checkpoints do not apply.
+            weight_source = None
         elif model_path is None:
             cfgs = (
                 RFDETR_SEG_CONFIGS
@@ -341,30 +359,27 @@ class LibreRFDETR(BaseModel):
                 )
 
         if weight_source is not None:
-            filename_task = (
-                self.detect_task_from_filename(str(weight_source))
-                if isinstance(weight_source, str)
-                else None
-            )
-            checkpoint_is_segment = False
-            if filename_task != "segment":
-                checkpoint_is_segment = self._detect_segmentation(weight_source)
+            checkpoint_task = self._detect_task_from_source(weight_source)
             if resolved_task is None:
-                resolved_task = filename_task or (
-                    "segment" if checkpoint_is_segment else None
+                resolved_task = checkpoint_task
+            elif checkpoint_task is not None:
+                requested_task = normalize_task(resolved_task)
+                allowed = requested_task == checkpoint_task or (
+                    requested_task == "obb"
+                    and checkpoint_task == "detect"
+                    and self._allow_detect_to_obb_transfer
                 )
-            elif (
-                normalize_task(resolved_task) == "detect"
-                and (filename_task == "segment" or checkpoint_is_segment)
-            ):
-                raise ValueError(
-                    "RF-DETR checkpoint appears to be a segmentation model, "
-                    "but task='detect' was requested."
-                )
+                if not allowed:
+                    raise ValueError(
+                        f"RF-DETR checkpoint appears to be task={checkpoint_task!r}, "
+                        f"but task={requested_task!r} was requested."
+                    )
 
         self._model_num_classes = nb_classes
         if isinstance(weight_source, dict):
-            detected_classes = self.detect_nb_classes(_checkpoint_model_state(weight_source))
+            detected_classes = self.detect_nb_classes(
+                _checkpoint_model_state(weight_source)
+            )
             if detected_classes is not None:
                 self._model_num_classes = detected_classes
 
@@ -389,6 +404,10 @@ class LibreRFDETR(BaseModel):
     def _is_segmentation(self) -> bool:
         """Adapter flag derived from the canonical task state."""
         return self.task == "segment"
+
+    @property
+    def _is_classification(self) -> bool:
+        return self.task == "classify"
 
     @property
     def _is_obb(self) -> bool:
@@ -425,6 +444,37 @@ class LibreRFDETR(BaseModel):
         return None
 
     @staticmethod
+    def _detect_task_from_source(model_path: str | dict[str, Any]) -> str | None:
+        filename_task = (
+            LibreRFDETR.detect_task_from_filename(str(model_path))
+            if isinstance(model_path, str)
+            else None
+        )
+        try:
+            if isinstance(model_path, str):
+                ckpt = load_trusted_torch_file(
+                    model_path,
+                    map_location="cpu",
+                    context="RF-DETR task detection",
+                )
+            else:
+                ckpt = model_path
+        except Exception:
+            return filename_task
+
+        if isinstance(ckpt, dict) and isinstance(ckpt.get("task"), str):
+            return normalize_task(ckpt["task"])
+        if filename_task is not None:
+            return filename_task
+
+        state = _checkpoint_model_state(ckpt) if isinstance(ckpt, dict) else {}
+        if "linear.weight" in state and any(k.startswith("backbone.") for k in state):
+            return "classify"
+        if any(k.startswith("segmentation_head") for k in state):
+            return "segment"
+        return None
+
+    @staticmethod
     def _detect_segmentation(model_path: str | dict[str, Any]) -> bool:
         """Check if weights contain a segmentation head."""
         try:
@@ -453,8 +503,24 @@ class LibreRFDETR(BaseModel):
             nb_classes=self._model_num_classes,
             device=str(self.device),
             segmentation=self._is_segmentation,
+            classification=self._is_classification,
             obb=self._is_obb,
         )
+
+    def _rebuild_for_new_classes(self, new_nc: int):
+        """Swap the classifier head (classify) or rebuild the detector head."""
+        if self._is_classification:
+            self.nb_classes = new_nc
+            self._model_num_classes = new_nc
+            classifier = self.model.classifier
+            in_features = classifier.linear.in_features
+            classifier.linear = nn.Linear(in_features, new_nc)
+            classifier.nb_classes = new_nc
+            self.model.nb_classes = new_nc
+            self.model.to(self.device)
+            self.names = {i: f"class_{i}" for i in range(new_nc)}
+            return
+        super()._rebuild_for_new_classes(new_nc)
 
     def _get_available_layers(self) -> Dict[str, nn.Module]:
         layers = {}
@@ -504,6 +570,13 @@ class LibreRFDETR(BaseModel):
         orig_w, orig_h = img.size
         orig_size = (orig_w, orig_h)
 
+        if self._is_classification:
+            from ...data.classify_dataset import build_classify_transforms
+
+            transform = build_classify_transforms(effective_res, augment=False)
+            img_tensor = transform(img).unsqueeze(0)
+            return img_tensor, img, orig_size, 1.0
+
         img_chw, _ = preprocess_numpy(np.array(img), effective_res)
         img_tensor = torch.from_numpy(img_chw).unsqueeze(0)
 
@@ -521,6 +594,12 @@ class LibreRFDETR(BaseModel):
         max_det: int = 300,
         **kwargs,
     ) -> Dict:
+        if self._is_classification:
+            logits = output
+            if isinstance(logits, dict):
+                logits = logits.get("logits", logits.get("predictions"))
+            probs = torch.softmax(logits.float(), dim=1)[0]
+            return {"probs": probs}
         if isinstance(output, tuple):
             tuple_output = output
             output = {"pred_boxes": tuple_output[0], "pred_logits": tuple_output[1]}
@@ -595,7 +674,64 @@ class LibreRFDETR(BaseModel):
     # Weights
     # =========================================================================
 
+    def _load_classify_weights(self, model_path: str | dict[str, Any]) -> None:
+        """Load a LibreYOLO classification checkpoint into the classifier head."""
+        if isinstance(model_path, str):
+            loaded = load_trusted_torch_file(
+                model_path,
+                map_location="cpu",
+                context="RF-DETR classify weights",
+            )
+        else:
+            loaded = model_path
+        if not isinstance(loaded, dict):
+            raise TypeError("RF-DETR classification checkpoints must be dictionaries")
+
+        # Guard against loading a detection/segmentation checkpoint into the
+        # classifier: its keys would silently fail to match (strict=False),
+        # leaving a randomly initialized head that "loads" successfully.
+        ckpt_task = loaded.get("task")
+        if isinstance(ckpt_task, str) and normalize_task(ckpt_task) != "classify":
+            raise RuntimeError(
+                f"Checkpoint was trained for task={normalize_task(ckpt_task)!r}, "
+                "but is being loaded into an RF-DETR classification model. "
+                "Load it with the matching task."
+            )
+
+        ckpt_nc = loaded.get("nc")
+        if ckpt_nc is None:
+            names = loaded.get("names")
+            ckpt_nc = len(names) if names else None
+        if ckpt_nc is None:
+            ckpt_nc = self.detect_nb_classes(_checkpoint_model_state(loaded))
+        if ckpt_nc is not None and ckpt_nc != self.nb_classes:
+            self._rebuild_for_new_classes(int(ckpt_nc))
+
+        # LibreRFDETRModel.load_state_dict (classification branch) unwraps the
+        # checkpoint's "model" payload before loading into the classifier.
+        result = self.model.load_state_dict(loaded, strict=False)
+        missing = list(getattr(result, "missing_keys", []) or [])
+        unexpected = list(getattr(result, "unexpected_keys", []) or [])
+        # The linear head must have been populated; if it is missing (or the
+        # archive is full of detection-only keys), this is not a classifier.
+        if any(k.startswith("linear.") for k in missing) or any(
+            ("class_embed" in k or "transformer" in k or "query" in k)
+            for k in unexpected
+        ):
+            raise RuntimeError(
+                "Checkpoint does not look like an RF-DETR classification model "
+                "(its weights do not match the backbone + linear classifier). "
+                "Load a classification checkpoint or the correct task."
+            )
+
+        ckpt_names = loaded.get("names")
+        if ckpt_names is not None:
+            self.names = self._sanitize_names(ckpt_names, self.nb_classes)
+        self.model.to(self.device)
+
     def _load_weights(self, model_path: str | dict[str, Any]):
+        if self._is_classification:
+            return self._load_classify_weights(model_path)
         try:
             if isinstance(model_path, str):
                 if not Path(model_path).exists():
@@ -657,14 +793,20 @@ class LibreRFDETR(BaseModel):
             if unexpected:
                 raise RuntimeError(
                     f"Unexpected RF-DETR checkpoint keys: {sorted(unexpected)[:10]}"
-                    + (f" (+{len(unexpected) - 10} more)" if len(unexpected) > 10 else "")
+                    + (
+                        f" (+{len(unexpected) - 10} more)"
+                        if len(unexpected) > 10
+                        else ""
+                    )
                 )
 
             ckpt_nc = loaded.get("nc")
             if ckpt_nc is not None:
                 self.nb_classes = int(ckpt_nc)
             else:
-                self.nb_classes = 80 if self.model.nb_classes == 90 else self.model.nb_classes
+                self.nb_classes = (
+                    80 if self.model.nb_classes == 90 else self.model.nb_classes
+                )
 
             self._model_num_classes = self.model.nb_classes
             if self.nb_classes == 80:
@@ -679,9 +821,16 @@ class LibreRFDETR(BaseModel):
                 self.names = self._sanitize_names(ckpt_names, self.nb_classes)
 
             args = loaded.get("args") or loaded.get("hyper_parameters") or {}
-            class_names = args.get("class_names") if isinstance(args, dict) else getattr(args, "class_names", None)
+            class_names = (
+                args.get("class_names")
+                if isinstance(args, dict)
+                else getattr(args, "class_names", None)
+            )
             if class_names:
-                self.names = {i: str(name) for i, name in enumerate(class_names[: self.nb_classes])}
+                self.names = {
+                    i: str(name)
+                    for i, name in enumerate(class_names[: self.nb_classes])
+                }
 
             if missing:
                 # ``strict=False`` is expected for class/head adaptation and older
@@ -708,7 +857,11 @@ class LibreRFDETR(BaseModel):
                 if important:
                     raise RuntimeError(
                         f"Missing RF-DETR checkpoint keys: {sorted(important)[:10]}"
-                        + (f" (+{len(important) - 10} more)" if len(important) > 10 else "")
+                        + (
+                            f" (+{len(important) - 10} more)"
+                            if len(important) > 10
+                            else ""
+                        )
                     )
         except RuntimeError:
             raise

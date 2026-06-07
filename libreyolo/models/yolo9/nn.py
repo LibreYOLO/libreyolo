@@ -1095,6 +1095,35 @@ class Neck9(nn.Module):
         return out_p3, out_p4, out_p5
 
 
+class Classify(nn.Module):
+    """Image-classification head for YOLO9.
+
+    A standard CNN classifier head (the shape shared by most ImageNet
+    backbones): a 1x1 conv lifts the backbone's deepest feature map to a wider
+    embedding, adaptive average pooling collapses the spatial dims, dropout
+    regularizes, and a linear layer produces class logits.
+    """
+
+    def __init__(self, in_channels, num_classes, hidden=1280, dropout=0.2):
+        super().__init__()
+        self.nc = num_classes
+        self.conv = Conv(in_channels, hidden, 1, 1)
+        self.pool = nn.AdaptiveAvgPool2d(1)
+        self.drop = nn.Dropout(p=dropout)
+        self.linear = nn.Linear(hidden, num_classes)
+
+    def forward(self, x, targets=None):
+        # x is the deepest backbone feature map (B, C, H, W).
+        x = self.conv(x)
+        x = self.pool(x).flatten(1)
+        x = self.drop(x)
+        logits = self.linear(x)
+        if self.training and targets is not None:
+            loss = F.cross_entropy(logits, targets.long())
+            return {"total_loss": loss, "cls": loss}
+        return logits
+
+
 class LibreYOLO9Model(nn.Module):
     """
     Complete LibreYOLO9 model.
@@ -1109,6 +1138,7 @@ class LibreYOLO9Model(nn.Module):
         nb_classes=80,
         img_size=640,
         segmentation=False,
+        classification=False,
         obb=False,
         num_masks=32,
         proto_channels=256,
@@ -1121,6 +1151,9 @@ class LibreYOLO9Model(nn.Module):
             reg_max: Regression max value for DFL
             nb_classes: Number of classes
             img_size: Input image size
+            segmentation: Build the instance-segmentation head.
+            classification: Build an image-classification head (backbone +
+                global-pool + linear). Mutually exclusive with segmentation.
         """
         super().__init__()
 
@@ -1134,6 +1167,7 @@ class LibreYOLO9Model(nn.Module):
         self.reg_max = reg_max
         self.img_size = img_size
         self.segmentation = segmentation
+        self.classification = classification
         self.obb = obb
         if self.segmentation and self.obb:
             raise ValueError("YOLO9 cannot enable segmentation and OBB heads together")
@@ -1141,6 +1175,14 @@ class LibreYOLO9Model(nn.Module):
         cfg = YOLO9_CONFIGS[config]
 
         self.backbone = Backbone9(config)
+
+        # Classification needs only the backbone's deepest features, so the
+        # detection neck and head are skipped entirely (no unused parameters).
+        if classification:
+            self.neck = None
+            self.head = Classify(cfg["spp_out"], nb_classes)
+            return
+
         self.neck = Neck9(config)
 
         # Detection head - use exact channels from config
@@ -1177,6 +1219,10 @@ class LibreYOLO9Model(nn.Module):
         """
         # Backbone
         p3, p4, p5 = self.backbone(x)
+
+        # Classification: deepest backbone features -> classifier head.
+        if self.classification:
+            return self.head(p5, targets=targets if self.training else None)
 
         # Neck
         n3, n4, n5 = self.neck(p3, p4, p5)
