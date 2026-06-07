@@ -22,9 +22,8 @@ import torch
 from ...training.config import ECSegConfig, TrainConfig
 from ...training.scheduler import FlatCosineScheduler
 from ...training.trainer import BaseTrainer
-from ..dfine.matcher import HungarianMatcher
 from ..rfdetr.seg_transforms import RFDETRSegPassThroughDataset, RFDETRSegTransform
-from .seg_loss import ECSegCriterion
+from .seg_loss import ECSegCriterion, ECSegHungarianMatcher
 
 
 class ECSegTrainer(BaseTrainer):
@@ -87,18 +86,25 @@ class ECSegTrainer(BaseTrainer):
         )
 
     def on_setup(self):
-        matcher = HungarianMatcher(
-            weight_dict={"cost_class": 2.0, "cost_bbox": 5.0, "cost_giou": 2.0},
+        matcher = ECSegHungarianMatcher(
+            weight_dict={
+                "cost_class": 2.0,
+                "cost_bbox": 1.0,
+                "cost_giou": 1.0,
+                "cost_mask_ce": self.config.mask_ce_loss_weight,
+                "cost_mask_dice": self.config.mask_dice_loss_weight,
+            },
             use_focal_loss=True,
             alpha=0.25,
             gamma=2.0,
+            mask_point_sample_ratio=self.config.mask_point_sample_ratio,
         )
         self.criterion = ECSegCriterion(
             matcher=matcher,
             weight_dict={
-                "loss_mal": 1.0,
-                "loss_bbox": 5.0,
-                "loss_giou": 2.0,
+                "loss_mal": 2.0,
+                "loss_bbox": 1.0,
+                "loss_giou": 1.0,
                 "loss_fgl": 0.15,
                 "loss_ddf": 1.5,
                 "loss_mask_ce": self.config.mask_ce_loss_weight,

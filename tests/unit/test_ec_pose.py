@@ -201,3 +201,17 @@ class TestPoseTrainingStep:
         for name in ("decoder.label_enc.weight", "decoder.pose_enc.weight"):
             p = dict(model.named_parameters())[name]
             assert p.grad is not None and p.grad.abs().sum() > 0, f"{name} got no gradient (DN not wired)"
+
+    def test_pose_custom_oks_sigmas_reach_matcher_and_criterion(self):
+        from libreyolo.models.ec.pose_loss import ECPoseCriterion, PoseHungarianMatcher
+
+        sigmas = [0.01 + i * 0.001 for i in range(self.K)]
+        matcher = PoseHungarianMatcher(num_keypoints=self.K, sigmas=sigmas)
+        criterion = ECPoseCriterion(
+            matcher=matcher,
+            num_keypoints=self.K,
+            num_classes=2,
+            sigmas=sigmas,
+        )
+        assert matcher.sigmas.tolist() == pytest.approx(sigmas)
+        assert criterion.oks.sigmas.tolist() == pytest.approx(sigmas)

@@ -138,16 +138,24 @@ class TestSegTrainingStep:
     """One forward+loss+backward step exercises the deferred-mask training path."""
 
     def _criterion(self):
-        from libreyolo.models.dfine.matcher import HungarianMatcher
-        from libreyolo.models.ec.seg_loss import ECSegCriterion
+        from libreyolo.models.ec.seg_loss import ECSegCriterion, ECSegHungarianMatcher
 
         return ECSegCriterion(
-            matcher=HungarianMatcher(
-                weight_dict={"cost_class": 2.0, "cost_bbox": 5.0, "cost_giou": 2.0},
-                use_focal_loss=True, alpha=0.25, gamma=2.0,
+            matcher=ECSegHungarianMatcher(
+                weight_dict={
+                    "cost_class": 2.0,
+                    "cost_bbox": 1.0,
+                    "cost_giou": 1.0,
+                    "cost_mask_ce": 5.0,
+                    "cost_mask_dice": 5.0,
+                },
+                use_focal_loss=True,
+                alpha=0.25,
+                gamma=2.0,
+                mask_point_sample_ratio=16,
             ),
             weight_dict={
-                "loss_mal": 1.0, "loss_bbox": 5.0, "loss_giou": 2.0,
+                "loss_mal": 2.0, "loss_bbox": 1.0, "loss_giou": 1.0,
                 "loss_fgl": 0.15, "loss_ddf": 1.5,
                 "loss_mask_ce": 5.0, "loss_mask_dice": 5.0,
             },

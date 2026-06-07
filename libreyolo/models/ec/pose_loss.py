@@ -42,7 +42,13 @@ def default_oks_sigmas(num_keypoints: int) -> List[float]:
     return [1.0 / num_keypoints] * num_keypoints
 
 
-def _sigmas_for(num_keypoints: int) -> np.ndarray:
+def _sigmas_for(num_keypoints: int, sigmas: Sequence[float] | None = None) -> np.ndarray:
+    if sigmas is not None:
+        if len(sigmas) != num_keypoints:
+            raise ValueError(
+                f"sigmas has {len(sigmas)} entries but num_keypoints={num_keypoints}"
+            )
+        return np.asarray([float(s) for s in sigmas], dtype=np.float32)
     if num_keypoints == 17:
         return np.array(
             [.26, .25, .25, .35, .35, .79, .79, .72, .72, .62, .62, 1.07,
@@ -76,11 +82,17 @@ def oks_overlaps(kpt_preds, kpt_gts, kpt_valids, kpt_areas, sigmas):
 class OKSLoss(nn.Module):
     """OKS overlap, ``linear`` form returns the similarity itself."""
 
-    def __init__(self, num_keypoints: int = 17, linear: bool = True, eps: float = 1e-6):
+    def __init__(
+        self,
+        num_keypoints: int = 17,
+        linear: bool = True,
+        eps: float = 1e-6,
+        sigmas: Sequence[float] | None = None,
+    ):
         super().__init__()
         self.linear = linear
         self.eps = eps
-        self.sigmas = _sigmas_for(num_keypoints)
+        self.sigmas = _sigmas_for(num_keypoints, sigmas)
 
     def forward(self, pred, target, valid, area):
         oks = oks_overlaps(pred, target, valid, area, self.sigmas).clamp(min=self.eps)
@@ -99,6 +111,7 @@ class PoseHungarianMatcher(nn.Module):
         cost_keypoints: float = 10.0,
         cost_oks: float = 4.0,
         focal_alpha: float = 0.25,
+        sigmas: Sequence[float] | None = None,
     ):
         super().__init__()
         self.num_keypoints = num_keypoints
@@ -106,7 +119,7 @@ class PoseHungarianMatcher(nn.Module):
         self.cost_keypoints = cost_keypoints
         self.cost_oks = cost_oks
         self.focal_alpha = focal_alpha
-        self.sigmas = _sigmas_for(num_keypoints)
+        self.sigmas = _sigmas_for(num_keypoints, sigmas)
 
     @torch.no_grad()
     def forward(self, outputs, targets):
@@ -187,7 +200,7 @@ class ECPoseCriterion(nn.Module):
         cls_loss_weight: float | None = None,
         keypoint_l1_loss_weight: float | None = None,
         oks_loss_weight: float | None = None,
-        sigmas: Sequence[float] | None = None,  # accepted, unused (kept for API)
+        sigmas: Sequence[float] | None = None,
     ):
         super().__init__()
         self.matcher = matcher
@@ -204,7 +217,7 @@ class ECPoseCriterion(nn.Module):
                 "loss_oks": oks_loss_weight if oks_loss_weight is not None else 4.0,
             }
         self.weight_dict = weight_dict
-        self.oks = OKSLoss(num_keypoints=num_keypoints, linear=True)
+        self.oks = OKSLoss(num_keypoints=num_keypoints, linear=True, sigmas=sigmas)
 
     @staticmethod
     def _get_src_permutation_idx(indices):
@@ -304,6 +317,13 @@ class ECPoseCriterion(nn.Module):
             torch.distributed.all_reduce(n)
         return torch.clamp(n / _world_size(), min=1).item()
 
+    def _num_index_pairs(self, indices, device):
+        n = sum(len(x[0]) for x in indices)
+        n = torch.as_tensor([n], dtype=torch.float, device=device)
+        if _is_dist():
+            torch.distributed.all_reduce(n)
+        return torch.clamp(n / _world_size(), min=1).item()
+
     def forward(self, outputs, targets):
         device = outputs["pred_logits"].device
         outputs_without_aux = {k: v for k, v in outputs.items() if "aux" not in k}
@@ -321,10 +341,10 @@ class ECPoseCriterion(nn.Module):
                 cached_indices_enc.append(ie)
                 indices_aux_list.append(ie)
             indices_go = self._get_go_indices(indices, indices_aux_list)
-            num_boxes_go = max(1.0, float(sum(len(x[0]) for x in indices_go)))
+            num_boxes_go = self._num_index_pairs(indices_go, device)
         else:
             indices_go = indices
-            num_boxes_go = max(1.0, float(sum(len(x[0]) for x in indices)))
+            num_boxes_go = self._num_index_pairs(indices, device)
 
         num_boxes = self._num_boxes(targets, device)
 
