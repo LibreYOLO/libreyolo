@@ -55,11 +55,25 @@ def _torch_load(
     map_location: Any,
     weights_only: bool,
     context: str,
+    safe_globals: list[Any] | tuple[Any, ...] | None = None,
 ):
     load_kwargs = {"map_location": map_location}
 
     if _supports_weights_only():
         load_kwargs["weights_only"] = weights_only
+        if weights_only and safe_globals:
+            safe_globals_context = getattr(
+                getattr(torch, "serialization", None),
+                "safe_globals",
+                None,
+            )
+            if safe_globals_context is None:
+                raise RuntimeError(
+                    f"Safe loading for {context} requires a PyTorch build that "
+                    "supports torch.serialization.safe_globals(...)."
+                )
+            with safe_globals_context(list(safe_globals)):
+                return torch.load(path, **load_kwargs)
         return torch.load(path, **load_kwargs)
 
     if weights_only:
@@ -77,6 +91,7 @@ def load_untrusted_torch_file(
     *,
     map_location: Any = "cpu",
     context: str = "model weights",
+    safe_globals: list[Any] | tuple[Any, ...] | None = None,
 ):
     """Safely load a user-supplied torch file."""
     return _torch_load(
@@ -84,6 +99,7 @@ def load_untrusted_torch_file(
         map_location=map_location,
         weights_only=True,
         context=context,
+        safe_globals=safe_globals,
     )
 
 

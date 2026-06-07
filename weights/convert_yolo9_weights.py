@@ -1,23 +1,21 @@
 """
-Convert YOLOv9 weights from official YOLO repo format to LibreYOLO format.
+Convert YOLOv9 weights from the upstream YOLO repo format to LibreYOLO format.
 
 Usage:
     python weights/convert_yolo9_weights.py weights/v9-t.pt weights/LibreYOLO9t.pt --config t
-    python weights/convert_yolo9_weights.py weights/v9-s.pt weights/LibreYOLO9s.pt --config s
-    python weights/convert_yolo9_weights.py weights/v9-m.pt weights/LibreYOLO9m.pt --config m
-    python weights/convert_yolo9_weights.py weights/v9-c.pt weights/LibreYOLO9c.pt --config c
+    python weights/convert_yolo9_weights.py weights/v9-s.pt weights/LibreYOLO9s.pt
+    python weights/convert_yolo9_weights.py weights/v9-m.pt weights/LibreYOLO9m.pt
+    python weights/convert_yolo9_weights.py weights/v9-c.pt weights/LibreYOLO9c.pt
 
-The YOLO repo uses numbered layer indices (0., 1., 2., etc.) while LibreYOLO
-uses semantic naming (backbone.conv0, neck.elan_up1, etc.).
-
-This script handles the mapping between the two naming conventions for all variants.
+The upstream repo uses numbered layer indices (0., 1., 2., etc.) while LibreYOLO
+uses semantic naming (backbone.conv0, neck.elan_up1, etc.). The shared remapping
+logic lives in ``libreyolo.models.yolo9.convert`` so this script and the runtime
+auto-conversion path stay in sync. ``--config`` is inferred from the checkpoint
+when omitted, and the class count is read from the upstream detection head so
+fine-tuned (non-COCO) checkpoints convert correctly.
 """
 
 import argparse
-import re
-from typing import Dict, Tuple, Optional
-
-import torch
 
 from _conversion_utils import (
     add_repo_root_to_path,
@@ -28,357 +26,88 @@ from _conversion_utils import (
     wrap_libreyolo_checkpoint,
 )
 
+add_repo_root_to_path()
 
-# =============================================================================
-# Layer Index Mapping (YOLO layer index -> LibreYOLO prefix)
-# =============================================================================
-
-# Common layers across all variants
-COMMON_LAYERS = {
-    0: "backbone.conv0",  # Conv 3->X
-    1: "backbone.conv1",  # Conv X->Y
-}
-
-# yolo9-t and yolo9-s: ELAN first block, AConv downsampling
-YOLO9_TS_LAYER_MAP = {
-    **COMMON_LAYERS,
-    2: "backbone.elan1",  # ELAN
-    3: "backbone.down2",  # AConv
-    4: "backbone.elan2",  # RepNCSPELAN
-    5: "backbone.down3",  # AConv
-    6: "backbone.elan3",  # RepNCSPELAN
-    7: "backbone.down4",  # AConv
-    8: "backbone.elan4",  # RepNCSPELAN
-    9: "backbone.spp",  # SPPELAN
-    # Neck
-    12: "neck.elan_up1",  # RepNCSPELAN (N4)
-    15: "neck.elan_up2",  # RepNCSPELAN (P3)
-    16: "neck.down1",  # AConv
-    18: "neck.elan_down1",  # RepNCSPELAN (P4)
-    19: "neck.down2",  # AConv
-    21: "neck.elan_down2",  # RepNCSPELAN (P5)
-    # Detection head
-    22: "head",  # MultiheadDetection
-}
-
-# yolo9-m: RepNCSPELAN first block, AConv downsampling
-YOLO9_M_LAYER_MAP = {
-    **COMMON_LAYERS,
-    2: "backbone.elan1",  # RepNCSPELAN
-    3: "backbone.down2",  # AConv
-    4: "backbone.elan2",  # RepNCSPELAN
-    5: "backbone.down3",  # AConv
-    6: "backbone.elan3",  # RepNCSPELAN
-    7: "backbone.down4",  # AConv
-    8: "backbone.elan4",  # RepNCSPELAN
-    9: "backbone.spp",  # SPPELAN
-    # Neck
-    12: "neck.elan_up1",  # RepNCSPELAN (N4)
-    15: "neck.elan_up2",  # RepNCSPELAN (P3)
-    16: "neck.down1",  # AConv
-    18: "neck.elan_down1",  # RepNCSPELAN (P4)
-    19: "neck.down2",  # AConv
-    21: "neck.elan_down2",  # RepNCSPELAN (P5)
-    # Detection head
-    22: "head",  # MultiheadDetection
-}
-
-# yolo9-c: RepNCSPELAN first block, ADown downsampling
-YOLO9_C_LAYER_MAP = {
-    **COMMON_LAYERS,
-    2: "backbone.elan1",  # RepNCSPELAN
-    3: "backbone.down2",  # ADown
-    4: "backbone.elan2",  # RepNCSPELAN
-    5: "backbone.down3",  # ADown
-    6: "backbone.elan3",  # RepNCSPELAN
-    7: "backbone.down4",  # ADown
-    8: "backbone.elan4",  # RepNCSPELAN
-    9: "backbone.spp",  # SPPELAN
-    # Neck
-    12: "neck.elan_up1",  # RepNCSPELAN (N4)
-    15: "neck.elan_up2",  # RepNCSPELAN (P3)
-    16: "neck.down1",  # ADown
-    18: "neck.elan_down1",  # RepNCSPELAN (P4)
-    19: "neck.down2",  # ADown
-    21: "neck.elan_down2",  # RepNCSPELAN (P5)
-    # Detection head
-    22: "head",  # MultiheadDetection
-}
-
-LAYER_MAPS = {
-    "t": YOLO9_TS_LAYER_MAP,
-    "s": YOLO9_TS_LAYER_MAP,
-    "m": YOLO9_M_LAYER_MAP,
-    "c": YOLO9_C_LAYER_MAP,
-}
+from libreyolo.models.yolo9.convert import (  # noqa: E402
+    SUPPORTED_CONFIGS,
+    convert_state_dict,
+    infer_config,
+    infer_nb_classes,
+)
 
 
-# =============================================================================
-# Sublayer Name Mapping
-# =============================================================================
+def _extract_upstream_state_dict(weights) -> dict:
+    """Return the upstream tensor state dict across known checkpoint layouts."""
+    if isinstance(weights, dict) and "state_dict" in weights:
+        return strip_state_dict_prefix(
+            extract_state_dict(
+                weights, state_dict_keys=("state_dict",), prefer_ema=False
+            ),
+            "model.model.",
+        )
+    return extract_state_dict(weights, state_dict_keys=("model",), prefer_ema=False)
 
 
-def map_conv_keys(yolo_suffix: str) -> str:
-    """Map Conv layer keys. YOLO and LibreYOLO use same naming."""
-    return yolo_suffix
-
-
-def map_aconv_keys(yolo_suffix: str) -> str:
-    """Map AConv layer keys.
-
-    YOLO AConv: conv.conv, conv.bn
-    LibreYOLO AConv: cv.conv, cv.bn
-
-    Only replace the first 'conv.' with 'cv.'
-    """
-    return re.sub(r"^conv\.", "cv.", yolo_suffix)
-
-
-def map_adown_keys(yolo_suffix: str) -> str:
-    """Map ADown layer keys.
-
-    YOLO: conv1, conv2
-    LibreYOLO: cv1, cv2
-    """
-    return yolo_suffix.replace("conv1", "cv1").replace("conv2", "cv2")
-
-
-def map_elan_keys(yolo_suffix: str) -> str:
-    """Map ELAN layer keys (for yolo9-t/s first block).
-
-    YOLO ELAN: conv1, conv2, conv3, conv4
-    LibreYOLO ELAN: cv1, cv2, cv3, cv4
-    """
-    result = yolo_suffix
-    result = re.sub(r"^conv([1234])\.", r"cv\1.", result)
-    return result
-
-
-def map_repncspelan_keys(yolo_suffix: str) -> str:
-    """Map RepNCSPELAN layer keys.
-
-    YOLO: conv1, conv2, conv3, conv4 with nested bottleneck structure
-    LibreYOLO: cv1, cv2, cv3, cv4 with nested m (bottleneck) structure
-    """
-    result = yolo_suffix
-
-    # Map main conv names: conv1/2/3/4 -> cv1/2/3/4
-    result = re.sub(r"^conv([1234])\.", r"cv\1.", result)
-
-    # Map RepNCSP internal names (inside cv2.0 and cv3.0)
-    result = re.sub(r"\.conv([123])\.", r".cv\1.", result)
-
-    # Map bottleneck -> m
-    result = result.replace(".bottleneck.", ".m.")
-
-    # Inside RepNCSP Bottleneck, YOLO uses conv1/conv2
-    # LibreYOLO's RepNBottleneck uses cv1/cv2
-    result = re.sub(r"\.m\.(\d+)\.conv([12])\.", r".m.\1.cv\2.", result)
-
-    return result
-
-
-def map_sppelan_keys(yolo_suffix: str) -> str:
-    """Map SPPELAN layer keys.
-
-    YOLO: conv1, pools.0/1/2, conv5
-    LibreYOLO: cv1, pools.0/1/2, cv5
-    """
-    result = yolo_suffix
-    result = result.replace("conv1.", "cv1.")
-    result = result.replace("conv5.", "cv5.")
-    return result
-
-
-def map_detection_keys(yolo_suffix: str) -> Optional[str]:
-    """Map MultiheadDetection layer keys.
-
-    YOLO: heads.N.anchor_conv, heads.N.class_conv, heads.N.anc2vec
-    LibreYOLO: cv2.N (box), cv3.N (class), dfl
-    """
-    result = yolo_suffix
-
-    # Map heads.N.anchor_conv -> cv2.N
-    result = re.sub(r"^heads\.(\d+)\.anchor_conv\.", r"cv2.\1.", result)
-
-    # Map heads.N.class_conv -> cv3.N
-    result = re.sub(r"^heads\.(\d+)\.class_conv\.", r"cv3.\1.", result)
-
-    # Skip anc2vec (incompatible shapes with DFL)
-    if "anc2vec" in result:
+def _extract_names(weights, nc: int) -> object | None:
+    """Return class names from top-level or args metadata, when present."""
+    if not isinstance(weights, dict):
         return None
+    names = weights.get("names")
+    if names is not None:
+        return names
 
-    return result
+    args = weights.get("args") or weights.get("hyper_parameters") or {}
+    class_names = (
+        args.get("class_names")
+        if isinstance(args, dict)
+        else getattr(args, "class_names", None)
+    )
+    if class_names is None:
+        return None
+    if isinstance(class_names, dict):
+        names = {int(key): str(value) for key, value in class_names.items()}
+        return {key: value for key, value in names.items() if key < nc}
 
-
-# =============================================================================
-# Layer Type Detection
-# =============================================================================
-
-
-def get_layer_type(layer_idx: int, config: str) -> str:
-    """Determine the layer type based on layer index and config."""
-    if layer_idx in [0, 1]:
-        return "conv"
-
-    # First block (layer 2)
-    if layer_idx == 2:
-        if config in ["t", "s"]:
-            return "elan"
-        else:
-            return "repncspelan"
-
-    # Downsampling layers
-    if layer_idx in [3, 5, 7, 16, 19]:
-        if config == "c":
-            return "adown"
-        else:
-            return "aconv"
-
-    # RepNCSPELAN layers
-    if layer_idx in [4, 6, 8, 12, 15, 18, 21]:
-        return "repncspelan"
-
-    # SPPELAN
-    if layer_idx == 9:
-        return "sppelan"
-
-    # Detection head
-    if layer_idx == 22:
-        return "detection"
-
-    return "unknown"
-
-
-# =============================================================================
-# Main Conversion Logic
-# =============================================================================
-
-
-def convert_key(yolo_key: str, config: str) -> Tuple[str, bool]:
-    """Convert a single YOLO key to LibreYOLO format.
-
-    Returns:
-        Tuple of (converted_key, success)
-    """
-    layer_map = LAYER_MAPS[config]
-
-    # Parse layer index
-    parts = yolo_key.split(".", 1)
-    if len(parts) < 2:
-        return yolo_key, False
-
-    layer_idx_str, suffix = parts
-    if not layer_idx_str.isdigit():
-        return yolo_key, False
-
-    layer_idx = int(layer_idx_str)
-
-    # Check if this layer is in our mapping
-    if layer_idx not in layer_map:
-        return yolo_key, False
-
-    # Get the LibreYOLO prefix
-    libre_prefix = layer_map[layer_idx]
-
-    # Map the suffix based on layer type
-    layer_type = get_layer_type(layer_idx, config)
-
-    if layer_type == "conv":
-        libre_suffix = map_conv_keys(suffix)
-    elif layer_type == "aconv":
-        libre_suffix = map_aconv_keys(suffix)
-    elif layer_type == "adown":
-        libre_suffix = map_adown_keys(suffix)
-    elif layer_type == "elan":
-        libre_suffix = map_elan_keys(suffix)
-    elif layer_type == "repncspelan":
-        libre_suffix = map_repncspelan_keys(suffix)
-    elif layer_type == "sppelan":
-        libre_suffix = map_sppelan_keys(suffix)
-    elif layer_type == "detection":
-        libre_suffix = map_detection_keys(suffix)
-        if libre_suffix is None:
-            return yolo_key, False
-    else:
-        return yolo_key, False
-
-    return f"{libre_prefix}.{libre_suffix}", True
+    return list(class_names)[:nc]
 
 
 def convert_weights(
     input_path: str,
     output_path: str,
-    config: str,
+    config: str | None = None,
     verbose: bool = False,
-    reg_max: int = 16,
-) -> Dict[str, torch.Tensor]:
-    """Convert YOLOv9 weights to LibreYOLO format.
-
-    Args:
-        input_path: Path to YOLO weights (.pt file)
-        output_path: Path to save converted weights
-        config: Model config ('t', 's', 'm', 'c')
-        verbose: Print detailed conversion info
-        reg_max: Regression max value for DFL layer
-
-    Returns:
-        Converted state dict
-    """
+) -> dict:
+    """Convert upstream YOLO9 weights to a LibreYOLO v1.0 checkpoint on disk."""
     print(f"Loading weights from {input_path}")
     weights = load_checkpoint(input_path)
-
-    # Handle different checkpoint formats
-    if isinstance(weights, dict) and "state_dict" in weights:
-        state_dict = strip_state_dict_prefix(
-            extract_state_dict(weights, state_dict_keys=("state_dict",), prefer_ema=False),
-            "model.model.",
-        )
-    else:
-        state_dict = extract_state_dict(weights, state_dict_keys=("model",), prefer_ema=False)
-
+    state_dict = _extract_upstream_state_dict(weights)
     print(f"Found {len(state_dict)} keys in original weights")
+
+    if config is None:
+        config = infer_config(state_dict)
+        if config is None:
+            raise ValueError(
+                "Could not infer YOLO9 config from the checkpoint; "
+                f"pass --config explicitly (one of {SUPPORTED_CONFIGS})."
+            )
+        print(f"Inferred config: yolo9-{config}")
     print(f"Converting for config: yolo9-{config}")
 
-    # Convert keys
-    converted = {}
-    skipped = []
-    failed = []
-
-    for yolo_key, value in state_dict.items():
-        libre_key, success = convert_key(yolo_key, config)
-
-        if success:
-            converted[libre_key] = value
-            if verbose:
-                print(f"  {yolo_key} -> {libre_key}")
-        else:
-            # Check if it's an auxiliary head (layer 23+)
-            parts = yolo_key.split(".", 1)
-            if parts[0].isdigit() and int(parts[0]) >= 23:
-                skipped.append(yolo_key)
-            else:
-                failed.append(yolo_key)
+    converted, stats = convert_state_dict(state_dict, config)
 
     print("\nConversion summary:")
-    print(f"  Converted: {len(converted)} keys")
-    print(f"  Skipped (auxiliary head): {len(skipped)} keys")
-    print(f"  Failed: {len(failed)} keys")
-
-    if failed and verbose:
-        print("\nFailed keys:")
-        for k in failed[:20]:
-            print(f"  {k}")
-        if len(failed) > 20:
-            print(f"  ... and {len(failed) - 20} more")
-
-    # DFL projection is now derived inside the model and is not serialized.
+    print(f"  Converted: {stats['converted']} keys")
+    print(f"  Skipped (auxiliary head): {stats['skipped']} keys")
+    print(f"  Failed: {stats['failed']} keys")
     print("  DFL projection is model-derived; no fixed DFL weights added")
 
-    # Save converted weights
+    nc = infer_nb_classes(state_dict) or 80
+    names = _extract_names(weights, nc)
+    print(f"  Class count (nc): {nc}")
+
     print(f"\nSaving converted weights to {output_path}")
     wrapped = wrap_libreyolo_checkpoint(
-        converted, model_family="yolo9", size=config, nc=80,
+        converted, model_family="yolo9", size=config, nc=nc, names=names,
     )
     save_checkpoint(wrapped, output_path)
 
@@ -386,23 +115,20 @@ def convert_weights(
 
 
 def verify_conversion(converted_path: str, config: str) -> bool:
-    """Verify converted weights can be loaded into LibreYOLO model."""
-    add_repo_root_to_path()
-
+    """Verify converted weights can be loaded into the LibreYOLO model."""
     from libreyolo.models.yolo9.nn import LibreYOLO9Model
 
     print(f"\nVerifying weights can be loaded into yolo9-{config} model...")
 
-    # Load converted weights (now metadata-wrapped — extract the state_dict).
     raw = load_checkpoint(converted_path)
     converted = extract_state_dict(raw)
+    # Read nc from the wrapped metadata when present.
+    nc = raw.get("nc", 80) if isinstance(raw, dict) else 80
 
-    # Create model
-    model = LibreYOLO9Model(config=config, reg_max=16, nb_classes=80)
+    model = LibreYOLO9Model(config=config, reg_max=16, nb_classes=nc)
     model_keys = set(model.state_dict().keys())
     converted_keys = set(converted.keys())
 
-    # Check coverage
     matched = model_keys & converted_keys
     missing_in_converted = model_keys - converted_keys
     extra_in_converted = converted_keys - model_keys
@@ -415,32 +141,16 @@ def verify_conversion(converted_path: str, config: str) -> bool:
         print(f"\nMissing in converted weights ({len(missing_in_converted)}):")
         for k in sorted(missing_in_converted)[:10]:
             print(f"  {k}")
-        if len(missing_in_converted) > 10:
-            print(f"  ... and {len(missing_in_converted) - 10} more")
-
     if extra_in_converted:
         print(f"\nExtra in converted weights ({len(extra_in_converted)}):")
         for k in sorted(extra_in_converted)[:10]:
             print(f"  {k}")
-        if len(extra_in_converted) > 10:
-            print(f"  ... and {len(extra_in_converted) - 10} more")
 
-    # Try loading
-    try:
-        result = model.load_state_dict(converted, strict=False)
-        print("\nLoad result:")
-        print(f"  Missing keys: {len(result.missing_keys)}")
-        print(f"  Unexpected keys: {len(result.unexpected_keys)}")
-
-        if result.missing_keys:
-            print("\n  Sample missing keys:")
-            for k in result.missing_keys[:5]:
-                print(f"    {k}")
-
-        return len(result.missing_keys) == 0
-    except Exception as e:
-        print(f"\nLoad failed: {e}")
-        return False
+    result = model.load_state_dict(converted, strict=False)
+    print("\nLoad result:")
+    print(f"  Missing keys: {len(result.missing_keys)}")
+    print(f"  Unexpected keys: {len(result.unexpected_keys)}")
+    return len(result.missing_keys) == 0
 
 
 if __name__ == "__main__":
@@ -451,9 +161,9 @@ if __name__ == "__main__":
     parser.add_argument("output", help="Path to save converted weights")
     parser.add_argument(
         "--config",
-        required=True,
-        choices=["t", "s", "m", "c"],
-        help="Model config (required)",
+        choices=list(SUPPORTED_CONFIGS),
+        default=None,
+        help="Model config (inferred from the checkpoint when omitted)",
     )
     parser.add_argument(
         "-v", "--verbose", action="store_true", help="Print detailed info"
@@ -464,7 +174,11 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    converted = convert_weights(args.input, args.output, args.config, args.verbose)
+    convert_weights(args.input, args.output, args.config, args.verbose)
 
     if args.verify:
-        verify_conversion(args.output, args.config)
+        # Re-read the config we actually used (inferred or explicit).
+        used_config = args.config or infer_config(
+            _extract_upstream_state_dict(load_checkpoint(args.input))
+        )
+        verify_conversion(args.output, used_config)

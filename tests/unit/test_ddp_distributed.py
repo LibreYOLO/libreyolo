@@ -181,7 +181,7 @@ def _rfdetr_ddp_worker(rank: int, world_size: int, port: int, out_dir: str) -> N
         )
 
         torch.manual_seed(0)
-        wrapper = LibreRFDETR(None, size="n", device="cpu", segmentation=False)
+        wrapper = LibreRFDETR({}, size="n", device="cpu", segmentation=False)
         wrapper.model.train()
 
         # The RF-DETR trainer needs to build its criterion via on_setup, so
@@ -268,7 +268,7 @@ def _rfdetr_ddp_worker(rank: int, world_size: int, port: int, out_dir: str) -> N
             torch.save({"model": raw.state_dict()}, ckpt_path)
         dist.barrier()
         if rank == 0:
-            fresh = LibreRFDETR(None, size="n", device="cpu", segmentation=False)
+            fresh = LibreRFDETR({}, size="n", device="cpu", segmentation=False)
             sd = torch.load(Path(out_dir) / "rfdetr.pt", weights_only=False)["model"]
             missing, unexpected = fresh.model.load_state_dict(sd, strict=False)
             if unexpected:
@@ -696,7 +696,7 @@ def _rfdetr_nccl_worker(rank: int, world_size: int, port: int, out_dir: str) -> 
         )
 
         torch.manual_seed(0)
-        wrapper = LibreRFDETR(None, size="n", device=str(device), segmentation=False)
+        wrapper = LibreRFDETR({}, size="n", device=str(device), segmentation=False)
         wrapper.model.train()
 
         trainer = RFDETRTrainer(
