@@ -346,9 +346,22 @@ def LibreYOLO(
                 context="model inspection",
             )
     except Exception as e:
-        raise RuntimeError(
-            f"Failed to load model weights from {model_path}: {e}"
-        ) from e
+        # Upstream flagship checkpoints can fail the safe inspection load — e.g.
+        # RF-DETR embeds an argparse.Namespace that weights_only=True rejects.
+        # Try auto-converting to a LibreYOLO v1.0 checkpoint and reload it.
+        from .autoconvert import autoconvert_upstream_checkpoint
+
+        converted_path = autoconvert_upstream_checkpoint(model_path)
+        if converted_path is None:
+            raise RuntimeError(
+                f"Failed to load model weights from {model_path}: {e}"
+            ) from e
+        model_path = converted_path
+        loaded = load_untrusted_torch_file(
+            model_path,
+            map_location="cpu",
+            context="model inspection",
+        )
 
     metadata_errors = validate_checkpoint_metadata(loaded, strict=False)
     has_v1_metadata = not metadata_errors
@@ -368,6 +381,24 @@ def LibreYOLO(
                 _METADATA_CONVERSION_HELP,
             )
         else:
+            # Foreign checkpoint. If it's an upstream flagship (YOLO9 / RF-DETR)
+            # we can auto-convert it to a LibreYOLO v1.0 checkpoint and load that
+            # cleanly instead of falling back to the legacy detection path.
+            from .autoconvert import autoconvert_upstream_checkpoint
+
+            converted_path = autoconvert_upstream_checkpoint(
+                model_path, loaded=loaded
+            )
+            if converted_path is not None and converted_path != model_path:
+                return LibreYOLO(
+                    converted_path,
+                    size=size,
+                    reg_max=reg_max,
+                    nb_classes=nb_classes,
+                    device=device,
+                    task=task,
+                    compute_units=compute_units,
+                )
             logger.warning(
                 "LibreYOLO metadata was not found in %s. Loading through the "
                 "legacy architecture-detection path. This appears to be an "
@@ -476,7 +507,15 @@ def LibreYOLO(
     # the fresh model init too early. This matters for YOLO9-t where the class
     # branch width depends on COCO-vs-custom ``nc`` during construction.
     if nb_classes is None:
-        if has_metadata:
+        if matched_cls.FAMILY == "rfdetr":
+            # RF-DETR builds its detection head to the checkpoint's class width
+            # (read from class_embed). The 80 default below is a YOLO9-family
+            # convention that would mis-size the head for a metadata-wrapped
+            # 91-class COCO or fine-tuned RF-DETR checkpoint.
+            nb_classes = matched_cls.detect_nb_classes(weights_dict)
+            if nb_classes is None:
+                nb_classes = 80
+        elif has_metadata:
             nb_classes = 80
         else:
             nb_classes = matched_cls.detect_nb_classes(weights_dict)
