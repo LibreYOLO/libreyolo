@@ -12,9 +12,9 @@ loadable but do not carry LibreYOLO v1.0 metadata:
   factory's safe inspection load rejects it) and carries optimizer/EMA cruft.
 
 This module detects those upstream layouts, converts them to a strict v1.0
-metadata-wrapped checkpoint, writes it next to the source under the canonical
-``Libre<FAMILY><size>[-task].pt`` name, and returns the new path so the factory
-can load it normally. Class count is taken from the upstream head, so
+metadata-wrapped checkpoint, writes it next to the source under a source-specific
+``<source>-Libre<FAMILY><size>[-task].pt`` name, and returns the new path so the
+factory can load it normally. Class count is taken from the upstream head, so
 fine-tuned (non-COCO) checkpoints convert correctly.
 """
 
@@ -84,11 +84,88 @@ def _checkpoint_names(loaded: Any, nc: int | None = None) -> Any | None:
     return names[:nc] if nc is not None else names
 
 
+def _safe_metadata_value(value: Any) -> Any | None:
+    """Return a safe-loader-compatible metadata value, or ``None`` if unsafe."""
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    if isinstance(value, dict):
+        safe = {}
+        for key, item in value.items():
+            safe_item = _safe_metadata_value(item)
+            if safe_item is not None:
+                safe[str(key)] = safe_item
+        return safe
+    if isinstance(value, (list, tuple)):
+        safe_items = []
+        for item in value:
+            safe_item = _safe_metadata_value(item)
+            if safe_item is not None:
+                safe_items.append(safe_item)
+        return safe_items
+    if isinstance(value, argparse.Namespace):
+        return _safe_metadata_value(vars(value))
+    return None
+
+
+def _checkpoint_args(loaded: Any) -> dict[str, Any] | None:
+    """Extract upstream args as plain metadata safe for weights-only loading."""
+    if not isinstance(loaded, dict):
+        return None
+    raw_args = loaded.get("args") or loaded.get("hyper_parameters")
+    safe_args = _safe_metadata_value(raw_args)
+    if isinstance(safe_args, dict) and safe_args:
+        return safe_args
+    return None
+
+
+def _metadata_value(loaded: Any, name: str) -> Any:
+    if not isinstance(loaded, dict):
+        return None
+    if name in loaded:
+        return loaded[name]
+    args = loaded.get("args") or loaded.get("hyper_parameters") or {}
+    if isinstance(args, dict):
+        return args.get(name)
+    return getattr(args, name, None)
+
+
+def _name_count(names: Any) -> int | None:
+    if isinstance(names, (dict, list, tuple)):
+        return len(names)
+    return None
+
+
+def _is_coco_rfdetr_checkpoint(loaded: Any) -> bool:
+    """Return True only when metadata supports RF-DETR COCO remapping."""
+    names = _checkpoint_names(loaded)
+    if _name_count(names) == 80:
+        return True
+
+    for field in ("dataset", "dataset_file", "dataset_name", "data"):
+        value = _metadata_value(loaded, field)
+        if isinstance(value, str) and "coco" in value.lower():
+            return True
+    return False
+
+
+def _rfdetr_class_metadata(
+    loaded: Any,
+    raw_nc: int | None,
+) -> tuple[int, Any | None]:
+    """Resolve RF-DETR public class metadata without guessing custom 90-class heads."""
+    if raw_nc == 90 and _is_coco_rfdetr_checkpoint(loaded):
+        # COCO arch-classes (91 outputs incl. background) -> LibreYOLO's COCO-80.
+        return 80, _checkpoint_names(loaded, 80)
+
+    nc = raw_nc if raw_nc else 80
+    return nc, _checkpoint_names(loaded, nc)
+
+
 def _canonical_path(source: Path, prefix: str, size: str, task: str) -> Path:
-    """Build the canonical ``Libre<FAMILY><size>[-task].pt`` path beside source."""
+    """Build a source-specific converted checkpoint path beside source."""
     suffix = task_to_suffix(task)
     task_part = f"-{suffix}" if suffix else ""
-    return source.parent / f"{prefix}{size}{task_part}.pt"
+    return source.parent / f"{source.stem}-{prefix}{size}{task_part}.pt"
 
 
 def _try_yolo9(loaded: Any) -> Optional[Tuple[dict, str, str, str]]:
@@ -160,15 +237,20 @@ def _try_rfdetr(loaded: Any) -> Optional[Tuple[dict, str, str, str]]:
     task = "segment" if any(k.startswith("segmentation_head") for k in state) else "detect"
 
     raw_nc = rfdetr_cls.detect_nb_classes(state)
-    if raw_nc == 90:
-        # COCO arch-classes (91 outputs incl. background) -> LibreYOLO's COCO-80.
-        nc, names = 80, None
-    else:
-        nc = raw_nc if raw_nc else 80
-        names = _checkpoint_names(loaded, nc)
+    nc, names = _rfdetr_class_metadata(loaded, raw_nc)
+    extra_metadata: dict[str, Any] = {}
+    args = _checkpoint_args(loaded)
+    if args is not None:
+        extra_metadata["args"] = args
 
     wrapped = wrap_libreyolo_checkpoint(
-        state, model_family="rfdetr", size=size, task=task, nc=nc, names=names,
+        state,
+        model_family="rfdetr",
+        size=size,
+        task=task,
+        nc=nc,
+        names=names,
+        **extra_metadata,
     )
     return wrapped, "rfdetr", size, task
 
@@ -218,11 +300,9 @@ def autoconvert_upstream_checkpoint(
     wrapped, family, size, task = result
     out_path = _canonical_path(path, _PREFIX[family], size, task)
 
-    # Always (re)write from the current source. The canonical name encodes only
-    # family + size + task, so two different source files in one directory (e.g.
-    # COCO and a custom fine-tune of the same size) share a name; reusing a
-    # stale conversion would silently load the wrong weights. Conversion is
-    # cheap relative to the source load that already happened.
+    # Always (re)write the source-specific conversion. This keeps repeated loads
+    # of the same source fresh while avoiding collisions with official weights
+    # or other fine-tunes of the same family/size/task in the directory.
     torch.save(wrapped, out_path)
     logger.info(
         "Converted upstream %s weights (%s) -> %s in LibreYOLO format (nc=%d).",

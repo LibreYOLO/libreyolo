@@ -315,7 +315,7 @@ def infer_nb_classes(state_dict: Dict[str, torch.Tensor]) -> Optional[int]:
     """Infer class count from the upstream detection head (``class_conv.*.2``)."""
     best: Optional[int] = None
     for key, tensor in state_dict.items():
-        m = re.match(r"\d+\.heads\.(\d+)\.class_conv\.\d+\.weight", key)
+        m = re.match(r"\d+\.heads\.(\d+)\.class_conv\.2\.weight$", key)
         if m and tensor.ndim >= 1:
             best = int(tensor.shape[0])
             if m.group(1) == "0":  # prefer the first (P3) head

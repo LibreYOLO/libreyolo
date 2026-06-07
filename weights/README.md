@@ -25,14 +25,14 @@ at the top level.
 
 The two flagship families convert automatically. When `LibreYOLO("...")` is
 pointed at an upstream YOLO9 or RF-DETR checkpoint, it is converted to a v1.0
-LibreYOLO checkpoint on the fly, written next to the source under the canonical
-`Libre<FAMILY><size>[-task].pt` name, and then loaded:
+LibreYOLO checkpoint on the fly, written next to the source under a
+source-specific `<source>-Libre<FAMILY><size>[-task].pt` name, and then loaded:
 
 ```python
 from libreyolo import LibreYOLO
 
-LibreYOLO("v9-t.pt")           # -> writes LibreYOLO9t.pt, then loads it
-LibreYOLO("rf-detr-nano.pth")  # -> writes LibreRFDETRn.pt, then loads it
+LibreYOLO("v9-t.pt")           # -> writes v9-t-LibreYOLO9t.pt, then loads it
+LibreYOLO("rf-detr-nano.pth")  # -> writes rf-detr-nano-LibreRFDETRn.pt
 ```
 
 Class count is read from the upstream head, and class names are preserved from

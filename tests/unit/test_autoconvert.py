@@ -20,7 +20,11 @@ from libreyolo.models.yolo9.convert import (
     is_upstream_state_dict,
 )
 from libreyolo.models.autoconvert import autoconvert_upstream_checkpoint
-from libreyolo.utils.serialization import validate_checkpoint_metadata
+from libreyolo.utils.serialization import (
+    load_untrusted_torch_file,
+    validate_checkpoint_metadata,
+    wrap_libreyolo_checkpoint,
+)
 
 pytestmark = [pytest.mark.unit, pytest.mark.yolo9]
 
@@ -74,6 +78,14 @@ class TestYolo9Inference:
         sd = {"22.heads.0.class_conv.2.weight": torch.zeros(7, 16, 1, 1)}
         assert infer_nb_classes(sd) == 7
 
+    def test_infer_nb_classes_ignores_hidden_class_tower_width(self):
+        sd = {
+            "22.heads.0.class_conv.0.weight": torch.zeros(80, 16, 3, 3),
+            "22.heads.0.class_conv.2.weight": torch.zeros(3, 80, 1, 1),
+        }
+
+        assert infer_nb_classes(sd) == 3
+
     def test_convert_state_dict_drops_aux_and_anc2vec(self):
         sd = {
             "0.conv.weight": torch.zeros(16, 3, 3, 3),
@@ -113,7 +125,7 @@ class TestAutoconvertOrchestration:
 
         assert out is not None
         out_path = Path(out)
-        assert out_path.name == "LibreYOLO9t.pt"
+        assert out_path.name == "v9-t-LibreYOLO9t.pt"
         assert out_path.parent == tmp_path  # written beside source
         ckpt = torch.load(out_path, map_location="cpu", weights_only=False)
         assert validate_checkpoint_metadata(ckpt, strict=False) == []
@@ -122,6 +134,19 @@ class TestAutoconvertOrchestration:
         assert ckpt["nc"] == 3
         assert ckpt["names"] == {0: "bolt", 1: "nut", 2: "washer"}
         assert "head.cv3.0.2.weight" in ckpt["model"]
+
+    def test_autoconvert_does_not_overwrite_canonical_checkpoint(self, tmp_path):
+        src = tmp_path / "v9-t.pt"
+        canonical = tmp_path / "LibreYOLO9t.pt"
+        torch.save({"model": _synthetic_upstream_yolo9(nc=2)}, src)
+        torch.save({"sentinel": torch.tensor([1.0])}, canonical)
+
+        out = autoconvert_upstream_checkpoint(str(src))
+
+        assert out is not None
+        assert Path(out).name == "v9-t-LibreYOLO9t.pt"
+        loaded_canonical = torch.load(canonical, map_location="cpu", weights_only=True)
+        assert torch.equal(loaded_canonical["sentinel"], torch.tensor([1.0]))
 
     def test_uses_safe_loader_when_checkpoint_is_not_preloaded(
         self,
@@ -154,6 +179,67 @@ class TestAutoconvertOrchestration:
         loaded = {"args": argparse.Namespace(class_names=["bolt", "nut", "washer"])}
 
         assert autoconvert_module._checkpoint_names(loaded, nc=2) == ["bolt", "nut"]
+
+    def test_checkpoint_args_are_safe_loader_compatible(self):
+        loaded = {
+            "args": argparse.Namespace(
+                class_names=["bolt", "nut"],
+                num_queries=100,
+                group_detr=13,
+                unsafe=object(),
+            )
+        }
+
+        assert autoconvert_module._checkpoint_args(loaded) == {
+            "class_names": ["bolt", "nut"],
+            "num_queries": 100,
+            "group_detr": 13,
+        }
+
+    def test_preserved_args_remain_weights_only_loadable(self, tmp_path):
+        args = autoconvert_module._checkpoint_args(
+            {
+                "args": argparse.Namespace(
+                    class_names=["bolt", "nut"],
+                    num_queries=100,
+                    group_detr=13,
+                )
+            }
+        )
+        ckpt = wrap_libreyolo_checkpoint(
+            {"class_embed.bias": torch.zeros(3)},
+            model_family="rfdetr",
+            size="n",
+            task="detect",
+            nc=2,
+            names=["bolt", "nut"],
+            imgsz=384,
+            args=args,
+        )
+        path = tmp_path / "rfdetr-converted.pt"
+        torch.save(ckpt, path)
+
+        loaded = load_untrusted_torch_file(path)
+
+        assert loaded["args"] == {
+            "class_names": ["bolt", "nut"],
+            "num_queries": 100,
+            "group_detr": 13,
+        }
+
+    def test_rfdetr_custom_90_class_names_are_not_coerced_to_coco(self):
+        names = [f"custom_{i}" for i in range(90)]
+
+        assert autoconvert_module._rfdetr_class_metadata(
+            {"args": argparse.Namespace(class_names=names)},
+            90,
+        ) == (90, names)
+
+    def test_rfdetr_coco_metadata_maps_90_arch_classes_to_coco80(self):
+        assert autoconvert_module._rfdetr_class_metadata(
+            {"args": argparse.Namespace(dataset_file="coco")},
+            90,
+        )[0] == 80
 
     def test_returns_none_for_non_upstream_file(self, tmp_path):
         src = tmp_path / "random.pt"
