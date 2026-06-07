@@ -766,24 +766,30 @@ class DDetectPose(DDetect):
         self.keypoint_dim = int(keypoint_dim)
         self.nk = self.num_keypoints * self.keypoint_dim
         self._pose_loss_fn = None
+        self._pose_input_channels = [int(c) for c in ch]
 
         c4 = max(ch[0] // 4, self.nk)
+        self._pose_hidden_channels = c4
         self.cv4 = nn.ModuleList(
             nn.Sequential(Conv(x, c4, 3), Conv(c4, c4, 3), nn.Conv2d(c4, self.nk, 1))
             for x in ch
         )
 
     def replace_num_keypoints(self, num_keypoints: int):
-        """Rebuild only keypoint-dependent prediction layers."""
+        """Rebuild the keypoint tower for a new keypoint count."""
         num_keypoints = int(num_keypoints)
         if num_keypoints == self.num_keypoints:
             return
         new_nk = num_keypoints * self.keypoint_dim
-        for seq in self.cv4:
-            old_final = seq[-1]
-            seq[-1] = nn.Conv2d(old_final.in_channels, new_nk, 1)
+        c4 = max(self._pose_input_channels[0] // 4, new_nk)
+        ref = next(self.cv4.parameters())
+        self.cv4 = nn.ModuleList(
+            nn.Sequential(Conv(x, c4, 3), Conv(c4, c4, 3), nn.Conv2d(c4, new_nk, 1))
+            for x in self._pose_input_channels
+        ).to(device=ref.device, dtype=ref.dtype)
         self.num_keypoints = num_keypoints
         self.nk = new_nk
+        self._pose_hidden_channels = c4
         self._pose_loss_fn = None
 
     def _get_pose_loss_fn(self, device):
@@ -802,13 +808,20 @@ class DDetectPose(DDetect):
             )
         return self._pose_loss_fn
 
-    def _decode_keypoints(self, keypoints: torch.Tensor) -> torch.Tensor:
+    def _decode_keypoints(
+        self,
+        keypoints: torch.Tensor,
+        anchors: torch.Tensor | None = None,
+        strides: torch.Tensor | None = None,
+    ) -> torch.Tensor:
         """Decode raw keypoint tower output to model-input pixel coordinates."""
+        anchors = self.anchors if anchors is None else anchors
+        strides = self.strides if strides is None else strides
         batch_size = keypoints.shape[0]
         kpts = keypoints.view(
             batch_size, self.num_keypoints, self.keypoint_dim, -1
         ).permute(0, 3, 1, 2)
-        xy = (kpts[..., :2] + self.anchors.T[None, :, None, :]) * self.strides.T[
+        xy = (kpts[..., :2] + anchors.T[None, :, None, :]) * strides.T[
             None, :, None, :
         ]
         vis = kpts[..., 2:3].sigmoid()
@@ -825,6 +838,7 @@ class DDetectPose(DDetect):
             dim=2,
         )
 
+        anchor_features = list(features)
         det_outputs = super().forward(features, targets=None, img_size=img_size)
 
         if self.training:
@@ -836,7 +850,17 @@ class DDetectPose(DDetect):
             return det_outputs, keypoints
 
         predictions, raw_outputs = det_outputs
-        decoded_keypoints = self._decode_keypoints(keypoints)
+        decode_anchors = decode_strides = None
+        if self.export:
+            decode_anchors, decode_strides = (
+                generated.transpose(0, 1)
+                for generated in self._make_anchors(anchor_features, self.stride, 0.5)
+            )
+        decoded_keypoints = self._decode_keypoints(
+            keypoints,
+            anchors=decode_anchors,
+            strides=decode_strides,
+        )
         if self.export:
             return predictions, decoded_keypoints
         return predictions, raw_outputs, decoded_keypoints

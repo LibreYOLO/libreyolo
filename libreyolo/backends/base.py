@@ -1527,6 +1527,7 @@ class BaseBackend(ABC):
             ClassifyValidator,
             DetectionValidator,
             OBBValidator,
+            PoseValidator,
             SegmentationValidator,
             ValidationConfig,
         )
@@ -1569,6 +1570,8 @@ class BaseBackend(ABC):
             validator_cls = ClassifyValidator
         elif self.task == "segment":
             validator_cls = SegmentationValidator
+        elif self.task == "pose":
+            validator_cls = PoseValidator
         elif self.task == "obb":
             validator_cls = OBBValidator
         else:

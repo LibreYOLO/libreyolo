@@ -253,7 +253,7 @@ class LibreYOLO9(BaseModel):
         return False
 
     def _allow_checkpoint_task_mismatch(self, checkpoint_task: str) -> bool:
-        return self._is_pose and checkpoint_task == "detect"
+        return False
 
     def _adapt_checkpoint_num_classes(
         self,
@@ -271,8 +271,7 @@ class LibreYOLO9(BaseModel):
         loaded: dict | None = None,
         checkpoint_task: str | None = None,
     ) -> dict:
-        has_pose_head = any(key.startswith("head.cv4.") for key in state_dict)
-        if self._is_pose and (checkpoint_task == "detect" or not has_pose_head):
+        if self._is_pose and checkpoint_task == "detect":
             return {
                 key: value
                 for key, value in state_dict.items()
@@ -287,6 +286,13 @@ class LibreYOLO9(BaseModel):
     ) -> None:
         if self._is_pose:
             self._restore_pose_checkpoint_metadata(checkpoint)
+            has_pose_head = any(key.startswith("head.cv4.") for key in state_dict)
+            if not has_pose_head:
+                raise RuntimeError(
+                    "YOLO9 pose checkpoints must include head.cv4.* keypoint "
+                    "weights. Detect-to-pose initialization is only supported "
+                    "through explicit training transfer."
+                )
 
         if not self._is_classification:
             return
@@ -336,7 +342,12 @@ class LibreYOLO9(BaseModel):
                 )
             self.keypoint_dim = checkpoint_keypoint_dim
 
-    def _prepare_state_dict(self, state_dict: dict) -> dict:
+    def _prepare_state_dict(
+        self,
+        state_dict: dict,
+        *,
+        adapt_pose_keypoints: bool = True,
+    ) -> dict:
         """Remap legacy 'detect.*' keys to 'head.*' for backward compatibility."""
         remapped = {}
         for key, value in state_dict.items():
@@ -344,7 +355,7 @@ class LibreYOLO9(BaseModel):
                 key.replace("detect.", "head.", 1) if key.startswith("detect.") else key
             )
             remapped[new_key] = value
-        if self._is_pose:
+        if self._is_pose and adapt_pose_keypoints:
             ckpt_k = self.detect_num_keypoints(remapped)
             if ckpt_k is not None:
                 self._rebuild_for_checkpoint_keypoints(ckpt_k, remapped)
@@ -526,9 +537,9 @@ class LibreYOLO9(BaseModel):
             if ckpt_task is not None:
                 normalized_ckpt_task = normalize_task(ckpt_task)
                 allowed = normalized_ckpt_task == self.task or (
-                    self.task in {"segment", "classify", "obb"}
+                    self.task in {"segment", "classify", "pose", "obb"}
                     and normalized_ckpt_task == "detect"
-                ) or self._allow_checkpoint_task_mismatch(normalized_ckpt_task)
+                )
                 if not allowed:
                     raise RuntimeError(
                         f"Transfer checkpoint task='{normalized_ckpt_task}' is "
@@ -544,7 +555,10 @@ class LibreYOLO9(BaseModel):
         else:
             state_dict = loaded
 
-        state_dict = self._prepare_state_dict(self._strip_ddp_prefix(state_dict))
+        state_dict = self._prepare_state_dict(
+            self._strip_ddp_prefix(state_dict),
+            adapt_pose_keypoints=False,
+        )
         total_tensors = len(state_dict)
         if self._is_pose:
             state_dict = self._filter_incoming_state_dict(
@@ -822,11 +836,14 @@ class LibreYOLO9(BaseModel):
             **kwargs,
         )
         if self._is_pose:
+            oks_sigmas = trainer_kwargs.get("oks_sigmas")
+            if oks_sigmas is None:
+                oks_sigmas = data_config.get("oks_sigmas")
             trainer_kwargs.update(
                 {
                     "num_keypoints": self.num_keypoints,
                     "keypoint_dim": pose_label_keypoint_dim,
-                    "oks_sigmas": data_config.get("oks_sigmas"),
+                    "oks_sigmas": oks_sigmas,
                 }
             )
         trainer = trainer_cls(**trainer_kwargs)

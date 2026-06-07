@@ -23,7 +23,7 @@ class _Backend(BaseBackend):
             names={0: "fire", 1: "smoke"},
             model_size="n",
             task=task,
-            supported_tasks=("detect", "segment"),
+            supported_tasks=("detect", "segment", "pose"),
             default_task="detect",
         )
 
@@ -103,6 +103,27 @@ def test_backend_val_uses_exported_model_adapter(monkeypatch):
     assert captured["config"].save_plots is True
     assert backend.FAMILY == "rfdetr"
     assert backend.size == "n"
+
+
+def test_backend_val_routes_pose_to_pose_validator(monkeypatch):
+    captured = {}
+
+    class _Validator:
+        def __init__(self, model, config):
+            captured["model"] = model
+            captured["config"] = config
+
+        def __call__(self):
+            return {"metrics/keypoints_mAP50-95": 0.25}
+
+    monkeypatch.setattr("libreyolo.validation.PoseValidator", _Validator)
+
+    backend = _Backend(task="pose")
+    metrics = backend.val(data="pose.yaml", workers=0, device="cpu")
+
+    assert metrics == {"metrics/keypoints_mAP50-95": 0.25}
+    assert captured["model"] is backend
+    assert captured["config"].data == "pose.yaml"
 
 
 def test_backend_val_rejects_augment():

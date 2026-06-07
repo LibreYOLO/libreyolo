@@ -69,7 +69,7 @@ def test_yolo9_pose_wrapper_defaults_to_person():
     assert model.num_keypoints == 17
 
 
-def test_yolo9_pose_warm_starts_from_detection_checkpoint(tmp_path):
+def test_yolo9_pose_direct_load_rejects_detection_checkpoint(tmp_path):
     from libreyolo import LibreYOLO9
     from libreyolo.models.yolo9.nn import LibreYOLO9Model
 
@@ -88,16 +88,8 @@ def test_yolo9_pose_warm_starts_from_detection_checkpoint(tmp_path):
         ckpt_path,
     )
 
-    model = LibreYOLO9(str(ckpt_path), size="t", task="pose", device="cpu")
-
-    assert model.task == "pose"
-    assert model.nb_classes == 1
-    assert model.names == {0: "person"}
-    assert model.model.head.nc == 1
-    assert model.model.head.cv3[0][-1].out_channels == 1
-    assert hasattr(model.model.head, "cv4")
-    loaded_weight = model.model.state_dict()["backbone.conv0.conv.weight"]
-    assert torch.allclose(loaded_weight, torch.full_like(loaded_weight, 0.125))
+    with pytest.raises(RuntimeError, match="task='detect'"):
+        LibreYOLO9(str(ckpt_path), size="t", task="pose", device="cpu")
 
 
 def test_yolo9_pose_transfer_accepts_detection_checkpoint(tmp_path):
@@ -140,6 +132,46 @@ def test_yolo9_pose_transfer_accepts_detection_checkpoint(tmp_path):
     assert torch.allclose(loaded_weight, torch.full_like(loaded_weight, 0.25))
 
 
+def test_yolo9_pose_transfer_does_not_change_dataset_keypoint_count(tmp_path):
+    from libreyolo import LibreYOLO9
+    from libreyolo.models.yolo9.nn import LibreYOLO9Model
+    from libreyolo.utils.serialization import wrap_libreyolo_checkpoint
+
+    pose_model = LibreYOLO9Model(
+        config="t",
+        nb_classes=1,
+        pose=True,
+        num_keypoints=2,
+    ).eval()
+    ckpt_path = tmp_path / "LibreYOLO9t-pose.pt"
+    torch.save(
+        wrap_libreyolo_checkpoint(
+            {
+                key: value.detach().clone()
+                for key, value in pose_model.state_dict().items()
+            },
+            model_family="yolo9",
+            size="t",
+            task="pose",
+            nc=1,
+            names={0: "person"},
+            imgsz=640,
+            num_keypoints=2,
+            keypoint_dim=3,
+        ),
+        ckpt_path,
+    )
+
+    model = LibreYOLO9(None, size="t", task="pose", num_keypoints=3, device="cpu")
+    stats = model._load_transfer_weights(ckpt_path)
+
+    assert stats["loaded"] > 0
+    assert stats["skipped"] > 0
+    assert model.num_keypoints == 3
+    assert model.model.num_keypoints == 3
+    assert model.model.head.num_keypoints == 3
+
+
 def test_yolo9_pose_train_preserves_xy_only_label_dim(monkeypatch, tmp_path):
     from libreyolo.models.yolo9 import model as yolo9_model
     from libreyolo.models.yolo9 import pose_trainer
@@ -164,11 +196,18 @@ def test_yolo9_pose_train_preserves_xy_only_label_dim(monkeypatch, tmp_path):
     monkeypatch.setattr(pose_trainer, "YOLO9PoseTrainer", _DummyTrainer)
     monkeypatch.setattr(wrapper, "_restore_after_training", lambda _result: None)
 
-    wrapper.train(data=str(data_yaml), epochs=1, batch=1, pretrained=False)
+    wrapper.train(
+        data=str(data_yaml),
+        epochs=1,
+        batch=1,
+        pretrained=False,
+        oks_sigmas=[0.1, 0.2],
+    )
 
     assert wrapper.keypoint_dim == 3
     assert captured["kwargs"]["num_keypoints"] == 2
     assert captured["kwargs"]["keypoint_dim"] == 2
+    assert captured["kwargs"]["oks_sigmas"] == [0.1, 0.2]
 
 
 def test_yolo9_pose_load_restores_xy_only_keypoint_dim(tmp_path):
@@ -231,6 +270,36 @@ def test_ddetect_pose_forward_shapes():
     decoded, raw, keypoints = head(x)
     assert decoded.shape == (1, 5, 84)
     assert len(raw) == 3
+    assert keypoints.shape == (1, 84, 17, 3)
+
+
+def test_ddetect_pose_rebuilds_full_keypoint_tower_for_custom_count():
+    from libreyolo.models.yolo9.nn import DDetectPose
+
+    head = DDetectPose(nc=1, ch=(16, 32, 64), reg_max=16, stride=(8, 16, 32), num_keypoints=1)
+    head.replace_num_keypoints(5)
+
+    assert head.num_keypoints == 5
+    assert head.nk == 15
+    assert head.cv4[0][0].conv.out_channels == 15
+    assert head.cv4[0][-1].out_channels == 15
+
+
+def test_ddetect_pose_export_decodes_with_fresh_anchors():
+    from libreyolo.models.yolo9.nn import DDetectPose
+
+    head = DDetectPose(nc=1, ch=(64, 128, 256), reg_max=16, stride=(8, 16, 32))
+    head.eval()
+    head.export = True
+    x = [
+        torch.randn(1, 64, 8, 8),
+        torch.randn(1, 128, 4, 4),
+        torch.randn(1, 256, 2, 2),
+    ]
+
+    decoded, keypoints = head(x)
+
+    assert decoded.shape == (1, 5, 84)
     assert keypoints.shape == (1, 84, 17, 3)
 
 

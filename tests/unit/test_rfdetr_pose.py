@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 from types import SimpleNamespace
 
 import numpy as np
@@ -275,6 +274,62 @@ def test_rfdetr_pose_detect_transfer_resizes_to_one_class_logit():
     assert model.model.args.num_classes == 0
     assert model.model.model.class_embed.out_features == 1
     assert model.names == {0: "person"}
+
+
+def test_rfdetr_detect_nb_classes_keeps_raw_pose_at_one_class():
+    from libreyolo.models.rfdetr.model import LibreRFDETR
+
+    state = {
+        "class_embed.bias": torch.zeros(1),
+        "keypoint_head.layers.2.weight": torch.zeros(6, 32),
+    }
+
+    assert LibreRFDETR.detect_nb_classes(state) == 1
+
+
+def test_rfdetr_pose_checkpoint_requires_keypoint_head_weights():
+    from libreyolo.models.rfdetr.model import LibreRFDETR
+
+    model = LibreRFDETR({}, size="n", task="pose", device="cpu")
+    det_model = LibreRFDETR({}, size="n", task="detect", device="cpu")
+    detect_state = {
+        key: value.detach().clone()
+        for key, value in det_model.model.state_dict().items()
+    }
+
+    with pytest.raises(RuntimeError, match="keypoint_head"):
+        model._load_weights(
+            {
+                "model_family": "rfdetr",
+                "task": "pose",
+                "nc": 1,
+                "names": {0: "person"},
+                "model": detect_state,
+            }
+        )
+
+
+def test_rfdetr_pose_load_restores_keypoint_count_from_head_weights():
+    from libreyolo.models.rfdetr.model import LibreRFDETR
+
+    model = LibreRFDETR({}, size="n", task="pose", num_keypoints=17, device="cpu")
+    pose_model = LibreRFDETR({}, size="n", task="pose", num_keypoints=2, device="cpu")
+    pose_state = {
+        key: value.detach().clone()
+        for key, value in pose_model.model.state_dict().items()
+    }
+
+    model._load_weights(
+        {
+            "model_family": "rfdetr",
+            "task": "pose",
+            "nc": 1,
+            "names": {0: "person"},
+            "model": pose_state,
+        }
+    )
+
+    assert model.num_keypoints == 2
 
 
 def test_rfdetr_pose_postprocess_trims_legacy_extra_class_column():

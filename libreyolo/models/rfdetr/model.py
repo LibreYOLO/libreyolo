@@ -289,7 +289,12 @@ class LibreRFDETR(BaseModel):
             return int(weights_dict["linear.weight"].shape[0])
         # RF-DETR class_embed has (num_classes + 1) outputs (includes background)
         if "class_embed.bias" in weights_dict:
-            return weights_dict["class_embed.bias"].shape[0] - 1
+            detected = int(weights_dict["class_embed.bias"].shape[0]) - 1
+            if detected <= 0 and any(
+                k.startswith("keypoint_head") for k in weights_dict
+            ):
+                return 1
+            return detected
         return None
 
     @classmethod
@@ -827,6 +832,7 @@ class LibreRFDETR(BaseModel):
                 )
 
             ckpt_task = loaded.get("task")
+            normalized_ckpt_task = None
             if ckpt_task is not None:
                 normalized_ckpt_task = normalize_task(ckpt_task)
                 allowed = normalized_ckpt_task == self.task or (
@@ -857,6 +863,16 @@ class LibreRFDETR(BaseModel):
 
             loaded_state = _checkpoint_model_state(loaded)
             pose_checkpoint = any(k.startswith("keypoint_head.") for k in loaded_state)
+            if (
+                self._is_pose
+                and normalized_ckpt_task == "pose"
+                and not pose_checkpoint
+            ):
+                raise RuntimeError(
+                    "RF-DETR pose checkpoints must include keypoint_head.* weights. "
+                    "Detect-to-pose initialization is only supported through "
+                    "explicit training transfer."
+                )
             already_lora = module_has_lora(self.model)
             if not already_lora and state_dict_has_lora(
                 loaded_state
@@ -893,6 +909,10 @@ class LibreRFDETR(BaseModel):
             ckpt_k = loaded.get("num_keypoints")
             if ckpt_k is not None:
                 self.num_keypoints = int(ckpt_k)
+            else:
+                detected_k = self.detect_num_keypoints(loaded_state)
+                if detected_k is not None:
+                    self.num_keypoints = detected_k
             ckpt_kd = loaded.get("keypoint_dim")
             if ckpt_kd is not None:
                 self.keypoint_dim = int(ckpt_kd)
@@ -927,7 +947,7 @@ class LibreRFDETR(BaseModel):
                 # ``strict=False`` is expected for class/head adaptation and older
                 # checkpoints, but missing non-head tensors should stay visible.
                 ignored = ["class_embed.", "transformer.enc_out_class_embed."]
-                if self._is_pose:
+                if self._is_pose and not pose_checkpoint:
                     ignored.append("keypoint_head.")
                 missing_angle = [k for k in missing if k.startswith("angle_embed.")]
                 if (
@@ -945,7 +965,7 @@ class LibreRFDETR(BaseModel):
                     "class_embed.",
                     "transformer.enc_out_class_embed.",
                 ]
-                if self._is_pose:
+                if self._is_pose and not pose_checkpoint:
                     ignored.append("keypoint_head.")
                 if self._allow_detect_to_obb_transfer:
                     ignored.append("angle_embed.")
