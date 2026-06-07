@@ -1,0 +1,225 @@
+"""Shared DETR-style torchvision-v2 augmentation helpers."""
+
+from __future__ import annotations
+
+import random
+from typing import List, Optional, Sequence
+
+import numpy as np
+import torch
+import torch.nn.functional as F
+from torchvision import tv_tensors
+from torchvision.transforms import v2 as tv2
+
+
+def labels_at_index_2(inputs):
+    """Module-level labels_getter for ``SanitizeBoundingBoxes``."""
+    return inputs[2]
+
+
+def generate_scales(base_size: int, base_size_repeat: int) -> List[int]:
+    """Generate multi-scale sizes around ``base_size`` in 32px steps."""
+    scale_repeat = (base_size - int(base_size * 0.75 / 32) * 32) // 32
+    scales = [int(base_size * 0.75 / 32) * 32 + i * 32 for i in range(scale_repeat)]
+    scales += [base_size] * base_size_repeat
+    scales += [int(base_size * 1.25 / 32) * 32 - i * 32 for i in range(scale_repeat)]
+    return scales
+
+
+class DETRTrainTransform:
+    """Per-sample DETR-style transform with stop-epoch-aware strong augs."""
+
+    STRONG_OP_NAMES = ("RandomPhotometricDistort", "RandomZoomOut", "RandomIoUCrop")
+
+    _IMAGENET_MEAN = np.array([0.485, 0.456, 0.406], dtype=np.float32).reshape(3, 1, 1)
+    _IMAGENET_STD = np.array([0.229, 0.224, 0.225], dtype=np.float32).reshape(3, 1, 1)
+    wants_unresized_image = False
+
+    def __init__(
+        self,
+        max_labels: int = 120,
+        flip_prob: float = 0.5,
+        imgsz: int = 640,
+        zoomout_fill: int = 0,
+        photometric_p: float = 0.5,
+        iou_crop_p: float = 0.8,
+        strong_augs: bool = True,
+        imagenet_norm: bool = False,
+        sanitize_min_size: int = 1,
+    ):
+        self.max_labels = max_labels
+        self.imgsz = imgsz
+        self.flip_prob = flip_prob
+        self.strong_augs = strong_augs
+        self.imagenet_norm = imagenet_norm
+        self.sanitize_min_size = sanitize_min_size
+
+        self._strong = tv2.Compose(
+            [
+                tv2.RandomPhotometricDistort(p=photometric_p),
+                tv2.RandomZoomOut(fill=zoomout_fill),
+                tv2.RandomApply([tv2.RandomIoUCrop()], p=iou_crop_p),
+                tv2.SanitizeBoundingBoxes(
+                    min_size=sanitize_min_size, labels_getter=labels_at_index_2
+                ),
+            ]
+        )
+        self._weak = tv2.Compose(
+            [
+                tv2.RandomHorizontalFlip(p=flip_prob),
+                tv2.Resize(size=(imgsz, imgsz), antialias=True),
+                tv2.SanitizeBoundingBoxes(
+                    min_size=sanitize_min_size, labels_getter=labels_at_index_2
+                ),
+            ]
+        )
+
+    def disable_strong_augs(self):
+        self.strong_augs = False
+
+    def __call__(self, image: np.ndarray, targets: np.ndarray, input_dim):
+        del input_dim
+        orig_h, orig_w = image.shape[:2]
+
+        img_rgb = image[:, :, ::-1].copy()
+        img_t = tv_tensors.Image(
+            torch.from_numpy(np.ascontiguousarray(img_rgb)).permute(2, 0, 1)
+        )
+
+        if len(targets):
+            boxes_xyxy = targets[:, :4].astype(np.float32, copy=True)
+            labels_np = targets[:, 4].astype(np.int64, copy=True)
+        else:
+            boxes_xyxy = np.zeros((0, 4), dtype=np.float32)
+            labels_np = np.zeros((0,), dtype=np.int64)
+
+        boxes = tv_tensors.BoundingBoxes(
+            torch.from_numpy(boxes_xyxy),
+            format=tv_tensors.BoundingBoxFormat.XYXY,
+            canvas_size=(orig_h, orig_w),
+        )
+        labels = torch.from_numpy(labels_np)
+
+        if self.strong_augs and len(boxes) > 0:
+            img_t, boxes, labels = self._strong(img_t, boxes, labels)
+        img_t, boxes, labels = self._weak(img_t, boxes, labels)
+
+        img_out = img_t.float().div_(255.0).numpy()
+        if self.imagenet_norm:
+            img_out = (img_out - self._IMAGENET_MEAN) / self._IMAGENET_STD
+
+        boxes_arr = boxes.detach().numpy().astype(np.float32, copy=True)
+        labels_arr = labels.detach().numpy().astype(np.float32, copy=True)
+
+        if len(boxes_arr):
+            cx = (boxes_arr[:, 0] + boxes_arr[:, 2]) * 0.5
+            cy = (boxes_arr[:, 1] + boxes_arr[:, 3]) * 0.5
+            w = boxes_arr[:, 2] - boxes_arr[:, 0]
+            h = boxes_arr[:, 3] - boxes_arr[:, 1]
+            valid = (w > 1) & (h > 1)
+            cx, cy, w, h = cx[valid], cy[valid], w[valid], h[valid]
+            labels_arr = labels_arr[valid]
+            packed = np.stack([labels_arr, cx, cy, w, h], axis=1)
+        else:
+            packed = np.zeros((0, 5), dtype=np.float32)
+
+        padded = np.zeros((self.max_labels, 5), dtype=np.float32)
+        if len(packed):
+            n = min(len(packed), self.max_labels)
+            padded[:n] = packed[:n]
+        return img_out, padded
+
+
+class DETRPassThroughDataset:
+    """Dataset wrapper that applies a per-sample DETR-style transform."""
+
+    transform_cls = DETRTrainTransform
+
+    def __init__(
+        self,
+        dataset,
+        img_size,
+        mosaic=True,
+        preproc=None,
+        degrees=0.0,
+        translate=0.0,
+        mosaic_scale=(1.0, 1.0),
+        mixup_scale=(1.0, 1.0),
+        shear=0.0,
+        enable_mixup=False,
+        mosaic_prob=0.0,
+        mixup_prob=0.0,
+    ):
+        del mosaic, degrees, translate, mosaic_scale, mixup_scale, shear
+        del enable_mixup, mosaic_prob, mixup_prob
+        self.dataset = dataset
+        self.img_size = img_size
+        self.preproc = preproc or self.transform_cls()
+        self._stop_epoch: Optional[int] = None
+        self._epoch = 0
+
+    def __len__(self):
+        return len(self.dataset)
+
+    @property
+    def input_dim(self):
+        return self.img_size
+
+    def set_stop_epoch(self, stop_epoch: int):
+        self._stop_epoch = stop_epoch
+
+    def set_epoch(self, epoch: int):
+        self._epoch = epoch
+        if self._stop_epoch is not None and epoch >= self._stop_epoch:
+            if isinstance(self.preproc, self.transform_cls) and self.preproc.strong_augs:
+                self.preproc.disable_strong_augs()
+
+    def close_mosaic(self):
+        if isinstance(self.preproc, self.transform_cls):
+            self.preproc.disable_strong_augs()
+
+    def __getitem__(self, idx):
+        img, label, img_info, img_id = self.dataset.pull_item(idx)
+        img, label = self.preproc(img, label, self.input_dim)
+        return img, label, img_info, img_id
+
+
+class DETRMultiScaleCollate:
+    """Per-batch random resize for DETR-style pixel cxcywh targets."""
+
+    def __init__(
+        self,
+        base_size: int = 640,
+        base_size_repeat: int = 3,
+        stop_epoch: Optional[int] = None,
+    ):
+        self.base_size = base_size
+        self.scales = (
+            generate_scales(base_size, base_size_repeat) if base_size_repeat else None
+        )
+        self._stop_epoch = stop_epoch if stop_epoch is not None else 10**9
+        self._epoch = 0
+
+    def set_epoch(self, epoch: int):
+        self._epoch = epoch
+
+    def __call__(self, batch: Sequence):
+        imgs = torch.stack(
+            [torch.from_numpy(np.ascontiguousarray(item[0])) for item in batch]
+        )
+        labels = torch.stack(
+            [torch.from_numpy(np.ascontiguousarray(item[1])) for item in batch]
+        )
+        infos = [item[2] for item in batch]
+        ids = torch.tensor([item[3] for item in batch])
+
+        if self.scales is not None and self._epoch < self._stop_epoch:
+            sz = random.choice(self.scales)
+            if sz != imgs.shape[-1]:
+                ratio = sz / imgs.shape[-1]
+                imgs = F.interpolate(
+                    imgs, size=sz, mode="bilinear", align_corners=False
+                )
+                labels[..., 1:] = labels[..., 1:] * ratio
+
+        return imgs, labels, infos, ids
