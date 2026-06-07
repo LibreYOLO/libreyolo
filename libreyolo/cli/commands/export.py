@@ -27,6 +27,13 @@ def export_cmd(
     int8: bool = typer.Option(False, help="INT8 quantization"),
     dynamic: bool = typer.Option(False, help="Dynamic input shapes (ONNX)"),
     simplify: bool = typer.Option(True, help="ONNX graph simplification"),
+    nms: bool = typer.Option(
+        False,
+        help="Embed NMS in the model (ONNX YOLO9 detection); output is (1, max_det, 6)",
+    ),
+    conf: float = typer.Option(0.25, help="Confidence threshold for embedded NMS"),
+    iou: float = typer.Option(0.45, help="IoU threshold for embedded NMS"),
+    max_det: int = typer.Option(300, help="Maximum detections for embedded NMS"),
     opset: Optional[int] = typer.Option(
         None, help="ONNX opset version (auto if omitted)"
     ),
@@ -85,6 +92,11 @@ def export_cmd(
         "device": device,
         "verbose": verbose,
     }
+    if nms:
+        export_kwargs["nms"] = True
+        export_kwargs["conf"] = conf
+        export_kwargs["iou"] = iou
+        export_kwargs["max_det"] = max_det
     if imgsz is not None:
         if "," in imgsz:
             parts = imgsz.split(",")

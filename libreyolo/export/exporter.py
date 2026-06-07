@@ -803,6 +803,15 @@ class OnnxExporter(BaseExporter):
                     "ONNX INT8 export currently supports YOLO9 detection models only."
                 )
             check_onnx_int8_available()
+        if kwargs.get("nms"):
+            task = getattr(self.model, "task", "detect")
+            if not isinstance(task, str):
+                task = "detect"
+            if self.model._get_model_name() != "yolo9" or task != "detect":
+                raise NotImplementedError(
+                    "Embedded NMS ONNX export currently supports YOLO9 "
+                    "detection models only."
+                )
         super()._preflight(half=half, int8=int8, data=data, **kwargs)
 
     def _export(
@@ -818,19 +827,54 @@ class OnnxExporter(BaseExporter):
         dynamic,
         opset,
         simplify,
+        nms=False,
+        iou=0.45,
+        conf=0.25,
+        max_det=300,
         calibrate_method="MinMax",
         nodes_to_exclude=None,
         **kwargs,
     ):
+        imgsz = (dummy.shape[-2], dummy.shape[-1])
+
+        if nms:
+            from .nms import EmbeddedNMSDetector, class_offset
+
+            if dummy.shape[0] != 1:
+                raise NotImplementedError(
+                    "Embedded NMS ONNX export currently requires batch=1."
+                )
+            if dynamic:
+                logger.warning(
+                    "Embedded NMS uses a fixed batch-1 graph; forcing dynamic=False."
+                )
+                dynamic = False
+            nn_model = EmbeddedNMSDetector(
+                nn_model,
+                conf=conf,
+                iou=iou,
+                max_det=max_det,
+                offset=class_offset(imgsz),
+            ).eval()
+
+        def _onnx_metadata(precision_half: bool) -> dict:
+            meta = self._build_onnx_metadata(
+                dynamic=dynamic,
+                half=precision_half,
+                imgsz=imgsz,
+            )
+            if nms:
+                meta["nms"] = "true"
+                meta["nms_conf"] = str(conf)
+                meta["nms_iou"] = str(iou)
+                meta["max_det"] = str(max_det)
+            return meta
+
         if int8:
             import tempfile
 
             output = Path(output_path)
-            int8_metadata = self._build_onnx_metadata(
-                dynamic=dynamic,
-                half=False,
-                imgsz=(dummy.shape[-2], dummy.shape[-1]),
-            )
+            int8_metadata = _onnx_metadata(precision_half=False)
             int8_metadata["precision"] = "int8"
             with tempfile.TemporaryDirectory(
                 prefix=f"{output.stem}_", dir=str(output.parent)
@@ -845,11 +889,8 @@ class OnnxExporter(BaseExporter):
                     simplify=simplify,
                     dynamic=dynamic,
                     half=False,
-                    metadata=self._build_onnx_metadata(
-                        dynamic=dynamic,
-                        half=False,
-                        imgsz=(dummy.shape[-2], dummy.shape[-1]),
-                    ),
+                    metadata=_onnx_metadata(precision_half=False),
+                    nms=nms,
                 )
                 return quantize_onnx_int8(
                     fp32_path,
@@ -869,11 +910,8 @@ class OnnxExporter(BaseExporter):
             simplify=simplify,
             dynamic=dynamic,
             half=half,
-            metadata=self._build_onnx_metadata(
-                dynamic=dynamic,
-                half=half,
-                imgsz=(dummy.shape[-2], dummy.shape[-1]),
-            ),
+            metadata=_onnx_metadata(precision_half=half),
+            nms=nms,
         )
 
 
