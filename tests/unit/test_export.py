@@ -102,6 +102,7 @@ class TestExporterFormats:
 
     def test_subclass_attributes(self):
         assert OnnxExporter.suffix == ".onnx"
+        assert OnnxExporter.supports_int8 is True
         assert TensorRTExporter.requires_onnx is True
         assert TorchScriptExporter.apply_model_half is True
         assert NcnnExporter.supports_int8 is False
@@ -426,6 +427,125 @@ class TestExporterFormats:
         assert captured["metadata"]["imgsz"] == "32"
         assert captured["metadata"]["imgsz_h"] == "16"
         assert captured["metadata"]["imgsz_w"] == "32"
+
+    def test_onnx_int8_missing_data_uses_default_calibration(
+        self, monkeypatch, tmp_path, caplog
+    ):
+        wrapper = _make_wrapper(model_name="yolo9", input_size=32)
+        wrapper.task = "detect"
+        exporter = OnnxExporter(wrapper)
+        output_path = tmp_path / "model_int8.onnx"
+        captured = {}
+
+        monkeypatch.setattr(exporter, "_preflight", lambda **kwargs: None)
+
+        def fake_load_calibration(
+            data,
+            imgsz,
+            batch,
+            fraction,
+            allow_download_scripts=False,
+        ):
+            captured["data"] = data
+            captured["imgsz"] = imgsz
+            captured["batch"] = batch
+            return object()
+
+        def fake_export(nn_model, dummy, *, output_path, calibration_data, **kwargs):
+            captured["dummy_dtype"] = dummy.dtype
+            captured["param_dtype"] = next(nn_model.parameters()).dtype
+            captured["calibration_data"] = calibration_data
+            captured["half"] = kwargs["half"]
+            captured["int8"] = kwargs["int8"]
+            return output_path
+
+        monkeypatch.setattr(exporter, "_load_calibration", fake_load_calibration)
+        monkeypatch.setattr(exporter, "_export", fake_export)
+
+        with caplog.at_level("WARNING", logger="libreyolo.export.exporter"):
+            result = exporter(
+                output_path=str(output_path),
+                int8=True,
+                half=True,
+                batch=2,
+                device="cpu",
+                simplify=False,
+                dynamic=False,
+            )
+
+        assert result == str(output_path)
+        assert captured["data"] == "coco8.yaml"
+        assert captured["imgsz"] == (32, 32)
+        assert captured["batch"] == 2
+        assert captured["dummy_dtype"] == torch.float32
+        assert captured["param_dtype"] == torch.float32
+        assert captured["half"] is False
+        assert captured["int8"] is True
+        assert captured["calibration_data"] is not None
+        assert "8-image fallback is not representative" in caplog.text
+
+    @pytest.mark.parametrize(
+        ("family", "task"),
+        [("rfdetr", "detect"), ("yolo9", "segment"), ("yolo9_e2e", "detect")],
+    )
+    def test_onnx_int8_scope_is_yolo9_detect_only(self, family, task):
+        wrapper = _make_wrapper(model_name=family, input_size=32)
+        wrapper.task = task
+
+        with pytest.raises(NotImplementedError, match="YOLO9 detection"):
+            OnnxExporter(wrapper)._preflight(
+                half=False,
+                int8=True,
+                data="data.yaml",
+            )
+
+    def test_onnx_int8_export_uses_fp32_temp_then_quantizes(
+        self, monkeypatch, tmp_path
+    ):
+        wrapper = _make_wrapper(model_name="yolo9", input_size=32)
+        wrapper.task = "detect"
+        exporter = OnnxExporter(wrapper)
+        output_path = tmp_path / "model_int8.onnx"
+        captured = {}
+
+        def fake_export_onnx(_nn_model, _dummy, **kwargs):
+            captured["fp32_export"] = kwargs
+            Path(kwargs["output_path"]).write_bytes(b"fp32")
+            return kwargs["output_path"]
+
+        def fake_quantize_onnx_int8(fp32_path, quant_output_path, **kwargs):
+            captured["quantize"] = {
+                "fp32_path": fp32_path,
+                "output_path": quant_output_path,
+                **kwargs,
+            }
+            Path(quant_output_path).write_bytes(b"int8")
+            return quant_output_path
+
+        monkeypatch.setattr(exporter_module, "export_onnx", fake_export_onnx)
+        monkeypatch.setattr(
+            exporter_module, "quantize_onnx_int8", fake_quantize_onnx_int8
+        )
+
+        result = exporter._export(
+            wrapper.model,
+            torch.zeros(1, 3, 32, 32),
+            output_path=str(output_path),
+            metadata={},
+            calibration_data=object(),
+            half=False,
+            int8=True,
+            dynamic=False,
+            opset=13,
+            simplify=False,
+        )
+
+        assert result == str(output_path)
+        assert Path(captured["fp32_export"]["output_path"]).name == "model_fp32.onnx"
+        assert captured["fp32_export"]["half"] is False
+        assert captured["quantize"]["output_path"] == str(output_path)
+        assert captured["quantize"]["metadata"]["precision"] == "int8"
+        assert captured["quantize"]["metadata"]["half"] == "False"
 
     def test_onnx_backend_reads_rectangular_metadata(self, tmp_path):
         pytest.importorskip("onnx")
@@ -801,13 +921,16 @@ class TestTensorRTFormat:
 class TestTensorRTValidation:
     """Test TensorRT export parameter validation."""
 
-    def test_int8_requires_data(self):
-        """INT8 export without data should raise ValueError."""
+    def test_int8_without_data_uses_default_calibration(self, caplog):
+        """INT8 export without data falls back to coco8.yaml."""
         wrapper = _make_wrapper()
         exporter = TensorRTExporter(wrapper)
 
-        with pytest.raises(ValueError, match="calibration data"):
-            exporter(int8=True)
+        with caplog.at_level("WARNING", logger="libreyolo.export.exporter"):
+            data = exporter._resolve_calibration_data(int8=True, data=None)
+
+        assert data == "coco8.yaml"
+        assert "8-image fallback is not representative" in caplog.text
 
     def test_int8_with_data_no_immediate_error(self, monkeypatch):
         """INT8 with data parameter should not raise validation error.
@@ -933,13 +1056,16 @@ class TestOpenVINOFormat:
 class TestOpenVINOValidation:
     """Test OpenVINO export parameter validation."""
 
-    def test_int8_requires_data(self):
-        """INT8 export without data should raise ValueError."""
+    def test_int8_without_data_uses_default_calibration(self, caplog):
+        """INT8 export without data falls back to coco8.yaml."""
         wrapper = _make_wrapper()
         exporter = OpenVINOExporter(wrapper)
 
-        with pytest.raises(ValueError, match="calibration data"):
-            exporter(int8=True)
+        with caplog.at_level("WARNING", logger="libreyolo.export.exporter"):
+            data = exporter._resolve_calibration_data(int8=True, data=None)
+
+        assert data == "coco8.yaml"
+        assert "8-image fallback is not representative" in caplog.text
 
     def test_int8_with_data_no_immediate_error(self, monkeypatch):
         """INT8 with data parameter should not raise validation error.
