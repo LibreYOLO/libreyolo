@@ -204,6 +204,31 @@ class YOLO9Config(TrainConfig):
 
 
 @dataclass(kw_only=True)
+class YOLO9PoseConfig(YOLO9Config):
+    """YOLO9 pose-estimation training defaults."""
+
+    num_classes: int = 1
+    num_keypoints: int = 17
+    keypoint_dim: int = 3
+    oks_sigmas: Optional[List[float]] = None
+    pose_weight: float = 12.0
+    pose_l1_weight: float = 2.0
+    pose_vis_weight: float = 1.0
+    mosaic_prob: float = 0.0
+    mixup_prob: float = 0.0
+    flip_prob: float = 0.5
+    hsv_prob: float = 1.0
+    affine_prob: float = 0.5
+    pose_scale: Tuple[float, float] = (0.75, 1.25)
+    pin_memory: bool = False
+    prefetch_factor: int = 1
+    persistent_workers: bool = True
+    decode_scale: int = 1
+    eval_interval: int = 1
+    name: str = "yolo9_pose_exp"
+
+
+@dataclass(kw_only=True)
 class DFINEConfig(TrainConfig):
     """D-FINE-specific training defaults.
 

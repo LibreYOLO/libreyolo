@@ -71,6 +71,7 @@ def postprocess(
     out_logits = outputs["pred_logits"]  # (B, num_queries, num_classes)
     out_bbox = outputs["pred_boxes"]  # (B, num_queries, 4) in cxcywh [0, 1]
     out_masks = outputs.get("pred_masks")  # (B, num_queries, Hm, Wm) or None
+    out_keypoints = outputs.get("pred_keypoints")  # (B, num_queries, K, 3) or None
     out_angles = outputs.get("pred_angles")  # (B, num_queries, 1) or None
 
     assert len(out_logits) == len(target_sizes)
@@ -157,6 +158,15 @@ def postprocess(
 
             # Threshold at 0.0 in logit space (= 0.5 probability)
             res_i["masks"] = (masks_i[:, 0] > 0.0).bool()  # (K, H, W)
+
+        if out_keypoints is not None:
+            k_idx = topk_boxes[i]
+            keypoints_i = out_keypoints[i][k_idx].clone()
+            h, w = target_sizes[i].tolist()
+            keypoints_i[..., 0] = keypoints_i[..., 0] * float(w)
+            keypoints_i[..., 1] = keypoints_i[..., 1] * float(h)
+            keypoints_i[..., 2] = keypoints_i[..., 2].sigmoid()
+            res_i["keypoints"] = keypoints_i
 
         results.append(res_i)
 

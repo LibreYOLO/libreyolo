@@ -190,6 +190,8 @@ def _infer_yolo9_head_task(weights_dict: dict) -> str | None:
 
     if angle_head_channels and all(channels == 1 for channels in angle_head_channels):
         return "obb"
+    if angle_head_channels:
+        return "pose"
     return None
 
 
@@ -531,6 +533,8 @@ def LibreYOLO(
     if checkpoint_task is None and matched_cls.FAMILY == "rfdetr":
         if any(k.startswith("segmentation_head") for k in weights_dict):
             checkpoint_task = "segment"
+        elif any(k.startswith("keypoint_head") for k in weights_dict):
+            checkpoint_task = "pose"
     if checkpoint_task is None and matched_cls.FAMILY == "yolonas":
         if "heads.head1.pose_pred.weight" in weights_dict:
             checkpoint_task = "pose"
@@ -555,6 +559,13 @@ def LibreYOLO(
         default_task=matched_cls.DEFAULT_TASK,
         supported_tasks=matched_cls.SUPPORTED_TASKS,
     )
+    family_kwargs = (
+        {"reg_max": reg_max} if matched_cls.FAMILY in ("yolo9", "yolo9_e2e") else {}
+    )
+    if matched_cls.FAMILY == "yolo9" and resolved_task == "pose":
+        detected_keypoints = matched_cls.detect_num_keypoints(weights_dict)
+        if detected_keypoints is not None:
+            family_kwargs["num_keypoints"] = detected_keypoints
 
     if matched_cls.FAMILY == "rfdetr":
         # RF-DETR always needs the path (handles its own loading internally)
@@ -573,11 +584,7 @@ def LibreYOLO(
             nb_classes=nb_classes,
             device=device,
             task=resolved_task,
-            **(
-                {"reg_max": reg_max}
-                if matched_cls.FAMILY in ("yolo9", "yolo9_e2e")
-                else {}
-            ),
+            **family_kwargs,
         )
     else:
         # Pretrained checkpoint — pass extracted state dict
@@ -587,11 +594,7 @@ def LibreYOLO(
             nb_classes=nb_classes,
             device=device,
             task=resolved_task,
-            **(
-                {"reg_max": reg_max}
-                if matched_cls.FAMILY in ("yolo9", "yolo9_e2e")
-                else {}
-            ),
+            **family_kwargs,
         )
 
     model.model_path = model_path

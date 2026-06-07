@@ -16,6 +16,8 @@ import torch
 import torch.nn.functional as F  # noqa: N812
 from torch import nn
 
+from libreyolo.data import default_oks_sigmas
+
 from .segmentation import (
     calculate_uncertainty,
     get_uncertain_point_coords_with_randomness,
@@ -172,6 +174,8 @@ class SetCriterion(nn.Module):
         use_position_supervised_loss=False,
         ia_bce_loss=False,
         mask_point_sample_ratio: int = 16,
+        num_keypoints: int = 17,
+        oks_sigmas=None,
     ):
         """Create the criterion.
         Parameters:
@@ -194,6 +198,9 @@ class SetCriterion(nn.Module):
         self.use_position_supervised_loss = use_position_supervised_loss
         self.ia_bce_loss = ia_bce_loss
         self.mask_point_sample_ratio = mask_point_sample_ratio
+        self.num_keypoints = int(num_keypoints)
+        sigmas = oks_sigmas or default_oks_sigmas(self.num_keypoints)
+        self.register_buffer("oks_sigmas", torch.as_tensor(sigmas, dtype=torch.float32))
 
     def loss_labels(self, outputs, targets, indices, num_boxes, log=True):
         """Classification loss (Binary focal loss)
@@ -496,6 +503,61 @@ class SetCriterion(nn.Module):
         del target_masks
         return losses
 
+    def loss_keypoints(self, outputs, targets, indices, num_boxes):
+        """Compute L1, OKS, and visibility losses for matched keypoints."""
+        assert "pred_keypoints" in outputs, "pred_keypoints missing in model outputs"
+        idx = self._get_src_permutation_idx(indices)
+        src_keypoints = outputs["pred_keypoints"][idx]
+        if src_keypoints.numel() == 0:
+            zero = outputs["pred_keypoints"].sum() * 0.0
+            return {
+                "loss_keypoints_l1": zero,
+                "loss_keypoints_oks": zero,
+                "loss_keypoints_vis": zero,
+            }
+
+        target_keypoints = torch.cat(
+            [t["keypoints"][j] for t, (_, j) in zip(targets, indices)], dim=0
+        ).to(src_keypoints.device)
+        target_boxes = torch.cat(
+            [t["boxes"][j] for t, (_, j) in zip(targets, indices)], dim=0
+        ).to(src_keypoints.device)
+
+        visible = target_keypoints[..., 2] > 0
+        visible_f = visible.to(dtype=src_keypoints.dtype)
+        visible_count = visible_f.sum(dim=1).clamp_min(1.0)
+        pred_xy = src_keypoints[..., :2]
+        pred_vis_logits = src_keypoints[..., 2]
+        tgt_xy = target_keypoints[..., :2]
+
+        area = (target_boxes[..., 2] * target_boxes[..., 3]).clamp_min(1e-9)
+        area_scale = area.sqrt().clamp_min(1e-6)
+        norm_pred_xy = pred_xy / area_scale[:, None, None]
+        norm_tgt_xy = tgt_xy / area_scale[:, None, None]
+        loss_l1 = (F.l1_loss(norm_pred_xy, norm_tgt_xy, reduction="none").sum(-1) * visible_f).sum()
+        loss_l1 = loss_l1 / visible_count.sum().clamp_min(1.0)
+
+        sigmas = self.oks_sigmas.to(device=src_keypoints.device, dtype=src_keypoints.dtype)
+        dist2 = ((pred_xy - tgt_xy) ** 2).sum(dim=-1)
+        denom = 2.0 * area[:, None] * (2.0 * sigmas[None, :]).pow(2) + 1e-9
+        oks_loss = 1.0 - torch.exp(-dist2 / denom)
+        per_instance_oks = (oks_loss * visible_f).sum(dim=1) / visible_count
+        per_instance_oks = torch.where(
+            visible.any(dim=1), per_instance_oks, per_instance_oks * 0.0
+        )
+        loss_oks = per_instance_oks.sum() / max(float(num_boxes), 1.0)
+
+        vis_target = visible.to(dtype=pred_vis_logits.dtype)
+        loss_vis = F.binary_cross_entropy_with_logits(
+            pred_vis_logits, vis_target, reduction="none"
+        ).mean(dim=1)
+        loss_vis = loss_vis.sum() / max(float(num_boxes), 1.0)
+        return {
+            "loss_keypoints_l1": loss_l1,
+            "loss_keypoints_oks": loss_oks,
+            "loss_keypoints_vis": loss_vis,
+        }
+
     def _get_src_permutation_idx(self, indices):
         # permute predictions following indices
         batch_idx = torch.cat([torch.full_like(src, i) for i, (src, _) in enumerate(indices)])
@@ -515,6 +577,7 @@ class SetCriterion(nn.Module):
             "boxes": self.loss_boxes,
             "angles": self.loss_angles,
             "masks": self.loss_masks,
+            "keypoints": self.loss_keypoints,
         }
         assert loss in loss_map, f"do you really want to compute {loss} loss?"
         return loss_map[loss](outputs, targets, indices, num_boxes, **kwargs)

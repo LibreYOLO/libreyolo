@@ -39,6 +39,15 @@ Required field meanings:
   legacy sparse mappings, but out-of-range keys are invalid.
 - `imgsz`: positive integer square input resolution.
 
+Pose checkpoints additionally include:
+
+- `num_keypoints`: positive integer keypoint count used by the pose head.
+- `keypoint_dim`: pose label dimension from the dataset contract, either `2`
+  for `x,y` labels or `3` for `x,y,visibility` labels. Model outputs always
+  expose keypoints as `x,y,visibility`.
+- `oks_sigmas`: optional list of per-keypoint OKS sigmas. When omitted, loaders
+  and validators use the task default for `num_keypoints`.
+
 The schema is intentionally flat. Existing LibreYOLO checkpoints and loaders
 already use top-level keys such as `model_family`, `size`, `nc`, `names`, and
 `task`; nesting the metadata would increase migration risk before release.

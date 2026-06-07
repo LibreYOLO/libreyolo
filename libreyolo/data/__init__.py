@@ -13,6 +13,17 @@ from .classify_dataset import (
     resolve_classify_data,
 )
 from .obb import parse_yolo_obb_label_line
+from .coco_pose import (
+    convert_coco_keypoints_json_to_yolo_pose,
+    convert_coco_keypoints_splits,
+)
+from .pose_metadata import (
+    COCO17_FLIP_IDX,
+    COCO17_KEYPOINT_NAMES,
+    COCO17_OKS_SIGMAS,
+    COCO17_SKELETON,
+    default_oks_sigmas,
+)
 from .pose_dataset import YOLOPoseDataset, parse_yolo_pose_label_line, pose_collate_fn
 from .utils import (
     DATASETS_DIR,
@@ -33,9 +44,16 @@ __all__ = [
     "create_yolo_coco_api",
     "parse_yolo_label_line",
     "parse_yolo_obb_label_line",
+    "convert_coco_keypoints_json_to_yolo_pose",
+    "convert_coco_keypoints_splits",
     "YOLOPoseDataset",
     "parse_yolo_pose_label_line",
     "pose_collate_fn",
+    "COCO17_FLIP_IDX",
+    "COCO17_KEYPOINT_NAMES",
+    "COCO17_OKS_SIGMAS",
+    "COCO17_SKELETON",
+    "default_oks_sigmas",
     "ClassifyDataset",
     "build_classify_transforms",
     "classify_collate_fn",

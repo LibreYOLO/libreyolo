@@ -154,6 +154,8 @@ def test_tensorrt_dynamic_batching_caps_requested_batch_to_profile():
         class_ids,
         *,
         masks,
+        obb=None,
+        keypoints=None,
         orig_shape,
         image_path,
         iou,
@@ -174,6 +176,66 @@ def test_tensorrt_dynamic_batching_caps_requested_batch_to_profile():
 
     assert infer_batches == [2, 2, 1]
     assert results == ["a.jpg", "b.jpg", "c.jpg", "d.jpg", "e.jpg"]
+
+
+def test_tensorrt_dynamic_batching_preserves_pose_keypoints():
+    backend = _bare_tensorrt_backend("LibreYOLO9t-pose.engine", model_family="yolo9")
+    backend._dynamic_batch = True
+    backend._max_batch = 2
+    backend.imgsz = 64
+    backend.output_names = ["detections", "keypoints"]
+    captured = {}
+
+    def preprocess(path, imgsz, color_format):
+        return (
+            torch.zeros(1, 3, imgsz, imgsz),
+            np.zeros((imgsz, imgsz, 3), dtype=np.uint8),
+            (imgsz, imgsz),
+        )
+
+    def infer(batched_input):
+        return {
+            "detections": np.zeros((batched_input.shape[0], 1, 5), dtype=np.float32),
+            "keypoints": np.ones((batched_input.shape[0], 1, 2, 3), dtype=np.float32),
+        }
+
+    def parse_outputs(per_image, imgsz, orig_size, conf, ratio=1.0):
+        return (
+            np.array([[1.0, 2.0, 3.0, 4.0]], dtype=np.float32),
+            np.array([0.9], dtype=np.float32),
+            np.array([0], dtype=np.int64),
+            None,
+            None,
+            np.ones((1, 2, 3), dtype=np.float32),
+        )
+
+    def build_result(
+        boxes,
+        max_scores,
+        class_ids,
+        *,
+        masks,
+        obb=None,
+        keypoints=None,
+        orig_shape,
+        image_path,
+        iou,
+        classes,
+        max_det,
+    ):
+        captured[image_path] = keypoints
+        return image_path
+
+    backend._preprocess = preprocess
+    backend._infer = infer
+    backend._parse_outputs = parse_outputs
+    backend._build_result = build_result
+
+    results = backend._process_in_batches(["a.jpg", "b.jpg"], batch=2)
+
+    assert results == ["a.jpg", "b.jpg"]
+    assert captured["a.jpg"].shape == (1, 2, 3)
+    assert captured["b.jpg"].shape == (1, 2, 3)
 
 
 def test_tensorrt_dynamic_batching_rejects_rectangular_non_yolo9_imgsz():

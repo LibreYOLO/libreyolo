@@ -124,6 +124,19 @@ def test_factory_loads_yolo9_t_metadata_checkpoint_with_coco_class_width(tmp_pat
     assert loaded.model.head.cv3[0][0].conv.weight.shape[0] == 80
 
 
+def test_factory_loads_raw_yolo9_pose_checkpoint_with_custom_keypoints(tmp_path):
+    model = LibreYOLO9Model(config="t", nb_classes=1, pose=True, num_keypoints=5)
+    ckpt_path = tmp_path / "LibreYOLO9t-pose.pt"
+    torch.save(model.state_dict(), ckpt_path)
+
+    loaded = LibreYOLO(str(ckpt_path), device="cpu")
+
+    assert loaded.task == "pose"
+    assert loaded.nb_classes == 1
+    assert loaded.num_keypoints == 5
+    assert loaded.model.head.num_keypoints == 5
+
+
 def test_yolo9_obb_transfer_accepts_same_family_detect_checkpoint(tmp_path):
     detect_model = LibreYOLO9Model(config="t", nb_classes=80)
     ckpt_path = tmp_path / "LibreYOLO9t.pt"

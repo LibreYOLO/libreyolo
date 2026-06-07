@@ -1,12 +1,7 @@
-"""YOLO-NAS pose-estimation trainer for native LibreYOLO training.
+"""YOLO9 pose-estimation trainer.
 
-Unlike the detection trainer this trainer owns its data pipeline: it builds
-:class:`~libreyolo.data.YOLOPoseDataset` loaders directly (keypoint-aware
-transforms, padded ``(B, max_labels, 5 + 3K)`` targets) rather than going
-through the shared mosaic/detection dataset path.
-
-best.pt is selected by keypoint OKS-AP when metric validation is available,
-with validation loss as the fallback signal.
+Clean-room family-local trainer guided by the in-repo YOLO-NAS pose trainer.
+It owns pose-safe dataloaders instead of using the YOLO9 box-only mosaic path.
 """
 
 from __future__ import annotations
@@ -28,13 +23,14 @@ from ...data import (
     load_data_config,
     pose_collate_fn,
 )
-from ...training.config import TrainConfig, YOLONASPoseConfig
-from ...training.scheduler import CosineAnnealingScheduler
+from ...training.config import TrainConfig, YOLO9PoseConfig
+from ...training.distributed import get_world_size, is_distributed, is_main_process, unwrap_model
+from ...training.scheduler import LinearLRScheduler
 from ...training.trainer import BaseTrainer
-from .loss import YoloNASPoseLoss
-from .pose_transforms import YOLONASPoseTrainTransform, YOLONASPoseValTransform
+from .pose_transforms import YOLO9PoseTrainTransform, YOLO9PoseValTransform
 
 logger = logging.getLogger(__name__)
+
 
 def _pose_worker_init_fn(worker_id: int) -> None:
     cv2.setNumThreads(0)
@@ -44,37 +40,31 @@ def _pose_worker_init_fn(worker_id: int) -> None:
     np.random.seed(seed)
 
 
-class YOLONASPoseTrainer(BaseTrainer):
-    """Trainer for YOLO-NAS pose models."""
+class YOLO9PoseTrainer(BaseTrainer):
+    """Trainer for YOLO9 pose models."""
 
-    artifact_model_families = ("yolonas",)
+    artifact_model_families = ("yolo9",)
     best_metric_key = "metrics/keypoints_mAP50-95"
 
     @classmethod
     def _config_class(cls) -> Type[TrainConfig]:
-        return YOLONASPoseConfig
+        return YOLO9PoseConfig
 
     def get_model_family(self) -> str:
-        return "yolonas"
+        return "yolo9"
 
     def get_model_tag(self) -> str:
-        return f"YOLO-NAS-Pose-{self.config.size}"
+        return f"YOLO9-Pose-{self.config.size}"
 
     @property
     def num_keypoints(self) -> int:
-        return self.config.num_keypoints
+        return int(self.config.num_keypoints)
 
-    @property
-    def effective_lr(self) -> float:
-        return self.config.lr0
-
-    # create_transforms is abstract on BaseTrainer; the pose trainer overrides
-    # _setup_data entirely, so this hook is never exercised.
     def create_transforms(self):
         return None, None
 
     def create_scheduler(self, iters_per_epoch: int):
-        return CosineAnnealingScheduler(
+        return LinearLRScheduler(
             lr=self.effective_lr,
             iters_per_epoch=iters_per_epoch,
             total_epochs=self.config.epochs,
@@ -95,23 +85,14 @@ class YOLONASPoseTrainer(BaseTrainer):
         return default_oks_sigmas(self.num_keypoints)
 
     def on_setup(self):
-        self.loss_fn = YoloNASPoseLoss(
-            oks_sigmas=self._resolve_oks_sigmas(),
-            classification_loss_type=self.config.classification_loss_type,
-            regression_iou_loss_type=self.config.regression_iou_loss_type,
-            classification_loss_weight=self.config.classification_loss_weight,
-            iou_loss_weight=self.config.iou_loss_weight,
-            dfl_loss_weight=self.config.dfl_loss_weight,
-            pose_cls_loss_weight=self.config.pose_cls_loss_weight,
-            pose_reg_loss_weight=self.config.pose_reg_loss_weight,
-            pose_classification_loss_type=self.config.pose_classification_loss_type,
-            bbox_assigner_topk=self.config.bbox_assigner_topk,
-            bbox_assigned_alpha=self.config.bbox_assigned_alpha,
-            bbox_assigned_beta=self.config.bbox_assigned_beta,
-            assigner_multiply_by_pose_oks=self.config.assigner_multiply_by_pose_oks,
-            rescale_pose_loss_with_assigned_score=self.config.rescale_pose_loss_with_assigned_score,
-        )
-        self.loss_fn = self.loss_fn.to(self.device)
+        head = unwrap_model(self.model).head
+        head._pose_loss_fn = None
+        head._pose_loss_kwargs = {
+            "oks_sigmas": self._resolve_oks_sigmas(),
+            "pose_weight": self.config.pose_weight,
+            "pose_l1_weight": self.config.pose_l1_weight,
+            "pose_vis_weight": self.config.pose_vis_weight,
+        }
         self.val_loader = None
 
     def _build_dataset(self, img_files, label_files, preproc) -> YOLOPoseDataset:
@@ -132,7 +113,6 @@ class YOLONASPoseTrainer(BaseTrainer):
         cfg = load_data_config(
             self.config.data, allow_scripts=self.config.allow_download_scripts
         )
-        self.num_classes = 1
         flip_idx = cfg.get("flip_idx")
 
         train_imgs = cfg.get("train_img_files")
@@ -145,17 +125,15 @@ class YOLONASPoseTrainer(BaseTrainer):
         if not train_imgs:
             raise FileNotFoundError("No training images found for pose training")
 
-        train_tf = YOLONASPoseTrainTransform(
+        train_tf = YOLO9PoseTrainTransform(
             self.num_keypoints,
             flip_idx=flip_idx,
             flip_prob=self.config.flip_prob,
             hsv_prob=self.config.hsv_prob,
-            brightness_contrast_prob=self.config.brightness_contrast_prob,
             affine_prob=self.config.affine_prob,
             degrees=self.config.degrees,
             translate=self.config.translate,
             scale=self.config.pose_scale,
-            affine_interpolation=self.config.affine_interpolation,
         )
         train_ds = self._build_dataset(train_imgs, train_lbls, train_tf)
         drop_last = len(train_ds) >= self.config.batch
@@ -166,10 +144,25 @@ class YOLONASPoseTrainer(BaseTrainer):
                 persistent_workers=self.config.persistent_workers,
                 prefetch_factor=self.config.prefetch_factor,
             )
+
+        per_rank_batch = max(1, self.config.batch // max(get_world_size(), 1))
+        sampler = None
+        if is_distributed():
+            from torch.utils.data.distributed import DistributedSampler
+
+            sampler = DistributedSampler(
+                train_ds,
+                num_replicas=get_world_size(),
+                rank=self.rank,
+                shuffle=True,
+                drop_last=len(train_ds) >= get_world_size(),
+            )
+
         self.train_loader = DataLoader(
             train_ds,
-            batch_size=self.config.batch,
-            shuffle=True,
+            batch_size=per_rank_batch,
+            shuffle=sampler is None,
+            sampler=sampler,
             num_workers=self.config.workers,
             pin_memory=self.config.pin_memory,
             drop_last=drop_last,
@@ -187,11 +180,11 @@ class YOLONASPoseTrainer(BaseTrainer):
                 val_imgs = None
         if val_imgs:
             val_ds = self._build_dataset(
-                val_imgs, val_lbls, YOLONASPoseValTransform(self.num_keypoints)
+                val_imgs, val_lbls, YOLO9PoseValTransform(self.num_keypoints)
             )
             self.val_loader = DataLoader(
                 val_ds,
-                batch_size=self.config.batch,
+                batch_size=per_rank_batch,
                 shuffle=False,
                 num_workers=self.config.workers,
                 pin_memory=self.config.pin_memory,
@@ -199,20 +192,19 @@ class YOLONASPoseTrainer(BaseTrainer):
                 collate_fn=pose_collate_fn,
                 **loader_kwargs,
             )
-            logger.info("Validation dataset: %d images", len(val_ds))
+            if is_main_process():
+                logger.info("Validation dataset: %d images", len(val_ds))
         else:
             self.val_loader = None
-            logger.warning(
-                "No validation split found — best.pt cannot be selected by "
-                "validation loss for this run"
-            )
+            logger.warning("No validation split found for pose training")
 
-        logger.info("Training dataset: %d images", len(train_ds))
-        logger.info("Iterations per epoch: %d", len(self.train_loader))
+        if is_main_process():
+            logger.info("Training dataset: %d images", len(train_ds))
+            logger.info("Iterations per epoch: %d", len(self.train_loader))
         return train_ds
 
     def get_loss_components(self, outputs: Dict) -> Dict[str, float]:
-        keys = ("cls", "iou", "dfl", "pose_cls", "pose_reg")
+        keys = ("box", "cls", "dfl", "pose", "pose_l1", "pose_vis")
         return {k: outputs.get(k, 0.0) for k in keys}
 
     def _checkpoint_extra_metadata(self) -> Dict:
@@ -223,41 +215,40 @@ class YOLONASPoseTrainer(BaseTrainer):
         }
 
     def on_forward(self, imgs: torch.Tensor, targets: torch.Tensor, polygons=None) -> Dict:
-        outputs = self.model(imgs)
-        loss, log_losses = self.loss_fn(outputs, targets)
-        # log_losses order: [cls, iou, dfl, pose_cls, pose_reg, total]
-        return {
-            "total_loss": loss,
-            "cls": log_losses[0],
-            "iou": log_losses[1],
-            "dfl": log_losses[2],
-            "pose_cls": log_losses[3],
-            "pose_reg": log_losses[4],
-        }
+        return self.model(imgs, targets=targets)
 
-    def _validate_epoch(self, epoch: int):
+    def _run_validation(self, epoch: int, *, save_plots: bool | None = None):
         if getattr(self, "val_loader", None) is None:
             return None
 
-        model = self.ema_model.ema if self.ema_model else self.model
+        model = self.ema_model.ema if self.ema_model else unwrap_model(self.model)
         was_training = model.training
-        model.eval()
 
         total_loss, num_batches = 0.0, 0
         pose_metrics = None
         try:
             with torch.no_grad():
+                model.train()
+                for module in model.modules():
+                    if isinstance(module, torch.nn.modules.batchnorm._BatchNorm):
+                        module.eval()
                 for batch in self.val_loader:
                     imgs = batch[0].to(self.device, non_blocking=True)
                     targets = batch[1].to(self.device, non_blocking=True)
-                    loss, _ = self.loss_fn(model(imgs), targets)
-                    total_loss += float(loss.item())
+                    outputs = model(imgs, targets=targets)
+                    total_loss += float(outputs["total_loss"].item())
                     num_batches += 1
-
-            pose_metrics = self._run_pose_metric_validation(model, epoch)
+                model.eval()
+            pose_metrics = self._run_pose_metric_validation(
+                model,
+                epoch,
+                save_plots=save_plots,
+            )
         finally:
             if was_training:
                 model.train()
+            else:
+                model.eval()
 
         avg_loss = total_loss / max(num_batches, 1)
         metrics = {"loss/val": avg_loss}
@@ -282,7 +273,7 @@ class YOLONASPoseTrainer(BaseTrainer):
 
         logger.info("Validation - loss/val: %.4f", avg_loss)
         return {
-            "best_metric": -avg_loss,  # higher-is-better convention; lower loss wins
+            "best_metric": -avg_loss,
             "best_metric_key": "loss/val",
             "mAP50": None,
             "mAP50_95": None,
@@ -290,7 +281,11 @@ class YOLONASPoseTrainer(BaseTrainer):
         }
 
     def _run_pose_metric_validation(
-        self, eval_model: torch.nn.Module, epoch: int
+        self,
+        eval_model: torch.nn.Module,
+        epoch: int,
+        *,
+        save_plots: bool | None = None,
     ) -> Dict[str, float] | None:
         if self.wrapper_model is None:
             logger.warning("Skipping pose mAP validation: wrapper_model is missing")
@@ -299,6 +294,12 @@ class YOLONASPoseTrainer(BaseTrainer):
         try:
             from libreyolo.validation import PoseValidator, ValidationConfig
 
+            is_final_epoch = self._is_final_epoch(epoch)
+            val_save_plots = (
+                bool(save_plots)
+                if save_plots is not None
+                else bool(getattr(self.config, "save_plots", False)) and is_final_epoch
+            )
             val_config = ValidationConfig(
                 data=self.config.data,
                 split="val",
@@ -312,7 +313,8 @@ class YOLONASPoseTrainer(BaseTrainer):
                 num_workers=self.config.workers,
                 allow_download_scripts=self.config.allow_download_scripts,
                 oks_sigmas=self._resolve_oks_sigmas(),
-                save_dir=str(self.save_dir / "val"),
+                save_plots=val_save_plots,
+                save_dir=str(self.save_dir / "val") if val_save_plots else None,
             )
 
             original_model = self.wrapper_model.model

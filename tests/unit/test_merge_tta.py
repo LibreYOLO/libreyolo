@@ -28,6 +28,13 @@ def test_obb_rejects_tta_before_axis_aligned_merge():
         BaseModel._predict_augment(model, image=None)
 
 
+def test_pose_rejects_tta_before_keypoint_merge():
+    model = SimpleNamespace(task="pose")
+
+    with pytest.raises(ValueError, match="pose keypoints"):
+        BaseModel._predict_augment(model, image=None)
+
+
 def _det(boxes, scores, classes):
     return {
         "boxes": boxes,

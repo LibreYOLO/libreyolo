@@ -746,6 +746,126 @@ class DDetectSeg(DDetect):
         return predictions, raw_outputs, proto, mask_coeffs
 
 
+class DDetectPose(DDetect):
+    """YOLO9 detection head with COCO-style keypoint regression."""
+
+    def __init__(
+        self,
+        nc=1,
+        ch=(),
+        reg_max=16,
+        stride=(),
+        use_group=True,
+        num_keypoints=17,
+        keypoint_dim=3,
+    ):
+        super().__init__(nc=nc, ch=ch, reg_max=reg_max, stride=stride, use_group=use_group)
+        if keypoint_dim != 3:
+            raise ValueError("DDetectPose expects keypoint_dim=3")
+        self.num_keypoints = int(num_keypoints)
+        self.keypoint_dim = int(keypoint_dim)
+        self.nk = self.num_keypoints * self.keypoint_dim
+        self._pose_loss_fn = None
+        self._pose_input_channels = [int(c) for c in ch]
+
+        c4 = max(ch[0] // 4, self.nk)
+        self._pose_hidden_channels = c4
+        self.cv4 = nn.ModuleList(
+            nn.Sequential(Conv(x, c4, 3), Conv(c4, c4, 3), nn.Conv2d(c4, self.nk, 1))
+            for x in ch
+        )
+
+    def replace_num_keypoints(self, num_keypoints: int):
+        """Rebuild the keypoint tower for a new keypoint count."""
+        num_keypoints = int(num_keypoints)
+        if num_keypoints == self.num_keypoints:
+            return
+        new_nk = num_keypoints * self.keypoint_dim
+        c4 = max(self._pose_input_channels[0] // 4, new_nk)
+        ref = next(self.cv4.parameters())
+        self.cv4 = nn.ModuleList(
+            nn.Sequential(Conv(x, c4, 3), Conv(c4, c4, 3), nn.Conv2d(c4, new_nk, 1))
+            for x in self._pose_input_channels
+        ).to(device=ref.device, dtype=ref.dtype)
+        self.num_keypoints = num_keypoints
+        self.nk = new_nk
+        self._pose_hidden_channels = c4
+        self._pose_loss_fn = None
+
+    def _get_pose_loss_fn(self, device):
+        if self._pose_loss_fn is None:
+            from .loss import YOLO9PoseLoss
+
+            self._pose_loss_fn = YOLO9PoseLoss(
+                num_classes=self.nc,
+                reg_max=self.reg_max,
+                strides=self.stride.tolist(),
+                image_size=None,
+                device=device,
+                num_keypoints=self.num_keypoints,
+                keypoint_dim=self.keypoint_dim,
+                **getattr(self, "_pose_loss_kwargs", {}),
+            )
+        return self._pose_loss_fn
+
+    def _decode_keypoints(
+        self,
+        keypoints: torch.Tensor,
+        anchors: torch.Tensor | None = None,
+        strides: torch.Tensor | None = None,
+    ) -> torch.Tensor:
+        """Decode raw keypoint tower output to model-input pixel coordinates."""
+        anchors = self.anchors if anchors is None else anchors
+        strides = self.strides if strides is None else strides
+        batch_size = keypoints.shape[0]
+        kpts = keypoints.view(
+            batch_size, self.num_keypoints, self.keypoint_dim, -1
+        ).permute(0, 3, 1, 2)
+        xy = (kpts[..., :2] + anchors.T[None, :, None, :]) * strides.T[
+            None, :, None, :
+        ]
+        vis = kpts[..., 2:3].sigmoid()
+        return torch.cat((xy, vis), dim=-1)
+
+    def forward(self, x, targets=None, img_size=None):
+        features = list(x)
+        batch_size = features[0].shape[0]
+        keypoints = torch.cat(
+            [
+                self.cv4[i](features[i]).view(batch_size, self.nk, -1)
+                for i in range(self.nl)
+            ],
+            dim=2,
+        )
+
+        anchor_features = list(features)
+        det_outputs = super().forward(features, targets=None, img_size=img_size)
+
+        if self.training:
+            if targets is not None:
+                loss_fn = self._get_pose_loss_fn(keypoints.device)
+                if img_size is not None:
+                    loss_fn.update_anchors(list(img_size))
+                return loss_fn(det_outputs, targets, keypoints)
+            return det_outputs, keypoints
+
+        predictions, raw_outputs = det_outputs
+        decode_anchors = decode_strides = None
+        if self.export:
+            decode_anchors, decode_strides = (
+                generated.transpose(0, 1)
+                for generated in self._make_anchors(anchor_features, self.stride, 0.5)
+            )
+        decoded_keypoints = self._decode_keypoints(
+            keypoints,
+            anchors=decode_anchors,
+            strides=decode_strides,
+        )
+        if self.export:
+            return predictions, decoded_keypoints
+        return predictions, raw_outputs, decoded_keypoints
+
+
 class DDetectOBB(DDetect):
     """YOLO9 detection head with an oriented-box angle branch."""
 
@@ -1138,10 +1258,13 @@ class LibreYOLO9Model(nn.Module):
         nb_classes=80,
         img_size=640,
         segmentation=False,
+        pose=False,
         classification=False,
         obb=False,
         num_masks=32,
         proto_channels=256,
+        num_keypoints=17,
+        keypoint_dim=3,
     ):
         """
         Initialize YOLOv9 model.
@@ -1167,10 +1290,16 @@ class LibreYOLO9Model(nn.Module):
         self.reg_max = reg_max
         self.img_size = img_size
         self.segmentation = segmentation
+        self.pose = pose
         self.classification = classification
         self.obb = obb
-        if self.segmentation and self.obb:
-            raise ValueError("YOLO9 cannot enable segmentation and OBB heads together")
+        self.num_keypoints = int(num_keypoints)
+        self.keypoint_dim = int(keypoint_dim)
+        enabled_tasks = sum(
+            bool(v) for v in (self.segmentation, self.pose, self.classification, self.obb)
+        )
+        if enabled_tasks > 1:
+            raise ValueError("YOLO9 can enable only one task head at a time")
 
         cfg = YOLO9_CONFIGS[config]
 
@@ -1187,7 +1316,9 @@ class LibreYOLO9Model(nn.Module):
 
         # Detection head - use exact channels from config
         head_channels = cfg["head_channels"]
-        if obb:
+        if pose:
+            head_cls = DDetectPose
+        elif obb:
             head_cls = DDetectOBB
         elif segmentation:
             head_cls = DDetectSeg
@@ -1201,6 +1332,10 @@ class LibreYOLO9Model(nn.Module):
         }
         if segmentation:
             head_kwargs.update({"num_masks": num_masks, "proto_channels": proto_channels})
+        if pose:
+            head_kwargs.update(
+                {"num_keypoints": num_keypoints, "keypoint_dim": keypoint_dim}
+            )
         self.head = head_cls(**head_kwargs)
 
     def forward(self, x, targets=None, masks=None):
@@ -1251,6 +1386,10 @@ class LibreYOLO9Model(nn.Module):
             if self.head.export:
                 return output
             y, x_list, proto, mask_coeffs = output
+        elif self.pose:
+            if self.head.export:
+                return output
+            y, x_list, keypoints = output
         elif self.obb:
             if self.head.export:
                 return output
@@ -1272,6 +1411,8 @@ class LibreYOLO9Model(nn.Module):
         if self.segmentation:
             result["proto"] = proto
             result["mask_coeffs"] = mask_coeffs
+        if self.pose:
+            result["keypoints"] = keypoints
         if self.obb:
             result["obb"] = True
             result["angle_logits"] = angle_logits

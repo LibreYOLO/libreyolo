@@ -197,6 +197,30 @@ def test_rfdetr_trainer_forward_passes_obb_angles_to_criterion():
     assert trainer.get_loss_components(out)["angle"] == pytest.approx(1.0)
 
 
+def test_rfdetr_obb_multiscale_does_not_treat_angle_as_keypoints():
+    from libreyolo.models.rfdetr.trainer import RFDETRTrainer
+
+    trainer = object.__new__(RFDETRTrainer)
+    trainer.wrapper_model = SimpleNamespace(task="obb")
+    trainer._multi_scale_scales = lambda: [128]
+
+    imgs = torch.zeros(1, 3, 64, 64)
+    targets = torch.tensor([[[0.0, 16.0, 20.0, 8.0, 10.0, 0.25]]])
+
+    scaled_imgs, scaled_targets, _ = trainer._apply_multi_scale_batch(
+        imgs,
+        targets,
+        None,
+        step=1,
+    )
+
+    assert scaled_imgs.shape[-2:] == (128, 128)
+    torch.testing.assert_close(
+        scaled_targets[0, 0],
+        torch.tensor([0.0, 32.0, 40.0, 16.0, 20.0, 0.25]),
+    )
+
+
 def test_rfdetr_trainer_derives_classes_from_names_without_nc(tmp_path):
     from libreyolo.models.rfdetr.trainer import RFDETRTrainer
 

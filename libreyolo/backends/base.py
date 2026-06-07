@@ -19,7 +19,7 @@ from ..models.yolo9.utils import (
 from ..models.yolonas.utils import preprocess_image as yolonas_preprocess_image
 from ..models.yolox.utils import preprocess_image as yolox_preprocess_image
 from ..tasks import normalize_supported_tasks, normalize_task, resolve_task
-from ..utils.drawing import draw_boxes, draw_masks, draw_obb
+from ..utils.drawing import draw_boxes, draw_keypoints, draw_masks, draw_obb
 from ..utils.general import (
     COCO_CLASSES,
     get_safe_stem,
@@ -28,7 +28,7 @@ from ..utils.general import (
 )
 from ..utils.image_loader import ImageLoader
 from ..utils.predict_args import normalize_predict_kwargs
-from ..utils.results import Boxes, Masks, OBB, Probs, Results
+from ..utils.results import Boxes, Keypoints, Masks, OBB, Probs, Results
 from ..utils.video import collect_video_results, is_video_file, run_video_inference
 
 logger = logging.getLogger(__name__)
@@ -509,7 +509,7 @@ class BaseBackend(ABC):
         iou: float = 0.45,
         max_det: int = 300,
     ):
-        """Parse raw outputs into boxes, scores, classes, masks, and optional OBB."""
+        """Parse raw outputs into boxes, scores, classes, masks, OBB, and keypoints."""
         orig_w, orig_h = original_size
 
         if getattr(self, "embedded_nms", False):
@@ -910,6 +910,8 @@ class BaseBackend(ABC):
 
         For segmentation models a third output is present:
         masks (B,300,Hm,Wm) raw mask logits at model resolution.
+        For pose models a third output is present:
+        keypoints (B,300,K,3) with normalized xy and visibility logits.
         For OBB models a third output is present:
         angles (B,300,1) in radians.
         """
@@ -922,10 +924,13 @@ class BaseBackend(ABC):
             logits = first
             boxes_all = second
         raw_masks = None
+        raw_keypoints = None
         raw_angles = None
         if len(all_outputs) >= 3:
             if self.task == "obb":
                 raw_angles = all_outputs[2][0]
+            elif self.task == "pose":
+                raw_keypoints = all_outputs[2][0]
             else:
                 raw_masks = all_outputs[2][0]
 
@@ -943,6 +948,9 @@ class BaseBackend(ABC):
         class_ids = flat_indexes % num_classes
         boxes_raw = boxes_all[query_idx]
         angles_raw = raw_angles[query_idx] if raw_angles is not None else None
+        keypoints_raw = (
+            raw_keypoints[query_idx].copy() if raw_keypoints is not None else None
+        )
         if raw_masks is not None:
             raw_masks = raw_masks[query_idx]
 
@@ -951,6 +959,8 @@ class BaseBackend(ABC):
         max_scores, class_ids = max_scores[mask], class_ids[mask]
         if angles_raw is not None:
             angles_raw = angles_raw[mask]
+        if keypoints_raw is not None:
+            keypoints_raw = keypoints_raw[mask]
         if raw_masks is not None:
             raw_masks = raw_masks[mask]
 
@@ -963,6 +973,8 @@ class BaseBackend(ABC):
                     None,
                     np.zeros((0, 7), dtype=np.float32),
                 )
+            if self.task == "pose" and keypoints_raw is not None:
+                return boxes_raw, max_scores, class_ids, None, None, keypoints_raw
             return boxes_raw, max_scores, class_ids, None
 
         # COCO 91→80 class mapping
@@ -976,6 +988,8 @@ class BaseBackend(ABC):
             class_ids = mapped[valid]
             if angles_raw is not None:
                 angles_raw = angles_raw[valid]
+            if keypoints_raw is not None:
+                keypoints_raw = keypoints_raw[valid]
             if raw_masks is not None:
                 raw_masks = raw_masks[valid]
 
@@ -987,6 +1001,15 @@ class BaseBackend(ABC):
                     class_ids,
                     None,
                     np.zeros((0, 7), dtype=np.float32),
+                )
+            if self.task == "pose" and keypoints_raw is not None:
+                return (
+                    boxes_raw,
+                    max_scores,
+                    class_ids,
+                    None,
+                    None,
+                    keypoints_raw,
                 )
             return boxes_raw, max_scores, class_ids, None
 
@@ -1033,8 +1056,17 @@ class BaseBackend(ABC):
             )
             masks_out = (masks_t[:, 0] > 0.0).numpy()  # (N, H, W)
 
+        keypoints_out = None
+        if keypoints_raw is not None:
+            keypoints_out = np.asarray(keypoints_raw, dtype=np.float32).copy()
+            keypoints_out[..., 0] *= float(orig_w)
+            keypoints_out[..., 1] *= float(orig_h)
+            keypoints_out[..., 2] = 1.0 / (1.0 + np.exp(-keypoints_out[..., 2]))
+
         if self.task == "obb":
             return boxes, max_scores, class_ids, masks_out, obb_out
+        if self.task == "pose":
+            return boxes, max_scores, class_ids, masks_out, None, keypoints_out
         return boxes, max_scores, class_ids, masks_out
 
     def _parse_rtdetr(self, all_outputs, orig_w, orig_h, conf):
@@ -1136,6 +1168,7 @@ class BaseBackend(ABC):
         *,
         masks: "np.ndarray | None" = None,
         obb: "np.ndarray | None" = None,
+        keypoints: "np.ndarray | None" = None,
         orig_shape: Tuple[int, int],
         image_path,
         iou: float,
@@ -1144,6 +1177,12 @@ class BaseBackend(ABC):
     ) -> Results:
         """Apply family-appropriate suppression/max_det/filtering and wrap."""
         if len(boxes) == 0:
+            keypoints_obj = None
+            if keypoints is not None:
+                keypoints_obj = Keypoints(
+                    torch.as_tensor(keypoints, dtype=torch.float32),
+                    orig_shape,
+                )
             return Results(
                 boxes=Boxes(
                     torch.zeros((0, 4), dtype=torch.float32),
@@ -1153,6 +1192,7 @@ class BaseBackend(ABC):
                 obb=OBB(torch.zeros((0, 7), dtype=torch.float32), orig_shape)
                 if self.task == "obb"
                 else None,
+                keypoints=keypoints_obj,
                 orig_shape=orig_shape,
                 path=str(image_path) if image_path else None,
                 names=self.names,
@@ -1180,6 +1220,8 @@ class BaseBackend(ABC):
             )
             if masks is not None:
                 masks = masks[keep]
+            if keypoints is not None:
+                keypoints = keypoints[keep]
 
         if len(boxes) > max_det:
             top_indices = np.argsort(max_scores)[::-1][:max_det]
@@ -1190,6 +1232,8 @@ class BaseBackend(ABC):
                 masks = masks[top_indices]
             if obb is not None:
                 obb = obb[top_indices]
+            if keypoints is not None:
+                keypoints = keypoints[top_indices]
 
         boxes_t = torch.tensor(boxes, dtype=torch.float32)
         conf_t = torch.tensor(max_scores, dtype=torch.float32)
@@ -1207,10 +1251,19 @@ class BaseBackend(ABC):
                 masks = masks[cls_mask.numpy()]
             if obb_t is not None:
                 obb_t = obb_t[cls_mask]
+            if keypoints is not None:
+                keypoints = keypoints[cls_mask.numpy()]
 
         masks_obj = None
         if masks is not None and len(masks) > 0:
             masks_obj = Masks(torch.from_numpy(masks).bool(), orig_shape=orig_shape)
+
+        keypoints_obj = None
+        if keypoints is not None:
+            keypoints_obj = Keypoints(
+                torch.as_tensor(keypoints, dtype=torch.float32),
+                orig_shape,
+            )
 
         obb_obj = None
         if obb_t is not None:
@@ -1219,6 +1272,7 @@ class BaseBackend(ABC):
         return Results(
             boxes=Boxes(boxes_t, conf_t, cls_t),
             masks=masks_obj,
+            keypoints=keypoints_obj,
             obb=obb_obj,
             orig_shape=orig_shape,
             path=str(image_path) if image_path else None,
@@ -1256,6 +1310,11 @@ class BaseBackend(ABC):
                     result.boxes.conf.tolist(),
                     result.boxes.cls.tolist(),
                 )
+            if result.keypoints is not None:
+                kpts_np = result.keypoints.data
+                if isinstance(kpts_np, torch.Tensor):
+                    kpts_np = kpts_np.cpu().numpy()
+                annotated_img = draw_keypoints(annotated_img, kpts_np)
 
         ext = Path(image_path).suffix.lstrip(".") if image_path else "jpg"
         if not ext:
@@ -1380,6 +1439,16 @@ class BaseBackend(ABC):
             return arrays
         return [np.asarray(output)]
 
+    @staticmethod
+    def _unpack_parsed_outputs(parsed):
+        if len(parsed) == 6:
+            return parsed
+        if len(parsed) == 5:
+            boxes, max_scores, class_ids, masks, obb = parsed
+            return boxes, max_scores, class_ids, masks, obb, None
+        boxes, max_scores, class_ids, masks = parsed
+        return boxes, max_scores, class_ids, masks, None, None
+
     def _postprocess(
         self,
         output,
@@ -1405,17 +1474,16 @@ class BaseBackend(ABC):
             iou=iou_thres,
             max_det=max_det,
         )
-        if len(parsed) == 5:
-            boxes, max_scores, class_ids, masks, obb = parsed
-        else:
-            boxes, max_scores, class_ids, masks = parsed
-            obb = None
+        boxes, max_scores, class_ids, masks, obb, keypoints = (
+            self._unpack_parsed_outputs(parsed)
+        )
         result = self._build_result(
             boxes,
             max_scores,
             class_ids,
             masks=masks,
             obb=obb,
+            keypoints=keypoints,
             orig_shape=(int(original_size[1]), int(original_size[0])),
             image_path=None,
             iou=iou_thres,
@@ -1431,6 +1499,8 @@ class BaseBackend(ABC):
         }
         if result.masks is not None:
             det["masks"] = result.masks.data
+        if result.keypoints is not None:
+            det["keypoints"] = result.keypoints.data
         if result.obb is not None:
             det["obb"] = result.obb.data
         return det
@@ -1457,6 +1527,7 @@ class BaseBackend(ABC):
             ClassifyValidator,
             DetectionValidator,
             OBBValidator,
+            PoseValidator,
             SegmentationValidator,
             ValidationConfig,
         )
@@ -1499,6 +1570,8 @@ class BaseBackend(ABC):
             validator_cls = ClassifyValidator
         elif self.task == "segment":
             validator_cls = SegmentationValidator
+        elif self.task == "pose":
+            validator_cls = PoseValidator
         elif self.task == "obb":
             validator_cls = OBBValidator
         else:
@@ -1555,11 +1628,9 @@ class BaseBackend(ABC):
             iou=iou,
             max_det=max_det,
         )
-        if len(parsed) == 5:
-            boxes, max_scores, class_ids, masks, obb = parsed
-        else:
-            boxes, max_scores, class_ids, masks = parsed
-            obb = None
+        boxes, max_scores, class_ids, masks, obb, keypoints = (
+            self._unpack_parsed_outputs(parsed)
+        )
 
         result = self._build_result(
             boxes,
@@ -1567,6 +1638,7 @@ class BaseBackend(ABC):
             class_ids,
             masks=masks,
             obb=obb,
+            keypoints=keypoints,
             orig_shape=orig_shape,
             image_path=image_path,
             iou=iou,
@@ -1740,17 +1812,16 @@ class BaseBackend(ABC):
                 iou=iou,
                 max_det=max_det,
             )
-            if len(parsed) == 5:
-                boxes, max_scores, class_ids, masks, obb = parsed
-            else:
-                boxes, max_scores, class_ids, masks = parsed
-                obb = None
+            boxes, max_scores, class_ids, masks, obb, keypoints = (
+                self._unpack_parsed_outputs(parsed)
+            )
             return self._build_result(
                 boxes,
                 max_scores,
                 class_ids,
                 masks=masks,
                 obb=obb,
+                keypoints=keypoints,
                 orig_shape=orig_shape,
                 image_path=str(source),
                 iou=iou,

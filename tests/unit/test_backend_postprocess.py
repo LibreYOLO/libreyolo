@@ -129,6 +129,75 @@ def test_rfdetr_obb_backend_parses_angle_output():
     )
 
 
+def test_rfdetr_pose_backend_parses_keypoints_not_masks():
+    backend = _DummyBackend(
+        "rfdetr",
+        task="pose",
+        supported_tasks=("detect", "pose"),
+    )
+    boxes = np.array(
+        [[[0.5, 0.5, 0.2, 0.4], [0.25, 0.25, 0.1, 0.1]]],
+        dtype=np.float32,
+    )
+    logits = np.array([[[10.0], [-10.0]]], dtype=np.float32)
+    keypoints = np.zeros((1, 2, 2, 3), dtype=np.float32)
+    keypoints[0, 0, :, 0] = [0.25, 0.75]
+    keypoints[0, 0, :, 1] = [0.5, 0.25]
+    keypoints[0, 0, :, 2] = [2.0, -2.0]
+
+    parsed_boxes, scores, classes, masks, obb, parsed_keypoints = (
+        backend._parse_rfdetr(
+            [boxes, logits, keypoints],
+            orig_w=200,
+            orig_h=100,
+            conf=0.5,
+        )
+    )
+
+    assert masks is None
+    assert obb is None
+    assert classes.tolist() == [0]
+    assert parsed_boxes.shape == (1, 4)
+    assert parsed_keypoints.shape == (1, 2, 3)
+    np.testing.assert_allclose(parsed_keypoints[0, :, 0], [50.0, 150.0])
+    np.testing.assert_allclose(parsed_keypoints[0, :, 1], [50.0, 25.0])
+    np.testing.assert_allclose(
+        parsed_keypoints[0, :, 2],
+        [0.880797, 0.119203],
+        rtol=1e-5,
+    )
+    assert scores[0] > 0.99
+
+
+def test_rfdetr_pose_backend_postprocess_returns_keypoints():
+    backend = _DummyBackend(
+        "rfdetr",
+        task="pose",
+        supported_tasks=("detect", "pose"),
+    )
+    boxes = np.array([[[0.5, 0.5, 0.2, 0.4]]], dtype=np.float32)
+    logits = np.array([[[10.0]]], dtype=np.float32)
+    keypoints = np.array(
+        [[[[0.25, 0.5, 2.0], [0.75, 0.25, -2.0]]]],
+        dtype=np.float32,
+    )
+
+    out = backend._postprocess(
+        [boxes, logits, keypoints],
+        conf_thres=0.5,
+        iou_thres=0.5,
+        original_size=(200, 100),
+        input_size=64,
+    )
+
+    assert out["num_detections"] == 1
+    assert "masks" not in out
+    assert "keypoints" in out
+    assert out["keypoints"].shape == (1, 2, 3)
+    np.testing.assert_allclose(out["keypoints"][0, :, 0].numpy(), [50.0, 150.0])
+    np.testing.assert_allclose(out["keypoints"][0, :, 1].numpy(), [50.0, 25.0])
+
+
 def test_rfdetr_seg_backend_uses_variant_num_select():
     backend = _DummyBackend(
         "rfdetr",

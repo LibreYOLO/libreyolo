@@ -446,6 +446,8 @@ class BaseExporter(ABC):
         )
         if is_segment:
             task_suffix = "_seg"
+        elif task == "pose":
+            task_suffix = "_pose"
         elif task == "obb":
             task_suffix = "_obb"
         elif task == "classify":
@@ -704,6 +706,13 @@ class BaseExporter(ABC):
         }
         if onnx_path is not None:
             meta["exported_from"] = str(Path(onnx_path).name)
+        if task == "pose":
+            meta.update(
+                {
+                    "num_keypoints": getattr(self.model, "num_keypoints", None),
+                    "keypoint_dim": getattr(self.model, "keypoint_dim", None),
+                }
+            )
         return meta
 
     def _build_onnx_metadata(
@@ -730,7 +739,7 @@ class BaseExporter(ABC):
             meta_h = meta_w = str(native)
         # TODO(schema-v1.1): keep legacy model_size/nb_classes aliases for one
         # transition window, then prefer the canonical size/nc keys only.
-        return {
+        meta = {
             "schema_version": SCHEMA_VERSION,
             "libreyolo_version": _get_version(),
             "model_family": self.model._get_model_name(),
@@ -751,6 +760,14 @@ class BaseExporter(ABC):
             "segmentation": str(getattr(self.model, "_is_segmentation", False)).lower(),
             "obb": str(task == "obb").lower(),
         }
+        if task == "pose":
+            meta.update(
+                {
+                    "num_keypoints": str(getattr(self.model, "num_keypoints", "")),
+                    "keypoint_dim": str(getattr(self.model, "keypoint_dim", "")),
+                }
+            )
+        return meta
 
     def _task_metadata(self) -> tuple[str, list[str], str]:
         task = getattr(self.model, "task", "detect")

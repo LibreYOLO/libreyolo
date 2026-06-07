@@ -20,18 +20,19 @@ from typing import Dict, List, Optional, TYPE_CHECKING
 import numpy as np
 from tqdm import tqdm
 
-from libreyolo.data import get_img_files, img2label_paths, load_data_config
+from libreyolo.data import (
+    COCO17_OKS_SIGMAS,
+    default_oks_sigmas,
+    get_img_files,
+    img2label_paths,
+    load_data_config,
+)
 from libreyolo.data.pose_dataset import parse_yolo_pose_label_line
 
 from .base import BaseValidator
 from .config import ValidationConfig
 
 logger = logging.getLogger(__name__)
-
-_COCO17_OKS_SIGMAS = [
-    0.026, 0.025, 0.025, 0.035, 0.035, 0.079, 0.079, 0.072, 0.072,
-    0.062, 0.062, 0.107, 0.107, 0.087, 0.087, 0.089, 0.089,
-]
 
 if TYPE_CHECKING:
     from libreyolo.models.base import BaseModel
@@ -556,7 +557,7 @@ class PoseValidator(BaseValidator):
         if self.config.oks_sigmas:
             return list(self.config.oks_sigmas)
         if self._num_keypoints == 17:
-            return _COCO17_OKS_SIGMAS
+            return list(COCO17_OKS_SIGMAS)
         if self._num_keypoints:
-            return [1.0 / self._num_keypoints] * self._num_keypoints
+            return default_oks_sigmas(self._num_keypoints)
         return None

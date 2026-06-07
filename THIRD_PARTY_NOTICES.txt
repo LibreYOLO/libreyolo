@@ -52,6 +52,25 @@ Used for: YOLO9 model family (libreyolo/models/yolo9/), including the
           loss port in libreyolo/models/yolo9/loss.py.
 
 --------------------------------------------------------------------
+SuperGradients / YOLO-NAS
+--------------------------------------------------------------------
+Source: https://github.com/Deci-AI/super-gradients
+License: Apache License 2.0
+Copyright (c) 2021-2024 Deci AI
+Used for: YOLO-NAS model family and pose training references
+          (libreyolo/models/yolonas/). YOLO-NAS source code is
+          Apache-2.0; published pretrained YOLO-NAS weights may have
+          separate non-commercial terms and are not bundled here.
+
+--------------------------------------------------------------------
+EdgeCrafter
+--------------------------------------------------------------------
+Source: https://github.com/EC-codehub/EdgeCrafter
+License: Apache License 2.0
+Used for: EC model family detection, segmentation, and pose architecture
+          references (libreyolo/models/ec/).
+
+--------------------------------------------------------------------
 RT-DETR (lyuwenyu)
 --------------------------------------------------------------------
 Source: https://github.com/lyuwenyu/RT-DETR

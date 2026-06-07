@@ -393,12 +393,15 @@ class TensorRTBackend(BaseBackend):
                     batch_outputs[name][idx : idx + 1] for name in self.output_names
                 ]
 
-                boxes, max_scores, class_ids, masks = self._parse_outputs(
+                parsed = self._parse_outputs(
                     per_image,
                     effective_imgsz,
                     orig_size,
                     conf,
                     ratio=ratio if ratio is not None else 1.0,
+                )
+                boxes, max_scores, class_ids, masks, obb, keypoints = (
+                    self._unpack_parsed_outputs(parsed)
                 )
 
                 orig_w, orig_h = orig_size
@@ -408,6 +411,8 @@ class TensorRTBackend(BaseBackend):
                     max_scores,
                     class_ids,
                     masks=masks,
+                    obb=obb,
+                    keypoints=keypoints,
                     orig_shape=orig_shape,
                     image_path=path,
                     iou=iou,

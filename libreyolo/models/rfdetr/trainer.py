@@ -2,28 +2,50 @@
 
 from __future__ import annotations
 
+import logging
 import random
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Dict, List, Optional, Type
 
+import cv2
+import numpy as np
 import torch
 import torch.nn.functional as F
+from torch.utils.data import DataLoader
 
-from ...data import load_data_config
+from ...data import (
+    YOLOPoseDataset,
+    default_oks_sigmas,
+    get_img_files,
+    img2label_paths,
+    load_data_config,
+    pose_collate_fn,
+)
 from ...training.config import TrainConfig
-from ...training.distributed import unwrap_model
+from ...training.distributed import is_main_process, unwrap_model
 from ...training.freezing import FreezeGroup
 from ...training.scheduler import BaseScheduler, CosineAnnealingScheduler, FlatCosineScheduler
 from ...training.trainer import BaseTrainer
 from .config import RFDETRConfig
 from ..dfine.transforms import DFINEPassThroughDataset
+from .pose_transforms import RFDETRPoseTransform
 from .seg_transforms import (
     RFDETRDetTransform,
     RFDETRSegPassThroughDataset,
     RFDETRSegTransform,
     compute_multi_scale_scales,
 )
+
+logger = logging.getLogger(__name__)
+
+
+def _pose_worker_init_fn(worker_id: int) -> None:
+    cv2.setNumThreads(0)
+    torch.set_num_threads(1)
+    seed = (torch.initial_seed() + worker_id) % 2**32
+    random.seed(seed)
+    np.random.seed(seed)
 
 
 class RFDETRStepScheduler(BaseScheduler):
@@ -62,9 +84,12 @@ class RFDETRTrainer(BaseTrainer):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._class_names = None
+        task = getattr(getattr(self, "wrapper_model", None), "task", "detect")
+        if task == "pose":
+            self.best_metric_key = "metrics/keypoints_mAP50-95"
         # Classification resolves its class count from the ImageFolder dataset
         # in _setup_classify_data, not from a detection YAML.
-        if getattr(getattr(self, "wrapper_model", None), "task", "detect") == "classify":
+        if task == "classify":
             return
         if self.config.data:
             data_cfg = load_data_config(
@@ -82,6 +107,12 @@ class RFDETRTrainer(BaseTrainer):
                 self._class_names = {int(k): str(v) for k, v in names.items()}
             elif isinstance(names, (list, tuple)):
                 self._class_names = {i: str(v) for i, v in enumerate(names)}
+            if task == "pose":
+                self.config.num_classes = 1
+                kpt_shape = data_cfg.get("kpt_shape")
+                if kpt_shape is not None:
+                    self.config.num_keypoints = int(kpt_shape[0])
+                    self.config.keypoint_dim = int(kpt_shape[1]) if len(kpt_shape) > 1 else 3
 
     @property
     def effective_lr(self) -> float:
@@ -181,10 +212,14 @@ class RFDETRTrainer(BaseTrainer):
             groups.append(("backbone", backbone))
 
     def _ddp_find_unused_parameters(self) -> bool:
-        # Detect/OBB: at least one transformer parameter receives no gradient
+        # Detect/pose/OBB: at least one transformer parameter receives no gradient
         # on some forward passes, so DDP must skip reduction for it.
         # Segmentation uses static_graph=True instead (see _ddp_static_graph).
-        return getattr(getattr(self, "wrapper_model", None), "task", "detect") in {"detect", "obb"}
+        return getattr(getattr(self, "wrapper_model", None), "task", "detect") in {
+            "detect",
+            "pose",
+            "obb",
+        }
 
     def _ddp_static_graph(self) -> bool:
         # Segmentation only: the seg head is invoked from both encoder and
@@ -194,6 +229,7 @@ class RFDETRTrainer(BaseTrainer):
         # static_graph=True locks the reducer after iteration 1 and handles
         # double accumulation correctly. Detect/OBB keep the default (False)
         # because find_unused_parameters=True requires dynamic graph traversal.
+        # Pose follows detection and keeps static_graph=False.
         return getattr(getattr(self, "wrapper_model", None), "task", "detect") == "segment"
 
     def create_transforms(self):
@@ -225,6 +261,20 @@ class RFDETRTrainer(BaseTrainer):
                 crop_resize_prob=self.config.crop_resize_prob,
             )
             return preproc, RFDETRSegPassThroughDataset
+        if task == "pose":
+            preproc = RFDETRPoseTransform(
+                num_keypoints=self.config.num_keypoints,
+                max_labels=100,
+                flip_prob=self.config.flip_prob,
+                imgsz=self.config.imgsz,
+                multi_scale=self.config.multi_scale,
+                expanded_scales=self.config.expanded_scales,
+                do_random_resize_via_padding=self.config.do_random_resize_via_padding,
+                patch_size=patch_size,
+                num_windows=num_windows,
+                crop_resize_prob=self.config.crop_resize_prob,
+            )
+            return preproc, None
         preproc = RFDETRDetTransform(
             max_labels=300,
             flip_prob=self.config.flip_prob,
@@ -315,6 +365,11 @@ class RFDETRTrainer(BaseTrainer):
         targets[..., 2] *= scale_y
         targets[..., 3] *= scale_x
         targets[..., 4] *= scale_y
+        task = getattr(getattr(self, "wrapper_model", None), "task", "detect")
+        if task == "pose" and targets.shape[-1] > 5:
+            keypoints = targets[..., 5:].view(*targets.shape[:-1], -1, 3)
+            keypoints[..., 0] *= scale_x
+            keypoints[..., 1] *= scale_y
 
         if isinstance(polygons, torch.Tensor):
             polygons = F.interpolate(
@@ -325,16 +380,190 @@ class RFDETRTrainer(BaseTrainer):
 
         return imgs, targets, polygons
 
+    def _resolve_oks_sigmas(self) -> list[float]:
+        sigmas = self.config.oks_sigmas
+        if sigmas is not None:
+            if len(sigmas) != self.config.num_keypoints:
+                raise ValueError(
+                    f"oks_sigmas has {len(sigmas)} entries but the dataset has "
+                    f"{self.config.num_keypoints} keypoints"
+                )
+            return [float(s) for s in sigmas]
+        return default_oks_sigmas(self.config.num_keypoints)
+
+    def _build_pose_dataset(self, img_files, label_files, preproc) -> YOLOPoseDataset:
+        return YOLOPoseDataset(
+            img_files=img_files,
+            num_keypoints=self.config.num_keypoints,
+            label_files=label_files,
+            img_size=self.input_size,
+            preproc=preproc,
+            keypoint_dim=self.config.keypoint_dim,
+            decode_scale=self.config.decode_scale,
+        )
+
+    def _setup_data(self):
+        if getattr(self.wrapper_model, "task", "detect") != "pose":
+            return super()._setup_data()
+        if not self.config.data:
+            raise ValueError("RF-DETR pose training requires 'data' (a dataset yaml path)")
+
+        cfg = load_data_config(
+            self.config.data,
+            allow_scripts=self.config.allow_download_scripts,
+        )
+        kpt_shape = cfg.get("kpt_shape")
+        if kpt_shape is not None:
+            self.config.num_keypoints = int(kpt_shape[0])
+            self.config.keypoint_dim = int(kpt_shape[1]) if len(kpt_shape) > 1 else 3
+        self.config.num_classes = 1
+        self.num_classes = 1
+        flip_idx = cfg.get("flip_idx")
+
+        train_imgs = cfg.get("train_img_files")
+        train_lbls = cfg.get("train_label_files")
+        if not train_imgs:
+            if not cfg.get("train"):
+                raise FileNotFoundError("Dataset yaml has no 'train' split")
+            train_imgs = get_img_files(cfg["train"])
+            train_lbls = img2label_paths(train_imgs)
+        if not train_imgs:
+            raise FileNotFoundError("No training images found for RF-DETR pose training")
+
+        patch_size = int(getattr(self.model, "patch_size", 16))
+        num_windows = int(getattr(self.model, "num_windows", 4))
+        block_size = patch_size * num_windows
+        if self.config.imgsz % block_size != 0:
+            lo = (self.config.imgsz // block_size) * block_size
+            hi = lo + block_size
+            raise ValueError(
+                f"imgsz={self.config.imgsz} is not divisible by {block_size} "
+                f"(patch_size={patch_size} x num_windows={num_windows}). "
+                f"Use {lo} or {hi}."
+            )
+        train_tf = RFDETRPoseTransform(
+            self.config.num_keypoints,
+            flip_idx=flip_idx,
+            max_labels=100,
+            flip_prob=self.config.flip_prob,
+            imgsz=self.config.imgsz,
+            multi_scale=self.config.multi_scale,
+            expanded_scales=self.config.expanded_scales,
+            do_random_resize_via_padding=self.config.do_random_resize_via_padding,
+            patch_size=patch_size,
+            num_windows=num_windows,
+            crop_resize_prob=self.config.crop_resize_prob,
+        )
+        train_ds = self._build_pose_dataset(train_imgs, train_lbls, train_tf)
+
+        per_rank_batch = max(1, self.config.batch // max(self.world_size, 1))
+        sampler = None
+        if self.is_distributed:
+            from torch.utils.data.distributed import DistributedSampler
+
+            sampler = DistributedSampler(
+                train_ds,
+                num_replicas=self.world_size,
+                rank=self.rank,
+                shuffle=True,
+                drop_last=len(train_ds) >= self.world_size,
+            )
+
+        loader_kwargs = {}
+        if self.config.workers > 0:
+            loader_kwargs.update(
+                worker_init_fn=_pose_worker_init_fn,
+                persistent_workers=self.config.persistent_workers,
+                prefetch_factor=self.config.prefetch_factor,
+            )
+
+        self.train_loader = DataLoader(
+            train_ds,
+            batch_size=per_rank_batch,
+            shuffle=sampler is None,
+            sampler=sampler,
+            num_workers=self.config.workers,
+            pin_memory=self.config.pin_memory,
+            drop_last=len(train_ds) >= per_rank_batch,
+            collate_fn=pose_collate_fn,
+            **loader_kwargs,
+        )
+
+        val_imgs = cfg.get("val_img_files")
+        val_lbls = cfg.get("val_label_files")
+        if not val_imgs and cfg.get("val"):
+            try:
+                val_imgs = get_img_files(cfg["val"])
+                val_lbls = img2label_paths(val_imgs)
+            except (FileNotFoundError, ValueError):
+                val_imgs = None
+        if val_imgs:
+            val_tf = RFDETRPoseTransform(
+                self.config.num_keypoints,
+                max_labels=100,
+                flip_prob=0.0,
+                imgsz=self.config.imgsz,
+                multi_scale=False,
+                patch_size=patch_size,
+                num_windows=num_windows,
+                crop_resize_prob=0.0,
+            )
+            val_ds = self._build_pose_dataset(val_imgs, val_lbls, val_tf)
+            self.val_loader = DataLoader(
+                val_ds,
+                batch_size=per_rank_batch,
+                shuffle=False,
+                num_workers=self.config.workers,
+                pin_memory=self.config.pin_memory,
+                drop_last=False,
+                collate_fn=pose_collate_fn,
+                **loader_kwargs,
+            )
+            if is_main_process():
+                logger.info("Validation dataset: %d images", len(val_ds))
+        else:
+            self.val_loader = None
+            logger.warning("No validation split found for RF-DETR pose training")
+
+        if is_main_process():
+            logger.info("Training dataset: %d images", len(train_ds))
+            logger.info(
+                "Iterations per epoch: %d (batch_per_rank=%d, world_size=%d)",
+                len(self.train_loader),
+                per_rank_batch,
+                self.world_size,
+            )
+        return train_ds
+
     def on_setup(self):
+        task = getattr(getattr(self, "wrapper_model", None), "task", "detect")
         # Classification computes cross-entropy inside the model head and sizes
         # its head from the dataset in _setup_classify_data — no detection
         # criterion or head reinitialization is needed.
-        if getattr(getattr(self, "wrapper_model", None), "task", "detect") == "classify":
+        if task == "classify":
             return
         if self.model.nb_classes != self.config.num_classes:
-            self.model.model.reinitialize_detection_head(self.config.num_classes + 1)
+            head_outputs = (
+                self.config.num_classes
+                if task == "pose"
+                else self.config.num_classes + 1
+            )
+            self.model.model.reinitialize_detection_head(head_outputs)
             self.model.nb_classes = self.config.num_classes
-            self.model.args.num_classes = self.config.num_classes
+            self.model.args.num_classes = (
+                max(0, self.config.num_classes - 1)
+                if task == "pose"
+                else self.config.num_classes
+            )
+        if task == "pose":
+            if getattr(self.model, "num_keypoints", None) != self.config.num_keypoints:
+                self.model.model.reinitialize_keypoint_head(self.config.num_keypoints)
+                self.model.num_keypoints = self.config.num_keypoints
+            self.model.args.num_keypoints = self.config.num_keypoints
+            self.model.args.oks_sigmas = self._resolve_oks_sigmas()
+            self.model.args.keypoint_l1_loss_coef = self.config.keypoint_l1_loss_coef
+            self.model.args.keypoint_oks_loss_coef = self.config.keypoint_oks_loss_coef
+            self.model.args.keypoint_vis_loss_coef = self.config.keypoint_vis_loss_coef
 
         if getattr(self.config, "lora", False):
             from ...training.lora import apply_lora_to_rfdetr
@@ -352,10 +581,15 @@ class RFDETRTrainer(BaseTrainer):
                     self._class_names,
                     self.config.num_classes,
                 )
+            elif task == "pose" and self.config.num_classes == 1:
+                self.wrapper_model.names = {0: "person"}
             else:
                 self.wrapper_model.names = {
                     i: f"class_{i}" for i in range(self.config.num_classes)
                 }
+            if task == "pose":
+                self.wrapper_model.num_keypoints = self.config.num_keypoints
+                self.wrapper_model.keypoint_dim = self.config.keypoint_dim
 
     def _setup_optimizer(self) -> torch.optim.Optimizer:
         if getattr(getattr(self, "wrapper_model", None), "task", "detect") == "classify":
@@ -477,33 +711,19 @@ class RFDETRTrainer(BaseTrainer):
     def _scale_lr(self, base_lr: float, param_group: dict) -> float:
         return base_lr * float(param_group.get("lr_mult", 1.0))
 
-    def on_forward(
+    def _targets_to_rfdetr_list(
         self,
-        imgs: torch.Tensor,
         targets: torch.Tensor,
-        polygons: Optional[List] = None,
-    ) -> Dict:
+        *,
+        height: int,
+        width: int,
+        masks_batch: Optional[torch.Tensor] = None,
+    ) -> list[dict]:
         batch_size = targets.shape[0]
-        height, width = imgs.shape[-2], imgs.shape[-1]
         scale = torch.tensor([width, height, width, height], device=targets.device, dtype=targets.dtype)
         task = getattr(getattr(self, "wrapper_model", None), "task", "detect")
-        is_seg = task == "segment"
+        is_pose = task == "pose"
         is_obb = task == "obb"
-        # ``polygons`` here is the collate-stacked output of RFDETRSegTransform:
-        # a [B, max_labels, mask_h, mask_w] float32 tensor whose slot i aligns
-        # with target slot i. Slice by the same ``valid`` box mask to hand the
-        # criterion per-image ``[N_valid, mask_h, mask_w]`` tensors.
-        masks_batch = (
-            polygons.to(self.device, non_blocking=True)
-            if is_seg and isinstance(polygons, torch.Tensor)
-            else None
-        )
-
-        if getattr(getattr(self, "wrapper_model", None), "task", "detect") == "classify":
-            # ``targets`` are class indices [B]; the model head returns the
-            # loss dict directly.
-            return self.model(imgs, targets=targets)
-
         target_list = []
         for batch_idx in range(batch_size):
             t = targets[batch_idx]
@@ -519,6 +739,14 @@ class RFDETRTrainer(BaseTrainer):
                 if masks_batch is not None:
                     mh, mw = masks_batch.shape[-2], masks_batch.shape[-1]
                     entry["masks"] = torch.zeros(0, mh, mw, dtype=torch.bool, device=self.device)
+                if is_pose:
+                    entry["keypoints"] = torch.zeros(
+                        0,
+                        self.config.num_keypoints,
+                        3,
+                        dtype=torch.float32,
+                        device=self.device,
+                    )
             else:
                 entry = {
                     "labels": t_valid[:, 0].long(),
@@ -529,7 +757,60 @@ class RFDETRTrainer(BaseTrainer):
                 if masks_batch is not None:
                     m = masks_batch[batch_idx][valid]
                     entry["masks"] = m.to(device=self.device, dtype=torch.bool)
+                if is_pose:
+                    keypoints = t_valid[:, 5:].view(-1, self.config.num_keypoints, 3).clone()
+                    keypoint_scale = torch.tensor(
+                        [width, height, 1.0],
+                        device=targets.device,
+                        dtype=targets.dtype,
+                    )
+                    keypoints = keypoints / keypoint_scale
+                    outside = (
+                        (keypoints[..., 0] < 0.0)
+                        | (keypoints[..., 0] > 1.0)
+                        | (keypoints[..., 1] < 0.0)
+                        | (keypoints[..., 1] > 1.0)
+                    )
+                    keypoints[..., :2] = keypoints[..., :2].clamp(0.0, 1.0)
+                    keypoints[..., 2] = torch.where(
+                        outside,
+                        torch.zeros_like(keypoints[..., 2]),
+                        keypoints[..., 2],
+                    )
+                    entry["keypoints"] = keypoints
             target_list.append(entry)
+        return target_list
+
+    def on_forward(
+        self,
+        imgs: torch.Tensor,
+        targets: torch.Tensor,
+        polygons: Optional[List] = None,
+    ) -> Dict:
+        task = getattr(getattr(self, "wrapper_model", None), "task", "detect")
+        if task == "classify":
+            # ``targets`` are class indices [B]; the model head returns the
+            # loss dict directly.
+            return self.model(imgs, targets=targets)
+
+        height, width = imgs.shape[-2], imgs.shape[-1]
+        is_seg = task == "segment"
+        # ``polygons`` here is the collate-stacked output of RFDETRSegTransform:
+        # a [B, max_labels, mask_h, mask_w] float32 tensor whose slot i aligns
+        # with target slot i. Slice by the same ``valid`` box mask to hand the
+        # criterion per-image ``[N_valid, mask_h, mask_w]`` tensors.
+        masks_batch = (
+            polygons.to(self.device, non_blocking=True)
+            if is_seg and isinstance(polygons, torch.Tensor)
+            else None
+        )
+
+        target_list = self._targets_to_rfdetr_list(
+            targets,
+            height=height,
+            width=width,
+            masks_batch=masks_batch,
+        )
 
         outputs = self.model(imgs, targets=target_list)
         loss_dict = self.criterion(outputs, target_list)
@@ -559,9 +840,142 @@ class RFDETRTrainer(BaseTrainer):
         if getattr(getattr(self, "wrapper_model", None), "task", "detect") == "segment":
             components["mask_ce"] = _sum_with_prefix("loss_mask_ce")
             components["mask_dice"] = _sum_with_prefix("loss_mask_dice")
+        if getattr(getattr(self, "wrapper_model", None), "task", "detect") == "pose":
+            components["keypoints_l1"] = _sum_with_prefix("loss_keypoints_l1")
+            components["keypoints_oks"] = _sum_with_prefix("loss_keypoints_oks")
+            components["keypoints_vis"] = _sum_with_prefix("loss_keypoints_vis")
         if getattr(getattr(self, "wrapper_model", None), "task", "detect") == "obb":
             components["angle"] = _sum_with_prefix("loss_angle")
         return components
+
+    def _checkpoint_extra_metadata(self) -> Dict:
+        if getattr(self.wrapper_model, "task", "detect") != "pose":
+            return {}
+        return {
+            "num_keypoints": self.config.num_keypoints,
+            "keypoint_dim": self.config.keypoint_dim,
+            "oks_sigmas": self._resolve_oks_sigmas(),
+        }
+
+    def _run_validation(
+        self,
+        epoch: int,
+        *,
+        save_plots: bool | None = None,
+    ):
+        if getattr(self.wrapper_model, "task", "detect") != "pose":
+            return super()._run_validation(epoch, save_plots=save_plots)
+        if getattr(self, "val_loader", None) is None:
+            return None
+
+        model = self.ema_model.ema if self.ema_model else unwrap_model(self.model)
+        was_training = model.training
+        model.eval()
+
+        total_loss = 0.0
+        num_batches = 0
+        pose_metrics = None
+        try:
+            if not self.is_distributed:
+                with torch.no_grad():
+                    for batch in self.val_loader:
+                        imgs = batch[0].to(self.device, non_blocking=True)
+                        targets = batch[1].to(self.device, non_blocking=True)
+                        target_list = self._targets_to_rfdetr_list(
+                            targets,
+                            height=imgs.shape[-2],
+                            width=imgs.shape[-1],
+                        )
+                        outputs = model(imgs, targets=target_list)
+                        loss_dict = self.criterion(outputs, target_list)
+                        total = sum(
+                            loss_dict[key] * self.criterion.weight_dict[key]
+                            for key in loss_dict
+                            if key in self.criterion.weight_dict
+                        )
+                        total_loss += float(total.item())
+                        num_batches += 1
+            pose_metrics = self._run_pose_metric_validation(model, epoch, save_plots=save_plots)
+        finally:
+            if was_training:
+                model.train()
+
+        avg_loss = total_loss / max(num_batches, 1)
+        metrics = {"loss/val": avg_loss}
+        if pose_metrics:
+            metrics.update(self._scalar_mapping(pose_metrics))
+            mAP50 = metrics.get("metrics/keypoints_mAP50")
+            mAP50_95 = metrics.get("metrics/keypoints_mAP50-95")
+            logger.info(
+                "Validation - loss/val: %.4f, keypoints_mAP50: %.4f, keypoints_mAP50-95: %.4f",
+                avg_loss,
+                mAP50 if mAP50 is not None else 0.0,
+                mAP50_95 if mAP50_95 is not None else 0.0,
+            )
+            return {
+                "best_metric": mAP50_95 if mAP50_95 is not None else 0.0,
+                "best_metric_key": "metrics/keypoints_mAP50-95",
+                "mAP50": mAP50,
+                "mAP50_95": mAP50_95,
+                "metrics": metrics,
+            }
+
+        logger.info("Validation - loss/val: %.4f", avg_loss)
+        return {
+            "best_metric": -avg_loss,
+            "best_metric_key": "loss/val",
+            "mAP50": None,
+            "mAP50_95": None,
+            "metrics": metrics,
+        }
+
+    def _run_pose_metric_validation(
+        self,
+        eval_model: torch.nn.Module,
+        epoch: int,
+        *,
+        save_plots: bool | None = None,
+    ) -> Dict[str, float] | None:
+        if self.wrapper_model is None:
+            logger.warning("Skipping pose mAP validation: wrapper_model is missing")
+            return None
+
+        try:
+            from libreyolo.validation import PoseValidator, ValidationConfig
+
+            is_final_epoch = self._is_final_epoch(epoch)
+            val_save_plots = (
+                bool(save_plots)
+                if save_plots is not None
+                else bool(getattr(self.config, "save_plots", False)) and is_final_epoch
+            )
+            val_config = ValidationConfig(
+                data=self.config.data,
+                split="val",
+                batch_size=self.config.batch,
+                imgsz=self.config.imgsz,
+                conf_thres=0.001,
+                iou_thres=0.65,
+                device=str(self.device),
+                half=self.config.amp and self.device.type == "cuda",
+                verbose=False,
+                num_workers=self.config.workers,
+                allow_download_scripts=self.config.allow_download_scripts,
+                oks_sigmas=self._resolve_oks_sigmas(),
+                save_plots=val_save_plots,
+                save_dir=str(self.save_dir / "val") if val_save_plots else None,
+            )
+
+            original_model = self.wrapper_model.model
+            self.wrapper_model.model = eval_model
+            try:
+                validator = PoseValidator(model=self.wrapper_model, config=val_config)
+                return validator.run()
+            finally:
+                self.wrapper_model.model = original_model
+        except Exception as exc:
+            logger.error("Pose mAP validation failed at epoch %d: %s", epoch + 1, exc)
+            return None
 
 
 def train_rfdetr(
@@ -574,6 +988,7 @@ def train_rfdetr(
     resume: str | None = None,
     pretrain_weights: str | None = None,
     segmentation: bool = False,
+    pose: bool = False,
     **kwargs,
 ) -> Dict:
     """Compatibility helper around :class:`LibreRFDETR.train`."""
@@ -584,6 +999,7 @@ def train_rfdetr(
         size=size,
         device=kwargs.pop("device", "auto"),
         segmentation=segmentation,
+        task="pose" if pose else None,
     )
     return model.train(
         data=data,

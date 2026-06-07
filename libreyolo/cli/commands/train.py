@@ -77,6 +77,14 @@ def _create_explicit_task_train_model(
             device=device,
             allow_detect_to_obb_transfer=True,
         )
+    if family == "rfdetr" and train_task == "pose" and _model_ref_exists(model_path):
+        return model_cls(
+            model_path,
+            size=size,
+            task=train_task,
+            device=device,
+            allow_detect_to_pose_transfer=True,
+        )
     extra = (
         {"allow_detect_to_obb_transfer": True}
         if family == "rfdetr" and train_task == "obb"
@@ -122,6 +130,30 @@ def _create_rfdetr_obb_from_loaded_detect_model(
         task="obb",
         device=device,
         allow_detect_to_obb_transfer=True,
+    )
+
+
+def _create_rfdetr_pose_from_loaded_detect_model(
+    loaded_model,
+    *,
+    model_path: str,
+    device: str,
+):
+    """Switch an already-loaded RF-DETR detect checkpoint to pose architecture."""
+    if (
+        get_loaded_model_family(loaded_model) != "rfdetr"
+        or getattr(loaded_model, "task", "detect") != "detect"
+    ):
+        return None
+
+    from libreyolo.models.rfdetr.model import LibreRFDETR
+
+    return LibreRFDETR(
+        model_path,
+        size=getattr(loaded_model, "size", None),
+        task="pose",
+        device=device,
+        allow_detect_to_pose_transfer=True,
     )
 
 
@@ -328,6 +360,12 @@ def train_cmd(
                         model_path=model_path,
                         device=device,
                     )
+            if replacement is None and normalized_task == "pose":
+                replacement = _create_rfdetr_pose_from_loaded_detect_model(
+                    loaded_model,
+                    model_path=model_path,
+                    device=device,
+                )
             if replacement is None:
                 exit_with_error(
                     out,
