@@ -284,6 +284,9 @@ class LibreYOLO9(BaseModel):
         state_dict: dict,
         checkpoint: dict | None = None,
     ) -> None:
+        if self._is_pose:
+            self._restore_pose_checkpoint_metadata(checkpoint)
+
         if not self._is_classification:
             return
         if "head.linear.weight" in state_dict:
@@ -307,6 +310,31 @@ class LibreYOLO9(BaseModel):
             "YOLO9 classification checkpoints must include head.linear.* weights."
         )
 
+    def _restore_pose_checkpoint_metadata(self, checkpoint: dict | None) -> None:
+        """Restore pose label metadata that is not fully encoded in head tensors."""
+        if not isinstance(checkpoint, dict):
+            return
+
+        checkpoint_num_keypoints = checkpoint.get("num_keypoints")
+        if checkpoint_num_keypoints is not None:
+            checkpoint_num_keypoints = int(checkpoint_num_keypoints)
+            if checkpoint_num_keypoints <= 0:
+                raise ValueError(
+                    "YOLO9 pose checkpoints must use a positive num_keypoints value."
+                )
+            if checkpoint_num_keypoints != self.num_keypoints:
+                self._rebuild_for_new_keypoints(checkpoint_num_keypoints)
+
+        checkpoint_keypoint_dim = checkpoint.get("keypoint_dim")
+        if checkpoint_keypoint_dim is not None:
+            checkpoint_keypoint_dim = int(checkpoint_keypoint_dim)
+            if checkpoint_keypoint_dim not in (2, 3):
+                raise ValueError(
+                    "YOLO9 pose checkpoints must use keypoint_dim 2 or 3, "
+                    f"got {checkpoint_keypoint_dim}."
+                )
+            self.keypoint_dim = checkpoint_keypoint_dim
+
     def _prepare_state_dict(self, state_dict: dict) -> dict:
         """Remap legacy 'detect.*' keys to 'head.*' for backward compatibility."""
         remapped = {}
@@ -317,9 +345,37 @@ class LibreYOLO9(BaseModel):
             remapped[new_key] = value
         if self._is_pose:
             ckpt_k = self.detect_num_keypoints(remapped)
-            if ckpt_k is not None and ckpt_k != self.num_keypoints:
-                self._rebuild_for_new_keypoints(ckpt_k)
+            if ckpt_k is not None:
+                self._rebuild_for_checkpoint_keypoints(ckpt_k, remapped)
         return remapped
+
+    def _rebuild_for_checkpoint_keypoints(
+        self,
+        new_num_keypoints: int,
+        state_dict: dict,
+    ) -> None:
+        """Match pose-head geometry before loading checkpoint tensors."""
+        new_num_keypoints = int(new_num_keypoints)
+        hidden_key = "head.cv4.0.0.conv.weight"
+        checkpoint_hidden = (
+            int(state_dict[hidden_key].shape[0]) if hidden_key in state_dict else None
+        )
+        current_state = self.model.state_dict()
+        current_hidden = (
+            int(current_state[hidden_key].shape[0])
+            if hidden_key in current_state
+            else None
+        )
+
+        if checkpoint_hidden is not None and current_hidden != checkpoint_hidden:
+            self.num_keypoints = new_num_keypoints
+            self.keypoint_dim = 3
+            self.model = self._init_model()
+            self.model.to(self.device)
+            return
+
+        if new_num_keypoints != self.num_keypoints:
+            self._rebuild_for_new_keypoints(new_num_keypoints)
 
     def _rebuild_for_new_classes(self, new_nc: int):
         """Replace only the final classification layers for different number of classes."""

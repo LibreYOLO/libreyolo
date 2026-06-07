@@ -120,6 +120,46 @@ def test_yolo9_pose_train_preserves_xy_only_label_dim(monkeypatch, tmp_path):
     assert captured["kwargs"]["keypoint_dim"] == 2
 
 
+def test_yolo9_pose_load_restores_xy_only_keypoint_dim(tmp_path):
+    from libreyolo import LibreYOLO9
+    from libreyolo.models.yolo9.nn import LibreYOLO9Model
+    from libreyolo.utils.serialization import wrap_libreyolo_checkpoint
+
+    pose_model = LibreYOLO9Model(
+        config="t",
+        nb_classes=1,
+        pose=True,
+        num_keypoints=2,
+        keypoint_dim=3,
+    ).eval()
+    ckpt_path = tmp_path / "LibreYOLO9t-pose.pt"
+    torch.save(
+        wrap_libreyolo_checkpoint(
+            {
+                key: value.detach().clone()
+                for key, value in pose_model.state_dict().items()
+            },
+            model_family="yolo9",
+            size="t",
+            task="pose",
+            nc=1,
+            names={0: "person"},
+            imgsz=640,
+            num_keypoints=2,
+            keypoint_dim=2,
+        ),
+        ckpt_path,
+    )
+
+    loaded = LibreYOLO9(str(ckpt_path), size="t", task="pose", device="cpu")
+
+    assert loaded.num_keypoints == 2
+    assert loaded.keypoint_dim == 2
+    assert loaded.model.num_keypoints == 2
+    assert loaded.model.head.num_keypoints == 2
+    assert loaded.model.head.keypoint_dim == 3
+
+
 def test_yolo9_pose_validation_uses_base_distributed_wrapper():
     from libreyolo.models.yolo9.pose_trainer import YOLO9PoseTrainer
     from libreyolo.training.trainer import BaseTrainer
