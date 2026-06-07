@@ -75,8 +75,12 @@ class OnnxBackend(BaseBackend):
             supported_tasks,
             default_task,
             names,
+            embedded_nms,
             metadata_imgsz,
         ) = self._read_onnx_metadata(onnx_path, nb_classes)
+        # Models exported with nms=True emit final (1, max_det, 6) detections;
+        # flag it so the base parser routes them through _parse_embedded_nms.
+        self.embedded_nms = embedded_nms
         input_shape = self.session.get_inputs()[0].shape
         static_imgsz = self._read_static_input_imgsz(input_shape)
         if static_imgsz is not None:
@@ -120,7 +124,7 @@ class OnnxBackend(BaseBackend):
 
         Returns:
             Tuple of (model_family, model_size, task, supported_tasks,
-            default_task, names, imgsz).
+            default_task, names, embedded_nms, imgsz).
         """
         model_family = None
         model_size = None
@@ -129,6 +133,7 @@ class OnnxBackend(BaseBackend):
         supported_tasks = ("detect",)
         names = None
         imgsz = None
+        embedded_nms = False
         try:
             import onnx
 
@@ -172,12 +177,23 @@ class OnnxBackend(BaseBackend):
                     names = {i: n for i, n in enumerate(COCO_CLASSES)}
                 else:
                     names = {i: f"class_{i}" for i in range(nc)}
+
+            embedded_nms = str(meta.get("nms", "")).lower() == "true"
         except (NotImplementedError, MetadataImageSizeError):
             raise
         except Exception as e:
             logger.warning("Failed to read ONNX metadata from %s: %s", onnx_path, e)
 
-        return model_family, model_size, task, supported_tasks, default_task, names, imgsz
+        return (
+            model_family,
+            model_size,
+            task,
+            supported_tasks,
+            default_task,
+            names,
+            embedded_nms,
+            imgsz,
+        )
 
     def _run_inference(self, blob: np.ndarray) -> list:
         """Run ONNX Runtime inference."""

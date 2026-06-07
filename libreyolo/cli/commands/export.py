@@ -69,6 +69,13 @@ def export_cmd(
         out.warning("Both half and int8 were requested. Using INT8 precision.")
         half = False
 
+    if nms and fmt != "onnx":
+        exit_with_error(
+            out,
+            "nms_unsupported_format",
+            f"Embedded NMS (--nms) is only supported for the ONNX format, not {fmt!r}.",
+        )
+
     model_path = resolve_model_or_exit(out, model)
 
     if allow_download_scripts and data is not None:

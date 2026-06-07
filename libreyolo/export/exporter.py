@@ -838,7 +838,7 @@ class OnnxExporter(BaseExporter):
         imgsz = (dummy.shape[-2], dummy.shape[-1])
 
         if nms:
-            from .nms import EmbeddedNMSDetector, class_offset
+            from .nms import EmbeddedNMSDetector
 
             if dummy.shape[0] != 1:
                 raise NotImplementedError(
@@ -854,7 +854,6 @@ class OnnxExporter(BaseExporter):
                 conf=conf,
                 iou=iou,
                 max_det=max_det,
-                offset=class_offset(imgsz),
             ).eval()
 
         def _onnx_metadata(precision_half: bool) -> dict:
