@@ -962,7 +962,7 @@ class ECTransformer(nn.Module):
             )
             out["pre_outputs"] = {"pred_logits": pre_scores, "pred_boxes": pre_bboxes}
             if seg_match is not None:
-                out["pre_outputs"]["pred_masks"] = seg_match[-1]
+                out["pre_outputs"]["pred_masks"] = seg_match[0]
             out["enc_meta"] = {"class_agnostic": self.query_select_method == "agnostic"}
 
             if dn_meta is not None:
@@ -982,7 +982,7 @@ class ECTransformer(nn.Module):
                     "pred_boxes": dn_pre_bboxes,
                 }
                 if seg_dn is not None:
-                    out["dn_pre_outputs"]["pred_masks"] = seg_dn[-1]
+                    out["dn_pre_outputs"]["pred_masks"] = seg_dn[0]
                 out["dn_meta"] = dn_meta
 
         return out

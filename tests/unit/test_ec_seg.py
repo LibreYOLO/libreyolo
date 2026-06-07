@@ -72,6 +72,11 @@ class TestSegFamilyClassWiring:
         with pytest.raises(FileNotFoundError):
             m.train(data="definitely_missing.yaml", allow_experimental=True)
 
+    def test_train_seg_rejects_non_native_imgsz(self):
+        m = LibreEC(model_path=None, size="s", task="segment")
+        with pytest.raises(ValueError, match="imgsz=640"):
+            m.train(data="dummy.yaml", allow_experimental=True, imgsz=320)
+
 
 class TestSegForwardAndPostprocess:
     @pytest.fixture(scope="class")
@@ -197,6 +202,8 @@ class TestSegTrainingStep:
         assert "pred_masks" in out["aux_outputs"][0]
         assert "pred_masks" in out["pre_outputs"]
         assert "pred_masks" in out["dn_pre_outputs"]
+        assert out["pre_outputs"]["pred_masks"] is out["aux_outputs"][0]["pred_masks"]
+        assert out["dn_pre_outputs"]["pred_masks"] is out["dn_outputs"][0]["pred_masks"]
 
     def test_seg_loss_backward_reaches_mask_head(self):
         torch.manual_seed(0)

@@ -337,6 +337,14 @@ class LibreEC(BaseModel):
         else:
             from .trainer import ECTrainer as trainer_cls
 
+        native_imgsz = int(self.input_size)
+        if self.task == "segment" and int(imgsz) != native_imgsz:
+            raise ValueError(
+                "EC segmentation fine-tuning currently requires "
+                f"imgsz={native_imgsz}; the ECSeg eval anchor grid is built at "
+                "model construction for the native input size."
+            )
+
         try:
             data_config = load_data_config(data, autodownload=True)
             data = data_config.get("yaml_file", data)
@@ -583,11 +591,25 @@ class LibreEC(BaseModel):
                         f"Checkpoint was trained with model_family='{ckpt_family}' "
                         f"but is being loaded into '{own_family}'."
                     )
-                if self.task != "pose":
-                    ckpt_nc = loaded.get("nc")
+                ckpt_nc = loaded.get("nc")
+                ckpt_names = loaded.get("names")
+                if self.task == "pose":
+                    effective_nc = int(ckpt_nc) if ckpt_nc is not None else 1
+                    if effective_nc != 1:
+                        raise RuntimeError(
+                            "EC pose checkpoints must declare nc=1 "
+                            f"(got nc={effective_nc})."
+                        )
+                    if ckpt_names is not None:
+                        if len(ckpt_names) != 1:
+                            raise RuntimeError(
+                                "EC pose checkpoints must carry exactly one class name "
+                                f"(got {len(ckpt_names)})."
+                            )
+                        self.names = self._sanitize_names(ckpt_names, 1)
+                else:
                     if ckpt_nc is not None and ckpt_nc != self.nb_classes:
                         self._rebuild_for_new_classes(int(ckpt_nc))
-                    ckpt_names = loaded.get("names")
                     effective_nc = int(ckpt_nc) if ckpt_nc is not None else self.nb_classes
                     if ckpt_names is not None:
                         self.names = self._sanitize_names(ckpt_names, effective_nc)

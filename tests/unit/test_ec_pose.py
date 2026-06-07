@@ -66,6 +66,26 @@ class TestPoseFamilyClassWiring:
         assert m.names == {0: "person"}
         assert isinstance(m.model, LibreECPoseModel)
 
+    def test_pose_checkpoint_reload_preserves_custom_class_name(self, tmp_path):
+        src = LibreEC(model_path=None, size="s", task="pose", device="cpu")
+        checkpoint = tmp_path / "custom_pose.pt"
+        torch.save(
+            {
+                "model": src.model.state_dict(),
+                "task": "pose",
+                "model_family": "ec",
+                "nc": 1,
+                "names": {0: "athlete"},
+            },
+            checkpoint,
+        )
+
+        loaded = LibreEC(
+            model_path=str(checkpoint), size="s", task="pose", device="cpu"
+        )
+
+        assert loaded.names == {0: "athlete"}
+
     def test_detect_init_unchanged(self):
         m = LibreEC(model_path=None, size="s")
         assert m.task == "detect"
