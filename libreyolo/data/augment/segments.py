@@ -19,6 +19,39 @@ def set_dense_mask(ring, mask):
         ring.dense_mask = np.ascontiguousarray(mask.astype(np.uint8))
 
 
+def _transform_dense_mask(
+    mask,
+    scale: float,
+    padw: float,
+    padh: float,
+    width: int,
+    height: int,
+):
+    target_w = max(1, int(round(width)))
+    target_h = max(1, int(round(height)))
+    scaled_w = max(1, int(round(mask.shape[1] * scale)))
+    scaled_h = max(1, int(round(mask.shape[0] * scale)))
+    scaled = cv2.resize(mask, (scaled_w, scaled_h), interpolation=cv2.INTER_NEAREST)
+
+    x0 = int(round(padw))
+    y0 = int(round(padh))
+    x1 = max(0, x0)
+    y1 = max(0, y0)
+    x2 = min(target_w, x0 + scaled_w)
+    y2 = min(target_h, y0 + scaled_h)
+
+    out = np.zeros((target_h, target_w), dtype=np.uint8)
+    if x2 <= x1 or y2 <= y1:
+        return out
+
+    src_x1 = x1 - x0
+    src_y1 = y1 - y0
+    src_x2 = src_x1 + (x2 - x1)
+    src_y2 = src_y1 + (y2 - y1)
+    out[y1:y2, x1:x2] = scaled[src_y1:src_y2, src_x1:src_x2]
+    return out
+
+
 def instance_dense_mask(instance):
     for ring in instance:
         mask = dense_mask(ring)
@@ -79,13 +112,24 @@ def transform_segments(
     for instance in segments:
         rings = []
         for ring in instance:
-            r = ring.astype(np.float32, copy=True)
+            mask = dense_mask(ring)
+            has_dense_canvas = (
+                mask is not None and width is not None and height is not None
+            )
+            r = np.asarray(ring, dtype=np.float32).copy()
+            if has_dense_canvas:
+                r = r.view(type(ring))
             r[:, 0] = r[:, 0] * scale + padw
             r[:, 1] = r[:, 1] * scale + padh
             if width is not None:
                 r[:, 0] = np.clip(r[:, 0], 0, width)
             if height is not None:
                 r[:, 1] = np.clip(r[:, 1], 0, height)
+            if has_dense_canvas:
+                set_dense_mask(
+                    r,
+                    _transform_dense_mask(mask, scale, padw, padh, width, height),
+                )
             rings.append(r)
         transformed.append(rings)
     return transformed

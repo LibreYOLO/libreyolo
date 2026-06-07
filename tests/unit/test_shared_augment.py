@@ -1,8 +1,12 @@
 import numpy as np
+import pytest
 
 from libreyolo.data import augment as shared
+from libreyolo.data.dataset import DenseMaskRing
 from libreyolo.models.yolo9 import transforms as yolo9_transforms
 from libreyolo.training import augment as legacy
+
+pytestmark = pytest.mark.unit
 
 
 def test_legacy_training_augment_reexports_shared_primitives():
@@ -85,3 +89,38 @@ def test_shared_segment_geometry_helpers():
     assert masks.shape == (2, 5, 5)
     assert masks[0].sum() > 0
     assert masks[1].sum() == 0
+
+
+def test_transform_segments_moves_dense_mask_to_scaled_padded_canvas():
+    dense = np.zeros((4, 6), dtype=np.uint8)
+    dense[1:3, 2:5] = 1
+    ring = np.array(
+        [[2.0, 1.0], [5.0, 1.0], [5.0, 3.0], [2.0, 3.0]],
+        dtype=np.float32,
+    )
+
+    transformed = shared.transform_segments(
+        [[DenseMaskRing(ring, dense)]],
+        scale=2.0,
+        padw=1.0,
+        padh=3.0,
+        width=14,
+        height=12,
+    )
+
+    moved = transformed[0][0]
+    np.testing.assert_array_equal(
+        moved,
+        np.array(
+            [[5.0, 5.0], [11.0, 5.0], [11.0, 9.0], [5.0, 9.0]],
+            dtype=np.float32,
+        ),
+    )
+    moved_dense = getattr(moved, "dense_mask", None)
+    assert moved_dense is not None
+    assert moved_dense.shape == (12, 14)
+    assert moved_dense[5:9, 5:11].sum() == 24
+    assert moved_dense[:3, :5].sum() == 0
+
+    no_canvas = shared.transform_segments([[DenseMaskRing(ring, dense)]], scale=2.0)
+    assert getattr(no_canvas[0][0], "dense_mask", None) is None
