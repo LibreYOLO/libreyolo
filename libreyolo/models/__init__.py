@@ -379,7 +379,7 @@ def LibreYOLO(
         from .autoconvert import autoconvert_upstream_checkpoint
 
         converted_path = autoconvert_upstream_checkpoint(model_path, loaded=loaded)
-        if converted_path is not None and converted_path != model_path:
+        if converted_path is not None:
             return LibreYOLO(
                 converted_path,
                 size=size,
