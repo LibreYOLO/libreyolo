@@ -49,6 +49,46 @@ def test_yolo9_pose_warm_starts_from_detection_checkpoint(tmp_path):
     assert torch.allclose(loaded_weight, torch.full_like(loaded_weight, 0.125))
 
 
+def test_yolo9_pose_transfer_accepts_detection_checkpoint(tmp_path):
+    from libreyolo import LibreYOLO9
+    from libreyolo.models.yolo9.nn import LibreYOLO9Model
+    from libreyolo.utils.serialization import wrap_libreyolo_checkpoint
+
+    det_model = LibreYOLO9Model(config="t", nb_classes=80).eval()
+    state = {
+        key: value.detach().clone()
+        for key, value in det_model.state_dict().items()
+    }
+    state["backbone.conv0.conv.weight"].fill_(0.25)
+    ckpt_path = tmp_path / "LibreYOLO9t.pt"
+    torch.save(
+        wrap_libreyolo_checkpoint(
+            state,
+            model_family="yolo9",
+            size="t",
+            task="detect",
+            nc=80,
+            names={i: f"class_{i}" for i in range(80)},
+            imgsz=640,
+        ),
+        ckpt_path,
+    )
+
+    model = LibreYOLO9(None, size="t", task="pose", device="cpu")
+    stats = model._load_transfer_weights(ckpt_path)
+
+    assert model.task == "pose"
+    assert model.nb_classes == 1
+    assert model.names == {0: "person"}
+    assert model.model.head.nc == 1
+    assert model.model.head.cv3[0][-1].out_channels == 1
+    assert hasattr(model.model.head, "cv4")
+    assert stats["loaded"] > 0
+    assert stats["skipped"] > 0
+    loaded_weight = model.model.state_dict()["backbone.conv0.conv.weight"]
+    assert torch.allclose(loaded_weight, torch.full_like(loaded_weight, 0.25))
+
+
 def test_yolo9_pose_train_preserves_xy_only_label_dim(monkeypatch, tmp_path):
     from libreyolo.models.yolo9 import model as yolo9_model
     from libreyolo.models.yolo9 import pose_trainer

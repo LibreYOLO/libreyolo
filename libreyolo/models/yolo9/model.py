@@ -376,7 +376,7 @@ class LibreYOLO9(BaseModel):
                 normalized_ckpt_task = normalize_task(ckpt_task)
                 allowed = normalized_ckpt_task == self.task or (
                     self.task in {"segment", "obb"} and normalized_ckpt_task == "detect"
-                )
+                ) or self._allow_checkpoint_task_mismatch(normalized_ckpt_task)
                 if not allowed:
                     raise RuntimeError(
                         f"Transfer checkpoint task='{normalized_ckpt_task}' is "
@@ -393,6 +393,15 @@ class LibreYOLO9(BaseModel):
             state_dict = loaded
 
         state_dict = self._prepare_state_dict(self._strip_ddp_prefix(state_dict))
+        total_tensors = len(state_dict)
+        if self._is_pose:
+            state_dict = self._filter_incoming_state_dict(
+                state_dict,
+                loaded=loaded if isinstance(loaded, dict) else None,
+                checkpoint_task=normalize_task(loaded.get("task"))
+                if isinstance(loaded, dict) and loaded.get("task") is not None
+                else None,
+            )
         self._align_class_towers_for_transfer(state_dict)
 
         current = self.model.state_dict()
@@ -406,7 +415,7 @@ class LibreYOLO9(BaseModel):
         self.model.to(self.device)
         return {
             "loaded": len(matched),
-            "skipped": max(len(state_dict) - len(matched), 0),
+            "skipped": max(total_tensors - len(matched), 0),
         }
 
     def _default_transfer_weights_name(self) -> str:
@@ -507,8 +516,9 @@ class LibreYOLO9(BaseModel):
             patience: Early stopping patience.
             pretrained: Optional training initialization weights. Use True to
                 load the matching LibreYOLO9 detect checkpoint for transfer
-                learning, or pass a checkpoint path/name. Detect -> segment/OBB
-                transfer is allowed here only as explicit initialization.
+                learning, or pass a checkpoint path/name. Detect -> segment,
+                pose, and OBB transfer is allowed here only as explicit
+                initialization.
             callbacks: Optional training callback or iterable of callbacks.
 
         Returns:
