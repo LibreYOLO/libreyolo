@@ -603,6 +603,11 @@ class BaseModel(ABC):
                 "Test-time augmentation does not support oriented boxes yet. "
                 "Use augment=False for OBB models."
             )
+        if getattr(self, "task", "detect") == "point":
+            raise ValueError(
+                "Test-time augmentation does not support point-task models yet. "
+                "Use augment=False for point models."
+            )
 
         from PIL import Image as PILImage
         from ...utils.image_loader import ImageLoader

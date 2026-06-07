@@ -115,6 +115,11 @@ class InferenceRunner:
                 "tiling and augment cannot be used together. "
                 "Disable one of them."
             )
+        if augment and getattr(self.model, "task", None) == "point":
+            raise ValueError(
+                "Test-time augmentation does not support point-task models yet. "
+                "Use augment=False for point models."
+            )
 
         # Handle video input
         if is_video_file(source):

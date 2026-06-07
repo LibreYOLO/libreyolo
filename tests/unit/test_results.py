@@ -429,6 +429,19 @@ class TestClassesFilter:
             torch.tensor([[15.0, 16.0, 1.0, 0.8]]),
         )
 
+    def test_inference_runner_rejects_point_task_augment_before_tta(self):
+        class DummyPointModel:
+            task = "point"
+            TTA_ENABLED = True
+
+            def _predict_augment(self, *args, **kwargs):
+                raise AssertionError("point task should not enter box TTA")
+
+        runner = InferenceRunner(DummyPointModel())
+
+        with pytest.raises(ValueError, match="point-task models"):
+            runner(None, augment=True)
+
     def test_inference_runner_rejects_box_payload_for_point_task(self):
         class DummyPointModel:
             task = "point"
