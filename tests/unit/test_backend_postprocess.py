@@ -267,6 +267,23 @@ def test_embedded_nms_backend_parse_drops_boxes_collapsed_by_clipping():
     np.testing.assert_array_equal(classes, [0])
 
 
+def test_yolo9_backend_parse_drops_boxes_collapsed_by_clipping():
+    backend = _DummyBackend("yolo9")
+    pred = np.zeros((1, 5, 2), dtype=np.float32)
+    pred[0, :4, 0] = [-20.0, -20.0, -1.0, -1.0]
+    pred[0, :4, 1] = [10.0, 20.0, 30.0, 40.0]
+    pred[0, 4, :] = [0.9, 0.8]
+
+    boxes, scores, classes, masks = backend._parse_outputs(
+        [pred], 100, (100, 100), conf=0.25
+    )
+
+    assert masks is None
+    np.testing.assert_allclose(boxes, [[10.0, 20.0, 30.0, 40.0]])
+    np.testing.assert_allclose(scores, [0.8])
+    np.testing.assert_array_equal(classes, [0])
+
+
 def test_embedded_nms_backend_applies_post_clip_nms():
     backend = _DummyBackend("yolo9")
     backend.embedded_nms = True
@@ -704,10 +721,10 @@ def test_yolo9_segment_backend_parses_masks():
         [pred, proto, coeffs], 64, (128, 96), conf=0.25
     )
 
-    assert boxes.shape[0] == 4
-    assert scores.shape[0] == 4
-    assert classes.shape[0] == 4
-    assert masks.shape == (4, 96, 128)
+    assert boxes.shape[0] == 3
+    assert scores.shape[0] == 3
+    assert classes.shape[0] == 3
+    assert masks.shape == (3, 96, 128)
 
 
 def test_backend_call_accepts_device_kwarg(monkeypatch):

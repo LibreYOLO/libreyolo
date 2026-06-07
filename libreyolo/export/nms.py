@@ -1,23 +1,26 @@
 """Graph-embedded Non-Maximum Suppression for portable detection export.
 
-Wraps a detector whose raw export output is ``(B, 4 + nc, N)`` — xyxy boxes in
-input-pixel coordinates followed by per-class probabilities — and appends
-class-aware NMS *inside* the model graph. The wrapped model returns a single
+Wraps a detector whose raw export output is ``(B, 4 + nc, N)`` - xyxy boxes in
+input-pixel coordinates followed by per-class probabilities - and appends
+class-aware NMS *inside* the model graph. The first wrapped-model output is a
 fixed-shape tensor ``(B, max_det, 6)`` whose rows are
 ``[x1, y1, x2, y2, score, class]``, zero-padded past the detection count so the
-output shape stays static.
+output shape stays static. The second output is the raw detector tensor, which
+LibreYOLO backends use to preserve native post-processing parity when the
+original image is not square.
 
 Suppression is expressed with :func:`torchvision.ops.nms`, which lowers to the
-standard ONNX ``NonMaxSuppression`` operator. The exported model is therefore
-self-contained and runs on any runtime that implements that operator (ONNX
-Runtime CPU/GPU, OpenVINO, and others) with no external post-processing.
+standard ONNX ``NonMaxSuppression`` operator. Standalone consumers can use the
+first output without external post-processing, while LibreYOLO can use the raw
+auxiliary output when it needs original-image clipping before final NMS.
 
-Detection semantics mirror the library's own YOLO9 post-processing: candidates
-are selected multi-label (every class scoring above ``conf`` for an anchor, not
-just the best one), then suppressed class-aware. The suppression math runs in
-float32 regardless of the backbone precision, so it composes with fp32 and int8
-exports. Only batch size 1 is supported — the graph indexes the first image and
-emits a single image's detections.
+Detection semantics for the first output mirror the library's own YOLO9
+post-processing on the exported input canvas: candidates are selected
+multi-label (every class scoring above ``conf`` for an anchor, not just the best
+one), then suppressed class-aware. The suppression math runs in float32
+regardless of the backbone precision, so it composes with fp32 and int8 exports.
+Only batch size 1 is supported - the graph indexes the first image and emits a
+single image's detections.
 """
 
 from __future__ import annotations
@@ -30,7 +33,7 @@ from ..models.yolo9.utils import _YOLO9_MAX_NMS_CANDIDATES
 
 
 class EmbeddedNMSDetector(nn.Module):
-    """Detector wrapper returning post-NMS detections of shape ``(1, max_det, 6)``.
+    """Detector wrapper returning post-NMS detections plus raw model output.
 
     Args:
         model: Detection model in export mode whose forward returns
@@ -109,4 +112,4 @@ class EmbeddedNMSDetector(nn.Module):
         det = padded[top]
         # Reshape (not unsqueeze) with a constant shape so the exported graph
         # records a static (1, max_det, 6) output instead of a dynamic dim.
-        return det.reshape(1, self.max_det, 6)
+        return det.reshape(1, self.max_det, 6), raw

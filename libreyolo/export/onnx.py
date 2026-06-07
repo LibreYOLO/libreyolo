@@ -109,9 +109,10 @@ def export_onnx(
         half: Whether the model/input are FP16.
         metadata: Dict of metadata to embed in the ONNX model
             (keys like model_family, model_size, nb_classes, names, imgsz, etc.).
-        nms: When True, ``nn_model`` already embeds NMS and returns a single
-            ``(batch, max_det, 6)`` detection tensor; name the output and skip
-            the segmentation-probe / family output-schema logic.
+        nms: When True, ``nn_model`` embeds NMS and returns the post-NMS
+            ``(batch, max_det, 6)`` detection tensor first, followed by the raw
+            detector tensor used by LibreYOLO backends for native postprocess
+            parity. Skip the segmentation-probe / family output-schema logic.
 
     Returns:
         The output_path string.
@@ -123,7 +124,8 @@ def export_onnx(
         )
 
     if nms:
-        # Model embeds NMS: single (batch, max_det, 6) output, no probe needed.
+        # Model embeds NMS: first output is the standalone post-NMS tensor; the
+        # raw output lets LibreYOLO preserve native backend postprocess parity.
         return _export_onnx_graph(
             nn_model,
             dummy,
@@ -133,9 +135,15 @@ def export_onnx(
             half=half,
             metadata=metadata,
             input_names=["images"],
-            output_names=["output"],
+            output_names=["output", "raw"],
             dynamic_axes=(
-                {"images": {0: "batch"}, "output": {0: "batch"}} if dynamic else None
+                {
+                    "images": {0: "batch"},
+                    "output": {0: "batch"},
+                    "raw": {0: "batch", 2: "anchors"},
+                }
+                if dynamic
+                else None
             ),
         )
 

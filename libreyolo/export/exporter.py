@@ -873,6 +873,7 @@ class OnnxExporter(BaseExporter):
                 meta["nms_conf"] = str(conf)
                 meta["nms_iou"] = str(iou)
                 meta["max_det"] = str(max_det)
+                meta["nms_raw_output"] = "true"
             return meta
 
         if int8:

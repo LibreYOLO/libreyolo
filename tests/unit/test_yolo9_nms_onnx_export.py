@@ -1,7 +1,7 @@
 """YOLO9 ONNX embedded-NMS export tests.
 
 Validates that ``nms=True`` produces a self-contained detection model whose
-single ``(1, max_det, 6)`` output (``[x1, y1, x2, y2, score, class]``) reproduces
+first ``(1, max_det, 6)`` output (``[x1, y1, x2, y2, score, class]``) reproduces
 the library's own multi-label NMS, and that LibreYOLO loads it back correctly.
 """
 
@@ -31,7 +31,7 @@ class _RawExportModel(torch.nn.Module):
         self.register_buffer("raw", raw)
 
     def forward(self, x):
-        return self.raw
+        return self.raw + x.sum() * 0.0
 
 
 def _set_unmatched(rows_a, rows_b, *, box_tol=1e-3, score_tol=1e-4):
@@ -71,7 +71,7 @@ def test_embedded_nms_caps_candidates_like_native_postprocess(monkeypatch):
         _RawExportModel(raw), conf=0.1, iou=0.45, max_det=10
     )
 
-    out = wrapped(torch.zeros(1, 3, 32, 32))[0].detach().numpy()
+    out = wrapped(torch.zeros(1, 3, 32, 32))[0][0].detach().numpy()
     det = out[out[:, 4] > 0]
 
     assert det.shape[0] == 6
@@ -91,7 +91,7 @@ def test_embedded_nms_clips_to_input_canvas_before_suppression():
         _RawExportModel(raw), conf=0.1, iou=0.45, max_det=10
     )
 
-    out = wrapped(torch.zeros(1, 3, 32, 32))[0].detach().numpy()
+    out = wrapped(torch.zeros(1, 3, 32, 32))[0][0].detach().numpy()
     det = out[out[:, 4] > 0]
 
     assert det.shape[0] == 1
@@ -127,14 +127,22 @@ def test_yolo9_detect_onnx_nms_fp32_matches_postprocess(tmp_path):
     proto = onnx.load(str(path))
     meta = {p.key: p.value for p in proto.metadata_props}
     assert meta["nms"] == "true"
+    assert meta["nms_raw_output"] == "true"
     assert meta["max_det"] == str(MAX_DET)
     assert meta["model_family"] == "yolo9"
-    out_dims = [d.dim_value for d in proto.graph.output[0].type.tensor_type.shape.dim]
-    assert out_dims == [1, MAX_DET, 6]
+    assert [out.name for out in proto.graph.output] == ["output", "raw"]
+    out_dims = [
+        [d.dim_value for d in out.type.tensor_type.shape.dim]
+        for out in proto.graph.output
+    ]
+    assert out_dims[0] == [1, MAX_DET, 6]
+    assert out_dims[1][0] == 1
 
     x = np.random.default_rng(1).random((1, 3, IMG, IMG), dtype=np.float32)
     sess = ort.InferenceSession(str(path), providers=["CPUExecutionProvider"])
-    out = sess.run(None, {"images": x})[0]
+    outputs = sess.run(None, {"images": x})
+    assert len(outputs) == 2
+    out = outputs[0]
     assert out.shape == (1, MAX_DET, 6)
 
     # Reference: the library's own multi-label postprocess on the raw tensor.
@@ -185,54 +193,85 @@ def test_yolo9_detect_onnx_nms_requires_batch_one(tmp_path):
 
 @pytest.mark.skipif(not _HAS_ORT, reason="onnx/onnxruntime not installed")
 def test_yolo9_detect_onnx_nms_backend_roundtrip(tmp_path):
-    """LibreYOLO loads an embedded-NMS ONNX and parses it (no double-NMS)."""
+    """LibreYOLO loads an embedded-NMS ONNX and matches native postprocess."""
     import onnxruntime as ort
 
-    from libreyolo import LibreYOLO, LibreYOLO9
-    from libreyolo.models.yolo9.utils import preprocess_numpy
+    from libreyolo import LibreYOLO
+    from libreyolo.export.nms import EmbeddedNMSDetector
+    from libreyolo.export.onnx import export_onnx
 
-    torch.manual_seed(0)
-    model = LibreYOLO9(None, size="t", nb_classes=NC, device="cpu")
-    # Distinct, confident detections so the comparison is unambiguous.
-    for block in model.model.head.cv3:
-        convs = [m for m in block.modules() if isinstance(m, torch.nn.Conv2d)]
-        convs[-1].bias.data = torch.linspace(-1.0, 3.0, NC)
-
-    conf, iou = 0.25, 0.45
-    path = model.export(
-        "onnx",
+    conf, iou, max_det = 0.1, 0.45, 10
+    raw = torch.zeros(1, 5, 2)
+    # These two boxes overlap enough on the 100x100 model canvas for graph NMS
+    # to suppress the lower-scored one. After mapping to a 200x100 original
+    # image and clipping, their IoU falls below 0.45, so native YOLO9 keeps both.
+    raw[0, :4, 0] = torch.tensor([14.9, 27.7, 100.0, 100.0])
+    raw[0, :4, 1] = torch.tensor([0.0, 0.0, 100.0, 100.0])
+    raw[0, 4, :] = torch.tensor([0.9, 0.8])
+    wrapped = EmbeddedNMSDetector(
+        _RawExportModel(raw), conf=conf, iou=iou, max_det=max_det
+    ).eval()
+    path = export_onnx(
+        wrapped,
+        torch.zeros(1, 3, 100, 100),
         output_path=str(tmp_path / "nms.onnx"),
-        imgsz=IMG,
+        opset=13,
         simplify=False,
         dynamic=False,
+        half=False,
+        metadata={
+            "model_family": "yolo9",
+            "task": "detect",
+            "nb_classes": "1",
+            "imgsz": "100",
+            "imgsz_h": "100",
+            "imgsz_w": "100",
+            "nms": "true",
+            "nms_conf": str(conf),
+            "nms_iou": str(iou),
+            "max_det": str(max_det),
+            "nms_raw_output": "true",
+        },
         nms=True,
-        conf=conf,
-        iou=iou,
-        max_det=MAX_DET,
     )
 
-    img = np.random.default_rng(3).integers(0, 256, (IMG, IMG, 3), dtype=np.uint8)
+    graph_outputs = ort.InferenceSession(path, providers=["CPUExecutionProvider"]).run(
+        None, {"images": np.zeros((1, 3, 100, 100), dtype=np.float32)}
+    )
+    assert graph_outputs[0].shape == (1, max_det, 6)
+    assert graph_outputs[1].shape == (1, 5, 2)
+    assert graph_outputs[0][0][graph_outputs[0][0][:, 4] > conf].shape[0] == 1
 
     backend = LibreYOLO(path, device="cpu")
     assert backend.embedded_nms is True
+    assert backend.embedded_nms_raw_output_index == 1
 
-    result = backend.predict(img, conf=conf, iou=iou, imgsz=IMG)
+    img = np.zeros((100, 200, 3), dtype=np.uint8)
+    result = backend.predict(
+        img,
+        conf=conf,
+        iou=iou,
+        imgsz=100,
+        max_det=max_det,
+        color_format="rgb",
+    )
     assert result.boxes is not None
-    nb = np.asarray(result.boxes.xyxy, np.float32).reshape(-1, 4)
-
-    # Raw embedded output on the same preprocessed blob (square image, ratio 1).
-    chw, _ = preprocess_numpy(img, IMG)
-    raw = ort.InferenceSession(path, providers=["CPUExecutionProvider"]).run(
-        None, {"images": chw[None].astype(np.float32)}
-    )[0]
-    raw_valid = raw[0][raw[0][:, 4] > conf]
-
-    # Backend must surface exactly the embedded detections (no re-NMS dropping).
-    assert len(nb) == raw_valid.shape[0]
-    assert len(nb) > 0
-    # Boxes are real xyxy within the image, not transposed/garbled.
-    assert (nb[:, 0] >= 0).all() and (nb[:, 2] <= IMG + 1).all()
-    assert (nb[:, 1] >= 0).all() and (nb[:, 3] <= IMG + 1).all()
+    backend_rows = np.concatenate(
+        [
+            np.asarray(result.boxes.xyxy, np.float32).reshape(-1, 4),
+            np.asarray(result.boxes.conf, np.float32).reshape(-1, 1),
+            np.asarray(result.boxes.cls, np.float32).reshape(-1, 1),
+        ],
+        axis=1,
+    )
+    assert backend_rows.shape == (2, 6)
+    np.testing.assert_allclose(backend_rows[:, 4], [0.9, 0.8], rtol=1e-6)
+    np.testing.assert_array_equal(backend_rows[:, 5], [0.0, 0.0])
+    np.testing.assert_allclose(
+        backend_rows[:, :4],
+        [[29.8, 55.4, 200.0, 100.0], [0.0, 0.0, 200.0, 100.0]],
+        atol=1e-4,
+    )
 
 
 @pytest.mark.skipif(not _HAS_ORT, reason="onnx/onnxruntime not installed")

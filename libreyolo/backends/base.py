@@ -255,6 +255,8 @@ class BaseBackend(ABC):
         # models emit final (1, max_det, 6) detections instead of raw tensors.
         if not hasattr(self, "embedded_nms"):
             self.embedded_nms = False
+        if not hasattr(self, "embedded_nms_raw_output_index"):
+            self.embedded_nms_raw_output_index = None
         if not hasattr(self, "model"):
             self.model = _BackendEvalProxy()
 
@@ -506,6 +508,22 @@ class BaseBackend(ABC):
         orig_w, orig_h = original_size
 
         if getattr(self, "embedded_nms", False):
+            raw_index = getattr(self, "embedded_nms_raw_output_index", None)
+            if (
+                self.model_family == "yolo9"
+                and isinstance(raw_index, int)
+                and raw_index < len(all_outputs)
+            ):
+                boxes, scores, cls = self._parse_yolo9(
+                    [all_outputs[raw_index]],
+                    effective_imgsz,
+                    orig_w,
+                    orig_h,
+                    conf,
+                    iou=iou,
+                    max_det=max_det,
+                )
+                return boxes, scores, cls, None
             boxes, scores, cls = self._parse_embedded_nms(
                 all_outputs, effective_imgsz, orig_w, orig_h, conf
             )
@@ -779,12 +797,25 @@ class BaseBackend(ABC):
         boxes[:, :4] /= ratio
         boxes[:, [0, 2]] = np.clip(boxes[:, [0, 2]], 0, orig_w)
         boxes[:, [1, 3]] = np.clip(boxes[:, [1, 3]], 0, orig_h)
+        valid_boxes = (boxes[:, 2] > boxes[:, 0]) & (boxes[:, 3] > boxes[:, 1])
+        if not valid_boxes.any():
+            if self.task == "segment":
+                return boxes[:0], max_scores[:0], class_ids[:0], None
+            return boxes[:0], max_scores[:0], class_ids[:0]
+        if not valid_boxes.all():
+            boxes = boxes[valid_boxes]
+            boxes_input = boxes_input[valid_boxes]
+            max_scores = max_scores[valid_boxes]
+            class_ids = class_ids[valid_boxes]
 
         if self.task == "segment" and len(all_outputs) >= 3:
             from ..models.yolo9.utils import _process_masks
 
             proto = torch.from_numpy(all_outputs[1][0]).float()
-            coeffs = torch.from_numpy(all_outputs[2][0].T[mask]).float()
+            coeffs_np = all_outputs[2][0].T[mask]
+            if not valid_boxes.all():
+                coeffs_np = coeffs_np[valid_boxes]
+            coeffs = torch.from_numpy(coeffs_np).float()
             boxes_input_t = torch.from_numpy(boxes_input).float()
             masks_out = _process_masks(
                 proto,

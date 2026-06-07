@@ -67,6 +67,7 @@ class OnnxBackend(BaseBackend):
 
         self.session = ort.InferenceSession(onnx_path, providers=providers)
         self.input_name = self.session.get_inputs()[0].name
+        self.output_names = [output.name for output in self.session.get_outputs()]
 
         (
             model_family,
@@ -78,9 +79,15 @@ class OnnxBackend(BaseBackend):
             embedded_nms,
             metadata_imgsz,
         ) = self._read_onnx_metadata(onnx_path, nb_classes)
-        # Models exported with nms=True emit final (1, max_det, 6) detections;
-        # flag it so the base parser routes them through _parse_embedded_nms.
+        # Models exported with nms=True emit final (1, max_det, 6) detections.
+        # Newer YOLO9 ONNX exports also include a raw auxiliary output so the
+        # LibreYOLO backend can apply native clipping/NMS for non-square images.
         self.embedded_nms = embedded_nms
+        self.embedded_nms_raw_output_index = (
+            self.output_names.index("raw")
+            if embedded_nms and "raw" in self.output_names
+            else None
+        )
         input_shape = self.session.get_inputs()[0].shape
         static_imgsz = self._read_static_input_imgsz(input_shape)
         if static_imgsz is not None:
