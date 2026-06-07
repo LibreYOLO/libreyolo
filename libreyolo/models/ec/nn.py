@@ -265,7 +265,9 @@ class LibreECPoseModel(nn.Module):
     def forward(self, x: torch.Tensor, targets: List[dict] | None = None):
         feats = self.backbone(x)
         feats = self.encoder(feats)
-        return self.decoder(feats, targets=targets)
+        # ``samples`` carries the input so the decoder's denoising group can read
+        # the image dimensions (DETRPose's CDN noise is scaled by image size).
+        return self.decoder(feats, targets=targets, samples=x)
 
     def deploy(self):
         self.eval()

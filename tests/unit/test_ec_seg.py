@@ -58,10 +58,18 @@ class TestSegFamilyClassWiring:
         assert m.family == "ec"
         assert isinstance(m.model, LibreECSegModel)
 
-    def test_train_seg_raises_not_implemented(self):
+    def test_train_seg_requires_allow_experimental(self):
+        # Seg training is implemented but gated behind the experimental flag.
         m = LibreEC(model_path=None, size="s", task="segment")
-        with pytest.raises(NotImplementedError, match="ECSeg training"):
-            m.train(data="dummy.yaml", allow_experimental=True)
+        with pytest.raises(RuntimeError, match="experimental"):
+            m.train(data="dummy.yaml")
+
+    def test_train_seg_selects_seg_trainer(self):
+        # With the flag set, the seg task dispatches to ECSegTrainer (it fails
+        # only later, on the missing dummy dataset — not with NotImplementedError).
+        m = LibreEC(model_path=None, size="s", task="segment")
+        with pytest.raises(FileNotFoundError):
+            m.train(data="definitely_missing.yaml", allow_experimental=True)
 
 
 class TestSegForwardAndPostprocess:
@@ -124,3 +132,76 @@ class TestDetectPathUnchanged:
             out = m._forward(x)
         assert "pred_masks" not in out
         assert "pred_logits" in out and "pred_boxes" in out
+
+
+class TestSegTrainingStep:
+    """One forward+loss+backward step exercises the deferred-mask training path."""
+
+    def _criterion(self):
+        from libreyolo.models.dfine.matcher import HungarianMatcher
+        from libreyolo.models.ec.seg_loss import ECSegCriterion
+
+        return ECSegCriterion(
+            matcher=HungarianMatcher(
+                weight_dict={"cost_class": 2.0, "cost_bbox": 5.0, "cost_giou": 2.0},
+                use_focal_loss=True, alpha=0.25, gamma=2.0,
+            ),
+            weight_dict={
+                "loss_mal": 1.0, "loss_bbox": 5.0, "loss_giou": 2.0,
+                "loss_fgl": 0.15, "loss_ddf": 1.5,
+                "loss_mask_ce": 5.0, "loss_mask_dice": 5.0,
+            },
+            losses=["mal", "boxes", "local", "masks"],
+            num_classes=2, alpha=0.75, gamma=2.0, reg_max=32,
+        )
+
+    def test_seg_train_forward_emits_deferred_masks(self):
+        torch.manual_seed(0)
+        model = LibreECSegModel(config="s", nb_classes=2, eval_spatial_size=(128, 128))
+        model.train()
+        masks = torch.zeros(2, 128, 128, dtype=torch.bool)
+        masks[0, 20:60, 20:60] = True
+        masks[1, 70:110, 60:115] = True
+        targets = [{
+            "labels": torch.tensor([0, 1]),
+            "boxes": torch.tensor([[0.31, 0.31, 0.31, 0.31], [0.68, 0.70, 0.43, 0.31]]),
+            "masks": masks,
+        }]
+        out = model(torch.randn(1, 3, 128, 128), targets=targets)
+        # Training masks come back in the memory-efficient deferred form.
+        assert isinstance(out["pred_masks"], dict)
+        assert {"spatial_features", "query_features", "bias"} <= set(out["pred_masks"])
+        assert "pred_masks" in out["aux_outputs"][0]
+
+    def test_seg_loss_backward_reaches_mask_head(self):
+        torch.manual_seed(0)
+        model = LibreECSegModel(config="s", nb_classes=2, eval_spatial_size=(128, 128))
+        model.train()
+
+        def make_target():
+            masks = torch.zeros(2, 128, 128, dtype=torch.bool)
+            masks[0, 20:60, 20:60] = True
+            masks[1, 70:110, 60:115] = True
+            return {
+                "labels": torch.tensor([0, 1]),
+                "boxes": torch.tensor([[0.31, 0.31, 0.31, 0.31], [0.68, 0.70, 0.43, 0.31]]),
+                "masks": masks,
+            }
+
+        # second image has no instances → exercises the empty-match branch
+        targets = [make_target(), {
+            "labels": torch.zeros(0, dtype=torch.long),
+            "boxes": torch.zeros(0, 4),
+            "masks": torch.zeros(0, 128, 128, dtype=torch.bool),
+        }]
+        out = model(torch.randn(2, 3, 128, 128), targets=targets)
+        losses = self._criterion()(out, targets)
+        assert any(k.startswith("loss_mask") for k in losses)
+        total = sum(losses.values())
+        assert torch.isfinite(total)
+        total.backward()
+        seg_grad = sum(
+            1 for n, p in model.named_parameters()
+            if "segmentation_head" in n and p.grad is not None and p.grad.abs().sum() > 0
+        )
+        assert seg_grad > 0, "segmentation head received no gradient"

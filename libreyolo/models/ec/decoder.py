@@ -426,10 +426,22 @@ class TransformerDecoder(nn.Module):
             output_detach = output.detach()
 
         if self.segmentation_head is not None and spatial_features is not None:
-            dec_out_segs = self.segmentation_head(
-                spatial_features=spatial_features,
-                query_features=dec_out_hs,
-            )
+            if self.training:
+                # Deferred per-layer masks: a list (len == num decoder layers) of
+                # ``{spatial_features, query_features, bias}`` dicts. The criterion
+                # materializes masks for matched queries only (memory-efficient).
+                dec_out_segs = self.segmentation_head.sparse_forward(
+                    spatial_features=spatial_features,
+                    query_features=dec_out_hs,
+                )
+            else:
+                # Eval: dense masks for the single emitted (eval_idx) layer.
+                dec_out_segs = torch.stack(
+                    self.segmentation_head(
+                        spatial_features=spatial_features,
+                        query_features=dec_out_hs,
+                    )
+                )
             return (
                 torch.stack(dec_out_bboxes),
                 torch.stack(dec_out_logits),
@@ -437,7 +449,7 @@ class TransformerDecoder(nn.Module):
                 torch.stack(dec_out_refs),
                 pre_bboxes,
                 pre_scores,
-                torch.stack(dec_out_segs),
+                dec_out_segs,
             )
 
         return (
@@ -897,6 +909,15 @@ class ECTransformer(nn.Module):
             out_bboxes, out_logits, out_corners, out_refs, pre_bboxes, pre_scores = decoder_out
             out_segs = None
 
+        # Split per-layer matching-query masks from denoising-query masks. In
+        # training ``out_segs`` is a list (len == num layers) of deferred
+        # ``{spatial_features, query_features, bias}`` dicts whose query axis
+        # carries [denoising | matching] queries in that order.
+        seg_match, seg_dn = self._split_seg(
+            out_segs if self.training else None,
+            dn_meta["dn_num_split"] if (self.training and dn_meta is not None) else None,
+        )
+
         # Split DN vs non-DN halves of every per-layer output.
         if self.training and dn_meta is not None:
             s_idx = dn_meta["dn_num_split"]
@@ -921,6 +942,8 @@ class ECTransformer(nn.Module):
             "up": self.up,
             "reg_scale": self.reg_scale,
         }
+        if seg_match is not None:
+            out["pred_masks"] = seg_match[-1]
 
         if self.aux_loss:
             out["aux_outputs"] = self._set_aux_loss2(
@@ -931,6 +954,9 @@ class ECTransformer(nn.Module):
                 out_corners[-1],
                 out_logits[-1],
             )
+            if seg_match is not None:
+                for i, aux in enumerate(out["aux_outputs"]):
+                    aux["pred_masks"] = seg_match[i]
             out["enc_aux_outputs"] = self._set_aux_loss(
                 enc_topk_logits_list, enc_topk_bboxes_list
             )
@@ -946,6 +972,9 @@ class ECTransformer(nn.Module):
                     dn_out_corners[-1],
                     dn_out_logits[-1],
                 )
+                if seg_dn is not None:
+                    for i, dn in enumerate(out["dn_outputs"]):
+                        dn["pred_masks"] = seg_dn[i]
                 out["dn_pre_outputs"] = {
                     "pred_logits": dn_pre_logits,
                     "pred_boxes": dn_pre_bboxes,
@@ -953,6 +982,30 @@ class ECTransformer(nn.Module):
                 out["dn_meta"] = dn_meta
 
         return out
+
+    @staticmethod
+    def _split_seg(segs, s_idx):
+        """Split deferred per-layer mask dicts into (matching, denoising) halves.
+
+        ``segs`` is ``None`` or a list of ``{spatial_features, query_features,
+        bias}`` dicts. Only ``query_features`` carries the per-query axis (dim 1);
+        ``spatial_features`` and ``bias`` are shared. When ``s_idx`` is ``None``
+        (no denoising group) every query is a matching query.
+
+        Returns ``(seg_match, seg_dn)`` where each is a list of dicts or ``None``.
+        """
+        if segs is None:
+            return None, None
+        seg_match, seg_dn = [], []
+        for d in segs:
+            shared = {"spatial_features": d["spatial_features"], "bias": d["bias"]}
+            if s_idx is None:
+                seg_match.append({**shared, "query_features": d["query_features"]})
+            else:
+                dn_qf, match_qf = torch.split(d["query_features"], s_idx, dim=1)
+                seg_dn.append({**shared, "query_features": dn_qf})
+                seg_match.append({**shared, "query_features": match_qf})
+        return seg_match, (seg_dn if s_idx is not None else None)
 
 
 # ===========================================================================
@@ -1087,6 +1140,40 @@ class SegmentationHead(nn.Module):
                 torch.einsum("bchw,bnc->bnhw", spatial_features, qf) + self.bias
             )
         return mask_logits
+
+    def sparse_forward(self, spatial_features: torch.Tensor, query_features):
+        """Deferred per-layer mask form for training.
+
+        Instead of materializing the dense ``(B, N, Hm, Wm)`` mask tensor for
+        *every* query (memory-prohibitive with denoising queries), return the
+        projected spatial features and per-query embeddings so the criterion can
+        compute masks for the handful of *matched* queries only via einsum.
+
+        Mirrors RF-DETR's ``SegmentationHead.sparse_forward`` (the head EC's seg
+        head is derived from). Returns one dict per decoder layer:
+        ``{"spatial_features": (B, C, Hm, Wm), "query_features": (B, N, C),
+        "bias": (1,)}``.
+        """
+        target_size = (
+            self.image_size[0] // self.downsample_ratio,
+            self.image_size[1] // self.downsample_ratio,
+        )
+        spatial_features = F.interpolate(
+            spatial_features, size=target_size, mode="bilinear", align_corners=False
+        )
+        outputs = []
+        for block, qf in zip(self.blocks, query_features):
+            spatial_features = block(spatial_features)
+            spatial_features_proj = self.spatial_features_proj(spatial_features)
+            qf = self.query_features_proj(self.query_features_block(qf))
+            outputs.append(
+                {
+                    "spatial_features": spatial_features_proj,
+                    "query_features": qf,
+                    "bias": self.bias,
+                }
+            )
+        return outputs
 
 
 # ===========================================================================
@@ -1298,10 +1385,15 @@ class PoseDeformableTransformerDecoderLayer(nn.Module):
 
     @staticmethod
     def with_pos_embed(tensor, pos):
-        if pos is not None:
-            np_ = pos.shape[2]
-            tensor[:, :, -np_:] = tensor[:, :, -np_:] + pos
-        return tensor
+        # Add the positional embedding to the trailing (keypoint) tokens only,
+        # leaving the leading instance token untouched. Done out-of-place: an
+        # in-place slice-assign here corrupts autograd in training (the input is
+        # reused for the residual connection); values are identical to the
+        # in-place form, so inference parity is preserved.
+        if pos is None:
+            return tensor
+        np_ = pos.shape[2]
+        return torch.cat([tensor[:, :, :-np_], tensor[:, :, -np_:] + pos], dim=2)
 
     def forward_ffn(self, tgt):
         tgt2 = self.linear2(self.dropout2(self.activation(self.linear1(tgt))))
@@ -1523,6 +1615,12 @@ class ECPoseTransformer(nn.Module):
         self.reg_max = reg_max
         self.deploy = False
         self.eval_aux = False
+        self.aux_loss = True  # emit per-layer aux outputs in training
+        # Contrastive denoising (DETRPose defaults). Used only in training when
+        # targets + samples are supplied; exercises the label_enc/pose_enc
+        # embeddings the pretrained checkpoints carry.
+        self.dn_number = 20
+        self.label_noise_ratio = 0.5
 
         decoder_layer = PoseDeformableTransformerDecoderLayer(
             d_model=hidden_dim,
@@ -1683,6 +1781,16 @@ class ECPoseTransformer(nn.Module):
         enc_outputs_class_unselected = self.enc_out_class_embed(output_memory)
         topk_idx = torch.topk(enc_outputs_class_unselected.max(-1)[0], topk, dim=1)[1]
 
+        # Encoder (two-stage) class logits for the selected proposals — exposed
+        # as ``enc_outputs`` during training so the criterion can supervise the
+        # first stage (matches DETRPose's interm/encoder loss).
+        enc_outputs_class = enc_outputs_class_unselected.gather(
+            dim=1,
+            index=topk_idx.unsqueeze(-1).repeat(
+                1, 1, enc_outputs_class_unselected.shape[-1]
+            ),
+        )
+
         topk_memory = output_memory.gather(
             dim=1,
             index=topk_idx.unsqueeze(-1).repeat(1, 1, output_memory.shape[-1]),
@@ -1695,11 +1803,11 @@ class ECPoseTransformer(nn.Module):
         delta_unsig_kpt = self.enc_pose_embed(topk_memory).reshape(
             bs, nq, self.num_keypoints, 2
         )
-        enc_outputs_pose_coord = F.sigmoid(delta_unsig_kpt + topk_anchors.unsqueeze(-2))
-        enc_outputs_center_coord = torch.mean(enc_outputs_pose_coord, dim=2, keepdim=True)
-        enc_outputs_pose_coord = torch.cat(
-            [enc_outputs_center_coord, enc_outputs_pose_coord], dim=2
-        )
+        # Per-keypoint encoder proposals (B, nq, K, 2), before the instance
+        # center is prepended for the decoder reference points.
+        enc_kpt = F.sigmoid(delta_unsig_kpt + topk_anchors.unsqueeze(-2))
+        enc_outputs_center_coord = torch.mean(enc_kpt, dim=2, keepdim=True)
+        enc_outputs_pose_coord = torch.cat([enc_outputs_center_coord, enc_kpt], dim=2)
         refpoint_pose_sigmoid = enc_outputs_pose_coord.detach()
 
         if self.learnable_tgt_init:
@@ -1720,6 +1828,31 @@ class ECPoseTransformer(nn.Module):
         )
         tgt_pose = torch.cat([tgt_global, tgt_pose], dim=2)
 
+        # Contrastive denoising — prepend noised-GT keypoint queries (DETRPose
+        # recipe). Only when training with GT + image dims available.
+        attn_mask = None
+        dn_meta = None
+        if self.training and targets is not None and samples is not None:
+            from .pose_denoising import prepare_for_cdn
+
+            input_query_label, input_query_pose, attn_mask, dn_meta = prepare_for_cdn(
+                dn_args=(targets, self.dn_number, self.label_noise_ratio),
+                training=self.training,
+                num_queries=self.num_queries,
+                num_classes=80,  # label_enc is 81-wide; matches DETRPose
+                num_keypoints=self.num_keypoints,
+                hidden_dim=self.hidden_dim,
+                label_enc=self.label_enc,
+                pose_enc=self.pose_enc,
+                img_dim=samples.shape[-2:],
+                device=feats[0].device,
+            )
+            if dn_meta is not None:
+                tgt_pose = torch.cat([input_query_label, tgt_pose], dim=1)
+                refpoint_pose_sigmoid = torch.cat(
+                    [input_query_pose.sigmoid(), refpoint_pose_sigmoid], dim=1
+                )
+
         # pre-split memory for the deformable attention
         value = memory.unflatten(2, (self.nhead, -1))
         value = value.permute(0, 2, 3, 1).flatten(0, 1).split(split_sizes, dim=-1)
@@ -1730,12 +1863,12 @@ class ECPoseTransformer(nn.Module):
             else weighting_function(self.reg_max, self.up, self.reg_scale)
         )
 
-        out_poses, out_logits, _, _, _, _ = self.decoder(
+        out_poses, out_logits, _, _, out_pre_poses, out_pre_scores = self.decoder(
             tgt=tgt_pose,
             memory=value,
             refpoints_sigmoid=refpoint_pose_sigmoid,
             spatial_shapes=spatial_shapes,
-            attn_mask=None,
+            attn_mask=attn_mask,
             pre_pose_head=self.pre_pose_embed,
             pose_head=self.pose_embed,
             class_head=self.class_embed,
@@ -1750,7 +1883,45 @@ class ECPoseTransformer(nn.Module):
         )
 
         if not self.deploy:
-            # Stack output keypoints into shape (L, bs, nq, 2*K) for evaluation.
+            # (L, B, nq, K, 2) -> (L, B, nq, 2K) interleaved [x1,y1,...,xK,yK].
             out_poses = out_poses.flatten(-2)
 
-        return {"pred_logits": out_logits[-1], "pred_keypoints": out_poses[-1]}
+        if not self.training:
+            return {"pred_logits": out_logits[-1], "pred_keypoints": out_poses[-1]}
+
+        # ---- Training: split DN vs matching queries, build DETRPose-faithful
+        # output (deep supervision over decoder layers + encoder + pre-head, plus
+        # the denoising group). Keypoints are flattened (2K) for the criterion. ----
+        out_pre_poses = out_pre_poses.flatten(-2)  # (B, nq_total, 2K)
+        if dn_meta is not None:
+            pad = dn_meta["pad_size"]
+            dn_out_poses, out_poses = torch.split(out_poses, [pad, self.num_queries], dim=2)
+            dn_out_logits, out_logits = torch.split(out_logits, [pad, self.num_queries], dim=2)
+            dn_pre_poses, out_pre_poses = torch.split(out_pre_poses, [pad, self.num_queries], dim=1)
+            dn_pre_scores, out_pre_scores = torch.split(out_pre_scores, [pad, self.num_queries], dim=1)
+
+        out = {"pred_logits": out_logits[-1], "pred_keypoints": out_poses[-1]}
+        if self.aux_loss:
+            out["aux_outputs"] = self._set_aux_loss(out_logits[:-1], out_poses[:-1])
+            out["aux_interm_outputs"] = [
+                {"pred_logits": enc_outputs_class, "pred_keypoints": enc_kpt.flatten(-2)}
+            ]
+            out["aux_pre_outputs"] = {
+                "pred_logits": out_pre_scores,
+                "pred_keypoints": out_pre_poses,
+            }
+            if dn_meta is not None:
+                out["dn_aux_outputs"] = self._set_aux_loss(dn_out_logits, dn_out_poses)
+                out["dn_aux_pre_outputs"] = {
+                    "pred_logits": dn_pre_scores,
+                    "pred_keypoints": dn_pre_poses,
+                }
+                out["dn_meta"] = dn_meta
+        return out
+
+    @staticmethod
+    def _set_aux_loss(outputs_class, outputs_keypoints):
+        return [
+            {"pred_logits": a, "pred_keypoints": b}
+            for a, b in zip(outputs_class, outputs_keypoints)
+        ]

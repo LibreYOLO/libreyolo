@@ -571,6 +571,77 @@ class ECConfig(TrainConfig):
 
 
 @dataclass(kw_only=True)
+class ECSegConfig(ECConfig):
+    """EC segmentation fine-tune defaults (experimental).
+
+    Inherits the EC detect recipe and adds the instance-mask loss knobs. The
+    seg data path reuses RF-DETR's square-resize + polygon-rasterization
+    transform (no mosaic/mixup), so the mosaic probabilities are forced off.
+    Masks are rasterized at ``imgsz`` and the head emits them at
+    ``imgsz / mask_downsample_ratio``; point sampling reconciles the two.
+    """
+
+    # No mosaic/mixup on the seg path (RFDETRSegPassThroughDataset is a
+    # per-sample passthrough — these are ignored, set to 0 for clarity).
+    mosaic_prob: float = 0.0
+    mixup_prob: float = 0.0
+    crop_resize_prob: float = 0.0
+
+    # Mask loss.
+    mask_ce_loss_weight: float = 5.0
+    mask_dice_loss_weight: float = 5.0
+    mask_point_sample_ratio: int = 16
+    mask_downsample_ratio: int = 4
+
+    name: str = "ec_seg_exp"
+
+
+@dataclass(kw_only=True)
+class ECPoseConfig(ECConfig):
+    """EC (DETR-style) pose fine-tune defaults (experimental).
+
+    EdgeCrafter's ECPose is a DETRPose-style keypoint transformer (Hungarian
+    matching + OKS). This config carries the keypoint count / sigmas and the
+    classification / keypoint-L1 / OKS loss weights. The pose data path owns
+    its loader (YOLOPoseDataset + keypoint-aware transforms), so detection-style
+    mosaic/multi-scale settings do not apply.
+    """
+
+    num_classes: int = 1  # user-facing single class ("person")
+    num_keypoints: int = 17
+    keypoint_dim: int = 3
+    oks_sigmas: Optional[List[float]] = None
+    flip_idx: Optional[List[int]] = None
+
+    # Loss weights — DETRPose released recipe (loss_vfl/loss_keypoints/loss_oks).
+    cls_loss_weight: float = 2.0
+    keypoint_l1_loss_weight: float = 10.0
+    oks_loss_weight: float = 4.0
+
+    # Contrastive denoising (DETRPose: dn_number=20, label_noise_ratio=0.5).
+    dn_number: int = 20
+    label_noise_ratio: float = 0.5
+
+    # Keypoint-aware augmentation (matches the YOLO-pose transform knobs).
+    hsv_prob: float = 0.5
+    flip_prob: float = 0.5
+    brightness_contrast_prob: float = 0.5
+    affine_prob: float = 0.75
+    degrees: float = 5.0
+    translate: float = 0.1
+    pose_scale: Tuple[float, float] = (0.75, 1.5)
+    affine_interpolation: str = "linear"
+
+    pin_memory: bool = False
+    prefetch_factor: int = 1
+    persistent_workers: bool = True
+    decode_scale: int = 1
+
+    eval_interval: int = 5
+    name: str = "ec_pose_exp"
+
+
+@dataclass(kw_only=True)
 class YOLONASConfig(TrainConfig):
     """YOLO-NAS-specific training defaults."""
 

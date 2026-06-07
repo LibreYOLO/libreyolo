@@ -32,6 +32,22 @@ _AFFINE_INTERPOLATIONS = {
     "lanczos": cv2.INTER_LANCZOS4,
 }
 
+# ImageNet stats — used only when ``imagenet_norm=True`` (e.g. EdgeCrafter's
+# pretrained ViT backbone, which expects RGB ImageNet-normalized inputs).
+_IMAGENET_MEAN = np.array([0.485, 0.456, 0.406], dtype=np.float32).reshape(3, 1, 1)
+_IMAGENET_STD = np.array([0.229, 0.224, 0.225], dtype=np.float32).reshape(3, 1, 1)
+
+
+def _finalize_image(img: np.ndarray, to_rgb: bool, imagenet_norm: bool) -> np.ndarray:
+    """HWC uint8 BGR -> CHW float32, optionally RGB + ImageNet-normalized."""
+    if to_rgb:
+        img = img[:, :, ::-1]
+    img = np.ascontiguousarray(img.transpose(2, 0, 1), dtype=np.float32)
+    img /= 255.0
+    if imagenet_norm:
+        img = (img - _IMAGENET_MEAN) / _IMAGENET_STD
+    return np.ascontiguousarray(img, dtype=np.float32)
+
 
 def _letterbox(
     img: np.ndarray,
@@ -201,9 +217,13 @@ class YOLONASPoseTrainTransform:
         translate: float = 0.1,
         scale: tuple[float, float] = (0.75, 1.5),
         affine_interpolation: str = "linear",
+        imagenet_norm: bool = False,
+        to_rgb: bool = False,
     ):
         self.num_keypoints = num_keypoints
         self.max_labels = max_labels
+        self.imagenet_norm = imagenet_norm
+        self.to_rgb = to_rgb
         self.hsv_prob = hsv_prob
         self.brightness_contrast_prob = brightness_contrast_prob
         self.affine_prob = affine_prob
@@ -268,17 +288,24 @@ class YOLONASPoseTrainTransform:
         target = _build_target(
             cls, bboxes, kpts, self.num_keypoints, self.max_labels
         )
-        img = np.ascontiguousarray(img.transpose(2, 0, 1), dtype=np.float32)
-        img /= 255.0
+        img = _finalize_image(np.ascontiguousarray(img), self.to_rgb, self.imagenet_norm)
         return img, target
 
 
 class YOLONASPoseValTransform:
     """Validation pose transform: letterbox only, no augmentation."""
 
-    def __init__(self, num_keypoints: int, max_labels: int = 100):
+    def __init__(
+        self,
+        num_keypoints: int,
+        max_labels: int = 100,
+        imagenet_norm: bool = False,
+        to_rgb: bool = False,
+    ):
         self.num_keypoints = num_keypoints
         self.max_labels = max_labels
+        self.imagenet_norm = imagenet_norm
+        self.to_rgb = to_rgb
 
     def __call__(self, img, bboxes_norm, cls, kpts_norm, input_dim):
         h, w = img.shape[:2]
@@ -298,6 +325,5 @@ class YOLONASPoseValTransform:
         target = _build_target(
             cls, bboxes, kpts, self.num_keypoints, self.max_labels
         )
-        img = np.ascontiguousarray(img.transpose(2, 0, 1), dtype=np.float32)
-        img /= 255.0
+        img = _finalize_image(np.ascontiguousarray(img), self.to_rgb, self.imagenet_norm)
         return img, target

@@ -75,10 +75,18 @@ class TestPoseFamilyClassWiring:
         with pytest.raises(ValueError, match="not supported"):
             LibreEC(model_path=None, size="s", task="classify")
 
-    def test_train_pose_raises_not_implemented(self):
+    def test_train_pose_requires_allow_experimental(self):
+        # Pose training is implemented but gated behind the experimental flag.
         m = LibreEC(model_path=None, size="s", task="pose")
-        with pytest.raises(NotImplementedError, match="ECPose training"):
-            m.train(data="dummy.yaml", allow_experimental=True)
+        with pytest.raises(RuntimeError, match="experimental"):
+            m.train(data="dummy.yaml")
+
+    def test_train_pose_selects_pose_trainer(self):
+        # With the flag set, the pose task dispatches to the pose path (it fails
+        # only later, on the missing dummy dataset — not with NotImplementedError).
+        m = LibreEC(model_path=None, size="s", task="pose")
+        with pytest.raises(FileNotFoundError):
+            m.train(data="definitely_missing.yaml", allow_experimental=True)
 
 
 class TestPoseForwardAndPostprocess:
@@ -124,3 +132,72 @@ class TestPoseForwardAndPostprocess:
         assert result.keypoints.data.shape[-2:] == (17, 3)
         # Boxes and keypoints are the same length.
         assert len(result) == result.keypoints.data.shape[0]
+
+
+class TestPoseTrainingStep:
+    """One forward+loss+backward step exercises the DETRPose training path
+    (deep supervision + contrastive denoising)."""
+
+    K = 17
+
+    def _make_targets(self):
+        def tgt(n):
+            xy = torch.rand(n, self.K, 2).reshape(n, 2 * self.K)
+            vis = torch.ones(n, self.K)
+            return {
+                "labels": torch.zeros(n, dtype=torch.long),
+                "boxes": torch.tensor([[0.2, 0.2, 0.7, 0.8]]).repeat(n, 1),
+                "keypoints": torch.cat([xy, vis], dim=1),  # (n, 2K + K)
+                "area": torch.full((n,), 0.3),
+            }
+
+        # one populated image + one empty (exercises the no-match branch)
+        return [tgt(2), {
+            "labels": torch.zeros(0, dtype=torch.long),
+            "boxes": torch.zeros(0, 4),
+            "keypoints": torch.zeros(0, 3 * self.K),
+            "area": torch.zeros(0),
+        }]
+
+    def test_pose_train_forward_exposes_aux_interm_pre_and_dn(self):
+        torch.manual_seed(0)
+        model = LibreECPoseModel(config="s", eval_spatial_size=(128, 128))
+        model.train()
+        targets = self._make_targets()
+        out = model(torch.randn(2, 3, 128, 128), targets=targets)
+        # DETRPose-faithful deep supervision + denoising structure
+        assert "aux_outputs" in out
+        assert "aux_interm_outputs" in out
+        assert "aux_pre_outputs" in out
+        assert "dn_aux_outputs" in out and "dn_meta" in out
+        assert out["pred_logits"].shape == (2, 60, 2)
+        # training keypoints are flattened (B, Q, 2K)
+        assert out["pred_keypoints"].shape == (2, 60, 2 * self.K)
+
+    def test_pose_loss_backward_reaches_decoder_and_dn_embeddings(self):
+        from libreyolo.models.ec.pose_loss import ECPoseCriterion, PoseHungarianMatcher
+
+        torch.manual_seed(0)
+        model = LibreECPoseModel(config="s", eval_spatial_size=(128, 128))
+        model.train()
+        targets = self._make_targets()
+        out = model(torch.randn(2, 3, 128, 128), targets=targets)
+        crit = ECPoseCriterion(
+            matcher=PoseHungarianMatcher(num_keypoints=self.K), num_keypoints=self.K, num_classes=2
+        )
+        losses = crit(out, targets)
+        assert {"loss_vfl", "loss_keypoints", "loss_oks"} <= set(losses)
+        # denoising losses are present
+        assert any(k.endswith("_dn_0") for k in losses)
+        total = sum(losses.values())
+        assert torch.isfinite(total)
+        total.backward()
+        dec_grad = sum(
+            1 for n, p in model.named_parameters()
+            if "decoder" in n and p.grad is not None and p.grad.abs().sum() > 0
+        )
+        assert dec_grad > 0, "pose decoder received no gradient"
+        # Denoising must actually train the label/pose embeddings.
+        for name in ("decoder.label_enc.weight", "decoder.pose_enc.weight"):
+            p = dict(model.named_parameters())[name]
+            assert p.grad is not None and p.grad.abs().sum() > 0, f"{name} got no gradient (DN not wired)"
