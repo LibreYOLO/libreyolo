@@ -125,6 +125,11 @@ class TrainConfig:
 
     # System
     workers: int = 4
+    # Image caching to speed dataloading across epochs. Accepts False (off),
+    # True/'ram' (decoded images in RAM), or 'disk' (decoded images as .npy
+    # beside each source image). 'disk' is the safest choice with dataloader
+    # workers; default is off.
+    cache: Union[bool, str] = False
     patience: int = 50
     resume: bool = False
     log_interval: int = 10
