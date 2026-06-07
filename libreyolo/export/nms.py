@@ -61,14 +61,24 @@ class EmbeddedNMSDetector(nn.Module):
         y2 = boxes_raw[:, 3].clamp(min=0.0, max=float(x.shape[-2]))
         boxes_all = torch.stack((x1, y1, x2, y2), dim=1)
         scores_all = pred[:, 4:]  # (N, nc) per-class probabilities
+        finite_boxes = torch.isfinite(boxes_all).all(dim=1)
+        finite_scores = torch.isfinite(scores_all)
+        safe_boxes_all = torch.where(
+            torch.isfinite(boxes_all), boxes_all, torch.zeros_like(boxes_all)
+        )
+        safe_scores_all = torch.where(
+            finite_boxes[:, None] & finite_scores,
+            scores_all,
+            scores_all.new_full(scores_all.shape, -1.0),
+        )
 
         # Multi-label candidate selection: every (anchor, class) pair scoring
         # above conf becomes a detection, matching the YOLO9 post-processing.
         # Native YOLO9 caps candidates before NMS; taking the top scores before
         # thresholding is equivalent to threshold-then-cap, but bounds the ONNX
         # NonMaxSuppression input for low-conf exports.
-        flat_scores = scores_all.reshape(-1)
-        num_classes = scores_all.shape[1]
+        flat_scores = safe_scores_all.reshape(-1)
+        num_classes = safe_scores_all.shape[1]
         max_nms = min(
             flat_scores.shape[0],
             max(self.max_det, _YOLO9_MAX_NMS_CANDIDATES),
@@ -81,7 +91,7 @@ class EmbeddedNMSDetector(nn.Module):
             torch.long
         )
         class_idx = top_flat_idx - anchor_idx * num_classes
-        cand_boxes = boxes_all[anchor_idx]  # (K, 4)
+        cand_boxes = safe_boxes_all[anchor_idx]  # (K, 4)
         cand_scores = top_scores  # (K,)
         cand_cls = class_idx.to(boxes_all.dtype)  # (K,)
         valid_boxes = (cand_boxes[:, 2] > cand_boxes[:, 0]) & (
@@ -91,12 +101,11 @@ class EmbeddedNMSDetector(nn.Module):
         cand_scores = cand_scores[valid_boxes]
         cand_cls = cand_cls[valid_boxes]
 
-        # Class-aware NMS via the coordinate-offset trick. The per-class step is
-        # derived from the clipped input-canvas range, so different classes never
-        # overlap after the shift and suppression matches native canvas-clipped
-        # post-processing for the exported graph's static input.
-        lo = boxes_all.min()
-        step = (boxes_all.max() - lo).clamp(min=1.0) + 1.0
+        # Class-aware NMS via the coordinate-offset trick. Use sanitized boxes
+        # for the global range so non-finite anchors outside the candidate set
+        # cannot poison the offset applied to valid detections.
+        lo = safe_boxes_all.min()
+        step = (safe_boxes_all.max() - lo).clamp(min=1.0) + 1.0
         nmsbox = (cand_boxes - lo) + cand_cls[:, None] * step
         keep = _nms(nmsbox, cand_scores, self.iou)
 

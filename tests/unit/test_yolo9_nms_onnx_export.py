@@ -99,6 +99,27 @@ def test_embedded_nms_clips_to_input_canvas_before_suppression():
     assert det[0, 4] == pytest.approx(0.9)
 
 
+def test_embedded_nms_ignores_nonfinite_low_conf_boxes():
+    from libreyolo.export.nms import EmbeddedNMSDetector
+
+    raw = torch.zeros(1, 5, 2)
+    raw[0, :4, 0] = torch.tensor([float("nan"), 0.0, 20.0, 20.0])
+    raw[0, :4, 1] = torch.tensor([1.0, 2.0, 16.0, 18.0])
+    raw[0, 4, :] = torch.tensor([0.0, 0.9])
+
+    wrapped = EmbeddedNMSDetector(
+        _RawExportModel(raw), conf=0.1, iou=0.45, max_det=10
+    )
+
+    out = wrapped(torch.zeros(1, 3, 32, 32))[0][0].detach().numpy()
+    det = out[out[:, 4] > 0]
+
+    assert det.shape[0] == 1
+    assert np.isfinite(det).all()
+    np.testing.assert_allclose(det[0, :4], [1.0, 2.0, 16.0, 18.0])
+    assert det[0, 4] == pytest.approx(0.9)
+
+
 @pytest.mark.skipif(not _HAS_ORT, reason="onnx/onnxruntime not installed")
 def test_yolo9_detect_onnx_nms_fp32_matches_postprocess(tmp_path):
     import onnx

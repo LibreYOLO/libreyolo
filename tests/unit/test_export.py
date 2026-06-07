@@ -408,6 +408,33 @@ class TestExporterFormats:
 
         assert OnnxBackend._read_onnx_metadata(str(output_path), 4)[-1] == 48
 
+    def test_onnx_backend_reads_runtime_metadata_without_onnx_load(self):
+        from libreyolo.backends.onnx import OnnxBackend
+
+        metadata = {
+            "model_family": "yolo9",
+            "task": "detect",
+            "nb_classes": "1",
+            "imgsz": "64",
+            "nms": "true",
+            "nms_conf": "0.25",
+            "nms_iou": "0.45",
+            "max_det": "300",
+            "nms_raw_output": "true",
+        }
+
+        parsed = OnnxBackend._read_onnx_metadata(
+            "metadata-from-onnxruntime.onnx",
+            80,
+            runtime_metadata=metadata,
+        )
+
+        assert parsed[0] == "yolo9"
+        assert parsed[2] == "detect"
+        assert parsed[5] == {0: "class_0"}
+        assert parsed[6] is True
+        assert parsed[7] == 64
+
     def test_onnx_backend_reads_rectangular_static_input_imgsz(self):
         from libreyolo.backends.onnx import OnnxBackend
 

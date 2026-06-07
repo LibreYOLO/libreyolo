@@ -68,6 +68,12 @@ class OnnxBackend(BaseBackend):
         self.session = ort.InferenceSession(onnx_path, providers=providers)
         self.input_name = self.session.get_inputs()[0].name
         self.output_names = [output.name for output in self.session.get_outputs()]
+        try:
+            runtime_metadata = dict(
+                self.session.get_modelmeta().custom_metadata_map or {}
+            )
+        except Exception:
+            runtime_metadata = {}
 
         (
             model_family,
@@ -78,7 +84,9 @@ class OnnxBackend(BaseBackend):
             names,
             embedded_nms,
             metadata_imgsz,
-        ) = self._read_onnx_metadata(onnx_path, nb_classes)
+        ) = self._read_onnx_metadata(
+            onnx_path, nb_classes, runtime_metadata=runtime_metadata
+        )
         # Models exported with nms=True emit final (1, max_det, 6) detections.
         # Newer YOLO9 ONNX exports also include a raw auxiliary output so the
         # LibreYOLO backend can apply native clipping/NMS for non-square images.
@@ -126,7 +134,11 @@ class OnnxBackend(BaseBackend):
         return h if h == w else (h, w)
 
     @staticmethod
-    def _read_onnx_metadata(onnx_path: str, default_nb_classes: int):
+    def _read_onnx_metadata(
+        onnx_path: str,
+        default_nb_classes: int,
+        runtime_metadata: dict | None = None,
+    ):
         """Read libreyolo metadata embedded in an ONNX model file.
 
         Returns:
@@ -142,10 +154,12 @@ class OnnxBackend(BaseBackend):
         imgsz = None
         embedded_nms = False
         try:
-            import onnx
+            meta = dict(runtime_metadata or {})
+            if not meta:
+                import onnx
 
-            model_proto = onnx.load(onnx_path)
-            meta = {p.key: p.value for p in model_proto.metadata_props}
+                model_proto = onnx.load(onnx_path)
+                meta = {p.key: p.value for p in model_proto.metadata_props}
             warn_on_metadata_schema_version(
                 meta,
                 artifact=f"ONNX metadata for {onnx_path}",
