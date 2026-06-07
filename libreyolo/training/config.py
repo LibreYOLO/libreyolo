@@ -97,6 +97,10 @@ class TrainConfig:
     ema: bool = True
     ema_decay: float = 0.9998
     amp: bool = True
+    # Layer freezing. An int freezes the first N family-defined freeze groups;
+    # a list freezes explicit group indices or module-name selectors; a string
+    # freezes matching module/parameter names.
+    freeze: Optional[Union[int, str, List[Union[int, str]]]] = None
     # Parameter-efficient fine-tuning. ``lora=True`` injects LoRA adapters into
     # the backbone of supported transformer families (currently RF-DETR) and
     # trains only the adapters plus the projector/decoder/head, for low-VRAM

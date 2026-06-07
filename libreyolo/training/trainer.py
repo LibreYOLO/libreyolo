@@ -43,6 +43,7 @@ from .distributed import (
     wants_distributed,
 )
 from .ema import ModelEMA
+from .freezing import FreezeGroup, apply_freeze, default_freeze_groups
 from ..data.dataset import YOLODataset, COCODataset, create_dataloader
 from ..data import load_data_config, get_img_files, img2label_paths
 from ..utils.serialization import (
@@ -126,6 +127,8 @@ class BaseTrainer(ABC):
         self.lr_scheduler = None
         self.scaler = None
         self.ema_model = None
+        self.freeze_summary = None
+        self._frozen_bn_modules: Tuple[nn.Module, ...] = ()
         self.train_loader = None
         self._is_setup = False
 
@@ -207,6 +210,14 @@ class BaseTrainer(ABC):
 
     def on_setup(self):
         """Called after model is on device, before data setup (e.g. bias init)."""
+
+    def get_freeze_groups(self) -> List[FreezeGroup]:
+        """Return integer-addressable freeze groups for this family."""
+        return default_freeze_groups(self.model)
+
+    def preserve_freeze_param(self, name: str, param: nn.Parameter) -> bool:
+        """Return True for trainable params that freezing must not disable."""
+        return False
 
     def on_num_classes_resolved(self):
         """Called before on_setup() for trainers that pre-sync class counts."""
@@ -310,40 +321,54 @@ class BaseTrainer(ABC):
 
     def _setup_optimizer(self) -> torch.optim.Optimizer:
         pg0, pg1, pg2 = [], [], []
+
+        def add_if_trainable(group: list, param: Optional[nn.Parameter]) -> None:
+            if isinstance(param, nn.Parameter) and param.requires_grad:
+                group.append(param)
+
         # Catch every batch-norm flavour, including SyncBN: BatchNorm{1,2,3}d
         # and SyncBatchNorm are all siblings under ``_BatchNorm``. The naive
         # ``isinstance(v, nn.BatchNorm2d)`` check would silently put SyncBN
         # weights into the weight-decay group post sync_bn conversion.
         bn_types = nn.modules.batchnorm._BatchNorm
         for _k, v in self.model.named_modules():
-            if hasattr(v, "bias") and isinstance(v.bias, nn.Parameter):
-                pg2.append(v.bias)
+            if hasattr(v, "bias"):
+                add_if_trainable(pg2, v.bias)
             if isinstance(v, bn_types):
-                pg0.append(v.weight)
-            elif hasattr(v, "weight") and isinstance(v.weight, nn.Parameter):
-                pg1.append(v.weight)
+                add_if_trainable(pg0, v.weight)
+            elif hasattr(v, "weight"):
+                add_if_trainable(pg1, v.weight)
 
         lr = self.effective_lr
         opt_name = self.config.optimizer
+        param_groups = []
+        if pg0:
+            param_groups.append({"params": pg0, "lr": lr})
+        if pg1:
+            param_groups.append(
+                {"params": pg1, "lr": lr, "weight_decay": self.config.weight_decay}
+            )
+        if pg2:
+            param_groups.append({"params": pg2, "lr": lr})
+        if not param_groups:
+            raise ValueError(
+                "No trainable parameters remain after layer freezing; "
+                "reduce the freeze value or choose a narrower selector."
+            )
 
         if opt_name == "sgd":
             optimizer = torch.optim.SGD(
-                pg0,
+                param_groups,
                 lr=lr,
                 momentum=self.config.momentum,
                 nesterov=self.config.nesterov,
             )
         elif opt_name == "adam":
-            optimizer = torch.optim.Adam(pg0, lr=lr)
+            optimizer = torch.optim.Adam(param_groups, lr=lr)
         elif opt_name == "adamw":
-            optimizer = torch.optim.AdamW(pg0, lr=lr)
+            optimizer = torch.optim.AdamW(param_groups, lr=lr)
         else:
             raise ValueError(f"Unknown optimizer: {opt_name}")
-
-        optimizer.add_param_group(
-            {"params": pg1, "lr": lr, "weight_decay": self.config.weight_decay}
-        )
-        optimizer.add_param_group({"params": pg2, "lr": lr})
 
         if is_main_process():
             logger.info(f"Optimizer: {opt_name}")
@@ -351,6 +376,29 @@ class BaseTrainer(ABC):
             logger.info(f"  - pg1 (Conv, wd={self.config.weight_decay}): {len(pg1)} params")
             logger.info(f"  - pg2 (Bias): {len(pg2)} params")
         return optimizer
+
+    def _apply_freeze_config(self) -> None:
+        summary = apply_freeze(
+            self.model,
+            getattr(self.config, "freeze", None),
+            freeze_groups=self.get_freeze_groups(),
+            preserve_trainable_param=self.preserve_freeze_param,
+        )
+        self.freeze_summary = summary
+        self._frozen_bn_modules = summary.frozen_bn_modules if summary else ()
+        if summary is not None and is_main_process():
+            logger.info(
+                "Layer freezing: selectors=%s, tensors=%d, params=%d, trainable=%d/%d",
+                list(summary.selectors),
+                summary.frozen_tensor_count,
+                summary.frozen_param_count,
+                summary.trainable_param_count,
+                summary.total_param_count,
+            )
+
+    def _enforce_frozen_bn_eval(self) -> None:
+        for module in getattr(self, "_frozen_bn_modules", ()):
+            module.eval()
 
     def _get_save_dir(self) -> Path:
         project = Path(self.config.project)
@@ -730,6 +778,7 @@ class BaseTrainer(ABC):
                 logger.info("AutoBatch: resolved global batch size = %d", self.config.batch)
 
         self._setup_data()
+        self._apply_freeze_config()
         self.optimizer = self._setup_optimizer()
         self.lr_scheduler = self.create_scheduler(self._scheduler_steps_per_epoch())
 
@@ -1266,6 +1315,7 @@ class BaseTrainer(ABC):
         self, epoch: int
     ) -> Tuple[float, Optional[Dict[str, Any]], Dict[str, float], Dict[str, float]]:
         self.model.train()
+        self._enforce_frozen_bn_eval()
 
         # Gradient accumulation is opt-in. When enabled, delegate to the
         # accumulation loop; otherwise fall through to the standard
@@ -1386,6 +1436,7 @@ class BaseTrainer(ABC):
         per optimizer step. Reached only when ``_accum_steps > 1``.
         """
         self.model.train()
+        self._enforce_frozen_bn_eval()
 
         if is_distributed() and hasattr(self.train_loader, "sampler"):
             sampler = self.train_loader.sampler

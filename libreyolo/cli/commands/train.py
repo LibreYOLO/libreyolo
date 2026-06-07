@@ -22,6 +22,7 @@ from ..config import (
     get_unsupported_train_params,
 )
 from ..output import OutputHandler
+from ...training.freezing import normalize_freeze_selectors, parse_freeze_spec
 
 
 _LORA_TRAIN_FAMILIES = {"rfdetr"}
@@ -169,6 +170,10 @@ def train_cmd(
         "--lora",
         help="Enable LoRA fine-tuning for supported transformer families",
     ),
+    freeze: str = typer.Option(
+        "",
+        help="Freeze layers: int count, list of indices, or module name(s)",
+    ),
     # Optimizer
     optimizer: str = typer.Option("sgd", help="Optimizer: sgd, adam, adamw"),
     lr0: float = typer.Option(0.01, help="Initial learning rate"),
@@ -241,7 +246,7 @@ def train_cmd(
         except ValueError as e:
             exit_with_error(out, "config_type_error", str(e))
 
-    # Parse tuple strings
+    # Parse tuple/list strings
     try:
         mosaic_scale_val = (
             ast.literal_eval(mosaic_scale)
@@ -253,8 +258,10 @@ def train_cmd(
             if isinstance(mixup_scale, str)
             else mixup_scale
         )
-    except (ValueError, SyntaxError) as e:
-        exit_with_error(out, "config_type_error", f"Invalid scale value: {e}")
+        freeze_val = parse_freeze_spec(freeze)
+        normalize_freeze_selectors(freeze_val)
+    except (TypeError, ValueError, SyntaxError) as e:
+        exit_with_error(out, "config_type_error", f"Invalid train option value: {e}")
 
     # Parse resume (can be "true"/"false" or a path)
     resume_val: bool | str = False
@@ -333,6 +340,7 @@ def train_cmd(
         "resume": resume_val,
         "amp": amp,
         "lora": lora,
+        "freeze": freeze_val,
         "optimizer": optimizer,
         "lr0": lr0,
         "momentum": momentum,
@@ -403,6 +411,8 @@ def train_cmd(
             "momentum": params["momentum"],
             "scheduler": params["scheduler"],
         }
+        if params.get("freeze") is not None:
+            resolved_config["freeze"] = params["freeze"]
         if normalized_task is not None:
             resolved_config["task"] = normalized_task
         if family == "rfdetr":
@@ -422,6 +432,8 @@ def train_cmd(
                 "save_period": params["save_period"],
                 "lora": params["lora"],
             }
+            if params.get("freeze") is not None:
+                resolved_config["freeze"] = params["freeze"]
             if normalized_task is not None:
                 resolved_config["task"] = normalized_task
 

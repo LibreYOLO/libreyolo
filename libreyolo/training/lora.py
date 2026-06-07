@@ -82,9 +82,12 @@ def count_trainable_parameters(module: nn.Module) -> tuple[int, int]:
 
 def state_dict_has_lora(state_dict: dict) -> bool:
     """Return True when *state_dict* carries LoRA adapter tensors."""
-    return any(
-        ("lora_A" in k or "lora_B" in k or "lora_magnitude" in k) for k in state_dict
-    )
+    return any(is_lora_parameter_name(k) for k in state_dict)
+
+
+def is_lora_parameter_name(name: str) -> bool:
+    """Return True for PEFT LoRA adapter parameter names."""
+    return "lora_A" in name or "lora_B" in name or "lora_magnitude" in name
 
 
 def module_has_lora(module: nn.Module) -> bool:
@@ -163,6 +166,7 @@ def apply_lora_to_rfdetr(core_model: nn.Module) -> nn.Module:
 __all__ = [
     "apply_lora_to_rfdetr",
     "is_peft_available",
+    "is_lora_parameter_name",
     "state_dict_has_lora",
     "module_has_lora",
     "count_trainable_parameters",

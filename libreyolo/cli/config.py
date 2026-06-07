@@ -384,6 +384,7 @@ def _build_rfdetr_train_kwargs(
         "flip_prob": "flip_prob",
         "amp": "amp",
         "lora": "lora",
+        "freeze": "freeze",
         "log_interval": "log_interval",
     }
 
