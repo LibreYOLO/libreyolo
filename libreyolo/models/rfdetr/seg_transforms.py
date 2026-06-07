@@ -15,6 +15,15 @@ import random
 import cv2
 import numpy as np
 
+from ...data.augment import (
+    copy_segments as _copy_segments,
+    crop_segments as _crop_segments,
+    filter_segments as _filter_segments,
+    flip_segments_lr as _flip_segments_lr,
+    materialize_dense_masks_for_crop as _materialize_dense_masks_for_crop,
+    rasterize_segments as _rasterize_segments,
+    scale_segments_xy as _scale_segments_xy,
+)
 from ...data.obb import normalize_obb_angle, scale_xywhr
 
 
@@ -81,183 +90,6 @@ def _resize_shortest_side(img: np.ndarray, size: int) -> tuple[np.ndarray, float
     new_h = max(1, int(round(h * scale)))
     resized = cv2.resize(img, (new_w, new_h), interpolation=cv2.INTER_LINEAR)
     return resized, scale, scale
-
-
-def _copy_segments(segments):
-    if segments is None:
-        return None
-    return [[ring.copy() for ring in instance] for instance in segments]
-
-
-def _dense_mask(ring):
-    return getattr(ring, "dense_mask", None)
-
-
-def _set_dense_mask(ring, mask):
-    if hasattr(ring, "dense_mask"):
-        ring.dense_mask = np.ascontiguousarray(mask.astype(np.uint8))
-
-
-def _instance_dense_mask(instance):
-    for ring in instance:
-        mask = _dense_mask(ring)
-        if mask is not None:
-            return mask
-    return None
-
-
-def _materialize_dense_masks_for_crop(segments, image_shape):
-    if segments is None:
-        return None
-
-    from ...data.dataset import DenseMaskRing
-
-    height, width = image_shape
-    out = []
-    for instance in segments:
-        if _instance_dense_mask(instance) is not None:
-            out.append(instance)
-            continue
-
-        valid_rings = [
-            np.asarray(ring, dtype=np.float32)
-            for ring in instance
-            if ring is not None and len(ring) >= 3
-        ]
-        if not valid_rings:
-            out.append(instance)
-            continue
-
-        mask = np.zeros((height, width), dtype=np.uint8)
-        polygons = [np.round(ring).astype(np.int32) for ring in valid_rings]
-        cv2.fillPoly(mask, polygons, color=1)
-
-        wrapped = []
-        attached = False
-        for ring in instance:
-            if not attached and ring is not None and len(ring) >= 3:
-                wrapped.append(DenseMaskRing(ring, mask))
-                attached = True
-            else:
-                wrapped.append(ring)
-        out.append(wrapped)
-    return out
-
-
-def _flip_segments_lr(segments, width):
-    if segments is None:
-        return None
-    out = []
-    for instance in segments:
-        flipped = []
-        for ring in instance:
-            if ring is None or len(ring) == 0:
-                flipped.append(ring)
-                continue
-            r = ring.copy()
-            r[:, 0] = width - r[:, 0]
-            mask = _dense_mask(r)
-            if mask is not None:
-                _set_dense_mask(r, mask[:, ::-1])
-            flipped.append(r)
-        out.append(flipped)
-    return out
-
-
-def _scale_segments_xy(segments, scale_x: float, scale_y: float):
-    if segments is None:
-        return None
-    out = []
-    for instance in segments:
-        scaled = []
-        for ring in instance:
-            if ring is None or len(ring) == 0:
-                scaled.append(ring)
-                continue
-            mask = _dense_mask(ring)
-            ring_scaled = ring.astype(np.float32, copy=True)
-            if mask is not None:
-                ring_scaled = ring_scaled.view(type(ring))
-            ring_scaled[:, 0] *= scale_x
-            ring_scaled[:, 1] *= scale_y
-            if mask is not None:
-                new_w = max(1, int(round(mask.shape[1] * scale_x)))
-                new_h = max(1, int(round(mask.shape[0] * scale_y)))
-                scaled_mask = cv2.resize(
-                    mask,
-                    (new_w, new_h),
-                    interpolation=cv2.INTER_NEAREST,
-                )
-                _set_dense_mask(ring_scaled, scaled_mask)
-            scaled.append(ring_scaled)
-        out.append(scaled)
-    return out
-
-
-def _crop_segments(segments, left: int, top: int, width: int, height: int):
-    if segments is None:
-        return None
-    out = []
-    for instance in segments:
-        cropped = []
-        for ring in instance:
-            if ring is None or len(ring) == 0:
-                cropped.append(ring)
-                continue
-            mask = _dense_mask(ring)
-            r = ring.copy()
-            r[:, 0] = np.clip(r[:, 0] - left, 0.0, float(width))
-            r[:, 1] = np.clip(r[:, 1] - top, 0.0, float(height))
-            if mask is not None:
-                _set_dense_mask(r, mask[top : top + height, left : left + width])
-            cropped.append(r)
-        out.append(cropped)
-    return out
-
-
-def _filter_segments(segments, keep_mask):
-    if segments is None:
-        return None
-    keep = np.asarray(keep_mask, dtype=bool)
-    n = min(len(segments), len(keep))
-    return [segments[i] for i in range(n) if keep[i]]
-
-
-def _rasterize_segments(segments, image_shape, mask_shape, max_masks):
-    """Render per-instance polygon rings to a (max_masks, mask_h, mask_w) float32 array.
-
-    Polygons are given in pixel coords on ``image_shape``; they are scaled into
-    ``mask_shape`` before being filled into individual mask slots.
-    """
-    masks = np.zeros((max_masks, mask_shape[0], mask_shape[1]), dtype=np.float32)
-    if not segments:
-        return masks
-
-    img_h, img_w = image_shape
-    mask_h, mask_w = mask_shape
-    sx = mask_w / max(float(img_w), 1.0)
-    sy = mask_h / max(float(img_h), 1.0)
-
-    for idx, instance in enumerate(segments[:max_masks]):
-        dense_mask = _instance_dense_mask(instance)
-        if dense_mask is not None:
-            mask = dense_mask
-            if mask.shape != mask_shape:
-                mask = cv2.resize(mask, (mask_w, mask_h), interpolation=cv2.INTER_NEAREST)
-            masks[idx] = (mask > 0).astype(np.float32)
-            continue
-
-        polygons = []
-        for ring in instance:
-            if ring is None or len(ring) < 3:
-                continue
-            poly = ring.astype(np.float32, copy=True)
-            poly[:, 0] *= sx
-            poly[:, 1] *= sy
-            polygons.append(np.round(poly).astype(np.int32))
-        if polygons:
-            cv2.fillPoly(masks[idx], polygons, color=1)
-    return masks
 
 
 class RFDETRSegTransform:

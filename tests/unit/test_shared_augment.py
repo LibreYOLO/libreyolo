@@ -38,3 +38,50 @@ def test_shared_mosaic_coordinate_geometry():
     assert coords[1] == ((8, 2, 14, 7), (0, 0, 6, 5))
     assert coords[2] == ((2, 7, 8, 12), (0, 0, 6, 5))
     assert coords[3] == ((8, 7, 14, 12), (0, 0, 6, 5))
+
+
+def test_shared_segment_geometry_helpers():
+    segments = [
+        [
+            np.array(
+                [[1.0, 2.0], [4.0, 2.0], [4.0, 5.0], [1.0, 5.0]],
+                dtype=np.float32,
+            )
+        ],
+        [
+            np.array(
+                [[6.0, 1.0], [8.0, 1.0], [8.0, 3.0], [6.0, 3.0]],
+                dtype=np.float32,
+            )
+        ],
+    ]
+
+    copied = shared.copy_segments(segments)
+    assert copied is not segments
+    assert copied[0][0] is not segments[0][0]
+    np.testing.assert_array_equal(copied[0][0], segments[0][0])
+
+    transformed = shared.transform_segments(
+        segments, scale=2.0, padw=1.0, padh=-1.0, width=10, height=10
+    )
+    np.testing.assert_array_equal(
+        transformed[0][0],
+        np.array([[3.0, 3.0], [9.0, 3.0], [9.0, 9.0], [3.0, 9.0]], dtype=np.float32),
+    )
+
+    flipped = shared.flip_segments_lr(segments, width=10)
+    np.testing.assert_array_equal(
+        flipped[0][0],
+        np.array([[9.0, 2.0], [6.0, 2.0], [6.0, 5.0], [9.0, 5.0]], dtype=np.float32),
+    )
+
+    kept = shared.filter_segments(segments, np.array([False, True]))
+    assert len(kept) == 1
+    np.testing.assert_array_equal(kept[0][0], segments[1][0])
+
+    masks = shared.rasterize_segments(
+        [segments[0]], image_shape=(10, 10), mask_shape=(5, 5), max_masks=2
+    )
+    assert masks.shape == (2, 5, 5)
+    assert masks[0].sum() > 0
+    assert masks[1].sum() == 0

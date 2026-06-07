@@ -13,6 +13,20 @@ from .yolo import (
     random_affine,
     xyxy2cxcywh,
 )
+from .segments import (
+    copy_segments,
+    crop_segments,
+    dense_mask,
+    filter_segments,
+    flip_segments_lr,
+    flip_segments_ud,
+    instance_dense_mask,
+    materialize_dense_masks_for_crop,
+    rasterize_segments,
+    scale_segments_xy,
+    set_dense_mask,
+    transform_segments,
+)
 
 __all__ = [
     "adjust_box_anns",
@@ -26,4 +40,16 @@ __all__ = [
     "preproc",
     "random_affine",
     "xyxy2cxcywh",
+    "copy_segments",
+    "crop_segments",
+    "dense_mask",
+    "filter_segments",
+    "flip_segments_lr",
+    "flip_segments_ud",
+    "instance_dense_mask",
+    "materialize_dense_masks_for_crop",
+    "rasterize_segments",
+    "scale_segments_xy",
+    "set_dense_mask",
+    "transform_segments",
 ]
