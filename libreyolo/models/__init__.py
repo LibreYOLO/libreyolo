@@ -520,6 +520,13 @@ def LibreYOLO(
         default_task=matched_cls.DEFAULT_TASK,
         supported_tasks=matched_cls.SUPPORTED_TASKS,
     )
+    family_kwargs = (
+        {"reg_max": reg_max} if matched_cls.FAMILY in ("yolo9", "yolo9_e2e") else {}
+    )
+    if matched_cls.FAMILY == "yolo9" and resolved_task == "pose":
+        detected_keypoints = matched_cls.detect_num_keypoints(weights_dict)
+        if detected_keypoints is not None:
+            family_kwargs["num_keypoints"] = detected_keypoints
 
     if matched_cls.FAMILY == "rfdetr":
         # RF-DETR always needs the path (handles its own loading internally)
@@ -538,11 +545,7 @@ def LibreYOLO(
             nb_classes=nb_classes,
             device=device,
             task=resolved_task,
-            **(
-                {"reg_max": reg_max}
-                if matched_cls.FAMILY in ("yolo9", "yolo9_e2e")
-                else {}
-            ),
+            **family_kwargs,
         )
     else:
         # Pretrained checkpoint — pass extracted state dict
@@ -552,11 +555,7 @@ def LibreYOLO(
             nb_classes=nb_classes,
             device=device,
             task=resolved_task,
-            **(
-                {"reg_max": reg_max}
-                if matched_cls.FAMILY in ("yolo9", "yolo9_e2e")
-                else {}
-            ),
+            **family_kwargs,
         )
 
     model.model_path = model_path
