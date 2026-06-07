@@ -20,6 +20,7 @@ from torch.utils.data import Dataset, DataLoader
 from PIL import Image, UnidentifiedImageError
 from tqdm import tqdm
 
+from .cache import ImageCacheMixin
 from .utils import polygon_to_cxcywh
 from .obb import (
     corners_to_xywhr,
@@ -141,7 +142,7 @@ def _coco_segmentation_to_rings(
     return rings
 
 
-class YOLODataset(Dataset):
+class YOLODataset(ImageCacheMixin, Dataset):
     """
     YOLO format dataset supporting both directory and file list modes.
 
@@ -423,8 +424,12 @@ class YOLODataset(Dataset):
         """Load annotation for given index."""
         return self.annotations[index][0]
 
-    def load_image(self, index: int) -> np.ndarray:
-        """Load image for given index."""
+    def _image_path(self, index: int) -> Path:
+        """Source image path for given index (used for disk caching)."""
+        return self.img_files[index]
+
+    def _decode_image(self, index: int) -> np.ndarray:
+        """Decode image from disk for given index."""
         img_file = self.img_files[index]
         img = cv2.imread(str(img_file))
         assert img is not None, f"Failed to load {img_file}"
@@ -483,7 +488,7 @@ class YOLODataset(Dataset):
         return img, target, img_info, img_id
 
 
-class COCODataset(Dataset):
+class COCODataset(ImageCacheMixin, Dataset):
     """
     COCO format dataset for YOLOX training.
 
@@ -658,10 +663,14 @@ class COCODataset(Dataset):
         """Load annotation for given index."""
         return self.annotations[index][0]
 
-    def load_image(self, index: int) -> np.ndarray:
-        """Load image for given index."""
+    def _image_path(self, index: int) -> Path:
+        """Source image path for given index (used for disk caching)."""
         file_name = self.annotations[index][3]
-        img_file = os.path.join(self.data_dir, self.name, file_name)
+        return Path(self.data_dir) / self.name / file_name
+
+    def _decode_image(self, index: int) -> np.ndarray:
+        """Decode image from disk for given index."""
+        img_file = str(self._image_path(index))
         img = cv2.imread(img_file)
         assert img is not None, f"Failed to load {img_file}"
         return img

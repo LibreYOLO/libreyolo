@@ -484,6 +484,8 @@ class BaseTrainer(ABC):
                 "OBB augmentation is implemented."
             )
 
+        train_dataset.enable_image_cache(getattr(self.config, "cache", False))
+
         train_dataset = MosaicDatasetClass(
             dataset=train_dataset,
             img_size=img_size,

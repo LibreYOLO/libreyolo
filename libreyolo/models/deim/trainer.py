@@ -364,6 +364,8 @@ class DEIMTrainer(BaseTrainer):
         else:
             raise ValueError("Either 'data' or 'data_dir' must be specified")
 
+        train_dataset.enable_image_cache(getattr(self.config, "cache", False))
+
         train_dataset = MosaicDatasetClass(
             dataset=train_dataset,
             img_size=img_size,

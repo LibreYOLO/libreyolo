@@ -160,6 +160,9 @@ def train_cmd(
     imgsz: int = typer.Option(640, help="Training image size"),
     device: str = typer.Option("auto", help="Device: 0, cpu, mps, auto"),
     workers: int = typer.Option(4, help="Dataloader workers"),
+    cache: str = typer.Option(
+        "false", help="Cache images to speed dataloading: ram, disk, true, false"
+    ),
     seed: int = typer.Option(0, help="Random seed"),
     resume: str = typer.Option("", help="Resume training: true, or path to checkpoint"),
     amp: bool = typer.Option(True, help="Automatic Mixed Precision"),
@@ -256,6 +259,14 @@ def train_cmd(
     except (ValueError, SyntaxError) as e:
         exit_with_error(out, "config_type_error", f"Invalid scale value: {e}")
 
+    # Parse cache (can be "ram"/"disk" or a bool string)
+    cache_val: bool | str = False
+    cache_str = cache.strip().lower()
+    if cache_str in ("ram", "disk"):
+        cache_val = cache_str
+    elif cache_str in ("true", "1", "yes"):
+        cache_val = True
+
     # Parse resume (can be "true"/"false" or a path)
     resume_val: bool | str = False
     if resume:
@@ -329,6 +340,7 @@ def train_cmd(
         "imgsz": imgsz,
         "device": device,
         "workers": workers,
+        "cache": cache_val,
         "seed": seed,
         "resume": resume_val,
         "amp": amp,
