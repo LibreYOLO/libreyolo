@@ -20,6 +20,7 @@ fine-tuned (non-COCO) checkpoints convert correctly.
 
 from __future__ import annotations
 
+import argparse
 import logging
 from pathlib import Path
 from typing import Any, Optional, Tuple
@@ -28,7 +29,7 @@ import torch
 
 from ..tasks import task_to_suffix
 from ..utils.serialization import (
-    load_trusted_torch_file,
+    load_untrusted_torch_file,
     validate_checkpoint_metadata,
     wrap_libreyolo_checkpoint,
 )
@@ -37,6 +38,7 @@ logger = logging.getLogger(__name__)
 
 # Canonical filename prefixes per flagship family (see docs/nomenclature.md).
 _PREFIX = {"yolo9": "LibreYOLO9", "rfdetr": "LibreRFDETR"}
+_UPSTREAM_SAFE_GLOBALS = (argparse.Namespace,)
 
 
 def _plain_state_dict(loaded: Any) -> dict[str, torch.Tensor]:
@@ -54,6 +56,32 @@ def _plain_state_dict(loaded: Any) -> dict[str, torch.Tensor]:
     if state and all(k.startswith("model.model.") for k in state):
         state = {k[len("model.model."):]: v for k, v in state.items()}
     return state
+
+
+def _checkpoint_names(loaded: Any, nc: int | None = None) -> Any | None:
+    """Extract class names from common upstream checkpoint metadata."""
+    if not isinstance(loaded, dict):
+        return None
+    names = loaded.get("names")
+    if names is not None:
+        return names
+
+    args = loaded.get("args") or loaded.get("hyper_parameters") or {}
+    class_names = (
+        args.get("class_names")
+        if isinstance(args, dict)
+        else getattr(args, "class_names", None)
+    )
+    if class_names is None:
+        return None
+    if isinstance(class_names, dict):
+        names = {int(key): str(value) for key, value in class_names.items()}
+        if nc is not None:
+            return {key: value for key, value in names.items() if key < nc}
+        return names
+
+    names = list(class_names)
+    return names[:nc] if nc is not None else names
 
 
 def _canonical_path(source: Path, prefix: str, size: str, task: str) -> Path:
@@ -86,8 +114,14 @@ def _try_yolo9(loaded: Any) -> Optional[Tuple[dict, str, str, str]]:
 
     converted, _stats = convert_state_dict(state, config)
     nc = infer_nb_classes(state) or 80
+    names = _checkpoint_names(loaded, nc)
     wrapped = wrap_libreyolo_checkpoint(
-        converted, model_family="yolo9", size=config, task="detect", nc=nc,
+        converted,
+        model_family="yolo9",
+        size=config,
+        task="detect",
+        nc=nc,
+        names=names,
     )
     return wrapped, "yolo9", config, "detect"
 
@@ -131,7 +165,7 @@ def _try_rfdetr(loaded: Any) -> Optional[Tuple[dict, str, str, str]]:
         nc, names = 80, None
     else:
         nc = raw_nc if raw_nc else 80
-        names = loaded.get("names") if isinstance(loaded, dict) else None
+        names = _checkpoint_names(loaded, nc)
 
     wrapped = wrap_libreyolo_checkpoint(
         state, model_family="rfdetr", size=size, task=task, nc=nc, names=names,
@@ -163,8 +197,11 @@ def autoconvert_upstream_checkpoint(
 
     if loaded is None:
         try:
-            loaded = load_trusted_torch_file(
-                model_path, map_location="cpu", context="upstream weights"
+            loaded = load_untrusted_torch_file(
+                model_path,
+                map_location="cpu",
+                context="upstream weights",
+                safe_globals=_UPSTREAM_SAFE_GLOBALS,
             )
         except Exception as exc:  # noqa: BLE001 — any load failure means we can't help
             logger.debug("Auto-conversion could not load %s: %s", model_path, exc)

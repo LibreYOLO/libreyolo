@@ -48,6 +48,29 @@ def _extract_upstream_state_dict(weights) -> dict:
     return extract_state_dict(weights, state_dict_keys=("model",), prefer_ema=False)
 
 
+def _extract_names(weights, nc: int) -> object | None:
+    """Return class names from top-level or args metadata, when present."""
+    if not isinstance(weights, dict):
+        return None
+    names = weights.get("names")
+    if names is not None:
+        return names
+
+    args = weights.get("args") or weights.get("hyper_parameters") or {}
+    class_names = (
+        args.get("class_names")
+        if isinstance(args, dict)
+        else getattr(args, "class_names", None)
+    )
+    if class_names is None:
+        return None
+    if isinstance(class_names, dict):
+        names = {int(key): str(value) for key, value in class_names.items()}
+        return {key: value for key, value in names.items() if key < nc}
+
+    return list(class_names)[:nc]
+
+
 def convert_weights(
     input_path: str,
     output_path: str,
@@ -79,11 +102,12 @@ def convert_weights(
     print("  DFL projection is model-derived; no fixed DFL weights added")
 
     nc = infer_nb_classes(state_dict) or 80
+    names = _extract_names(weights, nc)
     print(f"  Class count (nc): {nc}")
 
     print(f"\nSaving converted weights to {output_path}")
     wrapped = wrap_libreyolo_checkpoint(
-        converted, model_family="yolo9", size=config, nc=nc,
+        converted, model_family="yolo9", size=config, nc=nc, names=names,
     )
     save_checkpoint(wrapped, output_path)
 

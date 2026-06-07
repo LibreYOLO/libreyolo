@@ -35,8 +35,9 @@ LibreYOLO("v9-t.pt")           # -> writes LibreYOLO9t.pt, then loads it
 LibreYOLO("rf-detr-nano.pth")  # -> writes LibreRFDETRn.pt, then loads it
 ```
 
-Class count and names are read from the upstream head, so fine-tuned (non-COCO)
-checkpoints convert correctly. The shared YOLO9 remapping lives in
+Class count is read from the upstream head, and class names are preserved from
+checkpoint metadata when present, so fine-tuned (non-COCO) checkpoints convert
+correctly. The shared YOLO9 remapping lives in
 [`libreyolo/models/yolo9/convert.py`](../libreyolo/models/yolo9/convert.py) and
 the runtime orchestration in
 [`libreyolo/models/autoconvert.py`](../libreyolo/models/autoconvert.py); the
@@ -109,8 +110,7 @@ Nature of the conversion:
 - remap sublayer names for ELAN, RepNCSPELAN, AConv, ADown, SPP, and detection
   heads
 - skip unsupported auxiliary-head weights
-- inject fixed DFL weights
-- save a flat converted `state_dict`
+- add LibreYOLO metadata required by schema v1.0
 
 This is the heaviest conversion in this folder because the upstream naming
 scheme and module structure differ substantially from LibreYOLO's.

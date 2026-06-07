@@ -15,6 +15,7 @@ if str(WEIGHTS_DIR) not in sys.path:
     sys.path.insert(0, str(WEIGHTS_DIR))
 
 import _conversion_utils as conversion_utils  # noqa: E402
+import convert_yolo9_weights  # noqa: E402
 
 
 class DummyModel:
@@ -112,3 +113,26 @@ def test_save_checkpoint_creates_parent_directory(tmp_path):
     assert output_path.exists()
     loaded = torch.load(output_path, map_location="cpu", weights_only=False)
     assert torch.equal(loaded["value"], torch.tensor([1.0]))
+
+
+def test_yolo9_converter_preserves_source_names(tmp_path):
+    input_path = tmp_path / "v9-t.pt"
+    output_path = tmp_path / "LibreYOLO9t.pt"
+    state_dict = {
+        "0.conv.weight": torch.zeros(16, 3, 3, 3),
+        "0.bn.weight": torch.zeros(16),
+        "22.heads.0.class_conv.2.weight": torch.zeros(3, 16, 1, 1),
+        "22.heads.0.class_conv.2.bias": torch.zeros(3),
+    }
+    torch.save(
+        {
+            "model": state_dict,
+            "names": ["bolt", "nut", "washer"],
+        },
+        input_path,
+    )
+
+    convert_yolo9_weights.convert_weights(str(input_path), str(output_path))
+
+    loaded = torch.load(output_path, map_location="cpu", weights_only=False)
+    assert loaded["names"] == {0: "bolt", 1: "nut", 2: "washer"}

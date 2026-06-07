@@ -26,6 +26,46 @@ def test_untrusted_load_uses_weights_only(monkeypatch):
     assert calls["kwargs"]["map_location"] == "cpu"
 
 
+def test_untrusted_load_uses_explicit_safe_globals(monkeypatch):
+    calls = {}
+
+    monkeypatch.setattr(serialization, "_supports_weights_only", lambda: True)
+
+    class SafeGlobalsContext:
+        def __init__(self, safe_globals):
+            calls["safe_globals"] = safe_globals
+
+        def __enter__(self):
+            calls["entered"] = True
+
+        def __exit__(self, exc_type, exc, tb):
+            calls["exited"] = True
+
+    class SerializationNamespace:
+        @staticmethod
+        def safe_globals(safe_globals):
+            return SafeGlobalsContext(safe_globals)
+
+    def fake_load(path, **kwargs):
+        calls["path"] = path
+        calls["kwargs"] = kwargs
+        return {"ok": True}
+
+    monkeypatch.setattr(serialization.torch, "serialization", SerializationNamespace)
+    monkeypatch.setattr(serialization.torch, "load", fake_load)
+
+    result = serialization.load_untrusted_torch_file(
+        "model.pt",
+        safe_globals=(dict,),
+    )
+
+    assert result == {"ok": True}
+    assert calls["safe_globals"] == [dict]
+    assert calls["entered"] is True
+    assert calls["exited"] is True
+    assert calls["kwargs"]["weights_only"] is True
+
+
 def test_trusted_load_uses_full_checkpoint_mode(monkeypatch):
     calls = {}
 

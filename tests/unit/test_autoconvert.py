@@ -5,11 +5,13 @@ in :mod:`libreyolo.models.autoconvert`, using tiny synthetic state dicts so the
 tests stay fast and need no external weights.
 """
 
+import argparse
 from pathlib import Path
 
 import pytest
 import torch
 
+from libreyolo.models import autoconvert as autoconvert_module
 from libreyolo.models.yolo9.convert import (
     convert_key,
     convert_state_dict,
@@ -99,7 +101,13 @@ def _synthetic_upstream_yolo9(nc: int) -> dict:
 class TestAutoconvertOrchestration:
     def test_converts_upstream_yolo9_with_custom_nc(self, tmp_path):
         src = tmp_path / "v9-t.pt"
-        torch.save(_synthetic_upstream_yolo9(nc=3), src)
+        torch.save(
+            {
+                "model": _synthetic_upstream_yolo9(nc=3),
+                "names": ["bolt", "nut", "washer"],
+            },
+            src,
+        )
 
         out = autoconvert_upstream_checkpoint(str(src))
 
@@ -112,8 +120,40 @@ class TestAutoconvertOrchestration:
         assert ckpt["model_family"] == "yolo9"
         assert ckpt["size"] == "t"
         assert ckpt["nc"] == 3
-        assert len(ckpt["names"]) == 3
+        assert ckpt["names"] == {0: "bolt", 1: "nut", 2: "washer"}
         assert "head.cv3.0.2.weight" in ckpt["model"]
+
+    def test_uses_safe_loader_when_checkpoint_is_not_preloaded(
+        self,
+        tmp_path,
+        monkeypatch,
+    ):
+        src = tmp_path / "maybe-rfdetr.pth"
+        src.write_bytes(b"not used")
+        calls = {}
+
+        def fake_safe_load(path, **kwargs):
+            calls["path"] = path
+            calls["kwargs"] = kwargs
+            return {"not": "upstream"}
+
+        monkeypatch.setattr(
+            autoconvert_module,
+            "load_untrusted_torch_file",
+            fake_safe_load,
+        )
+        monkeypatch.setattr(autoconvert_module, "_try_yolo9", lambda loaded: None)
+        monkeypatch.setattr(autoconvert_module, "_try_rfdetr", lambda loaded: None)
+
+        assert autoconvert_upstream_checkpoint(str(src)) is None
+        assert calls["path"] == str(src)
+        assert calls["kwargs"]["context"] == "upstream weights"
+        assert argparse.Namespace in calls["kwargs"]["safe_globals"]
+
+    def test_checkpoint_names_reads_args_class_names(self):
+        loaded = {"args": argparse.Namespace(class_names=["bolt", "nut", "washer"])}
+
+        assert autoconvert_module._checkpoint_names(loaded, nc=2) == ["bolt", "nut"]
 
     def test_returns_none_for_non_upstream_file(self, tmp_path):
         src = tmp_path / "random.pt"
