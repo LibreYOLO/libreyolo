@@ -33,6 +33,7 @@ _SUPPORTED_FAMILIES = {"yolox", "yolo9", "rtdetr", "rfdetr"}
 # layer (DETR set-prediction: top-k over queries × classes, no IoU step).
 _NMS_FREE_FAMILIES = {
     "rfdetr": "RF-DETR",
+    "rtdetr": "RT-DETR",
     "dfine": "D-FINE",
     "deim": "DEIM",
     "deimv2": "DEIMv2",
@@ -190,15 +191,6 @@ class _NMSOutputAdapter(nn.Module):
                 dim=-1,
             )
             confidence = pred[..., 4:]
-        elif self.model_family == "rtdetr":
-            if not isinstance(out, (tuple, list)) or len(out) < 2:
-                raise RuntimeError("RT-DETR CoreML NMS export expects two outputs")
-            first, second = out[0], out[1]
-            if first.shape[-1] == 4:
-                coordinates, logits = first, second
-            else:
-                logits, coordinates = first, second
-            confidence = torch.sigmoid(logits)
         else:
             raise NotImplementedError(
                 f"nms=True is not supported for model family {self.model_family!r}"
@@ -270,7 +262,8 @@ def export_coreml(
         precision: 'fp32' or 'fp16'.
         compute_units: 'all' | 'cpu_and_gpu' | 'cpu_and_ne' | 'cpu_only'.
         nms: If True, embed Apple's NonMaximumSuppression as a CoreML pipeline.
-            Not supported for DETR-style families (RF-DETR, D-FINE, DEIM, EC).
+            Not supported for DETR-style families (RT-DETR, RF-DETR, D-FINE,
+            DEIM, EC).
         iou: IoU threshold for embedded NMS (default 0.45). Ignored when nms=False.
         conf: Confidence threshold for embedded NMS (default 0.25). Ignored when nms=False.
         metadata: Dict of metadata to embed under user_defined_metadata.

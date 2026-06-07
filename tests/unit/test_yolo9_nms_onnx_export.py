@@ -52,7 +52,7 @@ def _set_unmatched(rows_a, rows_b, *, box_tol=1e-3, score_tol=1e-4):
     return unmatched
 
 
-def test_embedded_nms_caps_candidates_before_suppression(monkeypatch):
+def test_embedded_nms_caps_candidates_like_native_postprocess(monkeypatch):
     from libreyolo.export import nms as nms_mod
 
     monkeypatch.setattr(nms_mod, "_YOLO9_MAX_NMS_CANDIDATES", 3)
@@ -74,9 +74,29 @@ def test_embedded_nms_caps_candidates_before_suppression(monkeypatch):
     out = wrapped(torch.zeros(1, 3, 32, 32))[0].detach().numpy()
     det = out[out[:, 4] > 0]
 
-    assert det.shape[0] == 3
-    np.testing.assert_allclose(det[:, 4], [0.9, 0.8, 0.7])
-    np.testing.assert_array_equal(det[:, 5], [0.0, 1.0, 2.0])
+    assert det.shape[0] == 6
+    np.testing.assert_allclose(det[:, 4], [0.9, 0.8, 0.7, 0.6, 0.5, 0.4])
+    np.testing.assert_array_equal(det[:, 5], [0.0, 1.0, 2.0, 0.0, 1.0, 2.0])
+
+
+def test_embedded_nms_clips_to_input_canvas_before_suppression():
+    from libreyolo.export.nms import EmbeddedNMSDetector
+
+    raw = torch.zeros(1, 5, 2)
+    raw[0, :4, 0] = torch.tensor([0.0, 0.0, 1000.0, 1000.0])
+    raw[0, :4, 1] = torch.tensor([0.0, 0.0, 32.0, 32.0])
+    raw[0, 4, :] = torch.tensor([0.9, 0.8])
+
+    wrapped = EmbeddedNMSDetector(
+        _RawExportModel(raw), conf=0.1, iou=0.45, max_det=10
+    )
+
+    out = wrapped(torch.zeros(1, 3, 32, 32))[0].detach().numpy()
+    det = out[out[:, 4] > 0]
+
+    assert det.shape[0] == 1
+    np.testing.assert_allclose(det[0, :4], [0.0, 0.0, 32.0, 32.0])
+    assert det[0, 4] == pytest.approx(0.9)
 
 
 @pytest.mark.skipif(not _HAS_ORT, reason="onnx/onnxruntime not installed")
@@ -128,7 +148,7 @@ def test_yolo9_detect_onnx_nms_fp32_matches_postprocess(tmp_path):
         conf_thres=0.0,
         iou_thres=0.45,
         input_size=IMG,
-        original_size=None,
+        original_size=(IMG, IMG),
         max_det=MAX_DET,
     )
     ref_rows = np.concatenate(

@@ -905,6 +905,7 @@ class OnnxExporter(BaseExporter):
                     preprocessed_path=preprocessed_path,
                     calibrate_method=calibrate_method,
                     nodes_to_exclude=nodes_to_exclude,
+                    skip_symbolic_shape=nms,
                 )
 
         return export_onnx(
@@ -1176,6 +1177,29 @@ class CoreMLExporter(BaseExporter):
     supports_fp16 = True
     apply_model_half = False  # ct.convert handles precision via compute_precision
     supports_embedded_nms = True
+
+    def _preflight(self, *, half: bool, int8: bool, data: Optional[str], **kwargs):
+        if kwargs.get("nms"):
+            family = self.model._get_model_name()
+            task = getattr(self.model, "task", "detect")
+            if not isinstance(task, str):
+                task = "detect"
+            if family == "yolo9" and task != "detect":
+                raise NotImplementedError(
+                    "CoreML embedded NMS currently supports YOLO9 detection "
+                    "models only."
+                )
+            if family not in {"yolox", "yolo9"}:
+                raise NotImplementedError(
+                    "CoreML embedded NMS currently supports YOLOX and YOLO9 "
+                    "detection models only."
+                )
+            if kwargs.get("max_det", 300) != 300:
+                raise NotImplementedError(
+                    "CoreML embedded NMS does not support max_det. "
+                    "Use ONNX embedded NMS when max_det control is required."
+                )
+        super()._preflight(half=half, int8=int8, data=data, **kwargs)
 
     def _export(
         self,

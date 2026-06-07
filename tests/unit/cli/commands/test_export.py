@@ -69,7 +69,6 @@ def test_export_cli_allows_coreml_embedded_nms(monkeypatch, tmp_path):
             "nms=true",
             "conf=0.2",
             "iou=0.4",
-            "max_det=12",
             "--json",
         ],
     )
@@ -82,3 +81,25 @@ def test_export_cli_allows_coreml_embedded_nms(monkeypatch, tmp_path):
     assert captured["kwargs"]["conf"] == 0.2
     assert captured["kwargs"]["iou"] == 0.4
     assert "max_det" not in captured["kwargs"]
+
+
+def test_export_cli_rejects_coreml_max_det(monkeypatch):
+    from libreyolo.cli.commands import export
+
+    monkeypatch.setattr(export, "resolve_model_or_exit", lambda out, model: model)
+
+    result = runner.invoke(
+        _build_app(),
+        [
+            "model=dummy.pt",
+            "format=coreml",
+            "nms=true",
+            "max_det=12",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 2
+    data = _parse_json_output(result.output)
+    assert data["error"] == "config_unsupported"
+    assert "max_det is only supported for ONNX" in data["message"]

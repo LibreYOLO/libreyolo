@@ -394,6 +394,7 @@ def quantize_onnx_int8(
     calibrate_method: str = "MinMax",
     nodes_to_exclude: list[str] | None = None,
     op_types_to_quantize: list[str] | None = None,
+    skip_symbolic_shape: bool = False,
 ) -> str:
     """Quantize an FP32 ONNX model to QDQ INT8 with float32 inputs/outputs."""
     check_onnx_int8_available()
@@ -407,7 +408,11 @@ def quantize_onnx_int8(
             "Pass data='path/to/data.yaml' or omit data to use coco8.yaml."
         )
 
-    quant_pre_process(fp32_path, preprocessed_path)
+    quant_pre_process(
+        fp32_path,
+        preprocessed_path,
+        skip_symbolic_shape=skip_symbolic_shape,
+    )
     reader = _CalibrationDataReader(
         calibration_data,
         input_name=_first_input_name(preprocessed_path),

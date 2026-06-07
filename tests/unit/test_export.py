@@ -130,9 +130,37 @@ class TestExporterFormats:
             exporter._preflight(half=False, int8=False, data=None, nms=True)
 
     def test_coreml_exporter_accepts_embedded_nms_preflight(self):
-        exporter = CoreMLExporter(_make_wrapper())
+        wrapper = _make_wrapper(model_name="yolo9")
+        wrapper.task = "detect"
+        exporter = CoreMLExporter(wrapper)
 
         exporter._preflight(half=False, int8=False, data=None, nms=True)
+
+    def test_coreml_embedded_nms_preflight_rejects_rtdetr(self):
+        wrapper = _make_wrapper(model_name="rtdetr")
+        wrapper.task = "detect"
+        exporter = CoreMLExporter(wrapper)
+
+        with pytest.raises(NotImplementedError, match="YOLOX and YOLO9"):
+            exporter._preflight(half=False, int8=False, data=None, nms=True)
+
+    def test_coreml_embedded_nms_preflight_rejects_yolo9_segment(self):
+        wrapper = _make_wrapper(model_name="yolo9")
+        wrapper.task = "segment"
+        exporter = CoreMLExporter(wrapper)
+
+        with pytest.raises(NotImplementedError, match="YOLO9 detection"):
+            exporter._preflight(half=False, int8=False, data=None, nms=True)
+
+    def test_coreml_embedded_nms_preflight_rejects_max_det(self):
+        wrapper = _make_wrapper(model_name="yolo9")
+        wrapper.task = "detect"
+        exporter = CoreMLExporter(wrapper)
+
+        with pytest.raises(NotImplementedError, match="does not support max_det"):
+            exporter._preflight(
+                half=False, int8=False, data=None, nms=True, max_det=12
+            )
 
     def test_onnx_embedded_nms_preflight_rejects_non_yolo9_detect(self):
         exporter = OnnxExporter(_make_wrapper(model_name="yolox"))

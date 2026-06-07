@@ -51,7 +51,12 @@ class EmbeddedNMSDetector(nn.Module):
         raw = self.model(x)
         # (B, 4 + nc, N) -> (N, 4 + nc); batch-1 graph. Suppression in float32.
         pred = raw[0].transpose(0, 1).float()
-        boxes_all = pred[:, :4]  # (N, 4) xyxy, input pixels
+        boxes_raw = pred[:, :4]  # (N, 4) xyxy, input pixels
+        x1 = boxes_raw[:, 0].clamp(min=0.0, max=float(x.shape[-1]))
+        y1 = boxes_raw[:, 1].clamp(min=0.0, max=float(x.shape[-2]))
+        x2 = boxes_raw[:, 2].clamp(min=0.0, max=float(x.shape[-1]))
+        y2 = boxes_raw[:, 3].clamp(min=0.0, max=float(x.shape[-2]))
+        boxes_all = torch.stack((x1, y1, x2, y2), dim=1)
         scores_all = pred[:, 4:]  # (N, nc) per-class probabilities
 
         # Multi-label candidate selection: every (anchor, class) pair scoring
@@ -61,7 +66,10 @@ class EmbeddedNMSDetector(nn.Module):
         # NonMaxSuppression input for low-conf exports.
         flat_scores = scores_all.reshape(-1)
         num_classes = scores_all.shape[1]
-        max_nms = min(flat_scores.shape[0], _YOLO9_MAX_NMS_CANDIDATES)
+        max_nms = min(
+            flat_scores.shape[0],
+            max(self.max_det, _YOLO9_MAX_NMS_CANDIDATES),
+        )
         top_scores, top_flat_idx = torch.topk(flat_scores, max_nms)
         score_mask = top_scores > self.conf
         top_scores = top_scores[score_mask]
@@ -73,11 +81,17 @@ class EmbeddedNMSDetector(nn.Module):
         cand_boxes = boxes_all[anchor_idx]  # (K, 4)
         cand_scores = top_scores  # (K,)
         cand_cls = class_idx.to(boxes_all.dtype)  # (K,)
+        valid_boxes = (cand_boxes[:, 2] > cand_boxes[:, 0]) & (
+            cand_boxes[:, 3] > cand_boxes[:, 1]
+        )
+        cand_boxes = cand_boxes[valid_boxes]
+        cand_scores = cand_scores[valid_boxes]
+        cand_cls = cand_cls[valid_boxes]
 
         # Class-aware NMS via the coordinate-offset trick. The per-class step is
-        # derived from the actual decoded box range (over all N anchors — a
-        # fixed, non-empty set), so different classes never overlap after the
-        # shift even when boxes extend beyond the image border.
+        # derived from the clipped input-canvas range, so different classes never
+        # overlap after the shift and suppression matches native canvas-clipped
+        # post-processing for the exported graph's static input.
         lo = boxes_all.min()
         step = (boxes_all.max() - lo).clamp(min=1.0) + 1.0
         nmsbox = (cand_boxes - lo) + cand_cls[:, None] * step

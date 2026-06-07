@@ -245,6 +245,22 @@ class TestNMSWrap:
                 model_family="rfdetr",
             )
 
+    def test_rtdetr_raises(self, tmp_path, monkeypatch):
+        _patch_ct(monkeypatch)
+        from libreyolo.export.coreml import export_coreml
+
+        with pytest.raises(NotImplementedError, match="RT-DETR"):
+            export_coreml(
+                _DummyModel().eval(),
+                torch.randn(1, 3, 640, 640),
+                output_path=str(tmp_path / "m.mlpackage"),
+                precision="fp32",
+                compute_units="all",
+                nms=True,
+                metadata={"model_family": "rtdetr"},
+                model_family="rtdetr",
+            )
+
     def test_yolox_calls_pipeline(self, tmp_path, monkeypatch):
         fake, mlmodel = _patch_ct(monkeypatch)
 

@@ -79,6 +79,13 @@ def export_cmd(
     if nms and fmt == "onnx" and dynamic:
         out.warning("Embedded ONNX NMS uses a fixed batch-1 graph. Using dynamic=False.")
         dynamic = False
+    if nms and fmt == "coreml" and max_det != 300:
+        exit_with_error(
+            out,
+            "config_unsupported",
+            "max_det is only supported for ONNX embedded NMS; CoreML embedded "
+            "NMS does not expose max_det.",
+        )
 
     model_path = resolve_model_or_exit(out, model)
 
