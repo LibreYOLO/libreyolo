@@ -7,7 +7,7 @@ import random
 import cv2
 import numpy as np
 
-from ...training.augment import (
+from ...data.augment import (
     adjust_box_anns,
     augment_hsv,
     mirror,

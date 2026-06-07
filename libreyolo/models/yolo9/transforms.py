@@ -10,21 +10,8 @@ import random
 import cv2
 import numpy as np
 
+from libreyolo.data.augment import augment_hsv, get_mosaic_coordinate, mirror
 from libreyolo.data.obb import normalize_obb_angle
-
-
-def augment_hsv(img, hgain=5, sgain=30, vgain=30):
-    """Apply HSV augmentation to an image."""
-    hsv_augs = np.random.uniform(-1, 1, 3) * [hgain, sgain, vgain]
-    hsv_augs *= np.random.randint(0, 2, 3)
-    hsv_augs = hsv_augs.astype(np.int16)
-    img_hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV).astype(np.int16)
-
-    img_hsv[..., 0] = (img_hsv[..., 0] + hsv_augs[0]) % 180
-    img_hsv[..., 1] = np.clip(img_hsv[..., 1] + hsv_augs[1], 0, 255)
-    img_hsv[..., 2] = np.clip(img_hsv[..., 2] + hsv_augs[2], 0, 255)
-
-    cv2.cvtColor(img_hsv.astype(img.dtype), cv2.COLOR_HSV2BGR, dst=img)
 
 
 def preproc(img, input_size, swap=(2, 0, 1)):
@@ -48,15 +35,6 @@ def preproc(img, input_size, swap=(2, 0, 1)):
     padded_img = padded_img.transpose(swap)
     padded_img = np.ascontiguousarray(padded_img, dtype=np.float32) / 255.0
     return padded_img, r
-
-
-def mirror(image, boxes, prob=0.5):
-    """Apply horizontal flip with probability."""
-    _, width, _ = image.shape
-    if random.random() < prob:
-        image = image[:, ::-1]
-        boxes[:, 0::2] = width - boxes[:, 2::-2]
-    return image, boxes
 
 
 def _copy_segments(segments):
@@ -459,23 +437,9 @@ class YOLO9MosaicMixupDataset:
             h, w = img.shape[:2]
 
             # Get placement coordinates
-            if i == 0:  # top left
-                x1a, y1a, x2a, y2a = max(xc - w, 0), max(yc - h, 0), xc, yc
-                x1b, y1b, x2b, y2b = w - (x2a - x1a), h - (y2a - y1a), w, h
-            elif i == 1:  # top right
-                x1a, y1a, x2a, y2a = xc, max(yc - h, 0), min(xc + w, input_w * 2), yc
-                x1b, y1b, x2b, y2b = 0, h - (y2a - y1a), min(w, x2a - x1a), h
-            elif i == 2:  # bottom left
-                x1a, y1a, x2a, y2a = max(xc - w, 0), yc, xc, min(yc + h, input_h * 2)
-                x1b, y1b, x2b, y2b = w - (x2a - x1a), 0, w, min(y2a - y1a, h)
-            else:  # bottom right
-                x1a, y1a, x2a, y2a = (
-                    xc,
-                    yc,
-                    min(xc + w, input_w * 2),
-                    min(yc + h, input_h * 2),
-                )
-                x1b, y1b, x2b, y2b = 0, 0, min(w, x2a - x1a), min(y2a - y1a, h)
+            (x1a, y1a, x2a, y2a), (x1b, y1b, x2b, y2b) = get_mosaic_coordinate(
+                mosaic_img, i, xc, yc, w, h, input_h, input_w
+            )
 
             mosaic_img[y1a:y2a, x1a:x2a] = img[y1b:y2b, x1b:x2b]
             padw = x1a - x1b

@@ -21,7 +21,7 @@ from typing import Optional, Sequence
 import cv2
 import numpy as np
 
-from ...training.augment import augment_hsv
+from ...data.augment import augment_hsv
 from .utils import YOLO_NAS_POSE_PAD_VALUE, YOLO_NAS_POSE_RESIZE_SIZE
 
 _AFFINE_INTERPOLATIONS = {
