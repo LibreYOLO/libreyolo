@@ -31,8 +31,9 @@ class LibreFaceEmbedder:
     Args:
         model_path: Path to a face-recognition ONNX model that maps an
             ``(N, 3, 112, 112)`` aligned-face batch to ``(N, D)`` embeddings.
-        preproc: A ``PreprocCfg``, a preset name (``"arcface"`` | ``"sface"``),
-            or ``None`` (defaults to ArcFace: RGB, ``(x-127.5)/127.5``).
+        preproc: A ``PreprocCfg``, a preset name (``"arcface"`` | ``"raw_bgr"``),
+            or ``None`` (defaults to the ArcFace convention: RGB,
+            ``(x-127.5)/127.5``).
         device: ``"auto"`` | ``"cpu"`` | ``"cuda"``.
         face_detector: Optional default detector (a callable, a LibreYOLO
             detection model, or a ``FaceDetector``). May also be supplied per
@@ -58,7 +59,7 @@ class LibreFaceEmbedder:
         except ImportError as e:  # pragma: no cover - env dependent
             raise ImportError(
                 "Face embedding requires onnxruntime. "
-                'Install with: pip install "libreyolo[facerec]"'
+                'Install with: pip install "libreyolo[onnx]"'
             ) from e
 
         if not Path(model_path).exists():

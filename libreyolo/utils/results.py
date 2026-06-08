@@ -586,7 +586,8 @@ class Embeddings(_TensorPayload):
     """Per-face L2-normalized identity embeddings for a single image.
 
     Data shape: ``(N, D)`` where ``D`` is the model's embedding dimension
-    (e.g. 512 for ArcFace, 128 for SFace). Each row is L2-normalized by the
+    (e.g. 512 for an ArcFace/iResNet head, 128 for a MobileFaceNet-style head).
+    Each row is L2-normalized by the
     inference runner and aligned row-by-row with the parent ``Results.boxes``
     (the face boxes), exactly like ``Gaze``. Cosine similarity between two
     normalized rows is their dot product, so identity verification is a

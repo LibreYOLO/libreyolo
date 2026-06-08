@@ -30,12 +30,13 @@ class PreprocCfg:
         return cls(size=112, color_order="RGB", mean=127.5, scale=1.0 / 127.5)
 
     @classmethod
-    def sface(cls) -> "PreprocCfg":
-        # MobileFaceNet/SFace-style raw ONNX (128-d): BGR, [0, 255], no normalization.
+    def raw_bgr(cls) -> "PreprocCfg":
+        # Raw BGR convention (e.g. some MobileFaceNet-style 128-d heads):
+        # BGR, [0, 255], no normalization.
         return cls(size=112, color_order="BGR", mean=0.0, scale=1.0)
 
 
-_NAMED = {"arcface": PreprocCfg.arcface, "sface": PreprocCfg.sface}
+_NAMED = {"arcface": PreprocCfg.arcface, "raw_bgr": PreprocCfg.raw_bgr}
 
 
 def resolve_preproc(spec) -> PreprocCfg:
