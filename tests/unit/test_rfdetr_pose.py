@@ -25,6 +25,18 @@ def test_rfdetr_pose_download_url_and_notice():
         "LibreRFDETRn-pose.pt",
         url,
     )
+    assert "EXTREMELY experimental" in LibreRFDETR.get_download_notice(
+        "LibreRFDETRs-pose.pt",
+        LibreRFDETR.get_download_url("LibreRFDETRs-pose.pt"),
+    )
+    assert "EXTREMELY experimental" in LibreRFDETR.get_download_notice(
+        "LibreRFDETRm-pose.pt",
+        LibreRFDETR.get_download_url("LibreRFDETRm-pose.pt"),
+    )
+    assert "EXTREMELY experimental" in LibreRFDETR.get_download_notice(
+        "LibreRFDETRl-pose.pt",
+        LibreRFDETR.get_download_url("LibreRFDETRl-pose.pt"),
+    )
     assert LibreRFDETR.get_download_notice("LibreRFDETRn.pt", url) is None
 
 
