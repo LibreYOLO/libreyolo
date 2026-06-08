@@ -7,8 +7,10 @@ from pathlib import Path
 from typing import Iterable, Literal
 
 
-TaskType = Literal["detect", "segment", "pose", "classify", "gaze", "obb", "point"]
-TASKS = ("detect", "segment", "pose", "classify", "gaze", "obb", "point")
+TaskType = Literal[
+    "detect", "segment", "pose", "classify", "gaze", "obb", "point", "embed"
+]
+TASKS = ("detect", "segment", "pose", "classify", "gaze", "obb", "point", "embed")
 
 TASK_ALIASES = {
     "detect": "detect",
@@ -29,6 +31,20 @@ TASK_ALIASES = {
     "gaze_estimation": "gaze",
     "obb": "obb",
     "point": "point",
+    # Face-embedding / facial recognition. Canonical is the single-word
+    # ``embed`` (matching the family's other single-word task names and the
+    # short filename suffix), with the human-facing terms routed to it.
+    "embed": "embed",
+    "embedding": "embed",
+    "embeddings": "embed",
+    "facial-recognition": "embed",
+    "facial_recognition": "embed",
+    "face-recognition": "embed",
+    "face_recognition": "embed",
+    "recognition": "embed",
+    "face": "embed",
+    "faceid": "embed",
+    "reid": "embed",
 }
 
 TASK_TO_SUFFIX = {
@@ -38,6 +54,7 @@ TASK_TO_SUFFIX = {
     "gaze": "gaze",
     "obb": "obb",
     "point": "point",
+    "embed": "embed",
 }
 
 SUFFIX_TO_TASK = {v: k for k, v in TASK_TO_SUFFIX.items()}

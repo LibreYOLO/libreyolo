@@ -245,6 +245,16 @@ def LibreYOLO(
 
     # Non-PyTorch formats: delegate to inference backends
     if model_path.endswith(".onnx"):
+        # Face embedding (facial-recognition) is an inference-only, two-stage
+        # ONNX task with no detection-shaped output, so it routes to its own
+        # runner rather than the detection ONNX backend.
+        from ..tasks import normalize_task
+
+        if task is not None and normalize_task(task) == "embed":
+            from .facerec import LibreFaceEmbedder
+
+            return LibreFaceEmbedder(model_path, device=device)
+
         from ..backends.onnx import OnnxBackend
 
         return OnnxBackend(
@@ -617,5 +627,16 @@ __all__ = [
     "LibreRTDETR",
     "LibreRTDETRv2",
     "LibreRTDETRv4",
+    "LibreFaceEmbedder",
     "try_ensure_rfdetr",
 ]
+
+
+def __getattr__(name):
+    # Lazy export so importing the face-embedding family (and its optional
+    # onnxruntime dependency) only happens on first use.
+    if name == "LibreFaceEmbedder":
+        from .facerec import LibreFaceEmbedder
+
+        return LibreFaceEmbedder
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

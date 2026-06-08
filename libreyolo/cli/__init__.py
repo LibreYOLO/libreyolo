@@ -85,6 +85,10 @@ def entrypoint() -> None:
     for cmd_name in ("version", "checks", "models", "formats", "cfg", "info", "metadata"):
         app.command(cmd_name, cls=KeyValueCommand)(getattr(special, f"{cmd_name}_cmd"))
 
+    # Face-embedding verification (facial-recognition): compare two images.
+    app.command("compare", cls=KeyValueCommand)(special.compare_cmd)
+    app.command("verify", cls=KeyValueCommand)(special.compare_cmd)
+
     # Core mode commands
     app.command("predict", cls=KeyValueCommand)(predict.predict_cmd)
     app.command("train", cls=KeyValueCommand)(train.train_cmd)

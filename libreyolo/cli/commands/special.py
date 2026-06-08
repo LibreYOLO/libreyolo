@@ -6,7 +6,12 @@ from typing import Any, Optional
 
 import typer
 
-from ..command_utils import load_model_or_exit, resolve_model_or_exit
+from ..command_utils import (
+    exit_stage_error,
+    exit_with_error,
+    load_model_or_exit,
+    resolve_model_or_exit,
+)
 from ..output import OutputHandler
 
 
@@ -15,6 +20,88 @@ from ..output import OutputHandler
 # =========================================================================
 def _get_output(json_output: bool, quiet: bool) -> OutputHandler:
     return OutputHandler(json_mode=json_output, quiet=quiet)
+
+
+def _resolve_embed_face_detector(out: OutputHandler, face_detector: Optional[str], device: str):
+    """Resolve a face detector for the two-stage face-embedding task.
+
+    Accepts an OpenCV face-detector ``.onnx`` (wrapped as a 5-landmark
+    ``OpenCVFaceDetector``) or a LibreYOLO detector checkpoint/name (wrapped via
+    ``resolve_face_detector``).
+    """
+    if face_detector is None:
+        exit_with_error(
+            out,
+            "config_unsupported",
+            "Face-embedding (facial-recognition) is two-stage and needs a face "
+            "detector. Pass --face-detector <model> (an OpenCV face-detector .onnx "
+            "or a LibreYOLO detector trained on faces).",
+            suggestion="e.g. --face-detector path/to/facedet.onnx",
+        )
+    if str(face_detector).lower().endswith(".onnx"):
+        from libreyolo.models.facerec import OpenCVFaceDetector
+
+        return OpenCVFaceDetector(face_detector)
+    fd_path = resolve_model_or_exit(out, face_detector)
+    fd_model = load_model_or_exit(
+        out, model=face_detector, model_path=fd_path, device=device
+    )
+    from libreyolo.models.l2cs.face import resolve_face_detector
+
+    return resolve_face_detector(fd_model)
+
+
+def compare_cmd(
+    model: str = typer.Option(..., help="Face-embedding model (path or name)"),
+    source: str = typer.Option(..., help="First image"),
+    source2: str = typer.Option(..., help="Second image to compare against"),
+    face_detector: Optional[str] = typer.Option(
+        None, "--face-detector", help="Face detector (YuNet .onnx or LibreYOLO detector)"
+    ),
+    threshold: float = typer.Option(
+        0.4, help="Cosine-similarity threshold for the same-identity decision"
+    ),
+    device: str = typer.Option("auto", help="Device: 0, cpu, mps, auto"),
+    json_output: bool = typer.Option(False, "--json", help="JSON output to stdout"),
+    quiet: bool = typer.Option(False, "--quiet", help="Suppress stderr"),
+) -> None:
+    """Verify whether two face images are the same identity (cosine similarity)."""
+    out = _get_output(json_output, quiet)
+
+    for label, src in (("source", source), ("source2", source2)):
+        if not Path(src).exists() and not str(src).startswith(("http://", "https://")):
+            exit_with_error(out, "source_not_found", f"{label} not found: {src}")
+
+    model_path = resolve_model_or_exit(out, model)
+    loaded = load_model_or_exit(
+        out, model=model, model_path=model_path, device=device, task="facial-recognition"
+    )
+    if getattr(loaded, "task", None) != "embed":
+        exit_with_error(
+            out,
+            "config_unsupported",
+            "compare requires a face-embedding model (task=facial-recognition).",
+        )
+    loaded.face_detector = _resolve_embed_face_detector(out, face_detector, device)
+
+    try:
+        res = loaded.verify(source, source2, threshold=threshold)
+    except Exception as exc:  # no face / runtime error
+        exit_stage_error(out, stage="compare", detail=exc, code="config_unsupported")
+
+    similarity = round(float(res["similarity"]), 4)
+    data = {
+        "similarity": similarity,
+        "same_person": bool(res["same_person"]),
+        "threshold": threshold,
+    }
+    if not json_output:
+        verdict = "SAME person" if data["same_person"] else "DIFFERENT people"
+        data["_human_text"] = (
+            f"cosine similarity: {similarity:.4f}  ->  {verdict} "
+            f"(threshold {threshold})"
+        )
+    out.result(data)
 
 
 def _metadata_value_for_cli(value: Any) -> Any:

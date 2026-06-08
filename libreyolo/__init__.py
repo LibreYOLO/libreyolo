@@ -22,7 +22,7 @@ from .models import (
     LibreRTMDet,
     LibreL2CS,
 )
-from .utils.results import Results, Boxes, Masks, Keypoints, Points, Probs, OBB, Gaze
+from .utils.results import Results, Boxes, Masks, Keypoints, Points, Probs, OBB, Gaze, Embeddings
 
 SAMPLE_IMAGE = str(_Path(__file__).parent / "assets" / "parkour.jpg")
 
@@ -134,6 +134,7 @@ __all__ = [
     "Probs",
     "OBB",
     "Gaze",
+    "Embeddings",
     # Assets
     "SAMPLE_IMAGE",
     # Tracking

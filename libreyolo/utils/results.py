@@ -582,10 +582,81 @@ class Gaze(_TensorPayload):
         )
 
 
+class Embeddings(_TensorPayload):
+    """Per-face L2-normalized identity embeddings for a single image.
+
+    Data shape: ``(N, D)`` where ``D`` is the model's embedding dimension
+    (e.g. 512 for ArcFace, 128 for SFace). Each row is L2-normalized by the
+    inference runner and aligned row-by-row with the parent ``Results.boxes``
+    (the face boxes), exactly like ``Gaze``. Cosine similarity between two
+    normalized rows is their dot product, so identity verification is a
+    threshold on ``.similarity(...)``.
+    """
+
+    def __init__(self, data: TensorLike, orig_shape: Tuple[int, int] | None = None):
+        if data.ndim == 1:
+            if isinstance(data, torch.Tensor):
+                data = data.unsqueeze(0)
+            else:
+                data = data[None, :]
+        if data.ndim != 2:
+            raise ValueError(
+                f"expected (N, D) embeddings, got shape {tuple(data.shape)}"
+            )
+        super().__init__(data, orig_shape)
+
+    @property
+    def dim(self) -> int:
+        return int(self.data.shape[-1])
+
+    @property
+    def normalized(self) -> TensorLike:
+        """Defensive re-L2-normalization of each row."""
+        d = self.data
+        if isinstance(d, torch.Tensor):
+            return d / d.norm(dim=-1, keepdim=True).clamp_min(1e-10)
+        norm = np.linalg.norm(d, axis=-1, keepdims=True)
+        return d / np.clip(norm, 1e-10, None)
+
+    def similarity(self, other: "Embeddings | TensorLike") -> TensorLike:
+        """Cosine similarity of these rows against ``other``.
+
+        Returns ``(N, M)`` for an ``(M, D)`` gallery (or another Embeddings),
+        or ``(N,)`` for a single ``(D,)`` vector.
+        """
+        a = self.normalized
+        b = other.normalized if isinstance(other, Embeddings) else other
+        single = getattr(b, "ndim", 2) == 1
+        if isinstance(a, torch.Tensor):
+            b = b if isinstance(b, torch.Tensor) else torch.as_tensor(b, dtype=a.dtype, device=a.device)
+            b = b.reshape(1, -1) if single else b
+            b = b / b.norm(dim=-1, keepdim=True).clamp_min(1e-10)
+            sim = a @ b.T
+        else:
+            b = b if isinstance(b, np.ndarray) else _numpy(b)
+            b = b.reshape(1, -1) if single else b
+            b = b / np.clip(np.linalg.norm(b, axis=-1, keepdims=True), 1e-10, None)
+            sim = a @ b.T
+        return sim[:, 0] if single else sim
+
+    def verify(self, i: int, j: int, threshold: float = 0.4) -> bool:
+        """Whether face rows ``i`` and ``j`` are the same identity."""
+        sim = self.similarity(self.data[j])
+        return bool(float(sim[i]) >= threshold)
+
+    def __repr__(self) -> str:
+        return (
+            f"Embeddings(n={len(self)}, dim={self.dim}, "
+            f"shape={tuple(self.data.shape)})"
+        )
+
+
 class Results:
     """Single-image result with flat detection/segmentation slots."""
 
-    _keys = ("boxes", "masks", "probs", "keypoints", "obb", "gaze", "points")
+    _keys = (
+        "boxes", "masks", "probs", "keypoints", "obb", "gaze", "points", "embeddings",
+    )
 
     def __init__(
         self,
@@ -599,6 +670,7 @@ class Results:
         obb: Optional[OBB] = None,
         gaze: Optional[Gaze] = None,
         points: Optional[Points] = None,
+        embeddings: Optional[Embeddings] = None,
         speed: Optional[Dict[str, float]] = None,
         track_id: Optional[TensorLike] = None,
         frame_idx: Optional[int] = None,
@@ -617,6 +689,7 @@ class Results:
         self.obb = obb
         self.gaze = gaze
         self.points = points
+        self.embeddings = embeddings
         self.orig_shape = orig_shape
         self.path = path
         self.names = names or {}
@@ -636,6 +709,7 @@ class Results:
             "obb": self.obb,
             "gaze": self.gaze,
             "points": self.points,
+            "embeddings": self.embeddings,
             "speed": dict(self.speed),
             "track_id": self.track_id,
             "frame_idx": self.frame_idx,
@@ -687,6 +761,7 @@ class Results:
         obb: Optional[OBB] = None,
         gaze: Optional[Gaze] = None,
         points: Optional[Points] = None,
+        embeddings: Optional[Embeddings] = None,
         track_id: Optional[TensorLike] = None,
     ) -> "Results":
         if boxes is not None:
@@ -703,13 +778,20 @@ class Results:
             self.gaze = gaze
         if points is not None:
             self.points = points if points.orig_shape is not None else Points(points.data, self.orig_shape)
+        if embeddings is not None:
+            self.embeddings = embeddings
         if track_id is not None:
             self.track_id = track_id
             if self.boxes is not None:
                 self.boxes = self.boxes.with_id(track_id)
         return self
 
-    def summary(self, normalize: bool = False, decimals: int = 5) -> List[Dict[str, Any]]:
+    def summary(
+        self,
+        normalize: bool = False,
+        decimals: int = 5,
+        embeddings: bool = False,
+    ) -> List[Dict[str, Any]]:
         if self.boxes is None:
             if self.points is not None:
                 points_np = self.points.numpy()
@@ -800,6 +882,13 @@ class Results:
                     "pitch_deg": round(float(gaze_np.data[i, 0]) * 180.0 / math.pi, decimals),
                     "yaw_deg": round(float(gaze_np.data[i, 1]) * 180.0 / math.pi, decimals),
                 }
+            if self.embeddings is not None and i < len(self.embeddings):
+                emb = self.embeddings.numpy() if isinstance(self.embeddings.data, torch.Tensor) else self.embeddings
+                # A 512-float vector is ~2 KB/face — omit it from summaries by
+                # default and surface only its dimension; opt in with embeddings=True.
+                row["embedding_dim"] = int(emb.dim)
+                if embeddings:
+                    row["embedding"] = [round(float(v), decimals) for v in emb.data[i]]
             if track_ids is not None:
                 row["track_id"] = int(track_ids[i])
             rows.append(row)
@@ -813,6 +902,8 @@ class Results:
             return len(self.boxes)
         if self.points is not None:
             return len(self.points)
+        if self.embeddings is not None:
+            return len(self.embeddings)
         if self.probs is not None:
             return 1
         return 0
