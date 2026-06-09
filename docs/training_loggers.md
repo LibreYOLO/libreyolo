@@ -73,10 +73,16 @@ pip install libreyolo[mlflow]
 
 `MLflowLogger(tracking_uri=None, experiment_name=None, run_name=None,
 log_artifacts=True, log_checkpoints=False)` — the tracking URI falls
-back to `MLFLOW_TRACKING_URI`, then a local `mlruns/` directory. At
+back to `MLFLOW_TRACKING_URI`, then MLflow's default local store. At
 train end it uploads `results.csv`, `train_config.yaml` and
 `summary.json` (plus `weights/best.pt` with `log_checkpoints=True`) and
 closes the run as FINISHED, or FAILED if training raised.
+
+Note: MLflow 3.x deprecated the local `./mlruns` file store and raises
+unless `MLFLOW_ALLOW_FILE_STORE=true`. For server-less local tracking
+pass a database URI instead, e.g.
+`MLflowLogger(tracking_uri="sqlite:///mlflow.db")`, and view it with
+`mlflow ui --backend-store-uri sqlite:///mlflow.db`.
 
 ### Weights & Biases
 
