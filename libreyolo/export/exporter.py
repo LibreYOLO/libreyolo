@@ -228,6 +228,13 @@ class BaseExporter(ABC):
                 "Export for point-task models is not implemented yet. "
                 "Add a point-aware export/runtime contract before exporting point models."
             )
+        if getattr(self.model, "task", "detect") == "semantic":
+            raise NotImplementedError(
+                "Export for semantic-segmentation models is not implemented yet. "
+                "Add a semantic-aware export/runtime contract (dense logits "
+                "output plus backend argmax parsing) before exporting semantic "
+                "models."
+            )
         half, int8 = self._validate(half, int8, data)
         self._preflight(half=half, int8=int8, data=data, **kwargs)
         data = self._resolve_calibration_data(int8, data)
