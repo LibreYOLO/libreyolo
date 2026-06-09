@@ -19,7 +19,7 @@ from libreyolo.training.scheduler import (
     CosineAnnealingScheduler,
     LinearLRScheduler,
 )
-from libreyolo.models.yolo9.transforms import (
+from libreyolo.data.augment.yolo9 import (
     YOLO9TrainTransform,
     YOLO9MosaicMixupDataset,
 )

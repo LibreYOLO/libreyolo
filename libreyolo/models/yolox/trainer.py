@@ -11,7 +11,7 @@ from typing import Dict, Type
 from libreyolo.training.trainer import BaseTrainer
 from libreyolo.training.config import TrainConfig, YOLOXConfig
 from ...training.scheduler import WarmupCosineScheduler
-from ...training.augment import TrainTransform, MosaicMixupDataset
+from ...data.augment.yolox import MosaicMixupDataset, TrainTransform
 
 
 class YOLOXTrainer(BaseTrainer):

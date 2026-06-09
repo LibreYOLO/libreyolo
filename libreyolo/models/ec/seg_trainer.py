@@ -22,7 +22,7 @@ import torch
 from ...training.config import ECSegConfig, TrainConfig
 from ...training.scheduler import FlatCosineScheduler
 from ...training.trainer import BaseTrainer
-from ..rfdetr.seg_transforms import RFDETRSegPassThroughDataset, RFDETRSegTransform
+from ...data.augment.rfdetr import RFDETRSegPassThroughDataset, RFDETRSegTransform
 from .seg_loss import ECSegCriterion, ECSegHungarianMatcher
 
 

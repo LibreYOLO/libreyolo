@@ -13,7 +13,7 @@ from typing import Dict, Type
 
 import torch
 
-from ...training.augment import MosaicMixupDataset, TrainTransform
+from ...data.augment.yolox import MosaicMixupDataset, TrainTransform
 from ...training.config import DAMOYOLOConfig, TrainConfig
 from ...training.scheduler import WarmupCosineScheduler
 from ...training.trainer import BaseTrainer

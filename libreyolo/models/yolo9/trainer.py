@@ -12,7 +12,7 @@ from libreyolo.training.trainer import BaseTrainer
 from libreyolo.training.config import TrainConfig, YOLO9Config
 from libreyolo.training.freezing import FreezeGroup
 from ...training.scheduler import LinearLRScheduler, CosineAnnealingScheduler
-from .transforms import YOLO9TrainTransform, YOLO9MosaicMixupDataset
+from ...data.augment.yolo9 import YOLO9MosaicMixupDataset, YOLO9TrainTransform
 
 
 class YOLO9Trainer(BaseTrainer):

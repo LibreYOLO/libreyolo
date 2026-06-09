@@ -10,7 +10,7 @@ from ...training.config import TrainConfig, YOLONASConfig
 from ...training.scheduler import CosineAnnealingScheduler
 from ...training.trainer import BaseTrainer
 from .loss import PPYoloELoss
-from .transforms import YOLONASAffineMixupDataset, YOLONASTrainTransform
+from ...data.augment.yolonas import YOLONASAffineMixupDataset, YOLONASTrainTransform
 
 
 class YOLONASTrainer(BaseTrainer):

@@ -29,8 +29,8 @@ from ...training.scheduler import BaseScheduler, CosineAnnealingScheduler, FlatC
 from ...training.trainer import BaseTrainer
 from .config import RFDETRConfig
 from ..dfine.transforms import DFINEPassThroughDataset
-from .pose_transforms import RFDETRPoseTransform
-from .seg_transforms import (
+from ...data.augment.rfdetr import RFDETRPoseTransform
+from ...data.augment.rfdetr import (
     RFDETRDetTransform,
     RFDETRSegPassThroughDataset,
     RFDETRSegTransform,
