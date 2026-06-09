@@ -79,7 +79,7 @@ and truncates file lists; `--json` emits everything.
 | `config.missing_names` | ERROR | `names` missing or empty |
 | `config.nc_names_mismatch` | ERROR | `nc` != len(`names`) |
 | `config.missing_split` | ERROR/WARN | `train` missing (E); `val` missing (W) |
-| `config.path_not_found` | ERROR | split dirs / list files don't exist, or a configured directory contains no images (every entry of a list split is validated individually) |
+| `config.path_not_found` | ERROR | split dirs / list files don't exist, a configured directory contains no images (every entry of a list split is validated individually), or the split resolves to zero images (e.g. an empty .txt list) |
 | `config.duplicate_names` | WARNING | two class ids share a name |
 | (format guard) | EXIT 3 | `kpt_shape` present, or most label lines are consistently not 5-field detect rows (pose/segment/obb shapes) — exits with "supports detection datasets only" instead of flooding false syntax errors; inconsistent garbage still reports as `labels.syntax` |
 | `files.orphan_label` | WARNING | label file with no matching image in any split |
@@ -121,9 +121,9 @@ obb/segment ambiguity (a 9-field line is valid in both).
 |---|---|---|
 | `balance.class_zero_instances` | WARNING | class in `names` with 0 train instances |
 | `balance.class_few_instances` | WARNING | class below threshold (default 10 instances or images) |
-| `balance.imbalance` | INFO/WARN | max/min instance ratio; WARN past 100:1 |
+| `balance.imbalance` | INFO/WARN | max/min instance ratio; WARN past 100:1, silent below 1.5:1 |
 | `balance.split_coverage` | WARNING | class present in val but absent from train (or inverse) |
-| `balance.background_ratio` | INFO/WARN | % images with no labels; WARN past 50% |
+| `balance.background_ratio` | INFO/WARN | % images with no labels; WARN past 50%, silent at zero |
 | `balance.split_skew` | INFO | per-class distribution train vs val diverges sharply |
 
 ### Image content (skipped by `--fast`; threaded, tqdm progress)

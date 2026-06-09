@@ -25,7 +25,8 @@ class NotADetectionDatasetError(DoctorError):
 
 
 class UnknownCheckError(DoctorError):
-    """A --skip/--only selector matched no registered check."""
+    """A --skip/--only selector matched no registered check, or the
+    --skip/--only/--fast combination left no checks to run."""
 
 
 @dataclass

@@ -60,6 +60,13 @@ def doctor_cmd(
 
     out = OutputHandler(json_mode=json_output, quiet=quiet)
 
+    if data and data_opt and data != data_opt:
+        exit_with_error(
+            out,
+            "config_conflict",
+            f"Dataset given twice with different values: '{data}' and "
+            f"'{data_opt}'. Pass it once.",
+        )
     data = data or data_opt
     if not data:
         exit_with_error(

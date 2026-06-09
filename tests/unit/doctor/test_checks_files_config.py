@@ -122,6 +122,49 @@ class TestFileChecks:
         assert f.severity.value == "error" and f.count == 1
         assert "deleted" in str(f.paths[0])
 
+    def test_missing_image_not_double_reported(self, make_dataset):
+        # A missing listed image is files.missing_image's finding alone:
+        # not a decode failure, not background, not a missing label.
+        from libreyolo.doctor.runner import diagnose
+
+        ds = make_dataset()
+        ds.sample("train", "a.jpg")
+        ds.sample("val", "b.jpg")
+        (ds.root / "train_list.txt").write_text(
+            "images/train/a.jpg\nimages/train/deleted.jpg\n"
+        )
+        ds.set_yaml(train="train_list.txt")
+        report = diagnose(str(ds.yaml_path), progress=False)
+        assert "files.missing_image" in finding_ids(report)
+        assert "images.corrupt" not in finding_ids(report)
+        train_missing_label = [
+            f for f in findings_for(report, "files.missing_label") if f.split == "train"
+        ]
+        assert not train_missing_label
+
+    def test_missing_names(self, make_dataset):
+        ds = make_dataset()
+        ds.sample("train", "a.jpg")
+        ds.sample("val", "b.jpg")
+        ds.set_yaml(names=[])
+        report = run_fast(ds)
+        assert "config.missing_names" in finding_ids(report)
+
+    def test_txt_split_with_no_images(self, make_dataset):
+        # An existing list file that resolves to zero images must not pass.
+        ds = make_dataset()
+        ds.sample("val", "b.jpg")
+        (ds.root / "train_list.txt").write_text("# nothing here\n")
+        ds.set_yaml(train="train_list.txt")
+        report = run_fast(ds)
+        findings = [
+            f
+            for f in findings_for(report, "config.path_not_found")
+            if f.split == "train"
+        ]
+        assert findings and "no images" in findings[0].message
+        assert report.exit_code() == 1
+
     def test_no_orphans_when_splits_share_label_dir(self, make_dataset):
         # txt-list splits can point into the same images/labels directories;
         # a label claimed by another split is not an orphan.

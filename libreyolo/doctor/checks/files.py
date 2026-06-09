@@ -18,7 +18,7 @@ _COMPANION_SUFFIXES = {".txt", ".cache", ".json", ".xml", ".yaml", ".yml", ".csv
 @register("files.missing_label")
 def check_missing_label(snap: DatasetSnapshot, cfg: DoctorConfig) -> Iterator[Finding]:
     for split in snap.splits:
-        missing = [r for r in split.records if not r.label_exists]
+        missing = [r for r in split.records if not r.label_exists and r.image_exists]
         if missing:
             yield Finding(
                 "files.missing_label",

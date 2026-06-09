@@ -272,11 +272,16 @@ def check_extreme_aspect(snap: DatasetSnapshot, cfg: DoctorConfig) -> Iterator[F
                 offenders.append(r.label_path)
                 n_rows += int(mask.sum())
         if offenders:
+            reported = (
+                cfg.extreme_box_aspect
+                if snap.images_scanned
+                else cfg.extreme_box_aspect * 2
+            )
             yield Finding(
                 "labels.extreme_aspect",
                 Severity.WARNING,
                 f"{n_rows} box(es) have an aspect ratio beyond "
-                f"{cfg.extreme_box_aspect:g}:1 (often annotation slips).",
+                f"{reported:g}:1 (often annotation slips).",
                 split=split.name,
                 paths=offenders[: cfg.max_examples],
                 count=n_rows,

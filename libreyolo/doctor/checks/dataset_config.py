@@ -90,6 +90,18 @@ def check_path_not_found(snap: DatasetSnapshot, cfg: DoctorConfig) -> Iterator[F
                 paths=empty[: cfg.max_examples],
                 count=len(empty),
             )
+        # .txt list entries pass the checks above even when they resolve to
+        # zero images (empty file, only comments); catch that via the split.
+        split_snap = snap.split(split_name)
+        has_records = split_snap is not None and bool(split_snap.records)
+        if not has_records and not missing and not empty:
+            yield Finding(
+                "config.path_not_found",
+                Severity.ERROR,
+                f"'{split_name}' resolves to no images.",
+                split=split_name,
+                paths=[Path(e) for e in entries if e][: cfg.max_examples],
+            )
 
 
 def _contains_images(directory: Path) -> bool:

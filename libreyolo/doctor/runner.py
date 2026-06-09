@@ -43,7 +43,18 @@ def diagnose(
     if config is None and imgsz is not None:
         cfg.imgsz = imgsz
 
+    # Resolve the selection fully before touching the dataset so usage
+    # errors surface instantly, not after a long scan.
     selected, skipped = select_checks(skip=skip, only=only)
+    if fast:
+        for cid in sorted(selected):
+            if needs_image_scan(cid):
+                selected.pop(cid)
+                skipped.append(cid)
+    if not selected:
+        raise UnknownCheckError(
+            "The --skip/--only/--fast combination leaves no checks to run."
+        )
 
     snapshot = build_snapshot(data, autodownload=autodownload)
 
@@ -51,22 +62,12 @@ def diagnose(
     if suspected is not None:
         raise NotADetectionDatasetError(suspected)
 
-    if fast:
-        for cid in sorted(selected):
-            if needs_image_scan(cid):
-                selected.pop(cid)
-                skipped.append(cid)
-    elif any(needs_image_scan(cid) for cid in selected):
+    if not fast and any(needs_image_scan(cid) for cid in selected):
         scan_images(
             snapshot,
             workers=cfg.workers,
             progress=progress,
             uniform_pixel_range=cfg.uniform_pixel_range,
-        )
-
-    if not selected:
-        raise UnknownCheckError(
-            "The --skip/--only/--fast combination leaves no checks to run."
         )
 
     findings = []

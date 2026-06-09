@@ -112,6 +112,18 @@ class TestImageChecks:
         findings = findings_for(report, "images.near_duplicates")
         assert findings and findings[0].split == "train"
 
+    def test_leakage_near_across_splits(self, make_dataset):
+        ds = make_dataset()
+        clean(ds)
+        # Same noise pattern, different format: different bytes (no exact
+        # leak), near-identical pixels (dHash distance ~0) across splits.
+        ds.sample("train", "frame.png", seed=77)
+        ds.sample("val", "frame.jpg", seed=77)
+        report = run_full(ds)
+        findings = findings_for(report, "splits.leakage_near")
+        assert findings and findings[0].severity.value == "warning"
+        assert "splits.leakage_exact" not in finding_ids(report)
+
     def test_fast_mode_skips_image_checks(self, make_dataset):
         ds = make_dataset()
         clean(ds)

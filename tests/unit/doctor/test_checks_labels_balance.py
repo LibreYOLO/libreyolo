@@ -187,6 +187,7 @@ class TestBalanceChecks:
     def test_background_ratio_info_when_low(self, make_dataset):
         ds = make_dataset()
         clean(ds)
+        ds.image("train", "bg.jpg")  # one background image: low but non-zero
         report = run_fast(ds)
         train_findings = [
             f
@@ -194,3 +195,34 @@ class TestBalanceChecks:
             if f.split == "train"
         ]
         assert train_findings and train_findings[0].severity.value == "info"
+
+    def test_background_ratio_silent_at_zero(self, make_dataset):
+        ds = make_dataset()
+        clean(ds)
+        report = run_fast(ds)
+        assert "balance.background_ratio" not in finding_ids(report)
+
+    def test_imbalance_silent_when_balanced(self, make_dataset):
+        ds = make_dataset()
+        clean(ds)  # cat:dog is 1:1
+        report = run_fast(ds)
+        assert "balance.imbalance" not in finding_ids(report)
+
+    def test_split_skew(self, make_dataset):
+        ds = make_dataset()
+        ds.sample("train", "a.jpg", boxes="0 0.5 0.5 0.2 0.2\n" * 9)
+        ds.sample("train", "b.jpg", boxes="1 0.5 0.5 0.2 0.2\n")
+        ds.sample("val", "c.jpg", boxes="0 0.5 0.5 0.2 0.2\n1 0.3 0.3 0.1 0.1\n")
+        report = run_fast(ds)
+        (f,) = findings_for(report, "balance.split_skew")
+        assert f.severity.value == "info" and "cat" in f.message
+
+    def test_crowded_image(self, make_dataset):
+        ds = make_dataset()
+        for i in range(100):
+            ds.sample("train", f"t{i}.jpg", boxes="0 0.5 0.5 0.2 0.2\n")
+        ds.sample("train", "crowd.jpg", boxes="0 0.5 0.5 0.01 0.01\n" * 60)
+        ds.sample("val", "v.jpg", boxes="0 0.5 0.5 0.2 0.2\n")
+        report = run_fast(ds)
+        (f,) = findings_for(report, "labels.crowded_image")
+        assert f.count == 1 and "crowd" in str(f.paths[0])

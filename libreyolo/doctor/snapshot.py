@@ -11,6 +11,7 @@ import io
 import logging
 import math
 import os
+import re
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
@@ -95,7 +96,8 @@ class ImageRecord:
 
     @property
     def is_background(self) -> bool:
-        return self.boxes.shape[0] == 0
+        # A missing image is not "background"; files.missing_image owns it.
+        return self.image_exists and self.boxes.shape[0] == 0
 
 
 @dataclass
@@ -198,7 +200,6 @@ def parse_label_file(
         parts = line.split()
         if not parts:
             continue
-        field_counts[len(parts)] += 1
         if len(parts) < 5:
             issues.append(LabelIssue(line_no, f"expected 5 fields, got {len(parts)}"))
             continue
@@ -211,6 +212,9 @@ def parse_label_file(
         if not all(math.isfinite(v) for v in vals):
             issues.append(LabelIssue(line_no, "non-finite value (nan/inf)"))
             continue
+        # Tally only parseable lines: the format guard must classify by
+        # task shape, not by how garbage happens to split into fields.
+        field_counts[len(parts)] += 1
         if len(parts) > 5:
             polygon_lines += 1
             cx, cy, w, h = polygon_to_cxcywh(vals)
@@ -354,7 +358,8 @@ def scan_images(
     orientation, a content hash (exact duplicates / leakage), a dHash
     (near duplicates), and a uniformity flag.
     """
-    records = [r for s in snapshot.splits for r in s.records]
+    # Missing files are files.missing_image's finding, not a decode failure.
+    records = [r for s in snapshot.splits for r in s.records if r.image_exists]
     if not records:
         snapshot.images_scanned = True
         return
@@ -402,7 +407,9 @@ def _scan_one(path: Path, uniform_pixel_range: int = 2) -> ImageScan:
             # derive the dHash from a 9x8 grayscale thumbnail.
             gray = np.asarray(im.convert("L").resize((9, 8)), dtype=np.int16)
     except Exception as exc:
-        return ImageScan(ok=False, error=f"{type(exc).__name__}: {exc}", sha1=sha1)
+        # PIL errors embed the BytesIO repr; show the filename instead.
+        detail = re.sub(r"<_io\.BytesIO[^>]*>", path.name, str(exc))
+        return ImageScan(ok=False, error=f"{type(exc).__name__}: {detail}", sha1=sha1)
 
     bits = (gray[:, 1:] > gray[:, :-1]).flatten()
     dhash = int.from_bytes(np.packbits(bits).tobytes(), "big")

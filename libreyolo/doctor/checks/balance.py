@@ -78,11 +78,13 @@ def check_imbalance(snap: DatasetSnapshot, cfg: DoctorConfig) -> Iterator[Findin
     most_id, most = max(counts.items(), key=lambda kv: kv[1])
     least_id, least = min(counts.items(), key=lambda kv: kv[1])
     ratio = most / least
+    if ratio < 1.5:  # near-balanced is not worth a report line
+        return
     severity = Severity.WARNING if ratio > cfg.imbalance_warn_ratio else Severity.INFO
     yield Finding(
         "balance.imbalance",
         severity,
-        f"Class imbalance {ratio:.0f}:1 - most: {_name(snap, most_id)} "
+        f"Class imbalance {ratio:.1f}:1 - most: {_name(snap, most_id)} "
         f"({most}), least: {_name(snap, least_id)} ({least}).",
         split="train",
         details={"ratio": round(ratio, 1)},
@@ -137,6 +139,8 @@ def check_background_ratio(
         if not split.records:
             continue
         background = sum(1 for r in split.records if r.is_background)
+        if not background:  # zero background is the unremarkable default
+            continue
         ratio = background / len(split.records)
         severity = (
             Severity.WARNING if ratio > cfg.background_warn_ratio else Severity.INFO
