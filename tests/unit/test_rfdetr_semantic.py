@@ -200,9 +200,7 @@ def test_rfdetr_semantic_train_smoke(fake_backbone, tmp_path):
     )
 
     assert np.isfinite(res["epoch_losses"][0])
-    assert (
-        res["epoch_metrics"][-1]["val_metrics"].get("metrics/mIoU") is not None
-    )
+    assert res["epoch_metrics"][-1]["val_metrics"].get("metrics/mIoU") is not None
 
 
 @pytest.mark.external_data

@@ -139,9 +139,7 @@ def _rasterize_polygon_labels(
                     for i in range(0, len(coords), 2)
                 ]
             else:
-                raise ValueError(
-                    f"Invalid segment label row in {label_file}: {line!r}"
-                )
+                raise ValueError(f"Invalid segment label row in {label_file}: {line!r}")
             draw.polygon(points, fill=class_id)
     return np.asarray(canvas).astype(np.int64)
 
@@ -156,9 +154,7 @@ def resolve_semantic_data(data: str | Path) -> Dict:
     """
     config = load_data_config(str(data))
     if not config.get("names"):
-        raise ValueError(
-            f"Semantic dataset config {data!r} must define class names."
-        )
+        raise ValueError(f"Semantic dataset config {data!r} must define class names.")
     return config
 
 

@@ -102,7 +102,9 @@ class TestSemanticDatasetMasks:
             "nc": 1,
             "masks_dir": "masks",
         }
-        dataset = SemanticDataset(config, split="train", imgsz=64, resize_mode="stretch")
+        dataset = SemanticDataset(
+            config, split="train", imgsz=64, resize_mode="stretch"
+        )
         _, mask_t, _, _ = dataset[0]
 
         assert mask_t.shape == (64, 64)

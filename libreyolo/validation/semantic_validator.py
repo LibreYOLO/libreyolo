@@ -144,7 +144,9 @@ class SemanticValidator(BaseValidator):
             name = self._class_names.get(class_id, str(class_id))
             logger.info("  IoU %-20s %.4f", name, float(value))
         logger.info("  mIoU:           %.4f", metrics.get("metrics/mIoU", 0.0))
-        logger.info("  pixel accuracy: %.4f", metrics.get("metrics/pixel_accuracy", 0.0))
+        logger.info(
+            "  pixel accuracy: %.4f", metrics.get("metrics/pixel_accuracy", 0.0)
+        )
         logger.info("=" * 50)
 
 

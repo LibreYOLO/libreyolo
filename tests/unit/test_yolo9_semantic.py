@@ -217,9 +217,7 @@ def test_yolo9_semantic_train_smoke(tmp_path):
     assert len(losses) == 3
     assert all(np.isfinite(losses))
     assert losses[-1] < losses[0]
-    assert (
-        res["epoch_metrics"][-1]["val_metrics"].get("metrics/mIoU") is not None
-    )
+    assert res["epoch_metrics"][-1]["val_metrics"].get("metrics/mIoU") is not None
 
     ckpt = res.get("last_checkpoint") or res.get("best_checkpoint")
     assert ckpt is not None

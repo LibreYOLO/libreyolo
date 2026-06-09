@@ -130,9 +130,7 @@ def test_low_resolution_logits_are_upsampled(tmp_path):
     class _StrideFourModel(_StubSemanticModel):
         def _forward(self, images: torch.Tensor) -> torch.Tensor:
             batch, _, height, width = images.shape
-            logits = torch.zeros(
-                (batch, self.nb_classes, height // 4, width // 4)
-            )
+            logits = torch.zeros((batch, self.nb_classes, height // 4, width // 4))
             logits[:, 0, :, : width // 8] = 10.0
             logits[:, 1, :, width // 8 :] = 10.0
             return logits
