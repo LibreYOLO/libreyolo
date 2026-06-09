@@ -86,6 +86,9 @@ class WandbLogger(BaseLogger):
         self._run = None
 
     def _handle_exception(self, event: TrainExceptionEvent) -> None:
+        self._teardown()
+
+    def _teardown(self) -> None:
         if self._run is None:
             return
         self._run.finish(exit_code=1)

@@ -89,6 +89,14 @@ class BaseLogger:
                 "(training continues)",
                 type(self).__name__,
             )
+            # Best-effort teardown so an already-opened backend run/writer
+            # is not left dangling (e.g. an MLflow run stuck in RUNNING).
+            try:
+                self._teardown()
+            except Exception:
+                logger.exception(
+                    "%s teardown after failure also failed", type(self).__name__
+                )
 
     def _handle_start(self, event: TrainStartEvent) -> None:
         """Open the backend run/writer."""
@@ -101,3 +109,7 @@ class BaseLogger:
 
     def _handle_exception(self, event: TrainExceptionEvent) -> None:
         """Close the run as failed."""
+
+    def _teardown(self) -> None:
+        """Release backend resources after a handler failure (close the
+        run/writer as failed). Called once when the logger disables itself."""

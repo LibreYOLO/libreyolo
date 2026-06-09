@@ -114,6 +114,9 @@ class MLflowLogger(BaseLogger):
         self._run_active = False
 
     def _handle_exception(self, event: TrainExceptionEvent) -> None:
+        self._teardown()
+
+    def _teardown(self) -> None:
         if not self._run_active:
             return
         mlflow = _import_mlflow()

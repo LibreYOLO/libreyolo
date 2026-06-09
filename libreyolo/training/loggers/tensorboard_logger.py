@@ -60,6 +60,9 @@ class TensorBoardLogger(BaseLogger):
     def _handle_exception(self, event: TrainExceptionEvent) -> None:
         self._close()
 
+    def _teardown(self) -> None:
+        self._close()
+
     def _close(self) -> None:
         if self._writer is not None:
             self._writer.close()

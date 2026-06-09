@@ -492,9 +492,41 @@ def test_backend_failure_disables_logger_but_training_survives(
     results = trainer.train()
 
     assert results["final_loss"] == pytest.approx(2.5)
-    # Disabled after the first epoch's failure: no further backend calls.
+    # Disabled after the first epoch's failure, but the open run was torn
+    # down as FAILED instead of dangling, and no further logging happened.
     names = [c[0] for c in fake_mlflow.calls]
-    assert "end_run" not in names
+    assert names.count("end_run") == 1
+    assert fake_mlflow.calls[-1] == ("end_run", "FAILED")
+
+
+def test_wandb_failure_mid_run_finishes_run_with_error(fake_wandb, monkeypatch):
+    def explode(metrics, step=None):
+        raise ConnectionError("sync failed")
+
+    monkeypatch.setattr(fake_wandb.run, "log", explode)
+
+    logger = WandbLogger()
+    logger.on_train_start(_start_event())
+    logger.on_train_epoch_end(_epoch_event())
+
+    assert fake_wandb.run.finished == 1
+    # Disabled: later events are ignored without touching the backend.
+    logger.on_train_end(_end_event())
+    assert fake_wandb.run.finished == 1
+
+
+def test_tensorboard_failure_mid_run_closes_writer(fake_tensorboard, monkeypatch):
+    logger = TensorBoardLogger()
+    logger.on_train_start(_start_event())
+    writer = fake_tensorboard.instances[0]
+
+    def explode(tag, value, global_step=None):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(writer, "add_scalar", explode)
+    logger.on_train_epoch_end(_epoch_event())
+
+    assert writer.closed is True
 
 
 def test_logger_instances_are_picklable(fake_mlflow, fake_wandb, fake_tensorboard):
