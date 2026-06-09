@@ -413,6 +413,46 @@ class Probs(_TensorPayload):
         return self.data[indices]
 
 
+class SemanticMask(_TensorPayload):
+    """Dense semantic segmentation map for a single image.
+
+    Data shape is ``(H, W)`` integer class IDs on the original image canvas.
+    ``255`` is the ignore/void value and never counts as a class.
+    """
+
+    IGNORE_INDEX = 255
+
+    def __init__(self, data: TensorLike, orig_shape: Tuple[int, int] | None = None):
+        if data.ndim != 2:
+            raise ValueError(
+                f"expected (H, W) semantic class map but got shape {tuple(data.shape)}"
+            )
+        if orig_shape is None:
+            orig_shape = (int(data.shape[0]), int(data.shape[1]))
+        super().__init__(data, orig_shape)
+
+    @property
+    def classes(self) -> List[int]:
+        """Sorted class IDs present in the map, excluding the ignore value."""
+        values = np.unique(_numpy(self.data))
+        return [int(v) for v in values if int(v) != self.IGNORE_INDEX]
+
+    def class_mask(self, class_id: int) -> TensorLike:
+        """Boolean ``(H, W)`` mask selecting the pixels of one class."""
+        return self.data == class_id
+
+    def __getitem__(self, idx):
+        # Instance indexing does not apply to a dense map; keep it intact so
+        # shared Results slicing paths cannot corrupt the (H, W) layout.
+        return self.__class__(self.data, self.orig_shape)
+
+    def __repr__(self) -> str:
+        return (
+            f"SemanticMask(shape={tuple(self.data.shape)}, "
+            f"classes={len(self.classes)}, orig_shape={self.orig_shape})"
+        )
+
+
 class OBB(_TensorPayload):
     def __init__(self, data: TensorLike, orig_shape: Tuple[int, int] | None = None):
         if data.ndim == 1:
@@ -585,7 +625,7 @@ class Gaze(_TensorPayload):
 class Results:
     """Single-image result with flat detection/segmentation slots."""
 
-    _keys = ("boxes", "masks", "probs", "keypoints", "obb", "gaze", "points")
+    _keys = ("boxes", "masks", "probs", "keypoints", "obb", "gaze", "points", "semantic_mask")
 
     def __init__(
         self,
@@ -599,6 +639,7 @@ class Results:
         obb: Optional[OBB] = None,
         gaze: Optional[Gaze] = None,
         points: Optional[Points] = None,
+        semantic_mask: Optional[SemanticMask] = None,
         speed: Optional[Dict[str, float]] = None,
         track_id: Optional[TensorLike] = None,
         frame_idx: Optional[int] = None,
@@ -617,6 +658,7 @@ class Results:
         self.obb = obb
         self.gaze = gaze
         self.points = points
+        self.semantic_mask = semantic_mask
         self.orig_shape = orig_shape
         self.path = path
         self.names = names or {}
@@ -636,6 +678,7 @@ class Results:
             "obb": self.obb,
             "gaze": self.gaze,
             "points": self.points,
+            "semantic_mask": self.semantic_mask,
             "speed": dict(self.speed),
             "track_id": self.track_id,
             "frame_idx": self.frame_idx,
@@ -687,6 +730,7 @@ class Results:
         obb: Optional[OBB] = None,
         gaze: Optional[Gaze] = None,
         points: Optional[Points] = None,
+        semantic_mask: Optional[SemanticMask] = None,
         track_id: Optional[TensorLike] = None,
     ) -> "Results":
         if boxes is not None:
@@ -703,6 +747,8 @@ class Results:
             self.gaze = gaze
         if points is not None:
             self.points = points if points.orig_shape is not None else Points(points.data, self.orig_shape)
+        if semantic_mask is not None:
+            self.semantic_mask = semantic_mask
         if track_id is not None:
             self.track_id = track_id
             if self.boxes is not None:
@@ -726,6 +772,21 @@ class Results:
                                 "x": round(float(xy_values[i, 0]), decimals),
                                 "y": round(float(xy_values[i, 1]), decimals),
                             },
+                        }
+                    )
+                return rows
+            if self.semantic_mask is not None:
+                mask_np = _numpy(self.semantic_mask.data)
+                total = int(mask_np.size)
+                rows = []
+                for cls_id in self.semantic_mask.classes:
+                    count = int((mask_np == cls_id).sum())
+                    rows.append(
+                        {
+                            "name": self.names.get(cls_id, str(cls_id)),
+                            "class": cls_id,
+                            "pixel_count": count,
+                            "pixel_fraction": round(count / total, decimals),
                         }
                     )
                 return rows
@@ -815,6 +876,8 @@ class Results:
             return len(self.points)
         if self.probs is not None:
             return 1
+        if self.semantic_mask is not None:
+            return 1
         return 0
 
     def __repr__(self) -> str:
@@ -827,6 +890,8 @@ class Results:
             parts.append(f"points={self.points}")
         if self.masks is not None:
             parts.append(f"masks={self.masks}")
+        if self.semantic_mask is not None:
+            parts.append(f"semantic_mask={self.semantic_mask}")
         if self.track_id is not None:
             parts.append(f"track_ids={len(self.track_id)}")
         if self.frame_idx is not None:

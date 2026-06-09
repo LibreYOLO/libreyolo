@@ -6,8 +6,17 @@ import numpy as np
 from PIL import Image
 
 from libreyolo.models.base.inference import InferenceRunner
-from libreyolo.utils.results import Boxes, Keypoints, Masks, OBB, Points, Probs, Results
-from libreyolo.utils.drawing import draw_obb, draw_points
+from libreyolo.utils.results import (
+    Boxes,
+    Keypoints,
+    Masks,
+    OBB,
+    Points,
+    Probs,
+    Results,
+    SemanticMask,
+)
+from libreyolo.utils.drawing import draw_obb, draw_points, draw_semantic_mask
 
 pytestmark = pytest.mark.unit
 
@@ -461,3 +470,89 @@ class TestClassesFilter:
                 image_path=None,
                 classes=None,
             )
+
+
+class TestSemanticMask:
+    """Tests for the SemanticMask payload and Results wiring."""
+
+    def _mask(self):
+        data = torch.full((8, 10), 255, dtype=torch.uint8)
+        data[:4, :] = 0
+        data[4:, :5] = 2
+        return SemanticMask(data)
+
+    def test_construction_and_classes(self):
+        mask = self._mask()
+        assert mask.orig_shape == (8, 10)
+        assert mask.classes == [0, 2]
+
+    def test_rejects_non_2d_data(self):
+        with pytest.raises(ValueError, match=r"\(H, W\)"):
+            SemanticMask(torch.zeros((2, 8, 10)))
+
+    def test_class_mask_selects_pixels(self):
+        mask = self._mask()
+        selected = mask.class_mask(2)
+        assert bool(selected[5, 0])
+        assert not bool(selected[0, 0])
+        assert int(selected.sum()) == 4 * 5
+
+    def test_numpy_round_trip(self):
+        mask = self._mask().numpy()
+        assert isinstance(mask.data, np.ndarray)
+        assert mask.classes == [0, 2]
+
+    def test_indexing_keeps_dense_map_intact(self):
+        mask = self._mask()
+        sliced = mask[0]
+        assert sliced.data.shape == (8, 10)
+
+    def test_results_wiring(self):
+        mask = self._mask()
+        result = Results(
+            boxes=None,
+            orig_shape=(8, 10),
+            names={0: "road", 2: "sky"},
+            semantic_mask=mask,
+        )
+        assert result.semantic_mask is mask
+        assert len(result) == 1
+        assert "semantic_mask" in repr(result)
+
+        moved = result.cpu()
+        assert moved.semantic_mask.data.shape == (8, 10)
+
+        indexed = result[0]
+        assert indexed.semantic_mask.data.shape == (8, 10)
+
+    def test_results_summary_reports_pixel_fractions(self):
+        result = Results(
+            boxes=None,
+            orig_shape=(8, 10),
+            names={0: "road", 2: "sky"},
+            semantic_mask=self._mask(),
+        )
+        rows = result.summary()
+        assert [row["class"] for row in rows] == [0, 2]
+        assert rows[0]["name"] == "road"
+        assert rows[0]["pixel_count"] == 40
+        assert rows[0]["pixel_fraction"] == 0.5
+        assert rows[1]["pixel_count"] == 20
+
+    def test_results_update_accepts_semantic_mask(self):
+        result = Results(boxes=None, orig_shape=(8, 10))
+        assert result.semantic_mask is None
+        result.update(semantic_mask=self._mask())
+        assert result.semantic_mask is not None
+
+
+def test_draw_semantic_mask_paints_classes_and_skips_ignore():
+    img = Image.new("RGB", (10, 8), color=(0, 0, 0))
+    mask = np.full((8, 10), 255, dtype=np.uint8)
+    mask[:, :5] = 1
+
+    drawn = draw_semantic_mask(img, mask, alpha=1.0)
+    pixels = np.asarray(drawn)
+
+    assert pixels[0, 0].any()  # class-1 half painted
+    assert not pixels[0, 9].any()  # ignore half untouched (still black)
