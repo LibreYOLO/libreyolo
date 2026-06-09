@@ -21,9 +21,9 @@ Module map:
 - ``pose``      — keypoint-aware recipe shared by YOLO9/YOLO-NAS/EC pose
 
 This ``__init__`` exports the primitives only; recipe classes are imported
-from their submodule. ``detr`` is the one module that requires
-torch/torchvision — keep it out of this file so the package itself stays
-importable with numpy/cv2 alone.
+from their submodule. Every module here is torch-free except ``detr``
+(torchvision.transforms.v2) — keep it out of this file so the package adds
+no heavyweight imports of its own.
 """
 
 from .boxes import (
