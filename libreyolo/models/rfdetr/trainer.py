@@ -28,7 +28,7 @@ from ...training.freezing import FreezeGroup
 from ...training.scheduler import BaseScheduler, CosineAnnealingScheduler, FlatCosineScheduler
 from ...training.trainer import BaseTrainer
 from .config import RFDETRConfig
-from ..dfine.transforms import DFINEPassThroughDataset
+from ...data.augment.detr import DETRPassThroughDataset
 from ...data.augment.rfdetr import RFDETRPoseTransform
 from ...data.augment.rfdetr import (
     RFDETRDetTransform,
@@ -287,7 +287,7 @@ class RFDETRTrainer(BaseTrainer):
             crop_resize_prob=self.config.crop_resize_prob,
             target_dim=6 if task == "obb" else 5,
         )
-        return preproc, DFINEPassThroughDataset
+        return preproc, DETRPassThroughDataset
 
     def create_scheduler(self, iters_per_epoch: int):
         scheduler = str(getattr(self.config, "scheduler", "step")).lower()

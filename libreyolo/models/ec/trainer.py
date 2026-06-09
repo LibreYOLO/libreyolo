@@ -23,7 +23,7 @@ import torch
 from ...training.config import ECConfig, TrainConfig
 from ..dfine.matcher import HungarianMatcher
 from ..dfine.trainer import DFINETrainer
-from ..dfine.transforms import DFINEPassThroughDataset, DFINETrainTransform
+from ...data.augment.detr import DETRPassThroughDataset, DETRTrainTransform
 from .loss import ECCriterion
 
 
@@ -73,13 +73,13 @@ class ECTrainer(DFINETrainer):
         # both train and eval time; the inference path applies the same norm
         # (see commit cc14dd20). Without this, the train/eval input distribution
         # diverges and fine-tuning silently corrupts the model.
-        preproc = DFINETrainTransform(
+        preproc = DETRTrainTransform(
             max_labels=120,
             flip_prob=self.config.flip_prob,
             imgsz=self.config.imgsz,
             imagenet_norm=True,
         )
-        return preproc, DFINEPassThroughDataset
+        return preproc, DETRPassThroughDataset
 
     def get_loss_components(self, outputs: Dict) -> Dict[str, float]:
         # FGL/DDF are emitted only by the aux/dn paths (no main-loss key);

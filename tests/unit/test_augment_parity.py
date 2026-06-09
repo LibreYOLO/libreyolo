@@ -513,6 +513,74 @@ def _case_ec_pose_val():
     return {"img": img, "target": target}
 
 
+# Forced-gate cases: every probabilistic branch (flip, HSV, brightness,
+# affine) is guaranteed to fire so a regression in those branches cannot
+# hide behind a seed that happens not to roll them.
+
+
+def _case_yolo9_pose_train_forced():
+    from libreyolo.models.yolo9.pose_transforms import YOLO9PoseTrainTransform
+
+    bboxes, cls, kpts = _pose_inputs()
+    t = YOLO9PoseTrainTransform(
+        num_keypoints=5,
+        flip_idx=FLIP_IDX_5,
+        max_labels=20,
+        flip_prob=1.0,
+        hsv_prob=1.0,
+        affine_prob=1.0,
+    )
+    _seed_all()
+    img, target = t(_image(), bboxes, cls, kpts, (64, 64))
+    return {"img": img, "target": target}
+
+
+def _case_yolonas_pose_train_forced():
+    from libreyolo.models.yolonas.pose_transforms import YOLONASPoseTrainTransform
+
+    bboxes, cls, kpts = _pose_inputs()
+    t = YOLONASPoseTrainTransform(
+        num_keypoints=5,
+        flip_idx=FLIP_IDX_5,
+        max_labels=20,
+        flip_prob=1.0,
+        hsv_prob=1.0,
+        brightness_contrast_prob=1.0,
+        affine_prob=1.0,
+    )
+    _seed_all()
+    img, target = t(_image(), bboxes, cls, kpts, (64, 64))
+    return {"img": img, "target": target}
+
+
+def _case_yolonas_pose_train_nonsquare():
+    from libreyolo.models.yolonas.pose_transforms import YOLONASPoseTrainTransform
+
+    bboxes, cls, kpts = _pose_inputs()
+    t = YOLONASPoseTrainTransform(num_keypoints=5, flip_idx=FLIP_IDX_5, max_labels=20)
+    _seed_all()
+    img, target = t(_image(), bboxes, cls, kpts, (48, 80))
+    return {"img": img, "target": target}
+
+
+def _case_ec_pose_train_forced():
+    from libreyolo.models.ec.pose_transforms import ECPoseTrainTransform
+
+    bboxes, cls, kpts = _pose_inputs()
+    t = ECPoseTrainTransform(
+        num_keypoints=5,
+        flip_idx=FLIP_IDX_5,
+        max_labels=20,
+        flip_prob=1.0,
+        hsv_prob=1.0,
+        brightness_contrast_prob=1.0,
+        affine_prob=1.0,
+    )
+    _seed_all()
+    img, target = t(_image(), bboxes, cls, kpts, (64, 64))
+    return {"img": img, "target": target}
+
+
 CASES = {
     "yolox_train": _case_yolox_train,
     "yolox_train_empty": _case_yolox_train_empty,
@@ -542,6 +610,10 @@ CASES = {
     "yolonas_pose_val": _case_yolonas_pose_val,
     "ec_pose_train": _case_ec_pose_train,
     "ec_pose_val": _case_ec_pose_val,
+    "yolo9_pose_train_forced": _case_yolo9_pose_train_forced,
+    "yolonas_pose_train_forced": _case_yolonas_pose_train_forced,
+    "yolonas_pose_train_nonsquare": _case_yolonas_pose_train_nonsquare,
+    "ec_pose_train_forced": _case_ec_pose_train_forced,
 }
 
 
@@ -559,10 +631,13 @@ def test_augment_parity(name):
         f"Output keys changed for {name}: {sorted(actual)} vs {sorted(expected.files)}"
     )
     for key in expected.files:
+        # strict=True also pins dtype and shape — augmentation output dtype is
+        # part of the training contract, not an implementation detail.
         np.testing.assert_array_equal(
             np.asarray(actual[key]),
             expected[key],
             err_msg=f"{name}/{key} diverged from golden fixture",
+            strict=True,
         )
 
 
