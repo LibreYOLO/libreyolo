@@ -431,6 +431,136 @@ class RFDETRClassifier(nn.Module):
         return logits
 
 
+class RFDETRSemanticSegmenter(nn.Module):
+    """Dense semantic-segmentation model: RF-DETR's DINOv2 backbone + decoder.
+
+    Reuses the DINOv2 encoder + multi-scale projector that powers RF-DETR
+    detection (no query decoder, no Hungarian matching) and fuses the
+    projector pyramid into per-pixel class logits: a 1x1 lateral per level,
+    resize-and-sum onto the finest level, a 3x3 smoothing conv, then a 1x1
+    projection upsampled to the input resolution. The backbone is built with
+    DINOv2-native patch/positional settings so pretrained weights load
+    cleanly; it falls back to random init if the weights cannot be fetched.
+
+    Inputs are expected as RGB floats in ``[0, 1]``; ImageNet normalization
+    is applied inside ``forward`` so training tensors and inference tensors
+    share one contract.
+    """
+
+    _PATCH_SIZE = 14
+    _POS_ENC_SIZE = 37  # 37 * 14 == 518, DINOv2's pretrained image_size
+    _NUM_WINDOWS = 1
+
+    IGNORE_INDEX = 255
+
+    def __init__(
+        self,
+        config: str = "s",
+        nb_classes: int = 19,
+        device: str = "cpu",
+        dropout: float = 0.1,
+    ):
+        super().__init__()
+        if config not in RFDETR_CONFIGS:
+            raise ValueError(
+                f"Invalid RF-DETR size: {config}. Must be one of {sorted(RFDETR_CONFIGS)}"
+            )
+        cfg = RFDETR_CONFIGS[config]
+        self.config_name = config
+        self.nb_classes = nb_classes
+        self.hidden_dim = cfg.hidden_dim
+        self.patch_size = self._PATCH_SIZE
+        self.num_windows = self._NUM_WINDOWS
+        self.resolution = self._POS_ENC_SIZE * self._PATCH_SIZE  # 518
+
+        joiner = self._build_backbone(cfg, device)
+        # joiner = Sequential(Backbone, PositionEmbedding); the dense decoder
+        # only needs the Backbone (DINOv2 encoder + projector).
+        self.backbone = joiner[0]
+
+        num_levels = len(cfg.projector_scale)
+        self.laterals = nn.ModuleList(
+            nn.Conv2d(self.hidden_dim, self.hidden_dim, 1) for _ in range(num_levels)
+        )
+        self.smooth = nn.Sequential(
+            nn.Conv2d(self.hidden_dim, self.hidden_dim, 3, padding=1),
+            nn.GroupNorm(32, self.hidden_dim),
+            nn.GELU(),
+        )
+        self.drop = nn.Dropout2d(p=dropout)
+        self.predict = nn.Conv2d(self.hidden_dim, nb_classes, 1)
+
+        mean = torch.tensor([0.485, 0.456, 0.406]).view(1, 3, 1, 1)
+        std = torch.tensor([0.229, 0.224, 0.225]).view(1, 3, 1, 1)
+        self.register_buffer("pixel_mean", mean, persistent=False)
+        self.register_buffer("pixel_std", std, persistent=False)
+
+    def _build_backbone(self, cfg: RFDETRSizeConfig, device: str):
+        kwargs = dict(
+            encoder=cfg.encoder,
+            vit_encoder_num_layers=12,
+            pretrained_encoder=None,
+            window_block_indexes=None,
+            drop_path=0.0,
+            out_channels=cfg.hidden_dim,
+            out_feature_indexes=list(cfg.out_feature_indexes),
+            projector_scale=list(cfg.projector_scale),
+            use_cls_token=False,
+            hidden_dim=cfg.hidden_dim,
+            position_embedding="sine",
+            freeze_encoder=False,
+            layer_norm=True,
+            target_shape=(self.resolution, self.resolution),
+            rms_norm=False,
+            backbone_lora=False,
+            force_no_pretrain=False,
+            gradient_checkpointing=False,
+            patch_size=self._PATCH_SIZE,
+            num_windows=self._NUM_WINDOWS,
+            positional_encoding_size=self._POS_ENC_SIZE,
+        )
+        try:
+            return build_backbone(load_dinov2_weights=True, **kwargs)
+        except Exception as exc:  # pragma: no cover - offline / hub failure
+            logger = __import__("logging").getLogger(__name__)
+            logger.warning(
+                "Could not load pretrained DINOv2 weights (%s); building the "
+                "semantic backbone from random init.",
+                exc,
+            )
+            return build_backbone(load_dinov2_weights=False, **kwargs)
+
+    def forward(self, x: torch.Tensor, targets=None):
+        b, _, h, w = x.shape
+        x = (x - self.pixel_mean) / self.pixel_std
+        mask = torch.zeros((b, h, w), dtype=torch.bool, device=x.device)
+        feats = self.backbone(NestedTensor(x, mask))
+
+        # Fuse the projector pyramid onto its finest level.
+        finest = feats[0].tensors
+        fused = self.laterals[0](finest)
+        for lateral, level in zip(self.laterals[1:], feats[1:]):
+            fused = fused + F.interpolate(
+                lateral(level.tensors), size=finest.shape[-2:], mode="bilinear",
+                align_corners=False,
+            )
+        fused = self.smooth(fused)
+        logits = self.predict(self.drop(fused))
+
+        if self.training and targets is not None:
+            logits = F.interpolate(
+                logits, size=targets.shape[-2:], mode="bilinear", align_corners=False
+            )
+            loss = F.cross_entropy(
+                logits, targets.long(), ignore_index=self.IGNORE_INDEX
+            )
+            return {"total_loss": loss, "sem": loss}
+
+        return F.interpolate(
+            logits, size=(h, w), mode="bilinear", align_corners=False
+        )
+
+
 class LibreRFDETRModel(nn.Module):
     """RF-DETR model built from LibreYOLO-local RF-DETR modules."""
 
@@ -443,15 +573,17 @@ class LibreRFDETRModel(nn.Module):
         pose: bool = False,
         classification: bool = False,
         obb: bool = False,
+        semantic: bool = False,
         num_keypoints: int = 17,
         oks_sigmas=None,
     ):
         super().__init__()
 
-        if sum(bool(x) for x in (segmentation, pose, classification, obb)) > 1:
+        if sum(bool(x) for x in (segmentation, pose, classification, obb, semantic)) > 1:
             raise ValueError("RF-DETR can enable only one task head at a time")
 
         self.classification = classification
+        self.semantic = semantic
         if classification:
             # Backbone-only classification path: no detection decoder/criterion.
             self.config_name = config
@@ -465,6 +597,23 @@ class LibreRFDETRModel(nn.Module):
             self.hidden_dim = self.classifier.hidden_dim
             self.patch_size = self.classifier.patch_size
             self.num_windows = self.classifier.num_windows
+            self.model = None
+            self.postprocess = None
+            return
+
+        if semantic:
+            # Backbone-only dense path: no detection decoder/criterion.
+            self.config_name = config
+            self.config = RFDETR_CONFIGS[config]
+            self.nb_classes = nb_classes
+            self.segmentation = False
+            self.segmenter = RFDETRSemanticSegmenter(
+                config=config, nb_classes=nb_classes, device=device
+            )
+            self.resolution = self.segmenter.resolution
+            self.hidden_dim = self.segmenter.hidden_dim
+            self.patch_size = self.segmenter.patch_size
+            self.num_windows = self.segmenter.num_windows
             self.model = None
             self.postprocess = None
             return
@@ -506,6 +655,8 @@ class LibreRFDETRModel(nn.Module):
     def forward(self, x: torch.Tensor, targets=None):
         if self.classification:
             return self.classifier(x, targets=targets)
+        if self.semantic:
+            return self.segmenter(x, targets=targets)
         return self.model(x, targets=targets)
 
     def build_criterion_and_postprocess(self):
@@ -514,6 +665,10 @@ class LibreRFDETRModel(nn.Module):
     def load_state_dict(self, state_dict: dict[str, Any], strict: bool = True):
         if self.classification:
             return self.classifier.load_state_dict(
+                _unwrap_state_dict(state_dict), strict=strict
+            )
+        if self.semantic:
+            return self.segmenter.load_state_dict(
                 _unwrap_state_dict(state_dict), strict=strict
             )
 
@@ -553,6 +708,8 @@ class LibreRFDETRModel(nn.Module):
     def state_dict(self, *args, **kwargs):
         if self.classification:
             return self.classifier.state_dict(*args, **kwargs)
+        if self.semantic:
+            return self.segmenter.state_dict(*args, **kwargs)
         return self.model.state_dict(*args, **kwargs)
 
 
@@ -603,6 +760,7 @@ def create_rfdetr_model(
 __all__ = [
     "LibreRFDETRModel",
     "RFDETRClassifier",
+    "RFDETRSemanticSegmenter",
     "RFDETRExportWrapper",
     "RFDETR_CONFIGS",
     "RFDETR_SEG_CONFIGS",

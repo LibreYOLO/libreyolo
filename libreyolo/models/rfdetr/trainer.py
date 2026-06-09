@@ -88,8 +88,10 @@ class RFDETRTrainer(BaseTrainer):
         if task == "pose":
             self.best_metric_key = "metrics/keypoints_mAP50-95"
         # Classification resolves its class count from the ImageFolder dataset
-        # in _setup_classify_data, not from a detection YAML.
-        if task == "classify":
+        # in _setup_classify_data; semantic resolves it from the mask dataset
+        # in _setup_semantic_data (including the polygon-fallback background
+        # class) — neither reads a detection YAML here.
+        if task in ("classify", "semantic"):
             return
         if self.config.data:
             data_cfg = load_data_config(
@@ -142,6 +144,17 @@ class RFDETRTrainer(BaseTrainer):
                 getattr(classifier, "backbone", None),
             )
             head = getattr(classifier, "linear", None)
+            if head is not None:
+                groups.append(("head", head))
+            return groups or super().get_freeze_groups()
+
+        segmenter = getattr(self.model, "segmenter", None) if core_model is None else None
+        if segmenter is not None:
+            self._append_backbone_freeze_groups(
+                groups,
+                getattr(segmenter, "backbone", None),
+            )
+            head = getattr(segmenter, "predict", None)
             if head is not None:
                 groups.append(("head", head))
             return groups or super().get_freeze_groups()
@@ -339,7 +352,10 @@ class RFDETRTrainer(BaseTrainer):
         *,
         step: int,
     ):
-        if getattr(getattr(self, "wrapper_model", None), "task", "detect") == "classify":
+        if getattr(getattr(self, "wrapper_model", None), "task", "detect") in (
+            "classify",
+            "semantic",
+        ):
             return imgs, targets, polygons
         scales = self._multi_scale_scales()
         if not scales:
@@ -537,10 +553,11 @@ class RFDETRTrainer(BaseTrainer):
 
     def on_setup(self):
         task = getattr(getattr(self, "wrapper_model", None), "task", "detect")
-        # Classification computes cross-entropy inside the model head and sizes
-        # its head from the dataset in _setup_classify_data — no detection
-        # criterion or head reinitialization is needed.
-        if task == "classify":
+        # Classification and semantic compute their loss inside the model head
+        # and size it from their datasets in _setup_classify_data /
+        # _setup_semantic_data — no detection criterion or head
+        # reinitialization is needed.
+        if task in ("classify", "semantic"):
             return
         if self.model.nb_classes != self.config.num_classes:
             head_outputs = (
@@ -592,7 +609,10 @@ class RFDETRTrainer(BaseTrainer):
                 self.wrapper_model.keypoint_dim = self.config.keypoint_dim
 
     def _setup_optimizer(self) -> torch.optim.Optimizer:
-        if getattr(getattr(self, "wrapper_model", None), "task", "detect") == "classify":
+        if getattr(getattr(self, "wrapper_model", None), "task", "detect") in (
+            "classify",
+            "semantic",
+        ):
             # The DINOv2 backbone + projector is LayerNorm-only (no BatchNorm),
             # so the shared BN/conv/bias grouping leaves an empty first group.
             # Use a standard AdamW with no weight decay on norms/biases — the
@@ -788,9 +808,10 @@ class RFDETRTrainer(BaseTrainer):
         polygons: Optional[List] = None,
     ) -> Dict:
         task = getattr(getattr(self, "wrapper_model", None), "task", "detect")
-        if task == "classify":
-            # ``targets`` are class indices [B]; the model head returns the
-            # loss dict directly.
+        if task in ("classify", "semantic"):
+            # ``targets`` are class indices [B] (classify) or dense class maps
+            # [B, H, W] (semantic); the model head returns the loss dict
+            # directly.
             return self.model(imgs, targets=targets)
 
         height, width = imgs.shape[-2], imgs.shape[-1]
@@ -821,9 +842,13 @@ class RFDETRTrainer(BaseTrainer):
         return result
 
     def get_loss_components(self, outputs: Dict) -> Dict[str, float]:
-        if getattr(getattr(self, "wrapper_model", None), "task", "detect") == "classify":
+        loss_task = getattr(getattr(self, "wrapper_model", None), "task", "detect")
+        if loss_task == "classify":
             value = outputs.get("cls", 0)
             return {"cls": value.item() if isinstance(value, torch.Tensor) else float(value)}
+        if loss_task == "semantic":
+            value = outputs.get("sem", 0)
+            return {"sem": value.item() if isinstance(value, torch.Tensor) else float(value)}
 
         def _sum_with_prefix(prefix: str) -> float:
             total = 0.0
