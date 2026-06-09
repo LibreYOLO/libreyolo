@@ -78,7 +78,7 @@ def entrypoint() -> None:
     argv = _normalize_logging_flags(argv)
     _setup_logging_from_argv(argv)
 
-    from .commands import special, predict, train, val, export, ui  # noqa: F401
+    from .commands import special, predict, train, val, export, ui, doctor  # noqa: F401
     from .parsing import KeyValueCommand
 
     # Special commands
@@ -91,5 +91,6 @@ def entrypoint() -> None:
     app.command("val", cls=KeyValueCommand)(val.val_cmd)
     app.command("export", cls=KeyValueCommand)(export.export_cmd)
     app.command("ui", cls=KeyValueCommand)(ui.ui_cmd)
+    app.command("doctor", cls=KeyValueCommand)(doctor.doctor_cmd)
 
     app(args=argv[1:])
