@@ -3,7 +3,7 @@
 Thin subclass of :class:`BaseTrainer` that:
 
 * Reuses the YOLO-grid augmentation path (LibreYOLO's shared
-  ``training/augment.py``) — at the cost of a documented gap vs Bo's
+  ``data/augment/yolox.py``) — at the cost of a documented gap vs Bo's
   upstream ``MinIoURandomCrop`` / ``PhotoMetricDistortion`` / multiscale
   resize. v1 ships with hflip + ImageNet normalisation; the upstream-
   faithful augmentations land in a follow-up.

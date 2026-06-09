@@ -32,7 +32,12 @@ from typing import Optional, Sequence
 import cv2
 import numpy as np
 
-from .color import augment_hsv, brightness_contrast
+from .color import (
+    IMAGENET_MEAN_CHW,
+    IMAGENET_STD_CHW,
+    augment_hsv,
+    brightness_contrast,
+)
 
 AFFINE_INTERPOLATIONS = {
     "nearest": cv2.INTER_NEAREST,
@@ -42,8 +47,8 @@ AFFINE_INTERPOLATIONS = {
     "lanczos": cv2.INTER_LANCZOS4,
 }
 
-_IMAGENET_MEAN = np.array([0.485, 0.456, 0.406], dtype=np.float32).reshape(3, 1, 1)
-_IMAGENET_STD = np.array([0.229, 0.224, 0.225], dtype=np.float32).reshape(3, 1, 1)
+_IMAGENET_MEAN = IMAGENET_MEAN_CHW
+_IMAGENET_STD = IMAGENET_STD_CHW
 
 
 def as_hw(input_dim) -> tuple[int, int]:

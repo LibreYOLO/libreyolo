@@ -62,7 +62,7 @@ def test_rfdetr_pose_transform_zeroes_visibility_for_outside_keypoints():
 def test_rfdetr_pose_transform_flips_and_reindexes_keypoints(monkeypatch):
     from libreyolo.models.rfdetr.pose_transforms import RFDETRPoseTransform
 
-    monkeypatch.setattr("libreyolo.models.rfdetr.pose_transforms.random.random", lambda: 0.0)
+    monkeypatch.setattr("libreyolo.data.augment.rfdetr.random.random", lambda: 0.0)
     image = np.zeros((20, 40, 3), dtype=np.uint8)
     boxes = np.array([[0.25, 0.5, 0.25, 0.5]], dtype=np.float32)
     cls = np.array([0], dtype=np.float32)

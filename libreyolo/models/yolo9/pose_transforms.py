@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from typing import Optional, Sequence
 
+from ...data.augment.color import augment_hsv  # noqa: F401  (compat re-export)
 from ...data.augment.pose import PoseTrainTransform, PoseValTransform
 
 

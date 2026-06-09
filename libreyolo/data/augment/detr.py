@@ -31,6 +31,8 @@ import torch.nn.functional as F
 from torchvision import tv_tensors
 from torchvision.transforms import v2 as tv2
 
+from .color import IMAGENET_MEAN_CHW, IMAGENET_STD_CHW
+
 
 def labels_at_index_2(inputs):
     """Module-level labels_getter for ``SanitizeBoundingBoxes``.
@@ -75,8 +77,8 @@ class DETRTrainTransform:
 
     STRONG_OP_NAMES = ("RandomPhotometricDistort", "RandomZoomOut", "RandomIoUCrop")
 
-    _IMAGENET_MEAN = np.array([0.485, 0.456, 0.406], dtype=np.float32).reshape(3, 1, 1)
-    _IMAGENET_STD = np.array([0.229, 0.224, 0.225], dtype=np.float32).reshape(3, 1, 1)
+    _IMAGENET_MEAN = IMAGENET_MEAN_CHW
+    _IMAGENET_STD = IMAGENET_STD_CHW
     # When True, datasets hand over the original image (plus labels in
     # original-image coords) so the single Resize here avoids a
     # letterbox-then-stretch double resize.

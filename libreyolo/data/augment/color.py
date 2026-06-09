@@ -5,6 +5,10 @@ import random
 import cv2
 import numpy as np
 
+# ImageNet statistics in CHW broadcast shape, applied after /255 scaling.
+IMAGENET_MEAN_CHW = np.array([0.485, 0.456, 0.406], dtype=np.float32).reshape(3, 1, 1)
+IMAGENET_STD_CHW = np.array([0.229, 0.224, 0.225], dtype=np.float32).reshape(3, 1, 1)
+
 
 def augment_hsv(img, hgain=5, sgain=30, vgain=30):
     """Random HSV jitter (in-place) on a uint8 BGR image."""

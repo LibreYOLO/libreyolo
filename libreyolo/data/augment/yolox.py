@@ -17,7 +17,14 @@ from .mosaic import get_mosaic_coordinate, mixup_paste
 
 
 class TrainTransform:
-    """Transform for training data."""
+    """HSV + flip + letterbox transform emitting [class, cx, cy, w, h] pixel targets.
+
+    ``letterbox_fn`` is the only geometry hook: YOLOX uses the BGR 0-255
+    ``letterbox``; the YOLO-NAS recipe swaps in ``letterbox_rgb01``. The RNG
+    call sequence is identical either way.
+    """
+
+    letterbox_fn = staticmethod(letterbox)
 
     def __init__(self, max_labels=50, flip_prob=0.5, hsv_prob=1.0):
         self.max_labels = max_labels
@@ -29,7 +36,7 @@ class TrainTransform:
         labels = targets[:, 4].copy()
         if len(boxes) == 0:
             targets = np.zeros((self.max_labels, 5), dtype=np.float32)
-            image, r_o = letterbox(image, input_dim)
+            image, r_o = self.letterbox_fn(image, input_dim)
             return image, targets
 
         image_o = image.copy()
@@ -43,7 +50,7 @@ class TrainTransform:
             augment_hsv(image)
         image_t, boxes = mirror(image, boxes, self.flip_prob)
         height, width, _ = image_t.shape
-        image_t, r_ = letterbox(image_t, input_dim)
+        image_t, r_ = self.letterbox_fn(image_t, input_dim)
         boxes = xyxy2cxcywh(boxes)  # [xyxy] -> [cx,cy,w,h]
         boxes *= r_
 
@@ -52,7 +59,7 @@ class TrainTransform:
         labels_t = labels[mask_b]
 
         if len(boxes_t) == 0:
-            image_t, r_o = letterbox(image_o, input_dim)
+            image_t, r_o = self.letterbox_fn(image_o, input_dim)
             boxes_o *= r_o
             boxes_t = boxes_o
             labels_t = labels_o

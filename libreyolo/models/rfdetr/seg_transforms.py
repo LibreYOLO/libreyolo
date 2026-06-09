@@ -6,10 +6,13 @@ from ...data.augment.rfdetr import (
     RFDETRSegTransform,
     compute_multi_scale_scales,
 )
+from ...data.obb import normalize_obb_angle, scale_xywhr
 
 __all__ = [
     "RFDETRDetTransform",
     "RFDETRSegPassThroughDataset",
     "RFDETRSegTransform",
     "compute_multi_scale_scales",
+    "normalize_obb_angle",
+    "scale_xywhr",
 ]

@@ -19,6 +19,8 @@ import cv2
 import numpy as np
 
 from ..obb import normalize_obb_angle, scale_xywhr
+from .boxes import cxcywh_to_xyxy, xyxy_to_cxcywh
+from .color import IMAGENET_MEAN_CHW, IMAGENET_STD_CHW
 from .segments import (
     copy_segments,
     crop_segments,
@@ -29,8 +31,8 @@ from .segments import (
     scale_segments_xy,
 )
 
-_IMAGENET_MEAN = np.array([0.485, 0.456, 0.406], dtype=np.float32).reshape(3, 1, 1)
-_IMAGENET_STD = np.array([0.229, 0.224, 0.225], dtype=np.float32).reshape(3, 1, 1)
+_IMAGENET_MEAN = IMAGENET_MEAN_CHW
+_IMAGENET_STD = IMAGENET_STD_CHW
 
 
 def compute_multi_scale_scales(
@@ -343,24 +345,6 @@ class RFDETRSegPassThroughDataset:
         return img, label, img_info, img_id, masks
 
 
-def _cxcywh_to_xyxy(boxes: np.ndarray) -> np.ndarray:
-    out = np.zeros_like(boxes, dtype=np.float32)
-    out[:, 0] = boxes[:, 0] - boxes[:, 2] * 0.5
-    out[:, 1] = boxes[:, 1] - boxes[:, 3] * 0.5
-    out[:, 2] = boxes[:, 0] + boxes[:, 2] * 0.5
-    out[:, 3] = boxes[:, 1] + boxes[:, 3] * 0.5
-    return out
-
-
-def _xyxy_to_cxcywh(boxes: np.ndarray) -> np.ndarray:
-    out = np.zeros_like(boxes, dtype=np.float32)
-    out[:, 0] = (boxes[:, 0] + boxes[:, 2]) * 0.5
-    out[:, 1] = (boxes[:, 1] + boxes[:, 3]) * 0.5
-    out[:, 2] = boxes[:, 2] - boxes[:, 0]
-    out[:, 3] = boxes[:, 3] - boxes[:, 1]
-    return out
-
-
 def _crop_pose(
     img: np.ndarray,
     boxes_xyxy: np.ndarray,
@@ -474,7 +458,7 @@ class RFDETRPoseTransform:
         boxes_cxcywh = bboxes_norm.astype(np.float32).reshape(-1, 4)
         boxes_cxcywh[:, [0, 2]] *= w
         boxes_cxcywh[:, [1, 3]] *= h
-        boxes_xyxy = _cxcywh_to_xyxy(boxes_cxcywh)
+        boxes_xyxy = cxcywh_to_xyxy(boxes_cxcywh)
         kpts = kpts_norm.astype(np.float32).reshape(-1, self.num_keypoints, 3)
         kpts[..., 0] *= w
         kpts[..., 1] *= h
@@ -522,6 +506,10 @@ class RFDETRPoseTransform:
             boxes_xyxy[:, [1, 3]] = np.clip(boxes_xyxy[:, [1, 3]], 0.0, float(target_h))
             kpts[..., 0] *= scale_x
             kpts[..., 1] *= scale_y
+            # NOTE: strict `>` here vs `>=` in _crop_pose/random_affine_pose —
+            # a keypoint exactly on the right/bottom edge survives this resize
+            # path but is killed elsewhere. Historical inconsistency, pinned by
+            # the rfdetr_pose golden fixture; do not "fix" silently.
             outside = (
                 (kpts[..., 0] < 0.0)
                 | (kpts[..., 0] > float(target_w))
@@ -532,7 +520,7 @@ class RFDETRPoseTransform:
             kpts[..., 1] = np.clip(kpts[..., 1], 0.0, float(target_h))
             kpts[..., 2] = np.where(outside, 0.0, kpts[..., 2])
 
-        boxes_cxcywh = _xyxy_to_cxcywh(boxes_xyxy)
+        boxes_cxcywh = xyxy_to_cxcywh(boxes_xyxy)
         target = _build_pose_target_cxcywh(
             cls, boxes_cxcywh, kpts, self.num_keypoints, self.max_labels
         )

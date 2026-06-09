@@ -4,62 +4,24 @@ from __future__ import annotations
 
 import random
 
-import numpy as np
-
-from .boxes import xyxy2cxcywh
-from .color import augment_hsv
-from .geometry import letterbox_rgb01, mirror, random_affine
+from .geometry import letterbox_rgb01, random_affine
 from .mosaic import mixup_paste
+from .yolox import TrainTransform
 
 
-class YOLONASTrainTransform:
-    """Train transform emitting `[class, cx, cy, w, h]` pixel targets."""
+class YOLONASTrainTransform(TrainTransform):
+    """YOLOX-style train transform on the RGB [0, 1] letterbox.
+
+    Same HSV/flip/letterbox sequence as :class:`TrainTransform`; only the
+    letterbox (BGR 0-255 -> RGB [0, 1]) and the defaults differ.
+    """
+
+    letterbox_fn = staticmethod(letterbox_rgb01)
 
     def __init__(self, max_labels=100, flip_prob=0.5, hsv_prob=0.5):
-        self.max_labels = max_labels
-        self.flip_prob = flip_prob
-        self.hsv_prob = hsv_prob
-
-    def __call__(self, image, targets, input_dim):
-        boxes = targets[:, :4].copy()
-        labels = targets[:, 4].copy()
-
-        if len(boxes) == 0:
-            padded_labels = np.zeros((self.max_labels, 5), dtype=np.float32)
-            image, _ = letterbox_rgb01(image, input_dim)
-            return image, padded_labels
-
-        image_o = image.copy()
-        boxes_o = boxes.copy()
-        labels_o = labels.copy()
-        boxes_o = xyxy2cxcywh(boxes_o)
-
-        if random.random() < self.hsv_prob:
-            augment_hsv(image)
-
-        image_t, boxes = mirror(image, boxes, self.flip_prob)
-        image_t, r = letterbox_rgb01(image_t, input_dim)
-        boxes = xyxy2cxcywh(boxes)
-        boxes *= r
-
-        mask_b = np.minimum(boxes[:, 2], boxes[:, 3]) > 1
-        boxes_t = boxes[mask_b]
-        labels_t = labels[mask_b]
-
-        if len(boxes_t) == 0:
-            image_t, r_o = letterbox_rgb01(image_o, input_dim)
-            boxes_o *= r_o
-            boxes_t = boxes_o
-            labels_t = labels_o
-
-        labels_t = np.expand_dims(labels_t, 1)
-        targets_t = np.hstack((labels_t, boxes_t))
-        padded_labels = np.zeros((self.max_labels, 5), dtype=np.float32)
-        padded_labels[range(len(targets_t))[: self.max_labels]] = targets_t[
-            : self.max_labels
-        ]
-        padded_labels = np.ascontiguousarray(padded_labels, dtype=np.float32)
-        return image_t, padded_labels
+        super().__init__(
+            max_labels=max_labels, flip_prob=flip_prob, hsv_prob=hsv_prob
+        )
 
 
 class YOLONASAffineMixupDataset:

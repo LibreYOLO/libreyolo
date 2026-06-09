@@ -532,12 +532,12 @@ class TestPolygonLabelParsing:
     def test_rfdetr_crop_resize_branch_updates_boxes_and_masks(self, monkeypatch):
         from libreyolo.models.rfdetr.seg_transforms import RFDETRSegTransform
 
-        monkeypatch.setattr("libreyolo.models.rfdetr.seg_transforms.random.random", lambda: 0.0)
-        monkeypatch.setattr("libreyolo.models.rfdetr.seg_transforms.random.choice", lambda seq: seq[0])
+        monkeypatch.setattr("libreyolo.data.augment.rfdetr.random.random", lambda: 0.0)
+        monkeypatch.setattr("libreyolo.data.augment.rfdetr.random.choice", lambda seq: seq[0])
 
         randint_values = iter([20, 10, 10])
         monkeypatch.setattr(
-            "libreyolo.models.rfdetr.seg_transforms.random.randint",
+            "libreyolo.data.augment.rfdetr.random.randint",
             lambda _a, _b: next(randint_values),
         )
 
@@ -599,12 +599,12 @@ class TestPolygonLabelParsing:
         from libreyolo.data.dataset import DenseMaskRing
         from libreyolo.models.rfdetr.seg_transforms import RFDETRSegTransform
 
-        monkeypatch.setattr("libreyolo.models.rfdetr.seg_transforms.random.random", lambda: 0.0)
-        monkeypatch.setattr("libreyolo.models.rfdetr.seg_transforms.random.choice", lambda seq: seq[0])
+        monkeypatch.setattr("libreyolo.data.augment.rfdetr.random.random", lambda: 0.0)
+        monkeypatch.setattr("libreyolo.data.augment.rfdetr.random.choice", lambda seq: seq[0])
 
         randint_values = iter([20, 10, 10])
         monkeypatch.setattr(
-            "libreyolo.models.rfdetr.seg_transforms.random.randint",
+            "libreyolo.data.augment.rfdetr.random.randint",
             lambda _a, _b: next(randint_values),
         )
 
@@ -640,15 +640,15 @@ class TestPolygonLabelParsing:
         from libreyolo.models.rfdetr.seg_transforms import RFDETRSegTransform
 
         monkeypatch.setattr(
-            "libreyolo.models.rfdetr.seg_transforms.random.random", lambda: 0.0
+            "libreyolo.data.augment.rfdetr.random.random", lambda: 0.0
         )
         monkeypatch.setattr(
-            "libreyolo.models.rfdetr.seg_transforms.random.choice", lambda seq: seq[0]
+            "libreyolo.data.augment.rfdetr.random.choice", lambda seq: seq[0]
         )
 
         randint_values = iter([20, 10, 10])
         monkeypatch.setattr(
-            "libreyolo.models.rfdetr.seg_transforms.random.randint",
+            "libreyolo.data.augment.rfdetr.random.randint",
             lambda _a, _b: next(randint_values),
         )
 

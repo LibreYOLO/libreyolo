@@ -40,7 +40,8 @@ License: Apache License 2.0
 Copyright (c) 2021-2022 Megvii Inc. All rights reserved.
 Used for: YOLOX model family (libreyolo/models/yolox/), EMA helper
           (libreyolo/training/ema.py), augmentation pipeline
-          (libreyolo/training/augment.py).
+          (libreyolo/data/augment/{yolox,geometry,mosaic,boxes,color}.py,
+          re-exported via libreyolo/training/augment.py).
 
 --------------------------------------------------------------------
 YOLO (MultimediaTechLab, successor to WongKinYiu/YOLO)
