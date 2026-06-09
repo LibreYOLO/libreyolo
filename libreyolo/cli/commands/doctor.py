@@ -51,6 +51,7 @@ def doctor_cmd(
 ) -> None:
     """Check a dataset for problems before training (exit 1 when errors are found)."""
     from libreyolo.doctor import (
+        DatasetNotFoundError,
         DoctorError,
         NotADetectionDatasetError,
         UnknownCheckError,
@@ -87,16 +88,18 @@ def doctor_cmd(
             str(exc),
             suggestion="Support for other tasks is planned; see docs/libredoctor_design.md.",
         )
-    except DoctorError as exc:
+    except DatasetNotFoundError as exc:
         exit_with_error(out, "data_not_found", str(exc))
+    except DoctorError as exc:
+        exit_with_error(out, "data_invalid", str(exc))
 
+    code = report.exit_code(strict=strict)
     data_out = report.to_dict()
     data_out["data"] = data
-    data_out["exit_code"] = report.exit_code(strict=strict)
+    data_out["exit_code"] = code
     if not json_output:
         data_out["_human_text"] = report.render_human()
     out.result(data_out)
 
-    code = report.exit_code(strict=strict)
     if code:
         raise typer.Exit(code=code)

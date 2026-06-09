@@ -22,8 +22,13 @@ import yaml
 from PIL import Image
 from tqdm import tqdm
 
-from ..data.utils import img2label_paths, load_data_config, resolve_dataset_yaml
-from .config import DoctorError
+from ..data.utils import (
+    img2label_paths,
+    load_data_config,
+    polygon_to_cxcywh,
+    resolve_dataset_yaml,
+)
+from .config import DatasetNotFoundError, DoctorError
 
 logger = logging.getLogger(__name__)
 
@@ -84,6 +89,8 @@ class ImageRecord:
     boxes: np.ndarray  # (n, 5) float32: cls, cx, cy, w, h (normalized)
     label_issues: list[LabelIssue] = field(default_factory=list)
     label_digest: Optional[str] = None  # sha1 of label bytes, None when empty
+    polygon_lines: int = 0  # >5-field rows consumed as polygons (like training)
+    image_exists: bool = True  # txt-list splits can reference deleted files
     scan: Optional[ImageScan] = None  # filled by scan_images()
 
     @property
@@ -169,18 +176,21 @@ def normalize_names(raw: Any) -> dict[int, str]:
 
 def parse_label_file(
     path: Path, field_counts: Counter
-) -> tuple[np.ndarray, list[LabelIssue], Optional[str]]:
-    """Parse one detection label file.
+) -> tuple[np.ndarray, list[LabelIssue], Optional[str], int]:
+    """Parse one detection label file, mirroring what training accepts.
 
-    Mirrors what training accepts: 5 whitespace-separated fields per line,
-    integer class then four finite floats. Everything else is an issue.
+    ``YOLODataset._load_label`` takes any line with >= 5 fields: exactly 5 is
+    a box, more is a polygon whose extent becomes the box. Doctor does the
+    same so a dataset that trains never gets false syntax errors; polygon
+    rows are counted separately (``labels.polygon_line`` reports them).
     """
     boxes: list[list[float]] = []
     issues: list[LabelIssue] = []
+    polygon_lines = 0
     try:
         data = path.read_bytes()
     except OSError as exc:
-        return _empty_boxes(), [LabelIssue(0, f"unreadable: {exc}")], None
+        return _empty_boxes(), [LabelIssue(0, f"unreadable: {exc}")], None, 0
 
     digest = hashlib.sha1(data).hexdigest() if data.strip() else None
     text = data.decode("utf-8", errors="replace")
@@ -189,7 +199,7 @@ def parse_label_file(
         if not parts:
             continue
         field_counts[len(parts)] += 1
-        if len(parts) != 5:
+        if len(parts) < 5:
             issues.append(LabelIssue(line_no, f"expected 5 fields, got {len(parts)}"))
             continue
         try:
@@ -201,11 +211,16 @@ def parse_label_file(
         if not all(math.isfinite(v) for v in vals):
             issues.append(LabelIssue(line_no, "non-finite value (nan/inf)"))
             continue
-        boxes.append([float(cls_id), *vals])
+        if len(parts) > 5:
+            polygon_lines += 1
+            cx, cy, w, h = polygon_to_cxcywh(vals)
+            boxes.append([float(cls_id), cx, cy, w, h])
+        else:
+            boxes.append([float(cls_id), *vals])
 
     if boxes:
-        return np.asarray(boxes, dtype=np.float32), issues, digest
-    return _empty_boxes(), issues, digest
+        return np.asarray(boxes, dtype=np.float32), issues, digest, polygon_lines
+    return _empty_boxes(), issues, digest, polygon_lines
 
 
 def _empty_boxes() -> np.ndarray:
@@ -217,13 +232,19 @@ def build_snapshot(data: str, autodownload: bool = False) -> DatasetSnapshot:
     try:
         yaml_path = resolve_dataset_yaml(data)
     except FileNotFoundError as exc:
-        raise DoctorError(str(exc)) from exc
+        raise DatasetNotFoundError(str(exc)) from exc
 
     try:
-        with open(yaml_path, "r") as f:
+        with open(yaml_path, "r", encoding="utf-8") as f:
             raw_config = yaml.safe_load(f)
+    except UnicodeDecodeError as exc:
+        raise DoctorError(
+            f"Dataset YAML {yaml_path} is not valid UTF-8: {exc}"
+        ) from exc
     except yaml.YAMLError as exc:
         raise DoctorError(f"Cannot parse dataset YAML {yaml_path}: {exc}") from exc
+    except OSError as exc:
+        raise DoctorError(f"Cannot read dataset YAML {yaml_path}: {exc}") from exc
     if not isinstance(raw_config, dict):
         raise DoctorError(f"Dataset YAML {yaml_path} is not a mapping.")
 
@@ -245,19 +266,24 @@ def build_snapshot(data: str, autodownload: bool = False) -> DatasetSnapshot:
         )
         records = []
         for img_path, label_path in zip(img_files, label_files):
+            img_path = Path(img_path)
             label_exists = label_path.exists()
             if label_exists:
-                boxes, issues, digest = parse_label_file(label_path, field_counts)
+                boxes, issues, digest, polygon_lines = parse_label_file(
+                    label_path, field_counts
+                )
             else:
-                boxes, issues, digest = _empty_boxes(), [], None
+                boxes, issues, digest, polygon_lines = _empty_boxes(), [], None, 0
             records.append(
                 ImageRecord(
-                    path=Path(img_path),
+                    path=img_path,
                     label_path=Path(label_path),
                     label_exists=label_exists,
                     boxes=boxes,
                     label_issues=issues,
                     label_digest=digest,
+                    polygon_lines=polygon_lines,
+                    image_exists=img_path.exists(),
                 )
             )
         splits.append(SplitSnapshot(name=split_name, records=records))
@@ -320,6 +346,7 @@ def scan_images(
     snapshot: DatasetSnapshot,
     workers: Optional[int] = None,
     progress: bool = True,
+    uniform_pixel_range: int = 2,
 ) -> None:
     """Decode every image once, filling ``record.scan`` in place.
 
@@ -335,7 +362,10 @@ def scan_images(
         workers = min(32, (os.cpu_count() or 4) + 4)
 
     with ThreadPoolExecutor(max_workers=workers) as ex:
-        results = ex.map(_scan_one, (r.path for r in records))
+        results = ex.map(
+            lambda path: _scan_one(path, uniform_pixel_range),
+            (r.path for r in records),
+        )
         iterator = zip(records, results)
         for record, scan in tqdm(
             iterator,
@@ -348,7 +378,7 @@ def scan_images(
     snapshot.images_scanned = True
 
 
-def _scan_one(path: Path) -> ImageScan:
+def _scan_one(path: Path, uniform_pixel_range: int = 2) -> ImageScan:
     try:
         data = path.read_bytes()
     except OSError as exc:
@@ -376,7 +406,7 @@ def _scan_one(path: Path) -> ImageScan:
 
     bits = (gray[:, 1:] > gray[:, :-1]).flatten()
     dhash = int.from_bytes(np.packbits(bits).tobytes(), "big")
-    uniform = int(gray.max() - gray.min()) <= 2
+    uniform = int(gray.max() - gray.min()) <= uniform_pixel_range
     return ImageScan(
         ok=True,
         width=width,

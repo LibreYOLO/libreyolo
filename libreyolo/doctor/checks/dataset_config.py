@@ -25,7 +25,10 @@ def check_nc_names_mismatch(
     snap: DatasetSnapshot, cfg: DoctorConfig
 ) -> Iterator[Finding]:
     raw_nc = snap.raw_config.get("nc")
-    if isinstance(raw_nc, int) and snap.names and raw_nc != len(snap.names):
+    # YAML can deliver nc as a float (e.g. "nc: 5.0"); treat it numerically.
+    if isinstance(raw_nc, bool) or not isinstance(raw_nc, (int, float)):
+        return
+    if snap.names and raw_nc != len(snap.names):
         yield Finding(
             "config.nc_names_mismatch",
             Severity.ERROR,
@@ -52,26 +55,49 @@ def check_missing_split(snap: DatasetSnapshot, cfg: DoctorConfig) -> Iterator[Fi
 
 @register("config.path_not_found")
 def check_path_not_found(snap: DatasetSnapshot, cfg: DoctorConfig) -> Iterator[Finding]:
+    # Validate every configured entry: with list splits, one good directory
+    # must not hide a missing or empty sibling.
     for split_name in ("train", "val", "test"):
         if not snap.raw_config.get(split_name):
             continue
-        split = snap.split(split_name)
-        if split is not None and split.records:
-            continue
         resolved = snap.config.get(split_name)
-        paths = resolved if isinstance(resolved, list) else [resolved]
-        missing = [p for p in paths if p and not Path(p).exists()]
+        entries = resolved if isinstance(resolved, list) else [resolved]
+        missing: list[Path] = []
+        empty: list[Path] = []
+        for entry in entries:
+            if not entry:
+                continue
+            path = Path(entry)
+            if not path.exists():
+                missing.append(path)
+            elif path.is_dir() and not _contains_images(path):
+                empty.append(path)
         if missing:
-            message = f"'{split_name}' path does not exist."
-        else:
-            message = f"'{split_name}' path exists but contains no images."
-        yield Finding(
-            "config.path_not_found",
-            Severity.ERROR,
-            message,
-            split=split_name,
-            paths=[Path(p) for p in (missing or paths) if p],
-        )
+            yield Finding(
+                "config.path_not_found",
+                Severity.ERROR,
+                f"'{split_name}' path(s) do not exist.",
+                split=split_name,
+                paths=missing[: cfg.max_examples],
+                count=len(missing),
+            )
+        if empty:
+            yield Finding(
+                "config.path_not_found",
+                Severity.ERROR,
+                f"'{split_name}' path(s) exist but contain no images.",
+                split=split_name,
+                paths=empty[: cfg.max_examples],
+                count=len(empty),
+            )
+
+
+def _contains_images(directory: Path) -> bool:
+    from ...data.utils import IMG_FORMATS
+
+    return any(
+        f.suffix.lower() in IMG_FORMATS for f in directory.rglob("*") if f.is_file()
+    )
 
 
 @register("config.duplicate_names")

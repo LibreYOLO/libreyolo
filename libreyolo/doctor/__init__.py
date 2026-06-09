@@ -12,6 +12,7 @@ Or from the CLI: ``libreyolo doctor data.yaml``. See
 """
 
 from .config import (
+    DatasetNotFoundError,
     DoctorConfig,
     DoctorError,
     NotADetectionDatasetError,
@@ -22,6 +23,7 @@ from .runner import diagnose
 
 __all__ = [
     "diagnose",
+    "DatasetNotFoundError",
     "DoctorConfig",
     "DoctorError",
     "NotADetectionDatasetError",

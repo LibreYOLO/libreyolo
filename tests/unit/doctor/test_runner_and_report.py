@@ -4,7 +4,12 @@ import json
 
 import pytest
 
-from libreyolo.doctor import DoctorError, UnknownCheckError, diagnose
+from libreyolo.doctor import (
+    DatasetNotFoundError,
+    DoctorError,
+    UnknownCheckError,
+    diagnose,
+)
 from libreyolo.doctor.report import Finding, Report, Severity
 
 pytestmark = pytest.mark.unit
@@ -62,8 +67,36 @@ class TestDiagnose:
             diagnose(str(ds.yaml_path), progress=False, skip=["imagez"])
 
     def test_missing_yaml_raises_doctor_error(self, tmp_path):
-        with pytest.raises(DoctorError):
+        with pytest.raises(DatasetNotFoundError):
             diagnose(str(tmp_path / "nope.yaml"), progress=False)
+        assert issubclass(DatasetNotFoundError, DoctorError)
+
+    def test_empty_selection_raises(self, make_dataset):
+        # --fast removes all image checks; --only images then leaves nothing,
+        # which must not masquerade as a clean run.
+        ds = make_dataset()
+        clean(ds)
+        with pytest.raises(UnknownCheckError):
+            diagnose(str(ds.yaml_path), fast=True, progress=False, only=["images"])
+
+    def test_crashed_check_becomes_error_finding(self, make_dataset, monkeypatch):
+        from libreyolo.doctor import checks as checks_pkg
+        from libreyolo.doctor.report import Finding, Severity
+
+        def exploding(snap, cfg):
+            yield Finding("balance.imbalance", Severity.INFO, "partial")
+            raise RuntimeError("boom")
+
+        checks_pkg._load()
+        monkeypatch.setitem(checks_pkg._REGISTRY, "balance.imbalance", exploding)
+        ds = make_dataset()
+        clean(ds)
+        report = diagnose(str(ds.yaml_path), fast=True, progress=False)
+        crash = [f for f in report.findings if f.check_id == "balance.imbalance"]
+        # The partial finding is discarded; one ERROR reports the crash.
+        assert len(crash) == 1
+        assert crash[0].severity.value == "error" and "boom" in crash[0].message
+        assert report.exit_code() == 1
 
     def test_imgsz_changes_tiny_threshold(self, make_dataset):
         ds = make_dataset()

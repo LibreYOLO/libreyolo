@@ -32,7 +32,7 @@ exit codes so it can run as a CI gate ("dataset CI").
 ## CLI
 
 ```
-libreyolo doctor coco8.yaml                 # human report to stderr, summary table
+libreyolo doctor coco8.yaml                 # human report to stdout, progress to stderr
 libreyolo doctor coco8.yaml --json          # machine-readable findings to stdout
 libreyolo doctor coco8.yaml imgsz=640       # used to convert "tiny object" checks to on-target pixels
 libreyolo doctor coco8.yaml --fast          # skip image-content checks (no decode/hash)
@@ -79,11 +79,12 @@ and truncates file lists; `--json` emits everything.
 | `config.missing_names` | ERROR | `names` missing or empty |
 | `config.nc_names_mismatch` | ERROR | `nc` != len(`names`) |
 | `config.missing_split` | ERROR/WARN | `train` missing (E); `val` missing (W) |
-| `config.path_not_found` | ERROR | split dirs / list files don't exist |
+| `config.path_not_found` | ERROR | split dirs / list files don't exist, or a configured directory contains no images (every entry of a list split is validated individually) |
 | `config.duplicate_names` | WARNING | two class ids share a name |
 | (format guard) | EXIT 3 | `kpt_shape` present, or most label lines are consistently not 5-field detect rows (pose/segment/obb shapes) — exits with "supports detection datasets only" instead of flooding false syntax errors; inconsistent garbage still reports as `labels.syntax` |
-| `files.orphan_label` | WARNING | label file with no matching image |
+| `files.orphan_label` | WARNING | label file with no matching image in any split |
 | `files.missing_label` | INFO | image with no label file (counted as background) |
+| `files.missing_image` | ERROR | image listed in a `.txt` split but missing on disk |
 | `files.unsupported_ext` | WARNING | files in image dirs with non-image extensions |
 | `files.case_collision` | WARNING | `a.jpg` and `a.JPG` style stem collisions |
 
@@ -91,19 +92,24 @@ and truncates file lists; `--json` emits everything.
 
 | id | severity | what |
 |---|---|---|
-| `labels.syntax` | ERROR | wrong field count, non-numeric, NaN/inf |
+| `labels.syntax` | ERROR | fewer than 5 fields, non-numeric, NaN/inf |
+| `labels.polygon_line` | INFO | >5-field rows: accepted exactly as training accepts them (polygon extent becomes the box), but usually a segmentation export |
 | `labels.class_out_of_range` | ERROR | class id not in `[0, nc)` |
 | `labels.coords_out_of_range` | ERROR | any coord outside `[0, 1]` — classic "pixel coords exported" symptom; box partially out (center+size spills past edge) is WARNING |
 | `labels.degenerate_box` | ERROR | width or height <= 0 |
 | `labels.tiny_object` | WARNING | box smaller than ~3 px on either side *at the requested imgsz* (default 640) |
 | `labels.huge_box` | WARNING | box covers > 95% of image area |
-| `labels.extreme_aspect` | WARNING | box aspect ratio > 50:1 (sliver annotations) |
+| `labels.extreme_aspect` | WARNING | box aspect ratio > 50:1 in pixels (sliver annotations); without image dims (`--fast`) the normalized ratio is used with a doubled threshold to avoid false positives |
 | `labels.duplicate_box` | WARNING | same class, IoU > 0.95 within one image (double annotation) |
 | `labels.crowded_image` | INFO | images with anomalously many objects (> p99 × 3) |
 | `labels.identical_files` | WARNING | many label files byte-identical to each other (copy-paste exports) |
 
-Line parsing matches `YOLODataset._load_label()` semantics so doctor and
-training always agree on what is malformed. When other tasks land (v2), their
+Line parsing matches `YOLODataset._load_label()` semantics — any line with
+>= 5 numeric fields is accepted (5 = box; more = polygon reduced to its
+bounding box), so a dataset that trains never gets false syntax errors from
+doctor. Doctor is stricter only in *reporting*: polygon rows surface as
+`labels.polygon_line` INFO and non-finite values are flagged even though
+training would silently consume them. When other tasks land (v2), their
 checks reuse the existing parsers (`parse_yolo_pose_label_line`,
 `parse_yolo_obb_label_line`, segment ring parsing) and the task is inferred
 where unambiguous (`kpt_shape` → pose) with a `task=` override for the
@@ -159,6 +165,11 @@ Design rule: the dataset is scanned **once** into a `DatasetSnapshot`; every
 check is a pure function `check(snapshot, config) -> list[Finding]` registered
 by id. This keeps checks independently testable with synthetic snapshots and
 makes `--skip`/`--only` trivial.
+
+Failure honesty: a check that crashes is reported as an ERROR finding under
+its own id ("results are incomplete") so a broken run can never exit 0, and a
+`--skip`/`--only`/`--fast` combination that selects zero checks is a usage
+error (exit 2) instead of a false-green "No problems found".
 
 ## Where utilities live (the general pattern)
 

@@ -26,6 +26,22 @@ class TestLabelChecks:
         report = run_fast(ds)
         assert not report.errors
 
+    def test_polygon_minority_is_info_not_error(self, make_dataset):
+        # A few segmentation-style rows train fine (polygon -> box extent),
+        # so doctor must not fail the dataset; it informs instead.
+        ds = make_dataset()
+        clean(ds)
+        ds.label(
+            "train",
+            "a.txt",
+            "0 0.5 0.5 0.2 0.2\n1 0.1 0.1 0.5 0.1 0.5 0.5 0.1 0.5\n",
+        )
+        report = run_fast(ds)
+        assert "labels.syntax" not in finding_ids(report)
+        (f,) = findings_for(report, "labels.polygon_line")
+        assert f.count == 1 and f.severity.value == "info"
+        assert not report.errors
+
     def test_syntax(self, make_dataset):
         ds = make_dataset()
         clean(ds)
@@ -90,10 +106,20 @@ class TestLabelChecks:
         assert "labels.huge_box" in finding_ids(report)
 
     def test_extreme_aspect(self, make_dataset):
+        # In fast mode (no image dims) the threshold is doubled to absorb
+        # image-aspect uncertainty, so use a 180:1 sliver.
+        ds = make_dataset()
+        clean(ds)
+        ds.label("train", "a.txt", "0 0.5 0.5 0.9 0.005\n")
+        report = run_fast(ds)
+        assert "labels.extreme_aspect" in finding_ids(report)
+
+    def test_extreme_aspect_exact_with_image_dims(self, make_dataset):
+        # With the decode pass, pixel dims make a 90:1 sliver detectable.
         ds = make_dataset()
         clean(ds)
         ds.label("train", "a.txt", "0 0.5 0.5 0.9 0.01\n")
-        report = run_fast(ds)
+        report = diagnose(str(ds.yaml_path), progress=False)
         assert "labels.extreme_aspect" in finding_ids(report)
 
     def test_duplicate_box(self, make_dataset):

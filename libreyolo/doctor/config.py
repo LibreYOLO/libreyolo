@@ -8,6 +8,10 @@ class DoctorError(Exception):
     """Doctor could not run (bad YAML, unreadable dataset, bad selection)."""
 
 
+class DatasetNotFoundError(DoctorError):
+    """The dataset YAML could not be located."""
+
+
 class NotADetectionDatasetError(DoctorError):
     """Format guard: the dataset does not look like a YOLO detection dataset."""
 

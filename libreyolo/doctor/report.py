@@ -135,9 +135,9 @@ class Report:
                 shown = f.paths[:max_paths]
                 for p in shown:
                     lines.append(f"      {p}")
-                hidden = (f.count or len(f.paths)) - len(shown)
-                if f.paths and hidden > 0:
-                    lines.append(f"      ... and {hidden} more")
+                hidden = len(f.paths) - len(shown)
+                if hidden > 0:
+                    lines.append(f"      ... and {hidden} more file(s) (see --json)")
             lines.append("")
 
         if self.skipped_checks:

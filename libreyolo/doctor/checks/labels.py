@@ -20,7 +20,12 @@ def _per_split(snap: DatasetSnapshot) -> Iterator[SplitSnapshot]:
     yield from snap.splits
 
 
-def _plausible(boxes: np.ndarray, eps: float = 1e-6) -> np.ndarray:
+# IoU pair-finding builds (n, n) matrices; cap n so a single densely
+# annotated image cannot exhaust memory (coverage beyond the cap is skipped).
+_MAX_IOU_BOXES = 1500
+
+
+def _plausible(boxes: np.ndarray, eps: float) -> np.ndarray:
     """Rows whose coords lie in [0, 1]. Geometry checks skip the rest:
     implausible rows are already reported by labels.coords_out_of_range."""
     coords = boxes[:, 1:5]
@@ -31,9 +36,7 @@ def _plausible(boxes: np.ndarray, eps: float = 1e-6) -> np.ndarray:
 def check_syntax(snap: DatasetSnapshot, cfg: DoctorConfig) -> Iterator[Finding]:
     for split in _per_split(snap):
         bad: list[tuple[Path, str]] = []
-        total_lines = 0
         for r in split.records:
-            total_lines += len(r.label_issues)
             for issue in r.label_issues:
                 bad.append((r.label_path, f"line {issue.line_no}: {issue.reason}"))
         if bad:
@@ -45,6 +48,27 @@ def check_syntax(snap: DatasetSnapshot, cfg: DoctorConfig) -> Iterator[Finding]:
                 split=split.name,
                 paths=_unique([p for p, _ in bad], cfg.max_examples),
                 count=len(bad),
+            )
+
+
+@register("labels.polygon_line")
+def check_polygon_line(snap: DatasetSnapshot, cfg: DoctorConfig) -> Iterator[Finding]:
+    """>5-field rows train fine (polygon extent becomes the box) but usually
+    mean a segmentation export ended up in a detection dataset."""
+    for split in _per_split(snap):
+        offenders = [r.label_path for r in split.records if r.polygon_lines]
+        n_rows = sum(r.polygon_lines for r in split.records)
+        if n_rows:
+            yield Finding(
+                "labels.polygon_line",
+                Severity.INFO,
+                f"{n_rows} label line(s) have more than 5 fields and are read "
+                "as polygons (the box is derived from their extent), exactly "
+                "as training does. If this is most of the dataset, it is "
+                "probably a segmentation export.",
+                split=split.name,
+                paths=offenders[: cfg.max_examples],
+                count=n_rows,
             )
 
 
@@ -174,7 +198,7 @@ def check_tiny_object(snap: DatasetSnapshot, cfg: DoctorConfig) -> Iterator[Find
                 (np.minimum(px_w, px_h) < cfg.tiny_box_px)
                 & (w > 0)
                 & (h > 0)
-                & _plausible(r.boxes)
+                & _plausible(r.boxes, cfg.coord_tolerance)
             )
             if mask.any():
                 offenders.append(r.label_path)
@@ -203,7 +227,7 @@ def check_huge_box(snap: DatasetSnapshot, cfg: DoctorConfig) -> Iterator[Finding
             if not r.boxes.shape[0]:
                 continue
             area = r.boxes[:, 3] * r.boxes[:, 4]
-            mask = (area > cfg.huge_box_area) & _plausible(r.boxes)
+            mask = (area > cfg.huge_box_area) & _plausible(r.boxes, cfg.coord_tolerance)
             if mask.any():
                 offenders.append(r.label_path)
                 n_rows += int(mask.sum())
@@ -228,14 +252,22 @@ def check_extreme_aspect(snap: DatasetSnapshot, cfg: DoctorConfig) -> Iterator[F
             if not r.boxes.shape[0]:
                 continue
             w, h = r.boxes[:, 3], r.boxes[:, 4]
+            threshold = cfg.extreme_box_aspect
             if r.scan is not None and r.scan.ok and r.scan.width and r.scan.height:
                 w = w * r.scan.width
                 h = h * r.scan.height
+            else:
+                # Normalized ratio differs from the pixel ratio by the image
+                # aspect (typically <= 2:1); double the threshold so --fast
+                # never over-reports, at the cost of missing borderline cases.
+                threshold = cfg.extreme_box_aspect * 2
             valid = (w > 0) & (h > 0)
             ratio = np.where(
                 valid, np.maximum(w, h) / np.where(valid, np.minimum(w, h), 1), 0
             )
-            mask = valid & (ratio > cfg.extreme_box_aspect) & _plausible(r.boxes)
+            mask = (
+                valid & (ratio > threshold) & _plausible(r.boxes, cfg.coord_tolerance)
+            )
             if mask.any():
                 offenders.append(r.label_path)
                 n_rows += int(mask.sum())
@@ -257,10 +289,10 @@ def check_duplicate_box(snap: DatasetSnapshot, cfg: DoctorConfig) -> Iterator[Fi
         offenders = []
         n_pairs = 0
         for r in split.records:
-            boxes = r.boxes[_plausible(r.boxes)]
+            boxes = r.boxes[_plausible(r.boxes, cfg.coord_tolerance)]
             if boxes.shape[0] < 2:
                 continue
-            pairs = _same_class_high_iou(boxes, cfg.duplicate_box_iou)
+            pairs = _same_class_high_iou(boxes[:_MAX_IOU_BOXES], cfg.duplicate_box_iou)
             if pairs:
                 offenders.append(r.label_path)
                 n_pairs += pairs

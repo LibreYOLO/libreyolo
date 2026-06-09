@@ -31,30 +31,47 @@ def check_missing_label(snap: DatasetSnapshot, cfg: DoctorConfig) -> Iterator[Fi
             )
 
 
+@register("files.missing_image")
+def check_missing_image(snap: DatasetSnapshot, cfg: DoctorConfig) -> Iterator[Finding]:
+    """Images referenced by a .txt split list that no longer exist on disk."""
+    for split in snap.splits:
+        missing = [r for r in split.records if not r.image_exists]
+        if missing:
+            yield Finding(
+                "files.missing_image",
+                Severity.ERROR,
+                f"{len(missing)} image(s) are listed in the split but missing "
+                "on disk; training crashes when it tries to read them.",
+                split=split.name,
+                paths=[r.path for r in missing[: cfg.max_examples]],
+                count=len(missing),
+            )
+
+
 @register("files.orphan_label")
 def check_orphan_label(snap: DatasetSnapshot, cfg: DoctorConfig) -> Iterator[Finding]:
-    for split in snap.splits:
-        expected = {r.label_path.resolve() for r in split.records}
-        label_dirs = {r.label_path.parent for r in split.records}
-        orphans = []
-        for label_dir in label_dirs:
-            if not label_dir.is_dir():
+    # Splits may share one labels directory (txt-list layouts), so a label is
+    # an orphan only if no split's images claim it.
+    expected = {r.label_path.resolve() for split in snap.splits for r in split.records}
+    label_dirs = {r.label_path.parent for split in snap.splits for r in split.records}
+    orphans = []
+    for label_dir in label_dirs:
+        if not label_dir.is_dir():
+            continue
+        for txt in label_dir.glob("*.txt"):
+            if txt.name in _COMPANION_NAMES:
                 continue
-            for txt in label_dir.glob("*.txt"):
-                if txt.name in _COMPANION_NAMES:
-                    continue
-                if txt.resolve() not in expected:
-                    orphans.append(txt)
-        if orphans:
-            yield Finding(
-                "files.orphan_label",
-                Severity.WARNING,
-                f"{len(orphans)} label file(s) have no matching image; "
-                "they are silently ignored by training.",
-                split=split.name,
-                paths=sorted(orphans)[: cfg.max_examples],
-                count=len(orphans),
-            )
+            if txt.resolve() not in expected:
+                orphans.append(txt)
+    if orphans:
+        yield Finding(
+            "files.orphan_label",
+            Severity.WARNING,
+            f"{len(orphans)} label file(s) have no matching image; "
+            "they are silently ignored by training.",
+            paths=sorted(orphans)[: cfg.max_examples],
+            count=len(orphans),
+        )
 
 
 @register("files.unsupported_ext")

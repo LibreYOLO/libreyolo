@@ -48,6 +48,28 @@ class TestConfigChecks:
         report = run_fast(ds)
         assert "config.duplicate_names" in finding_ids(report)
 
+    def test_nc_as_float_still_checked(self, make_dataset):
+        ds = make_dataset()
+        ds.sample("train", "a.jpg")
+        ds.sample("val", "b.jpg")
+        ds.set_yaml(nc=5.0)  # YAML floats must not bypass the mismatch check
+        report = run_fast(ds)
+        assert "config.nc_names_mismatch" in finding_ids(report)
+
+    def test_list_split_with_empty_dir(self, make_dataset):
+        ds = make_dataset()
+        ds.sample("train", "a.jpg")
+        ds.sample("val", "b.jpg")
+        (ds.root / "images" / "train_extra").mkdir()
+        ds.set_yaml(train=["images/train", "images/train_extra"])
+        report = run_fast(ds)
+        findings = [
+            f
+            for f in findings_for(report, "config.path_not_found")
+            if f.split == "train"
+        ]
+        assert findings and "no images" in findings[0].message
+
 
 class TestFileChecks:
     def test_missing_label_counted(self, make_dataset):
@@ -86,6 +108,30 @@ class TestFileChecks:
         report = run_fast(ds)
         (f,) = findings_for(report, "files.unsupported_ext")
         assert f.count == 1
+
+    def test_missing_image_in_txt_split(self, make_dataset):
+        ds = make_dataset()
+        ds.sample("train", "a.jpg")
+        ds.sample("val", "b.jpg")
+        (ds.root / "train_list.txt").write_text(
+            "images/train/a.jpg\nimages/train/deleted.jpg\n"
+        )
+        ds.set_yaml(train="train_list.txt")
+        report = run_fast(ds)
+        (f,) = findings_for(report, "files.missing_image")
+        assert f.severity.value == "error" and f.count == 1
+        assert "deleted" in str(f.paths[0])
+
+    def test_no_orphans_when_splits_share_label_dir(self, make_dataset):
+        # txt-list splits can point into the same images/labels directories;
+        # a label claimed by another split is not an orphan.
+        ds = make_dataset()
+        ds.sample("train", "a.jpg")
+        ds.sample("train", "b.jpg")
+        (ds.root / "val_list.txt").write_text("images/train/a.jpg\n")
+        ds.set_yaml(val="val_list.txt")
+        report = run_fast(ds)
+        assert "files.orphan_label" not in finding_ids(report)
 
     def test_case_collision(self, make_dataset):
         ds = make_dataset()
