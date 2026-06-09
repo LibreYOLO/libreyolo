@@ -1244,6 +1244,57 @@ class Classify(nn.Module):
         return logits
 
 
+class SemanticDecoder(nn.Module):
+    """Dense semantic-segmentation head for YOLO9.
+
+    Fuses the three neck levels (strides 8/16/32) FPN-style: 1x1 laterals to a
+    shared width, top-down resize-and-sum onto the stride-8 map, a smoothing
+    conv, a 2x upsample to stride 4, then a 1x1 projection to per-class
+    logits. ``forward`` returns logits at the requested output resolution and,
+    when training targets are given, the per-pixel cross-entropy loss.
+    """
+
+    def __init__(self, ch, num_classes, decoder_channels=128, ignore_index=255):
+        super().__init__()
+        self.nc = num_classes
+        self.ignore_index = ignore_index
+        c3, c4, c5 = ch
+        self.lateral3 = Conv(c3, decoder_channels, 1, 1)
+        self.lateral4 = Conv(c4, decoder_channels, 1, 1)
+        self.lateral5 = Conv(c5, decoder_channels, 1, 1)
+        self.smooth = Conv(decoder_channels, decoder_channels, 3, 1)
+        self.up = nn.Upsample(scale_factor=2, mode="nearest")
+        self.refine = Conv(decoder_channels, decoder_channels, 3, 1)
+        self.predict = nn.Conv2d(decoder_channels, num_classes, 1)
+
+    def forward(self, feats, targets=None, out_size=None):
+        n3, n4, n5 = feats
+        size8 = n3.shape[-2:]
+        x = (
+            self.lateral3(n3)
+            + F.interpolate(self.lateral4(n4), size=size8, mode="nearest")
+            + F.interpolate(self.lateral5(n5), size=size8, mode="nearest")
+        )
+        x = self.smooth(x)
+        x = self.refine(self.up(x))
+        logits = self.predict(x)
+
+        if self.training and targets is not None:
+            logits = F.interpolate(
+                logits, size=targets.shape[-2:], mode="bilinear", align_corners=False
+            )
+            loss = F.cross_entropy(
+                logits, targets.long(), ignore_index=self.ignore_index
+            )
+            return {"total_loss": loss, "sem": loss}
+
+        if out_size is None:
+            out_size = (logits.shape[-2] * 4, logits.shape[-1] * 4)
+        return F.interpolate(
+            logits, size=tuple(out_size), mode="bilinear", align_corners=False
+        )
+
+
 class LibreYOLO9Model(nn.Module):
     """
     Complete LibreYOLO9 model.
@@ -1261,10 +1312,12 @@ class LibreYOLO9Model(nn.Module):
         pose=False,
         classification=False,
         obb=False,
+        semantic=False,
         num_masks=32,
         proto_channels=256,
         num_keypoints=17,
         keypoint_dim=3,
+        decoder_channels=128,
     ):
         """
         Initialize YOLOv9 model.
@@ -1277,6 +1330,9 @@ class LibreYOLO9Model(nn.Module):
             segmentation: Build the instance-segmentation head.
             classification: Build an image-classification head (backbone +
                 global-pool + linear). Mutually exclusive with segmentation.
+            semantic: Build the dense semantic-segmentation decoder over the
+                neck features instead of the detection head.
+            decoder_channels: Shared lateral width of the semantic decoder.
         """
         super().__init__()
 
@@ -1293,10 +1349,18 @@ class LibreYOLO9Model(nn.Module):
         self.pose = pose
         self.classification = classification
         self.obb = obb
+        self.semantic = semantic
         self.num_keypoints = int(num_keypoints)
         self.keypoint_dim = int(keypoint_dim)
         enabled_tasks = sum(
-            bool(v) for v in (self.segmentation, self.pose, self.classification, self.obb)
+            bool(v)
+            for v in (
+                self.segmentation,
+                self.pose,
+                self.classification,
+                self.obb,
+                self.semantic,
+            )
         )
         if enabled_tasks > 1:
             raise ValueError("YOLO9 can enable only one task head at a time")
@@ -1313,6 +1377,14 @@ class LibreYOLO9Model(nn.Module):
             return
 
         self.neck = Neck9(config)
+
+        # Semantic segmentation replaces the detection head with a dense
+        # decoder over the neck pyramid; no anchors, DFL, or NMS involved.
+        if semantic:
+            self.head = SemanticDecoder(
+                cfg["head_channels"], nb_classes, decoder_channels=decoder_channels
+            )
+            return
 
         # Detection head - use exact channels from config
         head_channels = cfg["head_channels"]
@@ -1361,6 +1433,15 @@ class LibreYOLO9Model(nn.Module):
 
         # Neck
         n3, n4, n5 = self.neck(p3, p4, p5)
+
+        # Semantic segmentation: dense decoder over the neck pyramid. Returns
+        # the loss dict in training (with targets) or input-resolution logits.
+        if self.semantic:
+            return self.head(
+                [n3, n4, n5],
+                targets=targets if self.training else None,
+                out_size=x.shape[-2:],
+            )
 
         # Detection head
         if self.training and targets is not None:

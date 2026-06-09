@@ -1058,6 +1058,7 @@ class BaseModel(ABC):
             OBBValidator,
             PoseValidator,
             SegmentationValidator,
+            SemanticValidator,
             ValidationConfig,
         )
 
@@ -1107,6 +1108,8 @@ class BaseModel(ABC):
             validator_cls = PoseValidator
         elif self.task == "segment":
             validator_cls = SegmentationValidator
+        elif self.task == "semantic":
+            validator_cls = SemanticValidator
         elif self.task == "classify":
             validator_cls = ClassifyValidator
         elif self.task == "obb":

@@ -299,22 +299,22 @@ class SemanticDataset(Dataset):
             mask = mask[top : top + self.imgsz, left : left + self.imgsz]
             new_h, new_w = img.shape[:2]
 
+        # Top-left anchored padding, matching the family inference letterbox
+        # (content at the origin, pad at bottom/right).
         pad_h = self.imgsz - new_h
         pad_w = self.imgsz - new_w
-        top = pad_h // 2
-        left = pad_w // 2
         if pad_h or pad_w:
             img = np.pad(
                 img,
-                ((top, pad_h - top), (left, pad_w - left), (0, 0)),
+                ((0, pad_h), (0, pad_w), (0, 0)),
                 constant_values=_PAD_COLOR,
             )
             mask = np.pad(
                 mask,
-                ((top, pad_h - top), (left, pad_w - left)),
+                ((0, pad_h), (0, pad_w)),
                 constant_values=self.ignore_index,
             )
-        return img, mask, ratio, (top, left)
+        return img, mask, ratio, (0, 0)
 
     def __getitem__(self, index: int):
         img_path = self.img_files[index]

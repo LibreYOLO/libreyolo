@@ -86,7 +86,9 @@ class TestSemanticDatasetMasks:
 
         assert mask_t.shape == (64, 64)
         assert int((mask_t == 255).sum()) == 64 * 32  # padded half is ignore
-        assert info["pad"][0] == 16
+        # Top-left anchored letterbox: content at origin, pad at bottom.
+        assert int((mask_t[:32] == 255).sum()) == 0
+        assert bool((mask_t[32:] == 255).all())
 
     def test_stretch_mode_has_no_padding(self, tmp_path):
         _write_image(tmp_path / "images" / "train" / "wide.jpg", 64, 32)
