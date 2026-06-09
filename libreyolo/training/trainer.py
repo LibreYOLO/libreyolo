@@ -27,6 +27,7 @@ from .callbacks import (
     TrainStartEvent,
 )
 from .config import TrainConfig
+from .loggers import resolve_loggers
 from .distributed import (
     barrier,
     get_local_rank,
@@ -76,12 +77,15 @@ class BaseTrainer(ABC):
         model: nn.Module,
         wrapper_model: Optional[Any] = None,
         callbacks: TrainCallbacks = None,
+        loggers=None,
         **kwargs,
     ):
         self.config = self._config_class().from_kwargs(**kwargs)
         self.model = model
         self.wrapper_model = wrapper_model
         self.callbacks = TrainCallbackList(callbacks)
+        for logger_callback in resolve_loggers(loggers):
+            self.callbacks.append(logger_callback)
         self.artifact_callbacks = TrainCallbackList(
             TrainingArtifactsCallback(enabled_families=self.artifact_model_families)
         )
@@ -1064,6 +1068,7 @@ class BaseTrainer(ABC):
     def _build_train_start_event(self) -> TrainStartEvent:
         return TrainStartEvent(
             start_epoch=self.start_epoch + 1,
+            config=self.config.to_dict(),
             **self._event_context(),
         )
 

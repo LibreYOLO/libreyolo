@@ -1,13 +1,18 @@
 """Public training callback types."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Any, Callable, Iterable, Mapping, Protocol
 
 
 @dataclass(frozen=True)
 class TrainStartEvent:
-    """Data emitted after trainer setup, before the first training epoch."""
+    """Data emitted after trainer setup, before the first training epoch.
+
+    ``config`` is the fully resolved training configuration (user kwargs
+    merged with model-family defaults), so callbacks can log the complete
+    hyperparameter set, not just what the caller passed explicitly.
+    """
 
     start_epoch: int
     total_epochs: int
@@ -15,6 +20,10 @@ class TrainStartEvent:
     model_size: str | None
     task: str
     save_dir: str
+    config: Mapping[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self):
+        object.__setattr__(self, "config", MappingProxyType(dict(self.config)))
 
 
 @dataclass(frozen=True)

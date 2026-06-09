@@ -90,6 +90,15 @@ gaze = [
 coreml = [
     "coremltools>=8.0",
 ]
+tensorboard = [
+    "tensorboard>=2.13.0",
+]
+mlflow = [
+    "mlflow>=2.9.0",
+]
+wandb = [
+    "wandb>=0.16.0",
+]
 all = [
     "libreyolo[onnx]",
     "libreyolo[rfdetr]",
@@ -103,6 +112,9 @@ all = [
     "libreyolo[gaze]",
     "libreyolo[coreml]",
     "libreyolo[vlm]",
+    "libreyolo[tensorboard]",
+    "libreyolo[mlflow]",
+    "libreyolo[wandb]",
 ]
 
 [project.scripts]
