@@ -277,3 +277,23 @@ def test_yolo9_semantic_polygon_fallback_appends_background(tmp_path):
     assert m.nb_classes == 2  # object + background
     assert m.names[1] == "background"
     assert np.isfinite(res["epoch_losses"][0])
+
+
+def test_all_ignore_targets_yield_finite_zero_loss():
+    model = LibreYOLO9Model(config="t", nb_classes=3, semantic=True)
+    model.train()
+    x = torch.rand(1, 3, 64, 64)
+    targets = torch.full((1, 64, 64), 255, dtype=torch.long)
+
+    out = model(x, targets=targets)
+
+    assert torch.isfinite(out["total_loss"])
+    assert float(out["total_loss"]) == 0.0
+    out["total_loss"].backward()  # graph-connected zero must backprop
+
+
+def test_yolo9_semantic_val_augment_rejected(tmp_path):
+    m = LibreYOLO9(None, size="t", task="semantic", nb_classes=2, device="cpu")
+
+    with pytest.raises(ValueError, match="semantic"):
+        m.val(data=str(tmp_path / "data.yaml"), augment=True)

@@ -692,8 +692,17 @@ class BaseTrainer(ABC):
 
         if not self.config.data:
             raise ValueError("Semantic training requires data= (a dataset YAML).")
-        data_config = resolve_semantic_data(self.config.data)
+        data_config = resolve_semantic_data(
+            self.config.data,
+            allow_scripts=self.config.allow_download_scripts,
+        )
         resize_mode = getattr(self.wrapper_model, "semantic_resize_mode", "letterbox")
+        divisor = getattr(self.wrapper_model, "semantic_imgsz_divisor", None)
+        if divisor and self.config.imgsz % int(divisor):
+            raise ValueError(
+                f"Semantic training imgsz={self.config.imgsz} must be divisible "
+                f"by {int(divisor)} for this model family."
+            )
         train_dataset = SemanticDataset(
             data_config,
             split="train",

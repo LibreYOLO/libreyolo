@@ -186,6 +186,9 @@ class LibreRFDETR(BaseModel):
     }
     # DETR-family preprocessing stretches to a fixed square (no letterbox).
     semantic_resize_mode = "stretch"
+    # Semantic inputs must align with the DINOv2-native patch grid
+    # (patch_size 14 x num_windows 1) used by the semantic backbone.
+    semantic_imgsz_divisor = 14
     EXPERIMENTAL_WEIGHT_FILENAMES = frozenset({"librerfdetrn-pose.pt"})
     TRAIN_CONFIG = RFDETRConfig
     val_preprocessor_class = RFDETRValPreprocessor
@@ -681,6 +684,11 @@ class LibreRFDETR(BaseModel):
             # Stretch-resize to the square input; the semantic module applies
             # ImageNet normalization internally, so hand it [0, 1] floats —
             # the same contract SemanticDataset uses for training batches.
+            if effective_res % self.semantic_imgsz_divisor:
+                raise ValueError(
+                    f"RF-DETR semantic imgsz={effective_res} must be divisible "
+                    f"by {self.semantic_imgsz_divisor} (DINOv2 patch grid)."
+                )
             resized = img.resize((effective_res, effective_res), Image.BILINEAR)
             arr = np.asarray(resized, dtype=np.float32) / 255.0
             img_tensor = torch.from_numpy(arr).permute(2, 0, 1).unsqueeze(0)

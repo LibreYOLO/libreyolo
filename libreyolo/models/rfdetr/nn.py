@@ -551,9 +551,15 @@ class RFDETRSemanticSegmenter(nn.Module):
             logits = F.interpolate(
                 logits, size=targets.shape[-2:], mode="bilinear", align_corners=False
             )
-            loss = F.cross_entropy(
-                logits, targets.long(), ignore_index=self.IGNORE_INDEX
-            )
+            targets = targets.long()
+            if bool((targets != self.IGNORE_INDEX).any()):
+                loss = F.cross_entropy(
+                    logits, targets, ignore_index=self.IGNORE_INDEX
+                )
+            else:
+                # cross_entropy returns NaN when every pixel is ignored; emit
+                # a graph-connected zero so the optimizer step stays sane.
+                loss = logits.sum() * 0.0
             return {"total_loss": loss, "sem": loss}
 
         return F.interpolate(

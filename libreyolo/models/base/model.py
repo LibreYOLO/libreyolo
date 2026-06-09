@@ -1076,6 +1076,11 @@ class BaseModel(ABC):
                 "Augmented validation does not support pose keypoints yet. "
                 "Use augment=False for pose models."
             )
+        if augment and self.task == "semantic":
+            raise ValueError(
+                "Augmented validation does not support semantic segmentation "
+                "yet. Use augment=False for semantic models."
+            )
 
         config = ValidationConfig(
             data=data,

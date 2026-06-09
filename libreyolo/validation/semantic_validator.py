@@ -34,9 +34,18 @@ class SemanticValidator(BaseValidator):
     def _setup_dataloader(self) -> DataLoader:
         if not self.config.data:
             raise ValueError("Semantic validation requires data= (a dataset YAML).")
-        data_config = resolve_semantic_data(self.config.data)
+        data_config = resolve_semantic_data(
+            self.config.data,
+            allow_scripts=getattr(self.config, "allow_download_scripts", False),
+        )
         split = self.config.split or "val"
 
+        divisor = getattr(self.model, "semantic_imgsz_divisor", None)
+        if divisor and self.config.imgsz % int(divisor):
+            raise ValueError(
+                f"Semantic validation imgsz={self.config.imgsz} must be "
+                f"divisible by {int(divisor)} for this model family."
+            )
         resize_mode = getattr(self.model, "semantic_resize_mode", "letterbox")
         dataset = SemanticDataset(
             data_config,

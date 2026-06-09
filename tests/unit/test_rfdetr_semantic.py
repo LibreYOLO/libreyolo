@@ -225,3 +225,81 @@ def test_rfdetr_semantic_forward_real_backbone():
     m.model.eval()
     with torch.no_grad():
         assert m.model(x).shape == (1, 4, 518, 518)
+
+
+def test_all_ignore_targets_yield_finite_zero_loss(fake_backbone):
+    from libreyolo.models.rfdetr.nn import RFDETRSemanticSegmenter
+
+    model = RFDETRSemanticSegmenter(config="n", nb_classes=3)
+    model.train()
+    out = model(
+        torch.rand(1, 3, 70, 70),
+        targets=torch.full((1, 70, 70), 255, dtype=torch.long),
+    )
+
+    assert torch.isfinite(out["total_loss"])
+    assert float(out["total_loss"]) == 0.0
+
+
+def test_rfdetr_semantic_predict_rejects_non_patch_imgsz(fake_backbone, tmp_path):
+    from libreyolo.models.rfdetr.model import LibreRFDETR
+
+    img_path = tmp_path / "img.jpg"
+    Image.new("RGB", (64, 64), color=(10, 20, 30)).save(img_path)
+    m = LibreRFDETR(
+        model_path=None, size="n", task="semantic", nb_classes=2, device="cpu"
+    )
+
+    with pytest.raises(ValueError, match="divisible by 14"):
+        m.predict(str(img_path), imgsz=100)
+
+
+def test_rfdetr_semantic_train_rejects_non_patch_imgsz(fake_backbone, tmp_path):
+    from libreyolo.models.rfdetr.model import LibreRFDETR
+
+    yaml_path = _make_semantic_yaml(tmp_path)
+    m = LibreRFDETR(
+        model_path=None, size="n", task="semantic", nb_classes=2, device="cpu"
+    )
+
+    with pytest.raises(ValueError, match="divisible by 14"):
+        m.train(
+            data=str(yaml_path),
+            epochs=1,
+            batch=2,
+            imgsz=64,
+            workers=0,
+            eval_interval=0,
+            project=str(tmp_path / "runs"),
+            name="bad_imgsz",
+            exist_ok=True,
+            amp=False,
+            ema=False,
+            warmup_epochs=0,
+        )
+
+
+def test_rfdetr_semantic_rejects_lora(fake_backbone, tmp_path):
+    from libreyolo.models.rfdetr.model import LibreRFDETR
+
+    yaml_path = _make_semantic_yaml(tmp_path)
+    m = LibreRFDETR(
+        model_path=None, size="n", task="semantic", nb_classes=2, device="cpu"
+    )
+
+    with pytest.raises(ValueError, match="lora"):
+        m.train(
+            data=str(yaml_path),
+            epochs=1,
+            batch=2,
+            imgsz=70,
+            workers=0,
+            eval_interval=0,
+            project=str(tmp_path / "runs"),
+            name="lora_reject",
+            exist_ok=True,
+            amp=False,
+            ema=False,
+            warmup_epochs=0,
+            lora=True,
+        )

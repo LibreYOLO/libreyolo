@@ -234,3 +234,19 @@ def test_builtin_cocostuff_config_is_complete():
     assert len(config["names"]) == 182
     assert config["names"][0] == "person"
     assert config["names"][181] == "wood"
+
+
+def test_polygon_out_of_range_class_raises(tmp_path):
+    _write_image(tmp_path / "images" / "train" / "bad.jpg", 16, 16)
+    labels = tmp_path / "labels" / "train" / "bad.txt"
+    labels.parent.mkdir(parents=True, exist_ok=True)
+    labels.write_text("7 0.0 0.0 0.5 0.0 0.5 1.0 0.0 1.0\n")  # nc=1 -> invalid
+    config = {
+        "train": str(tmp_path / "images" / "train"),
+        "names": {0: "object"},
+        "nc": 1,
+    }
+    dataset = SemanticDataset(config, split="train", imgsz=16)
+
+    with pytest.raises(ValueError, match="outside 0..0"):
+        dataset[0]

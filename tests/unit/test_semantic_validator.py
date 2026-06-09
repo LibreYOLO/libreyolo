@@ -184,3 +184,20 @@ def test_ignore_pixels_are_excluded(tmp_path):
 
     assert metrics["metrics/pixel_accuracy"] == pytest.approx(1.0)
     assert metrics["metrics/mIoU"] == pytest.approx(1.0)
+
+
+def test_imgsz_divisor_mismatch_raises(tmp_path):
+    yaml_path = _make_dataset_yaml(tmp_path)
+    config = ValidationConfig(
+        data=str(yaml_path),
+        imgsz=IMGSZ,  # 32, not divisible by 14
+        device="cpu",
+        num_workers=0,
+        verbose=False,
+        save_dir=str(tmp_path / "runs"),
+    )
+    model = _StubSemanticModel()
+    model.semantic_imgsz_divisor = 14
+
+    with pytest.raises(ValueError, match="divisible by 14"):
+        SemanticValidator(model, config).run()

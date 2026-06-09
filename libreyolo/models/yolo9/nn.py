@@ -1283,9 +1283,15 @@ class SemanticDecoder(nn.Module):
             logits = F.interpolate(
                 logits, size=targets.shape[-2:], mode="bilinear", align_corners=False
             )
-            loss = F.cross_entropy(
-                logits, targets.long(), ignore_index=self.ignore_index
-            )
+            targets = targets.long()
+            if bool((targets != self.ignore_index).any()):
+                loss = F.cross_entropy(
+                    logits, targets, ignore_index=self.ignore_index
+                )
+            else:
+                # cross_entropy returns NaN when every pixel is ignored; emit
+                # a graph-connected zero so the optimizer step stays sane.
+                loss = logits.sum() * 0.0
             return {"total_loss": loss, "sem": loss}
 
         if out_size is None:

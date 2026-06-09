@@ -557,6 +557,15 @@ class RFDETRTrainer(BaseTrainer):
         # and size it from their datasets in _setup_classify_data /
         # _setup_semantic_data — no detection criterion or head
         # reinitialization is needed.
+        if task == "semantic" and getattr(self.config, "lora", False):
+            # LoRA injection targets the detection transformer; silently
+            # fine-tuning the full semantic model while config says LoRA
+            # would misrepresent the run.
+            raise ValueError(
+                "RF-DETR semantic training does not support lora=True yet. "
+                "Use freeze='backbone.encoder' for parameter-efficient "
+                "semantic fine-tuning."
+            )
         if task in ("classify", "semantic"):
             return
         if self.model.nb_classes != self.config.num_classes:

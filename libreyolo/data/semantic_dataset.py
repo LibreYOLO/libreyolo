@@ -124,6 +124,11 @@ def _rasterize_polygon_labels(
             if not parts:
                 continue
             class_id = int(float(parts[0]))
+            if not 0 <= class_id < background_id:
+                raise ValueError(
+                    f"Polygon label class {class_id} in {label_file} falls "
+                    f"outside 0..{background_id - 1}."
+                )
             coords = [float(value) for value in parts[1:]]
             if len(coords) == 4:
                 cx, cy, w, h = coords
@@ -144,15 +149,16 @@ def _rasterize_polygon_labels(
     return np.asarray(canvas).astype(np.int64)
 
 
-def resolve_semantic_data(data: str | Path) -> Dict:
+def resolve_semantic_data(data: str | Path, allow_scripts: bool = False) -> Dict:
     """Load and sanity-check a semantic dataset YAML config.
 
     Returns the ``load_data_config`` dict. ``names``/``nc`` describe the mask
     label space; when the config has no ``masks_dir`` the polygon fallback
     appends a ``background`` class, which `SemanticDataset` reflects in its
-    ``nc``/``names`` attributes.
+    ``nc``/``names`` attributes. ``allow_scripts`` is forwarded to
+    ``load_data_config`` so explicitly allowed Python download scripts run.
     """
-    config = load_data_config(str(data))
+    config = load_data_config(str(data), allow_scripts=allow_scripts)
     if not config.get("names"):
         raise ValueError(f"Semantic dataset config {data!r} must define class names.")
     return config
