@@ -222,3 +222,15 @@ def test_semantic_collate_fn_stacks_batch(tmp_path):
     assert masks.dtype == torch.long
     assert len(infos) == 2
     assert ids == [0, 1]
+
+
+def test_builtin_cocostuff_config_is_complete():
+    from libreyolo.data import load_data_config
+
+    config = load_data_config("cocostuff", autodownload=False)
+
+    assert config["nc"] == 182
+    assert config["masks_dir"] == "stuffthingmaps"
+    assert len(config["names"]) == 182
+    assert config["names"][0] == "person"
+    assert config["names"][181] == "wood"
