@@ -8,6 +8,7 @@ import typer
 
 from ..command_utils import load_model_or_exit, resolve_model_or_exit
 from ..output import OutputHandler
+from ...utils.model_info import build_model_info, format_model_info
 
 
 # =========================================================================
@@ -300,6 +301,7 @@ def cfg_cmd(
 
 def info_cmd(
     model: str = typer.Option(..., help="Model name or path to weights"),
+    detailed: bool = typer.Option(False, help="Include per-parameter details"),
     json_output: bool = typer.Option(False, "--json", help="JSON output to stdout"),
     quiet: bool = typer.Option(False, "--quiet", help="Suppress stderr"),
 ) -> None:
@@ -309,41 +311,15 @@ def info_cmd(
     model_path = resolve_model_or_exit(out, model)
     loaded = load_model_or_exit(out, model=model, model_path=model_path, device="cpu")
 
-    num_params = sum(p.numel() for p in loaded.model.parameters())
-    input_size = (
-        loaded._get_input_size()
-        if hasattr(loaded, "_get_input_size")
-        else loaded.INPUT_SIZES.get(loaded.size, 640)
-    )
-
-    class_names = {}
-    if hasattr(loaded, "names") and loaded.names:
-        class_names = (
-            {i: n for i, n in enumerate(loaded.names)}
-            if isinstance(loaded.names, list)
-            else loaded.names
-        )
-
-    data = {
-        "model": model,
-        "model_family": loaded.FAMILY,
-        "size": loaded.size,
-        "num_classes": loaded.nb_classes,
-        "parameters": num_params,
-        "input_size": [input_size, input_size],
-        "class_names": class_names,
-    }
+    info_fn = getattr(loaded, "info", None)
+    if callable(info_fn):
+        data = info_fn(detailed=detailed, verbose=False)
+    else:
+        data = build_model_info(loaded, detailed=detailed)
+    data["model"] = model
 
     if not json_output:
-        lines = [
-            f"Model:      {model}",
-            f"Family:     {loaded.FAMILY}",
-            f"Size:       {loaded.size}",
-            f"Classes:    {loaded.nb_classes}",
-            f"Parameters: {num_params:,}",
-            f"Input size: {input_size}x{input_size}",
-        ]
-        data["_human_text"] = "\n".join(lines)
+        data["_human_text"] = format_model_info(data)
 
     out.result(data)
 

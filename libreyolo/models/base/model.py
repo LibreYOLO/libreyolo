@@ -41,6 +41,7 @@ from ...training.config import TrainConfig, load_train_cfg
 from ...utils.general import COCO_CLASSES
 from ...utils.image_loader import ImageInput
 from ...utils.logging import ensure_default_logging
+from ...utils.model_info import build_model_info, format_model_info
 from ...utils.results import Results
 from ...utils.serialization import (
     REQUIRED_CHECKPOINT_METADATA_KEYS,
@@ -614,6 +615,21 @@ class BaseModel(ABC):
     def get_available_layer_names(self) -> List[str]:
         """Get list of available layer names."""
         return sorted(self._get_available_layers().keys())
+
+    def info(self, detailed: bool = False, verbose: bool = True) -> Dict[str, Any]:
+        """Return model metadata and lightweight architecture counts.
+
+        Args:
+            detailed: Include per-parameter rows.
+            verbose: Log a human-readable summary.
+
+        Returns:
+            JSON-friendly model information dictionary.
+        """
+        data = build_model_info(self, detailed=detailed)
+        if verbose:
+            logger.info(format_model_info(data))
+        return data
 
     @property
     def _runner(self):
