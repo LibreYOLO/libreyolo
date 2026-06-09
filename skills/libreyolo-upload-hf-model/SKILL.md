@@ -144,11 +144,59 @@ State-dict key remapping only. Learned parameters are unchanged.
 See `weights/convert_<family>_weights.py` in the
 [LibreYOLO source repository](https://github.com/LibreYOLO/libreyolo).
 
+## Benchmarks
+
+Independent, verified accuracy and speed benchmarks for this model:
+[visionanalysis.org/model/<va-slug>](https://www.visionanalysis.org/model/<va-slug>)
+
 ## License
 
 <Apache License 2.0 | MIT License>. See the [`LICENSE`](./LICENSE)
 and [`NOTICE`](./NOTICE) files in this repository.
 ```
+
+## Vision Analysis benchmark link (`<va-slug>`)
+
+Detect weight repos link to the model's page on the benchmark site
+[visionanalysis.org](https://www.visionanalysis.org). The URL is deterministic —
+derive it from `(FAMILY, size)`, never search for it or guess:
+
+```
+https://www.visionanalysis.org/model/<va-slug>
+```
+
+1. Map the family id: `yolo9` → `yolov9`. Every other family id is used as-is
+   (`yolox`, `rfdetr`, `rtdetr`, `rtdetrv2`, `rtdetrv4`, `dfine`, `deim`,
+   `deimv2`, `picodet`, `yolonas`, `ec`).
+2. Map the size — YOLOX only: `n` → `nano`, `t` → `tiny`. All other sizes are
+   used as-is (including `r50`-style RT-DETR codes and DEIMv2's
+   `atto`/`femto`/`pico`).
+3. Join: `yolov9` concatenates with no separator; every other family joins
+   with a hyphen.
+
+| Weight file | `<va-slug>` |
+|---|---|
+| `LibreYOLOXn.pt` | `yolox-nano` |
+| `LibreYOLOXs.pt` | `yolox-s` |
+| `LibreYOLO9s.pt` | `yolov9s` |
+| `LibreDFINEm.pt` | `dfine-m` |
+| `LibreRTDETRr50.pt` | `rtdetr-r50` |
+| `LibreDEIMv2atto.pt` | `deimv2-atto` |
+
+Rules:
+
+- **Detect repos only.** Vision Analysis tracks detection; omit the Benchmarks
+  section from `-seg` / `-pose` / `-cls` / `-obb` and gaze repos.
+- **No slug exists** for `yolo9_e2e`, `l2cs`, RTMDet, or the VLM tier — omit
+  the section and tell the user.
+- **The page may lag the upload.** Model pages are generated from
+  `website/src/data/metadata/models.json` in
+  [LibreYOLO/vision-analysis](https://github.com/LibreYOLO/vision-analysis);
+  a page goes live on the next site deploy after the model is added there,
+  with or without benchmark runs. The derived URL never changes, so include
+  the link at upload time regardless — but check the slug exists in
+  `models.json` and, if it doesn't, tell the user to add the model entry so
+  the page resolves.
 
 ## LICENSE + NOTICE
 
@@ -184,7 +232,9 @@ Add via HF UI or `huggingface_hub.add_collection_item(collection_slug, item_id=<
 
 ## Upload workflow
 
-1. Build the 5 files locally in a clean directory.
+1. Build the 5 files locally in a clean directory. For detect repos, derive
+   the Vision Analysis `<va-slug>` (section above) and fill in the README
+   Benchmarks link.
 2. Verify canonical filename matches `BaseModel.get_download_url()` output for this family + size.
 3. **Cross-check the filename against the whitelist above.** If it isn't in the list, halt and ask the user — don't paper over it with a manual override.
 4. Validate the `.pt` against the current LibreYOLO checkpoint metadata schema before upload. The source of truth is `docs/checkpoint_schema.md` and the helpers in `libreyolo/utils/serialization.py`; do not duplicate the schema in this skill. A simple load smoke test is not enough.
@@ -202,6 +252,8 @@ One commit per file if iterating — easier to revert than a batch commit.
 - A file with the same name already exists on the target repo (overwrite is destructive).
 - The repo is a new task type and no collection fits.
 - The upstream has a non-standard license (neither Apache-2.0 nor MIT).
+- The model's `<va-slug>` is missing from vision-analysis `models.json` (the
+  benchmark link will 404 until the model entry is added and deployed).
 
 ## Common traps
 
