@@ -156,3 +156,126 @@ class TestSemanticPostprocess:
             {"predictions": logits}, input_size=32, original_size=(32, 32)
         )
         assert out["semantic"].shape == (32, 32)
+
+
+def _make_semantic_yaml(root, n_images=8, size=64, split_names=("train", "val")):
+    """Trivially-separable synthetic set: left half class 0, right half class 1."""
+    import yaml as _yaml
+
+    for split in split_names:
+        for i in range(n_images):
+            img_dir = root / "images" / split
+            img_dir.mkdir(parents=True, exist_ok=True)
+            arr = np.zeros((size, size, 3), dtype=np.uint8)
+            arr[:, : size // 2] = (200, 40, 40)
+            arr[:, size // 2 :] = (40, 40, 200)
+            Image.fromarray(arr).save(img_dir / f"img{i}.jpg")
+            mask = np.zeros((size, size), dtype=np.uint8)
+            mask[:, size // 2 :] = 1
+            mask_dir = root / "masks" / split
+            mask_dir.mkdir(parents=True, exist_ok=True)
+            Image.fromarray(mask, mode="L").save(mask_dir / f"img{i}.png")
+    yaml_path = root / "data.yaml"
+    yaml_path.write_text(
+        _yaml.safe_dump(
+            {
+                "path": str(root),
+                "train": "images/train",
+                "val": "images/val",
+                "masks_dir": "masks",
+                "nc": 2,
+                "names": {0: "left", 1: "right"},
+            }
+        )
+    )
+    return yaml_path
+
+
+def test_yolo9_semantic_train_smoke(tmp_path):
+    """A few epochs on the synthetic set run end-to-end and reduce loss."""
+    yaml_path = _make_semantic_yaml(tmp_path)
+    m = LibreYOLO9(None, size="t", task="semantic", nb_classes=2, device="cpu")
+
+    res = m.train(
+        data=str(yaml_path),
+        epochs=3,
+        batch=4,
+        imgsz=64,
+        optimizer="adamw",
+        lr0=2e-3,
+        workers=0,
+        eval_interval=1,
+        project=str(tmp_path / "runs"),
+        name="sem_smoke",
+        exist_ok=True,
+        amp=False,
+        ema=False,
+        warmup_epochs=0,
+    )
+
+    losses = res["epoch_losses"]
+    assert len(losses) == 3
+    assert all(np.isfinite(losses))
+    assert losses[-1] < losses[0]
+    assert (
+        res["epoch_metrics"][-1]["val_metrics"].get("metrics/mIoU") is not None
+    )
+
+    ckpt = res.get("last_checkpoint") or res.get("best_checkpoint")
+    assert ckpt is not None
+    reloaded = LibreYOLO9(ckpt, size="t", device="cpu")  # no task= passed
+    assert reloaded.task == "semantic"
+    assert reloaded.nb_classes == 2
+
+
+def test_yolo9_semantic_polygon_fallback_appends_background(tmp_path):
+    """Training from polygon labels grows the head by one background class."""
+    import yaml as _yaml
+
+    for split in ("train", "val"):
+        img_dir = tmp_path / "images" / split
+        img_dir.mkdir(parents=True, exist_ok=True)
+        label_dir = tmp_path / "labels" / split
+        label_dir.mkdir(parents=True, exist_ok=True)
+        for i in range(4):
+            arr = np.full((64, 64, 3), 120, dtype=np.uint8)
+            arr[:, :32] = (220, 60, 60)
+            Image.fromarray(arr).save(img_dir / f"img{i}.jpg")
+            # Class-0 polygon over the left half.
+            (label_dir / f"img{i}.txt").write_text(
+                "0 0.0 0.0 0.5 0.0 0.5 1.0 0.0 1.0\n"
+            )
+    yaml_path = tmp_path / "data.yaml"
+    yaml_path.write_text(
+        _yaml.safe_dump(
+            {
+                "path": str(tmp_path),
+                "train": "images/train",
+                "val": "images/val",
+                "nc": 1,
+                "names": {0: "object"},
+            }
+        )
+    )
+
+    m = LibreYOLO9(None, size="t", task="semantic", nb_classes=1, device="cpu")
+    res = m.train(
+        data=str(yaml_path),
+        epochs=1,
+        batch=4,
+        imgsz=64,
+        optimizer="adamw",
+        lr0=1e-3,
+        workers=0,
+        eval_interval=0,
+        project=str(tmp_path / "runs"),
+        name="sem_poly",
+        exist_ok=True,
+        amp=False,
+        ema=False,
+        warmup_epochs=0,
+    )
+
+    assert m.nb_classes == 2  # object + background
+    assert m.names[1] == "background"
+    assert np.isfinite(res["epoch_losses"][0])

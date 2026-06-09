@@ -805,6 +805,20 @@ class LibreYOLO9(BaseModel):
             if yaml_nc is not None:
                 yaml_nc = int(yaml_nc)
 
+            if (
+                self._is_semantic
+                and yaml_nc is not None
+                and not data_config.get("masks_dir")
+            ):
+                # Polygon-derived semantic masks append a background class
+                # after the object classes (see SemanticDataset).
+                yaml_nc += 1
+                if yaml_names is not None:
+                    if isinstance(yaml_names, list):
+                        yaml_names = {i: n for i, n in enumerate(yaml_names)}
+                    yaml_names = dict(yaml_names)
+                    yaml_names[yaml_nc - 1] = "background"
+
             if yaml_nc is not None and yaml_nc != self.nb_classes:
                 self._rebuild_for_new_classes(yaml_nc)
 
