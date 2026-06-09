@@ -27,6 +27,7 @@ from ..utils.general import (
     resolve_save_path,
 )
 from ..utils.image_loader import ImageLoader
+from ..utils.model_info import build_model_info, format_model_info
 from ..utils.predict_args import normalize_predict_kwargs
 from ..utils.results import Boxes, Keypoints, Masks, OBB, Probs, Results
 from ..utils.video import collect_video_results, is_video_file, run_video_inference
@@ -1687,6 +1688,13 @@ class BaseBackend(ABC):
     # =========================================================================
     # Public API
     # =========================================================================
+
+    def info(self, detailed: bool = False, verbose: bool = True) -> Dict:
+        """Return exported-runtime metadata and lightweight counts."""
+        data = build_model_info(self, detailed=detailed)
+        if verbose:
+            logger.info(format_model_info(data))
+        return data
 
     def __call__(
         self,

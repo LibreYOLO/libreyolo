@@ -18,6 +18,7 @@ from libreyolo.cli.command_utils import (
     get_loaded_model_input_size,
 )
 from libreyolo.cli.parsing import KeyValueCommand
+from libreyolo.utils.model_info import build_model_info, format_model_info
 from libreyolo.utils.results import Boxes, Masks, OBB, Results
 from libreyolo.utils.serialization import wrap_libreyolo_checkpoint
 
@@ -715,6 +716,93 @@ def test_info_accepts_known_weight_filename(monkeypatch):
     data = json.loads(result.stdout)
     assert data["model"] == "LibreYOLOXs.pt"
     assert data["model_family"] == "yolox"
+
+
+def test_info_command_uses_loaded_model_info(monkeypatch):
+    app = _make_app([("version", special.version_cmd), ("info", special.info_cmd)])
+    captured = {}
+
+    class _DummyModel:
+        def info(self, *, detailed=False, verbose=True):
+            captured["detailed"] = detailed
+            captured["verbose"] = verbose
+            return {
+                "model_family": "yolo9",
+                "size": "t",
+                "task": "detect",
+                "input_size": [640, 640],
+                "num_classes": 80,
+                "class_names": {},
+                "parameters": 123,
+                "trainable_parameters": 100,
+                "non_trainable_parameters": 23,
+                "layers": 7,
+                "device": "cpu",
+                "model_path": "weights/LibreYOLO9t.pt",
+                "details": [{"name": "head.weight", "parameters": 12}],
+            }
+
+    monkeypatch.setattr("libreyolo.LibreYOLO", lambda *args, **kwargs: _DummyModel())
+
+    result = runner.invoke(
+        app,
+        ["info", "model=LibreYOLO9t.pt", "--detailed", "--json"],
+    )
+
+    assert result.exit_code == 0
+    data = json.loads(result.stdout)
+    assert captured == {"detailed": True, "verbose": False}
+    assert data["model"] == "LibreYOLO9t.pt"
+    assert data["parameters"] == 123
+    assert data["details"][0]["name"] == "head.weight"
+
+
+def test_build_model_info_counts_torch_module_parameters():
+    class _Wrapper:
+        FAMILY = "dummy"
+        size = "n"
+        task = "detect"
+        nb_classes = 3
+        names = {0: "a", 1: "b", 2: "c"}
+        device = "cpu"
+        model_path = "dummy.pt"
+        model = torch.nn.Sequential(torch.nn.Linear(4, 2), torch.nn.ReLU())
+
+        def _get_input_size(self):
+            return 32
+
+    _Wrapper.model[0].bias.requires_grad_(False)
+
+    data = build_model_info(_Wrapper(), detailed=True)
+
+    assert data["model_family"] == "dummy"
+    assert data["input_size"] == [32, 32]
+    assert data["parameters"] == 10
+    assert data["trainable_parameters"] == 8
+    assert data["non_trainable_parameters"] == 2
+    assert data["layers"] == 2
+    assert data["details"][0]["name"] == "0.weight"
+
+
+def test_build_model_info_supports_backend_metadata_only():
+    class _BackendLike:
+        model_family = "yolo9"
+        model_size = "t"
+        task = "detect"
+        nb_classes = 80
+        names = {0: "person"}
+        imgsz = (320, 640)
+        device = "cpu"
+        model_path = "model.onnx"
+
+    data = build_model_info(_BackendLike())
+
+    assert data["model_family"] == "yolo9"
+    assert data["size"] == "t"
+    assert data["input_size"] == [320, 640]
+    assert data["parameters"] is None
+    assert data["layers"] is None
+    assert "Input size: 320x640" in format_model_info(data)
 
 
 def test_loaded_model_metadata_supports_wrappers_and_backends():
