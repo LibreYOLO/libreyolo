@@ -665,6 +665,11 @@ class BaseModel(ABC):
                 "Test-time augmentation does not support point-task models yet. "
                 "Use augment=False for point models."
             )
+        if getattr(self, "task", "detect") == "semantic":
+            raise ValueError(
+                "Test-time augmentation does not support semantic segmentation yet. "
+                "Use augment=False for semantic models."
+            )
 
         from PIL import Image as PILImage
         from ...utils.image_loader import ImageLoader

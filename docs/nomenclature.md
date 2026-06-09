@@ -104,6 +104,7 @@ From `libreyolo/tasks.py`:
 |---|---|
 | `detect`      | *(none — implicit)* |
 | `segment`     | `-seg` |
+| `semantic`    | `-sem` |
 | `pose`        | `-pose` |
 | `classify`    | `-cls` |
 | `gaze`        | `-gaze` |
@@ -118,6 +119,12 @@ names above appear in filenames.
 single image coordinate per detection, exposed as `(x, y, class, confidence)`.
 This keeps box detection under `detect` while allowing centroid-style models to
 use point-specific result and validation contracts.
+
+`semantic` is the task for dense semantic segmentation: one class label per
+pixel with no instance separation. `segment` remains the task for
+instance segmentation (per-object masks). Semantic models expose
+`Results.semantic_mask` and use per-pixel validation metrics (mIoU,
+pixel accuracy) instead of box/mask mAP.
 
 Dataset and label contracts are documented in
 [`dataset_schema.md`](dataset_schema.md). A task is supported by a model family
