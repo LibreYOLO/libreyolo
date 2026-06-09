@@ -15,3 +15,9 @@ from .config import (
     YOLOXConfig as YOLOXConfig,
     YOLO9Config as YOLO9Config,
 )
+from .loggers import (
+    MLflowLogger as MLflowLogger,
+    TensorBoardLogger as TensorBoardLogger,
+    WandbLogger as WandbLogger,
+    resolve_loggers as resolve_loggers,
+)

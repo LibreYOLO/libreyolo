@@ -676,6 +676,7 @@ class LibreYOLO9(BaseModel):
         allow_download_scripts: bool = False,
         pretrained: bool | str | Path | None = None,
         callbacks=None,
+        loggers=None,
         **kwargs,
     ) -> dict:
         """Train the YOLOv9 model on a dataset.
@@ -702,6 +703,9 @@ class LibreYOLO9(BaseModel):
                 pose, and OBB transfer is allowed here only as explicit
                 initialization.
             callbacks: Optional training callback or iterable of callbacks.
+            loggers: Optional built-in experiment loggers: a name
+                ('tensorboard', 'mlflow', 'wandb'), a configured logger
+                instance, or an iterable mixing both.
 
         Returns:
             Training results dict with final_loss, best_mAP50, best_mAP50_95, etc.
@@ -833,6 +837,7 @@ class LibreYOLO9(BaseModel):
             patience=patience,
             allow_download_scripts=allow_download_scripts,
             callbacks=callbacks,
+            loggers=loggers,
             **kwargs,
         )
         if self._is_pose:

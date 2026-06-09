@@ -132,11 +132,20 @@ def _filter_picklable(kw: dict) -> dict:
         except Exception:
             bad.append(f"{k!r} (type: {type(v).__name__})")
     if bad:
+        hint = ""
+        if any(b.startswith("'callbacks'") or b.startswith("'loggers'") for b in bad):
+            hint = (
+                "\nHint: training callbacks must be picklable to cross process "
+                "boundaries — define them as a module-level class instead of a "
+                "closure/lambda, or use the built-in loggers (e.g. "
+                "loggers='mlflow')."
+            )
         raise RuntimeError(
             "DDP spawn: the following train() kwargs are not picklable and "
             "cannot be passed to worker processes:\n"
             + "\n".join(f"  {b}" for b in bad)
             + "\nRemove or replace them before calling train() with a multi-GPU device."
+            + hint
         )
     return dict(kw)
 
