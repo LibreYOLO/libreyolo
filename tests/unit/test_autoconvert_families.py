@@ -487,6 +487,60 @@ class TestDispatchRules:
         assert ckpt["model_family"] == "deimv2"
         assert "decoder.dec_score_head.0.weight" in ckpt["model"]
 
+    def test_ema_tensor_counters_do_not_shadow_model_weights(self, tmp_path):
+        """An ema block holding only tensor-valued counters/buffers (not
+        weights) must not stop the scan: the real weights under model must
+        still be found and converted."""
+        wrapped = {
+            "ema": {"n_averaged": torch.tensor(7), "decay": torch.tensor(0.999)},
+            "model": _deimv2_atto(),
+        }
+        src = tmp_path / "deimv2_ema_counters.pth"
+        torch.save(wrapped, src)
+
+        out = autoconvert_upstream_checkpoint(str(src))
+
+        assert out is not None
+        ckpt = torch.load(out, map_location="cpu", weights_only=True)
+        assert ckpt["model_family"] == "deimv2"
+        assert "decoder.dec_score_head.0.weight" in ckpt["model"]
+        assert "n_averaged" not in ckpt["model"]
+
+    def test_non_indexed_names_dict_is_dropped_not_raised(self, tmp_path):
+        """A names dict keyed by labels/helper fields (not int indices) must
+        be dropped (defaults generated), not raise out of conversion."""
+        sd = _yolonas_s()
+        sd["heads.head1.cls_pred.weight"] = torch.zeros(3, 64, 1, 1)
+        wrapped = _wrap_ema_net(sd)
+        wrapped["names"] = {"dog": 0, "cat": 1, "bird": 2}  # label-keyed
+        src = tmp_path / "yolo_nas_s_labelnames.pth"
+        torch.save(wrapped, src)
+
+        out = autoconvert_upstream_checkpoint(str(src))
+
+        assert out is not None
+        ckpt = torch.load(out, map_location="cpu", weights_only=True)
+        assert ckpt["nc"] == 3
+        assert sorted(ckpt["names"]) == [0, 1, 2]  # default class_i names
+
+    def test_generic_schema_version_is_not_a_libreyolo_marker(self, tmp_path):
+        """A native-keyed upstream fine-tune carrying only a generic
+        schema_version (from another tool) must still convert with detected
+        nc, not be treated as an existing LibreYOLO checkpoint."""
+        sd = _yolonas_s()
+        sd["heads.head1.cls_pred.weight"] = torch.zeros(5, 64, 1, 1)
+        wrapped = _wrap_ema_net(sd)
+        wrapped["schema_version"] = "2.0"  # foreign tool's schema, not LibreYOLO's
+        src = tmp_path / "yolo_nas_s_foreign.pth"
+        torch.save(wrapped, src)
+
+        out = autoconvert_upstream_checkpoint(str(src))
+
+        assert out is not None
+        ckpt = torch.load(out, map_location="cpu", weights_only=True)
+        assert ckpt["model_family"] == "yolonas"
+        assert ckpt["nc"] == 5
+
     def test_ambiguous_deim_dfine_without_filename_hint_is_refused(self, tmp_path):
         src = tmp_path / "model.pth"
         torch.save(_wrap_model(_deim_family_n()), src)

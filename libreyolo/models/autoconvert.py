@@ -90,33 +90,45 @@ def _candidate_tensor_dicts(loaded: Any):
     yield loaded
 
 
-def _plain_state_dict(loaded: Any) -> dict[str, torch.Tensor]:
-    """Return the tensor-only state dict across common upstream layouts."""
+def _normalize_tensor_dict(candidate: dict) -> dict[str, torch.Tensor]:
+    """Tensor-only view of a candidate with DDP/compile/nesting prefixes stripped."""
+    state = {k: v for k, v in candidate.items() if isinstance(v, torch.Tensor)}
+    if not state:
+        return {}
+    # Strip DDP / torch.compile wrappers some redistributions keep.
+    for prefix in ("module.", "_orig_mod."):
+        if any(k.startswith(prefix) for k in state):
+            state = {
+                (k[len(prefix):] if k.startswith(prefix) else k): v
+                for k, v in state.items()
+            }
+    # Some redistributions nest weights under a ``model.model.`` prefix.
+    if all(k.startswith("model.model.") for k in state):
+        state = {k[len("model.model."):]: v for k, v in state.items()}
+    return state
+
+
+def _candidate_states(loaded: Any):
+    """Yield each non-empty normalized tensor dict in EMA-first preference order.
+
+    Yields more than one so a candidate that holds only tensor-valued metadata
+    (an ``ema`` block with counters/buffers but no weights) does not shadow the
+    real weights under ``model``/``state_dict``: the caller tries each until a
+    family recognizes one.
+    """
     for candidate in _candidate_tensor_dicts(loaded):
-        state = {k: v for k, v in candidate.items() if isinstance(v, torch.Tensor)}
-        if not state:
-            continue
-        # Strip DDP / torch.compile wrappers some redistributions keep.
-        for prefix in ("module.", "_orig_mod."):
-            if any(k.startswith(prefix) for k in state):
-                state = {
-                    (k[len(prefix):] if k.startswith(prefix) else k): v
-                    for k, v in state.items()
-                }
-        # Some redistributions nest weights under a ``model.model.`` prefix.
-        if all(k.startswith("model.model.") for k in state):
-            state = {k[len("model.model."):]: v for k, v in state.items()}
-        return state
-    return {}
+        state = _normalize_tensor_dict(candidate)
+        if state:
+            yield state
 
 
 # Keys that only LibreYOLO writes. Their presence marks a file as an existing
 # LibreYOLO checkpoint (handled by the factory's normal load path) rather than
-# a foreign upstream one. Generic keys an upstream fine-tune might also carry —
-# ``names``, ``nc``, ``size``, ``task``, ``imgsz`` — are intentionally excluded.
-_LIBREYOLO_MARKER_KEYS = frozenset(
-    {"schema_version", "libreyolo_version", "model_family"}
-)
+# a foreign upstream one. ``schema_version`` is intentionally excluded — other
+# training/export tools use that generic name — as are ``names``/``nc``/
+# ``size``/``task``/``imgsz`` (an upstream fine-tune may carry them too). A
+# genuine LibreYOLO checkpoint always also carries these two markers.
+_LIBREYOLO_MARKER_KEYS = frozenset({"libreyolo_version", "model_family"})
 
 
 def _is_existing_libreyolo_checkpoint(loaded: Any) -> bool:
@@ -126,6 +138,19 @@ def _is_existing_libreyolo_checkpoint(loaded: Any) -> bool:
     return bool(_LIBREYOLO_MARKER_KEYS & set(loaded))
 
 
+def _indexed_names_dict(names: dict) -> dict[int, Any] | None:
+    """Return ``names`` rekeyed by int class index, or ``None`` if not indexable.
+
+    A foreign metadata map keyed by class labels or helper fields is unusable
+    as class names; returning ``None`` lets the wrapper generate defaults
+    instead of raising on ``int(key)``.
+    """
+    try:
+        return {int(key): value for key, value in names.items()}
+    except (TypeError, ValueError):
+        return None
+
+
 def _trim_names_to_nc(names: Any, nc: int | None) -> Any:
     """Limit a names dict/list to the detected class count.
 
@@ -133,12 +158,15 @@ def _trim_names_to_nc(names: Any, nc: int | None) -> Any:
     head would otherwise carry out-of-range indices that the strict checkpoint
     validator rejects — silently aborting the conversion.
     """
-    if nc is None:
-        return names
     if isinstance(names, dict):
-        return {key: value for key, value in names.items() if int(key) < nc}
+        indexed = _indexed_names_dict(names)
+        if indexed is None:
+            return None
+        if nc is None:
+            return indexed
+        return {key: value for key, value in indexed.items() if key < nc}
     if isinstance(names, (list, tuple)):
-        return list(names)[:nc]
+        return list(names)[:nc] if nc is not None else list(names)
     return names
 
 
@@ -159,7 +187,10 @@ def _checkpoint_names(loaded: Any, nc: int | None = None) -> Any | None:
     if class_names is None:
         return None
     if isinstance(class_names, dict):
-        names = {int(key): str(value) for key, value in class_names.items()}
+        indexed = _indexed_names_dict(class_names)
+        if indexed is None:
+            return None
+        names = {key: str(value) for key, value in indexed.items()}
         if nc is not None:
             return {key: value for key, value in names.items() if key < nc}
         return names
@@ -624,14 +655,14 @@ def autoconvert_upstream_checkpoint(
         return None
 
     result = None
-    state = _plain_state_dict(loaded)
-    if state:
-        claims = _claim_upstream_state(
-            state, existing_libreyolo=_is_existing_libreyolo_checkpoint(loaded)
-        )
+    existing_libreyolo = _is_existing_libreyolo_checkpoint(loaded)
+    for state in _candidate_states(loaded):
+        claims = _claim_upstream_state(state, existing_libreyolo=existing_libreyolo)
         chosen = _resolve_claim(claims, path)
         if chosen is not None:
             result = _wrap_claim(chosen[0], chosen[1], loaded, path)
+            if result is not None:
+                break
     if result is None:
         result = _try_rfdetr(loaded)
     if result is None:
