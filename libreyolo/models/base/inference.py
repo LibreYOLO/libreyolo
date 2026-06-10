@@ -11,7 +11,16 @@ import json
 import logging
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Dict, Generator, List, Optional, Tuple, Union
+from typing import (
+    TYPE_CHECKING,
+    Dict,
+    Generator,
+    List,
+    Optional,
+    Sequence,
+    Tuple,
+    Union,
+)
 
 import torch
 from torchvision.ops import batched_nms
@@ -59,7 +68,7 @@ class InferenceRunner:
 
     def __call__(
         self,
-        source: ImageInput | None = None,
+        source: ImageInput | Sequence[ImageInput] | None = None,
         *,
         conf: float = 0.25,
         iou: float = 0.45,
@@ -83,10 +92,11 @@ class InferenceRunner:
         **kwargs,
     ) -> Union[Results, List[Results], Generator[Results, None, None]]:
         """
-        Run inference on an image, directory, or video.
+        Run inference on an image, list of images, directory, or video.
 
         Args:
-            source: Input image, directory path, or video file path.
+            source: Input image, list/tuple of in-memory images, directory
+                path, or video file path.
             conf: Confidence threshold.
             iou: IoU threshold for NMS.
             imgsz: Input size override (None = model default).
@@ -149,6 +159,26 @@ class InferenceRunner:
             if stream:
                 return gen
             return collect_video_results(gen, source, vid_stride)
+
+        # Handle in-memory batch input (list/tuple of images)
+        if isinstance(source, (list, tuple)):
+            return self._process_in_batches(
+                list(source),
+                batch=batch,
+                save=save,
+                output_path=output_path,
+                conf=conf,
+                iou=iou,
+                imgsz=imgsz,
+                classes=classes,
+                max_det=max_det,
+                color_format=color_format,
+                tiling=tiling,
+                overlap_ratio=overlap_ratio,
+                output_file_format=output_file_format,
+                augment=augment,
+                **kwargs,
+            )
 
         # Handle directory input
         if isinstance(source, (str, Path)) and Path(source).is_dir():
@@ -248,7 +278,7 @@ class InferenceRunner:
 
     def _process_in_batches(
         self,
-        image_paths: List[Path],
+        images: Sequence[ImageInput],
         batch: int = 1,
         save: bool = False,
         output_path: str | None = None,
@@ -264,61 +294,67 @@ class InferenceRunner:
         augment: bool = False,
         **kwargs,
     ) -> List[Results]:
-        """Process multiple images in batches."""
+        """Process multiple images (file paths or in-memory) sequentially."""
         results = []
-        for i in range(0, len(image_paths), batch):
-            chunk = image_paths[i : i + batch]
-            for path in chunk:
-                if tiling:
-                    results.append(
-                        self._predict_tiled(
-                            path,
-                            save=save,
-                            output_path=output_path,
-                            conf=conf,
-                            iou=iou,
-                            imgsz=imgsz,
-                            classes=classes,
-                            max_det=max_det,
-                            color_format=color_format,
-                            overlap_ratio=overlap_ratio,
-                            output_file_format=output_file_format,
-                            **kwargs,
-                        )
-                    )
-                elif augment and getattr(self.model, "TTA_ENABLED", False):
-                    result = self.model._predict_augment(
-                        path,
+        for idx, image in enumerate(images):
+            # In-memory images have no filename to derive a save name from;
+            # index them so save=True does not overwrite a single file.
+            save_stem = None if isinstance(image, (str, Path)) else f"image{idx}"
+            if tiling:
+                results.append(
+                    self._predict_tiled(
+                        image,
+                        save=save,
+                        output_path=output_path,
                         conf=conf,
                         iou=iou,
                         imgsz=imgsz,
                         classes=classes,
                         max_det=max_det,
                         color_format=color_format,
+                        overlap_ratio=overlap_ratio,
+                        output_file_format=output_file_format,
                         **kwargs,
                     )
-                    if save:
-                        ext = output_file_format or "jpg"
-                        save_path = resolve_save_path(output_path, path, ext=ext)
-                        img_pil = ImageLoader.load(path, color_format=color_format)
-                        self._save_annotated_image(result, img_pil, save_path)
-                    results.append(result)
-                else:
-                    results.append(
-                        self._predict_single(
-                            path,
-                            save=save,
-                            output_path=output_path,
-                            conf=conf,
-                            iou=iou,
-                            imgsz=imgsz,
-                            classes=classes,
-                            max_det=max_det,
-                            color_format=color_format,
-                            output_file_format=output_file_format,
-                            **kwargs,
-                        )
+                )
+            elif augment and getattr(self.model, "TTA_ENABLED", False):
+                result = self.model._predict_augment(
+                    image,
+                    conf=conf,
+                    iou=iou,
+                    imgsz=imgsz,
+                    classes=classes,
+                    max_det=max_det,
+                    color_format=color_format,
+                    **kwargs,
+                )
+                if save:
+                    ext = output_file_format or "jpg"
+                    save_path = resolve_save_path(
+                        output_path,
+                        image if save_stem is None else save_stem,
+                        ext=ext,
                     )
+                    img_pil = ImageLoader.load(image, color_format=color_format)
+                    self._save_annotated_image(result, img_pil, save_path)
+                results.append(result)
+            else:
+                results.append(
+                    self._predict_single(
+                        image,
+                        save=save,
+                        output_path=output_path,
+                        conf=conf,
+                        iou=iou,
+                        imgsz=imgsz,
+                        classes=classes,
+                        max_det=max_det,
+                        color_format=color_format,
+                        output_file_format=output_file_format,
+                        save_stem=save_stem,
+                        **kwargs,
+                    )
+                )
         return results
 
     def _save_annotated_image(self, result: Results, original_img, save_path: Path) -> None:
@@ -594,9 +630,14 @@ class InferenceRunner:
         max_det: int = 300,
         color_format: str = "auto",
         output_file_format: Optional[str] = None,
+        save_stem: Optional[str] = None,
         **kwargs,
     ) -> Results:
-        """Run inference on a single image."""
+        """Run inference on a single image.
+
+        ``save_stem`` overrides the saved filename stem for in-memory images
+        (which have no path to derive one from).
+        """
         image_path = image if isinstance(image, (str, Path)) else None
 
         # Resolve input size
@@ -634,7 +675,7 @@ class InferenceRunner:
             ext = output_file_format or "jpg"
             save_path = resolve_save_path(
                 output_path,
-                image_path,
+                image_path if image_path is not None else save_stem,
                 ext=ext,
             )
             self._save_annotated_image(result, original_img, save_path)
