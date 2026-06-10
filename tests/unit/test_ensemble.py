@@ -89,6 +89,12 @@ class TestConstruction:
             LibreEnsemble(members, weights=[1.0])
         with pytest.raises(ValueError, match="positive"):
             LibreEnsemble(members, weights=[1.0, 0.0])
+        with pytest.raises(ValueError, match="positive"):
+            LibreEnsemble(members, weights=[float("nan"), 1.0])
+
+    def test_rejects_bool_min_votes(self):
+        with pytest.raises(ValueError, match="positive int"):
+            LibreEnsemble(list(_pair_members()), min_votes=True)
 
     def test_repr_mentions_fusion(self):
         ens = LibreEnsemble(list(_pair_members()), fusion="wbf_seeded")
@@ -132,6 +138,16 @@ class TestNamesUnion:
         assert len(result) == 1
         assert result.names[int(result.boxes.cls[0])] == "car"
 
+    def test_partially_known_class_keeps_full_score(self, image):
+        # The score rescale denominator is per-class: "car" boxes are not
+        # penalized for the member that could never have confirmed them.
+        a = StubMember({0: "person"})
+        b = StubMember(
+            {0: "car", 1: "person"}, boxes=[[50, 50, 60, 60]], scores=[0.8], cls=[0]
+        )
+        result = LibreEnsemble([a, b])(image)
+        assert torch.allclose(result.boxes.conf, torch.tensor([0.8]), atol=1e-5)
+
 
 class TestPredict:
     def test_two_member_fusion(self, image):
@@ -157,6 +173,21 @@ class TestPredict:
         LibreEnsemble([a, b])(image, conf=[0.3, 0.6], iou=0.5)
         assert a.calls[0]["conf"] == 0.3 and b.calls[0]["conf"] == 0.6
         assert a.calls[0]["iou"] == 0.5 and b.calls[0]["iou"] == 0.5
+
+    def test_device_broadcasts_to_members(self, image):
+        a, b = _pair_members()
+        ens = LibreEnsemble([a, b])
+        ens(image, device="cpu")
+        assert a.calls[0]["device"] == "cpu" and b.calls[0]["device"] == "cpu"
+        ens(image, device=["cpu", "cuda:0"])
+        assert a.calls[1]["device"] == "cpu" and b.calls[1]["device"] == "cuda:0"
+        ens(image)
+        assert a.calls[2]["device"] is None
+
+    def test_batch_kwarg_accepted(self, tmp_path, image):
+        image.save(tmp_path / "one.jpg")
+        results = LibreEnsemble(list(_pair_members()))(str(tmp_path), batch=4)
+        assert isinstance(results, list) and len(results) == 1
 
     def test_per_member_imgsz_list_and_shared_tuple(self, image):
         a, b = _pair_members()
@@ -229,6 +260,12 @@ class TestPredict:
 
     def test_member_class_id_outside_names_raises(self, image):
         a = StubMember(COCOISH, boxes=[[0, 0, 10, 10]], scores=[0.9], cls=[7])
+        with pytest.raises(RuntimeError, match="outside its names"):
+            LibreEnsemble([a, StubMember(COCOISH)])(image)
+
+    def test_negative_member_class_id_raises(self, image):
+        # -1 must not wrap around to the member's last class via LUT indexing.
+        a = StubMember(COCOISH, boxes=[[0, 0, 10, 10]], scores=[0.9], cls=[-1])
         with pytest.raises(RuntimeError, match="outside its names"):
             LibreEnsemble([a, StubMember(COCOISH)])(image)
 

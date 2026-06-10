@@ -87,8 +87,18 @@ class TestSharedBehavior:
             op(boxes, scores, labels, model_ids, weights=[1.0], num_models=2)
         with pytest.raises(ValueError, match="positive"):
             op(boxes, scores, labels, model_ids, weights=[1.0, -1.0])
+        with pytest.raises(ValueError, match="positive"):
+            op(boxes, scores, labels, model_ids, weights=[float("nan"), 1.0])
         with pytest.raises(ValueError, match="model_ids contains index"):
             op(boxes, scores, labels, model_ids, num_models=1)
+
+    @pytest.mark.parametrize("op", ALL_OPS)
+    def test_negative_model_ids_rejected(self, op):
+        # A negative id would silently grab the last model's weight via
+        # wraparound and escape the vote-counting loop entirely.
+        boxes, scores, labels, _ = _pair()
+        with pytest.raises(ValueError, match="model_ids contains index -1"):
+            op(boxes, scores, labels, torch.tensor([0, -1]), num_models=2)
 
 
 class TestWeightedBoxesFusion:
@@ -203,6 +213,32 @@ class TestWeightedBoxesFusion:
             op(
                 boxes, scores, labels + 5, model_ids,
                 num_models=2, models_per_label=torch.tensor([2]),
+            )
+
+    @pytest.mark.parametrize("op", WBF_VARIANTS)
+    def test_label_weights_make_rescale_per_class(self, op):
+        # Class 1 is known to one of two models (label weight 1 of total 2):
+        # its solo detection keeps full score instead of being halved, while
+        # the fully shared class 0 is still rescaled by 1/2.
+        boxes = torch.tensor([[0.0, 0.0, 10.0, 10.0], [50.0, 50.0, 60.0, 60.0]])
+        scores = torch.tensor([0.8, 0.8])
+        labels = torch.tensor([0, 1])
+        model_ids = torch.tensor([0, 0])
+        fb, fs, fl = op(
+            boxes, scores, labels, model_ids,
+            num_models=2, label_weights=torch.tensor([2.0, 1.0]),
+        )
+        by_label = {int(lab): float(s) for lab, s in zip(fl, fs)}
+        assert abs(by_label[0] - 0.4) < 1e-5
+        assert abs(by_label[1] - 0.8) < 1e-5
+
+    @pytest.mark.parametrize("op", WBF_VARIANTS)
+    def test_label_weights_too_short_raises(self, op):
+        boxes, scores, labels, model_ids = _pair()
+        with pytest.raises(ValueError, match="label_weights"):
+            op(
+                boxes, scores, labels + 5, model_ids,
+                num_models=2, label_weights=torch.tensor([2.0]),
             )
 
     def test_variants_agree_on_unambiguous_clusters(self):

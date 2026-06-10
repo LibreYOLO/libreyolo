@@ -168,7 +168,8 @@ class LibreEnsemble:
                 raise ValueError(
                     f"weights has {len(weights)} entries for {n} members"
                 )
-            if any(w <= 0 for w in weights):
+            # Positivity (not non-negativity) so NaN weights also fail loudly.
+            if not all(w > 0 for w in weights):
                 raise ValueError("weights must all be positive")
             self.weights = [float(w) for w in weights]
         else:
@@ -186,7 +187,7 @@ class LibreEnsemble:
                 f"{', '.join(sorted(FUSIONS))}, or a callable"
             )
 
-        if not isinstance(min_votes, int) or min_votes < 1:
+        if isinstance(min_votes, bool) or not isinstance(min_votes, int) or min_votes < 1:
             raise ValueError(f"min_votes must be a positive int, got {min_votes!r}")
         if min_votes > n:
             raise ValueError(
@@ -200,7 +201,12 @@ class LibreEnsemble:
         self.min_votes = min_votes
         self.fusion_iou = float(fusion_iou)
 
-        self.names, self._luts, self._models_per_label = self._unify_names()
+        (
+            self.names,
+            self._luts,
+            self._models_per_label,
+            self._label_weights,
+        ) = self._unify_names()
 
     # =========================================================================
     # Construction helpers
@@ -241,9 +247,11 @@ class LibreEnsemble:
             luts.append(lut)
 
         models_per_label = torch.zeros(len(union), dtype=torch.long)
-        for names in member_names:
+        label_weights = torch.zeros(len(union), dtype=torch.float32)
+        for names, weight in zip(member_names, self.weights):
             for name in set(names.values()):
                 models_per_label[by_name[name]] += 1
+                label_weights[by_name[name]] += weight
 
         partial = [
             union[uid]
@@ -259,7 +267,7 @@ class LibreEnsemble:
                 "class name — check member names dicts if these should match.",
                 len(union), len(partial), shown, more,
             )
-        return union, luts, models_per_label
+        return union, luts, models_per_label, label_weights
 
     # =========================================================================
     # Prediction
@@ -272,25 +280,34 @@ class LibreEnsemble:
         conf: Union[float, Sequence[float]] = 0.25,
         iou: Union[float, Sequence[float]] = 0.45,
         imgsz: Union[int, Tuple[int, int], List, None] = None,
+        device: Union[str, Sequence[str], None] = None,
         classes: Optional[List[int]] = None,
         max_det: int = 300,
         augment: bool = False,
         save: bool = False,
         output_path: Optional[str] = None,
         color_format: str = "auto",
+        batch: int = 1,
         stream: bool = False,
         **kwargs,
     ) -> Union[Results, List[Results]]:
         """Run every member on *source* and return fused Results.
 
-        ``conf``, ``iou``, and ``imgsz`` keep their standard per-member
-        meaning and broadcast to all members; ``conf`` and ``iou`` also accept
-        one value per member (``conf=[0.25, 0.4]``), and ``imgsz`` accepts a
-        list with one entry per member. ``classes`` (union class ids) and
-        ``max_det`` apply to the fused result — members run generously and
-        the ensemble trims once.
+        ``conf``, ``iou``, ``imgsz``, and ``device`` keep their standard
+        per-member meaning and broadcast to all members; ``conf``, ``iou``,
+        and ``device`` also accept one value per member (``conf=[0.25, 0.4]``),
+        and ``imgsz`` accepts a *list* with one entry per member — an int or
+        tuple broadcasts, so ``imgsz=(480, 640)`` is one rectangular size for
+        everyone while ``imgsz=[480, 640]`` is 480 for member 0 and 640 for
+        member 1. Each entry must be valid for that member's family. ``augment``
+        broadcasts to members that support test-time augmentation; exported
+        backends ignore it. ``classes`` (union class ids) and ``max_det`` apply
+        to the fused result — members run generously and the ensemble trims
+        once. ``batch`` is accepted for API parity; images are processed
+        sequentially.
         """
         normalize_predict_kwargs(kwargs)
+        del batch
         if stream or is_video_file(source):
             raise NotImplementedError(
                 "video and stream ensembling are not available yet; run the "
@@ -301,11 +318,12 @@ class LibreEnsemble:
         conf_l = self._per_member(conf, n, "conf")
         iou_l = self._per_member(iou, n, "iou")
         imgsz_l = self._per_member(imgsz, n, "imgsz", list_only=True)
+        device_l = self._per_member(device, n, "device")
 
         if isinstance(source, (str, Path)) and Path(source).is_dir():
             return [
                 self._predict_one(
-                    p, conf_l, iou_l, imgsz_l,
+                    p, conf_l, iou_l, imgsz_l, device_l,
                     classes=classes, max_det=max_det, augment=augment,
                     save=save, output_path=output_path, color_format=color_format,
                 )
@@ -313,7 +331,7 @@ class LibreEnsemble:
             ]
 
         return self._predict_one(
-            source, conf_l, iou_l, imgsz_l,
+            source, conf_l, iou_l, imgsz_l, device_l,
             classes=classes, max_det=max_det, augment=augment,
             save=save, output_path=output_path, color_format=color_format,
         )
@@ -340,6 +358,7 @@ class LibreEnsemble:
         conf_l: List,
         iou_l: List,
         imgsz_l: List,
+        device_l: List,
         *,
         classes: Optional[List[int]],
         max_det: int,
@@ -363,6 +382,7 @@ class LibreEnsemble:
                     conf=conf_l[i],
                     iou=iou_l[i],
                     imgsz=imgsz_l[i],
+                    device=device_l[i],
                     # Members run generously; the ensemble trims once at the end.
                     max_det=max(300, max_det),
                     augment=augment,
@@ -383,6 +403,7 @@ class LibreEnsemble:
             iou_thr=self.fusion_iou,
             min_votes=self.min_votes,
             models_per_label=self._models_per_label.to(boxes.device),
+            label_weights=self._label_weights.to(boxes.device),
         )
         speed["fusion"] = (time.perf_counter() - start) * 1000.0
         f_boxes, f_scores, f_labels = self._validate_fused(fused)
@@ -428,7 +449,11 @@ class LibreEnsemble:
             b, s, c = b.to(device), s.to(device), c.to(device)
 
             lut = self._luts[i].to(device)
-            if c.numel() > 0 and (int(c.max()) >= lut.numel() or bool((lut[c] < 0).any())):
+            if c.numel() > 0 and (
+                int(c.min()) < 0
+                or int(c.max()) >= lut.numel()
+                or bool((lut[c] < 0).any())
+            ):
                 raise RuntimeError(
                     f"member {i} returned a class id outside its names dict; "
                     "its label space cannot be mapped into the ensemble union"

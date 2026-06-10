@@ -1,4 +1,4 @@
-# ADR 0003: Model Ensembling and Standalone Fusion Ops
+# ADR 0004: Model Ensembling and Standalone Fusion Ops
 
 - Status: Accepted (Phase 1 implemented)
 - Date: 2026-06-10
@@ -90,12 +90,15 @@ expressible.
 
 ## Pinned semantics
 
-- Predict kwargs (`conf`, `iou`, `imgsz`, `classes`, `max_det`, `save`,
-  `augment`) keep their standard meaning and broadcast to members; `conf` and
-  `iou` also accept one value per member, and `imgsz` accepts a list with one
-  entry per member (each entry must be valid for that member's family —
-  e.g. divisible-by-32 constraints still apply). `iou` remains the member
-  NMS threshold; the fusion threshold is `fusion_iou` on the constructor.
+- Predict kwargs (`conf`, `iou`, `imgsz`, `device`, `classes`, `max_det`,
+  `save`, `augment`) keep their standard meaning and broadcast to members;
+  `conf`, `iou`, and `device` also accept one value per member, and `imgsz`
+  accepts a *list* with one entry per member — an int or tuple broadcasts to
+  everyone (each entry must be valid for that member's family — e.g.
+  divisible-by-32 constraints still apply). `augment` broadcasts to members
+  that support test-time augmentation; exported-backend members ignore it.
+  `iou` remains the member NMS threshold; the fusion threshold is
+  `fusion_iou` on the constructor.
 - `classes` (union ids) and `max_det` apply to the fused result; members run
   generously and the ensemble trims once.
 - The source image is decoded once and handed to members as PIL.
@@ -108,7 +111,17 @@ expressible.
   (`member_0`, `member_1`, …, `fusion`), so the N× cost is visible.
 - WBF's `min(W_T, W_N) / W_N` rescale means fused scores can drop below the
   per-member `conf`: a box only one of two members found keeps half its
-  score. That soft-consensus signal is intentional and documented.
+  score. That soft-consensus signal is intentional and documented. `W_N` is
+  per-class — the summed weight of the members whose label space contains the
+  class — so a class only one member knows is *not* penalized for members
+  that could never have confirmed it (consistent with the per-class vote
+  cap); when label spaces are identical this reduces to all members, and
+  with unit weights the paper's `min(T, N) / N` is recovered exactly.
+- Fusion quality depends on checkpoint `names` metadata: a member carrying
+  placeholder names (`class_0`, …) builds a disjoint union with every other
+  member — the construction warning fires loudly, no cross-member fusion
+  happens, and `min_votes` degrades to its per-class cap. Fix the member's
+  `names` rather than the ensemble.
 
 ## Fusion ops (`libreyolo.ops`)
 

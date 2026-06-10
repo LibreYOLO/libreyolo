@@ -35,7 +35,10 @@ al., "Weighted boxes fusion: Ensembling boxes from different object detection
 models" (arXiv:1910.13302). With per-model weights the paper's
 ``min(T, N) / N`` confidence rescale generalizes to ``min(W_T, W_N) / W_N``,
 where ``W_T`` is the summed weight of a cluster's boxes and ``W_N`` the summed
-weight of all models; unit weights recover the paper exactly.
+weight of all models; unit weights recover the paper exactly. ``label_weights``
+(class id → summed weight of the models that know the class) makes ``W_N``
+per-class, so a class only some models can detect is not score-penalized for
+the models that could never have confirmed it.
 """
 
 from __future__ import annotations
@@ -83,9 +86,12 @@ def _resolve_weights(
             num_models = int(model_ids.max()) + 1
         else:
             num_models = 1
-    if model_ids.numel() > 0 and int(model_ids.max()) >= num_models:
+    if model_ids.numel() > 0 and (
+        int(model_ids.min()) < 0 or int(model_ids.max()) >= num_models
+    ):
+        bad = int(model_ids.min()) if int(model_ids.min()) < 0 else int(model_ids.max())
         raise ValueError(
-            f"model_ids contains index {int(model_ids.max())} "
+            f"model_ids contains index {bad} "
             f"but only {num_models} models are declared"
         )
     if weights is None:
@@ -97,7 +103,8 @@ def _resolve_weights(
             f"got {w.reshape(-1).shape[0]}"
         )
     w = w.reshape(-1)
-    if (w <= 0).any():
+    # Positivity (not non-negativity) so NaN weights also fail loudly.
+    if not bool((w > 0).all()):
         raise ValueError("weights must all be positive")
     return w
 
@@ -119,6 +126,32 @@ def _required_votes(
             f"{int(cluster_labels.max())}"
         )
     return torch.minimum(base, mpl[cluster_labels])
+
+
+def _rescale_denominator(
+    label_weights: Optional[torch.Tensor],
+    cluster_labels: torch.Tensor,
+    w_model: torch.Tensor,
+) -> torch.Tensor:
+    """Per-cluster rescale denominator (the ``W_N`` of the score rescale).
+
+    ``label_weights`` maps class id to the summed weight of the models whose
+    label space contains that class, so a class only one model knows about is
+    not penalized for the models that could never have confirmed it. When
+    omitted, every cluster uses the total weight of all models — the paper's
+    behavior.
+    """
+    if label_weights is None:
+        return w_model.sum()
+    lw = torch.as_tensor(
+        label_weights, dtype=torch.float32, device=cluster_labels.device
+    )
+    if cluster_labels.numel() > 0 and int(cluster_labels.max()) >= lw.numel():
+        raise ValueError(
+            f"label_weights covers {lw.numel()} classes but labels reach "
+            f"{int(cluster_labels.max())}"
+        )
+    return lw[cluster_labels].clamp(min=_EPS)
 
 
 def _votes_per_cluster(
@@ -183,6 +216,7 @@ def weighted_boxes_fusion(
     conf_type: str = "avg",
     min_votes: int = 1,
     models_per_label: Optional[torch.Tensor] = None,
+    label_weights: Optional[torch.Tensor] = None,
 ) -> FusionResult:
     """Paper-faithful sequential Weighted Boxes Fusion.
 
@@ -192,7 +226,8 @@ def weighted_boxes_fusion(
     A cluster's fused box is the confidence-weighted average of its members'
     coordinates; its score is the weighted mean (or max) of their confidences,
     rescaled by ``min(W_T, W_N) / W_N`` so boxes confirmed by fewer models
-    score lower.
+    score lower. ``label_weights`` makes ``W_N`` per-class (see
+    :func:`_rescale_denominator`).
     """
     _check_conf_type(conf_type)
     boxes, scores, labels, model_ids = _validate_stacked(
@@ -245,7 +280,8 @@ def weighted_boxes_fusion(
     fused, cl_labels = fused[:k], cl_labels[:k]
     sw_sum, w_sum, s_max = sw_sum[:k], w_sum[:k], s_max[:k]
     fused_scores = s_max if conf_type == "max" else sw_sum / w_sum.clamp(min=_EPS)
-    fused_scores = fused_scores * (w_sum / w_model.sum()).clamp(max=1.0)
+    denom = _rescale_denominator(label_weights, cl_labels, w_model)
+    fused_scores = fused_scores * (w_sum / denom).clamp(max=1.0)
 
     votes = _votes_per_cluster(cluster_ids, model_ids, k, n_models)
     required = _required_votes(min_votes, n_models, models_per_label, cl_labels)
@@ -267,6 +303,7 @@ def wbf_seeded(
     conf_type: str = "avg",
     min_votes: int = 1,
     models_per_label: Optional[torch.Tensor] = None,
+    label_weights: Optional[torch.Tensor] = None,
 ) -> FusionResult:
     """Parallel one-pass Weighted Boxes Fusion.
 
@@ -297,16 +334,17 @@ def wbf_seeded(
     k = seeds.shape[0]
 
     # Assign every detection to its best same-label seed. Greedy NMS only ever
-    # suppresses a box through a kept one of the same class with IoU > thr, so
-    # the assignment is total: non-seeds always clear the threshold and seeds
-    # match themselves at IoU 1.
+    # suppresses a box through a kept one of the same class with IoU strictly
+    # above the threshold, so the assignment is total: non-seeds always clear
+    # the strict comparison (matching the sequential variant's join rule) and
+    # seeds match themselves at IoU 1.
     ious = box_iou(boxes, boxes[seeds])
     ious = ious.masked_fill(labels.unsqueeze(1) != labels[seeds].unsqueeze(0), -1.0)
     best_iou, cluster_ids = ious.max(dim=1)
     is_seed = torch.zeros_like(scores, dtype=torch.bool)
     is_seed[seeds] = True
     cluster_ids[seeds] = torch.arange(k, device=boxes.device)
-    assigned = is_seed | (best_iou >= iou_thr)
+    assigned = is_seed | (best_iou > iou_thr)
     boxes, scores, labels, model_ids, w_box, cluster_ids = (
         boxes[assigned], scores[assigned], labels[assigned],
         model_ids[assigned], w_box[assigned], cluster_ids[assigned],
@@ -324,9 +362,10 @@ def wbf_seeded(
         )
     else:
         fused_scores = sw_sum / w_sum.clamp(min=_EPS)
-    fused_scores = fused_scores * (w_sum / w_model.sum()).clamp(max=1.0)
 
     cl_labels = labels.new_zeros(k).scatter_(0, cluster_ids, labels)
+    denom = _rescale_denominator(label_weights, cl_labels, w_model)
+    fused_scores = fused_scores * (w_sum / denom).clamp(max=1.0)
     votes = _votes_per_cluster(cluster_ids, model_ids, k, n_models)
     required = _required_votes(min_votes, n_models, models_per_label, cl_labels)
     keep = votes >= required
@@ -346,6 +385,7 @@ def nms_fusion(
     skip_box_thr: float = 0.0,
     min_votes: int = 1,
     models_per_label: Optional[torch.Tensor] = None,
+    label_weights: Optional[torch.Tensor] = None,
 ) -> FusionResult:
     """Concatenate all detections and apply class-aware NMS.
 
@@ -360,7 +400,7 @@ def nms_fusion(
             "nms fusion cannot count votes; use 'wbf' or 'wbf_seeded' "
             "for min_votes > 1"
         )
-    del models_per_label  # accepted for signature uniformity, unused
+    del models_per_label, label_weights  # accepted for signature uniformity, unused
     boxes, scores, labels, model_ids = _validate_stacked(
         boxes, scores, labels, model_ids
     )
