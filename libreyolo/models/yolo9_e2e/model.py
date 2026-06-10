@@ -83,6 +83,16 @@ class LibreYOLO9E2E(LibreYOLO9):
                 return tensor.shape[0]
         return None
 
+    @classmethod
+    def convert_upstream_state_dict(cls, state_dict: dict) -> Optional[dict]:
+        """Claim native-keyed E2E dicts only.
+
+        LibreYOLO9's numbered-layout remap must not run here: upstream
+        numbered checkpoints convert to plain YOLO9 head keys and belong to
+        that family.
+        """
+        return dict(state_dict) if cls.can_load(state_dict) else None
+
     # =====================================================================
     # Model lifecycle
     # =====================================================================

@@ -25,58 +25,30 @@ from __future__ import annotations
 import argparse
 
 from _conversion_utils import (
+    add_repo_root_to_path,
     extract_state_dict,
     load_checkpoint,
     save_checkpoint,
     wrap_libreyolo_checkpoint,
 )
 
-
-_DROP_FRAGMENTS: tuple[str, ...] = ()
 # v2 registers ``decoder.anchors`` / ``decoder.valid_mask`` and
-# ``cross_attn.num_points_scale`` as buffers; keep them all so the strict load
-# overrides our init-time values with the upstream-saved tensors. (Initial
-# values differ by ~3e-4 due to torch-version/precision drift.)
-
-
-def _remap_key(k: str) -> str:
-    # Only ``encoder.input_proj`` needs remapping: v1's HybridEncoder uses
-    # numeric Sequential keys (``.0/.1``) but upstream uses named submodules
-    # (``.conv/.norm``). The v2 decoder we ported preserves upstream's named
-    # submodules for ``decoder.enc_output`` and ``decoder.input_proj``, so
-    # those keys pass through unchanged.
-    if k.startswith("encoder.input_proj."):
-        parts = k.split(".")
-        if len(parts) >= 4:
-            sub = parts[3]
-            if sub == "conv":
-                parts[3] = "0"
-                return ".".join(parts)
-            if sub == "norm":
-                parts[3] = "1"
-                return ".".join(parts)
-    return k
+# ``cross_attn.num_points_scale`` as buffers; ``convert_to_v2`` keeps them all
+# so the strict load overrides our init-time values with the upstream-saved
+# tensors. (Initial values differ by ~3e-4 due to torch-version/precision
+# drift.)
 
 
 def convert_weights(input_path: str, output_path: str, size: str, nc: int = 80) -> dict:
+    add_repo_root_to_path()
+    from libreyolo.models.rtdetr.convert import convert_to_v2
+
     print(f"Loading upstream RT-DETRv2 weights from {input_path}")
     raw = load_checkpoint(input_path)
     state_dict = extract_state_dict(raw)
     print(f"Found {len(state_dict)} parameter entries (EMA-preferred)")
 
-    out = {}
-    dropped = []
-    for k, v in state_dict.items():
-        if any(frag in k for frag in _DROP_FRAGMENTS):
-            dropped.append(k)
-            continue
-        out[_remap_key(k)] = v.float().clone()
-
-    print(f"Stripped {len(dropped)} v2-only tensors:")
-    for k in dropped[:6]:
-        print(f"  - {k}")
-    if len(dropped) > 6:
-        print(f"  ... +{len(dropped) - 6} more")
+    out = {k: v.float().clone() for k, v in convert_to_v2(state_dict).items()}
 
     libreyolo_ckpt = wrap_libreyolo_checkpoint(
         out, model_family="rtdetrv2", size=size, nc=nc,

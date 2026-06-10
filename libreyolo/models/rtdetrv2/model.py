@@ -31,6 +31,29 @@ class LibreRTDETRv2(LibreRTDETR):
         return LibreRTDETR.can_load(weights_dict)
 
     @classmethod
+    def convert_upstream_state_dict(cls, weights_dict: dict) -> Optional[dict]:
+        """Remap upstream RT-DETRv2 ResNet checkpoints to the v2 key layout.
+
+        The discrete-sampling buffer (``num_points_scale``) is unique to v2
+        and is what separates these from v1 claims. v2 HGNetv2 checkpoints
+        are intentionally not claimed here — LibreYOLO ships those under the
+        v1 family (LibreRTDETR l/x).
+        """
+        from ..rtdetr.convert import (
+            V2_SAMPLING_FRAGMENT,
+            convert_to_v2,
+            has_upstream_input_proj_keys,
+        )
+
+        if not has_upstream_input_proj_keys(weights_dict):
+            return None
+        if not any(k.startswith("backbone.res_layers") for k in weights_dict):
+            return None
+        if not any(V2_SAMPLING_FRAGMENT in k for k in weights_dict):
+            return None
+        return convert_to_v2(weights_dict)
+
+    @classmethod
     def detect_size_from_filename(cls, filename: str) -> Optional[str]:
         detected = super().detect_size_from_filename(filename)
         if detected is not None:

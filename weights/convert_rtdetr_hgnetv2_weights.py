@@ -57,69 +57,22 @@ SOURCES = {
     },
 }
 
-# v2-only tensor key fragments to drop entirely.
-DROP_FRAGMENTS = (
-    "decoder.anchors",
-    "decoder.valid_mask",
-    "cross_attn.num_points_scale",
-)
-
-
-def remap_key(k: str) -> str:
-    """Remap v2 named-submodule keys to LibreYOLO Sequential-numeric keys.
-
-    Two transforms:
-      encoder.input_proj.{i}.conv.*  -> encoder.input_proj.{i}.0.*
-      encoder.input_proj.{i}.norm.*  -> encoder.input_proj.{i}.1.*
-      decoder.enc_output.proj.*      -> decoder.enc_output.0.*
-      decoder.enc_output.norm.*      -> decoder.enc_output.1.*
-
-    decoder.input_proj keeps its named-submodule form — LibreYOLO's
-    decoder uses named submodules there.
-    """
-    if k.startswith("encoder.input_proj."):
-        parts = k.split(".")
-        if len(parts) >= 4:
-            sub = parts[3]
-            if sub == "conv":
-                parts[3] = "0"
-                return ".".join(parts)
-            if sub == "norm":
-                parts[3] = "1"
-                return ".".join(parts)
-
-    if k.startswith("decoder.enc_output."):
-        parts = k.split(".")
-        if len(parts) >= 3:
-            sub = parts[2]
-            if sub == "proj":
-                parts[2] = "0"
-                return ".".join(parts)
-            if sub == "norm":
-                parts[2] = "1"
-                return ".".join(parts)
-
-    return k
-
-
 def convert(src_path: Path, dst_path: Path, size: str) -> dict:
     """Load lyuwenyu v2 ckpt, remap keys, save as LibreYOLO state_dict."""
+    add_repo_root_to_path()
+    from libreyolo.models.rtdetr.convert import convert_to_v1
+
     print(f"Loading {src_path} ...")
     sd_v2 = extract_state_dict(load_checkpoint(src_path))
 
-    out = {}
-    dropped = []
-    for k, v in sd_v2.items():
-        if any(frag in k for frag in DROP_FRAGMENTS):
-            dropped.append(k)
-            continue
-        out[remap_key(k)] = v.float().clone()  # fp32, detached copy
+    out = {
+        k: v.float().clone()  # fp32, detached copy
+        for k, v in convert_to_v1(sd_v2).items()
+    }
 
     print(f"  source tensors: {len(sd_v2)}")
-    print(f"  dropped (v2-only): {len(dropped)}")
+    print(f"  dropped (v2-only): {len(sd_v2) - len(out)}")
     print(f"  output tensors: {len(out)}")
-    for k in dropped:
-        print(f"    drop: {k}")
 
     wrapped = wrap_libreyolo_checkpoint(
         out, model_family="rtdetr", size=size, nc=80,

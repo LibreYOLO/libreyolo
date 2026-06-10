@@ -1,27 +1,37 @@
-"""Runtime auto-conversion of upstream flagship weights to LibreYOLO format.
+"""Runtime auto-conversion of upstream checkpoints to LibreYOLO format.
 
-The two LibreYOLO flagships, YOLO9 (CNN) and RF-DETR (transformer), are ported
-from MIT/Apache upstream projects whose released checkpoints are *almost*
-loadable but do not carry LibreYOLO v1.0 metadata:
+LibreYOLO's model families are ported from MIT/Apache upstream projects whose
+released checkpoints are *almost* loadable but do not carry LibreYOLO v1.0
+metadata (family, size, task, class count, class names). When the factory
+meets such a file it calls :func:`autoconvert_upstream_checkpoint`, which:
 
-- **YOLO9** (MultimediaTechLab/YOLO): plain ``state_dict`` with numbered layer
-  indices. The keys need structural remapping (see
-  :mod:`libreyolo.models.yolo9.convert`).
-- **RF-DETR** (roboflow/rf-detr): training checkpoint whose keys already match
-  LibreYOLO's native port, but which embeds an ``argparse.Namespace`` (so the
-  factory's safe inspection load rejects it) and carries optimizer/EMA cruft.
+1. unwraps the tensor dict from the common upstream layouts
+   (``ema.module`` / ``ema_state_dict`` / ``ema_net`` / ``net`` / ``model`` /
+   ``state_dict`` / plain),
+2. asks every registered family — via
+   :meth:`BaseModel.convert_upstream_state_dict` — whether it recognizes the
+   layout, remapping keys where the upstream naming differs from the native
+   port (YOLO9, RT-DETR/v2/v4, PicoDet, RTMDet),
+3. wraps the winner in a strict v1.0 metadata checkpoint (size, task and class
+   count read from the tensors themselves, so fine-tuned checkpoints convert
+   correctly), and
+4. writes it beside the source as ``<source>-<Prefix><size>[-task].pt`` and
+   returns the new path so the factory can load it normally.
 
-This module detects those upstream layouts, converts them to a strict v1.0
-metadata-wrapped checkpoint, writes it next to the source under a source-specific
-``<source>-Libre<FAMILY><size>[-task].pt`` name, and returns the new path so the
-factory can load it normally. Class count is taken from the upstream head, so
-fine-tuned (non-COCO) checkpoints convert correctly.
+RF-DETR keeps a bespoke recognizer because it needs the full checkpoint (not
+just the tensor dict) for size detection and COCO class remapping, and is only
+lazily registered when its optional dependencies are installed.
+
+Sibling families that share architecture keys are disambiguated the same way
+the factory does: upstream-style filename hints first, and a hard refusal for
+the DEIM/D-FINE tie that nothing can break.
 """
 
 from __future__ import annotations
 
 import argparse
 import logging
+import re
 from pathlib import Path
 from typing import Any, Optional, Tuple
 
@@ -29,6 +39,8 @@ import torch
 
 from ..tasks import task_to_suffix
 from ..utils.serialization import (
+    REQUIRED_CHECKPOINT_METADATA_KEYS,
+    CheckpointMetadataError,
     load_untrusted_torch_file,
     validate_checkpoint_metadata,
     wrap_libreyolo_checkpoint,
@@ -36,26 +48,70 @@ from ..utils.serialization import (
 
 logger = logging.getLogger(__name__)
 
-# Canonical filename prefixes per flagship family (see docs/nomenclature.md).
-_PREFIX = {"yolo9": "LibreYOLO9", "rfdetr": "LibreRFDETR"}
 _UPSTREAM_SAFE_GLOBALS = (argparse.Namespace,)
+
+# Families the generic recognizer never claims. L2CS is inference-only with
+# redistribution-restricted weights; RF-DETR has its own recognizer below.
+_SKIP_FAMILIES = frozenset({"l2cs", "rfdetr"})
+
+# Families whose recognizers are upstream-specific (key remapping, never a
+# plain ``can_load`` passthrough). Only these may claim files that already
+# carry *partial* LibreYOLO metadata — upstream fine-tunes can embed ``names``,
+# while old LibreYOLO trainer checkpoints with partial metadata must keep
+# going through the factory's legacy compatibility path untouched.
+_STRONG_FAMILIES = frozenset({"yolo9"})
+
+
+# ---------------------------------------------------------------------------
+# Checkpoint unwrapping and metadata extraction
+# ---------------------------------------------------------------------------
 
 
 def _plain_state_dict(loaded: Any) -> dict[str, torch.Tensor]:
     """Return the tensor-only state dict across common upstream layouts."""
     obj = loaded
     if isinstance(obj, dict):
-        if isinstance(obj.get("state_dict"), dict):
-            obj = obj["state_dict"]
+        if isinstance(obj.get("ema"), dict):
+            ema = obj["ema"]
+            obj = ema["module"] if isinstance(ema.get("module"), dict) else ema
+        elif isinstance(obj.get("ema_state_dict"), dict):
+            # mmengine ExpMomentumEMA prefixes module params with "module.".
+            ema = obj["ema_state_dict"]
+            obj = {
+                k[len("module."):]: v
+                for k, v in ema.items()
+                if k.startswith("module.")
+            } or ema
+        elif isinstance(obj.get("ema_net"), dict):
+            obj = obj["ema_net"]
+        elif isinstance(obj.get("net"), dict):
+            obj = obj["net"]
         elif isinstance(obj.get("model"), dict):
             obj = obj["model"]
+        elif isinstance(obj.get("state_dict"), dict):
+            obj = obj["state_dict"]
     if not isinstance(obj, dict):
         return {}
     state = {k: v for k, v in obj.items() if isinstance(v, torch.Tensor)}
+    # Strip DDP / torch.compile wrappers some redistributions keep.
+    for prefix in ("module.", "_orig_mod."):
+        if state and any(k.startswith(prefix) for k in state):
+            state = {
+                (k[len(prefix):] if k.startswith(prefix) else k): v
+                for k, v in state.items()
+            }
     # Some redistributions nest weights under a ``model.model.`` prefix.
     if state and all(k.startswith("model.model.") for k in state):
         state = {k[len("model.model."):]: v for k, v in state.items()}
     return state
+
+
+def _has_partial_metadata(loaded: Any) -> bool:
+    """True when the checkpoint carries any LibreYOLO metadata key."""
+    if not isinstance(loaded, dict):
+        return False
+    metadata_keys = set(REQUIRED_CHECKPOINT_METADATA_KEYS) - {"model"}
+    return bool(metadata_keys & set(loaded))
 
 
 def _checkpoint_names(loaded: Any, nc: int | None = None) -> Any | None:
@@ -151,6 +207,205 @@ def _name_count(names: Any) -> int | None:
     return None
 
 
+# ---------------------------------------------------------------------------
+# Loading upstream files
+# ---------------------------------------------------------------------------
+
+
+class _InertStub:
+    """Inert stand-in for a third-party class pickled into a checkpoint.
+
+    Construction, ``__setstate__`` and attribute state are all no-ops, so the
+    unpickler can materialize the object graph without executing third-party
+    code. Only tensors survive into the converted checkpoint; stub instances
+    (training metadata such as mm-series config/log objects) are discarded.
+    """
+
+    def __new__(cls, *args, **kwargs):  # noqa: D102 — pickle may pass args
+        return super().__new__(cls)
+
+    def __init__(self, *args, **kwargs):
+        pass
+
+    def __setstate__(self, state):
+        pass
+
+
+_BLOCKED_GLOBAL_RE = re.compile(r"GLOBAL ([A-Za-z_][\w.]*) was not an allowed global")
+
+
+def _stub_for_blocked_global(exc: Exception) -> type | None:
+    """Fabricate an inert stand-in for the global a safe-load error names.
+
+    The stub shadows the real class in the ``weights_only`` allowlist (torch
+    resolves allowlisted globals by ``module.qualname`` to the object we
+    provide), so the pickle can never reach real third-party or builtin
+    callables. ``builtins`` globals are never stubbed.
+    """
+    message = str(exc)
+    if exc.__cause__ is not None:
+        message += "\n" + str(exc.__cause__)
+    match = _BLOCKED_GLOBAL_RE.search(message)
+    if match is None:
+        return None
+    module, _, qualname = match.group(1).rpartition(".")
+    if not module or module == "builtins":
+        return None
+    stub = type(qualname, (_InertStub,), {})
+    stub.__module__ = module
+    stub.__qualname__ = qualname
+    return stub
+
+
+def _load_upstream_file(model_path: str) -> Any:
+    """Safe-load an upstream checkpoint, tolerating pickled config objects.
+
+    Some upstream training checkpoints (e.g. mm-series RTMDet) embed library
+    objects the ``weights_only`` loader rejects. Those objects are metadata we
+    do not need, so each blocked global is retried with an inert stub class
+    that satisfies the unpickler without executing anything.
+    """
+    stubs: list[type] = []
+    for _attempt in range(32):
+        try:
+            return load_untrusted_torch_file(
+                model_path,
+                map_location="cpu",
+                context="upstream weights",
+                safe_globals=_UPSTREAM_SAFE_GLOBALS + tuple(stubs),
+            )
+        except Exception as exc:
+            stub = _stub_for_blocked_global(exc)
+            if stub is None:
+                raise
+            stubs.append(stub)
+    raise RuntimeError(
+        f"Gave up stubbing pickled globals in {model_path} after 32 attempts."
+    )
+
+
+# ---------------------------------------------------------------------------
+# Family recognition
+# ---------------------------------------------------------------------------
+
+
+def _candidate_classes() -> list:
+    from .base import BaseModel
+
+    return [cls for cls in BaseModel._registry if cls.FAMILY not in _SKIP_FAMILIES]
+
+
+def _claim_upstream_state(
+    state: dict[str, torch.Tensor],
+    *,
+    partial_metadata: bool,
+) -> list[tuple[type, dict]]:
+    """Collect ``(model_class, native_state_dict)`` claims in registry order."""
+    claims = []
+    for cls in _candidate_classes():
+        if partial_metadata and cls.FAMILY not in _STRONG_FAMILIES:
+            continue
+        try:
+            converted = cls.convert_upstream_state_dict(state)
+        except Exception as exc:  # noqa: BLE001 — one family must not block the rest
+            logger.debug("%s upstream recognition failed: %s", cls.FAMILY, exc)
+            continue
+        if converted:
+            claims.append((cls, converted))
+    return claims
+
+
+def _resolve_claim(
+    claims: list[tuple[type, dict]],
+    source: Path,
+) -> Optional[tuple[type, dict]]:
+    """Pick one claim, mirroring the factory's dispatch rules.
+
+    Upstream-style filename hints win first; then the registry order, which
+    already encodes specificity. The DEIM/D-FINE tie is unresolvable from
+    tensors alone (identical architecture keys), so it is refused unless EC or
+    DEIMv2 — whose more-specific detectors legitimately also match those
+    decoder keys — claimed the file.
+    """
+    if not claims:
+        return None
+
+    for cls, converted in claims:
+        if cls.detect_size_from_filename(source.name):
+            return cls, converted
+
+    families = {cls.FAMILY for cls, _converted in claims}
+    # EC, DEIMv2 and RT-DETRv4 legitimately match D-FINE/DEIM-ish decoder keys
+    # but are positively identified by their own markers, so they break the tie.
+    if {"dfine", "deim"}.issubset(families) and not (
+        families & {"ec", "deimv2", "rtdetrv4"}
+    ):
+        logger.warning(
+            "Ambiguous D-FINE/DEIM upstream checkpoint %s: both families share "
+            "the same architecture keys; skipping auto-conversion. Use an "
+            "upstream-style filename such as dfine_hgnetv2_n_coco.pth or "
+            "deim_hgnetv2_n_coco.pth, or instantiate LibreDFINE/LibreDEIM "
+            "directly.",
+            source.name,
+        )
+        return None
+
+    return claims[0]
+
+
+def _wrap_claim(
+    cls: type,
+    converted: dict[str, torch.Tensor],
+    loaded: Any,
+    source: Path,
+) -> Optional[Tuple[dict, str, str, str, str]]:
+    """Build ``(wrapped, family, prefix, size, task)`` for a resolved claim."""
+    size = cls.detect_size(converted) or cls.detect_size_from_filename(source.name)
+    if size is None:
+        logger.warning(
+            "Upstream %s checkpoint recognized but its size could not be "
+            "inferred; skipping auto-conversion.",
+            cls.FAMILY,
+        )
+        return None
+
+    task = (
+        cls.detect_checkpoint_task(converted)
+        or cls.detect_task_from_filename(source.name)
+        or cls.DEFAULT_TASK
+    )
+    nc = cls.detect_nb_classes(converted) or 80
+    names = _checkpoint_names(loaded, nc)
+    converted = {
+        k: (v.float() if v.is_floating_point() else v) for k, v in converted.items()
+    }
+    try:
+        wrapped = wrap_libreyolo_checkpoint(
+            converted,
+            model_family=cls.FAMILY,
+            size=size,
+            task=task,
+            nc=nc,
+            names=names,
+        )
+    except CheckpointMetadataError as exc:
+        logger.warning(
+            "Upstream %s checkpoint recognized but could not be wrapped "
+            "(size=%s, task=%s): %s",
+            cls.FAMILY,
+            size,
+            task,
+            exc,
+        )
+        return None
+    return wrapped, cls.FAMILY, cls.FILENAME_PREFIX, size, task
+
+
+# ---------------------------------------------------------------------------
+# RF-DETR — bespoke recognizer (lazy registration, checkpoint-level metadata)
+# ---------------------------------------------------------------------------
+
+
 def _is_coco_rfdetr_checkpoint(loaded: Any) -> bool:
     """Return True only when metadata supports RF-DETR COCO remapping."""
     names = _checkpoint_names(loaded)
@@ -177,50 +432,8 @@ def _rfdetr_class_metadata(
     return nc, _checkpoint_names(loaded, nc)
 
 
-def _canonical_path(source: Path, prefix: str, size: str, task: str) -> Path:
-    """Build a source-specific converted checkpoint path beside source."""
-    suffix = task_to_suffix(task)
-    task_part = f"-{suffix}" if suffix else ""
-    return source.parent / f"{source.stem}-{prefix}{size}{task_part}.pt"
-
-
-def _try_yolo9(loaded: Any) -> Optional[Tuple[dict, str, str, str]]:
-    """Return ``(wrapped, family, size, task)`` for an upstream YOLO9 file."""
-    from .yolo9.convert import (
-        convert_state_dict,
-        infer_config,
-        infer_nb_classes,
-        is_upstream_state_dict,
-    )
-
-    state = _plain_state_dict(loaded)
-    if not state or not is_upstream_state_dict(state):
-        return None
-
-    config = infer_config(state)
-    if config is None:
-        logger.warning(
-            "Upstream YOLO9 checkpoint recognized but its size could not be "
-            "inferred; skipping auto-conversion."
-        )
-        return None
-
-    converted, _stats = convert_state_dict(state, config)
-    nc = infer_nb_classes(state) or 80
-    names = _checkpoint_names(loaded, nc)
-    wrapped = wrap_libreyolo_checkpoint(
-        converted,
-        model_family="yolo9",
-        size=config,
-        task="detect",
-        nc=nc,
-        names=names,
-    )
-    return wrapped, "yolo9", config, "detect"
-
-
-def _try_rfdetr(loaded: Any) -> Optional[Tuple[dict, str, str, str]]:
-    """Return ``(wrapped, family, size, task)`` for an upstream RF-DETR file."""
+def _try_rfdetr(loaded: Any) -> Optional[Tuple[dict, str, str, str, str]]:
+    """Return ``(wrapped, family, prefix, size, task)`` for an upstream RF-DETR file."""
     from . import try_ensure_rfdetr
 
     rfdetr_cls = try_ensure_rfdetr()
@@ -268,7 +481,19 @@ def _try_rfdetr(loaded: Any) -> Optional[Tuple[dict, str, str, str]]:
         names=names,
         **extra_metadata,
     )
-    return wrapped, "rfdetr", size, task
+    return wrapped, "rfdetr", rfdetr_cls.FILENAME_PREFIX, size, task
+
+
+# ---------------------------------------------------------------------------
+# Entry point
+# ---------------------------------------------------------------------------
+
+
+def _canonical_path(source: Path, prefix: str, size: str, task: str) -> Path:
+    """Build a source-specific converted checkpoint path beside source."""
+    suffix = task_to_suffix(task)
+    task_part = f"-{suffix}" if suffix else ""
+    return source.parent / f"{source.stem}-{prefix}{size}{task_part}.pt"
 
 
 def autoconvert_upstream_checkpoint(
@@ -276,18 +501,19 @@ def autoconvert_upstream_checkpoint(
     *,
     loaded: Any | None = None,
 ) -> Optional[str]:
-    """Convert an upstream flagship checkpoint to a LibreYOLO v1.0 ``.pt``.
+    """Convert an upstream checkpoint to a LibreYOLO v1.0 ``.pt``.
 
     Args:
         model_path: Path to the (possibly upstream) checkpoint file.
         loaded: Pre-loaded checkpoint object, when the caller already has it
             from a safe load. When ``None`` the file is loaded through the safe
-            loader with the minimal upstream allowlist needed for RF-DETR
-            ``argparse.Namespace`` metadata.
+            loader with the minimal upstream allowlist (plus inert stubs for
+            pickled third-party config objects).
 
     Returns:
-        Path to the converted file written beside the source, or ``None`` if the
-        file is not a recognized upstream YOLO9 / RF-DETR checkpoint.
+        Path to the converted file written beside the source, or ``None`` if
+        the file is not a recognized upstream checkpoint of any registered
+        family.
     """
     path = Path(model_path)
     if not path.exists():
@@ -295,12 +521,7 @@ def autoconvert_upstream_checkpoint(
 
     if loaded is None:
         try:
-            loaded = load_untrusted_torch_file(
-                model_path,
-                map_location="cpu",
-                context="upstream weights",
-                safe_globals=_UPSTREAM_SAFE_GLOBALS,
-            )
+            loaded = _load_upstream_file(model_path)
         except Exception as exc:  # noqa: BLE001 — any load failure means we can't help
             logger.debug("Auto-conversion could not load %s: %s", model_path, exc)
             return None
@@ -309,17 +530,37 @@ def autoconvert_upstream_checkpoint(
     if isinstance(loaded, dict) and not validate_checkpoint_metadata(loaded, strict=False):
         return None
 
-    result = _try_yolo9(loaded) or _try_rfdetr(loaded)
+    result = None
+    state = _plain_state_dict(loaded)
+    if state:
+        claims = _claim_upstream_state(
+            state, partial_metadata=_has_partial_metadata(loaded)
+        )
+        chosen = _resolve_claim(claims, path)
+        if chosen is not None:
+            result = _wrap_claim(chosen[0], chosen[1], loaded, path)
+    if result is None:
+        result = _try_rfdetr(loaded)
     if result is None:
         return None
 
-    wrapped, family, size, task = result
-    out_path = _canonical_path(path, _PREFIX[family], size, task)
+    wrapped, family, prefix, size, task = result
+    out_path = _canonical_path(path, prefix, size, task)
 
     # Always (re)write the source-specific conversion. This keeps repeated loads
     # of the same source fresh while avoiding collisions with official weights
     # or other fine-tunes of the same family/size/task in the directory.
-    torch.save(wrapped, out_path)
+    try:
+        torch.save(wrapped, out_path)
+    except OSError as exc:
+        logger.warning(
+            "Recognized upstream %s checkpoint but could not write %s (%s); "
+            "falling back to the in-memory compatibility path.",
+            family,
+            out_path,
+            exc,
+        )
+        return None
     logger.info(
         "Converted upstream %s weights (%s) -> %s in LibreYOLO format (nc=%d).",
         family,

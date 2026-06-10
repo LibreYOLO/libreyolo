@@ -74,6 +74,16 @@ class LibrePICODET(BaseModel):
         nc = out_ch - 32
         return nc if nc > 0 else None
 
+    @classmethod
+    def convert_upstream_state_dict(cls, weights_dict: dict) -> Optional[dict]:
+        """Remap Bo-style mmdet key naming to LibreYOLO's flattened port."""
+        from .convert import convert_upstream, is_upstream_state_dict
+
+        if not is_upstream_state_dict(weights_dict):
+            return None
+        converted = convert_upstream(weights_dict)
+        return converted if cls.can_load(converted) else None
+
     # ---- init ------------------------------------------------------------
 
     def __init__(

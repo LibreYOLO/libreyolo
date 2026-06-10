@@ -83,6 +83,15 @@ class LibreRTMDet(BaseModel):
                 return int(weights_dict[key].shape[0])
         return None
 
+    @classmethod
+    def convert_upstream_state_dict(cls, weights_dict: dict) -> Optional[dict]:
+        """Remap mm-series ``bbox_head`` naming to LibreRTMDet's ``head``."""
+        from .convert import convert_upstream, is_upstream_state_dict
+
+        if not is_upstream_state_dict(weights_dict):
+            return None
+        return convert_upstream(weights_dict)
+
     # =========================================================================
     # Initialization
     # =========================================================================

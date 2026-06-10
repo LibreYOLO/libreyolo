@@ -66,6 +66,10 @@ class LibreYOLONAS(BaseModel):
         return _POSE_HEAD_KEY in weights_dict
 
     @classmethod
+    def detect_checkpoint_task(cls, weights_dict: dict) -> Optional[str]:
+        return "pose" if cls.is_pose_state_dict(weights_dict) else None
+
+    @classmethod
     def detect_size_from_filename(cls, filename: str) -> Optional[str]:
         # Accept the LibreYOLO convention (LibreYOLONAS<size>.pt) handled by the
         # base regex, and also the native Deci filenames the CDN serves
