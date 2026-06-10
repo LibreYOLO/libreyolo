@@ -33,7 +33,10 @@ jobs:
         run: uv venv --python ${{ matrix.python-version }}
 
       - name: Install dependencies
-        run: uv pip install --no-sources --torch-backend cpu --group dev -e ".[rfdetr]"
+        # The onnx extra keeps the ONNX-dependent unit tests (raw export
+        # contract, picodet/classification round-trips) from silently
+        # skipping in this gate — they importorskip onnx/onnxruntime.
+        run: uv pip install --no-sources --torch-backend cpu --group dev -e ".[rfdetr,onnx]"
 
       - name: Run PR gate tests
         env:
