@@ -90,8 +90,10 @@ def test_deim_consumes_dfine_postprocess():
 
 
 def test_rfdetr_reexport_is_same_object():
+    # models/rfdetr/utils.py needs no optional deps (transformers is only
+    # required by model.py via the lazy registry), so a plain import is safe.
     new = importlib.import_module("libreyolo.postprocess.rfdetr")
-    old = pytest.importorskip("libreyolo.models.rfdetr.utils")
+    old = importlib.import_module("libreyolo.models.rfdetr.utils")
 
     assert old.postprocess is new.postprocess
 
