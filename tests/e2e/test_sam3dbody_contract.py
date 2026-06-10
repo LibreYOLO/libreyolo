@@ -41,6 +41,9 @@ silently rather than fail loudly.
 These tests pin every observable element of that contract. If one fails, the
 change breaks downstream raw-output consumers: gate it behind a non-default
 flag (as embedded NMS is, via ``nms=True``) or coordinate a major release.
+A weight-free structural twin runs on every push at unit tier:
+``tests/unit/test_yolo9_onnx_raw_contract.py``. This e2e module additionally
+covers the real-weights ``LibreYOLO("LibreYOLO9t.pt")`` resolution path.
 
 Known consumer quirk, documented rather than pinned as correct: the
 SAM3DBody-cpp parser currently decodes columns 0-3 as ``cx,cy,w,h`` while this
