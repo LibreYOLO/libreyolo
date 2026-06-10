@@ -61,6 +61,8 @@ def __getattr__(name):
 
     _lazy = {
         "LibreRFDETR": (".models.rfdetr.model", "LibreRFDETR"),
+        "LibreEnsemble": (".ensemble", "LibreEnsemble"),
+        "ExternalDetector": (".ensemble", "ExternalDetector"),
         "OnnxBackend": (".backends.onnx", "OnnxBackend"),
         "OpenVINOBackend": (".backends.openvino", "OpenVINOBackend"),
         "TensorRTBackend": (".backends.tensorrt", "TensorRTBackend"),
@@ -139,6 +141,9 @@ __all__ = [
     # Tracking
     "ByteTracker",
     "TrackConfig",
+    # Ensembling
+    "LibreEnsemble",
+    "ExternalDetector",
     # Lazy-loaded
     "OnnxBackend",
     "OpenVINOBackend",
