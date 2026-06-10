@@ -361,14 +361,16 @@ def _resolve_claim(
     A subclass claim beats its base class first — registration order follows
     class creation, so a derived family (RT-DETRv4) registers *after* the base
     (D-FINE) it refines, and its positive markers must not lose to the base's
-    broader passthrough. This runs *before* the filename hint because the
-    derived family inherits the base's filename regex (an ``rtv4`` checkpoint
-    named ``dfine_*`` matches both), so the base would otherwise win the hint.
-    Then upstream-style filename hints choose among the remaining claims. The
-    DEIM/D-FINE tie is unresolvable from tensors alone (identical architecture
-    keys), so it is refused unless EC, DEIMv2 or RT-DETRv4 — whose
-    more-specific detectors legitimately also match those decoder keys —
-    claimed the file.
+    broader passthrough.
+
+    Registry order then decides: it encodes specificity (the earliest claim is
+    the most specific match — e.g. EC, whose ``register_token`` is unique, is
+    placed before YOLOX, whose ``backbone.backbone`` substring check matches EC
+    weights as a false positive). The only tie registry order cannot resolve is
+    DEIM vs D-FINE — identical architecture keys — so there alone the filename
+    is the deciding signal, and an unnamed file is refused. The filename is
+    deliberately *not* consulted otherwise: it must never promote a broad
+    false-positive claim over a more-specific one purely from the file's name.
     """
     if not claims:
         return None
@@ -381,16 +383,16 @@ def _resolve_claim(
         )
     ]
 
-    for cls, converted in claims:
-        if cls.detect_size_from_filename(source.name):
-            return cls, converted
-
     families = {cls.FAMILY for cls, _converted in claims}
-    # EC, DEIMv2 and RT-DETRv4 legitimately match D-FINE/DEIM-ish decoder keys
-    # but are positively identified by their own markers, so they break the tie.
+    # DEIM/D-FINE share identical tensors; EC, DEIMv2 and RT-DETRv4 also match
+    # those decoder keys but carry their own positive markers and are ordered
+    # ahead, so they are not true ties and must not trigger the refusal.
     if {"dfine", "deim"}.issubset(families) and not (
         families & {"ec", "deimv2", "rtdetrv4"}
     ):
+        for cls, converted in claims:
+            if cls.detect_size_from_filename(source.name):
+                return cls, converted
         logger.warning(
             "Ambiguous D-FINE/DEIM upstream checkpoint %s: both families share "
             "the same architecture keys; skipping auto-conversion. Use an "

@@ -356,6 +356,22 @@ class TestRemappedFamilies:
         assert ckpt["model_family"] == "rtdetrv4"
         assert not any("feature_projector" in k for k in ckpt["model"])
 
+    def test_unique_content_claim_beats_filename_pointing_at_broad_match(
+        self, tmp_path
+    ):
+        """A filename must not override a unique content match. EC weights
+        satisfy YOLOX's broad ``backbone.backbone`` check, but EC's
+        ``register_token`` is the specific match — an EC file named like a
+        YOLOX checkpoint must still convert as EC."""
+        src = tmp_path / "LibreYOLOXs.pt"
+        torch.save(_wrap_ema_module(_ec_s()), src)
+
+        out = autoconvert_upstream_checkpoint(str(src))
+
+        assert out is not None
+        ckpt = torch.load(out, map_location="cpu", weights_only=True)
+        assert ckpt["model_family"] == "ec"
+
     def test_numbered_yolo9_with_one2one_key_routes_to_yolo9_not_e2e(self, tmp_path):
         """A numbered upstream YOLO9 dict carrying a stray one2one key must
         convert as yolo9 (head remapped), not be passed through raw as
