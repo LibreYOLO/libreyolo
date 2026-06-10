@@ -1,4 +1,9 @@
-"""LibreDEIM preprocessing and postprocessing helpers."""
+"""LibreDEIM preprocessing and postprocessing helpers.
+
+DEIM's postprocess is code-identical to D-FINE's; the single implementation
+lives in ``libreyolo.postprocess.dfine`` and is re-exported here (via
+``libreyolo.postprocess.deim``) for backward compatibility.
+"""
 
 from __future__ import annotations
 
@@ -8,8 +13,8 @@ import numpy as np
 import torch
 from PIL import Image
 
+from ...postprocess.deim import postprocess  # noqa: F401  (backward-compatible re-export)
 from ...utils.image_loader import ImageInput, ImageLoader
-from .box_ops import box_cxcywh_to_xyxy
 
 
 def unwrap_deim_checkpoint(checkpoint: Mapping | Any):
@@ -64,66 +69,3 @@ def preprocess_image(
     img_chw, ratio = preprocess_numpy(np.array(img), input_size=input_size)
     img_tensor = torch.from_numpy(img_chw).unsqueeze(0)
     return img_tensor, original_img, original_size, ratio
-
-
-def postprocess(
-    outputs,
-    conf_thres: float = 0.25,
-    iou_thres: float = 0.45,
-    original_size: Tuple[int, int] | None = None,
-    max_det: int = 300,
-    **_unused,
-):
-    """Decode DEIM output dict into a LibreYOLO detections dict.
-
-    DEIM outputs DETR-style ``{"pred_logits", "pred_boxes"}``. Post-processing:
-    sigmoid → top-K across (query × class) → box-cxcywh→xyxy → scale to orig.
-    No NMS is applied (set prediction already).
-
-    Returns dict with ``num_detections`` / ``boxes`` / ``scores`` / ``classes``.
-    """
-    out_logits = outputs["pred_logits"]  # (B, Q, nc)
-    out_bbox = outputs["pred_boxes"]  # (B, Q, 4) cxcywh in [0, 1]
-
-    if out_logits.dim() == 3:
-        out_logits = out_logits[0]
-        out_bbox = out_bbox[0]
-
-    num_classes = out_logits.shape[-1]
-    prob = out_logits.sigmoid()
-
-    # Top-K across all (queries × classes).
-    topk_values, topk_indices = torch.topk(prob.view(-1), min(max_det, prob.numel()))
-    scores = topk_values
-    query_idx = topk_indices // num_classes
-    class_idx = topk_indices % num_classes
-
-    boxes_xyxy = box_cxcywh_to_xyxy(out_bbox)
-    boxes = boxes_xyxy[query_idx]
-
-    keep = scores > conf_thres
-    scores = scores[keep]
-    class_idx = class_idx[keep]
-    boxes = boxes[keep]
-
-    if original_size is not None:
-        orig_w, orig_h = original_size
-        scale = torch.tensor(
-            [orig_w, orig_h, orig_w, orig_h], dtype=boxes.dtype, device=boxes.device
-        )
-        boxes = boxes * scale
-
-    return {
-        "num_detections": int(boxes.shape[0]),
-        "boxes": boxes.cpu().numpy()
-        if boxes.numel() > 0
-        else np.zeros((0, 4), dtype=np.float32),
-        "scores": scores.cpu().numpy()
-        if scores.numel() > 0
-        else np.zeros((0,), dtype=np.float32),
-        "classes": (
-            class_idx.cpu().numpy()
-            if class_idx.numel() > 0
-            else np.zeros((0,), dtype=np.int64)
-        ),
-    }

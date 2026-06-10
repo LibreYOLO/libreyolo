@@ -8,8 +8,9 @@ import numpy as np
 import torch
 from PIL import Image
 
+from ...postprocess.deim import postprocess
 from ...utils.image_loader import ImageInput, ImageLoader
-from ..deim.utils import postprocess, unwrap_deim_checkpoint
+from ..deim.utils import unwrap_deim_checkpoint
 
 IMAGENET_MEAN = np.array([0.485, 0.456, 0.406], dtype=np.float32).reshape(3, 1, 1)
 IMAGENET_STD = np.array([0.229, 0.224, 0.225], dtype=np.float32).reshape(3, 1, 1)

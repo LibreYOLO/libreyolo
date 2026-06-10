@@ -15,7 +15,8 @@ from ...training.config import DEIMConfig
 from ...validation.preprocessors import DEIMValPreprocessor
 from ..base import BaseModel
 from .nn import LibreDEIMModel
-from .utils import postprocess, preprocess_image, unwrap_deim_checkpoint
+from ...postprocess.deim import postprocess
+from .utils import preprocess_image, unwrap_deim_checkpoint
 
 
 class LibreDEIM(BaseModel):

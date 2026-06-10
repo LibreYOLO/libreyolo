@@ -14,7 +14,8 @@ from ...utils.image_loader import ImageInput
 from ...validation.preprocessors import DFINEValPreprocessor
 from ..base import BaseModel
 from .nn import LibreDFINEModel
-from .utils import postprocess, preprocess_image, unwrap_dfine_checkpoint
+from ...postprocess.dfine import postprocess
+from .utils import preprocess_image, unwrap_dfine_checkpoint
 
 
 class LibreDFINE(BaseModel):

@@ -20,7 +20,8 @@ from ...utils.serialization import (
     validate_checkpoint_metadata,
 )
 from .nn import LibreYOLO9Model
-from .utils import preprocess_image, postprocess, postprocess_semantic
+from ...postprocess.yolo9 import postprocess, postprocess_semantic
+from .utils import preprocess_image
 from ...validation.preprocessors import YOLO9ValPreprocessor
 
 # Single source of truth for training defaults

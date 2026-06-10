@@ -12,7 +12,8 @@ from ..base import BaseModel
 from ...training.config import YOLOXConfig
 from ...utils.image_loader import ImageInput
 from .nn import LibreYOLOXModel
-from .utils import preprocess_image as _yolox_preprocess, postprocess
+from ...postprocess.yolox import postprocess
+from .utils import preprocess_image as _yolox_preprocess
 from ...validation.preprocessors import YOLOXValPreprocessor
 
 # Single source of truth for training defaults

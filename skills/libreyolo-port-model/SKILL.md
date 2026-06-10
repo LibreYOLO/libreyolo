@@ -218,7 +218,7 @@ Implement `_postprocess` in `models/<family>/utils.py`. Return:
 
 If your model emits keypoints as `(N, K, 2)`, append a column of ones for
 visibility — `Keypoints.has_visible` requires column 3
-(`models/ec/postprocess.py:197` for the precedent).
+(`libreyolo/postprocess/ec.py::postprocess_pose` for the precedent).
 
 **Verify**: `tests/unit/test_<family>_postprocess.py` smoke-tests shape contracts on synthetic input.
 
@@ -757,7 +757,7 @@ end-to-end. Look up what you need.
 
 - One-to-one head + top-K inference (no NMS).
 - Backbone, neck, training infra inherited from YOLOv9.
-- Postprocess accepts `iou_thres` for API compat but `del`s it (`models/yolo9_e2e/utils.py:34-49`).
+- Postprocess accepts `iou_thres` for API compat but `del`s it (`libreyolo/postprocess/yolo9_e2e.py::postprocess`).
 - **Must add the family to `BaseBackend._is_nms_free_family()`** (`libreyolo/backends/base.py:65`) or exported backends will wrongly apply NMS. yolo9_e2e is the existing miss.
 
 ### 7.3 DETR
@@ -869,7 +869,7 @@ them into `Results`.
 | pose | + `keypoints` | `(N, K, 3)` xy+visibility |
 | segment | + `masks` | `(N, H, W)` boolean |
 
-If your model emits keypoints as `(N, K, 2)`, append a column of ones for visibility (`models/ec/postprocess.py:197`).
+If your model emits keypoints as `(N, K, 2)`, append a column of ones for visibility (`libreyolo/postprocess/ec.py::postprocess_pose`).
 
 ## 10. Validation
 
@@ -948,8 +948,8 @@ Always edited:
 
 | File | Why |
 |---|---|
-| `libreyolo/models/<family>/{__init__.py, model.py, nn.py, utils.py}` | family-local code |
-| `libreyolo/models/<family>/postprocess.py` | new for multi-task families (EC pattern) |
+| `libreyolo/models/<family>/{__init__.py, model.py, nn.py, utils.py}` | family-local code (preprocess + checkpoint helpers) |
+| `libreyolo/postprocess/<family>.py` | postprocessing — one module per family (ADR 0005) |
 | `libreyolo/models/__init__.py` | one-line family import (drives auto-registration order) |
 | `libreyolo/__init__.py` | `Libre<Family>` export + `__all__` |
 | `libreyolo/training/config.py` | append `<Family>Config(TrainConfig)` if shared route. Family-local `models/<family>/config.py` is also fine — RF-DETR, RT-DETR, YOLOv9-E2E |
@@ -1026,10 +1026,10 @@ In priority order. Each line: *[which family hit it]* — what to do.
 23. **`best_metric_key` left at default for non-detect trainers.** `BaseTrainer.best_metric_key = "metrics/mAP50-95"` selects on bbox. Pose / seg trainers must override.
 24. **Mosaic/mixup applied to polygons/keypoints they don't transform.** Disable, or family-local dataset wrapper (D-FINE).
 25. **`TASK_INPUT_SIZES` keys disagree with `INPUT_SIZES` keys.** Per-task entries needed for asymmetric task sizes (YOLO-NAS pose-`n`).
-26. **Postprocess returning `keypoints` without a visibility column.** Append a column of ones (`models/ec/postprocess.py:197`).
+26. **Postprocess returning `keypoints` without a visibility column.** Append a column of ones (`libreyolo/postprocess/ec.py::postprocess_pose`).
 27. **Multi-character size codes need length-descending regex sort.** RT-DETR's `r50` vs `r50m` — override `detect_size_from_filename` and sort sizes by length descending. Precedent: `models/rtdetr/model.py:253-270`.
 28. **Pose head with single-class user-facing override.** DETR pose may pair multi-class internal head with single user-facing class. Converter must override `nc=1, names={0:"person"}` for the pose variant. EC: `weights/convert_ec_weights.py:53-55`.
-29. **DETR pose may skip the box head entirely.** Some pose decoders derive boxes from keypoint extents rather than a dedicated regression head (EC: `models/ec/postprocess.py:186-191`). Document if yours does.
+29. **DETR pose may skip the box head entirely.** Some pose decoders derive boxes from keypoint extents rather than a dedicated regression head (EC: `libreyolo/postprocess/ec.py::postprocess_pose`). Document if yours does.
 30. **NMS-free family not added to backend allowlist.** `BaseBackend._is_nms_free_family()` (`backends/base.py:65`) hardcodes `{"dfine","deim","deimv2","ec","rfdetr","rtdetr"}`. Backends apply NMS post-export to anything not in this set. **YOLOv9-E2E is the existing miss** — exported yolo9_e2e graphs hit this bug today.
 31. **Sibling-family `can_load` collisions are bidirectional.** Both directions need tests (template §6.9).
 32. **Sniff-key prefix-match collisions across multi-task families.** RF-DETR's `"segmentation_head"` is a shorter prefix than EC's `"decoder.decoder.segmentation_head"` — if a new family puts `segmentation_head.*` at a path not nested under `decoder.decoder.`, RF-DETR steals it.
