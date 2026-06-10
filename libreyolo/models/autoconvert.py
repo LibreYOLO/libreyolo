@@ -40,7 +40,6 @@ import torch
 
 from ..tasks import task_to_suffix
 from ..utils.serialization import (
-    REQUIRED_CHECKPOINT_METADATA_KEYS,
     CheckpointMetadataError,
     load_untrusted_torch_file,
     validate_checkpoint_metadata,
@@ -110,12 +109,20 @@ def _plain_state_dict(loaded: Any) -> dict[str, torch.Tensor]:
     return {}
 
 
-def _has_partial_metadata(loaded: Any) -> bool:
-    """True when the checkpoint carries any LibreYOLO metadata key."""
+# Keys that only LibreYOLO writes. Their presence marks a file as an existing
+# LibreYOLO checkpoint (handled by the factory's normal load path) rather than
+# a foreign upstream one. Generic keys an upstream fine-tune might also carry —
+# ``names``, ``nc``, ``size``, ``task``, ``imgsz`` — are intentionally excluded.
+_LIBREYOLO_MARKER_KEYS = frozenset(
+    {"schema_version", "libreyolo_version", "model_family"}
+)
+
+
+def _is_existing_libreyolo_checkpoint(loaded: Any) -> bool:
+    """True when the checkpoint carries a LibreYOLO-specific metadata marker."""
     if not isinstance(loaded, dict):
         return False
-    metadata_keys = set(REQUIRED_CHECKPOINT_METADATA_KEYS) - {"model"}
-    return bool(metadata_keys & set(loaded))
+    return bool(_LIBREYOLO_MARKER_KEYS & set(loaded))
 
 
 def _trim_names_to_nc(names: Any, nc: int | None) -> Any:
@@ -327,15 +334,18 @@ def _candidate_classes() -> list:
 def _claim_upstream_state(
     state: dict[str, torch.Tensor],
     *,
-    partial_metadata: bool,
+    existing_libreyolo: bool,
 ) -> list[tuple[type, dict]]:
     """Collect ``(model_class, native_state_dict)`` claims in registry order.
 
-    Files that already carry partial LibreYOLO metadata (``names``, ``nc``…)
-    may be old LibreYOLO trainer checkpoints that belong to the factory's
-    legacy compatibility path. Those always hold native keys, so when partial
-    metadata is present only claims whose conversion actually changed the
-    keyset — proof of an upstream layout — are accepted.
+    An existing LibreYOLO checkpoint (one carrying a LibreYOLO-specific marker
+    such as ``model_family``) belongs to the factory's normal load path and is
+    not re-converted — but only a *passthrough* claim (keyset unchanged) is
+    skipped. A claim whose conversion changed the keyset is proof of a foreign
+    upstream layout and is always accepted, even on a marked file. Foreign
+    fine-tunes that merely carry a generic ``names`` key are *not* marked, so
+    their native-keyed passthrough claims convert normally (deriving ``nc``
+    from the tensor head) instead of being skipped and mis-loaded as 80-class.
     """
     claims = []
     for cls in _candidate_classes():
@@ -346,7 +356,7 @@ def _claim_upstream_state(
             continue
         if not converted:
             continue
-        if partial_metadata and converted.keys() == state.keys():
+        if existing_libreyolo and converted.keys() == state.keys():
             continue
         claims.append((cls, converted))
     return claims
@@ -616,7 +626,7 @@ def autoconvert_upstream_checkpoint(
     state = _plain_state_dict(loaded)
     if state:
         claims = _claim_upstream_state(
-            state, partial_metadata=_has_partial_metadata(loaded)
+            state, existing_libreyolo=_is_existing_libreyolo_checkpoint(loaded)
         )
         chosen = _resolve_claim(claims, path)
         if chosen is not None:

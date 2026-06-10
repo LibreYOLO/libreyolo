@@ -486,13 +486,37 @@ class TestDispatchRules:
 
         assert autoconvert_upstream_checkpoint(str(src)) is None
 
-    def test_partial_libreyolo_metadata_skips_generic_conversion(self, tmp_path):
+    def test_libreyolo_marker_skips_generic_conversion(self, tmp_path):
+        """A file carrying a LibreYOLO marker (model_family) but incomplete
+        metadata is an existing LibreYOLO checkpoint -> factory legacy path,
+        not re-converted by a passthrough family."""
         wrapped = _wrap_model(_deimv2_atto())
+        wrapped["model_family"] = "deimv2"
         wrapped["names"] = {0: "person"}
         src = tmp_path / "old-libreyolo-deimv2.pt"
         torch.save(wrapped, src)
 
         assert autoconvert_upstream_checkpoint(str(src)) is None
+
+    def test_names_only_native_finetune_converts_with_detected_nc(self, tmp_path):
+        """A native-keyed upstream fine-tune annotated with only a generic
+        ``names`` key (no LibreYOLO marker, no nc) must convert, deriving nc
+        from the tensor head — not be skipped and left to mis-load as
+        80-class. Regression for the passthrough-family hole."""
+        sd = _yolonas_s()
+        sd["heads.head1.cls_pred.weight"] = torch.zeros(7, 64, 1, 1)
+        wrapped = _wrap_ema_net(sd)
+        wrapped["names"] = {i: f"c{i}" for i in range(7)}
+        src = tmp_path / "yolo_nas_s_finetune.pth"
+        torch.save(wrapped, src)
+
+        out = autoconvert_upstream_checkpoint(str(src))
+
+        assert out is not None
+        ckpt = torch.load(out, map_location="cpu", weights_only=True)
+        assert ckpt["model_family"] == "yolonas"
+        assert ckpt["nc"] == 7
+        assert sorted(ckpt["names"]) == list(range(7))
 
     def test_floating_tensors_are_cast_to_fp32(self, tmp_path):
         sd = {k: v.half() for k, v in _deimv2_atto().items()}
