@@ -118,13 +118,29 @@ def _has_partial_metadata(loaded: Any) -> bool:
     return bool(metadata_keys & set(loaded))
 
 
+def _trim_names_to_nc(names: Any, nc: int | None) -> Any:
+    """Limit a names dict/list to the detected class count.
+
+    A fine-tune that kept its base (e.g. COCO-80) ``names`` over a smaller
+    head would otherwise carry out-of-range indices that the strict checkpoint
+    validator rejects — silently aborting the conversion.
+    """
+    if nc is None:
+        return names
+    if isinstance(names, dict):
+        return {key: value for key, value in names.items() if int(key) < nc}
+    if isinstance(names, (list, tuple)):
+        return list(names)[:nc]
+    return names
+
+
 def _checkpoint_names(loaded: Any, nc: int | None = None) -> Any | None:
     """Extract class names from common upstream checkpoint metadata."""
     if not isinstance(loaded, dict):
         return None
     names = loaded.get("names")
     if names is not None:
-        return names
+        return _trim_names_to_nc(names, nc)
 
     args = loaded.get("args") or loaded.get("hyper_parameters") or {}
     class_names = (
@@ -236,6 +252,11 @@ class _InertStub:
 
 
 _BLOCKED_GLOBAL_RE = re.compile(r"GLOBAL ([A-Za-z_][\w.]*) was not an allowed global")
+# Modules torch's weights-only unpickler refuses at the GLOBAL opcode *before*
+# consulting user safe_globals. Stubbing these is dead weight (torch rejects the
+# load regardless), so we refuse them outright — never fabricate a stub that
+# shadows a sensitive module name.
+_NEVER_STUB_MODULES = frozenset({"builtins", "os", "sys", "posix", "nt", "subprocess"})
 
 
 def _stub_for_blocked_global(exc: Exception) -> type | None:
@@ -243,8 +264,10 @@ def _stub_for_blocked_global(exc: Exception) -> type | None:
 
     The stub shadows the real class in the ``weights_only`` allowlist (torch
     resolves allowlisted globals by ``module.qualname`` to the object we
-    provide), so the pickle can never reach real third-party or builtin
-    callables. ``builtins`` globals are never stubbed.
+    provide), so the pickle can never reach real third-party callables. The
+    captured name is used only as a string label for ``type()`` — never
+    imported, eval'd, or called — and sensitive/blocklisted modules are
+    refused outright.
     """
     message = str(exc)
     if exc.__cause__ is not None:
@@ -253,7 +276,7 @@ def _stub_for_blocked_global(exc: Exception) -> type | None:
     if match is None:
         return None
     module, _, qualname = match.group(1).rpartition(".")
-    if not module or module == "builtins":
+    if not module or module.split(".")[0] in _NEVER_STUB_MODULES:
         return None
     stub = type(qualname, (_InertStub,), {})
     stub.__module__ = module
@@ -267,7 +290,9 @@ def _load_upstream_file(model_path: str) -> Any:
     Some upstream training checkpoints (e.g. mm-series RTMDet) embed library
     objects the ``weights_only`` loader rejects. Those objects are metadata we
     do not need, so each blocked global is retried with an inert stub class
-    that satisfies the unpickler without executing anything.
+    that satisfies the unpickler without executing anything. Each retry
+    re-parses the file; the loop is bounded so a file engineered to introduce
+    an unbounded series of distinct globals fails closed instead of spinning.
     """
     stubs: list[type] = []
     for _attempt in range(32):
@@ -333,21 +358,20 @@ def _resolve_claim(
 ) -> Optional[tuple[type, dict]]:
     """Pick one claim, mirroring the factory's dispatch rules.
 
-    Upstream-style filename hints win first. A subclass claim then beats its
-    base class — registration order follows class creation, so a derived
-    family (RT-DETRv4) registers *after* the base (D-FINE) it refines, and
-    its positive markers must not lose to the base's broader passthrough.
-    The DEIM/D-FINE tie is unresolvable from tensors alone (identical
-    architecture keys), so it is refused unless EC, DEIMv2 or RT-DETRv4 —
-    whose more-specific detectors legitimately also match those decoder
-    keys — claimed the file.
+    A subclass claim beats its base class first — registration order follows
+    class creation, so a derived family (RT-DETRv4) registers *after* the base
+    (D-FINE) it refines, and its positive markers must not lose to the base's
+    broader passthrough. This runs *before* the filename hint because the
+    derived family inherits the base's filename regex (an ``rtv4`` checkpoint
+    named ``dfine_*`` matches both), so the base would otherwise win the hint.
+    Then upstream-style filename hints choose among the remaining claims. The
+    DEIM/D-FINE tie is unresolvable from tensors alone (identical architecture
+    keys), so it is refused unless EC, DEIMv2 or RT-DETRv4 — whose
+    more-specific detectors legitimately also match those decoder keys —
+    claimed the file.
     """
     if not claims:
         return None
-
-    for cls, converted in claims:
-        if cls.detect_size_from_filename(source.name):
-            return cls, converted
 
     claims = [
         (cls, converted)
@@ -356,6 +380,10 @@ def _resolve_claim(
             other is not cls and issubclass(other, cls) for other, _state in claims
         )
     ]
+
+    for cls, converted in claims:
+        if cls.detect_size_from_filename(source.name):
+            return cls, converted
 
     families = {cls.FAMILY for cls, _converted in claims}
     # EC, DEIMv2 and RT-DETRv4 legitimately match D-FINE/DEIM-ish decoder keys
@@ -397,7 +425,14 @@ def _wrap_claim(
         or cls.detect_task_from_filename(source.name)
         or cls.DEFAULT_TASK
     )
-    nc = cls.detect_nb_classes(converted) or 80
+    detected_nc = cls.detect_nb_classes(converted)
+    if detected_nc is None:
+        logger.warning(
+            "Upstream %s checkpoint recognized but its class count could not be "
+            "inferred; defaulting to 80. Verify the converted checkpoint's nc.",
+            cls.FAMILY,
+        )
+    nc = detected_nc or 80
     names = _checkpoint_names(loaded, nc)
     extra_metadata: dict[str, Any] = {}
     if task == "pose":
@@ -411,6 +446,15 @@ def _wrap_claim(
             extra_metadata["num_keypoints"] = int(num_keypoints)
             # Upstream pose releases are COCO-trained: x,y,visibility labels.
             extra_metadata["keypoint_dim"] = 3
+        else:
+            # Schema requires num_keypoints on pose checkpoints; refuse rather
+            # than write a silently-incomplete one.
+            logger.warning(
+                "Upstream %s pose checkpoint recognized but its keypoint count "
+                "could not be determined; skipping auto-conversion.",
+                cls.FAMILY,
+            )
+            return None
     converted = {
         k: (v.float() if v.is_floating_point() else v) for k, v in converted.items()
     }
@@ -591,10 +635,11 @@ def autoconvert_upstream_checkpoint(
     except OSError as exc:
         # Read-only source directory (e.g. a mounted cache). The converted
         # checkpoint is the only loadable form for remapped families, so fall
-        # back to the temp dir rather than dropping the conversion.
+        # back to a private temp dir rather than dropping the conversion.
+        # ``mkdtemp`` gives a fresh 0o700 user-owned directory per call, so a
+        # shared /tmp can't be used to pre-seed or clobber the output.
         try:
-            fallback_dir = Path(tempfile.gettempdir()) / "libreyolo-autoconvert"
-            fallback_dir.mkdir(parents=True, exist_ok=True)
+            fallback_dir = Path(tempfile.mkdtemp(prefix="libreyolo-autoconvert-"))
             fallback_path = fallback_dir / out_path.name
             torch.save(wrapped, fallback_path)
         except OSError as fallback_exc:

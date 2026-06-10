@@ -87,10 +87,15 @@ class LibreYOLO9E2E(LibreYOLO9):
     def convert_upstream_state_dict(cls, state_dict: dict) -> Optional[dict]:
         """Claim native-keyed E2E dicts only.
 
-        LibreYOLO9's numbered-layout remap must not run here: upstream
-        numbered checkpoints convert to plain YOLO9 head keys and belong to
-        that family.
+        The numbered upstream layout belongs to LibreYOLO9 (its remap converts
+        the detection head); a numbered dict that happens to carry a one2one
+        key must not be passed through raw here, or the subclass-wins rule
+        would hand LibreYOLO9's correct claim to a garbage E2E wrap.
         """
+        from ..yolo9.convert import is_upstream_state_dict
+
+        if is_upstream_state_dict(state_dict):
+            return None
         return dict(state_dict) if cls.can_load(state_dict) else None
 
     # =====================================================================

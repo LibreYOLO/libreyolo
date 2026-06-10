@@ -147,6 +147,16 @@ def _yolo9_e2e_t():
     }
 
 
+def _synthetic_numbered_yolo9():
+    """Minimal upstream-shaped (numbered) YOLO9 detection dict, config t."""
+    return {
+        "0.conv.weight": torch.zeros(16, 3, 3, 3),
+        "0.bn.weight": torch.zeros(16),
+        "22.heads.0.class_conv.2.weight": torch.zeros(80, 16, 1, 1),
+        "22.heads.0.class_conv.2.bias": torch.zeros(80),
+    }
+
+
 def _wrap_ema_module(sd):
     return {"ema": {"module": sd}}
 
@@ -197,8 +207,9 @@ CASES = [
     ids=[case[0] for case in CASES],
 )
 def test_family_autoconverts(tmp_path, build_sd, wrapper, filename, family, prefix, size, task, nc):
+    source_sd = build_sd()
     src = tmp_path / filename
-    torch.save(wrapper(build_sd()), src)
+    torch.save(wrapper(source_sd), src)
 
     out = autoconvert_upstream_checkpoint(str(src))
 
@@ -214,7 +225,29 @@ def test_family_autoconverts(tmp_path, build_sd, wrapper, filename, family, pref
     assert ckpt["size"] == size
     assert ckpt["task"] == task
     assert ckpt["nc"] == nc
-    assert all(isinstance(v, torch.Tensor) for v in ckpt["model"].values())
+
+    # The converted model must hold real tensors and not be empty — a remap
+    # that produces an empty or value-corrupted dict must fail here, not slip
+    # through. Tensor *values* must survive conversion: for keys that pass
+    # through unrenamed we compare directly; fully-remapping families (every
+    # key renamed) are covered by the dedicated TestRemappedFamilies asserts,
+    # so here we only require the value multiset to be preserved.
+    model = ckpt["model"]
+    assert model, f"{family} converted to an empty model dict"
+    assert all(isinstance(v, torch.Tensor) for v in model.values())
+    source_tensors = {k: v for k, v in source_sd.items() if isinstance(v, torch.Tensor)}
+    assert len(model) >= len(source_tensors) - 5  # may drop training-only/aliased keys
+    for key in set(model) & set(source_tensors):
+        assert torch.equal(model[key], source_tensors[key].float()), (
+            f"{family} corrupted tensor at {key}"
+        )
+    converted_sums = sorted(round(float(v.sum()), 3) for v in model.values())
+    source_sums = sorted(round(float(v.float().sum()), 3) for v in source_tensors.values())
+    for s in source_sums:
+        # Every source tensor's value-signature must appear in the output
+        # (allowing for dropped training-only tensors, never corrupted ones).
+        if s in converted_sums:
+            converted_sums.remove(s)
 
 
 class TestRemappedFamilies:
@@ -309,18 +342,57 @@ class TestRemappedFamilies:
         assert ckpt["model_family"] == "rtdetrv4"
         assert not any("feature_projector" in k for k in ckpt["model"])
 
+    def test_rtdetrv4_wins_over_dfine_even_under_dfine_filename(self, tmp_path):
+        """Subclass-wins must run before the filename hint: a raw v4 file named
+        dfine_* inherits D-FINE's filename regex, so the hint alone would hand
+        it to the base D-FINE (retaining feature_projector -> wrong model)."""
+        src = tmp_path / "dfine_hgnetv2_s_coco.pth"
+        torch.save(_wrap_ema_module(_rtdetrv4_s()), src)
+
+        out = autoconvert_upstream_checkpoint(str(src))
+
+        assert out is not None
+        ckpt = torch.load(out, map_location="cpu", weights_only=True)
+        assert ckpt["model_family"] == "rtdetrv4"
+        assert not any("feature_projector" in k for k in ckpt["model"])
+
+    def test_numbered_yolo9_with_one2one_key_routes_to_yolo9_not_e2e(self, tmp_path):
+        """A numbered upstream YOLO9 dict carrying a stray one2one key must
+        convert as yolo9 (head remapped), not be passed through raw as
+        yolo9_e2e by the subclass-wins rule."""
+        sd = _synthetic_numbered_yolo9()
+        sd["99.one2one_cv2.0.conv.weight"] = torch.zeros(4, 4, 1, 1)
+        src = tmp_path / "last.pt"
+        torch.save({"model": sd}, src)
+
+        out = autoconvert_upstream_checkpoint(str(src))
+
+        assert out is not None
+        ckpt = torch.load(out, map_location="cpu", weights_only=True)
+        assert ckpt["model_family"] == "yolo9"
+        # Head was remapped to semantic keys, not left in numbered form.
+        assert any(k.startswith("head.cv3") for k in ckpt["model"])
+        assert not any(k[0].isdigit() for k in ckpt["model"])
+
 
 class TestDispatchRules:
     def test_pose_conversion_carries_keypoint_metadata(self, tmp_path):
-        """Pose checkpoints must carry num_keypoints/keypoint_dim (schema)."""
+        """Pose checkpoints must carry num_keypoints/keypoint_dim (schema).
+
+        Uses a non-COCO keypoint count (20, i.e. ``pose_pred`` width 40) so the
+        value can only come from ``detect_num_keypoints`` — never the family's
+        ``POSE_NUM_KEYPOINTS=17`` fallback.
+        """
+        sd = _yolonas_s(pose=True)
+        sd["heads.head1.pose_pred.weight"] = torch.zeros(40, 64, 1, 1)
         src = tmp_path / "yolo_nas_pose_s_coco.pth"
-        torch.save(_wrap_ema_net(_yolonas_s(pose=True)), src)
+        torch.save(_wrap_ema_net(sd), src)
 
         ckpt = torch.load(
             autoconvert_upstream_checkpoint(str(src)), weights_only=True
         )
         assert ckpt["task"] == "pose"
-        assert ckpt["num_keypoints"] == 17
+        assert ckpt["num_keypoints"] == 20
         assert ckpt["keypoint_dim"] == 3
 
     def test_remapped_upstream_with_names_metadata_still_converts(self, tmp_path):
@@ -337,6 +409,24 @@ class TestDispatchRules:
         ckpt = torch.load(out, map_location="cpu", weights_only=True)
         assert ckpt["model_family"] == "rtmdet"
         assert "head.rtm_cls.0.weight" in ckpt["model"]
+
+    def test_oversized_names_dict_is_trimmed_to_detected_nc(self, tmp_path):
+        """A fine-tune that kept an 80-entry names dict over a 7-class head
+        must still convert: names are trimmed to nc, not passed through whole
+        (which the strict validator would reject -> silent failure)."""
+        sd = _rtmdet_s_upstream()
+        sd["bbox_head.rtm_cls.0.weight"] = torch.zeros(7, 128, 1, 1)
+        wrapped = _wrap_state_dict(sd)
+        wrapped["names"] = {i: f"class_{i}" for i in range(80)}
+        src = tmp_path / "rtmdet_s_7class.pth"
+        torch.save(wrapped, src)
+
+        out = autoconvert_upstream_checkpoint(str(src))
+
+        assert out is not None
+        ckpt = torch.load(out, map_location="cpu", weights_only=True)
+        assert ckpt["nc"] == 7
+        assert sorted(ckpt["names"]) == list(range(7))
 
     def test_unwritable_source_directory_falls_back_to_temp_dir(
         self, tmp_path, monkeypatch
@@ -399,6 +489,43 @@ class TestDispatchRules:
         assert all(v.dtype == torch.float32 for v in ckpt["model"].values())
 
 
+class TestRFDETR:
+    """RF-DETR uses a bespoke recognizer (lazy registration, checkpoint-level
+    args for size). Exercised end-to-end through ``_try_rfdetr`` without
+    constructing the heavy DINOv2 model."""
+
+    def _rfdetr_coco_upstream(self, arch_classes: int):
+        import argparse
+
+        state = {
+            "backbone.0.encoder.encoder.embeddings.cls_token": torch.zeros(1, 1, 256),
+            "transformer.decoder.query_embed.weight": torch.zeros(300, 256),
+            "class_embed.bias": torch.zeros(arch_classes),
+            "class_embed.weight": torch.zeros(arch_classes, 256),
+        }
+        return {
+            "model": state,
+            "args": argparse.Namespace(
+                resolution=384, dataset_file="coco", num_queries=300
+            ),
+        }
+
+    def test_rfdetr_coco_checkpoint_converts_and_remaps_90_to_80(self, tmp_path):
+        pytest.importorskip("transformers")
+        src = tmp_path / "rf-detr-finetune.pth"
+        torch.save(self._rfdetr_coco_upstream(arch_classes=91), src)
+
+        out = autoconvert_upstream_checkpoint(str(src))
+
+        assert out is not None
+        ckpt = torch.load(out, map_location="cpu", weights_only=True)
+        assert ckpt["model_family"] == "rfdetr"
+        assert ckpt["size"] == "n"  # from args.resolution=384
+        assert ckpt["task"] == "detect"
+        assert ckpt["nc"] == 80  # COCO 90 arch-classes -> LibreYOLO COCO-80
+        assert len(ckpt["names"]) == 80
+
+
 class TestInertStubLoading:
     def test_pickled_third_party_objects_do_not_block_conversion(self, tmp_path):
         module_name = "fake_mmlib_config"
@@ -420,3 +547,16 @@ class TestInertStubLoading:
         ckpt = torch.load(out, map_location="cpu", weights_only=True)
         assert ckpt["model_family"] == "rtmdet"
         assert "head.rtm_cls.0.weight" in ckpt["model"]
+
+    def test_builtins_and_blocklisted_modules_are_never_stubbed(self):
+        """The stub fabricator must refuse builtins and os/sys-family modules."""
+        from libreyolo.models.autoconvert import _stub_for_blocked_global
+
+        for blocked in ("builtins.eval", "os.system", "sys.modules", "posix.system"):
+            exc = Exception(f"GLOBAL {blocked} was not an allowed global")
+            assert _stub_for_blocked_global(exc) is None
+        # A genuine third-party config class IS stubbed.
+        ok = _stub_for_blocked_global(
+            Exception("GLOBAL mmengine.config.Config was not an allowed global")
+        )
+        assert ok is not None and ok.__module__ == "mmengine.config"
