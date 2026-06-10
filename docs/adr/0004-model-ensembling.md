@@ -111,12 +111,15 @@ expressible.
   (`member_0`, `member_1`, …, `fusion`), so the N× cost is visible.
 - WBF's `min(W_T, W_N) / W_N` rescale means fused scores can drop below the
   per-member `conf`: a box only one of two members found keeps half its
-  score. That soft-consensus signal is intentional and documented. `W_N` is
-  per-class — the summed weight of the members whose label space contains the
-  class — so a class only one member knows is *not* penalized for members
-  that could never have confirmed it (consistent with the per-class vote
-  cap); when label spaces are identical this reduces to all members, and
-  with unit weights the paper's `min(T, N) / N` is recovered exactly.
+  score. That soft-consensus signal is intentional and documented. `W_T` is
+  the summed weight of the *distinct* members contributing to a cluster (a
+  member that emits two boxes into one cluster confirms it once, matching
+  `min_votes`), and `W_N` is per-class — the summed weight of the members
+  whose label space contains the class — so a class only one member knows is
+  *not* penalized for members that could never have confirmed it (consistent
+  with the per-class vote cap). When label spaces are identical and each
+  member contributes at most one box per cluster, unit weights recover the
+  paper's `min(T, N) / N` exactly.
 - Fusion quality depends on checkpoint `names` metadata: a member carrying
   placeholder names (`class_0`, …) builds a disjoint union with every other
   member — the construction warning fires loudly, no cross-member fusion

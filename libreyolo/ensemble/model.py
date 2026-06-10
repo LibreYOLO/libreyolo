@@ -492,10 +492,16 @@ class LibreEnsemble:
         labels = torch.as_tensor(fused[2]).reshape(-1).long()
         if boxes.numel() == 0:
             boxes = boxes.reshape(0, 4)
-        if boxes.ndim != 2 or boxes.shape[1] != 4 or boxes.shape[0] != scores.shape[0]:
+        if (
+            boxes.ndim != 2
+            or boxes.shape[1] != 4
+            or boxes.shape[0] != scores.shape[0]
+            or labels.shape[0] != boxes.shape[0]
+        ):
             raise ValueError(
                 "fusion returned inconsistent shapes: "
-                f"boxes {tuple(boxes.shape)}, scores {tuple(scores.shape)}"
+                f"boxes {tuple(boxes.shape)}, scores {tuple(scores.shape)}, "
+                f"labels {tuple(labels.shape)}"
             )
         return boxes, scores, labels
 

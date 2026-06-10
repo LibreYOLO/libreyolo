@@ -292,6 +292,14 @@ class TestPredict:
         with pytest.raises(TypeError, match="fusion must return"):
             ens(image)
 
+    def test_custom_fusion_label_length_mismatch_raises(self, image):
+        def bad_labels(boxes, scores, labels, model_ids, **kw):
+            return boxes[:1], scores[:1], labels[:2]
+
+        ens = LibreEnsemble(list(_pair_members()), fusion=bad_labels)
+        with pytest.raises(ValueError, match="inconsistent shapes"):
+            ens(image)
+
     def test_video_raises(self):
         ens = LibreEnsemble(list(_pair_members()))
         with pytest.raises(NotImplementedError, match="video"):

@@ -100,6 +100,13 @@ class TestSharedBehavior:
         with pytest.raises(ValueError, match="model_ids contains index -1"):
             op(boxes, scores, labels, torch.tensor([0, -1]), num_models=2)
 
+    @pytest.mark.parametrize("op", ALL_OPS)
+    def test_negative_labels_rejected(self, op):
+        # A negative class id would index per-class metadata from the end.
+        boxes, scores, _, model_ids = _pair()
+        with pytest.raises(ValueError, match="non-negative"):
+            op(boxes, scores, torch.tensor([0, -1]), model_ids, num_models=2)
+
 
 class TestWeightedBoxesFusion:
     @pytest.mark.parametrize("op", WBF_VARIANTS)
@@ -191,6 +198,19 @@ class TestWeightedBoxesFusion:
             torch.tensor([0, 0]), num_models=2, min_votes=2,
         )
         assert fb.shape[0] == 0
+
+    @pytest.mark.parametrize("op", WBF_VARIANTS)
+    def test_rescale_counts_models_not_boxes(self, op):
+        # A model double-boxing one object confirms it once: the rescale uses
+        # distinct contributing models (1 of 2), not the box count (2 of 2).
+        boxes = torch.tensor([[0.0, 0.0, 10.0, 10.0], [0.0, 0.0, 10.0, 11.0]])
+        _, fs, _ = op(
+            boxes, torch.tensor([0.9, 0.85]), torch.tensor([0, 0]),
+            torch.tensor([0, 0]), num_models=2,
+        )
+        assert fs.shape[0] == 1
+        # avg = (0.9 + 0.85) / 2, rescaled by 1/2 — not left at full trust.
+        assert torch.allclose(fs, torch.tensor([0.4375]), atol=1e-5)
 
     @pytest.mark.parametrize("op", WBF_VARIANTS)
     def test_models_per_label_caps_votes(self, op):
