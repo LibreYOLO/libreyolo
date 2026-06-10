@@ -32,6 +32,7 @@ from __future__ import annotations
 import argparse
 import logging
 import re
+import tempfile
 from pathlib import Path
 from typing import Any, Optional, Tuple
 
@@ -54,56 +55,59 @@ _UPSTREAM_SAFE_GLOBALS = (argparse.Namespace,)
 # redistribution-restricted weights; RF-DETR has its own recognizer below.
 _SKIP_FAMILIES = frozenset({"l2cs", "rfdetr"})
 
-# Families whose recognizers are upstream-specific (key remapping, never a
-# plain ``can_load`` passthrough). Only these may claim files that already
-# carry *partial* LibreYOLO metadata — upstream fine-tunes can embed ``names``,
-# while old LibreYOLO trainer checkpoints with partial metadata must keep
-# going through the factory's legacy compatibility path untouched.
-_STRONG_FAMILIES = frozenset({"yolo9"})
-
 
 # ---------------------------------------------------------------------------
 # Checkpoint unwrapping and metadata extraction
 # ---------------------------------------------------------------------------
 
 
+def _candidate_tensor_dicts(loaded: Any):
+    """Yield possible weight dicts in EMA-first preference order.
+
+    Each candidate is tried until one actually holds tensors, so an empty or
+    metadata-only ``ema`` block does not mask valid weights under ``model``.
+    """
+    if not isinstance(loaded, dict):
+        return
+    ema = loaded.get("ema")
+    if isinstance(ema, dict):
+        if isinstance(ema.get("module"), dict):
+            yield ema["module"]
+        else:
+            # Legacy flat EMA wrappers store the tensors directly.
+            yield ema
+    ema_state = loaded.get("ema_state_dict")
+    if isinstance(ema_state, dict):
+        # mmengine ExpMomentumEMA prefixes module params with "module.".
+        yield {
+            k[len("module."):]: v
+            for k, v in ema_state.items()
+            if k.startswith("module.")
+        } or ema_state
+    for key in ("ema_net", "net", "model", "state_dict"):
+        if isinstance(loaded.get(key), dict):
+            yield loaded[key]
+    yield loaded
+
+
 def _plain_state_dict(loaded: Any) -> dict[str, torch.Tensor]:
     """Return the tensor-only state dict across common upstream layouts."""
-    obj = loaded
-    if isinstance(obj, dict):
-        if isinstance(obj.get("ema"), dict):
-            ema = obj["ema"]
-            obj = ema["module"] if isinstance(ema.get("module"), dict) else ema
-        elif isinstance(obj.get("ema_state_dict"), dict):
-            # mmengine ExpMomentumEMA prefixes module params with "module.".
-            ema = obj["ema_state_dict"]
-            obj = {
-                k[len("module."):]: v
-                for k, v in ema.items()
-                if k.startswith("module.")
-            } or ema
-        elif isinstance(obj.get("ema_net"), dict):
-            obj = obj["ema_net"]
-        elif isinstance(obj.get("net"), dict):
-            obj = obj["net"]
-        elif isinstance(obj.get("model"), dict):
-            obj = obj["model"]
-        elif isinstance(obj.get("state_dict"), dict):
-            obj = obj["state_dict"]
-    if not isinstance(obj, dict):
-        return {}
-    state = {k: v for k, v in obj.items() if isinstance(v, torch.Tensor)}
-    # Strip DDP / torch.compile wrappers some redistributions keep.
-    for prefix in ("module.", "_orig_mod."):
-        if state and any(k.startswith(prefix) for k in state):
-            state = {
-                (k[len(prefix):] if k.startswith(prefix) else k): v
-                for k, v in state.items()
-            }
-    # Some redistributions nest weights under a ``model.model.`` prefix.
-    if state and all(k.startswith("model.model.") for k in state):
-        state = {k[len("model.model."):]: v for k, v in state.items()}
-    return state
+    for candidate in _candidate_tensor_dicts(loaded):
+        state = {k: v for k, v in candidate.items() if isinstance(v, torch.Tensor)}
+        if not state:
+            continue
+        # Strip DDP / torch.compile wrappers some redistributions keep.
+        for prefix in ("module.", "_orig_mod."):
+            if any(k.startswith(prefix) for k in state):
+                state = {
+                    (k[len(prefix):] if k.startswith(prefix) else k): v
+                    for k, v in state.items()
+                }
+        # Some redistributions nest weights under a ``model.model.`` prefix.
+        if all(k.startswith("model.model.") for k in state):
+            state = {k[len("model.model."):]: v for k, v in state.items()}
+        return state
+    return {}
 
 
 def _has_partial_metadata(loaded: Any) -> bool:
@@ -300,18 +304,26 @@ def _claim_upstream_state(
     *,
     partial_metadata: bool,
 ) -> list[tuple[type, dict]]:
-    """Collect ``(model_class, native_state_dict)`` claims in registry order."""
+    """Collect ``(model_class, native_state_dict)`` claims in registry order.
+
+    Files that already carry partial LibreYOLO metadata (``names``, ``nc``…)
+    may be old LibreYOLO trainer checkpoints that belong to the factory's
+    legacy compatibility path. Those always hold native keys, so when partial
+    metadata is present only claims whose conversion actually changed the
+    keyset — proof of an upstream layout — are accepted.
+    """
     claims = []
     for cls in _candidate_classes():
-        if partial_metadata and cls.FAMILY not in _STRONG_FAMILIES:
-            continue
         try:
             converted = cls.convert_upstream_state_dict(state)
         except Exception as exc:  # noqa: BLE001 — one family must not block the rest
             logger.debug("%s upstream recognition failed: %s", cls.FAMILY, exc)
             continue
-        if converted:
-            claims.append((cls, converted))
+        if not converted:
+            continue
+        if partial_metadata and converted.keys() == state.keys():
+            continue
+        claims.append((cls, converted))
     return claims
 
 
@@ -321,11 +333,14 @@ def _resolve_claim(
 ) -> Optional[tuple[type, dict]]:
     """Pick one claim, mirroring the factory's dispatch rules.
 
-    Upstream-style filename hints win first; then the registry order, which
-    already encodes specificity. The DEIM/D-FINE tie is unresolvable from
-    tensors alone (identical architecture keys), so it is refused unless EC or
-    DEIMv2 — whose more-specific detectors legitimately also match those
-    decoder keys — claimed the file.
+    Upstream-style filename hints win first. A subclass claim then beats its
+    base class — registration order follows class creation, so a derived
+    family (RT-DETRv4) registers *after* the base (D-FINE) it refines, and
+    its positive markers must not lose to the base's broader passthrough.
+    The DEIM/D-FINE tie is unresolvable from tensors alone (identical
+    architecture keys), so it is refused unless EC, DEIMv2 or RT-DETRv4 —
+    whose more-specific detectors legitimately also match those decoder
+    keys — claimed the file.
     """
     if not claims:
         return None
@@ -333,6 +348,14 @@ def _resolve_claim(
     for cls, converted in claims:
         if cls.detect_size_from_filename(source.name):
             return cls, converted
+
+    claims = [
+        (cls, converted)
+        for cls, converted in claims
+        if not any(
+            other is not cls and issubclass(other, cls) for other, _state in claims
+        )
+    ]
 
     families = {cls.FAMILY for cls, _converted in claims}
     # EC, DEIMv2 and RT-DETRv4 legitimately match D-FINE/DEIM-ish decoder keys
@@ -376,6 +399,18 @@ def _wrap_claim(
     )
     nc = cls.detect_nb_classes(converted) or 80
     names = _checkpoint_names(loaded, nc)
+    extra_metadata: dict[str, Any] = {}
+    if task == "pose":
+        num_keypoints = None
+        detect_keypoints = getattr(cls, "detect_num_keypoints", None)
+        if callable(detect_keypoints):
+            num_keypoints = detect_keypoints(converted)
+        if num_keypoints is None:
+            num_keypoints = getattr(cls, "POSE_NUM_KEYPOINTS", None)
+        if num_keypoints:
+            extra_metadata["num_keypoints"] = int(num_keypoints)
+            # Upstream pose releases are COCO-trained: x,y,visibility labels.
+            extra_metadata["keypoint_dim"] = 3
     converted = {
         k: (v.float() if v.is_floating_point() else v) for k, v in converted.items()
     }
@@ -387,6 +422,7 @@ def _wrap_claim(
             task=task,
             nc=nc,
             names=names,
+            **extra_metadata,
         )
     except CheckpointMetadataError as exc:
         logger.warning(
@@ -553,14 +589,31 @@ def autoconvert_upstream_checkpoint(
     try:
         torch.save(wrapped, out_path)
     except OSError as exc:
-        logger.warning(
-            "Recognized upstream %s checkpoint but could not write %s (%s); "
-            "falling back to the in-memory compatibility path.",
-            family,
+        # Read-only source directory (e.g. a mounted cache). The converted
+        # checkpoint is the only loadable form for remapped families, so fall
+        # back to the temp dir rather than dropping the conversion.
+        try:
+            fallback_dir = Path(tempfile.gettempdir()) / "libreyolo-autoconvert"
+            fallback_dir.mkdir(parents=True, exist_ok=True)
+            fallback_path = fallback_dir / out_path.name
+            torch.save(wrapped, fallback_path)
+        except OSError as fallback_exc:
+            logger.warning(
+                "Recognized upstream %s checkpoint but could not write %s (%s) "
+                "or the temp-dir fallback (%s).",
+                family,
+                out_path,
+                exc,
+                fallback_exc,
+            )
+            return None
+        logger.info(
+            "Could not write %s (%s); wrote the converted checkpoint to %s instead.",
             out_path,
             exc,
+            fallback_path,
         )
-        return None
+        out_path = fallback_path
     logger.info(
         "Converted upstream %s weights (%s) -> %s in LibreYOLO format (nc=%d).",
         family,

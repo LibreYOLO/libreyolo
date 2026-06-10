@@ -292,8 +292,88 @@ class TestRemappedFamilies:
         assert ckpt["model_family"] == "rtdetrv4"
         assert not any("feature_projector" in k for k in ckpt["model"])
 
+    def test_rtdetrv4_wins_over_dfine_base_without_filename_hint(self, tmp_path):
+        """A raw v4 file under a generic name must not convert as D-FINE.
+
+        D-FINE registers before RT-DETRv4 (base classes register first), and
+        its passthrough also claims raw v4 files; the most-derived claimant
+        must win.
+        """
+        src = tmp_path / "best.pt"
+        torch.save(_wrap_ema_module(_rtdetrv4_s()), src)
+
+        out = autoconvert_upstream_checkpoint(str(src))
+
+        assert out is not None
+        ckpt = torch.load(out, map_location="cpu", weights_only=True)
+        assert ckpt["model_family"] == "rtdetrv4"
+        assert not any("feature_projector" in k for k in ckpt["model"])
+
 
 class TestDispatchRules:
+    def test_pose_conversion_carries_keypoint_metadata(self, tmp_path):
+        """Pose checkpoints must carry num_keypoints/keypoint_dim (schema)."""
+        src = tmp_path / "yolo_nas_pose_s_coco.pth"
+        torch.save(_wrap_ema_net(_yolonas_s(pose=True)), src)
+
+        ckpt = torch.load(
+            autoconvert_upstream_checkpoint(str(src)), weights_only=True
+        )
+        assert ckpt["task"] == "pose"
+        assert ckpt["num_keypoints"] == 17
+        assert ckpt["keypoint_dim"] == 3
+
+    def test_remapped_upstream_with_names_metadata_still_converts(self, tmp_path):
+        """A names key must not suppress recognizers that prove upstream
+        origin by remapping keys (e.g. mm-series RTMDet naming)."""
+        wrapped = _wrap_state_dict(_rtmdet_s_upstream())
+        wrapped["names"] = {0: "person"}
+        src = tmp_path / "rtmdet_s_finetune.pth"
+        torch.save(wrapped, src)
+
+        out = autoconvert_upstream_checkpoint(str(src))
+
+        assert out is not None
+        ckpt = torch.load(out, map_location="cpu", weights_only=True)
+        assert ckpt["model_family"] == "rtmdet"
+        assert "head.rtm_cls.0.weight" in ckpt["model"]
+
+    def test_unwritable_source_directory_falls_back_to_temp_dir(
+        self, tmp_path, monkeypatch
+    ):
+        src = tmp_path / "deimv2_upstream.pth"
+        torch.save(_wrap_ema_module(_deimv2_atto()), src)
+
+        real_save = torch.save
+
+        def failing_save(obj, path, *args, **kwargs):
+            if str(path).startswith(str(tmp_path)):
+                raise OSError("read-only directory")
+            return real_save(obj, path, *args, **kwargs)
+
+        monkeypatch.setattr(torch, "save", failing_save)
+
+        out = autoconvert_upstream_checkpoint(str(src))
+
+        assert out is not None
+        assert not out.startswith(str(tmp_path))
+        ckpt = torch.load(out, map_location="cpu", weights_only=True)
+        assert ckpt["model_family"] == "deimv2"
+        Path(out).unlink()
+
+    def test_metadata_only_ema_block_does_not_mask_model_weights(self, tmp_path):
+        """An ema dict without weights must fall through to the model key."""
+        wrapped = {"ema": {"decay": 0.9995, "updates": 1234}, "model": _deimv2_atto()}
+        src = tmp_path / "deimv2_finetune.pth"
+        torch.save(wrapped, src)
+
+        out = autoconvert_upstream_checkpoint(str(src))
+
+        assert out is not None
+        ckpt = torch.load(out, map_location="cpu", weights_only=True)
+        assert ckpt["model_family"] == "deimv2"
+        assert "decoder.dec_score_head.0.weight" in ckpt["model"]
+
     def test_ambiguous_deim_dfine_without_filename_hint_is_refused(self, tmp_path):
         src = tmp_path / "model.pth"
         torch.save(_wrap_model(_deim_family_n()), src)
