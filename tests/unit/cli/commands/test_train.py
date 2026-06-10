@@ -957,3 +957,19 @@ def test_train_obb_known_detect_checkpoint_path_is_transfer_without_direct_load(
     data = json.loads(result.stdout)
     assert data["model_family"] == "yolo9"
     assert data["epochs_completed"] == 1
+
+
+def test_create_explicit_task_train_model_builds_yolo9_semantic():
+    from libreyolo.cli.commands.train import _create_explicit_task_train_model
+
+    model = _create_explicit_task_train_model(
+        family="yolo9",
+        model_path="LibreYOLO9t.pt",
+        task="semantic",
+        resume=False,
+        device="cpu",
+    )
+
+    assert model is not None
+    assert model.task == "semantic"
+    assert model.size == "t"

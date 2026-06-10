@@ -380,6 +380,44 @@ def draw_masks(
     return result.convert("RGB")
 
 
+def draw_semantic_mask(
+    img: Image.Image,
+    semantic_mask: np.ndarray,
+    alpha: float = 0.55,
+    ignore_index: int = 255,
+) -> Image.Image:
+    """
+    Overlay a dense semantic class map on an image.
+
+    Args:
+        img: PIL Image to draw on.
+        semantic_mask: (H, W) integer numpy array of per-pixel class IDs.
+        alpha: Overlay opacity (0 = transparent, 1 = opaque).
+        ignore_index: Class value left unpainted.
+
+    Returns:
+        Annotated PIL Image with the class-color overlay.
+    """
+    mask = np.asarray(semantic_mask)
+    if mask.shape[:2] != (img.height, img.width):
+        mask_img = Image.fromarray(mask.astype(np.int32), mode="I")
+        mask_img = mask_img.resize((img.width, img.height), Image.NEAREST)
+        mask = np.asarray(mask_img)
+
+    img_draw = img.copy().convert("RGBA")
+    overlay = np.zeros((img.height, img.width, 4), dtype=np.uint8)
+    alpha_int = int(alpha * 255)
+    for cls_id in np.unique(mask):
+        cls_id = int(cls_id)
+        if cls_id == ignore_index:
+            continue
+        r, g, b = _get_class_color_rgb(cls_id)
+        overlay[mask == cls_id] = (r, g, b, alpha_int)
+
+    result = Image.alpha_composite(img_draw, Image.fromarray(overlay, mode="RGBA"))
+    return result.convert("RGB")
+
+
 # COCO 17-keypoint skeleton + colors (matches super-gradients defaults).
 COCO_KEYPOINT_EDGES: Tuple[Tuple[int, int], ...] = (
     (0, 1), (0, 2), (1, 2), (1, 3), (2, 4),

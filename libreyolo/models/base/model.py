@@ -681,6 +681,11 @@ class BaseModel(ABC):
                 "Test-time augmentation does not support point-task models yet. "
                 "Use augment=False for point models."
             )
+        if getattr(self, "task", "detect") == "semantic":
+            raise ValueError(
+                "Test-time augmentation does not support semantic segmentation yet. "
+                "Use augment=False for semantic models."
+            )
 
         from PIL import Image as PILImage
         from ...utils.image_loader import ImageLoader
@@ -1069,6 +1074,7 @@ class BaseModel(ABC):
             OBBValidator,
             PoseValidator,
             SegmentationValidator,
+            SemanticValidator,
             ValidationConfig,
         )
 
@@ -1085,6 +1091,11 @@ class BaseModel(ABC):
             raise ValueError(
                 "Augmented validation does not support pose keypoints yet. "
                 "Use augment=False for pose models."
+            )
+        if augment and self.task == "semantic":
+            raise ValueError(
+                "Augmented validation does not support semantic segmentation "
+                "yet. Use augment=False for semantic models."
             )
 
         config = ValidationConfig(
@@ -1118,6 +1129,8 @@ class BaseModel(ABC):
             validator_cls = PoseValidator
         elif self.task == "segment":
             validator_cls = SegmentationValidator
+        elif self.task == "semantic":
+            validator_cls = SemanticValidator
         elif self.task == "classify":
             validator_cls = ClassifyValidator
         elif self.task == "obb":

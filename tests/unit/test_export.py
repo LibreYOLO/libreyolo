@@ -177,6 +177,15 @@ class TestExporterFormats:
 
         assert not (tmp_path / "point.onnx").exists()
 
+    def test_semantic_export_fails_before_artifact_creation(self, tmp_path):
+        wrapper = _make_wrapper()
+        wrapper.task = "semantic"
+
+        with pytest.raises(NotImplementedError, match="semantic-segmentation"):
+            OnnxExporter(wrapper)(output_path=str(tmp_path / "sem.onnx"))
+
+        assert not (tmp_path / "sem.onnx").exists()
+
     def test_metadata_includes_task_contract(self):
         wrapper = _make_wrapper()
         wrapper.task = "segment"

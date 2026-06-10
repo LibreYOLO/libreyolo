@@ -185,7 +185,8 @@ def train_cmd(
     ),
     model: str = typer.Option("yolox-s", help="Model name or path to weights"),
     task: Optional[str] = typer.Option(
-        None, help="Explicit task override: detect, segment, pose, classify, gaze, obb"
+        None,
+        help="Explicit task override: detect, segment, semantic, pose, classify, gaze, obb",
     ),
     # Training
     epochs: int = typer.Option(300, help="Training epochs"),

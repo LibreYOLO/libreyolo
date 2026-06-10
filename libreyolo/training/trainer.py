@@ -419,8 +419,11 @@ class BaseTrainer(ABC):
         return save_dir
 
     def _setup_data(self):
-        if getattr(getattr(self, "wrapper_model", None), "task", "detect") == "classify":
+        wrapper_task = getattr(getattr(self, "wrapper_model", None), "task", "detect")
+        if wrapper_task == "classify":
             return self._setup_classify_data()
+        if wrapper_task == "semantic":
+            return self._setup_semantic_data()
 
         img_size = self.input_size
         preproc, MosaicDatasetClass = self.create_transforms()
@@ -664,6 +667,100 @@ class BaseTrainer(ABC):
         if is_main_process():
             logger.info(
                 "Classification dataset: %d images, %d classes",
+                len(train_dataset),
+                num_classes,
+            )
+            logger.info(
+                "Iterations per epoch: %d (batch_per_rank=%d, world_size=%d)",
+                len(self.train_loader),
+                per_rank_batch,
+                self.world_size,
+            )
+        return train_dataset
+
+    def _setup_semantic_data(self):
+        """Build the semantic-segmentation train dataloader from a dataset YAML.
+
+        Dense masks bypass the detection mosaic/letterbox pipeline. The
+        dataset's class space (including the background class appended for
+        polygon-derived masks) is the source of truth, so the wrapper head is
+        (re)built to match before the optimizer is created.
+        """
+        from torch.utils.data import DataLoader
+
+        from ..data.semantic_dataset import (
+            SemanticDataset,
+            resolve_semantic_data,
+            semantic_collate_fn,
+        )
+
+        if not self.config.data:
+            raise ValueError("Semantic training requires data= (a dataset YAML).")
+        data_config = resolve_semantic_data(
+            self.config.data,
+            allow_scripts=self.config.allow_download_scripts,
+        )
+        resize_mode = getattr(self.wrapper_model, "semantic_resize_mode", "letterbox")
+        divisor = getattr(self.wrapper_model, "semantic_imgsz_divisor", None)
+        if divisor and self.config.imgsz % int(divisor):
+            raise ValueError(
+                f"Semantic training imgsz={self.config.imgsz} must be divisible "
+                f"by {int(divisor)} for this model family."
+            )
+        train_dataset = SemanticDataset(
+            data_config,
+            split="train",
+            imgsz=self.config.imgsz,
+            augment=True,
+            resize_mode=resize_mode,
+        )
+
+        num_classes = train_dataset.nc
+        self.num_classes = num_classes
+        self.config.num_classes = num_classes
+
+        wrapper = self.wrapper_model
+        if wrapper is not None:
+            if (
+                getattr(wrapper, "nb_classes", None) != num_classes
+                and hasattr(wrapper, "_rebuild_for_new_classes")
+            ):
+                wrapper._rebuild_for_new_classes(num_classes)
+                self.model = wrapper.model.to(self.device)
+            wrapper.nb_classes = num_classes
+            wrapper.names = dict(train_dataset.names)
+
+        per_rank_batch = max(1, self.config.batch // max(self.world_size, 1))
+        sampler = None
+        if self.is_distributed:
+            from torch.utils.data.distributed import DistributedSampler
+
+            sampler = DistributedSampler(
+                train_dataset,
+                num_replicas=self.world_size,
+                rank=self.rank,
+                shuffle=True,
+                drop_last=len(train_dataset) >= self.world_size,
+            )
+
+        try:
+            visible_samples = len(sampler) if sampler is not None else len(train_dataset)
+        except TypeError:
+            visible_samples = len(train_dataset)
+        self.train_loader = DataLoader(
+            train_dataset,
+            batch_size=per_rank_batch,
+            shuffle=sampler is None,
+            sampler=sampler,
+            num_workers=self.config.workers,
+            pin_memory=self.device.type == "cuda",
+            collate_fn=semantic_collate_fn,
+            drop_last=visible_samples >= per_rank_batch,
+        )
+
+        if is_main_process():
+            logger.info(
+                "Semantic dataset: %d images, %d classes",
                 len(train_dataset),
                 num_classes,
             )
@@ -1594,8 +1691,13 @@ class BaseTrainer(ABC):
     def _run_validation(
         self, epoch: int, *, save_plots: bool | None = None
     ) -> Optional[Dict[str, Any]]:
-        if getattr(getattr(self, "wrapper_model", None), "task", "detect") == "classify":
+        validation_task = getattr(
+            getattr(self, "wrapper_model", None), "task", "detect"
+        )
+        if validation_task == "classify":
             return self._run_classify_validation(epoch)
+        if validation_task == "semantic":
+            return self._run_semantic_validation(epoch)
         try:
             from libreyolo.validation import (
                 DetectionValidator,
@@ -1735,6 +1837,58 @@ class BaseTrainer(ABC):
             }
         except Exception as e:
             logger.error(f"Classification validation failed: {e}")
+            import traceback
+
+            logger.debug(f"Validation traceback:\n{traceback.format_exc()}")
+            return None
+
+    def _run_semantic_validation(
+        self, epoch: int
+    ) -> Optional[Dict[str, Any]]:
+        """Validate the semantic head (mIoU / pixel accuracy) on the val split."""
+        try:
+            from libreyolo.validation import SemanticValidator, ValidationConfig
+
+            if self.wrapper_model is None:
+                logger.error("Validation requires wrapper_model to be provided to trainer")
+                return None
+
+            logger.info(f"Running semantic validation for epoch {epoch + 1}")
+            val_config = ValidationConfig(
+                data=self.config.data,
+                batch_size=self.config.batch,
+                imgsz=self.config.imgsz,
+                device=str(self.device),
+                half=self.config.amp and self.device.type == "cuda",
+                verbose=False,
+                num_workers=self.config.workers,
+                split="val",
+            )
+
+            eval_pytorch_model = (
+                self.ema_model.ema if self.ema_model else unwrap_model(self.model)
+            )
+            original_model = self.wrapper_model.model
+            self.wrapper_model.model = eval_pytorch_model
+            try:
+                validator = SemanticValidator(model=self.wrapper_model, config=val_config)
+                results = validator.run()
+            finally:
+                self.wrapper_model.model = original_model
+
+            raw_metrics = self._scalar_mapping(results)
+            miou = raw_metrics.get("metrics/mIoU", 0.0)
+            accuracy = raw_metrics.get("metrics/pixel_accuracy", 0.0)
+            logger.info("Validation - mIoU: %.4f, pixel accuracy: %.4f", miou, accuracy)
+            return {
+                "mAP50": miou,
+                "mAP50_95": miou,
+                "best_metric": miou,
+                "best_metric_key": "metrics/mIoU",
+                "metrics": raw_metrics,
+            }
+        except Exception as e:
+            logger.error(f"Semantic validation failed: {e}")
             import traceback
 
             logger.debug(f"Validation traceback:\n{traceback.format_exc()}")

@@ -172,14 +172,23 @@ class LibreRFDETR(BaseModel):
     SEG_INPUT_SIZES = {"n": 312, "s": 384, "m": 432, "l": 504, "x": 624, "xx": 768}
     # Classification runs the DINOv2 backbone at 224 (divisible by patch_size 14).
     CLS_INPUT_SIZES = {"n": 224, "s": 224, "m": 224, "l": 224}
-    SUPPORTED_TASKS = ("detect", "segment", "pose", "classify", "obb")
+    # Semantic runs the DINOv2 backbone at its native pretrained 518 square
+    # (37 positional tokens * patch_size 14).
+    SEM_INPUT_SIZES = {"n": 518, "s": 518, "m": 518, "l": 518}
+    SUPPORTED_TASKS = ("detect", "segment", "semantic", "pose", "classify", "obb")
     TASK_INPUT_SIZES = {
         "detect": INPUT_SIZES,
         "segment": SEG_INPUT_SIZES,
+        "semantic": SEM_INPUT_SIZES,
         "pose": INPUT_SIZES,
         "classify": CLS_INPUT_SIZES,
         "obb": INPUT_SIZES,
     }
+    # DETR-family preprocessing stretches to a fixed square (no letterbox).
+    semantic_resize_mode = "stretch"
+    # Semantic inputs must align with the DINOv2-native patch grid
+    # (patch_size 14 x num_windows 1) used by the semantic backbone.
+    semantic_imgsz_divisor = 14
     EXPERIMENTAL_WEIGHT_FILENAMES = frozenset({"librerfdetrn-pose.pt"})
     TRAIN_CONFIG = RFDETRConfig
     val_preprocessor_class = RFDETRValPreprocessor
@@ -222,7 +231,12 @@ class LibreRFDETR(BaseModel):
         # Classification checkpoints carry only the DINOv2 backbone + a linear
         # head, so they lack the detection/decoder markers above. Recognize the
         # backbone-plus-linear-head signature so the factory can route them.
-        return "linear.weight" in weights_dict and any(
+        if "linear.weight" in weights_dict and any(
+            k.startswith("backbone.") for k in weights_dict
+        ):
+            return True
+        # Semantic checkpoints carry the backbone + dense decoder.
+        return "predict.weight" in weights_dict and any(
             k.startswith("backbone.") for k in weights_dict
         )
 
@@ -349,9 +363,12 @@ class LibreRFDETR(BaseModel):
 
         if isinstance(model_path, dict) and not model_path:
             weight_source = None
-        elif normalize_task(resolved_task) == "classify" and model_path is None:
-            # Classification builds its own ImageNet-pretrained DINOv2 backbone;
-            # the detection checkpoints do not apply.
+        elif (
+            normalize_task(resolved_task) in ("classify", "semantic")
+            and model_path is None
+        ):
+            # Classification and semantic build their own pretrained DINOv2
+            # backbone; the detection checkpoints do not apply.
             weight_source = None
         elif normalize_task(resolved_task) == "pose" and model_path is None:
             weight_source = None
@@ -453,6 +470,10 @@ class LibreRFDETR(BaseModel):
         return self.task == "classify"
 
     @property
+    def _is_semantic(self) -> bool:
+        return self.task == "semantic"
+
+    @property
     def _is_obb(self) -> bool:
         """Adapter flag derived from the canonical task state."""
         return self.task == "obb"
@@ -513,6 +534,8 @@ class LibreRFDETR(BaseModel):
         state = _checkpoint_model_state(ckpt) if isinstance(ckpt, dict) else {}
         if "linear.weight" in state and any(k.startswith("backbone.") for k in state):
             return "classify"
+        if "predict.weight" in state and any(k.startswith("backbone.") for k in state):
+            return "semantic"
         if any(k.startswith("segmentation_head") for k in state):
             return "segment"
         if any(k.startswith("keypoint_head") for k in state):
@@ -570,6 +593,7 @@ class LibreRFDETR(BaseModel):
             pose=self._is_pose,
             classification=self._is_classification,
             obb=self._is_obb,
+            semantic=self._is_semantic,
             num_keypoints=self.num_keypoints,
         )
 
@@ -582,6 +606,17 @@ class LibreRFDETR(BaseModel):
             in_features = classifier.linear.in_features
             classifier.linear = nn.Linear(in_features, new_nc)
             classifier.nb_classes = new_nc
+            self.model.nb_classes = new_nc
+            self.model.to(self.device)
+            self.names = {i: f"class_{i}" for i in range(new_nc)}
+            return
+        if self._is_semantic:
+            self.nb_classes = new_nc
+            self._model_num_classes = new_nc
+            segmenter = self.model.segmenter
+            in_channels = segmenter.predict.in_channels
+            segmenter.predict = nn.Conv2d(in_channels, new_nc, 1)
+            segmenter.nb_classes = new_nc
             self.model.nb_classes = new_nc
             self.model.to(self.device)
             self.names = {i: f"class_{i}" for i in range(new_nc)}
@@ -645,6 +680,20 @@ class LibreRFDETR(BaseModel):
             img_tensor = transform(img).unsqueeze(0)
             return img_tensor, img, orig_size, 1.0
 
+        if self._is_semantic:
+            # Stretch-resize to the square input; the semantic module applies
+            # ImageNet normalization internally, so hand it [0, 1] floats —
+            # the same contract SemanticDataset uses for training batches.
+            if effective_res % self.semantic_imgsz_divisor:
+                raise ValueError(
+                    f"RF-DETR semantic imgsz={effective_res} must be divisible "
+                    f"by {self.semantic_imgsz_divisor} (DINOv2 patch grid)."
+                )
+            resized = img.resize((effective_res, effective_res), Image.BILINEAR)
+            arr = np.asarray(resized, dtype=np.float32) / 255.0
+            img_tensor = torch.from_numpy(arr).permute(2, 0, 1).unsqueeze(0)
+            return img_tensor, img, orig_size, 1.0
+
         img_chw, _ = preprocess_numpy(np.array(img), effective_res)
         img_tensor = torch.from_numpy(img_chw).unsqueeze(0)
 
@@ -668,6 +717,20 @@ class LibreRFDETR(BaseModel):
                 logits = logits.get("logits", logits.get("predictions"))
             probs = torch.softmax(logits.float(), dim=1)[0]
             return {"probs": probs}
+        if self._is_semantic:
+            logits = output
+            if isinstance(logits, dict):
+                logits = logits.get("semantic_logits", logits.get("predictions"))
+            # Stretch preprocessing means no padding to crop: resize the
+            # logits straight back to the original canvas and take argmax.
+            orig_w, orig_h = original_size
+            logits = torch.nn.functional.interpolate(
+                logits.float(),
+                size=(orig_h, orig_w),
+                mode="bilinear",
+                align_corners=False,
+            )
+            return {"semantic": logits.argmax(dim=1)[0].cpu()}
         if isinstance(output, tuple):
             tuple_output = output
             output = {"pred_boxes": tuple_output[0], "pred_logits": tuple_output[1]}
@@ -810,9 +873,64 @@ class LibreRFDETR(BaseModel):
             self.names = self._sanitize_names(ckpt_names, self.nb_classes)
         self.model.to(self.device)
 
+    def _load_semantic_weights(self, model_path: str | dict[str, Any]) -> None:
+        """Load a LibreYOLO semantic checkpoint into the dense segmenter."""
+        if isinstance(model_path, str):
+            loaded = load_trusted_torch_file(
+                model_path,
+                map_location="cpu",
+                context="RF-DETR semantic weights",
+            )
+        else:
+            loaded = model_path
+        if not isinstance(loaded, dict):
+            raise TypeError("RF-DETR semantic checkpoints must be dictionaries")
+
+        # Guard against loading a detection/segmentation checkpoint into the
+        # dense segmenter: its keys would silently fail to match (strict=False),
+        # leaving a randomly initialized decoder that "loads" successfully.
+        ckpt_task = loaded.get("task")
+        if isinstance(ckpt_task, str) and normalize_task(ckpt_task) != "semantic":
+            raise RuntimeError(
+                f"Checkpoint was trained for task={normalize_task(ckpt_task)!r}, "
+                "but is being loaded into an RF-DETR semantic model. "
+                "Load it with the matching task."
+            )
+
+        ckpt_nc = loaded.get("nc")
+        if ckpt_nc is None:
+            names = loaded.get("names")
+            ckpt_nc = len(names) if names else None
+        if ckpt_nc is None:
+            state = _checkpoint_model_state(loaded)
+            predict_weight = state.get("predict.weight")
+            ckpt_nc = int(predict_weight.shape[0]) if predict_weight is not None else None
+        if ckpt_nc is not None and ckpt_nc != self.nb_classes:
+            self._rebuild_for_new_classes(int(ckpt_nc))
+
+        result = self.model.load_state_dict(loaded, strict=False)
+        missing = list(getattr(result, "missing_keys", []) or [])
+        unexpected = list(getattr(result, "unexpected_keys", []) or [])
+        if any(k.startswith("predict.") for k in missing) or any(
+            ("class_embed" in k or "transformer" in k or "query" in k)
+            for k in unexpected
+        ):
+            raise RuntimeError(
+                "Checkpoint does not look like an RF-DETR semantic model "
+                "(its weights do not match the backbone + dense decoder). "
+                "Load a semantic checkpoint or the correct task."
+            )
+
+        ckpt_names = loaded.get("names")
+        if ckpt_names is not None:
+            self.names = self._sanitize_names(ckpt_names, self.nb_classes)
+        self.model.to(self.device)
+
     def _load_weights(self, model_path: str | dict[str, Any]):
         if self._is_classification:
             return self._load_classify_weights(model_path)
+        if self._is_semantic:
+            return self._load_semantic_weights(model_path)
         try:
             if isinstance(model_path, str):
                 if not Path(model_path).exists():

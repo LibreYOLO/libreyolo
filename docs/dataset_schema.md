@@ -58,6 +58,37 @@ non-degenerate.
 
 A 5-field detection row is also accepted and represents a rectangular segment.
 
+## semantic
+
+Semantic segmentation pairs each image with a dense single-channel mask
+(lossless format, typically PNG) instead of a `.txt` label file:
+
+```text
+images/.../image.jpg -> <masks_dir>/.../image.png
+```
+
+Mask rules:
+
+- single channel; palette-mode PNGs are read as palette indices;
+- each pixel value is a class ID in `0..nc-1`;
+- pixel value `255` means ignore and is excluded from loss and metrics;
+- mask resolution must equal the paired image resolution.
+
+YAML adds two optional keys on top of the common contract:
+
+- `masks_dir`: mask directory name substituted for `images` in each image
+  path (default `masks`).
+- `label_mapping`: `{source_id: train_id}` remap applied to mask pixel
+  values at load time; unmapped source values become ignore. Train IDs must
+  fall in `0..nc-1`.
+
+When `masks_dir` is omitted, masks are rasterized at load time from YOLO
+`segment` polygon labels resolved through the standard
+`images -> labels` convention, and a `background` class is appended after
+the object classes (`nc` grows by one).
+
+Canonical loader: `libreyolo.data.SemanticDataset`.
+
 ## pose
 
 YAML adds:
