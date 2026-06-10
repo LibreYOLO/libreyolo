@@ -69,6 +69,10 @@ class LibreEC(BaseModel):
         return None
 
     @classmethod
+    def detect_checkpoint_task(cls, weights_dict: dict) -> Optional[str]:
+        return cls.detect_task_from_state_dict(weights_dict)
+
+    @classmethod
     def get_download_url(cls, filename: str) -> Optional[str]:
         # All EdgeCrafter weights (detect / pose / segment) are republished on
         # the LibreYOLO HF org with metadata baked in, so the base class default
@@ -126,6 +130,10 @@ class LibreEC(BaseModel):
 
     @classmethod
     def detect_nb_classes(cls, weights_dict: dict) -> Optional[int]:
+        # Pose is person-only by contract; the loader rejects pose
+        # checkpoints declaring anything but nc=1.
+        if cls.is_pose_state_dict(weights_dict):
+            return 1
         key = "decoder.dec_score_head.0.bias"
         if key in weights_dict:
             return int(weights_dict[key].shape[0])

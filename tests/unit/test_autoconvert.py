@@ -167,7 +167,6 @@ class TestAutoconvertOrchestration:
             "load_untrusted_torch_file",
             fake_safe_load,
         )
-        monkeypatch.setattr(autoconvert_module, "_try_yolo9", lambda loaded: None)
         monkeypatch.setattr(autoconvert_module, "_try_rfdetr", lambda loaded: None)
 
         assert autoconvert_upstream_checkpoint(str(src)) is None

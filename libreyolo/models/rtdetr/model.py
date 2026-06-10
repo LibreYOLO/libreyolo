@@ -237,6 +237,33 @@ class LibreRTDETR(BaseModel):
         return "r50"
 
     @classmethod
+    def convert_upstream_state_dict(cls, weights_dict: dict) -> Optional[dict]:
+        """Remap upstream RT-DETR checkpoints to the v1 key layout.
+
+        Upstream v1 releases already use the native numeric encoder
+        input-projection keys and pass straight through; v2 releases name
+        those submodules (``.conv``/``.norm``) and need the remap. ResNet
+        checkpoints with v2's discrete-sampling buffers belong to
+        LibreRTDETRv2; v2 HGNetv2 checkpoints ship under this v1 family.
+        """
+        from .convert import (
+            V2_SAMPLING_FRAGMENT,
+            convert_to_v1,
+            has_upstream_input_proj_keys,
+        )
+
+        if has_upstream_input_proj_keys(weights_dict):
+            if not cls.can_load(weights_dict):
+                return None
+            is_resnet = any(
+                k.startswith("backbone.res_layers") for k in weights_dict
+            )
+            if is_resnet and any(V2_SAMPLING_FRAGMENT in k for k in weights_dict):
+                return None
+            return convert_to_v1(weights_dict)
+        return super().convert_upstream_state_dict(weights_dict)
+
+    @classmethod
     def detect_nb_classes(cls, weights_dict: dict) -> int:
         """Detect number of classes from the classification head."""
         # The classification head is decoder.dec_score_head.{last_layer}.bias

@@ -33,6 +33,22 @@ class LibreRTDETRv4(LibreDFINE):
         )
 
     @classmethod
+    def convert_upstream_state_dict(cls, weights_dict: dict) -> Optional[dict]:
+        """Strip training-only tensors from raw upstream RT-DETRv4 checkpoints.
+
+        Claims only checkpoints carrying ``feature_projector`` tensors — the
+        one marker that separates raw v4 files from their D-FINE/DEIM
+        siblings. Bare native-keyed dicts are indistinguishable from D-FINE
+        and stay on the factory's existing dispatch rules.
+        """
+        from .convert import drop_training_only_keys, has_training_only_keys
+
+        if not has_training_only_keys(weights_dict):
+            return None
+        cleaned, _dropped = drop_training_only_keys(weights_dict)
+        return cleaned if cls.can_load(cleaned) else None
+
+    @classmethod
     def detect_size_from_filename(cls, filename: str) -> Optional[str]:
         detected = super().detect_size_from_filename(filename)
         if detected is not None:

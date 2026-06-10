@@ -120,6 +120,47 @@ class LibreYOLO9(BaseModel):
                     return channels // 3
         return None
 
+    @classmethod
+    def convert_upstream_state_dict(cls, state_dict: dict) -> Optional[dict]:
+        """Remap upstream numbered-index YOLO9 layouts to native semantic keys.
+
+        Claims only the upstream numbered layout; bare native-keyed dicts keep
+        going through the factory's legacy path unchanged.
+        """
+        from .convert import convert_state_dict, infer_config, is_upstream_state_dict
+
+        if not is_upstream_state_dict(state_dict):
+            return None
+        config = infer_config(state_dict)
+        if config is None:
+            return None
+        converted, _stats = convert_state_dict(state_dict, config)
+        return converted
+
+    @classmethod
+    def detect_checkpoint_task(cls, weights_dict: dict) -> Optional[str]:
+        """Infer YOLO9 task from task-specific head branches."""
+        if "head.linear.weight" in weights_dict:
+            return "classify"
+
+        if any(k.startswith("head.proto") for k in weights_dict):
+            return "segment"
+
+        angle_head_channels = []
+        for key, tensor in weights_dict.items():
+            if re.match(r"head\.cv4\.\d+\.2\.weight", key):
+                shape = getattr(tensor, "shape", None)
+                if shape is not None and len(shape) > 0:
+                    angle_head_channels.append(int(shape[0]))
+
+        if angle_head_channels and all(
+            channels == 1 for channels in angle_head_channels
+        ):
+            return "obb"
+        if angle_head_channels:
+            return "pose"
+        return None
+
     # =========================================================================
     # Initialization
     # =========================================================================

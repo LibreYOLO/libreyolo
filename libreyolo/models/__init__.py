@@ -175,24 +175,7 @@ def _has_any_libreyolo_metadata(loaded: object) -> bool:
 
 def _infer_yolo9_head_task(weights_dict: dict) -> str | None:
     """Infer YOLO9 task from task-specific head branches when metadata is absent."""
-    if "head.linear.weight" in weights_dict:
-        return "classify"
-
-    if any(k.startswith("head.proto") for k in weights_dict):
-        return "segment"
-
-    angle_head_channels = []
-    for key, tensor in weights_dict.items():
-        if re.match(r"head\.cv4\.\d+\.2\.weight", key):
-            shape = getattr(tensor, "shape", None)
-            if shape is not None and len(shape) > 0:
-                angle_head_channels.append(int(shape[0]))
-
-    if angle_head_channels and all(channels == 1 for channels in angle_head_channels):
-        return "obb"
-    if angle_head_channels:
-        return "pose"
-    return None
+    return LibreYOLO9.detect_checkpoint_task(weights_dict)
 
 
 # =============================================================================

@@ -19,19 +19,13 @@ side is already covered by this test.
 from __future__ import annotations
 
 import re
-import sys
-from pathlib import Path
 
 import pytest
 import torch
 
 pytestmark = [pytest.mark.unit, pytest.mark.picodet]
 
-# weights/ isn't importable as a package; expose the conversion module path.
-_REPO = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(_REPO / "weights"))
-
-from convert_picodet_weights import (  # type: ignore[import-not-found] # noqa: E402
+from libreyolo.models.picodet.convert import (  # noqa: E402
     ESNET_STAGE_REPEATS,
     remap_state_dict,
 )
@@ -127,7 +121,7 @@ def test_remap_handles_se_modules() -> None:
     # A representative Bo-style SE key — an ESBlock's SE inside a stage-2 block.
     bo_key = "backbone.2_2.se.conv1.conv.weight"
     expected = "backbone.blocks.1.se.conv1.weight"
-    from convert_picodet_weights import remap_key  # type: ignore[import-not-found]
+    from libreyolo.models.picodet.convert import remap_key
 
     assert remap_key(bo_key) == expected
     assert remap_key("backbone.4_3.se.conv2.conv.bias") == "backbone.blocks.12.se.conv2.bias"

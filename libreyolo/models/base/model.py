@@ -424,6 +424,23 @@ class BaseModel(ABC):
         return None
 
     @classmethod
+    def convert_upstream_state_dict(cls, state_dict: dict) -> Optional[dict]:
+        """Return this family's native tensor dict for a recognized upstream layout.
+
+        Called by :mod:`libreyolo.models.autoconvert` on metadata-less
+        checkpoints. The default claims layouts whose keys already match the
+        native port (``can_load``). Families whose upstream key naming differs
+        from the native port override this with a remap, and return ``None``
+        for layouts they do not recognize.
+        """
+        return dict(state_dict) if cls.can_load(state_dict) else None
+
+    @classmethod
+    def detect_checkpoint_task(cls, state_dict: dict) -> Optional[str]:
+        """Infer the task from task-specific head keys, or ``None`` if unknown."""
+        return None
+
+    @classmethod
     def get_download_url(cls, filename: str) -> Optional[str]:
         """Return the Hugging Face download URL for the given weight filename."""
         size = cls.detect_size_from_filename(filename)

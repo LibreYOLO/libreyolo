@@ -12,22 +12,12 @@ from __future__ import annotations
 import argparse
 
 from _conversion_utils import (
+    add_repo_root_to_path,
     extract_state_dict,
     load_checkpoint,
     save_checkpoint,
     wrap_libreyolo_checkpoint,
 )
-
-
-_TRAINING_ONLY_KEYS = (
-    "encoder.feature_projector.",
-)
-
-
-def _drop_training_only_keys(state_dict: dict) -> tuple[dict, list[str]]:
-    dropped = [k for k in state_dict if any(k.startswith(p) for p in _TRAINING_ONLY_KEYS)]
-    cleaned = {k: v for k, v in state_dict.items() if k not in dropped}
-    return cleaned, dropped
 
 
 def convert_weights(
@@ -36,12 +26,15 @@ def convert_weights(
     size: str,
     nc: int = 80,
 ) -> dict:
+    add_repo_root_to_path()
+    from libreyolo.models.rtdetrv4.convert import drop_training_only_keys
+
     print(f"Loading upstream RT-DETRv4 weights from {input_path}")
     raw = load_checkpoint(input_path)
     state_dict = extract_state_dict(raw)
     print(f"Found {len(state_dict)} parameter entries (EMA-preferred)")
 
-    cleaned, dropped = _drop_training_only_keys(state_dict)
+    cleaned, dropped = drop_training_only_keys(state_dict)
     if dropped:
         print(f"Stripped {len(dropped)} training-only keys:")
         for k in dropped:

@@ -76,10 +76,10 @@ from weights._conversion_utils import (  # noqa: E402
     save_checkpoint,
     wrap_libreyolo_checkpoint,
 )
+from libreyolo.models.rtmdet.convert import (  # noqa: E402
+    convert_upstream as _remap_keys,
+)
 from libreyolo.models.rtmdet.nn import LibreRTMDetModel  # noqa: E402
-
-
-_DROP_PREFIXES = ("data_preprocessor.",)
 
 
 def _select_state_dict(ckpt: dict) -> dict:
@@ -91,19 +91,6 @@ def _select_state_dict(ckpt: dict) -> dict:
     if "state_dict" in ckpt:
         return ckpt["state_dict"]
     return ckpt
-
-
-def _remap_keys(sd: dict) -> dict:
-    """Apply the bbox_head -> head rename and drop data_preprocessor."""
-    out = {}
-    for k, v in sd.items():
-        if any(k.startswith(p) for p in _DROP_PREFIXES):
-            continue
-        new_key = k
-        if k.startswith("bbox_head."):
-            new_key = "head." + k[len("bbox_head.") :]
-        out[new_key] = v
-    return out
 
 
 def convert(
