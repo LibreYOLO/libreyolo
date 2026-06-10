@@ -22,9 +22,10 @@ RF-DETR keeps a bespoke recognizer because it needs the full checkpoint (not
 just the tensor dict) for size detection and COCO class remapping, and is only
 lazily registered when its optional dependencies are installed.
 
-Sibling families that share architecture keys are disambiguated the same way
-the factory does: upstream-style filename hints first, and a hard refusal for
-the DEIM/D-FINE tie that nothing can break.
+When several families claim one file, a subclass beats its base, then registry
+order decides (it encodes specificity). The filename is consulted only for the
+DEIM/D-FINE tie — identical tensors that nothing else can separate — which is
+refused outright when the name gives no hint.
 """
 
 from __future__ import annotations
@@ -644,17 +645,19 @@ def autoconvert_upstream_checkpoint(
     # or other fine-tunes of the same family/size/task in the directory.
     try:
         torch.save(wrapped, out_path)
-    except OSError as exc:
-        # Read-only source directory (e.g. a mounted cache). The converted
-        # checkpoint is the only loadable form for remapped families, so fall
-        # back to a private temp dir rather than dropping the conversion.
-        # ``mkdtemp`` gives a fresh 0o700 user-owned directory per call, so a
-        # shared /tmp can't be used to pre-seed or clobber the output.
+    except (OSError, RuntimeError) as exc:
+        # Read-only source directory (e.g. a mounted cache). torch.save can
+        # surface the failure as OSError (Python open) or RuntimeError (its
+        # zip writer), so catch both. The converted checkpoint is the only
+        # loadable form for remapped families, so fall back to a private temp
+        # dir rather than dropping the conversion. ``mkdtemp`` gives a fresh
+        # 0o700 user-owned directory per call, so a shared /tmp can't be used
+        # to pre-seed or clobber the output.
         try:
             fallback_dir = Path(tempfile.mkdtemp(prefix="libreyolo-autoconvert-"))
             fallback_path = fallback_dir / out_path.name
             torch.save(wrapped, fallback_path)
-        except OSError as fallback_exc:
+        except (OSError, RuntimeError) as fallback_exc:
             logger.warning(
                 "Recognized upstream %s checkpoint but could not write %s (%s) "
                 "or the temp-dir fallback (%s).",

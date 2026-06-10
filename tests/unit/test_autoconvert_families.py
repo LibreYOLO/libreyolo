@@ -444,9 +444,16 @@ class TestDispatchRules:
         assert ckpt["nc"] == 7
         assert sorted(ckpt["names"]) == list(range(7))
 
+    @pytest.mark.parametrize(
+        "writer_error",
+        [OSError("read-only directory"), RuntimeError("PytorchStreamWriter failed")],
+        ids=["oserror", "runtimeerror"],
+    )
     def test_unwritable_source_directory_falls_back_to_temp_dir(
-        self, tmp_path, monkeypatch
+        self, tmp_path, monkeypatch, writer_error
     ):
+        # torch.save may surface a write failure as OSError (Python open) or
+        # RuntimeError (its zip writer); both must trigger the temp-dir fallback.
         src = tmp_path / "deimv2_upstream.pth"
         torch.save(_wrap_ema_module(_deimv2_atto()), src)
 
@@ -454,7 +461,7 @@ class TestDispatchRules:
 
         def failing_save(obj, path, *args, **kwargs):
             if str(path).startswith(str(tmp_path)):
-                raise OSError("read-only directory")
+                raise writer_error
             return real_save(obj, path, *args, **kwargs)
 
         monkeypatch.setattr(torch, "save", failing_save)
