@@ -1598,8 +1598,13 @@ class BaseBackend(ABC):
         classes: Optional[List[int]] = None,
         max_det: int = 300,
         color_format: str = "auto",
+        save_stem: Optional[str] = None,
     ) -> Results:
-        """Run inference on a single image."""
+        """Run inference on a single image.
+
+        ``save_stem`` overrides the saved filename stem for in-memory images
+        (which have no path to derive one from).
+        """
         image_path = image if isinstance(image, (str, Path)) else None
         effective_imgsz = self._resolve_predict_imgsz(imgsz)
 
@@ -1620,7 +1625,12 @@ class BaseBackend(ABC):
                 image_path=image_path,
             )
             if save:
-                self._save_annotated(result, original_img, image_path, output_path)
+                self._save_annotated(
+                    result,
+                    original_img,
+                    image_path if image_path is not None else save_stem,
+                    output_path,
+                )
             return result
 
         parsed = self._parse_outputs(
@@ -1651,13 +1661,18 @@ class BaseBackend(ABC):
         )
 
         if save:
-            self._save_annotated(result, original_img, image_path, output_path)
+            self._save_annotated(
+                result,
+                original_img,
+                image_path if image_path is not None else save_stem,
+                output_path,
+            )
 
         return result
 
     def _process_in_batches(
         self,
-        image_paths: List[Path],
+        images: List,
         batch: int = 1,
         save: bool = False,
         output_path: str | None = None,
@@ -1668,24 +1683,25 @@ class BaseBackend(ABC):
         max_det: int = 300,
         color_format: str = "auto",
     ) -> List[Results]:
-        """Process multiple images sequentially."""
+        """Process multiple images (file paths or in-memory) sequentially."""
         results = []
-        for i in range(0, len(image_paths), batch):
-            chunk = image_paths[i : i + batch]
-            for path in chunk:
-                results.append(
-                    self._predict_single(
-                        path,
-                        save=save,
-                        output_path=output_path,
-                        conf=conf,
-                        iou=iou,
-                        imgsz=imgsz,
-                        classes=classes,
-                        max_det=max_det,
-                        color_format=color_format,
-                    )
+        for idx, image in enumerate(images):
+            results.append(
+                self._predict_single(
+                    image,
+                    save=save,
+                    output_path=output_path,
+                    conf=conf,
+                    iou=iou,
+                    imgsz=imgsz,
+                    classes=classes,
+                    max_det=max_det,
+                    color_format=color_format,
+                    save_stem=(
+                        None if isinstance(image, (str, Path)) else f"image{idx}"
+                    ),
                 )
+            )
         return results
 
     # =========================================================================
@@ -1701,7 +1717,7 @@ class BaseBackend(ABC):
 
     def __call__(
         self,
-        source: Union[str, Path, Image.Image, np.ndarray, None] = None,
+        source: Union[str, Path, Image.Image, np.ndarray, list, tuple, None] = None,
         *,
         conf: float = 0.25,
         iou: float = 0.45,
@@ -1719,7 +1735,7 @@ class BaseBackend(ABC):
         color_format: str = "auto",
         **kwargs,
     ) -> Union[Results, List[Results], Generator[Results, None, None]]:
-        """Run inference on an image, directory, or video."""
+        """Run inference on an image, list of images, directory, or video."""
         normalize_predict_kwargs(kwargs)
         if device not in (None, "", "auto", self.device):
             logger.warning(
@@ -1747,6 +1763,21 @@ class BaseBackend(ABC):
             if stream:
                 return gen
             return collect_video_results(gen, source, vid_stride)
+
+        # Handle in-memory batch input (list/tuple of images)
+        if isinstance(source, (list, tuple)):
+            return self._process_in_batches(
+                list(source),
+                batch=batch,
+                save=save,
+                output_path=output_path,
+                conf=conf,
+                iou=iou,
+                imgsz=imgsz,
+                classes=classes,
+                max_det=max_det,
+                color_format=color_format,
+            )
 
         if isinstance(source, (str, Path)) and Path(source).is_dir():
             image_paths = ImageLoader.collect_images(source)

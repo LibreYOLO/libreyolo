@@ -325,7 +325,7 @@ class TensorRTBackend(BaseBackend):
 
     def _process_in_batches(
         self,
-        image_paths: List,
+        images: List,
         batch: int = 1,
         save: bool = False,
         output_path: str | None = None,
@@ -353,7 +353,7 @@ class TensorRTBackend(BaseBackend):
         )
         if not can_batch:
             return super()._process_in_batches(
-                image_paths,
+                images,
                 batch=batch,
                 save=save,
                 output_path=output_path,
@@ -368,27 +368,41 @@ class TensorRTBackend(BaseBackend):
         effective_imgsz = self._resolve_predict_imgsz(imgsz)
         results = []
 
-        for i in range(0, len(image_paths), effective_batch):
-            chunk_paths = image_paths[i : i + effective_batch]
+        for i in range(0, len(images), effective_batch):
+            chunk = images[i : i + effective_batch]
 
             tensors = []
             preprocess_info = []
-            for path in chunk_paths:
-                preprocess_out = self._preprocess(path, effective_imgsz, color_format)
+            for offset, image in enumerate(chunk):
+                preprocess_out = self._preprocess(image, effective_imgsz, color_format)
                 if len(preprocess_out) == 4:
                     tensor, orig_img, orig_size, ratio = preprocess_out
                 else:
                     tensor, orig_img, orig_size = preprocess_out
                     ratio = None
                 tensors.append(tensor)
-                preprocess_info.append((orig_img, orig_size, ratio, path))
+                # In-memory images have no path: keep Results.path None and
+                # use an indexed stem so save=True does not overwrite files.
+                image_path = image if isinstance(image, (str, Path)) else None
+                save_name = (
+                    image_path if image_path is not None else f"image{i + offset}"
+                )
+                preprocess_info.append(
+                    (orig_img, orig_size, ratio, image_path, save_name)
+                )
 
             batched_input = np.concatenate(
                 [t.numpy() for t in tensors], axis=0
             )  # (B, C, H, W)
             batch_outputs = self._infer(batched_input)
 
-            for idx, (orig_img, orig_size, ratio, path) in enumerate(preprocess_info):
+            for idx, (
+                orig_img,
+                orig_size,
+                ratio,
+                image_path,
+                save_name,
+            ) in enumerate(preprocess_info):
                 per_image = [
                     batch_outputs[name][idx : idx + 1] for name in self.output_names
                 ]
@@ -414,14 +428,14 @@ class TensorRTBackend(BaseBackend):
                     obb=obb,
                     keypoints=keypoints,
                     orig_shape=orig_shape,
-                    image_path=path,
+                    image_path=image_path,
                     iou=iou,
                     classes=classes,
                     max_det=max_det,
                 )
 
                 if save:
-                    self._save_annotated(result, orig_img, path, output_path)
+                    self._save_annotated(result, orig_img, save_name, output_path)
 
                 results.append(result)
 
