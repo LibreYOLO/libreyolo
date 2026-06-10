@@ -104,6 +104,7 @@ From `libreyolo/tasks.py`:
 |---|---|
 | `detect`      | *(none — implicit)* |
 | `segment`     | `-seg` |
+| `semantic`    | `-sem` |
 | `pose`        | `-pose` |
 | `classify`    | `-cls` |
 | `gaze`        | `-gaze` |
@@ -119,6 +120,12 @@ single image coordinate per detection, exposed as `(x, y, class, confidence)`.
 This keeps box detection under `detect` while allowing centroid-style models to
 use point-specific result and validation contracts.
 
+`semantic` is the task for dense semantic segmentation: one class label per
+pixel with no instance separation. `segment` remains the task for
+instance segmentation (per-object masks). Semantic models expose
+`Results.semantic_mask` and use per-pixel validation metrics (mIoU,
+pixel accuracy) instead of box/mask mAP.
+
 Dataset and label contracts are documented in
 [`dataset_schema.md`](dataset_schema.md). A task is supported by a model family
 only when it appears in that family's `SUPPORTED_TASKS`.
@@ -128,14 +135,14 @@ only when it appears in that family's `SUPPORTED_TASKS`.
 | Family    | `SUPPORTED_TASKS`                   | Default | Notes |
 |---|---|---|---|
 | `yolox`     | `("detect",)` (default)             | detect | detect-only |
-| `yolo9`     | `("detect", "segment", "pose", "classify", "obb")` | detect | native grid and classifier heads |
+| `yolo9`     | `("detect", "segment", "semantic", "pose", "classify", "obb")` | detect | native grid, classifier, and dense-decoder heads |
 | `yolo9_e2e` | `("detect",)` (default)             | detect | detect-only |
 | `dfine`     | `("detect",)` (default)             | detect | detect-only |
 | `deim`      | `("detect",)` (default)             | detect | detect-only |
 | `deimv2`    | `("detect",)` (default)             | detect | detect-only |
 | `rtdetr`    | `("detect",)` (default)             | detect | detect-only |
 | `picodet`   | `("detect",)` (default)             | detect | detect-only |
-| `rfdetr`    | `("detect", "segment", "pose", "classify", "obb")` | detect | classify uses 224; seg uses smaller sizes; pose/OBB use detect sizes |
+| `rfdetr`    | `("detect", "segment", "semantic", "pose", "classify", "obb")` | detect | classify uses 224; semantic uses 518; seg uses smaller sizes; pose/OBB use detect sizes |
 | `yolonas`   | `("detect", "pose")`                | detect | pose adds size `n` |
 | `ec`     | `("detect", "pose", "segment")`     | detect | all three tasks |
 | `l2cs`      | `("gaze",)`                         | gaze   | inference-only; two-stage (face detector + gaze head); not trainable in LibreYOLO |
@@ -178,16 +185,18 @@ LibreYOLONASs-pose.pt
 LibreYOLONASm-pose.pt
 LibreYOLONASl-pose.pt
 
-# yolo9 - detect + segment + pose + classify + obb
+# yolo9 - detect + segment + semantic + pose + classify + obb
 LibreYOLO9t.pt             # detect (default)
 LibreYOLO9t-seg.pt         # segment
+LibreYOLO9t-sem.pt         # semantic
 LibreYOLO9t-pose.pt        # pose
 LibreYOLO9t-cls.pt         # classify
 LibreYOLO9t-obb.pt         # obb
 
-# rfdetr - detect + segment + pose + classify + obb
+# rfdetr - detect + segment + semantic + pose + classify + obb
 LibreRFDETRn.pt            # detect
 LibreRFDETRn-seg.pt        # segment
+LibreRFDETRn-sem.pt        # semantic
 LibreRFDETRn-pose.pt       # pose
 LibreRFDETRn-cls.pt        # classify
 LibreRFDETRn-obb.pt        # obb

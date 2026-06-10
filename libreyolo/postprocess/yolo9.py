@@ -238,6 +238,47 @@ def _process_masks(
     return masks > 0.5
 
 
+def postprocess_semantic(
+    output: Union[torch.Tensor, Dict],
+    input_size: ImageSize,
+    original_size: Tuple[int, int],
+) -> Dict:
+    """Decode semantic logits into an original-canvas class map.
+
+    Reverses the family letterbox: crops the top-left content region implied
+    by ``preprocess_numpy`` geometry, bilinearly resizes the logits to the
+    original image size, then takes the per-pixel argmax.
+
+    Args:
+        output: ``[B, nc, H, W]`` logits at model input resolution (or a dict
+            holding them under ``semantic_logits``/``predictions``).
+        input_size: Model input size as int or (height, width).
+        original_size: Original image size as (width, height).
+
+    Returns:
+        Dict with ``semantic``: ``(H, W)`` int64 class-ID tensor on the
+        original canvas.
+    """
+    logits = output
+    if isinstance(logits, dict):
+        logits = logits.get("semantic_logits", logits.get("predictions"))
+    if logits.ndim == 3:
+        logits = logits.unsqueeze(0)
+
+    input_h, input_w = _input_size_hw(input_size)
+    orig_w, orig_h = original_size
+    ratio = min(input_h / orig_h, input_w / orig_w)
+    new_h = max(int(orig_h * ratio), 1)
+    new_w = max(int(orig_w * ratio), 1)
+
+    logits = logits[..., :new_h, :new_w]
+    logits = F.interpolate(
+        logits.float(), size=(orig_h, orig_w), mode="bilinear", align_corners=False
+    )
+    semantic = logits.argmax(dim=1)[0].cpu()
+    return {"semantic": semantic}
+
+
 def postprocess(
     output: Dict,
     conf_thres: float = 0.25,

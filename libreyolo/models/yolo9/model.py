@@ -20,7 +20,7 @@ from ...utils.serialization import (
     validate_checkpoint_metadata,
 )
 from .nn import LibreYOLO9Model
-from ...postprocess.yolo9 import postprocess
+from ...postprocess.yolo9 import postprocess, postprocess_semantic
 from .utils import preprocess_image
 from ...validation.preprocessors import YOLO9ValPreprocessor
 
@@ -51,14 +51,17 @@ class LibreYOLO9(BaseModel):
     INPUT_SIZES = {"t": 640, "s": 640, "m": 640, "c": 640}
     # Classification uses the conventional 224 square input across all sizes.
     CLS_INPUT_SIZES = {"t": 224, "s": 224, "m": 224, "c": 224}
-    SUPPORTED_TASKS = ("detect", "segment", "pose", "classify", "obb")
+    SUPPORTED_TASKS = ("detect", "segment", "semantic", "pose", "classify", "obb")
     TASK_INPUT_SIZES = {
         "detect": INPUT_SIZES,
         "segment": INPUT_SIZES,
+        "semantic": INPUT_SIZES,
         "pose": INPUT_SIZES,
         "classify": CLS_INPUT_SIZES,
         "obb": INPUT_SIZES,
     }
+    # Semantic training/validation mirrors the family's letterbox preprocess.
+    semantic_resize_mode = "letterbox"
     EXPERIMENTAL_WEIGHT_FILENAMES = frozenset({"libreyolo9s-pose.pt"})
     TRAIN_CONFIG = YOLO9Config
     val_preprocessor_class = YOLO9ValPreprocessor
@@ -101,6 +104,8 @@ class LibreYOLO9(BaseModel):
     def detect_nb_classes(cls, weights_dict: dict) -> Optional[int]:
         if "head.linear.weight" in weights_dict:
             return int(weights_dict["head.linear.weight"].shape[0])
+        if "head.predict.weight" in weights_dict:
+            return int(weights_dict["head.predict.weight"].shape[0])
         for key, tensor in weights_dict.items():
             if re.match(r"head\.cv3\.\d+\.2\.weight", key):
                 return tensor.shape[0]
@@ -128,6 +133,7 @@ class LibreYOLO9(BaseModel):
         proto_channels: int = 256,
         num_keypoints: int = 17,
         keypoint_dim: int = 3,
+        decoder_channels: int = 128,
         nb_classes: int = 80,
         device: str = "auto",
         task: str | None = None,
@@ -146,6 +152,7 @@ class LibreYOLO9(BaseModel):
         self.proto_channels = proto_channels
         self.num_keypoints = int(num_keypoints)
         self.keypoint_dim = int(keypoint_dim)
+        self.decoder_channels = int(decoder_channels)
         super().__init__(
             model_path=model_path,
             size=size,
@@ -204,6 +211,10 @@ class LibreYOLO9(BaseModel):
     def _is_obb(self) -> bool:
         return self.task == "obb"
 
+    @property
+    def _is_semantic(self) -> bool:
+        return self.task == "semantic"
+
     # =========================================================================
     # Model lifecycle
     # =========================================================================
@@ -217,10 +228,12 @@ class LibreYOLO9(BaseModel):
             pose=self._is_pose,
             classification=self._is_classification,
             obb=self._is_obb,
+            semantic=self._is_semantic,
             num_masks=self.num_masks,
             proto_channels=self.proto_channels,
             num_keypoints=self.num_keypoints,
             keypoint_dim=self.keypoint_dim,
+            decoder_channels=self.decoder_channels,
         )
 
     def _get_available_layers(self) -> Dict[str, nn.Module]:
@@ -294,6 +307,15 @@ class LibreYOLO9(BaseModel):
                     "weights. Detect-to-pose initialization is only supported "
                     "through explicit training transfer."
                 )
+
+        if self._is_semantic:
+            if not any(key.startswith("head.predict.") for key in state_dict):
+                raise RuntimeError(
+                    "YOLO9 semantic checkpoints must include head.predict.* "
+                    "decoder weights. Detect-to-semantic initialization is only "
+                    "supported through explicit training transfer."
+                )
+            return
 
         if not self._is_classification:
             return
@@ -400,6 +422,14 @@ class LibreYOLO9(BaseModel):
             head.nc = new_nc
             in_features = head.linear.in_features
             head.linear = nn.Linear(in_features, new_nc)
+            head.to(next(self.model.parameters()).device)
+            return
+
+        if self._is_semantic:
+            head = self.model.head
+            head.nc = new_nc
+            in_channels = head.predict.in_channels
+            head.predict = nn.Conv2d(in_channels, new_nc, 1)
             head.to(next(self.model.parameters()).device)
             return
 
@@ -538,7 +568,7 @@ class LibreYOLO9(BaseModel):
             if ckpt_task is not None:
                 normalized_ckpt_task = normalize_task(ckpt_task)
                 allowed = normalized_ckpt_task == self.task or (
-                    self.task in {"segment", "classify", "pose", "obb"}
+                    self.task in {"segment", "semantic", "classify", "pose", "obb"}
                     and normalized_ckpt_task == "detect"
                 )
                 if not allowed:
@@ -640,6 +670,12 @@ class LibreYOLO9(BaseModel):
                 logits = logits.get("logits", logits.get("predictions"))
             probs = torch.softmax(logits.float(), dim=1)[0]
             return {"probs": probs}
+        if self._is_semantic:
+            return postprocess_semantic(
+                output,
+                input_size=kwargs.get("input_size", self._get_input_size()),
+                original_size=original_size,
+            )
         actual_input_size = kwargs.get("input_size", self._get_input_size())
         return postprocess(
             output,
@@ -773,6 +809,20 @@ class LibreYOLO9(BaseModel):
                 yaml_nc = len(yaml_names)
             if yaml_nc is not None:
                 yaml_nc = int(yaml_nc)
+
+            if (
+                self._is_semantic
+                and yaml_nc is not None
+                and not data_config.get("masks_dir")
+            ):
+                # Polygon-derived semantic masks append a background class
+                # after the object classes (see SemanticDataset).
+                yaml_nc += 1
+                if yaml_names is not None:
+                    if isinstance(yaml_names, list):
+                        yaml_names = {i: n for i, n in enumerate(yaml_names)}
+                    yaml_names = dict(yaml_names)
+                    yaml_names[yaml_nc - 1] = "background"
 
             if yaml_nc is not None and yaml_nc != self.nb_classes:
                 self._rebuild_for_new_classes(yaml_nc)

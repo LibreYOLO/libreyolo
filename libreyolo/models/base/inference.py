@@ -22,6 +22,7 @@ from ...utils.drawing import (
     draw_masks,
     draw_obb,
     draw_points,
+    draw_semantic_mask,
     draw_tile_grid,
 )
 from ...utils.general import (
@@ -32,7 +33,16 @@ from ...utils.general import (
 )
 from ...utils.image_loader import ImageInput, ImageLoader
 from ...utils.predict_args import normalize_predict_kwargs
-from ...utils.results import Boxes, Keypoints, Masks, OBB, Points, Probs, Results
+from ...utils.results import (
+    Boxes,
+    Keypoints,
+    Masks,
+    OBB,
+    Points,
+    Probs,
+    Results,
+    SemanticMask,
+)
 from ...utils.video import collect_video_results, is_video_file, run_video_inference
 
 logger = logging.getLogger(__name__)
@@ -320,6 +330,14 @@ class InferenceRunner:
             original_img.save(save_path)
             log_saved_result(result, save_path)
             return
+        if result.boxes is None and getattr(result, "semantic_mask", None) is not None:
+            mask_data = result.semantic_mask.data
+            if isinstance(mask_data, torch.Tensor):
+                mask_data = mask_data.cpu().numpy()
+            annotated_img = draw_semantic_mask(original_img, mask_data)
+            annotated_img.save(save_path)
+            log_saved_result(result, save_path)
+            return
         if result.boxes is None and getattr(result, "points", None) is not None:
             if len(result.points) > 0:
                 annotated_img = draw_points(
@@ -428,6 +446,23 @@ class InferenceRunner:
                 path=str(image_path) if image_path else None,
                 names=self.model.names,
                 probs=Probs(probs_t),
+            )
+
+        # Semantic segmentation: a dense class map, no boxes.
+        semantic_data = detections.get("semantic")
+        if semantic_data is not None:
+            orig_w, orig_h = original_size
+            semantic_t = (
+                semantic_data
+                if isinstance(semantic_data, torch.Tensor)
+                else torch.as_tensor(semantic_data)
+            )
+            return Results(
+                boxes=None,
+                orig_shape=(orig_h, orig_w),
+                path=str(image_path) if image_path else None,
+                names=self.model.names,
+                semantic_mask=SemanticMask(semantic_t.long(), (orig_h, orig_w)),
             )
 
         points_data = detections.get("points")
@@ -708,8 +743,9 @@ class InferenceRunner:
         """Run tiled inference on large images."""
 
         # Tiling is a detection-time technique; for whole-image classification
-        # it is meaningless, so fall back to a single forward pass.
-        if getattr(self.model, "task", None) == "classify":
+        # and dense semantic maps it is meaningless, so fall back to a single
+        # forward pass.
+        if getattr(self.model, "task", None) in ("classify", "semantic"):
             return self._predict_single(
                 image,
                 save=save,

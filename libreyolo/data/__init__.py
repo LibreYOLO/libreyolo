@@ -25,6 +25,12 @@ from .pose_metadata import (
     default_oks_sigmas,
 )
 from .pose_dataset import YOLOPoseDataset, parse_yolo_pose_label_line, pose_collate_fn
+from .semantic_dataset import (
+    SemanticDataset,
+    img2mask_paths,
+    resolve_semantic_data,
+    semantic_collate_fn,
+)
 from .utils import (
     DATASETS_DIR,
     check_dataset,
@@ -59,4 +65,8 @@ __all__ = [
     "classify_collate_fn",
     "get_class_names",
     "resolve_classify_data",
+    "SemanticDataset",
+    "img2mask_paths",
+    "resolve_semantic_data",
+    "semantic_collate_fn",
 ]

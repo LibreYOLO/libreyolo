@@ -22,7 +22,17 @@ from .models import (
     LibreRTMDet,
     LibreL2CS,
 )
-from .utils.results import Results, Boxes, Masks, Keypoints, Points, Probs, OBB, Gaze
+from .utils.results import (
+    Results,
+    Boxes,
+    Masks,
+    Keypoints,
+    Points,
+    Probs,
+    OBB,
+    Gaze,
+    SemanticMask,
+)
 
 SAMPLE_IMAGE = str(_Path(__file__).parent / "assets" / "parkour.jpg")
 
@@ -61,6 +71,8 @@ def __getattr__(name):
 
     _lazy = {
         "LibreRFDETR": (".models.rfdetr.model", "LibreRFDETR"),
+        "LibreEnsemble": (".ensemble", "LibreEnsemble"),
+        "ExternalDetector": (".ensemble", "ExternalDetector"),
         "OnnxBackend": (".backends.onnx", "OnnxBackend"),
         "OpenVINOBackend": (".backends.openvino", "OpenVINOBackend"),
         "TensorRTBackend": (".backends.tensorrt", "TensorRTBackend"),
@@ -70,6 +82,7 @@ def __getattr__(name):
         "DetectionValidator": (".validation", "DetectionValidator"),
         "SegmentationValidator": (".validation", "SegmentationValidator"),
         "PoseValidator": (".validation", "PoseValidator"),
+        "SemanticValidator": (".validation", "SemanticValidator"),
         "ValidationConfig": (".validation", "ValidationConfig"),
         "ByteTracker": (".tracking", "ByteTracker"),
         "TrackConfig": (".tracking", "TrackConfig"),
@@ -134,11 +147,15 @@ __all__ = [
     "Probs",
     "OBB",
     "Gaze",
+    "SemanticMask",
     # Assets
     "SAMPLE_IMAGE",
     # Tracking
     "ByteTracker",
     "TrackConfig",
+    # Ensembling
+    "LibreEnsemble",
+    "ExternalDetector",
     # Lazy-loaded
     "OnnxBackend",
     "OpenVINOBackend",
@@ -149,6 +166,7 @@ __all__ = [
     "DetectionValidator",
     "SegmentationValidator",
     "PoseValidator",
+    "SemanticValidator",
     "ValidationConfig",
     "DATASETS_DIR",
     "load_data_config",

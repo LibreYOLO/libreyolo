@@ -7,8 +7,10 @@ from pathlib import Path
 from typing import Iterable, Literal
 
 
-TaskType = Literal["detect", "segment", "pose", "classify", "gaze", "obb", "point"]
-TASKS = ("detect", "segment", "pose", "classify", "gaze", "obb", "point")
+TaskType = Literal[
+    "detect", "segment", "semantic", "pose", "classify", "gaze", "obb", "point"
+]
+TASKS = ("detect", "segment", "semantic", "pose", "classify", "gaze", "obb", "point")
 
 TASK_ALIASES = {
     "detect": "detect",
@@ -17,6 +19,11 @@ TASK_ALIASES = {
     "segment": "segment",
     "segmentation": "segment",
     "seg": "segment",
+    "semantic": "semantic",
+    "semantic-segmentation": "semantic",
+    "semantic_segmentation": "semantic",
+    "semseg": "semantic",
+    "sem": "semantic",
     "pose": "pose",
     "keypoint": "pose",
     "keypoints": "pose",
@@ -33,6 +40,7 @@ TASK_ALIASES = {
 
 TASK_TO_SUFFIX = {
     "segment": "seg",
+    "semantic": "sem",
     "pose": "pose",
     "classify": "cls",
     "gaze": "gaze",

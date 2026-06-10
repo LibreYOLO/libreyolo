@@ -1,4 +1,4 @@
-# ADR 0004 — Centralized postprocessing package
+# ADR 0005 — Centralized postprocessing package
 
 - Status: Accepted
 - Date: 2026-06-11
