@@ -15,13 +15,8 @@ from ...utils.serialization import load_untrusted_torch_file
 from ...validation.preprocessors import ECValPreprocessor
 from ..base import BaseModel
 from .nn import LibreECModel, LibreECPoseModel, LibreECSegModel
-from .postprocess import (
-    postprocess,
-    postprocess_pose,
-    postprocess_seg,
-    preprocess_image,
-    unwrap_ec_checkpoint,
-)
+from ...postprocess.ec import postprocess, postprocess_pose, postprocess_seg
+from .postprocess import preprocess_image, unwrap_ec_checkpoint
 
 _POSE_HEAD_KEY = "decoder.keypoint_embedding.weight"
 _SEG_HEAD_KEY = "decoder.decoder.segmentation_head.bias"

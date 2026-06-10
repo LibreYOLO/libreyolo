@@ -23,7 +23,7 @@ from ...utils.image_loader import ImageInput
 from ...validation.preprocessors import RTMDetValPreprocessor
 from ..base import BaseModel
 from .nn import LibreRTMDetModel
-from .utils import postprocess as _postprocess
+from ...postprocess.rtmdet import postprocess as _postprocess
 from .utils import preprocess_image as _rtmdet_preprocess
 from .utils import preprocess_numpy as _preprocess_numpy
 

@@ -15,7 +15,7 @@ from ...utils.image_loader import ImageInput
 from ...validation.preprocessors import PICODETValPreprocessor
 from ..base import BaseModel
 from .nn import LibrePICODETModel
-from .utils import postprocess as _picodet_postprocess
+from ...postprocess.picodet import postprocess as _picodet_postprocess
 from .utils import preprocess_image as _picodet_preprocess
 
 

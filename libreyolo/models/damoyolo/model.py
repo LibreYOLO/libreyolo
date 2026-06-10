@@ -17,7 +17,7 @@ from ...utils.image_loader import ImageInput
 from ...validation.preprocessors import DAMOYOLOValPreprocessor
 from ..base import BaseModel
 from .nn import SIZES, build_damoyolo
-from .utils import postprocess_predictions
+from ...postprocess.damoyolo import postprocess_predictions
 
 
 _TRAIN_DEFAULTS = DAMOYOLOConfig()

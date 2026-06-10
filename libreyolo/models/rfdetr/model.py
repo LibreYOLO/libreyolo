@@ -16,7 +16,8 @@ from ...utils.image_loader import ImageInput, ImageLoader
 from ...utils.serialization import load_trusted_torch_file
 from .nn import LibreRFDETRModel, RFDETR_CONFIGS, RFDETR_SEG_CONFIGS
 from .config import RFDETRConfig
-from .utils import postprocess, preprocess_numpy
+from ...postprocess.rfdetr import postprocess
+from .utils import preprocess_numpy
 from .trainer import RFDETRTrainer
 from ...validation.preprocessors import RFDETRValPreprocessor
 

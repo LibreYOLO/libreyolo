@@ -22,7 +22,7 @@ from libreyolo.training.ddp_spawn import ddp_aware
 from ..yolo9.model import LibreYOLO9
 from .config import YOLO9E2EConfig
 from .nn import LibreYOLO9E2EModel
-from .utils import postprocess
+from ...postprocess.yolo9_e2e import postprocess
 from ...training.config import YOLO9Config
 from ...validation.preprocessors import YOLO9E2EValPreprocessor
 

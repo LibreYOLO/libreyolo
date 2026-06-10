@@ -17,9 +17,8 @@ from ...utils.image_loader import ImageInput
 from ...utils.serialization import load_untrusted_torch_file
 from ...validation.preprocessors import YOLONASValPreprocessor
 from .nn import LibreYOLONASModel, LibreYOLONASPoseModel
+from ...postprocess.yolonas import postprocess, postprocess_pose
 from .utils import (
-    postprocess,
-    postprocess_pose,
     preprocess_image,
     preprocess_pose_image,
     unwrap_yolonas_checkpoint,

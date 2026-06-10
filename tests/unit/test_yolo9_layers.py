@@ -27,6 +27,7 @@ from libreyolo.models.yolo9.nn import (
 )
 from libreyolo.models.yolo9.loss import YOLO9OBBLoss
 from libreyolo.models.yolo9 import utils as yolo9_utils
+from libreyolo.postprocess import yolo9 as yolo9_postprocess_mod
 from libreyolo.models.yolo9.trainer import YOLO9Trainer
 from libreyolo.models.yolo9.transforms import YOLO9TrainTransform
 from libreyolo.validation.preprocessors import YOLO9ValPreprocessor
@@ -483,7 +484,8 @@ class TestYOLO9Utils:
 
     def test_postprocess_detection_caps_multilabel_candidates(self, monkeypatch):
         """Detection limits low-threshold multi-label expansion before NMS."""
-        monkeypatch.setattr(yolo9_utils, "_YOLO9_MAX_NMS_CANDIDATES", 3)
+        # Patch the postprocess module — that's where postprocess() resolves it.
+        monkeypatch.setattr(yolo9_postprocess_mod, "_YOLO9_MAX_NMS_CANDIDATES", 3)
         pred = torch.zeros(1, 6, 4)
         pred[0, :4] = torch.tensor(
             [
@@ -609,14 +611,15 @@ class TestYOLO9Utils:
         pred[0, 6] = 0.01
 
         exact_candidate_counts = []
-        original_rotated_nms = yolo9_utils._rotated_nms_keep_indices
+        original_rotated_nms = yolo9_postprocess_mod._rotated_nms_keep_indices
 
         def wrapped_rotated_nms(xywhr, scores, class_ids, iou_thres, max_det):
             exact_candidate_counts.append(int(scores.numel()))
             return original_rotated_nms(xywhr, scores, class_ids, iou_thres, max_det)
 
+        # Patch the postprocess module — that's where postprocess() resolves it.
         monkeypatch.setattr(
-            yolo9_utils,
+            yolo9_postprocess_mod,
             "_rotated_nms_keep_indices",
             wrapped_rotated_nms,
         )
