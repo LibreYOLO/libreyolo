@@ -455,8 +455,10 @@ class PointValidator(BaseValidator):
                 cls_n_gt[c] = cls_n_gt.get(c, 0) + 1
 
         for threshold in self._dist_thresholds:
-            tp_total, fp_total, fn_total = 0, 0, 0
             dist_tp_list: List[float] = []
+            cls_metrics: Dict[int, Dict[str, int]] = {
+                c: {"tp": 0, "fp": 0, "fn": 0} for c in cls_n_gt
+            }
 
             cls_scored_preds: Dict[int, List[Tuple[float, bool]]] = {}
 
@@ -483,14 +485,16 @@ class PointValidator(BaseValidator):
                         continue
 
                     if n_pred_cls == 0:
-                        fn_total += n_gt_cls
+                        if cls in cls_metrics:
+                            cls_metrics[cls]["fn"] += n_gt_cls
                         continue
 
                     if cls not in cls_scored_preds:
                         cls_scored_preds[cls] = []
 
                     if n_gt_cls == 0:
-                        fp_total += n_pred_cls
+                        if cls in cls_metrics:
+                            cls_metrics[cls]["fp"] += n_pred_cls
                         for score in cls_pred_scores:
                             cls_scored_preds[cls].append((float(score), False))
                         continue
@@ -498,9 +502,10 @@ class PointValidator(BaseValidator):
                     dist_mat = _euclidean_distance_matrix(cls_pred_xy, cls_gt_xy)
                     tp_pairs, fp_idx, fn_idx = _hungarian_match(dist_mat, threshold)
 
-                    tp_total += len(tp_pairs)
-                    fp_total += len(fp_idx)
-                    fn_total += len(fn_idx)
+                    if cls in cls_metrics:
+                        cls_metrics[cls]["tp"] += len(tp_pairs)
+                        cls_metrics[cls]["fp"] += len(fp_idx)
+                        cls_metrics[cls]["fn"] += len(fn_idx)
 
                     if (
                         math.isclose(threshold, self._primary_threshold)
@@ -515,7 +520,22 @@ class PointValidator(BaseValidator):
                     for pi, score in enumerate(cls_pred_scores):
                         cls_scored_preds[cls].append((float(score), pi in matched_pred_set))
 
-            precision, recall, f1 = _precision_recall_f1(tp_total, fp_total, fn_total)
+            per_class_precisions: List[float] = []
+            per_class_recalls: List[float] = []
+            per_class_f1s: List[float] = []
+
+            for cls in cls_n_gt:
+                c_tp = cls_metrics[cls]["tp"]
+                c_fp = cls_metrics[cls]["fp"]
+                c_fn = cls_metrics[cls]["fn"]
+                c_prec, c_rec, c_f1 = _precision_recall_f1(c_tp, c_fp, c_fn)
+                per_class_precisions.append(c_prec)
+                per_class_recalls.append(c_rec)
+                per_class_f1s.append(c_f1)
+
+            precision = float(np.mean(per_class_precisions)) if per_class_precisions else 0.0
+            recall = float(np.mean(per_class_recalls)) if per_class_recalls else 0.0
+            f1 = float(np.mean(per_class_f1s)) if per_class_f1s else 0.0
 
             # Macro-averaging
             per_class_aps: List[float] = []
