@@ -1089,6 +1089,7 @@ class BaseModel(ABC):
             ClassifyValidator,
             DetectionValidator,
             OBBValidator,
+            PointValidator,
             PoseValidator,
             SegmentationValidator,
             SemanticValidator,
@@ -1108,6 +1109,11 @@ class BaseModel(ABC):
             raise ValueError(
                 "Augmented validation does not support pose keypoints yet. "
                 "Use augment=False for pose models."
+            )
+        if augment and self.task == "point":
+            raise ValueError(
+                "Augmented validation does not support point-task models yet. "
+                "Use augment=False for point models."
             )
         if augment and self.task == "semantic":
             raise ValueError(
@@ -1137,13 +1143,10 @@ class BaseModel(ABC):
                 "is out of scope for LibreYOLO. Evaluate upstream at "
                 "https://github.com/Ahmednull/L2CS-Net."
             )
-        if self.task == "point":
-            raise NotImplementedError(
-                "Point validation requires a point-specific validator. "
-                "Point model families should dispatch to their own PointValidator."
-            )
         if self.task == "pose":
             validator_cls = PoseValidator
+        elif self.task == "point":
+            validator_cls = PointValidator
         elif self.task == "segment":
             validator_cls = SegmentationValidator
         elif self.task == "semantic":

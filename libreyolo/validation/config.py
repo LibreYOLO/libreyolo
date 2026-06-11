@@ -82,6 +82,9 @@ class ValidationConfig:
     images_dir: Optional[str] = None
     oks_sigmas: Optional[List[float]] = None
 
+    # Point validation
+    dist_thresholds: Optional[List[float]] = None
+
     def __post_init__(self) -> None:
         if (
             self.data is None

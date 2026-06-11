@@ -48,3 +48,56 @@ def test_final_epoch_validation_not_forced_when_plots_disabled():
     )
 
     assert trainer._should_validate_epoch(4) is False
+
+
+def test_trainer_validation_routes_point_task(monkeypatch):
+    import torch
+
+    class _DummyPointValidator:
+        def __init__(self, model, config):
+            self._primary_threshold = 0.02
+            self.model = model
+            self.config = config
+
+        def run(self):
+            return {
+                "metrics/precision": 0.85,
+                "metrics/recall": 0.75,
+                "metrics/f1": 0.80,
+                "metrics/mAP@0.02": 0.70,
+                "metrics/mAP@[0.01:0.10]": 0.65,
+                "fitness": 0.65,
+            }
+
+    monkeypatch.setattr("libreyolo.validation.PointValidator", _DummyPointValidator)
+
+    trainer = _make_trainer(
+        SimpleNamespace(
+            data="data.yaml",
+            batch=4,
+            imgsz=128,
+            amp=False,
+            workers=0,
+            save_plots=False,
+        )
+    )
+    trainer.device = torch.device("cpu")
+    trainer.is_distributed = False
+    trainer.ema_model = None
+    trainer.model = SimpleNamespace(state_dict=lambda: {})
+    
+    trainer.wrapper_model = SimpleNamespace(
+        task="point",
+        model=trainer.model,
+    )
+    
+    trainer._is_final_epoch = lambda epoch: False
+    trainer.save_dir = SimpleNamespace()
+    trainer._scalar_mapping = lambda x: x
+
+    result = trainer._run_validation(0)
+
+    assert result is not None
+    assert result["best_metric_key"] == "fitness"
+    assert result["best_metric"] == pytest.approx(0.65)
+    assert result["mAP50"] == pytest.approx(0.70)
