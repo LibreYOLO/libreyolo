@@ -57,6 +57,12 @@ def _make_validator_for_parsing(imgsz: int = 100) -> PointValidator:
         uses_letterbox = False
 
     v.val_preproc = _FakePreproc()
+
+    class _MockModel:
+        def _parse_gt_points(self, gt_row, orig_h, orig_w, validator):
+            return validator.parse_gt_points_from_boxes(gt_row, orig_h, orig_w)
+    v.model = _MockModel()
+
     return v
 
 
@@ -88,6 +94,9 @@ class _DummyPointModel:
         return {
             "points": [[32.0, 32.0, 0.0, 0.99]],
         }
+
+    def _parse_gt_points(self, gt_row, orig_h, orig_w, validator):
+        return validator.parse_gt_points_from_boxes(gt_row, orig_h, orig_w)
 
 
 def _write_point_dataset(root: Path) -> Path:
@@ -339,11 +348,12 @@ def test_point_validator_edge_loose_threshold_more_tp():
     pred = np.array([[0.10, 0.10]], np.float64)
     gt = np.array([[0.10 + 0.08, 0.10]], np.float64)
 
+    scores = np.array([0.9], dtype=np.float32)
     tp5, fp5, fn5 = _hungarian_match(
-        _euclidean_distance_matrix(pred, gt), threshold=0.05
+        _euclidean_distance_matrix(pred, gt), threshold=0.05, pred_scores=scores
     )
     tp10, fp10, fn10 = _hungarian_match(
-        _euclidean_distance_matrix(pred, gt), threshold=0.10
+        _euclidean_distance_matrix(pred, gt), threshold=0.10, pred_scores=scores
     )
     assert len(tp5) == 0
     assert len(tp10) == 1
@@ -491,6 +501,10 @@ def test_point_validator_parse_gt_letterbox():
     v._actual_imgsz = imgsz
     v.config = type("_Cfg", (), {"verbose": False})()
     v.seen = 0
+    class _MockModel:
+        def _parse_gt_points(self, gt_row, orig_h, orig_w, validator):
+            return validator.parse_gt_points_from_boxes(gt_row, orig_h, orig_w)
+    v.model = _MockModel()
 
     class _LetterboxPreproc:
         uses_letterbox = True
@@ -630,6 +644,10 @@ def test_point_validator_update_metrics_numpy():
     v.nc = 2
     v._actual_imgsz = 640
     v.val_preproc = type("_FakePreproc", (), {"uses_letterbox": False})()
+    class _MockModel:
+        def _parse_gt_points(self, gt_row, orig_h, orig_w, validator):
+            return validator.parse_gt_points_from_boxes(gt_row, orig_h, orig_w)
+    v.model = _MockModel()
 
     preds = [
         {
@@ -657,6 +675,10 @@ def test_point_validator_update_metrics_torch_tensor():
     v.nc = 2
     v._actual_imgsz = 640
     v.val_preproc = type("_FakePreproc", (), {"uses_letterbox": False})()
+    class _MockModel:
+        def _parse_gt_points(self, gt_row, orig_h, orig_w, validator):
+            return validator.parse_gt_points_from_boxes(gt_row, orig_h, orig_w)
+    v.model = _MockModel()
 
     preds = [
         {
@@ -734,7 +756,8 @@ def test_point_validator_hungarian_match_threshold_priority():
     from libreyolo.validation.point_validator import _hungarian_match
 
     dist_mat = np.array([[0.01, 0.04], [0.04, 0.051]], dtype=np.float64)
-    tp_pairs, fp_idx, fn_idx = _hungarian_match(dist_mat, threshold=0.05)
+    pred_scores = np.array([0.9, 0.8], dtype=np.float32)
+    tp_pairs, fp_idx, fn_idx = _hungarian_match(dist_mat, threshold=0.05, pred_scores=pred_scores)
     
     assert len(tp_pairs) == 2
     assert set(tuple(p) for p in tp_pairs.tolist()) == {(0, 1), (1, 0)}
@@ -804,3 +827,21 @@ def test_point_validator_parse_gt_delegates_to_model():
     
     np.testing.assert_allclose(xy, [[0.123, 0.456]])
     assert list(cls) == [42]
+
+
+def test_point_validator_hungarian_match_confidence_priority():
+    """Verify that Hungarian matching prioritizes higher confidence predictions when multiple predictions match a GT."""
+    from libreyolo.validation.point_validator import _hungarian_match
+
+    dist_mat = np.array([[0.04], [0.01]], dtype=np.float64)
+    pred_scores = np.array([0.9, 0.3], dtype=np.float32)
+
+    tp_no_score, _, _ = _hungarian_match(
+        dist_mat, threshold=0.05, pred_scores=np.array([0.5, 0.5], dtype=np.float32)
+    )
+    assert len(tp_no_score) == 1
+    assert tp_no_score[0, 0] == 1
+
+    tp_with_score, _, _ = _hungarian_match(dist_mat, threshold=0.05, pred_scores=pred_scores)
+    assert len(tp_with_score) == 1
+    assert tp_with_score[0, 0] == 0

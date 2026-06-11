@@ -34,7 +34,7 @@ def _euclidean_distance_matrix(
 
 
 def _hungarian_match(
-    dist_matrix: np.ndarray, threshold: float
+    dist_matrix: np.ndarray, threshold: float, pred_scores: np.ndarray
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Apply the Hungarian algorithm and split matches by distance threshold."""
     n_pred, n_gt = dist_matrix.shape
@@ -48,6 +48,7 @@ def _hungarian_match(
 
     cost_matrix = dist_matrix.copy()
     cost_matrix[cost_matrix > threshold] = 1e6
+    cost_matrix = cost_matrix - pred_scores[:, np.newaxis] * 10.0
 
     row_ind, col_ind = linear_sum_assignment(cost_matrix)
 
@@ -394,12 +395,15 @@ class PointValidator(BaseValidator):
         """Convert a padded GT target row into normalised point coordinates."""
         if hasattr(self, "model") and hasattr(self.model, "_parse_gt_points") and callable(self.model._parse_gt_points):
             return self.model._parse_gt_points(gt_row, orig_h, orig_w, validator=self)
-        return self._default_parse_gt_points(gt_row, orig_h, orig_w)
+        raise NotImplementedError(
+            "Point validation ground-truth target parsing is family-specific. "
+            "The model class must implement '_parse_gt_points(gt_row, orig_h, orig_w, validator)'."
+        )
 
-    def _default_parse_gt_points(
+    def parse_gt_points_from_boxes(
         self, gt_row: np.ndarray, orig_h: int, orig_w: int
     ) -> Tuple[np.ndarray, np.ndarray]:
-        """Convert a padded GT target row into normalised point coordinates (default YOLO-box centers)."""
+        """Helper to convert padded GT YOLO box labels into normalised center points."""
         arr = np.asarray(gt_row, dtype=np.float32)
         if arr.ndim == 1:
             arr = arr[np.newaxis, :]
@@ -523,7 +527,9 @@ class PointValidator(BaseValidator):
                         continue
 
                     dist_mat = _euclidean_distance_matrix(cls_pred_xy, cls_gt_xy)
-                    tp_pairs, fp_idx, fn_idx = _hungarian_match(dist_mat, threshold)
+                    tp_pairs, fp_idx, fn_idx = _hungarian_match(
+                        dist_mat, threshold, pred_scores=cls_pred_scores
+                    )
 
                     if cls in cls_metrics:
                         cls_metrics[cls]["tp"] += len(tp_pairs)
