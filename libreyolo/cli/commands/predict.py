@@ -113,7 +113,11 @@ def predict_cmd(
         False, help="FP16 inference (CUDA only, requires model support)"
     ),
     save: bool = typer.Option(False, help="Save annotated images"),
-    batch: int = typer.Option(1, help="Batch size for directories"),
+    batch: int = typer.Option(
+        1,
+        help="Images per forward pass for directory sources "
+        "(batch > 1 runs true batched inference on supported models)",
+    ),
     tiling: bool = typer.Option(False, help="Tiled inference for large images"),
     overlap_ratio: float = typer.Option(0.2, help="Tile overlap ratio"),
     output_path: Optional[str] = typer.Option(None, help="Explicit output path"),

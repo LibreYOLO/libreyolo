@@ -40,6 +40,7 @@ from ...utils.general import (
     log_saved_result,
     resolve_save_path,
 )
+from ...postprocess.slicing import slice_batch_outputs
 from ...utils.image_loader import ImageInput, ImageLoader
 from ...utils.predict_args import normalize_predict_kwargs
 from ...utils.results import (
@@ -103,7 +104,10 @@ class InferenceRunner:
             classes: Filter to specific class IDs.
             max_det: Maximum detections per image.
             save: If True, saves annotated image or video.
-            batch: Batch size for directory processing.
+            batch: Images per forward pass for directory and list sources.
+                With batch > 1, supported families run a single stacked
+                forward per chunk (true batched inference); batch=1 keeps
+                the sequential one-forward-per-image behavior.
             stream: If True, return a generator yielding per-frame Results.
                 Recommended for video to avoid high memory usage.
             vid_stride: Process every N-th video frame (default: 1).
@@ -294,7 +298,40 @@ class InferenceRunner:
         augment: bool = False,
         **kwargs,
     ) -> List[Results]:
-        """Process multiple images (file paths or in-memory) sequentially."""
+        """Process multiple images (file paths or in-memory).
+
+        With ``batch > 1`` — and no tiling/TTA — each chunk of ``batch``
+        images runs as one stacked forward pass; the batched output is
+        sliced back per image and fed to the family's existing batch-1
+        postprocess. Otherwise images run sequentially, one forward each.
+        """
+        use_batched = (
+            batch > 1
+            and not tiling
+            and not (augment and getattr(self.model, "TTA_ENABLED", False))
+            and getattr(self.model, "SUPPORTS_BATCHED_PREDICT", False)
+        )
+        if use_batched:
+            results = []
+            for start in range(0, len(images), batch):
+                results.extend(
+                    self._predict_batch(
+                        images[start : start + batch],
+                        start_idx=start,
+                        save=save,
+                        output_path=output_path,
+                        conf=conf,
+                        iou=iou,
+                        imgsz=imgsz,
+                        classes=classes,
+                        max_det=max_det,
+                        color_format=color_format,
+                        output_file_format=output_file_format,
+                        **kwargs,
+                    )
+                )
+            return results
+
         results = []
         for idx, image in enumerate(images):
             # In-memory images have no filename to derive a save name from;
@@ -355,6 +392,104 @@ class InferenceRunner:
                         **kwargs,
                     )
                 )
+        return results
+
+    def _predict_batch(
+        self,
+        chunk: Sequence[ImageInput],
+        start_idx: int,
+        save: bool = False,
+        output_path: str | None = None,
+        conf: float = 0.25,
+        iou: float = 0.45,
+        imgsz: Optional[int] = None,
+        classes: Optional[List[int]] = None,
+        max_det: int = 300,
+        color_format: str = "auto",
+        output_file_format: Optional[str] = None,
+        **kwargs,
+    ) -> List[Results]:
+        """Run one stacked forward pass over a chunk of images.
+
+        Mirrors ``_predict_single`` step for step; the only difference is
+        that the chunk's preprocessed tensors are concatenated into a single
+        batch for the forward pass and the output is sliced back per image.
+        ``start_idx`` is the chunk's offset in the full source list, used for
+        the indexed save names of in-memory images.
+        """
+        effective_imgsz = imgsz if imgsz is not None else self.model._get_input_size()
+        kwargs["input_size"] = effective_imgsz
+
+        preprocessed = []
+        for image in chunk:
+            input_tensor, original_img, original_size, ratio = self.model._preprocess(
+                image, color_format, input_size=effective_imgsz
+            )
+            preprocessed.append(
+                (input_tensor, original_img, original_size, ratio, image)
+            )
+
+        tensors = [item[0] for item in preprocessed]
+        stackable = all(
+            isinstance(t, torch.Tensor) and t.dim() == 4 and t.shape == tensors[0].shape
+            for t in tensors
+        )
+        if not stackable:
+            # Preprocess did not yield uniform (1, C, H, W) tensors; keep
+            # correctness over speed and run the chunk sequentially.
+            return [
+                self._predict_single(
+                    image,
+                    save=save,
+                    output_path=output_path,
+                    conf=conf,
+                    iou=iou,
+                    imgsz=imgsz,
+                    classes=classes,
+                    max_det=max_det,
+                    color_format=color_format,
+                    output_file_format=output_file_format,
+                    save_stem=(
+                        None
+                        if isinstance(image, (str, Path))
+                        else f"image{start_idx + offset}"
+                    ),
+                    **kwargs,
+                )
+                for offset, image in enumerate(chunk)
+            ]
+
+        stacked = torch.cat(tensors, dim=0)
+        with torch.no_grad():
+            output = self.model._forward(stacked.to(self.model.device))
+
+        results = []
+        for offset, (_, original_img, original_size, ratio, image) in enumerate(
+            preprocessed
+        ):
+            detections = self.model._postprocess(
+                slice_batch_outputs(output, offset),
+                conf,
+                iou,
+                original_size,
+                max_det=max_det,
+                ratio=ratio,
+                classes=classes,
+                **kwargs,
+            )
+            image_path = image if isinstance(image, (str, Path)) else None
+            result = self._wrap_results(detections, original_size, image_path, classes)
+            if save:
+                ext = output_file_format or "jpg"
+                save_path = resolve_save_path(
+                    output_path,
+                    image_path
+                    if image_path is not None
+                    else f"image{start_idx + offset}",
+                    ext=ext,
+                )
+                self._save_annotated_image(result, original_img, save_path)
+            results.append(result)
         return results
 
     def _save_annotated_image(self, result: Results, original_img, save_path: Path) -> None:

@@ -118,6 +118,12 @@ class BaseModel(ABC):
     val_preprocessor_class = StandardValPreprocessor
     EXPERIMENTAL_WEIGHT_FILENAMES: ClassVar[frozenset[str]] = frozenset()
 
+    # Batched-predict policy — True when ``_preprocess`` yields stackable
+    # (1, C, H, W) tensors and every tensor in the ``_forward`` output keeps
+    # a leading batch dim (the contract batched validation already relies
+    # on). Set False where that does not hold (e.g. generative VLMs).
+    SUPPORTS_BATCHED_PREDICT: ClassVar[bool] = True
+
     # TTA policy — subclasses may override
     TTA_ENABLED: ClassVar[bool] = True
     # True for families that resize to a fixed square regardless of input size

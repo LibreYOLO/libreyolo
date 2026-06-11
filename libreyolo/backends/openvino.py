@@ -100,6 +100,7 @@ class OpenVINOBackend(BaseBackend):
 
         core = ov.Core()
         ov_model = core.read_model(str(xml_path))
+        self._dynamic_batch_axis = self._detect_dynamic_batch_axis(ov_model)
         self.compiled_model = core.compile_model(ov_model, ov_device)
 
         static_imgsz = self._read_static_input_imgsz(ov_model)
@@ -118,6 +119,21 @@ class OpenVINOBackend(BaseBackend):
             supported_tasks=supported_tasks,
             default_task=default_task,
         )
+
+    @staticmethod
+    def _detect_dynamic_batch_axis(ov_model) -> bool:
+        """True when the model input declares a dynamic batch dimension.
+
+        OpenVINO models converted from dynamic-axes ONNX keep the symbolic
+        batch dim and accept stacked (N, C, H, W) blobs as-is.
+        """
+        try:
+            return bool(ov_model.inputs[0].get_partial_shape()[0].is_dynamic)
+        except Exception:
+            return False
+
+    def _supports_batched_inference(self) -> bool:
+        return self._dynamic_batch_axis and not getattr(self, "embedded_nms", False)
 
     @staticmethod
     def _read_static_input_imgsz(ov_model) -> ImageSize | None:

@@ -8,6 +8,7 @@ import numpy as np
 import torch
 from torch.utils.data import DataLoader
 
+from ..postprocess.slicing import slice_batch_outputs
 from .base import BaseValidator
 from .config import ValidationConfig
 
@@ -393,34 +394,7 @@ class DetectionValidator(BaseValidator):
 
     def _slice_batch_predictions(self, preds: Any, batch_idx: int) -> Any:
         """Extract predictions for a single image from batched model output."""
-        if isinstance(preds, dict):
-            sliced = {}
-            for key, value in preds.items():
-                if isinstance(value, dict):
-                    sliced[key] = {
-                        k: v[batch_idx : batch_idx + 1]
-                        if isinstance(v, torch.Tensor)
-                        else v
-                        for k, v in value.items()
-                    }
-                elif isinstance(value, torch.Tensor):
-                    sliced[key] = value[batch_idx : batch_idx + 1]
-                else:
-                    sliced[key] = value
-            return sliced
-        elif isinstance(preds, torch.Tensor):
-            return preds[batch_idx : batch_idx + 1]
-        elif isinstance(preds, (list, tuple)):
-            # Recurse so nested list-of-tensor outputs (e.g. PICODET's per-level
-            # ``(List[cls_scores], List[bbox_preds])``) are sliced too. Without
-            # this every per-image postprocess gets the full batch's tensors
-            # and ``[0]``-indexing yields the first image's slice for every
-            # image in the batch.
-            return type(preds)(
-                self._slice_batch_predictions(p, batch_idx) for p in preds
-            )
-        else:
-            return preds
+        return slice_batch_outputs(preds, batch_idx)
 
     def _det_from_result(self, result) -> Dict[str, torch.Tensor]:
         """Convert a Results object (from _predict_augment) to a detection dict."""
