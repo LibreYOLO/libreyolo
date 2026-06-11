@@ -86,10 +86,7 @@ class _DummyPointModel:
 
     def _postprocess(self, *args, **kwargs):
         return {
-            "points": [[32.0, 32.0]],
-            "scores": [0.99],
-            "classes": [0],
-            "num_detections": 1,
+            "points": [[32.0, 32.0, 0.0, 0.99]],
         }
 
 
@@ -575,9 +572,9 @@ def test_point_validator_class_aware_partial_overlap():
     )
     v = _make_validator_with_records([rec])
     m = v._compute_metrics()
-    assert m["metrics/precision"] == pytest.approx(0.5)
-    assert m["metrics/recall"]    == pytest.approx(0.5)
-    assert m["metrics/f1"]        == pytest.approx(0.5)
+    assert m["metrics/precision"] == pytest.approx(1 / 3)
+    assert m["metrics/recall"]    == pytest.approx(1 / 3)
+    assert m["metrics/f1"]        == pytest.approx(1 / 3)
 
 
 def test_point_validator_class_aware_map_macro_averaging():
@@ -730,3 +727,80 @@ def test_point_validator_requires_data_config():
     with pytest.raises(ValueError, match="PointValidator requires data=.* or data_dir="):
         validator = PointValidator(_DummyPointModel(), ValidationConfig(data=None, data_dir=None, keypoints_json="unused.json"))
         validator._setup_dataloader()
+
+
+def test_point_validator_hungarian_match_threshold_priority():
+    """Verify that Hungarian matching prioritizes maximizing valid matches under threshold."""
+    from libreyolo.validation.point_validator import _hungarian_match
+
+    dist_mat = np.array([[0.01, 0.04], [0.04, 0.051]], dtype=np.float64)
+    tp_pairs, fp_idx, fn_idx = _hungarian_match(dist_mat, threshold=0.05)
+    
+    assert len(tp_pairs) == 2
+    assert set(tuple(p) for p in tp_pairs.tolist()) == {(0, 1), (1, 0)}
+
+
+def test_point_validator_ap_zero_when_all_predictions_false():
+    """Verify that AP is exactly 0.0 when all predictions are false positives."""
+    scores = np.array([0.9, 0.8, 0.7], dtype=np.float32)
+    matched = np.array([False, False, False], dtype=bool)
+    ap = _average_precision_at_threshold(scores, matched, n_gt_total=3)
+    assert ap == 0.0
+
+
+def test_point_validator_postprocess_standard_payload_shape():
+    """Verify that postprocessing correctly parses standard (N, 4) points payload format."""
+    v = object.__new__(PointValidator)
+    v.config = type("_Cfg", (), {"conf_thres": 0.25, "iou_thres": 0.45, "max_det": 100})()
+    
+    class _FakeModel:
+        task = "point"
+        def _postprocess(self, *args, **kwargs):
+            return {
+                "points": [[32.0, 16.0, 1.0, 0.95], [48.0, 48.0, 0.0, 0.82]],
+            }
+    v.model = _FakeModel()
+    v._actual_imgsz = 64
+    v.val_preproc = type("_FakePreproc", (), {"uses_letterbox": False})()
+    
+    batch = (None, None, [(64, 64)], None)
+    results = v._postprocess_predictions(None, batch)
+    
+    assert len(results) == 1
+    res = results[0]
+    np.testing.assert_allclose(res["xy_norm"], [[0.5, 0.25], [0.75, 0.75]])
+    assert list(res["classes"]) == [1, 0]
+    np.testing.assert_allclose(res["scores"], [0.95, 0.82], atol=1e-6)
+
+
+def test_point_validator_fp_for_class_without_gt():
+    """Verify that prediction-only classes (without ground truth in split) accumulate FPs and are penalized."""
+    rec = _ImageRecord(
+        pred_xy=np.array([[0.5, 0.5]], np.float64),
+        pred_scores=np.array([0.9], np.float32),
+        pred_classes=np.array([1], np.int64),
+        gt_xy=np.array([[0.5, 0.5]], np.float64),
+        gt_classes=np.array([0], np.int64),
+    )
+    v = _make_validator_with_records([rec])
+    v.nc = 2
+    m = v._compute_metrics()
+    
+    assert m["metrics/precision"] == pytest.approx(0.0)
+    assert m["metrics/recall"]    == pytest.approx(0.0)
+    assert m["metrics/f1"]        == pytest.approx(0.0)
+
+
+def test_point_validator_parse_gt_delegates_to_model():
+    """Verify that _parse_gt_points delegates to the model if it implements it."""
+    v = _make_validator_for_parsing()
+    
+    class _CustomModel:
+        def _parse_gt_points(self, gt_row, orig_h, orig_w, validator):
+            return np.array([[0.123, 0.456]], np.float64), np.array([42], np.int64)
+            
+    v.model = _CustomModel()
+    xy, cls = v._parse_gt_points(None, orig_h=100, orig_w=100)
+    
+    np.testing.assert_allclose(xy, [[0.123, 0.456]])
+    assert list(cls) == [42]

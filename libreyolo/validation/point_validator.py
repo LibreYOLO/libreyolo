@@ -46,9 +46,11 @@ def _hungarian_match(
             np.arange(n_gt, dtype=np.int64),
         )
 
-    row_ind, col_ind = linear_sum_assignment(dist_matrix)
+    cost_matrix = dist_matrix.copy()
+    cost_matrix[cost_matrix > threshold] = 1e6
 
-    # Keep only pairs within the distance threshold
+    row_ind, col_ind = linear_sum_assignment(cost_matrix)
+
     dists = dist_matrix[row_ind, col_ind]
     valid = dists <= threshold
     tp_pairs = np.stack([row_ind[valid], col_ind[valid]], axis=1).astype(np.int64)
@@ -85,7 +87,7 @@ def _average_precision_at_threshold(
     n_gt_total: int,
 ) -> float:
     """Compute AP via the area under the precision-recall curve. Implements the 101-point interpolated AP."""
-    if n_gt_total == 0:
+    if n_gt_total == 0 or not np.any(all_pred_matched):
         return 0.0
 
     order = np.argsort(-all_pred_scores)
@@ -300,27 +302,33 @@ class PointValidator(BaseValidator):
                 max_det=self.config.max_det,
             )
 
-            if result.get("num_detections", 0) > 0 and "points" in result:
+            if "points" in result:
                 pts = result["points"]
                 if isinstance(pts, torch.Tensor):
                     pts = pts.cpu().numpy()
                 pts = np.asarray(pts, dtype=np.float64)
 
-                raw_scores = result.get("scores", np.ones(len(pts), np.float32))
-                raw_cls = result.get("classes", np.zeros(len(pts), int))
+                if pts.ndim == 1 and len(pts) == 4:
+                    pts = pts[np.newaxis, :]
 
-                if isinstance(raw_scores, torch.Tensor):
-                    raw_scores = raw_scores.cpu().numpy()
-                if isinstance(raw_cls, torch.Tensor):
-                    raw_cls = raw_cls.cpu().numpy()
+                if pts.ndim == 2 and pts.shape[1] == 4:
+                    xy_pixels = pts[:, :2]
+                    classes = pts[:, 2].astype(np.int64)
+                    scores = pts[:, 3].astype(np.float32)
+                else:
+                    xy_pixels = np.zeros((0, 2), dtype=np.float64)
+                    scores = np.zeros(0, dtype=np.float32)
+                    classes = np.zeros(0, dtype=np.int64)
 
-                scores = np.asarray(raw_scores, dtype=np.float32)
-                classes = np.asarray(raw_cls, dtype=np.int64)
-
-                xy_norm = pts.copy()
-                xy_norm[:, 0] = xy_norm[:, 0] / float(orig_w)
-                xy_norm[:, 1] = xy_norm[:, 1] / float(orig_h)
-                xy_norm = np.clip(xy_norm, 0.0, 1.0)
+                if len(xy_pixels) > 0:
+                    xy_norm = xy_pixels.copy()
+                    xy_norm[:, 0] = xy_norm[:, 0] / float(orig_w)
+                    xy_norm[:, 1] = xy_norm[:, 1] / float(orig_h)
+                    xy_norm = np.clip(xy_norm, 0.0, 1.0)
+                else:
+                    xy_norm = np.zeros((0, 2), dtype=np.float64)
+                    scores = np.zeros(0, dtype=np.float32)
+                    classes = np.zeros(0, dtype=np.int64)
             else:
                 xy_norm = np.zeros((0, 2), dtype=np.float64)
                 scores = np.zeros(0, dtype=np.float32)
@@ -384,6 +392,14 @@ class PointValidator(BaseValidator):
         self, gt_row: np.ndarray, orig_h: int, orig_w: int
     ) -> Tuple[np.ndarray, np.ndarray]:
         """Convert a padded GT target row into normalised point coordinates."""
+        if hasattr(self, "model") and hasattr(self.model, "_parse_gt_points") and callable(self.model._parse_gt_points):
+            return self.model._parse_gt_points(gt_row, orig_h, orig_w, validator=self)
+        return self._default_parse_gt_points(gt_row, orig_h, orig_w)
+
+    def _default_parse_gt_points(
+        self, gt_row: np.ndarray, orig_h: int, orig_w: int
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        """Convert a padded GT target row into normalised point coordinates (default YOLO-box centers)."""
         arr = np.asarray(gt_row, dtype=np.float32)
         if arr.ndim == 1:
             arr = arr[np.newaxis, :]
@@ -450,14 +466,21 @@ class PointValidator(BaseValidator):
         map_at_thresholds: List[float] = []
 
         cls_n_gt: Dict[int, int] = {}
+        cls_n_pred: Dict[int, int] = {}
         for rec in self._records:
             for c in rec.gt_classes.tolist():
                 cls_n_gt[c] = cls_n_gt.get(c, 0) + 1
+            for c in rec.pred_classes.tolist():
+                cls_n_pred[c] = cls_n_pred.get(c, 0) + 1
+
+        evaluated_classes = sorted(
+            set(cls_n_gt.keys()) | set(cls_n_pred.keys())
+        )
 
         for threshold in self._dist_thresholds:
             dist_tp_list: List[float] = []
             cls_metrics: Dict[int, Dict[str, int]] = {
-                c: {"tp": 0, "fp": 0, "fn": 0} for c in cls_n_gt
+                c: {"tp": 0, "fp": 0, "fn": 0} for c in evaluated_classes
             }
 
             cls_scored_preds: Dict[int, List[Tuple[float, bool]]] = {}
@@ -524,7 +547,7 @@ class PointValidator(BaseValidator):
             per_class_recalls: List[float] = []
             per_class_f1s: List[float] = []
 
-            for cls in cls_n_gt:
+            for cls in evaluated_classes:
                 c_tp = cls_metrics[cls]["tp"]
                 c_fp = cls_metrics[cls]["fp"]
                 c_fn = cls_metrics[cls]["fn"]
@@ -539,9 +562,12 @@ class PointValidator(BaseValidator):
 
             # Macro-averaging
             per_class_aps: List[float] = []
-            for cls, n_gt in cls_n_gt.items():
+            for cls in evaluated_classes:
+                n_gt = cls_n_gt.get(cls, 0)
                 pairs = cls_scored_preds.get(cls, [])
-                if not pairs:
+                if n_gt == 0:
+                    per_class_aps.append(0.0)
+                elif not pairs:
                     per_class_aps.append(0.0)
                 else:
                     scores_arr = np.array([s for s, _ in pairs], dtype=np.float64)
