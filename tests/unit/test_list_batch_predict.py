@@ -111,6 +111,22 @@ def test_runner_list_save_uses_indexed_filenames(tmp_path):
     assert sorted(p.name for p in out_dir.iterdir()) == ["image0.jpg", "image1.jpg"]
 
 
+def test_runner_tiling_list_save_uses_indexed_filenames(tmp_path):
+    """The tiling branch must thread save_stem through its fallbacks too."""
+    runner = InferenceRunner(_StubModel())
+    out_dir = tmp_path / "out"
+    # 16px images are below the 32px stub input size, so _predict_tiled takes
+    # its small-image fallback into _predict_single.
+    images = [
+        np.zeros((16, 16, 3), dtype=np.uint8),
+        np.zeros((16, 16, 3), dtype=np.uint8),
+    ]
+
+    runner(images, tiling=True, save=True, output_path=str(out_dir))
+
+    assert sorted(p.name for p in out_dir.iterdir()) == ["image0.jpg", "image1.jpg"]
+
+
 # =============================================================================
 # Exported-backend pipeline (BaseBackend and TensorRT batching)
 # =============================================================================
@@ -374,11 +390,13 @@ def _rand_images(seed, sizes):
     return [rng.integers(0, 255, size=(h, w, 3), dtype=np.uint8) for h, w in sizes]
 
 
-def _assert_results_parity(sequential, batched):
+def _assert_results_parity(sequential, batched, require_detections=False):
     assert len(sequential) == len(batched)
     for r_seq, r_bat in zip(sequential, batched):
         assert r_seq.orig_shape == r_bat.orig_shape
         assert len(r_seq) == len(r_bat)
+        if require_detections:
+            assert len(r_seq) > 0, "parity comparison has no detections to compare"
         if r_seq.boxes is not None and len(r_seq) > 0:
             torch.testing.assert_close(
                 r_seq.boxes.xyxy, r_bat.boxes.xyxy, rtol=1e-3, atol=1e-3
@@ -398,7 +416,9 @@ def _assert_results_parity(sequential, batched):
 
 
 @pytest.mark.parametrize("task", ["detect", "segment", "pose"])
-def test_yolo9_batched_predict_matches_sequential(task):
+def test_yolo9_batched_predict_smoke_matches_sequential(task):
+    """Full real forward+postprocess smoke; random-init weights rarely clear
+    conf=0.25, so numeric coverage lives in the marker-routing tests below."""
     from libreyolo import LibreYOLO9
 
     torch.manual_seed(0)
@@ -410,6 +430,134 @@ def test_yolo9_batched_predict_matches_sequential(task):
     batched = model(images, conf=0.25, batch=2, imgsz=64)
 
     _assert_results_parity(sequential, batched)
+
+
+def test_yolo9_segment_batched_routing_with_marker_outputs():
+    """Deterministic per-image routing proof for boxes, classes, and masks.
+
+    The forward is replaced with a hand-marked batched dict: image i's slice
+    carries score s_i on anchor a_i / class c_i, and a proto/coefficient pair
+    that decodes to a full mask only when image i is paired with its own
+    proto. Any cross-image slicing mistake yields the wrong class/score or an
+    empty mask.
+    """
+    from libreyolo import LibreYOLO9
+
+    torch.manual_seed(0)
+    model = LibreYOLO9(None, size="t", task="segment", device="cpu")
+    model.model.eval()
+    with torch.no_grad():
+        template = model._forward(torch.zeros(3, 3, 64, 64))
+
+    preds = torch.zeros_like(template["predictions"])  # (3, 4+nc, A)
+    coeffs = torch.zeros_like(template["mask_coeffs"])  # (3, 32, A)
+    proto = torch.full_like(template["proto"], -8.0)  # (3, 32, Hp, Wp)
+    box_input = torch.tensor([8.0, 8.0, 40.0, 40.0])
+    anchors, classes_, scores = (10, 11, 12), (0, 5, 10), (0.9, 0.8, 0.7)
+    for i, (a_i, c_i, s_i) in enumerate(zip(anchors, classes_, scores)):
+        preds[i, 0:4, a_i] = box_input
+        preds[i, 4 + c_i, a_i] = s_i
+        coeffs[i, i, a_i] = 8.0
+        proto[i, i] = 8.0
+    marked = {"predictions": preds, "proto": proto, "mask_coeffs": coeffs}
+
+    def fake_forward(tensor):
+        assert tuple(tensor.shape) == (3, 3, 64, 64), "expected one stacked forward"
+        return marked
+
+    model._forward = fake_forward
+    sizes = [(64, 64), (32, 32), (16, 16)]
+    images = [np.zeros((h, w, 3), dtype=np.uint8) for h, w in sizes]
+
+    results = model(images, batch=3, imgsz=64, conf=0.25)
+
+    for i, (result, (orig_h, orig_w)) in enumerate(zip(results, sizes)):
+        assert len(result) == 1
+        assert int(result.boxes.cls[0]) == classes_[i]
+        torch.testing.assert_close(
+            result.boxes.conf[0], torch.tensor(scores[i]), rtol=1e-5, atol=1e-6
+        )
+        ratio = min(64 / orig_h, 64 / orig_w)
+        torch.testing.assert_close(
+            result.boxes.xyxy[0], box_input / ratio, rtol=1e-5, atol=1e-4
+        )
+        assert result.masks is not None
+        assert result.masks.data.sum() > 0, (
+            "empty mask: image was decoded with another image's proto"
+        )
+
+
+def test_yolo9_pose_batched_routing_with_marker_outputs():
+    """Deterministic per-image routing proof for keypoints under batching."""
+    from libreyolo import LibreYOLO9
+
+    torch.manual_seed(0)
+    model = LibreYOLO9(None, size="t", task="pose", device="cpu")
+    model.model.eval()
+    with torch.no_grad():
+        template = model._forward(torch.zeros(3, 3, 64, 64))
+
+    preds = torch.zeros_like(template["predictions"])  # (3, 5, A)
+    kpts = torch.zeros_like(template["keypoints"])  # (3, A, 17, 3)
+    box_input = torch.tensor([8.0, 8.0, 40.0, 40.0])
+    anchors, scores = (10, 11, 12), (0.9, 0.8, 0.7)
+    kpt_xs = (20.0, 24.0, 28.0)
+    for i, (a_i, s_i, x_i) in enumerate(zip(anchors, scores, kpt_xs)):
+        preds[i, 0:4, a_i] = box_input
+        preds[i, 4, a_i] = s_i
+        kpts[i, a_i, :, 0] = x_i
+        kpts[i, a_i, :, 1] = 24.0
+        kpts[i, a_i, :, 2] = 0.9
+    marked = {"predictions": preds, "keypoints": kpts}
+
+    def fake_forward(tensor):
+        assert tuple(tensor.shape) == (3, 3, 64, 64), "expected one stacked forward"
+        return marked
+
+    model._forward = fake_forward
+    sizes = [(64, 64), (32, 32), (16, 16)]
+    images = [np.zeros((h, w, 3), dtype=np.uint8) for h, w in sizes]
+
+    results = model(images, batch=3, imgsz=64, conf=0.25)
+
+    for i, (result, (orig_h, orig_w)) in enumerate(zip(results, sizes)):
+        assert len(result) == 1
+        ratio = min(64 / orig_h, 64 / orig_w)
+        assert result.keypoints is not None
+        kpt = result.keypoints.data[0]  # (17, 3)
+        torch.testing.assert_close(
+            kpt[:, 0],
+            torch.full((17,), kpt_xs[i] / ratio),
+            rtol=1e-5,
+            atol=1e-4,
+        )
+        # Keypoint confidence is not rescaled by original size.
+        torch.testing.assert_close(
+            kpt[:, 2], torch.full((17,), 0.9), rtol=1e-5, atol=1e-6
+        )
+
+
+def test_batched_gate_skips_train_mode_models():
+    """Train-mode BatchNorm would mix chunk-mates; the gate keeps it sequential."""
+
+    class _TrainFlag:
+        training = True
+
+    model = _BatchedStubModel()
+    model.model = _TrainFlag()
+    runner = InferenceRunner(model)
+    images = [np.full((8, 8, 3), v, dtype=np.uint8) for v in (10, 60, 200)]
+
+    results = runner(images, batch=3)
+
+    assert model.forward_shapes == [(1, 3, 32, 32)] * 3
+    assert [float(r.boxes.conf[0]) for r in results] == [10.0, 60.0, 200.0]
+
+    # Flipping to eval restores the stacked path.
+    model.model.training = False
+    model.forward_shapes.clear()
+    runner(images, batch=3)
+    assert model.forward_shapes == [(3, 3, 32, 32)]
 
 
 def test_yolo9_batched_forward_slices_match_single_forwards():
@@ -454,7 +602,7 @@ def test_deimv2_batched_predict_matches_sequential():
     sequential = model(images, conf=0.0, batch=1, max_det=20)
     batched = model(images, conf=0.0, batch=2, max_det=20)
 
-    _assert_results_parity(sequential, batched)
+    _assert_results_parity(sequential, batched, require_detections=True)
 
 
 def test_picodet_batched_predict_matches_sequential():
@@ -468,7 +616,7 @@ def test_picodet_batched_predict_matches_sequential():
     sequential = model(images, conf=0.001, batch=1, max_det=20)
     batched = model(images, conf=0.001, batch=2, max_det=20)
 
-    _assert_results_parity(sequential, batched)
+    _assert_results_parity(sequential, batched, require_detections=True)
 
 
 # =============================================================================
@@ -560,9 +708,16 @@ def test_backend_predict_batch_falls_back_when_runtime_rejects_batch():
     images = [np.full((8, 8, 3), v, dtype=np.uint8) for v in (10, 60, 200)]
     results = BaseBackend._process_in_batches(backend, images, batch=2)
 
-    # Chunk of 2 fails batched, re-runs per image; final chunk of 1 succeeds.
+    # Chunk of 2 fails batched, re-runs per image; final chunk of 1 runs
+    # sequentially because the failure latched batching off.
     assert blob_shapes == [(2, 3, 32, 32), (1, 3, 32, 32), (1, 3, 32, 32), (1, 3, 32, 32)]
     assert [marker for _, marker in results] == [10.0, 60.0, 200.0]
+    assert backend._batched_inference_failed is True
+
+    # Subsequent calls never retry the stacked path.
+    blob_shapes.clear()
+    BaseBackend._process_in_batches(backend, images, batch=2)
+    assert blob_shapes == [(1, 3, 32, 32)] * 3
 
 
 def test_backend_without_batch_support_stays_sequential():
@@ -620,6 +775,46 @@ def test_onnx_supports_batched_inference_flag():
     assert not backend._supports_batched_inference()
 
     backend.embedded_nms = False
+    backend._dynamic_batch_axis = False
+    assert not backend._supports_batched_inference()
+
+
+def test_openvino_detects_dynamic_batch_axis():
+    from libreyolo.backends.openvino import OpenVINOBackend
+
+    class _Dim:
+        def __init__(self, dynamic):
+            self.is_dynamic = dynamic
+
+    class _Input:
+        def __init__(self, dynamic):
+            self._dynamic = dynamic
+
+        def get_partial_shape(self):
+            return [_Dim(self._dynamic)]
+
+    class _Model:
+        def __init__(self, dynamic):
+            self.inputs = [_Input(dynamic)]
+
+    assert OpenVINOBackend._detect_dynamic_batch_axis(_Model(True)) is True
+    assert OpenVINOBackend._detect_dynamic_batch_axis(_Model(False)) is False
+
+    class _Broken:
+        inputs = []
+
+    # API mismatch / older runtimes degrade to "no batching", never raise.
+    assert OpenVINOBackend._detect_dynamic_batch_axis(_Broken()) is False
+
+
+def test_openvino_supports_batched_inference_flag():
+    from libreyolo.backends.openvino import OpenVINOBackend
+
+    backend = OpenVINOBackend.__new__(OpenVINOBackend)
+    backend._dynamic_batch_axis = True
+    backend.embedded_nms = False
+    assert backend._supports_batched_inference()
+
     backend._dynamic_batch_axis = False
     assert not backend._supports_batched_inference()
 

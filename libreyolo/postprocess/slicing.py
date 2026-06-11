@@ -22,6 +22,13 @@ def slice_batch_outputs(output: Any, batch_idx: int) -> Any:
     batch's tensors and ``[0]``-indexing would yield the first image's
     detections for every image in the batch. Non-tensor leaves (flags,
     scalars, ``None``) pass through unchanged.
+
+    Contract note: list/tuple values INSIDE a dict pass through unsliced
+    (matching the long-standing validation behavior this was extracted
+    from). Today no family postprocess reads per-image data from such keys
+    (yolo9 ``raw_outputs``, yolonas ``raw_predictions`` are unread); a new
+    family that does must keep every read key a tensor or nested dict of
+    tensors, or override its slicing.
     """
     if isinstance(output, dict):
         sliced = {}

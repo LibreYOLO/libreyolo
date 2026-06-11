@@ -1699,7 +1699,14 @@ class BaseBackend(ABC):
         of ``batch`` images runs as a single forward pass; otherwise images
         run sequentially.
         """
-        if batch > 1 and self._supports_batched_inference():
+        use_batched = (
+            batch > 1
+            and self._supports_batched_inference()
+            # Latched by _predict_batch after a runtime rejects a stacked
+            # blob, so a long list does not retry (and warn) once per chunk.
+            and not getattr(self, "_batched_inference_failed", False)
+        )
+        if use_batched:
             results = []
             for start in range(0, len(images), batch):
                 results.extend(
@@ -1779,11 +1786,12 @@ class BaseBackend(ABC):
             isinstance(t, torch.Tensor) and t.dim() == 4 and t.shape == tensors[0].shape
             for t in tensors
         )
-        if stackable:
+        if stackable and not getattr(self, "_batched_inference_failed", False):
             blob = np.concatenate([t.numpy() for t in tensors], axis=0)
             try:
                 all_outputs = self._run_inference(blob)
             except Exception as e:
+                self._batched_inference_failed = True
                 logger.warning(
                     "Batched inference failed for %s (%s); falling back to "
                     "sequential processing.",

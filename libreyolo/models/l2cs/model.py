@@ -55,6 +55,9 @@ class LibreL2CS(BaseModel):
 
     # TTA, tiling, and validation all make no sense for two-stage gaze.
     TTA_ENABLED = False
+    # Gaze runs through GazeInferenceRunner (per-face crops), never the
+    # stacked single-forward predict path.
+    SUPPORTS_BATCHED_PREDICT = False
 
     # State-dict fingerprint shared by every L2CS checkpoint.
     _SIGNATURE_KEYS = ("fc_yaw_gaze.weight", "fc_pitch_gaze.weight")

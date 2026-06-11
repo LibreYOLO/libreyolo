@@ -109,7 +109,9 @@ class InferenceRunner:
                 forward per chunk (true batched inference); batch=1 keeps
                 the sequential one-forward-per-image behavior.
             stream: If True, return a generator yielding per-frame Results.
-                Recommended for video to avoid high memory usage.
+                Recommended for video to avoid high memory usage. Applies to
+                video sources only; list and directory sources always return
+                a fully materialized list.
             vid_stride: Process every N-th video frame (default: 1).
             show: If True, display annotated frames in a window (video only).
             output_path: Optional output path.
@@ -310,6 +312,11 @@ class InferenceRunner:
             and not tiling
             and not (augment and getattr(self.model, "TTA_ENABLED", False))
             and getattr(self.model, "SUPPORTS_BATCHED_PREDICT", False)
+            # A train-mode network (weightless init, or predict mid-training)
+            # would normalize the stacked chunk with cross-image BatchNorm
+            # batch statistics, letting chunk-mates change each other's
+            # results; keep per-image forwards there.
+            and not getattr(getattr(self.model, "model", None), "training", False)
         )
         if use_batched:
             results = []
@@ -351,6 +358,10 @@ class InferenceRunner:
                         color_format=color_format,
                         overlap_ratio=overlap_ratio,
                         output_file_format=output_file_format,
+                        # Reaches _predict_single through the small-image and
+                        # classify/semantic fallbacks so in-memory saves stay
+                        # indexed there too.
+                        save_stem=save_stem,
                         **kwargs,
                     )
                 )
@@ -398,6 +409,7 @@ class InferenceRunner:
         self,
         chunk: Sequence[ImageInput],
         start_idx: int,
+        *,
         save: bool = False,
         output_path: str | None = None,
         conf: float = 0.25,

@@ -100,3 +100,41 @@ def test_native_inference_is_stable(family, size, weights, sample_image):
     finally:
         del model
         cuda_cleanup()
+
+
+@pytest.mark.parametrize(
+    "family,size,weights",
+    GENERAL_NIGHTLY_INFERENCE_PARAMS,
+)
+def test_batched_list_predict_matches_sequential(family, size, weights, sample_image):
+    """batch>1 over an in-memory list reproduces sequential results (issue #384).
+
+    Real weights give well-separated scores, so the comparison is immune to
+    the NMS tie-order noise random-init parity tests would suffer from.
+    """
+    if family in ("l2cs", "vlm"):
+        pytest.skip(f"{family} does not use the stacked batched predict path")
+
+    from libreyolo.utils.image_loader import ImageLoader
+
+    weights = require_test_weights(weights, expected_family=family)
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    model = LibreYOLO(weights, size=size, device=device)
+    try:
+        pil = ImageLoader.load(sample_image)
+        images = [pil, pil.rotate(90, expand=True)]
+
+        sequential = model(images, conf=0.25, batch=1)
+        batched = model(images, conf=0.25, batch=2)
+
+        assert len(sequential) == len(batched) == 2
+        _assert_detection_output_is_stable(family, sequential[0], batched[0])
+        for r_seq, r_bat in zip(sequential, batched):
+            assert r_seq.orig_shape == r_bat.orig_shape
+            assert len(r_seq) == len(r_bat), (
+                f"{family} batched detection count diverged: "
+                f"{len(r_seq)} -> {len(r_bat)}"
+            )
+    finally:
+        del model
+        cuda_cleanup()
