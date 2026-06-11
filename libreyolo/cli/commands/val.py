@@ -141,6 +141,41 @@ def val_cmd(
         out.result(data_out)
         return
 
+    if getattr(loaded_model, "task", "detect") == "point":
+        precision = metrics.get("metrics/precision", 0.0)
+        recall = metrics.get("metrics/recall", 0.0)
+        f1 = metrics.get("metrics/f1", 0.0)
+        mle = metrics.get("metrics/MLE", 0.0)
+        mae = metrics.get("metrics/MAE", 0.0)
+        rmse = metrics.get("metrics/RMSE", 0.0)
+        sweep_key = next((k for k in metrics.keys() if k.startswith("metrics/mAP@[")), None)
+        sweep_map = metrics.get(sweep_key, 0.0) if sweep_key else 0.0
+        data_out = {
+            "model": model,
+            "model_family": loaded_model.FAMILY,
+            "data": data,
+            "split": split,
+            "device": str(loaded_model.device),
+            "metrics": {
+                "precision": round(float(precision), 4),
+                "recall": round(float(recall), 4),
+                "f1": round(float(f1), 4),
+                "MLE": round(float(mle), 4),
+                "MAE": round(float(mae), 4),
+                "RMSE": round(float(rmse), 4),
+                "mAP_sweep": round(float(sweep_map), 4),
+            },
+        }
+        if not json_output:
+            data_out["_human_text"] = (
+                f"Validating {loaded_model.FAMILY}-{loaded_model.size} on {data} ({split}):\n"
+                f"  P: {precision:.4f}  R: {recall:.4f}  F1: {f1:.4f}\n"
+                f"  MLE: {mle:.4f}  MAE: {mae:.4f}  RMSE: {rmse:.4f}\n"
+                f"  Sweep mAP: {sweep_map:.4f}"
+            )
+        out.result(data_out)
+        return
+
     # Extract metrics (keys like "metrics/mAP50", "metrics/mAP50-95")
     mAP50 = metrics.get("metrics/mAP50", 0.0)
     mAP50_95 = metrics.get("metrics/mAP50-95", metrics.get("metrics/mAP50_95", 0.0))

@@ -1702,6 +1702,7 @@ class BaseTrainer(ABC):
             from libreyolo.validation import (
                 DetectionValidator,
                 OBBValidator,
+                PointValidator,
                 SegmentationValidator,
                 ValidationConfig,
             )
@@ -1751,6 +1752,8 @@ class BaseTrainer(ABC):
                     validator_cls = SegmentationValidator
                 elif task == "obb":
                     validator_cls = OBBValidator
+                elif task == "point":
+                    validator_cls = PointValidator
                 else:
                     validator_cls = DetectionValidator
                 validator = validator_cls(model=self.wrapper_model, config=val_config)
@@ -1760,13 +1763,20 @@ class BaseTrainer(ABC):
 
             raw_metrics = self._scalar_mapping(results)
             best_key = getattr(self, "best_metric_key", "metrics/mAP50-95")
+            if task == "point" and best_key == "metrics/mAP50-95":
+                best_key = "fitness"
             best_metric = raw_metrics.get(
                 best_key, raw_metrics.get("metrics/mAP50-95", 0.0)
             )
-            metrics = {
-                "mAP50": raw_metrics.get(
+            if task == "point":
+                primary_th = getattr(validator, "_primary_threshold", 0.01)
+                mAP50 = raw_metrics.get(f"metrics/mAP@{primary_th:.2f}", 0.0)
+            else:
+                mAP50 = raw_metrics.get(
                     "metrics/mAP50", raw_metrics.get("metrics/mAP50(B)", 0.0)
-                ),
+                )
+            metrics = {
+                "mAP50": mAP50,
                 "mAP50_95": best_metric,
                 "best_metric": best_metric,
                 "best_metric_key": best_key,

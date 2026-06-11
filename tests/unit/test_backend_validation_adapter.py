@@ -126,6 +126,29 @@ def test_backend_val_routes_pose_to_pose_validator(monkeypatch):
     assert captured["config"].data == "pose.yaml"
 
 
+def test_backend_val_routes_point_to_point_validator(monkeypatch):
+    class _PointBackend(BaseBackend):
+        def __init__(self):
+            super().__init__(
+                model_path="model.onnx",
+                nb_classes=2,
+                device="cpu",
+                imgsz=560,
+                model_family="rfdetr",
+                names={0: "fire", 1: "smoke"},
+                model_size="n",
+                task="point",
+                supported_tasks=("detect", "segment", "pose", "point"),
+                default_task="detect",
+            )
+
+        def _run_inference(self, blob: np.ndarray) -> list:
+            return []
+
+    with pytest.raises(NotImplementedError, match="Exported point-task inference is not implemented yet"):
+        _PointBackend()
+
+
 def test_backend_val_rejects_augment():
     with pytest.raises(ValueError, match="Augmented validation"):
         _Backend().val(data="data.yaml", augment=True)
