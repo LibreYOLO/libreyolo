@@ -25,6 +25,7 @@ from typing import (
 import torch
 from torchvision.ops import batched_nms
 
+from ...postprocess.slicing import slice_batch_outputs
 from ...utils.drawing import (
     draw_boxes,
     draw_keypoints,
@@ -40,7 +41,6 @@ from ...utils.general import (
     log_saved_result,
     resolve_save_path,
 )
-from ...postprocess.slicing import slice_batch_outputs
 from ...utils.image_loader import ImageInput, ImageLoader
 from ...utils.predict_args import normalize_predict_kwargs
 from ...utils.results import (
@@ -302,7 +302,7 @@ class InferenceRunner:
     ) -> List[Results]:
         """Process multiple images (file paths or in-memory).
 
-        With ``batch > 1`` — and no tiling/TTA — each chunk of ``batch``
+        With ``batch > 1`` (and no tiling/TTA) each chunk of ``batch``
         images runs as one stacked forward pass; the batched output is
         sliced back per image and fed to the family's existing batch-1
         postprocess. Otherwise images run sequentially, one forward each.
@@ -443,7 +443,11 @@ class InferenceRunner:
 
         tensors = [item[0] for item in preprocessed]
         stackable = all(
-            isinstance(t, torch.Tensor) and t.dim() == 4 and t.shape == tensors[0].shape
+            isinstance(t, torch.Tensor)
+            and t.dim() == 4
+            and t.shape == tensors[0].shape
+            and t.dtype == tensors[0].dtype
+            and t.device == tensors[0].device
             for t in tensors
         )
         if not stackable:

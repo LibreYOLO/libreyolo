@@ -244,7 +244,7 @@ def test_tensorrt_batched_in_memory_images_keep_path_none_and_indexed_saves():
 
 
 # =============================================================================
-# True batched inference — PyTorch pipeline mechanics
+# True batched inference: PyTorch pipeline mechanics
 # =============================================================================
 
 
@@ -311,7 +311,7 @@ def test_batched_runner_stacks_chunks_and_routes_each_image():
 
     # One stacked forward per chunk: 2 + 1.
     assert model.forward_shapes == [(2, 3, 32, 32), (1, 3, 32, 32)]
-    # Scores carry each image's marker — order and per-image routing held.
+    # Scores carry each image's marker; order and per-image routing held.
     assert [float(r.boxes.conf[0]) for r in results] == [10.0, 60.0, 200.0]
     # Per-image original sizes survived the batched path.
     assert [r.orig_shape for r in results] == [(16, 24), (20, 12), (8, 8)]
@@ -381,7 +381,7 @@ def test_batched_runner_falls_back_when_tensors_not_stackable():
 
 
 # =============================================================================
-# True batched inference — parity against sequential, real models
+# True batched inference: parity against sequential, real models
 # =============================================================================
 
 
@@ -390,13 +390,11 @@ def _rand_images(seed, sizes):
     return [rng.integers(0, 255, size=(h, w, 3), dtype=np.uint8) for h, w in sizes]
 
 
-def _assert_results_parity(sequential, batched, require_detections=False):
+def _assert_results_parity(sequential, batched):
     assert len(sequential) == len(batched)
     for r_seq, r_bat in zip(sequential, batched):
         assert r_seq.orig_shape == r_bat.orig_shape
         assert len(r_seq) == len(r_bat)
-        if require_detections:
-            assert len(r_seq) > 0, "parity comparison has no detections to compare"
         if r_seq.boxes is not None and len(r_seq) > 0:
             torch.testing.assert_close(
                 r_seq.boxes.xyxy, r_bat.boxes.xyxy, rtol=1e-3, atol=1e-3
@@ -589,7 +587,15 @@ def test_yolo9_batched_forward_slices_match_single_forwards():
     )
 
 
-def test_deimv2_batched_predict_matches_sequential():
+def test_deimv2_batched_predict_smoke_matches_sequential():
+    """Real forward smoke with tie-robust assertions.
+
+    Random-init weights make every (query, class) score a near-tie, and
+    stacked vs single forwards can differ bitwise (BLAS path selection,
+    e.g. macOS Accelerate), flipping which rows win top-k. Counts and
+    sorted scores are stable under such flips; exact box parity lives in
+    the marker-routing test below and the real-weights nightly tier.
+    """
     from libreyolo import LibreDEIMv2
 
     torch.manual_seed(0)
@@ -597,15 +603,97 @@ def test_deimv2_batched_predict_matches_sequential():
     model.model.eval()
     images = _rand_images(11, [(48, 64), (64, 48), (32, 32)])
 
-    # conf=0.0 + top-k selection → a fixed number of rows per image, so the
+    # conf=0.0 + top-k selection: a fixed number of rows per image, so the
     # comparison always has signal even with random weights.
     sequential = model(images, conf=0.0, batch=1, max_det=20)
     batched = model(images, conf=0.0, batch=2, max_det=20)
 
-    _assert_results_parity(sequential, batched, require_detections=True)
+    assert len(sequential) == len(batched) == 3
+    for r_seq, r_bat in zip(sequential, batched):
+        assert r_seq.orig_shape == r_bat.orig_shape
+        assert len(r_seq) == len(r_bat) == 20
+        torch.testing.assert_close(
+            r_seq.boxes.conf.sort(descending=True).values,
+            r_bat.boxes.conf.sort(descending=True).values,
+            rtol=1e-3,
+            atol=1e-3,
+        )
 
 
-def test_picodet_batched_predict_matches_sequential():
+def test_deimv2_batched_routing_with_marker_outputs():
+    """Deterministic per-image routing proof for the DETR dict contract.
+
+    The forward is replaced with a hand-marked batched dict: image i's
+    slice carries one hot query at a distinct class/score/box, and each
+    image has a distinct original size. Any cross-image slicing mistake
+    flips the class or score; any original-size routing mistake breaks
+    the box scaling.
+    """
+    from libreyolo import LibreDEIMv2
+
+    torch.manual_seed(0)
+    model = LibreDEIMv2(None, size="atto", device="cpu")
+    model.model.eval()
+
+    num_queries, num_classes = 8, 80
+    logits = torch.full((3, num_queries, num_classes), -10.0)
+    boxes = torch.full((3, num_queries, 4), 0.5)
+    queries, classes_, logit_vals = (2, 4, 6), (0, 3, 7), (2.0, 1.5, 1.0)
+    centers = (0.3, 0.5, 0.7)
+    for i, (q_i, c_i, l_i, cx_i) in enumerate(
+        zip(queries, classes_, logit_vals, centers)
+    ):
+        logits[i, q_i, c_i] = l_i
+        boxes[i, q_i] = torch.tensor([cx_i, 0.5, 0.2, 0.4])
+    marked = {"pred_logits": logits, "pred_boxes": boxes}
+
+    native = model._get_input_size()
+
+    def fake_forward(tensor):
+        assert tuple(tensor.shape) == (
+            3,
+            3,
+            native,
+            native,
+        ), "expected one stacked forward"
+        return marked
+
+    model._forward = fake_forward
+    sizes = [(64, 64), (32, 48), (16, 24)]
+    images = [np.zeros((h, w, 3), dtype=np.uint8) for h, w in sizes]
+
+    results = model(images, batch=3, conf=0.25)
+
+    for i, (result, (orig_h, orig_w)) in enumerate(zip(results, sizes)):
+        assert len(result) == 1
+        assert int(result.boxes.cls[0]) == classes_[i]
+        torch.testing.assert_close(
+            result.boxes.conf[0],
+            torch.tensor(logit_vals[i]).sigmoid(),
+            rtol=1e-5,
+            atol=1e-6,
+        )
+        cx = centers[i]
+        expected = torch.tensor(
+            [
+                (cx - 0.1) * orig_w,
+                (0.5 - 0.2) * orig_h,
+                (cx + 0.1) * orig_w,
+                (0.5 + 0.2) * orig_h,
+            ]
+        )
+        torch.testing.assert_close(
+            result.boxes.xyxy[0], expected, rtol=1e-5, atol=1e-4
+        )
+
+
+def test_picodet_batched_predict_smoke_matches_sequential():
+    """Real forward smoke with tie-robust assertions.
+
+    See the DEIMv2 smoke note: random-init near-ties plus NMS make exact
+    box parity platform-dependent, so this asserts counts and shapes only.
+    Exact parity lives in the real-weights nightly tier.
+    """
     from libreyolo import LibrePICODET
 
     torch.manual_seed(0)
@@ -616,11 +704,15 @@ def test_picodet_batched_predict_matches_sequential():
     sequential = model(images, conf=0.001, batch=1, max_det=20)
     batched = model(images, conf=0.001, batch=2, max_det=20)
 
-    _assert_results_parity(sequential, batched, require_detections=True)
+    assert len(sequential) == len(batched) == 2
+    for r_seq, r_bat in zip(sequential, batched):
+        assert r_seq.orig_shape == r_bat.orig_shape
+        assert len(r_seq) == len(r_bat)
+        assert len(r_seq) > 0, "parity comparison has no detections to compare"
 
 
 # =============================================================================
-# True batched inference — exported-backend pipeline (BaseBackend)
+# True batched inference: exported-backend pipeline (BaseBackend)
 # =============================================================================
 
 
