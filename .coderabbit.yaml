@@ -1,0 +1,28 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+language: "en-US"
+reviews:
+  profile: "assertive"
+  high_level_summary: true
+  poem: false
+  auto_review:
+    enabled: true
+    base_branches:
+      - "dev"
+  path_instructions:
+    - path: "**/*"
+      instructions: |
+        Keep review comments specific, evidence-based, and scoped to the PR
+        under review.
+
+        The project's architecture decisions, schemas, and standards are
+        documented under /docs (checkpoint_schema.md, nomenclature.md,
+        testing.md, adr/) and in CONTRIBUTING.md. Consult them before flagging
+        contract violations.
+
+        Flag any code derived from GPL, AGPL, LGPL, proprietary, or
+        unknown-license sources. Only code originating from MIT or Apache-2.0
+        licensed projects is acceptable.
+
+        Flag unrelated changes bundled into a PR; one PR solves one problem.
+chat:
+  auto_reply: true
