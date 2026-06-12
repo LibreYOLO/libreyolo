@@ -127,6 +127,23 @@ def test_runner_tiling_list_save_uses_indexed_filenames(tmp_path):
     assert sorted(p.name for p in out_dir.iterdir()) == ["image0.jpg", "image1.jpg"]
 
 
+def test_runner_tiling_list_save_indexes_large_image_dirs(tmp_path):
+    """The full tiled path derives its save directory stem from save_stem."""
+    runner = InferenceRunner(_StubModel())
+    out_dir = tmp_path / "out"
+    # 64px images exceed the 32px stub input size, so the real tiled path
+    # runs and writes one timestamped directory per image.
+    images = [
+        np.zeros((64, 64, 3), dtype=np.uint8),
+        np.zeros((64, 64, 3), dtype=np.uint8),
+    ]
+
+    runner(images, tiling=True, save=True, output_path=str(out_dir))
+
+    stems = sorted(p.name.split("_stub_")[0] for p in out_dir.iterdir())
+    assert stems == ["image0", "image1"]
+
+
 # =============================================================================
 # Exported-backend pipeline (BaseBackend and TensorRT batching)
 # =============================================================================
@@ -178,6 +195,7 @@ def test_backend_sequential_batches_pass_indexed_save_stems():
 
 def test_tensorrt_batched_in_memory_images_keep_path_none_and_indexed_saves():
     backend = _bare_backend()
+    backend.task = "detect"
     backend._dynamic_batch = True
     backend._max_batch = 2
     backend.imgsz = 64
@@ -197,7 +215,10 @@ def test_tensorrt_batched_in_memory_images_keep_path_none_and_indexed_saves():
             "labels": np.zeros((batched_input.shape[0], 1, 2), dtype=np.float32),
         }
 
-    def parse_outputs(per_image, imgsz, orig_size, conf, ratio=1.0):
+    seen_parse_kwargs = []
+
+    def parse_outputs(per_image, imgsz, orig_size, conf, ratio=1.0, iou=0.45, max_det=300):
+        seen_parse_kwargs.append({"iou": iou, "max_det": max_det})
         return (
             np.zeros((0, 4), dtype=np.float32),
             np.zeros((0,), dtype=np.float32),
@@ -236,11 +257,15 @@ def test_tensorrt_batched_in_memory_images_keep_path_none_and_indexed_saves():
     backend._save_annotated = save_annotated
 
     images = [np.zeros((8, 8, 3), dtype=np.uint8)] * 3
-    results = backend._process_in_batches(images, batch=2, save=True)
+    results = backend._process_in_batches(
+        images, batch=2, save=True, iou=0.6, max_det=50
+    )
 
     assert len(results) == 3
     assert built_paths == [None, None, None]
     assert saved_names == ["image0", "image1", "image2"]
+    # iou/max_det must reach the parser, mirroring _predict_single.
+    assert seen_parse_kwargs == [{"iou": 0.6, "max_det": 50}] * 3
 
 
 # =============================================================================

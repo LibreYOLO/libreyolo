@@ -407,32 +407,42 @@ class TensorRTBackend(BaseBackend):
                     batch_outputs[name][idx : idx + 1] for name in self.output_names
                 ]
 
-                parsed = self._parse_outputs(
-                    per_image,
-                    effective_imgsz,
-                    orig_size,
-                    conf,
-                    ratio=ratio if ratio is not None else 1.0,
-                )
-                boxes, max_scores, class_ids, masks, obb, keypoints = (
-                    self._unpack_parsed_outputs(parsed)
-                )
-
                 orig_w, orig_h = orig_size
                 orig_shape = (orig_h, orig_w)
-                result = self._build_result(
-                    boxes,
-                    max_scores,
-                    class_ids,
-                    masks=masks,
-                    obb=obb,
-                    keypoints=keypoints,
-                    orig_shape=orig_shape,
-                    image_path=image_path,
-                    iou=iou,
-                    classes=classes,
-                    max_det=max_det,
-                )
+                # Mirror _predict_single: classify exports skip the detection
+                # parser, and iou/max_det reach parsers that apply NMS.
+                if self.task == "classify":
+                    result = self._build_classify_result(
+                        per_image,
+                        orig_shape=orig_shape,
+                        image_path=image_path,
+                    )
+                else:
+                    parsed = self._parse_outputs(
+                        per_image,
+                        effective_imgsz,
+                        orig_size,
+                        conf,
+                        ratio=ratio if ratio is not None else 1.0,
+                        iou=iou,
+                        max_det=max_det,
+                    )
+                    boxes, max_scores, class_ids, masks, obb, keypoints = (
+                        self._unpack_parsed_outputs(parsed)
+                    )
+                    result = self._build_result(
+                        boxes,
+                        max_scores,
+                        class_ids,
+                        masks=masks,
+                        obb=obb,
+                        keypoints=keypoints,
+                        orig_shape=orig_shape,
+                        image_path=image_path,
+                        iou=iou,
+                        classes=classes,
+                        max_det=max_det,
+                    )
 
                 if save:
                     self._save_annotated(result, orig_img, save_name, output_path)

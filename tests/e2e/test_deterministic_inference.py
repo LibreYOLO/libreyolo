@@ -128,13 +128,18 @@ def test_batched_list_predict_matches_sequential(family, size, weights, sample_i
         batched = model(images, conf=0.25, batch=2)
 
         assert len(sequential) == len(batched) == 2
-        _assert_detection_output_is_stable(family, sequential[0], batched[0])
+        assert len(sequential[0]) > 0, f"{family} returned no detections"
         for r_seq, r_bat in zip(sequential, batched):
             assert r_seq.orig_shape == r_bat.orig_shape
             assert len(r_seq) == len(r_bat), (
                 f"{family} batched detection count diverged: "
                 f"{len(r_seq)} -> {len(r_bat)}"
             )
+            # Full box/score/class parity for every image with detections
+            # (the rotated view may legitimately drop to zero for some
+            # families; the count check above still covers it).
+            if len(r_seq) > 0:
+                _assert_detection_output_is_stable(family, r_seq, r_bat)
     finally:
         del model
         cuda_cleanup()

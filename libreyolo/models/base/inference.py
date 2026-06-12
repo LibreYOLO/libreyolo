@@ -69,7 +69,7 @@ class InferenceRunner:
 
     def __call__(
         self,
-        source: ImageInput | Sequence[ImageInput] | None = None,
+        source: ImageInput | list[ImageInput] | tuple[ImageInput, ...] | None = None,
         *,
         conf: float = 0.25,
         iou: float = 0.45,
@@ -930,9 +930,15 @@ class InferenceRunner:
         color_format: str = "auto",
         overlap_ratio: float = 0.2,
         output_file_format: Optional[str] = None,
+        save_stem: Optional[str] = None,
         **kwargs,
     ) -> Results:
-        """Run tiled inference on large images."""
+        """Run tiled inference on large images.
+
+        ``save_stem`` overrides the saved artifact stem for in-memory images
+        (which have no path to derive one from); it is threaded into the
+        single-image fallbacks below and into the tiled save directory name.
+        """
 
         # Tiling is a detection-time technique; for whole-image classification
         # and dense semantic maps it is meaningless, so fall back to a single
@@ -949,6 +955,7 @@ class InferenceRunner:
                 max_det=max_det,
                 color_format=color_format,
                 output_file_format=output_file_format,
+                save_stem=save_stem,
                 **kwargs,
             )
 
@@ -986,6 +993,7 @@ class InferenceRunner:
                 max_det=max_det,
                 color_format=color_format,
                 output_file_format=output_file_format,
+                save_stem=save_stem,
                 **kwargs,
             )
 
@@ -1056,7 +1064,7 @@ class InferenceRunner:
             if isinstance(image_path, (str, Path)):
                 stem = get_safe_stem(image_path)
             else:
-                stem = "inference"
+                stem = save_stem or "inference"
             model_tag = f"{self.model._get_model_name()}_{self.model.size}"
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
 
