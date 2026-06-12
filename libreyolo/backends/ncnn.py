@@ -205,6 +205,17 @@ class NcnnBackend(BaseBackend):
 
     def _run_inference(self, blob: np.ndarray) -> list:
         """Run ncnn inference."""
+        if blob.ndim == 4 and blob.shape[0] != 1:
+            # An ncnn extractor runs one image per forward pass. Without this
+            # guard a stacked blob would silently use only blob[0] and return
+            # a single image's outputs for the whole batch (corrupting, e.g.,
+            # batched validation, which relies on failures to trigger its
+            # per-image fallback).
+            raise ValueError(
+                "NCNNBackend runs one image per forward pass; "
+                f"got batch size {blob.shape[0]}."
+            )
+
         import ncnn as _ncnn
 
         # ncnn.Mat expects a C-contiguous (C, H, W) float32 array.

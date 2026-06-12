@@ -3,7 +3,9 @@
 One module per family. Each module is a collection of pure functions
 (model outputs in -> detections dict out) moved verbatim from the
 family's ``models/<family>/utils.py``; the old import paths keep
-working via re-exports there.
+working via re-exports there. ``slicing.py`` is the one shared,
+family-agnostic module: per-image views of batched forward outputs,
+used by both the validators and batched predict.
 
 Design rule: modules in this package must not import from
 ``libreyolo.models`` at module level. ``libreyolo/models/__init__.py``

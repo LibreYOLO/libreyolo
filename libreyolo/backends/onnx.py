@@ -97,6 +97,11 @@ class OnnxBackend(BaseBackend):
             else None
         )
         input_shape = self.session.get_inputs()[0].shape
+        # Dynamic-batch exports carry a symbolic dim ("batch") or None at
+        # axis 0; static exports carry an int.
+        self._dynamic_batch_axis = bool(input_shape) and not isinstance(
+            input_shape[0], int
+        )
         static_imgsz = self._read_static_input_imgsz(input_shape)
         if static_imgsz is not None:
             imgsz = static_imgsz
@@ -215,6 +220,11 @@ class OnnxBackend(BaseBackend):
             embedded_nms,
             imgsz,
         )
+
+    def _supports_batched_inference(self) -> bool:
+        # Embedded-NMS graphs are exported batch-1; everything else with a
+        # dynamic batch axis accepts stacked blobs directly.
+        return self._dynamic_batch_axis and not self.embedded_nms
 
     def _run_inference(self, blob: np.ndarray) -> list:
         """Run ONNX Runtime inference."""

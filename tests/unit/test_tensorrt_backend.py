@@ -10,10 +10,15 @@ from libreyolo.backends.tensorrt import TensorRTBackend
 pytestmark = pytest.mark.unit
 
 
-def _bare_tensorrt_backend(path: str, model_family: str | None = None):
+def _bare_tensorrt_backend(
+    path: str,
+    model_family: str | None = None,
+    task: str = "detect",
+):
     backend = TensorRTBackend.__new__(TensorRTBackend)
     backend.model_path = path
     backend.model_family = model_family
+    backend.task = task
     backend._sidecar_size = None
     backend.output_names = ["pred_logits", "pred_boxes"]
     backend.output_shapes = {
@@ -140,7 +145,7 @@ def test_tensorrt_dynamic_batching_caps_requested_batch_to_profile():
             "labels": np.zeros((batched_input.shape[0], 1, 2), dtype=np.float32),
         }
 
-    def parse_outputs(per_image, imgsz, orig_size, conf, ratio=1.0):
+    def parse_outputs(per_image, imgsz, orig_size, conf, ratio=1.0, iou=0.45, max_det=300):
         return (
             np.zeros((0, 4), dtype=np.float32),
             np.zeros((0,), dtype=np.float32),
@@ -179,7 +184,9 @@ def test_tensorrt_dynamic_batching_caps_requested_batch_to_profile():
 
 
 def test_tensorrt_dynamic_batching_preserves_pose_keypoints():
-    backend = _bare_tensorrt_backend("LibreYOLO9t-pose.engine", model_family="yolo9")
+    backend = _bare_tensorrt_backend(
+        "LibreYOLO9t-pose.engine", model_family="yolo9", task="pose"
+    )
     backend._dynamic_batch = True
     backend._max_batch = 2
     backend.imgsz = 64
@@ -199,7 +206,7 @@ def test_tensorrt_dynamic_batching_preserves_pose_keypoints():
             "keypoints": np.ones((batched_input.shape[0], 1, 2, 3), dtype=np.float32),
         }
 
-    def parse_outputs(per_image, imgsz, orig_size, conf, ratio=1.0):
+    def parse_outputs(per_image, imgsz, orig_size, conf, ratio=1.0, iou=0.45, max_det=300):
         return (
             np.array([[1.0, 2.0, 3.0, 4.0]], dtype=np.float32),
             np.array([0.9], dtype=np.float32),

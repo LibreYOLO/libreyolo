@@ -19,6 +19,7 @@ from libreyolo.data.obb import (
     xywhr_iou,
 )
 
+from ..postprocess.slicing import slice_batch_outputs
 from .base import BaseValidator
 from .config import ValidationConfig
 from .detection_validator import val_collate_fn
@@ -259,18 +260,7 @@ class OBBValidator(BaseValidator):
         return detections
 
     def _slice_batch_predictions(self, preds: Any, batch_idx: int) -> Any:
-        if isinstance(preds, dict):
-            return {
-                key: value[batch_idx : batch_idx + 1]
-                if isinstance(value, torch.Tensor)
-                else value
-                for key, value in preds.items()
-            }
-        if isinstance(preds, torch.Tensor):
-            return preds[batch_idx : batch_idx + 1]
-        if isinstance(preds, (list, tuple)):
-            return type(preds)(self._slice_batch_predictions(p, batch_idx) for p in preds)
-        return preds
+        return slice_batch_outputs(preds, batch_idx)
 
     def _update_metrics(
         self,

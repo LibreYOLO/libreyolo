@@ -73,6 +73,11 @@ class LibreVLMModel(BaseModel):
     # Multi-scale TTA / tiling are meaningless for a fixed-resolution generator.
     TTA_ENABLED: ClassVar[bool] = False
 
+    # ``_preprocess`` returns an HF BatchEncoding (not a stackable image
+    # tensor) and ``_forward`` runs autoregressive generation, so the stacked
+    # single-forward predict path does not apply.
+    SUPPORTS_BATCHED_PREDICT: ClassVar[bool] = False
+
     # Family-specific weight license, printed once before the first download.
     _LICENSE_NOTICE: ClassVar[str] = ""
     _LICENSE_NOTICE_SHOWN: ClassVar[bool] = False

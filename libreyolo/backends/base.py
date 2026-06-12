@@ -1598,8 +1598,13 @@ class BaseBackend(ABC):
         classes: Optional[List[int]] = None,
         max_det: int = 300,
         color_format: str = "auto",
+        save_stem: Optional[str] = None,
     ) -> Results:
-        """Run inference on a single image."""
+        """Run inference on a single image.
+
+        ``save_stem`` overrides the saved filename stem for in-memory images
+        (which have no path to derive one from).
+        """
         image_path = image if isinstance(image, (str, Path)) else None
         effective_imgsz = self._resolve_predict_imgsz(imgsz)
 
@@ -1620,7 +1625,12 @@ class BaseBackend(ABC):
                 image_path=image_path,
             )
             if save:
-                self._save_annotated(result, original_img, image_path, output_path)
+                self._save_annotated(
+                    result,
+                    original_img,
+                    image_path if image_path is not None else save_stem,
+                    output_path,
+                )
             return result
 
         parsed = self._parse_outputs(
@@ -1651,13 +1661,28 @@ class BaseBackend(ABC):
         )
 
         if save:
-            self._save_annotated(result, original_img, image_path, output_path)
+            self._save_annotated(
+                result,
+                original_img,
+                image_path if image_path is not None else save_stem,
+                output_path,
+            )
 
         return result
 
+    def _supports_batched_inference(self) -> bool:
+        """Whether ``_run_inference`` accepts stacked (N, C, H, W) blobs.
+
+        Default False: traced/compiled runtimes are typically baked to
+        batch 1. Backends whose artifact declares a dynamic batch axis
+        (ONNX, OpenVINO) override this; TensorRT manages batching itself
+        in its own ``_process_in_batches``.
+        """
+        return False
+
     def _process_in_batches(
         self,
-        image_paths: List[Path],
+        images: List,
         batch: int = 1,
         save: bool = False,
         output_path: str | None = None,
@@ -1668,14 +1693,26 @@ class BaseBackend(ABC):
         max_det: int = 300,
         color_format: str = "auto",
     ) -> List[Results]:
-        """Process multiple images sequentially."""
-        results = []
-        for i in range(0, len(image_paths), batch):
-            chunk = image_paths[i : i + batch]
-            for path in chunk:
-                results.append(
-                    self._predict_single(
-                        path,
+        """Process multiple images (file paths or in-memory).
+
+        When ``batch > 1`` and the runtime accepts stacked blobs, each chunk
+        of ``batch`` images runs as a single forward pass; otherwise images
+        run sequentially.
+        """
+        use_batched = (
+            batch > 1
+            and self._supports_batched_inference()
+            # Latched by _predict_batch after a runtime rejects a stacked
+            # blob, so a long list does not retry (and warn) once per chunk.
+            and not getattr(self, "_batched_inference_failed", False)
+        )
+        if use_batched:
+            results = []
+            for start in range(0, len(images), batch):
+                results.extend(
+                    self._predict_batch(
+                        images[start : start + batch],
+                        start_idx=start,
                         save=save,
                         output_path=output_path,
                         conf=conf,
@@ -1686,6 +1723,151 @@ class BaseBackend(ABC):
                         color_format=color_format,
                     )
                 )
+            return results
+
+        results = []
+        for idx, image in enumerate(images):
+            results.append(
+                self._predict_single(
+                    image,
+                    save=save,
+                    output_path=output_path,
+                    conf=conf,
+                    iou=iou,
+                    imgsz=imgsz,
+                    classes=classes,
+                    max_det=max_det,
+                    color_format=color_format,
+                    save_stem=(
+                        None if isinstance(image, (str, Path)) else f"image{idx}"
+                    ),
+                )
+            )
+        return results
+
+    def _predict_batch(
+        self,
+        chunk: List,
+        start_idx: int,
+        *,
+        save: bool = False,
+        output_path: str | None = None,
+        conf: float = 0.25,
+        iou: float = 0.45,
+        imgsz: Optional[ImageSize] = None,
+        classes: Optional[List[int]] = None,
+        max_det: int = 300,
+        color_format: str = "auto",
+    ) -> List[Results]:
+        """Run one stacked forward pass over a chunk of images.
+
+        Mirrors ``_predict_single`` step for step, except the preprocessed
+        tensors are concatenated into a single blob for ``_run_inference``
+        and the outputs are sliced back per image (``[i : i + 1]`` keeps the
+        batch dim, which every output parser already expects). Falls back to
+        the sequential path if the blob cannot be stacked or the runtime
+        rejects the batched call.
+        """
+        effective_imgsz = self._resolve_predict_imgsz(imgsz)
+
+        preprocessed = []
+        for image in chunk:
+            input_tensor, original_img, original_size, ratio = self._preprocess(
+                image, effective_imgsz, color_format
+            )
+            image_path = image if isinstance(image, (str, Path)) else None
+            preprocessed.append(
+                (input_tensor, original_img, original_size, ratio, image_path)
+            )
+
+        tensors = [item[0] for item in preprocessed]
+        all_outputs = None
+        stackable = all(
+            isinstance(t, torch.Tensor) and t.dim() == 4 and t.shape == tensors[0].shape
+            for t in tensors
+        )
+        if stackable and not getattr(self, "_batched_inference_failed", False):
+            blob = np.concatenate([t.numpy() for t in tensors], axis=0)
+            try:
+                all_outputs = self._run_inference(blob)
+            except Exception as e:
+                self._batched_inference_failed = True
+                logger.warning(
+                    "Batched inference failed for %s (%s); falling back to "
+                    "sequential processing.",
+                    Path(self.model_path).name,
+                    e,
+                )
+        if all_outputs is None:
+            return [
+                self._predict_single(
+                    image,
+                    save=save,
+                    output_path=output_path,
+                    conf=conf,
+                    iou=iou,
+                    imgsz=imgsz,
+                    classes=classes,
+                    max_det=max_det,
+                    color_format=color_format,
+                    save_stem=(
+                        None
+                        if isinstance(image, (str, Path))
+                        else f"image{start_idx + offset}"
+                    ),
+                )
+                for offset, image in enumerate(chunk)
+            ]
+
+        results = []
+        for offset, (_, original_img, original_size, ratio, image_path) in enumerate(
+            preprocessed
+        ):
+            per_image = [
+                np.asarray(output)[offset : offset + 1] for output in all_outputs
+            ]
+            save_name = (
+                image_path if image_path is not None else f"image{start_idx + offset}"
+            )
+            orig_w, orig_h = original_size
+            orig_shape = (orig_h, orig_w)
+
+            if self.task == "classify":
+                result = self._build_classify_result(
+                    per_image,
+                    orig_shape=orig_shape,
+                    image_path=image_path,
+                )
+            else:
+                parsed = self._parse_outputs(
+                    per_image,
+                    effective_imgsz,
+                    original_size,
+                    conf,
+                    ratio=ratio,
+                    iou=iou,
+                    max_det=max_det,
+                )
+                boxes, max_scores, class_ids, masks, obb, keypoints = (
+                    self._unpack_parsed_outputs(parsed)
+                )
+                result = self._build_result(
+                    boxes,
+                    max_scores,
+                    class_ids,
+                    masks=masks,
+                    obb=obb,
+                    keypoints=keypoints,
+                    orig_shape=orig_shape,
+                    image_path=image_path,
+                    iou=iou,
+                    classes=classes,
+                    max_det=max_det,
+                )
+
+            if save:
+                self._save_annotated(result, original_img, save_name, output_path)
+            results.append(result)
         return results
 
     # =========================================================================
@@ -1701,7 +1883,7 @@ class BaseBackend(ABC):
 
     def __call__(
         self,
-        source: Union[str, Path, Image.Image, np.ndarray, None] = None,
+        source: Union[str, Path, Image.Image, np.ndarray, list, tuple, None] = None,
         *,
         conf: float = 0.25,
         iou: float = 0.45,
@@ -1719,7 +1901,7 @@ class BaseBackend(ABC):
         color_format: str = "auto",
         **kwargs,
     ) -> Union[Results, List[Results], Generator[Results, None, None]]:
-        """Run inference on an image, directory, or video."""
+        """Run inference on an image, list of images, directory, or video."""
         normalize_predict_kwargs(kwargs)
         if device not in (None, "", "auto", self.device):
             logger.warning(
@@ -1747,6 +1929,21 @@ class BaseBackend(ABC):
             if stream:
                 return gen
             return collect_video_results(gen, source, vid_stride)
+
+        # Handle in-memory batch input (list/tuple of images)
+        if isinstance(source, (list, tuple)):
+            return self._process_in_batches(
+                list(source),
+                batch=batch,
+                save=save,
+                output_path=output_path,
+                conf=conf,
+                iou=iou,
+                imgsz=imgsz,
+                classes=classes,
+                max_det=max_det,
+                color_format=color_format,
+            )
 
         if isinstance(source, (str, Path)) and Path(source).is_dir():
             image_paths = ImageLoader.collect_images(source)

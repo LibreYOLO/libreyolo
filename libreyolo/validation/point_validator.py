@@ -10,6 +10,7 @@ import numpy as np
 from scipy.optimize import linear_sum_assignment
 from torch.utils.data import DataLoader
 
+from ..postprocess.slicing import slice_batch_outputs
 from .base import BaseValidator
 from .config import ValidationConfig
 
@@ -341,23 +342,7 @@ class PointValidator(BaseValidator):
 
     def _slice_batch_predictions(self, preds: Any, batch_idx: int) -> Any:
         """Extract predictions for a single image from batched model output."""
-        import torch
-
-        if isinstance(preds, dict):
-            sliced: Dict[str, Any] = {}
-            for key, value in preds.items():
-                if isinstance(value, torch.Tensor):
-                    sliced[key] = value[batch_idx: batch_idx + 1]
-                else:
-                    sliced[key] = value
-            return sliced
-        elif isinstance(preds, torch.Tensor):
-            return preds[batch_idx: batch_idx + 1]
-        elif isinstance(preds, (list, tuple)):
-            return type(preds)(
-                self._slice_batch_predictions(p, batch_idx) for p in preds
-            )
-        return preds
+        return slice_batch_outputs(preds, batch_idx)
 
     def _update_metrics(
         self,

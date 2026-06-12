@@ -11,11 +11,21 @@ import json
 import logging
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Dict, Generator, List, Optional, Tuple, Union
+from typing import (
+    TYPE_CHECKING,
+    Dict,
+    Generator,
+    List,
+    Optional,
+    Sequence,
+    Tuple,
+    Union,
+)
 
 import torch
 from torchvision.ops import batched_nms
 
+from ...postprocess.slicing import slice_batch_outputs
 from ...utils.drawing import (
     draw_boxes,
     draw_keypoints,
@@ -59,7 +69,7 @@ class InferenceRunner:
 
     def __call__(
         self,
-        source: ImageInput | None = None,
+        source: ImageInput | list[ImageInput] | tuple[ImageInput, ...] | None = None,
         *,
         conf: float = 0.25,
         iou: float = 0.45,
@@ -83,19 +93,25 @@ class InferenceRunner:
         **kwargs,
     ) -> Union[Results, List[Results], Generator[Results, None, None]]:
         """
-        Run inference on an image, directory, or video.
+        Run inference on an image, list of images, directory, or video.
 
         Args:
-            source: Input image, directory path, or video file path.
+            source: Input image, list/tuple of in-memory images, directory
+                path, or video file path.
             conf: Confidence threshold.
             iou: IoU threshold for NMS.
             imgsz: Input size override (None = model default).
             classes: Filter to specific class IDs.
             max_det: Maximum detections per image.
             save: If True, saves annotated image or video.
-            batch: Batch size for directory processing.
+            batch: Images per forward pass for directory and list sources.
+                With batch > 1, supported families run a single stacked
+                forward per chunk (true batched inference); batch=1 keeps
+                the sequential one-forward-per-image behavior.
             stream: If True, return a generator yielding per-frame Results.
-                Recommended for video to avoid high memory usage.
+                Recommended for video to avoid high memory usage. Applies to
+                video sources only; list and directory sources always return
+                a fully materialized list.
             vid_stride: Process every N-th video frame (default: 1).
             show: If True, display annotated frames in a window (video only).
             output_path: Optional output path.
@@ -149,6 +165,26 @@ class InferenceRunner:
             if stream:
                 return gen
             return collect_video_results(gen, source, vid_stride)
+
+        # Handle in-memory batch input (list/tuple of images)
+        if isinstance(source, (list, tuple)):
+            return self._process_in_batches(
+                list(source),
+                batch=batch,
+                save=save,
+                output_path=output_path,
+                conf=conf,
+                iou=iou,
+                imgsz=imgsz,
+                classes=classes,
+                max_det=max_det,
+                color_format=color_format,
+                tiling=tiling,
+                overlap_ratio=overlap_ratio,
+                output_file_format=output_file_format,
+                augment=augment,
+                **kwargs,
+            )
 
         # Handle directory input
         if isinstance(source, (str, Path)) and Path(source).is_dir():
@@ -248,7 +284,7 @@ class InferenceRunner:
 
     def _process_in_batches(
         self,
-        image_paths: List[Path],
+        images: Sequence[ImageInput],
         batch: int = 1,
         save: bool = False,
         output_path: str | None = None,
@@ -264,61 +300,212 @@ class InferenceRunner:
         augment: bool = False,
         **kwargs,
     ) -> List[Results]:
-        """Process multiple images in batches."""
-        results = []
-        for i in range(0, len(image_paths), batch):
-            chunk = image_paths[i : i + batch]
-            for path in chunk:
-                if tiling:
-                    results.append(
-                        self._predict_tiled(
-                            path,
-                            save=save,
-                            output_path=output_path,
-                            conf=conf,
-                            iou=iou,
-                            imgsz=imgsz,
-                            classes=classes,
-                            max_det=max_det,
-                            color_format=color_format,
-                            overlap_ratio=overlap_ratio,
-                            output_file_format=output_file_format,
-                            **kwargs,
-                        )
-                    )
-                elif augment and getattr(self.model, "TTA_ENABLED", False):
-                    result = self.model._predict_augment(
-                        path,
+        """Process multiple images (file paths or in-memory).
+
+        With ``batch > 1`` (and no tiling/TTA) each chunk of ``batch``
+        images runs as one stacked forward pass; the batched output is
+        sliced back per image and fed to the family's existing batch-1
+        postprocess. Otherwise images run sequentially, one forward each.
+        """
+        use_batched = (
+            batch > 1
+            and not tiling
+            and not (augment and getattr(self.model, "TTA_ENABLED", False))
+            and getattr(self.model, "SUPPORTS_BATCHED_PREDICT", False)
+            # A train-mode network (weightless init, or predict mid-training)
+            # would normalize the stacked chunk with cross-image BatchNorm
+            # batch statistics, letting chunk-mates change each other's
+            # results; keep per-image forwards there.
+            and not getattr(getattr(self.model, "model", None), "training", False)
+        )
+        if use_batched:
+            results = []
+            for start in range(0, len(images), batch):
+                results.extend(
+                    self._predict_batch(
+                        images[start : start + batch],
+                        start_idx=start,
+                        save=save,
+                        output_path=output_path,
                         conf=conf,
                         iou=iou,
                         imgsz=imgsz,
                         classes=classes,
                         max_det=max_det,
                         color_format=color_format,
+                        output_file_format=output_file_format,
                         **kwargs,
                     )
-                    if save:
-                        ext = output_file_format or "jpg"
-                        save_path = resolve_save_path(output_path, path, ext=ext)
-                        img_pil = ImageLoader.load(path, color_format=color_format)
-                        self._save_annotated_image(result, img_pil, save_path)
-                    results.append(result)
-                else:
-                    results.append(
-                        self._predict_single(
-                            path,
-                            save=save,
-                            output_path=output_path,
-                            conf=conf,
-                            iou=iou,
-                            imgsz=imgsz,
-                            classes=classes,
-                            max_det=max_det,
-                            color_format=color_format,
-                            output_file_format=output_file_format,
-                            **kwargs,
-                        )
+                )
+            return results
+
+        results = []
+        for idx, image in enumerate(images):
+            # In-memory images have no filename to derive a save name from;
+            # index them so save=True does not overwrite a single file.
+            save_stem = None if isinstance(image, (str, Path)) else f"image{idx}"
+            if tiling:
+                results.append(
+                    self._predict_tiled(
+                        image,
+                        save=save,
+                        output_path=output_path,
+                        conf=conf,
+                        iou=iou,
+                        imgsz=imgsz,
+                        classes=classes,
+                        max_det=max_det,
+                        color_format=color_format,
+                        overlap_ratio=overlap_ratio,
+                        output_file_format=output_file_format,
+                        # Reaches _predict_single through the small-image and
+                        # classify/semantic fallbacks so in-memory saves stay
+                        # indexed there too.
+                        save_stem=save_stem,
+                        **kwargs,
                     )
+                )
+            elif augment and getattr(self.model, "TTA_ENABLED", False):
+                result = self.model._predict_augment(
+                    image,
+                    conf=conf,
+                    iou=iou,
+                    imgsz=imgsz,
+                    classes=classes,
+                    max_det=max_det,
+                    color_format=color_format,
+                    **kwargs,
+                )
+                if save:
+                    ext = output_file_format or "jpg"
+                    save_path = resolve_save_path(
+                        output_path,
+                        image if save_stem is None else save_stem,
+                        ext=ext,
+                    )
+                    img_pil = ImageLoader.load(image, color_format=color_format)
+                    self._save_annotated_image(result, img_pil, save_path)
+                results.append(result)
+            else:
+                results.append(
+                    self._predict_single(
+                        image,
+                        save=save,
+                        output_path=output_path,
+                        conf=conf,
+                        iou=iou,
+                        imgsz=imgsz,
+                        classes=classes,
+                        max_det=max_det,
+                        color_format=color_format,
+                        output_file_format=output_file_format,
+                        save_stem=save_stem,
+                        **kwargs,
+                    )
+                )
+        return results
+
+    def _predict_batch(
+        self,
+        chunk: Sequence[ImageInput],
+        start_idx: int,
+        *,
+        save: bool = False,
+        output_path: str | None = None,
+        conf: float = 0.25,
+        iou: float = 0.45,
+        imgsz: Optional[int] = None,
+        classes: Optional[List[int]] = None,
+        max_det: int = 300,
+        color_format: str = "auto",
+        output_file_format: Optional[str] = None,
+        **kwargs,
+    ) -> List[Results]:
+        """Run one stacked forward pass over a chunk of images.
+
+        Mirrors ``_predict_single`` step for step; the only difference is
+        that the chunk's preprocessed tensors are concatenated into a single
+        batch for the forward pass and the output is sliced back per image.
+        ``start_idx`` is the chunk's offset in the full source list, used for
+        the indexed save names of in-memory images.
+        """
+        effective_imgsz = imgsz if imgsz is not None else self.model._get_input_size()
+        kwargs["input_size"] = effective_imgsz
+
+        preprocessed = []
+        for image in chunk:
+            input_tensor, original_img, original_size, ratio = self.model._preprocess(
+                image, color_format, input_size=effective_imgsz
+            )
+            preprocessed.append(
+                (input_tensor, original_img, original_size, ratio, image)
+            )
+
+        tensors = [item[0] for item in preprocessed]
+        stackable = all(
+            isinstance(t, torch.Tensor)
+            and t.dim() == 4
+            and t.shape == tensors[0].shape
+            and t.dtype == tensors[0].dtype
+            and t.device == tensors[0].device
+            for t in tensors
+        )
+        if not stackable:
+            # Preprocess did not yield uniform (1, C, H, W) tensors; keep
+            # correctness over speed and run the chunk sequentially.
+            return [
+                self._predict_single(
+                    image,
+                    save=save,
+                    output_path=output_path,
+                    conf=conf,
+                    iou=iou,
+                    imgsz=imgsz,
+                    classes=classes,
+                    max_det=max_det,
+                    color_format=color_format,
+                    output_file_format=output_file_format,
+                    save_stem=(
+                        None
+                        if isinstance(image, (str, Path))
+                        else f"image{start_idx + offset}"
+                    ),
+                    **kwargs,
+                )
+                for offset, image in enumerate(chunk)
+            ]
+
+        stacked = torch.cat(tensors, dim=0)
+        with torch.no_grad():
+            output = self.model._forward(stacked.to(self.model.device))
+
+        results = []
+        for offset, (_, original_img, original_size, ratio, image) in enumerate(
+            preprocessed
+        ):
+            detections = self.model._postprocess(
+                slice_batch_outputs(output, offset),
+                conf,
+                iou,
+                original_size,
+                max_det=max_det,
+                ratio=ratio,
+                classes=classes,
+                **kwargs,
+            )
+            image_path = image if isinstance(image, (str, Path)) else None
+            result = self._wrap_results(detections, original_size, image_path, classes)
+            if save:
+                ext = output_file_format or "jpg"
+                save_path = resolve_save_path(
+                    output_path,
+                    image_path
+                    if image_path is not None
+                    else f"image{start_idx + offset}",
+                    ext=ext,
+                )
+                self._save_annotated_image(result, original_img, save_path)
+            results.append(result)
         return results
 
     def _save_annotated_image(self, result: Results, original_img, save_path: Path) -> None:
@@ -594,9 +781,14 @@ class InferenceRunner:
         max_det: int = 300,
         color_format: str = "auto",
         output_file_format: Optional[str] = None,
+        save_stem: Optional[str] = None,
         **kwargs,
     ) -> Results:
-        """Run inference on a single image."""
+        """Run inference on a single image.
+
+        ``save_stem`` overrides the saved filename stem for in-memory images
+        (which have no path to derive one from).
+        """
         image_path = image if isinstance(image, (str, Path)) else None
 
         # Resolve input size
@@ -634,7 +826,7 @@ class InferenceRunner:
             ext = output_file_format or "jpg"
             save_path = resolve_save_path(
                 output_path,
-                image_path,
+                image_path if image_path is not None else save_stem,
                 ext=ext,
             )
             self._save_annotated_image(result, original_img, save_path)
@@ -738,9 +930,15 @@ class InferenceRunner:
         color_format: str = "auto",
         overlap_ratio: float = 0.2,
         output_file_format: Optional[str] = None,
+        save_stem: Optional[str] = None,
         **kwargs,
     ) -> Results:
-        """Run tiled inference on large images."""
+        """Run tiled inference on large images.
+
+        ``save_stem`` overrides the saved artifact stem for in-memory images
+        (which have no path to derive one from); it is threaded into the
+        single-image fallbacks below and into the tiled save directory name.
+        """
 
         # Tiling is a detection-time technique; for whole-image classification
         # and dense semantic maps it is meaningless, so fall back to a single
@@ -757,6 +955,7 @@ class InferenceRunner:
                 max_det=max_det,
                 color_format=color_format,
                 output_file_format=output_file_format,
+                save_stem=save_stem,
                 **kwargs,
             )
 
@@ -794,6 +993,7 @@ class InferenceRunner:
                 max_det=max_det,
                 color_format=color_format,
                 output_file_format=output_file_format,
+                save_stem=save_stem,
                 **kwargs,
             )
 
@@ -864,7 +1064,7 @@ class InferenceRunner:
             if isinstance(image_path, (str, Path)):
                 stem = get_safe_stem(image_path)
             else:
-                stem = "inference"
+                stem = save_stem or "inference"
             model_tag = f"{self.model._get_model_name()}_{self.model.size}"
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
 
