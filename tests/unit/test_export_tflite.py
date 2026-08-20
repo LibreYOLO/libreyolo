@@ -9,6 +9,7 @@ import sys
 from pathlib import Path
 from unittest.mock import MagicMock
 
+import cv2
 import numpy as np
 import pytest
 import torch
@@ -67,9 +68,10 @@ def test_tflite_format_registered():
     assert "tflite" in BaseExporter._registry
     assert TFLiteExporter.suffix == ".tflite"
     assert TFLiteExporter.requires_onnx is True
-    assert TFLiteExporter.supports_int8 is False
+    assert TFLiteExporter.supports_int8 is True
     assert TFLiteExporter.supports_fp16 is False
     assert TFLiteExporter.apply_model_half is False
+    assert TFLiteExporter.default_int8_calibration_data is False
 
 
 def test_tflite_family_support_scaffold():
@@ -103,11 +105,11 @@ def test_tflite_rejects_dynamic_export():
         exporter(dynamic=True)
 
 
-def test_tflite_rejects_int8_export():
+def test_tflite_int8_requires_calibration_data():
     exporter = TFLiteExporter(_make_wrapper())
 
-    with pytest.raises(ValueError, match="INT8"):
-        exporter(output_path="unused.tflite", int8=True, data="coco8")
+    with pytest.raises(ValueError, match="requires calibration data"):
+        exporter(output_path="unused.tflite", int8=True)
 
 
 def test_tflite_rejects_fp16_export():
@@ -185,7 +187,10 @@ def test_tflite_export_copies_float32_output(monkeypatch, tmp_path):
     monkeypatch.setattr(tflite_module, "check_tflite_export_available", lambda: None)
     monkeypatch.setattr(tflite_module, "_onnx2tf_command", lambda: ["onnx2tf"])
 
+    captured = {}
+
     def fake_run(cmd, capture_output, text):
+        captured["cmd"] = list(cmd)
         output_dir = Path(cmd[cmd.index("-o") + 1])
         output_dir.mkdir(parents=True, exist_ok=True)
         (output_dir / "model_float32.tflite").write_bytes(b"fp32")
@@ -203,6 +208,8 @@ def test_tflite_export_copies_float32_output(monkeypatch, tmp_path):
 
     assert result == str(fp32_dst)
     assert fp32_dst.read_bytes() == b"fp32"
+    assert captured["cmd"][captured["cmd"].index("-tb") + 1] == "flatbuffer_direct"
+    assert "-oiqt" not in captured["cmd"]
     sidecar = json.loads(Path(str(fp32_dst) + ".json").read_text())
     assert sidecar["model_family"] == "yolo9"
 
@@ -300,6 +307,262 @@ def test_tflite_exporter_runs_static_onnx_then_helper(monkeypatch, tmp_path):
         "--flatbuffer_direct_allow_custom_ops"
     ]
     assert not Path(captured["tflite"]["onnx_path"]).exists()
+
+
+class _FakeCalibration:
+    """Stand-in for CalibrationDataLoader: NCHW batches, padded final batch."""
+
+    def __init__(self, batches, num_samples):
+        self._batches = batches
+        self.num_samples = num_samples
+
+    def __iter__(self):
+        return iter(self._batches)
+
+
+def _constant_images(*values):
+    return np.concatenate(
+        [np.full((1, 3, 2, 2), value, dtype=np.float32) for value in values]
+    )
+
+
+def _int8_converter(monkeypatch, produced):
+    """Patch onnx2tf away and record the command it would have been given."""
+    from libreyolo.export import tflite as tflite_module
+
+    monkeypatch.setattr(tflite_module, "check_tflite_export_available", lambda: None)
+    monkeypatch.setattr(tflite_module, "_onnx2tf_command", lambda: ["onnx2tf"])
+    monkeypatch.setattr(tflite_module, "_onnx_input_name", lambda _path: "images")
+    captured = {}
+
+    def fake_run(cmd, capture_output, text):
+        captured["cmd"] = list(cmd)
+        output_dir = Path(cmd[cmd.index("-o") + 1])
+        output_dir.mkdir(parents=True, exist_ok=True)
+        for name, payload in produced.items():
+            (output_dir / name).write_bytes(payload)
+        return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    return captured
+
+
+def test_int8_calibration_npy_is_nhwc_and_drops_batch_padding(tmp_path):
+    from libreyolo.export import tflite as tflite_module
+
+    # Second batch repeats its last image, the way CalibrationDataLoader pads.
+    loader = _FakeCalibration(
+        [_constant_images(1.0, 2.0), _constant_images(3.0, 3.0)],
+        num_samples=3,
+    )
+
+    npy_path = tflite_module._write_int8_calibration_npy(loader, tmp_path)
+    data = np.load(npy_path)
+
+    assert data.shape == (3, 2, 2, 3)
+    assert data.dtype == np.float32
+    np.testing.assert_array_equal(data[:, 0, 0, 0], [1.0, 2.0, 3.0])
+
+
+def test_int8_calibration_npy_trims_when_images_are_skipped(tmp_path):
+    from libreyolo.export import tflite as tflite_module
+
+    # num_samples counts files on disk; unreadable ones never reach a batch.
+    loader = _FakeCalibration([_constant_images(1.0, 2.0)], num_samples=4)
+
+    data = np.load(tflite_module._write_int8_calibration_npy(loader, tmp_path))
+
+    assert data.shape == (2, 2, 2, 3)
+    np.testing.assert_array_equal(data[:, 0, 0, 0], [1.0, 2.0])
+
+
+def test_int8_calibration_npy_rejects_empty_dataset(tmp_path):
+    from libreyolo.export import tflite as tflite_module
+
+    with pytest.raises(RuntimeError, match="no usable images"):
+        tflite_module._write_int8_calibration_npy(
+            _FakeCalibration([], num_samples=4), tmp_path
+        )
+
+
+def test_tflite_int8_helper_requires_calibration_data(tmp_path):
+    from libreyolo.export import tflite as tflite_module
+
+    with pytest.raises(ValueError, match="requires calibration data"):
+        tflite_module.export_tflite(
+            str(tmp_path / "model.onnx"),
+            str(tmp_path / "model.tflite"),
+            int8=True,
+        )
+
+
+def test_tflite_int8_rejected_for_rfdetr(monkeypatch, tmp_path):
+    from libreyolo.export import tflite as tflite_module
+
+    monkeypatch.setattr(tflite_module, "check_tflite_export_available", lambda: None)
+
+    with pytest.raises(NotImplementedError, match="RF-DETR"):
+        tflite_module.export_tflite(
+            str(tmp_path / "model.onnx"),
+            str(tmp_path / "model.tflite"),
+            int8=True,
+            calibration_data=_FakeCalibration([_constant_images(1.0)], num_samples=1),
+            metadata={"model_family": "rfdetr"},
+        )
+
+
+def test_tflite_int8_export_selects_full_integer_artifact(monkeypatch, tmp_path):
+    from libreyolo.export import tflite as tflite_module
+
+    captured = _int8_converter(
+        monkeypatch,
+        {
+            "model_float32.tflite": b"fp32",
+            "model_integer_quant.tflite": b"int8",
+            "model_full_integer_quant.tflite": b"full-int8",
+        },
+    )
+    onnx_path = tmp_path / "model.onnx"
+    onnx_path.write_bytes(b"fake onnx")
+    dst = tmp_path / "model.tflite"
+
+    result = tflite_module.export_tflite(
+        str(onnx_path),
+        str(dst),
+        int8=True,
+        calibration_data=_FakeCalibration([_constant_images(1.0, 2.0)], 2),
+        metadata={"model_family": "yolo9", "precision": "int8"},
+    )
+
+    assert result == str(dst)
+    assert dst.read_bytes() == b"full-int8"
+
+    cmd = captured["cmd"]
+    # The integer path runs on tf_converter; flatbuffer_direct aborts on any op
+    # it cannot keep in int8 end to end.
+    assert cmd[cmd.index("-tb") + 1] == "tf_converter"
+    assert "-oiqt" in cmd
+    cind = cmd.index("-cind")
+    assert cmd[cind + 1] == "images"
+    assert cmd[cind + 2].endswith(".npy")
+    # mean 0 / std 1: the calibration batches are already preprocessed, so a
+    # second normalization inside onnx2tf would calibrate the wrong ranges.
+    assert cmd[cind + 3 : cind + 5] == ["0.0", "1.0"]
+
+    sidecar = json.loads(Path(str(dst) + ".json").read_text())
+    assert sidecar["precision"] == "int8"
+
+
+def test_tflite_int8_export_falls_back_to_integer_quant(monkeypatch, tmp_path):
+    from libreyolo.export import tflite as tflite_module
+
+    _int8_converter(
+        monkeypatch,
+        {
+            "model_float32.tflite": b"fp32",
+            "model_integer_quant.tflite": b"int8",
+        },
+    )
+    onnx_path = tmp_path / "model.onnx"
+    onnx_path.write_bytes(b"fake onnx")
+    dst = tmp_path / "model.tflite"
+
+    tflite_module.export_tflite(
+        str(onnx_path),
+        str(dst),
+        int8=True,
+        calibration_data=_FakeCalibration([_constant_images(1.0)], 1),
+    )
+
+    assert dst.read_bytes() == b"int8"
+
+
+def test_tflite_int8_export_never_returns_a_float_artifact(monkeypatch, tmp_path):
+    from libreyolo.export import tflite as tflite_module
+
+    _int8_converter(monkeypatch, {"model_float32.tflite": b"fp32"})
+    onnx_path = tmp_path / "model.onnx"
+    onnx_path.write_bytes(b"fake onnx")
+    dst = tmp_path / "model.tflite"
+
+    with pytest.raises(RuntimeError, match="did not produce an INT8"):
+        tflite_module.export_tflite(
+            str(onnx_path),
+            str(dst),
+            int8=True,
+            calibration_data=_FakeCalibration([_constant_images(1.0)], 1),
+        )
+
+    assert not dst.exists()
+
+
+def test_tflite_exporter_forwards_int8_and_calibration(monkeypatch, tmp_path):
+    import libreyolo.export.exporter as exporter_module
+
+    _mock_onnx_available(monkeypatch)
+
+    image_dir = tmp_path / "images"
+    image_dir.mkdir()
+    rng = np.random.default_rng(0)
+    for idx in range(3):
+        cv2.imwrite(
+            str(image_dir / f"{idx}.jpg"),
+            rng.integers(0, 256, size=(24, 24, 3), dtype=np.uint8),
+        )
+    data_yaml = tmp_path / "data.yaml"
+    data_yaml.write_text(
+        "\n".join(
+            [
+                f"path: {tmp_path.as_posix()}",
+                "train: images",
+                "val: images",
+                "nc: 1",
+                "names:",
+                "  0: object",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    def preprocess(img_rgb, imgsz):
+        h, w = imgsz if isinstance(imgsz, tuple) else (imgsz, imgsz)
+        resized = cv2.resize(img_rgb, (w, h)).astype(np.float32) / 255.0
+        return np.transpose(resized, (2, 0, 1)), 1.0
+
+    wrapper = _make_wrapper()
+    wrapper._get_preprocess_numpy.return_value = preprocess
+    exporter = TFLiteExporter(wrapper)
+    output_path = tmp_path / "model.tflite"
+    captured = {}
+
+    def fake_export_onnx(_nn_model, _dummy, **kwargs):
+        Path(kwargs["output_path"]).write_bytes(b"onnx")
+        return kwargs["output_path"]
+
+    def fake_export_tflite(**kwargs):
+        captured.update(kwargs)
+        Path(kwargs["output_path"]).write_bytes(b"tflite")
+        return kwargs["output_path"]
+
+    monkeypatch.setattr(exporter_module, "export_onnx", fake_export_onnx)
+    monkeypatch.setattr(
+        "libreyolo.export.tflite.check_tflite_export_available", lambda: None
+    )
+    monkeypatch.setattr("libreyolo.export.tflite.export_tflite", fake_export_tflite)
+
+    exporter(
+        output_path=str(output_path),
+        imgsz=16,
+        simplify=False,
+        int8=True,
+        data=str(data_yaml),
+    )
+
+    assert captured["int8"] is True
+    assert captured["half"] is False
+    assert captured["metadata"]["precision"] == "int8"
+    assert captured["calibration_data"].num_samples == 3
+    assert next(iter(captured["calibration_data"])).shape[1:] == (3, 16, 16)
 
 
 def test_tflite_backend_restores_yolonas_channel_first_outputs():
