@@ -142,6 +142,41 @@ def ensure_mutation_reaches_workers(loader, target, hook: str) -> None:
     )
 
 
+def log_classes_subset_notice(
+    config, num_classes: int, *, context: str = "Training"
+) -> None:
+    """Log a clear, hard-to-miss notice when classes= is filtering this run
+    to a subset of the dataset's declared classes.
+
+    classes= never changes nc/names (see build_class_remap's docstring), so
+    there is nothing in the resolved config that otherwise flags this run as
+    non-standard; without an explicit notice, "why is my model not learning
+    class X" is easy to hit with no clue why. ``context`` names the caller
+    ("Training", "Validating") since this is shared by both.
+    """
+    if not config.classes or not is_main_process():
+        return
+    kept = sorted(set(config.classes))
+    if config.single_cls:
+        logger.warning(
+            "%s on a SUBSET of classes, collapsed to one merged class "
+            "(single_cls=True): keeping original ids %s; every other "
+            "class's boxes are dropped, not trained.",
+            context,
+            kept,
+        )
+    else:
+        logger.warning(
+            "%s on a SUBSET of classes: keeping original ids %s (%d of "
+            "%d declared classes); every other class's boxes are "
+            "dropped, not trained.",
+            context,
+            kept,
+            len(kept),
+            num_classes,
+        )
+
+
 class BaseTrainer(ABC):
     """Base trainer for all LibreYOLO model families.
 
@@ -1008,6 +1043,8 @@ class BaseTrainer(ABC):
             min_samples=int(getattr(self.config, "min_samples", 0) or 0),
             class_balanced=bool(getattr(self.config, "class_balanced", False)),
         )
+
+        log_classes_subset_notice(self.config, self.num_classes)
 
         if is_main_process():
             logger.info(f"Training dataset: {len(train_dataset)} images")

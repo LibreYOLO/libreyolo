@@ -638,3 +638,112 @@ def test_nc_derives_from_names_when_yaml_omits_nc_even_with_stale_initial_value(
     assert trainer.num_classes == 11
     labels = trainer.train_loader.dataset.dataset.annotations[0][0]
     assert sorted(labels[:, 4].tolist()) == [0.0, 9.0]
+
+
+# ---------------------------------------------------------------------------
+# log_classes_subset_notice: classes= must be impossible to miss in the
+# logs. It never changes nc/names (see build_class_remap's docstring), so
+# there is nothing else in a run's resolved config that flags it as
+# non-standard -- without this, a user sees a normally-sized, normally-named
+# model and has no clue some classes were silently excluded from training.
+# ---------------------------------------------------------------------------
+
+
+def test_log_classes_subset_notice_fires_for_plain_classes(caplog):
+    from libreyolo.training.config import TrainConfig
+    from libreyolo.training.trainer import log_classes_subset_notice
+
+    config = TrainConfig(classes=[0, 1, 3])
+
+    with caplog.at_level("WARNING"):
+        log_classes_subset_notice(config, num_classes=4)
+
+    assert len(caplog.records) == 1
+    message = caplog.records[0].getMessage()
+    assert "SUBSET" in message
+    assert "[0, 1, 3]" in message
+    assert "3 of 4" in message
+    assert "Training" in message
+
+
+def test_log_classes_subset_notice_mentions_single_cls_collapse(caplog):
+    from libreyolo.training.config import TrainConfig
+    from libreyolo.training.trainer import log_classes_subset_notice
+
+    config = TrainConfig(classes=[0, 1, 3], single_cls=True)
+
+    with caplog.at_level("WARNING"):
+        log_classes_subset_notice(config, num_classes=4)
+
+    message = caplog.records[0].getMessage()
+    assert "single_cls" in message
+    assert "collapsed" in message
+
+
+def test_log_classes_subset_notice_respects_context(caplog):
+    from libreyolo.training.config import TrainConfig
+    from libreyolo.training.trainer import log_classes_subset_notice
+
+    config = TrainConfig(classes=[0, 1, 3])
+
+    with caplog.at_level("WARNING"):
+        log_classes_subset_notice(config, num_classes=4, context="Validating")
+
+    assert caplog.records[0].getMessage().startswith("Validating on a SUBSET")
+
+
+def test_log_classes_subset_notice_silent_when_classes_not_set(caplog):
+    from libreyolo.training.config import TrainConfig
+    from libreyolo.training.trainer import log_classes_subset_notice
+
+    config = TrainConfig()
+
+    with caplog.at_level("WARNING"):
+        log_classes_subset_notice(config, num_classes=80)
+
+    assert caplog.records == []
+
+
+def test_trainer_setup_data_logs_classes_subset_notice(tmp_path, caplog):
+    from libreyolo.models.rtdetr.trainer import RTDETRTrainer
+
+    data_yaml = _write_train_dataset(tmp_path)
+    trainer = RTDETRTrainer(
+        model=torch.nn.Identity(),
+        size="r18",
+        num_classes=4,
+        data=str(data_yaml),
+        classes=[0, 1, 3],
+        epochs=1,
+        batch=1,
+        imgsz=64,
+        device="cpu",
+        amp=False,
+        ema=False,
+        workers=0,
+        eval_interval=-1,
+    )
+
+    with caplog.at_level("WARNING"):
+        trainer._setup_data()
+
+    assert any("SUBSET" in r.getMessage() for r in caplog.records)
+
+
+def test_validator_setup_dataloader_logs_classes_subset_notice(tmp_path, caplog):
+    data_yaml = _write_train_dataset(tmp_path)
+    model = SimpleNamespace(
+        nb_classes=4,
+        _checkpoint_train_config=lambda: {"classes": [0, 1, 3]},
+        _get_val_preprocessor=lambda img_size: None,
+    )
+    config = ValidationConfig(
+        data=str(data_yaml), batch_size=1, num_workers=0, device="cpu"
+    )
+    validator = DetectionValidator(model, config)
+
+    with caplog.at_level("WARNING"):
+        validator._setup_dataloader()
+
+    messages = [r.getMessage() for r in caplog.records]
+    assert any("Validating on a SUBSET" in m for m in messages)

@@ -197,6 +197,10 @@ class DetectionValidator(ValidationLossMixin, BaseValidator):
                     self.nc,
                 )
 
+            from libreyolo.training.trainer import log_classes_subset_notice
+
+            log_classes_subset_notice(self.config, self.nc, context="Validating")
+
             names = data_cfg.get("names", None)
             if isinstance(names, dict):
                 self.class_names = [names[i] for i in range(len(names))]

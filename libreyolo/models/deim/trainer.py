@@ -49,7 +49,11 @@ from ...data.dataset import COCODataset, YOLODataset
 from ...training.config import DEIMConfig, TrainConfig
 from ...training.scheduler import FlatCosineScheduler
 from ...training.optim import build_optimizer
-from ...training.trainer import BaseTrainer, ensure_mutation_reaches_workers
+from ...training.trainer import (
+    BaseTrainer,
+    ensure_mutation_reaches_workers,
+    log_classes_subset_notice,
+)
 from .loss import DEIMCriterion
 from .matcher import HungarianMatcher
 from .transforms import (
@@ -538,6 +542,8 @@ class DEIMTrainer(DETREncoderCudaGraphMixin, BaseTrainer):
             collate_fn=collate_fn,
             drop_last=visible_samples >= per_rank_batch,
         )
+
+        log_classes_subset_notice(self.config, self.num_classes)
 
         return train_dataset
 
