@@ -33,6 +33,14 @@ before 1.4.0 are documented in the
 
 ### Fixed
 
+- **RF-DETR, DINOv2 and VLM training no longer overwrite the previous run
+  (#833).** Through the Python API, `train()` now increments the run
+  directory like every other family (`exist_ok=False` by default) instead of
+  writing into the same folder. The default location moves from
+  `runs/train` to `runs/train/rfdetr_exp` and `runs/train/dinov2_exp`;
+  the DINOv2 CLI default name is now `dinov2_exp`. `resume=True` keeps the
+  original run directory. DINOv2 `resume=` previously did nothing and now
+  restores the checkpoint before continuing.
 - **Guardless Python multi-GPU launch (#817).**
   `model.train(device=[0, 1])` and `device="0,1"` now coordinate local DDP
   ranks without re-importing and repeating an unguarded user script. Guarded

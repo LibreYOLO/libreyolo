@@ -68,7 +68,7 @@ def test_rfdetr_train_prefers_canonical_batch_and_lr0(monkeypatch, tmp_path):
     assert captured["kwargs"]["lr0"] == pytest.approx(0.001)
     assert captured["kwargs"]["project"] == str(tmp_path)
     assert captured["kwargs"]["name"] == "canonical"
-    assert captured["kwargs"]["exist_ok"] is True
+    assert captured["kwargs"]["exist_ok"] is False
 
 
 def test_rfdetr_train_accepts_legacy_aliases(monkeypatch, tmp_path):
@@ -123,6 +123,11 @@ def test_rfdetr_train_resolves_resume_paths(monkeypatch, tmp_path, resume_arg):
 
     assert captured["setup"] is True
     assert captured["resume"] == str(expected)
+    # resume=True continues in the same run_dir that weights/last.pt was read
+    # from, so exist_ok must be forced True regardless of the new exist_ok=False
+    # default -- otherwise _get_save_dir() would increment away from it and
+    # split resumed state from newly written artifacts.
+    assert captured["kwargs"]["exist_ok"] is (resume is True)
 
 
 def test_rfdetr_train_rejects_conflicting_lr_aliases(tmp_path):

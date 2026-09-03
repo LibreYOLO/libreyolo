@@ -1184,7 +1184,7 @@ def train_rfdetr(
     epochs: int = 100,
     batch_size: int = 4,
     lr: float = 1e-4,
-    output_dir: str = "runs/train",
+    output_dir: str | None = None,
     resume: str | None = None,
     pretrain_weights: str | None = None,
     segmentation: bool = False,
@@ -1217,7 +1217,7 @@ def train_rfdetr(
         epochs=epochs,
         batch_size=batch_size,
         lr=lr,
-        output_dir=str(Path(output_dir)),
+        output_dir=str(Path(output_dir)) if output_dir is not None else None,
         resume=resume,
         **kwargs,
     )
