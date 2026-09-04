@@ -95,7 +95,7 @@ the `alexnet` / `deit` / `mobilenetv4` / `convnext` / `efficientnetv2` /
 | `eomt`      | `LibreEoMT`     | Mixed-case upstream brand preserved (`EoMT`) - semantic + instance + panoptic segmentation transformer family |
 | `pidnet`    | `LibrePIDNet`   | All-caps acronym + `Net` brand casing - semantic-only real-time family |
 | `ppliteseg` | `LibrePPLiteSeg` | Upstream brand casing preserved (`PP-LiteSeg`, hyphen dropped) - semantic-only real-time family; rectangular canvases; weights are non-commercial |
-| `unet`      | `LibreUNet`     | Mixed-case brand (`U-Net` hyphen dropped) - semantic-only encoder-decoder; modern same-padded S5-D16 + FCN head, not the 2015 Caffe graph; rectangular 512x1024; weights are non-commercial |
+| `unet`      | `LibreUNet`     | Mixed-case brand (`U-Net` hyphen dropped) - semantic-only encoder-decoder; modern same-padded S5-D16 + FCN head, not the 2015 Caffe graph; whole-frame 1024x2048 canvas (512x1024 is the train crop); weights are non-commercial |
 | `segformer` | `LibreSegformer` | CamelCase preserved (upstream brand casing) — semantic-only transformer family; weights are non-commercial |
 | `lingbotvision` | `LibreLingBotVision` | Upstream brand casing preserved (`LingBot-Vision`, hyphen dropped) — semantic-only ViT family; Apache-2.0 backbone weights |
 | `picodet`   | `LibrePICODET`  | All-caps (`PicoDet` rendered uppercase) |
@@ -240,7 +240,7 @@ ships:
 | `eomt`      | `s`, `b`, `l` — semantic: ADE20K 150-class at 512 (l only); segment: COCO 80-class at 640 (l only, also 1280); panoptic: COCO 133-class at 640 (s/b/l) |
 | `pidnet`    | `s`, `m`, `l` (PIDNet Small/Medium/Large, Cityscapes checkpoints at 1024) |
 | `ppliteseg` | `t50`, `b50`, `t75`, `b75` (`t`/`b` is the STDC1/STDC2 backbone; `50`/`75` is the source validation scale against Cityscapes' 1024x2048, giving native canvases of 512x1024 and 768x1536 - not a width multiplier) |
-| `unet`      | `s` (UNet-S5-D16, base 64 channels; native Cityscapes canvas 512x1024) |
+| `unet`      | `s` (UNet-S5-D16, base 64 channels; evaluates whole Cityscapes frames at 1024x2048, trains on 512x1024 crops) |
 | `segformer` | `b0`, `b1`, `b2`, `b3`, `b4`, `b5` (MiT-b0..b5 encoder depth/width tiers; ADE20K at 512, b5 at 640) |
 | `lingbotvision` | `s`, `b`, `l`, `g` (ViT-S/B/L distilled from the ViT-g teacher; g is the 1.1B teacher, loadable but no hosted weights; all at 512) |
 | `picodet`   | `s`, `m`, `l` (320 / 416 / 640 input) |

@@ -16,12 +16,14 @@ def _input_size_hw(input_size: int | tuple[int, int]) -> tuple[int, int]:
 
 def preprocess_numpy(
     img_rgb_hwc: np.ndarray,
-    input_size: int | tuple[int, int] = (512, 1024),
+    input_size: int | tuple[int, int] = (1024, 2048),
 ) -> tuple[np.ndarray, float]:
     """Direct-resize an RGB image to the checkpoint canvas as CHW ``[0, 1]``.
 
-    The mmseg Cityscapes recipe rescales the whole frame to 512x1024 without
-    letterbox padding. ImageNet standardization lives inside ``LibreUNetNet``.
+    The mmseg Cityscapes test pipeline feeds whole 1024x2048 frames with no
+    padding; ``cv2.INTER_LINEAR`` matches its ``mmcv.imrescale`` kernel, so a
+    Cityscapes-aspect frame yields the same tensor upstream sees. ImageNet
+    standardization lives inside ``LibreUNetNet``.
     """
     input_h, input_w = _input_size_hw(input_size)
     resized = cv2.resize(img_rgb_hwc, (input_w, input_h), interpolation=cv2.INTER_LINEAR)

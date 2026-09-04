@@ -21,12 +21,23 @@ def _tiny_net(nc: int = 3) -> LibreUNetNet:
 
 
 def test_size_config_is_rectangular_and_stride_aligned():
+    # Evaluation canvas is the whole Cityscapes frame (mmseg test pipeline
+    # Resize(2048, 1024) + mode='whole'); 512x1024 is only the train crop.
     height, width = SIZE_CONFIGS["s"]["imgsz"]
-    assert (height, width) == LibreUNet.INPUT_SIZES["s"] == (512, 1024)
+    assert (height, width) == LibreUNet.INPUT_SIZES["s"] == (1024, 2048)
     assert height % STRIDE == 0 and width % STRIDE == 0
     assert width > height
     assert SIZE_CONFIGS["s"]["train_crop"] == (512, 1024)
+    assert SIZE_CONFIGS["s"]["rescale_range"] == (0.5, 2.0)
     assert SIZE_CONFIGS["s"]["base_channels"] == 64
+
+
+def test_recipe_accessors_split_train_crop_from_eval_canvas():
+    model = LibreUNet(size="s", device="cpu")
+    assert model.semantic_train_imgsz == (512, 1024)
+    assert model.semantic_val_imgsz == (1024, 2048)
+    assert model.semantic_scale_jitter == (0.5, 2.0)
+    assert model._get_input_size() == (1024, 2048)
 
 
 def test_forward_shapes_and_aux_gating():
@@ -92,6 +103,30 @@ def test_preprocess_stretch_resizes_without_padding():
     assert chw.dtype == np.float32
     assert 0.0 <= chw.min() and chw.max() <= 1.0
     assert ratio == 1.0
+    default_chw, _ = preprocess_numpy(img)
+    assert default_chw.shape == (3, 1024, 2048)
+
+
+def test_preprocess_is_identity_on_a_native_cityscapes_frame():
+    """Whole-frame inference must hand the network the source pixels unchanged,
+    exactly as the upstream test pipeline does on 2048x1024 Cityscapes images."""
+    rng = np.random.default_rng(1)
+    img = rng.integers(0, 256, (1024, 2048, 3), dtype=np.uint8)
+    chw, _ = preprocess_numpy(img, (1024, 2048))
+    assert np.array_equal(chw, img.astype(np.float32).transpose(2, 0, 1) / 255.0)
+
+
+def test_internal_standardization_matches_mmseg_on_uint8_values():
+    """(x / 255) * 255 must round-trip every uint8 value exactly so our
+    [0, 1] input contract yields the same standardized tensor mmseg computes
+    from 0-255 pixels."""
+    net = _tiny_net()
+    values = torch.arange(256, dtype=torch.float32)
+    x01 = (values / 255.0).view(1, 1, 16, 16).expand(1, 3, 16, 16)
+    mean = net._mean
+    std = net._std
+    expected = (values.view(1, 1, 16, 16).expand(1, 3, 16, 16) - mean) / std
+    assert torch.equal(net._normalize(x01), expected)
 
 
 def test_preprocess_rejects_off_stride_canvas():
@@ -193,7 +228,7 @@ def test_family_metadata_and_task_contract():
     assert LibreUNet.SUPPORTED_TASKS == ("semantic",)
     assert LibreUNet.DEFAULT_TASK == "semantic"
     assert LibreUNet.REQUIRE_TASK_SUFFIX is True
-    assert LibreUNet.semantic_resize_mode == "stretch"
+    assert LibreUNet.semantic_resize_mode == "rescale_crop"
     assert LibreUNet.semantic_imgsz_divisor == 16
     with pytest.raises(ValueError, match="semantic"):
         LibreUNet(size="s", task="detect", device="cpu")

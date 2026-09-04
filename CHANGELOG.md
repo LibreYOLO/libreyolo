@@ -11,9 +11,13 @@ before 1.4.0 are documented in the
 
 - **U-Net semantic family.** `LibreUNets-sem.pt` is the mmseg UNet-S5-D16
   + FCN-head graph (same-padded 2D, not the 2015 Caffe valid-convolution
-  U-Net) at 512x1024, Cityscapes 19-class. Predict, val, and train
-  (`CE + 0.4 aux CE`). The converted Cityscapes checkpoint is
-  NON-COMMERCIAL; train from scratch for unrestricted weights.
+  U-Net), Cityscapes 19-class. Whole-frame inference and validation at the
+  upstream 1024x2048 evaluation canvas; training samples 512x1024 crops from
+  a 0.5-2.0 rescale of the source frame (`CE + 0.4 aux CE`).
+  `weights/parity_unet.py` proves bit-identical logits against the pinned
+  mmseg implementation and identical class maps through `mmseg.apis`. The
+  converted Cityscapes checkpoint is NON-COMMERCIAL; train from scratch for
+  unrestricted weights.
 
 - **LibreGround** sibling factory: screenshot + instruction →
   `Results.points`. Shipped adapters are Florence-2-base (MIT), ShowUI-2B

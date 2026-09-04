@@ -22,11 +22,18 @@ IGNORE_INDEX = 255
 _PIXEL_MEAN = (123.675, 116.28, 103.53)
 _PIXEL_STD = (58.395, 57.12, 57.375)
 
+# ``imgsz`` is the evaluation canvas: the mmseg Cityscapes test pipeline is
+# ``Resize(scale=(2048, 1024), keep_ratio=True)`` + ``test_cfg(mode='whole')``,
+# so the published 69.10 mIoU is measured on full 1024x2048 frames. The
+# ``512x1024`` in the checkpoint name is the training crop, taken from the
+# source frame rescaled by a factor in ``rescale_range`` (mmseg RandomResize
+# ratio_range 0.5..2.0 of the 2048x1024 scale, then RandomCrop).
 SIZE_CONFIGS = {
     "s": {
         "base_channels": 64,
-        "imgsz": (512, 1024),
+        "imgsz": (1024, 2048),
         "train_crop": (512, 1024),
+        "rescale_range": (0.5, 2.0),
     },
 }
 

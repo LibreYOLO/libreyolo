@@ -2080,14 +2080,14 @@
     "default_task": "semantic",
     "sizes": {
       "s": [
-        512,
-        1024
+        1024,
+        2048
       ]
     },
     "default_imgsz": {
       "s": [
-        512,
-        1024
+        1024,
+        2048
       ]
     },
     "task_sizes": {},

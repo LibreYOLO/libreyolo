@@ -4,7 +4,9 @@ U-Net (Ronneberger, Fischer, Brox, MICCAI 2015) is the encoder-decoder that
 made dense biomedical segmentation practical on small labeled sets. This family
 ships the OpenMMLab UNet-S5-D16 + FCN-head graph used by the official
 Cityscapes checkpoint: same-padded 2D, five encoder stages, downsample 16,
-not the 2015 Caffe valid-convolution graph.
+not the 2015 Caffe valid-convolution graph. Inference runs whole frames at the
+upstream evaluation canvas (1024x2048); ``weights/parity_unet.py`` proves the
+graph bit-identical to the pinned mmseg implementation.
 
 Licensing: the architecture is Apache-2.0 (open-mmlab/mmsegmentation). The
 released Cityscapes checkpoint is redistributable but NON-COMMERCIAL under
@@ -86,7 +88,13 @@ class LibreUNet(BaseModel):
     }
     TRAIN_CONFIG: ClassVar[type[UNetConfig]] = UNetConfig
 
-    semantic_resize_mode: ClassVar[str] = "stretch"
+    # Training samples the mmseg Cityscapes recipe: rescale the source frame by
+    # a factor in ``rescale_range``, then random-crop ``train_crop`` with
+    # cat_max_ratio 0.75. Validation and inference direct-resize the whole
+    # frame to ``imgsz`` (identity on Cityscapes' 1024x2048), matching the
+    # upstream ``mode='whole'`` test path. Photometric jitter is the shared HSV
+    # jitter, not mmseg's PhotoMetricDistortion; see NOTICE.
+    semantic_resize_mode: ClassVar[str] = "rescale_crop"
     semantic_imgsz_divisor: ClassVar[int] = STRIDE
 
     @classmethod
@@ -177,11 +185,17 @@ class LibreUNet(BaseModel):
         return LibreUNetNet(size=self.size, num_classes=self.nb_classes)
 
     @property
+    def semantic_scale_jitter(self) -> Tuple[float, float]:
+        return tuple(SIZE_CONFIGS[self.size]["rescale_range"])
+
+    @property
     def semantic_train_imgsz(self) -> Tuple[int, int]:
+        """Source train crop (512x1024)."""
         return tuple(SIZE_CONFIGS[self.size]["train_crop"])
 
     @property
     def semantic_val_imgsz(self) -> Tuple[int, int]:
+        """Whole-frame evaluation canvas (1024x2048), not the train crop."""
         return tuple(SIZE_CONFIGS[self.size]["imgsz"])
 
     def _rebuild_for_new_size(self, new_size: str) -> None:

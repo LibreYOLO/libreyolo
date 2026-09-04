@@ -15,6 +15,17 @@ semantic result conversion, validation, training, and export integration.
 This is the modern same-padded 2D S5-D16 graph with an FCN head, not the 2015
 Caffe valid-convolution U-Net and not nnU-Net.
 
+Parity: weights/parity_unet.py loads the official checkpoint strictly into the
+upstream EncoderDecoder (built from the pinned mmseg config) and into this port
+and asserts max_abs_diff == 0 on every stage, both heads, eval and train mode,
+plus identical class maps through mmseg.apis.inference_model on a Cityscapes-
+aspect frame. Inference and validation use the upstream evaluation canvas
+(Resize(2048, 1024) + mode='whole', i.e. 1024x2048); training uses the mmseg
+RandomResize 0.5-2.0 + RandomCrop 512x1024 (cat_max_ratio 0.75) sampler via
+LibreYOLO's rescale_crop mode. Photometric jitter is LibreYOLO's shared HSV
+jitter, not mmseg's PhotoMetricDistortion, so training is a documented
+approximation of the released recipe; inference is exact.
+
 The official Cityscapes checkpoint used for conversion is not distributed in
 the LibreYOLO source tree. Its LibreYOLO Hugging Face mirror is trained on
 Cityscapes. The Cityscapes license allows redistributing abstract derivative

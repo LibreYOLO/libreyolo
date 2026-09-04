@@ -1407,7 +1407,9 @@ class UNetConfig(TrainConfig):
     an effective batch of 16 (4 per GPU across 4 GPUs in the 4x4 config) —
     scale it if you train at a different effective batch.
 
-    ``imgsz`` is both the train crop and the validation canvas (512x1024).
+    ``imgsz`` is the train crop (512x1024), sampled with the family's
+    ``rescale_crop`` recipe (source rescale 0.5..2.0, random crop, cat_max_ratio
+    0.75); validation runs whole frames at ``semantic_val_imgsz`` (1024x2048).
     Auxiliary CE is weighted 0.4 via ``aux_weight``.
     """
 
