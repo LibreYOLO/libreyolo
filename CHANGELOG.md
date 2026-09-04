@@ -9,6 +9,12 @@ before 1.4.0 are documented in the
 
 ### Added
 
+- **U-Net semantic family.** `LibreUNets-sem.pt` is the mmseg UNet-S5-D16
+  + FCN-head graph (same-padded 2D, not the 2015 Caffe valid-convolution
+  U-Net) at 512x1024, Cityscapes 19-class. Predict, val, and train
+  (`CE + 0.4 aux CE`). The converted Cityscapes checkpoint is
+  NON-COMMERCIAL; train from scratch for unrestricted weights.
+
 - **LibreGround** sibling factory: screenshot + instruction →
   `Results.points`. Shipped adapters are Florence-2-base (MIT), ShowUI-2B
   (MIT weights; Apache-2.0 code/base), and Qwen3-VL-2B (Apache-2.0).

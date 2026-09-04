@@ -1398,6 +1398,56 @@ class PPLiteSegConfig(TrainConfig):
 
 
 @dataclass(kw_only=True)
+class UNetConfig(TrainConfig):
+    """U-Net training defaults — the mmseg Cityscapes UNet-S5-D16 recipe.
+
+    SGD (momentum 0.9, weight decay 5e-4) with polynomial decay (power 0.9)
+    after a short warmup; EMA on; mixed precision off, matching the released
+    full-precision Cityscapes schedule. ``lr0=0.01`` is the source value for
+    an effective batch of 16 (4 per GPU across 4 GPUs in the 4x4 config) —
+    scale it if you train at a different effective batch.
+
+    ``imgsz`` is both the train crop and the validation canvas (512x1024).
+    Auxiliary CE is weighted 0.4 via ``aux_weight``.
+    """
+
+    # BatchNorm-heavy CNN: sync BN stats across ranks under DDP.
+    sync_bn: bool = True
+    optimizer: str = "sgd"
+    lr0: float = 0.01
+    momentum: float = 0.9
+    weight_decay: float = 5e-4
+    nesterov: bool = False
+    zero_weight_decay_on_bias_and_bn: bool = False
+
+    scheduler: str = "poly"
+    poly_power: float = 0.9
+    warmup_epochs: int = 2
+    warmup_lr_start: float = 0.0
+    min_lr_ratio: float = 0.0
+
+    aux_weight: float = 0.4
+
+    mosaic_prob: float = 0.0
+    mixup_prob: float = 0.0
+    flip_prob: float = 0.5
+    degrees: float = 0.0
+    translate: float = 0.0
+    shear: float = 0.0
+
+    ema: bool = True
+    ema_decay: float = 0.999
+    amp: bool = False
+
+    imgsz: Union[int, Tuple[int, int], List[int], str] = (512, 1024)
+    epochs: int = 160
+    batch: int = 4
+    eval_interval: int = 1
+
+    name: str = "unet_exp"
+
+
+@dataclass(kw_only=True)
 class LingBotVisionConfig(TrainConfig):
     """LingBot-Vision semantic training defaults — the report's linear probe.
 

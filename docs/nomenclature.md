@@ -95,6 +95,7 @@ the `alexnet` / `deit` / `mobilenetv4` / `convnext` / `efficientnetv2` /
 | `eomt`      | `LibreEoMT`     | Mixed-case upstream brand preserved (`EoMT`) - semantic + instance + panoptic segmentation transformer family |
 | `pidnet`    | `LibrePIDNet`   | All-caps acronym + `Net` brand casing - semantic-only real-time family |
 | `ppliteseg` | `LibrePPLiteSeg` | Upstream brand casing preserved (`PP-LiteSeg`, hyphen dropped) - semantic-only real-time family; rectangular canvases; weights are non-commercial |
+| `unet`      | `LibreUNet`     | Mixed-case brand (`U-Net` hyphen dropped) - semantic-only encoder-decoder; modern same-padded S5-D16 + FCN head, not the 2015 Caffe graph; rectangular 512x1024; weights are non-commercial |
 | `segformer` | `LibreSegformer` | CamelCase preserved (upstream brand casing) — semantic-only transformer family; weights are non-commercial |
 | `lingbotvision` | `LibreLingBotVision` | Upstream brand casing preserved (`LingBot-Vision`, hyphen dropped) — semantic-only ViT family; Apache-2.0 backbone weights |
 | `picodet`   | `LibrePICODET`  | All-caps (`PicoDet` rendered uppercase) |
@@ -239,6 +240,7 @@ ships:
 | `eomt`      | `s`, `b`, `l` — semantic: ADE20K 150-class at 512 (l only); segment: COCO 80-class at 640 (l only, also 1280); panoptic: COCO 133-class at 640 (s/b/l) |
 | `pidnet`    | `s`, `m`, `l` (PIDNet Small/Medium/Large, Cityscapes checkpoints at 1024) |
 | `ppliteseg` | `t50`, `b50`, `t75`, `b75` (`t`/`b` is the STDC1/STDC2 backbone; `50`/`75` is the source validation scale against Cityscapes' 1024x2048, giving native canvases of 512x1024 and 768x1536 - not a width multiplier) |
+| `unet`      | `s` (UNet-S5-D16, base 64 channels; native Cityscapes canvas 512x1024) |
 | `segformer` | `b0`, `b1`, `b2`, `b3`, `b4`, `b5` (MiT-b0..b5 encoder depth/width tiers; ADE20K at 512, b5 at 640) |
 | `lingbotvision` | `s`, `b`, `l`, `g` (ViT-S/B/L distilled from the ViT-g teacher; g is the 1.1B teacher, loadable but no hosted weights; all at 512) |
 | `picodet`   | `s`, `m`, `l` (320 / 416 / 640 input) |
@@ -517,6 +519,7 @@ Detector-factory family support follows:
 | `eomt`      | `("semantic", "segment", "panoptic")` | semantic | DINOv2 backbone; sizes s/b/l. Semantic: ADE20K 150-class at 512. Instance segment: COCO 80-class at 640 (l also at 1280). Panoptic: COCO 133-class at 640. Upstream ships no COCO instance checkpoint at s/b. DINOv3 variants excluded |
 | `pidnet`    | `("semantic",)`                     | semantic | real-time PIDNet semantic segmentation; s/m/l at 1024; Cityscapes 19-class checkpoints; inference + `val`; not trainable in LibreYOLO |
 | `ppliteseg` | `("semantic",)`                     | semantic | real-time PP-LiteSeg (STDC backbone + SPPM + UAFM decoder); t50/b50 at 512x1024 and t75/b75 at 768x1536, Cityscapes 19-class. Pretrained weights are NON-COMMERCIAL (Cityscapes dataset terms); trainable, and weights trained from scratch carry no such restriction. The 75 recipe trains on a 768x768 crop and validates on 768x1536 |
+| `unet`      | `("semantic",)`                     | semantic | UNet-S5-D16 + FCN head (mmseg same-padded 2D graph, not the 2015 Caffe valid-convolution U-Net); size `s` at 512x1024, Cityscapes 19-class. Pretrained weights are NON-COMMERCIAL (Cityscapes dataset terms); trainable, and weights trained from scratch carry no such restriction |
 | `segformer` | `("semantic",)`                     | semantic | SegFormer MiT-b0..b5 encoder + all-MLP decode head; ADE20K 150-class at 512 (b5 at 640). Pretrained weights are NON-COMMERCIAL (NVIDIA Source Code License, research/evaluation only); also trainable from scratch via `model.train(...)` for unrestricted use |
 | `lingbotvision` | `("semantic",)`                 | semantic | LingBot-Vision self-supervised ViT (Apache-2.0, arXiv:2607.05247) + 1x1 dense head (the report's linear probe); s/b/l/g at 512; ADE20K 150-class hosted weights for s/b/l; head-only training by default (`freeze_backbone=False` for full fine-tune) |
 | `yolonas`   | `("detect", "pose", "obb")`         | detect | pose adds size `n`; obb is YOLO-NAS-R (DOTA2, s/m/l at 1024, trainable) |
@@ -661,6 +664,9 @@ LibrePPLiteSegt50-sem.pt   # STDC1 backbone, Cityscapes 19-class, 512x1024
 LibrePPLiteSegb50-sem.pt   # STDC2 backbone, Cityscapes 19-class, 512x1024
 LibrePPLiteSegt75-sem.pt   # STDC1 backbone, Cityscapes 19-class, 768x1536
 LibrePPLiteSegb75-sem.pt   # STDC2 backbone, Cityscapes 19-class, 768x1536
+
+# unet - encoder-decoder semantic segmentation on a native 512x1024 canvas
+LibreUNets-sem.pt          # UNet-S5-D16 + FCN head, Cityscapes 19-class, 512x1024
 
 # deeplabv3 - COCO-trained semantic segmentation with VOC label names
 LibreDeepLabv3r50-sem.pt   # dilated ResNet-50, fixed 520

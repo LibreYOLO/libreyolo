@@ -989,7 +989,7 @@
     "task_sizes": {},
     "export_override": "blocked",
     "optional_extra": "onnx",
-    "available": true,
+    "available": false,
     "group": "g3"
   },
   "lfm2vl": {
@@ -2071,6 +2071,30 @@
     "optional_extra": null,
     "available": true,
     "group": "g1"
+  },
+  "unet": {
+    "class": "libreyolo.models.unet.model.LibreUNet",
+    "tasks": [
+      "semantic"
+    ],
+    "default_task": "semantic",
+    "sizes": {
+      "s": [
+        512,
+        1024
+      ]
+    },
+    "default_imgsz": {
+      "s": [
+        512,
+        1024
+      ]
+    },
+    "task_sizes": {},
+    "export_override": "none",
+    "optional_extra": null,
+    "available": true,
+    "group": "g2"
   },
   "vgg": {
     "class": "libreyolo.models.vgg.model.LibreVGG",

@@ -97,12 +97,16 @@ RECTANGULAR_TRAINING_FAMILIES = {
     # 512x1024 (the 50 sizes) and validate at 512x1024 / 768x1536. A square
     # canvas would not be the model the checkpoints were trained as.
     "ppliteseg": 32,
+    # U-Net S5-D16 is natively rectangular (512x1024 Cityscapes canvas);
+    # encoder stride product is 16, not 32.
+    "unet": 16,
 }
 # Tasks each family may train on rectangularly. Detection is the historical
 # case and stays the default; a family whose rectangular support is not
 # detect-shaped declares its own tasks here.
 RECTANGULAR_TRAINING_TASKS = {
     "ppliteseg": frozenset({"semantic"}),
+    "unet": frozenset({"semantic"}),
 }
 _DEFAULT_RECTANGULAR_TRAINING_TASKS = frozenset({"detect"})
 
