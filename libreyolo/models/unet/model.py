@@ -10,8 +10,9 @@ graph bit-identical to the pinned mmseg implementation.
 
 Licensing: the architecture is Apache-2.0 (open-mmlab/mmsegmentation). The
 released Cityscapes checkpoint is redistributable but NON-COMMERCIAL under
-Cityscapes dataset terms, the same hosting path as PP-LiteSeg. Train from
-scratch, or fine-tune on your own data, for weights free of that term.
+Cityscapes dataset terms, the same hosting path as PP-LiteSeg. A fine-tune
+started from it inherits that term; train from scratch on your own data for
+weights free of it.
 """
 
 from __future__ import annotations
@@ -150,8 +151,9 @@ class LibreUNet(BaseModel):
             "derivatives, including this checkpoint, to NON-COMMERCIAL use "
             f"({CITYSCAPES_LICENSE_URL}). The restriction applies to this "
             "pretrained checkpoint, not to LibreYOLO's MIT code or the U-Net "
-            "architecture. Train from scratch or fine-tune on your own data "
-            "for weights without that term."
+            "architecture. A fine-tune started from this checkpoint inherits "
+            "the restriction; train from scratch on your own data for weights "
+            "without that term."
         )
 
     def __init__(
@@ -175,6 +177,9 @@ class LibreUNet(BaseModel):
             **kwargs,
         )
         self.weight_license: Optional[str] = None
+        self.weight_license_url: Optional[str] = None
+        self.weight_dataset: Optional[str] = None
+        self.weight_commercial_use: Optional[bool] = None
         self.model.eval()
         if self.model_path is not None:
             self._load_weights(str(self.model_path))
@@ -336,6 +341,10 @@ class LibreUNet(BaseModel):
         elif self.nb_classes == len(CITYSCAPES_NAMES):
             self.names = dict(CITYSCAPES_NAMES)
         self.weight_license = loaded.get("weight_license")
+        self.weight_license_url = loaded.get("weight_license_url")
+        self.weight_dataset = loaded.get("weight_dataset")
+        commercial = loaded.get("weight_commercial_use")
+        self.weight_commercial_use = None if commercial is None else bool(commercial)
         self.model.to(self.device).eval()
 
     @ddp_aware()

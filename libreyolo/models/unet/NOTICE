@@ -31,8 +31,9 @@ the LibreYOLO source tree. Its LibreYOLO Hugging Face mirror is trained on
 Cityscapes. The Cityscapes license allows redistributing abstract derivative
 models but restricts the dataset and its derivatives to NON-COMMERCIAL use.
 LibreYOLO itself and this code stay permissively licensed; only that pretrained
-checkpoint is restricted. Train from scratch, or fine-tune on your own data,
-for weights free of that term.
+checkpoint is restricted. A fine-tune started from it is a derivative and
+inherits the term (the trainer carries the license fields into saved
+checkpoints); train from scratch on your own data for weights free of it.
 
 Apache License
 Version 2.0, January 2004

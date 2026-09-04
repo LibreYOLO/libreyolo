@@ -989,7 +989,7 @@
     "task_sizes": {},
     "export_override": "blocked",
     "optional_extra": "onnx",
-    "available": false,
+    "available": true,
     "group": "g3"
   },
   "lfm2vl": {

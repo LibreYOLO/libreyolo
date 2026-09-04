@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Dict, Type
+from typing import Any, Dict, Type
 
 import torch
 
@@ -59,11 +59,28 @@ class UNetTrainer(SemanticLogitsCudaGraphMixin, SemanticValidationLossMixin, Bas
 
     def on_forward(self, imgs: torch.Tensor, targets: torch.Tensor, polygons=None) -> Dict:
         del polygons
-        outputs = self.wrapper_model.model(imgs)
+        # self.model is the trainer-owned module (SyncBN / DDP wrapped under
+        # multi-GPU); the raw wrapper_model.model would skip gradient sync.
+        outputs = self.model(imgs)
         components = self.criterion(outputs, targets)
         result = dict(components)
         result["total_loss"] = components["loss"]
         return result
+
+    def _checkpoint_extra_metadata(self) -> Dict[str, Any]:
+        # A fine-tune started from the Cityscapes checkpoint is a derivative
+        # work and inherits its NON-COMMERCIAL term; carry the license fields
+        # into best.pt / last.pt so reloading them keeps the restriction.
+        extra = dict(super()._checkpoint_extra_metadata())
+        wrapper = self.wrapper_model
+        license_name = getattr(wrapper, "weight_license", None)
+        if license_name:
+            extra["weight_license"] = license_name
+            for key in ("weight_license_url", "weight_dataset", "weight_commercial_use"):
+                value = getattr(wrapper, key, None)
+                if value is not None:
+                    extra[key] = value
+        return extra
 
     def get_loss_components(self, outputs: Dict) -> Dict[str, float]:
         return {

@@ -80,6 +80,24 @@ def test_checkpoint_detection():
     assert LibreUNet.detect_nb_classes(prefixed) == 19
 
 
+# sha256 over the sorted "key (shape)" manifest of the official mmseg
+# checkpoint fcn_unet_s5-d16_4x4_512x1024_160k_cityscapes_20211210_145204-6860854e.pth
+# (148 tensors, BatchNorm num_batches_tracked included). Pinning the upstream
+# layout, not our own, keeps a key rename from staying self-consistent while
+# breaking strict loads of the advertised checkpoint.
+UPSTREAM_MANIFEST_SHA256 = "904a60b2984d76462945a9f533287cf52d3242e693fa26d4e3af948d2fa1604f"
+UPSTREAM_TENSOR_COUNT = 148
+
+
+def test_state_dict_layout_matches_the_official_checkpoint_manifest():
+    import hashlib
+
+    state = _tiny_net(nc=19).state_dict()
+    manifest = "\n".join(f"{key} {tuple(value.shape)}" for key, value in sorted(state.items()))
+    assert len(state) == UPSTREAM_TENSOR_COUNT
+    assert hashlib.sha256(manifest.encode()).hexdigest() == UPSTREAM_MANIFEST_SHA256
+
+
 def test_can_load_rejects_foreign_and_partial_checkpoints():
     assert not LibreUNet.can_load({"backbone.conv1.weight": torch.zeros(1)})
     assert not LibreUNet.can_load({"decode_head.conv_seg.weight": torch.zeros(19, 64, 1, 1)})
@@ -239,6 +257,46 @@ def test_download_notice_names_the_non_commercial_restriction():
     assert "NON-COMMERCIAL" in notice
     assert "cityscapes-dataset.com/license" in notice
     assert "not to LibreYOLO's MIT code" in notice
+    assert "fine-tune started from this checkpoint inherits" in notice
+
+
+def test_restricted_license_metadata_round_trips_through_load_and_trainer():
+    from libreyolo.models.unet.trainer import UNetTrainer
+
+    def metadata_for(wrapper: LibreUNet) -> dict:
+        # Exercise the hook without standing up a dataset: it reads only
+        # wrapper_model, and BaseTrainer's base implementation returns {}.
+        trainer = UNetTrainer.__new__(UNetTrainer)
+        trainer.wrapper_model = wrapper
+        return trainer._checkpoint_extra_metadata()
+
+    fresh = LibreUNet(size="s", nb_classes=19, device="cpu")
+    assert fresh.weight_license is None
+    assert "weight_license" not in metadata_for(fresh)
+
+    checkpoint = {
+        "model": _tiny_net(nc=19).state_dict(),
+        "model_family": "unet",
+        "task": "semantic",
+        "size": "s",
+        "nc": 19,
+        "weight_license": "Cityscapes dataset terms, non-commercial",
+        "weight_license_url": "https://www.cityscapes-dataset.com/license/",
+        "weight_dataset": "Cityscapes",
+        "weight_commercial_use": False,
+    }
+    model = LibreUNet(size="s", nb_classes=19, device="cpu")
+    model._load_weights(checkpoint)
+    assert model.weight_license == "Cityscapes dataset terms, non-commercial"
+    assert model.weight_license_url == "https://www.cityscapes-dataset.com/license/"
+    assert model.weight_dataset == "Cityscapes"
+    assert model.weight_commercial_use is False
+
+    extra = metadata_for(model)
+    assert extra["weight_license"] == "Cityscapes dataset terms, non-commercial"
+    assert extra["weight_license_url"] == "https://www.cityscapes-dataset.com/license/"
+    assert extra["weight_dataset"] == "Cityscapes"
+    assert extra["weight_commercial_use"] is False
 
 
 def test_family_is_enrolled_in_the_model_registry():
