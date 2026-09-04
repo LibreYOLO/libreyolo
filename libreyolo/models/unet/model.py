@@ -19,12 +19,12 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Any, ClassVar, Dict, Optional, Tuple
+from typing import Any, ClassVar
 
 import numpy as np
 import torch
-import torch.nn as nn
 from PIL import Image
+from torch import nn
 
 from ...postprocess.unet import postprocess as _postprocess
 from ...postprocess.unet import resize_logits
@@ -41,7 +41,7 @@ from .utils import _input_size_hw, preprocess_numpy
 
 logger = logging.getLogger(__name__)
 
-CITYSCAPES_NAMES: Dict[int, str] = {
+CITYSCAPES_NAMES: dict[int, str] = {
     0: "road",
     1: "sidewalk",
     2: "building",
@@ -81,10 +81,10 @@ class LibreUNet(BaseModel):
     FAMILY: ClassVar[str] = "unet"
     FILENAME_PREFIX: ClassVar[str] = "LibreUNet"
     WEIGHT_EXT: ClassVar[str] = ".pt"
-    SUPPORTED_TASKS: ClassVar[Tuple[str, ...]] = ("semantic",)
+    SUPPORTED_TASKS: ClassVar[tuple[str, ...]] = ("semantic",)
     DEFAULT_TASK: ClassVar[str] = "semantic"
     REQUIRE_TASK_SUFFIX: ClassVar[bool] = True
-    INPUT_SIZES: ClassVar[Dict[str, Tuple[int, int]]] = {
+    INPUT_SIZES: ClassVar[dict[str, tuple[int, int]]] = {
         size: config["imgsz"] for size, config in SIZE_CONFIGS.items()
     }
     TRAIN_CONFIG: ClassVar[type[UNetConfig]] = UNetConfig
@@ -102,7 +102,7 @@ class LibreUNet(BaseModel):
     def _strip_module_prefix(cls, weights_dict: dict) -> dict:
         if any(str(key).startswith("module.") for key in weights_dict):
             return {
-                (str(key)[len("module.") :] if str(key).startswith("module.") else str(key)): value
+                (str(key).removeprefix("module.")): value
                 for key, value in weights_dict.items()
             }
         return weights_dict
@@ -113,7 +113,7 @@ class LibreUNet(BaseModel):
         return all(token in keys for token in _UNIQUE_KEYS)
 
     @classmethod
-    def detect_size(cls, weights_dict: dict) -> Optional[str]:
+    def detect_size(cls, weights_dict: dict) -> str | None:
         state = cls._strip_module_prefix(weights_dict)
         stem = state.get("backbone.encoder.0.0.convs.0.conv.weight")
         deepest = state.get("backbone.encoder.4.1.convs.1.conv.weight")
@@ -124,7 +124,7 @@ class LibreUNet(BaseModel):
         return None
 
     @classmethod
-    def detect_nb_classes(cls, weights_dict: dict) -> Optional[int]:
+    def detect_nb_classes(cls, weights_dict: dict) -> int | None:
         state = cls._strip_module_prefix(weights_dict)
         head = state.get("decode_head.conv_seg.weight")
         if head is None or getattr(head, "ndim", 0) < 1:
@@ -139,11 +139,11 @@ class LibreUNet(BaseModel):
         return nc
 
     @classmethod
-    def convert_upstream_state_dict(cls, state_dict: dict) -> Optional[dict]:
+    def convert_upstream_state_dict(cls, state_dict: dict) -> dict | None:
         return convert_upstream_unet_state_dict(state_dict)
 
     @classmethod
-    def get_download_notice(cls, filename: str, url: str) -> Optional[str]:
+    def get_download_notice(cls, filename: str, url: str) -> str | None:
         del url
         return (
             f"{Path(filename).name} is a converted U-Net checkpoint trained on "
@@ -176,10 +176,10 @@ class LibreUNet(BaseModel):
             task=resolved_task,
             **kwargs,
         )
-        self.weight_license: Optional[str] = None
-        self.weight_license_url: Optional[str] = None
-        self.weight_dataset: Optional[str] = None
-        self.weight_commercial_use: Optional[bool] = None
+        self.weight_license: str | None = None
+        self.weight_license_url: str | None = None
+        self.weight_dataset: str | None = None
+        self.weight_commercial_use: bool | None = None
         self.model.eval()
         if self.model_path is not None:
             self._load_weights(str(self.model_path))
@@ -190,16 +190,16 @@ class LibreUNet(BaseModel):
         return LibreUNetNet(size=self.size, num_classes=self.nb_classes)
 
     @property
-    def semantic_scale_jitter(self) -> Tuple[float, float]:
+    def semantic_scale_jitter(self) -> tuple[float, float]:
         return tuple(SIZE_CONFIGS[self.size]["rescale_range"])
 
     @property
-    def semantic_train_imgsz(self) -> Tuple[int, int]:
+    def semantic_train_imgsz(self) -> tuple[int, int]:
         """Source train crop (512x1024)."""
         return tuple(SIZE_CONFIGS[self.size]["train_crop"])
 
     @property
-    def semantic_val_imgsz(self) -> Tuple[int, int]:
+    def semantic_val_imgsz(self) -> tuple[int, int]:
         """Whole-frame evaluation canvas (1024x2048), not the train crop."""
         return tuple(SIZE_CONFIGS[self.size]["imgsz"])
 
@@ -219,7 +219,7 @@ class LibreUNet(BaseModel):
         self.names = {i: f"class_{i}" for i in range(int(new_nb_classes))}
         self.model.to(self.device)
 
-    def _get_available_layers(self) -> Dict[str, nn.Module]:
+    def _get_available_layers(self) -> dict[str, nn.Module]:
         return {
             "backbone": self.model.backbone,
             "decode_head": self.model.decode_head,
@@ -235,7 +235,7 @@ class LibreUNet(BaseModel):
         image: ImageInput,
         color_format: str = "auto",
         input_size: int | tuple[int, int] | None = None,
-    ) -> Tuple[torch.Tensor, Image.Image, Tuple[int, int], float]:
+    ) -> tuple[torch.Tensor, Image.Image, tuple[int, int], float]:
         effective_res = input_size if input_size is not None else self._get_input_size()
         input_h, input_w = _input_size_hw(effective_res)
         if input_h % STRIDE or input_w % STRIDE:
@@ -254,7 +254,7 @@ class LibreUNet(BaseModel):
     def _postprocess_semantic_logits(
         self,
         output: Any,
-        original_size: Tuple[int, int],
+        original_size: tuple[int, int],
         ratio: float = 1.0,
         **kwargs,
     ) -> torch.Tensor:
@@ -266,10 +266,10 @@ class LibreUNet(BaseModel):
         output: Any,
         conf_thres: float,
         iou_thres: float,
-        original_size: Tuple[int, int],
+        original_size: tuple[int, int],
         max_det: int = 300,
         **kwargs,
-    ) -> Dict:
+    ) -> dict:
         return _postprocess(
             output,
             conf_thres,
@@ -354,8 +354,8 @@ class LibreUNet(BaseModel):
         *,
         epochs: int = 160,
         batch: int = 4,
-        imgsz: Optional[int | Tuple[int, int]] = None,
-        lr0: Optional[float] = None,
+        imgsz: int | tuple[int, int] | None = None,
+        lr0: float | None = None,
         device: str = "",
         workers: int = 4,
         seed: int = 0,
@@ -367,7 +367,7 @@ class LibreUNet(BaseModel):
         callbacks: TrainCallbacks = None,
         loggers=None,
         **kwargs,
-    ) -> Dict:
+    ) -> dict:
         """Train U-Net with the mmseg Cityscapes-style CE + auxiliary recipe."""
         from .trainer import UNetTrainer
 
@@ -421,4 +421,4 @@ class LibreUNet(BaseModel):
             self._load_weights(str(checkpoint))
 
 
-__all__ = ["CITYSCAPES_NAMES", "LibreUNet", "WEIGHT_LICENSE"]
+__all__ = ["CITYSCAPES_NAMES", "WEIGHT_LICENSE", "LibreUNet"]

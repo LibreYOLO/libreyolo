@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Tuple
+from typing import Any
 
 import torch
 import torch.nn.functional as F
@@ -29,7 +29,7 @@ def primary_logits(output: Any) -> torch.Tensor:
     return logits
 
 
-def resize_logits(output: Any, original_size: Tuple[int, int]) -> torch.Tensor:
+def resize_logits(output: Any, original_size: tuple[int, int]) -> torch.Tensor:
     """Return primary float32 logits at ``original_size`` (width, height)."""
     orig_w, orig_h = original_size
     return F.interpolate(
@@ -44,7 +44,7 @@ def postprocess(
     output: Any,
     conf_thres: float,
     iou_thres: float,
-    original_size: Tuple[int, int],
+    original_size: tuple[int, int],
     max_det: int = 300,
     **_unused,
 ) -> dict[str, torch.Tensor]:

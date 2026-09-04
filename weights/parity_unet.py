@@ -39,14 +39,13 @@ from pathlib import Path
 
 import numpy as np
 import torch
-
 from _conversion_utils import add_repo_root_to_path
 from convert_unet_weights import SOURCE_DIGEST, convert, sha256
 
 add_repo_root_to_path()
 
-from libreyolo.models.unet.convert import convert_upstream  # noqa: E402
-from libreyolo.models.unet.nn import SIZE_CONFIGS, LibreUNetNet  # noqa: E402
+from libreyolo.models.unet.convert import convert_upstream
+from libreyolo.models.unet.nn import SIZE_CONFIGS, LibreUNetNet
 
 MMSEG_ROOT = os.environ.get("UNET_MMSEG_ROOT")
 CKPT_PATH = os.environ.get("UNET_OFFICIAL_CKPT")
@@ -63,7 +62,7 @@ def _stub_mmcv_ext_if_missing() -> None:
         return
 
     class _Ext(types.ModuleType):
-        def __getattr__(self, name):  # noqa: D401
+        def __getattr__(self, name):
             if name.startswith("__"):
                 raise AttributeError(name)
 

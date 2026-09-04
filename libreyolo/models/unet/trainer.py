@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, Type
+from typing import Any
 
 import torch
 
@@ -21,7 +21,7 @@ class UNetTrainer(SemanticLogitsCudaGraphMixin, SemanticValidationLossMixin, Bas
     best_metric_key: str = "metrics/mIoU"
 
     @classmethod
-    def _config_class(cls) -> Type[TrainConfig]:
+    def _config_class(cls) -> type[TrainConfig]:
         return UNetConfig
 
     def get_model_family(self) -> str:
@@ -57,7 +57,7 @@ class UNetTrainer(SemanticLogitsCudaGraphMixin, SemanticValidationLossMixin, Bas
             ).to(self.device)
         return self._criterion
 
-    def on_forward(self, imgs: torch.Tensor, targets: torch.Tensor, polygons=None) -> Dict:
+    def on_forward(self, imgs: torch.Tensor, targets: torch.Tensor, polygons=None) -> dict:
         del polygons
         # self.model is the trainer-owned module (SyncBN / DDP wrapped under
         # multi-GPU); the raw wrapper_model.model would skip gradient sync.
@@ -67,7 +67,7 @@ class UNetTrainer(SemanticLogitsCudaGraphMixin, SemanticValidationLossMixin, Bas
         result["total_loss"] = components["loss"]
         return result
 
-    def _checkpoint_extra_metadata(self) -> Dict[str, Any]:
+    def _checkpoint_extra_metadata(self) -> dict[str, Any]:
         # A fine-tune started from the Cityscapes checkpoint is a derivative
         # work and inherits its NON-COMMERCIAL term; carry the license fields
         # into best.pt / last.pt so reloading them keeps the restriction.
@@ -82,7 +82,7 @@ class UNetTrainer(SemanticLogitsCudaGraphMixin, SemanticValidationLossMixin, Bas
                     extra[key] = value
         return extra
 
-    def get_loss_components(self, outputs: Dict) -> Dict[str, float]:
+    def get_loss_components(self, outputs: dict) -> dict[str, float]:
         return {
             key: float(value.item()) if torch.is_tensor(value) else float(value)
             for key, value in outputs.items()

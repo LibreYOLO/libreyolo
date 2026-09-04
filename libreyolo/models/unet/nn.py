@@ -9,11 +9,11 @@ S5-D16 graph with an FCN head, not the 2015 Caffe valid-convolution U-Net.
 
 from __future__ import annotations
 
-from typing import Sequence
+from collections.abc import Sequence
 
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
+from torch import nn
 
 STRIDE = 16
 IGNORE_INDEX = 255
@@ -273,10 +273,10 @@ class LibreUNetNet(nn.Module):
 
 
 __all__ = [
-    "FCNHead",
     "IGNORE_INDEX",
-    "LibreUNetNet",
     "SIZE_CONFIGS",
     "STRIDE",
+    "FCNHead",
+    "LibreUNetNet",
     "UNetBackbone",
 ]
