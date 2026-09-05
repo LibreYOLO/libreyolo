@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 """Wrap an original LibreYOLO SVG in a standalone interactive viewer."""
 import argparse
+import base64
+import binascii
+import math
 import html
 import json
 from pathlib import Path
@@ -28,14 +31,73 @@ new ResizeObserver(()=>{if(parent!==window)parent.postMessage({type:'libreyolo-a
 </script></body></html>'''
 
 
+SVG_NS = 'http://www.w3.org/2000/svg'
+STATIC_ELEMENTS = {
+    'svg', 'g', 'defs', 'marker', 'rect', 'circle', 'ellipse', 'line',
+    'polyline', 'polygon', 'path', 'text', 'tspan', 'title', 'desc',
+    'image', 'clipPath', 'use', 'symbol',
+}
+STATIC_ATTRIBUTES = set("""
+    id class role tabindex aria-label aria-labelledby aria-describedby
+    data-block data-description data-from data-label data-node data-source data-to data-type
+    x y x1 y1 x2 y2 dx dy width height cx cy r rx ry d points
+    viewBox preserveAspectRatio transform fill fill-opacity fill-rule opacity
+    stroke stroke-width stroke-opacity stroke-dasharray stroke-dashoffset
+    stroke-linecap stroke-linejoin stroke-miterlimit
+    font-family font-size font-weight font-style text-anchor dominant-baseline
+    alignment-baseline letter-spacing word-spacing textLength lengthAdjust
+    marker-start marker-mid marker-end markerWidth markerHeight markerUnits refX refY orient
+    clip-path clip-rule clipPathUnits vector-effect display visibility overflow
+""".split())
+LOCAL_REFERENCE = re.compile(r'#[A-Za-z_][A-Za-z0-9_.:-]*\Z')
+PAINT_REFERENCE = re.compile(r'url\(\s*#[A-Za-z_][A-Za-z0-9_.:-]*\s*\)\Z')
+
+
+def validate_static_svg(root):
+    """Fail closed on active content; never silently remove model information."""
+    for e in root.iter():
+        if not e.tag.startswith('{'+SVG_NS+'}') or e.tag.split('}', 1)[1] not in STATIC_ELEMENTS:
+            raise ValueError(f'Unsupported or active SVG element: {e.tag}')
+        tag = e.tag.split('}', 1)[1]
+        for name, value in e.attrib.items():
+            if name in ('href', '{http://www.w3.org/1999/xlink}href'):
+                if tag == 'use' and LOCAL_REFERENCE.fullmatch(value):
+                    continue
+                if tag != 'image':
+                    raise ValueError('Only local use references and embedded raster images are supported')
+                match = re.fullmatch(r'data:image/(png|jpeg|webp);base64,([A-Za-z0-9+/=\s]+)', value)
+                if not match:
+                    raise ValueError('SVG images must be embedded PNG, JPEG or WebP data')
+                try:
+                    data = base64.b64decode(re.sub(r'\s+', '', match[2]), validate=True)
+                except (ValueError, binascii.Error) as exc:
+                    raise ValueError('Invalid embedded raster image') from exc
+                valid = (match[1] == 'png' and data.startswith(b'\x89PNG\r\n\x1a\n') or
+                         match[1] == 'jpeg' and data.startswith(b'\xff\xd8\xff') or
+                         match[1] == 'webp' and data.startswith(b'RIFF') and data[8:12] == b'WEBP')
+                if not valid:
+                    raise ValueError('Embedded image does not match its raster media type')
+                continue
+            if name == '{http://www.w3.org/XML/1998/namespace}space' and value in ('default', 'preserve'):
+                continue
+            if name not in STATIC_ATTRIBUTES:
+                raise ValueError(f'Unsupported or active SVG attribute: {name}')
+            # No CSS escapes or external paint/filter references. Style elements
+            # and style attributes are absent from the allowlists above.
+            if name in ('fill', 'stroke', 'clip-path', 'marker-start', 'marker-mid', 'marker-end'):
+                if '\\' in value or ('url' in value.lower() and not PAINT_REFERENCE.fullmatch(value)):
+                    raise ValueError(f'Only local SVG paint references are supported: {name}')
+
+
 def wrap(svg_path, output):
     svg_path, output = Path(svg_path), Path(output)
     raw = svg_path.read_text(encoding="utf-8")
     root = ET.fromstring(raw)
     if root.tag != '{http://www.w3.org/2000/svg}svg':
         raise ValueError('Input must be an SVG with its XML namespace')
+    validate_static_svg(root)
     viewbox = [float(v) for v in root.attrib.get('viewBox', '').split()]
-    if len(viewbox) != 4 or min(viewbox[2:]) <= 0:
+    if len(viewbox) != 4 or not all(math.isfinite(v) for v in viewbox) or min(viewbox[2:]) <= 0:
         raise ValueError('SVG needs a positive viewBox width and height')
     title_node = root.find('{http://www.w3.org/2000/svg}title')
     title = (title_node.text if title_node is not None else None) or svg_path.stem

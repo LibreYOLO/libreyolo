@@ -45,7 +45,9 @@ Useful operation kinds: `conv`, `conv2d`, `bottleneck`, `norm`, `activation`, `c
 python3 /path/to/skill/scripts/wrap_svg.py /output/model.svg --output /output/index.html
 ```
 
-The HTML embeds the exact SVG. It works as a local file or through a static server. Keep the `.svg`, `.html`, model-specific builder and validation record together in an artifact directory outside the library. Use a localhost-only server during review. The viewer provides PNG download; verify the saved file, not just the button click. Browsers may restrict several automatic downloads from one origin.
+The wrapper accepts static SVG drawing elements and inline presentation attributes, local marker/clip references, and embedded PNG/JPEG/WebP images. It rejects scripts, event handlers, foreignObject, animation, CSS styles, external resources and unknown elements/attributes before creating HTML. Convert unsupported visual styling to the supported SVG attributes; do not bypass validation.
+
+The HTML embeds the validated SVG. It works as a local file or through a static server. Keep the `.svg`, `.html`, model-specific builder and validation record together in an artifact directory outside the library. Use a localhost-only server during review. The viewer provides PNG download; verify the saved file, not just the button click. Browsers may restrict several automatic downloads from one origin.
 
 For hand-authored SVG, add `class="inspectable"`, `tabindex="0"`, `role="button"`, `data-label`, `data-description`, `data-source`, `data-node` and optionally `data-block` to clickable groups. Put `class="outline"` on the group's own outline. Edge paths use `class="wire"` and `data-from`/`data-to`. Text and node outlines should use inline SVG attributes so static exports do not depend on page CSS.
 
