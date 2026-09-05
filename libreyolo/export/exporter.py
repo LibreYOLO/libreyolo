@@ -180,6 +180,7 @@ _RECTANGULAR_EXPORT_FAMILIES = {
     # Every PP-LiteSeg size is natively rectangular (512x1024 / 768x1536);
     # a square export would not be the model the checkpoint was trained as.
     "ppliteseg",
+    "unet",
     "realesrgan",
     "quicksrnet",
 }

@@ -505,6 +505,7 @@ markers = [
     "mask_rcnn: tests covering the Mask R-CNN model family",
     "fcn: tests covering the FCN semantic-segmentation family",
     "ppliteseg: tests covering the PP-LiteSeg semantic-segmentation family",
+    "unet: tests covering the U-Net semantic-segmentation family",
     "fcos: tests covering the FCOS model family",
     "deformable_detr: tests covering the Deformable DETR model family",
     "dinodetr: tests covering the DINO-DETR model family",
