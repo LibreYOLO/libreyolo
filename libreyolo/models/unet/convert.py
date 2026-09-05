@@ -5,7 +5,22 @@ Shared by the runtime auto-converter and ``weights/convert_unet_weights.py``.
 
 from __future__ import annotations
 
+import hashlib
+from pathlib import Path
+
 import torch
+
+SOURCE_DIGEST = "6860854ebe657b0f85f6ec0bf4315fca3b54e6ce639710e76ab055ebc292c090"
+
+
+def checkpoint_sha256(path: str | Path) -> str:
+    """Identify the official artifact independently of its filename."""
+    digest = hashlib.sha256()
+    with open(path, "rb") as handle:
+        for chunk in iter(lambda: handle.read(1 << 20), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
 
 _UNIQUE = (
     "backbone.encoder.4.1.convs.1.conv.weight",

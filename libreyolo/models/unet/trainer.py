@@ -13,9 +13,12 @@ from ..base.semantic_cuda_graph import SemanticLogitsCudaGraphMixin
 from ..base.semantic_validation_loss import SemanticValidationLossMixin
 from .loss import IGNORE_INDEX, UNetLoss
 from .nn import SIZE_CONFIGS
+from .utils import _input_size_hw
 
 
-class UNetTrainer(SemanticLogitsCudaGraphMixin, SemanticValidationLossMixin, BaseTrainer):
+class UNetTrainer(
+    SemanticLogitsCudaGraphMixin, SemanticValidationLossMixin, BaseTrainer
+):
     """Trainer for the LibreUNet semantic-segmentation family."""
 
     best_metric_key: str = "metrics/mIoU"
@@ -57,7 +60,9 @@ class UNetTrainer(SemanticLogitsCudaGraphMixin, SemanticValidationLossMixin, Bas
             ).to(self.device)
         return self._criterion
 
-    def on_forward(self, imgs: torch.Tensor, targets: torch.Tensor, polygons=None) -> dict:
+    def on_forward(
+        self, imgs: torch.Tensor, targets: torch.Tensor, polygons=None
+    ) -> dict:
         del polygons
         # self.model is the trainer-owned module (SyncBN / DDP wrapped under
         # multi-GPU); the raw wrapper_model.model would skip gradient sync.
@@ -72,14 +77,9 @@ class UNetTrainer(SemanticLogitsCudaGraphMixin, SemanticValidationLossMixin, Bas
         # work and inherits its NON-COMMERCIAL term; carry the license fields
         # into best.pt / last.pt so reloading them keeps the restriction.
         extra = dict(super()._checkpoint_extra_metadata())
-        wrapper = self.wrapper_model
-        license_name = getattr(wrapper, "weight_license", None)
-        if license_name:
-            extra["weight_license"] = license_name
-            for key in ("weight_license_url", "weight_dataset", "weight_commercial_use"):
-                value = getattr(wrapper, key, None)
-                if value is not None:
-                    extra[key] = value
+        extra.update(self.wrapper_model._checkpoint_metadata())
+        train_h, train_w = _input_size_hw(self.config.imgsz)
+        extra.update(train_imgsz_h=train_h, train_imgsz_w=train_w)
         return extra
 
     def get_loss_components(self, outputs: dict) -> dict[str, float]:

@@ -33,9 +33,14 @@ from ...training.callbacks import TrainCallbacks
 from ...training.config import UNetConfig
 from ...training.ddp_spawn import ddp_aware
 from ...utils.image_loader import ImageInput, ImageLoader
-from ...utils.serialization import load_trusted_torch_file
+from ...utils.serialization import load_trusted_torch_file, wrap_libreyolo_checkpoint
 from ..base.model import BaseModel
-from .convert import convert_upstream_unet_state_dict, is_upstream_state_dict
+from .convert import (
+    SOURCE_DIGEST,
+    checkpoint_sha256,
+    convert_upstream_unet_state_dict,
+    is_upstream_state_dict,
+)
 from .nn import SIZE_CONFIGS, STRIDE, LibreUNetNet
 from .utils import _input_size_hw, preprocess_numpy
 
@@ -65,6 +70,12 @@ CITYSCAPES_NAMES: dict[int, str] = {
 
 CITYSCAPES_LICENSE_URL = "https://www.cityscapes-dataset.com/license/"
 WEIGHT_LICENSE = "Cityscapes dataset terms, non-commercial"
+_WEIGHT_METADATA_KEYS = (
+    "weight_license",
+    "weight_license_url",
+    "weight_dataset",
+    "weight_commercial_use",
+)
 
 _UNIQUE_KEYS = (
     "backbone.encoder.4.1.convs.1.conv.weight",
@@ -143,6 +154,37 @@ class LibreUNet(BaseModel):
         return convert_upstream_unet_state_dict(state_dict)
 
     @classmethod
+    def upstream_checkpoint_metadata(
+        cls, loaded: dict, *, source: Path | None = None
+    ) -> dict:
+        """Preserve declared terms; attribute the official file by its SHA-256.
+
+        Architecture or class count alone cannot identify a weight license:
+        users can train this same graph from scratch on their own data.
+        """
+        height, width = SIZE_CONFIGS["s"]["imgsz"]
+        metadata = {
+            "imgsz": max(height, width),
+            "imgsz_h": height,
+            "imgsz_w": width,
+            **{
+                key: loaded[key]
+                for key in _WEIGHT_METADATA_KEYS
+                if loaded.get(key) is not None
+            },
+        }
+        if source is not None and checkpoint_sha256(source) == SOURCE_DIGEST:
+            metadata.update(
+                names=dict(CITYSCAPES_NAMES),
+                weight_license=WEIGHT_LICENSE,
+                weight_license_url=CITYSCAPES_LICENSE_URL,
+                weight_dataset="Cityscapes",
+                weight_commercial_use=False,
+                source_sha256=SOURCE_DIGEST,
+            )
+        return metadata
+
+    @classmethod
     def get_download_notice(cls, filename: str, url: str) -> str | None:
         del url
         return (
@@ -202,6 +244,34 @@ class LibreUNet(BaseModel):
     def semantic_val_imgsz(self) -> tuple[int, int]:
         """Whole-frame evaluation canvas (1024x2048), not the train crop."""
         return tuple(SIZE_CONFIGS[self.size]["imgsz"])
+
+    def _prepare_scratch_init(self) -> None:
+        for key in _WEIGHT_METADATA_KEYS:
+            setattr(self, key, None)
+
+    def _checkpoint_metadata(self) -> dict[str, Any]:
+        height, width = self.semantic_val_imgsz
+        return {
+            "imgsz": max(height, width),
+            "imgsz_h": height,
+            "imgsz_w": width,
+            **{
+                key: getattr(self, key)
+                for key in _WEIGHT_METADATA_KEYS
+                if getattr(self, key, None) is not None
+            },
+        }
+
+    def _ddp_bootstrap_checkpoint(self, state_dict: dict) -> dict:
+        return wrap_libreyolo_checkpoint(
+            state_dict,
+            model_family=self.FAMILY,
+            size=self.size,
+            task=self.task,
+            nc=self.nb_classes,
+            names=self.names,
+            **self._checkpoint_metadata(),
+        )
 
     def _rebuild_for_new_size(self, new_size: str) -> None:
         if new_size not in SIZE_CONFIGS:
@@ -322,6 +392,11 @@ class LibreUNet(BaseModel):
             converted = convert_upstream_unet_state_dict(state)
             if converted is not None:
                 state = converted
+            source = Path(model_path) if isinstance(model_path, str) else None
+            loaded = {
+                **loaded,
+                **self.upstream_checkpoint_metadata(loaded, source=source),
+            }
 
         ckpt_size = loaded.get("size") or self.detect_size(state)
         if ckpt_size is not None and str(ckpt_size) != self.size:
@@ -345,6 +420,9 @@ class LibreUNet(BaseModel):
         self.weight_dataset = loaded.get("weight_dataset")
         commercial = loaded.get("weight_commercial_use")
         self.weight_commercial_use = None if commercial is None else bool(commercial)
+        self._cache_checkpoint_train_config(loaded)
+        if isinstance(model_path, str):
+            self.model_path = model_path
         self.model.to(self.device).eval()
 
     @ddp_aware()
@@ -370,6 +448,11 @@ class LibreUNet(BaseModel):
     ) -> dict:
         """Train U-Net with the mmseg Cityscapes-style CE + auxiliary recipe."""
         from .trainer import UNetTrainer
+
+        if resume and not self.model_path:
+            raise ValueError(
+                "resume=True requires a checkpoint; load last.pt before training."
+            )
 
         train_imgsz = imgsz if imgsz is not None else self.semantic_train_imgsz
         train_h, train_w = _input_size_hw(train_imgsz)
@@ -406,6 +489,9 @@ class LibreUNet(BaseModel):
             loggers=loggers,
             **train_kwargs,
         )
+        if resume:
+            trainer.setup()
+            trainer.resume(str(self.model_path))
         result = trainer.train()
         self._restore_after_training(result)
         return result

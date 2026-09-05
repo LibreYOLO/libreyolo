@@ -12,7 +12,6 @@ file (see libreyolo/models/unet/NOTICE).
 from __future__ import annotations
 
 import argparse
-import hashlib
 from pathlib import Path
 
 from _conversion_utils import (
@@ -22,7 +21,10 @@ from _conversion_utils import (
     wrap_libreyolo_checkpoint,
 )
 
-SOURCE_DIGEST = "6860854ebe657b0f85f6ec0bf4315fca3b54e6ce639710e76ab055ebc292c090"
+add_repo_root_to_path()
+from libreyolo.models.unet.convert import SOURCE_DIGEST
+from libreyolo.models.unet.convert import checkpoint_sha256 as sha256
+
 SOURCE_URL = (
     "https://download.openmmlab.com/mmsegmentation/v0.5/unet/"
     "fcn_unet_s5-d16_4x4_512x1024_160k_cityscapes/"
@@ -30,14 +32,6 @@ SOURCE_URL = (
 )
 SOURCE_REVISION = "open-mmlab/mmsegmentation@b040e147adfa"
 CITYSCAPES_LICENSE_URL = "https://www.cityscapes-dataset.com/license/"
-
-
-def sha256(path: str | Path) -> str:
-    digest = hashlib.sha256()
-    with open(path, "rb") as handle:
-        for chunk in iter(lambda: handle.read(1 << 20), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
 
 
 def convert(input_path: str, output_path: str) -> None:
@@ -55,7 +49,9 @@ def convert(input_path: str, output_path: str) -> None:
 
     raw = load_checkpoint(input_path)
     if not isinstance(raw, dict) or "state_dict" not in raw:
-        raise SystemExit(f"{input_path} has no top-level 'state_dict' key; not an mmseg artifact.")
+        raise SystemExit(
+            f"{input_path} has no top-level 'state_dict' key; not an mmseg artifact."
+        )
     source_state = raw["state_dict"]
     if not isinstance(source_state, dict):
         raise SystemExit("Upstream 'state_dict' entry is not a mapping.")
