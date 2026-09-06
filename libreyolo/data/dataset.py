@@ -429,7 +429,13 @@ class YOLODataset(ImageCacheMixin, Dataset):
                         try:
                             cls_id, corners = parse_yolo_obb_label_line(
                                 parts,
-                                num_classes=self.num_classes,
+                                # single_cls discards the source class id, so the
+                                # class-count bound does not apply to it. The YOLO
+                                # box path already works this way: parse_yolo_label_line
+                                # remaps to 0 and only then checks the range. Passing
+                                # the bound here instead dropped every row whose
+                                # source id was >= num_classes.
+                                num_classes=None if self.single_cls else self.num_classes,
                                 clip=True,
                             )
                             pixel_corners = corners.copy()
