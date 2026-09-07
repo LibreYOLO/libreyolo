@@ -2902,6 +2902,7 @@ class BaseTrainer(ABC):
             val_config = ValidationConfig(
                 data=self.config.data,
                 single_cls=getattr(self.config, "single_cls", False),
+                classes=getattr(self.config, "classes", None),
                 batch_size=max(1, self.config.batch // max(getattr(self, "world_size", 1), 1)),
                 imgsz=self.config.imgsz,
                 conf_thres=0.001,

@@ -337,6 +337,57 @@ def test_trainer_setup_data_trains_only_the_requested_class_subset(
     assert sorted(labels[:, 4].tolist()) == [0.0, 1.0, 3.0]
 
 
+def test_trainer_run_validation_threads_classes_into_epoch_validation(
+    tmp_path, monkeypatch
+):
+    """BaseTrainer._run_validation builds its own ValidationConfig for the
+    per-epoch mAP printed during training. Unlike a standalone model.val()
+    call, no checkpoint has been saved yet for it to auto-inherit classes=
+    from, so it must be threaded through explicitly -- otherwise per-epoch
+    validation silently scores against the full, unfiltered dataset while
+    the model was only ever supervised on the requested subset, tanking the
+    reported mAP for reasons that have nothing to do with prediction quality.
+    """
+    from libreyolo.models.rtdetr.trainer import RTDETRTrainer
+
+    data_yaml = _write_train_dataset(tmp_path)
+    trainer = RTDETRTrainer(
+        model=torch.nn.Identity(),
+        wrapper_model=SimpleNamespace(task="detect", model=torch.nn.Identity()),
+        size="r18",
+        num_classes=4,
+        data=str(data_yaml),
+        classes=[0, 1, 3],
+        epochs=1,
+        batch=1,
+        imgsz=64,
+        device="cpu",
+        amp=False,
+        ema=False,
+        workers=0,
+        eval_interval=-1,
+    )
+
+    captured = {}
+
+    class _StopEarly(Exception):
+        pass
+
+    class _SpyValidationConfig:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+            raise _StopEarly
+
+    monkeypatch.setattr(
+        "libreyolo.validation.ValidationConfig", _SpyValidationConfig
+    )
+
+    result = trainer._run_validation(0)
+
+    assert result is None  # the spy's exception is caught and logged
+    assert captured.get("classes") == [0, 1, 3]
+
+
 # ---------------------------------------------------------------------------
 # Validator auto-inherit
 # ---------------------------------------------------------------------------
