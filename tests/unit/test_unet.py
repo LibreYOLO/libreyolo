@@ -1,0 +1,516 @@
+"""Unit tests for the U-Net semantic family (no weights required)."""
+
+from __future__ import annotations
+
+import numpy as np
+import pytest
+import torch
+
+from libreyolo import LibreUNet
+from libreyolo.models.unet.loss import UNetLoss
+from libreyolo.models.unet.model import CITYSCAPES_NAMES
+from libreyolo.models.unet.nn import SIZE_CONFIGS, STRIDE, LibreUNetNet
+from libreyolo.models.unet.utils import preprocess_numpy
+from libreyolo.training.config import UNetConfig
+
+pytestmark = [pytest.mark.unit, pytest.mark.unet]
+
+
+def _tiny_net(nc: int = 3) -> LibreUNetNet:
+    return LibreUNetNet(size="s", num_classes=nc)
+
+
+def test_size_config_is_rectangular_and_stride_aligned():
+    # Evaluation canvas is the whole Cityscapes frame (mmseg test pipeline
+    # Resize(2048, 1024) + mode='whole'); 512x1024 is only the train crop.
+    height, width = SIZE_CONFIGS["s"]["imgsz"]
+    assert (height, width) == LibreUNet.INPUT_SIZES["s"] == (1024, 2048)
+    assert height % STRIDE == 0 and width % STRIDE == 0
+    assert width > height
+    assert SIZE_CONFIGS["s"]["train_crop"] == (512, 1024)
+    assert SIZE_CONFIGS["s"]["rescale_range"] == (0.5, 2.0)
+    assert SIZE_CONFIGS["s"]["base_channels"] == 64
+
+
+def test_recipe_accessors_split_train_crop_from_eval_canvas():
+    model = LibreUNet(size="s", device="cpu")
+    assert model.semantic_train_imgsz == (512, 1024)
+    assert model.semantic_val_imgsz == (1024, 2048)
+    assert model.semantic_scale_jitter == (0.5, 2.0)
+    assert model._get_input_size() == (1024, 2048)
+
+
+def test_forward_shapes_and_aux_gating():
+    net = _tiny_net()
+    x = torch.zeros(1, 3, 64, 128)
+    net.eval()
+    with torch.no_grad():
+        out = net(x)
+    assert torch.is_tensor(out)
+    assert out.shape == (1, 3, 64, 128)
+
+    net.train()
+    with torch.no_grad():
+        out = net(torch.zeros(2, 3, 64, 128))
+    assert isinstance(out, tuple) and len(out) == 2
+    assert out[0].shape == (2, 3, 64, 128)
+    assert out[1].shape == (2, 3, 64, 128)
+
+
+def test_architecture_channel_contract():
+    net = _tiny_net(nc=19)
+    assert net.decode_head.conv_seg.out_channels == 19
+    assert net.auxiliary_head.conv_seg.out_channels == 19
+    assert net.decode_head.convs[0].conv.in_channels == 64
+    assert net.auxiliary_head.convs[0].conv.in_channels == 128
+    deepest = net.backbone.encoder[4][1].convs[1].conv
+    assert deepest.out_channels == 1024
+    stem = net.backbone.encoder[0][0].convs[0].conv
+    assert stem.in_channels == 3 and stem.out_channels == 64
+
+
+def test_checkpoint_detection():
+    state = _tiny_net(nc=19).state_dict()
+    assert LibreUNet.can_load(state)
+    assert LibreUNet.detect_size(state) == "s"
+    assert LibreUNet.detect_nb_classes(state) == 19
+    prefixed = {f"module.{key}": value for key, value in state.items()}
+    assert LibreUNet.can_load(prefixed)
+    assert LibreUNet.detect_size(prefixed) == "s"
+    assert LibreUNet.detect_nb_classes(prefixed) == 19
+
+
+# sha256 over the sorted "key (shape)" manifest of the official mmseg
+# checkpoint fcn_unet_s5-d16_4x4_512x1024_160k_cityscapes_20211210_145204-6860854e.pth
+# (148 tensors, BatchNorm num_batches_tracked included). Pinning the upstream
+# layout, not our own, keeps a key rename from staying self-consistent while
+# breaking strict loads of the advertised checkpoint.
+UPSTREAM_MANIFEST_SHA256 = (
+    "904a60b2984d76462945a9f533287cf52d3242e693fa26d4e3af948d2fa1604f"
+)
+UPSTREAM_TENSOR_COUNT = 148
+
+
+def test_state_dict_layout_matches_the_official_checkpoint_manifest():
+    import hashlib
+
+    state = _tiny_net(nc=19).state_dict()
+    manifest = "\n".join(
+        f"{key} {tuple(value.shape)}" for key, value in sorted(state.items())
+    )
+    assert len(state) == UPSTREAM_TENSOR_COUNT
+    assert hashlib.sha256(manifest.encode()).hexdigest() == UPSTREAM_MANIFEST_SHA256
+
+
+def test_can_load_rejects_foreign_and_partial_checkpoints():
+    assert not LibreUNet.can_load({"backbone.conv1.weight": torch.zeros(1)})
+    assert not LibreUNet.can_load(
+        {"decode_head.conv_seg.weight": torch.zeros(19, 64, 1, 1)}
+    )
+    state = _tiny_net(nc=19).state_dict()
+    partial = {
+        key: value
+        for key, value in state.items()
+        if not key.startswith("backbone.decoder.")
+    }
+    assert not LibreUNet.can_load(partial)
+
+
+def test_detect_nb_classes_rejects_disagreeing_heads():
+    state = dict(_tiny_net(nc=19).state_dict())
+    state["auxiliary_head.conv_seg.weight"] = torch.zeros(7, 64, 1, 1)
+    with pytest.raises(RuntimeError, match="inconsistent"):
+        LibreUNet.detect_nb_classes(state)
+
+
+def test_preprocess_stretch_resizes_without_padding():
+    rng = np.random.default_rng(0)
+    img = rng.integers(0, 256, (300, 700, 3), dtype=np.uint8)
+    chw, ratio = preprocess_numpy(img, (512, 1024))
+    assert chw.shape == (3, 512, 1024)
+    assert chw.dtype == np.float32
+    assert 0.0 <= chw.min() and chw.max() <= 1.0
+    assert ratio == 1.0
+    default_chw, _ = preprocess_numpy(img)
+    assert default_chw.shape == (3, 1024, 2048)
+
+
+def test_preprocess_is_identity_on_a_native_cityscapes_frame():
+    """Whole-frame inference must hand the network the source pixels unchanged,
+    exactly as the upstream test pipeline does on 2048x1024 Cityscapes images."""
+    rng = np.random.default_rng(1)
+    img = rng.integers(0, 256, (1024, 2048, 3), dtype=np.uint8)
+    chw, _ = preprocess_numpy(img, (1024, 2048))
+    assert np.array_equal(chw, img.astype(np.float32).transpose(2, 0, 1) / 255.0)
+
+
+def test_internal_standardization_matches_mmseg_on_uint8_values():
+    """(x / 255) * 255 must round-trip every uint8 value exactly so our
+    [0, 1] input contract yields the same standardized tensor mmseg computes
+    from 0-255 pixels."""
+    net = _tiny_net()
+    values = torch.arange(256, dtype=torch.float32)
+    x01 = (values / 255.0).view(1, 1, 16, 16).expand(1, 3, 16, 16)
+    mean = net._mean
+    std = net._std
+    expected = (values.view(1, 1, 16, 16).expand(1, 3, 16, 16) - mean) / std
+    assert torch.equal(net._normalize(x01), expected)
+
+
+def test_preprocess_rejects_off_stride_canvas():
+    model = LibreUNet(size="s", device="cpu")
+    rng = np.random.default_rng(0)
+    img = rng.integers(0, 256, (64, 64, 3), dtype=np.uint8)
+    with pytest.raises(ValueError, match="divisible"):
+        model._preprocess(img, input_size=(500, 1000))
+
+
+def test_normalization_buffers_are_non_persistent():
+    net = _tiny_net()
+    state = net.state_dict()
+    assert "_mean" not in state
+    assert "_std" not in state
+
+
+def test_replace_num_classes_rebuilds_both_heads():
+    net = _tiny_net(nc=19)
+    net.replace_num_classes(5)
+    state = net.state_dict()
+    assert state["decode_head.conv_seg.weight"].shape[0] == 5
+    assert state["auxiliary_head.conv_seg.weight"].shape[0] == 5
+    assert net.num_classes == 5
+
+
+def test_wrapper_rebuild_for_new_classes_updates_names_and_heads():
+    model = LibreUNet(size="s", device="cpu")
+    assert model.names == CITYSCAPES_NAMES
+    model._rebuild_for_new_classes(4)
+    assert model.nb_classes == 4
+    assert len(model.names) == 4
+    state = model.model.state_dict()
+    assert state["decode_head.conv_seg.weight"].shape[0] == 4
+
+
+def test_postprocess_restores_original_canvas():
+    model = LibreUNet(size="s", nb_classes=19, device="cpu")
+    logits = torch.randn(1, 19, 64, 128)
+    result = model._postprocess(logits, 0.25, 0.45, original_size=(333, 211))
+    mask = result["semantic"]
+    assert mask.shape == (211, 333)
+    assert int(mask.min()) >= 0 and int(mask.max()) < 19
+
+
+def test_postprocess_accepts_the_training_tuple():
+    model = LibreUNet(size="s", nb_classes=19, device="cpu")
+    main = torch.randn(1, 19, 32, 64)
+    aux = torch.randn(1, 19, 32, 64)
+    from_tuple = model._postprocess((main, aux), 0.25, 0.45, original_size=(64, 32))
+    from_main = model._postprocess(main, 0.25, 0.45, original_size=(64, 32))
+    assert torch.equal(from_tuple["semantic"], from_main["semantic"])
+
+
+def test_all_one_class_and_tied_logits_are_deterministic():
+    model = LibreUNet(size="s", nb_classes=19, device="cpu")
+    single = torch.full((1, 19, 16, 32), -5.0)
+    single[:, 7] = 5.0
+    mask = model._postprocess(single, 0.25, 0.45, original_size=(32, 16))["semantic"]
+    assert torch.all(mask == 7)
+    tied = torch.zeros(1, 19, 16, 32)
+    tied_mask = model._postprocess(tied, 0.25, 0.45, original_size=(32, 16))["semantic"]
+    assert torch.all(tied_mask == 0)
+
+
+def test_loss_weights_aux_at_point_four():
+    criterion = UNetLoss(aux_weight=0.4)
+    main = torch.zeros(1, 3, 8, 8)
+    aux = torch.zeros(1, 3, 8, 8)
+    main[:, 0] = 10.0
+    aux[:, 1] = 10.0
+    target = torch.zeros(1, 8, 8, dtype=torch.long)
+    parts = criterion((main, aux), target)
+    assert parts["loss_ce"].item() < 1e-4
+    assert parts["loss_aux"].item() > 1.0
+    assert parts["loss"].item() == pytest.approx(
+        parts["loss_ce"].item() + 0.4 * parts["loss_aux"].item(), rel=1e-5
+    )
+
+
+def test_config_matches_the_source_recipe():
+    config = UNetConfig()
+    assert config.optimizer == "sgd"
+    assert config.lr0 == 0.01
+    assert config.momentum == 0.9
+    assert config.weight_decay == 5e-4
+    assert config.nesterov is False
+    assert config.scheduler == "poly"
+    assert config.aux_weight == 0.4
+    assert config.epochs == 160
+    assert config.batch == 4
+    assert config.amp is False
+    assert config.imgsz == (512, 1024)
+
+
+def test_family_metadata_and_task_contract():
+    assert LibreUNet.FAMILY == "unet"
+    assert LibreUNet.FILENAME_PREFIX == "LibreUNet"
+    assert LibreUNet.SUPPORTED_TASKS == ("semantic",)
+    assert LibreUNet.DEFAULT_TASK == "semantic"
+    assert LibreUNet.REQUIRE_TASK_SUFFIX is True
+    assert LibreUNet.semantic_resize_mode == "rescale_crop"
+    assert LibreUNet.semantic_imgsz_divisor == 16
+    with pytest.raises(ValueError, match="semantic"):
+        LibreUNet(size="s", task="detect", device="cpu")
+
+
+def test_download_notice_names_the_non_commercial_restriction():
+    notice = LibreUNet.get_download_notice("LibreUNets-sem.pt", "https://example")
+    assert "NON-COMMERCIAL" in notice
+    assert "cityscapes-dataset.com/license" in notice
+    assert "not to LibreYOLO's MIT code" in notice
+    assert "fine-tune started from this checkpoint inherits" in notice
+
+
+def test_restricted_license_metadata_round_trips_through_load_and_trainer():
+    from libreyolo.models.unet.trainer import UNetTrainer
+
+    def metadata_for(wrapper: LibreUNet) -> dict:
+        # Exercise the hook without standing up a dataset: it reads only
+        # wrapper_model, and BaseTrainer's base implementation returns {}.
+        trainer = UNetTrainer.__new__(UNetTrainer)
+        trainer.wrapper_model = wrapper
+        trainer.config = UNetConfig()
+        return trainer._checkpoint_extra_metadata()
+
+    fresh = LibreUNet(size="s", nb_classes=19, device="cpu")
+    assert fresh.weight_license is None
+    assert "weight_license" not in metadata_for(fresh)
+
+    checkpoint = {
+        "model": _tiny_net(nc=19).state_dict(),
+        "model_family": "unet",
+        "task": "semantic",
+        "size": "s",
+        "nc": 19,
+        "weight_license": "Cityscapes dataset terms, non-commercial",
+        "weight_license_url": "https://www.cityscapes-dataset.com/license/",
+        "weight_dataset": "Cityscapes",
+        "weight_commercial_use": False,
+    }
+    model = LibreUNet(size="s", nb_classes=19, device="cpu")
+    model._load_weights(checkpoint)
+    assert model.weight_license == "Cityscapes dataset terms, non-commercial"
+    assert model.weight_license_url == "https://www.cityscapes-dataset.com/license/"
+    assert model.weight_dataset == "Cityscapes"
+    assert model.weight_commercial_use is False
+
+    extra = metadata_for(model)
+    assert extra["weight_license"] == "Cityscapes dataset terms, non-commercial"
+    assert extra["weight_license_url"] == "https://www.cityscapes-dataset.com/license/"
+    assert extra["weight_dataset"] == "Cityscapes"
+    assert extra["weight_commercial_use"] is False
+
+
+def test_family_is_enrolled_in_the_model_registry():
+    from libreyolo.models.registry import MODEL_GROUPS
+
+    assert MODEL_GROUPS["unet"] == "g2"
+
+
+def test_cli_alias_resolves_to_the_suffixed_filename():
+    from libreyolo.cli.config import is_known_weight_filename, resolve_model_name
+
+    assert resolve_model_name("unet-s") == "LibreUNets-sem.pt"
+    assert resolve_model_name("unet-s-sem") == "LibreUNets-sem.pt"
+    assert is_known_weight_filename("LibreUNets-sem.pt") is True
+
+
+def test_download_url_keeps_the_task_suffix():
+    assert LibreUNet.get_download_url("LibreUNets-sem.pt") == (
+        "https://huggingface.co/LibreYOLO/LibreUNets-sem/resolve/main/LibreUNets-sem.pt"
+    )
+
+
+@pytest.mark.parametrize("factory", [False, True])
+def test_official_raw_import_keeps_license_names_and_rectangle(
+    tmp_path, monkeypatch, factory
+):
+    import hashlib
+
+    from libreyolo import LibreYOLO
+    from libreyolo.models.unet import model as unet_module
+
+    source = tmp_path / "renamed-upstream.pth"
+    torch.save({"state_dict": _tiny_net(nc=19).state_dict()}, source)
+    # Stand in for the externally staged official bytes without downloading
+    # weights. Exercise real file hashing and both public loading paths.
+    digest = hashlib.sha256(source.read_bytes()).hexdigest()
+    monkeypatch.setattr(unet_module, "SOURCE_DIGEST", digest)
+    model = (LibreYOLO if factory else LibreUNet)(str(source), device="cpu")
+    assert model.weight_license == unet_module.WEIGHT_LICENSE
+    assert model.weight_commercial_use is False
+    assert model.weight_dataset == "Cityscapes"
+    assert model.weight_license_url == unet_module.CITYSCAPES_LICENSE_URL
+    assert model.names == CITYSCAPES_NAMES
+    if factory:
+        saved = torch.load(model.model_path, weights_only=True)
+        assert saved["source_sha256"] == digest
+        assert saved["weight_commercial_use"] is False
+        assert (saved["imgsz"], saved["imgsz_h"], saved["imgsz_w"]) == (
+            2048,
+            1024,
+            2048,
+        )
+
+
+def test_unknown_upstream_does_not_invent_cityscapes_terms(tmp_path):
+    source = tmp_path / "LibreUNets-sem.pt"
+    source.write_bytes(b"a user's own training run")
+    metadata = LibreUNet.upstream_checkpoint_metadata({}, source=source)
+    assert not any(key.startswith("weight_") for key in metadata)
+    assert "names" not in metadata
+    declared = {"weight_license": "custom terms", "weight_commercial_use": False}
+    metadata = LibreUNet.upstream_checkpoint_metadata(declared, source=source)
+    assert metadata["weight_license"] == "custom terms"
+    assert metadata["weight_commercial_use"] is False
+
+
+def test_ddp_spawn_preserves_restricted_terms_and_custom_names(tmp_path, monkeypatch):
+    import json
+    from pathlib import Path
+
+    from libreyolo.models.unet.trainer import UNetTrainer
+    from libreyolo.training.ddp_spawn import spawn_for_model
+
+    parent = LibreUNet(nb_classes=3, device="cpu")
+    parent.names = {0: "one", 1: "two", 2: "three"}
+    parent.weight_license = "inherited non-commercial terms"
+    parent.weight_license_url = "https://example.org/terms"
+    parent.weight_dataset = "custom fine-tune"
+    parent.weight_commercial_use = False
+    captured = {}
+
+    def fake_spawn(worker_fn, spawn_args, nprocs, result_path, **kwargs):
+        weights_path, init_kw, _ = spawn_args
+        init_kw = {
+            key: value for key, value in init_kw.items() if not key.startswith("_")
+        }
+        init_kw["device"] = "cpu"
+        worker = LibreUNet(weights_path, **init_kw)
+        trainer = UNetTrainer.__new__(UNetTrainer)
+        trainer.wrapper_model = worker
+        trainer.config = UNetConfig(imgsz=(64, 128))
+        captured.update(trainer._checkpoint_extra_metadata())
+        assert worker.names == parent.names
+        Path(result_path).write_text(json.dumps({}))
+
+    monkeypatch.setattr("libreyolo.training.distributed.spawn_ddp_train", fake_spawn)
+    spawn_for_model(parent, train_kw={"batch": 4}, nprocs=2, devices=[0, 1])
+    assert captured["weight_license"] == parent.weight_license
+    assert captured["weight_license_url"] == parent.weight_license_url
+    assert captured["weight_dataset"] == parent.weight_dataset
+    assert captured["weight_commercial_use"] is False
+    assert (captured["imgsz_h"], captured["imgsz_w"]) == (1024, 2048)
+    assert (captured["train_imgsz_h"], captured["train_imgsz_w"]) == (64, 128)
+
+
+def test_pretrained_false_clears_inherited_weight_terms(monkeypatch):
+    from libreyolo.models.unet.trainer import UNetTrainer
+
+    model = LibreUNet(device="cpu")
+    model.weight_license = "non-commercial"
+    model.weight_license_url = "https://example.org/terms"
+    model.weight_dataset = "Cityscapes"
+    model.weight_commercial_use = False
+    captured = {}
+
+    def inspect_train(trainer):
+        captured.update(trainer._checkpoint_extra_metadata())
+        return {}
+
+    monkeypatch.setattr(UNetTrainer, "train", inspect_train)
+    model.train(data="unused.yaml", pretrained=False, device="cpu")
+    assert model._training_from_scratch
+    assert not any(key.startswith("weight_") for key in captured)
+
+
+def test_resume_requires_a_checkpoint():
+    with pytest.raises(ValueError, match="requires a checkpoint"):
+        LibreUNet(device="cpu").train(data="unused.yaml", resume=True)
+
+
+def test_resume_restores_epoch_optimizer_and_ema(tmp_path, monkeypatch):
+    from PIL import Image
+
+    from libreyolo.models.unet.trainer import UNetTrainer
+
+    # Keep the real training loop, heads, optimizer, EMA and checkpoint IO,
+    # but shrink channels and canvases for a fast, CPU-only integration test.
+    monkeypatch.setitem(
+        SIZE_CONFIGS,
+        "s",
+        {
+            **SIZE_CONFIGS["s"],
+            "base_channels": 4,
+            "imgsz": (32, 64),
+            "train_crop": (32, 64),
+        },
+    )
+    for split in ("train", "val"):
+        for subdir in ("images", "masks"):
+            (tmp_path / subdir / split).mkdir(parents=True)
+        for index in range(2):
+            pixels = np.random.default_rng(index).integers(
+                0, 256, (32, 64, 3), dtype=np.uint8
+            )
+            mask = np.zeros((32, 64), dtype=np.uint8)
+            mask[:, 32:] = 1
+            Image.fromarray(pixels).save(tmp_path / "images" / split / f"{index}.png")
+            Image.fromarray(mask).save(tmp_path / "masks" / split / f"{index}.png")
+    data = tmp_path / "data.yaml"
+    data.write_text(
+        "train: images/train\nval: images/val\nmasks_dir: masks\nnames: [left, right]\n"
+    )
+    kwargs = {
+        "data": str(data),
+        "batch": 2,
+        "imgsz": (32, 64),
+        "device": "cpu",
+        "workers": 0,
+        "project": str(tmp_path / "runs"),
+        "loggers": [],
+        "warmup_epochs": 0,
+        "no_aug_epochs": 0,
+    }
+    model = LibreUNet(nb_classes=2, device="cpu")
+    model.weight_license = "inherited non-commercial terms"
+    model.weight_commercial_use = False
+    first = model.train(epochs=1, name="initial", **kwargs)
+    saved = torch.load(first["last_checkpoint"], weights_only=True)
+    assert saved["optimizer"]["state"]
+    assert saved["ema_updates"] > 0
+    assert saved["weight_license"] == model.weight_license
+    assert saved["weight_commercial_use"] is False
+    assert (saved["imgsz"], saved["imgsz_h"], saved["imgsz_w"]) == (64, 32, 64)
+    assert (saved["train_imgsz_h"], saved["train_imgsz_w"]) == (32, 64)
+    # Reuse the same public wrapper to verify that training also updates its
+    # checkpoint path. best.pt and last.pt describe the same first epoch here.
+    assert model.model_path == first["best_checkpoint"]
+    original_train = UNetTrainer.train
+
+    def inspect_resumed_train(trainer):
+        assert trainer.start_epoch == saved["epoch"] + 1
+        assert trainer.ema_model.updates == saved["ema_updates"]
+        restored = trainer.optimizer.state_dict()["state"]
+        for key, state in saved["optimizer"]["state"].items():
+            assert torch.equal(
+                restored[key]["momentum_buffer"], state["momentum_buffer"]
+            )
+        return original_train(trainer)
+
+    monkeypatch.setattr(UNetTrainer, "train", inspect_resumed_train)
+    resumed = model.train(epochs=2, name="resumed", resume=True, **kwargs)
+    assert [event["epoch"] for event in resumed["epoch_metrics"]] == [2]
+    assert len(resumed["epoch_losses"]) == 1
+    reloaded = LibreUNet(resumed["last_checkpoint"], device="cpu")
+    assert reloaded.weight_license == model.weight_license
+    assert reloaded.weight_commercial_use is False

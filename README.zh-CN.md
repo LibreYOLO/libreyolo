@@ -106,7 +106,7 @@ libreyolo predict --model yolo9-t --source screen            # 屏幕捕获
 | **微小目标** | TinyFormer、Dome-DETR（航拍、无人机、遥感） |
 | **实例分割** | RF-DETR、RTMDet、D-FINE、Mask R-CNN |
 | **可提示分割** | SAM、SAM 2、SAM 3、MobileSAM、EdgeTAM、PicoSAM3 |
-| **语义分割** | SegFormer、PIDNet、PP-LiteSeg、DeepLabv3、FCN、LingBot-Vision、DINOv2、EoMT |
+| **语义分割** | SegFormer、PIDNet、PP-LiteSeg、U-Net、DeepLabv3、FCN、LingBot-Vision、DINOv2、EoMT |
 | **全景分割** | EoMT |
 | **姿态** | RF-DETR、YOLO-NAS、HRNet、DEKR、EC |
 | **旋转框（OBB）** | RF-DETR、RT-DETRv2、YOLO-NAS-R |

@@ -539,6 +539,13 @@ def _wrap_claim(
     converted = {
         k: (v.float() if v.is_floating_point() else v) for k, v in converted.items()
     }
+    # Families may carry source-specific weight terms or rectangular geometry
+    # that tensor-layout recognition alone cannot supply. Others keep the
+    # existing generic metadata path.
+    metadata_hook = getattr(cls, "upstream_checkpoint_metadata", None)
+    if callable(metadata_hook):
+        extra_metadata.update(metadata_hook(loaded, source=source))
+        names = extra_metadata.pop("names", names)
     try:
         wrapped = wrap_libreyolo_checkpoint(
             converted,

@@ -2072,6 +2072,30 @@
     "available": true,
     "group": "g1"
   },
+  "unet": {
+    "class": "libreyolo.models.unet.model.LibreUNet",
+    "tasks": [
+      "semantic"
+    ],
+    "default_task": "semantic",
+    "sizes": {
+      "s": [
+        1024,
+        2048
+      ]
+    },
+    "default_imgsz": {
+      "s": [
+        1024,
+        2048
+      ]
+    },
+    "task_sizes": {},
+    "export_override": "none",
+    "optional_extra": null,
+    "available": true,
+    "group": "g2"
+  },
   "vgg": {
     "class": "libreyolo.models.vgg.model.LibreVGG",
     "tasks": [

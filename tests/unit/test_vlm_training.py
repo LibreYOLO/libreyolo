@@ -394,3 +394,47 @@ class TestTrainGating:
     def test_unknown_recipe_raises(self):
         with pytest.raises(NotImplementedError):
             get_recipe("not-a-family")
+
+
+class TestResumePreservesRunDir:
+    """resume=True must read weights/last from the exact directory it names,
+    not one _resolve_save_dir() incremented away from underneath it."""
+
+    @staticmethod
+    def _fake_wrapper():
+        return type("FakeWrapper", (), {"FAMILY": "qwen3vl"})()
+
+    def test_resume_true_forces_exist_ok_and_keeps_dir(self, tmp_path):
+        from libreyolo.models.vlm.training.trainer import VLMDetectionTrainer
+
+        run_dir = tmp_path / "runs" / "vlm_exp"
+        weights_dir = run_dir / "weights" / "last"
+        weights_dir.mkdir(parents=True)
+        (weights_dir / CONTRACT_FILENAME).write_text("{}")
+
+        trainer = VLMDetectionTrainer(
+            self._fake_wrapper(),
+            data="data.yaml",
+            project=str(tmp_path / "runs"),
+            name="vlm_exp",
+            resume=True,
+        )
+
+        assert trainer.save_dir == run_dir
+        assert trainer.config.exist_ok is True
+        assert trainer._resolve_resume_dir() == weights_dir
+
+    def test_non_resumed_run_still_increments_by_default(self, tmp_path):
+        from libreyolo.models.vlm.training.trainer import VLMDetectionTrainer
+
+        (tmp_path / "runs" / "vlm_exp").mkdir(parents=True)
+
+        trainer = VLMDetectionTrainer(
+            self._fake_wrapper(),
+            data="data.yaml",
+            project=str(tmp_path / "runs"),
+            name="vlm_exp",
+        )
+
+        assert trainer.save_dir == tmp_path / "runs" / "vlm_exp2"
+        assert trainer.config.exist_ok is False

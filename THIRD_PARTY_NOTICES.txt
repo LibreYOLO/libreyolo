@@ -419,6 +419,25 @@ Used for: the dense random-crop sampling used by semantic training
           NVlabs/SegFormer fork of mmseg 0.x, which is non-commercial.
 
 --------------------------------------------------------------------
+mmsegmentation UNet (OpenMMLab)
+--------------------------------------------------------------------
+Source: https://github.com/open-mmlab/mmsegmentation
+        pinned commit b040e147adfa
+        (mmseg/models/backbones/unet.py,
+         mmseg/models/utils/up_conv_block.py,
+         mmseg/models/decode_heads/fcn_head.py)
+License: Apache License 2.0
+Copyright (c) OpenMMLab. All rights reserved.
+Used for: U-Net semantic segmentation family
+          (libreyolo/models/unet/). Native same-padded UNet-S5-D16 +
+          FCN-head graph whose state-dict keys match the official
+          Cityscapes checkpoint. This is not the 2015 Caffe
+          valid-convolution U-Net and not nnU-Net. The released
+          Cityscapes checkpoint is redistributable but NON-COMMERCIAL
+          under Cityscapes dataset terms; see
+          weights/LICENSE_NOTICE.txt and libreyolo/models/unet/NOTICE.
+
+--------------------------------------------------------------------
 PicoDet (PaddleDetection / Picodet_Pytorch)
 --------------------------------------------------------------------
 Source: https://github.com/Bo396543018/Picodet_Pytorch (direct source,
