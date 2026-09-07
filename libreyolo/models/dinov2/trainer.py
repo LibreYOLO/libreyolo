@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
+from typing import Type
+
+from ...training.config import TrainConfig
 from ..base.semantic_validation_loss import SemanticValidationLossMixin
 from ..rfdetr.trainer import RFDETRTrainer
+from .config import DINOv2Config
 
 
 class DINOv2Trainer(SemanticValidationLossMixin, RFDETRTrainer):
@@ -12,11 +16,15 @@ class DINOv2Trainer(SemanticValidationLossMixin, RFDETRTrainer):
     Inherits all training logic from RFDETRTrainer (which handles the
     semantic task path through its ``on_setup``, ``on_forward``, and
     ``get_loss_components`` semantic branches). Only the model-family
-    metadata is overridden so saved checkpoints carry
+    metadata and config class are overridden so saved checkpoints carry
     ``model_family="dinov2"`` instead of ``"rfdetr"``.
     """
 
     artifact_model_families = ("dinov2",)
+
+    @classmethod
+    def _config_class(cls) -> Type[TrainConfig]:
+        return DINOv2Config
 
     def get_model_family(self) -> str:
         return "dinov2"

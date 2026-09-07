@@ -128,6 +128,7 @@ from .eomt.model import LibreEoMT  # noqa: E402,F401  (semantic-only; EoMT query
 from .deeplabv3.model import LibreDeepLabv3  # noqa: E402,F401  (semantic-only; ASPP branch/project keys are unique)
 from .pidnet.model import LibrePIDNet  # noqa: E402,F401  (semantic-only; can_load uses PIDNet fusion keys)
 from .ppliteseg.model import LibrePPLiteSeg  # noqa: E402,F401  (semantic-only; can_load needs SPPM branches + UAFM 4->2->1 attention + PP-LiteSeg proj convs together)
+from .unet.model import LibreUNet  # noqa: E402,F401  (semantic-only; can_load needs encoder.4.1.convs + decoder interp_upsample + FCN heads together)
 from .segformer.model import LibreSegformer  # noqa: E402,F401  (semantic-only; can_load uses decode_head/encoder.stages keys, unique to this family)
 from .lingbotvision.model import LibreLingBotVision  # noqa: E402,F401  (semantic-only; can_load keyed on backbone.rope_embed.periods + storage_tokens + predict head)
 from .vit.model import LibreViT  # noqa: E402  (classify-only; top-level classic-ViT signature)
@@ -898,6 +899,7 @@ __all__ = [
     "LibreEoMT",
     "LibreDeepLabv3",
     "LibrePIDNet",
+    "LibreUNet",
     "LibreSegformer",
     "LibreLingBotVision",
     "LibreViT",
