@@ -171,6 +171,11 @@ from .ppocr.model import LibrePPOCR  # noqa: E402,F401  (import registers family
 # sampler, keeping video decoding off the global import path.
 from .vjepa2.model import LibreVJEPA2  # noqa: E402,F401  (import registers family)
 
+# LeVJEPA video encoder: native inference graph with a CLS clip embedding and
+# dense block-causal patch tokens. Its fingerprint includes a tubelet-1 Conv3d,
+# CLS token and fused qkv weights, so it cannot collide with V-JEPA 2.
+from .levjepa.model import LibreLeVJEPA  # noqa: E402,F401  (import registers family)
+
 
 def _ensure_rfdetr():
     """Lazily register RF-DETR and LibreDINOv2 if their dependencies are installed."""
@@ -914,6 +919,8 @@ __all__ = [
     "LibreSigLIP2",
     "LibrePE",
     "LibrePPOCR",
+    "LibreVJEPA2",
+    "LibreLeVJEPA",
     "LibreFaceEmbedder",
     "try_ensure_rfdetr",
 ]

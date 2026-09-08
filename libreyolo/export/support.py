@@ -3914,6 +3914,36 @@ _add(
 )
 
 
+# --- LeVJEPA ---------------------------------------------------------------
+_add(
+    "validated",
+    ("levjepa",),
+    ("embed",),
+    ("torchscript",),
+    reason=(
+        "The 303M-parameter released checkpoint was exported and reloaded on "
+        "CUDA. The graph matched native FP32 output exactly, retained unit-norm "
+        "1024-D output, and changed when frame order was reversed."
+    ),
+    since="1.5",
+    constraint=(
+        "FP32, batch 1, fixed 16-frame 224x224 input. Drive the graph directly "
+        "with a preprocessed 5D clip; exported-backend video preprocessing is "
+        "not implemented."
+    ),
+)
+_add(
+    "blocked",
+    ("levjepa",),
+    ("embed",),
+    ("ncnn", "tflite"),
+    reason=(
+        "Both toolchains are built around rank-4 image tensors; a rank-5 clip "
+        "input has no supported conversion path."
+    ),
+)
+
+
 # --- Guided and specialist restoration -----------------------------------
 _add(
     "blocked",

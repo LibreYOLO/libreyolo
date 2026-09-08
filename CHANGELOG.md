@@ -9,6 +9,11 @@ before 1.4.0 are documented in the
 
 ### Added
 
+- **LeVJEPA** (`levjepa`) inference-only video encoder with normalized clip
+  embeddings and spatiotemporal patch embeddings. The native implementation
+  loads the released 16-frame ViT-L/16 checkpoint; redistributed weights remain
+  under CC BY-NC 4.0.
+
 - **U-Net semantic family.** `LibreUNets-sem.pt` is the mmseg UNet-S5-D16
   + FCN-head graph (same-padded 2D, not the 2015 Caffe valid-convolution
   U-Net), Cityscapes 19-class. Whole-frame inference and validation at the

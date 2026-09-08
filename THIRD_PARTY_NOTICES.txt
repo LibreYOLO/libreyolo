@@ -3,6 +3,26 @@ following open-source projects. Each upstream is listed with its
 license and the LibreYOLO module(s) that port from it.
 
 --------------------------------------------------------------------
+LeVJEPA architecture and Hugging Face Transformers
+--------------------------------------------------------------------
+Architecture paper: https://arxiv.org/abs/2608.27395
+Upstream metadata: https://github.com/MLO-lab/LeVJEPA
+Commit: 941526c428aa513a5bdfa38697724fda794d8496
+Permissive implementation source: https://github.com/huggingface/transformers
+Commit: 3fa4da70f5d1da3ab1a8304bd2339eab7004b157
+License: Apache-2.0
+Used for: standard transformer and factorized rotary primitives in
+          libreyolo/models/levjepa/, through LibreYOLO's existing V-JEPA 2
+          implementation.
+
+The LeVJEPA inference graph is independently implemented from the paper and
+factual checkpoint metadata. No code from upstream's CC BY-NC 4.0 module.py or
+Hugging Face remote-code implementation was read, copied, adapted, or bundled.
+The learned weights are distributed separately under CC BY-NC 4.0; see
+weights/LICENSE_NOTICE.txt and the family NOTICE.
+The full Apache License 2.0 text is included at licenses/Apache-2.0.txt.
+
+--------------------------------------------------------------------
 COCO API / pycocotools
 --------------------------------------------------------------------
 Source: https://github.com/ppwwyyxx/cocoapi

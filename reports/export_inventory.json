@@ -992,6 +992,24 @@
     "available": true,
     "group": "g3"
   },
+  "levjepa": {
+    "class": "libreyolo.models.levjepa.model.LibreLeVJEPA",
+    "tasks": [
+      "embed"
+    ],
+    "default_task": "embed",
+    "sizes": {
+      "l": 224
+    },
+    "default_imgsz": {
+      "l": 224
+    },
+    "task_sizes": {},
+    "export_override": "none",
+    "optional_extra": null,
+    "available": true,
+    "group": "g3"
+  },
   "lfm2vl": {
     "class": "libreyolo.models.vlm.lfm2.LibreLFM2VL",
     "tasks": [
