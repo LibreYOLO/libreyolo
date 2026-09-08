@@ -180,6 +180,7 @@ _RECTANGULAR_EXPORT_FAMILIES = {
     # Every PP-LiteSeg size is natively rectangular (512x1024 / 768x1536);
     # a square export would not be the model the checkpoint was trained as.
     "ppliteseg",
+    "unet",
     "realesrgan",
     "quicksrnet",
 }
@@ -256,6 +257,18 @@ class _VideoEmbeddingExportWrapper(torch.nn.Module):
     def forward(self, x):
         tokens = self.encoder(x)
         return torch.nn.functional.normalize(tokens.mean(dim=1).float(), dim=-1)
+
+
+class _CLSVideoEmbeddingExportWrapper(torch.nn.Module):
+    """Trace a CLS-based video encoder as a normalized clip embedding graph."""
+
+    def __init__(self, encoder: torch.nn.Module):
+        super().__init__()
+        self.encoder = encoder
+
+    def forward(self, x):
+        tokens = self.encoder(x)
+        return torch.nn.functional.normalize(tokens[:, 0].float(), dim=-1)
 
 
 class _YOLONASExportWrapper(torch.nn.Module):
@@ -1095,6 +1108,11 @@ class BaseExporter(ABC):
                 nn_model = _VideoEmbeddingExportWrapper(nn_model).to(device)
             nn_model.eval()
             video_export_frames = int(getattr(self.model, "clip_frames", 64))
+            dfine_wrapped = True
+        elif family == "levjepa":
+            nn_model = _CLSVideoEmbeddingExportWrapper(nn_model).to(device)
+            nn_model.eval()
+            video_export_frames = int(getattr(self.model, "clip_frames", 16))
             dfine_wrapped = True
         elif family in {"clip", "siglip2"} and task == "classify":
             text_embeds = getattr(self.model, "_text_embeds", None)

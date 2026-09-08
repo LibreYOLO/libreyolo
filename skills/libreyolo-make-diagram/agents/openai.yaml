@@ -1,0 +1,4 @@
+interface:
+  display_name: "LibreYOLO model diagrams"
+  short_description: "Draw verified model graphs with SVG, PNG and interaction"
+  default_prompt: "Use $libreyolo-make-diagram to create a verified model architecture diagram with expanded block definitions and matching interactive, SVG and PNG outputs."

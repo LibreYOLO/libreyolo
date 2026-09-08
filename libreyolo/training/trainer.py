@@ -97,12 +97,16 @@ RECTANGULAR_TRAINING_FAMILIES = {
     # 512x1024 (the 50 sizes) and validate at 512x1024 / 768x1536. A square
     # canvas would not be the model the checkpoints were trained as.
     "ppliteseg": 32,
+    # U-Net S5-D16 is natively rectangular (512x1024 Cityscapes canvas);
+    # encoder stride product is 16, not 32.
+    "unet": 16,
 }
 # Tasks each family may train on rectangularly. Detection is the historical
 # case and stays the default; a family whose rectangular support is not
 # detect-shaped declares its own tasks here.
 RECTANGULAR_TRAINING_TASKS = {
     "ppliteseg": frozenset({"semantic"}),
+    "unet": frozenset({"semantic"}),
 }
 _DEFAULT_RECTANGULAR_TRAINING_TASKS = frozenset({"detect"})
 
@@ -153,6 +157,7 @@ class BaseTrainer(ABC):
     # Whether this family supports ``lora=True`` fine-tuning. Overridden to True
     # by trainers with LoRA-amenable (transformer/nn.Linear) backbones.
     supports_lora: bool = False
+    supports_class_weights: bool = False
 
     def __init__(
         self,
@@ -183,6 +188,15 @@ class BaseTrainer(ABC):
                 )
         self.model = model
         self.wrapper_model = wrapper_model
+        self.class_weights = None
+        if (self.config.class_weights or self.config.cls_pw > 0) and (
+            getattr(wrapper_model, "task", None) != "classify"
+            or not self.supports_class_weights
+        ):
+            raise ValueError(
+                "class_weights=True or cls_pw>0 requires a supported "
+                "image-classification trainer"
+            )
         self.callbacks = TrainCallbackList(callbacks)
         for logger_callback in resolve_loggers(loggers):
             self.callbacks.append(logger_callback)
@@ -837,7 +851,7 @@ class BaseTrainer(ABC):
                     preproc=preproc,
                     load_segments=load_segments,
                     load_obb=load_obb,
-                    num_classes=self.num_classes if load_obb else None,
+                    num_classes=self.num_classes,
                     single_cls=self.config.single_cls,
                 )
             elif ann_file.exists():
@@ -880,7 +894,7 @@ class BaseTrainer(ABC):
                     preproc=preproc,
                     load_segments=load_segments,
                     load_obb=load_obb,
-                    num_classes=self.num_classes if load_obb else None,
+                    num_classes=self.num_classes,
                     single_cls=self.config.single_cls,
                 )
         elif self.config.data_dir:
@@ -911,7 +925,7 @@ class BaseTrainer(ABC):
                     preproc=preproc,
                     load_segments=load_segments,
                     load_obb=load_obb,
-                    num_classes=self.num_classes if load_obb else None,
+                    num_classes=self.num_classes,
                     single_cls=self.config.single_cls,
                 )
         else:
@@ -1060,6 +1074,20 @@ class BaseTrainer(ABC):
                 "erasing": getattr(self.config, "erasing", 0.0),
             },
         )
+
+        if self.config.class_weights or self.config.cls_pw > 0:
+            counts = torch.bincount(
+                torch.tensor(train_dataset._impl.targets), minlength=num_classes
+            ).float()
+            if (counts == 0).any():
+                raise ValueError("Class weighting requires training images in every class")
+            # Full-dataset counts, before sharding: identical on every DDP rank.
+            if self.config.class_weights:
+                weights = counts.sum() / (num_classes * counts)
+            else:
+                weights = counts.pow(-self.config.cls_pw)
+                weights = weights / weights.mean()
+            self.class_weights = weights.to(self.device)
 
         # Batch-level MixUp / CutMix (soft labels) when requested; otherwise this
         # returns the plain classify collate so default training is unchanged.
@@ -3821,6 +3849,14 @@ class BaseTrainer(ABC):
                 "; ".join(metadata_errors),
                 SCHEMA_VERSION,
             )
+
+        for option, default in (("class_weights", False), ("cls_pw", 0.0)):
+            saved_value = checkpoint.get("config", {}).get(option, default)
+            if saved_value != getattr(self.config, option, default):
+                raise ValueError(
+                    f"Resume requires the saved {option} setting "
+                    f"({option}={saved_value}); use a new run to change it."
+                )
 
         try:
             model_state = checkpoint.get("train_model", checkpoint["model"])

@@ -574,19 +574,19 @@ class BaseBackend(ABC):
                 input_size=effective_imgsz,
                 color_format=color_format,
             )
-        if self.model_family == "vjepa2":
-            # Every V-JEPA 2 graph takes a rank-5 clip (B, F, C, H, W). The
+        if self.model_family in {"vjepa2", "levjepa"}:
+            # These video-embedding graphs take a rank-5 clip (B, F, C, H, W). The
             # image preprocessing below produces a rank-4 batch, which the
             # runtime rejects with an opaque "Invalid rank" error. Fail here
             # with something actionable instead. Feeding these graphs a clip
             # through the exported-backend path is not wired up yet.
             raise NotImplementedError(
-                "Exported V-JEPA 2 graphs take a 5D video clip "
+                f"Exported {self.model_family} graphs take a 5D video clip "
                 "(B, F, C, H, W), and LibreYOLO's exported-backend "
                 "preprocessing currently supplies a 4D image batch, so "
                 f"{self.task!r} inference through this path is not supported "
                 "yet. Use the PyTorch checkpoint "
-                "(LibreYOLO('LibreVJEPA2<size>-embed.pt')) for clip inference, "
+                "with LibreYOLO for clip inference, "
                 "or drive the exported graph directly with your own 5D input."
             )
         if self.task in {"classify", "embed"}:

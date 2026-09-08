@@ -322,6 +322,47 @@ class TestBuildTrainKwargs:
 
         assert kwargs["single_cls"] is True
 
+    def test_rfdetr_cli_run_dir_is_not_incremented_twice(self, monkeypatch, tmp_path):
+        """The CLI pre-increments and creates the run dir, so the wrapper must
+        write into that exact dir instead of incrementing it again."""
+        rfdetr_model = pytest.importorskip("libreyolo.models.rfdetr.model")
+        from libreyolo.models.rfdetr.config import RFDETRConfig
+        from libreyolo.training.trainer import BaseTrainer
+
+        class _SaveDirTrainer:
+            """Resolves save_dir exactly like BaseTrainer.setup() on rank 0."""
+
+            def __init__(self, model, wrapper_model=None, **kwargs):
+                self.config = RFDETRConfig(
+                    data=kwargs["data"],
+                    project=kwargs["project"],
+                    name=kwargs["name"],
+                    exist_ok=kwargs["exist_ok"],
+                )
+
+            def train(self):
+                return {"save_dir": str(BaseTrainer._get_save_dir(self))}
+
+        monkeypatch.setattr(rfdetr_model, "RFDETRTrainer", _SaveDirTrainer)
+
+        wrapper = rfdetr_model.LibreRFDETR.__new__(rfdetr_model.LibreRFDETR)
+        wrapper.model = object()
+        wrapper.size = "n"
+        wrapper.nb_classes = 2
+        wrapper.input_size = 560
+        wrapper.task = "detect"
+
+        params = {"project": str(tmp_path), "name": "rfdetr_exp", "exist_ok": False}
+        for expected in ("rfdetr_exp", "rfdetr_exp2"):
+            kwargs = cli_config._build_rfdetr_train_kwargs(params)
+            assert kwargs["output_dir"] == str(tmp_path / expected)
+            result = wrapper.train(data="data.yaml", **kwargs)
+            assert result["save_dir"] == str(tmp_path / expected)
+        assert sorted(p.name for p in tmp_path.iterdir()) == [
+            "rfdetr_exp",
+            "rfdetr_exp2",
+        ]
+
 
 class TestGetCfgDefaults:
     """Test that cfg defaults are fully derived from dataclasses."""

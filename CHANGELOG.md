@@ -9,6 +9,21 @@ before 1.4.0 are documented in the
 
 ### Added
 
+- **LeVJEPA** (`levjepa`) inference-only video encoder with normalized clip
+  embeddings and spatiotemporal patch embeddings. The native implementation
+  loads the released 16-frame ViT-L/16 checkpoint; redistributed weights remain
+  under CC BY-NC 4.0.
+
+- **U-Net semantic family.** `LibreUNets-sem.pt` is the mmseg UNet-S5-D16
+  + FCN-head graph (same-padded 2D, not the 2015 Caffe valid-convolution
+  U-Net), Cityscapes 19-class. Whole-frame inference and validation at the
+  upstream 1024x2048 evaluation canvas; training samples 512x1024 crops from
+  a 0.5-2.0 rescale of the source frame (`CE + 0.4 aux CE`).
+  `weights/parity_unet.py` proves bit-identical logits against the pinned
+  mmseg implementation and identical class maps through `mmseg.apis`. The
+  converted Cityscapes checkpoint is NON-COMMERCIAL; train from scratch for
+  unrestricted weights.
+
 - **LibreGround** sibling factory: screenshot + instruction →
   `Results.points`. Shipped adapters are Florence-2-base (MIT), ShowUI-2B
   (MIT weights; Apache-2.0 code/base), and Qwen3-VL-2B (Apache-2.0).
@@ -33,6 +48,14 @@ before 1.4.0 are documented in the
 
 ### Fixed
 
+- **RF-DETR, DINOv2 and VLM training no longer overwrite the previous run
+  (#833).** Through the Python API, `train()` now increments the run
+  directory like every other family (`exist_ok=False` by default) instead of
+  writing into the same folder. The default location moves from
+  `runs/train` to `runs/train/rfdetr_exp` and `runs/train/dinov2_exp`;
+  the DINOv2 CLI default name is now `dinov2_exp`. `resume=True` keeps the
+  original run directory. DINOv2 `resume=` previously did nothing and now
+  restores the checkpoint before continuing.
 - **Guardless Python multi-GPU launch (#817).**
   `model.train(device=[0, 1])` and `device="0,1"` now coordinate local DDP
   ranks without re-importing and repeating an unguarded user script. Guarded

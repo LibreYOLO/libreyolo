@@ -107,7 +107,7 @@ libreyolo predict --model yolo9-t --source screen            # screen capture
 | **Tiny objects** | TinyFormer, Dome-DETR (aerial, drone, remote sensing) |
 | **Instance segmentation** | RF-DETR, RTMDet, D-FINE, Mask R-CNN |
 | **Promptable segmentation** | SAM, SAM 2, SAM 3, MobileSAM, EdgeTAM, PicoSAM3 |
-| **Semantic segmentation** | SegFormer, PIDNet, PP-LiteSeg, DeepLabv3, FCN, LingBot-Vision, DINOv2, EoMT |
+| **Semantic segmentation** | SegFormer, PIDNet, PP-LiteSeg, U-Net, DeepLabv3, FCN, LingBot-Vision, DINOv2, EoMT |
 | **Panoptic segmentation** | EoMT |
 | **Pose** | RF-DETR, YOLO-NAS, HRNet, DEKR, EC |
 | **Oriented boxes** | RF-DETR, RT-DETRv2, YOLO-NAS-R |
@@ -116,7 +116,7 @@ libreyolo predict --model yolo9-t --source screen            # screen capture
 | **Surface normals** | MoGe-2 |
 | **Edges** | DexiNed, TEED |
 | **Embeddings** | LibreFaceEmbedder, CLIP, SigLIP2, Perception Encoder (image, text, whole-video; also zero-shot classify), DINOv2 |
-| **Video embeddings** | V-JEPA 2 (clip-level embedding, plus video classification with a trainable attentive probe) |
+| **Video embeddings** | V-JEPA 2 (clip embedding and trainable classification probe), LeVJEPA (clip and patch embeddings; CC BY-NC 4.0 weights) |
 | **Body mesh** | SAM 3D Body |
 | **Restoration** | DDColor, HVI-CIDNet, LaMa, NAFNet, QuickSRNet, Real-ESRGAN, SwinIR |
 | **Background removal** | BiRefNet, FeyNobg, BEN2, ViTMatte |

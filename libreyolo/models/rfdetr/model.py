@@ -35,6 +35,8 @@ from ...validation.preprocessors import RFDETRValPreprocessor
 # ancestor) has the same 91-wide head. Aliased here for backward compat.
 _COCO91_TO_COCO80 = COCO91_TO_COCO80
 
+_TRAIN_DEFAULTS = RFDETRConfig()
+
 
 _RFDETR_UPSTREAM_WEIGHT_URLS = {
     "rf-detr-nano.pth": "https://storage.googleapis.com/rfdetr/nano_coco/checkpoint_best_regular.pth",
@@ -1199,7 +1201,7 @@ class LibreRFDETR(BaseModel):
         epochs: int = 100,
         batch_size: int | None = None,
         lr: float | None = None,
-        output_dir: str = "runs/train",
+        output_dir: str | None = None,
         resume: str | Path | bool | None = None,
         callbacks: TrainCallbacks = None,
         loggers=None,
@@ -1212,24 +1214,37 @@ class LibreRFDETR(BaseModel):
             epochs: Number of epochs to train.
             batch_size: Batch size (alias of ``batch=`` passed via kwargs).
             lr: Initial learning rate (alias of ``lr0=`` passed via kwargs).
-            output_dir: Directory for training runs and checkpoints.
+            output_dir: Directory for training runs and checkpoints, split into
+                ``project`` (parent) and ``name`` (leaf). Defaults to
+                ``<RFDETRConfig.project>/<RFDETRConfig.name>`` when omitted;
+                ``project=`` / ``name=`` kwargs take precedence over this split.
             resume: Checkpoint path, or True to resume the loaded checkpoint.
             callbacks: Optional training callback or iterable of callbacks.
             loggers: Optional built-in experiment loggers: a registered name,
                 a configured logger instance, or an iterable mixing both.
         """
-        output_path = Path(output_dir)
         train_kwargs = dict(kwargs)
         project = train_kwargs.pop("project", None)
         name = train_kwargs.pop("name", None)
-        exist_ok = train_kwargs.pop("exist_ok", True)
+        exist_ok = train_kwargs.pop("exist_ok", _TRAIN_DEFAULTS.exist_ok)
         batch = train_kwargs.pop("batch", None)
         lr0 = train_kwargs.pop("lr0", None)
-        if project is None:
-            project = output_path.parent
-        if name is None:
-            name = output_path.name
+        if output_dir is not None:
+            output_path = Path(output_dir)
+            if project is None:
+                project = output_path.parent
+            if name is None:
+                name = output_path.name
+        else:
+            if project is None:
+                project = _TRAIN_DEFAULTS.project
+            if name is None:
+                name = _TRAIN_DEFAULTS.name
         run_dir = Path(project) / str(name)
+        if resume is True:
+            # resume=True reads weights/last.pt from this exact run_dir below;
+            # never let _get_save_dir() increment away from it mid-resume.
+            exist_ok = True
 
         if batch is not None and batch_size is not None and batch != batch_size:
             raise ValueError(

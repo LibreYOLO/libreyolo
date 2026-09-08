@@ -77,6 +77,7 @@ _MODEL_EXPORTS = (
     "LibreDeepLabv3",
     "LibrePIDNet",
     "LibrePPLiteSeg",
+    "LibreUNet",
     "LibreSegformer",
     "LibreLingBotVision",
     "LibreViT",
@@ -93,6 +94,7 @@ _MODEL_EXPORTS = (
     "LibrePE",
     "LibrePPOCR",
     "LibreVJEPA2",
+    "LibreLeVJEPA",
 )
 _RESULTS_EXPORTS = (
     "Results",
@@ -316,6 +318,7 @@ __all__ = [
     "LibreDeepLabv3",
     "LibrePIDNet",
     "LibrePPLiteSeg",
+    "LibreUNet",
     "LibreSegformer",
     "LibreLingBotVision",
     "LibreViT",
@@ -332,6 +335,7 @@ __all__ = [
     "LibrePE",
     "LibrePPOCR",
     "LibreVJEPA2",
+    "LibreLeVJEPA",
     "LibreDINOv2",
     # VLM-as-detector tier (optional, requires libreyolo[vlm])
     "LibreVLM",
