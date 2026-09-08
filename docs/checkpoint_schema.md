@@ -136,6 +136,17 @@ recognizer) key namespaces. OCR checkpoints additionally include:
   orientation classification, image unwarping, textline 0/180 rotation).
   Empty in v1; adding a component later must not break this schema.
 
+U-Net semantic checkpoints keep the whole-frame evaluation size in
+`imgsz` / `imgsz_h` / `imgsz_w` (2048 / 1024 / 2048). Training checkpoints
+add `train_imgsz_h` / `train_imgsz_w` for the actual training crop.
+Weight provenance uses optional flat `weight_license`, `weight_license_url`,
+`weight_dataset`, and boolean `weight_commercial_use` fields. Raw imports of
+the official Cityscapes artifact identify it by its pinned SHA-256 and write
+its non-commercial terms and class names; an arbitrary U-Net tensor layout
+does not establish a weight license. Fine-tunes and U-Net DDP bootstrap
+checkpoints preserve these fields. Explicit scratch training clears inherited
+weight terms. Other families retain their existing flat DDP bootstrap tensors.
+
 The schema is intentionally flat. Existing LibreYOLO checkpoints and loaders
 already use top-level keys such as `model_family`, `size`, `nc`, `names`, and
 `task`; nesting the metadata would increase migration risk before release.

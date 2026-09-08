@@ -1,8 +1,10 @@
 """Training configuration dataclasses for LibreYOLO."""
 
 import logging
+import math
 import warnings
 from dataclasses import asdict, dataclass, fields
+from numbers import Real
 from pathlib import Path
 from typing import List, Optional, Tuple, Union
 import yaml
@@ -11,6 +13,25 @@ from libreyolo.utils.amp import normalize_amp_dtype
 from libreyolo.utils.image_size import normalize_imgsz
 
 logger = logging.getLogger(__name__)
+
+
+def validate_class_weighting(cls_pw=0.0, class_weights=False) -> float:
+    """Validate the power option and its exclusive legacy boolean alternative."""
+    if not isinstance(class_weights, bool):
+        raise ValueError("class_weights must be True or False")
+    if (
+        isinstance(cls_pw, bool)
+        or not isinstance(cls_pw, Real)
+        or not 0.0 <= cls_pw <= 1.0
+        or not math.isfinite(cls_pw)
+    ):
+        raise ValueError("cls_pw must be a finite number in [0, 1]")
+    if class_weights and cls_pw > 0:
+        raise ValueError(
+            "Choose cls_pw>0 or class_weights=True, not both; "
+            "they use different weight normalization."
+        )
+    return float(cls_pw)
 
 
 def load_train_cfg(path) -> dict:
@@ -228,6 +249,10 @@ class TrainConfig:
     # the historical uniform / DistributedSampler is unchanged. Honored by
     # families that build the train loader through create_dataloader.
     class_balanced: bool = False
+    # Classification-only inverse-frequency power; arithmetic mean-one weights.
+    cls_pw: float = 0.0
+    # Legacy sample-normalized weighting. Mutually exclusive with cls_pw > 0.
+    class_weights: bool = False
     # Rolling uniform average of the N best checkpoints ranked by the
     # watched validation metric, written to weights/average.pt at the end
     # of training. 0 (default) is off: best.pt / last.pt are unchanged.
@@ -284,6 +309,7 @@ class TrainConfig:
             raise ValueError(f"precise_bn must be >= 0, got {self.precise_bn}")
         self.single_cls = bool(self.single_cls)
         self.class_balanced = bool(self.class_balanced)
+        self.cls_pw = validate_class_weighting(self.cls_pw, self.class_weights)
         self.export_check = bool(self.export_check)
 
     @classmethod
@@ -1395,6 +1421,58 @@ class PPLiteSegConfig(TrainConfig):
     eval_interval: int = 1
 
     name: str = "ppliteseg_exp"
+
+
+@dataclass(kw_only=True)
+class UNetConfig(TrainConfig):
+    """U-Net training defaults — the mmseg Cityscapes UNet-S5-D16 recipe.
+
+    SGD (momentum 0.9, weight decay 5e-4) with polynomial decay (power 0.9)
+    after a short warmup; EMA on; mixed precision off, matching the released
+    full-precision Cityscapes schedule. ``lr0=0.01`` is the source value for
+    an effective batch of 16 (4 per GPU across 4 GPUs in the 4x4 config) —
+    scale it if you train at a different effective batch.
+
+    ``imgsz`` is the train crop (512x1024), sampled with the family's
+    ``rescale_crop`` recipe (source rescale 0.5..2.0, random crop, cat_max_ratio
+    0.75); validation runs whole frames at ``semantic_val_imgsz`` (1024x2048).
+    Auxiliary CE is weighted 0.4 via ``aux_weight``.
+    """
+
+    # BatchNorm-heavy CNN: sync BN stats across ranks under DDP.
+    sync_bn: bool = True
+    optimizer: str = "sgd"
+    lr0: float = 0.01
+    momentum: float = 0.9
+    weight_decay: float = 5e-4
+    nesterov: bool = False
+    zero_weight_decay_on_bias_and_bn: bool = False
+
+    scheduler: str = "poly"
+    poly_power: float = 0.9
+    warmup_epochs: int = 2
+    warmup_lr_start: float = 0.0
+    min_lr_ratio: float = 0.0
+
+    aux_weight: float = 0.4
+
+    mosaic_prob: float = 0.0
+    mixup_prob: float = 0.0
+    flip_prob: float = 0.5
+    degrees: float = 0.0
+    translate: float = 0.0
+    shear: float = 0.0
+
+    ema: bool = True
+    ema_decay: float = 0.999
+    amp: bool = False
+
+    imgsz: Union[int, Tuple[int, int], List[int], str] = (512, 1024)
+    epochs: int = 160
+    batch: int = 4
+    eval_interval: int = 1
+
+    name: str = "unet_exp"
 
 
 @dataclass(kw_only=True)

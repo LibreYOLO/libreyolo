@@ -98,6 +98,7 @@ FAMILY_DISPLAY_NAMES: Dict[str, str] = {
     "efficientnetv2": "EfficientNetV2",
     "dinov2": "DINOv2",
     "segformer": "SegFormer",
+    "unet": "U-Net",
     "nafnet": "NAFNet",
 }
 
@@ -296,6 +297,21 @@ FAMILY_AUG_SUPPORT: Dict[str, Dict[str, Support]] = {
     # attributes (semantic_scale_jitter / semantic_hsv_prob), not config
     # knobs; horizontal flip is a fixed 0.5.
     "segformer": {
+        "mosaic_prob": _i("Semantic pipeline has no mosaic."),
+        "mixup_prob": _i("Semantic pipeline has no MixUp."),
+        "hsv_prob": _i("Semantic HSV comes from the family's semantic_hsv_prob class attribute."),
+        "flip_prob": _i("Semantic flip is a fixed 0.5."),
+        "degrees": _i("Semantic pipeline has no affine warp."),
+        "translate": _i("Semantic pipeline has no affine warp."),
+        "mosaic_scale": _i("Semantic scale jitter comes from the family's semantic_scale_jitter class attribute."),
+        "mixup_scale": _i("Semantic pipeline has no MixUp."),
+        "shear": _i("Semantic pipeline has no affine warp."),
+        "perspective": _i("Semantic pipeline has no affine warp."),
+        "flipud": _i("Semantic pipeline has no vertical flip."),
+        "no_aug_epochs": _u("Shapes the scheduler's tail."),
+        **_CLS_KNOBS_IGNORED,
+    },
+    "unet": {
         "mosaic_prob": _i("Semantic pipeline has no mosaic."),
         "mixup_prob": _i("Semantic pipeline has no MixUp."),
         "hsv_prob": _i("Semantic HSV comes from the family's semantic_hsv_prob class attribute."),

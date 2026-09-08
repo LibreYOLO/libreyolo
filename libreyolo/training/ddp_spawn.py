@@ -134,6 +134,17 @@ def _bootstrap_state_dict(model_instance: Any) -> dict[str, torch.Tensor]:
     return state
 
 
+def _bootstrap_checkpoint(model_instance: Any) -> dict:
+    """Keep flat bootstrap weights unless a family opts into a metadata wrapper.
+
+    The opt-in loader must accept its own wrapper. RF-DETR and other existing
+    families still receive the plain tensor dict they require.
+    """
+    state = _bootstrap_state_dict(model_instance)
+    hook = getattr(type(model_instance), "_ddp_bootstrap_checkpoint", None)
+    return hook(model_instance, state) if callable(hook) else state
+
+
 def _build_init_kw(model_instance: Any) -> dict:
     """Collect __init__ kwargs needed to reconstruct *model_instance* in a worker.
 
@@ -254,7 +265,7 @@ def spawn_for_model(
         fd, tmp_weights = tempfile.mkstemp(suffix=".pt")
         os.close(fd)
         torch.save(
-            _bootstrap_state_dict(model_instance),
+            _bootstrap_checkpoint(model_instance),
             tmp_weights,
         )
         tmp_weights_to_delete = tmp_weights

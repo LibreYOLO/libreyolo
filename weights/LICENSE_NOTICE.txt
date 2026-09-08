@@ -507,6 +507,23 @@ project the weights were derived from. Per-family summary:
              scratch on your own data carry no such restriction; a fine-tune
              started from a released checkpoint inherits it.
 
+    U-Net (LibreUNets-sem)                             NON-COMMERCIAL weights
+             upstream code: open-mmlab/mmsegmentation UNet-S5-D16 + FCN
+             head (Apache-2.0, commit b040e147adfa). Weights: the official
+             Cityscapes checkpoint
+             fcn_unet_s5-d16_4x4_512x1024_160k_cityscapes_20211210_145204-6860854e.pth
+             (SHA-256 pinned in weights/convert_unet_weights.py). The
+             Cityscapes license (https://www.cityscapes-dataset.com/license/)
+             permits distributing abstract derivative models from which the
+             dataset cannot be recovered, and restricts the dataset and its
+             derivatives to NON-COMMERCIAL use. Hosted with the restriction
+             stated in checkpoint metadata (weight_license), in the download
+             notice printed before auto-download, and on the model card. NOT
+             covered by LibreYOLO's permissive license; the MIT code and the
+             U-Net architecture are unaffected. Weights trained from scratch
+             on your own data carry no such restriction; a fine-tune started
+             from a released checkpoint inherits it.
+
     LingBot-Vision (LibreLingBotVision{s,b,l}-sem)     Apache-2.0
              upstream: robbyant/lingbot-vision (code and released backbone
              weights Apache-2.0, Copyright 2026 LingBot-Vision Contributors; backbone
