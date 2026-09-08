@@ -116,7 +116,7 @@ libreyolo predict --model yolo9-t --source screen            # screen capture
 | **Surface normals** | MoGe-2 |
 | **Edges** | DexiNed, TEED |
 | **Embeddings** | LibreFaceEmbedder, CLIP, SigLIP2, Perception Encoder (image, text, whole-video; also zero-shot classify), DINOv2 |
-| **Video embeddings** | V-JEPA 2 (clip-level embedding, plus video classification with a trainable attentive probe) |
+| **Video embeddings** | V-JEPA 2 (clip embedding and trainable classification probe), LeVJEPA (clip and patch embeddings; CC BY-NC 4.0 weights) |
 | **Body mesh** | SAM 3D Body |
 | **Restoration** | DDColor, HVI-CIDNet, LaMa, NAFNet, QuickSRNet, Real-ESRGAN, SwinIR |
 | **Background removal** | BiRefNet, FeyNobg, BEN2, ViTMatte |

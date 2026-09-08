@@ -57,6 +57,7 @@ MODEL_GROUPS: dict[str, str] = {
     # s - sibling / zero-shot APIs covered separately
     "pe": "s",
     # g3 - inference-only specialists
+    "levjepa": "g3",
     "lwdetr": "g3",
     "detr": "g3",
     "deformable_detr": "g3",

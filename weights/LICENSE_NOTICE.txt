@@ -720,6 +720,22 @@ research-use agreement; Diving48's redistribution terms are not clearly
 established by the selected official source. Users training on either dataset
 are responsible for accepting its terms themselves.
 
+LeVJEPA video encoder
+---------------------
+The converted LeVJEPA checkpoint is redistributed under Creative Commons
+Attribution-NonCommercial 4.0 International. It requires attribution and may
+not be used for commercial purposes. This restriction applies to the learned
+weights, not LibreYOLO's independently implemented MIT-licensed runtime.
+
+  LibreLeVJEPAl-embed.pt
+    galilai-group/LeVJEPA-VideoMix-Large @ e831a0347737fcaa660b39c57d41c109de399845
+    CC-BY-NC-4.0
+
+The released checkpoint was trained on VideoMix, described by its authors as
+1.8 million clips from Kinetics-710, Something-Something v2, Walking Tours,
+and PE-Video. Those datasets are named for provenance only and are not
+mirrored or bundled by LibreYOLO.
+
     Gemma 4 (LibreGemma4e2b, LibreGemma4e4b)           Apache-2.0
              mirrored snapshots of google/gemma-4-E2B-it @
              3e22461f65e89153144f8adb70e3b8c2cc9845a7 and

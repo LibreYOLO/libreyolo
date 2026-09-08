@@ -116,6 +116,7 @@ the `alexnet` / `deit` / `mobilenetv4` / `convnext` / `efficientnetv2` /
 | `siglip2`   | `LibreSigLIP2`  | Upstream brand casing preserved (`SigLIP`) + version (`SigLIP 2` zero-shot classify + image/text embed); inference-only |
 | `pe`        | `LibrePE`       | All-caps acronym (`PE`, Perception Encoder) kept short so canonical filenames stay compact; zero-shot classify + image/text/video embed; inference-only |
 | `vjepa2`    | `LibreVJEPA2`   | All-caps acronym + version (`V-JEPA 2`), hyphen dropped; video clip embedding (`embed`) + attentive-probe video classification (`classify`) |
+| `levjepa`   | `LibreLeVJEPA`  | Upstream mixed-case name preserved; inference-only clip and patch video embeddings |
 | `nafnet`    | `LibreNAFNet`   | All-caps acronym + CamelCase `Net`; restore-only image-restoration family |
 | `ddcolor`   | `LibreDDColor`  | Upstream mixed-case brand preserved (`DDColor`); restore-only automatic colorization family |
 | `hvi_cidnet` | `LibreHVICIDNet` | All-caps upstream acronyms (`HVI-CIDNet`) with the separator retained only in the family id; restore-only low-light enhancement family |
@@ -789,6 +790,9 @@ LibreVJEPA2l256-embed.pt        # facebook/vjepa2-vitl-fpc64-256 (MIT weights), 
 LibreVJEPA2h256-embed.pt        # facebook/vjepa2-vith-fpc64-256 (MIT weights), 256 px, 64 frames
 LibreVJEPA2g256-embed.pt        # facebook/vjepa2-vitg-fpc64-256 (Apache-2.0 weights), 256 px, 64 frames
 LibreVJEPA2g384-embed.pt        # facebook/vjepa2-vitg-fpc64-384 (Apache-2.0 weights), 384 px, 64 frames
+
+# levjepa: 16-frame video encoder. The weights are non-commercial.
+LibreLeVJEPAl-embed.pt           # ViT-L/16, CC BY-NC 4.0, 224 px, 16 frames
 
 # Published attentive probes place the dataset variant AFTER the task suffix.
 # Only these four size/variant pairs exist; -cls without a variant, and any

@@ -463,6 +463,7 @@ markers = [
     "vit: tests covering the ViT classification family",
     "swin: tests covering the Swin classification family",
     "vjepa2: tests covering the V-JEPA 2 video embedding and classification family",
+    "levjepa: tests covering the LeVJEPA video embedding family",
     "external_data: tests that require external datasets, weights, or staged large files",
     "network: tests that intentionally use non-local network access",
     "e2e: end-to-end tests requiring full model loading and inference",

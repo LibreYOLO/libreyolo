@@ -83,6 +83,7 @@ file = name + ".pt"
 | SigLIP2 | `LibreSigLIP2` | `LibreSigLIP2b16-cls.pt` (zero-shot, open-vocab classify) |
 | PE | `LibrePE` | `LibrePEb16-cls.pt` (Perception Encoder Core; zero-shot classify + image/text/video embed) |
 | V-JEPA 2 | `LibreVJEPA2` | `LibreVJEPA2l256-embed.pt` (video clip embedding), `LibreVJEPA2l256-cls-ssv2.pt` (attentive-probe video classify) |
+| LeVJEPA | `LibreLeVJEPA` | `LibreLeVJEPAl-embed.pt` (16-frame clip and patch embeddings; CC BY-NC 4.0 weights) |
 | NAFNet | `LibreNAFNet` | `LibreNAFNets-restore.pt` (restore-only; `-sidd` variant = SIDD denoise) |
 | BEN2 | `LibreBEN2` | `LibreBEN2b-matte.pt` (matte / background-removal; MIT code + weights; inference-only) |
 | BiRefNet | `LibreBiRefNet` | `LibreBiRefNetl-matte.pt` (matte / background-removal; `l` is MIT, `t`/lite has no explicit weights-license tag) |
@@ -265,6 +266,7 @@ LibreVJEPA2l256-embed.pt, LibreVJEPA2h256-embed.pt,
 LibreVJEPA2g256-embed.pt, LibreVJEPA2g384-embed.pt,
 LibreVJEPA2l256-cls-ssv2.pt, LibreVJEPA2l256-cls-diving48.pt,
 LibreVJEPA2g384-cls-ssv2.pt, LibreVJEPA2g384-cls-diving48.pt,
+LibreLeVJEPAl-embed.pt,
 
 LibreNAFNets-restore.pt, LibreNAFNetl-restore.pt,
 LibreNAFNetl-restore-sidd.pt,

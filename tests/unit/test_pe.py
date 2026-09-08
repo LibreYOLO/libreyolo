@@ -273,9 +273,9 @@ def test_other_families_default_to_frame_by_frame():
 def test_clip_mode_stays_opt_in_and_explicit():
     """Clip mode is opt-in, and the opted-in set is small and named.
 
-    PE was the only clip-mode family when it landed; V-JEPA 2 then joined it
-    on the same shared route rather than adding a competing one. This asserts
-    the set is exactly the families that deliberately opted in, so a third
+    PE was the only clip-mode family when it landed; V-JEPA 2 and LeVJEPA then
+    joined it on the same shared route rather than adding competing ones. This
+    asserts the set is exactly the families that deliberately opted in, so a
     family cannot acquire whole-clip behaviour by accident.
     """
     from libreyolo.models.base.model import BaseModel
@@ -285,4 +285,4 @@ def test_clip_mode_stays_opt_in_and_explicit():
         for cls in BaseModel.__subclasses__()
         if getattr(cls, "VIDEO_EMBED_MODE", "frames") == "clip"
     }
-    assert clip_families == {"LibrePE", "LibreVJEPA2"}
+    assert clip_families == {"LibrePE", "LibreVJEPA2", "LibreLeVJEPA"}
