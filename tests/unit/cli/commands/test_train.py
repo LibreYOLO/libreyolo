@@ -913,3 +913,93 @@ def test_class_weights_help_json():
     result = runner.invoke(_make_app(), ["--help-json"])
     assert result.exit_code == 0, result.output
     assert "class_weights" in result.stdout or "class-weights" in result.stdout
+
+
+@pytest.mark.parametrize(
+    "option,value",
+    [([], 0.0), (["cls_pw=0.5"], 0.5), (["--cls-pw", "0.5"], 0.5), (["cls_pw=1"], 1.0)],
+)
+@pytest.mark.parametrize("model", ["LibreResNet18-cls.pt", "LibreDINOv2s-cls.pt"])
+def test_cls_pw_cli_grammars_and_default(option, value, model):
+    result = runner.invoke(
+        _make_app(),
+        [f"model={model}", "data=unused", *option, "--dry-run", "--json", "--quiet"],
+    )
+    assert result.exit_code == 0, result.output
+    cfg = json.loads(result.stdout)["resolved_config"]
+    assert cfg["cls_pw"] == value
+    assert cfg["class_weights"] is False
+
+
+@pytest.mark.parametrize("value", ["-0.1", "1.1", "nan", "inf", "-inf", "true"])
+def test_cls_pw_cli_rejects_invalid_values(value):
+    result = runner.invoke(
+        _make_app(),
+        [
+            "model=LibreResNet18-cls.pt",
+            "data=unused",
+            f"cls_pw={value}",
+            "--dry-run",
+            "--json",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "cls_pw" in result.output or "cls-pw" in result.output
+    assert "Traceback" not in result.output
+
+
+def test_cls_pw_cli_rejects_enabled_legacy_conflict():
+    result = runner.invoke(
+        _make_app(),
+        [
+            "model=LibreResNet18-cls.pt",
+            "data=unused",
+            "cls_pw=0.5",
+            "class_weights=true",
+            "--dry-run",
+            "--json",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "not both" in result.output
+
+
+@pytest.mark.parametrize(
+    "family,model",
+    [("resnet", "LibreResNet18-cls.pt"), ("dinov2", "LibreDINOv2s-cls.pt")],
+)
+@pytest.mark.parametrize("option", [["cls_pw=0.5"], ["--cls-pw", "0.5"]])
+def test_cls_pw_cli_forwards_numeric_strength(
+    monkeypatch, tmp_path, family, model, option
+):
+    captured = {}
+
+    class Classifier:
+        FAMILY = family
+        device = "cpu"
+        task = "classify"
+
+        def train(self, data, **kwargs):
+            captured.update(kwargs)
+            return {"output_dir": str(tmp_path)}
+
+    monkeypatch.setattr(
+        "libreyolo.cli.commands.train.load_model_or_exit",
+        lambda *args, **kwargs: Classifier(),
+    )
+    result = runner.invoke(
+        _make_app(), [f"model={model}", "data=unused", *option, "--json", "--quiet"]
+    )
+    assert result.exit_code == 0, result.output
+    assert captured["cls_pw"] == 0.5
+    assert captured["class_weights"] is False
+
+
+def test_cls_pw_help_json_exposes_numeric_default():
+    result = runner.invoke(_make_app(), ["--help-json"])
+    assert result.exit_code == 0, result.output
+    schema = json.loads(result.stdout)
+    assert "cls_pw" in result.stdout
+
+    parameter = next(p for p in schema["parameters"] if p["name"] == "cls_pw")
+    assert parameter["default"] == 0.0

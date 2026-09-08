@@ -212,9 +212,11 @@ class LibreMobileNetV4(BaseModel):
         rebuilt to the dataset's class count automatically. Cross-entropy +
         AdamW + cosine; the ImageNet-pretrained backbone transfers cleanly.
 
-        ``class_weights=True`` (classification only) applies automatic inverse-frequency
-        loss weighting from the training split. Default False preserves unweighted
-        cross-entropy. This does not change sampling. See docs/classification_training.md.
+        ``cls_pw`` (classification only, float in [0, 1], default 0) controls
+        inverse-frequency weighting strength with mean-one class weights.
+        ``class_weights=True`` retains legacy sample-normalized weighting and
+        cannot be combined with ``cls_pw>0``. Neither option changes sampling.
+        See docs/classification_training.md for compatibility and resume rules.
         """
         from .trainer import MobileNetV4Trainer
 
