@@ -10,7 +10,9 @@ import contextlib
 import functools
 import inspect
 import logging
+import math
 import re
+import warnings
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import (
@@ -19,6 +21,7 @@ from typing import (
     ClassVar,
     Dict,
     Generator,
+    Iterator,
     List,
     Optional,
     Tuple,
@@ -1525,7 +1528,12 @@ class BaseModel(ABC):
 
     def track(
         self,
-        source: str | Path,
+        source: Union[
+            ImageInput,
+            List[ImageInput],
+            Tuple[ImageInput, ...],
+            Iterator[ImageInput],
+        ],
         *,
         track_conf: float = 0.25,
         iou: float = 0.45,
@@ -1535,13 +1543,15 @@ class BaseModel(ABC):
         save: bool = False,
         show: bool = False,
         vid_stride: int = 1,
+        fps: float = 30.0,
+        color_format: str = "auto",
         output_path: Optional[str] = None,
         tracker: str = "bytetrack",
         tracker_config=None,
         augment: bool = False,
         **tracker_kwargs,
     ) -> Generator[Results, None, None]:
-        """Track objects across video frames.
+        """Track objects across video frames or an image sequence.
 
         Runs detection on each frame and associates detections across time.
         Four trackers are available via ``tracker``: ByteTrack (default) and
@@ -1553,7 +1563,13 @@ class BaseModel(ABC):
         with ``track_id`` set.
 
         Args:
-            source: Path to a video file.
+            source: A video file path, a directory of images (sorted by
+                name), a finite list/tuple of already-loaded images (paths,
+                PIL Images, NumPy arrays, or tensors), or an iterator/
+                generator yielding images one at a time for incremental,
+                unbounded tracking. In every case, items are treated as
+                consecutive frames of one logical video and tracked in
+                order.
             track_conf: Confidence threshold for the tracker's first
                 association stage — ``track_high_thresh`` for ByteTrack and
                 BoT-SORT, ``det_thresh`` for OC-SORT and Deep OC-SORT. For the
@@ -1570,8 +1586,27 @@ class BaseModel(ABC):
             save: If True, save annotated video to *output_path*.
             show: Display tracked frames in a window.
             vid_stride: Process every N-th frame.
+            fps: Frame rate to assume when *source* is an image sequence
+                (directory, list, or iterator) rather than a video file,
+                since those have no real capture rate of their own. Affects
+                the fps written into a saved output video, and — for
+                ByteTrack/BoT-SORT only — the lost-track buffer timing
+                (OC-SORT/Deep OC-SORT count lost-track age in frames, not
+                time, so *fps* doesn't affect them). With *vid_stride* > 1,
+                the buffer is timed against ``fps / vid_stride`` — the rate
+                at which frames are actually retained and reach the tracker.
+                Ignored for video files, which use their own detected fps.
+                A typed *tracker_config* keeps its explicit ``frame_rate`` for
+                tracker timing, while *fps* and *vid_stride* still control
+                image-sequence sampling and saved-video playback. A mismatch
+                emits a warning rather than overwriting the explicit config.
+            color_format: Color format for NumPy image-sequence items:
+                ``"rgb"``, ``"bgr"``, or ``"auto"``. Other image input
+                types are normalized to RGB by ``ImageLoader``. Ignored for
+                video files.
             output_path: Path for saved video. Defaults to
-                ``runs/track/<video_stem>.mp4``.
+                ``runs/track/<video_stem>.mp4`` for a video file, or
+                ``runs/track/<name>.mp4`` for an image sequence.
             tracker: Which tracker to use: ``"bytetrack"``, ``"botsort"``,
                 ``"ocsort"`` or ``"deepocsort"``. Ignored when
                 *tracker_config* is given (the config type selects the tracker).
@@ -1652,7 +1687,28 @@ class BaseModel(ABC):
             TrackConfig,
         )
         from ...utils.drawing import draw_boxes, draw_masks
+        from ...utils.image_loader import ImageLoader
+        from ...utils.source import ImageSequenceSource, SourceKind, classify_source
         from ...utils.video import run_video_inference
+
+        # Classified up front (rather than after the tracker is built) so a
+        # non-video source can seed the tracker's frame_rate default below.
+        source_spec = classify_source(source)
+        image_sequence_kinds = {
+            SourceKind.IMAGE,
+            SourceKind.IMAGE_BATCH,
+            SourceKind.IMAGE_SEQUENCE,
+            SourceKind.DIRECTORY,
+        }
+        if source_spec.kind in image_sequence_kinds:
+            try:
+                fps = float(fps)
+            except (TypeError, ValueError) as exc:
+                raise ValueError(
+                    f"fps must be a finite value > 0, got {fps!r}"
+                ) from exc
+            if not math.isfinite(fps) or fps <= 0:
+                raise ValueError(f"fps must be a finite value > 0, got {fps!r}")
 
         # A provided config picks the tracker; otherwise honour the selector.
         if isinstance(tracker_config, BoTSortConfig):
@@ -1665,6 +1721,37 @@ class BaseModel(ABC):
         elif isinstance(tracker_config, TrackConfig):
             tracker = "bytetrack"
         tracker = (tracker or "bytetrack").lower()
+
+        if (
+            tracker in ("bytetrack", "botsort")
+            and source_spec.kind in image_sequence_kinds
+        ):
+            # update() runs once per retained frame, so frame_rate must be
+            # fps / vid_stride.
+            retained_fps = fps / max(1, vid_stride)
+            if tracker_config is None:
+                # Pass the exact fraction: tracker.py already truncates via
+                # int(), so pre-rounding here would double-round and can
+                # shift max_time_lost by a frame at the expiry boundary.
+                tracker_kwargs.setdefault("frame_rate", retained_fps)
+            else:
+                # frame_rate is a typed int field, so compare against the
+                # nearest achievable value rather than the exact fraction.
+                nearest_retained_fps = max(1, round(retained_fps))
+                current = getattr(tracker_config, "frame_rate", nearest_retained_fps)
+                if current != nearest_retained_fps:
+                    # tracker_config always wins and is never overwritten --
+                    # just warn so a silent mismatch doesn't linger.
+                    warnings.warn(
+                        f"tracker_config.frame_rate={tracker_config.frame_rate} does "
+                        f"not match this image sequence's retained-frame rate "
+                        f"(fps / vid_stride ≈ {nearest_retained_fps}). "
+                        "tracker_config is used as-is for tracker timing, so lost "
+                        "tracks will be kept recoverable for the wrong duration "
+                        "unless "
+                        f"you set frame_rate={nearest_retained_fps} on it yourself.",
+                        stacklevel=2,
+                    )
 
         if tracker == "deepocsort":
             if tracker_config is None:
@@ -1703,9 +1790,56 @@ class BaseModel(ABC):
                 "choose 'bytetrack', 'botsort', 'ocsort' or 'deepocsort'."
             )
 
-        source = Path(source)
-        if not source.exists():
-            raise FileNotFoundError(f"Video file not found: {source}")
+        default_stem = "sequence"
+        if source_spec.kind == SourceKind.VIDEO:
+            frame_source: Union[Path, ImageSequenceSource] = Path(source_spec.source)
+            if not frame_source.exists():
+                raise FileNotFoundError(f"Video file not found: {frame_source}")
+            default_stem = frame_source.stem
+        elif source_spec.kind == SourceKind.DIRECTORY:
+            images = ImageLoader.collect_images(source_spec.source)
+            if not images:
+                return
+            default_stem = Path(source_spec.source).name
+            frame_source = ImageSequenceSource(
+                images,
+                vid_stride=vid_stride,
+                fps=fps,
+                save_name=default_stem,
+                color_format=color_format,
+            )
+        elif source_spec.kind == SourceKind.IMAGE_BATCH:
+            frame_source = ImageSequenceSource(
+                list(source_spec.items),
+                vid_stride=vid_stride,
+                fps=fps,
+                save_name=default_stem,
+                color_format=color_format,
+            )
+        elif source_spec.kind == SourceKind.IMAGE_SEQUENCE:
+            frame_source = ImageSequenceSource(
+                source_spec.source,
+                vid_stride=vid_stride,
+                fps=fps,
+                save_name=default_stem,
+                color_format=color_format,
+            )
+        elif source_spec.kind == SourceKind.IMAGE:
+            # A single already-loaded image or path, treated as a one-frame
+            # sequence so predict()-style single-image inputs also work.
+            frame_source = ImageSequenceSource(
+                [source_spec.source],
+                vid_stride=vid_stride,
+                fps=fps,
+                save_name=default_stem,
+                color_format=color_format,
+            )
+        else:
+            raise NotImplementedError(
+                f"track() does not yet support {source_spec.kind.value!r} sources. "
+                "Pass a video file, a directory or list of images, or an "
+                "image iterator."
+            )
 
         model_names = self.names
 
@@ -1751,13 +1885,13 @@ class BaseModel(ABC):
 
             track_output = str(
                 increment_path(
-                    Path("runs") / "track" / f"{source.stem}.mp4",
+                    Path("runs") / "track" / f"{default_stem}.mp4",
                     exist_ok=False,
                 )
             )
 
         yield from run_video_inference(
-            source,
+            frame_source,
             predict_and_track,
             vid_stride=vid_stride,
             save=save,

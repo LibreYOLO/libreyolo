@@ -507,6 +507,60 @@ def test_dinov2_checkpoint_family_is_dinov2(fake_backbone, tmp_path):
     assert ckpt.get("model_family") == "dinov2"
 
 
+def test_dinov2_semantic_resume_continues_same_run_dir(fake_backbone, tmp_path):
+    """resume=True must actually invoke the trainer's resume lifecycle and
+    keep writing into the same run_dir, not increment away from it."""
+    from libreyolo.models.dinov2.model import LibreDINOv2
+
+    yaml_path = _make_semantic_yaml(tmp_path)
+    runs_root = tmp_path / "runs"
+    run_dir = runs_root / "resume_test"
+
+    m1 = LibreDINOv2(
+        model_path=None, size="n", task="semantic", nb_classes=2, device="cpu"
+    )
+    res1 = m1.train(
+        data=str(yaml_path),
+        epochs=1,
+        batch=2,
+        imgsz=70,
+        workers=0,
+        eval_interval=0,
+        project=str(runs_root),
+        name="resume_test",
+        amp=False,
+        ema=False,
+        warmup_epochs=0,
+    )
+    assert run_dir.exists()
+    assert res1.get("last_checkpoint") is not None
+
+    m2 = LibreDINOv2(
+        model_path=None, size="n", task="semantic", nb_classes=2, device="cpu"
+    )
+    res2 = m2.train(
+        data=str(yaml_path),
+        epochs=2,
+        batch=2,
+        imgsz=70,
+        workers=0,
+        eval_interval=0,
+        project=str(runs_root),
+        name="resume_test",
+        resume=True,
+        amp=False,
+        ema=False,
+        warmup_epochs=0,
+    )
+
+    # exist_ok must have been forced True for the resumed run: no sibling
+    # "resume_test2" directory should exist alongside the original.
+    assert not (runs_root / "resume_test2").exists()
+    # The resume lifecycle actually ran: start_epoch was restored to 1, so
+    # only epoch index 1 trained, not epochs 0 and 1 from scratch.
+    assert len(res2["epoch_losses"]) == 1
+
+
 @pytest.mark.external_data
 @pytest.mark.network
 @pytest.mark.slow

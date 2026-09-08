@@ -148,6 +148,24 @@ class TestVideoSource:
 
 
 class TestVideoWriter:
+    def test_rejects_frames_with_changed_dimensions(self, tmp_path, monkeypatch):
+        class FakeWriter:
+            def isOpened(self):
+                return True
+
+            def write(self, frame):
+                raise AssertionError("mismatched frame must not reach OpenCV")
+
+            def release(self):
+                pass
+
+        monkeypatch.setattr(cv2, "VideoWriter", lambda *args: FakeWriter())
+        writer = VideoWriter(tmp_path / "output.avi", fps=10.0, width=32, height=32)
+
+        with pytest.raises(ValueError, match="frame size changed"):
+            writer.write_frame(np.zeros((16, 32, 3), dtype=np.uint8))
+        writer.release()
+
     def test_mp4_prefers_h264_codec(self, tmp_path, monkeypatch):
         from libreyolo.utils import video as video_mod
 

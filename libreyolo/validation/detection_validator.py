@@ -343,6 +343,7 @@ class DetectionValidator(ValidationLossMixin, BaseValidator):
                 split=split_name,
                 img_size=img_size,
                 preproc=self.val_preproc,
+                num_classes=int(self.nc),
                 single_cls=self._single_cls_enabled(),
                 **dataset_kwargs,
             )

@@ -389,6 +389,7 @@ class DEIMTrainer(DETREncoderCudaGraphMixin, BaseTrainer):
                     label_files=label_files,
                     img_size=img_size,
                     preproc=preproc,
+                    num_classes=int(self.num_classes),
                     single_cls=self.config.single_cls,
                 )
             elif ann_file.exists():
@@ -416,6 +417,7 @@ class DEIMTrainer(DETREncoderCudaGraphMixin, BaseTrainer):
                     label_files=label_files,
                     img_size=img_size,
                     preproc=preproc,
+                    num_classes=int(self.num_classes),
                     single_cls=self.config.single_cls,
                 )
         elif self.config.data_dir:
@@ -437,6 +439,7 @@ class DEIMTrainer(DETREncoderCudaGraphMixin, BaseTrainer):
                     split="train",
                     img_size=img_size,
                     preproc=preproc,
+                    num_classes=int(self.num_classes),
                     single_cls=self.config.single_cls,
                 )
         else:

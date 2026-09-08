@@ -59,6 +59,7 @@ in preflight.
 | kosmos2 | detect |  |  |  |  |  |  |  |  |  |  |  |  |
 | l2cs | gaze | ✓ | ✓ | ✓ | ✓ | ✓ |  |  |  |  |  |  |  |
 | lama | restore |  |  |  |  |  |  |  |  |  |  |  |  |
+| levjepa | embed | available | ✓ | available | available | available |  |  |  |  |  |  |  |
 | lfm2vl | detect |  |  |  |  |  |  |  |  |  |  |  |  |
 | lingbotvision | semantic | ✓ | ✓ | ✓ | available | ✓ |  |  |  |  |  |  | ✓ |
 | locateanything | detect |  |  |  |  |  |  |  |  |  |  |  |  |
@@ -114,6 +115,7 @@ in preflight.
 | swinir | restore | ✓ | ✓ |  | ✓ | ✓ |  |  |  |  | ✓ |  |  |
 | teed | edge | ✓ | ✓ | ✓ | ✓ | ✓ |  |  |  |  | ✓ |  |  |
 | tinyformer | detect | available | available | available | available | available |  |  |  |  |  |  |  |
+| unet | semantic |  |  |  |  |  |  |  |  |  |  |  |  |
 | vgg | classify | ✓ | ✓ | available | ✓ | ✓ |  |  |  | available |  |  |  |
 | vit | classify | ✓ | available | available | available | available |  |  |  | available |  |  |  |
 | vitmatte | matte |  |  |  |  |  |  |  |  |  |  |  |  |
@@ -275,6 +277,7 @@ A check mark applies only under any constraint listed here.
 - `l2cs` / `gaze` / `executorch`: ExecuTorch 1.2, XNNPACK, CPU, FP32, batch 1, fixed 448x448 face crop
 - `l2cs` / `gaze` / `tensorrt`: TensorRT 10.16 FP32, batch 1, fixed 448x448 face-crop input
 - `l2cs` / `gaze` / `openvino`: OpenVINO 2026.2 CPU FP32, batch 1, fixed 448x448 face-crop input
+- `levjepa` / `embed` / `torchscript`: FP32, batch 1, fixed 16-frame 224x224 input. Drive the graph directly with a preprocessed 5D clip; exported-backend video preprocessing is not implemented.
 - `lingbotvision` / `semantic` / `onnx`: fixed 512x512 input
 - `lingbotvision` / `semantic` / `torchscript`: fixed 512x512 input
 - `lingbotvision` / `semantic` / `executorch`: ExecuTorch 1.2, XNNPACK, CPU, FP32, batch 1, fixed input shape
@@ -526,6 +529,10 @@ These converter paths are callable with the recorded validation context.
 - `efficientdet` / `detect` / `ncnn`: Conversion is implemented; numeric runtime parity has not been recorded for this combination.
 - `fcos` / `detect` / `openvino`: FP32 dynamic-shape conversion and high-confidence public predictions pass, but small score/box drift can change low-confidence NMS ordering. Constraint: OpenVINO CPU, FP32, batch 1, dynamic padded H/W
 - `feynobg` / `matte` / `onnx`: The opset-19 DeformConv graph exports, but ONNX Runtime's CPU provider has no DeformConv implementation for runtime parity.
+- `levjepa` / `embed` / `onnx`: Conversion is implemented; numeric runtime parity has not been recorded for this combination.
+- `levjepa` / `embed` / `executorch`: Conversion is implemented; numeric runtime parity has not been recorded for this combination.
+- `levjepa` / `embed` / `tensorrt`: The converter path is available, but the project has not yet recorded TensorRT runtime parity for this family and task.
+- `levjepa` / `embed` / `openvino`: The converter path is available, but the project has not yet recorded OpenVINO runtime parity for this family and task.
 - `lingbotvision` / `semantic` / `tensorrt`: TensorRT 10.16 FP32 exports, reloads, and predicts, but repeated builds produced raw-logit cosine as low as 0.9842, below the 0.999 promotion gate.
 - `lwdetr` / `detect` / `executorch`: Conversion is implemented; numeric runtime parity has not been recorded for this combination.
 - `lwdetr` / `detect` / `tensorrt`: The converter path is available, but the project has not yet recorded TensorRT runtime parity for this family and task.
@@ -1013,6 +1020,13 @@ These converter paths are callable with the recorded validation context.
 - `lama` / `restore` / `tflite`: LibreLaMa already embeds and executes the exact upstream QDQ ONNX artifact. Re-exporting that opaque graph through PyTorch is neither meaningful nor supported.
 - `lama` / `restore` / `coreml`: LibreLaMa already embeds and executes the exact upstream QDQ ONNX artifact. Re-exporting that opaque graph through PyTorch is neither meaningful nor supported.
 - `lama` / `restore` / `coreai`: LibreLaMa already embeds and executes the exact upstream QDQ ONNX artifact. Re-exporting that opaque graph through PyTorch is neither meaningful nor supported.
+- `levjepa` / `embed` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
+- `levjepa` / `embed` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
+- `levjepa` / `embed` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
+- `levjepa` / `embed` / `ncnn`: Both toolchains are built around rank-4 image tensors; a rank-5 clip input has no supported conversion path.
+- `levjepa` / `embed` / `tflite`: Both toolchains are built around rank-4 image tensors; a rank-5 clip input has no supported conversion path.
+- `levjepa` / `embed` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
+- `levjepa` / `embed` / `coreai`: This family and task have not been validated for Core AI export.
 - `lfm2vl` / `detect` / `onnx`: Generative VLM export is out of scope for v1.
 - `lfm2vl` / `detect` / `torchscript`: Generative VLM export is out of scope for v1.
 - `lfm2vl` / `detect` / `executorch`: Generative VLM export is out of scope for v1.
@@ -1475,6 +1489,18 @@ These converter paths are callable with the recorded validation context.
 - `tinyformer` / `detect` / `tflite`: This family and task have not been validated through the ONNX-to-TFLite path.
 - `tinyformer` / `detect` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
 - `tinyformer` / `detect` / `coreai`: This family and task have not been validated for Core AI export.
+- `unet` / `semantic` / `onnx`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
+- `unet` / `semantic` / `torchscript`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
+- `unet` / `semantic` / `executorch`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
+- `unet` / `semantic` / `tensorrt`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
+- `unet` / `semantic` / `openvino`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
+- `unet` / `semantic` / `paddle`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
+- `unet` / `semantic` / `mnn`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
+- `unet` / `semantic` / `rknn`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
+- `unet` / `semantic` / `ncnn`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
+- `unet` / `semantic` / `tflite`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
+- `unet` / `semantic` / `coreml`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
+- `unet` / `semantic` / `coreai`: This family is not wired to the shared dense-logits and backend argmax semantic export contract.
 - `vgg` / `classify` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `vgg` / `classify` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `vgg` / `classify` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.

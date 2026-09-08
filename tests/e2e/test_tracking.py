@@ -22,8 +22,10 @@ from pathlib import Path
 
 import pytest
 import torch
+from PIL import Image
 
 from libreyolo import LibreYOLO
+from libreyolo.utils.video import VideoSource
 
 from .conftest import (
     cuda_cleanup,
@@ -94,6 +96,17 @@ def _run_tracker(model, video, n_frames=30, **track_kwargs):
         frames.append(result)
         if i + 1 >= n_frames:
             break
+    return frames
+
+
+def _load_image_sequence(video, n_frames=3):
+    """Load consecutive video frames as an in-memory RGB image sequence."""
+    frames = []
+    with VideoSource(video) as source:
+        for frame_bgr, _ in source:
+            frames.append(Image.fromarray(frame_bgr[:, :, ::-1].copy()))
+            if len(frames) >= n_frames:
+                break
     return frames
 
 
@@ -272,6 +285,15 @@ class TestTrackingYOLO9:
             assert f.track_id is not None
             assert len(f) > 0
 
+    def test_track_image_sequence(self, model, video_path):
+        frames = _load_image_sequence(video_path)
+
+        results = list(model.track(frames))
+
+        assert len(results) == len(frames)
+        assert all(result.track_id is not None for result in results)
+        assert all(result.path is None for result in results)
+
     def test_id_consistency(self, model, video_path):
         """IDs should persist across consecutive frames."""
         frames = _run_tracker(model, video_path, n_frames=10)
@@ -365,6 +387,15 @@ class TestTrackingRFDETR:
         for f in frames:
             assert f.track_id is not None
             assert len(f) > 0
+
+    def test_track_image_sequence(self, model, video_path):
+        frames = _load_image_sequence(video_path)
+
+        results = list(model.track(frames))
+
+        assert len(results) == len(frames)
+        assert all(result.track_id is not None for result in results)
+        assert all(result.path is None for result in results)
 
     def test_id_consistency(self, model, video_path):
         """IDs should persist across consecutive frames."""

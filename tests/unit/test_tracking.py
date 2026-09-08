@@ -1,10 +1,16 @@
 """Unit tests for the ByteTrack tracking module."""
 
-import pytest
+import io
+import warnings
+from pathlib import Path
+
 import numpy as np
+import pytest
 import torch
 from PIL import Image
 
+from libreyolo.models.base.inference import InferenceRunner
+from libreyolo.models.base.model import BaseModel
 from libreyolo.tracking.config import TrackConfig
 from libreyolo.tracking.kalman_filter import KalmanFilterXYAH
 from libreyolo.tracking.matching import (
@@ -15,7 +21,7 @@ from libreyolo.tracking.matching import (
 )
 from libreyolo.tracking.strack import STrack, TrackState
 from libreyolo.tracking.tracker import ByteTracker
-from libreyolo.models.base.model import BaseModel
+from libreyolo.utils.image_loader import ImageLoader
 from libreyolo.utils.results import Boxes, Masks, Results
 
 pytestmark = pytest.mark.unit
@@ -533,3 +539,330 @@ class TestDrawBoxesWithTrackIds:
 
         draw_boxes(img, [[10, 10, 90, 90]], [0.9], [0], track_ids=[1])
         assert np.array_equal(np.array(img), original_arr)
+
+
+# --------------------------------------------------------------------------
+# track() over image sequences, not just video files
+# --------------------------------------------------------------------------
+
+
+class _StubTrackModel:
+    """Minimal stand-in for a BaseModel driving BaseModel.track().
+
+    Always reports one fixed-position detection, which is enough for
+    ByteTrack to assign and keep a single, stable track_id across frames.
+    """
+
+    task = "detect"
+    names = {0: "thing"}
+    device = torch.device("cpu")
+
+    def __init__(self, box=(1.0, 1.0, 5.0, 5.0), score=0.9):
+        self._box = list(box)
+        self._score = score
+
+    def _get_input_size(self):
+        return 32
+
+    def _get_model_name(self):
+        return "stub"
+
+    def _preprocess(self, image, color_format="auto", input_size=None):
+        pil = ImageLoader.load(image, color_format=color_format)
+        return torch.zeros(1, 3, 32, 32), pil, pil.size, 1.0
+
+    def _forward(self, tensor):
+        return tensor
+
+    def _postprocess(
+        self,
+        output,
+        conf,
+        iou,
+        original_size,
+        max_det=300,
+        ratio=1.0,
+        classes=None,
+        **kwargs,
+    ):
+        return {
+            "boxes": [self._box],
+            "scores": [self._score],
+            "classes": [0],
+            "num_detections": 1,
+        }
+
+    @property
+    def _runner(self):
+        if getattr(self, "_runner_instance", None) is None:
+            self._runner_instance = InferenceRunner(self)
+        return self._runner_instance
+
+
+def _make_frames(n, size=(20, 16), color=(50, 50, 50)):
+    return [Image.new("RGB", size, color) for _ in range(n)]
+
+
+class TestTrackImageSequences:
+    def test_tracks_a_list_of_pil_images(self):
+        model = _StubTrackModel()
+
+        results = list(BaseModel.track(model, _make_frames(4)))
+
+        assert len(results) == 4
+        assert [r.frame_idx for r in results] == [0, 1, 2, 3]
+        assert all(r.path is None for r in results)
+        # The fixed-position detection matches itself frame over frame, so
+        # ByteTrack keeps assigning it the same identity.
+        assert [int(r.track_id[0]) for r in results] == [1, 1, 1, 1]
+
+    def test_tracks_a_directory_of_images_in_sorted_order(self, tmp_path):
+        for i in range(3):
+            Image.new("RGB", (20, 16), (i * 40, 0, 0)).save(tmp_path / f"{i:03d}.png")
+        model = _StubTrackModel()
+
+        results = list(BaseModel.track(model, tmp_path))
+
+        assert len(results) == 3
+        assert [Path(r.path).name for r in results] == [
+            "000.png",
+            "001.png",
+            "002.png",
+        ]
+
+    def test_tracks_a_lazy_generator_without_materializing_it(self):
+        model = _StubTrackModel()
+        pulled = []
+
+        def frames():
+            for i in range(1000):
+                pulled.append(i)
+                yield Image.new("RGB", (20, 16))
+
+        gen = BaseModel.track(model, frames())
+        first_three = [next(gen) for _ in range(3)]
+
+        assert len(first_three) == 3
+        # Only as many source frames were pulled as were actually consumed
+        # from the tracking generator -- the iterator must stay lazy.
+        assert len(pulled) == 3
+
+    def test_tracks_a_single_image_as_a_one_frame_sequence(self):
+        model = _StubTrackModel()
+
+        results = list(BaseModel.track(model, Image.new("RGB", (20, 16))))
+
+        assert len(results) == 1
+
+    def test_tracks_a_single_bytesio_image(self):
+        buffer = io.BytesIO()
+        Image.new("RGB", (20, 16)).save(buffer, format="PNG")
+        buffer.seek(0)
+        model = _StubTrackModel()
+
+        results = list(BaseModel.track(model, buffer))
+
+        assert len(results) == 1
+
+    def test_bgr_numpy_frames_reach_the_model_as_rgb(self):
+        model = _StubTrackModel()
+        seen_pixels = []
+        original_preprocess = model._preprocess
+
+        def capture_preprocess(image, color_format="auto", input_size=None):
+            seen_pixels.append(np.asarray(image)[0, 0].tolist())
+            return original_preprocess(
+                image, color_format=color_format, input_size=input_size
+            )
+
+        model._preprocess = capture_preprocess
+        frame_bgr = np.zeros((16, 20, 3), dtype=np.uint8)
+        frame_bgr[:] = [0, 0, 255]
+
+        list(BaseModel.track(model, [frame_bgr], color_format="bgr"))
+
+        assert seen_pixels == [[255, 0, 0]]
+
+    def test_empty_directory_yields_no_results(self, tmp_path):
+        model = _StubTrackModel()
+
+        assert list(BaseModel.track(model, tmp_path)) == []
+
+    def test_live_stream_sources_are_not_yet_supported(self):
+        model = _StubTrackModel()
+
+        with pytest.raises(NotImplementedError, match="stream"):
+            next(BaseModel.track(model, 0))
+
+    def test_save_writes_output_video_for_an_image_list(self, tmp_path):
+        pytest.importorskip("cv2", reason="opencv-python required for video tests")
+        model = _StubTrackModel()
+        output_path = tmp_path / "tracked.mp4"
+
+        results = list(
+            BaseModel.track(
+                model, _make_frames(3), save=True, output_path=str(output_path)
+            )
+        )
+
+        assert len(results) == 3
+        assert output_path.exists()
+
+    def test_save_rejects_images_with_changed_dimensions(self, tmp_path):
+        pytest.importorskip("cv2", reason="opencv-python required for video tests")
+        model = _StubTrackModel()
+        output_path = tmp_path / "tracked.mp4"
+        frames = [
+            Image.new("RGB", (20, 16)),
+            Image.new("RGB", (30, 24)),
+        ]
+
+        with pytest.raises(ValueError, match="frame size changed"):
+            list(
+                BaseModel.track(
+                    model, frames, save=True, output_path=str(output_path)
+                )
+            )
+
+    @pytest.mark.parametrize("fps", [0, -1, np.nan, np.inf])
+    def test_rejects_invalid_image_sequence_fps(self, fps):
+        model = _StubTrackModel()
+
+        with pytest.raises(ValueError, match="fps must be a finite value > 0"):
+            list(BaseModel.track(model, _make_frames(1), fps=fps))
+
+    def test_fps_seeds_bytetrack_frame_rate_for_image_sequences(self, monkeypatch):
+        captured = {}
+        original = TrackConfig.from_kwargs.__func__
+
+        def spy(cls, **kwargs):
+            captured.update(kwargs)
+            return original(cls, **kwargs)
+
+        monkeypatch.setattr(TrackConfig, "from_kwargs", classmethod(spy))
+        model = _StubTrackModel()
+
+        list(BaseModel.track(model, _make_frames(2), fps=12.0))
+
+        assert captured["frame_rate"] == 12
+
+    def test_fps_seeds_frame_rate_at_the_retained_frame_cadence(self, monkeypatch):
+        # tracker.update() only ever sees retained frames, so frame_rate
+        # must be scaled by vid_stride -- not the raw fps -- or a lost
+        # track's real-world expiry stretches out by vid_stride times.
+        captured = {}
+        original = TrackConfig.from_kwargs.__func__
+
+        def spy(cls, **kwargs):
+            captured.update(kwargs)
+            return original(cls, **kwargs)
+
+        monkeypatch.setattr(TrackConfig, "from_kwargs", classmethod(spy))
+        model = _StubTrackModel()
+
+        list(BaseModel.track(model, _make_frames(6), fps=30.0, vid_stride=3))
+
+        assert captured["frame_rate"] == 10
+
+    def test_fps_is_not_pre_rounded_before_reaching_track_config(self, monkeypatch):
+        # tracker.py truncates (int()) frame_rate itself; pre-rounding here
+        # too would double-round and can shift max_time_lost by a frame at
+        # the boundary (e.g. an exact 6.6 cadence: round()->7, int()->6).
+        captured = {}
+        original = TrackConfig.from_kwargs.__func__
+
+        def spy(cls, **kwargs):
+            captured.update(kwargs)
+            return original(cls, **kwargs)
+
+        monkeypatch.setattr(TrackConfig, "from_kwargs", classmethod(spy))
+        model = _StubTrackModel()
+
+        list(BaseModel.track(model, _make_frames(6), fps=33.0, vid_stride=5))
+
+        assert captured["frame_rate"] == pytest.approx(6.6)
+
+    def test_explicit_frame_rate_kwarg_overrides_fps(self, monkeypatch):
+        captured = {}
+        original = TrackConfig.from_kwargs.__func__
+
+        def spy(cls, **kwargs):
+            captured.update(kwargs)
+            return original(cls, **kwargs)
+
+        monkeypatch.setattr(TrackConfig, "from_kwargs", classmethod(spy))
+        model = _StubTrackModel()
+
+        list(BaseModel.track(model, _make_frames(2), fps=12.0, frame_rate=5))
+
+        assert captured["frame_rate"] == 5
+
+    def test_fps_does_not_seed_frame_rate_for_video_sources(self, tmp_path, monkeypatch):
+        cv2 = pytest.importorskip("cv2", reason="opencv-python required for video tests")
+        path = str(tmp_path / "clip.mp4")
+        writer = cv2.VideoWriter(
+            path, cv2.VideoWriter_fourcc(*"mp4v"), 30.0, (20, 16)
+        )
+        for _ in range(2):
+            writer.write(np.zeros((16, 20, 3), dtype=np.uint8))
+        writer.release()
+
+        captured = {}
+        original = TrackConfig.from_kwargs.__func__
+
+        def spy(cls, **kwargs):
+            captured.update(kwargs)
+            return original(cls, **kwargs)
+
+        monkeypatch.setattr(TrackConfig, "from_kwargs", classmethod(spy))
+        model = _StubTrackModel()
+
+        list(BaseModel.track(model, path, fps=12.0))
+
+        assert "frame_rate" not in captured
+
+    def test_fps_does_not_leak_into_ocsort_config(self):
+        # OCSortConfig has no frame_rate field; passing it through would
+        # otherwise trigger a spurious "unknown config key" warning.
+        model = _StubTrackModel()
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            list(BaseModel.track(model, _make_frames(2), fps=12.0, tracker="ocsort"))
+
+    def test_mismatched_typed_tracker_config_frame_rate_warns(self):
+        # tracker_config is never silently overwritten (same contract as
+        # track_conf), but its frame_rate silently governs lost-track
+        # timing for this sequence, so a mismatch must not stay quiet.
+        model = _StubTrackModel()
+        config = TrackConfig()  # frame_rate=30, left at the class default
+
+        with pytest.warns(UserWarning, match="frame_rate"):
+            list(
+                BaseModel.track(
+                    model,
+                    _make_frames(6),
+                    fps=30.0,
+                    vid_stride=3,  # retained rate is 10, not config's 30
+                    tracker_config=config,
+                )
+            )
+
+        # tracker_config itself is never mutated.
+        assert config.frame_rate == 30
+
+    def test_typed_tracker_config_frame_rate_already_matching_is_quiet(self):
+        model = _StubTrackModel()
+        config = TrackConfig(frame_rate=10)  # caller already did the math
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            list(
+                BaseModel.track(
+                    model,
+                    _make_frames(6),
+                    fps=30.0,
+                    vid_stride=3,
+                    tracker_config=config,
+                )
+            )

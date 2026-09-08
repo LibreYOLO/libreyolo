@@ -106,7 +106,7 @@ libreyolo predict --model yolo9-t --source screen            # 屏幕捕获
 | **微小目标** | TinyFormer、Dome-DETR（航拍、无人机、遥感） |
 | **实例分割** | RF-DETR、RTMDet、D-FINE、Mask R-CNN |
 | **可提示分割** | SAM、SAM 2、SAM 3、MobileSAM、EdgeTAM、PicoSAM3 |
-| **语义分割** | SegFormer、PIDNet、PP-LiteSeg、DeepLabv3、FCN、LingBot-Vision、DINOv2、EoMT |
+| **语义分割** | SegFormer、PIDNet、PP-LiteSeg、U-Net、DeepLabv3、FCN、LingBot-Vision、DINOv2、EoMT |
 | **全景分割** | EoMT |
 | **姿态** | RF-DETR、YOLO-NAS、HRNet、DEKR、EC |
 | **旋转框（OBB）** | RF-DETR、RT-DETRv2、YOLO-NAS-R |
@@ -115,7 +115,7 @@ libreyolo predict --model yolo9-t --source screen            # 屏幕捕获
 | **表面法线** | MoGe-2 |
 | **边缘检测** | DexiNed、TEED |
 | **嵌入** | LibreFaceEmbedder、CLIP、SigLIP2、Perception Encoder（图像、文本、整段视频；亦支持零样本分类）、DINOv2 |
-| **视频嵌入** | V-JEPA 2（片段级嵌入，另有可训练注意力探针的视频分类） |
+| **视频嵌入** | V-JEPA 2（片段嵌入及可训练分类探针）、LeVJEPA（片段及分块嵌入；权重采用 CC BY-NC 4.0） |
 | **人体网格** | SAM 3D Body |
 | **图像复原** | DDColor、HVI-CIDNet、LaMa、NAFNet、QuickSRNet、Real-ESRGAN、SwinIR |
 | **背景移除** | BiRefNet、FeyNobg、ViTMatte |

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import io
 import threading
 from pathlib import Path
 from types import SimpleNamespace
@@ -9,9 +10,12 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 import torch
+from PIL import Image
 
 from libreyolo.utils import source as source_module
+from libreyolo.utils.results import Probs, Results
 from libreyolo.utils.source import (
+    ImageSequenceSource,
     MultiStreamSource,
     SourceKind,
     StreamFrame,
@@ -20,7 +24,6 @@ from libreyolo.utils.source import (
     redact_source,
     resolve_youtube_stream,
 )
-from libreyolo.utils.results import Probs, Results
 from libreyolo.utils.video import run_video_inference
 
 pytestmark = pytest.mark.unit
@@ -262,3 +265,106 @@ def test_shared_video_loop_preserves_per_camera_path_and_frame_index():
         ("camera-a", 4),
         ("camera-b", 5),
     ]
+
+
+def test_list_of_images_dispatches_as_image_batch():
+    images = [Image.new("RGB", (4, 4)), Image.new("RGB", (4, 4))]
+    spec = classify_source(images)
+    assert spec.kind == SourceKind.IMAGE_BATCH
+    assert spec.items == tuple(images)
+
+
+def test_bare_generator_dispatches_as_image_sequence():
+    def frames():
+        yield Image.new("RGB", (4, 4))
+
+    gen = frames()
+    spec = classify_source(gen)
+    assert spec.kind == SourceKind.IMAGE_SEQUENCE
+    assert spec.source is gen
+
+
+def test_ndarray_is_not_mistaken_for_an_image_sequence():
+    # np.ndarray has __iter__ but not __next__; must stay a single IMAGE.
+    assert classify_source(np.zeros((4, 4, 3), dtype=np.uint8)).kind == SourceKind.IMAGE
+
+
+def test_bytesio_is_not_mistaken_for_an_image_sequence():
+    assert classify_source(io.BytesIO(b"image bytes")).kind == SourceKind.IMAGE
+
+
+class TestImageSequenceSource:
+    def test_iterates_a_finite_list_reporting_its_length(self):
+        images = [Image.new("RGB", (4, 4)) for _ in range(3)]
+        src = ImageSequenceSource(images, fps=15.0, save_name="clip")
+
+        assert src.total_frames == 3
+        with src as opened:
+            packets = list(opened)
+
+        assert [p.frame_idx for p in packets] == [0, 1, 2]
+        assert all(p.fps == 15.0 for p in packets)
+        assert all(p.frame_bgr.shape == (4, 4, 3) for p in packets)
+        assert src.save_name == "clip"
+
+    def test_iterates_a_lazy_iterator_reporting_unknown_length(self):
+        def frames():
+            for _ in range(5):
+                yield Image.new("RGB", (4, 4))
+
+        src = ImageSequenceSource(frames())
+        assert src.total_frames == 0
+
+        packets = list(src)
+        assert [p.frame_idx for p in packets] == [0, 1, 2, 3, 4]
+
+    def test_applies_vid_stride(self):
+        images = [Image.new("RGB", (4, 4)) for _ in range(5)]
+        src = ImageSequenceSource(images, vid_stride=2)
+
+        packets = list(src)
+        assert [p.frame_idx for p in packets] == [0, 2, 4]
+        assert src.total_frames == 3
+
+    def test_vid_stride_scales_down_reported_fps(self):
+        # Retaining half the frames must halve the reported fps, or a saved
+        # output video (written one retained frame per tick) plays back
+        # vid_stride times too fast.
+        images = [Image.new("RGB", (4, 4)) for _ in range(4)]
+        src = ImageSequenceSource(images, vid_stride=2, fps=30.0)
+
+        packets = list(src)
+        assert all(p.fps == 15.0 for p in packets)
+
+    def test_bgr_numpy_frames_preserve_their_color_format(self):
+        frame_bgr = np.zeros((4, 4, 3), dtype=np.uint8)
+        frame_bgr[:] = [0, 0, 255]
+        src = ImageSequenceSource([frame_bgr], color_format="bgr")
+
+        (packet,) = list(src)
+        assert packet.frame_bgr[0, 0].tolist() == [0, 0, 255]
+
+    @pytest.mark.parametrize("fps", [0, -1, np.nan, np.inf])
+    def test_rejects_invalid_fps(self, fps):
+        with pytest.raises(ValueError, match="fps must be a finite value > 0"):
+            ImageSequenceSource([Image.new("RGB", (4, 4))], fps=fps)
+
+    def test_path_items_are_reported_as_the_source_label(self, tmp_path):
+        path = tmp_path / "frame.png"
+        Image.new("RGB", (4, 4)).save(path)
+        src = ImageSequenceSource([path])
+
+        (packet,) = list(src)
+        assert packet.source_label == str(path)
+
+    def test_in_memory_items_have_no_source_label(self):
+        src = ImageSequenceSource([Image.new("RGB", (4, 4))])
+
+        (packet,) = list(src)
+        assert packet.source_label is None
+
+    def test_reiteration_raises(self):
+        src = ImageSequenceSource([Image.new("RGB", (4, 4))])
+        list(src)
+        with pytest.raises(RuntimeError, match="already been consumed"):
+            list(src)

@@ -416,7 +416,9 @@ def _build_rfdetr_train_kwargs(
         mkdir=True,
     )
 
-    kwargs: dict[str, Any] = {"output_dir": str(output_dir)}
+    # The run dir was already incremented and created above, so the wrapper
+    # must not increment it a second time (its own default is exist_ok=False).
+    kwargs: dict[str, Any] = {"output_dir": str(output_dir), "exist_ok": True}
 
     direct_mappings = {
         "epochs": "epochs",
@@ -448,6 +450,8 @@ def _build_rfdetr_train_kwargs(
         "log_interval": "log_interval",
         "cache": "cache",
         "class_balanced": "class_balanced",
+        "class_weights": "class_weights",
+        "cls_pw": "cls_pw",
         "single_cls": "single_cls",
         "average_best": "average_best",
         "export_check": "export_check",

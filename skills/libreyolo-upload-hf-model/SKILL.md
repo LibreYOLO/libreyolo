@@ -83,6 +83,7 @@ file = name + ".pt"
 | SigLIP2 | `LibreSigLIP2` | `LibreSigLIP2b16-cls.pt` (zero-shot, open-vocab classify) |
 | PE | `LibrePE` | `LibrePEb16-cls.pt` (Perception Encoder Core; zero-shot classify + image/text/video embed) |
 | V-JEPA 2 | `LibreVJEPA2` | `LibreVJEPA2l256-embed.pt` (video clip embedding), `LibreVJEPA2l256-cls-ssv2.pt` (attentive-probe video classify) |
+| LeVJEPA | `LibreLeVJEPA` | `LibreLeVJEPAl-embed.pt` (16-frame clip and patch embeddings; CC BY-NC 4.0 weights) |
 | NAFNet | `LibreNAFNet` | `LibreNAFNets-restore.pt` (restore-only; `-sidd` variant = SIDD denoise) |
 | BEN2 | `LibreBEN2` | `LibreBEN2b-matte.pt` (matte / background-removal; MIT code + weights; inference-only) |
 | BiRefNet | `LibreBiRefNet` | `LibreBiRefNetl-matte.pt` (matte / background-removal; `l` is MIT, `t`/lite has no explicit weights-license tag) |
@@ -93,6 +94,7 @@ file = name + ".pt"
 | PPOCR | `LibrePPOCR` | `LibrePPOCRt-ocr.pt` (PP-OCRv5 text det+rec; sizes `t`/`l`; Apache-2.0) |
 | PIDNet | `LibrePIDNet` | `LibrePIDNets-sem.pt` (semantic-only) |
 | PPLiteSeg | `LibrePPLiteSeg` | `LibrePPLiteSegt50-sem.pt` (semantic-only; sizes `t50`/`b50`/`t75`/`b75`, natively rectangular. Weights are **non-commercial** — Cityscapes dataset terms, see below) |
+| UNet | `LibreUNet` | `LibreUNets-sem.pt` (semantic-only; size `s`, natively 512x1024. Weights are **non-commercial** — Cityscapes dataset terms, same hosting path as PP-LiteSeg) |
 | LingBotVision | `LibreLingBotVision` | `LibreLingBotVisions-sem.pt` (semantic-only; Apache-2.0 backbone + LibreYOLO-trained ADE20K head) |
 | SegFormer | `LibreSegformer` | `LibreSegformerb0-sem.pt` (semantic-only; ADE20K. Weights are **non-commercial** — NVIDIA Source Code License, see below) |
 | EoMT | `LibreEoMT` | `LibreEoMTl-sem.pt` (semantic), `LibreEoMTl-seg.pt` (COCO instance), `LibreEoMTs-panoptic.pt` (COCO panoptic) |
@@ -264,6 +266,7 @@ LibreVJEPA2l256-embed.pt, LibreVJEPA2h256-embed.pt,
 LibreVJEPA2g256-embed.pt, LibreVJEPA2g384-embed.pt,
 LibreVJEPA2l256-cls-ssv2.pt, LibreVJEPA2l256-cls-diving48.pt,
 LibreVJEPA2g384-cls-ssv2.pt, LibreVJEPA2g384-cls-diving48.pt,
+LibreLeVJEPAl-embed.pt,
 
 LibreNAFNets-restore.pt, LibreNAFNetl-restore.pt,
 LibreNAFNetl-restore-sidd.pt,
@@ -289,6 +292,7 @@ LibrePIDNets-sem.pt, LibrePIDNetm-sem.pt, LibrePIDNetl-sem.pt,
 
 LibrePPLiteSegt50-sem.pt, LibrePPLiteSegb50-sem.pt,
 LibrePPLiteSegt75-sem.pt, LibrePPLiteSegb75-sem.pt,
+LibreUNets-sem.pt,
 
 LibreLingBotVisions-sem.pt, LibreLingBotVisionb-sem.pt,
 LibreLingBotVisionl-sem.pt,
@@ -347,6 +351,10 @@ non-commercial banner, and the loader prints the restriction before every
 auto-download. The `LICENSE` file carries the Apache-2.0 (super-gradients) and
 MIT (STDC-Seg) code texts *plus* the Cityscapes weight terms, because the code
 and the weights are genuinely different surfaces. Never tag them `apache-2.0`.
+**LibreUNets-sem is NON-COMMERCIAL** on the same Cityscapes-training-data
+grounds as PP-LiteSeg: mmsegmentation's official UNet-S5-D16 Cityscapes
+checkpoint, converted in place. Same card tags, same banner, same
+`LICENSE` split (Apache-2.0 mmseg code text plus Cityscapes weight terms).
 Faster R-CNN's four torchvision checkpoints and FCOS's torchvision checkpoint
 have no per-object license file; the maintainer approved BSD-3-Clause rehosting
 on the releasing-project **implied** basis. Every card and NOTICE must say that

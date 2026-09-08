@@ -227,6 +227,7 @@ class VideoWriter:
             )
 
         self._path = str(path)
+        self._frame_size = (int(width), int(height))
         Path(path).parent.mkdir(parents=True, exist_ok=True)
 
         self.codec = None
@@ -277,6 +278,16 @@ class VideoWriter:
 
     def write_frame(self, frame_bgr: np.ndarray):
         """Write a single BGR frame."""
+        if self._writer is None:
+            raise RuntimeError("VideoWriter has already been released")
+        height, width = frame_bgr.shape[:2]
+        if (width, height) != self._frame_size:
+            expected_width, expected_height = self._frame_size
+            raise ValueError(
+                "Video frame size changed from "
+                f"{expected_width}x{expected_height} to {width}x{height}. "
+                "All frames in a saved video must have the same dimensions."
+            )
         self._writer.write(frame_bgr)
 
     def release(self):
@@ -491,7 +502,11 @@ def run_video_inference(
                     frame_bgr = frame_item.frame_bgr
                     frame_idx = int(frame_item.frame_idx)
                     source_index = int(frame_item.source_index)
-                    source_label = str(frame_item.source_label)
+                    source_label = (
+                        str(frame_item.source_label)
+                        if frame_item.source_label is not None
+                        else None
+                    )
                     frame_fps = float(frame_item.fps or effective_fps or 30.0)
                 else:
                     frame_bgr, frame_idx = frame_item

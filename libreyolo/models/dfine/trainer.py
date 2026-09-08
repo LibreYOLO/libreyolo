@@ -445,6 +445,7 @@ class DFINETrainer(DETREncoderCudaGraphMixin, BaseTrainer):
                     img_size=img_size,
                     preproc=preproc,
                     load_segments=load_segments,
+                    num_classes=int(self.num_classes),
                     single_cls=self.config.single_cls,
                 )
             elif ann_file.exists():
@@ -474,6 +475,7 @@ class DFINETrainer(DETREncoderCudaGraphMixin, BaseTrainer):
                     img_size=img_size,
                     preproc=preproc,
                     load_segments=load_segments,
+                    num_classes=int(self.num_classes),
                     single_cls=self.config.single_cls,
                 )
         elif self.config.data_dir:
@@ -497,6 +499,7 @@ class DFINETrainer(DETREncoderCudaGraphMixin, BaseTrainer):
                     img_size=img_size,
                     preproc=preproc,
                     load_segments=load_segments,
+                    num_classes=int(self.num_classes),
                     single_cls=self.config.single_cls,
                 )
         else:
