@@ -211,6 +211,10 @@ class LibreEfficientNetV2(BaseModel):
         known name (e.g. ``"imagenette160"``), or a ``.zip`` URL. The head is
         rebuilt to the dataset's class count automatically. Cross-entropy +
         AdamW + cosine; the ImageNet-pretrained backbone transfers cleanly.
+
+        ``class_weights=True`` (classification only) applies automatic inverse-frequency
+        loss weighting from the training split. Default False preserves unweighted
+        cross-entropy. This does not change sampling. See docs/classification_training.md.
         """
         from .trainer import EfficientNetV2Trainer
 

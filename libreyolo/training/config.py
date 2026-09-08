@@ -228,6 +228,8 @@ class TrainConfig:
     # the historical uniform / DistributedSampler is unchanged. Honored by
     # families that build the train loader through create_dataloader.
     class_balanced: bool = False
+    # Classification-only inverse-frequency loss weighting; does not resample.
+    class_weights: bool = False
     # Rolling uniform average of the N best checkpoints ranked by the
     # watched validation metric, written to weights/average.pt at the end
     # of training. 0 (default) is off: best.pt / last.pt are unchanged.
@@ -284,6 +286,8 @@ class TrainConfig:
             raise ValueError(f"precise_bn must be >= 0, got {self.precise_bn}")
         self.single_cls = bool(self.single_cls)
         self.class_balanced = bool(self.class_balanced)
+        if not isinstance(self.class_weights, bool):
+            raise ValueError("class_weights must be True or False")
         self.export_check = bool(self.export_check)
 
     @classmethod

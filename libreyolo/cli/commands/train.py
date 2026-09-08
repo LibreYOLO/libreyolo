@@ -303,6 +303,11 @@ def train_cmd(
         help="LVIS-style repeat-factor sampling for long-tailed datasets "
         "(default: off)",
     ),
+    class_weights: bool = typer.Option(
+        False,
+        "--class-weights/--no-class-weights",
+        help="Automatic inverse-frequency classification loss weights (default: off)",
+    ),
     single_cls: bool = typer.Option(
         False,
         "--single-cls/--no-single-cls",
@@ -617,6 +622,7 @@ def train_cmd(
         "cache": cache_val,
         "min_samples": min_samples,
         "class_balanced": class_balanced,
+        "class_weights": class_weights,
         "single_cls": single_cls,
         "average_best": average_best,
         "export_check": export_check,
@@ -730,6 +736,7 @@ def train_cmd(
             "amp_dtype": params["amp_dtype"],
             "max_det": params["max_det"],
             "class_balanced": params["class_balanced"],
+            "class_weights": params["class_weights"],
             "single_cls": params["single_cls"],
             "average_best": params["average_best"],
             "export_check": params["export_check"],
@@ -766,6 +773,7 @@ def train_cmd(
                 "save_period": params["save_period"],
                 "lora": params["lora"],
                 "class_balanced": params["class_balanced"],
+                "class_weights": params["class_weights"],
                 "single_cls": params["single_cls"],
                 "average_best": params["average_best"],
                 "export_check": params["export_check"],
