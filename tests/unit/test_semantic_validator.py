@@ -136,6 +136,19 @@ def test_flip_content_stretch_mode_flips_whole_canvas():
     assert flipped.tolist() == [[[[4.0, 3.0, 2.0, 1.0]]]]
 
 
+def test_flip_content_rescale_crop_mode_flips_whole_canvas():
+    """rescale_crop validates by direct resize (SemanticDataset._resize), so the
+    canvas is all content and flip TTA is the stretch geometry."""
+    from types import SimpleNamespace
+
+    tensor = torch.tensor([[[[1.0, 2.0, 3.0, 4.0]]]])
+    fake_self = SimpleNamespace(_resize_mode="rescale_crop")
+
+    flipped = SemanticValidator._flip_content(fake_self, tensor, img_info=[{}])
+
+    assert flipped.tolist() == [[[[4.0, 3.0, 2.0, 1.0]]]]
+
+
 def test_valid_content_hw_matches_real_dataset_letterbox_boundary(tmp_path):
     """valid_content_hw must locate exactly the boundary SemanticDataset
     itself pads at, on a real non-square image — the historical bug only

@@ -22,6 +22,7 @@ from ...data import (
     load_data_config,
     pose_collate_fn,
 )
+from ...training.classification import classification_loss
 from ...training.config import TrainConfig
 from ...training.distributed import is_main_process, unwrap_model
 from ...training.freezing import FreezeGroup
@@ -74,6 +75,7 @@ class RFDETRStepScheduler(BaseScheduler):
 
 
 class RFDETRTrainer(BaseTrainer):
+    supports_class_weights = True
     artifact_model_families = ("rfdetr",)
     # RF-DETR has a DINOv2 ViT backbone whose attention/MLP projections are
     # nn.Linear layers, so LoRA fine-tuning is supported here.
@@ -908,6 +910,10 @@ class RFDETRTrainer(BaseTrainer):
         polygons: Optional[List] = None,
     ) -> Dict:
         task = getattr(getattr(self, "wrapper_model", None), "task", "detect")
+        if task == "classify" and getattr(self, "class_weights", None) is not None:
+            logits = self.model(imgs)
+            loss = classification_loss(logits, targets, self.class_weights)
+            return {"total_loss": loss, "cls": loss}
         if task in ("classify", "semantic"):
             # ``targets`` are class indices [B] (classify) or dense class maps
             # [B, H, W] (semantic); the model head returns the loss dict
@@ -1184,7 +1190,7 @@ def train_rfdetr(
     epochs: int = 100,
     batch_size: int = 4,
     lr: float = 1e-4,
-    output_dir: str = "runs/train",
+    output_dir: str | None = None,
     resume: str | None = None,
     pretrain_weights: str | None = None,
     segmentation: bool = False,
@@ -1217,7 +1223,7 @@ def train_rfdetr(
         epochs=epochs,
         batch_size=batch_size,
         lr=lr,
-        output_dir=str(Path(output_dir)),
+        output_dir=str(Path(output_dir)) if output_dir is not None else None,
         resume=resume,
         **kwargs,
     )
