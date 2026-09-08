@@ -48,6 +48,14 @@ before 1.4.0 are documented in the
 
 ### Fixed
 
+- **Training monitor no longer reports epochs off by one (#829).** The status
+  writer counted the one-based epoch number as a zero-based index, so
+  `status.json` claimed one more completed epoch than had run, and the monitor
+  page added another one on top: the first epoch was charted as 2 and a run
+  showed 100 % with ETA 0 while its last epoch was still training. Epoch
+  numbers are now one-based end to end (`current_epoch`, `best_epoch`, and
+  `metrics.jsonl` rows), and the page displays them as they are.
+
 - **RF-DETR, DINOv2 and VLM training no longer overwrite the previous run
   (#833).** Through the Python API, `train()` now increments the run
   directory like every other family (`exist_ok=False` by default) instead of
