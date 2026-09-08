@@ -11,8 +11,8 @@ from __future__ import annotations
 from typing import Dict, Type
 
 import torch
-import torch.nn.functional as F
 
+from ...training.classification import classification_loss
 from ...training.config import TrainConfig
 from ...training.scheduler import WarmupCosineScheduler
 from ...training.trainer import BaseTrainer
@@ -54,7 +54,9 @@ class MobileNetV4Trainer(ClassifyCudaGraphMixin, ClassifyValidationLossMixin, Ba
 
     def on_forward(self, imgs: torch.Tensor, targets: torch.Tensor, polygons=None) -> Dict:
         logits = self.model(imgs)
-        loss = F.cross_entropy(logits, targets)
+        loss = classification_loss(
+            logits, targets, getattr(self, "class_weights", None)
+        )
         return {"total_loss": loss, "loss_ce": loss.detach()}
 
     def get_loss_components(self, outputs: Dict) -> Dict[str, float]:
