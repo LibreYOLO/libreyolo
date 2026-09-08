@@ -2284,7 +2284,7 @@ class BaseTrainer(ABC):
         )
 
         return TrainEpochEvent(
-            epoch=epoch,
+            epoch=epoch + 1,
             total_epochs=self.config.epochs,
             model_family=self.get_model_family(),
             model_size=getattr(self.config, "size", None),

@@ -269,7 +269,7 @@ without a third-party account or tailing the full log.
 
 | File | Written | Contents |
 |---|---|---|
-| `status.json` | rewritten atomically every epoch (+ on start/end/failure) | live snapshot: `state` (`running`/`completed`/`failed`), `current_epoch`, `total_epochs`, `progress`, `eta_seconds`, latest `metrics`, `best_metric`/`best_epoch`, and on failure an `error` `{type, message}` |
+| `status.json` | rewritten atomically every epoch (+ on start/end/failure) | live snapshot: `state` (`running`/`completed`/`failed`), `current_epoch` (one-based, the epoch that last finished), `completed_epochs`, `total_epochs`, `progress`, `eta_seconds`, latest `metrics`, `best_metric`/`best_epoch`, and on failure an `error` `{type, message}` |
 | `metrics.jsonl` | appended once per epoch | one JSON row per epoch (same schema as the family `results.csv`), the full history for charts |
 | `train.log` | tee'd live | the run's `libreyolo` console output |
 
