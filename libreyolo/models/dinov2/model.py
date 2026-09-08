@@ -769,6 +769,10 @@ class LibreDINOv2(BaseModel):
 
         ``resume``: checkpoint path, or True to resume from this run's own
         ``weights/last.pt``.
+
+        ``class_weights=True`` (classification only) applies automatic inverse-frequency
+        loss weighting from the training split. Default False preserves unweighted
+        cross-entropy. This does not change sampling. See docs/classification_training.md.
         """
         if self.task == "embed":
             raise NotImplementedError(

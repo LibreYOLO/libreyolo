@@ -157,6 +157,7 @@ class BaseTrainer(ABC):
     # Whether this family supports ``lora=True`` fine-tuning. Overridden to True
     # by trainers with LoRA-amenable (transformer/nn.Linear) backbones.
     supports_lora: bool = False
+    supports_class_weights: bool = False
 
     def __init__(
         self,
@@ -187,6 +188,14 @@ class BaseTrainer(ABC):
                 )
         self.model = model
         self.wrapper_model = wrapper_model
+        self.class_weights = None
+        if self.config.class_weights and (
+            getattr(wrapper_model, "task", None) != "classify"
+            or not self.supports_class_weights
+        ):
+            raise ValueError(
+                "class_weights=True is supported only by image-classification trainers"
+            )
         self.callbacks = TrainCallbackList(callbacks)
         for logger_callback in resolve_loggers(loggers):
             self.callbacks.append(logger_callback)
@@ -1064,6 +1073,15 @@ class BaseTrainer(ABC):
                 "erasing": getattr(self.config, "erasing", 0.0),
             },
         )
+
+        if self.config.class_weights:
+            counts = torch.bincount(
+                torch.tensor(train_dataset._impl.targets), minlength=num_classes
+            ).float()
+            if (counts == 0).any():
+                raise ValueError("class_weights requires training images in every class")
+            # Full-dataset counts, before sharding: identical on every DDP rank.
+            self.class_weights = (counts.sum() / (num_classes * counts)).to(self.device)
 
         # Batch-level MixUp / CutMix (soft labels) when requested; otherwise this
         # returns the plain classify collate so default training is unchanged.
@@ -3824,6 +3842,13 @@ class BaseTrainer(ABC):
                 SCHEMA_VERSION,
                 "; ".join(metadata_errors),
                 SCHEMA_VERSION,
+            )
+
+        saved_class_weights = checkpoint.get("config", {}).get("class_weights", False)
+        if saved_class_weights != getattr(self.config, "class_weights", False):
+            raise ValueError(
+                "Resume requires the saved class_weights setting "
+                f"(class_weights={saved_class_weights}); use a new run to change it."
             )
 
         try:

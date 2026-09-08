@@ -885,3 +885,31 @@ def test_train_rfdetr_detect_checkpoint_switches_to_obb_architecture(
     data = json.loads(result.stdout)
     assert data["model_family"] == "rfdetr"
     assert data["epochs_completed"] == 1
+
+
+@pytest.mark.parametrize(
+    "option",
+    [
+        ["class_weights=true"],
+        ["--class-weights"],
+        ["class_weights=false"],
+        ["--no-class-weights"],
+    ],
+)
+@pytest.mark.parametrize("model", ["LibreResNet18-cls.pt", "LibreDINOv2s-cls.pt"])
+def test_class_weights_cli_grammars(option, model):
+    result = runner.invoke(
+        _make_app(),
+        [f"model={model}", "data=unused", *option, "--dry-run", "--json", "--quiet"],
+    )
+    assert result.exit_code == 0, result.output
+    cfg = json.loads(result.stdout)["resolved_config"]
+    assert cfg["class_weights"] is (
+        option[0] in ("class_weights=true", "--class-weights")
+    )
+
+
+def test_class_weights_help_json():
+    result = runner.invoke(_make_app(), ["--help-json"])
+    assert result.exit_code == 0, result.output
+    assert "class_weights" in result.stdout or "class-weights" in result.stdout
