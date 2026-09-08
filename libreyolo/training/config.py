@@ -1,8 +1,10 @@
 """Training configuration dataclasses for LibreYOLO."""
 
 import logging
+import math
 import warnings
 from dataclasses import asdict, dataclass, fields
+from numbers import Real
 from pathlib import Path
 from typing import List, Optional, Tuple, Union
 import yaml
@@ -11,6 +13,25 @@ from libreyolo.utils.amp import normalize_amp_dtype
 from libreyolo.utils.image_size import normalize_imgsz
 
 logger = logging.getLogger(__name__)
+
+
+def validate_class_weighting(cls_pw=0.0, class_weights=False) -> float:
+    """Validate the power option and its exclusive legacy boolean alternative."""
+    if not isinstance(class_weights, bool):
+        raise ValueError("class_weights must be True or False")
+    if (
+        isinstance(cls_pw, bool)
+        or not isinstance(cls_pw, Real)
+        or not 0.0 <= cls_pw <= 1.0
+        or not math.isfinite(cls_pw)
+    ):
+        raise ValueError("cls_pw must be a finite number in [0, 1]")
+    if class_weights and cls_pw > 0:
+        raise ValueError(
+            "Choose cls_pw>0 or class_weights=True, not both; "
+            "they use different weight normalization."
+        )
+    return float(cls_pw)
 
 
 def load_train_cfg(path) -> dict:
@@ -228,7 +249,9 @@ class TrainConfig:
     # the historical uniform / DistributedSampler is unchanged. Honored by
     # families that build the train loader through create_dataloader.
     class_balanced: bool = False
-    # Classification-only inverse-frequency loss weighting; does not resample.
+    # Classification-only inverse-frequency power; arithmetic mean-one weights.
+    cls_pw: float = 0.0
+    # Legacy sample-normalized weighting. Mutually exclusive with cls_pw > 0.
     class_weights: bool = False
     # Rolling uniform average of the N best checkpoints ranked by the
     # watched validation metric, written to weights/average.pt at the end
@@ -286,8 +309,7 @@ class TrainConfig:
             raise ValueError(f"precise_bn must be >= 0, got {self.precise_bn}")
         self.single_cls = bool(self.single_cls)
         self.class_balanced = bool(self.class_balanced)
-        if not isinstance(self.class_weights, bool):
-            raise ValueError("class_weights must be True or False")
+        self.cls_pw = validate_class_weighting(self.cls_pw, self.class_weights)
         self.export_check = bool(self.export_check)
 
     @classmethod

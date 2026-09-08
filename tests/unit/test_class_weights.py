@@ -22,12 +22,13 @@ def test_config_is_opt_in_and_rejects_ambiguous_values():
             TrainConfig.from_kwargs(class_weights=value)
 
 
-def test_weighted_loss_hard_soft_and_distributed_gradient_equivalence():
+@pytest.mark.parametrize("weight_values", [[5 / 9, 5.0], [0.5, 1.5]])
+def test_weighted_loss_hard_soft_and_distributed_gradient_equivalence(weight_values):
     logits = torch.tensor(
         [[2.0, -1.0], [-1.0, 2.0], [1.0, 0.0], [0.0, 1.0]], requires_grad=True
     )
     labels = torch.tensor([0, 1, 0, 1])
-    weights = torch.tensor([5 / 9, 5.0])
+    weights = torch.tensor(weight_values)
     probabilities = torch.nn.functional.one_hot(labels, 2).float()
     hard = classification_loss(logits, labels, weights)
     soft = classification_loss(logits, probabilities, weights)
@@ -65,7 +66,8 @@ def test_weighted_loss_hard_soft_and_distributed_gradient_equivalence():
     "family",
     ["resnet", "convnext", "mobilenetv4", "efficientnetv2", "rfdetr", "dinov2"],
 )
-def test_all_image_trainers_consume_weights(family):
+@pytest.mark.parametrize("weight_values", [[5 / 9, 5.0], [0.5, 1.5]])
+def test_all_image_trainers_consume_weights(family, weight_values):
     import importlib
 
     classes = {
@@ -82,7 +84,7 @@ def test_all_image_trainers_consume_weights(family):
     host = object.__new__(trainer_cls)
     host.model = torch.nn.Linear(3, 2)
     host.wrapper_model = SimpleNamespace(task="classify")
-    host.class_weights = torch.tensor([5 / 9, 5.0])
+    host.class_weights = torch.tensor(weight_values)
     images = torch.randn(4, 3)
     targets = torch.tensor([0, 0, 0, 1])
     for labels in (targets, torch.nn.functional.one_hot(targets, 2).float()):
@@ -95,10 +97,11 @@ def test_all_image_trainers_consume_weights(family):
     if family not in ("rfdetr", "dinov2"):
         spec = host.cuda_graph_train_spec()
         flat = spec.network(images)
-        torch.testing.assert_close(
-            spec.assemble(flat, images, targets)["total_loss"],
-            host.on_forward(images, targets)["total_loss"],
-        )
+        for labels in (targets, torch.nn.functional.one_hot(targets, 2).float()):
+            torch.testing.assert_close(
+                spec.assemble(flat, images, labels)["total_loss"],
+                host.on_forward(images, labels)["total_loss"],
+            )
     else:
         assert host.cuda_graph_train_spec() is None
 
@@ -106,8 +109,18 @@ def test_all_image_trainers_consume_weights(family):
 @pytest.mark.parametrize(
     "rank,mixup,cutmix", [(None, 0.0, 0.0), (0, 1.0, 0.0), (1, 0.0, 1.0)]
 )
+@pytest.mark.parametrize(
+    "options,expected_weights",
+    [
+        ({"class_weights": True}, [5 / 9, 5.0]),
+        ({"class_weights": True, "cls_pw": 0.0}, [5 / 9, 5.0]),
+        ({"cls_pw": 0.0}, None),
+        ({"cls_pw": 0.5}, [0.5, 1.5]),
+        ({"cls_pw": 1.0}, [0.2, 1.8]),
+    ],
+)
 def test_full_training_counts_and_public_keyword(
-    tmp_path, monkeypatch, rank, mixup, cutmix
+    tmp_path, monkeypatch, rank, mixup, cutmix, options, expected_weights
 ):
     from libreyolo import LibreResNet
     from libreyolo.models.resnet.trainer import ResNetTrainer
@@ -136,7 +149,7 @@ def test_full_training_counts_and_public_keyword(
     model = LibreResNet(size="18", device="cpu")
     model.train(
         data=str(tmp_path / "data"),
-        class_weights=True,
+        **options,
         device="cpu",
         batch=4,
         mixup=mixup,
@@ -146,29 +159,34 @@ def test_full_training_counts_and_public_keyword(
         project=str(tmp_path),
         name="run",
     )
-    torch.testing.assert_close(observed["weights"], torch.tensor([5 / 9, 5.0]))
+    if expected_weights is None:
+        assert observed["weights"] is None
+    else:
+        torch.testing.assert_close(observed["weights"], torch.tensor(expected_weights))
     assert observed["targets"].count(0) == 9
     assert observed["targets"].count(1) == 1
     assert observed["batch_labels"].ndim == (2 if mixup or cutmix else 1)
 
 
-def test_non_classification_rejected_before_setup():
+@pytest.mark.parametrize("options", [{"class_weights": True}, {"cls_pw": 0.5}])
+def test_non_classification_rejected_before_setup(options):
     from libreyolo.models.resnet.trainer import ResNetTrainer
 
     with pytest.raises(ValueError, match="image-classification"):
         ResNetTrainer(
             model=torch.nn.Linear(2, 2),
             wrapper_model=SimpleNamespace(task="detect"),
-            class_weights=True,
+            **options,
         )
 
 
-def test_validation_loss_uses_training_weights():
+@pytest.mark.parametrize("weight_values", [[5 / 9, 5.0], [0.5, 1.5]])
+def test_validation_loss_uses_training_weights(weight_values):
     from libreyolo.models.base.classify_validation_loss import ClassifyValidationLoss
 
     logits = torch.tensor([[1.0, -1.0], [1.0, -1.0]])
     labels = torch.tensor([0, 1])
-    weights = torch.tensor([5 / 9, 5.0])
+    weights = torch.tensor(weight_values)
     adapter = ClassifyValidationLoss(
         device=torch.device("cpu"), family="resnet", weights=weights
     )
@@ -234,3 +252,74 @@ def test_weighted_loss_precision_and_gradients(dtype):
     assert torch.isfinite(loss)
     loss.backward()
     assert torch.isfinite(logits.grad).all()
+
+
+def test_cls_pw_config_defaults_strength_and_conflict():
+    assert TrainConfig().cls_pw == 0.0
+    assert TrainConfig.from_kwargs(cls_pw=0.5).to_dict()["cls_pw"] == 0.5
+    assert TrainConfig.from_kwargs(cls_pw=1).cls_pw == 1.0
+    assert TrainConfig.from_kwargs(cls_pw=0, class_weights=True).class_weights
+    assert TrainConfig.from_kwargs(cls_pw=0.5, class_weights=False).cls_pw == 0.5
+    with pytest.raises(ValueError, match="not both"):
+        TrainConfig.from_kwargs(cls_pw=0.5, class_weights=True)
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        -0.1,
+        1.1,
+        float("nan"),
+        float("inf"),
+        -float("inf"),
+        None,
+        "0.5",
+        True,
+        False,
+        [0.5],
+    ],
+)
+def test_cls_pw_rejects_invalid_values(value):
+    with pytest.raises(ValueError, match="cls_pw must be a finite number"):
+        TrainConfig.from_kwargs(cls_pw=value)
+
+
+@pytest.mark.parametrize(
+    "saved,current",
+    [({"cls_pw": 0.5}, {}), ({"cls_pw": 0.5}, {"cls_pw": 1.0}), ({}, {"cls_pw": 0.5})],
+)
+def test_resume_rejects_changed_cls_pw_before_loading_weights(tmp_path, saved, current):
+    from libreyolo.models.resnet.trainer import ResNetTrainer
+
+    path = tmp_path / "checkpoint.pt"
+    torch.save({"config": saved, "model": {}}, path)
+    host = object.__new__(ResNetTrainer)
+    host.device = torch.device("cpu")
+    host.config = TrainConfig(**current)
+    with pytest.raises(ValueError, match="saved cls_pw setting"):
+        host.resume(str(path))
+
+
+@pytest.mark.parametrize(
+    "saved,current",
+    [
+        ({}, {}),
+        ({"class_weights": True}, {"class_weights": True}),
+        ({"cls_pw": 0.5}, {"cls_pw": 0.5}),
+    ],
+)
+def test_resume_accepts_legacy_and_matching_settings(tmp_path, saved, current):
+    from libreyolo.models.resnet.trainer import ResNetTrainer
+
+    host = ResNetTrainer(
+        model=torch.nn.Linear(2, 2),
+        wrapper_model=SimpleNamespace(task="classify"),
+        device="cpu",
+        project=str(tmp_path),
+        name="run",
+        **current,
+    )
+    path = tmp_path / "checkpoint.pt"
+    torch.save({"config": saved, "model": host.model.state_dict(), "epoch": 2}, path)
+    host.resume(str(path))
+    assert host.start_epoch == 3
