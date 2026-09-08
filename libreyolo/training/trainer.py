@@ -189,12 +189,13 @@ class BaseTrainer(ABC):
         self.model = model
         self.wrapper_model = wrapper_model
         self.class_weights = None
-        if self.config.class_weights and (
+        if (self.config.class_weights or self.config.cls_pw > 0) and (
             getattr(wrapper_model, "task", None) != "classify"
             or not self.supports_class_weights
         ):
             raise ValueError(
-                "class_weights=True is supported only by image-classification trainers"
+                "class_weights=True or cls_pw>0 requires a supported "
+                "image-classification trainer"
             )
         self.callbacks = TrainCallbackList(callbacks)
         for logger_callback in resolve_loggers(loggers):
@@ -1074,14 +1075,19 @@ class BaseTrainer(ABC):
             },
         )
 
-        if self.config.class_weights:
+        if self.config.class_weights or self.config.cls_pw > 0:
             counts = torch.bincount(
                 torch.tensor(train_dataset._impl.targets), minlength=num_classes
             ).float()
             if (counts == 0).any():
-                raise ValueError("class_weights requires training images in every class")
+                raise ValueError("Class weighting requires training images in every class")
             # Full-dataset counts, before sharding: identical on every DDP rank.
-            self.class_weights = (counts.sum() / (num_classes * counts)).to(self.device)
+            if self.config.class_weights:
+                weights = counts.sum() / (num_classes * counts)
+            else:
+                weights = counts.pow(-self.config.cls_pw)
+                weights = weights / weights.mean()
+            self.class_weights = weights.to(self.device)
 
         # Batch-level MixUp / CutMix (soft labels) when requested; otherwise this
         # returns the plain classify collate so default training is unchanged.
@@ -3844,12 +3850,13 @@ class BaseTrainer(ABC):
                 SCHEMA_VERSION,
             )
 
-        saved_class_weights = checkpoint.get("config", {}).get("class_weights", False)
-        if saved_class_weights != getattr(self.config, "class_weights", False):
-            raise ValueError(
-                "Resume requires the saved class_weights setting "
-                f"(class_weights={saved_class_weights}); use a new run to change it."
-            )
+        for option, default in (("class_weights", False), ("cls_pw", 0.0)):
+            saved_value = checkpoint.get("config", {}).get(option, default)
+            if saved_value != getattr(self.config, option, default):
+                raise ValueError(
+                    f"Resume requires the saved {option} setting "
+                    f"({option}={saved_value}); use a new run to change it."
+                )
 
         try:
             model_state = checkpoint.get("train_model", checkpoint["model"])

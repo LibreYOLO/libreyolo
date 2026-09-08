@@ -303,10 +303,17 @@ def train_cmd(
         help="LVIS-style repeat-factor sampling for long-tailed datasets "
         "(default: off)",
     ),
+    cls_pw: float = typer.Option(
+        0.0,
+        min=0.0,
+        max=1.0,
+        help="Classification inverse-frequency weighting power: 0 off, 1 full "
+        "(mean-one class weights; cannot combine with class_weights=True)",
+    ),
     class_weights: bool = typer.Option(
         False,
         "--class-weights/--no-class-weights",
-        help="Automatic inverse-frequency classification loss weights (default: off)",
+        help="Legacy sample-normalized classification loss weights (default: off)",
     ),
     single_cls: bool = typer.Option(
         False,
@@ -457,7 +464,9 @@ def train_cmd(
     # Parse tuple/list strings
     try:
         from libreyolo.utils.amp import normalize_amp_dtype
+        from libreyolo.training.config import validate_class_weighting
 
+        cls_pw = validate_class_weighting(cls_pw, class_weights)
         amp_dtype = normalize_amp_dtype(amp_dtype)
         if max_det < 1:
             raise ValueError(f"max_det must be >= 1, got {max_det}")
@@ -623,6 +632,7 @@ def train_cmd(
         "min_samples": min_samples,
         "class_balanced": class_balanced,
         "class_weights": class_weights,
+        "cls_pw": cls_pw,
         "single_cls": single_cls,
         "average_best": average_best,
         "export_check": export_check,
@@ -737,6 +747,7 @@ def train_cmd(
             "max_det": params["max_det"],
             "class_balanced": params["class_balanced"],
             "class_weights": params["class_weights"],
+            "cls_pw": params["cls_pw"],
             "single_cls": params["single_cls"],
             "average_best": params["average_best"],
             "export_check": params["export_check"],
@@ -774,6 +785,7 @@ def train_cmd(
                 "lora": params["lora"],
                 "class_balanced": params["class_balanced"],
                 "class_weights": params["class_weights"],
+                "cls_pw": params["cls_pw"],
                 "single_cls": params["single_cls"],
                 "average_best": params["average_best"],
                 "export_check": params["export_check"],
