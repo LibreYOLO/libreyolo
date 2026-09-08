@@ -31,7 +31,7 @@ def _start(save_dir, *, start_epoch=1):
     )
 
 
-def _epoch(save_dir, *, epoch=0, metric=0.5, best_epoch=0):
+def _epoch(save_dir, *, epoch=1, metric=0.5, best_epoch=1):
     return TrainEpochEvent(
         epoch=epoch,
         total_epochs=4,
@@ -85,10 +85,11 @@ def test_status_running_then_completed(tmp_path):
     assert running["total_epochs"] == 4
     assert running["pid"] > 0
 
-    cb.on_train_epoch_end(_epoch(tmp_path, epoch=0, metric=0.5))
+    cb.on_train_epoch_end(_epoch(tmp_path, epoch=1, metric=0.5))
     mid = _load(tmp_path)
     assert mid["state"] == "running"
-    assert mid["current_epoch"] == 0
+    # Epoch numbers are one-based end to end: the first completed epoch is 1.
+    assert mid["current_epoch"] == 1
     assert mid["completed_epochs"] == 1
     assert mid["progress"] == pytest.approx(0.25)
     assert mid["metrics"]["mAP50-95"] == pytest.approx(0.5)
@@ -105,7 +106,7 @@ def test_status_running_then_completed(tmp_path):
 def test_status_failed_records_error(tmp_path):
     cb = TrainingStatusCallback()
     cb.on_train_start(_start(tmp_path))
-    cb.on_train_epoch_end(_epoch(tmp_path, epoch=0))
+    cb.on_train_epoch_end(_epoch(tmp_path, epoch=1))
     exc = RuntimeError("CUDA out of memory")
     cb.on_train_exception(
         TrainExceptionEvent(
@@ -131,7 +132,7 @@ def test_status_atomic_write_is_valid_json_every_time(tmp_path):
     """status.json must always parse; never a half-written file."""
     cb = TrainingStatusCallback(write_log=False)
     cb.on_train_start(_start(tmp_path))
-    for e in range(4):
+    for e in range(1, 5):
         cb.on_train_epoch_end(_epoch(tmp_path, epoch=e))
         json.loads((tmp_path / "status.json").read_text())  # raises if corrupt
 
@@ -168,8 +169,8 @@ def test_metrics_jsonl_written_and_read(tmp_path):
     """Every family gets a universal, chart-ready metrics.jsonl history."""
     cb = TrainingStatusCallback(write_log=False)
     cb.on_train_start(_start(tmp_path))
-    cb.on_train_epoch_end(_epoch(tmp_path, epoch=0, metric=0.5))
-    cb.on_train_epoch_end(_epoch(tmp_path, epoch=1, metric=0.55))
+    cb.on_train_epoch_end(_epoch(tmp_path, epoch=1, metric=0.5))
+    cb.on_train_epoch_end(_epoch(tmp_path, epoch=2, metric=0.55))
 
     lines = (tmp_path / "metrics.jsonl").read_text().strip().splitlines()
     assert len(lines) == 2
@@ -184,10 +185,10 @@ def test_metrics_jsonl_written_and_read(tmp_path):
 def test_metrics_jsonl_reset_on_fresh_run(tmp_path):
     cb = TrainingStatusCallback(write_log=False)
     cb.on_train_start(_start(tmp_path))
-    cb.on_train_epoch_end(_epoch(tmp_path, epoch=0))
+    cb.on_train_epoch_end(_epoch(tmp_path, epoch=1))
     # A new fresh run (start_epoch=1) must clear stale history.
     cb.on_train_start(_start(tmp_path, start_epoch=1))
-    cb.on_train_epoch_end(_epoch(tmp_path, epoch=0))
+    cb.on_train_epoch_end(_epoch(tmp_path, epoch=1))
     lines = (tmp_path / "metrics.jsonl").read_text().strip().splitlines()
     assert len(lines) == 1
 
