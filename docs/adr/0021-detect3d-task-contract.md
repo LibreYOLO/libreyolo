@@ -52,8 +52,11 @@ canvas is not specified precisely enough to meet the original-canvas rule.
 Install the separate runtime following its [installation guide](https://github.com/allenai/WildDet3D#installation).
 Its upstream CUDA stack uses Python 3.11, PyTorch 2.5.1/CUDA 12.1 and compiled
 vis4d operators. It is not installed by a LibreYOLO extra. Obtain the upstream
-full checkpoint from the publisher under its applicable terms; the adapter
-performs no automatic download.
+full checkpoint from the publisher under its applicable terms, or omit
+`model_path` to download LibreYOLO's byte-identical mirror. The mirror is pinned
+to Hugging Face revision `e2baa17eb2279225094a2d7e7d7620ff06dc4676` and
+verified against SHA-256
+`f8b6a9e548f733ba62625a0d2adc4b0f4fdb6007ee11d9927f9c1027010fee57`.
 
 On CUDA, expose the checkout on `PYTHONPATH` and the adapter calls it directly.
 On macOS, pass `runtime_path=` (or `WILDDET3D_PATH`) and optionally a dedicated
@@ -73,7 +76,7 @@ would be slower and less predictable than the validated CPU path.
 import numpy as np
 from libreyolo import LibreWildDet3D
 
-model = LibreWildDet3D("wilddet3d_alldata_all_prompt_v1.0.pt")
+model = LibreWildDet3D()
 result = model.predict("image.jpg", intrinsics=np.load("intrinsics.npy"),
                        text=["car", "person"])
 print(result.boxes3d.xyz)

@@ -12,7 +12,12 @@ Runtime submodules at that revision:
 - sam3_for_wilddet3d: 159490bb13108749dd5ceff68f42cd1792e60641, SAM License.
 - LingBot-Depth: ff29de5bf433d1b1519cd851da00bc652668964a, Apache-2.0.
 Their files are not distributed by LibreYOLO.
-Upstream full checkpoints remain separately licensed, user-supplied files.
+The Stage 3 checkpoint is mirrored byte-identically at
+https://huggingface.co/LibreYOLO/LibreWildDet3D revision
+e2baa17eb2279225094a2d7e7d7620ff06dc4676. It retains the SAM License and its
+original filename and serialization. LibreYOLO verifies SHA-256
+f8b6a9e548f733ba62625a0d2adc4b0f4fdb6007ee11d9927f9c1027010fee57 after
+automatic download. Explicit local upstream checkpoints remain supported.
 
 The shared Boxes3D corner convention is adapted from the permissively licensed
 SysCV/vis4d geometry utility, revision 9cd052ed72a208773abc1f6f0cd9109d8ec97531
