@@ -137,7 +137,7 @@ def test_set_classes_and_save(model, monkeypatch, tmp_path):
 )
 def test_constructor_validation(checkpoint, kwargs, match):
     with pytest.raises(ValueError, match=match):
-        Libre3DMOOD(checkpoint, **({"device": "cpu"} | kwargs))
+        Libre3DMOOD(checkpoint, **({"size": "t", "device": "cpu"} | kwargs))
 
 
 def test_auto_prefers_mps_without_cuda(checkpoint, monkeypatch):
