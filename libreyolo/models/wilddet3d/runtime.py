@@ -197,3 +197,8 @@ class RuntimeWorker:
 
     def close(self):
         self._finalizer()
+
+    @property
+    def closed(self):
+        """Whether the worker cannot accept another request."""
+        return not self._finalizer.alive or self._process.poll() is not None

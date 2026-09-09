@@ -364,9 +364,15 @@ class LibreWildDet3D:
                         )
                 self._load()
                 if self._backend is not None:
-                    outputs = self._backend.predict(
-                        np.asarray(image), k, prompt, depth=depth_array
-                    )
+                    backend = self._backend
+                    try:
+                        outputs = backend.predict(
+                            np.asarray(image), k, prompt, depth=depth_array
+                        )
+                    except BaseException:
+                        if backend.closed:
+                            self._backend = None
+                        raise
                 else:
                     data = self._runtime.preprocess(
                         np.asarray(image, dtype=np.float32), k, depth=depth_array
