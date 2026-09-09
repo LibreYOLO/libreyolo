@@ -33,7 +33,9 @@ backward and 3D-IoU kernels are deliberately unavailable.
 - `Libre3DMOOD(model_path=None, size=None, device="auto", conf=0.1,
   iou=0.5, max_det=100, runtime_path=None, runtime_python=None)` constructs a
   long-lived isolated worker. Size defaults to `t` and is inferred from either
-  official checkpoint filename; an explicit mismatch raises.
+  official checkpoint filename; an explicit mismatch raises. A local file with
+  any other name requires `size=` so a renamed Swin-B checkpoint cannot be
+  loaded into the Swin-T graph.
 - `predict(source, intrinsics=K, text=[...])` takes original-image calibration
   and text categories. `set_classes()` supplies a reusable vocabulary.
 - A single image returns one `Results`; lists and directories return a list;

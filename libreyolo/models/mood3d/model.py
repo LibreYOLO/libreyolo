@@ -132,7 +132,14 @@ class Libre3DMOOD:
                     derived = candidate
                     break
         if size is None:
-            return derived or "t"
+            if model_path is None:
+                return "t"
+            if derived is not None:
+                return derived
+            raise ValueError(
+                "size is required when a local 3D-MOOD checkpoint does not "
+                "use an official Swin-T or Swin-B filename."
+            )
         size = str(size).lower()
         if size not in WEIGHTS:
             raise ValueError("3D-MOOD size must be 't' or 'b'.")
