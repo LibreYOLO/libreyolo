@@ -13,3 +13,8 @@ Runtime submodules at that revision:
 - LingBot-Depth: ff29de5bf433d1b1519cd851da00bc652668964a, Apache-2.0.
 Their files are not distributed by LibreYOLO.
 Upstream full checkpoints remain separately licensed, user-supplied files.
+
+The shared Boxes3D corner convention is adapted from the permissively licensed
+SysCV/vis4d geometry utility, revision 9cd052ed72a208773abc1f6f0cd9109d8ec97531
+(v1.0.0), Apache-2.0. See the root THIRD_PARTY_NOTICES.txt entry and
+licenses/Apache-2.0.txt. It is not derived from WildDet3D's renderer.

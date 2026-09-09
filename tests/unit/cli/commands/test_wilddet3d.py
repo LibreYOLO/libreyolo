@@ -50,11 +50,17 @@ def test_cli_grammars(tmp_path, monkeypatch, key_value):
         "intrinsics": str(calibration),
         "text": '["car"]',
         "conf": "0.42",
+        "runtime_path": "/test/runtime",
+        "runtime_python": "test-python",
     }
     args = (
         [f"{key}={value}" for key, value in pairs.items()]
         if key_value
-        else [token for key, value in pairs.items() for token in (f"--{key}", value)]
+        else [
+            token
+            for key, value in pairs.items()
+            for token in (f"--{key.replace(chr(95), chr(45))}", value)
+        ]
     )
     args += ["json=true", "save=false"] if key_value else ["--json"]
     result = CliRunner().invoke(app(), args)
@@ -64,6 +70,8 @@ def test_cli_grammars(tmp_path, monkeypatch, key_value):
     assert document["schema_version"] == 1
     assert document["results"][0]["detections"] == []
     assert calls[0][1]["conf"] == 0.42
+    assert calls[0][1]["runtime_path"] == "/test/runtime"
+    assert calls[0][1]["runtime_python"] == "test-python"
     assert calls[1][1]["text"] == ["car"]
     assert calls[1][1]["save"] is False
 

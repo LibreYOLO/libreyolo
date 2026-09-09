@@ -1,6 +1,6 @@
 # ADR 0021: Promptable 3D detection
 
-Status: implemented; real-runtime validation pending
+Status: implemented and runtime-validated
 Date: 2026-09-09
 
 ## Decision
@@ -20,11 +20,13 @@ No upstream implementation source was used to write the adapter.
 
 ## Contract
 
-- `Boxes3D.data` is `(N, 14)`: center xyz, dimensions whl, quaternion wxyz,
+- `Boxes3D.data` is `(N, 14)`: center xyz, dimensions wlh, quaternion wxyz,
   combined confidence, class id, 2D confidence, 3D confidence.
 - Units are metres, in camera coordinates (x right, y down, z forward).
-  The quaternion rotates local box axes into the camera frame. Dimensions
-  correspond to the local x, y, z axes; quaternion sign is not canonicalized.
+  The quaternion rotates local box axes into the camera frame. Dimensions are
+  width, length, height; local x, y, z carry length, height, width. Quaternion
+  sign is not canonicalized. This mapping matches vis4d v1.0.0's Apache-2.0
+  `AxisMode.OPENCV` contract and is pinned by a golden corner fixture.
 - `Boxes3D.intrinsics` is the shared original-image `(3, 3)` calibration.
   It is preserved when detections are sliced and moved with tensor payloads.
 - `Results.boxes` contains aligned original-image xyxy boxes and the same
@@ -47,11 +49,25 @@ canvas is not specified precisely enough to meet the original-canvas rule.
 
 ## Use
 
-Install the separate runtime following its [installation guide](https://github.com/allenai/WildDet3D#installation),
-and expose the checkout on `PYTHONPATH`. Its tested stack uses Python 3.11,
-PyTorch 2.5.1/CUDA 12.1 and compiled vis4d operators. It is not installed by a
-LibreYOLO extra. Obtain the upstream full checkpoint from the publisher under
-its applicable terms; the adapter performs no automatic download.
+Install the separate runtime following its [installation guide](https://github.com/allenai/WildDet3D#installation).
+Its upstream CUDA stack uses Python 3.11, PyTorch 2.5.1/CUDA 12.1 and compiled
+vis4d operators. It is not installed by a LibreYOLO extra. Obtain the upstream
+full checkpoint from the publisher under its applicable terms; the adapter
+performs no automatic download.
+
+On CUDA, expose the checkout on `PYTHONPATH` and the adapter calls it directly.
+On macOS, pass `runtime_path=` (or `WILDDET3D_PATH`) and optionally a dedicated
+`runtime_python=` (or `WILDDET3D_PYTHON`). `device="auto"` selects CPU when
+CUDA is absent. The CPU path runs the upstream package in a private long-lived
+worker because upstream creates CUDA scheduling streams even for CPU inference.
+LibreYOLO supplies serial stream semantics only inside that worker. Image and
+tensor data cross private pipes as JSON and typed bytes; the main process's
+PyTorch module is never patched. The worker is reused for all predictions and
+is released by `close()`, a context manager, timeout, or owner collection.
+
+MPS is rejected explicitly. Real MPS forward testing reached multiple upstream
+mixed-device failures in SAM's prompt and geometry encoders. Automatic fallback
+would be slower and less predictable than the validated CPU path.
 
 ```python
 import numpy as np
@@ -62,6 +78,36 @@ result = model.predict("image.jpg", intrinsics=np.load("intrinsics.npy"),
                        text=["car", "person"])
 print(result.boxes3d.xyz)
 result.plot().save("cuboids.png")
+```
+
+macOS with an isolated upstream environment:
+
+```sh
+git clone --recurse-submodules https://github.com/allenai/WildDet3D.git
+git -C WildDet3D checkout 1b8aa52b6ff3f00d0ebfa07175efc0c0c440964a
+git -C WildDet3D submodule update --init --recursive
+python3.11 -m venv WildDet3D/.venv
+WildDet3D/.venv/bin/pip install vis4d==1.0.0 --no-deps
+WildDet3D/.venv/bin/pip install -r WildDet3D/requirements.txt \
+  absl-py termcolor psutil
+WildDet3D/.venv/bin/pip install --upgrade torch torchvision
+WildDet3D/.venv/bin/pip install 'setuptools<80'
+```
+
+Do not install `vis4d_cuda_ops` on macOS. It is needed by the upstream CUDA
+environment, while the validated CPU image path does not call it. The final
+upgrade is intentional: upstream's CUDA requirements pin PyTorch 2.5.1, which
+fails in SAM's CPU geometry-prompt path on Apple Silicon. Re-pinning setuptools
+is also required because SAM still imports `pkg_resources`. The clean macOS
+check uses PyTorch 2.14.0, torchvision 0.29.0, and setuptools 79.0.1.
+
+```python
+with LibreWildDet3D(
+    "wilddet3d_alldata_all_prompt_v1.0.pt",
+    runtime_path="/path/to/WildDet3D",
+    runtime_python="/path/to/wilddet3d-venv/bin/python",
+) as model:
+    result = model("image.jpg", intrinsics=np.load("intrinsics.npy"), text=["dog"])
 ```
 
 ```sh
@@ -93,11 +139,24 @@ No datasets are downloaded or redistributed. Generic factory/GUI integration
 is deferred because those surfaces do not carry camera and prompt inputs.
 YOLO9 and RF-DETR remain the 2D flagships; neither has a 3D head to wire here.
 
-CPU tests exercise calibration, quaternion projection, clipping, result
-alignment, serialization, prompt forwarding, lazy dependency loading and CLI
-behavior using synthetic outputs. These do not prove upstream loading,
-inference quality, or numerical parity. Real CUDA inference and downstream
-export compatibility must be recorded separately before claiming them.
+The real Stage 3 checkpoint was checked on ten COCO128 images with ten text
+prompts (`dog`, `cat`, `horse`, `bicycle`, `bus`, `car`, `chair`, `couch`,
+`bottle`, `person`) and identical assumed pinhole calibration. Direct upstream
+CUDA and LibreYOLO CUDA matched exactly for 2D boxes, 3D boxes, combined score,
+2D confidence, 3D confidence, class id, and intrinsics: maximum absolute
+difference `0.0` for every field and image. Detection counts also matched the
+Mac CPU run for all ten images. Lossless Mac CPU versus direct upstream CUDA
+comparison found maximum drift of 0.173 pixels in 2D boxes, 0.0374 metres in
+3D centers, 0.0195 metres in dimensions, 0.00250 in quaternion components,
+and 0.00843 across confidence values. Class ids and intrinsics were exact.
+Warm RTX 3090 calls took 0.876 to 0.925 seconds; Mac CPU calls took 20.777 to
+21.533 seconds in the final run after the 38.163-second cold call. These
+timings are evidence from one machine each, not performance guarantees.
+
+This proves adapter parity and Mac CPU execution. It does not prove model
+accuracy: the test uses approximate intrinsics because COCO128 carries no
+camera calibration, and no 3D benchmark labels. Export compatibility remains
+unverified and blocked.
 
 The manual runtime check is collected under the `wilddet3d` marker:
 

@@ -324,10 +324,12 @@ class _TensorPayload:
 class Boxes3D(_TensorPayload):
     """Camera-frame cuboids, metres, with scalar-first quaternions.
 
-    ``data`` is (N, 14): center xyz, dimensions whl (local xyz), quaternion
-    wxyz, combined confidence, class id, 2D confidence, 3D confidence.
+    ``data`` is (N, 14): center xyz, dimensions wlh, quaternion
+    wxyz, combined ranking score, class id, 2D confidence, 3D confidence.
     ``intrinsics`` is the shared (3, 3) calibration on the original canvas.
-    Camera axes are x right, y down, z forward. No world frame is implied.
+    Camera axes are x right, y down, z forward. Local box axes carry length,
+    height, width respectively, following vis4d's OpenCV box convention.
+    No world frame is implied.
     """
 
     def __init__(self, data, orig_shape=None, intrinsics=None):
@@ -347,9 +349,11 @@ class Boxes3D(_TensorPayload):
             raise ValueError("Boxes3D dimensions must be positive.")
         if (np.linalg.norm(values[:, 6:10], axis=1) < 1e-8).any():
             raise ValueError("Boxes3D quaternions must be nonzero.")
-        scores = values[:, [10, 12, 13]]
-        if ((scores < 0) | (scores > 1)).any():
-            raise ValueError("Boxes3D confidence must be in [0, 1].")
+        if (values[:, 10] < 0).any():
+            raise ValueError("Boxes3D combined scores must be nonnegative.")
+        confidences = values[:, [12, 13]]
+        if ((confidences < 0) | (confidences > 1)).any():
+            raise ValueError("Boxes3D 2D/3D confidence must be in [0, 1].")
         ids = values[:, 11]
         if ((ids < 0) | (ids != np.floor(ids))).any():
             raise ValueError("Boxes3D class ids must be nonnegative integers.")
@@ -444,19 +448,13 @@ class Boxes3D(_TensorPayload):
             ],
             axis=1,
         ).reshape(-1, 3, 3)
-        signs = np.array(
-            [
-                [-1, -1, -1],
-                [1, -1, -1],
-                [1, 1, -1],
-                [-1, 1, -1],
-                [-1, -1, 1],
-                [1, -1, 1],
-                [1, 1, 1],
-                [-1, 1, 1],
-            ]
-        )
-        local = signs[None] * values[:, None, 3:6] / 2
+        # OpenCV cuboid convention from SysCV/vis4d v1.0.0 (Apache-2.0),
+        # op/box/box3d.py::boxes3d_to_corners. See THIRD_PARTY_NOTICES.txt.
+        signs = np.array([
+            [1, 1, -1], [1, 1, 1], [-1, 1, -1], [-1, 1, 1],
+            [1, -1, -1], [1, -1, 1], [-1, -1, -1], [-1, -1, 1],
+        ])
+        local = signs[None] * values[:, None, [4, 5, 3]] / 2
         return np.einsum("nij,nkj->nki", rotation, local) + values[:, None, :3]
 
 

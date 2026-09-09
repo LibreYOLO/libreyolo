@@ -1,15 +1,18 @@
 """Independent MIT adapter using WildDet3D's documented public interface.
 
 No upstream implementation is bundled or derived here. Install the separately
-licensed runtime using its installation guide and expose it on PYTHONPATH.
-This sibling API uses upstream checkpoints unchanged, outside LibreYOLO's
-state-dict factory. See docs/adr/0021-detect3d-task-contract.md.
+licensed runtime using its installation guide. CUDA can expose it on
+``PYTHONPATH``; macOS passes its checkout and interpreter through
+``runtime_path`` and ``runtime_python``. This sibling API uses upstream
+checkpoints unchanged, outside LibreYOLO's state-dict factory. See
+docs/adr/0021-detect3d-task-contract.md.
 """
 
 from __future__ import annotations
 
 import importlib
 import logging
+import os
 from pathlib import Path
 from typing import ClassVar
 
@@ -25,14 +28,16 @@ INSTALL_URL = "https://github.com/allenai/WildDet3D#installation"
 
 
 class LibreWildDet3D:
-    """Promptable camera-frame 3D detection through an optional CUDA runtime.
+    """Promptable camera-frame 3D detection through an optional upstream runtime.
 
     ``model_path`` is a user-supplied upstream full checkpoint, unchanged.
     ``intrinsics`` in predict is required: original-image pixel calibration.
     Inputs and outputs use original-image pixels; 3D geometry uses metres.
     A single source returns Results, a list/directory returns a list, and
     stream=True yields Results. Shared prompts/calibration apply to every
-    image in a multi-source call. Training, tracking and export are deferred.
+    image in a multi-source call. On macOS, ``device="auto"`` selects the
+    isolated CPU worker. MPS is rejected because the upstream image path mixes
+    CPU and MPS tensors. Training, tracking and export are deferred.
     """
 
     FAMILY = "wilddet3d"
@@ -50,24 +55,31 @@ class LibreWildDet3D:
         self,
         model_path,
         *,
-        device="cuda",
+        device="auto",
         conf=DEFAULT_CONF,
         conf3d=DEFAULT_CONF3D,
         iou=DEFAULT_IOU,
         use_depth=False,
+        runtime_path=None,
+        runtime_python=None,
     ):
-        self.model_path = Path(model_path).expanduser()
+        self.model_path = Path(model_path).expanduser().resolve()
         if not self.model_path.is_file():
             raise FileNotFoundError(
                 f"WildDet3D checkpoint not found: {self.model_path}"
             )
         if isinstance(device, int) or str(device).isdigit():
             device = f"cuda:{device}"
-        self.device = torch.device("cuda" if device == "auto" else device)
-        if self.device.type != "cuda":
+        if device == "auto":
+            device = "cuda" if torch.cuda.is_available() else "cpu"
+        self.device = torch.device(device)
+        if self.device.type == "mps":
             raise ValueError(
-                "WildDet3D requires its CUDA runtime; CPU/MPS are unsupported."
+                "WildDet3D does not support MPS: its upstream image path mixes "
+                "CPU and MPS tensors. Use device='cpu' on macOS."
             )
+        if self.device.type not in {"cpu", "cuda"}:
+            raise ValueError("WildDet3D supports cpu or cuda devices.")
         self.conf = self._threshold(conf, "conf")
         self.conf3d = self._threshold(conf3d, "conf3d")
         self.iou = self._threshold(iou, "iou")
@@ -77,13 +89,31 @@ class LibreWildDet3D:
         self.task = self.DEFAULT_TASK
         self._runtime = None
         self._predictor = None
+        self._backend = None
+        self._runtime_path = runtime_path or os.environ.get("WILDDET3D_PATH")
+        self._runtime_python = runtime_python or os.environ.get("WILDDET3D_PYTHON")
+        if self._runtime_path:
+            self._runtime_path = Path(self._runtime_path).expanduser().resolve()
+            if not self._runtime_path.is_dir():
+                raise FileNotFoundError(
+                    f"WildDet3D runtime checkout not found: {self._runtime_path}"
+                )
+        if self._runtime_python:
+            # Do not resolve this path: virtualenv interpreters are symlinks to
+            # the base Python, and resolving one silently drops the venv.
+            self._runtime_python = Path(self._runtime_python).expanduser().absolute()
+            if not self._runtime_python.is_file():
+                raise FileNotFoundError(
+                    f"WildDet3D runtime interpreter not found: {self._runtime_python}"
+                )
         self._classes = None
 
     @staticmethod
     def _threshold(value, name):
         value = float(value)
-        if not np.isfinite(value) or not 0 <= value <= 1:
-            raise ValueError(f"{name} must be finite and in [0, 1].")
+        if not np.isfinite(value) or value < 0 or (name != "conf" and value > 1):
+            bounds = "nonnegative" if name == "conf" else "in [0, 1]"
+            raise ValueError(f"{name} must be finite and {bounds}.")
         return value
 
     @staticmethod
@@ -104,10 +134,23 @@ class LibreWildDet3D:
         return self
 
     def _load(self):
-        if self._predictor is not None:
+        if self._predictor is not None or self._backend is not None:
+            return
+        if self.device.type != "cuda" or self._runtime_path or self._runtime_python:
+            from .runtime import RuntimeWorker
+
+            logger.warning(
+                "WildDet3D runtime and weights retain their upstream SAM License "
+                "terms; they are not covered by LibreYOLO's MIT license."
+            )
+            self._backend = RuntimeWorker(
+                config=self._runtime_config(),
+                runtime_path=self._runtime_path,
+                runtime_python=self._runtime_python,
+            )
             return
         if not torch.cuda.is_available():
-            raise RuntimeError("WildDet3D requires an available CUDA device.")
+            raise RuntimeError("The selected CUDA device is not available.")
         try:
             runtime = importlib.import_module("wilddet3d")
         except ImportError as exc:
@@ -127,21 +170,38 @@ class LibreWildDet3D:
             "WildDet3D runtime and weights retain their upstream SAM "
             "License terms; they are not covered by LibreYOLO's MIT license."
         )
-        predictor = runtime.build_model(
-            checkpoint=str(self.model_path),
-            device=str(self.device),
-            skip_pretrained=True,
-            score_threshold=self.conf,
-            score_3d_threshold=self.conf3d,
-            iou_threshold=self.iou,
-            use_depth_input_test=self.use_depth,
-            use_predicted_intrinsics=False,
-        )
+        predictor = runtime.build_model(**self._runtime_config())
         if not callable(predictor):
             raise TypeError(
                 "WildDet3D build_model did not return a callable predictor."
             )
         self._runtime, self._predictor = runtime, predictor
+
+    def _runtime_config(self):
+        return {
+            "checkpoint": str(self.model_path),
+            "device": str(self.device),
+            "skip_pretrained": True,
+            "score_threshold": self.conf,
+            "score_3d_threshold": self.conf3d,
+            "iou_threshold": self.iou,
+            "use_depth_input_test": self.use_depth,
+            "use_predicted_intrinsics": False,
+        }
+
+    def close(self):
+        """Release the cached runtime; a later predict call loads it again."""
+        if getattr(self, "_backend", None) is not None:
+            self._backend.close()
+            self._backend = None
+        self._predictor = None
+        self._runtime = None
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        self.close()
 
     def predict(
         self,
@@ -255,21 +315,26 @@ class LibreWildDet3D:
                             "depth must be finite nonnegative (H, W) metres."
                         )
                 self._load()
-                data = self._runtime.preprocess(
-                    np.asarray(image, dtype=np.float32), k, depth=depth_array
-                )
-                call = dict(
-                    images=data["images"].to(self.device),
-                    intrinsics=data["intrinsics"].to(self.device)[None],
-                    input_hw=[data["input_hw"]],
-                    original_hw=[data["original_hw"]],
-                    padding=[data["padding"]],
-                    **prompt,
-                )
-                if depth_array is not None:
-                    call["depth_gt"] = data["depth_gt"].to(self.device)
-                with torch.inference_mode():
-                    outputs = self._predictor(**call)
+                if self._backend is not None:
+                    outputs = self._backend.predict(
+                        np.asarray(image), k, prompt, depth=depth_array
+                    )
+                else:
+                    data = self._runtime.preprocess(
+                        np.asarray(image, dtype=np.float32), k, depth=depth_array
+                    )
+                    call = dict(
+                        images=data["images"].to(self.device),
+                        intrinsics=data["intrinsics"].to(self.device)[None],
+                        input_hw=[data["input_hw"]],
+                        original_hw=[data["original_hw"]],
+                        padding=[data["padding"]],
+                        **prompt,
+                    )
+                    if depth_array is not None:
+                        call["depth_gt"] = data["depth_gt"].to(self.device)
+                    with torch.inference_mode():
+                        outputs = self._predictor(**call)
                 result = self._result(
                     outputs,
                     (h, w),

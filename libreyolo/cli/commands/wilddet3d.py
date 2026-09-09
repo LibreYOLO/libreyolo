@@ -22,8 +22,14 @@ def wilddet3d_cmd(
     depth: str | None = typer.Option(
         None, help="Original-resolution depth .npy in metres"
     ),
-    device: str = typer.Option("cuda", help="CUDA device, e.g. cuda:0"),
-    conf: float | None = typer.Option(None, help="Combined confidence threshold"),
+    device: str = typer.Option("auto", help="auto, cpu, or a CUDA device"),
+    runtime_path: str | None = typer.Option(
+        None, help="Optional upstream runtime checkout"
+    ),
+    runtime_python: str | None = typer.Option(
+        None, help="Python interpreter for the Mac/CPU runtime"
+    ),
+    conf: float | None = typer.Option(None, help="Combined ranking-score threshold"),
     conf3d: float | None = typer.Option(None, help="3D confidence threshold"),
     iou: float | None = typer.Option(None, help="2D NMS IoU threshold"),
     save: bool = typer.Option(False, help="Save projected cuboids"),
@@ -38,7 +44,7 @@ def wilddet3d_cmd(
         help="Dump command schema as JSON",
     ),
 ) -> None:
-    """Detect 3D objects with text, boxes or points (optional CUDA runtime)."""
+    """Detect 3D objects with text, boxes or points (optional upstream runtime)."""
     import json
     import os
     import sys
@@ -75,18 +81,23 @@ def wilddet3d_cmd(
                 stack.enter_context(redirect_stderr(destination))
             from libreyolo import LibreWildDet3D
 
-            model_obj = LibreWildDet3D(
-                model, device=device, use_depth=depth is not None, **thresholds
-            )
-            results = model_obj.predict(
-                source,
-                intrinsics=calibration,
-                depth=depth_array,
-                prompt_mode=prompt_mode,
-                save=save,
-                output_path=output_path,
-                **prompts,
-            )
+            with LibreWildDet3D(
+                model,
+                device=device,
+                use_depth=depth is not None,
+                runtime_path=runtime_path,
+                runtime_python=runtime_python,
+                **thresholds,
+            ) as model_obj:
+                results = model_obj.predict(
+                    source,
+                    intrinsics=calibration,
+                    depth=depth_array,
+                    prompt_mode=prompt_mode,
+                    save=save,
+                    output_path=output_path,
+                    **prompts,
+                )
         results = results if isinstance(results, list) else [results]
         out.result(
             {
