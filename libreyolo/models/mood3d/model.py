@@ -295,9 +295,15 @@ class Libre3DMOOD:
             for index, item in enumerate(sources):
                 image = ImageLoader.load(item, color_format=color_format)
                 self._load()
-                outputs = self._backend.predict(
-                    np.asarray(image), calibration, {"text": names}
-                )
+                backend = self._backend
+                try:
+                    outputs = backend.predict(
+                        np.asarray(image), calibration, {"text": names}
+                    )
+                except BaseException:
+                    if backend.closed:
+                        self._backend = None
+                    raise
                 result = self._result(
                     outputs,
                     (image.height, image.width),

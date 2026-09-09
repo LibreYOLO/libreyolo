@@ -180,6 +180,35 @@ def test_missing_runtime_has_install_hint(model, monkeypatch):
         model(Image.new("RGB", (20, 10)), intrinsics=K, text=["chair"])
 
 
+def test_closed_worker_is_replaced_after_failure(model, monkeypatch):
+    from libreyolo.models.mood3d import runtime
+
+    workers = []
+
+    class Worker:
+        def __init__(self, **kwargs):
+            self.closed = False
+            workers.append(self)
+
+        def predict(self, image, *args, **kwargs):
+            if len(workers) == 1:
+                self.closed = True
+                raise RuntimeError("worker exited")
+            return outputs(image.shape[:2])
+
+        def close(self):
+            self.closed = True
+
+    monkeypatch.setattr(runtime, "RuntimeWorker", Worker)
+    image = Image.new("RGB", (640, 480))
+    with pytest.raises(RuntimeError, match="worker exited"):
+        model(image, intrinsics=K, text=["chair", "table"])
+    assert model._backend is None
+    result = model(image, intrinsics=K, text=["chair", "table"])
+    assert len(workers) == 2
+    assert len(result) == 2
+
+
 @pytest.mark.parametrize(
     "mutator,match",
     [
