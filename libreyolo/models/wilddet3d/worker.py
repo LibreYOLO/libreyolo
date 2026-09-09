@@ -15,6 +15,9 @@ import json
 import sys
 import types
 import warnings
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
 # Keep Python and native library diagnostics out of the protocol responses.
 _protocol = sys.stdout
@@ -28,7 +31,7 @@ def _warning(message, category, filename, lineno, file=None, line=None):
 
 warnings.showwarning = _warning
 
-from runtime import _PREFIX, decode_array, encode_array
+from libreyolo.models.wilddet3d.runtime import _PREFIX, decode_array, encode_array
 
 
 def _disable_unavailable_tracking_kernel():

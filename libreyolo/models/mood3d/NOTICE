@@ -1,0 +1,25 @@
+Libre3DMOOD
+-----------
+
+The adapter and runtime bridge use the public model construction,
+preprocessing, checkpoint-loading, and output contracts from 3D-MOOD:
+
+https://github.com/cvg/3D-MOOD
+Revision: 41bb2904932d91507338e75ae4c802d67616ca1b
+Copyright 2025 Computer Vision and Geometry Lab, ETH Zurich.
+Licensed under the Apache License, Version 2.0.
+
+The official Swin-T and Swin-B checkpoints are published at:
+
+https://huggingface.co/RoyYang0714/3D-MOOD
+Revision: 3d1fab552189f1a62fdb60ebb606d20625a30b90
+Declared license: Apache-2.0.
+
+Byte-identical canonical mirrors:
+- LibreYOLO/Libre3DMOODt revision f1e163b249b43a8bb7b8b4ef4f446828270e35ef
+- LibreYOLO/Libre3DMOODb revision a4f6115d285a6983439f0e54f20c44b0ce87c261
+
+LibreYOLO does not bundle or use SysCV/vis4d_cuda_ops. That repository has no
+declared license. Image inference uses the portable PyTorch deformable-attention
+path already shipped by LibreYOLO. Training and 3D-IoU evaluation remain in the
+separately installed upstream environment and are not exposed by this adapter.
