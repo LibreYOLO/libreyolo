@@ -403,6 +403,8 @@ validate_checkpoint_metadata(...)
 ### Optional WildDet3D runtime
 
 The `detect3d` task reserves the suffix `-detect3d`. The initial
-`LibreWildDet3D` sibling adapter accepts an unchanged, user-supplied upstream
-full checkpoint. It does not write schema-v1 checkpoints, attempt automatic
-conversion, or route those checkpoints through the LibreYOLO factory.
+`LibreWildDet3D` sibling adapter accepts an unchanged upstream full checkpoint,
+either as a local path or from the pinned `LibreYOLO/LibreWildDet3D` mirror.
+The mirrored artifact preserves the upstream filename and serialization and is
+verified by SHA-256. It does not use schema-v1 metadata, attempt conversion, or
+route through the LibreYOLO factory.

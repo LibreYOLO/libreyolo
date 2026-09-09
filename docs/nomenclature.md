@@ -988,9 +988,10 @@ Plain COCO-default weights never carry a variant suffix.
 `LibreWildDet3D` (`wilddet3d`, coverage group `s`) is a sibling API wrapping
 an optional upstream runtime. It uses `detect3d`, with aliases `detection3d`
 and `3d-detection`. Its full upstream model has a fixed 1008-pixel input and
-is listed as size `l` in inventory. It accepts a local upstream checkpoint;
-there is no converted LibreYOLO checkpoint or filename auto-download route.
-It is not registered in the `LibreYOLO(...)` state-dict factory.
+is listed as size `l` in inventory. It accepts a local upstream checkpoint or
+downloads the byte-identical `wilddet3d_alldata_all_prompt_v1.0.pt` mirror from
+`LibreYOLO/LibreWildDet3D`. This raw upstream checkpoint is not converted and
+is not registered in the `LibreYOLO(...)` state-dict factory.
 
 `Results.boxes3d` stores metric camera-frame cuboids aligned with 2D boxes.
 The corresponding CLI is `libreyolo wilddet3d`; the generic `predict` command

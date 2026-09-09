@@ -8,7 +8,10 @@ from ..output import OutputHandler
 
 def wilddet3d_cmd(
     source: str = typer.Option(..., help="Image path or directory"),
-    model: str = typer.Option(..., help="Local upstream WildDet3D checkpoint"),
+    model: str = typer.Option(
+        "wilddet3d_alldata_all_prompt_v1.0.pt",
+        help="Local checkpoint or the mirrored default filename",
+    ),
     intrinsics: str = typer.Option(
         ..., help="Original-image 3x3 calibration .npy file"
     ),

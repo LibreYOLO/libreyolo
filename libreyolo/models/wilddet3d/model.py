@@ -10,6 +10,7 @@ docs/adr/0021-detect3d-task-contract.md.
 
 from __future__ import annotations
 
+import hashlib
 import importlib
 import logging
 import os
@@ -25,12 +26,17 @@ from ...utils.results import Boxes, Boxes3D, Results
 logger = logging.getLogger(__name__)
 UPSTREAM_REVISION = "1b8aa52b6ff3f00d0ebfa07175efc0c0c440964a"
 INSTALL_URL = "https://github.com/allenai/WildDet3D#installation"
+HF_REPO = "LibreYOLO/LibreWildDet3D"
+HF_REVISION = "e2baa17eb2279225094a2d7e7d7620ff06dc4676"
+WEIGHT_FILE = "wilddet3d_alldata_all_prompt_v1.0.pt"
+WEIGHT_SHA256 = "f8b6a9e548f733ba62625a0d2adc4b0f4fdb6007ee11d9927f9c1027010fee57"
 
 
 class LibreWildDet3D:
     """Promptable camera-frame 3D detection through an optional upstream runtime.
 
-    ``model_path`` is a user-supplied upstream full checkpoint, unchanged.
+    ``model_path`` accepts an unchanged upstream full checkpoint. Omitting it
+    downloads LibreYOLO's byte-identical, revision-pinned mirror.
     ``intrinsics`` in predict is required: original-image pixel calibration.
     Inputs and outputs use original-image pixels; 3D geometry uses metres.
     A single source returns Results, a list/directory returns a list, and
@@ -53,7 +59,7 @@ class LibreWildDet3D:
 
     def __init__(
         self,
-        model_path,
+        model_path=None,
         *,
         device="auto",
         conf=DEFAULT_CONF,
@@ -63,11 +69,7 @@ class LibreWildDet3D:
         runtime_path=None,
         runtime_python=None,
     ):
-        self.model_path = Path(model_path).expanduser().resolve()
-        if not self.model_path.is_file():
-            raise FileNotFoundError(
-                f"WildDet3D checkpoint not found: {self.model_path}"
-            )
+        self.model_path = self._resolve_checkpoint(model_path)
         if isinstance(device, int) or str(device).isdigit():
             device = f"cuda:{device}"
         if device == "auto":
@@ -125,8 +127,54 @@ class LibreWildDet3D:
 
     @classmethod
     def get_download_url(cls, filename):
-        """Upstream checkpoints are user supplied; no implicit download route."""
-        return
+        """Return the immutable byte-identical checkpoint mirror URL."""
+        if filename not in (None, WEIGHT_FILE):
+            return None
+        return f"https://huggingface.co/{HF_REPO}/resolve/{HF_REVISION}/{WEIGHT_FILE}"
+
+    @classmethod
+    def _resolve_checkpoint(cls, model_path):
+        if model_path is not None:
+            candidate = Path(model_path).expanduser()
+            if candidate.is_file():
+                return candidate.resolve()
+            if str(model_path) != WEIGHT_FILE:
+                raise FileNotFoundError(f"WildDet3D checkpoint not found: {candidate}")
+        return cls._download_checkpoint()
+
+    @classmethod
+    def _download_checkpoint(cls):
+        logger.warning(
+            "WildDet3D weights retain the custom SAM License and are not "
+            "covered by LibreYOLO's MIT license."
+        )
+        try:
+            from huggingface_hub import hf_hub_download
+        except ImportError as exc:
+            raise ImportError(
+                "WildDet3D automatic weights require huggingface_hub. Install "
+                "with: pip install huggingface_hub"
+            ) from exc
+        path = Path(
+            hf_hub_download(
+                repo_id=HF_REPO,
+                filename=WEIGHT_FILE,
+                revision=HF_REVISION,
+            )
+        )
+        cls._verify_mirrored_checkpoint(path)
+        return path.resolve()
+
+    @classmethod
+    def _verify_mirrored_checkpoint(cls, path):
+        digest = hashlib.sha256()
+        with Path(path).open("rb") as checkpoint:
+            for chunk in iter(lambda: checkpoint.read(8 * 1024 * 1024), b""):
+                digest.update(chunk)
+        if digest.hexdigest() != WEIGHT_SHA256:
+            raise ValueError(
+                "Downloaded WildDet3D checkpoint failed its pinned SHA-256 check."
+            )
 
     def set_classes(self, names):
         """Set the vocabulary used when predict omits text and geometric prompts."""

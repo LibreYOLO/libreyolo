@@ -314,7 +314,68 @@ def test_numeric_cuda_device_and_no_download_route(tmp_path):
     checkpoint.touch()
     for device in (0, "0", "cuda:0"):
         assert str(LibreWildDet3D(checkpoint, device=device).device) == "cuda:0"
-    assert LibreWildDet3D.get_download_url("LibreWildDet3Dl-detect3d.pt") is None
+    assert LibreWildDet3D.get_download_url("unknown.pt") is None
+    url = LibreWildDet3D.get_download_url(adapter.WEIGHT_FILE)
+    assert adapter.HF_REVISION in url
+    assert url.endswith("/wilddet3d_alldata_all_prompt_v1.0.pt")
+
+
+def test_default_checkpoint_uses_mirror(tmp_path, monkeypatch):
+    checkpoint = tmp_path / "mirrored.pt"
+    checkpoint.touch()
+    calls = []
+
+    def download(cls):
+        calls.append(True)
+        return checkpoint
+
+    monkeypatch.setattr(LibreWildDet3D, "_download_checkpoint", classmethod(download))
+    model = LibreWildDet3D(device="cpu")
+    assert model.model_path == checkpoint
+    assert calls == [True]
+
+
+def test_mirror_hash_check(tmp_path, monkeypatch):
+    checkpoint = tmp_path / "mirrored.pt"
+    checkpoint.write_bytes(b"known checkpoint bytes")
+    monkeypatch.setattr(
+        adapter,
+        "WEIGHT_SHA256",
+        "a05545a7ab49d03ef298599bff5bcb657521bd52ef4d71e4b2c2330020492dfc",
+    )
+    LibreWildDet3D._verify_mirrored_checkpoint(checkpoint)
+    checkpoint.write_bytes(b"changed")
+    with pytest.raises(ValueError, match="SHA-256"):
+        LibreWildDet3D._verify_mirrored_checkpoint(checkpoint)
+
+
+def test_mirror_download_is_revision_pinned(tmp_path, monkeypatch):
+    checkpoint = tmp_path / adapter.WEIGHT_FILE
+    checkpoint.write_bytes(b"known checkpoint bytes")
+    calls = []
+
+    def download(**kwargs):
+        calls.append(kwargs)
+        return str(checkpoint)
+
+    monkeypatch.setitem(
+        sys.modules,
+        "huggingface_hub",
+        SimpleNamespace(hf_hub_download=download),
+    )
+    monkeypatch.setattr(
+        adapter,
+        "WEIGHT_SHA256",
+        "a05545a7ab49d03ef298599bff5bcb657521bd52ef4d71e4b2c2330020492dfc",
+    )
+    assert LibreWildDet3D._download_checkpoint() == checkpoint.resolve()
+    assert calls == [
+        {
+            "repo_id": "LibreYOLO/LibreWildDet3D",
+            "filename": adapter.WEIGHT_FILE,
+            "revision": adapter.HF_REVISION,
+        }
+    ]
 
 
 def test_auto_device_on_mac_uses_cpu(model, monkeypatch):
