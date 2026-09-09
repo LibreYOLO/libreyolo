@@ -143,7 +143,7 @@ def test_constructor_validation(checkpoint, kwargs, match):
 def test_auto_prefers_mps_without_cuda(checkpoint, monkeypatch):
     monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
     monkeypatch.setattr(torch.backends.mps, "is_available", lambda: True)
-    assert Libre3DMOOD(checkpoint).device.type == "mps"
+    assert Libre3DMOOD(checkpoint, size="t").device.type == "mps"
 
 
 def test_size_is_inferred_and_mismatches_raise(tmp_path):
@@ -152,6 +152,10 @@ def test_size_is_inferred_and_mismatches_raise(tmp_path):
     assert Libre3DMOOD(checkpoint, device="cpu").size == "b"
     with pytest.raises(ValueError, match="not 't'"):
         Libre3DMOOD(checkpoint, size="t", device="cpu")
+    renamed = tmp_path / "renamed.pt"
+    renamed.write_bytes(b"checkpoint")
+    with pytest.raises(ValueError, match="size is required"):
+        Libre3DMOOD(renamed, device="cpu")
 
 
 def test_prompt_and_calibration_validation(model):
