@@ -107,6 +107,7 @@ def test_task_type_literal_is_public():
         "ocr",
         "embed",
         "mesh",
+        "detect3d",
     }
 
 

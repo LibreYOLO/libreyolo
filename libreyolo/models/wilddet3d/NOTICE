@@ -1,0 +1,15 @@
+LibreWildDet3D is an independently written MIT API adapter.
+
+Optional runtime: https://github.com/allenai/WildDet3D
+Public-interface reference revision: 1b8aa52b6ff3f00d0ebfa07175efc0c0c440964a
+Reference: docs/INFERENCE.md (public API and tensor-format documentation).
+Runtime license: SAM License (custom, field-of-use restrictions).
+No upstream model, preprocessing, postprocessing, or rendering implementation
+is copied, adapted, or vendored. The user installs the optional runtime
+separately. The adapter calls build_model, preprocess, and the predictor API.
+
+Runtime submodules at that revision:
+- sam3_for_wilddet3d: 159490bb13108749dd5ceff68f42cd1792e60641, SAM License.
+- LingBot-Depth: ff29de5bf433d1b1519cd851da00bc652668964a, Apache-2.0.
+Their files are not distributed by LibreYOLO.
+Upstream full checkpoints remain separately licensed, user-supplied files.

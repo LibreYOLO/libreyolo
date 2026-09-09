@@ -99,6 +99,7 @@ _MODEL_EXPORTS = (
 _RESULTS_EXPORTS = (
     "Results",
     "Boxes",
+    "Boxes3D",
     "Masks",
     "Keypoints",
     "Points",
@@ -213,6 +214,7 @@ def __getattr__(name):
         "LibreSenseNovaVision": (".models.sensenova", "LibreSenseNovaVision"),
         "LibreMODUS": (".models.modus", "LibreMODUS"),
         "LibreModus": (".models.modus", "LibreModus"),
+        "LibreWildDet3D": (".models.wilddet3d", "LibreWildDet3D"),
         "LibreSAM": (".models.sam", "LibreSAM"),
         "LibreSAM1": (".models.sam", "LibreSAM1"),
         "LibreSAM2": (".models.sam", "LibreSAM2"),
@@ -358,6 +360,8 @@ __all__ = [
     "LibreModus",
     # OpenAI-compatible LLM client (optional, requires libreyolo[llm])
     "LibreLLM",
+    # Promptable 3D detection (separately installed upstream runtime)
+    "LibreWildDet3D",
     # Promptable-segmentation tier (optional, requires libreyolo[sam])
     "LibreSAM",
     "LibreSAM1",
@@ -374,6 +378,7 @@ __all__ = [
     # Results
     "Results",
     "Boxes",
+    "Boxes3D",
     "Masks",
     "Keypoints",
     "Points",

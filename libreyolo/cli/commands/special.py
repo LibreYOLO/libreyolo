@@ -366,6 +366,8 @@ def models_cmd(
                 name = f"{family}-{size}" + (f"-{suffix}" if suffix else "")
                 if name not in cli_names:
                     cli_names.append(name)
+        if metadata.get("cli_command"):
+            cli_names = [metadata["cli_command"]]
         extra = metadata["optional_extra"]
         families.append(
             {

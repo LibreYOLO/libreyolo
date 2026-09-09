@@ -2205,6 +2205,25 @@
     "available": true,
     "group": "g2"
   },
+  "wilddet3d": {
+    "class": "libreyolo.models.wilddet3d.model.LibreWildDet3D",
+    "tasks": [
+      "detect3d"
+    ],
+    "default_task": "detect3d",
+    "sizes": {
+      "l": 1008
+    },
+    "default_imgsz": {
+      "l": 1008
+    },
+    "task_sizes": {},
+    "export_override": "blocked",
+    "optional_extra": null,
+    "available": false,
+    "group": "s",
+    "cli_command": "wilddet3d"
+  },
   "yolo1": {
     "class": "libreyolo.models.yolo1.model.LibreYOLO1",
     "tasks": [
