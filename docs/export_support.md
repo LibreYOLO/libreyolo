@@ -9,6 +9,7 @@ in preflight.
 
 | Family | Task | onnx | torchscript | executorch | tensorrt | openvino | paddle | mnn | rknn | ncnn | tflite | coreml | coreai |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 3dmood | detect3d |  |  |  |  |  |  |  |  |  |  |  |  |
 | alexnet | classify | ✓ | ✓ | available | ✓ | ✓ |  |  |  | available |  |  |  |
 | ben2 | matte | ✓ | ✓ | available | available | available |  |  |  | available |  |  |  |
 | birefnet | matte | available | ✓ |  |  |  |  |  |  |  |  |  |  |
@@ -611,6 +612,18 @@ These converter paths are callable with the recorded validation context.
 
 ## Blocked combinations
 
+- `3dmood` / `detect3d` / `onnx`: 3D detection export is blocked until its graph outputs, camera metadata, and backend runtime contract are defined.
+- `3dmood` / `detect3d` / `torchscript`: 3D detection export is blocked until its graph outputs, camera metadata, and backend runtime contract are defined.
+- `3dmood` / `detect3d` / `executorch`: 3D detection export is blocked until its graph outputs, camera metadata, and backend runtime contract are defined.
+- `3dmood` / `detect3d` / `tensorrt`: 3D detection export is blocked until its graph outputs, camera metadata, and backend runtime contract are defined.
+- `3dmood` / `detect3d` / `openvino`: 3D detection export is blocked until its graph outputs, camera metadata, and backend runtime contract are defined.
+- `3dmood` / `detect3d` / `paddle`: 3D detection export is blocked until its graph outputs, camera metadata, and backend runtime contract are defined.
+- `3dmood` / `detect3d` / `mnn`: 3D detection export is blocked until its graph outputs, camera metadata, and backend runtime contract are defined.
+- `3dmood` / `detect3d` / `rknn`: 3D detection export is blocked until its graph outputs, camera metadata, and backend runtime contract are defined.
+- `3dmood` / `detect3d` / `ncnn`: 3D detection export is blocked until its graph outputs, camera metadata, and backend runtime contract are defined.
+- `3dmood` / `detect3d` / `tflite`: 3D detection export is blocked until its graph outputs, camera metadata, and backend runtime contract are defined.
+- `3dmood` / `detect3d` / `coreml`: 3D detection export is blocked until its graph outputs, camera metadata, and backend runtime contract are defined.
+- `3dmood` / `detect3d` / `coreai`: 3D detection export is blocked until its graph outputs, camera metadata, and backend runtime contract are defined.
 - `alexnet` / `classify` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `alexnet` / `classify` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `alexnet` / `classify` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.

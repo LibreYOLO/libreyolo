@@ -797,3 +797,16 @@ WildDet3D (LibreYOLO/LibreWildDet3D; byte-identical upstream mirror)
     e2baa17eb2279225094a2d7e7d7620ff06dc4676 with the complete SAM License.
     Filename: wilddet3d_alldata_all_prompt_v1.0.pt
     SHA-256: f8b6a9e548f733ba62625a0d2adc4b0f4fdb6007ee11d9927f9c1027010fee57
+
+3D-MOOD (LibreYOLO/Libre3DMOODt and LibreYOLO/Libre3DMOODb)
+    Source: https://huggingface.co/RoyYang0714/3D-MOOD revision
+            3d1fab552189f1a62fdb60ebb606d20625a30b90
+    License: Apache-2.0, as declared by the official model repository.
+    The learned parameters are unchanged; LibreYOLO renames each file for its
+    canonical model-size convention and verifies the original content digest.
+    Swin-T: Libre3DMOODt.pt
+      Mirror revision: f1e163b249b43a8bb7b8b4ef4f446828270e35ef
+      SHA-256: 699f69454625d1fb3ad7d3669d8d662d52c349c99b2aba28da1215b8e7e4a555
+    Swin-B: Libre3DMOODb.pt
+      Mirror revision: a4f6115d285a6983439f0e54f20c44b0ce87c261
+      SHA-256: 834c976df385610bba105c7d4ea3e2d7b57dabd69dee2b61397ae398de67a677

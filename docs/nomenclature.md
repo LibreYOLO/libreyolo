@@ -997,3 +997,12 @@ is not registered in the `LibreYOLO(...)` state-dict factory.
 The corresponding CLI is `libreyolo wilddet3d`; the generic `predict` command
 and UI do not carry its camera/prompt inputs. See ADR 0021 for the interface,
 coordinate contract, and the explicit inference-only scope.
+
+`Libre3DMOOD` (`3dmood`, coverage group `s`) is the open-set text-conditioned
+sibling. Sizes `t` and `b` correspond to the official Swin-T and Swin-B
+checkpoints and canonical filenames `Libre3DMOODt.pt` and `Libre3DMOODb.pt`.
+Both run on a fixed 800x1333 model canvas while preserving original-image
+coordinates in results.
+It shares the `detect3d` result and camera convention, adds
+`Results.depth_map`, and is invoked through `libreyolo 3dmood`. It is not part
+of the generic checkpoint factory. See ADR 0022.

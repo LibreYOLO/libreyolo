@@ -2202,6 +2202,25 @@ f8b6a9e548f733ba62625a0d2adc4b0f4fdb6007ee11d9927f9c1027010fee57 after
 automatic download. Explicit local upstream checkpoints remain supported.
 
 --------------------------------------------------------------------
+3D-MOOD (optional external runtime)
+--------------------------------------------------------------------
+Source: https://github.com/cvg/3D-MOOD
+Revision: 41bb2904932d91507338e75ae4c802d67616ca1b
+License: Apache-2.0 (text in licenses/Apache-2.0.txt)
+Copyright 2025 Computer Vision and Geometry Lab, ETH Zurich.
+Used for: the model-construction, preprocessing, checkpoint-loading, and output
+          contracts implemented by the adapter and private worker in
+          libreyolo/models/mood3d/. The upstream runtime is separately installed.
+
+The upstream Swin implementation attributes OpenMMLab/mmdetection (Apache-2.0),
+its Grounding DINO modules attribute IDEA-Research/GroundingDINO (Apache-2.0),
+its deformable-attention implementation attributes fundamentalvision/
+Deformable-DETR (Apache-2.0), and its geometry utilities attribute PyTorch3D
+(BSD-3-Clause). LibreYOLO's worker uses its existing Apache-2.0 portable
+deformable-attention implementation. It does not use SysCV/vis4d_cuda_ops,
+whose repository has no declared license.
+
+--------------------------------------------------------------------
 vis4d cuboid geometry convention
 --------------------------------------------------------------------
 Source: https://github.com/SysCV/vis4d
