@@ -2195,3 +2195,15 @@ Runtime submodules at that revision:
 - LingBot-Depth: ff29de5bf433d1b1519cd851da00bc652668964a, Apache-2.0.
 Their files are not distributed by LibreYOLO.
 Upstream full checkpoints remain separately licensed, user-supplied files.
+
+--------------------------------------------------------------------
+vis4d cuboid geometry convention
+--------------------------------------------------------------------
+Source: https://github.com/SysCV/vis4d
+Revision: 9cd052ed72a208773abc1f6f0cd9109d8ec97531 (v1.0.0)
+License: Apache-2.0 (text in licenses/Apache-2.0.txt)
+Copyright 2021 Visual Intelligence and Systems (VIS) Group at ETH Zurich.
+Used for: OpenCV cuboid dimension-to-axis mapping and corner ordering in
+libreyolo/utils/results.py::Boxes3D.corners and the associated wireframe edges.
+Reference: vis4d/op/box/box3d.py::boxes3d_to_corners, AxisMode.OPENCV.
+The implementation remains numpy-based; vis4d is not a core dependency.

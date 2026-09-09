@@ -1,6 +1,8 @@
 """Hermetic contracts for the optional WildDet3D adapter and 3D result payload."""
 
 import json
+import sys
+from pathlib import Path
 from types import SimpleNamespace
 
 import numpy as np
@@ -44,7 +46,7 @@ def outputs(ids=(0,)):
 def model(tmp_path):
     checkpoint = tmp_path / "model.pt"
     checkpoint.write_bytes(b"not loaded by the unit test")
-    return LibreWildDet3D(checkpoint)
+    return LibreWildDet3D(checkpoint, device="cpu")
 
 
 def install_fake(model):
@@ -82,12 +84,12 @@ def test_task_roundtrip():
 
 def test_geometry_and_quaternion_rotation():
     p = payload()
-    np.testing.assert_allclose(p.corners.min(axis=1), [[-1, -2, 7]])
-    np.testing.assert_allclose(p.corners.max(axis=1), [[1, 2, 13]])
+    np.testing.assert_allclose(p.corners.min(axis=1), [[-2, -3, 9]])
+    np.testing.assert_allclose(p.corners.max(axis=1), [[2, 3, 11]])
     row = ROW.copy()
     row[6:10] = [np.sqrt(0.5), 0, 0, np.sqrt(0.5)]  # 90 degrees about camera z
     rotated = payload([row])
-    np.testing.assert_allclose(rotated.corners.min(axis=1), [[-2, -1, 7]], atol=1e-6)
+    np.testing.assert_allclose(rotated.corners.min(axis=1), [[-3, -2, 9]], atol=1e-6)
     negated = row.copy()
     negated[6:10] = [-v for v in row[6:10]]
     np.testing.assert_allclose(rotated.corners, payload([negated]).corners)
@@ -122,7 +124,8 @@ def test_empty_result():
 
 
 @pytest.mark.parametrize(
-    "column,value", [(3, 0), (4, -1), (0, float("nan")), (10, 1.1), (11, 0.5), (11, -1)]
+    "column,value",
+    [(3, 0), (4, -1), (0, float("nan")), (10, -0.1), (11, 0.5), (11, -1)],
 )
 def test_invalid_payload(column, value):
     row = ROW.copy()
@@ -161,6 +164,7 @@ def test_projection_and_near_clipping():
 
 
 def test_load_deferred_and_explicit_device(model, monkeypatch):
+    model.device = torch.device("cuda")
     calls = []
     monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
     sentinel = lambda **kwargs: None
@@ -189,6 +193,7 @@ def test_load_deferred_and_explicit_device(model, monkeypatch):
 
 
 def test_missing_runtime_help(model, monkeypatch):
+    model.device = torch.device("cuda")
     monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
 
     def missing(name):
@@ -310,3 +315,71 @@ def test_numeric_cuda_device_and_no_download_route(tmp_path):
     for device in (0, "0", "cuda:0"):
         assert str(LibreWildDet3D(checkpoint, device=device).device) == "cuda:0"
     assert LibreWildDet3D.get_download_url("LibreWildDet3Dl-detect3d.pt") is None
+
+
+def test_auto_device_on_mac_uses_cpu(model, monkeypatch):
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
+    monkeypatch.setattr(torch.backends.mps, "is_available", lambda: True)
+    assert str(LibreWildDet3D(model.model_path).device) == "cpu"
+
+
+def test_explicit_mps_explains_upstream_limitation(model):
+    with pytest.raises(ValueError, match="mixes CPU and MPS tensors"):
+        LibreWildDet3D(model.model_path, device="mps")
+
+
+def test_explicit_cpu_never_requires_cuda(model, monkeypatch):
+    from libreyolo.models.wilddet3d import runtime
+
+    def reject_cuda_probe():
+        raise AssertionError("CPU execution must not probe CUDA")
+
+    monkeypatch.setattr(torch.cuda, "is_available", reject_cuda_probe)
+    calls = []
+
+    def create_worker(**kwargs):
+        calls.append(kwargs)
+        return object()
+
+    monkeypatch.setattr(runtime, "RuntimeWorker", create_worker)
+    model._load()
+    assert calls[0]["config"]["device"] == "cpu"
+
+
+def test_combined_ranking_score_is_not_clamped(model):
+    row = ROW.copy()
+    row[10] = 1.2393523
+    p = payload([row])
+    assert float(p.conf[0]) == pytest.approx(1.2393523)
+    assert LibreWildDet3D(model.model_path, device="cpu", conf=1.2).conf == 1.2
+
+
+@pytest.mark.parametrize("argument", ["runtime_path", "runtime_python"])
+def test_missing_runtime_location_fails_at_construction(model, tmp_path, argument):
+    with pytest.raises(FileNotFoundError, match="not found"):
+        LibreWildDet3D(
+            model.model_path,
+            device="cpu",
+            **{argument: tmp_path / "missing"},
+        )
+
+
+def test_runtime_python_preserves_virtualenv_symlink(model, tmp_path):
+    interpreter = tmp_path / "python"
+    interpreter.symlink_to(Path(sys.executable))
+    configured = LibreWildDet3D(
+        model.model_path,
+        device="cpu",
+        runtime_python=interpreter,
+    )
+    assert configured._runtime_python == interpreter.absolute()
+    assert configured._runtime_python.is_symlink()
+
+
+def test_corners_match_permissive_upstream_golden():
+    fixture = json.loads(
+        (Path(__file__).parent / "fixtures/wilddet3d_corners.json").read_text()
+    )
+    boxes = torch.tensor(fixture["boxes"], dtype=torch.float32)
+    data = torch.cat((boxes, torch.zeros((len(boxes), 4))), dim=1)
+    np.testing.assert_allclose(Boxes3D(data).corners, fixture["corners"], atol=2e-6)

@@ -1219,18 +1219,9 @@ def draw_boxes3d(image, boxes3d, near_clip=0.01):
     canvas = image.copy().convert("RGB")
     draw = ImageDraw.Draw(canvas)
     edges = (
-        (0, 1),
-        (1, 2),
-        (2, 3),
-        (3, 0),
-        (4, 5),
-        (5, 6),
-        (6, 7),
-        (7, 4),
-        (0, 4),
-        (1, 5),
-        (2, 6),
-        (3, 7),
+        (0, 1), (1, 3), (3, 2), (2, 0),
+        (4, 5), (5, 7), (7, 6), (6, 4),
+        (0, 4), (1, 5), (2, 6), (3, 7),
     )
     for corners in payload.corners:
         for start, end in edges:

@@ -6,6 +6,7 @@ The direct call checks adapter conversion, not an independent architecture.
 """
 
 import os
+import platform
 from pathlib import Path
 
 import numpy as np
@@ -56,7 +57,49 @@ def test_cuda_prompt_and_output_mapping(cuda_device, sample_image, tmp_path):
         result.boxes3d.data[:, :10], torch.cat(raw[1]).cpu().float()
     )
     torch.testing.assert_close(result.boxes3d.conf, torch.cat(raw[2]).cpu().float())
+    torch.testing.assert_close(result.boxes3d.conf2d, torch.cat(raw[3]).cpu().float())
+    torch.testing.assert_close(result.boxes3d.conf3d, torch.cat(raw[4]).cpu().float())
+    torch.testing.assert_close(result.boxes3d.cls, torch.cat(raw[5]).cpu().float())
+    torch.testing.assert_close(
+        result.boxes3d.intrinsics, torch.as_tensor(k, dtype=torch.float32)
+    )
     rendered = result.plot(image)
     assert rendered.size == image.size
     assert not np.array_equal(np.asarray(rendered), np.asarray(image))
     rendered.save(tmp_path / "wilddet3d.png")
+
+
+@pytest.mark.skipif(platform.system() != "Darwin", reason="macOS runtime check")
+def test_macos_cpu_worker(sample_image, tmp_path):
+    reference = os.environ.get("LIBREYOLO_WILDDET3D_CHECKPOINT")
+    runtime_path = os.environ.get("LIBREYOLO_WILDDET3D_RUNTIME")
+    runtime_python = os.environ.get("LIBREYOLO_WILDDET3D_PYTHON")
+    if not all((reference, runtime_path, runtime_python)):
+        pytest.skip("Set LIBREYOLO_WILDDET3D_CHECKPOINT, _RUNTIME and _PYTHON for Mac.")
+    checkpoint = require_test_weights(str(Path(reference).expanduser().resolve()))
+    from libreyolo import LibreWildDet3D
+
+    image = Image.open(sample_image).convert("RGB")
+    width, height = image.size
+    intrinsics = np.array(
+        [
+            [max(width, height), 0, width / 2],
+            [0, max(width, height), height / 2],
+            [0, 0, 1],
+        ],
+        dtype=np.float32,
+    )
+    with LibreWildDet3D(
+        checkpoint,
+        device="auto",
+        runtime_path=runtime_path,
+        runtime_python=runtime_python,
+    ) as model:
+        assert model.device.type == "cpu"
+        result = model(image, intrinsics=intrinsics, text=["person"])
+        process = model._backend._process
+        assert process.poll() is None
+    assert process.poll() is not None
+    assert len(result) == len(result.boxes3d)
+    assert torch.isfinite(result.boxes3d.data).all()
+    result.plot(image).save(tmp_path / "wilddet3d-macos-cpu.png")
