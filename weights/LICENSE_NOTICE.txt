@@ -786,3 +786,11 @@ Third-party SOURCE CODE bundled inside the LibreYOLO Python package
 Notably, the DEIMv2 family bundles DINOv3 backbone code under Meta's
 non-OSI DINOv3 License Agreement; see NOTICE and
 libreyolo/models/deimv2/engine/backbone/dinov3/LICENSE.md.
+
+WildDet3D (user-supplied upstream checkpoint; not mirrored)
+    Source: https://huggingface.co/allenai/WildDet3D
+    License: SAM License. The model card also describes intended research
+    and educational use and links Ai2's Responsible Use Guidelines.
+    These weights are not MIT. LibreYOLO does not download, convert, or
+    redistribute them in this integration. The caller supplies the unchanged
+    full upstream checkpoint to LibreWildDet3D.

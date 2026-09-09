@@ -33,7 +33,7 @@ Required field meanings:
 - `size`: model variant within the family, such as `t`, `s`, `r18`, or `atto`.
 - `task`: canonical task, one of `detect`, `segment`, `semantic`, `panoptic`,
   `pose`, `classify`, `gaze`, `obb`, `point`, `depth`, `edge`, `normal`, `restore`,
-  `matte`, `ocr`, `embed`, or `mesh`.
+  `matte`, `ocr`, `embed`, `mesh`, or `detect3d`.
 - `nc`: positive integer class count.
 - `names`: `dict[int, str]` with keys in `0..nc-1`. Official checkpoints
   should write every key. Readers may pad missing keys with `class_i` labels for
@@ -399,3 +399,10 @@ wrap_libreyolo_checkpoint(...)
 unwrap_libreyolo_checkpoint(...)
 validate_checkpoint_metadata(...)
 ```
+
+### Optional WildDet3D runtime
+
+The `detect3d` task reserves the suffix `-detect3d`. The initial
+`LibreWildDet3D` sibling adapter accepts an unchanged, user-supplied upstream
+full checkpoint. It does not write schema-v1 checkpoints, attempt automatic
+conversion, or route those checkpoints through the LibreYOLO factory.

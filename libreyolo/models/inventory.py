@@ -10,6 +10,7 @@ import textwrap
 
 
 OPTIONAL_MODELS = (
+    ("libreyolo.models.wilddet3d", "LibreWildDet3D", None, "wilddet3d"),
     ("libreyolo.models.sam.model", "LibreSAM1", "sam", "transformers"),
     ("libreyolo.models.sam.sam2", "LibreSAM2", "sam", "transformers"),
     ("libreyolo.models.sam.edgetam", "LibreEdgeTAM", "sam", "transformers"),
@@ -177,6 +178,8 @@ def collect_model_inventory() -> dict[str, dict]:
             "available": available,
             "group": group_of(family),
         }
+        if getattr(cls, "CLI_COMMAND", None):
+            inventory[family]["cli_command"] = cls.CLI_COMMAND
     return dict(sorted(inventory.items()))
 
 

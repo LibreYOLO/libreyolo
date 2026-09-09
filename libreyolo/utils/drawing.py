@@ -1204,3 +1204,46 @@ def draw_tile_grid(
         draw.rectangle([x1, y1, x2, y2], outline=line_color, width=scaled_width)
 
     return img_draw
+
+
+def draw_boxes3d(image, boxes3d, near_clip=0.01):
+    """Draw calibrated cuboids, clipping each edge at the camera near plane."""
+    from PIL import ImageDraw
+
+    if boxes3d.intrinsics is None:
+        raise ValueError("3D drawing requires original-image intrinsics.")
+    if not np.isfinite(near_clip) or near_clip <= 0:
+        raise ValueError("near_clip must be positive and finite.")
+    payload = boxes3d.numpy()
+    calibration = np.asarray(payload.intrinsics, dtype=np.float64)
+    canvas = image.copy().convert("RGB")
+    draw = ImageDraw.Draw(canvas)
+    edges = (
+        (0, 1),
+        (1, 2),
+        (2, 3),
+        (3, 0),
+        (4, 5),
+        (5, 6),
+        (6, 7),
+        (7, 4),
+        (0, 4),
+        (1, 5),
+        (2, 6),
+        (3, 7),
+    )
+    for corners in payload.corners:
+        for start, end in edges:
+            a, b = corners[start].copy(), corners[end].copy()
+            if a[2] < near_clip and b[2] < near_clip:
+                continue
+            if a[2] < near_clip:
+                a += (b - a) * ((near_clip - a[2]) / (b[2] - a[2]))
+            elif b[2] < near_clip:
+                b += (a - b) * ((near_clip - b[2]) / (a[2] - b[2]))
+            projected = np.stack((a, b)) @ calibration.T
+            xy = projected[:, :2] / projected[:, 2:3]
+            # Bound the coordinates passed to Pillow's integer rasterizer.
+            xy = np.clip(xy, -1e6, 1e6)
+            draw.line([tuple(xy[0]), tuple(xy[1])], fill=(0, 220, 120), width=2)
+    return canvas
