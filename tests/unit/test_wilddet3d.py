@@ -407,6 +407,35 @@ def test_explicit_cpu_never_requires_cuda(model, monkeypatch):
     assert calls[0]["config"]["device"] == "cpu"
 
 
+def test_closed_worker_is_replaced_after_failure(model, monkeypatch):
+    from libreyolo.models.wilddet3d import runtime
+
+    workers = []
+
+    class Worker:
+        def __init__(self, **kwargs):
+            self.closed = False
+            workers.append(self)
+
+        def predict(self, *args, **kwargs):
+            if len(workers) == 1:
+                self.closed = True
+                raise RuntimeError("worker exited")
+            return outputs()
+
+        def close(self):
+            self.closed = True
+
+    monkeypatch.setattr(runtime, "RuntimeWorker", Worker)
+    image = Image.new("RGB", (100, 100))
+    with pytest.raises(RuntimeError, match="worker exited"):
+        model(image, intrinsics=K, text=["car"])
+    assert model._backend is None
+    result = model(image, intrinsics=K, text=["car"])
+    assert len(workers) == 2
+    assert len(result) == 1
+
+
 def test_combined_ranking_score_is_not_clamped(model):
     row = ROW.copy()
     row[10] = 1.2393523
