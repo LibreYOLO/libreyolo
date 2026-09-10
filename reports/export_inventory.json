@@ -361,6 +361,25 @@
     "available": true,
     "group": "g3"
   },
+  "detany3d": {
+    "class": "libreyolo.models.detany3d.model.LibreDetAny3D",
+    "tasks": [
+      "detect3d"
+    ],
+    "default_task": "detect3d",
+    "sizes": {
+      "h": 896
+    },
+    "default_imgsz": {
+      "h": 896
+    },
+    "task_sizes": {},
+    "export_override": "blocked",
+    "optional_extra": null,
+    "available": false,
+    "group": "s",
+    "cli_command": "detany3d"
+  },
   "detr": {
     "class": "libreyolo.models.detr.model.LibreDETR",
     "tasks": [

@@ -810,3 +810,10 @@ WildDet3D (LibreYOLO/LibreWildDet3D; byte-identical upstream mirror)
     Swin-B: Libre3DMOODb.pt
       Mirror revision: a4f6115d285a6983439f0e54f20c44b0ce87c261
       SHA-256: 834c976df385610bba105c7d4ea3e2d7b57dabd69dee2b61397ae398de67a677
+
+DetAny3D
+-------
+Official full checkpoint accepted locally without changing learned parameters.
+Source: https://github.com/OpenDriveLab/DetAny3D
+Checkpoint redistribution terms remain unresolved; no weights are hosted.
+The separate runtime includes UniDepth code under CC BY-NC 4.0.

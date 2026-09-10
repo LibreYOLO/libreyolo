@@ -1006,3 +1006,9 @@ coordinates in results.
 It shares the `detect3d` result and camera convention, adds
 `Results.depth_map`, and is invoked through `libreyolo 3dmood`. It is not part
 of the generic checkpoint factory. See ADR 0022.
+
+`LibreDetAny3D` (`detany3d`, coverage group `s`) is a box-, point- and
+text-prompted sibling with predicted calibration. Its full upstream model is
+listed as size `h` with an 896-pixel canvas. It takes an unchanged local upstream
+checkpoint and a separate runtime; no canonical weight mirror or generic
+factory route is provided. The CLI is `libreyolo detany3d`. See ADR 0024.
