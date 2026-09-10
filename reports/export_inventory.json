@@ -1172,6 +1172,26 @@
     "available": true,
     "group": "g3"
   },
+  "marigold_v2": {
+    "class": "libreyolo.models.marigold_v2.model.LibreMarigoldV2",
+    "tasks": [
+      "depth",
+      "normal",
+      "albedo"
+    ],
+    "default_task": "depth",
+    "sizes": {
+      "b": 1024
+    },
+    "default_imgsz": {
+      "b": 1024
+    },
+    "task_sizes": {},
+    "export_override": "blocked",
+    "optional_extra": "marigold",
+    "available": false,
+    "group": "g3"
+  },
   "mask_rcnn": {
     "class": "libreyolo.models.mask_rcnn.model.LibreMaskRCNN",
     "tasks": [

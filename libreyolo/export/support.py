@@ -3675,6 +3675,7 @@ _add(
 
 
 _TASK_BLOCKS = {
+    "albedo": "Albedo export does not yet have a linear-RGB backend runtime contract.",
     "detect3d": (
         "3D detection export is blocked until its graph outputs, camera metadata, "
         "and backend runtime contract are defined."
@@ -3707,6 +3708,7 @@ _TASK_BLOCKS = {
 }
 
 _FAMILY_BLOCKS = {
+    "marigold_v2": "Marigold V2 quantized diffusion export has not been integrated or validated.",
     "depth_anything3": (
         "Depth Anything 3 currently rejects export for every format; its "
         "depth graph has not been added to the exported-runtime contract."

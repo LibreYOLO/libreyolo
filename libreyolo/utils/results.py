@@ -708,13 +708,25 @@ class PanopticSegmentation(_TensorPayload):
 
 
 class DepthMap(_TensorPayload):
-    """Dense relative inverse-depth map for a single image.
+    """Dense relative depth prediction with an explicit numeric encoding.
 
-    Data shape is ``(H, W)`` float values on the original image canvas. Higher
-    values mean closer to the camera. Values are relative, not metric meters.
+    Data is ``(H, W)`` on the original canvas. The default ``inverse_depth``
+    encoding has larger values nearer the camera. ``depth`` and ``log_depth``
+    have larger values farther away. Each is affine-relative in its named
+    space; no metric unit or cross-image scale is implied.
     """
 
-    def __init__(self, data: TensorLike, orig_shape: Tuple[int, int] | None = None):
+    ENCODINGS = ("inverse_depth", "depth", "log_depth")
+
+    def __init__(
+        self,
+        data: TensorLike,
+        orig_shape: Tuple[int, int] | None = None,
+        *,
+        encoding: str = "inverse_depth",
+    ):
+        if encoding not in self.ENCODINGS:
+            raise ValueError(f"depth encoding must be one of {self.ENCODINGS}")
         if data.ndim != 2:
             raise ValueError(
                 f"expected (H, W) depth map but got shape {tuple(data.shape)}"
@@ -722,6 +734,27 @@ class DepthMap(_TensorPayload):
         if orig_shape is None:
             orig_shape = (int(data.shape[0]), int(data.shape[1]))
         super().__init__(data, orig_shape)
+        self.encoding = encoding
+
+    @property
+    def near_is_high(self) -> bool:
+        return self.encoding == "inverse_depth"
+
+    def to(self, *args, **kwargs):
+        return self.__class__(
+            _move(self.data, *args, **kwargs), self.orig_shape, encoding=self.encoding
+        )
+
+    def cpu(self):
+        return self.__class__(_cpu(self.data), self.orig_shape, encoding=self.encoding)
+
+    def cuda(self):
+        return self.__class__(_cuda(self.data), self.orig_shape, encoding=self.encoding)
+
+    def numpy(self):
+        return self.__class__(
+            _numpy(self.data), self.orig_shape, encoding=self.encoding
+        )
 
     def _finite_values(self) -> np.ndarray:
         values = np.asarray(_numpy(self.data), dtype=np.float32)
@@ -758,14 +791,66 @@ class DepthMap(_TensorPayload):
     def __getitem__(self, idx):
         # Instance indexing does not apply to a dense map; keep it intact so
         # shared Results slicing paths cannot corrupt the (H, W) layout.
-        return self.__class__(self.data, self.orig_shape)
+        return self.__class__(self.data, self.orig_shape, encoding=self.encoding)
 
     def __repr__(self) -> str:
         return (
             f"DepthMap(shape={tuple(self.data.shape)}, "
             f"range=({self.min:.4g}, {self.max:.4g}), "
-            f"orig_shape={self.orig_shape})"
+            f"orig_shape={self.orig_shape}, encoding={self.encoding!r})"
         )
+
+
+class AlbedoMap(_TensorPayload):
+    """Float32 linear-RGB diffuse reflectance, ``(H, W, 3)`` in ``[0, 1]``.
+
+    Values describe surface colour without illumination. Rendering applies
+    the standard sRGB transfer function; the numeric payload remains linear.
+    """
+
+    def __init__(self, data: TensorLike, orig_shape=None):
+        if not isinstance(data, (torch.Tensor, np.ndarray)):
+            raise TypeError("albedo data must be a torch.Tensor or numpy.ndarray")
+        if data.ndim != 3 or data.shape[-1] != 3 or min(data.shape[:2]) <= 0:
+            raise ValueError("albedo must have positive (H, W, 3) shape")
+        if isinstance(data, torch.Tensor):
+            data = data.float()
+            valid = torch.isfinite(data).all() & ((data >= 0) & (data <= 1)).all()
+        else:
+            data = np.asarray(data, dtype=np.float32)
+            valid = np.isfinite(data).all() and ((data >= 0) & (data <= 1)).all()
+        if not bool(valid):
+            raise ValueError("albedo must be finite linear RGB in [0, 1]")
+        shape = tuple(map(int, data.shape[:2]))
+        if orig_shape is not None and tuple(orig_shape) != shape:
+            raise ValueError("albedo must match the original image canvas")
+        super().__init__(data, shape)
+
+    @property
+    def array(self) -> np.ndarray:
+        return np.asarray(_numpy(self.data), dtype=np.float32)
+
+    def to_rgb(self) -> np.ndarray:
+        linear = self.array
+        srgb = np.where(
+            linear <= 0.0031308,
+            12.92 * linear,
+            1.055 * np.power(linear, 1 / 2.4) - 0.055,
+        )
+        return np.rint(srgb.clip(0, 1) * 255).astype(np.uint8)
+
+    def save(self, path: str | Path) -> None:
+        from PIL import Image
+
+        path = Path(path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        Image.fromarray(self.to_rgb()).save(path)
+
+    def __getitem__(self, idx):
+        return self.__class__(self.data, self.orig_shape)
+
+    def __len__(self):
+        return 1
 
 
 class EdgeMap(_TensorPayload):
@@ -1658,6 +1743,7 @@ class Results:
         "panoptic",
         "depth_map",
         "normal_map",
+        "albedo",
         "edges",
         "restored",
         "matte",
@@ -1698,6 +1784,7 @@ class Results:
         normal_map: Optional[NormalMap] = None,
         edges: Optional[EdgeMap] = None,
         boxes3d: Optional[Boxes3D] = None,
+        albedo: Optional[AlbedoMap] = None,
     ):
         if boxes is not None and boxes.orig_shape is None:
             boxes = boxes.with_orig_shape(orig_shape)
@@ -1706,7 +1793,9 @@ class Results:
         if points is not None and points.orig_shape is None:
             points = Points(points.data, orig_shape)
         if depth_map is not None and depth_map.orig_shape is None:
-            depth_map = DepthMap(depth_map.data, orig_shape)
+            depth_map = DepthMap(depth_map.data, orig_shape, encoding=depth_map.encoding)
+        if albedo is not None and albedo.orig_shape != tuple(orig_shape):
+            raise ValueError("albedo must match Results.orig_shape")
         if normal_map is not None and normal_map.orig_shape != tuple(orig_shape):
             normal_map = NormalMap(normal_map.data, orig_shape)
         if edges is not None and edges.orig_shape != tuple(orig_shape):
@@ -1731,6 +1820,7 @@ class Results:
         self.panoptic = panoptic
         self.depth_map = depth_map
         self.normal_map = normal_map
+        self.albedo = albedo
         self.edges = edges
         self.restored = restored
         self.matte = matte
@@ -1768,6 +1858,7 @@ class Results:
             "panoptic": self.panoptic,
             "depth_map": self.depth_map,
             "normal_map": self.normal_map,
+            "albedo": self.albedo,
             "edges": self.edges,
             "restored": self.restored,
             "matte": self.matte,
@@ -1846,6 +1937,7 @@ class Results:
         normal_map: Optional[NormalMap] = None,
         edges: Optional[EdgeMap] = None,
         boxes3d: Optional[Boxes3D] = None,
+        albedo: Optional[AlbedoMap] = None,
     ) -> "Results":
         aligned_cuboids = boxes3d if boxes3d is not None else self.boxes3d
         if aligned_cuboids is not None:
@@ -1876,6 +1968,10 @@ class Results:
             self.panoptic = panoptic
         if depth_map is not None:
             self.depth_map = depth_map
+        if albedo is not None:
+            if albedo.orig_shape != tuple(self.orig_shape):
+                raise ValueError("albedo must match Results.orig_shape")
+            self.albedo = albedo
         if normal_map is not None:
             self.normal_map = (
                 normal_map
@@ -1930,7 +2026,20 @@ class Results:
         self.normal_map = value
 
     def plot(self, image=None):
-        """Render normals, edges, or calibrated 3D cuboids on a source image."""
+        """Render dense outputs or calibrated 3D cuboids."""
+        if self.albedo is not None:
+            from PIL import Image
+
+            return Image.fromarray(self.albedo.to_rgb())
+        if self.depth_map is not None and self.boxes3d is None:
+            from PIL import Image
+            from .drawing import draw_depth_map
+
+            data = _numpy(self.depth_map.data)
+            if not self.depth_map.near_is_high:
+                data = -data
+            h, w = self.orig_shape
+            return draw_depth_map(Image.new("RGB", (w, h)), data)
         if self.boxes3d is not None:
             from PIL import Image
             from .drawing import draw_boxes3d
@@ -1939,7 +2048,7 @@ class Results:
             return draw_boxes3d(canvas, self.boxes3d)
         if self.normal_map is None and self.edges is None:
             raise NotImplementedError(
-                "Results.plot() supports normal, edge, and calibrated 3D results."
+                "Results.plot() supports depth, normal, albedo, edge, and calibrated 3D results."
             )
 
         from PIL import Image
@@ -2127,8 +2236,13 @@ class Results:
                         "min": round(self.depth_map.min, decimals),
                         "max": round(self.depth_map.max, decimals),
                         "mean": round(self.depth_map.mean, decimals),
+                        **({"encoding": self.depth_map.encoding}
+                           if self.depth_map.encoding != "inverse_depth" else {}),
                     }
                 ]
+            if self.albedo is not None:
+                return [{"name": "albedo", "shape": list(self.albedo.data.shape),
+                         "color_space": "linear_rgb"}]
             if self.normal_map is not None:
                 h, w = self.normal_map.orig_shape
                 return [
@@ -2337,6 +2451,8 @@ class Results:
             return 1
         if self.normal_map is not None:
             return 1
+        if self.albedo is not None:
+            return 1
         if self.edges is not None:
             return 1
         if self.restored is not None:
@@ -2367,6 +2483,8 @@ class Results:
             parts.append(f"depth_map={self.depth_map}")
         if self.normal_map is not None:
             parts.append(f"normal_map={self.normal_map}")
+        if self.albedo is not None:
+            parts.append(f"albedo_shape={tuple(self.albedo.data.shape)}")
         if self.edges is not None:
             parts.append(f"edges={self.edges}")
         if self.restored is not None:

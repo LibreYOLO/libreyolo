@@ -541,3 +541,28 @@ No benchmark images or dataset auto-download routes are bundled.
 `Libre3DMOOD` accepts text prompts only and predicts metric depth internally;
 it does not take a user-supplied depth map. Its predicted depth is an output,
 not 3D supervision or a validation target.
+
+## Albedo
+
+An albedo dataset pairs RGB photographs with floating-point linear-RGB diffuse
+reflectance arrays. Use the standard split keys:
+
+```yaml
+path: /path/to/dataset
+train: images/train
+val: images/val
+input_dir: images
+albedo_dir: albedo
+```
+
+Each `images/<split>/<name>.<image extension>` pairs with
+`albedo/<split>/<name>.npy`. The NPY array is `(H,W,3)`, floating-point, finite,
+in `[0,1]`, and has the same dimensions as its image. Values are linear RGB;
+8-bit preview PNGs and sRGB values are not accepted as quantitative targets.
+The folder-name overrides must each be one directory component. No dataset
+script or download runs unless the existing `allow_download_scripts` option
+explicitly permits it.
+
+Validation uses the selected square canvas and reports per-image linear-RGB
+PSNR and SSIM. The first model family is Marigold V2; its initial integration
+supports inference and validation, not training. See ADR 0026.
