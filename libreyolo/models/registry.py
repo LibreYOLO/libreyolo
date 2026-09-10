@@ -110,6 +110,7 @@ MODEL_GROUPS: dict[str, str] = {
     "sam": "s",
     "sam2": "s",
     "sam3": "s",
+    "wilddet3d": "s",
     "edgetam": "s",
     "mobilesam": "s",
     "picosam3": "s",

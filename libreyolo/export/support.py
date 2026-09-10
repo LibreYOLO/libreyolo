@@ -3675,6 +3675,10 @@ _add(
 
 
 _TASK_BLOCKS = {
+    "detect3d": (
+        "3D detection export is blocked until its graph outputs, camera metadata, "
+        "and backend runtime contract are defined."
+    ),
     "ocr": (
         "OCR uses two networks for detection and recognition with dynamic "
         "per-region cropping, so it does not fit the single-graph export contract."

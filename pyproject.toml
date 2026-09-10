@@ -459,6 +459,7 @@ testpaths = ["tests"]
 # the e2e target sets, so unit runs stay unbounded.
 timeout_method = "thread"
 markers = [
+    "wilddet3d: optional WildDet3D 3D detection integration",
     "unit: fast tests that avoid external weights or large files",
     "vit: tests covering the ViT classification family",
     "swin: tests covering the Swin classification family",
