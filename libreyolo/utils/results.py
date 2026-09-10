@@ -321,6 +321,143 @@ class _TensorPayload:
         return int(self.data.shape[0])
 
 
+class Boxes3D(_TensorPayload):
+    """Camera-frame cuboids, metres, with scalar-first quaternions.
+
+    ``data`` is (N, 14): center xyz, dimensions wlh, quaternion
+    wxyz, combined ranking score, class id, 2D confidence, 3D confidence.
+    ``intrinsics`` is the shared (3, 3) calibration on the original canvas.
+    Camera axes are x right, y down, z forward. Local box axes carry length,
+    height, width respectively, following vis4d's OpenCV box convention.
+    No world frame is implied.
+    """
+
+    def __init__(self, data, orig_shape=None, intrinsics=None):
+        if not isinstance(data, (np.ndarray, torch.Tensor)):
+            data = np.asarray(data, dtype=np.float32)
+        if intrinsics is not None and not isinstance(
+            intrinsics, (np.ndarray, torch.Tensor)
+        ):
+            intrinsics = np.asarray(intrinsics, dtype=np.float32)
+        super().__init__(data, orig_shape)
+        values = np.asarray(_numpy(data))
+        if values.ndim != 2 or values.shape[1] != 14:
+            raise ValueError("Boxes3D data must have shape (N, 14).")
+        if not np.isfinite(values).all():
+            raise ValueError("Boxes3D data must be finite.")
+        if (values[:, 3:6] <= 0).any():
+            raise ValueError("Boxes3D dimensions must be positive.")
+        if (np.linalg.norm(values[:, 6:10], axis=1) < 1e-8).any():
+            raise ValueError("Boxes3D quaternions must be nonzero.")
+        if (values[:, 10] < 0).any():
+            raise ValueError("Boxes3D combined scores must be nonnegative.")
+        confidences = values[:, [12, 13]]
+        if ((confidences < 0) | (confidences > 1)).any():
+            raise ValueError("Boxes3D 2D/3D confidence must be in [0, 1].")
+        ids = values[:, 11]
+        if ((ids < 0) | (ids != np.floor(ids))).any():
+            raise ValueError("Boxes3D class ids must be nonnegative integers.")
+        if intrinsics is not None:
+            k = np.asarray(_numpy(intrinsics))
+            if (
+                k.shape != (3, 3)
+                or not np.isfinite(k).all()
+                or k[0, 0] <= 0
+                or k[1, 1] <= 0
+                or not np.allclose(k[2], [0, 0, 1])
+            ):
+                raise ValueError(
+                    "intrinsics must be a finite calibrated (3, 3) matrix."
+                )
+        self.intrinsics = intrinsics
+
+    def _validate_alignment(self, boxes, orig_shape):
+        if boxes is None or len(boxes) != len(self):
+            raise ValueError("Results.boxes3d must be row-aligned with Results.boxes.")
+        if self.orig_shape is not None and tuple(self.orig_shape) != tuple(orig_shape):
+            raise ValueError("Boxes3D orig_shape must match the Results image canvas.")
+
+    def __repr__(self):
+        return f"Boxes3D(n={len(self)}, orig_shape={self.orig_shape})"
+
+    @property
+    def xyz(self):
+        return self.data[:, :3]
+
+    @property
+    def dimensions(self):
+        return self.data[:, 3:6]
+
+    @property
+    def quaternion(self):
+        return self.data[:, 6:10]
+
+    @property
+    def conf(self):
+        return self.data[:, 10]
+
+    @property
+    def cls(self):
+        return self.data[:, 11]
+
+    @property
+    def conf2d(self):
+        return self.data[:, 12]
+
+    @property
+    def conf3d(self):
+        return self.data[:, 13]
+
+    def to(self, *args, **kwargs):
+        return Boxes3D(
+            _move(self.data, *args, **kwargs),
+            self.orig_shape,
+            _move(self.intrinsics, *args, **kwargs),
+        )
+
+    def cpu(self):
+        return Boxes3D(_cpu(self.data), self.orig_shape, _cpu(self.intrinsics))
+
+    def cuda(self):
+        return self.to("cuda")
+
+    def numpy(self):
+        return Boxes3D(_numpy(self.data), self.orig_shape, _numpy(self.intrinsics))
+
+    def __getitem__(self, idx):
+        return Boxes3D(_slice_first(self.data, idx), self.orig_shape, self.intrinsics)
+
+    @property
+    def corners(self):
+        """Return numpy (N, 8, 3) camera-frame corners, without mutating data."""
+        values = np.asarray(_numpy(self.data), dtype=np.float64)
+        q = values[:, 6:10]
+        q = q / np.linalg.norm(q, axis=1, keepdims=True)
+        w, x, y, z = q.T
+        rotation = np.stack(
+            [
+                1 - 2 * (y * y + z * z),
+                2 * (x * y - z * w),
+                2 * (x * z + y * w),
+                2 * (x * y + z * w),
+                1 - 2 * (x * x + z * z),
+                2 * (y * z - x * w),
+                2 * (x * z - y * w),
+                2 * (y * z + x * w),
+                1 - 2 * (x * x + y * y),
+            ],
+            axis=1,
+        ).reshape(-1, 3, 3)
+        # OpenCV cuboid convention from SysCV/vis4d v1.0.0 (Apache-2.0),
+        # op/box/box3d.py::boxes3d_to_corners. See THIRD_PARTY_NOTICES.txt.
+        signs = np.array([
+            [1, 1, -1], [1, 1, 1], [-1, 1, -1], [-1, 1, 1],
+            [1, -1, -1], [1, -1, 1], [-1, -1, -1], [-1, -1, 1],
+        ])
+        local = signs[None] * values[:, None, [4, 5, 3]] / 2
+        return np.einsum("nij,nkj->nki", rotation, local) + values[:, None, :3]
+
+
 class Keypoints(_TensorPayload):
     @property
     def xy(self) -> TensorLike:
@@ -1528,6 +1665,7 @@ class Results:
         "embeddings",
         "identities",
         "meshes",
+        "boxes3d",
     )
 
     def __init__(
@@ -1559,6 +1697,7 @@ class Results:
         meshes: Optional[Meshes] = None,
         normal_map: Optional[NormalMap] = None,
         edges: Optional[EdgeMap] = None,
+        boxes3d: Optional[Boxes3D] = None,
     ):
         if boxes is not None and boxes.orig_shape is None:
             boxes = boxes.with_orig_shape(orig_shape)
@@ -1579,6 +1718,8 @@ class Results:
         if ocr is not None and ocr.orig_shape is None:
             ocr = OCRRegions(ocr.data, ocr.texts, ocr.conf, ocr.det_conf, orig_shape)
 
+        if boxes3d is not None:
+            boxes3d._validate_alignment(boxes, orig_shape)
         self.boxes = boxes
         self.masks = masks
         self.keypoints = keypoints
@@ -1595,6 +1736,7 @@ class Results:
         self.matte = matte
         self.ocr = ocr
         self.meshes = meshes
+        self.boxes3d = boxes3d
         # Integer upscale factor of a restore/super-resolution result: the
         # restored canvas is ``restore_scale`` times the input. 1 for
         # deblur/denoise and every non-restore task.
@@ -1631,6 +1773,7 @@ class Results:
             "matte": self.matte,
             "ocr": self.ocr,
             "meshes": self.meshes,
+            "boxes3d": self.boxes3d,
             "restore_scale": self.restore_scale,
             "embeddings": self.embeddings,
             "identities": self.identities,
@@ -1702,7 +1845,13 @@ class Results:
         meshes: Optional[Meshes] = None,
         normal_map: Optional[NormalMap] = None,
         edges: Optional[EdgeMap] = None,
+        boxes3d: Optional[Boxes3D] = None,
     ) -> "Results":
+        aligned_cuboids = boxes3d if boxes3d is not None else self.boxes3d
+        if aligned_cuboids is not None:
+            aligned_cuboids._validate_alignment(
+                boxes if boxes is not None else self.boxes, self.orig_shape
+            )
         if boxes is not None:
             self.boxes = boxes.with_orig_shape(self.orig_shape)
         if masks is not None:
@@ -1741,6 +1890,8 @@ class Results:
             )
         if restored is not None:
             self.restored = restored
+        if boxes3d is not None:
+            self.boxes3d = boxes3d
         if meshes is not None:
             self.meshes = meshes
         if matte is not None:
@@ -1778,11 +1929,17 @@ class Results:
     def normals(self, value: Optional[NormalMap]) -> None:
         self.normal_map = value
 
-    def plot(self):
-        """Render a dense normal or edge result in its canonical visualization."""
+    def plot(self, image=None):
+        """Render normals, edges, or calibrated 3D cuboids on a source image."""
+        if self.boxes3d is not None:
+            from PIL import Image
+            from .drawing import draw_boxes3d
+
+            canvas = Image.fromarray(self._source_rgb(image, self.orig_shape))
+            return draw_boxes3d(canvas, self.boxes3d)
         if self.normal_map is None and self.edges is None:
             raise NotImplementedError(
-                "Results.plot() is currently defined for normal and edge results only."
+                "Results.plot() supports normal, edge, and calibrated 3D results."
             )
 
         from PIL import Image
@@ -2039,6 +2196,7 @@ class Results:
         # Converted once rather than per row: mesh payloads carry vertex arrays
         # large enough that repeating the conversion per person is wasteful.
         meshes_np = self.meshes.numpy() if self.meshes is not None else None
+        cuboids = self.boxes3d.numpy() if self.boxes3d is not None else None
         track_ids = _numpy(self.track_id)
         rows = []
         for i in range(len(boxes_np)):
@@ -2055,6 +2213,16 @@ class Results:
                     "y2": round(float(box_values[3]), decimals),
                 },
             }
+            if cuboids is not None and i < len(cuboids):
+                row["box3d"] = {
+                    "center": np.round(cuboids.xyz[i], decimals).tolist(),
+                    "dimensions": np.round(cuboids.dimensions[i], decimals).tolist(),
+                    "quaternion_wxyz": np.round(cuboids.quaternion[i], decimals).tolist(),
+                    "confidence_2d": round(float(cuboids.conf2d[i]), decimals),
+                    "confidence_3d": round(float(cuboids.conf3d[i]), decimals),
+                    "coordinate_frame": "camera",
+                    "units": "metres",
+                }
             if obb_np is not None and i < len(obb_np):
                 xywhr = np.asarray(obb_np.xywhr[i], dtype=float).copy()
                 corners = np.asarray(
@@ -2211,6 +2379,8 @@ class Results:
             parts.append(f"ocr={self.ocr}")
         if self.meshes is not None:
             parts.append(f"meshes={self.meshes}")
+        if self.boxes3d is not None:
+            parts.append(f"boxes3d={self.boxes3d}")
         if self.track_id is not None:
             parts.append(f"track_ids={len(self.track_id)}")
         if self.frame_idx is not None:

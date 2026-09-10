@@ -338,6 +338,7 @@ From `libreyolo/tasks.py`:
 | `ocr`         | `-ocr` |
 | `embed`       | `-embed` |
 | `mesh`        | `-mesh` |
+| `detect3d`    | `-detect3d` |
 
 The factory accepts selected upstream-style aliases (`detection`, `det`,
 `segmentation`, `keypoints`, `cls`, …) at the API boundary; only the canonical
@@ -981,3 +982,18 @@ Example: `yolo9_p2` declares `("visdrone",)`, so `LibreYOLO9P2s-visdrone.pt`
 resolves the Hugging Face repo `LibreYOLO/LibreYOLO9P2s-visdrone` (a research
 preview under VisDrone's CC BY-NC-SA license, announced by a download notice).
 Plain COCO-default weights never carry a variant suffix.
+
+## Promptable 3D detection
+
+`LibreWildDet3D` (`wilddet3d`, coverage group `s`) is a sibling API wrapping
+an optional upstream runtime. It uses `detect3d`, with aliases `detection3d`
+and `3d-detection`. Its full upstream model has a fixed 1008-pixel input and
+is listed as size `l` in inventory. It accepts a local upstream checkpoint or
+downloads the byte-identical `wilddet3d_alldata_all_prompt_v1.0.pt` mirror from
+`LibreYOLO/LibreWildDet3D`. This raw upstream checkpoint is not converted and
+is not registered in the `LibreYOLO(...)` state-dict factory.
+
+`Results.boxes3d` stores metric camera-frame cuboids aligned with 2D boxes.
+The corresponding CLI is `libreyolo wilddet3d`; the generic `predict` command
+and UI do not carry its camera/prompt inputs. See ADR 0021 for the interface,
+coordinate contract, and the explicit inference-only scope.

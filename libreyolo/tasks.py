@@ -25,6 +25,7 @@ TaskType = Literal[
     "ocr",
     "embed",
     "mesh",
+    "detect3d",
 ]
 TASKS = (
     "detect",
@@ -44,9 +45,13 @@ TASKS = (
     "ocr",
     "embed",
     "mesh",
+    "detect3d",
 )
 
 TASK_ALIASES = {
+    "detect3d": "detect3d",
+    "detection3d": "detect3d",
+    "3d-detection": "detect3d",
     "detect": "detect",
     "detection": "detect",
     "det": "detect",
@@ -133,6 +138,7 @@ TASK_ALIASES = {
 }
 
 TASK_TO_SUFFIX = {
+    "detect3d": "detect3d",
     "segment": "seg",
     "semantic": "sem",
     "panoptic": "panoptic",
