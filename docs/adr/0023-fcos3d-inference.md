@@ -74,17 +74,51 @@ are distributed with this implementation.
 
 The official finetuned checkpoint (published July 2021) loads with every
 state-dict key and shape matching. Native backbone, FPN and all five head
-output groups match the pinned upstream Python implementation exactly on
-seeded 128x256 and 160x224 inputs. That comparison uses MMCV-lite Python
-layers and torchvision deformable convolution on both sides. It verifies
-the inference graph, not numerical parity with MMCV's compiled CUDA kernel.
+output groups match the pinned upstream Python implementation exactly.
 
-A real 1600x900 nuScenes front-camera sample with its provided calibration
-runs on CPU and produces a projected cuboid overlay. This is a smoke and
-rendering check, not an accuracy benchmark. Unit tests cover preprocessing,
-deformable-convolution baseline behaviour, camera decoding, axis mapping,
-NMS class isolation, empty outputs, slicing, multi-input calls and the CLI.
+Final detections were compared on six calibrated nuScenes camera views at
+confidence thresholds 0.05, 0.15 and 0.30 (18 comparisons), using IoU 0.8 and
+max_det 200. The reference uses the original upstream inference methods and
+MMCV C++ CPU implementations of modulated deformable convolution and rotated
+NMS, compiled without modifying their source. Training-only registry imports
+are replaced by a minimal harness; inference method bodies are unchanged.
+The native path uses torchvision deformable convolution and OpenCV NMS.
 
+All 18 comparisons match detection counts, class ids, scores and dimensions.
+Preprocessed pixels and raw network outputs match exactly. Maximum center
+drift is 0.000005723 metres; maximum matched-corner distance is 0.000006671
+metres. These are rounding differences from camera-coordinate conversion.
+Rows are compared after sorting the upstream results by score. This proves
+CPU parity on the recorded images, not CUDA parity or benchmark accuracy.
+
+The reference operator revision is MMCV
+`a8073c74bf83d62ec36a103f835faa4837fb6585` (Apache-2.0). Its rotated-IoU
+implementation credits Detectron2 (Apache-2.0); its CPU NMS also credits
+torchvision (BSD-3-Clause). These reference sources and compiled binaries
+are not bundled in the library.
+
+The manual parity test replays locally staged upstream outputs:
+
+```sh
+LIBREYOLO_FCOS3D_CHECKPOINT=/path/to/fcos3d-official.pth \
+LIBREYOLO_FCOS3D_REFERENCE=/path/to/detection-parity-reference.json \
+  pytest tests/e2e/test_fcos3d.py -m e2e -q
+```
+
+The JSON reference bundle has `schema_version: 1`, `checkpoint_sha256`,
+`reference` revision identifiers (`mmdetection3d`, `mmdetection`, `mmcv`),
+and 18 `cases`. Each case records its `camera`, `conf`, `count`, image
+basename and SHA-256, original-image `intrinsics`, and `expected` arrays:
+`labels`, `scores`, gravity `centers`, wlh `dimensions`, and camera-frame
+`corners`. Cases cover all six standard camera names at the three thresholds
+above. Images sit beside the JSON. The test checks checkpoint/image hashes,
+coverage, labels, scores and physical cuboid geometry. Neither this dataset
+bundle nor the checkpoint has an automatic download route; the test is not
+in the gated nightly.
+
+Unit tests cover preprocessing, deformable-convolution baseline behaviour,
+camera decoding, axis mapping, NMS class isolation, empty outputs, slicing,
+multi-input calls and the CLI. A real-image CPU overlay was visually checked.
 Training, generic validation, export and tracking raise explicit unsupported
 errors. There is no nuScenes mAP claim, no CUDA validation, and no generic
 GUI registration because the GUI does not supply calibration.
