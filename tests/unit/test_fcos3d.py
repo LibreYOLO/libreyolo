@@ -87,6 +87,7 @@ def test_cuboid_axes_projection_alignment_and_slicing():
     assert not b.is_track
     assert b.orig_shape == (100, 100)
     np.testing.assert_allclose(cuboids.dimensions, [[6, 4, 2]])
+    np.testing.assert_allclose(cuboids.corners[0, 0], [-3, 1, 8], atol=1e-6)
     extent = np.ptp(cuboids.corners[0], axis=0)
     np.testing.assert_allclose(extent, [6, 2, 4], atol=1e-6)
     np.testing.assert_allclose(cuboids[0].intrinsics, K)
