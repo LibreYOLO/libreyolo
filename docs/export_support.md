@@ -48,6 +48,7 @@ in preflight.
 | faster_rcnn | detect | ✓ |  |  |  |  |  |  |  |  |  |  |  |
 | fcn | semantic | ✓ | ✓ |  | ✓ | ✓ |  |  |  |  |  |  |  |
 | fcos | detect | ✓ | ✓ |  |  | available |  |  |  |  |  |  |  |
+| fcos3d | detect3d |  |  |  |  |  |  |  |  |  |  |  |  |
 | feynobg | matte | available | ✓ |  |  |  |  |  |  |  |  |  |  |
 | florence2 | detect |  |  |  |  |  |  |  |  |  |  |  |  |
 | fomo | point | ✓ | ✓ | ✓ | ✓ | ✓ |  |  |  | ✓ |  |  | ✓ |
@@ -909,6 +910,18 @@ These converter paths are callable with the recorded validation context.
 - `fcos` / `detect` / `tflite`: No runtime parity contract exists for FCOS dynamic anchor grids and variable padded spatial shapes in this format.
 - `fcos` / `detect` / `coreml`: No runtime parity contract exists for FCOS dynamic anchor grids and variable padded spatial shapes in this format.
 - `fcos` / `detect` / `coreai`: No runtime parity contract exists for FCOS dynamic anchor grids and variable padded spatial shapes in this format.
+- `fcos3d` / `detect3d` / `onnx`: 3D detection export is blocked until its graph outputs, camera metadata, and backend runtime contract are defined.
+- `fcos3d` / `detect3d` / `torchscript`: 3D detection export is blocked until its graph outputs, camera metadata, and backend runtime contract are defined.
+- `fcos3d` / `detect3d` / `executorch`: 3D detection export is blocked until its graph outputs, camera metadata, and backend runtime contract are defined.
+- `fcos3d` / `detect3d` / `tensorrt`: 3D detection export is blocked until its graph outputs, camera metadata, and backend runtime contract are defined.
+- `fcos3d` / `detect3d` / `openvino`: 3D detection export is blocked until its graph outputs, camera metadata, and backend runtime contract are defined.
+- `fcos3d` / `detect3d` / `paddle`: 3D detection export is blocked until its graph outputs, camera metadata, and backend runtime contract are defined.
+- `fcos3d` / `detect3d` / `mnn`: 3D detection export is blocked until its graph outputs, camera metadata, and backend runtime contract are defined.
+- `fcos3d` / `detect3d` / `rknn`: 3D detection export is blocked until its graph outputs, camera metadata, and backend runtime contract are defined.
+- `fcos3d` / `detect3d` / `ncnn`: 3D detection export is blocked until its graph outputs, camera metadata, and backend runtime contract are defined.
+- `fcos3d` / `detect3d` / `tflite`: 3D detection export is blocked until its graph outputs, camera metadata, and backend runtime contract are defined.
+- `fcos3d` / `detect3d` / `coreml`: 3D detection export is blocked until its graph outputs, camera metadata, and backend runtime contract are defined.
+- `fcos3d` / `detect3d` / `coreai`: 3D detection export is blocked until its graph outputs, camera metadata, and backend runtime contract are defined.
 - `feynobg` / `matte` / `executorch`: The fixed 1024x1024 large graph exceeded the local conversion timebox while its working set grew past 4.7 GB; no .pte artifact was produced, so runtime parity remains untested.
 - `feynobg` / `matte` / `tensorrt`: TensorRT 10.16 reaches the shared ONNX DeformConv node but cannot parse it because ModulatedDeformConv2d is absent from the plugin registry.
 - `feynobg` / `matte` / `openvino`: OpenVINO 2026.2 cannot lower the shared matte decoder's standard ONNX DeformConv-19 operation.

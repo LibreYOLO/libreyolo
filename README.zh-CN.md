@@ -110,7 +110,7 @@ libreyolo predict --model yolo9-t --source screen            # 屏幕捕获
 | **全景分割** | EoMT |
 | **姿态** | RF-DETR、YOLO-NAS、HRNet、DEKR、EC |
 | **旋转框（OBB）** | RF-DETR、RT-DETRv2、YOLO-NAS-R |
-| **三维检测** | WildDet3D、3D-MOOD、DetAny3D（独立运行环境） |
+| **三维检测** | WildDet3D、3D-MOOD、FCOS3D、DetAny3D（独立运行环境） |
 | **分类** | MobileNetV4、ConvNeXt、EfficientNetV2、ResNet、ViT、Swin、DeiT、VGG、AlexNet、CLIP、SigLIP2、DINOv2 |
 | **深度估计** | Depth Anything 3、Depth Anything V2、ZipDepth、MiDaS |
 | **表面法线** | MoGe-2 |
