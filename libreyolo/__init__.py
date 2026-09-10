@@ -215,6 +215,7 @@ def __getattr__(name):
         "LibreMODUS": (".models.modus", "LibreMODUS"),
         "LibreModus": (".models.modus", "LibreModus"),
         "LibreWildDet3D": (".models.wilddet3d", "LibreWildDet3D"),
+        "Libre3DMOOD": (".models.mood3d", "Libre3DMOOD"),
         "LibreSAM": (".models.sam", "LibreSAM"),
         "LibreSAM1": (".models.sam", "LibreSAM1"),
         "LibreSAM2": (".models.sam", "LibreSAM2"),
@@ -362,6 +363,7 @@ __all__ = [
     "LibreLLM",
     # Promptable 3D detection (separately installed upstream runtime)
     "LibreWildDet3D",
+    "Libre3DMOOD",
     # Promptable-segmentation tier (optional, requires libreyolo[sam])
     "LibreSAM",
     "LibreSAM1",

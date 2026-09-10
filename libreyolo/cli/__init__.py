@@ -122,6 +122,10 @@ def entrypoint() -> None:
 
     app.command("wilddet3d", cls=KeyValueCommand)(wilddet3d_cmd)
 
+    from .commands.mood3d import mood3d_cmd
+
+    app.command("3dmood", cls=KeyValueCommand)(mood3d_cmd)
+
     # Core mode commands
     app.command("predict", cls=KeyValueCommand)(predict.predict_cmd)
     app.command("train", cls=KeyValueCommand)(train.train_cmd)
