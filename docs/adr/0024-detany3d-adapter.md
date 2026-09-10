@@ -51,8 +51,10 @@ libreyolo detany3d model=/models/detany3d.pth source=street.jpg \
 ```
 
 `DETANY3D_PATH` and `DETANY3D_PYTHON` are environment alternatives. CLI options
-also accept `--key value`. Box and point coordinates refer to original image
-pixels. `(N,2)` points describe one object, while `(G,N,2)` describes G objects;
+also accept `--key value`. Inventory availability describes the built-in adapter;
+it does not probe or certify a separately configured runtime. Construction checks
+that runtime by loading the actual model. Box and point coordinates refer to
+original image pixels. `(N,2)` points describe one object, while `(G,N,2)` describes G objects;
 all points are positive. Points cannot be combined with boxes or text. Boxes
 and text can be combined. `set_classes()` stores a reusable text vocabulary.
 
