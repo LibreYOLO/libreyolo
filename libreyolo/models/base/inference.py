@@ -51,6 +51,7 @@ from ...utils.general import (
 from ...utils.image_loader import ImageInput, ImageLoader
 from ...utils.predict_args import normalize_predict_kwargs
 from ...utils.results import (
+    AlbedoMap,
     Boxes,
     DepthMap,
     Embeddings,
@@ -992,6 +993,8 @@ class InferenceRunner:
             depth_data = result.depth_map.data
             if isinstance(depth_data, torch.Tensor):
                 depth_data = depth_data.cpu().numpy()
+            if not result.depth_map.near_is_high:
+                depth_data = -depth_data
             annotated_img = draw_depth_map(original_img, depth_data)
             annotated_img.save(save_path)
             log_saved_result(result, save_path)
@@ -1010,6 +1013,10 @@ class InferenceRunner:
                 normal_data = normal_data.cpu().numpy()
             annotated_img = draw_normal_map(original_img, normal_data)
             annotated_img.save(save_path)
+            log_saved_result(result, save_path)
+            return
+        if result.boxes is None and getattr(result, "albedo", None) is not None:
+            result.albedo.save(save_path)
             log_saved_result(result, save_path)
             return
         if result.boxes is None and getattr(result, "restored", None) is not None:
@@ -1237,7 +1244,20 @@ class InferenceRunner:
                 orig_shape=(orig_h, orig_w),
                 path=str(image_path) if image_path else None,
                 names=self.model.names,
-                depth_map=DepthMap(depth_t.float(), (orig_h, orig_w)),
+                depth_map=DepthMap(
+                    depth_t.float(), (orig_h, orig_w),
+                    encoding=detections.get("depth_encoding", "inverse_depth"),
+                ),
+            )
+
+        albedo_data = detections.get("albedo")
+        if albedo_data is not None:
+            orig_w, orig_h = original_size
+            return Results(
+                boxes=None, orig_shape=(orig_h, orig_w),
+                path=str(image_path) if image_path else None,
+                names=self.model.names,
+                albedo=AlbedoMap(torch.as_tensor(albedo_data), (orig_h, orig_w)),
             )
 
         # Edge detection: a dense (H, W) probability map, no boxes.
@@ -1779,10 +1799,10 @@ class InferenceRunner:
                 "Tiled inference does not support depth maps yet. "
                 "Use non-tiled inference for depth models."
             )
-        if getattr(self.model, "task", "detect") in ("edge", "normal"):
+        if getattr(self.model, "task", "detect") in ("edge", "normal", "albedo"):
             raise ValueError(
-                "Tiled inference does not support edge or normal maps yet. "
-                "Use non-tiled inference for dense edge/normal models."
+                "Tiled inference does not support edge, normal, or albedo maps yet. "
+                "Use non-tiled inference for these dense models."
             )
 
         if getattr(self.model, "_is_segmentation", False):

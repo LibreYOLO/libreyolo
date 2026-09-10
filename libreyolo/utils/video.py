@@ -554,6 +554,8 @@ def run_video_inference(
                         annotated_pil = Image.fromarray(
                             result.restored.array, mode="RGB"
                         )
+                    elif result.boxes is None and getattr(result, "albedo", None) is not None:
+                        annotated_pil = Image.fromarray(result.albedo.to_rgb())
                     elif (
                         result.boxes is None
                         and getattr(result, "matte", None) is not None
@@ -569,6 +571,8 @@ def run_video_inference(
                         depth_np = result.depth_map.data
                         if isinstance(depth_np, torch.Tensor):
                             depth_np = depth_np.cpu().numpy()
+                        if not result.depth_map.near_is_high:
+                            depth_np = -depth_np
                         annotated_pil = draw_depth_map(pil_img, depth_np)
                     elif (
                         result.boxes is None

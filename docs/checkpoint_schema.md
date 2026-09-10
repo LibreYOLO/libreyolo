@@ -32,7 +32,7 @@ Required field meanings:
   `dfine`, or `ec`.
 - `size`: model variant within the family, such as `t`, `s`, `r18`, or `atto`.
 - `task`: canonical task, one of `detect`, `segment`, `semantic`, `panoptic`,
-  `pose`, `classify`, `gaze`, `obb`, `point`, `depth`, `edge`, `normal`, `restore`,
+  `pose`, `classify`, `gaze`, `obb`, `point`, `depth`, `edge`, `normal`, `albedo`, `restore`,
   `matte`, `ocr`, `embed`, `mesh`, or `detect3d`.
 - `nc`: positive integer class count.
 - `names`: `dict[int, str]` with keys in `0..nc-1`. Official checkpoints
@@ -97,6 +97,23 @@ the dimensions are recorded rather than assumed, the same way pose records
 Depth checkpoints use the task string `depth`, `nc: 1`, and
 `names: {0: "depth"}`. The single class-like slot exists only for checkpoint
 schema compatibility; depth predictions are dense float maps, not classes.
+
+`depth_encoding` may name `inverse_depth` (the default), `depth` or `log_depth`.
+Each is affine-relative in its named space. A family that uses non-default
+encoding must preserve it in results and validation. See ADR 0025.
+
+Albedo checkpoints use `task: "albedo"`, `nc: 1` and `names: {0: "albedo"}`.
+Their output is dense float32 linear RGB, not an RGB preview or semantic class.
+
+Marigold V2 checkpoints store inference trainables and fixed prompt tensors,
+not the frozen Qwen base. They additionally require `variant`, `base_model`
+and `base_revision`; the family rejects unrecognized base revisions and
+variant/task mismatches. The `_marigold_variant` scalar and
+`_marigold_prompt_embeds` / `_marigold_prompt_mask` entries in `model` provide
+state-dict identification and the fixed conditioning. Variant IDs follow the
+order recorded in `models/marigold_v2/config.py`; existing IDs must not be
+reassigned. Omitted upstream training-only tensors are listed explicitly in
+`omitted_training_tensors`.
 
 Edge checkpoints use the task string `edge`, `nc: 1`, and
 `names: {0: "edge"}`. The single class-like slot exists only for checkpoint
