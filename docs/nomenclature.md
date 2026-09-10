@@ -129,6 +129,7 @@ the `alexnet` / `deit` / `mobilenetv4` / `convnext` / `efficientnetv2` /
 | `zipdepth`  | `LibreZipDepth` | CamelCase preserved (`ZipDepth` brand casing); depth-only lightweight CNN (speed/edge tier) |
 | `midas`     | `LibreMiDaS` | Upstream mixed-case brand preserved (`MiDaS`); inference-only relative-depth museum family |
 | `moge2`     | `LibreMoGe2` | Upstream brand casing preserved (`MoGe`) + version; surface-normal-only |
+| `marigold_v2` | `LibreMarigoldV2` | Marigold V2 depth, normals and albedo; pinned Qwen base with task adapters |
 | `teed`      | `LibreTEED` | All-caps acronym (`TEED`); edge-only tiny CNN specialist |
 | `dexined`   | `LibreDexiNed` | Upstream brand casing preserved (`DexiNed`); edge-only base CNN specialist |
 | `birefnet`  | `LibreBiRefNet` | CamelCase preserved (Bilateral Reference); matte-only background-removal family |
@@ -270,6 +271,7 @@ ships:
 | `zipdepth`  | `b` (base, GPU/CPU convex upsampling), `bnpu` (base capacity with the separately trained unfold-free upsampling head for NPU/edge compilers); both at short-side 384 |
 | `midas`     | `s` (MiDaS v2.1 Small, EfficientNet-Lite3, upper-bound 256), `l` (DPT-Large, ViT-L/16, minimal-resize 384) |
 | `moge2`     | `s`, `b`, `l` (official MoGe-2 ViT-S/B/L-14 normal checkpoints; all at native short side 518, `l` quality default) |
+| `marigold_v2` | `b` (20B Qwen base; task and depth-variant suffix select the adapter) |
 | `teed`      | `t` (tiny, 58,910 parameters; fixed 352 square) |
 | `dexined`   | `b` (base, 35.2M parameters; fixed 352 square) |
 | `birefnet`  | `t` (BiRefNet_lite, Swin-T tier), `l` (BiRefNet general, Swin-L tier); both at fixed 1024 |
@@ -333,6 +335,7 @@ From `libreyolo/tasks.py`:
 | `depth`       | `-depth` |
 | `edge`        | `-edge` |
 | `normal`      | `-normal` |
+| `albedo`      | `-albedo` |
 | `restore`     | `-restore` |
 | `matte`       | `-matte` |
 | `ocr`         | `-ocr` |
@@ -381,6 +384,16 @@ as a Mask2Former-style non-overlapping thing+stuff merge.
 `Results.depth_map`, a float `(H, W)` relative inverse-depth map on the
 original image canvas. Higher values mean closer to the camera; no metric unit
 is implied without user-side calibration.
+
+Inverse depth is the default `DepthMap.encoding`. Marigold V2 also declares
+`depth` and `log_depth`, which increase with distance and are affine-relative
+in their named spaces. See ADR 0025. Its default depth file is
+`LibreMarigoldV2b-depth.pt` (Log-stage2); the six other depth variants use
+`LibreMarigoldV2b-depth-<variant>.pt`. See ADR 0027 for the variant list.
+
+`albedo` predicts `Results.albedo`, a float32 `(H,W,3)` linear-RGB reflectance
+map in `[0,1]`. Its preview uses sRGB while the numeric payload remains linear.
+The first checkpoint is `LibreMarigoldV2b-albedo.pt`; see ADR 0026.
 
 `edge` is the task for dense edge detection. Models expose `Results.edges`, a
 float32 `(H, W)` probability map in `[0, 1]` on the original image canvas.

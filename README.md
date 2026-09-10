@@ -115,6 +115,7 @@ libreyolo predict --model yolo9-t --source screen            # screen capture
 | **Classification** | MobileNetV4, ConvNeXt, EfficientNetV2, ResNet, ViT, Swin, DeiT, VGG, AlexNet, CLIP, SigLIP2, DINOv2 |
 | **Depth** | Depth Anything 3, Depth Anything V2, ZipDepth, MiDaS |
 | **Surface normals** | MoGe-2 |
+| **Depth, normals and albedo** | Marigold V2 |
 | **Edges** | DexiNed, TEED |
 | **Embeddings** | LibreFaceEmbedder, CLIP, SigLIP2, Perception Encoder (image, text, whole-video; also zero-shot classify), DINOv2 |
 | **Video embeddings** | V-JEPA 2 (clip embedding and trainable classification probe), LeVJEPA (clip and patch embeddings; CC BY-NC 4.0 weights) |

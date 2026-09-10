@@ -68,6 +68,9 @@ in preflight.
 | locateanything | detect |  |  |  |  |  |  |  |  |  |  |  |  |
 | locateanything | point |  |  |  |  |  |  |  |  |  |  |  |  |
 | lwdetr | detect | ✓ | ✓ | available | available | available |  |  |  |  |  |  |  |
+| marigold_v2 | depth |  |  |  |  |  |  |  |  |  |  |  |  |
+| marigold_v2 | normal |  |  |  |  |  |  |  |  |  |  |  |  |
+| marigold_v2 | albedo |  |  |  |  |  |  |  |  |  |  |  |  |
 | mask_rcnn | detect | ✓ |  |  |  |  |  |  |  |  |  |  |  |
 | mask_rcnn | segment | ✓ |  |  |  |  |  |  |  |  |  |  |  |
 | midas | depth | ✓ | ✓ | available | ✓ | ✓ |  |  |  | available |  |  |  |
@@ -1116,6 +1119,42 @@ These converter paths are callable with the recorded validation context.
 - `lwdetr` / `detect` / `tflite`: This family and task have not been validated through the ONNX-to-TFLite path.
 - `lwdetr` / `detect` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
 - `lwdetr` / `detect` / `coreai`: This family and task have not been validated for Core AI export.
+- `marigold_v2` / `depth` / `onnx`: Marigold V2 quantized diffusion export has not been integrated or validated.
+- `marigold_v2` / `depth` / `torchscript`: Marigold V2 quantized diffusion export has not been integrated or validated.
+- `marigold_v2` / `depth` / `executorch`: Marigold V2 quantized diffusion export has not been integrated or validated.
+- `marigold_v2` / `depth` / `tensorrt`: Marigold V2 quantized diffusion export has not been integrated or validated.
+- `marigold_v2` / `depth` / `openvino`: Marigold V2 quantized diffusion export has not been integrated or validated.
+- `marigold_v2` / `depth` / `paddle`: Marigold V2 quantized diffusion export has not been integrated or validated.
+- `marigold_v2` / `depth` / `mnn`: Marigold V2 quantized diffusion export has not been integrated or validated.
+- `marigold_v2` / `depth` / `rknn`: Marigold V2 quantized diffusion export has not been integrated or validated.
+- `marigold_v2` / `depth` / `ncnn`: Marigold V2 quantized diffusion export has not been integrated or validated.
+- `marigold_v2` / `depth` / `tflite`: Marigold V2 quantized diffusion export has not been integrated or validated.
+- `marigold_v2` / `depth` / `coreml`: Marigold V2 quantized diffusion export has not been integrated or validated.
+- `marigold_v2` / `depth` / `coreai`: Marigold V2 quantized diffusion export has not been integrated or validated.
+- `marigold_v2` / `normal` / `onnx`: Marigold V2 quantized diffusion export has not been integrated or validated.
+- `marigold_v2` / `normal` / `torchscript`: Marigold V2 quantized diffusion export has not been integrated or validated.
+- `marigold_v2` / `normal` / `executorch`: Marigold V2 quantized diffusion export has not been integrated or validated.
+- `marigold_v2` / `normal` / `tensorrt`: Marigold V2 quantized diffusion export has not been integrated or validated.
+- `marigold_v2` / `normal` / `openvino`: Marigold V2 quantized diffusion export has not been integrated or validated.
+- `marigold_v2` / `normal` / `paddle`: Marigold V2 quantized diffusion export has not been integrated or validated.
+- `marigold_v2` / `normal` / `mnn`: Marigold V2 quantized diffusion export has not been integrated or validated.
+- `marigold_v2` / `normal` / `rknn`: Marigold V2 quantized diffusion export has not been integrated or validated.
+- `marigold_v2` / `normal` / `ncnn`: Marigold V2 quantized diffusion export has not been integrated or validated.
+- `marigold_v2` / `normal` / `tflite`: Marigold V2 quantized diffusion export has not been integrated or validated.
+- `marigold_v2` / `normal` / `coreml`: Marigold V2 quantized diffusion export has not been integrated or validated.
+- `marigold_v2` / `normal` / `coreai`: Marigold V2 quantized diffusion export has not been integrated or validated.
+- `marigold_v2` / `albedo` / `onnx`: Marigold V2 quantized diffusion export has not been integrated or validated.
+- `marigold_v2` / `albedo` / `torchscript`: Marigold V2 quantized diffusion export has not been integrated or validated.
+- `marigold_v2` / `albedo` / `executorch`: Marigold V2 quantized diffusion export has not been integrated or validated.
+- `marigold_v2` / `albedo` / `tensorrt`: Marigold V2 quantized diffusion export has not been integrated or validated.
+- `marigold_v2` / `albedo` / `openvino`: Marigold V2 quantized diffusion export has not been integrated or validated.
+- `marigold_v2` / `albedo` / `paddle`: Marigold V2 quantized diffusion export has not been integrated or validated.
+- `marigold_v2` / `albedo` / `mnn`: Marigold V2 quantized diffusion export has not been integrated or validated.
+- `marigold_v2` / `albedo` / `rknn`: Marigold V2 quantized diffusion export has not been integrated or validated.
+- `marigold_v2` / `albedo` / `ncnn`: Marigold V2 quantized diffusion export has not been integrated or validated.
+- `marigold_v2` / `albedo` / `tflite`: Marigold V2 quantized diffusion export has not been integrated or validated.
+- `marigold_v2` / `albedo` / `coreml`: Marigold V2 quantized diffusion export has not been integrated or validated.
+- `marigold_v2` / `albedo` / `coreai`: Marigold V2 quantized diffusion export has not been integrated or validated.
 - `mask_rcnn` / `detect` / `torchscript`: Only ONNX Runtime has parity evidence for Mask R-CNN's proposal, RoIAlign, variable-length detection, and full-image mask graph.
 - `mask_rcnn` / `detect` / `executorch`: Only ONNX Runtime has parity evidence for Mask R-CNN's proposal, RoIAlign, variable-length detection, and full-image mask graph.
 - `mask_rcnn` / `detect` / `tensorrt`: Only ONNX Runtime has parity evidence for Mask R-CNN's proposal, RoIAlign, variable-length detection, and full-image mask graph.

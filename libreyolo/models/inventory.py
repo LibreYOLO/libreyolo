@@ -9,6 +9,7 @@ import inspect
 import textwrap
 
 OPTIONAL_MODELS = (
+    ("libreyolo.models.marigold_v2", "LibreMarigoldV2", "marigold", "diffusers"),
     # The adapter is built in; its runtime is supplied to a separate interpreter.
     ("libreyolo.models.detany3d", "LibreDetAny3D", None, None),
     ("libreyolo.models.fcos3d", "LibreFCOS3D", None, None),

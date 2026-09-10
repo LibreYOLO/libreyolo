@@ -17,6 +17,16 @@ from libreyolo.validation.preprocessors import RTDETRValPreprocessor
 pytestmark = pytest.mark.unit
 
 
+@pytest.mark.parametrize("size", ["r18", "r34", "r50", "r50m", "r101", "l", "x"])
+def test_download_route_requires_own_canonical_filename(size):
+    filename = f"LibreRTDETR{size}.pt"
+    assert LibreRTDETR.get_download_url(filename).endswith("/" + filename)
+    assert LibreRTDETR.get_download_url(filename.lower()).endswith("/" + filename)
+    assert LibreRTDETR.get_download_url(f"OtherModel-{size}.pt") is None
+    assert LibreRTDETR.get_download_url("LibreMarigoldV2b-depth-log-stage1.pt") is None
+    assert LibreRTDETR.detect_size_from_filename(f"checkpoint-{size}-finetuned.pth") == size
+
+
 class TestRTDETRRegistry:
     """Test RTDETR model registration."""
 

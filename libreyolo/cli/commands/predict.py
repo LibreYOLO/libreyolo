@@ -499,6 +499,12 @@ def predict_cmd(
                     "dtype": str(restored.dtype),
                 }
                 summary = "restored"
+            elif getattr(r, "albedo", None) is not None:
+                result_data["albedo"] = {
+                    "shape": list(r.albedo.data.shape),
+                    "color_space": "linear_rgb",
+                }
+                summary = "albedo"
             elif getattr(r, "depth_map", None) is not None:
                 depth_map = r.depth_map
                 result_data["depth"] = {
@@ -506,6 +512,8 @@ def predict_cmd(
                     "min": round(float(depth_map.min), 4),
                     "max": round(float(depth_map.max), 4),
                     "mean": round(float(depth_map.mean), 4),
+                    **({"encoding": depth_map.encoding}
+                       if depth_map.encoding != "inverse_depth" else {}),
                 }
                 summary = (
                     f"depth min={depth_map.min:.4g} "

@@ -825,3 +825,33 @@ The official R101 nuScenes checkpoint is accepted locally, unchanged.
 Separate checkpoint redistribution terms have not been established.
 No LibreYOLO-hosted weights or automatic weight download are provided.
 nuScenes dataset terms: https://www.nuscenes.org/terms-of-use
+
+Marigold V2
+    Adapter source: https://huggingface.co/huawei-bayerlab/marigold-v2-0
+    Revision: 6fd6d1ca246c9d2d99a4d8ac375a4eccc87178ad
+    License: Apache-2.0, with a license file in the official model repository.
+    Conversion preserves every inference tensor and fixed prompt tensor. Two
+    training-only iREPA projector tensors are omitted explicitly.
+    Frozen base: https://huggingface.co/Qwen/Qwen-Image-Edit-2509
+    Revision: d3968ef930e841f4c73640fb8afa3b306a78167e
+    Base license: Apache-2.0, as declared by its model card.
+    The frozen base downloads separately; it is not stored in adapter .pt files.
+    Verified LibreYOLO mirrors:
+      LibreYOLO/LibreMarigoldV2b-depth revision 4bf4fec5b9bc64cef6ea13f424319e78f07369a5
+        SHA-256: c1320b426de97cb62a2f6b972c36f8374911152694b0e1bfc58f0801445cfd81
+      LibreYOLO/LibreMarigoldV2b-depth-log-stage1 revision 15d3b00db5f17b29e1db602aa1e286fc91482fe2
+        SHA-256: 0d5e29a8e2badc6d1b40952b701b01a6b61116dc580bc7188140b16ab3cc599a
+      LibreYOLO/LibreMarigoldV2b-depth-log-layered revision 5a7b7546935d945591b75a093623ed1c1cf22410
+        SHA-256: 787cd0239aca84e9e65270c8dd66a2ca3de1a66b2367fd923b1b812275f7139b
+      LibreYOLO/LibreMarigoldV2b-depth-uniform-base revision 4c2a8e0b742c515fd1ac5069f875a782aa5657eb
+        SHA-256: a8cced520471685e9b22bbb01ce9055236dcc4f352bf99b7071245ae6932afec
+      LibreYOLO/LibreMarigoldV2b-depth-uniform-layered revision c06fa777a491f24d30ec9683aade54cd35bf126f
+        SHA-256: c91221d6a76089e275e599d188057828432cab9dd7043dc507f0853bf38289db
+      LibreYOLO/LibreMarigoldV2b-depth-disparity-base revision aea778a825a32108a4083ad25050905dc6395f34
+        SHA-256: 7de613be0c0fdd313891f108a8aebc7bea8b27ef0e78dac8da1931c56447b91a
+      LibreYOLO/LibreMarigoldV2b-depth-disparity-layered revision 060b170064f494a0c41ae895581a0f9225b4875c
+        SHA-256: 304b6f7700fcc3eeeb968d8a6627e9cdbda59493d1296b2c88a1e878cf3cf520
+      LibreYOLO/LibreMarigoldV2b-normal revision 241d46b12ba01501238183bfe427cf7581a37ca6
+        SHA-256: e0f6544c4f931a106efe52d8f93d736d2857e64106d8e497ab9bb792ffea96a4
+      LibreYOLO/LibreMarigoldV2b-albedo revision 6047b172455c3ecca3c437b1718b06b665d6d76c
+        SHA-256: 1359cc12dacab2ddbcdd81afeb637f0359fde668485915669216065155eaab71

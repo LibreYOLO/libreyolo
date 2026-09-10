@@ -114,6 +114,7 @@ libreyolo predict --model yolo9-t --source screen            # 屏幕捕获
 | **分类** | MobileNetV4、ConvNeXt、EfficientNetV2、ResNet、ViT、Swin、DeiT、VGG、AlexNet、CLIP、SigLIP2、DINOv2 |
 | **深度估计** | Depth Anything 3、Depth Anything V2、ZipDepth、MiDaS |
 | **表面法线** | MoGe-2 |
+| **深度、法线与反照率** | Marigold V2 |
 | **边缘检测** | DexiNed、TEED |
 | **嵌入** | LibreFaceEmbedder、CLIP、SigLIP2、Perception Encoder（图像、文本、整段视频；亦支持零样本分类）、DINOv2 |
 | **视频嵌入** | V-JEPA 2（片段嵌入及可训练分类探针）、LeVJEPA（片段及分块嵌入；权重采用 CC BY-NC 4.0） |
