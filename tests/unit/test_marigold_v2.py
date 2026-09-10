@@ -72,7 +72,16 @@ def test_generic_factory_default_class_count_and_save_roundtrip(monkeypatch, tmp
 
     monkeypatch.setattr(module.LibreMarigoldV2, "__init__", cpu_init)
     source = tmp_path / "LibreMarigoldV2b-depth.pt"
-    torch.save(packet(), source)
+    original_packet = packet()
+    provenance = {
+        "upstream_repo": "huawei-bayerlab/marigold-v2-0",
+        "upstream_revision": "6fd6d1ca246c9d2d99a4d8ac375a4eccc87178ad",
+        "omitted_training_tensors": [
+            "iREPAStudentProjector.out__qwen_dit_hidden_state_-1.weight"
+        ],
+    }
+    original_packet.update(provenance)
+    torch.save(original_packet, source)
     model = LibreYOLO(str(source), device="cpu")
     assert received == [80]  # factory's legacy constructor default
     assert model.nb_classes == 1
@@ -80,6 +89,8 @@ def test_generic_factory_default_class_count_and_save_roundtrip(monkeypatch, tmp
     assert model.variant == "log-stage2"
     destination = tmp_path / "renamed.pt"
     model.save(destination)
+    saved = torch.load(destination, weights_only=True)
+    assert {key: saved[key] for key in provenance} == provenance
     restored = LibreYOLO(str(destination), device="cpu")
     for name, value in model.model.trainable_state_dict().items():
         torch.testing.assert_close(value, restored.model.trainable_state_dict()[name])

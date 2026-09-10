@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
 from pathlib import Path
 from typing import ClassVar
 
@@ -223,6 +224,15 @@ class LibreMarigoldV2(BaseModel):
             del self._initial_state
         self.model_path = str(path) if path is not None else None
         self._cache_checkpoint_train_config(packet)
+        self._checkpoint_provenance = {
+            key: deepcopy(packet[key])
+            for key in (
+                "upstream_repo",
+                "upstream_revision",
+                "omitted_training_tensors",
+            )
+            if key in packet
+        }
         self.names = {0: actual_task}
         self.model.eval()
         from .validation import VALIDATORS
@@ -314,6 +324,7 @@ class LibreMarigoldV2(BaseModel):
             base_model=BASE_REPO,
             base_revision=BASE_REVISION,
             depth_encoding=VARIANTS[self.variant].encoding,
+            **self._checkpoint_provenance,
         )
         destination = Path(filename)
         destination.parent.mkdir(parents=True, exist_ok=True)
