@@ -16,8 +16,21 @@ from ...utils.serialization import (
     wrap_libreyolo_checkpoint,
 )
 from ..base.model import BaseModel
-from .config import FILENAMES, VARIANTS, canonical_filename, upstream_url
-from .convert import PROMPT_KEYS, VARIANT_KEY, convert_checkpoint, variant_from_state
+from .config import (
+    FILENAMES,
+    MIRRORS,
+    VARIANTS,
+    canonical_filename,
+    mirror_url,
+    upstream_url,
+)
+from .convert import (
+    PROMPT_KEYS,
+    VARIANT_KEY,
+    convert_checkpoint,
+    sha256,
+    variant_from_state,
+)
 from .nn import BASE_REPO, BASE_REVISION, MarigoldV2Net, build_components
 from .utils import output_map, preprocess_numpy, resize_output
 
@@ -76,10 +89,19 @@ class LibreMarigoldV2(BaseModel):
     @classmethod
     def get_download_url(cls, filename):
         variant = FILENAMES.get(Path(filename).name.lower())
-        return upstream_url(variant) if variant else None
+        return (mirror_url(variant) or upstream_url(variant)) if variant else None
 
     @classmethod
     def verify_downloaded_file(cls, local_path, source_url):
+        mirrored = next(
+            (name for name in MIRRORS if mirror_url(name) == source_url), None
+        )
+        if mirrored is not None:
+            if sha256(local_path) != MIRRORS[mirrored][1]:
+                raise ValueError(
+                    f"Marigold V2 {mirrored} mirrored checkpoint checksum mismatch."
+                )
+            return
         variant = next(
             (name for name in VARIANTS if upstream_url(name) == source_url), None
         )

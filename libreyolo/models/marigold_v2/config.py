@@ -90,3 +90,52 @@ FILENAMES = {canonical_filename(name).lower(): name for name in VARIANTS}
 def upstream_url(variant):
     folder = VARIANTS[variant].subfolder
     return f"https://huggingface.co/{UPSTREAM_REPO}/resolve/{UPSTREAM_REVISION}/{folder}/trainables.safetensors"
+
+
+# Immutable LibreYOLO adapter mirrors; the frozen Qwen base remains separate.
+MIRRORS = {
+    "log-stage2": (
+        "4bf4fec5b9bc64cef6ea13f424319e78f07369a5",
+        "c1320b426de97cb62a2f6b972c36f8374911152694b0e1bfc58f0801445cfd81",
+    ),
+    "log-stage1": (
+        "15d3b00db5f17b29e1db602aa1e286fc91482fe2",
+        "0d5e29a8e2badc6d1b40952b701b01a6b61116dc580bc7188140b16ab3cc599a",
+    ),
+    "log-layered": (
+        "5a7b7546935d945591b75a093623ed1c1cf22410",
+        "787cd0239aca84e9e65270c8dd66a2ca3de1a66b2367fd923b1b812275f7139b",
+    ),
+    "uniform-base": (
+        "4c2a8e0b742c515fd1ac5069f875a782aa5657eb",
+        "a8cced520471685e9b22bbb01ce9055236dcc4f352bf99b7071245ae6932afec",
+    ),
+    "uniform-layered": (
+        "c06fa777a491f24d30ec9683aade54cd35bf126f",
+        "c91221d6a76089e275e599d188057828432cab9dd7043dc507f0853bf38289db",
+    ),
+    "disparity-base": (
+        "aea778a825a32108a4083ad25050905dc6395f34",
+        "7de613be0c0fdd313891f108a8aebc7bea8b27ef0e78dac8da1931c56447b91a",
+    ),
+    "disparity-layered": (
+        "060b170064f494a0c41ae895581a0f9225b4875c",
+        "304b6f7700fcc3eeeb968d8a6627e9cdbda59493d1296b2c88a1e878cf3cf520",
+    ),
+    "normal": (
+        "241d46b12ba01501238183bfe427cf7581a37ca6",
+        "e0f6544c4f931a106efe52d8f93d736d2857e64106d8e497ab9bb792ffea96a4",
+    ),
+    "albedo": (
+        "6047b172455c3ecca3c437b1718b06b665d6d76c",
+        "1359cc12dacab2ddbcdd81afeb637f0359fde668485915669216065155eaab71",
+    ),
+}
+
+
+def mirror_url(variant):
+    if variant not in MIRRORS:
+        return None
+    filename = canonical_filename(variant)
+    revision = MIRRORS[variant][0]
+    return f"https://huggingface.co/LibreYOLO/{filename[:-3]}/resolve/{revision}/{filename}"
