@@ -121,6 +121,9 @@ def entrypoint() -> None:
     from .commands.detany3d import detany3d_cmd
 
     app.command("detany3d", cls=KeyValueCommand)(detany3d_cmd)
+    from .commands.fcos3d import fcos3d_cmd
+
+    app.command("fcos3d", cls=KeyValueCommand)(fcos3d_cmd)
     from .commands.wilddet3d import wilddet3d_cmd
 
     app.command("wilddet3d", cls=KeyValueCommand)(wilddet3d_cmd)

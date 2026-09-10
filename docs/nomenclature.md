@@ -1012,3 +1012,11 @@ text-prompted sibling with predicted calibration. Its full upstream model is
 listed as size `h` with an 896-pixel canvas. It takes an unchanged local upstream
 checkpoint and a separate runtime; no canonical weight mirror or generic
 factory route is provided. The CLI is `libreyolo detany3d`. See ADR 0024.
+
+### FCOS3D
+
+`LibreFCOS3D` (`fcos3d`, group `s`, variant `r101`) is a native inference-only
+sibling for calibrated monocular `detect3d`. It accepts the unchanged local
+R101 nuScenes checkpoint. No canonical downloadable filename is registered
+while checkpoint redistribution terms remain unresolved. See
+[ADR 0023](adr/0023-fcos3d-inference.md) for API and evidence.

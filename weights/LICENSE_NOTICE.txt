@@ -817,3 +817,11 @@ Official full checkpoint accepted locally without changing learned parameters.
 Source: https://github.com/OpenDriveLab/DetAny3D
 Checkpoint redistribution terms remain unresolved; no weights are hosted.
 The separate runtime includes UniDepth code under CC BY-NC 4.0.
+
+FCOS3D
+------
+Code source: https://github.com/open-mmlab/mmdetection3d (Apache-2.0).
+The official R101 nuScenes checkpoint is accepted locally, unchanged.
+Separate checkpoint redistribution terms have not been established.
+No LibreYOLO-hosted weights or automatic weight download are provided.
+nuScenes dataset terms: https://www.nuscenes.org/terms-of-use

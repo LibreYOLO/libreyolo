@@ -11,6 +11,7 @@ import textwrap
 OPTIONAL_MODELS = (
     # The adapter is built in; its runtime is supplied to a separate interpreter.
     ("libreyolo.models.detany3d", "LibreDetAny3D", None, None),
+    ("libreyolo.models.fcos3d", "LibreFCOS3D", None, None),
     ("libreyolo.models.wilddet3d", "LibreWildDet3D", None, "wilddet3d"),
     ("libreyolo.models.mood3d", "Libre3DMOOD", None, "opendet3d"),
     ("libreyolo.models.sam.model", "LibreSAM1", "sam", "transformers"),
