@@ -531,8 +531,13 @@ is not defined in this document yet.
 
 `detect3d` currently has no LibreYOLO dataset loader, trainer, or validator.
 Ordinary 2D YOLO labels do not encode 3D calibration or cuboids and must not
-be treated as 3D ground truth. `LibreWildDet3D.val()` raises explicitly;
+be treated as 3D ground truth. `LibreWildDet3D.val()` and
+`Libre3DMOOD.val()` raise explicitly;
 evaluation uses the upstream benchmark configurations and data terms.
 Inference takes an RGB image, original-image 3x3 camera calibration, prompts,
 and optionally a nonnegative depth array in metres with shape `(H, W)`.
 No benchmark images or dataset auto-download routes are bundled.
+
+`Libre3DMOOD` accepts text prompts only and predicts metric depth internally;
+it does not take a user-supplied depth map. Its predicted depth is an output,
+not 3D supervision or a validation target.

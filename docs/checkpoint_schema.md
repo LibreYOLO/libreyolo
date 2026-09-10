@@ -408,3 +408,12 @@ either as a local path or from the pinned `LibreYOLO/LibreWildDet3D` mirror.
 The mirrored artifact preserves the upstream filename and serialization and is
 verified by SHA-256. It does not use schema-v1 metadata, attempt conversion, or
 route through the LibreYOLO factory.
+
+### Optional 3D-MOOD runtime
+
+`Libre3DMOOD` likewise accepts unchanged upstream full checkpoints outside
+schema v1. Canonical mirror names are `Libre3DMOODt.pt` and
+`Libre3DMOODb.pt`; the content retains the upstream serialization and is
+verified against a pinned SHA-256. The sibling API requires an explicit size
+when a local upstream filename is supplied and never routes the raw checkpoint
+through `LibreYOLO(...)` or metadata conversion.

@@ -1,4 +1,37 @@
 {
+  "3dmood": {
+    "class": "libreyolo.models.mood3d.model.Libre3DMOOD",
+    "tasks": [
+      "detect3d"
+    ],
+    "default_task": "detect3d",
+    "sizes": {
+      "t": [
+        800,
+        1333
+      ],
+      "b": [
+        800,
+        1333
+      ]
+    },
+    "default_imgsz": {
+      "t": [
+        800,
+        1333
+      ],
+      "b": [
+        800,
+        1333
+      ]
+    },
+    "task_sizes": {},
+    "export_override": "blocked",
+    "optional_extra": null,
+    "available": false,
+    "group": "s",
+    "cli_command": "3dmood"
+  },
   "alexnet": {
     "class": "libreyolo.models.alexnet.model.LibreAlexNet",
     "tasks": [
