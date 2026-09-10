@@ -1006,3 +1006,11 @@ coordinates in results.
 It shares the `detect3d` result and camera convention, adds
 `Results.depth_map`, and is invoked through `libreyolo 3dmood`. It is not part
 of the generic checkpoint factory. See ADR 0022.
+
+### FCOS3D
+
+`LibreFCOS3D` (`fcos3d`, group `s`, variant `r101`) is a native inference-only
+sibling for calibrated monocular `detect3d`. It accepts the unchanged local
+R101 nuScenes checkpoint. No canonical downloadable filename is registered
+while checkpoint redistribution terms remain unresolved. See
+[ADR 0023](adr/0023-fcos3d-inference.md) for API and evidence.
