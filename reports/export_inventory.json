@@ -749,6 +749,25 @@
     "available": true,
     "group": "g3"
   },
+  "fcos3d": {
+    "class": "libreyolo.models.fcos3d.model.LibreFCOS3D",
+    "tasks": [
+      "detect3d"
+    ],
+    "default_task": "detect3d",
+    "sizes": {
+      "r101": 1600
+    },
+    "default_imgsz": {
+      "r101": 1600
+    },
+    "task_sizes": {},
+    "export_override": "blocked",
+    "optional_extra": null,
+    "available": true,
+    "group": "s",
+    "cli_command": "fcos3d"
+  },
   "feynobg": {
     "class": "libreyolo.models.feynobg.model.LibreFeyNobg",
     "tasks": [

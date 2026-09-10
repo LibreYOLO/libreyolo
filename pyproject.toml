@@ -459,6 +459,7 @@ testpaths = ["tests"]
 # the e2e target sets, so unit runs stay unbounded.
 timeout_method = "thread"
 markers = [
+    "fcos3d: native FCOS3D calibrated 3D detection",
     "wilddet3d: optional WildDet3D 3D detection integration",
     "mood3d: optional 3D-MOOD open-set 3D detection integration",
     "unit: fast tests that avoid external weights or large files",
