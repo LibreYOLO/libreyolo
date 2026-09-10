@@ -81,6 +81,16 @@ def test_rotated_nms_suppresses_same_class_not_other_class():
     assert len(decode(raw, K, conf=1)[0]) == 0
 
 
+def test_nms_threshold_equality_matches_upstream_cpu():
+    # MMCV CPU nms_rotated uses overlap >= threshold for suppression.
+    # Thus even disjoint same-class boxes suppress each other at iou=0.
+    raw = raw_prediction()
+    raw = tuple([torch.cat([group[0], group[0]], -1)] for group in raw)
+    raw[1][0][0, 0, 0, 1] = -100
+    assert len(decode(raw, K, iou=0.0)[0]) == 1
+    assert len(decode(raw, K, iou=0.01)[0]) == 2
+
+
 def test_cuboid_axes_projection_alignment_and_slicing():
     boxes = np.array([[0, 0, 10, 4, 2, 6, math.pi / 2]], np.float32)
     b, cuboids = payloads(boxes, np.array([0.8]), np.array([2]), K, (100, 100))

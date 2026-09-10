@@ -47,7 +47,8 @@ Ranking confidence is sigmoid(class logit) times sigmoid(centerness).
 `conf2d` stores that joint score and `conf3d` is 1, a neutral factor rather
 than an independently predicted confidence. Velocity and attribute logits
 are not exposed. Suppression is per-class rotated bird's-eye-view IoU,
-with default threshold 0.8, followed by a global `max_det` cap. Returned rows
+with default threshold 0.8, followed by a global `max_det` cap. Equality
+with the IoU threshold suppresses a box, matching upstream CPU NMS. Returned rows
 are sorted by descending score. CPU polygon intersection uses OpenCV.
 
 ## Checkpoints and provenance
