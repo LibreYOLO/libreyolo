@@ -111,7 +111,7 @@ libreyolo predict --model yolo9-t --source screen            # screen capture
 | **Panoptic segmentation** | EoMT |
 | **Pose** | RF-DETR, YOLO-NAS, HRNet, DEKR, EC |
 | **Oriented boxes** | RF-DETR, RT-DETRv2, YOLO-NAS-R |
-| **3D detection** | WildDet3D, 3D-MOOD |
+| **3D detection** | WildDet3D, 3D-MOOD, FCOS3D, DetAny3D (separate runtime) |
 | **Classification** | MobileNetV4, ConvNeXt, EfficientNetV2, ResNet, ViT, Swin, DeiT, VGG, AlexNet, CLIP, SigLIP2, DINOv2 |
 | **Depth** | Depth Anything 3, Depth Anything V2, ZipDepth, MiDaS |
 | **Surface normals** | MoGe-2 |
