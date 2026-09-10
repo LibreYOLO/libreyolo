@@ -1,0 +1,23 @@
+DetAny3D runtime adapter
+
+The worker input recipe and decoding interface are adapted from:
+https://github.com/OpenDriveLab/DetAny3D
+Revision: 10e484be0837d80aa33cff6ed95a9be834a3f794
+Apache License 2.0. Source: deploy.py, wrap_model.py and train_utils.py.
+LibreYOLO changes: typed-array worker boundary, CPU compatibility, original-image
+coordinate mapping, canonical cuboid axes, input validation and CLI integration.
+
+CPU attention compatibility implements the documented xFormers 0.0.16 API:
+https://github.com/facebookresearch/xformers
+Revision: 6f3c20f223c0f051e4b2dc744cc7591591ee04c4
+BSD 3-Clause. Copyright (c) Facebook, Inc. and its affiliates.
+The xFormers Python package is separately installed. No xFormers kernels are
+bundled. Deformable attention reuses LibreYOLO's existing Apache-2.0 implementation.
+
+The model implementation and checkpoint are not bundled. The separately
+installed upstream runtime includes UniDepth under CC BY-NC 4.0:
+https://github.com/lpiccinelli-eth/UniDepth
+Revision checked: 8d8cfe4c7ee15297099983607febf0d4f32eb3d6
+No UniDepth implementation was used to write or copied into this adapter.
+This does not grant commercial-use rights to the external runtime.
+Checkpoint redistribution terms have not been established; no mirror is provided.
