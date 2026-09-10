@@ -376,7 +376,7 @@
     "task_sizes": {},
     "export_override": "blocked",
     "optional_extra": null,
-    "available": false,
+    "available": true,
     "group": "s",
     "cli_command": "detany3d"
   },

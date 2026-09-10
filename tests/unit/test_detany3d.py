@@ -11,6 +11,22 @@ from libreyolo.models.detany3d.worker import _portable_attention
 pytestmark = pytest.mark.unit
 
 
+def test_inventory_does_not_require_runtime_in_parent_interpreter(monkeypatch):
+    from libreyolo.models import inventory
+
+    original = inventory.importlib.util.find_spec
+
+    def find_spec(name, *args, **kwargs):
+        if name == "detect_anything":
+            return None
+        return original(name, *args, **kwargs)
+
+    monkeypatch.setattr(inventory.importlib.util, "find_spec", find_spec)
+    metadata = inventory.collect_model_inventory()["detany3d"]
+    assert metadata["available"] is True
+    assert metadata["cli_command"] == "detany3d"
+
+
 def arrays():
     return {
         "boxes": np.array([[8, 7, 4, 2]], np.float32),
