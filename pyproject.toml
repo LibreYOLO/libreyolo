@@ -51,7 +51,7 @@ marigold = [
     "peft==0.18.1",
     "accelerate==1.13.0",
     "transformers==5.4.0",
-    "bitsandbytes==0.49.2; platform_system == 'Linux'",
+    "bitsandbytes==0.49.2; platform_system == 'Linux' or platform_system == 'Windows'",
 ]
 stream = [
     # YouTube page URLs are resolved lazily to direct media URLs. Webcam,
