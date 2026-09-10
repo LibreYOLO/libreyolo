@@ -49,6 +49,12 @@ print(result.depth_map.encoding)  # log_depth
 result.plot().save("depth.png")
 ```
 
+The existing Hub form also works, for example
+`LibreYOLO("LibreYOLO/LibreMarigoldV2b-depth", device="cuda")`. It uses the
+Hugging Face client cache and transfer backend, which is useful for these
+multi-gigabyte checkpoints. Bare canonical filenames retain the standard
+LibreYOLO downloader and its resume/checksum behavior.
+
 ```sh
 libreyolo predict model=LibreMarigoldV2b-normal.pt source=photo.jpg device=cuda save=true
 ```
