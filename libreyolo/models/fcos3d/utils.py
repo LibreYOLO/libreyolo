@@ -129,7 +129,8 @@ def decode(raw, k, conf=0.05, iou=0.8, max_det=200):
                     else abs(cv2.contourArea(cv2.convexHull(polygon)))
                 )
                 union = area + float(boxes[other, 3] * boxes[other, 5]) - intersection
-                if intersection / max(union, 1e-8) <= iou:
+                # Upstream CPU NMS suppresses equality as well.
+                if intersection / max(union, 1e-8) < iou:
                     rest.append(other)
             order = np.asarray(rest, dtype=np.int64)
     selected_scores = np.asarray(selected_scores, np.float32)
