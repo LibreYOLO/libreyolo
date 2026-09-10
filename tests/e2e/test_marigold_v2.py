@@ -44,6 +44,7 @@ def test_all_released_variants_match_upstream(tmp_path):
 
     from libreyolo import LibreYOLO
     from libreyolo.models.marigold_v2.config import (
+        MIRRORS,
         PROMPTS,
         SOURCE_REVISION,
         UPSTREAM_REPO,
@@ -52,6 +53,7 @@ def test_all_released_variants_match_upstream(tmp_path):
         canonical_filename,
     )
     from libreyolo.models.marigold_v2.nn import BASE_REPO, BASE_REVISION
+    from libreyolo.utils.hf_hub import HubRef, resolve_hub_checkpoint
 
     root = Path(source).resolve()
     revision = subprocess.check_output(
@@ -183,7 +185,15 @@ def test_all_released_variants_match_upstream(tmp_path):
         gc.collect()
         torch.cuda.empty_cache()
         for variant, info in VARIANTS.items():
-            checkpoint = require_test_weights(canonical_filename(variant))
+            filename = canonical_filename(variant)
+            staged = resolve_hub_checkpoint(
+                HubRef(
+                    repo_id=f"LibreYOLO/{filename[:-3]}",
+                    filename=filename,
+                    revision=MIRRORS[variant][0],
+                )
+            )
+            checkpoint = require_test_weights(staged)
             model = LibreYOLO(checkpoint, device="cuda")
             for image, _, imgsz in images:
                 result = model(image, imgsz=imgsz)

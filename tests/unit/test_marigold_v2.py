@@ -109,6 +109,12 @@ def test_variant_task_and_filename_agree(variant):
     assert cls.detect_task_from_filename(filename) == VARIANTS[variant].task
     assert cls.detect_size_from_filename(filename) == "b"
     assert cls.get_download_url(filename)
+    owners = [
+        family.FAMILY
+        for family in module.BaseModel._registry
+        if family.get_download_url(filename)
+    ]
+    assert owners == ["marigold_v2"]
     assert not cls.can_load({"backbone.weight": torch.zeros(2, 3)})
 
 

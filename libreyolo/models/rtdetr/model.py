@@ -284,6 +284,18 @@ class LibreRTDETR(BaseModel):
         return 80  # default COCO
 
     @classmethod
+    def get_download_url(cls, filename: str) -> Optional[str]:
+        # Legacy size inference below accepts tokens such as "-l" anywhere.
+        # Autodownload must not mistake another family's "-log" or "-layered"
+        # variant for RT-DETR-L. Keep that inference only for local checkpoints.
+        basename = os.path.basename(filename)
+        pattern = cls._filename_regex()
+        if pattern is None or pattern.fullmatch(basename.lower()) is None:
+            return None
+        canonical = cls.FILENAME_PREFIX + basename[len(cls.FILENAME_PREFIX) :].lower()
+        return super().get_download_url(canonical)
+
+    @classmethod
     def detect_size_from_filename(cls, filename: str) -> Optional[str]:
         """Override to handle multi-char size codes like r18, r34, r50, r50m, r101."""
         sizes = list(cls.INPUT_SIZES.keys())
