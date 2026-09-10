@@ -118,6 +118,9 @@ def entrypoint() -> None:
     # Face identification: build a gallery from a folder-per-person tree.
     app.command("enroll", cls=KeyValueCommand)(special.enroll_cmd)
 
+    from .commands.fcos3d import fcos3d_cmd
+
+    app.command("fcos3d", cls=KeyValueCommand)(fcos3d_cmd)
     from .commands.wilddet3d import wilddet3d_cmd
 
     app.command("wilddet3d", cls=KeyValueCommand)(wilddet3d_cmd)
