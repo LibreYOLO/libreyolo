@@ -214,6 +214,7 @@ def __getattr__(name):
         "LibreSenseNovaVision": (".models.sensenova", "LibreSenseNovaVision"),
         "LibreMODUS": (".models.modus", "LibreMODUS"),
         "LibreModus": (".models.modus", "LibreModus"),
+        "LibreDetAny3D": (".models.detany3d", "LibreDetAny3D"),
         "LibreFCOS3D": (".models.fcos3d", "LibreFCOS3D"),
         "LibreWildDet3D": (".models.wilddet3d", "LibreWildDet3D"),
         "Libre3DMOOD": (".models.mood3d", "Libre3DMOOD"),
@@ -365,6 +366,7 @@ __all__ = [
     # Calibrated native monocular 3D detection
     "LibreFCOS3D",
     # Promptable 3D detection (separately installed upstream runtime)
+    "LibreDetAny3D",
     "LibreWildDet3D",
     "Libre3DMOOD",
     # Promptable-segmentation tier (optional, requires libreyolo[sam])
