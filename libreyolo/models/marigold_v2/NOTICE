@@ -21,3 +21,16 @@ Architecture implementations load from separately installed dependencies:
 huggingface/diffusers v0.38.0 (Apache-2.0), huggingface/peft v0.18.1
 (Apache-2.0), bitsandbytes-foundation/bitsandbytes 0.49.2 (MIT).
 No DINOv3 teacher implementation is bundled or used in inference.
+
+Pretrained adapter and prompt tensors are sourced separately from:
+https://huggingface.co/huawei-bayerlab/marigold-v2-0
+Revision: 6fd6d1ca246c9d2d99a4d8ac375a4eccc87178ad
+License: Apache-2.0, as declared in that model repository's LICENSE.
+Copyright 2026 Huawei Technologies Co., Ltd.
+The converted checkpoints retain inference and prompt tensors unchanged and
+omit two named training-only iREPA projection tensors.
+
+The frozen base is downloaded separately from:
+https://huggingface.co/Qwen/Qwen-Image-Edit-2509
+Revision: d3968ef930e841f4c73640fb8afa3b306a78167e
+License: Apache-2.0, as declared by the base model card.
