@@ -46,6 +46,13 @@ dev = [
 ]
 
 [project.optional-dependencies]
+marigold = [
+    "diffusers==0.38.0",
+    "peft==0.18.1",
+    "accelerate==1.13.0",
+    "transformers==5.4.0",
+    "bitsandbytes==0.49.2; platform_system == 'Linux'",
+]
 stream = [
     # YouTube page URLs are resolved lazily to direct media URLs. Webcam,
     # RTSP/RTMP/TCP/UDP, HLS, and local multi-stream inputs need no extra.
@@ -459,6 +466,7 @@ testpaths = ["tests"]
 # the e2e target sets, so unit runs stay unbounded.
 timeout_method = "thread"
 markers = [
+    "marigold_v2: Marigold V2 dense prediction tests",
     "wilddet3d: optional WildDet3D 3D detection integration",
     "mood3d: optional 3D-MOOD open-set 3D detection integration",
     "unit: fast tests that avoid external weights or large files",

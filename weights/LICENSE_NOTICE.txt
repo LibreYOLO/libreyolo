@@ -810,3 +810,14 @@ WildDet3D (LibreYOLO/LibreWildDet3D; byte-identical upstream mirror)
     Swin-B: Libre3DMOODb.pt
       Mirror revision: a4f6115d285a6983439f0e54f20c44b0ce87c261
       SHA-256: 834c976df385610bba105c7d4ea3e2d7b57dabd69dee2b61397ae398de67a677
+
+Marigold V2
+    Adapter source: https://huggingface.co/huawei-bayerlab/marigold-v2-0
+    Revision: 6fd6d1ca246c9d2d99a4d8ac375a4eccc87178ad
+    License: Apache-2.0, with a license file in the official model repository.
+    Conversion preserves every inference tensor and fixed prompt tensor. Two
+    training-only iREPA projector tensors are omitted explicitly.
+    Frozen base: https://huggingface.co/Qwen/Qwen-Image-Edit-2509
+    Revision: d3968ef930e841f4c73640fb8afa3b306a78167e
+    Base license: Apache-2.0, as declared by its model card.
+    The frozen base downloads separately; it is not stored in adapter .pt files.

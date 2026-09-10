@@ -2231,3 +2231,28 @@ Used for: OpenCV cuboid dimension-to-axis mapping and corner ordering in
 libreyolo/utils/results.py::Boxes3D.corners and the associated wireframe edges.
 Reference: vis4d/op/box/box3d.py::boxes3d_to_corners, AxisMode.OPENCV.
 The implementation remains numpy-based; vis4d is not a core dependency.
+
+--------------------------------------------------------------------
+Marigold V2
+Copyright 2026 Huawei Technologies Co., Ltd.
+
+Inference graph and preprocessing adapted from:
+https://github.com/huawei-bayerlab/marigold-v2
+Revision: cc6a7031abcd59fd9e1ceff7fdd0d9687d389bc5
+License: Apache-2.0 (LICENSE alongside this notice).
+Sources: experiments/20260316_qwen_depth/component_loader.py and network_graph.py,
+dataset/dataloading/util.py and transform.py, validation/folder_steps.py and
+validate_steps.py. Paths above are relative to upstream marigoldv2/.
+LibreYOLO changes: registry-free graph, strict adapter loading, tensor-only
+prompt deserialization, checkpoint metadata, isolated inference RNG state,
+original-canvas results and explicit depth/normal/albedo conventions.
+
+The original upstream NOTICE credits Marigold (https://github.com/prs-eth/Marigold),
+Copyright 2023-2025 Marigold Team, ETH Zurich, Apache-2.0, for reused evaluation,
+training and utility code. Those evaluation/training implementations are not
+bundled by this family.
+
+Architecture implementations load from separately installed dependencies:
+huggingface/diffusers v0.38.0 (Apache-2.0), huggingface/peft v0.18.1
+(Apache-2.0), bitsandbytes-foundation/bitsandbytes 0.49.2 (MIT).
+No DINOv3 teacher implementation is bundled or used in inference.

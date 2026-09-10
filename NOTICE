@@ -776,3 +776,10 @@ organization (https://huggingface.co/LibreYOLO). Each Hugging Face
 model repository ships its own LICENSE and NOTICE reflecting the
 license of the upstream project the weights were derived from. See
 weights/LICENSE_NOTICE.txt for a per-family summary.
+
+Marigold V2 (Apache License 2.0)
+    Path: libreyolo/models/marigold_v2/
+    License: libreyolo/models/marigold_v2/LICENSE
+    Source: https://github.com/huawei-bayerlab/marigold-v2
+    Revision: cc6a7031abcd59fd9e1ceff7fdd0d9687d389bc5
+    Adapted inference graph and preprocessing; see the family NOTICE.

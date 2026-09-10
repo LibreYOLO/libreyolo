@@ -10,6 +10,7 @@ import textwrap
 
 
 OPTIONAL_MODELS = (
+    ("libreyolo.models.marigold_v2", "LibreMarigoldV2", "marigold", "diffusers"),
     ("libreyolo.models.wilddet3d", "LibreWildDet3D", None, "wilddet3d"),
     ("libreyolo.models.mood3d", "Libre3DMOOD", None, "opendet3d"),
     ("libreyolo.models.sam.model", "LibreSAM1", "sam", "transformers"),

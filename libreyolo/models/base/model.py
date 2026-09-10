@@ -1201,6 +1201,8 @@ class BaseModel(ABC):
                 "Test-time augmentation does not support surface normals yet. "
                 "Use augment=False for normal models."
             )
+        if getattr(self, "task", "detect") == "albedo":
+            raise ValueError("Test-time augmentation does not support albedo maps yet.")
         if getattr(self, "task", "detect") == "edge":
             raise ValueError(
                 "Test-time augmentation does not support edge detection yet. "
@@ -1646,6 +1648,8 @@ class BaseModel(ABC):
                 "Tracking does not support surface-normal maps. "
                 "Use predict() for normal models."
             )
+        if task == "albedo":
+            raise NotImplementedError("Tracking does not support albedo maps. Use predict().")
         if task == "edge":
             raise NotImplementedError(
                 "Tracking does not support edge maps. Use predict() for edge models."
@@ -2216,6 +2220,8 @@ class BaseModel(ABC):
                 "Augmented validation does not support surface normals yet. "
                 "Use augment=False for normal models."
             )
+        if augment and self.task == "albedo":
+            raise ValueError("Augmented validation does not support albedo maps yet.")
         if augment and self.task == "edge":
             raise ValueError(
                 "Augmented validation does not support edge detection yet. "
@@ -2290,6 +2296,10 @@ class BaseModel(ABC):
             validator_cls = DepthValidator
         elif self.task == "normal":
             validator_cls = NormalValidator
+        elif self.task == "albedo":
+            from ...validation.albedo_validator import AlbedoValidator
+
+            validator_cls = AlbedoValidator
         elif self.task == "edge":
             validator_cls = EdgeValidator
         elif self.task == "restore":
