@@ -811,20 +811,35 @@ WildDet3D (LibreYOLO/LibreWildDet3D; byte-identical upstream mirror)
       Mirror revision: a4f6115d285a6983439f0e54f20c44b0ce87c261
       SHA-256: 834c976df385610bba105c7d4ea3e2d7b57dabd69dee2b61397ae398de67a677
 
-DetAny3D
--------
-Official full checkpoint accepted locally without changing learned parameters.
-Source: https://github.com/OpenDriveLab/DetAny3D
-Checkpoint redistribution terms remain unresolved; no weights are hosted.
-The separate runtime includes UniDepth code under CC BY-NC 4.0.
+DetAny3D (LibreYOLO/LibreDetAny3D; byte-identical upstream mirror)
+    Source: https://github.com/OpenDriveLab/DetAny3D revision
+            10e484be0837d80aa33cff6ed95a9be834a3f794, checkpoint published
+            through the project's Google Drive folder.
+    License: CC-BY-NC-4.0 applied by LibreYOLO as the strictest known term.
+    OpenDriveLab declares no per-object checkpoint license; the maintainer
+    approved this mirror by treating the project's Apache-2.0 statement as the
+    redistribution basis for the parameters DetAny3D itself trained. That is
+    LibreYOLO's disclosed interpretation, not upstream clarification. Upstream
+    documents the depth branch as initialized from UniDepth v2 (CC BY-NC 4.0),
+    which the repository LICENSE reproduces in full. These weights are not MIT.
+    The separate runtime also includes UniDepth code under CC BY-NC 4.0.
+    Filename: detany3d.pth
+    Mirror revision: eeb89d1b1d37ec5a361b1ec79b26ea0620d9f4c3
+    SHA-256: cd5f737ddbf3ceb64f969141672d04c0a3d785ad3b8a72668619a530840cd217
 
-FCOS3D
-------
-Code source: https://github.com/open-mmlab/mmdetection3d (Apache-2.0).
-The official R101 nuScenes checkpoint is accepted locally, unchanged.
-Separate checkpoint redistribution terms have not been established.
-No LibreYOLO-hosted weights or automatic weight download are provided.
-nuScenes dataset terms: https://www.nuscenes.org/terms-of-use
+FCOS3D (LibreYOLO/LibreFCOS3D; byte-identical upstream mirror)
+    Code source: https://github.com/open-mmlab/mmdetection3d (Apache-2.0).
+    Checkpoint source: the OpenMMLab model zoo, finetuned R101 nuScenes
+    variant published July 2021 (32.1 mAP, 39.5 NDS).
+    License: no per-object checkpoint license is declared upstream. The
+    maintainer approved this mirror by treating mmdetection3d's Apache-2.0
+    project statement as the redistribution basis. That is LibreYOLO's
+    disclosed interpretation, not upstream clarification. The weights are
+    trained on nuScenes under non-commercial terms and are not MIT.
+    nuScenes dataset terms: https://www.nuscenes.org/terms-of-use
+    Filename: fcos3d_r101_caffe_fpn_gn-head_dcn_2x8_1x_nus-mono3d_finetune_20210717_095645-8d806dc2.pth
+    Mirror revision: af69c4abfb265f63695ecbaa68b4167f0c150605
+    SHA-256: 8d806dc2ecae85bc8eaba1f16dccdf03459317ca6aed7984cfda33c2a2bc33a8
 
 Marigold V2
     Adapter source: https://huggingface.co/huawei-bayerlab/marigold-v2-0
