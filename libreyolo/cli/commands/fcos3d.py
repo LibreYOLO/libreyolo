@@ -9,7 +9,9 @@ from ..output import OutputHandler
 def fcos3d_cmd(
     source: str = typer.Option(..., help="Image path or directory"),
     model: str = typer.Option(
-        ..., help="Local official FCOS3D R101 nuScenes checkpoint"
+        "fcos3d_r101_caffe_fpn_gn-head_dcn_2x8_1x_nus-mono3d_finetune_"
+        "20210717_095645-8d806dc2.pth",
+        help="Local checkpoint or the mirrored default filename",
     ),
     intrinsics: str = typer.Option(
         ..., help="Original-image 3x3 camera calibration .npy file"

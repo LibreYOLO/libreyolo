@@ -53,10 +53,11 @@ are sorted by descending score. CPU polygon intersection uses OpenCV.
 
 ## Checkpoints and provenance
 
-The constructor requires the unchanged official R101 nuScenes checkpoint
-with a `state_dict` wrapper. It validates the class order when supplied and
-loads all tensors strictly. There is no automatic download or converted
-LibreYOLO checkpoint for this family yet.
+The constructor takes the unchanged official R101 nuScenes checkpoint with a
+`state_dict` wrapper. It validates the class order when supplied and loads all
+tensors strictly. Omitting `model_path` downloads LibreYOLO's byte-identical,
+revision-pinned mirror and verifies its SHA-256. There is no converted
+LibreYOLO-schema checkpoint for this family.
 
 Implementation sources are Apache-2.0, pinned in the family NOTICE:
 MMDetection3D `fe25f7a51d36e3702f961e198894580d83c4387b` and MMDetection
@@ -65,11 +66,17 @@ MMDetection3D `fe25f7a51d36e3702f961e198894580d83c4387b` and MMDetection
 The official model is listed in the
 [FCOS3D model zoo](https://github.com/open-mmlab/mmdetection3d/tree/fe25f7a51d36e3702f961e198894580d83c4387b/configs/fcos3d).
 The code license does not establish a separate checkpoint redistribution
-license. nuScenes also has
-[non-commercial dataset terms](https://www.nuscenes.org/terms-of-use).
-Checkpoint rehosting remains unresolved; no Hugging Face upload is made.
-No dataset images, annotations, checkpoint bytes, or validation artifacts
-are distributed with this implementation.
+license, and OpenMMLab declares none per object. The maintainer approved
+rehosting by treating mmdetection3d's project-level Apache-2.0 statement as the
+redistribution basis; that is LibreYOLO's disclosed interpretation, not
+clarification from the OpenMMLab authors. nuScenes also has
+[non-commercial dataset terms](https://www.nuscenes.org/terms-of-use), which
+bind downstream users of the weights. The finetuned checkpoint is mirrored
+byte-for-byte at `LibreYOLO/LibreFCOS3D`
+(`af69c4abfb265f63695ecbaa68b4167f0c150605`) with a non-commercial banner on
+the card and a download notice in the loader. No dataset images, annotations,
+checkpoint bytes, or validation artifacts are distributed with this
+implementation.
 
 ## Validation and limits
 

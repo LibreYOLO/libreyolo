@@ -8,7 +8,9 @@ from ..output import OutputHandler
 
 def detany3d_cmd(
     source: str = typer.Option(..., help="Image path or directory"),
-    model: str = typer.Option(..., help="Local official full DetAny3D checkpoint"),
+    model: str = typer.Option(
+        "detany3d.pth", help="Local checkpoint or the mirrored default filename"
+    ),
     runtime_path: str | None = typer.Option(
         None, help="DetAny3D checkout; defaults to DETANY3D_PATH"
     ),
