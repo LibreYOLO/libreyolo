@@ -1022,14 +1022,22 @@ of the generic checkpoint factory. See ADR 0022.
 
 `LibreDetAny3D` (`detany3d`, coverage group `s`) is a box-, point- and
 text-prompted sibling with predicted calibration. Its full upstream model is
-listed as size `h` with an 896-pixel canvas. It takes an unchanged local upstream
-checkpoint and a separate runtime; no canonical weight mirror or generic
-factory route is provided. The CLI is `libreyolo detany3d`. See ADR 0024.
+listed as size `h` with an 896-pixel canvas. It takes an unchanged upstream
+checkpoint and a separate runtime. Omitting `model_path` downloads the
+byte-identical `detany3d.pth` mirror from `LibreYOLO/LibreDetAny3D`; those
+weights are non-commercial (CC BY-NC 4.0, UniDepth v2 depth lineage) and are
+announced by a download notice. This raw upstream checkpoint is not converted
+and is not registered in the `LibreYOLO(...)` state-dict factory. The CLI is
+`libreyolo detany3d`. See ADR 0024.
 
 ### FCOS3D
 
 `LibreFCOS3D` (`fcos3d`, group `s`, variant `r101`) is a native inference-only
-sibling for calibrated monocular `detect3d`. It accepts the unchanged local
-R101 nuScenes checkpoint. No canonical downloadable filename is registered
-while checkpoint redistribution terms remain unresolved. See
+sibling for calibrated monocular `detect3d`. It accepts the unchanged official
+R101 nuScenes checkpoint, or downloads the byte-identical finetuned mirror
+`fcos3d_r101_caffe_fpn_gn-head_dcn_2x8_1x_nus-mono3d_finetune_20210717_095645-8d806dc2.pth`
+from `LibreYOLO/LibreFCOS3D` when `model_path` is omitted. Those weights are
+non-commercial under nuScenes terms and are announced by a download notice.
+This raw upstream checkpoint is not converted and is not registered in the
+generic state-dict factory. See
 [ADR 0023](adr/0023-fcos3d-inference.md) for API and evidence.

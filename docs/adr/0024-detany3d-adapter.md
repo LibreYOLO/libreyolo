@@ -16,8 +16,14 @@ The adapter follows the Apache-2.0 public inference interfaces in
 includes UniDepth under CC BY-NC 4.0. LibreYOLO does not bundle or derive its
 implementation, and this adapter grants no commercial-use rights to that
 runtime. The original full checkpoint is loaded strictly without conversion.
-Checkpoint redistribution terms remain unresolved, so there is no automatic
-download or Hugging Face mirror.
+OpenDriveLab declares no per-object checkpoint license; the maintainer approved
+rehosting by treating the project's Apache-2.0 statement as the redistribution
+basis for the parameters DetAny3D itself trained, which is LibreYOLO's
+disclosed interpretation rather than upstream clarification. Upstream documents
+the depth branch as initialized from UniDepth v2, so CC BY-NC 4.0 is applied to
+the file as the strictest known term. The checkpoint is mirrored byte-for-byte
+at `LibreYOLO/LibreDetAny3D` (`eeb89d1b1d37ec5a361b1ec79b26ea0620d9f4c3`);
+omitting `model_path` downloads it behind a non-commercial download notice.
 
 ## Runtime and public contract
 

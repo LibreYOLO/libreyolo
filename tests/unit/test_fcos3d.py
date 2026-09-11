@@ -145,3 +145,81 @@ def test_single_list_stream_and_validation_without_weights(tmp_path):
     for method in ("train", "val", "export", "track"):
         with pytest.raises(NotImplementedError):
             getattr(model, method)()
+
+
+def test_mirror_download_url_is_revision_pinned():
+    from libreyolo.models.fcos3d import model as adapter
+
+    assert LibreFCOS3D.get_download_url("unknown.pth") is None
+    url = LibreFCOS3D.get_download_url(adapter.WEIGHT_FILE)
+    assert adapter.HF_REVISION in url
+    assert url.endswith(adapter.WEIGHT_FILE)
+    notice = LibreFCOS3D.get_download_notice(adapter.WEIGHT_FILE, url)
+    assert "non-commercial" in notice and "MIT" in notice
+
+
+def test_default_checkpoint_uses_mirror(tmp_path, monkeypatch):
+    from libreyolo.models.fcos3d import model as adapter
+
+    checkpoint = tmp_path / "mirrored.pth"
+    checkpoint.touch()
+    calls = []
+
+    def download(cls):
+        calls.append(True)
+        return checkpoint.resolve()
+
+    monkeypatch.setattr(LibreFCOS3D, "_download_checkpoint", classmethod(download))
+    assert LibreFCOS3D._resolve_checkpoint(None) == checkpoint.resolve()
+    assert LibreFCOS3D._resolve_checkpoint(adapter.WEIGHT_FILE) == checkpoint.resolve()
+    assert calls == [True, True]
+    with pytest.raises(FileNotFoundError, match="local official"):
+        LibreFCOS3D._resolve_checkpoint(tmp_path / "missing.pth")
+
+
+def test_mirror_hash_check(tmp_path, monkeypatch):
+    from libreyolo.models.fcos3d import model as adapter
+
+    checkpoint = tmp_path / "mirrored.pth"
+    checkpoint.write_bytes(b"known checkpoint bytes")
+    monkeypatch.setattr(
+        adapter,
+        "WEIGHT_SHA256",
+        "a05545a7ab49d03ef298599bff5bcb657521bd52ef4d71e4b2c2330020492dfc",
+    )
+    LibreFCOS3D._verify_mirrored_checkpoint(checkpoint)
+    checkpoint.write_bytes(b"changed")
+    with pytest.raises(ValueError, match="SHA-256"):
+        LibreFCOS3D._verify_mirrored_checkpoint(checkpoint)
+
+
+def test_mirror_download_is_revision_pinned(tmp_path, monkeypatch):
+    import sys
+    from types import SimpleNamespace
+
+    from libreyolo.models.fcos3d import model as adapter
+
+    checkpoint = tmp_path / "mirrored.pth"
+    checkpoint.write_bytes(b"known checkpoint bytes")
+    calls = []
+
+    def download(**kwargs):
+        calls.append(kwargs)
+        return str(checkpoint)
+
+    monkeypatch.setitem(
+        sys.modules, "huggingface_hub", SimpleNamespace(hf_hub_download=download)
+    )
+    monkeypatch.setattr(
+        adapter,
+        "WEIGHT_SHA256",
+        "a05545a7ab49d03ef298599bff5bcb657521bd52ef4d71e4b2c2330020492dfc",
+    )
+    assert LibreFCOS3D._download_checkpoint() == checkpoint.resolve()
+    assert calls == [
+        {
+            "repo_id": "LibreYOLO/LibreFCOS3D",
+            "filename": adapter.WEIGHT_FILE,
+            "revision": adapter.HF_REVISION,
+        }
+    ]

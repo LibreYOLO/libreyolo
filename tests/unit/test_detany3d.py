@@ -214,3 +214,83 @@ assert sys.argv[3] not in sys.path
         check=False,
     )
     assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_mirror_download_url_is_revision_pinned():
+    from libreyolo.models.detany3d import model as adapter
+
+    assert LibreDetAny3D.get_download_url("unknown.pth") is None
+    url = LibreDetAny3D.get_download_url(adapter.WEIGHT_FILE)
+    assert adapter.HF_REVISION in url
+    assert url.endswith(adapter.WEIGHT_FILE)
+    notice = LibreDetAny3D.get_download_notice(adapter.WEIGHT_FILE, url)
+    assert "non-commercial" in notice and "MIT" in notice
+
+
+def test_default_checkpoint_uses_mirror(tmp_path, monkeypatch):
+    from libreyolo.models.detany3d import model as adapter
+
+    checkpoint = tmp_path / "mirrored.pth"
+    checkpoint.touch()
+    calls = []
+
+    def download(cls):
+        calls.append(True)
+        return checkpoint.resolve()
+
+    monkeypatch.setattr(LibreDetAny3D, "_download_checkpoint", classmethod(download))
+    assert LibreDetAny3D._resolve_checkpoint(None) == checkpoint.resolve()
+    assert (
+        LibreDetAny3D._resolve_checkpoint(adapter.WEIGHT_FILE) == checkpoint.resolve()
+    )
+    assert calls == [True, True]
+    with pytest.raises(FileNotFoundError, match="not found"):
+        LibreDetAny3D._resolve_checkpoint(tmp_path / "missing.pth")
+
+
+def test_mirror_hash_check(tmp_path, monkeypatch):
+    from libreyolo.models.detany3d import model as adapter
+
+    checkpoint = tmp_path / "mirrored.pth"
+    checkpoint.write_bytes(b"known checkpoint bytes")
+    monkeypatch.setattr(
+        adapter,
+        "WEIGHT_SHA256",
+        "a05545a7ab49d03ef298599bff5bcb657521bd52ef4d71e4b2c2330020492dfc",
+    )
+    LibreDetAny3D._verify_mirrored_checkpoint(checkpoint)
+    checkpoint.write_bytes(b"changed")
+    with pytest.raises(ValueError, match="SHA-256"):
+        LibreDetAny3D._verify_mirrored_checkpoint(checkpoint)
+
+
+def test_mirror_download_is_revision_pinned(tmp_path, monkeypatch):
+    import sys
+    from types import SimpleNamespace
+
+    from libreyolo.models.detany3d import model as adapter
+
+    checkpoint = tmp_path / "mirrored.pth"
+    checkpoint.write_bytes(b"known checkpoint bytes")
+    calls = []
+
+    def download(**kwargs):
+        calls.append(kwargs)
+        return str(checkpoint)
+
+    monkeypatch.setitem(
+        sys.modules, "huggingface_hub", SimpleNamespace(hf_hub_download=download)
+    )
+    monkeypatch.setattr(
+        adapter,
+        "WEIGHT_SHA256",
+        "a05545a7ab49d03ef298599bff5bcb657521bd52ef4d71e4b2c2330020492dfc",
+    )
+    assert LibreDetAny3D._download_checkpoint() == checkpoint.resolve()
+    assert calls == [
+        {
+            "repo_id": "LibreYOLO/LibreDetAny3D",
+            "filename": adapter.WEIGHT_FILE,
+            "revision": adapter.HF_REVISION,
+        }
+    ]
