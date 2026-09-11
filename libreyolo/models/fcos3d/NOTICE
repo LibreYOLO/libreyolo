@@ -14,6 +14,12 @@ training dependencies, torchvision deform_conv2d, camera Results mapping.
 The torchvision operator is a separately installed BSD-3-Clause dependency.
 No third-party C++/CUDA operator source is bundled.
 
-This notice covers code, not the official nuScenes checkpoint. Its separate
-redistribution terms have not been established; no weights are bundled or
-hosted by this port.
+This notice covers code, not the official nuScenes checkpoint. No weights are
+bundled in this port. The official checkpoint is mirrored byte-for-byte at
+LibreYOLO/LibreFCOS3D revision af69c4abfb265f63695ecbaa68b4167f0c150605.
+OpenMMLab declares no per-object checkpoint license; LibreYOLO's maintainer
+approved that mirror by treating the project's Apache-2.0 statement as the
+redistribution basis, which is LibreYOLO's disclosed interpretation and not a
+clarification from the OpenMMLab authors. The weights are trained on nuScenes
+under non-commercial terms (https://www.nuscenes.org/terms-of-use) and are not
+covered by LibreYOLO's MIT license.

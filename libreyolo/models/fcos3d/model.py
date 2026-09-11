@@ -1,5 +1,7 @@
 """Native FCOS3D inference with camera calibration and standard Results."""
 
+import hashlib
+import logging
 import time
 from pathlib import Path
 from typing import ClassVar
@@ -13,11 +15,25 @@ from ...utils.serialization import load_untrusted_torch_file
 from .nn import FCOS3DNetwork
 from .utils import NAMES, calibration, decode, payloads, preprocess
 
+logger = logging.getLogger(__name__)
+HF_REPO = "LibreYOLO/LibreFCOS3D"
+HF_REVISION = "af69c4abfb265f63695ecbaa68b4167f0c150605"
+WEIGHT_FILE = (
+    "fcos3d_r101_caffe_fpn_gn-head_dcn_2x8_1x_nus-mono3d_finetune_"
+    "20210717_095645-8d806dc2.pth"
+)
+WEIGHT_SHA256 = "8d806dc2ecae85bc8eaba1f16dccdf03459317ca6aed7984cfda33c2a2bc33a8"
+TERMS_URL = "https://www.nuscenes.org/terms-of-use"
+
 
 class LibreFCOS3D:
     """FCOS3D R101-DCN for the ten nuScenes classes, inference-only.
 
-    Supply a local official checkpoint and original-image pinhole intrinsics.
+    ``model_path`` accepts an unchanged official checkpoint. Omitting it
+    downloads LibreYOLO's byte-identical, revision-pinned mirror. Those
+    weights are trained on nuScenes under non-commercial terms and are not
+    covered by LibreYOLO's MIT license.
+    Supply original-image pinhole intrinsics to predict.
     Images retain their resolution; padding is only on the right and bottom.
     Single images return Results; sequences/directories return lists and
     stream=True returns a generator. NumPy input color follows ImageLoader.
@@ -35,12 +51,8 @@ class LibreFCOS3D:
     DEFAULT_CONF = 0.05
     DEFAULT_IOU = 0.8
 
-    def __init__(self, model_path, *, device="auto"):
-        self.model_path = Path(model_path).expanduser()
-        if not self.model_path.is_file():
-            raise FileNotFoundError(
-                f"FCOS3D requires a local official R101 nuScenes checkpoint: {self.model_path}"
-            )
+    def __init__(self, model_path=None, *, device="auto"):
+        self.model_path = self._resolve_checkpoint(model_path)
         if isinstance(device, int) or str(device).isdigit():
             device = f"cuda:{device}"
         if device == "auto":
@@ -54,9 +66,7 @@ class LibreFCOS3D:
         if not isinstance(checkpoint, dict) or not isinstance(
             checkpoint.get("state_dict"), dict
         ):
-            raise TypeError(
-                "Expected an official FCOS3D checkpoint with a state_dict."
-            )
+            raise TypeError("Expected an official FCOS3D checkpoint with a state_dict.")
         metadata = checkpoint.get("meta", {})
         if not isinstance(metadata, dict):
             raise TypeError("FCOS3D checkpoint meta must be a dictionary.")
@@ -74,8 +84,66 @@ class LibreFCOS3D:
 
     @classmethod
     def get_download_url(cls, filename):
-        """No hosted checkpoint until redistribution terms are established."""
-        return None
+        """Return the immutable byte-identical checkpoint mirror URL."""
+        if filename not in (None, WEIGHT_FILE):
+            return None
+        return f"https://huggingface.co/{HF_REPO}/resolve/{HF_REVISION}/{WEIGHT_FILE}"
+
+    @classmethod
+    def get_download_notice(cls, filename, url):
+        """Announce the non-commercial terms before an automatic download."""
+        return (
+            "FCOS3D weights are trained on nuScenes, whose terms are "
+            "non-commercial, and are not covered by LibreYOLO's MIT license. "
+            f"See {TERMS_URL}"
+        )
+
+    @classmethod
+    def _resolve_checkpoint(cls, model_path):
+        if model_path is not None:
+            candidate = Path(model_path).expanduser()
+            if candidate.is_file():
+                return candidate.resolve()
+            if str(model_path) != WEIGHT_FILE:
+                raise FileNotFoundError(
+                    f"FCOS3D requires a local official R101 nuScenes checkpoint: {candidate}"
+                )
+        return cls._download_checkpoint()
+
+    @classmethod
+    def _download_checkpoint(cls):
+        logger.warning(
+            "FCOS3D weights are trained on nuScenes under non-commercial terms "
+            "(%s) and are not covered by LibreYOLO's MIT license.",
+            TERMS_URL,
+        )
+        try:
+            from huggingface_hub import hf_hub_download
+        except ImportError as exc:
+            raise ImportError(
+                "FCOS3D automatic weights require huggingface_hub. Install "
+                "with: pip install huggingface_hub"
+            ) from exc
+        path = Path(
+            hf_hub_download(
+                repo_id=HF_REPO,
+                filename=WEIGHT_FILE,
+                revision=HF_REVISION,
+            )
+        )
+        cls._verify_mirrored_checkpoint(path)
+        return path.resolve()
+
+    @classmethod
+    def _verify_mirrored_checkpoint(cls, path):
+        digest = hashlib.sha256()
+        with Path(path).open("rb") as checkpoint:
+            for chunk in iter(lambda: checkpoint.read(8 * 1024 * 1024), b""):
+                digest.update(chunk)
+        if digest.hexdigest() != WEIGHT_SHA256:
+            raise ValueError(
+                "Downloaded FCOS3D checkpoint failed its pinned SHA-256 check."
+            )
 
     @staticmethod
     def _threshold(value, name):

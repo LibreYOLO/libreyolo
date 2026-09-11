@@ -20,4 +20,13 @@ https://github.com/lpiccinelli-eth/UniDepth
 Revision checked: 8d8cfe4c7ee15297099983607febf0d4f32eb3d6
 No UniDepth implementation was used to write or copied into this adapter.
 This does not grant commercial-use rights to the external runtime.
-Checkpoint redistribution terms have not been established; no mirror is provided.
+The official full checkpoint is mirrored byte-for-byte at
+LibreYOLO/LibreDetAny3D revision eeb89d1b1d37ec5a361b1ec79b26ea0620d9f4c3.
+OpenDriveLab declares no per-object checkpoint license; LibreYOLO's maintainer
+approved that mirror by treating the project's Apache-2.0 statement as the
+redistribution basis for the parameters DetAny3D itself trained. This is
+LibreYOLO's disclosed interpretation and not a clarification from the DetAny3D
+authors. Upstream documents the checkpoint's depth branch as initialized from
+UniDepth v2, so LibreYOLO applies CC BY-NC 4.0 to the mirrored file as the
+strictest known term. The weights are non-commercial and are not covered by
+LibreYOLO's MIT license.

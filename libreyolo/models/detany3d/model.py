@@ -5,6 +5,8 @@ bundled in LibreYOLO. This adapter uses the upstream Apache-2.0 inference
 interface and converts its outputs to the existing camera-frame contract.
 """
 
+import hashlib
+import logging
 import os
 from pathlib import Path
 from typing import ClassVar
@@ -17,11 +19,22 @@ from ...utils.image_loader import SUPPORTED_EXTENSIONS, ImageLoader
 from ...utils.results import Boxes, Boxes3D, Results
 from .runtime import RuntimeWorker
 
+logger = logging.getLogger(__name__)
+HF_REPO = "LibreYOLO/LibreDetAny3D"
+HF_REVISION = "eeb89d1b1d37ec5a361b1ec79b26ea0620d9f4c3"
+WEIGHT_FILE = "detany3d.pth"
+WEIGHT_SHA256 = "cd5f737ddbf3ceb64f969141672d04c0a3d785ad3b8a72668619a530840cd217"
+
 
 class LibreDetAny3D:
     """Box-, point- and text-prompted 3D detection with predicted calibration.
 
-    Supply the official full checkpoint and the separately installed runtime.
+    ``model_path`` accepts an unchanged official full checkpoint. Omitting it
+    downloads LibreYOLO's byte-identical, revision-pinned mirror. Upstream
+    documents its depth branch as initialized from UniDepth v2 under
+    CC BY-NC 4.0, so the mirrored weights are non-commercial and are not
+    covered by LibreYOLO's MIT license.
+    Supply the separately installed runtime.
     Point arrays (N,2) describe one object; (G,N,2) describes G objects. All
     points are positive prompts. Text can be combined with box prompts, while
     point prompts are exclusive. conf/text_threshold configure the text detector;
@@ -40,7 +53,7 @@ class LibreDetAny3D:
 
     def __init__(
         self,
-        model_path,
+        model_path=None,
         *,
         runtime_path=None,
         runtime_python=None,
@@ -50,9 +63,7 @@ class LibreDetAny3D:
         grounding_checkpoint=None,
         grounding_config=None,
     ):
-        checkpoint = Path(model_path).expanduser().resolve()
-        if not checkpoint.is_file():
-            raise FileNotFoundError(f"DetAny3D checkpoint not found: {checkpoint}")
+        checkpoint = self._resolve_checkpoint(model_path)
         runtime_path = runtime_path or os.environ.get("DETANY3D_PATH")
         if not runtime_path:
             raise ImportError(
@@ -98,8 +109,65 @@ class LibreDetAny3D:
 
     @classmethod
     def get_download_url(cls, filename):
-        """No checkpoint mirror until redistribution terms are established."""
-        return
+        """Return the immutable byte-identical checkpoint mirror URL."""
+        if filename not in (None, WEIGHT_FILE):
+            return None
+        return f"https://huggingface.co/{HF_REPO}/resolve/{HF_REVISION}/{WEIGHT_FILE}"
+
+    @classmethod
+    def get_download_notice(cls, filename, url):
+        """Announce the non-commercial terms before an automatic download."""
+        return (
+            "DetAny3D weights are non-commercial: upstream documents the depth "
+            "branch as initialized from UniDepth v2 under CC BY-NC 4.0. They "
+            "are not covered by LibreYOLO's MIT license."
+        )
+
+    @classmethod
+    def _resolve_checkpoint(cls, model_path):
+        if model_path is not None:
+            candidate = Path(model_path).expanduser()
+            if candidate.is_file():
+                return candidate.resolve()
+            if str(model_path) != WEIGHT_FILE:
+                raise FileNotFoundError(
+                    f"DetAny3D checkpoint not found: {candidate.resolve()}"
+                )
+        return cls._download_checkpoint()
+
+    @classmethod
+    def _download_checkpoint(cls):
+        logger.warning(
+            "DetAny3D weights are non-commercial (UniDepth v2 depth lineage, "
+            "CC BY-NC 4.0) and are not covered by LibreYOLO's MIT license."
+        )
+        try:
+            from huggingface_hub import hf_hub_download
+        except ImportError as exc:
+            raise ImportError(
+                "DetAny3D automatic weights require huggingface_hub. Install "
+                "with: pip install huggingface_hub"
+            ) from exc
+        path = Path(
+            hf_hub_download(
+                repo_id=HF_REPO,
+                filename=WEIGHT_FILE,
+                revision=HF_REVISION,
+            )
+        )
+        cls._verify_mirrored_checkpoint(path)
+        return path.resolve()
+
+    @classmethod
+    def _verify_mirrored_checkpoint(cls, path):
+        digest = hashlib.sha256()
+        with Path(path).open("rb") as checkpoint:
+            for chunk in iter(lambda: checkpoint.read(8 * 1024 * 1024), b""):
+                digest.update(chunk)
+        if digest.hexdigest() != WEIGHT_SHA256:
+            raise ValueError(
+                "Downloaded DetAny3D checkpoint failed its pinned SHA-256 check."
+            )
 
     def _ensure_backend(self):
         if self._backend is None or self._backend.closed:
