@@ -500,6 +500,35 @@ def test_build_train_results_reports_best_metric_key(tmp_path):
     assert results["best_metric_key"] == "metrics/best_conf_f1"
 
 
+def test_build_train_results_reports_effective_key_from_validation(tmp_path):
+    """The reported key is the one the validation branch used, not the class attribute."""
+    trainer = DummyTrainer(model=nn.Linear(1, 1), data=None, device="cpu", ema=False)
+    trainer.save_dir = tmp_path
+
+    assert trainer.best_metric_key == "metrics/mAP50-95"
+
+    trainer._update_best_state(
+        0,
+        {
+            "mAP50": 0.5,
+            "mAP50_95": 0.4,
+            "best_metric": 0.4,
+            "best_metric_key": "fitness",
+        },
+    )
+
+    results = trainer._build_train_results()
+    assert results["best_metric_key"] == "fitness"
+    assert results["best_mAP50_95"] == pytest.approx(0.4)
+
+
+def test_build_train_results_falls_back_to_class_key_without_validation(tmp_path):
+    trainer = DummyTrainer(model=nn.Linear(1, 1), data=None, device="cpu", ema=False)
+    trainer.save_dir = tmp_path
+
+    assert trainer._build_train_results()["best_metric_key"] == "metrics/mAP50-95"
+
+
 def test_yolo9_loss_components_match_epoch_event_names():
     from libreyolo.models.yolo9.trainer import YOLO9Trainer
 

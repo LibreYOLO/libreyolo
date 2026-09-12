@@ -256,6 +256,7 @@ class BaseTrainer(ABC):
         self.best_mAP50_95 = 0.0
         self.best_mAP50 = 0.0
         self.best_epoch = 0
+        self.best_metric_name: Optional[str] = None
         self.final_loss = 0.0
         self.epoch_losses: List[float] = []
         self.epoch_events: List[TrainEpochEvent] = []
@@ -2112,7 +2113,8 @@ class BaseTrainer(ABC):
             "epoch_metrics": epoch_metrics,
             "best_mAP50": self.best_mAP50,
             "best_mAP50_95": self.best_mAP50_95,
-            "best_metric_key": getattr(self, "best_metric_key", "metrics/mAP50-95"),
+            "best_metric_key": self.best_metric_name
+            or getattr(self, "best_metric_key", "metrics/mAP50-95"),
             "best_epoch": self.best_epoch,
             "save_dir": str(self.save_dir),
             "best_checkpoint": (
@@ -2343,6 +2345,7 @@ class BaseTrainer(ABC):
             mAP50 = self._as_float(val_metrics.get("mAP50", 0.0))
             self.best_mAP50 = mAP50 if mAP50 is not None else 0.0
             self.best_epoch = epoch + 1
+            self.best_metric_name = self._best_metric_name(val_metrics)
             self.patience_counter = 0
         else:
             self.patience_counter += 1
@@ -3942,6 +3945,7 @@ class BaseTrainer(ABC):
                 self.best_mAP50_95 = 0.0
                 self.best_mAP50 = 0.0
                 self.best_epoch = 0
+                self.best_metric_name = None
             else:
                 self.best_mAP50_95 = checkpoint.get(
                     "best_metric_value",
@@ -3949,6 +3953,7 @@ class BaseTrainer(ABC):
                 )
                 self.best_mAP50 = checkpoint.get("best_mAP50", 0.0)
                 self.best_epoch = checkpoint.get("best_epoch", 0)
+                self.best_metric_name = checkpoint_metric_key
                 logger.info(
                     f"Restored best metrics: mAP50={self.best_mAP50:.4f}, "
                     f"mAP50-95={self.best_mAP50_95:.4f} (epoch {self.best_epoch})"
