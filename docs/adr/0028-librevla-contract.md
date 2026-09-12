@@ -186,7 +186,8 @@ out of `all` for the same reason.
 | `smolvla-base` (default) | `lerobot/smolvla_base` | Apache-2.0 | shipped |
 | `pi0`, `pi05` | `lerobot/pi0_base`, `lerobot/pi05_base` | Gemma terms on the PaliGemma base | reserved, not an alias yet |
 | `molmoact2` | `allenai/MolmoAct2-*-LeRobot` | Apache-2.0 | reserved, not an alias yet |
-| `xvla`, `groot` | lerobot policies | see upstream | reserved, not an alias yet |
+| `xvla` | `lerobot/xvla-base` | Apache-2.0 | shipped |
+| `groot` | lerobot policies | see upstream | reserved, not an alias yet |
 
 Reserved names raise with a message rather than resolving, the way
 LibreGround handles unverified families. A family becomes an alias when its

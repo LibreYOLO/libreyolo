@@ -1000,6 +1000,11 @@ Plain COCO-default weights never carry a variant suffix.
 
 ## Vision-language-action policies
 
+`LibreXVLA` (`xvla`, aliases `xvla` and `xvla-base`, coverage group `s`)
+wraps the pinned `lerobot/xvla-base` snapshot. Its default size is `base`,
+its cache directory is `weights/LibreXVLAbase/`, and fine-tunes use the
+same `LibreVLA` directory contract.
+
 `LibreACT` (`act_policy`, aliases `act` and `act-policy`) and
 `LibreDiffusionPolicy` (`diffusion_policy`, aliases `diffusion` and
 `diffusion-policy`) use the same `act` task and coverage group `s`. They

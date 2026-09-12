@@ -2391,6 +2391,24 @@
     "group": "s",
     "cli_command": "wilddet3d"
   },
+  "xvla": {
+    "class": "libreyolo.models.vla.xvla.LibreXVLA",
+    "tasks": [
+      "act"
+    ],
+    "default_task": "act",
+    "sizes": {
+      "base": 224
+    },
+    "default_imgsz": {
+      "base": 224
+    },
+    "task_sizes": {},
+    "export_override": "blocked",
+    "optional_extra": "vla",
+    "available": false,
+    "group": "s"
+  },
   "yolo1": {
     "class": "libreyolo.models.yolo1.model.LibreYOLO1",
     "tasks": [

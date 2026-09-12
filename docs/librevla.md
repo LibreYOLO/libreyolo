@@ -174,12 +174,20 @@ For policies trained without a base checkpoint, `base_repo` and
 | Alias | Upstream | Weights | Notes |
 | --- | --- | --- | --- |
 | `smolvla-base` (default) | SmolVLA 450M (`lerobot/smolvla_base`) | Apache-2.0 | 3 camera slots, state 6, action 6, 50-step chunk |
+| `xvla`, `xvla-base` | X-VLA 0.9B (`lerobot/xvla-base`) | Apache-2.0 | 3 camera slots (`image`, `image2`, `image3`), state 8, action 20, 30-step chunk; base uses dual-arm `ee6d` (xyz, 6D rotation, gripper per arm) |
 | `act`, `act-policy` | LeRobot ACT | No pretrained policy; torchvision ResNet18 backbone (BSD-3-Clause code) | No instruction; dataset camera/state/action shapes; 100-step chunk |
 | `diffusion`, `diffusion-policy` | LeRobot Diffusion Policy | No pretrained policy; torchvision ResNet18 backbone (BSD-3-Clause code) | No instruction; two observations of history; 64-step training horizon, 32 predicted steps with LeRobot 0.6.1 defaults |
 
-`pi0`, `pi05`, `molmoact2`, `xvla`, `groot` and `openvla` are reserved names
+`pi0`, `pi05`, `molmoact2`, `groot` and `openvla` are reserved names
 that raise with a message until an adapter is load-tested. Adding a family
 is a small class over its lerobot policy: see `libreyolo/models/vla/smolvla.py`.
+
+X-VLA base inference keeps its upstream `ee6d` representation. Fine-tuning
+uses LeRobot's `auto` action mode so the output dimension and representation
+follow the training dataset, including six-joint SO-101 data. The saved
+config records that mode. No adapter conversion turns end-effector values
+into joint commands. The optional `xvla` dependencies are included in the
+`vla` extra; the BART tokenizer is downloaded from `facebook/bart-large`.
 
 ## Limits
 

@@ -132,6 +132,7 @@ in preflight.
 | vjepa2 | embed | ✓ | ✓ | available | available | available |  |  |  |  |  |  |  |
 | vjepa2 | classify | available | available | available | available | available |  |  |  |  |  |  |  |
 | wilddet3d | detect3d |  |  |  |  |  |  |  |  |  |  |  |  |
+| xvla | act |  |  |  |  |  |  |  |  |  |  |  |  |
 | yolo1 | detect | ✓ | ✓ | ✓ | ✓ | ✓ |  |  |  | ✓ |  |  | ✓ |
 | yolo2 | detect | ✓ | ✓ | ✓ | ✓ | ✓ |  |  |  |  |  |  | ✓ |
 | yolo3 | detect | ✓ | ✓ | ✓ | ✓ | ✓ |  |  |  | ✓ |  |  | ✓ |
@@ -1682,6 +1683,18 @@ These converter paths are callable with the recorded validation context.
 - `wilddet3d` / `detect3d` / `tflite`: 3D detection export is blocked until its graph outputs, camera metadata, and backend runtime contract are defined.
 - `wilddet3d` / `detect3d` / `coreml`: 3D detection export is blocked until its graph outputs, camera metadata, and backend runtime contract are defined.
 - `wilddet3d` / `detect3d` / `coreai`: 3D detection export is blocked until its graph outputs, camera metadata, and backend runtime contract are defined.
+- `xvla` / `act` / `onnx`: Action-chunk export is blocked until the policy sampling loop has an exportable graph and backend runtime contract (ADR 0028).
+- `xvla` / `act` / `torchscript`: Action-chunk export is blocked until the policy sampling loop has an exportable graph and backend runtime contract (ADR 0028).
+- `xvla` / `act` / `executorch`: Action-chunk export is blocked until the policy sampling loop has an exportable graph and backend runtime contract (ADR 0028).
+- `xvla` / `act` / `tensorrt`: Action-chunk export is blocked until the policy sampling loop has an exportable graph and backend runtime contract (ADR 0028).
+- `xvla` / `act` / `openvino`: Action-chunk export is blocked until the policy sampling loop has an exportable graph and backend runtime contract (ADR 0028).
+- `xvla` / `act` / `paddle`: Action-chunk export is blocked until the policy sampling loop has an exportable graph and backend runtime contract (ADR 0028).
+- `xvla` / `act` / `mnn`: Action-chunk export is blocked until the policy sampling loop has an exportable graph and backend runtime contract (ADR 0028).
+- `xvla` / `act` / `rknn`: Action-chunk export is blocked until the policy sampling loop has an exportable graph and backend runtime contract (ADR 0028).
+- `xvla` / `act` / `ncnn`: Action-chunk export is blocked until the policy sampling loop has an exportable graph and backend runtime contract (ADR 0028).
+- `xvla` / `act` / `tflite`: Action-chunk export is blocked until the policy sampling loop has an exportable graph and backend runtime contract (ADR 0028).
+- `xvla` / `act` / `coreml`: Action-chunk export is blocked until the policy sampling loop has an exportable graph and backend runtime contract (ADR 0028).
+- `xvla` / `act` / `coreai`: Action-chunk export is blocked until the policy sampling loop has an exportable graph and backend runtime contract (ADR 0028).
 - `yolo1` / `detect` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `yolo1` / `detect` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `yolo1` / `detect` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.

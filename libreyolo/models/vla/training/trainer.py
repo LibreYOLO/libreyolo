@@ -266,6 +266,7 @@ class VLATrainer:
             config = wrapper._pretrained_config(base_dir)
         config.pretrained_path = base_dir
         config.device = str(device)
+        config = wrapper._prepare_training_config(config)
 
         # Datasets need the config for delta timestamps; the config needs the
         # wrapper's camera slots, which come from the same base config.
