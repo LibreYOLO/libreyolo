@@ -999,6 +999,12 @@ Plain COCO-default weights never carry a variant suffix.
 
 ## Vision-language-action policies
 
+`LibreACT` (`act_policy`, aliases `act` and `act-policy`) and
+`LibreDiffusionPolicy` (`diffusion_policy`, aliases `diffusion` and
+`diffusion-policy`) use the same `act` task and coverage group `s`. They
+start without a pretrained policy, require no instruction, and save policy
+directories with null base repo/revision. Their default size is `base`.
+
 `LibreSmolVLA` (`smolvla`, coverage group `s`) is a sibling API wrapping the
 SmolVLA policy through the optional `lerobot` runtime (`libreyolo[vla]`,
 Python 3.12+). It uses `act`, with aliases `action`, `actions`, `vla`,
