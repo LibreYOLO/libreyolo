@@ -80,6 +80,11 @@ processor construction and rotary-embedding initialization. Other VLM extras
 require Transformers 5. The 8B and O-7B variants need more memory than 4B;
 a 16 GB peak-memory claim has not been measured.
 
+Validation: 4B passed a CPU synthetic-point check and matched direct upstream
+generation under Transformers 4.57.1. The 8B/O-7B processors and model graphs
+were checked without loading weights; their pretrained inference and CUDA
+execution remain unverified.
+
 ## Decision 1: two layers, raw chat under a detection convenience
 
 A VLM is fundamentally a chat model that can also draw boxes. The API reflects
