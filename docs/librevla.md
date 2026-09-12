@@ -105,6 +105,32 @@ error. After `train()`, that instance uses the last checkpoint; load
 `results["best"]` to use the best checkpoint instead. Training a loaded
 checkpoint starts from its saved policy and processors.
 
+## Action policies without language
+
+```python
+model = LibreVLA("act")                 # or "diffusion"; initially untrained
+run = model.train(data="lerobot/svla_so101_pickplace", epochs=5)
+model = LibreVLA(run["best"])
+result = model.predict({"up": front, "wrist": wrist}, state=q)
+```
+
+Both policies learn the dataset's action representation without a language
+instruction. Supply all camera slots used during training. Training starts
+with a randomly initialized action policy and the upstream ResNet18 backbone
+weights; there is no pretrained robot-policy download.
+
+Diffusion keeps the last `n_obs_steps` observations across calls, padding the
+first observation by repetition. Call `reset()` between episodes or before
+predicting an unrelated frame. The returned chunk starts at the current
+step; validation aligns it with the corresponding part of the dataset's
+longer training horizon, including padding masks.
+
+The offline CPU smoke uses tiny configs and a synthetic in-memory dataset:
+`PYTHONPATH=. python tests/smoke/vla_action_policies.py` (Python 3.12+, VLA
+and Diffusion extras installed). It exercises the real policies, processors,
+training, checkpoint reload, prediction and validation without downloads.
+It verifies the runtime path, not robot task success.
+
 ## Validate
 
 ```python
@@ -148,6 +174,8 @@ For policies trained without a base checkpoint, `base_repo` and
 | Alias | Upstream | Weights | Notes |
 | --- | --- | --- | --- |
 | `smolvla-base` (default) | SmolVLA 450M (`lerobot/smolvla_base`) | Apache-2.0 | 3 camera slots, state 6, action 6, 50-step chunk |
+| `act`, `act-policy` | LeRobot ACT | No pretrained policy; torchvision ResNet18 backbone (BSD-3-Clause code) | No instruction; dataset camera/state/action shapes; 100-step chunk |
+| `diffusion`, `diffusion-policy` | LeRobot Diffusion Policy | No pretrained policy; torchvision ResNet18 backbone (BSD-3-Clause code) | No instruction; two observations of history; 64-step training horizon, 32 predicted steps with LeRobot 0.6.1 defaults |
 
 `pi0`, `pi05`, `molmoact2`, `xvla`, `groot` and `openvla` are reserved names
 that raise with a message until an adapter is load-tested. Adding a family
