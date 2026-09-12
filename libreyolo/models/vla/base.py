@@ -156,6 +156,10 @@ class LibreVLAModel:
         """Return the family's default config for training without a base policy."""
         raise NotImplementedError
 
+    def _validation_targets(self, target, pad, steps):
+        """Align recorded actions with a family prediction's temporal origin."""
+        return target, pad
+
     @property
     def camera_slots(self) -> List[str]:
         """Ordered camera slot names the loaded policy expects."""
