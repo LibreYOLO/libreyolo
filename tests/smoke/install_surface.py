@@ -112,6 +112,7 @@ def _check_import_surface(expect_source: str, source_root: Path | None) -> None:
         LibreKosmos2,
         LibreLFM2VL,
         LibreMODUS,
+        LibreMolmo2,
         LibreModus,
         LibreQwen3VL,
         LibreSmolVLM2,
@@ -154,6 +155,7 @@ def _check_import_surface(expect_source: str, source_root: Path | None) -> None:
         LibreFlorence2,
         LibreKosmos2,
         LibreMODUS,
+        LibreMolmo2,
     ):
         if not isinstance(family, type):
             raise AssertionError(
