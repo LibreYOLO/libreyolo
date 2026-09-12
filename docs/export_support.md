@@ -115,6 +115,7 @@ in preflight.
 | showui | point |  |  |  |  |  |  |  |  |  |  |  |  |
 | siglip2 | classify | ✓ | ✓ | ✓ | ✓ | ✓ |  |  |  |  | ✓ |  | ✓ |
 | siglip2 | embed | ✓ | ✓ | ✓ | ✓ | ✓ |  |  |  |  | ✓ |  |  |
+| smolvla | act |  |  |  |  |  |  |  |  |  |  |  |  |
 | smolvlm2 | detect |  |  |  |  |  |  |  |  |  |  |  |  |
 | ssd | detect | ✓ |  |  |  |  |  |  |  |  |  |  |  |
 | swin | classify | ✓ | ✓ | available | ✓ | ✓ |  |  |  | available |  |  |  |
@@ -1519,6 +1520,18 @@ These converter paths are callable with the recorded validation context.
 - `siglip2` / `embed` / `ncnn`: PNNX 20260526 leaves unsupported pnnx.Expression nodes in the SigLIP2 attention graph, so the generated NCNN network has no runnable input.
 - `siglip2` / `embed` / `coreml`: No parity-valid embedding artifact is available for this runtime.
 - `siglip2` / `embed` / `coreai`: No parity-valid embedding artifact is available for this runtime.
+- `smolvla` / `act` / `onnx`: Action-chunk export is blocked until the policy sampling loop has an exportable graph and backend runtime contract (ADR 0028).
+- `smolvla` / `act` / `torchscript`: Action-chunk export is blocked until the policy sampling loop has an exportable graph and backend runtime contract (ADR 0028).
+- `smolvla` / `act` / `executorch`: Action-chunk export is blocked until the policy sampling loop has an exportable graph and backend runtime contract (ADR 0028).
+- `smolvla` / `act` / `tensorrt`: Action-chunk export is blocked until the policy sampling loop has an exportable graph and backend runtime contract (ADR 0028).
+- `smolvla` / `act` / `openvino`: Action-chunk export is blocked until the policy sampling loop has an exportable graph and backend runtime contract (ADR 0028).
+- `smolvla` / `act` / `paddle`: Action-chunk export is blocked until the policy sampling loop has an exportable graph and backend runtime contract (ADR 0028).
+- `smolvla` / `act` / `mnn`: Action-chunk export is blocked until the policy sampling loop has an exportable graph and backend runtime contract (ADR 0028).
+- `smolvla` / `act` / `rknn`: Action-chunk export is blocked until the policy sampling loop has an exportable graph and backend runtime contract (ADR 0028).
+- `smolvla` / `act` / `ncnn`: Action-chunk export is blocked until the policy sampling loop has an exportable graph and backend runtime contract (ADR 0028).
+- `smolvla` / `act` / `tflite`: Action-chunk export is blocked until the policy sampling loop has an exportable graph and backend runtime contract (ADR 0028).
+- `smolvla` / `act` / `coreml`: Action-chunk export is blocked until the policy sampling loop has an exportable graph and backend runtime contract (ADR 0028).
+- `smolvla` / `act` / `coreai`: Action-chunk export is blocked until the policy sampling loop has an exportable graph and backend runtime contract (ADR 0028).
 - `smolvlm2` / `detect` / `onnx`: Generative VLM export is out of scope for v1.
 - `smolvlm2` / `detect` / `torchscript`: Generative VLM export is out of scope for v1.
 - `smolvlm2` / `detect` / `executorch`: Generative VLM export is out of scope for v1.

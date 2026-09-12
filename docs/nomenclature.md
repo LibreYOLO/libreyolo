@@ -342,6 +342,7 @@ From `libreyolo/tasks.py`:
 | `embed`       | `-embed` |
 | `mesh`        | `-mesh` |
 | `detect3d`    | `-detect3d` |
+| `act`         | `-act` |
 
 The factory accepts selected upstream-style aliases (`detection`, `det`,
 `segmentation`, `keypoints`, `cls`, …) at the API boundary; only the canonical
@@ -995,6 +996,22 @@ Example: `yolo9_p2` declares `("visdrone",)`, so `LibreYOLO9P2s-visdrone.pt`
 resolves the Hugging Face repo `LibreYOLO/LibreYOLO9P2s-visdrone` (a research
 preview under VisDrone's CC BY-NC-SA license, announced by a download notice).
 Plain COCO-default weights never carry a variant suffix.
+
+## Vision-language-action policies
+
+`LibreSmolVLA` (`smolvla`, coverage group `s`) is a sibling API wrapping the
+SmolVLA policy through the optional `lerobot` runtime (`libreyolo[vla]`,
+Python 3.12+). It uses `act`, with aliases `action`, `actions`, `vla`,
+`policy` and `robot-policy`. Its base checkpoint is size `base`, pinned to a
+`lerobot/smolvla_base` commit and downloaded into `weights/LibreSmolVLAbase/`
+as a snapshot directory; it is not a `.pt` and is not registered in the
+`LibreYOLO(...)` state-dict factory.
+
+`Results.actions` stores the `(T, D)` action chunk with its per-dimension
+names, control rate and instruction. Fine-tunes written by `train()` are
+directories carrying `libreyolo_vla.json`; `LibreVLA(path)` reloads them.
+There is no CLI verb in this version. See ADR 0028 for the observation and
+action contracts and the explicit scope.
 
 ## Promptable 3D detection
 

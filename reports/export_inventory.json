@@ -1060,7 +1060,7 @@
     "task_sizes": {},
     "export_override": "blocked",
     "optional_extra": "onnx",
-    "available": true,
+    "available": false,
     "group": "g3"
   },
   "levjepa": {
@@ -2051,6 +2051,24 @@
     "export_override": "custom",
     "optional_extra": null,
     "available": true,
+    "group": "s"
+  },
+  "smolvla": {
+    "class": "libreyolo.models.vla.smolvla.LibreSmolVLA",
+    "tasks": [
+      "act"
+    ],
+    "default_task": "act",
+    "sizes": {
+      "base": 512
+    },
+    "default_imgsz": {
+      "base": 512
+    },
+    "task_sizes": {},
+    "export_override": "blocked",
+    "optional_extra": "vla",
+    "available": false,
     "group": "s"
   },
   "smolvlm2": {

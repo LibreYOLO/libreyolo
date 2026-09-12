@@ -1238,3 +1238,66 @@ def draw_boxes3d(image, boxes3d, near_clip=0.01):
             xy = np.clip(xy, -1e6, 1e6)
             draw.line([tuple(xy[0]), tuple(xy[1])], fill=(0, 220, 120), width=2)
     return canvas
+
+
+def draw_actions(
+    image: Image.Image,
+    actions,
+    panel_height: int | None = None,
+) -> Image.Image:
+    """Render an ``Actions`` chunk as a trajectory strip under the frame.
+
+    One polyline per action dimension, each scaled to its own range so a
+    gripper and a shoulder joint stay readable side by side. The instruction
+    is written as the panel title, the per-dimension names (or indices) as
+    the legend. Pure PIL so it needs no plotting dependency.
+    """
+    frame = image.convert("RGB")
+    w, h = frame.size
+    panel_h = int(panel_height) if panel_height else max(140, int(h * 0.35))
+    canvas = Image.new("RGB", (w, h + panel_h), (24, 24, 24))
+    canvas.paste(frame, (0, 0))
+    draw = ImageDraw.Draw(canvas)
+    font = _get_font(max(11, min(16, w // 50)))
+
+    data = actions.data
+    if hasattr(data, "detach"):
+        data = data.detach().cpu().numpy()
+    data = np.asarray(data, dtype=np.float32)
+    horizon, dim = data.shape
+    names = actions.names or [f"a{i}" for i in range(dim)]
+
+    title = actions.instruction or "action chunk"
+    title = f"{title}  ({horizon} steps x {dim} dims"
+    title += f", {actions.fps:g} Hz)" if actions.fps else ")"
+    draw.text((8, h + 6), title, fill=(235, 235, 235), font=font)
+
+    legend_w = min(w // 3, 12 + max(draw.textlength(n, font=font) for n in names))
+    top = h + 30
+    bottom = h + panel_h - 8
+    left = 8 + int(legend_w)
+    right = w - 8
+    if bottom - top < 10 or right - left < 10:
+        return canvas
+    draw.line([(left, top), (left, bottom), (right, bottom)], fill=(90, 90, 90))
+    xs = (
+        [left + (right - left) * t / max(horizon - 1, 1) for t in range(horizon)]
+        if horizon > 1
+        else [left]
+    )
+    for d in range(dim):
+        color = _get_class_color_rgb(d)
+        col = data[:, d]
+        lo, hi = float(col.min()), float(col.max())
+        span = hi - lo if hi > lo else 1.0
+        ys = [bottom - (bottom - top) * (v - lo) / span for v in col]
+        pts = list(zip(xs, ys))
+        if len(pts) > 1:
+            draw.line(pts, fill=color, width=2)
+        else:
+            x, y = pts[0]
+            draw.ellipse([x - 3, y - 3, x + 3, y + 3], fill=color)
+        label_y = top + d * (font.size + 2)
+        if label_y + font.size < bottom:
+            draw.text((8, label_y), names[d], fill=color, font=font)
+    return canvas

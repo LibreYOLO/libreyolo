@@ -101,6 +101,7 @@ _RESULTS_EXPORTS = (
     "Results",
     "Boxes",
     "Boxes3D",
+    "Actions",
     "Masks",
     "Keypoints",
     "Points",
@@ -198,6 +199,8 @@ def __getattr__(name):
         "OCSortTracker": (".tracking", "OCSortTracker"),
         "OCSortConfig": (".tracking", "OCSortConfig"),
         "LibreLLM": (".models.llm", "LibreLLM"),
+        "LibreVLA": (".models.vla", "LibreVLA"),
+        "LibreSmolVLA": (".models.vla", "LibreSmolVLA"),
         "LibreVLM": (".models.vlm", "LibreVLM"),
         "LibreLFM2VL": (".models.vlm", "LibreLFM2VL"),
         "LibreQwen3VL": (".models.vlm", "LibreQwen3VL"),
@@ -366,6 +369,9 @@ __all__ = [
     "LibreModus",
     # OpenAI-compatible LLM client (optional, requires libreyolo[llm])
     "LibreLLM",
+    # Vision-language-action tier (optional, requires libreyolo[vla])
+    "LibreVLA",
+    "LibreSmolVLA",
     # Calibrated native monocular 3D detection
     "LibreFCOS3D",
     # Promptable 3D detection (separately installed upstream runtime)
@@ -389,6 +395,7 @@ __all__ = [
     "Results",
     "Boxes",
     "Boxes3D",
+    "Actions",
     "Masks",
     "Keypoints",
     "Points",

@@ -135,6 +135,7 @@ MODEL_GROUPS: dict[str, str] = {
     "ground_qwen3vl": "s",
     "showui": "s",
     "smolvlm2": "s",
+    "smolvla": "s",
     "clip": "s",
     "siglip2": "s",
     "libremodus": "s",
