@@ -31,15 +31,16 @@ class LeRobotPolicyFamily(LibreVLAModel):
         """Register the family before deserializing its policy config."""
         try:
             configuration = import_module(cls.CONFIG_MODULE)
-            config_class = getattr(configuration, cls.CONFIG_CLASS)
-            policy_class = getattr(import_module(cls.POLICY_MODULE), cls.POLICY_CLASS)
+            policy_module = import_module(cls.POLICY_MODULE)
             from lerobot.configs.policies import PreTrainedConfig
             from lerobot.policies.factory import make_pre_post_processors
-        except (ImportError, AttributeError) as exc:
+        except ImportError as exc:
             raise ImportError(
                 f"{_INSTALL_HINT}\n{cls.FAMILY} also requires "
                 f"pip install 'lerobot[{cls.LEROBOT_EXTRA}]>=0.6.1'."
             ) from exc
+        config_class = getattr(configuration, cls.CONFIG_CLASS)
+        policy_class = getattr(policy_module, cls.POLICY_CLASS)
         return PreTrainedConfig, config_class, policy_class, make_pre_post_processors
 
     def _scratch_config(self, meta):
