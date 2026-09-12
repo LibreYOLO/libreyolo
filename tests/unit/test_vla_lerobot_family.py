@@ -93,3 +93,25 @@ def test_optional_instruction_preserves_supplied_text():
     assert model._resolve_instruction(None) == "push"
     with pytest.raises(ValueError, match="No instruction"):
         LibreSmolVLA(device="cpu")._resolve_instruction(None)
+
+
+def test_runtime_initialization_errors_are_preserved(monkeypatch):
+    from libreyolo.models.vla import lerobot_family
+
+    def broken_runtime(module):
+        raise AttributeError("incompatible runtime initializer")
+
+    monkeypatch.setattr(lerobot_family, "import_module", broken_runtime)
+    with pytest.raises(AttributeError, match="incompatible runtime initializer"):
+        LibreSmolVLA._require_lerobot()
+
+
+def test_smolvla_snapshot_download_url_is_pinned():
+    expected = (
+        "https://huggingface.co/lerobot/smolvla_base/tree/"
+        "c83c3163b8ca9b7e67c509fffd9121e66cb96205"
+    )
+    assert LibreSmolVLA.get_download_url("LibreSmolVLAbase") == expected
+    assert LibreSmolVLA.get_download_url("LibreSmolVLAbase.safetensors") == expected
+    assert LibreSmolVLA.get_download_url("LibreSmolVLAunknown") is None
+    assert LibreSmolVLA.get_download_url("AnotherModelbase") is None
