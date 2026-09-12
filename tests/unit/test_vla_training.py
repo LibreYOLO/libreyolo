@@ -59,6 +59,14 @@ class TestSplitEpisodes:
         with pytest.raises(ValueError):
             split_episodes(5, val_split=1.0)
 
+    def test_validation_only_caller_may_hold_out_every_episode(self):
+        with pytest.raises(ValueError, match="empty"):
+            split_episodes(3, val_episodes=[0, 1, 2])
+        assert split_episodes(3, val_episodes=[0, 1, 2], allow_empty_train=True) == (
+            [],
+            [0, 1, 2],
+        )
+
 
 def test_camera_rename_map_and_names():
     keys = [
@@ -385,6 +393,44 @@ def test_trainer_increments_run_dir_and_honours_max_steps(fake_lerobot, tmp_path
     )
 
 
+def test_partial_accumulation_window_is_scaled_by_its_real_size(
+    fake_lerobot, tmp_path, monkeypatch
+):
+    """With 3 steps and accumulate=2 the tail window holds one step and must divide by 1."""
+    seen = []
+    real_backward = torch.Tensor.backward
+
+    def spy(self, *args, **kwargs):
+        seen.append(float(self.detach()))
+        return real_backward(self, *args, **kwargs)
+
+    monkeypatch.setattr(torch.Tensor, "backward", spy)
+    losses = []
+    orig_forward = FakePolicy.forward
+
+    def forward(self, batch):
+        loss, out = orig_forward(self, batch)
+        losses.append(float(loss.detach()))
+        return loss, out
+
+    monkeypatch.setattr(FakePolicy, "forward", forward)
+    model = FakeVLA(device="cpu")
+    model.train(
+        data="fake/dataset",
+        epochs=1,
+        batch=4,
+        accumulate=2,
+        max_steps=3,
+        output_dir=str(tmp_path / "acc"),
+        val_split=0.0,
+    )
+    train_losses = losses[:3]
+    assert len(seen) >= 3
+    assert seen[0] == pytest.approx(train_losses[0] / 2)
+    assert seen[1] == pytest.approx(train_losses[1] / 2)
+    assert seen[2] == pytest.approx(train_losses[2] / 1)
+
+
 def test_trainer_rejects_bad_config(fake_lerobot):
     model = FakeVLA(device="cpu")
     with pytest.raises(ValueError, match="epochs"):
@@ -435,6 +481,10 @@ def test_validator_reports_action_error_on_held_out_episodes(fake_lerobot):
     assert all_metrics["episodes"] == [0, 1, 2, 3, 4]
     with pytest.raises(ValueError, match="split"):
         VLAValidator(model, data="fake/dataset", split="test")
+
+    # Validating on every episode is legal: there is no training complement to protect.
+    every = model.val(data="fake/dataset", batch=3, val_episodes=[0, 1, 2, 3, 4])
+    assert every["episodes"] == [0, 1, 2, 3, 4]
 
 
 def test_val_defaults_to_contract_dataset(fake_lerobot, tmp_path):
