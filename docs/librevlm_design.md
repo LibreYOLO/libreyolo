@@ -69,7 +69,11 @@ Molmo2 defaults to `task="point"`: `LibreVLM("molmo2", names=["boat"])`
 returns `Results.points` in original-image pixels, with synthetic confidence
 1.0. It generates once per class. Its parser supports current single-image
 `<points coords="1 id x y ...">` markup (0-1000) and legacy `x`/`y` percentage
-attributes. It rejects video/multi-image coordinate groups. A custom `prompt`
+attributes. Its decoder belongs in the pure `models/vlm/parsing.py` module
+under ADR 0002: string and scalar coordinate validation stays separate from
+model loading, generation and tensor result construction. Only Molmo2 calls
+this new helper; existing JSON box parsers and other VLM workflows are unchanged.
+It rejects video/multi-image coordinate groups. A custom `prompt`
 must contain `{label}`, replaced with each vocabulary entry; arbitrary raw
 prompts remain available through `chat()`. Box detection, point tracking,
 training, validation and export are unsupported.
