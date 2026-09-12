@@ -2,7 +2,7 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-> ⭐ **Support LibreYOLO.** The best way to help is to **star the repo**. Feel free to [open an issue](https://github.com/LibreYOLO/libreyolo/issues/new) if you encounter problems or have suggestions, and code contributions are very welcome (see [CONTRIBUTING.md](CONTRIBUTING.md)). Models are trained on rented GPUs; the [sponsorship program](SPONSORS.md) pays for that compute.
+> ⭐ **Support LibreYOLO.** The best way to help is to **star the repo**. Feel free to [open an issue](https://github.com/LibreYOLO/libreyolo/issues/new) if you encounter problems or have suggestions, and code contributions are very welcome (see [CONTRIBUTING.md](CONTRIBUTING.md)). Training new models costs GPU time; the [sponsorship program](SPONSORS.md) pays for it.
 
 [![Documentation](https://img.shields.io/badge/docs-libreyolo.com-blue)](https://www.libreyolo.com/docs)
 [![PyPI](https://img.shields.io/pypi/v/libreyolo)](https://pypi.org/project/libreyolo/)
@@ -169,11 +169,12 @@ Support varies by family and task, see the
 
 ## Sponsors
 
-The code is written in free time. The models are trained on rented GPUs, and
-the [LibreYOLO Sponsorship Program](SPONSORS.md) pays for that compute.
-Companies get their logo here from $100 a month, and from $500 a month are
-named in every release and in the model card of every weight released while
-they sponsor. Hardware manufacturers can sponsor by sending a device.
+The code is written in free time. Training new models, such as LibreYOLO26
+and MIT retrains of families with restrictive weights, costs rented GPU time,
+and the [LibreYOLO Sponsorship Program](SPONSORS.md) pays for it. Companies
+get their logo here from $100 a month, and from $500 a month are named in
+every release and in the model card of every weight released while they
+sponsor. Hardware manufacturers can sponsor by sending a device.
 
 [![Sponsor](https://img.shields.io/badge/sponsor-GitHub%20Sponsors-ea4aaa?logo=githubsponsors)](https://github.com/sponsors/EHxuban11)
 

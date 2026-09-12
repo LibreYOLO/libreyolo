@@ -4,7 +4,7 @@
 
 > **注意：** 本中文 README 由 AI 翻译，可能包含不准确或不自然的表述。请以英文 README 为准。
 
-> ⭐ **支持 LibreYOLO。** 帮助项目最好的方式是给仓库 **star**。如果你遇到问题或有建议，欢迎[打开 issue](https://github.com/LibreYOLO/libreyolo/issues/new)；也欢迎代码贡献（见 [CONTRIBUTING.md](CONTRIBUTING.md)）。 模型在租用的 GPU 上训练，[赞助计划](SPONSORS.md)为这些算力付费。
+> ⭐ **支持 LibreYOLO。** 帮助项目最好的方式是给仓库 **star**。如果你遇到问题或有建议，欢迎[打开 issue](https://github.com/LibreYOLO/libreyolo/issues/new)；也欢迎代码贡献（见 [CONTRIBUTING.md](CONTRIBUTING.md)）。 训练新模型需要 GPU 算力，[赞助计划](SPONSORS.md)为此付费。
 
 [![Documentation](https://img.shields.io/badge/docs-libreyolo.com-blue)](https://www.libreyolo.com/docs)
 [![PyPI](https://img.shields.io/pypi/v/libreyolo)](https://pypi.org/project/libreyolo/)
@@ -162,6 +162,14 @@ libreyolo export --model yolo9-t --format onnx
 - [文档](https://www.libreyolo.com/docs)涵盖安装、任务、模型、训练、推理、导出和 CLI
 - [基准测试](https://www.visionanalysis.org/)提供独立的第三方数据
 - [CHANGELOG.md](CHANGELOG.md) 记录版本变更
+
+## 赞助
+
+代码在业余时间编写。训练新模型（例如 LibreYOLO26，以及为权重许可受限的模型家族重新训练 MIT 权重）需要租用 GPU，[LibreYOLO 赞助计划](SPONSORS.md)为此付费。企业每月赞助 $100 起即可在此展示 logo；每月 $500 起，还会在每次发布说明以及赞助期间发布的每个权重的模型卡中署名。硬件厂商可以通过寄送设备来赞助。
+
+[![Sponsor](https://img.shields.io/badge/sponsor-GitHub%20Sponsors-ea4aaa?logo=githubsponsors)](https://github.com/sponsors/EHxuban11)
+
+暂无赞助商。
 
 ## 许可证
 
