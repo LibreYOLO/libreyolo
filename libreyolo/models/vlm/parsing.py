@@ -347,6 +347,10 @@ def extract_molmo_points(text: str, label: str) -> list[dict]:
     Molmo2 ``coords="1 id x y ..."`` uses a 0-1000 scale. Legacy ``x/y``
     and ``x1/y1/...`` attributes use percentages. The grammar determines the
     scale, never the numeric magnitude. Multi-image/video groups are rejected.
+    ADR 0002 places text decoding in this pure parser module, separate from
+    model loading and inference. Keeping the scalar coordinate validation here
+    lets callers exercise it without a model or tensors. Only Molmo2 calls this
+    helper; existing JSON box parsers and other VLM adapters are unchanged.
     See ``NOTICE`` for the upstream format reference.
     """
     if not isinstance(text, str):
