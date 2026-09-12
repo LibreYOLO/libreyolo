@@ -33,7 +33,9 @@ Required field meanings:
 - `size`: model variant within the family, such as `t`, `s`, `r18`, or `atto`.
 - `task`: canonical task, one of `detect`, `segment`, `semantic`, `panoptic`,
   `pose`, `classify`, `gaze`, `obb`, `point`, `depth`, `edge`, `normal`, `albedo`, `restore`,
-  `matte`, `ocr`, `embed`, `mesh`, or `detect3d`.
+  `matte`, `ocr`, `embed`, `mesh`, or `detect3d`. The `act` task has no
+  schema-v1 `.pt` form; its checkpoints are directories (see "Optional
+  LibreVLA runtime").
 - `nc`: positive integer class count.
 - `names`: `dict[int, str]` with keys in `0..nc-1`. Official checkpoints
   should write every key. Readers may pad missing keys with `class_i` labels for
@@ -416,6 +418,16 @@ wrap_libreyolo_checkpoint(...)
 unwrap_libreyolo_checkpoint(...)
 validate_checkpoint_metadata(...)
 ```
+
+### Optional LibreVLA runtime
+
+The `act` task reserves the suffix `-act`. `LibreVLA` checkpoints are
+directories, not schema-v1 `.pt` files: the upstream policy files, the saved
+pre and post processor pipelines, and `libreyolo_vla.json` (schema 1) with
+`family`, `size`, `base_repo`, `base_revision`, `data`, `fps`, `cameras`,
+`action_names`, `state_names`, `chunk_size` and `libreyolo_version`. The
+base snapshot is pinned to a Hub commit and never converted. See
+`docs/librevla.md` and ADR 0028.
 
 ### Optional WildDet3D runtime
 

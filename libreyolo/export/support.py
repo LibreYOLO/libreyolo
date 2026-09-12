@@ -3676,6 +3676,10 @@ _add(
 
 _TASK_BLOCKS = {
     "albedo": "Albedo export does not yet have a linear-RGB backend runtime contract.",
+    "act": (
+        "Action-chunk export is blocked until the policy sampling loop has an "
+        "exportable graph and backend runtime contract (ADR 0028)."
+    ),
     "detect3d": (
         "3D detection export is blocked until its graph outputs, camera metadata, "
         "and backend runtime contract are defined."
