@@ -151,6 +151,10 @@ def collect_model_inventory() -> dict[str, dict]:
             cls = getattr(importlib.import_module(module_name), class_name)
         except (ImportError, ModuleNotFoundError):
             continue
+        # Pinned remote-code families can require more than a package's presence.
+        runtime_available = getattr(cls, "_runtime_available", None)
+        if callable(runtime_available):
+            available = runtime_available()
         optional[cls.FAMILY] = (extra, available)
         if cls not in classes:
             classes.append(cls)
