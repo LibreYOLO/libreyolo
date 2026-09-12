@@ -113,7 +113,7 @@ vla = [
     # lerobot requires Python >= 3.12, so the extra installs nothing on older
     # interpreters and the tier raises an ImportError that says so. Kept out
     # of `all` for the same reason.
-    "lerobot[smolvla,dataset]>=0.6.1; python_version >= '3.12'",
+    "lerobot[smolvla,diffusion,dataset]>=0.6.1; python_version >= '3.12'",
 ]
 llm = [
     # LibreLLM talks to OpenAI-compatible Responses / Chat Completions

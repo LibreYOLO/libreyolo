@@ -260,7 +260,7 @@ def fake_lerobot(monkeypatch):
         made["policy"] = FakePolicy()
         return made["policy"]
 
-    def make_pre_post_processors(config, pretrained_path=None, **kwargs):
+    def make_pre_post_processors(config, **kwargs):
         made["processor_kwargs"] = kwargs
         return FakeProcessor("pre"), FakeProcessor("post")
 
@@ -285,6 +285,72 @@ def fake_lerobot(monkeypatch):
 
     monkeypatch.setattr(trainer_mod, "_lerobot", fake_bundle)
     return made
+
+
+class FakeScratchVLA(FakeVLA):
+    FAMILY = "fake_scratch"
+    HF_REPOS = {}
+    HF_REVISIONS = {}
+    INPUT_SIZES = {"base": 8}
+    PRETRAINED_BASE = False
+    REQUIRES_INSTRUCTION = False
+
+    # Use the real base method so an attempted download fails the test.
+    _ensure_weights = LibreVLAModel._ensure_weights
+
+    def _scratch_config(self, meta):
+        assert isinstance(meta, FakeMeta)
+        return FakeConfig()
+
+    def _pretrained_config(self, snapshot_dir):
+        assert Path(snapshot_dir).is_dir()
+        return FakeConfig()
+
+
+def test_scratch_train_and_checkpoint_reload(fake_lerobot, tmp_path, monkeypatch):
+    from libreyolo import LibreVLA
+    from libreyolo.models.vla import _ALIASES
+
+    model = FakeScratchVLA(device="cpu")
+    assert model.model_path is None
+    assert model._resolve_instruction(None) == ""
+    with pytest.raises(ValueError, match="untrained"):
+        model._ensure_loaded()
+    results = model.train(
+        data="fake/dataset",
+        epochs=1,
+        batch=2,
+        max_steps=2,
+        output_dir=str(tmp_path / "scratch"),
+    )
+    assert fake_lerobot["config"].pretrained_path is None
+    assert fake_lerobot["rename_map"] is None
+    assert set(fake_lerobot["processor_kwargs"]) == {"dataset_stats"}
+    contract = read_contract(results["best"])
+    assert contract["base_repo"] is None and contract["base_revision"] is None
+    assert contract["cameras"] == ["up"]
+    assert model._policy is fake_lerobot["policy"]
+    assert not model._policy.training
+    assert model._ensure_weights() == results["last"]
+
+    # Check the factory path as well as subsequent training from saved weights.
+    class ReloadableScratch(FakeScratchVLA):
+        def __init__(self, size="base", **kwargs):
+            assert size == "base"
+            super().__init__(**kwargs)
+
+    monkeypatch.setitem(_ALIASES, "fake-scratch", (ReloadableScratch, "base"))
+    loaded = LibreVLA(results["best"], device="cpu")
+    assert loaded._ensure_weights() == results["best"]
+    assert loaded.val(data="fake/dataset", max_batches=1)["val/steps"] > 0
+    loaded.train(
+        data="fake/dataset",
+        epochs=1,
+        max_steps=1,
+        output_dir=str(tmp_path / "continued"),
+    )
+    assert fake_lerobot["config"].pretrained_path == results["best"]
+    assert fake_lerobot["processor_kwargs"]["pretrained_path"] == results["best"]
 
 
 # ---------------------------------------------------------------------------

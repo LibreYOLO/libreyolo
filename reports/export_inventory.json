@@ -32,6 +32,24 @@
     "group": "s",
     "cli_command": "3dmood"
   },
+  "act_policy": {
+    "class": "libreyolo.models.vla.act_policy.LibreACT",
+    "tasks": [
+      "act"
+    ],
+    "default_task": "act",
+    "sizes": {
+      "base": 224
+    },
+    "default_imgsz": {
+      "base": 224
+    },
+    "task_sizes": {},
+    "export_override": "blocked",
+    "optional_extra": "vla",
+    "available": false,
+    "group": "s"
+  },
   "alexnet": {
     "class": "libreyolo.models.alexnet.model.LibreAlexNet",
     "tasks": [
@@ -463,6 +481,24 @@
     "optional_extra": null,
     "available": true,
     "group": "g1"
+  },
+  "diffusion_policy": {
+    "class": "libreyolo.models.vla.diffusion_policy.LibreDiffusionPolicy",
+    "tasks": [
+      "act"
+    ],
+    "default_task": "act",
+    "sizes": {
+      "base": 224
+    },
+    "default_imgsz": {
+      "base": 224
+    },
+    "task_sizes": {},
+    "export_override": "blocked",
+    "optional_extra": "vla",
+    "available": false,
+    "group": "s"
   },
   "dinodetr": {
     "class": "libreyolo.models.dinodetr.model.LibreDINODETR",

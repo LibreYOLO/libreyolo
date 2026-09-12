@@ -68,6 +68,8 @@ class LibreVLAModel:
         "README.md",
     )
     TRAINABLE: ClassVar[bool] = True
+    REQUIRES_INSTRUCTION: ClassVar[bool] = True
+    PRETRAINED_BASE: ClassVar[bool] = True
     TRAIN_UNSUPPORTED_REASON: ClassVar[str] = ""
     _LICENSE_NOTICE: ClassVar[str] = ""
     _LICENSE_NOTICE_SHOWN: ClassVar[bool] = False
@@ -83,10 +85,11 @@ class LibreVLAModel:
         checkpoint_dir: Optional[str] = None,
         **kwargs,
     ):
-        if size not in self.HF_REPOS:
+        sizes = self.HF_REPOS if self.PRETRAINED_BASE else self.INPUT_SIZES
+        if size not in sizes:
             raise ValueError(
                 f"Invalid size {size!r} for {type(self).__name__}. "
-                f"Must be one of: {', '.join(self.HF_REPOS)}"
+                f"Must be one of: {', '.join(sizes)}"
             )
         from ...tasks import normalize_task
 
@@ -123,7 +126,9 @@ class LibreVLAModel:
         self._postprocessor = None
         self._state_warned = False
         self.model_path: Optional[str] = (
-            str(self._checkpoint_dir) if self._checkpoint_dir else self.HF_REPOS[size]
+            str(self._checkpoint_dir)
+            if self._checkpoint_dir
+            else self.HF_REPOS.get(size)
         )
 
     # ------------------------------------------------------------------
@@ -146,6 +151,14 @@ class LibreVLAModel:
     def _pretrained_config(self, snapshot_dir: str) -> Any:
         """Return the upstream policy config stored in ``snapshot_dir``."""
         raise NotImplementedError
+
+    def _scratch_config(self, meta: Any) -> Any:
+        """Return the family's default config for training without a base policy."""
+        raise NotImplementedError
+
+    def _validation_targets(self, target, pad, steps):
+        """Align recorded actions with a family prediction's temporal origin."""
+        return target, pad
 
     @property
     def camera_slots(self) -> List[str]:
@@ -285,6 +298,11 @@ class LibreVLAModel:
         """Return a local policy dir, downloading the pinned snapshot if needed."""
         if self._checkpoint_dir is not None:
             return str(self._checkpoint_dir)
+        if not self.PRETRAINED_BASE:
+            raise ValueError(
+                f"{type(self).__name__} is untrained. Call train(data=...) first "
+                "and load its best or last checkpoint with LibreVLA(path)."
+            )
         repo = self.HF_REPOS[self.size]
         revision = self.HF_REVISIONS.get(self.size)
         if revision is not None and not _COMMIT_SHA_RE.fullmatch(revision):
@@ -336,6 +354,8 @@ class LibreVLAModel:
     def _resolve_instruction(self, instruction: Optional[str]) -> str:
         text = instruction if instruction is not None else self.instruction
         if not text or not str(text).strip():
+            if not self.REQUIRES_INSTRUCTION:
+                return ""
             raise ValueError(
                 "No instruction given. Pass instruction='...' to predict() or "
                 "call set_instruction('...') once."

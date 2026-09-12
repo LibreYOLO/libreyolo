@@ -426,7 +426,9 @@ directories, not schema-v1 `.pt` files: the upstream policy files, the saved
 pre and post processor pipelines, and `libreyolo_vla.json` (schema 1) with
 `family`, `size`, `base_repo`, `base_revision`, `data`, `fps`, `cameras`,
 `action_names`, `state_names`, `chunk_size` and `libreyolo_version`. The
-base snapshot is pinned to a Hub commit and never converted. See
+base snapshot is pinned to a Hub commit and never converted. Policies trained
+without a base snapshot store null `base_repo` and `base_revision` and load
+from the saved policy directory. See
 `docs/librevla.md` and ADR 0028.
 
 ### Optional WildDet3D runtime

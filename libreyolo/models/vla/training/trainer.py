@@ -31,7 +31,7 @@ from ....training.callbacks import (
 )
 from ....training.loggers import resolve_loggers
 from ..base import _INSTALL_HINT
-from ..checkpoint import write_contract
+from ..checkpoint import read_contract, write_contract
 from ..metrics import action_error
 from ..observation import action_names_from_features
 from .data import (
@@ -129,6 +129,8 @@ def _build_datasets(
     train_episodes,
     need_train=True,
     allow_empty_train=False,
+    meta=None,
+    slots=None,
 ):
     (
         LeRobotDataset,
@@ -139,7 +141,8 @@ def _build_datasets(
         _rs,
     ) = _lerobot()
     source = resolve_data_source(data)
-    meta = LeRobotDatasetMetadata(source.repo_id, root=source.root)
+    if meta is None:
+        meta = LeRobotDatasetMetadata(source.repo_id, root=source.root)
     train_eps, val_eps = split_episodes(
         meta.total_episodes,
         val_split=val_split,
@@ -147,7 +150,8 @@ def _build_datasets(
         train_episodes=train_episodes,
         allow_empty_train=allow_empty_train,
     )
-    slots = wrapper.camera_slots
+    if slots is None:
+        slots = wrapper.camera_slots
     rename_map = camera_rename_map(meta.camera_keys, slots)
     cameras = camera_names(meta.camera_keys, slots)
     delta = resolve_delta_timestamps(config, meta)
@@ -246,8 +250,20 @@ class VLATrainer:
         (_LD, _LM, _rdt, make_policy, make_pre_post_processors, rename_stats) = (
             _lerobot()
         )
-        base_dir = wrapper._ensure_weights()
-        config = wrapper._pretrained_config(base_dir)
+        scratch = not wrapper.PRETRAINED_BASE and wrapper._checkpoint_dir is None
+        meta = None
+        slots = None
+        if scratch:
+            source = resolve_data_source(cfg.data)
+            meta = _LM(source.repo_id, root=source.root)
+            config = wrapper._scratch_config(meta)
+            base_dir = None
+            slots = [
+                key.removeprefix("observation.images.") for key in meta.camera_keys
+            ]
+        else:
+            base_dir = wrapper._ensure_weights()
+            config = wrapper._pretrained_config(base_dir)
         config.pretrained_path = base_dir
         config.device = str(device)
 
@@ -261,34 +277,42 @@ class VLATrainer:
             val_split=cfg.val_split,
             val_episodes=cfg.val_episodes,
             train_episodes=cfg.train_episodes,
+            meta=meta,
+            slots=slots,
         )
         if bundle.train is None:
             raise ValueError("No training episodes after the split.")
 
-        policy = make_policy(config, ds_meta=bundle.meta, rename_map=bundle.rename_map)
+        policy_kwargs = {} if scratch else {"rename_map": bundle.rename_map}
+        policy = make_policy(config, ds_meta=bundle.meta, **policy_kwargs)
         policy.to(device)
         stats = rename_stats(bundle.meta.stats, bundle.rename_map)
         features = {**config.input_features, **config.output_features}
+        processor_kwargs = (
+            {}
+            if scratch
+            else {
+                "pretrained_path": base_dir,
+                "preprocessor_overrides": {
+                    "device_processor": {"device": device.type},
+                    "normalizer_processor": {
+                        "features": features,
+                        "norm_map": config.normalization_mapping,
+                        "stats": stats,
+                    },
+                    "rename_observations_processor": {"rename_map": bundle.rename_map},
+                },
+                "postprocessor_overrides": {
+                    "unnormalizer_processor": {
+                        "features": config.output_features,
+                        "norm_map": config.normalization_mapping,
+                        "stats": stats,
+                    },
+                },
+            }
+        )
         preprocessor, postprocessor = make_pre_post_processors(
-            config,
-            pretrained_path=base_dir,
-            dataset_stats=stats,
-            preprocessor_overrides={
-                "device_processor": {"device": device.type},
-                "normalizer_processor": {
-                    "features": features,
-                    "norm_map": config.normalization_mapping,
-                    "stats": stats,
-                },
-                "rename_observations_processor": {"rename_map": bundle.rename_map},
-            },
-            postprocessor_overrides={
-                "unnormalizer_processor": {
-                    "features": config.output_features,
-                    "norm_map": config.normalization_mapping,
-                    "stats": stats,
-                },
-            },
+            config, dataset_stats=stats, **processor_kwargs
         )
 
         train_loader = _make_loader(
@@ -361,7 +385,7 @@ class VLATrainer:
                 cameras=bundle.cameras,
                 action_names=bundle.action_names,
                 state_names=bundle.state_names,
-                chunk_size=int(getattr(config, "chunk_size", 0)) or None,
+                chunk_size=wrapper.chunk_size,
             )
 
         epoch = 0
@@ -473,6 +497,15 @@ class VLATrainer:
             "train_episodes": bundle.train_episodes,
             "val_episodes": bundle.val_episodes,
         }
+        if not wrapper.PRETRAINED_BASE:
+            wrapper._checkpoint_dir = weights_dir / "last"
+            wrapper.model_path = str(wrapper._checkpoint_dir)
+            wrapper.contract = read_contract(wrapper._checkpoint_dir)
+            wrapper.device = device
+            wrapper._policy = policy.eval()
+            wrapper._preprocessor = preprocessor
+            wrapper._postprocessor = postprocessor
+            wrapper.reset()
         self.callbacks.on_train_end(
             TrainEndEvent(
                 total_epochs=cfg.epochs,
@@ -582,6 +615,7 @@ class VLAValidator:
                 processed = wrapper._preprocessor(batch)
                 chunk = policy.predict_action_chunk(processed)
                 chunk = wrapper._postprocessor(chunk)
+                target, pad = wrapper._validation_targets(target, pad, chunk.shape[1])
                 dim = target.shape[-1]
                 preds.append(chunk[:, : target.shape[1], :dim].detach().cpu())
                 targets.append(target.cpu())

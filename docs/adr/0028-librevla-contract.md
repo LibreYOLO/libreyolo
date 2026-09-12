@@ -96,8 +96,13 @@ reject `act` results.
   with neither raises.
 - `reset()` clears any family-side action queue between episodes.
 
-Depth, tactile, audio and multi-step observation histories are not part of
-this version. They enter as additional named observation entries without
+Amendment (2026-09-12): Diffusion Policy maintains a rolling observation
+history, pads the initial history by repetition, and clears it on `reset()`.
+Its offline validator aligns targets and padding masks with the predicted
+chunk's current-step origin.
+
+Depth, tactile, audio and user-supplied multi-step observation histories are
+not part of this version. They enter as additional named observation entries without
 changing the call shape.
 
 ## Training, validation, checkpoints
@@ -136,6 +141,18 @@ default. Schema-v1 `.pt` metadata does not apply.
 graph contract yet; adding one is a later ADR.
 
 ## Public API
+
+Amendment (2026-09-12): action policies may opt out of language conditioning
+with `REQUIRES_INSTRUCTION = False`; omitted text then resolves to an empty
+string. Families with `PRETRAINED_BASE = False` construct an untrained
+wrapper and build their default config through `_scratch_config(meta)`.
+Training supplies dataset features and statistics without a base-policy
+download. Their checkpoints record null `base_repo` and `base_revision`,
+and reload exclusively from the saved directory. Prediction requires either
+a saved checkpoint or a completed training run; the trained wrapper uses
+the last checkpoint. Language-conditioned and pretrained families retain
+their existing defaults. `LeRobotPolicyFamily` shares the public-runtime
+adapter hooks while allowing family-specific overrides.
 
 ```python
 from libreyolo import LibreVLA
