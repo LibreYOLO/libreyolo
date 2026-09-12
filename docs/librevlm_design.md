@@ -40,6 +40,7 @@ size marked with `*`. The authoritative alias tables are in
 | `locate-anything`, `-3b`*                     | LocateAnything | NVIDIA non-commercial | remote-code grounder; boxes and points |
 | `gemma-4`, `-e2b`, `-e4b`*                    | Gemma 4   | Apache-2.0          | native `box_2d` y-first 0-1000; needs transformers>=5.10 |
 | `moondream`, `-2`*, `-3`                      | Moondream | Apache-2.0 (`-2`); BSL 1.1 (`-3`) | native detect/point skills; `-3` logs a notice; both mirrored |
+| `molmo2`, `-4b`*, `-8b`, `-o-7b` | Molmo2 | Apache-2.0 | point-only; pinned LibreYOLO mirrors; separate `molmo2` extra |
 | `sensenova-vision`, `-7b`*                    | SenseNova-Vision | Apache-2.0 code, CC BY-NC 4.0 weights | unified multimodal; 7 tasks, vendored port, heavy |
 | `libremodus`, `-14b-a7b`*, `modus`            | MODUS | Apache-2.0 code, external custom-term weights | analysis-only; four standard tasks plus `any2any()` |
 
@@ -56,13 +57,28 @@ VQA are intentionally unavailable. See [`libremodus.md`](libremodus.md).
 Larger Qwen3-VL tiers (30B and up) and Qwen2.5-VL are not included: the big ones
 do not fit a single consumer GPU, and Qwen2.5-VL uses a different coordinate
 convention that would need its own family. Some strong models are deliberately
-left out for being remote-code without enough payoff (Ovis2.5, MiniCPM-V,
-Molmo2), gated (PaliGemma2, Gemma 3), too large for ~16 GB (GLM-4.1V-9B), or
+left out for being remote-code without enough payoff (Ovis2.5, MiniCPM-V),
+gated (PaliGemma2, Gemma 3), too large for ~16 GB (GLM-4.1V-9B), or
 not a clean drop-in (Rex-Omni crashes on the standard Qwen2.5-VL path despite
 being the strongest generative detector). Gemma 4 replaces Gemma 3 here:
 Apache-2.0 weights and a documented `box_2d` detection format.
 `LibreVLM()` defaults to `qwen3-vl-4b`. Detection quality varies a lot by family
 and size; Qwen3-VL, LFM2-VL, Florence-2, Gemma 4, and Moondream are the strong ones.
+
+Molmo2 defaults to `task="point"`: `LibreVLM("molmo2", names=["boat"])`
+returns `Results.points` in original-image pixels, with synthetic confidence
+1.0. It generates once per class. Its parser supports current single-image
+`<points coords="1 id x y ...">` markup (0-1000) and legacy `x`/`y` percentage
+attributes. It rejects video/multi-image coordinate groups. A custom `prompt`
+must contain `{label}`, replaced with each vocabulary entry; arbitrary raw
+prompts remain available through `chat()`. Box detection, point tracking,
+training, validation and export are unsupported.
+
+Install Molmo2 in a separate environment with `pip install 'libreyolo[molmo2]'`.
+The pinned remote code needs Transformers 4.57.1 and fails on 5.16.1 in both
+processor construction and rotary-embedding initialization. Other VLM extras
+require Transformers 5. The 8B and O-7B variants need more memory than 4B;
+a 16 GB peak-memory claim has not been measured.
 
 ## Decision 1: two layers, raw chat under a detection convenience
 

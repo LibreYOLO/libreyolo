@@ -44,6 +44,7 @@ OPTIONAL_MODELS = (
         "transformers",
     ),
     ("libreyolo.models.vlm.gemma4", "LibreGemma4", "vlm", "transformers"),
+    ("libreyolo.models.vlm.molmo2", "LibreMolmo2", "molmo2", "transformers"),
     ("libreyolo.models.vlm.moondream", "LibreMoondream", "vlm", "transformers"),
     ("libreyolo.models.vlm.qwen3vl", "LibreQwen3VL", "vlm", "transformers"),
     ("libreyolo.models.vlm.smolvlm", "LibreSmolVLM2", "vlm", "transformers"),
