@@ -317,6 +317,169 @@ def test_classify_family_train_end_to_end(tmp_path):
     assert result.probs.data.shape[0] == 2
 
 
+def test_classify_validator_macro_precision_recall_f1():
+    """Macro P/R/F1 from the confusion matrix, over classes present in targets."""
+    from contextlib import nullcontext
+
+    from libreyolo.validation.classify_validator import ClassifyValidator
+
+    validator = object.__new__(ClassifyValidator)
+    validator.loss_adapter = None
+    validator._autocast_context = nullcontext
+    validator._init_metrics()
+
+    def logits_for(preds, nc=4):
+        out = torch.full((len(preds), nc), -5.0)
+        for row, cls in enumerate(preds):
+            out[row, cls] = 5.0
+        return out
+
+    # Batch 1: targets [0, 0, 1, 1], preds [0, 1, 1, 1]
+    validator._update_metrics(
+        logits_for([0, 1, 1, 1]), torch.tensor([0, 0, 1, 1]), None
+    )
+    # Batch 2: targets [2, 2], preds [2, 0]
+    validator._update_metrics(logits_for([2, 0]), torch.tensor([2, 2]), None)
+
+    metrics = validator._compute_metrics()
+
+    # Confusion (rows=target, cols=pred):
+    #   c0: tp=1 fp=1 fn=1 -> P=0.5  R=0.5  F1=0.5
+    #   c1: tp=2 fp=1 fn=0 -> P=2/3  R=1.0  F1=0.8
+    #   c2: tp=1 fp=0 fn=1 -> P=1.0  R=0.5  F1=2/3
+    #   c3: absent from targets -> excluded from the macro mean
+    assert metrics["metrics/accuracy_top1"] == pytest.approx(4 / 6)
+    assert metrics["metrics/precision"] == pytest.approx((0.5 + 2 / 3 + 1.0) / 3)
+    assert metrics["metrics/recall"] == pytest.approx((0.5 + 1.0 + 0.5) / 3)
+    assert metrics["metrics/f1"] == pytest.approx((0.5 + 0.8 + 2 / 3) / 3)
+    assert metrics["fitness"] == pytest.approx(metrics["metrics/accuracy_top1"])
+
+
+def test_classify_validator_macro_metrics_are_zero_without_samples():
+    from contextlib import nullcontext
+
+    from libreyolo.validation.classify_validator import ClassifyValidator
+
+    validator = object.__new__(ClassifyValidator)
+    validator.loss_adapter = None
+    validator._autocast_context = nullcontext
+    validator._init_metrics()
+
+    metrics = validator._compute_metrics()
+
+    assert metrics["metrics/precision"] == 0.0
+    assert metrics["metrics/recall"] == 0.0
+    assert metrics["metrics/f1"] == 0.0
+
+
+def test_classify_validator_precision_is_zero_for_never_predicted_class():
+    """A class present in the targets but never predicted gets precision 0, not NaN."""
+    from contextlib import nullcontext
+
+    from libreyolo.validation.classify_validator import ClassifyValidator
+
+    validator = object.__new__(ClassifyValidator)
+    validator.loss_adapter = None
+    validator._autocast_context = nullcontext
+    validator._init_metrics()
+
+    def logits_for(preds, nc=3):
+        out = torch.full((len(preds), nc), -5.0)
+        for row, cls in enumerate(preds):
+            out[row, cls] = 5.0
+        return out
+
+    # targets [0, 0, 1, 2], preds [0, 0, 0, 0]: class 1 and class 2 have
+    # support 1 each but are never predicted (tp + fp == 0 for both).
+    validator._update_metrics(
+        logits_for([0, 0, 0, 0]), torch.tensor([0, 0, 1, 2]), None
+    )
+
+    metrics = validator._compute_metrics()
+
+    # Confusion (rows=target, cols=pred):
+    #   c0: tp=2 fp=2 fn=0 -> P=0.5    R=1.0  F1=2/3
+    #   c1: tp=0 fp=0 fn=1 -> P=0      R=0    F1=0
+    #   c2: tp=0 fp=0 fn=1 -> P=0      R=0    F1=0
+    assert metrics["metrics/precision"] == pytest.approx((0.5 + 0 + 0) / 3)
+    assert metrics["metrics/recall"] == pytest.approx((1.0 + 0 + 0) / 3)
+    assert metrics["metrics/f1"] == pytest.approx((2 / 3 + 0 + 0) / 3)
+    for key in ("metrics/precision", "metrics/recall", "metrics/f1"):
+        assert metrics[key] == metrics[key]  # NaN check: NaN != NaN.
+
+
+def test_classify_validator_ignores_out_of_range_targets_in_confusion():
+    """A target >= nc (dataset/head class-count mismatch) must not crash.
+
+    Before this feature such a sample simply counted as wrong; it must keep
+    doing so rather than raising out of ``torch.bincount``.
+    """
+    from contextlib import nullcontext
+
+    from libreyolo.validation.classify_validator import ClassifyValidator
+
+    validator = object.__new__(ClassifyValidator)
+    validator.loss_adapter = None
+    validator._autocast_context = nullcontext
+    validator._init_metrics()
+
+    def logits_for(preds, nc=2):
+        out = torch.full((len(preds), nc), -5.0)
+        for row, cls in enumerate(preds):
+            out[row, cls] = 5.0
+        return out
+
+    # preds [0, 0], targets [2, 0]: target 2 is out of range for nc=2.
+    validator._update_metrics(logits_for([0, 0]), torch.tensor([2, 0]), None)
+
+    metrics = validator._compute_metrics()
+
+    # The out-of-range sample counts as wrong (unchanged semantics): 1/2 correct.
+    assert metrics["metrics/accuracy_top1"] == pytest.approx(0.5)
+    assert validator._confusion.tolist() == [[1, 0], [0, 0]]
+    # Only class 0 has support; it is predicted perfectly.
+    assert metrics["metrics/precision"] == pytest.approx(1.0)
+    assert metrics["metrics/recall"] == pytest.approx(1.0)
+    assert metrics["metrics/f1"] == pytest.approx(1.0)
+
+
+def test_classify_train_with_best_metric_f1_records_key(tmp_path):
+    """best_metric=f1 drives best.pt selection and lands in checkpoint metadata."""
+    from libreyolo import LibreMobileNetV4
+
+    _make_imagefolder(tmp_path / "data", n_classes=2, n_per=6, size=64)
+
+    model = LibreMobileNetV4(size="s", device="cpu")
+    metrics = model.train(
+        data=str(tmp_path / "data"),
+        epochs=1,
+        batch=4,
+        imgsz=32,
+        workers=0,
+        device="cpu",
+        project=str(tmp_path / "runs"),
+        name="cls_f1",
+        exist_ok=True,
+        best_metric="f1",
+    )
+
+    epoch_metrics = metrics.get("epoch_metrics", [])
+    assert epoch_metrics and epoch_metrics[-1].get("validated") is True
+    # epoch_metrics' val_metrics is the flattened scalar dict the validator
+    # reports (see BaseTrainer._validation_metrics_for_event), not the
+    # internal dict the trainer builds around it -- it does not carry
+    # best_metric_key. The checkpoint's top-level best_metric_key is the
+    # contract for that, asserted below.
+    val = epoch_metrics[-1].get("val_metrics") or {}
+    scalars = val.get("metrics", val)
+    assert "metrics/f1" in scalars
+
+    best = tmp_path / "runs" / "cls_f1" / "weights" / "best.pt"
+    assert best.exists()
+    checkpoint = torch.load(best, map_location="cpu", weights_only=False)
+    assert checkpoint["best_metric_key"] == "metrics/f1"
+
+
 # ---------------------------------------------------------------------------
 # Classification augmentation pack: auto_augment / erasing / mixup / cutmix.
 # ---------------------------------------------------------------------------

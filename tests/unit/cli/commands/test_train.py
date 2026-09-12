@@ -1003,3 +1003,116 @@ def test_cls_pw_help_json_exposes_numeric_default():
 
     parameter = next(p for p in schema["parameters"] if p["name"] == "cls_pw")
     assert parameter["default"] == 0.0
+
+
+@pytest.mark.parametrize(
+    "family,model",
+    [
+        ("yolo9", "LibreYOLO9s.pt"),
+        ("rfdetr", "LibreRFDETRs.pt"),
+        ("resnet", "LibreResNet18-cls.pt"),
+    ],
+)
+@pytest.mark.parametrize("option", [["best_metric=f1"], ["--best-metric", "f1"]])
+def test_best_metric_cli_forwards_alias(monkeypatch, tmp_path, family, model, option):
+    captured = {}
+
+    class Stub:
+        FAMILY = family
+        device = "cpu"
+        task = "classify" if family == "resnet" else "detect"
+
+        def train(self, data, **kwargs):
+            captured.update(kwargs)
+            return {"output_dir": str(tmp_path)}
+
+    monkeypatch.setattr(
+        "libreyolo.cli.commands.train.load_model_or_exit",
+        lambda *args, **kwargs: Stub(),
+    )
+    result = runner.invoke(
+        _make_app(),
+        [
+            f"model={model}",
+            "data=unused",
+            *option,
+            f"project={tmp_path}",
+            "--json",
+            "--quiet",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert captured["best_metric"] == "f1"
+
+
+def test_best_metric_cli_default_is_none(monkeypatch, tmp_path):
+    captured = {}
+
+    class Stub:
+        FAMILY = "yolo9"
+        device = "cpu"
+        task = "detect"
+
+        def train(self, data, **kwargs):
+            captured.update(kwargs)
+            return {"output_dir": str(tmp_path)}
+
+    monkeypatch.setattr(
+        "libreyolo.cli.commands.train.load_model_or_exit",
+        lambda *args, **kwargs: Stub(),
+    )
+    result = runner.invoke(
+        _make_app(),
+        [
+            "model=LibreYOLO9s.pt",
+            "data=unused",
+            f"project={tmp_path}",
+            "--json",
+            "--quiet",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert captured.get("best_metric") is None
+
+
+def test_best_metric_help_json_exposes_option():
+    result = runner.invoke(_make_app(), ["--help-json"])
+    assert result.exit_code == 0, result.output
+    schema = json.loads(result.stdout)
+    parameter = next(p for p in schema["parameters"] if p["name"] == "best_metric")
+    assert parameter.get("default") is None
+
+
+def test_train_json_output_reports_best_metric_key(monkeypatch, tmp_path):
+    """The JSON payload must say which metric key drove best.pt selection."""
+
+    class Stub:
+        FAMILY = "resnet"
+        device = "cpu"
+        task = "classify"
+
+        def train(self, data, **kwargs):
+            return {
+                "output_dir": str(tmp_path),
+                "best_mAP50": 0.1,
+                "best_mAP50_95": 0.2,
+                "best_metric_key": "metrics/best_conf_f1",
+            }
+
+    monkeypatch.setattr(
+        "libreyolo.cli.commands.train.load_model_or_exit",
+        lambda *args, **kwargs: Stub(),
+    )
+    result = runner.invoke(
+        _make_app(),
+        [
+            "model=LibreResNet18-cls.pt",
+            "data=unused",
+            f"project={tmp_path}",
+            "--json",
+            "--quiet",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    data = json.loads(result.stdout)
+    assert data["best_metrics"]["best_metric_key"] == "metrics/best_conf_f1"

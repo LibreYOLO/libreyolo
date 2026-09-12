@@ -213,6 +213,7 @@ class LibreResNet(BaseModel):
         resume: bool = _TRAIN_DEFAULTS.resume,
         amp: bool = _TRAIN_DEFAULTS.amp,
         patience: int = _TRAIN_DEFAULTS.patience,
+        best_metric: Optional[str] = _TRAIN_DEFAULTS.best_metric,
         callbacks: TrainCallbacks = None,
         **kwargs: Any,
     ) -> dict:
@@ -228,6 +229,10 @@ class LibreResNet(BaseModel):
         ``class_weights=True`` retains legacy sample-normalized weighting and
         cannot be combined with ``cls_pw>0``. Neither option changes sampling.
         See docs/classification_training.md for compatibility and resume rules.
+
+        ``best_metric`` picks the validation metric for best.pt and early
+        stopping: ``top1`` (default), ``top5``, ``f1``, ``precision`` or
+        ``recall``. F1, precision and recall are macro-averaged over classes.
         """
         from .trainer import ResNetTrainer
 
@@ -254,6 +259,7 @@ class LibreResNet(BaseModel):
             resume=resume,
             amp=amp,
             patience=patience,
+            best_metric=best_metric,
             callbacks=callbacks,
             **kwargs,
         )

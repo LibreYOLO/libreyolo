@@ -452,6 +452,54 @@ def test_first_zero_validation_metric_counts_as_best():
     assert trainer.best_epoch == 1
 
 
+def test_nan_validation_metric_is_never_best():
+    trainer = DummyTrainer(
+        model=nn.Linear(1, 1),
+        data=None,
+        device="cpu",
+        ema=False,
+    )
+    nan_metrics = {
+        "mAP50": float("nan"),
+        "mAP50_95": float("nan"),
+        "best_metric": float("nan"),
+        "best_metric_key": "metrics/best_conf_f1",
+    }
+
+    # First validated epoch is NaN: nothing becomes best, so patience cannot
+    # start counting (best_epoch stays 0).
+    assert trainer._update_best_state(0, nan_metrics) is False
+    assert trainer.best_epoch == 0
+    assert trainer.best_mAP50_95 == pytest.approx(0.0)
+
+    # A finite value afterwards is accepted as best.
+    finite = dict(nan_metrics, mAP50=0.4, mAP50_95=0.3, best_metric=0.3)
+    assert trainer._update_best_state(1, finite) is True
+    assert trainer.best_epoch == 2
+    assert trainer.best_mAP50_95 == pytest.approx(0.3)
+
+    # NaN after a finite best counts as no improvement.
+    assert trainer._update_best_state(2, nan_metrics) is False
+    assert trainer.best_epoch == 2
+    assert trainer.patience_counter == 1
+
+
+def test_build_train_results_reports_best_metric_key(tmp_path):
+    """The results dict must say which metric key drove best.pt selection."""
+    trainer = DummyTrainer(
+        model=nn.Linear(1, 1),
+        data=None,
+        device="cpu",
+        ema=False,
+        best_metric="f1",
+    )
+    trainer.save_dir = tmp_path
+
+    results = trainer._build_train_results()
+
+    assert results["best_metric_key"] == "metrics/best_conf_f1"
+
+
 def test_yolo9_loss_components_match_epoch_event_names():
     from libreyolo.models.yolo9.trainer import YOLO9Trainer
 

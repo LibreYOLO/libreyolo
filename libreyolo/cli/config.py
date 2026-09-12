@@ -456,6 +456,7 @@ def _build_rfdetr_train_kwargs(
         "average_best": "average_best",
         "export_check": "export_check",
         "precise_bn": "precise_bn",
+        "best_metric": "best_metric",
     }
 
     for cli_name, target_name in direct_mappings.items():

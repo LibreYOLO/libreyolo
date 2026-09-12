@@ -11,6 +11,7 @@ import yaml
 
 from libreyolo.utils.amp import normalize_amp_dtype
 from libreyolo.utils.image_size import normalize_imgsz
+from libreyolo.training.best_metric import normalize_best_metric
 
 logger = logging.getLogger(__name__)
 
@@ -266,6 +267,11 @@ class TrainConfig:
     # LayerNorm-only families.
     precise_bn: int = 0
     patience: int = 50
+    # Which validation metric picks best.pt and feeds early stopping. A short
+    # alias resolved against the model task at trainer construction (detect:
+    # map50-95, map50, map75, f1; classify: top1, top5, f1, precision, recall).
+    # None (default) keeps each trainer's built-in metric.
+    best_metric: Optional[str] = None
     resume: bool = False
     log_interval: int = 10
     seed: int = 0
@@ -311,6 +317,7 @@ class TrainConfig:
         self.class_balanced = bool(self.class_balanced)
         self.cls_pw = validate_class_weighting(self.cls_pw, self.class_weights)
         self.export_check = bool(self.export_check)
+        self.best_metric = normalize_best_metric(self.best_metric)
 
     @classmethod
     def from_kwargs(cls, **kwargs):

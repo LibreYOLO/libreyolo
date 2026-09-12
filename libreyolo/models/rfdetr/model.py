@@ -1205,6 +1205,7 @@ class LibreRFDETR(BaseModel):
         resume: str | Path | bool | None = None,
         callbacks: TrainCallbacks = None,
         loggers=None,
+        best_metric: Optional[str] = None,
         **kwargs,
     ) -> Dict:
         """Fine-tune RF-DETR through LibreYOLO's native trainer.
@@ -1222,6 +1223,8 @@ class LibreRFDETR(BaseModel):
             callbacks: Optional training callback or iterable of callbacks.
             loggers: Optional built-in experiment loggers: a registered name,
                 a configured logger instance, or an iterable mixing both.
+            best_metric: Metric that picks best.pt and feeds early stopping:
+                ``map50-95`` (default), ``map50``, ``map75`` or ``f1``.
         """
         train_kwargs = dict(kwargs)
         project = train_kwargs.pop("project", None)
@@ -1331,6 +1334,9 @@ class LibreRFDETR(BaseModel):
                 train_kwargs["imgsz"],
                 name="RF-DETR train imgsz",
             )
+
+        if best_metric is not None:
+            train_kwargs["best_metric"] = best_metric
 
         aliases = {
             "num_workers": "workers",

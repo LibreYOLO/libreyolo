@@ -92,3 +92,36 @@ The four CNN trainers use the weighted loss in both eager and CUDA-graph
 assembly paths. DINOv2's RF-DETR classification trainer retains its existing
 eager fallback when CUDA-graph training is requested. Hardware and convergence
 validation evidence is recorded with the change, separately from this API.
+
+## Best checkpoint and early stopping
+
+The trainer compares one validation metric per epoch. The epoch that improves
+it is saved as `best.pt`, and `patience` counts epochs since that improvement.
+`best_metric` selects that metric with a short alias:
+
+```python
+model.train(data="/path/to/imagefolder", best_metric="f1", patience=20)
+```
+
+```bash
+libreyolo train model=LibreResNet18-cls.pt data=/path/to/imagefolder best_metric=f1 patience=20
+libreyolo train --model LibreResNet18-cls.pt --data /path/to/imagefolder --best-metric f1 --patience 20
+```
+
+Classification aliases: `top1` (default), `top5`, `f1`, `precision`, `recall`.
+`f1`, `precision` and `recall` are macro averages over the classes present in
+the validation split: per class, precision is `tp / (tp + fp)` (zero when the
+class is never predicted), recall is `tp / (tp + fn)`, and F1 is their
+harmonic mean. All three are also reported as `metrics/precision`,
+`metrics/recall` and `metrics/f1` next to the accuracies.
+
+Detection aliases: `map50-95` (default), `map50`, `map75`, `f1`. Detection
+`f1` is the maximum F1 over the confidence sweep at IoU 0.50, the same value
+reported as `metrics/best_conf_f1`. It is NaN for an epoch in which no
+threshold reaches F1 above zero; NaN epochs never count as an improvement,
+and a run that stays NaN throughout writes no best.pt.
+
+An unknown alias, or any alias on a task other than detect or classify, raises
+at trainer construction with the list of valid values. The resolved key is
+written to the checkpoint as `best_metric_key`; resuming with a different
+`best_metric` resets best tracking rather than comparing across metrics.

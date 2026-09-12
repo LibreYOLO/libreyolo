@@ -28,6 +28,17 @@ class FOMOTrainer(BaseTrainer):
 
     best_metric_key: str = "metrics/grid_F1"
 
+    def __init__(self, *args, **kwargs):
+        # FOMO overrides validation and only emits its grid metrics, so the
+        # generic detect aliases would silently resolve to keys it never
+        # produces. Reject up front rather than accept and ignore.
+        if kwargs.get("best_metric") not in (None, ""):
+            raise NotImplementedError(
+                "best_metric is not supported for FOMO; it always tracks "
+                "metrics/grid_F1."
+            )
+        super().__init__(*args, **kwargs)
+
     @classmethod
     def _config_class(cls) -> Type[TrainConfig]:
         return FOMOConfig

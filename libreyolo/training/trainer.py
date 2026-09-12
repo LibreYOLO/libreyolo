@@ -34,6 +34,7 @@ from .callbacks import (
     TrainExceptionEvent,
     TrainStartEvent,
 )
+from .best_metric import resolve_best_metric
 from .config import TrainConfig
 from .loggers import resolve_loggers
 from .distributed import (
@@ -188,6 +189,19 @@ class BaseTrainer(ABC):
                 )
         self.model = model
         self.wrapper_model = wrapper_model
+        # User-selected best.pt / early-stopping metric. Resolved here, before
+        # any data is loaded, so a bad alias fails fast with the valid list.
+        self._best_metric_explicit = False
+        if self.config.best_metric is not None:
+            task = getattr(wrapper_model, "task", "detect")
+            self.best_metric_key = resolve_best_metric(self.config.best_metric, task)
+            self._best_metric_explicit = True
+            if is_main_process():
+                logger.info(
+                    "best_metric=%s selects %s for best.pt and early stopping",
+                    self.config.best_metric,
+                    self.best_metric_key,
+                )
         self.class_weights = None
         if (self.config.class_weights or self.config.cls_pw > 0) and (
             getattr(wrapper_model, "task", None) != "classify"
@@ -2098,6 +2112,7 @@ class BaseTrainer(ABC):
             "epoch_metrics": epoch_metrics,
             "best_mAP50": self.best_mAP50,
             "best_mAP50_95": self.best_mAP50_95,
+            "best_metric_key": getattr(self, "best_metric_key", "metrics/mAP50-95"),
             "best_epoch": self.best_epoch,
             "save_dir": str(self.save_dir),
             "best_checkpoint": (
@@ -2234,6 +2249,12 @@ class BaseTrainer(ABC):
 
         return float(epoch_loss), val_metrics, dict(loss_items), dict(lr)
 
+    def _branch_best_key(self, default: str) -> str:
+        """Metric key a task branch should track: the user's choice, else its default."""
+        if getattr(self, "_best_metric_explicit", False):
+            return self.best_metric_key
+        return default
+
     def _best_metric_value(self, val_metrics: Optional[Dict[str, Any]]) -> float:
         if not val_metrics:
             return 0.0
@@ -2311,6 +2332,11 @@ class BaseTrainer(ABC):
             return False
 
         best_metric = self._best_metric_value(val_metrics)
+        if math.isnan(best_metric):
+            # A NaN metric (e.g. best_conf_f1 when no threshold reaches F1 > 0)
+            # is never an improvement, and must not seed best state either.
+            self.patience_counter += 1
+            return False
         is_best = self.best_epoch == 0 or best_metric > self.best_mAP50_95
         if is_best:
             self.best_mAP50_95 = best_metric
@@ -3008,11 +3034,13 @@ class BaseTrainer(ABC):
             top1 = raw_metrics.get("metrics/accuracy_top1", 0.0)
             top5 = raw_metrics.get("metrics/accuracy_top5", 0.0)
             logger.info("Validation - top1: %.4f, top5: %.4f", top1, top5)
+            best_key = self._branch_best_key("metrics/accuracy_top1")
+            best_metric = raw_metrics.get(best_key, top1)
             return {
                 "mAP50": top1,
-                "mAP50_95": top1,
-                "best_metric": top1,
-                "best_metric_key": "metrics/accuracy_top1",
+                "mAP50_95": best_metric,
+                "best_metric": best_metric,
+                "best_metric_key": best_key,
                 "metrics": raw_metrics,
             }
         except Exception as e:
@@ -3072,11 +3100,14 @@ class BaseTrainer(ABC):
             miou = raw_metrics.get("metrics/mIoU", 0.0)
             accuracy = raw_metrics.get("metrics/pixel_accuracy", 0.0)
             logger.info("Validation - mIoU: %.4f, pixel accuracy: %.4f", miou, accuracy)
+            # best_metric aliases exist only for detect and classify today; the helper keeps this branch ready for future aliases.
+            best_key = self._branch_best_key("metrics/mIoU")
+            best_metric = raw_metrics.get(best_key, miou)
             return {
                 "mAP50": miou,
-                "mAP50_95": miou,
-                "best_metric": miou,
-                "best_metric_key": "metrics/mIoU",
+                "mAP50_95": best_metric,
+                "best_metric": best_metric,
+                "best_metric_key": best_key,
                 "metrics": raw_metrics,
             }
         except Exception as e:
@@ -3126,11 +3157,14 @@ class BaseTrainer(ABC):
             delta1 = raw_metrics.get("metrics/delta1", 0.0)
             abs_rel = raw_metrics.get("metrics/abs_rel", 0.0)
             logger.info("Validation - delta1: %.4f, AbsRel: %.4f", delta1, abs_rel)
+            # best_metric aliases exist only for detect and classify today; the helper keeps this branch ready for future aliases.
+            best_key = self._branch_best_key("metrics/delta1")
+            best_metric = raw_metrics.get(best_key, delta1)
             return {
                 "mAP50": delta1,
-                "mAP50_95": delta1,
-                "best_metric": delta1,
-                "best_metric_key": "metrics/delta1",
+                "mAP50_95": best_metric,
+                "best_metric": best_metric,
+                "best_metric_key": best_key,
                 "metrics": raw_metrics,
             }
         except Exception as e:
@@ -3184,11 +3218,14 @@ class BaseTrainer(ABC):
             psnr = raw_metrics.get("metrics/PSNR", 0.0)
             ssim = raw_metrics.get("metrics/SSIM", 0.0)
             logger.info("Validation - PSNR: %.4f, SSIM: %.4f", psnr, ssim)
+            # best_metric aliases exist only for detect and classify today; the helper keeps this branch ready for future aliases.
+            best_key = self._branch_best_key("metrics/PSNR")
+            best_metric = raw_metrics.get(best_key, psnr)
             return {
                 "mAP50": psnr,
-                "mAP50_95": psnr,
-                "best_metric": psnr,
-                "best_metric_key": "metrics/PSNR",
+                "mAP50_95": best_metric,
+                "best_metric": best_metric,
+                "best_metric_key": best_key,
                 "metrics": raw_metrics,
             }
         except Exception as e:

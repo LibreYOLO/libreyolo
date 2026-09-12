@@ -34,6 +34,11 @@ class ClassifyValidator(ValidationLossMixin, BaseValidator):
     """Top-1/top-5 accuracy validator for the classification task."""
 
     task = "classify"
+    # Confusion matrix, rows = targets, cols = top-1 predictions. Sized
+    # lazily from the first batch's logits width. Declared as a class-level
+    # default so validators built via ``object.__new__`` without a call to
+    # ``_init_metrics`` still see ``None`` instead of raising AttributeError.
+    _confusion: Optional[torch.Tensor] = None
 
     def __init__(
         self,
@@ -154,6 +159,9 @@ class ClassifyValidator(ValidationLossMixin, BaseValidator):
         self._top1_correct = 0
         self._top5_correct = 0
         self._total = 0
+        # Confusion matrix, rows = targets, cols = top-1 predictions. Sized
+        # lazily from the first batch's logits width.
+        self._confusion: Optional[torch.Tensor] = None
         self._reset_validation_loss()
 
     def _preprocess_batch(self, batch: Any) -> tuple:
@@ -192,16 +200,65 @@ class ClassifyValidator(ValidationLossMixin, BaseValidator):
         self._top5_correct += int(correct.any(dim=1).sum().item())
         self._total += int(targets.numel())
 
+        pred = topk[:, 0]
+        if self._confusion is None:
+            self._confusion = torch.zeros(num_classes, num_classes, dtype=torch.long)
+        valid = (targets >= 0) & (targets < num_classes)
+        flat = targets[valid].long() * num_classes + pred[valid].long()
+        self._confusion += torch.bincount(
+            flat, minlength=num_classes * num_classes
+        ).view(num_classes, num_classes)
+
     def _compute_metrics(self) -> Dict[str, float]:
         total = max(self._total, 1)
         top1 = self._top1_correct / total
         top5 = self._top5_correct / total
+        precision, recall, f1 = self._macro_precision_recall_f1()
         return {
             "metrics/accuracy_top1": top1,
             "metrics/accuracy_top5": top5,
+            "metrics/precision": precision,
+            "metrics/recall": recall,
+            "metrics/f1": f1,
             "fitness": top1,
             **self._validation_loss_metrics(),
         }
+
+    def _macro_precision_recall_f1(self) -> tuple[float, float, float]:
+        """Macro-averaged P/R/F1 over classes present in the targets.
+
+        Per class: precision = tp / (tp + fp) (0 when the class was never
+        predicted), recall = tp / (tp + fn), f1 = 2PR / (P + R) (0 when both
+        are 0). Classes with no ground-truth samples are excluded from the
+        mean. Returns zeros when nothing was accumulated.
+        """
+        if self._confusion is None:
+            return 0.0, 0.0, 0.0
+        confusion = self._confusion.double()
+        tp = confusion.diag()
+        fp = confusion.sum(dim=0) - tp
+        fn = confusion.sum(dim=1) - tp
+        support = confusion.sum(dim=1)
+        present = support > 0
+        if not bool(present.any()):
+            return 0.0, 0.0, 0.0
+        precision = torch.where(
+            tp + fp > 0, tp / (tp + fp).clamp(min=1), torch.zeros_like(tp)
+        )
+        recall = torch.where(
+            tp + fn > 0, tp / (tp + fn).clamp(min=1), torch.zeros_like(tp)
+        )
+        denom = precision + recall
+        f1 = torch.where(
+            denom > 0,
+            2 * precision * recall / denom.clamp(min=1e-12),
+            torch.zeros_like(tp),
+        )
+        return (
+            float(precision[present].mean()),
+            float(recall[present].mean()),
+            float(f1[present].mean()),
+        )
 
     def _print_results(self, metrics: Dict[str, float]) -> None:
         logger.info("=" * 50)

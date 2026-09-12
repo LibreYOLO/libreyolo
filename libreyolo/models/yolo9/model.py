@@ -622,6 +622,7 @@ class LibreYOLO9(BaseModel):
         amp: bool = _TRAIN_DEFAULTS.amp,
         amp_dtype: str = _TRAIN_DEFAULTS.amp_dtype,
         patience: int = _TRAIN_DEFAULTS.patience,
+        best_metric: Optional[str] = _TRAIN_DEFAULTS.best_metric,
         allow_download_scripts: bool = False,
         pretrained: bool | str | Path | None = None,
         callbacks: TrainCallbacks = None,
@@ -647,6 +648,8 @@ class LibreYOLO9(BaseModel):
             amp: Enable automatic mixed precision training.
             amp_dtype: CUDA AMP dtype, ``float16`` or ``bfloat16``.
             patience: Early stopping patience.
+            best_metric: Metric that picks best.pt and feeds early stopping:
+                ``map50-95`` (default), ``map50``, ``map75`` or ``f1``.
             pretrained: Optional training initialization weights. Use True to
                 load the matching LibreYOLO9 detect checkpoint for transfer
                 learning, or pass a checkpoint path/name.
@@ -752,6 +755,7 @@ class LibreYOLO9(BaseModel):
             amp=amp,
             amp_dtype=amp_dtype,
             patience=patience,
+            best_metric=best_metric,
             allow_download_scripts=allow_download_scripts,
             callbacks=callbacks,
             loggers=loggers,

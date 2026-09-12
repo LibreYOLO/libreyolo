@@ -50,6 +50,16 @@ class VJEPA2Trainer(ClassifyValidationLossMixin, BaseTrainer):
 
     best_metric_key = "metrics/accuracy_top1"
 
+    def __init__(self, *args, **kwargs):
+        # V-JEPA2 has no working per-epoch validation path yet, so a selected
+        # metric could never be honored. Reject rather than accept and ignore.
+        if str(kwargs.get("best_metric") or "").strip():
+            raise NotImplementedError(
+                "best_metric is not supported for V-JEPA2; its training run "
+                "does not validate, so no metric can drive best.pt or patience."
+            )
+        super().__init__(*args, **kwargs)
+
     @classmethod
     def _config_class(cls) -> Type[TrainConfig]:
         return VJEPA2Config

@@ -423,6 +423,11 @@ def train_cmd(
         False, help="Save final validation plots during training"
     ),
     patience: int = typer.Option(50, help="Early stopping patience (0=disabled)"),
+    best_metric: Optional[str] = typer.Option(
+        None,
+        help="Metric for best.pt and early stopping. detect: map50-95|map50|map75|f1. "
+        "classify: top1|top5|f1|precision|recall. Default: the task's built-in metric",
+    ),
     # Output
     project: str = typer.Option("runs/train", help="Output directory root"),
     name: str = typer.Option("exp", help="Experiment name"),
@@ -675,6 +680,7 @@ def train_cmd(
         "faster_coco_eval": faster_coco_eval,
         "save_plots": save_plots,
         "patience": patience,
+        "best_metric": best_metric,
         "project": project,
         "name": name,
         "exist_ok": exist_ok,
@@ -888,7 +894,11 @@ def train_cmd(
         "epochs_completed": epochs_completed,
         "best_epoch": best_epoch,
         "best_metrics": (
-            {"mAP50": best_mAP50, "mAP50_95": best_mAP50_95}
+            {
+                "mAP50": best_mAP50,
+                "mAP50_95": best_mAP50_95,
+                "best_metric_key": results.get("best_metric_key"),
+            }
             if best_mAP50 is not None
             else None
         ),
