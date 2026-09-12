@@ -164,7 +164,7 @@ exceptions being lowercase version suffixes (`DEIMv2`, `RTDETRv2`,
 The VLM and promptable SAM tiers are separate categories and do not follow this
 rule. Their weights-directory prefixes (`LibreQwen3VL`, `LibreLFM2VL`,
 `LibreSmolVLM2`, `LibreInternVL3`, `LibreFlorence2`, `LibreKosmos2`,
-`LocateAnything`, `LibreGemma4`, `LibreMoondream`, `LibreMODUS`, `LibreSAM`,
+`LocateAnything`, `LibreGemma4`, `LibreMoondream`, `LibreMolmo2`, `LibreMODUS`, `LibreSAM`,
 `LibreSAM2`, `LibreSAM3`, `LibreMobileSAM`, `LibrePicoSAM3`, `LibreEdgeTAM`)
 are not registered
 into the detector factory and do not emit `Libre<FAMILY><size>.pt` detector
@@ -287,6 +287,7 @@ VLM snapshot families use model-specific size names:
 
 | Family | Size codes |
 |---|---|
+| `molmo2` | `4b` (default), `8b`, `o-7b`; single-image point task |
 | `libremodus` | `14b-a7b` (14B total parameters, approximately 7B active; external MODUS snapshot) |
 
 Promptable SAM tier size aliases:
