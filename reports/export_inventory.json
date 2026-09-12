@@ -1300,6 +1300,28 @@
     "available": true,
     "group": "g3"
   },
+  "molmo2": {
+    "class": "libreyolo.models.vlm.molmo2.LibreMolmo2",
+    "tasks": [
+      "point"
+    ],
+    "default_task": "point",
+    "sizes": {
+      "4b": 378,
+      "8b": 378,
+      "o-7b": 378
+    },
+    "default_imgsz": {
+      "4b": 378,
+      "8b": 378,
+      "o-7b": 378
+    },
+    "task_sizes": {},
+    "export_override": "blocked",
+    "optional_extra": "molmo2",
+    "available": false,
+    "group": "s"
+  },
   "moondream": {
     "class": "libreyolo.models.vlm.moondream.LibreMoondream",
     "tasks": [

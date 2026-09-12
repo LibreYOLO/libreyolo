@@ -77,6 +77,7 @@ in preflight.
 | mobilenetv4 | classify | ✓ | ✓ | ✓ | ✓ | ✓ |  |  |  | ✓ | ✓ |  | ✓ |
 | mobilesam | segment |  |  |  |  |  |  |  |  |  |  |  |  |
 | moge2 | normal | ✓ | ✓ | ✓ | ✓ | ✓ |  |  |  | available |  |  |  |
+| molmo2 | point |  |  |  |  |  |  |  |  |  |  |  |  |
 | moondream | detect |  |  |  |  |  |  |  |  |  |  |  |  |
 | moondream | point |  |  |  |  |  |  |  |  |  |  |  |  |
 | nafnet | restore | ✓ | ✓ | ✓ | ✓ | ✓ |  |  |  | ✓ |  |  | ✓ |
@@ -1206,6 +1207,18 @@ These converter paths are callable with the recorded validation context.
 - `moge2` / `normal` / `tflite`: onnx2tf 2.6.7 flatbuffer-direct lowering cannot lower the encoder's cubic Resize because its input C/H/W signature remains dynamic.
 - `moge2` / `normal` / `coreml`: This family is not wired to the fixed-canvas dense unit-normal export and backend renormalization contract.
 - `moge2` / `normal` / `coreai`: This family is not wired to the fixed-canvas dense unit-normal export and backend renormalization contract.
+- `molmo2` / `point` / `onnx`: This family is not wired to the shared point heatmap and backend peak-decoding export contract.
+- `molmo2` / `point` / `torchscript`: This family is not wired to the shared point heatmap and backend peak-decoding export contract.
+- `molmo2` / `point` / `executorch`: This family is not wired to the shared point heatmap and backend peak-decoding export contract.
+- `molmo2` / `point` / `tensorrt`: This family is not wired to the shared point heatmap and backend peak-decoding export contract.
+- `molmo2` / `point` / `openvino`: This family is not wired to the shared point heatmap and backend peak-decoding export contract.
+- `molmo2` / `point` / `paddle`: This family is not wired to the shared point heatmap and backend peak-decoding export contract.
+- `molmo2` / `point` / `mnn`: This family is not wired to the shared point heatmap and backend peak-decoding export contract.
+- `molmo2` / `point` / `rknn`: This family is not wired to the shared point heatmap and backend peak-decoding export contract.
+- `molmo2` / `point` / `ncnn`: This family is not wired to the shared point heatmap and backend peak-decoding export contract.
+- `molmo2` / `point` / `tflite`: This family is not wired to the shared point heatmap and backend peak-decoding export contract.
+- `molmo2` / `point` / `coreml`: This family is not wired to the shared point heatmap and backend peak-decoding export contract.
+- `molmo2` / `point` / `coreai`: This family is not wired to the shared point heatmap and backend peak-decoding export contract.
 - `moondream` / `detect` / `onnx`: Generative VLM export is out of scope for v1.
 - `moondream` / `detect` / `torchscript`: Generative VLM export is out of scope for v1.
 - `moondream` / `detect` / `executorch`: Generative VLM export is out of scope for v1.
