@@ -202,6 +202,8 @@ def __getattr__(name):
         "LibreVLA": (".models.vla", "LibreVLA"),
         "LibreSmolVLA": (".models.vla", "LibreSmolVLA"),
         "LibreXVLA": (".models.vla", "LibreXVLA"),
+        "LibreACT": (".models.vla", "LibreACT"),
+        "LibreDiffusionPolicy": (".models.vla", "LibreDiffusionPolicy"),
         "LibreVLM": (".models.vlm", "LibreVLM"),
         "LibreLFM2VL": (".models.vlm", "LibreLFM2VL"),
         "LibreQwen3VL": (".models.vlm", "LibreQwen3VL"),
@@ -216,6 +218,7 @@ def __getattr__(name):
         "LibreGroundQwen3VL": (".models.ground", "LibreGroundQwen3VL"),
         "LibreGemma4": (".models.vlm", "LibreGemma4"),
         "LibreMoondream": (".models.vlm", "LibreMoondream"),
+        "LibreMolmo2": (".models.vlm", "LibreMolmo2"),
         "LibreNorthMicroVision": (".models.vlm", "LibreNorthMicroVision"),
         "LibreSenseNovaVision": (".models.sensenova", "LibreSenseNovaVision"),
         "LibreMODUS": (".models.modus", "LibreMODUS"),
@@ -365,6 +368,7 @@ __all__ = [
     "LibreGroundQwen3VL",
     "LibreGemma4",
     "LibreMoondream",
+    "LibreMolmo2",
     "LibreNorthMicroVision",
     "LibreMODUS",
     "LibreModus",
@@ -374,6 +378,8 @@ __all__ = [
     "LibreVLA",
     "LibreSmolVLA",
     "LibreXVLA",
+    "LibreACT",
+    "LibreDiffusionPolicy",
     # Calibrated native monocular 3D detection
     "LibreFCOS3D",
     # Promptable 3D detection (separately installed upstream runtime)

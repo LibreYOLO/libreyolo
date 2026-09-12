@@ -44,12 +44,15 @@ OPTIONAL_MODELS = (
         "transformers",
     ),
     ("libreyolo.models.vlm.gemma4", "LibreGemma4", "vlm", "transformers"),
+    ("libreyolo.models.vlm.molmo2", "LibreMolmo2", "molmo2", "transformers"),
     ("libreyolo.models.vlm.moondream", "LibreMoondream", "vlm", "transformers"),
     ("libreyolo.models.vlm.qwen3vl", "LibreQwen3VL", "vlm", "transformers"),
     ("libreyolo.models.vlm.smolvlm", "LibreSmolVLM2", "vlm", "transformers"),
     ("libreyolo.models.ground.showui", "LibreShowUI", "vlm", "transformers"),
     ("libreyolo.models.vla.smolvla", "LibreSmolVLA", "vla", "lerobot"),
     ("libreyolo.models.vla.xvla", "LibreXVLA", "vla", "lerobot"),
+    ("libreyolo.models.vla.act_policy", "LibreACT", "vla", "lerobot"),
+    ("libreyolo.models.vla.diffusion_policy", "LibreDiffusionPolicy", "vla", "lerobot"),
     (
         "libreyolo.models.ground.florence",
         "LibreGroundFlorence2",
@@ -151,6 +154,10 @@ def collect_model_inventory() -> dict[str, dict]:
             cls = getattr(importlib.import_module(module_name), class_name)
         except (ImportError, ModuleNotFoundError):
             continue
+        # Pinned remote-code families can require more than a package's presence.
+        runtime_available = getattr(cls, "_runtime_available", None)
+        if callable(runtime_available):
+            available = runtime_available()
         optional[cls.FAMILY] = (extra, available)
         if cls not in classes:
             classes.append(cls)

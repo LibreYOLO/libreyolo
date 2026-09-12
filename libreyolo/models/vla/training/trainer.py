@@ -386,7 +386,7 @@ class VLATrainer:
                 cameras=bundle.cameras,
                 action_names=bundle.action_names,
                 state_names=bundle.state_names,
-                chunk_size=int(getattr(config, "chunk_size", 0)) or None,
+                chunk_size=wrapper.chunk_size,
             )
 
         epoch = 0
@@ -616,6 +616,7 @@ class VLAValidator:
                 processed = wrapper._preprocessor(batch)
                 chunk = policy.predict_action_chunk(processed)
                 chunk = wrapper._postprocessor(chunk)
+                target, pad = wrapper._validation_targets(target, pad, chunk.shape[1])
                 dim = target.shape[-1]
                 preds.append(chunk[:, : target.shape[1], :dim].detach().cpu())
                 targets.append(target.cpu())

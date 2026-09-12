@@ -21,15 +21,21 @@ from __future__ import annotations
 
 from typing import Dict, Tuple, Type
 
+from .act_policy import LibreACT
 from .base import LibreVLAModel
 from .checkpoint import CONTRACT_FILENAME, is_vla_checkpoint, read_contract
 from .smolvla import LibreSmolVLA
+from .diffusion_policy import LibreDiffusionPolicy
 from .xvla import LibreXVLA
 
 # alias -> (family class, size)
 _ALIASES: Dict[str, Tuple[Type[LibreVLAModel], str]] = {
     "xvla": (LibreXVLA, "base"),
     "xvla-base": (LibreXVLA, "base"),
+    "diffusion": (LibreDiffusionPolicy, "base"),
+    "diffusion-policy": (LibreDiffusionPolicy, "base"),
+    "act": (LibreACT, "base"),
+    "act-policy": (LibreACT, "base"),
     "smolvla": (LibreSmolVLA, "base"),
     "smolvla-base": (LibreSmolVLA, "base"),
 }
@@ -100,6 +106,8 @@ __all__ = [
     "LibreVLAModel",
     "LibreSmolVLA",
     "LibreXVLA",
+    "LibreACT",
+    "LibreDiffusionPolicy",
     "is_vla_checkpoint",
     "read_contract",
 ]

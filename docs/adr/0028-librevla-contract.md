@@ -96,8 +96,13 @@ reject `act` results.
   with neither raises.
 - `reset()` clears any family-side action queue between episodes.
 
-Depth, tactile, audio and multi-step observation histories are not part of
-this version. They enter as additional named observation entries without
+Amendment (2026-09-12): Diffusion Policy maintains a rolling observation
+history, pads the initial history by repetition, and clears it on `reset()`.
+Its offline validator aligns targets and padding masks with the predicted
+chunk's current-step origin.
+
+Depth, tactile, audio and user-supplied multi-step observation histories are
+not part of this version. They enter as additional named observation entries without
 changing the call shape.
 
 ## Training, validation, checkpoints

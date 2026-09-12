@@ -10,6 +10,10 @@ before 1.4.0 are documented in the
 ### Added
 
 - X-VLA action chunks, dataset fine-tuning and offline validation through `LibreVLA`.
+- ACT and Diffusion action policies: train from scratch, predict without a language instruction, and validate saved checkpoints through `LibreVLA`.
+- **Molmo2** (`molmo2-4b`, `molmo2-8b`, `molmo2-o-7b`) single-image pointing
+  through `LibreVLM`, returning `Results.points`. Pinned Apache-2.0 remote
+  snapshots; inference-only, with a separate `libreyolo[molmo2]` environment.
 
 - **LibreVLA** sibling factory and the `act` task: camera frames + robot
   state + instruction → `Results.actions`, a `(T, D)` action chunk with
