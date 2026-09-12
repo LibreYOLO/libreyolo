@@ -201,6 +201,7 @@ def __getattr__(name):
         "LibreLLM": (".models.llm", "LibreLLM"),
         "LibreVLA": (".models.vla", "LibreVLA"),
         "LibreSmolVLA": (".models.vla", "LibreSmolVLA"),
+        "LibreXVLA": (".models.vla", "LibreXVLA"),
         "LibreVLM": (".models.vlm", "LibreVLM"),
         "LibreLFM2VL": (".models.vlm", "LibreLFM2VL"),
         "LibreQwen3VL": (".models.vlm", "LibreQwen3VL"),
@@ -372,6 +373,7 @@ __all__ = [
     # Vision-language-action tier (optional, requires libreyolo[vla])
     "LibreVLA",
     "LibreSmolVLA",
+    "LibreXVLA",
     # Calibrated native monocular 3D detection
     "LibreFCOS3D",
     # Promptable 3D detection (separately installed upstream runtime)

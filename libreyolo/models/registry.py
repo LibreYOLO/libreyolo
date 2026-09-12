@@ -136,6 +136,7 @@ MODEL_GROUPS: dict[str, str] = {
     "showui": "s",
     "smolvlm2": "s",
     "smolvla": "s",
+    "xvla": "s",
     "clip": "s",
     "siglip2": "s",
     "libremodus": "s",

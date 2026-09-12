@@ -49,6 +49,7 @@ OPTIONAL_MODELS = (
     ("libreyolo.models.vlm.smolvlm", "LibreSmolVLM2", "vlm", "transformers"),
     ("libreyolo.models.ground.showui", "LibreShowUI", "vlm", "transformers"),
     ("libreyolo.models.vla.smolvla", "LibreSmolVLA", "vla", "lerobot"),
+    ("libreyolo.models.vla.xvla", "LibreXVLA", "vla", "lerobot"),
     (
         "libreyolo.models.ground.florence",
         "LibreGroundFlorence2",

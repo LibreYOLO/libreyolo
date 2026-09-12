@@ -156,6 +156,10 @@ class LibreVLAModel:
         """Return the family's default config for training without a base policy."""
         raise NotImplementedError
 
+    def _prepare_training_config(self, config: Any) -> Any:
+        """Apply family-specific training defaults before constructing the policy."""
+        return config
+
     @property
     def camera_slots(self) -> List[str]:
         """Ordered camera slot names the loaded policy expects."""

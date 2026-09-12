@@ -24,9 +24,12 @@ from typing import Dict, Tuple, Type
 from .base import LibreVLAModel
 from .checkpoint import CONTRACT_FILENAME, is_vla_checkpoint, read_contract
 from .smolvla import LibreSmolVLA
+from .xvla import LibreXVLA
 
 # alias -> (family class, size)
 _ALIASES: Dict[str, Tuple[Type[LibreVLAModel], str]] = {
+    "xvla": (LibreXVLA, "base"),
+    "xvla-base": (LibreXVLA, "base"),
     "smolvla": (LibreSmolVLA, "base"),
     "smolvla-base": (LibreSmolVLA, "base"),
 }
@@ -40,7 +43,6 @@ _RESERVED_ALIASES: Dict[str, str] = {
     "pi0.5": "pi0.5 is reserved: the adapter lands once it is load-tested.",
     "molmoact2": "MolmoAct2 is reserved: the adapter lands once it is load-tested.",
     "molmoact": "MolmoAct is reserved: the adapter lands once it is load-tested.",
-    "xvla": "X-VLA is reserved: the adapter lands once it is load-tested.",
     "groot": "GR00T is reserved: the adapter lands once it is load-tested.",
     "groot-n1.5": "GR00T is reserved: the adapter lands once it is load-tested.",
     "openvla": "OpenVLA is reserved: it loads through transformers remote code, not lerobot; adapter later.",
@@ -97,6 +99,7 @@ __all__ = [
     "LibreVLA",
     "LibreVLAModel",
     "LibreSmolVLA",
+    "LibreXVLA",
     "is_vla_checkpoint",
     "read_contract",
 ]

@@ -9,6 +9,8 @@ before 1.4.0 are documented in the
 
 ### Added
 
+- X-VLA action chunks, dataset fine-tuning and offline validation through `LibreVLA`.
+
 - **LibreVLA** sibling factory and the `act` task: camera frames + robot
   state + instruction → `Results.actions`, a `(T, D)` action chunk with
   per-dimension names, control rate and instruction. First family is

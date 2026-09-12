@@ -999,6 +999,11 @@ Plain COCO-default weights never carry a variant suffix.
 
 ## Vision-language-action policies
 
+`LibreXVLA` (`xvla`, aliases `xvla` and `xvla-base`, coverage group `s`)
+wraps the pinned `lerobot/xvla-base` snapshot. Its default size is `base`,
+its cache directory is `weights/LibreXVLAbase/`, and fine-tunes use the
+same `LibreVLA` directory contract.
+
 `LibreSmolVLA` (`smolvla`, coverage group `s`) is a sibling API wrapping the
 SmolVLA policy through the optional `lerobot` runtime (`libreyolo[vla]`,
 Python 3.12+). It uses `act`, with aliases `action`, `actions`, `vla`,

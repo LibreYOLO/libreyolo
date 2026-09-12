@@ -140,11 +140,11 @@ def _check_import_surface(expect_source: str, source_root: Path | None) -> None:
     if not callable(LibreVLM):
         raise AssertionError("LibreVLM import did not resolve to a callable")
     # The LibreVLA tier is importable without the vla extra (lerobot loads lazily).
-    from libreyolo import Actions, LibreSmolVLA, LibreVLA
+    from libreyolo import Actions, LibreSmolVLA, LibreVLA, LibreXVLA
 
     if not callable(LibreVLA):
         raise AssertionError("LibreVLA import did not resolve to a callable")
-    if not isinstance(LibreSmolVLA, type) or not isinstance(Actions, type):
+    if not all(isinstance(cls, type) for cls in (LibreSmolVLA, LibreXVLA, Actions)):
         raise AssertionError("LibreVLA family/payload exports did not resolve to classes")
     for family in (
         LibreQwen3VL,
