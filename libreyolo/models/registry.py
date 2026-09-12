@@ -130,6 +130,7 @@ MODEL_GROUPS: dict[str, str] = {
     "northmicrovision": "s",
     "gemma4": "s",
     "moondream": "s",
+    "molmo2": "s",
     "qwen3vl": "s",
     "ground_florence2": "s",
     "ground_qwen3vl": "s",

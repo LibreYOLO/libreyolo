@@ -124,6 +124,12 @@ ground = [
     # LibreGround (instruction → click) shares the VLM extra stack.
     "libreyolo[vlm]",
 ]
+molmo2 = [
+    # Pinned Molmo2 remote code uses Transformers 4 processor and RoPE APIs.
+    "transformers==4.57.1",
+    "einops>=0.8.0",
+    "accelerate>=0.26.0",
+]
 vlm = [
     # VLM-as-detector and LibreGround families load through transformers.
     # huggingface_hub (used for snapshot download) ships with transformers.
@@ -391,6 +397,22 @@ build-backend = "setuptools.build_meta"
 # Requires NVIDIA driver >= 555 (CUDA 12.8 runtime) on the host.
 [tool.uv]
 conflicts = [
+    [{ extra = "molmo2" }, { extra = "hf" }],
+    [{ extra = "molmo2" }, { extra = "all" }],
+    [{ extra = "molmo2" }, { extra = "eomt" }],
+    [{ extra = "molmo2" }, { extra = "ground" }],
+    [{ extra = "molmo2" }, { extra = "label" }],
+    [{ extra = "molmo2" }, { extra = "lora" }],
+    [{ extra = "molmo2" }, { extra = "marigold" }],
+    [{ extra = "molmo2" }, { extra = "modus" }],
+    [{ extra = "molmo2" }, { extra = "openvocab" }],
+    [{ extra = "molmo2" }, { extra = "rfdetr" }],
+    [{ extra = "molmo2" }, { extra = "sam" }],
+    [{ extra = "molmo2" }, { extra = "sensenova" }],
+    [{ extra = "molmo2" }, { extra = "siglip2-convert" }],
+    [{ extra = "molmo2" }, { extra = "vlm" }],
+    [{ extra = "molmo2" }, { extra = "vlm-train" }],
+
     [{ extra = "neptune" }, { extra = "tflite" }],
     [{ extra = "neptune" }, { extra = "litert" }],
     [{ extra = "neptune" }, { extra = "all" }],
