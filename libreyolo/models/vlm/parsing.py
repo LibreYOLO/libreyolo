@@ -15,10 +15,13 @@ The coordinate contract follows the documented LFM2-VL schema: ``bbox`` is
 from __future__ import annotations
 
 import json
+import math
 import re
+import xml.etree.ElementTree as ET
 from typing import Dict, List, Optional, Tuple
 
 __all__ = [
+    "extract_molmo_points",
     "extract_detections",
     "extract_bare_boxes",
     "normalize_bbox",
@@ -330,3 +333,60 @@ def build_detection_dict(
         "classes": class_ids,
         "num_detections": len(boxes),
     }
+
+
+_MOLMO_POINT_TAG = re.compile(
+    r"<(?P<tag>points?)\b(?P<attrs>[^<>]*?)(?:/\s*>|>[^<>]*</(?P=tag)\s*>)",
+    re.DOTALL,
+)
+
+
+def extract_molmo_points(text: str, label: str) -> list[dict]:
+    """Parse Molmo single-image markup into normalized, query-labelled points.
+
+    Molmo2 ``coords="1 id x y ..."`` uses a 0-1000 scale. Legacy ``x/y``
+    and ``x1/y1/...`` attributes use percentages. The grammar determines the
+    scale, never the numeric magnitude. Multi-image/video groups are rejected.
+    See ``NOTICE`` for the upstream format reference.
+    """
+    if not isinstance(text, str):
+        return []
+    items = []
+    for match in _MOLMO_POINT_TAG.finditer(text):
+        try:
+            attrs = ET.fromstring("<point" + match["attrs"] + "/>").attrib
+        except ET.ParseError:
+            continue
+        pairs = []
+        if "coords" in attrs:
+            # XML normalizes literal tabs/newlines inside attributes to spaces.
+            # Preserve the distinction between point spacing and frame separators.
+            raw_coords = re.search(r"\bcoords\s*=\s*(['\"])(.*?)\1", match["attrs"], re.DOTALL)
+            if raw_coords is None or any(c in raw_coords[2] for c in "\t\r\n:;,"):
+                continue
+            fields = attrs["coords"].split(" ")
+            fields = [field for field in fields if field]
+            # A single still image has index 1 and complete (id, x, y) triples.
+            if not fields or fields[0] != "1" or (len(fields) - 1) % 3:
+                continue
+            if not all(re.fullmatch(r"[0-9]+", field) for field in fields):
+                continue
+            pairs = [(fields[i + 1], fields[i + 2]) for i in range(1, len(fields), 3)]
+            divisor = 1000.0
+        else:
+            divisor = 100.0
+            if match["tag"] == "point":
+                pairs = [(attrs.get("x"), attrs.get("y"))]
+            else:
+                indices = sorted(
+                    int(key[1:]) for key in attrs if re.fullmatch(r"x[1-9][0-9]*", key)
+                )
+                pairs = [(attrs[f"x{i}"], attrs.get(f"y{i}")) for i in indices]
+        for raw_x, raw_y in pairs:
+            try:
+                x, y = float(raw_x) / divisor, float(raw_y) / divisor
+            except (TypeError, ValueError, OverflowError):
+                continue
+            if all(math.isfinite(v) and 0 <= v <= 1 for v in (x, y)):
+                items.append({"label": label, "point": [x, y]})
+    return items
