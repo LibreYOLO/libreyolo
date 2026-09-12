@@ -204,3 +204,41 @@ def test_wrong_transformers_fails_before_download(monkeypatch):
     )
     with pytest.raises(ImportError, match=r"libreyolo\[molmo2\]"):
         molmo2._check_dependencies()
+
+
+@pytest.mark.parametrize(
+    "version,missing,expected",
+    [
+        ("4.57.1", None, True),
+        ("5.16.1", None, False),
+        ("4.57.0", None, False),
+        ("4.57.1", "einops", False),
+        ("4.57.1", "transformers", False),
+    ],
+)
+def test_runtime_availability_checks_version_and_modules(
+    monkeypatch, version, missing, expected
+):
+    monkeypatch.setattr(molmo2.metadata, "version", lambda _: version)
+    monkeypatch.setattr(
+        molmo2.util, "find_spec", lambda name: None if name == missing else object()
+    )
+    assert LibreMolmo2._runtime_available() is expected
+
+
+def test_runtime_availability_without_transformers_distribution(monkeypatch):
+    def absent(_):
+        raise molmo2.metadata.PackageNotFoundError("transformers")
+
+    monkeypatch.setattr(molmo2.metadata, "version", absent)
+    assert LibreMolmo2._runtime_available() is False
+
+
+@pytest.mark.parametrize("available", [True, False])
+def test_inventory_uses_family_runtime_check(monkeypatch, available):
+    from libreyolo.models.inventory import collect_model_inventory
+
+    monkeypatch.setattr(
+        LibreMolmo2, "_runtime_available", staticmethod(lambda: available)
+    )
+    assert collect_model_inventory()["molmo2"]["available"] is available

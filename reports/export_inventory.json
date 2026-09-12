@@ -1319,7 +1319,7 @@
     "task_sizes": {},
     "export_override": "blocked",
     "optional_extra": "molmo2",
-    "available": true,
+    "available": false,
     "group": "s"
   },
   "moondream": {

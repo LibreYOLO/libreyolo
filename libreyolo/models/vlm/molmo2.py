@@ -9,6 +9,7 @@ the pinned upstream code requires Transformers 4.57.1. See NOTICE.
 
 from __future__ import annotations
 
+from importlib import metadata, util
 from typing import ClassVar
 
 from ...utils.image_loader import ImageLoader
@@ -63,6 +64,19 @@ class LibreMolmo2(LibreVLMModel):
     TRAIN_UNSUPPORTED_REASON = "Molmo2 pointing fine-tuning is not implemented."
     COORD_DIVISOR = 1.0  # Parser normalizes both output grammars.
     REPETITION_PENALTY = 1.0  # Preserve upstream's greedy generation defaults.
+
+    @staticmethod
+    def _runtime_available() -> bool:
+        """Let inventory check the pinned runtime without importing Transformers."""
+        try:
+            installed = metadata.version("transformers")
+        except metadata.PackageNotFoundError:
+            return False
+        return (
+            installed == "4.57.1"
+            and util.find_spec("transformers") is not None
+            and util.find_spec("einops") is not None
+        )
 
     def __init__(self, size="4b", **kwargs):
         prompt = kwargs.get("prompt")
