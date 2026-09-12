@@ -2053,6 +2053,24 @@
     "available": true,
     "group": "s"
   },
+  "smolvla": {
+    "class": "libreyolo.models.vla.smolvla.LibreSmolVLA",
+    "tasks": [
+      "act"
+    ],
+    "default_task": "act",
+    "sizes": {
+      "base": 512
+    },
+    "default_imgsz": {
+      "base": 512
+    },
+    "task_sizes": {},
+    "export_override": "blocked",
+    "optional_extra": "vla",
+    "available": false,
+    "group": "s"
+  },
   "smolvlm2": {
     "class": "libreyolo.models.vlm.smolvlm.LibreSmolVLM2",
     "tasks": [

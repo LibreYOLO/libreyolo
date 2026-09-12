@@ -27,6 +27,7 @@ TaskType = Literal[
     "embed",
     "mesh",
     "detect3d",
+    "act",
 ]
 TASKS = (
     "detect",
@@ -48,6 +49,7 @@ TASKS = (
     "embed",
     "mesh",
     "detect3d",
+    "act",
 )
 
 TASK_ALIASES = {
@@ -140,6 +142,14 @@ TASK_ALIASES = {
     "hmr": "mesh",
     "human-mesh-recovery": "mesh",
     "human_mesh_recovery": "mesh",
+    # Vision-language-action policies: an action chunk is the primitive.
+    "act": "act",
+    "action": "act",
+    "actions": "act",
+    "vla": "act",
+    "policy": "act",
+    "robot-policy": "act",
+    "robot_policy": "act",
 }
 
 TASK_TO_SUFFIX = {
@@ -161,6 +171,7 @@ TASK_TO_SUFFIX = {
     "ocr": "ocr",
     "embed": "embed",
     "mesh": "mesh",
+    "act": "act",
 }
 
 SUFFIX_TO_TASK = {v: k for k, v in TASK_TO_SUFFIX.items()}
