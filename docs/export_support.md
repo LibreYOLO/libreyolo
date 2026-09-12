@@ -10,6 +10,7 @@ in preflight.
 | Family | Task | onnx | torchscript | executorch | tensorrt | openvino | paddle | mnn | rknn | ncnn | tflite | coreml | coreai |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | 3dmood | detect3d |  |  |  |  |  |  |  |  |  |  |  |  |
+| act_policy | act |  |  |  |  |  |  |  |  |  |  |  |  |
 | alexnet | classify | ✓ | ✓ | available | ✓ | ✓ |  |  |  | available |  |  |  |
 | ben2 | matte | ✓ | ✓ | available | available | available |  |  |  | available |  |  |  |
 | birefnet | matte | available | ✓ |  |  |  |  |  |  |  |  |  |  |
@@ -31,6 +32,7 @@ in preflight.
 | dexined | edge | ✓ | ✓ | ✓ | ✓ | ✓ |  |  |  |  | ✓ |  |  |
 | dfine | detect | ✓ | ✓ |  | available | ✓ | ✓ | ✓ |  |  |  |  | ✓ |
 | dfine | segment | ✓ | ✓ |  | available | ✓ |  |  |  |  |  |  |  |
+| diffusion_policy | act |  |  |  |  |  |  |  |  |  |  |  |  |
 | dinodetr | detect | ✓ | available | available | available | available |  |  |  |  |  |  |  |
 | dinov2 | semantic | ✓ | ✓ | ✓ | ✓ | ✓ |  |  |  |  |  |  |  |
 | dinov2 | classify | ✓ | ✓ | ✓ | available | ✓ |  |  |  |  |  |  | available |
@@ -631,6 +633,18 @@ These converter paths are callable with the recorded validation context.
 - `3dmood` / `detect3d` / `tflite`: 3D detection export is blocked until its graph outputs, camera metadata, and backend runtime contract are defined.
 - `3dmood` / `detect3d` / `coreml`: 3D detection export is blocked until its graph outputs, camera metadata, and backend runtime contract are defined.
 - `3dmood` / `detect3d` / `coreai`: 3D detection export is blocked until its graph outputs, camera metadata, and backend runtime contract are defined.
+- `act_policy` / `act` / `onnx`: Action-chunk export is blocked until the policy sampling loop has an exportable graph and backend runtime contract (ADR 0028).
+- `act_policy` / `act` / `torchscript`: Action-chunk export is blocked until the policy sampling loop has an exportable graph and backend runtime contract (ADR 0028).
+- `act_policy` / `act` / `executorch`: Action-chunk export is blocked until the policy sampling loop has an exportable graph and backend runtime contract (ADR 0028).
+- `act_policy` / `act` / `tensorrt`: Action-chunk export is blocked until the policy sampling loop has an exportable graph and backend runtime contract (ADR 0028).
+- `act_policy` / `act` / `openvino`: Action-chunk export is blocked until the policy sampling loop has an exportable graph and backend runtime contract (ADR 0028).
+- `act_policy` / `act` / `paddle`: Action-chunk export is blocked until the policy sampling loop has an exportable graph and backend runtime contract (ADR 0028).
+- `act_policy` / `act` / `mnn`: Action-chunk export is blocked until the policy sampling loop has an exportable graph and backend runtime contract (ADR 0028).
+- `act_policy` / `act` / `rknn`: Action-chunk export is blocked until the policy sampling loop has an exportable graph and backend runtime contract (ADR 0028).
+- `act_policy` / `act` / `ncnn`: Action-chunk export is blocked until the policy sampling loop has an exportable graph and backend runtime contract (ADR 0028).
+- `act_policy` / `act` / `tflite`: Action-chunk export is blocked until the policy sampling loop has an exportable graph and backend runtime contract (ADR 0028).
+- `act_policy` / `act` / `coreml`: Action-chunk export is blocked until the policy sampling loop has an exportable graph and backend runtime contract (ADR 0028).
+- `act_policy` / `act` / `coreai`: Action-chunk export is blocked until the policy sampling loop has an exportable graph and backend runtime contract (ADR 0028).
 - `alexnet` / `classify` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `alexnet` / `classify` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `alexnet` / `classify` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
@@ -779,6 +793,18 @@ These converter paths are callable with the recorded validation context.
 - `dfine` / `segment` / `tflite`: onnx2tf flatbuffer-direct lowering crashes in GatherElements shape handling with an axis IndexError.
 - `dfine` / `segment` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
 - `dfine` / `segment` / `coreai`: This family and task have not been validated for Core AI export.
+- `diffusion_policy` / `act` / `onnx`: Action-chunk export is blocked until the policy sampling loop has an exportable graph and backend runtime contract (ADR 0028).
+- `diffusion_policy` / `act` / `torchscript`: Action-chunk export is blocked until the policy sampling loop has an exportable graph and backend runtime contract (ADR 0028).
+- `diffusion_policy` / `act` / `executorch`: Action-chunk export is blocked until the policy sampling loop has an exportable graph and backend runtime contract (ADR 0028).
+- `diffusion_policy` / `act` / `tensorrt`: Action-chunk export is blocked until the policy sampling loop has an exportable graph and backend runtime contract (ADR 0028).
+- `diffusion_policy` / `act` / `openvino`: Action-chunk export is blocked until the policy sampling loop has an exportable graph and backend runtime contract (ADR 0028).
+- `diffusion_policy` / `act` / `paddle`: Action-chunk export is blocked until the policy sampling loop has an exportable graph and backend runtime contract (ADR 0028).
+- `diffusion_policy` / `act` / `mnn`: Action-chunk export is blocked until the policy sampling loop has an exportable graph and backend runtime contract (ADR 0028).
+- `diffusion_policy` / `act` / `rknn`: Action-chunk export is blocked until the policy sampling loop has an exportable graph and backend runtime contract (ADR 0028).
+- `diffusion_policy` / `act` / `ncnn`: Action-chunk export is blocked until the policy sampling loop has an exportable graph and backend runtime contract (ADR 0028).
+- `diffusion_policy` / `act` / `tflite`: Action-chunk export is blocked until the policy sampling loop has an exportable graph and backend runtime contract (ADR 0028).
+- `diffusion_policy` / `act` / `coreml`: Action-chunk export is blocked until the policy sampling loop has an exportable graph and backend runtime contract (ADR 0028).
+- `diffusion_policy` / `act` / `coreai`: Action-chunk export is blocked until the policy sampling loop has an exportable graph and backend runtime contract (ADR 0028).
 - `dinodetr` / `detect` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
 - `dinodetr` / `detect` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `dinodetr` / `detect` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.

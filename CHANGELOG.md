@@ -9,6 +9,7 @@ before 1.4.0 are documented in the
 
 ### Added
 
+- ACT and Diffusion action policies: train from scratch, predict without a language instruction, and validate saved checkpoints through `LibreVLA`.
 - **Molmo2** (`molmo2-4b`, `molmo2-8b`, `molmo2-o-7b`) single-image pointing
   through `LibreVLM`, returning `Results.points`. Pinned Apache-2.0 remote
   snapshots; inference-only, with a separate `libreyolo[molmo2]` environment.
