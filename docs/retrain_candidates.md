@@ -1,7 +1,10 @@
 # Models to retrain from scratch
 
 Families where the code is permissively licensed and already ported, the
-published weights are not permissive, and the training data is open. Retraining
+published weights are not permissive, and open training data exists. Where a
+candidate depends on an ImageNet-pretrained backbone upstream, that
+dependency is called out, because ImageNet is not open; see the open
+questions. Retraining
 them gives users MIT weights. This list backs item 2 of
 [the sponsorship program](../SPONSORS.md). Surveyed 2026-09-12 from
 `weights/LICENSE_NOTICE.txt`, `THIRD_PARTY_NOTICES.txt`, the per-family
@@ -17,11 +20,11 @@ week. None of these needs a cluster.
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | 1 | YOLO-NAS n/s/m/l | detect | Apache-2.0 | Deci non-commercial, not redistributed, fetched from Deci's CDN | COCO 2017 | medium | Most used family with the worst weight terms. Trainer exists. Deci pretrained on Objects365 then COCO; a COCO-only run will land below Deci's numbers. |
 | 2 | YOLO-NAS-pose n/s/m/l | pose | Apache-2.0 | Deci non-commercial | COCO-Pose | medium | Trainer exists. One of two trainable pose families. |
-| 3 | PP-YOLOE s/m/l/x | detect | Apache-2.0 | No per-artifact license grant, linked from the source CDN | COCO; CSPResNet ImageNet backbone from PaddleClas (Apache-2.0) | medium | Trainer exists. Turns an unclear grant into MIT. |
-| 4 | SegFormer b0-b5 | semantic seg | Apache-2.0 | NVIDIA Source Code License, non-commercial | Encoder on ImageNet-1k, head on COCO-Stuff | medium | Trainer exists. The MiT ImageNet pretrain is the expensive part; b0-b2 are small. |
-| 5 | PP-LiteSeg t50/b50/t75/b75 | semantic seg | Apache-2.0 + MIT | Non-commercial through Cityscapes terms | COCO-Stuff; STDC ImageNet backbone (MIT) | small | Trainer exists. Must not be trained on Cityscapes again. |
+| 3 | PP-YOLOE s/m/l/x | detect | Apache-2.0 | No per-artifact license grant, linked from the source CDN | COCO. The upstream CSPResNet backbone is ImageNet-pretrained, see open questions | medium | Trainer exists. Turns an unclear grant into MIT if the backbone question is settled. |
+| 4 | SegFormer b0-b5 | semantic seg | Apache-2.0 | NVIDIA Source Code License, non-commercial | Head on COCO-Stuff. Upstream pretrains the encoder on ImageNet-1k, see open questions | medium | Trainer exists. The encoder pretrain is the expensive part; b0-b2 are small. |
+| 5 | PP-LiteSeg t50/b50/t75/b75 | semantic seg | Apache-2.0 + MIT | Non-commercial through Cityscapes terms | COCO-Stuff. The STDC backbone is MIT code but ImageNet-pretrained upstream, see open questions | small | Trainer exists. Must not be trained on Cityscapes again. |
 | 6 | U-Net s | semantic seg | Apache-2.0 | Non-commercial through Cityscapes terms | COCO-Stuff | small | Cheapest retrain on the list. No backbone pretrain needed. |
-| 7 | PIDNet s/m/l | semantic seg | MIT | Tagged MIT but trained on Cityscapes | COCO-Stuff; ImageNet backbone | small | Tainted data, not a license problem. Blocker: no trainer in the library yet. |
+| 7 | PIDNet s/m/l | semantic seg | MIT | Tagged MIT but trained on Cityscapes | COCO-Stuff. Upstream uses an ImageNet-pretrained backbone, see open questions | small | Tainted data, not a license problem. Blocker: no trainer in the library yet. |
 | 8 | YOLO-NAS-R s/m/l | oriented boxes | Apache-2.0 | Deci non-commercial | DOTA is academic-only, so a clean OBB dataset must be chosen first | medium | Trainer exists. RF-DETR OBB used a CC BY 4.0 Roboflow set; the same could work here. |
 | 9 | DDColor t/l | colorization | Apache-2.0 | Tagged Apache-2.0 but trained on ImageNet under research terms | COCO or Open Images | medium | Tainted data. No trainer. Low priority. |
 
@@ -50,6 +53,14 @@ week. None of these needs a cluster.
 
 ## Open questions
 
+- **ImageNet.** ImageNet-1k is licensed for non-commercial research and
+  education, so an ImageNet-pretrained backbone carries the same taint this
+  list is trying to remove. Candidates 3, 4, 5 and 7 use one upstream. For a
+  clean result the backbone must be trained without ImageNet: from scratch on
+  the target dataset, the way YOLO detectors are trained on COCO, or
+  pretrained on an openly licensed dataset such as Objects365 or COCO. This
+  raises the cost of those four candidates. Candidates 1, 2 and 6 have no
+  ImageNet dependency.
 - **ADE20K.** Its annotations are BSD-3 but its images are restricted to
   non-commercial research. The library already hosts ADE20K-trained heads
   without a caveat. Either accept ADE20K for semantic retrains or use
