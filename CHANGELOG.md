@@ -9,6 +9,17 @@ before 1.4.0 are documented in the
 
 ### Added
 
+- **LibreVLA** sibling factory and the `act` task: camera frames + robot
+  state + instruction → `Results.actions`, a `(T, D)` action chunk with
+  per-dimension names, control rate and instruction. First family is
+  SmolVLA base (Apache-2.0) loaded through `lerobot` at a pinned revision.
+  `train(data=<LeRobot dataset>)` fine-tunes with held-out episodes and the
+  standard callbacks/loggers; `val()` reports offline action error (L1,
+  MSE, per dimension); checkpoints are directories with
+  `libreyolo_vla.json`. Install `libreyolo[vla]` (Python 3.12+). Export,
+  tracking and a CLI verb are out of scope. See ADR 0028 and
+  `docs/librevla.md`.
+
 - **LeVJEPA** (`levjepa`) inference-only video encoder with normalized clip
   embeddings and spatiotemporal patch embeddings. The native implementation
   loads the released 16-frame ViT-L/16 checkpoint; redistributed weights remain

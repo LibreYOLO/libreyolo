@@ -107,6 +107,14 @@ fast-eval = [
     # platform without one must not be able to break a plain `pip install`.
     "faster-coco-eval>=1.7.0",
 ]
+vla = [
+    # LibreVLA loads vision-language-action policies through the Apache-2.0
+    # lerobot package (policy classes, processor pipelines, LeRobot datasets).
+    # lerobot requires Python >= 3.12, so the extra installs nothing on older
+    # interpreters and the tier raises an ImportError that says so. Kept out
+    # of `all` for the same reason.
+    "lerobot[smolvla,dataset]>=0.6.1; python_version >= '3.12'",
+]
 llm = [
     # LibreLLM talks to OpenAI-compatible Responses / Chat Completions
     # endpoints through the official Apache-2.0 OpenAI Python SDK.
@@ -543,6 +551,7 @@ markers = [
     "vgg: tests covering the LibreVGG classification family",
     "vlm: tests covering the LibreVLM (VLM-as-detector) tier",
     "llm: tests covering the LibreLLM OpenAI-compatible client",
+    "vla: tests covering the LibreVLA (vision-language-action) tier",
     "sam: tests covering the LibreSAM (promptable-segmentation) tier",
     "openvocab: tests covering the LibreOpenVocab detector tier",
     "sensenova: tests covering the LibreSenseNovaVision unified multimodal family",

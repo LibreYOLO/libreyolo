@@ -545,6 +545,117 @@ class Points(_TensorPayload):
         )
 
 
+class Actions(_TensorPayload):
+    """An action chunk from a vision-language-action policy (ADR 0028).
+
+    ``data`` is ``(T, D)`` float32: ``T`` timesteps of a ``D``-dimensional
+    action. Row 0 is the action to execute now; later rows are the policy's
+    plan at the control rate ``fps``. Values are in the units the policy was
+    trained on; LibreYOLO does not reinterpret them. ``names`` carries the
+    per-dimension names when the checkpoint knows them, ``instruction`` the
+    text that produced the chunk. Slicing selects timesteps.
+    """
+
+    def __init__(
+        self,
+        data: TensorLike,
+        orig_shape: Tuple[int, int] | None = None,
+        *,
+        names: Optional[List[str]] = None,
+        fps: Optional[float] = None,
+        instruction: Optional[str] = None,
+    ):
+        if not isinstance(data, (torch.Tensor, np.ndarray)):
+            data = torch.as_tensor(np.asarray(data, dtype=np.float32))
+        if data.ndim == 1:
+            data = data.unsqueeze(0) if isinstance(data, torch.Tensor) else data[None, :]
+        if data.ndim != 2:
+            raise ValueError(
+                f"Actions data must have shape (T, D), got {tuple(data.shape)}."
+            )
+        finite = (
+            bool(torch.isfinite(data).all())
+            if isinstance(data, torch.Tensor)
+            else bool(np.isfinite(data).all())
+        )
+        if not finite:
+            raise ValueError("Actions data must be finite.")
+        if names is not None:
+            names = [str(n) for n in names]
+            if len(names) != int(data.shape[1]):
+                raise ValueError(
+                    f"Actions names has {len(names)} entries for {int(data.shape[1])} "
+                    "action dimensions."
+                )
+        if fps is not None:
+            fps = float(fps)
+            if not fps > 0:
+                raise ValueError("Actions fps must be positive.")
+        super().__init__(data, orig_shape)
+        self.names = names
+        self.fps = fps
+        self.instruction = str(instruction) if instruction is not None else None
+
+    def _clone(self, data: TensorLike) -> "Actions":
+        return Actions(
+            data,
+            self.orig_shape,
+            names=self.names,
+            fps=self.fps,
+            instruction=self.instruction,
+        )
+
+    @property
+    def horizon(self) -> int:
+        """Number of timesteps in the chunk."""
+        return int(self.data.shape[0])
+
+    @property
+    def dim(self) -> int:
+        """Action dimensionality."""
+        return int(self.data.shape[1])
+
+    @property
+    def first(self) -> TensorLike:
+        """The action to execute now, shape ``(D,)``."""
+        return self.data[0]
+
+    def to(self, *args, **kwargs):
+        return self._clone(_move(self.data, *args, **kwargs))
+
+    def cpu(self):
+        return self._clone(_cpu(self.data))
+
+    def cuda(self):
+        return self._clone(_cuda(self.data))
+
+    def numpy(self):
+        return self._clone(_numpy(self.data))
+
+    def __getitem__(self, idx):
+        return self._clone(_slice_first(self.data, idx))
+
+    def to_dict(self, decimals: int = 5) -> Dict[str, Any]:
+        """One JSON-ready record for the whole chunk."""
+        rows = _numpy(self.data) if isinstance(self.data, torch.Tensor) else self.data
+        return {
+            "instruction": self.instruction,
+            "horizon": self.horizon,
+            "dim": self.dim,
+            "fps": self.fps,
+            "names": list(self.names) if self.names is not None else None,
+            "actions": [
+                [round(float(v), decimals) for v in row] for row in np.asarray(rows)
+            ],
+        }
+
+    def __repr__(self) -> str:
+        return (
+            f"Actions(horizon={self.horizon}, dim={self.dim}, "
+            f"instruction={self.instruction!r})"
+        )
+
+
 class Probs(_TensorPayload):
     @property
     def top1(self) -> int:
@@ -1752,6 +1863,7 @@ class Results:
         "identities",
         "meshes",
         "boxes3d",
+        "actions",
     )
 
     def __init__(
@@ -1785,6 +1897,7 @@ class Results:
         edges: Optional[EdgeMap] = None,
         boxes3d: Optional[Boxes3D] = None,
         albedo: Optional[AlbedoMap] = None,
+        actions: Optional[Actions] = None,
     ):
         if boxes is not None and boxes.orig_shape is None:
             boxes = boxes.with_orig_shape(orig_shape)
@@ -1827,6 +1940,7 @@ class Results:
         self.ocr = ocr
         self.meshes = meshes
         self.boxes3d = boxes3d
+        self.actions = actions
         # Integer upscale factor of a restore/super-resolution result: the
         # restored canvas is ``restore_scale`` times the input. 1 for
         # deblur/denoise and every non-restore task.
@@ -1865,6 +1979,7 @@ class Results:
             "ocr": self.ocr,
             "meshes": self.meshes,
             "boxes3d": self.boxes3d,
+            "actions": self.actions,
             "restore_scale": self.restore_scale,
             "embeddings": self.embeddings,
             "identities": self.identities,
@@ -1938,6 +2053,7 @@ class Results:
         edges: Optional[EdgeMap] = None,
         boxes3d: Optional[Boxes3D] = None,
         albedo: Optional[AlbedoMap] = None,
+        actions: Optional[Actions] = None,
     ) -> "Results":
         aligned_cuboids = boxes3d if boxes3d is not None else self.boxes3d
         if aligned_cuboids is not None:
@@ -1988,6 +2104,8 @@ class Results:
             self.restored = restored
         if boxes3d is not None:
             self.boxes3d = boxes3d
+        if actions is not None:
+            self.actions = actions
         if meshes is not None:
             self.meshes = meshes
         if matte is not None:
@@ -2026,7 +2144,13 @@ class Results:
         self.normal_map = value
 
     def plot(self, image=None):
-        """Render dense outputs or calibrated 3D cuboids."""
+        """Render dense outputs, calibrated 3D cuboids, or an action chunk."""
+        if self.actions is not None:
+            from PIL import Image
+            from .drawing import draw_actions
+
+            canvas = Image.fromarray(self._source_rgb(image, self.orig_shape))
+            return draw_actions(canvas, self.actions)
         if self.albedo is not None:
             from PIL import Image
 
@@ -2134,6 +2258,8 @@ class Results:
         embeddings: bool = False,
     ) -> List[Dict[str, Any]]:
         if self.boxes is None:
+            if self.actions is not None:
+                return [self.actions.to_dict(decimals)]
             if self.embeddings is not None:
                 emb = (
                     self.embeddings.numpy()
@@ -2439,6 +2565,8 @@ class Results:
             return len(self.boxes)
         if self.points is not None:
             return len(self.points)
+        if self.actions is not None:
+            return len(self.actions)
         if self.embeddings is not None:
             return len(self.embeddings)
         if self.probs is not None:
@@ -2499,6 +2627,8 @@ class Results:
             parts.append(f"meshes={self.meshes}")
         if self.boxes3d is not None:
             parts.append(f"boxes3d={self.boxes3d}")
+        if self.actions is not None:
+            parts.append(f"actions={self.actions}")
         if self.track_id is not None:
             parts.append(f"track_ids={len(self.track_id)}")
         if self.frame_idx is not None:

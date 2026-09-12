@@ -109,6 +109,7 @@ def test_task_type_literal_is_public():
         "embed",
         "mesh",
         "detect3d",
+        "act",
     }
 
 

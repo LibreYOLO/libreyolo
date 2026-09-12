@@ -126,6 +126,7 @@ libreyolo predict --model yolo9-t --source screen            # screen capture
 | **Point detection** | FOMO, LocateAnything |
 | **Gaze** | L2CS |
 | **Open vocabulary and VLMs** | Grounding DINO, OWLv2, OmDet-Turbo, OV-DEIM, Florence-2, Kosmos-2, Qwen3-VL, InternVL3, LFM2-VL, North Micro Vision, SmolVLM2, Gemma 4, Moondream, MODUS |
+| **Robot actions (VLA)** | SmolVLA |
 
 Per-family sizes, checkpoints and parity evidence live in the
 [model reference](https://www.libreyolo.com/docs/models).
