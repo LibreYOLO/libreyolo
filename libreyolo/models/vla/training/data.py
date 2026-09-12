@@ -57,13 +57,15 @@ def split_episodes(
     val_split: float = 0.1,
     val_episodes: Optional[Sequence[int]] = None,
     train_episodes: Optional[Sequence[int]] = None,
+    allow_empty_train: bool = False,
 ) -> Tuple[List[int], List[int]]:
     """Return ``(train, val)`` episode index lists.
 
     Explicit lists win. Otherwise the last ``val_split`` fraction of episodes
     (at least one when the dataset has two or more) is held out, so
     validation never sees frames adjacent to training frames of the same
-    episode.
+    episode. ``allow_empty_train`` lets a validation-only caller hold out
+    every episode.
     """
     total = int(total_episodes)
     if total < 1:
@@ -82,7 +84,7 @@ def split_episodes(
         overlap = sorted(set(train) & set(val))
         if overlap:
             raise ValueError(f"train_episodes and val_episodes overlap: {overlap}")
-        if not train:
+        if not train and not allow_empty_train:
             raise ValueError("train_episodes is empty.")
         return train, val
     if not 0.0 <= float(val_split) < 1.0:

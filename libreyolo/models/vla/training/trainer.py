@@ -120,7 +120,15 @@ class _DatasetBundle:
 
 
 def _build_datasets(
-    wrapper, config, data, *, val_split, val_episodes, train_episodes, need_train=True
+    wrapper,
+    config,
+    data,
+    *,
+    val_split,
+    val_episodes,
+    train_episodes,
+    need_train=True,
+    allow_empty_train=False,
 ):
     (
         LeRobotDataset,
@@ -137,6 +145,7 @@ def _build_datasets(
         val_split=val_split,
         val_episodes=val_episodes,
         train_episodes=train_episodes,
+        allow_empty_train=allow_empty_train,
     )
     slots = wrapper.camera_slots
     rename_map = camera_rename_map(meta.camera_keys, slots)
@@ -367,7 +376,11 @@ class VLATrainer:
                         break
                     batch = preprocessor(batch)
                     loss, _out = policy.forward(batch)
-                    (loss / cfg.accumulate).backward()
+                    # Scale by the real window so a partial tail window is not
+                    # underweighted when steps_per_epoch % accumulate != 0.
+                    window_start = (step // cfg.accumulate) * cfg.accumulate
+                    window = min(cfg.accumulate, steps_per_epoch - window_start)
+                    (loss / window).backward()
                     running += float(loss.detach()) * 1
                     seen += 1
                     if (step + 1) % cfg.accumulate == 0 or step + 1 == steps_per_epoch:
@@ -542,6 +555,7 @@ class VLAValidator:
             val_episodes=self.val_episodes,
             train_episodes=None,
             need_train=self.split != "val",
+            allow_empty_train=self.split == "val",
         )
         if self.split == "val":
             dataset = bundle.val
