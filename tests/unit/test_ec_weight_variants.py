@@ -8,6 +8,7 @@ import torch
 
 from libreyolo.models.ec.model import LibreEC
 from libreyolo.utils.serialization import validate_checkpoint_metadata
+from libreyolo.utils.general import COCO_CLASSES
 
 pytestmark = pytest.mark.unit
 
@@ -53,14 +54,33 @@ def _state(nc=80):
     }
 
 
-def test_conversion_preserves_ema_and_marks_variant(converter, tmp_path):
+@pytest.mark.parametrize(
+    "task,suffix", [("detect", ""), ("segment", "-seg"), ("pose", "-pose")]
+)
+def test_conversion_preserves_ema_and_marks_variant(converter, tmp_path, task, suffix):
     source = tmp_path / "source.pth"
-    ema = _state()
+    ema = _state(2 if task == "pose" else 80)
+    if task == "pose":
+        ema["decoder.keypoint_embedding.weight"] = torch.zeros(17, 192)
+    elif task == "segment":
+        ema["decoder.decoder.segmentation_head.bias"] = torch.zeros(1)
     torch.save({"model": {"unused": torch.ones(1)}, "ema": {"module": ema}}, source)
-    target = tmp_path / "LibreECs-obj2coco.pt"
-    converter.convert_weights(str(source), str(target), "s", variant="obj2coco")
+    target = tmp_path / f"LibreECs{suffix}-obj2coco.pt"
+    converter.convert_weights(
+        str(source), str(target), "s", task=task, variant="obj2coco"
+    )
     result = torch.load(target, weights_only=True)
     validate_checkpoint_metadata(result, strict=True)
+    assert result["task"] == task
+    assert result["nc"] == (1 if task == "pose" else 80)
+    if task == "pose":
+        assert result["names"] == {0: "person"}
+        assert result["num_keypoints"] == 17
+        assert result["keypoint_dim"] == 3
+    else:
+        assert result["names"] == dict(enumerate(COCO_CLASSES))
+        assert "num_keypoints" not in result
+        assert "keypoint_dim" not in result
     assert result["weight_variant"] == "obj2coco"
     assert result["license"] == "edgecrafter-non-commercial"
     assert len(result["source_sha256"]) == 64
