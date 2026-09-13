@@ -1004,6 +1004,8 @@ fine-tuning: `LibreECs-obj2coco.pt`, `LibreECs-seg-obj2coco.pt`, and
 redistributed under the non-commercial EdgeCrafter License, with a notice
 before download. The existing bare COCO filenames and defaults are unchanged.
 The suffix does not denote the raw 365-class pretraining checkpoints.
+See [EdgeCrafter provenance](provenance/edgecrafter.md) for the earlier
+Apache-2.0 defaults and the upstream license-change history.
 
 ## Vision-language-action policies
 
