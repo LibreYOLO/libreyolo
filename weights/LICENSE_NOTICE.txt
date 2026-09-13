@@ -895,6 +895,22 @@ include the SigLIP vision backbone and their tokenizer assets. Upstream model
 cards declare Apache-2.0 for all three snapshots.
 
 
+EdgeCrafter original COCO defaults (detection, segmentation and pose)
+--------------------------------------------------------------------
+License: Apache-2.0, reproduced in licenses/Apache-2.0.txt and each HF mirror.
+Source: https://github.com/capsule2077/edgecrafter/releases/tag/edgecrafterv1
+Assets: ecdet_{s,m,l,x}.pth, ecseg_{s,m,l,x}.pth, ecpose_{s,m,l,x}.pth.
+Source license: https://github.com/capsule2077/edgecrafter/blob/b075f34de6947c615557bdb987b0cebebfb7db99/LICENSE
+Copyright (c) 2026 The EdgeCrafter Authors (Longfei Liu et al., Intellindust AI Lab).
+
+These are the earlier COCO-only checkpoints, not the Objects365 variants.
+The 12 LibreYOLO HF mirrors were first populated on May 3, 2026; their latest
+commits as checked on September 13, 2026 are from June 27, before the upstream
+license change. Each mirror includes Apache-2.0 and a NOTICE identifying
+EdgeCrafter. Example: https://huggingface.co/LibreYOLO/LibreECs
+See docs/provenance/edgecrafter.md for the license history and evidence limits.
+
+
 EdgeCrafter Objects365-to-COCO variants (LibreEC*-obj2coco.pt)
 ------------------------------------------------------------
 NON-COMMERCIAL USE ONLY. Commercial use requires a separate license from
@@ -927,3 +943,6 @@ Apache-2.0 source license is recorded at EdgeCrafter commit
 744a60a864a72bf650056ffa426bc0c2aeb1920d (LICENSE), and the weight repository
 still provides Apache-2.0 at b075f34de6947c615557bdb987b0cebebfb7db99 (LICENSE).
 These weight terms are separate from LibreYOLO's MIT source-code license.
+The August 20 replacement is commit e0656d44b80ecb97ba96bb8a804a741169431e0f;
+August 24 commit 124cb0922ebe4af55c025af448312c2374210815 only renamed the file.
+See docs/provenance/edgecrafter.md for links and the chronology.
