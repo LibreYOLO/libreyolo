@@ -662,10 +662,23 @@ Used for: the YOLO-NAS-R rotated head, its decode, and the evaluation
 --------------------------------------------------------------------
 EdgeCrafter
 --------------------------------------------------------------------
-Source: https://github.com/EC-codehub/EdgeCrafter
-License: Apache License 2.0
+Source: https://github.com/Intellindust-AI-Lab/EdgeCrafter
+        (formerly EC-codehub/EdgeCrafter)
+License: Apache License 2.0 for the earlier source used by the LibreEC port,
+         not a statement about current upstream releases.
 Used for: EC model family detection, segmentation, and pose architecture
           references (libreyolo/models/ec/).
+License history: Apache-2.0 is preserved at upstream commit
+          b9f31f8ce23ac112fac2b9b01bc6a1f25a016d92 (LICENSE).
+          e0656d44b80ecb97ba96bb8a804a741169431e0f replaced it with the
+          non-commercial EdgeCrafter License on August 20, 2026;
+          124cb0922ebe4af55c025af448312c2374210815 only renamed LICENSE
+          to LICENSE.md on August 24, 2026.
+          These are license-history references, not a recovered source pin
+          for the original port. See docs/provenance/edgecrafter.md.
+Weights: Original COCO defaults retain their Apache-2.0 notices. Optional
+         -obj2coco mirrors carry the non-commercial EdgeCrafter License.
+         See weights/LICENSE_NOTICE.txt for the separate weight terms.
 
 --------------------------------------------------------------------
 D-FINE-seg (ArgoHA)
