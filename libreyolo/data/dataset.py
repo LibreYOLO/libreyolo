@@ -238,6 +238,7 @@ class YOLODataset(ImageCacheMixin, Dataset):
         load_obb: bool = False,
         num_classes: int | None = None,
         single_cls: bool = False,
+        input_profile: dict | None = None,
     ):
         """
         Initialize YOLO dataset.
@@ -252,6 +253,10 @@ class YOLODataset(ImageCacheMixin, Dataset):
             num_classes: Optional class-count bound used for OBB label validation.
             single_cls: Remap every non-negative class id to class 0.
         """
+        from ..utils.event_histogram import validate_input_profile
+        self.input_profile = validate_input_profile(input_profile)
+        if self.input_profile and (load_segments or load_obb):
+            raise ValueError("Event histograms support detection only")
         self.img_size = imgsz_to_hw(img_size, name="img_size")
         self.preproc = preproc
         self._input_dim = self.img_size
@@ -292,7 +297,7 @@ class YOLODataset(ImageCacheMixin, Dataset):
 
             # Collect image files from directory
             self.img_files = []
-            for ext in ["*.jpg", "*.jpeg", "*.png", "*.bmp"]:
+            for ext in (["*.npy"] if self.input_profile else ["*.jpg", "*.jpeg", "*.png", "*.bmp"]):
                 self.img_files.extend(self.img_dir.glob(ext))
                 self.img_files.extend(self.img_dir.glob(ext.upper()))
             self.img_files = sorted(set(self.img_files))
@@ -399,18 +404,21 @@ class YOLODataset(ImageCacheMixin, Dataset):
             return str(label_dir)
         return "dataset"
 
+    @staticmethod
+    def _stored_image_size(img_file):
+        # Stored orientation matches IMREAD_IGNORE_ORIENTATION in _decode_image.
+        with Image.open(img_file) as im:
+            return im.size
+
     def _load_label(self, label_file: Path, img_file: Path) -> Tuple:
         """Load annotation for a single image."""
         # Read image to get dimensions
         try:
-            with Image.open(img_file) as im:
-                # Use the stored (non-EXIF-rotated) dimensions so label-space
-                # dims match the pixels from cv2.imdecode below, which is called
-                # with IMREAD_IGNORE_ORIENTATION. Both stay in stored orientation
-                # on every OpenCV build (imdecode's native EXIF handling is
-                # build-dependent, so relying on it would mismatch dims vs pixels
-                # on builds that ignore EXIF).
-                width, height = im.size
+            if self.input_profile:
+                from ..utils.event_histogram import load_histogram
+                height, width = load_histogram(img_file).shape[:2]
+            else:
+                width, height = self._stored_image_size(img_file)
         except (FileNotFoundError, UnidentifiedImageError, OSError) as e:
             raise FileNotFoundError(f"Cannot read image: {img_file}") from e
 
@@ -528,6 +536,9 @@ class YOLODataset(ImageCacheMixin, Dataset):
     def _decode_image(self, index: int) -> np.ndarray:
         """Decode image from disk for given index."""
         img_file = self.img_files[index]
+        if self.input_profile:
+            from ..utils.event_histogram import load_histogram
+            return load_histogram(img_file)
         img = cv2.imdecode(
             np.fromfile(str(img_file), dtype=np.uint8),
             cv2.IMREAD_COLOR | cv2.IMREAD_IGNORE_ORIENTATION,

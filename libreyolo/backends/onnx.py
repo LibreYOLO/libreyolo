@@ -1,5 +1,6 @@
 """ONNX runtime inference backend for LibreYOLO."""
 
+import json
 import logging
 from pathlib import Path
 
@@ -141,6 +142,26 @@ class OnnxBackend(BaseBackend):
             default_task=default_task,
             supported_tasks=supported_tasks,
         )
+
+        from ..utils.event_histogram import validate_input_profile
+
+        self.input_profile = validate_input_profile(
+            json.loads(runtime_metadata["input_profile"])
+            if "input_profile" in runtime_metadata else None,
+            family=model_family,
+            task=resolved_task,
+        )
+        self.input_initialization = runtime_metadata.get("input_initialization")
+        self.letterbox_pad = runtime_metadata.get("letterbox_pad", "topleft")
+        if self.input_profile is not None:
+            if self.letterbox_pad not in {"center", "topleft"}:
+                raise ValueError("Invalid histogram letterbox_pad metadata")
+            if len(input_shape) != 4 or input_shape[1] != 2:
+                raise ValueError("Histogram ONNX graph must consume NCHW with two channels")
+            if self.input_initialization not in {"random", "rgb_mean"}:
+                raise ValueError("Histogram ONNX metadata requires input_initialization")
+        elif len(input_shape) == 4 and input_shape[1] == 2:
+            raise ValueError("Two-channel ONNX graph is missing input_profile metadata")
 
         super().__init__(
             model_path=onnx_path,

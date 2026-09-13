@@ -810,6 +810,9 @@ class BaseTrainer(ABC):
                 allow_scripts=self.config.allow_download_scripts,
                 single_cls=self.config.single_cls,
             )
+            if data_cfg.get("input_profile") is not None or getattr(self.wrapper_model, "input_profile", None) is not None:
+                from ..data.event_histogram import setup_histogram_data
+                return setup_histogram_data(self, data_cfg)
             data_dir = data_cfg["root"]
             data_nc = data_cfg.get("nc")
             if data_nc is None and data_cfg.get("names") is not None:
@@ -3826,7 +3829,8 @@ class BaseTrainer(ABC):
         logger.info(f"Checkpoint saved: {latest_path}")
 
     def _checkpoint_extra_metadata(self) -> Dict[str, Any]:
-        return {}
+        from ..utils.event_histogram import input_metadata
+        return input_metadata(self.wrapper_model)
 
     def resume(self, checkpoint_path: str):
         if not Path(checkpoint_path).exists():

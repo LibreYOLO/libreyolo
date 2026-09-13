@@ -910,6 +910,7 @@ class LibreRFDETR(BaseModel):
             if not isinstance(loaded, dict):
                 raise TypeError("RF-DETR checkpoints must be dictionaries")
             self._cache_checkpoint_train_config(loaded)
+            checkpoint_input_metadata = loaded
 
             ckpt_family = loaded.get("model_family", "")
             if ckpt_family and ckpt_family != self.FAMILY:
@@ -992,6 +993,8 @@ class LibreRFDETR(BaseModel):
 
                 apply_quant_structure(self, quant_manifest)
 
+            from ...utils.event_histogram import restore_input
+            restore_input(self, checkpoint_input_metadata)
             missing, unexpected = self.model.load_state_dict(loaded, strict=False)
             if unexpected:
                 raise RuntimeError(
