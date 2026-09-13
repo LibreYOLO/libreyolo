@@ -171,6 +171,38 @@
     "available": true,
     "group": "g2"
   },
+  "convnextv2": {
+    "class": "libreyolo.models.convnextv2.model.LibreConvNeXtV2",
+    "tasks": [
+      "classify"
+    ],
+    "default_task": "classify",
+    "sizes": {
+      "atto": 224,
+      "femto": 224,
+      "pico": 224,
+      "n": 224,
+      "t": 224,
+      "b": 224,
+      "l": 224,
+      "h": 224
+    },
+    "default_imgsz": {
+      "atto": 224,
+      "femto": 224,
+      "pico": 224,
+      "n": 224,
+      "t": 224,
+      "b": 224,
+      "l": 224,
+      "h": 224
+    },
+    "task_sizes": {},
+    "export_override": "none",
+    "optional_extra": null,
+    "available": true,
+    "group": "g2"
+  },
   "ddcolor": {
     "class": "libreyolo.models.ddcolor.model.LibreDDColor",
     "tasks": [

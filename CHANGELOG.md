@@ -9,6 +9,8 @@ before 1.4.0 are documented in the
 
 ### Added
 
+- ConvNeXt V2 classification: eight sizes from Atto to Huge, official checkpoint conversion, supervised fine-tuning, and ONNX/TorchScript export. Architecture code is MIT; official ImageNet-1K weights retain CC-BY-NC-4.0.
+
 - ACT and Diffusion action policies: train from scratch, predict without a language instruction, and validate saved checkpoints through `LibreVLA`.
 - **Molmo2** (`molmo2-4b`, `molmo2-8b`, `molmo2-o-7b`) single-image pointing
   through `LibreVLM`, returning `Results.points`. Pinned Apache-2.0 remote

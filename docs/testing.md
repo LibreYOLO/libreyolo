@@ -66,6 +66,14 @@ move the coverage to the appropriate e2e, nightly, or manual suite.
 
 ### Native-port parity gates
 
+ConvNeXt V2: `tests/unit/test_convnextv2_parity.py` compares all eight
+official 224px classifiers to the pinned Meta graph (set
+`CONVNEXTV2_UPSTREAM` and `CONVNEXTV2_CHECKPOINTS`). Local unit tests cover
+checkpoint, training/resume, and ONNX/TorchScript behavior.
+`tests/e2e/test_convnextv2.py -m e2e` checks real weights and smoke10
+fine-tuning; it is not added to the detection-only nightly catalog.
+Evidence and limits: [ConvNeXt V2](provenance/convnextv2.md).
+
 A ported architecture must have a pinned-reference tensor parity test in
 addition to ordinary shape and API tests. The reference checkout and any
 checkpoint remain external and the test is marked `external_data`; the PR gate
