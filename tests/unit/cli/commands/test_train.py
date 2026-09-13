@@ -933,6 +933,8 @@ def test_cls_pw_cli_grammars_and_default(option, value, model):
 
 @pytest.mark.parametrize("value", ["-0.1", "1.1", "nan", "inf", "-inf", "true"])
 def test_cls_pw_cli_rejects_invalid_values(value):
+    from click import unstyle
+
     result = runner.invoke(
         _make_app(),
         [
@@ -942,9 +944,11 @@ def test_cls_pw_cli_rejects_invalid_values(value):
             "--dry-run",
             "--json",
         ],
+        color=True,
     )
     assert result.exit_code != 0
-    assert "cls_pw" in result.output or "cls-pw" in result.output
+    output = unstyle(result.output)
+    assert "cls_pw" in output or "cls-pw" in output
     assert "Traceback" not in result.output
 
 

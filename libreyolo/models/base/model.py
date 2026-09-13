@@ -140,6 +140,8 @@ def _wrap_train_with_cfg(train_fn: Callable) -> Callable:
                 if "pretrained" not in sig.parameters:
                     merged.pop("pretrained")
 
+        from ...data.event_histogram import prepare_histogram_training
+        prepare_histogram_training(self, args, merged)
         return train_fn(self, *args, **merged)
 
     wrapper._libreyolo_cfg_wrapped = True  # type: ignore[attr-defined]
@@ -257,6 +259,7 @@ class BaseModel(ABC):
     ):
         ensure_default_logging()
         scratch_init = bool(kwargs.pop("_scratch_init", False))
+        requested_input_profile = kwargs.pop("input_profile", None)
         self.family = self.FAMILY
         self.task = self._resolve_task(task)
         valid_sizes = self._get_valid_sizes()
@@ -329,6 +332,9 @@ class BaseModel(ABC):
         else:
             self.model.eval()
         self.model.to(self.device)
+        if requested_input_profile is not None:
+            from ...utils.event_histogram import configure_input
+            configure_input(self, requested_input_profile)
 
     @classmethod
     def _from_scratch(
@@ -429,6 +435,9 @@ class BaseModel(ABC):
         inputs may override this hook to prepare the image and its guide
         together.
         """
+        if getattr(self, "input_profile", None) is not None:
+            from ...utils.event_histogram import predict_histogram
+            return predict_histogram(self, image, input_size, color_format)
         return self._preprocess(
             image,
             color_format,
@@ -707,6 +716,9 @@ class BaseModel(ABC):
 
         self.model = model
         self.model_path = None
+        if getattr(self, "input_profile", None) is not None:
+            self.input_profile = None
+            self.__dict__.pop("input_initialization", None)
         self._training_from_scratch = True
         self.names = (
             {i: name for i, name in enumerate(COCO_CLASSES)}
@@ -729,6 +741,9 @@ class BaseModel(ABC):
         finally:
             self._in_rebuild = False
 
+        if getattr(self, "input_profile", None) is not None:
+            from ...utils.event_histogram import configure_input
+            configure_input(self, self.input_profile, initialization=self.input_initialization)
         new_state = self.model.state_dict()
         for key in old_state:
             if key in new_state and old_state[key].shape == new_state[key].shape:
@@ -865,6 +880,9 @@ class BaseModel(ABC):
 
     def _get_val_preprocessor(self, img_size: int | None = None):
         """Return the validation preprocessor for this model."""
+        if getattr(self, "input_profile", None) is not None:
+            from ...utils.event_histogram import val_transform
+            return val_transform(self)
         if img_size is None:
             img_size = self._get_input_size()
         return self.val_preprocessor_class(img_size=(img_size, img_size))
@@ -1007,6 +1025,8 @@ class BaseModel(ABC):
             else:
                 state_dict = self._prepare_state_dict(loaded)
 
+            from ...utils.event_histogram import restore_input
+            restore_input(self, loaded)
             quant_manifest = loaded.get("quant") if isinstance(loaded, dict) else None
             if quant_manifest:
                 from ...quant import apply_quant_structure
@@ -2020,6 +2040,8 @@ class BaseModel(ABC):
         save_extra = getattr(self, "_save_extra_metadata", None)
         if callable(save_extra):
             extra_metadata = dict(save_extra() or {})
+        from ...utils.event_histogram import input_metadata
+        extra_metadata.update(input_metadata(self))
         checkpoint = wrap_libreyolo_checkpoint(
             state_dict,
             model_family=self._get_model_name(),
