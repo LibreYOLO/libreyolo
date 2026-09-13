@@ -207,13 +207,14 @@ def export_cmd(
         )
         input_h = input_w = native
 
+    channels = 2 if isinstance(getattr(loaded_model, "input_profile", None), dict) else 3
     data_out = {
         "source_model": model,
         "model_family": loaded_model.FAMILY,
         "format": fmt,
         "output_path": str(output_path),
         "file_size_mb": round(size_mb, 1),
-        "input_shape": [batch, 3, input_h, input_w],
+        "input_shape": [batch, channels, input_h, input_w],
         "dynamic": dynamic,
         "half": half,
         "int8": int8,
@@ -226,7 +227,7 @@ def export_cmd(
         data_out["_human_text"] = (
             f"Exported {loaded_model.FAMILY}-{loaded_model.size} to {fmt.upper()}: "
             f"{output_path} ({size_mb:.1f} MB)\n"
-            f"  Input: [{batch}, 3, {input_h}, {input_w}], "
+            f"  Input: [{batch}, {channels}, {input_h}, {input_w}], "
             f"dynamic={dynamic}, half={half}, int8={int8}"
         )
 

@@ -72,6 +72,8 @@ def dataset(tmp_path, sample, profile):
         ("encoding", "normalized"),
         ("scale", 0),
         ("scale", float("nan")),
+        ("scale", 1e-100),
+        ("scale", 1e100),
         ("scale", True),
         ("window_us", 0),
         ("window_us", 40.0),
@@ -353,3 +355,61 @@ def test_resume_rejects_different_count_scale_before_loading(tmp_path, profile):
     trainer.wrapper_model = SimpleNamespace(input_profile=profile)
     with pytest.raises(ValueError, match="match"):
         BaseTrainer.resume(trainer, str(path))
+
+
+def test_histogram_disk_cache_does_not_create_extra_training_samples(dataset, profile):
+    from libreyolo.data import load_data_config
+    from libreyolo.data.dataset import YOLODataset
+
+    cfg = load_data_config(str(dataset))
+    source = cfg["train_img_files"][0]
+    values = np.full((20, 30, 2), 1000.25, dtype=np.float32)
+    np.save(source, values)
+    ds = YOLODataset(
+        img_files=[source],
+        img_size=(32, 32),
+        input_profile=profile,
+        preproc=HistogramTransform(profile, "yolo9"),
+    )
+    ds.enable_image_cache("disk")
+    np.testing.assert_array_equal(ds.load_image(0), values)
+    assert ds._resize_decoded(values).dtype == np.float32
+    assert ds._resize_decoded(values).max() == 1000.25
+    assert len(load_data_config(str(dataset))["train_img_files"]) == 1
+    assert list(source.parent.glob("*.npy")) == [source]
+
+
+@pytest.mark.parametrize("output", ["previews", "explicit.jpg"])
+def test_backend_histogram_preview_uses_an_image_extension(tmp_path, profile, output):
+    from types import SimpleNamespace
+
+    from PIL import Image
+
+    from libreyolo.backends.base import BaseBackend
+    from libreyolo.utils.results import Boxes, Results
+
+    backend = SimpleNamespace(
+        input_profile=profile, names={0: "person"}, model_path="model.onnx"
+    )
+    result = Results(
+        orig_shape=(4, 4),
+        boxes=Boxes(
+            torch.zeros((0, 4)), torch.zeros(0), torch.zeros(0), orig_shape=(4, 4)
+        ),
+        names={0: "person"},
+    )
+    BaseBackend._save_annotated(
+        backend,
+        result,
+        Image.new("RGB", (4, 4)),
+        str(tmp_path / "events.npy"),
+        str(tmp_path / output),
+    )
+    expected = (
+        tmp_path / output
+        if output.endswith(".jpg")
+        else tmp_path / output / "events.png"
+    )
+    assert expected.is_file()
+    with Image.open(expected) as image:
+        assert image.size == (4, 4)

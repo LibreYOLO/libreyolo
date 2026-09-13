@@ -14,6 +14,19 @@ from PIL import Image
 _PROFILE_KEYS = {"format", "layout", "polarity", "encoding", "scale", "window_us"}
 
 
+def _count_scale(scale):
+    if isinstance(scale, bool) or not isinstance(scale, (int, float)):
+        raise ValueError("input_profile.scale must be a finite positive float32 number")  # noqa: TRY004 - schema validation uses ValueError
+    try:
+        with np.errstate(over="ignore", under="ignore"):
+            value = np.float32(scale)
+    except (OverflowError, ValueError) as exc:
+        raise ValueError("input_profile.scale is outside the float32 range") from exc
+    if not np.isfinite(value) or value <= 0:
+        raise ValueError("input_profile.scale must be a finite positive float32 number")
+    return value
+
+
 def validate_input_profile(profile, *, family=None, task="detect"):
     """Validate the complete v1 input contract; None retains the RGB contract."""
     if profile is None:
@@ -29,14 +42,7 @@ def validate_input_profile(profile, *, family=None, task="detect"):
     for key, value in expected.items():
         if profile[key] != value:
             raise ValueError(f"input_profile.{key} must be {value!r}")
-    scale = profile["scale"]
-    if (
-        isinstance(scale, bool)
-        or not isinstance(scale, (int, float))
-        or not np.isfinite(scale)
-        or scale <= 0
-    ):
-        raise ValueError("input_profile.scale must be a finite positive number")
+    _count_scale(profile["scale"])
     window = profile["window_us"]
     if isinstance(window, bool) or not isinstance(window, int) or window <= 0:
         raise ValueError("input_profile.window_us must be a positive integer")
@@ -80,9 +86,8 @@ def visualize_histogram(source, *, scale):
     This is a visualization, never a detector input. The fixed scale is the
     same count saturation level declared by the dataset/model input profile.
     """
-    if not np.isfinite(scale) or scale <= 0:
-        raise ValueError("scale must be finite and positive")
-    values = np.clip(load_histogram(source) / scale, 0, 1)
+    scale = _count_scale(scale)
+    values = np.minimum(load_histogram(source), scale) / scale
     rgb = np.zeros((*values.shape[:2], 3), dtype=np.uint8)
     rgb[..., 0] = np.rint(values[..., 0] * 255).astype(np.uint8)
     rgb[..., 2] = np.rint(values[..., 1] * 255).astype(np.uint8)
@@ -108,7 +113,8 @@ def preprocess_histogram(source, profile, input_size, family, letterbox_pad="top
     h, w, rh, rw, *_ = geometry
     dx, dy = geometry[-2:]
     # Saturate before interpolation, so scale means the same thing at every size.
-    values = np.clip(values / profile["scale"], 0, 1)
+    scale = _count_scale(profile["scale"])
+    values = np.minimum(values, scale) / scale
     resized = cv2.resize(values, (rw, rh), interpolation=cv2.INTER_LINEAR)
     canvas = np.zeros((h, w, 2), dtype=np.float32)
     canvas[dy : dy + rh, dx : dx + rw] = resized
