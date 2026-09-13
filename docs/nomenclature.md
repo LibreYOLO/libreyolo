@@ -105,6 +105,7 @@ the `alexnet` / `deit` / `mobilenetv4` / `convnext` / `efficientnetv2` /
 | `fomo`      | `LibreFOMO`     | All-caps acronym (Faster Objects, More Objects) |
 | `mobilenetv4` | `LibreMobileNetV4` | CamelCase preserved (MobileNet is not an acronym) — first classify-only family |
 | `convnext`  | `LibreConvNeXt`  | CamelCase preserved (upstream brand casing `ConvNeXt`) — classify-only family |
+| `convnextv2` | `LibreConvNeXtV2` | Upstream ConvNeXt V2 casing; classify-only family |
 | `deit`      | `LibreDeiT`      | Upstream mixed-case acronym preserved (`DeiT`) — plain 224px classify-only museum family |
 | `efficientnetv2` | `LibreEfficientNetV2` | CamelCase preserved (EfficientNet is not an acronym) — classify-only accuracy tier |
 | `resnet`    | `LibreResNet`    | CamelCase preserved (`ResNet` brand casing) — classify-only baseline |
@@ -252,6 +253,7 @@ ships:
 | `fomo`      | `s`, `m`, `l` |
 | `mobilenetv4` | `s`, `m`, `l` (conv-Small/Medium/Large) |
 | `convnext`  | `t`, `s`, `b` (V1 Tiny/Small/Base) |
+| `convnextv2` | `atto`, `femto`, `pico`, `n`, `t`, `b`, `l`, `h` (Atto through Huge) |
 | `deit`      | `t`, `s`, `b` (plain DeiT Tiny/Small/Base, patch 16 at fixed 224; no distilled or 384px variants) |
 | `efficientnetv2` | `b0`, `b1`, `b2`, `b3` (EfficientNetV2-base scaling tiers) |
 | `resnet`    | `18`, `34`, `50`, `101` (ResNet depth) |
@@ -566,6 +568,7 @@ Detector-factory family support follows:
 | `swinir`    | `("restore",)`                     | restore | SwinIR transformer super-resolution; sizes `s`/`m`/`l`, all 4x; native predict at original resolution with window padding; optional tiled inference; inference + PSNR/SSIM `val` only (no training); fixed-resolution ONNX |
 | `mobilenetv4` | `("classify",)`                | classify | MobileNetV4-conv image classifier; s/m/l at 224/224/256; predict + top-1/top-5 `val` + CE fine-tune train + ONNX |
 | `convnext`  | `("classify",)`                | classify | ConvNeXt V1 image classifier; t/s/b at 224; predict + top-1/top-5 `val` + CE fine-tune train + ONNX |
+| `convnextv2` | `("classify",)` | classify | ConvNeXt V2; eight 224px classifiers; predict, top-1/top-5 validation, supervised fine-tuning, ONNX and TorchScript |
 | `deit`      | `("classify",)`                | classify | Plain DeiT patch-16 classifier; t/s/b at fixed 224; predict + top-1/top-5 `val`; inference-only museum family |
 | `efficientnetv2` | `("classify",)`             | classify | EfficientNetV2-base image classifier; b0/b1/b2/b3 at 224/240/260/300; predict + top-1/top-5 `val` + CE fine-tune train + ONNX |
 | `resnet`    | `("classify",)`             | classify | vanilla ResNet image classifier (v1.5); 18/34/50/101 at 224; predict + top-1/top-5 `val` + CE fine-tune train + ONNX |
@@ -936,8 +939,12 @@ ImageNet-22k before ImageNet-1k fine-tuning. See each family's `NOTICE`, e.g.
 (BSD-3-Clause). Its official checkpoint mirror uses BSD-3-Clause on a disclosed
 implied basis because no checkpoint-specific grant is attached; see
 `libreyolo/models/alexnet/NOTICE` and `docs/provenance/alexnet.md`.
-Only ConvNeXt **V1** ships — ConvNeXt-V2's small checkpoints are CC-BY-NC and
-are excluded; EfficientNetV2 ships only the ImageNet-1k checkpoints, as the
+ConvNeXt V2 ships separately as `convnextv2`, with MIT code and official
+224px ImageNet-1K EMA weights under CC-BY-NC-4.0. Canonical names are
+`LibreConvNeXtV2{atto,femto,pico,n,t,b,l,h}-cls.pt`. The non-commercial
+weight terms travel with converted checkpoints and subsequent fine-tunes.
+FCMAE pretraining and 384/512px weight variants are not included.
+EfficientNetV2 ships only the ImageNet-1k checkpoints, as the
 `.in21k`/JFT variants carry extra-data terms. DeiT ships only the plain 224px
 models; distilled-token and 384px variants require separate public contracts.
 

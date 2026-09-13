@@ -18,6 +18,7 @@ in preflight.
 | clip | classify | ✓ | ✓ | ✓ | ✓ | ✓ |  |  |  |  |  |  | ✓ |
 | clip | embed | ✓ | ✓ | ✓ | ✓ | ✓ |  |  |  |  |  |  |  |
 | convnext | classify | ✓ | ✓ | ✓ | ✓ | ✓ |  |  |  | ✓ | ✓ |  | ✓ |
+| convnextv2 | classify | ✓ | ✓ | available | available | available |  |  |  | available |  |  |  |
 | ddcolor | restore |  |  |  |  |  |  |  |  |  |  |  |  |
 | deeplabv3 | semantic | ✓ | ✓ |  | ✓ | ✓ |  |  |  |  |  |  |  |
 | deformable_detr | detect | ✓ | available | available | available | available |  |  |  |  |  |  |  |
@@ -185,6 +186,8 @@ A check mark applies only under any constraint listed here.
 - `convnext` / `classify` / `openvino`: fixed family-native input resolution
 - `convnext` / `classify` / `ncnn`: PNNX/NCNN 20260526 CPU FP32 at the family-native input resolution; two-input raw parity, factory reload, metadata, and public predict parity
 - `convnext` / `classify` / `coreai`: fixed export canvas; a representative published trained ImageNet checkpoint for each family is covered on Apple hardware by direct named-output parity with a 3e-04 tolerance and a 100x input-sensitivity margin
+- `convnextv2` / `classify` / `onnx`: FP32; 224px ImageNet-1K classifiers; Atto CPU runtime parity
+- `convnextv2` / `classify` / `torchscript`: FP32; 224px ImageNet-1K classifiers; Atto CPU runtime parity
 - `deeplabv3` / `semantic` / `onnx`: FP32, batch 1, fixed 520x520 input
 - `deeplabv3` / `semantic` / `torchscript`: FP32, batch 1, fixed 520x520 input
 - `deeplabv3` / `semantic` / `tensorrt`: TensorRT 10.16 FP32, RTX 5070 Ti, batch 1, fixed 520x520 input
@@ -506,6 +509,10 @@ These converter paths are callable with the recorded validation context.
 - `centernet` / `detect` / `executorch`: Conversion is implemented; numeric runtime parity has not been recorded for this combination.
 - `centernet` / `detect` / `tensorrt`: The converter path is available, but the project has not yet recorded TensorRT runtime parity for this family and task.
 - `centernet` / `detect` / `openvino`: The converter path is available, but the project has not yet recorded OpenVINO runtime parity for this family and task.
+- `convnextv2` / `classify` / `executorch`: Conversion is implemented; numeric runtime parity has not been recorded for this combination.
+- `convnextv2` / `classify` / `tensorrt`: The converter path is available, but the project has not yet recorded TensorRT runtime parity for this family and task.
+- `convnextv2` / `classify` / `openvino`: The converter path is available, but the project has not yet recorded OpenVINO runtime parity for this family and task.
+- `convnextv2` / `classify` / `ncnn`: Conversion is implemented; numeric runtime parity has not been recorded for this combination.
 - `deformable_detr` / `detect` / `torchscript`: Conversion is implemented; numeric runtime parity has not been recorded for this combination.
 - `deformable_detr` / `detect` / `executorch`: Conversion is implemented; numeric runtime parity has not been recorded for this combination.
 - `deformable_detr` / `detect` / `tensorrt`: The converter path is available, but the project has not yet recorded TensorRT runtime parity for this family and task.
@@ -691,6 +698,12 @@ These converter paths are callable with the recorded validation context.
 - `convnext` / `classify` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
 - `convnext` / `classify` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
 - `convnext` / `classify` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
+- `convnextv2` / `classify` / `paddle`: This family and task have not been validated through the ONNX-to-Paddle conversion path.
+- `convnextv2` / `classify` / `mnn`: MNN v1 has no implemented runtime contract for this family and task.
+- `convnextv2` / `classify` / `rknn`: RKNN v1 is limited to the exact simulator-tested detection variants: YOLO9-t, YOLO9-E2E-t, YOLO-NAS-s, and PicoDet-s on RK3588.
+- `convnextv2` / `classify` / `tflite`: This family and task have not been validated through the ONNX-to-TFLite path.
+- `convnextv2` / `classify` / `coreml`: This family and task are not covered by the family-aware CoreML wrapper.
+- `convnextv2` / `classify` / `coreai`: This family and task have not been validated for Core AI export.
 - `ddcolor` / `restore` / `onnx`: DDColor export needs a two-input contract that preserves the source image's original-resolution OpenCV Lab luminance plane through RGB reconstruction. Native prediction is supported; no exported runtime contract or parity gate is defined yet.
 - `ddcolor` / `restore` / `torchscript`: DDColor export needs a two-input contract that preserves the source image's original-resolution OpenCV Lab luminance plane through RGB reconstruction. Native prediction is supported; no exported runtime contract or parity gate is defined yet.
 - `ddcolor` / `restore` / `executorch`: DDColor export needs a two-input contract that preserves the source image's original-resolution OpenCV Lab luminance plane through RGB reconstruction. Native prediction is supported; no exported runtime contract or parity gate is defined yet.

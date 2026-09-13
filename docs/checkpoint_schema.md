@@ -74,6 +74,13 @@ Training, validation and resume require matching dataset metadata. ONNX stores
 `input_profile` as JSON and the other fields as strings. The ONNX reader checks
 the graph channel count and rejects a two-channel graph without the profile.
 
+ConvNeXt V2 published classifiers also carry the optional flat
+`weight_license`, `weight_license_url`, `weight_dataset`,
+`weight_commercial_use`, `source`, `source_commit`, and `source_sha256` fields.
+Its converter and raw importer identify official 224px ImageNet-1K EMA files
+by SHA-256. Save, fine-tune, resume and DDP bootstrap preserve these fields;
+explicit scratch initialization clears inherited weight provenance.
+
 Pose checkpoints additionally include:
 
 - `nc` / `names`: pose is usually single-class (`nc: 1`, `person`), but the

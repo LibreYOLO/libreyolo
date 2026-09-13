@@ -71,6 +71,18 @@ def _add(
 # Existing parity-backed paths. New validated rows must land with a parity test.
 _add(
     "validated",
+    ("convnextv2",),
+    ("classify",),
+    ("onnx", "torchscript"),
+    reason=(
+        "Native and exported logits, probabilities, labels, and preprocessing "
+        "are covered by test_convnextv2_export.py."
+    ),
+    since="1.5",
+    constraint="FP32; 224px ImageNet-1K classifiers; Atto CPU runtime parity",
+)
+_add(
+    "validated",
     ("yolo9",),
     ("detect",),
     ("onnx", "torchscript", "tflite"),

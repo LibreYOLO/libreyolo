@@ -50,6 +50,7 @@ MODEL_GROUPS: dict[str, str] = {
     "nafnet": "g2",
     "resnet": "g2",
     "convnext": "g2",
+    "convnextv2": "g2",
     "mobilenetv4": "g2",
     "efficientnetv2": "g2",
     "domedetr": "g2",

@@ -540,6 +540,7 @@ markers = [
     "rfdetr: tests covering the RF-DETR model family",
     "detr: tests covering the original DETR model family",
     "deit: tests covering the DeiT image-classification family",
+    "convnextv2: tests covering the ConvNeXt V2 classification family",
     "deeplabv3: tests covering the DeepLabv3 semantic segmentation family",
     "lwdetr: tests covering the LW-DETR model family",
     "faster_rcnn: tests covering the Faster R-CNN model family",

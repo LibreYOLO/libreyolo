@@ -288,7 +288,15 @@ project the weights were derived from. Per-family summary:
 
     ConvNeXt (LibreConvNeXt{t,s,b}-cls)                Apache-2.0 (weights)
              upstream: timm fb_in1k; arch facebookresearch/ConvNeXt (MIT)
-             (ConvNeXt-V2 fcmae weights are CC-BY-NC and are NOT used)
+             (ConvNeXt V1 only; ConvNeXt V2 is listed separately below)
+
+    ConvNeXt V2 (LibreConvNeXtV2{atto,femto,pico,n,t,b,l,h}-cls)
+             Weights: CC-BY-NC-4.0 (non-commercial; redistribution permitted).
+             Source: facebookresearch/ConvNeXt-V2, commit
+             2553895753323c6fe0b2bf390683f5ea358a42b9; official ImageNet-1K
+             224px EMA classifiers. Learned tensors are unchanged.
+             Code: MIT, separate from the weight license.
+             https://github.com/facebookresearch/ConvNeXt-V2/blob/2553895753323c6fe0b2bf390683f5ea358a42b9/LICENSE
 
     DeiT     (LibreDeiT{t,s,b}-cls)                    Apache-2.0
              upstream weights: timm *.fb_in1k at the immutable revisions and
