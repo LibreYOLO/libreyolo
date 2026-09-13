@@ -324,3 +324,32 @@ def test_rgb_scratch_clears_previous_input_profile(profile):
     model._reset_for_scratch()
     assert model.input_profile is None
     assert model.model.backbone.conv0.conv.in_channels == 3
+
+
+def test_resume_rejects_different_count_scale_before_loading(tmp_path, profile):
+    from types import SimpleNamespace
+
+    from libreyolo.models.yolo9.trainer import YOLO9Trainer
+    from libreyolo.training.trainer import BaseTrainer
+    from libreyolo.utils.serialization import wrap_libreyolo_checkpoint
+
+    other = dict(profile, scale=8.0)
+    path = tmp_path / "last.pt"
+    torch.save(
+        wrap_libreyolo_checkpoint(
+            {},
+            model_family="yolo9",
+            size="t",
+            task="detect",
+            nc=1,
+            imgsz=64,
+            input_profile=other,
+            input_initialization="random",
+        ),
+        path,
+    )
+    trainer = object.__new__(YOLO9Trainer)
+    trainer.device = torch.device("cpu")
+    trainer.wrapper_model = SimpleNamespace(input_profile=profile)
+    with pytest.raises(ValueError, match="match"):
+        BaseTrainer.resume(trainer, str(path))
