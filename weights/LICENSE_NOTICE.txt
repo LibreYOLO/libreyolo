@@ -893,3 +893,37 @@ allenai/Molmo2-O-7B @ 784410650d12be9bc086118fdefa32d2c3bced86
 4B/8B use Qwen3 language backbones; O-7B uses OLMo 3. The released snapshots
 include the SigLIP vision backbone and their tokenizer assets. Upstream model
 cards declare Apache-2.0 for all three snapshots.
+
+
+EdgeCrafter Objects365-to-COCO variants (LibreEC*-obj2coco.pt)
+------------------------------------------------------------
+NON-COMMERCIAL USE ONLY. Commercial use requires a separate license from
+INTELLINDUST INFORMATION TECHNOLOGY (SHENZHEN) CO., LTD.
+
+Source: https://github.com/capsule2077/edgecrafter/releases/tag/edgecrafterv1_o365
+Assets: ecdet_{s,m,l,x}_o3652coco.pth, ecseg_{s,m,l,x}_o3652coco.pth,
+        ecpose_{s,m,l,x}_o3652coco.pth (published August 14, 2026).
+License: EdgeCrafter License, reproduced verbatim in licenses/EdgeCrafter.txt.
+License source: Intellindust-AI-Lab/EdgeCrafter at
+124cb0922ebe4af55c025af448312c2374210815, LICENSE.md.
+Copyright (c) 2026 INTELLINDUST INFORMATION TECHNOLOGY (SHENZHEN) CO., LTD.
+
+The asset repository retains Apache-2.0 while the main project changed to
+non-commercial terms on August 20, 2026. LibreYOLO's maintainer chose to
+redistribute these opt-in variants under the stricter EdgeCrafter terms.
+This records the selected redistribution policy, not upstream clarification
+of the conflicting notices or a claim that earlier Apache grants were revoked.
+Each mirror includes the complete license, attribution, and source SHA-256.
+Conversion selects the released EMA when present and adds metadata; learned
+parameters are unchanged. No source code from the relicensed release is ported.
+
+Objects365's download page limits the dataset to academic purposes, licenses
+annotations under CC BY 4.0, and retains third-party image restrictions:
+https://www.objects365.org/download.html
+The dataset itself is not redistributed here.
+
+Existing COCO-default checkpoints and their mirrors are unchanged. The earlier
+Apache-2.0 source license is recorded at EdgeCrafter commit
+744a60a864a72bf650056ffa426bc0c2aeb1920d (LICENSE), and the weight repository
+still provides Apache-2.0 at b075f34de6947c615557bdb987b0cebebfb7db99 (LICENSE).
+These weight terms are separate from LibreYOLO's MIT source-code license.

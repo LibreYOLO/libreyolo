@@ -998,6 +998,13 @@ resolves the Hugging Face repo `LibreYOLO/LibreYOLO9P2s-visdrone` (a research
 preview under VisDrone's CC BY-NC-SA license, announced by a download notice).
 Plain COCO-default weights never carry a variant suffix.
 
+EC declares `("obj2coco",)` for Objects365 pretraining followed by COCO
+fine-tuning: `LibreECs-obj2coco.pt`, `LibreECs-seg-obj2coco.pt`, and
+`LibreECs-pose-obj2coco.pt` (sizes s/m/l/x). These opt-in weights are
+redistributed under the non-commercial EdgeCrafter License, with a notice
+before download. The existing bare COCO filenames and defaults are unchanged.
+The suffix does not denote the raw 365-class pretraining checkpoints.
+
 ## Vision-language-action policies
 
 `LibreACT` (`act_policy`, aliases `act` and `act-policy`) and
