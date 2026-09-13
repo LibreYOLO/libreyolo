@@ -59,6 +59,21 @@ Optional family-specific geometry (not required by schema v1.0):
   than that unmarked-means-topleft rule. YOLO-NAS is not this field: its
   official pipeline already pads bottom-right in `preprocess/yolonas.py`.
 
+Optional event-histogram input metadata (YOLO9/RF-DETR detection only):
+
+- `input_profile`: the complete mapping from [Input profiles](input_profiles.md):
+  `format`, `layout`, `polarity`, `encoding`, `scale`, `window_us`.
+- `input_initialization`: required with the profile, either `random` or
+  `rgb_mean`. Readers adapt the actual input convolution to two channels before
+  loading its state dict. They must not infer the representation from weights.
+- YOLO9 also preserves `letterbox_pad` as defined above.
+
+The optional mapping describes one input contract, not nested family/task
+identification. Absent metadata retains the existing RGB checkpoint contract.
+Training, validation and resume require matching dataset metadata. ONNX stores
+`input_profile` as JSON and the other fields as strings. The ONNX reader checks
+the graph channel count and rejects a two-channel graph without the profile.
+
 Pose checkpoints additionally include:
 
 - `nc` / `names`: pose is usually single-class (`nc: 1`, `person`), but the

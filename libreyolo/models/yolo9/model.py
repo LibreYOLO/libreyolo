@@ -558,6 +558,8 @@ class LibreYOLO9(BaseModel):
         )
 
     def _get_val_preprocessor(self, img_size: int | None = None):
+        if getattr(self, "input_profile", None) is not None:
+            return super()._get_val_preprocessor(img_size)
         if img_size is None:
             img_size = self._get_input_size()
         return self.val_preprocessor_class(

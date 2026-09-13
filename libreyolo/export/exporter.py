@@ -404,6 +404,11 @@ class BaseExporter(ABC):
         # (reconstructing fp32 masters, enabling export mode) also wait for
         # every request rejection.
         pre_trace_hook = kwargs.pop("_pre_trace_hook", None)
+        if isinstance(getattr(self.model, "input_profile", None), dict):
+            if self.format_name != "onnx" or half or int8 or kwargs.get("nms", False):
+                raise ValueError(
+                    "Event histogram export currently supports FP32 ONNX without embedded NMS"
+                )
 
         task = getattr(self.model, "task", "detect")
         model_name = self.model._get_model_name()
@@ -1147,6 +1152,12 @@ class BaseExporter(ABC):
             was_exported = getattr(rfdetr_inner, "_export", False)
             if not was_exported:
                 rfdetr_export_snapshots = _snapshot_rfdetr_export_state(rfdetr_inner)
+                if isinstance(getattr(self.model, "input_profile", None), dict):
+                    # Bake positions at the graph's actual resolution. Baking at
+                    # the RGB default and resizing again changes learned positions.
+                    for module, state in rfdetr_export_snapshots:
+                        if "shape" in state and "position_embeddings" in state:
+                            module.shape = tuple(imgsz)
             nn_model = RFDETRExportWrapper(nn_model).to(device)
             nn_model.eval()
             dfine_wrapped = True
@@ -1201,7 +1212,8 @@ class BaseExporter(ABC):
             # geometry are fixed per graph; only batch may be dynamic.
             dummy = torch.randn(batch, video_export_frames, 3, h, w, device=device)
         else:
-            dummy = torch.randn(batch, 3, h, w, device=device)
+            channels = 2 if isinstance(getattr(self.model, "input_profile", None), dict) else 3
+            dummy = torch.randn(batch, channels, h, w, device=device)
 
         if half and not int8 and self.apply_model_half:
             nn_model.half()
@@ -1415,6 +1427,9 @@ class BaseExporter(ABC):
             ).lower(),
             "obb": str(task == "obb").lower(),
         }
+        from ..utils.event_histogram import input_metadata
+        for key, value in input_metadata(self.model).items():
+            meta[key] = json.dumps(value) if isinstance(value, dict) else str(value)
         # Classification eval preprocessing — lets exported-backend inference
         # match native predict()/val() (per-family crop_pct + interpolation).
         _crop_pct = getattr(self.model, "crop_pct", None)

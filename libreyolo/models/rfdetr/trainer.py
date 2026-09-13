@@ -1053,7 +1053,7 @@ class RFDETRTrainer(BaseTrainer):
 
     def _checkpoint_extra_metadata(self) -> Dict:
         if getattr(self.wrapper_model, "task", "detect") != "pose":
-            return {}
+            return super()._checkpoint_extra_metadata()
         return {
             "num_keypoints": self.config.num_keypoints,
             "keypoint_dim": self.config.keypoint_dim,

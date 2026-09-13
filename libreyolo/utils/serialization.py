@@ -320,6 +320,14 @@ def validate_checkpoint_metadata(
         if not isinstance(imgsz, int) or isinstance(imgsz, bool) or imgsz <= 0:
             errors.append("imgsz must be a positive int.")
 
+    if isinstance(checkpoint, dict) and "input_profile" in checkpoint:
+        from .event_histogram import validate_input_profile
+        try:
+            validate_input_profile(checkpoint["input_profile"], family=checkpoint.get("model_family"), task=checkpoint.get("task"))
+            if checkpoint.get("input_initialization") not in {"random", "rgb_mean"}:
+                errors.append("input_initialization must be random or rgb_mean for event histograms")
+        except ValueError as exc:
+            errors.append(str(exc))
     if strict and errors:
         raise CheckpointMetadataError("; ".join(errors))
     return errors
