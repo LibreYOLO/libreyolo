@@ -84,17 +84,26 @@ class ConvNeXtV2(nn.Module):
         depths, dims = ARCH_DEFS[size]
         self.num_features = dims[-1]
         self.num_classes = num_classes
-        self.downsample_layers = nn.ModuleList([
-            nn.Sequential(nn.Conv2d(3, dims[0], 4, stride=4), LayerNorm(dims[0], True))
-        ])
+        self.downsample_layers = nn.ModuleList(
+            [
+                nn.Sequential(
+                    nn.Conv2d(3, dims[0], 4, stride=4), LayerNorm(dims[0], True)
+                )
+            ]
+        )
         for i in range(3):
-            self.downsample_layers.append(nn.Sequential(
-                LayerNorm(dims[i], True), nn.Conv2d(dims[i], dims[i + 1], 2, stride=2)
-            ))
-        self.stages = nn.ModuleList([
-            nn.Sequential(*(Block(dim) for _ in range(depth)))
-            for depth, dim in zip(depths, dims)
-        ])
+            self.downsample_layers.append(
+                nn.Sequential(
+                    LayerNorm(dims[i], True),
+                    nn.Conv2d(dims[i], dims[i + 1], 2, stride=2),
+                )
+            )
+        self.stages = nn.ModuleList(
+            [
+                nn.Sequential(*(Block(dim) for _ in range(depth)))
+                for depth, dim in zip(depths, dims)
+            ]
+        )
         self.norm = nn.LayerNorm(dims[-1], eps=1e-6)
         self.head = nn.Linear(dims[-1], num_classes)
         self.apply(self._init_weights)
