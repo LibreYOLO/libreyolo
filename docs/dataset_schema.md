@@ -63,6 +63,13 @@ Canonical row, exactly 5 fields:
 
 `cx cy w h` is a normalized axis-aligned box. `w` and `h` must be positive.
 
+### Prepared event histograms
+
+YOLO9 and RF-DETR detection also accept `.npy` count planes with a required
+`input_profile` mapping. Labels retain the detection format above. Layout,
+polarity, normalization, accumulation duration and supported workflows are
+specified in [Input profiles](input_profiles.md). RGB datasets omit the profile.
+
 ## segment
 
 Polygon row:

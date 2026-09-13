@@ -406,6 +406,10 @@ class InferenceRunner:
             source_spec = classify_source(source)
 
         # Whole-clip inference. Opt-in per family: only when the family declares
+        if getattr(self.model, "input_profile", None) is not None:
+            from ...utils.event_histogram import check_predict_options
+            check_predict_options(source_spec, augment=augment or tiling, kwargs=kwargs)
+
         # clip support, the resolved task consumes a whole clip, and the source
         # is a finite video. Every other family keeps the frame-by-frame path
         # below.
@@ -527,7 +531,11 @@ class InferenceRunner:
         if source_spec.kind == SourceKind.IMAGE_BATCH:
             images = list(source_spec.items)
         elif source_spec.kind == SourceKind.DIRECTORY:
-            images = ImageLoader.collect_images(source_spec.source)
+            if getattr(self.model, "input_profile", None) is not None:
+                from libreyolo.utils.event_histogram import collect_histograms
+                images = collect_histograms(source_spec.source)
+            else:
+                images = ImageLoader.collect_images(source_spec.source)
             if not images:
                 return iter(()) if stream else []
 

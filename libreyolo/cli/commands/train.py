@@ -687,6 +687,18 @@ def train_cmd(
             params, family, "train", user_provided=user_provided
         )
 
+    from libreyolo.data.event_histogram import (
+        apply_histogram_cli_defaults,
+        histogram_recipe_defaults,
+    )
+
+    try:
+        histogram_input = apply_histogram_cli_defaults(
+            params, data=data, family=family, user_provided=user_provided
+        )
+    except ValueError as exc:
+        exit_with_error(out, "config_unsupported", str(exc))
+
     if params["lora"] and family is not None and family not in _LORA_TRAIN_FAMILIES:
         exit_with_error(
             out,
@@ -836,6 +848,8 @@ def train_cmd(
     train_kwargs = build_family_train_kwargs(
         params, family, model_path=model_path, user_provided=user_provided
     )
+    if histogram_input:
+        train_kwargs.update(histogram_recipe_defaults(family))
     if train_pretrained is not None:
         train_kwargs["pretrained"] = train_pretrained  # Not in TrainConfig
     if family == "rfdetr":

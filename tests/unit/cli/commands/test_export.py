@@ -174,3 +174,22 @@ def test_export_cli_forwards_paddle_static_defaults(monkeypatch, tmp_path):
     assert captured["kwargs"]["dynamic"] is False
     assert captured["kwargs"]["batch"] == 1
     assert captured["kwargs"]["simplify"] is True
+
+
+@pytest.mark.parametrize("channels", [2, 3])
+@pytest.mark.parametrize(
+    "arguments",
+    [["model=dummy.pt", "format=onnx"], ["--model", "dummy.pt", "--format", "onnx"]],
+)
+def test_export_cli_reports_histogram_channel_count(
+    monkeypatch, tmp_path, channels, arguments
+):
+    from libreyolo.cli.commands import export
+
+    loaded = _LoadedModel(tmp_path / "model.onnx", {})
+    loaded.input_profile = {"format": "event_histogram"} if channels == 2 else None
+    monkeypatch.setattr(export, "resolve_model_or_exit", lambda out, model: model)
+    monkeypatch.setattr(export, "load_model_or_exit", lambda *args, **kwargs: loaded)
+    result = runner.invoke(_build_app(), [*arguments, "--json"])
+    assert result.exit_code == 0, result.output
+    assert _parse_json_output(result.output)["input_shape"] == [1, channels, 128, 128]
