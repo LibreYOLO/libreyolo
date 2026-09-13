@@ -3842,6 +3842,14 @@ class BaseTrainer(ABC):
             map_location=self.device,
             context="training resume checkpoint",
         )
+        if isinstance(checkpoint.get("input_profile"), dict) or isinstance(
+            getattr(getattr(self, "wrapper_model", None), "input_profile", None), dict
+        ):
+            from ..utils.event_histogram import check_dataset_profile
+
+            validate_checkpoint_metadata(checkpoint, strict=True)
+            check_dataset_profile(self.wrapper_model, checkpoint)
+            self.wrapper_model.input_initialization = checkpoint["input_initialization"]
         metadata_errors = validate_checkpoint_metadata(checkpoint, strict=False)
         if metadata_errors:
             logger.warning(
