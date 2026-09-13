@@ -94,6 +94,7 @@ FAMILY_DISPLAY_NAMES: Dict[str, str] = {
     "fomo": "FOMO",
     "resnet": "ResNet",
     "convnext": "ConvNeXt",
+    "convnextv2": "ConvNeXt V2",
     "mobilenetv4": "MobileNetV4",
     "efficientnetv2": "EfficientNetV2",
     "dinov2": "DINOv2",
@@ -291,6 +292,7 @@ FAMILY_AUG_SUPPORT: Dict[str, Dict[str, Support]] = {
     # --- Classification-only families -----------------------------------
     "resnet": dict(_CLASSIFY_STYLE),
     "convnext": dict(_CLASSIFY_STYLE),
+    "convnextv2": dict(_CLASSIFY_STYLE),
     "mobilenetv4": dict(_CLASSIFY_STYLE),
     "efficientnetv2": dict(_CLASSIFY_STYLE),
     # --- Semantic-only: the semantic pipeline reads family class
