@@ -34,7 +34,7 @@ input_profile:
   window_us: 40000
 ```
 
-Every `input_profile` field is required. `scale` is a positive finite count
+Every `input_profile` field is required. `scale` is a positive finite float32 count
 saturation level. `window_us` is the positive integer accumulation duration in
 microseconds. The producer owns window boundaries, polarity conversion and
 annotation association; an array cannot prove these facts. Do not infer a

@@ -547,6 +547,13 @@ class YOLODataset(ImageCacheMixin, Dataset):
             raise ValueError(f"Failed to load {img_file}")
         return img
 
+    def _load_image_from_disk(self, index: int) -> np.ndarray:
+        if self.input_profile:
+            # Numerical sources already are NumPy files. A .npy.npy sidecar
+            # would be discovered as another training image on the next run.
+            return self._decode_image(index)
+        return super()._load_image_from_disk(index)
+
     # load_resized_img comes from ImageCacheMixin: the deterministic resize is
     # the post-resize cache point, so the mixin owns both the math and the cache.
 

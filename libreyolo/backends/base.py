@@ -4122,7 +4122,8 @@ class BaseBackend(ABC):
                 annotated_img = draw_keypoints(annotated_img, kpts_np)
 
         ext = forced_ext or (
-            Path(image_path).suffix.lstrip(".") if image_path else "jpg"
+            "png" if isinstance(getattr(self, "input_profile", None), dict)
+            else Path(image_path).suffix.lstrip(".") if image_path else "jpg"
         )
         if not ext:
             ext = "jpg"
