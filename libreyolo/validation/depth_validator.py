@@ -159,11 +159,9 @@ class DepthValidator(BaseValidator):
             if valid_count < 2:
                 continue
             pred_valid = pred[valid]
-            gt_inverse = 1.0 / gt_depth[valid].double()
-
-            aligned = align_inverse_depth(pred_valid, gt_inverse)
-            depth = 1.0 / aligned.clamp_min(_EPS)
             gt = gt_depth[valid].double()
+            encoding = getattr(self.model, "depth_encoding", "inverse_depth")
+            depth = align_depth_prediction(pred_valid, gt, encoding=encoding)
 
             residual = depth - gt
             ratio = torch.maximum(depth / gt, gt / depth)
@@ -203,4 +201,22 @@ class DepthValidator(BaseValidator):
         logger.info("=" * 50)
 
 
-__all__ = ["DepthValidator", "align_inverse_depth"]
+def align_depth_prediction(pred, gt_depth, *, encoding="inverse_depth"):
+    """Positive affine alignment in the declared space, then target depth units.
+
+    Ground truth supplies the metric scale. A normalized log-depth prediction
+    needs alignment before exponentiation; exp(raw) would invent a scale.
+    """
+    gt_depth = gt_depth.double()
+    if encoding == "inverse_depth":
+        aligned = align_inverse_depth(pred, 1.0 / gt_depth)
+        return 1.0 / aligned.clamp_min(_EPS)
+    if encoding == "depth":
+        return align_inverse_depth(pred, gt_depth).clamp_min(_EPS)
+    if encoding == "log_depth":
+        aligned = align_inverse_depth(pred, gt_depth.log())
+        return aligned.clamp(-50, 50).exp()
+    raise ValueError(f"Unknown depth encoding: {encoding!r}")
+
+
+__all__ = ["DepthValidator", "align_inverse_depth", "align_depth_prediction"]

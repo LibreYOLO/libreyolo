@@ -135,7 +135,7 @@ class ImageCacheMixin:
             img,
             (int(img.shape[1] * r), int(img.shape[0] * r)),
             interpolation=cv2.INTER_LINEAR,
-        ).astype(np.uint8)
+        ).astype(img.dtype)
 
     def _load_image_from_disk(self, index: int) -> np.ndarray:
         src = Path(self._image_path(index))

@@ -288,7 +288,15 @@ project the weights were derived from. Per-family summary:
 
     ConvNeXt (LibreConvNeXt{t,s,b}-cls)                Apache-2.0 (weights)
              upstream: timm fb_in1k; arch facebookresearch/ConvNeXt (MIT)
-             (ConvNeXt-V2 fcmae weights are CC-BY-NC and are NOT used)
+             (ConvNeXt V1 only; ConvNeXt V2 is listed separately below)
+
+    ConvNeXt V2 (LibreConvNeXtV2{atto,femto,pico,n,t,b,l,h}-cls)
+             Weights: CC-BY-NC-4.0 (non-commercial; redistribution permitted).
+             Source: facebookresearch/ConvNeXt-V2, commit
+             2553895753323c6fe0b2bf390683f5ea358a42b9; official ImageNet-1K
+             224px EMA classifiers. Learned tensors are unchanged.
+             Code: MIT, separate from the weight license.
+             https://github.com/facebookresearch/ConvNeXt-V2/blob/2553895753323c6fe0b2bf390683f5ea358a42b9/LICENSE
 
     DeiT     (LibreDeiT{t,s,b}-cls)                    Apache-2.0
              upstream weights: timm *.fb_in1k at the immutable revisions and
@@ -720,6 +728,22 @@ research-use agreement; Diving48's redistribution terms are not clearly
 established by the selected official source. Users training on either dataset
 are responsible for accepting its terms themselves.
 
+LeVJEPA video encoder
+---------------------
+The converted LeVJEPA checkpoint is redistributed under Creative Commons
+Attribution-NonCommercial 4.0 International. It requires attribution and may
+not be used for commercial purposes. This restriction applies to the learned
+weights, not LibreYOLO's independently implemented MIT-licensed runtime.
+
+  LibreLeVJEPAl-embed.pt
+    galilai-group/LeVJEPA-VideoMix-Large @ e831a0347737fcaa660b39c57d41c109de399845
+    CC-BY-NC-4.0
+
+The released checkpoint was trained on VideoMix, described by its authors as
+1.8 million clips from Kinetics-710, Something-Something v2, Walking Tours,
+and PE-Video. Those datasets are named for provenance only and are not
+mirrored or bundled by LibreYOLO.
+
     Gemma 4 (LibreGemma4e2b, LibreGemma4e4b)           Apache-2.0
              mirrored snapshots of google/gemma-4-E2B-it @
              3e22461f65e89153144f8adb70e3b8c2cc9845a7 and
@@ -770,3 +794,163 @@ Third-party SOURCE CODE bundled inside the LibreYOLO Python package
 Notably, the DEIMv2 family bundles DINOv3 backbone code under Meta's
 non-OSI DINOv3 License Agreement; see NOTICE and
 libreyolo/models/deimv2/engine/backbone/dinov3/LICENSE.md.
+
+WildDet3D (LibreYOLO/LibreWildDet3D; byte-identical upstream mirror)
+    Source: https://huggingface.co/allenai/WildDet3D revision
+            161edb26239f58d8973045517d9c8b179c515f73
+    License: SAM License. The model card also describes intended research
+    and educational use and links Ai2's Responsible Use Guidelines.
+    These weights are not MIT. The Stage 3 checkpoint is mirrored unchanged at
+    LibreYOLO/LibreWildDet3D revision
+    e2baa17eb2279225094a2d7e7d7620ff06dc4676 with the complete SAM License.
+    Filename: wilddet3d_alldata_all_prompt_v1.0.pt
+    SHA-256: f8b6a9e548f733ba62625a0d2adc4b0f4fdb6007ee11d9927f9c1027010fee57
+
+3D-MOOD (LibreYOLO/Libre3DMOODt and LibreYOLO/Libre3DMOODb)
+    Source: https://huggingface.co/RoyYang0714/3D-MOOD revision
+            3d1fab552189f1a62fdb60ebb606d20625a30b90
+    License: Apache-2.0, as declared by the official model repository.
+    The learned parameters are unchanged; LibreYOLO renames each file for its
+    canonical model-size convention and verifies the original content digest.
+    Swin-T: Libre3DMOODt.pt
+      Mirror revision: f1e163b249b43a8bb7b8b4ef4f446828270e35ef
+      SHA-256: 699f69454625d1fb3ad7d3669d8d662d52c349c99b2aba28da1215b8e7e4a555
+    Swin-B: Libre3DMOODb.pt
+      Mirror revision: a4f6115d285a6983439f0e54f20c44b0ce87c261
+      SHA-256: 834c976df385610bba105c7d4ea3e2d7b57dabd69dee2b61397ae398de67a677
+
+DetAny3D (LibreYOLO/LibreDetAny3D; byte-identical upstream mirror)
+    Source: https://github.com/OpenDriveLab/DetAny3D revision
+            10e484be0837d80aa33cff6ed95a9be834a3f794, checkpoint published
+            through the project's Google Drive folder.
+    License: CC-BY-NC-4.0 applied by LibreYOLO as the strictest known term.
+    OpenDriveLab declares no per-object checkpoint license; the maintainer
+    approved this mirror by treating the project's Apache-2.0 statement as the
+    redistribution basis for the parameters DetAny3D itself trained. That is
+    LibreYOLO's disclosed interpretation, not upstream clarification. Upstream
+    documents the depth branch as initialized from UniDepth v2 (CC BY-NC 4.0),
+    which the repository LICENSE reproduces in full. These weights are not MIT.
+    The separate runtime also includes UniDepth code under CC BY-NC 4.0.
+    Filename: detany3d.pth
+    Mirror revision: eeb89d1b1d37ec5a361b1ec79b26ea0620d9f4c3
+    SHA-256: cd5f737ddbf3ceb64f969141672d04c0a3d785ad3b8a72668619a530840cd217
+
+FCOS3D (LibreYOLO/LibreFCOS3D; byte-identical upstream mirror)
+    Code source: https://github.com/open-mmlab/mmdetection3d (Apache-2.0).
+    Checkpoint source: the OpenMMLab model zoo, finetuned R101 nuScenes
+    variant published July 2021 (32.1 mAP, 39.5 NDS).
+    License: no per-object checkpoint license is declared upstream. The
+    maintainer approved this mirror by treating mmdetection3d's Apache-2.0
+    project statement as the redistribution basis. That is LibreYOLO's
+    disclosed interpretation, not upstream clarification. The weights are
+    trained on nuScenes under non-commercial terms and are not MIT.
+    nuScenes dataset terms: https://www.nuscenes.org/terms-of-use
+    Filename: fcos3d_r101_caffe_fpn_gn-head_dcn_2x8_1x_nus-mono3d_finetune_20210717_095645-8d806dc2.pth
+    Mirror revision: af69c4abfb265f63695ecbaa68b4167f0c150605
+    SHA-256: 8d806dc2ecae85bc8eaba1f16dccdf03459317ca6aed7984cfda33c2a2bc33a8
+
+Marigold V2
+    Adapter source: https://huggingface.co/huawei-bayerlab/marigold-v2-0
+    Revision: 6fd6d1ca246c9d2d99a4d8ac375a4eccc87178ad
+    License: Apache-2.0, with a license file in the official model repository.
+    Conversion preserves every inference tensor and fixed prompt tensor. Two
+    training-only iREPA projector tensors are omitted explicitly.
+    Frozen base: https://huggingface.co/Qwen/Qwen-Image-Edit-2509
+    Revision: d3968ef930e841f4c73640fb8afa3b306a78167e
+    Base license: Apache-2.0, as declared by its model card.
+    The frozen base downloads separately; it is not stored in adapter .pt files.
+    Verified LibreYOLO mirrors:
+      LibreYOLO/LibreMarigoldV2b-depth revision 4bf4fec5b9bc64cef6ea13f424319e78f07369a5
+        SHA-256: c1320b426de97cb62a2f6b972c36f8374911152694b0e1bfc58f0801445cfd81
+      LibreYOLO/LibreMarigoldV2b-depth-log-stage1 revision 15d3b00db5f17b29e1db602aa1e286fc91482fe2
+        SHA-256: 0d5e29a8e2badc6d1b40952b701b01a6b61116dc580bc7188140b16ab3cc599a
+      LibreYOLO/LibreMarigoldV2b-depth-log-layered revision 5a7b7546935d945591b75a093623ed1c1cf22410
+        SHA-256: 787cd0239aca84e9e65270c8dd66a2ca3de1a66b2367fd923b1b812275f7139b
+      LibreYOLO/LibreMarigoldV2b-depth-uniform-base revision 4c2a8e0b742c515fd1ac5069f875a782aa5657eb
+        SHA-256: a8cced520471685e9b22bbb01ce9055236dcc4f352bf99b7071245ae6932afec
+      LibreYOLO/LibreMarigoldV2b-depth-uniform-layered revision c06fa777a491f24d30ec9683aade54cd35bf126f
+        SHA-256: c91221d6a76089e275e599d188057828432cab9dd7043dc507f0853bf38289db
+      LibreYOLO/LibreMarigoldV2b-depth-disparity-base revision aea778a825a32108a4083ad25050905dc6395f34
+        SHA-256: 7de613be0c0fdd313891f108a8aebc7bea8b27ef0e78dac8da1931c56447b91a
+      LibreYOLO/LibreMarigoldV2b-depth-disparity-layered revision 060b170064f494a0c41ae895581a0f9225b4875c
+        SHA-256: 304b6f7700fcc3eeeb968d8a6627e9cdbda59493d1296b2c88a1e878cf3cf520
+      LibreYOLO/LibreMarigoldV2b-normal revision 241d46b12ba01501238183bfe427cf7581a37ca6
+        SHA-256: e0f6544c4f931a106efe52d8f93d736d2857e64106d8e497ab9bb792ffea96a4
+      LibreYOLO/LibreMarigoldV2b-albedo revision 6047b172455c3ecca3c437b1718b06b665d6d76c
+        SHA-256: 1359cc12dacab2ddbcdd81afeb637f0359fde668485915669216065155eaab71
+
+Molmo2 (LibreMolmo2 4b / 8b / o-7b)                  Apache-2.0
+Molmo2 single-image pointing adapter
+-----------------------------------
+
+Upstream: Allen Institute for AI (Ai2), https://github.com/allenai/molmo2
+Commit: f3cb1085fbb97c4a4d7fdcadd77cf871bf37a88a
+License: Apache-2.0 (full text: licenses/Apache-2.0.txt in LibreYOLO)
+
+The adapter and parser integrate the upstream Hugging Face usage API and the
+point grammar documented in olmo/preprocessing/point_formatter.py and its tests.
+LibreYOLO reuses its existing VLM inference and point-result implementations;
+no Molmo2 architecture source is bundled in this Python package.
+Remote model/processor code and weights originate from these Apache-2.0
+snapshots, with unmodified learned parameters:
+
+allenai/Molmo2-4B   @ 042abfa7a38879a376cec03d949eff0aefaa0600
+allenai/Molmo2-8B   @ e28fa28597e5ec5e0cca2201dd8ab33d48bc4a1b
+allenai/Molmo2-O-7B @ 784410650d12be9bc086118fdefa32d2c3bced86
+
+4B/8B use Qwen3 language backbones; O-7B uses OLMo 3. The released snapshots
+include the SigLIP vision backbone and their tokenizer assets. Upstream model
+cards declare Apache-2.0 for all three snapshots.
+
+
+EdgeCrafter original COCO defaults (detection, segmentation and pose)
+--------------------------------------------------------------------
+License: Apache-2.0, reproduced in licenses/Apache-2.0.txt and each HF mirror.
+Source: https://github.com/capsule2077/edgecrafter/releases/tag/edgecrafterv1
+Assets: ecdet_{s,m,l,x}.pth, ecseg_{s,m,l,x}.pth, ecpose_{s,m,l,x}.pth.
+Source license: https://github.com/capsule2077/edgecrafter/blob/b075f34de6947c615557bdb987b0cebebfb7db99/LICENSE
+Copyright (c) 2026 The EdgeCrafter Authors (Longfei Liu et al., Intellindust AI Lab).
+
+These are the earlier COCO-only checkpoints, not the Objects365 variants.
+The 12 LibreYOLO HF mirrors were first populated on May 3, 2026; their latest
+commits as checked on September 13, 2026 are from June 27, before the upstream
+license change. Each mirror includes Apache-2.0 and a NOTICE identifying
+EdgeCrafter. Example: https://huggingface.co/LibreYOLO/LibreECs
+See docs/provenance/edgecrafter.md for the license history and evidence limits.
+
+
+EdgeCrafter Objects365-to-COCO variants (LibreEC*-obj2coco.pt)
+------------------------------------------------------------
+NON-COMMERCIAL USE ONLY. Commercial use requires a separate license from
+INTELLINDUST INFORMATION TECHNOLOGY (SHENZHEN) CO., LTD.
+
+Source: https://github.com/capsule2077/edgecrafter/releases/tag/edgecrafterv1_o365
+Assets: ecdet_{s,m,l,x}_o3652coco.pth, ecseg_{s,m,l,x}_o3652coco.pth,
+        ecpose_{s,m,l,x}_o3652coco.pth (published August 14, 2026).
+License: EdgeCrafter License, reproduced verbatim in licenses/EdgeCrafter.txt.
+License source: Intellindust-AI-Lab/EdgeCrafter at
+124cb0922ebe4af55c025af448312c2374210815, LICENSE.md.
+Copyright (c) 2026 INTELLINDUST INFORMATION TECHNOLOGY (SHENZHEN) CO., LTD.
+
+The asset repository retains Apache-2.0 while the main project changed to
+non-commercial terms on August 20, 2026. LibreYOLO's maintainer chose to
+redistribute these opt-in variants under the stricter EdgeCrafter terms.
+This records the selected redistribution policy, not upstream clarification
+of the conflicting notices or a claim that earlier Apache grants were revoked.
+Each mirror includes the complete license, attribution, and source SHA-256.
+Conversion selects the released EMA when present and adds metadata; learned
+parameters are unchanged. No source code from the relicensed release is ported.
+
+Objects365's download page limits the dataset to academic purposes, licenses
+annotations under CC BY 4.0, and retains third-party image restrictions:
+https://www.objects365.org/download.html
+The dataset itself is not redistributed here.
+
+Existing COCO-default checkpoints and their mirrors are unchanged. The earlier
+Apache-2.0 source license is recorded at EdgeCrafter commit
+744a60a864a72bf650056ffa426bc0c2aeb1920d (LICENSE), and the weight repository
+still provides Apache-2.0 at b075f34de6947c615557bdb987b0cebebfb7db99 (LICENSE).
+These weight terms are separate from LibreYOLO's MIT source-code license.
+The August 20 replacement is commit e0656d44b80ecb97ba96bb8a804a741169431e0f;
+August 24 commit 124cb0922ebe4af55c025af448312c2374210815 only renamed the file.
+See docs/provenance/edgecrafter.md for links and the chronology.

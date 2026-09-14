@@ -46,6 +46,13 @@ dev = [
 ]
 
 [project.optional-dependencies]
+marigold = [
+    "diffusers==0.38.0",
+    "peft==0.18.1",
+    "accelerate==1.13.0",
+    "transformers==5.4.0",
+    "bitsandbytes==0.49.2; platform_system == 'Linux' or platform_system == 'Windows'",
+]
 stream = [
     # YouTube page URLs are resolved lazily to direct media URLs. Webcam,
     # RTSP/RTMP/TCP/UDP, HLS, and local multi-stream inputs need no extra.
@@ -100,6 +107,14 @@ fast-eval = [
     # platform without one must not be able to break a plain `pip install`.
     "faster-coco-eval>=1.7.0",
 ]
+vla = [
+    # LibreVLA loads vision-language-action policies through the Apache-2.0
+    # lerobot package (policy classes, processor pipelines, LeRobot datasets).
+    # lerobot requires Python >= 3.12, so the extra installs nothing on older
+    # interpreters and the tier raises an ImportError that says so. Kept out
+    # of `all` for the same reason.
+    "lerobot[smolvla,diffusion,dataset]>=0.6.1; python_version >= '3.12'",
+]
 llm = [
     # LibreLLM talks to OpenAI-compatible Responses / Chat Completions
     # endpoints through the official Apache-2.0 OpenAI Python SDK.
@@ -108,6 +123,12 @@ llm = [
 ground = [
     # LibreGround (instruction → click) shares the VLM extra stack.
     "libreyolo[vlm]",
+]
+molmo2 = [
+    # Pinned Molmo2 remote code uses Transformers 4 processor and RoPE APIs.
+    "transformers==4.57.1",
+    "einops>=0.8.0",
+    "accelerate>=0.26.0",
 ]
 vlm = [
     # VLM-as-detector and LibreGround families load through transformers.
@@ -376,6 +397,22 @@ build-backend = "setuptools.build_meta"
 # Requires NVIDIA driver >= 555 (CUDA 12.8 runtime) on the host.
 [tool.uv]
 conflicts = [
+    [{ extra = "molmo2" }, { extra = "hf" }],
+    [{ extra = "molmo2" }, { extra = "all" }],
+    [{ extra = "molmo2" }, { extra = "eomt" }],
+    [{ extra = "molmo2" }, { extra = "ground" }],
+    [{ extra = "molmo2" }, { extra = "label" }],
+    [{ extra = "molmo2" }, { extra = "lora" }],
+    [{ extra = "molmo2" }, { extra = "marigold" }],
+    [{ extra = "molmo2" }, { extra = "modus" }],
+    [{ extra = "molmo2" }, { extra = "openvocab" }],
+    [{ extra = "molmo2" }, { extra = "rfdetr" }],
+    [{ extra = "molmo2" }, { extra = "sam" }],
+    [{ extra = "molmo2" }, { extra = "sensenova" }],
+    [{ extra = "molmo2" }, { extra = "siglip2-convert" }],
+    [{ extra = "molmo2" }, { extra = "vlm" }],
+    [{ extra = "molmo2" }, { extra = "vlm-train" }],
+
     [{ extra = "neptune" }, { extra = "tflite" }],
     [{ extra = "neptune" }, { extra = "litert" }],
     [{ extra = "neptune" }, { extra = "all" }],
@@ -459,10 +496,16 @@ testpaths = ["tests"]
 # the e2e target sets, so unit runs stay unbounded.
 timeout_method = "thread"
 markers = [
+    "marigold_v2: Marigold V2 dense prediction tests",
+    "detany3d: optional DetAny3D promptable 3D detection integration",
+    "fcos3d: native FCOS3D calibrated 3D detection",
+    "wilddet3d: optional WildDet3D 3D detection integration",
+    "mood3d: optional 3D-MOOD open-set 3D detection integration",
     "unit: fast tests that avoid external weights or large files",
     "vit: tests covering the ViT classification family",
     "swin: tests covering the Swin classification family",
     "vjepa2: tests covering the V-JEPA 2 video embedding and classification family",
+    "levjepa: tests covering the LeVJEPA video embedding family",
     "external_data: tests that require external datasets, weights, or staged large files",
     "network: tests that intentionally use non-local network access",
     "e2e: end-to-end tests requiring full model loading and inference",
@@ -497,6 +540,7 @@ markers = [
     "rfdetr: tests covering the RF-DETR model family",
     "detr: tests covering the original DETR model family",
     "deit: tests covering the DeiT image-classification family",
+    "convnextv2: tests covering the ConvNeXt V2 classification family",
     "deeplabv3: tests covering the DeepLabv3 semantic segmentation family",
     "lwdetr: tests covering the LW-DETR model family",
     "faster_rcnn: tests covering the Faster R-CNN model family",
@@ -530,6 +574,7 @@ markers = [
     "vgg: tests covering the LibreVGG classification family",
     "vlm: tests covering the LibreVLM (VLM-as-detector) tier",
     "llm: tests covering the LibreLLM OpenAI-compatible client",
+    "vla: tests covering the LibreVLA (vision-language-action) tier",
     "sam: tests covering the LibreSAM (promptable-segmentation) tier",
     "openvocab: tests covering the LibreOpenVocab detector tier",
     "sensenova: tests covering the LibreSenseNovaVision unified multimodal family",

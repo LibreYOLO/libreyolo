@@ -256,9 +256,13 @@ class DetectionValidator(ValidationLossMixin, BaseValidator):
                 self.config.classes, single_cls=self._single_cls_enabled()
             )
 
+        from ..utils.event_histogram import check_dataset_profile
+        check_dataset_profile(self.model, data_cfg or {})
         self.val_preproc = self.model._get_val_preprocessor(img_size=actual_imgsz)
         self._ensure_validation_loss_target_capacity()
         dataset_kwargs = self._dataset_kwargs()
+        if getattr(self.model, "input_profile", None) is not None:
+            dataset_kwargs["input_profile"] = self.model.input_profile
 
         # Determine dataset format
         data_path = Path(data_dir)
@@ -1052,7 +1056,11 @@ class DetectionValidator(ValidationLossMixin, BaseValidator):
             for idx, sample in enumerate(self._val_samples):
                 if sample["img_path"] is None:
                     continue
-                img_bgr = cv2.imread(str(sample["img_path"]))
+                if getattr(self.model, "input_profile", None) is not None:
+                    from ..utils.event_histogram import visualize_histogram
+                    img_bgr = visualize_histogram(sample["img_path"], scale=self.model.input_profile["scale"])[..., ::-1]
+                else:
+                    img_bgr = cv2.imread(str(sample["img_path"]))
                 if img_bgr is None:
                     continue
                 _safe(

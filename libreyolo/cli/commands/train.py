@@ -303,6 +303,18 @@ def train_cmd(
         help="LVIS-style repeat-factor sampling for long-tailed datasets "
         "(default: off)",
     ),
+    cls_pw: float = typer.Option(
+        0.0,
+        min=0.0,
+        max=1.0,
+        help="Classification inverse-frequency weighting power: 0 off, 1 full "
+        "(mean-one class weights; cannot combine with class_weights=True)",
+    ),
+    class_weights: bool = typer.Option(
+        False,
+        "--class-weights/--no-class-weights",
+        help="Legacy sample-normalized classification loss weights (default: off)",
+    ),
     single_cls: bool = typer.Option(
         False,
         "--single-cls/--no-single-cls",
@@ -458,7 +470,9 @@ def train_cmd(
     # Parse tuple/list strings
     try:
         from libreyolo.utils.amp import normalize_amp_dtype
+        from libreyolo.training.config import validate_class_weighting
 
+        cls_pw = validate_class_weighting(cls_pw, class_weights)
         amp_dtype = normalize_amp_dtype(amp_dtype)
         if max_det < 1:
             raise ValueError(f"max_det must be >= 1, got {max_det}")
@@ -624,6 +638,8 @@ def train_cmd(
         "cache": cache_val,
         "min_samples": min_samples,
         "class_balanced": class_balanced,
+        "class_weights": class_weights,
+        "cls_pw": cls_pw,
         "single_cls": single_cls,
         "classes": classes,
         "average_best": average_best,
@@ -678,6 +694,18 @@ def train_cmd(
         params = apply_family_defaults(
             params, family, "train", user_provided=user_provided
         )
+
+    from libreyolo.data.event_histogram import (
+        apply_histogram_cli_defaults,
+        histogram_recipe_defaults,
+    )
+
+    try:
+        histogram_input = apply_histogram_cli_defaults(
+            params, data=data, family=family, user_provided=user_provided
+        )
+    except ValueError as exc:
+        exit_with_error(out, "config_unsupported", str(exc))
 
     if params["lora"] and family is not None and family not in _LORA_TRAIN_FAMILIES:
         exit_with_error(
@@ -738,6 +766,8 @@ def train_cmd(
             "amp_dtype": params["amp_dtype"],
             "max_det": params["max_det"],
             "class_balanced": params["class_balanced"],
+            "class_weights": params["class_weights"],
+            "cls_pw": params["cls_pw"],
             "single_cls": params["single_cls"],
             "classes": params["classes"],
             "average_best": params["average_best"],
@@ -775,6 +805,8 @@ def train_cmd(
                 "save_period": params["save_period"],
                 "lora": params["lora"],
                 "class_balanced": params["class_balanced"],
+                "class_weights": params["class_weights"],
+                "cls_pw": params["cls_pw"],
                 "single_cls": params["single_cls"],
                 "classes": params["classes"],
                 "average_best": params["average_best"],
@@ -826,6 +858,8 @@ def train_cmd(
     train_kwargs = build_family_train_kwargs(
         params, family, model_path=model_path, user_provided=user_provided
     )
+    if histogram_input:
+        train_kwargs.update(histogram_recipe_defaults(family))
     if train_pretrained is not None:
         train_kwargs["pretrained"] = train_pretrained  # Not in TrainConfig
     if family == "rfdetr":

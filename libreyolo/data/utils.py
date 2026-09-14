@@ -119,7 +119,7 @@ def list_builtin_datasets() -> list:
     return [f.stem for f in BUILTIN_DATASETS_DIR.glob("*.yaml")]
 
 
-def get_img_files(path: Union[str, Path, List], prefix: str = "") -> List[Path]:
+def get_img_files(path: Union[str, Path, List], prefix: str = "", *, formats=None) -> List[Path]:
     """
     Get list of image files from various input formats.
 
@@ -139,11 +139,12 @@ def get_img_files(path: Union[str, Path, List], prefix: str = "") -> List[Path]:
         FileNotFoundError: If path doesn't exist.
         ValueError: If no valid images found.
     """
+    formats = IMG_FORMATS if formats is None else formats
     if isinstance(path, list):
         # Handle list of paths recursively
         img_files = []
         for p in path:
-            img_files.extend(get_img_files(p, prefix))
+            img_files.extend(get_img_files(p, prefix, formats=formats))
         return img_files
 
     path = Path(path)
@@ -155,7 +156,7 @@ def get_img_files(path: Union[str, Path, List], prefix: str = "") -> List[Path]:
     if path.is_dir():
         # Directory: recursively find all images
         img_files = []
-        for ext in IMG_FORMATS:
+        for ext in formats:
             img_files.extend(path.rglob(f"*{ext}"))
             img_files.extend(path.rglob(f"*{ext.upper()}"))
         return sorted(set(img_files))
@@ -175,11 +176,11 @@ def get_img_files(path: Union[str, Path, List], prefix: str = "") -> List[Path]:
                     if not img_path.is_absolute():
                         # Relative to txt file's parent directory
                         img_path = path.parent / img_path
-                    if img_path.suffix.lower() in IMG_FORMATS:
+                    if img_path.suffix.lower() in formats:
                         img_files.append(img_path)
         return sorted(img_files)
 
-    elif path.suffix.lower() in IMG_FORMATS:
+    elif path.suffix.lower() in formats:
         # Single image file
         if not path.exists():
             raise FileNotFoundError(f"Image file not found: {path}")
@@ -321,6 +322,14 @@ def load_data_config(
     with open(yaml_path, "r") as f:
         config = yaml.safe_load(f)
 
+    from ..utils.event_histogram import validate_input_profile
+    profile = validate_input_profile(config.get("input_profile"))
+    if profile is not None:
+        if config.get("channels", 2) != 2:
+            raise ValueError("Event histogram datasets require channels: 2")
+        if config.get("annotations"):
+            raise ValueError("Event histogram datasets currently use YOLO text labels")
+
     # Resolve dataset root path
     dataset_path = _resolve_dataset_path(config, yaml_path)
     config["path"] = str(dataset_path)
@@ -351,7 +360,7 @@ def load_data_config(
                 config[split] = str(split_path)
 
             try:
-                img_files = get_img_files(split_path)
+                img_files = get_img_files(split_path, formats={".npy"} if profile else None)
                 if img_files:
                     config[f"{split}_img_files"] = img_files
                     config[f"{split}_label_files"] = img2label_paths(img_files)

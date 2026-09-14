@@ -4,7 +4,7 @@
 
 > **注意：** 本中文 README 由 AI 翻译，可能包含不准确或不自然的表述。请以英文 README 为准。
 
-> ⭐ **支持 LibreYOLO。** 帮助项目最好的方式是给仓库 **star**。如果你遇到问题或有建议，欢迎[打开 issue](https://github.com/LibreYOLO/libreyolo/issues/new)；也欢迎代码贡献（见 [CONTRIBUTING.md](CONTRIBUTING.md)）。
+> ⭐ **支持 LibreYOLO。** 帮助项目最好的方式是给仓库 **star**。如果你遇到问题或有建议，欢迎[打开 issue](https://github.com/LibreYOLO/libreyolo/issues/new)；也欢迎代码贡献（见 [CONTRIBUTING.md](CONTRIBUTING.md)）。 如果你愿意在经济上支持项目，非常欢迎：请查看[赞助计划](SPONSORS.md)。
 
 [![Documentation](https://img.shields.io/badge/docs-libreyolo.com-blue)](https://www.libreyolo.com/docs)
 [![PyPI](https://img.shields.io/pypi/v/libreyolo)](https://pypi.org/project/libreyolo/)
@@ -110,19 +110,22 @@ libreyolo predict --model yolo9-t --source screen            # 屏幕捕获
 | **全景分割** | EoMT |
 | **姿态** | RF-DETR、YOLO-NAS、HRNet、DEKR、EC |
 | **旋转框（OBB）** | RF-DETR、RT-DETRv2、YOLO-NAS-R |
+| **三维检测** | WildDet3D、3D-MOOD、FCOS3D、DetAny3D（独立运行环境） |
 | **分类** | MobileNetV4、ConvNeXt、EfficientNetV2、ResNet、ViT、Swin、DeiT、VGG、AlexNet、CLIP、SigLIP2、DINOv2 |
 | **深度估计** | Depth Anything 3、Depth Anything V2、ZipDepth、MiDaS |
 | **表面法线** | MoGe-2 |
+| **深度、法线与反照率** | Marigold V2 |
 | **边缘检测** | DexiNed、TEED |
 | **嵌入** | LibreFaceEmbedder、CLIP、SigLIP2、Perception Encoder（图像、文本、整段视频；亦支持零样本分类）、DINOv2 |
-| **视频嵌入** | V-JEPA 2（片段级嵌入，另有可训练注意力探针的视频分类） |
+| **视频嵌入** | V-JEPA 2（片段嵌入及可训练分类探针）、LeVJEPA（片段及分块嵌入；权重采用 CC BY-NC 4.0） |
 | **人体网格** | SAM 3D Body |
 | **图像复原** | DDColor、HVI-CIDNet、LaMa、NAFNet、QuickSRNet、Real-ESRGAN、SwinIR |
 | **背景移除** | BiRefNet、FeyNobg、ViTMatte |
 | **OCR** | PP-OCR |
 | **点检测** | FOMO、LocateAnything |
 | **视线估计** | L2CS |
-| **开放词汇与 VLM** | Grounding DINO、OWLv2、OmDet-Turbo、OV-DEIM、Florence-2、Kosmos-2、Qwen3-VL、InternVL3、LFM2-VL、North Micro Vision、SmolVLM2、MODUS |
+| **开放词汇与 VLM** | Grounding DINO、OWLv2、OmDet-Turbo、OV-DEIM、Florence-2、Kosmos-2、Qwen3-VL、InternVL3、LFM2-VL、North Micro Vision、SmolVLM2、Molmo2、MODUS |
+| **机器人动作 (VLA)** | SmolVLA, ACT, Diffusion Policy |
 
 各模型系列的尺寸、权重与一致性验证证据见[模型参考](https://www.libreyolo.com/docs/models)。
 
@@ -160,6 +163,14 @@ libreyolo export --model yolo9-t --format onnx
 - [文档](https://www.libreyolo.com/docs)涵盖安装、任务、模型、训练、推理、导出和 CLI
 - [基准测试](https://www.visionanalysis.org/)提供独立的第三方数据
 - [CHANGELOG.md](CHANGELOG.md) 记录版本变更
+
+## 赞助
+
+代码在业余时间编写。训练新模型（例如 LibreYOLO26，以及为权重许可受限的模型家族重新训练 MIT 权重）需要租用 GPU，[LibreYOLO 赞助计划](SPONSORS.md)为此付费。企业每月赞助 $100 起即可在此展示 logo；每月 $500 起，还会在每次发布说明以及赞助期间发布的每个权重的模型卡中署名。硬件厂商可以通过寄送设备来赞助。
+
+[![Sponsor](https://img.shields.io/badge/sponsor-GitHub%20Sponsors-ea4aaa?logo=githubsponsors)](https://github.com/sponsors/EHxuban11)
+
+暂无赞助商。
 
 ## 许可证
 

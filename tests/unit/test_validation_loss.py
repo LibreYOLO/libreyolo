@@ -12,6 +12,7 @@ import torch
 
 from libreyolo.models.base.classify_validation_loss import ClassifyValidationLoss
 from libreyolo.models.convnext.trainer import ConvNeXtTrainer
+from libreyolo.models.convnextv2.trainer import ConvNeXtV2Trainer
 from libreyolo.models.efficientnetv2.trainer import EfficientNetV2Trainer
 from libreyolo.models.mobilenetv4.trainer import MobileNetV4Trainer
 from libreyolo.models.resnet.trainer import ResNetTrainer
@@ -874,6 +875,7 @@ def test_yolox_adapter_requires_the_forward_scope():
     [
         (ResNetTrainer, "resnet"),
         (ConvNeXtTrainer, "convnext"),
+        (ConvNeXtV2Trainer, "convnextv2"),
         (MobileNetV4Trainer, "mobilenetv4"),
         (EfficientNetV2Trainer, "efficientnetv2"),
     ],
@@ -965,6 +967,7 @@ _VAL_LOSS_FAMILIES = {
     "libreyolo.models.fomo.trainer": "FOMOTrainer",
     "libreyolo.models.resnet.trainer": "ResNetTrainer",
     "libreyolo.models.convnext.trainer": "ConvNeXtTrainer",
+    "libreyolo.models.convnextv2.trainer": "ConvNeXtV2Trainer",
     "libreyolo.models.mobilenetv4.trainer": "MobileNetV4Trainer",
     "libreyolo.models.efficientnetv2.trainer": "EfficientNetV2Trainer",
     "libreyolo.models.ppliteseg.trainer": "PPLiteSegTrainer",

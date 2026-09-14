@@ -20,11 +20,14 @@ TaskType = Literal[
     "depth",
     "edge",
     "normal",
+    "albedo",
     "restore",
     "matte",
     "ocr",
     "embed",
     "mesh",
+    "detect3d",
+    "act",
 ]
 TASKS = (
     "detect",
@@ -39,14 +42,20 @@ TASKS = (
     "depth",
     "edge",
     "normal",
+    "albedo",
     "restore",
     "matte",
     "ocr",
     "embed",
     "mesh",
+    "detect3d",
+    "act",
 )
 
 TASK_ALIASES = {
+    "detect3d": "detect3d",
+    "detection3d": "detect3d",
+    "3d-detection": "detect3d",
     "detect": "detect",
     "detection": "detect",
     "det": "detect",
@@ -92,6 +101,9 @@ TASK_ALIASES = {
     "surface_normal": "normal",
     "surface-normals": "normal",
     "surface_normals": "normal",
+    "albedo": "albedo",
+    "albedo-estimation": "albedo",
+    "albedo_estimation": "albedo",
     "restore": "restore",
     "restoration": "restore",
     "deblur": "restore",
@@ -130,9 +142,18 @@ TASK_ALIASES = {
     "hmr": "mesh",
     "human-mesh-recovery": "mesh",
     "human_mesh_recovery": "mesh",
+    # Vision-language-action policies: an action chunk is the primitive.
+    "act": "act",
+    "action": "act",
+    "actions": "act",
+    "vla": "act",
+    "policy": "act",
+    "robot-policy": "act",
+    "robot_policy": "act",
 }
 
 TASK_TO_SUFFIX = {
+    "detect3d": "detect3d",
     "segment": "seg",
     "semantic": "sem",
     "panoptic": "panoptic",
@@ -144,11 +165,13 @@ TASK_TO_SUFFIX = {
     "depth": "depth",
     "edge": "edge",
     "normal": "normal",
+    "albedo": "albedo",
     "restore": "restore",
     "matte": "matte",
     "ocr": "ocr",
     "embed": "embed",
     "mesh": "mesh",
+    "act": "act",
 }
 
 SUFFIX_TO_TASK = {v: k for k, v in TASK_TO_SUFFIX.items()}

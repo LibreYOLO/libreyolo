@@ -8,8 +8,13 @@ import importlib.util
 import inspect
 import textwrap
 
-
 OPTIONAL_MODELS = (
+    ("libreyolo.models.marigold_v2", "LibreMarigoldV2", "marigold", "diffusers"),
+    # The adapter is built in; its runtime is supplied to a separate interpreter.
+    ("libreyolo.models.detany3d", "LibreDetAny3D", None, None),
+    ("libreyolo.models.fcos3d", "LibreFCOS3D", None, None),
+    ("libreyolo.models.wilddet3d", "LibreWildDet3D", None, "wilddet3d"),
+    ("libreyolo.models.mood3d", "Libre3DMOOD", None, "opendet3d"),
     ("libreyolo.models.sam.model", "LibreSAM1", "sam", "transformers"),
     ("libreyolo.models.sam.sam2", "LibreSAM2", "sam", "transformers"),
     ("libreyolo.models.sam.edgetam", "LibreEdgeTAM", "sam", "transformers"),
@@ -39,10 +44,14 @@ OPTIONAL_MODELS = (
         "transformers",
     ),
     ("libreyolo.models.vlm.gemma4", "LibreGemma4", "vlm", "transformers"),
+    ("libreyolo.models.vlm.molmo2", "LibreMolmo2", "molmo2", "transformers"),
     ("libreyolo.models.vlm.moondream", "LibreMoondream", "vlm", "transformers"),
     ("libreyolo.models.vlm.qwen3vl", "LibreQwen3VL", "vlm", "transformers"),
     ("libreyolo.models.vlm.smolvlm", "LibreSmolVLM2", "vlm", "transformers"),
     ("libreyolo.models.ground.showui", "LibreShowUI", "vlm", "transformers"),
+    ("libreyolo.models.vla.smolvla", "LibreSmolVLA", "vla", "lerobot"),
+    ("libreyolo.models.vla.act_policy", "LibreACT", "vla", "lerobot"),
+    ("libreyolo.models.vla.diffusion_policy", "LibreDiffusionPolicy", "vla", "lerobot"),
     (
         "libreyolo.models.ground.florence",
         "LibreGroundFlorence2",
@@ -144,6 +153,10 @@ def collect_model_inventory() -> dict[str, dict]:
             cls = getattr(importlib.import_module(module_name), class_name)
         except (ImportError, ModuleNotFoundError):
             continue
+        # Pinned remote-code families can require more than a package's presence.
+        runtime_available = getattr(cls, "_runtime_available", None)
+        if callable(runtime_available):
+            available = runtime_available()
         optional[cls.FAMILY] = (extra, available)
         if cls not in classes:
             classes.append(cls)
@@ -177,6 +190,8 @@ def collect_model_inventory() -> dict[str, dict]:
             "available": available,
             "group": group_of(family),
         }
+        if getattr(cls, "CLI_COMMAND", None):
+            inventory[family]["cli_command"] = cls.CLI_COMMAND
     return dict(sorted(inventory.items()))
 
 

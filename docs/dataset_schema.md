@@ -63,6 +63,13 @@ Canonical row, exactly 5 fields:
 
 `cx cy w h` is a normalized axis-aligned box. `w` and `h` must be positive.
 
+### Prepared event histograms
+
+YOLO9 and RF-DETR detection also accept `.npy` count planes with a required
+`input_profile` mapping. Labels retain the detection format above. Layout,
+polarity, normalization, accumulation duration and supported workflows are
+specified in [Input profiles](input_profiles.md). RGB datasets omit the profile.
+
 ## segment
 
 Polygon row:
@@ -526,3 +533,43 @@ No LibreYOLO training or validation dataset-file contract is implemented for
 Point model families may adapt existing labels internally, for example by
 deriving object centers from YOLO box rows, but a point-only text label format
 is not defined in this document yet.
+
+## 3D detection (inference-only integration)
+
+`detect3d` currently has no LibreYOLO dataset loader, trainer, or validator.
+Ordinary 2D YOLO labels do not encode 3D calibration or cuboids and must not
+be treated as 3D ground truth. `LibreWildDet3D.val()` and
+`Libre3DMOOD.val()` raise explicitly;
+evaluation uses the upstream benchmark configurations and data terms.
+Inference takes an RGB image, original-image 3x3 camera calibration, prompts,
+and optionally a nonnegative depth array in metres with shape `(H, W)`.
+No benchmark images or dataset auto-download routes are bundled.
+
+`Libre3DMOOD` accepts text prompts only and predicts metric depth internally;
+it does not take a user-supplied depth map. Its predicted depth is an output,
+not 3D supervision or a validation target.
+
+## Albedo
+
+An albedo dataset pairs RGB photographs with floating-point linear-RGB diffuse
+reflectance arrays. Use the standard split keys:
+
+```yaml
+path: /path/to/dataset
+train: images/train
+val: images/val
+input_dir: images
+albedo_dir: albedo
+```
+
+Each `images/<split>/<name>.<image extension>` pairs with
+`albedo/<split>/<name>.npy`. The NPY array is `(H,W,3)`, floating-point, finite,
+in `[0,1]`, and has the same dimensions as its image. Values are linear RGB;
+8-bit preview PNGs and sRGB values are not accepted as quantitative targets.
+The folder-name overrides must each be one directory component. No dataset
+script or download runs unless the existing `allow_download_scripts` option
+explicitly permits it.
+
+Validation uses the selected square canvas and reports per-image linear-RGB
+PSNR and SSIM. The first model family is Marigold V2; its initial integration
+supports inference and validation, not training. See ADR 0026.

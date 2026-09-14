@@ -321,6 +321,143 @@ class _TensorPayload:
         return int(self.data.shape[0])
 
 
+class Boxes3D(_TensorPayload):
+    """Camera-frame cuboids, metres, with scalar-first quaternions.
+
+    ``data`` is (N, 14): center xyz, dimensions wlh, quaternion
+    wxyz, combined ranking score, class id, 2D confidence, 3D confidence.
+    ``intrinsics`` is the shared (3, 3) calibration on the original canvas.
+    Camera axes are x right, y down, z forward. Local box axes carry length,
+    height, width respectively, following vis4d's OpenCV box convention.
+    No world frame is implied.
+    """
+
+    def __init__(self, data, orig_shape=None, intrinsics=None):
+        if not isinstance(data, (np.ndarray, torch.Tensor)):
+            data = np.asarray(data, dtype=np.float32)
+        if intrinsics is not None and not isinstance(
+            intrinsics, (np.ndarray, torch.Tensor)
+        ):
+            intrinsics = np.asarray(intrinsics, dtype=np.float32)
+        super().__init__(data, orig_shape)
+        values = np.asarray(_numpy(data))
+        if values.ndim != 2 or values.shape[1] != 14:
+            raise ValueError("Boxes3D data must have shape (N, 14).")
+        if not np.isfinite(values).all():
+            raise ValueError("Boxes3D data must be finite.")
+        if (values[:, 3:6] <= 0).any():
+            raise ValueError("Boxes3D dimensions must be positive.")
+        if (np.linalg.norm(values[:, 6:10], axis=1) < 1e-8).any():
+            raise ValueError("Boxes3D quaternions must be nonzero.")
+        if (values[:, 10] < 0).any():
+            raise ValueError("Boxes3D combined scores must be nonnegative.")
+        confidences = values[:, [12, 13]]
+        if ((confidences < 0) | (confidences > 1)).any():
+            raise ValueError("Boxes3D 2D/3D confidence must be in [0, 1].")
+        ids = values[:, 11]
+        if ((ids < 0) | (ids != np.floor(ids))).any():
+            raise ValueError("Boxes3D class ids must be nonnegative integers.")
+        if intrinsics is not None:
+            k = np.asarray(_numpy(intrinsics))
+            if (
+                k.shape != (3, 3)
+                or not np.isfinite(k).all()
+                or k[0, 0] <= 0
+                or k[1, 1] <= 0
+                or not np.allclose(k[2], [0, 0, 1])
+            ):
+                raise ValueError(
+                    "intrinsics must be a finite calibrated (3, 3) matrix."
+                )
+        self.intrinsics = intrinsics
+
+    def _validate_alignment(self, boxes, orig_shape):
+        if boxes is None or len(boxes) != len(self):
+            raise ValueError("Results.boxes3d must be row-aligned with Results.boxes.")
+        if self.orig_shape is not None and tuple(self.orig_shape) != tuple(orig_shape):
+            raise ValueError("Boxes3D orig_shape must match the Results image canvas.")
+
+    def __repr__(self):
+        return f"Boxes3D(n={len(self)}, orig_shape={self.orig_shape})"
+
+    @property
+    def xyz(self):
+        return self.data[:, :3]
+
+    @property
+    def dimensions(self):
+        return self.data[:, 3:6]
+
+    @property
+    def quaternion(self):
+        return self.data[:, 6:10]
+
+    @property
+    def conf(self):
+        return self.data[:, 10]
+
+    @property
+    def cls(self):
+        return self.data[:, 11]
+
+    @property
+    def conf2d(self):
+        return self.data[:, 12]
+
+    @property
+    def conf3d(self):
+        return self.data[:, 13]
+
+    def to(self, *args, **kwargs):
+        return Boxes3D(
+            _move(self.data, *args, **kwargs),
+            self.orig_shape,
+            _move(self.intrinsics, *args, **kwargs),
+        )
+
+    def cpu(self):
+        return Boxes3D(_cpu(self.data), self.orig_shape, _cpu(self.intrinsics))
+
+    def cuda(self):
+        return self.to("cuda")
+
+    def numpy(self):
+        return Boxes3D(_numpy(self.data), self.orig_shape, _numpy(self.intrinsics))
+
+    def __getitem__(self, idx):
+        return Boxes3D(_slice_first(self.data, idx), self.orig_shape, self.intrinsics)
+
+    @property
+    def corners(self):
+        """Return numpy (N, 8, 3) camera-frame corners, without mutating data."""
+        values = np.asarray(_numpy(self.data), dtype=np.float64)
+        q = values[:, 6:10]
+        q = q / np.linalg.norm(q, axis=1, keepdims=True)
+        w, x, y, z = q.T
+        rotation = np.stack(
+            [
+                1 - 2 * (y * y + z * z),
+                2 * (x * y - z * w),
+                2 * (x * z + y * w),
+                2 * (x * y + z * w),
+                1 - 2 * (x * x + z * z),
+                2 * (y * z - x * w),
+                2 * (x * z - y * w),
+                2 * (y * z + x * w),
+                1 - 2 * (x * x + y * y),
+            ],
+            axis=1,
+        ).reshape(-1, 3, 3)
+        # OpenCV cuboid convention from SysCV/vis4d v1.0.0 (Apache-2.0),
+        # op/box/box3d.py::boxes3d_to_corners. See THIRD_PARTY_NOTICES.txt.
+        signs = np.array([
+            [1, 1, -1], [1, 1, 1], [-1, 1, -1], [-1, 1, 1],
+            [1, -1, -1], [1, -1, 1], [-1, -1, -1], [-1, -1, 1],
+        ])
+        local = signs[None] * values[:, None, [4, 5, 3]] / 2
+        return np.einsum("nij,nkj->nki", rotation, local) + values[:, None, :3]
+
+
 class Keypoints(_TensorPayload):
     @property
     def xy(self) -> TensorLike:
@@ -405,6 +542,117 @@ class Points(_TensorPayload):
             f"Points(n={len(self)}, "
             f"shape={tuple(self.data.shape)}, "
             f"orig_shape={self.orig_shape})"
+        )
+
+
+class Actions(_TensorPayload):
+    """An action chunk from a vision-language-action policy (ADR 0028).
+
+    ``data`` is ``(T, D)`` float32: ``T`` timesteps of a ``D``-dimensional
+    action. Row 0 is the action to execute now; later rows are the policy's
+    plan at the control rate ``fps``. Values are in the units the policy was
+    trained on; LibreYOLO does not reinterpret them. ``names`` carries the
+    per-dimension names when the checkpoint knows them, ``instruction`` the
+    text that produced the chunk. Slicing selects timesteps.
+    """
+
+    def __init__(
+        self,
+        data: TensorLike,
+        orig_shape: Tuple[int, int] | None = None,
+        *,
+        names: Optional[List[str]] = None,
+        fps: Optional[float] = None,
+        instruction: Optional[str] = None,
+    ):
+        if not isinstance(data, (torch.Tensor, np.ndarray)):
+            data = torch.as_tensor(np.asarray(data, dtype=np.float32))
+        if data.ndim == 1:
+            data = data.unsqueeze(0) if isinstance(data, torch.Tensor) else data[None, :]
+        if data.ndim != 2:
+            raise ValueError(
+                f"Actions data must have shape (T, D), got {tuple(data.shape)}."
+            )
+        finite = (
+            bool(torch.isfinite(data).all())
+            if isinstance(data, torch.Tensor)
+            else bool(np.isfinite(data).all())
+        )
+        if not finite:
+            raise ValueError("Actions data must be finite.")
+        if names is not None:
+            names = [str(n) for n in names]
+            if len(names) != int(data.shape[1]):
+                raise ValueError(
+                    f"Actions names has {len(names)} entries for {int(data.shape[1])} "
+                    "action dimensions."
+                )
+        if fps is not None:
+            fps = float(fps)
+            if not fps > 0:
+                raise ValueError("Actions fps must be positive.")
+        super().__init__(data, orig_shape)
+        self.names = names
+        self.fps = fps
+        self.instruction = str(instruction) if instruction is not None else None
+
+    def _clone(self, data: TensorLike) -> "Actions":
+        return Actions(
+            data,
+            self.orig_shape,
+            names=self.names,
+            fps=self.fps,
+            instruction=self.instruction,
+        )
+
+    @property
+    def horizon(self) -> int:
+        """Number of timesteps in the chunk."""
+        return int(self.data.shape[0])
+
+    @property
+    def dim(self) -> int:
+        """Action dimensionality."""
+        return int(self.data.shape[1])
+
+    @property
+    def first(self) -> TensorLike:
+        """The action to execute now, shape ``(D,)``."""
+        return self.data[0]
+
+    def to(self, *args, **kwargs):
+        return self._clone(_move(self.data, *args, **kwargs))
+
+    def cpu(self):
+        return self._clone(_cpu(self.data))
+
+    def cuda(self):
+        return self._clone(_cuda(self.data))
+
+    def numpy(self):
+        return self._clone(_numpy(self.data))
+
+    def __getitem__(self, idx):
+        return self._clone(_slice_first(self.data, idx))
+
+    def to_dict(self, decimals: int = 5) -> Dict[str, Any]:
+        """One JSON-ready record for the whole chunk."""
+        rows = _numpy(self.data) if isinstance(self.data, torch.Tensor) else self.data
+        return {
+            "instruction": self.instruction,
+            "horizon": self.horizon,
+            "dim": self.dim,
+            "fps": self.fps,
+            "names": list(self.names) if self.names is not None else None,
+            "actions": [
+                [round(float(v), decimals) for v in row] for row in np.asarray(rows)
+            ],
+        }
+
+    def __repr__(self) -> str:
+        return (
+            f"Actions(horizon={self.horizon}, dim={self.dim}, "
+            f"instruction={self.instruction!r})"
         )
 
 
@@ -571,13 +819,25 @@ class PanopticSegmentation(_TensorPayload):
 
 
 class DepthMap(_TensorPayload):
-    """Dense relative inverse-depth map for a single image.
+    """Dense relative depth prediction with an explicit numeric encoding.
 
-    Data shape is ``(H, W)`` float values on the original image canvas. Higher
-    values mean closer to the camera. Values are relative, not metric meters.
+    Data is ``(H, W)`` on the original canvas. The default ``inverse_depth``
+    encoding has larger values nearer the camera. ``depth`` and ``log_depth``
+    have larger values farther away. Each is affine-relative in its named
+    space; no metric unit or cross-image scale is implied.
     """
 
-    def __init__(self, data: TensorLike, orig_shape: Tuple[int, int] | None = None):
+    ENCODINGS = ("inverse_depth", "depth", "log_depth")
+
+    def __init__(
+        self,
+        data: TensorLike,
+        orig_shape: Tuple[int, int] | None = None,
+        *,
+        encoding: str = "inverse_depth",
+    ):
+        if encoding not in self.ENCODINGS:
+            raise ValueError(f"depth encoding must be one of {self.ENCODINGS}")
         if data.ndim != 2:
             raise ValueError(
                 f"expected (H, W) depth map but got shape {tuple(data.shape)}"
@@ -585,6 +845,27 @@ class DepthMap(_TensorPayload):
         if orig_shape is None:
             orig_shape = (int(data.shape[0]), int(data.shape[1]))
         super().__init__(data, orig_shape)
+        self.encoding = encoding
+
+    @property
+    def near_is_high(self) -> bool:
+        return self.encoding == "inverse_depth"
+
+    def to(self, *args, **kwargs):
+        return self.__class__(
+            _move(self.data, *args, **kwargs), self.orig_shape, encoding=self.encoding
+        )
+
+    def cpu(self):
+        return self.__class__(_cpu(self.data), self.orig_shape, encoding=self.encoding)
+
+    def cuda(self):
+        return self.__class__(_cuda(self.data), self.orig_shape, encoding=self.encoding)
+
+    def numpy(self):
+        return self.__class__(
+            _numpy(self.data), self.orig_shape, encoding=self.encoding
+        )
 
     def _finite_values(self) -> np.ndarray:
         values = np.asarray(_numpy(self.data), dtype=np.float32)
@@ -621,14 +902,66 @@ class DepthMap(_TensorPayload):
     def __getitem__(self, idx):
         # Instance indexing does not apply to a dense map; keep it intact so
         # shared Results slicing paths cannot corrupt the (H, W) layout.
-        return self.__class__(self.data, self.orig_shape)
+        return self.__class__(self.data, self.orig_shape, encoding=self.encoding)
 
     def __repr__(self) -> str:
         return (
             f"DepthMap(shape={tuple(self.data.shape)}, "
             f"range=({self.min:.4g}, {self.max:.4g}), "
-            f"orig_shape={self.orig_shape})"
+            f"orig_shape={self.orig_shape}, encoding={self.encoding!r})"
         )
+
+
+class AlbedoMap(_TensorPayload):
+    """Float32 linear-RGB diffuse reflectance, ``(H, W, 3)`` in ``[0, 1]``.
+
+    Values describe surface colour without illumination. Rendering applies
+    the standard sRGB transfer function; the numeric payload remains linear.
+    """
+
+    def __init__(self, data: TensorLike, orig_shape=None):
+        if not isinstance(data, (torch.Tensor, np.ndarray)):
+            raise TypeError("albedo data must be a torch.Tensor or numpy.ndarray")
+        if data.ndim != 3 or data.shape[-1] != 3 or min(data.shape[:2]) <= 0:
+            raise ValueError("albedo must have positive (H, W, 3) shape")
+        if isinstance(data, torch.Tensor):
+            data = data.float()
+            valid = torch.isfinite(data).all() & ((data >= 0) & (data <= 1)).all()
+        else:
+            data = np.asarray(data, dtype=np.float32)
+            valid = np.isfinite(data).all() and ((data >= 0) & (data <= 1)).all()
+        if not bool(valid):
+            raise ValueError("albedo must be finite linear RGB in [0, 1]")
+        shape = tuple(map(int, data.shape[:2]))
+        if orig_shape is not None and tuple(orig_shape) != shape:
+            raise ValueError("albedo must match the original image canvas")
+        super().__init__(data, shape)
+
+    @property
+    def array(self) -> np.ndarray:
+        return np.asarray(_numpy(self.data), dtype=np.float32)
+
+    def to_rgb(self) -> np.ndarray:
+        linear = self.array
+        srgb = np.where(
+            linear <= 0.0031308,
+            12.92 * linear,
+            1.055 * np.power(linear, 1 / 2.4) - 0.055,
+        )
+        return np.rint(srgb.clip(0, 1) * 255).astype(np.uint8)
+
+    def save(self, path: str | Path) -> None:
+        from PIL import Image
+
+        path = Path(path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        Image.fromarray(self.to_rgb()).save(path)
+
+    def __getitem__(self, idx):
+        return self.__class__(self.data, self.orig_shape)
+
+    def __len__(self):
+        return 1
 
 
 class EdgeMap(_TensorPayload):
@@ -1521,6 +1854,7 @@ class Results:
         "panoptic",
         "depth_map",
         "normal_map",
+        "albedo",
         "edges",
         "restored",
         "matte",
@@ -1528,6 +1862,8 @@ class Results:
         "embeddings",
         "identities",
         "meshes",
+        "boxes3d",
+        "actions",
     )
 
     def __init__(
@@ -1559,6 +1895,9 @@ class Results:
         meshes: Optional[Meshes] = None,
         normal_map: Optional[NormalMap] = None,
         edges: Optional[EdgeMap] = None,
+        boxes3d: Optional[Boxes3D] = None,
+        albedo: Optional[AlbedoMap] = None,
+        actions: Optional[Actions] = None,
     ):
         if boxes is not None and boxes.orig_shape is None:
             boxes = boxes.with_orig_shape(orig_shape)
@@ -1567,7 +1906,9 @@ class Results:
         if points is not None and points.orig_shape is None:
             points = Points(points.data, orig_shape)
         if depth_map is not None and depth_map.orig_shape is None:
-            depth_map = DepthMap(depth_map.data, orig_shape)
+            depth_map = DepthMap(depth_map.data, orig_shape, encoding=depth_map.encoding)
+        if albedo is not None and albedo.orig_shape != tuple(orig_shape):
+            raise ValueError("albedo must match Results.orig_shape")
         if normal_map is not None and normal_map.orig_shape != tuple(orig_shape):
             normal_map = NormalMap(normal_map.data, orig_shape)
         if edges is not None and edges.orig_shape != tuple(orig_shape):
@@ -1579,6 +1920,8 @@ class Results:
         if ocr is not None and ocr.orig_shape is None:
             ocr = OCRRegions(ocr.data, ocr.texts, ocr.conf, ocr.det_conf, orig_shape)
 
+        if boxes3d is not None:
+            boxes3d._validate_alignment(boxes, orig_shape)
         self.boxes = boxes
         self.masks = masks
         self.keypoints = keypoints
@@ -1590,11 +1933,14 @@ class Results:
         self.panoptic = panoptic
         self.depth_map = depth_map
         self.normal_map = normal_map
+        self.albedo = albedo
         self.edges = edges
         self.restored = restored
         self.matte = matte
         self.ocr = ocr
         self.meshes = meshes
+        self.boxes3d = boxes3d
+        self.actions = actions
         # Integer upscale factor of a restore/super-resolution result: the
         # restored canvas is ``restore_scale`` times the input. 1 for
         # deblur/denoise and every non-restore task.
@@ -1626,11 +1972,14 @@ class Results:
             "panoptic": self.panoptic,
             "depth_map": self.depth_map,
             "normal_map": self.normal_map,
+            "albedo": self.albedo,
             "edges": self.edges,
             "restored": self.restored,
             "matte": self.matte,
             "ocr": self.ocr,
             "meshes": self.meshes,
+            "boxes3d": self.boxes3d,
+            "actions": self.actions,
             "restore_scale": self.restore_scale,
             "embeddings": self.embeddings,
             "identities": self.identities,
@@ -1702,7 +2051,15 @@ class Results:
         meshes: Optional[Meshes] = None,
         normal_map: Optional[NormalMap] = None,
         edges: Optional[EdgeMap] = None,
+        boxes3d: Optional[Boxes3D] = None,
+        albedo: Optional[AlbedoMap] = None,
+        actions: Optional[Actions] = None,
     ) -> "Results":
+        aligned_cuboids = boxes3d if boxes3d is not None else self.boxes3d
+        if aligned_cuboids is not None:
+            aligned_cuboids._validate_alignment(
+                boxes if boxes is not None else self.boxes, self.orig_shape
+            )
         if boxes is not None:
             self.boxes = boxes.with_orig_shape(self.orig_shape)
         if masks is not None:
@@ -1727,6 +2084,10 @@ class Results:
             self.panoptic = panoptic
         if depth_map is not None:
             self.depth_map = depth_map
+        if albedo is not None:
+            if albedo.orig_shape != tuple(self.orig_shape):
+                raise ValueError("albedo must match Results.orig_shape")
+            self.albedo = albedo
         if normal_map is not None:
             self.normal_map = (
                 normal_map
@@ -1741,6 +2102,10 @@ class Results:
             )
         if restored is not None:
             self.restored = restored
+        if boxes3d is not None:
+            self.boxes3d = boxes3d
+        if actions is not None:
+            self.actions = actions
         if meshes is not None:
             self.meshes = meshes
         if matte is not None:
@@ -1778,11 +2143,36 @@ class Results:
     def normals(self, value: Optional[NormalMap]) -> None:
         self.normal_map = value
 
-    def plot(self):
-        """Render a dense normal or edge result in its canonical visualization."""
+    def plot(self, image=None):
+        """Render dense outputs, calibrated 3D cuboids, or an action chunk."""
+        if self.actions is not None:
+            from PIL import Image
+            from .drawing import draw_actions
+
+            canvas = Image.fromarray(self._source_rgb(image, self.orig_shape))
+            return draw_actions(canvas, self.actions)
+        if self.albedo is not None:
+            from PIL import Image
+
+            return Image.fromarray(self.albedo.to_rgb())
+        if self.depth_map is not None and self.boxes3d is None:
+            from PIL import Image
+            from .drawing import draw_depth_map
+
+            data = _numpy(self.depth_map.data)
+            if not self.depth_map.near_is_high:
+                data = -data
+            h, w = self.orig_shape
+            return draw_depth_map(Image.new("RGB", (w, h)), data)
+        if self.boxes3d is not None:
+            from PIL import Image
+            from .drawing import draw_boxes3d
+
+            canvas = Image.fromarray(self._source_rgb(image, self.orig_shape))
+            return draw_boxes3d(canvas, self.boxes3d)
         if self.normal_map is None and self.edges is None:
             raise NotImplementedError(
-                "Results.plot() is currently defined for normal and edge results only."
+                "Results.plot() supports depth, normal, albedo, edge, and calibrated 3D results."
             )
 
         from PIL import Image
@@ -1868,6 +2258,8 @@ class Results:
         embeddings: bool = False,
     ) -> List[Dict[str, Any]]:
         if self.boxes is None:
+            if self.actions is not None:
+                return [self.actions.to_dict(decimals)]
             if self.embeddings is not None:
                 emb = (
                     self.embeddings.numpy()
@@ -1970,8 +2362,13 @@ class Results:
                         "min": round(self.depth_map.min, decimals),
                         "max": round(self.depth_map.max, decimals),
                         "mean": round(self.depth_map.mean, decimals),
+                        **({"encoding": self.depth_map.encoding}
+                           if self.depth_map.encoding != "inverse_depth" else {}),
                     }
                 ]
+            if self.albedo is not None:
+                return [{"name": "albedo", "shape": list(self.albedo.data.shape),
+                         "color_space": "linear_rgb"}]
             if self.normal_map is not None:
                 h, w = self.normal_map.orig_shape
                 return [
@@ -2039,6 +2436,7 @@ class Results:
         # Converted once rather than per row: mesh payloads carry vertex arrays
         # large enough that repeating the conversion per person is wasteful.
         meshes_np = self.meshes.numpy() if self.meshes is not None else None
+        cuboids = self.boxes3d.numpy() if self.boxes3d is not None else None
         track_ids = _numpy(self.track_id)
         rows = []
         for i in range(len(boxes_np)):
@@ -2055,6 +2453,16 @@ class Results:
                     "y2": round(float(box_values[3]), decimals),
                 },
             }
+            if cuboids is not None and i < len(cuboids):
+                row["box3d"] = {
+                    "center": np.round(cuboids.xyz[i], decimals).tolist(),
+                    "dimensions": np.round(cuboids.dimensions[i], decimals).tolist(),
+                    "quaternion_wxyz": np.round(cuboids.quaternion[i], decimals).tolist(),
+                    "confidence_2d": round(float(cuboids.conf2d[i]), decimals),
+                    "confidence_3d": round(float(cuboids.conf3d[i]), decimals),
+                    "coordinate_frame": "camera",
+                    "units": "metres",
+                }
             if obb_np is not None and i < len(obb_np):
                 xywhr = np.asarray(obb_np.xywhr[i], dtype=float).copy()
                 corners = np.asarray(
@@ -2157,6 +2565,8 @@ class Results:
             return len(self.boxes)
         if self.points is not None:
             return len(self.points)
+        if self.actions is not None:
+            return len(self.actions)
         if self.embeddings is not None:
             return len(self.embeddings)
         if self.probs is not None:
@@ -2168,6 +2578,8 @@ class Results:
         if self.depth_map is not None:
             return 1
         if self.normal_map is not None:
+            return 1
+        if self.albedo is not None:
             return 1
         if self.edges is not None:
             return 1
@@ -2199,6 +2611,8 @@ class Results:
             parts.append(f"depth_map={self.depth_map}")
         if self.normal_map is not None:
             parts.append(f"normal_map={self.normal_map}")
+        if self.albedo is not None:
+            parts.append(f"albedo_shape={tuple(self.albedo.data.shape)}")
         if self.edges is not None:
             parts.append(f"edges={self.edges}")
         if self.restored is not None:
@@ -2211,6 +2625,10 @@ class Results:
             parts.append(f"ocr={self.ocr}")
         if self.meshes is not None:
             parts.append(f"meshes={self.meshes}")
+        if self.boxes3d is not None:
+            parts.append(f"boxes3d={self.boxes3d}")
+        if self.actions is not None:
+            parts.append(f"actions={self.actions}")
         if self.track_id is not None:
             parts.append(f"track_ids={len(self.track_id)}")
         if self.frame_idx is not None:

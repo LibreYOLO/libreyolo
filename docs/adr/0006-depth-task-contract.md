@@ -23,6 +23,11 @@ LibreYOLO defines a canonical `depth` task whose prediction primitive is
 Values are relative inverse depth, where higher values mean closer to the
 camera. No metric unit is implied.
 
+Amendment (Marigold V2, 2026-09): `inverse_depth` remains the default encoding.
+Families may explicitly declare affine-relative `depth` or `log_depth` through
+`DepthMap.encoding`. These preserve native numeric values and validate in their
+declared space. See ADR 0025; existing inverse-depth families are unchanged.
+
 Training targets are plain depth maps in any dataset-consistent unit. Pixels
 with `0`, negative, NaN, or inf values are invalid. Training support and loss
 design are family-specific and are not defined by this contract.

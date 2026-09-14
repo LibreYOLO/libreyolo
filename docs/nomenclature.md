@@ -105,6 +105,7 @@ the `alexnet` / `deit` / `mobilenetv4` / `convnext` / `efficientnetv2` /
 | `fomo`      | `LibreFOMO`     | All-caps acronym (Faster Objects, More Objects) |
 | `mobilenetv4` | `LibreMobileNetV4` | CamelCase preserved (MobileNet is not an acronym) — first classify-only family |
 | `convnext`  | `LibreConvNeXt`  | CamelCase preserved (upstream brand casing `ConvNeXt`) — classify-only family |
+| `convnextv2` | `LibreConvNeXtV2` | Upstream ConvNeXt V2 casing; classify-only family |
 | `deit`      | `LibreDeiT`      | Upstream mixed-case acronym preserved (`DeiT`) — plain 224px classify-only museum family |
 | `efficientnetv2` | `LibreEfficientNetV2` | CamelCase preserved (EfficientNet is not an acronym) — classify-only accuracy tier |
 | `resnet`    | `LibreResNet`    | CamelCase preserved (`ResNet` brand casing) — classify-only baseline |
@@ -116,6 +117,7 @@ the `alexnet` / `deit` / `mobilenetv4` / `convnext` / `efficientnetv2` /
 | `siglip2`   | `LibreSigLIP2`  | Upstream brand casing preserved (`SigLIP`) + version (`SigLIP 2` zero-shot classify + image/text embed); inference-only |
 | `pe`        | `LibrePE`       | All-caps acronym (`PE`, Perception Encoder) kept short so canonical filenames stay compact; zero-shot classify + image/text/video embed; inference-only |
 | `vjepa2`    | `LibreVJEPA2`   | All-caps acronym + version (`V-JEPA 2`), hyphen dropped; video clip embedding (`embed`) + attentive-probe video classification (`classify`) |
+| `levjepa`   | `LibreLeVJEPA`  | Upstream mixed-case name preserved; inference-only clip and patch video embeddings |
 | `nafnet`    | `LibreNAFNet`   | All-caps acronym + CamelCase `Net`; restore-only image-restoration family |
 | `ddcolor`   | `LibreDDColor`  | Upstream mixed-case brand preserved (`DDColor`); restore-only automatic colorization family |
 | `hvi_cidnet` | `LibreHVICIDNet` | All-caps upstream acronyms (`HVI-CIDNet`) with the separator retained only in the family id; restore-only low-light enhancement family |
@@ -128,6 +130,7 @@ the `alexnet` / `deit` / `mobilenetv4` / `convnext` / `efficientnetv2` /
 | `zipdepth`  | `LibreZipDepth` | CamelCase preserved (`ZipDepth` brand casing); depth-only lightweight CNN (speed/edge tier) |
 | `midas`     | `LibreMiDaS` | Upstream mixed-case brand preserved (`MiDaS`); inference-only relative-depth museum family |
 | `moge2`     | `LibreMoGe2` | Upstream brand casing preserved (`MoGe`) + version; surface-normal-only |
+| `marigold_v2` | `LibreMarigoldV2` | Marigold V2 depth, normals and albedo; pinned Qwen base with task adapters |
 | `teed`      | `LibreTEED` | All-caps acronym (`TEED`); edge-only tiny CNN specialist |
 | `dexined`   | `LibreDexiNed` | Upstream brand casing preserved (`DexiNed`); edge-only base CNN specialist |
 | `birefnet`  | `LibreBiRefNet` | CamelCase preserved (Bilateral Reference); matte-only background-removal family |
@@ -162,7 +165,7 @@ exceptions being lowercase version suffixes (`DEIMv2`, `RTDETRv2`,
 The VLM and promptable SAM tiers are separate categories and do not follow this
 rule. Their weights-directory prefixes (`LibreQwen3VL`, `LibreLFM2VL`,
 `LibreSmolVLM2`, `LibreInternVL3`, `LibreFlorence2`, `LibreKosmos2`,
-`LocateAnything`, `LibreGemma4`, `LibreMoondream`, `LibreMODUS`, `LibreSAM`,
+`LocateAnything`, `LibreGemma4`, `LibreMoondream`, `LibreMolmo2`, `LibreMODUS`, `LibreSAM`,
 `LibreSAM2`, `LibreSAM3`, `LibreMobileSAM`, `LibrePicoSAM3`, `LibreEdgeTAM`)
 are not registered
 into the detector factory and do not emit `Libre<FAMILY><size>.pt` detector
@@ -250,6 +253,7 @@ ships:
 | `fomo`      | `s`, `m`, `l` |
 | `mobilenetv4` | `s`, `m`, `l` (conv-Small/Medium/Large) |
 | `convnext`  | `t`, `s`, `b` (V1 Tiny/Small/Base) |
+| `convnextv2` | `atto`, `femto`, `pico`, `n`, `t`, `b`, `l`, `h` (Atto through Huge) |
 | `deit`      | `t`, `s`, `b` (plain DeiT Tiny/Small/Base, patch 16 at fixed 224; no distilled or 384px variants) |
 | `efficientnetv2` | `b0`, `b1`, `b2`, `b3` (EfficientNetV2-base scaling tiers) |
 | `resnet`    | `18`, `34`, `50`, `101` (ResNet depth) |
@@ -269,6 +273,7 @@ ships:
 | `zipdepth`  | `b` (base, GPU/CPU convex upsampling), `bnpu` (base capacity with the separately trained unfold-free upsampling head for NPU/edge compilers); both at short-side 384 |
 | `midas`     | `s` (MiDaS v2.1 Small, EfficientNet-Lite3, upper-bound 256), `l` (DPT-Large, ViT-L/16, minimal-resize 384) |
 | `moge2`     | `s`, `b`, `l` (official MoGe-2 ViT-S/B/L-14 normal checkpoints; all at native short side 518, `l` quality default) |
+| `marigold_v2` | `b` (20B Qwen base; task and depth-variant suffix select the adapter) |
 | `teed`      | `t` (tiny, 58,910 parameters; fixed 352 square) |
 | `dexined`   | `b` (base, 35.2M parameters; fixed 352 square) |
 | `birefnet`  | `t` (BiRefNet_lite, Swin-T tier), `l` (BiRefNet general, Swin-L tier); both at fixed 1024 |
@@ -284,6 +289,7 @@ VLM snapshot families use model-specific size names:
 
 | Family | Size codes |
 |---|---|
+| `molmo2` | `4b` (default), `8b`, `o-7b`; single-image point task |
 | `libremodus` | `14b-a7b` (14B total parameters, approximately 7B active; external MODUS snapshot) |
 
 Promptable SAM tier size aliases:
@@ -332,11 +338,14 @@ From `libreyolo/tasks.py`:
 | `depth`       | `-depth` |
 | `edge`        | `-edge` |
 | `normal`      | `-normal` |
+| `albedo`      | `-albedo` |
 | `restore`     | `-restore` |
 | `matte`       | `-matte` |
 | `ocr`         | `-ocr` |
 | `embed`       | `-embed` |
 | `mesh`        | `-mesh` |
+| `detect3d`    | `-detect3d` |
+| `act`         | `-act` |
 
 The factory accepts selected upstream-style aliases (`detection`, `det`,
 `segmentation`, `keypoints`, `cls`, …) at the API boundary; only the canonical
@@ -379,6 +388,16 @@ as a Mask2Former-style non-overlapping thing+stuff merge.
 `Results.depth_map`, a float `(H, W)` relative inverse-depth map on the
 original image canvas. Higher values mean closer to the camera; no metric unit
 is implied without user-side calibration.
+
+Inverse depth is the default `DepthMap.encoding`. Marigold V2 also declares
+`depth` and `log_depth`, which increase with distance and are affine-relative
+in their named spaces. See ADR 0025. Its default depth file is
+`LibreMarigoldV2b-depth.pt` (Log-stage2); the six other depth variants use
+`LibreMarigoldV2b-depth-<variant>.pt`. See ADR 0027 for the variant list.
+
+`albedo` predicts `Results.albedo`, a float32 `(H,W,3)` linear-RGB reflectance
+map in `[0,1]`. Its preview uses sRGB while the numeric payload remains linear.
+The first checkpoint is `LibreMarigoldV2b-albedo.pt`; see ADR 0026.
 
 `edge` is the task for dense edge detection. Models expose `Results.edges`, a
 float32 `(H, W)` probability map in `[0, 1]` on the original image canvas.
@@ -549,6 +568,7 @@ Detector-factory family support follows:
 | `swinir`    | `("restore",)`                     | restore | SwinIR transformer super-resolution; sizes `s`/`m`/`l`, all 4x; native predict at original resolution with window padding; optional tiled inference; inference + PSNR/SSIM `val` only (no training); fixed-resolution ONNX |
 | `mobilenetv4` | `("classify",)`                | classify | MobileNetV4-conv image classifier; s/m/l at 224/224/256; predict + top-1/top-5 `val` + CE fine-tune train + ONNX |
 | `convnext`  | `("classify",)`                | classify | ConvNeXt V1 image classifier; t/s/b at 224; predict + top-1/top-5 `val` + CE fine-tune train + ONNX |
+| `convnextv2` | `("classify",)` | classify | ConvNeXt V2; eight 224px classifiers; predict, top-1/top-5 validation, supervised fine-tuning, ONNX and TorchScript |
 | `deit`      | `("classify",)`                | classify | Plain DeiT patch-16 classifier; t/s/b at fixed 224; predict + top-1/top-5 `val`; inference-only museum family |
 | `efficientnetv2` | `("classify",)`             | classify | EfficientNetV2-base image classifier; b0/b1/b2/b3 at 224/240/260/300; predict + top-1/top-5 `val` + CE fine-tune train + ONNX |
 | `resnet`    | `("classify",)`             | classify | vanilla ResNet image classifier (v1.5); 18/34/50/101 at 224; predict + top-1/top-5 `val` + CE fine-tune train + ONNX |
@@ -790,6 +810,9 @@ LibreVJEPA2h256-embed.pt        # facebook/vjepa2-vith-fpc64-256 (MIT weights), 
 LibreVJEPA2g256-embed.pt        # facebook/vjepa2-vitg-fpc64-256 (Apache-2.0 weights), 256 px, 64 frames
 LibreVJEPA2g384-embed.pt        # facebook/vjepa2-vitg-fpc64-384 (Apache-2.0 weights), 384 px, 64 frames
 
+# levjepa: 16-frame video encoder. The weights are non-commercial.
+LibreLeVJEPAl-embed.pt           # ViT-L/16, CC BY-NC 4.0, 224 px, 16 frames
+
 # Published attentive probes place the dataset variant AFTER the task suffix.
 # Only these four size/variant pairs exist; -cls without a variant, and any
 # other size/variant combination, are rejected even though the filename regex
@@ -916,8 +939,12 @@ ImageNet-22k before ImageNet-1k fine-tuning. See each family's `NOTICE`, e.g.
 (BSD-3-Clause). Its official checkpoint mirror uses BSD-3-Clause on a disclosed
 implied basis because no checkpoint-specific grant is attached; see
 `libreyolo/models/alexnet/NOTICE` and `docs/provenance/alexnet.md`.
-Only ConvNeXt **V1** ships — ConvNeXt-V2's small checkpoints are CC-BY-NC and
-are excluded; EfficientNetV2 ships only the ImageNet-1k checkpoints, as the
+ConvNeXt V2 ships separately as `convnextv2`, with MIT code and official
+224px ImageNet-1K EMA weights under CC-BY-NC-4.0. Canonical names are
+`LibreConvNeXtV2{atto,femto,pico,n,t,b,l,h}-cls.pt`. The non-commercial
+weight terms travel with converted checkpoints and subsequent fine-tunes.
+FCMAE pretraining and 384/512px weight variants are not included.
+EfficientNetV2 ships only the ImageNet-1k checkpoints, as the
 `.in21k`/JFT variants carry extra-data terms. DeiT ships only the plain 224px
 models; distilled-token and 384px variants require separate public contracts.
 
@@ -977,3 +1004,80 @@ Example: `yolo9_p2` declares `("visdrone",)`, so `LibreYOLO9P2s-visdrone.pt`
 resolves the Hugging Face repo `LibreYOLO/LibreYOLO9P2s-visdrone` (a research
 preview under VisDrone's CC BY-NC-SA license, announced by a download notice).
 Plain COCO-default weights never carry a variant suffix.
+
+EC declares `("obj2coco",)` for Objects365 pretraining followed by COCO
+fine-tuning: `LibreECs-obj2coco.pt`, `LibreECs-seg-obj2coco.pt`, and
+`LibreECs-pose-obj2coco.pt` (sizes s/m/l/x). These opt-in weights are
+redistributed under the non-commercial EdgeCrafter License, with a notice
+before download. The existing bare COCO filenames and defaults are unchanged.
+The suffix does not denote the raw 365-class pretraining checkpoints.
+See [EdgeCrafter provenance](provenance/edgecrafter.md) for the earlier
+Apache-2.0 defaults and the upstream license-change history.
+
+## Vision-language-action policies
+
+`LibreACT` (`act_policy`, aliases `act` and `act-policy`) and
+`LibreDiffusionPolicy` (`diffusion_policy`, aliases `diffusion` and
+`diffusion-policy`) use the same `act` task and coverage group `s`. They
+start without a pretrained policy, require no instruction, and save policy
+directories with null base repo/revision. Their default size is `base`.
+
+`LibreSmolVLA` (`smolvla`, coverage group `s`) is a sibling API wrapping the
+SmolVLA policy through the optional `lerobot` runtime (`libreyolo[vla]`,
+Python 3.12+). It uses `act`, with aliases `action`, `actions`, `vla`,
+`policy` and `robot-policy`. Its base checkpoint is size `base`, pinned to a
+`lerobot/smolvla_base` commit and downloaded into `weights/LibreSmolVLAbase/`
+as a snapshot directory; it is not a `.pt` and is not registered in the
+`LibreYOLO(...)` state-dict factory.
+
+`Results.actions` stores the `(T, D)` action chunk with its per-dimension
+names, control rate and instruction. Fine-tunes written by `train()` are
+directories carrying `libreyolo_vla.json`; `LibreVLA(path)` reloads them.
+There is no CLI verb in this version. See ADR 0028 for the observation and
+action contracts and the explicit scope.
+
+## Promptable 3D detection
+
+`LibreWildDet3D` (`wilddet3d`, coverage group `s`) is a sibling API wrapping
+an optional upstream runtime. It uses `detect3d`, with aliases `detection3d`
+and `3d-detection`. Its full upstream model has a fixed 1008-pixel input and
+is listed as size `l` in inventory. It accepts a local upstream checkpoint or
+downloads the byte-identical `wilddet3d_alldata_all_prompt_v1.0.pt` mirror from
+`LibreYOLO/LibreWildDet3D`. This raw upstream checkpoint is not converted and
+is not registered in the `LibreYOLO(...)` state-dict factory.
+
+`Results.boxes3d` stores metric camera-frame cuboids aligned with 2D boxes.
+The corresponding CLI is `libreyolo wilddet3d`; the generic `predict` command
+and UI do not carry its camera/prompt inputs. See ADR 0021 for the interface,
+coordinate contract, and the explicit inference-only scope.
+
+`Libre3DMOOD` (`3dmood`, coverage group `s`) is the open-set text-conditioned
+sibling. Sizes `t` and `b` correspond to the official Swin-T and Swin-B
+checkpoints and canonical filenames `Libre3DMOODt.pt` and `Libre3DMOODb.pt`.
+Both run on a fixed 800x1333 model canvas while preserving original-image
+coordinates in results.
+It shares the `detect3d` result and camera convention, adds
+`Results.depth_map`, and is invoked through `libreyolo 3dmood`. It is not part
+of the generic checkpoint factory. See ADR 0022.
+
+`LibreDetAny3D` (`detany3d`, coverage group `s`) is a box-, point- and
+text-prompted sibling with predicted calibration. Its full upstream model is
+listed as size `h` with an 896-pixel canvas. It takes an unchanged upstream
+checkpoint and a separate runtime. Omitting `model_path` downloads the
+byte-identical `detany3d.pth` mirror from `LibreYOLO/LibreDetAny3D`; those
+weights are non-commercial (CC BY-NC 4.0, UniDepth v2 depth lineage) and are
+announced by a download notice. This raw upstream checkpoint is not converted
+and is not registered in the `LibreYOLO(...)` state-dict factory. The CLI is
+`libreyolo detany3d`. See ADR 0024.
+
+### FCOS3D
+
+`LibreFCOS3D` (`fcos3d`, group `s`, variant `r101`) is a native inference-only
+sibling for calibrated monocular `detect3d`. It accepts the unchanged official
+R101 nuScenes checkpoint, or downloads the byte-identical finetuned mirror
+`fcos3d_r101_caffe_fpn_gn-head_dcn_2x8_1x_nus-mono3d_finetune_20210717_095645-8d806dc2.pth`
+from `LibreYOLO/LibreFCOS3D` when `model_path` is omitted. Those weights are
+non-commercial under nuScenes terms and are announced by a download notice.
+This raw upstream checkpoint is not converted and is not registered in the
+generic state-dict factory. See
+[ADR 0023](adr/0023-fcos3d-inference.md) for API and evidence.

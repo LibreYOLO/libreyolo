@@ -1,4 +1,55 @@
 {
+  "3dmood": {
+    "class": "libreyolo.models.mood3d.model.Libre3DMOOD",
+    "tasks": [
+      "detect3d"
+    ],
+    "default_task": "detect3d",
+    "sizes": {
+      "t": [
+        800,
+        1333
+      ],
+      "b": [
+        800,
+        1333
+      ]
+    },
+    "default_imgsz": {
+      "t": [
+        800,
+        1333
+      ],
+      "b": [
+        800,
+        1333
+      ]
+    },
+    "task_sizes": {},
+    "export_override": "blocked",
+    "optional_extra": null,
+    "available": false,
+    "group": "s",
+    "cli_command": "3dmood"
+  },
+  "act_policy": {
+    "class": "libreyolo.models.vla.act_policy.LibreACT",
+    "tasks": [
+      "act"
+    ],
+    "default_task": "act",
+    "sizes": {
+      "base": 224
+    },
+    "default_imgsz": {
+      "base": 224
+    },
+    "task_sizes": {},
+    "export_override": "blocked",
+    "optional_extra": "vla",
+    "available": false,
+    "group": "s"
+  },
   "alexnet": {
     "class": "libreyolo.models.alexnet.model.LibreAlexNet",
     "tasks": [
@@ -113,6 +164,38 @@
       "t": 224,
       "s": 224,
       "b": 224
+    },
+    "task_sizes": {},
+    "export_override": "none",
+    "optional_extra": null,
+    "available": true,
+    "group": "g2"
+  },
+  "convnextv2": {
+    "class": "libreyolo.models.convnextv2.model.LibreConvNeXtV2",
+    "tasks": [
+      "classify"
+    ],
+    "default_task": "classify",
+    "sizes": {
+      "atto": 224,
+      "femto": 224,
+      "pico": 224,
+      "n": 224,
+      "t": 224,
+      "b": 224,
+      "l": 224,
+      "h": 224
+    },
+    "default_imgsz": {
+      "atto": 224,
+      "femto": 224,
+      "pico": 224,
+      "n": 224,
+      "t": 224,
+      "b": 224,
+      "l": 224,
+      "h": 224
     },
     "task_sizes": {},
     "export_override": "none",
@@ -328,6 +411,25 @@
     "available": true,
     "group": "g3"
   },
+  "detany3d": {
+    "class": "libreyolo.models.detany3d.model.LibreDetAny3D",
+    "tasks": [
+      "detect3d"
+    ],
+    "default_task": "detect3d",
+    "sizes": {
+      "h": 896
+    },
+    "default_imgsz": {
+      "h": 896
+    },
+    "task_sizes": {},
+    "export_override": "blocked",
+    "optional_extra": null,
+    "available": true,
+    "group": "s",
+    "cli_command": "detany3d"
+  },
   "detr": {
     "class": "libreyolo.models.detr.model.LibreDETR",
     "tasks": [
@@ -411,6 +513,24 @@
     "optional_extra": null,
     "available": true,
     "group": "g1"
+  },
+  "diffusion_policy": {
+    "class": "libreyolo.models.vla.diffusion_policy.LibreDiffusionPolicy",
+    "tasks": [
+      "act"
+    ],
+    "default_task": "act",
+    "sizes": {
+      "base": 224
+    },
+    "default_imgsz": {
+      "base": 224
+    },
+    "task_sizes": {},
+    "export_override": "blocked",
+    "optional_extra": "vla",
+    "available": false,
+    "group": "s"
   },
   "dinodetr": {
     "class": "libreyolo.models.dinodetr.model.LibreDINODETR",
@@ -716,6 +836,25 @@
     "available": true,
     "group": "g3"
   },
+  "fcos3d": {
+    "class": "libreyolo.models.fcos3d.model.LibreFCOS3D",
+    "tasks": [
+      "detect3d"
+    ],
+    "default_task": "detect3d",
+    "sizes": {
+      "r101": 1600
+    },
+    "default_imgsz": {
+      "r101": 1600
+    },
+    "task_sizes": {},
+    "export_override": "blocked",
+    "optional_extra": null,
+    "available": true,
+    "group": "s",
+    "cli_command": "fcos3d"
+  },
   "feynobg": {
     "class": "libreyolo.models.feynobg.model.LibreFeyNobg",
     "tasks": [
@@ -992,6 +1131,24 @@
     "available": true,
     "group": "g3"
   },
+  "levjepa": {
+    "class": "libreyolo.models.levjepa.model.LibreLeVJEPA",
+    "tasks": [
+      "embed"
+    ],
+    "default_task": "embed",
+    "sizes": {
+      "l": 224
+    },
+    "default_imgsz": {
+      "l": 224
+    },
+    "task_sizes": {},
+    "export_override": "none",
+    "optional_extra": null,
+    "available": true,
+    "group": "g3"
+  },
   "lfm2vl": {
     "class": "libreyolo.models.vlm.lfm2.LibreLFM2VL",
     "tasks": [
@@ -1081,6 +1238,26 @@
     "export_override": "none",
     "optional_extra": null,
     "available": true,
+    "group": "g3"
+  },
+  "marigold_v2": {
+    "class": "libreyolo.models.marigold_v2.model.LibreMarigoldV2",
+    "tasks": [
+      "depth",
+      "normal",
+      "albedo"
+    ],
+    "default_task": "depth",
+    "sizes": {
+      "b": 1024
+    },
+    "default_imgsz": {
+      "b": 1024
+    },
+    "task_sizes": {},
+    "export_override": "blocked",
+    "optional_extra": "marigold",
+    "available": false,
     "group": "g3"
   },
   "mask_rcnn": {
@@ -1190,6 +1367,28 @@
     "optional_extra": null,
     "available": true,
     "group": "g3"
+  },
+  "molmo2": {
+    "class": "libreyolo.models.vlm.molmo2.LibreMolmo2",
+    "tasks": [
+      "point"
+    ],
+    "default_task": "point",
+    "sizes": {
+      "4b": 378,
+      "8b": 378,
+      "o-7b": 378
+    },
+    "default_imgsz": {
+      "4b": 378,
+      "8b": 378,
+      "o-7b": 378
+    },
+    "task_sizes": {},
+    "export_override": "blocked",
+    "optional_extra": "molmo2",
+    "available": false,
+    "group": "s"
   },
   "moondream": {
     "class": "libreyolo.models.vlm.moondream.LibreMoondream",
@@ -1944,6 +2143,24 @@
     "available": true,
     "group": "s"
   },
+  "smolvla": {
+    "class": "libreyolo.models.vla.smolvla.LibreSmolVLA",
+    "tasks": [
+      "act"
+    ],
+    "default_task": "act",
+    "sizes": {
+      "base": 512
+    },
+    "default_imgsz": {
+      "base": 512
+    },
+    "task_sizes": {},
+    "export_override": "blocked",
+    "optional_extra": "vla",
+    "available": false,
+    "group": "s"
+  },
   "smolvlm2": {
     "class": "libreyolo.models.vlm.smolvlm.LibreSmolVLM2",
     "tasks": [
@@ -2186,6 +2403,25 @@
     "optional_extra": null,
     "available": true,
     "group": "g2"
+  },
+  "wilddet3d": {
+    "class": "libreyolo.models.wilddet3d.model.LibreWildDet3D",
+    "tasks": [
+      "detect3d"
+    ],
+    "default_task": "detect3d",
+    "sizes": {
+      "l": 1008
+    },
+    "default_imgsz": {
+      "l": 1008
+    },
+    "task_sizes": {},
+    "export_override": "blocked",
+    "optional_extra": null,
+    "available": false,
+    "group": "s",
+    "cli_command": "wilddet3d"
   },
   "yolo1": {
     "class": "libreyolo.models.yolo1.model.LibreYOLO1",

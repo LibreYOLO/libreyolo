@@ -71,6 +71,18 @@ def _add(
 # Existing parity-backed paths. New validated rows must land with a parity test.
 _add(
     "validated",
+    ("convnextv2",),
+    ("classify",),
+    ("onnx", "torchscript"),
+    reason=(
+        "Native and exported logits, probabilities, labels, and preprocessing "
+        "are covered by test_convnextv2_export.py."
+    ),
+    since="1.5",
+    constraint="FP32; 224px ImageNet-1K classifiers; Atto CPU runtime parity",
+)
+_add(
+    "validated",
     ("yolo9",),
     ("detect",),
     ("onnx", "torchscript", "tflite"),
@@ -3675,6 +3687,15 @@ _add(
 
 
 _TASK_BLOCKS = {
+    "albedo": "Albedo export does not yet have a linear-RGB backend runtime contract.",
+    "act": (
+        "Action-chunk export is blocked until the policy sampling loop has an "
+        "exportable graph and backend runtime contract (ADR 0028)."
+    ),
+    "detect3d": (
+        "3D detection export is blocked until its graph outputs, camera metadata, "
+        "and backend runtime contract are defined."
+    ),
     "ocr": (
         "OCR uses two networks for detection and recognition with dynamic "
         "per-region cropping, so it does not fit the single-graph export contract."
@@ -3703,6 +3724,7 @@ _TASK_BLOCKS = {
 }
 
 _FAMILY_BLOCKS = {
+    "marigold_v2": "Marigold V2 quantized diffusion export has not been integrated or validated.",
     "depth_anything3": (
         "Depth Anything 3 currently rejects export for every format; its "
         "depth graph has not been added to the exported-runtime contract."
@@ -3906,6 +3928,36 @@ _add(
     "blocked",
     ("vjepa2",),
     ("embed", "classify"),
+    ("ncnn", "tflite"),
+    reason=(
+        "Both toolchains are built around rank-4 image tensors; a rank-5 clip "
+        "input has no supported conversion path."
+    ),
+)
+
+
+# --- LeVJEPA ---------------------------------------------------------------
+_add(
+    "validated",
+    ("levjepa",),
+    ("embed",),
+    ("torchscript",),
+    reason=(
+        "The 303M-parameter released checkpoint was exported and reloaded on "
+        "CUDA. The graph matched native FP32 output exactly, retained unit-norm "
+        "1024-D output, and changed when frame order was reversed."
+    ),
+    since="1.5",
+    constraint=(
+        "FP32, batch 1, fixed 16-frame 224x224 input. Drive the graph directly "
+        "with a preprocessed 5D clip; exported-backend video preprocessing is "
+        "not implemented."
+    ),
+)
+_add(
+    "blocked",
+    ("levjepa",),
+    ("embed",),
     ("ncnn", "tflite"),
     reason=(
         "Both toolchains are built around rank-4 image tensors; a rank-5 clip "

@@ -193,6 +193,7 @@ class BaseTrainer(ABC):
     # Whether this family supports ``lora=True`` fine-tuning. Overridden to True
     # by trainers with LoRA-amenable (transformer/nn.Linear) backbones.
     supports_lora: bool = False
+    supports_class_weights: bool = False
 
     def __init__(
         self,
@@ -223,6 +224,15 @@ class BaseTrainer(ABC):
                 )
         self.model = model
         self.wrapper_model = wrapper_model
+        self.class_weights = None
+        if (self.config.class_weights or self.config.cls_pw > 0) and (
+            getattr(wrapper_model, "task", None) != "classify"
+            or not self.supports_class_weights
+        ):
+            raise ValueError(
+                "class_weights=True or cls_pw>0 requires a supported "
+                "image-classification trainer"
+            )
         self.callbacks = TrainCallbackList(callbacks)
         for logger_callback in resolve_loggers(loggers):
             self.callbacks.append(logger_callback)
@@ -838,6 +848,9 @@ class BaseTrainer(ABC):
                 classes=self.config.classes,
             )
             class_remap = data_cfg.get("_class_remap")
+            if data_cfg.get("input_profile") is not None or getattr(self.wrapper_model, "input_profile", None) is not None:
+                from ..data.event_histogram import setup_histogram_data
+                return setup_histogram_data(self, data_cfg)
             data_dir = data_cfg["root"]
             data_nc = data_cfg.get("nc")
             if data_nc is None and data_cfg.get("names") is not None:
@@ -1115,6 +1128,20 @@ class BaseTrainer(ABC):
                 "erasing": getattr(self.config, "erasing", 0.0),
             },
         )
+
+        if self.config.class_weights or self.config.cls_pw > 0:
+            counts = torch.bincount(
+                torch.tensor(train_dataset._impl.targets), minlength=num_classes
+            ).float()
+            if (counts == 0).any():
+                raise ValueError("Class weighting requires training images in every class")
+            # Full-dataset counts, before sharding: identical on every DDP rank.
+            if self.config.class_weights:
+                weights = counts.sum() / (num_classes * counts)
+            else:
+                weights = counts.pow(-self.config.cls_pw)
+                weights = weights / weights.mean()
+            self.class_weights = weights.to(self.device)
 
         # Batch-level MixUp / CutMix (soft labels) when requested; otherwise this
         # returns the plain classify collate so default training is unchanged.
@@ -3892,7 +3919,8 @@ class BaseTrainer(ABC):
         logger.info(f"Checkpoint saved: {latest_path}")
 
     def _checkpoint_extra_metadata(self) -> Dict[str, Any]:
-        return {}
+        from ..utils.event_histogram import input_metadata
+        return input_metadata(self.wrapper_model)
 
     def resume(self, checkpoint_path: str):
         if not Path(checkpoint_path).exists():
@@ -3904,6 +3932,14 @@ class BaseTrainer(ABC):
             map_location=self.device,
             context="training resume checkpoint",
         )
+        if isinstance(checkpoint.get("input_profile"), dict) or isinstance(
+            getattr(getattr(self, "wrapper_model", None), "input_profile", None), dict
+        ):
+            from ..utils.event_histogram import check_dataset_profile
+
+            validate_checkpoint_metadata(checkpoint, strict=True)
+            check_dataset_profile(self.wrapper_model, checkpoint)
+            self.wrapper_model.input_initialization = checkpoint["input_initialization"]
         metadata_errors = validate_checkpoint_metadata(checkpoint, strict=False)
         if metadata_errors:
             logger.warning(
@@ -3915,6 +3951,14 @@ class BaseTrainer(ABC):
                 "; ".join(metadata_errors),
                 SCHEMA_VERSION,
             )
+
+        for option, default in (("class_weights", False), ("cls_pw", 0.0)):
+            saved_value = checkpoint.get("config", {}).get(option, default)
+            if saved_value != getattr(self.config, option, default):
+                raise ValueError(
+                    f"Resume requires the saved {option} setting "
+                    f"({option}={saved_value}); use a new run to change it."
+                )
 
         try:
             model_state = checkpoint.get("train_model", checkpoint["model"])
