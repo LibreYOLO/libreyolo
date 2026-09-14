@@ -26,6 +26,7 @@ from .internvl3 import LibreInternVL3
 from .kosmos2 import LibreKosmos2
 from .lfm2 import LibreLFM2VL
 from .locateanything import LibreLocateAnything
+from .molmo2 import LibreMolmo2
 from .moondream import LibreMoondream
 from .northmicro import LibreNorthMicroVision
 from .qwen3vl import LibreQwen3VL
@@ -67,6 +68,10 @@ _ALIASES: Dict[str, Tuple[Type[LibreVLMModel], str]] = {
     "gemma4-e4b": (LibreGemma4, "e4b"),
     "gemma-4-e2b": (LibreGemma4, "e2b"),
     "gemma4-e2b": (LibreGemma4, "e2b"),
+    "molmo2": (LibreMolmo2, "4b"),
+    "molmo2-4b": (LibreMolmo2, "4b"),
+    "molmo2-8b": (LibreMolmo2, "8b"),
+    "molmo2-o-7b": (LibreMolmo2, "o-7b"),
     "moondream": (LibreMoondream, "2"),
     "moondream-2": (LibreMoondream, "2"),
     "moondream2": (LibreMoondream, "2"),
@@ -173,6 +178,7 @@ __all__ = [
     "LibreLocateAnything",
     "LibreGemma4",
     "LibreMoondream",
+    "LibreMolmo2",
     "LibreNorthMicroVision",
     "LibreSenseNovaVision",
     "LibreMODUS",

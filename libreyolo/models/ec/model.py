@@ -41,6 +41,7 @@ class LibreEC(BaseModel):
         "pose": POSE_INPUT_SIZES,
         "segment": SEG_INPUT_SIZES,
     }
+    WEIGHT_VARIANTS = ("obj2coco",)
     POSE_NUM_KEYPOINTS = 17
     KEYPOINT_DIM = 3
     val_preprocessor_class = ECValPreprocessor
@@ -89,6 +90,18 @@ class LibreEC(BaseModel):
         # already points where we want.  ``_GH_RELEASE_BASE`` stays as a
         # documented fallback for direct-download scripts.
         return super().get_download_url(filename)
+
+    @classmethod
+    def get_download_notice(cls, filename: str, url: str) -> Optional[str]:
+        if cls.detect_variant_from_filename(filename) != "obj2coco":
+            return None
+        return (
+            f"{Path(filename).name} contains Objects365-pretrained EdgeCrafter "
+            "weights distributed for NON-COMMERCIAL USE ONLY under the "
+            "EdgeCrafter License. Commercial use requires a separate upstream "
+            "license. See the LICENSE and NOTICE in the weight repository; "
+            "these weights are not covered by LibreYOLO's MIT license."
+        )
 
     @staticmethod
     def _detect_pose(model_path) -> bool:

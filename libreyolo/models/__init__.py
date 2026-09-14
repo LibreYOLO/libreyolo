@@ -107,6 +107,7 @@ from .depth_anything.model import (  # noqa: E402,F401  (import registers family
 )
 from .zipdepth.model import LibreZipDepth  # noqa: E402,F401  (depth-only; can_load keyed on encoder.stem_half + decoder.convex_up)
 from .moge2.model import LibreMoGe2  # noqa: E402,F401  (normal-only; official Microsoft MIT checkpoint)
+from .marigold_v2.model import LibreMarigoldV2  # noqa: E402,F401 (heavy dependencies load only at construction)
 from .teed.model import LibreTEED  # noqa: E402,F401  (edge-only; MIT source)
 from .dexined.model import LibreDexiNed  # noqa: E402,F401  (edge-only; MIT source)
 from .depth_anything3.model import (  # noqa: E402,F401  (import registers family)
@@ -134,6 +135,7 @@ from .lingbotvision.model import LibreLingBotVision  # noqa: E402,F401  (semanti
 from .vit.model import LibreViT  # noqa: E402  (classify-only; top-level classic-ViT signature)
 from .mobilenetv4.model import LibreMobileNetV4  # noqa: E402  (classify-only; can_load is highly specific)
 from .convnext.model import LibreConvNeXt  # noqa: E402  (classify-only; can_load is highly specific)
+from .convnextv2.model import LibreConvNeXtV2  # noqa: E402
 from .deit.model import LibreDeiT  # noqa: E402  (classify-only museum family; exact ViT geometry)
 from .swin.model import LibreSwin  # noqa: E402  (classify-only; V1 window-bias signature rejects SwinV2/backbone-only checkpoints)
 from .efficientnetv2.model import LibreEfficientNetV2  # noqa: E402  (classify-only; can_load is highly specific)
@@ -170,6 +172,11 @@ from .ppocr.model import LibrePPOCR  # noqa: E402,F401  (import registers family
 # registration order does not matter. OpenCV is imported lazily inside the clip
 # sampler, keeping video decoding off the global import path.
 from .vjepa2.model import LibreVJEPA2  # noqa: E402,F401  (import registers family)
+
+# LeVJEPA video encoder: native inference graph with a CLS clip embedding and
+# dense block-causal patch tokens. Its fingerprint includes a tubelet-1 Conv3d,
+# CLS token and fused qkv weights, so it cannot collide with V-JEPA 2.
+from .levjepa.model import LibreLeVJEPA  # noqa: E402,F401  (import registers family)
 
 
 def _ensure_rfdetr():
@@ -881,6 +888,7 @@ __all__ = [
     "LibreMiDaS",
     "LibreDepthAnythingV2",
     "LibreMoGe2",
+    "LibreMarigoldV2",
     "LibreTEED",
     "LibreDexiNed",
     "LibreDepthAnything3",
@@ -905,6 +913,7 @@ __all__ = [
     "LibreViT",
     "LibreMobileNetV4",
     "LibreConvNeXt",
+    "LibreConvNeXtV2",
     "LibreSwin",
     "LibreEfficientNetV2",
     "LibreVGG",
@@ -914,6 +923,8 @@ __all__ = [
     "LibreSigLIP2",
     "LibrePE",
     "LibrePPOCR",
+    "LibreVJEPA2",
+    "LibreLeVJEPA",
     "LibreFaceEmbedder",
     "try_ensure_rfdetr",
 ]

@@ -829,7 +829,7 @@ def test_default_download_urls_keep_task_repo_suffixes():
     for metadata in collect_model_inventory().values():
         module_name, class_name = metadata["class"].rsplit(".", 1)
         cls = getattr(importlib.import_module(module_name), class_name)
-        if "get_download_url" in cls.__dict__:
+        if not issubclass(cls, BaseModel) or "get_download_url" in cls.__dict__:
             continue
         # Runtime tasks can intentionally share an artifact. In that case the
         # family advertises only the distinct published suffixes through

@@ -239,6 +239,7 @@ class YOLODataset(ImageCacheMixin, Dataset):
         num_classes: int | None = None,
         single_cls: bool = False,
         class_remap: dict[int, int] | None = None,
+        input_profile: dict | None = None,
     ):
         """
         Initialize YOLO dataset.
@@ -262,6 +263,10 @@ class YOLODataset(ImageCacheMixin, Dataset):
                 unchanged); ``single_cls`` combined with ``classes=`` maps
                 every kept id to ``0`` instead.
         """
+        from ..utils.event_histogram import validate_input_profile
+        self.input_profile = validate_input_profile(input_profile)
+        if self.input_profile and (load_segments or load_obb):
+            raise ValueError("Event histograms support detection only")
         self.img_size = imgsz_to_hw(img_size, name="img_size")
         self.preproc = preproc
         self._input_dim = self.img_size
@@ -303,7 +308,7 @@ class YOLODataset(ImageCacheMixin, Dataset):
 
             # Collect image files from directory
             self.img_files = []
-            for ext in ["*.jpg", "*.jpeg", "*.png", "*.bmp"]:
+            for ext in (["*.npy"] if self.input_profile else ["*.jpg", "*.jpeg", "*.png", "*.bmp"]):
                 self.img_files.extend(self.img_dir.glob(ext))
                 self.img_files.extend(self.img_dir.glob(ext.upper()))
             self.img_files = sorted(set(self.img_files))
@@ -410,18 +415,21 @@ class YOLODataset(ImageCacheMixin, Dataset):
             return str(label_dir)
         return "dataset"
 
+    @staticmethod
+    def _stored_image_size(img_file):
+        # Stored orientation matches IMREAD_IGNORE_ORIENTATION in _decode_image.
+        with Image.open(img_file) as im:
+            return im.size
+
     def _load_label(self, label_file: Path, img_file: Path) -> Tuple:
         """Load annotation for a single image."""
         # Read image to get dimensions
         try:
-            with Image.open(img_file) as im:
-                # Use the stored (non-EXIF-rotated) dimensions so label-space
-                # dims match the pixels from cv2.imdecode below, which is called
-                # with IMREAD_IGNORE_ORIENTATION. Both stay in stored orientation
-                # on every OpenCV build (imdecode's native EXIF handling is
-                # build-dependent, so relying on it would mismatch dims vs pixels
-                # on builds that ignore EXIF).
-                width, height = im.size
+            if self.input_profile:
+                from ..utils.event_histogram import load_histogram
+                height, width = load_histogram(img_file).shape[:2]
+            else:
+                width, height = self._stored_image_size(img_file)
         except (FileNotFoundError, UnidentifiedImageError, OSError) as e:
             raise FileNotFoundError(f"Cannot read image: {img_file}") from e
 
@@ -440,7 +448,13 @@ class YOLODataset(ImageCacheMixin, Dataset):
                         try:
                             cls_id, corners = parse_yolo_obb_label_line(
                                 parts,
-                                num_classes=self.num_classes,
+                                # single_cls discards the source class id, so the
+                                # class-count bound does not apply to it. The YOLO
+                                # box path already works this way: parse_yolo_label_line
+                                # remaps to 0 and only then checks the range. Passing
+                                # the bound here instead dropped every row whose
+                                # source id was >= num_classes.
+                                num_classes=None if self.single_cls else self.num_classes,
                                 clip=True,
                                 class_remap=self.class_remap,
                             )
@@ -535,6 +549,9 @@ class YOLODataset(ImageCacheMixin, Dataset):
     def _decode_image(self, index: int) -> np.ndarray:
         """Decode image from disk for given index."""
         img_file = self.img_files[index]
+        if self.input_profile:
+            from ..utils.event_histogram import load_histogram
+            return load_histogram(img_file)
         img = cv2.imdecode(
             np.fromfile(str(img_file), dtype=np.uint8),
             cv2.IMREAD_COLOR | cv2.IMREAD_IGNORE_ORIENTATION,
@@ -542,6 +559,13 @@ class YOLODataset(ImageCacheMixin, Dataset):
         if img is None:
             raise ValueError(f"Failed to load {img_file}")
         return img
+
+    def _load_image_from_disk(self, index: int) -> np.ndarray:
+        if self.input_profile:
+            # Numerical sources already are NumPy files. A .npy.npy sidecar
+            # would be discovered as another training image on the next run.
+            return self._decode_image(index)
+        return super()._load_image_from_disk(index)
 
     # load_resized_img comes from ImageCacheMixin: the deterministic resize is
     # the post-resize cache point, so the mixin owns both the math and the cache.

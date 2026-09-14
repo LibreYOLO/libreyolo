@@ -32,8 +32,10 @@ Required field meanings:
   `dfine`, or `ec`.
 - `size`: model variant within the family, such as `t`, `s`, `r18`, or `atto`.
 - `task`: canonical task, one of `detect`, `segment`, `semantic`, `panoptic`,
-  `pose`, `classify`, `gaze`, `obb`, `point`, `depth`, `edge`, `normal`, `restore`,
-  `matte`, `ocr`, `embed`, or `mesh`.
+  `pose`, `classify`, `gaze`, `obb`, `point`, `depth`, `edge`, `normal`, `albedo`, `restore`,
+  `matte`, `ocr`, `embed`, `mesh`, or `detect3d`. The `act` task has no
+  schema-v1 `.pt` form; its checkpoints are directories (see "Optional
+  LibreVLA runtime").
 - `nc`: positive integer class count.
 - `names`: `dict[int, str]` with keys in `0..nc-1`. Official checkpoints
   should write every key. Readers may pad missing keys with `class_i` labels for
@@ -56,6 +58,28 @@ Optional family-specific geometry (not required by schema v1.0):
   treated as `"topleft"`. Loaders must not assume a family-wide default other
   than that unmarked-means-topleft rule. YOLO-NAS is not this field: its
   official pipeline already pads bottom-right in `preprocess/yolonas.py`.
+
+Optional event-histogram input metadata (YOLO9/RF-DETR detection only):
+
+- `input_profile`: the complete mapping from [Input profiles](input_profiles.md):
+  `format`, `layout`, `polarity`, `encoding`, `scale`, `window_us`.
+- `input_initialization`: required with the profile, either `random` or
+  `rgb_mean`. Readers adapt the actual input convolution to two channels before
+  loading its state dict. They must not infer the representation from weights.
+- YOLO9 also preserves `letterbox_pad` as defined above.
+
+The optional mapping describes one input contract, not nested family/task
+identification. Absent metadata retains the existing RGB checkpoint contract.
+Training, validation and resume require matching dataset metadata. ONNX stores
+`input_profile` as JSON and the other fields as strings. The ONNX reader checks
+the graph channel count and rejects a two-channel graph without the profile.
+
+ConvNeXt V2 published classifiers also carry the optional flat
+`weight_license`, `weight_license_url`, `weight_dataset`,
+`weight_commercial_use`, `source`, `source_commit`, and `source_sha256` fields.
+Its converter and raw importer identify official 224px ImageNet-1K EMA files
+by SHA-256. Save, fine-tune, resume and DDP bootstrap preserve these fields;
+explicit scratch initialization clears inherited weight provenance.
 
 Pose checkpoints additionally include:
 
@@ -97,6 +121,23 @@ the dimensions are recorded rather than assumed, the same way pose records
 Depth checkpoints use the task string `depth`, `nc: 1`, and
 `names: {0: "depth"}`. The single class-like slot exists only for checkpoint
 schema compatibility; depth predictions are dense float maps, not classes.
+
+`depth_encoding` may name `inverse_depth` (the default), `depth` or `log_depth`.
+Each is affine-relative in its named space. A family that uses non-default
+encoding must preserve it in results and validation. See ADR 0025.
+
+Albedo checkpoints use `task: "albedo"`, `nc: 1` and `names: {0: "albedo"}`.
+Their output is dense float32 linear RGB, not an RGB preview or semantic class.
+
+Marigold V2 checkpoints store inference trainables and fixed prompt tensors,
+not the frozen Qwen base. They additionally require `variant`, `base_model`
+and `base_revision`; the family rejects unrecognized base revisions and
+variant/task mismatches. The `_marigold_variant` scalar and
+`_marigold_prompt_embeds` / `_marigold_prompt_mask` entries in `model` provide
+state-dict identification and the fixed conditioning. Variant IDs follow the
+order recorded in `models/marigold_v2/config.py`; existing IDs must not be
+reassigned. Omitted upstream training-only tensors are listed explicitly in
+`omitted_training_tensors`.
 
 Edge checkpoints use the task string `edge`, `nc: 1`, and
 `names: {0: "edge"}`. The single class-like slot exists only for checkpoint
@@ -399,3 +440,33 @@ wrap_libreyolo_checkpoint(...)
 unwrap_libreyolo_checkpoint(...)
 validate_checkpoint_metadata(...)
 ```
+
+### Optional LibreVLA runtime
+
+The `act` task reserves the suffix `-act`. `LibreVLA` checkpoints are
+directories, not schema-v1 `.pt` files: the upstream policy files, the saved
+pre and post processor pipelines, and `libreyolo_vla.json` (schema 1) with
+`family`, `size`, `base_repo`, `base_revision`, `data`, `fps`, `cameras`,
+`action_names`, `state_names`, `chunk_size` and `libreyolo_version`. The
+base snapshot is pinned to a Hub commit and never converted. Policies trained
+without a base snapshot store null `base_repo` and `base_revision` and load
+from the saved policy directory. See
+`docs/librevla.md` and ADR 0028.
+
+### Optional WildDet3D runtime
+
+The `detect3d` task reserves the suffix `-detect3d`. The initial
+`LibreWildDet3D` sibling adapter accepts an unchanged upstream full checkpoint,
+either as a local path or from the pinned `LibreYOLO/LibreWildDet3D` mirror.
+The mirrored artifact preserves the upstream filename and serialization and is
+verified by SHA-256. It does not use schema-v1 metadata, attempt conversion, or
+route through the LibreYOLO factory.
+
+### Optional 3D-MOOD runtime
+
+`Libre3DMOOD` likewise accepts unchanged upstream full checkpoints outside
+schema v1. Canonical mirror names are `Libre3DMOODt.pt` and
+`Libre3DMOODb.pt`; the content retains the upstream serialization and is
+verified against a pinned SHA-256. The sibling API requires an explicit size
+when a local upstream filename is supplied and never routes the raw checkpoint
+through `LibreYOLO(...)` or metadata conversion.

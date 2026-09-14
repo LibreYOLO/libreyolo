@@ -237,8 +237,12 @@ class YOLOCocoAPI:
         ann_id = 1
         for idx, img_path in enumerate(image_files):
             # Get image size
-            with Image.open(img_path) as img:
-                w, h = img.size
+            if img_path.suffix.lower() == ".npy":
+                from ..utils.event_histogram import load_histogram
+                h, w = load_histogram(img_path).shape[:2]
+            else:
+                with Image.open(img_path) as img:
+                    w, h = img.size
 
             img_id = idx
             self.imgs[img_id] = {

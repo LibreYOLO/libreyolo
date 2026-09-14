@@ -540,6 +540,11 @@ class BaseBackend(ABC):
         Returns:
             Tuple of (input_tensor, original_img, original_size, ratio).
         """
+        if getattr(self, "input_profile", None) is not None:
+            from ..utils.event_histogram import predict_histogram
+            tensor, preview, size, ratio = predict_histogram(self, image, effective_imgsz, color_format, as_numpy=True)
+            return tensor, preview, size, ratio
+
         if self.task == "restore" or self.model_family == "nafnet":
             if self.model_family in {"realesrgan", "quicksrnet"} and not getattr(
                 self, "fixed_input_shape", False
@@ -574,19 +579,19 @@ class BaseBackend(ABC):
                 input_size=effective_imgsz,
                 color_format=color_format,
             )
-        if self.model_family == "vjepa2":
-            # Every V-JEPA 2 graph takes a rank-5 clip (B, F, C, H, W). The
+        if self.model_family in {"vjepa2", "levjepa"}:
+            # These video-embedding graphs take a rank-5 clip (B, F, C, H, W). The
             # image preprocessing below produces a rank-4 batch, which the
             # runtime rejects with an opaque "Invalid rank" error. Fail here
             # with something actionable instead. Feeding these graphs a clip
             # through the exported-backend path is not wired up yet.
             raise NotImplementedError(
-                "Exported V-JEPA 2 graphs take a 5D video clip "
+                f"Exported {self.model_family} graphs take a 5D video clip "
                 "(B, F, C, H, W), and LibreYOLO's exported-backend "
                 "preprocessing currently supplies a 4D image batch, so "
                 f"{self.task!r} inference through this path is not supported "
                 "yet. Use the PyTorch checkpoint "
-                "(LibreYOLO('LibreVJEPA2<size>-embed.pt')) for clip inference, "
+                "with LibreYOLO for clip inference, "
                 "or drive the exported graph directly with your own 5D input."
             )
         if self.task in {"classify", "embed"}:
@@ -2304,6 +2309,11 @@ class BaseBackend(ABC):
             boxes[:, [1, 3]] *= orig_h / input_h
         else:
             ratio = min(input_h / orig_h, input_w / orig_w)
+            if isinstance(getattr(self, "input_profile", None), dict):
+                from ..preprocess.letterbox import letterbox_geometry
+                _, _, _, dx, dy = letterbox_geometry(orig_h, orig_w, input_h, input_w, self.letterbox_pad)
+                boxes[:, [0, 2]] -= dx
+                boxes[:, [1, 3]] -= dy
             boxes[:, :4] /= ratio
             if keypoints is not None:
                 keypoints[..., :2] /= ratio
@@ -4112,7 +4122,8 @@ class BaseBackend(ABC):
                 annotated_img = draw_keypoints(annotated_img, kpts_np)
 
         ext = forced_ext or (
-            Path(image_path).suffix.lstrip(".") if image_path else "jpg"
+            "png" if isinstance(getattr(self, "input_profile", None), dict)
+            else Path(image_path).suffix.lstrip(".") if image_path else "jpg"
         )
         if not ext:
             ext = "jpg"
@@ -4154,6 +4165,10 @@ class BaseBackend(ABC):
     def _get_val_preprocessor(self, img_size: ImageSize | None = None):
         if img_size is None:
             img_size = self._get_input_size()
+
+        if getattr(self, "input_profile", None) is not None:
+            from ..utils.event_histogram import val_transform
+            return val_transform(self)
 
         from ..validation.preprocessors import (
             DEIMValPreprocessor,
@@ -5045,6 +5060,9 @@ class BaseBackend(ABC):
             )
 
         source_spec = classify_source(source)
+        if isinstance(getattr(self, "input_profile", None), dict):
+            from ..utils.event_histogram import check_predict_options
+            check_predict_options(source_spec, augment=kwargs.get("augment", False) or kwargs.get("tiling", False))
 
         # Handle finite video input.
         if source_spec.kind == SourceKind.VIDEO:
@@ -5110,7 +5128,11 @@ class BaseBackend(ABC):
         if source_spec.kind == SourceKind.IMAGE_BATCH:
             images = list(source_spec.items)
         elif source_spec.kind == SourceKind.DIRECTORY:
-            images = ImageLoader.collect_images(source_spec.source)
+            if getattr(self, "input_profile", None) is not None:
+                from libreyolo.utils.event_histogram import collect_histograms
+                images = collect_histograms(source_spec.source)
+            else:
+                images = ImageLoader.collect_images(source_spec.source)
             if not images:
                 return iter(()) if stream else []
 

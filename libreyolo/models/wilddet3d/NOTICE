@@ -1,0 +1,25 @@
+LibreWildDet3D is an independently written MIT API adapter.
+
+Optional runtime: https://github.com/allenai/WildDet3D
+Public-interface reference revision: 1b8aa52b6ff3f00d0ebfa07175efc0c0c440964a
+Reference: docs/INFERENCE.md (public API and tensor-format documentation).
+Runtime license: SAM License (custom, field-of-use restrictions).
+No upstream model, preprocessing, postprocessing, or rendering implementation
+is copied, adapted, or vendored. The user installs the optional runtime
+separately. The adapter calls build_model, preprocess, and the predictor API.
+
+Runtime submodules at that revision:
+- sam3_for_wilddet3d: 159490bb13108749dd5ceff68f42cd1792e60641, SAM License.
+- LingBot-Depth: ff29de5bf433d1b1519cd851da00bc652668964a, Apache-2.0.
+Their files are not distributed by LibreYOLO.
+The Stage 3 checkpoint is mirrored byte-identically at
+https://huggingface.co/LibreYOLO/LibreWildDet3D revision
+e2baa17eb2279225094a2d7e7d7620ff06dc4676. It retains the SAM License and its
+original filename and serialization. LibreYOLO verifies SHA-256
+f8b6a9e548f733ba62625a0d2adc4b0f4fdb6007ee11d9927f9c1027010fee57 after
+automatic download. Explicit local upstream checkpoints remain supported.
+
+The shared Boxes3D corner convention is adapted from the permissively licensed
+SysCV/vis4d geometry utility, revision 9cd052ed72a208773abc1f6f0cd9109d8ec97531
+(v1.0.0), Apache-2.0. See the root THIRD_PARTY_NOTICES.txt entry and
+licenses/Apache-2.0.txt. It is not derived from WildDet3D's renderer.

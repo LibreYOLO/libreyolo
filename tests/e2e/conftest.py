@@ -668,6 +668,9 @@ DEKR_POSE_MODELS = [
 VJEPA2_EMBED_MODELS = [
     ("vjepa2", "l256", "LibreVJEPA2l256-embed.pt"),
 ]
+LEVJEPA_EMBED_MODELS = [
+    ("levjepa", "l", "LibreLeVJEPAl-embed.pt"),
+]
 VJEPA2_CLASSIFY_MODELS = [
     ("vjepa2", "l256", "LibreVJEPA2l256-cls-ssv2.pt"),
 ]

@@ -83,6 +83,7 @@ file = name + ".pt"
 | SigLIP2 | `LibreSigLIP2` | `LibreSigLIP2b16-cls.pt` (zero-shot, open-vocab classify) |
 | PE | `LibrePE` | `LibrePEb16-cls.pt` (Perception Encoder Core; zero-shot classify + image/text/video embed) |
 | V-JEPA 2 | `LibreVJEPA2` | `LibreVJEPA2l256-embed.pt` (video clip embedding), `LibreVJEPA2l256-cls-ssv2.pt` (attentive-probe video classify) |
+| LeVJEPA | `LibreLeVJEPA` | `LibreLeVJEPAl-embed.pt` (16-frame clip and patch embeddings; CC BY-NC 4.0 weights) |
 | NAFNet | `LibreNAFNet` | `LibreNAFNets-restore.pt` (restore-only; `-sidd` variant = SIDD denoise) |
 | BEN2 | `LibreBEN2` | `LibreBEN2b-matte.pt` (matte / background-removal; MIT code + weights; inference-only) |
 | BiRefNet | `LibreBiRefNet` | `LibreBiRefNetl-matte.pt` (matte / background-removal; `l` is MIT, `t`/lite has no explicit weights-license tag) |
@@ -110,8 +111,26 @@ hosting weights**: non-commercial but redistributable weights (CC-BY-NC, the
 NVIDIA Source Code License) are hosted — ship the upstream license verbatim,
 tag the card correctly, and lead with a non-commercial banner (SegFormer
 precedent); downstream users are responsible for complying with the weight
-license. Only weights whose terms forbid redistribution (L2CS) or whose
-license is unknown stay unhosted. The
+license. Only weights whose terms forbid redistribution (L2CS) stay unhosted.
+An *unknown* upstream weight license is not an automatic no: it is a
+**maintainer call**, and where the releasing project declares a permissive
+license at project level the maintainer has approved rehosting on that implied
+basis (EfficientDet, torchvision Faster R-CNN / FCOS / SSD, DOME-DETR, and the
+3D mirrors below). Every such card, LICENSE and NOTICE must say the grant is
+implied by the releasing project and is LibreYOLO's disclosed interpretation,
+never publisher-confirmed.
+
+The `detect3d` sibling families mirror the **raw upstream checkpoint
+byte-for-byte** under its original filename, rather than converting to the v1.0
+schema, because their loaders read the unchanged upstream format. They keep the
+5-file contract otherwise and pin `HF_REVISION` + `WEIGHT_SHA256` in the
+family's `model.py`: `LibreWildDet3D` (SAM License),
+`LibreFCOS3D` (`license: other` + `license_name: nuscenes-non-commercial`;
+implied Apache basis, nuScenes non-commercial training data) and
+`LibreDetAny3D` (`license: cc-by-nc-4.0`; implied Apache basis for DetAny3D's
+own parameters, CC BY-NC 4.0 applied as the strictest known term for its
+UniDepth v2 depth lineage). Their filenames are upstream's, so they are
+deliberately absent from the canonical whitelist below. The
 open-vocabulary and SAM/VLM tiers ship HF *snapshot directories*
 (`LibreGroundingDINOt`, `LibreOWLv2b16`, ...), not single `.pt` files; their
 repos mirror upstream snapshot layout plus card, so the 5-file contract below
@@ -265,6 +284,7 @@ LibreVJEPA2l256-embed.pt, LibreVJEPA2h256-embed.pt,
 LibreVJEPA2g256-embed.pt, LibreVJEPA2g384-embed.pt,
 LibreVJEPA2l256-cls-ssv2.pt, LibreVJEPA2l256-cls-diving48.pt,
 LibreVJEPA2g384-cls-ssv2.pt, LibreVJEPA2g384-cls-diving48.pt,
+LibreLeVJEPAl-embed.pt,
 
 LibreNAFNets-restore.pt, LibreNAFNetl-restore.pt,
 LibreNAFNetl-restore-sidd.pt,

@@ -2,7 +2,7 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-> ⭐ **Support LibreYOLO.** The best way to help is to **star the repo**. Feel free to [open an issue](https://github.com/LibreYOLO/libreyolo/issues/new) if you encounter problems or have suggestions, and code contributions are very welcome (see [CONTRIBUTING.md](CONTRIBUTING.md)).
+> ⭐ **Support LibreYOLO.** The best way to help is to **star the repo**. Feel free to [open an issue](https://github.com/LibreYOLO/libreyolo/issues/new) if you encounter problems or have suggestions, and code contributions are very welcome (see [CONTRIBUTING.md](CONTRIBUTING.md)). If you want to contribute economically, that is very welcome: see the [sponsorship program](SPONSORS.md).
 
 [![Documentation](https://img.shields.io/badge/docs-libreyolo.com-blue)](https://www.libreyolo.com/docs)
 [![PyPI](https://img.shields.io/pypi/v/libreyolo)](https://pypi.org/project/libreyolo/)
@@ -111,19 +111,22 @@ libreyolo predict --model yolo9-t --source screen            # screen capture
 | **Panoptic segmentation** | EoMT |
 | **Pose** | RF-DETR, YOLO-NAS, HRNet, DEKR, EC |
 | **Oriented boxes** | RF-DETR, RT-DETRv2, YOLO-NAS-R |
+| **3D detection** | WildDet3D, 3D-MOOD, FCOS3D, DetAny3D (separate runtime) |
 | **Classification** | MobileNetV4, ConvNeXt, EfficientNetV2, ResNet, ViT, Swin, DeiT, VGG, AlexNet, CLIP, SigLIP2, DINOv2 |
 | **Depth** | Depth Anything 3, Depth Anything V2, ZipDepth, MiDaS |
 | **Surface normals** | MoGe-2 |
+| **Depth, normals and albedo** | Marigold V2 |
 | **Edges** | DexiNed, TEED |
 | **Embeddings** | LibreFaceEmbedder, CLIP, SigLIP2, Perception Encoder (image, text, whole-video; also zero-shot classify), DINOv2 |
-| **Video embeddings** | V-JEPA 2 (clip-level embedding, plus video classification with a trainable attentive probe) |
+| **Video embeddings** | V-JEPA 2 (clip embedding and trainable classification probe), LeVJEPA (clip and patch embeddings; CC BY-NC 4.0 weights) |
 | **Body mesh** | SAM 3D Body |
 | **Restoration** | DDColor, HVI-CIDNet, LaMa, NAFNet, QuickSRNet, Real-ESRGAN, SwinIR |
 | **Background removal** | BiRefNet, FeyNobg, BEN2, ViTMatte |
 | **OCR** | PP-OCR |
 | **Point detection** | FOMO, LocateAnything |
 | **Gaze** | L2CS |
-| **Open vocabulary and VLMs** | Grounding DINO, OWLv2, OmDet-Turbo, OV-DEIM, Florence-2, Kosmos-2, Qwen3-VL, InternVL3, LFM2-VL, North Micro Vision, SmolVLM2, Gemma 4, Moondream, MODUS |
+| **Open vocabulary and VLMs** | Grounding DINO, OWLv2, OmDet-Turbo, OV-DEIM, Florence-2, Kosmos-2, Qwen3-VL, InternVL3, LFM2-VL, North Micro Vision, SmolVLM2, Gemma 4, Moondream, Molmo2, MODUS |
+| **Robot actions (VLA)** | SmolVLA, ACT, Diffusion Policy |
 
 Per-family sizes, checkpoints and parity evidence live in the
 [model reference](https://www.libreyolo.com/docs/models).
@@ -164,6 +167,19 @@ Support varies by family and task, see the
 - [Docs](https://www.libreyolo.com/docs) covers install, tasks, models, training, prediction, export and the CLI
 - [Benchmarks](https://www.visionanalysis.org/) for independent numbers
 - [CHANGELOG.md](CHANGELOG.md) for what changed
+
+## Sponsors
+
+The code is written in free time. Training new models, such as LibreYOLO26
+and MIT retrains of families with restrictive weights, costs rented GPU time,
+and the [LibreYOLO Sponsorship Program](SPONSORS.md) pays for it. Companies
+get their logo here from $100 a month, and from $500 a month are named in
+every release and in the model card of every weight released while they
+sponsor. Hardware manufacturers can sponsor by sending a device.
+
+[![Sponsor](https://img.shields.io/badge/sponsor-GitHub%20Sponsors-ea4aaa?logo=githubsponsors)](https://github.com/sponsors/EHxuban11)
+
+No sponsors yet.
 
 ## License
 

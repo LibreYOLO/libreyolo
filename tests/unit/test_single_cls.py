@@ -248,6 +248,78 @@ def test_yolo_dataset_single_cls_remaps_every_positive_class(tmp_path):
     np.testing.assert_array_equal(labels[:, 4], np.zeros(2))
 
 
+def _write_yolo_obb_sample(tmp_path: Path) -> tuple[list[Path], list[Path]]:
+    image_path = tmp_path / "sample_obb.jpg"
+    label_path = tmp_path / "sample_obb.txt"
+    Image.new("RGB", (64, 48), color="white").save(image_path)
+    label_path.write_text(
+        "0 0.10 0.10 0.30 0.10 0.30 0.30 0.10 0.30\n"
+        "2 0.60 0.60 0.80 0.60 0.80 0.80 0.60 0.80\n",
+        encoding="utf-8",
+    )
+    return [image_path], [label_path]
+
+
+def test_obb_single_cls_remaps_every_positive_class_within_the_bound(tmp_path):
+    """single_cls collapses to one class, so num_classes=1 must not drop class 2.
+
+    The YOLO box path remaps before the range check and keeps the row. The OBB
+    path validated the source id against num_classes first, so with the class
+    count single_cls implies it dropped every row whose source id was not 0.
+    """
+    image_files, label_files = _write_yolo_obb_sample(tmp_path)
+
+    dataset = YOLODataset(
+        img_files=image_files,
+        label_files=label_files,
+        img_size=(64, 64),
+        load_obb=True,
+        num_classes=1,
+        single_cls=True,
+    )
+
+    labels = dataset.annotations[0][0]
+    assert labels.shape == (2, 6)
+    np.testing.assert_array_equal(labels[:, 4], np.zeros(2))
+
+
+def test_obb_class_bound_still_applies_without_single_cls(tmp_path):
+    image_files, label_files = _write_yolo_obb_sample(tmp_path)
+
+    dataset = YOLODataset(
+        img_files=image_files,
+        label_files=label_files,
+        img_size=(64, 64),
+        load_obb=True,
+        num_classes=1,
+    )
+
+    labels = dataset.annotations[0][0]
+    assert labels.shape == (1, 6)
+    np.testing.assert_array_equal(labels[:, 4], np.zeros(1))
+
+
+def test_obb_single_cls_still_rejects_a_negative_class(tmp_path):
+    image_path = tmp_path / "negative.jpg"
+    label_path = tmp_path / "negative.txt"
+    Image.new("RGB", (64, 48), color="white").save(image_path)
+    label_path.write_text(
+        "-1 0.10 0.10 0.30 0.10 0.30 0.30 0.10 0.30\n",
+        encoding="utf-8",
+    )
+
+    dataset = YOLODataset(
+        img_files=[image_path],
+        label_files=[label_path],
+        img_size=(64, 64),
+        load_obb=True,
+        num_classes=1,
+        single_cls=True,
+    )
+
+    assert dataset.annotations[0][0].shape[0] == 0
+
+
 def test_coco_dataset_single_cls_keeps_original_mapping_then_collapses(tmp_path):
     pytest.importorskip("pycocotools")
     _write_coco_sample(tmp_path)

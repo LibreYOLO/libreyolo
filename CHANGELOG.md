@@ -9,6 +9,29 @@ before 1.4.0 are documented in the
 
 ### Added
 
+- ConvNeXt V2 classification: eight sizes from Atto to Huge, official checkpoint conversion, supervised fine-tuning, and ONNX/TorchScript export. Architecture code is MIT; official ImageNet-1K weights retain CC-BY-NC-4.0.
+
+- ACT and Diffusion action policies: train from scratch, predict without a language instruction, and validate saved checkpoints through `LibreVLA`.
+- **Molmo2** (`molmo2-4b`, `molmo2-8b`, `molmo2-o-7b`) single-image pointing
+  through `LibreVLM`, returning `Results.points`. Pinned Apache-2.0 remote
+  snapshots; inference-only, with a separate `libreyolo[molmo2]` environment.
+
+- **LibreVLA** sibling factory and the `act` task: camera frames + robot
+  state + instruction → `Results.actions`, a `(T, D)` action chunk with
+  per-dimension names, control rate and instruction. First family is
+  SmolVLA base (Apache-2.0) loaded through `lerobot` at a pinned revision.
+  `train(data=<LeRobot dataset>)` fine-tunes with held-out episodes and the
+  standard callbacks/loggers; `val()` reports offline action error (L1,
+  MSE, per dimension); checkpoints are directories with
+  `libreyolo_vla.json`. Install `libreyolo[vla]` (Python 3.12+). Export,
+  tracking and a CLI verb are out of scope. See ADR 0028 and
+  `docs/librevla.md`.
+
+- **LeVJEPA** (`levjepa`) inference-only video encoder with normalized clip
+  embeddings and spatiotemporal patch embeddings. The native implementation
+  loads the released 16-frame ViT-L/16 checkpoint; redistributed weights remain
+  under CC BY-NC 4.0.
+
 - **U-Net semantic family.** `LibreUNets-sem.pt` is the mmseg UNet-S5-D16
   + FCN-head graph (same-padded 2D, not the 2015 Caffe valid-convolution
   U-Net), Cityscapes 19-class. Whole-frame inference and validation at the
@@ -42,6 +65,14 @@ before 1.4.0 are documented in the
   and 1.6 for the same unmarked weights.
 
 ### Fixed
+
+- **Training monitor no longer reports epochs off by one (#829).** The status
+  writer counted the one-based epoch number as a zero-based index, so
+  `status.json` claimed one more completed epoch than had run, and the monitor
+  page added another one on top: the first epoch was charted as 2 and a run
+  showed 100 % with ETA 0 while its last epoch was still training. Epoch
+  numbers are now one-based end to end (`current_epoch`, `best_epoch`, and
+  `metrics.jsonl` rows), and the page displays them as they are.
 
 - **RF-DETR, DINOv2 and VLM training no longer overwrite the previous run
   (#833).** Through the Python API, `train()` now increments the run
