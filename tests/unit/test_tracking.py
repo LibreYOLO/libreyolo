@@ -1075,3 +1075,11 @@ class TestCustomTracker:
             assert int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) == 3
         finally:
             cap.release()
+
+
+    def test_public_tracker_annotation_resolves_at_runtime(self):
+        from typing import get_type_hints
+
+        from libreyolo.tracking import Tracker
+
+        assert get_type_hints(BaseModel.track)["tracker"] == str | Tracker
