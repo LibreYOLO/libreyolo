@@ -866,3 +866,212 @@ class TestTrackImageSequences:
                     tracker_config=config,
                 )
             )
+
+
+class _CustomTracker:
+    def __init__(self):
+        self.resets = 0
+        self.images = []
+
+    def reset(self):
+        self.resets += 1
+        self.images.clear()
+
+    def update(self, results, image=None):
+        self.images.append(image)
+        results.track_id = torch.full(
+            (len(results),), 42, dtype=torch.int64, device=results.boxes.xyxy.device
+        )
+        return results
+
+
+class TestCustomTracker:
+    def test_lifecycle_images_ids_and_reuse(self):
+        tracker = _CustomTracker()
+        run = BaseModel.track(_StubTrackModel(), iter(_make_frames(3)), tracker=tracker)
+        assert tracker.resets == 0  # The generator has not started.
+        results = list(run)
+        assert tracker.resets == 1
+        assert len(tracker.images) == 3
+        assert all(image.mode == "RGB" for image in tracker.images)
+        assert [r.track_id.tolist() for r in results] == [[42]] * 3
+        assert all(r.boxes.id is r.track_id for r in results)
+        assert [r.frame_idx for r in results] == [0, 1, 2]
+        list(BaseModel.track(_StubTrackModel(), _make_frames(1), tracker=tracker))
+        assert tracker.resets == 2
+        assert len(tracker.images) == 1
+
+    def test_detector_threshold_and_empty_frames(self):
+        model = _StubTrackModel()
+        seen = []
+
+        def predict(image, **kwargs):
+            seen.append(kwargs["conf"])
+            return _make_results([], [], [])
+
+        model._runner_instance = predict
+        tracker = _CustomTracker()
+        results = list(
+            BaseModel.track(model, _make_frames(2), tracker=tracker, track_conf=0.07)
+        )
+        assert seen == [0.07, 0.07]
+        assert len(tracker.images) == 2
+        assert all(r.track_id.shape == (0,) for r in results)
+
+    def test_stride_only_updates_retained_frames(self):
+        tracker = _CustomTracker()
+        results = list(
+            BaseModel.track(
+                _StubTrackModel(), _make_frames(5), tracker=tracker, vid_stride=2
+            )
+        )
+        assert len(tracker.images) == len(results) == 3
+
+    @pytest.mark.parametrize(
+        "kwargs",
+        [
+            {"tracker_config": TrackConfig()},
+            {"track_buffer": 10},
+        ],
+    )
+    def test_conflicting_configuration_rejected(self, kwargs):
+        tracker = _CustomTracker()
+        with pytest.raises(ValueError, match="Configure a custom tracker"):
+            next(
+                BaseModel.track(
+                    _StubTrackModel(), _make_frames(1), tracker=tracker, **kwargs
+                )
+            )
+        assert tracker.resets == 0
+
+    @pytest.mark.parametrize("tracker", [object(), _CustomTracker, 123])
+    def test_invalid_tracker_rejected(self, tracker):
+        with pytest.raises(TypeError, match="instance with"):
+            next(BaseModel.track(_StubTrackModel(), _make_frames(1), tracker=tracker))
+
+    @pytest.mark.parametrize("conf", [-0.1, 1.1, float("nan"), float("inf")])
+    def test_invalid_confidence_rejected(self, conf):
+        with pytest.raises(ValueError, match="track_conf"):
+            next(
+                BaseModel.track(
+                    _StubTrackModel(),
+                    _make_frames(1),
+                    tracker=_CustomTracker(),
+                    track_conf=conf,
+                )
+            )
+
+    @pytest.mark.parametrize(
+        "ids",
+        [None, [1], torch.tensor([[1]]), torch.tensor([1, 2]), torch.tensor([1.5])],
+    )
+    def test_invalid_ids_rejected(self, ids):
+        class BadIDs(_CustomTracker):
+            def update(self, results, image=None):
+                results.track_id = ids
+                return results
+
+        with pytest.raises(ValueError, match="track_id"):
+            next(BaseModel.track(_StubTrackModel(), _make_frames(1), tracker=BadIDs()))
+
+    def test_invalid_result_rejected(self):
+        class BadResult(_CustomTracker):
+            def update(self, results, image=None):
+                return None
+
+        with pytest.raises(TypeError, match="must return Results"):
+            next(
+                BaseModel.track(_StubTrackModel(), _make_frames(1), tracker=BadResult())
+            )
+
+    @pytest.mark.parametrize("numpy_output", [False, True])
+    def test_selected_masks_keypoints_and_ids_stay_aligned(self, numpy_output):
+        from libreyolo.utils.results import Keypoints
+
+        incoming = _make_results([[1, 1, 5, 5], [8, 8, 12, 12]], [0.9, 0.8], [0, 1])
+        incoming.masks = Masks(
+            torch.stack([torch.zeros(16, 20), torch.ones(16, 20)]), (16, 20)
+        )
+        incoming.keypoints = Keypoints(
+            torch.tensor([[[1.0, 2.0, 1.0]], [[8.0, 9.0, 1.0]]]), (16, 20)
+        )
+        model = _StubTrackModel()
+        model._runner_instance = lambda *args, **kwargs: incoming
+
+        class SelectingTracker(_CustomTracker):
+            def update(self, results, image=None):
+                selected = results[[1, 0]]
+                selected.track_id = torch.tensor([22, 11])
+                return selected.numpy() if numpy_output else selected
+
+        result = next(
+            BaseModel.track(model, _make_frames(1), tracker=SelectingTracker())
+        )
+        assert result.track_id.tolist() == [22, 11]
+        assert result.boxes.id.tolist() == [22, 11]
+        assert result.boxes.cls.tolist() == [1, 0]
+        assert result.masks.data[0].sum() == 320
+        assert result.keypoints.data[:, 0, 0].tolist() == [8, 1]
+
+    def test_custom_tracker_on_video(self, tmp_path):
+        import cv2
+
+        path = tmp_path / "input.avi"
+        writer = cv2.VideoWriter(
+            str(path), cv2.VideoWriter_fourcc(*"MJPG"), 10, (20, 16)
+        )
+        assert writer.isOpened()
+        for _ in range(3):
+            writer.write(np.zeros((16, 20, 3), dtype=np.uint8))
+        writer.release()
+        tracker = _CustomTracker()
+        results = list(BaseModel.track(_StubTrackModel(), path, tracker=tracker))
+        assert len(results) == len(tracker.images) == 3
+        assert tracker.resets == 1
+
+    def test_mixed_result_backends_rejected(self):
+        class MixedTracker(_CustomTracker):
+            def update(self, results, image=None):
+                results.track_id = np.array([1], dtype=np.int64)
+                return results
+
+        with pytest.raises(ValueError, match="same backend"):
+            next(
+                BaseModel.track(
+                    _StubTrackModel(), _make_frames(1), tracker=MixedTracker()
+                )
+            )
+
+    def test_flagship_models_expose_custom_entry(self):
+        pytest.importorskip("transformers")
+        from libreyolo.models.rfdetr.model import LibreRFDETR
+        from libreyolo.models.yolo9.model import LibreYOLO9
+
+        for model_class in (LibreYOLO9, LibreRFDETR):
+            result = next(
+                model_class.track(
+                    _StubTrackModel(), _make_frames(1), tracker=_CustomTracker()
+                )
+            )
+            assert result.boxes.id.tolist() == [42]
+
+    def test_save_annotated_custom_results(self, tmp_path):
+        import cv2
+
+        output = tmp_path / "tracked.mp4"
+        results = list(
+            BaseModel.track(
+                _StubTrackModel(),
+                _make_frames(3, size=(64, 64)),
+                tracker=_CustomTracker(),
+                save=True,
+                output_path=str(output),
+            )
+        )
+        assert len(results) == 3
+        cap = cv2.VideoCapture(str(output))
+        try:
+            assert cap.isOpened()
+            assert int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) == 3
+        finally:
+            cap.release()
