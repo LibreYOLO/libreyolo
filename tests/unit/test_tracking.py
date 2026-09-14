@@ -1013,17 +1013,16 @@ class TestCustomTracker:
         assert result.masks.data[0].sum() == 320
         assert result.keypoints.data[:, 0, 0].tolist() == [8, 1]
 
-    def test_custom_tracker_on_video(self, tmp_path):
-        import cv2
-
+    def test_custom_tracker_on_video(self, tmp_path, monkeypatch):
         path = tmp_path / "input.avi"
-        writer = cv2.VideoWriter(
-            str(path), cv2.VideoWriter_fourcc(*"MJPG"), 10, (20, 16)
-        )
-        assert writer.isOpened()
-        for _ in range(3):
-            writer.write(np.zeros((16, 20, 3), dtype=np.uint8))
-        writer.release()
+        path.touch()
+
+        def video_frames(source, predict_fn, **kwargs):
+            assert source == path
+            for frame in _make_frames(3):
+                yield predict_fn(frame)
+
+        monkeypatch.setattr("libreyolo.utils.video.run_video_inference", video_frames)
         tracker = _CustomTracker()
         results = list(BaseModel.track(_StubTrackModel(), path, tracker=tracker))
         assert len(results) == len(tracker.images) == 3
@@ -1055,10 +1054,13 @@ class TestCustomTracker:
             )
             assert result.boxes.id.tolist() == [42]
 
-    def test_save_annotated_custom_results(self, tmp_path):
-        import cv2
+    def test_save_annotated_custom_results(self, tmp_path, monkeypatch):
+        from unittest.mock import Mock
 
         output = tmp_path / "tracked.mp4"
+        writer = Mock()
+        writer_factory = Mock(return_value=writer)
+        monkeypatch.setattr("libreyolo.utils.video.VideoWriter", writer_factory)
         results = list(
             BaseModel.track(
                 _StubTrackModel(),
@@ -1069,13 +1071,14 @@ class TestCustomTracker:
             )
         )
         assert len(results) == 3
-        cap = cv2.VideoCapture(str(output))
-        try:
-            assert cap.isOpened()
-            assert int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) == 3
-        finally:
-            cap.release()
-
+        writer_factory.assert_called_once()
+        assert writer.write_frame.call_count == 3
+        for call in writer.write_frame.call_args_list:
+            frame = call.args[0]
+            assert frame.shape == (64, 64, 3)
+            assert frame.dtype == np.uint8
+            assert np.any(frame != 50)  # Boxes and IDs were drawn.
+        writer.release.assert_called_once()
 
     def test_public_tracker_annotation_resolves_at_runtime(self):
         from typing import get_type_hints
