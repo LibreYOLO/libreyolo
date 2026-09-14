@@ -16,7 +16,6 @@ import warnings
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import (
-    TYPE_CHECKING,
     Any,
     Callable,
     ClassVar,
@@ -43,6 +42,7 @@ from ...tasks import (
     task_suffix_pattern,
     task_to_suffix,
 )
+from ...tracking.protocol import Tracker
 from ...training.config import TrainConfig, load_train_cfg
 from ...utils.general import COCO_CLASSES
 from ...utils.image_loader import ImageInput
@@ -60,9 +60,6 @@ from .cuda_graph import (
     forward_maybe_graphed,
     normalize_cuda_graph_mode,
 )
-
-if TYPE_CHECKING:
-    from ...tracking import Tracker
 
 logger = logging.getLogger(__name__)
 
