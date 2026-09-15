@@ -27,6 +27,64 @@ def test_download_route_requires_own_canonical_filename(size):
     assert LibreRTDETR.detect_size_from_filename(f"checkpoint-{size}-finetuned.pth") == size
 
 
+@pytest.mark.parametrize(
+    "filename",
+    [
+        "last.pt",  # the canonical regression case
+        "last_yolonas.pt",
+        "learn.pt",
+        "learn_rate_2.pt",
+        "xlnet.pt",
+        "xtra.pt",
+    ],
+)
+def test_single_char_prefix_does_not_match(filename):
+    """Filenames starting with a single-char size code must not be misrouted
+    to LibreRTDETR by the basename.startswith() fallback (issue: last.pt was
+    being matched as size "l").
+    """
+    assert LibreRTDETR.detect_size_from_filename(filename) is None
+
+
+@pytest.mark.parametrize(
+    "filename",
+    [
+        "model_xlnet.pt",  # "_xl" substring of "model_xlnet"
+        "model_train_xl.pt",  # "_x" inside word "xl"
+        "model_lstm-finetuned.pt",  # "_l" inside word "lstm"
+        "model_last_epoch.pt",  # "_l" inside word "last"
+        "run-l-finetuned.pt",  # legitimate single-char suffix
+    ],
+)
+def test_delimiter_bounded_match(filename):
+    """The delimiter fallback must require a non-alphanumeric character after
+    the size code; otherwise substrings inside longer English words match.
+    """
+    if filename == "run-l-finetuned.pt":
+        # Legitimate use: -l- with '-' on the right side.
+        assert LibreRTDETR.detect_size_from_filename(filename) == "l"
+    else:
+        assert LibreRTDETR.detect_size_from_filename(filename) is None
+
+
+@pytest.mark.parametrize(
+    "filename,expected_size",
+    [
+        ("LibreRTDETRr18.pt", "r18"),
+        ("LibreRTDETRr50.pt", "r50"),
+        ("LibreRTDETRr50m.pt", "r50m"),
+        ("LibreRTDETRr101.pt", "r101"),
+        ("LibreRTDETRx.pt", "x"),
+        ("LibreRTDETRl.pt", "l"),
+        ("path/to/LibreRTDETRr50.pt", "r50"),
+        ("runs/train/exp/weights/r50-finetuned.pt", "r50"),
+    ],
+)
+def test_canonical_filenames_still_resolve(filename, expected_size):
+    """Canonical RT-DETR filenames and multi-char size suffixes keep working."""
+    assert LibreRTDETR.detect_size_from_filename(filename) == expected_size
+
+
 class TestRTDETRRegistry:
     """Test RTDETR model registration."""
 
