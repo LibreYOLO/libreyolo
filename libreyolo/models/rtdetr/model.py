@@ -306,12 +306,16 @@ class LibreRTDETR(BaseModel):
             pattern = rf"{cls.FILENAME_PREFIX}[-_]?{re.escape(size)}[^a-z0-9]"
             if re.search(pattern, basename):
                 return size
-            # Also try just the size code anywhere in the filename
-            if (
-                f"-{size}" in basename
-                or f"_{size}" in basename
-                or basename.startswith(f"{size}")
-            ):
+            # Also try just the size code anywhere in the filename.
+            # The basename.startswith() branch is restricted to multi-char
+            # sizes (r18, r34, r50, r50m, r101): single-char codes like "l"
+            # and "x" match arbitrary English filenames ("last.pt",
+            # "xlnet.pt") and would misroute unrelated checkpoints here.
+            # Require a non-alphanumeric delimiter after the size code so
+            # substrings like "_x" inside "model_xlnet.pt" do not match.
+            if re.search(rf"(?:-|_){re.escape(size)}[^a-z0-9]", basename):
+                return size
+            if len(size) > 1 and basename.startswith(f"{size}"):
                 return size
         return None
 
