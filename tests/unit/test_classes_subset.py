@@ -434,6 +434,94 @@ def test_validator_explicit_classes_not_overridden_by_checkpoint(tmp_path):
     assert validator.config.classes == [0, 2]
 
 
+def _minimal_val_model(nb_classes=4, checkpoint_config=None):
+    return SimpleNamespace(
+        nb_classes=nb_classes,
+        _checkpoint_train_config=lambda: checkpoint_config or {},
+        _get_val_preprocessor=lambda img_size: None,
+    )
+
+
+def test_validator_init_metrics_filters_yolo_ground_truth_by_classes(tmp_path):
+    """COCO ground truth built from YOLO-format labels (YOLOCocoAPI) must
+    drop the excluded class, or mAP is silently scored against the full
+    dataset instead of the requested subset (#Greptile finding on
+    detection_validator.py:312).
+    """
+    data_yaml = _write_train_dataset(tmp_path)  # one image, labels 0/1/2/3
+    config = ValidationConfig(
+        data=str(data_yaml),
+        batch_size=1,
+        num_workers=0,
+        device="cpu",
+        classes=[0, 1, 3],  # excludes label 2 ("dog")
+    )
+    validator = DetectionValidator(_minimal_val_model(), config)
+    validator._setup_dataloader()
+    validator._init_metrics()
+
+    coco_gt = validator.coco_evaluator.coco_gt
+    assert set(coco_gt.getCatIds()) == {0, 1, 3}
+    assert {a["category_id"] for a in coco_gt.anns.values()} == {0, 1, 3}
+    assert len(coco_gt.anns) == 3
+
+
+def test_validator_init_metrics_filters_coco_json_ground_truth_by_classes(tmp_path):
+    """Same guarantee for native COCO-JSON ground truth: dropping the
+    excluded class's category and annotations, not just filtering the
+    dataloader used to train/score predictions.
+    """
+    pytest.importorskip("pycocotools")
+    image_dir = tmp_path / "images" / "val"
+    annotation_dir = tmp_path / "annotations"
+    image_dir.mkdir(parents=True)
+    annotation_dir.mkdir()
+    Image.new("RGB", (64, 48), color="white").save(image_dir / "sample.jpg")
+    (annotation_dir / "instances_val.json").write_text(
+        json.dumps(
+            {
+                "images": [
+                    {"id": 1, "file_name": "sample.jpg", "width": 64, "height": 48}
+                ],
+                "annotations": [
+                    {
+                        "id": i,
+                        "image_id": 1,
+                        "category_id": cat_id,
+                        "bbox": [4, 4, 10, 10],
+                        "area": 100,
+                        "iscrowd": 0,
+                    }
+                    for i, cat_id in enumerate((1, 2, 3, 4), start=1)
+                ],
+                "categories": [
+                    {"id": 1, "name": "car"},
+                    {"id": 2, "name": "bicycle"},
+                    {"id": 3, "name": "dog"},
+                    {"id": 4, "name": "cat"},
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    data_yaml = _write_data_yaml(tmp_path)  # nc=4, names=car/bicycle/dog/cat
+
+    config = ValidationConfig(
+        data=str(data_yaml),
+        batch_size=1,
+        num_workers=0,
+        device="cpu",
+        classes=[0, 1, 3],  # excludes label 2 ("dog" -> category_id 3)
+    )
+    validator = DetectionValidator(_minimal_val_model(), config)
+    validator._setup_dataloader()
+    validator._init_metrics()
+
+    coco_gt = validator.coco_evaluator.coco_gt
+    assert set(coco_gt.getCatIds()) == {1, 2, 4}
+    assert len(coco_gt.getAnnIds()) == 3
+
+
 # ---------------------------------------------------------------------------
 # _wrap_train_with_cfg gate
 # ---------------------------------------------------------------------------
