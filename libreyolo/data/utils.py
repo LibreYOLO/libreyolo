@@ -232,12 +232,44 @@ def img2label_paths(img_paths: List[Path]) -> List[Path]:
     return label_paths
 
 
+def build_class_remap(
+    classes: Optional[List[int]], single_cls: bool = False
+) -> Optional[Dict[int, int]]:
+    """Build the ``{orig_id: new_id}`` mapping for training on a class
+    subset. ``None`` when ``classes`` is ``None`` (no filtering).
+
+    Without ``single_cls``, every kept id maps to itself: original class ids
+    are preserved (not compacted to a contiguous range), so a checkpoint
+    trained this way stays interchangeable with the full dataset's ids --
+    external tools (a standard COCO-style evaluator, an exported ONNX model
+    read by raw index, a person who knows "id 7 = train") need no
+    translation layer. The cost is that the head still covers every index up
+    to the highest kept id; slots for ids below it that were not requested
+    simply never receive positive supervision, the same as a class with zero
+    occurrences in an ordinary dataset.
+
+    With ``single_cls``, every kept id maps to ``0`` instead: classes filters
+    which boxes count at all, single_cls then collapses the kept ones to one
+    merged class -- that direction is an intentional, explicit remap in
+    either case. Shared by ``load_data_config`` and by the ``data_dir=`` (no
+    dataset yaml) training path, which has no ``load_data_config`` call to
+    derive it from.
+    """
+    if classes is None:
+        return None
+    ordered = sorted(set(int(c) for c in classes))
+    if single_cls:
+        return {orig_id: 0 for orig_id in ordered}
+    return {orig_id: orig_id for orig_id in ordered}
+
+
 def load_data_config(
     data: str,
     autodownload: bool = True,
     allow_scripts: bool = False,
     *,
     single_cls: bool = False,
+    classes: Optional[List[int]] = None,
 ) -> Dict:
     """
     Load dataset configuration from YAML file.
@@ -258,6 +290,16 @@ def load_data_config(
             permitted and script-based downloads are skipped with a warning.
         single_cls: Return a one-class detection view while retaining the source
             class names privately for native COCO category mapping.
+        classes: Train on only these original dataset class ids. Ids are
+            kept as-is, not compacted to a contiguous range, so predictions
+            stay directly comparable to the original dataset/checkpoint
+            numbering. ``nc``/``names`` are left untouched (the head still
+            covers every index up to the highest kept id); ``_class_remap``
+            (``{orig_id: orig_id}`` for kept ids) is returned in the config
+            for callers to thread into label parsers, which drop boxes for
+            ids not present. Source annotations are untouched. Combined with
+            ``single_cls``, the kept classes collapse to one merged class
+            (``{orig_id: 0}``) instead.
 
     Returns:
         Dictionary with dataset configuration including:
@@ -331,7 +373,27 @@ def load_data_config(
     # Keep 'root' for backward compatibility
     config["root"] = str(dataset_path)
 
-    if single_cls:
+    if classes is not None:
+        ordered = sorted(set(int(c) for c in classes))
+        declared_nc = config.get("nc")
+        if declared_nc is not None and any(c >= int(declared_nc) for c in ordered):
+            raise ValueError(
+                f"classes={ordered} contains an id outside this dataset's "
+                f"declared nc={declared_nc}"
+            )
+        config["_class_remap"] = build_class_remap(ordered, single_cls=single_cls)
+        if single_cls:
+            # Collapsing to one merged class is still an explicit remap;
+            # stash the originals the same way plain single_cls does below.
+            config["_original_names"] = config.get("names")
+            config["_original_nc"] = config.get("nc")
+            config["nc"] = 1
+            config["names"] = {0: "object"}
+        # Without single_cls, nc/names are left exactly as declared: classes=
+        # keeps original dataset class ids, it does not compact them, so
+        # there is nothing to override here -- only which boxes reach the
+        # loss changes, threaded separately via _class_remap.
+    elif single_cls:
         config["_original_names"] = config.get("names")
         config["_original_nc"] = config.get("nc")
         config["nc"] = 1

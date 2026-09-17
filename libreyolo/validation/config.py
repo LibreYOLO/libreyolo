@@ -52,6 +52,11 @@ class ValidationConfig:
     data_dir: Optional[str] = None
     split: str = "val"
     single_cls: bool = field(default=False, kw_only=True)
+    # Auto-inherited from the checkpoint's saved training config the same
+    # way single_cls is (see DetectionValidator.__init__); rarely set by
+    # hand. Must match the classes= the model was trained with, since the
+    # head size is shared.
+    classes: Optional[List[int]] = field(default=None, kw_only=True)
 
     # Inference
     batch_size: int = 16

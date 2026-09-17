@@ -320,6 +320,12 @@ def train_cmd(
         "--single-cls/--no-single-cls",
         help="Train a G0/G1 detector with every label remapped to class 0",
     ),
+    classes: Optional[str] = typer.Option(
+        None,
+        help="Train a G0/G1 detector on only these original dataset class "
+        "ids, comma-separated (e.g. '0,3,5'); every other class is dropped "
+        "as if unlabeled. Ids are kept as-is, not compacted",
+    ),
     average_best: int = typer.Option(
         0,
         help="Uniform-average the N best checkpoints by the watched metric "
@@ -538,7 +544,7 @@ def train_cmd(
     model_path = resolve_model_or_exit(out, model)
     family = detect_family_from_model_ref(model, model_path, inspect_checkpoint=dry_run)
 
-    if single_cls:
+    if single_cls or classes:
         # Gate before the model is constructed: building it can fetch weights
         # (an explicit task derives a task-suffixed checkpoint name), and a
         # rejected combination must not pay for a download first.
@@ -556,8 +562,9 @@ def train_cmd(
             exit_with_error(
                 out,
                 "config_unsupported",
-                "single_cls=True is supported only for G0/G1 detection models; "
-                f"got family={family!r} ({group}), task={selected_task!r}.",
+                "single_cls=True and classes=... are supported only for "
+                f"G0/G1 detection models; got family={family!r} ({group}), "
+                f"task={selected_task!r}.",
             )
 
     loaded_model = None
@@ -654,6 +661,7 @@ def train_cmd(
         "class_weights": class_weights,
         "cls_pw": cls_pw,
         "single_cls": single_cls,
+        "classes": classes,
         "average_best": average_best,
         "export_check": export_check,
         "precise_bn": precise_bn,
@@ -783,6 +791,7 @@ def train_cmd(
             "class_weights": params["class_weights"],
             "cls_pw": params["cls_pw"],
             "single_cls": params["single_cls"],
+            "classes": params["classes"],
             "average_best": params["average_best"],
             "export_check": params["export_check"],
             "precise_bn": params["precise_bn"],
@@ -821,6 +830,7 @@ def train_cmd(
                 "class_weights": params["class_weights"],
                 "cls_pw": params["cls_pw"],
                 "single_cls": params["single_cls"],
+                "classes": params["classes"],
                 "average_best": params["average_best"],
                 "export_check": params["export_check"],
                 "precise_bn": params["precise_bn"],

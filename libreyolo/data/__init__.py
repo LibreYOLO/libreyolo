@@ -69,6 +69,7 @@ from .semantic_dataset import (
 )
 from .utils import (
     DATASETS_DIR,
+    build_class_remap,
     check_dataset,
     get_coco_annotation_file,
     get_coco_image_dir,
@@ -81,6 +82,7 @@ from .yolo_coco_api import YOLOCocoAPI, create_yolo_coco_api, parse_yolo_label_l
 
 __all__ = [
     "DATASETS_DIR",
+    "build_class_remap",
     "check_dataset",
     "get_coco_annotation_file",
     "get_coco_image_dir",

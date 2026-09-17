@@ -39,6 +39,31 @@ def _collapse_coco_ground_truth(coco_api, category_id: int):
     return collapsed
 
 
+def _filter_coco_ground_truth(coco_api, keep_category_ids):
+    """Return an independent COCO API dropping categories/annotations not kept.
+
+    Mirrors what ``COCODataset._build_category_mappings`` already does for the
+    dataloader side of ``classes=`` -- ground truth used for scoring must see
+    the same subset, or mAP is computed against the full, un-filtered dataset.
+    """
+    from pycocotools.coco import COCO
+
+    keep_category_ids = {int(c) for c in keep_category_ids}
+    dataset = deepcopy(coco_api.dataset)
+    dataset["categories"] = [
+        c for c in dataset.get("categories", []) if int(c["id"]) in keep_category_ids
+    ]
+    dataset["annotations"] = [
+        a
+        for a in dataset.get("annotations", [])
+        if int(a["category_id"]) in keep_category_ids
+    ]
+    filtered = COCO()
+    filtered.dataset = dataset
+    filtered.createIndex()
+    return filtered
+
+
 if TYPE_CHECKING:
     from libreyolo.models.base import BaseModel
     from .loss import ValidationLossAdapter
@@ -89,9 +114,13 @@ class DetectionValidator(ValidationLossMixin, BaseValidator):
         self._checkpoint_single_cls = bool(checkpoint_config.get("single_cls", False))
         if self._checkpoint_single_cls:
             self.config = self.config.update(single_cls=True)
+        self._checkpoint_classes = checkpoint_config.get("classes")
+        if self._checkpoint_classes and not self.config.classes:
+            self.config = self.config.update(classes=self._checkpoint_classes)
         self.val_preproc = None  # set in _setup_dataloader
         self._coco_annotation_file: Optional[Path] = None
         self._coco_label_to_category_id: Optional[Dict[int, int]] = None
+        self._coco_kept_category_ids: Optional[set] = None
         self._yolo_coco_img_files: Optional[List[Path]] = None
         self._yolo_coco_label_files: Optional[List[Path]] = None
         self._init_validation_loss(loss_adapter)
@@ -137,6 +166,7 @@ class DetectionValidator(ValidationLossMixin, BaseValidator):
         Supports directory-based datasets, .txt file format, and COCO JSON.
         """
         from libreyolo.data import (
+            build_class_remap,
             get_coco_annotation_file,
             get_coco_image_dir,
             get_img_files,
@@ -165,7 +195,9 @@ class DetectionValidator(ValidationLossMixin, BaseValidator):
                 self.config.data,
                 allow_scripts=self.config.allow_download_scripts,
                 single_cls=self._single_cls_enabled(),
+                classes=self.config.classes,
             )
+            class_remap = data_cfg.get("_class_remap")
             data_dir = data_cfg["root"]
             model_nc = int(self.nc)
             self.nc = int(data_cfg.get("nc", self.nc))
@@ -190,6 +222,10 @@ class DetectionValidator(ValidationLossMixin, BaseValidator):
                     model_nc,
                     self.nc,
                 )
+
+            from libreyolo.training.trainer import log_classes_subset_notice
+
+            log_classes_subset_notice(self.config, self.nc, context="Validating")
 
             names = data_cfg.get("names", None)
             if isinstance(names, dict):
@@ -242,6 +278,9 @@ class DetectionValidator(ValidationLossMixin, BaseValidator):
         else:
             data_dir = self.config.data_dir
             self.class_names = None
+            class_remap = build_class_remap(
+                self.config.classes, single_cls=self._single_cls_enabled()
+            )
 
         from ..utils.event_histogram import check_dataset_profile
         check_dataset_profile(self.model, data_cfg or {})
@@ -255,6 +294,7 @@ class DetectionValidator(ValidationLossMixin, BaseValidator):
         data_path = Path(data_dir)
         self._coco_annotation_file = None
         self._coco_label_to_category_id = None
+        self._coco_kept_category_ids = None
         self._yolo_coco_img_files = None
         self._yolo_coco_label_files = None
         coco_annotation_file = (
@@ -296,11 +336,19 @@ class DetectionValidator(ValidationLossMixin, BaseValidator):
                     else None
                 ),
                 single_cls=self._single_cls_enabled(),
+                classes=self.config.classes,
                 **dataset_kwargs,
             )
             self._coco_annotation_file = coco_annotation_file
             self._coco_label_to_category_id = dict(
                 getattr(dataset, "label_to_category_id", {})
+            )
+            # category_id_to_label reflects the classes= filter but, unlike
+            # label_to_category_id above, is NOT collapsed by single_cls --
+            # it's the right source for "which categories does classes= keep"
+            # independent of whether single_cls also merges them into one.
+            self._coco_kept_category_ids = set(
+                getattr(dataset, "category_id_to_label", {}) or {}
             )
         elif img_files is not None:
             # File list mode (.txt format)
@@ -311,6 +359,7 @@ class DetectionValidator(ValidationLossMixin, BaseValidator):
                 preproc=self.val_preproc,
                 num_classes=int(self.nc),
                 single_cls=self._single_cls_enabled(),
+                class_remap=class_remap,
                 **dataset_kwargs,
             )
         elif (data_path / "annotations").exists():
@@ -338,6 +387,7 @@ class DetectionValidator(ValidationLossMixin, BaseValidator):
                     else None
                 ),
                 single_cls=self._single_cls_enabled(),
+                classes=self.config.classes,
                 **dataset_kwargs,
             )
         else:
@@ -349,6 +399,7 @@ class DetectionValidator(ValidationLossMixin, BaseValidator):
                 preproc=self.val_preproc,
                 num_classes=int(self.nc),
                 single_cls=self._single_cls_enabled(),
+                class_remap=class_remap,
                 **dataset_kwargs,
             )
 
@@ -453,6 +504,10 @@ class DetectionValidator(ValidationLossMixin, BaseValidator):
             coco_api = self._gt_coco_api
             if coco_api is None:
                 coco_api = COCO(str(self._coco_annotation_file))
+                if self.config.classes:
+                    coco_api = _filter_coco_ground_truth(
+                        coco_api, self._coco_kept_category_ids or set()
+                    )
                 if self._single_cls_enabled():
                     category_id = next(
                         iter((self._coco_label_to_category_id or {}).values()),
@@ -490,7 +545,9 @@ class DetectionValidator(ValidationLossMixin, BaseValidator):
             self.config.data,
             allow_scripts=self.config.allow_download_scripts,
             single_cls=self._single_cls_enabled(),
+            classes=self.config.classes,
         )
+        class_remap = data_cfg.get("_class_remap")
         split = self.config.split
         img_files = data_cfg.get(f"{split}_img_files")
         label_files = data_cfg.get(f"{split}_label_files")
@@ -533,6 +590,7 @@ class DetectionValidator(ValidationLossMixin, BaseValidator):
                 image_files=image_files,
                 label_files=yolo_label_files,
                 single_cls=self._single_cls_enabled(),
+                class_remap=class_remap,
                 **self._coco_api_kwargs(),
             )
             self._gt_coco_api = coco_api
