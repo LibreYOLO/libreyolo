@@ -105,7 +105,9 @@ def parse_yolo_pose_label_line(
         raise ValueError(message)
     try:
         cls_id = int(float(parts[0]))
-    except ValueError:
+    except (ValueError, OverflowError):
+        # OverflowError covers "inf" / "1e400", which float() accepts but int()
+        # cannot convert: a bad line must be skipped, never abort the dataset.
         raise ValueError(f"Class id {parts[0]!r} is not a number") from None
     if num_classes is not None and not 0 <= cls_id < num_classes:
         raise ValueError(

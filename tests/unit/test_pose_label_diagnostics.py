@@ -109,3 +109,22 @@ class TestParserMessages:
         parts = "person 0.5 0.5 0.2 0.2 0.4 0.4 0.6 0.6".split()
         with pytest.raises(ValueError, match="Class id 'person' is not a number"):
             parse_yolo_pose_label_line(parts, num_keypoints=2, keypoint_dim=2)
+
+
+class TestNonFiniteClassIds:
+    """`float()` accepts these, `int()` cannot convert them (Greptile P1)."""
+
+    @pytest.mark.parametrize("token", ["inf", "-inf", "1e400", "nan"])
+    def test_non_finite_class_id_is_skipped_not_raised(self, token):
+        parts = f"{token} 0.5 0.5 0.2 0.2 0.4 0.4 0.6 0.6".split()
+        with pytest.raises(ValueError, match="is not a number"):
+            parse_yolo_pose_label_line(parts, num_keypoints=2, keypoint_dim=2)
+
+    def test_dataset_survives_a_non_finite_class_id(self, tmp_path, caplog):
+        img_files = _write_dataset(
+            tmp_path, {"a": [GOOD_XY, "inf 0.5 0.5 0.2 0.2 0.4 0.4 0.6 0.6"]}
+        )
+        with caplog.at_level(logging.WARNING):
+            ds = YOLOPoseDataset(img_files, num_keypoints=2, keypoint_dim=2)
+        assert ds.labels[0][0].shape[0] == 1
+        assert "a.txt:2: Class id 'inf' is not a number" in caplog.text
