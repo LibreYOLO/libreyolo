@@ -66,6 +66,15 @@ before 1.4.0 are documented in the
 
 ### Fixed
 
+- **Classification `auto_augment` and `erasing` are reachable from the CLI
+  (#870).** Both are `TrainConfig` fields the Python API has always
+  supported, but the train command never declared them, so
+  `libreyolo train auto_augment=randaugment` failed with "No such option".
+  Both grammars now work, values are validated up front, and defaults are
+  unchanged (`auto_augment` off, `erasing` 0.0). The classification `mixup`
+  and `cutmix` knobs stay Python-only: `mixup` on the CLI is the detection
+  `mixup_prob` alias.
+
 - **Training monitor no longer reports epochs off by one (#829).** The status
   writer counted the one-based epoch number as a zero-based index, so
   `status.json` claimed one more completed epoch than had run, and the monitor

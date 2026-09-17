@@ -181,13 +181,13 @@ def _interp_mode(interpolation) -> InterpolationMode:
 
 
 # Valid values for the ``auto_augment`` knob, mapped to their torchvision class.
-_AUTO_AUGMENT_POLICIES = ("randaugment", "autoaugment", "augmix")
+AUTO_AUGMENT_POLICIES = ("randaugment", "autoaugment", "augmix")
 
 
 def _build_auto_augment(name: str, mode: InterpolationMode):
     """Return the torchvision auto-augment transform for ``name``.
 
-    ``name`` is validated against :data:`_AUTO_AUGMENT_POLICIES`; unknown values
+    ``name`` is validated against :data:`AUTO_AUGMENT_POLICIES`; unknown values
     raise a ``ValueError`` listing the accepted policies. These transforms
     operate on PIL / uint8 images, so they are inserted before ``ToTensor``.
     """
@@ -200,7 +200,7 @@ def _build_auto_augment(name: str, mode: InterpolationMode):
         return transforms.AugMix(interpolation=mode)
     raise ValueError(
         f"Unknown auto_augment {name!r}. Valid values are "
-        f"{', '.join(_AUTO_AUGMENT_POLICIES)} or None."
+        f"{', '.join(AUTO_AUGMENT_POLICIES)} or None."
     )
 
 

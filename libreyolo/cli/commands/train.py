@@ -400,6 +400,15 @@ def train_cmd(
     no_aug_epochs: int = typer.Option(
         15, help="Disable augmentation for final N epochs"
     ),
+    # Classification augmentation pack (detection families ignore these)
+    auto_augment: Optional[str] = typer.Option(
+        None,
+        help="Classification auto-augment policy: randaugment, autoaugment, "
+        "augmix (default: none)",
+    ),
+    erasing: float = typer.Option(
+        0.0, help="Classification RandomErasing probability, 0 <= erasing < 1"
+    ),
     # EMA
     ema: bool = typer.Option(True, help="Exponential Moving Average"),
     ema_decay: float = typer.Option(0.9998, help="EMA decay factor"),
@@ -468,6 +477,17 @@ def train_cmd(
 
         cls_pw = validate_class_weighting(cls_pw, class_weights)
         amp_dtype = normalize_amp_dtype(amp_dtype)
+        if auto_augment is not None:
+            from libreyolo.data.classify_dataset import AUTO_AUGMENT_POLICIES
+
+            auto_augment = str(auto_augment).lower()
+            if auto_augment not in AUTO_AUGMENT_POLICIES:
+                raise ValueError(
+                    f"Unknown auto_augment {auto_augment!r}. Valid values are "
+                    f"{', '.join(AUTO_AUGMENT_POLICIES)}."
+                )
+        if not 0.0 <= erasing < 1.0:
+            raise ValueError(f"erasing must be in [0, 1), got {erasing}")
         if max_det < 1:
             raise ValueError(f"max_det must be >= 1, got {max_det}")
         if eval_max_det is not None and eval_max_det < 1:
@@ -667,6 +687,8 @@ def train_cmd(
         "mosaic_scale": mosaic_scale_val,
         "mixup_scale": mixup_scale_val,
         "no_aug_epochs": no_aug_epochs,
+        "auto_augment": auto_augment,
+        "erasing": erasing,
         "ema": ema,
         "ema_decay": ema_decay,
         "eval_interval": eval_interval,
