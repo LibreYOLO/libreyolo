@@ -1007,3 +1007,111 @@ def test_cls_pw_help_json_exposes_numeric_default():
 
     parameter = next(p for p in schema["parameters"] if p["name"] == "cls_pw")
     assert parameter["default"] == 0.0
+
+
+# ---------------------------------------------------------------------------
+# Classification augmentation pack on the CLI (#870)
+# ---------------------------------------------------------------------------
+
+
+class _ClassifyLike:
+    """Minimal classification model capturing the kwargs the CLI forwards."""
+
+    FAMILY = "convnext"
+    device = "cpu"
+
+    def __init__(self, captured, tmp_path):
+        self._captured = captured
+        self._tmp_path = tmp_path
+
+    def train(self, data, **kwargs):
+        self._captured["kwargs"] = kwargs
+        return {"output_dir": str(self._tmp_path / "classify_exp")}
+
+
+def _run_classify_train(monkeypatch, tmp_path, extra_args):
+    app = _make_app()
+    captured = {}
+    monkeypatch.setattr(
+        "libreyolo.cli.commands.train.load_model_or_exit",
+        lambda out, model, model_path, device: _ClassifyLike(captured, tmp_path),
+    )
+    result = runner.invoke(
+        app,
+        [
+            "data=imagenette",
+            "model=LibreConvNeXtt-cls.pt",
+            *extra_args,
+            f"project={tmp_path}",
+            "exist_ok=true",
+            "--json",
+        ],
+    )
+    return result, captured
+
+
+@pytest.mark.parametrize(
+    "args",
+    [
+        ["auto_augment=randaugment"],
+        ["--auto-augment", "randaugment"],
+    ],
+    ids=["key_value", "flag"],
+)
+def test_auto_augment_reaches_trainer_in_both_grammars(
+    monkeypatch, tmp_path, args
+):
+    result, captured = _run_classify_train(monkeypatch, tmp_path, args)
+    assert result.exit_code == 0
+    assert captured["kwargs"]["auto_augment"] == "randaugment"
+
+
+def test_erasing_reaches_trainer(monkeypatch, tmp_path):
+    result, captured = _run_classify_train(monkeypatch, tmp_path, ["erasing=0.25"])
+    assert result.exit_code == 0
+    assert captured["kwargs"]["erasing"] == pytest.approx(0.25)
+
+
+def test_classification_pack_defaults_are_unchanged(monkeypatch, tmp_path):
+    """Not passing the knobs must leave training behavior exactly as before."""
+    result, captured = _run_classify_train(monkeypatch, tmp_path, [])
+    assert result.exit_code == 0
+    assert captured["kwargs"]["auto_augment"] is None
+    assert captured["kwargs"]["erasing"] == pytest.approx(0.0)
+
+
+def test_auto_augment_is_case_insensitive(monkeypatch, tmp_path):
+    result, captured = _run_classify_train(
+        monkeypatch, tmp_path, ["auto_augment=RandAugment"]
+    )
+    assert result.exit_code == 0
+    assert captured["kwargs"]["auto_augment"] == "randaugment"
+
+
+def test_invalid_auto_augment_is_a_clean_error(monkeypatch, tmp_path):
+    result, captured = _run_classify_train(
+        monkeypatch, tmp_path, ["auto_augment=nope"]
+    )
+    assert result.exit_code != 0
+    assert "kwargs" not in captured
+    assert "randaugment" in result.output
+    assert "Traceback" not in result.output
+
+
+def test_invalid_erasing_is_a_clean_error(monkeypatch, tmp_path):
+    result, captured = _run_classify_train(monkeypatch, tmp_path, ["erasing=1.5"])
+    assert result.exit_code != 0
+    assert "kwargs" not in captured
+    assert "Traceback" not in result.output
+
+
+def test_auto_augment_appears_in_help_json():
+    """--help-json is generated from the declared Typer parameters."""
+    app = _make_app()
+    result = runner.invoke(app, ["--help-json"])
+    assert result.exit_code == 0
+    params = json.loads(result.stdout)["parameters"]
+    by_name = {p["name"]: p for p in params}
+    assert "auto_augment" in by_name
+    assert by_name["auto_augment"].get("default") is None
+    assert by_name["erasing"]["default"] == pytest.approx(0.0)
