@@ -481,7 +481,14 @@ def test_get_unsupported_train_params_is_spec_driven():
     assert "mixup" not in yolonas
 
     resnet = get_unsupported_train_params("resnet")
-    assert {"mosaic", "mixup", "flip_prob", "hsv_prob"} <= resnet
+    assert {"mosaic", "mixup", "hsv_prob", "degrees"} <= resnet
+    # Classification honours the flip knobs on its train crop.
+    assert "flip_prob" not in resnet
+    assert "flipud" not in resnet
+    # On a classification model the CLI ``mixup`` is the batch-MixUp field.
+    resnet_cls = get_unsupported_train_params("resnet", task="classify")
+    assert "mixup" not in resnet_cls
+    assert "mosaic" in resnet_cls
 
     assert get_unsupported_train_params(None) == set()
     assert get_unsupported_train_params("no_such_family") == set()

@@ -260,6 +260,25 @@ def _create_yolo9_task_from_loaded_model(loaded_model, task: str, device: str):
     return LibreYOLO9(None, size=size, task=task, device=device)
 
 
+def _resolve_train_task(
+    normalized_task: str | None, loaded_model, family: str | None, model_path: str
+) -> str | None:
+    """Best-effort task for CLI-name resolution (classification vs the rest).
+
+    An explicit ``task=`` wins, then the loaded model, then the family class's
+    filename convention / default task (the dry-run path never loads a model).
+    """
+    if normalized_task is not None:
+        return normalized_task
+    if loaded_model is not None:
+        return getattr(loaded_model, "task", None)
+    model_cls = get_model_class(family) if family is not None else None
+    if model_cls is None:
+        return None
+    from_name = model_cls.detect_task_from_filename(Path(model_path).name)
+    return from_name or getattr(model_cls, "DEFAULT_TASK", None)
+
+
 def _should_use_yolo9_path_as_transfer(model_path: str, task: str | None) -> bool:
     if task is None or not Path(model_path).exists():
         return False
@@ -392,6 +411,10 @@ def train_cmd(
     mixup: float = typer.Option(1.0, help="Mixup probability"),
     hsv_prob: float = typer.Option(1.0, help="HSV jitter probability"),
     flip_prob: float = typer.Option(0.5, help="Horizontal flip probability"),
+    fliplr: Optional[float] = typer.Option(
+        None, help="Horizontal flip probability (ecosystem alias of flip_prob)"
+    ),
+    flipud: float = typer.Option(0.0, help="Vertical flip probability"),
     degrees: float = typer.Option(10.0, help="Rotation +/- degrees"),
     translate: float = typer.Option(0.1, help="Translation ratio"),
     shear: float = typer.Option(2.0, help="Shear angle"),
@@ -408,6 +431,10 @@ def train_cmd(
     ),
     erasing: float = typer.Option(
         0.0, help="Classification RandomErasing probability, 0 <= erasing < 1"
+    ),
+    cutmix: float = typer.Option(
+        0.0,
+        help="Classification CutMix probability (soft labels)",
     ),
     scale: str = typer.Option(
         "0.5",
@@ -487,19 +514,25 @@ def train_cmd(
 
         cls_pw = validate_class_weighting(cls_pw, class_weights)
         amp_dtype = normalize_amp_dtype(amp_dtype)
-        if auto_augment is not None:
-            from libreyolo.data.classify_dataset import AUTO_AUGMENT_POLICIES
+        from libreyolo.data.augment.classify import (
+            normalize_auto_augment,
+            normalize_crop_scale,
+        )
 
-            auto_augment = str(auto_augment).lower()
-            if auto_augment not in AUTO_AUGMENT_POLICIES:
-                raise ValueError(
-                    f"Unknown auto_augment {auto_augment!r}. Valid values are "
-                    f"{', '.join(AUTO_AUGMENT_POLICIES)}."
-                )
+        auto_augment = normalize_auto_augment(auto_augment)
         if not 0.0 <= erasing < 1.0:
             raise ValueError(f"erasing must be in [0, 1), got {erasing}")
-        from libreyolo.data.classify_dataset import normalize_crop_scale
-
+        if fliplr is not None:
+            # Ecosystem spelling of flip_prob; an explicit value wins.
+            flip_prob = fliplr
+            user_provided.add("flip_prob")
+        for knob_name, knob_value in (
+            ("flip_prob", flip_prob),
+            ("flipud", flipud),
+            ("cutmix", cutmix),
+        ):
+            if not 0.0 <= knob_value <= 1.0:
+                raise ValueError(f"{knob_name} must be in [0, 1], got {knob_value}")
         scale_val = normalize_crop_scale(
             ast.literal_eval(scale) if isinstance(scale, str) else scale
         )
@@ -698,6 +731,7 @@ def train_cmd(
         "mixup": mixup,
         "hsv_prob": hsv_prob,
         "flip_prob": flip_prob,
+        "flipud": flipud,
         "degrees": degrees,
         "translate": translate,
         "shear": shear,
@@ -706,6 +740,7 @@ def train_cmd(
         "no_aug_epochs": no_aug_epochs,
         "auto_augment": auto_augment,
         "erasing": erasing,
+        "cutmix": cutmix,
         "scale": scale_val,
         "crop_pct": crop_pct,
         "ema": ema,
@@ -727,6 +762,13 @@ def train_cmd(
         params = apply_family_defaults(
             params, family, "train", user_provided=user_provided
         )
+
+    train_task = _resolve_train_task(normalized_task, loaded_model, family, model_path)
+    if train_task == "classify" and "mixup" not in user_provided:
+        # The Typer default (1.0) is the detection mixup_prob default. On a
+        # classification model the CLI ``mixup`` is the batch-MixUp knob,
+        # which is off unless requested.
+        params["mixup"] = 0.0
 
     from libreyolo.data.event_histogram import (
         apply_histogram_cli_defaults,
@@ -754,7 +796,7 @@ def train_cmd(
     # Warn when explicitly-set params are ignored by the selected family
     # (spec-driven; see libreyolo/data/augment/spec.py).
     ignored_warnings = []
-    unsupported_params = get_unsupported_train_params(family)
+    unsupported_params = get_unsupported_train_params(family, task=train_task)
     if unsupported_params:
         for param_name in unsupported_params:
             if param_name in user_provided:
@@ -887,7 +929,11 @@ def train_cmd(
 
     # Build training kwargs, with family-specific translation where needed.
     train_kwargs = build_family_train_kwargs(
-        params, family, model_path=model_path, user_provided=user_provided
+        params,
+        family,
+        model_path=model_path,
+        user_provided=user_provided,
+        task=train_task,
     )
     if histogram_input:
         train_kwargs.update(histogram_recipe_defaults(family))
