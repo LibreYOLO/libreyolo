@@ -33,10 +33,14 @@ class SigLIP2ClassifyValidator(ClassifyValidator):
 
         from ..models.siglip2.model import SIGLIP_MEAN, SIGLIP_STD
 
+        # square_resize squashes straight to (imgsz, imgsz) and never center
+        # crops, so an explicit crop_pct only has meaning on the
+        # aspect-preserving path; asking for one opts out of square resize.
+        override = getattr(self.config, "crop_pct", None)
         return {
             "mean": SIGLIP_MEAN,
             "std": SIGLIP_STD,
             "interpolation": InterpolationMode.BILINEAR,
-            "crop_pct": 1.0,
-            "square_resize": True,
+            "crop_pct": self._resolve_crop_pct(1.0),
+            "square_resize": override is None,
         }
