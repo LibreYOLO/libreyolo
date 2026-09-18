@@ -66,6 +66,11 @@ def val_cmd(
         False,
         help="Save validation plots (metrics, per-class AP, confusion matrix, samples)",
     ),
+    plot_samples: int = typer.Option(
+        8,
+        help="Sample images in the validation sample plot: 0 for none, "
+        "-1 for every validated image (does not change the metrics)",
+    ),
     workers: int = typer.Option(4, help="Dataloader workers"),
     device: str = typer.Option("auto", help="Device"),
     project: str = typer.Option("runs/val", help="Output directory root"),
@@ -145,6 +150,7 @@ def val_cmd(
             max_det=max_det,
             eval_max_det=eval_max_det,
             faster_coco_eval=faster_coco_eval,
+            plot_samples=plot_samples,
         )
     except FileNotFoundError as e:
         exit_with_error(out, "data_not_found", str(e))

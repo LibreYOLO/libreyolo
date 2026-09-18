@@ -214,6 +214,9 @@ class TrainConfig:
     # warning if the faster-coco-eval package is not installed.
     faster_coco_eval: bool = True
     save_plots: bool = False
+    # Sample images kept for the validation sample-image plot; 0 none,
+    # -1 all. Plot budget only, never changes what is scored (#830).
+    plot_samples: int = 8
     # Compute the family's training objective on validation batches and emit
     # metrics/loss plus its per-component values. Off by default because target
     # assignment adds validation time and memory use. Families that do not
