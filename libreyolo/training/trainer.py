@@ -398,11 +398,26 @@ class BaseTrainer(ABC):
         """Called before on_setup() for trainers that pre-sync class counts."""
 
     def on_mosaic_disable(self):
-        """Called when mosaic is disabled for final no-aug epochs."""
-        dataset = getattr(self.train_loader, "dataset", None)
+        """Switch off strong augmentation for the final ``no_aug_epochs`` epochs.
+
+        Detection datasets expose ``close_mosaic`` (mosaic + mixup off); the
+        classification dataset and batch mixer expose ``close_strong_aug``
+        (auto_augment / erasing / MixUp / CutMix off). Every hook goes through
+        :func:`ensure_mutation_reaches_workers` so a persistent-worker loader
+        fails loudly instead of silently keeping the augmentation on.
+        """
+        loader = self.train_loader
+        dataset = getattr(loader, "dataset", None)
         if hasattr(dataset, "close_mosaic"):
-            ensure_mutation_reaches_workers(self.train_loader, dataset, "close_mosaic")
+            ensure_mutation_reaches_workers(loader, dataset, "close_mosaic")
             dataset.close_mosaic()
+        if hasattr(dataset, "close_strong_aug"):
+            ensure_mutation_reaches_workers(loader, dataset, "close_strong_aug")
+            dataset.close_strong_aug()
+        collate = getattr(loader, "collate_fn", None)
+        if hasattr(collate, "close_strong_aug"):
+            ensure_mutation_reaches_workers(loader, collate, "close_strong_aug")
+            collate.close_strong_aug()
 
     def on_forward(
         self,
@@ -1028,6 +1043,23 @@ class BaseTrainer(ABC):
             )
         return train_dataset
 
+    def _effective_crop_pct(self, wrapper) -> float:
+        """Eval crop ratio: the user override when set, else the family value.
+
+        The family value is what export records in the runtime metadata, so an
+        explicit override is a deliberate train/val-only choice (#878).
+        """
+        from libreyolo.data.augment.classify import DEFAULT_CROP_PCT
+
+        override = getattr(self.config, "crop_pct", None)
+        if override is not None:
+            if not 0.0 < override <= 1.0:
+                raise ValueError(
+                    f"crop_pct must be in (0, 1], got {override}"
+                )
+            return float(override)
+        return getattr(wrapper, "crop_pct", None) or DEFAULT_CROP_PCT
+
     def _setup_classify_data(self):
         """Build the classification train dataloader from an ImageFolder root.
 
@@ -1038,9 +1070,9 @@ class BaseTrainer(ABC):
         """
         from torch.utils.data import DataLoader
 
+        from ..data.augment.classify import ClassifyAugKnobs, build_classify_collate
         from ..data.classify_dataset import (
             ClassifyDataset,
-            build_classify_collate,
             get_class_names,
             resolve_classify_data,
         )
@@ -1064,6 +1096,10 @@ class BaseTrainer(ABC):
             wrapper.names = {i: name for i, name in enumerate(classes)}
 
         imgsz = self.config.imgsz
+        # One place reads (and validates) every classification augmentation
+        # knob off the config; see libreyolo/data/augment/classify.py.
+        aug = ClassifyAugKnobs.from_config(self.config)
+        self._classify_aug = aug
         train_dataset = ClassifyDataset(
             dataset_root=dataset_root,
             split="train",
@@ -1071,10 +1107,9 @@ class BaseTrainer(ABC):
             augment=True,
             class_to_idx=class_to_idx,
             transform_kwargs={
-                "crop_pct": getattr(wrapper, "crop_pct", 0.875),
+                "crop_pct": self._effective_crop_pct(wrapper),
                 "interpolation": getattr(wrapper, "interpolation", "bilinear"),
-                "auto_augment": getattr(self.config, "auto_augment", None),
-                "erasing": getattr(self.config, "erasing", 0.0),
+                **aug.transform_kwargs(),
             },
         )
 
@@ -1094,11 +1129,7 @@ class BaseTrainer(ABC):
 
         # Batch-level MixUp / CutMix (soft labels) when requested; otherwise this
         # returns the plain classify collate so default training is unchanged.
-        collate_fn = build_classify_collate(
-            num_classes,
-            mixup=getattr(self.config, "mixup", 0.0),
-            cutmix=getattr(self.config, "cutmix", 0.0),
-        )
+        collate_fn = build_classify_collate(num_classes, **aug.collate_kwargs())
 
         per_rank_batch = max(1, self.config.batch // max(self.world_size, 1))
         if per_rank_batch < 2:
@@ -1939,7 +1970,7 @@ class BaseTrainer(ABC):
                 if is_main_process():
                     logger.info(
                         f"Resumed past no-aug threshold (epoch {self.start_epoch} > {no_aug_start}), "
-                        f"disabling mosaic/mixup immediately"
+                        f"disabling strong augmentation (mosaic/mixup, policies) immediately"
                     )
                 self.on_mosaic_disable()
 
@@ -1949,7 +1980,8 @@ class BaseTrainer(ABC):
                 if epoch == no_aug_start:
                     if is_main_process():
                         logger.info(
-                            f"Disabling mosaic/mixup for final {self.config.no_aug_epochs} epochs"
+                            f"Disabling strong augmentation (mosaic/mixup, policies) for final "
+                            f"{self.config.no_aug_epochs} epochs"
                         )
                     self.on_mosaic_disable()
 
@@ -2990,6 +3022,10 @@ class BaseTrainer(ABC):
                 verbose=False,
                 num_workers=self.config.workers,
                 split="val",
+                # Epoch validation must use the eval crop the user asked
+                # for, or best.pt is selected against different
+                # preprocessing than val() reports (#878).
+                crop_pct=getattr(self.config, "crop_pct", None),
             )
 
             eval_pytorch_model = (

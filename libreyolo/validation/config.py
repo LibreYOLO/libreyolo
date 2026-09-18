@@ -130,6 +130,9 @@ class ValidationConfig:
 
     # TTA
     augment: bool = False
+    # Classification eval preprocessing. None keeps the model family's
+    # native crop ratio (what export records), so val() matches predict().
+    crop_pct: Optional[float] = field(default=None, kw_only=True)
 
     # Pose validation
     keypoints_json: Optional[str] = None

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import numpy as np
 import pytest
 import torch
@@ -50,7 +52,11 @@ def test_registered_and_classify_only_contract():
     assert model.crop_pct == 0.9
     assert model.interpolation == "bicubic"
     assert model.validator_class is ViTClassifyValidator
-    assert ViTClassifyValidator._dataset_transform_kwargs(None) == {
+    # crop_pct now routes through self.config so val(crop_pct=...) is honored
+    # (#878); with no override the family's native 0.9 is unchanged.
+    _no_override = ViTClassifyValidator.__new__(ViTClassifyValidator)
+    _no_override.config = SimpleNamespace(crop_pct=None)
+    assert _no_override._dataset_transform_kwargs() == {
         "mean": (0.5, 0.5, 0.5),
         "std": (0.5, 0.5, 0.5),
         "interpolation": "bicubic",
