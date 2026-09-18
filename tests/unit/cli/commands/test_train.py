@@ -1165,3 +1165,119 @@ def test_detection_family_warns_that_crop_knobs_are_ignored(caplog):
     assert result.exit_code == 0
     assert "ignores these parameters" in caplog.text
     assert "scale" in caplog.text
+
+
+# ---------------------------------------------------------------------------
+# Classification augmentation base: ecosystem names, task-aware mixup, cutmix
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "args,expected",
+    [
+        (["fliplr=0.3"], 0.3),
+        (["--fliplr", "0.3"], 0.3),
+        (["flip_prob=0.2"], 0.2),
+        (["fliplr=0.1", "flip_prob=0.9"], 0.1),
+    ],
+    ids=["fliplr_kv", "fliplr_flag", "flip_prob", "fliplr_wins"],
+)
+def test_flip_knobs_reach_classification_training(monkeypatch, tmp_path, args, expected):
+    result, captured = _run_classify_train(monkeypatch, tmp_path, args)
+    assert result.exit_code == 0, result.output
+    assert captured["kwargs"]["flip_prob"] == pytest.approx(expected)
+
+
+def test_flipud_reaches_classification_training(monkeypatch, tmp_path):
+    result, captured = _run_classify_train(monkeypatch, tmp_path, ["flipud=0.25"])
+    assert result.exit_code == 0, result.output
+    assert captured["kwargs"]["flipud"] == pytest.approx(0.25)
+
+
+def test_classification_mixup_defaults_off_despite_the_detection_default(
+    monkeypatch, tmp_path
+):
+    """The Typer default for --mixup is the detection 1.0; a classifier must
+    not inherit it as its batch-MixUp probability."""
+    result, captured = _run_classify_train(monkeypatch, tmp_path, [])
+    assert result.exit_code == 0, result.output
+    kwargs = captured["kwargs"]
+    assert kwargs["mixup"] == pytest.approx(0.0)
+    assert kwargs["cutmix"] == pytest.approx(0.0)
+    assert "mixup_prob" not in kwargs
+
+
+def test_classification_mixup_and_cutmix_reach_the_classification_fields(
+    monkeypatch, tmp_path, caplog
+):
+    import logging
+
+    with caplog.at_level(logging.INFO):
+        result, captured = _run_classify_train(
+            monkeypatch, tmp_path, ["mixup=0.4", "cutmix=0.3"]
+        )
+    assert result.exit_code == 0, result.output
+    assert captured["kwargs"]["mixup"] == pytest.approx(0.4)
+    assert captured["kwargs"]["cutmix"] == pytest.approx(0.3)
+    assert "mixup_prob" not in captured["kwargs"]
+    assert "ignores these parameters" not in caplog.text
+
+
+def test_detection_mixup_still_maps_to_mixup_prob():
+    from libreyolo.cli.config import build_train_kwargs
+
+    params = {"mixup": 0.4, "cutmix": 0.3, "flip_prob": 0.2, "flipud": 0.1}
+    det = build_train_kwargs(params)
+    assert det["mixup_prob"] == 0.4 and "mixup" not in det
+    assert det["cutmix"] == 0.3 and det["flipud"] == 0.1
+    cls = build_train_kwargs(params, task="classify")
+    assert cls["mixup"] == 0.4 and "mixup_prob" not in cls
+
+
+def test_detection_family_warns_that_cutmix_is_ignored(caplog):
+    import logging
+
+    with caplog.at_level(logging.INFO):
+        result = runner.invoke(
+            _make_app(),
+            ["data=coco8.yaml", "model=LibreYOLO9t.pt", "cutmix=0.3", "--dry-run"],
+        )
+    assert result.exit_code == 0, result.output
+    assert "ignores these parameters" in caplog.text
+    assert "cutmix" in caplog.text
+
+
+def test_detection_family_does_not_warn_for_flipud(caplog):
+    """YOLO9 honours flipud, so exposing it on the CLI must not trip the warning."""
+    import logging
+
+    with caplog.at_level(logging.INFO):
+        result = runner.invoke(
+            _make_app(),
+            ["data=coco8.yaml", "model=LibreYOLO9t.pt", "flipud=0.2", "--dry-run"],
+        )
+    assert result.exit_code == 0, result.output
+    assert "flipud" not in caplog.text
+
+
+@pytest.mark.parametrize("arg", ["cutmix=1.5", "flipud=-0.1", "fliplr=2"])
+def test_invalid_flip_and_cutmix_values_are_clean_errors(monkeypatch, tmp_path, arg):
+    result, captured = _run_classify_train(monkeypatch, tmp_path, [arg])
+    assert result.exit_code != 0
+    assert "kwargs" not in captured
+    assert "Traceback" not in result.output
+
+
+def test_auto_augment_none_spelling_is_accepted(monkeypatch, tmp_path):
+    result, captured = _run_classify_train(monkeypatch, tmp_path, ["auto_augment=none"])
+    assert result.exit_code == 0, result.output
+    assert captured["kwargs"]["auto_augment"] is None
+
+
+def test_new_knobs_appear_in_help_json():
+    result = runner.invoke(_make_app(), ["--help-json"])
+    assert result.exit_code == 0
+    by_name = {p["name"]: p for p in json.loads(result.stdout)["parameters"]}
+    assert by_name["fliplr"].get("default") is None
+    assert by_name["flipud"]["default"] == pytest.approx(0.0)
+    assert by_name["cutmix"]["default"] == pytest.approx(0.0)

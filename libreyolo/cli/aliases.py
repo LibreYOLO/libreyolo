@@ -9,6 +9,22 @@ TRAIN_ALIASES: dict[str, str] = {
     "mixup": "mixup_prob",
 }
 
+# Classification models train through the ImageFolder pipeline, where the
+# ecosystem ``mixup`` knob is the batch-MixUp field of the same name (soft
+# labels), not the detection ``mixup_prob``. Task-aware lookup lives in
+# :func:`train_aliases`; consumers that map CLI names to TrainConfig fields
+# go through it rather than reading TRAIN_ALIASES directly.
+CLASSIFY_TRAIN_ALIASES: dict[str, str] = {
+    "mosaic": "mosaic_prob",
+}
+
+
+def train_aliases(task: str | None = None) -> dict[str, str]:
+    """Return the CLI-name -> TrainConfig-field alias table for ``task``."""
+    if task == "classify":
+        return CLASSIFY_TRAIN_ALIASES
+    return TRAIN_ALIASES
+
 VAL_ALIASES: dict[str, str] = {
     "batch": "batch_size",
     "conf": "conf_thres",
