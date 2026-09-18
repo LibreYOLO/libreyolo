@@ -30,7 +30,11 @@ from libreyolo.data import (
     load_data_config,
     resolve_default_coco_image_dir,
 )
-from libreyolo.data.pose_dataset import parse_yolo_pose_label_line
+from libreyolo.data.pose_dataset import (
+    MAX_REPORTED_BAD_LINES,
+    format_bad_label_lines,
+    parse_yolo_pose_label_line,
+)
 
 from .base import BaseValidator
 from .config import ValidationConfig
@@ -252,6 +256,8 @@ class PoseValidator(BaseValidator):
 
         images, annotations = [], []
         ann_id = 1
+        bad_lines = 0
+        bad_examples: List[str] = []
         for img_id, img_path in enumerate([Path(p) for p in img_files]):
             with Image.open(img_path) as img:
                 width, height = img.size
@@ -267,7 +273,9 @@ class PoseValidator(BaseValidator):
             label_path = Path(label_files[img_id])
             if not label_path.exists():
                 continue
-            for line in label_path.read_text().splitlines():
+            for lineno, line in enumerate(
+                label_path.read_text().splitlines(), start=1
+            ):
                 parts = line.split()
                 if not parts:
                     continue
@@ -275,7 +283,10 @@ class PoseValidator(BaseValidator):
                     cls_id, bbox, kpts = parse_yolo_pose_label_line(
                         parts, num_keypoints, keypoint_dim
                     )
-                except ValueError:
+                except ValueError as exc:
+                    bad_lines += 1
+                    if len(bad_examples) < MAX_REPORTED_BAD_LINES:
+                        bad_examples.append(f"{label_path}:{lineno}: {exc}")
                     continue
                 cx, cy, bw, bh = bbox.astype(float)
                 x = (cx - bw * 0.5) * width
@@ -299,6 +310,15 @@ class PoseValidator(BaseValidator):
                 )
                 ann_id += 1
 
+        if bad_lines:
+            logger.warning(
+                "Pose validation: skipped %d ground-truth label line(s) that "
+                "do not parse as %d-keypoint labels; they are excluded from "
+                "the reported metrics. Offending line(s):\n%s",
+                bad_lines,
+                num_keypoints,
+                format_bad_label_lines(bad_examples, bad_lines),
+            )
         if images and not annotations:
             raise FileNotFoundError(
                 "No YOLO pose labels were found for the validation split. "
