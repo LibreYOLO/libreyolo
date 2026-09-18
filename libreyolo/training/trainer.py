@@ -2890,6 +2890,7 @@ class BaseTrainer(ABC):
                 num_workers=self.config.workers,
                 save_plots=val_save_plots,
                 save_dir=val_save_dir,
+                plot_samples=getattr(self.config, "plot_samples", 8),
                 # One knob for both loops: a run that opts into image caching
                 # for training gets the same for its (deterministic) validation.
                 cache=getattr(self.config, "cache", False),

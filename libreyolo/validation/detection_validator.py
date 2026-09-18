@@ -11,13 +11,12 @@ from torch.utils.data import DataLoader
 
 from ..postprocess.slicing import slice_batch_outputs
 from .base import BaseValidator
-from .config import ValidationConfig
+from .config import ValidationConfig, wants_more_plot_samples
 from .loss import ValidationLossMixin
 
 logger = logging.getLogger(__name__)
 
 COCO_TOPK_FAMILIES = {"dfine", "deim", "deimv2", "tinyformer", "ec", "rfdetr", "rtdetr", "rtdetrv2", "rtdetrv4"}
-_N_VAL_SAMPLES = 8  # maximum sample images stored for visualisation
 BEST_CONF_KEY = "metrics/best_conf"
 BEST_CONF_F1_KEY = "metrics/best_conf_f1"
 BEST_CONF_PER_CLASS_KEY = "metrics/best_conf_per_class"
@@ -934,8 +933,8 @@ class DetectionValidator(ValidationLossMixin, BaseValidator):
             if self._confusion_matrix is not None:
                 self._confusion_matrix.process_image(pb, pc, ps, gt_boxes, gt_classes)
 
-            # Sample images (first _N_VAL_SAMPLES only)
-            if len(self._val_samples) < _N_VAL_SAMPLES:
+            # Sample images for the plot only; never affects scoring (#830).
+            if self._wants_more_val_samples():
                 global_idx = self.seen + i
                 img_path = self._resolve_img_path(
                     self.dataloader.dataset, global_idx, img_ids[i]
@@ -954,6 +953,14 @@ class DetectionValidator(ValidationLossMixin, BaseValidator):
                     "pred_scores": ps,
                     "pred_masks": pm,
                 })
+
+    def _wants_more_val_samples(self) -> bool:
+        """Whether another image should be kept for the sample-image plot.
+
+        Bounded by ``plot_samples`` so a small budget does not hold images in
+        memory for the whole run; ``-1`` keeps every validated image.
+        """
+        return wants_more_plot_samples(self.config, len(self._val_samples))
 
     def _save_plots(self, metrics: Dict[str, float]) -> None:
         from .val_plotter import ValPlotter  # noqa: PLC0415

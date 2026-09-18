@@ -468,6 +468,11 @@ def train_cmd(
     save_plots: bool = typer.Option(
         False, help="Save final validation plots during training"
     ),
+    plot_samples: int = typer.Option(
+        8,
+        help="Sample images in the validation sample plot: 0 for none, "
+        "-1 for every validated image (does not change the metrics)",
+    ),
     patience: int = typer.Option(50, help="Early stopping patience (0=disabled)"),
     # Output
     project: str = typer.Option("runs/train", help="Output directory root"),
@@ -750,6 +755,7 @@ def train_cmd(
         "eval_max_det": eval_max_det,
         "faster_coco_eval": faster_coco_eval,
         "save_plots": save_plots,
+        "plot_samples": plot_samples,
         "patience": patience,
         "project": project,
         "name": name,
