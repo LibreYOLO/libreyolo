@@ -254,3 +254,144 @@ class TestValCliPlumbing:
         result, captured = self._run(monkeypatch, tmp_path, [])
         assert result.exit_code == 0, result.output
         assert captured["kwargs"]["crop_pct"] is None
+
+
+# ---------------------------------------------------------------------------
+# Review findings on PR #879: the override must reach every consumer
+# ---------------------------------------------------------------------------
+
+
+class _FakeModel:
+    size = "s"
+    crop_pct = 0.875
+    interpolation = "bilinear"
+
+    def _get_model_name(self):
+        return "dummy"
+
+
+def _validator(cls, tmp_path, **cfg):
+    from libreyolo.validation import ValidationConfig
+
+    _make_imagefolder(tmp_path / "data")
+    config = ValidationConfig(
+        data_dir=str(tmp_path / "data"),
+        save_dir=str(tmp_path / "runs"),
+        verbose=False,
+        **cfg,
+    )
+    return cls(_FakeModel(), config=config)
+
+
+class TestFamilyValidatorsHonorCropPct:
+    """ViT/CLIP/SigLIP2 pin their own eval pipeline; they must still obey."""
+
+    def _cls(self, name):
+        import importlib
+
+        mod = importlib.import_module(f"libreyolo.validation.{name}_validator")
+        return getattr(mod, {
+            "vit": "ViTClassifyValidator",
+            "clip": "CLIPClassifyValidator",
+            "siglip2": "SigLIP2ClassifyValidator",
+        }[name])
+
+    @pytest.mark.parametrize(
+        "name,family_default", [("vit", 0.9), ("clip", 1.0), ("siglip2", 1.0)]
+    )
+    def test_family_default_is_kept_when_unset(self, tmp_path, name, family_default):
+        v = _validator(self._cls(name), tmp_path)
+        assert v._dataset_transform_kwargs()["crop_pct"] == family_default
+
+    @pytest.mark.parametrize("name", ["vit", "clip", "siglip2"])
+    def test_override_is_honored(self, tmp_path, name):
+        v = _validator(self._cls(name), tmp_path, crop_pct=0.6)
+        assert v._dataset_transform_kwargs()["crop_pct"] == pytest.approx(0.6)
+
+    def test_siglip2_square_resize_defaults_on_and_yields_to_an_override(
+        self, tmp_path
+    ):
+        """square_resize never center-crops, so crop_pct would be inert."""
+        cls = self._cls("siglip2")
+        assert _validator(cls, tmp_path)._dataset_transform_kwargs()["square_resize"]
+        v = _validator(cls, tmp_path, crop_pct=0.8)
+        assert v._dataset_transform_kwargs()["square_resize"] is False
+
+
+class TestEpochValidationUsesTheOverride:
+    def test_crop_pct_reaches_the_classify_epoch_validation_config(self):
+        """Otherwise best.pt is picked against different preprocessing."""
+        import inspect
+
+        from libreyolo.training import trainer as trainer_mod
+
+        src = inspect.getsource(trainer_mod)
+        start = src.index("from libreyolo.validation import ClassifyValidator")
+        block = src[start : start + 1600]
+        assert 'crop_pct=getattr(self.config, "crop_pct", None)' in block
+
+
+class TestValCliGuards:
+    def _run(self, monkeypatch, tmp_path, task, extra):
+        import typer
+        from typer.testing import CliRunner
+
+        from libreyolo.cli.commands.val import val_cmd
+        from libreyolo.cli.parsing import KeyValueCommand
+
+        class _Model:
+            FAMILY = "yolo9"
+            size = "t"
+            device = "cpu"
+
+            def val(self, **kwargs):
+                return {
+                    "metrics/accuracy_top1": 1.0,
+                    "metrics/accuracy_top5": 1.0,
+                    "metrics/mAP50-95": 0.5,
+                    "metrics/mAP50": 0.6,
+                }
+
+        _Model.task = task
+        monkeypatch.setattr(
+            "libreyolo.cli.commands.val.load_model_or_exit",
+            lambda *a, **k: _Model(),
+        )
+        app = typer.Typer()
+        app.command("val", cls=KeyValueCommand)(val_cmd)
+        return CliRunner().invoke(
+            app,
+            ["data=coco8.yaml", "model=LibreYOLO9t.pt", *extra,
+             f"project={tmp_path}", "exist_ok=true"],
+        )
+
+    @pytest.mark.parametrize("bad", ["crop_pct=0", "crop_pct=1.5", "crop_pct=-0.2"])
+    def test_invalid_value_is_a_config_error_not_a_runtime_failure(
+        self, monkeypatch, tmp_path, bad, caplog
+    ):
+        import logging
+
+        with caplog.at_level(logging.ERROR):
+            result = self._run(monkeypatch, tmp_path, "classify", [bad])
+        assert result.exit_code != 0
+        assert "config_type_error" in caplog.text
+        assert "crop_pct must be in (0, 1]" in caplog.text
+        assert "Traceback" not in result.output
+
+    def test_non_classification_task_is_warned_not_silently_ignored(
+        self, monkeypatch, tmp_path, caplog
+    ):
+        import logging
+
+        with caplog.at_level(logging.WARNING):
+            result = self._run(monkeypatch, tmp_path, "detect", ["crop_pct=0.9"])
+        assert result.exit_code == 0
+        assert "ignores crop_pct" in caplog.text
+
+    def test_no_warning_for_classification(self, monkeypatch, tmp_path, caplog):
+        import logging
+
+        with caplog.at_level(logging.WARNING):
+            result = self._run(monkeypatch, tmp_path, "classify", ["crop_pct=0.9"])
+        assert result.exit_code == 0
+        assert "ignores crop_pct" not in caplog.text

@@ -3007,6 +3007,10 @@ class BaseTrainer(ABC):
                 verbose=False,
                 num_workers=self.config.workers,
                 split="val",
+                # Epoch validation must use the eval crop the user asked
+                # for, or best.pt is selected against different
+                # preprocessing than val() reports (#878).
+                crop_pct=getattr(self.config, "crop_pct", None),
             )
 
             eval_pytorch_model = (
