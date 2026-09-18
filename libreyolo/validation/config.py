@@ -8,6 +8,31 @@ import yaml
 
 from libreyolo.utils.amp import normalize_amp_dtype
 
+#: Sample images kept for the validation sample-image plot by default.
+DEFAULT_PLOT_SAMPLES = 8
+
+#: ``plot_samples`` value meaning "keep every validated image".
+PLOT_SAMPLES_ALL = -1
+
+
+def validate_plot_samples(value) -> int:
+    """Validate the sample-image plot budget.
+
+    Accepts a non-negative count, or ``-1`` for every validated image. This is
+    a plotting budget only; it never changes which images are scored.
+    """
+    try:
+        count = int(value)
+    except (TypeError, ValueError):
+        raise ValueError(
+            f"plot_samples must be an integer >= 0, or -1 for all; got {value!r}"
+        ) from None
+    if count < PLOT_SAMPLES_ALL:
+        raise ValueError(
+            f"plot_samples must be >= 0, or -1 for all; got {count}"
+        )
+    return count
+
 
 @dataclass
 class ValidationConfig:
@@ -87,6 +112,10 @@ class ValidationConfig:
     save_json: bool = False
     verbose: bool = True
     save_plots: bool = field(default=False, kw_only=True)
+    # How many validated images are kept for the sample-image plot.
+    # 0 disables that plot, -1 keeps every image. This is a plotting
+    # budget only: it never changes which images are scored (#830).
+    plot_samples: int = field(default=DEFAULT_PLOT_SAMPLES, kw_only=True)
 
     # Workers
     num_workers: int = 4
@@ -137,6 +166,7 @@ class ValidationConfig:
 
     def __post_init__(self) -> None:
         self.amp_dtype = normalize_amp_dtype(self.amp_dtype)
+        self.plot_samples = validate_plot_samples(self.plot_samples)
         self.single_cls = bool(self.single_cls)
 
         if self.data is None and self.data_dir is None and self.keypoints_json is None:
