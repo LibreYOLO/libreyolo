@@ -769,6 +769,13 @@ def train_cmd(
         # classification model the CLI ``mixup`` is the batch-MixUp knob,
         # which is off unless requested.
         params["mixup"] = 0.0
+    if train_task == "classify":
+        from libreyolo.data.augment.classify import validate_mix_probabilities
+
+        try:
+            validate_mix_probabilities(params["mixup"], params["cutmix"])
+        except ValueError as exc:
+            exit_with_error(out, "config_type_error", f"Invalid train option value: {exc}")
 
     from libreyolo.data.event_histogram import (
         apply_histogram_cli_defaults,

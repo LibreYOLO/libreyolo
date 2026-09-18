@@ -235,6 +235,19 @@ class TestClassifyAugKnobs:
         with pytest.raises(ValueError, match=field.split("_")[0]):
             ClassifyAugKnobs.from_config(SimpleNamespace(**{field: bad}))
 
+    @pytest.mark.parametrize("mixup,cutmix", [(0.8, 0.5), (1.0, 0.01), (0.6, 0.6)])
+    def test_mix_sum_above_one_is_rejected_not_truncated(self, mixup, cutmix):
+        """One draw per batch: a sum above 1 would silently shrink CutMix."""
+        with pytest.raises(ValueError, match="mixup \\+ cutmix must be <= 1"):
+            ClassifyAugKnobs.from_config(SimpleNamespace(mixup=mixup, cutmix=cutmix))
+        with pytest.raises(ValueError, match="mixup \\+ cutmix must be <= 1"):
+            build_classify_collate(3, mixup=mixup, cutmix=cutmix)
+
+    def test_mix_sum_of_exactly_one_is_accepted(self):
+        k = ClassifyAugKnobs.from_config(SimpleNamespace(mixup=0.4, cutmix=0.6))
+        assert (k.mixup, k.cutmix) == (0.4, 0.6)
+        assert isinstance(build_classify_collate(3, mixup=0.4, cutmix=0.6), ClassifyBatchMixer)
+
     def test_kwargs_split_between_transform_and_collate(self):
         k = ClassifyAugKnobs(flipud=0.1, auto_augment="augmix", erasing=0.3, mixup=0.2, cutmix=0.1)
         assert k.transform_kwargs() == {

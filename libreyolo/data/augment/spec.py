@@ -66,7 +66,7 @@ AUG_KNOBS: Dict[str, str] = {
     # ignore these).
     "auto_augment": "Classification AutoAugment policy (randaugment/autoaugment/augmix).",
     "erasing": "Classification RandomErasing probability.",
-    "mixup": "Classification batch-MixUp probability (soft labels).",
+    "mixup": "Classification batch-MixUp probability (soft labels); mixup + cutmix <= 1.",
     "cutmix": "Classification batch-CutMix probability (soft labels).",
     "scale": "Classification RandomResizedCrop area range for training.",
     "crop_pct": "Classification eval shorter-side resize ratio before the center crop.",

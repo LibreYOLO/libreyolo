@@ -1268,6 +1268,25 @@ def test_invalid_flip_and_cutmix_values_are_clean_errors(monkeypatch, tmp_path, 
     assert "Traceback" not in result.output
 
 
+def test_classification_mix_sum_above_one_is_a_clean_error(monkeypatch, tmp_path):
+    result, captured = _run_classify_train(
+        monkeypatch, tmp_path, ["mixup=0.8", "cutmix=0.5"]
+    )
+    assert result.exit_code != 0
+    assert "kwargs" not in captured
+    assert "mixup + cutmix" in result.output
+    assert "Traceback" not in result.output
+
+
+def test_detection_model_is_not_subject_to_the_classification_mix_sum(caplog):
+    """On detection --mixup is mixup_prob (default 1.0); cutmix is merely ignored."""
+    result = runner.invoke(
+        _make_app(),
+        ["data=coco8.yaml", "model=LibreYOLO9t.pt", "cutmix=0.5", "--dry-run"],
+    )
+    assert result.exit_code == 0, result.output
+
+
 def test_auto_augment_none_spelling_is_accepted(monkeypatch, tmp_path):
     result, captured = _run_classify_train(monkeypatch, tmp_path, ["auto_augment=none"])
     assert result.exit_code == 0, result.output

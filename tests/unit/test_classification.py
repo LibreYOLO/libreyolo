@@ -410,7 +410,7 @@ def test_build_classify_collate_off_returns_plain_fn():
 
 @pytest.mark.parametrize(
     "mixup,cutmix",
-    [(1.0, 0.0), (0.0, 1.0), (1.0, 1.0)],
+    [(1.0, 0.0), (0.0, 1.0), (0.5, 0.5)],
 )
 def test_mixing_produces_soft_labels(mixup, cutmix):
     """MixUp / CutMix keep image shape and emit soft labels that sum to 1."""
