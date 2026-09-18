@@ -1115,3 +1115,53 @@ def test_auto_augment_appears_in_help_json():
     assert "auto_augment" in by_name
     assert by_name["auto_augment"].get("default") is None
     assert by_name["erasing"]["default"] == pytest.approx(0.0)
+
+
+@pytest.mark.parametrize(
+    "args,expected",
+    [
+        (["scale=0.9"], (0.9, 1.0)),
+        (["--scale", "0.9"], (0.9, 1.0)),
+        (["scale=(0.3,0.8)"], (0.3, 0.8)),
+    ],
+    ids=["key_value", "flag", "explicit_pair"],
+)
+def test_crop_scale_reaches_trainer(monkeypatch, tmp_path, args, expected):
+    result, captured = _run_classify_train(monkeypatch, tmp_path, args)
+    assert result.exit_code == 0
+    assert tuple(captured["kwargs"]["scale"]) == expected
+
+
+def test_crop_pct_reaches_trainer(monkeypatch, tmp_path):
+    result, captured = _run_classify_train(monkeypatch, tmp_path, ["crop_pct=1.0"])
+    assert result.exit_code == 0
+    assert captured["kwargs"]["crop_pct"] == pytest.approx(1.0)
+
+
+def test_crop_defaults_are_unchanged(monkeypatch, tmp_path):
+    result, captured = _run_classify_train(monkeypatch, tmp_path, [])
+    assert result.exit_code == 0
+    assert tuple(captured["kwargs"]["scale"]) == (0.5, 1.0)
+    assert captured["kwargs"]["crop_pct"] is None
+
+
+@pytest.mark.parametrize("bad", ["scale=2.0", "scale=(0.8,0.3)", "crop_pct=0"])
+def test_invalid_crop_args_are_clean_errors(monkeypatch, tmp_path, bad):
+    result, captured = _run_classify_train(monkeypatch, tmp_path, [bad])
+    assert result.exit_code != 0
+    assert "kwargs" not in captured
+    assert "Traceback" not in result.output
+
+
+def test_detection_family_warns_that_crop_knobs_are_ignored(caplog):
+    """Accepted-and-silently-ignored is the failure mode this guards."""
+    import logging
+
+    with caplog.at_level(logging.INFO):
+        result = runner.invoke(
+            _make_app(),
+            ["data=coco8.yaml", "model=LibreYOLO9t.pt", "scale=0.9", "--dry-run"],
+        )
+    assert result.exit_code == 0
+    assert "ignores these parameters" in caplog.text
+    assert "scale" in caplog.text

@@ -68,6 +68,8 @@ AUG_KNOBS: Dict[str, str] = {
     "erasing": "Classification RandomErasing probability.",
     "mixup": "Classification batch-MixUp probability (soft labels).",
     "cutmix": "Classification batch-CutMix probability (soft labels).",
+    "scale": "Classification RandomResizedCrop area range for training.",
+    "crop_pct": "Classification eval shorter-side resize ratio before the center crop.",
 }
 
 # Human-facing family names for warnings and docs.
@@ -121,6 +123,8 @@ _CLS_KNOBS_IGNORED = {
     "erasing": _i("Classification-only knob."),
     "mixup": _i("Classification-only knob (API-only; the CLI --mixup is the detection mixup_prob alias)."),
     "cutmix": _i("Classification-only knob."),
+    "scale": _i("Classification-only knob (detection affine scale is mosaic_scale)."),
+    "crop_pct": _i("Classification-only knob."),
 }
 
 # YOLOX-style pipeline: per-sample preproc applies HSV + flips; affine and
@@ -180,6 +184,8 @@ _CLASSIFY_STYLE = {
     "erasing": _u(),
     "mixup": _u("API-only: the CLI --mixup is the detection mixup_prob alias."),
     "cutmix": _u(),
+    "scale": _u("RandomResizedCrop area range."),
+    "crop_pct": _u("Eval resize ratio; None keeps the family's native value."),
 }
 
 FAMILY_AUG_SUPPORT: Dict[str, Dict[str, Support]] = {
