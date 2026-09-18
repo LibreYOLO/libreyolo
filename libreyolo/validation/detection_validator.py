@@ -11,7 +11,7 @@ from torch.utils.data import DataLoader
 
 from ..postprocess.slicing import slice_batch_outputs
 from .base import BaseValidator
-from .config import PLOT_SAMPLES_ALL, ValidationConfig
+from .config import ValidationConfig, wants_more_plot_samples
 from .loss import ValidationLossMixin
 
 logger = logging.getLogger(__name__)
@@ -960,12 +960,7 @@ class DetectionValidator(ValidationLossMixin, BaseValidator):
         Bounded by ``plot_samples`` so a small budget does not hold images in
         memory for the whole run; ``-1`` keeps every validated image.
         """
-        from .config import DEFAULT_PLOT_SAMPLES
-
-        budget = getattr(self.config, "plot_samples", DEFAULT_PLOT_SAMPLES)
-        if budget == PLOT_SAMPLES_ALL:
-            return True
-        return len(self._val_samples) < budget
+        return wants_more_plot_samples(self.config, len(self._val_samples))
 
     def _save_plots(self, metrics: Dict[str, float]) -> None:
         from .val_plotter import ValPlotter  # noqa: PLC0415

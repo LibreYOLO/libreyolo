@@ -37,7 +37,7 @@ from libreyolo.data.pose_dataset import (
 )
 
 from .base import BaseValidator
-from .config import ValidationConfig
+from .config import ValidationConfig, wants_more_plot_samples
 
 logger = logging.getLogger(__name__)
 
@@ -430,7 +430,9 @@ class PoseValidator(BaseValidator):
             max_det=self.config.max_det,
         )
 
-        if self.config.save_plots and len(self._val_sample_records) < 8:
+        if self.config.save_plots and wants_more_plot_samples(
+            self.config, len(self._val_sample_records)
+        ):
             try:
                 pb = (
                     result.boxes.xyxy.cpu().numpy()

@@ -7,31 +7,12 @@ from typing import List, Optional, Tuple, Union
 import yaml
 
 from libreyolo.utils.amp import normalize_amp_dtype
-
-#: Sample images kept for the validation sample-image plot by default.
-DEFAULT_PLOT_SAMPLES = 8
-
-#: ``plot_samples`` value meaning "keep every validated image".
-PLOT_SAMPLES_ALL = -1
-
-
-def validate_plot_samples(value) -> int:
-    """Validate the sample-image plot budget.
-
-    Accepts a non-negative count, or ``-1`` for every validated image. This is
-    a plotting budget only; it never changes which images are scored.
-    """
-    try:
-        count = int(value)
-    except (TypeError, ValueError):
-        raise ValueError(
-            f"plot_samples must be an integer >= 0, or -1 for all; got {value!r}"
-        ) from None
-    if count < PLOT_SAMPLES_ALL:
-        raise ValueError(
-            f"plot_samples must be >= 0, or -1 for all; got {count}"
-        )
-    return count
+from libreyolo.utils.plot_samples import (  # noqa: F401  (re-exported)
+    DEFAULT_PLOT_SAMPLES,
+    PLOT_SAMPLES_ALL,
+    validate_plot_samples,
+    wants_more_plot_samples,
+)
 
 
 @dataclass

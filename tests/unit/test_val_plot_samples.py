@@ -108,9 +108,9 @@ class _RecordingConfusionMatrix:
 
 def _run_track_plots(budget, n_images):
     """Drive the real _track_plots_data with a given sample budget."""
-    import numpy as np
-    import torch
     from types import SimpleNamespace
+
+    import torch
 
     v = DetectionValidator.__new__(DetectionValidator)
     v.config = ValidationConfig(data="x", plot_samples=budget)
@@ -242,3 +242,100 @@ class TestCliPlumbing:
         )
         assert result.exit_code == 0, result.output
         assert captured["kwargs"]["plot_samples"] == 32
+
+
+class TestSharedBudgetHelper:
+    """`wants_more_plot_samples` is the one decision every validator uses."""
+
+    @pytest.mark.parametrize(
+        "budget,collected,expected",
+        [(8, 7, True), (8, 8, False), (0, 0, False), (-1, 10_000, True), (3, 2, True)],
+    )
+    def test_decision(self, budget, collected, expected):
+        from types import SimpleNamespace
+
+        from libreyolo.utils.plot_samples import wants_more_plot_samples
+
+        cfg = SimpleNamespace(plot_samples=budget)
+        assert wants_more_plot_samples(cfg, collected) is expected
+
+    def test_missing_attribute_uses_default(self):
+        from libreyolo.utils.plot_samples import wants_more_plot_samples
+
+        assert wants_more_plot_samples(object(), 7) is True
+        assert wants_more_plot_samples(object(), 8) is False
+
+    def test_validation_config_reexports_the_shared_names(self):
+        from libreyolo.utils import plot_samples as shared
+        from libreyolo.validation import config as val_config
+
+        assert val_config.validate_plot_samples is shared.validate_plot_samples
+        assert val_config.wants_more_plot_samples is shared.wants_more_plot_samples
+        assert val_config.DEFAULT_PLOT_SAMPLES == shared.DEFAULT_PLOT_SAMPLES
+        assert val_config.PLOT_SAMPLES_ALL == shared.PLOT_SAMPLES_ALL
+
+
+class TestTrainConfigValidation:
+    """An invalid budget must fail before training, not silently disable
+    every scheduled validation."""
+
+    def test_default_matches_validation_config(self):
+        from libreyolo.training.config import TrainConfig
+
+        assert TrainConfig().plot_samples == DEFAULT_PLOT_SAMPLES
+
+    @pytest.mark.parametrize("value", [-2, -100, "abc"])
+    def test_invalid_budget_rejected_at_construction(self, value):
+        from libreyolo.training.config import TrainConfig
+
+        with pytest.raises(ValueError, match="plot_samples"):
+            TrainConfig(plot_samples=value)
+
+    @pytest.mark.parametrize("value,expected", [(-1, -1), (0, 0), (20, 20), ("12", 12)])
+    def test_valid_budget_normalized_to_int(self, value, expected):
+        from libreyolo.training.config import TrainConfig
+
+        cfg = TrainConfig(plot_samples=value)
+        assert cfg.plot_samples == expected
+        assert isinstance(cfg.plot_samples, int)
+
+    def test_every_train_budget_is_a_valid_validation_budget(self):
+        from libreyolo.training.config import TrainConfig
+
+        for value in (-1, 0, 8, 50):
+            ValidationConfig(data="x", plot_samples=TrainConfig(plot_samples=value).plot_samples)
+
+
+class TestPoseValidatorBudget:
+    def test_pose_sample_collection_uses_the_shared_budget(self):
+        import inspect
+
+        from libreyolo.validation.pose_validator import PoseValidator
+
+        src = inspect.getsource(PoseValidator._predict_image)
+        assert "wants_more_plot_samples(" in src
+        assert "_val_sample_records" in src
+        assert "< 8" not in src
+
+    def test_no_validator_keeps_a_hardcoded_sample_cap(self):
+        import re
+        from pathlib import Path
+
+        import libreyolo.validation as pkg
+
+        offenders = []
+        for path in Path(pkg.__file__).parent.glob("*.py"):
+            for lineno, line in enumerate(path.read_text().splitlines(), 1):
+                if re.search(r"_val_sample(s|_records)\)\s*<\s*\d", line):
+                    offenders.append(f"{path.name}:{lineno}: {line.strip()}")
+        assert offenders == []
+
+    def test_rfdetr_pose_epoch_validation_forwards_the_budget(self):
+        import inspect
+
+        from libreyolo.models.rfdetr.trainer import RFDETRTrainer
+
+        src = inspect.getsource(RFDETRTrainer)
+        pose_block = src[src.index("PoseValidator, ValidationConfig"):]
+        pose_block = pose_block[: pose_block.index("PoseValidator(model=")]
+        assert "plot_samples=" in pose_block
