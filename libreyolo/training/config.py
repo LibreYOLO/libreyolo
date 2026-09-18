@@ -143,6 +143,16 @@ class TrainConfig:
     erasing: float = 0.0
     mixup: float = 0.0
     cutmix: float = 0.0
+    #   - scale: RandomResizedCrop area range for training. A float is the
+    #     lower bound (upper bound 1.0), or pass an explicit (min, max).
+    #   - crop_pct: shorter-side resize ratio for the deterministic eval crop
+    #     used by the in-training validation pass. None keeps the model
+    #     family's native value, which is also what export records, so an
+    #     override here is a deliberate train/val-only choice.
+    # Kept in sync with classify_dataset.DEFAULT_CROP_SCALE by a unit test;
+    # duplicated as a literal so TrainConfig stays torchvision-free.
+    scale: Union[float, Tuple[float, float]] = (0.5, 1.0)
+    crop_pct: Optional[float] = None
 
     # Training features
     ema: bool = True

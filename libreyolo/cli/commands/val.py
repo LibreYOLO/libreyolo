@@ -58,6 +58,11 @@ def val_cmd(
         "(default: on when installed; falls back to pycocotools)",
     ),
     half: bool = typer.Option(False, help="FP16 inference"),
+    crop_pct: Optional[float] = typer.Option(
+        None,
+        help="Classification eval resize ratio before the center crop "
+        "(default: the model family's native value)",
+    ),
     amp_dtype: str = typer.Option(
         "float16", help="CUDA autocast dtype when half=true: float16 or bfloat16"
     ),
@@ -145,6 +150,7 @@ def val_cmd(
             max_det=max_det,
             eval_max_det=eval_max_det,
             faster_coco_eval=faster_coco_eval,
+            crop_pct=crop_pct,
         )
     except FileNotFoundError as e:
         exit_with_error(out, "data_not_found", str(e))

@@ -71,7 +71,13 @@ class ClassifyValidator(ValidationLossMixin, BaseValidator):
         family-specific normalization (mean/std).
         """
         kwargs: dict = {}
-        crop_pct = getattr(self.model, "crop_pct", None)
+        # An explicit config override wins over the family default (#878); it
+        # deliberately makes val() diverge from the exported eval pipeline.
+        crop_pct = getattr(self.config, "crop_pct", None)
+        if crop_pct is not None and not 0.0 < crop_pct <= 1.0:
+            raise ValueError(f"crop_pct must be in (0, 1], got {crop_pct}")
+        if crop_pct is None:
+            crop_pct = getattr(self.model, "crop_pct", None)
         if crop_pct is not None:
             kwargs["crop_pct"] = crop_pct
         interpolation = getattr(self.model, "interpolation", None)

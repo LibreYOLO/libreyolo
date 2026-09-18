@@ -1028,6 +1028,23 @@ class BaseTrainer(ABC):
             )
         return train_dataset
 
+    def _effective_crop_pct(self, wrapper) -> float:
+        """Eval crop ratio: the user override when set, else the family value.
+
+        The family value is what export records in the runtime metadata, so an
+        explicit override is a deliberate train/val-only choice (#878).
+        """
+        from libreyolo.data.classify_dataset import DEFAULT_CROP_PCT
+
+        override = getattr(self.config, "crop_pct", None)
+        if override is not None:
+            if not 0.0 < override <= 1.0:
+                raise ValueError(
+                    f"crop_pct must be in (0, 1], got {override}"
+                )
+            return float(override)
+        return getattr(wrapper, "crop_pct", None) or DEFAULT_CROP_PCT
+
     def _setup_classify_data(self):
         """Build the classification train dataloader from an ImageFolder root.
 
@@ -1071,10 +1088,11 @@ class BaseTrainer(ABC):
             augment=True,
             class_to_idx=class_to_idx,
             transform_kwargs={
-                "crop_pct": getattr(wrapper, "crop_pct", 0.875),
+                "crop_pct": self._effective_crop_pct(wrapper),
                 "interpolation": getattr(wrapper, "interpolation", "bilinear"),
                 "auto_augment": getattr(self.config, "auto_augment", None),
                 "erasing": getattr(self.config, "erasing", 0.0),
+                "scale": getattr(self.config, "scale", (0.5, 1.0)),
             },
         )
 

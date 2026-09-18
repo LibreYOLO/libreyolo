@@ -409,6 +409,16 @@ def train_cmd(
     erasing: float = typer.Option(
         0.0, help="Classification RandomErasing probability, 0 <= erasing < 1"
     ),
+    scale: str = typer.Option(
+        "0.5",
+        help="Classification RandomResizedCrop area range: a float lower bound "
+        "or an explicit (min,max)",
+    ),
+    crop_pct: Optional[float] = typer.Option(
+        None,
+        help="Classification eval resize ratio before the center crop "
+        "(default: the model family's native value)",
+    ),
     # EMA
     ema: bool = typer.Option(True, help="Exponential Moving Average"),
     ema_decay: float = typer.Option(0.9998, help="EMA decay factor"),
@@ -488,6 +498,13 @@ def train_cmd(
                 )
         if not 0.0 <= erasing < 1.0:
             raise ValueError(f"erasing must be in [0, 1), got {erasing}")
+        from libreyolo.data.classify_dataset import normalize_crop_scale
+
+        scale_val = normalize_crop_scale(
+            ast.literal_eval(scale) if isinstance(scale, str) else scale
+        )
+        if crop_pct is not None and not 0.0 < crop_pct <= 1.0:
+            raise ValueError(f"crop_pct must be in (0, 1], got {crop_pct}")
         if max_det < 1:
             raise ValueError(f"max_det must be >= 1, got {max_det}")
         if eval_max_det is not None and eval_max_det < 1:
@@ -689,6 +706,8 @@ def train_cmd(
         "no_aug_epochs": no_aug_epochs,
         "auto_augment": auto_augment,
         "erasing": erasing,
+        "scale": scale_val,
+        "crop_pct": crop_pct,
         "ema": ema,
         "ema_decay": ema_decay,
         "eval_interval": eval_interval,
