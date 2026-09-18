@@ -174,6 +174,95 @@ def random_affine(
     return img, targets
 
 
+def _window_origin(size, window, low, high):
+    """A random origin for a ``window``-long span of a ``size``-long axis.
+
+    The span covers ``[low, high]`` when it is long enough to; ``low`` and
+    ``high`` are ``None`` when there is nothing to cover.
+    """
+    first, last = 0, size - window
+    if low is not None:
+        first = max(first, math.ceil(high) - window)
+        last = min(last, math.floor(low))
+    return random.randint(first, max(first, last))
+
+
+def zoom_to_boxes(image, boxes, zoom_range=(1.0, 1.0), min_visible=0.6):
+    """Random zoom-in crop that keeps one box whole.
+
+    A magnification ``z`` is drawn from ``zoom_range`` and a window of ``1 / z``
+    of the image, in the image's own aspect ratio, is cut out of it. One box is
+    picked at random as the anchor and the window is placed uniformly among the
+    positions that contain the whole of it; when the anchor is larger than the
+    window, ``z`` is lowered until it fits. The crop is returned at its own
+    size: the magnification happens when the caller resizes it to the network
+    input, so a crop of a frame larger than that input carries real detail
+    rather than interpolated pixels.
+
+    The other boxes are shifted with the window, clipped to it, and kept only
+    when at least ``min_visible`` of their area is still inside, so a sliver of
+    an object is never labelled as one. Without boxes the window is placed
+    anywhere.
+
+    Args:
+        image: ``(H, W[, C])`` array.
+        boxes: ``[N, 4]`` xyxy in pixel coordinates of ``image``.
+        zoom_range: ``(low, high)`` magnification with ``1 <= low <= high``;
+            this is a zoom-in, never a zoom-out.
+        min_visible: area fraction of a box the window must contain to keep it.
+
+    Returns:
+        ``(crop, kept_boxes, keep)``: ``kept_boxes`` are the surviving boxes in
+        the crop's pixel coordinates and ``keep`` the boolean mask over the
+        input rows that selects them, for the caller's per-box columns.
+
+    The draws come from :mod:`random`, in a fixed order: the zoom, the anchor
+    (only with boxes), then the window's x and y origin.
+    """
+    low, high = zoom_range
+    if not 1.0 <= low <= high:
+        raise ValueError(
+            f"zoom_range must satisfy 1 <= low <= high (zoom-in only). Got {zoom_range}"
+        )
+    height, width = image.shape[:2]
+    dtype = (
+        boxes.dtype
+        if isinstance(boxes, np.ndarray) and boxes.dtype.kind == "f"
+        else np.float32
+    )
+    boxes = np.asarray(boxes, dtype=np.float64).reshape(-1, 4)
+
+    zoom = random.uniform(low, high)
+    anchor = None
+    if len(boxes) > 0:
+        anchor = boxes[random.randrange(len(boxes))]
+        anchor_w = math.ceil(anchor[2]) - math.floor(anchor[0])
+        anchor_h = math.ceil(anchor[3]) - math.floor(anchor[1])
+        zoom = max(1.0, min(zoom, width / max(anchor_w, 1), height / max(anchor_h, 1)))
+
+    win_w = min(width, max(1, round(width / zoom)))
+    win_h = min(height, max(1, round(height / zoom)))
+    if anchor is not None:
+        x0 = _window_origin(width, win_w, anchor[0], anchor[2])
+        y0 = _window_origin(height, win_h, anchor[1], anchor[3])
+    else:
+        x0 = _window_origin(width, win_w, None, None)
+        y0 = _window_origin(height, win_h, None, None)
+
+    crop = np.ascontiguousarray(image[y0 : y0 + win_h, x0 : x0 + win_w])
+    if len(boxes) == 0:
+        return crop, boxes.astype(dtype), np.zeros((0,), dtype=bool)
+
+    shifted = boxes - np.array([x0, y0, x0, y0], dtype=np.float64)
+    clipped = shifted.copy()
+    clipped[:, 0::2] = clipped[:, 0::2].clip(0, win_w)
+    clipped[:, 1::2] = clipped[:, 1::2].clip(0, win_h)
+    area = (boxes[:, 2] - boxes[:, 0]) * (boxes[:, 3] - boxes[:, 1])
+    visible = (clipped[:, 2] - clipped[:, 0]) * (clipped[:, 3] - clipped[:, 1])
+    keep = (area > 0) & (visible >= min_visible * area)
+    return crop, clipped[keep].astype(dtype), keep
+
+
 def mirror(image, boxes, prob=0.5):
     """Random horizontal flip."""
     _, width, _ = image.shape

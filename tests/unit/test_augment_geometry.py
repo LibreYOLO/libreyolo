@@ -3,8 +3,8 @@
 These complement the byte-exact golden fixtures in ``test_augment_parity.py``
 by pinning invariants that hold regardless of platform: the perspective knob
 is a no-op when zero, vertical flip is an involution, a full turn of the rot90
-helper is the identity, and the OBB angle remap agrees with a brute-force
-corner rotation.
+helper is the identity, the OBB angle remap agrees with a brute-force
+corner rotation, and the box-aware zoom never cuts the box it zooms to.
 """
 
 from __future__ import annotations
@@ -20,6 +20,7 @@ from libreyolo.data.augment.geometry import (
     mirror_vertical,
     random_affine,
     rot90_image_boxes,
+    zoom_to_boxes,
 )
 from libreyolo.data.obb import (
     normalize_obb_angle,
@@ -160,3 +161,149 @@ def test_obb_rot90_matches_bruteforce_corner_rotation(k):
     assert model_xywhr[0] == pytest.approx(brute_xywhr[0], abs=1e-3)
     assert model_xywhr[1] == pytest.approx(brute_xywhr[1], abs=1e-3)
     assert xywhr_iou(model_xywhr, brute_xywhr) > 0.999
+
+
+# --- zoom_to_boxes ------------------------------------------------------------
+
+
+def _coordinate_image(height, width):
+    """An image whose pixel at (y, x) holds ``[y, x]``: a crop tells where it was cut."""
+    ys, xs = np.mgrid[0:height, 0:width]
+    return np.stack([ys, xs], axis=-1).astype(np.int32)
+
+
+def _random_boxes(rng, count, height, width):
+    x1 = rng.uniform(0, width - 40, count)
+    y1 = rng.uniform(0, height - 40, count)
+    return np.stack(
+        [x1, y1, x1 + rng.uniform(8, 40, count), y1 + rng.uniform(8, 40, count)], axis=1
+    ).astype(np.float32)
+
+
+def test_zoom_of_one_is_the_identity():
+    img = _coordinate_image(60, 90)
+    boxes = np.array(
+        [[10.0, 12.0, 30.0, 40.0], [50.0, 5.0, 80.0, 25.0]], dtype=np.float32
+    )
+    random.seed(0)
+    crop, kept, keep = zoom_to_boxes(img, boxes.copy(), zoom_range=(1.0, 1.0))
+    assert np.array_equal(crop, img)
+    assert np.array_equal(kept, boxes) and kept.dtype == boxes.dtype
+    assert keep.all()
+
+
+@pytest.mark.parametrize("zoom_range", [(0.5, 2.0), (3.0, 2.0), (0.0, 0.0)])
+def test_zoom_refuses_a_range_that_is_not_a_zoom_in(zoom_range):
+    img = _coordinate_image(20, 20)
+    with pytest.raises(ValueError):
+        zoom_to_boxes(img, np.zeros((0, 4), dtype=np.float32), zoom_range=zoom_range)
+
+
+def test_zoom_window_is_the_image_over_the_zoom_in_its_aspect():
+    img = _coordinate_image(120, 80)
+    boxes = np.array([[30.0, 50.0, 40.0, 62.0]], dtype=np.float32)
+    for seed in range(20):
+        random.seed(seed)
+        crop, _kept, _keep = zoom_to_boxes(img, boxes.copy(), zoom_range=(4.0, 4.0))
+        assert crop.shape[:2] == (30, 20)
+        assert crop.flags["C_CONTIGUOUS"]
+
+
+def test_zoom_keeps_one_box_whole_and_moves_every_box_with_the_window():
+    rng = np.random.default_rng(0)
+    height, width = 200, 140
+    img = _coordinate_image(height, width)
+    for seed in range(200):
+        boxes = _random_boxes(rng, int(rng.integers(1, 5)), height, width)
+        random.seed(seed)
+        crop, kept, keep = zoom_to_boxes(img, boxes.copy(), zoom_range=(1.0, 6.0))
+        y0, x0 = (int(v) for v in crop[0, 0])
+        win_h, win_w = crop.shape[:2]
+        # The crop is the window the image says it is.
+        assert np.array_equal(crop, img[y0 : y0 + win_h, x0 : x0 + win_w])
+
+        shifted = boxes - np.array([x0, y0, x0, y0], dtype=np.float32)
+        inside = (
+            (shifted[:, 0] >= 0)
+            & (shifted[:, 1] >= 0)
+            & (shifted[:, 2] <= win_w)
+            & (shifted[:, 3] <= win_h)
+        )
+        assert inside.any(), "no box is wholly inside the window"
+        assert keep[inside].all()
+
+        clipped = shifted.copy()
+        clipped[:, 0::2] = clipped[:, 0::2].clip(0, win_w)
+        clipped[:, 1::2] = clipped[:, 1::2].clip(0, win_h)
+        assert np.allclose(kept, clipped[keep], atol=1e-4)
+
+
+def test_zoom_drops_a_box_the_window_leaves_too_little_of():
+    rng = np.random.default_rng(1)
+    height, width = 200, 140
+    img = _coordinate_image(height, width)
+    dropped = 0
+    for seed in range(200):
+        boxes = _random_boxes(rng, 4, height, width)
+        random.seed(seed)
+        crop, kept, keep = zoom_to_boxes(
+            img, boxes.copy(), zoom_range=(2.0, 5.0), min_visible=0.6
+        )
+        area = (boxes[:, 2] - boxes[:, 0]) * (boxes[:, 3] - boxes[:, 1])
+        y0, x0 = (int(v) for v in crop[0, 0])
+        win_h, win_w = crop.shape[:2]
+        shifted = boxes - np.array([x0, y0, x0, y0], dtype=np.float32)
+        seen_w = shifted[:, 2].clip(0, win_w) - shifted[:, 0].clip(0, win_w)
+        seen_h = shifted[:, 3].clip(0, win_h) - shifted[:, 1].clip(0, win_h)
+        visible = seen_w * seen_h / area
+        sure = np.abs(visible - 0.6) > 1e-3  # float32 boxes: skip the knife edge
+        assert np.array_equal(keep[sure], (visible >= 0.6)[sure])
+        assert len(kept) == keep.sum()
+        dropped += int((~keep).sum())
+    assert dropped > 0, "the sweep never exercised a dropped box"
+
+
+def test_zoom_gives_way_to_a_box_larger_than_the_window():
+    img = _coordinate_image(100, 100)
+    boxes = np.array([[10.2, 20.7, 70.4, 60.1]], dtype=np.float32)  # 61 px wide
+    for seed in range(50):
+        random.seed(seed)
+        crop, kept, keep = zoom_to_boxes(img, boxes.copy(), zoom_range=(4.0, 4.0))
+        win_h, win_w = crop.shape[:2]
+        assert keep.all()
+        assert win_w >= 61 and win_h >= 40
+        assert abs(win_w - win_h) <= 1, "the window lost the image's aspect"
+        assert kept[0, 0] >= 0 and kept[0, 1] >= 0
+        assert kept[0, 2] <= win_w and kept[0, 3] <= win_h
+        assert np.allclose(
+            kept[0, 2:] - kept[0, :2], boxes[0, 2:] - boxes[0, :2], atol=1e-4
+        )
+
+
+def test_zoom_without_boxes_crops_anywhere():
+    img = _coordinate_image(90, 60)
+    origins = set()
+    for seed in range(40):
+        random.seed(seed)
+        crop, kept, keep = zoom_to_boxes(
+            img, np.zeros((0, 4), dtype=np.float32), zoom_range=(3.0, 3.0)
+        )
+        assert crop.shape[:2] == (30, 20)
+        assert kept.shape == (0, 4) and keep.shape == (0,)
+        origins.add(tuple(int(v) for v in crop[0, 0]))
+    assert len(origins) > 10
+
+
+def test_zoom_draws_from_the_random_module_only():
+    img = _coordinate_image(120, 80)
+    boxes = np.array(
+        [[30.0, 50.0, 40.0, 62.0], [5.0, 5.0, 20.0, 30.0]], dtype=np.float32
+    )
+    outputs = []
+    for numpy_seed in (1, 2):
+        np.random.seed(numpy_seed)
+        random.seed(7)
+        crop, kept, keep = zoom_to_boxes(img, boxes.copy(), zoom_range=(1.0, 4.0))
+        outputs.append((crop, kept, keep))
+    for first, second in zip(*outputs):
+        assert np.array_equal(first, second)
