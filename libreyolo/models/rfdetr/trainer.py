@@ -1170,6 +1170,7 @@ class RFDETRTrainer(BaseTrainer):
                 oks_sigmas=self._resolve_oks_sigmas(),
                 save_plots=val_save_plots,
                 save_dir=str(self.save_dir / "val") if val_save_plots else None,
+                plot_samples=getattr(self.config, "plot_samples", 8),
             )
 
             original_model = self.wrapper_model.model

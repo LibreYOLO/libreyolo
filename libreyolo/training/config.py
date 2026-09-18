@@ -11,6 +11,7 @@ import yaml
 
 from libreyolo.utils.amp import normalize_amp_dtype
 from libreyolo.utils.image_size import normalize_imgsz
+from libreyolo.utils.plot_samples import validate_plot_samples
 
 logger = logging.getLogger(__name__)
 
@@ -314,6 +315,7 @@ class TrainConfig:
         self.class_balanced = bool(self.class_balanced)
         self.cls_pw = validate_class_weighting(self.cls_pw, self.class_weights)
         self.export_check = bool(self.export_check)
+        self.plot_samples = validate_plot_samples(self.plot_samples)
 
     @classmethod
     def from_kwargs(cls, **kwargs):

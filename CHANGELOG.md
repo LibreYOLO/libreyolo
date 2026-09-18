@@ -14,7 +14,8 @@ before 1.4.0 are documented in the
   `train()` and both CLI commands. `0` disables that plot, `-1` keeps every
   validated image, and the default stays at the previous hardcoded 8. It is a
   plotting budget only: every image is still scored, and the metrics are
-  unchanged at any setting.
+  unchanged at any setting. Pose validation honours the same budget, and an
+  invalid value is rejected when the training config is built.
 
 - ConvNeXt V2 classification: eight sizes from Atto to Huge, official checkpoint conversion, supervised fine-tuning, and ONNX/TorchScript export. Architecture code is MIT; official ImageNet-1K weights retain CC-BY-NC-4.0.
 
