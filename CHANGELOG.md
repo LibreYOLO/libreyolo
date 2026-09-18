@@ -64,6 +64,18 @@ before 1.4.0 are documented in the
   (`0.001` / `0.6` / `300`); reported mAP stays comparable across 1.5
   and 1.6 for the same unmarked weights.
 
+### Added
+
+- **Classification crops are configurable (#878).** `scale` sets the training
+  `RandomResizedCrop` area range (a float lower bound, as in the ecosystem, or
+  an explicit `(min, max)`); `crop_pct` sets the eval shorter-side resize ratio
+  before the center crop, on both `train()` and `val()` and on both CLI
+  commands. Defaults are unchanged: `scale=(0.5, 1.0)`, and `crop_pct` unset
+  keeps each model family's native value, which is what export records. An
+  explicit `crop_pct` deliberately makes validation diverge from the exported
+  eval pipeline. Detection families warn that they ignore both instead of
+  accepting them silently.
+
 ### Fixed
 
 - **Classification `auto_augment` and `erasing` are reachable from the CLI

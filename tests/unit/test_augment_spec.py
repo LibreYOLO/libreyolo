@@ -587,7 +587,7 @@ def test_ignored_aug_params_returns_config_field_names():
     assert "mosaic_prob" in ignored_aug_params("dfine")
     assert "flip_prob" not in ignored_aug_params("dfine")
     assert ignored_aug_params("yolox") == {
-        "auto_augment", "erasing", "mixup", "cutmix"
+        "auto_augment", "erasing", "mixup", "cutmix", "scale", "crop_pct"
     }
     assert ignored_aug_params(None) == set()
 
