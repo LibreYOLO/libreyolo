@@ -137,8 +137,10 @@ class TrainConfig:
     #     op (soft labels). At most one op runs per batch: MixUp is applied with
     #     probability ``mixup``, otherwise CutMix with probability ``cutmix``, so
     #     the two are additive and should sum to at most 1.
-    # Note: on the CLI, ``--mixup`` is the detection ``mixup_prob`` alias; the
-    # classification ``mixup`` knob is Python-API only (model.train(mixup=...)).
+    # Note: on the CLI, ``--mixup`` is task-aware: on a classification model it
+    # feeds this ``mixup`` field (default off), on detection models it is the
+    # ``mixup_prob`` alias. See libreyolo/cli/aliases.py and
+    # docs/classification_augmentation.md.
     auto_augment: Optional[str] = None
     erasing: float = 0.0
     mixup: float = 0.0
