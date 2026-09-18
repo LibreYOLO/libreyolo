@@ -27,18 +27,29 @@ from urllib.request import urlopen
 
 import torch
 from torch.utils.data import Dataset
-from torchvision import transforms
-from torchvision.transforms import InterpolationMode
 from torchvision.datasets import ImageFolder
 
+# The transform / collate recipe lives in the augment package next to the
+# detection recipes; these names are re-exported here for existing importers.
+from .augment.classify import (  # noqa: F401
+    AUTO_AUGMENT_POLICIES,
+    DEFAULT_CROP_PCT,
+    DEFAULT_CROP_SCALE,
+    DEFAULT_FLIP_PROB,
+    IMAGENET_MEAN,
+    IMAGENET_STD,
+    ClassifyAugKnobs,
+    ClassifyBatchMixer,
+    _ClassifyBatchMixer,
+    build_classify_collate,
+    build_classify_transforms,
+    classify_collate_fn,
+    normalize_auto_augment,
+    normalize_crop_scale,
+)
 from .utils import DATASETS_DIR
 
 logger = logging.getLogger(__name__)
-
-# ImageNet channel statistics — the standard normalization for ImageNet-style
-# classification backbones.
-IMAGENET_MEAN = (0.485, 0.456, 0.406)
-IMAGENET_STD = (0.229, 0.224, 0.225)
 
 IMAGE_EXTENSIONS = (".jpg", ".jpeg", ".png", ".bmp", ".webp", ".tif", ".tiff")
 
@@ -170,162 +181,6 @@ def get_class_names(dataset_root: str | Path, split: str = "train") -> List[str]
     return classes
 
 
-def _interp_mode(interpolation) -> InterpolationMode:
-    if isinstance(interpolation, InterpolationMode):
-        return interpolation
-    return {
-        "bilinear": InterpolationMode.BILINEAR,
-        "bicubic": InterpolationMode.BICUBIC,
-        "nearest": InterpolationMode.NEAREST,
-    }.get(str(interpolation).lower(), InterpolationMode.BILINEAR)
-
-
-# Valid values for the ``auto_augment`` knob, mapped to their torchvision class.
-AUTO_AUGMENT_POLICIES = ("randaugment", "autoaugment", "augmix")
-
-#: Default ``RandomResizedCrop`` area range for classification training.
-DEFAULT_CROP_SCALE = (0.5, 1.0)
-
-#: Default shorter-side resize ratio for the deterministic eval crop.
-DEFAULT_CROP_PCT = 0.875
-
-
-def _build_auto_augment(name: str, mode: InterpolationMode):
-    """Return the torchvision auto-augment transform for ``name``.
-
-    ``name`` is validated against :data:`AUTO_AUGMENT_POLICIES`; unknown values
-    raise a ``ValueError`` listing the accepted policies. These transforms
-    operate on PIL / uint8 images, so they are inserted before ``ToTensor``.
-    """
-    key = str(name).lower()
-    if key == "randaugment":
-        return transforms.RandAugment(interpolation=mode)
-    if key == "autoaugment":
-        return transforms.AutoAugment(interpolation=mode)
-    if key == "augmix":
-        return transforms.AugMix(interpolation=mode)
-    raise ValueError(
-        f"Unknown auto_augment {name!r}. Valid values are "
-        f"{', '.join(AUTO_AUGMENT_POLICIES)} or None."
-    )
-
-
-def normalize_crop_scale(scale) -> tuple[float, float]:
-    """Normalize the classification ``scale`` knob to a ``(min, max)`` pair.
-
-    Accepts the ecosystem spelling (a single float, the lower bound, upper
-    bound implied 1.0) or an explicit two-value sequence. Raises ``ValueError``
-    for anything outside ``0 < min <= max <= 1``.
-    """
-    if isinstance(scale, (int, float)):
-        pair = (float(scale), 1.0)
-    else:
-        values = tuple(float(v) for v in scale)
-        if len(values) != 2:
-            raise ValueError(
-                f"scale must be a float or two values (min, max), got {scale!r}"
-            )
-        pair = values
-    lo, hi = pair
-    if not 0.0 < lo <= hi <= 1.0:
-        raise ValueError(
-            f"scale must satisfy 0 < min <= max <= 1, got ({lo}, {hi})"
-        )
-    return pair
-
-
-def build_classify_transforms(
-    imgsz: int,
-    augment: bool,
-    *,
-    mean=IMAGENET_MEAN,
-    std=IMAGENET_STD,
-    crop_pct: float = DEFAULT_CROP_PCT,
-    interpolation="bilinear",
-    auto_augment: str | None = None,
-    erasing: float = 0.0,
-    square_resize: bool = False,
-    scale=DEFAULT_CROP_SCALE,
-):
-    """Build train/val image transforms for classification.
-
-    Training uses a random-resized crop plus horizontal flip; validation uses a
-    deterministic shorter-side resize (``floor(imgsz / crop_pct)``) and center
-    crop. ``crop_pct`` and ``interpolation`` let a model family match its native
-    eval pipeline (e.g. bicubic + 0.95 crop) so ``model.val()`` agrees with
-    ``model.predict()``. Normalization defaults to ImageNet stats; families with
-    their own preprocessing (e.g. CLIP, which uses its own mean/std + bicubic and
-    a 1.0 crop ratio) override ``mean``/``std``/``interpolation``/``crop_pct``.
-
-    ``scale`` is the ``RandomResizedCrop`` area range for training. It accepts
-    the ecosystem spelling (a single float, the lower bound) or an explicit
-    ``(min, max)`` pair; the default ``(0.5, 1.0)`` is unchanged. Lower it for a
-    more aggressive crop, raise it (e.g. ``scale=0.9``) when the subject fills
-    the frame and cropping it away costs accuracy.
-
-    Two optional training-only knobs strengthen the train pipeline (both default
-    off, so the composition is unchanged unless requested):
-
-    - ``auto_augment``: one of ``"randaugment"``, ``"autoaugment"``,
-      ``"augmix"`` (or ``None``). Inserted after the horizontal flip and before
-      ``ToTensor`` since these transforms act on PIL / uint8 images.
-    - ``erasing``: probability for ``RandomErasing``, appended after
-      ``Normalize`` (tensor space, the standard placement). Must satisfy
-      ``0 <= erasing < 1``.
-
-    Both only affect the ``augment=True`` branch; the val pipeline is untouched.
-    """
-    import math
-
-    mode = _interp_mode(interpolation)
-    normalize = transforms.Normalize(mean=mean, std=std)
-    if augment and square_resize:
-        # The square-resize path is a val-only pipeline; combining it with the
-        # random-resized-crop train pipeline is not defined. Fail loudly rather
-        # than silently ignoring square_resize (the augment branch returns first).
-        raise ValueError(
-            "square_resize=True is only supported with augment=False "
-            "(it is a deterministic validation transform)."
-        )
-    if augment:
-        ops = [
-            transforms.RandomResizedCrop(
-                imgsz, scale=normalize_crop_scale(scale), interpolation=mode
-            ),
-            transforms.RandomHorizontalFlip(),
-        ]
-        if auto_augment is not None:
-            ops.append(_build_auto_augment(auto_augment, mode))
-        ops.append(transforms.ToTensor())
-        ops.append(normalize)
-        if erasing:
-            if not (0.0 <= erasing < 1.0):
-                raise ValueError(
-                    f"erasing must be in [0, 1), got {erasing}."
-                )
-            ops.append(transforms.RandomErasing(p=erasing, inplace=True))
-        return transforms.Compose(ops)
-    if square_resize:
-        # Squash to a fixed square (no aspect-preserving resize + center crop).
-        # SigLIP's native eval pipeline resizes directly to (imgsz, imgsz).
-        return transforms.Compose(
-            [
-                transforms.Resize((imgsz, imgsz), interpolation=mode),
-                transforms.ToTensor(),
-                normalize,
-            ]
-        )
-    resize = int(math.floor(imgsz / crop_pct))
-    return transforms.Compose(
-        [
-            transforms.Resize(resize, interpolation=mode),
-            transforms.CenterCrop(imgsz),
-            transforms.ToTensor(),
-            normalize,
-        ]
-    )
-
-
 class ClassifyDataset(Dataset):
     """ImageFolder-backed classification dataset returning ``(image, label)``.
 
@@ -349,7 +204,9 @@ class ClassifyDataset(Dataset):
         if not split_dir.is_dir():
             raise FileNotFoundError(f"Split directory not found: {split_dir}")
 
-        transform = build_classify_transforms(imgsz, augment, **(transform_kwargs or {}))
+        self.augment = augment
+        self._transform_kwargs: Dict = dict(transform_kwargs or {})
+        transform = build_classify_transforms(imgsz, augment, **self._transform_kwargs)
         self._impl = ImageFolder(str(split_dir), transform=transform)
 
         # Pin the label mapping to the train split when supplied so val labels
@@ -384,78 +241,30 @@ class ClassifyDataset(Dataset):
             name for name, _ in sorted(self.class_to_idx.items(), key=lambda kv: kv[1])
         ]
 
+    @property
+    def transform(self):
+        """The active torchvision transform (train or eval pipeline)."""
+        return self._impl.transform
+
+    def close_strong_aug(self) -> None:
+        """Switch off the strong training augmentations in place.
+
+        Rebuilds the train transform with ``auto_augment`` and ``erasing`` off
+        while keeping the crop and flip geometry, mirroring ``close_mosaic`` on
+        the detection datasets. The trainer calls this at the ``no_aug_epochs``
+        boundary; it is a no-op for eval datasets.
+        """
+        if not self.augment:
+            return
+        kwargs = dict(self._transform_kwargs)
+        kwargs.update(
+            {k: v for k, v in ClassifyAugKnobs.STRONG_OFF.items() if k in ("auto_augment", "erasing")}
+        )
+        self._transform_kwargs = kwargs
+        self._impl.transform = build_classify_transforms(self.imgsz, True, **kwargs)
+
     def __len__(self) -> int:
         return len(self._impl)
 
     def __getitem__(self, idx: int) -> Tuple[torch.Tensor, int]:
         return self._impl[idx]
-
-
-def classify_collate_fn(batch):
-    """Collate ``(image, label)`` pairs into the trainer's 4-tuple batch shape.
-
-    Returns ``(imgs, labels, img_infos, img_ids)`` so the shared training loop
-    (which unpacks a 4- or 5-tuple) can drive classification unchanged: ``imgs``
-    is ``[B,3,H,W]`` float and ``labels`` is a ``[B]`` long tensor that the
-    classification head consumes as cross-entropy targets.
-    """
-    imgs = torch.stack([item[0] for item in batch], dim=0)
-    labels = torch.tensor([int(item[1]) for item in batch], dtype=torch.long)
-    img_infos = [{} for _ in batch]
-    img_ids = list(range(len(batch)))
-    return imgs, labels, img_infos, img_ids
-
-
-class _ClassifyBatchMixer:
-    """Batch-level MixUp / CutMix wrapper for the classification collate path.
-
-    Wraps :func:`classify_collate_fn`, then with the configured probability
-    applies torchvision's ``v2.MixUp`` / ``v2.CutMix`` to the stacked batch.
-    These ops need ``num_classes`` and emit soft (class-probability) label
-    tensors of shape ``[B, num_classes]`` whose rows sum to 1, which the
-    cross-entropy criterion consumes directly.
-
-    Probability semantics: at most one op is applied per batch, from a single
-    draw ``r``. MixUp is applied when ``r < mixup``; otherwise CutMix is applied
-    when ``r < mixup + cutmix``. So ``mixup`` is honored exactly as MixUp's
-    per-batch probability and ``cutmix`` as CutMix's (the two are additive and
-    should sum to at most 1). With a single op enabled this reduces to applying
-    that op with its own probability. When neither is enabled the plain collate
-    is used (see :func:`build_classify_collate`), so default behavior is
-    unchanged.
-    """
-
-    def __init__(self, num_classes: int, mixup: float = 0.0, cutmix: float = 0.0):
-        from torchvision.transforms import v2
-
-        self._mixup = v2.MixUp(num_classes=num_classes) if mixup > 0 else None
-        self._cutmix = v2.CutMix(num_classes=num_classes) if cutmix > 0 else None
-        if self._mixup is None and self._cutmix is None:
-            raise ValueError("_ClassifyBatchMixer needs mixup>0 or cutmix>0.")
-        self._mixup_p = float(mixup)
-        self._cutmix_p = float(cutmix)
-
-    def __call__(self, batch):
-        imgs, labels, img_infos, img_ids = classify_collate_fn(batch)
-        r = float(torch.rand(1).item())
-        if self._mixup is not None and r < self._mixup_p:
-            imgs, labels = self._mixup(imgs, labels)
-        elif self._cutmix is not None and r < self._mixup_p + self._cutmix_p:
-            imgs, labels = self._cutmix(imgs, labels)
-        return imgs, labels, img_infos, img_ids
-
-
-def build_classify_collate(num_classes: int, mixup: float = 0.0, cutmix: float = 0.0):
-    """Return the classification collate function for the given mixing knobs.
-
-    With ``mixup == 0`` and ``cutmix == 0`` this returns :func:`classify_collate_fn`
-    unchanged (byte-identical batches, so default training is unaffected).
-    Otherwise it returns a :class:`_ClassifyBatchMixer` that applies MixUp / CutMix
-    at the batch level and produces soft labels.
-    """
-    for name, value in (("mixup", mixup), ("cutmix", cutmix)):
-        if not (0.0 <= value <= 1.0):
-            raise ValueError(f"{name} must be in [0, 1], got {value}.")
-    if mixup == 0 and cutmix == 0:
-        return classify_collate_fn
-    return _ClassifyBatchMixer(num_classes, mixup=mixup, cutmix=cutmix)
