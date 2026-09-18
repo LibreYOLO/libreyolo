@@ -183,6 +183,12 @@ def _interp_mode(interpolation) -> InterpolationMode:
 # Valid values for the ``auto_augment`` knob, mapped to their torchvision class.
 AUTO_AUGMENT_POLICIES = ("randaugment", "autoaugment", "augmix")
 
+#: Default ``RandomResizedCrop`` area range for classification training.
+DEFAULT_CROP_SCALE = (0.5, 1.0)
+
+#: Default shorter-side resize ratio for the deterministic eval crop.
+DEFAULT_CROP_PCT = 0.875
+
 
 def _build_auto_augment(name: str, mode: InterpolationMode):
     """Return the torchvision auto-augment transform for ``name``.
@@ -204,17 +210,42 @@ def _build_auto_augment(name: str, mode: InterpolationMode):
     )
 
 
+def normalize_crop_scale(scale) -> tuple[float, float]:
+    """Normalize the classification ``scale`` knob to a ``(min, max)`` pair.
+
+    Accepts the ecosystem spelling (a single float, the lower bound, upper
+    bound implied 1.0) or an explicit two-value sequence. Raises ``ValueError``
+    for anything outside ``0 < min <= max <= 1``.
+    """
+    if isinstance(scale, (int, float)):
+        pair = (float(scale), 1.0)
+    else:
+        values = tuple(float(v) for v in scale)
+        if len(values) != 2:
+            raise ValueError(
+                f"scale must be a float or two values (min, max), got {scale!r}"
+            )
+        pair = values
+    lo, hi = pair
+    if not 0.0 < lo <= hi <= 1.0:
+        raise ValueError(
+            f"scale must satisfy 0 < min <= max <= 1, got ({lo}, {hi})"
+        )
+    return pair
+
+
 def build_classify_transforms(
     imgsz: int,
     augment: bool,
     *,
     mean=IMAGENET_MEAN,
     std=IMAGENET_STD,
-    crop_pct: float = 0.875,
+    crop_pct: float = DEFAULT_CROP_PCT,
     interpolation="bilinear",
     auto_augment: str | None = None,
     erasing: float = 0.0,
     square_resize: bool = False,
+    scale=DEFAULT_CROP_SCALE,
 ):
     """Build train/val image transforms for classification.
 
@@ -225,6 +256,12 @@ def build_classify_transforms(
     ``model.predict()``. Normalization defaults to ImageNet stats; families with
     their own preprocessing (e.g. CLIP, which uses its own mean/std + bicubic and
     a 1.0 crop ratio) override ``mean``/``std``/``interpolation``/``crop_pct``.
+
+    ``scale`` is the ``RandomResizedCrop`` area range for training. It accepts
+    the ecosystem spelling (a single float, the lower bound) or an explicit
+    ``(min, max)`` pair; the default ``(0.5, 1.0)`` is unchanged. Lower it for a
+    more aggressive crop, raise it (e.g. ``scale=0.9``) when the subject fills
+    the frame and cropping it away costs accuracy.
 
     Two optional training-only knobs strengthen the train pipeline (both default
     off, so the composition is unchanged unless requested):
@@ -252,7 +289,9 @@ def build_classify_transforms(
         )
     if augment:
         ops = [
-            transforms.RandomResizedCrop(imgsz, scale=(0.5, 1.0), interpolation=mode),
+            transforms.RandomResizedCrop(
+                imgsz, scale=normalize_crop_scale(scale), interpolation=mode
+            ),
             transforms.RandomHorizontalFlip(),
         ]
         if auto_augment is not None:

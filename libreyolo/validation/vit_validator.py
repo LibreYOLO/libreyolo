@@ -13,5 +13,5 @@ class ViTClassifyValidator(ClassifyValidator):
             "mean": (0.5, 0.5, 0.5),
             "std": (0.5, 0.5, 0.5),
             "interpolation": "bicubic",
-            "crop_pct": 0.9,
+            "crop_pct": self._resolve_crop_pct(0.9),
         }
