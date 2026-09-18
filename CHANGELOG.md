@@ -75,6 +75,16 @@ before 1.4.0 are documented in the
   and `cutmix` knobs stay Python-only: `mixup` on the CLI is the detection
   `mixup_prob` alias.
 
+- **Pose label lines are no longer dropped anonymously (#873).** When
+  `YOLOPoseDataset` skips a label line it now names the file, the line
+  number and the real reason, and quotes the first 5 offending lines.
+  A non-numeric field is reported as such instead of being blamed on the
+  field count, and a wrong field count says how many keypoints the line
+  actually carries and whether it matches the other `kpt_shape` keypoint
+  dim. Pose validation warns about ground-truth lines it drops instead of
+  discarding them in silence. Accepted layouts are unchanged:
+  `kpt_shape: [K, 2]` (xy) and `kpt_shape: [K, 3]` (xyv).
+
 - **Training monitor no longer reports epochs off by one (#829).** The status
   writer counted the one-based epoch number as a zero-based index, so
   `status.json` claimed one more completed epoch than had run, and the monitor

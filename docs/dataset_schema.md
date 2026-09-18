@@ -457,7 +457,9 @@ Label row:
 
 Field count is exactly `5 + K * D`, where `D` is the second `kpt_shape` value.
 Keypoint `x y` values are normalized. Visibility `v`, when present, is `0`,
-`1`, or `2`.
+`1`, or `2`. A row that does not match is skipped on its own, the rest of the
+file is kept, and the loader warns with the label file, the line number and
+the reason.
 
 ## obb
 
