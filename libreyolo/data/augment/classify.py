@@ -130,6 +130,25 @@ def _probability(value, name: str, *, exclusive_upper: bool = False) -> float:
     return p
 
 
+def validate_mix_probabilities(mixup, cutmix) -> tuple[float, float]:
+    """Validate the batch-mixing knobs together.
+
+    The mixer takes one random draw per batch: MixUp fires when
+    ``r < mixup``, otherwise CutMix when ``r < mixup + cutmix``. A pair whose
+    sum exceeds 1 would silently run CutMix with less than the requested
+    probability, so it is rejected here instead.
+    """
+    mixup_p = _probability(mixup, "mixup")
+    cutmix_p = _probability(cutmix, "cutmix")
+    if mixup_p + cutmix_p > 1.0 + 1e-9:
+        raise ValueError(
+            "mixup + cutmix must be <= 1 (one op runs per batch, so CutMix "
+            f"would only fire with probability {max(0.0, 1.0 - mixup_p):.3g}); "
+            f"got mixup={mixup_p}, cutmix={cutmix_p}"
+        )
+    return mixup_p, cutmix_p
+
+
 def build_classify_transforms(
     imgsz: int,
     augment: bool,
@@ -263,8 +282,9 @@ class ClassifyAugKnobs:
         older configs work. Invalid values raise ``ValueError`` here, before
         any data is loaded.
         """
-        mixup = _probability(getattr(config, "mixup", 0.0), "mixup")
-        cutmix = _probability(getattr(config, "cutmix", 0.0), "cutmix")
+        mixup, cutmix = validate_mix_probabilities(
+            getattr(config, "mixup", 0.0), getattr(config, "cutmix", 0.0)
+        )
         return cls(
             scale=normalize_crop_scale(getattr(config, "scale", DEFAULT_CROP_SCALE)),
             flip_prob=_probability(getattr(config, "flip_prob", DEFAULT_FLIP_PROB), "flip_prob"),
@@ -326,10 +346,10 @@ class ClassifyBatchMixer:
     Probability semantics: at most one op is applied per batch, from a single
     draw ``r``. MixUp is applied when ``r < mixup``; otherwise CutMix is applied
     when ``r < mixup + cutmix``. So ``mixup`` is honored exactly as MixUp's
-    per-batch probability and ``cutmix`` as CutMix's (the two are additive, so
-    CutMix effectively fires with probability ``min(cutmix, 1 - mixup)``). With
-    a single op enabled this reduces to applying that op with its own
-    probability.
+    per-batch probability and ``cutmix`` as CutMix's. The two are additive, so
+    :func:`validate_mix_probabilities` rejects pairs whose sum exceeds 1 rather
+    than silently truncating CutMix. With a single op enabled this reduces to
+    applying that op with its own probability.
 
     :meth:`close_strong_aug` turns mixing off in place (plain hard-label
     batches from then on); the trainer calls it at the ``no_aug_epochs``
@@ -376,8 +396,7 @@ def build_classify_collate(num_classes: int, mixup: float = 0.0, cutmix: float =
     Otherwise it returns a :class:`ClassifyBatchMixer` that applies MixUp / CutMix
     at the batch level and produces soft labels.
     """
-    mixup = _probability(mixup, "mixup")
-    cutmix = _probability(cutmix, "cutmix")
+    mixup, cutmix = validate_mix_probabilities(mixup, cutmix)
     if mixup == 0 and cutmix == 0:
         return classify_collate_fn
     return ClassifyBatchMixer(num_classes, mixup=mixup, cutmix=cutmix)
@@ -397,4 +416,5 @@ __all__ = [
     "classify_collate_fn",
     "normalize_auto_augment",
     "normalize_crop_scale",
+    "validate_mix_probabilities",
 ]

@@ -23,7 +23,7 @@ historical pipeline exactly; nothing changes unless a knob is set.
 | `auto_augment` | `None` | train, strong | One of `randaugment`, `autoaugment`, `augmix`. Runs in PIL space before `ToTensor`. |
 | `erasing` | `0.0` | train, strong | `RandomErasing` probability in `[0, 1)`, applied after normalization. |
 | `mixup` | `0.0` | train, strong | Batch MixUp probability (soft labels). On a classification model the CLI `mixup` is this knob; on detection models it is `mixup_prob`. |
-| `cutmix` | `0.0` | train, strong | Batch CutMix probability (soft labels). At most one of MixUp/CutMix runs per batch. |
+| `cutmix` | `0.0` | train, strong | Batch CutMix probability (soft labels). One op runs per batch, so `mixup + cutmix` must be at most 1; larger sums are rejected. |
 | `crop_pct` | family value (`0.875` when the family has none) | eval | Shorter-side resize ratio before `CenterCrop`; `resize = floor(imgsz / crop_pct)`. Also a `val()` argument. |
 
 Train pipeline, in order: `RandomResizedCrop(imgsz, scale)`,
