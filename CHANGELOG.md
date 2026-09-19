@@ -9,6 +9,17 @@ before 1.4.0 are documented in the
 
 ### Added
 
+- **Classification validation reports macro precision, recall and F1 (#852).**
+  `ClassifyValidator` accumulates a confusion matrix and adds
+  `metrics/precision`, `metrics/recall` and `metrics/f1` next to the top-1 and
+  top-5 accuracies: the unweighted mean over classes present in the validation
+  targets, with precision 0 for a class that is never predicted. `fitness` and
+  best-checkpoint selection stay top-1, and the existing keys are unchanged.
+  `libreyolo val` prints the new values and reports them in `--json` as
+  `precision`, `recall` and `f1`. Anything iterating classification metric keys
+  (custom loggers, `results.csv` headers) sees three new columns. Definition:
+  `docs/classification_training.md`.
+
 - **Validation sample-plot count is configurable (#830).** `plot_samples` sets
   how many validated images appear in the sample-image plot, on `val()`,
   `train()` and both CLI commands. `0` disables that plot, `-1` keeps every
