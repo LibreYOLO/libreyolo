@@ -1,8 +1,9 @@
 """Image-classification validator for LibreYOLO.
 
 Computes top-1 and top-5 accuracy, plus macro-averaged precision, recall and
-F1 from a confusion matrix, over an ImageFolder-style validation split,
-reusing the :class:`BaseValidator` template (setup -> iterate -> finalize).
+F1 from per-class confusion counts (the confusion matrix's diagonal and
+marginals), over an ImageFolder-style validation split, reusing the
+:class:`BaseValidator` template (setup -> iterate -> finalize).
 """
 
 from __future__ import annotations
@@ -34,14 +35,19 @@ logger = logging.getLogger(__name__)
 class ClassifyValidator(ValidationLossMixin, BaseValidator):
     """Top-1/top-5 accuracy validator for the classification task.
 
-    Also reports macro-averaged precision, recall and F1 from a confusion
-    matrix accumulated over the validation split.
+    Also reports macro-averaged precision, recall and F1 from per-class
+    confusion counts (the confusion matrix's diagonal and marginals)
+    accumulated over the validation split.
     """
 
     task = "classify"
-    # Confusion matrix, rows = targets, cols = top-1 predictions. Class-level
-    # default so metric code is safe on instances that skip _init_metrics.
-    _confusion: Optional[torch.Tensor] = None
+    # Per-class confusion counts: the confusion matrix's diagonal and its
+    # marginals. Kept as three length-nc vectors so memory stays linear in the
+    # class count. Class-level defaults keep metric code safe on instances
+    # that skip _init_metrics.
+    _class_tp: torch.Tensor | None = None
+    _class_pred: torch.Tensor | None = None
+    _class_target: torch.Tensor | None = None
 
     def __init__(
         self,
@@ -176,7 +182,9 @@ class ClassifyValidator(ValidationLossMixin, BaseValidator):
         self._top1_correct = 0
         self._top5_correct = 0
         self._total = 0
-        self._confusion = None
+        self._class_tp = None
+        self._class_pred = None
+        self._class_target = None
         self._reset_validation_loss()
 
     def _preprocess_batch(self, batch: Any) -> tuple:
@@ -219,11 +227,18 @@ class ClassifyValidator(ValidationLossMixin, BaseValidator):
         # range (dataset/head mismatch) are skipped here; they already count
         # as wrong for top-1 above.
         pred = topk[:, 0]
-        if self._confusion is None:
-            self._confusion = torch.zeros(num_classes, num_classes, dtype=torch.long)
+        if self._class_tp is None:
+            self._class_tp = torch.zeros(num_classes, dtype=torch.long)
+            self._class_pred = torch.zeros(num_classes, dtype=torch.long)
+            self._class_target = torch.zeros(num_classes, dtype=torch.long)
         valid = (targets >= 0) & (targets < num_classes)
-        flat = targets[valid].long() * num_classes + pred[valid].long()
-        self._confusion.view(-1).index_add_(0, flat, torch.ones_like(flat))
+        target_idx = targets[valid].long()
+        pred_idx = pred[valid].long()
+        ones = torch.ones_like(target_idx)
+        self._class_target.index_add_(0, target_idx, ones)
+        self._class_pred.index_add_(0, pred_idx, ones)
+        hit = target_idx == pred_idx
+        self._class_tp.index_add_(0, target_idx[hit], ones[hit])
 
     def _compute_metrics(self) -> Dict[str, float]:
         total = max(self._total, 1)
@@ -241,25 +256,24 @@ class ClassifyValidator(ValidationLossMixin, BaseValidator):
         }
 
     def _macro_precision_recall_f1(self) -> tuple[float, float, float]:
-        """Macro-averaged precision, recall and F1 over classes present in the targets.
+        """Macro-averaged precision, recall and F1 from per-class confusion counts.
 
         Per class: precision = tp / (tp + fp) (0 when the class was never
         predicted), recall = tp / (tp + fn), f1 = 2PR / (P + R) (0 when both
         are 0). Classes with no ground-truth samples are excluded from the
         mean. Returns zeros when nothing was accumulated.
         """
-        if self._confusion is None:
+        if self._class_tp is None:
             return 0.0, 0.0, 0.0
-        confusion = self._confusion.double()
-        tp = confusion.diag()
-        fp = confusion.sum(dim=0) - tp
-        fn = confusion.sum(dim=1) - tp
-        present = confusion.sum(dim=1) > 0
+        tp = self._class_tp.double()
+        predicted = self._class_pred.double()
+        support = self._class_target.double()
+        present = support > 0
         if not bool(present.any()):
             return 0.0, 0.0, 0.0
         zeros = torch.zeros_like(tp)
-        precision = torch.where(tp + fp > 0, tp / (tp + fp).clamp(min=1), zeros)
-        recall = torch.where(tp + fn > 0, tp / (tp + fn).clamp(min=1), zeros)
+        precision = torch.where(predicted > 0, tp / predicted.clamp(min=1), zeros)
+        recall = torch.where(support > 0, tp / support.clamp(min=1), zeros)
         denom = precision + recall
         f1 = torch.where(
             denom > 0, 2 * precision * recall / denom.clamp(min=1e-12), zeros

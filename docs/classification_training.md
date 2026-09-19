@@ -97,14 +97,17 @@ validation evidence is recorded with the change, separately from this API.
 
 Classification validation reports `metrics/accuracy_top1`,
 `metrics/accuracy_top5`, and macro-averaged `metrics/precision`,
-`metrics/recall` and `metrics/f1`. The macro metrics come from a confusion
-matrix accumulated over the validation split: per class, precision is
-`tp / (tp + fp)` (zero when the class is never predicted), recall is
-`tp / (tp + fn)`, and F1 is their harmonic mean. The reported value is the
-unweighted mean over classes that appear in the validation targets, so a rare
-class counts as much as a common one. Classes absent from the validation
-targets are excluded from the mean, so the values can differ from a macro
-average computed over the union of target and predicted labels, for example
-when validating a 1000-class head on a subset split. `fitness` and
-best-checkpoint selection remain top-1 accuracy. `libreyolo val --json`
-reports the same values as `precision`, `recall` and `f1`.
+`metrics/recall` and `metrics/f1`. The macro metrics come from per-class
+confusion counts accumulated over the validation split (true positives,
+predictions and targets per class, which are the confusion matrix's diagonal
+and marginals), so memory stays linear in the number of classes: per class,
+precision is `tp / (tp + fp)` (zero when the class is never predicted),
+recall is `tp / (tp + fn)`, and F1 is their harmonic mean. The reported
+value is the unweighted mean over classes that appear in the validation
+targets, so a rare class counts as much as a common one. Classes absent
+from the validation targets are excluded from the mean, so the values can
+differ from a macro average computed over the union of target and
+predicted labels, for example when validating a 1000-class head on a
+subset split. `fitness` and best-checkpoint selection remain top-1 accuracy.
+`libreyolo val --json` reports the same values as `precision`, `recall` and
+`f1`.

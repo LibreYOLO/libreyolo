@@ -378,7 +378,29 @@ def test_classify_validator_confusion_accumulates_across_batches_and_repeats():
     # Batch 2: targets [1], preds [2].
     validator._update_metrics(_one_hot_logits([2], 3), torch.tensor([1]), None)
 
-    assert validator._confusion.tolist() == [[3, 0, 0], [0, 1, 1], [0, 0, 0]]
+    assert validator._class_target.tolist() == [3, 2, 0]
+    assert validator._class_pred.tolist() == [3, 1, 1]
+    assert validator._class_tp.tolist() == [3, 1, 0]
+
+
+def test_classify_validator_confusion_memory_is_linear_in_class_count():
+    """Per-class vectors, not an nc x nc matrix: memory must stay linear in nc.
+
+    Regression guard for the quadratic confusion-matrix allocation (#852
+    follow-up): a dense nc x nc int64 matrix costs ~3.5 GB at ImageNet-21k
+    width. Every tensor the validator stores must be at most length nc.
+    """
+    validator = _bare_classify_validator()
+    nc = 4096
+
+    validator._update_metrics(_one_hot_logits([0, 5], nc), torch.tensor([0, 7]), None)
+
+    for name, value in vars(validator).items():
+        if isinstance(value, torch.Tensor):
+            assert value.numel() <= nc, f"{name} has {value.numel()} elements"
+
+    metrics = validator._compute_metrics()
+    assert metrics["metrics/recall"] == pytest.approx(0.5)
 
 
 def test_classify_validator_macro_metrics_are_zero_without_samples():
@@ -414,7 +436,9 @@ def test_classify_validator_ignores_out_of_range_targets_in_confusion():
     metrics = validator._compute_metrics()
 
     assert metrics["metrics/accuracy_top1"] == pytest.approx(0.5)
-    assert validator._confusion.tolist() == [[1, 0], [0, 0]]
+    assert validator._class_target.tolist() == [1, 0]
+    assert validator._class_pred.tolist() == [1, 0]
+    assert validator._class_tp.tolist() == [1, 0]
     assert metrics["metrics/precision"] == pytest.approx(1.0)
     assert metrics["metrics/recall"] == pytest.approx(1.0)
     assert metrics["metrics/f1"] == pytest.approx(1.0)
