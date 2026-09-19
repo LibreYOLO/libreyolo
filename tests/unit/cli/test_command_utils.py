@@ -686,6 +686,121 @@ def test_val_json_reports_classification_metrics(monkeypatch):
     assert "box_metrics" not in data
 
 
+def test_val_json_reports_classification_macro_metrics(monkeypatch):
+    app = _make_app([("val", val.val_cmd), ("info", special.info_cmd)])
+    captured = {}
+
+    class _ClassifyModel:
+        FAMILY = "yolo9"
+        task = "classify"
+        size = "t"
+        device = "cpu"
+
+        def val(self, **kwargs):
+            captured.update(kwargs)
+            return {
+                "metrics/accuracy_top1": 0.81234,
+                "metrics/accuracy_top5": 0.98765,
+                "metrics/precision": 0.71234,
+                "metrics/recall": 0.65432,
+                "metrics/f1": 0.68111,
+            }
+
+    monkeypatch.setattr(
+        "libreyolo.cli.commands.val.resolve_model_or_exit",
+        lambda out, model: model,
+    )
+    monkeypatch.setattr(
+        "libreyolo.cli.commands.val.load_model_or_exit",
+        lambda out, model, model_path, device: _ClassifyModel(),
+    )
+    monkeypatch.setattr(
+        "libreyolo.utils.general.increment_path",
+        lambda path, exist_ok=False, mkdir=False: Path(path),
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "val",
+            "data=smoke10",
+            "model=LibreYOLO9t-cls.pt",
+            "imgsz=224",
+            "batch=8",
+            "workers=0",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert captured["data"] == "smoke10"
+    assert captured["imgsz"] == 224
+    assert captured["batch"] == 8
+    assert captured["workers"] == 0
+    data = json.loads(result.stdout)
+    assert data["model_family"] == "yolo9"
+    assert data["metrics"] == {
+        "accuracy_top1": 0.8123,
+        "accuracy_top5": 0.9877,
+        "precision": 0.7123,
+        "recall": 0.6543,
+        "f1": 0.6811,
+    }
+    assert "mAP50" not in data["metrics"]
+    assert "box_metrics" not in data
+
+
+def test_val_text_reports_classification_macro_metrics(monkeypatch):
+    app = _make_app([("val", val.val_cmd), ("info", special.info_cmd)])
+    captured = {}
+
+    class _ClassifyModel:
+        FAMILY = "yolo9"
+        task = "classify"
+        size = "t"
+        device = "cpu"
+
+        def val(self, **kwargs):
+            captured.update(kwargs)
+            return {
+                "metrics/accuracy_top1": 0.81234,
+                "metrics/accuracy_top5": 0.98765,
+                "metrics/precision": 0.71234,
+                "metrics/recall": 0.65432,
+                "metrics/f1": 0.68111,
+            }
+
+    monkeypatch.setattr(
+        "libreyolo.cli.commands.val.resolve_model_or_exit",
+        lambda out, model: model,
+    )
+    monkeypatch.setattr(
+        "libreyolo.cli.commands.val.load_model_or_exit",
+        lambda out, model, model_path, device: _ClassifyModel(),
+    )
+    monkeypatch.setattr(
+        "libreyolo.utils.general.increment_path",
+        lambda path, exist_ok=False, mkdir=False: Path(path),
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "val",
+            "data=smoke10",
+            "model=LibreYOLO9t-cls.pt",
+            "imgsz=224",
+            "batch=8",
+            "workers=0",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "precision: 0.7123" in result.stdout
+    assert "recall: 0.6543" in result.stdout
+    assert "f1: 0.6811" in result.stdout
+
+
 def test_export_runtime_error_includes_stage_context(failing_app):
     result = runner.invoke(
         failing_app,

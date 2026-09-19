@@ -1,6 +1,7 @@
 """Image-classification validator for LibreYOLO.
 
-Computes top-1 and top-5 accuracy over an ImageFolder-style validation split,
+Computes top-1 and top-5 accuracy, plus macro-averaged precision, recall and
+F1 from a confusion matrix, over an ImageFolder-style validation split,
 reusing the :class:`BaseValidator` template (setup -> iterate -> finalize).
 """
 
@@ -31,9 +32,16 @@ logger = logging.getLogger(__name__)
 
 
 class ClassifyValidator(ValidationLossMixin, BaseValidator):
-    """Top-1/top-5 accuracy validator for the classification task."""
+    """Top-1/top-5 accuracy validator for the classification task.
+
+    Also reports macro-averaged precision, recall and F1 from a confusion
+    matrix accumulated over the validation split.
+    """
 
     task = "classify"
+    # Confusion matrix, rows = targets, cols = top-1 predictions. Class-level
+    # default so metric code is safe on instances that skip _init_metrics.
+    _confusion: Optional[torch.Tensor] = None
 
     def __init__(
         self,
@@ -168,6 +176,7 @@ class ClassifyValidator(ValidationLossMixin, BaseValidator):
         self._top1_correct = 0
         self._top5_correct = 0
         self._total = 0
+        self._confusion = None
         self._reset_validation_loss()
 
     def _preprocess_batch(self, batch: Any) -> tuple:
@@ -206,16 +215,60 @@ class ClassifyValidator(ValidationLossMixin, BaseValidator):
         self._top5_correct += int(correct.any(dim=1).sum().item())
         self._total += int(targets.numel())
 
+        # Sized lazily from the logits width. Targets outside the head's class
+        # range (dataset/head mismatch) are skipped here; they already count
+        # as wrong for top-1 above.
+        pred = topk[:, 0]
+        if self._confusion is None:
+            self._confusion = torch.zeros(num_classes, num_classes, dtype=torch.long)
+        valid = (targets >= 0) & (targets < num_classes)
+        flat = targets[valid].long() * num_classes + pred[valid].long()
+        self._confusion.view(-1).index_add_(0, flat, torch.ones_like(flat))
+
     def _compute_metrics(self) -> Dict[str, float]:
         total = max(self._total, 1)
         top1 = self._top1_correct / total
         top5 = self._top5_correct / total
+        precision, recall, f1 = self._macro_precision_recall_f1()
         return {
             "metrics/accuracy_top1": top1,
             "metrics/accuracy_top5": top5,
+            "metrics/precision": precision,
+            "metrics/recall": recall,
+            "metrics/f1": f1,
             "fitness": top1,
             **self._validation_loss_metrics(),
         }
+
+    def _macro_precision_recall_f1(self) -> tuple[float, float, float]:
+        """Macro-averaged precision, recall and F1 over classes present in the targets.
+
+        Per class: precision = tp / (tp + fp) (0 when the class was never
+        predicted), recall = tp / (tp + fn), f1 = 2PR / (P + R) (0 when both
+        are 0). Classes with no ground-truth samples are excluded from the
+        mean. Returns zeros when nothing was accumulated.
+        """
+        if self._confusion is None:
+            return 0.0, 0.0, 0.0
+        confusion = self._confusion.double()
+        tp = confusion.diag()
+        fp = confusion.sum(dim=0) - tp
+        fn = confusion.sum(dim=1) - tp
+        present = confusion.sum(dim=1) > 0
+        if not bool(present.any()):
+            return 0.0, 0.0, 0.0
+        zeros = torch.zeros_like(tp)
+        precision = torch.where(tp + fp > 0, tp / (tp + fp).clamp(min=1), zeros)
+        recall = torch.where(tp + fn > 0, tp / (tp + fn).clamp(min=1), zeros)
+        denom = precision + recall
+        f1 = torch.where(
+            denom > 0, 2 * precision * recall / denom.clamp(min=1e-12), zeros
+        )
+        return (
+            float(precision[present].mean()),
+            float(recall[present].mean()),
+            float(f1[present].mean()),
+        )
 
     def _print_results(self, metrics: Dict[str, float]) -> None:
         logger.info("=" * 50)
@@ -223,5 +276,11 @@ class ClassifyValidator(ValidationLossMixin, BaseValidator):
         logger.info("=" * 50)
         logger.info("  top-1 accuracy: %.4f", metrics.get("metrics/accuracy_top1", 0.0))
         logger.info("  top-5 accuracy: %.4f", metrics.get("metrics/accuracy_top5", 0.0))
+        logger.info(
+            "  macro precision: %.4f  recall: %.4f  f1: %.4f",
+            metrics.get("metrics/precision", 0.0),
+            metrics.get("metrics/recall", 0.0),
+            metrics.get("metrics/f1", 0.0),
+        )
         logger.info("  images: %d", self._total)
         logger.info("=" * 50)
