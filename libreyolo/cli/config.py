@@ -12,26 +12,31 @@ from typing import Any, Optional
 from libreyolo.tasks import task_to_suffix
 
 
-def get_unsupported_train_params(family: str | None) -> set[str]:
+def get_unsupported_train_params(
+    family: str | None, task: str | None = None
+) -> set[str]:
     """Return the set of CLI parameters ignored by a model family's trainer.
 
     Augmentation knobs come from the declarative spec
     (``libreyolo.data.augment.spec``), which covers every trainable family.
     Families may declare additional non-augmentation ignores via an
     ``UNSUPPORTED_TRAIN_PARAMS`` class attribute (RF-DETR: optimizer/momentum/
-    nesterov), which is unioned in.
+    nesterov), which is unioned in. ``task`` selects the alias table: on a
+    classification model the CLI ``mixup`` is the classification MixUp field,
+    so it is not reported as ignored there.
     """
     from libreyolo.data.augment.spec import ignored_aug_params
 
-    from .aliases import TRAIN_ALIASES
+    from .aliases import train_aliases
 
-    internal_to_cli = {v: k for k, v in TRAIN_ALIASES.items()}
+    aliases = train_aliases(task)
+    internal_to_cli = {v: k for k, v in aliases.items()}
     unsupported: set[str] = set()
     for name in ignored_aug_params(family):
         # Fields whose name collides with a CLI alias key (the classification
         # ``mixup`` field vs the ``mixup`` -> ``mixup_prob`` alias) have no CLI
         # spelling of their own; the CLI name belongs to the aliased field.
-        if name in TRAIN_ALIASES:
+        if name in aliases:
             continue
         unsupported.add(internal_to_cli.get(name, name))
 
@@ -368,17 +373,23 @@ def apply_family_defaults(
 # =========================================================================
 
 
-def build_train_kwargs(params: dict[str, Any]) -> dict[str, Any]:
+def build_train_kwargs(
+    params: dict[str, Any], task: str | None = None
+) -> dict[str, Any]:
     """Build training kwargs from CLI params, keyed by TrainConfig field names.
 
     Iterates TrainConfig fields and maps CLI-facing parameter names to
-    internal field names using TRAIN_ALIASES.  Adding a new field to
-    TrainConfig automatically makes it available, no manual dict needed.
+    internal field names using the task's alias table (``train_aliases``).
+    Adding a new field to TrainConfig automatically makes it available, no
+    manual dict needed. With ``task="classify"`` the CLI ``mixup`` feeds the
+    classification MixUp field; the detection ``mixup_prob`` then has no CLI
+    spelling and keeps its config default.
     """
-    from .aliases import TRAIN_ALIASES
+    from .aliases import train_aliases
     from libreyolo.training.config import TrainConfig
 
-    internal_to_cli = {v: k for k, v in TRAIN_ALIASES.items()}
+    aliases = train_aliases(task)
+    internal_to_cli = {v: k for k, v in aliases.items()}
     excluded = {"size", "num_classes", "data", "data_dir"}
 
     kwargs = {}
@@ -387,9 +398,9 @@ def build_train_kwargs(params: dict[str, Any]) -> dict[str, Any]:
             continue
         # A field whose name is itself a CLI alias key (e.g. the classification
         # ``mixup`` field vs the ``mixup`` -> ``mixup_prob`` detection alias)
-        # does not own that CLI name; it is API-only, so skip it here rather
-        # than let the detection-flavored CLI value leak into it.
-        if f.name in TRAIN_ALIASES:
+        # does not own that CLI name under this task; skip it rather than let
+        # the other task's CLI value leak into it.
+        if f.name in aliases:
             continue
         cli_name = internal_to_cli.get(f.name, f.name)
         if cli_name in params:
@@ -488,6 +499,7 @@ def build_family_train_kwargs(
     *,
     model_path: str | None = None,
     user_provided: set[str] | None = None,
+    task: str | None = None,
 ) -> dict[str, Any]:
     """Build train kwargs, translating family-specific CLI/API mismatches."""
     if family == "rfdetr":
@@ -495,7 +507,7 @@ def build_family_train_kwargs(
             params, model_path=model_path, user_provided=user_provided
         )
     if family == "deimv2":
-        kwargs = build_train_kwargs(params)
+        kwargs = build_train_kwargs(params, task=task)
         provided = user_provided or set()
         from .aliases import TRAIN_ALIASES
 
@@ -532,7 +544,7 @@ def build_family_train_kwargs(
             if cli_name not in provided:
                 kwargs.pop(internal_name, None)
         return kwargs
-    return build_train_kwargs(params)
+    return build_train_kwargs(params, task=task)
 
 
 # =========================================================================
