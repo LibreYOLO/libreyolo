@@ -11,6 +11,7 @@ import yaml
 
 from libreyolo.utils.amp import normalize_amp_dtype
 from libreyolo.utils.image_size import normalize_imgsz
+from libreyolo.utils.plot_samples import validate_plot_samples
 
 logger = logging.getLogger(__name__)
 
@@ -149,12 +150,24 @@ class TrainConfig:
     #     op (soft labels). At most one op runs per batch: MixUp is applied with
     #     probability ``mixup``, otherwise CutMix with probability ``cutmix``, so
     #     the two are additive and should sum to at most 1.
-    # Note: on the CLI, ``--mixup`` is the detection ``mixup_prob`` alias; the
-    # classification ``mixup`` knob is Python-API only (model.train(mixup=...)).
+    # Note: on the CLI, ``--mixup`` is task-aware: on a classification model it
+    # feeds this ``mixup`` field (default off), on detection models it is the
+    # ``mixup_prob`` alias. See libreyolo/cli/aliases.py and
+    # docs/classification_augmentation.md.
     auto_augment: Optional[str] = None
     erasing: float = 0.0
     mixup: float = 0.0
     cutmix: float = 0.0
+    #   - scale: RandomResizedCrop area range for training. A float is the
+    #     lower bound (upper bound 1.0), or pass an explicit (min, max).
+    #   - crop_pct: shorter-side resize ratio for the deterministic eval crop
+    #     used by the in-training validation pass. None keeps the model
+    #     family's native value, which is also what export records, so an
+    #     override here is a deliberate train/val-only choice.
+    # Kept in sync with classify_dataset.DEFAULT_CROP_SCALE by a unit test;
+    # duplicated as a literal so TrainConfig stays torchvision-free.
+    scale: Union[float, Tuple[float, float]] = (0.5, 1.0)
+    crop_pct: Optional[float] = None
 
     # Training features
     ema: bool = True
@@ -226,6 +239,9 @@ class TrainConfig:
     # warning if the faster-coco-eval package is not installed.
     faster_coco_eval: bool = True
     save_plots: bool = False
+    # Sample images kept for the validation sample-image plot; 0 none,
+    # -1 all. Plot budget only, never changes what is scored (#830).
+    plot_samples: int = 8
     # Compute the family's training objective on validation batches and emit
     # metrics/loss plus its per-component values. Off by default because target
     # assignment adds validation time and memory use. Families that do not
@@ -334,6 +350,7 @@ class TrainConfig:
             if len(set(classes)) != len(classes):
                 raise ValueError(f"classes must not contain duplicates, got {classes}")
             self.classes = classes
+        self.plot_samples = validate_plot_samples(self.plot_samples)
 
     @classmethod
     def from_kwargs(cls, **kwargs):

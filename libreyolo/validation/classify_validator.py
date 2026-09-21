@@ -62,6 +62,20 @@ class ClassifyValidator(ValidationLossMixin, BaseValidator):
             return None
         return ordered
 
+    def _resolve_crop_pct(self, family_default):
+        """The eval crop ratio: an explicit ``config.crop_pct`` beats the family.
+
+        Subclasses that pin a family-specific eval pipeline must route their
+        crop ratio through this, or ``val(crop_pct=...)`` would be accepted and
+        silently ignored for those families (#878).
+        """
+        override = getattr(self.config, "crop_pct", None)
+        if override is None:
+            return family_default
+        if not 0.0 < override <= 1.0:
+            raise ValueError(f"crop_pct must be in (0, 1], got {override}")
+        return float(override)
+
     def _dataset_transform_kwargs(self) -> dict:
         """Extra kwargs for ``build_classify_transforms`` (mean/std/interp/crop).
 
@@ -71,7 +85,7 @@ class ClassifyValidator(ValidationLossMixin, BaseValidator):
         family-specific normalization (mean/std).
         """
         kwargs: dict = {}
-        crop_pct = getattr(self.model, "crop_pct", None)
+        crop_pct = self._resolve_crop_pct(getattr(self.model, "crop_pct", None))
         if crop_pct is not None:
             kwargs["crop_pct"] = crop_pct
         interpolation = getattr(self.model, "interpolation", None)

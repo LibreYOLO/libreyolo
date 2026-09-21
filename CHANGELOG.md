@@ -9,6 +9,26 @@ before 1.4.0 are documented in the
 
 ### Added
 
+- **Validation sample-plot count is configurable (#830).** `plot_samples` sets
+  how many validated images appear in the sample-image plot, on `val()`,
+  `train()` and both CLI commands. `0` disables that plot, `-1` keeps every
+  validated image, and the default stays at the previous hardcoded 8. It is a
+  plotting budget only: every image is still scored, and the metrics are
+  unchanged at any setting. Pose validation honours the same budget, and an
+  invalid value is rejected when the training config is built.
+
+- **Classification augmentation base (#870, #878).** The classification
+  transform and batch-mixing recipe moved to `libreyolo/data/augment/classify.py`
+  next to the detection recipes, with one `ClassifyAugKnobs` object reading
+  every knob off the training config. `flip_prob` (CLI alias `fliplr`) and
+  `flipud` now drive the classification train crop instead of a fixed 0.5
+  flip; `cutmix` and `flipud` are exposed on the train CLI; on a
+  classification model the CLI `mixup` is the classification batch-MixUp
+  knob (default off) rather than the detection `mixup_prob`; and
+  `no_aug_epochs` switches off `auto_augment`, `erasing`, `mixup` and
+  `cutmix` for the final epochs the way detection closes mosaic. Defaults
+  reproduce the previous pipeline exactly. Contract: `docs/classification_augmentation.md`.
+
 - ConvNeXt V2 classification: eight sizes from Atto to Huge, official checkpoint conversion, supervised fine-tuning, and ONNX/TorchScript export. Architecture code is MIT; official ImageNet-1K weights retain CC-BY-NC-4.0.
 
 - ACT and Diffusion action policies: train from scratch, predict without a language instruction, and validate saved checkpoints through `LibreVLA`.
@@ -64,7 +84,38 @@ before 1.4.0 are documented in the
   (`0.001` / `0.6` / `300`); reported mAP stays comparable across 1.5
   and 1.6 for the same unmarked weights.
 
+### Added
+
+- **Classification crops are configurable (#878).** `scale` sets the training
+  `RandomResizedCrop` area range (a float lower bound, as in the ecosystem, or
+  an explicit `(min, max)`); `crop_pct` sets the eval shorter-side resize ratio
+  before the center crop, on both `train()` and `val()` and on both CLI
+  commands. Defaults are unchanged: `scale=(0.5, 1.0)`, and `crop_pct` unset
+  keeps each model family's native value, which is what export records. An
+  explicit `crop_pct` deliberately makes validation diverge from the exported
+  eval pipeline. Detection families warn that they ignore both instead of
+  accepting them silently.
+
 ### Fixed
+
+- **Classification `auto_augment` and `erasing` are reachable from the CLI
+  (#870).** Both are `TrainConfig` fields the Python API has always
+  supported, but the train command never declared them, so
+  `libreyolo train auto_augment=randaugment` failed with "No such option".
+  Both grammars now work, values are validated up front, and defaults are
+  unchanged (`auto_augment` off, `erasing` 0.0). The classification `mixup`
+  and `cutmix` knobs stay Python-only: `mixup` on the CLI is the detection
+  `mixup_prob` alias.
+
+- **Pose label lines are no longer dropped anonymously (#873).** When
+  `YOLOPoseDataset` skips a label line it now names the file, the line
+  number and the real reason, and quotes the first 5 offending lines.
+  A non-numeric field is reported as such instead of being blamed on the
+  field count, and a wrong field count says how many keypoints the line
+  actually carries and whether it matches the other `kpt_shape` keypoint
+  dim. Pose validation warns about ground-truth lines it drops instead of
+  discarding them in silence. Accepted layouts are unchanged:
+  `kpt_shape: [K, 2]` (xy) and `kpt_shape: [K, 3]` (xyv).
 
 - **Training monitor no longer reports epochs off by one (#829).** The status
   writer counted the one-based epoch number as a zero-based index, so

@@ -29,6 +29,7 @@ from typing import (
     Union,
 )
 
+import numpy as np
 import torch
 import torch.nn as nn
 from PIL import Image
@@ -41,6 +42,7 @@ from ...tasks import (
     task_suffix_pattern,
     task_to_suffix,
 )
+from ...tracking.protocol import Tracker
 from ...training.config import TrainConfig, load_train_cfg
 from ...utils.general import COCO_CLASSES
 from ...utils.image_loader import ImageInput
@@ -1575,7 +1577,7 @@ class BaseModel(ABC):
         fps: float = 30.0,
         color_format: str = "auto",
         output_path: Optional[str] = None,
-        tracker: str = "bytetrack",
+        tracker: str | Tracker = "bytetrack",
         tracker_config=None,
         augment: bool = False,
         **tracker_kwargs,
@@ -1607,7 +1609,9 @@ class BaseModel(ABC):
                 recovery. For ByteTrack and BoT-SORT it must be >=
                 ``track_low_thresh`` (default 0.1). Ignored when
                 *tracker_config* is given, or when the matching key is passed
-                explicitly in ``tracker_kwargs``.
+                explicitly in ``tracker_kwargs``. For a custom tracker instance,
+                this is the detector confidence threshold; choose a value low
+                enough for the custom association algorithm.
             iou: IoU threshold for NMS during detection.
             imgsz: Override input image size.
             classes: Filter to specific class IDs.
@@ -1639,10 +1643,15 @@ class BaseModel(ABC):
             tracker: Which tracker to use: ``"bytetrack"``, ``"botsort"``,
                 ``"ocsort"`` or ``"deepocsort"``. Ignored when
                 *tracker_config* is given (the config type selects the tracker).
+                Alternatively, pass a ``libreyolo.tracking.Tracker`` instance.
+                Its ``reset()`` is called once when iteration begins, then
+                ``update(results, image=rgb_pil_image)`` once per retained frame.
+                Do not share an instance between concurrent runs/cameras.
             tracker_config: A ``TrackConfig`` (ByteTrack), ``BoTSortConfig``
                 (BoT-SORT), ``OCSortConfig`` (OC-SORT), or
                 ``DeepOCSortConfig`` (Deep OC-SORT) instance, or None to build
-                one from **tracker_kwargs.
+                one from **tracker_kwargs. Cannot be combined with a custom
+                tracker instance; configure that instance before passing it.
             **tracker_kwargs: Forwarded to the selected tracker's
                 ``from_kwargs`` (``TrackConfig``, ``BoTSortConfig``,
                 ``OCSortConfig`` or ``DeepOCSortConfig``).
@@ -1741,85 +1750,105 @@ class BaseModel(ABC):
             if not math.isfinite(fps) or fps <= 0:
                 raise ValueError(f"fps must be a finite value > 0, got {fps!r}")
 
-        # A provided config picks the tracker; otherwise honour the selector.
-        if isinstance(tracker_config, BoTSortConfig):
-            # BoTSortConfig subclasses TrackConfig, so it must be checked first.
-            tracker = "botsort"
-        elif isinstance(tracker_config, DeepOCSortConfig):
-            tracker = "deepocsort"
-        elif isinstance(tracker_config, OCSortConfig):
-            tracker = "ocsort"
-        elif isinstance(tracker_config, TrackConfig):
-            tracker = "bytetrack"
-        tracker = (tracker or "bytetrack").lower()
-
-        if (
-            tracker in ("bytetrack", "botsort")
-            and source_spec.kind in image_sequence_kinds
-        ):
-            # update() runs once per retained frame, so frame_rate must be
-            # fps / vid_stride.
-            retained_fps = fps / max(1, vid_stride)
-            if tracker_config is None:
-                # Pass the exact fraction: tracker.py already truncates via
-                # int(), so pre-rounding here would double-round and can
-                # shift max_time_lost by a frame at the expiry boundary.
-                tracker_kwargs.setdefault("frame_rate", retained_fps)
-            else:
-                # frame_rate is a typed int field, so compare against the
-                # nearest achievable value rather than the exact fraction.
-                nearest_retained_fps = max(1, round(retained_fps))
-                current = getattr(tracker_config, "frame_rate", nearest_retained_fps)
-                if current != nearest_retained_fps:
-                    # tracker_config always wins and is never overwritten --
-                    # just warn so a silent mismatch doesn't linger.
-                    warnings.warn(
-                        f"tracker_config.frame_rate={tracker_config.frame_rate} does "
-                        f"not match this image sequence's retained-frame rate "
-                        f"(fps / vid_stride ≈ {nearest_retained_fps}). "
-                        "tracker_config is used as-is for tracker timing, so lost "
-                        "tracks will be kept recoverable for the wrong duration "
-                        "unless "
-                        f"you set frame_rate={nearest_retained_fps} on it yourself.",
-                        stacklevel=2,
-                    )
-
-        if tracker == "deepocsort":
-            if tracker_config is None:
-                tracker_kwargs.setdefault("det_thresh", track_conf)
-                tracker_config = DeepOCSortConfig.from_kwargs(**tracker_kwargs)
-            # Deep OC-SORT has no low-score recovery band; the detector only
-            # needs to produce boxes down to det_thresh.
-            effective_conf = tracker_config.det_thresh
-            tracker_obj = DeepOCSortTracker(
-                config=tracker_config, device=str(self.device)
-            )
-        elif tracker == "ocsort":
-            if tracker_config is None:
-                tracker_kwargs.setdefault("det_thresh", track_conf)
-                tracker_config = OCSortConfig.from_kwargs(**tracker_kwargs)
-            # OC-SORT consumes low-score detections (>0.1) for recovery.
-            effective_conf = min(0.1, tracker_config.det_thresh)
-            tracker_obj = OCSortTracker(config=tracker_config)
-        elif tracker == "botsort":
-            if tracker_config is None:
-                tracker_kwargs.setdefault("track_high_thresh", track_conf)
-                tracker_config = BoTSortConfig.from_kwargs(**tracker_kwargs)
-            # BoT-SORT keeps ByteTrack's low-confidence recovery stage.
-            effective_conf = tracker_config.track_low_thresh
-            tracker_obj = BoTSortTracker(config=tracker_config)
-        elif tracker == "bytetrack":
-            if tracker_config is None:
-                tracker_kwargs.setdefault("track_high_thresh", track_conf)
-                tracker_config = TrackConfig.from_kwargs(**tracker_kwargs)
-            # ByteTrack needs to see low-confidence detections.
-            effective_conf = tracker_config.track_low_thresh
-            tracker_obj = ByteTracker(config=tracker_config)
+        custom_tracker = tracker is not None and not isinstance(tracker, str)
+        if custom_tracker:
+            if isinstance(tracker, type) or not all(
+                callable(getattr(tracker, method, None))
+                for method in ("update", "reset")
+            ):
+                raise TypeError(
+                    "tracker must be a built-in name or an instance with "
+                    "update(results, image=None) and reset() methods."
+                )
+            if tracker_config is not None or tracker_kwargs:
+                raise ValueError(
+                    "Configure a custom tracker instance directly; tracker_config "
+                    "and tracker kwargs cannot be used with it."
+                )
+            if not math.isfinite(track_conf) or not 0 <= track_conf <= 1:
+                raise ValueError("track_conf must be finite and between 0 and 1.")
+            tracker_obj = tracker
+            effective_conf = track_conf
         else:
-            raise ValueError(
-                f"Unknown tracker {tracker!r}; "
-                "choose 'bytetrack', 'botsort', 'ocsort' or 'deepocsort'."
-            )
+            # A provided config picks the tracker; otherwise honour the selector.
+            if isinstance(tracker_config, BoTSortConfig):
+                # BoTSortConfig subclasses TrackConfig, so it must be checked first.
+                tracker = "botsort"
+            elif isinstance(tracker_config, DeepOCSortConfig):
+                tracker = "deepocsort"
+            elif isinstance(tracker_config, OCSortConfig):
+                tracker = "ocsort"
+            elif isinstance(tracker_config, TrackConfig):
+                tracker = "bytetrack"
+            tracker = (tracker or "bytetrack").lower()
+
+            if (
+                tracker in ("bytetrack", "botsort")
+                and source_spec.kind in image_sequence_kinds
+            ):
+                # update() runs once per retained frame, so frame_rate must be
+                # fps / vid_stride.
+                retained_fps = fps / max(1, vid_stride)
+                if tracker_config is None:
+                    # Pass the exact fraction: tracker.py already truncates via
+                    # int(), so pre-rounding here would double-round and can
+                    # shift max_time_lost by a frame at the expiry boundary.
+                    tracker_kwargs.setdefault("frame_rate", retained_fps)
+                else:
+                    # frame_rate is a typed int field, so compare against the
+                    # nearest achievable value rather than the exact fraction.
+                    nearest_retained_fps = max(1, round(retained_fps))
+                    current = getattr(tracker_config, "frame_rate", nearest_retained_fps)
+                    if current != nearest_retained_fps:
+                        # tracker_config always wins and is never overwritten --
+                        # just warn so a silent mismatch doesn't linger.
+                        warnings.warn(
+                            f"tracker_config.frame_rate={tracker_config.frame_rate} does "
+                            f"not match this image sequence's retained-frame rate "
+                            f"(fps / vid_stride ≈ {nearest_retained_fps}). "
+                            "tracker_config is used as-is for tracker timing, so lost "
+                            "tracks will be kept recoverable for the wrong duration "
+                            "unless "
+                            f"you set frame_rate={nearest_retained_fps} on it yourself.",
+                            stacklevel=2,
+                        )
+
+            if tracker == "deepocsort":
+                if tracker_config is None:
+                    tracker_kwargs.setdefault("det_thresh", track_conf)
+                    tracker_config = DeepOCSortConfig.from_kwargs(**tracker_kwargs)
+                # Deep OC-SORT has no low-score recovery band; the detector only
+                # needs to produce boxes down to det_thresh.
+                effective_conf = tracker_config.det_thresh
+                tracker_obj = DeepOCSortTracker(
+                    config=tracker_config, device=str(self.device)
+                )
+            elif tracker == "ocsort":
+                if tracker_config is None:
+                    tracker_kwargs.setdefault("det_thresh", track_conf)
+                    tracker_config = OCSortConfig.from_kwargs(**tracker_kwargs)
+                # OC-SORT consumes low-score detections (>0.1) for recovery.
+                effective_conf = min(0.1, tracker_config.det_thresh)
+                tracker_obj = OCSortTracker(config=tracker_config)
+            elif tracker == "botsort":
+                if tracker_config is None:
+                    tracker_kwargs.setdefault("track_high_thresh", track_conf)
+                    tracker_config = BoTSortConfig.from_kwargs(**tracker_kwargs)
+                # BoT-SORT keeps ByteTrack's low-confidence recovery stage.
+                effective_conf = tracker_config.track_low_thresh
+                tracker_obj = BoTSortTracker(config=tracker_config)
+            elif tracker == "bytetrack":
+                if tracker_config is None:
+                    tracker_kwargs.setdefault("track_high_thresh", track_conf)
+                    tracker_config = TrackConfig.from_kwargs(**tracker_kwargs)
+                # ByteTrack needs to see low-confidence detections.
+                effective_conf = tracker_config.track_low_thresh
+                tracker_obj = ByteTracker(config=tracker_config)
+            else:
+                raise ValueError(
+                    f"Unknown tracker {tracker!r}; "
+                    "choose 'bytetrack', 'botsort', 'ocsort' or 'deepocsort'."
+                )
 
         default_stem = "sequence"
         if source_spec.kind == SourceKind.VIDEO:
@@ -1872,6 +1901,9 @@ class BaseModel(ABC):
                 "image iterator."
             )
 
+        if custom_tracker:
+            tracker_obj.reset()
+
         model_names = self.names
 
         def predict_and_track(pil_img):
@@ -1884,6 +1916,35 @@ class BaseModel(ABC):
                 max_det=max_det,
                 color_format="rgb",
             )
+            if custom_tracker:
+                tracked = tracker_obj.update(result, image=pil_img)
+                if not isinstance(tracked, Results):
+                    raise TypeError("Custom tracker update() must return Results.")
+                ids = tracked.track_id
+                if (
+                    not isinstance(ids, (torch.Tensor, np.ndarray))
+                    or ids.ndim != 1
+                    or len(ids) != len(tracked)
+                ):
+                    raise ValueError(
+                        "Custom tracker Results.track_id must be a one-dimensional "
+                        "integer tensor/array aligned with the result rows."
+                    )
+                if isinstance(ids, torch.Tensor):
+                    integer_ids = ids.dtype in (
+                        torch.int8, torch.int16, torch.int32, torch.int64, torch.uint8
+                    )
+                else:
+                    integer_ids = ids.dtype.kind in "iu"
+                if not integer_ids:
+                    raise ValueError("Custom tracker track_id must contain integers.")
+                boxes = tracked.boxes.xyxy
+                if isinstance(ids, torch.Tensor) != isinstance(boxes, torch.Tensor):
+                    raise ValueError("Custom tracker IDs and boxes must use the same backend.")
+                if isinstance(ids, torch.Tensor) and ids.device != boxes.device:
+                    raise ValueError("Custom tracker IDs and boxes must use the same device.")
+                tracked.boxes._id = ids
+                return tracked
             if isinstance(tracker_obj, (BoTSortTracker, DeepOCSortTracker)):
                 # BoT-SORT needs pixels for camera motion; Deep OC-SORT needs
                 # them for ReID crops.

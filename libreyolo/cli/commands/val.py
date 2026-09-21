@@ -58,6 +58,11 @@ def val_cmd(
         "(default: on when installed; falls back to pycocotools)",
     ),
     half: bool = typer.Option(False, help="FP16 inference"),
+    crop_pct: Optional[float] = typer.Option(
+        None,
+        help="Classification eval resize ratio before the center crop "
+        "(default: the model family's native value)",
+    ),
     amp_dtype: str = typer.Option(
         "float16", help="CUDA autocast dtype when half=true: float16 or bfloat16"
     ),
@@ -65,6 +70,11 @@ def val_cmd(
     save_plots: bool = typer.Option(
         False,
         help="Save validation plots (metrics, per-class AP, confusion matrix, samples)",
+    ),
+    plot_samples: int = typer.Option(
+        8,
+        help="Sample images in the validation sample plot: 0 for none, "
+        "-1 for every validated image (does not change the metrics)",
     ),
     workers: int = typer.Option(4, help="Dataloader workers"),
     device: str = typer.Option("auto", help="Device"),
@@ -105,6 +115,8 @@ def val_cmd(
             raise ValueError(
                 f"eval_max_det must be >= 1, got {eval_max_det}"
             )
+        if crop_pct is not None and not 0.0 < crop_pct <= 1.0:
+            raise ValueError(f"crop_pct must be in (0, 1], got {crop_pct}")
     except ValueError as exc:
         exit_with_error(out, "config_type_error", str(exc))
     model_path = resolve_model_or_exit(out, model)
@@ -118,6 +130,15 @@ def val_cmd(
     loaded_model = load_model_or_exit(
         out, model=model, model_path=model_path, device=device
     )
+
+    # crop_pct is classification eval preprocessing; say so rather than accept
+    # it and change nothing (#878).
+    if crop_pct is not None and getattr(loaded_model, "task", "detect") != "classify":
+        out.warning(
+            f"{getattr(loaded_model, 'FAMILY', 'This model')} is not a "
+            "classification model and ignores crop_pct; it only affects the "
+            "classification eval resize and center crop."
+        )
 
     # Resolve save directory
     save_dir = str(increment_path(Path(project) / name, exist_ok=exist_ok, mkdir=True))
@@ -145,6 +166,8 @@ def val_cmd(
             max_det=max_det,
             eval_max_det=eval_max_det,
             faster_coco_eval=faster_coco_eval,
+            plot_samples=plot_samples,
+            crop_pct=crop_pct,
         )
     except FileNotFoundError as e:
         exit_with_error(out, "data_not_found", str(e))

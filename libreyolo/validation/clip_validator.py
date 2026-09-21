@@ -37,5 +37,5 @@ class CLIPClassifyValidator(ClassifyValidator):
             "mean": CLIP_MEAN,
             "std": CLIP_STD,
             "interpolation": InterpolationMode.BICUBIC,
-            "crop_pct": 1.0,
+            "crop_pct": self._resolve_crop_pct(1.0),
         }
