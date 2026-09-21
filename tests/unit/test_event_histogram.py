@@ -357,6 +357,64 @@ def test_resume_rejects_different_count_scale_before_loading(tmp_path, profile):
         BaseTrainer.resume(trainer, str(path))
 
 
+def test_histogram_training_respects_classes_subset(tmp_path, sample, profile):
+    """setup_histogram_data must thread classes= through to its YOLODataset
+    the same way the regular (non-histogram) _setup_data path does -- it
+    computes _class_remap from data_cfg but was dropping it on the floor
+    before delegating, so a dataset using input_profile silently trained on
+    every class regardless of classes=.
+    """
+    from libreyolo import LibreYOLO9
+    from libreyolo.models.yolo9.trainer import YOLO9Trainer
+
+    for split in ("train", "val"):
+        (tmp_path / "images" / split).mkdir(parents=True)
+        (tmp_path / "labels" / split).mkdir(parents=True)
+        np.save(tmp_path / "images" / split / "a.npy", sample)
+        (tmp_path / "labels" / split / "a.txt").write_text(
+            "0 0.5 0.5 0.3333333333 0.5\n1 0.2 0.2 0.1 0.1\n"
+        )
+    data_yaml = tmp_path / "data.yaml"
+    data_yaml.write_text(
+        yaml.safe_dump(
+            {
+                "path": str(tmp_path),
+                "train": "images/train",
+                "val": "images/val",
+                "nc": 2,
+                "names": {0: "person", 1: "car"},
+                "input_profile": profile,
+            }
+        )
+    )
+
+    wrapper = LibreYOLO9._from_scratch(size="t", nb_classes=2, device="cpu")
+    trainer = YOLO9Trainer(
+        model=wrapper.model,
+        wrapper_model=wrapper,
+        size="t",
+        num_classes=2,
+        data=str(data_yaml),
+        classes=[0],  # excludes label 1 ("car")
+        epochs=1,
+        batch=1,
+        imgsz=32,
+        device="cpu",
+        amp=False,
+        ema=False,
+        workers=0,
+        eval_interval=-1,
+    )
+
+    trainer._setup_data()
+
+    # nc stays the full declared count -- classes= only filters the loss.
+    assert trainer.num_classes == 2
+    dataset = trainer.train_loader.dataset
+    labels = dataset.annotations[0][0]
+    assert sorted(labels[:, 4].tolist()) == [0.0]
+
+
 def test_histogram_disk_cache_does_not_create_extra_training_samples(dataset, profile):
     from libreyolo.data import load_data_config
     from libreyolo.data.dataset import YOLODataset
