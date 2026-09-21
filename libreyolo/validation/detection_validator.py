@@ -843,6 +843,19 @@ class DetectionValidator(ValidationLossMixin, BaseValidator):
                 "img_ids are required for COCO evaluation but were not provided "
                 "by the dataloader."
             )
+        cfg = getattr(self, "config", None)
+        if getattr(cfg, "classes", None):
+            # Filter in model-label space before native COCO category mapping.
+            # single_cls predictions already use the collapsed output label 0.
+            kept_classes = [0] if self._single_cls_enabled() else self.config.classes
+            filtered = []
+            for pred in preds:
+                keep = torch.isin(
+                    pred["classes"], pred["classes"].new_tensor(kept_classes)
+                )
+                filtered.append({key: value[keep] for key, value in pred.items()})
+            # Subclass evaluators consume the same batch after this method.
+            preds[:] = filtered
         for i in range(len(preds)):
             self.coco_evaluator.update(preds[i], img_ids[i])
 
