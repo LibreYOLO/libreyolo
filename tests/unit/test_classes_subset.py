@@ -558,6 +558,52 @@ def test_validator_init_metrics_filters_coco_json_ground_truth_by_classes(tmp_pa
     assert set(coco_gt.getCatIds()) == {1, 2, 4}
     assert len(coco_gt.getAnnIds()) == 3
 
+    # Excluded label 2 must not fall back to COCO category 2 (bicycle).
+    excluded = {
+        "boxes": torch.tensor([[4., 4., 14., 14.]]),
+        "scores": torch.tensor([0.99]),
+        "classes": torch.tensor([2]),
+    }
+    validator._update_metrics([excluded], torch.empty(0), [(48, 64)], [1])
+    assert validator.coco_evaluator.results == []
+    assert validator.coco_evaluator.compute()["mAP"] == 0.0
+
+    retained = {**excluded, "classes": torch.tensor([1])}
+    validator._update_metrics([retained], torch.empty(0), [(48, 64)], [1])
+    assert validator.coco_evaluator.results[0]["category_id"] == 2
+
+
+@pytest.mark.parametrize("single_cls, expected", [(False, [3]), (True, [0])])
+@pytest.mark.parametrize("segment", [False, True])
+def test_subset_predictions_keep_aligned_fields(tmp_path, single_cls, expected, segment):
+    from unittest.mock import Mock
+
+    config = ValidationConfig(
+        data=str(_write_data_yaml(tmp_path)), classes=[3],
+        single_cls=single_cls, device="cpu",
+    )
+    from libreyolo.validation.detection_validator import SegmentationValidator
+
+    validator_cls = SegmentationValidator if segment else DetectionValidator
+    validator = validator_cls(_minimal_val_model(), config)
+    validator.coco_evaluator = Mock()
+    validator.mask_evaluator = Mock()
+    pred = {
+        "boxes": torch.arange(12).reshape(3, 4),
+        "scores": torch.tensor([0.9, 0.8, 0.7]),
+        "classes": torch.tensor([0, 2, 3]),
+        "masks": torch.arange(12).reshape(3, 2, 2),
+    }
+    validator._update_metrics([pred], torch.empty(0), [(48, 64)], [1])
+    scored = validator.coco_evaluator.update.call_args.args[0]
+    index = 0 if single_cls else 2
+    assert scored["classes"].tolist() == expected
+    for key in ("boxes", "scores", "masks"):
+        assert torch.equal(scored[key], pred[key][index:index + 1])
+    assert pred["classes"].tolist() == [0, 2, 3]
+    if segment:
+        assert validator.mask_evaluator.update.call_args.args[0] is scored
+
 
 # ---------------------------------------------------------------------------
 # _wrap_train_with_cfg gate
