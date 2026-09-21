@@ -1549,12 +1549,19 @@ class BaseTrainer(ABC):
         """Names to stamp on the wrapper after a class-count sync, or ``None``
         to leave whatever is already there untouched.
 
-        single_cls always collapses to ``{0: "object"}``. classes= (and
-        ordinary full-dataset training) use ``_resolved_class_names``, stashed
-        by ``_resolve_num_classes_from_data_config`` -- without this,
-        ``_rebuild_for_new_classes`` resets the wrapper to generic
-        ``class_N`` placeholders and nothing ever restores the real names.
+        Scoped to single_cls/classes= on purpose: those two are the only
+        cases this trainer promises consistent class metadata for, and
+        ``_rebuild_for_new_classes`` resetting the wrapper to generic
+        ``class_N`` placeholders would otherwise leave that promise broken
+        (a classes=-trained model predicting "class4" instead of its real
+        name). An ordinary full-dataset run hitting a head-size mismatch
+        (e.g. resuming a checkpoint with a different nc) is a separate,
+        pre-existing bug with the same symptom, deliberately left alone
+        here -- fixing it is unrelated to classes= and belongs in its own
+        change, not bundled into this one.
         """
+        if not (self.config.single_cls or self.config.classes):
+            return None
         if self.config.single_cls:
             return {0: "object"}
         names = getattr(self, "_resolved_class_names", None)
