@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import List, Optional, Tuple, Union
 import yaml
 
+from libreyolo.data.utils import normalize_classes_field
 from libreyolo.utils.amp import normalize_amp_dtype
 from libreyolo.utils.image_size import normalize_imgsz
 from libreyolo.utils.plot_samples import validate_plot_samples
@@ -339,17 +340,7 @@ class TrainConfig:
         self.class_balanced = bool(self.class_balanced)
         self.cls_pw = validate_class_weighting(self.cls_pw, self.class_weights)
         self.export_check = bool(self.export_check)
-        if self.classes is not None:
-            if isinstance(self.classes, str):
-                self.classes = [c for c in self.classes.split(",") if c.strip()]
-            classes = [int(c) for c in self.classes]
-            if not classes:
-                raise ValueError("classes must be a non-empty list when given")
-            if any(c < 0 for c in classes):
-                raise ValueError(f"classes must be non-negative ids, got {classes}")
-            if len(set(classes)) != len(classes):
-                raise ValueError(f"classes must not contain duplicates, got {classes}")
-            self.classes = classes
+        self.classes = normalize_classes_field(self.classes)
         self.plot_samples = validate_plot_samples(self.plot_samples)
 
     @classmethod

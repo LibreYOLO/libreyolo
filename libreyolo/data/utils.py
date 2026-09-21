@@ -232,6 +232,35 @@ def img2label_paths(img_paths: List[Path]) -> List[Path]:
     return label_paths
 
 
+def normalize_classes_field(
+    classes: Optional[Union[List[int], str]],
+) -> Optional[List[int]]:
+    """Normalize and validate a ``classes=`` field to a clean int list.
+
+    Accepts ``None``, a list of ids, or a comma-separated string (CLI
+    convenience, matching how ``device="0,1"`` is written), e.g. ``"0,3,5"``.
+    Raises on an empty list, a negative id, or a duplicate id -- the same
+    checks regardless of entry point, so a malformed value (a typo'd CLI
+    string, an empty list, a corrupted checkpoint's saved training config)
+    fails loudly here instead of silently building an empty or wrong remap
+    later in ``build_class_remap``. Shared by ``TrainConfig`` and
+    ``ValidationConfig`` so ``classes=`` is validated the same way whether it
+    was given directly or auto-inherited from a checkpoint.
+    """
+    if classes is None:
+        return None
+    if isinstance(classes, str):
+        classes = [c for c in classes.split(",") if c.strip()]
+    parsed = [int(c) for c in classes]
+    if not parsed:
+        raise ValueError("classes must be a non-empty list when given")
+    if any(c < 0 for c in parsed):
+        raise ValueError(f"classes must be non-negative ids, got {parsed}")
+    if len(set(parsed)) != len(parsed):
+        raise ValueError(f"classes must not contain duplicates, got {parsed}")
+    return parsed
+
+
 def build_class_remap(
     classes: Optional[List[int]], single_cls: bool = False
 ) -> Optional[Dict[int, int]]:
