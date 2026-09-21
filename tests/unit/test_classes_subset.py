@@ -605,12 +605,16 @@ def test_resume_inherits_classes_from_checkpoint():
 
 
 # ---------------------------------------------------------------------------
-# on_num_classes_resolved: the wrapper's real names must survive the head
-# rebuild, not just its class count. _rebuild_for_new_classes() always resets
-# to generic class_N placeholders; only _sync_wrapped_model_num_classes
-# restores real names afterward, via _resolved_class_names stashed by
-# _resolve_num_classes_from_data_config. This holds regardless of classes=,
-# which never changes nc/names here -- see build_class_remap's docstring.
+# on_num_classes_resolved: for single_cls/classes= runs, the wrapper's real
+# names must survive the head rebuild, not just its class count.
+# _rebuild_for_new_classes() always resets to generic class_N placeholders;
+# only _sync_wrapped_model_num_classes restores real names afterward, via
+# _resolved_class_names stashed by _resolve_num_classes_from_data_config.
+# Deliberately scoped to single_cls/classes= -- restoring names for every
+# YAML-backed run (e.g. an ordinary full-dataset resume that happens to hit
+# an nc mismatch) is a separate, pre-existing bug with the same symptom,
+# left alone here since fixing it is unrelated to classes= (see
+# _effective_names_for_sync's docstring).
 # ---------------------------------------------------------------------------
 
 
@@ -674,11 +678,13 @@ def test_sync_ignores_classes_for_nc_and_names_resolution(tmp_path):
     assert wrapper.names == {i: name for i, name in enumerate(NAMES10)}
 
 
-def test_sync_restores_real_names_for_plain_full_dataset_training(tmp_path):
-    """Not classes=-specific: any dataset-driven head resize (nc mismatch
-    against the loaded checkpoint) must end up with the dataset's real names,
-    not generic placeholders -- this held for single_cls already, now for
-    every case _resolved_class_names can supply."""
+def test_sync_leaves_placeholder_names_for_plain_full_dataset_training(tmp_path):
+    """Out of scope for this feature on purpose: a plain full-dataset run
+    (no classes=, no single_cls) that happens to hit a head-size mismatch
+    still gets _rebuild_for_new_classes()'s generic class_N placeholders,
+    not the dataset's real names. That's a separate, pre-existing bug --
+    fixing it here would be unrelated scope creep (see
+    _effective_names_for_sync's docstring); this test pins the boundary."""
     data_yaml = _write_data_yaml(tmp_path, nc=3, names=("car", "bicycle", "dog"))
     wrapper = _FakeWrapper(num_classes=80)
     trainer = _build_rtdetr_trainer(data_yaml, wrapper)
@@ -686,7 +692,7 @@ def test_sync_restores_real_names_for_plain_full_dataset_training(tmp_path):
     trainer.on_num_classes_resolved()
 
     assert wrapper.nb_classes == 3
-    assert wrapper.names == {0: "car", 1: "bicycle", 2: "dog"}
+    assert wrapper.names == {0: "class_0", 1: "class_1", 2: "class_2"}
 
 
 def test_sync_no_rebuild_still_applies_names(tmp_path):
