@@ -52,6 +52,10 @@ def test_train_config_classes_normalizes_to_int_list():
     assert TrainConfig(classes=[0, "1", 3]).classes == [0, 1, 3]
 
 
+def test_train_config_classes_accepts_comma_separated_string():
+    assert TrainConfig(classes="0,3,5").classes == [0, 3, 5]
+
+
 @pytest.mark.parametrize(
     "bad",
     [[], [-1, 0], [0, 0, 1]],
@@ -59,6 +63,39 @@ def test_train_config_classes_normalizes_to_int_list():
 def test_train_config_classes_rejects_invalid(bad):
     with pytest.raises(ValueError):
         TrainConfig(classes=bad)
+
+
+def test_validation_config_classes_defaults_off(tmp_path):
+    data_yaml = _write_data_yaml(tmp_path)
+    assert ValidationConfig(data=str(data_yaml)).classes is None
+
+
+def test_validation_config_classes_accepts_comma_separated_string(tmp_path):
+    data_yaml = _write_data_yaml(tmp_path)
+    config = ValidationConfig(data=str(data_yaml), classes="0,3,5")
+    assert config.classes == [0, 3, 5]
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [[], [-1, 0], [0, 0, 1]],
+)
+def test_validation_config_classes_rejects_invalid(tmp_path, bad):
+    data_yaml = _write_data_yaml(tmp_path)
+    with pytest.raises(ValueError):
+        ValidationConfig(data=str(data_yaml), classes=bad)
+
+
+def test_validation_config_classes_validated_on_checkpoint_inherit(tmp_path):
+    """DetectionValidator.__init__ auto-inherits classes from the checkpoint
+    via config.update(classes=...) -- confirm that path re-validates too, so
+    a malformed value saved in an old/corrupted checkpoint's training config
+    fails loudly instead of silently building an empty or wrong remap.
+    """
+    data_yaml = _write_data_yaml(tmp_path)
+    config = ValidationConfig(data=str(data_yaml))
+    with pytest.raises(ValueError):
+        config.update(classes=[-1, 0])
 
 
 # ---------------------------------------------------------------------------

@@ -6,6 +6,7 @@ from typing import List, Optional, Tuple, Union
 
 import yaml
 
+from libreyolo.data.utils import normalize_classes_field
 from libreyolo.utils.amp import normalize_amp_dtype
 from libreyolo.utils.plot_samples import (  # noqa: F401  (re-exported)
     DEFAULT_PLOT_SAMPLES,
@@ -61,8 +62,10 @@ class ValidationConfig:
     # Auto-inherited from the checkpoint's saved training config the same
     # way single_cls is (see DetectionValidator.__init__); rarely set by
     # hand. Must match the classes= the model was trained with, since the
-    # head size is shared.
-    classes: Optional[List[int]] = field(default=None, kw_only=True)
+    # head size is shared. Accepts a comma-separated string too (CLI
+    # convenience, matching how device="0,1" is written), e.g. "0,3,5" --
+    # normalized to a list of ints by normalize_classes_field below.
+    classes: Optional[Union[List[int], str]] = field(default=None, kw_only=True)
 
     # Inference
     batch_size: int = 16
@@ -157,6 +160,7 @@ class ValidationConfig:
         self.amp_dtype = normalize_amp_dtype(self.amp_dtype)
         self.plot_samples = validate_plot_samples(self.plot_samples)
         self.single_cls = bool(self.single_cls)
+        self.classes = normalize_classes_field(self.classes)
 
         if self.data is None and self.data_dir is None and self.keypoints_json is None:
             raise ValueError(
