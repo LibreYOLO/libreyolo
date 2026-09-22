@@ -539,3 +539,43 @@ def test_grouppose_schema_resize_after_device_move_keeps_all_buffers_on_device()
     assert model.transformer.decoder.keypoint_class_mask.shape == (3, 3)
     assert all(buffer.device.type == "meta" for buffer in model.buffers())
     assert all(parameter.device.type == "meta" for parameter in model.parameters())
+
+
+@pytest.mark.parametrize(
+    "checkpoint_names,legacy_names,expected",
+    [
+        ({0: "switch"}, None, "switch"),
+        ({0: "switch"}, ["person"], "switch"),
+        (None, ["switch"], "switch"),
+        (None, None, "person"),
+        ({0: "person"}, None, "person"),
+    ],
+)
+def test_pose_checkpoint_preserves_class_names(
+    monkeypatch, tmp_path, checkpoint_names, legacy_names, expected
+):
+    from dataclasses import replace
+
+    from libreyolo import LibreRFDETR
+    from libreyolo.models.rfdetr.nn import RFDETR_POSE_CONFIGS
+    from libreyolo.utils.serialization import wrap_libreyolo_checkpoint
+
+    monkeypatch.setitem(
+        RFDETR_POSE_CONFIGS, "x", replace(_small_pose_config(), grouppose_head=True)
+    )
+    source = LibreRFDETR(
+        model_path={}, size="x", task="pose", device="cpu", num_keypoints=2
+    )
+    checkpoint = wrap_libreyolo_checkpoint(
+        source.model.model.state_dict(), model_family="rfdetr", size="x",
+        task="pose", nc=1, names=checkpoint_names, imgsz=_RES,
+        num_keypoints=2, keypoint_dim=2, num_keypoints_per_class=[0, 2],
+    )
+    if checkpoint_names is None:
+        checkpoint.pop("names")  # Legacy checkpoints may omit the names metadata.
+    if legacy_names is not None:
+        checkpoint["args"] = {"class_names": legacy_names}
+    path = tmp_path / "custom.pt"
+    torch.save(checkpoint, path)
+    loaded = LibreRFDETR(str(path), task="pose", device="cpu")
+    assert loaded.names == {0: expected}

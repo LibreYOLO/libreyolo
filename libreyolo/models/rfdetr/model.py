@@ -1058,13 +1058,12 @@ class LibreRFDETR(BaseModel):
                 if isinstance(args, dict)
                 else getattr(args, "class_names", None)
             )
-            if class_names:
+            # Pose checkpoint metadata is authoritative; legacy args are a fallback.
+            if class_names and (ckpt_names is None or not self._is_pose):
                 self.names = {
                     i: str(name)
                     for i, name in enumerate(class_names[: self.nb_classes])
                 }
-            if self._is_pose and self.nb_classes == 1:
-                self.names = {0: "person"}
 
             if missing:
                 # ``strict=False`` is expected for class/head adaptation and older
