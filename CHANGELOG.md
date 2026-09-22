@@ -98,6 +98,11 @@ before 1.4.0 are documented in the
 
 ### Fixed
 
+- **RF-DETR custom pose checkpoint loading (#874).** Rebuilt GroupPose
+  attention masks stay on the decoder's device, preventing device mismatches
+  after keypoint schema changes. Custom pose class names are preserved from
+  checkpoint metadata instead of being overwritten with `person`.
+
 - **Classification `auto_augment` and `erasing` are reachable from the CLI
   (#870).** Both are `TrainConfig` fields the Python API has always
   supported, but the train command never declared them, so
