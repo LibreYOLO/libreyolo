@@ -99,25 +99,32 @@ def _wrap_train_with_cfg(train_fn: Callable) -> Callable:
             merged.update(user_kwargs)
 
         resume = merged.get("resume", False)
-        if resume and not merged.get("single_cls", False):
+        if resume and (
+            not merged.get("single_cls", False) or not merged.get("classes")
+        ):
             resume_source = (
                 resume
                 if isinstance(resume, (str, Path)) and not isinstance(resume, bool)
                 else None
             )
             checkpoint_config = self._checkpoint_train_config(resume_source)
-            if bool(checkpoint_config.get("single_cls", False)):
+            if not merged.get("single_cls", False) and bool(
+                checkpoint_config.get("single_cls", False)
+            ):
                 merged["single_cls"] = True
+            if not merged.get("classes") and checkpoint_config.get("classes"):
+                merged["classes"] = checkpoint_config["classes"]
 
-        if merged.get("single_cls"):
+        if merged.get("single_cls") or merged.get("classes"):
             from ..registry import group_of
 
             group = group_of(self.FAMILY)
             task = getattr(self, "task", "detect")
             if group not in {"g0", "g1"} or task != "detect":
                 raise ValueError(
-                    "single_cls=True is supported only for G0/G1 detection "
-                    f"models; got family={self.FAMILY!r} ({group}), task={task!r}."
+                    "single_cls=True and classes=[...] are supported only for "
+                    "G0/G1 detection models; got family="
+                    f"{self.FAMILY!r} ({group}), task={task!r}."
                 )
 
         if merged.get("pretrained") is False:

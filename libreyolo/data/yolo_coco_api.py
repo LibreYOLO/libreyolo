@@ -11,7 +11,7 @@ Adapted for LibreYOLO.
 import logging
 import warnings
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 from PIL import Image
@@ -29,6 +29,7 @@ def parse_yolo_label_line(
     label_path: Optional[Path] = None,
     return_segment: bool = False,
     single_cls: bool = False,
+    class_remap: Optional[Dict[int, int]] = None,
 ) -> Optional[Tuple]:
     """
     Parse a single line from a YOLO label file.
@@ -41,6 +42,12 @@ def parse_yolo_label_line(
             not have the dataset class count available.
         label_path: Path to label file (for warnings)
         single_cls: Remap non-negative class ids to class 0 before validation.
+            Ignored when ``class_remap`` is given.
+        class_remap: Optional ``{orig_id: new_id}`` mapping for training on a
+            class subset (see ``load_data_config(classes=...)``). A class id
+            not present as a key is silently dropped (excluded by design, not
+            a data error); one present is rewritten to its mapped id before
+            the bounds check below. Takes precedence over ``single_cls``.
 
     Returns:
         Tuple of (class_id, x1, y1, x2, y2, area) in pixel coordinates,
@@ -94,7 +101,11 @@ def parse_yolo_label_line(
             )
         return None
 
-    if single_cls and class_id >= 0:
+    if class_remap is not None:
+        if class_id not in class_remap:
+            return None
+        class_id = class_remap[class_id]
+    elif single_cls and class_id >= 0:
         class_id = 0
 
     # Validate class ID
@@ -164,6 +175,7 @@ class YOLOCocoAPI:
         image_files: List[Path] | None = None,
         label_files: List[Path] | None = None,
         single_cls: bool = False,
+        class_remap: Dict[int, int] | None = None,
     ):
         """
         Initialize COCO API for a YOLO dataset.
@@ -173,12 +185,19 @@ class YOLOCocoAPI:
             labels_dir: Directory containing .txt label files
             class_names: List of class names (from data.yaml)
             single_cls: Remap all non-negative ground-truth classes to class 0.
+                Ignored when ``class_remap`` is given.
+            class_remap: Optional ``{orig_id: new_id}`` mapping for scoring a
+                class subset (see ``load_data_config(classes=...)``). A class
+                id not present as a key is dropped from the ground truth,
+                matching the dataloader side of ``classes=`` so mAP is
+                computed over the requested subset, not the full dataset.
         """
         self.images_dir = Path(images_dir) if images_dir is not None else None
         self.labels_dir = Path(labels_dir) if labels_dir is not None else None
         self.class_names = class_names
         self.load_segments = load_segments
         self.single_cls = bool(single_cls)
+        self.class_remap = class_remap
         num_classes = len(class_names)
 
         # Build COCO-style data structures
@@ -255,6 +274,7 @@ class YOLOCocoAPI:
                             label_path,
                             return_segment=load_segments,
                             single_cls=self.single_cls,
+                            class_remap=self.class_remap,
                         )
                         if parsed is None:
                             continue
@@ -286,8 +306,18 @@ class YOLOCocoAPI:
                         self.imgToAnns[img_id].append(ann)
                         ann_id += 1
 
-        # Build categories
+        # Build categories. class_remap's keys are original dataset ids, which
+        # only line up with this label-index domain for plain classes=
+        # filtering -- single_cls (with or without classes=) has already
+        # collapsed class_names to one "object" entry upstream, so leave that
+        # single category alone rather than checking it against class_remap.
         for i, name in enumerate(class_names):
+            if (
+                self.class_remap is not None
+                and not self.single_cls
+                and i not in self.class_remap
+            ):
+                continue
             self.cats[i] = {"id": i, "name": name, "supercategory": "object"}
 
         logger.info(

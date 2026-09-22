@@ -39,6 +39,7 @@ import torch
 from tqdm import tqdm
 
 from ...data import (
+    build_class_remap,
     get_coco_annotation_file,
     get_coco_image_dir,
     get_img_files,
@@ -53,7 +54,11 @@ from ...training.config import (
 )
 from ...training.scheduler import FlatCosineScheduler
 from ...training.optim import build_optimizer
-from ...training.trainer import BaseTrainer, ensure_mutation_reaches_workers
+from ...training.trainer import (
+    BaseTrainer,
+    ensure_mutation_reaches_workers,
+    log_classes_subset_notice,
+)
 from .loss import DFINECriterion
 from .matcher import HungarianMatcher
 from .transforms import (
@@ -417,9 +422,16 @@ class DFINETrainer(DETREncoderCudaGraphMixin, BaseTrainer):
             data_cfg = load_data_config(
                 self.config.data,
                 single_cls=self.config.single_cls,
+                classes=self.config.classes,
             )
+            class_remap = data_cfg.get("_class_remap")
             data_dir = data_cfg["root"]
-            self.num_classes = data_cfg.get("nc", self.config.num_classes)
+            data_nc = data_cfg.get("nc")
+            if data_nc is None and data_cfg.get("names") is not None:
+                data_nc = len(data_cfg["names"])
+            self.num_classes = (
+                int(data_nc) if data_nc is not None else self.config.num_classes
+            )
 
             ann_file = Path(data_dir) / "annotations" / "instances_train2017.json"
             coco_ann_file = get_coco_annotation_file(data_cfg, "train")
@@ -437,6 +449,7 @@ class DFINETrainer(DETREncoderCudaGraphMixin, BaseTrainer):
                     names=data_cfg.get("_original_names", data_cfg.get("names")),
                     load_segments=load_segments,
                     single_cls=self.config.single_cls,
+                    classes=self.config.classes,
                 )
             elif img_files:
                 train_dataset = YOLODataset(
@@ -447,6 +460,7 @@ class DFINETrainer(DETREncoderCudaGraphMixin, BaseTrainer):
                     load_segments=load_segments,
                     num_classes=int(self.num_classes),
                     single_cls=self.config.single_cls,
+                    class_remap=class_remap,
                 )
             elif ann_file.exists():
                 train_dataset = COCODataset(
@@ -459,6 +473,7 @@ class DFINETrainer(DETREncoderCudaGraphMixin, BaseTrainer):
                     names=data_cfg.get("_original_names", data_cfg.get("names")),
                     load_segments=load_segments,
                     single_cls=self.config.single_cls,
+                    classes=self.config.classes,
                 )
             else:
                 train_path = data_cfg.get("train", "images/train")
@@ -477,10 +492,16 @@ class DFINETrainer(DETREncoderCudaGraphMixin, BaseTrainer):
                     load_segments=load_segments,
                     num_classes=int(self.num_classes),
                     single_cls=self.config.single_cls,
+                    class_remap=class_remap,
                 )
         elif self.config.data_dir:
             data_dir = self.config.data_dir
+            # classes= only filters which boxes reach the loss; it never
+            # changes nc (kept ids are not compacted -- see build_class_remap).
             self.num_classes = 1 if self.config.single_cls else self.config.num_classes
+            class_remap = build_class_remap(
+                self.config.classes, single_cls=self.config.single_cls
+            )
             if (Path(data_dir) / "annotations").exists():
                 train_dataset = COCODataset(
                     data_dir=data_dir,
@@ -491,6 +512,7 @@ class DFINETrainer(DETREncoderCudaGraphMixin, BaseTrainer):
                     num_classes=int(self.num_classes),
                     load_segments=load_segments,
                     single_cls=self.config.single_cls,
+                    classes=self.config.classes,
                 )
             else:
                 train_dataset = YOLODataset(
@@ -501,6 +523,7 @@ class DFINETrainer(DETREncoderCudaGraphMixin, BaseTrainer):
                     load_segments=load_segments,
                     num_classes=int(self.num_classes),
                     single_cls=self.config.single_cls,
+                    class_remap=class_remap,
                 )
         else:
             raise ValueError("Either 'data' or 'data_dir' must be specified")
@@ -589,6 +612,8 @@ class DFINETrainer(DETREncoderCudaGraphMixin, BaseTrainer):
             collate_fn=collate_fn,
             drop_last=visible_samples >= per_rank_batch,
         )
+
+        log_classes_subset_notice(self.config, self.num_classes)
 
         return train_dataset
 

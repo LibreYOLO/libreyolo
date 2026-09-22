@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import List, Optional, Tuple, Union
 import yaml
 
+from libreyolo.data.utils import normalize_classes_field
 from libreyolo.utils.amp import normalize_amp_dtype
 from libreyolo.utils.image_size import normalize_imgsz
 from libreyolo.utils.plot_samples import validate_plot_samples
@@ -77,6 +78,18 @@ class TrainConfig:
     # Supported by G0/G1 detection families only; shared API/CLI gates reject
     # unsupported families and tasks before a trainer is built.
     single_cls: bool = False
+    # Train on only these original dataset class ids; every other class's
+    # boxes are dropped as if never annotated. Ids are kept as-is, not
+    # compacted to a contiguous range, so predictions stay directly
+    # comparable to the original dataset/checkpoint numbering -- the model
+    # head still covers every index up to the highest kept id. Source
+    # annotation files are untouched. Supported by G0/G1 detection families
+    # only, same gate as single_cls (both can resize the classification head
+    # via _rebuild_for_new_classes when the dataset's declared nc differs
+    # from the checkpoint's).
+    # Accepts a comma-separated string too (CLI convenience, matching how
+    # device="0,1" is written), e.g. "0,3,5".
+    classes: Optional[Union[List[int], str]] = None
 
     # Training
     epochs: int = 300
@@ -327,6 +340,7 @@ class TrainConfig:
         self.class_balanced = bool(self.class_balanced)
         self.cls_pw = validate_class_weighting(self.cls_pw, self.class_weights)
         self.export_check = bool(self.export_check)
+        self.classes = normalize_classes_field(self.classes)
         self.plot_samples = validate_plot_samples(self.plot_samples)
 
     @classmethod

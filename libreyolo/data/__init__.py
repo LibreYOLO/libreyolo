@@ -70,24 +70,28 @@ from .semantic_dataset import (
 )
 from .utils import (
     DATASETS_DIR,
+    build_class_remap,
     check_dataset,
     get_coco_annotation_file,
     get_coco_image_dir,
     get_img_files,
     img2label_paths,
     load_data_config,
+    normalize_classes_field,
     resolve_default_coco_image_dir,
 )
 from .yolo_coco_api import YOLOCocoAPI, create_yolo_coco_api, parse_yolo_label_line
 
 __all__ = [
     "DATASETS_DIR",
+    "build_class_remap",
     "check_dataset",
     "get_coco_annotation_file",
     "get_coco_image_dir",
     "get_img_files",
     "img2label_paths",
     "load_data_config",
+    "normalize_classes_field",
     "resolve_default_coco_image_dir",
     "YOLOCocoAPI",
     "create_yolo_coco_api",
