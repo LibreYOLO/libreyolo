@@ -26,6 +26,7 @@ from torch.nn.init import constant_, xavier_uniform_
 from ...kernels.attention.ms_deform_attn import maybe_ms_deform_attn
 from .keypoints import KEYPOINT_PRED_DIM, ConditionalQueryInitializer
 from .tensors import _bilinear_grid_sample
+from .selection import BatchedSelection
 
 logger = logging.getLogger(__name__)
 
@@ -377,7 +378,7 @@ class MSDeformAttn(nn.Module):
         return output
 
 
-class Transformer(nn.Module):
+class Transformer(BatchedSelection, nn.Module):
     def __init__(
         self,
         d_model=512,
@@ -539,7 +540,7 @@ class Transformer(nn.Module):
             self._spatial_shapes_cache = (key, tensor)
         return self._spatial_shapes_cache[1]
 
-    def forward(self, srcs, masks, pos_embeds, refpoint_embed, query_feat, cross_attn_srcs=None):
+    def forward(self, srcs, masks, pos_embeds, refpoint_embed, query_feat, cross_attn_srcs=None, return_encoder_logits=False):
         src_flatten = []
         mask_flatten = [] if masks is not None else None
         lvl_pos_embed_flatten = []
@@ -589,6 +590,7 @@ class Transformer(nn.Module):
                 ca_flatten.append(tensor.flatten(2).transpose(1, 2))
             cross_attn_memory = torch.cat(ca_flatten, 1)
 
+        cls_ts = None
         if self.two_stage:
             output_memory, output_proposals = gen_encoder_output_proposals(
                 memory, mask_flatten, spatial_shapes_hw, unsigmoid=not self.bbox_reparam
@@ -596,46 +598,51 @@ class Transformer(nn.Module):
             # group detr for first stage
             refpoint_embed_ts, memory_ts, boxes_ts = [], [], []
             group_detr = self.group_detr if self.training else 1
-            for g_idx in range(group_detr):
-                output_memory_gidx = self.enc_output_norm[g_idx](self.enc_output[g_idx](output_memory))
-
-                enc_outputs_class_unselected_gidx = self.enc_out_class_embed[g_idx](output_memory_gidx)
-                if self.bbox_reparam:
-                    enc_outputs_coord_delta_gidx = self.enc_out_bbox_embed[g_idx](output_memory_gidx)
-                    enc_outputs_coord_cxcy_gidx = (
-                        enc_outputs_coord_delta_gidx[..., :2] * output_proposals[..., 2:] + output_proposals[..., :2]
-                    )
-                    enc_outputs_coord_wh_gidx = enc_outputs_coord_delta_gidx[..., 2:].exp() * output_proposals[..., 2:]
-                    enc_outputs_coord_unselected_gidx = torch.concat(
-                        [enc_outputs_coord_cxcy_gidx, enc_outputs_coord_wh_gidx], dim=-1
-                    )
-                else:
-                    enc_outputs_coord_unselected_gidx = (
-                        self.enc_out_bbox_embed[g_idx](output_memory_gidx) + output_proposals
-                    )  # (bs, \sum{hw}, 4) unsigmoid
-
-                topk = min(self.num_queries, enc_outputs_class_unselected_gidx.shape[-2])
-                topk_proposals_gidx = torch.topk(enc_outputs_class_unselected_gidx.max(-1)[0], topk, dim=1)[1]  # bs, nq
-
-                refpoint_embed_gidx_undetach = torch.gather(
-                    enc_outputs_coord_unselected_gidx, 1, topk_proposals_gidx.unsqueeze(-1).repeat(1, 1, 4)
-                )  # unsigmoid
-                # for decoder layer, detached as initial ones, (bs, nq, 4)
-                refpoint_embed_gidx = refpoint_embed_gidx_undetach.detach()
-
-                # get memory tgt
-                tgt_undetach_gidx = torch.gather(
-                    output_memory_gidx, 1, topk_proposals_gidx.unsqueeze(-1).repeat(1, 1, self.d_model)
+            if group_detr > 1 and not self.use_grouppose_keypoints and self._two_stage_batching_eligible():
+                refpoint_embed_ts, memory_ts, boxes_ts, cls_ts = self._two_stage_group_selection(
+                    output_memory, output_proposals, group_detr
                 )
+            else:
+                for g_idx in range(group_detr):
+                    output_memory_gidx = self.enc_output_norm[g_idx](self.enc_output[g_idx](output_memory))
 
-                refpoint_embed_ts.append(refpoint_embed_gidx)
-                memory_ts.append(tgt_undetach_gidx)
-                boxes_ts.append(refpoint_embed_gidx_undetach)
-            # concat on dim=1, the nq dimension, (bs, nq, d) --> (bs, nq, d)
-            refpoint_embed_ts = torch.cat(refpoint_embed_ts, dim=1)
-            # (bs, nq, d)
-            memory_ts = torch.cat(memory_ts, dim=1)  # .transpose(0, 1)
-            boxes_ts = torch.cat(boxes_ts, dim=1)  # .transpose(0, 1)
+                    enc_outputs_class_unselected_gidx = self.enc_out_class_embed[g_idx](output_memory_gidx)
+                    if self.bbox_reparam:
+                        enc_outputs_coord_delta_gidx = self.enc_out_bbox_embed[g_idx](output_memory_gidx)
+                        enc_outputs_coord_cxcy_gidx = (
+                            enc_outputs_coord_delta_gidx[..., :2] * output_proposals[..., 2:] + output_proposals[..., :2]
+                        )
+                        enc_outputs_coord_wh_gidx = enc_outputs_coord_delta_gidx[..., 2:].exp() * output_proposals[..., 2:]
+                        enc_outputs_coord_unselected_gidx = torch.concat(
+                            [enc_outputs_coord_cxcy_gidx, enc_outputs_coord_wh_gidx], dim=-1
+                        )
+                    else:
+                        enc_outputs_coord_unselected_gidx = (
+                            self.enc_out_bbox_embed[g_idx](output_memory_gidx) + output_proposals
+                        )  # (bs, \sum{hw}, 4) unsigmoid
+
+                    topk = min(self.num_queries, enc_outputs_class_unselected_gidx.shape[-2])
+                    topk_proposals_gidx = torch.topk(enc_outputs_class_unselected_gidx.max(-1)[0], topk, dim=1)[1]  # bs, nq
+
+                    refpoint_embed_gidx_undetach = torch.gather(
+                        enc_outputs_coord_unselected_gidx, 1, topk_proposals_gidx.unsqueeze(-1).repeat(1, 1, 4)
+                    )  # unsigmoid
+                    # for decoder layer, detached as initial ones, (bs, nq, 4)
+                    refpoint_embed_gidx = refpoint_embed_gidx_undetach.detach()
+
+                    # get memory tgt
+                    tgt_undetach_gidx = torch.gather(
+                        output_memory_gidx, 1, topk_proposals_gidx.unsqueeze(-1).repeat(1, 1, self.d_model)
+                    )
+
+                    refpoint_embed_ts.append(refpoint_embed_gidx)
+                    memory_ts.append(tgt_undetach_gidx)
+                    boxes_ts.append(refpoint_embed_gidx_undetach)
+                # concat on dim=1, the nq dimension, (bs, nq, d) --> (bs, nq, d)
+                refpoint_embed_ts = torch.cat(refpoint_embed_ts, dim=1)
+                # (bs, nq, d)
+                memory_ts = torch.cat(memory_ts, dim=1)  # .transpose(0, 1)
+                boxes_ts = torch.cat(boxes_ts, dim=1)  # .transpose(0, 1)
 
         # --- GroupPose keypoint additions (ported from RF-DETR v1.8.0). ---
         enc_kp_predictions = None
@@ -781,11 +788,10 @@ class Transformer(nn.Module):
             return tuple(return_values)
 
         if self.two_stage:
-            if self.bbox_reparam:
-                return hs, references, memory_ts, boxes_ts
-            else:
-                return hs, references, memory_ts, boxes_ts.sigmoid()
-        return hs, references, None, None
+            result = (hs, references, memory_ts, boxes_ts if self.bbox_reparam else boxes_ts.sigmoid())
+        else:
+            result = (hs, references, None, None)
+        return (*result, cls_ts) if return_encoder_logits else result
 
 
 class TransformerDecoder(nn.Module):

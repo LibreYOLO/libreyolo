@@ -825,6 +825,7 @@ class LibreRFDETR(BaseModel):
             num_select=num_select,
             num_keypoints_per_class=num_keypoints_per_class if is_grouppose else None,
             trace_alpha=trace_alpha,
+            mask_score_threshold=conf_thres,
         )
 
         result = results[0]
@@ -1224,6 +1225,13 @@ class LibreRFDETR(BaseModel):
             callbacks: Optional training callback or iterable of callbacks.
             loggers: Optional built-in experiment loggers: a registered name,
                 a configured logger instance, or an iterable mixing both.
+            **kwargs: Additional RFDETRConfig options. ``compile=False`` keeps
+                eager training; True or a PyTorch mode compiles the detection
+                network with an eager criterion (CPU/CUDA only; see
+                ``docs/training_compile.md``). ``matcher_backend="scipy"``
+                preserves CPU Hungarian assignment; ``"auto"`` opts into the
+                optional accelerated provider when eligible and ``"torch"``
+                requires ``libreyolo[rfdetr-accel]``.
         """
         train_kwargs = dict(kwargs)
         project = train_kwargs.pop("project", None)

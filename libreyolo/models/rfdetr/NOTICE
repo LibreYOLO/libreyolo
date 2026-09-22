@@ -1,0 +1,12 @@
+RF-DETR performance updates
+
+Upstream: https://github.com/roboflow/rf-detr
+Commit: 2d319776673ba840c069b243863a4cbe3a62cb58
+License: Apache License 2.0
+Copyright (c) 2025 Roboflow, Inc.
+
+mask_ops.py and selection.py adapt upstream criterion.py and transformer.py.
+Other performance changes adapt the optimization concepts to LibreYOLO's
+existing box arithmetic, criterion, optimizer and checkpoint behavior.
+See THIRD_PARTY_NOTICES.txt for the family's additional upstream notices
+and license texts. No model weights are included in these changes.

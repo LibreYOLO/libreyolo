@@ -24,6 +24,110 @@ def _make_app() -> typer.Typer:
     return app
 
 
+@pytest.mark.parametrize("model", ["LibreYOLO9t.pt", "LibreRFDETRn.pt"])
+@pytest.mark.parametrize("grammar", ["key_value", "option"])
+@pytest.mark.parametrize("value,expected", [
+    ("true", "default"), ("false", False),
+    ("reduce-overhead", "reduce-overhead"),
+    ("max-autotune-no-cudagraphs", "max-autotune-no-cudagraphs"),
+])
+def test_compile_both_grammars_in_json(model, grammar, value, expected):
+    option = [f"compile={value}"] if grammar == "key_value" else ["--compile", value]
+    result = runner.invoke(
+        _make_app(), [f"model={model}", "data=local.yaml", *option, "--dry-run", "--json"]
+    )
+    assert result.exit_code == 0, result.output
+    assert json.loads(result.stdout)["resolved_config"]["compile"] == expected
+
+
+def test_compile_invalid_mode_has_structured_error():
+    result = runner.invoke(
+        _make_app(), ["model=LibreYOLO9t.pt", "data=local.yaml", "compile=fast", "--dry-run", "--json"]
+    )
+    assert result.exit_code == 2
+    data = json.loads(result.stdout)
+    assert data["error"] == "config_type_error"
+    assert "compile must be" in data["message"]
+
+
+def test_compile_and_matcher_options_appear_in_schema():
+    result = runner.invoke(_make_app(), ["--help-json"])
+    assert result.exit_code == 0, result.output
+    schema = json.loads(result.stdout)
+    parameters = {parameter["name"]: parameter for parameter in schema["parameters"]}
+    for name in ("compile", "matcher_backend", "nbs"):
+        assert name in parameters
+    assert parameters["compile"]["default"] == "false"
+
+
+@pytest.mark.parametrize("family,model", [("yolo9", "LibreYOLO9t.pt"), ("rfdetr", "LibreRFDETRn.pt")])
+def test_compile_value_reaches_python_training(family, model, monkeypatch, tmp_path):
+    captured = {}
+
+    class LocalModel:
+        FAMILY = family
+        device = "cpu"
+
+        def train(self, data, **kwargs):
+            captured.update(kwargs)
+            return {"save_dir": str(tmp_path)}
+
+    monkeypatch.setattr(
+        "libreyolo.cli.commands.train.load_model_or_exit", lambda **kwargs: LocalModel()
+    )
+    result = runner.invoke(_make_app(), [
+        f"model={model}", "data=local.yaml", "compile=max-autotune", "nbs=4",
+        f"project={tmp_path}", "--json", "--quiet",
+    ])
+    assert result.exit_code == 0, result.output
+    assert captured["compile"] == "max-autotune"
+    assert captured["nbs"] == 4
+    assert json.loads(result.stdout)["model_family"] == family
+
+
+@pytest.mark.parametrize("args", [["matcher_backend=auto"], ["--matcher-backend", "torch"]])
+def test_rfdetr_matcher_backend_both_grammars(args):
+    result = runner.invoke(_make_app(), [
+        "model=LibreRFDETRn.pt", "data=local.yaml", *args, "--dry-run", "--json",
+    ])
+    assert result.exit_code == 0, result.output
+    assert json.loads(result.stdout)["resolved_config"]["matcher_backend"] in ("auto", "torch")
+
+
+@pytest.mark.parametrize("model,value,error", [
+    ("LibreRFDETRn.pt", "bad", "config_type_error"),
+    ("LibreYOLO9t.pt", "auto", "config_unsupported"),
+])
+def test_matcher_backend_rejects_unsupported_values(model, value, error):
+    result = runner.invoke(_make_app(), [
+        f"model={model}", "data=local.yaml", f"matcher_backend={value}", "--dry-run", "--json",
+    ])
+    assert result.exit_code == 2
+    assert json.loads(result.stdout)["error"] == error
+
+
+def test_matcher_backend_reaches_rfdetr_training(monkeypatch, tmp_path):
+    captured = {}
+
+    class RFModel:
+        FAMILY = "rfdetr"
+        device = "cpu"
+
+        def train(self, data, **kwargs):
+            captured.update(kwargs)
+            return {"save_dir": str(tmp_path)}
+
+    monkeypatch.setattr(
+        "libreyolo.cli.commands.train.load_model_or_exit", lambda **kwargs: RFModel()
+    )
+    result = runner.invoke(_make_app(), [
+        "model=LibreRFDETRn.pt", "data=local.yaml", "matcher_backend=torch",
+        f"project={tmp_path}", "--json",
+    ])
+    assert result.exit_code == 0, result.output
+    assert captured["matcher_backend"] == "torch"
+
+
 def test_train_dry_run_uses_rtdetr_defaults():
     """Dry-run shows correct family-specific defaults for RT-DETR."""
     app = _make_app()

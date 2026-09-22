@@ -170,6 +170,7 @@ def postprocess(
     num_select: int = 300,
     num_keypoints_per_class: Optional[Sequence[int]] = None,
     trace_alpha: float = 0.2,
+    mask_score_threshold: Optional[float] = None,
 ) -> list[dict[str, torch.Tensor]]:
     """
     Postprocess RF-DETR outputs to get final detections.
@@ -223,10 +224,10 @@ def postprocess(
 
     boxes = cxcywh_to_xyxy(out_bbox)
 
-    boxes = torch.gather(boxes, 1, topk_boxes.unsqueeze(-1).repeat(1, 1, 4))
+    boxes = torch.gather(boxes, 1, topk_boxes.unsqueeze(-1).expand(-1, -1, 4))
     obb = None
     if out_angles is not None:
-        obb_cxcywh = torch.gather(out_bbox, 1, topk_boxes.unsqueeze(-1).repeat(1, 1, 4))
+        obb_cxcywh = torch.gather(out_bbox, 1, topk_boxes.unsqueeze(-1).expand(-1, -1, 4))
         obb_angles = torch.gather(out_angles, 1, topk_boxes.unsqueeze(-1)).squeeze(-1)
 
     # Scale from relative [0, 1] to absolute [0, height/width] coordinates.
@@ -269,27 +270,20 @@ def postprocess(
             res_i["obb"] = obb[i]
 
         if out_masks is not None:
-            # Gather masks for top-K queries
             k_idx = topk_boxes[i]
-            masks_i = torch.gather(
-                out_masks[i],
-                0,
-                k_idx.unsqueeze(-1)
-                .unsqueeze(-1)
-                .repeat(1, out_masks.shape[-2], out_masks.shape[-1]),
-            )  # (K, Hm, Wm)
-
-            # Resize to original image size
-            h, w = target_sizes[i].tolist()
-            masks_i = F.interpolate(
-                masks_i.unsqueeze(1),
-                size=(int(h), int(w)),
-                mode="bilinear",
-                align_corners=False,
-            )  # (K, 1, H, W)
-
-            # Threshold at 0.0 in logit space (= 0.5 probability)
-            res_i["masks"] = (masks_i[:, 0] > 0.0).bool()  # (K, H, W)
+            if mask_score_threshold is not None:
+                keep = scores[i] > mask_score_threshold
+                k_idx = k_idx[keep]
+                res_i = {key: value[keep] for key, value in res_i.items()}
+            masks_i = out_masks[i].index_select(0, k_idx)
+            h, w = (int(value) for value in target_sizes[i].tolist())
+            # Only one chunk of full-resolution float logits is live at a time.
+            chunks = [
+                F.interpolate(part.unsqueeze(1), size=(h, w), mode="bilinear", align_corners=False)[:, 0] > 0.0
+                for part in masks_i.split(32)
+                if part.shape[0]
+            ]
+            res_i["masks"] = torch.cat(chunks) if chunks else masks_i.new_empty((0, h, w), dtype=torch.bool)
 
         if out_keypoints is not None and num_keypoints_per_class:
             # GroupPose keypoint decode (ported from RF-DETR v1.8.0). The raw

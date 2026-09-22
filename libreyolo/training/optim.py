@@ -10,6 +10,10 @@ import torch
 
 ParamsLike = Iterable[Union[torch.Tensor, Dict[str, Any]]]
 
+
+class OptimizerStateMigrationError(ValueError):
+    """A saved optimizer layout cannot be migrated without changing training."""
+
 #: Optimizers that must never take the fused path. torch's fused SGD (2.11
 #: verified) sets ``_step_supports_amp_scaling`` on the instance, so
 #: GradScaler.step delegates overflow handling to the kernel instead of

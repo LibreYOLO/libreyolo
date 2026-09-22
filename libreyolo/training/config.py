@@ -17,6 +17,33 @@ from libreyolo.utils.plot_samples import validate_plot_samples
 logger = logging.getLogger(__name__)
 
 
+COMPILE_MODES = (
+    "default",
+    "reduce-overhead",
+    "max-autotune",
+    "max-autotune-no-cudagraphs",
+)
+
+
+def normalize_compile(value: bool | str) -> bool | str:
+    """Normalize the Python/YAML/CLI training compiler option."""
+    if value is True:
+        return "default"
+    if value is False:
+        return False
+    if isinstance(value, str):
+        mode = value.strip().lower()
+        if mode == "true":
+            return "default"
+        if mode == "false":
+            return False
+        if mode in COMPILE_MODES:
+            return mode
+    raise ValueError(
+        "compile must be True, False, or one of: " + ", ".join(COMPILE_MODES)
+    )
+
+
 def validate_class_weighting(cls_pw=0.0, class_weights=False) -> float:
     """Validate the power option and its exclusive legacy boolean alternative."""
     if not isinstance(class_weights, bool):
@@ -186,6 +213,13 @@ class TrainConfig:
     # differs from the captured shape (multi-scale, last partial batch) run
     # eager. See docs/training_cuda_graphs.md.
     cuda_graph: bool = False
+    # Compile the training network with Inductor; the criterion and optimizer
+    # stay eager. True selects "default"; strings select a PyTorch mode.
+    # YOLO9/RF-DETR detection on CPU/CUDA are supported, subject to the
+    # boundaries in docs/training_compile.md. The original model remains the
+    # optimizer/EMA/checkpoint owner. Combining this with cuda_graph delegates
+    # capture to Inductor instead of the eager training graph manager.
+    compile: bool | str = False
     # Layer freezing. An int freezes the first N family-defined freeze groups;
     # a list freezes explicit group indices or module-name selectors; a string
     # freezes matching module/parameter names.
@@ -316,6 +350,7 @@ class TrainConfig:
 
     def __post_init__(self):
         self.amp_dtype = normalize_amp_dtype(self.amp_dtype)
+        self.compile = normalize_compile(self.compile)
         self.imgsz = normalize_imgsz(
             self.imgsz,
             name="imgsz",

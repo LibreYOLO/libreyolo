@@ -683,6 +683,7 @@ class LWDETR(nn.Module):
             refpoint_embed_weight,
             query_feat_weight,
             cross_attn_srcs=cross_attn_srcs,
+            return_encoder_logits=not self.use_grouppose_keypoints,
         )
         if self.use_grouppose_keypoints:
             hs, ref_unsigmoid, hs_enc, ref_enc, keypoint_hs, enc_kp_predictions, _ = transformer_outputs
@@ -759,13 +760,15 @@ class LWDETR(nn.Module):
 
         if self.two_stage:
             group_detr = self.group_detr if self.training else 1
-            hs_enc_list = hs_enc.chunk(group_detr, dim=1)
-            cls_enc = []
-            for g_idx in range(group_detr):
-                cls_enc_gidx = self.transformer.enc_out_class_embed[g_idx](hs_enc_list[g_idx])
-                cls_enc.append(cls_enc_gidx)
+            cls_enc = transformer_outputs[4] if not self.use_grouppose_keypoints and len(transformer_outputs) > 4 else None
+            if cls_enc is None:
+                hs_enc_list = hs_enc.chunk(group_detr, dim=1)
+                cls_enc = []
+                for g_idx in range(group_detr):
+                    cls_enc_gidx = self.transformer.enc_out_class_embed[g_idx](hs_enc_list[g_idx])
+                    cls_enc.append(cls_enc_gidx)
 
-            cls_enc = torch.cat(cls_enc, dim=1)
+                cls_enc = torch.cat(cls_enc, dim=1)
 
             # --- GroupPose keypoint additions (ported from RF-DETR v1.8.0). ---
             keypoints_enc = None

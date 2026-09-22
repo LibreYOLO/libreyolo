@@ -10,6 +10,8 @@ Modified from DETR (https://github.com/facebookresearch/detr).
 Copyright (c) Facebook, Inc. and its affiliates.
 """
 
+import math
+
 import torch
 import torch.nn.functional as F  # noqa: N812
 from torchvision.ops.boxes import box_area
@@ -76,6 +78,55 @@ def generalized_box_iou(boxes1: torch.Tensor, boxes2: torch.Tensor) -> torch.Ten
     area = wh[:, :, 0] * wh[:, :, 1]
 
     return iou - (area - union) / area
+
+
+def elementwise_box_iou(boxes1: torch.Tensor, boxes2: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+    """IoU for matched pairs, preserving the pairwise helper's arithmetic.
+
+    Unlike a pairwise matrix followed by ``diag``, intermediates are O(N).
+    Deliberately retain the existing treatment of zero-area boxes; adding an
+    epsilon here would change the criterion rather than just its execution.
+    """
+    if boxes1.shape != boxes2.shape or boxes1.ndim != 2 or boxes1.shape[-1] != 4:
+        raise ValueError("matched boxes must have the same shape (N, 4)")
+    area1, area2 = box_area(boxes1), box_area(boxes2)
+    lt = torch.max(boxes1[:, :2], boxes2[:, :2])
+    rb = torch.min(boxes1[:, 2:], boxes2[:, 2:])
+    wh = (rb - lt).clamp(min=0)
+    inter = wh[:, 0] * wh[:, 1]
+    union = area1 + area2 - inter
+    return inter / union, union
+
+
+def elementwise_generalized_box_iou(boxes1: torch.Tensor, boxes2: torch.Tensor) -> torch.Tensor:
+    """GIoU for matched pairs without a quadratic intermediate matrix."""
+    iou, union = elementwise_box_iou(boxes1, boxes2)
+    lt = torch.min(boxes1[:, :2], boxes2[:, :2])
+    rb = torch.max(boxes1[:, 2:], boxes2[:, 2:])
+    wh = (rb - lt).clamp(min=0)
+    area = wh[:, 0] * wh[:, 1]
+    return iou - (area - union) / area
+
+
+_L1_ELEMENT_BUDGET = 32 * 1024 * 1024
+
+
+def pairwise_box_l1_cost(boxes1: torch.Tensor, boxes2: torch.Tensor) -> torch.Tensor:
+    """Four-coordinate L1 distance with bounded target-axis temporaries.
+
+    Preserve the broadcast implementation's dtype promotion and reduction
+    order. Chunking only the target dimension leaves every four-value sum
+    unchanged. At least one target column is evaluated at a time.
+    """
+    leading = torch.broadcast_shapes(boxes1.shape[:-2], boxes2.shape[:-2])
+    per_target = max(1, math.prod(leading) * boxes1.shape[-2] * boxes1.shape[-1])
+    chunk = max(1, _L1_ELEMENT_BUDGET // per_target)
+    if boxes2.shape[-2] <= chunk:
+        return (boxes1.unsqueeze(-2) - boxes2.unsqueeze(-3)).abs().sum(-1)
+    return torch.cat([
+        (boxes1.unsqueeze(-2) - part.unsqueeze(-3)).abs().sum(-1)
+        for part in boxes2.split(chunk, dim=-2)
+    ], dim=-1)
 
 
 def masks_to_boxes(masks: torch.Tensor) -> torch.Tensor:

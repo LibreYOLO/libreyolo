@@ -12,16 +12,23 @@ Modified from Deformable DETR (https://github.com/fundamentalvision/Deformable-D
 Copyright (c) 2020 SenseTime. All Rights Reserved.
 """
 
+import logging
+
 import numpy as np
 import torch
-import torch.nn.functional as F  # noqa: N812
+import torch.nn.functional as F
 from scipy.optimize import linear_sum_assignment
 from torch import nn
 
+from .box_ops import (
+    batch_dice_loss,
+    batch_sigmoid_ce_loss,
+    box_cxcywh_to_xyxy,
+    generalized_box_iou,
+    pairwise_box_l1_cost,
+)
 from .keypoints import compute_keypoint_matching_cost, map_labels_to_keypoint_schema
 from .segmentation import point_sample
-from .box_ops import batch_dice_loss, batch_sigmoid_ce_loss, box_cxcywh_to_xyxy, generalized_box_iou
-import logging
 
 logger = logging.getLogger(__name__)
 _SANITIZED_COST_MARGIN = 1.0
@@ -71,6 +78,23 @@ def _classic_keypoint_matching_cost(
     cost_visible = torch.zeros_like(cost_findable)
     cost_nll = torch.zeros_like(cost_l1)
     return cost_l1, cost_findable, cost_visible, cost_nll
+
+
+def _get_rng_state(device):
+    if device.type == "cuda":
+        return torch.cuda.get_rng_state(device)
+    if device.type == "mps":
+        return torch.mps.get_rng_state()
+    return torch.get_rng_state()
+
+
+def _set_rng_state(device, state):
+    if device.type == "cuda":
+        torch.cuda.set_rng_state(state, device)
+    elif device.type == "mps":
+        torch.mps.set_rng_state(state)
+    else:
+        torch.set_rng_state(state)
 
 
 class HungarianMatcher(nn.Module):
@@ -240,50 +264,13 @@ class HungarianMatcher(nn.Module):
         # to ``torch.cdist(out_bbox, tgt_bbox, p=1)`` but avoids cdist's slow
         # one-thread-per-pair p=1 CUDA kernel, which alone cost 15% of all GPU
         # time in an rfdetr-s training step.
-        cost_bbox = (out_bbox[:, None, :] - tgt_bbox[None, :, :]).abs().sum(-1)
+        cost_bbox = pairwise_box_l1_cost(out_bbox, tgt_bbox)
         cost_angle = 0
         if out_angles is not None and tgt_angles is not None and self.cost_angle:
             cost_angle = 1.0 - torch.cos(2.0 * (out_angles[:, None] - tgt_angles[None, :]))
 
         if masks_present:
-            tgt_masks = torch.cat([v["masks"] for v in targets])
-
-            if isinstance(outputs["pred_masks"], torch.Tensor):
-                out_masks = outputs["pred_masks"].flatten(0, 1)
-
-                num_points = out_masks.shape[-2] * out_masks.shape[-1] // self.mask_point_sample_ratio
-
-                point_coords = torch.rand(1, num_points, 2, device=out_masks.device)
-                pred_masks_logits = point_sample(
-                    out_masks.unsqueeze(1), point_coords.repeat(out_masks.shape[0], 1, 1), align_corners=False
-                ).squeeze(1)
-            else:
-                spatial_features = outputs["pred_masks"]["spatial_features"]
-                query_features = outputs["pred_masks"]["query_features"]
-                bias = outputs["pred_masks"]["bias"]
-
-                num_points = spatial_features.shape[-2] * spatial_features.shape[-1] // self.mask_point_sample_ratio
-                point_coords = torch.rand(1, num_points, 2, device=spatial_features.device)
-                pred_masks_logits = point_sample(
-                    spatial_features, point_coords.repeat(spatial_features.shape[0], 1, 1), align_corners=False
-                )
-                # print(f"pred_masks_logits.shape: {pred_masks_logits.shape}")
-                pred_masks_logits = torch.einsum("bcp,bnc->bnp", pred_masks_logits, query_features) + bias
-                pred_masks_logits = pred_masks_logits.flatten(0, 1)
-
-            tgt_masks = tgt_masks.to(pred_masks_logits.dtype)
-            tgt_masks_flat = point_sample(
-                tgt_masks.unsqueeze(1),
-                point_coords.repeat(tgt_masks.shape[0], 1, 1),
-                align_corners=False,
-                mode="nearest",
-            ).squeeze(1)
-
-            # Binary cross-entropy with logits cost (mean over pixels), computed pairwise efficiently
-            cost_mask_ce = batch_sigmoid_ce_loss(pred_masks_logits, tgt_masks_flat)
-
-            # Dice loss cost (1 - dice coefficient)
-            cost_mask_dice = batch_dice_loss(pred_masks_logits, tgt_masks_flat)
+            cost_mask_ce, cost_mask_dice = self._mask_costs(outputs, targets)
 
         # --- GroupPose keypoint additions (ported from RF-DETR v1.8.0). ---
         if keypoints_present and tgt_keypoints is not None:
@@ -384,6 +371,200 @@ class HungarianMatcher(nn.Module):
                 ]
         return [(torch.as_tensor(i, dtype=torch.int64), torch.as_tensor(j, dtype=torch.int64)) for i, j in indices]
 
+    def _mask_costs(self, outputs, targets):
+        tgt_masks = torch.cat([v["masks"] for v in targets])
+
+        if isinstance(outputs["pred_masks"], torch.Tensor):
+            out_masks = outputs["pred_masks"].flatten(0, 1)
+
+            num_points = out_masks.shape[-2] * out_masks.shape[-1] // self.mask_point_sample_ratio
+
+            point_coords = torch.rand(1, num_points, 2, device=out_masks.device)
+            pred_masks_logits = point_sample(
+                out_masks.unsqueeze(1), point_coords.repeat(out_masks.shape[0], 1, 1), align_corners=False
+            ).squeeze(1)
+        else:
+            spatial_features = outputs["pred_masks"]["spatial_features"]
+            query_features = outputs["pred_masks"]["query_features"]
+            bias = outputs["pred_masks"]["bias"]
+
+            num_points = spatial_features.shape[-2] * spatial_features.shape[-1] // self.mask_point_sample_ratio
+            point_coords = torch.rand(1, num_points, 2, device=spatial_features.device)
+            pred_masks_logits = point_sample(
+                spatial_features, point_coords.repeat(spatial_features.shape[0], 1, 1), align_corners=False
+            )
+            # print(f"pred_masks_logits.shape: {pred_masks_logits.shape}")
+            pred_masks_logits = torch.einsum("bcp,bnc->bnp", pred_masks_logits, query_features) + bias
+            pred_masks_logits = pred_masks_logits.flatten(0, 1)
+
+        tgt_masks = tgt_masks.to(pred_masks_logits.dtype)
+        tgt_masks_flat = point_sample(
+            tgt_masks.unsqueeze(1),
+            point_coords.repeat(tgt_masks.shape[0], 1, 1),
+            align_corners=False,
+            mode="nearest",
+        ).squeeze(1)
+
+        # Binary cross-entropy with logits cost (mean over pixels), computed pairwise efficiently
+        cost_mask_ce = batch_sigmoid_ce_loss(pred_masks_logits, tgt_masks_flat)
+
+        # Dice loss cost (1 - dice coefficient)
+        cost_mask_dice = batch_dice_loss(pred_masks_logits, tgt_masks_flat)
+        return cost_mask_ce, cost_mask_dice
+
+    def _compact_eligible(self, outputs, targets):
+        """Keep extended tasks and heterogeneous target tensors on their existing path."""
+        if not targets or len(targets) != outputs["pred_boxes"].shape[0]:
+            return False
+        if any(key in outputs for key in ("pred_keypoints", "pred_angles")):
+            return False
+        first = targets[0]["boxes"]
+        return all(
+            set(target) >= {"boxes", "labels"}
+            and target["boxes"].dtype == first.dtype
+            and target["boxes"].device == outputs["pred_boxes"].device
+            and target["labels"].device == outputs["pred_logits"].device
+            and target["labels"].dtype == torch.int64
+            and len(target["labels"]) == len(target["boxes"])
+            for target in targets
+        )
+
+    def _compact_cost(self, outputs, targets):
+        """Build only same-image detection costs, padded to the largest target count.
+
+        Equivalent to selecting the diagonal image blocks from the full
+        Cartesian matrix. Preserve the existing focal and box formulas.
+        """
+        from torch.nn.utils.rnn import pad_sequence
+
+        labels = pad_sequence([target["labels"] for target in targets], batch_first=True)
+        # Advanced indexing in the original path accepts negative class ids.
+        # Preserve that behavior rather than giving gather a different contract.
+        labels = torch.where(labels < 0, labels + outputs["pred_logits"].shape[-1], labels)
+        boxes = pad_sequence([target["boxes"] for target in targets], batch_first=True)
+        logits = outputs["pred_logits"].gather(
+            2, labels[:, None, :].expand(-1, outputs["pred_logits"].shape[1], -1)
+        )
+        prob = logits.sigmoid()
+        cost_class = 0.25 * ((1 - prob) ** 2) * (-F.logsigmoid(logits)) - 0.75 * (prob ** 2) * (-F.logsigmoid(-logits))
+        cost_bbox = pairwise_box_l1_cost(outputs["pred_boxes"], boxes)
+        cost_giou = -torch.vmap(generalized_box_iou)(
+            box_cxcywh_to_xyxy(outputs["pred_boxes"]), box_cxcywh_to_xyxy(boxes)
+        )
+        cost = self.cost_bbox * cost_bbox + self.cost_class * cost_class + self.cost_giou * cost_giou
+        compact = torch.cat([cost[i, :, :len(target["boxes"])] for i, target in enumerate(targets)], -1)
+        if "masks" in targets[0]:
+            # Keep mask sampling and its RNG draw in the original batch order.
+            mask_ce, mask_dice = self._mask_costs(outputs, targets)
+            batch, queries = outputs["pred_boxes"].shape[:2]
+            sizes = [len(target["boxes"]) for target in targets]
+            def diagonal_blocks(values):
+                return torch.cat([block[i] for i, block in enumerate(values.view(batch, queries, -1).split(sizes, -1))], -1)
+            compact = compact + self.cost_mask_ce * diagonal_blocks(mask_ce) + self.cost_mask_dice * diagonal_blocks(mask_dice)
+        return compact.float()
+
+    def _try_batched_assignment(self, matrices, sizes, group_detr):
+        backend = getattr(self, "matcher_backend", "scipy")
+        if backend not in {"scipy", "auto", "torch"}:
+            raise ValueError(f"Unknown RF-DETR matcher backend: {backend}")
+        use_torch = backend == "torch" or (backend == "auto" and matrices[0].is_cuda)
+        if use_torch and torch.stack([torch.isfinite(matrix).all() for matrix in matrices]).all():
+            try:
+                from .assignment import assign_compact
+                return assign_compact(matrices, sizes, group_detr)
+            except ModuleNotFoundError as exc:
+                if exc.name != "torch_linear_assignment":
+                    raise
+                if backend == "torch":
+                    raise ImportError("matcher_backend='torch' requires libreyolo[rfdetr-accel]") from exc
+                if not getattr(self, "_warned_assignment_fallback", False):
+                    logger.warning("GPU assignment requires libreyolo[rfdetr-accel]; using SciPy")
+                    self._warned_assignment_fallback = True
+        elif backend == "auto" and not matrices[0].is_cuda and not getattr(self, "_warned_assignment_fallback", False):
+            logger.info("GPU assignment is unavailable on %s; using SciPy", matrices[0].device.type)
+            self._warned_assignment_fallback = True
+        return None
+
+    def _solve_dense(self, matrix, targets, group_detr):
+        # Extended tasks keep their own cost equations, but can still opt into
+        # the same assignment backend. Do not silently ignore the public choice.
+        if getattr(self, "matcher_backend", "scipy") != "scipy":
+            sizes = [len(target["boxes"]) for target in targets]
+            compact = torch.cat([block[i] for i, block in enumerate(matrix.split(sizes, -1))], -1)
+            assigned = self._try_batched_assignment([compact], sizes, group_detr)
+            if assigned is not None:
+                return assigned[0]
+        return self.solve(matrix.cpu(), targets, group_detr)
+
+    @torch.no_grad()
+    def match_many(self, levels, targets, group_detr=1):
+        """Match output layers with one compact host transfer when memory permits.
+
+        Large/extended-task batches retain the depth-two pipeline. Non-finite
+        compact costs rerun the original full matrix so sentinel selection
+        and its warning retain their original global semantics.
+        """
+        total_targets = sum(len(target["boxes"]) for target in targets)
+        elements = total_targets * sum(level["pred_boxes"].shape[1] for level in levels)
+        compact = elements <= 16 * 1024 * 1024 and all(
+            self._compact_eligible(level, targets) for level in levels
+        )
+        if compact:
+            sizes = [len(target["boxes"]) for target in targets]
+            # Preserve per-level RNG states for the exceptional full-matrix
+            # fallback; mask matching draws coordinates once per level.
+            rng_states = []
+            matrices = []
+            for level in levels:
+                device = level["pred_boxes"].device
+                rng = None
+                if "masks" in targets[0]:
+                    rng = _get_rng_state(device)
+                rng_states.append(rng)
+                matrices.append(self._compact_cost(level, targets))
+            assigned = self._try_batched_assignment(matrices, sizes, group_detr)
+            if assigned is not None:
+                return assigned
+            shapes = [matrix.shape for matrix in matrices]
+            host = torch.cat([matrix.flatten() for matrix in matrices]).cpu()
+            results, offset = [], 0
+            for level, shape, rng_state in zip(levels, shapes, rng_states):
+                count = shape.numel()
+                matrix = host[offset:offset + count].view(shape)
+                offset += count
+                if not torch.isfinite(matrix).all():
+                    device = level["pred_boxes"].device
+                    if rng_state is None:
+                        full = self.compute_cost_matrix(level, targets).cpu()
+                    else:
+                        current_rng = _get_rng_state(device)
+                        try:
+                            _set_rng_state(device, rng_state)
+                            full = self.compute_cost_matrix(level, targets).cpu()
+                        finally:
+                            _set_rng_state(device, current_rng)
+                    results.append(self.solve(full, targets, group_detr))
+                    continue
+                if shape[0] % group_detr:
+                    raise ValueError("RF-DETR query count must be divisible by group_detr")
+                width = shape[0] // group_detr
+                image_results = []
+                for image in matrix.split(sizes, dim=1):
+                    pairs = [linear_sum_assignment(part) for part in image.split(width, dim=0)]
+                    rows = np.concatenate([pair[0] + group * width for group, pair in enumerate(pairs)])
+                    columns = np.concatenate([pair[1] for pair in pairs])
+                    image_results.append((torch.as_tensor(rows, dtype=torch.int64), torch.as_tensor(columns, dtype=torch.int64)))
+                results.append(image_results)
+            return results
+        pending = self.compute_cost_matrix(levels[0], targets)
+        results = []
+        for level in levels[1:]:
+            following = self.compute_cost_matrix(level, targets)
+            results.append(self._solve_dense(pending, targets, group_detr))
+            pending = following
+        results.append(self._solve_dense(pending, targets, group_detr))
+        return results
+
     @torch.no_grad()
     def forward(self, outputs, targets, group_detr=1):
         """Performs the matching
@@ -404,8 +585,7 @@ class HungarianMatcher(nn.Module):
             For each batch element, it holds:
                 len(index_i) = len(index_j) = min(num_queries, num_target_boxes)
         """
-        cost_matrix = self.compute_cost_matrix(outputs, targets).cpu()
-        return self.solve(cost_matrix, targets, group_detr=group_detr)
+        return self.match_many([outputs], targets, group_detr=group_detr)[0]
 
 
 def build_matcher(args):

@@ -6,6 +6,15 @@ from typing import List
 from libreyolo.training.config import TrainConfig
 
 
+def normalize_matcher_backend(value: str) -> str:
+    """Validate the opt-in RF-DETR Hungarian-assignment implementation."""
+    if isinstance(value, str):
+        backend = value.strip().lower()
+        if backend in ("scipy", "auto", "torch"):
+            return backend
+    raise ValueError("matcher_backend must be 'scipy', 'auto', or 'torch'")
+
+
 @dataclass(kw_only=True)
 class RFDETRConfig(TrainConfig):
     """CLI-visible RF-DETR fine-tuning defaults."""
@@ -52,6 +61,10 @@ class RFDETRConfig(TrainConfig):
     amp: bool = True
     backbone_lr_mult: float = 0.1
     clip_max_norm: float = 0.1
+    # Hungarian assignment: preserve SciPy by default. "auto" opts into the
+    # optional torch-hungarian provider when eligible; "torch" requests it
+    # explicitly. The criterion remains eager with compile enabled.
+    matcher_backend: str = "scipy"
 
     num_keypoints: int = 17
     keypoint_dim: int = 3
@@ -68,3 +81,7 @@ class RFDETRConfig(TrainConfig):
     decode_scale: int = 1
 
     name: str = "rfdetr_exp"
+
+    def __post_init__(self):
+        super().__post_init__()
+        self.matcher_backend = normalize_matcher_backend(self.matcher_backend)

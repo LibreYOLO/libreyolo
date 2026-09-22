@@ -794,6 +794,12 @@ Used for: RF-DETR model family (libreyolo/models/rfdetr/), LoRA
           RF-DETR v1.8.0 into libreyolo/models/rfdetr/. The published
           RF-DETR keypoint preview weights (Apache-2.0, COCO person
           pretrained) are redistributed with attribution.
+          Performance updates adapt matched-mask sampling and grouped
+          proposal selection from commit
+          2d319776673ba840c069b243863a4cbe3a62cb58 (Apache-2.0).
+          Equivalent optimizer grouping, paired IoU, compact matching and
+          bounded L1 calculations follow the same upstream's optimizations,
+          adapted to LibreYOLO's numerical and checkpoint contracts.
 
 --------------------------------------------------------------------
 DINOv2 (Meta AI / facebookresearch)

@@ -154,6 +154,11 @@ sam = [
     "transformers>=5.3.0",
     "timm>=1.0.23",
 ]
+rfdetr-accel = [
+    # Pure-Python optional package; Triton is selected only on supported CUDA hosts.
+    "libreyolo[rfdetr]",
+    "torch-hungarian==0.1.0rc0",
+]
 hub-kernels = [
     # Optional runtime loader for compiled Hub kernels (e.g. the
     # ms_deform_attn slot). Installing this extra is the opt-in; disable

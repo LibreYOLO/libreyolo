@@ -26,7 +26,6 @@ from ...training.classification import classification_loss
 from ...training.config import TrainConfig
 from ...training.distributed import is_main_process, unwrap_model
 from ...training.freezing import FreezeGroup
-from ...training.optim import build_optimizer
 from ...training.scheduler import BaseScheduler, CosineAnnealingScheduler, FlatCosineScheduler
 from ...training.trainer import BaseTrainer
 from .config import RFDETRConfig
@@ -96,6 +95,11 @@ class RFDETRTrainer(BaseTrainer):
         # in _setup_semantic_data (including the polygon-fallback background
         # class) — neither reads a detection YAML here.
         if task in ("classify", "semantic"):
+            if getattr(self.config, "matcher_backend", "scipy") != "scipy":
+                raise ValueError(
+                    f"RF-DETR {task} training has no Hungarian matcher; "
+                    "matcher_backend is only available for instance tasks."
+                )
             return
         if self.config.data:
             data_cfg = load_data_config(
@@ -676,6 +680,7 @@ class RFDETRTrainer(BaseTrainer):
             apply_lora_to_rfdetr(core_model)
 
         self.criterion, _ = self.model.build_criterion_and_postprocess()
+        self.criterion.matcher.matcher_backend = getattr(self.config, "matcher_backend", "scipy")
         self.criterion.to(self.device)
 
         if self.wrapper_model is not None:
@@ -706,7 +711,9 @@ class RFDETRTrainer(BaseTrainer):
         too — the device gate in ``build_optimizer`` restores stock behavior
         off-CUDA. See ``libreyolo.training.optim`` for the full rationale.
         """
-        return build_optimizer(torch.optim.AdamW, groups, **kwargs)
+        from .optim import build_rfdetr_optimizer
+
+        return build_rfdetr_optimizer(groups, **kwargs)
 
     def _setup_optimizer(self) -> torch.optim.Optimizer:
         if getattr(getattr(self, "wrapper_model", None), "task", "detect") in (

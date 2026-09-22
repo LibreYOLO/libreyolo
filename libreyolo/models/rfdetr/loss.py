@@ -289,8 +289,8 @@ class SetCriterion(nn.Module):
             src_boxes = outputs["pred_boxes"][idx]
             target_boxes = torch.cat([t["boxes"][i] for t, (_, i) in zip(targets, indices)], dim=0)
 
-            iou_targets = torch.diag(
-                box_ops.box_iou(
+            iou_targets = (
+                box_ops.elementwise_box_iou(
                     box_ops.box_cxcywh_to_xyxy(src_boxes.detach()),
                     box_ops.box_cxcywh_to_xyxy(target_boxes),
                 )[0]
@@ -318,8 +318,8 @@ class SetCriterion(nn.Module):
             src_boxes = outputs["pred_boxes"][idx]
             target_boxes = torch.cat([t["boxes"][i] for t, (_, i) in zip(targets, indices)], dim=0)
 
-            iou_targets = torch.diag(
-                box_ops.box_iou(
+            iou_targets = (
+                box_ops.elementwise_box_iou(
                     box_ops.box_cxcywh_to_xyxy(src_boxes.detach()),
                     box_ops.box_cxcywh_to_xyxy(target_boxes),
                 )[0]
@@ -356,8 +356,8 @@ class SetCriterion(nn.Module):
             src_boxes = outputs["pred_boxes"][idx]
             target_boxes = torch.cat([t["boxes"][i] for t, (_, i) in zip(targets, indices)], dim=0)
 
-            iou_targets = torch.diag(
-                box_ops.box_iou(
+            iou_targets = (
+                box_ops.elementwise_box_iou(
                     box_ops.box_cxcywh_to_xyxy(src_boxes.detach()),
                     box_ops.box_cxcywh_to_xyxy(target_boxes),
                 )[0]
@@ -447,8 +447,8 @@ class SetCriterion(nn.Module):
         losses = {}
         losses["loss_bbox"] = loss_bbox.sum() / num_boxes
 
-        loss_giou = 1 - torch.diag(
-            box_ops.generalized_box_iou(
+        loss_giou = 1 - (
+            box_ops.elementwise_generalized_box_iou(
                 box_ops.box_cxcywh_to_xyxy(src_boxes),
                 box_ops.box_cxcywh_to_xyxy(target_boxes),
             )
@@ -527,13 +527,10 @@ class SetCriterion(nn.Module):
                 "loss_mask_ce": src_masks.sum(),
                 "loss_mask_dice": src_masks.sum(),
             }
-        # gather matched target masks
-        target_masks = torch.cat([t["masks"][j] for t, (_, j) in zip(targets, indices)], dim=0)  # [N, Ht, Wt]
 
         # No need to upsample predictions as we are using normalized coordinates :)
         # N x 1 x H x W
         src_masks = src_masks.unsqueeze(1)
-        target_masks = target_masks.unsqueeze(1).float()
 
         num_points = max(
             src_masks.shape[-2],
@@ -558,12 +555,9 @@ class SetCriterion(nn.Module):
 
         with torch.no_grad():
             # get gt labels
-            point_labels = point_sample(
-                target_masks,
-                point_coords,
-                align_corners=False,
-                mode="nearest",
-            ).squeeze(1)
+            from .mask_ops import sample_target_masks_at_points
+
+            point_labels = sample_target_masks_at_points(targets, indices, point_coords)
 
         # The jit-scripted losses are annotated ``num_masks: float`` (and are
         # shared with ec/seg_loss.py), while ``num_boxes`` is a 0-dim tensor
@@ -574,7 +568,6 @@ class SetCriterion(nn.Module):
         }
 
         del src_masks
-        del target_masks
         return losses
 
     def loss_keypoints(self, outputs, targets, indices, num_boxes):
@@ -683,17 +676,10 @@ class SetCriterion(nn.Module):
         levels = [outputs_without_aux, *aux_outputs_list]
         if "enc_outputs" in outputs:
             levels.append(outputs["enc_outputs"])
-        level_indices = []
-        pending_cost = self.matcher.compute_cost_matrix(levels[0], targets)
-        for next_level in levels[1:]:
-            next_cost = self.matcher.compute_cost_matrix(next_level, targets)
-            level_indices.append(
-                self.matcher.solve(pending_cost.cpu(), targets, group_detr=group_detr)
-            )
-            pending_cost = next_cost
-        level_indices.append(
-            self.matcher.solve(pending_cost.cpu(), targets, group_detr=group_detr)
-        )
+        if hasattr(self.matcher, "match_many"):
+            level_indices = self.matcher.match_many(levels, targets, group_detr)
+        else:
+            level_indices = [self.matcher(level, targets, group_detr=group_detr) for level in levels]
         indices = level_indices[0]
 
         # Training uses the global average box count. Rank-0-only validation

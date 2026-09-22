@@ -52,7 +52,7 @@ from .distributed import (
     wants_distributed,
 )
 from .ema import ModelEMA
-from .optim import build_optimizer, restore_optimizer_state
+from .optim import OptimizerStateMigrationError, build_optimizer, restore_optimizer_state
 from .freezing import FreezeGroup, apply_freeze, default_freeze_groups
 from .qat_defaults import apply_qat_training_guards
 from ..data.dataset import YOLODataset, COCODataset, create_dataloader
@@ -307,6 +307,8 @@ class BaseTrainer(ABC):
         self._cuda_graph_manager = None
         self._cuda_graph_spec = None
         self._cuda_graph_spec_resolved = False
+        # Holds a separate callable, never a replacement for self.model.
+        self._compile_manager = None
 
     # =========================================================================
     # Config
@@ -504,7 +506,7 @@ class BaseTrainer(ABC):
         targets: torch.Tensor,
         polygons: Optional[List] = None,
     ) -> Dict:
-        """``on_forward`` with optional CUDA-graph capture of the network.
+        """``on_forward`` with optional compilation or CUDA-graph capture.
 
         Routing keeps a hard *dispatch* contract: any batch that cannot go
         through a captured graph (no family spec, shape mismatch, capture
@@ -520,6 +522,13 @@ class BaseTrainer(ABC):
         # getattr defaults keep partially-constructed trainers (test
         # doubles, exotic subclasses skipping BaseTrainer.__init__) on the
         # plain eager path.
+        compiler = getattr(self, "_compile_manager", None)
+        if compiler is not None:
+            outputs = compiler.run(imgs, targets, polygons)
+            if outputs is not None:
+                return outputs
+            return self.on_forward(imgs, targets, polygons=polygons)
+
         manager = getattr(self, "_cuda_graph_manager", None)
         if manager is not None and not manager.disabled:
             if not getattr(self, "_cuda_graph_spec_resolved", False):
@@ -1818,6 +1827,8 @@ class BaseTrainer(ABC):
             try:
                 restore_optimizer_state(self.optimizer, self._resume_optimizer_state)
                 logger.info("Optimizer state restored from resume checkpoint")
+            except OptimizerStateMigrationError:
+                raise
             except Exception as e:
                 logger.warning(f"Could not load deferred optimizer state: {e}")
             finally:
@@ -1965,7 +1976,11 @@ class BaseTrainer(ABC):
         # can only ever see the fully-built model, optimizer and criterion.
         # Unsupported run shapes downgrade to eager with one clear warning
         # instead of failing the run.
-        if getattr(self.config, "cuda_graph", False):
+        if getattr(self.config, "compile", False):
+            from libreyolo.training.compile import build_compile_manager
+
+            self._compile_manager = build_compile_manager(self)
+        elif getattr(self.config, "cuda_graph", False):
             reason = None
             if self.device.type != "cuda":
                 reason = "device is not CUDA"
@@ -4019,6 +4034,8 @@ class BaseTrainer(ABC):
                 try:
                     restore_optimizer_state(self.optimizer, checkpoint["optimizer"])
                     logger.info("Optimizer state restored")
+                except OptimizerStateMigrationError:
+                    raise
                 except Exception as e:
                     logger.warning(f"Could not load optimizer state: {e}")
             else:

@@ -434,6 +434,7 @@ def _build_rfdetr_train_kwargs(
     direct_mappings = {
         "epochs": "epochs",
         "batch": "batch",
+        "nbs": "nbs",
         "lr0": "lr0",
         "workers": "num_workers",
         "weight_decay": "weight_decay",
@@ -454,6 +455,8 @@ def _build_rfdetr_train_kwargs(
         "amp": "amp",
         "amp_dtype": "amp_dtype",
         "cuda_graph": "cuda_graph",
+        "compile": "compile",
+        "matcher_backend": "matcher_backend",
         "max_det": "max_det",
         "eval_max_det": "eval_max_det",
         "lora": "lora",

@@ -304,6 +304,9 @@ def train_cmd(
     # Training
     epochs: int = typer.Option(300, help="Training epochs"),
     batch: int = typer.Option(16, help="Batch size per device"),
+    nbs: int | None = typer.Option(
+        None, min=1, help="Nominal batch size for gradient accumulation (family default)"
+    ),
     imgsz: str = typer.Option("640", help="Training image size: 640 (square) or 480x640 (HxW)"),
     device: str = typer.Option("auto", help="Device: 0, cpu, mps, auto"),
     workers: int = typer.Option(4, help="Dataloader workers"),
@@ -374,6 +377,17 @@ def train_cmd(
             "Capture the training forward/backward into CUDA graphs "
             "(single-GPU, supported families only; others run eager)"
         ),
+    ),
+    compile: str = typer.Option(
+        "false",
+        help=(
+            "Compile the training network: true, false, default, reduce-overhead, "
+            "max-autotune, or max-autotune-no-cudagraphs "
+            "(YOLO9/RF-DETR detection on CPU/CUDA; unsupported runs use eager)"
+        ),
+    ),
+    matcher_backend: str = typer.Option(
+        "scipy", help="RF-DETR Hungarian matching backend: scipy, auto, or torch"
     ),
     pretrained: bool = typer.Option(True, help="Use pretrained weights"),
     lora: bool = typer.Option(
@@ -521,10 +535,11 @@ def train_cmd(
     # Parse tuple/list strings
     try:
         from libreyolo.utils.amp import normalize_amp_dtype
-        from libreyolo.training.config import validate_class_weighting
+        from libreyolo.training.config import normalize_compile, validate_class_weighting
 
         cls_pw = validate_class_weighting(cls_pw, class_weights)
         amp_dtype = normalize_amp_dtype(amp_dtype)
+        compile_val = normalize_compile(compile)
         from libreyolo.data.augment.classify import (
             normalize_auto_augment,
             normalize_crop_scale,
@@ -707,6 +722,7 @@ def train_cmd(
     params = {
         "epochs": epochs,
         "batch": batch,
+        "nbs": nbs,
         "imgsz": parsed_imgsz,
         "device": device,
         "workers": workers,
@@ -725,6 +741,8 @@ def train_cmd(
         "amp": amp,
         "amp_dtype": amp_dtype,
         "cuda_graph": cuda_graph,
+        "compile": compile_val,
+        "matcher_backend": matcher_backend,
         "lora": lora,
         "freeze": freeze_val,
         "optimizer": optimizer,
@@ -814,6 +832,20 @@ def train_cmd(
             ),
         )
 
+    if "matcher_backend" in user_provided and family != "rfdetr":
+        exit_with_error(
+            out,
+            "config_unsupported",
+            "matcher_backend is supported by RF-DETR training only.",
+        )
+    if family == "rfdetr":
+        from libreyolo.models.rfdetr.config import normalize_matcher_backend
+
+        try:
+            params["matcher_backend"] = normalize_matcher_backend(params["matcher_backend"])
+        except ValueError as exc:
+            exit_with_error(out, "config_type_error", str(exc))
+
     # Warn when explicitly-set params are ignored by the selected family
     # (spec-driven; see libreyolo/data/augment/spec.py).
     ignored_warnings = []
@@ -853,6 +885,7 @@ def train_cmd(
             "data": data,
             "epochs": params["epochs"],
             "batch": params["batch"],
+            "nbs": params["nbs"],
             "imgsz": params["imgsz"],
             "optimizer": params["optimizer"],
             "lr0": params["lr0"],
@@ -860,6 +893,7 @@ def train_cmd(
             "scheduler": params["scheduler"],
             "amp": params["amp"],
             "amp_dtype": params["amp_dtype"],
+            "compile": params["compile"],
             "max_det": params["max_det"],
             "class_balanced": params["class_balanced"],
             "class_weights": params["class_weights"],
@@ -887,6 +921,7 @@ def train_cmd(
                 "data": data,
                 "epochs": params["epochs"],
                 "batch": params["batch"],
+                "nbs": params["nbs"],
                 "lr0": params["lr0"],
                 "workers": params["workers"],
                 "weight_decay": params["weight_decay"],
@@ -897,6 +932,8 @@ def train_cmd(
                 "ema_decay": params["ema_decay"],
                 "amp": params["amp"],
                 "amp_dtype": params["amp_dtype"],
+                "compile": params["compile"],
+                "matcher_backend": params["matcher_backend"],
                 "max_det": params["max_det"],
                 "save_period": params["save_period"],
                 "lora": params["lora"],
