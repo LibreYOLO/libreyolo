@@ -157,7 +157,7 @@ sam = [
 rfdetr-accel = [
     # Pure-Python optional package; Triton is selected only on supported CUDA hosts.
     "libreyolo[rfdetr]",
-    "torch-hungarian==0.1.0rc0",
+    "torch-linear-assignment==0.1.0",
 ]
 hub-kernels = [
     # Optional runtime loader for compiled Hub kernels (e.g. the

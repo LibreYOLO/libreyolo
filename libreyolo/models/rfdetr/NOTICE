@@ -10,3 +10,11 @@ Other performance changes adapt the optimization concepts to LibreYOLO's
 existing box arithmetic, criterion, optimizer and checkpoint behavior.
 See THIRD_PARTY_NOTICES.txt for the family's additional upstream notices
 and license texts. No model weights are included in these changes.
+
+Optional assignment dependency (not vendored): torch-linear-assignment 0.1.0
+Source: https://github.com/ivan-chai/torch-linear-assignment
+Commit/tag: 73fc5a48b1e518169da7bbdd16266d0b7ba40016 / 0.1.0
+License: Apache License 2.0
+Attribution: Ivan Karpukhin (package author) and upstream contributors.
+The wheel's Python files and LICENSE match that commit byte for byte.
+Wheel SHA256: 6dac645984aff765e3455323f9c373e64b5b2e4771bd4e407134e1713bd0e568

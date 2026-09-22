@@ -802,6 +802,20 @@ Used for: RF-DETR model family (libreyolo/models/rfdetr/), LoRA
           adapted to LibreYOLO's numerical and checkpoint contracts.
 
 --------------------------------------------------------------------
+torch-linear-assignment (optional dependency, not vendored)
+--------------------------------------------------------------------
+Source: https://github.com/ivan-chai/torch-linear-assignment
+Revision: 73fc5a48b1e518169da7bbdd16266d0b7ba40016 (tag 0.1.0)
+Distribution: torch-linear-assignment==0.1.0
+License: Apache License 2.0 (licenses/Apache-2.0.txt)
+Attribution: Ivan Karpukhin (package author) and upstream contributors.
+Used for: optional batched assignment through the public Python API in
+          libreyolo/models/rfdetr/assignment.py. No dependency source is
+          bundled. The distributed Python files and LICENSE were verified
+          byte-identical to the revision above.
+Wheel SHA256: 6dac645984aff765e3455323f9c373e64b5b2e4771bd4e407134e1713bd0e568
+
+--------------------------------------------------------------------
 DINOv2 (Meta AI / facebookresearch)
 --------------------------------------------------------------------
 Source: https://github.com/facebookresearch/dinov2

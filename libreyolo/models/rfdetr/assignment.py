@@ -1,6 +1,8 @@
 """Optional batched assignment for RF-DETR's compact matching matrices.
 
-Uses the Apache-2.0 torch-hungarian public API. Shape bucketing follows the
+Uses torch-linear-assignment 0.1.0 (Apache-2.0), from
+https://github.com/ivan-chai/torch-linear-assignment at commit
+73fc5a48b1e518169da7bbdd16266d0b7ba40016. Shape bucketing follows the
 RF-DETR optimization at 2d319776673ba840c069b243863a4cbe3a62cb58; this adapter
 retains LibreYOLO's per-image/group output ordering and CPU index contract.
 """

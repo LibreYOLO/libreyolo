@@ -62,7 +62,7 @@ class RFDETRConfig(TrainConfig):
     backbone_lr_mult: float = 0.1
     clip_max_norm: float = 0.1
     # Hungarian assignment: preserve SciPy by default. "auto" opts into the
-    # optional torch-hungarian provider when eligible; "torch" requests it
+    # optional torch-linear-assignment provider when eligible; "torch" requests it
     # explicitly. The criterion remains eager with compile enabled.
     matcher_backend: str = "scipy"
 
