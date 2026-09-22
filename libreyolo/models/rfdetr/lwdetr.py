@@ -389,30 +389,6 @@ class LWDETR(nn.Module):
             kp_active[class_idx, :num_keypoints] = True
         return kp_active
 
-    @staticmethod
-    def _create_keypoint_class_mask(num_keypoints_per_class: "list[int]") -> torch.Tensor:
-        """Create an attention mask that blocks cross-class keypoint interactions.
-
-        Ported from RF-DETR v1.8.0 (GroupPose keypoint additions).
-        """
-        if not num_keypoints_per_class:
-            return torch.zeros(1, 1, dtype=torch.bool)
-
-        total_keypoints = sum(num_keypoints_per_class)
-        mask = torch.zeros(1 + total_keypoints, 1 + total_keypoints, dtype=torch.bool)
-        for class_idx_i, num_keypoints_i in enumerate(num_keypoints_per_class):
-            if num_keypoints_i == 0:
-                continue
-            start_i = 1 + sum(num_keypoints_per_class[:class_idx_i])
-            end_i = start_i + num_keypoints_i
-            for class_idx_j, num_keypoints_j in enumerate(num_keypoints_per_class):
-                if num_keypoints_j == 0 or class_idx_i == class_idx_j:
-                    continue
-                start_j = 1 + sum(num_keypoints_per_class[:class_idx_j])
-                end_j = start_j + num_keypoints_j
-                mask[start_i:end_i, start_j:end_j] = True
-        return mask
-
     def get_num_keypoints_per_class(self) -> "list[int]":
         """Return the current keypoint schema inferred from the active-keypoint mask.
 
@@ -490,9 +466,6 @@ class LWDETR(nn.Module):
                 decoder.keypoint_pos_embed = _resize_parameter_rows(keypoint_pos_embed, total_keypoints)
             if hasattr(decoder, "_create_keypoint_class_mask"):
                 decoder._create_keypoint_class_mask()
-            elif hasattr(decoder, "keypoint_class_mask"):
-                current_mask = decoder.keypoint_class_mask
-                decoder.keypoint_class_mask = self._create_keypoint_class_mask(schema).to(current_mask.device)
 
         for initializer_name in ("keypoint_query_initializer", "keypoint_query_initializer_enc"):
             initializer = getattr(self.transformer, initializer_name, None)
