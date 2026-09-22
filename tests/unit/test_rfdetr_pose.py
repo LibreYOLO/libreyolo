@@ -484,3 +484,58 @@ def test_train_rfdetr_pose_without_checkpoint_keeps_grouppose_default(monkeypatc
     assert result == {"ok": True}
     assert captured["init"]["size"] == "x"
     assert captured["init"]["task"] == "pose"
+
+
+@pytest.mark.parametrize("schema", [[], [0, 2], [2, 0, 4], [0, 17]])
+@pytest.mark.parametrize("dtype", [torch.float32, torch.float16])
+def test_keypoint_mask_rebuild_preserves_device_and_bool_dtype(schema, dtype):
+    from libreyolo.models.rfdetr.transformer import TransformerDecoder
+
+    decoder = TransformerDecoder(
+        torch.nn.Identity(), 1, d_model=32,
+        enable_keypoint_processing=True, num_keypoints_per_class=[0, 17],
+    ).to(device="meta", dtype=dtype)
+    decoder.num_keypoints_per_class = schema
+    mask = decoder._create_keypoint_class_mask()
+
+    assert mask.device == decoder.keypoint_pos_embed.device
+    assert mask.dtype == torch.bool
+    assert mask.shape == (1 + sum(schema), 1 + sum(schema))
+    assert dict(decoder.named_buffers())["keypoint_class_mask"] is mask
+    assert "keypoint_class_mask" in decoder.state_dict()
+
+
+def test_keypoint_mask_first_creation_uses_decoder_device():
+    from libreyolo.models.rfdetr.transformer import TransformerDecoder
+
+    decoder = TransformerDecoder(torch.nn.Identity(), 1, d_model=32).to("meta")
+    mask = decoder._create_keypoint_class_mask()
+    assert mask.device.type == "meta"
+    assert mask.dtype == torch.bool
+    assert mask.shape == (1, 1)
+
+
+@pytest.mark.parametrize("schema", [[], [0, 2], [2, 0, 4], [0, 17]])
+def test_keypoint_mask_rebuild_preserves_attention_semantics(schema):
+    from libreyolo.models.rfdetr.transformer import TransformerDecoder
+
+    decoder = TransformerDecoder(torch.nn.Identity(), 1, d_model=32)
+    decoder.num_keypoints_per_class = schema
+    mask = decoder._create_keypoint_class_mask()
+    # Instance token attends everywhere; keypoints attend only within their class.
+    owners = [-1] + [cls for cls, count in enumerate(schema) for _ in range(count)]
+    expected = torch.tensor([
+        [a != -1 and b != -1 and a != b for b in owners] for a in owners
+    ], dtype=torch.bool)
+    assert torch.equal(mask, expected)
+    decoder.half()
+    assert torch.equal(decoder._create_keypoint_class_mask(), expected)
+
+
+def test_grouppose_schema_resize_after_device_move_keeps_all_buffers_on_device():
+    # meta exercises non-CPU ownership in the hermetic CPU-only PR gate.
+    model = _build_pose_model().to("meta")
+    model.reinitialize_keypoint_head([0, 2])
+    assert model.transformer.decoder.keypoint_class_mask.shape == (3, 3)
+    assert all(buffer.device.type == "meta" for buffer in model.buffers())
+    assert all(parameter.device.type == "meta" for parameter in model.parameters())
