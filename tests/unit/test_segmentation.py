@@ -1430,8 +1430,9 @@ class TestRFDETRSegTrainer:
 
         optimizer = trainer._setup_optimizer()
         groups_by_param = {
-            id(group["params"][0]): group
+            id(param): group
             for group in optimizer.param_groups
+            for param in group["params"]
         }
         core = trainer.model.model
         backbone_group = groups_by_param[id(core.backbone[0].encoder_weight)]

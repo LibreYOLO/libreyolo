@@ -12,6 +12,51 @@ pytestmark = [pytest.mark.e2e, pytest.mark.rfdetr, pytest.mark.extended_training
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="requires CUDA")
+@pytest.mark.parametrize("dtype", [torch.float32, torch.float16, torch.bfloat16])
+@pytest.mark.parametrize("segmentation", [False, True])
+def test_cuda_compact_costs_and_assignments_match_full_matrix(dtype, segmentation):
+    if dtype == torch.bfloat16 and not torch.cuda.is_bf16_supported():
+        pytest.skip("requires BF16 CUDA support")
+    from libreyolo.models.rfdetr.matcher import HungarianMatcher
+
+    generator = torch.Generator().manual_seed(698)
+    sizes = [0, 7, 12]
+    targets = [
+        {
+            "labels": torch.randint(0, 5, (n,), generator=generator).cuda(),
+            "boxes": (torch.rand(n, 4, generator=generator) + 0.1).cuda(),
+        }
+        for n in sizes
+    ]
+    outputs = {
+        "pred_logits": torch.randn(3, 39, 5, generator=generator).cuda().to(dtype),
+        "pred_boxes": (torch.rand(3, 39, 4, generator=generator) + 0.1)
+        .cuda()
+        .to(dtype),
+    }
+    if segmentation:
+        for target in targets:
+            target["masks"] = (
+                torch.rand(len(target["boxes"]), 16, 16, generator=generator) > 0.5
+            ).cuda()
+        outputs["pred_masks"] = torch.randn(3, 39, 8, 8, generator=generator).cuda()
+    matcher = HungarianMatcher()
+    torch.cuda.manual_seed(699)
+    full = matcher.compute_cost_matrix(outputs, targets)
+    expected = matcher.solve(full.cpu(), targets, 3)
+    diagonal = torch.cat(
+        [block[i] for i, block in enumerate(full.split(sizes, -1))], -1
+    )
+    torch.cuda.manual_seed(699)
+    compact = matcher._compact_cost(outputs, targets)
+    torch.testing.assert_close(compact, diagonal, rtol=0, atol=0)
+    torch.cuda.manual_seed(699)
+    actual = matcher.match_many([outputs], targets, 3)[0]
+    for left, right in zip(actual, expected):
+        assert all(torch.equal(a, b) for a, b in zip(left, right))
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="requires CUDA")
 @pytest.mark.parametrize("sizes", [[0, 0], [0, 3, 7], [13, 2]])
 @pytest.mark.parametrize("tied", [False, True])
 def test_cuda_assignment_matches_scipy(sizes, tied):
