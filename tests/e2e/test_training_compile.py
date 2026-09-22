@@ -110,11 +110,20 @@ def test_compiled_training_validation_and_reload(
     assert manager is not None and manager.started and not manager.disabled
     assert manager.cuda_graph is cuda_graph
     assert trainer._cuda_graph_manager is None
-    assert manager.spec.network.module is trainer.model
+    assert {id(p) for p in manager.spec.network.parameters()} == {
+        id(p) for p in trainer.model.parameters()
+    }
     assert np.isfinite(result["final_loss"])
     checkpoint = trainer.save_dir / "weights" / "last.pt"
     state = torch.load(checkpoint, map_location="cpu", weights_only=False)
     assert state["ema_updates"] > 0
+    if "YOLO9" in weight:
+        assert state["config"]["aux_weight"] == 0.25
+        assert any(name.startswith("aux_head.") for name in state["train_model"])
+        for parameter in trainer.model.aux_head.parameters():
+            if parameter.requires_grad:
+                assert parameter.grad is not None
+                assert torch.isfinite(parameter.grad).all()
     for key in ("model", "train_model", "ema"):
         assert set(state[key]) == set(trainer.model.state_dict())
         assert all("_orig_mod" not in name for name in state[key])

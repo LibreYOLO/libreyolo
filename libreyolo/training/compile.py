@@ -171,7 +171,7 @@ def build_compile_manager(trainer) -> TrainCompileManager | None:
         logger.warning("compile=%r ignored (%s); using eager training.", mode, reason)
         return None
     try:
-        spec = trainer.cuda_graph_train_spec()
+        spec = getattr(trainer, "compile_train_spec", trainer.cuda_graph_train_spec)()
         if spec is None:
             logger.warning(
                 "compile=%r ignored (%s task or network variant has no supported "

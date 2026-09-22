@@ -210,6 +210,15 @@ class YOLO9Trainer(BaseTrainer):
     def on_forward(self, imgs: torch.Tensor, targets: torch.Tensor, polygons=None) -> Dict:
         return self.model(imgs, targets=targets)
 
+    def compile_train_spec(self):
+        """Compile both detection branches when the default PGI recipe is active."""
+        if getattr(self.model, "aux", None) is None:
+            return self.cuda_graph_train_spec()
+
+        from .compile import pgi_compile_spec
+
+        return pgi_compile_spec(self)
+
     def cuda_graph_train_spec(self):
         """Capture spec: graph the network, keep the DFL/TAL loss eager.
 

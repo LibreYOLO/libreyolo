@@ -489,6 +489,14 @@ class BaseTrainer(ABC):
         """
         return None
 
+    def compile_train_spec(self):
+        """Describe the network/eager-loss boundary used by ``torch.compile``.
+
+        Families may extend their capture boundary when the compiler supports
+        additional branches. The default reuses the existing family split.
+        """
+        return self.cuda_graph_train_spec()
+
     def invalidate_cuda_graph(self, reason: str) -> None:
         """Drop any captured training graph so a later batch re-captures.
 

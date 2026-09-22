@@ -42,8 +42,10 @@ state, with no compiled wrapper prefixes or serialized compiled program. A
 checkpoint can be resumed with compilation either enabled or disabled.
 
 The initial supported boundary covers YOLO9 detection with its ordinary dense
-head and RF-DETR detection. YOLO9 PGI auxiliary branches, derived YOLO9 heads,
-other tasks/families, DDP, distillation, LoRA, QAT, and devices other than CPU or
+head, including the default PGI auxiliary branch, and RF-DETR detection. Both
+YOLO9 heads are compiled when PGI is active; their target assignment, losses and
+the configured auxiliary-loss weight remain eager and unchanged. Derived YOLO9
+heads, other tasks/families, DDP, distillation, LoRA, QAT, and devices other than CPU or
 CUDA log a warning and run eager. These limits describe the implemented
 network/loss split, not restrictions imposed by PyTorch in general.
 
