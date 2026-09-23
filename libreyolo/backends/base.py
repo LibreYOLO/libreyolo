@@ -3136,12 +3136,17 @@ class BaseBackend(ABC):
                     )
                 max_scores = max_scores * np.exp(-trace_alpha * log_mean_traces)
 
+            # Report the declared ``num_keypoints`` rows when every class uses
+            # fewer slots than the dataset skeleton.
+            output_keypoints = max(
+                max_num_keypoints, int(getattr(self, "num_keypoints", 0) or 0)
+            )
             keypoints_selected = np.zeros(
-                (len(selected), max_num_keypoints, 3),
+                (len(selected), output_keypoints, 3),
                 dtype=np.float32,
             )
             active_keypoint_mask = np.zeros(
-                (len(selected), max_num_keypoints),
+                (len(selected), output_keypoints),
                 dtype=bool,
             )
             for row_idx, active_count in enumerate(active_counts):

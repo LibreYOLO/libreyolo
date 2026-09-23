@@ -123,20 +123,21 @@ class RFDETRTrainer(BaseTrainer):
                 if kpt_shape is not None:
                     self.config.num_keypoints = int(kpt_shape[0])
                     self.config.keypoint_dim = int(kpt_shape[1]) if len(kpt_shape) > 1 else 3
-                    self._keypoints_per_class = (
-                        [self.config.num_keypoints]
-                        if self.config.single_cls
-                        else keypoints_per_class(
-                            data_cfg,
-                            self.config.num_classes,
-                            self.config.num_keypoints,
-                        )
+                    self._keypoints_per_class = keypoints_per_class(
+                        data_cfg,
+                        self.config.num_classes,
+                        self.config.num_keypoints,
                     )
                     if not any(self._keypoints_per_class):
                         raise ValueError(
                             "RF-DETR pose training needs at least one class with "
                             "keypoints; kpt_names declares none"
                         )
+
+    @property
+    def _box_only_classes(self) -> List[int]:
+        """Pose classes declared without keypoints; their instances stay box-only targets."""
+        return [j for j, count in enumerate(self._keypoints_per_class or []) if count == 0]
 
     @property
     def effective_lr(self) -> float:
@@ -334,6 +335,7 @@ class RFDETRTrainer(BaseTrainer):
                 patch_size=patch_size,
                 num_windows=num_windows,
                 crop_resize_prob=self.config.crop_resize_prob,
+                box_only_classes=self._box_only_classes,
             )
             return preproc, None
         preproc = RFDETRDetTransform(
@@ -523,6 +525,7 @@ class RFDETRTrainer(BaseTrainer):
             patch_size=patch_size,
             num_windows=num_windows,
             crop_resize_prob=self.config.crop_resize_prob,
+            box_only_classes=self._box_only_classes,
         )
         train_ds = self._build_pose_dataset(train_imgs, train_lbls, train_tf)
 
@@ -577,6 +580,7 @@ class RFDETRTrainer(BaseTrainer):
                 patch_size=patch_size,
                 num_windows=num_windows,
                 crop_resize_prob=0.0,
+                box_only_classes=self._box_only_classes,
             )
             val_ds = self._build_pose_dataset(val_imgs, val_lbls, val_tf)
             self.val_loader = DataLoader(
@@ -645,7 +649,7 @@ class RFDETRTrainer(BaseTrainer):
             schema_width = len(schema)
             current_width = int(self.model.model.class_embed.out_features)
             if current_width != schema_width:
-                self.model.model.reinitialize_detection_head(schema_width)
+                self.model.model.reinitialize_grouppose_class_head(schema_width)
             # Keep the wrapper/args consistent with the 2-logit schema head:
             # ``nb_classes`` is the head width, ``args.num_classes`` the
             # head-width-minus-one count ``build_criterion_and_postprocessors``
@@ -1084,11 +1088,15 @@ class RFDETRTrainer(BaseTrainer):
     def _checkpoint_extra_metadata(self) -> Dict:
         if getattr(self.wrapper_model, "task", "detect") != "pose":
             return super()._checkpoint_extra_metadata()
-        return {
+        metadata = {
             "num_keypoints": self.config.num_keypoints,
             "keypoint_dim": self.config.keypoint_dim,
             "oks_sigmas": self._resolve_oks_sigmas(),
         }
+        inner = getattr(unwrap_model(self.model), "model", None)
+        if getattr(inner, "use_grouppose_keypoints", False):
+            metadata["num_keypoints_per_class"] = list(inner.get_num_keypoints_per_class())
+        return metadata
 
     def _run_validation(
         self,
