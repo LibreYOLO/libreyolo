@@ -279,3 +279,31 @@ def test_onnx_export_predict_and_val_match_native(family, tmp_path):
     predicted = backend._preprocess_classify(_IMAGE, model.input_size, "auto")[0][0]
     assert torch.equal(predicted, native)
     assert torch.equal(_val_tensor(backend), native)
+
+
+def test_runtime_metadata_filter_keeps_the_eval_pipeline():
+    """TorchScript/TensorRT/OpenVINO/Paddle/NCNN/Triton read through this filter.
+
+    Values differ from the legacy family table, so a dropped key cannot be
+    masked by the fallback.
+    """
+    from libreyolo.backends.base import _read_runtime_metadata, classify_eval_kwargs
+
+    exported = {
+        "crop_pct": "0.8",
+        "interpolation": "bicubic",
+        "norm_mean": "[0.1, 0.2, 0.3]",
+        "norm_std": "[0.4, 0.5, 0.6]",
+        "resize_mode": "stretch",
+    }
+    kwargs = classify_eval_kwargs(_read_runtime_metadata(exported))
+    assert kwargs == {
+        "crop_pct": 0.8,
+        "interpolation": "bicubic",
+        "norm_mean": (0.1, 0.2, 0.3),
+        "norm_std": (0.4, 0.5, 0.6),
+        "resize_mode": "stretch",
+    }
+    backend = _backend("vit", **exported)
+    assert backend.norm_mean == (0.1, 0.2, 0.3)
+    assert backend.resize_mode == "stretch"

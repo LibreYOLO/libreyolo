@@ -282,6 +282,10 @@ def _read_runtime_metadata(meta: dict) -> dict[str, Any]:
         runtime_meta["crop_pct"] = float(meta["crop_pct"])
     if meta.get("interpolation") is not None:
         runtime_meta["interpolation"] = str(meta["interpolation"])
+    # Classification eval pipeline (#886); parsed by classify_eval_kwargs.
+    for key in ("norm_mean", "norm_std", "resize_mode"):
+        if meta.get(key) is not None:
+            runtime_meta[key] = meta[key]
     if meta.get("num_bins") is not None:
         runtime_meta["num_bins"] = int(meta["num_bins"])
     if meta.get("bin_width_deg") is not None:
