@@ -194,7 +194,7 @@ class TFLiteBackend(BaseBackend):
         return outputs
 
     def _merge_split_outputs(self, outputs: list) -> np.ndarray:
-        """Rebuild ``(B, N, 4 + C)`` pixel cxcywh from the split INT8 layout.
+        """Rebuild the family's pixel-space tensor from the split INT8 layout.
 
         The graph emits normalized boxes ``(B, 4, N)`` and scores ``(B, N, C)``
         as separate tensors so each keeps its own int8 scale. LiteRT does not
@@ -216,9 +216,11 @@ class TFLiteBackend(BaseBackend):
         canvas_h, canvas_w = self._canvas_hw
         scale = np.array([canvas_w, canvas_h, canvas_w, canvas_h], dtype=np.float32)
         pixels = np.transpose(boxes, (0, 2, 1)) * scale
-        return np.ascontiguousarray(
-            np.concatenate([pixels, scores.astype(np.float32)], axis=-1)
-        )
+        merged = np.concatenate([pixels, scores.astype(np.float32)], axis=-1)
+        if self.model_family == "yolo9":
+            # YOLO9 parsing expects the channel-first (B, 4 + nc, N) layout.
+            merged = np.transpose(merged, (0, 2, 1))
+        return np.ascontiguousarray(merged)
 
 
 __all__ = ["TFLiteBackend"]

@@ -541,18 +541,22 @@ def test_tflite_exporter_forwards_int8_and_calibration(monkeypatch, tmp_path):
     output_path = tmp_path / "model.tflite"
     captured = {}
 
-    def fake_export_onnx(_nn_model, _dummy, **kwargs):
-        Path(kwargs["output_path"]).write_bytes(b"onnx")
-        return kwargs["output_path"]
-
     def fake_export_tflite(**kwargs):
         captured.update(kwargs)
         Path(kwargs["output_path"]).write_bytes(b"tflite")
         return kwargs["output_path"]
 
+    def fake_export_onnx(nn_model, _dummy, **kwargs):
+        captured["onnx_model"] = nn_model
+        Path(kwargs["output_path"]).write_bytes(b"onnx")
+        return kwargs["output_path"]
+
     monkeypatch.setattr(exporter_module, "export_onnx", fake_export_onnx)
     monkeypatch.setattr(
         "libreyolo.export.tflite.check_tflite_export_available", lambda: None
+    )
+    monkeypatch.setattr(
+        "libreyolo.export.tflite.check_tflite_int8_available", lambda: None
     )
     monkeypatch.setattr("libreyolo.export.tflite.export_tflite", fake_export_tflite)
 
@@ -564,6 +568,8 @@ def test_tflite_exporter_forwards_int8_and_calibration(monkeypatch, tmp_path):
         data=str(data_yaml),
     )
 
+    assert isinstance(captured["onnx_model"], exporter_module._YOLO9SplitOutputWrapper)
+    assert captured["metadata"]["output_layout"] == "boxes_norm_scores"
     assert captured["int8"] is True
     assert captured["half"] is False
     assert captured["metadata"]["precision"] == "int8"
@@ -669,3 +675,120 @@ def test_intermediate_onnx_removed_when_tflite_helper_fails(monkeypatch, tmp_pat
         exporter(output_path=str(output_path), simplify=False)
 
     assert not Path(captured["onnx_path"]).exists()
+
+
+# ---------------------------------------------------------------------------
+# INT8: split outputs so boxes and scores keep separate int8 scales
+# ---------------------------------------------------------------------------
+def _split_family_model(family):
+    if family == "yolox":
+        from libreyolo.models.yolox.nn import LibreYOLOXModel
+
+        model = LibreYOLOXModel(config="t", nb_classes=3)
+    else:
+        from libreyolo.models.yolo9.nn import LibreYOLO9Model
+
+        model = LibreYOLO9Model(config="t", nb_classes=3)
+    model.eval()
+    model.head.export = True
+    return model
+
+
+@pytest.mark.parametrize("family", ["yolox", "yolo9"])
+def test_split_output_wrapper_matches_the_regular_export(family):
+    from libreyolo.export.exporter import (
+        _YOLO9SplitOutputWrapper,
+        _YOLOXSplitOutputWrapper,
+    )
+
+    torch.manual_seed(0)
+    model = _split_family_model(family)
+    wrapper_cls = _YOLOXSplitOutputWrapper if family == "yolox" else _YOLO9SplitOutputWrapper
+    x = torch.rand(1, 3, 64, 96)
+    with torch.no_grad():
+        reference = model(x)
+        boxes, scores = wrapper_cls(model, (64, 96))(x)
+
+    scale = torch.tensor([96.0, 64.0, 96.0, 64.0]).view(1, 4, 1)
+    pixel_boxes = boxes * scale  # (B, 4, N)
+    if family == "yolox":
+        rebuilt = torch.cat([pixel_boxes.permute(0, 2, 1), scores], -1)
+    else:
+        rebuilt = torch.cat([pixel_boxes, scores.permute(0, 2, 1)], 1)
+    assert boxes.shape[1] == 4
+    torch.testing.assert_close(rebuilt, reference, atol=5e-4, rtol=1e-4)
+
+
+def test_bounded_sigmoid_matches_sigmoid_inside_the_bound_and_clamps_outside():
+    from libreyolo.export.exporter import _INT8_LOGIT_BOUND, _bounded_sigmoid
+
+    conv = nn.Conv2d(1, 1, 1)
+    with torch.no_grad():
+        conv.weight.fill_(1.0)
+        conv.bias.zero_()
+    logits = torch.tensor([-50.0, -8.0, -2.5, 0.0, 3.0, 8.0, 40.0]).view(1, 1, 1, -1)
+
+    out = _bounded_sigmoid(conv, logits)
+
+    expected = logits.clamp(-_INT8_LOGIT_BOUND, _INT8_LOGIT_BOUND).sigmoid()
+    torch.testing.assert_close(out, expected, atol=1e-6, rtol=0)
+
+
+@pytest.mark.parametrize("family", ["yolox", "yolo9"])
+@pytest.mark.parametrize("boxes_first", [True, False])
+def test_tflite_backend_merges_split_int8_outputs(family, boxes_first):
+    from libreyolo.backends.tflite import SPLIT_OUTPUT_LAYOUT, TFLiteBackend
+
+    backend = TFLiteBackend.__new__(TFLiteBackend)
+    backend.model_family = family
+    backend._canvas_hw = (320, 640)
+    backend._output_layout = SPLIT_OUTPUT_LAYOUT
+    n, channels = 5, 4 if family == "yolox" else 3
+    boxes = np.random.default_rng(0).random((1, 4, n)).astype(np.float32)
+    scores = np.random.default_rng(1).random((1, n, channels)).astype(np.float32)
+
+    merged = backend._merge_split_outputs([boxes, scores] if boxes_first else [scores, boxes])
+
+    pixels = np.transpose(boxes, (0, 2, 1)) * np.array([640, 320, 640, 320], np.float32)
+    expected = np.concatenate([pixels, scores], -1)
+    if family == "yolo9":
+        expected = np.transpose(expected, (0, 2, 1))
+    np.testing.assert_allclose(merged, expected, rtol=1e-6)
+
+
+def test_split_output_layout_constant_matches_the_runtime():
+    from libreyolo.backends.tflite import SPLIT_OUTPUT_LAYOUT as runtime_layout
+    from libreyolo.export.tflite import SPLIT_OUTPUT_LAYOUT as export_layout
+
+    assert runtime_layout == export_layout
+
+
+def test_tflite_int8_rejects_families_outside_the_allowlist(monkeypatch):
+    monkeypatch.setattr(
+        "libreyolo.export.tflite.check_tflite_export_available", lambda: None
+    )
+    exporter = TFLiteExporter(_make_wrapper(model_name="yolonas"))
+
+    with pytest.raises(NotImplementedError, match="TFLite INT8 export currently supports"):
+        exporter(output_path="unused.tflite", int8=True, data="coco8.yaml")
+
+
+def test_tflite_int8_requires_batch_one():
+    exporter = TFLiteExporter(_make_wrapper(model_name="yolox"))
+
+    with pytest.raises(ValueError, match="batch=1"):
+        exporter(output_path="unused.tflite", int8=True, batch=2, data="coco8.yaml")
+
+
+def test_tflite_int8_reports_missing_tensorflow(monkeypatch):
+    import libreyolo.export.tflite as tflite_module
+
+    real_find_spec = importlib.util.find_spec
+    monkeypatch.setattr(
+        importlib.util,
+        "find_spec",
+        lambda name, *a, **k: None if name == "tensorflow" else real_find_spec(name, *a, **k),
+    )
+
+    with pytest.raises(ImportError, match=r"onnx2tf\[tensorflow\]"):
+        tflite_module.check_tflite_int8_available()
