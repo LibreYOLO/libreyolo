@@ -42,14 +42,17 @@ def preprocess_image(
 
 def preprocess_numpy(
     image_rgb_hwc, input_size: int, crop_pct: float = 0.9
-) -> torch.Tensor:
-    """Convert an RGB HWC array or PIL image into normalized CHW input."""
+) -> Tuple[np.ndarray, float]:
+    """Convert an RGB HWC array or PIL image into normalized CHW array.
+
+    Returns ``(CHW float32 array, 1.0)``, the INT8 calibration contract.
+    """
     pil = (
         image_rgb_hwc
         if isinstance(image_rgb_hwc, Image.Image)
         else Image.fromarray(np.asarray(image_rgb_hwc).astype("uint8"))
     )
-    return build_eval_transform(input_size, crop_pct)(pil)
+    return build_eval_transform(input_size, crop_pct)(pil).numpy(), 1.0
 
 
 __all__ = [

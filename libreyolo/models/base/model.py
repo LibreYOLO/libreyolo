@@ -99,25 +99,32 @@ def _wrap_train_with_cfg(train_fn: Callable) -> Callable:
             merged.update(user_kwargs)
 
         resume = merged.get("resume", False)
-        if resume and not merged.get("single_cls", False):
+        if resume and (
+            not merged.get("single_cls", False) or not merged.get("classes")
+        ):
             resume_source = (
                 resume
                 if isinstance(resume, (str, Path)) and not isinstance(resume, bool)
                 else None
             )
             checkpoint_config = self._checkpoint_train_config(resume_source)
-            if bool(checkpoint_config.get("single_cls", False)):
+            if not merged.get("single_cls", False) and bool(
+                checkpoint_config.get("single_cls", False)
+            ):
                 merged["single_cls"] = True
+            if not merged.get("classes") and checkpoint_config.get("classes"):
+                merged["classes"] = checkpoint_config["classes"]
 
-        if merged.get("single_cls"):
+        if merged.get("single_cls") or merged.get("classes"):
             from ..registry import group_of
 
             group = group_of(self.FAMILY)
             task = getattr(self, "task", "detect")
             if group not in {"g0", "g1"} or task != "detect":
                 raise ValueError(
-                    "single_cls=True is supported only for G0/G1 detection "
-                    f"models; got family={self.FAMILY!r} ({group}), task={task!r}."
+                    "single_cls=True and classes=[...] are supported only for "
+                    "G0/G1 detection models; got family="
+                    f"{self.FAMILY!r} ({group}), task={task!r}."
                 )
 
         if merged.get("pretrained") is False:
@@ -888,6 +895,50 @@ class BaseModel(ABC):
         if img_size is None:
             img_size = self._get_input_size()
         return self.val_preprocessor_class(img_size=(img_size, img_size))
+
+    def _get_eval_transform(
+        self, img_size: int | None = None, crop_pct: float | None = None
+    ):
+        """Return the classification eval transform (RGB PIL -> CHW tensor).
+
+        The classification counterpart of :meth:`_get_val_preprocessor`: the
+        validator, exported-backend validation and INT8 calibration take the
+        family's eval pipeline from here, so they score the model on what its
+        ``predict()`` runs. Built from the family's declared eval settings:
+        ``crop_pct``, ``interpolation``, ``norm_mean`` / ``norm_std`` (default
+        ImageNet) and ``resize_mode`` (``"center_crop"`` default, or
+        ``"stretch"`` for a square resize). ``crop_pct`` overrides the family
+        value (``val(crop_pct=...)``) and switches ``"stretch"`` back to the
+        center crop. Families whose pipeline these settings cannot express
+        override this method.
+        """
+        from ...data.augment.classify import (
+            DEFAULT_CROP_PCT,
+            IMAGENET_MEAN,
+            IMAGENET_STD,
+            build_classify_transforms,
+        )
+
+        if img_size is None:
+            img_size = self._get_input_size()
+        if isinstance(img_size, (list, tuple)):
+            img_size = img_size[0]
+        return build_classify_transforms(
+            int(img_size),
+            augment=False,
+            mean=getattr(self, "norm_mean", IMAGENET_MEAN),
+            std=getattr(self, "norm_std", IMAGENET_STD),
+            crop_pct=(
+                getattr(self, "crop_pct", DEFAULT_CROP_PCT)
+                if crop_pct is None
+                else crop_pct
+            ),
+            interpolation=getattr(self, "interpolation", "bilinear"),
+            square_resize=(
+                getattr(self, "resize_mode", "center_crop") == "stretch"
+                and crop_pct is None
+            ),
+        )
 
     # =========================================================================
     # Weight loading internals

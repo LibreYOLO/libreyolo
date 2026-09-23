@@ -168,7 +168,7 @@ libreyolo export --model yolo9-t --format onnx
 
 代码在业余时间编写。训练新模型（例如 LibreYOLO26，以及为权重许可受限的模型家族重新训练 MIT 权重）需要租用 GPU，[LibreYOLO 赞助计划](SPONSORS.md)为此付费。企业每月赞助 $100 起即可在此展示 logo；每月 $500 起，还会在每次发布说明以及赞助期间发布的每个权重的模型卡中署名。硬件厂商可以通过寄送设备来赞助。
 
-[![Sponsor](https://img.shields.io/badge/sponsor-GitHub%20Sponsors-ea4aaa?logo=githubsponsors)](https://github.com/sponsors/EHxuban11)
+[![Sponsor](https://img.shields.io/badge/sponsor-Open%20Collective-7fadf2?logo=opencollective)](https://opencollective.com/libreyolo)
 
 暂无赞助商。
 

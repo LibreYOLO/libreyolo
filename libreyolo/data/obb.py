@@ -141,6 +141,7 @@ def parse_yolo_obb_label_line(
     num_classes: int | None = None,
     *,
     clip: bool = False,
+    class_remap: dict[int, int] | None = None,
 ) -> tuple[int, np.ndarray]:
     """Parse one YOLO OBB label row into ``(class_id, corners)``.
 
@@ -153,6 +154,12 @@ def parse_yolo_obb_label_line(
     slightly out-of-frame crop-boundary boxes instead of dropping the row. The
     parser validates the file format but does not canonicalize point order or
     convert corners to an angle representation.
+
+    ``class_remap``: optional ``{orig_id: new_id}`` mapping for training on a
+    class subset (see ``load_data_config(classes=...)``). A class id absent
+    from the mapping raises ``ValueError`` the same way callers already treat
+    an out-of-range id -- as a row to skip, not a hard failure -- since it
+    means this box's class was deliberately excluded, not malformed.
     """
     parts = line.split() if isinstance(line, str) else list(line)
     if len(parts) != 9:
@@ -169,7 +176,11 @@ def parse_yolo_obb_label_line(
 
     if class_id < 0:
         raise ValueError(f"OBB class id must be non-negative, got {class_id}")
-    if num_classes is not None:
+    if class_remap is not None:
+        if class_id not in class_remap:
+            raise ValueError(f"OBB class id {class_id} excluded by classes= filter")
+        class_id = class_remap[class_id]
+    elif num_classes is not None:
         if num_classes < 1:
             raise ValueError(f"num_classes must be positive, got {num_classes}")
         if class_id >= num_classes:

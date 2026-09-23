@@ -42,6 +42,7 @@ def setup_histogram_data(trainer, cfg):
         preproc=preproc,
         num_classes=trainer.num_classes,
         single_cls=trainer.config.single_cls,
+        class_remap=cfg.get("_class_remap"),
         input_profile=profile,
     )
     dataset.enable_image_cache(getattr(trainer.config, "cache", False))
@@ -54,6 +55,11 @@ def setup_histogram_data(trainer, cfg):
         min_samples=int(getattr(trainer.config, "min_samples", 0) or 0),
         class_balanced=bool(getattr(trainer.config, "class_balanced", False)),
     )
+
+    from ..training.trainer import log_classes_subset_notice
+
+    log_classes_subset_notice(trainer.config, trainer.num_classes)
+
     return dataset
 
 

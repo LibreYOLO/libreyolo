@@ -61,11 +61,12 @@ logo.
 | Companies | custom | Ask. |
 | Hardware manufacturers | a device | LibreYOLO makes the export formats that device supports work on it, or adds export support for that specific device. Logo and link in the README and on libreyolo.com. The device stays with the project and the benchmark results are published as measured. |
 
-Contributions go through [GitHub Sponsors](https://github.com/sponsors/EHxuban11),
-monthly or one-time. Companies that need an invoice or a bank transfer
-contribute through [Open Collective](https://opencollective.com/libreyolo),
-where every transaction is public. GPU providers may contribute compute
-instead of money; it counts at market value.
+Contributions go through [Open Collective](https://opencollective.com/libreyolo),
+monthly or one-time, with Open Source Collective as fiscal host. It takes
+cards, bank transfers and invoices, and every transaction is public. GitHub
+Sponsors for the LibreYOLO organization is being set up and will pay into
+the same collective. GPU providers may contribute compute instead of money;
+it counts at market value.
 
 ## 4. Limits
 
@@ -81,8 +82,8 @@ instead of money; it counts at market value.
 All sponsorship money is loaded as credit into the project's Vast.ai
 account. Nothing is tracked per experiment. Once a year this document gets
 one line: how much came in and how much was loaded onto Vast.ai, with the
-Vast.ai billing history as the record. The sponsor list on GitHub Sponsors
-is public.
+Vast.ai billing history as the record. The Open Collective ledger is
+public.
 
 ## 6. Changes
 

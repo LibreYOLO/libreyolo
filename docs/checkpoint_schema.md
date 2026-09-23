@@ -84,9 +84,10 @@ explicit scratch initialization clears inherited weight provenance.
 Pose checkpoints additionally include:
 
 - `nc` / `names`: pose is usually single-class (`nc: 1`, `person`), but the
-  YOLO-NAS pose head also supports multi-class pose with a single shared
-  keypoint skeleton (one `kpt_shape` for every class); `nc` and `names` then
-  describe the classes as in detection. Runtime pose exports emit `scores` with
+  YOLO-NAS and RF-DETR pose heads also support multi-class pose over one
+  `kpt_shape` skeleton; RF-DETR can give each class fewer of its keypoints
+  (`num_keypoints_per_class`). `nc` and `names` then describe the classes as
+  in detection. Runtime pose exports emit `scores` with
   shape `[batch, anchors, nc]`.
 - `num_keypoints`: positive integer keypoint count used by the pose head.
 - `keypoint_dim`: pose label dimension from the dataset contract, either `2`
@@ -97,7 +98,10 @@ Pose checkpoints additionally include:
 - `num_keypoints_per_class`: optional list of per-class keypoint counts for
   GroupPose-style heads whose exported keypoint tensor is padded by class. Use
   `0` for classes without keypoints. Runtime backends use this schema to select
-  the active keypoints for the predicted class.
+  the active keypoints for the predicted class. LibreYOLO RF-DETR writes it as
+  `[0, count_0, count_1, ...]`: slot 0 is an empty slot and class `j` is slot
+  `j + 1`, so the head has `nc + 1` class columns. Predicted keypoints are
+  reported `num_keypoints` rows wide, zero-padded past a class's count.
 
 Mesh checkpoints use the task string `mesh`, `nc: 1`, and
 `names: {0: "person"}`. Because parameter layouts differ between body models,
@@ -257,15 +261,22 @@ Pose runtime exports may also write these flat metadata keys:
   consumes one already-extracted person crop rather than a full image and does
   not contain a detector. HRNet runtime exports require this value.
 
-Classification runtime exports (MobileNetV4 / ConvNeXt / EfficientNetV2 /
-ResNet) may also write these flat metadata keys so that exported-backend
-preprocessing reproduces the native model's resize/crop and the logits stay
-bit-identical:
+Classification runtime exports write the family's eval pipeline as flat
+metadata keys, so exported-backend `predict()` and `val()` reproduce the native
+model's preprocessing and the logits stay bit-identical:
 
 - `crop_pct`: float center-crop ratio. The pre-crop resize target is
-  `round(imgsz / crop_pct)`. Readers default to `0.875` when the key is absent.
+  `floor(imgsz / crop_pct)`. Readers default to `0.875` when the key is absent.
 - `interpolation`: resize filter, `"bilinear"` or `"bicubic"`. Readers default
   to `"bilinear"` when the key is absent.
+- `norm_mean`, `norm_std`: optional JSON-encoded RGB lists in `[0, 1]` scale,
+  written by families whose normalization is not ImageNet (CLIP, SigLIP2, PE,
+  ViT). Readers default to the ImageNet statistics.
+- `resize_mode`: optional `"center_crop"` (default) or `"stretch"` (square
+  resize without a crop; SigLIP2, PE).
+
+Exports written before `norm_mean` / `norm_std` / `resize_mode` existed keep
+their family's native values through a reader-side fallback.
 
 ExecuTorch exports write the flat metadata to a required
 `<program>.pte.json` sidecar. The v1 contract is CPU, FP32, batch 1, and a

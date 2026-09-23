@@ -841,11 +841,18 @@ class TransformerDecoder(nn.Module):
 
         Ported from RF-DETR v1.8.0 (GroupPose keypoint additions).
         """
+        # Schema changes can rebuild this buffer after the decoder moved to GPU.
+        # Preserve its device; on first creation use an existing decoder parameter.
+        current_mask = self._buffers.get("keypoint_class_mask")
+        device = (
+            current_mask.device if current_mask is not None
+            else self.ref_point_head.layers[0].weight.device
+        )
         if not self.num_keypoints_per_class:
-            mask = torch.zeros(1, 1, dtype=torch.bool)
+            mask = torch.zeros(1, 1, dtype=torch.bool, device=device)
         else:
             total_kp = sum(self.num_keypoints_per_class)
-            mask = torch.zeros(1 + total_kp, 1 + total_kp, dtype=torch.bool)
+            mask = torch.zeros(1 + total_kp, 1 + total_kp, dtype=torch.bool, device=device)
             offset = 1
             for class_idx_i, num_kp_i in enumerate(self.num_keypoints_per_class):
                 if num_kp_i == 0:
