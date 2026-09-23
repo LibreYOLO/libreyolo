@@ -896,6 +896,50 @@ class BaseModel(ABC):
             img_size = self._get_input_size()
         return self.val_preprocessor_class(img_size=(img_size, img_size))
 
+    def _get_eval_transform(
+        self, img_size: int | None = None, crop_pct: float | None = None
+    ):
+        """Return the classification eval transform (RGB PIL -> CHW tensor).
+
+        The classification counterpart of :meth:`_get_val_preprocessor`: the
+        validator, exported-backend validation and INT8 calibration take the
+        family's eval pipeline from here, so they score the model on what its
+        ``predict()`` runs. Built from the family's declared eval settings:
+        ``crop_pct``, ``interpolation``, ``norm_mean`` / ``norm_std`` (default
+        ImageNet) and ``resize_mode`` (``"center_crop"`` default, or
+        ``"stretch"`` for a square resize). ``crop_pct`` overrides the family
+        value (``val(crop_pct=...)``) and switches ``"stretch"`` back to the
+        center crop. Families whose pipeline these settings cannot express
+        override this method.
+        """
+        from ...data.augment.classify import (
+            DEFAULT_CROP_PCT,
+            IMAGENET_MEAN,
+            IMAGENET_STD,
+            build_classify_transforms,
+        )
+
+        if img_size is None:
+            img_size = self._get_input_size()
+        if isinstance(img_size, (list, tuple)):
+            img_size = img_size[0]
+        return build_classify_transforms(
+            int(img_size),
+            augment=False,
+            mean=getattr(self, "norm_mean", IMAGENET_MEAN),
+            std=getattr(self, "norm_std", IMAGENET_STD),
+            crop_pct=(
+                getattr(self, "crop_pct", DEFAULT_CROP_PCT)
+                if crop_pct is None
+                else crop_pct
+            ),
+            interpolation=getattr(self, "interpolation", "bilinear"),
+            square_resize=(
+                getattr(self, "resize_mode", "center_crop") == "stretch"
+                and crop_pct is None
+            ),
+        )
+
     # =========================================================================
     # Weight loading internals
     # =========================================================================

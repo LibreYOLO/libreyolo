@@ -427,3 +427,17 @@ class TestReusedRunDirectory:
         stale.write_bytes(b"x")
         _classify_validator(tmp_path, visualize=True)
         assert not stale.exists()
+
+
+def test_vjepa2_video_validation_rejects_visualize(tmp_path):
+    """A clip has no image file to draw, so the flag must not be accepted and ignored."""
+    from types import SimpleNamespace
+
+    from libreyolo.models.vjepa2.validator import VJEPA2ClipValidator
+
+    (tmp_path / "data.yaml").write_text("names: {0: a}\ntrain: t.txt\nval: v.txt\n")
+    v = VJEPA2ClipValidator.__new__(VJEPA2ClipValidator)
+    v.model = SimpleNamespace()
+    v.config = ValidationConfig(data=str(tmp_path / "data.yaml"), visualize=True)
+    with pytest.raises(ValueError, match="not supported for V-JEPA 2 video"):
+        v._setup_dataloader()
