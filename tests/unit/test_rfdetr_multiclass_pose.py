@@ -262,3 +262,38 @@ def test_train_rejects_single_cls_on_multiclass_pose(tmp_path, monkeypatch):
     model = rfdetr_model.LibreRFDETR(task="pose", size="x", device="cpu")
     with pytest.raises(ValueError, match="single_cls"):
         model.train(data=str(data), epochs=1, imgsz=192, single_cls=True)
+
+
+def test_trainer_setup_sizes_head_and_criterion_to_the_dataset_schema(tmp_path):
+    """``RFDETRTrainer.on_setup`` applies the schema on its own, from a [0, 17] model."""
+    from libreyolo.models.rfdetr.model import LibreRFDETR
+    from libreyolo.models.rfdetr.trainer import RFDETRTrainer
+
+    data = _write_pose_yaml(
+        tmp_path,
+        "nc: 3\nnames: [marker, blank, plate]\nkpt_shape: [4, 3]\n"
+        "kpt_names:\n  marker: [tail, head]\n  blank: []\n",
+    )
+    model = LibreRFDETR(task="pose", size="x", device="cpu")
+    assert model.model.model.get_num_keypoints_per_class() == [0, 17]
+
+    trainer = RFDETRTrainer(
+        model.model,
+        wrapper_model=model,
+        data=str(data),
+        epochs=1,
+        imgsz=192,
+        device="cpu",
+        size="x",
+    )
+    trainer.model.to(trainer.device)
+    trainer.on_setup()
+
+    inner = trainer.model.model
+    assert trainer.config.num_classes == 3
+    assert inner.get_num_keypoints_per_class() == [0, 2, 0, 4]
+    assert inner.class_embed.out_features == 4
+    assert trainer.model.args.num_keypoints_per_class == [0, 2, 0, 4]
+    assert list(trainer.criterion.num_keypoints_per_class) == [0, 2, 0, 4]
+    assert list(trainer.criterion.matcher.num_keypoints_per_class) == [0, 2, 0, 4]
+    assert model.names == {0: "marker", 1: "blank", 2: "plate"}
