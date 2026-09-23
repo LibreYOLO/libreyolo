@@ -83,11 +83,17 @@ def val_cmd(
         help="Sample images in the validation sample plot: 0 for none, "
         "-1 for every validated image (does not change the metrics)",
     ),
-    plot_errors: int = typer.Option(
-        0,
-        help="Incorrect images drawn for error analysis in plots/errors/ "
-        "(detect, segment, classify; needs --save-plots): 0 for none, "
-        "-1 for every incorrect image (does not change the metrics)",
+    visualize: bool = typer.Option(
+        False,
+        help="Draw every validated image with its true positives, false "
+        "positives and false negatives to visualize/ (detect, segment; "
+        "classify draws label vs top-1)",
+    ),
+    show_labels: bool = typer.Option(
+        True, help="Class names on the --visualize images"
+    ),
+    show_conf: bool = typer.Option(
+        True, help="Confidence scores on the --visualize images"
     ),
     workers: int = typer.Option(4, help="Dataloader workers"),
     device: str = typer.Option("auto", help="Device"),
@@ -183,7 +189,9 @@ def val_cmd(
             plot_samples=plot_samples,
             crop_pct=crop_pct,
             # Only when set: some families' val() reject unknown kwargs.
-            **({"plot_errors": plot_errors} if plot_errors else {}),
+            **({"visualize": True} if visualize else {}),
+            **({"show_labels": False} if not show_labels else {}),
+            **({"show_conf": False} if not show_conf else {}),
         )
     except FileNotFoundError as e:
         exit_with_error(out, "data_not_found", str(e))

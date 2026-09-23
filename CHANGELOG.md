@@ -9,16 +9,15 @@ before 1.4.0 are documented in the
 
 ### Added
 
-- **Error-analysis validation plots (#887).** `plot_errors` draws the first N
-  incorrect validation images to `plots/errors/`, on `val()`, `train()` (final
-  validation) and both CLI commands. Classification marks images whose top-1
-  prediction is wrong, with the label and the prediction written on the image.
-  Detection and segmentation mark missed objects, wrong-class boxes and false
-  positives at confidence 0.25 and IoU 0.5, each kind in its own colour. `0`
-  (the default) disables it, `-1` keeps every incorrect image, and it needs
-  `save_plots=True`. Other tasks reject it. It is a plotting budget only: the
-  metrics are unchanged. The RF-DETR `libreyolo train` mapping now also
-  forwards `plot_samples`, which it previously dropped.
+- **`val(visualize=True)` draws every validated image for error analysis
+  (#887).** Detection and segmentation images show true positives (green),
+  false positives (red) and false negatives (orange), matched class-aware at
+  confidence 0.25 and IoU 0.5, with a TP/FP/FN count per image; a wrong class
+  shows as one false positive plus one false negative. Classification images
+  show the label and the top-1 prediction, framed green or red. `show_labels`
+  and `show_conf` turn the text off. Images go to `visualize/` in the run
+  directory as validation runs. Also `libreyolo val --visualize`. Other tasks
+  reject the flag. Drawing only: the metrics are unchanged.
 
 - **Validation sample-plot count is configurable (#830).** `plot_samples` sets
   how many validated images appear in the sample-image plot, on `val()`,

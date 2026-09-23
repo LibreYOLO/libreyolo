@@ -11,11 +11,7 @@ from torch.utils.data import DataLoader
 
 from ..postprocess.slicing import slice_batch_outputs
 from .base import BaseValidator
-from .config import (
-    ValidationConfig,
-    wants_more_plot_errors,
-    wants_more_plot_samples,
-)
+from .config import ValidationConfig, wants_more_plot_samples
 from .loss import ValidationLossMixin
 
 logger = logging.getLogger(__name__)
@@ -92,7 +88,7 @@ class DetectionValidator(ValidationLossMixin, BaseValidator):
     """
 
     task = "detect"
-    supports_plot_errors = True
+    supports_visualize = True
 
     # Class-level default so instances built without __init__ (a pattern the
     # test suite uses for narrow-scope validators) still resolve it.
@@ -489,7 +485,6 @@ class DetectionValidator(ValidationLossMixin, BaseValidator):
         # Always initialise plot-tracking state before any early returns
         self._confusion_matrix = None
         self._val_samples: List[Dict] = []
-        self._error_samples: List[Dict] = []
         if self.config.save_plots:
             from .val_plotter import ConfusionMatrix  # noqa: PLC0415
             self._confusion_matrix = ConfusionMatrix(nc=self.nc)
@@ -871,6 +866,49 @@ class DetectionValidator(ValidationLossMixin, BaseValidator):
                 self._track_plots_data(preds, targets, img_info, img_ids)
             except Exception as exc:
                 logger.warning("Failed to collect validation plot data: %s", exc)
+        if getattr(cfg, "visualize", False):
+            self._visualize_batch(preds, targets, img_info, img_ids)
+
+    def _visualize_batch(
+        self,
+        preds: List[Dict[str, torch.Tensor]],
+        targets: torch.Tensor,
+        img_info: List,
+        img_ids: List,
+    ) -> None:
+        """Draw each image's TP/FP/FN boxes to ``save_dir/visualize/`` (#887).
+
+        Written as the images are validated, so nothing is held in memory.
+        Drawing only: it never feeds the metrics.
+        """
+        from .val_plotter import ValPlotter  # noqa: PLC0415
+
+        out_dir = self.save_dir / "visualize"
+        for i, pred in enumerate(preds):
+            index = self.seen + i
+            try:
+                orig_h, orig_w = img_info[i]
+                gt_boxes, gt_classes = self._parse_gt_boxes(targets[i], orig_h, orig_w)
+                img_path = self._resolve_img_path(
+                    self.dataloader.dataset, index, img_ids[i]
+                )
+                img_bgr = self._load_plot_image(img_path)
+                if img_bgr is None:
+                    continue
+                ValPlotter.plot_detection_visualize(
+                    img_bgr,
+                    gt_boxes,
+                    gt_classes,
+                    pred["boxes"].cpu().numpy().reshape(-1, 4),
+                    pred["classes"].cpu().numpy().astype(int).reshape(-1),
+                    pred["scores"].cpu().numpy().reshape(-1),
+                    self.class_names,
+                    out_dir / f"{index:06d}_{Path(str(img_path)).stem}.jpg",
+                    show_labels=self.config.show_labels,
+                    show_conf=self.config.show_conf,
+                )
+            except Exception as exc:
+                logger.warning("visualize failed for image %d: %s", index, exc)
 
     def _parse_gt_boxes(
         self, gt_row: torch.Tensor, orig_h: int, orig_w: int
@@ -1010,23 +1048,6 @@ class DetectionValidator(ValidationLossMixin, BaseValidator):
             if self._confusion_matrix is not None:
                 self._confusion_matrix.process_image(pb, pc, ps, gt_boxes, gt_classes)
 
-            # Error-analysis images (#887): plotting only, never scoring.
-            if self._wants_more_error_samples():
-                from .val_plotter import detection_errors  # noqa: PLC0415
-
-                if detection_errors(pb, pc, ps, gt_boxes, gt_classes)["has_error"]:
-                    self._error_samples.append({
-                        "img_path": self._resolve_img_path(
-                            self.dataloader.dataset, self.seen + i, img_ids[i]
-                        ),
-                        "img_id": img_ids[i],
-                        "gt_boxes": gt_boxes,
-                        "gt_classes": gt_classes,
-                        "pred_boxes": pb,
-                        "pred_classes": pc,
-                        "pred_scores": ps,
-                    })
-
             # Sample images for the plot only; never affects scoring (#830).
             if self._wants_more_val_samples():
                 global_idx = self.seen + i
@@ -1047,17 +1068,6 @@ class DetectionValidator(ValidationLossMixin, BaseValidator):
                     "pred_scores": ps,
                     "pred_masks": pm,
                 })
-
-    def _wants_more_error_samples(self) -> bool:
-        """Whether another incorrect image should be kept for the error plot.
-
-        Bounded by ``plot_errors`` (off by default, #887); ``-1`` keeps every
-        incorrect image.
-        """
-        buffer = getattr(self, "_error_samples", None)
-        if buffer is None:
-            return False
-        return wants_more_plot_errors(self.config, len(buffer))
 
     def _wants_more_val_samples(self) -> bool:
         """Whether another image should be kept for the sample-image plot.
@@ -1139,26 +1149,6 @@ class DetectionValidator(ValidationLossMixin, BaseValidator):
             _safe(ValPlotter.plot_confusion_matrix,
                   self._confusion_matrix.matrix, names,
                   plots_dir / "confusion_matrix.png")
-
-        # Error-analysis images → plots/errors/ (#887)
-        error_samples = getattr(self, "_error_samples", None)
-        if error_samples:
-            errors_dir = plots_dir / "errors"
-            for idx, sample in enumerate(error_samples):
-                img_bgr = self._load_plot_image(sample["img_path"])
-                if img_bgr is None:
-                    continue
-                _safe(
-                    ValPlotter.plot_detection_error,
-                    img_bgr,
-                    sample["gt_boxes"],
-                    sample["gt_classes"],
-                    sample["pred_boxes"],
-                    sample["pred_classes"],
-                    sample["pred_scores"],
-                    self.class_names,
-                    errors_dir / f"error_{idx:03d}.jpg",
-                )
 
         # Sample images → plots/samples/
         if self._val_samples:

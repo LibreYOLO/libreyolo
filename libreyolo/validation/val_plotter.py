@@ -11,9 +11,9 @@ logger = logging.getLogger(__name__)
 _COLOR_GT = (50, 200, 50)    # BGR green  — ground-truth
 _COLOR_PRED = (30, 80, 220)  # BGR red-ish — predictions
 _ALPHA_MASK = 0.35           # mask overlay opacity
-_COLOR_MISSED = (0, 165, 255)         # BGR orange  — missed ground truth
-_COLOR_FALSE_POSITIVE = (200, 60, 200)  # BGR magenta — false positive
-_COLOR_WRONG_CLASS = (40, 40, 235)      # BGR red     — wrong-class prediction
+_COLOR_TP = (50, 200, 50)    # BGR green  — visualize: true positive
+_COLOR_FP = (40, 40, 235)    # BGR red    — visualize: false positive
+_COLOR_FN = (0, 165, 255)    # BGR orange — visualize: false negative
 
 # Grouped metric definitions for the bar chart (lookup key is lowercase)
 _METRIC_GROUPS = [
@@ -57,43 +57,36 @@ def _box_iou_numpy(boxes1: np.ndarray, boxes2: np.ndarray) -> np.ndarray:
 
 
 # ---------------------------------------------------------------------------
-# Error analysis (#887)
+# visualize=True matching (#887)
 # ---------------------------------------------------------------------------
 
-#: Confidence at or above which a prediction counts in the error plot.
-ERROR_CONF_THRES = 0.25
-#: IoU at or above which a prediction and a ground-truth box are paired.
-ERROR_IOU_THRES = 0.5
-
-GT_CORRECT, GT_WRONG_CLASS, GT_MISSED = "correct", "wrong_class", "missed"
-PRED_CORRECT, PRED_WRONG_CLASS, PRED_FALSE_POSITIVE = (
-    "correct",
-    "wrong_class",
-    "false_positive",
-)
+#: Confidence at or above which a prediction is drawn by ``visualize``; the
+#: same threshold the sample-image plot draws with.
+VISUALIZE_CONF_THRES = 0.25
+#: IoU at or above which a prediction can match a ground-truth box.
+VISUALIZE_IOU_THRES = 0.5
 
 
-def detection_errors(
+def match_detections(
     pred_boxes: np.ndarray,    # (N, 4) xyxy pixel coords
     pred_classes: np.ndarray,  # (N,) int
     pred_scores: np.ndarray,   # (N,) float
     gt_boxes: np.ndarray,      # (M, 4) xyxy pixel coords
     gt_classes: np.ndarray,    # (M,) int
-    conf_thres: float = ERROR_CONF_THRES,
-    iou_thres: float = ERROR_IOU_THRES,
+    conf_thres: float = VISUALIZE_CONF_THRES,
+    iou_thres: float = VISUALIZE_IOU_THRES,
 ) -> Dict[str, np.ndarray]:
-    """Classify each box of one image for the error-analysis plot.
+    """Split one image's boxes into true positives, false positives and misses.
 
-    Predictions below ``conf_thres`` are ignored. The rest are paired one to
-    one with ground truth by descending IoU, class-agnostic, at
-    ``iou_thres`` (the same rule the confusion matrix uses). A pair with the
-    same class is correct and one with different classes is a wrong-class
-    error; an unpaired ground-truth box is missed and an unpaired prediction
-    is a false positive.
+    Predictions below ``conf_thres`` are dropped. The rest are matched one to
+    one with ground truth of the same class, by descending IoU at
+    ``iou_thres``. A matched prediction is a true positive, an unmatched one a
+    false positive, and an unmatched ground-truth box a false negative, so a
+    box with the wrong class counts as one false positive plus one false
+    negative.
 
-    Returns ``keep`` (bool mask of the predictions considered), ``pred_status``
-    and ``pred_match`` (paired ground-truth index or -1) for the kept
-    predictions, ``gt_status`` for every ground-truth box, and ``has_error``.
+    Returns ``keep`` (bool mask over the input predictions), ``tp`` (bool mask
+    over the kept predictions) and ``fn`` (bool mask over the ground truth).
     """
     pred_boxes = np.asarray(pred_boxes, dtype=np.float64).reshape(-1, 4)
     pred_classes = np.asarray(pred_classes).astype(int).reshape(-1)
@@ -103,35 +96,20 @@ def detection_errors(
 
     keep = pred_scores >= conf_thres
     kept_boxes, kept_classes = pred_boxes[keep], pred_classes[keep]
-    n_pred, n_gt = len(kept_boxes), len(gt_boxes)
+    tp = np.zeros(len(kept_boxes), dtype=bool)
+    fn = np.ones(len(gt_boxes), dtype=bool)
 
-    pred_status = np.full(n_pred, PRED_FALSE_POSITIVE, dtype=object)
-    pred_match = np.full(n_pred, -1, dtype=int)
-    gt_status = np.full(n_gt, GT_MISSED, dtype=object)
-
-    if n_pred and n_gt:
+    if len(kept_boxes) and len(gt_boxes):
         iou = _box_iou_numpy(gt_boxes, kept_boxes)  # (M, N)
+        iou[gt_classes[:, None] != kept_classes[None, :]] = 0.0
         gt_idxs, pred_idxs = np.where(iou >= iou_thres)
         order = np.argsort(-iou[gt_idxs, pred_idxs], kind="stable")
         for gi, pi in zip(gt_idxs[order], pred_idxs[order]):
-            gi, pi = int(gi), int(pi)
-            if gt_status[gi] != GT_MISSED or pred_match[pi] != -1:
-                continue
-            same = gt_classes[gi] == kept_classes[pi]
-            gt_status[gi] = GT_CORRECT if same else GT_WRONG_CLASS
-            pred_status[pi] = PRED_CORRECT if same else PRED_WRONG_CLASS
-            pred_match[pi] = gi
+            if fn[gi] and not tp[pi]:
+                fn[gi] = False
+                tp[pi] = True
 
-    has_error = bool(
-        np.any(gt_status != GT_CORRECT) or np.any(pred_status != PRED_CORRECT)
-    )
-    return {
-        "keep": keep,
-        "pred_status": pred_status,
-        "pred_match": pred_match,
-        "gt_status": gt_status,
-        "has_error": has_error,
-    }
+    return {"keep": keep, "tp": tp, "fn": fn}
 
 
 # ---------------------------------------------------------------------------
@@ -820,7 +798,7 @@ class ValPlotter:
         logger.info("Saved val sample → %s", save_path)
 
     # ------------------------------------------------------------------ #
-    # Error analysis (#887)
+    # visualize=True images (#887)
     # ------------------------------------------------------------------ #
     @staticmethod
     def _fit_font_scale(cv2, lines: List[str], max_width: int, scale: float) -> float:
@@ -835,9 +813,9 @@ class ValPlotter:
 
     @staticmethod
     def _readable_canvas(cv2, img_bgr: np.ndarray, min_side: int = 320):
-        """Upscale tiny images (e.g. 32x32) so the overlaid text is legible.
+        """Upscale tiny images (e.g. 32x32) so the drawn text is legible.
 
-        Returns the canvas and the scale factor applied to it.
+        Returns the canvas and the integer scale factor applied to it.
         """
         h, w = img_bgr.shape[:2]
         factor = max(1, int(np.ceil(min_side / max(min(h, w), 1))))
@@ -849,45 +827,55 @@ class ValPlotter:
         )
 
     @staticmethod
-    def plot_classify_error(
+    def plot_classify_visualize(
         img_bgr: np.ndarray,
         gt_name: str,
         pred_name: str,
         pred_score: float,
         save_path: Path,
+        show_labels: bool = True,
+        show_conf: bool = True,
+        correct: Optional[bool] = None,
     ) -> None:
-        """Save one misclassified image with its label and top-1 prediction."""
+        """Save one classified image framed green (correct) or red (wrong).
+
+        With ``show_labels`` the label and the top-1 prediction are written on
+        the image, sized to fit its width; ``show_conf`` adds the score.
+        """
         cv2 = ValPlotter._require_cv2()
         canvas, _ = ValPlotter._readable_canvas(cv2, img_bgr)
         h, w = canvas.shape[:2]
+        if correct is None:
+            correct = gt_name == pred_name
+        frame = _COLOR_TP if correct else _COLOR_FP
+        cv2.rectangle(canvas, (0, 0), (w - 1, h - 1), frame, max(2, w // 160))
 
-        lines = [
-            (f"GT: {gt_name}", _COLOR_GT),
-            (f"Pred: {pred_name} {pred_score:.2f}", _COLOR_PRED),
-        ]
-        pad = max(4, w // 100)
-        scale = ValPlotter._fit_font_scale(
-            cv2, [t for t, _ in lines], w - 2 * pad, max(0.4, w / 900)
-        )
-        thickness = max(1, int(round(scale * 1.5)))
-        (_, th), base = cv2.getTextSize("Ag", cv2.FONT_HERSHEY_SIMPLEX, scale, thickness)
-        line_h = th + base + pad
-        band_h = line_h * len(lines) + pad
-
-        overlay = canvas.copy()
-        cv2.rectangle(overlay, (0, 0), (w, min(band_h, h)), (20, 20, 20), -1)
-        cv2.addWeighted(overlay, 0.6, canvas, 0.4, 0, canvas)
-        for i, (text, color) in enumerate(lines):
-            y = pad + th + i * line_h
-            cv2.putText(canvas, text, (pad, y), cv2.FONT_HERSHEY_SIMPLEX,
-                        scale, color, thickness, cv2.LINE_AA)
+        pred_text = f"Pred: {pred_name}" if show_labels else "Pred"
+        if show_conf:
+            pred_text += f" {pred_score:.2f}"
+        lines = [(pred_text, frame)]
+        if show_labels:
+            lines.insert(0, (f"GT: {gt_name}", _COLOR_TP))
+        if show_labels or show_conf:
+            pad = max(4, w // 100)
+            scale = ValPlotter._fit_font_scale(
+                cv2, [t for t, _ in lines], w - 2 * pad, max(0.4, w / 900)
+            )
+            thickness = max(1, int(round(scale * 1.5)))
+            (_, th), base = cv2.getTextSize("Ag", cv2.FONT_HERSHEY_SIMPLEX, scale, thickness)
+            line_h = th + base + pad
+            overlay = canvas.copy()
+            cv2.rectangle(overlay, (0, 0), (w, min(line_h * len(lines) + pad, h)), (20, 20, 20), -1)
+            cv2.addWeighted(overlay, 0.6, canvas, 0.4, 0, canvas)
+            for i, (text, color) in enumerate(lines):
+                cv2.putText(canvas, text, (pad, pad + th + i * line_h),
+                            cv2.FONT_HERSHEY_SIMPLEX, scale, color, thickness, cv2.LINE_AA)
 
         save_path.parent.mkdir(parents=True, exist_ok=True)
         cv2.imwrite(str(save_path), canvas)
-        logger.info("Saved classification error sample → %s", save_path)
 
     @staticmethod
-    def plot_detection_error(
+    def plot_detection_visualize(
         img_bgr: np.ndarray,
         gt_boxes: np.ndarray,
         gt_classes: np.ndarray,
@@ -896,18 +884,19 @@ class ValPlotter:
         pred_scores: np.ndarray,
         class_names: Optional[List[str]],
         save_path: Path,
-        conf_thres: float = ERROR_CONF_THRES,
-        iou_thres: float = ERROR_IOU_THRES,
+        show_labels: bool = True,
+        show_conf: bool = True,
+        conf_thres: float = VISUALIZE_CONF_THRES,
+        iou_thres: float = VISUALIZE_IOU_THRES,
     ) -> None:
-        """Save one image with its detection errors drawn by kind.
+        """Save one image with its true positives, false positives and misses.
 
-        Correct pairs are drawn thin in green. Missed ground truth (orange),
-        wrong-class predictions (red, labelled with the ground-truth class)
-        and false positives (magenta) are drawn thick, and a header counts
-        each kind. Matching is :func:`detection_errors`.
+        True positives are green, false positives red and false negatives
+        (unmatched ground truth) orange; a header counts each. Matching is
+        :func:`match_detections`.
         """
         cv2 = ValPlotter._require_cv2()
-        errors = detection_errors(
+        match = match_detections(
             pred_boxes, pred_classes, pred_scores, gt_boxes, gt_classes,
             conf_thres=conf_thres, iou_thres=iou_thres,
         )
@@ -915,67 +904,53 @@ class ValPlotter:
         h, w = canvas.shape[:2]
         gt_boxes = np.asarray(gt_boxes, dtype=np.float64).reshape(-1, 4) * factor
         gt_classes = np.asarray(gt_classes).astype(int).reshape(-1)
-        keep = errors["keep"]
-        kept_boxes = np.asarray(pred_boxes, dtype=np.float64).reshape(-1, 4)[keep] * factor
-        kept_classes = np.asarray(pred_classes).astype(int).reshape(-1)[keep]
-        kept_scores = np.asarray(pred_scores, dtype=np.float64).reshape(-1)[keep]
-
-        def _name(c: int) -> str:
-            return ValPlotter._class_name(class_names, int(c), int(c))
+        keep = match["keep"]
+        boxes = np.asarray(pred_boxes, dtype=np.float64).reshape(-1, 4)[keep] * factor
+        classes = np.asarray(pred_classes).astype(int).reshape(-1)[keep]
+        scores = np.asarray(pred_scores, dtype=np.float64).reshape(-1)[keep]
 
         scale = max(0.4, min(h, w) / 1400)
         thickness = max(1, int(round(scale * 1.5)))
 
-        def _box(box, color, width):
+        def _draw(box, color, text, below=False):
+            # Predictions are labelled above their box and misses below it,
+            # so a wrong-class pair on one object keeps both labels readable.
             x1, y1, x2, y2 = (int(round(v)) for v in box)
-            cv2.rectangle(canvas, (x1, y1), (x2, y2), color, width)
-
-        def _label(box, text, color):
+            cv2.rectangle(canvas, (x1, y1), (x2, y2), color, max(2, thickness * 2))
+            if not text:
+                return
             fs = ValPlotter._fit_font_scale(cv2, [text], w - 4, scale)
             (tw, th), base = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, fs, thickness)
-            x1, y1 = int(round(box[0])), int(round(box[1]))
+            label_h = th + base + 2
             x = min(max(x1, 0), max(w - tw - 4, 0))
-            y0 = y1 - th - base - 2
-            if y0 < 0:  # no room above the box: put the label inside it
-                y0 = max(y1, 0)
-            y0 = min(y0, max(h - th - base - 2, 0))
+            if below:
+                y0 = y2 if y2 + label_h <= h else y2 - label_h  # else inside
+            else:
+                y0 = y1 - label_h if y1 - label_h >= 0 else y1  # else inside
+            y0 = min(max(y0, 0), max(h - label_h, 0))
             cv2.rectangle(canvas, (x, y0), (x + tw + 4, y0 + th + base + 2), color, -1)
             cv2.putText(canvas, text, (x + 2, y0 + th + 1), cv2.FONT_HERSHEY_SIMPLEX,
                         fs, (255, 255, 255), thickness, cv2.LINE_AA)
 
-        thin, thick = max(1, thickness), max(2, thickness * 2)
-        # Correct pairs first so the errors are drawn on top of them.
-        for i, status in enumerate(errors["pred_status"]):
-            if status == PRED_CORRECT:
-                _box(kept_boxes[i], _COLOR_GT, thin)
-        for gi, status in enumerate(errors["gt_status"]):
-            if status == GT_MISSED:
-                _box(gt_boxes[gi], _COLOR_MISSED, thick)
-                _label(gt_boxes[gi], f"missed: {_name(gt_classes[gi])}", _COLOR_MISSED)
-        for i, status in enumerate(errors["pred_status"]):
-            if status == PRED_WRONG_CLASS:
-                gi = int(errors["pred_match"][i])
-                _box(kept_boxes[i], _COLOR_WRONG_CLASS, thick)
-                _label(
-                    kept_boxes[i],
-                    f"GT: {_name(gt_classes[gi])} | pred: {_name(kept_classes[i])} "
-                    f"{kept_scores[i]:.2f}",
-                    _COLOR_WRONG_CLASS,
-                )
-            elif status == PRED_FALSE_POSITIVE:
-                _box(kept_boxes[i], _COLOR_FALSE_POSITIVE, thick)
-                _label(
-                    kept_boxes[i],
-                    f"FP: {_name(kept_classes[i])} {kept_scores[i]:.2f}",
-                    _COLOR_FALSE_POSITIVE,
-                )
+        def _text(cls: int, score: Optional[float]) -> str:
+            parts = []
+            if show_labels:
+                parts.append(ValPlotter._class_name(class_names, int(cls), int(cls)))
+            if show_conf and score is not None:
+                parts.append(f"{score:.2f}")
+            return " ".join(parts)
 
+        for gi in np.flatnonzero(match["fn"]):
+            _draw(gt_boxes[gi], _COLOR_FN, _text(gt_classes[gi], None), below=True)
+        for i in range(len(boxes)):
+            color = _COLOR_TP if match["tp"][i] else _COLOR_FP
+            _draw(boxes[i], color, _text(classes[i], scores[i]))
+
+        n_tp = int(match["tp"].sum())
         counts = [
-            (f"missed {int(np.sum(errors['gt_status'] == GT_MISSED))}", _COLOR_MISSED),
-            (f"wrong class {int(np.sum(errors['pred_status'] == PRED_WRONG_CLASS))}",
-             _COLOR_WRONG_CLASS),
-            (f"false positive {int(np.sum(errors['pred_status'] == PRED_FALSE_POSITIVE))}",
-             _COLOR_FALSE_POSITIVE),
+            (f"TP {n_tp}", _COLOR_TP),
+            (f"FP {len(boxes) - n_tp}", _COLOR_FP),
+            (f"FN {int(match['fn'].sum())}", _COLOR_FN),
             (f"conf>={conf_thres:g} IoU>={iou_thres:g}", (200, 200, 200)),
         ]
         header_scale = ValPlotter._fit_font_scale(
@@ -993,7 +968,6 @@ class ValPlotter:
 
         save_path.parent.mkdir(parents=True, exist_ok=True)
         cv2.imwrite(str(save_path), np.vstack([header, canvas]))
-        logger.info("Saved detection error sample → %s", save_path)
 
     # ------------------------------------------------------------------ #
     # Dependency helpers (lazy — not imported at module level)
