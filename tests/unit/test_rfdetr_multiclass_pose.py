@@ -56,6 +56,7 @@ def test_keypoints_per_class_prefers_digit_class_names_over_indices():
         ({5: ["x"]}, "outside the dataset classes"),
         ({0: ["a", "b", "c", "d", "e"]}, "kpt_shape allows 4"),
         ({0: "tail"}, "must be a list"),
+        ({0: ["x"], "a": []}, "more than once"),
     ],
 )
 def test_keypoints_per_class_rejects_invalid_kpt_names(kpt_names, match):
@@ -255,13 +256,22 @@ def test_train_rejects_dataset_without_any_keypoints(tmp_path, monkeypatch):
         model.train(data=str(data), epochs=1, imgsz=192)
 
 
-def test_train_rejects_single_cls_on_multiclass_pose(tmp_path, monkeypatch):
+def test_train_rejects_single_cls_on_pose(tmp_path):
     import libreyolo.models.rfdetr.model as rfdetr_model
 
     data = _write_pose_yaml(tmp_path, "nc: 2\nnames: [a, b]\nkpt_shape: [2, 3]\n")
     model = rfdetr_model.LibreRFDETR(task="pose", size="x", device="cpu")
-    with pytest.raises(ValueError, match="single_cls"):
+    with pytest.raises(ValueError, match="supported only for G0/G1 detection"):
         model.train(data=str(data), epochs=1, imgsz=192, single_cls=True)
+
+
+def test_train_requires_names_for_multiclass_pose(tmp_path):
+    import libreyolo.models.rfdetr.model as rfdetr_model
+
+    data = _write_pose_yaml(tmp_path, "nc: 2\nkpt_shape: [2, 3]\n")
+    model = rfdetr_model.LibreRFDETR(task="pose", size="x", device="cpu")
+    with pytest.raises(ValueError, match="needs ``names``"):
+        model.train(data=str(data), epochs=1, imgsz=192)
 
 
 def test_trainer_setup_sizes_head_and_criterion_to_the_dataset_schema(tmp_path):
@@ -297,3 +307,112 @@ def test_trainer_setup_sizes_head_and_criterion_to_the_dataset_schema(tmp_path):
     assert list(trainer.criterion.num_keypoints_per_class) == [0, 2, 0, 4]
     assert list(trainer.criterion.matcher.num_keypoints_per_class) == [0, 2, 0, 4]
     assert model.names == {0: "marker", 1: "blank", 2: "plate"}
+    assert trainer._checkpoint_extra_metadata()["num_keypoints_per_class"] == [0, 2, 0, 4]
+
+
+# ---------------------------------------------------------------------------
+# No class uses every kpt_shape row
+# ---------------------------------------------------------------------------
+def test_loss_slices_targets_wider_than_the_schema_slots():
+    from libreyolo.models.rfdetr.loss import SetCriterion
+    from libreyolo.models.rfdetr.matcher import HungarianMatcher
+
+    schema = [0, 2, 3]  # kpt_shape has 4 rows; no class uses all of them
+    matcher = HungarianMatcher(num_keypoints_per_class=schema)
+    criterion = SetCriterion(
+        num_classes=3,
+        matcher=matcher,
+        weight_dict={},
+        focal_alpha=0.25,
+        losses=["keypoints"],
+        group_detr=1,
+        use_grouppose_keypoints=True,
+        num_keypoints_per_class=schema,
+    )
+    target_keypoints = torch.rand(2, 4, 3)
+    target_keypoints[..., 2] = 2.0
+    targets = [
+        {
+            "labels": torch.tensor([0, 1]),
+            "boxes": torch.tensor([[0.3, 0.3, 0.2, 0.2], [0.7, 0.7, 0.2, 0.2]]),
+            "keypoints": target_keypoints,
+        }
+    ]
+    outputs = {"pred_keypoints": torch.randn(1, 5, len(schema) * max(schema), 8)}
+    indices = [(torch.tensor([0, 1]), torch.tensor([0, 1]))]
+
+    losses = criterion.loss_keypoints(outputs, targets, indices, num_boxes=2.0)
+
+    assert all(torch.isfinite(v) for v in losses.values())
+    assert float(losses["loss_keypoints_l1"]) > 0.0
+
+
+def test_backend_pads_keypoints_to_the_declared_skeleton():
+    from libreyolo.backends.base import BaseBackend
+
+    class _Backend(BaseBackend):
+        def _run_inference(self, blob):
+            raise NotImplementedError
+
+    backend = _Backend(
+        model_path="dummy",
+        nb_classes=1,
+        device="cpu",
+        imgsz=192,
+        model_family="rfdetr",
+        names={0: "person"},
+        task="pose",
+        supported_tasks=("detect", "pose"),
+        num_keypoints=4,
+        num_keypoints_per_class=[0, 3],
+    )
+    boxes = np.array([[[0.5, 0.5, 0.2, 0.4]]], dtype=np.float32)
+    logits = np.array([[[-10.0, 10.0]]], dtype=np.float32)
+    keypoints = np.zeros((1, 1, 6, 8), dtype=np.float32)
+    keypoints[0, 0, 3:6, :7] = [0.25, 0.5, 2.0, 0.0, 0.0, 1.0, 0.0]
+
+    _, _, classes, _, _, parsed_keypoints = backend._parse_rfdetr(
+        [boxes, logits, keypoints], orig_w=200, orig_h=100, conf=0.5
+    )
+
+    assert classes.tolist() == [0]
+    assert parsed_keypoints.shape == (1, 4, 3)
+    assert (parsed_keypoints[0, :3, 2] > 0).all()
+    np.testing.assert_allclose(parsed_keypoints[0, 3], 0.0)
+
+
+# ---------------------------------------------------------------------------
+# Box-only classes reach the loss; new class columns do not start "off"
+# ---------------------------------------------------------------------------
+def test_pose_targets_keep_box_only_class_instances():
+    from libreyolo.data.augment.rfdetr import _build_target
+
+    cls = np.array([0.0, 1.0, 1.0])
+    boxes = np.array([[50.0, 50.0, 20.0, 20.0]] * 3)
+    kpts = np.zeros((3, 4, 3))
+    kpts[0, :2, 2] = 2.0  # class 0 has visible keypoints; both class-1 rows have none
+
+    dropped = _build_target(cls, boxes, kpts, 4, 10)
+    kept = _build_target(cls, boxes, kpts, 4, 10, np.array([1]))
+
+    assert (dropped[:, 3] > 0).sum() == 1  # person-only behavior: no visible keypoint, no target
+    assert (kept[:, 3] > 0).sum() == 3
+    assert kept[:3, 0].tolist() == [0.0, 1.0, 1.0]
+
+
+def test_grouppose_class_head_resize_copies_class_rows_not_the_empty_slot():
+    from libreyolo.models.rfdetr.model import LibreRFDETR
+
+    inner = LibreRFDETR(task="pose", size="x", device="cpu").model.model
+    old = inner.class_embed
+    empty_row, person_row = old.weight[0].clone(), old.weight[1].clone()
+
+    inner.reinitialize_grouppose_class_head(4)
+
+    new = inner.class_embed
+    assert new.out_features == 4
+    assert torch.equal(new.weight[0], empty_row)
+    for column in (1, 2, 3):
+        assert torch.equal(new.weight[column], person_row)
+    for enc in inner.transformer.enc_out_class_embed:
+        assert enc.out_features == 4

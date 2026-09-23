@@ -88,8 +88,8 @@ def keypoints_per_class(data_cfg: dict, nc: int, num_keypoints: int) -> list[int
     Every class shares the ``kpt_shape`` skeleton of ``num_keypoints`` rows. A
     ``kpt_names`` mapping keyed by class index or class name narrows a class to
     the first ``len(names)`` rows, and an empty list declares a class without
-    keypoints. A string key is matched against class names before it is read
-    as an index. Classes not listed keep all ``num_keypoints`` rows; a
+    keypoints (as does an empty value). A string key is matched against class
+    names before it is read as an index. Classes not listed keep all ``num_keypoints`` rows; a
     ``kpt_names`` list, or no ``kpt_names``, applies to every class.
     """
     nc = int(nc)
@@ -104,6 +104,7 @@ def keypoints_per_class(data_cfg: dict, nc: int, num_keypoints: int) -> list[int
         names = dict(enumerate(names))
     name_to_idx = {str(name): int(idx) for idx, name in names.items()}
 
+    seen: set[int] = set()
     for key, class_kpt_names in kpt_names.items():
         # YAML int keys are indices; string keys match a class name first, so
         # a class literally named "7" is not mistaken for index 7.
@@ -117,6 +118,9 @@ def keypoints_per_class(data_cfg: dict, nc: int, num_keypoints: int) -> list[int
             raise ValueError(
                 f"kpt_names key {key!r} is neither a class index nor a class name"
             )
+        if class_idx in seen:
+            raise ValueError(f"kpt_names lists class {class_idx} more than once")
+        seen.add(class_idx)
         if not 0 <= class_idx < nc:
             raise ValueError(
                 f"kpt_names key {key!r} is outside the dataset classes 0..{nc - 1}"

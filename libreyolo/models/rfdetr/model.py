@@ -1,5 +1,6 @@
 """LibreRFDETR implementation for LibreYOLO."""
 
+import logging
 from pathlib import Path
 from typing import Any, ClassVar, Dict, Optional, Tuple
 
@@ -28,6 +29,8 @@ from ...postprocess.rfdetr import postprocess
 from .utils import IMAGENET_MEAN, IMAGENET_STD, preprocess_numpy
 from .trainer import RFDETRTrainer
 from ...validation.preprocessors import RFDETRValPreprocessor
+
+logger = logging.getLogger(__name__)
 
 # COCO 91-class to 80-class mapping.
 # RF-DETR pretrained models output 91 COCO category IDs (1-90),
@@ -837,6 +840,17 @@ class LibreRFDETR(BaseModel):
         keypoint_precision = result.get("keypoint_precision_cholesky")
         obb = result.get("obb")
 
+        if is_grouppose and keypoints is not None:
+            # Keypoint slots are ``max(schema)`` wide; report ``kpt_shape[0]``
+            # rows, zero-padded, when no class uses the full skeleton.
+            missing = int(self.num_keypoints) - int(keypoints.shape[1])
+            if missing > 0:
+                keypoints = torch.nn.functional.pad(keypoints, (0, 0, 0, missing))
+                if keypoint_precision is not None:
+                    keypoint_precision = torch.nn.functional.pad(
+                        keypoint_precision, (0, 0, 0, missing), value=float("nan")
+                    )
+
         keep = scores > conf_thres
         scores = scores[keep]
         labels = labels[keep]
@@ -1282,18 +1296,27 @@ class LibreRFDETR(BaseModel):
             data_nc = int(
                 data_cfg.get("nc", len(names) if names is not None else 1)
             )
-            if train_kwargs.get("single_cls") and data_nc > 1:
-                # The pose dataset keeps each label's class id, so it cannot
-                # collapse a multi-class pose dataset to one class.
+            if data_nc > 1 and not names:
+                # The pose validator builds its categories from ``names``.
                 raise ValueError(
-                    "RF-DETR pose training does not support single_cls=True on a "
-                    f"multi-class dataset (nc={data_nc})"
+                    f"RF-DETR pose training on nc={data_nc} classes needs "
+                    "``names`` in the dataset yaml"
                 )
             counts = keypoints_per_class(data_cfg, data_nc, num_keypoints)
             if not any(counts):
                 raise ValueError(
                     "RF-DETR pose training needs at least one class with "
                     "keypoints; kpt_names declares none"
+                )
+            narrowed = {
+                j: count for j, count in enumerate(counts) if count < num_keypoints
+            }
+            if narrowed:
+                logger.warning(
+                    "kpt_names narrows RF-DETR pose classes to fewer than the "
+                    "%d kpt_shape keypoints (class id: keypoints used): %s",
+                    num_keypoints,
+                    narrowed,
                 )
             if getattr(self.model.model, "use_grouppose_keypoints", False):
                 # GroupPose schema: a leading empty slot, then one keypoint
