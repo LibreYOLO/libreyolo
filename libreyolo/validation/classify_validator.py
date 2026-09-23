@@ -9,6 +9,7 @@ marginals), over an ImageFolder-style validation split, reusing the
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 from typing import Any, Dict, Optional, TYPE_CHECKING
 
 import torch
@@ -41,6 +42,7 @@ class ClassifyValidator(ValidationLossMixin, BaseValidator):
     """
 
     task = "classify"
+    supports_visualize = True
     # Per-class confusion counts: the confusion matrix's diagonal and its
     # marginals. Kept as three length-nc vectors so memory stays linear in the
     # class count. Class-level defaults keep metric code safe on instances
@@ -201,6 +203,10 @@ class ClassifyValidator(ValidationLossMixin, BaseValidator):
         self._class_tp = None
         self._class_pred = None
         self._class_target = None
+        if getattr(self.config, "visualize", False):
+            from .val_plotter import reset_visualize_dir  # noqa: PLC0415
+
+            reset_visualize_dir(self.save_dir)
         self._reset_validation_loss()
 
     def _preprocess_batch(self, batch: Any) -> tuple:
@@ -247,7 +253,6 @@ class ClassifyValidator(ValidationLossMixin, BaseValidator):
         self._top1_correct += int(correct[:, 0].sum().item())
         self._top5_correct += int(correct.any(dim=1).sum().item())
         self._total += int(targets.numel())
-
         # Sized lazily from the logits width. Every validated target and its
         # prediction contribute, including false positives for absent classes.
         pred = topk[:, 0]
@@ -262,6 +267,58 @@ class ClassifyValidator(ValidationLossMixin, BaseValidator):
         self._class_pred.index_add_(0, pred_idx, ones)
         hit = target_idx == pred_idx
         self._class_tp.index_add_(0, target_idx[hit], ones[hit])
+        if getattr(self.config, "visualize", False):
+            self._visualize_batch(logits, targets, pred)
+
+    def _visualize_batch(self, logits, targets, top1) -> None:
+        """Draw each image with its label and top-1 prediction (#887).
+
+        LibreYOLO's classification counterpart of detection ``visualize``:
+        written to ``save_dir/visualize/`` as the images are validated, framed
+        green when top-1 is right and red when it is wrong. Drawing only: it
+        never feeds the metrics.
+        """
+        import cv2  # noqa: PLC0415
+
+        from .val_plotter import ValPlotter  # noqa: PLC0415
+
+        # predict() reports softmax probabilities of the same logits.
+        scores = logits.softmax(dim=1)
+        dataset = getattr(self.dataloader, "dataset", None)
+        samples = getattr(getattr(dataset, "_impl", None), "samples", None) or []
+        out_dir = self.save_dir / "visualize"
+        for i in range(len(targets)):
+            index = self.seen + i
+            if index >= len(samples):
+                continue
+            img_path = samples[index][0]
+            try:
+                img_bgr = cv2.imread(str(img_path))
+                if img_bgr is None:
+                    continue
+                pred = int(top1[i])
+                ValPlotter.plot_classify_visualize(
+                    img_bgr,
+                    self._class_display_name(int(targets[i])),
+                    self._class_display_name(pred),
+                    float(scores[i, pred]),
+                    out_dir / f"{index:06d}_{Path(str(img_path)).stem}.jpg",
+                    show_labels=self.config.show_labels,
+                    show_conf=self.config.show_conf,
+                    correct=pred == int(targets[i]),
+                )
+            except Exception as exc:
+                logger.warning("visualize failed for image %d: %s", index, exc)
+
+    def _class_display_name(self, index: int) -> str:
+        # Label indices follow the model's explicit class order when it has
+        # one (including the full ImageNet head), else the train split order.
+        classes = self._model_class_names() or getattr(
+            getattr(self.dataloader, "dataset", None), "classes", None
+        )
+        if classes and 0 <= index < len(classes):
+            return str(classes[index])
+        return str(index)
 
     def _compute_metrics(self) -> Dict[str, float]:
         total = max(self._total, 1)

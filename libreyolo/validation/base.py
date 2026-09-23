@@ -15,7 +15,7 @@ from tqdm import tqdm
 
 from libreyolo.utils.amp import torch_amp_dtype
 
-from .config import ValidationConfig
+from .config import VISUALIZE_TASKS, ValidationConfig
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +27,9 @@ class BaseValidator(ABC):
     """Abstract base class for model validators (Template Method pattern)."""
 
     task: str = "base"
+    #: Whether this validator draws ``visualize=True`` images (#887). Others
+    #: reject the flag instead of accepting and ignoring it.
+    supports_visualize: bool = False
 
     def __init__(
         self,
@@ -38,6 +41,11 @@ class BaseValidator(ABC):
         self.config = config or ValidationConfig(**kwargs)
         if kwargs and config is not None:
             self.config = self.config.update(**kwargs)
+        if getattr(self.config, "visualize", False) and not self.supports_visualize:
+            raise ValueError(
+                f"visualize=True is not supported by {type(self).__name__}; "
+                f"it covers {', '.join(VISUALIZE_TASKS)}"
+            )
 
         self.device = self._setup_device()
         self.dataloader: Optional[DataLoader] = None
@@ -212,6 +220,9 @@ class BaseValidator(ABC):
             self._print_results(metrics)
 
         self.config.to_yaml(self.save_dir / "config.yaml")
+
+        if getattr(self.config, "visualize", False):
+            logger.info("visualize images saved to %s", self.save_dir / "visualize")
 
         if self.config.save_plots:
             try:

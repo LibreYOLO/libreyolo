@@ -320,10 +320,12 @@ def test_classify_family_train_end_to_end(tmp_path):
 
 def _bare_classify_validator():
     from contextlib import nullcontext
+    from types import SimpleNamespace
 
     from libreyolo.validation.classify_validator import ClassifyValidator
 
     validator = object.__new__(ClassifyValidator)
+    validator.config = SimpleNamespace(visualize=False)
     validator.loss_adapter = None
     validator._autocast_context = nullcontext
     validator._init_metrics()

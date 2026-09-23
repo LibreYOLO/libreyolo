@@ -40,6 +40,13 @@ class VJEPA2ClipValidator(ClassifyValidator):
             return super()._setup_dataloader()
         from .dataset import VideoClipDataset, load_video_dataset
 
+        if getattr(self.config, "visualize", False):
+            # visualize draws the validated image files; a clip has none, so
+            # accepting the flag here would write nothing.
+            raise ValueError(
+                "visualize=True is not supported for V-JEPA 2 video validation; "
+                "validate an ImageFolder of frames to draw them."
+            )
         data = load_video_dataset(self.config.data)
         if "val" not in data:
             raise ValueError(

@@ -922,6 +922,10 @@ class BaseModel(ABC):
         if img_size is None:
             img_size = self._get_input_size()
         if isinstance(img_size, (list, tuple)):
+            if len(img_size) == 2 and img_size[0] != img_size[1]:
+                raise NotImplementedError(
+                    "Classification validation supports square imgsz only."
+                )
             img_size = img_size[0]
         return build_classify_transforms(
             int(img_size),
@@ -2286,6 +2290,14 @@ class BaseModel(ABC):
             save_json: Save predictions in COCO JSON format.
             plots: Alias for save_plots.
             verbose: Print detailed metrics.
+            visualize: (kwarg) Draw every validated image to
+                ``save_dir/visualize/`` with true positives, false positives
+                and false negatives (confidence 0.25, or ``conf`` if higher;
+                IoU 0.5; class-aware);
+                classification draws the label and top-1 prediction. Detect,
+                segment and classify only. Default False.
+            show_labels: (kwarg) Class names on ``visualize`` images.
+            show_conf: (kwarg) Confidence scores on ``visualize`` images.
             faster_coco_eval: (kwarg) Use the faster-coco-eval C++ backend
                 for COCO metrics. Default True; falls back to pycocotools
                 if the package is unavailable. Pass False (or set
@@ -2335,6 +2347,13 @@ class BaseModel(ABC):
             imgsz = self._get_input_size()
         if plots is not None and "save_plots" not in kwargs:
             kwargs["save_plots"] = plots
+        from libreyolo.validation.config import VISUALIZE_TASKS
+
+        if kwargs.get("visualize") and self.task not in VISUALIZE_TASKS:
+            raise ValueError(
+                f"visualize=True is not supported for task '{self.task}'; "
+                f"it covers {', '.join(VISUALIZE_TASKS)}"
+            )
         if augment and self.task == "obb":
             raise ValueError(
                 "Augmented validation does not support oriented boxes yet. "

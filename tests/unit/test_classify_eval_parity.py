@@ -165,6 +165,12 @@ class TestOverrides:
         assert not any(isinstance(op, transforms.CenterCrop) for op in square)
         assert isinstance(cropped[1], transforms.CenterCrop)
 
+    def test_rectangular_imgsz_is_rejected_not_squared(self):
+        model = _model("resnet")
+        with pytest.raises(NotImplementedError, match="square imgsz"):
+            model._get_eval_transform((224, 320))
+        assert model._get_eval_transform((224, 224)) is not None
+
     def test_vjepa2_rejects_what_it_cannot_honor(self):
         model = _model("vjepa2")
         with pytest.raises(ValueError, match="fixed crop"):
