@@ -68,6 +68,14 @@ def _add(
         SUPPORT[key] = entry
 
 
+_add("available", ("gtr",), ("detect",), ("onnx", "torchscript"),
+     reason="Portable gated recurrence with fixed input resolution.",
+     constraint="FP32; static square input; no custom CUDA plugin")
+
+_add("blocked", ("gtr",), ("detect",),
+     tuple(fmt for fmt in EXPORT_FORMATS if fmt not in ("onnx", "torchscript")),
+     reason="GTR currently implements only portable ONNX and TorchScript export.")
+
 # Existing parity-backed paths. New validated rows must land with a parity test.
 _add(
     "validated",
