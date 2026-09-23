@@ -459,28 +459,44 @@ def test_tflite_int8_export_selects_full_integer_artifact(monkeypatch, tmp_path)
     assert sidecar["precision"] == "int8"
 
 
-def test_tflite_int8_export_falls_back_to_integer_quant(monkeypatch, tmp_path):
+def test_tflite_int8_export_rejects_float_io_integer_quant(monkeypatch, tmp_path):
     from libreyolo.export import tflite as tflite_module
 
     _int8_converter(
         monkeypatch,
         {
             "model_float32.tflite": b"fp32",
-            "model_integer_quant.tflite": b"int8",
+            "model_integer_quant.tflite": b"float-io int8",
+            "model_full_integer_quant_with_int16_act.tflite": b"int16 act",
         },
     )
     onnx_path = tmp_path / "model.onnx"
     onnx_path.write_bytes(b"fake onnx")
     dst = tmp_path / "model.tflite"
 
-    tflite_module.export_tflite(
-        str(onnx_path),
-        str(dst),
-        int8=True,
-        calibration_data=_FakeCalibration([_constant_images(1.0)], 1),
-    )
+    with pytest.raises(RuntimeError, match="did not produce a full-integer"):
+        tflite_module.export_tflite(
+            str(onnx_path),
+            str(dst),
+            int8=True,
+            calibration_data=_FakeCalibration([_constant_images(1.0)], 1),
+        )
 
-    assert dst.read_bytes() == b"int8"
+    assert not dst.exists()
+
+
+def test_tflite_int8_failure_reports_converter_output(tmp_path):
+    from libreyolo.export import tflite as tflite_module
+
+    (tmp_path / "model_float32.tflite").write_bytes(b"fp32")
+
+    with pytest.raises(RuntimeError, match="Full INT8 Quantization tflite output failed"):
+        tflite_module._find_converted_tflite(
+            tmp_path,
+            tmp_path / "model.onnx",
+            int8=True,
+            converter_output="...\nFull INT8 Quantization tflite output failed.\n",
+        )
 
 
 def test_tflite_int8_export_never_returns_a_float_artifact(monkeypatch, tmp_path):
@@ -491,7 +507,7 @@ def test_tflite_int8_export_never_returns_a_float_artifact(monkeypatch, tmp_path
     onnx_path.write_bytes(b"fake onnx")
     dst = tmp_path / "model.tflite"
 
-    with pytest.raises(RuntimeError, match="did not produce an INT8"):
+    with pytest.raises(RuntimeError, match="did not produce a full-integer"):
         tflite_module.export_tflite(
             str(onnx_path),
             str(dst),
