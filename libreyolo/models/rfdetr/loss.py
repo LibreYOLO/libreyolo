@@ -599,6 +599,10 @@ class SetCriterion(nn.Module):
                 target_classes.to(src_keypoints.device), self.num_keypoints_per_class
             )
 
+            # Each schema class has ``max(schema)`` keypoint slots; targets are
+            # ``kpt_shape[0]`` rows wide, which is wider when every class uses
+            # fewer rows than the dataset skeleton. Those extra rows are unused.
+            target_keypoints = target_keypoints[:, : max(self.num_keypoints_per_class)]
             loss_l1, loss_findable, loss_visible, loss_nll = compute_l1_keypoint_loss(
                 all_pred_keypoints=src_keypoints,
                 target_keypoints=target_keypoints.to(src_keypoints.device),

@@ -84,9 +84,10 @@ explicit scratch initialization clears inherited weight provenance.
 Pose checkpoints additionally include:
 
 - `nc` / `names`: pose is usually single-class (`nc: 1`, `person`), but the
-  YOLO-NAS pose head also supports multi-class pose with a single shared
-  keypoint skeleton (one `kpt_shape` for every class); `nc` and `names` then
-  describe the classes as in detection. Runtime pose exports emit `scores` with
+  YOLO-NAS and RF-DETR pose heads also support multi-class pose over one
+  `kpt_shape` skeleton; RF-DETR can give each class fewer of its keypoints
+  (`num_keypoints_per_class`). `nc` and `names` then describe the classes as
+  in detection. Runtime pose exports emit `scores` with
   shape `[batch, anchors, nc]`.
 - `num_keypoints`: positive integer keypoint count used by the pose head.
 - `keypoint_dim`: pose label dimension from the dataset contract, either `2`
@@ -97,7 +98,10 @@ Pose checkpoints additionally include:
 - `num_keypoints_per_class`: optional list of per-class keypoint counts for
   GroupPose-style heads whose exported keypoint tensor is padded by class. Use
   `0` for classes without keypoints. Runtime backends use this schema to select
-  the active keypoints for the predicted class.
+  the active keypoints for the predicted class. LibreYOLO RF-DETR writes it as
+  `[0, count_0, count_1, ...]`: slot 0 is an empty slot and class `j` is slot
+  `j + 1`, so the head has `nc + 1` class columns. Predicted keypoints are
+  reported `num_keypoints` rows wide, zero-padded past a class's count.
 
 Mesh checkpoints use the task string `mesh`, `nc: 1`, and
 `names: {0: "person"}`. Because parameter layouts differ between body models,
