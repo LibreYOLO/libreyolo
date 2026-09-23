@@ -493,8 +493,18 @@ class BaseBackend(ABC):
         self.input_size = self.imgsz
         # Classification eval preprocessing (from export metadata); defaults keep
         # legacy behavior. Lets exported-backend classify inference match native.
-        self.crop_pct = crop_pct if crop_pct is not None else 0.875
-        self.interpolation = interpolation or "bilinear"
+        # Unset values fall back to the family's own eval pipeline (#886).
+        # Only classifiers need it; resolving it imports torch-based model
+        # classes, which torch-free detection backends must never do.
+        family_cls = self._family_class() if self.task == "classify" else None
+        self.crop_pct = (
+            crop_pct
+            if crop_pct is not None
+            else getattr(family_cls, "crop_pct", 0.875)
+        )
+        self.interpolation = interpolation or getattr(
+            family_cls, "interpolation", "bilinear"
+        )
         # Set by backends that load a model with NMS baked into the graph; such
         # models emit final (1, max_det, 6) detections instead of raw tensors.
         if not hasattr(self, "embedded_nms"):
@@ -764,73 +774,52 @@ class BaseBackend(ABC):
             )
             return tensor, img, size, 1.0
 
-    def _preprocess_classify(self, image, input_size, color_format):
-        """Classification preprocessing: ImageNet-style resize/crop/normalize.
+    def _family_class(self):
+        """The registered native model class of this export's family, if any."""
+        try:
+            from ..models.base.model import BaseModel
+        except ImportError:  # torch-free install: no native classes
+            return None
 
-        Uses the per-family ``crop_pct``/``interpolation`` recorded in export
-        metadata so exported-backend inference matches native predict()/val().
+        family = getattr(self, "model_family", None)
+        return next(
+            (cls for cls in BaseModel._registry if getattr(cls, "FAMILY", None) == family),
+            None,
+        )
+
+    def eval_transform(self, imgsz=None, crop_pct=None):
+        """Classification eval transform, shared by predict and val (#886).
+
+        Normalization and square resize come from the family's native class
+        (the single source of truth), crop ratio and interpolation from the
+        export metadata, so an exported model is preprocessed and validated
+        exactly like the native one.
         """
+        from ..data.augment.classify import IMAGENET_MEAN, IMAGENET_STD
         from ..data.classify_dataset import build_classify_transforms
 
-        h, w = _imgsz_hw(input_size)
+        h, w = _imgsz_hw(imgsz if imgsz is not None else self.imgsz)
         if h != w:
             raise NotImplementedError(
                 "Classification exported-backend inference supports square imgsz only."
             )
-
-        img = ImageLoader.load(image, color_format=color_format)
-        original_size = img.size
-        transform_kwargs = {
-            "crop_pct": getattr(self, "crop_pct", 0.875),
-            "interpolation": getattr(self, "interpolation", "bilinear"),
-        }
-        if self.model_family == "clip":
-            from ..models.clip.model import CLIP_MEAN, CLIP_STD
-
-            transform_kwargs.update(
-                mean=CLIP_MEAN,
-                std=CLIP_STD,
-                crop_pct=1.0,
-                interpolation="bicubic",
-            )
-        elif self.model_family == "siglip2":
-            from ..models.siglip2.model import SIGLIP_MEAN, SIGLIP_STD
-
-            transform_kwargs.update(
-                mean=SIGLIP_MEAN,
-                std=SIGLIP_STD,
-                crop_pct=1.0,
-                interpolation="bilinear",
-                square_resize=True,
-            )
-        elif self.model_family == "pe":
-            # Must mirror LibrePE._build_transform: symmetric [-1, 1]
-            # normalization and a bilinear square resize, NOT ImageNet stats.
-            from ..models.pe.nn import PE_MEAN, PE_STD
-
-            transform_kwargs.update(
-                mean=PE_MEAN,
-                std=PE_STD,
-                crop_pct=1.0,
-                interpolation="bilinear",
-                square_resize=True,
-            )
-        elif self.model_family == "vit":
-            from ..models.vit.utils import VIT_MEAN, VIT_STD
-
-            transform_kwargs.update(
-                mean=VIT_MEAN,
-                std=VIT_STD,
-                crop_pct=0.9,
-                interpolation="bicubic",
-            )
-        transform = build_classify_transforms(
+        family_cls = self._family_class()
+        return build_classify_transforms(
             h,
             augment=False,
-            **transform_kwargs,
+            mean=getattr(family_cls, "EVAL_MEAN", IMAGENET_MEAN),
+            std=getattr(family_cls, "EVAL_STD", IMAGENET_STD),
+            crop_pct=self.crop_pct if crop_pct is None else crop_pct,
+            interpolation=self.interpolation,
+            square_resize=getattr(family_cls, "EVAL_SQUARE_RESIZE", False)
+            and crop_pct is None,
         )
-        img_tensor = transform(img).unsqueeze(0)
-        return img_tensor, img, original_size, 1.0
+
+    def _preprocess_classify(self, image, input_size, color_format):
+        """Classification preprocessing through :meth:`eval_transform`."""
+        img = ImageLoader.load(image, color_format=color_format)
+        img_tensor = self.eval_transform(input_size)(img).unsqueeze(0)
+        return img_tensor, img, img.size, 1.0
 
     def _preprocess_semantic(self, image, input_size, color_format):
         """Dense semantic preprocessing for fixed-canvas exported graphs."""

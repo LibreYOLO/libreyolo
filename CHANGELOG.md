@@ -109,6 +109,20 @@ before 1.4.0 are documented in the
 
 ### Fixed
 
+- **Classification `val()` uses the exact transform `predict()` uses
+  (#886).** Each classification family declares its eval pipeline once
+  (`eval_transform`), and `predict()`, `val()`, training validation, INT8
+  calibration and exported backends all build it from there. This fixes
+  families that were scored on different preprocessing than they run with:
+  PE (validated with an ImageNet crop instead of its square resize and
+  0.5 mean/std), V-JEPA 2 (torchvision crop instead of its own frame
+  preprocessing), and exported ViT, CLIP, SigLIP2 and PE (`val()` ignored
+  their normalization). INT8 calibration no longer skips every image for
+  AlexNet, VGG, ResNet, EfficientNetV2, ConvNeXt, MobileNetV4, DeiT, Swin
+  and ViT. VGG and DeiT now reject a non-native `val(imgsz=...)` like
+  `predict()` does. Validation inputs of the other families are
+  bit-identical to before. Validation never augments.
+
 - **RF-DETR custom pose checkpoint loading (#874).** Rebuilt GroupPose
   attention masks stay on the decoder's device, preventing device mismatches
   after keypoint schema changes. Custom pose class names are preserved from

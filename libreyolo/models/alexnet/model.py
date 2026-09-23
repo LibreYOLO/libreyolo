@@ -7,17 +7,14 @@ from typing import Any, Dict, Optional, Tuple
 
 import torch
 import torch.nn as nn
-from PIL import Image
 
 from ...postprocess.alexnet import postprocess as _alexnet_postprocess
-from ...utils.image_loader import ImageInput
 from ..base import BaseModel
+from ..base.classify_preprocess import ClassifyPreprocessMixin
 from .nn import AlexNet
-from .utils import preprocess_image as _alexnet_preprocess
-from .utils import preprocess_numpy
 
 
-class LibreAlexNet(BaseModel):
+class LibreAlexNet(ClassifyPreprocessMixin, BaseModel):
     """AlexNet museum classifier using the single-tower 64-channel stem.
 
     This is the later "one weird trick" graph released by torchvision, not the
@@ -101,24 +98,6 @@ class LibreAlexNet(BaseModel):
             "avgpool": self.model.avgpool,
             "classifier": self.model.classifier,
         }
-
-    @staticmethod
-    def _get_preprocess_numpy():
-        return preprocess_numpy
-
-    def _preprocess(
-        self,
-        image: ImageInput,
-        color_format: str = "auto",
-        input_size: Optional[int] = None,
-    ) -> Tuple[torch.Tensor, Image.Image, Tuple[int, int], float]:
-        effective_size = input_size if input_size is not None else self.input_size
-        return _alexnet_preprocess(
-            image,
-            input_size=effective_size,
-            crop_pct=self.crop_pct,
-            color_format=color_format,
-        )
 
     def _forward(self, input_tensor: torch.Tensor) -> Any:
         return self.model(input_tensor)

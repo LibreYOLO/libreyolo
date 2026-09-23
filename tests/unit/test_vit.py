@@ -11,7 +11,6 @@ from PIL import Image
 
 from libreyolo.models.vit.model import LibreViT
 from libreyolo.models.vit.nn import VisionTransformer
-from libreyolo.models.vit.utils import build_eval_transform
 from libreyolo.postprocess.vit import postprocess
 
 pytestmark = [pytest.mark.unit, pytest.mark.vit]
@@ -52,16 +51,14 @@ def test_registered_and_classify_only_contract():
     assert model.crop_pct == 0.9
     assert model.interpolation == "bicubic"
     assert model.validator_class is ViTClassifyValidator
-    # crop_pct now routes through self.config so val(crop_pct=...) is honored
-    # (#878); with no override the family's native 0.9 is unchanged.
-    _no_override = ViTClassifyValidator.__new__(ViTClassifyValidator)
-    _no_override.config = SimpleNamespace(crop_pct=None)
-    assert _no_override._dataset_transform_kwargs() == {
-        "mean": (0.5, 0.5, 0.5),
-        "std": (0.5, 0.5, 0.5),
-        "interpolation": "bicubic",
-        "crop_pct": 0.9,
-    }
+    # The AugReg eval pipeline is declared on the model and shared by
+    # predict() and val() (#886); val(crop_pct=...) still overrides the crop.
+    assert model.EVAL_MEAN == (0.5, 0.5, 0.5)
+    assert model.EVAL_STD == (0.5, 0.5, 0.5)
+    validator = ViTClassifyValidator.__new__(ViTClassifyValidator)
+    validator.model = model
+    validator.config = SimpleNamespace(crop_pct=None, imgsz=224)
+    assert repr(validator._dataset_transform()["transform"]) == repr(model.eval_transform())
 
 
 def test_canonical_multichar_filename_and_required_suffix():
@@ -196,7 +193,7 @@ def test_eval_preprocessing_exactly_matches_timm_augreg():
     image = Image.fromarray(pixels.astype(np.uint8))
 
     expected = create_transform(**config, is_training=False)(image)
-    actual = build_eval_transform(224, crop_pct=0.9)(image)
+    actual = LibreViT(size="ti", nb_classes=2, device="cpu").eval_transform(224)(image)
     assert config["mean"] == (0.5, 0.5, 0.5)
     assert config["std"] == (0.5, 0.5, 0.5)
     assert config["crop_pct"] == 0.9

@@ -44,11 +44,10 @@ from typing import Any, ClassVar, Dict, List, Optional, Sequence, Tuple
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from PIL import Image
 
 from ...tasks import normalize_task
-from ...utils.image_loader import ImageInput, ImageLoader
 from ...utils.serialization import load_trusted_torch_file
+from ..base.classify_preprocess import ClassifyPreprocessMixin
 from ..base.model import BaseModel
 from .labels import (
     DEFAULT_TEMPLATES,
@@ -105,7 +104,7 @@ def siglip2_probs(logits: torch.Tensor, multi_label: bool) -> torch.Tensor:
     return torch.softmax(logits, dim=-1)
 
 
-class LibreSigLIP2(BaseModel):
+class LibreSigLIP2(ClassifyPreprocessMixin, BaseModel):
     """Dual-tower zero-shot classifier and image/text embedder."""
 
     FAMILY: ClassVar[str] = "siglip2"
@@ -127,6 +126,11 @@ class LibreSigLIP2(BaseModel):
     # Attention pooling + fixed square resize make multi-scale TTA meaningless.
     TTA_ENABLED: ClassVar[bool] = False
 
+    EVAL_MEAN = SIGLIP_MEAN
+    EVAL_STD = SIGLIP_STD
+    EVAL_SQUARE_RESIZE = True
+    crop_pct = 1.0
+    interpolation = "bilinear"
     validator_class: ClassVar[Optional[type]] = (
         None  # set lazily (see _resolve_validator)
     )
@@ -338,56 +342,6 @@ class LibreSigLIP2(BaseModel):
             "image_tower": self.model.vision_model,
             "text_tower": self.model.text_model,
         }
-
-    def _build_transform(self, imgsz: int):
-        from torchvision.transforms import InterpolationMode
-
-        from ...data.classify_dataset import build_classify_transforms
-
-        return build_classify_transforms(
-            imgsz,
-            augment=False,
-            mean=SIGLIP_MEAN,
-            std=SIGLIP_STD,
-            interpolation=InterpolationMode.BILINEAR,
-            crop_pct=1.0,
-            square_resize=True,
-        )
-
-    @staticmethod
-    def _get_preprocess_numpy():
-        import numpy as _np
-        from torchvision.transforms import InterpolationMode
-
-        from ...data.classify_dataset import build_classify_transforms
-
-        def _preprocess_numpy(img_rgb_hwc, input_size=224):
-            res = input_size if isinstance(input_size, int) else input_size[0]
-            transform = build_classify_transforms(
-                res,
-                augment=False,
-                mean=SIGLIP_MEAN,
-                std=SIGLIP_STD,
-                interpolation=InterpolationMode.BILINEAR,
-                crop_pct=1.0,
-                square_resize=True,
-            )
-            pil = Image.fromarray(_np.asarray(img_rgb_hwc).astype("uint8"))
-            return transform(pil).numpy(), 1.0
-
-        return _preprocess_numpy
-
-    def _preprocess(
-        self,
-        image: ImageInput,
-        color_format: str = "auto",
-        input_size: Optional[int] = None,
-    ) -> Tuple[torch.Tensor, Image.Image, Tuple[int, int], float]:
-        res = input_size if input_size is not None else self.input_size
-        img = ImageLoader.load(image, color_format=color_format)
-        orig_w, orig_h = img.size
-        transform = self._build_transform(res)
-        return transform(img).unsqueeze(0), img, (orig_w, orig_h), 1.0
 
     def _forward(self, input_tensor: torch.Tensor) -> torch.Tensor:
         image_features = self.model.encode_image(input_tensor.to(self.device))

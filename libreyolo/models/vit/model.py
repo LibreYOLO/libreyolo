@@ -3,21 +3,20 @@
 from __future__ import annotations
 
 import re
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Optional
 
 import torch
 import torch.nn as nn
-from PIL import Image
 
 from ...postprocess.vit import postprocess as _vit_postprocess
-from ...utils.image_loader import ImageInput
 from ...validation.vit_validator import ViTClassifyValidator
 from ..base import BaseModel
+from ..base.classify_preprocess import ClassifyPreprocessMixin
+from .utils import VIT_MEAN, VIT_STD
 from .nn import VisionTransformer
-from .utils import preprocess_image as _vit_preprocess
 
 
-class LibreViT(BaseModel):
+class LibreViT(ClassifyPreprocessMixin, BaseModel):
     """Classic ViT image classifiers in tiny, small, base, and large sizes.
 
     ViT established the pure transformer over fixed image patches as a
@@ -38,6 +37,8 @@ class LibreViT(BaseModel):
     REQUIRE_TASK_SUFFIX = True
     TRAIN_CONFIG = None
     validator_class = ViTClassifyValidator
+    EVAL_MEAN = VIT_MEAN
+    EVAL_STD = VIT_STD
 
     # All four AugReg ImageNet-1k checkpoints use the same timm eval config.
     CROP_PCT = {"ti": 0.9, "s": 0.9, "b": 0.9, "l": 0.9}
@@ -144,27 +145,6 @@ class LibreViT(BaseModel):
         self.names = {i: f"class_{i}" for i in range(new_nb_classes)}
         self.model.reset_classifier(new_nb_classes)
         self.model.to(self.device)
-
-    def _get_preprocess_numpy(self):
-        from functools import partial
-
-        from .utils import preprocess_numpy
-
-        return partial(preprocess_numpy, crop_pct=self.crop_pct)
-
-    def _preprocess(
-        self,
-        image: ImageInput,
-        color_format: str = "auto",
-        input_size: Optional[int] = None,
-    ) -> Tuple[torch.Tensor, Image.Image, Tuple[int, int], float]:
-        effective_size = input_size if input_size is not None else self.input_size
-        return _vit_preprocess(
-            image,
-            input_size=effective_size,
-            crop_pct=self.crop_pct,
-            color_format=color_format,
-        )
 
     def _forward(self, input_tensor: torch.Tensor) -> Any:
         return self.model(input_tensor)

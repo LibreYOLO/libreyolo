@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
+from types import SimpleNamespace
 from PIL import Image
 from torchvision import transforms
 
@@ -284,38 +285,55 @@ def _validator(cls, tmp_path, **cfg):
 
 
 class TestFamilyValidatorsHonorCropPct:
-    """ViT/CLIP/SigLIP2 pin their own eval pipeline; they must still obey."""
+    """ViT/CLIP/SigLIP2 pin their own eval pipeline; they must still obey.
 
-    def _cls(self, name):
-        import importlib
+    The pipeline is declared on the model (``eval_transform``, #886); the
+    validator passes ``config.crop_pct`` through as the only override.
+    """
 
-        mod = importlib.import_module(f"libreyolo.validation.{name}_validator")
-        return getattr(mod, {
-            "vit": "ViTClassifyValidator",
-            "clip": "CLIPClassifyValidator",
-            "siglip2": "SigLIP2ClassifyValidator",
-        }[name])
+    def _model(self, name):
+        import libreyolo
+
+        cls, size = {
+            "vit": (libreyolo.LibreViT, "ti"),
+            "clip": (libreyolo.LibreCLIP, "b32"),
+            "siglip2": (libreyolo.LibreSigLIP2, "b16"),
+        }[name]
+        model = cls.__new__(cls)
+        model.size = size
+        model.input_size = cls.INPUT_SIZES[size]
+        if name == "vit":
+            model.crop_pct = cls.CROP_PCT[size]
+            model.interpolation = "bicubic"
+        return model
+
+    def _transform(self, name, **cfg):
+        from libreyolo.validation.classify_validator import ClassifyValidator
+
+        model = self._model(name)
+        v = ClassifyValidator.__new__(ClassifyValidator)
+        v.model = model
+        cfg.setdefault("crop_pct", None)
+        v.config = SimpleNamespace(imgsz=model.input_size, **cfg)
+        return repr(v._dataset_transform()["transform"])
 
     @pytest.mark.parametrize(
-        "name,family_default", [("vit", 0.9), ("clip", 1.0), ("siglip2", 1.0)]
+        "name,resize", [("vit", "size=248"), ("clip", "size=224")]
     )
-    def test_family_default_is_kept_when_unset(self, tmp_path, name, family_default):
-        v = _validator(self._cls(name), tmp_path)
-        assert v._dataset_transform_kwargs()["crop_pct"] == family_default
+    def test_family_default_is_kept_when_unset(self, name, resize):
+        # floor(224 / 0.9) = 248 for ViT AugReg; CLIP crops at 1.0.
+        assert f"Resize({resize}" in self._transform(name)
 
     @pytest.mark.parametrize("name", ["vit", "clip", "siglip2"])
-    def test_override_is_honored(self, tmp_path, name):
-        v = _validator(self._cls(name), tmp_path, crop_pct=0.6)
-        assert v._dataset_transform_kwargs()["crop_pct"] == pytest.approx(0.6)
+    def test_override_is_honored(self, name):
+        model = self._model(name)
+        expected = int(model.input_size / 0.6)
+        assert f"Resize(size={expected}" in self._transform(name, crop_pct=0.6)
 
-    def test_siglip2_square_resize_defaults_on_and_yields_to_an_override(
-        self, tmp_path
-    ):
+    def test_siglip2_square_resize_defaults_on_and_yields_to_an_override(self):
         """square_resize never center-crops, so crop_pct would be inert."""
-        cls = self._cls("siglip2")
-        assert _validator(cls, tmp_path)._dataset_transform_kwargs()["square_resize"]
-        v = _validator(cls, tmp_path, crop_pct=0.8)
-        assert v._dataset_transform_kwargs()["square_resize"] is False
+        assert "CenterCrop" not in self._transform("siglip2")
+        assert "CenterCrop" in self._transform("siglip2", crop_pct=0.8)
 
 
 class TestEpochValidationUsesTheOverride:

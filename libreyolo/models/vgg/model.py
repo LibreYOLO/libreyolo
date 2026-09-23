@@ -7,16 +7,14 @@ from typing import Any, Dict, Optional, Tuple
 
 import torch
 import torch.nn as nn
-from PIL import Image
 
 from ...postprocess.vgg import postprocess as _vgg_postprocess
-from ...utils.image_loader import ImageInput
 from ..base import BaseModel
+from ..base.classify_preprocess import ClassifyPreprocessMixin
 from .nn import VGG
-from .utils import preprocess_image as _vgg_preprocess
 
 
-class LibreVGG(BaseModel):
+class LibreVGG(ClassifyPreprocessMixin, BaseModel):
     """Historic VGG-16/VGG-19 ImageNet classifier family.
 
     VGG established uniform deep stacks of small 3x3 convolutions and became
@@ -124,29 +122,12 @@ class LibreVGG(BaseModel):
             "classifier": self.model.classifier,
         }
 
-    @staticmethod
-    def _get_preprocess_numpy():
-        from .utils import preprocess_numpy
-
-        return preprocess_numpy
-
-    def _preprocess(
-        self,
-        image: ImageInput,
-        color_format: str = "auto",
-        input_size: Optional[int] = None,
-    ) -> Tuple[torch.Tensor, Image.Image, Tuple[int, int], float]:
-        effective_size = input_size if input_size is not None else self.input_size
-        if int(effective_size) != int(self.input_size):
+    def _check_eval_imgsz(self, imgsz: int) -> None:
+        if int(imgsz) != int(self.input_size):
             raise ValueError(
                 "LibreVGG runs at its fixed native resolution "
-                f"{self.input_size}x{self.input_size}; got imgsz={effective_size}."
+                f"{self.input_size}x{self.input_size}; got imgsz={imgsz}."
             )
-        return _vgg_preprocess(
-            image,
-            input_size=effective_size,
-            color_format=color_format,
-        )
 
     def _forward(self, input_tensor: torch.Tensor) -> Any:
         return self.model(input_tensor)

@@ -35,11 +35,10 @@ from typing import Any, ClassVar, Dict, List, Optional, Sequence, Tuple
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from PIL import Image
 
 from ...tasks import normalize_task
-from ...utils.image_loader import ImageInput, ImageLoader
 from ...utils.serialization import load_trusted_torch_file
+from ..base.classify_preprocess import ClassifyPreprocessMixin
 from ..base.model import BaseModel
 from .labels import (
     DEFAULT_TEMPLATES,
@@ -56,7 +55,7 @@ CLIP_MEAN: Tuple[float, float, float] = (0.48145466, 0.4578275, 0.40821073)
 CLIP_STD: Tuple[float, float, float] = (0.26862954, 0.26130258, 0.27577711)
 
 
-class LibreCLIP(BaseModel):
+class LibreCLIP(ClassifyPreprocessMixin, BaseModel):
     """Dual-tower zero-shot classifier and image/text embedder."""
 
     FAMILY: ClassVar[str] = "clip"
@@ -79,6 +78,10 @@ class LibreCLIP(BaseModel):
     # the model resizes to a fixed square; keep predict to a single forward.
     TTA_ENABLED: ClassVar[bool] = False
 
+    EVAL_MEAN = CLIP_MEAN
+    EVAL_STD = CLIP_STD
+    crop_pct = 1.0
+    interpolation = "bicubic"
     validator_class: ClassVar[Optional[type]] = (
         None  # set lazily (see _resolve_validator)
     )
@@ -281,54 +284,6 @@ class LibreCLIP(BaseModel):
             "image_tower": self.model.visual,
             "text_tower": self.model.transformer,
         }
-
-    def _build_transform(self, imgsz: int):
-        from torchvision.transforms import InterpolationMode
-
-        from ...data.classify_dataset import build_classify_transforms
-
-        return build_classify_transforms(
-            imgsz,
-            augment=False,
-            mean=CLIP_MEAN,
-            std=CLIP_STD,
-            interpolation=InterpolationMode.BICUBIC,
-            crop_pct=1.0,
-        )
-
-    @staticmethod
-    def _get_preprocess_numpy():
-        import numpy as _np
-        from torchvision.transforms import InterpolationMode
-
-        from ...data.classify_dataset import build_classify_transforms
-
-        def _preprocess_numpy(img_rgb_hwc, input_size=224):
-            res = input_size if isinstance(input_size, int) else input_size[0]
-            transform = build_classify_transforms(
-                res,
-                augment=False,
-                mean=CLIP_MEAN,
-                std=CLIP_STD,
-                interpolation=InterpolationMode.BICUBIC,
-                crop_pct=1.0,
-            )
-            pil = Image.fromarray(_np.asarray(img_rgb_hwc).astype("uint8"))
-            return transform(pil).numpy(), 1.0
-
-        return _preprocess_numpy
-
-    def _preprocess(
-        self,
-        image: ImageInput,
-        color_format: str = "auto",
-        input_size: Optional[int] = None,
-    ) -> Tuple[torch.Tensor, Image.Image, Tuple[int, int], float]:
-        res = input_size if input_size is not None else self.input_size
-        img = ImageLoader.load(image, color_format=color_format)
-        orig_w, orig_h = img.size
-        transform = self._build_transform(res)
-        return transform(img).unsqueeze(0), img, (orig_w, orig_h), 1.0
 
     def _forward(self, input_tensor: torch.Tensor) -> torch.Tensor:
         image_features = self.model.encode_image(input_tensor.to(self.device))

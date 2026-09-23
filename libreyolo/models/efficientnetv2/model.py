@@ -7,21 +7,19 @@ from typing import Any, Dict, Optional, Tuple
 
 import torch
 import torch.nn as nn
-from PIL import Image
 
 from ...training.ddp_spawn import ddp_aware
 from ...training.callbacks import TrainCallbacks
 from ...postprocess.efficientnetv2 import postprocess as _effv2_postprocess
-from ...utils.image_loader import ImageInput
 from ..base import BaseModel
+from ..base.classify_preprocess import ClassifyPreprocessMixin
 from .config import EfficientNetV2Config
 from .nn import EfficientNetV2
-from .utils import preprocess_image as _effv2_preprocess
 
 _TRAIN_DEFAULTS = EfficientNetV2Config()
 
 
-class LibreEfficientNetV2(BaseModel):
+class LibreEfficientNetV2(ClassifyPreprocessMixin, BaseModel):
     """EfficientNetV2 image classifier (base b0/b1/b2/b3).
 
     Examples::
@@ -136,28 +134,6 @@ class LibreEfficientNetV2(BaseModel):
         self.model.to(self.device)
 
     # ---- inference -------------------------------------------------------
-
-    def _get_preprocess_numpy(self):
-        # Instance method (not staticmethod) so the per-variant crop_pct is bound.
-        # The base contract calls this as ``preprocess_numpy(img, input_size)``
-        # (e.g. the exporter's INT8 calibration), so binding crop_pct here keeps
-        # b1/b2/b3 from silently falling back to the 0.875 default.
-        from functools import partial
-
-        from .utils import preprocess_numpy
-
-        return partial(preprocess_numpy, crop_pct=self.crop_pct)
-
-    def _preprocess(
-        self,
-        image: ImageInput,
-        color_format: str = "auto",
-        input_size: Optional[int] = None,
-    ) -> Tuple[torch.Tensor, Image.Image, Tuple[int, int], float]:
-        eff = input_size if input_size is not None else self.input_size
-        return _effv2_preprocess(
-            image, input_size=eff, crop_pct=self.crop_pct, color_format=color_format
-        )
 
     def _forward(self, input_tensor: torch.Tensor) -> Any:
         return self.model(input_tensor)

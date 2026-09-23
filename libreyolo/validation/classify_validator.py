@@ -76,6 +76,24 @@ class ClassifyValidator(ValidationLossMixin, BaseValidator):
             raise ValueError(f"crop_pct must be in (0, 1], got {override}")
         return float(override)
 
+    def _dataset_transform(self) -> dict:
+        """The eval transform for the validation images.
+
+        A model that declares ``eval_transform`` is validated with exactly the
+        transform its ``predict()`` uses (#886), with ``config.crop_pct`` as
+        the only override. Other models fall back to the generic pipeline
+        built from :meth:`_dataset_transform_kwargs`.
+        """
+        eval_transform = getattr(self.model, "eval_transform", None)
+        if callable(eval_transform):
+            return {
+                "transform": eval_transform(
+                    self.config.imgsz,
+                    crop_pct=self._resolve_crop_pct(None),
+                )
+            }
+        return {"transform_kwargs": self._dataset_transform_kwargs()}
+
     def _dataset_transform_kwargs(self) -> dict:
         """Extra kwargs for ``build_classify_transforms`` (mean/std/interp/crop).
 
@@ -151,8 +169,7 @@ class ClassifyValidator(ValidationLossMixin, BaseValidator):
             imgsz=self.config.imgsz,
             augment=False,
             class_to_idx=class_to_idx,
-            # Match the model's native eval pipeline so val() agrees with predict().
-            transform_kwargs=self._dataset_transform_kwargs(),
+            **self._dataset_transform(),
         )
         self._num_classes = len(model_classes or class_names)
         return DataLoader(

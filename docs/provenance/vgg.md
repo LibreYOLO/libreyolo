@@ -71,7 +71,7 @@ removed.
 |---|---|
 | `models/vgg/nn.py` -- VGG graph, configurations, and initialization | `torchvision/models/vgg.py` |
 | `models/vgg/model.py` -- family, task, and checkpoint contracts | LibreYOLO integration code |
-| `models/vgg/utils.py` -- resize, center crop, and ImageNet normalization | `VGG*_Weights.IMAGENET1K_V1.transforms()` contract |
+| `models/base/classify_preprocess.py` (shared eval transform, `crop_pct` 0.875 bilinear at 224) -- resize, center crop, and ImageNet normalization | `VGG*_Weights.IMAGENET1K_V1.transforms()` contract |
 | `postprocess/vgg.py` -- softmax probability payload | LibreYOLO integration code |
 
 Module names retain the official `features.*`, `avgpool`, and

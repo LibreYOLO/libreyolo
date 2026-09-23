@@ -80,12 +80,12 @@ def test_rejects_alexnet_shape_signature():
 def test_preprocess_matches_official_weight_transform():
     from torchvision.models import VGG16_Weights
 
-    from libreyolo.models.vgg.utils import build_eval_transform
+    from libreyolo.models.vgg.model import LibreVGG
 
     rng = np.random.default_rng(0)
     image = Image.fromarray(rng.integers(0, 256, (317, 241, 3), dtype=np.uint8))
     expected = VGG16_Weights.IMAGENET1K_V1.transforms()(image)
-    actual = build_eval_transform(224)(image)
+    actual = LibreVGG(size="16", nb_classes=10, device="cpu").eval_transform(224)(image)
     torch.testing.assert_close(actual, expected, rtol=0, atol=0)
 
 

@@ -2,21 +2,18 @@
 
 from __future__ import annotations
 
-from functools import partial
 from typing import Any, Dict, Optional, Tuple
 
 import torch
 import torch.nn as nn
-from PIL import Image
 
 from ...postprocess.deit import postprocess as _deit_postprocess
-from ...utils.image_loader import ImageInput
 from ..base import BaseModel
+from ..base.classify_preprocess import ClassifyPreprocessMixin
 from .nn import DeiT
-from .utils import preprocess_image as _deit_preprocess
 
 
-class LibreDeiT(BaseModel):
+class LibreDeiT(ClassifyPreprocessMixin, BaseModel):
     """Plain DeiT patch-16 classifiers in tiny, small, and base sizes.
 
     DeiT made Vision Transformers practical with ImageNet-1k alone through a
@@ -121,29 +118,12 @@ class LibreDeiT(BaseModel):
         self.model.reset_classifier(new_nb_classes)
         self.model.to(self.device)
 
-    def _get_preprocess_numpy(self):
-        from .utils import preprocess_numpy
-
-        return partial(preprocess_numpy, crop_pct=self.crop_pct)
-
-    def _preprocess(
-        self,
-        image: ImageInput,
-        color_format: str = "auto",
-        input_size: Optional[int] = None,
-    ) -> Tuple[torch.Tensor, Image.Image, Tuple[int, int], float]:
-        effective_size = input_size if input_size is not None else self.input_size
-        if effective_size != self.input_size:
+    def _check_eval_imgsz(self, imgsz: int) -> None:
+        if int(imgsz) != int(self.input_size):
             raise ValueError(
                 f"LibreDeiT {self.size!r} has a fixed {self.input_size}x{self.input_size} "
-                f"positional embedding; got imgsz={effective_size}."
+                f"positional embedding; got imgsz={imgsz}."
             )
-        return _deit_preprocess(
-            image,
-            input_size=effective_size,
-            crop_pct=self.crop_pct,
-            color_format=color_format,
-        )
 
     def _forward(self, input_tensor: torch.Tensor) -> Any:
         return self.model(input_tensor)

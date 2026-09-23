@@ -506,21 +506,37 @@ class LibreDINOv2(BaseModel):
     # Inference pipeline
     # =========================================================================
 
+    def eval_transform(self, imgsz: Optional[int] = None, crop_pct: Optional[float] = None):
+        """Classify/embed eval transform, shared by predict and val (#886).
+
+        The generic ImageNet pipeline (bilinear, 0.875 crop, ImageNet
+        mean/std); the classification head applies no extra normalization.
+        """
+        if self.task not in ("classify", "embed"):
+            raise ValueError(
+                f"eval_transform is for the classify/embed tasks, not {self.task!r}"
+            )
+        from ...data.augment.classify import DEFAULT_CROP_PCT, build_classify_transforms
+
+        return build_classify_transforms(
+            int(imgsz if imgsz is not None else self.input_size),
+            augment=False,
+            crop_pct=DEFAULT_CROP_PCT if crop_pct is None else crop_pct,
+        )
+
     def _preprocess(
         self,
         image: ImageInput,
         color_format: str = "auto",
         input_size: Optional[int] = None,
     ) -> Tuple[torch.Tensor, Image.Image, Tuple[int, int], float]:
-        """Stretch-resize to square; the model applies ImageNet norm."""
+        """Classify/embed: :meth:`eval_transform`. Semantic: stretch to square."""
         effective_res = input_size if input_size is not None else self.input_size
         if self.task in ("classify", "embed"):
-            from ...data.classify_dataset import build_classify_transforms
-
             img = ImageLoader.load(image, color_format=color_format)
             orig_w, orig_h = img.size
-            transform = build_classify_transforms(effective_res, augment=False)
-            return transform(img).unsqueeze(0), img, (orig_w, orig_h), 1.0
+            tensor = self.eval_transform(effective_res)(img).unsqueeze(0)
+            return tensor, img, (orig_w, orig_h), 1.0
         if effective_res % self.semantic_imgsz_divisor:
             raise ValueError(
                 f"LibreDINOv2 semantic imgsz={effective_res} must be divisible "

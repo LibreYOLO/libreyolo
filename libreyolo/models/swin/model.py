@@ -3,20 +3,18 @@
 from __future__ import annotations
 
 import re
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Optional
 
 import torch
 import torch.nn as nn
-from PIL import Image
 
 from ...postprocess.swin import postprocess as _swin_postprocess
-from ...utils.image_loader import ImageInput
 from ..base import BaseModel
+from ..base.classify_preprocess import ClassifyPreprocessMixin
 from .classifier import SwinClassifier
-from .utils import preprocess_image as _swin_preprocess
 
 
-class LibreSwin(BaseModel):
+class LibreSwin(ClassifyPreprocessMixin, BaseModel):
     """Swin V1 image classifiers in tiny, small, base, and large sizes.
 
     Swin made transformers practical as general-purpose dense vision
@@ -142,13 +140,6 @@ class LibreSwin(BaseModel):
         self.model.reset_classifier(new_nb_classes)
         self.model.to(self.device)
 
-    def _get_preprocess_numpy(self):
-        from functools import partial
-
-        from .utils import preprocess_numpy
-
-        return partial(preprocess_numpy, crop_pct=self.crop_pct)
-
     def _validate_imgsz(self, imgsz: Any, *, context: str) -> int:
         """Enforce the resolution-specific final-stage attention graph."""
         native = int(self._get_input_size())
@@ -177,22 +168,10 @@ class LibreSwin(BaseModel):
             )
         return super()._get_val_preprocessor(img_size=img_size)
 
-    def _preprocess(
-        self,
-        image: ImageInput,
-        color_format: str = "auto",
-        input_size: Optional[int] = None,
-    ) -> Tuple[torch.Tensor, Image.Image, Tuple[int, int], float]:
-        effective_size = self._validate_imgsz(
-            input_size if input_size is not None else self.input_size,
-            context="prediction imgsz",
-        )
-        return _swin_preprocess(
-            image,
-            input_size=effective_size,
-            crop_pct=self.crop_pct,
-            color_format=color_format,
-        )
+    def _check_eval_imgsz(self, imgsz: int) -> None:
+        # val() already checked its own imgsz ("validation imgsz"), so the
+        # only caller that reaches this with a bad size is predict().
+        self._validate_imgsz(imgsz, context="prediction imgsz")
 
     def _forward(self, input_tensor: torch.Tensor) -> Any:
         return self.model(input_tensor)
