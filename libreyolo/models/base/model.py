@@ -2314,6 +2314,12 @@ class BaseModel(ABC):
             deployment instead of a folklore default. Entries are NaN for
             classes where no threshold reaches F1 > 0 (no predictions, no
             ground truth, or all false positives).
+
+            For ``task="classify"``, the dictionary instead holds
+            ``metrics/accuracy_top1``, ``metrics/accuracy_top5``,
+            macro-averaged ``metrics/precision``, ``metrics/recall`` and
+            ``metrics/f1`` (the mean over classes present in the validation
+            targets), and ``fitness`` (top-1 accuracy).
         """
         from libreyolo.validation import (
             ClassifyValidator,

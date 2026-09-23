@@ -201,22 +201,28 @@ def val_cmd(
     if getattr(loaded_model, "task", "detect") == "classify":
         top1 = metrics.get("metrics/accuracy_top1", 0.0)
         top5 = metrics.get("metrics/accuracy_top5", 0.0)
+        classify_metrics = {
+            "accuracy_top1": round(float(top1), 4),
+            "accuracy_top5": round(float(top5), 4),
+        }
+        human_line = f"  top1: {float(top1):.4f}  top5: {float(top5):.4f}"
+        for metric_name in ("precision", "recall", "f1"):
+            value = _rounded_metric(metrics, f"metrics/{metric_name}")
+            if value is not None:
+                classify_metrics[metric_name] = value
+                human_line += f"  {metric_name}: {value:.4f}"
         data_out = {
             "model": model,
             "model_family": loaded_model.FAMILY,
             "data": data,
             "split": split,
             "device": str(loaded_model.device),
-            "metrics": {
-                "accuracy_top1": round(float(top1), 4),
-                "accuracy_top5": round(float(top5), 4),
-            },
+            "metrics": classify_metrics,
         }
         if not json_output:
             data_out["_human_text"] = (
                 f"Validating {loaded_model.FAMILY}-{loaded_model.size} "
-                f"on {data} ({split}):\n"
-                f"  top1: {float(top1):.4f}  top5: {float(top5):.4f}"
+                f"on {data} ({split}):\n" + human_line
             )
         out.result(data_out)
         return
