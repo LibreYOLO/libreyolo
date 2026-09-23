@@ -88,6 +88,7 @@ class DetectionValidator(ValidationLossMixin, BaseValidator):
     """
 
     task = "detect"
+    supports_visualize = True
 
     # Class-level default so instances built without __init__ (a pattern the
     # test suite uses for narrow-scope validators) still resolve it.
@@ -484,6 +485,10 @@ class DetectionValidator(ValidationLossMixin, BaseValidator):
         # Always initialise plot-tracking state before any early returns
         self._confusion_matrix = None
         self._val_samples: List[Dict] = []
+        if getattr(self.config, "visualize", False):
+            from .val_plotter import reset_visualize_dir  # noqa: PLC0415
+
+            reset_visualize_dir(self.save_dir)
         if self.config.save_plots:
             from .val_plotter import ConfusionMatrix  # noqa: PLC0415
             self._confusion_matrix = ConfusionMatrix(nc=self.nc)
@@ -865,6 +870,51 @@ class DetectionValidator(ValidationLossMixin, BaseValidator):
                 self._track_plots_data(preds, targets, img_info, img_ids)
             except Exception as exc:
                 logger.warning("Failed to collect validation plot data: %s", exc)
+        if getattr(cfg, "visualize", False):
+            self._visualize_batch(preds, targets, img_info, img_ids)
+
+    def _visualize_batch(
+        self,
+        preds: List[Dict[str, torch.Tensor]],
+        targets: torch.Tensor,
+        img_info: List,
+        img_ids: List,
+    ) -> None:
+        """Draw each image's TP/FP/FN boxes to ``save_dir/visualize/`` (#887).
+
+        Written as the images are validated, so nothing is held in memory.
+        Drawing only: it never feeds the metrics.
+        """
+        from .val_plotter import ValPlotter, visualize_conf_thres  # noqa: PLC0415
+
+        out_dir = self.save_dir / "visualize"
+        conf_thres = visualize_conf_thres(getattr(self.config, "conf_thres", None))
+        for i, pred in enumerate(preds):
+            index = self.seen + i
+            try:
+                orig_h, orig_w = img_info[i]
+                gt_boxes, gt_classes = self._parse_gt_boxes(targets[i], orig_h, orig_w)
+                img_path = self._resolve_img_path(
+                    self.dataloader.dataset, index, img_ids[i]
+                )
+                img_bgr = self._load_plot_image(img_path)
+                if img_bgr is None:
+                    continue
+                ValPlotter.plot_detection_visualize(
+                    img_bgr,
+                    gt_boxes,
+                    gt_classes,
+                    pred["boxes"].cpu().numpy().reshape(-1, 4),
+                    pred["classes"].cpu().numpy().astype(int).reshape(-1),
+                    pred["scores"].cpu().numpy().reshape(-1),
+                    self.class_names,
+                    out_dir / f"{index:06d}_{Path(str(img_path)).stem}.jpg",
+                    show_labels=self.config.show_labels,
+                    show_conf=self.config.show_conf,
+                    conf_thres=conf_thres,
+                )
+            except Exception as exc:
+                logger.warning("visualize failed for image %d: %s", index, exc)
 
     def _parse_gt_boxes(
         self, gt_row: torch.Tensor, orig_h: int, orig_w: int
@@ -1108,20 +1158,9 @@ class DetectionValidator(ValidationLossMixin, BaseValidator):
 
         # Sample images → plots/samples/
         if self._val_samples:
-            try:
-                import cv2  # noqa: PLC0415
-            except ImportError:
-                logger.warning("opencv-python not found — skipping sample image plots")
-                return
             samples_dir = plots_dir / "samples"
             for idx, sample in enumerate(self._val_samples):
-                if sample["img_path"] is None:
-                    continue
-                if getattr(self.model, "input_profile", None) is not None:
-                    from ..utils.event_histogram import visualize_histogram
-                    img_bgr = visualize_histogram(sample["img_path"], scale=self.model.input_profile["scale"])[..., ::-1]
-                else:
-                    img_bgr = cv2.imread(str(sample["img_path"]))
+                img_bgr = self._load_plot_image(sample["img_path"])
                 if img_bgr is None:
                     continue
                 _safe(
@@ -1137,6 +1176,23 @@ class DetectionValidator(ValidationLossMixin, BaseValidator):
                     sample.get("pred_masks"),
                     self._get_gt_masks_for_sample(sample, img_bgr),
                 )
+
+    def _load_plot_image(self, img_path) -> Optional[np.ndarray]:
+        """Read a validated image as BGR for a plot, or None if unavailable."""
+        if img_path is None:
+            return None
+        try:
+            import cv2  # noqa: PLC0415
+        except ImportError:
+            logger.warning("opencv-python not found — skipping image plots")
+            return None
+        if getattr(self.model, "input_profile", None) is not None:
+            from ..utils.event_histogram import visualize_histogram
+
+            return visualize_histogram(
+                img_path, scale=self.model.input_profile["scale"]
+            )[..., ::-1]
+        return cv2.imread(str(img_path))
 
     def _get_gt_masks_for_sample(
         self, sample: Dict, img_bgr: np.ndarray

@@ -4491,6 +4491,13 @@ class BaseBackend(ABC):
             )
         if plots is not None and "save_plots" not in kwargs:
             kwargs["save_plots"] = plots
+        from libreyolo.validation.config import VISUALIZE_TASKS
+
+        if kwargs.get("visualize") and self.task not in VISUALIZE_TASKS:
+            raise ValueError(
+                f"visualize=True is not supported for task '{self.task}'; "
+                f"it covers {', '.join(VISUALIZE_TASKS)}"
+            )
 
         validation_device = device or (
             self.device

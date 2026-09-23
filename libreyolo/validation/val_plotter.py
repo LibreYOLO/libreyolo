@@ -1,6 +1,7 @@
 """Validation result visualisations for LibreYOLO."""
 
 import logging
+import re
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -11,6 +12,9 @@ logger = logging.getLogger(__name__)
 _COLOR_GT = (50, 200, 50)    # BGR green  — ground-truth
 _COLOR_PRED = (30, 80, 220)  # BGR red-ish — predictions
 _ALPHA_MASK = 0.35           # mask overlay opacity
+_COLOR_TP = (50, 200, 50)    # BGR green  — visualize: true positive
+_COLOR_FP = (40, 40, 235)    # BGR red    — visualize: false positive
+_COLOR_FN = (0, 165, 255)    # BGR orange — visualize: false negative
 
 # Grouped metric definitions for the bar chart (lookup key is lowercase)
 _METRIC_GROUPS = [
@@ -51,6 +55,91 @@ def _box_iou_numpy(boxes1: np.ndarray, boxes2: np.ndarray) -> np.ndarray:
     inter = np.maximum(ix2 - ix1, 0) * np.maximum(iy2 - iy1, 0)
     union = a1[:, None] + a2[None, :] - inter
     return inter / np.maximum(union, 1e-7)
+
+
+# ---------------------------------------------------------------------------
+# visualize=True matching (#887)
+# ---------------------------------------------------------------------------
+
+#: Confidence at or above which a prediction is drawn by ``visualize``; the
+#: same threshold the sample-image plot draws with.
+VISUALIZE_CONF_THRES = 0.25
+#: IoU at or above which a prediction can match a ground-truth box.
+VISUALIZE_IOU_THRES = 0.5
+
+
+def visualize_conf_thres(configured) -> float:
+    """The confidence ``visualize`` draws at: 0.25, or the run's ``conf`` if higher.
+
+    Postprocessing has already dropped predictions below the configured
+    threshold, so drawing below it would report their objects as misses.
+    """
+    try:
+        return max(VISUALIZE_CONF_THRES, float(configured))
+    except (TypeError, ValueError):
+        return VISUALIZE_CONF_THRES
+
+
+_VISUALIZE_NAME = re.compile(r"^\d{6}_.*\.jpg$")
+
+
+def reset_visualize_dir(save_dir: Path) -> Path:
+    """Return ``save_dir/visualize``, cleared of images from an earlier run.
+
+    Only files matching the ``<index>_<stem>.jpg`` names ``visualize`` writes
+    are removed, so a reused run directory never mixes two runs' images.
+    """
+    out_dir = Path(save_dir) / "visualize"
+    if out_dir.is_dir():
+        for path in out_dir.iterdir():
+            if path.is_file() and _VISUALIZE_NAME.match(path.name):
+                path.unlink()
+    return out_dir
+
+
+def match_detections(
+    pred_boxes: np.ndarray,    # (N, 4) xyxy pixel coords
+    pred_classes: np.ndarray,  # (N,) int
+    pred_scores: np.ndarray,   # (N,) float
+    gt_boxes: np.ndarray,      # (M, 4) xyxy pixel coords
+    gt_classes: np.ndarray,    # (M,) int
+    conf_thres: float = VISUALIZE_CONF_THRES,
+    iou_thres: float = VISUALIZE_IOU_THRES,
+) -> Dict[str, np.ndarray]:
+    """Split one image's boxes into true positives, false positives and misses.
+
+    Predictions below ``conf_thres`` are dropped. The rest are matched one to
+    one with ground truth of the same class, by descending IoU at
+    ``iou_thres``. A matched prediction is a true positive, an unmatched one a
+    false positive, and an unmatched ground-truth box a false negative, so a
+    box with the wrong class counts as one false positive plus one false
+    negative.
+
+    Returns ``keep`` (bool mask over the input predictions), ``tp`` (bool mask
+    over the kept predictions) and ``fn`` (bool mask over the ground truth).
+    """
+    pred_boxes = np.asarray(pred_boxes, dtype=np.float64).reshape(-1, 4)
+    pred_classes = np.asarray(pred_classes).astype(int).reshape(-1)
+    pred_scores = np.asarray(pred_scores, dtype=np.float64).reshape(-1)
+    gt_boxes = np.asarray(gt_boxes, dtype=np.float64).reshape(-1, 4)
+    gt_classes = np.asarray(gt_classes).astype(int).reshape(-1)
+
+    keep = pred_scores >= conf_thres
+    kept_boxes, kept_classes = pred_boxes[keep], pred_classes[keep]
+    tp = np.zeros(len(kept_boxes), dtype=bool)
+    fn = np.ones(len(gt_boxes), dtype=bool)
+
+    if len(kept_boxes) and len(gt_boxes):
+        iou = _box_iou_numpy(gt_boxes, kept_boxes)  # (M, N)
+        iou[gt_classes[:, None] != kept_classes[None, :]] = 0.0
+        gt_idxs, pred_idxs = np.where(iou >= iou_thres)
+        order = np.argsort(-iou[gt_idxs, pred_idxs], kind="stable")
+        for gi, pi in zip(gt_idxs[order], pred_idxs[order]):
+            if fn[gi] and not tp[pi]:
+                fn[gi] = False
+                tp[pi] = True
+
+    return {"keep": keep, "tp": tp, "fn": fn}
 
 
 # ---------------------------------------------------------------------------
@@ -737,6 +826,178 @@ class ValPlotter:
         save_path.parent.mkdir(parents=True, exist_ok=True)
         cv2.imwrite(str(save_path), combined)
         logger.info("Saved val sample → %s", save_path)
+
+    # ------------------------------------------------------------------ #
+    # visualize=True images (#887)
+    # ------------------------------------------------------------------ #
+    @staticmethod
+    def _fit_font_scale(cv2, lines: List[str], max_width: int, scale: float) -> float:
+        """Shrink ``scale`` until the widest of ``lines`` fits ``max_width``."""
+        widest = max(lines, key=len) if lines else ""
+        while scale > 0.25:
+            (tw, _), _ = cv2.getTextSize(widest, cv2.FONT_HERSHEY_SIMPLEX, scale, 1)
+            if tw <= max_width:
+                break
+            scale *= 0.9
+        return scale
+
+    @staticmethod
+    def _readable_canvas(cv2, img_bgr: np.ndarray, min_side: int = 320):
+        """Upscale tiny images (e.g. 32x32) so the drawn text is legible.
+
+        Returns the canvas and the integer scale factor applied to it.
+        """
+        h, w = img_bgr.shape[:2]
+        factor = max(1, int(np.ceil(min_side / max(min(h, w), 1))))
+        if factor == 1:
+            return img_bgr.copy(), 1
+        return (
+            cv2.resize(img_bgr, (w * factor, h * factor), interpolation=cv2.INTER_NEAREST),
+            factor,
+        )
+
+    @staticmethod
+    def plot_classify_visualize(
+        img_bgr: np.ndarray,
+        gt_name: str,
+        pred_name: str,
+        pred_score: float,
+        save_path: Path,
+        show_labels: bool = True,
+        show_conf: bool = True,
+        correct: Optional[bool] = None,
+    ) -> None:
+        """Save one classified image framed green (correct) or red (wrong).
+
+        With ``show_labels`` the label and the top-1 prediction are written on
+        the image, sized to fit its width; ``show_conf`` adds the score.
+        """
+        cv2 = ValPlotter._require_cv2()
+        canvas, _ = ValPlotter._readable_canvas(cv2, img_bgr)
+        h, w = canvas.shape[:2]
+        if correct is None:
+            correct = gt_name == pred_name
+        frame = _COLOR_TP if correct else _COLOR_FP
+        cv2.rectangle(canvas, (0, 0), (w - 1, h - 1), frame, max(2, w // 160))
+
+        pred_text = f"Pred: {pred_name}" if show_labels else "Pred"
+        if show_conf:
+            pred_text += f" {pred_score:.2f}"
+        lines = [(pred_text, frame)]
+        if show_labels:
+            lines.insert(0, (f"GT: {gt_name}", _COLOR_TP))
+        if show_labels or show_conf:
+            pad = max(4, w // 100)
+            scale = ValPlotter._fit_font_scale(
+                cv2, [t for t, _ in lines], w - 2 * pad, max(0.4, w / 900)
+            )
+            thickness = max(1, int(round(scale * 1.5)))
+            (_, th), base = cv2.getTextSize("Ag", cv2.FONT_HERSHEY_SIMPLEX, scale, thickness)
+            line_h = th + base + pad
+            overlay = canvas.copy()
+            cv2.rectangle(overlay, (0, 0), (w, min(line_h * len(lines) + pad, h)), (20, 20, 20), -1)
+            cv2.addWeighted(overlay, 0.6, canvas, 0.4, 0, canvas)
+            for i, (text, color) in enumerate(lines):
+                cv2.putText(canvas, text, (pad, pad + th + i * line_h),
+                            cv2.FONT_HERSHEY_SIMPLEX, scale, color, thickness, cv2.LINE_AA)
+
+        save_path.parent.mkdir(parents=True, exist_ok=True)
+        cv2.imwrite(str(save_path), canvas)
+
+    @staticmethod
+    def plot_detection_visualize(
+        img_bgr: np.ndarray,
+        gt_boxes: np.ndarray,
+        gt_classes: np.ndarray,
+        pred_boxes: np.ndarray,
+        pred_classes: np.ndarray,
+        pred_scores: np.ndarray,
+        class_names: Optional[List[str]],
+        save_path: Path,
+        show_labels: bool = True,
+        show_conf: bool = True,
+        conf_thres: float = VISUALIZE_CONF_THRES,
+        iou_thres: float = VISUALIZE_IOU_THRES,
+    ) -> None:
+        """Save one image with its true positives, false positives and misses.
+
+        True positives are green, false positives red and false negatives
+        (unmatched ground truth) orange; a header counts each. Matching is
+        :func:`match_detections`.
+        """
+        cv2 = ValPlotter._require_cv2()
+        match = match_detections(
+            pred_boxes, pred_classes, pred_scores, gt_boxes, gt_classes,
+            conf_thres=conf_thres, iou_thres=iou_thres,
+        )
+        canvas, factor = ValPlotter._readable_canvas(cv2, img_bgr)
+        h, w = canvas.shape[:2]
+        gt_boxes = np.asarray(gt_boxes, dtype=np.float64).reshape(-1, 4) * factor
+        gt_classes = np.asarray(gt_classes).astype(int).reshape(-1)
+        keep = match["keep"]
+        boxes = np.asarray(pred_boxes, dtype=np.float64).reshape(-1, 4)[keep] * factor
+        classes = np.asarray(pred_classes).astype(int).reshape(-1)[keep]
+        scores = np.asarray(pred_scores, dtype=np.float64).reshape(-1)[keep]
+
+        scale = max(0.4, min(h, w) / 1400)
+        thickness = max(1, int(round(scale * 1.5)))
+
+        def _draw(box, color, text, below=False):
+            # Predictions are labelled above their box and misses below it,
+            # so a wrong-class pair on one object keeps both labels readable.
+            x1, y1, x2, y2 = (int(round(v)) for v in box)
+            cv2.rectangle(canvas, (x1, y1), (x2, y2), color, max(2, thickness * 2))
+            if not text:
+                return
+            fs = ValPlotter._fit_font_scale(cv2, [text], w - 4, scale)
+            (tw, th), base = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, fs, thickness)
+            label_h = th + base + 2
+            x = min(max(x1, 0), max(w - tw - 4, 0))
+            if below:
+                y0 = y2 if y2 + label_h <= h else y2 - label_h  # else inside
+            else:
+                y0 = y1 - label_h if y1 - label_h >= 0 else y1  # else inside
+            y0 = min(max(y0, 0), max(h - label_h, 0))
+            cv2.rectangle(canvas, (x, y0), (x + tw + 4, y0 + th + base + 2), color, -1)
+            cv2.putText(canvas, text, (x + 2, y0 + th + 1), cv2.FONT_HERSHEY_SIMPLEX,
+                        fs, (255, 255, 255), thickness, cv2.LINE_AA)
+
+        def _text(cls: int, score: Optional[float]) -> str:
+            parts = []
+            if show_labels:
+                parts.append(ValPlotter._class_name(class_names, int(cls), int(cls)))
+            if show_conf and score is not None:
+                parts.append(f"{score:.2f}")
+            return " ".join(parts)
+
+        for gi in np.flatnonzero(match["fn"]):
+            _draw(gt_boxes[gi], _COLOR_FN, _text(gt_classes[gi], None), below=True)
+        for i in range(len(boxes)):
+            color = _COLOR_TP if match["tp"][i] else _COLOR_FP
+            _draw(boxes[i], color, _text(classes[i], scores[i]))
+
+        n_tp = int(match["tp"].sum())
+        counts = [
+            (f"TP {n_tp}", _COLOR_TP),
+            (f"FP {len(boxes) - n_tp}", _COLOR_FP),
+            (f"FN {int(match['fn'].sum())}", _COLOR_FN),
+            (f"conf>={conf_thres:g} IoU>={iou_thres:g}", (200, 200, 200)),
+        ]
+        header_scale = ValPlotter._fit_font_scale(
+            cv2, ["   ".join(t for t, _ in counts)], w - 16, max(0.45, w / 1600)
+        )
+        (_, th), base = cv2.getTextSize("Ag", cv2.FONT_HERSHEY_SIMPLEX, header_scale, 1)
+        header_h = th + base + 12
+        header = np.full((header_h, w, 3), 35, dtype=np.uint8)
+        x = 8
+        for text, color in counts:
+            cv2.putText(header, text, (x, header_h - base - 5), cv2.FONT_HERSHEY_SIMPLEX,
+                        header_scale, color, 1, cv2.LINE_AA)
+            (tw, _), _ = cv2.getTextSize(text + "   ", cv2.FONT_HERSHEY_SIMPLEX, header_scale, 1)
+            x += tw
+
+        save_path.parent.mkdir(parents=True, exist_ok=True)
+        cv2.imwrite(str(save_path), np.vstack([header, canvas]))
 
     # ------------------------------------------------------------------ #
     # Dependency helpers (lazy — not imported at module level)
