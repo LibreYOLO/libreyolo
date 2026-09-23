@@ -2811,3 +2811,52 @@ allenai/Molmo2-O-7B @ 784410650d12be9bc086118fdefa32d2c3bced86
 4B/8B use Qwen3 language backbones; O-7B uses OLMo 3. The released snapshots
 include the SigLIP vision backbone and their tokenizer assets. Upstream model
 cards declare Apache-2.0 for all three snapshots.
+
+
+GTR (Gated Token Recurrence)
+Source: https://github.com/Intellindust-AI-Lab/GTR
+Revision: 782e737efe2e6437ac537fbdcee089673d3376c1
+License: MIT (LICENSE in this directory)
+Copyright (c) 2026 Intellindust-AI-Lab / The GTR Authors.
+
+Ported backbone, spatial SwiGLU, feature projector, decoder, matching and loss.
+Modified for native LibreYOLO construction, portable attention, local imports,
+strict checkpoints, and validation loss output/normalization.
+
+Retained source notices identify these Apache-2.0 components:
+- D-FINE: https://github.com/Peterande/D-FINE
+  Copyright (c) 2024 D-FINE Authors.
+- RT-DETR: https://github.com/lyuwenyu/RT-DETR
+  Copyright (c) 2023 lyuwenyu.
+- DETR: https://github.com/facebookresearch/detr
+  Copyright (c) Facebook, Inc. and its affiliates.
+- RF-DETR segmentation helpers used by the upstream decoder/criterion:
+  https://github.com/roboflow/rf-detr
+  Copyright (c) 2025 Roboflow.
+Their upstream-derived portions retain Apache-2.0; see LICENSE-APACHE.md.
+
+Optional flash-linear-attention runtime acceleration is not vendored.
+Source: https://github.com/fla-org/flash-linear-attention (MIT).
+The portable recurrence is implemented directly in attention.py.
+
+MIT License
+
+Copyright (c) 2026 Intellindust-AI-Lab
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.

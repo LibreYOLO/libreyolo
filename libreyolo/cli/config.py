@@ -502,6 +502,18 @@ def build_family_train_kwargs(
     task: str | None = None,
 ) -> dict[str, Any]:
     """Build train kwargs, translating family-specific CLI/API mismatches."""
+    if family == "gtr":
+        # Let the family resolve size-specific defaults and checkpoint resume
+        # settings. Forwarding Typer defaults would overwrite both silently.
+        from .aliases import train_aliases
+
+        aliases = train_aliases(task)
+        inverse = {value: key for key, value in aliases.items()}
+        provided = user_provided or set()
+        return {
+            key: value for key, value in build_train_kwargs(params, task=task).items()
+            if inverse.get(key, key) in provided
+        }
     if family == "rfdetr":
         return _build_rfdetr_train_kwargs(
             params, model_path=model_path, user_provided=user_provided

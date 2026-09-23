@@ -84,6 +84,7 @@ FAMILY_DISPLAY_NAMES: Dict[str, str] = {
     "rtdetrv2": "RT-DETRv2",
     "rtdetrv4": "RT-DETRv4",
     "dfine": "D-FINE",
+    "gtr": "GTR",
     "domedetr": "Dome-DETR",
     "deim": "DEIM",
     "deimv2": "DEIMv2",
@@ -256,6 +257,10 @@ FAMILY_AUG_SUPPORT: Dict[str, Dict[str, Support]] = {
     },
     # --- DETR-style pass-through pipelines ------------------------------
     "dfine": dict(_DETR_STYLE),
+    "gtr": {
+        **_DETR_STYLE,
+        "no_aug_epochs": _u("Stops strong augmentations and controls the final LR plateau."),
+    },
     # Dome-DETR inherits DFINETrainer.create_transforms unchanged, so its
     # knob support is D-FINE's. Multi-scale is the one thing it cannot
     # take (MWAS needs the stride-8 map divisible by the window size), and
