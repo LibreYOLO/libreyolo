@@ -221,6 +221,9 @@ class BaseValidator(ABC):
 
         self.config.to_yaml(self.save_dir / "config.yaml")
 
+        if getattr(self.config, "visualize", False):
+            logger.info("visualize images saved to %s", self.save_dir / "visualize")
+
         if self.config.save_plots:
             try:
                 self._save_plots(metrics)
