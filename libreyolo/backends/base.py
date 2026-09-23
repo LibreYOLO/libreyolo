@@ -775,17 +775,37 @@ class BaseBackend(ABC):
             return tensor, img, size, 1.0
 
     def _family_class(self):
-        """The registered native model class of this export's family, if any."""
+        """The native model class of this export's family, if any.
+
+        Imports the family's module when it is not registered yet, so a
+        backend loaded before (or without) the native model package still gets
+        its family's preprocessing instead of silently falling back.
+        """
+        import importlib
+
         try:
             from ..models.base.model import BaseModel
         except ImportError:  # torch-free install: no native classes
             return None
 
         family = getattr(self, "model_family", None)
-        return next(
-            (cls for cls in BaseModel._registry if getattr(cls, "FAMILY", None) == family),
-            None,
-        )
+        if not family:
+            return None
+
+        def _lookup():
+            return next(
+                (c for c in BaseModel._registry if getattr(c, "FAMILY", None) == family),
+                None,
+            )
+
+        found = _lookup()
+        if found is None:
+            try:
+                importlib.import_module(f"libreyolo.models.{family}")
+            except ImportError:
+                return None
+            found = _lookup()
+        return found
 
     def eval_transform(self, imgsz=None, crop_pct=None):
         """Classification eval transform, shared by predict and val (#886).

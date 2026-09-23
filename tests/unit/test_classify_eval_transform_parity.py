@@ -197,3 +197,32 @@ def test_exported_backend_matches_native(name, size):
     assert torch.equal(tensor[0], native)
     validated = _validator(SimpleNamespace(eval_transform=backend.eval_transform, input_size=model.input_size))
     assert torch.equal(validated._dataset_transform()["transform"](_IMAGE), native)
+
+
+def test_backend_imports_an_unregistered_family(monkeypatch):
+    """A backend loaded before the native package still finds its family."""
+    import importlib
+
+    from libreyolo.backends.base import BaseBackend
+    from libreyolo.models.base.model import BaseModel
+
+    class _Backend(BaseBackend):
+        def _run_inference(self, blob):  # pragma: no cover - never called
+            raise NotImplementedError
+
+    pe_cls = libreyolo.LibrePE
+    registry = [c for c in BaseModel._registry if c is not pe_cls]
+    monkeypatch.setattr(BaseModel, "_registry", registry)
+    imported = []
+    real_import = importlib.import_module
+
+    def _import(name):
+        imported.append(name)
+        registry.append(pe_cls)  # what registering on import does
+        return real_import(name)
+
+    monkeypatch.setattr(importlib, "import_module", _import)
+    backend = _Backend.__new__(_Backend)
+    backend.model_family = "pe"
+    assert backend._family_class() is pe_cls
+    assert imported == ["libreyolo.models.pe"]
