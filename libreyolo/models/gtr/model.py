@@ -6,7 +6,7 @@ from typing import ClassVar
 from libreyolo.training.ddp_spawn import ddp_aware
 
 from ...training.callbacks import TrainCallbacks
-from ...validation.preprocessors import ECValPreprocessor
+from ...validation.preprocessors import DEIMv2DINOValPreprocessor
 from ..dfine.model import LibreDFINE
 from ..ec.postprocess import preprocess_image
 from .config import GTRConfig
@@ -24,7 +24,7 @@ class LibreGTR(LibreDFINE):
     DEFAULT_TASK = "detect"
     TRAIN_CONFIG = GTRConfig
     SUPPORTS_CUDA_GRAPH = False
-    val_preprocessor_class = ECValPreprocessor
+    val_preprocessor_class = DEIMv2DINOValPreprocessor
 
     @classmethod
     def can_load(cls, sd):
