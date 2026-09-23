@@ -173,6 +173,26 @@ def _resize_linear(linear: nn.Linear, num_classes: int) -> nn.Linear:
     return new_linear
 
 
+def _select_linear_rows(linear: nn.Linear, rows: "list[int]") -> nn.Linear:
+    """Return a new :class:`~torch.nn.Linear` whose output ``i`` copies row ``rows[i]``."""
+    index = torch.as_tensor(rows, dtype=torch.long, device=linear.weight.device)
+    new_linear = nn.Linear(
+        linear.in_features,
+        len(rows),
+        bias=linear.bias is not None,
+        device=linear.weight.device,
+        dtype=linear.weight.dtype,
+    )
+    with torch.no_grad():
+        new_linear.weight.copy_(linear.weight.detach().index_select(0, index))
+        if linear.bias is not None:
+            new_linear.bias.copy_(linear.bias.detach().index_select(0, index))
+    new_linear.weight.requires_grad = linear.weight.requires_grad
+    if linear.bias is not None:
+        new_linear.bias.requires_grad = linear.bias.requires_grad
+    return new_linear
+
+
 # ---------------------------------------------------------------------------
 # GroupPose keypoint helpers (ported from RF-DETR v1.8.0 keypoint preview).
 # ---------------------------------------------------------------------------
@@ -372,6 +392,28 @@ class LWDETR(nn.Module):
         if self.two_stage:
             self.transformer.enc_out_class_embed = nn.ModuleList(
                 [_resize_linear(m, num_classes) for m in self.transformer.enc_out_class_embed]
+            )
+
+    def reinitialize_grouppose_class_head(self, num_columns: int) -> None:
+        """Resize the GroupPose class head to ``num_columns`` (empty slot + one per class).
+
+        Column 0 is the empty schema slot and is never a target, so its row is
+        trained to stay off. Tiling (``reinitialize_detection_head``) would copy
+        that row into new class columns, and a class without keypoint-logit
+        boost then starts near zero probability and barely learns under the
+        IoU-aware classification loss. Instead, column 0 keeps the old empty
+        row, existing class columns keep their rows, and new class columns copy
+        the old class rows cyclically (the person row for ``[0, 17]``).
+        """
+        old_columns = int(self.class_embed.out_features)
+        if old_columns < 2:
+            rows = [0] * num_columns
+        else:
+            rows = [0] + [1 + (i - 1) % (old_columns - 1) for i in range(1, num_columns)]
+        self.class_embed = _select_linear_rows(self.class_embed, rows)
+        if self.two_stage:
+            self.transformer.enc_out_class_embed = nn.ModuleList(
+                [_select_linear_rows(m, rows) for m in self.transformer.enc_out_class_embed]
             )
 
     @staticmethod

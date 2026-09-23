@@ -447,7 +447,19 @@ sample resolver: `libreyolo.data.ocr_dataset.resolve_ocr_samples`.
 YAML adds:
 
 - `kpt_shape`: required, `[K, 2]` or `[K, 3]`;
-- `flip_idx`: optional integer permutation of `0..K-1`.
+- `flip_idx`: optional integer permutation of `0..K-1`;
+- `kpt_names`: optional. A mapping keyed by class index or class name, each
+  value a list of keypoint names. A listed class uses only the first
+  `len(names)` keypoint rows, `[]` (or an empty value) declares a class without
+  keypoints, and unlisted classes use all `K` rows. A class may be listed once,
+  and a string key matches a class name before it is read as an index.
+  Consumed by RF-DETR pose training, whose GroupPose head sizes a keypoint
+  group per class. Rows are still `K` wide: pad unused keypoints with `0 0 0`.
+  `flip_idx` stays one permutation of all `K` rows, so it must not swap a
+  class's used rows with rows past its count. Multi-class pose needs `names`.
+  Pose validation reports keypoint mAP, which skips instances without
+  keypoints, so a class declared with `[]` is predicted but not scored, and
+  does not influence `best.pt` selection.
 
 Label row:
 
