@@ -19,7 +19,8 @@ before 1.4.0 are documented in the
   `libreyolo val` prints the new values and reports them in `--json` as
   `precision`, `recall` and `f1`. Anything iterating classification metric keys
   (custom loggers, `results.csv` headers) sees three new columns. Definition:
-  `docs/classification_training.md`.
+  `docs/classification_training.md`. Targets outside the model's class range
+  raise a dataset/model mismatch error rather than inflate the macro metrics.
 
 - **Validation sample-plot count is configurable (#830).** `plot_samples` sets
   how many validated images appear in the sample-image plot, on `val()`,
