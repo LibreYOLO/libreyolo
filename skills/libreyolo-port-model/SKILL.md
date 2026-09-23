@@ -1100,8 +1100,16 @@ clone the merged exemplar family instead of adapting a template:
 - **classify** → `models/{mobilenetv4,convnext,efficientnetv2,resnet}/` — reuse
   the shared `BaseTrainer` classify path (`_setup_classify_data` /
   `_run_classify_validation`), return `{"probs": ...}` from `_postprocess`,
-  set `best_metric_key = "metrics/accuracy_top1"`.
-- **zero-shot classify** → `models/clip/` (`set_classes`, `clip_validator.py`).
+  set `best_metric_key = "metrics/accuracy_top1"`. Build the predict transform
+  with the shared `build_classify_transforms` (`data/augment/classify.py`), not a
+  private copy. Declare the eval pipeline once on the model (`crop_pct`, `interpolation`, and `norm_mean` / `norm_std` /
+  `resize_mode` when it is not ImageNet center-crop). `val()`, INT8
+  calibration and export metadata read it through `_get_eval_transform`;
+  override that method only when those settings cannot express the pipeline.
+  Do not re-declare preprocessing in a validator subclass. Add the family to
+  `tests/unit/test_classify_eval_parity.py`, which fails until you do.
+- **zero-shot classify** → `models/clip/` (`set_classes`; `clip_validator.py`
+  only for the open-vocabulary label indexing, not for preprocessing).
 - **semantic** → `models/pidnet/` (CNN) or `models/eomt/` (ViT).
 - **depth** → `models/depth_anything/`.
 - **restore** → `models/nafnet/` (native-resolution, no letterbox).

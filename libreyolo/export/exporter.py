@@ -105,6 +105,31 @@ def _restore_rfdetr_export_state(snapshots):
             module._export = state["export"]
 
 
+def _classify_eval_metadata(model) -> dict:
+    """The model's classification eval pipeline as flat export metadata (#886).
+
+    ``crop_pct`` / ``interpolation`` as before, plus ``norm_mean`` /
+    ``norm_std`` (JSON-encoded RGB lists) and ``resize_mode`` for families that
+    declare them. Exported backends rebuild the native eval transform from
+    these, for both ``predict()`` and ``val()``.
+    """
+    meta = {}
+    crop_pct = getattr(model, "crop_pct", None)
+    interpolation = getattr(model, "interpolation", None)
+    if crop_pct is not None:
+        meta["crop_pct"] = float(crop_pct)
+    if interpolation is not None:
+        meta["interpolation"] = str(interpolation)
+    for key in ("norm_mean", "norm_std"):
+        value = getattr(model, key, None)
+        if value is not None:
+            meta[key] = json.dumps([float(v) for v in value])
+    resize_mode = getattr(model, "resize_mode", None)
+    if resize_mode is not None:
+        meta["resize_mode"] = str(resize_mode)
+    return meta
+
+
 def _pose_keypoint_shape_metadata(model) -> dict:
     num_keypoints = getattr(
         model, "num_keypoints", getattr(model, "POSE_NUM_KEYPOINTS", "")
@@ -1486,12 +1511,7 @@ class BaseExporter(ABC):
         # crop_pct=0.875 and bilinear resize, which changes classifier logits
         # for families such as ResNet (0.95/bicubic).
         if task == "classify":
-            crop_pct = getattr(self.model, "crop_pct", None)
-            interpolation = getattr(self.model, "interpolation", None)
-            if crop_pct is not None:
-                meta["crop_pct"] = float(crop_pct)
-            if interpolation is not None:
-                meta["interpolation"] = str(interpolation)
+            meta.update(_classify_eval_metadata(self.model))
         if task == "pose":
             meta.update(_pose_keypoint_shape_metadata(self.model))
             if self.model._get_model_name() == "hrnet":
@@ -1563,13 +1583,9 @@ class BaseExporter(ABC):
         for key, value in input_metadata(self.model).items():
             meta[key] = json.dumps(value) if isinstance(value, dict) else str(value)
         # Classification eval preprocessing — lets exported-backend inference
-        # match native predict()/val() (per-family crop_pct + interpolation).
-        _crop_pct = getattr(self.model, "crop_pct", None)
-        _interp = getattr(self.model, "interpolation", None)
-        if _crop_pct is not None:
-            meta["crop_pct"] = str(_crop_pct)
-        if _interp is not None:
-            meta["interpolation"] = str(_interp)
+        # and validation match native predict()/val() (#886).
+        for key, value in _classify_eval_metadata(self.model).items():
+            meta[key] = str(value)
         if task == "pose":
             pose_meta = _pose_keypoint_shape_metadata(self.model)
             meta.update(
@@ -1933,12 +1949,7 @@ class ExecuTorchExporter(BaseExporter):
         meta = super()._build_metadata(
             precision, False, onnx_path, imgsz=imgsz
         )
-        crop_pct = getattr(self.model, "crop_pct", None)
-        interpolation = getattr(self.model, "interpolation", None)
-        if crop_pct is not None:
-            meta["crop_pct"] = float(crop_pct)
-        if interpolation is not None:
-            meta["interpolation"] = str(interpolation)
+        meta.update(_classify_eval_metadata(self.model))
         return meta
 
     def _export(

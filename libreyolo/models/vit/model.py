@@ -15,6 +15,7 @@ from ...validation.vit_validator import ViTClassifyValidator
 from ..base import BaseModel
 from .nn import VisionTransformer
 from .utils import preprocess_image as _vit_preprocess
+from .utils import VIT_MEAN, VIT_STD
 
 
 class LibreViT(BaseModel):
@@ -38,6 +39,10 @@ class LibreViT(BaseModel):
     REQUIRE_TASK_SUFFIX = True
     TRAIN_CONFIG = None
     validator_class = ViTClassifyValidator
+    # AugReg normalization, read by val, calibration and export metadata
+    # (#886); predict's transform in utils.py uses the same constants.
+    norm_mean = VIT_MEAN
+    norm_std = VIT_STD
 
     # All four AugReg ImageNet-1k checkpoints use the same timm eval config.
     CROP_PCT = {"ti": 0.9, "s": 0.9, "b": 0.9, "l": 0.9}
