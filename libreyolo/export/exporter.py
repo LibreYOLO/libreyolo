@@ -158,6 +158,7 @@ _FIXED_SQUARE_EXPORT_FAMILIES = {
     "dinodetr",
     "detr",
     "dfine",
+    "gtr",
     "deim",
     "deimv2",
     "tinyformer",
@@ -1037,7 +1038,7 @@ class BaseExporter(ABC):
             nn_model = DETRExportWrapper(nn_model).to(device)
             nn_model.eval()
             dfine_wrapped = True
-        elif family == "dfine":
+        elif family in ("dfine", "gtr"):
             from ..models.dfine.nn import DFINEExportWrapper
 
             # deploy() (BN fusion + decoder-layer pruning + head swap) mutates

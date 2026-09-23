@@ -366,6 +366,7 @@ def _is_nms_free_family(model_family: Optional[str]) -> bool:
         "detr",
         "dinodetr",
         "dfine",
+        "gtr",
         "domedetr",
         "deim",
         "deimv2",
@@ -690,7 +691,7 @@ class BaseBackend(ABC):
                 image, effective_imgsz, color_format, self.model_size
             )
             return tensor, img, size, 1.0
-        elif self.model_family == "tinyformer":
+        elif self.model_family in ("tinyformer", "gtr"):
             tensor, img, size = self._preprocess_tinyformer(
                 image, effective_imgsz, color_format
             )
@@ -1484,7 +1485,7 @@ class BaseBackend(ABC):
                 all_outputs, orig_w, orig_h, conf, max_det=max_det
             )
             return boxes, scores, cls, None
-        elif self.model_family == "tinyformer":
+        elif self.model_family in ("tinyformer", "gtr"):
             boxes, scores, cls = self._parse_dfine(
                 all_outputs, orig_w, orig_h, conf, max_det=max_det
             )
@@ -4221,6 +4222,7 @@ class BaseBackend(ABC):
             "dinodetr": DeformableDETRValPreprocessor,
             "dfine": DFINEValPreprocessor,
             "ec": ECValPreprocessor,
+            "gtr": ECValPreprocessor,
             "efficientdet": EfficientDetValPreprocessor,
             "lwdetr": LWDETRValPreprocessor,
             "picodet": PICODETValPreprocessor,

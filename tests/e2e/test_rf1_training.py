@@ -148,6 +148,7 @@ _RF1_NOT_APPLICABLE = {
 }
 
 _RF1_VALIDATION_GAPS = {
+    "gtr": "CPU forward/backward, synthetic overfit and checkpoint reload checked; RF1 GPU validation pending.",
     "picodet": (
         "PICODET-s/320 has not reliably cleared the RF1 mAP floor on this "
         "30-image fixture. Training remains directly callable and is covered "

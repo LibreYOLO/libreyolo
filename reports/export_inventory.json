@@ -997,6 +997,30 @@
     "available": true,
     "group": "s"
   },
+  "gtr": {
+    "available": true,
+    "class": "libreyolo.models.gtr.model.LibreGTR",
+    "default_imgsz": {
+      "l": 640,
+      "m": 640,
+      "s": 640,
+      "x": 640
+    },
+    "default_task": "detect",
+    "export_override": "custom",
+    "group": "g1",
+    "optional_extra": null,
+    "sizes": {
+      "l": 640,
+      "m": 640,
+      "s": 640,
+      "x": 640
+    },
+    "task_sizes": {},
+    "tasks": [
+      "detect"
+    ]
+  },
   "hrnet": {
     "class": "libreyolo.models.hrnet.model.LibreHRNet",
     "tasks": [

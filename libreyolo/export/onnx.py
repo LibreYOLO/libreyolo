@@ -13,6 +13,7 @@ _DETR_TUPLE_OUTPUT_FAMILIES = {
     "detr",
     "dinodetr",
     "dfine",
+    "gtr",
     "deim",
     "deimv2",
     "tinyformer",
