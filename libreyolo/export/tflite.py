@@ -10,6 +10,7 @@ from __future__ import annotations
 import contextlib
 import json
 import logging
+import os
 import shutil
 import subprocess
 import sys
@@ -51,6 +52,33 @@ def ensure_tflite_family_supported(
         f"TFLite export currently supports: {supported}. "
         f"Got model family {model_family!r}, task {task!r}. {entry.reason}"
     )
+
+
+# (family, task) pairs whose full-integer TFLite export has been checked on real
+# weights. The graph for these emits ``SPLIT_OUTPUT_LAYOUT``.
+TFLITE_INT8_EXPORTS = frozenset({("yolox", "detect"), ("yolo9", "detect")})
+
+# Sidecar ``output_layout`` value: output 0 is normalized cxcywh boxes shaped
+# ``(B, 4, N)`` (divided by the input width/height) and output 1 is scores
+# shaped ``(B, N, C)``. Keeping them apart lets each tensor have its own int8
+# scale; TFLiteBackend rescales the boxes and rebuilds the family layout.
+SPLIT_OUTPUT_LAYOUT = "boxes_norm_scores"
+
+
+def check_tflite_int8_available() -> None:
+    """Check the TensorFlow converter that TFLite INT8 export runs through."""
+    import importlib.util
+
+    missing = [
+        name for name in ("tensorflow", "tf_keras") if importlib.util.find_spec(name) is None
+    ]
+    if missing:
+        raise ImportError(
+            "TFLite INT8 export runs onnx2tf's TensorFlow converter, which needs "
+            f"{' and '.join(missing)}.\n\n"
+            "Install with:\n"
+            '  pip install "onnx2tf[tensorflow]"'
+        )
 
 
 def check_tflite_export_available() -> None:
@@ -674,7 +702,39 @@ def _onnx2tf_command() -> list[str]:
     return [sys.executable, "-m", "onnx2tf"]
 
 
-def _find_converted_tflite(output_dir: Path, onnx_path: Path) -> Path:
+# onnx2tf emits every quantized variant it can build under -oiqt. Only the
+# full-integer file keeps the INT8 contract (int8 input and outputs), which is
+# what EdgeTPU and int8-only runtimes need; TFLiteBackend quantizes the input
+# and dequantizes the outputs from the tensor scales, so float callers see no
+# difference.
+_INT8_ARTIFACT_SUFFIX = "_full_integer_quant"
+
+
+def _find_converted_tflite(
+    output_dir: Path,
+    onnx_path: Path,
+    *,
+    int8: bool = False,
+    converter_output: str = "",
+) -> Path:
+    if int8:
+        exact = output_dir / f"{onnx_path.stem}{_INT8_ARTIFACT_SUFFIX}.tflite"
+        if exact.exists():
+            return exact
+        matches = sorted(output_dir.rglob(f"*{_INT8_ARTIFACT_SUFFIX}.tflite"))
+        if matches:
+            return matches[0]
+        # onnx2tf only warns and exits 0 when full-integer quantization fails.
+        # Never fall back to another variant: float-I/O or float artifacts would
+        # break the int8 contract while carrying int8 metadata.
+        produced = sorted(str(f.relative_to(output_dir)) for f in output_dir.rglob("*"))
+        tail = converter_output.strip()[-2000:]
+        raise RuntimeError(
+            "onnx2tf did not produce a full-integer INT8 TFLite file. "
+            f"Files found: {produced[:20]}"
+            + (f"\nonnx2tf output (tail):\n{tail}" if tail else "")
+        )
+
     exact = output_dir / f"{onnx_path.stem}_float32.tflite"
     if exact.exists():
         return exact
@@ -693,6 +753,73 @@ def _find_converted_tflite(output_dir: Path, onnx_path: Path) -> Path:
     )
 
 
+def _onnx_input_name(onnx_path: Path) -> str:
+    """Return the name of the first ONNX graph input."""
+    import onnx
+
+    model = onnx.load(str(onnx_path), load_external_data=False)
+    if not model.graph.input:
+        raise ValueError(f"ONNX graph has no inputs: {onnx_path}")
+    return model.graph.input[0].name
+
+
+def _write_int8_calibration_npy(calibration_data: Any, output_dir: Path) -> Path:
+    """Write the calibration batches as one NHWC float32 ``.npy`` for onnx2tf.
+
+    ``CalibrationDataLoader`` yields already-preprocessed NCHW batches and pads
+    the final batch by repeating its last image so TensorRT sees a full batch.
+    onnx2tf instead reads the whole file as a representative dataset, so the
+    padding is trimmed here and every image is weighted once. The array is
+    built through a memmap because a few hundred 640x640 float32 images are
+    larger than the process should hold at once.
+    """
+    npy_path = output_dir / "_int8_calibration.npy"
+    total = int(calibration_data.num_samples)
+    array = None
+    written = 0
+
+    for batch in calibration_data:
+        if written >= total:
+            break
+        if batch.ndim != 4:
+            raise ValueError(
+                "TFLite INT8 calibration requires rank-4 NCHW batches; "
+                f"got shape {batch.shape}."
+            )
+        chunk = np.ascontiguousarray(np.transpose(batch, (0, 2, 3, 1)))
+        chunk = chunk[: total - written]
+        if array is None:
+            array = np.lib.format.open_memmap(
+                npy_path,
+                mode="w+",
+                dtype=np.float32,
+                shape=(total, *chunk.shape[1:]),
+            )
+        array[written : written + len(chunk)] = chunk
+        written += len(chunk)
+
+    if array is None or written == 0:
+        raise RuntimeError(
+            "The calibration dataset produced no usable images for TFLite "
+            "INT8 export. Check that the images in data= can be read."
+        )
+    array.flush()
+    del array
+
+    if written < total:
+        # Unreadable images are skipped by the loader, so the memmap can be
+        # longer than what was filled. Copy the used prefix into a second file
+        # rather than truncating one that may still be mapped on Windows.
+        trimmed_path = output_dir / "_int8_calibration_trimmed.npy"
+        source = np.load(npy_path, mmap_mode="r")
+        np.save(trimmed_path, np.asarray(source[:written]))
+        del source
+        npy_path = trimmed_path
+
+    logger.info("INT8 calibration tensor: %d images -> %s", written, npy_path)
+    return npy_path
+
+
 def _write_metadata_sidecar(output_path: Path, metadata: dict) -> None:
     sidecar_path = Path(str(output_path) + ".json")
     with open(sidecar_path, "w") as f:
@@ -705,11 +832,18 @@ def export_tflite(
     output_path: str,
     *,
     half: bool = False,
+    int8: bool = False,
+    calibration_data: Any = None,
     verbose: bool = False,
     onnx2tf_args: Iterable[str] | None = None,
     metadata: dict | None = None,
 ) -> str:
     """Convert a static ONNX model to TensorFlow Lite using onnx2tf.
+
+    With ``int8=True`` the converter runs post-training quantization against
+    ``calibration_data`` and the fully integer artifact is returned. The
+    calibration batches are the model's own preprocessed tensors, so onnx2tf is
+    told not to normalize them a second time (mean 0, std 1).
 
     Note: ``onnx2tf_args`` is forwarded only on the YOLO9 CLI path.  It is
     not applicable to the RF-DETR Python-API path and will be ignored there.
@@ -718,11 +852,23 @@ def export_tflite(
         raise ValueError(
             "TFLite FP16 export is not supported yet. Omit half=True for FP32."
         )
+    if int8 and calibration_data is None:
+        raise ValueError(
+            "TFLite INT8 export requires calibration data. "
+            "Pass data=<dataset.yaml> to export()."
+        )
 
     check_tflite_export_available()
 
     model_family = ((metadata or {}).get("model_family") or "").lower()
     if model_family == "rfdetr":
+        if int8:
+            raise NotImplementedError(
+                "TFLite INT8 export is not implemented for RF-DETR. That family "
+                "converts through the onnx2tf Python API with a bespoke "
+                "GridSample and position-embedding fixup that the quantization "
+                "path has not been run against."
+            )
         if onnx2tf_args is not None:
             logger.warning(
                 "onnx2tf_args is not supported on the RF-DETR TFLite path "
@@ -747,17 +893,43 @@ def export_tflite(
             "-o",
             str(tmp_output),
             "-tb",
-            "flatbuffer_direct",
+            # flatbuffer_direct is the validated FP32 lowering, but its integer
+            # path is strict: it aborts on any op it cannot represent in int8
+            # end to end, which YOLO9 hits on EQUAL. tf_converter runs the
+            # standard TFLite representative-dataset quantization instead and
+            # leaves such ops in float.
+            "tf_converter" if int8 else "flatbuffer_direct",
             "-v",
             "info" if verbose else "warn",
         ]
+        if int8:
+            calib_npy = _write_int8_calibration_npy(calibration_data, tmp_output)
+            # mean 0 / std 1: onnx2tf applies (value - mean) / std to the
+            # calibration tensor, and these batches already went through the
+            # model's own preprocessing.
+            cmd += [
+                "-oiqt",
+                "-cind",
+                _onnx_input_name(onnx_file),
+                str(calib_npy),
+                "0.0",
+                "1.0",
+            ]
         if onnx2tf_args is not None:
             cmd.extend(str(arg) for arg in onnx2tf_args)
 
+        # onnx2tf calls the ``onnxsim`` executable by name; put this
+        # interpreter's scripts directory first so the one installed with the
+        # tflite extra is found even when the environment is not activated.
+        env = dict(os.environ)
+        env["PATH"] = os.pathsep.join(
+            [str(Path(sys.executable).parent), env.get("PATH", "")]
+        )
         result = subprocess.run(
             cmd,
             capture_output=not verbose,
             text=True,
+            env=env,
         )
         if result.returncode != 0:
             stdout = result.stdout or ""
@@ -769,7 +941,13 @@ def export_tflite(
                 f"stderr: {stderr}"
             )
 
-        converted = _find_converted_tflite(tmp_output, onnx_file)
+        converted = _find_converted_tflite(
+            tmp_output,
+            onnx_file,
+            int8=int8,
+            converter_output=(result.stdout or "") + (result.stderr or ""),
+        )
+        logger.info("Selected converted artifact: %s", converted.name)
         shutil.copy2(converted, dst)
 
     if metadata is not None:
@@ -780,7 +958,10 @@ def export_tflite(
 
 
 __all__ = [
+    "SPLIT_OUTPUT_LAYOUT",
+    "TFLITE_INT8_EXPORTS",
     "check_tflite_export_available",
+    "check_tflite_int8_available",
     "ensure_tflite_family_supported",
     "export_tflite",
     "supported_tflite_exports",
