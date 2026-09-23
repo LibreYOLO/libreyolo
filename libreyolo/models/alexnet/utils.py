@@ -2,15 +2,14 @@
 
 from __future__ import annotations
 
-import math
 from typing import Tuple
 
 import numpy as np
 import torch
 from PIL import Image
 from torchvision import transforms
-from torchvision.transforms import InterpolationMode
 
+from ...data.augment.classify import build_classify_transforms
 from ...utils.image_loader import ImageInput, ImageLoader
 
 IMAGENET_MEAN = (0.485, 0.456, 0.406)
@@ -21,18 +20,13 @@ def build_eval_transform(
     input_size: int,
     crop_pct: float = 0.875,
 ) -> transforms.Compose:
-    """Resize the shorter side, center-crop, and apply ImageNet normalization."""
-    resize_size = int(math.floor(input_size / crop_pct))
-    return transforms.Compose(
-        [
-            transforms.Resize(
-                resize_size,
-                interpolation=InterpolationMode.BILINEAR,
-            ),
-            transforms.CenterCrop(input_size),
-            transforms.ToTensor(),
-            transforms.Normalize(IMAGENET_MEAN, IMAGENET_STD),
-        ]
+    """Resize the shorter side, center-crop, and apply ImageNet normalization.
+
+    The shared classification eval pipeline (``data/augment/classify.py``),
+    so ``predict()`` and ``val()`` run the same code (#886).
+    """
+    return build_classify_transforms(
+        input_size, augment=False, crop_pct=crop_pct, interpolation="bilinear"
     )
 
 
