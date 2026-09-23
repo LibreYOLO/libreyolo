@@ -56,7 +56,7 @@ def ensure_tflite_family_supported(
 
 # (family, task) pairs whose full-integer TFLite export has been checked on real
 # weights. The graph for these emits ``SPLIT_OUTPUT_LAYOUT``.
-TFLITE_INT8_EXPORTS = frozenset({("yolox", "detect")})
+TFLITE_INT8_EXPORTS = frozenset({("yolox", "detect"), ("yolo9", "detect")})
 
 # Sidecar ``output_layout`` value: output 0 is normalized cxcywh boxes shaped
 # ``(B, 4, N)`` (divided by the input width/height) and output 1 is scores
