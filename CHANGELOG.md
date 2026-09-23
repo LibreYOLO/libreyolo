@@ -17,6 +17,8 @@ before 1.4.0 are documented in the
   dropped, in PyTorch and in exported runtimes. Fine-tuning the COCO person
   checkpoint on such a dataset resizes the keypoint queries and the class
   head. Person-only training and checkpoints behave exactly as before.
+  Known limit: pose validation scores keypoint mAP only, so a class without
+  keypoints is not scored and does not affect `best.pt` selection.
 
 - **Validation sample-plot count is configurable (#830).** `plot_samples` sets
   how many validated images appear in the sample-image plot, on `val()`,

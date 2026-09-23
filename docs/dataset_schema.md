@@ -451,9 +451,12 @@ YAML adds:
 - `kpt_names`: optional. A mapping keyed by class index or class name, each
   value a list of keypoint names. A listed class uses only the first
   `len(names)` keypoint rows, and `[]` declares a class without keypoints;
-  unlisted classes use all `K` rows. Consumed by RF-DETR pose training, whose
-  GroupPose head sizes a keypoint group per class. Rows are still `K` wide:
-  pad unused keypoints with `0 0 0`.
+  unlisted classes use all `K` rows. A string key matches a class name before
+  it is read as an index. Consumed by RF-DETR pose training, whose GroupPose
+  head sizes a keypoint group per class. Rows are still `K` wide: pad unused
+  keypoints with `0 0 0`. Pose validation reports keypoint mAP, which skips
+  instances without keypoints, so a class declared with `[]` is predicted but
+  not scored, and does not influence `best.pt` selection.
 
 Label row:
 
