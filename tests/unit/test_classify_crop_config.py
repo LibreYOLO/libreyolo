@@ -284,38 +284,66 @@ def _validator(cls, tmp_path, **cfg):
 
 
 class TestFamilyValidatorsHonorCropPct:
-    """ViT/CLIP/SigLIP2 pin their own eval pipeline; they must still obey."""
+    """ViT/CLIP/SigLIP2 pin their own eval pipeline; they must still obey.
 
-    def _cls(self, name):
+    The pipeline is declared on the model and the validator takes it from
+    ``_get_eval_transform`` (#886); ``config.crop_pct`` is the only override.
+    """
+
+    def _pair(self, name):
         import importlib
+        from types import SimpleNamespace
 
+        import libreyolo
+
+        model_cls, size, validator_name = {
+            "vit": (libreyolo.LibreViT, "ti", "ViTClassifyValidator"),
+            "clip": (libreyolo.LibreCLIP, "b32", "CLIPClassifyValidator"),
+            "siglip2": (libreyolo.LibreSigLIP2, "b16", "SigLIP2ClassifyValidator"),
+        }[name]
+        model = model_cls.__new__(model_cls)  # settings are declared, no network
+        model.size = size
+        model.input_size = model_cls.INPUT_SIZES[size]
+        if name == "vit":  # set per size in __init__
+            model.crop_pct = model_cls.CROP_PCT[size]
+            model.interpolation = "bicubic"
         mod = importlib.import_module(f"libreyolo.validation.{name}_validator")
-        return getattr(mod, {
-            "vit": "ViTClassifyValidator",
-            "clip": "CLIPClassifyValidator",
-            "siglip2": "SigLIP2ClassifyValidator",
-        }[name])
+        validator_cls = getattr(mod, validator_name)
+        validator = validator_cls.__new__(validator_cls)
+        validator.model = model
+        validator.config = SimpleNamespace(imgsz=model.input_size, crop_pct=None)
+        return model, validator
+
+    def _ops(self, name, crop_pct=None):
+        model, validator = self._pair(name)
+        validator.config.crop_pct = crop_pct
+        return model, validator._dataset_transform()["transform"].transforms
 
     @pytest.mark.parametrize(
         "name,family_default", [("vit", 0.9), ("clip", 1.0), ("siglip2", 1.0)]
     )
-    def test_family_default_is_kept_when_unset(self, tmp_path, name, family_default):
-        v = _validator(self._cls(name), tmp_path)
-        assert v._dataset_transform_kwargs()["crop_pct"] == family_default
+    def test_family_default_is_kept_when_unset(self, name, family_default):
+        model, ops = self._ops(name)
+        assert model.crop_pct == family_default
+        if name != "siglip2":  # SigLIP2 squashes instead of cropping
+            assert ops[0].size == int(model.input_size / family_default)
 
     @pytest.mark.parametrize("name", ["vit", "clip", "siglip2"])
-    def test_override_is_honored(self, tmp_path, name):
-        v = _validator(self._cls(name), tmp_path, crop_pct=0.6)
-        assert v._dataset_transform_kwargs()["crop_pct"] == pytest.approx(0.6)
+    def test_override_is_honored(self, name):
+        model, ops = self._ops(name, crop_pct=0.6)
+        assert ops[0].size == int(model.input_size / 0.6)
+        assert isinstance(ops[1], transforms.CenterCrop)
 
-    def test_siglip2_square_resize_defaults_on_and_yields_to_an_override(
-        self, tmp_path
-    ):
+    def test_siglip2_square_resize_defaults_on_and_yields_to_an_override(self):
         """square_resize never center-crops, so crop_pct would be inert."""
-        cls = self._cls("siglip2")
-        assert _validator(cls, tmp_path)._dataset_transform_kwargs()["square_resize"]
-        v = _validator(cls, tmp_path, crop_pct=0.8)
-        assert v._dataset_transform_kwargs()["square_resize"] is False
+        model, ops = self._ops("siglip2")
+        assert ops[0].size == [model.input_size, model.input_size] or ops[0].size == (
+            model.input_size,
+            model.input_size,
+        )
+        assert not any(isinstance(op, transforms.CenterCrop) for op in ops)
+        _, ops = self._ops("siglip2", crop_pct=0.8)
+        assert isinstance(ops[1], transforms.CenterCrop)
 
 
 class TestEpochValidationUsesTheOverride:
