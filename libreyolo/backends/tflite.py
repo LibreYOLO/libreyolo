@@ -11,7 +11,7 @@ import numpy as np
 from ..tasks import normalize_supported_tasks, normalize_task, resolve_task
 from ..utils.general import COCO_CLASSES
 from ..utils.serialization import warn_on_metadata_schema_version
-from .base import BaseBackend, _read_metadata_imgsz, _read_pose_metadata
+from .base import BaseBackend, _read_metadata_imgsz, _read_pose_metadata, classify_eval_kwargs
 
 logger = logging.getLogger(__name__)
 
@@ -101,10 +101,7 @@ class TFLiteBackend(BaseBackend):
             task=resolved_task,
             supported_tasks=supported_tasks,
             default_task=default_task,
-            crop_pct=(
-                float(metadata["crop_pct"]) if metadata.get("crop_pct") else None
-            ),
-            interpolation=metadata.get("interpolation"),
+            **classify_eval_kwargs(metadata),
             **_read_pose_metadata(metadata),
         )
 

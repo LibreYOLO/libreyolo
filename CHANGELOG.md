@@ -109,6 +109,21 @@ before 1.4.0 are documented in the
 
 ### Fixed
 
+- **Classification `val()`, INT8 calibration and exports use the model's own
+  eval pipeline (#886).** The validator now takes the transform from the model
+  (`_get_eval_transform`), the classification counterpart of
+  `_get_val_preprocessor`. Fixes pipelines that were scored on different
+  preprocessing than `predict()` runs: PE (`val()` used a center crop and
+  ImageNet statistics instead of its square resize and 0.5 mean/std), V-JEPA 2
+  (a torchvision crop instead of its frame preprocessing), and exported ViT,
+  CLIP, SigLIP2 and PE (`val()` normalized with ImageNet statistics). Exports
+  now record `norm_mean` / `norm_std` / `resize_mode`; older exports keep their
+  family values. INT8 calibration dropped every image for AlexNet, VGG,
+  ResNet, EfficientNetV2, ConvNeXt, ConvNeXt V2, MobileNetV4, DeiT, Swin and
+  ViT (their preprocessor returned a tensor instead of `(array, ratio)`), and
+  calibrated DINOv2 classifiers with its semantic pipeline. Validation inputs of
+  the other families are unchanged.
+
 - **RF-DETR custom pose checkpoint loading (#874).** Rebuilt GroupPose
   attention masks stay on the decoder's device, preventing device mismatches
   after keypoint schema changes. Custom pose class names are preserved from

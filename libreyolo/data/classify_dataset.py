@@ -196,6 +196,7 @@ class ClassifyDataset(Dataset):
         augment: bool,
         class_to_idx: Dict[str, int] | None = None,
         transform_kwargs: Dict | None = None,
+        transform=None,
     ):
         self.root = Path(dataset_root)
         self.split = split
@@ -206,7 +207,17 @@ class ClassifyDataset(Dataset):
 
         self.augment = augment
         self._transform_kwargs: Dict = dict(transform_kwargs or {})
-        transform = build_classify_transforms(imgsz, augment, **self._transform_kwargs)
+        if transform is not None:
+            # A model's own eval transform (``_get_eval_transform``, #886).
+            if augment or transform_kwargs:
+                raise ValueError(
+                    "An explicit transform is an eval transform; it cannot be "
+                    "combined with augment=True or transform_kwargs."
+                )
+        else:
+            transform = build_classify_transforms(
+                imgsz, augment, **self._transform_kwargs
+            )
         self._impl = ImageFolder(str(split_dir), transform=transform)
 
         # Pin the label mapping to the train split when supplied so val labels
