@@ -3107,9 +3107,9 @@ class BaseBackend(ABC):
             )
             selected = grouped[np.arange(len(class_ids)), class_ids]
 
-            # GroupPose exports use internal class 0 for no-keypoint detections
-            # and keypoint-bearing classes after it. Public pose labels are
-            # contiguous over only the keypoint-bearing classes (person -> 0).
+            # GroupPose exports reserve internal class 0 as an empty slot, and
+            # public pose class j is internal class j + 1 (person -> 0). A
+            # class with zero keypoints keeps its slot as a box-only class.
             if keypoint_counts is None:
                 keypoint_counts = np.full(
                     num_classes, max_num_keypoints, dtype=np.int64
@@ -3117,9 +3117,12 @@ class BaseBackend(ABC):
                 if self.nb_classes == num_classes - 1:
                     keypoint_counts[0] = 0
             active_counts = keypoint_counts[class_ids]
-            valid_pose_class = active_counts > 0
+            label_offset = (
+                1 if keypoint_counts.size > 1 and keypoint_counts[0] == 0 else 0
+            )
+            valid_pose_class = class_ids >= label_offset
 
-            if np.any(valid_pose_class):
+            if np.any(active_counts > 0):
                 trace_alpha = 0.2
                 log_mean_traces = np.zeros(len(selected), dtype=np.float32)
                 for class_idx, active_count in enumerate(keypoint_counts):
@@ -3133,12 +3136,17 @@ class BaseBackend(ABC):
                     )
                 max_scores = max_scores * np.exp(-trace_alpha * log_mean_traces)
 
+            # Report the declared ``num_keypoints`` rows when every class uses
+            # fewer slots than the dataset skeleton.
+            output_keypoints = max(
+                max_num_keypoints, int(getattr(self, "num_keypoints", 0) or 0)
+            )
             keypoints_selected = np.zeros(
-                (len(selected), max_num_keypoints, 3),
+                (len(selected), output_keypoints, 3),
                 dtype=np.float32,
             )
             active_keypoint_mask = np.zeros(
-                (len(selected), max_num_keypoints),
+                (len(selected), output_keypoints),
                 dtype=bool,
             )
             for row_idx, active_count in enumerate(active_counts):
@@ -3151,13 +3159,9 @@ class BaseBackend(ABC):
                 ]
                 active_keypoint_mask[row_idx, :active_count] = True
 
-            kp_classes = np.flatnonzero(keypoint_counts > 0)
-            remap = np.full(num_classes, -1, dtype=class_ids.dtype)
-            remap[kp_classes] = np.arange(len(kp_classes), dtype=class_ids.dtype)
-
             boxes_raw = boxes_raw[valid_pose_class]
             max_scores = max_scores[valid_pose_class]
-            class_ids = remap[class_ids[valid_pose_class]]
+            class_ids = class_ids[valid_pose_class] - label_offset
             if angles_raw is not None:
                 angles_raw = angles_raw[valid_pose_class]
             if keypoints_raw is not None:

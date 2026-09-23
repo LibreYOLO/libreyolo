@@ -620,16 +620,18 @@ def _build_target(
     kpts: np.ndarray,
     num_keypoints: int,
     max_labels: int,
+    box_only_classes: Optional[np.ndarray] = None,
 ) -> np.ndarray:
     target = np.zeros((max_labels, 5 + 3 * num_keypoints), dtype=np.float32)
     if len(boxes_cxcywh) == 0:
         return target
 
-    keep = (
-        (boxes_cxcywh[:, 2] > 1.0)
-        & (boxes_cxcywh[:, 3] > 1.0)
-        & ((kpts[..., 2] > 0).sum(axis=1) >= 1)
-    )
+    # Instances without a visible keypoint are dropped, except for classes that
+    # have no keypoints at all: those are always box-only.
+    has_keypoints = (kpts[..., 2] > 0).sum(axis=1) >= 1
+    if box_only_classes is not None and len(box_only_classes):
+        has_keypoints = has_keypoints | np.isin(cls.astype(np.int64), box_only_classes)
+    keep = (boxes_cxcywh[:, 2] > 1.0) & (boxes_cxcywh[:, 3] > 1.0) & has_keypoints
     boxes_cxcywh = boxes_cxcywh[keep]
     cls = cls[keep]
     kpts = kpts[keep]
@@ -663,9 +665,11 @@ class RFDETRPoseTransform:
         crop_intermediate_sizes: tuple[int, ...] = (400, 500, 600),
         crop_min_size: int = 384,
         crop_max_size: int = 600,
+        box_only_classes: Sequence[int] = (),
     ):
         self.num_keypoints = int(num_keypoints)
         self.max_labels = int(max_labels)
+        self.box_only_classes = np.asarray(list(box_only_classes), dtype=np.int64)
         self.flip_prob = float(flip_prob)
         self.imgsz = int(imgsz)
         self.crop_resize_prob = float(crop_resize_prob)
@@ -756,7 +760,14 @@ class RFDETRPoseTransform:
             kpts[..., 2] = np.where(outside, 0.0, kpts[..., 2])
 
         boxes_cxcywh = _xyxy_to_cxcywh(boxes_xyxy)
-        target = _build_target(cls, boxes_cxcywh, kpts, self.num_keypoints, self.max_labels)
+        target = _build_target(
+            cls,
+            boxes_cxcywh,
+            kpts,
+            self.num_keypoints,
+            self.max_labels,
+            self.box_only_classes,
+        )
 
         img_out = img_rgb.transpose(2, 0, 1).astype(np.float32) / 255.0
         img_out = (img_out - _IMAGENET_MEAN) / _IMAGENET_STD

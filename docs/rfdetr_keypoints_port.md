@@ -59,14 +59,18 @@ The ported model produces the same outputs as the official `RFDETRKeypointPrevie
 raw `pred_logits`/`pred_boxes`/`pred_keypoints` match to float32 tolerance, and the end-to-end
 `predict()` keypoints match to sub-pixel. Golden parity fixtures are committed as tests.
 
-## Class-index note (person-only convention)
+## Class-index note
 
-The GroupPose schema `[0, 17]` puts the person (keypoint-bearing) class at internal index 1, and the
-upstream model emits detection class id 1 for persons. LibreYOLO's person-only pose convention is the
-contiguous index 0 (`nc=1`, `names={0: "person"}`; YOLO-pose datasets and the pose validator use class
-0). The integration maps the GroupPose internal class to the LibreYOLO contiguous pose label at the
-predict/validation/training boundaries, so persons surface as class 0 ("person") while the keypoint
-slot is still selected by the internal class. Keypoint coordinates and confidences are unchanged.
+The GroupPose schema reserves a leading empty slot: `[0, 17]` for person-only, `[0, count_0,
+count_1, ...]` for a multi-class dataset. LibreYOLO contiguous pose class `j` (`names`, YOLO-pose
+labels, the pose validator) is internal schema index `j + 1`, so persons surface as class 0 and the
+upstream model's internal class id 1 is never exposed. The integration maps between the two at the
+predict/validation/training boundaries; keypoint coordinates and confidences are unchanged. A class
+whose count is 0 keeps its slot and is predicted as a box with zeroed keypoints.
+
+Training reads the counts from the dataset yaml: every class gets the `kpt_shape` skeleton unless
+`kpt_names` lists that class with fewer names (see `docs/dataset_schema.md`). Fine-tuning the COCO
+person checkpoint on another schema resizes the keypoint queries and the class head.
 
 ## Weights + distribution
 
