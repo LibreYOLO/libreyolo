@@ -702,29 +702,37 @@ def _onnx2tf_command() -> list[str]:
     return [sys.executable, "-m", "onnx2tf"]
 
 
-# onnx2tf emits every quantized variant it can build under -oiqt. Prefer the
-# fully integer artifact: it is the only one EdgeTPU and int8-only MCU runtimes
-# accept, and TFLiteBackend already quantizes the input and dequantizes the
-# outputs from the tensor scales, so float32 callers see no difference.
-_INT8_ARTIFACT_SUFFIXES = ("_full_integer_quant", "_integer_quant")
+# onnx2tf emits every quantized variant it can build under -oiqt. Only the
+# full-integer file keeps the INT8 contract (int8 input and outputs), which is
+# what EdgeTPU and int8-only runtimes need; TFLiteBackend quantizes the input
+# and dequantizes the outputs from the tensor scales, so float callers see no
+# difference.
+_INT8_ARTIFACT_SUFFIX = "_full_integer_quant"
 
 
 def _find_converted_tflite(
-    output_dir: Path, onnx_path: Path, *, int8: bool = False
+    output_dir: Path,
+    onnx_path: Path,
+    *,
+    int8: bool = False,
+    converter_output: str = "",
 ) -> Path:
     if int8:
-        for suffix in _INT8_ARTIFACT_SUFFIXES:
-            exact = output_dir / f"{onnx_path.stem}{suffix}.tflite"
-            if exact.exists():
-                return exact
-            matches = sorted(output_dir.rglob(f"*{suffix}.tflite"))
-            if matches:
-                return matches[0]
-        # Never fall back to a float artifact here: returning one would hand
-        # back an FP32 model under int8 filename and precision metadata.
+        exact = output_dir / f"{onnx_path.stem}{_INT8_ARTIFACT_SUFFIX}.tflite"
+        if exact.exists():
+            return exact
+        matches = sorted(output_dir.rglob(f"*{_INT8_ARTIFACT_SUFFIX}.tflite"))
+        if matches:
+            return matches[0]
+        # onnx2tf only warns and exits 0 when full-integer quantization fails.
+        # Never fall back to another variant: float-I/O or float artifacts would
+        # break the int8 contract while carrying int8 metadata.
         produced = sorted(str(f.relative_to(output_dir)) for f in output_dir.rglob("*"))
+        tail = converter_output.strip()[-2000:]
         raise RuntimeError(
-            f"onnx2tf did not produce an INT8 TFLite file. Files found: {produced[:20]}"
+            "onnx2tf did not produce a full-integer INT8 TFLite file. "
+            f"Files found: {produced[:20]}"
+            + (f"\nonnx2tf output (tail):\n{tail}" if tail else "")
         )
 
     exact = output_dir / f"{onnx_path.stem}_float32.tflite"
@@ -933,7 +941,12 @@ def export_tflite(
                 f"stderr: {stderr}"
             )
 
-        converted = _find_converted_tflite(tmp_output, onnx_file, int8=int8)
+        converted = _find_converted_tflite(
+            tmp_output,
+            onnx_file,
+            int8=int8,
+            converter_output=(result.stdout or "") + (result.stderr or ""),
+        )
         logger.info("Selected converted artifact: %s", converted.name)
         shutil.copy2(converted, dst)
 
