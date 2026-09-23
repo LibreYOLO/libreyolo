@@ -72,6 +72,8 @@ class LibreDFINE(BaseModel):
         # reject its DeFE-bearing checkpoints explicitly. Registry order
         # already puts LibreDOMEDETR first; this makes the rejection hold even
         # when ``can_load`` is consulted on its own.
+        if "backbone.backbone._model.blocks.0.attn.gk_proj.0.weight" in weights_dict:
+            return False
         if any(k.startswith("encoder.DeFE.") for k in weights_dict):
             return False
         return any("decoder.pre_bbox_head." in k for k in weights_dict)
