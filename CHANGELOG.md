@@ -9,6 +9,15 @@ before 1.4.0 are documented in the
 
 ### Added
 
+- **RF-DETR pose trains on multi-class datasets (#872).** The `nc=1` check is
+  gone: every class gets its own GroupPose keypoint group, and the dataset
+  yaml's optional `kpt_names`, keyed by class index or name, gives a class
+  fewer keypoints than `kpt_shape`, or none with `[]`. A class without
+  keypoints is predicted as a box with zeroed keypoints instead of being
+  dropped, in PyTorch and in exported runtimes. Fine-tuning the COCO person
+  checkpoint on such a dataset resizes the keypoint queries and the class
+  head. Person-only training and checkpoints behave exactly as before.
+
 - **Validation sample-plot count is configurable (#830).** `plot_samples` sets
   how many validated images appear in the sample-image plot, on `val()`,
   `train()` and both CLI commands. `0` disables that plot, `-1` keeps every
