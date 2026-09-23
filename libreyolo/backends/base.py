@@ -4211,7 +4211,7 @@ class BaseBackend(ABC):
             )
             return preprocessor_cls(img_size=_imgsz_hw(img_size))
 
-        if self.model_family == "tinyformer":
+        if self.model_family in ("tinyformer", "gtr"):
             return DEIMv2DINOValPreprocessor(img_size=_imgsz_hw(img_size))
 
         preprocessor_cls = {
@@ -4222,7 +4222,6 @@ class BaseBackend(ABC):
             "dinodetr": DeformableDETRValPreprocessor,
             "dfine": DFINEValPreprocessor,
             "ec": ECValPreprocessor,
-            "gtr": ECValPreprocessor,
             "efficientdet": EfficientDetValPreprocessor,
             "lwdetr": LWDETRValPreprocessor,
             "picodet": PICODETValPreprocessor,

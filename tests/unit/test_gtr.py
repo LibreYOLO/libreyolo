@@ -360,3 +360,48 @@ def test_scheduler_respects_overrides_that_fit_the_run():
     assert schedule.update_lr(5000) == pytest.approx(0.001)
     assert schedule.update_lr(10000) == pytest.approx(0.001)
     assert schedule.update_lr(22000) == pytest.approx(0.0005)
+
+
+def test_validation_matches_prediction_pixels_and_boxes(tmp_path):
+    import numpy as np
+    from PIL import Image
+
+    from libreyolo.backends.base import BaseBackend
+    from libreyolo.data.dataset import YOLODataset
+
+    class Backend(BaseBackend):
+        def _run_inference(self, blob):
+            raise AssertionError("This test only exercises preprocessing")
+
+    image = np.random.default_rng(12).integers(0, 256, (91, 317, 3), dtype=np.uint8)
+    source = tmp_path / "wide.png"
+    labels = tmp_path / "wide.txt"
+    Image.fromarray(image).save(source)
+    labels.write_text("0 0.5 0.5 0.5 0.5\n")
+    model = LibreGTR(None, size="s", nb_classes=1, device="cpu")
+    expected = model._preprocess(Image.fromarray(image), input_size=160)[0][0].numpy()
+    backend = Backend(
+        model_path="model.onnx",
+        device="cpu",
+        names={0: "object"},
+        nb_classes=1,
+        imgsz=160,
+        model_family="gtr",
+        model_size="s",
+        task="detect",
+    )
+    for owner in (model, backend):
+        preprocessor = owner._get_val_preprocessor(img_size=160)
+        assert preprocessor.wants_unresized_image
+        dataset = YOLODataset(
+            img_files=[source],
+            label_files=[labels],
+            img_size=(160, 160),
+            preproc=preprocessor,
+            num_classes=1,
+        )
+        original, _target, _, _ = dataset.pull_item(0)
+        assert original.shape[:2] == (91, 317)
+        actual, boxes, _, _ = dataset[0]
+        np.testing.assert_array_equal(actual, expected)
+        np.testing.assert_allclose(boxes[0], [40, 40, 120, 120, 0], atol=1e-5)
