@@ -202,19 +202,28 @@ class ClassifyValidator(ValidationLossMixin, BaseValidator):
     def _update_metrics(
         self, preds: Any, targets: Any, img_info: Any, img_ids: Any = None
     ) -> None:
-        # Accumulate before the .cpu() below so the adapter sees the logits on
-        # the device the criterion expects.
-        self._accumulate_validation_loss(preds, targets, image_size=None)
-
         logits = preds
         if isinstance(logits, dict):
             logits = logits.get("logits", logits.get("predictions"))
         logits = logits.detach().float().cpu()
-        targets = targets.detach().cpu().view(-1)
+        target_idx = targets.detach().cpu().view(-1)
 
         # NOTE: "top5" is really top-min(5, num_classes). For nc < 5 it
         # degrades to top-nc, so accuracy_top5 == 1.0 trivially when nc <= 5.
         num_classes = logits.shape[1]
+        invalid = (target_idx < 0) | (target_idx >= num_classes)
+        if bool(invalid.any()):
+            invalid_labels = target_idx[invalid].unique().tolist()
+            raise ValueError(
+                "Classification dataset/model class mismatch: "
+                f"target labels {invalid_labels[:8]} are outside [0, {num_classes - 1}] "
+                f"for a {num_classes}-class model. "
+                "Check the dataset label mapping and checkpoint."
+            )
+        # Reject invalid labels before invoking a loss kernel. Keep the original
+        # tensors here so the adapter receives them on the expected device.
+        self._accumulate_validation_loss(preds, targets, image_size=None)
+        targets = target_idx
         k = min(5, num_classes)
         topk = logits.topk(k, dim=1).indices  # [B, k]
         correct = topk == targets.unsqueeze(1)
@@ -223,17 +232,15 @@ class ClassifyValidator(ValidationLossMixin, BaseValidator):
         self._top5_correct += int(correct.any(dim=1).sum().item())
         self._total += int(targets.numel())
 
-        # Sized lazily from the logits width. Targets outside the head's class
-        # range (dataset/head mismatch) are skipped here; they already count
-        # as wrong for top-1 above.
+        # Sized lazily from the logits width. Every validated target and its
+        # prediction contribute, including false positives for absent classes.
         pred = topk[:, 0]
         if self._class_tp is None:
             self._class_tp = torch.zeros(num_classes, dtype=torch.long)
             self._class_pred = torch.zeros(num_classes, dtype=torch.long)
             self._class_target = torch.zeros(num_classes, dtype=torch.long)
-        valid = (targets >= 0) & (targets < num_classes)
-        target_idx = targets[valid].long()
-        pred_idx = pred[valid].long()
+        target_idx = targets.long()
+        pred_idx = pred.long()
         ones = torch.ones_like(target_idx)
         self._class_target.index_add_(0, target_idx, ones)
         self._class_pred.index_add_(0, pred_idx, ones)

@@ -111,3 +111,7 @@ predicted labels, for example when validating a 1000-class head on a
 subset split. `fitness` and best-checkpoint selection remain top-1 accuracy.
 `libreyolo val --json` reports the same values as `precision`, `recall` and
 `f1`.
+
+Targets outside the model's class-index range raise a dataset/model mismatch
+error instead of being silently excluded from the metrics. Validation on a
+subset of a wider classifier remains supported when all target indices are valid.
