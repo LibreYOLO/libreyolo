@@ -8,15 +8,14 @@ all of tiny/small/base.
 
 from __future__ import annotations
 
-import math
 from typing import Tuple
 
 import numpy as np
 import torch
 from PIL import Image
 from torchvision import transforms
-from torchvision.transforms import InterpolationMode
 
+from ...data.augment.classify import build_classify_transforms
 from ...utils.image_loader import ImageInput, ImageLoader
 
 IMAGENET_MEAN = (0.485, 0.456, 0.406)
@@ -24,15 +23,13 @@ IMAGENET_STD = (0.229, 0.224, 0.225)
 
 
 def build_eval_transform(input_size: int, crop_pct: float) -> transforms.Compose:
-    """timm-style eval transform: bicubic shorter-side resize -> center crop -> normalize."""
-    scale_size = int(math.floor(input_size / crop_pct))
-    return transforms.Compose(
-        [
-            transforms.Resize(scale_size, interpolation=InterpolationMode.BICUBIC),
-            transforms.CenterCrop(input_size),
-            transforms.ToTensor(),
-            transforms.Normalize(IMAGENET_MEAN, IMAGENET_STD),
-        ]
+    """timm-style eval transform: bicubic shorter-side resize -> center crop -> normalize.
+
+    The shared classification eval pipeline (``data/augment/classify.py``),
+    so ``predict()`` and ``val()`` run the same code (#886).
+    """
+    return build_classify_transforms(
+        input_size, augment=False, crop_pct=crop_pct, interpolation="bicubic"
     )
 
 

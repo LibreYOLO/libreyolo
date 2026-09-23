@@ -121,8 +121,12 @@ before 1.4.0 are documented in the
   family values. INT8 calibration dropped every image for AlexNet, VGG,
   ResNet, EfficientNetV2, ConvNeXt, ConvNeXt V2, MobileNetV4, DeiT, Swin and
   ViT (their preprocessor returned a tensor instead of `(array, ratio)`), and
-  calibrated DINOv2 classifiers with its semantic pipeline. Validation inputs of
-  the other families are unchanged.
+  calibrated DINOv2 classifiers with its semantic pipeline. The AlexNet, VGG,
+  ResNet, EfficientNetV2, ConvNeXt, MobileNetV4 and DeiT eval transforms now
+  call the shared builder in `data/augment/classify.py`, like every other
+  classifier, so inference and validation run the same code; their outputs are
+  bit-identical to before, and so are the validation inputs of the other
+  families.
 
 - **RF-DETR custom pose checkpoint loading (#874).** Rebuilt GroupPose
   attention masks stay on the decoder's device, preventing device mismatches

@@ -8,8 +8,8 @@ import numpy as np
 import torch
 from PIL import Image
 from torchvision import transforms
-from torchvision.transforms import InterpolationMode
 
+from ...data.augment.classify import build_classify_transforms
 from ...utils.image_loader import ImageInput, ImageLoader
 
 IMAGENET_MEAN = (0.485, 0.456, 0.406)
@@ -18,18 +18,17 @@ RESIZE_SIZE = 256
 
 
 def build_eval_transform(input_size: int = 224) -> transforms.Compose:
-    """Resize the short side to 256, center-crop, and ImageNet-normalize."""
-    return transforms.Compose(
-        [
-            transforms.Resize(
-                RESIZE_SIZE,
-                interpolation=InterpolationMode.BILINEAR,
-                antialias=True,
-            ),
-            transforms.CenterCrop(input_size),
-            transforms.ToTensor(),
-            transforms.Normalize(IMAGENET_MEAN, IMAGENET_STD),
-        ]
+    """Resize the short side to 256, center-crop, and ImageNet-normalize.
+
+    The shared classification eval pipeline (``data/augment/classify.py``),
+    so ``predict()`` and ``val()`` run the same code (#886). At the native 224
+    input, ``floor(224 / 0.875)`` is the torchvision contract's 256 resize.
+    """
+    return build_classify_transforms(
+        input_size,
+        augment=False,
+        crop_pct=224 / RESIZE_SIZE,  # 0.875: the family's native crop
+        interpolation="bilinear",
     )
 
 
