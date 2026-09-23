@@ -22,6 +22,7 @@ from ...data import (
     load_data_config,
     pose_collate_fn,
 )
+from ...data.pose_metadata import keypoints_per_class
 from ...training.classification import classification_loss
 from ...training.config import TrainConfig
 from ...training.distributed import is_main_process, unwrap_model
@@ -88,6 +89,7 @@ class RFDETRTrainer(BaseTrainer):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._class_names = None
+        self._keypoints_per_class: list[int] | None = None
         task = getattr(getattr(self, "wrapper_model", None), "task", "detect")
         if task == "pose":
             self.best_metric_key = "metrics/keypoints_mAP50-95"
@@ -117,11 +119,24 @@ class RFDETRTrainer(BaseTrainer):
             elif isinstance(names, (list, tuple)):
                 self._class_names = {i: str(v) for i, v in enumerate(names)}
             if task == "pose":
-                self.config.num_classes = 1
                 kpt_shape = data_cfg.get("kpt_shape")
                 if kpt_shape is not None:
                     self.config.num_keypoints = int(kpt_shape[0])
                     self.config.keypoint_dim = int(kpt_shape[1]) if len(kpt_shape) > 1 else 3
+                    self._keypoints_per_class = (
+                        [self.config.num_keypoints]
+                        if self.config.single_cls
+                        else keypoints_per_class(
+                            data_cfg,
+                            self.config.num_classes,
+                            self.config.num_keypoints,
+                        )
+                    )
+                    if not any(self._keypoints_per_class):
+                        raise ValueError(
+                            "RF-DETR pose training needs at least one class with "
+                            "keypoints; kpt_names declares none"
+                        )
 
     @property
     def effective_lr(self) -> float:
@@ -448,6 +463,9 @@ class RFDETRTrainer(BaseTrainer):
         return default_oks_sigmas(self.config.num_keypoints)
 
     def _build_pose_dataset(self, img_files, label_files, preproc) -> YOLOPoseDataset:
+        # Single-class pose keeps loading any class column, as before; multi-class
+        # pose rejects label lines whose class id is outside the dataset classes.
+        nc = self.config.num_classes
         return YOLOPoseDataset(
             img_files=img_files,
             num_keypoints=self.config.num_keypoints,
@@ -456,6 +474,7 @@ class RFDETRTrainer(BaseTrainer):
             preproc=preproc,
             keypoint_dim=self.config.keypoint_dim,
             decode_scale=self.config.decode_scale,
+            num_classes=nc if nc and nc > 1 else None,
         )
 
     def _setup_data(self):
@@ -472,8 +491,7 @@ class RFDETRTrainer(BaseTrainer):
         if kpt_shape is not None:
             self.config.num_keypoints = int(kpt_shape[0])
             self.config.keypoint_dim = int(kpt_shape[1]) if len(kpt_shape) > 1 else 3
-        self.config.num_classes = 1
-        self.num_classes = 1
+        self.num_classes = self.config.num_classes
         flip_idx = cfg.get("flip_idx")
 
         train_imgs = cfg.get("train_img_files")
@@ -614,6 +632,15 @@ class RFDETRTrainer(BaseTrainer):
         # schema and only reinit when the live head width actually differs.
         is_grouppose = bool(getattr(self.model.model, "use_grouppose_keypoints", False))
         if task == "pose" and is_grouppose:
+            # The dataset's schema is ``[0, count_0, count_1, ...]``: a leading
+            # empty slot, then one entry per contiguous class (see
+            # ``keypoint_schema_label_offset``).
+            if self._keypoints_per_class is not None:
+                target_schema = [0, *self._keypoints_per_class]
+                if list(self.model.model.get_num_keypoints_per_class()) != target_schema:
+                    self.model.model.reinitialize_keypoint_head(target_schema)
+                    self.model.num_keypoints_per_class = target_schema
+                self.model.num_keypoints = self.config.num_keypoints
             schema = list(self.model.model.get_num_keypoints_per_class())
             schema_width = len(schema)
             current_width = int(self.model.model.class_embed.out_features)
@@ -650,7 +677,10 @@ class RFDETRTrainer(BaseTrainer):
             )
         if task == "pose":
             if getattr(self.model, "num_keypoints", None) != self.config.num_keypoints:
-                self.model.model.reinitialize_keypoint_head(self.config.num_keypoints)
+                # GroupPose already took the per-class schema above; a scalar
+                # count would overwrite classes with fewer keypoints.
+                if not is_grouppose:
+                    self.model.model.reinitialize_keypoint_head(self.config.num_keypoints)
                 self.model.num_keypoints = self.config.num_keypoints
             self.model.args.num_keypoints = self.config.num_keypoints
             # reinitialize_keypoint_head updates the model's GroupPose schema, but

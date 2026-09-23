@@ -12,6 +12,7 @@ from PIL import Image
 from ...training.callbacks import TrainCallbacks
 from ..base import BaseModel
 from ...data import load_data_config
+from ...data.pose_metadata import keypoints_per_class
 from ...tasks import normalize_task
 from ...utils.image_loader import ImageInput, ImageLoader
 from ...utils.serialization import load_trusted_torch_file
@@ -1277,29 +1278,47 @@ class LibreRFDETR(BaseModel):
                 raise ValueError(
                     f"RF-DETR pose training supports keypoint_dim 2 or 3, got {keypoint_dim}"
                 )
-            data_nc = int(data_cfg.get("nc", 1))
-            if data_nc != 1:
+            names = data_cfg.get("names")
+            data_nc = int(
+                data_cfg.get("nc", len(names) if names is not None else 1)
+            )
+            if train_kwargs.get("single_cls") and data_nc > 1:
+                # The pose dataset keeps each label's class id, so it cannot
+                # collapse a multi-class pose dataset to one class.
                 raise ValueError(
-                    f"RF-DETR pose training expects a person-only dataset with nc=1, got nc={data_nc}"
+                    "RF-DETR pose training does not support single_cls=True on a "
+                    f"multi-class dataset (nc={data_nc})"
                 )
-            if self.model.num_keypoints != num_keypoints:
+            counts = keypoints_per_class(data_cfg, data_nc, num_keypoints)
+            if not any(counts):
+                raise ValueError(
+                    "RF-DETR pose training needs at least one class with "
+                    "keypoints; kpt_names declares none"
+                )
+            if getattr(self.model.model, "use_grouppose_keypoints", False):
+                # GroupPose schema: a leading empty slot, then one keypoint
+                # count per contiguous class (``[0, 17]`` for person-only).
+                target_schema = [0, *counts]
+                if list(self.model.model.get_num_keypoints_per_class()) != target_schema:
+                    self.model.model.reinitialize_keypoint_head(target_schema)
+                self.model.num_keypoints_per_class = target_schema
+                self.model.args.num_keypoints_per_class = target_schema
+                self.model.num_keypoints = num_keypoints
+                self.model.args.num_keypoints = num_keypoints
+            elif self.model.num_keypoints != num_keypoints:
                 self.model.model.reinitialize_keypoint_head(num_keypoints)
                 self.model.num_keypoints = num_keypoints
                 self.model.args.num_keypoints = num_keypoints
-                # --- GroupPose keypoint additions (adapted from RF-DETR v1.8.0). ---
-                # reinitialize_keypoint_head resizes the inner model's GroupPose
-                # schema (e.g. [0, 17] -> [0, K]); propagate the resized schema to
-                # the wrapper and args so the grouppose postprocess (which reads
-                # the schema) and the criterion build (from args) match the new
-                # 2*K keypoint slots instead of the stale [0, 17].
-                if getattr(self.model.model, "use_grouppose_keypoints", False):
-                    resized_schema = list(self.model.model.get_num_keypoints_per_class())
-                    self.model.num_keypoints_per_class = resized_schema
-                    self.model.args.num_keypoints_per_class = resized_schema
             self.num_keypoints = num_keypoints
             self.keypoint_dim = keypoint_dim
-            self.nb_classes = 1
-            self.names = {0: "person"}
+            self.nb_classes = data_nc
+            if isinstance(names, (list, tuple)):
+                names = dict(enumerate(names))
+            self.names = (
+                self._sanitize_names(names, data_nc)
+                if names
+                else {0: "person"} if data_nc == 1 else self._sanitize_names({}, data_nc)
+            )
             oks_sigmas = train_kwargs.get(
                 "oks_sigmas",
                 data_cfg.get("oks_sigmas", data_cfg.get("sigmas")),
@@ -1307,7 +1326,7 @@ class LibreRFDETR(BaseModel):
             pose_train_metadata = {
                 "num_keypoints": num_keypoints,
                 "keypoint_dim": keypoint_dim,
-                "num_classes": 1,
+                "num_classes": data_nc,
             }
             if oks_sigmas is not None:
                 pose_train_metadata["oks_sigmas"] = oks_sigmas
