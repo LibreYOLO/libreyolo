@@ -83,6 +83,12 @@ def val_cmd(
         help="Sample images in the validation sample plot: 0 for none, "
         "-1 for every validated image (does not change the metrics)",
     ),
+    plot_errors: int = typer.Option(
+        0,
+        help="Incorrect images drawn for error analysis in plots/errors/ "
+        "(detect, segment, classify; needs --save-plots): 0 for none, "
+        "-1 for every incorrect image (does not change the metrics)",
+    ),
     workers: int = typer.Option(4, help="Dataloader workers"),
     device: str = typer.Option("auto", help="Device"),
     project: str = typer.Option("runs/val", help="Output directory root"),
@@ -176,6 +182,8 @@ def val_cmd(
             faster_coco_eval=faster_coco_eval,
             plot_samples=plot_samples,
             crop_pct=crop_pct,
+            # Only when set: some families' val() reject unknown kwargs.
+            **({"plot_errors": plot_errors} if plot_errors else {}),
         )
     except FileNotFoundError as e:
         exit_with_error(out, "data_not_found", str(e))

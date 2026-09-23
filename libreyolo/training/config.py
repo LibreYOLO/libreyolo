@@ -12,7 +12,7 @@ import yaml
 from libreyolo.data.utils import normalize_classes_field
 from libreyolo.utils.amp import normalize_amp_dtype
 from libreyolo.utils.image_size import normalize_imgsz
-from libreyolo.utils.plot_samples import validate_plot_samples
+from libreyolo.utils.plot_samples import validate_plot_errors, validate_plot_samples
 
 logger = logging.getLogger(__name__)
 
@@ -243,6 +243,9 @@ class TrainConfig:
     # Sample images kept for the validation sample-image plot; 0 none,
     # -1 all. Plot budget only, never changes what is scored (#830).
     plot_samples: int = 8
+    # Incorrect images drawn for error analysis in the final validation
+    # plots; 0 off (default), -1 all. Needs save_plots (#887).
+    plot_errors: int = 0
     # Compute the family's training objective on validation batches and emit
     # metrics/loss plus its per-component values. Off by default because target
     # assignment adds validation time and memory use. Families that do not
@@ -342,6 +345,7 @@ class TrainConfig:
         self.export_check = bool(self.export_check)
         self.classes = normalize_classes_field(self.classes)
         self.plot_samples = validate_plot_samples(self.plot_samples)
+        self.plot_errors = validate_plot_errors(self.plot_errors, self.save_plots)
 
     @classmethod
     def from_kwargs(cls, **kwargs):

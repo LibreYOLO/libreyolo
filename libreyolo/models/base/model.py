@@ -2242,6 +2242,14 @@ class BaseModel(ABC):
             save_json: Save predictions in COCO JSON format.
             plots: Alias for save_plots.
             verbose: Print detailed metrics.
+            plot_samples: (kwarg) Validated images drawn in the sample-image
+                plot; 0 for none, -1 for all. Default 8.
+            plot_errors: (kwarg) Incorrect images drawn to
+                ``plots/errors/`` for error analysis (detect, segment and
+                classify): wrong top-1 for classification; missed,
+                wrong-class and false-positive boxes at confidence 0.25 and
+                IoU 0.5 for detection. 0 (default) disables it, -1 keeps
+                every incorrect image. Needs ``plots=True``.
             faster_coco_eval: (kwarg) Use the faster-coco-eval C++ backend
                 for COCO metrics. Default True; falls back to pycocotools
                 if the package is unavailable. Pass False (or set
@@ -2280,11 +2288,17 @@ class BaseModel(ABC):
             SemanticValidator,
             ValidationConfig,
         )
+        from libreyolo.utils.plot_samples import PLOT_ERRORS_TASKS
 
         if imgsz is None:
             imgsz = self._get_input_size()
         if plots is not None and "save_plots" not in kwargs:
             kwargs["save_plots"] = plots
+        if kwargs.get("plot_errors") and self.task not in PLOT_ERRORS_TASKS:
+            raise ValueError(
+                f"plot_errors is not supported for task '{self.task}'; "
+                f"error-analysis plots cover {', '.join(PLOT_ERRORS_TASKS)}"
+            )
         if augment and self.task == "obb":
             raise ValueError(
                 "Augmented validation does not support oriented boxes yet. "

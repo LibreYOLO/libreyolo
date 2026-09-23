@@ -9,9 +9,13 @@ import yaml
 from libreyolo.data.utils import normalize_classes_field
 from libreyolo.utils.amp import normalize_amp_dtype
 from libreyolo.utils.plot_samples import (  # noqa: F401  (re-exported)
+    DEFAULT_PLOT_ERRORS,
     DEFAULT_PLOT_SAMPLES,
+    PLOT_ERRORS_TASKS,
     PLOT_SAMPLES_ALL,
+    validate_plot_errors,
     validate_plot_samples,
+    wants_more_plot_errors,
     wants_more_plot_samples,
 )
 
@@ -44,6 +48,13 @@ class ValidationConfig:
             Tasks without COCO detections ignore the flag (OBB logs a warning).
         save_plots: Whether to save validation plots (metrics bar, per-class AP,
             confusion matrix, sample images). Default False.
+        plot_samples: Validated images drawn in the sample-image plot; 0 for
+            none, -1 for all. Default 8.
+        plot_errors: Incorrect images drawn for error analysis under
+            ``plots/errors/`` (detect, segment and classify only): wrong
+            top-1 for classification; a missed, wrong-class or
+            false-positive box for detection. 0 (default) disables it, -1
+            keeps every incorrect image. Needs ``save_plots``.
         verbose: Whether to print detailed metrics.
         num_workers: Number of dataloader workers.
         half: Whether to use FP16 inference.
@@ -105,6 +116,11 @@ class ValidationConfig:
     # 0 disables that plot, -1 keeps every image. This is a plotting
     # budget only: it never changes which images are scored (#830).
     plot_samples: int = field(default=DEFAULT_PLOT_SAMPLES, kw_only=True)
+    # How many incorrect images are drawn for error analysis (#887): wrong
+    # top-1 for classification; a missed, wrong-class or false-positive box
+    # for detection/segmentation. 0 (default) disables it, -1 keeps every
+    # incorrect image. Needs save_plots; never changes what is scored.
+    plot_errors: int = field(default=DEFAULT_PLOT_ERRORS, kw_only=True)
 
     # Workers
     num_workers: int = 4
@@ -159,6 +175,7 @@ class ValidationConfig:
     def __post_init__(self) -> None:
         self.amp_dtype = normalize_amp_dtype(self.amp_dtype)
         self.plot_samples = validate_plot_samples(self.plot_samples)
+        self.plot_errors = validate_plot_errors(self.plot_errors, self.save_plots)
         self.single_cls = bool(self.single_cls)
         self.classes = normalize_classes_field(self.classes)
 

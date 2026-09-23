@@ -11,7 +11,11 @@ from torch.utils.data import DataLoader
 
 from ..postprocess.slicing import slice_batch_outputs
 from .base import BaseValidator
-from .config import ValidationConfig, wants_more_plot_samples
+from .config import (
+    ValidationConfig,
+    wants_more_plot_errors,
+    wants_more_plot_samples,
+)
 from .loss import ValidationLossMixin
 
 logger = logging.getLogger(__name__)
@@ -88,6 +92,7 @@ class DetectionValidator(ValidationLossMixin, BaseValidator):
     """
 
     task = "detect"
+    supports_plot_errors = True
 
     # Class-level default so instances built without __init__ (a pattern the
     # test suite uses for narrow-scope validators) still resolve it.
@@ -484,6 +489,7 @@ class DetectionValidator(ValidationLossMixin, BaseValidator):
         # Always initialise plot-tracking state before any early returns
         self._confusion_matrix = None
         self._val_samples: List[Dict] = []
+        self._error_samples: List[Dict] = []
         if self.config.save_plots:
             from .val_plotter import ConfusionMatrix  # noqa: PLC0415
             self._confusion_matrix = ConfusionMatrix(nc=self.nc)
@@ -1004,6 +1010,23 @@ class DetectionValidator(ValidationLossMixin, BaseValidator):
             if self._confusion_matrix is not None:
                 self._confusion_matrix.process_image(pb, pc, ps, gt_boxes, gt_classes)
 
+            # Error-analysis images (#887): plotting only, never scoring.
+            if self._wants_more_error_samples():
+                from .val_plotter import detection_errors  # noqa: PLC0415
+
+                if detection_errors(pb, pc, ps, gt_boxes, gt_classes)["has_error"]:
+                    self._error_samples.append({
+                        "img_path": self._resolve_img_path(
+                            self.dataloader.dataset, self.seen + i, img_ids[i]
+                        ),
+                        "img_id": img_ids[i],
+                        "gt_boxes": gt_boxes,
+                        "gt_classes": gt_classes,
+                        "pred_boxes": pb,
+                        "pred_classes": pc,
+                        "pred_scores": ps,
+                    })
+
             # Sample images for the plot only; never affects scoring (#830).
             if self._wants_more_val_samples():
                 global_idx = self.seen + i
@@ -1024,6 +1047,17 @@ class DetectionValidator(ValidationLossMixin, BaseValidator):
                     "pred_scores": ps,
                     "pred_masks": pm,
                 })
+
+    def _wants_more_error_samples(self) -> bool:
+        """Whether another incorrect image should be kept for the error plot.
+
+        Bounded by ``plot_errors`` (off by default, #887); ``-1`` keeps every
+        incorrect image.
+        """
+        buffer = getattr(self, "_error_samples", None)
+        if buffer is None:
+            return False
+        return wants_more_plot_errors(self.config, len(buffer))
 
     def _wants_more_val_samples(self) -> bool:
         """Whether another image should be kept for the sample-image plot.
@@ -1106,22 +1140,31 @@ class DetectionValidator(ValidationLossMixin, BaseValidator):
                   self._confusion_matrix.matrix, names,
                   plots_dir / "confusion_matrix.png")
 
+        # Error-analysis images → plots/errors/ (#887)
+        error_samples = getattr(self, "_error_samples", None)
+        if error_samples:
+            errors_dir = plots_dir / "errors"
+            for idx, sample in enumerate(error_samples):
+                img_bgr = self._load_plot_image(sample["img_path"])
+                if img_bgr is None:
+                    continue
+                _safe(
+                    ValPlotter.plot_detection_error,
+                    img_bgr,
+                    sample["gt_boxes"],
+                    sample["gt_classes"],
+                    sample["pred_boxes"],
+                    sample["pred_classes"],
+                    sample["pred_scores"],
+                    self.class_names,
+                    errors_dir / f"error_{idx:03d}.jpg",
+                )
+
         # Sample images → plots/samples/
         if self._val_samples:
-            try:
-                import cv2  # noqa: PLC0415
-            except ImportError:
-                logger.warning("opencv-python not found — skipping sample image plots")
-                return
             samples_dir = plots_dir / "samples"
             for idx, sample in enumerate(self._val_samples):
-                if sample["img_path"] is None:
-                    continue
-                if getattr(self.model, "input_profile", None) is not None:
-                    from ..utils.event_histogram import visualize_histogram
-                    img_bgr = visualize_histogram(sample["img_path"], scale=self.model.input_profile["scale"])[..., ::-1]
-                else:
-                    img_bgr = cv2.imread(str(sample["img_path"]))
+                img_bgr = self._load_plot_image(sample["img_path"])
                 if img_bgr is None:
                     continue
                 _safe(
@@ -1137,6 +1180,23 @@ class DetectionValidator(ValidationLossMixin, BaseValidator):
                     sample.get("pred_masks"),
                     self._get_gt_masks_for_sample(sample, img_bgr),
                 )
+
+    def _load_plot_image(self, img_path) -> Optional[np.ndarray]:
+        """Read a validated image as BGR for a plot, or None if unavailable."""
+        if img_path is None:
+            return None
+        try:
+            import cv2  # noqa: PLC0415
+        except ImportError:
+            logger.warning("opencv-python not found — skipping image plots")
+            return None
+        if getattr(self.model, "input_profile", None) is not None:
+            from ..utils.event_histogram import visualize_histogram
+
+            return visualize_histogram(
+                img_path, scale=self.model.input_profile["scale"]
+            )[..., ::-1]
+        return cv2.imread(str(img_path))
 
     def _get_gt_masks_for_sample(
         self, sample: Dict, img_bgr: np.ndarray
