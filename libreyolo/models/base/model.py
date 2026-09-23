@@ -2244,7 +2244,8 @@ class BaseModel(ABC):
             verbose: Print detailed metrics.
             visualize: (kwarg) Draw every validated image to
                 ``save_dir/visualize/`` with true positives, false positives
-                and false negatives (confidence 0.25, IoU 0.5, class-aware);
+                and false negatives (confidence 0.25, or ``conf`` if higher;
+                IoU 0.5; class-aware);
                 classification draws the label and top-1 prediction. Detect,
                 segment and classify only. Default False.
             show_labels: (kwarg) Class names on ``visualize`` images.

@@ -12,10 +12,11 @@ before 1.4.0 are documented in the
 - **`val(visualize=True)` draws every validated image for error analysis
   (#887).** Detection and segmentation images show true positives (green),
   false positives (red) and false negatives (orange), matched class-aware at
-  confidence 0.25 and IoU 0.5, with a TP/FP/FN count per image; a wrong class
-  shows as one false positive plus one false negative. Classification images
-  show the label and the top-1 prediction, framed green or red. `show_labels`
-  and `show_conf` turn the text off. Images go to `visualize/` in the run
+  confidence 0.25 (or the run's `conf` if higher) and IoU 0.5, with a
+  TP/FP/FN count per image; a wrong class shows as one false positive plus one
+  false negative. Classification images show the label and the top-1
+  prediction, framed green or red. `show_labels` and `show_conf` turn the text
+  off. Images go to `visualize/` in the run
   directory as validation runs. Also `libreyolo val --visualize`. Other tasks
   reject the flag. Drawing only: the metrics are unchanged.
 
