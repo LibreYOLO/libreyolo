@@ -9,6 +9,21 @@ before 1.4.0 are documented in the
 
 ### Added
 
+- **TFLite INT8 export for YOLOX and YOLO9 detection (#816).**
+  `export(format="tflite", int8=True, data=..., fraction=...)` and
+  `libreyolo export --format tflite --int8 --data ...` produce a full-integer
+  model (int8 input and outputs) through onnx2tf's TensorFlow converter.
+  Boxes, normalized by the input size, and scores are separate outputs, so
+  each keeps its own int8 scale: a single concatenated output quantized every
+  score to zero. `TFLiteBackend` rebuilds the usual layout from the sidecar
+  `output_layout`, so `predict()` and `val()` work unchanged. Without `data=`,
+  calibration falls back to coco8 with a warning, as for ONNX INT8. Requires
+  TensorFlow (`pip install "onnx2tf[tensorflow]"`) and `batch=1`; other
+  families still reject `int8=True`. On 200 held-out COCO val2017 images with
+  100 calibration images, mAP50-95 goes from 0.453 (FP32) to 0.416 for
+  YOLOX-s and from 0.442 to 0.367 for YOLO9-t; more calibration images help
+  (YOLO9-t: 0.333 with 32).
+
 - **RF-DETR pose trains on multi-class datasets (#872).** The `nc=1` check is
   gone: every class gets its own GroupPose keypoint group, and the dataset
   yaml's optional `kpt_names`, keyed by class index or name, gives a class

@@ -330,7 +330,7 @@ class _YOLOXSplitOutputWrapper(torch.nn.Module):
     ``(B, N, 1 + nc)`` objectness then class probabilities.
     """
 
-    def __init__(self, model: torch.nn.Module, canvas_hw: Tuple[int, int]):
+    def __init__(self, model: torch.nn.Module, canvas_hw: tuple[int, int]):
         super().__init__()
         self.model = model
         self.canvas_h, self.canvas_w = (int(v) for v in canvas_hw)
@@ -382,7 +382,7 @@ class _YOLO9SplitOutputWrapper(torch.nn.Module):
     ``(B, N, nc)`` sigmoid class probabilities.
     """
 
-    def __init__(self, model: torch.nn.Module, canvas_hw: Tuple[int, int]):
+    def __init__(self, model: torch.nn.Module, canvas_hw: tuple[int, int]):
         super().__init__()
         self.model = model
         self.canvas_h, self.canvas_w = (int(v) for v in canvas_hw)
