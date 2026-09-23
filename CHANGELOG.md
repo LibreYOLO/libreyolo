@@ -133,7 +133,10 @@ before 1.4.0 are documented in the
   `metrics/accuracy_top1` reached `best.pt` or early stopping. V-JEPA 2 now
   validates on its video `val` manifest through `VJEPA2ClipValidator`, which
   `val()` uses too; training validation uses the model's `validator_class` like
-  `val()` does.
+  `val()` does. Like the ImageFolder path, it refuses a manifest whose ordered
+  class names differ from the model's or whose class count exceeds the head.
+  Training now also takes the head size and class names from the video dataset,
+  as the image classifiers do, so a fine-tuned checkpoint names its classes.
 
 - **RF-DETR custom pose checkpoint loading (#874).** Rebuilt GroupPose
   attention masks stay on the decoder's device, preventing device mismatches

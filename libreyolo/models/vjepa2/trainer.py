@@ -120,7 +120,20 @@ class VJEPA2Trainer(ClassifyValidationLossMixin, BaseTrainer):
         crop_size = int(getattr(wrapper, "crop_size", 256))
 
         data = load_video_dataset(self.config.data)
-        self.data_names = data["names"]
+        # Head and names follow the dataset, as the image classifiers' training
+        # does, so the checkpoint names its classes and every label fits.
+        num_classes = int(data["nc"])
+        if wrapper is not None:
+            if (
+                getattr(wrapper, "nb_classes", None) != num_classes
+                and hasattr(wrapper, "_rebuild_for_new_classes")
+            ):
+                wrapper._rebuild_for_new_classes(num_classes)
+                self.model = wrapper.model.to(self.device)
+            wrapper.nb_classes = num_classes
+            wrapper.names = {int(k): str(v) for k, v in data["names"].items()}
+        self.num_classes = num_classes
+        self.config.num_classes = num_classes
 
         train_dataset = VideoClipDataset(
             data["train"], clip_frames, frame_stride, crop_size, train=True

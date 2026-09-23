@@ -359,6 +359,23 @@ class LibreVJEPA2(BaseModel):
         tensor = preprocess_frames([frame], self.crop_size)[0]
         return tensor.to(self.device), loaded, (width, height), 1.0
 
+    def _rebuild_for_new_classes(self, new_nb_classes: int) -> None:
+        """Swap the probe's linear classifier for a new class count.
+
+        The frozen encoder and the attentive pooler are kept; the trainer calls
+        this when the video dataset's class count differs from the head, as the
+        image classifiers' training does.
+        """
+        if self.task != "classify":
+            raise ValueError("Only the classify task has a class head to rebuild.")
+        head = self.model.classifier
+        self.model.classifier = nn.Linear(
+            head.in_features, int(new_nb_classes), bias=head.bias is not None
+        ).to(head.weight.device)
+        self.model.nc = int(new_nb_classes)
+        self.nb_classes = int(new_nb_classes)
+        self.names = {i: f"class_{i}" for i in range(int(new_nb_classes))}
+
     def _get_eval_transform(
         self, img_size: Optional[int] = None, crop_pct: Optional[float] = None
     ):
