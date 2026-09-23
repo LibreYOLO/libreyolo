@@ -487,11 +487,23 @@ class LibreDINOv2(BaseModel):
             layers["head"] = head
         return layers
 
-    @staticmethod
-    def _get_preprocess_numpy():
-        """Return a stretch-resize + [0,1] normalisation callable."""
+    def _get_preprocess_numpy(self):
+        """Calibration preprocessing for the task this model runs.
+
+        Classify/embed go through the classification eval transform, the one
+        ``predict()`` and ``val()`` use (#886); semantic keeps the stretch
+        resize + [0, 1] scaling its model normalizes from.
+        """
         import cv2
         import numpy as _np
+
+        if self.task in ("classify", "embed"):
+
+            def _classify_preprocess_numpy(img_rgb_hwc, input_size=None):
+                pil = Image.fromarray(_np.asarray(img_rgb_hwc).astype("uint8"))
+                return self._get_eval_transform(input_size)(pil).numpy(), 1.0
+
+            return _classify_preprocess_numpy
 
         def _preprocess_numpy(img_rgb_hwc, input_size=518):
             h = input_size if isinstance(input_size, int) else input_size[0]
@@ -512,14 +524,12 @@ class LibreDINOv2(BaseModel):
         color_format: str = "auto",
         input_size: Optional[int] = None,
     ) -> Tuple[torch.Tensor, Image.Image, Tuple[int, int], float]:
-        """Stretch-resize to square; the model applies ImageNet norm."""
+        """Classify/embed: the eval transform. Semantic: stretch-resize to square."""
         effective_res = input_size if input_size is not None else self.input_size
         if self.task in ("classify", "embed"):
-            from ...data.classify_dataset import build_classify_transforms
-
             img = ImageLoader.load(image, color_format=color_format)
             orig_w, orig_h = img.size
-            transform = build_classify_transforms(effective_res, augment=False)
+            transform = self._get_eval_transform(effective_res)
             return transform(img).unsqueeze(0), img, (orig_w, orig_h), 1.0
         if effective_res % self.semantic_imgsz_divisor:
             raise ValueError(

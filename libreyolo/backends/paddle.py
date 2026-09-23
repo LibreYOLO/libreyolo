@@ -12,6 +12,7 @@ from ..tasks import normalize_supported_tasks, normalize_task, resolve_task
 from ..utils.general import COCO_CLASSES
 from ..utils.serialization import warn_on_metadata_schema_version
 from .base import (
+    classify_eval_kwargs,
     BaseBackend,
     _read_metadata_imgsz,
     _read_pose_metadata,
@@ -126,8 +127,7 @@ class PaddleBackend(BaseBackend):
             task=resolved_task,
             supported_tasks=supported_tasks,
             default_task=default_task,
-            crop_pct=runtime_metadata.get("crop_pct"),
-            interpolation=runtime_metadata.get("interpolation"),
+            **classify_eval_kwargs(runtime_metadata),
             num_bins=runtime_metadata.get("num_bins"),
             bin_width_deg=runtime_metadata.get("bin_width_deg"),
             offset_deg=runtime_metadata.get("offset_deg"),

@@ -32,8 +32,10 @@ Train pipeline, in order: `RandomResizedCrop(imgsz, scale)`,
 Ops whose knob is off are omitted, not inserted with probability zero.
 
 Eval pipeline: `Resize(floor(imgsz / crop_pct))`, `CenterCrop(imgsz)`,
-`ToTensor`, `Normalize`. Families with a native square resize (SigLIP2) skip
-the center crop unless `crop_pct` is set explicitly. `crop_pct` changes
+`ToTensor`, `Normalize`. Families with a native square resize (SigLIP2, PE)
+skip the center crop unless `crop_pct` is set explicitly. `val()`, INT8
+calibration and exported backends take this pipeline from the model
+(`_get_eval_transform`), so they preprocess exactly like `predict()`. `crop_pct` changes
 train-time and `val()` evaluation only; export runtime metadata keeps the
 family's native value.
 
