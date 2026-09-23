@@ -42,6 +42,13 @@ def test_keypoints_per_class_keeps_unlisted_classes_at_full_count():
     assert keypoints_per_class(cfg, 2, 4) == [1, 4]
 
 
+def test_keypoints_per_class_prefers_digit_class_names_over_indices():
+    cfg = {"names": ["7", "0"], "kpt_names": {"0": [], 0: ["x"]}}
+    # String "0" is the name of class 1; int 0 is class index 0.
+    assert keypoints_per_class(cfg, 2, 4) == [1, 0]
+    assert keypoints_per_class({"names": ["a", "b"], "kpt_names": {"1": []}}, 2, 4) == [4, 0]
+
+
 @pytest.mark.parametrize(
     "kpt_names, match",
     [

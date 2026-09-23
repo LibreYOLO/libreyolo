@@ -88,7 +88,8 @@ def keypoints_per_class(data_cfg: dict, nc: int, num_keypoints: int) -> list[int
     Every class shares the ``kpt_shape`` skeleton of ``num_keypoints`` rows. A
     ``kpt_names`` mapping keyed by class index or class name narrows a class to
     the first ``len(names)`` rows, and an empty list declares a class without
-    keypoints. Classes not listed keep all ``num_keypoints`` rows; a
+    keypoints. A string key is matched against class names before it is read
+    as an index. Classes not listed keep all ``num_keypoints`` rows; a
     ``kpt_names`` list, or no ``kpt_names``, applies to every class.
     """
     nc = int(nc)
@@ -104,10 +105,14 @@ def keypoints_per_class(data_cfg: dict, nc: int, num_keypoints: int) -> list[int
     name_to_idx = {str(name): int(idx) for idx, name in names.items()}
 
     for key, class_kpt_names in kpt_names.items():
-        if isinstance(key, int) or (isinstance(key, str) and key.isdigit()):
-            class_idx = int(key)
+        # YAML int keys are indices; string keys match a class name first, so
+        # a class literally named "7" is not mistaken for index 7.
+        if isinstance(key, int) and not isinstance(key, bool):
+            class_idx = key
         elif str(key) in name_to_idx:
             class_idx = name_to_idx[str(key)]
+        elif isinstance(key, str) and key.isdigit():
+            class_idx = int(key)
         else:
             raise ValueError(
                 f"kpt_names key {key!r} is neither a class index nor a class name"
