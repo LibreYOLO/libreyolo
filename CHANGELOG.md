@@ -20,6 +20,19 @@ before 1.4.0 are documented in the
   directory as validation runs. Also `libreyolo val --visualize`. Other tasks
   reject the flag. Drawing only: the metrics are unchanged.
 
+- **Classification validation reports macro precision, recall and F1 (#852).**
+  `ClassifyValidator` accumulates per-class confusion counts (the confusion
+  matrix's diagonal and marginals, linear memory in the class count) and adds
+  `metrics/precision`, `metrics/recall` and `metrics/f1` next to the top-1 and
+  top-5 accuracies: the unweighted mean over classes present in the validation
+  targets, with precision 0 for a class that is never predicted. `fitness` and
+  best-checkpoint selection stay top-1, and the existing keys are unchanged.
+  `libreyolo val` prints the new values and reports them in `--json` as
+  `precision`, `recall` and `f1`. Anything iterating classification metric keys
+  (custom loggers, `results.csv` headers) sees three new columns. Definition:
+  `docs/classification_training.md`. Targets outside the model's class range
+  raise a dataset/model mismatch error rather than inflate the macro metrics.
+
 - **TFLite INT8 export for YOLOX and YOLO9 detection (#816).**
   `export(format="tflite", int8=True, data=..., fraction=...)` and
   `libreyolo export --format tflite --int8 --data ...` produce a full-integer
