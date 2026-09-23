@@ -71,7 +71,7 @@ def test_tflite_format_registered():
     assert TFLiteExporter.supports_int8 is True
     assert TFLiteExporter.supports_fp16 is False
     assert TFLiteExporter.apply_model_half is False
-    assert TFLiteExporter.default_int8_calibration_data is False
+    assert TFLiteExporter.default_int8_calibration_data is True
 
 
 def test_tflite_family_support_scaffold():
@@ -105,11 +105,17 @@ def test_tflite_rejects_dynamic_export():
         exporter(dynamic=True)
 
 
-def test_tflite_int8_requires_calibration_data():
+def test_tflite_int8_without_data_uses_the_default_calibration_set(caplog):
+    from libreyolo.export.exporter import DEFAULT_INT8_CALIBRATION_DATA
+
     exporter = TFLiteExporter(_make_wrapper())
 
-    with pytest.raises(ValueError, match="requires calibration data"):
-        exporter(output_path="unused.tflite", int8=True)
+    with caplog.at_level("WARNING"):
+        data = exporter._resolve_calibration_data(True, None)
+
+    assert data == DEFAULT_INT8_CALIBRATION_DATA
+    assert "not representative" in caplog.text
+    assert exporter._resolve_calibration_data(True, "custom.yaml") == "custom.yaml"
 
 
 def test_tflite_rejects_fp16_export():
@@ -189,7 +195,7 @@ def test_tflite_export_copies_float32_output(monkeypatch, tmp_path):
 
     captured = {}
 
-    def fake_run(cmd, capture_output, text):
+    def fake_run(cmd, capture_output, text, env=None):
         captured["cmd"] = list(cmd)
         output_dir = Path(cmd[cmd.index("-o") + 1])
         output_dir.mkdir(parents=True, exist_ok=True)
@@ -220,7 +226,7 @@ def test_tflite_export_reports_converter_failure(monkeypatch, tmp_path):
     monkeypatch.setattr(tflite_module, "check_tflite_export_available", lambda: None)
     monkeypatch.setattr(tflite_module, "_onnx2tf_command", lambda: ["onnx2tf"])
 
-    def fake_run(cmd, capture_output, text):
+    def fake_run(cmd, capture_output, text, env=None):
         return subprocess.CompletedProcess(cmd, 2, stdout="out", stderr="err")
 
     monkeypatch.setattr(subprocess, "run", fake_run)
@@ -335,7 +341,7 @@ def _int8_converter(monkeypatch, produced):
     monkeypatch.setattr(tflite_module, "_onnx_input_name", lambda _path: "images")
     captured = {}
 
-    def fake_run(cmd, capture_output, text):
+    def fake_run(cmd, capture_output, text, env=None):
         captured["cmd"] = list(cmd)
         output_dir = Path(cmd[cmd.index("-o") + 1])
         output_dir.mkdir(parents=True, exist_ok=True)
