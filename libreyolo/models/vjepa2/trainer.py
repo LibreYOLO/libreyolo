@@ -134,16 +134,8 @@ class VJEPA2Trainer(ClassifyValidationLossMixin, BaseTrainer):
             collate_fn=collate_clips,
             drop_last=len(train_dataset) >= batch,
         )
-        if "val" in data:
-            self.val_loader = DataLoader(
-                VideoClipDataset(
-                    data["val"], clip_frames, frame_stride, crop_size, train=False
-                ),
-                batch_size=batch,
-                shuffle=False,
-                num_workers=self.config.workers,
-                collate_fn=collate_clips,
-            )
+        # Epoch validation reads the val manifest through the model's
+        # VJEPA2ClipValidator, the same path val() uses.
         logger.info(
             "V-JEPA 2 video dataset: %d train clips, %d classes, %d frames/clip",
             len(train_dataset),

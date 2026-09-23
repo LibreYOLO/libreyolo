@@ -40,6 +40,7 @@ from .nn import (
     LibreVJEPA2Encoder,
     VJEPA2Config,
 )
+from .validator import VJEPA2ClipValidator
 from .preprocess import (
     clip_frame_indices,
     DEFAULT_FRAME_STRIDE,
@@ -93,6 +94,9 @@ class LibreVJEPA2(BaseModel):
     # Opt this family into clip-mode finite-video handling. Every other family
     # keeps the default "frames" behaviour and its per-frame result cardinality.
     VIDEO_EMBED_MODE: ClassVar[str] = "clip"
+
+    # val() and epoch validation read the video val manifest (see validator.py).
+    validator_class: ClassVar[Optional[type]] = VJEPA2ClipValidator
 
     # =========================================================================
     # Registry classmethods

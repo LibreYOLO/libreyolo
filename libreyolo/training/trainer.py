@@ -3130,8 +3130,16 @@ class BaseTrainer(ABC):
             )
             original_model = self.wrapper_model.model
             self.wrapper_model.model = eval_pytorch_model
+            # The model's own validator when it declares one, as val() uses,
+            # so families with a family dataset (V-JEPA 2 clips) validate on it.
+            validator_cls = getattr(self.wrapper_model, "validator_class", None)
+            if not (
+                isinstance(validator_cls, type)
+                and issubclass(validator_cls, ClassifyValidator)
+            ):
+                validator_cls = ClassifyValidator
             try:
-                validator = ClassifyValidator(
+                validator = validator_cls(
                     model=self.wrapper_model,
                     config=val_config,
                     **self._validation_loss_kwargs(eval_pytorch_model),

@@ -320,3 +320,92 @@ class TestSyntheticMotionConvergence:
 
         assert last < first, f"loss did not decrease: {first} -> {last}"
         assert accuracy > 0.5, f"did not beat chance: {accuracy}"
+
+
+# ---------------------------------------------------------------------------
+# Epoch validation on the video val manifest (#886 side quest)
+# ---------------------------------------------------------------------------
+
+
+def _write_clip_dataset(tmp_path, frames=4, size=64, n_val=4):
+    cv2 = pytest.importorskip("cv2")
+    import numpy as np
+
+    videos = tmp_path / "videos"
+    videos.mkdir()
+    rows = []
+    for i in range(n_val):
+        path = videos / f"clip_{i}.mp4"
+        writer = cv2.VideoWriter(str(path), cv2.VideoWriter_fourcc(*"mp4v"), 10, (size, size))
+        for t in range(frames * 3):
+            frame = np.zeros((size, size, 3), np.uint8)
+            cv2.rectangle(frame, (4 + 2 * t, 26), (12 + 2 * t, 34), (255, 255, 255), -1)
+            writer.write(frame)
+        writer.release()
+        rows.append(f"videos/{path.name} {i % 2}")
+    for split in ("train", "val"):
+        (tmp_path / f"{split}.txt").write_text("\n".join(rows) + "\n", encoding="utf-8")
+    yaml_path = tmp_path / "data.yaml"
+    yaml_path.write_text(
+        f"path: {tmp_path.as_posix()}\ntrain: train.txt\nval: val.txt\n"
+        "names:\n  0: a\n  1: b\n",
+        encoding="utf-8",
+    )
+    return yaml_path
+
+
+def _tiny_wrapper(frames=4, size=64):
+    class _TinyVJEPA2(LibreVJEPA2):
+        crop_size = size  # the per-size property, pinned to the tiny model
+
+    wrapper = _TinyVJEPA2.__new__(_TinyVJEPA2)
+    wrapper.task = "classify"
+    wrapper.size = "l256"
+    wrapper.variant = None
+    wrapper._requested_clip_frames = frames
+    wrapper.frame_stride = 1
+    wrapper.model = _tiny_classifier(nc=2, frames=frames, size=size)
+    wrapper.device = torch.device("cpu")
+    wrapper.names = {0: "a", 1: "b"}
+    wrapper.nb_classes = 2
+    return wrapper
+
+
+class TestEpochValidation:
+    def test_the_model_validates_on_its_video_val_manifest(self, tmp_path):
+        from libreyolo.models.vjepa2.validator import VJEPA2ClipValidator
+        from libreyolo.validation import ValidationConfig
+
+        assert LibreVJEPA2.validator_class is VJEPA2ClipValidator
+        yaml_path = _write_clip_dataset(tmp_path)
+        validator = VJEPA2ClipValidator(
+            model=_tiny_wrapper(),
+            config=ValidationConfig(
+                data=str(yaml_path), batch_size=2, imgsz=64, device="cpu",
+                num_workers=0, verbose=False, save_dir=str(tmp_path / "val"),
+            ),
+        )
+        metrics = validator.run()
+        assert metrics["speed/images_seen"] == 4
+        assert 0.0 <= metrics["metrics/accuracy_top1"] <= 1.0
+
+    def test_epoch_validation_returns_a_top1_metric(self, tmp_path):
+        """It used to hand the video YAML to the ImageFolder validator and return None."""
+        from types import SimpleNamespace
+
+        yaml_path = _write_clip_dataset(tmp_path)
+        wrapper = _tiny_wrapper()
+        trainer = VJEPA2Trainer.__new__(VJEPA2Trainer)
+        trainer.wrapper_model = wrapper
+        trainer.model = wrapper.model
+        trainer.ema_model = None
+        trainer.device = torch.device("cpu")
+        trainer.world_size = 1
+        trainer.config = SimpleNamespace(
+            data=str(yaml_path), batch=2, imgsz=64, amp=False, amp_dtype="float16",
+            workers=0, crop_pct=None, val_loss=False,
+        )
+        result = trainer._run_classify_validation(0)
+        assert result is not None
+        assert result["best_metric_key"] == "metrics/accuracy_top1"
+        assert result["metrics"]["speed/images_seen"] == 4
