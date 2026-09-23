@@ -177,7 +177,7 @@ get their logo here from $100 a month, and from $500 a month are named in
 every release and in the model card of every weight released while they
 sponsor. Hardware manufacturers can sponsor by sending a device.
 
-[![Sponsor](https://img.shields.io/badge/sponsor-GitHub%20Sponsors-ea4aaa?logo=githubsponsors)](https://github.com/sponsors/EHxuban11)
+[![Sponsor](https://img.shields.io/badge/sponsor-Open%20Collective-7fadf2?logo=opencollective)](https://opencollective.com/libreyolo)
 
 No sponsors yet.
 
