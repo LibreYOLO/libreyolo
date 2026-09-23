@@ -13,7 +13,7 @@ import numpy as np
 
 from ..tasks import resolve_task
 from ..utils.serialization import warn_on_metadata_schema_version
-from .base import BaseBackend, ImageSize
+from .base import BaseBackend, ImageSize, classify_eval_kwargs
 from .metadata import ExportMetadataError, parse_export_metadata
 
 logger = logging.getLogger(__name__)
@@ -430,8 +430,7 @@ class TritonBackend(BaseBackend):
             task=resolved_task,
             supported_tasks=parsed_metadata.supported_tasks,
             default_task=parsed_metadata.default_task,
-            crop_pct=runtime.get("crop_pct"),
-            interpolation=runtime.get("interpolation"),
+            **classify_eval_kwargs(runtime),
             num_bins=runtime.get("num_bins"),
             bin_width_deg=runtime.get("bin_width_deg"),
             offset_deg=runtime.get("offset_deg"),

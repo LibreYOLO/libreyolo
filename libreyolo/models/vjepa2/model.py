@@ -355,6 +355,36 @@ class LibreVJEPA2(BaseModel):
         tensor = preprocess_frames([frame], self.crop_size)[0]
         return tensor.to(self.device), loaded, (width, height), 1.0
 
+    def _get_eval_transform(
+        self, img_size: Optional[int] = None, crop_pct: Optional[float] = None
+    ):
+        """Still-image eval transform: the frame code ``predict()`` runs (#886).
+
+        One frame through :func:`preprocess_frames` (short side to
+        ``crop_size``, center crop, PIXEL_MEAN/STD). The crop geometry is fixed
+        by the checkpoint, so another size or a ``crop_pct`` is rejected rather
+        than ignored.
+        """
+        if img_size is not None:
+            size = img_size[0] if isinstance(img_size, (list, tuple)) else img_size
+            if int(size) != int(self.crop_size):
+                raise ValueError(
+                    f"LibreVJEPA2 {self.size!r} preprocesses at its fixed crop "
+                    f"size {self.crop_size}; got imgsz={img_size}."
+                )
+        if crop_pct is not None:
+            raise ValueError(
+                "LibreVJEPA2 has no crop_pct: frames are resized short side to "
+                "the crop size and center-cropped."
+            )
+        crop_size = self.crop_size
+
+        def _transform(image) -> torch.Tensor:
+            frame = np.asarray(image.convert("RGB"))
+            return preprocess_frames([frame], crop_size)[0, 0]
+
+        return _transform
+
     def _as_clip(self, input_tensor: torch.Tensor) -> torch.Tensor:
         """Promote a 4D still frame to a 5D static clip; pass 5D through.
 

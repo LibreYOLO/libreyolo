@@ -127,6 +127,14 @@ class LibreSigLIP2(BaseModel):
     # Attention pooling + fixed square resize make multi-scale TTA meaningless.
     TTA_ENABLED: ClassVar[bool] = False
 
+    # SigLIP eval pipeline (#886): a square resize, shared by predict, val,
+    # calibration and export metadata through ``_get_eval_transform``.
+    crop_pct: ClassVar[float] = 1.0
+    interpolation: ClassVar[str] = "bilinear"
+    norm_mean: ClassVar[Tuple[float, float, float]] = SIGLIP_MEAN
+    norm_std: ClassVar[Tuple[float, float, float]] = SIGLIP_STD
+    resize_mode: ClassVar[str] = "stretch"
+
     validator_class: ClassVar[Optional[type]] = (
         None  # set lazily (see _resolve_validator)
     )
@@ -340,40 +348,16 @@ class LibreSigLIP2(BaseModel):
         }
 
     def _build_transform(self, imgsz: int):
-        from torchvision.transforms import InterpolationMode
+        # The family's eval pipeline, declared once on the class (#886).
+        return self._get_eval_transform(imgsz)
 
-        from ...data.classify_dataset import build_classify_transforms
-
-        return build_classify_transforms(
-            imgsz,
-            augment=False,
-            mean=SIGLIP_MEAN,
-            std=SIGLIP_STD,
-            interpolation=InterpolationMode.BILINEAR,
-            crop_pct=1.0,
-            square_resize=True,
-        )
-
-    @staticmethod
-    def _get_preprocess_numpy():
+    def _get_preprocess_numpy(self):
+        """RGB HWC array -> ``(CHW float32, 1.0)`` through the eval transform."""
         import numpy as _np
-        from torchvision.transforms import InterpolationMode
 
-        from ...data.classify_dataset import build_classify_transforms
-
-        def _preprocess_numpy(img_rgb_hwc, input_size=224):
-            res = input_size if isinstance(input_size, int) else input_size[0]
-            transform = build_classify_transforms(
-                res,
-                augment=False,
-                mean=SIGLIP_MEAN,
-                std=SIGLIP_STD,
-                interpolation=InterpolationMode.BILINEAR,
-                crop_pct=1.0,
-                square_resize=True,
-            )
+        def _preprocess_numpy(img_rgb_hwc, input_size=None):
             pil = Image.fromarray(_np.asarray(img_rgb_hwc).astype("uint8"))
-            return transform(pil).numpy(), 1.0
+            return self._get_eval_transform(input_size)(pil).numpy(), 1.0
 
         return _preprocess_numpy
 

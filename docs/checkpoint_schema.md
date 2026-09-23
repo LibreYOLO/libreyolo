@@ -261,15 +261,22 @@ Pose runtime exports may also write these flat metadata keys:
   consumes one already-extracted person crop rather than a full image and does
   not contain a detector. HRNet runtime exports require this value.
 
-Classification runtime exports (MobileNetV4 / ConvNeXt / EfficientNetV2 /
-ResNet) may also write these flat metadata keys so that exported-backend
-preprocessing reproduces the native model's resize/crop and the logits stay
-bit-identical:
+Classification runtime exports write the family's eval pipeline as flat
+metadata keys, so exported-backend `predict()` and `val()` reproduce the native
+model's preprocessing and the logits stay bit-identical:
 
 - `crop_pct`: float center-crop ratio. The pre-crop resize target is
-  `round(imgsz / crop_pct)`. Readers default to `0.875` when the key is absent.
+  `floor(imgsz / crop_pct)`. Readers default to `0.875` when the key is absent.
 - `interpolation`: resize filter, `"bilinear"` or `"bicubic"`. Readers default
   to `"bilinear"` when the key is absent.
+- `norm_mean`, `norm_std`: optional JSON-encoded RGB lists in `[0, 1]` scale,
+  written by families whose normalization is not ImageNet (CLIP, SigLIP2, PE,
+  ViT). Readers default to the ImageNet statistics.
+- `resize_mode`: optional `"center_crop"` (default) or `"stretch"` (square
+  resize without a crop; SigLIP2, PE).
+
+Exports written before `norm_mean` / `norm_std` / `resize_mode` existed keep
+their family's native values through a reader-side fallback.
 
 ExecuTorch exports write the flat metadata to a required
 `<program>.pte.json` sidecar. The v1 contract is CPU, FP32, batch 1, and a
