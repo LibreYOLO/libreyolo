@@ -15,6 +15,10 @@ from .base import BaseBackend, _read_metadata_imgsz, _read_pose_metadata
 
 logger = logging.getLogger(__name__)
 
+# Must match ``libreyolo.export.tflite.SPLIT_OUTPUT_LAYOUT``; kept here so the
+# runtime does not import the (torch-based) export package.
+SPLIT_OUTPUT_LAYOUT = "boxes_norm_scores"
+
 
 class TFLiteBackend(BaseBackend):
     """Run `.tflite` artifacts through the LiteRT interpreter."""
@@ -81,6 +85,12 @@ class TFLiteBackend(BaseBackend):
             )
             or 640
         )
+
+        self._output_layout = metadata.get("output_layout")
+        self._canvas_hw = (
+            int(metadata.get("imgsz_h") or imgsz),
+            int(metadata.get("imgsz_w") or imgsz),
+        ) if isinstance(imgsz, int) else tuple(int(v) for v in imgsz)
 
         self.interpreter = Interpreter(model_path=str(path))
         self.interpreter.allocate_tensors()
@@ -179,7 +189,36 @@ class TFLiteBackend(BaseBackend):
             ):
                 output = np.transpose(output, (0, 2, 1))
             outputs.append(np.ascontiguousarray(output))
+        if getattr(self, "_output_layout", None) == SPLIT_OUTPUT_LAYOUT:
+            return [self._merge_split_outputs(outputs)]
         return outputs
+
+    def _merge_split_outputs(self, outputs: list) -> np.ndarray:
+        """Rebuild ``(B, N, 4 + C)`` pixel cxcywh from the split INT8 layout.
+
+        The graph emits normalized boxes ``(B, 4, N)`` and scores ``(B, N, C)``
+        as separate tensors so each keeps its own int8 scale. LiteRT does not
+        keep output order or names reliably, so the boxes are the rank-3
+        output with 4 rows.
+        """
+        if len(outputs) != 2:
+            raise ValueError(
+                f"TFLite output layout {SPLIT_OUTPUT_LAYOUT!r} expects 2 outputs, "
+                f"got {len(outputs)}."
+            )
+        box_first = outputs[0].ndim == 3 and outputs[0].shape[1] == 4
+        boxes, scores = outputs if box_first else outputs[::-1]
+        if boxes.ndim != 3 or boxes.shape[1] != 4 or scores.shape[1] != boxes.shape[2]:
+            raise ValueError(
+                "Unexpected TFLite split outputs: "
+                f"{[tuple(o.shape) for o in outputs]}."
+            )
+        canvas_h, canvas_w = self._canvas_hw
+        scale = np.array([canvas_w, canvas_h, canvas_w, canvas_h], dtype=np.float32)
+        pixels = np.transpose(boxes, (0, 2, 1)) * scale
+        return np.ascontiguousarray(
+            np.concatenate([pixels, scores.astype(np.float32)], axis=-1)
+        )
 
 
 __all__ = ["TFLiteBackend"]

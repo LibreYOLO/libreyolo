@@ -10,6 +10,7 @@ from __future__ import annotations
 import contextlib
 import json
 import logging
+import os
 import shutil
 import subprocess
 import sys
@@ -51,6 +52,33 @@ def ensure_tflite_family_supported(
         f"TFLite export currently supports: {supported}. "
         f"Got model family {model_family!r}, task {task!r}. {entry.reason}"
     )
+
+
+# (family, task) pairs whose full-integer TFLite export has been checked on real
+# weights. The graph for these emits ``SPLIT_OUTPUT_LAYOUT``.
+TFLITE_INT8_EXPORTS = frozenset({("yolox", "detect")})
+
+# Sidecar ``output_layout`` value: output 0 is normalized cxcywh boxes shaped
+# ``(B, 4, N)`` (divided by the input width/height) and output 1 is scores
+# shaped ``(B, N, C)``. Keeping them apart lets each tensor have its own int8
+# scale; TFLiteBackend rescales the boxes and rebuilds the family layout.
+SPLIT_OUTPUT_LAYOUT = "boxes_norm_scores"
+
+
+def check_tflite_int8_available() -> None:
+    """Check the TensorFlow converter that TFLite INT8 export runs through."""
+    import importlib.util
+
+    missing = [
+        name for name in ("tensorflow", "tf_keras") if importlib.util.find_spec(name) is None
+    ]
+    if missing:
+        raise ImportError(
+            "TFLite INT8 export runs onnx2tf's TensorFlow converter, which needs "
+            f"{' and '.join(missing)}.\n\n"
+            "Install with:\n"
+            '  pip install "onnx2tf[tensorflow]"'
+        )
 
 
 def check_tflite_export_available() -> None:
@@ -879,38 +907,27 @@ def export_tflite(
                 "0.0",
                 "1.0",
             ]
-            logger.warning(
-                "TFLite INT8 is post-training quantization; accuracy is not "
-                "parity-validated per family. Measure the exported artifact "
-                "with val() before deploying it."
-            )
-            if shutil.which("onnxsim") is None:
-                logger.warning(
-                    "The onnxsim executable is not on PATH. onnx2tf shells out "
-                    "to it by name, and the tf_converter backend needs the "
-                    "shapes it propagates. Install onnx-simplifier into the "
-                    "active environment if the conversion below fails."
-                )
         if onnx2tf_args is not None:
             cmd.extend(str(arg) for arg in onnx2tf_args)
 
+        # onnx2tf calls the ``onnxsim`` executable by name; put this
+        # interpreter's scripts directory first so the one installed with the
+        # tflite extra is found even when the environment is not activated.
+        env = dict(os.environ)
+        env["PATH"] = os.pathsep.join(
+            [str(Path(sys.executable).parent), env.get("PATH", "")]
+        )
         result = subprocess.run(
             cmd,
             capture_output=not verbose,
             text=True,
+            env=env,
         )
         if result.returncode != 0:
             stdout = result.stdout or ""
             stderr = result.stderr or ""
-            hint = ""
-            if int8 and shutil.which("onnxsim") is None:
-                hint = (
-                    "\nHint: onnxsim was not found on PATH. onnx2tf invokes it "
-                    "as a bare command, and without the shapes it propagates "
-                    "the INT8 backend fails while building the Keras graph."
-                )
             raise RuntimeError(
-                f"onnx2tf failed with exit code {result.returncode}.{hint}\n"
+                f"onnx2tf failed with exit code {result.returncode}.\n"
                 f"Command: {' '.join(cmd)}\n"
                 f"stdout: {stdout}\n"
                 f"stderr: {stderr}"
@@ -928,7 +945,10 @@ def export_tflite(
 
 
 __all__ = [
+    "SPLIT_OUTPUT_LAYOUT",
+    "TFLITE_INT8_EXPORTS",
     "check_tflite_export_available",
+    "check_tflite_int8_available",
     "ensure_tflite_family_supported",
     "export_tflite",
     "supported_tflite_exports",
