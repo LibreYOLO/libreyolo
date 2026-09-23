@@ -28,17 +28,16 @@ class GTRTrainer(DFINETrainer):
     def create_scheduler(self, iters_per_epoch):
         return GTRScheduler(self.effective_lr, iters_per_epoch, self.config)
 
+    def _scale_lr(self, base_lr, param_group):
+        return base_lr * param_group.get("lr_mult", 1.0)
+
     def resume(self, checkpoint_path):
         # Restore optimizer moments but keep the resolved recipe (saved config
         # plus explicit overrides). Otherwise optimizer.load_state_dict also
         # overwrites caller-specified weight decay and backbone LR multipliers.
         groups = (
             [
-                {
-                    key: group[key]
-                    for key in ("lr", "lr_mult", "weight_decay")
-                    if key in group
-                }
+                {key: group[key] for key in ("lr_mult", "weight_decay") if key in group}
                 for group in self.optimizer.param_groups
             ]
             if self.optimizer is not None
@@ -48,6 +47,7 @@ class GTRTrainer(DFINETrainer):
         if self.optimizer is not None:
             for group, settings in zip(self.optimizer.param_groups, groups):
                 group.update(settings)
+            self._initialize_scheduler_lr()
 
     def create_transforms(self):
         return DEIMTrainTransform(

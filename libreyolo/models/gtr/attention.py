@@ -93,7 +93,11 @@ class GatedLinearAttention(nn.Module):
         else:
             g = F.logsigmoid(logits)
         g = g / self.gate_logit_normalizer
-        if x.is_cuda and not torch.onnx.is_in_onnx_export():
+        if (
+            x.is_cuda
+            and not torch.onnx.is_in_onnx_export()
+            and not torch.jit.is_tracing()
+        ):
             try:
                 from fla.ops.gla import chunk_gla
             except ImportError:
