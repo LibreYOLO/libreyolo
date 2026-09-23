@@ -4,7 +4,8 @@ Revision: 782e737efe2e6437ac537fbdcee089673d3376c1
 License: MIT (LICENSE in this directory)
 Copyright (c) 2026 Intellindust-AI-Lab / The GTR Authors.
 
-Ported backbone, spatial SwiGLU, feature projector, decoder, matching and loss.
+Ported backbone, spatial SwiGLU, feature projector, decoder, matching, loss
+and scheduler in libreyolo/models/gtr/.
 Modified for native LibreYOLO construction, portable attention, local imports,
 strict checkpoints, and validation loss output/normalization.
 

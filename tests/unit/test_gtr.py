@@ -13,10 +13,24 @@ pytestmark = pytest.mark.unit
 
 @pytest.fixture(autouse=True)
 def cpu_threads():
+    import random
+
+    import numpy as np
+
     previous = torch.get_num_threads()
+    python_rng, numpy_rng, torch_rng = (
+        random.getstate(),
+        np.random.get_state(),
+        torch.get_rng_state(),
+    )
     torch.set_num_threads(2)
-    yield
-    torch.set_num_threads(previous)
+    try:
+        yield
+    finally:
+        torch.set_num_threads(previous)
+        random.setstate(python_rng)
+        np.random.set_state(numpy_rng)
+        torch.set_rng_state(torch_rng)
 
 
 def test_recurrence_matches_explicit_causal_sum_and_gradients():
@@ -289,12 +303,17 @@ def test_unsupported_training_policy_is_rejected(kwargs):
 def test_resume_keeps_resolved_optimizer_overrides(monkeypatch):
     from types import SimpleNamespace
 
+    from libreyolo.models.gtr.config import GTRConfig
+    from libreyolo.models.gtr.scheduler import GTRScheduler
     from libreyolo.models.gtr.trainer import GTRTrainer
     from libreyolo.training.trainer import BaseTrainer
 
     trainer = object.__new__(GTRTrainer)
     group = {"lr": 0.003, "lr_mult": 0.004, "weight_decay": 0.012}
     trainer.optimizer = SimpleNamespace(param_groups=[group])
+    trainer.lr_scheduler = GTRScheduler(0.001, 1000, GTRConfig())
+    trainer.start_epoch = 15
+    monkeypatch.setattr(GTRTrainer, "_scheduler_steps_per_epoch", lambda t: 1000)
 
     def restore(t, path):
         t.optimizer.param_groups[0].update(lr=0.1, lr_mult=0.5, weight_decay=0.5)
@@ -303,7 +322,9 @@ def test_resume_keeps_resolved_optimizer_overrides(monkeypatch):
     monkeypatch.setattr(BaseTrainer, "resume", restore)
     trainer.resume("last.pt")
     assert trainer.restored_path == "last.pt"
-    assert group == {"lr": 0.003, "lr_mult": 0.004, "weight_decay": 0.012}
+    assert group["lr_mult"] == 0.004
+    assert group["weight_decay"] == 0.012
+    assert group["lr"] == pytest.approx(0.0008204331392103574 * 0.004)
 
 
 def test_training_transform_keeps_original_aspect_geometry(tmp_path):
