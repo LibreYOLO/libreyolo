@@ -1380,3 +1380,30 @@ def test_new_knobs_appear_in_help_json():
     assert by_name["fliplr"].get("default") is None
     assert by_name["flipud"]["default"] == pytest.approx(0.0)
     assert by_name["cutmix"]["default"] == pytest.approx(0.0)
+
+
+@pytest.mark.parametrize('syntax', ['key_value', 'flags'])
+@pytest.mark.parametrize('resume,expected', [
+    ('true', 'LibreGTRs.pt'), ('false', False), ('/tmp/gtr-last.pt', '/tmp/gtr-last.pt'),
+])
+def test_gtr_resume_reaches_training(monkeypatch, tmp_path, syntax, resume, expected):
+    captured = {}
+
+    class GTRLike:
+        FAMILY = 'gtr'
+        task = 'detect'
+        device = 'cpu'
+
+        def train(self, data, **kwargs):
+            captured.update(kwargs)
+            return {'save_dir': str(tmp_path)}
+
+    monkeypatch.setattr('libreyolo.cli.commands.train.load_model_or_exit',
+                        lambda **kwargs: GTRLike())
+    args = ['model=LibreGTRs.pt', 'data=dummy.yaml', '--json']
+    args += [f'resume={resume}'] if syntax == 'key_value' else ['--resume', resume]
+    result = runner.invoke(_make_app(), args)
+    assert result.exit_code == 0, result.output
+    assert captured['resume'] == expected
+    # Unspecified Typer defaults must not override saved resume settings.
+    assert not {'imgsz', 'batch', 'lr0', 'weight_decay', 'ema'} & captured.keys()
