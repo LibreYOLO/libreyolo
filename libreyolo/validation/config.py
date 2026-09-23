@@ -50,7 +50,8 @@ class ValidationConfig:
             confusion matrix, sample images). Default False.
         visualize: Draw every validated image to ``save_dir/visualize/``
             with true positives (green), false positives (red) and false
-            negatives (orange) at confidence 0.25 and IoU 0.5, class-aware.
+            negatives (orange) at confidence 0.25 (or conf_thres if higher)
+            and IoU 0.5, class-aware.
             Classification draws the label and the top-1 prediction.
             Detect, segment and classify only. Default False.
         show_labels: Class names on the ``visualize`` images. Default True.
