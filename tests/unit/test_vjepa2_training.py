@@ -409,3 +409,69 @@ class TestEpochValidation:
         assert result is not None
         assert result["best_metric_key"] == "metrics/accuracy_top1"
         assert result["metrics"]["speed/images_seen"] == 4
+
+    def _validator(self, tmp_path, wrapper):
+        from libreyolo.models.vjepa2.validator import VJEPA2ClipValidator
+        from libreyolo.validation import ValidationConfig
+
+        return VJEPA2ClipValidator(
+            model=wrapper,
+            config=ValidationConfig(
+                data=str(_write_clip_dataset(tmp_path)), batch_size=2, imgsz=64,
+                device="cpu", num_workers=0, verbose=False,
+                save_dir=str(tmp_path / "val"),
+            ),
+        )
+
+    def test_reordered_class_names_are_refused(self, tmp_path):
+        wrapper = _tiny_wrapper()
+        wrapper.names = {0: "b", 1: "a"}  # the manifest says 0: a, 1: b
+        with pytest.raises(ValueError, match="must match the model class names"):
+            self._validator(tmp_path, wrapper).run()
+
+    def test_more_dataset_classes_than_the_head_are_refused(self, tmp_path):
+        wrapper = _tiny_wrapper()
+        wrapper.nb_classes = 1
+        wrapper.names = {0: "class_0"}
+        with pytest.raises(ValueError, match="model head has 1"):
+            self._validator(tmp_path, wrapper).run()
+
+    def test_generic_model_names_defer_to_the_dataset(self, tmp_path):
+        wrapper = _tiny_wrapper()
+        wrapper.names = {0: "class_0", 1: "class_1"}
+        metrics = self._validator(tmp_path, wrapper).run()
+        assert metrics["speed/images_seen"] == 4
+
+
+class TestClassesFollowTheDataset:
+    """Training takes the head size and names from the video dataset (side quest)."""
+
+    def _trainer(self, tmp_path, wrapper):
+        from types import SimpleNamespace
+
+        trainer = VJEPA2Trainer.__new__(VJEPA2Trainer)
+        trainer.wrapper_model = wrapper
+        trainer.model = wrapper.model
+        trainer.device = torch.device("cpu")
+        trainer.config = SimpleNamespace(
+            data=str(_write_clip_dataset(tmp_path)), batch=2, workers=0, num_classes=None
+        )
+        return trainer
+
+    def test_a_different_class_count_rebuilds_the_head(self, tmp_path):
+        wrapper = _tiny_wrapper()
+        wrapper._rebuild_for_new_classes(5)
+        trainer = self._trainer(tmp_path, wrapper)
+        trainer._setup_data()
+        assert wrapper.model.classifier.out_features == 2
+        assert trainer.model is wrapper.model
+        assert wrapper.nb_classes == 2 and trainer.num_classes == 2
+        assert wrapper.names == {0: "a", 1: "b"}
+
+    def test_a_matching_head_is_kept_and_named(self, tmp_path):
+        wrapper = _tiny_wrapper()
+        wrapper.names = {0: "class_0", 1: "class_1"}
+        head = wrapper.model.classifier
+        self._trainer(tmp_path, wrapper)._setup_data()
+        assert wrapper.model.classifier is head
+        assert wrapper.names == {0: "a", 1: "b"}
