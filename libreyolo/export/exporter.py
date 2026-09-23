@@ -291,6 +291,138 @@ class _YOLONASExportWrapper(torch.nn.Module):
         return output
 
 
+# Logits beyond this bound are scores below 0.0004 or above 0.9996.
+_INT8_LOGIT_BOUND = 8.0
+
+
+def _bounded_sigmoid(conv: torch.nn.Conv2d, x: torch.Tensor) -> torch.Tensor:
+    """``sigmoid(conv(x))`` with the logits bounded inside the conv output.
+
+    Full-integer quantization gives the conv output one int8 scale over its
+    calibrated range. Background logits reach about -380 on YOLO9, which
+    leaves about 1.5 logit per int8 step and collapses mid-range scores. The
+    conv is rescaled so ``[-B, B]`` maps onto ``[0, 6]`` and clamped there; the
+    converter lowers that clamp to a RELU6 fused into the conv, so the int8
+    range covers only ``[-B, B]``.
+    """
+    bound = _INT8_LOGIT_BOUND
+    k = 6.0 / (2.0 * bound)
+    z = torch.nn.functional.conv2d(
+        x,
+        conv.weight * k,
+        (conv.bias + bound) * k,
+        conv.stride,
+        conv.padding,
+        conv.dilation,
+        conv.groups,
+    )
+    return (z.clamp(0.0, 6.0) / k - bound).sigmoid()
+
+
+class _YOLOXSplitOutputWrapper(torch.nn.Module):
+    """YOLOX detection graph with boxes and scores as separate outputs.
+
+    Full-integer TFLite gives every tensor one int8 scale. The regular export
+    concatenates pixel boxes (0 to imgsz) with sigmoid scores (0 to 1), so a
+    single scale near 2.7 rounds every score to zero. Here boxes are divided
+    by the input canvas and never share a tensor with scores:
+    ``boxes`` is ``(B, 4, N)`` cxcywh over ``(W, H, W, H)`` and ``scores`` is
+    ``(B, N, 1 + nc)`` objectness then class probabilities.
+    """
+
+    def __init__(self, model: torch.nn.Module, canvas_hw: tuple[int, int]):
+        super().__init__()
+        self.model = model
+        self.canvas_h, self.canvas_w = (int(v) for v in canvas_hw)
+
+    def forward(self, x):
+        head = self.model.head
+        boxes, scores = [], []
+        for k, (cls_conv, reg_conv, stride, feat) in enumerate(
+            zip(head.cls_convs, head.reg_convs, head.strides, self.model.backbone(x))
+        ):
+            feat = head.stems[k](feat)
+            cls_prob = _bounded_sigmoid(head.cls_preds[k], cls_conv(feat))
+            reg_feat = reg_conv(feat)
+            reg = head.reg_preds[k](reg_feat).flatten(2)  # (B, 4, HW)
+            obj_prob = _bounded_sigmoid(head.obj_preds[k], reg_feat)
+            h, w = feat.shape[-2:]
+            yv, xv = torch.meshgrid(
+                torch.arange(h, device=x.device),
+                torch.arange(w, device=x.device),
+                indexing="ij",
+            )
+            gx = xv.reshape(1, -1).to(reg.dtype)
+            gy = yv.reshape(1, -1).to(reg.dtype)
+            sx = float(stride) / self.canvas_w
+            sy = float(stride) / self.canvas_h
+            boxes.append(
+                torch.stack(
+                    [
+                        (reg[:, 0] + gx) * sx,
+                        (reg[:, 1] + gy) * sy,
+                        torch.exp(reg[:, 2]) * sx,
+                        torch.exp(reg[:, 3]) * sy,
+                    ],
+                    dim=1,
+                )
+            )
+            scores.append(
+                torch.cat([obj_prob, cls_prob], 1).flatten(2).permute(0, 2, 1)
+            )
+        return torch.cat(boxes, 2), torch.cat(scores, 1)
+
+
+class _YOLO9SplitOutputWrapper(torch.nn.Module):
+    """YOLO9 detection graph with boxes and scores as separate outputs.
+
+    Same reason as :class:`_YOLOXSplitOutputWrapper`. Boxes are decoded per
+    pyramid level into xyxy over ``(W, H, W, H)`` so each level's grid range
+    is quantized on its own: ``boxes`` is ``(B, 4, N)`` and ``scores`` is
+    ``(B, N, nc)`` sigmoid class probabilities.
+    """
+
+    def __init__(self, model: torch.nn.Module, canvas_hw: tuple[int, int]):
+        super().__init__()
+        self.model = model
+        self.canvas_h, self.canvas_w = (int(v) for v in canvas_hw)
+
+    def forward(self, x):
+        feats = self.model.neck(*self.model.backbone(x))
+        head = self.model.head
+        boxes, scores = [], []
+        for i, (feat, stride) in enumerate(zip(feats, head._stride_values)):
+            h, w = feat.shape[-2:]
+            distances = head.dfl(head.cv2[i](feat).flatten(2))  # (B, 4, HW) ltrb
+            shift_y, shift_x = torch.meshgrid(
+                torch.arange(h, device=x.device, dtype=distances.dtype) + 0.5,
+                torch.arange(w, device=x.device, dtype=distances.dtype) + 0.5,
+                indexing="ij",
+            )
+            ax = shift_x.reshape(1, -1)
+            ay = shift_y.reshape(1, -1)
+            sx = float(stride) / self.canvas_w
+            sy = float(stride) / self.canvas_h
+            boxes.append(
+                torch.stack(
+                    [
+                        (ax - distances[:, 0]) * sx,
+                        (ay - distances[:, 1]) * sy,
+                        (ax + distances[:, 2]) * sx,
+                        (ay + distances[:, 3]) * sy,
+                    ],
+                    dim=1,
+                )
+            )
+            cls_tower = head.cv3[i]
+            scores.append(
+                _bounded_sigmoid(cls_tower[-1], cls_tower[:-1](feat))
+                .flatten(2)
+                .permute(0, 2, 1)
+            )
+        return torch.cat(boxes, 2), torch.cat(scores, 1)
+
+
 # =============================================================================
 # BaseExporter ABC
 # =============================================================================
@@ -2339,13 +2471,19 @@ class TFLiteExporter(BaseExporter):
     format_name = "tflite"
     suffix = ".tflite"
     requires_onnx = True
-    supports_int8 = False
+    supports_int8 = True
     supports_fp16 = False
     apply_model_half = False
+    # Like ONNX INT8 and the YOLO export convention, int8=True without data=
+    # calibrates on the default dataset and warns that it is not representative.
+    default_int8_calibration_data = True
 
     def __call__(self, *args, dynamic: bool = False, **kwargs) -> str:
         if dynamic:
             raise ValueError("TFLite export requires static input shapes.")
+        if kwargs.get("int8") and int(kwargs.get("batch") or 1) != 1:
+            # onnx2tf feeds the representative dataset one image at a time.
+            raise ValueError("TFLite INT8 export requires batch=1.")
         from .tflite import ensure_tflite_family_supported
 
         ensure_tflite_family_supported(
@@ -2359,18 +2497,51 @@ class TFLiteExporter(BaseExporter):
             raise ValueError(
                 "TFLite FP16 export is not supported yet. Omit half=True for FP32."
             )
-        if int8:
-            raise ValueError(
-                "TFLite INT8 quantization is not supported yet. "
-                "Omit int8=True for FP32."
-            )
         return super()._validate(half, int8, data)
 
     def _preflight(self, **kwargs):
-        from .tflite import check_tflite_export_available
+        from .tflite import (
+            TFLITE_INT8_EXPORTS,
+            check_tflite_export_available,
+            check_tflite_int8_available,
+        )
 
+        family = self.model._get_model_name()
+        task = getattr(self.model, "task", "detect")
+        self._split_outputs = False
+        if kwargs.get("int8"):
+            if (family, task) not in TFLITE_INT8_EXPORTS:
+                supported = ", ".join(f"{f} {t}" for f, t in sorted(TFLITE_INT8_EXPORTS))
+                raise NotImplementedError(
+                    f"TFLite INT8 export currently supports: {supported}. "
+                    f"Got model family {family!r}, task {task!r}."
+                )
+            self._split_outputs = True
         super()._preflight(**kwargs)
         check_tflite_export_available()
+        if kwargs.get("int8"):
+            check_tflite_int8_available()
+
+    def _export_intermediate_onnx(
+        self, nn_model, dummy, output_path, opset, simplify, dynamic
+    ):
+        if getattr(self, "_split_outputs", False):
+            wrapper = {
+                "yolox": _YOLOXSplitOutputWrapper,
+                "yolo9": _YOLO9SplitOutputWrapper,
+            }[self.model._get_model_name()]
+            nn_model = wrapper(nn_model, dummy.shape[-2:]).eval()
+        return super()._export_intermediate_onnx(
+            nn_model, dummy, output_path, opset, simplify, dynamic
+        )
+
+    def _build_metadata(self, precision, dynamic, onnx_path, imgsz=None):
+        from .tflite import SPLIT_OUTPUT_LAYOUT
+
+        meta = super()._build_metadata(precision, dynamic, onnx_path, imgsz=imgsz)
+        if getattr(self, "_split_outputs", False):
+            meta["output_layout"] = SPLIT_OUTPUT_LAYOUT
+        return meta
 
     def _export(
         self,
@@ -2381,6 +2552,8 @@ class TFLiteExporter(BaseExporter):
         metadata,
         onnx_path,
         half,
+        int8,
+        calibration_data,
         verbose,
         onnx2tf_args=None,
         **kwargs,
@@ -2397,6 +2570,8 @@ class TFLiteExporter(BaseExporter):
             onnx_path=onnx_path,
             output_path=output_path,
             half=half,
+            int8=int8,
+            calibration_data=calibration_data,
             verbose=verbose,
             onnx2tf_args=onnx2tf_args,
             metadata=metadata,
