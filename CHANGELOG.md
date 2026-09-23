@@ -128,6 +128,13 @@ before 1.4.0 are documented in the
   bit-identical to before, and so are the validation inputs of the other
   families.
 
+- **V-JEPA 2 fine-tuning validates again.** Epoch validation handed the video
+  dataset YAML to the ImageFolder validator, which failed every epoch, so no
+  `metrics/accuracy_top1` reached `best.pt` or early stopping. V-JEPA 2 now
+  validates on its video `val` manifest through `VJEPA2ClipValidator`, which
+  `val()` uses too; training validation uses the model's `validator_class` like
+  `val()` does.
+
 - **RF-DETR custom pose checkpoint loading (#874).** Rebuilt GroupPose
   attention masks stay on the decoder's device, preventing device mismatches
   after keypoint schema changes. Custom pose class names are preserved from
