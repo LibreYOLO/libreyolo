@@ -345,3 +345,18 @@ def test_training_transform_keeps_original_aspect_geometry(tmp_path):
     np.testing.assert_allclose(labels[0], [0, 80, 80, 80, 80])
     expected = np.array([(1 - 0.485) / 0.229, (1 - 0.456) / 0.224, (1 - 0.406) / 0.225])
     np.testing.assert_allclose(tensor[:, 0, 0], expected, atol=1e-6)
+
+
+def test_scheduler_respects_overrides_that_fit_the_run():
+    from libreyolo.models.gtr.config import GTRConfig
+    from libreyolo.models.gtr.scheduler import GTRScheduler
+
+    schedule = GTRScheduler(
+        0.001, 1000, GTRConfig(warmup_epochs=5, flat_epochs=10, no_aug_epochs=8)
+    )
+    assert schedule.warmup_iters == 5000
+    assert schedule.flat_iters == 10000
+    assert schedule.tail_iters == 8000
+    assert schedule.update_lr(5000) == pytest.approx(0.001)
+    assert schedule.update_lr(10000) == pytest.approx(0.001)
+    assert schedule.update_lr(22000) == pytest.approx(0.0005)
