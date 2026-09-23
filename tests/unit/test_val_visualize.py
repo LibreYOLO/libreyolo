@@ -378,3 +378,52 @@ class TestCli:
         """Families whose val() rejects unknown kwargs keep working."""
         kw = self._val(monkeypatch, tmp_path, [])
         assert not {"visualize", "show_labels", "show_conf"} & set(kw)
+
+
+# ---------------------------------------------------------------------------
+# Review fixes: effective confidence and reused run directories
+# ---------------------------------------------------------------------------
+
+
+class TestEffectiveConfidence:
+    @pytest.mark.parametrize("configured,expected", [(0.001, 0.25), (0.25, 0.25), (0.5, 0.5), (None, 0.25)])
+    def test_draws_at_the_higher_of_025_and_the_run_conf(self, configured, expected):
+        from libreyolo.validation.val_plotter import visualize_conf_thres
+
+        assert visualize_conf_thres(configured) == expected
+
+    def test_validator_passes_the_run_conf(self, tmp_path, monkeypatch):
+        seen = {}
+
+        def _record(*args, **kwargs):
+            seen["conf_thres"] = kwargs["conf_thres"]
+
+        monkeypatch.setattr(ValPlotter, "plot_detection_visualize", staticmethod(_record))
+        v = _detection_validator(tmp_path, visualize=True, n_images=1, conf_thres=0.6)
+        v._update_metrics(*_batch([True]))
+        assert seen["conf_thres"] == 0.6
+
+
+class TestReusedRunDirectory:
+    def test_only_visualize_images_from_an_earlier_run_are_removed(self, tmp_path):
+        from libreyolo.validation.val_plotter import reset_visualize_dir
+
+        out = tmp_path / "visualize"
+        out.mkdir()
+        (out / "000007_old.jpg").write_bytes(b"x")
+        (out / "notes.txt").write_text("keep")
+        (out / "mine.jpg").write_bytes(b"x")
+        assert reset_visualize_dir(tmp_path) == out
+        assert sorted(p.name for p in out.iterdir()) == ["mine.jpg", "notes.txt"]
+
+    def test_missing_directory_is_fine(self, tmp_path):
+        from libreyolo.validation.val_plotter import reset_visualize_dir
+
+        assert not reset_visualize_dir(tmp_path / "new").exists()
+
+    def test_classify_run_starts_clean(self, tmp_path):
+        stale = tmp_path / "run" / "visualize" / "000099_old.jpg"
+        stale.parent.mkdir(parents=True)
+        stale.write_bytes(b"x")
+        _classify_validator(tmp_path, visualize=True)
+        assert not stale.exists()

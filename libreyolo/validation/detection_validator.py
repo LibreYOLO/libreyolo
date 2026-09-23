@@ -485,6 +485,10 @@ class DetectionValidator(ValidationLossMixin, BaseValidator):
         # Always initialise plot-tracking state before any early returns
         self._confusion_matrix = None
         self._val_samples: List[Dict] = []
+        if getattr(self.config, "visualize", False):
+            from .val_plotter import reset_visualize_dir  # noqa: PLC0415
+
+            reset_visualize_dir(self.save_dir)
         if self.config.save_plots:
             from .val_plotter import ConfusionMatrix  # noqa: PLC0415
             self._confusion_matrix = ConfusionMatrix(nc=self.nc)
@@ -881,9 +885,10 @@ class DetectionValidator(ValidationLossMixin, BaseValidator):
         Written as the images are validated, so nothing is held in memory.
         Drawing only: it never feeds the metrics.
         """
-        from .val_plotter import ValPlotter  # noqa: PLC0415
+        from .val_plotter import ValPlotter, visualize_conf_thres  # noqa: PLC0415
 
         out_dir = self.save_dir / "visualize"
+        conf_thres = visualize_conf_thres(getattr(self.config, "conf_thres", None))
         for i, pred in enumerate(preds):
             index = self.seen + i
             try:
@@ -906,6 +911,7 @@ class DetectionValidator(ValidationLossMixin, BaseValidator):
                     out_dir / f"{index:06d}_{Path(str(img_path)).stem}.jpg",
                     show_labels=self.config.show_labels,
                     show_conf=self.config.show_conf,
+                    conf_thres=conf_thres,
                 )
             except Exception as exc:
                 logger.warning("visualize failed for image %d: %s", index, exc)

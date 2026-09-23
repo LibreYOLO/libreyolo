@@ -1,6 +1,7 @@
 """Validation result visualisations for LibreYOLO."""
 
 import logging
+import re
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -65,6 +66,35 @@ def _box_iou_numpy(boxes1: np.ndarray, boxes2: np.ndarray) -> np.ndarray:
 VISUALIZE_CONF_THRES = 0.25
 #: IoU at or above which a prediction can match a ground-truth box.
 VISUALIZE_IOU_THRES = 0.5
+
+
+def visualize_conf_thres(configured) -> float:
+    """The confidence ``visualize`` draws at: 0.25, or the run's ``conf`` if higher.
+
+    Postprocessing has already dropped predictions below the configured
+    threshold, so drawing below it would report their objects as misses.
+    """
+    try:
+        return max(VISUALIZE_CONF_THRES, float(configured))
+    except (TypeError, ValueError):
+        return VISUALIZE_CONF_THRES
+
+
+_VISUALIZE_NAME = re.compile(r"^\d{6}_.*\.jpg$")
+
+
+def reset_visualize_dir(save_dir: Path) -> Path:
+    """Return ``save_dir/visualize``, cleared of images from an earlier run.
+
+    Only files matching the ``<index>_<stem>.jpg`` names ``visualize`` writes
+    are removed, so a reused run directory never mixes two runs' images.
+    """
+    out_dir = Path(save_dir) / "visualize"
+    if out_dir.is_dir():
+        for path in out_dir.iterdir():
+            if path.is_file() and _VISUALIZE_NAME.match(path.name):
+                path.unlink()
+    return out_dir
 
 
 def match_detections(
