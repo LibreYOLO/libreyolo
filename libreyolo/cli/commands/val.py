@@ -40,6 +40,13 @@ def val_cmd(
     ),
     data_dir: Optional[str] = typer.Option(None, help="Direct dataset directory"),
     split: str = typer.Option("val", help="Dataset split: val, test, train"),
+    classes: Optional[str] = typer.Option(
+        None,
+        help="Evaluate on only these original dataset class ids, "
+        "comma-separated (e.g. '0,3,5'); every other class's boxes are "
+        "dropped from ground truth and predictions. Defaults to the "
+        "classes= the checkpoint was trained with, if any",
+    ),
     batch: int = typer.Option(16, help="Batch size"),
     imgsz: Optional[str] = typer.Option(
         None, help="Image size: 640 (square) or 480x640 (HxW)"
@@ -156,6 +163,7 @@ def val_cmd(
             allow_download_scripts=allow_download_scripts,
             device=device,
             split=split,
+            classes=classes,
             save_json=save_json,
             save_plots=save_plots,
             verbose=verbose and not quiet,

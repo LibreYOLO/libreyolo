@@ -57,6 +57,7 @@ from .freezing import FreezeGroup, apply_freeze, default_freeze_groups
 from .qat_defaults import apply_qat_training_guards
 from ..data.dataset import YOLODataset, COCODataset, create_dataloader
 from ..data import (
+    build_class_remap,
     get_coco_annotation_file,
     get_coco_image_dir,
     get_img_files,
@@ -143,6 +144,41 @@ def ensure_mutation_reaches_workers(loader, target, hook: str) -> None:
         "silently stop working. Rebuild the dataloader after the mutation "
         "or train with persistent_workers=False."
     )
+
+
+def log_classes_subset_notice(
+    config, num_classes: int, *, context: str = "Training"
+) -> None:
+    """Log a clear, hard-to-miss notice when classes= is filtering this run
+    to a subset of the dataset's declared classes.
+
+    classes= never changes nc/names (see build_class_remap's docstring), so
+    there is nothing in the resolved config that otherwise flags this run as
+    non-standard; without an explicit notice, "why is my model not learning
+    class X" is easy to hit with no clue why. ``context`` names the caller
+    ("Training", "Validating") since this is shared by both.
+    """
+    if not config.classes or not is_main_process():
+        return
+    kept = sorted(set(config.classes))
+    if config.single_cls:
+        logger.warning(
+            "%s on a SUBSET of classes, collapsed to one merged class "
+            "(single_cls=True): keeping original ids %s; every other "
+            "class's boxes are dropped, not trained.",
+            context,
+            kept,
+        )
+    else:
+        logger.warning(
+            "%s on a SUBSET of classes: keeping original ids %s (%d of "
+            "%d declared classes); every other class's boxes are "
+            "dropped, not trained.",
+            context,
+            kept,
+            len(kept),
+            num_classes,
+        )
 
 
 class BaseTrainer(ABC):
@@ -824,7 +860,9 @@ class BaseTrainer(ABC):
                 self.config.data,
                 allow_scripts=self.config.allow_download_scripts,
                 single_cls=self.config.single_cls,
+                classes=self.config.classes,
             )
+            class_remap = data_cfg.get("_class_remap")
             if data_cfg.get("input_profile") is not None or getattr(self.wrapper_model, "input_profile", None) is not None:
                 from ..data.event_histogram import setup_histogram_data
                 return setup_histogram_data(self, data_cfg)
@@ -860,6 +898,7 @@ class BaseTrainer(ABC):
                     num_classes=self.num_classes,
                     names=data_cfg.get("_original_names", data_cfg.get("names")),
                     single_cls=self.config.single_cls,
+                    classes=self.config.classes,
                 )
             elif img_files:
                 train_dataset = YOLODataset(
@@ -871,6 +910,7 @@ class BaseTrainer(ABC):
                     load_obb=load_obb,
                     num_classes=self.num_classes,
                     single_cls=self.config.single_cls,
+                    class_remap=class_remap,
                 )
             elif ann_file.exists():
                 train_dataset = COCODataset(
@@ -888,6 +928,7 @@ class BaseTrainer(ABC):
                     num_classes=self.num_classes,
                     names=data_cfg.get("_original_names", data_cfg.get("names")),
                     single_cls=self.config.single_cls,
+                    classes=self.config.classes,
                 )
             else:
                 train_path = data_cfg.get("train", "images/train")
@@ -914,10 +955,16 @@ class BaseTrainer(ABC):
                     load_obb=load_obb,
                     num_classes=self.num_classes,
                     single_cls=self.config.single_cls,
+                    class_remap=class_remap,
                 )
         elif self.config.data_dir:
             data_dir = self.config.data_dir
+            # classes= only filters which boxes reach the loss; it never
+            # changes nc (kept ids are not compacted -- see build_class_remap).
             self.num_classes = 1 if self.config.single_cls else self.config.num_classes
+            class_remap = build_class_remap(
+                self.config.classes, single_cls=self.config.single_cls
+            )
 
             if (Path(data_dir) / "annotations").exists():
                 train_dataset = COCODataset(
@@ -934,6 +981,7 @@ class BaseTrainer(ABC):
                     load_obb=load_obb,
                     num_classes=self.num_classes,
                     single_cls=self.config.single_cls,
+                    classes=self.config.classes,
                 )
             else:
                 train_dataset = YOLODataset(
@@ -944,6 +992,7 @@ class BaseTrainer(ABC):
                     load_segments=load_segments,
                     load_obb=load_obb,
                     num_classes=self.num_classes,
+                    class_remap=class_remap,
                     single_cls=self.config.single_cls,
                 )
         else:
@@ -1026,6 +1075,8 @@ class BaseTrainer(ABC):
             min_samples=int(getattr(self.config, "min_samples", 0) or 0),
             class_balanced=bool(getattr(self.config, "class_balanced", False)),
         )
+
+        log_classes_subset_notice(self.config, self.num_classes)
 
         if is_main_process():
             logger.info(f"Training dataset: {len(train_dataset)} images")
@@ -1452,18 +1503,34 @@ class BaseTrainer(ABC):
         return train_dataset
 
     def _resolve_num_classes_from_data_config(self) -> int:
-        """Resolve dataset class count before criterion construction."""
+        """Resolve dataset class count before criterion construction.
+
+        Also stashes the dataset's class names on ``self._resolved_class_names``
+        so ``_sync_wrapped_model_num_classes`` can restore them after
+        ``_rebuild_for_new_classes`` resets the wrapper to generic
+        ``class_N`` placeholders. ``classes=`` does not affect either value
+        here -- it only filters which boxes reach the loss, never nc/names
+        (see ``build_class_remap``'s docstring for why).
+        """
         resolved = 1 if self.config.single_cls else int(self.config.num_classes)
+        self._resolved_class_names = None
         if self.config.data:
-            # Only the YAML's class count is needed here; the dataset itself is
-            # downloaded later in _setup_data.
+            # Only the YAML's class count is needed here; the dataset itself
+            # is downloaded later in _setup_data. classes= never changes nc
+            # (kept ids are not compacted -- see build_class_remap); passing
+            # it through here still gets its out-of-range validation early.
             data_cfg = load_data_config(
                 self.config.data,
                 autodownload=False,
                 allow_scripts=self.config.allow_download_scripts,
                 single_cls=self.config.single_cls,
+                classes=self.config.classes,
             )
-            resolved = int(data_cfg.get("nc", resolved))
+            data_nc = data_cfg.get("nc")
+            if data_nc is None and data_cfg.get("names") is not None:
+                data_nc = len(data_cfg["names"])
+            resolved = int(data_nc) if data_nc is not None else resolved
+            self._resolved_class_names = data_cfg.get("names")
 
         self.num_classes = resolved
         self.config.num_classes = resolved
@@ -1476,6 +1543,32 @@ class BaseTrainer(ABC):
             value = getattr(obj, "num_classes", None)
             if value is not None:
                 return int(value)
+        return None
+
+    def _effective_names_for_sync(self) -> Optional[Dict[int, str]]:
+        """Names to stamp on the wrapper after a class-count sync, or ``None``
+        to leave whatever is already there untouched.
+
+        Scoped to single_cls/classes= on purpose: those two are the only
+        cases this trainer promises consistent class metadata for, and
+        ``_rebuild_for_new_classes`` resetting the wrapper to generic
+        ``class_N`` placeholders would otherwise leave that promise broken
+        (a classes=-trained model predicting "class4" instead of its real
+        name). An ordinary full-dataset run hitting a head-size mismatch
+        (e.g. resuming a checkpoint with a different nc) is a separate,
+        pre-existing bug with the same symptom, deliberately left alone
+        here -- fixing it is unrelated to classes= and belongs in its own
+        change, not bundled into this one.
+        """
+        if not (self.config.single_cls or self.config.classes):
+            return None
+        if self.config.single_cls:
+            return {0: "object"}
+        names = getattr(self, "_resolved_class_names", None)
+        if isinstance(names, dict):
+            return {int(k): str(v) for k, v in names.items()}
+        if names is not None:
+            return {i: str(name) for i, name in enumerate(names)}
         return None
 
     def _sync_wrapped_model_num_classes(self, num_classes: int) -> None:
@@ -1493,8 +1586,10 @@ class BaseTrainer(ABC):
         )
 
         if not needs_rebuild:
-            if wrapper is not None and self.config.single_cls:
-                wrapper.names = {0: "object"}
+            if wrapper is not None:
+                effective_names = self._effective_names_for_sync()
+                if effective_names is not None:
+                    wrapper.names = effective_names
             return
 
         if wrapper is None or not hasattr(wrapper, "_rebuild_for_new_classes"):
@@ -1515,8 +1610,9 @@ class BaseTrainer(ABC):
                 f"{self.get_model_family()} wrapper rebuild did not sync the model "
                 f"head to num_classes={num_classes}; got {rebuilt_nc}."
             )
-        if self.config.single_cls:
-            wrapper.names = {0: "object"}
+        effective_names = self._effective_names_for_sync()
+        if effective_names is not None:
+            wrapper.names = effective_names
 
     # =========================================================================
     # Setup / train / epoch
@@ -2876,6 +2972,7 @@ class BaseTrainer(ABC):
             val_config = ValidationConfig(
                 data=self.config.data,
                 single_cls=getattr(self.config, "single_cls", False),
+                classes=getattr(self.config, "classes", None),
                 batch_size=max(1, self.config.batch // max(getattr(self, "world_size", 1), 1)),
                 imgsz=self.config.imgsz,
                 conf_thres=0.001,
@@ -3033,8 +3130,16 @@ class BaseTrainer(ABC):
             )
             original_model = self.wrapper_model.model
             self.wrapper_model.model = eval_pytorch_model
+            # The model's own validator when it declares one, as val() uses,
+            # so families with a family dataset (V-JEPA 2 clips) validate on it.
+            validator_cls = getattr(self.wrapper_model, "validator_class", None)
+            if not (
+                isinstance(validator_cls, type)
+                and issubclass(validator_cls, ClassifyValidator)
+            ):
+                validator_cls = ClassifyValidator
             try:
-                validator = ClassifyValidator(
+                validator = validator_cls(
                     model=self.wrapper_model,
                     config=val_config,
                     **self._validation_loss_kwargs(eval_pytorch_model),

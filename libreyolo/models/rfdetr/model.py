@@ -1,5 +1,6 @@
 """LibreRFDETR implementation for LibreYOLO."""
 
+import logging
 from pathlib import Path
 from typing import Any, ClassVar, Dict, Optional, Tuple
 
@@ -12,6 +13,7 @@ from PIL import Image
 from ...training.callbacks import TrainCallbacks
 from ..base import BaseModel
 from ...data import load_data_config
+from ...data.pose_metadata import keypoints_per_class
 from ...tasks import normalize_task
 from ...utils.image_loader import ImageInput, ImageLoader
 from ...utils.serialization import load_trusted_torch_file
@@ -27,6 +29,8 @@ from ...postprocess.rfdetr import postprocess
 from .utils import IMAGENET_MEAN, IMAGENET_STD, preprocess_numpy
 from .trainer import RFDETRTrainer
 from ...validation.preprocessors import RFDETRValPreprocessor
+
+logger = logging.getLogger(__name__)
 
 # COCO 91-class to 80-class mapping.
 # RF-DETR pretrained models output 91 COCO category IDs (1-90),
@@ -836,6 +840,17 @@ class LibreRFDETR(BaseModel):
         keypoint_precision = result.get("keypoint_precision_cholesky")
         obb = result.get("obb")
 
+        if is_grouppose and keypoints is not None:
+            # Keypoint slots are ``max(schema)`` wide; report ``kpt_shape[0]``
+            # rows, zero-padded, when no class uses the full skeleton.
+            missing = int(self.num_keypoints) - int(keypoints.shape[1])
+            if missing > 0:
+                keypoints = torch.nn.functional.pad(keypoints, (0, 0, 0, missing))
+                if keypoint_precision is not None:
+                    keypoint_precision = torch.nn.functional.pad(
+                        keypoint_precision, (0, 0, 0, missing), value=float("nan")
+                    )
+
         keep = scores > conf_thres
         scores = scores[keep]
         labels = labels[keep]
@@ -1058,13 +1073,12 @@ class LibreRFDETR(BaseModel):
                 if isinstance(args, dict)
                 else getattr(args, "class_names", None)
             )
-            if class_names:
+            # Pose checkpoint metadata is authoritative; legacy args are a fallback.
+            if class_names and (ckpt_names is None or not self._is_pose):
                 self.names = {
                     i: str(name)
                     for i, name in enumerate(class_names[: self.nb_classes])
                 }
-            if self._is_pose and self.nb_classes == 1:
-                self.names = {0: "person"}
 
             if missing:
                 # ``strict=False`` is expected for class/head adaptation and older
@@ -1278,29 +1292,56 @@ class LibreRFDETR(BaseModel):
                 raise ValueError(
                     f"RF-DETR pose training supports keypoint_dim 2 or 3, got {keypoint_dim}"
                 )
-            data_nc = int(data_cfg.get("nc", 1))
-            if data_nc != 1:
+            names = data_cfg.get("names")
+            data_nc = int(
+                data_cfg.get("nc", len(names) if names is not None else 1)
+            )
+            if data_nc > 1 and not names:
+                # The pose validator builds its categories from ``names``.
                 raise ValueError(
-                    f"RF-DETR pose training expects a person-only dataset with nc=1, got nc={data_nc}"
+                    f"RF-DETR pose training on nc={data_nc} classes needs "
+                    "``names`` in the dataset yaml"
                 )
-            if self.model.num_keypoints != num_keypoints:
+            counts = keypoints_per_class(data_cfg, data_nc, num_keypoints)
+            if not any(counts):
+                raise ValueError(
+                    "RF-DETR pose training needs at least one class with "
+                    "keypoints; kpt_names declares none"
+                )
+            narrowed = {
+                j: count for j, count in enumerate(counts) if count < num_keypoints
+            }
+            if narrowed:
+                logger.warning(
+                    "kpt_names narrows RF-DETR pose classes to fewer than the "
+                    "%d kpt_shape keypoints (class id: keypoints used): %s",
+                    num_keypoints,
+                    narrowed,
+                )
+            if getattr(self.model.model, "use_grouppose_keypoints", False):
+                # GroupPose schema: a leading empty slot, then one keypoint
+                # count per contiguous class (``[0, 17]`` for person-only).
+                target_schema = [0, *counts]
+                if list(self.model.model.get_num_keypoints_per_class()) != target_schema:
+                    self.model.model.reinitialize_keypoint_head(target_schema)
+                self.model.num_keypoints_per_class = target_schema
+                self.model.args.num_keypoints_per_class = target_schema
+                self.model.num_keypoints = num_keypoints
+                self.model.args.num_keypoints = num_keypoints
+            elif self.model.num_keypoints != num_keypoints:
                 self.model.model.reinitialize_keypoint_head(num_keypoints)
                 self.model.num_keypoints = num_keypoints
                 self.model.args.num_keypoints = num_keypoints
-                # --- GroupPose keypoint additions (adapted from RF-DETR v1.8.0). ---
-                # reinitialize_keypoint_head resizes the inner model's GroupPose
-                # schema (e.g. [0, 17] -> [0, K]); propagate the resized schema to
-                # the wrapper and args so the grouppose postprocess (which reads
-                # the schema) and the criterion build (from args) match the new
-                # 2*K keypoint slots instead of the stale [0, 17].
-                if getattr(self.model.model, "use_grouppose_keypoints", False):
-                    resized_schema = list(self.model.model.get_num_keypoints_per_class())
-                    self.model.num_keypoints_per_class = resized_schema
-                    self.model.args.num_keypoints_per_class = resized_schema
             self.num_keypoints = num_keypoints
             self.keypoint_dim = keypoint_dim
-            self.nb_classes = 1
-            self.names = {0: "person"}
+            self.nb_classes = data_nc
+            if isinstance(names, (list, tuple)):
+                names = dict(enumerate(names))
+            self.names = (
+                self._sanitize_names(names, data_nc)
+                if names
+                else {0: "person"} if data_nc == 1 else self._sanitize_names({}, data_nc)
+            )
             oks_sigmas = train_kwargs.get(
                 "oks_sigmas",
                 data_cfg.get("oks_sigmas", data_cfg.get("sigmas")),
@@ -1308,7 +1349,7 @@ class LibreRFDETR(BaseModel):
             pose_train_metadata = {
                 "num_keypoints": num_keypoints,
                 "keypoint_dim": keypoint_dim,
-                "num_classes": 1,
+                "num_classes": data_nc,
             }
             if oks_sigmas is not None:
                 pose_train_metadata["oks_sigmas"] = oks_sigmas

@@ -173,6 +173,26 @@ def _resize_linear(linear: nn.Linear, num_classes: int) -> nn.Linear:
     return new_linear
 
 
+def _select_linear_rows(linear: nn.Linear, rows: "list[int]") -> nn.Linear:
+    """Return a new :class:`~torch.nn.Linear` whose output ``i`` copies row ``rows[i]``."""
+    index = torch.as_tensor(rows, dtype=torch.long, device=linear.weight.device)
+    new_linear = nn.Linear(
+        linear.in_features,
+        len(rows),
+        bias=linear.bias is not None,
+        device=linear.weight.device,
+        dtype=linear.weight.dtype,
+    )
+    with torch.no_grad():
+        new_linear.weight.copy_(linear.weight.detach().index_select(0, index))
+        if linear.bias is not None:
+            new_linear.bias.copy_(linear.bias.detach().index_select(0, index))
+    new_linear.weight.requires_grad = linear.weight.requires_grad
+    if linear.bias is not None:
+        new_linear.bias.requires_grad = linear.bias.requires_grad
+    return new_linear
+
+
 # ---------------------------------------------------------------------------
 # GroupPose keypoint helpers (ported from RF-DETR v1.8.0 keypoint preview).
 # ---------------------------------------------------------------------------
@@ -374,6 +394,28 @@ class LWDETR(nn.Module):
                 [_resize_linear(m, num_classes) for m in self.transformer.enc_out_class_embed]
             )
 
+    def reinitialize_grouppose_class_head(self, num_columns: int) -> None:
+        """Resize the GroupPose class head to ``num_columns`` (empty slot + one per class).
+
+        Column 0 is the empty schema slot and is never a target, so its row is
+        trained to stay off. Tiling (``reinitialize_detection_head``) would copy
+        that row into new class columns, and a class without keypoint-logit
+        boost then starts near zero probability and barely learns under the
+        IoU-aware classification loss. Instead, column 0 keeps the old empty
+        row, existing class columns keep their rows, and new class columns copy
+        the old class rows cyclically (the person row for ``[0, 17]``).
+        """
+        old_columns = int(self.class_embed.out_features)
+        if old_columns < 2:
+            rows = [0] * num_columns
+        else:
+            rows = [0] + [1 + (i - 1) % (old_columns - 1) for i in range(1, num_columns)]
+        self.class_embed = _select_linear_rows(self.class_embed, rows)
+        if self.two_stage:
+            self.transformer.enc_out_class_embed = nn.ModuleList(
+                [_select_linear_rows(m, rows) for m in self.transformer.enc_out_class_embed]
+            )
+
     @staticmethod
     def _create_kp_active_mask(num_keypoints_per_class: "list[int]") -> torch.Tensor:
         """Create a compact class-by-keypoint active mask for a keypoint schema.
@@ -388,30 +430,6 @@ class LWDETR(nn.Module):
         for class_idx, num_keypoints in enumerate(num_keypoints_per_class):
             kp_active[class_idx, :num_keypoints] = True
         return kp_active
-
-    @staticmethod
-    def _create_keypoint_class_mask(num_keypoints_per_class: "list[int]") -> torch.Tensor:
-        """Create an attention mask that blocks cross-class keypoint interactions.
-
-        Ported from RF-DETR v1.8.0 (GroupPose keypoint additions).
-        """
-        if not num_keypoints_per_class:
-            return torch.zeros(1, 1, dtype=torch.bool)
-
-        total_keypoints = sum(num_keypoints_per_class)
-        mask = torch.zeros(1 + total_keypoints, 1 + total_keypoints, dtype=torch.bool)
-        for class_idx_i, num_keypoints_i in enumerate(num_keypoints_per_class):
-            if num_keypoints_i == 0:
-                continue
-            start_i = 1 + sum(num_keypoints_per_class[:class_idx_i])
-            end_i = start_i + num_keypoints_i
-            for class_idx_j, num_keypoints_j in enumerate(num_keypoints_per_class):
-                if num_keypoints_j == 0 or class_idx_i == class_idx_j:
-                    continue
-                start_j = 1 + sum(num_keypoints_per_class[:class_idx_j])
-                end_j = start_j + num_keypoints_j
-                mask[start_i:end_i, start_j:end_j] = True
-        return mask
 
     def get_num_keypoints_per_class(self) -> "list[int]":
         """Return the current keypoint schema inferred from the active-keypoint mask.
@@ -490,9 +508,6 @@ class LWDETR(nn.Module):
                 decoder.keypoint_pos_embed = _resize_parameter_rows(keypoint_pos_embed, total_keypoints)
             if hasattr(decoder, "_create_keypoint_class_mask"):
                 decoder._create_keypoint_class_mask()
-            elif hasattr(decoder, "keypoint_class_mask"):
-                current_mask = decoder.keypoint_class_mask
-                decoder.keypoint_class_mask = self._create_keypoint_class_mask(schema).to(current_mask.device)
 
         for initializer_name in ("keypoint_query_initializer", "keypoint_query_initializer_enc"):
             initializer = getattr(self.transformer, initializer_name, None)

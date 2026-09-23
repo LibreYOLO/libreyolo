@@ -494,6 +494,7 @@ def test_detection_validator_uses_explicit_coco_json_paths(tmp_path):
         save_plots=False,
         max_det=300,
         eval_max_det=None,
+        classes=None,
     )
     validator.model = SimpleNamespace(
         _get_input_size=lambda: 64,
@@ -742,6 +743,7 @@ def test_detection_validator_accepts_txt_split_with_discovered_coco_json(tmp_pat
         imgsz=64,
         batch_size=1,
         num_workers=0,
+        classes=None,
     )
     validator.model = SimpleNamespace(
         _get_input_size=lambda: 64,

@@ -12,6 +12,7 @@ from ..utils.serialization import (
     warn_on_metadata_schema_version,
 )
 from .base import (
+    classify_eval_kwargs,
     BaseBackend,
     ImageSize,
     MetadataImageSizeError,
@@ -174,12 +175,7 @@ class OnnxBackend(BaseBackend):
             task=resolved_task,
             supported_tasks=supported_tasks,
             default_task=default_task,
-            crop_pct=(
-                float(runtime_metadata["crop_pct"])
-                if runtime_metadata.get("crop_pct")
-                else None
-            ),
-            interpolation=runtime_metadata.get("interpolation"),
+            **classify_eval_kwargs(runtime_metadata),
             num_bins=(
                 int(runtime_metadata["num_bins"])
                 if runtime_metadata.get("num_bins")

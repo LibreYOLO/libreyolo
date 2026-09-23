@@ -22,6 +22,32 @@ before 1.4.0 are documented in the
   `docs/classification_training.md`. Targets outside the model's class range
   raise a dataset/model mismatch error rather than inflate the macro metrics.
 
+- **TFLite INT8 export for YOLOX and YOLO9 detection (#816).**
+  `export(format="tflite", int8=True, data=..., fraction=...)` and
+  `libreyolo export --format tflite --int8 --data ...` produce a full-integer
+  model (int8 input and outputs) through onnx2tf's TensorFlow converter.
+  Boxes, normalized by the input size, and scores are separate outputs, so
+  each keeps its own int8 scale: a single concatenated output quantized every
+  score to zero. `TFLiteBackend` rebuilds the usual layout from the sidecar
+  `output_layout`, so `predict()` and `val()` work unchanged. Without `data=`,
+  calibration falls back to coco8 with a warning, as for ONNX INT8. Requires
+  TensorFlow (`pip install "onnx2tf[tensorflow]"`) and `batch=1`; other
+  families still reject `int8=True`. On 200 held-out COCO val2017 images with
+  100 calibration images, mAP50-95 goes from 0.453 (FP32) to 0.416 for
+  YOLOX-s and from 0.442 to 0.367 for YOLO9-t; more calibration images help
+  (YOLO9-t: 0.333 with 32).
+
+- **RF-DETR pose trains on multi-class datasets (#872).** The `nc=1` check is
+  gone: every class gets its own GroupPose keypoint group, and the dataset
+  yaml's optional `kpt_names`, keyed by class index or name, gives a class
+  fewer keypoints than `kpt_shape`, or none with `[]`. A class without
+  keypoints is predicted as a box with zeroed keypoints instead of being
+  dropped, in PyTorch and in exported runtimes. Fine-tuning the COCO person
+  checkpoint on such a dataset resizes the keypoint queries and the class
+  head. Person-only training and checkpoints behave exactly as before.
+  Known limit: pose validation scores keypoint mAP only, so a class without
+  keypoints is not scored and does not affect `best.pt` selection.
+
 - **Validation sample-plot count is configurable (#830).** `plot_samples` sets
   how many validated images appear in the sample-image plot, on `val()`,
   `train()` and both CLI commands. `0` disables that plot, `-1` keeps every
@@ -110,6 +136,40 @@ before 1.4.0 are documented in the
   accepting them silently.
 
 ### Fixed
+
+- **Classification `val()`, INT8 calibration and exports use the model's own
+  eval pipeline (#886).** The validator now takes the transform from the model
+  (`_get_eval_transform`), the classification counterpart of
+  `_get_val_preprocessor`. Fixes pipelines that were scored on different
+  preprocessing than `predict()` runs: PE (`val()` used a center crop and
+  ImageNet statistics instead of its square resize and 0.5 mean/std), V-JEPA 2
+  (a torchvision crop instead of its frame preprocessing), and exported ViT,
+  CLIP, SigLIP2 and PE (`val()` normalized with ImageNet statistics). Exports
+  now record `norm_mean` / `norm_std` / `resize_mode`; older exports keep their
+  family values. INT8 calibration dropped every image for AlexNet, VGG,
+  ResNet, EfficientNetV2, ConvNeXt, ConvNeXt V2, MobileNetV4, DeiT, Swin and
+  ViT (their preprocessor returned a tensor instead of `(array, ratio)`), and
+  calibrated DINOv2 classifiers with its semantic pipeline. The AlexNet, VGG,
+  ResNet, EfficientNetV2, ConvNeXt, MobileNetV4 and DeiT eval transforms now
+  call the shared builder in `data/augment/classify.py`, like every other
+  classifier, so inference and validation run the same code; their outputs are
+  bit-identical to before, and so are the validation inputs of the other
+  families.
+
+- **V-JEPA 2 fine-tuning validates again.** Epoch validation handed the video
+  dataset YAML to the ImageFolder validator, which failed every epoch, so no
+  `metrics/accuracy_top1` reached `best.pt` or early stopping. V-JEPA 2 now
+  validates on its video `val` manifest through `VJEPA2ClipValidator`, which
+  `val()` uses too; training validation uses the model's `validator_class` like
+  `val()` does. Like the ImageFolder path, it refuses a manifest whose ordered
+  class names differ from the model's or whose class count exceeds the head.
+  Training now also takes the head size and class names from the video dataset,
+  as the image classifiers do, so a fine-tuned checkpoint names its classes.
+
+- **RF-DETR custom pose checkpoint loading (#874).** Rebuilt GroupPose
+  attention masks stay on the decoder's device, preventing device mismatches
+  after keypoint schema changes. Custom pose class names are preserved from
+  checkpoint metadata instead of being overwritten with `person`.
 
 - **Classification `auto_augment` and `erasing` are reachable from the CLI
   (#870).** Both are `TrainConfig` fields the Python API has always

@@ -11,7 +11,7 @@ from abc import ABC, abstractmethod
 from datetime import datetime
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, Dict, Generator, List, Optional, Tuple, Union
+from typing import Any, Dict, Generator, List, Optional, Sequence, Tuple, Union
 
 import cv2
 import numpy as np
@@ -282,6 +282,10 @@ def _read_runtime_metadata(meta: dict) -> dict[str, Any]:
         runtime_meta["crop_pct"] = float(meta["crop_pct"])
     if meta.get("interpolation") is not None:
         runtime_meta["interpolation"] = str(meta["interpolation"])
+    # Classification eval pipeline (#886); parsed by classify_eval_kwargs.
+    for key in ("norm_mean", "norm_std", "resize_mode"):
+        if meta.get(key) is not None:
+            runtime_meta[key] = meta[key]
     if meta.get("num_bins") is not None:
         runtime_meta["num_bins"] = int(meta["num_bins"])
     if meta.get("bin_width_deg") is not None:
@@ -422,6 +426,70 @@ def _rfdetr_keypoint_log_mean_trace_np(active_keypoints: np.ndarray) -> np.ndarr
     )
 
 
+# Classification eval settings for exports written before ``norm_mean`` /
+# ``norm_std`` / ``resize_mode`` were recorded (#886). New exports carry them in
+# metadata; these reproduce what exported-backend predict() already used for
+# those families. Inlined so backends never import ``libreyolo.models``.
+_IMAGENET_MEAN = (0.485, 0.456, 0.406)
+_IMAGENET_STD = (0.229, 0.224, 0.225)
+
+_LEGACY_CLASSIFY_EVAL = {
+    "clip": {
+        "crop_pct": 1.0,
+        "interpolation": "bicubic",
+        "norm_mean": (0.48145466, 0.4578275, 0.40821073),
+        "norm_std": (0.26862954, 0.26130258, 0.27577711),
+    },
+    "siglip2": {
+        "crop_pct": 1.0,
+        "interpolation": "bilinear",
+        "norm_mean": (0.5, 0.5, 0.5),
+        "norm_std": (0.5, 0.5, 0.5),
+        "resize_mode": "stretch",
+    },
+    "pe": {
+        "crop_pct": 1.0,
+        "interpolation": "bilinear",
+        "norm_mean": (0.5, 0.5, 0.5),
+        "norm_std": (0.5, 0.5, 0.5),
+        "resize_mode": "stretch",
+    },
+    "vit": {
+        "crop_pct": 0.9,
+        "interpolation": "bicubic",
+        "norm_mean": (0.5, 0.5, 0.5),
+        "norm_std": (0.5, 0.5, 0.5),
+    },
+}
+
+
+def classify_eval_kwargs(metadata) -> Dict[str, Any]:
+    """Read the classification eval settings from flat export metadata.
+
+    Returns ``crop_pct`` / ``interpolation`` / ``norm_mean`` / ``norm_std`` /
+    ``resize_mode`` for :class:`BaseBackend`, ``None`` for absent keys. Values
+    may be stored as strings (ONNX, TFLite) or native types (JSON sidecars).
+    """
+    metadata = metadata or {}
+
+    def _vector(key):
+        value = metadata.get(key)
+        if value in (None, ""):
+            return None
+        if isinstance(value, str):
+            value = json.loads(value)
+        return tuple(float(v) for v in value)
+
+    crop_pct = metadata.get("crop_pct")
+    return {
+        "crop_pct": float(crop_pct) if crop_pct not in (None, "") else None,
+        "interpolation": metadata.get("interpolation") or None,
+        "norm_mean": _vector("norm_mean"),
+        "norm_std": _vector("norm_std"),
+        "resize_mode": metadata.get("resize_mode") or None,
+    }
+
+
 class BaseBackend(ABC):
     """Abstract base class for all inference backends.
 
@@ -446,6 +514,9 @@ class BaseBackend(ABC):
         default_task: str | None = None,
         crop_pct: float | None = None,
         interpolation: str | None = None,
+        norm_mean: Sequence[float] | None = None,
+        norm_std: Sequence[float] | None = None,
+        resize_mode: str | None = None,
         num_keypoints: int | None = None,
         keypoint_dim: int | None = None,
         num_keypoints_per_class: list[int] | None = None,
@@ -491,10 +562,18 @@ class BaseBackend(ABC):
             # Some concrete backends expose size as a computed read-only property.
             pass
         self.input_size = self.imgsz
-        # Classification eval preprocessing (from export metadata); defaults keep
-        # legacy behavior. Lets exported-backend classify inference match native.
-        self.crop_pct = crop_pct if crop_pct is not None else 0.875
-        self.interpolation = interpolation or "bilinear"
+        # Classification eval preprocessing from export metadata, so exported
+        # predict() and val() match the native model (#886). Exports written
+        # before a key existed fall back to the family's legacy values, then to
+        # the ImageNet defaults.
+        legacy = _LEGACY_CLASSIFY_EVAL.get(model_family or "", {})
+        self.crop_pct = (
+            crop_pct if crop_pct is not None else legacy.get("crop_pct", 0.875)
+        )
+        self.interpolation = interpolation or legacy.get("interpolation", "bilinear")
+        self.norm_mean = tuple(norm_mean or legacy.get("norm_mean", _IMAGENET_MEAN))
+        self.norm_std = tuple(norm_std or legacy.get("norm_std", _IMAGENET_STD))
+        self.resize_mode = resize_mode or legacy.get("resize_mode", "center_crop")
         # Set by backends that load a model with NMS baked into the graph; such
         # models emit final (1, max_det, 6) detections instead of raw tensors.
         if not hasattr(self, "embedded_nms"):
@@ -764,73 +843,35 @@ class BaseBackend(ABC):
             )
             return tensor, img, size, 1.0
 
-    def _preprocess_classify(self, image, input_size, color_format):
-        """Classification preprocessing: ImageNet-style resize/crop/normalize.
+    def _get_eval_transform(self, img_size=None, crop_pct=None):
+        """The classification eval transform, shared by predict and val (#886).
 
-        Uses the per-family ``crop_pct``/``interpolation`` recorded in export
-        metadata so exported-backend inference matches native predict()/val().
+        Rebuilt from the export metadata (see :func:`classify_eval_kwargs`), so
+        exported-backend ``predict()`` and ``val()`` preprocess exactly like the
+        native model. ``crop_pct`` overrides the recorded value for ``val()``.
         """
         from ..data.classify_dataset import build_classify_transforms
 
-        h, w = _imgsz_hw(input_size)
+        h, w = _imgsz_hw(img_size if img_size is not None else self.imgsz)
         if h != w:
             raise NotImplementedError(
                 "Classification exported-backend inference supports square imgsz only."
             )
-
-        img = ImageLoader.load(image, color_format=color_format)
-        original_size = img.size
-        transform_kwargs = {
-            "crop_pct": getattr(self, "crop_pct", 0.875),
-            "interpolation": getattr(self, "interpolation", "bilinear"),
-        }
-        if self.model_family == "clip":
-            from ..models.clip.model import CLIP_MEAN, CLIP_STD
-
-            transform_kwargs.update(
-                mean=CLIP_MEAN,
-                std=CLIP_STD,
-                crop_pct=1.0,
-                interpolation="bicubic",
-            )
-        elif self.model_family == "siglip2":
-            from ..models.siglip2.model import SIGLIP_MEAN, SIGLIP_STD
-
-            transform_kwargs.update(
-                mean=SIGLIP_MEAN,
-                std=SIGLIP_STD,
-                crop_pct=1.0,
-                interpolation="bilinear",
-                square_resize=True,
-            )
-        elif self.model_family == "pe":
-            # Must mirror LibrePE._build_transform: symmetric [-1, 1]
-            # normalization and a bilinear square resize, NOT ImageNet stats.
-            from ..models.pe.nn import PE_MEAN, PE_STD
-
-            transform_kwargs.update(
-                mean=PE_MEAN,
-                std=PE_STD,
-                crop_pct=1.0,
-                interpolation="bilinear",
-                square_resize=True,
-            )
-        elif self.model_family == "vit":
-            from ..models.vit.utils import VIT_MEAN, VIT_STD
-
-            transform_kwargs.update(
-                mean=VIT_MEAN,
-                std=VIT_STD,
-                crop_pct=0.9,
-                interpolation="bicubic",
-            )
-        transform = build_classify_transforms(
+        return build_classify_transforms(
             h,
             augment=False,
-            **transform_kwargs,
+            mean=self.norm_mean,
+            std=self.norm_std,
+            crop_pct=self.crop_pct if crop_pct is None else crop_pct,
+            interpolation=self.interpolation,
+            square_resize=self.resize_mode == "stretch" and crop_pct is None,
         )
-        img_tensor = transform(img).unsqueeze(0)
-        return img_tensor, img, original_size, 1.0
+
+    def _preprocess_classify(self, image, input_size, color_format):
+        """Classification preprocessing: the export's eval transform."""
+        img = ImageLoader.load(image, color_format=color_format)
+        img_tensor = self._get_eval_transform(input_size)(img).unsqueeze(0)
+        return img_tensor, img, img.size, 1.0
 
     def _preprocess_semantic(self, image, input_size, color_format):
         """Dense semantic preprocessing for fixed-canvas exported graphs."""
@@ -3107,9 +3148,9 @@ class BaseBackend(ABC):
             )
             selected = grouped[np.arange(len(class_ids)), class_ids]
 
-            # GroupPose exports use internal class 0 for no-keypoint detections
-            # and keypoint-bearing classes after it. Public pose labels are
-            # contiguous over only the keypoint-bearing classes (person -> 0).
+            # GroupPose exports reserve internal class 0 as an empty slot, and
+            # public pose class j is internal class j + 1 (person -> 0). A
+            # class with zero keypoints keeps its slot as a box-only class.
             if keypoint_counts is None:
                 keypoint_counts = np.full(
                     num_classes, max_num_keypoints, dtype=np.int64
@@ -3117,9 +3158,12 @@ class BaseBackend(ABC):
                 if self.nb_classes == num_classes - 1:
                     keypoint_counts[0] = 0
             active_counts = keypoint_counts[class_ids]
-            valid_pose_class = active_counts > 0
+            label_offset = (
+                1 if keypoint_counts.size > 1 and keypoint_counts[0] == 0 else 0
+            )
+            valid_pose_class = class_ids >= label_offset
 
-            if np.any(valid_pose_class):
+            if np.any(active_counts > 0):
                 trace_alpha = 0.2
                 log_mean_traces = np.zeros(len(selected), dtype=np.float32)
                 for class_idx, active_count in enumerate(keypoint_counts):
@@ -3133,12 +3177,17 @@ class BaseBackend(ABC):
                     )
                 max_scores = max_scores * np.exp(-trace_alpha * log_mean_traces)
 
+            # Report the declared ``num_keypoints`` rows when every class uses
+            # fewer slots than the dataset skeleton.
+            output_keypoints = max(
+                max_num_keypoints, int(getattr(self, "num_keypoints", 0) or 0)
+            )
             keypoints_selected = np.zeros(
-                (len(selected), max_num_keypoints, 3),
+                (len(selected), output_keypoints, 3),
                 dtype=np.float32,
             )
             active_keypoint_mask = np.zeros(
-                (len(selected), max_num_keypoints),
+                (len(selected), output_keypoints),
                 dtype=bool,
             )
             for row_idx, active_count in enumerate(active_counts):
@@ -3151,13 +3200,9 @@ class BaseBackend(ABC):
                 ]
                 active_keypoint_mask[row_idx, :active_count] = True
 
-            kp_classes = np.flatnonzero(keypoint_counts > 0)
-            remap = np.full(num_classes, -1, dtype=class_ids.dtype)
-            remap[kp_classes] = np.arange(len(kp_classes), dtype=class_ids.dtype)
-
             boxes_raw = boxes_raw[valid_pose_class]
             max_scores = max_scores[valid_pose_class]
-            class_ids = remap[class_ids[valid_pose_class]]
+            class_ids = class_ids[valid_pose_class] - label_offset
             if angles_raw is not None:
                 angles_raw = angles_raw[valid_pose_class]
             if keypoints_raw is not None:
