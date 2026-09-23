@@ -35,6 +35,10 @@ class GTRConfig(DFINEConfig):
             raise ValueError("GTR currently supports optimizer='adamw' only")
         if self.scheduler != "flat_cosine":
             raise ValueError("GTR currently supports scheduler='flat_cosine' only")
+        for key in ("warmup_iters", "warmup_epochs", "flat_epochs", "no_aug_epochs"):
+            value = getattr(self, key)
+            if value is not None and value < 0:
+                raise ValueError(f"GTR {key} must be non-negative")
         if self.weight_decay is None:
             self.weight_decay = 1e-4 if self.size in ("s", "m") else 1.25e-4
         if self.backbone_lr_mult is None:
