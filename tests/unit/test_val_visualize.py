@@ -233,6 +233,18 @@ class TestClassifyValidator:
         off._update_metrics(logits, targets, [{}] * 3)
         on._update_metrics(logits, targets, [{}] * 3)
         assert off._compute_metrics() == on._compute_metrics()
+        # Macro metrics still accumulate with visualize on: classes 0 and 2
+        # are present, class 0 has one hit of two, class 2 one of one.
+        metrics = on._compute_metrics()
+        assert metrics["metrics/precision"] == pytest.approx(1.0)
+        assert metrics["metrics/recall"] == pytest.approx(0.75)
+
+    def test_logs_where_the_images_went(self, tmp_path, caplog):
+        v = _classify_validator(tmp_path, visualize=True, verbose=False, save_plots=False)
+        v.save_dir.mkdir(parents=True, exist_ok=True)
+        with caplog.at_level("INFO", logger="libreyolo.validation.base"):
+            v._finalize()
+        assert str(v.save_dir / "visualize") in caplog.text
 
     def test_generic_model_names_fall_back_to_dataset_classes(self, tmp_path):
         v = _classify_validator(tmp_path, visualize=True)

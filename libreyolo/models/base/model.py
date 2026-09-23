@@ -922,6 +922,10 @@ class BaseModel(ABC):
         if img_size is None:
             img_size = self._get_input_size()
         if isinstance(img_size, (list, tuple)):
+            if len(img_size) == 2 and img_size[0] != img_size[1]:
+                raise NotImplementedError(
+                    "Classification validation supports square imgsz only."
+                )
             img_size = img_size[0]
         return build_classify_transforms(
             int(img_size),
