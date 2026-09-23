@@ -170,6 +170,10 @@ class ClassifyValidator(ValidationLossMixin, BaseValidator):
         self._top1_correct = 0
         self._top5_correct = 0
         self._total = 0
+        if getattr(self.config, "visualize", False):
+            from .val_plotter import reset_visualize_dir  # noqa: PLC0415
+
+            reset_visualize_dir(self.save_dir)
         self._reset_validation_loss()
 
     def _preprocess_batch(self, batch: Any) -> tuple:
