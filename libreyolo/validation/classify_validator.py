@@ -21,6 +21,7 @@ from ..data.classify_dataset import (
 from ..data.imagenet import imagenet1k_class_list, imagenet1k_synset_to_index
 from ..utils.general import COCO_CLASSES
 from .base import BaseValidator
+from .config import wants_more_plot_errors
 from .loss import ValidationLossMixin
 
 if TYPE_CHECKING:
@@ -34,6 +35,7 @@ class ClassifyValidator(ValidationLossMixin, BaseValidator):
     """Top-1/top-5 accuracy validator for the classification task."""
 
     task = "classify"
+    supports_plot_errors = True
 
     def __init__(
         self,
@@ -168,6 +170,7 @@ class ClassifyValidator(ValidationLossMixin, BaseValidator):
         self._top1_correct = 0
         self._top5_correct = 0
         self._total = 0
+        self._error_samples: list[dict] = []
         self._reset_validation_loss()
 
     def _preprocess_batch(self, batch: Any) -> tuple:
@@ -205,6 +208,71 @@ class ClassifyValidator(ValidationLossMixin, BaseValidator):
         self._top1_correct += int(correct[:, 0].sum().item())
         self._top5_correct += int(correct.any(dim=1).sum().item())
         self._total += int(targets.numel())
+        self._track_errors(logits, targets, topk[:, 0], correct[:, 0])
+
+    def _track_errors(self, logits, targets, top1, top1_correct) -> None:
+        """Keep wrong top-1 images for the error-analysis plot (#887).
+
+        Plotting only: nothing here feeds the metrics.
+        """
+        if getattr(self, "_error_samples", None) is None:
+            return
+        if not wants_more_plot_errors(self.config, len(self._error_samples)):
+            return
+        wrong = torch.nonzero(~top1_correct).view(-1).tolist()
+        if not wrong:
+            return
+        # ``predict()`` reports softmax probabilities of the same logits.
+        scores = logits.softmax(dim=1)
+        samples = getattr(getattr(self.dataloader, "dataset", None), "_impl", None)
+        samples = getattr(samples, "samples", None)
+        for i in wrong:
+            if not wants_more_plot_errors(self.config, len(self._error_samples)):
+                return
+            index = self.seen + i
+            pred = int(top1[i])
+            self._error_samples.append({
+                "img_path": samples[index][0] if samples and index < len(samples) else None,
+                "target": int(targets[i]),
+                "pred": pred,
+                "score": float(scores[i, pred]),
+            })
+
+    def _class_display_name(self, index: int) -> str:
+        # Label indices follow the model's explicit class order when it has
+        # one (including the full ImageNet head), else the train split order.
+        classes = self._model_class_names() or getattr(
+            getattr(self.dataloader, "dataset", None), "classes", None
+        )
+        if classes and 0 <= index < len(classes):
+            return str(classes[index])
+        return str(index)
+
+    def _save_plots(self, metrics: Dict[str, float]) -> None:
+        """Write the wrong top-1 images to ``plots/errors/`` (#887)."""
+        if not getattr(self, "_error_samples", None):
+            return
+        import cv2  # noqa: PLC0415
+
+        from .val_plotter import ValPlotter  # noqa: PLC0415
+
+        errors_dir = self.save_dir / "plots" / "errors"
+        for idx, sample in enumerate(self._error_samples):
+            if sample["img_path"] is None:
+                continue
+            img_bgr = cv2.imread(str(sample["img_path"]))
+            if img_bgr is None:
+                continue
+            try:
+                ValPlotter.plot_classify_error(
+                    img_bgr,
+                    self._class_display_name(sample["target"]),
+                    self._class_display_name(sample["pred"]),
+                    sample["score"],
+                    errors_dir / f"error_{idx:03d}.jpg",
+                )
+            except Exception as exc:
+                logger.warning("Plot failed (plot_classify_error): %s", exc)
 
     def _compute_metrics(self) -> Dict[str, float]:
         total = max(self._total, 1)

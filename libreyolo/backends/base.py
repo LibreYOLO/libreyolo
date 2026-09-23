@@ -4446,6 +4446,13 @@ class BaseBackend(ABC):
             )
         if plots is not None and "save_plots" not in kwargs:
             kwargs["save_plots"] = plots
+        from libreyolo.utils.plot_samples import PLOT_ERRORS_TASKS
+
+        if kwargs.get("plot_errors") and self.task not in PLOT_ERRORS_TASKS:
+            raise ValueError(
+                f"plot_errors is not supported for task '{self.task}'; "
+                f"error-analysis plots cover {', '.join(PLOT_ERRORS_TASKS)}"
+            )
 
         validation_device = device or (
             self.device
