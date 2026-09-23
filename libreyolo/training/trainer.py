@@ -394,21 +394,6 @@ class BaseTrainer(ABC):
                 f"val_loss=True is not supported by {self.get_model_family()} training"
             )
 
-    def validate_plot_errors_config(self) -> None:
-        """Fail early when ``plot_errors`` is set for a task that cannot draw it.
-
-        The error images are written by the final validation, long after the
-        run starts, so an unsupported task must not be found out there (#887).
-        """
-        from libreyolo.utils.plot_samples import PLOT_ERRORS_TASKS
-
-        task = getattr(getattr(self, "wrapper_model", None), "task", "detect")
-        if getattr(self.config, "plot_errors", 0) and task not in PLOT_ERRORS_TASKS:
-            raise ValueError(
-                f"plot_errors is not supported for task '{task}'; "
-                f"error-analysis plots cover {', '.join(PLOT_ERRORS_TASKS)}"
-            )
-
     def build_validation_loss_adapter(self, model: nn.Module):
         """Build the family adapter used by rank-0 training validation."""
         raise NotImplementedError
@@ -1747,7 +1732,6 @@ class BaseTrainer(ABC):
                 logger.info("Converted BatchNorm to SyncBatchNorm")
 
         self.validate_validation_loss_config()
-        self.validate_plot_errors_config()
         self.on_setup()
 
         if getattr(self.config, "batch", 16) == -1:
@@ -2955,7 +2939,7 @@ class BaseTrainer(ABC):
             getattr(self, "wrapper_model", None), "task", "detect"
         )
         if validation_task == "classify":
-            return self._run_classify_validation(epoch, save_plots=save_plots)
+            return self._run_classify_validation(epoch)
         if validation_task == "semantic":
             return self._run_semantic_validation(epoch)
         if validation_task == "depth":
@@ -3004,9 +2988,6 @@ class BaseTrainer(ABC):
                 save_plots=val_save_plots,
                 save_dir=val_save_dir,
                 plot_samples=getattr(self.config, "plot_samples", 8),
-                plot_errors=(
-                    getattr(self.config, "plot_errors", 0) if val_save_plots else 0
-                ),
                 # One knob for both loops: a run that opts into image caching
                 # for training gets the same for its (deterministic) validation.
                 cache=getattr(self.config, "cache", False),
@@ -3117,7 +3098,7 @@ class BaseTrainer(ABC):
             return None
 
     def _run_classify_validation(
-        self, epoch: int, *, save_plots: bool | None = None
+        self, epoch: int
     ) -> Optional[Dict[str, Any]]:
         """Validate the classification head (top-1/top-5) on the val split."""
         try:
@@ -3128,14 +3109,6 @@ class BaseTrainer(ABC):
                 return None
 
             logger.info(f"Running classification validation for epoch {epoch + 1}")
-            # Same rule as detection: plots only on the final epoch when asked.
-            # Classification draws only the plot_errors images (#887).
-            val_save_plots = (
-                bool(save_plots)
-                if save_plots is not None
-                else bool(getattr(self.config, "save_plots", False))
-                and self._is_final_epoch(epoch)
-            )
             val_config = ValidationConfig(
                 data=self.config.data,
                 batch_size=max(1, self.config.batch // max(getattr(self, "world_size", 1), 1)),
@@ -3150,11 +3123,6 @@ class BaseTrainer(ABC):
                 # for, or best.pt is selected against different
                 # preprocessing than val() reports (#878).
                 crop_pct=getattr(self.config, "crop_pct", None),
-                save_plots=val_save_plots,
-                save_dir=str(self.save_dir / "val") if val_save_plots else None,
-                plot_errors=(
-                    getattr(self.config, "plot_errors", 0) if val_save_plots else 0
-                ),
             )
 
             eval_pytorch_model = (

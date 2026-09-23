@@ -15,7 +15,7 @@ from tqdm import tqdm
 
 from libreyolo.utils.amp import torch_amp_dtype
 
-from .config import ValidationConfig
+from .config import VISUALIZE_TASKS, ValidationConfig
 
 logger = logging.getLogger(__name__)
 
@@ -27,9 +27,9 @@ class BaseValidator(ABC):
     """Abstract base class for model validators (Template Method pattern)."""
 
     task: str = "base"
-    #: Whether this validator draws the ``plot_errors`` error-analysis
-    #: images (#887). Others reject a non-zero budget instead of ignoring it.
-    supports_plot_errors: bool = False
+    #: Whether this validator draws ``visualize=True`` images (#887). Others
+    #: reject the flag instead of accepting and ignoring it.
+    supports_visualize: bool = False
 
     def __init__(
         self,
@@ -41,10 +41,10 @@ class BaseValidator(ABC):
         self.config = config or ValidationConfig(**kwargs)
         if kwargs and config is not None:
             self.config = self.config.update(**kwargs)
-        if getattr(self.config, "plot_errors", 0) and not self.supports_plot_errors:
+        if getattr(self.config, "visualize", False) and not self.supports_visualize:
             raise ValueError(
-                f"plot_errors is not supported by {type(self).__name__}; "
-                "error-analysis plots cover detect, segment and classify"
+                f"visualize=True is not supported by {type(self).__name__}; "
+                f"it covers {', '.join(VISUALIZE_TASKS)}"
             )
 
         self.device = self._setup_device()

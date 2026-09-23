@@ -479,12 +479,6 @@ def train_cmd(
         help="Sample images in the validation sample plot: 0 for none, "
         "-1 for every validated image (does not change the metrics)",
     ),
-    plot_errors: int = typer.Option(
-        0,
-        help="Incorrect images drawn for error analysis in the final val/plots/errors/ "
-        "(detect, segment, classify; needs --save-plots): 0 for none, "
-        "-1 for every incorrect image (does not change the metrics)",
-    ),
     patience: int = typer.Option(50, help="Early stopping patience (0=disabled)"),
     # Output
     project: str = typer.Option("runs/train", help="Output directory root"),
@@ -770,7 +764,6 @@ def train_cmd(
         "faster_coco_eval": faster_coco_eval,
         "save_plots": save_plots,
         "plot_samples": plot_samples,
-        "plot_errors": plot_errors,
         "patience": patience,
         "project": project,
         "name": name,

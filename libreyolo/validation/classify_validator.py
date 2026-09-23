@@ -7,6 +7,7 @@ reusing the :class:`BaseValidator` template (setup -> iterate -> finalize).
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 from typing import Any, Dict, Optional, TYPE_CHECKING
 
 import torch
@@ -21,7 +22,6 @@ from ..data.classify_dataset import (
 from ..data.imagenet import imagenet1k_class_list, imagenet1k_synset_to_index
 from ..utils.general import COCO_CLASSES
 from .base import BaseValidator
-from .config import wants_more_plot_errors
 from .loss import ValidationLossMixin
 
 if TYPE_CHECKING:
@@ -35,7 +35,7 @@ class ClassifyValidator(ValidationLossMixin, BaseValidator):
     """Top-1/top-5 accuracy validator for the classification task."""
 
     task = "classify"
-    supports_plot_errors = True
+    supports_visualize = True
 
     def __init__(
         self,
@@ -170,7 +170,6 @@ class ClassifyValidator(ValidationLossMixin, BaseValidator):
         self._top1_correct = 0
         self._top5_correct = 0
         self._total = 0
-        self._error_samples: list[dict] = []
         self._reset_validation_loss()
 
     def _preprocess_batch(self, batch: Any) -> tuple:
@@ -208,35 +207,48 @@ class ClassifyValidator(ValidationLossMixin, BaseValidator):
         self._top1_correct += int(correct[:, 0].sum().item())
         self._top5_correct += int(correct.any(dim=1).sum().item())
         self._total += int(targets.numel())
-        self._track_errors(logits, targets, topk[:, 0], correct[:, 0])
+        if getattr(self.config, "visualize", False):
+            self._visualize_batch(logits, targets, topk[:, 0])
 
-    def _track_errors(self, logits, targets, top1, top1_correct) -> None:
-        """Keep wrong top-1 images for the error-analysis plot (#887).
+    def _visualize_batch(self, logits, targets, top1) -> None:
+        """Draw each image with its label and top-1 prediction (#887).
 
-        Plotting only: nothing here feeds the metrics.
+        LibreYOLO's classification counterpart of detection ``visualize``:
+        written to ``save_dir/visualize/`` as the images are validated, framed
+        green when top-1 is right and red when it is wrong. Drawing only: it
+        never feeds the metrics.
         """
-        if getattr(self, "_error_samples", None) is None:
-            return
-        if not wants_more_plot_errors(self.config, len(self._error_samples)):
-            return
-        wrong = torch.nonzero(~top1_correct).view(-1).tolist()
-        if not wrong:
-            return
-        # ``predict()`` reports softmax probabilities of the same logits.
+        import cv2  # noqa: PLC0415
+
+        from .val_plotter import ValPlotter  # noqa: PLC0415
+
+        # predict() reports softmax probabilities of the same logits.
         scores = logits.softmax(dim=1)
-        samples = getattr(getattr(self.dataloader, "dataset", None), "_impl", None)
-        samples = getattr(samples, "samples", None)
-        for i in wrong:
-            if not wants_more_plot_errors(self.config, len(self._error_samples)):
-                return
+        dataset = getattr(self.dataloader, "dataset", None)
+        samples = getattr(getattr(dataset, "_impl", None), "samples", None) or []
+        out_dir = self.save_dir / "visualize"
+        for i in range(len(targets)):
             index = self.seen + i
-            pred = int(top1[i])
-            self._error_samples.append({
-                "img_path": samples[index][0] if samples and index < len(samples) else None,
-                "target": int(targets[i]),
-                "pred": pred,
-                "score": float(scores[i, pred]),
-            })
+            if index >= len(samples):
+                continue
+            img_path = samples[index][0]
+            try:
+                img_bgr = cv2.imread(str(img_path))
+                if img_bgr is None:
+                    continue
+                pred = int(top1[i])
+                ValPlotter.plot_classify_visualize(
+                    img_bgr,
+                    self._class_display_name(int(targets[i])),
+                    self._class_display_name(pred),
+                    float(scores[i, pred]),
+                    out_dir / f"{index:06d}_{Path(str(img_path)).stem}.jpg",
+                    show_labels=self.config.show_labels,
+                    show_conf=self.config.show_conf,
+                    correct=pred == int(targets[i]),
+                )
+            except Exception as exc:
+                logger.warning("visualize failed for image %d: %s", index, exc)
 
     def _class_display_name(self, index: int) -> str:
         # Label indices follow the model's explicit class order when it has
@@ -247,32 +259,6 @@ class ClassifyValidator(ValidationLossMixin, BaseValidator):
         if classes and 0 <= index < len(classes):
             return str(classes[index])
         return str(index)
-
-    def _save_plots(self, metrics: Dict[str, float]) -> None:
-        """Write the wrong top-1 images to ``plots/errors/`` (#887)."""
-        if not getattr(self, "_error_samples", None):
-            return
-        import cv2  # noqa: PLC0415
-
-        from .val_plotter import ValPlotter  # noqa: PLC0415
-
-        errors_dir = self.save_dir / "plots" / "errors"
-        for idx, sample in enumerate(self._error_samples):
-            if sample["img_path"] is None:
-                continue
-            img_bgr = cv2.imread(str(sample["img_path"]))
-            if img_bgr is None:
-                continue
-            try:
-                ValPlotter.plot_classify_error(
-                    img_bgr,
-                    self._class_display_name(sample["target"]),
-                    self._class_display_name(sample["pred"]),
-                    sample["score"],
-                    errors_dir / f"error_{idx:03d}.jpg",
-                )
-            except Exception as exc:
-                logger.warning("Plot failed (plot_classify_error): %s", exc)
 
     def _compute_metrics(self) -> Dict[str, float]:
         total = max(self._total, 1)
