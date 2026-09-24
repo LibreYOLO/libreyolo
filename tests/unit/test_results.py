@@ -722,3 +722,92 @@ def test_draw_semantic_mask_paints_classes_and_skips_ignore():
 
     assert pixels[0, 0].any()  # class-1 half painted
     assert not pixels[0, 9].any()  # ignore half untouched (still black)
+
+
+def _detect_result(orig_img=None, path=None):
+    return Results(
+        boxes=Boxes(
+            torch.tensor([[8.0, 10.0, 40.0, 44.0], [30.0, 5.0, 60.0, 30.0]]),
+            torch.tensor([0.9, 0.6]),
+            torch.tensor([0.0, 2.0]),
+        ),
+        orig_shape=(48, 64),
+        path=path,
+        names={0: "person", 1: "bicycle", 2: "car"},
+        orig_img=orig_img,
+    )
+
+
+def _source_rgb():
+    return np.random.default_rng(0).integers(0, 256, (48, 64, 3), dtype=np.uint8)
+
+
+class TestResultsPlot:
+    def test_detect_plot_returns_bgr_array_matching_saved_render(self, tmp_path):
+        from libreyolo.utils.drawing import draw_results
+
+        rgb = _source_rgb()
+        result = _detect_result(orig_img=Image.fromarray(rgb))
+
+        plotted = result.plot()
+
+        expected = np.asarray(draw_results(result, Image.fromarray(rgb)))[..., ::-1]
+        assert plotted.dtype == np.uint8 and plotted.shape == (48, 64, 3)
+        np.testing.assert_array_equal(plotted, expected)
+        assert not np.array_equal(plotted, rgb[..., ::-1])  # boxes were drawn
+
+        # predict(save=True) goes through the same renderer.
+        saved = tmp_path / "saved.png"
+        InferenceRunner._save_annotated_image(None, result, Image.fromarray(rgb), saved)
+        np.testing.assert_array_equal(
+            np.asarray(Image.open(saved).convert("RGB"))[..., ::-1], plotted
+        )
+
+    def test_plot_pil_and_source_image_options(self):
+        rgb = _source_rgb()
+        result = _detect_result(orig_img=Image.fromarray(rgb))
+        default = result.plot()
+
+        as_pil = result.plot(pil=True)
+        assert isinstance(as_pil, Image.Image)
+        np.testing.assert_array_equal(np.asarray(as_pil)[..., ::-1], default)
+
+        bare = _detect_result()
+        np.testing.assert_array_equal(bare.plot(img=rgb[..., ::-1].copy()), default)
+        np.testing.assert_array_equal(bare.plot(Image.fromarray(rgb)), default)
+
+    def test_plot_toggles_and_save(self, tmp_path):
+        rgb = _source_rgb()
+        result = _detect_result(orig_img=Image.fromarray(rgb))
+        default = result.plot()
+
+        assert not np.array_equal(result.plot(conf=False, labels=False), default)
+        np.testing.assert_array_equal(result.plot(boxes=False), rgb[..., ::-1])
+
+        out = tmp_path / "sub" / "plot.png"
+        result.plot(filename=str(out))
+        assert out.exists()
+
+    def test_plot_without_source_image_says_how_to_fix(self):
+        with pytest.raises(ValueError, match="img="):
+            _detect_result().plot()
+
+    def test_orig_img_is_bgr_and_survives_slicing(self):
+        rgb = _source_rgb()
+        result = _detect_result(orig_img=Image.fromarray(rgb))
+
+        np.testing.assert_array_equal(result.orig_img, rgb[..., ::-1])
+        np.testing.assert_array_equal(result[:1].orig_img, rgb[..., ::-1])
+
+    def test_classify_plot_writes_top5(self):
+        rgb = np.full((48, 64, 3), 200, dtype=np.uint8)
+        result = Results(
+            boxes=None,
+            orig_shape=(48, 64),
+            names={0: "cat", 1: "dog"},
+            probs=Probs(torch.tensor([0.2, 0.8])),
+            orig_img=Image.fromarray(rgb),
+        )
+
+        assert not np.array_equal(result.plot(), rgb)
+        np.testing.assert_array_equal(result.plot(probs=False), rgb)
