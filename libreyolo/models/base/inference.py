@@ -580,9 +580,10 @@ class InferenceRunner:
                 color_format=color_format,
                 **kwargs,
             )
+            img_pil = ImageLoader.load(source, color_format=color_format)
+            result.orig_img = img_pil
             if save:
                 image_path = source if isinstance(source, (str, Path)) else None
-                img_pil = ImageLoader.load(source, color_format=color_format)
                 ext = output_file_format or "jpg"
                 save_path = resolve_save_path(output_path, image_path, ext=ext)
                 self._save_annotated_image(result, img_pil, save_path)
@@ -754,6 +755,8 @@ class InferenceRunner:
                     color_format=color_format,
                     **kwargs,
                 )
+                img_pil = ImageLoader.load(image, color_format=color_format)
+                result.orig_img = img_pil
                 if save:
                     ext = output_file_format or "jpg"
                     save_path = resolve_save_path(
@@ -761,7 +764,6 @@ class InferenceRunner:
                         image if save_stem is None else save_stem,
                         ext=ext,
                     )
-                    img_pil = ImageLoader.load(image, color_format=color_format)
                     self._save_annotated_image(result, img_pil, save_path)
                 results.append(result)
             else:

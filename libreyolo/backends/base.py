@@ -4536,10 +4536,13 @@ class BaseBackend(ABC):
                 )
             return self._keep_source(result, original_img)
         if self.task == "embed":
-            return self._build_embedding_result(
-                all_outputs,
-                orig_shape=orig_shape,
-                image_path=image_path,
+            return self._keep_source(
+                self._build_embedding_result(
+                    all_outputs,
+                    orig_shape=orig_shape,
+                    image_path=image_path,
+                ),
+                original_img,
             )
         if self.task == "restore":
             result = self._build_restore_result(
@@ -5175,7 +5178,7 @@ class BaseBackend(ABC):
         source_label = str(source) if source_label is None else source_label
         effective_imgsz = self._resolve_predict_imgsz(imgsz)
 
-        def predict_frame(pil_img):
+        def predict_frame_result(pil_img):
             input_tensor, original_img, original_size, ratio = self._preprocess(
                 pil_img, effective_imgsz, "rgb"
             )
@@ -5280,6 +5283,9 @@ class BaseBackend(ABC):
                 classes=classes,
                 max_det=max_det,
             )
+
+        def predict_frame(pil_img):
+            return self._keep_source(predict_frame_result(pil_img), pil_img)
 
         yield from run_video_inference(
             source,
