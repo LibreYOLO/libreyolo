@@ -52,6 +52,29 @@ def get_class_color(class_id: int) -> str:
     return f"#{r:02x}{g:02x}{b:02x}"
 
 
+def _box_label(
+    class_names: list[str] | dict[int, str] | None,
+    cls_id: int,
+    score: float,
+    labels: bool = True,
+    conf: bool = True,
+) -> str | None:
+    """Return the ``"name: 0.87"`` box label, or the requested part of it."""
+    if not labels and not conf:
+        return None
+    score_text = f"{float(score):.2f}"
+    if not labels:
+        return score_text
+    class_name = None
+    if isinstance(class_names, dict):
+        class_name = class_names.get(cls_id)
+    elif class_names and cls_id < len(class_names):
+        class_name = class_names[cls_id]
+    if class_name is None:
+        class_name = f"Class {cls_id}"
+    return f"{class_name}: {score_text}" if conf else str(class_name)
+
+
 def draw_boxes(
     img: Image.Image,
     boxes: List,
@@ -59,6 +82,9 @@ def draw_boxes(
     classes: List,
     class_names: List[str] | Dict[int, str] | None = None,
     track_ids: List | None = None,
+    labels: bool = True,
+    conf: bool = True,
+    line_width: int | None = None,
 ) -> Image.Image:
     """
     Draw bounding boxes on image with class-specific colors.
@@ -75,6 +101,9 @@ def draw_boxes(
             ID or a dict mapping class ID to class name (default: COCO_CLASSES)
         track_ids: Optional list of track IDs. When provided, each box is
             colored by its track ID and the label includes ``ID:<n>``.
+        labels: Draw class names in box labels.
+        conf: Draw confidence scores in box labels.
+        line_width: Box line width in pixels; scales with the image if None.
 
     Returns:
         Annotated PIL Image
@@ -89,7 +118,9 @@ def draw_boxes(
     img_width, img_height = img.size
     max_dim = max(img_width, img_height)
     scale_factor = max_dim / 640.0
-    box_thickness = max(2, int(2 * scale_factor))
+    box_thickness = (
+        int(line_width) if line_width else max(2, int(2 * scale_factor))
+    )
     font_size = max(12, int(12 * scale_factor))
 
     font = _get_font(font_size)
@@ -110,6 +141,8 @@ def draw_boxes(
         )
 
         draw.rectangle([x1, y1, x2, y2], outline=color, width=box_thickness)
+        if not labels and not conf:
+            continue
 
         # Tracking mode: short two-tone label  "#23 0.87"
         # Detection mode: full label           "person: 0.87"
@@ -124,16 +157,7 @@ def draw_boxes(
             text_height = full_bbox[3] - full_bbox[1]
             id_width = id_bbox[2] - id_bbox[0]
         else:
-            class_name = None
-            if isinstance(class_names, dict):
-                class_name = class_names.get(cls_id_int)
-            elif class_names and cls_id_int < len(class_names):
-                class_name = class_names[cls_id_int]
-
-            if class_name is not None:
-                full_label = f"{class_name}: {score:.2f}"
-            else:
-                full_label = f"Class {cls_id_int}: {score:.2f}"
+            full_label = _box_label(class_names, cls_id_int, score, labels, conf)
             full_bbox = draw.textbbox((0, 0), full_label, font=font)
             text_width = full_bbox[2] - full_bbox[0]
             text_height = full_bbox[3] - full_bbox[1]
@@ -209,6 +233,9 @@ def draw_obb(
     classes: Sequence[float],
     class_names: List[str] | Dict[int, str] | None = None,
     track_ids: Sequence[float] | None = None,
+    labels: bool = True,
+    conf: bool = True,
+    line_width: int | None = None,
 ) -> Image.Image:
     """Draw oriented bounding boxes as rotated polygons."""
     img_draw = img.copy()
@@ -220,7 +247,9 @@ def draw_obb(
     img_width, img_height = img.size
     max_dim = max(img_width, img_height)
     scale_factor = max_dim / 640.0
-    box_thickness = max(2, int(2 * scale_factor))
+    box_thickness = (
+        int(line_width) if line_width else max(2, int(2 * scale_factor))
+    )
     font_size = max(12, int(12 * scale_factor))
     label_padding = max(2, int(2 * scale_factor))
     font = _get_font(font_size)
@@ -236,20 +265,13 @@ def draw_obb(
 
         points = _xywhr_to_points(row)
         draw.line(points + [points[0]], fill=color, width=box_thickness)
+        if not labels and not conf:
+            continue
 
         if tid is not None:
             label = f"#{int(tid)} {float(score):.2f}"
         else:
-            class_name = None
-            if isinstance(class_names, dict):
-                class_name = class_names.get(cls_id_int)
-            elif class_names and cls_id_int < len(class_names):
-                class_name = class_names[cls_id_int]
-            label = (
-                f"{class_name}: {float(score):.2f}"
-                if class_name is not None
-                else f"Class {cls_id_int}: {float(score):.2f}"
-            )
+            label = _box_label(class_names, cls_id_int, score, labels, conf)
 
         full_bbox = draw.textbbox((0, 0), label, font=font)
         text_width = full_bbox[2] - full_bbox[0]
@@ -1301,3 +1323,152 @@ def draw_actions(
         if label_y + font.size < bottom:
             draw.text((8, label_y), names[d], fill=color, font=font)
     return canvas
+
+
+def _to_numpy(value):
+    """Tensor or array-like to a numpy array without importing torch."""
+    if hasattr(value, "detach"):
+        value = value.detach().cpu().numpy()
+    return np.asarray(value)
+
+
+def draw_probs(
+    img: Image.Image,
+    top5: Sequence[int],
+    top5conf: Sequence[float],
+    class_names: list[str] | dict[int, str] | None = None,
+    conf: bool = True,
+) -> Image.Image:
+    """Write the top-5 classification labels in the top-left corner."""
+    img_draw = img.copy()
+    draw = ImageDraw.Draw(img_draw)
+    scale_factor = max(img.size) / 640.0
+    font = _get_font(max(12, int(12 * scale_factor)))
+    padding = max(2, int(2 * scale_factor))
+    y = padding
+    for cls_id, score in zip(top5, top5conf):
+        cls_id = int(cls_id)
+        name = _box_label(class_names, cls_id, score, labels=True, conf=False)
+        text = f"{name} {float(score):.2f}" if conf else name
+        box = draw.textbbox((0, 0), text, font=font)
+        width, height = box[2] - box[0], box[3] - box[1]
+        draw.rectangle(
+            [0, y - padding, width + padding * 2, y + height + padding * 2],
+            fill=(0, 0, 0),
+        )
+        draw.text((padding, y), text, fill="white", font=font)
+        y += height + padding * 3
+    return img_draw
+
+
+def draw_results(
+    result,
+    img: Image.Image,
+    *,
+    conf: bool = True,
+    labels: bool = True,
+    boxes: bool = True,
+    masks: bool = True,
+    probs: bool = True,
+    line_width: int | None = None,
+) -> Image.Image:
+    """Render a ``Results`` object on its source image.
+
+    The one renderer behind ``Results.plot()`` and ``predict(save=True)``, so a
+    plotted result matches the saved file. ``img`` is the RGB source image.
+    """
+    if result.boxes is None and getattr(result, "semantic_mask", None) is not None:
+        return draw_semantic_mask(img, _to_numpy(result.semantic_mask.data))
+    if result.boxes is None and getattr(result, "panoptic", None) is not None:
+        return draw_panoptic(
+            img,
+            _to_numpy(result.panoptic.data),
+            result.panoptic.segments_info,
+            class_names=result.names,
+        )
+    if result.boxes is None and getattr(result, "depth_map", None) is not None:
+        depth = _to_numpy(result.depth_map.data)
+        if not result.depth_map.near_is_high:
+            depth = -depth
+        return draw_depth_map(img, depth)
+    if result.boxes is None and getattr(result, "edges", None) is not None:
+        return draw_edge_map(img, _to_numpy(result.edges.data))
+    if result.boxes is None and getattr(result, "normal_map", None) is not None:
+        return draw_normal_map(img, _to_numpy(result.normal_map.data))
+    if result.boxes is None and getattr(result, "albedo", None) is not None:
+        return Image.fromarray(result.albedo.to_rgb())
+    if result.boxes is None and getattr(result, "restored", None) is not None:
+        return Image.fromarray(result.restored.array)
+    if result.boxes is None and getattr(result, "matte", None) is not None:
+        return draw_matte(img, result.matte.array)
+    if result.boxes is None and getattr(result, "ocr", None) is not None:
+        if len(result.ocr) == 0:
+            return img.copy()
+        ocr = result.ocr.numpy()
+        return draw_ocr_regions(img, ocr.data, ocr.texts, ocr.conf)
+    if result.boxes is None and getattr(result, "points", None) is not None:
+        if len(result.points) == 0:
+            return img.copy()
+        return draw_points(
+            img,
+            result.points.xy.tolist(),
+            result.points.conf.tolist(),
+            result.points.cls.tolist(),
+            class_names=result.names,
+        )
+    if result.boxes is None:
+        if probs and getattr(result, "probs", None) is not None:
+            return draw_probs(
+                img,
+                result.probs.top5,
+                _to_numpy(result.probs.top5conf).tolist(),
+                class_names=result.names,
+                conf=conf,
+            )
+        return img.copy()
+    if len(result) == 0:
+        return img.copy()
+
+    annotated = img
+    # Masks go underneath boxes.
+    if masks and result.masks is not None:
+        annotated = draw_masks(
+            annotated, _to_numpy(result.masks.data), result.boxes.cls.tolist()
+        )
+    if boxes and result.obb is not None:
+        annotated = draw_obb(
+            annotated,
+            result.obb.xywhr.tolist(),
+            result.obb.conf.tolist(),
+            result.obb.cls.tolist(),
+            class_names=result.names,
+            track_ids=result.obb.id.tolist() if result.obb.id is not None else None,
+            labels=labels,
+            conf=conf,
+            line_width=line_width,
+        )
+    elif boxes:
+        annotated = draw_boxes(
+            annotated,
+            result.boxes.xyxy.tolist(),
+            result.boxes.conf.tolist(),
+            result.boxes.cls.tolist(),
+            class_names=result.names,
+            labels=labels,
+            conf=conf,
+            line_width=line_width,
+        )
+    if result.keypoints is not None:
+        annotated = draw_keypoints(annotated, _to_numpy(result.keypoints.data))
+    if result.meshes is not None and len(result.meshes) > 0:
+        meshes = result.meshes.numpy()
+        annotated = draw_mesh(
+            annotated,
+            joints2d=meshes.joints2d,
+            vertices2d=meshes.extras.get("vertices2d"),
+            faces=meshes.faces,
+            vertices3d=meshes.vertices,
+        )
+    if annotated is img:
+        annotated = img.copy()
+    return annotated
