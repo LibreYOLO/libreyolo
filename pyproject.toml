@@ -1,7 +1,33 @@
 [project]
 name = "libreyolo"
 version = "1.5.0.dev0"
-description = "Libre YOLO - An open source YOLO library with MIT license."
+description = "MIT-licensed computer vision library: train, predict and export YOLO, RF-DETR, RT-DETR and dozens more model families with one Python API."
+keywords = [
+    "yolo",
+    "object-detection",
+    "computer-vision",
+    "pytorch",
+    "deep-learning",
+    "instance-segmentation",
+    "pose-estimation",
+    "rf-detr",
+    "rt-detr",
+    "yolov9",
+    "yolox",
+    "onnx",
+    "mit-license",
+]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Scientific/Engineering :: Image Recognition",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
 readme = "README.md"
 requires-python = ">=3.10"
 license = "MIT"
@@ -356,8 +382,11 @@ all = [
 libreyolo = "libreyolo.cli:entrypoint"
 
 [project.urls]
-Homepage = "https://github.com/LibreYOLO"
+Homepage = "https://www.libreyolo.com"
+Documentation = "https://www.libreyolo.com/docs"
 Repository = "https://github.com/LibreYOLO/libreyolo"
+Issues = "https://github.com/LibreYOLO/libreyolo/issues"
+Changelog = "https://www.libreyolo.com/docs/changelog"
 
 [tool.setuptools]
 include-package-data = true

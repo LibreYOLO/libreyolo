@@ -119,6 +119,11 @@ before 1.4.0 are documented in the
 
 ### Changed
 
+- **PyPI metadata points to the website and describes the library.** The
+  package now has keywords, classifiers, a clearer one-line description, and
+  Homepage, Documentation, Issues and Changelog links; Homepage was the GitHub
+  organization.
+
 - **YOLOv9 letterbox is now stamped on the checkpoint, not flipped
   globally.** Unmarked ≤1.5 weights keep top-left pad (same predict/val
   boxes as today). Newly converted official MultimediaTechLab checkpoints
