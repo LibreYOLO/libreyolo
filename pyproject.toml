@@ -1,7 +1,7 @@
 [project]
 name = "libreyolo"
 version = "1.5.0.dev0"
-description = "MIT-licensed computer vision library: train, predict and export YOLO, RF-DETR, RT-DETR and dozens more model families with one Python API."
+description = "MIT-licensed computer vision library: one Python API for YOLO, RF-DETR, RT-DETR and dozens more model families, with training and export where a family supports them."
 keywords = [
     "yolo",
     "object-detection",
