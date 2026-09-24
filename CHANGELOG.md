@@ -164,10 +164,11 @@ before 1.4.0 are documented in the
   Tracked results show their track IDs. Exported-model backends (ONNX and the
   other runtimes) save and plot through the same renderer. Dense maps, 3D
   cuboids and action chunks keep returning a PIL image unless `pil=False`.
-  Predict now keeps the source image on the result as `Results.orig_img`
-  (BGR), so in-memory inputs plot without a path. A finite video collected
-  without `stream=True` keeps no frame images; `plot()` decodes the frame
-  from the video on demand.
+  Predict keeps in-memory and URL inputs on the result as `Results.orig_img`
+  (BGR) so they plot without a path; local files are not kept and `plot()`
+  reopens them, so directory predictions stay light. A finite video or GIF
+  collected without `stream=True` keeps no frames; `plot()` decodes the
+  result's frame on demand.
 
 - **RF-DETR predict and val resize without antialiasing (#896).** The PIL
   bilinear resize antialiased on downscale, unlike RF-DETR training (cv2

@@ -864,3 +864,33 @@ class TestResultsPlotFollowUps:
         np.testing.assert_array_equal(
             np.asarray(Image.open(saved).convert("RGB"))[..., ::-1], result.plot()
         )
+
+
+class TestKeepSource:
+    def test_local_files_are_reopened_not_kept(self, tmp_path):
+        from libreyolo.utils.results import keep_source
+
+        rgb = _source_rgb()
+        path = tmp_path / "img.png"
+        Image.fromarray(rgb).save(path)
+
+        on_disk = keep_source(_detect_result(path=str(path)), Image.fromarray(rgb), str(path))
+        in_memory = keep_source(_detect_result(), Image.fromarray(rgb), None)
+        url = keep_source(_detect_result(), Image.fromarray(rgb), "https://x.test/a.jpg")
+
+        assert on_disk.orig_img is None
+        assert in_memory.orig_img is not None and url.orig_img is not None
+        np.testing.assert_array_equal(on_disk.plot(), in_memory.plot())
+
+    def test_gif_frame_plots_on_its_own_frame(self, tmp_path):
+        frames = [
+            Image.fromarray(np.full((48, 64, 3), 40 * k, dtype=np.uint8)) for k in range(4)
+        ]
+        gif = tmp_path / "anim.gif"
+        frames[0].save(gif, save_all=True, append_images=frames[1:], loop=0)
+        result = _detect_result(path=str(gif))
+        result.frame_idx = 2
+
+        decoded = np.asarray(result._video_frame_rgb())
+        np.testing.assert_array_equal(result.plot(), result.plot(Image.fromarray(decoded)))
+        assert not np.array_equal(decoded, np.asarray(frames[0]))

@@ -55,6 +55,7 @@ from ..utils.image_loader import ImageLoader
 from ..utils.model_info import build_model_info, format_model_info
 from ..utils.predict_args import normalize_predict_kwargs
 from ..utils.results import (
+    keep_source,
     Boxes,
     DepthMap,
     EdgeMap,
@@ -4484,11 +4485,9 @@ class BaseBackend(ABC):
     # =========================================================================
 
     @staticmethod
-    def _keep_source(result, original_img):
+    def _keep_source(result, original_img, source=None):
         """Keep the decoded source image on a result so ``plot()`` works."""
-        if isinstance(result, Results):
-            result.orig_img = original_img
-        return result
+        return keep_source(result, original_img, source)
 
     def _predict_single(
         self,
@@ -4534,7 +4533,7 @@ class BaseBackend(ABC):
                     image_path if image_path is not None else save_stem,
                     output_path,
                 )
-            return self._keep_source(result, original_img)
+            return self._keep_source(result, original_img, image_path)
         if self.task == "embed":
             return self._keep_source(
                 self._build_embedding_result(
@@ -4543,6 +4542,7 @@ class BaseBackend(ABC):
                     image_path=image_path,
                 ),
                 original_img,
+                image_path,
             )
         if self.task == "restore":
             result = self._build_restore_result(
@@ -4558,7 +4558,7 @@ class BaseBackend(ABC):
                     image_path if image_path is not None else save_stem,
                     output_path,
                 )
-            return self._keep_source(result, original_img)
+            return self._keep_source(result, original_img, image_path)
         if self.task == "depth":
             result = self._build_depth_result(
                 all_outputs,
@@ -4573,7 +4573,7 @@ class BaseBackend(ABC):
                     image_path if image_path is not None else save_stem,
                     output_path,
                 )
-            return self._keep_source(result, original_img)
+            return self._keep_source(result, original_img, image_path)
         if self.task == "normal":
             result = self._build_normal_result(
                 all_outputs,
@@ -4588,7 +4588,7 @@ class BaseBackend(ABC):
                     image_path if image_path is not None else save_stem,
                     output_path,
                 )
-            return self._keep_source(result, original_img)
+            return self._keep_source(result, original_img, image_path)
         if self.task == "edge":
             result = self._build_edge_result(
                 all_outputs,
@@ -4603,7 +4603,7 @@ class BaseBackend(ABC):
                     image_path if image_path is not None else save_stem,
                     output_path,
                 )
-            return self._keep_source(result, original_img)
+            return self._keep_source(result, original_img, image_path)
         if self.task == "matte":
             result = self._build_matte_result(
                 all_outputs,
@@ -4618,7 +4618,7 @@ class BaseBackend(ABC):
                     image_path if image_path is not None else save_stem,
                     output_path,
                 )
-            return self._keep_source(result, original_img)
+            return self._keep_source(result, original_img, image_path)
         if self.task == "gaze":
             result = self._build_gaze_result(
                 all_outputs,
@@ -4632,7 +4632,7 @@ class BaseBackend(ABC):
                     image_path if image_path is not None else save_stem,
                     output_path,
                 )
-            return self._keep_source(result, original_img)
+            return self._keep_source(result, original_img, image_path)
         if self.task == "semantic":
             result = self._build_semantic_result(
                 all_outputs,
@@ -4649,7 +4649,7 @@ class BaseBackend(ABC):
                     image_path if image_path is not None else save_stem,
                     output_path,
                 )
-            return self._keep_source(result, original_img)
+            return self._keep_source(result, original_img, image_path)
         if self.task == "point":
             result = self._build_point_result(
                 all_outputs,
@@ -4667,7 +4667,7 @@ class BaseBackend(ABC):
                     image_path if image_path is not None else save_stem,
                     output_path,
                 )
-            return self._keep_source(result, original_img)
+            return self._keep_source(result, original_img, image_path)
 
         parsed = self._parse_outputs(
             all_outputs,
@@ -4704,7 +4704,7 @@ class BaseBackend(ABC):
                 output_path,
             )
 
-        return self._keep_source(result, original_img)
+        return self._keep_source(result, original_img, image_path)
 
     def _supports_batched_inference(self) -> bool:
         """Whether ``_run_inference`` accepts stacked (N, C, H, W) blobs.
@@ -4998,7 +4998,7 @@ class BaseBackend(ABC):
 
             if save:
                 self._save_annotated(result, original_img, save_name, output_path)
-            results.append(self._keep_source(result, original_img))
+            results.append(self._keep_source(result, original_img, image_path))
         return results
 
     # =========================================================================

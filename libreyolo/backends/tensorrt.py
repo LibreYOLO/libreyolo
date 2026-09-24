@@ -522,7 +522,7 @@ class TensorRTBackend(BaseBackend):
                 if save:
                     self._save_annotated(result, orig_img, save_name, output_path)
 
-                results.append(self._keep_source(result, orig_img))
+                results.append(self._keep_source(result, orig_img, image_path))
 
         return results
 

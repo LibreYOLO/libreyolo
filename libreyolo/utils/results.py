@@ -2305,13 +2305,13 @@ class Results:
             )
             if not self.path:
                 raise ValueError(missing)
-            try:
-                rgb = np.asarray(Image.open(self.path).convert("RGB"))
-            except (OSError, ValueError) as exc:
-                # A frame of a collected video: path is the video file, and
-                # the frame is decoded on demand instead of kept in memory.
-                rgb = self._video_frame_rgb()
-                if rgb is None:
+            # A frame of a collected video or GIF: path is the whole clip, so
+            # decode that frame on demand (PIL would open a GIF at frame 0).
+            rgb = self._video_frame_rgb()
+            if rgb is None:
+                try:
+                    rgb = np.asarray(Image.open(self.path).convert("RGB"))
+                except (OSError, ValueError) as exc:
                     raise ValueError(missing) from exc
         elif isinstance(image, Image.Image):
             rgb = np.asarray(image.convert("RGB"))
@@ -2800,3 +2800,17 @@ def stack_result_embeddings(prediction: Any) -> torch.Tensor:
             f"Cannot stack embeddings with different dimensions: {sorted(dimensions)}."
         )
     return torch.cat(non_empty, dim=0)
+
+
+def keep_source(result: Any, image: Any, source: Any = None) -> Any:
+    """Attach the decoded source image so ``Results.plot()`` can draw on it.
+
+    Skipped when ``source`` is a local image file: ``plot()`` reopens it from
+    ``Results.path``, so a directory or list prediction does not hold every
+    decoded image in memory. In-memory inputs and URLs keep their pixels.
+    """
+    if isinstance(result, Results) and not (
+        isinstance(source, (str, Path)) and Path(source).is_file()
+    ):
+        result.orig_img = image
+    return result
