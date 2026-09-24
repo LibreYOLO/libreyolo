@@ -1305,7 +1305,7 @@ class BaseModel(ABC):
         orig_w, orig_h = img_pil.size
 
         if getattr(self, "task", "detect") == "semantic":
-            return self._predict_augment_semantic(
+            result = self._predict_augment_semantic(
                 img_pil,
                 image_path,
                 (orig_w, orig_h),
@@ -1313,9 +1313,11 @@ class BaseModel(ABC):
                 color_format,
                 **kwargs,
             )
+            result.orig_img = img_pil
+            return result
 
         if getattr(self, "task", "detect") == "panoptic":
-            return self._predict_augment_panoptic(
+            result = self._predict_augment_panoptic(
                 img_pil,
                 image_path,
                 (orig_w, orig_h),
@@ -1323,6 +1325,8 @@ class BaseModel(ABC):
                 color_format,
                 **kwargs,
             )
+            result.orig_img = img_pil
+            return result
 
         scales = (1.0,) if self.TTA_FIXED_SIZE else self.TTA_SCALES
 
@@ -1352,9 +1356,14 @@ class BaseModel(ABC):
                 aug_dets.append((det, orig_size, is_flipped, scale))
 
         if getattr(self, "task", "detect") == "classify":
-            return self._merge_classify_tta(aug_dets, image_path, (orig_w, orig_h))
-
-        return self._merge_tta(aug_dets, iou, image_path, (orig_w, orig_h), classes)
+            result = self._merge_classify_tta(aug_dets, image_path, (orig_w, orig_h))
+        else:
+            result = self._merge_tta(
+                aug_dets, iou, image_path, (orig_w, orig_h), classes
+            )
+        # Keep the decoded source so plot()/save never fetch the input again.
+        result.orig_img = img_pil
+        return result
 
     def _postprocess_semantic_logits(
         self,
