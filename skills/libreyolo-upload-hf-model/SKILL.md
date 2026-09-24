@@ -214,7 +214,7 @@ LibreRFDETRn.pt, LibreRFDETRs.pt, LibreRFDETRm.pt,
 LibreRFDETRl.pt, LibreRFDETRn-seg.pt, LibreRFDETRs-seg.pt,
 LibreRFDETRm-seg.pt, LibreRFDETRl-seg.pt, LibreRFDETRx-pose.pt,
 LibreRFDETRn-obb.pt, LibreRFDETRs-obb.pt, LibreRFDETRm-obb.pt,
-LibreRFDETRl-obb.pt,
+LibreRFDETRl-obb.pt, LibreRFDETRm-ui.pt,
 
 LibreDETRr50.pt, LibreDETRr50dc5.pt,
 LibreDETRr101.pt, LibreDETRr101dc5.pt,

@@ -103,6 +103,9 @@ class LibreRFDETR(BaseModel):
     # Class-level metadata
     FAMILY: ClassVar[str] = "rfdetr"
     FILENAME_PREFIX: ClassVar[str] = "LibreRFDETR"
+    # Dataset-variant weights: ``-ui`` is the class-agnostic UI element
+    # detector (UI-DETR-1, racineai, MIT), an RF-DETR-M fine-tune.
+    WEIGHT_VARIANTS: ClassVar[tuple[str, ...]] = ("ui",)
     # Forward is pure tensor work with no host sync, verified to capture and
     # replay bit-identically (tests/unit/test_cuda_graph_families.py).
     SUPPORTS_CUDA_GRAPH = True

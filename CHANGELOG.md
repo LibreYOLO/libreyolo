@@ -9,6 +9,11 @@ before 1.4.0 are documented in the
 
 ### Added
 
+- **`LibreRFDETRm-ui.pt`: class-agnostic UI element detector (#896).**
+  UI-DETR-1 (racineai, MIT), an RF-DETR-M fine-tune for screenshots, hosted
+  as an RF-DETR dataset variant with one class, `object`. Auto-downloads from
+  `LibreYOLO/LibreRFDETRm-ui`.
+
 - **`val(visualize=True)` draws every validated image for error analysis
   (#887).** Detection and segmentation images show true positives (green),
   false positives (red) and false negatives (orange), matched class-aware at
@@ -147,6 +152,18 @@ before 1.4.0 are documented in the
   accepting them silently.
 
 ### Fixed
+
+- **RF-DETR predict and val resize without antialiasing (#896).** The PIL
+  bilinear resize antialiased on downscale, unlike RF-DETR training (cv2
+  bilinear) and upstream `predict()` since rf-detr 1.9.0. Boxes drifted on
+  inputs much larger than the canvas (median IoU 0.71 to 0.88 against upstream
+  on UI screenshots); they now match upstream on screenshots and COCO images,
+  in PyTorch and ONNX. COCO mAP50-95 of RF-DETR-M on a 200-image val subset
+  moves from 0.6195 to 0.6179.
+
+- **Single-class upstream RF-DETR checkpoints convert as `nc=1` (#896).** A
+  one-output class head (a one-category training set) was converted as
+  `nc=80` with 79 placeholder names. Predictions were unaffected.
 
 - **Classification `val()`, INT8 calibration and exports use the model's own
   eval pipeline (#886).** The validator now takes the transform from the model

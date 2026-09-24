@@ -645,6 +645,12 @@ def _rfdetr_class_metadata(
         # COCO arch-classes (91 outputs incl. background) -> LibreYOLO's COCO-80.
         return 80, _checkpoint_names(loaded, 80)
 
+    if raw_nc == 0:
+        # A single-logit head has no spare slot: upstream sizes the head from
+        # the dataset's category count, so a one-category dataset yields one
+        # output and logit 0 is that class.
+        return 1, _checkpoint_names(loaded, 1)
+
     nc = raw_nc if raw_nc else 80
     return nc, _checkpoint_names(loaded, nc)
 
