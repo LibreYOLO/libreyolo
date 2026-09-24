@@ -147,8 +147,11 @@ def draw_boxes(
         # Tracking mode: short two-tone label  "#23 0.87"
         # Detection mode: full label           "person: 0.87"
         if tid is not None:
-            id_text = f"#{int(tid)}"
-            conf_text = f" {score:.2f}"
+            # The track ID is the label in tracking mode.
+            id_text = f"#{int(tid)}" if labels else ""
+            conf_text = f"{score:.2f}" if conf else ""
+            if id_text and conf_text:
+                conf_text = " " + conf_text
             # Measure both parts separately for two-tone rendering.
             id_bbox = draw.textbbox((0, 0), id_text, font=font)
             full_label = id_text + conf_text
@@ -269,7 +272,10 @@ def draw_obb(
             continue
 
         if tid is not None:
-            label = f"#{int(tid)} {float(score):.2f}"
+            parts = ([f"#{int(tid)}"] if labels else []) + (
+                [f"{float(score):.2f}"] if conf else []
+            )
+            label = " ".join(parts)
         else:
             label = _box_label(class_names, cls_id_int, score, labels, conf)
 
@@ -1454,6 +1460,7 @@ def draw_results(
             result.boxes.conf.tolist(),
             result.boxes.cls.tolist(),
             class_names=result.names,
+            track_ids=result.boxes.id.tolist() if result.boxes.id is not None else None,
             labels=labels,
             conf=conf,
             line_width=line_width,

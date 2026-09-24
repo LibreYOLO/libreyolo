@@ -160,10 +160,13 @@ before 1.4.0 are documented in the
   pixel-identical to `predict(save=True)` (both use the new
   `drawing.draw_results`). Accepts `conf`, `labels`, `boxes`, `masks`,
   `probs`, `line_width`, `pil`, `img`, `show`, `save` and `filename`.
-  Classification plots write the top-5 labels. Dense maps, 3D cuboids and
-  action chunks keep returning a PIL image unless `pil=False`. Predict now
-  keeps the source image on the result as `Results.orig_img` (BGR), so
-  in-memory inputs plot without a path.
+  Classification plots and `predict(save=True)` write the top-5 labels.
+  Tracked results show their track IDs. Exported-model backends (ONNX and the
+  other runtimes) save and plot through the same renderer. Dense maps, 3D
+  cuboids and action chunks keep returning a PIL image unless `pil=False`.
+  Predict now keeps the source image on the result as `Results.orig_img`
+  (BGR), so in-memory inputs plot without a path; a finite video collected
+  without `stream=True` drops each frame's image to bound memory.
 
 - **RF-DETR predict and val resize without antialiasing (#896).** The PIL
   bilinear resize antialiased on downscale, unlike RF-DETR training (cv2

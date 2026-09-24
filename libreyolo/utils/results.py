@@ -2293,13 +2293,18 @@ class Results:
         if image is None and self._orig_img is not None:
             image = Image.fromarray(self.orig_img[..., ::-1])
         if image is None:
+            missing = (
+                "plot()/cutout()/save() need the source image, but none was kept "
+                "and Results.path is not an image; pass image=<PIL.Image or HxWx3 "
+                "RGB array> (plot() also takes img=<HxWx3 BGR array>)."
+            )
             if not self.path:
-                raise ValueError(
-                    "plot()/cutout()/save() need the source image, but none was "
-                    "kept and Results.path is unset; pass image=<PIL.Image or "
-                    "HxWx3 RGB array> (plot() also takes img=<HxWx3 BGR array>)."
-                )
-            rgb = np.asarray(Image.open(self.path).convert("RGB"))
+                raise ValueError(missing)
+            try:
+                rgb = np.asarray(Image.open(self.path).convert("RGB"))
+            except (OSError, ValueError) as exc:
+                # e.g. a frame of a collected video: path is the video file.
+                raise ValueError(missing) from exc
         elif isinstance(image, Image.Image):
             rgb = np.asarray(image.convert("RGB"))
         else:
