@@ -894,3 +894,27 @@ class TestKeepSource:
         decoded = np.asarray(result._video_frame_rgb())
         np.testing.assert_array_equal(result.plot(), result.plot(Image.fromarray(decoded)))
         assert not np.array_equal(decoded, np.asarray(frames[0]))
+
+
+def test_gaze_plot_draws_arrows_like_l2cs_save():
+    from libreyolo.utils.drawing import draw_boxes, draw_gaze_arrows
+    from libreyolo.utils.results import Gaze
+
+    rgb = _source_rgb()
+    result = _detect_result(orig_img=Image.fromarray(rgb))
+    result.gaze = Gaze(torch.tensor([[0.2, -0.3], [-0.1, 0.4]]))
+
+    boxes = result.boxes.xyxy.tolist()
+    expected = draw_gaze_arrows(
+        draw_boxes(
+            Image.fromarray(rgb),
+            boxes,
+            result.boxes.conf.tolist(),
+            result.boxes.cls.tolist(),
+            class_names=result.names,
+        ),
+        boxes,
+        np.array([0.2, -0.1], dtype=np.float32),
+        np.array([-0.3, 0.4], dtype=np.float32),
+    )
+    np.testing.assert_array_equal(result.plot(pil=True), np.asarray(expected))
