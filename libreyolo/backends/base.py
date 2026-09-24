@@ -44,14 +44,7 @@ from ..preprocess.yolonas import (
 )
 from ..preprocess.yolox import preprocess_image as yolox_preprocess_image
 from ..tasks import normalize_supported_tasks, normalize_task, resolve_task
-from ..utils.drawing import (
-    draw_boxes,
-    draw_keypoints,
-    draw_masks,
-    draw_obb,
-    draw_points,
-    draw_semantic_mask,
-)
+from ..utils.drawing import draw_results
 from ..utils.general import (
     COCO_CLASSES,
     get_safe_stem,
@@ -4091,80 +4084,12 @@ class BaseBackend(ABC):
 
     def _save_annotated(self, result, original_img, image_path, output_path):
         """Save annotated image to disk."""
-        annotated_img = original_img
         forced_ext = None
-        if result.boxes is None and getattr(result, "probs", None) is not None:
-            pass
-        elif result.boxes is None and getattr(result, "restored", None) is not None:
-            annotated_img = Image.fromarray(result.restored.array, mode="RGB")
-        elif result.boxes is None and getattr(result, "depth_map", None) is not None:
-            from ..utils.drawing import draw_depth_map
-
-            depth_data = result.depth_map.data
-            if isinstance(depth_data, torch.Tensor):
-                depth_data = depth_data.cpu().numpy()
-            annotated_img = draw_depth_map(original_img, depth_data)
-        elif result.boxes is None and getattr(result, "normal_map", None) is not None:
-            from ..utils.drawing import draw_normal_map
-
-            normal_data = result.normal_map.data
-            if isinstance(normal_data, torch.Tensor):
-                normal_data = normal_data.cpu().numpy()
-            annotated_img = draw_normal_map(original_img, normal_data)
-        elif result.boxes is None and getattr(result, "edges", None) is not None:
-            from ..utils.drawing import draw_edge_map
-
-            edge_data = result.edges.data
-            if isinstance(edge_data, torch.Tensor):
-                edge_data = edge_data.cpu().numpy()
-            annotated_img = draw_edge_map(original_img, edge_data)
-        elif (
-            result.boxes is None and getattr(result, "semantic_mask", None) is not None
-        ):
-            mask_data = result.semantic_mask.data
-            if isinstance(mask_data, torch.Tensor):
-                mask_data = mask_data.cpu().numpy()
-            annotated_img = draw_semantic_mask(original_img, mask_data)
-        elif result.boxes is None and getattr(result, "matte", None) is not None:
+        if result.boxes is None and getattr(result, "matte", None) is not None:
             annotated_img = Image.fromarray(result.cutout(original_img), mode="RGBA")
             forced_ext = "png"
-        elif result.boxes is None and getattr(result, "points", None) is not None:
-            if len(result.points) > 0:
-                annotated_img = draw_points(
-                    original_img,
-                    result.points.xy.tolist(),
-                    result.points.conf.tolist(),
-                    result.points.cls.tolist(),
-                    class_names=result.names,
-                )
-        elif len(result) > 0:
-            if result.masks is not None:
-                annotated_img = draw_masks(
-                    annotated_img,
-                    result.masks.data.numpy(),
-                    result.boxes.cls.tolist(),
-                )
-            if result.obb is not None:
-                annotated_img = draw_obb(
-                    annotated_img,
-                    result.obb.xywhr.tolist(),
-                    result.obb.conf.tolist(),
-                    result.obb.cls.tolist(),
-                    class_names=self.names,
-                )
-            else:
-                annotated_img = draw_boxes(
-                    annotated_img,
-                    result.boxes.xyxy.tolist(),
-                    result.boxes.conf.tolist(),
-                    result.boxes.cls.tolist(),
-                    class_names=self.names,
-                )
-            if result.keypoints is not None:
-                kpts_np = result.keypoints.data
-                if isinstance(kpts_np, torch.Tensor):
-                    kpts_np = kpts_np.cpu().numpy()
-                annotated_img = draw_keypoints(annotated_img, kpts_np)
+        else:
+            annotated_img = draw_results(result, original_img)
 
         ext = forced_ext or (
             "png" if isinstance(getattr(self, "input_profile", None), dict)
@@ -4558,6 +4483,13 @@ class BaseBackend(ABC):
     # Inference pipeline
     # =========================================================================
 
+    @staticmethod
+    def _keep_source(result, original_img):
+        """Keep the decoded source image on a result so ``plot()`` works."""
+        if isinstance(result, Results):
+            result.orig_img = original_img
+        return result
+
     def _predict_single(
         self,
         image: Union[str, Path, Image.Image, np.ndarray],
@@ -4602,7 +4534,7 @@ class BaseBackend(ABC):
                     image_path if image_path is not None else save_stem,
                     output_path,
                 )
-            return result
+            return self._keep_source(result, original_img)
         if self.task == "embed":
             return self._build_embedding_result(
                 all_outputs,
@@ -4623,7 +4555,7 @@ class BaseBackend(ABC):
                     image_path if image_path is not None else save_stem,
                     output_path,
                 )
-            return result
+            return self._keep_source(result, original_img)
         if self.task == "depth":
             result = self._build_depth_result(
                 all_outputs,
@@ -4638,7 +4570,7 @@ class BaseBackend(ABC):
                     image_path if image_path is not None else save_stem,
                     output_path,
                 )
-            return result
+            return self._keep_source(result, original_img)
         if self.task == "normal":
             result = self._build_normal_result(
                 all_outputs,
@@ -4653,7 +4585,7 @@ class BaseBackend(ABC):
                     image_path if image_path is not None else save_stem,
                     output_path,
                 )
-            return result
+            return self._keep_source(result, original_img)
         if self.task == "edge":
             result = self._build_edge_result(
                 all_outputs,
@@ -4668,7 +4600,7 @@ class BaseBackend(ABC):
                     image_path if image_path is not None else save_stem,
                     output_path,
                 )
-            return result
+            return self._keep_source(result, original_img)
         if self.task == "matte":
             result = self._build_matte_result(
                 all_outputs,
@@ -4683,7 +4615,7 @@ class BaseBackend(ABC):
                     image_path if image_path is not None else save_stem,
                     output_path,
                 )
-            return result
+            return self._keep_source(result, original_img)
         if self.task == "gaze":
             result = self._build_gaze_result(
                 all_outputs,
@@ -4697,7 +4629,7 @@ class BaseBackend(ABC):
                     image_path if image_path is not None else save_stem,
                     output_path,
                 )
-            return result
+            return self._keep_source(result, original_img)
         if self.task == "semantic":
             result = self._build_semantic_result(
                 all_outputs,
@@ -4714,7 +4646,7 @@ class BaseBackend(ABC):
                     image_path if image_path is not None else save_stem,
                     output_path,
                 )
-            return result
+            return self._keep_source(result, original_img)
         if self.task == "point":
             result = self._build_point_result(
                 all_outputs,
@@ -4732,7 +4664,7 @@ class BaseBackend(ABC):
                     image_path if image_path is not None else save_stem,
                     output_path,
                 )
-            return result
+            return self._keep_source(result, original_img)
 
         parsed = self._parse_outputs(
             all_outputs,
@@ -4769,7 +4701,7 @@ class BaseBackend(ABC):
                 output_path,
             )
 
-        return result
+        return self._keep_source(result, original_img)
 
     def _supports_batched_inference(self) -> bool:
         """Whether ``_run_inference`` accepts stacked (N, C, H, W) blobs.
@@ -5063,7 +4995,7 @@ class BaseBackend(ABC):
 
             if save:
                 self._save_annotated(result, original_img, save_name, output_path)
-            results.append(result)
+            results.append(self._keep_source(result, original_img))
         return results
 
     # =========================================================================

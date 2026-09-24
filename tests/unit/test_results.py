@@ -811,3 +811,56 @@ class TestResultsPlot:
 
         assert not np.array_equal(result.plot(), rgb)
         np.testing.assert_array_equal(result.plot(probs=False), rgb)
+
+
+class TestResultsPlotFollowUps:
+    def test_plot_with_video_path_and_no_frame_says_how_to_fix(self, tmp_path):
+        clip = tmp_path / "clip.mp4"
+        clip.write_bytes(b"not an image")
+
+        with pytest.raises(ValueError, match="img="):
+            _detect_result(path=str(clip)).plot()
+
+    def test_tracked_plot_draws_track_ids(self):
+        from libreyolo.utils.drawing import draw_boxes
+
+        rgb = _source_rgb()
+        result = _detect_result(orig_img=Image.fromarray(rgb))
+        result.boxes = result.boxes.with_id(torch.tensor([7.0, 9.0]))
+
+        expected = draw_boxes(
+            Image.fromarray(rgb),
+            result.boxes.xyxy.tolist(),
+            result.boxes.conf.tolist(),
+            result.boxes.cls.tolist(),
+            class_names=result.names,
+            track_ids=[7.0, 9.0],
+        )
+        np.testing.assert_array_equal(result.plot(pil=True), np.asarray(expected))
+
+    def test_tracked_obb_label_options(self):
+        rgb = Image.fromarray(_source_rgb())
+        args = ([[30.0, 24.0, 20.0, 10.0, 0.3]], [0.8], [1.0])
+        full = np.asarray(draw_obb(rgb, *args, track_ids=[3]))
+        no_conf = np.asarray(draw_obb(rgb, *args, track_ids=[3], conf=False))
+        no_label = np.asarray(draw_obb(rgb, *args, track_ids=[3], labels=False))
+
+        assert not np.array_equal(full, no_conf)
+        assert not np.array_equal(full, no_label)
+        assert not np.array_equal(no_conf, no_label)
+
+    def test_classify_save_matches_plot(self, tmp_path):
+        rgb = np.full((48, 64, 3), 200, dtype=np.uint8)
+        result = Results(
+            boxes=None,
+            orig_shape=(48, 64),
+            names={0: "cat", 1: "dog"},
+            probs=Probs(torch.tensor([0.2, 0.8])),
+            orig_img=Image.fromarray(rgb),
+        )
+        saved = tmp_path / "cls.png"
+        InferenceRunner._save_annotated_image(None, result, Image.fromarray(rgb), saved)
+
+        np.testing.assert_array_equal(
+            np.asarray(Image.open(saved).convert("RGB"))[..., ::-1], result.plot()
+        )

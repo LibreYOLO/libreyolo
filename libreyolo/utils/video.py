@@ -390,7 +390,14 @@ def collect_video_results(
             f"Consider using stream=True to avoid high memory usage.",
             stacklevel=3,
         )
-    return list(gen)
+    results = []
+    for result in gen:
+        # A collected list must not hold every decoded frame; stream=True
+        # keeps each frame's source image for plotting.
+        if getattr(result, "orig_img", None) is not None:
+            result.orig_img = None
+        results.append(result)
+    return results
 
 
 def run_video_inference(

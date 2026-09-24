@@ -448,3 +448,17 @@ class TestCollectVideoResults:
             collect_video_results(iter([1, 2, 3]), path, vid_stride=1)
             memory_warnings = [x for x in w if "stream=True" in str(x.message)]
             assert len(memory_warnings) == 1
+
+
+def test_collected_video_results_drop_source_frames(sample_video):
+    from PIL import Image
+
+    from libreyolo.utils.results import Results
+
+    frames = [
+        Results(boxes=None, orig_shape=(4, 4), orig_img=Image.new("RGB", (4, 4)))
+        for _ in range(3)
+    ]
+    collected = collect_video_results(iter(frames), sample_video, vid_stride=1)
+
+    assert [r.orig_img for r in collected] == [None, None, None]

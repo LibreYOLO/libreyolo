@@ -946,6 +946,8 @@ class InferenceRunner:
         )
         result = self._wrap_results(detections, original_size, str(source), classes)
         result.path = str(source)
+        # A whole-clip result plots on its first sampled frame.
+        result.orig_img = frames[0]
 
         if save:
             save_file = resolve_save_path(
@@ -958,11 +960,12 @@ class InferenceRunner:
         self, result: Results, original_img, save_path: Path
     ) -> None:
         """Internal helper to render a result on its image and save to disk."""
-        # Classification and whole-image embed results carry no boxes; there is
-        # nothing to draw, so persist the source image as-is.
-        if result.boxes is None and (
-            getattr(result, "probs", None) is not None
-            or getattr(result, "embeddings", None) is not None
+        # Whole-image embed results carry nothing to draw; persist the source
+        # image as-is. Classification draws its top-5 in draw_results.
+        if (
+            result.boxes is None
+            and result.probs is None
+            and getattr(result, "embeddings", None) is not None
         ):
             original_img.save(save_path)
             log_saved_result(result, save_path)
