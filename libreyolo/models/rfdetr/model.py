@@ -1236,7 +1236,9 @@ class LibreRFDETR(BaseModel):
                 ``<RFDETRConfig.project>/<RFDETRConfig.name>`` when omitted;
                 ``project=`` / ``name=`` kwargs take precedence over this split.
             resume: Checkpoint path, or True to resume the loaded checkpoint.
-            callbacks: Optional training callback or iterable of callbacks.
+            callbacks: Optional callback or iterable. One object may define
+                fitness(metrics) to select best.pt and drive patience; custom
+                fitness requires a new run (resume=False).
             loggers: Optional built-in experiment loggers: a registered name,
                 a configured logger instance, or an iterable mixing both.
         """

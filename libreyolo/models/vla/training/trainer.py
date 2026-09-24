@@ -216,6 +216,8 @@ class VLATrainer:
         self.callbacks = TrainCallbackList(callbacks)
         for logger_cb in resolve_loggers(loggers):
             self.callbacks.append(logger_cb)
+        if self.callbacks.fitness is not None:
+            raise NotImplementedError("VLA training does not support custom fitness callbacks")
         self.save_dir = self._resolve_save_dir()
 
     def _resolve_save_dir(self) -> Path:
