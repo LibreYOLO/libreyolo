@@ -24,6 +24,7 @@ from typing import (
 
 import numpy as np
 import torch
+from PIL import Image
 from torchvision.ops import batched_nms
 
 from ...postprocess.slicing import slice_batch_outputs
@@ -580,12 +581,12 @@ class InferenceRunner:
                 color_format=color_format,
                 **kwargs,
             )
-            img_pil = ImageLoader.load(source, color_format=color_format)
-            result.orig_img = img_pil
             if save:
                 image_path = source if isinstance(source, (str, Path)) else None
                 ext = output_file_format or "jpg"
                 save_path = resolve_save_path(output_path, image_path, ext=ext)
+                # _predict_augment kept the decoded source; do not fetch again.
+                img_pil = Image.fromarray(result.orig_img[..., ::-1])
                 self._save_annotated_image(result, img_pil, save_path)
             return result
 
@@ -755,8 +756,6 @@ class InferenceRunner:
                     color_format=color_format,
                     **kwargs,
                 )
-                img_pil = ImageLoader.load(image, color_format=color_format)
-                result.orig_img = img_pil
                 if save:
                     ext = output_file_format or "jpg"
                     save_path = resolve_save_path(
@@ -764,6 +763,7 @@ class InferenceRunner:
                         image if save_stem is None else save_stem,
                         ext=ext,
                     )
+                    img_pil = Image.fromarray(result.orig_img[..., ::-1])
                     self._save_annotated_image(result, img_pil, save_path)
                 results.append(result)
             else:
