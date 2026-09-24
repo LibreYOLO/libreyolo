@@ -3725,6 +3725,9 @@ class BaseTrainer(ABC):
                     extra_checkpoint_meta["imgsz_h"] = cp_h
                     extra_checkpoint_meta["imgsz_w"] = cp_w
             extra_checkpoint_meta.update(self._checkpoint_extra_metadata())
+            checkpoint_task = extra_checkpoint_meta.pop(
+                "task", getattr(getattr(self, "wrapper_model", None), "task", "detect")
+            )
             average_metric_key = (
                 average_metrics.get("best_metric_key") if average_metrics else None
             )
@@ -3735,7 +3738,7 @@ class BaseTrainer(ABC):
                 averaged,
                 model_family=self.get_model_family(),
                 size=self.config.size,
-                task=getattr(getattr(self, "wrapper_model", None), "task", "detect"),
+                task=checkpoint_task,
                 nc=int(getattr(self, "num_classes", self.config.num_classes)),
                 names=names,
                 imgsz=int(checkpoint_imgsz),

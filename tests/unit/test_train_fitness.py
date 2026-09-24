@@ -286,14 +286,17 @@ def test_average_pool_and_average_checkpoint_use_custom_score(tmp_path):
 
 
 @pytest.mark.parametrize("custom", [False, True])
-def test_fomo_checkpoint_metadata_preserves_selected_metric(tmp_path, monkeypatch, custom):
+@pytest.mark.parametrize("with_wrapper", [False, True])
+def test_fomo_checkpoint_metadata_preserves_selected_metric(
+    tmp_path, monkeypatch, custom, with_wrapper
+):
     from libreyolo import LibreFOMO
     from libreyolo.models.fomo.trainer import FOMOTrainer
 
     wrapper = LibreFOMO(None, size="s", nb_classes=1, device="cpu")
     trainer = FOMOTrainer(
         wrapper.model,
-        wrapper_model=wrapper,
+        wrapper_model=wrapper if with_wrapper else None,
         size="s",
         num_classes=1,
         device="cpu",
@@ -379,7 +382,17 @@ def _distributed_worker(rank, init_file, root, failure):
                 raise SystemExit("fitness interrupted")
 
             scorer = SimpleNamespace(fitness=exit_fitness)
+        elif failure == "average":
+            class AverageFailure(LossFitness):
+                def fitness(self, metrics):
+                    if len(self.calls) == 4:
+                        raise ValueError("averaged fitness failed")
+                    return super().fitness(metrics)
+
+            scorer = AverageFailure()
         trainer = make_trainer(Path(root) / "run", callbacks=scorer)
+        if failure == "average":
+            trainer._weight_averager = MetricGatedAverager(2)
         try:
             result = trainer.train()
             outcome = {
@@ -398,7 +411,7 @@ def _distributed_worker(rank, init_file, root, failure):
 @pytest.mark.skipif(
     not dist.is_available() or not dist.is_gloo_available(), reason="requires Gloo"
 )
-@pytest.mark.parametrize("failure", [None, "invalid", "exit"])
+@pytest.mark.parametrize("failure", [None, "invalid", "exit", "average"])
 def test_distributed_fitness_rank_zero_stop_and_failure(tmp_path, failure):
     mp.spawn(
         _distributed_worker,
@@ -409,7 +422,14 @@ def test_distributed_fitness_rank_zero_stop_and_failure(tmp_path, failure):
     ranks = [
         json.loads((tmp_path / f"rank{rank}.json").read_text()) for rank in range(2)
     ]
-    if failure:
+    if failure == "average":
+        # Rank zero raises after releasing the averaging barrier. Peers have
+        # no further training collective and can finish, allowing the launcher
+        # to report the rank-zero error instead of hanging.
+        assert ranks[0] == {"type": "ValueError", "error": "averaged fitness failed"}
+        assert ranks[1] == {"epochs": 4, "calls": 0}
+        assert not (tmp_path / "run/weights/average.pt").exists()
+    elif failure:
         assert [r["type"] for r in ranks] == [
             "ValueError" if failure == "invalid" else "SystemExit",
             "RuntimeError",
