@@ -11,6 +11,7 @@ from .callbacks import (
     TrainEndEvent as TrainEndEvent,
     TrainEpochEvent as TrainEpochEvent,
     TrainExceptionEvent as TrainExceptionEvent,
+    TrainFitnessCallback as TrainFitnessCallback,
     TrainStartEvent as TrainStartEvent,
 )
 from .config import (

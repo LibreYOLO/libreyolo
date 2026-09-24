@@ -11,7 +11,9 @@ import sys
 import time
 from abc import ABC, abstractmethod
 from collections.abc import Mapping
+from numbers import Real
 from pathlib import Path
+from types import MappingProxyType
 from typing import Any, Dict, List, Optional, Tuple, Type
 
 import torch
@@ -236,6 +238,7 @@ class BaseTrainer(ABC):
         self.callbacks = TrainCallbackList(callbacks)
         for logger_callback in resolve_loggers(loggers):
             self.callbacks.append(logger_callback)
+        self._fitness_callback = self.callbacks.fitness
         # TrainingArtifactsCallback is family-gated (results.csv / summary.json
         # only for opted-in families). TrainingStatusCallback is universal: every
         # run gets a live status.json + train.log so agents and the `libreyolo
@@ -2091,6 +2094,11 @@ class BaseTrainer(ABC):
                 self.epoch_losses.append(epoch_loss)
 
                 profile_truncated = bool(getattr(self, "_stop_training", False))
+                if (
+                    not profile_truncated
+                    and getattr(self, "_fitness_callback", None) is not None
+                ):
+                    val_metrics = self._apply_fitness(val_metrics)
                 is_best = (
                     False
                     if profile_truncated
@@ -2115,6 +2123,8 @@ class BaseTrainer(ABC):
                         refreshed = self._validate_epoch(
                             epoch, save_plots=save_final_plots
                         )
+                        if getattr(self, "_fitness_callback", None) is not None:
+                            refreshed = self._apply_fitness(refreshed)
                         if refreshed is not None:
                             val_metrics = refreshed
                             is_best = self._update_best_state(epoch, val_metrics)
@@ -2374,6 +2384,8 @@ class BaseTrainer(ABC):
         return scalar if scalar is not None else 0.0
 
     def _best_metric_name(self, val_metrics: Optional[Dict[str, Any]]) -> str:
+        if getattr(self, "_fitness_callback", None) is not None:
+            return "fitness/custom"
         if val_metrics:
             return str(
                 val_metrics.get(
@@ -2382,6 +2394,59 @@ class BaseTrainer(ABC):
                 )
             )
         return str(getattr(self, "best_metric_key", "metrics/mAP50-95"))
+
+    def _apply_fitness(
+        self, val_metrics: Optional[Dict[str, Any]], *, synchronize: bool = True
+    ) -> Optional[Dict[str, Any]]:
+        """Score once, then let all score consumers reuse the selected value.
+
+        The main loop calls this on every rank, even without validation.
+        Share scorer failures before the next training collective so peer
+        ranks do not continue alone. Final averaging already runs on rank 0
+        and therefore uses ``synchronize=False``.
+        """
+        scorer = getattr(self, "_fitness_callback", None)
+        if scorer is None:
+            return val_metrics
+        error = None
+        if is_main_process() and val_metrics:
+            try:
+                metrics = MappingProxyType(
+                    self._validation_metrics_for_event(val_metrics)
+                )
+                score = scorer(metrics)
+                if isinstance(score, torch.Tensor):
+                    if (
+                        score.ndim != 0
+                        or score.is_complex()
+                        or score.dtype == torch.bool
+                    ):
+                        raise TypeError("fitness must return a finite real scalar")
+                    score = score.detach().item()
+                if isinstance(score, bool) or not isinstance(score, Real):
+                    raise TypeError("fitness must return a finite real scalar")
+                score = float(score)
+                if not math.isfinite(score):
+                    raise ValueError("fitness must return a finite real scalar")
+                val_metrics = dict(
+                    val_metrics, best_metric=score, best_metric_key="fitness/custom"
+                )
+            except BaseException as exc:
+                error = exc
+        if synchronize and self.is_distributed:
+            import torch.distributed as _dist
+
+            status = [
+                f"{type(error).__name__}: {error}" if error is not None else None
+            ]
+            _dist.broadcast_object_list(status, src=0)
+            if status[0] is not None and error is None:
+                raise RuntimeError(
+                    f"Training fitness callback failed on rank 0: {status[0]}"
+                )
+        if error is not None:
+            raise error
+        return val_metrics
 
     def _validation_metrics_for_event(
         self, val_metrics: Optional[Dict[str, Any]]
@@ -3629,6 +3694,10 @@ class BaseTrainer(ABC):
 
             logger.info("average_best: validating averaged weights")
             average_metrics = self._validate_average_state(averaged)
+            if getattr(self, "_fitness_callback", None) is not None:
+                average_metrics = self._apply_fitness(
+                    average_metrics, synchronize=False
+                )
             self._average_validation_metrics = average_metrics
             if average_metrics is None:
                 logger.warning(
@@ -3673,8 +3742,16 @@ class BaseTrainer(ABC):
                 epoch=self.current_epoch,
                 best_mAP50_95=self.best_mAP50_95,
                 best_mAP50=self.best_mAP50,
-                best_metric_key=getattr(self, "best_metric_key", "metrics/mAP50-95"),
+                best_metric_key=(
+                    "fitness/custom"
+                    if getattr(self, "_fitness_callback", None) is not None
+                    else getattr(self, "best_metric_key", "metrics/mAP50-95")
+                ),
                 best_metric_value=self.best_mAP50_95,
+                fitness_source=(
+                    "callback"
+                    if getattr(self, "_fitness_callback", None) is not None else None
+                ),
                 best_epoch=self.best_epoch,
                 is_ema_weights=self.ema_model is not None,
                 averaged_snapshot_count=averager.size,
@@ -3849,6 +3926,8 @@ class BaseTrainer(ABC):
             if val_metrics
             else getattr(self, "best_metric_key", "metrics/mAP50-95")
         )
+        if getattr(self, "_fitness_callback", None) is not None:
+            best_metric_key = "fitness/custom"
         names = (
             self.wrapper_model.names
             if self.wrapper_model is not None and hasattr(self.wrapper_model, "names")
@@ -3897,6 +3976,10 @@ class BaseTrainer(ABC):
             best_mAP50=self.best_mAP50,
             best_metric_key=best_metric_key,
             best_metric_value=self.best_mAP50_95,
+            fitness_source=(
+                "callback"
+                if getattr(self, "_fitness_callback", None) is not None else None
+            ),
             best_epoch=self.best_epoch,
             is_ema_weights=self.ema_model is not None,
             **extra_checkpoint_meta,
@@ -3975,6 +4058,11 @@ class BaseTrainer(ABC):
         return input_metadata(self.wrapper_model)
 
     def resume(self, checkpoint_path: str):
+        if getattr(self, "_fitness_callback", None) is not None:
+            raise ValueError(
+                "Custom fitness does not support resume: callback code and state "
+                "are not saved. Load weights into a new run with resume=False."
+            )
         if not Path(checkpoint_path).exists():
             raise FileNotFoundError(f"Resume checkpoint not found: {checkpoint_path}")
 
@@ -3984,6 +4072,11 @@ class BaseTrainer(ABC):
             map_location=self.device,
             context="training resume checkpoint",
         )
+        if checkpoint.get("fitness_source") == "callback":
+            raise ValueError(
+                "Cannot resume a custom-fitness checkpoint: its scores cannot be "
+                "compared with this run. Load weights into a new run with resume=False."
+            )
         if isinstance(checkpoint.get("input_profile"), dict) or isinstance(
             getattr(getattr(self, "wrapper_model", None), "input_profile", None), dict
         ):

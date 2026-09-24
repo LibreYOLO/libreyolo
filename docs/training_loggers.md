@@ -49,6 +49,49 @@ reference but cannot be transported by value (for example, one that captures a
 write-only file handle) uses the guarded-script compatibility launcher and
 emits a warning; keep that call under the `__main__` guard.
 
+### Custom fitness
+
+For families using the shared `BaseTrainer`, including YOLO9 and RF-DETR,
+one callback object may define `fitness(metrics)`. Its finite real scalar
+return value selects `best.pt` and drives the existing `patience` setting;
+higher is better. Plain functions remain epoch observers. No CLI code loader
+is provided: this hook is a Python callable.
+
+```python
+class ValidationLossFitness:
+    def fitness(self, metrics):
+        return -metrics["metrics/loss"]
+
+model.train(
+    data="coco8.yaml", val_loss=True, patience=10,
+    callbacks=ValidationLossFitness(),
+)
+```
+
+The scorer receives a read-only copy of the scalar validation metrics, with
+the same names as `TrainEpochEvent.val_metrics`. Use the metrics your task
+actually reports; missing keys raise normally. It runs on rank zero before
+checkpoint selection and epoch observers, once for each validation result
+used for selection. Skipped validation does not call it. Precise-BN
+revalidation and final averaged-weight validation also use it. Keep the
+scorer deterministic and independent of invocation count.
+
+Events and checkpoints name the selected score `fitness/custom`; validation
+metrics keep their original values. `average_best` ranks snapshots by the
+same score. Ties keep the earlier best, and patience still counts epochs
+since improvement, including epochs without validation. Multiple scorers,
+non-numeric results, booleans, non-scalar tensors, NaN and infinity raise
+before updating best state or writing that epoch's checkpoint.
+
+Custom-fitness training does not support `resume`. Callback code and state
+are not serialized, and the library cannot establish whether a new scorer
+is comparable with historical scores. Resuming with a scorer or from a
+custom-fitness checkpoint raises. To continue from its weights, load that
+checkpoint and start a new run with `resume=False` and a new output directory;
+this starts fresh optimizer, best-score and patience tracking. Ordinary
+training and ordinary resume are unchanged. VLM and VLA trainers do not
+support this scorer.
+
 ## Built-in loggers
 
 Built-in loggers are callback objects layered on the same universal hooks.
@@ -145,7 +188,8 @@ monitor overlays it like every other family.
 This option is off by default because target assignment adds work and memory
 to validation. It runs under `torch.no_grad()` with the evaluation/EMA model,
 and distributed training computes it locally on rank 0 without collectives.
-Best-checkpoint selection remains based on the configured accuracy metric.
+Best-checkpoint selection uses the task's default metric unless a custom
+fitness callback is supplied.
 Augmented validation, a task a family has not implemented it for, and
 inference-only (`g3`/`g4`) families all raise a clear configuration error.
 

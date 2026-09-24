@@ -320,6 +320,14 @@ def validate_checkpoint_metadata(
         if not isinstance(imgsz, int) or isinstance(imgsz, bool) or imgsz <= 0:
             errors.append("imgsz must be a positive int.")
 
+        if "fitness_source" in checkpoint:
+            if checkpoint["fitness_source"] != "callback":
+                errors.append("fitness_source must be 'callback' when present.")
+            if checkpoint.get("best_metric_key") != "fitness/custom":
+                errors.append(
+                    "callback fitness requires best_metric_key='fitness/custom'."
+                )
+
     if isinstance(checkpoint, dict) and "input_profile" in checkpoint:
         from .event_histogram import validate_input_profile
         try:
