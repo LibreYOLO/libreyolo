@@ -61,3 +61,41 @@ def test_rfdetr_val_preprocessor_requests_original_image():
     preprocessor = RFDETRValPreprocessor((64, 64), max_labels=4)
 
     assert preprocessor.wants_unresized_image is True
+
+
+def test_rfdetr_preprocess_resize_is_not_antialiased():
+    # Training resizes with cv2 bilinear and upstream predict() uses
+    # antialias=False; an antialiased resize drifts boxes on large inputs.
+    import torch.nn.functional as F
+
+    from libreyolo.models.rfdetr.utils import (
+        IMAGENET_MEAN,
+        IMAGENET_STD,
+        preprocess_numpy,
+    )
+
+    rgb = np.random.default_rng(2).integers(0, 256, (211, 419, 3), dtype=np.uint8)
+    chw, _ = preprocess_numpy(rgb, 64)
+
+    src = torch.from_numpy(rgb.astype(np.float32) / 255.0).permute(2, 0, 1)[None]
+    ref = F.interpolate(
+        src, size=(64, 64), mode="bilinear", align_corners=False, antialias=False
+    )[0]
+    mean = torch.tensor(IMAGENET_MEAN).view(3, 1, 1)
+    std = torch.tensor(IMAGENET_STD).view(3, 1, 1)
+    torch.testing.assert_close(
+        torch.from_numpy(chw), (ref - mean) / std, atol=1e-3, rtol=0
+    )
+
+
+def test_rfdetr_ui_weight_variant_filename():
+    from libreyolo.models.rfdetr.model import LibreRFDETR
+
+    name = "LibreRFDETRm-ui.pt"
+    assert LibreRFDETR.detect_size_from_filename(name) == "m"
+    assert LibreRFDETR.detect_task_from_filename(name) is None
+    assert LibreRFDETR.detect_variant_from_filename(name) == "ui"
+    assert LibreRFDETR.get_download_url(name) == (
+        "https://huggingface.co/LibreYOLO/LibreRFDETRm-ui/resolve/main/"
+        "LibreRFDETRm-ui.pt"
+    )
