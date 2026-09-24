@@ -83,6 +83,11 @@ since improvement, including epochs without validation. Multiple scorers,
 non-numeric results, booleans, non-scalar tensors, NaN and infinity raise
 before updating best state or writing that epoch's checkpoint.
 
+The returned training result's legacy `best_mAP50_95` field also contains the
+selected score, as it already does for non-detection task metrics. Read raw
+accuracy values from `val_metrics`; `epoch_metrics` pairs `current_metric`
+and `best_metric` with their metric names.
+
 Custom-fitness training does not support `resume`. Callback code and state
 are not serialized, and the library cannot establish whether a new scorer
 is comparable with historical scores. Resuming with a scorer or from a

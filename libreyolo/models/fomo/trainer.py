@@ -315,9 +315,3 @@ class FOMOTrainer(BaseTrainer):
             logger.error(f"FOMO training validation failed: {exc}")
             logger.debug(traceback.format_exc())
             raise
-
-    def _checkpoint_extra_metadata(self) -> Dict[str, Any]:
-        return {
-            "task": "point",
-            "best_metric_key": "metrics/grid_F1",
-        }

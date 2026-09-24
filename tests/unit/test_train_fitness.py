@@ -285,6 +285,53 @@ def test_average_pool_and_average_checkpoint_use_custom_score(tmp_path):
     assert len(scorer.calls) == 5  # four epochs plus averaged-weight validation
 
 
+@pytest.mark.parametrize("custom", [False, True])
+def test_fomo_checkpoint_metadata_preserves_selected_metric(tmp_path, monkeypatch, custom):
+    from libreyolo import LibreFOMO
+    from libreyolo.models.fomo.trainer import FOMOTrainer
+
+    wrapper = LibreFOMO(None, size="s", nb_classes=1, device="cpu")
+    trainer = FOMOTrainer(
+        wrapper.model,
+        wrapper_model=wrapper,
+        size="s",
+        num_classes=1,
+        device="cpu",
+        epochs=1,
+        ema=False,
+        no_aug_epochs=0,
+        callbacks=LossFitness() if custom else None,
+    )
+    metrics = {
+        "best_metric": 0.7,
+        "best_metric_key": "metrics/grid_F1",
+        "metrics": {"metrics/grid_F1": 0.7, "metrics/loss": 2.0},
+    }
+
+    def setup():
+        trainer.save_dir = tmp_path
+        trainer.optimizer = torch.optim.SGD(trainer.model.parameters(), lr=0.01)
+        trainer._is_setup = True
+
+    monkeypatch.setattr(trainer, "setup", setup)
+    monkeypatch.setattr(trainer, "_train_epoch", lambda epoch: (1.0, metrics))
+    monkeypatch.setattr(trainer, "_validate_average_state", lambda state: metrics)
+    trainer._weight_averager = MetricGatedAverager(2)
+    results = trainer.train()
+
+    expected_key = "fitness/custom" if custom else "metrics/grid_F1"
+    for name in ("best_checkpoint", "last_checkpoint", "average_checkpoint"):
+        checkpoint = load_checkpoint(results[name])
+        assert checkpoint["task"] == "point"
+        assert checkpoint["best_metric_key"] == expected_key
+        assert checkpoint["best_metric_value"] == (-2.0 if custom else 0.7)
+        assert checkpoint.get("fitness_source") == ("callback" if custom else None)
+    average = load_checkpoint(results["average_checkpoint"])
+    assert average["average_metric_key"] == expected_key
+    reloaded = LibreFOMO(results["best_checkpoint"], size="s", device="cpu")
+    assert reloaded.task == "point"
+
+
 def test_precise_bn_refresh_can_reverse_stop_decision(tmp_path, monkeypatch):
     scorer = LossFitness()
     trainer = make_trainer(tmp_path, callbacks=scorer)
