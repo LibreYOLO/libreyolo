@@ -2217,8 +2217,13 @@ class Results:
             rendered.show()
         if save or filename:
             if filename is None:
-                stem = Path(self.path).name if self.path else "image.jpg"
-                filename = f"results_{stem}"
+                source = Path(self.path) if self.path else Path("image.jpg")
+                if source.suffix.lower() in Image.registered_extensions():
+                    filename = f"results_{source.name}"
+                else:
+                    # A video frame or clip: name the still after the video.
+                    frame = f"_{self.frame_idx}" if self.frame_idx is not None else ""
+                    filename = f"results_{source.stem}{frame}.jpg"
             Path(filename).parent.mkdir(parents=True, exist_ok=True)
             rendered.save(filename)
         if pil if pil is not None else default_pil:
@@ -2303,8 +2308,11 @@ class Results:
             try:
                 rgb = np.asarray(Image.open(self.path).convert("RGB"))
             except (OSError, ValueError) as exc:
-                # e.g. a frame of a collected video: path is the video file.
-                raise ValueError(missing) from exc
+                # A frame of a collected video: path is the video file, and
+                # the frame is decoded on demand instead of kept in memory.
+                rgb = self._video_frame_rgb()
+                if rgb is None:
+                    raise ValueError(missing) from exc
         elif isinstance(image, Image.Image):
             rgb = np.asarray(image.convert("RGB"))
         else:
@@ -2318,6 +2326,20 @@ class Results:
                 Image.fromarray(rgb.astype(np.uint8)).resize((w, h), Image.BILINEAR)
             )
         return rgb.astype(np.uint8)
+
+    def _video_frame_rgb(self) -> np.ndarray | None:
+        """Decode frame ``frame_idx`` of the video at ``path``, or None."""
+        if self.frame_idx is None or not self.path or not Path(self.path).is_file():
+            return None
+        import cv2
+
+        cap = cv2.VideoCapture(str(self.path))
+        try:
+            cap.set(cv2.CAP_PROP_POS_FRAMES, int(self.frame_idx))
+            ok, frame = cap.read()
+        finally:
+            cap.release()
+        return frame[..., ::-1] if ok else None
 
     def save(self, path: str, image: Any = None) -> str:
         """Save a matte result as a transparent-background RGBA PNG cutout.
