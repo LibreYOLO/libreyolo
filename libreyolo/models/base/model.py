@@ -1298,6 +1298,7 @@ class BaseModel(ABC):
 
         from PIL import Image as PILImage
         from ...utils.image_loader import ImageLoader
+        from ...utils.results import keep_source
 
         effective_imgsz = imgsz if imgsz is not None else self._get_input_size()
         img_pil = ImageLoader.load(image, color_format=color_format)
@@ -1313,8 +1314,7 @@ class BaseModel(ABC):
                 color_format,
                 **kwargs,
             )
-            result.orig_img = img_pil
-            return result
+            return keep_source(result, img_pil, image_path)
 
         if getattr(self, "task", "detect") == "panoptic":
             result = self._predict_augment_panoptic(
@@ -1325,8 +1325,7 @@ class BaseModel(ABC):
                 color_format,
                 **kwargs,
             )
-            result.orig_img = img_pil
-            return result
+            return keep_source(result, img_pil, image_path)
 
         scales = (1.0,) if self.TTA_FIXED_SIZE else self.TTA_SCALES
 
@@ -1362,8 +1361,7 @@ class BaseModel(ABC):
                 aug_dets, iou, image_path, (orig_w, orig_h), classes
             )
         # Keep the decoded source so plot()/save never fetch the input again.
-        result.orig_img = img_pil
-        return result
+        return keep_source(result, img_pil, image_path)
 
     def _postprocess_semantic_logits(
         self,

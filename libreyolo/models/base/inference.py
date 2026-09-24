@@ -42,6 +42,7 @@ from ...utils.general import (
 from ...utils.image_loader import ImageInput, ImageLoader
 from ...utils.predict_args import normalize_predict_kwargs
 from ...utils.results import (
+    keep_source,
     AlbedoMap,
     Boxes,
     DepthMap,
@@ -585,8 +586,12 @@ class InferenceRunner:
                 image_path = source if isinstance(source, (str, Path)) else None
                 ext = output_file_format or "jpg"
                 save_path = resolve_save_path(output_path, image_path, ext=ext)
-                # _predict_augment kept the decoded source; do not fetch again.
-                img_pil = Image.fromarray(result.orig_img[..., ::-1])
+                # Reuse the decoded source rather than fetching the input again.
+                img_pil = (
+                    Image.fromarray(result.orig_img[..., ::-1])
+                    if result.orig_img is not None
+                    else ImageLoader.load(source, color_format=color_format)
+                )
                 self._save_annotated_image(result, img_pil, save_path)
             return result
 
@@ -763,7 +768,11 @@ class InferenceRunner:
                         image if save_stem is None else save_stem,
                         ext=ext,
                     )
-                    img_pil = Image.fromarray(result.orig_img[..., ::-1])
+                    img_pil = (
+                        Image.fromarray(result.orig_img[..., ::-1])
+                        if result.orig_img is not None
+                        else ImageLoader.load(image, color_format=color_format)
+                    )
                     self._save_annotated_image(result, img_pil, save_path)
                 results.append(result)
             else:
@@ -877,7 +886,7 @@ class InferenceRunner:
             )
             image_path = image if isinstance(image, (str, Path)) else None
             result = self._wrap_results(detections, original_size, image_path, classes)
-            result.orig_img = original_img
+            keep_source(result, original_img, image_path)
             if save:
                 ext = output_file_format or "jpg"
                 save_path = resolve_save_path(
@@ -1440,7 +1449,7 @@ class InferenceRunner:
 
         # Wrap into Results
         result = self._wrap_results(detections, original_size, image_path, classes)
-        result.orig_img = original_img
+        keep_source(result, original_img, image_path)
 
         # Save annotated image
         if save:
@@ -1786,7 +1795,7 @@ class InferenceRunner:
             "num_detections": len(final_boxes),
         }
         result = self._wrap_results(detections, original_size, image_path, classes)
-        result.orig_img = img_pil
+        keep_source(result, img_pil, image_path)
 
         # Attach tiling metadata as extra attributes
         result.tiled = True
