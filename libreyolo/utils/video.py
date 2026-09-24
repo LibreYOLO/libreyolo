@@ -394,7 +394,7 @@ def collect_video_results(
     for result in gen:
         # A collected list must not hold every decoded frame; stream=True
         # keeps each frame's source image for plotting.
-        if getattr(result, "orig_img", None) is not None:
+        if getattr(result, "_orig_img", None) is not None:
             result.orig_img = None
         results.append(result)
     return results
