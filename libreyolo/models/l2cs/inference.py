@@ -317,29 +317,9 @@ class GazeInferenceRunner:
     # =========================================================================
 
     def _annotate(self, pil_img: Image.Image, result: Results) -> Image.Image:
-        if result.boxes is None or len(result.boxes) == 0:
-            return pil_img
-        from ...utils.drawing import draw_boxes, draw_gaze_arrows
+        from ...utils.drawing import draw_results
 
-        boxes_xyxy = result.boxes.xyxy.tolist()
-        confs = result.boxes.conf.tolist()
-        clses = result.boxes.cls.tolist()
-        annotated = draw_boxes(
-            pil_img,
-            boxes_xyxy,
-            confs,
-            clses,
-            class_names=result.names,
-        )
-        if result.gaze is not None and len(result.gaze) > 0:
-            gaze_np = result.gaze.numpy() if isinstance(result.gaze.data, torch.Tensor) else result.gaze
-            annotated = draw_gaze_arrows(
-                annotated,
-                boxes_xyxy,
-                gaze_np.data[:, 0],
-                gaze_np.data[:, 1],
-            )
-        return annotated
+        return draw_results(result, pil_img)
 
     def _save_annotated_image(
         self,

@@ -1467,6 +1467,11 @@ def draw_results(
         )
     if result.keypoints is not None:
         annotated = draw_keypoints(annotated, _to_numpy(result.keypoints.data))
+    if getattr(result, "gaze", None) is not None and len(result.gaze) > 0:
+        gaze = _to_numpy(result.gaze.data)
+        annotated = draw_gaze_arrows(
+            annotated, result.boxes.xyxy.tolist(), gaze[:, 0], gaze[:, 1]
+        )
     if result.meshes is not None and len(result.meshes) > 0:
         meshes = result.meshes.numpy()
         annotated = draw_mesh(
