@@ -99,3 +99,23 @@ def test_rfdetr_ui_weight_variant_filename():
         "https://huggingface.co/LibreYOLO/LibreRFDETRm-ui/resolve/main/"
         "LibreRFDETRm-ui.pt"
     )
+
+
+@pytest.mark.parametrize(
+    "name", ["LibreRFDETRs-ui.pt", "LibreRFDETRm-seg-ui.pt", "LibreRFDETRl-obb-ui.pt"]
+)
+def test_rfdetr_unpublished_ui_variant_names_are_rejected(name):
+    from libreyolo.models.rfdetr.model import LibreRFDETR
+
+    with pytest.raises(FileNotFoundError, match="LibreRFDETRm-ui.pt"):
+        LibreRFDETR.get_download_url(name)
+
+
+def test_rfdetr_non_variant_download_urls_unchanged():
+    from libreyolo.models.rfdetr.model import LibreRFDETR
+
+    assert LibreRFDETR.get_download_url("LibreRFDETRs-seg.pt") == (
+        "https://huggingface.co/LibreYOLO/LibreRFDETRs-seg/resolve/main/"
+        "LibreRFDETRs-seg.pt"
+    )
+    assert LibreRFDETR.get_download_url("LibreYOLO9s.pt") is None
