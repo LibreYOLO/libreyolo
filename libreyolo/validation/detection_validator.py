@@ -939,7 +939,14 @@ class DetectionValidator(ValidationLossMixin, BaseValidator):
                         conf_thres=conf_thres,
                     )
                 )
-                name = Path(str(img_path)).name if img_path else f"{index:06d}"
+                if img_path:
+                    # Keyed by filename, like the ecosystem; a filename seen
+                    # before (same name in another folder) keys by full path.
+                    name = Path(str(img_path)).name
+                    if name in image_metrics:
+                        name = str(img_path)
+                else:
+                    name = f"{index:06d}"
                 image_metrics[name] = entry
                 if not visualize:
                     continue

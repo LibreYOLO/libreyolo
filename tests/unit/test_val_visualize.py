@@ -177,6 +177,14 @@ class TestDetectionValidator:
         }
         assert not (v.save_dir / "visualize").exists()
 
+    def test_image_metrics_keep_images_sharing_a_filename(self, tmp_path):
+        v = _detection_validator(tmp_path, visualize=False, n_images=2)
+        dup = [tmp_path / "a" / "img.jpg", tmp_path / "b" / "img.jpg"]
+        v._resolve_img_path = lambda dataset, idx, img_id: str(dup[idx])
+        v._update_metrics(*_batch([True, False]))
+        assert v.image_metrics["img.jpg"]["tp"] == 1
+        assert v.image_metrics[str(dup[1])]["fp"] == 1
+
     def test_image_metrics_ignore_predictions_below_the_visualize_conf(self, tmp_path):
         v = _detection_validator(tmp_path, visualize=False, n_images=1)
         preds, targets, info, ids = _batch([True])
