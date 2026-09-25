@@ -522,13 +522,23 @@ def test_yolo9_e2e_postprocess_defaults_to_model_input_size(monkeypatch):
     assert seen["input_size"] == (192, 320)
 
 
-def test_tiling_uses_long_side_for_restored_rect_size(tmp_path):
+def test_tiling_uses_long_side_for_restored_rect_size(tmp_path, monkeypatch):
     cls, size, path = _family_checkpoint(
         tmp_path, "yolo9", imgsz=320, imgsz_h=192, imgsz_w=320
     )
     model = cls(str(path), size=size, nb_classes=2, device="cpu")
     image = np.zeros((700, 900, 3), dtype=np.uint8)
+    canvases = []
+    original = model._preprocess
+
+    def spy(*args, input_size=None, **kwargs):
+        canvases.append(input_size)
+        return original(*args, input_size=input_size, **kwargs)
+
+    monkeypatch.setattr(model, "_preprocess", spy)
 
     assert model.predict(image, tiling=True, conf=0.99).orig_shape == (700, 900)
+    # Each 320x320 tile is inferred at 320, not shrunk into the 192x320 canvas.
+    assert canvases and set(canvases) == {320}
     with pytest.raises(ValueError, match="square imgsz"):
         model.predict(image, tiling=True, imgsz=(192, 320))
