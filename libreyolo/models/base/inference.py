@@ -1837,8 +1837,9 @@ class InferenceRunner:
             and getattr(self.model, "_input_size_from_checkpoint", False)
         ):
             # A rectangular fine-tune of a square family (#899) tiles with
-            # square tiles of its long side, and infers each tile at that
-            # square size rather than shrinking it into the rectangle.
+            # square tiles of its long side, and infers every tile (and an
+            # image small enough to skip tiling) at that square size rather
+            # than shrinking it into the rectangle.
             input_size = max(int(input_size[0]), int(input_size[1]))
             tile_imgsz = input_size
         if isinstance(input_size, (list, tuple)):
@@ -1858,7 +1859,7 @@ class InferenceRunner:
                 output_path=output_path,
                 conf=conf,
                 iou=iou,
-                imgsz=imgsz,
+                imgsz=tile_imgsz,
                 classes=classes,
                 max_det=max_det,
                 color_format=color_format,
