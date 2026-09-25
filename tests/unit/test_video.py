@@ -448,3 +448,38 @@ class TestCollectVideoResults:
             collect_video_results(iter([1, 2, 3]), path, vid_stride=1)
             memory_warnings = [x for x in w if "stream=True" in str(x.message)]
             assert len(memory_warnings) == 1
+
+
+def test_collected_video_results_drop_source_frames(sample_video):
+    from PIL import Image
+
+    from libreyolo.utils.results import Results
+
+    frames = [
+        Results(boxes=None, orig_shape=(4, 4), orig_img=Image.new("RGB", (4, 4)))
+        for _ in range(3)
+    ]
+    collected = collect_video_results(iter(frames), sample_video, vid_stride=1)
+
+    assert [r.orig_img for r in collected] == [None, None, None]
+
+
+def test_collected_video_frame_plots_by_decoding_its_frame(sample_video, tmp_path, monkeypatch):
+    import torch
+
+    from libreyolo.utils.results import Boxes, Results
+
+    frames = {idx: frame for frame, idx in VideoSource(sample_video)}
+    result = Results(
+        boxes=Boxes(torch.tensor([[4.0, 4.0, 30.0, 30.0]]), torch.tensor([0.9]), torch.tensor([0.0])),
+        orig_shape=(64, 64),
+        path=sample_video,
+        names={0: "thing"},
+        frame_idx=4,
+    )
+
+    np.testing.assert_array_equal(result.plot(), result.plot(img=frames[4]))
+
+    monkeypatch.chdir(tmp_path)
+    result.plot(save=True)
+    assert (tmp_path / "results_test_video_4.jpg").exists()
