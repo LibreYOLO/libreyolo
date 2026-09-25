@@ -2176,6 +2176,11 @@ class BaseTrainer(ABC):
 
             self._refresh_best_precise_bn_checkpoint()
             self._write_average_checkpoint()
+            adopt_input_size = getattr(
+                self.wrapper_model, "_adopt_trained_input_size", None
+            )
+            if callable(adopt_input_size):
+                adopt_input_size(self.config.imgsz)
             total_time = time.time() - start_time
             if is_main_process():
                 if getattr(self, "_stop_training", False):

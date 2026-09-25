@@ -680,6 +680,9 @@ class BaseExporter(ABC):
             half,
             int8,
         )
+        # The CLI reports the canvas actually exported, which can differ from
+        # the model's input size (see _square_fallback_for_restored_rect).
+        self.model._last_export_imgsz = imgsz
 
         # ---- Post-validation mutation point ------------------------------
         # Every request rejection above — format support, precision
@@ -855,6 +858,40 @@ class BaseExporter(ABC):
                 "Install with: uv sync --extra onnx  or  pip install onnx"
             )
 
+    def _square_fallback_for_restored_rect(
+        self, imgsz: tuple[int, int], model_name: str
+    ) -> tuple[int, int]:
+        """Keep default exports working for rectangular fine-tunes (#899).
+
+        A square-native family (e.g. YOLOX) trained at ``imgsz=(h, w)`` reloads
+        with that rectangular input size, but not every family/format pair can
+        export it. Those exports defaulted to the family's square size before
+        the size was restored, so fall back to a ``max(h, w)`` square, which
+        letterboxes frames at the same scale the model was trained at. An
+        explicit ``imgsz`` never reaches this path.
+        """
+        if not _is_rectangular_imgsz(imgsz):
+            return imgsz
+        if (
+            model_name in _RECTANGULAR_EXPORT_FAMILIES
+            and self.format_name in _RECTANGULAR_EXPORT_FORMATS
+        ):
+            return imgsz
+        family_default = self.model._get_task_input_sizes().get(self.model.size)
+        if isinstance(family_default, (tuple, list)):
+            # Natively rectangular families keep their existing contract.
+            return imgsz
+        side = max(imgsz)
+        logger.warning(
+            "%s %s export does not support the checkpoint's rectangular imgsz=%s; "
+            "exporting at the square imgsz=%d instead. Pass imgsz= to choose.",
+            model_name,
+            self.format_name,
+            imgsz,
+            side,
+        )
+        return side, side
+
     def _resolve_params(self, output_path, imgsz, device, half, int8):
         native_imgsz = self.model._get_input_size()
         model_name = self.model._get_model_name()
@@ -866,6 +903,7 @@ class BaseExporter(ABC):
                         f"got {native_imgsz!r}."
                     )
                 imgsz = (int(native_imgsz[0]), int(native_imgsz[1]))
+                imgsz = self._square_fallback_for_restored_rect(imgsz, model_name)
             else:
                 imgsz = (int(native_imgsz), int(native_imgsz))
         elif isinstance(imgsz, tuple):

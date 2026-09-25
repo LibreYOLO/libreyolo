@@ -508,7 +508,10 @@ class BaseModel(ABC):
             self._cuda_graph_mode = previous
 
     def capture_graph(
-        self, imgsz: Optional[int] = None, batch: int = 1, dtype: Any = None
+        self,
+        imgsz: Optional[int | tuple[int, int]] = None,
+        batch: int = 1,
+        dtype: Any = None,
     ) -> None:
         """Capture a CUDA graph now for the given input shape.
 
@@ -518,7 +521,8 @@ class BaseModel(ABC):
         captured graph.
 
         Args:
-            imgsz: Input resolution. Defaults to the model's input size.
+            imgsz: Square size or (height, width). Defaults to the model's
+                input size.
             batch: Batch size the graph is captured for. A graph is valid only
                 for the exact shape it captured, so this must match how you
                 call predict.
@@ -529,10 +533,14 @@ class BaseModel(ABC):
             CudaGraphUnavailable: If capture is impossible or fails.
         """
         self._require_cuda_graph_support()
-        size = imgsz or self.input_size
+        from ...utils.image_size import imgsz_to_hw
+
+        height, width = imgsz_to_hw(imgsz or self.input_size)
         if dtype is None:
             dtype = next(self.model.parameters()).dtype
-        dummy = torch.zeros((batch, 3, size, size), dtype=dtype, device=self.device)
+        dummy = torch.zeros(
+            (batch, 3, height, width), dtype=dtype, device=self.device
+        )
         with torch.no_grad():
             self._get_graph_runner().capture(dummy)
 
@@ -894,7 +902,9 @@ class BaseModel(ABC):
             return val_transform(self)
         if img_size is None:
             img_size = self._get_input_size()
-        return self.val_preprocessor_class(img_size=(img_size, img_size))
+        from ...utils.image_size import imgsz_to_hw
+
+        return self.val_preprocessor_class(img_size=imgsz_to_hw(img_size))
 
     def _get_eval_transform(
         self, img_size: int | None = None, crop_pct: float | None = None
@@ -1078,6 +1088,7 @@ class BaseModel(ABC):
                 effective_nc = ckpt_nc if ckpt_nc is not None else self.nb_classes
                 if ckpt_names is not None:
                     self.names = self._sanitize_names(ckpt_names, effective_nc)
+                self._restore_checkpoint_input_size(loaded)
                 self._validate_loaded_state_dict_for_task(state_dict, loaded)
             else:
                 state_dict = self._prepare_state_dict(loaded)
@@ -1097,6 +1108,64 @@ class BaseModel(ABC):
             raise RuntimeError(
                 f"Failed to load model weights from {model_path}: {e}"
             ) from e
+
+    def _restore_checkpoint_input_size(self, loaded: dict) -> None:
+        """Adopt the rectangular input size a checkpoint was saved at (#899).
+
+        Rectangular checkpoints dual-write ``imgsz_h``/``imgsz_w`` next to the
+        legacy scalar ``imgsz`` (docs/checkpoint_schema.md), and readers that
+        understand the pair must prefer it. Without this, a model trained at
+        ``imgsz=(384, 640)`` reloaded at the family's square default and
+        letterboxed every frame back to 640x640. Square checkpoints keep the
+        family's native size, as before.
+        """
+        has_h = "imgsz_h" in loaded
+        has_w = "imgsz_w" in loaded
+        if not has_h and not has_w:
+            # A square checkpoint loaded into a model that restored a
+            # rectangular size earlier (e.g. ``train(imgsz=640)`` from a
+            # rectangular fine-tune) must not keep that stale size.
+            if getattr(self, "_input_size_from_checkpoint", False):
+                self.input_size = self._get_task_input_sizes()[self.size]
+                self._input_size_from_checkpoint = False
+            return
+        if has_h != has_w:
+            raise ValueError(
+                "Checkpoint must define both imgsz_h and imgsz_w, or neither."
+            )
+        from ...utils.image_size import normalize_imgsz
+
+        self.input_size = normalize_imgsz(
+            (loaded["imgsz_h"], loaded["imgsz_w"]), name="checkpoint imgsz_h/imgsz_w"
+        )
+        # Natively rectangular families (e.g. HRNet) store their own fixed
+        # canvas here; only a square family's override needs undoing later.
+        family_default = self._get_task_input_sizes().get(self.size)
+        self._input_size_from_checkpoint = not isinstance(
+            family_default, (tuple, list)
+        ) and self.input_size != family_default
+
+    def _adopt_trained_input_size(self, imgsz) -> None:
+        """Leave the live model at the size a reload of its new checkpoint gives.
+
+        Families that do not reload ``best.pt`` after training would otherwise
+        keep predicting at a stale size: the family default after a
+        rectangular run, or an earlier checkpoint's rectangle after a square
+        one. Natively rectangular families own their sizing and are skipped.
+        """
+        if imgsz is None or isinstance(
+            self._get_task_input_sizes().get(self.size), (tuple, list)
+        ):
+            return
+        from ...utils.image_size import normalize_imgsz
+
+        trained = normalize_imgsz(imgsz, name="imgsz", allow_string=True)
+        if isinstance(trained, tuple):
+            self.input_size = trained
+            self._input_size_from_checkpoint = True
+        elif getattr(self, "_input_size_from_checkpoint", False):
+            self.input_size = self._get_task_input_sizes()[self.size]
+            self._input_size_from_checkpoint = False
 
     def _load_state_dict_logged(self, state_dict: dict, source: str) -> None:
         """Load with the family's strictness, making silent key drops visible.
@@ -1325,6 +1394,9 @@ class BaseModel(ABC):
             )
 
         scales = (1.0,) if self.TTA_FIXED_SIZE else self.TTA_SCALES
+        # Undo the letterbox at the canvas each view was preprocessed at, as
+        # the non-TTA predict path does; family defaults can differ from it.
+        kwargs.setdefault("input_size", effective_imgsz)
 
         aug_dets = []
         for scale in scales:

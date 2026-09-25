@@ -152,7 +152,7 @@ class LibreYOLO9E2E(LibreYOLO9):
         max_det: int = 300,
         **kwargs,
     ) -> Dict:
-        actual_input_size = kwargs.get("input_size", 640)
+        actual_input_size = kwargs.get("input_size", self._get_input_size())
         return postprocess(
             output,
             conf_thres=conf_thres,

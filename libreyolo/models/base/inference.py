@@ -1830,6 +1830,14 @@ class InferenceRunner:
             )
 
         input_size = imgsz if imgsz is not None else self.model._get_input_size()
+        if (
+            imgsz is None
+            and isinstance(input_size, (list, tuple))
+            and getattr(self.model, "_input_size_from_checkpoint", False)
+        ):
+            # A rectangular fine-tune of a square family (#899) tiles with
+            # square tiles of its long side, the scale it letterboxes at.
+            input_size = max(int(input_size[0]), int(input_size[1]))
         if isinstance(input_size, (list, tuple)):
             raise ValueError(
                 "Tiled inference requires a square imgsz (tiles are square). "

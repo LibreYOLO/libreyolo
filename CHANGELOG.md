@@ -153,6 +153,22 @@ before 1.4.0 are documented in the
 
 ### Fixed
 
+- **Rectangular fine-tunes reload at the size they were trained at (#899).**
+  A model trained with `imgsz=(h, w)` stored the size in its checkpoint
+  (`imgsz_h` / `imgsz_w`), but loading it went back to the family's square
+  default, so `predict()`, `val()` and `export()` letterboxed every frame to a
+  padded square again. The loader now restores the rectangle, and the live
+  model adopts it after `train()` (and drops it after a later square run). A
+  default `export()` in a family or format without rectangular export
+  (YOLOX, YOLOv7, RTMDet, PicoDet, or YOLO9 to ExecuTorch, Paddle, MNN) falls
+  back to a `max(h, w)` square with a warning, and `predict(tiling=True)`
+  tiles at the long side. Also fixes YOLOX `val(imgsz=(h, w))` crashing with a
+  `TypeError`, `predict(augment=True)` undoing the letterbox at the family
+  default instead of the requested `imgsz`, finalized quantized checkpoints
+  (`export(format="pt")`) dropping the rectangular size, and the Python
+  `InferenceProfiler` failing on it. Checkpoints without the pair load exactly
+  as before.
+
 - **Classification `val()`, INT8 calibration and exports use the model's own
   eval pipeline (#886).** The validator now takes the transform from the model
   (`_get_eval_transform`), the classification counterpart of
