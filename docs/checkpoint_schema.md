@@ -391,6 +391,15 @@ distributed as training checkpoints.
 For release compatibility, readers accept legacy best-metric aliases such as
 `best_mAP50_95`, `best_mAP50`, `best_metric`, and `best_metric_name`.
 
+Custom-fitness training writes optional `fitness_source: "callback"` and
+`best_metric_key: "fitness/custom"` in its training and averaged checkpoints.
+`best_metric_value` and the legacy `best_mAP50_95` / `best_metric` aliases then
+contain the custom score, while `best_mAP50` remains the validation mAP50 at
+the selected epoch. The marker stores no callback code or state. Such files
+can be loaded for inference or as weights for a new run, but cannot resume
+training; neither can a default checkpoint resume with a custom scorer.
+Absent `fitness_source` preserves the existing checkpoint/resume contract.
+
 ## External Snapshot Exception
 
 The schema above governs LibreYOLO-authored `.pt` checkpoints. It does not
