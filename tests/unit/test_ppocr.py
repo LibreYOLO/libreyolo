@@ -306,6 +306,22 @@ def test_predict_without_charset_raises():
         model.predict(img)
 
 
+def test_predict_in_memory_source_can_plot():
+    """plot() works on an OCR result from an in-memory image (no path)."""
+    from libreyolo.models.ppocr.model import PPOCR_V5_NUM_CLASSES, LibrePPOCR
+
+    model = LibrePPOCR(model_path=None, size="t")
+    model.charset = ["x"] * PPOCR_V5_NUM_CLASSES
+    img = np.full((48, 64, 3), 255, dtype=np.uint8)
+    result = model.predict(img)
+
+    assert result.path is None
+    assert result.orig_img.shape == (48, 64, 3)
+    plotted = result.plot()
+    assert isinstance(plotted, np.ndarray)
+    assert plotted.shape == (48, 64, 3)
+
+
 # --------------------------------------------------------------------------
 # Dataset resolver on the committed fixture
 # --------------------------------------------------------------------------
