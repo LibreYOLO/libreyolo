@@ -562,8 +562,10 @@ class LibreYOLO9(BaseModel):
             return super()._get_val_preprocessor(img_size)
         if img_size is None:
             img_size = self._get_input_size()
+        from ...utils.image_size import imgsz_to_hw
+
         return self.val_preprocessor_class(
-            img_size=(img_size, img_size),
+            img_size=imgsz_to_hw(img_size),
             letterbox_pad=self.letterbox_pad,
         )
 

@@ -200,12 +200,17 @@ def export_cmd(
         else:
             input_h, input_w = parsed_imgsz
     else:
-        native = (
-            loaded_model._get_input_size()
-            if hasattr(loaded_model, "_get_input_size")
-            else loaded_model.INPUT_SIZES.get(loaded_model.size, 640)
-        )
-        input_h = input_w = native
+        native = getattr(loaded_model, "_last_export_imgsz", None)
+        if not isinstance(native, (int, tuple, list)):
+            native = (
+                loaded_model._get_input_size()
+                if hasattr(loaded_model, "_get_input_size")
+                else loaded_model.INPUT_SIZES.get(loaded_model.size, 640)
+            )
+        if isinstance(native, (tuple, list)):
+            input_h, input_w = int(native[0]), int(native[1])
+        else:
+            input_h = input_w = native
 
     channels = 2 if isinstance(getattr(loaded_model, "input_profile", None), dict) else 3
     data_out = {

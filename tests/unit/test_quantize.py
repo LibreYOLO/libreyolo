@@ -1000,6 +1000,17 @@ def _leaf(out):
     return leaf
 
 
+
+def test_finalized_pt_export_keeps_rectangular_imgsz(tmp_path, yolo9t):
+    # #899: a rectangular fine-tune must reload at its size after finalizing.
+    yolo9t.input_size = (192, 320)
+    yolo9t.quantize(recipe="int8", calib=None, verbose=False)
+    final = yolo9t.export(format="pt", out=str(tmp_path / "final.pt"), remainder="fp32")
+
+    ckpt = torch.load(final, map_location="cpu", weights_only=False)
+    assert (ckpt["imgsz"], ckpt["imgsz_h"], ckpt["imgsz_w"]) == (320, 192, 320)
+    assert LibreYOLO9(final, size="t", device="cpu").input_size == (192, 320)
+
 def test_finalized_pt_export_roundtrip(tmp_path, yolo9t):
     from libreyolo.quant import reprepare_model
 
