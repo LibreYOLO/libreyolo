@@ -151,12 +151,56 @@ def _batch(correct_mask):
     return preds, targets, [(100, 100)] * n, list(range(n))
 
 
+def _written(save_dir):
+    """``visualize`` images as ``<subdir>/<name>`` paths, sorted."""
+    root = save_dir / "visualize"
+    return sorted(p.relative_to(root).as_posix() for p in root.rglob("*.jpg"))
+
+
 class TestDetectionValidator:
-    def test_draws_every_image_named_by_index_and_stem(self, tmp_path):
+    def test_draws_every_image_sorted_into_errors_and_correct(self, tmp_path):
         v = _detection_validator(tmp_path, visualize=True)
         v._update_metrics(*_batch([True, False, True]))
-        written = sorted(p.name for p in (v.save_dir / "visualize").iterdir())
-        assert written == ["000000_img0.jpg", "000001_img1.jpg", "000002_img2.jpg"]
+        assert _written(v.save_dir) == [
+            "correct/000000_img0.jpg",
+            "correct/000002_img2.jpg",
+            "errors/000001_img1.jpg",
+        ]
+
+    def test_image_metrics_per_image(self, tmp_path):
+        v = _detection_validator(tmp_path, visualize=False)
+        v._update_metrics(*_batch([True, False]))
+        assert v.image_metrics == {
+            "img0.jpg": {"precision": 1.0, "recall": 1.0, "f1": 1.0, "tp": 1, "fp": 0, "fn": 0},
+            # Wrong class: one false positive plus one miss.
+            "img1.jpg": {"precision": 0.0, "recall": 0.0, "f1": 0.0, "tp": 0, "fp": 1, "fn": 1},
+        }
+        assert not (v.save_dir / "visualize").exists()
+
+    def test_image_metrics_keep_images_sharing_a_filename(self, tmp_path):
+        v = _detection_validator(tmp_path, visualize=False, n_images=2)
+        dup = [tmp_path / "a" / "img.jpg", tmp_path / "b" / "img.jpg"]
+        v._resolve_img_path = lambda dataset, idx, img_id: str(dup[idx])
+        v._update_metrics(*_batch([True, False]))
+        assert v.image_metrics["img.jpg"]["tp"] == 1
+        assert v.image_metrics[str(dup[1])]["fp"] == 1
+
+    def test_image_metrics_ignore_predictions_below_the_visualize_conf(self, tmp_path):
+        v = _detection_validator(tmp_path, visualize=False, n_images=1)
+        preds, targets, info, ids = _batch([True])
+        preds[0]["scores"] = torch.tensor([0.1])
+        v._update_metrics(preds, targets, info, ids)
+        assert v.image_metrics["img0.jpg"] == {
+            "precision": 0.0, "recall": 0.0, "f1": 0.0, "tp": 0, "fp": 0, "fn": 1,
+        }
+
+    def test_image_metrics_drop_ground_truth_outside_classes(self, tmp_path):
+        # classes=[0] drops the class-1 prediction; the class-1 truth must not
+        # then count as a miss.
+        v = _detection_validator(tmp_path, visualize=False, n_images=1, classes=[0])
+        v._single_cls_enabled = lambda: False
+        v._update_metrics(*_batch([True]))
+        assert v.image_metrics["img0.jpg"]["fn"] == 0
 
     def test_off_writes_nothing(self, tmp_path):
         v = _detection_validator(tmp_path, visualize=False)
@@ -203,20 +247,22 @@ def _classify_validator(tmp_path, visualize, n_images=3, names=("cat", "dog", "f
 
 
 class TestClassifyValidator:
-    def test_draws_every_image(self, tmp_path):
+    def test_draws_every_image_sorted_into_errors_and_correct(self, tmp_path):
         v = _classify_validator(tmp_path, visualize=True)
         logits = torch.tensor([[5.0, 0.0, 0.0], [0.0, 5.0, 0.0], [0.0, 0.0, 5.0]])
         v._update_metrics(logits, torch.tensor([0, 0, 2]), [{}] * 3)
-        written = sorted(p.name for p in (v.save_dir / "visualize").iterdir())
-        assert written == ["000000_img0.jpg", "000001_img1.jpg", "000002_img2.jpg"]
+        assert _written(v.save_dir) == [
+            "correct/000000_img0.jpg",
+            "correct/000002_img2.jpg",
+            "errors/000001_img1.jpg",
+        ]
         assert v._top1_correct == 2
 
     def test_batch_offset(self, tmp_path):
         v = _classify_validator(tmp_path, visualize=True)
         v.seen = 2
         v._update_metrics(torch.tensor([[0.0, 5.0, 0.0]]), torch.tensor([0]), [{}])
-        written = [p.name for p in (v.save_dir / "visualize").iterdir()]
-        assert written == ["000002_img2.jpg"]
+        assert _written(v.save_dir) == ["errors/000002_img2.jpg"]
 
     def test_off_writes_nothing(self, tmp_path):
         v = _classify_validator(tmp_path, visualize=False)
@@ -428,6 +474,17 @@ class TestReusedRunDirectory:
         assert reset_visualize_dir(tmp_path) == out
         assert sorted(p.name for p in out.iterdir()) == ["mine.jpg", "notes.txt"]
 
+    def test_earlier_images_in_errors_and_correct_are_removed(self, tmp_path):
+        from libreyolo.validation.val_plotter import reset_visualize_dir
+
+        out = tmp_path / "visualize"
+        for sub in ("errors", "correct"):
+            (out / sub).mkdir(parents=True)
+            (out / sub / "000003_old.jpg").write_bytes(b"x")
+        (out / "errors" / "keep.jpg").write_bytes(b"x")
+        reset_visualize_dir(tmp_path)
+        assert _written(tmp_path) == ["errors/keep.jpg"]
+
     def test_missing_directory_is_fine(self, tmp_path):
         from libreyolo.validation.val_plotter import reset_visualize_dir
 
@@ -453,3 +510,26 @@ def test_vjepa2_video_validation_rejects_visualize(tmp_path):
     v.config = ValidationConfig(data=str(tmp_path / "data.yaml"), visualize=True)
     with pytest.raises(ValueError, match="not supported for V-JEPA 2 video"):
         v._setup_dataloader()
+
+
+class TestValidationMetrics:
+    def test_is_the_metrics_dict_with_box_image_metrics(self):
+        import json
+
+        from libreyolo.validation.base import ValidationMetrics
+
+        per_image = {"a.jpg": {"precision": 1.0, "recall": 1.0, "f1": 1.0, "tp": 1, "fp": 0, "fn": 0}}
+        r = ValidationMetrics({"metrics/mAP50": 0.5}, per_image)
+        assert r == {"metrics/mAP50": 0.5}
+        assert r["metrics/mAP50"] == 0.5
+        assert r.box.image_metrics is per_image
+        assert json.loads(json.dumps(r)) == {"metrics/mAP50": 0.5}
+
+    def test_only_validators_with_image_metrics_get_box(self):
+        from libreyolo.validation.base import ValidationMetrics, with_image_metrics
+
+        plain = {"metrics/accuracy_top1": 1.0}
+        assert with_image_metrics(plain, SimpleNamespace()) is plain
+        wrapped = with_image_metrics(plain, SimpleNamespace(image_metrics={}))
+        assert isinstance(wrapped, ValidationMetrics)
+        assert wrapped.box.image_metrics == {}

@@ -4478,7 +4478,9 @@ class BaseBackend(ABC):
         else:
             validator_cls = DetectionValidator
         validator = validator_cls(model=self, config=config)
-        return validator()
+        from libreyolo.validation.base import with_image_metrics
+
+        return with_image_metrics(validator(), validator)
 
     # =========================================================================
     # Inference pipeline

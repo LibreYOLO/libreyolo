@@ -81,6 +81,10 @@ def visualize_conf_thres(configured) -> float:
 
 
 _VISUALIZE_NAME = re.compile(r"^\d{6}_.*\.jpg$")
+#: ``visualize`` sorts its images into these subdirectories: an image with any
+#: false positive or false negative (a wrong top-1 for classification) goes to
+#: ``errors/``, the rest to ``correct/``.
+VISUALIZE_SUBDIRS = ("errors", "correct")
 
 
 def reset_visualize_dir(save_dir: Path) -> Path:
@@ -90,11 +94,39 @@ def reset_visualize_dir(save_dir: Path) -> Path:
     are removed, so a reused run directory never mixes two runs' images.
     """
     out_dir = Path(save_dir) / "visualize"
-    if out_dir.is_dir():
-        for path in out_dir.iterdir():
-            if path.is_file() and _VISUALIZE_NAME.match(path.name):
-                path.unlink()
+    for folder in (out_dir, *(out_dir / sub for sub in VISUALIZE_SUBDIRS)):
+        if folder.is_dir():
+            for path in folder.iterdir():
+                if path.is_file() and _VISUALIZE_NAME.match(path.name):
+                    path.unlink()
     return out_dir
+
+
+def visualize_subdir(correct: bool) -> str:
+    """The ``visualize`` subdirectory for an image: ``correct`` or ``errors``."""
+    return VISUALIZE_SUBDIRS[1] if correct else VISUALIZE_SUBDIRS[0]
+
+
+def image_metrics_entry(match: Dict[str, np.ndarray]) -> Dict[str, float]:
+    """One image's ``image_metrics`` entry from a :func:`match_detections` result.
+
+    ``precision`` is ``tp / (tp + fp)`` and ``recall`` ``tp / (tp + fn)``, each
+    0.0 when its denominator is 0; ``f1`` is their harmonic mean.
+    """
+    tp = int(match["tp"].sum())
+    fp = len(match["tp"]) - tp
+    fn = int(match["fn"].sum())
+    precision = tp / (tp + fp) if tp + fp else 0.0
+    recall = tp / (tp + fn) if tp + fn else 0.0
+    f1 = 2 * precision * recall / (precision + recall) if precision + recall else 0.0
+    return {
+        "precision": precision,
+        "recall": recall,
+        "f1": f1,
+        "tp": tp,
+        "fp": fp,
+        "fn": fn,
+    }
 
 
 def match_detections(

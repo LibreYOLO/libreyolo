@@ -274,13 +274,14 @@ class ClassifyValidator(ValidationLossMixin, BaseValidator):
         """Draw each image with its label and top-1 prediction (#887).
 
         LibreYOLO's classification counterpart of detection ``visualize``:
-        written to ``save_dir/visualize/`` as the images are validated, framed
-        green when top-1 is right and red when it is wrong. Drawing only: it
+        written as the images are validated, framed green in
+        ``visualize/correct/`` when top-1 is right and red in
+        ``visualize/errors/`` when it is wrong. Drawing only: it
         never feeds the metrics.
         """
         import cv2  # noqa: PLC0415
 
-        from .val_plotter import ValPlotter  # noqa: PLC0415
+        from .val_plotter import ValPlotter, visualize_subdir  # noqa: PLC0415
 
         # predict() reports softmax probabilities of the same logits.
         scores = logits.softmax(dim=1)
@@ -297,15 +298,18 @@ class ClassifyValidator(ValidationLossMixin, BaseValidator):
                 if img_bgr is None:
                     continue
                 pred = int(top1[i])
+                correct = pred == int(targets[i])
                 ValPlotter.plot_classify_visualize(
                     img_bgr,
                     self._class_display_name(int(targets[i])),
                     self._class_display_name(pred),
                     float(scores[i, pred]),
-                    out_dir / f"{index:06d}_{Path(str(img_path)).stem}.jpg",
+                    out_dir
+                    / visualize_subdir(correct)
+                    / f"{index:06d}_{Path(str(img_path)).stem}.jpg",
                     show_labels=self.config.show_labels,
                     show_conf=self.config.show_conf,
-                    correct=pred == int(targets[i]),
+                    correct=correct,
                 )
             except Exception as exc:
                 logger.warning("visualize failed for image %d: %s", index, exc)
