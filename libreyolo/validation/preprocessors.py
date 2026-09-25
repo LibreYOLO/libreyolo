@@ -47,7 +47,11 @@ class BaseValPreprocessor(ABC):
         Default: top-left padding — uniform scale r, zero offsets.
         Override for center-padded preprocessors (e.g. YOLO-NAS).
         """
-        r = min(imgsz / orig_h, imgsz / orig_w)
+        if isinstance(imgsz, (list, tuple)):
+            input_h, input_w = int(imgsz[0]), int(imgsz[1])
+        else:
+            input_h = input_w = int(imgsz)
+        r = min(input_h / orig_h, input_w / orig_w)
         return r, 0.0, 0.0
 
     @property

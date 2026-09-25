@@ -654,6 +654,18 @@ def export_finalized_pt(wrapper, out=None, remainder: str = "fp16") -> str:
     manifest["state"] = "finalized"
     manifest["remainder"] = recipe if recipe in CAST_RECIPES else remainder
 
+    # Dual-write rectangular sizes like BaseModel.save() so the finalized
+    # checkpoint reloads at the size it was trained at (#899).
+    native_imgsz = wrapper._get_input_size()
+    if isinstance(native_imgsz, (tuple, list)):
+        imgsz_h, imgsz_w = int(native_imgsz[0]), int(native_imgsz[1])
+        imgsz_metadata = {
+            "imgsz": max(imgsz_h, imgsz_w),
+            "imgsz_h": imgsz_h,
+            "imgsz_w": imgsz_w,
+        }
+    else:
+        imgsz_metadata = {"imgsz": int(native_imgsz)}
     checkpoint = wrap_libreyolo_checkpoint(
         new_sd,
         model_family=wrapper._get_model_name(),
@@ -661,7 +673,7 @@ def export_finalized_pt(wrapper, out=None, remainder: str = "fp16") -> str:
         task=wrapper.task,
         nc=wrapper.nb_classes,
         names=wrapper.names,
-        imgsz=int(wrapper._get_input_size()),
+        **imgsz_metadata,
     )
     checkpoint["quant"] = manifest
 
