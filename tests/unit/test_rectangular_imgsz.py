@@ -542,3 +542,37 @@ def test_tiling_uses_long_side_for_restored_rect_size(tmp_path, monkeypatch):
     assert canvases and set(canvases) == {320}
     with pytest.raises(ValueError, match="square imgsz"):
         model.predict(image, tiling=True, imgsz=(192, 320))
+
+
+def test_tiling_small_image_uses_the_tile_canvas(tmp_path, monkeypatch):
+    cls, size, path = _family_checkpoint(
+        tmp_path, "yolo9", imgsz=320, imgsz_h=192, imgsz_w=320
+    )
+    model = cls(str(path), size=size, nb_classes=2, device="cpu")
+    canvases = []
+    original = model._preprocess
+
+    def spy(*args, input_size=None, **kwargs):
+        canvases.append(input_size)
+        return original(*args, input_size=input_size, **kwargs)
+
+    monkeypatch.setattr(model, "_preprocess", spy)
+    model.predict(np.zeros((256, 256, 3), dtype=np.uint8), tiling=True, conf=0.99)
+
+    assert canvases == [320]
+
+
+@pytest.mark.parametrize("family", ["yolox", "rtmdet"])
+def test_letterbox_gt_rescale_accepts_rect_size(family):
+    # Validation plots and visualize=True invert the letterbox per image; the
+    # shared default used to divide the (h, w) pair by an int (#899).
+    from libreyolo.validation.preprocessors import (
+        RTMDetValPreprocessor,
+        YOLOXValPreprocessor,
+    )
+
+    cls = YOLOXValPreprocessor if family == "yolox" else RTMDetValPreprocessor
+    r, off_x, off_y = cls(img_size=(192, 320)).letterbox_scale(1080, 1920, (192, 320))
+
+    assert r == pytest.approx(min(192 / 1080, 320 / 1920))
+    assert (off_x, off_y) == (0.0, 0.0)

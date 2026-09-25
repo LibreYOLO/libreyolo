@@ -163,7 +163,8 @@ before 1.4.0 are documented in the
   (YOLOX, YOLOv7, RTMDet, PicoDet, or YOLO9 to ExecuTorch, Paddle, MNN) falls
   back to a `max(h, w)` square with a warning, and `predict(tiling=True)`
   tiles at the long side. Also fixes YOLOX `val(imgsz=(h, w))` crashing with a
-  `TypeError`, `predict(augment=True)` undoing the letterbox at the family
+  `TypeError` (and its validation plots and `visualize=True` images being
+  skipped with a warning), `predict(augment=True)` undoing the letterbox at the family
   default instead of the requested `imgsz`, finalized quantized checkpoints
   (`export(format="pt")`) dropping the rectangular size, and the Python
   `InferenceProfiler` failing on it. Checkpoints without the pair load exactly
