@@ -376,6 +376,14 @@ class TestAutoconvertOrchestration:
             90,
         ) == (90, names)
 
+    def test_rfdetr_single_logit_head_is_one_class(self):
+        # A one-category upstream dataset yields a single-output head with no
+        # spare slot (raw_nc 0); it must not fall back to COCO's 80 classes.
+        assert autoconvert_module._rfdetr_class_metadata(
+            {"args": argparse.Namespace(num_classes=1, class_names=["object"])},
+            0,
+        ) == (1, ["object"])
+
     def test_rfdetr_coco_metadata_maps_90_arch_classes_to_coco80(self):
         assert autoconvert_module._rfdetr_class_metadata(
             {"args": argparse.Namespace(dataset_file="coco")},

@@ -24,22 +24,13 @@ from typing import (
 
 import numpy as np
 import torch
+from PIL import Image
 from torchvision.ops import batched_nms
 
 from ...postprocess.slicing import slice_batch_outputs
 from ...utils.drawing import (
     draw_boxes,
-    draw_keypoints,
-    draw_masks,
-    draw_obb,
-    draw_depth_map,
-    draw_edge_map,
-    draw_normal_map,
-    draw_mesh,
-    draw_ocr_regions,
-    draw_panoptic,
-    draw_points,
-    draw_semantic_mask,
+    draw_results,
     draw_tile_grid,
 )
 from ...utils.general import (
@@ -51,6 +42,7 @@ from ...utils.general import (
 from ...utils.image_loader import ImageInput, ImageLoader
 from ...utils.predict_args import normalize_predict_kwargs
 from ...utils.results import (
+    keep_source,
     AlbedoMap,
     Boxes,
     DepthMap,
@@ -592,9 +584,14 @@ class InferenceRunner:
             )
             if save:
                 image_path = source if isinstance(source, (str, Path)) else None
-                img_pil = ImageLoader.load(source, color_format=color_format)
                 ext = output_file_format or "jpg"
                 save_path = resolve_save_path(output_path, image_path, ext=ext)
+                # Reuse the decoded source rather than fetching the input again.
+                img_pil = (
+                    Image.fromarray(result.orig_img[..., ::-1])
+                    if result.orig_img is not None
+                    else ImageLoader.load(source, color_format=color_format)
+                )
                 self._save_annotated_image(result, img_pil, save_path)
             return result
 
@@ -771,7 +768,11 @@ class InferenceRunner:
                         image if save_stem is None else save_stem,
                         ext=ext,
                     )
-                    img_pil = ImageLoader.load(image, color_format=color_format)
+                    img_pil = (
+                        Image.fromarray(result.orig_img[..., ::-1])
+                        if result.orig_img is not None
+                        else ImageLoader.load(image, color_format=color_format)
+                    )
                     self._save_annotated_image(result, img_pil, save_path)
                 results.append(result)
             else:
@@ -885,6 +886,7 @@ class InferenceRunner:
             )
             image_path = image if isinstance(image, (str, Path)) else None
             result = self._wrap_results(detections, original_size, image_path, classes)
+            keep_source(result, original_img, image_path)
             if save:
                 ext = output_file_format or "jpg"
                 save_path = resolve_save_path(
@@ -955,6 +957,8 @@ class InferenceRunner:
         )
         result = self._wrap_results(detections, original_size, str(source), classes)
         result.path = str(source)
+        # A whole-clip result plots on its first sampled frame.
+        result.orig_img = frames[0]
 
         if save:
             save_file = resolve_save_path(
@@ -966,61 +970,15 @@ class InferenceRunner:
     def _save_annotated_image(
         self, result: Results, original_img, save_path: Path
     ) -> None:
-        """Internal helper to draw boxes, masks, and keypoints and save to disk."""
-        # Classification and whole-image embed results carry no boxes; there is
-        # nothing to draw, so persist the source image as-is.
-        if result.boxes is None and (
-            getattr(result, "probs", None) is not None
-            or getattr(result, "embeddings", None) is not None
+        """Internal helper to render a result on its image and save to disk."""
+        # Whole-image embed results carry nothing to draw; persist the source
+        # image as-is. Classification draws its top-5 in draw_results.
+        if (
+            result.boxes is None
+            and result.probs is None
+            and getattr(result, "embeddings", None) is not None
         ):
             original_img.save(save_path)
-            log_saved_result(result, save_path)
-            return
-        if result.boxes is None and getattr(result, "semantic_mask", None) is not None:
-            mask_data = result.semantic_mask.data
-            if isinstance(mask_data, torch.Tensor):
-                mask_data = mask_data.cpu().numpy()
-            annotated_img = draw_semantic_mask(original_img, mask_data)
-            annotated_img.save(save_path)
-            log_saved_result(result, save_path)
-            return
-        if result.boxes is None and getattr(result, "panoptic", None) is not None:
-            pan_data = result.panoptic.data
-            if isinstance(pan_data, torch.Tensor):
-                pan_data = pan_data.cpu().numpy()
-            annotated_img = draw_panoptic(
-                original_img,
-                pan_data,
-                result.panoptic.segments_info,
-                class_names=result.names,
-            )
-            annotated_img.save(save_path)
-            log_saved_result(result, save_path)
-            return
-        if result.boxes is None and getattr(result, "depth_map", None) is not None:
-            depth_data = result.depth_map.data
-            if isinstance(depth_data, torch.Tensor):
-                depth_data = depth_data.cpu().numpy()
-            if not result.depth_map.near_is_high:
-                depth_data = -depth_data
-            annotated_img = draw_depth_map(original_img, depth_data)
-            annotated_img.save(save_path)
-            log_saved_result(result, save_path)
-            return
-        if result.boxes is None and getattr(result, "edges", None) is not None:
-            edge_data = result.edges.data
-            if isinstance(edge_data, torch.Tensor):
-                edge_data = edge_data.cpu().numpy()
-            annotated_img = draw_edge_map(original_img, edge_data)
-            annotated_img.save(save_path)
-            log_saved_result(result, save_path)
-            return
-        if result.boxes is None and getattr(result, "normal_map", None) is not None:
-            normal_data = result.normal_map.data
-            if isinstance(normal_data, torch.Tensor):
-                normal_data = normal_data.cpu().numpy()
-            annotated_img = draw_normal_map(original_img, normal_data)
-            annotated_img.save(save_path)
             log_saved_result(result, save_path)
             return
         if result.boxes is None and getattr(result, "albedo", None) is not None:
@@ -1039,87 +997,8 @@ class InferenceRunner:
             result.save(png_path, image=original_img)
             log_saved_result(result, png_path)
             return
-        if result.boxes is None and getattr(result, "ocr", None) is not None:
-            if len(result.ocr) > 0:
-                ocr_np = result.ocr.numpy()
-                annotated_img = draw_ocr_regions(
-                    original_img,
-                    ocr_np.data,
-                    ocr_np.texts,
-                    ocr_np.conf,
-                )
-            else:
-                annotated_img = original_img.copy()
-            annotated_img.save(save_path)
-            log_saved_result(result, save_path)
-            return
-        if result.boxes is None and getattr(result, "points", None) is not None:
-            if len(result.points) > 0:
-                annotated_img = draw_points(
-                    original_img,
-                    result.points.xy.tolist(),
-                    result.points.conf.tolist(),
-                    result.points.cls.tolist(),
-                    class_names=result.names,
-                )
-            else:
-                annotated_img = original_img.copy()
-            annotated_img.save(save_path)
-            log_saved_result(result, save_path)
-            return
-        if len(result) > 0:
-            annotated_img = original_img
-            # Draw masks first (underneath boxes)
-            if result.masks is not None:
-                masks_np = result.masks.data
-                if isinstance(masks_np, torch.Tensor):
-                    masks_np = masks_np.cpu().numpy()
-                annotated_img = draw_masks(
-                    annotated_img,
-                    masks_np,
-                    result.boxes.cls.tolist(),
-                )
-            # Draw boxes
-            if result.obb is not None:
-                annotated_img = draw_obb(
-                    annotated_img,
-                    result.obb.xywhr.tolist(),
-                    result.obb.conf.tolist(),
-                    result.obb.cls.tolist(),
-                    class_names=result.names,
-                    track_ids=result.obb.id.tolist()
-                    if result.obb.id is not None
-                    else None,
-                )
-            else:
-                annotated_img = draw_boxes(
-                    annotated_img,
-                    result.boxes.xyxy.tolist(),
-                    result.boxes.conf.tolist(),
-                    result.boxes.cls.tolist(),
-                    class_names=result.names,
-                )
-            # Draw keypoints
-            if result.keypoints is not None:
-                kpts_np = result.keypoints.data
-                if isinstance(kpts_np, torch.Tensor):
-                    kpts_np = kpts_np.cpu().numpy()
-                annotated_img = draw_keypoints(annotated_img, kpts_np)
-            # Draw body meshes: projected vertices plus the skeleton through
-            # the projected joints.
-            if result.meshes is not None and len(result.meshes) > 0:
-                meshes_np = result.meshes.numpy()
-                annotated_img = draw_mesh(
-                    annotated_img,
-                    joints2d=meshes_np.joints2d,
-                    vertices2d=meshes_np.extras.get("vertices2d"),
-                    faces=meshes_np.faces,
-                    vertices3d=meshes_np.vertices,
-                )
-        else:
-            annotated_img = original_img.copy()
 
-        annotated_img.save(save_path)
+        draw_results(result, original_img).save(save_path)
         log_saved_result(result, save_path)
 
     @staticmethod
@@ -1570,6 +1449,7 @@ class InferenceRunner:
 
         # Wrap into Results
         result = self._wrap_results(detections, original_size, image_path, classes)
+        keep_source(result, original_img, image_path)
 
         # Save annotated image
         if save:
@@ -1658,7 +1538,11 @@ class InferenceRunner:
                 classes=classes,
                 **kwargs,
             )
-            return self._wrap_results(detections, original_size, source_label, classes)
+            result = self._wrap_results(
+                detections, original_size, source_label, classes
+            )
+            result.orig_img = original_img
+            return result
 
         return predict_frame
 
@@ -1911,6 +1795,7 @@ class InferenceRunner:
             "num_detections": len(final_boxes),
         }
         result = self._wrap_results(detections, original_size, image_path, classes)
+        keep_source(result, img_pil, image_path)
 
         # Attach tiling metadata as extra attributes
         result.tiled = True

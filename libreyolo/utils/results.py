@@ -1898,6 +1898,7 @@ class Results:
         boxes3d: Optional[Boxes3D] = None,
         albedo: Optional[AlbedoMap] = None,
         actions: Optional[Actions] = None,
+        orig_img: Any = None,
     ):
         if boxes is not None and boxes.orig_shape is None:
             boxes = boxes.with_orig_shape(orig_shape)
@@ -1955,6 +1956,22 @@ class Results:
             track_id if track_id is not None else (boxes.id if boxes else None)
         )
         self.frame_idx = frame_idx
+        self.orig_img = orig_img
+
+    @property
+    def orig_img(self) -> np.ndarray | None:
+        """Source image as an ``HxWx3`` uint8 BGR array, or None if not kept."""
+        source = self._orig_img
+        if source is not None and not isinstance(source, np.ndarray):
+            # Predict keeps the decoded PIL image; convert on first access.
+            source = np.ascontiguousarray(np.asarray(source.convert("RGB"))[..., ::-1])
+            self._orig_img = source
+        return source
+
+    @orig_img.setter
+    def orig_img(self, value: Any) -> None:
+        """Accept a PIL image (RGB) or an ``HxWx3`` BGR array."""
+        self._orig_img = value
 
     def _new(self, **overrides) -> "Results":
         data = {
@@ -1986,6 +2003,7 @@ class Results:
             "speed": dict(self.speed),
             "track_id": self.track_id,
             "frame_idx": self.frame_idx,
+            "orig_img": self._orig_img,
         }
         data.update(overrides)
         return Results(**data)
@@ -2143,8 +2161,77 @@ class Results:
     def normals(self, value: Optional[NormalMap]) -> None:
         self.normal_map = value
 
-    def plot(self, image=None):
-        """Render dense outputs, calibrated 3D cuboids, or an action chunk."""
+    def plot(
+        self,
+        image=None,
+        *,
+        img=None,
+        conf: bool = True,
+        labels: bool = True,
+        boxes: bool = True,
+        masks: bool = True,
+        probs: bool = True,
+        line_width: int | None = None,
+        pil: bool | None = None,
+        show: bool = False,
+        save: bool = False,
+        filename: str | None = None,
+    ):
+        """Render the result on its source image.
+
+        Boxes, masks, OBB, keypoints, points, OCR, semantic and panoptic maps,
+        and classification top-5 draw exactly like ``predict(save=True)`` and
+        return an ``HxWx3`` uint8 BGR array. Dense maps (depth, normal, edge,
+        albedo), 3D cuboids and action chunks return a PIL image. ``pil`` forces
+        either return type.
+
+        The source image is ``img`` (BGR array or PIL image), else ``image``
+        (RGB array or PIL image), else the image kept by predict
+        (``orig_img``), else ``path``.
+        """
+        from PIL import Image
+
+        if img is not None:
+            image = (
+                Image.fromarray(np.asarray(img)[..., ::-1].astype(np.uint8))
+                if isinstance(img, np.ndarray)
+                else img
+            )
+        rendered = self._plot_dense(image)
+        default_pil = rendered is not None
+        if rendered is None:
+            from .drawing import draw_results
+
+            source = Image.fromarray(self._source_rgb(image, self.orig_shape))
+            rendered = draw_results(
+                self,
+                source,
+                conf=conf,
+                labels=labels,
+                boxes=boxes,
+                masks=masks,
+                probs=probs,
+                line_width=line_width,
+            )
+        if show:
+            rendered.show()
+        if save or filename:
+            if filename is None:
+                source = Path(self.path) if self.path else Path("image.jpg")
+                if source.suffix.lower() in Image.registered_extensions():
+                    filename = f"results_{source.name}"
+                else:
+                    # A video frame or clip: name the still after the video.
+                    frame = f"_{self.frame_idx}" if self.frame_idx is not None else ""
+                    filename = f"results_{source.stem}{frame}.jpg"
+            Path(filename).parent.mkdir(parents=True, exist_ok=True)
+            rendered.save(filename)
+        if pil if pil is not None else default_pil:
+            return rendered
+        return np.ascontiguousarray(np.asarray(rendered.convert("RGB"))[..., ::-1])
+
+    def _plot_dense(self, image=None):
+        """Render dense outputs, 3D cuboids, or an action chunk; None otherwise."""
         if self.actions is not None:
             from PIL import Image
             from .drawing import draw_actions
@@ -2171,9 +2258,7 @@ class Results:
             canvas = Image.fromarray(self._source_rgb(image, self.orig_shape))
             return draw_boxes3d(canvas, self.boxes3d)
         if self.normal_map is None and self.edges is None:
-            raise NotImplementedError(
-                "Results.plot() supports depth, normal, albedo, edge, and calibrated 3D results."
-            )
+            return None
 
         from PIL import Image
 
@@ -2210,13 +2295,24 @@ class Results:
         from PIL import Image
 
         h, w = hw
+        if image is None and self._orig_img is not None:
+            image = Image.fromarray(self.orig_img[..., ::-1])
         if image is None:
+            missing = (
+                "plot()/cutout()/save() need the source image, but none was kept "
+                "and Results.path is not an image; pass image=<PIL.Image or HxWx3 "
+                "RGB array> (plot() also takes img=<HxWx3 BGR array>)."
+            )
             if not self.path:
-                raise ValueError(
-                    "cutout()/save() needs the source image but Results.path is unset; "
-                    "pass image=<PIL.Image or HxWx3 array>."
-                )
-            rgb = np.asarray(Image.open(self.path).convert("RGB"))
+                raise ValueError(missing)
+            # A frame of a collected video or GIF: path is the whole clip, so
+            # decode that frame on demand (PIL would open a GIF at frame 0).
+            rgb = self._video_frame_rgb()
+            if rgb is None:
+                try:
+                    rgb = np.asarray(Image.open(self.path).convert("RGB"))
+                except (OSError, ValueError) as exc:
+                    raise ValueError(missing) from exc
         elif isinstance(image, Image.Image):
             rgb = np.asarray(image.convert("RGB"))
         else:
@@ -2231,6 +2327,20 @@ class Results:
             )
         return rgb.astype(np.uint8)
 
+    def _video_frame_rgb(self) -> np.ndarray | None:
+        """Decode frame ``frame_idx`` of the video at ``path``, or None."""
+        if self.frame_idx is None or not self.path or not Path(self.path).is_file():
+            return None
+        import cv2
+
+        cap = cv2.VideoCapture(str(self.path))
+        try:
+            cap.set(cv2.CAP_PROP_POS_FRAMES, int(self.frame_idx))
+            ok, frame = cap.read()
+        finally:
+            cap.release()
+        return frame[..., ::-1] if ok else None
+
     def save(self, path: str, image: Any = None) -> str:
         """Save a matte result as a transparent-background RGBA PNG cutout.
 
@@ -2242,7 +2352,7 @@ class Results:
         if self.matte is None:
             raise NotImplementedError(
                 "Results.save() writes a transparent-PNG cutout and is defined for "
-                "matte results only. Use result.plot()/CLI --save for other tasks."
+                "matte results only. Use result.plot(save=True) or CLI --save for other tasks."
             )
         rgba = self.cutout(image=image)
         out = Path(path)
@@ -2690,3 +2800,17 @@ def stack_result_embeddings(prediction: Any) -> torch.Tensor:
             f"Cannot stack embeddings with different dimensions: {sorted(dimensions)}."
         )
     return torch.cat(non_empty, dim=0)
+
+
+def keep_source(result: Any, image: Any, source: Any = None) -> Any:
+    """Attach the decoded source image so ``Results.plot()`` can draw on it.
+
+    Skipped when ``source`` is a local image file: ``plot()`` reopens it from
+    ``Results.path``, so a directory or list prediction does not hold every
+    decoded image in memory. In-memory inputs and URLs keep their pixels.
+    """
+    if isinstance(result, Results) and not (
+        isinstance(source, (str, Path)) and Path(source).is_file()
+    ):
+        result.orig_img = image
+    return result

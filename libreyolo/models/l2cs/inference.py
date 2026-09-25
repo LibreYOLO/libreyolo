@@ -18,7 +18,7 @@ from PIL import Image
 
 from ...utils.general import log_saved_result, resolve_save_path
 from ...utils.image_loader import ImageInput, ImageLoader
-from ...utils.results import Boxes, Gaze, Results
+from ...utils.results import Boxes, Gaze, Results, keep_source
 from ...utils.video import collect_video_results, is_video_file, run_video_inference
 from .face import FaceBox, FaceDetector, default_face_detector, resolve_face_detector
 from .utils import bin_logits_to_angles, crop_face, preprocess_face_crops
@@ -152,6 +152,7 @@ class GazeInferenceRunner:
 
         faces = self._collect_faces(rgb_np, detector, face_boxes, face_conf)
         result = self._run_gaze(pil, rgb_np, faces, orig_shape, image_path)
+        keep_source(result, pil, image)
 
         if save:
             ext = (output_file_format or "jpg").lower().lstrip(".")
@@ -176,7 +177,9 @@ class GazeInferenceRunner:
             rgb_np = np.asarray(pil_img)
             h, w = rgb_np.shape[:2]
             faces = self._collect_faces(rgb_np, detector, None, face_conf)
-            return self._run_gaze(pil_img, rgb_np, faces, (h, w), str(source))
+            result = self._run_gaze(pil_img, rgb_np, faces, (h, w), str(source))
+            result.orig_img = pil_img
+            return result
 
         def annotate(pil_img: Image.Image, result: Results) -> Image.Image:
             return self._annotate(pil_img, result)
@@ -317,29 +320,9 @@ class GazeInferenceRunner:
     # =========================================================================
 
     def _annotate(self, pil_img: Image.Image, result: Results) -> Image.Image:
-        if result.boxes is None or len(result.boxes) == 0:
-            return pil_img
-        from ...utils.drawing import draw_boxes, draw_gaze_arrows
+        from ...utils.drawing import draw_results
 
-        boxes_xyxy = result.boxes.xyxy.tolist()
-        confs = result.boxes.conf.tolist()
-        clses = result.boxes.cls.tolist()
-        annotated = draw_boxes(
-            pil_img,
-            boxes_xyxy,
-            confs,
-            clses,
-            class_names=result.names,
-        )
-        if result.gaze is not None and len(result.gaze) > 0:
-            gaze_np = result.gaze.numpy() if isinstance(result.gaze.data, torch.Tensor) else result.gaze
-            annotated = draw_gaze_arrows(
-                annotated,
-                boxes_xyxy,
-                gaze_np.data[:, 0],
-                gaze_np.data[:, 1],
-            )
-        return annotated
+        return draw_results(result, pil_img)
 
     def _save_annotated_image(
         self,
