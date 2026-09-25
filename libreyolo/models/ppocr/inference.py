@@ -20,7 +20,7 @@ from PIL import Image
 from ...postprocess.ppocr import ctc_decode, db_postprocess, sort_quads_reading_order
 from ...utils.general import log_saved_result, resolve_save_path
 from ...utils.image_loader import ImageInput, ImageLoader
-from ...utils.results import OCRRegions, Results
+from ...utils.results import OCRRegions, Results, keep_source
 from ...utils.video import collect_video_results, is_video_file, run_video_inference
 from .preprocess import det_normalize, det_resize, get_rotate_crop_image, rec_batches
 
@@ -170,6 +170,7 @@ class OCRInferenceRunner:
             rec_batch=rec_batch,
             image_path=image_path,
         )
+        keep_source(result, pil, image)
         if save:
             ext = (output_file_format or "jpg").lower().lstrip(".")
             save_path = resolve_save_path(
@@ -193,13 +194,15 @@ class OCRInferenceRunner:
         output_path: Optional[str],
     ) -> Generator[Results, None, None]:
         def predict_frame(pil_img: Image.Image) -> Results:
-            return self.run_pipeline(
+            result = self.run_pipeline(
                 pil_img,
                 conf=conf,
                 imgsz=imgsz,
                 rec_batch=rec_batch,
                 image_path=str(source),
             )
+            result.orig_img = pil_img
+            return result
 
         yield from run_video_inference(
             source,
