@@ -626,6 +626,63 @@ class TestExporterFormats:
                 int8=False,
             )
 
+    @pytest.mark.parametrize(
+        ("model_name", "exporter_cls"),
+        [
+            ("yolox", OnnxExporter),
+            ("rtmdet", TorchScriptExporter),
+            ("yolo9", ExecuTorchExporter),
+            ("yolo9", PaddleExporter),
+        ],
+    )
+    def test_restored_rect_imgsz_falls_back_to_square_by_default(
+        self, model_name, exporter_cls, caplog
+    ):
+        # #899: a square-native fine-tune trained at (h, w) reloads with that
+        # size; a family/format pair without rectangular export keeps exporting
+        # by default, at max(h, w) instead of raising.
+        wrapper = _make_wrapper(model_name=model_name, input_size=(32, 64))
+        wrapper._get_task_input_sizes.return_value = {"s": 640}
+
+        with caplog.at_level("WARNING", logger="libreyolo.export.exporter"):
+            imgsz, _device, _output_path = exporter_cls(wrapper)._resolve_params(
+                output_path=None,
+                imgsz=None,
+                device="cpu",
+                half=False,
+                int8=False,
+            )
+
+        assert imgsz == (64, 64)
+        assert "exporting at the square imgsz=64" in caplog.text
+
+    def test_restored_rect_imgsz_is_kept_where_export_supports_it(self):
+        wrapper = _make_wrapper(model_name="yolo9", input_size=(32, 64))
+        wrapper._get_task_input_sizes.return_value = {"s": 640}
+
+        imgsz, _device, _output_path = OnnxExporter(wrapper)._resolve_params(
+            output_path=None,
+            imgsz=None,
+            device="cpu",
+            half=False,
+            int8=False,
+        )
+
+        assert imgsz == (32, 64)
+
+    def test_natively_rect_family_keeps_rejecting_unsupported_format(self):
+        wrapper = _make_wrapper(model_name="unet", input_size=(32, 64))
+        wrapper._get_task_input_sizes.return_value = {"s": (32, 64)}
+
+        with pytest.raises(NotImplementedError, match="not validated for format"):
+            PaddleExporter(wrapper)._resolve_params(
+                output_path=None,
+                imgsz=None,
+                device="cpu",
+                half=False,
+                int8=False,
+            )
+
     def test_semantic_export_rejects_unaligned_imgsz(self):
         wrapper = _make_wrapper(model_name="segformer", input_size=32)
         wrapper.task = "semantic"
