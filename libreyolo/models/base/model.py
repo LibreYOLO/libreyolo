@@ -2298,9 +2298,10 @@ class BaseModel(ABC):
             plots: Alias for save_plots.
             verbose: Print detailed metrics.
             visualize: (kwarg) Draw every validated image to
-                ``save_dir/visualize/`` with true positives, false positives
-                and false negatives (confidence 0.25, or ``conf`` if higher;
-                IoU 0.5; class-aware);
+                ``save_dir/visualize/errors/`` (any false positive or false
+                negative) or ``visualize/correct/``, with true positives,
+                false positives and false negatives (confidence 0.25, or
+                ``conf`` if higher; IoU 0.5; class-aware);
                 classification draws the label and top-1 prediction. Detect,
                 segment and classify only. Default False.
             show_labels: (kwarg) Class names on ``visualize`` images.
@@ -2325,6 +2326,12 @@ class BaseModel(ABC):
             deployment instead of a folklore default. Entries are NaN for
             classes where no threshold reaches F1 > 0 (no predictions, no
             ground truth, or all false positives).
+
+            Detect and segment results also carry ``box.image_metrics``: image
+            filename to ``precision``, ``recall``, ``f1``, ``tp``, ``fp`` and
+            ``fn`` at IoU 0.5, counting predictions at the ``visualize``
+            confidence (0.25, or ``conf`` if higher). Filter it on ``fp`` or
+            ``fn`` to list the images the model got wrong.
 
             For ``task="classify"``, the dictionary instead holds
             ``metrics/accuracy_top1``, ``metrics/accuracy_top5``,
@@ -2486,4 +2493,6 @@ class BaseModel(ABC):
         # (e.g. "faster-coco-eval 1.7.2" / "pycocotools 2.0.10"; None for
         # validators that don't run COCO evaluation).
         self.last_eval_backend = getattr(validator, "eval_backend", None)
-        return metrics
+        from libreyolo.validation.base import with_image_metrics
+
+        return with_image_metrics(metrics, validator)

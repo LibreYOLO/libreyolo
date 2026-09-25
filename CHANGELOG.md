@@ -21,9 +21,19 @@ before 1.4.0 are documented in the
   TP/FP/FN count per image; a wrong class shows as one false positive plus one
   false negative. Classification images show the label and the top-1
   prediction, framed green or red. `show_labels` and `show_conf` turn the text
-  off. Images go to `visualize/` in the run
-  directory as validation runs. Also `libreyolo val --visualize`. Other tasks
-  reject the flag. Drawing only: the metrics are unchanged.
+  off. Images go to `visualize/errors/` (any false positive or miss, or a
+  wrong top-1) and `visualize/correct/` in the run directory as validation
+  runs, so the mistakes are one folder. Also `libreyolo val --visualize`.
+  Other tasks reject the flag. Drawing only: the metrics are unchanged.
+
+- **`results.box.image_metrics`: per-image precision, recall, F1, TP, FP and
+  FN (#887).** Detect and segment `val()` results (still the metrics dict)
+  carry `box.image_metrics`, image filename to
+  `{"precision", "recall", "f1", "tp", "fp", "fn"}`, as in the ecosystem's
+  validation results. Counted with the `visualize` matching (confidence 0.25
+  or `conf` if higher, IoU 0.5, class-aware; segmentation counts boxes), with
+  or without `visualize`. List the wrong images with
+  `[k for k, m in r.box.image_metrics.items() if m["fp"] or m["fn"]]`.
 
 - **Classification validation reports macro precision, recall and F1 (#852).**
   `ClassifyValidator` accumulates per-class confusion counts (the confusion
