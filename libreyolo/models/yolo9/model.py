@@ -654,7 +654,9 @@ class LibreYOLO9(BaseModel):
             pretrained: Optional training initialization weights. Use True to
                 load the matching LibreYOLO9 detect checkpoint for transfer
                 learning, or pass a checkpoint path/name.
-            callbacks: Optional training callback or iterable of callbacks.
+            callbacks: Optional callback or iterable. One object may define
+                fitness(metrics) to select best.pt and drive patience; custom
+                fitness requires a new run (resume=False).
             loggers: Optional built-in experiment loggers: a registered name,
                 a configured logger instance, or an iterable mixing both.
 

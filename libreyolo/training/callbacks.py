@@ -1,8 +1,9 @@
 """Public training callback types."""
 
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
 from types import MappingProxyType
-from typing import Any, Callable, Iterable, Mapping, Protocol
+from typing import Any, Protocol
 
 
 @dataclass(frozen=True)
@@ -116,8 +117,22 @@ class TrainCallback(Protocol):
         """Handle a training exception."""
 
 
+class TrainFitnessCallback(Protocol):
+    """Optional scorer for best-checkpoint selection and patience.
+
+    ``metrics`` is the same read-only scalar mapping as
+    ``TrainEpochEvent.val_metrics``. Return a finite real scalar; higher is
+    better. Scoring runs on rank zero for each validation result used for
+    selection, before checkpoints and epoch callbacks. Callback code and
+    state are not saved, so custom-fitness training cannot be resumed.
+    """
+
+    def fitness(self, metrics: Mapping[str, float]) -> float:
+        """Score validation metrics without modifying them."""
+
+
 TrainEpochCallable = Callable[[TrainEpochEvent], None]
-TrainCallbackLike = TrainCallback | TrainEpochCallable
+TrainCallbackLike = TrainCallback | TrainFitnessCallback | TrainEpochCallable
 TrainCallbacks = TrainCallbackLike | Iterable[TrainCallbackLike] | None
 
 
@@ -131,6 +146,21 @@ class TrainCallbackList:
             self._callbacks = [callbacks]
         else:
             self._callbacks = list(callbacks)
+        _ = self.fitness  # Validate scorers before any training work starts.
+
+    @property
+    def fitness(self) -> Callable[[Mapping[str, float]], float] | None:
+        """Return the sole optional fitness method, rejecting ambiguity."""
+        scorers = []
+        for callback in self._callbacks:
+            if hasattr(callback, "fitness"):
+                method = callback.fitness
+                if not callable(method):
+                    raise TypeError("Train callback attribute fitness must be callable")
+                scorers.append(method)
+        if len(scorers) > 1:
+            raise ValueError("At most one training callback may define fitness")
+        return scorers[0] if scorers else None
 
     def __bool__(self) -> bool:
         return bool(self._callbacks)
@@ -140,6 +170,11 @@ class TrainCallbackList:
 
     def append(self, callback: TrainCallbackLike) -> None:
         self._callbacks.append(callback)
+        try:
+            _ = self.fitness
+        except (TypeError, ValueError):
+            self._callbacks.pop()
+            raise
 
     @staticmethod
     def _is_callback_object(callback) -> bool:
@@ -150,6 +185,7 @@ class TrainCallbackList:
                 "on_train_epoch_end",
                 "on_train_end",
                 "on_train_exception",
+                "fitness",
             )
         )
 
