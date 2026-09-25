@@ -188,6 +188,22 @@ def test_libre_l2cs_end_to_end_with_byo_bbox(tmp_path):
     assert torch.isfinite(result.gaze.data).all()
 
 
+def test_libre_l2cs_plot_in_memory_source(tmp_path):
+    """plot() works on a gaze result from an in-memory image (no path)."""
+    weights_path = tmp_path / "LibreL2CSr18.pt"
+    torch.save(_make_dummy_state_dict("r18"), weights_path)
+    model = LibreL2CS(str(weights_path), size="r18", device="cpu")
+
+    img = np.full((48, 64, 3), 128, dtype=np.uint8)
+    result = model(img, face_boxes=[(0, 0, 64, 48)])
+
+    assert result.path is None
+    assert result.orig_img.shape == (48, 64, 3)
+    plotted = result.plot()
+    assert isinstance(plotted, np.ndarray)
+    assert plotted.shape == (48, 64, 3)
+
+
 def test_libre_l2cs_callable_face_detector(tmp_path):
     """A user-supplied callable becomes the face detector."""
     sd = _make_dummy_state_dict("r18")

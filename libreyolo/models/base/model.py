@@ -1367,6 +1367,7 @@ class BaseModel(ABC):
 
         from PIL import Image as PILImage
         from ...utils.image_loader import ImageLoader
+        from ...utils.results import keep_source
 
         effective_imgsz = imgsz if imgsz is not None else self._get_input_size()
         img_pil = ImageLoader.load(image, color_format=color_format)
@@ -1374,7 +1375,7 @@ class BaseModel(ABC):
         orig_w, orig_h = img_pil.size
 
         if getattr(self, "task", "detect") == "semantic":
-            return self._predict_augment_semantic(
+            result = self._predict_augment_semantic(
                 img_pil,
                 image_path,
                 (orig_w, orig_h),
@@ -1382,9 +1383,10 @@ class BaseModel(ABC):
                 color_format,
                 **kwargs,
             )
+            return keep_source(result, img_pil, image_path)
 
         if getattr(self, "task", "detect") == "panoptic":
-            return self._predict_augment_panoptic(
+            result = self._predict_augment_panoptic(
                 img_pil,
                 image_path,
                 (orig_w, orig_h),
@@ -1392,6 +1394,7 @@ class BaseModel(ABC):
                 color_format,
                 **kwargs,
             )
+            return keep_source(result, img_pil, image_path)
 
         scales = (1.0,) if self.TTA_FIXED_SIZE else self.TTA_SCALES
         # Undo the letterbox at the canvas each view was preprocessed at, as
@@ -1424,9 +1427,13 @@ class BaseModel(ABC):
                 aug_dets.append((det, orig_size, is_flipped, scale))
 
         if getattr(self, "task", "detect") == "classify":
-            return self._merge_classify_tta(aug_dets, image_path, (orig_w, orig_h))
-
-        return self._merge_tta(aug_dets, iou, image_path, (orig_w, orig_h), classes)
+            result = self._merge_classify_tta(aug_dets, image_path, (orig_w, orig_h))
+        else:
+            result = self._merge_tta(
+                aug_dets, iou, image_path, (orig_w, orig_h), classes
+            )
+        # Keep the decoded source so plot()/save never fetch the input again.
+        return keep_source(result, img_pil, image_path)
 
     def _postprocess_semantic_logits(
         self,

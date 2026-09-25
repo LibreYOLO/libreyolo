@@ -645,6 +645,14 @@ def _rfdetr_class_metadata(
         # COCO arch-classes (91 outputs incl. background) -> LibreYOLO's COCO-80.
         return 80, _checkpoint_names(loaded, 80)
 
+    if raw_nc == 0:
+        # RF-DETR scores classes with independent sigmoids (focal loss); there
+        # is no background logit. The usual extra output is an unused index
+        # slot for COCO-style ids, but upstream sizes the head from the
+        # dataset's category count, so a one-category dataset yields a single
+        # output and logit 0 is that class (upstream predicts class_id 0).
+        return 1, _checkpoint_names(loaded, 1)
+
     nc = raw_nc if raw_nc else 80
     return nc, _checkpoint_names(loaded, nc)
 
