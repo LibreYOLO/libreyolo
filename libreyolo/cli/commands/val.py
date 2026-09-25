@@ -86,8 +86,8 @@ def val_cmd(
     visualize: bool = typer.Option(
         False,
         help="Draw every validated image with its true positives, false "
-        "positives and false negatives to visualize/ (detect, segment; "
-        "classify draws label vs top-1)",
+        "positives and false negatives to visualize/errors/ (any mistake) and "
+        "visualize/correct/ (detect, segment; classify draws label vs top-1)",
     ),
     show_labels: bool = typer.Option(
         True, help="Class names on the --visualize images"
