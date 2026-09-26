@@ -2825,8 +2825,10 @@ libreyolo/models/gtr/.
 GTRSeg instance-segmentation model (configs/seg) in libreyolo/models/gtr/.
 The pose decoder reuses LibreYOLO's ECPose port (libreyolo/models/ec/) and
 adapts GTR's pose decoder layer in libreyolo/models/gtr/pose.py.
-Ported the oriented-box (OBB) decoder, rotated-box operations and oriented
-denoising from engine/gtr/obb/ as libreyolo/models/gtr/obb_*.py.
+Ported the oriented-box (OBB) decoder, rotated-box operations, oriented
+denoising, criterion and matcher from engine/gtr/obb/, and the OBB flip and
+rotation augmentation from engine/data/transforms/obb_transforms.py, as
+libreyolo/models/gtr/obb_*.py.
 Semantic segmentation head, loss and sliding-window evaluation
 (engine/gtr/semseg, engine/solver/semseg_solver.py) in sem.py and
 sem_trainer.py; Cityscapes weights from Phoenix8125/GTR semseg/.
