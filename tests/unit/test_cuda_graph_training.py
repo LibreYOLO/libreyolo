@@ -685,9 +685,21 @@ class TestYolo9SpecGating:
         host.model.head = derived
         assert fn(host) is None
 
-    def test_pgi_aux_unsupported(self):
+    def test_pgi_aux_is_captured(self):
+        """The PGI branch is the fine-tuning default; declining it silently
+        turned ``cuda_graph=True`` into an eager run."""
+        from libreyolo.models.yolo9.trainer import _PGITrainForward
+
         fn, host = self._host()
         host.model.enable_aux(0.25)
+        spec = fn(host)
+        assert spec is not None
+        assert isinstance(spec.network.module, _PGITrainForward)
+
+    def test_pgi_aux_with_zero_weight_unsupported(self):
+        fn, host = self._host()
+        host.model.enable_aux(0.25)
+        host.model.aux_weight = 0.0
         assert fn(host) is None
 
 

@@ -572,8 +572,8 @@ class BaseTrainer(ABC):
                     manager.disabled = True
                     logger.warning(
                         "cuda_graph=True ignored (%s does not support "
-                        "training capture for this task); training runs "
-                        "eager.",
+                        "training capture for this model, task or "
+                        "configuration); training runs eager.",
                         type(self).__name__,
                     )
             spec = getattr(self, "_cuda_graph_spec", None)
@@ -1687,6 +1687,7 @@ class BaseTrainer(ABC):
         if self._is_setup:
             return
 
+        self._sync_wrapper_subset_config()
         quant_manifest = getattr(self.wrapper_model, "_quant_manifest", None)
         if quant_manifest and quant_manifest.get("recipe") in ("fp16", "bf16"):
             raise ValueError(
@@ -2239,7 +2240,14 @@ class BaseTrainer(ABC):
                 self.distiller.cleanup()
 
             self._refresh_best_precise_bn_checkpoint()
-            self._write_average_checkpoint()
+            try:
+                self._write_average_checkpoint()
+            finally:
+                # Rank 0 has just written the final checkpoints. Every rank
+                # reloads them after train() returns, so no rank may leave
+                # before the writes are complete. In ``finally`` so a rank-0
+                # failure still releases its peers.
+                barrier()
             adopt_input_size = getattr(
                 getattr(self, "wrapper_model", None),
                 "_adopt_trained_input_size",
@@ -2282,6 +2290,25 @@ class BaseTrainer(ABC):
 
             restore_torch_threads(getattr(self, "_threads_before_cap", None))
             self._threads_before_cap = None
+
+    def _sync_wrapper_subset_config(self) -> None:
+        """Point the wrapper's saved-run config at this run's class subset.
+
+        Validators inherit ``single_cls``/``classes`` from the checkpoint the
+        wrapper was loaded from, so a subset-trained checkpoint validates the
+        way it was trained. Once a new run starts, that checkpoint no longer
+        describes the model: fine-tuning a ``single_cls`` checkpoint on
+        multi-class data must not validate every epoch on collapsed labels.
+        """
+        wrapper = getattr(self, "wrapper_model", None)
+        probe = getattr(wrapper, "_checkpoint_train_config", None)
+        if wrapper is None or not callable(probe):
+            return
+        wrapper._loaded_checkpoint_train_config = {
+            **probe(),
+            "single_cls": bool(getattr(self.config, "single_cls", False)),
+            "classes": getattr(self.config, "classes", None),
+        }
 
     def _dispatch_artifact_callbacks(self, method_name: str, event) -> None:
         try:

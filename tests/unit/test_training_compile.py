@@ -248,8 +248,8 @@ def test_rfdetr_compiles_dynamic_only_with_multi_scale():
 
 
 def test_yolo9_pgi_boundary_matches_the_model_forward():
-    """The default YOLO9 recipe trains the PGI auxiliary branch; capture skips
-    it, the compile boundary must reproduce the model's own loss exactly."""
+    """The default YOLO9 recipe trains the PGI auxiliary branch; the capture
+    and compile boundary must reproduce the model's own loss exactly."""
     from libreyolo.models.yolo9.nn import LibreYOLO9Model
     from libreyolo.models.yolo9.trainer import YOLO9Trainer
 
@@ -260,9 +260,9 @@ def test_yolo9_pgi_boundary_matches_the_model_forward():
     host.cuda_graph_train_spec = functools.partial(
         YOLO9Trainer.cuda_graph_train_spec, host
     )
-    assert host.cuda_graph_train_spec() is None
     spec = YOLO9Trainer.compile_train_spec(host)
     assert spec is not None
+    assert type(spec.network.module).__name__ == "_PGITrainForward"
 
     x = torch.randn(2, 3, 64, 64)
     targets = torch.zeros(2, 3, 5)

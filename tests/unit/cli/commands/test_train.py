@@ -1438,3 +1438,54 @@ def test_train_dry_run_rejects_unknown_compile_mode():
     data = json.loads(result.stdout)
     assert data["error"] == "config_type_error"
     assert "compile must be" in data["message"]
+
+
+@pytest.mark.parametrize(
+    "grammar", [["aux_weight=0"], ["--aux-weight", "0"]], ids=["key=value", "--flag"]
+)
+def test_train_aux_weight_reaches_yolo9_train(monkeypatch, tmp_path, grammar):
+    app = _make_app()
+    captured = {}
+
+    class _YOLO9Like:
+        FAMILY = "yolo9"
+        device = "cpu"
+
+        def train(self, data, **kwargs):
+            captured["kwargs"] = kwargs
+            return {"save_dir": str(tmp_path / "exp")}
+
+    monkeypatch.setattr(
+        "libreyolo.cli.commands.train.load_model_or_exit",
+        lambda **_kwargs: _YOLO9Like(),
+    )
+    result = runner.invoke(
+        app,
+        ["data=dummy.yaml", "model=LibreYOLO9t.pt", f"project={tmp_path}", *grammar, "--json"],
+    )
+    assert result.exit_code == 0, result.stdout
+    assert captured["kwargs"]["aux_weight"] == 0.0
+
+
+def test_train_aux_weight_rejected_outside_yolo9(monkeypatch, tmp_path):
+    app = _make_app()
+
+    class _YOLOXLike:
+        FAMILY = "yolox"
+        device = "cpu"
+
+        def train(self, data, **kwargs):  # pragma: no cover - must not run
+            raise AssertionError("train() must not be reached")
+
+    monkeypatch.setattr(
+        "libreyolo.cli.commands.train.load_model_or_exit",
+        lambda **_kwargs: _YOLOXLike(),
+    )
+    result = runner.invoke(
+        app,
+        ["data=dummy.yaml", "model=LibreYOLOXs.pt", f"project={tmp_path}", "aux_weight=0", "--json"],
+    )
+    assert result.exit_code != 0
+    data = json.loads(result.stdout)
+    assert data["error"] == "config_unsupported"
+    assert "aux_weight" in data["message"]

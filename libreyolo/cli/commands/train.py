@@ -367,6 +367,11 @@ def train_cmd(
         help="Recompute BatchNorm running stats from this many train images "
         "after the last epoch (0 = off)",
     ),
+    aux_weight: Optional[float] = typer.Option(
+        None,
+        help="YOLO9 only: PGI auxiliary-branch loss weight for fine-tuning "
+        "(default 0.25; 0 trains the main head only)",
+    ),
     seed: int = typer.Option(0, help="Random seed"),
     resume: str = typer.Option("", help="Resume training: true, or path to checkpoint"),
     amp: bool = typer.Option(True, help="Automatic Mixed Precision"),
@@ -979,6 +984,14 @@ def train_cmd(
         user_provided=user_provided,
         task=train_task,
     )
+    if aux_weight is not None:
+        if loaded_family != "yolo9":
+            exit_with_error(
+                out,
+                "config_unsupported",
+                f"aux_weight applies to YOLO9 only; got family={loaded_family!r}.",
+            )
+        train_kwargs["aux_weight"] = aux_weight
     if histogram_input:
         train_kwargs.update(histogram_recipe_defaults(family))
     if train_pretrained is not None:

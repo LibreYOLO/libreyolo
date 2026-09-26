@@ -722,6 +722,10 @@ class LibreYOLO9(BaseModel):
                 # Inference load stripped aux.* from official converts; put
                 # those PGI tensors back now that the branch exists.
                 self._reload_aux_from_path(self.model_path)
+            else:
+                # A PGI branch left over from an earlier train() in this
+                # session must not keep training when aux_weight=0.
+                self.model.disable_aux()
 
         if pretrained:
             transfer_weights: str | Path

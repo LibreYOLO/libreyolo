@@ -99,8 +99,11 @@ def _wrap_train_with_cfg(train_fn: Callable) -> Callable:
             merged.update(user_kwargs)
 
         resume = merged.get("resume", False)
+        resumes_optimizer = "optimizer" in sig.parameters and "optimizer" not in merged
         if resume and (
-            not merged.get("single_cls", False) or not merged.get("classes")
+            not merged.get("single_cls", False)
+            or not merged.get("classes")
+            or resumes_optimizer
         ):
             resume_source = (
                 resume
@@ -108,6 +111,11 @@ def _wrap_train_with_cfg(train_fn: Callable) -> Callable:
                 else None
             )
             checkpoint_config = self._checkpoint_train_config(resume_source)
+            # The saved optimizer state only fits the optimizer that wrote it
+            # (AdamW groups carry no ``momentum``), so resume the saved one.
+            saved_optimizer = checkpoint_config.get("optimizer")
+            if resumes_optimizer and isinstance(saved_optimizer, str) and saved_optimizer:
+                merged["optimizer"] = saved_optimizer
             if not merged.get("single_cls", False) and bool(
                 checkpoint_config.get("single_cls", False)
             ):
@@ -684,6 +692,21 @@ class BaseModel(ABC):
             except Exception:
                 return {}
         return self._cache_checkpoint_train_config(checkpoint)
+
+    def _loaded_run_checkpoint(self) -> Path | None:
+        """The run checkpoint (``<run>/weights/*.pt``) this model was loaded from.
+
+        ``resume=True`` means "resume the loaded checkpoint". Families whose
+        default run directory increments cannot recover that run from the
+        defaults alone, so they resume from, and keep writing into, this run.
+        """
+        source = getattr(self, "model_path", None)
+        if not isinstance(source, (str, Path)):
+            return None
+        path = Path(source)
+        if path.suffix != ".pt" or path.parent.name != "weights" or not path.is_file():
+            return None
+        return path
 
     def _cache_checkpoint_train_config(self, checkpoint: Any) -> dict[str, Any]:
         """Cache and return checkpoint training config metadata."""

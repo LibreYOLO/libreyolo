@@ -130,6 +130,26 @@ def test_rfdetr_train_resolves_resume_paths(monkeypatch, tmp_path, resume_arg):
     assert captured["kwargs"]["exist_ok"] is (resume is True)
 
 
+def test_rfdetr_resume_true_continues_the_loaded_run(monkeypatch, tmp_path):
+    """Run dirs increment (rfdetr_exp, rfdetr_exp2, ...), so resume=True on a
+    loaded rfdetr_exp2 checkpoint must not fall back to the first run."""
+    import torch
+
+    captured = _install_dummy_trainer(monkeypatch, {"save_dir": "unused"})
+    checkpoint = tmp_path / "runs" / "train" / "rfdetr_exp2" / "weights" / "last.pt"
+    checkpoint.parent.mkdir(parents=True)
+    torch.save({"epoch": 0}, checkpoint)
+    wrapper = _make_wrapper()
+    wrapper.model_path = str(checkpoint)
+
+    wrapper.train(data="data.yaml", resume=True)
+
+    assert captured["resume"] == str(checkpoint)
+    assert captured["kwargs"]["project"] == str(tmp_path / "runs" / "train")
+    assert captured["kwargs"]["name"] == "rfdetr_exp2"
+    assert captured["kwargs"]["exist_ok"] is True
+
+
 def test_rfdetr_train_rejects_conflicting_lr_aliases(tmp_path):
     wrapper = rfdetr_model.LibreRFDETR.__new__(rfdetr_model.LibreRFDETR)
     wrapper.model = object()

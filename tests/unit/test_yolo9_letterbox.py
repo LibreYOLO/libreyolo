@@ -355,6 +355,37 @@ def test_aux_training_forward_combines_losses():
     assert out["total_loss"].shape == main_only["total_loss"].shape
 
 
+def test_model_deepcopies_after_pgi_training_step():
+    """EMA, AutoBatch and a second train() deep-copy the live model after a
+    graph-building forward; nothing from that forward may stay on the module."""
+    import copy
+
+    from libreyolo.models.yolo9.nn import LibreYOLO9Model
+
+    model = LibreYOLO9Model(config="t", nb_classes=2)
+    model.enable_aux(0.25)
+    model.train()
+    targets = torch.zeros(1, 4, 5)
+    targets[0, 0] = torch.tensor([0.0, 0.2, 0.2, 0.4, 0.4])
+    model(torch.zeros(1, 3, 64, 64), targets=targets)["total_loss"].backward()
+    copy.deepcopy(model)
+    model(torch.zeros(1, 3, 64, 64))
+    copy.deepcopy(model)
+
+
+def test_backbone_returns_b5_only_on_request():
+    from libreyolo.models.yolo9.nn import LibreYOLO9Model
+
+    model = LibreYOLO9Model(config="t", nb_classes=2).eval()
+    x = torch.zeros(1, 3, 64, 64)
+    with torch.no_grad():
+        plain = model.backbone(x)
+        with_b5 = model.backbone(x, return_b5=True)
+    assert len(plain) == 3 and len(with_b5) == 4
+    assert torch.equal(plain[2], with_b5[2])
+    assert not hasattr(model.backbone, "last_b5")
+
+
 def test_yolo9_config_recipe_defaults():
     from libreyolo.training.config import YOLO9Config
 
@@ -490,7 +521,16 @@ def test_aux_weight_zero_does_not_attach_pgi(tmp_path):
     assert loaded.model.aux is None
 
 
-def test_cuda_graph_spec_disabled_when_pgi_attached():
+def test_disable_aux_drops_the_branch():
+    from libreyolo.models.yolo9.nn import LibreYOLO9Model
+
+    model = LibreYOLO9Model(config="t", nb_classes=2).enable_aux(0.25)
+    model.disable_aux()
+    assert model.aux is None and model.aux_head is None and model.aux_weight == 0.0
+    assert not any(k.startswith(("aux.", "aux_head.")) for k in model.state_dict())
+
+
+def test_cuda_graph_spec_covers_pgi_when_attached():
     from types import SimpleNamespace
 
     from libreyolo.models.yolo9.nn import LibreYOLO9Model
@@ -500,6 +540,8 @@ def test_cuda_graph_spec_disabled_when_pgi_attached():
     host = SimpleNamespace(
         wrapper_model=SimpleNamespace(task="detect"), model=model
     )
-    assert YOLO9Trainer.cuda_graph_train_spec(host) is not None
+    plain = YOLO9Trainer.cuda_graph_train_spec(host)
+    assert plain is not None
     model.enable_aux(0.25)
-    assert YOLO9Trainer.cuda_graph_train_spec(host) is None
+    pgi = YOLO9Trainer.cuda_graph_train_spec(host)
+    assert pgi is not None and pgi.network.module is not model

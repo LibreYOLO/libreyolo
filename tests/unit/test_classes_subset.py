@@ -650,6 +650,51 @@ def test_resume_inherits_classes_from_checkpoint():
     assert result["classes"] == [0, 1, 3]
 
 
+def test_new_run_replaces_checkpoint_subset_seen_by_validators():
+    """Fine-tuning a single_cls checkpoint on multi-class data validated every
+    epoch on collapsed labels, because the validator inherited the loaded
+    checkpoint's subset over the run's explicit settings."""
+    from libreyolo.models.base.model import BaseModel
+    from libreyolo.training.trainer import BaseTrainer
+
+    wrapper = SimpleNamespace(
+        model_path=None,
+        _loaded_checkpoint_train_config={"single_cls": True, "imgsz": 640},
+    )
+    wrapper._checkpoint_train_config = BaseModel._checkpoint_train_config.__get__(wrapper)
+    trainer = SimpleNamespace(
+        wrapper_model=wrapper, config=SimpleNamespace(single_cls=False, classes=None)
+    )
+
+    BaseTrainer._sync_wrapper_subset_config(trainer)
+
+    assert wrapper._checkpoint_train_config() == {
+        "single_cls": False,
+        "classes": None,
+        "imgsz": 640,
+    }
+
+
+def test_resume_inherits_saved_optimizer_unless_given():
+    """An AdamW checkpoint's optimizer state has no ``momentum``; resuming it
+    into the default SGD crashed at the first step."""
+
+    def train(self, data, *, resume=False, optimizer="sgd", **kwargs):
+        return {"optimizer": optimizer, **kwargs}
+
+    wrapped = _wrap_train_with_cfg(train)
+    wrapper = SimpleNamespace(
+        FAMILY="yolo9",
+        task="detect",
+        model_path="last.pt",
+        _checkpoint_train_config=lambda source=None: {"optimizer": "adamw"},
+    )
+
+    assert wrapped(wrapper, "data.yaml", resume=True)["optimizer"] == "adamw"
+    assert wrapped(wrapper, "data.yaml", resume=True, optimizer="sgd")["optimizer"] == "sgd"
+    assert wrapped(wrapper, "data.yaml")["optimizer"] == "sgd"
+
+
 # ---------------------------------------------------------------------------
 # on_num_classes_resolved: for single_cls/classes= runs, the wrapper's real
 # names must survive the head rebuild, not just its class count.

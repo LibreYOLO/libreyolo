@@ -1274,6 +1274,12 @@ class LibreRFDETR(BaseModel):
         exist_ok = train_kwargs.pop("exist_ok", _TRAIN_DEFAULTS.exist_ok)
         batch = train_kwargs.pop("batch", None)
         lr0 = train_kwargs.pop("lr0", None)
+        resume_checkpoint = None
+        if resume is True and output_dir is None and project is None and name is None:
+            resume_checkpoint = self._loaded_run_checkpoint()
+            if resume_checkpoint is not None:
+                project = resume_checkpoint.parent.parent.parent
+                name = resume_checkpoint.parent.parent.name
         if output_dir is not None:
             output_path = Path(output_dir)
             if project is None:
@@ -1417,7 +1423,12 @@ class LibreRFDETR(BaseModel):
 
         resume_path = None
         if resume:
-            resume_path = run_dir / "weights" / "last.pt" if resume is True else resume
+            if resume_checkpoint is not None:
+                resume_path = resume_checkpoint
+            else:
+                resume_path = (
+                    run_dir / "weights" / "last.pt" if resume is True else resume
+                )
             if not train_kwargs.get("single_cls", False):
                 checkpoint_config = self._checkpoint_train_config(resume_path)
                 if bool(checkpoint_config.get("single_cls", False)):
