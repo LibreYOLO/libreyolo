@@ -27,7 +27,6 @@ class LibreEC(BaseModel):
     """LibreYOLO wrapper for EdgeCrafter EC / ECPose / ECSeg."""
 
     FAMILY = "ec"
-    SQUARE_IMGSZ_CALLS = frozenset({"predict"})
     FILENAME_PREFIX = "LibreEC"
     INPUT_SIZES = {"s": 640, "m": 640, "l": 640, "x": 640}
     POSE_INPUT_SIZES = {"s": 640, "m": 640, "l": 640, "x": 640}
