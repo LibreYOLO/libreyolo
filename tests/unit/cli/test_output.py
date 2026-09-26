@@ -76,3 +76,85 @@ class TestErrorOutput:
         captured = capsys.readouterr()
         # Nothing should go to stdout in human error mode
         assert captured.out == ""
+
+
+_NOISY_JSON_COMMAND = '''
+import os
+import sys
+
+import typer
+
+from libreyolo.cli.output import OutputHandler
+from libreyolo.cli.parsing import KeyValueCommand
+
+app = typer.Typer()
+
+
+@app.command("noisy", cls=KeyValueCommand)
+def noisy(json_output: bool = typer.Option(False, "--json")) -> None:
+    out = OutputHandler(json_mode=json_output)
+    print("python-level chatter")
+    sys.stdout.flush()
+    os.write(1, b"fd-level chatter\\n")
+    out.result({"ok": True})
+
+
+@app.command("other")
+def other() -> None:
+    pass
+
+
+app()
+'''
+
+
+def test_json_command_keeps_third_party_stdout_off_the_json_document(tmp_path):
+    """Only the JSON document reaches stdout, even for C-level writes to fd 1."""
+    import os
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    import libreyolo
+
+    script = tmp_path / "noisy.py"
+    script.write_text(_NOISY_JSON_COMMAND)
+    repo_root = str(Path(libreyolo.__file__).resolve().parents[1])
+    proc = subprocess.run(
+        [sys.executable, str(script), "noisy", "json=true"],
+        capture_output=True,
+        text=True,
+        timeout=120,
+        env={**os.environ, "PYTHONPATH": repo_root},
+    )
+    assert proc.returncode == 0, proc.stderr
+    assert json.loads(proc.stdout) == {"ok": True, "schema_version": 1}
+    assert "python-level chatter" in proc.stderr
+    assert "fd-level chatter" in proc.stderr
+
+
+def test_json_command_diverts_prints_under_the_cli_runner():
+    import typer
+    from typer.testing import CliRunner
+
+    from libreyolo.cli.parsing import KeyValueCommand
+
+    app = typer.Typer()
+
+    @app.command("noisy", cls=KeyValueCommand)
+    def noisy(json_output: bool = typer.Option(False, "--json")) -> None:
+        out = OutputHandler(json_mode=json_output)
+        print(" Average Precision  (AP) @[ IoU=0.50:0.95 ] = 0.220")
+        out.result({"ok": True})
+
+    @app.command("other")
+    def other() -> None:
+        pass
+
+    result = CliRunner().invoke(app, ["noisy", "--json"])
+    assert result.exit_code == 0, result.output
+    assert json.loads(result.stdout)["ok"] is True
+    assert "Average Precision" in result.stderr
+
+    human = CliRunner().invoke(app, ["noisy"])
+    assert "Average Precision" in human.stdout

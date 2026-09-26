@@ -135,6 +135,14 @@ class KeyValueCommand(TyperCommand):
 
         return super().parse_args(ctx, parsed_args)
 
+    def invoke(self, ctx: click.Context) -> Any:
+        if ctx.params.get("json_output"):
+            from .output import stdout_reserved_for_json
+
+            with stdout_reserved_for_json():
+                return super().invoke(ctx)
+        return super().invoke(ctx)
+
 
 class PythonLiteral(click.ParamType):
     """Click param type that parses Python literals (lists, tuples) via ast.literal_eval."""
