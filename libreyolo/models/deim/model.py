@@ -31,6 +31,7 @@ class LibreDEIM(BaseModel):
     """
 
     FAMILY = "deim"
+    SQUARE_IMGSZ_CALLS = frozenset({"predict"})
     FILENAME_PREFIX = "LibreDEIM"
     # Forward is pure tensor work with no host sync, verified to capture and
     # replay bit-identically (tests/unit/test_cuda_graph_families.py).
