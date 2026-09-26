@@ -200,6 +200,30 @@ def test_resume_keeps_an_explicit_exist_ok_false(tmp_path, detect_yaml, captured
     assert run["config"].exist_ok is False
 
 
+def test_resume_path_takes_optimizer_name_and_state_from_that_checkpoint(
+    tmp_path, detect_yaml, captured
+):
+    """The loaded weights (SGD run) must not supply the optimizer for a resume
+    of another checkpoint (AdamW run): name and state both come from it."""
+    from libreyolo import LibreYOLO9
+
+    LibreYOLO9(None, size="t", device="cpu").train(data=detect_yaml, epochs=3, device="cpu")
+    saved = captured[-1]["config"].to_dict()
+    loaded = _save_run_checkpoint(
+        tmp_path / "sgd" / "weights" / "last.pt", {**saved, "optimizer": "sgd"}
+    )
+    other = _save_run_checkpoint(
+        tmp_path / "adamw" / "weights" / "last.pt", {**saved, "optimizer": "adamw"}
+    )
+
+    model = LibreYOLO9(None, size="t", device="cpu")
+    model.model_path = str(loaded)
+    model.train(resume=str(other), device="cpu")
+
+    run = captured[-1]
+    assert (run["resumed_from"], run["config"].optimizer) == (str(other), "adamw")
+
+
 def test_resume_without_a_checkpoint_is_rejected(detect_yaml, captured):
     from libreyolo import LibreYOLO9
 
