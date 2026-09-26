@@ -180,6 +180,26 @@ def test_resume_true_continues_the_loaded_run(tmp_path, detect_yaml, captured):
     assert (Path(run["config"].project), run["config"].name) == (tmp_path, "exp")
 
 
+def test_resume_keeps_an_explicit_exist_ok_false(tmp_path, detect_yaml, captured):
+    """exist_ok=False was overwritten with True; it now starts a numbered
+    sibling of the run directory while still resuming the checkpoint."""
+    from libreyolo import LibreYOLO9
+
+    LibreYOLO9(None, size="t", device="cpu").train(data=detect_yaml, epochs=3, device="cpu")
+    saved = captured[-1]["config"].to_dict()
+    saved.update(epochs=5)
+    last = _save_run_checkpoint(tmp_path / "exp" / "weights" / "last.pt", saved)
+
+    LibreYOLO9(None, size="t", device="cpu").train(
+        resume=str(last), exist_ok=False, device="cpu"
+    )
+
+    run = captured[-1]
+    assert run["resumed_from"] == str(last)
+    assert (Path(run["config"].project), run["config"].name) == (tmp_path, "exp")
+    assert run["config"].exist_ok is False
+
+
 def test_resume_without_a_checkpoint_is_rejected(detect_yaml, captured):
     from libreyolo import LibreYOLO9
 

@@ -798,7 +798,10 @@ class BaseModel(ABC):
         run_checkpoint = self._loaded_run_checkpoint(source)
         run_dir = run_checkpoint.parent.parent if run_checkpoint is not None else None
         if run_dir is not None and run_dir.name and not {"project", "name"} & given:
-            restored.update(project=str(run_dir.parent), name=run_dir.name, exist_ok=True)
+            restored.update(project=str(run_dir.parent), name=run_dir.name)
+            # Continue in that directory unless exist_ok=False asks for a new one.
+            if "exist_ok" not in given:
+                restored["exist_ok"] = True
         return restored
 
     def _cache_checkpoint_train_config(self, checkpoint: Any) -> dict[str, Any]:
