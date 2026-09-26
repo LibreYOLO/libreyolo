@@ -436,8 +436,17 @@ class TestAutoconvertOrchestration:
         {"args": argparse.Namespace(class_names=[])},
         {"args": argparse.Namespace(class_names={})},
     ])
-    def test_rfdetr_empty_names_placeholder_is_bare_coco(self, loaded):
-        nc, names = autoconvert_module._rfdetr_class_metadata(loaded, 90)
+    def test_rfdetr_empty_names_without_coco_metadata_preserve_90_classes(self, loaded):
+        assert autoconvert_module._rfdetr_class_metadata(loaded, 90)[0] == 90
+
+    @pytest.mark.parametrize("names", [[], {}])
+    @pytest.mark.parametrize("metadata", [
+        {"nc": 80},
+        {"args": argparse.Namespace(num_classes=80)},
+        {"dataset": "coco"},
+    ])
+    def test_rfdetr_confirmed_coco_empty_names_restore_labels(self, names, metadata):
+        nc, names = autoconvert_module._rfdetr_class_metadata({"names": names, **metadata}, 90)
         assert (nc, names) == (80, None)
         wrapped = wrap_libreyolo_checkpoint(
             {"class_embed.bias": torch.zeros(91)},

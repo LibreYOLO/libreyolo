@@ -630,8 +630,7 @@ def _is_coco_rfdetr_checkpoint(loaded: Any) -> bool:
     # to LibreYOLO's COCO-80, identical to the published LibreYOLO weights. A
     # genuine custom 90-class model carries names, an explicit class count, or
     # a (non-COCO) dataset hint and is left untouched (returns False).
-    # An empty names placeholder ({} / []) counts as "no names" (name_count 0).
-    if name_count in (None, 0) and declared_nc is None and not has_dataset_hint:
+    if name_count is None and declared_nc is None and not has_dataset_hint:
         return True
 
     return False
@@ -643,8 +642,11 @@ def _rfdetr_class_metadata(
 ) -> tuple[int, Any | None]:
     """Resolve RF-DETR public class metadata without guessing custom 90-class heads."""
     if isinstance(loaded, dict) and _name_count(loaded.get("names")) == 0:
-        # An empty top-level placeholder must not hide class_names in args.
-        loaded = {key: value for key, value in loaded.items() if key != "names"}
+        # Prefer usable nested names without erasing evidence of an ambiguous
+        # empty placeholder when no other class metadata is available.
+        nested = {key: value for key, value in loaded.items() if key != "names"}
+        if _name_count(_checkpoint_names(nested)) not in (None, 0):
+            loaded = nested
     if raw_nc == 90 and _is_coco_rfdetr_checkpoint(loaded):
         # COCO arch-classes (91 outputs incl. background) -> LibreYOLO's COCO-80.
         names = _checkpoint_names(loaded, 80)

@@ -448,13 +448,16 @@ remap applied at post-process). A checkpoint is treated as COCO when it:
   91-output RF-DETR in distribution).
 
 A genuine custom 90-class RF-DETR is preserved as `nc = 90`. It is identified
-by non-empty `names`/`class_names`, an explicit non-80 class count, or a non-COCO
+by a `names`/`class_names` list, an explicit non-80 class count, or a non-COCO
 dataset hint (e.g. `args.dataset_file`), so the bare-checkpoint COCO fallback
-does not fire for it. Empty dataset placeholders (`""`, `{}`, `[]`) and empty
-class-name containers (`{}`, `[]`) count as absent metadata. A COCO checkpoint
-with absent names receives the standard COCO-80 labels during wrapping.
-Custom checkpoints must retain class or dataset metadata: without it, the
-bare-checkpoint fallback cannot distinguish a custom 90-class head from COCO.
+does not fire for it. Empty dataset placeholders (`""`, `{}`, `[]`) are ignored
+when deciding whether a dataset hint is present.
+
+An empty class-name container alone does not establish COCO identity: an
+otherwise ambiguous 90-class checkpoint retains `nc = 90`. Empty top-level
+names must not hide usable nested `args.class_names` or
+`hyper_parameters.class_names`. When metadata establishes COCO identity but
+names are empty, wrapping supplies the standard COCO-80 labels.
 
 Schema helpers live in `libreyolo/utils/serialization.py`:
 
