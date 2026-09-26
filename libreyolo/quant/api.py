@@ -106,6 +106,12 @@ _FAMILY_KEEP_HIGH_PRECISION: Dict[str, Tuple[str, ...]] = {
     ),
 }
 _ALWAYS_KEEP = ("dfl",)
+# Training-only branches stay float whatever keep list a checkpoint manifest
+# carries. YOLO9's PGI branch is attached by train() after quantization, so
+# QAT trains it in float and its checkpoints hold no quant state for it.
+_FAMILY_TRAINING_ONLY: Dict[str, Tuple[str, ...]] = {
+    "yolo9": ("aux.", "aux_head."),
+}
 
 # Tensorwise weight scaling lets cuBLASLt fuse the complete FP8 Linear
 # epilogue. Broad use is not accuracy-neutral on vision transformers, but the
@@ -186,8 +192,10 @@ def _select_modules(
     root: nn.Module,
     recipe: str,
     keep: Tuple[str, ...],
+    family: str = "",
 ) -> Dict[str, nn.Module]:
     """Deterministically select float modules to swap for a recipe."""
+    keep = (*keep, *_FAMILY_TRAINING_ONLY.get(family, ()))
     selected: Dict[str, nn.Module] = {}
     for name, module in root.named_modules():
         if not name or _is_excluded(name, keep):
@@ -525,7 +533,7 @@ def quantize_model(
                 "(QAT, or QAD with distill_model=) to recover accuracy.",
                 recipe,
             )
-        selected = _select_modules(wrapper.model, recipe, keep)
+        selected = _select_modules(wrapper.model, recipe, keep, wrapper.FAMILY)
         if not selected:
             raise QuantizationError(
                 f"No quantizable modules found for recipe '{recipe}' on family "
@@ -903,7 +911,7 @@ def apply_quant_structure(wrapper, manifest: Dict):
             if keep_raw is not None
             else default_keep_high_precision(wrapper.FAMILY)
         )
-        selected = _select_modules(wrapper.model, recipe, keep)
+        selected = _select_modules(wrapper.model, recipe, keep, wrapper.FAMILY)
         counts = _swap_selected(wrapper.model, recipe, selected)
         tensorwise = manifest.get("fp8_tensorwise_weights", ())
         if tensorwise:

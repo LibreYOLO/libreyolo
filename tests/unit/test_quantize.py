@@ -854,6 +854,37 @@ def test_quantized_forward_and_qat_gradients(yolo9t):
     assert torch.isfinite(qmod.weight.grad).all()
 
 
+def _aux_quant_modules(wrapper):
+    return [
+        name
+        for name, module in wrapper.model.named_modules()
+        if isinstance(module, QuantConv2d) and name.startswith("aux")
+    ]
+
+
+def test_qat_restore_keeps_pgi_branch_float(tmp_path, yolo9t):
+    """train() attaches the PGI branch after quantization, so the reload of the
+    QAT checkpoint into the live model must not quantize it."""
+    yolo9t.quantize(recipe="int8", calib=None, verbose=False)
+    counts = yolo9t.quant_info()["module_counts"]
+    yolo9t.model.enable_aux()  # what YOLO9 train() does before QAT
+    path = tmp_path / "last.pt"
+    yolo9t.save(str(path))
+
+    yolo9t._load_weights(str(path))  # what _restore_after_training() does
+
+    assert yolo9t.quant_info()["module_counts"] == counts
+    assert _aux_quant_modules(yolo9t) == []
+
+
+def test_quantize_leaves_attached_pgi_branch_float(yolo9t):
+    yolo9t.model.enable_aux()  # left attached by an earlier float train()
+
+    yolo9t.quantize(recipe="int8", calib=None, verbose=False)
+
+    assert _aux_quant_modules(yolo9t) == []
+
+
 def test_quantize_moves_mps_model_to_cpu(yolo9t):
     """MPS lacks fake-quantize kernels: quantized models simulate on CPU."""
     yolo9t.device = torch.device("mps")  # as if auto-selected on a Mac
