@@ -1970,7 +1970,10 @@ class OnnxExporter(BaseExporter):
                     preprocessed_path=preprocessed_path,
                     calibrate_method=calibrate_method,
                     nodes_to_exclude=nodes_to_exclude,
-                    skip_symbolic_shape=nms,
+                    # ORT symbolic shape inference fails on dynamic-batch
+                    # and embedded-NMS graphs ("Incomplete symbolic shape
+                    # inference"); plain ONNX shape inference still runs.
+                    skip_symbolic_shape=nms or dynamic,
                     keep_high_precision=keep_high_precision,
                 )
                 _write_deepstream_sidecars(result)

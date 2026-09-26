@@ -174,3 +174,22 @@ def test_yolo9_onnx_int8_explicit_nodes_to_exclude_replace_the_default(tmp_path)
     convs = {node.name for node in graph.node if node.op_type == "Conv"}
     assert _quantized_conv_names(graph) == convs
 
+
+@_needs_onnx
+def test_yolo9_onnx_int8_export_with_dynamic_batch(tmp_path):
+    from libreyolo import LibreYOLO, LibreYOLO9
+
+    model = LibreYOLO9(None, size="t", nb_classes=2, device="cpu")
+    path = model.export(
+        "onnx",
+        output_path=str(tmp_path / "int8.onnx"),
+        imgsz=64,
+        simplify=False,
+        dynamic=True,
+        int8=True,
+        data=str(_calibration_yaml(tmp_path)),
+    )
+
+    backend = LibreYOLO(path, device="cpu")
+    outputs = backend._run_inference(np.zeros((2, 3, 64, 64), dtype=np.float32))
+    assert outputs[0].shape[0] == 2
