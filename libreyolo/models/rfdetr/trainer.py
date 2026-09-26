@@ -981,6 +981,11 @@ class RFDETRTrainer(BaseTrainer):
         result.update(loss_dict)
         return result
 
+    def compile_dynamic(self):
+        # Per-batch multi-scale draws one of up to 11 sizes each step: one
+        # dynamic-shape compile instead of a static one per size.
+        return True if self._multi_scale_scales() else None
+
     def cuda_graph_train_spec(self):
         """Capture spec: graph the DETR network, keep the criterion eager.
 

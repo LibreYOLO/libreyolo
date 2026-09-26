@@ -660,6 +660,14 @@ def test_gradient_accumulation_matches_eager(detect_dataset, tmp_path):
     ``make_graphed_callables`` warming up through ``torch.autograd.grad``
     (which returns gradients rather than accumulating them). This asserts
     that rather than trusting it.
+
+    Replay is the second hazard: the graphed backward hands its static
+    gradient buffers to autograd, which adopts them as ``.grad`` at the start
+    of a window, so an unprotected replay turns the window's gradient into
+    twice the last micro-batch's. 16 images at batch 4 make one window per
+    epoch, captured mid-window in epoch 1; epoch 2 is the first fully replayed
+    window, and only epoch 3's losses see the optimizer step it produced, so
+    three epochs are the minimum that can detect it.
     """
     import libreyolo
 
@@ -668,7 +676,7 @@ def test_gradient_accumulation_matches_eager(detect_dataset, tmp_path):
         model = libreyolo.LibreYOLO9(None, "t")
         return model.train(
             data=str(detect_dataset),
-            epochs=2,
+            epochs=3,
             batch=4,
             nbs=16,  # 4 micro-batches per optimizer step
             imgsz=320,

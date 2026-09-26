@@ -14,8 +14,11 @@ from .attention import SelfAttention
 from .ffn_layers import Mlp
 from .layer_scale import LayerScale
 
-torch._dynamo.config.automatic_dynamic_shapes = False
-torch._dynamo.config.accumulated_cache_size_limit = 1024
+# LibreYOLO: removed the upstream import-time writes to
+# torch._dynamo.config (automatic_dynamic_shapes=False,
+# accumulated_cache_size_limit=1024). They changed torch.compile behavior
+# process-wide for every model as soon as libreyolo was imported, while
+# nothing in LibreYOLO compiles this backbone.
 
 
 class SelfAttentionBlock(nn.Module):

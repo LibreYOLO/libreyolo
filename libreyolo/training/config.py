@@ -17,6 +17,34 @@ from libreyolo.utils.plot_samples import validate_plot_samples
 logger = logging.getLogger(__name__)
 
 
+# ``train(compile=...)`` values besides True/False: torch.compile's modes.
+# True means "default".
+COMPILE_MODES = (
+    "default",
+    "reduce-overhead",
+    "max-autotune",
+    "max-autotune-no-cudagraphs",
+)
+
+
+def normalize_compile(value) -> Union[bool, str]:
+    """Normalize ``compile`` to ``False`` or one of :data:`COMPILE_MODES`."""
+    if isinstance(value, bool):
+        return "default" if value else False
+    if isinstance(value, str):
+        mode = value.strip().lower()
+        if mode in ("true", "1", "yes"):
+            return "default"
+        if mode in ("false", "0", "no", ""):
+            return False
+        if mode in COMPILE_MODES:
+            return mode
+    raise ValueError(
+        f"compile must be True, False or one of {', '.join(COMPILE_MODES)}; "
+        f"got {value!r}"
+    )
+
+
 def validate_class_weighting(cls_pw=0.0, class_weights=False) -> float:
     """Validate the power option and its exclusive legacy boolean alternative."""
     if not isinstance(class_weights, bool):
@@ -186,6 +214,15 @@ class TrainConfig:
     # differs from the captured shape (multi-scale, last partial batch) run
     # eager. See docs/training_cuda_graphs.md.
     cuda_graph: bool = False
+    # Compile the training network with torch.compile (Inductor). True means
+    # "default"; also accepts "reduce-overhead", "max-autotune" or
+    # "max-autotune-no-cudagraphs". The loss, optimizer, EMA, validation and
+    # checkpoints stay eager. CUDA single-GPU runs of families with a
+    # compiled training boundary only; other runs train eager after a
+    # warning. With cuda_graph=True (or a mode that implies it) the compiler
+    # replays CUDA graphs instead of the eager capture manager, except under
+    # gradient accumulation. See docs/training_compile.md.
+    compile: Union[bool, str] = False
     # Layer freezing. An int freezes the first N family-defined freeze groups;
     # a list freezes explicit group indices or module-name selectors; a string
     # freezes matching module/parameter names.
@@ -316,6 +353,7 @@ class TrainConfig:
 
     def __post_init__(self):
         self.amp_dtype = normalize_amp_dtype(self.amp_dtype)
+        self.compile = normalize_compile(self.compile)
         self.imgsz = normalize_imgsz(
             self.imgsz,
             name="imgsz",
