@@ -1001,6 +1001,7 @@
     "class": "libreyolo.models.gtr.model.LibreGTR",
     "tasks": [
       "detect",
+      "segment",
       "obb",
       "depth",
       "semantic"
@@ -1032,6 +1033,12 @@
     },
     "task_sizes": {
       "detect": {
+        "s": 640,
+        "m": 640,
+        "l": 640,
+        "x": 640
+      },
+      "segment": {
         "s": 640,
         "m": 640,
         "l": 640,

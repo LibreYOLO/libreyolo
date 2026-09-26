@@ -1,4 +1,5 @@
-"""Convert GTR detection, OBB or depth EMA weights to a strict LibreYOLO checkpoint.
+"""Convert GTR detection, segmentation, OBB or depth EMA weights to a strict
+LibreYOLO checkpoint.
 
 Source: Intellindust-AI-Lab/GTR, MIT, revision
 782e737efe2e6437ac537fbdcee089673d3376c1. Learned tensors are unchanged.
@@ -22,6 +23,7 @@ def convert(input_path: str, output_path: str, size: str | None = None):
     add_repo_root_to_path()
     from libreyolo.models.gtr.model import LibreGTR
     from libreyolo.models.gtr.nn import LibreGTRModel
+    from libreyolo.models.gtr.seg import SEG_MASK_DOWNSAMPLE_RATIO
 
     state = extract_state_dict(load_checkpoint(input_path), prefer_ema=True)
     detected = LibreGTR.detect_size(state)
@@ -46,7 +48,13 @@ def convert(input_path: str, output_path: str, size: str | None = None):
         imgsz = OBB_INPUT_SIZE
         extra["names"] = LibreGTR.default_checkpoint_names(nc)
     else:
-        model = LibreGTRModel(detected, nc)
+        model = LibreGTRModel(
+            detected,
+            nc,
+            mask_downsample_ratio=(
+                SEG_MASK_DOWNSAMPLE_RATIO if task == "segment" else None
+            ),
+        )
         imgsz = 640
     model.load_state_dict(state, strict=True)
     checkpoint = wrap_libreyolo_checkpoint(

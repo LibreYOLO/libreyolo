@@ -1,7 +1,9 @@
 """Native construction of the published GTR detection architectures.
 
 Configuration source: Intellindust-AI-Lab/GTR (MIT), revision
-782e737efe2e6437ac537fbdcee089673d3376c1, configs/det/coco_finetune.
+782e737efe2e6437ac537fbdcee089673d3376c1, configs/det/coco_finetune and
+configs/seg/coco_seg_finetune (``GTRSeg``: the detector plus a per-query mask
+head fed by the highest-resolution encoder level).
 """
 
 from torch import nn
@@ -19,7 +21,13 @@ SIZE_CONFIGS = {
 
 
 class LibreGTRModel(nn.Module):
-    def __init__(self, config="s", nb_classes=80, eval_spatial_size=(640, 640)):
+    def __init__(
+        self,
+        config="s",
+        nb_classes=80,
+        eval_spatial_size=(640, 640),
+        mask_downsample_ratio=None,
+    ):
         super().__init__()
         embed, heads, ratio, hidden, feedforward = SIZE_CONFIGS[config]
         self.backbone = ViTAdapterSpatialSwiGLU(
@@ -46,12 +54,20 @@ class LibreGTRModel(nn.Module):
             num_points=[3, 6, 3],
             group_detr=3,
             eval_spatial_size=eval_spatial_size,
+            mask_downsample_ratio=mask_downsample_ratio,
         )
+
+    @property
+    def has_mask_head(self):
+        return self.decoder.decoder.segmentation_head is not None
 
     def forward(self, x, targets=None):
         if x.shape[-2] != x.shape[-1] or x.shape[-1] % 32:
             raise ValueError("GTR expects a square input with side divisible by 32")
-        return self.decoder(self.encoder(self.backbone(x)), targets)
+        feats = self.encoder(self.backbone(x))
+        if self.has_mask_head:
+            return self.decoder(feats, targets, feats[0])
+        return self.decoder(feats, targets)
 
     def deploy(self):
         # Keep the portable graph and training state dict intact. Upstream's

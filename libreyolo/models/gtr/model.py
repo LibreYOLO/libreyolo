@@ -1,4 +1,4 @@
-"""GTR wrapper (detect, obb, depth, semantic) with strict checkpoint loading."""
+"""GTR wrapper (detect, segment, obb, depth, semantic) with strict loading."""
 
 from pathlib import Path
 from typing import ClassVar
@@ -14,6 +14,7 @@ from . import sem
 from .config import GTRConfig
 from .nn import LibreGTRModel
 from .obb import OBB_INPUT_SIZES, is_gtr_obb_state_dict
+from .seg import SEG_MASK_DOWNSAMPLE_RATIO, is_seg_state_dict
 
 
 class LibreGTR(LibreDFINE):
@@ -22,11 +23,12 @@ class LibreGTR(LibreDFINE):
     FAMILY = "gtr"
     FILENAME_PREFIX = "LibreGTR"
     INPUT_SIZES: ClassVar[dict[str, int]] = {s: 640 for s in ("s", "m", "l", "x")}
-    SUPPORTED_TASKS = ("detect", "obb", "depth", "semantic")
+    SUPPORTED_TASKS = ("detect", "segment", "obb", "depth", "semantic")
     # Semantic runs on the native Cityscapes canvas; the network itself slides
     # 1024px windows over it (sem.LibreGTRSemModel).
     TASK_INPUT_SIZES: ClassVar[dict] = {
         "detect": INPUT_SIZES,
+        "segment": INPUT_SIZES,
         "obb": OBB_INPUT_SIZES,
         "depth": INPUT_SIZES,
         "semantic": {s: (sem.SEM_WINDOW, 2 * sem.SEM_WINDOW) for s in "smlx"},
@@ -73,7 +75,6 @@ class LibreGTR(LibreDFINE):
             and "encoder.stages.0.1.weight" in sd
             and "decoder.pre_bbox_head.layers.2.weight" in sd
             and sd["decoder.pre_bbox_head.layers.2.weight"].shape[0] in (4, 5)
-            and not any("segmentation_head" in k for k in sd)
         )
 
     @classmethod
@@ -84,6 +85,8 @@ class LibreGTR(LibreDFINE):
             return "depth"
         if is_gtr_obb_state_dict(sd):
             return "obb"
+        if is_seg_state_dict(sd):
+            return "segment"
         return super().detect_checkpoint_task(sd)
 
     @classmethod
@@ -123,8 +126,24 @@ class LibreGTR(LibreDFINE):
             raise ValueError("GTR task='obb' requires a five-coordinate OBB checkpoint")
         if self.task != "obb" and is_obb:
             raise ValueError("GTR OBB checkpoints must be loaded with task='obb'")
-        if not is_obb:
-            super()._validate_loaded_state_dict_for_task(state_dict, checkpoint)
+        if is_obb:
+            return
+        super()._validate_loaded_state_dict_for_task(state_dict, checkpoint)
+        # Upstream seg init (whole COCO detector, fresh mask head): only as an
+        # explicit transfer, and still strict for every non-mask key.
+        from .seg import SEG_HEAD_PREFIX
+
+        self._detect_to_segment_load = (
+            self.task == "segment" and not is_seg_state_dict(state_dict)
+        )
+        if self._detect_to_segment_load:
+            missing = [
+                k
+                for k in self.model.state_dict()
+                if k not in state_dict and not k.startswith(SEG_HEAD_PREFIX)
+            ]
+            if missing:
+                raise RuntimeError(f"Missing keys in GTR detect weights: {missing[:5]}")
 
     @staticmethod
     def _weight(sd, key):
@@ -157,6 +176,10 @@ class LibreGTR(LibreDFINE):
 
         return BaseModel.detect_size_from_filename.__func__(cls, filename)
 
+    @property
+    def _is_segmentation(self):
+        return self.task == "segment"
+
     HF_REVISIONS: ClassVar[dict[str, str]] = {
         "s": "74193dc356e07f51893579211ffdecf0ee2e560a",
         "m": "9b1c76a16dc09bbd0504a01aeadff03d2ecf642d",
@@ -168,6 +191,10 @@ class LibreGTR(LibreDFINE):
     # PLACEHOLDER: fill each value with the commit SHA of
     # LibreYOLO/LibreGTR{size}-{task} once uploaded; None falls back to ``main``.
     HF_TASK_REVISIONS: ClassVar[dict[tuple[str, str], str | None]] = {
+        ("s", "segment"): "d568a30d0141363107d8e61329040aab68b42393",
+        ("m", "segment"): "c7653747c2bdc5ea013cbe5eb51ecbd5f32ef417",
+        ("l", "segment"): "3955ab3c9f86b5f120c2ec5f504a8c5c0a338f89",
+        ("x", "segment"): "704ea55306c31e0c7dd8968a38976cf7d5cdec05",
         ("s", "obb"): None,
         ("x", "obb"): None,
         ("s", "depth"): "3b960faed54cc12b19574fdb192f9ff3dfffeb7d",
@@ -247,7 +274,13 @@ class LibreGTR(LibreDFINE):
             return LibreGTROBBModel(
                 self.size, self.nb_classes, (self.input_size, self.input_size)
             )
-        return LibreGTRModel(self.size, self.nb_classes)
+        return LibreGTRModel(
+            self.size,
+            self.nb_classes,
+            mask_downsample_ratio=(
+                SEG_MASK_DOWNSAMPLE_RATIO if self.task == "segment" else None
+            ),
+        )
 
     def _rebuild_for_new_classes(self, new_nb_classes):
         if self.task == "depth":
@@ -264,7 +297,7 @@ class LibreGTR(LibreDFINE):
         apply_lora_to_gtr(model)
 
     def _strict_loading(self):
-        return True
+        return not getattr(self, "_detect_to_segment_load", False)
 
     def _load_weights(self, model_path):
         super()._load_weights(model_path)
@@ -282,11 +315,14 @@ class LibreGTR(LibreDFINE):
                 "encoder": self.model.encoder,
                 "head": self.model.head,
             }
-        return {
+        layers = {
             "backbone": self.model.backbone,
             "encoder": self.model.encoder,
             "decoder": self.model.decoder,
         }
+        if getattr(self.model, "has_mask_head", False):
+            layers["mask_head"] = self.model.decoder.decoder.segmentation_head
+        return layers
 
     def _get_preprocess_numpy(self):
         if getattr(self, "task", "detect") == "depth":
@@ -322,6 +358,17 @@ class LibreGTR(LibreDFINE):
             return sem.postprocess(output, original_size, kwargs.get("ratio", 1.0))
         if self.task == "depth":
             return gtr_depth.postprocess(output, original_size)
+        if self.task == "segment":
+            from ...postprocess.ec import postprocess_seg
+
+            # Upstream thresholds bilinearly resized mask logits at zero.
+            return postprocess_seg(
+                output,
+                conf_thres=conf_thres,
+                iou_thres=iou_thres,
+                original_size=original_size,
+                max_det=max_det,
+            )
         if self.task == "obb":
             from ...postprocess.rtdetr import postprocess_obb
 
@@ -424,7 +471,13 @@ class LibreGTR(LibreDFINE):
 
         from libreyolo.data import load_data_config
 
-        from .trainer import GTRTrainer
+        if self.task == "segment":
+            from .seg_trainer import GTRSegConfig as config_cls
+            from .seg_trainer import GTRSegTrainer as trainer_cls
+        else:
+            from .trainer import GTRTrainer as trainer_cls
+
+            config_cls = GTRConfig
 
         kwargs.pop("pretrained", None)
         resume_path = None
@@ -442,7 +495,7 @@ class LibreGTR(LibreDFINE):
                 )
             self._load_weights(str(resume_path))
 
-        valid = {field.name for field in fields(GTRConfig)}
+        valid = {field.name for field in fields(config_cls)}
         settings = {
             key: value
             for key, value in settings.items()
@@ -498,7 +551,7 @@ class LibreGTR(LibreDFINE):
         if names is not None:
             self.names = self._sanitize_names(names, self.nb_classes)
 
-        trainer = GTRTrainer(
+        trainer = trainer_cls(
             model=self.model,
             wrapper_model=self,
             size=self.size,

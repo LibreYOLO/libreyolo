@@ -516,7 +516,7 @@ def export_onnx(
             ["dets", "labels", "masks"]
             if model_family == "rfdetr"
             else ["pred_logits", "pred_boxes", "pred_masks"]
-            if model_family in {"dfine", "ec"}
+            if model_family in {"dfine", "ec", "gtr"}
             else ["boxes", "scores", "masks"]
         )
         input_name = "input" if model_family == "rfdetr" else "images"
