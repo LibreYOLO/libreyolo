@@ -35,6 +35,8 @@ SQUARE_ONLY = [
     pytest.param(LibreTinyFormer, "s", id="tinyformer"),
 ]
 
+# RF-DETR builds offline from an empty state dict; ``None`` would download
+# its pretrained backbone, which the PR gate blocks.
 RECTANGULAR = [
     pytest.param(LibreRFDETR, "n", (256, 448), id="rfdetr"),
     pytest.param(LibreDFINE, "n", (320, 640), id="dfine"),
@@ -73,13 +75,13 @@ def test_square_and_scalar_sizes_pass():
 @pytest.mark.parametrize("cls,size,imgsz", RECTANGULAR)
 def test_rectangular_families_predict_at_height_width(cls, size, imgsz):
     assert cls.SQUARE_IMGSZ_CALLS == frozenset()
-    model = cls(None, size=size, device="cpu")
+    model = cls({} if cls is LibreRFDETR else None, size=size, device="cpu")
     result = model(Image.new("RGB", (64, 48)), imgsz=imgsz)
     assert result.orig_shape == (48, 64)
 
 
 def test_rfdetr_rectangular_imgsz_must_fit_the_patch_grid():
-    model = LibreRFDETR(None, size="n", device="cpu")
+    model = LibreRFDETR({}, size="n", device="cpu")
     with pytest.raises(ValueError, match="not divisible by 32"):
         model(Image.new("RGB", (64, 48)), imgsz=(300, 448))
 
