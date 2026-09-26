@@ -124,8 +124,8 @@ def _pose_keypoint_shape_metadata(model) -> dict:
         schema = inner_model.get_num_keypoints_per_class()
 
     model_family = model._get_model_name() if hasattr(model, "_get_model_name") else ""
-    if model_family == "ec":
-        # EC pose exports raw xy-only tensors; visibility is appended by runtime
+    if model_family in ("ec", "gtr"):
+        # EC/GTR pose export raw xy-only tensors; visibility is appended by runtime
         # postprocessing after decoding.
         keypoint_dim = 2
     elif model_family == "rfdetr" and schema:
@@ -1036,6 +1036,12 @@ class BaseExporter(ABC):
             from ..models.detr.nn import DETRExportWrapper
 
             nn_model = DETRExportWrapper(nn_model).to(device)
+            nn_model.eval()
+            dfine_wrapped = True
+        elif family == "gtr" and getattr(self.model, "task", "detect") == "pose":
+            from ..models.gtr.pose import GTRPoseExportWrapper
+
+            nn_model = GTRPoseExportWrapper(copy.deepcopy(nn_model)).to(device)
             nn_model.eval()
             dfine_wrapped = True
         elif family in ("dfine", "gtr"):

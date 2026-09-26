@@ -1486,6 +1486,10 @@ class BaseBackend(ABC):
             )
             return boxes, scores, cls, None
         elif self.model_family in ("tinyformer", "gtr"):
+            if self.model_family == "gtr" and self.task == "pose":
+                return self._parse_ec_pose(
+                    all_outputs, orig_w, orig_h, conf, max_det=max_det
+                )
             boxes, scores, cls = self._parse_dfine(
                 all_outputs, orig_w, orig_h, conf, max_det=max_det
             )

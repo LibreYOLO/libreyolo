@@ -1,6 +1,7 @@
 # GTR detection
 
-`LibreGTR` supports detection with the upstream S, M, L and X architectures.
+`LibreGTR` supports detection and pose with the upstream S, M, L and X
+architectures.
 The GTR source pin is `782e737efe2e6437ac537fbdcee089673d3376c1` (MIT).
 The upstream weight repository explicitly declares MIT. Required inherited
 Apache-2.0 notices are retained in `libreyolo/models/gtr/NOTICE`.
@@ -61,8 +62,8 @@ silently ignored.
 and the decoder layers while the backbone base stays frozen (see
 [lora.md](lora.md)); it needs `pip install "libreyolo[lora]"` and works from
 Python and the CLI. Adapter checkpoints reload directly and export merges the
-adapters into dense weights. The other GTR tasks (segmentation, pose, depth,
-OBB, semantic segmentation) are not implemented.
+adapters into dense weights. Pose is described below. The other GTR tasks
+(segmentation, depth, OBB, semantic segmentation) are not implemented.
 
 ```python
 model = LibreYOLO("LibreGTRs.pt")
@@ -74,6 +75,38 @@ formats and dynamic spatial shapes are not enabled. The portable recurrence
 exports as an ONNX Loop rather than an unrolled graph.
 GTR-S at 640px exports in about 2.2 seconds locally with 4,094 graph nodes.
 This is export usability evidence, not a GPU deployment-speed benchmark.
+
+## Pose
+
+`LibreGTR{s,m,l,x}-pose.pt` are COCO person keypoint models (17 keypoints) with
+the same backbone and encoder as detection and a DETRPose-style keypoint
+decoder. They load from `LibreYOLO/LibreGTR{s,m,l,x}-pose`; local upstream
+`gtrpose_{s,m,l,x}_coco.pth` files also convert, and
+`weights/convert_gtr_weights.py` handles both tasks.
+
+```python
+model = LibreYOLO("LibreGTRs-pose.pt")
+results = model.predict("image.jpg")  # results[0].keypoints: (N, 17, 3)
+model.train(data="coco8-pose.yaml", epochs=10, allow_download_scripts=True)
+```
+
+The decoder reuses LibreYOLO's ECPose port, whose architecture and tensor
+names match upstream GTR's pose decoder, with one GTR-specific layer: the
+keypoint position embedding stays on the attention value, the residual path
+and the gated cross-attention input, as in upstream. Postprocessing is
+DETR-style top-K without NMS; boxes are the keypoint extents and keypoint
+visibility is reported as 1.
+
+Training uses the ECPose DETRPose recipe (Hungarian matching with VFL,
+keypoint L1 and OKS losses, GO union matching and contrastive keypoint
+denoising) with GTR's optimizer settings: AdamW at 5e-4, backbone LR multiplier
+0.05 (S/M) or 0.005 (L/X), weight decay 1e-4 (S/M) or 1.25e-4 (L/X), a
+500-iteration linear warmup then a constant learning rate, FP32, and 92 (S/M) or
+74 (L/X) default epochs. Upstream's PoseMosaic, MixUpCopyPaste and zoom-out
+augmentations are not reproduced; the ECPose flip, color and affine transforms
+are used instead. Pose training requires the native 640px input and a
+single-class 17-keypoint dataset. LoRA is not supported for pose yet. ONNX and
+TorchScript export produce `(pred_logits, pred_keypoints)` at a fixed 640px.
 
 ## Validation evidence
 
@@ -104,6 +137,23 @@ has not been validated. Native MPS prediction was smoke-tested
 at 160px and 640px. GPU, COCO and RF1 checks are explicitly deferred to the
 v1.6.0 release validation.
 
+Pose evidence:
+
+- All four upstream EMA pose checkpoints load strictly and convert with
+  learned tensors unchanged.
+- At 640px on CPU, all four match the pinned upstream pose graph with the same
+  portable-operator substitution. Maximum absolute differences are at most
+  1.9e-6 for logits and 8.9e-7 for keypoints. The shared ECPose `Integral`
+  sums elementwise products instead of calling `F.linear` (an MPS backward
+  workaround), so agreement is to float32 rounding rather than bit-exact.
+- On `coco8-pose` validation, keypoint mAP50-95 is 0.746 (S), 0.814 (M),
+  0.806 (L) and 0.795 (X). Eight images is a smoke check, not a COCO result.
+- A 3-epoch CPU fine-tune of GTR-S pose on `coco8-pose` lowered validation loss
+  from 100.6 to 88.7, kept keypoint mAP50-95 at 0.73-0.75, and the best
+  checkpoint reloads as a pose model.
+- ONNX and TorchScript exports of all four pose sizes reproduce the PyTorch
+  scores, with keypoints within 2.5e-4 pixels.
+
 Reproduce the opt-in real-weight checks without network access:
 
 ```sh
@@ -111,4 +161,6 @@ GTR_UPSTREAM=/path/to/GTR GTR_CHECKPOINTS=/path/to/detection/weights \
   pytest tests/unit/test_gtr_parity.py -m 'unit and external_data'
 GTR_CHECKPOINTS=/path/to/detection/weights \
   pytest tests/unit/test_gtr_export.py -m 'unit and external_data'
+GTR_UPSTREAM=/path/to/GTR GTR_POSE_CHECKPOINTS=/path/to/pose/weights \
+  pytest tests/unit/test_gtr_pose_parity.py -m 'unit and external_data'
 ```

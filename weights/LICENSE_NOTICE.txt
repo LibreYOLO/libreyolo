@@ -955,12 +955,13 @@ The August 20 replacement is commit e0656d44b80ecb97ba96bb8a804a741169431e0f;
 August 24 commit 124cb0922ebe4af55c025af448312c2374210815 only renamed the file.
 See docs/provenance/edgecrafter.md for links and the chronology.
 
-GTR detection (s/m/l/x)
+GTR detection and pose (s/m/l/x)
 Upstream: https://huggingface.co/Phoenix8125/GTR
 Code: https://github.com/Intellindust-AI-Lab/GTR
 The upstream model card explicitly declares MIT for the published weights.
 COCO detection checkpoints use Objects365 pretraining. Conversion selects EMA
 parameters and adds LibreYOLO metadata without changing learned tensors.
 Converted checkpoints: LibreYOLO/LibreGTRs, LibreYOLO/LibreGTRm,
-LibreYOLO/LibreGTRl and LibreYOLO/LibreGTRx. Download revisions are pinned
-in libreyolo/models/gtr/model.py.
+LibreYOLO/LibreGTRl and LibreYOLO/LibreGTRx. COCO keypoint checkpoints from
+pose/ in the same upstream repository are LibreYOLO/LibreGTR{s,m,l,x}-pose.
+Download revisions are pinned in libreyolo/models/gtr/model.py.

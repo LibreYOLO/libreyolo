@@ -1082,9 +1082,10 @@ This raw upstream checkpoint is not converted and is not registered in the
 generic state-dict factory. See
 [ADR 0023](adr/0023-fcos3d-inference.md) for API and evidence.
 
-## GTR detection
+## GTR detection and pose
 
-Family `gtr`, class `LibreGTR`, sizes `s`, `m`, `l`, `x`, task `detect`.
-Canonical checkpoint names are `LibreGTR{s,m,l,x}.pt`. Upstream detection
-`.pth` files auto-convert using EMA parameters; other GTR tasks are not yet
-supported. See [GTR validation evidence](gtr.md).
+Family `gtr`, class `LibreGTR`, sizes `s`, `m`, `l`, `x`, tasks `detect`
+(default) and `pose`. Canonical checkpoint names are `LibreGTR{s,m,l,x}.pt`
+and `LibreGTR{s,m,l,x}-pose.pt`. Upstream detection and pose `.pth` files
+auto-convert using EMA parameters. Pose is COCO person-only with 17 keypoints.
+Other GTR tasks are not yet supported. See [GTR validation evidence](gtr.md).

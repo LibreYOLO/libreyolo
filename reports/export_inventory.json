@@ -1018,7 +1018,8 @@
     },
     "task_sizes": {},
     "tasks": [
-      "detect"
+      "detect",
+      "pose"
     ]
   },
   "hrnet": {
