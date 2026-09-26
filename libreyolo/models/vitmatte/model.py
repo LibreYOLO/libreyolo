@@ -86,7 +86,9 @@ class LibreViTMatte(BaseModel):
         return "matte" if cls.can_load(state_dict) else None
 
     @classmethod
-    def default_checkpoint_names(cls, nc: int) -> Optional[Dict[int, str]]:
+    def default_checkpoint_names(
+        cls, nc: int, task: Optional[str] = None
+    ) -> Optional[Dict[int, str]]:
         return {0: "matte"} if nc == 1 else None
 
     @classmethod

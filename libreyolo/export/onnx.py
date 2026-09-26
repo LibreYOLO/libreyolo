@@ -13,6 +13,7 @@ _DETR_TUPLE_OUTPUT_FAMILIES = {
     "detr",
     "dinodetr",
     "dfine",
+    "gtr",
     "deim",
     "deimv2",
     "tinyformer",
@@ -262,7 +263,8 @@ def export_onnx(
     is_hrnet_pose = model_family == "hrnet" and task == "pose"
     is_dekr_pose = model_family == "dekr" and task == "pose"
     is_rfdetr_pose = model_family == "rfdetr" and task == "pose"
-    is_ec_pose = model_family == "ec" and task == "pose"
+    # GTR pose reuses the ECPose decoder and its (logits, keypoints) outputs.
+    is_ec_pose = model_family in ("ec", "gtr") and task == "pose"
     is_yolonas_pose = model_family == "yolonas" and task == "pose"
     is_obb = task == "obb"
     is_yolonas_obb = model_family == "yolonas" and is_obb
@@ -515,7 +517,7 @@ def export_onnx(
             ["dets", "labels", "masks"]
             if model_family == "rfdetr"
             else ["pred_logits", "pred_boxes", "pred_masks"]
-            if model_family in {"dfine", "ec"}
+            if model_family in {"dfine", "ec", "gtr"}
             else ["boxes", "scores", "masks"]
         )
         input_name = "input" if model_family == "rfdetr" else "images"

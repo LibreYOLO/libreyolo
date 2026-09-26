@@ -149,8 +149,8 @@ def _pose_keypoint_shape_metadata(model) -> dict:
         schema = inner_model.get_num_keypoints_per_class()
 
     model_family = model._get_model_name() if hasattr(model, "_get_model_name") else ""
-    if model_family == "ec":
-        # EC pose exports raw xy-only tensors; visibility is appended by runtime
+    if model_family in ("ec", "gtr"):
+        # EC/GTR pose export raw xy-only tensors; visibility is appended by runtime
         # postprocessing after decoding.
         keypoint_dim = 2
     elif model_family == "rfdetr" and schema:
@@ -183,6 +183,7 @@ _FIXED_SQUARE_EXPORT_FAMILIES = {
     "dinodetr",
     "detr",
     "dfine",
+    "gtr",
     "deim",
     "deimv2",
     "tinyformer",
@@ -209,6 +210,9 @@ _RECTANGULAR_EXPORT_FAMILIES = {
     "realesrgan",
     "quicksrnet",
 }
+# (family, task) pairs that export a rectangular canvas although the family's
+# other tasks are fixed-square. GTR semantic slides square windows over it.
+_RECTANGULAR_EXPORT_TASKS = {("gtr", "semantic")}
 _RECTANGULAR_EXPORT_FORMATS = {
     "coreai",
     "coreml",
@@ -988,7 +992,15 @@ class BaseExporter(ABC):
             )
         if model_name == "domedetr":
             raise NotImplementedError(_DOMEDETR_EXPORT_MESSAGE)
-        if _is_rectangular_imgsz(imgsz) and model_name in _FIXED_SQUARE_EXPORT_FAMILIES:
+        rectangular_task = (
+            model_name,
+            getattr(self.model, "task", None),
+        ) in _RECTANGULAR_EXPORT_TASKS
+        if (
+            _is_rectangular_imgsz(imgsz)
+            and model_name in _FIXED_SQUARE_EXPORT_FAMILIES
+            and not rectangular_task
+        ):
             raise NotImplementedError(
                 f"Rectangular imgsz export is not supported for {model_name}: "
                 "this family uses a fixed square export/preprocessing spatial contract. "
@@ -997,6 +1009,7 @@ class BaseExporter(ABC):
         if (
             _is_rectangular_imgsz(imgsz)
             and model_name not in _RECTANGULAR_EXPORT_FAMILIES
+            and not rectangular_task
         ):
             raise NotImplementedError(
                 "Rectangular imgsz export is currently supported for "
@@ -1100,7 +1113,15 @@ class BaseExporter(ABC):
             nn_model = DETRExportWrapper(nn_model).to(device)
             nn_model.eval()
             dfine_wrapped = True
-        elif family == "dfine":
+        elif family == "gtr" and getattr(self.model, "task", "detect") == "pose":
+            from ..models.gtr.pose import GTRPoseExportWrapper
+
+            nn_model = GTRPoseExportWrapper(copy.deepcopy(nn_model)).to(device)
+            nn_model.eval()
+            dfine_wrapped = True
+        elif family == "dfine" or (
+            family == "gtr" and task in ("detect", "segment", "obb")
+        ):
             from ..models.dfine.nn import DFINEExportWrapper
 
             # deploy() (BN fusion + decoder-layer pruning + head swap) mutates

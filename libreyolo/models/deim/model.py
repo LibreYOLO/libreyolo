@@ -49,6 +49,8 @@ class LibreDEIM(BaseModel):
         # Dome-DETR also descends from D-FINE and carries pre_bbox_head, but it
         # is a different architecture (DeFE/MWAS/PAQI), not an ambiguous
         # sibling, so reject it outright rather than leaving it to ordering.
+        if "backbone.backbone._model.blocks.0.attn.gk_proj.0.weight" in weights_dict:
+            return False
         if any(k.startswith("encoder.DeFE.") for k in weights_dict):
             return False
         return any("decoder.pre_bbox_head." in k for k in weights_dict)

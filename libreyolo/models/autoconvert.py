@@ -494,7 +494,7 @@ def _wrap_claim(
     nc = detected_nc or 80
     names = _checkpoint_names(loaded, nc)
     if names is None:
-        names = cls.default_checkpoint_names(nc)
+        names = cls.default_checkpoint_names(nc, task=task)
     extra_metadata: dict[str, Any] = {}
     if cls.FAMILY == "yolo9":
         # Official MTL YOLOv9 weights were trained center-padded. Stamp

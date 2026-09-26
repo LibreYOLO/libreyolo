@@ -27,6 +27,7 @@ MODEL_GROUPS: dict[str, str] = {
     "yolo9_e2e": "g1",
     "yolo9_p2": "g1",
     "ec": "g1",
+    "gtr": "g1",
     "rtdetr": "g1",
     "rtdetrv2": "g1",
     "rtdetrv4": "g1",

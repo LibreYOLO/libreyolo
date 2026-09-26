@@ -862,7 +862,9 @@ class BaseModel(ABC):
         return dict(state_dict) if cls.can_load(state_dict) else None
 
     @classmethod
-    def default_checkpoint_names(cls, nc: int) -> Optional[Dict[int, str]]:
+    def default_checkpoint_names(
+        cls, nc: int, task: Optional[str] = None
+    ) -> Optional[Dict[int, str]]:
         """Return known upstream labels when a raw checkpoint has no metadata."""
         return None
 

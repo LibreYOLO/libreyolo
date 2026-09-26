@@ -72,6 +72,8 @@ class LibreDFINE(BaseModel):
         # reject its DeFE-bearing checkpoints explicitly. Registry order
         # already puts LibreDOMEDETR first; this makes the rejection hold even
         # when ``can_load`` is consulted on its own.
+        if "backbone.backbone._model.blocks.0.attn.gk_proj.0.weight" in weights_dict:
+            return False
         if any(k.startswith("encoder.DeFE.") for k in weights_dict):
             return False
         return any("decoder.pre_bbox_head." in k for k in weights_dict)
@@ -252,6 +254,13 @@ class LibreDFINE(BaseModel):
             original_size=original_size,
             max_det=max_det,
         )
+
+    @staticmethod
+    def _apply_lora(model) -> None:
+        """LoRA recipe replayed when loading an adapter checkpoint."""
+        from ...training.lora import apply_lora_to_detr
+
+        apply_lora_to_detr(model)
 
     def _strict_loading(self) -> bool:
         # D-FINE checkpoints carry buffers (anchors, valid_mask) that are
@@ -477,14 +486,10 @@ class LibreDFINE(BaseModel):
             # with lora=True saves its transformer Linears under peft keys
             # (``.base_layer.``/``lora_A``/``lora_B``); rebuild the adapted
             # graph before loading so those keys line up.
-            from ...training.lora import (
-                apply_lora_to_detr,
-                module_has_lora,
-                state_dict_has_lora,
-            )
+            from ...training.lora import module_has_lora, state_dict_has_lora
 
             if state_dict_has_lora(state_dict) and not module_has_lora(self.model):
-                apply_lora_to_detr(self.model)
+                self._apply_lora(self.model)
 
             missing, unexpected = self.model.load_state_dict(
                 state_dict, strict=self._strict_loading()

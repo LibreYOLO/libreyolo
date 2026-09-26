@@ -55,6 +55,8 @@ class LibreYOLOX(BaseModel):
 
     @classmethod
     def can_load(cls, weights_dict: dict) -> bool:
+        if "backbone.backbone._model.blocks.0.attn.gk_proj.0.weight" in weights_dict:
+            return False
         return any("backbone.backbone" in k or "head.stems" in k for k in weights_dict)
 
     @classmethod

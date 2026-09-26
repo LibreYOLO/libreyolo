@@ -59,6 +59,12 @@ in preflight.
 | ground_florence2 | point |  |  |  |  |  |  |  |  |  |  |  |  |
 | ground_qwen3vl | point |  |  |  |  |  |  |  |  |  |  |  |  |
 | grounding_dino | detect |  |  |  |  |  |  |  |  |  |  |  |  |
+| gtr | detect | available | available |  |  |  |  |  |  |  |  |  |  |
+| gtr | segment | available | available |  |  |  |  |  |  |  |  |  |  |
+| gtr | pose | available | available |  |  |  |  |  |  |  |  |  |  |
+| gtr | obb | available | available |  |  |  |  |  |  |  |  |  |  |
+| gtr | depth | available | available |  |  |  |  |  |  |  |  |  |  |
+| gtr | semantic | available | available |  |  |  |  |  |  |  |  |  |  |
 | hrnet | pose | ✓ | ✓ |  | ✓ | ✓ |  |  |  |  |  |  |  |
 | hvi_cidnet | restore |  |  |  |  |  |  |  |  |  |  |  |  |
 | internvl3 | detect |  |  |  |  |  |  |  |  |  |  |  |  |
@@ -547,6 +553,18 @@ These converter paths are callable with the recorded validation context.
 - `efficientdet` / `detect` / `ncnn`: Conversion is implemented; numeric runtime parity has not been recorded for this combination.
 - `fcos` / `detect` / `openvino`: FP32 dynamic-shape conversion and high-confidence public predictions pass, but small score/box drift can change low-confidence NMS ordering. Constraint: OpenVINO CPU, FP32, batch 1, dynamic padded H/W
 - `feynobg` / `matte` / `onnx`: The opset-19 DeformConv graph exports, but ONNX Runtime's CPU provider has no DeformConv implementation for runtime parity.
+- `gtr` / `detect` / `onnx`: Portable gated recurrence with fixed input resolution. Constraint: FP32; static square input; no custom CUDA plugin
+- `gtr` / `detect` / `torchscript`: Portable gated recurrence with fixed input resolution. Constraint: FP32; static square input; no custom CUDA plugin
+- `gtr` / `segment` / `onnx`: Portable gated recurrence with fixed input resolution; raw mask logits. Constraint: FP32; static square input; no custom CUDA plugin
+- `gtr` / `segment` / `torchscript`: Portable gated recurrence with fixed input resolution; raw mask logits. Constraint: FP32; static square input; no custom CUDA plugin
+- `gtr` / `pose` / `onnx`: Portable gated recurrence with fixed input resolution. Constraint: FP32; static square input; no custom CUDA plugin
+- `gtr` / `pose` / `torchscript`: Portable gated recurrence with fixed input resolution. Constraint: FP32; static square input; no custom CUDA plugin
+- `gtr` / `obb` / `onnx`: Portable gated recurrence with fixed 1024px input; NMS-free rotated boxes. Constraint: FP32; static square input; no custom CUDA plugin
+- `gtr` / `obb` / `torchscript`: Portable gated recurrence with fixed 1024px input; NMS-free rotated boxes. Constraint: FP32; static square input; no custom CUDA plugin
+- `gtr` / `depth` / `onnx`: Portable gated recurrence emitting a fixed-canvas inverse-depth map. Constraint: FP32; static square input; batch 1; no custom CUDA plugin
+- `gtr` / `depth` / `torchscript`: Portable gated recurrence emitting a fixed-canvas inverse-depth map. Constraint: FP32; static square input; batch 1; no custom CUDA plugin
+- `gtr` / `semantic` / `onnx`: Portable gated recurrence; the graph slides 1024px windows over a fixed canvas. Constraint: FP32; static 1024x2048 canvas; images are letterboxed into it
+- `gtr` / `semantic` / `torchscript`: Portable gated recurrence; the graph slides 1024px windows over a fixed canvas. Constraint: FP32; static 1024x2048 canvas; images are letterboxed into it
 - `levjepa` / `embed` / `onnx`: Conversion is implemented; numeric runtime parity has not been recorded for this combination.
 - `levjepa` / `embed` / `executorch`: Conversion is implemented; numeric runtime parity has not been recorded for this combination.
 - `levjepa` / `embed` / `tensorrt`: The converter path is available, but the project has not yet recorded TensorRT runtime parity for this family and task.
@@ -1041,6 +1059,66 @@ These converter paths are callable with the recorded validation context.
 - `grounding_dino` / `detect` / `tflite`: Open-vocabulary runtime export is out of scope for v1.
 - `grounding_dino` / `detect` / `coreml`: Open-vocabulary runtime export is out of scope for v1.
 - `grounding_dino` / `detect` / `coreai`: Open-vocabulary runtime export is out of scope for v1.
+- `gtr` / `detect` / `executorch`: GTR currently implements only portable ONNX and TorchScript export.
+- `gtr` / `detect` / `tensorrt`: GTR currently implements only portable ONNX and TorchScript export.
+- `gtr` / `detect` / `openvino`: GTR currently implements only portable ONNX and TorchScript export.
+- `gtr` / `detect` / `paddle`: GTR currently implements only portable ONNX and TorchScript export.
+- `gtr` / `detect` / `mnn`: GTR currently implements only portable ONNX and TorchScript export.
+- `gtr` / `detect` / `rknn`: GTR currently implements only portable ONNX and TorchScript export.
+- `gtr` / `detect` / `ncnn`: GTR currently implements only portable ONNX and TorchScript export.
+- `gtr` / `detect` / `tflite`: GTR currently implements only portable ONNX and TorchScript export.
+- `gtr` / `detect` / `coreml`: GTR currently implements only portable ONNX and TorchScript export.
+- `gtr` / `detect` / `coreai`: GTR currently implements only portable ONNX and TorchScript export.
+- `gtr` / `segment` / `executorch`: GTR currently implements only portable ONNX and TorchScript export.
+- `gtr` / `segment` / `tensorrt`: GTR currently implements only portable ONNX and TorchScript export.
+- `gtr` / `segment` / `openvino`: GTR currently implements only portable ONNX and TorchScript export.
+- `gtr` / `segment` / `paddle`: GTR currently implements only portable ONNX and TorchScript export.
+- `gtr` / `segment` / `mnn`: GTR currently implements only portable ONNX and TorchScript export.
+- `gtr` / `segment` / `rknn`: GTR currently implements only portable ONNX and TorchScript export.
+- `gtr` / `segment` / `ncnn`: GTR currently implements only portable ONNX and TorchScript export.
+- `gtr` / `segment` / `tflite`: GTR currently implements only portable ONNX and TorchScript export.
+- `gtr` / `segment` / `coreml`: GTR currently implements only portable ONNX and TorchScript export.
+- `gtr` / `segment` / `coreai`: GTR currently implements only portable ONNX and TorchScript export.
+- `gtr` / `pose` / `executorch`: GTR currently implements only portable ONNX and TorchScript export.
+- `gtr` / `pose` / `tensorrt`: GTR currently implements only portable ONNX and TorchScript export.
+- `gtr` / `pose` / `openvino`: GTR currently implements only portable ONNX and TorchScript export.
+- `gtr` / `pose` / `paddle`: GTR currently implements only portable ONNX and TorchScript export.
+- `gtr` / `pose` / `mnn`: GTR currently implements only portable ONNX and TorchScript export.
+- `gtr` / `pose` / `rknn`: GTR currently implements only portable ONNX and TorchScript export.
+- `gtr` / `pose` / `ncnn`: GTR currently implements only portable ONNX and TorchScript export.
+- `gtr` / `pose` / `tflite`: GTR currently implements only portable ONNX and TorchScript export.
+- `gtr` / `pose` / `coreml`: GTR currently implements only portable ONNX and TorchScript export.
+- `gtr` / `pose` / `coreai`: GTR currently implements only portable ONNX and TorchScript export.
+- `gtr` / `obb` / `executorch`: GTR currently implements only portable ONNX and TorchScript export.
+- `gtr` / `obb` / `tensorrt`: GTR currently implements only portable ONNX and TorchScript export.
+- `gtr` / `obb` / `openvino`: GTR currently implements only portable ONNX and TorchScript export.
+- `gtr` / `obb` / `paddle`: GTR currently implements only portable ONNX and TorchScript export.
+- `gtr` / `obb` / `mnn`: GTR currently implements only portable ONNX and TorchScript export.
+- `gtr` / `obb` / `rknn`: GTR currently implements only portable ONNX and TorchScript export.
+- `gtr` / `obb` / `ncnn`: GTR currently implements only portable ONNX and TorchScript export.
+- `gtr` / `obb` / `tflite`: GTR currently implements only portable ONNX and TorchScript export.
+- `gtr` / `obb` / `coreml`: GTR currently implements only portable ONNX and TorchScript export.
+- `gtr` / `obb` / `coreai`: GTR currently implements only portable ONNX and TorchScript export.
+- `gtr` / `depth` / `executorch`: GTR currently implements only portable ONNX and TorchScript export.
+- `gtr` / `depth` / `tensorrt`: GTR currently implements only portable ONNX and TorchScript export.
+- `gtr` / `depth` / `openvino`: GTR currently implements only portable ONNX and TorchScript export.
+- `gtr` / `depth` / `paddle`: GTR currently implements only portable ONNX and TorchScript export.
+- `gtr` / `depth` / `mnn`: GTR currently implements only portable ONNX and TorchScript export.
+- `gtr` / `depth` / `rknn`: GTR currently implements only portable ONNX and TorchScript export.
+- `gtr` / `depth` / `ncnn`: GTR currently implements only portable ONNX and TorchScript export.
+- `gtr` / `depth` / `tflite`: GTR currently implements only portable ONNX and TorchScript export.
+- `gtr` / `depth` / `coreml`: GTR currently implements only portable ONNX and TorchScript export.
+- `gtr` / `depth` / `coreai`: GTR currently implements only portable ONNX and TorchScript export.
+- `gtr` / `semantic` / `executorch`: GTR currently implements only portable ONNX and TorchScript export.
+- `gtr` / `semantic` / `tensorrt`: GTR currently implements only portable ONNX and TorchScript export.
+- `gtr` / `semantic` / `openvino`: GTR currently implements only portable ONNX and TorchScript export.
+- `gtr` / `semantic` / `paddle`: GTR currently implements only portable ONNX and TorchScript export.
+- `gtr` / `semantic` / `mnn`: GTR currently implements only portable ONNX and TorchScript export.
+- `gtr` / `semantic` / `rknn`: GTR currently implements only portable ONNX and TorchScript export.
+- `gtr` / `semantic` / `ncnn`: GTR currently implements only portable ONNX and TorchScript export.
+- `gtr` / `semantic` / `tflite`: GTR currently implements only portable ONNX and TorchScript export.
+- `gtr` / `semantic` / `coreml`: GTR currently implements only portable ONNX and TorchScript export.
+- `gtr` / `semantic` / `coreai`: GTR currently implements only portable ONNX and TorchScript export.
 - `hrnet` / `pose` / `executorch`: The HRNet person-crop pose-head export contract supports ONNX, TorchScript, OpenVINO, and TensorRT only.
 - `hrnet` / `pose` / `paddle`: The HRNet person-crop pose-head export contract supports ONNX, TorchScript, OpenVINO, and TensorRT only.
 - `hrnet` / `pose` / `mnn`: The HRNet person-crop pose-head export contract supports ONNX, TorchScript, OpenVINO, and TensorRT only.

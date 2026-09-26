@@ -493,7 +493,8 @@ def test_python_gate_accepts_every_g0_g1_detection_family():
 
     wrapped = _wrap_train_with_cfg(train)
     supported = families_in("g0") + families_in("g1")
-    assert len(supported) == 13
+    assert len(supported) == 14
+    assert "gtr" in supported
 
     for family in supported:
         wrapper = SimpleNamespace(FAMILY=family, task="detect")

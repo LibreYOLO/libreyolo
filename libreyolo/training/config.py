@@ -193,7 +193,7 @@ class TrainConfig:
     # Parameter-efficient fine-tuning. ``lora=True`` injects LoRA adapters into
     # the transformer components of supported families (RF-DETR: DINOv2
     # backbone attention; D-FINE/DEIM: encoder/decoder Linears with the CNN
-    # backbone frozen) and trains only the adapters plus the parts that must
+    # backbone frozen; see docs/lora.md for every family) and trains only the adapters plus the parts that must
     # stay dense (heads, projections), for low-VRAM fine-tuning on a custom
     # dataset. Requires the optional ``peft`` dependency
     # (``pip install "libreyolo[lora]"``). Families that do not support LoRA

@@ -589,6 +589,7 @@ markers = [
     "deimv2: tests covering the DEIMv2 model family",
     "tinyformer: tests covering the TinyFormer model family",
     "ec: tests covering the ECDet model family",
+    "gtr: tests covering the GTR model family",
     "rtdetr: tests covering the RT-DETR model family",
     "rtdetrv2: tests covering the RT-DETRv2 model family",
     "rtdetrv4: tests covering the RT-DETRv4 model family",
