@@ -1001,14 +1001,15 @@
     "class": "libreyolo.models.gtr.model.LibreGTR",
     "tasks": [
       "detect",
-      "obb"
+      "obb",
+      "depth"
     ],
     "default_task": "detect",
     "sizes": {
-      "s": 1024,
+      "s": 640,
       "m": 640,
       "l": 640,
-      "x": 1024
+      "x": 640
     },
     "default_imgsz": {
       "s": 640,
@@ -1026,6 +1027,12 @@
       "obb": {
         "s": 1024,
         "x": 1024
+      },
+      "depth": {
+        "s": 640,
+        "m": 640,
+        "l": 640,
+        "x": 640
       }
     },
     "export_override": "custom",
