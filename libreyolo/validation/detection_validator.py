@@ -247,6 +247,12 @@ class DetectionValidator(ValidationLossMixin, BaseValidator):
                 split_path_str = data_cfg.get(
                     self.config.split, f"images/{self.config.split}"
                 )
+                if not split_path_str:
+                    raise FileNotFoundError(
+                        f"Dataset yaml has no {self.config.split!r} split: its "
+                        f"{self.config.split!r} entry is empty. Point it at the "
+                        "images, or validate another split (e.g. split='val')."
+                    )
 
                 if str(split_path_str).endswith(".txt"):
                     txt_path = Path(data_cfg["path"]) / split_path_str
