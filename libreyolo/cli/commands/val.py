@@ -7,10 +7,12 @@ import typer
 
 from ..command_utils import (
     exit_if_out_of_range,
+    exit_imgsz_error,
     exit_stage_error,
     exit_with_error,
     get_loaded_model_family,
     help_json_callback,
+    is_imgsz_error,
     load_model_or_exit,
     parse_imgsz_str,
     resolve_model_or_exit,
@@ -218,6 +220,8 @@ def val_cmd(
     except FileNotFoundError as e:
         exit_with_error(out, "data_not_found", str(e))
     except Exception as e:
+        if imgsz is not None and is_imgsz_error(e):
+            exit_imgsz_error(out, e)
         exit_stage_error(out, stage="Validation", detail=e)
 
     if getattr(loaded_model, "task", "detect") == "classify":

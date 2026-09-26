@@ -1564,3 +1564,111 @@ def test_train_accepts_autobatch(unloadable_app):
     )
     assert result.exit_code == 0, result.output
     assert json.loads(result.stdout)["resolved_config"]["batch"] == -1
+
+
+def test_missing_cuda_is_device_not_available(monkeypatch):
+    def _cpu_only_torch(*args, **kwargs):
+        raise AssertionError("Torch not compiled with CUDA enabled")
+
+    monkeypatch.setattr("libreyolo.LibreYOLO", _cpu_only_torch)
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
+    app = _make_app([("export", export.export_cmd), ("info", special.info_cmd)])
+
+    cuda = runner.invoke(app, ["export", "model=yolox-s", "device=cuda", "--json"])
+    assert cuda.exit_code == 1, cuda.output
+    assert json.loads(cuda.stdout)["error"] == "device_not_available"
+
+    cpu = runner.invoke(app, ["export", "model=yolox-s", "device=cpu", "--json"])
+    assert cpu.exit_code == 4, cpu.output
+    assert json.loads(cpu.stdout)["error"] == "model_load_failed"
+
+
+class _StrideModel:
+    """Fails like a CNN run at an imgsz that is not a stride multiple."""
+
+    FAMILY = "yolo9"
+    size = "t"
+    task = "detect"
+    device = "cpu"
+
+    def _fail(self, **kwargs):
+        raise RuntimeError(
+            "Sizes of tensors must match except in dimension 1. Expected size 40 "
+            "but got size 41 for tensor number 1 in the list."
+        )
+
+    def train(self, data=None, **kwargs):
+        self._fail()
+
+    val = _fail
+    export = _fail
+
+
+@pytest.mark.parametrize(
+    "command",
+    [["train", "data=coco8.yaml"], ["val", "data=coco8.yaml"], ["export"]],
+    ids=["train", "val", "export"],
+)
+def test_unfit_imgsz_is_invalid_imgsz(monkeypatch, tmp_path, command):
+    for name in ("train", "val", "export"):
+        monkeypatch.setattr(
+            f"libreyolo.cli.commands.{name}.load_model_or_exit",
+            lambda *args, **kwargs: _StrideModel(),
+        )
+    monkeypatch.setattr(
+        "libreyolo.cli.commands.train._create_explicit_task_train_model",
+        lambda **_kwargs: None,
+    )
+    app = _make_app(
+        [("train", train.train_cmd), ("val", val.val_cmd), ("export", export.export_cmd)]
+    )
+    base = [*command, "model=LibreYOLO9t.pt", "--json"]
+    if command[0] != "export":
+        base.append(f"project={tmp_path}")
+
+    bad = runner.invoke(app, [*base, "imgsz=330"])
+    assert bad.exit_code == 2, bad.output
+    assert json.loads(bad.stdout)["error"] == "invalid_imgsz"
+
+    native = runner.invoke(app, base)
+    assert native.exit_code == 1, native.output
+    assert json.loads(native.stdout)["error"] == "io_error"
+
+
+def test_missing_resume_checkpoint_is_checkpoint_not_found(monkeypatch, tmp_path):
+    class _Resumable:
+        FAMILY = "rfdetr"
+        device = "cpu"
+
+        def train(self, data, **kwargs):
+            raise FileNotFoundError("Resume checkpoint not found: LibreRFDETRn.pt")
+
+    monkeypatch.setattr(
+        "libreyolo.cli.commands.train._create_explicit_task_train_model",
+        lambda **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        "libreyolo.cli.commands.train.load_model_or_exit",
+        lambda *args, **kwargs: _Resumable(),
+    )
+    app = _make_app([("train", train.train_cmd), ("val", val.val_cmd)])
+    result = runner.invoke(
+        app,
+        ["train", "data=coco8.yaml", "model=rfdetr-n", "resume=true", f"project={tmp_path}", "--json"],
+    )
+
+    assert result.exit_code == 4, result.output
+    data = json.loads(result.stdout)
+    assert data["error"] == "checkpoint_not_found"
+    assert "coco8.yaml" not in data["suggestion"]
+
+
+def test_metadata_of_a_non_checkpoint_is_a_json_error(tmp_path):
+    image = tmp_path / "dog.jpg"
+    image.write_bytes(b"\xff\xd8\xff\xe0 not a checkpoint")
+    app = _make_app([("metadata", special.metadata_cmd), ("info", special.info_cmd)])
+
+    result = runner.invoke(app, ["metadata", f"path={image}", "--json"])
+
+    assert result.exit_code == 4, result.output
+    assert json.loads(result.stdout)["error"] == "model_load_failed"

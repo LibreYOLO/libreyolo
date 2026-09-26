@@ -8,11 +8,13 @@ import typer
 
 from ..command_utils import (
     exit_if_out_of_range,
+    exit_imgsz_error,
     exit_stage_error,
     exit_with_error,
     get_loaded_model_family,
     get_user_provided_params,
     help_json_callback,
+    is_imgsz_error,
     load_model_or_exit,
     parse_imgsz_str,
     resolve_model_or_exit,
@@ -1021,6 +1023,18 @@ def train_cmd(
     try:
         results = loaded_model.train(data=data, **train_kwargs)
     except FileNotFoundError as e:
+        if "checkpoint not found" in str(e).lower():
+            exit_with_error(
+                out,
+                "checkpoint_not_found",
+                str(e),
+                suggestion=(
+                    "Resume a run from its checkpoint: "
+                    "model=<run>/weights/last.pt resume=true."
+                    if resume_val
+                    else None
+                ),
+            )
         exit_with_error(
             out,
             "data_not_found",
@@ -1028,6 +1042,8 @@ def train_cmd(
             suggestion=f"Check that '{data}' exists and is a valid YOLO-format dataset YAML.",
         )
     except Exception as e:
+        if "imgsz" in user_provided and is_imgsz_error(e):
+            exit_imgsz_error(out, e)
         exit_stage_error(out, stage="Training", detail=e)
 
     training_hours = (time.time() - t0) / 3600

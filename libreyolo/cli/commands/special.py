@@ -585,11 +585,18 @@ def metadata_cmd(
         out.error(err)
         raise typer.Exit(err.exit_code)
 
-    loaded = load_untrusted_torch_file(
-        checkpoint_path,
-        map_location="cpu",
-        context="checkpoint metadata",
-    )
+    try:
+        loaded = load_untrusted_torch_file(
+            checkpoint_path,
+            map_location="cpu",
+            context="checkpoint metadata",
+        )
+    except Exception as exc:
+        exit_with_error(
+            out,
+            "model_load_failed",
+            f"{path} is not a readable PyTorch checkpoint: {exc}",
+        )
     errors = validate_checkpoint_metadata(loaded, strict=False)
     metadata = {}
     if isinstance(loaded, dict):

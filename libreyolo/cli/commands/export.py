@@ -7,10 +7,12 @@ import typer
 
 from ..command_utils import (
     exit_if_out_of_range,
+    exit_imgsz_error,
     exit_stage_error,
     exit_with_error,
     help_json_callback,
     is_device_op_error,
+    is_imgsz_error,
     load_model_or_exit,
     parse_imgsz_str,
     resolve_model_or_exit,
@@ -170,6 +172,8 @@ def export_cmd(
     try:
         output_path = loaded_model.export(format=fmt, **export_kwargs)
     except ValueError as e:
+        if parsed_imgsz is not None and is_imgsz_error(e):
+            exit_imgsz_error(out, e)
         if "Unsupported export format" in str(e):
             exit_with_error(
                 out,
@@ -186,6 +190,8 @@ def export_cmd(
             exit_stage_error(out, stage="Export", detail=e)
         exit_with_error(out, "format_precision_unsupported", str(e))
     except Exception as e:
+        if parsed_imgsz is not None and is_imgsz_error(e):
+            exit_imgsz_error(out, e)
         exit_stage_error(out, stage="Export", detail=e)
 
     # File size

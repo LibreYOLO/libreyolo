@@ -73,11 +73,34 @@ def load_model_or_exit(
     try:
         return LibreYOLO(model_path, device=device, task=task)
     except Exception as exc:
+        missing = _missing_accelerator(device)
+        if missing is not None:
+            exit_with_error(
+                out,
+                "device_not_available",
+                f"device={device} was requested but {missing} is not available "
+                "on this machine.",
+                suggestion="Use device=cpu, or device=auto to pick the best "
+                "available device.",
+            )
         exit_with_error(
             out,
             "model_load_failed",
             f"Failed to load model '{model}': {exc}",
         )
+
+
+def _missing_accelerator(device: Any) -> Optional[str]:
+    """Name the accelerator ``device`` asks for when this machine lacks it."""
+    import torch
+
+    name = str(device).strip().lower()
+    if name.startswith("cuda") or name.replace(",", "").isdigit():
+        return None if torch.cuda.is_available() else "CUDA"
+    if name.startswith("mps"):
+        mps = getattr(torch.backends, "mps", None)
+        return None if mps is not None and mps.is_available() else "MPS"
+    return None
 
 
 def get_loaded_model_family(loaded_model: Any) -> Optional[str]:
