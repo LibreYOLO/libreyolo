@@ -1793,10 +1793,10 @@ class BaseModel(ABC):
                 tracker timing, while *fps* and *vid_stride* still control
                 image-sequence sampling and saved-video playback. A mismatch
                 emits a warning rather than overwriting the explicit config.
-            color_format: Color format for NumPy image-sequence items:
-                ``"rgb"``, ``"bgr"``, or ``"auto"``. Other image input
-                types are normalized to RGB by ``ImageLoader``. Ignored for
-                video files.
+            color_format: Channel order of NumPy image-sequence items:
+                ``"auto"`` (default) and ``"bgr"`` read them as BGR (OpenCV),
+                ``"rgb"`` as RGB. PIL images and tensors are always RGB.
+                Ignored for video files.
             output_path: Path for saved video. Defaults to
                 ``runs/track/<video_stem>.mp4`` for a video file, or
                 ``runs/track/<name>.mp4`` for an image sequence.

@@ -80,6 +80,28 @@ def test_runner_accepts_list_of_in_memory_images():
     assert all(len(r) == 1 for r in results)
 
 
+def test_runner_reads_numpy_input_as_bgr_by_default():
+    """cv2.imread() frames are BGR; predict must not read them as RGB."""
+    seen = []
+
+    class _Recorder(_StubModel):
+        def _preprocess(self, image, color_format="auto", input_size=None):
+            out = super()._preprocess(image, color_format, input_size)
+            seen.append(np.array(out[1]))
+            return out
+
+    runner = InferenceRunner(_Recorder())
+    frame_bgr = np.zeros((8, 8, 3), dtype=np.uint8)
+    frame_bgr[..., 2] = 255  # red in BGR
+
+    result = runner(frame_bgr)
+    runner(frame_bgr[..., ::-1].copy(), color_format="rgb")
+
+    assert seen[0][0, 0].tolist() == [255, 0, 0]
+    assert seen[1][0, 0].tolist() == [255, 0, 0]
+    assert result.orig_img[0, 0].tolist() == [0, 0, 255]
+
+
 def test_runner_accepts_tuple_and_empty_list():
     runner = InferenceRunner(_StubModel())
 

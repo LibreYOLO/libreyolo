@@ -364,6 +364,14 @@ class TestImageSequenceSource:
         (packet,) = list(src)
         assert packet.frame_bgr[0, 0].tolist() == [0, 0, 255]
 
+    def test_numpy_frames_default_to_bgr(self):
+        frame_bgr = np.zeros((4, 4, 3), dtype=np.uint8)
+        frame_bgr[:] = [0, 0, 255]
+        src = ImageSequenceSource([frame_bgr])
+
+        (packet,) = list(src)
+        assert packet.frame_bgr[0, 0].tolist() == [0, 0, 255]
+
     @pytest.mark.parametrize("fps", [0, -1, np.nan, np.inf])
     def test_rejects_invalid_fps(self, fps):
         with pytest.raises(ValueError, match="fps must be a finite value > 0"):

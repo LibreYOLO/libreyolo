@@ -300,7 +300,10 @@ class InferenceRunner:
             show: If True, display annotated frames in a window (video and
                 screen sources only).
             output_path: Optional output path.
-            color_format: Color format hint.
+            color_format: Channel order of NumPy array inputs. ``"auto"``
+                (default) and ``"bgr"`` read arrays as BGR, the OpenCV
+                convention (``cv2.imread``, video frames); pass ``"rgb"`` for
+                RGB arrays. PIL images and tensors are always RGB.
             tiling: Enable tiled inference for large images.
             overlap_ratio: Tile overlap ratio.
             output_file_format: Output format ("jpg", "png", "webp").

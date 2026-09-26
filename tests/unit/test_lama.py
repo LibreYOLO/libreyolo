@@ -267,10 +267,15 @@ def test_public_predict_requires_mask_and_preserves_outside(monkeypatch):
 
     with pytest.raises(ValueError, match="requires prediction input option.*mask"):
         model.predict(image)
-    result = model.predict(image, mask=mask)
+    result = model.predict(image, mask=mask, color_format="rgb")
     assert result.boxes is None
     assert result.restored.array.shape == image.shape
     assert np.array_equal(result.restored.array[mask == 0], image[mask == 0])
+    # NumPy input defaults to BGR; the restored canvas is RGB.
+    result = model.predict(image, mask=mask)
+    assert np.array_equal(
+        result.restored.array[mask == 0], image[..., ::-1][mask == 0]
+    )
     assert not hasattr(model, "_pending_context")
 
 
@@ -295,8 +300,8 @@ def test_concurrent_predictions_keep_context_request_local(monkeypatch):
     monkeypatch.setattr(model, "_preprocess_predict", synchronized_preprocess)
     with ThreadPoolExecutor(max_workers=2) as executor:
         futures = [
-            executor.submit(model.predict, first, mask=first_mask),
-            executor.submit(model.predict, second, mask=second_mask),
+            executor.submit(model.predict, first, mask=first_mask, color_format="rgb"),
+            executor.submit(model.predict, second, mask=second_mask, color_format="rgb"),
         ]
         results = [future.result(timeout=10) for future in futures]
 

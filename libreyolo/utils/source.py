@@ -629,8 +629,9 @@ class ImageSequenceSource:
             timing (a tracker's lost-track buffer, or the fps written into
             a saved output video).
         save_name: Base name used to derive an output path when saving.
-        color_format: Color format hint passed to ``ImageLoader`` for NumPy
-            frames: ``"auto"``, ``"rgb"``, or ``"bgr"``.
+        color_format: Channel order of NumPy frames, passed to
+            ``ImageLoader``: ``"auto"`` (default) and ``"bgr"`` read them as
+            BGR (OpenCV), ``"rgb"`` as RGB.
 
     Note:
         Can only be iterated once, like :class:`~libreyolo.utils.video.VideoSource`.
