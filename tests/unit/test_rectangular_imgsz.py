@@ -488,6 +488,32 @@ def test_yolox_postprocess_accepts_rect_size_at_unit_ratio():
     assert result.orig_shape == (192, 320)
 
 
+@pytest.mark.parametrize("imgsz", [[64, 64], [64, 96]])
+def test_yolo9_predict_accepts_list_imgsz(imgsz):
+    from libreyolo.models.yolo9.model import LibreYOLO9
+    from libreyolo.postprocess.yolo9 import _input_size_hw as yolo9_input_size_hw
+
+    assert yolo9_input_size_hw(imgsz) == tuple(imgsz)
+    model = LibreYOLO9(None, size="t", nb_classes=2, device="cpu")
+    model.model.eval()
+
+    result = model.predict(np.zeros((60, 90, 3), dtype=np.uint8), imgsz=imgsz)
+
+    assert result.orig_shape == (60, 90)
+
+
+def test_export_accepts_list_imgsz():
+    from libreyolo.export.exporter import OnnxExporter
+    from libreyolo.models.yolo9.model import LibreYOLO9
+
+    model = LibreYOLO9(None, size="t", nb_classes=2, device="cpu")
+    imgsz, _, _ = OnnxExporter(model)._resolve_params(
+        output_path=None, imgsz=[320, 320], device="cpu", half=False, int8=False
+    )
+
+    assert imgsz == (320, 320)
+
+
 def test_tta_postprocess_uses_the_preprocessed_canvas(monkeypatch):
     from libreyolo.models.yolo9.model import LibreYOLO9
 

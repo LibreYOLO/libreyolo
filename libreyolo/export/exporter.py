@@ -920,7 +920,7 @@ class BaseExporter(ABC):
                 imgsz = self._square_fallback_for_restored_rect(imgsz, model_name)
             else:
                 imgsz = (int(native_imgsz), int(native_imgsz))
-        elif isinstance(imgsz, tuple):
+        elif isinstance(imgsz, (tuple, list)):
             if len(imgsz) != 2:
                 raise ValueError(f"imgsz tuple must be (height, width), got {imgsz}")
             imgsz = (int(imgsz[0]), int(imgsz[1]))
