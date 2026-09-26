@@ -545,6 +545,14 @@ class BaseTrainer(ABC):
             flat = compiler.run(self, imgs)
             if flat is not None:
                 return compiler.spec.assemble(flat, imgs, targets, polygons)
+            if not compiler.disabled:
+                return self.on_forward(imgs, targets, polygons=polygons)
+            # Compilation fell back to eager: a requested cuda_graph now
+            # goes to the eager capture manager, from the next batch on.
+            self._train_compiler = None
+            start_graphs = getattr(self, "_start_cuda_graph_manager", None)
+            if start_graphs is not None:
+                start_graphs()
             return self.on_forward(imgs, targets, polygons=polygons)
         manager = getattr(self, "_cuda_graph_manager", None)
         if manager is not None and not manager.disabled:
@@ -2005,32 +2013,37 @@ class BaseTrainer(ABC):
             self._train_compiler = build_train_compiler(self)
         # A compiled run replays CUDA graphs through the compiler, if at all:
         # the eager capture manager would record Inductor's launches again.
-        if getattr(self.config, "cuda_graph", False) and not getattr(
-            self.config, "compile", False
-        ):
-            reason = None
-            if self.device.type != "cuda":
-                reason = "device is not CUDA"
-            elif self.is_distributed:
-                reason = "distributed training is not supported yet"
-            elif self.distiller is not None:
-                reason = "distillation runs are not supported"
-            if reason is not None:
-                if is_main_process():
-                    logger.warning(
-                        "cuda_graph=True ignored (%s); training runs eager.",
-                        reason,
-                    )
-            else:
-                from libreyolo.training.cuda_graph import TrainGraphManager
-
-                # One-step-per-batch loops drop ``.grad`` between forward and
-                # backward; accumulation keeps it alive across replays.
-                self._cuda_graph_manager = TrainGraphManager(
-                    preserve_accumulated_grads=self._accum_steps > 1
-                )
+        # If compilation later falls back to eager, _forward_train starts it.
+        if self._train_compiler is None:
+            self._start_cuda_graph_manager()
 
         self._is_setup = True
+
+    def _start_cuda_graph_manager(self) -> None:
+        """Create the eager capture manager when ``cuda_graph=True`` allows it."""
+        if not getattr(self.config, "cuda_graph", False):
+            return
+        reason = None
+        if self.device.type != "cuda":
+            reason = "device is not CUDA"
+        elif self.is_distributed:
+            reason = "distributed training is not supported yet"
+        elif self.distiller is not None:
+            reason = "distillation runs are not supported"
+        if reason is not None:
+            if is_main_process():
+                logger.warning(
+                    "cuda_graph=True ignored (%s); training runs eager.",
+                    reason,
+                )
+            return
+        from libreyolo.training.cuda_graph import TrainGraphManager
+
+        # One-step-per-batch loops drop ``.grad`` between forward and
+        # backward; accumulation keeps it alive across replays.
+        self._cuda_graph_manager = TrainGraphManager(
+            preserve_accumulated_grads=self._accum_steps > 1
+        )
 
     def _ddp_find_unused_parameters(self) -> bool:
         """Subclasses override to flip when their forward graph is conditional.
