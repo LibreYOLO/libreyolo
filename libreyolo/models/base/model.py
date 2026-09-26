@@ -1763,6 +1763,7 @@ class BaseModel(ABC):
         tracker: str | Tracker = "bytetrack",
         tracker_config=None,
         augment: bool = False,
+        persist: bool = False,
         **tracker_kwargs,
     ) -> Generator[Results, None, None]:
         """Track objects across video frames or an image sequence.
@@ -1827,7 +1828,8 @@ class BaseModel(ABC):
                 ``"ocsort"`` or ``"deepocsort"``. Ignored when
                 *tracker_config* is given (the config type selects the tracker).
                 Alternatively, pass a ``libreyolo.tracking.Tracker`` instance.
-                Its ``reset()`` is called once when iteration begins, then
+                Its ``reset()`` is called once when iteration begins (unless
+                *persist* continues it), then
                 ``update(results, image=rgb_pil_image)`` once per retained frame.
                 Do not share an instance between concurrent runs/cameras.
             tracker_config: A ``TrackConfig`` (ByteTrack), ``BoTSortConfig``
@@ -1835,6 +1837,14 @@ class BaseModel(ABC):
                 ``DeepOCSortConfig`` (Deep OC-SORT) instance, or None to build
                 one from **tracker_kwargs. Cannot be combined with a custom
                 tracker instance; configure that instance before passing it.
+            persist: Keep the tracker, and so the track IDs, from the previous
+                ``track()`` call on this model, for per-frame loops such as
+                ``model.track(frame, persist=True)``. The tracker still
+                resets when the tracker or its configuration changes, or when
+                the source is a different video file or directory. Default
+                False: the call starts a fresh tracker and drops the kept
+                one. Only pass consecutive frames of one stream with
+                ``persist=True``.
             **tracker_kwargs: Forwarded to the selected tracker's
                 ``from_kwargs`` (``TrackConfig``, ``BoTSortConfig``,
                 ``OCSortConfig`` or ``DeepOCSortConfig``).
@@ -1933,6 +1943,20 @@ class BaseModel(ABC):
             if not math.isfinite(fps) or fps <= 0:
                 raise ValueError(f"fps must be a finite value > 0, got {fps!r}")
 
+        # persist=True continues the tracker kept by the previous persist=True
+        # call (per-frame loops); a different tracker or config, or a different
+        # video file/directory, starts a fresh one. In-memory frames and image
+        # paths carry no stream identity, so they continue the stream.
+        # persist=False always starts fresh and drops the kept tracker.
+        source_key = (
+            str(Path(source_spec.source).resolve())
+            if source_spec.kind in (SourceKind.VIDEO, SourceKind.DIRECTORY)
+            else None
+        )
+        kept = getattr(self, "_track_state", None) if persist else None
+        if kept is not None and kept["source"] != source_key:
+            kept = None
+
         custom_tracker = tracker is not None and not isinstance(tracker, str)
         if custom_tracker:
             if isinstance(tracker, type) or not all(
@@ -1952,6 +1976,8 @@ class BaseModel(ABC):
                 raise ValueError("track_conf must be finite and between 0 and 1.")
             tracker_obj = tracker
             effective_conf = track_conf
+            tracker_key = tracker_obj
+            reused = kept is not None and kept["key"] is tracker_obj
         else:
             # A provided config picks the tracker; otherwise honour the selector.
             if isinstance(tracker_config, BoTSortConfig):
@@ -2003,8 +2029,8 @@ class BaseModel(ABC):
                 # Deep OC-SORT has no low-score recovery band; the detector only
                 # needs to produce boxes down to det_thresh.
                 effective_conf = tracker_config.det_thresh
-                tracker_obj = DeepOCSortTracker(
-                    config=tracker_config, device=str(self.device)
+                tracker_cls = functools.partial(
+                    DeepOCSortTracker, device=str(self.device)
                 )
             elif tracker == "ocsort":
                 if tracker_config is None:
@@ -2012,26 +2038,35 @@ class BaseModel(ABC):
                     tracker_config = OCSortConfig.from_kwargs(**tracker_kwargs)
                 # OC-SORT consumes low-score detections (>0.1) for recovery.
                 effective_conf = min(0.1, tracker_config.det_thresh)
-                tracker_obj = OCSortTracker(config=tracker_config)
+                tracker_cls = OCSortTracker
             elif tracker == "botsort":
                 if tracker_config is None:
                     tracker_kwargs.setdefault("track_high_thresh", track_conf)
                     tracker_config = BoTSortConfig.from_kwargs(**tracker_kwargs)
                 # BoT-SORT keeps ByteTrack's low-confidence recovery stage.
                 effective_conf = tracker_config.track_low_thresh
-                tracker_obj = BoTSortTracker(config=tracker_config)
+                tracker_cls = BoTSortTracker
             elif tracker == "bytetrack":
                 if tracker_config is None:
                     tracker_kwargs.setdefault("track_high_thresh", track_conf)
                     tracker_config = TrackConfig.from_kwargs(**tracker_kwargs)
                 # ByteTrack needs to see low-confidence detections.
                 effective_conf = tracker_config.track_low_thresh
-                tracker_obj = ByteTracker(config=tracker_config)
+                tracker_cls = ByteTracker
             else:
                 raise ValueError(
                     f"Unknown tracker {tracker!r}; "
                     "choose 'bytetrack', 'botsort', 'ocsort' or 'deepocsort'."
                 )
+            tracker_key = (
+                tracker,
+                tracker_config,
+                str(self.device) if tracker == "deepocsort" else None,
+            )
+            reused = kept is not None and kept["key"] == tracker_key
+            tracker_obj = (
+                kept["tracker"] if reused else tracker_cls(config=tracker_config)
+            )
 
         default_stem = "sequence"
         if source_spec.kind == SourceKind.VIDEO:
@@ -2084,8 +2119,13 @@ class BaseModel(ABC):
                 "image iterator."
             )
 
-        if custom_tracker:
+        if custom_tracker and not reused:
             tracker_obj.reset()
+        self._track_state = (
+            {"key": tracker_key, "source": source_key, "tracker": tracker_obj}
+            if persist
+            else None
+        )
 
         model_names = self.names
 

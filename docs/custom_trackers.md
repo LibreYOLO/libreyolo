@@ -38,8 +38,11 @@ optional; an instance needs callable `reset()` and `update(results,
 image=None)` methods.
 
 - `reset()` runs once when the tracking generator starts processing a valid
-  sequence. Reusing the instance in another call starts a fresh sequence.
-  An empty image directory returns without resetting or updating it.
+  sequence. Reusing the instance in another call starts a fresh sequence,
+  unless that call passes `persist=True` and the previous call on the same
+  model also did, with the same instance and the same video file or directory
+  (or in-memory frames). An empty image directory returns without resetting
+  or updating it.
 - `update()` receives detection `Results` and the original RGB PIL image as
   the `image` keyword, once per retained frame, including empty detections.
 - Return `Results` with a one-dimensional integer tensor/array in `track_id`,
@@ -56,8 +59,9 @@ image=None)` methods.
   or frame-rate settings. Configure timing for the retained frame rate,
   accounting for `vid_stride` yourself.
 - Give each concurrent run/camera its own instance. To retain state across
-  manually managed batches, call the tracker directly after `model.predict()`;
-  separate `model.track()` calls reset state.
+  separate `model.track()` calls, pass `persist=True` (for example
+  `model.track(frame, persist=True)` per frame); without it, each call resets
+  state.
 
 A custom tracker can wrap a Python algorithm or native bindings. This API
 makes no changes to DeepStream integration and makes no performance claims.

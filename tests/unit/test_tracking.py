@@ -886,6 +886,85 @@ def test_tracks_video_files_with_uncommon_or_missing_extensions(tmp_path, name):
     assert [r.frame_idx for r in results] == [0, 1, 2]
 
 
+_NEAR_BOX = (1.0, 1.0, 5.0, 5.0)
+_FAR_BOX = (12.0, 9.0, 18.0, 15.0)
+
+
+def _ids_per_call(model, boxes, **kwargs):
+    """One single-frame track() call per box, as in a per-frame loop."""
+    ids = []
+    for box in boxes:
+        model._box = list(box)
+        (result,) = list(BaseModel.track(model, _make_frames(1), **kwargs))
+        ids.append(result.track_id.tolist())
+    return ids
+
+
+class TestTrackPersist:
+    def test_persist_keeps_the_tracker_across_calls(self):
+        boxes = [_NEAR_BOX, _FAR_BOX, _NEAR_BOX]
+
+        # A fresh tracker per call numbers every first sighting 1 ...
+        assert _ids_per_call(_StubTrackModel(), boxes) == [[1], [1], [1]]
+        # ... while a kept tracker opens a second track for the far box and
+        # recovers the first one when it reappears.
+        assert _ids_per_call(_StubTrackModel(), boxes, persist=True) == [
+            [1],
+            [2],
+            [1],
+        ]
+
+    def test_persist_is_not_forwarded_as_a_tracker_config_key(self):
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            _ids_per_call(_StubTrackModel(), [_NEAR_BOX], persist=True)
+        assert not [w for w in caught if "Unknown tracking config" in str(w.message)]
+
+    def test_persist_false_starts_fresh_and_drops_the_kept_tracker(self):
+        model = _StubTrackModel()
+        _ids_per_call(model, [_NEAR_BOX], persist=True)
+
+        assert _ids_per_call(model, [_FAR_BOX]) == [[1]]
+        assert _ids_per_call(model, [_NEAR_BOX], persist=True) == [[1]]
+        assert _ids_per_call(model, [_FAR_BOX], persist=True) == [[2]]
+
+    def test_persist_resets_on_a_new_tracker_config(self):
+        model = _StubTrackModel()
+        _ids_per_call(model, [_NEAR_BOX], persist=True)
+
+        assert _ids_per_call(model, [_FAR_BOX], persist=True, track_buffer=10) == [
+            [1]
+        ]
+
+    def test_persist_resets_on_a_new_directory_source(self, tmp_path):
+        first, second = tmp_path / "a", tmp_path / "b"
+        for folder in (first, second):
+            folder.mkdir()
+            Image.new("RGB", (20, 16)).save(folder / "000.png")
+        model = _StubTrackModel()
+
+        def track_dir(folder, box):
+            model._box = list(box)
+            (result,) = list(BaseModel.track(model, folder, persist=True))
+            return result.track_id.tolist()
+
+        assert track_dir(first, _NEAR_BOX) == [1]
+        assert track_dir(first, _FAR_BOX) == [2]
+        assert track_dir(second, _FAR_BOX) == [1]
+
+    def test_persist_does_not_reset_a_custom_tracker(self):
+        tracker = _CustomTracker()
+        model = _StubTrackModel()
+
+        list(BaseModel.track(model, _make_frames(1), tracker=tracker, persist=True))
+        list(BaseModel.track(model, _make_frames(1), tracker=tracker, persist=True))
+        assert tracker.resets == 1
+        assert len(tracker.images) == 2
+
+        list(BaseModel.track(model, _make_frames(1), tracker=tracker))
+        assert tracker.resets == 2
+
+
 class _CustomTracker:
     def __init__(self):
         self.resets = 0
