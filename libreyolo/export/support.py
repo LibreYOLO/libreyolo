@@ -92,6 +92,14 @@ _add("blocked", ("gtr",), ("depth",),
      tuple(fmt for fmt in EXPORT_FORMATS if fmt not in ("onnx", "torchscript")),
      reason="GTR currently implements only portable ONNX and TorchScript export.")
 
+_add("available", ("gtr",), ("semantic",), ("onnx", "torchscript"),
+     reason="Portable gated recurrence; the graph slides 1024px windows over a fixed canvas.",
+     constraint="FP32; static 1024x2048 canvas; backends stretch the image to it")
+
+_add("blocked", ("gtr",), ("semantic",),
+     tuple(fmt for fmt in EXPORT_FORMATS if fmt not in ("onnx", "torchscript")),
+     reason="GTR currently implements only portable ONNX and TorchScript export.")
+
 # Existing parity-backed paths. New validated rows must land with a parity test.
 _add(
     "validated",

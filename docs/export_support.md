@@ -62,6 +62,7 @@ in preflight.
 | gtr | detect | available | available |  |  |  |  |  |  |  |  |  |  |
 | gtr | obb | available | available |  |  |  |  |  |  |  |  |  |  |
 | gtr | depth | available | available |  |  |  |  |  |  |  |  |  |  |
+| gtr | semantic | available | available |  |  |  |  |  |  |  |  |  |  |
 | hrnet | pose | ✓ | ✓ |  | ✓ | ✓ |  |  |  |  |  |  |  |
 | hvi_cidnet | restore |  |  |  |  |  |  |  |  |  |  |  |  |
 | internvl3 | detect |  |  |  |  |  |  |  |  |  |  |  |  |
@@ -556,6 +557,8 @@ These converter paths are callable with the recorded validation context.
 - `gtr` / `obb` / `torchscript`: Portable gated recurrence with fixed 1024px input; NMS-free rotated boxes. Constraint: FP32; static square input; no custom CUDA plugin
 - `gtr` / `depth` / `onnx`: Portable gated recurrence emitting a fixed-canvas inverse-depth map. Constraint: FP32; static square input; batch 1; no custom CUDA plugin
 - `gtr` / `depth` / `torchscript`: Portable gated recurrence emitting a fixed-canvas inverse-depth map. Constraint: FP32; static square input; batch 1; no custom CUDA plugin
+- `gtr` / `semantic` / `onnx`: Portable gated recurrence; the graph slides 1024px windows over a fixed canvas. Constraint: FP32; static 1024x2048 canvas; backends stretch the image to it
+- `gtr` / `semantic` / `torchscript`: Portable gated recurrence; the graph slides 1024px windows over a fixed canvas. Constraint: FP32; static 1024x2048 canvas; backends stretch the image to it
 - `levjepa` / `embed` / `onnx`: Conversion is implemented; numeric runtime parity has not been recorded for this combination.
 - `levjepa` / `embed` / `executorch`: Conversion is implemented; numeric runtime parity has not been recorded for this combination.
 - `levjepa` / `embed` / `tensorrt`: The converter path is available, but the project has not yet recorded TensorRT runtime parity for this family and task.
@@ -1080,6 +1083,16 @@ These converter paths are callable with the recorded validation context.
 - `gtr` / `depth` / `tflite`: GTR currently implements only portable ONNX and TorchScript export.
 - `gtr` / `depth` / `coreml`: GTR currently implements only portable ONNX and TorchScript export.
 - `gtr` / `depth` / `coreai`: GTR currently implements only portable ONNX and TorchScript export.
+- `gtr` / `semantic` / `executorch`: GTR currently implements only portable ONNX and TorchScript export.
+- `gtr` / `semantic` / `tensorrt`: GTR currently implements only portable ONNX and TorchScript export.
+- `gtr` / `semantic` / `openvino`: GTR currently implements only portable ONNX and TorchScript export.
+- `gtr` / `semantic` / `paddle`: GTR currently implements only portable ONNX and TorchScript export.
+- `gtr` / `semantic` / `mnn`: GTR currently implements only portable ONNX and TorchScript export.
+- `gtr` / `semantic` / `rknn`: GTR currently implements only portable ONNX and TorchScript export.
+- `gtr` / `semantic` / `ncnn`: GTR currently implements only portable ONNX and TorchScript export.
+- `gtr` / `semantic` / `tflite`: GTR currently implements only portable ONNX and TorchScript export.
+- `gtr` / `semantic` / `coreml`: GTR currently implements only portable ONNX and TorchScript export.
+- `gtr` / `semantic` / `coreai`: GTR currently implements only portable ONNX and TorchScript export.
 - `hrnet` / `pose` / `executorch`: The HRNet person-crop pose-head export contract supports ONNX, TorchScript, OpenVINO, and TensorRT only.
 - `hrnet` / `pose` / `paddle`: The HRNet person-crop pose-head export contract supports ONNX, TorchScript, OpenVINO, and TensorRT only.
 - `hrnet` / `pose` / `mnn`: The HRNet person-crop pose-head export contract supports ONNX, TorchScript, OpenVINO, and TensorRT only.

@@ -1,4 +1,4 @@
-"""GTR wrapper (detect, obb, depth) with strict checkpoint loading."""
+"""GTR wrapper (detect, obb, depth, semantic) with strict checkpoint loading."""
 
 from pathlib import Path
 from typing import ClassVar
@@ -10,6 +10,7 @@ from ...validation.preprocessors import DEIMv2DINOValPreprocessor
 from ..dfine.model import LibreDFINE
 from ..ec.postprocess import preprocess_image
 from . import depth as gtr_depth
+from . import sem
 from .config import GTRConfig
 from .nn import LibreGTRModel
 from .obb import OBB_INPUT_SIZES, is_gtr_obb_state_dict
@@ -21,11 +22,14 @@ class LibreGTR(LibreDFINE):
     FAMILY = "gtr"
     FILENAME_PREFIX = "LibreGTR"
     INPUT_SIZES: ClassVar[dict[str, int]] = {s: 640 for s in ("s", "m", "l", "x")}
-    SUPPORTED_TASKS = ("detect", "obb", "depth")
+    SUPPORTED_TASKS = ("detect", "obb", "depth", "semantic")
+    # Semantic runs on the native Cityscapes canvas; the network itself slides
+    # 1024px windows over it (sem.LibreGTRSemModel).
     TASK_INPUT_SIZES: ClassVar[dict] = {
         "detect": INPUT_SIZES,
         "obb": OBB_INPUT_SIZES,
         "depth": INPUT_SIZES,
+        "semantic": {s: (sem.SEM_WINDOW, 2 * sem.SEM_WINDOW) for s in "smlx"},
     }
     DEFAULT_TASK = "detect"
     TRAIN_CONFIG = GTRConfig
@@ -34,9 +38,29 @@ class LibreGTR(LibreDFINE):
     # Depth task (ADR 0006): square stretch resize, as in upstream validation.
     depth_imgsz_divisor = 32
     depth_resize_mode = "stretch"
+    # Read by the shared semantic dataset, validator and trainer.
+    semantic_resize_mode: ClassVar[str] = "letterbox"
+    semantic_imgsz_divisor: ClassVar[int] = 32
+    # Upstream large-scale jitter: long side fit to 1024 * [1, 4], then a crop.
+    semantic_scale_jitter: ClassVar[tuple[float, float]] = (1.0, 4.0)
+
+    @property
+    def semantic_photometric(self):
+        from .sem_trainer import _PhotometricDistort
+
+        return _PhotometricDistort(p=0.5)
+
+    @property
+    def semantic_val_imgsz(self):
+        """Semantic training validates on the canvas, not the square crop."""
+        return self.input_size if self.task == "semantic" else None
 
     @classmethod
     def can_load(cls, sd):
+        if "backbone.backbone._model.blocks.0.attn.gk_proj.0.weight" not in sd:
+            return False
+        if sem.is_semantic_state_dict(sd):
+            return "encoder.stages.0.1.weight" in sd
         if (
             "backbone.backbone._model.blocks.0.attn.gk_proj.0.weight" in sd
             and "encoder.stages.0.1.weight" in sd
@@ -54,6 +78,8 @@ class LibreGTR(LibreDFINE):
 
     @classmethod
     def detect_checkpoint_task(cls, sd):
+        if sem.is_semantic_state_dict(sd):
+            return "semantic"
         if gtr_depth.is_depth_state_dict(sd):
             return "depth"
         if is_gtr_obb_state_dict(sd):
@@ -62,6 +88,8 @@ class LibreGTR(LibreDFINE):
 
     @classmethod
     def detect_nb_classes(cls, sd):
+        if sem.is_semantic_state_dict(sd):
+            return int(sd["head.classifier.weight"].shape[0])
         if gtr_depth.is_depth_state_dict(sd):
             return 1
         return super().detect_nb_classes(sd)
@@ -73,6 +101,15 @@ class LibreGTR(LibreDFINE):
         return dict(DOTA_NAMES) if nc == len(DOTA_NAMES) else None
 
     def _validate_loaded_state_dict_for_task(self, state_dict, checkpoint=None):
+        is_semantic = sem.is_semantic_state_dict(state_dict)
+        if is_semantic != (self.task == "semantic"):
+            found = "semantic" if is_semantic else "non-semantic"
+            raise RuntimeError(
+                f"This is a GTR {found} checkpoint but the model was initialized "
+                f"for task='{self.task}'. Pass the matching task or filename suffix."
+            )
+        if is_semantic:
+            return super()._validate_loaded_state_dict_for_task(state_dict, checkpoint)
         is_depth = gtr_depth.is_depth_state_dict(state_dict)
         if is_depth != (self.task == "depth"):
             raise RuntimeError(
@@ -107,8 +144,8 @@ class LibreGTR(LibreDFINE):
             weight = cls._weight(sd, "decoder.decoder.layers.0.linear1")
             if weight is not None:
                 return {1024: "l", 2048: "x"}.get(weight.shape[0])
-            # Depth checkpoints have no transformer decoder; L and X differ in
-            # the backbone MLP ratio (4 vs 6).
+            # Depth and semantic checkpoints have no transformer decoder; L and
+            # X differ in the backbone MLP ratio (4 vs 6).
             weight = sd.get("backbone.backbone._model.blocks.0.mlp.gate_proj.weight")
             if weight is not None:
                 return {2048: "l", 3072: "x"}.get(weight.shape[0])
@@ -137,29 +174,44 @@ class LibreGTR(LibreDFINE):
         ("m", "depth"): None,
         ("l", "depth"): None,
         ("x", "depth"): None,
+        **{(s, "semantic"): None for s in "smlx"},
     }
 
     @classmethod
     def get_download_url(cls, filename):
+        from ...tasks import task_to_suffix
+
         size = cls.detect_size_from_filename(filename)
         if size is None:
             return None
-        stem = Path(filename).stem
-        if stem == f"LibreGTR{size}":
+        task = cls.detect_task_from_filename(filename) or "detect"
+        name = f"LibreGTR{size}"
+        if task == "detect":
             revision = cls.HF_REVISIONS[size]
-            return f"https://huggingface.co/LibreYOLO/LibreGTR{size}/resolve/{revision}/LibreGTR{size}.pt"
-        task = cls.detect_task_from_filename(filename)
-        if (size, task) not in cls.HF_TASK_REVISIONS or stem != (
-            f"LibreGTR{size}-{task}"
-        ):
+        elif (size, task) in cls.HF_TASK_REVISIONS:
+            name = f"{name}-{task_to_suffix(task)}"
+            revision = cls.HF_TASK_REVISIONS[(size, task)] or "main"
+        else:
             return None
-        revision = cls.HF_TASK_REVISIONS[(size, task)] or "main"
-        return f"https://huggingface.co/LibreYOLO/{stem}/resolve/{revision}/{stem}.pt"
+        if Path(filename).stem != name:
+            return None
+        return f"https://huggingface.co/LibreYOLO/{name}/resolve/{revision}/{name}.pt"
 
     @classmethod
     def get_download_notice(cls, filename, url):
         del url
-        if cls.detect_task_from_filename(filename) != "depth":
+        task = cls.detect_task_from_filename(filename)
+        if task == "semantic":
+            return (
+                f"{Path(filename).name} is a converted GTR checkpoint trained on "
+                "Cityscapes. The Cityscapes terms restrict the dataset and derived "
+                "models, including this checkpoint, to NON-COMMERCIAL use "
+                "(https://www.cityscapes-dataset.com/license/). The restriction "
+                "applies to these pretrained weights, not to LibreYOLO's code or "
+                "the GTR architecture. Fine-tune or train on your own data for "
+                "weights without that term."
+            )
+        if task != "depth":
             return None
         return (
             "GTR depth was pretrained on a mixed corpus (SUN RGB-D, DIODE, "
@@ -170,7 +222,17 @@ class LibreGTR(LibreDFINE):
             "yourself about the training-data terms."
         )
 
+    def __init__(
+        self, model_path, size, nb_classes=80, device="auto", task=None, **kwargs
+    ):
+        super().__init__(model_path, size, nb_classes, device, task, **kwargs)
+        if self.task == "semantic" and self.nb_classes == len(sem.CITYSCAPES_NAMES):
+            if all(name == f"class_{i}" for i, name in self.names.items()):
+                self.names = dict(sem.CITYSCAPES_NAMES)
+
     def _init_model(self):
+        if self.task == "semantic":
+            return sem.LibreGTRSemModel(self.size, self.nb_classes)
         if self.task == "depth":
             self.nb_classes = 1
             return gtr_depth.LibreGTRDepthModel(
@@ -211,6 +273,12 @@ class LibreGTR(LibreDFINE):
             self.names = {0: "depth"}
 
     def _get_available_layers(self):
+        if self.task == "semantic":
+            return {
+                "backbone": self.model.backbone,
+                "encoder": self.model.encoder,
+                "head": self.model.head,
+            }
         return {
             "backbone": self.model.backbone,
             "encoder": self.model.encoder,
@@ -231,6 +299,10 @@ class LibreGTR(LibreDFINE):
         return imgsz
 
     def _preprocess(self, image, color_format="auto", input_size=None):
+        if self.task == "semantic":
+            return sem.preprocess_image(
+                image, input_size or self.input_size, color_format=color_format
+            )
         size = self._validate_imgsz(input_size or self.input_size)
         if self.task == "depth":
             return gtr_depth.preprocess_image(image, size, color_format)
@@ -243,6 +315,8 @@ class LibreGTR(LibreDFINE):
     def _postprocess(
         self, output, conf_thres, iou_thres, original_size, max_det=300, **kwargs
     ):
+        if self.task == "semantic":
+            return sem.postprocess(output, original_size, kwargs.get("ratio", 1.0))
         if self.task == "depth":
             return gtr_depth.postprocess(output, original_size)
         if self.task == "obb":
@@ -259,6 +333,10 @@ class LibreGTR(LibreDFINE):
         return super()._postprocess(
             output, conf_thres, iou_thres, original_size, max_det=max_det, **kwargs
         )
+
+    def _postprocess_semantic_logits(self, output, original_size, ratio=1.0, **kwargs):
+        """Pre-argmax logits at ``original_size``; used by flip TTA."""
+        return sem.logits_at(output, original_size, ratio)
 
     def _get_val_preprocessor(self, img_size=None):
         if self.task != "obb":
@@ -291,6 +369,29 @@ class LibreGTR(LibreDFINE):
         **kwargs,
     ) -> dict:
         """Fine-tune GTR; resume restores saved settings before explicit overrides."""
+        if self.task == "semantic":
+            from .sem_trainer import train_semantic
+
+            return train_semantic(
+                self,
+                data=data,
+                epochs=epochs,
+                batch=batch,
+                imgsz=imgsz,
+                lr0=lr0,
+                device=device,
+                workers=workers,
+                seed=seed,
+                project=project,
+                name=name,
+                exist_ok=exist_ok,
+                resume=resume,
+                amp=amp,
+                patience=patience,
+                callbacks=callbacks,
+                loggers=loggers,
+                **kwargs,
+            )
         if self.task == "depth":
             return gtr_depth.train(
                 self,
@@ -428,4 +529,8 @@ class LibreGTR(LibreDFINE):
         if kwargs.get("half", False):
             raise ValueError("GTR portable export currently requires FP32")
         kwargs["dynamic"] = False
+        if self.task == "semantic":
+            # onnxsim spends ~15 minutes folding the three window Loops on CPU
+            # without shrinking the graph; opt in with simplify=True.
+            kwargs.setdefault("simplify", False)
         return super().export(format=format, **kwargs)

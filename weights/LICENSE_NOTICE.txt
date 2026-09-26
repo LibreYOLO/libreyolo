@@ -987,3 +987,15 @@ the model cards and in the download notice (ADR 0006). Conversion selects EMA
 parameters and adds LibreYOLO metadata without changing learned tensors.
 Converted checkpoints: LibreYOLO/LibreGTRs-depth, LibreYOLO/LibreGTRm-depth,
 LibreYOLO/LibreGTRl-depth and LibreYOLO/LibreGTRx-depth.
+
+GTR semantic segmentation (s/m/l/x, Cityscapes)
+Upstream: https://huggingface.co/Phoenix8125/GTR (semseg/gtrsemseg_*_cityscapes.pth)
+Code: https://github.com/Intellindust-AI-Lab/GTR
+The weight repository declares MIT, but the checkpoints are trained on
+Cityscapes, whose terms restrict the dataset and derived models to
+non-commercial use (https://www.cityscapes-dataset.com/license/). LibreYOLO
+treats these pretrained weights as NON-COMMERCIAL and shows a download notice.
+Conversion (weights/convert_gtr_sem_weights.py) selects EMA parameters and adds
+LibreYOLO metadata without changing learned tensors.
+Converted checkpoints: LibreYOLO/LibreGTR{s,m,l,x}-sem. Download revisions are
+listed in LibreGTR.HF_TASK_REVISIONS.
