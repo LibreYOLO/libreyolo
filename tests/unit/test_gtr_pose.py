@@ -326,3 +326,41 @@ def test_pose_trainer_accepts_lora():
     trainer.config = type("C", (), {"lora": True})()
     assert trainer.preserve_freeze_param("x.lora_A.default.weight", None)
     assert not trainer.preserve_freeze_param("x.weight", None)
+
+
+def test_pose_resume_merges_saved_settings_without_duplicate_kwargs(monkeypatch):
+    from libreyolo.models.gtr import pose_trainer
+    from libreyolo.models.gtr.model import LibreGTR
+
+    model = LibreGTR(None, size="s", device="cpu", task="pose")
+    model.model_path = "last.pt"
+    saved = {
+        "data": "coco8-pose.yaml",
+        "epochs": 7,
+        "lr0": 0.003,
+        "num_keypoints": 17,
+        "keypoint_dim": 3,
+        "device": "cpu",
+        "size": "s",
+    }
+    monkeypatch.setattr(LibreGTR, "_checkpoint_train_config", lambda self, p: saved)
+    captured = {}
+
+    class Trainer:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+        def setup(self):
+            pass
+
+        def resume(self, path):
+            captured["resumed_from"] = path
+
+        def train(self):
+            return {}
+
+    monkeypatch.setattr(pose_trainer, "GTRPoseTrainer", Trainer)
+    model.train(resume=True, batch=3)
+    assert captured["resumed_from"] == "last.pt"
+    assert captured["epochs"] == 7 and captured["lr0"] == 0.003
+    assert captured["batch"] == 3 and captured["device"] == "cpu"
