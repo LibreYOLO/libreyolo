@@ -30,7 +30,11 @@ Resolution rules:
 - A local file or directory with the same name always wins over the bare
   `owner/repo` form. Use the `hf://` form to bypass that precedence.
 - The bare form is only treated as a Hub reference when the last segment has
-  no file extension, so paths like `weights/model.pt` keep their meaning.
+  no file extension, so paths like `weights/model.pt` or
+  `ckpts/model_best.pth.tar` keep their meaning. A dot followed by a digit is
+  a version, not an extension: `owner/model-v1.5` is still a Hub reference.
+  `librefacerec-*` names such as `models/librefacerec-l` are never Hub
+  references; they auto-download from the LibreYOLO org as before.
 - Without an explicit filename, the single `*.pt` (or `*.safetensors`) file
   in the repo is used. Repos with several checkpoints raise an error listing
   them; select one with `hf://owner/repo/<filename>`.
