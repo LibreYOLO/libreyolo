@@ -15,7 +15,7 @@ IMAGENET_MEAN = [0.485, 0.456, 0.406]
 IMAGENET_STD = [0.229, 0.224, 0.225]
 def preprocess_numpy(
     img_rgb_hwc: np.ndarray,
-    input_size: int = 560,
+    input_size: int | Tuple[int, int] = 560,
 ) -> Tuple[np.ndarray, float]:
     """
     Preprocess RGB HWC uint8 image for RF-DETR inference.
@@ -27,7 +27,9 @@ def preprocess_numpy(
 
     Args:
         img_rgb_hwc: Input image as RGB HWC uint8 numpy array.
-        input_size: Target size for the model.
+        input_size: Target size for the model, square ``int`` or
+            ``(height, width)``. Upstream ``predict(shape=(h, w))`` resizes
+            the same way; boxes are normalized, so no ratio is needed.
 
     Returns:
         Tuple of (preprocessed CHW float32 array with ImageNet norm, ratio).
@@ -35,7 +37,11 @@ def preprocess_numpy(
     import cv2
 
     arr = np.asarray(img_rgb_hwc, dtype=np.float32) / 255.0
-    arr = cv2.resize(arr, (input_size, input_size), interpolation=cv2.INTER_LINEAR)
+    if isinstance(input_size, (list, tuple)):
+        height, width = int(input_size[0]), int(input_size[1])
+    else:
+        height = width = int(input_size)
+    arr = cv2.resize(arr, (width, height), interpolation=cv2.INTER_LINEAR)
     mean = np.array(IMAGENET_MEAN, dtype=np.float32)
     std = np.array(IMAGENET_STD, dtype=np.float32)
     arr = (arr - mean) / std

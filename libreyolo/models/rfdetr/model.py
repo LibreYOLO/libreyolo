@@ -114,7 +114,6 @@ class LibreRFDETR(BaseModel):
     # Forward is pure tensor work with no host sync, verified to capture and
     # replay bit-identically (tests/unit/test_cuda_graph_families.py).
     SUPPORTS_CUDA_GRAPH = True
-    SQUARE_IMGSZ_CALLS = frozenset({"predict"})
     INPUT_SIZES: ClassVar[dict[str, int]] = {"n": 384, "s": 512, "m": 576, "l": 704}
     SEG_INPUT_SIZES: ClassVar[dict[str, int]] = {
         "n": 312,
@@ -769,7 +768,11 @@ class LibreRFDETR(BaseModel):
             chw = torch.from_numpy(arr).permute(2, 0, 1).unsqueeze(0)
             chw = F.interpolate(
                 chw,
-                size=(effective_res, effective_res),
+                size=(
+                    tuple(effective_res)
+                    if isinstance(effective_res, (list, tuple))
+                    else (effective_res, effective_res)
+                ),
                 mode="bilinear",
                 align_corners=False,
                 antialias=True,
