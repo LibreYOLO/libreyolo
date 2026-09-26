@@ -248,6 +248,9 @@ LibreDeformableDETRr50twostage.pt,
 LibreDINODETRr50.pt, LibreDINODETRr50s5.pt,
 LibreDINODETRswinl.pt,
 
+LibreGTRs.pt, LibreGTRm.pt, LibreGTRl.pt, LibreGTRx.pt,
+LibreGTRs-obb.pt, LibreGTRx-obb.pt,
+
 LibreECs.pt, LibreECm.pt, LibreECl.pt, LibreECx.pt,
 LibreECs-pose.pt, LibreECm-pose.pt, LibreECl-pose.pt,
 LibreECx-pose.pt, LibreECs-seg.pt, LibreECm-seg.pt,

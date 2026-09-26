@@ -112,3 +112,56 @@ GTR_UPSTREAM=/path/to/GTR GTR_CHECKPOINTS=/path/to/detection/weights \
 GTR_CHECKPOINTS=/path/to/detection/weights \
   pytest tests/unit/test_gtr_export.py -m 'unit and external_data'
 ```
+
+## Oriented boxes (DOTA)
+
+`task="obb"` runs the upstream DOTA v1.0 oriented-box models. Upstream publishes
+S and X weights only; its M and L OBB configs use a different, unreleased plain
+ViTAdapter backbone, so LibreYOLO builds S and X.
+
+```python
+model = LibreYOLO("LibreGTRs-obb.pt")
+result = model.predict("aerial.jpg")
+result.obb.xywhr  # (cx, cy, w, h, theta) in pixels, theta in [0, pi)
+```
+
+- Canonical names `LibreGTR{s,x}-obb.pt` download from `LibreYOLO/LibreGTR{s,x}-obb`.
+  Raw upstream `gtrobb_{s,x}_dota.pth` files auto-convert with EMA tensors unchanged.
+- Input is a fixed 1024px square. Images are resized to fit without distortion,
+  padded at the bottom and right with zeros (the DOTA split convention),
+  converted to RGB 0-1 and ImageNet-normalized. Decoding is NMS-free top-K.
+- Angles use the long-edge convention: `w >= h` and `theta` in `[0, pi)`, the same
+  contract as RT-DETRv2 OBB.
+- Class ids follow the upstream DOTA v1.0 order (`plane`, `baseball-diamond`,
+  `bridge`, `ground-track-field`, `small-vehicle`, `large-vehicle`, `ship`,
+  `tennis-court`, `basketball-court`, `storage-tank`, `soccer-ball-field`,
+  `roundabout`, `harbor`, `swimming-pool`, `helicopter`). Datasets labeled in a
+  different order, such as Ultralytics' DOTA8, need their label ids remapped
+  before `val()`.
+- ONNX and TorchScript export a fixed 1024px FP32 graph; exported models predict
+  and validate through the same decoding. GTR-S OBB ONNX export takes about three
+  minutes on CPU.
+- OBB is inference-only: `train()` raises. Porting the upstream oriented
+  criterion (MAL, KLD box loss, six-distribution FGL, Chamfer/KLD matching) and
+  its flip/rotate augmentation is future work.
+
+Evidence, CPU:
+
+- Both checkpoints strictly load, and their logits and boxes match the pinned
+  upstream graph exactly (max abs diff 0.0) at 1024px with the same portable
+  attention substitution as detection. Decoded rotated boxes and scores match
+  upstream's `OBBPostProcessor` exactly (`tests/unit/test_gtr_obb_parity.py`).
+- The publisher reports DOTA-v1.0 test AP50 of 80.0 (S) and 81.3 (X); LibreYOLO
+  has not reproduced these.
+- On the 4 DOTA8 val tiles (label ids remapped to the upstream order), S reaches
+  mAP50 1.000 / mAP50-95 0.525 and X 1.000 / 0.657. This is a pipeline check on
+  a tiny sample that may overlap upstream training data, not a DOTA benchmark.
+- ONNX and TorchScript exports of S reproduce PyTorch predictions (max abs diff
+  9e-4 px and 6e-8) and the same DOTA8 metrics.
+
+Reproduce the parity check without network access:
+
+```sh
+GTR_UPSTREAM=/path/to/GTR GTR_CHECKPOINTS=/path/to/weights \
+  pytest tests/unit/test_gtr_obb_parity.py -m 'unit and external_data'
+```
