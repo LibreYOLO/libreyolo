@@ -187,8 +187,10 @@ scales; nvfp4 as two-codes-per-byte E2M1 payload + E4M3 block scales),
 strip the masters, and cast the non-quantized remainder to fp16
 (`remainder="fp32"` keeps it exact). Measured: YOLO9-s int8 29.5 to 9.6 MB,
 RF-DETR-n nvfp4 122 to 26 MB. The packing invariant: unpacking reproduces
-the simulation bit for bit on the device you finalized on, so the finalized
-file scores exactly what you validated. Loading one gives an
+the simulation bit for bit on the device you finalized on, so a
+`remainder="fp32"` file scores exactly what you validated. The default fp16
+remainder adds half-precision rounding on top; re-run `val()` on the
+finalized file if you need its exact score. Loading one gives an
 inference-ready model; `train()` on it re-prepares masters from the packed
 weights automatically (QAT-from-PTQ); ONNX export from it re-prepares
 internally and emits the same QDQ graph. The packed layout is documented in
@@ -228,8 +230,8 @@ gradients flow to the masters. AMP, checkpoint resume, and the `distill_*`
 kwargs (MGD/CWD) compose with QAT. At setup, QAT automatically disables EMA
 and SyncBatchNorm and logs the changes because both can interfere with
 fake-quant observer and scale state. Float training is unchanged.
-`fp16`-quantized models are inference-only; the trainer rejects them with a
-pointer to `amp=True`.
+`fp16`- and `bf16`-quantized models are inference-only; the trainer rejects
+them with a pointer to `amp=True`.
 
 QAT is a finetune of an already-trained model: use finetune learning rates
 (for example `lr0=1e-4` for yolo9), not the from-scratch defaults, or the
