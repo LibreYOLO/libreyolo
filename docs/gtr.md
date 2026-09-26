@@ -199,8 +199,13 @@ denoising) with GTR's optimizer settings: AdamW at 5e-4, backbone LR multiplier
 74 (L/X) default epochs. Upstream's PoseMosaic, MixUpCopyPaste and zoom-out
 augmentations are not reproduced; the ECPose flip, color and affine transforms
 are used instead. Pose training requires the native 640px input and a
-single-class 17-keypoint dataset. LoRA is not supported for pose yet. ONNX and
-TorchScript export produce `(pred_logits, pred_keypoints)` at a fixed 640px.
+single-class 17-keypoint dataset. `lora=True` adapts the backbone q/k/v and the
+pose decoder layers' Linears (see [lora.md](lora.md)); adapter checkpoints
+reload and export merges them. A 3-epoch CPU LoRA fine-tune of GTR-S on
+coco8-pose kept keypoint mAP50-95 at 0.73 to 0.75 (0.746 before training)
+while validation loss fell from 102.5 to 90.7, and its merged ONNX and
+TorchScript exports match PyTorch within 4.3e-4 px. ONNX and TorchScript
+export produce `(pred_logits, pred_keypoints)` at a fixed 640px.
 
 ## Validation evidence
 

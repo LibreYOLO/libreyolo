@@ -57,6 +57,9 @@ class GTRPoseConfig(ECPoseConfig):
 
 class GTRPoseTrainer(ECPoseTrainer):
     artifact_model_families = ("gtr",)
+    # lora=True freezes the recurrent ViT base and the decoder layer bases and
+    # trains adapters on their Linears (libreyolo/training/lora.py).
+    supports_lora = True
 
     @classmethod
     def _config_class(cls):
@@ -67,6 +70,20 @@ class GTRPoseTrainer(ECPoseTrainer):
 
     def get_model_tag(self) -> str:
         return f"GTR-Pose-{self.config.size}"
+
+    def preserve_freeze_param(self, name, param) -> bool:
+        if not getattr(self.config, "lora", False):
+            return False
+        from ...training.lora import is_lora_parameter_name
+
+        return is_lora_parameter_name(name)
+
+    def on_setup(self):
+        if getattr(self.config, "lora", False):
+            from ...training.lora import apply_lora_to_gtr
+
+            apply_lora_to_gtr(self.model)
+        super().on_setup()
 
     def create_scheduler(self, iters_per_epoch: int):
         scheduler = ConstantLRScheduler(
