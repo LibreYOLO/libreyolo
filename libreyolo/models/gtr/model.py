@@ -629,8 +629,6 @@ class LibreGTR(LibreDFINE):
 
         from .pose_trainer import GTRPoseTrainer
 
-        if kwargs.get("lora"):
-            raise ValueError("GTR pose training does not support lora=True yet")
         kwargs.pop("pretrained", None)
         imgsz = int(kwargs.setdefault("imgsz", self.input_size))
         if imgsz != int(self.input_size):

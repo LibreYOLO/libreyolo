@@ -225,15 +225,13 @@ def test_pose_export_wrapper_traces_and_matches():
     torch.testing.assert_close(keypoints, eager["pred_keypoints"], rtol=1e-4, atol=1e-4)
 
 
-def test_pose_rejects_lora_and_wrong_keypoint_counts(tmp_path):
+def test_pose_rejects_wrong_keypoint_counts(tmp_path):
     import yaml
 
     _, checkpoint = _pose_checkpoint()
     path = tmp_path / "LibreGTRs-pose.pt"
     torch.save(checkpoint, path)
     model = LibreYOLO(str(path), device="cpu")
-    with pytest.raises(ValueError, match="lora"):
-        model.train(data="unused.yaml", lora=True)
     data = tmp_path / "hand.yaml"
     data.write_text(
         yaml.safe_dump(
@@ -249,3 +247,82 @@ def test_pose_rejects_lora_and_wrong_keypoint_counts(tmp_path):
     (tmp_path / "images").mkdir()
     with pytest.raises(ValueError, match="17"):
         model.train(data=str(data), epochs=1)
+
+
+def test_pose_lora_recipe_merge_and_checkpoint_reload(tmp_path):
+    pytest.importorskip("peft")
+    from libreyolo.training.lora import (
+        apply_lora_to_gtr,
+        merge_lora_adapters,
+        module_has_lora,
+    )
+
+    torch.manual_seed(0)
+    model = LibreGTRPoseModel("s").eval()
+    image = torch.randn(1, 3, 320, 320)
+    model.decoder.eval_spatial_size = None
+    with torch.no_grad():
+        dense = model(image)
+
+    apply_lora_to_gtr(model)
+    adapted = {
+        name.removesuffix(".lora_A.default")
+        for name, _ in model.named_modules()
+        if name.endswith(".lora_A.default")
+    }
+    # 12 backbone blocks x q/k/v, plus 3 pose decoder layers x 5 Linears.
+    assert len(adapted) == 12 * 3 + 3 * 5
+    # nn.MultiheadAttention reads out_proj.weight directly; it stays frozen.
+    assert not any("within_attn" in n or "across_attn" in n for n in adapted)
+    trainable = {n for n, p in model.named_parameters() if p.requires_grad}
+    assert all("lora_" in n for n in trainable if n.startswith("backbone.backbone."))
+    assert all(
+        "lora_" in n for n in trainable if n.startswith("decoder.decoder.layers.")
+    )
+    for head in ("encoder.", "decoder.keypoint_embedding.", "decoder.pose_embed."):
+        assert any(n.startswith(head) for n in trainable), head
+
+    # LoRA B starts at zero, so the adapted graph equals the dense one.
+    with torch.no_grad():
+        adapted_out = model(image)
+    torch.testing.assert_close(adapted_out["pred_keypoints"], dense["pred_keypoints"])
+
+    for name, param in model.named_parameters():
+        if "lora_B" in name:
+            torch.nn.init.normal_(param, std=0.02)
+    ckpt = wrap_libreyolo_checkpoint(
+        model.state_dict(),
+        model_family="gtr",
+        size="s",
+        nc=1,
+        names={0: "person"},
+        task="pose",
+        imgsz=640,
+        num_keypoints=17,
+        keypoint_dim=3,
+    )
+    path = tmp_path / "best.pt"
+    torch.save(ckpt, path)
+    loaded = LibreYOLO(str(path), device="cpu")
+    assert loaded.task == "pose" and module_has_lora(loaded.model)
+    for key, value in model.state_dict().items():
+        torch.testing.assert_close(
+            value, loaded.model.state_dict()[key], rtol=0, atol=0
+        )
+
+    with torch.no_grad():
+        tuned = model(image)["pred_keypoints"]
+        assert merge_lora_adapters(model) == len(adapted)
+        torch.testing.assert_close(
+            model(image)["pred_keypoints"], tuned, rtol=1e-4, atol=1e-4
+        )
+
+
+def test_pose_trainer_accepts_lora():
+    from libreyolo.models.gtr.pose_trainer import GTRPoseTrainer
+
+    assert GTRPoseTrainer.supports_lora
+    trainer = object.__new__(GTRPoseTrainer)
+    trainer.config = type("C", (), {"lora": True})()
+    assert trainer.preserve_freeze_param("x.lora_A.default.weight", None)
+    assert not trainer.preserve_freeze_param("x.weight", None)
