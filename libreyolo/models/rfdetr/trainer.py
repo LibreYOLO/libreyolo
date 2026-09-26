@@ -44,6 +44,52 @@ from .seg_transforms import (
 logger = logging.getLogger(__name__)
 
 
+def _class_name_key(name) -> str:
+    return " ".join(str(name).replace("_", " ").replace("-", " ").lower().split())
+
+
+def pretrained_class_rows(
+    head_width: int,
+    checkpoint_names: Optional[Dict[int, str]],
+    dataset_names: Optional[Dict[int, str]],
+    num_classes: int,
+) -> Optional[List[int]]:
+    """Checkpoint head rows that keep each dataset class's pretrained logits.
+
+    Output ``i`` of the new ``num_classes + 1`` head copies checkpoint row
+    ``rows[i]``. The released COCO head has 91 columns indexed by COCO
+    category id (80 named classes), so class ``j`` lives in column
+    ``COCO91_CATEGORY_IDS[j]``; a fine-tuned head is contiguous, one column
+    per class plus one. The trailing, never-targeted column copies the
+    checkpoint's never-targeted column (0 for COCO, the last one otherwise).
+
+    Returns None unless every dataset class name matches a checkpoint class.
+    """
+    if not checkpoint_names or not dataset_names or num_classes < 1:
+        return None
+    ckpt_nc = len(checkpoint_names)
+    if head_width == 91 and ckpt_nc == 80:
+        from ...utils.coco import COCO91_CATEGORY_IDS
+
+        columns, empty_column = list(COCO91_CATEGORY_IDS), 0
+    elif head_width == ckpt_nc + 1:
+        columns, empty_column = list(range(ckpt_nc)), ckpt_nc
+    else:
+        return None
+    lookup: Dict[str, int] = {}
+    for j in range(ckpt_nc):
+        if j not in checkpoint_names:
+            return None
+        lookup.setdefault(_class_name_key(checkpoint_names[j]), columns[j])
+    rows = []
+    for i in range(num_classes):
+        column = lookup.get(_class_name_key(dataset_names[i])) if i in dataset_names else None
+        if column is None:
+            return None
+        rows.append(column)
+    return rows + [empty_column]
+
+
 def _pose_worker_init_fn(worker_id: int) -> None:
     cv2.setNumThreads(0)
     torch.set_num_threads(1)
@@ -609,6 +655,27 @@ class RFDETRTrainer(BaseTrainer):
             )
         return train_ds
 
+    def _pretrained_class_rows(self, task: str) -> Optional[List[int]]:
+        """Name-matched head rows (see ``pretrained_class_rows``), or None.
+
+        Pose is excluded: ``LibreRFDETR.train`` already replaced the wrapper's
+        names with the dataset's, so the checkpoint names are gone.
+        """
+        wrapper = getattr(self, "wrapper_model", None)
+        if task == "pose" or wrapper is None or self.config.single_cls:
+            return None
+        names = getattr(wrapper, "names", None) or {}
+        nb_classes = int(getattr(wrapper, "nb_classes", None) or len(names))
+        if any(i not in names for i in range(nb_classes)):
+            return None
+        names = {i: names[i] for i in range(nb_classes)}
+        return pretrained_class_rows(
+            int(self.model.model.class_embed.out_features),
+            names,
+            self._class_names,
+            int(self.config.num_classes),
+        )
+
     def on_setup(self):
         task = getattr(getattr(self, "wrapper_model", None), "task", "detect")
         # Classification and semantic compute their loss inside the model head
@@ -656,6 +723,22 @@ class RFDETRTrainer(BaseTrainer):
             # adds back (``num_classes + 1``) so SetCriterion sees the full width.
             self.model.nb_classes = schema_width
             self.model.args.num_classes = max(0, schema_width - 1)
+        elif (rows := self._pretrained_class_rows(task)) is not None:
+            # Dataset classes are checkpoint classes (e.g. COCO names on the
+            # COCO-pretrained head): keep each class's pretrained logits.
+            head_width = int(self.model.model.class_embed.out_features)
+            if rows != list(range(head_width)):
+                self.model.model.select_detection_head_rows(rows)
+                if is_main_process():
+                    logger.info(
+                        "Dataset classes match the checkpoint's class names: "
+                        "mapped the pretrained classification head (%d outputs) "
+                        "to the dataset's %d classes by name.",
+                        head_width,
+                        self.config.num_classes,
+                    )
+            self.model.nb_classes = self.config.num_classes
+            self.model.args.num_classes = self.config.num_classes
         elif self.model.nb_classes != self.config.num_classes:
             head_outputs = (
                 self.config.num_classes
@@ -664,13 +747,15 @@ class RFDETRTrainer(BaseTrainer):
             )
             if is_main_process():
                 logger.warning(
-                    "Class count changed (checkpoint head: %d classes, dataset: %d): "
-                    "reinitializing the detection head from scratch. The pretrained "
-                    "head weights are discarded, so accuracy starts low and short "
-                    "fine-tunes underperform the checkpoint; budget enough epochs "
-                    "for the new head to converge.",
+                    "Dataset classes differ from the checkpoint's (checkpoint "
+                    "head: %d classes, dataset: %d): resizing the classification "
+                    "head to %d outputs by truncating or tiling its pretrained "
+                    "rows, which do not correspond to the dataset classes. Class "
+                    "scores must be relearned, so short fine-tunes underperform "
+                    "the checkpoint; budget enough epochs for the head to converge.",
                     self.model.nb_classes,
                     self.config.num_classes,
+                    head_outputs,
                 )
             self.model.model.reinitialize_detection_head(head_outputs)
             self.model.nb_classes = self.config.num_classes
