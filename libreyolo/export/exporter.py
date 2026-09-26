@@ -185,6 +185,9 @@ _RECTANGULAR_EXPORT_FAMILIES = {
     "realesrgan",
     "quicksrnet",
 }
+# (family, task) pairs that export a rectangular canvas although the family's
+# other tasks are fixed-square. GTR semantic slides square windows over it.
+_RECTANGULAR_EXPORT_TASKS = {("gtr", "semantic")}
 _RECTANGULAR_EXPORT_FORMATS = {
     "coreai",
     "coreml",
@@ -926,7 +929,15 @@ class BaseExporter(ABC):
             )
         if model_name == "domedetr":
             raise NotImplementedError(_DOMEDETR_EXPORT_MESSAGE)
-        if _is_rectangular_imgsz(imgsz) and model_name in _FIXED_SQUARE_EXPORT_FAMILIES:
+        rectangular_task = (
+            model_name,
+            getattr(self.model, "task", None),
+        ) in _RECTANGULAR_EXPORT_TASKS
+        if (
+            _is_rectangular_imgsz(imgsz)
+            and model_name in _FIXED_SQUARE_EXPORT_FAMILIES
+            and not rectangular_task
+        ):
             raise NotImplementedError(
                 f"Rectangular imgsz export is not supported for {model_name}: "
                 "this family uses a fixed square export/preprocessing spatial contract. "
@@ -935,6 +946,7 @@ class BaseExporter(ABC):
         if (
             _is_rectangular_imgsz(imgsz)
             and model_name not in _RECTANGULAR_EXPORT_FAMILIES
+            and not rectangular_task
         ):
             raise NotImplementedError(
                 "Rectangular imgsz export is currently supported for "

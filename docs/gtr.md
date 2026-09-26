@@ -61,8 +61,8 @@ silently ignored.
 and the decoder layers while the backbone base stays frozen (see
 [lora.md](lora.md)); it needs `pip install "libreyolo[lora]"` and works from
 Python and the CLI. Adapter checkpoints reload directly and export merges the
-adapters into dense weights. The other GTR tasks (segmentation, pose, depth,
-OBB, semantic segmentation) are not implemented.
+adapters into dense weights. Semantic segmentation is described below; the
+other GTR tasks (segmentation, pose, depth, OBB) are not implemented.
 
 ```python
 model = LibreYOLO("LibreGTRs.pt")
@@ -111,4 +111,74 @@ GTR_UPSTREAM=/path/to/GTR GTR_CHECKPOINTS=/path/to/detection/weights \
   pytest tests/unit/test_gtr_parity.py -m 'unit and external_data'
 GTR_CHECKPOINTS=/path/to/detection/weights \
   pytest tests/unit/test_gtr_export.py -m 'unit and external_data'
+```
+
+## Semantic segmentation
+
+`LibreYOLO("LibreGTR{s,m,l,x}-sem.pt")` loads the upstream Cityscapes
+checkpoints (`semseg/gtrsemseg_*_cityscapes.pth` at the pinned weight
+revision, EMA tensors unchanged) into the same `LibreGTR` class with
+`task="semantic"`. The network is the GTR backbone, a one-level stride-8
+encoder and an FCN head (conv3x3, BN, ReLU, dropout, conv1x1) over the 19
+Cityscapes train IDs; 255 is ignore.
+
+```python
+model = LibreYOLO("LibreGTRs-sem.pt")
+mask = model.predict("street.jpg")[0].semantic_mask
+model.val(data="cityscapes.yaml")
+model.train(data="my_semantic.yaml", epochs=30)
+```
+
+These pretrained weights are trained on Cityscapes, whose terms restrict the
+dataset and derived models to non-commercial use; a download notice says so.
+Fine-tuned or from-scratch weights carry no such term.
+
+Geometry follows upstream evaluation. The canvas is 1024x2048. Images are
+letterboxed into it (top-left, grey pad) and the network averages the logits
+of overlapping 1024px square windows at a 768px stride, then crops the padding
+and resizes to the source image. A Cityscapes frame therefore runs exactly as
+upstream's slide inference: three windows, no resizing. A square input whose
+side is divisible by 32 runs in one pass; inputs shorter than 1024px are
+rescaled for the windows and rescaled back. `predict`, `val` and exported
+backends share this letterbox, and ImageNet normalization happens inside the
+network (the input is RGB in [0, 1]).
+
+ONNX and TorchScript export a fixed 1024x2048 FP32 graph that contains the
+three windows. ONNX export skips onnxsim by default because it spends about
+15 minutes folding the recurrence Loops on CPU without shrinking the graph;
+pass `simplify=True` to run it anyway. GTR-S exports in about 8 seconds.
+
+Training uses the shared semantic trainer with the upstream recipe: AdamW,
+base LR 5e-4, backbone LR multiplier 0.3 (S), 0.36 (M) or 0.24 (L/X), weight
+decay 1e-4 (S/M) or 1.25e-4 (L/X) and none on norm/BN/bias, 2000-iteration
+quadratic warmup, 6 flat epochs, cosine decay to half the LR, EMA 0.9999,
+gradient clipping 0.1, FP32, 30 epochs, batch 8 and 1024px square crops.
+Augmentation is flip, torchvision photometric distortion and large-scale
+jitter (long side fit to 1024 times 1 to 4, then a crop), through the shared
+semantic dataset. It differs from upstream in the grey image padding and in
+not re-sampling crops dominated by one class. The head and patch embedding use
+BatchNorm; upstream trains with SyncBN over a global batch of 8, and much
+smaller single-process batches give noisy batch statistics.
+
+Semantic validation evidence:
+
+- All four checkpoints strictly load. On CPU with the portable operators, all
+  four match the pinned upstream graph exactly (max abs diff 0.0) for a
+  single 1024px window and for upstream's own `slide_inference` over a
+  1024x2048 input.
+- GTR-S predicts sensible maps on the bundled photos (sky, building, person,
+  vegetation, sidewalk).
+- GTR-S ONNX and TorchScript exports reload and reproduce the PyTorch mask
+  with 100% pixel agreement on a 3072x1194 photo.
+- `val()` on two photos labeled with the model's own `predict()` output gives
+  99.5% pixel accuracy; the residue is the canvas-resolution comparison.
+- A two-epoch CPU fine-tune from GTR-S trains, validates, saves and reloads.
+  It is a pipeline check, not a convergence result.
+
+Not yet measured: Cityscapes mIoU (no Cityscapes copy was available), GPU
+speed, and real-data fine-tuning convergence.
+
+```sh
+GTR_UPSTREAM=/path/to/GTR GTR_SEM_CHECKPOINTS=/path/to/semseg/weights \
+  pytest tests/unit/test_gtr_sem_parity.py -m 'unit and external_data'
 ```

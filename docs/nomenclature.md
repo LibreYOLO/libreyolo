@@ -685,6 +685,12 @@ LibrePPLiteSegb50-sem.pt   # STDC2 backbone, Cityscapes 19-class, 512x1024
 LibrePPLiteSegt75-sem.pt   # STDC1 backbone, Cityscapes 19-class, 768x1536
 LibrePPLiteSegb75-sem.pt   # STDC2 backbone, Cityscapes 19-class, 768x1536
 
+# gtr - GTR semantic segmentation, 1024px windows over a native 1024x2048 canvas
+LibreGTRs-sem.pt           # GTR-S, Cityscapes 19-class semantic
+LibreGTRm-sem.pt           # GTR-M, Cityscapes 19-class semantic
+LibreGTRl-sem.pt           # GTR-L, Cityscapes 19-class semantic
+LibreGTRx-sem.pt           # GTR-X, Cityscapes 19-class semantic
+
 # unet - encoder-decoder semantic segmentation on a native 1024x2048 canvas
 LibreUNets-sem.pt          # UNet-S5-D16 + FCN head, Cityscapes 19-class, 1024x2048
 
@@ -1088,3 +1094,9 @@ Family `gtr`, class `LibreGTR`, sizes `s`, `m`, `l`, `x`, task `detect`.
 Canonical checkpoint names are `LibreGTR{s,m,l,x}.pt`. Upstream detection
 `.pth` files auto-convert using EMA parameters; other GTR tasks are not yet
 supported. See [GTR validation evidence](gtr.md).
+
+GTR semantic segmentation (`task="semantic"`, suffix `-sem`) uses the same
+class and sizes: `LibreGTR{s,m,l,x}-sem.pt`, Cityscapes 19-class, native
+1024x2048 canvas with 1024px sliding windows. These pretrained weights are
+NON-COMMERCIAL (Cityscapes dataset terms); fine-tuned or from-scratch weights
+carry no such restriction.
