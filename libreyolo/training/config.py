@@ -266,6 +266,8 @@ class TrainConfig:
     name: str = "exp"
     exist_ok: bool = False
     save_period: int = 10
+    # Validate every N epochs and always after the final one; <= 0 (or
+    # ``val=False``) turns validation during training off.
     eval_interval: int = 10
     # Prediction/NMS cap used by validation during training.
     max_det: int = 300
@@ -383,7 +385,12 @@ class TrainConfig:
 
     @classmethod
     def from_kwargs(cls, **kwargs):
-        """Construct config, warning on unknown keys."""
+        """Construct config, warning on unknown keys.
+
+        ``val=False``, the ecosystem's spelling, turns validation during
+        training off (``eval_interval=0``), as the CLI ``val=false`` does.
+        """
+        val = kwargs.pop("val", True)
         valid = {f.name for f in fields(cls)}
         unknown = set(kwargs) - valid
         if unknown:
@@ -392,7 +399,10 @@ class TrainConfig:
                 stacklevel=2,
             )
         filtered = {k: v for k, v in kwargs.items() if k in valid}
-        return cls(**filtered)
+        config = cls(**filtered)
+        if not val:
+            config.eval_interval = 0
+        return config
 
     def to_dict(self) -> dict:
         """Convert to dict with tuples converted to lists for YAML/checkpoint."""

@@ -3073,9 +3073,11 @@ class BaseTrainer(ABC):
     # =========================================================================
 
     def _should_validate_epoch(self, epoch: int) -> bool:
-        scheduled = (
-            self.config.eval_interval > 0
-            and (epoch + 1) % self.config.eval_interval == 0
+        # The final epoch always validates when validation is on, so a run
+        # shorter than eval_interval still reports metrics and writes best.pt.
+        scheduled = self.config.eval_interval > 0 and (
+            (epoch + 1) % self.config.eval_interval == 0
+            or self._is_final_epoch(epoch)
         )
         final_plot = (
             bool(getattr(self.config, "save_plots", False))

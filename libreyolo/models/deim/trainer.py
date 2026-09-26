@@ -690,10 +690,8 @@ class DEIMTrainer(DETREncoderCudaGraphMixin, BaseTrainer):
         # epoch, so validating the barely-trained weights would waste time and
         # could poison the best-metric state.
         val_metrics = None
-        if (
-            not getattr(self, "_stop_training", False)
-            and self.config.eval_interval > 0
-            and (epoch + 1) % self.config.eval_interval == 0
+        if not getattr(self, "_stop_training", False) and self._should_validate_epoch(
+            epoch
         ):
             val_metrics = self._validate_epoch(epoch)
 
@@ -840,10 +838,8 @@ class DEIMTrainer(DETREncoderCudaGraphMixin, BaseTrainer):
         # epoch, so validating the barely-trained weights would waste time and
         # could poison the best-metric state.
         val_metrics = None
-        if (
-            not getattr(self, "_stop_training", False)
-            and self.config.eval_interval > 0
-            and (epoch + 1) % self.config.eval_interval == 0
+        if not getattr(self, "_stop_training", False) and self._should_validate_epoch(
+            epoch
         ):
             val_metrics = self._validate_epoch(epoch)
 

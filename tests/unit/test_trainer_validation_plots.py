@@ -42,9 +42,9 @@ def test_save_plots_forces_validation_on_final_epoch():
     assert trainer._should_validate_epoch(4) is True
 
 
-def test_final_epoch_validation_not_forced_when_plots_disabled():
+def test_final_epoch_validation_not_forced_when_validation_is_off():
     trainer = _make_trainer(
-        SimpleNamespace(eval_interval=2, epochs=5, save_plots=False)
+        SimpleNamespace(eval_interval=0, epochs=5, save_plots=False)
     )
 
     assert trainer._should_validate_epoch(4) is False
