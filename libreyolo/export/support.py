@@ -76,6 +76,14 @@ _add("blocked", ("gtr",), ("detect",),
      tuple(fmt for fmt in EXPORT_FORMATS if fmt not in ("onnx", "torchscript")),
      reason="GTR currently implements only portable ONNX and TorchScript export.")
 
+_add("available", ("gtr",), ("obb",), ("onnx", "torchscript"),
+     reason="Portable gated recurrence with fixed 1024px input; NMS-free rotated boxes.",
+     constraint="FP32; static square input; no custom CUDA plugin")
+
+_add("blocked", ("gtr",), ("obb",),
+     tuple(fmt for fmt in EXPORT_FORMATS if fmt not in ("onnx", "torchscript")),
+     reason="GTR currently implements only portable ONNX and TorchScript export.")
+
 # Existing parity-backed paths. New validated rows must land with a parity test.
 _add(
     "validated",

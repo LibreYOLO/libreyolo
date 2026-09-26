@@ -1,4 +1,4 @@
-"""Convert GTR detection EMA weights to a strict LibreYOLO checkpoint.
+"""Convert GTR detection or OBB EMA weights to a strict LibreYOLO checkpoint.
 
 Source: Intellindust-AI-Lab/GTR, MIT, revision
 782e737efe2e6437ac537fbdcee089673d3376c1. Learned tensors are unchanged.
@@ -26,21 +26,32 @@ def convert(input_path: str, output_path: str, size: str | None = None):
     state = extract_state_dict(load_checkpoint(input_path), prefer_ema=True)
     detected = LibreGTR.detect_size(state)
     if not LibreGTR.can_load(state) or detected is None:
-        raise ValueError("Not a supported GTR detection checkpoint")
+        raise ValueError("Not a supported GTR checkpoint")
     if size is not None and size != detected:
         raise ValueError(f"Checkpoint size is {detected}, not {size}")
     nc = LibreGTR.detect_nb_classes(state)
-    model = LibreGTRModel(detected, nc)
+    task = LibreGTR.detect_checkpoint_task(state) or "detect"
+    extra = {}
+    if task == "obb":
+        from libreyolo.models.gtr.obb_nn import OBB_INPUT_SIZE, LibreGTROBBModel
+
+        model = LibreGTROBBModel(detected, nc)
+        imgsz = OBB_INPUT_SIZE
+        extra["names"] = LibreGTR.default_checkpoint_names(nc)
+    else:
+        model = LibreGTRModel(detected, nc)
+        imgsz = 640
     model.load_state_dict(state, strict=True)
     checkpoint = wrap_libreyolo_checkpoint(
         state,
         model_family="gtr",
         size=detected,
         nc=nc,
-        task="detect",
-        imgsz=640,
-        supported_tasks=("detect",),
+        task=task,
+        imgsz=imgsz,
+        supported_tasks=LibreGTR.SUPPORTED_TASKS,
         default_task="detect",
+        **{k: v for k, v in extra.items() if v is not None},
     )
     path = Path(output_path)
     path.parent.mkdir(parents=True, exist_ok=True)

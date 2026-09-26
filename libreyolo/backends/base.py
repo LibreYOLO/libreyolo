@@ -692,6 +692,12 @@ class BaseBackend(ABC):
             )
             return tensor, img, size, 1.0
         elif self.model_family in ("tinyformer", "gtr"):
+            if self.model_family == "gtr" and self.task == "obb":
+                from ..models.gtr.obb import preprocess_obb_image
+
+                return preprocess_obb_image(
+                    image, _imgsz_hw(effective_imgsz), color_format
+                )
             tensor, img, size = self._preprocess_tinyformer(
                 image, effective_imgsz, color_format
             )
@@ -1486,6 +1492,15 @@ class BaseBackend(ABC):
             )
             return boxes, scores, cls, None
         elif self.model_family in ("tinyformer", "gtr"):
+            if self.model_family == "gtr" and self.task == "obb":
+                return self._parse_rtdetr_obb(
+                    all_outputs,
+                    effective_imgsz,
+                    orig_w,
+                    orig_h,
+                    conf,
+                    max_det=max_det,
+                )
             boxes, scores, cls = self._parse_dfine(
                 all_outputs, orig_w, orig_h, conf, max_det=max_det
             )
@@ -4210,6 +4225,11 @@ class BaseBackend(ABC):
                 else DEIMv2ValPreprocessor
             )
             return preprocessor_cls(img_size=_imgsz_hw(img_size))
+
+        if self.model_family == "gtr" and self.task == "obb":
+            from ..models.gtr.obb import GTROBBValPreprocessor
+
+            return GTROBBValPreprocessor(img_size=_imgsz_hw(img_size))
 
         if self.model_family in ("tinyformer", "gtr"):
             return DEIMv2DINOValPreprocessor(img_size=_imgsz_hw(img_size))

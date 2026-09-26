@@ -2821,6 +2821,8 @@ Copyright (c) 2026 Intellindust-AI-Lab / The GTR Authors.
 
 Ported backbone, spatial SwiGLU, feature projector, decoder, matching, loss,
 scheduler, Mosaic and batch MixUp in libreyolo/models/gtr/.
+Ported the oriented-box (OBB) decoder, rotated-box operations and oriented
+denoising from engine/gtr/obb/ as libreyolo/models/gtr/obb_*.py.
 Modified for native LibreYOLO construction, portable attention, local imports,
 strict checkpoints, and validation loss output/normalization.
 

@@ -225,6 +225,7 @@ ships:
 | `rtdetr`    | `r18`, `r34`, `r50`, `r50m`, `r101`, `l`, `x` |
 | `rtdetrv2`  | detect: `r18`, `r34`, `r50`, `r50m`, `r101`; OBB: `n`, `s`, `m`, `l`, `x` (fixed 1024) |
 | `rtdetrv4`  | `s`, `m`, `l`, `x` |
+| `gtr`       | detect: `s`, `m`, `l`, `x` (640); OBB: `s`, `x` (fixed 1024) |
 | `rtmdet`    | `t`, `s`, `m`, `l`, `x` |
 | `rfdetr`    | `n`, `s`, `m`, `l` |
 | `lwdetr`    | `t`, `s`, `m`, `l`, `x` (upstream tiny / small / medium / large / xlarge; all at 640, which must stay a multiple of 64) |
@@ -520,6 +521,7 @@ Detector-factory family support follows:
 | `rtdetr`    | `("detect",)` (default)             | detect | detect-only |
 | `rtdetrv2`  | `("detect", "obb")`               | detect | OBB uses the DOTA `n`/`s`/`m`/`l`/`x` graph and is inference-only; detect remains trainable |
 | `rtdetrv4`  | `("detect",)` (default)             | detect | detect-only |
+| `gtr`       | `("detect", "obb")`                 | detect | OBB uses the upstream DOTA v1.0 class order, `s`/`x` only, and is inference-only; detect is trainable |
 | `lwdetr`    | `("detect",)`                       | detect | detect-only; inference-only (no trainer, `train()` raises) |
 | `faster_rcnn` | `("detect",)`                     | detect | detect-only; inference-only native RPN + RoI graph; official COCO heads map sparse 91-way ids to contiguous COCO-80 |
 | `retinanet` | `("detect",)`                       | detect | detect-only; inference-only native focal-loss head and P3-P7 anchor graph; official COCO heads map sparse 91-way ids to contiguous COCO-80 |
@@ -1086,5 +1088,9 @@ generic state-dict factory. See
 
 Family `gtr`, class `LibreGTR`, sizes `s`, `m`, `l`, `x`, task `detect`.
 Canonical checkpoint names are `LibreGTR{s,m,l,x}.pt`. Upstream detection
-`.pth` files auto-convert using EMA parameters; other GTR tasks are not yet
-supported. See [GTR validation evidence](gtr.md).
+`.pth` files auto-convert using EMA parameters. See
+[GTR validation evidence](gtr.md).
+
+Task `obb` uses sizes `s` and `x` (the only published DOTA weights) with
+canonical names `LibreGTR{s,x}-obb.pt`; upstream `gtrobb_{s,x}_dota.pth` files
+auto-convert the same way.

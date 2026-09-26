@@ -964,3 +964,14 @@ parameters and adds LibreYOLO metadata without changing learned tensors.
 Converted checkpoints: LibreYOLO/LibreGTRs, LibreYOLO/LibreGTRm,
 LibreYOLO/LibreGTRl and LibreYOLO/LibreGTRx. Download revisions are pinned
 in libreyolo/models/gtr/model.py.
+
+GTR oriented boxes (s/x)
+Upstream: https://huggingface.co/Phoenix8125/GTR (obb/gtrobb_{s,x}_dota.pth)
+Code: https://github.com/Intellindust-AI-Lab/GTR
+The upstream model card explicitly declares MIT for the published weights.
+The checkpoints are fine-tuned on DOTA v1.0, whose images and annotations are
+licensed for academic use only (https://captain-whu.github.io/DOTA/dataset.html);
+no DOTA data is redistributed. Conversion selects EMA parameters and adds
+LibreYOLO metadata without changing learned tensors. Converted checkpoints:
+LibreYOLO/LibreGTRs-obb and LibreYOLO/LibreGTRx-obb. Download revisions are
+listed in TASK_HF_REVISIONS in libreyolo/models/gtr/model.py.
