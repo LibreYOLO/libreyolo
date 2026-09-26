@@ -408,6 +408,37 @@ class TestBuildTrainKwargs:
         assert kwargs["resume"] == str(checkpoint)
         assert not (tmp_path / "runs" / "train").exists()
 
+    def test_rfdetr_cli_resume_forwards_only_user_options(self, tmp_path):
+        """CLI defaults (epochs, batch, lr0, ...) overrode the saved settings
+        of a resumed RF-DETR run and could reject it as already finished."""
+        checkpoint = tmp_path / "runs" / "rf" / "weights" / "last.pt"
+        checkpoint.parent.mkdir(parents=True)
+        checkpoint.write_bytes(b"")
+        params = {
+            "project": str(tmp_path / "runs" / "train"),
+            "name": "rfdetr_exp",
+            "exist_ok": False,
+            "resume": True,
+            "epochs": 100,
+            "batch": 4,
+            "lr0": 1e-4,
+            "workers": 8,
+            "patience": 50,
+            "ema": True,
+        }
+
+        kwargs = cli_config._build_rfdetr_train_kwargs(
+            params, model_path=str(checkpoint), user_provided={"resume", "epochs"}
+        )
+
+        assert kwargs["epochs"] == 100
+        assert not {"batch", "lr0", "num_workers", "use_ema", "early_stopping",
+                    "early_stopping_patience"} & kwargs.keys()
+        new_run = cli_config._build_rfdetr_train_kwargs(
+            {**params, "resume": False}, user_provided=set()
+        )
+        assert (new_run["batch"], new_run["num_workers"]) == (4, 8)
+
     def test_rfdetr_cli_resume_keeps_an_explicit_run_name(self, tmp_path):
         checkpoint = tmp_path / "runs" / "rf" / "weights" / "last.pt"
         checkpoint.parent.mkdir(parents=True)

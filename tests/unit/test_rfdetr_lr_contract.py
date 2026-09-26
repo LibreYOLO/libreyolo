@@ -150,6 +150,63 @@ def test_rfdetr_resume_true_continues_the_loaded_run(monkeypatch, tmp_path):
     assert captured["kwargs"]["exist_ok"] is True
 
 
+def _save_rfdetr_run(path, **saved):
+    import torch
+
+    config = rfdetr_trainer.RFDETRConfig(**saved).to_dict()
+    path.parent.mkdir(parents=True)
+    torch.save({"epoch": 0, "config": config}, path)
+    return path
+
+
+def test_rfdetr_resume_restores_saved_settings(monkeypatch, tmp_path):
+    """RF-DETR resumed with its signature defaults (100 epochs, batch 4,
+    lr 1e-4) instead of the run's settings."""
+    captured = _install_dummy_trainer(monkeypatch, {"save_dir": "unused"})
+    last = _save_rfdetr_run(
+        tmp_path / "rf" / "weights" / "last.pt",
+        epochs=7, batch=3, lr0=0.0123, workers=0, ema=False, weight_decay=0.05,
+    )
+
+    _make_wrapper().train(data="data.yaml", resume=str(last))
+
+    kwargs = captured["kwargs"]
+    assert captured["resume"] == str(last)
+    assert (kwargs["epochs"], kwargs["batch"], kwargs["workers"]) == (7, 3, 0)
+    assert kwargs["lr0"] == pytest.approx(0.0123)
+    assert (kwargs["ema"], kwargs["weight_decay"]) == (False, 0.05)
+
+
+def test_rfdetr_resume_explicit_arguments_and_aliases_win(monkeypatch, tmp_path):
+    captured = _install_dummy_trainer(monkeypatch, {"save_dir": "unused"})
+    last = _save_rfdetr_run(
+        tmp_path / "rf" / "weights" / "last.pt", epochs=7, batch=3, lr0=0.0123, workers=0
+    )
+
+    _make_wrapper().train(
+        data="data.yaml", resume=str(last), epochs=9, batch_size=5, lr=0.002, num_workers=2
+    )
+
+    kwargs = captured["kwargs"]
+    assert (kwargs["epochs"], kwargs["batch"], kwargs["workers"]) == (9, 5, 2)
+    assert kwargs["lr0"] == pytest.approx(0.002)
+
+
+def test_rfdetr_resume_without_saved_settings_keeps_the_defaults(monkeypatch, tmp_path):
+    import torch
+
+    captured = _install_dummy_trainer(monkeypatch, {"save_dir": "unused"})
+    last = tmp_path / "rf" / "weights" / "last.pt"
+    last.parent.mkdir(parents=True)
+    torch.save({"epoch": 0}, last)
+
+    _make_wrapper().train(data="data.yaml", resume=str(last))
+
+    kwargs = captured["kwargs"]
+    assert (kwargs["epochs"], kwargs["batch"]) == (100, 4)
+    assert kwargs["lr0"] == pytest.approx(1e-4)
+
+
 def test_rfdetr_train_rejects_conflicting_lr_aliases(tmp_path):
     wrapper = rfdetr_model.LibreRFDETR.__new__(rfdetr_model.LibreRFDETR)
     wrapper.model = object()

@@ -40,6 +40,13 @@ logger = logging.getLogger(__name__)
 _COCO91_TO_COCO80 = COCO91_TO_COCO80
 
 _TRAIN_DEFAULTS = RFDETRConfig()
+# RF-DETR train() spellings of TrainConfig fields.
+_TRAIN_ARG_ALIASES = {
+    "num_workers": "workers",
+    "use_ema": "ema",
+    "checkpoint_interval": "save_period",
+    "early_stopping_patience": "patience",
+}
 
 
 _RFDETR_UPSTREAM_WEIGHT_URLS = {
@@ -1211,6 +1218,20 @@ class LibreRFDETR(BaseModel):
         if model is not None and hasattr(model, "eval"):
             model.eval()
 
+    def _resume_saved_settings(self, resume_path: str | Path) -> dict[str, Any]:
+        """Training settings saved in a resume checkpoint, minus the ones a
+        resume never restores (architecture, device, run directory, data)."""
+        from dataclasses import fields
+
+        from ..base.model import _RESUME_UNRESTORED_KEYS
+
+        valid = {field.name for field in fields(RFDETRConfig)}
+        return {
+            key: value
+            for key, value in self._checkpoint_train_config(resume_path).items()
+            if key in valid and key != "data" and key not in _RESUME_UNRESTORED_KEYS
+        }
+
     def _resume_checkpoint_uses_lora(self, resume_path: str | Path) -> bool:
         """Return True when a resume checkpoint needs a LoRA-wrapped graph."""
         path = Path(resume_path)
@@ -1240,7 +1261,7 @@ class LibreRFDETR(BaseModel):
     def train(
         self,
         data: str,
-        epochs: int = 100,
+        epochs: int | None = None,
         batch_size: int | None = None,
         lr: float | None = None,
         output_dir: str | None = None,
@@ -1253,7 +1274,7 @@ class LibreRFDETR(BaseModel):
 
         Args:
             data: Path to the dataset YAML file.
-            epochs: Number of epochs to train.
+            epochs: Number of epochs to train (default 100).
             batch_size: Batch size (alias of ``batch=`` passed via kwargs).
             lr: Initial learning rate (alias of ``lr0=`` passed via kwargs).
             output_dir: Directory for training runs and checkpoints, split into
@@ -1261,6 +1282,8 @@ class LibreRFDETR(BaseModel):
                 ``<RFDETRConfig.project>/<RFDETRConfig.name>`` when omitted;
                 ``project=`` / ``name=`` kwargs take precedence over this split.
             resume: Checkpoint path, or True to resume the loaded checkpoint.
+                The run continues with its saved training settings; arguments
+                passed explicitly override them.
             callbacks: Optional callback or iterable. One object may define
                 fitness(metrics) to select best.pt and drive patience; custom
                 fitness requires a new run (resume=False).
@@ -1295,6 +1318,33 @@ class LibreRFDETR(BaseModel):
             # resume=True reads weights/last.pt from this exact run_dir below;
             # never let _get_save_dir() increment away from it mid-resume.
             exist_ok = True
+
+        resume_path = None
+        if resume:
+            if resume_checkpoint is not None:
+                resume_path = resume_checkpoint
+            else:
+                resume_path = (
+                    run_dir / "weights" / "last.pt" if resume is True else resume
+                )
+            # Continue with the run's saved settings; explicit arguments win.
+            saved = self._resume_saved_settings(resume_path)
+            if epochs is None:
+                epochs = saved.get("epochs")
+            if batch is None and batch_size is None:
+                batch = saved.get("batch")
+            if lr0 is None and lr is None:
+                lr0 = saved.get("lr0")
+            explicit = set(train_kwargs) | {
+                canonical
+                for alias, canonical in _TRAIN_ARG_ALIASES.items()
+                if alias in train_kwargs
+            }
+            for key, value in saved.items():
+                if key not in explicit and key not in ("epochs", "batch", "lr0"):
+                    train_kwargs[key] = value
+        if epochs is None:
+            epochs = _TRAIN_DEFAULTS.epochs
 
         if batch is not None and batch_size is not None and batch != batch_size:
             raise ValueError(
@@ -1409,25 +1459,12 @@ class LibreRFDETR(BaseModel):
                 name="RF-DETR train imgsz",
             )
 
-        aliases = {
-            "num_workers": "workers",
-            "use_ema": "ema",
-            "checkpoint_interval": "save_period",
-            "early_stopping_patience": "patience",
-        }
-        for src, dst in aliases.items():
+        for src, dst in _TRAIN_ARG_ALIASES.items():
             if src in train_kwargs:
                 train_kwargs[dst] = train_kwargs.pop(src)
         train_kwargs.pop("early_stopping", None)
 
-        resume_path = None
         if resume:
-            if resume_checkpoint is not None:
-                resume_path = resume_checkpoint
-            else:
-                resume_path = (
-                    run_dir / "weights" / "last.pt" if resume is True else resume
-                )
             if not train_kwargs.get("single_cls", False):
                 checkpoint_config = self._checkpoint_train_config(resume_path)
                 if bool(checkpoint_config.get("single_cls", False)):

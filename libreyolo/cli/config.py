@@ -518,14 +518,16 @@ def _build_rfdetr_train_kwargs(
         "precise_bn": "precise_bn",
     }
 
+    # A resume restores the run's saved settings; only the options the user
+    # set may override them, never the CLI defaults.
     for cli_name, target_name in direct_mappings.items():
-        if cli_name in params:
+        if cli_name in params and (not resuming or cli_name in provided):
             kwargs[target_name] = params[cli_name]
 
     if "imgsz" in provided and params.get("imgsz") is not None:
         kwargs["imgsz"] = params["imgsz"]
 
-    if "patience" in params:
+    if "patience" in params and (not resuming or "patience" in provided):
         kwargs["early_stopping"] = params["patience"] > 0
         kwargs["early_stopping_patience"] = params["patience"]
 
