@@ -495,10 +495,11 @@ def _build_rfdetr_train_kwargs(
 
 
 # Families whose train() resolves its own size-, task- or checkpoint-specific
-# recipe (GTR resume settings, PP-LiteSeg's per-size train crop). Forwarding
-# the generic Typer defaults would overwrite that recipe silently, so the CLI
-# passes only the train options the user set.
-_FAMILY_RESOLVED_TRAIN_DEFAULTS = frozenset({"gtr", "ppliteseg"})
+# recipe (GTR resume settings, PP-LiteSeg's per-size train crop, YOLO-NAS's
+# per-task optimizer/LR/AMP). Forwarding the generic Typer defaults would
+# overwrite that recipe silently, so the CLI passes only the train options the
+# user set.
+_FAMILY_RESOLVED_TRAIN_DEFAULTS = frozenset({"gtr", "ppliteseg", "yolonas"})
 
 
 def build_family_train_kwargs(

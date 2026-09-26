@@ -1563,3 +1563,45 @@ def test_ppliteseg_cli_train_keeps_the_size_aware_recipe(
     # PPLiteSegConfig, not from the generic CLI defaults.
     leaked = {"scheduler", "optimizer", "lr0", "momentum", "warmup_epochs", "mosaic_prob"}
     assert not leaked & captured.keys()
+
+
+@pytest.mark.parametrize(
+    "args,expected",
+    [
+        ([], {"optimizer": "AdamW", "lr0": 5e-5, "amp": False, "epochs": 100}),
+        (
+            ["lr0=0.001", "amp=true", "optimizer=sgd"],
+            {"optimizer": "sgd", "lr0": 0.001, "amp": True, "epochs": 100},
+        ),
+        (
+            ["--lr0", "0.001", "--amp", "--optimizer", "sgd"],
+            {"optimizer": "sgd", "lr0": 0.001, "amp": True, "epochs": 100},
+        ),
+    ],
+    ids=["default", "key_value", "flag"],
+)
+def test_yolonas_obb_cli_train_keeps_the_obb_recipe(monkeypatch, args, expected):
+    """Generic CLI defaults (SGD, lr0=0.01, AMP) must not replace the OBB recipe."""
+    from libreyolo import LibreYOLONAS
+
+    captured = {}
+
+    def _capture_train_obb(self, data, **kwargs):
+        captured.update(kwargs)
+        return {"save_dir": "runs/train/yolonas_obb_exp"}
+
+    monkeypatch.setattr(LibreYOLONAS, "_train_obb", _capture_train_obb)
+    model = LibreYOLONAS(None, size="s", device="cpu", task="obb")
+    monkeypatch.setattr(
+        "libreyolo.cli.commands.train.load_model_or_exit", lambda **_kwargs: model
+    )
+    result = runner.invoke(
+        _make_app(),
+        ["model=LibreYOLONASs-obb.pt", "data=dummy.yaml", *args, "--json"],
+    )
+    assert result.exit_code == 0, result.output
+    assert {key: captured[key] for key in expected} == expected
+    assert captured["name"] == "yolonas_obb_exp"
+    # Weight decay, schedule, warmup and augmentation come from YOLONASOBBConfig.
+    leaked = {"momentum", "weight_decay", "scheduler", "warmup_epochs", "mosaic_prob"}
+    assert not leaked & captured.keys()
