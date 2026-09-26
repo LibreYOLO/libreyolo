@@ -362,3 +362,45 @@ def test_direct_constructor_attempts_autodownload(
 
     assert calls == [(target, size)]
     assert exc_info.value.__cause__ is failure
+
+
+@pytest.mark.parametrize("status_code", [401, 404])
+def test_unpublished_weights_fail_fast_with_clear_error(
+    monkeypatch, tmp_path, status_code
+):
+    _prepare(monkeypatch)
+    calls = []
+
+    def fake_get(url, **_kwargs):
+        calls.append(url)
+        return _Response([], status_code=status_code)
+
+    monkeypatch.setattr(download.requests, "get", fake_get)
+    target = tmp_path / "model.pt"
+
+    with pytest.raises(
+        download.WeightsNotPublishedError,
+        match=rf"No weights are published at .*\(HTTP {status_code}\)",
+    ) as exc_info:
+        download.download_weights(str(target), "s")
+
+    assert isinstance(exc_info.value, FileNotFoundError)
+    assert "HF_TOKEN" not in str(exc_info.value)
+    assert len(calls) == 1
+    assert not target.exists()
+    assert not target.with_name("model.pt.part").exists()
+
+
+def test_unpublished_weights_error_mentions_token_when_one_was_sent(
+    monkeypatch, tmp_path
+):
+    _prepare(monkeypatch)
+    monkeypatch.setattr(download, "_get_hf_token", lambda: "hf_test")
+    monkeypatch.setattr(
+        download.requests,
+        "get",
+        lambda _url, **_kwargs: _Response([], status_code=401),
+    )
+
+    with pytest.raises(download.WeightsNotPublishedError, match="HF_TOKEN"):
+        download.download_weights(str(tmp_path / "model.pt"), "s")
