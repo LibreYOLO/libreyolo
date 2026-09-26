@@ -1771,21 +1771,23 @@ class OnnxExporter(BaseExporter):
         )
         family = self.model._get_model_name()
         size = getattr(self.model, "size", None)
-        if family == "deformable_detr" and size == "r50twostage":
-            if half:
-                raise NotImplementedError(
-                    "Deformable DETR two-stage ONNX export is validated in FP32 only."
-                )
-            if device.type != "cpu":
-                warnings.warn(
-                    "Deformable DETR two-stage ONNX export is traced on CPU because "
-                    "the legacy PyTorch exporter can terminate while lowering its "
-                    "CUDA top-k graph. The model is restored to its original device "
-                    "after export.",
-                    RuntimeWarning,
-                    stacklevel=3,
-                )
-                device = torch.device("cpu")
+        two_stage = family == "deformable_detr" and size == "r50twostage"
+        if two_stage and half:
+            raise NotImplementedError(
+                "Deformable DETR two-stage ONNX export is validated in FP32 only."
+            )
+        # DINO-DETR selects its queries with the same two-stage encoder top-k.
+        if (two_stage or family == "dinodetr") and device.type != "cpu":
+            label = "DINO-DETR" if family == "dinodetr" else "Deformable DETR two-stage"
+            warnings.warn(
+                f"{label} ONNX export is traced on CPU because "
+                "the legacy PyTorch exporter can terminate while lowering its "
+                "CUDA top-k graph. The model is restored to its original device "
+                "after export.",
+                RuntimeWarning,
+                stacklevel=3,
+            )
+            device = torch.device("cpu")
         return imgsz, device, output_path
 
     def _preflight(self, *, half: bool, int8: bool, data: Optional[str], **kwargs):
