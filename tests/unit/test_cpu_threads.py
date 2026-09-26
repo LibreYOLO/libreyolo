@@ -51,8 +51,12 @@ def test_caps_an_oversized_pool_to_the_quota_and_restores_it(tmp_path, pool):
     assert pool["n"] == 128
 
 
-def test_quota_is_split_across_local_ranks(tmp_path, pool, monkeypatch):
-    monkeypatch.setenv("LOCAL_WORLD_SIZE", "4")
+@pytest.mark.parametrize("env", ["LOCAL_WORLD_SIZE", "WORLD_SIZE"])
+def test_quota_is_split_across_local_ranks(tmp_path, pool, monkeypatch, env):
+    # torchrun sets LOCAL_WORLD_SIZE; LibreYOLO's own spawn only WORLD_SIZE.
+    monkeypatch.delenv("LOCAL_WORLD_SIZE", raising=False)
+    monkeypatch.delenv("WORLD_SIZE", raising=False)
+    monkeypatch.setenv(env, "4")
     cpu_threads.cap_torch_threads(_cgroup(tmp_path, "3000000 100000"))
     assert pool["n"] == 7
 
