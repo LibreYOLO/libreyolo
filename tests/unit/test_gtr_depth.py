@@ -113,12 +113,14 @@ def test_state_dict_routing_and_size_detection():
 
 
 def test_download_urls_route_depth_repositories():
+    revision = LibreGTR.HF_TASK_REVISIONS[("m", "depth")]
+    assert revision
     assert LibreGTR.get_download_url("LibreGTRm-depth.pt") == (
-        "https://huggingface.co/LibreYOLO/LibreGTRm-depth/resolve/main/"
+        f"https://huggingface.co/LibreYOLO/LibreGTRm-depth/resolve/{revision}/"
         "LibreGTRm-depth.pt"
     )
     assert "/LibreGTRs/resolve/74193dc" in LibreGTR.get_download_url("LibreGTRs.pt")
-    assert LibreGTR.get_download_url("LibreGTRs-pose.pt") is None
+    assert LibreGTR.get_download_url("LibreGTRm-obb.pt") is None
 
 
 def test_factory_loads_depth_checkpoint_and_predicts(depth_checkpoint):

@@ -63,8 +63,8 @@ and the decoder layers while the backbone base stays frozen (see
 [lora.md](lora.md)); it needs `pip install "libreyolo[lora]"` and works from
 Python and the CLI. Adapter checkpoints reload directly and export merges the
 adapters into dense weights. Detection LoRA does not apply to depth (see
-[Depth](#depth)). GTR instance segmentation and pose are not implemented; OBB,
-depth and semantic segmentation are described below.
+[Depth](#depth)). GTR pose is not implemented; instance segmentation, OBB, depth and semantic
+segmentation are described below.
 
 ```python
 model = LibreYOLO("LibreGTRs.pt")
@@ -76,6 +76,56 @@ formats and dynamic spatial shapes are not enabled. The portable recurrence
 exports as an ONNX Loop rather than an unrolled graph.
 GTR-S at 640px exports in about 2.2 seconds locally with 4,094 graph nodes.
 This is export usability evidence, not a GPU deployment-speed benchmark.
+
+## Instance segmentation
+
+`task="segment"` loads the upstream GTRSeg model: the detector plus a per-query
+mask head fed by the highest-resolution encoder level
+(`configs/seg/coco_seg_finetune`). Canonical names are
+`LibreGTR{s,m,l,x}-seg.pt`, converted from `seg/gtrseg_{s,m,l,x}_coco.pth` in
+the same MIT weight repository with EMA tensors unchanged; the raw upstream
+files also auto-convert. Masks come out as logits at a quarter of the input
+resolution and are thresholded at zero after bilinear upsampling, as upstream.
+
+```python
+model = LibreYOLO("LibreGTRs-seg.pt")
+results = model.predict("image.jpg")  # results.masks
+model.train(data="dataset.yaml", epochs=30)  # YOLO polygon labels
+```
+
+Training reuses the EC segmentation data path (square resize, polygon
+rasterization, ImageNet normalization) with the GTR recipe: grouped matching,
+MAL/box/FGL/DDF losses plus point-sampled mask BCE and Dice (weights from
+`gtrseg_base.yml`), the GTR schedule and backbone LR multipliers. Mosaic and
+MixUp are not applied to segmentation. `lora=True` works as for detection and
+keeps the mask head trainable. Upstream initializes segmentation from the whole
+COCO detector; the same start is available as an explicit transfer,
+`LibreGTR("LibreGTRs.pt", size="s", task="segment",
+allow_detect_to_segment_transfer=True)` or
+`libreyolo train model=LibreGTRs.pt task=segment ...`, and the mask head then
+starts untrained. ONNX and TorchScript export the raw logits, boxes and mask
+logits with the same fixed-shape FP32 constraints as detection.
+
+Segmentation evidence:
+
+- All four checkpoints convert with identical tensors and load strictly. At
+  640px on CPU they match the pinned upstream GTRSeg graph exactly
+  (logits, boxes and mask logits, maximum absolute difference 0) with the same
+  portable operator substitutes as the detection check.
+- GTR-S on a 200-image COCO val2017 subset (the coco1000 validation split,
+  polygons from `instances_val2017.json`, one polygon per instance, crowd
+  regions excluded): GTR-S box mAP50-95 0.545, mask mAP50-95 0.493, mask
+  mAP50 0.698; GTR-X box 0.605, mask 0.551, mask mAP50 0.773. Upstream
+  reports mask AP 45.0/49.8 and AP50 67.9/74.2 (S/X) on full val2017. This is
+  a subset sanity check, not a reproduction.
+- GTR-S ONNX and TorchScript exports reproduce PyTorch predictions on a COCO
+  image (same classes, score difference below 3e-6, mask IoU 1.0).
+- CPU segment training runs end to end, including LoRA and the CLI
+  detect-to-segment transfer. Starting from GTR-S detect weights, 90 plain
+  AdamW steps on one 13-instance COCO image raise the mean best-query mask IoU
+  from 0.085 to 0.62, so the fresh mask head learns. Short runs with the
+  default EMA (tau 2000) still validate with near-initial EMA weights, so an
+  untrained mask head scores zero mask mAP for the first few thousand steps.
 
 ## Depth
 
@@ -118,9 +168,8 @@ Depth evidence:
 - On 9 NYU Depth V2 validation images (metres, stretch 640, shared
   validator): delta1 0.706 / 0.762 / 0.808 / 0.843 and AbsRel 0.172 / 0.155 /
   0.141 / 0.127 for S / M / L / X. This is a pipeline check, not a benchmark.
-- Converted checkpoints are `LibreYOLO/LibreGTR{s,m,l,x}-depth`. Download
-  revisions are placeholders in `LibreGTR.HF_TASK_REVISIONS` until the
-  repositories are published.
+- Converted checkpoints are `LibreYOLO/LibreGTR{s,m,l,x}-depth`, with download
+  revisions pinned in `LibreGTR.HF_TASK_REVISIONS`.
 
 ## Validation evidence
 

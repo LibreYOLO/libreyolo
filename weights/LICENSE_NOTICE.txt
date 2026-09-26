@@ -965,6 +965,10 @@ Converted checkpoints: LibreYOLO/LibreGTRs, LibreYOLO/LibreGTRm,
 LibreYOLO/LibreGTRl and LibreYOLO/LibreGTRx. Download revisions are pinned
 in libreyolo/models/gtr/model.py.
 
+Instance segmentation (seg/gtrseg_{s,m,l,x}_coco.pth, same repository and
+MIT grant, EMA tensors unchanged): LibreYOLO/LibreGTR{s,m,l,x}-seg, with
+revisions pinned in LibreGTR.HF_TASK_REVISIONS.
+
 GTR oriented boxes (s/x)
 Upstream: https://huggingface.co/Phoenix8125/GTR (obb/gtrobb_{s,x}_dota.pth)
 Code: https://github.com/Intellindust-AI-Lab/GTR
