@@ -9,6 +9,24 @@ before 1.4.0 are documented in the
 
 ### Added
 
+- **`train(compile=...)`: opt-in `torch.compile` training for YOLO9 and
+  RF-DETR.** Same values as the ecosystem's `compile` train argument:
+  `False` (default), `True`/`"default"`, `"reduce-overhead"`,
+  `"max-autotune"`, `"max-autotune-no-cudagraphs"`; also
+  `libreyolo train compile=true`. The network forward and backward are
+  compiled; the loss, optimizer, EMA, validation, checkpoints and export stay
+  eager and unchanged. YOLO9's default PGI auxiliary branch is covered, and
+  RF-DETR's per-batch multi-scale sizes share one dynamic-shape compilation.
+  `reduce-overhead`/`max-autotune` or `cuda_graph=True` replay the compiled
+  kernels as CUDA graphs, except under gradient accumulation. Single-GPU
+  CUDA only; CPU, MPS, distributed and distillation runs train eager after a
+  warning, as do compiler failures. Measured on an RTX 4090 (steady-state
+  epochs, accuracy not measured): RF-DETR nano 1.44x at 384 px batch 4,
+  1.08x at batch 16, YOLO9-t no gain at batch 16; `cuda_graph=True` alone
+  gave 1.50x at batch 4 without compilation. Compilation takes about 4-5
+  minutes at a fixed size and much longer with RF-DETR's multi-scale
+  default. See `docs/training_compile.md`.
+
 - **`LibreRFDETRm-ui.pt`: class-agnostic UI element detector (#896).**
   UI-DETR-1 (racineai, MIT), an RF-DETR-M fine-tune for screenshots, hosted
   as an RF-DETR dataset variant with one class, `object`. Auto-downloads from
@@ -167,6 +185,42 @@ before 1.4.0 are documented in the
   accepting them silently.
 
 ### Fixed
+
+- **Training no longer oversubscribes CPU-limited containers.** PyTorch
+  sized its CPU thread pool from every visible host core, so under a
+  container CPU limit (Docker `--cpus`, Kubernetes, rented GPU hosts) the
+  process ran up to 255 OpenMP threads against a ~30-core quota and was
+  throttled every step. Training now lowers the pool to the CPUs the process
+  may use, unless `OMP_NUM_THREADS` is set. Measured on an RTX 4090 host with
+  a 30-core quota: RF-DETR nano's default recipe went from 81 s to 9.7 s per
+  epoch. Affects every family.
+
+- **`cuda_graph=True` with gradient accumulation no longer corrupts
+  gradients.** A replayed graph hands its static gradient buffers to
+  autograd, which adopted them as `.grad` at the start of an accumulation
+  window; the next replay overwrote them, so a window of graphed micro-batches
+  stepped with twice the last micro-batch's gradient instead of the sum. This
+  hit every family trained with `nbs` above `batch`, including RF-DETR's
+  defaults (`batch=4`, `nbs=16`). Live gradients now get their own storage
+  before each replay when accumulating (one gradient-sized copy per
+  micro-batch); runs without accumulation are unchanged. The GPU accumulation
+  test now trains long enough to observe a fully replayed window.
+
+- **`import libreyolo` no longer changes `torch.compile` settings
+  process-wide.** The vendored DINOv3 backbone set
+  `torch._dynamo.config.automatic_dynamic_shapes = False` and
+  `accumulated_cache_size_limit = 1024` at import time, which affected any
+  model a user compiled in the same process.
+
+- **RF-DETR traces under `torch.compile` without graph breaks and without a
+  recompile per multi-scale size.** The DINOv2 backbone read the deprecated
+  `config.use_return_dict`, whose transformers warning split the graph on
+  every forward (and printed the deprecation warning in eager runs); it now
+  reads `config.return_dict`. Under compilation the transformer builds its
+  level-shape tensor in-graph instead of through a module-attribute cache
+  whose guards pinned each resolution, and the antialiased bicubic
+  position-embedding interpolation runs eagerly, because its backward rejects
+  symbolic sizes. Eager outputs and gradients are bitwise unchanged.
 
 - **RF-DETR, D-FINE, DEIM and EdgeCrafter predict at a rectangular
   `imgsz=(h, w)` (#903).** They crashed with a `TypeError` or an OpenCV resize

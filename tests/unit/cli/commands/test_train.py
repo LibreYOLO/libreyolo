@@ -1407,3 +1407,34 @@ def test_gtr_resume_reaches_training(monkeypatch, tmp_path, syntax, resume, expe
     assert captured['resume'] == expected
     # Unspecified Typer defaults must not override saved resume settings.
     assert not {'imgsz', 'batch', 'lr0', 'weight_decay', 'ema'} & captured.keys()
+
+
+@pytest.mark.parametrize(
+    "model,args,expected",
+    [
+        ("LibreYOLO9t.pt", ["compile=true"], "default"),
+        ("LibreYOLO9t.pt", ["--compile", "max-autotune-no-cudagraphs"], "max-autotune-no-cudagraphs"),
+        ("LibreRFDETRn.pt", ["compile=reduce-overhead"], "reduce-overhead"),
+        ("LibreRFDETRn.pt", [], False),
+    ],
+)
+def test_train_dry_run_resolves_compile(model, args, expected):
+    result = runner.invoke(
+        _make_app(),
+        ["data=coco8.yaml", f"model={model}", *args, "--dry-run", "--json"],
+    )
+
+    assert result.exit_code == 0, result.stdout
+    assert json.loads(result.stdout)["resolved_config"]["compile"] == expected
+
+
+def test_train_dry_run_rejects_unknown_compile_mode():
+    result = runner.invoke(
+        _make_app(),
+        ["data=coco8.yaml", "model=LibreYOLO9t.pt", "compile=fast", "--dry-run", "--json"],
+    )
+
+    assert result.exit_code == 2
+    data = json.loads(result.stdout)
+    assert data["error"] == "config_type_error"
+    assert "compile must be" in data["message"]

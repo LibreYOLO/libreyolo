@@ -305,6 +305,112 @@ class TestCaptureInvalidation:
 
 
 # =============================================================================
+# Gradient ownership across replays (gradient accumulation)
+# =============================================================================
+#
+# ``make_graphed_callables``' backward returns ``static_grad.detach()`` for
+# every parameter. With ``.grad`` None, autograd adopts that tensor as the
+# parameter's ``.grad``, so the next replay overwrites it and then adds its
+# own gradient: an accumulation window of graphed micro-batches produced
+# ``2 * g_last`` instead of ``sum(g)``. The fake below keeps exactly that
+# backward contract so the bug reproduces on CPU.
+
+
+class _CudaLikeBatch(torch.Tensor):
+    """A real CPU tensor that passes the manager's CUDA gate."""
+
+    @property
+    def is_cuda(self):
+        return True
+
+
+class _StaticGradLinear(torch.autograd.Function):
+    """Linear whose backward writes and returns the same buffers every call,
+    as ``make_graphed_callables``' ``Graphed.backward`` does."""
+
+    @staticmethod
+    def forward(ctx, static_grads, x, weight, bias):
+        ctx.static_grads = static_grads
+        ctx.save_for_backward(x)
+        return torch.nn.functional.linear(x, weight, bias)
+
+    @staticmethod
+    @torch.autograd.function.once_differentiable
+    def backward(ctx, grad_out):
+        (x,) = ctx.saved_tensors
+        weight_grad, bias_grad = ctx.static_grads
+        weight_grad.copy_(grad_out.t() @ x)
+        bias_grad.copy_(grad_out.sum(0))
+        return None, None, weight_grad.detach(), bias_grad.detach()
+
+
+def _fake_make_graphed_static_grads(module, sample, **kwargs):
+    lin = module.module.lin
+    static_grads = [torch.zeros_like(lin.weight), torch.zeros_like(lin.bias)]
+
+    def replay(imgs):
+        x = imgs.as_subclass(torch.Tensor)
+        return (_StaticGradLinear.apply(static_grads, x, lin.weight, lin.bias),)
+
+    module.forward = replay
+    return module
+
+
+class TestAccumulatedGradOwnership:
+    def _window_grads(self, preserve, windows=2, accum=4):
+        torch.manual_seed(0)
+        network = _ToyNet()
+        reference = _ToyNet()
+        reference.load_state_dict(network.state_dict())
+        manager = TrainGraphManager(
+            warmup_threshold=1, preserve_accumulated_grads=preserve
+        )
+        spec = CudaGraphTrainSpec(
+            network=GraphableNetwork(network), assemble=MagicMock()
+        )
+        batches = [torch.randn(2, 4) for _ in range(windows * accum)]
+        results = []
+        with patch(
+            "torch.cuda.make_graphed_callables",
+            side_effect=_fake_make_graphed_static_grads,
+        ):
+            for window in range(windows):
+                network.zero_grad(set_to_none=True)
+                reference.zero_grad(set_to_none=True)
+                for step in range(accum):
+                    x = batches[window * accum + step]
+                    flat = manager.run(spec, x.as_subclass(_CudaLikeBatch))
+                    assert flat is not None  # every micro-batch is graphed
+                    (flat[0].pow(2).sum() / accum).backward()
+                    (reference(x)[0].pow(2).sum() / accum).backward()
+                results.append(
+                    (network.lin.weight.grad.clone(), reference.lin.weight.grad)
+                )
+        return results
+
+    def test_replayed_microbatches_accumulate_like_eager(self):
+        for graphed, eager in self._window_grads(preserve=True):
+            torch.testing.assert_close(graphed, eager)
+
+    def test_without_ownership_the_window_is_corrupted(self):
+        """Documents the failure the ownership step prevents."""
+        graphed, eager = self._window_grads(preserve=False)[0]
+        assert not torch.allclose(graphed, eager)
+
+    def test_no_copy_when_accumulation_is_off(self):
+        network = _ToyNet()
+        network.lin.weight.grad = torch.ones_like(network.lin.weight)
+        grad = network.lin.weight.grad
+        TrainGraphManager(preserve_accumulated_grads=False)._own_accumulated_grads(
+            network
+        )
+        assert network.lin.weight.grad is grad
+        TrainGraphManager()._own_accumulated_grads(network)
+        assert network.lin.weight.grad is not grad
+        torch.testing.assert_close(network.lin.weight.grad, grad)
+
+
+# =============================================================================
 # Stochastic-layer detection
 # =============================================================================
 #

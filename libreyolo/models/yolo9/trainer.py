@@ -210,6 +210,50 @@ class YOLO9Trainer(BaseTrainer):
     def on_forward(self, imgs: torch.Tensor, targets: torch.Tensor, polygons=None) -> Dict:
         return self.model(imgs, targets=targets)
 
+    def compile_train_spec(self):
+        """Compile boundary: the capture spec, plus the default PGI recipe.
+
+        Capture runs the network without targets, which skips the PGI
+        auxiliary branch, so :meth:`cuda_graph_train_spec` declines models
+        with it. The compiler has no such limit: the adapter below returns
+        the main and auxiliary raw head maps, and ``assemble`` applies both
+        heads' losses and :meth:`LibreYOLO9Model.combine_aux_losses`, the
+        path the model's own forward takes with targets.
+        """
+        spec = self.cuda_graph_train_spec()
+        if spec is not None:
+            return spec
+        from libreyolo.training.cuda_graph import (
+            CudaGraphTrainSpec,
+            GraphableNetwork,
+        )
+        from .nn import DDetect, LibreYOLO9Model
+
+        task = getattr(getattr(self, "wrapper_model", None), "task", "detect")
+        model = self.model
+        if (
+            task != "detect"
+            or not isinstance(model, LibreYOLO9Model)
+            or type(model.head) is not DDetect
+            or getattr(model, "aux", None) is None
+            or type(getattr(model, "aux_head", None)) is not DDetect
+            or model.aux_weight <= 0
+        ):
+            return None
+        network = GraphableNetwork(_PGITrainForward(model))
+
+        def assemble(flat, imgs, targets, polygons=None):
+            maps = network.rebuild(flat)
+            img_size = [imgs.shape[3], imgs.shape[2]]
+            losses = []
+            for head, raw in ((model.head, maps["main"]), (model.aux_head, maps["aux"])):
+                loss_fn = head._get_loss_fn(imgs.device)
+                loss_fn.update_anchors(img_size)
+                losses.append(loss_fn(raw, targets))
+            return model.combine_aux_losses(*losses)
+
+        return CudaGraphTrainSpec(network=network, assemble=assemble)
+
     def cuda_graph_train_spec(self):
         """Capture spec: graph the network, keep the DFL/TAL loss eager.
 
@@ -247,3 +291,18 @@ class YOLO9Trainer(BaseTrainer):
             return loss_fn(network.rebuild(flat), targets)
 
         return CudaGraphTrainSpec(network=network, assemble=assemble)
+
+
+class _PGITrainForward(torch.nn.Module):
+    """Main and PGI auxiliary raw head maps of a training forward."""
+
+    def __init__(self, model: torch.nn.Module):
+        super().__init__()
+        self.model = model
+
+    def forward(self, x: torch.Tensor):
+        model = self.model
+        p3, p4, p5 = model.backbone(x)
+        main = model.head(list(model.neck(p3, p4, p5)))
+        aux = model.aux_head(list(model.aux(p3, p4, model.backbone.last_b5)))
+        return {"main": main, "aux": aux}
