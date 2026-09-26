@@ -693,14 +693,16 @@ class BaseModel(ABC):
                 return {}
         return self._cache_checkpoint_train_config(checkpoint)
 
-    def _loaded_run_checkpoint(self) -> Path | None:
+    def _loaded_run_checkpoint(self, source: str | Path | None = None) -> Path | None:
         """The run checkpoint (``<run>/weights/*.pt``) this model was loaded from.
 
         ``resume=True`` means "resume the loaded checkpoint". Families whose
         default run directory increments cannot recover that run from the
         defaults alone, so they resume from, and keep writing into, this run.
+        ``source`` checks an explicit resume checkpoint the same way.
         """
-        source = getattr(self, "model_path", None)
+        if source is None:
+            source = getattr(self, "model_path", None)
         if not isinstance(source, (str, Path)):
             return None
         path = Path(source)

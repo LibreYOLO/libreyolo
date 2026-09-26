@@ -569,6 +569,8 @@ class LibreGTR(LibreDFINE):
             {key: value for key, value in explicit.items() if value is not None}
         )
         settings.update(kwargs)
+        if resume_path:
+            settings.update(self._resume_run_settings(resume_path, project, name))
         if device:
             settings["device"] = device
         settings.setdefault("device", "auto")
@@ -622,6 +624,21 @@ class LibreGTR(LibreDFINE):
         self.model.to(self.device)
         return results
 
+    def _resume_run_settings(self, path, project, name) -> dict:
+        """Settings that keep a resumed run writing into its own directory.
+
+        The saved config holds the requested base name (``gtr_exp``), not the
+        incremented directory the run wrote to (``gtr_exp2``), so the run is
+        taken from the ``<run>/weights/*.pt`` checkpoint path instead.
+        """
+        if project is not None or name is not None:
+            return {}
+        checkpoint = self._loaded_run_checkpoint(path)
+        if checkpoint is None:
+            return {}
+        run_dir = checkpoint.parent.parent
+        return {"project": str(run_dir.parent), "name": run_dir.name, "exist_ok": True}
+
     def _resume_settings(self, resume, config_cls, overrides):
         """Resolve a resume request to (checkpoint path, merged settings).
 
@@ -642,7 +659,10 @@ class LibreGTR(LibreDFINE):
             for key, value in (self._checkpoint_train_config(path) or {}).items()
             if key in valid and key not in {"size", "num_classes", "resume"}
         }
-        return str(path), {**saved, **explicit}
+        run = self._resume_run_settings(
+            path, explicit.get("project"), explicit.get("name")
+        )
+        return str(path), {**saved, **explicit, **run}
 
     def _train_pose(
         self, data, *, device="", resume=False, callbacks=None, loggers=None, **kwargs
