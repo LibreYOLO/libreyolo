@@ -1112,5 +1112,5 @@ export and SILog fine-tuning are supported.
 GTR semantic segmentation (`task="semantic"`, suffix `-sem`) uses the same
 class and sizes: `LibreGTR{s,m,l,x}-sem.pt`, Cityscapes 19-class, native
 1024x2048 canvas with 1024px sliding windows. These pretrained weights are
-NON-COMMERCIAL (Cityscapes dataset terms); fine-tuned or from-scratch weights
-carry no such restriction.
+NON-COMMERCIAL (Cityscapes dataset terms), and so is a fine-tune started from
+them; weights trained from scratch on your own data carry no such restriction.

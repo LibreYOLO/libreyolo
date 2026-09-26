@@ -231,7 +231,8 @@ model.train(data="my_semantic.yaml", epochs=30)
 
 These pretrained weights are trained on Cityscapes, whose terms restrict the
 dataset and derived models to non-commercial use; a download notice says so.
-Fine-tuned or from-scratch weights carry no such term.
+A fine-tune started from them inherits the term; weights trained from scratch
+on your own data do not.
 
 Geometry follows upstream evaluation. The canvas is 1024x2048. Images are
 letterboxed into it (top-left, grey pad) and the network averages the logits
