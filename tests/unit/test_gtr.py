@@ -284,12 +284,12 @@ def test_resume_restores_saved_config_then_explicit_overrides(tmp_path, monkeypa
     assert captured["source"] == str(path)
 
 
-def test_gtr_warns_about_ignored_augmentations():
+def test_gtr_reports_only_truly_ignored_augmentations():
     from libreyolo.cli.config import get_unsupported_train_params
 
-    assert {"mosaic", "mixup", "degrees", "translate"} <= get_unsupported_train_params(
-        "gtr"
-    )
+    ignored = get_unsupported_train_params("gtr")
+    assert not {"mosaic", "mixup", "degrees", "translate"} & ignored
+    assert {"shear", "hsv_prob"} <= ignored
 
 
 @pytest.mark.parametrize("kwargs", [{"optimizer": "sgd"}, {"scheduler": "cosine"}])

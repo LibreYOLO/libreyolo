@@ -2819,12 +2819,14 @@ Revision: 782e737efe2e6437ac537fbdcee089673d3376c1
 License: MIT (LICENSE in this directory)
 Copyright (c) 2026 Intellindust-AI-Lab / The GTR Authors.
 
-Ported backbone, spatial SwiGLU, feature projector, decoder, matching, loss
-and scheduler in libreyolo/models/gtr/.
+Ported backbone, spatial SwiGLU, feature projector, decoder, matching, loss,
+scheduler, Mosaic and batch MixUp in libreyolo/models/gtr/.
 Modified for native LibreYOLO construction, portable attention, local imports,
 strict checkpoints, and validation loss output/normalization.
 
 Retained source notices identify these Apache-2.0 components:
+- DEIM (Mosaic, batch MixUp): https://github.com/Intellindust-AI-Lab/DEIM
+  Copyright (c) 2024 The DEIM Authors.
 - D-FINE: https://github.com/Peterande/D-FINE
   Copyright (c) 2024 D-FINE Authors.
 - RT-DETR: https://github.com/lyuwenyu/RT-DETR

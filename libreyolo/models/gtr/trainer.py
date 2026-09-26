@@ -1,17 +1,17 @@
 """GTR fine-tuning through the shared D-FINE training infrastructure.
 
-Uses upstream grouped matching and MAL/FGL losses. The shared DETR transform
-receives original-resolution images for square resize, normalization and strong
-augmentation. Upstream mosaic/mixup reproduction remains separate work.
+Uses upstream grouped matching and MAL/FGL losses. The transform receives
+original-resolution images for Mosaic, square resize, normalization and strong
+augmentation; batch MixUp runs in the collate (see ``transforms.py``).
 """
 
 from ..base.detr_validation_loss import DETRValidationLoss
-from ..deim.transforms import DEIMPassThroughDataset, DEIMTrainTransform
 from ..dfine.trainer import DFINETrainer
 from .config import GTRConfig
 from .criterion import GTRCriterion
 from .matcher import HungarianMatcher
 from .scheduler import GTRScheduler
+from .transforms import GTRMixUpCollate, GTRMosaicDataset, GTRTrainTransform
 
 
 class GTRTrainer(DFINETrainer):
@@ -50,18 +50,31 @@ class GTRTrainer(DFINETrainer):
             self._initialize_scheduler_lr()
 
     def create_transforms(self):
-        return DEIMTrainTransform(
+        return GTRTrainTransform(
             max_labels=300,
             flip_prob=self.config.flip_prob,
             imgsz=self.config.imgsz,
             imagenet_norm=True,
-        ), DEIMPassThroughDataset
+            degrees=self.config.degrees,
+            translate=self.config.translate,
+            mosaic_scale=self.config.mosaic_scale,
+        ), GTRMosaicDataset
+
+    def _setup_data(self):
+        train_dataset = super()._setup_data()
+        train_dataset.set_mosaic_epochs(self.config.mosaic_epochs)
+        self.train_loader.collate_fn = GTRMixUpCollate(
+            self.train_loader.collate_fn,
+            mixup_prob=self.config.mixup_prob,
+            mixup_epochs=min(self.config.mosaic_epochs, train_dataset._stop_epoch),
+        )
+        return train_dataset
 
     def on_setup(self):
         if self.config.lora:
-            raise ValueError(
-                "GTR LoRA is not implemented; use freeze for partial fine-tuning"
-            )
+            from ...training.lora import apply_lora_to_gtr
+
+            apply_lora_to_gtr(self.model)
         self.criterion = self.build_criterion()
 
     def build_criterion(self, *, distributed_normalize=True):

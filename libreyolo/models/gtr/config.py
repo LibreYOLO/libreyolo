@@ -1,7 +1,4 @@
-"""GTR fine-tuning defaults, from the pinned upstream COCO recipes.
-
-The portable augmentation pipeline remains deliberately smaller than upstream.
-"""
+"""GTR fine-tuning defaults, from the pinned upstream COCO recipes."""
 
 from dataclasses import dataclass
 
@@ -25,6 +22,14 @@ class GTRConfig(DFINEConfig):
     flat_epochs: int = 6
     no_aug_epochs: int = 2
     aug_stop_epoch_ratio: float = 28 / 30
+    # Upstream Mosaic and batch MixUp, both active for the first
+    # ``mosaic_epochs`` epochs (upstream ``mosaic_epoch``/``mixup_epoch``).
+    mosaic_prob: float = 0.5
+    mixup_prob: float = 0.5
+    mosaic_epochs: int = 6
+    degrees: float = 10.0
+    translate: float = 0.1
+    mosaic_scale: tuple[float, float] = (0.5, 1.5)
     name: str = "gtr_exp"
 
     def __post_init__(self):
@@ -35,7 +40,16 @@ class GTRConfig(DFINEConfig):
             raise ValueError("GTR currently supports optimizer='adamw' only")
         if self.scheduler != "flat_cosine":
             raise ValueError("GTR currently supports scheduler='flat_cosine' only")
-        for key in ("warmup_iters", "warmup_epochs", "flat_epochs", "no_aug_epochs"):
+        for key in ("mosaic_prob", "mixup_prob"):
+            if not 0.0 <= float(getattr(self, key)) <= 1.0:
+                raise ValueError(f"GTR {key} must be between 0 and 1")
+        for key in (
+            "warmup_iters",
+            "warmup_epochs",
+            "flat_epochs",
+            "no_aug_epochs",
+            "mosaic_epochs",
+        ):
             value = getattr(self, key)
             if value is not None and value < 0:
                 raise ValueError(f"GTR {key} must be non-negative")
