@@ -1,6 +1,6 @@
 # LibreYOLO Testing Strategy
 
-Version: 3.0
+Version: 3.1
 
 This is the CI/test contract for LibreYOLO. Times are UTC.
 
@@ -261,13 +261,15 @@ make test_nightly
 make test_e2e E2E_TIMEOUT=1800
 ```
 
-V3.0 contract:
+V3.1 contract:
 
 - `general_nightly`: a curated matrix of the smallest public checkpoint for 16
   detector families. It checks stable native inference and batched/sequential
   parity, plus two open-vocabulary smoke cases; currently 34 tests.
-- `flagship_nightly`: native YOLO9/RF-DETR validation, video, tracking, CLI, and
-  one RF1 training/reload size per flagship family; currently 44 tests. The full
+- `flagship_nightly`: native YOLO9/RF-DETR validation, input equivalence
+  (path/PIL/NumPy sources, mixed-size lists, original-image coordinates), video,
+  tracking, CLI, and one RF1 training/reload size per flagship family; currently
+  58 tests. The full
   RF1 size matrix remains available under `-m rf1` for manual or future
   full-matrix runs.
 - `training_nightly`: opt-in training-time GPU coverage for CUDA graph capture.
