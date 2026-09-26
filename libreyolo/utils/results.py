@@ -2329,7 +2329,7 @@ class Results:
 
     def _video_frame_rgb(self) -> np.ndarray | None:
         """Decode frame ``frame_idx`` of the video at ``path``, or None."""
-        if self.frame_idx is None or not self.path or not Path(self.path).is_file():
+        if self.frame_idx is None or not self.path or not _is_local_file(self.path):
             return None
         import cv2
 
@@ -2802,6 +2802,18 @@ def stack_result_embeddings(prediction: Any) -> torch.Tensor:
     return torch.cat(non_empty, dim=0)
 
 
+def _is_local_file(path: Any) -> bool:
+    """``Path(path).is_file()``, but False for strings the OS rejects as paths.
+
+    A signed S3/GCS URL can exceed the OS path limit, so ``stat`` raises
+    ``ENAMETOOLONG`` instead of reporting that no such file exists.
+    """
+    try:
+        return Path(path).is_file()
+    except (OSError, ValueError):
+        return False
+
+
 def keep_source(result: Any, image: Any, source: Any = None) -> Any:
     """Attach the decoded source image so ``Results.plot()`` can draw on it.
 
@@ -2810,7 +2822,7 @@ def keep_source(result: Any, image: Any, source: Any = None) -> Any:
     decoded image in memory. In-memory inputs and URLs keep their pixels.
     """
     if isinstance(result, Results) and not (
-        isinstance(source, (str, Path)) and Path(source).is_file()
+        isinstance(source, (str, Path)) and _is_local_file(source)
     ):
         result.orig_img = image
     return result

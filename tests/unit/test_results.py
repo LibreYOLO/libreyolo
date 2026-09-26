@@ -882,6 +882,24 @@ class TestKeepSource:
         assert in_memory.orig_img is not None and url.orig_img is not None
         np.testing.assert_array_equal(on_disk.plot(), in_memory.plot())
 
+    def test_signed_url_longer_than_path_max_keeps_pixels(self):
+        from libreyolo.utils.results import keep_source
+
+        # Longer than PATH_MAX on Linux (4096) and macOS (1024): stat() raises
+        # ENAMETOOLONG instead of reporting a missing file.
+        url = "https://bucket.test/frame.jpg?X-Amz-Signature=" + "a" * 5000
+        rgb = _source_rgb()
+
+        result = keep_source(_detect_result(), Image.fromarray(rgb), url)
+
+        assert result.orig_img is not None
+
+    def test_video_frame_lookup_ignores_overlong_path(self):
+        result = _detect_result(path="https://bucket.test/clip.mp4?sig=" + "a" * 5000)
+        result.frame_idx = 0
+
+        assert result._video_frame_rgb() is None
+
     def test_gif_frame_plots_on_its_own_frame(self, tmp_path):
         frames = [
             Image.fromarray(np.full((48, 64, 3), 40 * k, dtype=np.uint8)) for k in range(4)
