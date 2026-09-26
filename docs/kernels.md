@@ -44,7 +44,7 @@ first eligible name.
 
 Compiled kernels published on the Hugging Face Hub load at runtime through
 the optional `kernels` package. Installing the extra is the opt-in:
-`pip install libreyolo[hub-kernels]` enables them. Without the package, an
+`pip install "libreyolo[hub-kernels]"` enables them. Without the package, an
 eager CUDA DETR call that no in-tree provider accepts uses the portable path
 and logs one install hint. Set `LIBREYOLO_HUB_KERNELS=0` to disable them
 without uninstalling and silence the hint. Nothing is vendored; artifacts are

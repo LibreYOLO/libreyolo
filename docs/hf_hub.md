@@ -7,7 +7,7 @@ LibreYOLO metadata schema (v1.0, see `docs/checkpoint_schema.md`).
 The integration is optional:
 
 ```bash
-pip install libreyolo[hf]
+pip install "libreyolo[hf]"
 ```
 
 `import libreyolo` never imports `huggingface_hub`; it is only loaded when a
@@ -61,7 +61,7 @@ Any loaded model can be published, together with an auto-generated model card
 derived from its checkpoint metadata (family, size, task, classes, metrics):
 
 ```python
-model = LibreYOLO("runs/detect/train/weights/best.pt")
+model = LibreYOLO("runs/train/yolo9_exp/weights/best.pt")
 model.push_to_hub("someuser/my-finetune")                  # public
 model.push_to_hub("someuser/my-finetune", private=True)    # private
 model.push_to_hub("someuser/my-finetune", license="mit",
