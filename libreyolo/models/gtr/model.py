@@ -208,8 +208,8 @@ class LibreGTR(LibreDFINE):
                 "models, including this checkpoint, to NON-COMMERCIAL use "
                 "(https://www.cityscapes-dataset.com/license/). The restriction "
                 "applies to these pretrained weights, not to LibreYOLO's code or "
-                "the GTR architecture. Fine-tune or train on your own data for "
-                "weights without that term."
+                "the GTR architecture; a fine-tune started from it inherits the "
+                "term. Train from scratch on your own data for weights without it."
             )
         if task != "depth":
             return None
