@@ -42,7 +42,6 @@ class LibreDFINE(BaseModel):
     """
 
     FAMILY = "dfine"
-    SQUARE_IMGSZ_CALLS = frozenset({"predict"})
     FILENAME_PREFIX = "LibreDFINE"
     INPUT_SIZES = {"n": 640, "s": 640, "m": 640, "l": 640, "x": 640}
     SUPPORTED_TASKS = ("detect", "segment")
