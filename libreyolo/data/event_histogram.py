@@ -63,6 +63,21 @@ def setup_histogram_data(trainer, cfg):
     return dataset
 
 
+def _dataset_yaml_mapping(data):
+    """Return the dataset YAML as a dict, or None if unreadable or not a mapping.
+
+    The early histogram checks skip such files so the trainer's own loader
+    reports them with its dataset error.
+    """
+    import yaml
+
+    try:
+        raw = yaml.safe_load(Path(data).read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, yaml.YAMLError):
+        return None
+    return raw if isinstance(raw, dict) else None
+
+
 def prepare_histogram_training(wrapper, args, kwargs):
     """Apply the supported event recipe before the family constructs its trainer."""
     from . import load_data_config
@@ -74,7 +89,7 @@ def prepare_histogram_training(wrapper, args, kwargs):
         ".yml",
     }:
         return
-    if not Path(data).is_file():
+    if not Path(data).is_file() or _dataset_yaml_mapping(data) is None:
         return
     cfg = load_data_config(
         data, allow_scripts=kwargs.get("allow_download_scripts", False)
@@ -134,6 +149,9 @@ def apply_histogram_cli_defaults(params, *, data, family, user_provided):
     from . import load_data_config
 
     if not isinstance(data, (str, Path)) or not Path(data).is_file():
+        return False
+    raw = _dataset_yaml_mapping(data)
+    if raw is None or raw.get("input_profile") is None:
         return False
     cfg = load_data_config(data)
     if cfg.get("input_profile") is None:

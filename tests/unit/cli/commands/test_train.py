@@ -1639,3 +1639,55 @@ def test_yolonas_obb_cli_train_keeps_the_obb_recipe(monkeypatch, args, expected)
     # Weight decay, schedule, warmup and augmentation come from YOLONASOBBConfig.
     leaked = {"momentum", "weight_decay", "scheduler", "warmup_epochs", "mosaic_prob"}
     assert not leaked & captured.keys()
+
+
+@pytest.mark.parametrize(
+    "content",
+    [b"train: [x\n", b"names: {0: a\n", b"- a\n- b\n", b"\xff\xd8\xff\xe0jpeg"],
+    ids=["flow-list", "flow-map", "top-level-list", "binary"],
+)
+def test_train_unreadable_data_yaml_reports_data_not_found(monkeypatch, tmp_path, content):
+    """A malformed dataset YAML reaches the loader's data error, not a traceback."""
+    data = tmp_path / "bad.yaml"
+    data.write_bytes(content)
+
+    class _YOLO9Like:
+        FAMILY = "yolo9"
+        device = "cpu"
+
+        def train(self, data, **kwargs):
+            raise FileNotFoundError(f"Failed to load dataset config '{data}': bad")
+
+    monkeypatch.setattr(
+        "libreyolo.cli.commands.train._create_explicit_task_train_model",
+        lambda **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        "libreyolo.cli.commands.train.load_model_or_exit",
+        lambda **_kwargs: _YOLO9Like(),
+    )
+    result = runner.invoke(
+        _make_app(),
+        [f"data={data}", "model=LibreYOLO9t.pt", f"project={tmp_path}", "epochs=1", "--json"],
+    )
+    assert result.exit_code == 3, result.output
+    payload = json.loads(result.stdout)
+    assert payload["error"] == "data_not_found"
+    assert payload["suggestion"]
+
+
+@pytest.mark.parametrize(
+    "content",
+    [b"train: [x\n", b"- a\n- b\n", b"\xff\xd8\xff\xe0jpeg"],
+    ids=["flow-list", "top-level-list", "binary"],
+)
+def test_histogram_training_prep_leaves_unreadable_yaml_to_the_loader(tmp_path, content):
+    """The early histogram check must not preempt the family's dataset error."""
+    from types import SimpleNamespace
+
+    from libreyolo.data.event_histogram import prepare_histogram_training
+
+    data = tmp_path / "bad.yaml"
+    data.write_bytes(content)
+    wrapper = SimpleNamespace(FAMILY="yolo9", task="detect", input_profile=None)
+    assert prepare_histogram_training(wrapper, (), {"data": str(data)}) is None
