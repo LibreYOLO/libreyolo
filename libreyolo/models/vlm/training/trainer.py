@@ -113,7 +113,19 @@ class VLMDetectionTrainer:
             self.callbacks.append(logger_cb)
         if self.callbacks.fitness is not None:
             raise NotImplementedError("VLM training does not support custom fitness callbacks")
+        self._resume_checkpoint: Optional[Path] = None
         if self.config.resume is True:
+            if all(
+                config_kwargs.get(key) is None
+                for key in ("output_dir", "project", "name")
+            ):
+                # Run dirs increment (train, train2, ...), so the defaults
+                # cannot name the run being resumed; the loaded checkpoint can.
+                self._resume_checkpoint = self._loaded_run_checkpoint()
+                if self._resume_checkpoint is not None:
+                    run_dir = self._resume_checkpoint.parent.parent
+                    self.config.project = str(run_dir.parent)
+                    self.config.name = run_dir.name
             # resume=True reads weights/last from this exact save_dir (see
             # _resolve_resume_dir); never let _resolve_save_dir() increment
             # away from it mid-resume.
@@ -123,6 +135,16 @@ class VLMDetectionTrainer:
     # ------------------------------------------------------------------
     # Setup helpers
     # ------------------------------------------------------------------
+
+    def _loaded_run_checkpoint(self) -> Optional[Path]:
+        """The run checkpoint (``<run>/weights/<best|last>``) the wrapper loaded."""
+        loaded = getattr(self.wrapper, "_checkpoint_dir", None)
+        if loaded is None:
+            return None
+        path = Path(loaded)
+        if path.parent.name != "weights" or not is_vlm_checkpoint(path):
+            return None
+        return path
 
     def _resolve_save_dir(self) -> Path:
         cfg = self.config
@@ -173,9 +195,12 @@ class VLMDetectionTrainer:
         resume = self.config.resume
         if not resume:
             return None
-        candidate = (
-            self.save_dir / "weights" / "last" if resume is True else Path(resume)
-        )
+        if self._resume_checkpoint is not None:
+            candidate = self._resume_checkpoint
+        elif resume is True:
+            candidate = self.save_dir / "weights" / "last"
+        else:
+            candidate = Path(resume)
         if not is_vlm_checkpoint(candidate):
             raise FileNotFoundError(
                 f"resume={resume!r} is not a VLM checkpoint directory "
@@ -191,6 +216,7 @@ class VLMDetectionTrainer:
             except ImportError as exc:
                 raise ImportError(_INSTALL_HINT) from exc
             if resume_dir is not None:
+                self._reload_base_if_adapter_merged()
                 model = PeftModel.from_pretrained(
                     self.wrapper.model, str(resume_dir), is_trainable=True
                 )
@@ -244,6 +270,25 @@ class VLMDetectionTrainer:
                 frozen += 1
         logger.info("Full fine-tune: froze %d frozen-scope parameters.", frozen)
         return self.wrapper.model
+
+    def _reload_base_if_adapter_merged(self) -> None:
+        """Give a resumed adapter the plain base weights it was trained on.
+
+        Loading a LoRA checkpoint merges its adapter into the wrapper's model;
+        applying the resumed adapter on top of that would count it twice.
+        """
+        loaded = getattr(self.wrapper, "_checkpoint_dir", None)
+        if loaded is None:
+            return
+        loaded = Path(loaded)
+        if not (loaded / "adapter_config.json").exists() or (
+            loaded / "config.json"
+        ).exists():
+            return
+        logger.info("Reloading base weights to resume the adapter from %s.", loaded)
+        self.wrapper.model, _ = self.wrapper._load_pretrained(
+            self.wrapper._ensure_weights()
+        )
 
     def _build_dataloaders(self, data_cfg: Dict, names: Dict[int, str], fmt: FamilyFormat):
         cfg = self.config
