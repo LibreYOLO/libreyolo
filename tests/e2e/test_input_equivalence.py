@@ -81,15 +81,16 @@ def _iou(a, b):
 
 
 def _assert_all_matched(src, dst, what, min_iou):
+    """Match every ``src`` box to its own same-class ``dst`` box (one-to-one)."""
+    unused = set(range(len(dst[0])))
     for box, cls in zip(*src):
-        best = max(
-            (_iou(box, other) for other, other_cls in zip(*dst) if other_cls == cls),
-            default=0.0,
-        )
+        candidates = [(_iou(box, dst[0][j]), j) for j in unused if dst[1][j] == cls]
+        best, j = max(candidates, default=(0.0, None))
         assert best >= min_iou, (
-            f"{what}: class {cls} box {box.round(1).tolist()} has no match "
+            f"{what}: class {cls} box {box.round(1).tolist()} has no unused match "
             f"(best IoU {best:.3f} < {min_iou})"
         )
+        unused.remove(j)
 
 
 def _assert_same_detections(expected, actual, what, min_iou=MIN_IOU):
