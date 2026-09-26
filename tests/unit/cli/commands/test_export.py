@@ -193,3 +193,32 @@ def test_export_cli_reports_histogram_channel_count(
     result = runner.invoke(_build_app(), [*arguments, "--json"])
     assert result.exit_code == 0, result.output
     assert _parse_json_output(result.output)["input_shape"] == [1, channels, 128, 128]
+
+
+@pytest.mark.parametrize(
+    ("native", "exported", "expected"),
+    [
+        ((192, 320), (192, 320), [192, 320]),  # rectangular export (#899)
+        ((192, 320), (320, 320), [320, 320]),  # square fallback for the format
+    ],
+)
+def test_export_cli_reports_the_exported_canvas(
+    monkeypatch, tmp_path, native, exported, expected
+):
+    from libreyolo.cli.commands import export
+
+    class _RectModel(_LoadedModel):
+        def _get_input_size(self):
+            return native
+
+        def export(self, format, **kwargs):
+            self._last_export_imgsz = exported
+            return super().export(format, **kwargs)
+
+    loaded = _RectModel(tmp_path / "model.onnx", {})
+    monkeypatch.setattr(export, "resolve_model_or_exit", lambda out, model: model)
+    monkeypatch.setattr(export, "load_model_or_exit", lambda *args, **kwargs: loaded)
+    result = runner.invoke(_build_app(), ["model=dummy.pt", "format=onnx", "--json"])
+
+    assert result.exit_code == 0, result.output
+    assert _parse_json_output(result.output)["input_shape"] == [1, 3, *expected]

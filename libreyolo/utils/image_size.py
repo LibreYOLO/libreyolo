@@ -105,3 +105,22 @@ def imgsz_to_hw(
     if isinstance(normalized, int):
         return normalized, normalized
     return normalized
+
+
+def reject_rectangular_imgsz(model: Any, imgsz: Any, call: str) -> None:
+    """Raise a clear error when ``model`` cannot run ``call`` at a rectangle.
+
+    Families list the calls that need a square ``imgsz`` in
+    ``SQUARE_IMGSZ_CALLS``; without this, their preprocessing crashes deep
+    inside on an ``(h, w)`` tuple.
+    """
+    if call not in getattr(model, "SQUARE_IMGSZ_CALLS", ()):
+        return
+    if isinstance(imgsz, (list, tuple)) and len(imgsz) == 2:
+        h, w = int(imgsz[0]), int(imgsz[1])
+        if h != w:
+            family = getattr(model, "family", type(model).__name__)
+            raise ValueError(
+                f"{family} {call}() does not support rectangular input sizes, "
+                f"got ({h}, {w}). Use a square imgsz."
+            )

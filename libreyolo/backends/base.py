@@ -11,7 +11,7 @@ from abc import ABC, abstractmethod
 from datetime import datetime
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, Dict, Generator, List, Optional, Tuple, Union
+from typing import Any, Dict, Generator, List, Optional, Sequence, Tuple, Union
 
 import cv2
 import numpy as np
@@ -44,14 +44,7 @@ from ..preprocess.yolonas import (
 )
 from ..preprocess.yolox import preprocess_image as yolox_preprocess_image
 from ..tasks import normalize_supported_tasks, normalize_task, resolve_task
-from ..utils.drawing import (
-    draw_boxes,
-    draw_keypoints,
-    draw_masks,
-    draw_obb,
-    draw_points,
-    draw_semantic_mask,
-)
+from ..utils.drawing import draw_results
 from ..utils.general import (
     COCO_CLASSES,
     get_safe_stem,
@@ -62,6 +55,7 @@ from ..utils.image_loader import ImageLoader
 from ..utils.model_info import build_model_info, format_model_info
 from ..utils.predict_args import normalize_predict_kwargs
 from ..utils.results import (
+    keep_source,
     Boxes,
     DepthMap,
     EdgeMap,
@@ -293,6 +287,10 @@ def _read_runtime_metadata(meta: dict) -> dict[str, Any]:
         runtime_meta["crop_pct"] = float(meta["crop_pct"])
     if meta.get("interpolation") is not None:
         runtime_meta["interpolation"] = str(meta["interpolation"])
+    # Classification eval pipeline (#886); parsed by classify_eval_kwargs.
+    for key in ("norm_mean", "norm_std", "resize_mode"):
+        if meta.get(key) is not None:
+            runtime_meta[key] = meta[key]
     if meta.get("num_bins") is not None:
         runtime_meta["num_bins"] = int(meta["num_bins"])
     if meta.get("bin_width_deg") is not None:
@@ -434,6 +432,70 @@ def _rfdetr_keypoint_log_mean_trace_np(active_keypoints: np.ndarray) -> np.ndarr
     )
 
 
+# Classification eval settings for exports written before ``norm_mean`` /
+# ``norm_std`` / ``resize_mode`` were recorded (#886). New exports carry them in
+# metadata; these reproduce what exported-backend predict() already used for
+# those families. Inlined so backends never import ``libreyolo.models``.
+_IMAGENET_MEAN = (0.485, 0.456, 0.406)
+_IMAGENET_STD = (0.229, 0.224, 0.225)
+
+_LEGACY_CLASSIFY_EVAL = {
+    "clip": {
+        "crop_pct": 1.0,
+        "interpolation": "bicubic",
+        "norm_mean": (0.48145466, 0.4578275, 0.40821073),
+        "norm_std": (0.26862954, 0.26130258, 0.27577711),
+    },
+    "siglip2": {
+        "crop_pct": 1.0,
+        "interpolation": "bilinear",
+        "norm_mean": (0.5, 0.5, 0.5),
+        "norm_std": (0.5, 0.5, 0.5),
+        "resize_mode": "stretch",
+    },
+    "pe": {
+        "crop_pct": 1.0,
+        "interpolation": "bilinear",
+        "norm_mean": (0.5, 0.5, 0.5),
+        "norm_std": (0.5, 0.5, 0.5),
+        "resize_mode": "stretch",
+    },
+    "vit": {
+        "crop_pct": 0.9,
+        "interpolation": "bicubic",
+        "norm_mean": (0.5, 0.5, 0.5),
+        "norm_std": (0.5, 0.5, 0.5),
+    },
+}
+
+
+def classify_eval_kwargs(metadata) -> Dict[str, Any]:
+    """Read the classification eval settings from flat export metadata.
+
+    Returns ``crop_pct`` / ``interpolation`` / ``norm_mean`` / ``norm_std`` /
+    ``resize_mode`` for :class:`BaseBackend`, ``None`` for absent keys. Values
+    may be stored as strings (ONNX, TFLite) or native types (JSON sidecars).
+    """
+    metadata = metadata or {}
+
+    def _vector(key):
+        value = metadata.get(key)
+        if value in (None, ""):
+            return None
+        if isinstance(value, str):
+            value = json.loads(value)
+        return tuple(float(v) for v in value)
+
+    crop_pct = metadata.get("crop_pct")
+    return {
+        "crop_pct": float(crop_pct) if crop_pct not in (None, "") else None,
+        "interpolation": metadata.get("interpolation") or None,
+        "norm_mean": _vector("norm_mean"),
+        "norm_std": _vector("norm_std"),
+        "resize_mode": metadata.get("resize_mode") or None,
+    }
+
+
 class BaseBackend(ABC):
     """Abstract base class for all inference backends.
 
@@ -458,6 +520,9 @@ class BaseBackend(ABC):
         default_task: str | None = None,
         crop_pct: float | None = None,
         interpolation: str | None = None,
+        norm_mean: Sequence[float] | None = None,
+        norm_std: Sequence[float] | None = None,
+        resize_mode: str | None = None,
         num_keypoints: int | None = None,
         keypoint_dim: int | None = None,
         num_keypoints_per_class: list[int] | None = None,
@@ -503,10 +568,18 @@ class BaseBackend(ABC):
             # Some concrete backends expose size as a computed read-only property.
             pass
         self.input_size = self.imgsz
-        # Classification eval preprocessing (from export metadata); defaults keep
-        # legacy behavior. Lets exported-backend classify inference match native.
-        self.crop_pct = crop_pct if crop_pct is not None else 0.875
-        self.interpolation = interpolation or "bilinear"
+        # Classification eval preprocessing from export metadata, so exported
+        # predict() and val() match the native model (#886). Exports written
+        # before a key existed fall back to the family's legacy values, then to
+        # the ImageNet defaults.
+        legacy = _LEGACY_CLASSIFY_EVAL.get(model_family or "", {})
+        self.crop_pct = (
+            crop_pct if crop_pct is not None else legacy.get("crop_pct", 0.875)
+        )
+        self.interpolation = interpolation or legacy.get("interpolation", "bilinear")
+        self.norm_mean = tuple(norm_mean or legacy.get("norm_mean", _IMAGENET_MEAN))
+        self.norm_std = tuple(norm_std or legacy.get("norm_std", _IMAGENET_STD))
+        self.resize_mode = resize_mode or legacy.get("resize_mode", "center_crop")
         # Set by backends that load a model with NMS baked into the graph; such
         # models emit final (1, max_det, 6) detections instead of raw tensors.
         if not hasattr(self, "embedded_nms"):
@@ -782,73 +855,35 @@ class BaseBackend(ABC):
             )
             return tensor, img, size, 1.0
 
-    def _preprocess_classify(self, image, input_size, color_format):
-        """Classification preprocessing: ImageNet-style resize/crop/normalize.
+    def _get_eval_transform(self, img_size=None, crop_pct=None):
+        """The classification eval transform, shared by predict and val (#886).
 
-        Uses the per-family ``crop_pct``/``interpolation`` recorded in export
-        metadata so exported-backend inference matches native predict()/val().
+        Rebuilt from the export metadata (see :func:`classify_eval_kwargs`), so
+        exported-backend ``predict()`` and ``val()`` preprocess exactly like the
+        native model. ``crop_pct`` overrides the recorded value for ``val()``.
         """
         from ..data.classify_dataset import build_classify_transforms
 
-        h, w = _imgsz_hw(input_size)
+        h, w = _imgsz_hw(img_size if img_size is not None else self.imgsz)
         if h != w:
             raise NotImplementedError(
                 "Classification exported-backend inference supports square imgsz only."
             )
-
-        img = ImageLoader.load(image, color_format=color_format)
-        original_size = img.size
-        transform_kwargs = {
-            "crop_pct": getattr(self, "crop_pct", 0.875),
-            "interpolation": getattr(self, "interpolation", "bilinear"),
-        }
-        if self.model_family == "clip":
-            from ..models.clip.model import CLIP_MEAN, CLIP_STD
-
-            transform_kwargs.update(
-                mean=CLIP_MEAN,
-                std=CLIP_STD,
-                crop_pct=1.0,
-                interpolation="bicubic",
-            )
-        elif self.model_family == "siglip2":
-            from ..models.siglip2.model import SIGLIP_MEAN, SIGLIP_STD
-
-            transform_kwargs.update(
-                mean=SIGLIP_MEAN,
-                std=SIGLIP_STD,
-                crop_pct=1.0,
-                interpolation="bilinear",
-                square_resize=True,
-            )
-        elif self.model_family == "pe":
-            # Must mirror LibrePE._build_transform: symmetric [-1, 1]
-            # normalization and a bilinear square resize, NOT ImageNet stats.
-            from ..models.pe.nn import PE_MEAN, PE_STD
-
-            transform_kwargs.update(
-                mean=PE_MEAN,
-                std=PE_STD,
-                crop_pct=1.0,
-                interpolation="bilinear",
-                square_resize=True,
-            )
-        elif self.model_family == "vit":
-            from ..models.vit.utils import VIT_MEAN, VIT_STD
-
-            transform_kwargs.update(
-                mean=VIT_MEAN,
-                std=VIT_STD,
-                crop_pct=0.9,
-                interpolation="bicubic",
-            )
-        transform = build_classify_transforms(
+        return build_classify_transforms(
             h,
             augment=False,
-            **transform_kwargs,
+            mean=self.norm_mean,
+            std=self.norm_std,
+            crop_pct=self.crop_pct if crop_pct is None else crop_pct,
+            interpolation=self.interpolation,
+            square_resize=self.resize_mode == "stretch" and crop_pct is None,
         )
-        img_tensor = transform(img).unsqueeze(0)
-        return img_tensor, img, original_size, 1.0
+
+    def _preprocess_classify(self, image, input_size, color_format):
+        """Classification preprocessing: the export's eval transform."""
+        img = ImageLoader.load(image, color_format=color_format)
+        img_tensor = self._get_eval_transform(input_size)(img).unsqueeze(0)
+        return img_tensor, img, img.size, 1.0
 
     def _preprocess_semantic(self, image, input_size, color_format):
         """Dense semantic preprocessing for fixed-canvas exported graphs."""
@@ -4087,80 +4122,12 @@ class BaseBackend(ABC):
 
     def _save_annotated(self, result, original_img, image_path, output_path):
         """Save annotated image to disk."""
-        annotated_img = original_img
         forced_ext = None
-        if result.boxes is None and getattr(result, "probs", None) is not None:
-            pass
-        elif result.boxes is None and getattr(result, "restored", None) is not None:
-            annotated_img = Image.fromarray(result.restored.array, mode="RGB")
-        elif result.boxes is None and getattr(result, "depth_map", None) is not None:
-            from ..utils.drawing import draw_depth_map
-
-            depth_data = result.depth_map.data
-            if isinstance(depth_data, torch.Tensor):
-                depth_data = depth_data.cpu().numpy()
-            annotated_img = draw_depth_map(original_img, depth_data)
-        elif result.boxes is None and getattr(result, "normal_map", None) is not None:
-            from ..utils.drawing import draw_normal_map
-
-            normal_data = result.normal_map.data
-            if isinstance(normal_data, torch.Tensor):
-                normal_data = normal_data.cpu().numpy()
-            annotated_img = draw_normal_map(original_img, normal_data)
-        elif result.boxes is None and getattr(result, "edges", None) is not None:
-            from ..utils.drawing import draw_edge_map
-
-            edge_data = result.edges.data
-            if isinstance(edge_data, torch.Tensor):
-                edge_data = edge_data.cpu().numpy()
-            annotated_img = draw_edge_map(original_img, edge_data)
-        elif (
-            result.boxes is None and getattr(result, "semantic_mask", None) is not None
-        ):
-            mask_data = result.semantic_mask.data
-            if isinstance(mask_data, torch.Tensor):
-                mask_data = mask_data.cpu().numpy()
-            annotated_img = draw_semantic_mask(original_img, mask_data)
-        elif result.boxes is None and getattr(result, "matte", None) is not None:
+        if result.boxes is None and getattr(result, "matte", None) is not None:
             annotated_img = Image.fromarray(result.cutout(original_img), mode="RGBA")
             forced_ext = "png"
-        elif result.boxes is None and getattr(result, "points", None) is not None:
-            if len(result.points) > 0:
-                annotated_img = draw_points(
-                    original_img,
-                    result.points.xy.tolist(),
-                    result.points.conf.tolist(),
-                    result.points.cls.tolist(),
-                    class_names=result.names,
-                )
-        elif len(result) > 0:
-            if result.masks is not None:
-                annotated_img = draw_masks(
-                    annotated_img,
-                    result.masks.data.numpy(),
-                    result.boxes.cls.tolist(),
-                )
-            if result.obb is not None:
-                annotated_img = draw_obb(
-                    annotated_img,
-                    result.obb.xywhr.tolist(),
-                    result.obb.conf.tolist(),
-                    result.obb.cls.tolist(),
-                    class_names=self.names,
-                )
-            else:
-                annotated_img = draw_boxes(
-                    annotated_img,
-                    result.boxes.xyxy.tolist(),
-                    result.boxes.conf.tolist(),
-                    result.boxes.cls.tolist(),
-                    class_names=self.names,
-                )
-            if result.keypoints is not None:
-                kpts_np = result.keypoints.data
-                if isinstance(kpts_np, torch.Tensor):
-                    kpts_np = kpts_np.cpu().numpy()
-                annotated_img = draw_keypoints(annotated_img, kpts_np)
+        else:
+            annotated_img = draw_results(result, original_img)
 
         ext = forced_ext or (
             "png" if isinstance(getattr(self, "input_profile", None), dict)
@@ -4491,6 +4458,13 @@ class BaseBackend(ABC):
             )
         if plots is not None and "save_plots" not in kwargs:
             kwargs["save_plots"] = plots
+        from libreyolo.validation.config import VISUALIZE_TASKS
+
+        if kwargs.get("visualize") and self.task not in VISUALIZE_TASKS:
+            raise ValueError(
+                f"visualize=True is not supported for task '{self.task}'; "
+                f"it covers {', '.join(VISUALIZE_TASKS)}"
+            )
 
         validation_device = device or (
             self.device
@@ -4545,11 +4519,18 @@ class BaseBackend(ABC):
         else:
             validator_cls = DetectionValidator
         validator = validator_cls(model=self, config=config)
-        return validator()
+        from libreyolo.validation.base import with_image_metrics
+
+        return with_image_metrics(validator(), validator)
 
     # =========================================================================
     # Inference pipeline
     # =========================================================================
+
+    @staticmethod
+    def _keep_source(result, original_img, source=None):
+        """Keep the decoded source image on a result so ``plot()`` works."""
+        return keep_source(result, original_img, source)
 
     def _predict_single(
         self,
@@ -4595,12 +4576,16 @@ class BaseBackend(ABC):
                     image_path if image_path is not None else save_stem,
                     output_path,
                 )
-            return result
+            return self._keep_source(result, original_img, image_path)
         if self.task == "embed":
-            return self._build_embedding_result(
-                all_outputs,
-                orig_shape=orig_shape,
-                image_path=image_path,
+            return self._keep_source(
+                self._build_embedding_result(
+                    all_outputs,
+                    orig_shape=orig_shape,
+                    image_path=image_path,
+                ),
+                original_img,
+                image_path,
             )
         if self.task == "restore":
             result = self._build_restore_result(
@@ -4616,7 +4601,7 @@ class BaseBackend(ABC):
                     image_path if image_path is not None else save_stem,
                     output_path,
                 )
-            return result
+            return self._keep_source(result, original_img, image_path)
         if self.task == "depth":
             result = self._build_depth_result(
                 all_outputs,
@@ -4631,7 +4616,7 @@ class BaseBackend(ABC):
                     image_path if image_path is not None else save_stem,
                     output_path,
                 )
-            return result
+            return self._keep_source(result, original_img, image_path)
         if self.task == "normal":
             result = self._build_normal_result(
                 all_outputs,
@@ -4646,7 +4631,7 @@ class BaseBackend(ABC):
                     image_path if image_path is not None else save_stem,
                     output_path,
                 )
-            return result
+            return self._keep_source(result, original_img, image_path)
         if self.task == "edge":
             result = self._build_edge_result(
                 all_outputs,
@@ -4661,7 +4646,7 @@ class BaseBackend(ABC):
                     image_path if image_path is not None else save_stem,
                     output_path,
                 )
-            return result
+            return self._keep_source(result, original_img, image_path)
         if self.task == "matte":
             result = self._build_matte_result(
                 all_outputs,
@@ -4676,7 +4661,7 @@ class BaseBackend(ABC):
                     image_path if image_path is not None else save_stem,
                     output_path,
                 )
-            return result
+            return self._keep_source(result, original_img, image_path)
         if self.task == "gaze":
             result = self._build_gaze_result(
                 all_outputs,
@@ -4690,7 +4675,7 @@ class BaseBackend(ABC):
                     image_path if image_path is not None else save_stem,
                     output_path,
                 )
-            return result
+            return self._keep_source(result, original_img, image_path)
         if self.task == "semantic":
             result = self._build_semantic_result(
                 all_outputs,
@@ -4707,7 +4692,7 @@ class BaseBackend(ABC):
                     image_path if image_path is not None else save_stem,
                     output_path,
                 )
-            return result
+            return self._keep_source(result, original_img, image_path)
         if self.task == "point":
             result = self._build_point_result(
                 all_outputs,
@@ -4725,7 +4710,7 @@ class BaseBackend(ABC):
                     image_path if image_path is not None else save_stem,
                     output_path,
                 )
-            return result
+            return self._keep_source(result, original_img, image_path)
 
         parsed = self._parse_outputs(
             all_outputs,
@@ -4762,7 +4747,7 @@ class BaseBackend(ABC):
                 output_path,
             )
 
-        return result
+        return self._keep_source(result, original_img, image_path)
 
     def _supports_batched_inference(self) -> bool:
         """Whether ``_run_inference`` accepts stacked (N, C, H, W) blobs.
@@ -5056,7 +5041,7 @@ class BaseBackend(ABC):
 
             if save:
                 self._save_annotated(result, original_img, save_name, output_path)
-            results.append(result)
+            results.append(self._keep_source(result, original_img, image_path))
         return results
 
     # =========================================================================
@@ -5236,7 +5221,7 @@ class BaseBackend(ABC):
         source_label = str(source) if source_label is None else source_label
         effective_imgsz = self._resolve_predict_imgsz(imgsz)
 
-        def predict_frame(pil_img):
+        def predict_frame_result(pil_img):
             input_tensor, original_img, original_size, ratio = self._preprocess(
                 pil_img, effective_imgsz, "rgb"
             )
@@ -5341,6 +5326,9 @@ class BaseBackend(ABC):
                 classes=classes,
                 max_det=max_det,
             )
+
+        def predict_frame(pil_img):
+            return self._keep_source(predict_frame_result(pil_img), pil_img)
 
         yield from run_video_inference(
             source,

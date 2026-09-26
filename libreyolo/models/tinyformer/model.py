@@ -45,6 +45,7 @@ class LibreTinyFormer(BaseModel):
     """
 
     FAMILY = "tinyformer"
+    SQUARE_IMGSZ_CALLS = frozenset({"predict", "val"})
     FILENAME_PREFIX = "LibreTinyFormer"
     INPUT_SIZES = {size: int(cfg["input_size"]) for size, cfg in SIZE_CONFIGS.items()}
     SUPPORTED_TASKS = ("detect",)

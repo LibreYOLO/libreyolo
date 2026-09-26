@@ -71,6 +71,27 @@ def test_latency_stages_and_schema(tmp_path):
     assert json.loads((tmp_path / "profile.json").read_text())["mode"] == "inference"
 
 
+
+class _RectStubModel(_StubModel):
+    """A rectangular fine-tune (#899) reports its size as (height, width)."""
+
+    def _get_input_size(self):
+        return (16, 32)
+
+    def _preprocess(self, image, color_format="auto", input_size=(16, 32)):
+        height, width = input_size
+        return torch.zeros(1, 3, height, width), None, (width, height), 1.0
+
+
+def test_rectangular_native_size_is_profiled_without_imgsz(tmp_path):
+    prof = InferenceProfiler(
+        _RectStubModel(), warmup=0, runs=2, trace=False, save_dir=tmp_path
+    )
+    a = prof.run(["img"])
+
+    assert a["latency"]["n"] >= 1
+    assert tuple(prof.summary["meta"]["imgsz"]) == (16, 32)
+
 def test_batch_throughput_scales(tmp_path):
     prof = InferenceProfiler(_StubModel(), warmup=1, runs=6, batch=4, imgsz=32,
                              trace=False, save_dir=tmp_path)

@@ -88,6 +88,7 @@ class DetectionValidator(ValidationLossMixin, BaseValidator):
     """
 
     task = "detect"
+    supports_visualize = True
 
     # Class-level default so instances built without __init__ (a pattern the
     # test suite uses for narrow-scope validators) still resolve it.
@@ -484,6 +485,14 @@ class DetectionValidator(ValidationLossMixin, BaseValidator):
         # Always initialise plot-tracking state before any early returns
         self._confusion_matrix = None
         self._val_samples: List[Dict] = []
+        # Image filename -> precision/recall/f1/tp/fp/fn (#887); val() returns
+        # it as ``results.box.image_metrics``.
+        self.image_metrics: Dict[str, Dict[str, float]] = {}
+        self._image_metrics_warned = False
+        if getattr(self.config, "visualize", False):
+            from .val_plotter import reset_visualize_dir  # noqa: PLC0415
+
+            reset_visualize_dir(self.save_dir)
         if self.config.save_plots:
             from .val_plotter import ConfusionMatrix  # noqa: PLC0415
             self._confusion_matrix = ConfusionMatrix(nc=self.nc)
@@ -865,6 +874,106 @@ class DetectionValidator(ValidationLossMixin, BaseValidator):
                 self._track_plots_data(preds, targets, img_info, img_ids)
             except Exception as exc:
                 logger.warning("Failed to collect validation plot data: %s", exc)
+        self._score_images(preds, targets, img_info, img_ids)
+
+    def _score_images(
+        self,
+        preds: List[Dict[str, torch.Tensor]],
+        targets: torch.Tensor,
+        img_info: List,
+        img_ids: List,
+    ) -> None:
+        """Record each image's TP/FP/FN and, with ``visualize``, draw it (#887).
+
+        Predictions at the ``visualize`` confidence (0.25, or the run's
+        ``conf`` if higher) are matched one to one with same-class ground
+        truth at IoU 0.5 (:func:`match_detections`). The counts go to
+        ``self.image_metrics`` under the image filename. ``visualize`` images
+        are written as the images are validated, to ``visualize/errors/``
+        when the image has a false positive or a miss and to
+        ``visualize/correct/`` otherwise. Neither feeds the mAP metrics.
+        """
+        from .val_plotter import (  # noqa: PLC0415
+            ValPlotter,
+            image_metrics_entry,
+            match_detections,
+            visualize_conf_thres,
+            visualize_subdir,
+        )
+
+        if targets is None:
+            return
+        image_metrics = getattr(self, "image_metrics", None)
+        if image_metrics is None:
+            image_metrics = self.image_metrics = {}
+        cfg = getattr(self, "config", None)
+        visualize = getattr(cfg, "visualize", False)
+        out_dir = self.save_dir / "visualize" if visualize else None
+        conf_thres = visualize_conf_thres(getattr(cfg, "conf_thres", None))
+        kept_classes = getattr(cfg, "classes", None)
+        if kept_classes and self._single_cls_enabled():
+            kept_classes = None
+        seen = getattr(self, "seen", 0)
+        for i, pred in enumerate(preds):
+            index = seen + i
+            try:
+                orig_h, orig_w = img_info[i]
+                gt_boxes, gt_classes = self._parse_gt_boxes(targets[i], orig_h, orig_w)
+                if kept_classes:
+                    # Predictions were filtered to classes=; so is the truth.
+                    keep_gt = np.isin(gt_classes, kept_classes)
+                    gt_boxes, gt_classes = gt_boxes[keep_gt], gt_classes[keep_gt]
+                img_path = self._resolve_img_path(
+                    self.dataloader.dataset, index, img_ids[i]
+                )
+                pred_boxes = pred["boxes"].cpu().numpy().reshape(-1, 4)
+                pred_classes = pred["classes"].cpu().numpy().astype(int).reshape(-1)
+                pred_scores = pred["scores"].cpu().numpy().reshape(-1)
+                entry = image_metrics_entry(
+                    match_detections(
+                        pred_boxes,
+                        pred_classes,
+                        pred_scores,
+                        gt_boxes,
+                        gt_classes,
+                        conf_thres=conf_thres,
+                    )
+                )
+                if img_path:
+                    # Keyed by filename, like the ecosystem; a filename seen
+                    # before (same name in another folder) keys by full path.
+                    name = Path(str(img_path)).name
+                    if name in image_metrics:
+                        name = str(img_path)
+                else:
+                    name = f"{index:06d}"
+                image_metrics[name] = entry
+                if not visualize:
+                    continue
+                img_bgr = self._load_plot_image(img_path)
+                if img_bgr is None:
+                    continue
+                subdir = visualize_subdir(not (entry["fp"] or entry["fn"]))
+                ValPlotter.plot_detection_visualize(
+                    img_bgr,
+                    gt_boxes,
+                    gt_classes,
+                    pred_boxes,
+                    pred_classes,
+                    pred_scores,
+                    self.class_names,
+                    out_dir / subdir / f"{index:06d}_{Path(str(img_path)).stem}.jpg",
+                    show_labels=cfg.show_labels,
+                    show_conf=cfg.show_conf,
+                    conf_thres=conf_thres,
+                )
+            except Exception as exc:
+                # Once per run: this runs on every validation, training included.
+                if not getattr(self, "_image_metrics_warned", False):
+                    self._image_metrics_warned = True
+                    logger.warning(
+                        "image metrics / visualize failed for image %d: %s", index, exc
+                    )
 
     def _parse_gt_boxes(
         self, gt_row: torch.Tensor, orig_h: int, orig_w: int
@@ -1108,20 +1217,9 @@ class DetectionValidator(ValidationLossMixin, BaseValidator):
 
         # Sample images → plots/samples/
         if self._val_samples:
-            try:
-                import cv2  # noqa: PLC0415
-            except ImportError:
-                logger.warning("opencv-python not found — skipping sample image plots")
-                return
             samples_dir = plots_dir / "samples"
             for idx, sample in enumerate(self._val_samples):
-                if sample["img_path"] is None:
-                    continue
-                if getattr(self.model, "input_profile", None) is not None:
-                    from ..utils.event_histogram import visualize_histogram
-                    img_bgr = visualize_histogram(sample["img_path"], scale=self.model.input_profile["scale"])[..., ::-1]
-                else:
-                    img_bgr = cv2.imread(str(sample["img_path"]))
+                img_bgr = self._load_plot_image(sample["img_path"])
                 if img_bgr is None:
                     continue
                 _safe(
@@ -1137,6 +1235,23 @@ class DetectionValidator(ValidationLossMixin, BaseValidator):
                     sample.get("pred_masks"),
                     self._get_gt_masks_for_sample(sample, img_bgr),
                 )
+
+    def _load_plot_image(self, img_path) -> Optional[np.ndarray]:
+        """Read a validated image as BGR for a plot, or None if unavailable."""
+        if img_path is None:
+            return None
+        try:
+            import cv2  # noqa: PLC0415
+        except ImportError:
+            logger.warning("opencv-python not found — skipping image plots")
+            return None
+        if getattr(self.model, "input_profile", None) is not None:
+            from ..utils.event_histogram import visualize_histogram
+
+            return visualize_histogram(
+                img_path, scale=self.model.input_profile["scale"]
+            )[..., ::-1]
+        return cv2.imread(str(img_path))
 
     def _get_gt_masks_for_sample(
         self, sample: Dict, img_bgr: np.ndarray

@@ -536,7 +536,7 @@ Detector-factory family support follows:
 | `rtmdet`    | `("detect", "segment")` (default: detect) | detect | RTMDet-Ins uses `-seg`; detect training is implemented and directly callable, segment training is not implemented |
 | `picodet`   | `("detect",)` (default)             | detect | detect-only |
 | `ppyoloe`   | `("detect",)` (default)             | detect | detect-only; no task suffix; pretrained weights linked from the source CDN, not mirrored |
-| `rfdetr`    | `("detect", "segment", "pose", "obb")` | detect | seg uses smaller sizes; pose/OBB use detect sizes |
+| `rfdetr`    | `("detect", "segment", "pose", "obb")` | detect | seg uses smaller sizes; pose/OBB use detect sizes; dataset-variant weights `-ui` (class-agnostic UI elements, nc=1) |
 | `dinov2`    | `("semantic", "classify", "embed")` | semantic | DINOv2 backbone + task head; embed bypasses heads and returns the 384-d final CLS token at 224 (all sizes share DINOv2-S); no text tower |
 | `eomt`      | `("semantic", "segment", "panoptic")` | semantic | DINOv2 backbone; sizes s/b/l. Semantic: ADE20K 150-class at 512. Instance segment: COCO 80-class at 640 (l also at 1280). Panoptic: COCO 133-class at 640. Upstream ships no COCO instance checkpoint at s/b. DINOv3 variants excluded |
 | `pidnet`    | `("semantic",)`                     | semantic | real-time PIDNet semantic segmentation; s/m/l at 1024; Cityscapes 19-class checkpoints; inference + `val`; not trainable in LibreYOLO |
@@ -652,6 +652,7 @@ LibreRFDETRn.pt            # detect
 LibreRFDETRn-seg.pt        # segment
 LibreRFDETRx-pose.pt       # pose (preview; only size x ships)
 LibreRFDETRn-obb.pt        # obb
+LibreRFDETRm-ui.pt         # detect; UI element variant (UI-DETR-1, 1 class)
 
 # dinov2 — DINOv2 backbone + task head (NOT the RF-DETR detector)
 LibreDINOv2n.pt            # semantic (default task; dense head at 518)

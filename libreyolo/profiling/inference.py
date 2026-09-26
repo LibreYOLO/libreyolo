@@ -140,7 +140,9 @@ class InferenceProfiler:
         """Profile inference over ``images`` (cycled to fill batch+iterations)."""
         if not images:
             raise ValueError("no images to profile")
-        imgsz = self.imgsz or int(self.model._get_input_size())
+        imgsz = self.imgsz or self.model._get_input_size()
+        if not isinstance(imgsz, (tuple, list)):
+            imgsz = int(imgsz)
         inner = getattr(self.model, "model", None)
         if inner is not None and hasattr(inner, "eval"):
             inner.eval()

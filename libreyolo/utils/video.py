@@ -390,7 +390,14 @@ def collect_video_results(
             f"Consider using stream=True to avoid high memory usage.",
             stacklevel=3,
         )
-    return list(gen)
+    results = []
+    for result in gen:
+        # A collected list must not hold every decoded frame; stream=True
+        # keeps each frame's source image for plotting.
+        if getattr(result, "_orig_img", None) is not None:
+            result.orig_img = None
+        results.append(result)
+    return results
 
 
 def run_video_inference(
@@ -419,29 +426,18 @@ def run_video_inference(
         show: Display frames in a cv2 window.
         output_path: Output path for saved video.
         annotate_fn: Optional callable ``(pil_img, result) -> pil_img`` for
-            custom annotation (e.g. tracking labels). When *None*, the default
-            ``draw_boxes()`` annotation is used.
+            custom annotation (e.g. tracking labels). When *None*, the frame is
+            drawn with ``draw_results()``, as ``Results.plot()`` does.
         progress: Show a tqdm progress bar (frames processed, fps).
 
     Yields:
         ``Results`` for each processed frame.
     """
     import cv2
-    import torch
     from PIL import Image
     from tqdm import tqdm
 
-    from .drawing import (
-        draw_boxes,
-        draw_depth_map,
-        draw_edge_map,
-        draw_normal_map,
-        draw_keypoints,
-        draw_masks,
-        draw_matte,
-        draw_obb,
-        draw_points,
-    )
+    from .drawing import draw_results
 
     if isinstance(source, (str, Path)):
         frame_source = VideoSource(source, vid_stride=vid_stride)
@@ -528,107 +524,8 @@ def run_video_inference(
                 if save or show:
                     if annotate_fn is not None:
                         annotated_pil = annotate_fn(pil_img, result)
-                    elif (
-                        result.boxes is None
-                        and getattr(result, "probs", None) is not None
-                    ):
-                        annotated_pil = pil_img
-                    elif (
-                        result.boxes is None
-                        and getattr(result, "points", None) is not None
-                    ):
-                        if len(result.points) > 0:
-                            annotated_pil = draw_points(
-                                pil_img,
-                                result.points.xy.tolist(),
-                                result.points.conf.tolist(),
-                                result.points.cls.tolist(),
-                                class_names=result.names,
-                            )
-                        else:
-                            annotated_pil = pil_img
-                    elif (
-                        result.boxes is None
-                        and getattr(result, "restored", None) is not None
-                    ):
-                        annotated_pil = Image.fromarray(
-                            result.restored.array, mode="RGB"
-                        )
-                    elif result.boxes is None and getattr(result, "albedo", None) is not None:
-                        annotated_pil = Image.fromarray(result.albedo.to_rgb())
-                    elif (
-                        result.boxes is None
-                        and getattr(result, "matte", None) is not None
-                    ):
-                        # Checkerboard-composited cutout preview (video frames
-                        # cannot carry an alpha channel, so the transparency is
-                        # visualized instead).
-                        annotated_pil = draw_matte(pil_img, result.matte.array)
-                    elif (
-                        result.boxes is None
-                        and getattr(result, "depth_map", None) is not None
-                    ):
-                        depth_np = result.depth_map.data
-                        if isinstance(depth_np, torch.Tensor):
-                            depth_np = depth_np.cpu().numpy()
-                        if not result.depth_map.near_is_high:
-                            depth_np = -depth_np
-                        annotated_pil = draw_depth_map(pil_img, depth_np)
-                    elif (
-                        result.boxes is None
-                        and getattr(result, "normal_map", None) is not None
-                    ):
-                        normal_np = result.normal_map.data
-                        if isinstance(normal_np, torch.Tensor):
-                            normal_np = normal_np.cpu().numpy()
-                        annotated_pil = draw_normal_map(pil_img, normal_np)
-                    elif (
-                        result.boxes is None
-                        and getattr(result, "edges", None) is not None
-                    ):
-                        edge_np = result.edges.data
-                        if isinstance(edge_np, torch.Tensor):
-                            edge_np = edge_np.cpu().numpy()
-                        annotated_pil = draw_edge_map(pil_img, edge_np)
-                    elif len(result) > 0:
-                        annotated_pil = pil_img
-                        if result.masks is not None:
-                            masks_np = result.masks.data
-                            if isinstance(masks_np, torch.Tensor):
-                                masks_np = masks_np.cpu().numpy()
-                            annotated_pil = draw_masks(
-                                annotated_pil,
-                                masks_np,
-                                result.boxes.cls.tolist(),
-                            )
-                        if result.obb is not None:
-                            annotated_pil = draw_obb(
-                                annotated_pil,
-                                result.obb.xywhr.tolist(),
-                                result.obb.conf.tolist(),
-                                result.obb.cls.tolist(),
-                                class_names=result.names,
-                                track_ids=(
-                                    result.obb.id.tolist()
-                                    if result.obb.id is not None
-                                    else None
-                                ),
-                            )
-                        else:
-                            annotated_pil = draw_boxes(
-                                annotated_pil,
-                                result.boxes.xyxy.tolist(),
-                                result.boxes.conf.tolist(),
-                                result.boxes.cls.tolist(),
-                                class_names=result.names,
-                            )
-                        if result.keypoints is not None:
-                            kpts_np = result.keypoints.data
-                            if isinstance(kpts_np, torch.Tensor):
-                                kpts_np = kpts_np.cpu().numpy()
-                            annotated_pil = draw_keypoints(annotated_pil, kpts_np)
                     else:
-                        annotated_pil = pil_img
+                        annotated_pil = draw_results(result, pil_img)
 
                     annotated_bgr = cv2.cvtColor(
                         np.array(annotated_pil), cv2.COLOR_RGB2BGR

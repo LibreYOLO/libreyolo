@@ -309,12 +309,198 @@ def test_classify_family_train_end_to_end(tmp_path):
     val = epoch_metrics[-1].get("val_metrics") or {}
     scalars = val.get("metrics", val)
     assert "metrics/accuracy_top1" in scalars
+    assert "metrics/f1" in scalars
 
     # The saved checkpoint reloads as a 2-class classifier and predicts.
     reloaded = LibreMobileNetV4(str(best), device="cpu")
     assert reloaded.nb_classes == 2
     result = reloaded(str(tmp_path / "data" / "val" / "c0" / "c0_0.png"))
     assert result.probs.data.shape[0] == 2
+
+
+def _bare_classify_validator():
+    from contextlib import nullcontext
+    from types import SimpleNamespace
+
+    from libreyolo.validation.classify_validator import ClassifyValidator
+
+    validator = object.__new__(ClassifyValidator)
+    validator.config = SimpleNamespace(visualize=False)
+    validator.loss_adapter = None
+    validator._autocast_context = nullcontext
+    validator._init_metrics()
+    return validator
+
+
+def _one_hot_logits(preds, nc):
+    out = torch.full((len(preds), nc), -5.0)
+    for row, cls in enumerate(preds):
+        out[row, cls] = 5.0
+    return out
+
+
+def test_classify_validator_macro_precision_recall_f1():
+    """Macro P/R/F1 from the confusion matrix, over classes present in targets."""
+    validator = _bare_classify_validator()
+
+    # Batch 1: targets [0, 0, 1, 1], preds [0, 1, 1, 1]
+    validator._update_metrics(
+        _one_hot_logits([0, 1, 1, 1], 4), torch.tensor([0, 0, 1, 1]), None
+    )
+    # Batch 2: targets [2, 2], preds [2, 0]
+    validator._update_metrics(_one_hot_logits([2, 0], 4), torch.tensor([2, 2]), None)
+
+    metrics = validator._compute_metrics()
+
+    # Confusion (rows=target, cols=pred):
+    #   c0: tp=1 fp=1 fn=1 -> P=0.5  R=0.5  F1=0.5
+    #   c1: tp=2 fp=1 fn=0 -> P=2/3  R=1.0  F1=0.8
+    #   c2: tp=1 fp=0 fn=1 -> P=1.0  R=0.5  F1=2/3
+    #   c3: absent from targets -> excluded from the macro mean
+    assert metrics["metrics/accuracy_top1"] == pytest.approx(4 / 6)
+    assert metrics["metrics/precision"] == pytest.approx((0.5 + 2 / 3 + 1.0) / 3)
+    assert metrics["metrics/recall"] == pytest.approx((0.5 + 1.0 + 0.5) / 3)
+    assert metrics["metrics/f1"] == pytest.approx((0.5 + 0.8 + 2 / 3) / 3)
+    assert metrics["fitness"] == pytest.approx(metrics["metrics/accuracy_top1"])
+
+
+def test_classify_validator_confusion_accumulates_across_batches_and_repeats():
+    """A repeated (target, pred) pair within one batch must count every time.
+
+    Regression guard for the index_add_ scatter: a naive
+    ``confusion[t, p] += 1`` written as a fancy-indexing assignment silently
+    drops repeats within the same batch, unlike bincount/index_add_.
+    """
+    validator = _bare_classify_validator()
+
+    # Batch 1: index (0, 0) repeats three times, (1, 1) once.
+    validator._update_metrics(
+        _one_hot_logits([0, 0, 0, 1], 3), torch.tensor([0, 0, 0, 1]), None
+    )
+    # Batch 2: targets [1], preds [2].
+    validator._update_metrics(_one_hot_logits([2], 3), torch.tensor([1]), None)
+
+    assert validator._class_target.tolist() == [3, 2, 0]
+    assert validator._class_pred.tolist() == [3, 1, 1]
+    assert validator._class_tp.tolist() == [3, 1, 0]
+
+
+def test_classify_validator_confusion_memory_is_linear_in_class_count():
+    """Per-class vectors, not an nc x nc matrix: memory must stay linear in nc.
+
+    Regression guard for the quadratic confusion-matrix allocation (#852
+    follow-up): a dense nc x nc int64 matrix costs ~3.5 GB at ImageNet-21k
+    width. Every tensor the validator stores must be at most length nc.
+    """
+    validator = _bare_classify_validator()
+    nc = 4096
+
+    validator._update_metrics(_one_hot_logits([0, 5], nc), torch.tensor([0, 7]), None)
+
+    for name, value in vars(validator).items():
+        if isinstance(value, torch.Tensor):
+            assert value.numel() <= nc, f"{name} has {value.numel()} elements"
+
+    metrics = validator._compute_metrics()
+    assert metrics["metrics/recall"] == pytest.approx(0.5)
+
+
+def test_classify_validator_macro_metrics_are_zero_without_samples():
+    metrics = _bare_classify_validator()._compute_metrics()
+
+    assert metrics["metrics/precision"] == 0.0
+    assert metrics["metrics/recall"] == 0.0
+    assert metrics["metrics/f1"] == 0.0
+
+
+def test_classify_validator_precision_is_zero_for_never_predicted_class():
+    """A class present in targets but never predicted scores 0, not NaN."""
+    validator = _bare_classify_validator()
+    validator._update_metrics(
+        _one_hot_logits([0, 0, 0, 0], 3), torch.tensor([0, 0, 1, 2]), None
+    )
+
+    metrics = validator._compute_metrics()
+
+    # c0: P=2/4 R=1 F1=2/3; c1 and c2: never predicted -> 0, 0, 0.
+    assert metrics["metrics/precision"] == pytest.approx(0.5 / 3)
+    assert metrics["metrics/recall"] == pytest.approx(1.0 / 3)
+    assert metrics["metrics/f1"] == pytest.approx((2 / 3) / 3)
+    for key in ("metrics/precision", "metrics/recall", "metrics/f1"):
+        assert metrics[key] == metrics[key]  # not NaN
+
+
+@pytest.mark.parametrize("bad_targets", [[-1, 0], [2, 0], [-1, 2]])
+def test_classify_validator_rejects_out_of_range_targets(bad_targets):
+    """A bad batch must not silently vanish from macro metrics."""
+    validator = _bare_classify_validator()
+    validator._update_metrics(_one_hot_logits([0], 2), torch.tensor([0]), None)
+    before = validator._compute_metrics()
+    loss_calls = []
+
+    def loss_adapter(*args, **kwargs):
+        loss_calls.append((args, kwargs))
+        return {"loss": 1.0}
+
+    validator._active_loss_adapter = loss_adapter
+
+    with pytest.raises(ValueError, match="Classification dataset/model class mismatch"):
+        validator._update_metrics(
+            _one_hot_logits([0, 0], 2), torch.tensor(bad_targets), None
+        )
+
+    assert validator._total == 1
+    assert loss_calls == []
+    assert validator._compute_metrics() == before
+
+
+def test_classify_val_rejects_dataset_larger_than_head(tmp_path):
+    from libreyolo import LibreMobileNetV4
+
+    _make_named_imagefolder(tmp_path / "data", ["cat", "dog"], n_per=1)
+    model = LibreMobileNetV4(size="s", nb_classes=1, device="cpu")
+
+    with pytest.raises(ValueError, match="Classification dataset/model class mismatch"):
+        model.val(
+            data=str(tmp_path / "data"), imgsz=32, batch=2, workers=0,
+            device="cpu", verbose=False, save_dir=str(tmp_path / "val"),
+        )
+
+
+def test_classify_val_accepts_valid_subset_of_wider_head(tmp_path):
+    from libreyolo import LibreMobileNetV4
+
+    _make_named_imagefolder(tmp_path / "data", ["cat", "dog"], n_per=1)
+    model = LibreMobileNetV4(size="s", nb_classes=3, device="cpu")
+    with torch.no_grad():
+        model.model.classifier.weight.zero_()
+        model.model.classifier.bias.copy_(torch.tensor([2.0, -2.0, -3.0]))
+
+    metrics = model.val(
+        data=str(tmp_path / "data"), imgsz=32, batch=2, workers=0,
+        device="cpu", verbose=False, save_dir=str(tmp_path / "val"),
+    )
+
+    assert metrics["metrics/accuracy_top1"] == pytest.approx(0.5)
+    assert metrics["metrics/accuracy_top5"] == pytest.approx(1.0)
+    assert metrics["metrics/precision"] == pytest.approx(0.25)
+    assert metrics["metrics/recall"] == pytest.approx(0.5)
+    assert metrics["metrics/f1"] == pytest.approx(1 / 3)
+    assert metrics["fitness"] == pytest.approx(0.5)
+
+
+def test_classify_validator_accepts_sparse_valid_target_indices():
+    validator = _bare_classify_validator()
+    validator._update_metrics(
+        _one_hot_logits([0, 999], 1000), torch.tensor([0, 999]), None
+    )
+
+    metrics = validator._compute_metrics()
+
+    assert metrics["metrics/accuracy_top1"] == pytest.approx(1.0)
+    assert metrics["metrics/precision"] == pytest.approx(1.0)
+    assert metrics["metrics/recall"] == pytest.approx(1.0)
+    assert metrics["metrics/f1"] == pytest.approx(1.0)
 
 
 # ---------------------------------------------------------------------------

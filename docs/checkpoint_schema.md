@@ -261,15 +261,22 @@ Pose runtime exports may also write these flat metadata keys:
   consumes one already-extracted person crop rather than a full image and does
   not contain a detector. HRNet runtime exports require this value.
 
-Classification runtime exports (MobileNetV4 / ConvNeXt / EfficientNetV2 /
-ResNet) may also write these flat metadata keys so that exported-backend
-preprocessing reproduces the native model's resize/crop and the logits stay
-bit-identical:
+Classification runtime exports write the family's eval pipeline as flat
+metadata keys, so exported-backend `predict()` and `val()` reproduce the native
+model's preprocessing and the logits stay bit-identical:
 
 - `crop_pct`: float center-crop ratio. The pre-crop resize target is
-  `round(imgsz / crop_pct)`. Readers default to `0.875` when the key is absent.
+  `floor(imgsz / crop_pct)`. Readers default to `0.875` when the key is absent.
 - `interpolation`: resize filter, `"bilinear"` or `"bicubic"`. Readers default
   to `"bilinear"` when the key is absent.
+- `norm_mean`, `norm_std`: optional JSON-encoded RGB lists in `[0, 1]` scale,
+  written by families whose normalization is not ImageNet (CLIP, SigLIP2, PE,
+  ViT). Readers default to the ImageNet statistics.
+- `resize_mode`: optional `"center_crop"` (default) or `"stretch"` (square
+  resize without a crop; SigLIP2, PE).
+
+Exports written before `norm_mean` / `norm_std` / `resize_mode` existed keep
+their family's native values through a reader-side fallback.
 
 ExecuTorch exports write the flat metadata to a required
 `<program>.pte.json` sidecar. The v1 contract is CPU, FP32, batch 1, and a
@@ -383,6 +390,15 @@ distributed as training checkpoints.
 
 For release compatibility, readers accept legacy best-metric aliases such as
 `best_mAP50_95`, `best_mAP50`, `best_metric`, and `best_metric_name`.
+
+Custom-fitness training writes optional `fitness_source: "callback"` and
+`best_metric_key: "fitness/custom"` in its training and averaged checkpoints.
+`best_metric_value` and the legacy `best_mAP50_95` / `best_metric` aliases then
+contain the custom score, while `best_mAP50` remains the validation mAP50 at
+the selected epoch. The marker stores no callback code or state. Such files
+can be loaded for inference or as weights for a new run, but cannot resume
+training; neither can a default checkpoint resume with a custom scorer.
+Absent `fitness_source` preserves the existing checkpoint/resume contract.
 
 ## External Snapshot Exception
 
