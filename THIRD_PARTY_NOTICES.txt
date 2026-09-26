@@ -2821,6 +2821,9 @@ Copyright (c) 2026 Intellindust-AI-Lab / The GTR Authors.
 
 Ported backbone, spatial SwiGLU, feature projector, decoder, matching, loss,
 scheduler, Mosaic and batch MixUp in libreyolo/models/gtr/.
+Semantic segmentation head, loss and sliding-window evaluation
+(engine/gtr/semseg, engine/solver/semseg_solver.py) in sem.py and
+sem_trainer.py; Cityscapes weights from Phoenix8125/GTR semseg/.
 Modified for native LibreYOLO construction, portable attention, local imports,
 strict checkpoints, and validation loss output/normalization.
 

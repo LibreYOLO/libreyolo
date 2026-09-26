@@ -998,28 +998,60 @@
     "group": "s"
   },
   "gtr": {
-    "available": true,
     "class": "libreyolo.models.gtr.model.LibreGTR",
-    "default_imgsz": {
-      "l": 640,
-      "m": 640,
-      "s": 640,
-      "x": 640
-    },
-    "default_task": "detect",
-    "export_override": "custom",
-    "group": "g1",
-    "optional_extra": null,
-    "sizes": {
-      "l": 640,
-      "m": 640,
-      "s": 640,
-      "x": 640
-    },
-    "task_sizes": {},
     "tasks": [
-      "detect"
-    ]
+      "detect",
+      "semantic"
+    ],
+    "default_task": "detect",
+    "sizes": {
+      "s": [
+        1024,
+        2048
+      ],
+      "m": [
+        1024,
+        2048
+      ],
+      "l": [
+        1024,
+        2048
+      ],
+      "x": [
+        1024,
+        2048
+      ]
+    },
+    "default_imgsz": {
+      "s": 640,
+      "m": 640,
+      "l": 640,
+      "x": 640
+    },
+    "task_sizes": {
+      "semantic": {
+        "s": [
+          1024,
+          2048
+        ],
+        "m": [
+          1024,
+          2048
+        ],
+        "l": [
+          1024,
+          2048
+        ],
+        "x": [
+          1024,
+          2048
+        ]
+      }
+    },
+    "export_override": "custom",
+    "optional_extra": null,
+    "available": true,
+    "group": "g1"
   },
   "hrnet": {
     "class": "libreyolo.models.hrnet.model.LibreHRNet",
