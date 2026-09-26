@@ -112,13 +112,18 @@ Segmentation evidence:
   portable operator substitutes as the detection check.
 - GTR-S on a 200-image COCO val2017 subset (the coco1000 validation split,
   polygons from `instances_val2017.json`, one polygon per instance, crowd
-  regions excluded): box mAP50-95 0.545, mask mAP50-95 0.493, mask mAP50
-  0.698. Upstream reports mask AP 45.0 and AP50 67.9 on full val2017. This is
+  regions excluded): GTR-S box mAP50-95 0.545, mask mAP50-95 0.493, mask
+  mAP50 0.698; GTR-X box 0.605, mask 0.551, mask mAP50 0.773. Upstream
+  reports mask AP 45.0/49.8 and AP50 67.9/74.2 (S/X) on full val2017. This is
   a subset sanity check, not a reproduction.
 - GTR-S ONNX and TorchScript exports reproduce PyTorch predictions on a COCO
   image (same classes, score difference below 3e-6, mask IoU 1.0).
 - CPU segment training runs end to end, including LoRA and the CLI
-  detect-to-segment transfer.
+  detect-to-segment transfer. Starting from GTR-S detect weights, 90 plain
+  AdamW steps on one 13-instance COCO image raise the mean best-query mask IoU
+  from 0.085 to 0.62, so the fresh mask head learns. Short runs with the
+  default EMA (tau 2000) still validate with near-initial EMA weights, so an
+  untrained mask head scores zero mask mAP for the first few thousand steps.
 
 ## Validation evidence
 
