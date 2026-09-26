@@ -112,10 +112,12 @@ class LibreGTR(LibreDFINE):
         return super().detect_nb_classes(sd)
 
     @classmethod
-    def default_checkpoint_names(cls, nc):
+    def default_checkpoint_names(cls, nc, task=None):
         from .obb import DOTA_NAMES
 
-        return dict(DOTA_NAMES) if nc == len(DOTA_NAMES) else None
+        if task == "obb" and nc == len(DOTA_NAMES):
+            return dict(DOTA_NAMES)
+        return None
 
     def _validate_loaded_state_dict_for_task(self, state_dict, checkpoint=None):
         is_semantic = sem.is_semantic_state_dict(state_dict)
@@ -620,30 +622,47 @@ class LibreGTR(LibreDFINE):
         self.model.to(self.device)
         return results
 
+    def _resume_settings(self, resume, config_cls, overrides):
+        """Resolve a resume request to (checkpoint path, merged settings).
+
+        Saved training settings come first and explicit (non-None) overrides
+        win, as for detection, so a resumed run keeps its schedule.
+        """
+        from dataclasses import fields
+
+        explicit = {k: v for k, v in overrides.items() if v is not None}
+        if not resume:
+            return None, explicit
+        path = str(resume) if isinstance(resume, (str, Path)) else self.model_path
+        if not path:
+            raise ValueError("resume=True requires a loaded training checkpoint")
+        valid = {field.name for field in fields(config_cls)}
+        saved = {
+            key: value
+            for key, value in (self._checkpoint_train_config(path) or {}).items()
+            if key in valid and key not in {"size", "num_classes", "resume"}
+        }
+        return str(path), {**saved, **explicit}
+
     def _train_pose(
         self, data, *, device="", resume=False, callbacks=None, loggers=None, **kwargs
     ):
         """Fine-tune GTR pose on a YOLO keypoint dataset (17 COCO keypoints)."""
         from libreyolo.data import load_data_config
 
-        from .pose_trainer import GTRPoseTrainer
+        from .pose_trainer import GTRPoseConfig, GTRPoseTrainer
 
         kwargs.pop("pretrained", None)
+        resume_path, kwargs = self._resume_settings(
+            resume, GTRPoseConfig, {"data": data, **kwargs}
+        )
+        data = kwargs.pop("data", None)
         imgsz = int(kwargs.setdefault("imgsz", self.input_size))
         if imgsz != int(self.input_size):
             raise ValueError(
                 f"GTR pose fine-tuning requires imgsz={self.input_size}; the "
                 "decoder anchor grid is built for the native input size."
             )
-        resume_path = None
-        if resume:
-            resume_path = (
-                str(resume) if isinstance(resume, (str, Path)) else self.model_path
-            )
-            if not resume_path:
-                raise ValueError("resume=True requires a loaded training checkpoint")
-            saved = self._checkpoint_train_config(resume_path) or {}
-            data = data or saved.get("data")
         if not data:
             raise ValueError("GTR pose training requires data")
 

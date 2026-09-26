@@ -151,7 +151,9 @@ class LibreFCN(BaseModel):
         return super().get_download_url(name)
 
     @classmethod
-    def default_checkpoint_names(cls, nc: int) -> Optional[Dict[int, str]]:
+    def default_checkpoint_names(
+        cls, nc: int, task: Optional[str] = None
+    ) -> Optional[Dict[int, str]]:
         """Supply the published VOC-style labels for bare official weights."""
         if nc != len(VOC_NAMES):
             return None

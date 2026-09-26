@@ -166,6 +166,10 @@ def train_semantic(
     model, *, data=None, resume=False, callbacks=None, loggers=None, **kwargs
 ):
     """Fine-tune a GTR semantic model on a dense-mask dataset YAML."""
+    resume_path, kwargs = model._resume_settings(
+        resume, GTRSemConfig, {"data": data, **kwargs}
+    )
+    data = kwargs.pop("data", None)
     if not data:
         raise ValueError("GTR semantic training requires data= (a dataset YAML)")
     valid = {field.name for field in fields(GTRSemConfig)}
@@ -183,11 +187,14 @@ def train_semantic(
         data=data,
         size=model.size,
         num_classes=model.nb_classes,
-        resume=bool(resume),
+        resume=bool(resume_path),
         callbacks=callbacks,
         loggers=loggers,
         **settings,
     )
+    if resume_path:
+        trainer.setup()
+        trainer.resume(resume_path)
     result = trainer.train()
     for key in ("best_checkpoint", "last_checkpoint"):
         path = result.get(key)

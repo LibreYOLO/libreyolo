@@ -310,6 +310,8 @@ class GTROBBTrainer(GTRTrainer):
                 "loss_kld": 5.0,
                 "loss_fgl": 0.15,
             },
+            # Upstream gtrobb_base.yml enables only mal and boxes; loss_fgl keeps
+            # its weight there but is never computed, and parity depends on it.
             losses=["mal", "boxes"],
             alpha=0.75,
             gamma=1.5,

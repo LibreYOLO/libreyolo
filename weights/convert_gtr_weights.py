@@ -53,7 +53,7 @@ def convert(input_path: str, output_path: str, size: str | None = None):
 
         model = LibreGTROBBModel(detected, nc)
         imgsz = OBB_INPUT_SIZE
-        extra["names"] = LibreGTR.default_checkpoint_names(nc)
+        extra["names"] = LibreGTR.default_checkpoint_names(nc, task="obb")
     else:
         model = LibreGTRModel(
             detected,
