@@ -3821,6 +3821,9 @@ class BaseTrainer(ABC):
             checkpoint_task = extra_checkpoint_meta.pop(
                 "task", getattr(getattr(self, "wrapper_model", None), "task", "detect")
             )
+            # As in _save_checkpoint, a family's extra metadata wins over the
+            # config imgsz (U-Net stores its evaluation canvas here).
+            checkpoint_imgsz = extra_checkpoint_meta.pop("imgsz", checkpoint_imgsz)
             average_metric_key = (
                 average_metrics.get("best_metric_key") if average_metrics else None
             )
