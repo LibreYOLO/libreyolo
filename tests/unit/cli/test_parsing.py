@@ -182,9 +182,51 @@ class TestWarningFilters:
 
         _configure_warning_filters()
 
-        assert len(calls) == 3
+        assert len(calls) == 4
         assert all(args[0] == "ignore" for args, _kwargs in calls)
-        assert all(kwargs["category"] is DeprecationWarning for _args, kwargs in calls)
+        assert all(
+            kwargs["category"] in (DeprecationWarning, FutureWarning)
+            for _args, kwargs in calls
+        )
+
+    def test_cli_silences_the_torch_jit_script_future_warning(self):
+        import warnings
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            _configure_warning_filters()
+            warnings.warn(
+                "`torch.jit.script` is deprecated. Please switch to "
+                "`torch.compile` or `torch.export`.",
+                FutureWarning,
+            )
+        assert caught == []
+
+    def test_importing_gtr_does_not_script_at_import(self):
+        import os
+        import subprocess
+        import sys
+        from pathlib import Path
+
+        import libreyolo
+
+        code = (
+            "import warnings\n"
+            "with warnings.catch_warnings(record=True) as caught:\n"
+            "    warnings.simplefilter('always')\n"
+            "    import libreyolo.models.gtr.attention\n"
+            "print(sum('torch.jit.script' in str(w.message) for w in caught))\n"
+        )
+        repo_root = str(Path(libreyolo.__file__).resolve().parents[1])
+        proc = subprocess.run(
+            [sys.executable, "-c", code],
+            capture_output=True,
+            text=True,
+            timeout=300,
+            env={**os.environ, "PYTHONPATH": repo_root},
+        )
+        assert proc.returncode == 0, proc.stderr[-2000:]
+        assert proc.stdout.strip().splitlines()[-1] == "0"
 
 
 class TestEdgeCases:

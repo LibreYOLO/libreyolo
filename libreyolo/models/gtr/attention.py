@@ -9,11 +9,9 @@ from torch import nn
 from torch.nn import functional as F
 
 
-@torch.jit.script
-def recurrent_gla(
+def _recurrent_gla(
     q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, g: torch.Tensor
 ) -> torch.Tensor:
-    """Inclusive key-gated recurrence on tensors shaped [B, T, H, D]."""
     dtype = q.dtype
     q, k, v, g = q.float(), k.float(), v.float(), g.float()
     state = q.new_zeros(q.shape[0], q.shape[2], q.shape[3], v.shape[3])
@@ -24,6 +22,23 @@ def recurrent_gla(
         state = state + k[:, index].unsqueeze(-1) * v[:, index].unsqueeze(-2)
         outputs.append(((q[:, index] * scale).unsqueeze(-1) * state).sum(-2))
     return torch.stack(outputs, dim=1).to(dtype)
+
+
+_scripted_recurrent_gla = None
+
+
+def recurrent_gla(
+    q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, g: torch.Tensor
+) -> torch.Tensor:
+    """Inclusive key-gated recurrence on tensors shaped [B, T, H, D].
+
+    Scripted on first use, not at import: scripting warns on recent torch, and
+    importing LibreYOLO must not warn for commands that never run GTR.
+    """
+    global _scripted_recurrent_gla
+    if _scripted_recurrent_gla is None:
+        _scripted_recurrent_gla = torch.jit.script(_recurrent_gla)
+    return _scripted_recurrent_gla(q, k, v, g)
 
 
 class RMSNormGated(nn.Module):

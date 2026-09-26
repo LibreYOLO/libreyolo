@@ -41,11 +41,13 @@ def _configure_warning_filters() -> None:
     """Suppress only known high-noise dependency deprecations."""
     import warnings
 
-    warnings.filterwarnings(
-        "ignore",
-        message=r"`torch\.jit\.script` is deprecated\..*",
-        category=DeprecationWarning,
-    )
+    # Newer torch raises this one as a FutureWarning.
+    for category in (DeprecationWarning, FutureWarning):
+        warnings.filterwarnings(
+            "ignore",
+            message=r"`torch\.jit\.script` is deprecated\..*",
+            category=category,
+        )
     warnings.filterwarnings(
         "ignore",
         message=r"rfdetr\.util\.box_ops is deprecated;.*",
