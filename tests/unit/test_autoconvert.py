@@ -478,6 +478,13 @@ class TestAutoconvertOrchestration:
         assert autoconvert_module._rfdetr_class_metadata(loaded, 90) == (90, custom_names)
         assert loaded["names"] == names
 
+    @pytest.mark.parametrize("names", [[], {}])
+    @pytest.mark.parametrize("metadata", [{}, {"nc": 90}, {"num_classes": 90}])
+    def test_rfdetr_stale_nested_coco_names_do_not_change_class_space(self, names, metadata):
+        stale_names = [f"stale_{i}" for i in range(80)]
+        loaded = {"names": names, "args": {"class_names": stale_names}, **metadata}
+        assert autoconvert_module._rfdetr_class_metadata(loaded, 90) == (90, names)
+
     def test_returns_none_for_non_upstream_file(self, tmp_path):
         src = tmp_path / "random.pt"
         torch.save({"some.random.tensor": torch.zeros(4)}, src)
