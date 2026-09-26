@@ -454,10 +454,11 @@ does not fire for it. Empty dataset placeholders (`""`, `{}`, `[]`) are ignored
 when deciding whether a dataset hint is present.
 
 An empty class-name container alone does not establish COCO identity: an
-otherwise ambiguous 90-class checkpoint retains `nc = 90`. Empty top-level
-names must not hide usable nested `args.class_names` or
-`hyper_parameters.class_names`. When metadata establishes COCO identity but
-names are empty, wrapping supplies the standard COCO-80 labels.
+otherwise ambiguous 90-class checkpoint retains `nc = 90`. After resolving
+the class count, empty top-level names can use nested `args.class_names` or
+`hyper_parameters.class_names` only when their length matches that count.
+Nested fallback labels cannot establish a different class space. When metadata
+establishes COCO identity but names are empty, wrapping supplies COCO-80 labels.
 
 Schema helpers live in `libreyolo/utils/serialization.py`:
 
