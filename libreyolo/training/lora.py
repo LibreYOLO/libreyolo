@@ -387,11 +387,18 @@ GTR_TARGET_LINEAR_NAMES = ("q_proj", "k_proj", "v_proj")
 
 
 def apply_lora_to_gtr(core_model: nn.Module) -> nn.Module:
-    """Inject LoRA adapters into a GTR detection core model, in place.
+    """Inject LoRA adapters into a GTR detection or pose core model, in place.
 
     Same shape as :func:`apply_lora_to_ec`: freeze the recurrent ViT base and
     adapt its q/k/v projections, freeze the decoder layer bases and adapt their
     Linears, keep the ViTAdapter projector, conv encoder and heads trainable.
+
+    Detection decoder layers are found by class. The pose (DETRPose) decoder
+    has no ``TransformerDecoderLayer``; its layers are the entries of
+    ``decoder.decoder.layers``, adapted on the FFN, gate and deformable
+    attention Linears. Its within/across-instance ``nn.MultiheadAttention``
+    stays frozen without adapters (the module reads ``out_proj.weight``
+    directly). Keypoint heads, query and keypoint embeddings keep training.
     """
     _require_detr_layout(core_model)
     if module_has_lora(core_model):
@@ -399,9 +406,12 @@ def apply_lora_to_gtr(core_model: nn.Module) -> nn.Module:
 
     detr_roots = _discover_block_roots(core_model, DETR_BLOCK_CLASSES)
     if not detr_roots:
+        layers = getattr(getattr(core_model.decoder, "decoder", None), "layers", None)
+        detr_roots = [f"decoder.decoder.layers.{i}" for i in range(len(layers or ()))]
+    if not detr_roots:
         raise ValueError(
             "No transformer decoder blocks found; expected "
-            f"{DETR_BLOCK_CLASSES} classes in the model."
+            f"{DETR_BLOCK_CLASSES} classes or decoder.decoder.layers in the model."
         )
     target_modules = _collect_linear_targets(
         core_model, detr_roots, DETR_TARGET_LINEAR_NAMES, skip_frozen=True
