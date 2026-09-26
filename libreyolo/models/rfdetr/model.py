@@ -768,7 +768,11 @@ class LibreRFDETR(BaseModel):
             chw = torch.from_numpy(arr).permute(2, 0, 1).unsqueeze(0)
             chw = F.interpolate(
                 chw,
-                size=(effective_res, effective_res),
+                size=(
+                    tuple(effective_res)
+                    if isinstance(effective_res, (list, tuple))
+                    else (effective_res, effective_res)
+                ),
                 mode="bilinear",
                 align_corners=False,
                 antialias=True,
