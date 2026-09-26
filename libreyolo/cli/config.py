@@ -494,6 +494,13 @@ def _build_rfdetr_train_kwargs(
     return kwargs
 
 
+# Families whose train() resolves its own size-, task- or checkpoint-specific
+# recipe (GTR resume settings, PP-LiteSeg's per-size train crop). Forwarding
+# the generic Typer defaults would overwrite that recipe silently, so the CLI
+# passes only the train options the user set.
+_FAMILY_RESOLVED_TRAIN_DEFAULTS = frozenset({"gtr", "ppliteseg"})
+
+
 def build_family_train_kwargs(
     params: dict[str, Any],
     family: str | None,
@@ -503,9 +510,7 @@ def build_family_train_kwargs(
     task: str | None = None,
 ) -> dict[str, Any]:
     """Build train kwargs, translating family-specific CLI/API mismatches."""
-    if family == "gtr":
-        # Let the family resolve size-specific defaults and checkpoint resume
-        # settings. Forwarding Typer defaults would overwrite both silently.
+    if family in _FAMILY_RESOLVED_TRAIN_DEFAULTS:
         from .aliases import train_aliases
 
         aliases = train_aliases(task)
@@ -515,9 +520,8 @@ def build_family_train_kwargs(
             key: value for key, value in build_train_kwargs(params, task=task).items()
             if inverse.get(key, key) in provided
         }
-        # Resume is a wrapper option, not a TrainConfig field, so the generic
-        # field-based builder does not include it.
-        if "resume" in provided:
+        # GTR resolves resume=True against the CLI model path.
+        if family == "gtr" and "resume" in provided:
             resume = params.get("resume", False)
             kwargs["resume"] = (model_path or True) if resume is True else resume
         return kwargs

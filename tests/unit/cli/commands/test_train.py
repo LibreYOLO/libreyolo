@@ -1519,3 +1519,47 @@ def test_gtr_semantic_cli_train_accepts_the_pretrained_flag(monkeypatch, tmp_pat
     assert captured["data"] == "dummy.yaml"
     assert captured["epochs"] == 1
     assert "pretrained" not in captured
+
+
+@pytest.mark.parametrize(
+    "args,expected_imgsz",
+    [
+        ([], (768, 768)),
+        (["imgsz=512x1024"], (512, 1024)),
+        (["--imgsz", "512x1024"], (512, 1024)),
+    ],
+    ids=["default", "key_value", "flag"],
+)
+def test_ppliteseg_cli_train_keeps_the_size_aware_recipe(
+    monkeypatch, tmp_path, args, expected_imgsz
+):
+    """t75 trains on its 768x768 crop unless imgsz is passed; no Typer defaults leak."""
+    from libreyolo.models.ppliteseg.model import LibrePPLiteSeg
+
+    captured = {}
+
+    class _FakeTrainer:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+        def train(self):
+            return {"save_dir": str(tmp_path / "pp")}
+
+    monkeypatch.setattr(
+        "libreyolo.models.ppliteseg.trainer.PPLiteSegTrainer", _FakeTrainer
+    )
+    model = LibrePPLiteSeg(size="t75", device="cpu")
+    monkeypatch.setattr(
+        "libreyolo.cli.commands.train.load_model_or_exit", lambda **_kwargs: model
+    )
+    result = runner.invoke(
+        _make_app(),
+        ["model=LibrePPLiteSegt75-sem.pt", "data=dummy.yaml", *args, "--json"],
+    )
+    assert result.exit_code == 0, result.output
+    assert captured["imgsz"] == expected_imgsz
+    assert (captured["epochs"], captured["batch"], captured["amp"]) == (800, 8, False)
+    # The recipe's poly schedule, momentum and augmentation come from
+    # PPLiteSegConfig, not from the generic CLI defaults.
+    leaked = {"scheduler", "optimizer", "lr0", "momentum", "warmup_epochs", "mosaic_prob"}
+    assert not leaked & captured.keys()
