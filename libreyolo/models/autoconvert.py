@@ -630,7 +630,8 @@ def _is_coco_rfdetr_checkpoint(loaded: Any) -> bool:
     # to LibreYOLO's COCO-80, identical to the published LibreYOLO weights. A
     # genuine custom 90-class model carries names, an explicit class count, or
     # a (non-COCO) dataset hint and is left untouched (returns False).
-    if name_count is None and declared_nc is None and not has_dataset_hint:
+    # An empty names placeholder ({} / []) counts as "no names" (name_count 0).
+    if name_count in (None, 0) and declared_nc is None and not has_dataset_hint:
         return True
 
     return False

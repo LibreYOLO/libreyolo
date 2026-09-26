@@ -430,6 +430,12 @@ class TestAutoconvertOrchestration:
         # A checkpoint that explicitly declares 80 classes is COCO.
         assert autoconvert_module._rfdetr_class_metadata({"nc": 80}, 90)[0] == 80
 
+    def test_rfdetr_empty_names_placeholder_is_bare_coco(self):
+        # An empty names container is not real metadata (name_count == 0), so
+        # an otherwise-bare checkpoint still normalizes to COCO-80.
+        assert autoconvert_module._rfdetr_class_metadata({"names": []}, 90)[0] == 80
+        assert autoconvert_module._rfdetr_class_metadata({"names": {}}, 90)[0] == 80
+
     def test_returns_none_for_non_upstream_file(self, tmp_path):
         src = tmp_path / "random.pt"
         torch.save({"some.random.tensor": torch.zeros(4)}, src)
