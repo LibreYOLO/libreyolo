@@ -509,11 +509,13 @@ class LibreYOLO9(BaseModel):
     # Inference pipeline
     # =========================================================================
 
-    @staticmethod
-    def _get_preprocess_numpy():
+    def _get_preprocess_numpy(self):
+        from functools import partial
+
         from .utils import preprocess_numpy
 
-        return preprocess_numpy
+        # INT8 calibration must see the same pad placement as inference.
+        return partial(preprocess_numpy, letterbox_pad=self.letterbox_pad)
 
     def _preprocess(
         self,

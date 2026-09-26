@@ -36,6 +36,11 @@ from ..postprocess.yolonas import (
     YOLO_NAS_RESIZE_SIZE,
 )
 from ..preprocess import as_batched_input, as_input
+from ..preprocess.letterbox import (
+    DEFAULT_LETTERBOX_PAD,
+    LETTERBOX_PADS,
+    letterbox_geometry,
+)
 from ..preprocess.yolo9 import preprocess_image
 from ..preprocess.yolonas import (
     preprocess_image as yolonas_preprocess_image,
@@ -297,7 +302,24 @@ def _read_runtime_metadata(meta: dict) -> dict[str, Any]:
         runtime_meta["bin_width_deg"] = float(meta["bin_width_deg"])
     if meta.get("offset_deg") is not None:
         runtime_meta["offset_deg"] = float(meta["offset_deg"])
+    if meta.get("letterbox_pad") is not None:
+        runtime_meta["letterbox_pad"] = str(meta["letterbox_pad"])
     return runtime_meta
+
+
+def _validate_letterbox_pad(value) -> str:
+    """YOLO9 letterbox placement from export metadata.
+
+    Artifacts without the key (every export before 1.6) keep top-left pad.
+    """
+    if value is None or value == "":
+        return DEFAULT_LETTERBOX_PAD
+    if value not in LETTERBOX_PADS:
+        raise ValueError(
+            f"Invalid letterbox_pad metadata {value!r}; expected one of "
+            f"{', '.join(LETTERBOX_PADS)}."
+        )
+    return value
 
 
 def _nms_numpy(
@@ -529,6 +551,7 @@ class BaseBackend(ABC):
         num_bins: int | None = None,
         bin_width_deg: float | None = None,
         offset_deg: float | None = None,
+        letterbox_pad: str | None = None,
     ):
         self.model_path = model_path
         self.nb_classes = nb_classes
@@ -580,6 +603,7 @@ class BaseBackend(ABC):
         self.norm_mean = tuple(norm_mean or legacy.get("norm_mean", _IMAGENET_MEAN))
         self.norm_std = tuple(norm_std or legacy.get("norm_std", _IMAGENET_STD))
         self.resize_mode = resize_mode or legacy.get("resize_mode", "center_crop")
+        self.letterbox_pad = _validate_letterbox_pad(letterbox_pad)
         # Set by backends that load a model with NMS baked into the graph; such
         # models emit final (1, max_det, 6) detections instead of raw tensors.
         if not hasattr(self, "embedded_nms"):
@@ -851,7 +875,10 @@ class BaseBackend(ABC):
             return _y7_pre(image, input_size=sz, color_format=color_format)
         else:
             tensor, img, size = preprocess_image(
-                image, input_size=effective_imgsz, color_format=color_format
+                image,
+                input_size=effective_imgsz,
+                color_format=color_format,
+                letterbox_pad=getattr(self, "letterbox_pad", None),
             )
             return tensor, img, size, 1.0
 
@@ -1985,7 +2012,11 @@ class BaseBackend(ABC):
         class_ids = det[:, 5].astype(np.int64)
 
         input_h, input_w = _imgsz_hw(effective_imgsz)
-        ratio = min(input_h / orig_h, input_w / orig_w)
+        ratio, _, _, dx, dy = letterbox_geometry(
+            orig_h, orig_w, input_h, input_w, getattr(self, "letterbox_pad", None)
+        )
+        boxes[:, [0, 2]] -= dx
+        boxes[:, [1, 3]] -= dy
         boxes /= ratio
         boxes[:, [0, 2]] = np.clip(boxes[:, [0, 2]], 0, orig_w)
         boxes[:, [1, 3]] = np.clip(boxes[:, [1, 3]], 0, orig_h)
@@ -2307,6 +2338,7 @@ class BaseBackend(ABC):
                 original_size=(orig_w, orig_h),
                 max_det=max_det,
                 letterbox=True,
+                letterbox_pad=getattr(self, "letterbox_pad", None),
             )
             boxes = np.asarray(parsed["boxes"], dtype=np.float32).reshape(-1, 4)
             max_scores = np.asarray(parsed["scores"], dtype=np.float32)
@@ -2380,14 +2412,15 @@ class BaseBackend(ABC):
             boxes[:, [0, 2]] *= orig_w / input_w
             boxes[:, [1, 3]] *= orig_h / input_h
         else:
-            ratio = min(input_h / orig_h, input_w / orig_w)
-            if isinstance(getattr(self, "input_profile", None), dict):
-                from ..preprocess.letterbox import letterbox_geometry
-                _, _, _, dx, dy = letterbox_geometry(orig_h, orig_w, input_h, input_w, self.letterbox_pad)
-                boxes[:, [0, 2]] -= dx
-                boxes[:, [1, 3]] -= dy
+            ratio, _, _, dx, dy = letterbox_geometry(
+                orig_h, orig_w, input_h, input_w, getattr(self, "letterbox_pad", None)
+            )
+            boxes[:, [0, 2]] -= dx
+            boxes[:, [1, 3]] -= dy
             boxes[:, :4] /= ratio
             if keypoints is not None:
+                keypoints[..., 0] -= dx
+                keypoints[..., 1] -= dy
                 keypoints[..., :2] /= ratio
         boxes[:, [0, 2]] = np.clip(boxes[:, [0, 2]], 0, orig_w)
         boxes[:, [1, 3]] = np.clip(boxes[:, [1, 3]], 0, orig_h)
@@ -4249,6 +4282,11 @@ class BaseBackend(ABC):
             "yolonas": YOLONASValPreprocessor,
             "yolox": YOLOXValPreprocessor,
         }.get(self.model_family, StandardValPreprocessor)
+        if preprocessor_cls in (YOLO9ValPreprocessor, YOLO9E2EValPreprocessor):
+            return preprocessor_cls(
+                img_size=_imgsz_hw(img_size),
+                letterbox_pad=getattr(self, "letterbox_pad", None),
+            )
         return preprocessor_cls(img_size=_imgsz_hw(img_size))
 
     def _resolve_predict_imgsz(self, imgsz: ImageSize | None = None) -> ImageSize:

@@ -153,10 +153,7 @@ class OnnxBackend(BaseBackend):
             task=resolved_task,
         )
         self.input_initialization = runtime_metadata.get("input_initialization")
-        self.letterbox_pad = runtime_metadata.get("letterbox_pad", "topleft")
         if self.input_profile is not None:
-            if self.letterbox_pad not in {"center", "topleft"}:
-                raise ValueError("Invalid histogram letterbox_pad metadata")
             if len(input_shape) != 4 or input_shape[1] != 2:
                 raise ValueError("Histogram ONNX graph must consume NCHW with two channels")
             if self.input_initialization not in {"random", "rgb_mean"}:
@@ -176,6 +173,7 @@ class OnnxBackend(BaseBackend):
             supported_tasks=supported_tasks,
             default_task=default_task,
             **classify_eval_kwargs(runtime_metadata),
+            letterbox_pad=runtime_metadata.get("letterbox_pad"),
             num_bins=(
                 int(runtime_metadata["num_bins"])
                 if runtime_metadata.get("num_bins")

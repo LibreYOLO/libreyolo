@@ -146,7 +146,8 @@ Known deviations from the native Python pipelines, documented here for
 benchmark accounting:
 
 - Letterbox families (yolo9, yolox, yolonas, rtmdet, yolo2/3/4/7) pad with
-  gray natively; `nvinfer` pads black.
+  gray natively; `nvinfer` pads black. YOLO9-family configs set
+  `symmetric-padding=1` when the checkpoint's `letterbox_pad` is `center`.
 - yolonas detection natively resizes the longest side to 636 inside its 640
   canvas; `nvinfer`'s `maintain-aspect-ratio` uses the full 640. Yolonas pose
   already uses the full 640, BGR input, and bottom/right padding; its generated

@@ -593,7 +593,8 @@ def deepstream_uses_raw_outputs(task: str | None) -> bool:
 # ``symmetric_padding`` mirror the family's letterbox geometry;
 # ``model_color_format`` is 0 for RGB, 1 for BGR.
 _PREPROCESS_PROFILES: dict[str, dict] = {
-    # Letterbox + /255 RGB (top-left pad natively).
+    # Letterbox + /255 RGB. Top-left pad unless the checkpoint stamps
+    # letterbox_pad="center" (see write_deepstream_sidecars).
     "yolo9": {"maintain_aspect_ratio": 1},
     "yolo9_p2": {"maintain_aspect_ratio": 1},
     "yolo9_e2e": {"maintain_aspect_ratio": 1},
@@ -645,7 +646,7 @@ _PREPROCESS_PROFILES: dict[str, dict] = {
     # Depth: nets normalize internally, so [0, 1] RGB; all stretch-resize.
     "depth_anything": {},
     "zipdepth": {},
-    # Raw-tensor tasks. yolo9-pose letterboxes top-left on RGB; the rest
+    # Raw-tensor tasks. yolo9-pose letterboxes RGB as in detection; the rest
     # stretch-resize RGB unless overridden below.
     "nafnet": {},
     "realesrgan": {},
@@ -680,13 +681,15 @@ def write_deepstream_sidecars(
     conf: float = 0.25,
     iou: float = 0.45,
     task: str = "detect",
+    letterbox_pad: str | None = None,
 ) -> tuple[str, str]:
     """Write ``config_infer_primary_<stem>.txt`` and ``<stem>_labels.txt``.
 
     Returns the ``(config_path, labels_path)`` pair. The config targets the
     MIT DeepStream-Yolo parser library (``NvDsInferParseYolo``); the
     ``custom-lib-path`` is left pointing at the conventional build output of
-    that project for the user to adjust.
+    that project for the user to adjust. ``letterbox_pad`` is the YOLO9
+    checkpoint pad placement; ``"center"`` maps to ``symmetric-padding=1``.
     """
     onnx_file = Path(onnx_path)
     stem = onnx_file.stem
@@ -707,6 +710,10 @@ def write_deepstream_sidecars(
     offsets = profile.get("offsets")
     maintain_ar = profile.get("maintain_aspect_ratio", 0)
     symmetric_pad = profile.get("symmetric_padding", 0)
+    if letterbox_pad is not None and maintain_ar:
+        from ..preprocess.letterbox import LETTERBOX_CENTER, normalize_letterbox_pad
+
+        symmetric_pad = int(normalize_letterbox_pad(letterbox_pad) == LETTERBOX_CENTER)
     color_format = profile.get("model_color_format", 0)
 
     network_mode = {"fp32": 0, "int8": 1, "fp16": 2}.get(precision, 0)

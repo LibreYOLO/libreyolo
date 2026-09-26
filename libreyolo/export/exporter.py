@@ -130,6 +130,16 @@ def _classify_eval_metadata(model) -> dict:
     return meta
 
 
+def _letterbox_pad_metadata(model) -> dict:
+    """YOLO9-family letterbox placement, so exported runtimes pad like the .pt."""
+    pad = getattr(model, "letterbox_pad", None)
+    if pad is None:
+        return {}
+    from ..preprocess.letterbox import normalize_letterbox_pad
+
+    return {"letterbox_pad": normalize_letterbox_pad(pad)}
+
+
 def _pose_keypoint_shape_metadata(model) -> dict:
     num_keypoints = getattr(
         model, "num_keypoints", getattr(model, "POSE_NUM_KEYPOINTS", "")
@@ -1565,6 +1575,7 @@ class BaseExporter(ABC):
         }
         if onnx_path is not None:
             meta["exported_from"] = str(Path(onnx_path).name)
+        meta.update(_letterbox_pad_metadata(self.model))
         # Classification eval preprocessing must travel with every artifact,
         # not just ONNX. Exported-backend predict() otherwise falls back to
         # crop_pct=0.875 and bilinear resize, which changes classifier logits
@@ -1641,6 +1652,7 @@ class BaseExporter(ABC):
         from ..utils.event_histogram import input_metadata
         for key, value in input_metadata(self.model).items():
             meta[key] = json.dumps(value) if isinstance(value, dict) else str(value)
+        meta.update(_letterbox_pad_metadata(self.model))
         # Classification eval preprocessing — lets exported-backend inference
         # and validation match native predict()/val() (#886).
         for key, value in _classify_eval_metadata(self.model).items():
@@ -1883,6 +1895,7 @@ class OnnxExporter(BaseExporter):
                 conf=conf,
                 iou=iou,
                 task=ds_task,
+                letterbox_pad=_letterbox_pad_metadata(self.model).get("letterbox_pad"),
             )
 
         if int8:
