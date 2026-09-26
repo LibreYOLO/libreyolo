@@ -309,6 +309,32 @@ def test_ndarray_is_not_mistaken_for_an_image_sequence():
     assert classify_source(np.zeros((4, 4, 3), dtype=np.uint8)).kind == SourceKind.IMAGE
 
 
+@pytest.mark.parametrize(
+    "batch",
+    [np.zeros((2, 8, 8, 3), dtype=np.uint8), torch.zeros(2, 3, 8, 8)],
+    ids=["nhwc_array", "nchw_tensor"],
+)
+def test_batched_array_is_an_image_batch(batch):
+    spec = classify_source(batch)
+
+    assert spec.kind == SourceKind.IMAGE_BATCH
+    assert len(spec.items) == 2
+    assert all(item.ndim == 3 for item in spec.items)
+
+
+@pytest.mark.parametrize(
+    "image",
+    [
+        np.zeros((8, 8, 3), dtype=np.uint8),
+        torch.zeros(3, 8, 8),
+        torch.zeros(1, 4, 3, 8, 8),
+    ],
+    ids=["hwc_array", "chw_tensor", "clip_tensor"],
+)
+def test_unbatched_array_stays_a_single_image(image):
+    assert classify_source(image).kind == SourceKind.IMAGE
+
+
 def test_bytesio_is_not_mistaken_for_an_image_sequence():
     assert classify_source(io.BytesIO(b"image bytes")).kind == SourceKind.IMAGE
 

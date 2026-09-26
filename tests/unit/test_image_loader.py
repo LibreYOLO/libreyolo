@@ -197,20 +197,25 @@ class TestImageLoader:
         assert isinstance(result, Image.Image)
         assert result.mode == "RGB"
 
-    def test_load_numpy_batch_nchw(self):
-        """Test loading a batch of images (NCHW format), takes first one."""
-        arr = np.zeros((2, 3, 100, 100), dtype=np.uint8)
-        arr[0, 0, :, :] = 255  # First image: red
-        arr[1, 1, :, :] = 255  # Second image: green
+    def test_load_numpy_batch_of_one_nchw(self):
+        """A batch of one image (NCHW) loads as that image."""
+        arr = np.zeros((1, 3, 100, 100), dtype=np.uint8)
+        arr[0, 0, :, :] = 255  # red
 
         result = ImageLoader.load(arr, color_format="rgb")
 
         assert isinstance(result, Image.Image)
         assert result.size == (100, 100)
+        assert np.array(result)[0, 0, 0] == 255
 
-        # Should get first image (red)
-        result_arr = np.array(result)
-        assert result_arr[0, 0, 0] == 255  # Red
+    def test_load_numpy_batch_of_many_raises(self):
+        """A multi-image batch is not silently cut to its first image."""
+        with pytest.raises(ValueError, match="batch of 2"):
+            ImageLoader.load(np.zeros((2, 3, 100, 100), dtype=np.uint8))
+
+    def test_load_torch_batch_of_many_raises(self):
+        with pytest.raises(ValueError, match="batch of 2"):
+            ImageLoader.load(torch.zeros(2, 3, 100, 100))
 
     # ========================
     # Torch Tensor Tests

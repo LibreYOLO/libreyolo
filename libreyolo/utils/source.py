@@ -205,6 +205,16 @@ def _opens_as_video(path: Path) -> bool:
         capture.release()
 
 
+def _is_batched_array(source: Any) -> bool:
+    """A 4-D NumPy array or tensor is a batch of images (NCHW or NHWC)."""
+    if isinstance(source, np.ndarray):
+        return source.ndim == 4
+    # Checked through sys.modules so torch-free deployments never import it;
+    # a tensor cannot exist unless torch is already loaded.
+    torch = sys.modules.get("torch")
+    return torch is not None and isinstance(source, torch.Tensor) and source.dim() == 4
+
+
 def classify_source(source: Any) -> SourceSpec:
     """Classify one public prediction source.
 
@@ -233,6 +243,9 @@ def classify_source(source: Any) -> SourceSpec:
                 "A source list cannot mix live/video streams with image inputs"
             )
         return SourceSpec(SourceKind.IMAGE_BATCH, source, items)
+
+    if _is_batched_array(source):
+        return SourceSpec(SourceKind.IMAGE_BATCH, source, tuple(source))
 
     # BytesIO is both a supported atomic ImageInput and an iterator over bytes.
     # Keep it on the single-image path before recognizing lazy frame iterators.

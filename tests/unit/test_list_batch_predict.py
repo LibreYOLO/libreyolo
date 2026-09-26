@@ -102,6 +102,30 @@ def test_runner_reads_numpy_input_as_bgr_by_default():
     assert result.orig_img[0, 0].tolist() == [0, 0, 255]
 
 
+@pytest.mark.parametrize("batch", [1, 2])
+@pytest.mark.parametrize(
+    "source",
+    [
+        torch.rand(3, 3, 16, 16),
+        np.zeros((3, 16, 16, 3), dtype=np.uint8),
+    ],
+    ids=["nchw_tensor", "nhwc_array"],
+)
+def test_runner_splits_batched_array_into_one_result_per_image(source, batch):
+    results = InferenceRunner(_StubModel())(source, batch=batch)
+
+    assert isinstance(results, list)
+    assert len(results) == 3
+    assert all(r.orig_shape == (16, 16) for r in results)
+
+
+def test_runner_batch_of_one_still_returns_a_list():
+    results = InferenceRunner(_StubModel())(torch.rand(1, 3, 16, 16))
+
+    assert isinstance(results, list)
+    assert len(results) == 1
+
+
 def test_runner_accepts_tuple_and_empty_list():
     runner = InferenceRunner(_StubModel())
 
@@ -311,6 +335,22 @@ def test_backend_call_routes_list_to_process_in_batches():
     assert out == ["r", "r", "r"]
     assert seen["batch"] == 2
     assert len(seen["images"]) == 3
+
+
+def test_backend_call_splits_batched_array():
+    backend = _bare_backend()
+    seen = {}
+
+    def fake_process(images, **kwargs):
+        seen["shapes"] = [image.shape for image in images]
+        return ["r"] * len(images)
+
+    backend._process_in_batches = fake_process
+
+    out = backend(np.zeros((2, 8, 8, 3), dtype=np.uint8))
+
+    assert out == ["r", "r"]
+    assert seen["shapes"] == [(8, 8, 3), (8, 8, 3)]
 
 
 def test_backend_streams_list_lazily_in_batch_sized_chunks():

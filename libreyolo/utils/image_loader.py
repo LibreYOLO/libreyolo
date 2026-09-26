@@ -167,6 +167,17 @@ class ImageLoader:
                 raise FileNotFoundError(f"Image file not found: {path_str}")
             return Image.open(path_str).convert("RGB")
 
+    @staticmethod
+    def _single_from_batch(batch):
+        """Unwrap a batch of one; a larger batch is several images, not one."""
+        if batch.shape[0] != 1:
+            raise ValueError(
+                f"Expected one image, got a batch of {batch.shape[0]} "
+                f"(shape {tuple(batch.shape)}). Pass the batch to predict(), "
+                "which returns one Results per image."
+            )
+        return batch[0]
+
     @classmethod
     def _from_numpy(cls, arr: np.ndarray, color_format: str) -> Image.Image:
         """Convert NumPy array to PIL Image (detects layout, dtype, channels).
@@ -198,8 +209,7 @@ class ImageLoader:
             return Image.fromarray(arr, mode="RGB")
 
         elif arr.ndim == 4:
-            # Batch — take first image (NCHW or NHWC)
-            return cls._from_numpy(arr[0], color_format)
+            return cls._from_numpy(cls._single_from_batch(arr), color_format)
 
         else:
             raise ValueError(
@@ -212,7 +222,7 @@ class ImageLoader:
         tensor = tensor.detach().cpu()
 
         if tensor.dim() == 4:
-            tensor = tensor[0]  # take first image if batched
+            tensor = cls._single_from_batch(tensor)
 
         if tensor.dim() == 3:
             if tensor.shape[0] in (1, 3, 4) and tensor.shape[0] < tensor.shape[2]:
@@ -236,8 +246,9 @@ class ImageLoader:
                 - str: Local file path or URL (http/https/s3/gs)
                 - pathlib.Path: Local file path
                 - PIL.Image: PIL Image object
-                - np.ndarray: NumPy array (HWC or CHW), BGR by default
-                - torch.Tensor: PyTorch tensor (CHW or NCHW), RGB
+                - np.ndarray: NumPy array (HWC or CHW, or a batch of one),
+                  BGR by default
+                - torch.Tensor: PyTorch tensor (CHW, or NCHW with N=1), RGB
                 - bytes: Raw image bytes
                 - io.BytesIO: BytesIO object containing image data
             color_format: Channel order of NumPy array inputs. PIL images,

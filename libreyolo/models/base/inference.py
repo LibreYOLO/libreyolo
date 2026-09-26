@@ -275,7 +275,8 @@ class InferenceRunner:
         Run inference on an image, list of images, directory, or video.
 
         Args:
-            source: Input image, list/tuple of in-memory images, directory
+            source: Input image, list/tuple of in-memory images, a batched
+                NCHW tensor or NHWC/NCHW array (one Results per image), directory
                 path, video file path, or a screen-capture source such as
                 ``"screen"``, ``"screen 1"``, or ``"screen 1 100 200 512 256"``
                 (monitor index, then ``left top width height``).
