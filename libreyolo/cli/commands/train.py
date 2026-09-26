@@ -36,6 +36,7 @@ _LORA_TRAIN_FAMILIES = {
     "rtdetrv2",
     "rtdetrv4",
     "ec",
+    "gtr",
     "convnext",
 }
 
@@ -810,7 +811,7 @@ def train_cmd(
             f"LoRA fine-tuning (lora=True) is not supported for {family}.",
             suggestion=(
                 "Use a supported family (RF-DETR, D-FINE, DEIM, DEIMv2, "
-                "RT-DETR v1/v2/v4, EC, ConvNeXt) or remove --lora."
+                "RT-DETR v1/v2/v4, EC, GTR, ConvNeXt) or remove --lora."
             ),
         )
 

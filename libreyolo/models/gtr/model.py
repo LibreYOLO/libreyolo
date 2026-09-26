@@ -37,16 +37,22 @@ class LibreGTR(LibreDFINE):
             and not any("segmentation_head" in k for k in sd)
         )
 
+    @staticmethod
+    def _weight(sd, key):
+        # LoRA checkpoints keep adapted Linear weights under ``.base_layer.``.
+        value = sd.get(f"{key}.weight")
+        return value if value is not None else sd.get(f"{key}.base_layer.weight")
+
     @classmethod
     def detect_size(cls, sd):
-        key = "backbone.backbone._model.blocks.0.attn.q_proj.weight"
-        if key not in sd:
+        weight = cls._weight(sd, "backbone.backbone._model.blocks.0.attn.q_proj")
+        if weight is None:
             return None
-        width = sd[key].shape[1]
+        width = weight.shape[1]
         if width in (192, 256):
             return {192: "s", 256: "m"}[width]
         if width == 384:
-            weight = sd.get("decoder.decoder.layers.0.linear1.weight")
+            weight = cls._weight(sd, "decoder.decoder.layers.0.linear1")
             return (
                 {1024: "l", 2048: "x"}.get(weight.shape[0])
                 if weight is not None
@@ -77,6 +83,12 @@ class LibreGTR(LibreDFINE):
 
     def _init_model(self):
         return LibreGTRModel(self.size, self.nb_classes)
+
+    @staticmethod
+    def _apply_lora(model):
+        from ...training.lora import apply_lora_to_gtr
+
+        apply_lora_to_gtr(model)
 
     def _strict_loading(self):
         return True

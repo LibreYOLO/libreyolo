@@ -45,9 +45,29 @@ phases to fit their budget.
 Training transforms receive the original-resolution image and apply square
 resize, ImageNet normalization, horizontal flip, photometric distortion,
 zoom-out and IoU cropping. The final two epochs disable the strong transforms.
-Upstream mosaic/mixup is not implemented. Multi-scale training defaults off.
-LoRA and the other GTR tasks are not implemented. Unsupported optimizer and
-scheduler choices are rejected instead of being silently ignored.
+The upstream Mosaic and batch MixUp are included: during the first
+`mosaic_epochs` (default 6) epochs, each sample becomes a four-tile mosaic with
+probability `mosaic_prob` (default 0.5), built from a 50-image per-worker cache
+of half-resolution tiles and followed by a random affine (`degrees`,
+`translate`, `mosaic_scale`). Mosaic samples skip zoom-out and IoU cropping.
+Each batch is blended with its shifted copy with probability `mixup_prob`
+(default 0.5) at a 0.45-0.55 ratio, keeping both label sets. Set
+`mosaic_prob=0` or `mixup_prob=0` to turn either off. `mosaic_epochs` is a
+Python training argument only. Multi-scale training defaults off.
+Unsupported optimizer and scheduler choices are rejected instead of being
+silently ignored.
+
+`lora=True` fine-tunes with LoRA adapters on the backbone q/k/v projections
+and the decoder layers while the backbone base stays frozen (see
+[lora.md](lora.md)); it needs `pip install "libreyolo[lora]"` and works from
+Python and the CLI. Adapter checkpoints reload directly and export merges the
+adapters into dense weights. The other GTR tasks (segmentation, pose, depth,
+OBB, semantic segmentation) are not implemented.
+
+```python
+model = LibreYOLO("LibreGTRs.pt")
+model.train(data="dataset.yaml", epochs=30, lora=True)
+```
 
 ONNX and TorchScript export use a fixed square FP32 graph. Other export
 formats and dynamic spatial shapes are not enabled. The portable recurrence

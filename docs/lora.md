@@ -61,6 +61,14 @@ pyramid. The ViT base freezes and its `qkv` Linears get adapters, the
 transformer encoder/decoder blocks take the shared DETR recipe, and the
 projector plus heads keep training. Detection only (seg/pose raise).
 
+### GTR
+
+GTR's backbone is a ViTAdapter around a gated-linear-attention ViT under
+`backbone.backbone`. The ViT base freezes and its separate `q_proj`/`k_proj`/
+`v_proj` Linears get adapters (the unfused analog of EC's `qkv`); the gate,
+output and MLP projections stay frozen. The decoder layers take the shared
+DETR recipe, and the conv encoder plus heads keep training. Detection only.
+
 ### ConvNeXt (classification)
 
 ConvNeXt blocks carry channels-last `nn.Linear` MLPs (`fc1`/`fc2`); those
@@ -91,7 +99,7 @@ D-FINE/DEIM models.
 
 ## Scope
 
-- RF-DETR, D-FINE, DEIM, DEIMv2, RT-DETR v1/v2/v4, EC, and ConvNeXt. Other
+- RF-DETR, D-FINE, DEIM, DEIMv2, RT-DETR v1/v2/v4, EC, GTR, and ConvNeXt. Other
   families raise instead of silently ignoring `lora=True`.
 - Detection tasks only for D-FINE and EC (segment/pose raise); RF-DETR
   semantic raises.
