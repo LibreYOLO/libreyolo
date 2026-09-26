@@ -180,6 +180,10 @@ _SWINIR_BACKEND_SCALE = {"s": 4, "m": 4, "l": 4}
 _QUICKSRNET_BACKEND_SCALE = {"m2": 2}
 _REALESRGAN_BACKEND_PAD_MULTIPLE = {"x4": 1, "x2": 2, "x4t": 1}
 
+# Depth families whose native preprocessing resizes the [0, 1] float image
+# bicubically; exported backends use the same kernel.
+_DEPTH_CUBIC_RESIZE_FAMILIES = {"midas", "depth_anything"}
+
 # Families removed from LibreYOLO. An exported artifact whose metadata still names
 # one of these must fail loudly instead of being silently parsed as YOLO9.
 _REMOVED_FAMILIES = {"damoyolo"}
@@ -658,7 +662,12 @@ class BaseBackend(ABC):
                 return self._preprocess_restore_native(image, color_format)
             return self._preprocess_restore(image, effective_imgsz, color_format)
         if self.task == "depth":
-            return self._preprocess_depth(image, effective_imgsz, color_format)
+            return self._preprocess_depth(
+                image,
+                effective_imgsz,
+                color_format,
+                cubic=self.model_family in _DEPTH_CUBIC_RESIZE_FAMILIES,
+            )
         if self.task == "normal":
             return self._preprocess_normal(image, effective_imgsz, color_format)
         if self.task == "edge":
@@ -1016,7 +1025,7 @@ class BaseBackend(ABC):
         return img_tensor.unsqueeze(0).float(), original_img, original_size, 1.0
 
     @staticmethod
-    def _preprocess_depth(image, input_size, color_format):
+    def _preprocess_depth(image, input_size, color_format, cubic=False):
         """Depth preprocessing for fixed-shape exported runtimes.
 
         Native depth prediction keeps the aspect ratio (short side to the
@@ -1025,14 +1034,26 @@ class BaseBackend(ABC):
         depth map is resized back to the original canvas after inference
         (ADR 0006). Padding is deliberately avoided: padded pixels would leak
         fake depth context into real pixels through the receptive field.
+        ``cubic`` resizes the ``[0, 1]`` float image bicubically, as the
+        native MiDaS and Depth Anything V2 preprocessing does.
         """
         input_h, input_w = _imgsz_hw(input_size)
         img = ImageLoader.load(image, color_format=color_format)
         original_size = img.size
         original_img = img.copy()
         arr = np.asarray(img, dtype=np.uint8)
-        resized = cv2.resize(arr, (input_w, input_h), interpolation=cv2.INTER_LINEAR)
-        chw = resized.astype(np.float32).transpose(2, 0, 1) / 255.0
+        if cubic:
+            resized = cv2.resize(
+                arr.astype(np.float32) / 255.0,
+                (input_w, input_h),
+                interpolation=cv2.INTER_CUBIC,
+            )
+            chw = resized.transpose(2, 0, 1)
+        else:
+            resized = cv2.resize(
+                arr, (input_w, input_h), interpolation=cv2.INTER_LINEAR
+            )
+            chw = resized.astype(np.float32).transpose(2, 0, 1) / 255.0
         img_tensor = torch.from_numpy(np.ascontiguousarray(chw)).unsqueeze(0)
         return img_tensor, original_img, original_size, 1.0
 
