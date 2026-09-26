@@ -2,7 +2,11 @@
 
 import pytest
 
-from libreyolo.utils.predict_args import normalize_classes, normalize_predict_kwargs
+from libreyolo.utils.predict_args import (
+    normalize_classes,
+    normalize_predict_kwargs,
+    postprocess_max_det,
+)
 
 pytestmark = pytest.mark.unit
 
@@ -79,3 +83,10 @@ def test_unknown_predict_kwargs_fail_clearly():
 )
 def test_normalize_classes_accepts_a_single_int(classes, expected):
     assert normalize_classes(classes) == expected
+
+
+def test_postprocess_max_det_widens_only_with_a_class_filter():
+    assert postprocess_max_det(1, None) == 1
+    assert postprocess_max_det(1, [16]) == 300
+    assert postprocess_max_det(1000, [16]) == 1000
+

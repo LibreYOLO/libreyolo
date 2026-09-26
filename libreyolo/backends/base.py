@@ -58,7 +58,11 @@ from ..utils.general import (
 )
 from ..utils.image_loader import ImageLoader
 from ..utils.model_info import build_model_info, format_model_info
-from ..utils.predict_args import normalize_classes, normalize_predict_kwargs
+from ..utils.predict_args import (
+    normalize_classes,
+    normalize_predict_kwargs,
+    postprocess_max_det,
+)
 from ..utils.results import (
     keep_source,
     Boxes,
@@ -114,13 +118,6 @@ def _zeros_f32(shape):
     if _torch_installed():
         return torch.zeros(shape, dtype=torch.float32)
     return np.zeros(shape, dtype=np.float32)
-
-
-def _zeros_bool(length):
-    """All-False mask, as a ``torch.Tensor`` if torch is installed."""
-    if _torch_installed():
-        return torch.zeros(length, dtype=torch.bool)
-    return np.zeros(length, dtype=bool)
 
 
 def _bool_array(data):
@@ -4095,6 +4092,20 @@ class BaseBackend(ABC):
         if self.model_family == "fcos":
             max_det = min(int(max_det), 100)
 
+        # Filter classes before the max_det cut, so the cut cannot keep only
+        # other classes.
+        if classes is not None and len(boxes) > 0:
+            cls_keep = np.isin(np.asarray(class_ids), np.asarray(list(classes)))
+            boxes = boxes[cls_keep]
+            max_scores = max_scores[cls_keep]
+            class_ids = class_ids[cls_keep]
+            if masks is not None:
+                masks = masks[cls_keep]
+            if obb is not None:
+                obb = obb[cls_keep]
+            if keypoints is not None:
+                keypoints = keypoints[cls_keep]
+
         if len(boxes) > max_det:
             top_indices = np.argsort(max_scores)[::-1][:max_det]
             boxes = boxes[top_indices]
@@ -4111,21 +4122,6 @@ class BaseBackend(ABC):
         conf_t = _f32(max_scores)
         cls_t = _f32(class_ids)
         obb_t = _f32(obb) if obb is not None else None
-
-        if classes is not None and len(boxes_t) > 0:
-            cls_mask = _zeros_bool(len(cls_t))
-            for cid in classes:
-                cls_mask |= cls_t == cid
-            boxes_t = boxes_t[cls_mask]
-            conf_t = conf_t[cls_mask]
-            cls_t = cls_t[cls_mask]
-            mask_np = _to_blob(cls_mask)
-            if masks is not None:
-                masks = masks[mask_np]
-            if obb_t is not None:
-                obb_t = obb_t[cls_mask]
-            if keypoints is not None:
-                keypoints = keypoints[mask_np]
 
         masks_obj = None
         if masks is not None and len(masks) > 0:
@@ -4757,7 +4753,7 @@ class BaseBackend(ABC):
             conf,
             ratio=ratio,
             iou=iou,
-            max_det=max_det,
+            max_det=postprocess_max_det(max_det, classes),
         )
         boxes, max_scores, class_ids, masks, obb, keypoints = (
             self._unpack_parsed_outputs(parsed)
@@ -5058,7 +5054,7 @@ class BaseBackend(ABC):
                     conf,
                     ratio=ratio,
                     iou=iou,
-                    max_det=max_det,
+                    max_det=postprocess_max_det(max_det, classes),
                 )
                 boxes, max_scores, class_ids, masks, obb, keypoints = (
                     self._unpack_parsed_outputs(parsed)
@@ -5347,7 +5343,7 @@ class BaseBackend(ABC):
                 conf,
                 ratio=ratio,
                 iou=iou,
-                max_det=max_det,
+                max_det=postprocess_max_det(max_det, classes),
             )
             boxes, max_scores, class_ids, masks, obb, keypoints = (
                 self._unpack_parsed_outputs(parsed)

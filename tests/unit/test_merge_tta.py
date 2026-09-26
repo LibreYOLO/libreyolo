@@ -153,3 +153,28 @@ def test_classes_filter_restricts_output():
 
     assert len(result) == 1
     assert result.boxes.cls.tolist() == [1.0]
+
+
+def test_classes_filter_runs_before_max_det():
+    views = [
+        (
+            _det(
+                [[0, 0, 10, 10], [50, 0, 60, 10], [0, 30, 10, 40]],
+                [0.9, 0.6, 0.5],
+                [0, 1, 1],
+            ),
+            (100, 50),
+            False,
+            1.0,
+        )
+    ]
+
+    result = BaseModel._merge_tta(
+        _model(), views, 0.5, None, (100, 50), classes=[1], max_det=1
+    )
+    assert result.boxes.cls.tolist() == [1.0]
+    assert result.boxes.conf.tolist() == pytest.approx([0.6])
+
+    result = BaseModel._merge_tta(_model(), views, 0.5, None, (100, 50), max_det=2)
+    assert result.boxes.conf.tolist() == pytest.approx([0.9, 0.6])
+

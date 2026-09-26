@@ -135,6 +135,39 @@ def test_runner_accepts_a_single_int_class_filter():
     assert len(runner(image, classes=np.int64(0))) == 1
 
 
+class _RankedStubModel(_StubModel):
+    """Postprocess that keeps its top ``max_det`` over all classes."""
+
+    SUPPORTS_BATCHED_PREDICT = True
+
+    def _postprocess(self, output, conf, iou, original_size, max_det=300, **kwargs):
+        dets = [
+            ([1.0, 1.0, 5.0, 5.0], 0.9, 0),
+            ([6.0, 1.0, 9.0, 5.0], 0.7, 1),
+            ([1.0, 6.0, 5.0, 9.0], 0.6, 1),
+        ][:max_det]
+        return {
+            "boxes": [d[0] for d in dets],
+            "scores": [d[1] for d in dets],
+            "classes": [d[2] for d in dets],
+            "num_detections": len(dets),
+        }
+
+
+@pytest.mark.parametrize("batch", [1, 2])
+def test_runner_filters_classes_before_max_det(batch):
+    runner = InferenceRunner(_RankedStubModel())
+    image = np.zeros((10, 10, 3), dtype=np.uint8)
+
+    (result, _) = runner([image, image], classes=[1], max_det=1, batch=batch)
+    assert result.boxes.cls.tolist() == [1.0]
+    assert result.boxes.conf.tolist() == pytest.approx([0.7])
+
+    result = runner(image, classes=[1], max_det=2)
+    assert result.boxes.conf.tolist() == pytest.approx([0.7, 0.6])
+    assert len(runner(image, max_det=1)) == 1
+
+
 def test_runner_accepts_tuple_and_empty_list():
     runner = InferenceRunner(_StubModel())
 
@@ -387,6 +420,26 @@ def test_backend_call_accepts_a_single_int_class_filter():
     backend(np.zeros((8, 8, 3), dtype=np.uint8), classes=0)
 
     assert seen["classes"] == [0]
+
+
+def test_backend_filters_classes_before_max_det():
+    backend = _bare_backend()
+    backend.names = {0: "a", 1: "b"}
+    backend.task = "detect"
+
+    result = backend._build_result(
+        np.array([[0, 0, 4, 4], [5, 5, 9, 9], [0, 5, 4, 9]], dtype=np.float32),
+        np.array([0.9, 0.7, 0.6], dtype=np.float32),
+        np.array([0, 1, 1]),
+        orig_shape=(10, 10),
+        image_path=None,
+        iou=0.5,
+        classes=[1],
+        max_det=1,
+    )
+
+    assert result.boxes.cls.tolist() == [1.0]
+    assert result.boxes.conf.tolist() == pytest.approx([0.7])
 
 
 def test_backend_streams_list_lazily_in_batch_sized_chunks():

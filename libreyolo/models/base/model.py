@@ -1405,6 +1405,7 @@ class BaseModel(ABC):
 
         from PIL import Image as PILImage
         from ...utils.image_loader import ImageLoader
+        from ...utils.predict_args import postprocess_max_det
         from ...utils.results import keep_source
 
         effective_imgsz = imgsz if imgsz is not None else self._get_input_size()
@@ -1460,7 +1461,13 @@ class BaseModel(ABC):
                 with torch.no_grad():
                     raw = self._forward(tensor.to(self.device))
                 det = self._postprocess(
-                    raw, conf, iou, orig_size, max_det=max_det, ratio=ratio, **kwargs
+                    raw,
+                    conf,
+                    iou,
+                    orig_size,
+                    max_det=postprocess_max_det(max_det, classes),
+                    ratio=ratio,
+                    **kwargs,
                 )
                 aug_dets.append((det, orig_size, is_flipped, scale))
 
@@ -1468,7 +1475,7 @@ class BaseModel(ABC):
             result = self._merge_classify_tta(aug_dets, image_path, (orig_w, orig_h))
         else:
             result = self._merge_tta(
-                aug_dets, iou, image_path, (orig_w, orig_h), classes
+                aug_dets, iou, image_path, (orig_w, orig_h), classes, max_det
             )
         # Keep the decoded source so plot()/save never fetch the input again.
         return keep_source(result, img_pil, image_path)
@@ -1599,8 +1606,13 @@ class BaseModel(ABC):
         image_path,
         original_size: Tuple[int, int],
         classes: Optional[List[int]] = None,
+        max_det: Optional[int] = None,
     ) -> Results:
-        """Merge TTA detections from multiple augmented views via per-class NMS."""
+        """Merge TTA detections from multiple augmented views via per-class NMS.
+
+        ``classes`` filters the merged boxes, then ``max_det`` keeps the
+        highest-scoring ones.
+        """
         from ...utils.results import Boxes, Masks, Results
 
         orig_w, orig_h = original_size
@@ -1709,6 +1721,12 @@ class BaseModel(ABC):
             final_scores = final_scores[cls_mask]
             final_classes = final_classes[cls_mask]
             keep = keep[cls_mask]
+        if max_det is not None and 0 <= max_det < len(keep):
+            # batched_nms returns indices in descending score order.
+            final_boxes = final_boxes[:max_det]
+            final_scores = final_scores[:max_det]
+            final_classes = final_classes[:max_det]
+            keep = keep[:max_det]
 
         masks_obj = None
         if masks_cat is not None:

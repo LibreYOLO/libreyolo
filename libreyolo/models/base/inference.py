@@ -41,7 +41,11 @@ from ...utils.general import (
 )
 from ...utils.image_loader import ImageInput, ImageLoader
 from ...utils.image_size import reject_rectangular_imgsz, round_imgsz_to_stride
-from ...utils.predict_args import normalize_classes, normalize_predict_kwargs
+from ...utils.predict_args import (
+    normalize_classes,
+    normalize_predict_kwargs,
+    postprocess_max_det,
+)
 from ...utils.results import (
     keep_source,
     AlbedoMap,
@@ -890,13 +894,15 @@ class InferenceRunner:
                 conf,
                 iou,
                 original_size,
-                max_det=max_det,
+                max_det=postprocess_max_det(max_det, classes),
                 ratio=ratio,
                 classes=classes,
                 **kwargs,
             )
             image_path = image if isinstance(image, (str, Path)) else None
-            result = self._wrap_results(detections, original_size, image_path, classes)
+            result = self._wrap_results(
+                detections, original_size, image_path, classes, max_det=max_det
+            )
             keep_source(result, original_img, image_path)
             if save:
                 ext = output_file_format or "jpg"
@@ -1041,6 +1047,7 @@ class InferenceRunner:
         original_size: Tuple[int, int],
         image_path,
         classes: Optional[List[int]],
+        max_det: Optional[int] = None,
     ) -> Results:
         """Convert raw detection dict to a Results object.
 
@@ -1050,6 +1057,9 @@ class InferenceRunner:
             original_size: (width, height) from preprocessing.
             image_path: Source path or None.
             classes: Optional class filter list.
+            max_det: With ``classes``, the number of highest-scoring boxes to
+                keep after filtering (the postprocess ran with a wider budget,
+                see ``postprocess_max_det``).
         """
         # Classification: a probs vector, no boxes. Wrap into Results.probs so
         # result.probs.top1 / .top5 work like the rest of the ecosystem.
@@ -1376,6 +1386,15 @@ class InferenceRunner:
             )
             if obb_t is not None:
                 obb_t = obb_t[cls_mask]
+            if max_det is not None and 0 <= max_det < len(conf_t):
+                top = torch.topk(conf_t, int(max_det)).indices.sort().values
+                boxes_t, conf_t, cls_t = boxes_t[top], conf_t[top], cls_t[top]
+                if masks_t is not None:
+                    masks_t = masks_t[top]
+                if keypoints_t is not None:
+                    keypoints_t = keypoints_t[top]
+                if obb_t is not None:
+                    obb_t = obb_t[top]
 
         # original_size from preprocess is (W, H); orig_shape is (H, W)
         orig_w, orig_h = original_size
@@ -1452,14 +1471,16 @@ class InferenceRunner:
             conf,
             iou,
             original_size,
-            max_det=max_det,
+            max_det=postprocess_max_det(max_det, classes),
             ratio=ratio,
             classes=classes,
             **kwargs,
         )
 
         # Wrap into Results
-        result = self._wrap_results(detections, original_size, image_path, classes)
+        result = self._wrap_results(
+            detections, original_size, image_path, classes, max_det=max_det
+        )
         keep_source(result, original_img, image_path)
 
         # Save annotated image
@@ -1544,13 +1565,13 @@ class InferenceRunner:
                 conf,
                 iou,
                 original_size,
-                max_det=max_det,
+                max_det=postprocess_max_det(max_det, classes),
                 ratio=ratio,
                 classes=classes,
                 **kwargs,
             )
             result = self._wrap_results(
-                detections, original_size, source_label, classes
+                detections, original_size, source_label, classes, max_det=max_det
             )
             result.orig_img = original_img
             return result
