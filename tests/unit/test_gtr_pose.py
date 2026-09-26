@@ -340,7 +340,7 @@ def test_pose_resume_merges_saved_settings_without_duplicate_kwargs(monkeypatch)
         "lr0": 0.003,
         "num_keypoints": 17,
         "keypoint_dim": 3,
-        "device": "cpu",
+        "device": "0,1",
         "size": "s",
     }
     monkeypatch.setattr(LibreGTR, "_checkpoint_train_config", lambda self, p: saved)
@@ -363,4 +363,5 @@ def test_pose_resume_merges_saved_settings_without_duplicate_kwargs(monkeypatch)
     model.train(resume=True, batch=3)
     assert captured["resumed_from"] == "last.pt"
     assert captured["epochs"] == 7 and captured["lr0"] == 0.003
-    assert captured["batch"] == 3 and captured["device"] == "cpu"
+    # The saved device is not restored; the call's device (auto) applies.
+    assert captured["batch"] == 3 and captured["device"] == "auto"

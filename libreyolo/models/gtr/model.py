@@ -549,7 +549,7 @@ class LibreGTR(LibreDFINE):
         settings = {
             key: value
             for key, value in settings.items()
-            if key in valid and key not in {"size", "num_classes", "resume"}
+            if key in valid and key not in self._RESUME_UNRESTORED
         }
         explicit = {
             "data": data,
@@ -624,6 +624,11 @@ class LibreGTR(LibreDFINE):
         self.model.to(self.device)
         return results
 
+    # Saved settings a resume does not restore. ``device`` follows the call,
+    # as in every other family: a saved multi-GPU spec reached the trainer
+    # without the DDP launcher, which only sees the device passed to train().
+    _RESUME_UNRESTORED = frozenset({"size", "num_classes", "resume", "device"})
+
     def _resume_run_settings(self, path, project, name) -> dict:
         """Settings that keep a resumed run writing into its own directory.
 
@@ -657,7 +662,7 @@ class LibreGTR(LibreDFINE):
         saved = {
             key: value
             for key, value in (self._checkpoint_train_config(path) or {}).items()
-            if key in valid and key not in {"size", "num_classes", "resume"}
+            if key in valid and key not in self._RESUME_UNRESTORED
         }
         run = self._resume_run_settings(
             path, explicit.get("project"), explicit.get("name")

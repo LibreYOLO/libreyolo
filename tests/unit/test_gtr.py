@@ -351,6 +351,17 @@ def test_resume_continues_the_checkpoint_run_dir(tmp_path, monkeypatch, saved_ex
     assert captured["save_dir"] == path.parent.parent
 
 
+def test_resume_does_not_restore_saved_device(tmp_path, monkeypatch):
+    """A saved multi-GPU device never reaches the DDP launcher, which only
+    reads the device passed to train(); the call's device (auto) applies."""
+    path = _saved_gtr_run_checkpoint(tmp_path, device="0,1")
+    captured = _capture_gtr_resume(monkeypatch)
+
+    LibreYOLO(str(path), device="cpu").train(resume=True)
+
+    assert captured["config"].device == "auto"
+
+
 def test_gtr_reports_only_truly_ignored_augmentations():
     from libreyolo.cli.config import get_unsupported_train_params
 
