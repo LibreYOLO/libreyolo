@@ -6,7 +6,7 @@ DeepStream's `nvinfer` element (Jetson and x86 dGPU):
 ```python
 from libreyolo import LibreYOLO9
 
-model = LibreYOLO9("libreyolo9s.pt", size="s")
+model = LibreYOLO9("LibreYOLO9s.pt", size="s")
 model.export(format="onnx", deepstream=True)
 ```
 
