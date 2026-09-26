@@ -42,6 +42,7 @@ class LibrePICODET(BaseModel):
     SUPPORTS_CUDA_GRAPH = True
     INPUT_SIZES = {"s": 320, "m": 416, "l": 640}
     TRAIN_CONFIG = PICODETConfig
+    RESUME_RESTORES_TRAIN_ARGS = True
     val_preprocessor_class = PICODETValPreprocessor
 
     # ---- registry --------------------------------------------------------
@@ -269,13 +270,8 @@ class LibrePICODET(BaseModel):
         )
 
         if resume:
-            if not self.model_path:
-                raise ValueError(
-                    "resume=True requires a checkpoint. Load one first: "
-                    "model = LibrePICODET('path/to/last.pt'); model.train(data=..., resume=True)"
-                )
             trainer.setup()
-            trainer.resume(str(self.model_path))
+            trainer.resume(self._resume_checkpoint(resume))
 
         results = trainer.train()
         best_ckpt = results.get("best_checkpoint")

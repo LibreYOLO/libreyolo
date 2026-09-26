@@ -47,6 +47,7 @@ class LibreYOLOX(BaseModel):
     SUPPORTS_CUDA_GRAPH = True
     INPUT_SIZES = {"n": 416, "t": 416, "s": 640, "m": 640, "l": 640, "x": 640}
     TRAIN_CONFIG = YOLOXConfig
+    RESUME_RESTORES_TRAIN_ARGS = True
     val_preprocessor_class = YOLOXValPreprocessor
 
     # =========================================================================
@@ -307,13 +308,8 @@ class LibreYOLOX(BaseModel):
         )
 
         if resume:
-            if not self.model_path:
-                raise ValueError(
-                    "resume=True requires a checkpoint. Load one first: "
-                    "model = LibreYOLOX('path/to/last.pt'); model.train(data=..., resume=True)"
-                )
             trainer.setup()
-            trainer.resume(str(self.model_path))
+            trainer.resume(self._resume_checkpoint(resume))
 
         results = trainer.train()
 

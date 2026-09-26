@@ -66,6 +66,7 @@ YOLONAS_OBB_CLASS_NAMES = (
 
 class LibreYOLONAS(BaseModel):
     FAMILY = "yolonas"
+    RESUME_RESTORES_TRAIN_ARGS = True
     FILENAME_PREFIX = "LibreYOLONAS"
     INPUT_SIZES = {"s": 640, "m": 640, "l": 640}
     POSE_INPUT_SIZES = {"n": 640, "s": 640, "m": 640, "l": 640}
@@ -796,13 +797,8 @@ class LibreYOLONAS(BaseModel):
         )
 
         if resume:
-            if not self.model_path:
-                raise ValueError(
-                    "resume=True requires a checkpoint. Load one first: "
-                    "model = LibreYOLONAS('path/to/last.pt'); model.train(data=..., resume=True)"
-                )
             trainer.setup()
-            trainer.resume(str(self.model_path))
+            trainer.resume(self._resume_checkpoint(resume))
             return trainer.train()
 
         results = trainer.train()
@@ -911,14 +907,8 @@ class LibreYOLONAS(BaseModel):
         )
 
         if resume:
-            if not self.model_path:
-                raise ValueError(
-                    "resume=True requires a checkpoint. Load one first: "
-                    "model = LibreYOLONAS('path/to/last.pt', task='obb'); "
-                    "model.train(data=..., resume=True)"
-                )
             trainer.setup()
-            trainer.resume(str(self.model_path))
+            trainer.resume(self._resume_checkpoint(resume))
             return trainer.train()
 
         results = trainer.train()
@@ -1132,14 +1122,8 @@ class LibreYOLONAS(BaseModel):
         )
 
         if resume:
-            if not self.model_path:
-                raise ValueError(
-                    "resume=True requires a checkpoint. Load one first: "
-                    "model = LibreYOLONAS('path/to/last.pt', task='pose'); "
-                    "model.train(data=..., resume=True)"
-                )
             trainer.setup()
-            trainer.resume(str(self.model_path))
+            trainer.resume(self._resume_checkpoint(resume))
             return trainer.train()
 
         results = trainer.train()

@@ -4219,6 +4219,21 @@ class BaseTrainer(ABC):
                     f"({option}={saved_value}); use a new run to change it."
                 )
 
+        if "epoch" not in checkpoint:
+            raise ValueError(
+                f"Cannot resume from {checkpoint_path}: it holds no training state. "
+                "Released weights start a new run: train without resume, "
+                "e.g. model.train(data=...)."
+            )
+        trained_epochs = int(checkpoint["epoch"]) + 1
+        if trained_epochs >= self.config.epochs:
+            raise ValueError(
+                f"Cannot resume from {checkpoint_path}: its run already trained "
+                f"{trained_epochs}/{self.config.epochs} epochs, so nothing is left "
+                "to resume. Start a new run from these weights instead: "
+                "model.train(data=...) without resume."
+            )
+
         try:
             model_state = checkpoint.get("train_model", checkpoint["model"])
             # Checkpoint state dict is always unwrapped — feed it to the

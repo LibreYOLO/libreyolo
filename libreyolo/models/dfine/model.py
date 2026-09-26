@@ -42,6 +42,7 @@ class LibreDFINE(BaseModel):
     """
 
     FAMILY = "dfine"
+    RESUME_RESTORES_TRAIN_ARGS = True
     FILENAME_PREFIX = "LibreDFINE"
     INPUT_SIZES = {"n": 640, "s": 640, "m": 640, "l": 640, "x": 640}
     SUPPORTED_TASKS = ("detect", "segment")
@@ -400,13 +401,8 @@ class LibreDFINE(BaseModel):
         )
 
         if resume:
-            if not self.model_path:
-                raise ValueError(
-                    "resume=True requires a checkpoint. Load one first: "
-                    "model = LibreDFINE('path/to/last.pt'); model.train(data=..., resume=True)"
-                )
             trainer.setup()
-            trainer.resume(str(self.model_path))
+            trainer.resume(self._resume_checkpoint(resume))
             return trainer.train()
 
         results = trainer.train()

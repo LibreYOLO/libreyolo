@@ -37,6 +37,7 @@ class LibreDEIM(BaseModel):
     SUPPORTS_CUDA_GRAPH = True
     INPUT_SIZES = {"n": 640, "s": 640, "m": 640, "l": 640, "x": 640}
     TRAIN_CONFIG = DEIMConfig
+    RESUME_RESTORES_TRAIN_ARGS = True
     val_preprocessor_class = DEIMValPreprocessor
     TTA_FIXED_SIZE = True  # resizes to a fixed square; multi-scale TTA is a no-op
 
@@ -301,13 +302,8 @@ class LibreDEIM(BaseModel):
         )
 
         if resume:
-            if not self.model_path:
-                raise ValueError(
-                    "resume=True requires a checkpoint. Load one first: "
-                    "model = LibreDEIM('path/to/last.pt'); model.train(data=..., resume=True)"
-                )
             trainer.setup()
-            trainer.resume(str(self.model_path))
+            trainer.resume(self._resume_checkpoint(resume))
             return trainer.train()
 
         results = trainer.train()

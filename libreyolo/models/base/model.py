@@ -7,6 +7,7 @@ Provides shared functionality for all YOLO model variants.
 from __future__ import annotations
 
 import contextlib
+import dataclasses
 import functools
 import inspect
 import logging
@@ -70,6 +71,22 @@ logger = logging.getLogger(__name__)
 # raise ``TypeError: got multiple values``. ``TrainConfig.to_yaml()`` writes
 # both, so a user-generated starter yaml hits this naturally.
 _WRAPPER_OWNED_CFG_KEYS = frozenset({"size", "num_classes"})
+
+# Saved training arguments a resume does not restore: the wrapper owns the
+# architecture keys (pose trainers also take the keypoint layout from the
+# dataset), ``device`` follows the call, the run directory comes from the
+# checkpoint path, and a checkpoint must not opt a call into running dataset
+# download scripts.
+_RESUME_UNRESTORED_KEYS = _WRAPPER_OWNED_CFG_KEYS | {
+    "num_keypoints",
+    "keypoint_dim",
+    "resume",
+    "device",
+    "project",
+    "name",
+    "exist_ok",
+    "allow_download_scripts",
+}
 
 
 def _wrap_train_with_cfg(train_fn: Callable) -> Callable:
@@ -157,6 +174,17 @@ def _wrap_train_with_cfg(train_fn: Callable) -> Callable:
                 if "pretrained" not in sig.parameters:
                     merged.pop("pretrained")
 
+        if resume and getattr(self, "RESUME_RESTORES_TRAIN_ARGS", False):
+            given = set(merged) | set(pos_names[: len(args)])
+            accepts_any = any(
+                p.kind == p.VAR_KEYWORD for p in sig.parameters.values()
+            )
+            merged.update(
+                (key, value)
+                for key, value in self._resume_train_args(resume, given).items()
+                if accepts_any or key in sig.parameters
+            )
+
         from ...data.event_histogram import prepare_histogram_training
         prepare_histogram_training(self, args, merged)
         return train_fn(self, *args, **merged)
@@ -196,6 +224,11 @@ class BaseModel(ABC):
     REQUIRE_TASK_SUFFIX: ClassVar[bool] = False
     TASK_INPUT_SIZES: ClassVar[dict[str, dict[str, int]]] = {}
     TRAIN_CONFIG: ClassVar[Optional[type[TrainConfig]]] = None
+    # True when ``train()`` resumes through ``BaseTrainer.resume()`` from
+    # ``_resume_checkpoint()``: ``resume=True`` or a checkpoint path then
+    # restores the run's saved ``TRAIN_CONFIG`` arguments (explicit arguments
+    # win) and keeps writing into that run's directory.
+    RESUME_RESTORES_TRAIN_ARGS: ClassVar[bool] = False
     val_preprocessor_class = StandardValPreprocessor
     validator_class: ClassVar[Optional[type]] = None
     # Dataset-variant weight suffixes (e.g. "visdrone" accepts
@@ -714,6 +747,55 @@ class BaseModel(ABC):
         if path.suffix != ".pt" or path.parent.name != "weights" or not path.is_file():
             return None
         return path
+
+    def _resume_checkpoint(self, resume: bool | str | Path) -> str:
+        """The checkpoint a ``resume`` request continues: its path, or the loaded one."""
+        if isinstance(resume, (str, Path)) and not isinstance(resume, bool):
+            source = resume
+        else:
+            source = getattr(self, "model_path", None)
+        if not isinstance(source, (str, Path)) or not str(source):
+            raise ValueError(
+                "resume=True requires a checkpoint to continue. Load one first "
+                f"(model = {type(self).__name__}('path/to/last.pt')) or pass "
+                "its path: model.train(resume='path/to/last.pt')."
+            )
+        return str(source)
+
+    def _resume_train_args(
+        self, resume: bool | str | Path, given: set[str]
+    ) -> dict[str, Any]:
+        """Saved training arguments and run directory for a resumed ``train()``.
+
+        Arguments in ``given`` were passed explicitly and are left out, so
+        they override the checkpoint's. A ``<run>/weights/*.pt`` checkpoint
+        keeps writing into ``<run>`` unless ``project``/``name`` are given.
+        """
+        source = self._resume_checkpoint(resume)
+        if not Path(source).is_file():
+            raise FileNotFoundError(f"Resume checkpoint not found: {source}")
+        # Read the file itself: the cached config may describe an earlier run.
+        saved = self._checkpoint_train_config(source)
+        if not saved:
+            raise ValueError(
+                f"Cannot resume from {source}: it holds no training state. "
+                "Released weights start a new run: train without resume, "
+                "e.g. model.train(data=...)."
+            )
+        if self.TRAIN_CONFIG is not None:
+            # Drop keys an older release saved that this config no longer has.
+            valid = {field.name for field in dataclasses.fields(self.TRAIN_CONFIG)}
+            saved = {key: value for key, value in saved.items() if key in valid}
+        restored = {
+            key: value
+            for key, value in saved.items()
+            if key not in _RESUME_UNRESTORED_KEYS and key not in given
+        }
+        run_checkpoint = self._loaded_run_checkpoint(source)
+        run_dir = run_checkpoint.parent.parent if run_checkpoint is not None else None
+        if run_dir is not None and run_dir.name and not {"project", "name"} & given:
+            restored.update(project=str(run_dir.parent), name=run_dir.name, exist_ok=True)
+        return restored
 
     def _cache_checkpoint_train_config(self, checkpoint: Any) -> dict[str, Any]:
         """Cache and return checkpoint training config metadata."""

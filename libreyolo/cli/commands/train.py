@@ -994,7 +994,11 @@ def train_cmd(
         train_kwargs["aux_weight"] = aux_weight
     if histogram_input:
         train_kwargs.update(histogram_recipe_defaults(family))
-    if train_pretrained is not None:
+    # pretrained picks initial weights for a new run; a resume continues its
+    # checkpoint, so only an explicit pretrained= reaches train() then.
+    if train_pretrained is not None and (
+        not resume_val or "pretrained" in user_provided
+    ):
         train_kwargs["pretrained"] = train_pretrained  # Not in TrainConfig
     if family == "rfdetr":
         if train_pretrained is not False:
@@ -1007,7 +1011,10 @@ def train_cmd(
         train_kwargs["eval_interval"] = 0
 
     # Run training
-    out.progress(f"Training {model} on {data} for {params['epochs']} epochs...")
+    if resume_val:
+        out.progress(f"Resuming training of {model} on {data}...")
+    else:
+        out.progress(f"Training {model} on {data} for {params['epochs']} epochs...")
     t0 = time.time()
     try:
         results = loaded_model.train(data=data, **train_kwargs)

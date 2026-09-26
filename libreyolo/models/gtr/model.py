@@ -40,6 +40,8 @@ class LibreGTR(LibreDFINE):
     }
     DEFAULT_TASK = "detect"
     TRAIN_CONFIG = GTRConfig
+    # GTR resolves resume settings per task itself (_resume_settings).
+    RESUME_RESTORES_TRAIN_ARGS = False
     SUPPORTS_CUDA_GRAPH = False
     val_preprocessor_class = DEIMv2DINOValPreprocessor
     POSE_NUM_KEYPOINTS = 17

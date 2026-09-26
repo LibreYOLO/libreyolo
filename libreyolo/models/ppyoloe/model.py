@@ -60,6 +60,7 @@ class LibrePPYOLOE(BaseModel):
     SUPPORTED_TASKS = ("detect",)
     DEFAULT_TASK = "detect"
     TRAIN_CONFIG = PPYOLOEConfig
+    RESUME_RESTORES_TRAIN_ARGS = True
     val_preprocessor_class = PPYOLOEValPreprocessor
 
     # Forward is pure tensor work with no host sync (anchors are rebuilt from
@@ -381,14 +382,8 @@ class LibrePPYOLOE(BaseModel):
         )
 
         if resume:
-            if not self.model_path:
-                raise ValueError(
-                    "resume=True requires a checkpoint. Load one first: "
-                    "model = LibrePPYOLOE('path/to/last.pt'); "
-                    "model.train(data=..., resume=True)"
-                )
             trainer.setup()
-            trainer.resume(str(self.model_path))
+            trainer.resume(self._resume_checkpoint(resume))
 
         results = trainer.train()
         best_ckpt = results.get("best_checkpoint")

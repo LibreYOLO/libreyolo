@@ -511,7 +511,12 @@ def build_family_train_kwargs(
     task: str | None = None,
 ) -> dict[str, Any]:
     """Build train kwargs, translating family-specific CLI/API mismatches."""
-    if family in _FAMILY_RESOLVED_TRAIN_DEFAULTS:
+    # A resume restores the run's saved arguments; Typer defaults must not
+    # override them, only the options the user set.
+    resume_restores = bool(params.get("resume")) and getattr(
+        get_model_class(family), "RESUME_RESTORES_TRAIN_ARGS", False
+    )
+    if family in _FAMILY_RESOLVED_TRAIN_DEFAULTS or resume_restores:
         from .aliases import train_aliases
 
         aliases = train_aliases(task)

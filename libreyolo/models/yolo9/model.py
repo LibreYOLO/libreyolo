@@ -67,6 +67,7 @@ class LibreYOLO9(BaseModel):
         "detect": INPUT_SIZES,
     }
     TRAIN_CONFIG = YOLO9Config
+    RESUME_RESTORES_TRAIN_ARGS = True
     val_preprocessor_class = YOLO9ValPreprocessor
     # The detection forward is pure tensor work with no host sync, so it
     # captures and replays bit-identically (tests/unit/test_cuda_graph.py).
@@ -627,7 +628,7 @@ class LibreYOLO9(BaseModel):
         project: str = _TRAIN_DEFAULTS.project,
         name: str = _TRAIN_DEFAULTS.name,
         exist_ok: bool = _TRAIN_DEFAULTS.exist_ok,
-        resume: bool = _TRAIN_DEFAULTS.resume,
+        resume: bool | str | Path = _TRAIN_DEFAULTS.resume,
         amp: bool = _TRAIN_DEFAULTS.amp,
         amp_dtype: str = _TRAIN_DEFAULTS.amp_dtype,
         patience: int = _TRAIN_DEFAULTS.patience,
@@ -652,7 +653,10 @@ class LibreYOLO9(BaseModel):
             project: Root directory for training runs.
             name: Experiment name.
             exist_ok: If True, overwrite existing experiment directory.
-            resume: If True, resume training from checkpoint.
+            resume: True resumes the loaded training checkpoint; a path resumes
+                that checkpoint. The run restores its saved training arguments
+                (data, epochs, imgsz, batch, lr0, ...) and continues in its own
+                directory; arguments passed explicitly override the saved ones.
             amp: Enable automatic mixed precision training.
             amp_dtype: CUDA AMP dtype, ``float16`` or ``bfloat16``.
             patience: Early stopping patience.
@@ -714,14 +718,15 @@ class LibreYOLO9(BaseModel):
 
         if resume and pretrained:
             raise ValueError("pretrained transfer cannot be combined with resume=True.")
+        resume_path = self._resume_checkpoint(resume) if resume else None
 
         # PGI aux is training-only. Attach before trainer.setup() so the
         # optimizer / EMA / DDP see the extra parameters. Resume of a
         # single-head 1.5 checkpoint stays single-head.
         aux_weight = resolve_aux_weight(kwargs.get("aux_weight", _TRAIN_DEFAULTS.aux_weight))
         if type(self.model).__name__ == "LibreYOLO9Model":
-            if resume:
-                self._maybe_enable_aux_from_path(self.model_path, aux_weight)
+            if resume_path:
+                self._maybe_enable_aux_from_path(resume_path, aux_weight)
             elif aux_weight > 0:
                 self.model.enable_aux(weight=aux_weight)
                 # Inference load stripped aux.* from official converts; put
@@ -763,7 +768,7 @@ class LibreYOLO9(BaseModel):
             project=project,
             name=name,
             exist_ok=exist_ok,
-            resume=resume,
+            resume=bool(resume_path),
             amp=amp,
             amp_dtype=amp_dtype,
             patience=patience,
@@ -774,14 +779,9 @@ class LibreYOLO9(BaseModel):
         )
         trainer = self._trainer_class()(**trainer_kwargs)
 
-        if resume:
-            if not self.model_path:
-                raise ValueError(
-                    "resume=True requires a checkpoint. Load one first: "
-                    "model = LibreYOLO9('path/to/last.pt', size='t'); model.train(data=..., resume=True)"
-                )
+        if resume_path:
             trainer.setup()
-            trainer.resume(str(self.model_path))
+            trainer.resume(resume_path)
 
         results = trainer.train()
 

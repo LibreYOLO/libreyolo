@@ -51,6 +51,7 @@ class LibreTinyFormer(BaseModel):
     SUPPORTED_TASKS = ("detect",)
     DEFAULT_TASK = "detect"
     TRAIN_CONFIG = TinyFormerConfig
+    RESUME_RESTORES_TRAIN_ARGS = True
     val_preprocessor_class = DEIMv2DINOValPreprocessor
     TTA_FIXED_SIZE = True  # resizes to a fixed square; multi-scale TTA is a no-op
     IMGSZ_DIVISOR = 32
@@ -402,14 +403,8 @@ class LibreTinyFormer(BaseModel):
         trainer = TinyFormerTrainer(**trainer_kwargs)
 
         if resume:
-            if not self.model_path:
-                raise ValueError(
-                    "resume=True requires a checkpoint. Load one first: "
-                    "model = LibreTinyFormer('path/to/last.pt'); "
-                    "model.train(data=..., resume=True)"
-                )
             trainer.setup()
-            trainer.resume(str(self.model_path))
+            trainer.resume(self._resume_checkpoint(resume))
             return trainer.train()
 
         results = trainer.train()

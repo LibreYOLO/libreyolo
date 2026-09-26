@@ -263,6 +263,7 @@ def test_custom_resume_rejected_before_loading_weights_and_default_resume_works(
     default_result = default.train()
     with pytest.raises(ValueError, match="Custom fitness does not support resume"):
         original.resume(default_result["last_checkpoint"])
+    resumed.config.epochs = 6  # a finished run has nothing to resume
     resumed.resume(default_result["last_checkpoint"])
     assert resumed.start_epoch == 5
     assert resumed.best_epoch == 5

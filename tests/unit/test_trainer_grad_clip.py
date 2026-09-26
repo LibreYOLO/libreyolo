@@ -332,6 +332,7 @@ def test_resume_before_setup_defers_optimizer_state(tmp_path):
     # New trainer with no optimizer yet (simulates pre-setup() state).
     trainer2, param2, _ = _build_trainer(clip_max_norm=0.0)
     trainer2.optimizer = None
+    trainer2.config.epochs = 4  # a finished run has nothing to resume
 
     trainer2.resume(str(ckpt_path))
 

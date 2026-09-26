@@ -1409,6 +1409,40 @@ def test_gtr_resume_reaches_training(monkeypatch, tmp_path, syntax, resume, expe
     assert not {'imgsz', 'batch', 'lr0', 'weight_decay', 'ema'} & captured.keys()
 
 
+@pytest.mark.parametrize('syntax', ['key_value', 'flags'])
+def test_yolo9_resume_forwards_only_user_options(monkeypatch, tmp_path, syntax):
+    """Typer defaults (pretrained=True, epochs, imgsz, ...) must not reach a
+    resume: pretrained=True was rejected with resume, and the rest overrode
+    the run's saved arguments."""
+    captured = {}
+    last = tmp_path / 'run' / 'weights' / 'last.pt'
+    last.parent.mkdir(parents=True)
+    last.write_bytes(b'')
+
+    class YOLO9Like:
+        FAMILY = 'yolo9'
+        task = 'detect'
+        device = 'cpu'
+
+        def train(self, data, **kwargs):
+            captured.update(kwargs, data=data)
+            return {'save_dir': str(last.parent.parent), 'epoch_losses': [1.0]}
+
+    monkeypatch.setattr('libreyolo.cli.commands.train.load_model_or_exit',
+                        lambda *args, **kwargs: YOLO9Like())
+    options = {'model': str(last), 'data': 'coco8.yaml', 'resume': 'true', 'epochs': '2'}
+    if syntax == 'key_value':
+        args = [f'{key}={value}' for key, value in options.items()]
+    else:
+        args = [part for key, value in options.items() for part in (f'--{key}', value)]
+    result = runner.invoke(_make_app(), args + ['--json'])
+
+    assert result.exit_code == 0, result.output
+    assert (captured['resume'], captured['epochs']) == (True, 2)
+    assert not {'pretrained', 'imgsz', 'batch', 'lr0', 'optimizer', 'project',
+                'name'} & captured.keys()
+
+
 @pytest.mark.parametrize(
     "model,args,expected",
     [
