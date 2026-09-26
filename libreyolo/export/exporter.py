@@ -1952,6 +1952,16 @@ class OnnxExporter(BaseExporter):
                     nms=nms,
                     deepstream=deepstream,
                 )
+                # Without explicit nodes_to_exclude, the family's float
+                # layers (YOLO9: first conv and the head) stay float, as in
+                # model.quantize().
+                keep_high_precision = ()
+                if nodes_to_exclude is None:
+                    from ..quant.api import default_keep_high_precision
+
+                    keep_high_precision = default_keep_high_precision(
+                        self.model._get_model_name()
+                    )
                 result = quantize_onnx_int8(
                     fp32_path,
                     output_path,
@@ -1961,6 +1971,7 @@ class OnnxExporter(BaseExporter):
                     calibrate_method=calibrate_method,
                     nodes_to_exclude=nodes_to_exclude,
                     skip_symbolic_shape=nms,
+                    keep_high_precision=keep_high_precision,
                 )
                 _write_deepstream_sidecars(result)
                 return result

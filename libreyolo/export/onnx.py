@@ -751,6 +751,30 @@ def embed_onnx_metadata(path: str, metadata: dict) -> None:
 _INT8_OP_TYPES = ["Conv", "Gemm"]
 
 
+def _node_names_in_scopes(
+    model_path: str, module_prefixes, op_types: list[str]
+) -> list[str]:
+    """Names of ``op_types`` nodes exported from the given module prefixes.
+
+    Maps qualified module-name prefixes (``"head."``) to the exporter's node
+    scopes (``"/head/"``), so the family's keep-high-precision policy from
+    ``libreyolo.quant`` applies to ONNX INT8 export as well.
+    """
+    import onnx
+
+    scopes = [
+        "/" + prefix.strip(".").replace(".", "/") + "/"
+        for prefix in module_prefixes
+        if prefix.strip(".")
+    ]
+    graph = onnx.load(model_path).graph
+    return [
+        node.name
+        for node in graph.node
+        if node.op_type in op_types and any(scope in node.name for scope in scopes)
+    ]
+
+
 def quantize_onnx_int8(
     fp32_path: str,
     output_path: str,
@@ -762,8 +786,17 @@ def quantize_onnx_int8(
     nodes_to_exclude: list[str] | None = None,
     op_types_to_quantize: list[str] | None = None,
     skip_symbolic_shape: bool = False,
+    keep_high_precision=(),
 ) -> str:
-    """Quantize an FP32 ONNX model to QDQ INT8 with float32 inputs/outputs."""
+    """Quantize an FP32 ONNX model to QDQ INT8 with float32 inputs/outputs.
+
+    ``keep_high_precision`` lists module-name prefixes (the family policy
+    from ``libreyolo.quant``) whose nodes stay float, in addition to
+    ``nodes_to_exclude``. A detection head's class-logit convs must: their
+    per-tensor activation range is fixed by the calibration images, so any
+    logit above the calibrated maximum saturates, and with a maximum of 0
+    every score reads exactly sigmoid(0) = 0.5.
+    """
     check_onnx_int8_available()
 
     from onnxruntime.quantization import QuantFormat, QuantType, quant_pre_process
@@ -780,6 +813,12 @@ def quantize_onnx_int8(
         preprocessed_path,
         skip_symbolic_shape=skip_symbolic_shape,
     )
+    op_types = op_types_to_quantize or _INT8_OP_TYPES
+    excluded = list(nodes_to_exclude or [])
+    if keep_high_precision:
+        excluded += _node_names_in_scopes(
+            preprocessed_path, keep_high_precision, op_types
+        )
     reader = _CalibrationDataReader(
         calibration_data,
         input_name=_first_input_name(preprocessed_path),
@@ -793,8 +832,8 @@ def quantize_onnx_int8(
         weight_type=QuantType.QInt8,
         activation_type=QuantType.QInt8,
         calibrate_method=_resolve_calibration_method(calibrate_method),
-        op_types_to_quantize=op_types_to_quantize or _INT8_OP_TYPES,
-        nodes_to_exclude=nodes_to_exclude,
+        op_types_to_quantize=op_types,
+        nodes_to_exclude=excluded or None,
         extra_options={
             "WeightSymmetric": True,
             "ActivationSymmetric": False,
