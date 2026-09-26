@@ -676,7 +676,15 @@ class DDetect(nn.Module):
             anchor_points, stride_scale = self._anchor_grid(feats)
             return anchor_points.transpose(0, 1), stride_scale.transpose(0, 1)
         shape = feats[0].shape
-        cached = not self.dynamic and self.shape == shape
+        # The cache is a plain attribute, so ``.to()`` does not move it: key it
+        # on device and dtype too, or a per-call device switch reuses stale
+        # anchors from the previous device.
+        cached = (
+            not self.dynamic
+            and self.shape == shape
+            and self.anchors.device == feats[0].device
+            and self.anchors.dtype == feats[0].dtype
+        )
         if not cached:
             anchor_points, stride_scale = self._anchor_grid(feats)
             self.anchors = anchor_points.transpose(0, 1)

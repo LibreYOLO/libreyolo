@@ -2542,7 +2542,8 @@ class BaseModel(ABC):
             iou: IoU threshold for NMS.
             workers: Number of dataloader workers.
             allow_download_scripts: Allow embedded Python in dataset YAML downloads.
-            device: Device to use (default: same as model).
+            device: Device to validate on. Moves the model there, as
+                ``predict(device=...)`` does (default: the model's device).
             split: Dataset split ("val", "test").
             save_json: Save predictions in COCO JSON format.
             plots: Alias for save_plots.
@@ -2678,6 +2679,11 @@ class BaseModel(ABC):
                 "Use augment=False for OCR models."
             )
 
+        if device is not None and str(device) != str(self.device):
+            # Same contract as predict(device=...): move the model, so the
+            # validator's inputs and the weights end up on one device.
+            self._runner._set_device(device)
+
         config = ValidationConfig(
             data=data,
             batch_size=batch,
@@ -2686,7 +2692,7 @@ class BaseModel(ABC):
             iou_thres=iou,
             num_workers=workers,
             allow_download_scripts=allow_download_scripts,
-            device=device or str(self.device),
+            device=str(self.device),
             split=split,
             augment=augment,
             save_json=save_json,
