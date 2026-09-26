@@ -210,10 +210,8 @@ class LibreGTR(LibreDFINE):
         "x": "b029aa3335222ffaba58f8533cc2cd007b79bc3e",
     }
 
-    # Pinned revisions of the task repositories, keyed by (size, task).
-    # PLACEHOLDER: fill each value with the commit SHA of
-    # LibreYOLO/LibreGTR{size}-{task} once uploaded; None falls back to ``main``.
-    HF_TASK_REVISIONS: ClassVar[dict[tuple[str, str], str | None]] = {
+    # Pinned revisions of the LibreYOLO/LibreGTR{size}-{suffix} task repositories.
+    HF_TASK_REVISIONS: ClassVar[dict[tuple[str, str], str]] = {
         ("s", "segment"): "d568a30d0141363107d8e61329040aab68b42393",
         ("m", "segment"): "c7653747c2bdc5ea013cbe5eb51ecbd5f32ef417",
         ("l", "segment"): "3955ab3c9f86b5f120c2ec5f504a8c5c0a338f89",
@@ -222,16 +220,16 @@ class LibreGTR(LibreDFINE):
         ("m", "pose"): "e05646914d5d15f8647af02397cf014c1b3e9d0f",
         ("l", "pose"): "441fc9d8c9d75a42a2155e550f799898beb902bc",
         ("x", "pose"): "3ab375d558decf2ac2262671e4c938d6c8028298",
-        ("s", "obb"): None,
-        ("x", "obb"): None,
-        ("s", "depth"): "3b960faed54cc12b19574fdb192f9ff3dfffeb7d",
-        ("m", "depth"): "2ad291095758e3e52277946a40d1ca30e974b7f6",
-        ("l", "depth"): "479fe22b204f8f8e2062829fd1f006f0289da175",
-        ("x", "depth"): "00ff02fdd17c191d1f0b7d781b49f76d911cab62",
-        ("s", "semantic"): "b87f1b01e3432eda543459a2260073e9abac2326",
-        ("m", "semantic"): "432535a05d295e3a2c3c59ef8fa169e3cbb46bbe",
-        ("l", "semantic"): "4d402de8a1b4e425d964ce7b3f534402120c2756",
-        ("x", "semantic"): "12838dc0a9e6ce97d54ad11f401535a66410965c",
+        ("s", "obb"): "c916f8c7f8448df4835d82ca14c62a2d13145200",
+        ("x", "obb"): "72e076ee833b9340cfdfbd03c2edb685fdd13126",
+        ("s", "depth"): "1cbea39e5b38a2efd83eca5fe8ba0a30a70de5e7",
+        ("m", "depth"): "0911829a7ddff9f92a7f835c9107f62f1daf5294",
+        ("l", "depth"): "ae8110133430130a4baeaaa1a32a9d5519df16fc",
+        ("x", "depth"): "eb655cb7f17e162fdac08fe98b1aa4984f320de6",
+        ("s", "semantic"): "37f64a7271571018f511658907eba9e2ccf0f1f0",
+        ("m", "semantic"): "16c7e753dae655ea285fe2ef01ca035d961b9e54",
+        ("l", "semantic"): "218b1d20f2aa9260c6f86c59d0ed43d87dbeb09b",
+        ("x", "semantic"): "bf0cf95b1cf7df47ae0fa0179e54729e89c20e3e",
     }
 
     @classmethod
@@ -253,31 +251,6 @@ class LibreGTR(LibreDFINE):
         if Path(filename).stem != name:
             return None
         return f"https://huggingface.co/LibreYOLO/{name}/resolve/{revision}/{name}.pt"
-
-    @classmethod
-    def get_download_notice(cls, filename, url):
-        del url
-        task = cls.detect_task_from_filename(filename)
-        if task == "semantic":
-            return (
-                f"{Path(filename).name} is a converted GTR checkpoint trained on "
-                "Cityscapes. The Cityscapes terms restrict the dataset and derived "
-                "models, including this checkpoint, to NON-COMMERCIAL use "
-                "(https://www.cityscapes-dataset.com/license/). The restriction "
-                "applies to these pretrained weights, not to LibreYOLO's code or "
-                "the GTR architecture; a fine-tune started from it inherits the "
-                "term. Train from scratch on your own data for weights without it."
-            )
-        if task != "depth":
-            return None
-        return (
-            "GTR depth was pretrained on a mixed corpus (SUN RGB-D, DIODE, "
-            "Virtual KITTI 2, KITTI, Hypersim, TartanAir, ARKitScenes, ImageNet "
-            "pseudo-labels) whose individual terms are not all permissive. "
-            "LibreYOLO redistributes these weights under the MIT licence the "
-            "authors applied to them; if your use is commercial, satisfy "
-            "yourself about the training-data terms."
-        )
 
     def __init__(
         self, model_path, size, nb_classes=80, device="auto", task=None, **kwargs
