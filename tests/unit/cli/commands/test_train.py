@@ -1489,3 +1489,33 @@ def test_train_aux_weight_rejected_outside_yolo9(monkeypatch, tmp_path):
     data = json.loads(result.stdout)
     assert data["error"] == "config_unsupported"
     assert "aux_weight" in data["message"]
+
+
+def test_gtr_semantic_cli_train_accepts_the_pretrained_flag(monkeypatch, tmp_path):
+    """The CLI always forwards ``pretrained``; GTR semantic must not reject it."""
+    from libreyolo import LibreGTR
+
+    captured = {}
+
+    class _FakeSemTrainer:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+        def train(self):
+            return {"save_dir": str(tmp_path / "sem")}
+
+    monkeypatch.setattr(
+        "libreyolo.models.gtr.sem_trainer.GTRSemTrainer", _FakeSemTrainer
+    )
+    model = LibreGTR(None, size="s", nb_classes=2, device="cpu", task="semantic")
+    monkeypatch.setattr(
+        "libreyolo.cli.commands.train.load_model_or_exit", lambda **_kwargs: model
+    )
+    result = runner.invoke(
+        _make_app(),
+        ["model=LibreGTRs-sem.pt", "data=dummy.yaml", "epochs=1", "--json"],
+    )
+    assert result.exit_code == 0, result.output
+    assert captured["data"] == "dummy.yaml"
+    assert captured["epochs"] == 1
+    assert "pretrained" not in captured
