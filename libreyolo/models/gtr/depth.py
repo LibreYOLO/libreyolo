@@ -187,15 +187,16 @@ def train(wrapper, *, data=None, resume=False, **kwargs):
     """Fine-tune a GTR depth model with the upstream SILog recipe."""
     from pathlib import Path
 
-    from .depth_trainer import GTRDepthTrainer
+    from .depth_trainer import GTRDepthConfig, GTRDepthTrainer
 
     if kwargs.get("lora"):
         raise ValueError("LoRA is not supported for depth models (ADR 0006).")
     kwargs.pop("pretrained", None)
-    settings = {key: value for key, value in kwargs.items() if value is not None}
+    resume_path, settings = wrapper._resume_settings(
+        resume, GTRDepthConfig, {"data": data, **kwargs}
+    )
+    data = settings.pop("data", None)
     device = settings.pop("device", "") or "auto"
-    if resume and not wrapper.model_path:
-        raise ValueError("resume=True requires a loaded GTR depth checkpoint")
     if settings.get("imgsz") is not None:
         settings["imgsz"] = wrapper._validate_imgsz(settings["imgsz"])
     trainer = GTRDepthTrainer(
@@ -205,14 +206,12 @@ def train(wrapper, *, data=None, resume=False, **kwargs):
         num_classes=1,
         data=data,
         device=device,
-        resume=bool(resume),
+        resume=bool(resume_path),
         **settings,
     )
-    if resume:
+    if resume_path:
         trainer.setup()
-        trainer.resume(
-            str(resume if isinstance(resume, (str, Path)) else wrapper.model_path)
-        )
+        trainer.resume(resume_path)
     results = trainer.train()
     best = results.get("best_checkpoint")
     if best and Path(best).exists():

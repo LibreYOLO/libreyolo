@@ -94,7 +94,8 @@ def test_checkpoint_task_detection_does_not_collide_with_detect(obb_state):
     assert LibreGTR.detect_checkpoint_task(detect_state) is None
     assert is_gtr_obb_state_dict(obb_state) and not is_gtr_obb_state_dict(detect_state)
     assert LibreGTR.detect_size(obb_state) == "s"
-    assert LibreGTR.default_checkpoint_names(15)[14] == "helicopter"
+    assert LibreGTR.default_checkpoint_names(15, task="obb")[14] == "helicopter"
+    assert LibreGTR.default_checkpoint_names(15, task="detect") is None
 
 
 def test_obb_checkpoint_loads_strictly_and_predicts_rotated_boxes(tmp_path, obb_state):

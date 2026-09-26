@@ -247,3 +247,17 @@ def test_detect_weights_initialize_segment_only_as_explicit_transfer(tmp_path):
             device="cpu",
             allow_detect_to_segment_transfer=True,
         )
+
+
+def test_seg_torchscript_export_reloads_and_predicts(tmp_path):
+    import numpy as np
+
+    path = tmp_path / "LibreGTRs-seg.pt"
+    _seg_checkpoint(path)
+    model = LibreYOLO(str(path), device="cpu")
+    exported = model.export(
+        format="torchscript", imgsz=160, output_path=str(tmp_path / "m.torchscript")
+    )
+    backend = LibreYOLO(str(exported), device="cpu")
+    result = backend.predict(np.zeros((160, 160, 3), np.uint8), conf=0.0)[0]
+    assert result.masks is not None

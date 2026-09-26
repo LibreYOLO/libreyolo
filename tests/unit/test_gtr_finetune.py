@@ -142,8 +142,37 @@ def test_mixup_blends_neighbours_and_keeps_both_label_sets():
     torch.testing.assert_close(mixed, torch.full_like(imgs, 0.5))
     # Image 0 now carries its own box plus image 1's two boxes.
     torch.testing.assert_close(merged[0], torch.cat([labels[0, :1], labels[1, :2]]))
-    # Padding caps at max_labels.
     torch.testing.assert_close(merged[1], torch.cat([labels[1, :2], labels[0, :1]]))
+
+
+def test_mixup_widens_padding_instead_of_dropping_labels():
+    from libreyolo.models.gtr.transforms import mixup_batch
+
+    imgs = torch.zeros(2, 3, 4, 4)
+    labels = torch.zeros(2, 3, 5)
+    labels[:, :, 3:] = 1.0  # every slot holds a real box
+    labels[1, :, 0] = 1.0
+    _, merged = mixup_batch(imgs, labels, beta=0.5)
+    assert merged.shape == (2, 6, 5)
+    assert ((merged[..., 3] > 0) & (merged[..., 4] > 0)).sum() == 12
+
+
+def test_resume_settings_restore_saved_config_before_overrides(monkeypatch):
+    from libreyolo.models.gtr.sem_trainer import GTRSemConfig
+
+    model = object.__new__(LibreGTR)
+    model.model_path = "last.pt"
+    monkeypatch.setattr(
+        LibreGTR,
+        "_checkpoint_train_config",
+        lambda self, path: {"epochs": 9, "lr0": 0.002, "batch": 4, "size": "x"},
+    )
+    path, settings = model._resume_settings(
+        True, GTRSemConfig, {"batch": 2, "data": "d.yaml", "lr0": None}
+    )
+    assert path == "last.pt"
+    assert settings == {"epochs": 9, "lr0": 0.002, "batch": 2, "data": "d.yaml"}
+    assert model._resume_settings(False, GTRSemConfig, {"lr0": None}) == (None, {})
 
 
 def test_mixup_collate_is_epoch_gated():

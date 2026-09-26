@@ -210,3 +210,32 @@ def test_validation_and_short_training_run(tmp_path):
     )
     assert results["best_checkpoint"] or results["last_checkpoint"]
     assert model.task == "semantic" and model.nb_classes == 2
+
+
+def test_resume_continues_saved_run(tmp_path):
+    data = _write_semantic_dataset(tmp_path)
+    model = LibreGTR(None, size="s", nb_classes=2, device="cpu", task="semantic")
+    model.model.window = 64
+    model.input_size = (64, 128)
+    common = dict(
+        batch=2,
+        imgsz=64,
+        device="cpu",
+        workers=0,
+        warmup_iters=0,
+        ema=False,
+        project=str(tmp_path / "runs"),
+        name="sem",
+    )
+    model.train(data=str(data), epochs=2, patience=0, **common)
+    last = tmp_path / "runs" / "sem" / "weights" / "last.pt"
+    ckpt = torch.load(last, map_location="cpu", weights_only=False)
+    ckpt["epoch"] = 0  # pretend the run stopped after its first epoch
+    torch.save(ckpt, last)
+
+    resumed = LibreYOLO(str(last), device="cpu")
+    resumed.model.window = 64
+    resumed.input_size = (64, 128)
+    results = resumed.train(resume=True, exist_ok=True)
+    # The saved 2-epoch schedule is restored and only the second epoch runs.
+    assert len(results["epoch_losses"]) == 1

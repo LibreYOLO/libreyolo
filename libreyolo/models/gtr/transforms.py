@@ -159,14 +159,20 @@ class GTRMixUpCollate:
 
 
 def mixup_batch(imgs: torch.Tensor, labels: torch.Tensor, beta: float):
-    """Blend each image with its predecessor and keep both padded label sets."""
+    """Blend each image with its predecessor and keep both label sets.
+
+    The padded label tensor widens when a blended pair has more objects than
+    the per-image padding, so no visible object loses its target.
+    """
     mixed = imgs.roll(shifts=1, dims=0).mul(1.0 - beta).add_(imgs.mul(beta))
     shifted = labels.roll(shifts=1, dims=0)
-    out = torch.zeros_like(labels)
-    max_labels = labels.shape[1]
+    merged = []
     for i in range(labels.shape[0]):
         own = labels[i][(labels[i, :, 3] > 0) & (labels[i, :, 4] > 0)]
         other = shifted[i][(shifted[i, :, 3] > 0) & (shifted[i, :, 4] > 0)]
-        merged = torch.cat([own, other])[:max_labels]
-        out[i, : len(merged)] = merged
+        merged.append(torch.cat([own, other]))
+    width = max([labels.shape[1]] + [len(m) for m in merged])
+    out = labels.new_zeros((labels.shape[0], width, labels.shape[2]))
+    for i, m in enumerate(merged):
+        out[i, : len(m)] = m
     return mixed, out

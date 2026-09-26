@@ -1119,7 +1119,9 @@ class BaseExporter(ABC):
             nn_model = GTRPoseExportWrapper(copy.deepcopy(nn_model)).to(device)
             nn_model.eval()
             dfine_wrapped = True
-        elif family == "dfine" or (family == "gtr" and task in ("detect", "obb")):
+        elif family == "dfine" or (
+            family == "gtr" and task in ("detect", "segment", "obb")
+        ):
             from ..models.dfine.nn import DFINEExportWrapper
 
             # deploy() (BN fusion + decoder-layer pruning + head swap) mutates

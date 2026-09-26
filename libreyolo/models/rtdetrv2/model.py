@@ -147,7 +147,9 @@ class LibreRTDETRv2(LibreRTDETR):
         return "obb" if cls.is_obb_state_dict(weights_dict) else None
 
     @classmethod
-    def default_checkpoint_names(cls, nc: int) -> Optional[Dict[int, str]]:
+    def default_checkpoint_names(
+        cls, nc: int, task: Optional[str] = None
+    ) -> Optional[Dict[int, str]]:
         return dict(RTDETRV2_OBB_NAMES) if nc == 15 else None
 
     @classmethod

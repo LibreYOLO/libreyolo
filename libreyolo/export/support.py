@@ -94,7 +94,7 @@ _add("blocked", ("gtr",), ("depth",),
 
 _add("available", ("gtr",), ("semantic",), ("onnx", "torchscript"),
      reason="Portable gated recurrence; the graph slides 1024px windows over a fixed canvas.",
-     constraint="FP32; static 1024x2048 canvas; backends stretch the image to it")
+     constraint="FP32; static 1024x2048 canvas; images are letterboxed into it")
 
 _add("blocked", ("gtr",), ("semantic",),
      tuple(fmt for fmt in EXPORT_FORMATS if fmt not in ("onnx", "torchscript")),
