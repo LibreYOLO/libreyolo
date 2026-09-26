@@ -78,6 +78,40 @@ def generalized_box_iou(boxes1: torch.Tensor, boxes2: torch.Tensor) -> torch.Ten
     return iou - (area - union) / area
 
 
+def paired_box_iou(boxes1: torch.Tensor, boxes2: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+    """IoU and union of ``boxes1[i]`` with ``boxes2[i]``: the diagonal of :func:`box_iou`.
+
+    The losses need only matched pairs; building the NxN matrix to read its
+    diagonal costs O(N^2) memory, with N = group_detr * targets in the batch.
+    """
+    area1 = box_area(boxes1)
+    area2 = box_area(boxes2)
+
+    lt = torch.max(boxes1[:, :2], boxes2[:, :2])
+    rb = torch.min(boxes1[:, 2:], boxes2[:, 2:])
+
+    wh = (rb - lt).clamp(min=0)
+    inter = wh[:, 0] * wh[:, 1]
+
+    union = area1 + area2 - inter
+
+    iou = inter / union
+    return iou, union
+
+
+def paired_generalized_box_iou(boxes1: torch.Tensor, boxes2: torch.Tensor) -> torch.Tensor:
+    """GIoU of ``boxes1[i]`` with ``boxes2[i]``: the diagonal of :func:`generalized_box_iou`."""
+    iou, union = paired_box_iou(boxes1, boxes2)
+
+    lt = torch.min(boxes1[:, :2], boxes2[:, :2])
+    rb = torch.max(boxes1[:, 2:], boxes2[:, 2:])
+
+    wh = (rb - lt).clamp(min=0)
+    area = wh[:, 0] * wh[:, 1]
+
+    return iou - (area - union) / area
+
+
 def masks_to_boxes(masks: torch.Tensor) -> torch.Tensor:
     """Compute the bounding boxes around the provided masks.
 

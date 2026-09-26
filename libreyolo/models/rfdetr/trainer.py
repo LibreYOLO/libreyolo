@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import functools
 import logging
+import math
 import random
 from pathlib import Path
 from types import SimpleNamespace
@@ -1065,6 +1067,100 @@ class RFDETRTrainer(BaseTrainer):
         result = {"total_loss": total}
         result.update(loss_dict)
         return result
+
+    def autobatch_probe(self) -> dict:
+        """Probe at the largest training canvas with the real loss step.
+
+        Multi-scale batches reach the largest scale (544 for the n default
+        imgsz=384, twice the pixels), and ``on_forward`` adds the matcher and
+        the aux/encoder/mask losses, so probing ``imgsz`` with a forward-only
+        backward underestimates training memory. The matcher's cost matrix
+        spans every query and target in the batch, so the synthetic targets
+        follow the dataset's label density.
+        """
+        task = getattr(getattr(self, "wrapper_model", None), "task", "detect")
+        if task in ("classify", "semantic"):
+            return super().autobatch_probe()
+        imgsz = self.config.imgsz
+        base = max(imgsz) if isinstance(imgsz, (list, tuple)) else int(imgsz)
+        probe_imgsz = max([base, *self._multi_scale_scales()])
+        instances = self._probe_instances_per_image(max_labels=100 if task == "pose" else 300)
+        if is_main_process():
+            logger.info(
+                "AutoBatch: RF-DETR probes the training step at imgsz=%d with %d "
+                "instances per image",
+                probe_imgsz,
+                instances,
+            )
+        return {
+            "imgsz": probe_imgsz,
+            "step": functools.partial(self._autobatch_step, num_instances=instances),
+        }
+
+    def _probe_instances_per_image(
+        self, *, max_labels: int, default: int = 16, max_files: int = 500
+    ) -> int:
+        """95th percentile of labelled instances per image over sampled YOLO label files."""
+        try:
+            cfg = load_data_config(
+                self.config.data, allow_scripts=self.config.allow_download_scripts
+            )
+            label_files = list(cfg.get("train_label_files") or [])
+        except Exception:
+            return default
+        if not label_files:
+            return default
+        if len(label_files) > max_files:
+            label_files = random.Random(0).sample(label_files, max_files)
+        counts = []
+        for path in label_files:
+            try:
+                with open(path, encoding="utf-8") as handle:
+                    counts.append(sum(1 for line in handle if line.strip()))
+            except OSError:
+                counts.append(0)
+        return int(min(max_labels, max(1, np.percentile(counts, 95))))
+
+    def _autobatch_step(self, imgs: torch.Tensor, num_instances: int = 16) -> torch.Tensor:
+        """Training loss for a probe batch with ``num_instances`` grid boxes per image."""
+        task = getattr(getattr(self, "wrapper_model", None), "task", "detect")
+        batch, _, height, width = imgs.shape
+        side = max(1, math.ceil(math.sqrt(num_instances)))
+        slots = torch.arange(num_instances, dtype=torch.float32)
+        cx = ((slots % side) + 0.5) * width / side
+        cy = ((slots // side) + 0.5) * height / side
+        box_w, box_h = width / (side + 1), height / (side + 1)
+        columns = [
+            slots % max(1, int(self.config.num_classes)),
+            cx,
+            cy,
+            torch.full_like(slots, box_w),
+            torch.full_like(slots, box_h),
+        ]
+        if task == "obb":
+            columns.append(torch.zeros_like(slots))
+        targets = torch.stack(columns, dim=-1)
+        if task == "pose":
+            keypoints = torch.stack([cx, cy, torch.full_like(slots, 2.0)], dim=-1)
+            keypoints = keypoints.repeat(1, int(self.config.num_keypoints))
+            targets = torch.cat([targets, keypoints], dim=-1)
+        targets = targets.unsqueeze(0).repeat(batch, 1, 1).to(imgs.device)
+        polygons = None
+        if task == "segment":
+            polygons = torch.zeros(
+                (batch, num_instances, height, width), dtype=torch.uint8, device=imgs.device
+            )
+            for k in range(num_instances):
+                x0, y0 = int(cx[k] - box_w / 2), int(cy[k] - box_h / 2)
+                polygons[:, k, y0 : y0 + max(1, int(box_h)), x0 : x0 + max(1, int(box_w))] = 1
+        # Only rank 0 probes under DDP: the criterion's num_boxes all_reduce
+        # would wait for ranks that never enter this step.
+        distributed_normalize = getattr(self.criterion, "distributed_normalize", False)
+        self.criterion.distributed_normalize = False
+        try:
+            return self.on_forward(imgs, targets, polygons)["total_loss"]
+        finally:
+            self.criterion.distributed_normalize = distributed_normalize
 
     def compile_dynamic(self):
         # Per-batch multi-scale draws one of up to 11 sizes each step: one

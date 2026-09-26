@@ -510,6 +510,16 @@ class BaseTrainer(ABC):
         return True. None lets PyTorch mark a dimension dynamic once it changes."""
         return None
 
+    def autobatch_probe(self) -> Dict:
+        """Family hook: what ``batch=-1`` probes memory with.
+
+        ``imgsz`` is the probe input size and should be the largest canvas a
+        training batch reaches. ``step`` optionally maps a probe batch to the
+        training loss, so the probe backpropagates the real loss instead of a
+        forward-only sum.
+        """
+        return {"imgsz": self.config.imgsz, "step": None}
+
     def invalidate_cuda_graph(self, reason: str) -> None:
         """Drop any captured training graph so a later batch re-captures.
 
@@ -1775,9 +1785,11 @@ class BaseTrainer(ABC):
         if getattr(self.config, "batch", 16) == -1:
             from libreyolo.training.autobatch import resolve_auto_batch, _DEFAULT_FRACTION
 
+            probe = self.autobatch_probe()
             self.config.batch = resolve_auto_batch(
                 self.model,
-                imgsz=self.config.imgsz,
+                imgsz=probe.get("imgsz", self.config.imgsz),
+                step=probe.get("step"),
                 amp=self.config.amp,
                 amp_dtype=self.config.amp_dtype,
                 world_size=self.world_size,
