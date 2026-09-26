@@ -58,6 +58,27 @@ def rewrite_known_bool_flags(
     return new_args
 
 
+def _usage_error_types() -> tuple[type[Exception], ...]:
+    """Click's UsageError, plus the copy newer Typer versions vendor."""
+    types: list[type[Exception]] = [click.exceptions.UsageError]
+    try:
+        from typer._click.exceptions import UsageError as VendoredUsageError
+    except ImportError:
+        pass
+    else:
+        types.append(VendoredUsageError)
+    return tuple(types)
+
+
+def _usage_error_code(exc: Exception) -> str:
+    names = {cls.__name__ for cls in type(exc).__mro__}
+    if "NoSuchOption" in names or "unexpected extra argument" in str(exc):
+        return "config_unknown_key"
+    if "MissingParameter" in names:
+        return "config_required_key"
+    return "config_type_error"
+
+
 class KeyValueCommand(TyperCommand):
     """Typer command that accepts both key=value and --key value syntax."""
 
@@ -133,7 +154,25 @@ class KeyValueCommand(TyperCommand):
             else:
                 parsed_args.append(arg)
 
-        return super().parse_args(ctx, parsed_args)
+        # Click's parser consumes the list, so check for --json up front.
+        json_requested = "--json" in parsed_args
+        try:
+            return super().parse_args(ctx, parsed_args)
+        except _usage_error_types() as exc:
+            if not json_requested:
+                raise
+            # --json promises a machine-readable error, usage errors included.
+            from .errors import CLIError
+            from .output import OutputHandler
+
+            possibilities = getattr(exc, "possibilities", None) or []
+            if possibilities:
+                suggestion = f"Did you mean '{possibilities[0].lstrip('-').replace('-', '_')}'?"
+            else:
+                suggestion = f"Run 'libreyolo {ctx.info_name} --help' for valid options."
+            err = CLIError(_usage_error_code(exc), exc.format_message(), suggestion)
+            OutputHandler(json_mode=True).error(err)
+            ctx.exit(err.exit_code)
 
     def invoke(self, ctx: click.Context) -> Any:
         if ctx.params.get("json_output"):

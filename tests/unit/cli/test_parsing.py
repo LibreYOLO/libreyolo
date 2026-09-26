@@ -271,3 +271,55 @@ class TestUserProvidedParams:
         result = runner.invoke(app, [])
         assert result.exit_code == 0
         assert captured["user_provided"] == set()
+
+
+class TestJsonUsageErrors:
+    """Click usage errors follow the --json error contract."""
+
+    @staticmethod
+    def _app():
+        app = typer.Typer()
+
+        @app.command("cmd", cls=KeyValueCommand)
+        def cmd(
+            conf: float = typer.Option(0.25),
+            max_det: int = typer.Option(300),
+            json_output: bool = typer.Option(False, "--json"),
+        ):
+            pass
+
+        @app.command("other")
+        def other():
+            pass
+
+        return app
+
+    @pytest.mark.parametrize(
+        ("args", "code"),
+        [
+            (["conf=abc"], "config_type_error"),
+            (["--conf", "abc"], "config_type_error"),
+            (["confx=0.3"], "config_unknown_key"),
+            (["--max-dett", "5"], "config_unknown_key"),
+        ],
+    )
+    def test_usage_error_is_json_under_json_flag(self, args, code):
+        import json
+
+        result = runner.invoke(self._app(), ["cmd", *args, "--json"])
+        assert result.exit_code == 2
+        payload = json.loads(result.stdout)
+        assert payload["error"] == code
+        assert payload["schema_version"] == 1
+
+    def test_unknown_key_suggests_the_close_match(self):
+        import json
+
+        result = runner.invoke(self._app(), ["cmd", "max_dett=5", "json=true"])
+        assert result.exit_code == 2
+        assert json.loads(result.stdout)["suggestion"] == "Did you mean 'max_det'?"
+
+    def test_usage_error_without_json_keeps_stdout_empty(self):
+        result = runner.invoke(self._app(), ["cmd", "conf=abc"])
+        assert result.exit_code == 2
+        assert result.stdout == ""
