@@ -2823,6 +2823,8 @@ Ported backbone, spatial SwiGLU, feature projector, decoder, matching, loss,
 scheduler, Mosaic and batch MixUp, and the depth head and SILog loss in
 libreyolo/models/gtr/.
 GTRSeg instance-segmentation model (configs/seg) in libreyolo/models/gtr/.
+The pose decoder reuses LibreYOLO's ECPose port (libreyolo/models/ec/) and
+adapts GTR's pose decoder layer in libreyolo/models/gtr/pose.py.
 Ported the oriented-box (OBB) decoder, rotated-box operations and oriented
 denoising from engine/gtr/obb/ as libreyolo/models/gtr/obb_*.py.
 Semantic segmentation head, loss and sliding-window evaluation
@@ -2837,6 +2839,10 @@ Retained source notices identify these Apache-2.0 components:
   Copyright (c) 2024 Depth Anything V2 authors.
 - DEIM (Mosaic, batch MixUp): https://github.com/Intellindust-AI-Lab/DEIM
   Copyright (c) 2024 The DEIM Authors.
+- DETRPose (pose decoder): https://github.com/SebastianJanampa/DETRPose
+  Copyright (c) the DETRPose authors.
+- Conditional DETR (pose decoder): https://github.com/Atten4Vis/ConditionalDETR
+  Copyright (c) 2021 Microsoft.
 - D-FINE: https://github.com/Peterande/D-FINE
   Copyright (c) 2024 D-FINE Authors.
 - RT-DETR: https://github.com/lyuwenyu/RT-DETR

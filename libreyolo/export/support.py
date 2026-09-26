@@ -68,11 +68,11 @@ def _add(
         SUPPORT[key] = entry
 
 
-_add("available", ("gtr",), ("detect",), ("onnx", "torchscript"),
+_add("available", ("gtr",), ("detect", "pose"), ("onnx", "torchscript"),
      reason="Portable gated recurrence with fixed input resolution.",
      constraint="FP32; static square input; no custom CUDA plugin")
 
-_add("blocked", ("gtr",), ("detect",),
+_add("blocked", ("gtr",), ("detect", "pose"),
      tuple(fmt for fmt in EXPORT_FORMATS if fmt not in ("onnx", "torchscript")),
      reason="GTR currently implements only portable ONNX and TorchScript export.")
 

@@ -1,10 +1,11 @@
-"""GTR wrapper (detect, segment, obb, depth, semantic) with strict loading."""
+"""GTR wrapper (detect, segment, pose, obb, depth, semantic), strict loading."""
 
 from pathlib import Path
 from typing import ClassVar
 
 from libreyolo.training.ddp_spawn import ddp_aware
 
+from ...tasks import normalize_task
 from ...training.callbacks import TrainCallbacks
 from ...validation.preprocessors import DEIMv2DINOValPreprocessor
 from ..dfine.model import LibreDFINE
@@ -14,7 +15,10 @@ from . import sem
 from .config import GTRConfig
 from .nn import LibreGTRModel
 from .obb import OBB_INPUT_SIZES, is_gtr_obb_state_dict
+from .pose import LibreGTRPoseModel
 from .seg import SEG_MASK_DOWNSAMPLE_RATIO, is_seg_state_dict
+
+_POSE_HEAD_KEY = "decoder.keypoint_embedding.weight"
 
 
 class LibreGTR(LibreDFINE):
@@ -23,12 +27,13 @@ class LibreGTR(LibreDFINE):
     FAMILY = "gtr"
     FILENAME_PREFIX = "LibreGTR"
     INPUT_SIZES: ClassVar[dict[str, int]] = {s: 640 for s in ("s", "m", "l", "x")}
-    SUPPORTED_TASKS = ("detect", "segment", "obb", "depth", "semantic")
+    SUPPORTED_TASKS = ("detect", "segment", "pose", "obb", "depth", "semantic")
     # Semantic runs on the native Cityscapes canvas; the network itself slides
     # 1024px windows over it (sem.LibreGTRSemModel).
     TASK_INPUT_SIZES: ClassVar[dict] = {
         "detect": INPUT_SIZES,
         "segment": INPUT_SIZES,
+        "pose": INPUT_SIZES,
         "obb": OBB_INPUT_SIZES,
         "depth": INPUT_SIZES,
         "semantic": {s: (sem.SEM_WINDOW, 2 * sem.SEM_WINDOW) for s in "smlx"},
@@ -37,6 +42,8 @@ class LibreGTR(LibreDFINE):
     TRAIN_CONFIG = GTRConfig
     SUPPORTS_CUDA_GRAPH = False
     val_preprocessor_class = DEIMv2DINOValPreprocessor
+    POSE_NUM_KEYPOINTS = 17
+    KEYPOINT_DIM = 3
     # Depth task (ADR 0006): square stretch resize, as in upstream validation.
     depth_imgsz_divisor = 32
     depth_resize_mode = "stretch"
@@ -63,6 +70,8 @@ class LibreGTR(LibreDFINE):
             return False
         if sem.is_semantic_state_dict(sd):
             return "encoder.stages.0.1.weight" in sd
+        if _POSE_HEAD_KEY in sd:
+            return "encoder.stages.0.1.weight" in sd
         if (
             "backbone.backbone._model.blocks.0.attn.gk_proj.0.weight" in sd
             and "encoder.stages.0.1.weight" in sd
@@ -81,6 +90,8 @@ class LibreGTR(LibreDFINE):
     def detect_checkpoint_task(cls, sd):
         if sem.is_semantic_state_dict(sd):
             return "semantic"
+        if _POSE_HEAD_KEY in sd:
+            return "pose"
         if gtr_depth.is_depth_state_dict(sd):
             return "depth"
         if is_gtr_obb_state_dict(sd):
@@ -93,6 +104,9 @@ class LibreGTR(LibreDFINE):
     def detect_nb_classes(cls, sd):
         if sem.is_semantic_state_dict(sd):
             return int(sd["head.classifier.weight"].shape[0])
+        # Pose is person-only; the head's two logits are not user classes.
+        if _POSE_HEAD_KEY in sd:
+            return 1
         if gtr_depth.is_depth_state_dict(sd):
             return 1
         return super().detect_nb_classes(sd)
@@ -113,6 +127,15 @@ class LibreGTR(LibreDFINE):
             )
         if is_semantic:
             return super()._validate_loaded_state_dict_for_task(state_dict, checkpoint)
+        is_pose = _POSE_HEAD_KEY in state_dict
+        if is_pose != (self.task == "pose"):
+            raise RuntimeError(
+                f"Checkpoint is a GTR-{'pose' if is_pose else 'non-pose'} model but "
+                f"this instance was initialized for task='{self.task}'. Pass the "
+                "matching task or use a -pose filename suffix."
+            )
+        if is_pose:
+            return
         is_depth = gtr_depth.is_depth_state_dict(state_dict)
         if is_depth != (self.task == "depth"):
             raise RuntimeError(
@@ -195,6 +218,10 @@ class LibreGTR(LibreDFINE):
         ("m", "segment"): "c7653747c2bdc5ea013cbe5eb51ecbd5f32ef417",
         ("l", "segment"): "3955ab3c9f86b5f120c2ec5f504a8c5c0a338f89",
         ("x", "segment"): "704ea55306c31e0c7dd8968a38976cf7d5cdec05",
+        ("s", "pose"): "45ceda2e7f7552fe4e9c62bee585ff55831d23b1",
+        ("m", "pose"): "e05646914d5d15f8647af02397cf014c1b3e9d0f",
+        ("l", "pose"): "441fc9d8c9d75a42a2155e550f799898beb902bc",
+        ("x", "pose"): "3ab375d558decf2ac2262671e4c938d6c8028298",
         ("s", "obb"): None,
         ("x", "obb"): None,
         ("s", "depth"): "3b960faed54cc12b19574fdb192f9ff3dfffeb7d",
@@ -255,12 +282,22 @@ class LibreGTR(LibreDFINE):
     def __init__(
         self, model_path, size, nb_classes=80, device="auto", task=None, **kwargs
     ):
+        if task is not None and normalize_task(task) == "pose":
+            nb_classes = 1
+        self.num_keypoints = self.POSE_NUM_KEYPOINTS
+        self.keypoint_dim = self.KEYPOINT_DIM
         super().__init__(model_path, size, nb_classes, device, task, **kwargs)
         if self.task == "semantic" and self.nb_classes == len(sem.CITYSCAPES_NAMES):
             if all(name == f"class_{i}" for i, name in self.names.items()):
                 self.names = dict(sem.CITYSCAPES_NAMES)
 
     def _init_model(self):
+        if self.task == "pose":
+            if self.names == {0: "class_0"}:
+                self.names = {0: "person"}
+            return LibreGTRPoseModel(
+                self.size, eval_spatial_size=(self.input_size, self.input_size)
+            )
         if self.task == "semantic":
             return sem.LibreGTRSemModel(self.size, self.nb_classes)
         if self.task == "depth":
@@ -283,6 +320,10 @@ class LibreGTR(LibreDFINE):
         )
 
     def _rebuild_for_new_classes(self, new_nb_classes):
+        if self.task == "pose":
+            if new_nb_classes != 1:
+                raise ValueError("GTR pose is single-class (person)")
+            return
         if self.task == "depth":
             # Depth has a single schema slot and no class-dependent layers.
             self.nb_classes = 1
@@ -358,6 +399,17 @@ class LibreGTR(LibreDFINE):
             return sem.postprocess(output, original_size, kwargs.get("ratio", 1.0))
         if self.task == "depth":
             return gtr_depth.postprocess(output, original_size)
+        if self.task == "pose":
+            from ...postprocess.ec import postprocess_pose
+
+            return postprocess_pose(
+                output,
+                conf_thres=conf_thres,
+                iou_thres=iou_thres,
+                original_size=original_size,
+                max_det=max_det,
+                num_keypoints=self.POSE_NUM_KEYPOINTS,
+            )
         if self.task == "segment":
             from ...postprocess.ec import postprocess_seg
 
@@ -471,6 +523,30 @@ class LibreGTR(LibreDFINE):
 
         from libreyolo.data import load_data_config
 
+        if self.task == "pose":
+            explicit = {
+                "epochs": epochs,
+                "batch": batch,
+                "imgsz": imgsz,
+                "lr0": lr0,
+                "workers": workers,
+                "seed": seed,
+                "project": project,
+                "name": name,
+                "exist_ok": exist_ok,
+                "amp": amp,
+                "patience": patience,
+            }
+            kwargs.update({k: v for k, v in explicit.items() if v is not None})
+            return self._train_pose(
+                data,
+                device=device,
+                resume=resume,
+                callbacks=callbacks,
+                loggers=loggers,
+                **kwargs,
+            )
+
         if self.task == "segment":
             from .seg_trainer import GTRSegConfig as config_cls
             from .seg_trainer import GTRSegTrainer as trainer_cls
@@ -564,6 +640,78 @@ class LibreGTR(LibreDFINE):
         if resume_path:
             trainer.setup()
             trainer.resume(str(resume_path))
+        results = trainer.train()
+        best = results.get("best_checkpoint")
+        if best and Path(best).exists():
+            self.model_path = best
+            self._load_weights(best)
+        self.model.to(self.device)
+        return results
+
+    def _train_pose(
+        self, data, *, device="", resume=False, callbacks=None, loggers=None, **kwargs
+    ):
+        """Fine-tune GTR pose on a YOLO keypoint dataset (17 COCO keypoints)."""
+        from libreyolo.data import load_data_config
+
+        from .pose_trainer import GTRPoseTrainer
+
+        if kwargs.get("lora"):
+            raise ValueError("GTR pose training does not support lora=True yet")
+        kwargs.pop("pretrained", None)
+        imgsz = int(kwargs.setdefault("imgsz", self.input_size))
+        if imgsz != int(self.input_size):
+            raise ValueError(
+                f"GTR pose fine-tuning requires imgsz={self.input_size}; the "
+                "decoder anchor grid is built for the native input size."
+            )
+        resume_path = None
+        if resume:
+            resume_path = (
+                str(resume) if isinstance(resume, (str, Path)) else self.model_path
+            )
+            if not resume_path:
+                raise ValueError("resume=True requires a loaded training checkpoint")
+            saved = self._checkpoint_train_config(resume_path) or {}
+            data = data or saved.get("data")
+        if not data:
+            raise ValueError("GTR pose training requires data")
+
+        data_config = load_data_config(data, autodownload=True)
+        data = data_config.get("yaml_file", data)
+        kpt_shape = data_config.get("kpt_shape")
+        if not kpt_shape or int(kpt_shape[0]) != self.POSE_NUM_KEYPOINTS:
+            raise ValueError(
+                "GTR pose fine-tuning needs 'kpt_shape: [17, 2|3]' in the dataset "
+                "yaml; the keypoint head is fixed at 17 COCO keypoints."
+            )
+        keypoint_dim = int(kpt_shape[1]) if len(kpt_shape) > 1 else 3
+        names = data_config.get("names")
+        if names is not None and len(names) != 1:
+            raise ValueError("GTR pose fine-tuning supports single-class datasets only")
+        if isinstance(names, list):
+            names = dict(enumerate(names))
+        if names:
+            self.names = self._sanitize_names(names, 1)
+
+        trainer = GTRPoseTrainer(
+            model=self.model,
+            wrapper_model=self,
+            size=self.size,
+            num_classes=1,
+            num_keypoints=self.POSE_NUM_KEYPOINTS,
+            keypoint_dim=keypoint_dim,
+            flip_idx=kwargs.pop("flip_idx", data_config.get("flip_idx")),
+            data=data,
+            device=device or "auto",
+            resume=bool(resume_path),
+            callbacks=callbacks,
+            loggers=loggers,
+            **kwargs,
+        )
+        if resume_path:
+            trainer.setup()
+            trainer.resume(resume_path)
         results = trainer.train()
         best = results.get("best_checkpoint")
         if best and Path(best).exists():

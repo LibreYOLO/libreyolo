@@ -1002,6 +1002,7 @@
     "tasks": [
       "detect",
       "segment",
+      "pose",
       "obb",
       "depth",
       "semantic"
@@ -1039,6 +1040,12 @@
         "x": 640
       },
       "segment": {
+        "s": 640,
+        "m": 640,
+        "l": 640,
+        "x": 640
+      },
+      "pose": {
         "s": 640,
         "m": 640,
         "l": 640,
