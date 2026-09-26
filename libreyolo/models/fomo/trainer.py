@@ -317,7 +317,6 @@ class FOMOTrainer(BaseTrainer):
             raise
 
     def _checkpoint_extra_metadata(self) -> Dict[str, Any]:
-        return {
-            "task": "point",
-            "best_metric_key": "metrics/grid_F1",
-        }
+        # Direct trainer users may omit the model wrapper, whose task would
+        # otherwise supply this value to the shared checkpoint writer.
+        return {"task": "point"}

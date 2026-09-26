@@ -9,6 +9,45 @@ before 1.4.0 are documented in the
 
 ### Added
 
+- **`LibreRFDETRm-ui.pt`: class-agnostic UI element detector (#896).**
+  UI-DETR-1 (racineai, MIT), an RF-DETR-M fine-tune for screenshots, hosted
+  as an RF-DETR dataset variant with one class, `object`. Auto-downloads from
+  `LibreYOLO/LibreRFDETRm-ui`.
+
+- **`val(visualize=True)` draws every validated image for error analysis
+  (#887).** Detection and segmentation images show true positives (green),
+  false positives (red) and false negatives (orange), matched class-aware at
+  confidence 0.25 (or the run's `conf` if higher) and IoU 0.5, with a
+  TP/FP/FN count per image; a wrong class shows as one false positive plus one
+  false negative. Classification images show the label and the top-1
+  prediction, framed green or red. `show_labels` and `show_conf` turn the text
+  off. Images go to `visualize/errors/` (any false positive or miss, or a
+  wrong top-1) and `visualize/correct/` in the run directory as validation
+  runs, so the mistakes are one folder. Also `libreyolo val --visualize`.
+  Other tasks reject the flag. Drawing only: the metrics are unchanged.
+
+- **`results.box.image_metrics`: per-image precision, recall, F1, TP, FP and
+  FN (#887).** Detect and segment `val()` results (still the metrics dict)
+  carry `box.image_metrics`, image filename to
+  `{"precision", "recall", "f1", "tp", "fp", "fn"}`, as in the ecosystem's
+  validation results. Counted with the `visualize` matching (confidence 0.25
+  or `conf` if higher, IoU 0.5, class-aware; segmentation counts boxes), with
+  or without `visualize`. List the wrong images with
+  `[k for k, m in r.box.image_metrics.items() if m["fp"] or m["fn"]]`.
+
+- **Classification validation reports macro precision, recall and F1 (#852).**
+  `ClassifyValidator` accumulates per-class confusion counts (the confusion
+  matrix's diagonal and marginals, linear memory in the class count) and adds
+  `metrics/precision`, `metrics/recall` and `metrics/f1` next to the top-1 and
+  top-5 accuracies: the unweighted mean over classes present in the validation
+  targets, with precision 0 for a class that is never predicted. `fitness` and
+  best-checkpoint selection stay top-1, and the existing keys are unchanged.
+  `libreyolo val` prints the new values and reports them in `--json` as
+  `precision`, `recall` and `f1`. Anything iterating classification metric keys
+  (custom loggers, `results.csv` headers) sees three new columns. Definition:
+  `docs/classification_training.md`. Targets outside the model's class range
+  raise a dataset/model mismatch error rather than inflate the macro metrics.
+
 - **TFLite INT8 export for YOLOX and YOLO9 detection (#816).**
   `export(format="tflite", int8=True, data=..., fraction=...)` and
   `libreyolo export --format tflite --int8 --data ...` produce a full-integer
@@ -95,6 +134,11 @@ before 1.4.0 are documented in the
 
 ### Changed
 
+- **PyPI metadata points to the website and describes the library.** The
+  package now has keywords, classifiers, a clearer one-line description, and
+  Homepage, Documentation, Issues and Changelog links; Homepage was the GitHub
+  organization.
+
 - **YOLOv9 letterbox is now stamped on the checkpoint, not flipped
   globally.** Unmarked ≤1.5 weights keep top-left pad (same predict/val
   boxes as today). Newly converted official MultimediaTechLab checkpoints
@@ -123,6 +167,94 @@ before 1.4.0 are documented in the
   accepting them silently.
 
 ### Fixed
+
+- **RF-DETR, D-FINE, DEIM and EdgeCrafter predict at a rectangular
+  `imgsz=(h, w)` (#903).** They crashed with a `TypeError` or an OpenCV resize
+  error. They now resize to `(h, w)` the way their upstreams do (RF-DETR's
+  `predict(shape=(h, w))`; the D-FINE line's `eval_spatial_size: [h, w]`).
+  Outputs match upstream RF-DETR 1.11.0 and D-FINE at the same shapes.
+  RF-DETR sizes must still fit its patch grid (32 for detection, 12 for
+  segmentation).
+
+- **DEIMv2 and TinyFormer reject a rectangular `imgsz` with a clear error
+  (#903).** `predict()` and `val()` crashed with a `TypeError`; they now raise
+  `ValueError: <family> predict() does not support rectangular input sizes
+  ... Use a square imgsz.`, as YOLO-NAS already did.
+
+- **Rectangular fine-tunes reload at the size they were trained at (#899).**
+  A model trained with `imgsz=(h, w)` stored the size in its checkpoint
+  (`imgsz_h` / `imgsz_w`), but loading it went back to the family's square
+  default, so `predict()`, `val()` and `export()` letterboxed every frame to a
+  padded square again. The loader now restores the rectangle, and the live
+  model adopts it after `train()` (and drops it after a later square run). A
+  default `export()` in a family or format without rectangular export
+  (YOLOX, YOLOv7, RTMDet, PicoDet, or YOLO9 to ExecuTorch, Paddle, MNN) falls
+  back to a `max(h, w)` square with a warning, and `predict(tiling=True)`
+  tiles at the long side. Also fixes YOLOX `val(imgsz=(h, w))` crashing with a
+  `TypeError` (and its validation plots and `visualize=True` images being
+  skipped with a warning), `predict(augment=True)` undoing the letterbox at the family
+  default instead of the requested `imgsz`, finalized quantized checkpoints
+  (`export(format="pt")`) dropping the rectangular size, and the Python
+  `InferenceProfiler` failing on it. Checkpoints without the pair load exactly
+  as before.
+
+- **`Results.plot()` draws boxes, masks, OBB, keypoints and every other
+  predict output (#896).** It raised `NotImplementedError` for detection,
+  segmentation, pose, OBB, classification, points, OCR, semantic and panoptic
+  results. It now returns the annotated image as an `HxWx3` uint8 BGR array,
+  pixel-identical to `predict(save=True)` (both use the new
+  `drawing.draw_results`). Accepts `conf`, `labels`, `boxes`, `masks`,
+  `probs`, `line_width`, `pil`, `img`, `show`, `save` and `filename`.
+  Classification plots and `predict(save=True)` write the top-5 labels.
+  Tracked results show their track IDs. Exported-model backends (ONNX and the
+  other runtimes) save and plot through the same renderer. Dense maps, 3D
+  cuboids and action chunks keep returning a PIL image unless `pil=False`.
+  Predict keeps in-memory and URL inputs on the result as `Results.orig_img`
+  (BGR) so they plot without a path; local files are not kept and `plot()`
+  reopens them, so directory predictions stay light. A finite video or GIF
+  collected without `stream=True` keeps no frames; `plot()` decodes the
+  result's frame on demand.
+
+- **RF-DETR predict and val resize without antialiasing (#896).** The PIL
+  bilinear resize antialiased on downscale, unlike RF-DETR training (cv2
+  bilinear) and upstream `predict()` since rf-detr 1.9.0. Boxes drifted on
+  inputs much larger than the canvas (median IoU 0.71 to 0.88 against upstream
+  on UI screenshots); they now match upstream on screenshots and COCO images,
+  in PyTorch and ONNX. COCO mAP50-95 of RF-DETR-M on a 200-image val subset
+  moves from 0.6195 to 0.6179.
+
+- **Single-class upstream RF-DETR checkpoints convert as `nc=1` (#896).** A
+  one-output class head (a one-category training set) was converted as
+  `nc=80` with 79 placeholder names. Predictions were unaffected.
+
+- **Classification `val()`, INT8 calibration and exports use the model's own
+  eval pipeline (#886).** The validator now takes the transform from the model
+  (`_get_eval_transform`), the classification counterpart of
+  `_get_val_preprocessor`. Fixes pipelines that were scored on different
+  preprocessing than `predict()` runs: PE (`val()` used a center crop and
+  ImageNet statistics instead of its square resize and 0.5 mean/std), V-JEPA 2
+  (a torchvision crop instead of its frame preprocessing), and exported ViT,
+  CLIP, SigLIP2 and PE (`val()` normalized with ImageNet statistics). Exports
+  now record `norm_mean` / `norm_std` / `resize_mode`; older exports keep their
+  family values. INT8 calibration dropped every image for AlexNet, VGG,
+  ResNet, EfficientNetV2, ConvNeXt, ConvNeXt V2, MobileNetV4, DeiT, Swin and
+  ViT (their preprocessor returned a tensor instead of `(array, ratio)`), and
+  calibrated DINOv2 classifiers with its semantic pipeline. The AlexNet, VGG,
+  ResNet, EfficientNetV2, ConvNeXt, MobileNetV4 and DeiT eval transforms now
+  call the shared builder in `data/augment/classify.py`, like every other
+  classifier, so inference and validation run the same code; their outputs are
+  bit-identical to before, and so are the validation inputs of the other
+  families.
+
+- **V-JEPA 2 fine-tuning validates again.** Epoch validation handed the video
+  dataset YAML to the ImageFolder validator, which failed every epoch, so no
+  `metrics/accuracy_top1` reached `best.pt` or early stopping. V-JEPA 2 now
+  validates on its video `val` manifest through `VJEPA2ClipValidator`, which
+  `val()` uses too; training validation uses the model's `validator_class` like
+  `val()` does. Like the ImageFolder path, it refuses a manifest whose ordered
+  class names differ from the model's or whose class count exceeds the head.
+  Training now also takes the head size and class names from the video dataset,
+  as the image classifiers do, so a fine-tuned checkpoint names its classes.
 
 - **EC pose keypoints now match upstream EdgeCrafter.** Upstream adds the
   keypoint position embedding in place at inference, so it also reaches the

@@ -16,6 +16,10 @@ from libreyolo.utils.plot_samples import (  # noqa: F401  (re-exported)
 )
 
 
+#: Tasks whose validators draw ``visualize=True`` images (#887).
+VISUALIZE_TASKS = ("detect", "segment", "classify")
+
+
 @dataclass
 class ValidationConfig:
     """
@@ -44,6 +48,16 @@ class ValidationConfig:
             Tasks without COCO detections ignore the flag (OBB logs a warning).
         save_plots: Whether to save validation plots (metrics bar, per-class AP,
             confusion matrix, sample images). Default False.
+        visualize: Draw every validated image to ``save_dir/visualize/``
+            with true positives (green), false positives (red) and false
+            negatives (orange) at confidence 0.25 (or conf_thres if higher)
+            and IoU 0.5, class-aware. Images with any false positive or
+            false negative go to ``visualize/errors/``, the rest to
+            ``visualize/correct/``.
+            Classification draws the label and the top-1 prediction.
+            Detect, segment and classify only. Default False.
+        show_labels: Class names on the ``visualize`` images. Default True.
+        show_conf: Confidence scores on the ``visualize`` images. Default True.
         verbose: Whether to print detailed metrics.
         num_workers: Number of dataloader workers.
         half: Whether to use FP16 inference.
@@ -105,6 +119,13 @@ class ValidationConfig:
     # 0 disables that plot, -1 keeps every image. This is a plotting
     # budget only: it never changes which images are scored (#830).
     plot_samples: int = field(default=DEFAULT_PLOT_SAMPLES, kw_only=True)
+    # Draw every validated image with its true positives, false positives
+    # and false negatives to save_dir/visualize/{errors,correct}/ (#887). Same name and
+    # meaning as the ecosystem's val(visualize=True); detect, segment and
+    # classify only. show_labels / show_conf toggle the text on those images.
+    visualize: bool = field(default=False, kw_only=True)
+    show_labels: bool = field(default=True, kw_only=True)
+    show_conf: bool = field(default=True, kw_only=True)
 
     # Workers
     num_workers: int = 4
@@ -159,6 +180,9 @@ class ValidationConfig:
     def __post_init__(self) -> None:
         self.amp_dtype = normalize_amp_dtype(self.amp_dtype)
         self.plot_samples = validate_plot_samples(self.plot_samples)
+        self.visualize = bool(self.visualize)
+        self.show_labels = bool(self.show_labels)
+        self.show_conf = bool(self.show_conf)
         self.single_cls = bool(self.single_cls)
         self.classes = normalize_classes_field(self.classes)
 

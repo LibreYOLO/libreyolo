@@ -40,6 +40,7 @@ from .nn import (
     LibreVJEPA2Encoder,
     VJEPA2Config,
 )
+from .validator import VJEPA2ClipValidator
 from .preprocess import (
     clip_frame_indices,
     DEFAULT_FRAME_STRIDE,
@@ -93,6 +94,9 @@ class LibreVJEPA2(BaseModel):
     # Opt this family into clip-mode finite-video handling. Every other family
     # keeps the default "frames" behaviour and its per-frame result cardinality.
     VIDEO_EMBED_MODE: ClassVar[str] = "clip"
+
+    # val() and epoch validation read the video val manifest (see validator.py).
+    validator_class: ClassVar[Optional[type]] = VJEPA2ClipValidator
 
     # =========================================================================
     # Registry classmethods
@@ -354,6 +358,53 @@ class LibreVJEPA2(BaseModel):
         # (1, 1, C, H, W) -> (1, C, H, W): one frame, stackable by the runner.
         tensor = preprocess_frames([frame], self.crop_size)[0]
         return tensor.to(self.device), loaded, (width, height), 1.0
+
+    def _rebuild_for_new_classes(self, new_nb_classes: int) -> None:
+        """Swap the probe's linear classifier for a new class count.
+
+        The frozen encoder and the attentive pooler are kept; the trainer calls
+        this when the video dataset's class count differs from the head, as the
+        image classifiers' training does.
+        """
+        if self.task != "classify":
+            raise ValueError("Only the classify task has a class head to rebuild.")
+        head = self.model.classifier
+        self.model.classifier = nn.Linear(
+            head.in_features, int(new_nb_classes), bias=head.bias is not None
+        ).to(head.weight.device)
+        self.model.nc = int(new_nb_classes)
+        self.nb_classes = int(new_nb_classes)
+        self.names = {i: f"class_{i}" for i in range(int(new_nb_classes))}
+
+    def _get_eval_transform(
+        self, img_size: Optional[int] = None, crop_pct: Optional[float] = None
+    ):
+        """Still-image eval transform: the frame code ``predict()`` runs (#886).
+
+        One frame through :func:`preprocess_frames` (short side to
+        ``crop_size``, center crop, PIXEL_MEAN/STD). The crop geometry is fixed
+        by the checkpoint, so another size or a ``crop_pct`` is rejected rather
+        than ignored.
+        """
+        if img_size is not None:
+            size = img_size[0] if isinstance(img_size, (list, tuple)) else img_size
+            if int(size) != int(self.crop_size):
+                raise ValueError(
+                    f"LibreVJEPA2 {self.size!r} preprocesses at its fixed crop "
+                    f"size {self.crop_size}; got imgsz={img_size}."
+                )
+        if crop_pct is not None:
+            raise ValueError(
+                "LibreVJEPA2 has no crop_pct: frames are resized short side to "
+                "the crop size and center-cropped."
+            )
+        crop_size = self.crop_size
+
+        def _transform(image) -> torch.Tensor:
+            frame = np.asarray(image.convert("RGB"))
+            return preprocess_frames([frame], crop_size)[0, 0]
+
+        return _transform
 
     def _as_clip(self, input_tensor: torch.Tensor) -> torch.Tensor:
         """Promote a 4D still frame to a 5D static clip; pass 5D through.

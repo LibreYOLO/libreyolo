@@ -105,6 +105,31 @@ def _restore_rfdetr_export_state(snapshots):
             module._export = state["export"]
 
 
+def _classify_eval_metadata(model) -> dict:
+    """The model's classification eval pipeline as flat export metadata (#886).
+
+    ``crop_pct`` / ``interpolation`` as before, plus ``norm_mean`` /
+    ``norm_std`` (JSON-encoded RGB lists) and ``resize_mode`` for families that
+    declare them. Exported backends rebuild the native eval transform from
+    these, for both ``predict()`` and ``val()``.
+    """
+    meta = {}
+    crop_pct = getattr(model, "crop_pct", None)
+    interpolation = getattr(model, "interpolation", None)
+    if crop_pct is not None:
+        meta["crop_pct"] = float(crop_pct)
+    if interpolation is not None:
+        meta["interpolation"] = str(interpolation)
+    for key in ("norm_mean", "norm_std"):
+        value = getattr(model, key, None)
+        if value is not None:
+            meta[key] = json.dumps([float(v) for v in value])
+    resize_mode = getattr(model, "resize_mode", None)
+    if resize_mode is not None:
+        meta["resize_mode"] = str(resize_mode)
+    return meta
+
+
 def _pose_keypoint_shape_metadata(model) -> dict:
     num_keypoints = getattr(
         model, "num_keypoints", getattr(model, "POSE_NUM_KEYPOINTS", "")
@@ -659,6 +684,9 @@ class BaseExporter(ABC):
             half,
             int8,
         )
+        # The CLI reports the canvas actually exported, which can differ from
+        # the model's input size (see _square_fallback_for_restored_rect).
+        self.model._last_export_imgsz = imgsz
 
         # ---- Post-validation mutation point ------------------------------
         # Every request rejection above — format support, precision
@@ -834,6 +862,40 @@ class BaseExporter(ABC):
                 "Install with: uv sync --extra onnx  or  pip install onnx"
             )
 
+    def _square_fallback_for_restored_rect(
+        self, imgsz: tuple[int, int], model_name: str
+    ) -> tuple[int, int]:
+        """Keep default exports working for rectangular fine-tunes (#899).
+
+        A square-native family (e.g. YOLOX) trained at ``imgsz=(h, w)`` reloads
+        with that rectangular input size, but not every family/format pair can
+        export it. Those exports defaulted to the family's square size before
+        the size was restored, so fall back to a ``max(h, w)`` square, which
+        letterboxes frames at the same scale the model was trained at. An
+        explicit ``imgsz`` never reaches this path.
+        """
+        if not _is_rectangular_imgsz(imgsz):
+            return imgsz
+        if (
+            model_name in _RECTANGULAR_EXPORT_FAMILIES
+            and self.format_name in _RECTANGULAR_EXPORT_FORMATS
+        ):
+            return imgsz
+        family_default = self.model._get_task_input_sizes().get(self.model.size)
+        if isinstance(family_default, (tuple, list)):
+            # Natively rectangular families keep their existing contract.
+            return imgsz
+        side = max(imgsz)
+        logger.warning(
+            "%s %s export does not support the checkpoint's rectangular imgsz=%s; "
+            "exporting at the square imgsz=%d instead. Pass imgsz= to choose.",
+            model_name,
+            self.format_name,
+            imgsz,
+            side,
+        )
+        return side, side
+
     def _resolve_params(self, output_path, imgsz, device, half, int8):
         native_imgsz = self.model._get_input_size()
         model_name = self.model._get_model_name()
@@ -845,6 +907,7 @@ class BaseExporter(ABC):
                         f"got {native_imgsz!r}."
                     )
                 imgsz = (int(native_imgsz[0]), int(native_imgsz[1]))
+                imgsz = self._square_fallback_for_restored_rect(imgsz, model_name)
             else:
                 imgsz = (int(native_imgsz), int(native_imgsz))
         elif isinstance(imgsz, tuple):
@@ -1505,12 +1568,7 @@ class BaseExporter(ABC):
         # crop_pct=0.875 and bilinear resize, which changes classifier logits
         # for families such as ResNet (0.95/bicubic).
         if task == "classify":
-            crop_pct = getattr(self.model, "crop_pct", None)
-            interpolation = getattr(self.model, "interpolation", None)
-            if crop_pct is not None:
-                meta["crop_pct"] = float(crop_pct)
-            if interpolation is not None:
-                meta["interpolation"] = str(interpolation)
+            meta.update(_classify_eval_metadata(self.model))
         if task == "pose":
             meta.update(_pose_keypoint_shape_metadata(self.model))
             if self.model._get_model_name() == "hrnet":
@@ -1582,13 +1640,9 @@ class BaseExporter(ABC):
         for key, value in input_metadata(self.model).items():
             meta[key] = json.dumps(value) if isinstance(value, dict) else str(value)
         # Classification eval preprocessing — lets exported-backend inference
-        # match native predict()/val() (per-family crop_pct + interpolation).
-        _crop_pct = getattr(self.model, "crop_pct", None)
-        _interp = getattr(self.model, "interpolation", None)
-        if _crop_pct is not None:
-            meta["crop_pct"] = str(_crop_pct)
-        if _interp is not None:
-            meta["interpolation"] = str(_interp)
+        # and validation match native predict()/val() (#886).
+        for key, value in _classify_eval_metadata(self.model).items():
+            meta[key] = str(value)
         if task == "pose":
             pose_meta = _pose_keypoint_shape_metadata(self.model)
             meta.update(
@@ -1952,12 +2006,7 @@ class ExecuTorchExporter(BaseExporter):
         meta = super()._build_metadata(
             precision, False, onnx_path, imgsz=imgsz
         )
-        crop_pct = getattr(self.model, "crop_pct", None)
-        interpolation = getattr(self.model, "interpolation", None)
-        if crop_pct is not None:
-            meta["crop_pct"] = float(crop_pct)
-        if interpolation is not None:
-            meta["interpolation"] = str(interpolation)
+        meta.update(_classify_eval_metadata(self.model))
         return meta
 
     def _export(

@@ -14,7 +14,7 @@ from ...training.callbacks import TrainCallbacks
 from ..base import BaseModel
 from ...data import load_data_config
 from ...data.pose_metadata import keypoints_per_class
-from ...tasks import normalize_task
+from ...tasks import normalize_task, task_to_suffix
 from ...utils.image_loader import ImageInput, ImageLoader
 from ...utils.serialization import load_trusted_torch_file
 from .nn import (
@@ -103,6 +103,14 @@ class LibreRFDETR(BaseModel):
     # Class-level metadata
     FAMILY: ClassVar[str] = "rfdetr"
     FILENAME_PREFIX: ClassVar[str] = "LibreRFDETR"
+    # Dataset-variant weights: ``-ui`` is the class-agnostic UI element
+    # detector (UI-DETR-1, racineai, MIT), an RF-DETR-M fine-tune.
+    WEIGHT_VARIANTS: ClassVar[tuple[str, ...]] = ("ui",)
+    # The filename regex parses any size/task/variant combination; only these
+    # (size, task, variant) artifacts are published.
+    PUBLISHED_WEIGHT_VARIANTS: ClassVar[frozenset[tuple[str, str, str]]] = frozenset(
+        {("m", "detect", "ui")}
+    )
     # Forward is pure tensor work with no host sync, verified to capture and
     # replay bit-identically (tests/unit/test_cuda_graph_families.py).
     SUPPORTS_CUDA_GRAPH = True
@@ -331,6 +339,20 @@ class LibreRFDETR(BaseModel):
         upstream_url = _RFDETR_UPSTREAM_WEIGHT_URLS.get(Path(filename).name.lower())
         if upstream_url is not None:
             return upstream_url
+        variant = cls.detect_variant_from_filename(filename)
+        if variant is not None:
+            size = cls.detect_size_from_filename(filename)
+            task = cls.detect_task_from_filename(filename) or "detect"
+            if (size, task, variant) not in cls.PUBLISHED_WEIGHT_VARIANTS:
+                published = ", ".join(
+                    f"{cls.FILENAME_PREFIX}{s}"
+                    f"{'-' + task_to_suffix(t) if task_to_suffix(t) else ''}-{v}.pt"
+                    for s, t, v in sorted(cls.PUBLISHED_WEIGHT_VARIANTS)
+                )
+                raise FileNotFoundError(
+                    f"No published RF-DETR weights for {Path(filename).name}. "
+                    f"Published dataset variants: {published}."
+                )
         return super().get_download_url(filename)
 
     # =========================================================================
@@ -746,7 +768,11 @@ class LibreRFDETR(BaseModel):
             chw = torch.from_numpy(arr).permute(2, 0, 1).unsqueeze(0)
             chw = F.interpolate(
                 chw,
-                size=(effective_res, effective_res),
+                size=(
+                    tuple(effective_res)
+                    if isinstance(effective_res, (list, tuple))
+                    else (effective_res, effective_res)
+                ),
                 mode="bilinear",
                 align_corners=False,
                 antialias=True,
@@ -1236,7 +1262,9 @@ class LibreRFDETR(BaseModel):
                 ``<RFDETRConfig.project>/<RFDETRConfig.name>`` when omitted;
                 ``project=`` / ``name=`` kwargs take precedence over this split.
             resume: Checkpoint path, or True to resume the loaded checkpoint.
-            callbacks: Optional training callback or iterable of callbacks.
+            callbacks: Optional callback or iterable. One object may define
+                fitness(metrics) to select best.pt and drive patience; custom
+                fitness requires a new run (resume=False).
             loggers: Optional built-in experiment loggers: a registered name,
                 a configured logger instance, or an iterable mixing both.
         """

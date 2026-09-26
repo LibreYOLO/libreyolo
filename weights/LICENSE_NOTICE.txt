@@ -97,6 +97,12 @@ project the weights were derived from. Per-family summary:
              upstream: roboflow/rf-detr
              (backbone: facebookresearch/dinov2, Apache-2.0)
 
+    RF-DETR UI (LibreRFDETRm-ui)                       MIT
+             upstream: racineai/UI-DETR-1 (HF revision 0f0dda5), an
+             RF-DETR-M fine-tune on Apache-2.0 base weights. Training data:
+             six Roboflow Universe UI datasets, declared MIT by the authors.
+             Public mirror: https://huggingface.co/LibreYOLO/LibreRFDETRm-ui
+
     Faster R-CNN (LibreFasterRCNN{n,s,m,l})            BSD-3-Clause (implied)
              upstream code: pytorch/vision v0.26.0 at commit
                336d36e8db990a905498c73933e35231876e28bc (BSD-3-Clause)

@@ -215,6 +215,12 @@ class BaseModel(ABC):
     # tensor), so families opt in only after a parity test covers them.
     SUPPORTS_CUDA_GRAPH: ClassVar[bool] = False
 
+    # Calls ("predict", "val") that need a square ``imgsz``. Families whose
+    # preprocessing resizes to a single side list the calls a rectangular
+    # ``imgsz=(h, w)`` would otherwise crash in deep inside, so users get a
+    # clear error instead.
+    SQUARE_IMGSZ_CALLS: ClassVar[frozenset[str]] = frozenset()
+
     # How a family embeds a finite video under task="embed".
     #   "frames" (default) — one Results per decoded frame, the historical
     #       behavior every existing family keeps.
@@ -508,7 +514,10 @@ class BaseModel(ABC):
             self._cuda_graph_mode = previous
 
     def capture_graph(
-        self, imgsz: Optional[int] = None, batch: int = 1, dtype: Any = None
+        self,
+        imgsz: Optional[int | tuple[int, int]] = None,
+        batch: int = 1,
+        dtype: Any = None,
     ) -> None:
         """Capture a CUDA graph now for the given input shape.
 
@@ -518,7 +527,8 @@ class BaseModel(ABC):
         captured graph.
 
         Args:
-            imgsz: Input resolution. Defaults to the model's input size.
+            imgsz: Square size or (height, width). Defaults to the model's
+                input size.
             batch: Batch size the graph is captured for. A graph is valid only
                 for the exact shape it captured, so this must match how you
                 call predict.
@@ -529,10 +539,14 @@ class BaseModel(ABC):
             CudaGraphUnavailable: If capture is impossible or fails.
         """
         self._require_cuda_graph_support()
-        size = imgsz or self.input_size
+        from ...utils.image_size import imgsz_to_hw
+
+        height, width = imgsz_to_hw(imgsz or self.input_size)
         if dtype is None:
             dtype = next(self.model.parameters()).dtype
-        dummy = torch.zeros((batch, 3, size, size), dtype=dtype, device=self.device)
+        dummy = torch.zeros(
+            (batch, 3, height, width), dtype=dtype, device=self.device
+        )
         with torch.no_grad():
             self._get_graph_runner().capture(dummy)
 
@@ -894,7 +908,57 @@ class BaseModel(ABC):
             return val_transform(self)
         if img_size is None:
             img_size = self._get_input_size()
-        return self.val_preprocessor_class(img_size=(img_size, img_size))
+        from ...utils.image_size import imgsz_to_hw
+
+        return self.val_preprocessor_class(img_size=imgsz_to_hw(img_size))
+
+    def _get_eval_transform(
+        self, img_size: int | None = None, crop_pct: float | None = None
+    ):
+        """Return the classification eval transform (RGB PIL -> CHW tensor).
+
+        The classification counterpart of :meth:`_get_val_preprocessor`: the
+        validator, exported-backend validation and INT8 calibration take the
+        family's eval pipeline from here, so they score the model on what its
+        ``predict()`` runs. Built from the family's declared eval settings:
+        ``crop_pct``, ``interpolation``, ``norm_mean`` / ``norm_std`` (default
+        ImageNet) and ``resize_mode`` (``"center_crop"`` default, or
+        ``"stretch"`` for a square resize). ``crop_pct`` overrides the family
+        value (``val(crop_pct=...)``) and switches ``"stretch"`` back to the
+        center crop. Families whose pipeline these settings cannot express
+        override this method.
+        """
+        from ...data.augment.classify import (
+            DEFAULT_CROP_PCT,
+            IMAGENET_MEAN,
+            IMAGENET_STD,
+            build_classify_transforms,
+        )
+
+        if img_size is None:
+            img_size = self._get_input_size()
+        if isinstance(img_size, (list, tuple)):
+            if len(img_size) == 2 and img_size[0] != img_size[1]:
+                raise NotImplementedError(
+                    "Classification validation supports square imgsz only."
+                )
+            img_size = img_size[0]
+        return build_classify_transforms(
+            int(img_size),
+            augment=False,
+            mean=getattr(self, "norm_mean", IMAGENET_MEAN),
+            std=getattr(self, "norm_std", IMAGENET_STD),
+            crop_pct=(
+                getattr(self, "crop_pct", DEFAULT_CROP_PCT)
+                if crop_pct is None
+                else crop_pct
+            ),
+            interpolation=getattr(self, "interpolation", "bilinear"),
+            square_resize=(
+                getattr(self, "resize_mode", "center_crop") == "stretch"
+                and crop_pct is None
+            ),
+        )
 
     # =========================================================================
     # Weight loading internals
@@ -1030,6 +1094,7 @@ class BaseModel(ABC):
                 effective_nc = ckpt_nc if ckpt_nc is not None else self.nb_classes
                 if ckpt_names is not None:
                     self.names = self._sanitize_names(ckpt_names, effective_nc)
+                self._restore_checkpoint_input_size(loaded)
                 self._validate_loaded_state_dict_for_task(state_dict, loaded)
             else:
                 state_dict = self._prepare_state_dict(loaded)
@@ -1049,6 +1114,64 @@ class BaseModel(ABC):
             raise RuntimeError(
                 f"Failed to load model weights from {model_path}: {e}"
             ) from e
+
+    def _restore_checkpoint_input_size(self, loaded: dict) -> None:
+        """Adopt the rectangular input size a checkpoint was saved at (#899).
+
+        Rectangular checkpoints dual-write ``imgsz_h``/``imgsz_w`` next to the
+        legacy scalar ``imgsz`` (docs/checkpoint_schema.md), and readers that
+        understand the pair must prefer it. Without this, a model trained at
+        ``imgsz=(384, 640)`` reloaded at the family's square default and
+        letterboxed every frame back to 640x640. Square checkpoints keep the
+        family's native size, as before.
+        """
+        has_h = "imgsz_h" in loaded
+        has_w = "imgsz_w" in loaded
+        if not has_h and not has_w:
+            # A square checkpoint loaded into a model that restored a
+            # rectangular size earlier (e.g. ``train(imgsz=640)`` from a
+            # rectangular fine-tune) must not keep that stale size.
+            if getattr(self, "_input_size_from_checkpoint", False):
+                self.input_size = self._get_task_input_sizes()[self.size]
+                self._input_size_from_checkpoint = False
+            return
+        if has_h != has_w:
+            raise ValueError(
+                "Checkpoint must define both imgsz_h and imgsz_w, or neither."
+            )
+        from ...utils.image_size import normalize_imgsz
+
+        self.input_size = normalize_imgsz(
+            (loaded["imgsz_h"], loaded["imgsz_w"]), name="checkpoint imgsz_h/imgsz_w"
+        )
+        # Natively rectangular families (e.g. HRNet) store their own fixed
+        # canvas here; only a square family's override needs undoing later.
+        family_default = self._get_task_input_sizes().get(self.size)
+        self._input_size_from_checkpoint = not isinstance(
+            family_default, (tuple, list)
+        ) and self.input_size != family_default
+
+    def _adopt_trained_input_size(self, imgsz) -> None:
+        """Leave the live model at the size a reload of its new checkpoint gives.
+
+        Families that do not reload ``best.pt`` after training would otherwise
+        keep predicting at a stale size: the family default after a
+        rectangular run, or an earlier checkpoint's rectangle after a square
+        one. Natively rectangular families own their sizing and are skipped.
+        """
+        if imgsz is None or isinstance(
+            self._get_task_input_sizes().get(self.size), (tuple, list)
+        ):
+            return
+        from ...utils.image_size import normalize_imgsz
+
+        trained = normalize_imgsz(imgsz, name="imgsz", allow_string=True)
+        if isinstance(trained, tuple):
+            self.input_size = trained
+            self._input_size_from_checkpoint = True
+        elif getattr(self, "_input_size_from_checkpoint", False):
+            self.input_size = self._get_task_input_sizes()[self.size]
+            self._input_size_from_checkpoint = False
 
     def _load_state_dict_logged(self, state_dict: dict, source: str) -> None:
         """Load with the family's strictness, making silent key drops visible.
@@ -1250,6 +1373,7 @@ class BaseModel(ABC):
 
         from PIL import Image as PILImage
         from ...utils.image_loader import ImageLoader
+        from ...utils.results import keep_source
 
         effective_imgsz = imgsz if imgsz is not None else self._get_input_size()
         img_pil = ImageLoader.load(image, color_format=color_format)
@@ -1257,7 +1381,7 @@ class BaseModel(ABC):
         orig_w, orig_h = img_pil.size
 
         if getattr(self, "task", "detect") == "semantic":
-            return self._predict_augment_semantic(
+            result = self._predict_augment_semantic(
                 img_pil,
                 image_path,
                 (orig_w, orig_h),
@@ -1265,9 +1389,10 @@ class BaseModel(ABC):
                 color_format,
                 **kwargs,
             )
+            return keep_source(result, img_pil, image_path)
 
         if getattr(self, "task", "detect") == "panoptic":
-            return self._predict_augment_panoptic(
+            result = self._predict_augment_panoptic(
                 img_pil,
                 image_path,
                 (orig_w, orig_h),
@@ -1275,8 +1400,12 @@ class BaseModel(ABC):
                 color_format,
                 **kwargs,
             )
+            return keep_source(result, img_pil, image_path)
 
         scales = (1.0,) if self.TTA_FIXED_SIZE else self.TTA_SCALES
+        # Undo the letterbox at the canvas each view was preprocessed at, as
+        # the non-TTA predict path does; family defaults can differ from it.
+        kwargs.setdefault("input_size", effective_imgsz)
 
         aug_dets = []
         for scale in scales:
@@ -1304,9 +1433,13 @@ class BaseModel(ABC):
                 aug_dets.append((det, orig_size, is_flipped, scale))
 
         if getattr(self, "task", "detect") == "classify":
-            return self._merge_classify_tta(aug_dets, image_path, (orig_w, orig_h))
-
-        return self._merge_tta(aug_dets, iou, image_path, (orig_w, orig_h), classes)
+            result = self._merge_classify_tta(aug_dets, image_path, (orig_w, orig_h))
+        else:
+            result = self._merge_tta(
+                aug_dets, iou, image_path, (orig_w, orig_h), classes
+            )
+        # Keep the decoded source so plot()/save never fetch the input again.
+        return keep_source(result, img_pil, image_path)
 
     def _postprocess_semantic_logits(
         self,
@@ -2242,6 +2375,15 @@ class BaseModel(ABC):
             save_json: Save predictions in COCO JSON format.
             plots: Alias for save_plots.
             verbose: Print detailed metrics.
+            visualize: (kwarg) Draw every validated image to
+                ``save_dir/visualize/errors/`` (any false positive or false
+                negative) or ``visualize/correct/``, with true positives,
+                false positives and false negatives (confidence 0.25, or
+                ``conf`` if higher; IoU 0.5; class-aware);
+                classification draws the label and top-1 prediction. Detect,
+                segment and classify only. Default False.
+            show_labels: (kwarg) Class names on ``visualize`` images.
+            show_conf: (kwarg) Confidence scores on ``visualize`` images.
             faster_coco_eval: (kwarg) Use the faster-coco-eval C++ backend
                 for COCO metrics. Default True; falls back to pycocotools
                 if the package is unavailable. Pass False (or set
@@ -2262,6 +2404,18 @@ class BaseModel(ABC):
             deployment instead of a folklore default. Entries are NaN for
             classes where no threshold reaches F1 > 0 (no predictions, no
             ground truth, or all false positives).
+
+            Detect and segment results also carry ``box.image_metrics``: image
+            filename to ``precision``, ``recall``, ``f1``, ``tp``, ``fp`` and
+            ``fn`` at IoU 0.5, counting predictions at the ``visualize``
+            confidence (0.25, or ``conf`` if higher). Filter it on ``fp`` or
+            ``fn`` to list the images the model got wrong.
+
+            For ``task="classify"``, the dictionary instead holds
+            ``metrics/accuracy_top1``, ``metrics/accuracy_top5``,
+            macro-averaged ``metrics/precision``, ``metrics/recall`` and
+            ``metrics/f1`` (the mean over classes present in the validation
+            targets), and ``fitness`` (top-1 accuracy).
         """
         from libreyolo.validation import (
             ClassifyValidator,
@@ -2283,8 +2437,18 @@ class BaseModel(ABC):
 
         if imgsz is None:
             imgsz = self._get_input_size()
+        from ...utils.image_size import reject_rectangular_imgsz
+
+        reject_rectangular_imgsz(self, imgsz, "val")
         if plots is not None and "save_plots" not in kwargs:
             kwargs["save_plots"] = plots
+        from libreyolo.validation.config import VISUALIZE_TASKS
+
+        if kwargs.get("visualize") and self.task not in VISUALIZE_TASKS:
+            raise ValueError(
+                f"visualize=True is not supported for task '{self.task}'; "
+                f"it covers {', '.join(VISUALIZE_TASKS)}"
+            )
         if augment and self.task == "obb":
             raise ValueError(
                 "Augmented validation does not support oriented boxes yet. "
@@ -2410,4 +2574,6 @@ class BaseModel(ABC):
         # (e.g. "faster-coco-eval 1.7.2" / "pycocotools 2.0.10"; None for
         # validators that don't run COCO evaluation).
         self.last_eval_backend = getattr(validator, "eval_backend", None)
-        return metrics
+        from libreyolo.validation.base import with_image_metrics
+
+        return with_image_metrics(metrics, validator)
