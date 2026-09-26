@@ -1016,9 +1016,23 @@
       "s": 640,
       "x": 640
     },
-    "task_sizes": {},
+    "task_sizes": {
+      "detect": {
+        "l": 640,
+        "m": 640,
+        "s": 640,
+        "x": 640
+      },
+      "segment": {
+        "l": 640,
+        "m": 640,
+        "s": 640,
+        "x": 640
+      }
+    },
     "tasks": [
-      "detect"
+      "detect",
+      "segment"
     ]
   },
   "hrnet": {

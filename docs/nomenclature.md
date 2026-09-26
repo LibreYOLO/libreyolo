@@ -515,6 +515,7 @@ Detector-factory family support follows:
 | `dfine`     | `("detect", "segment")`             | detect | segment uses the D-FINE-seg mask head; same sizes as detect; COCO `-seg` weights on HF (detect-to-segment fine-tune needs an explicit transfer flag) |
 | `deim`      | `("detect",)` (default)             | detect | detect-only |
 | `deimv2`    | `("detect",)` (default)             | detect | detect-only |
+| `gtr`       | `("detect", "segment")`             | detect | segment adds the upstream GTRSeg per-query mask head; COCO `-seg` weights; same sizes as detect |
 | `tinyformer` | `("detect",)`                      | detect | detect-only; dataset-variant weights `-visdrone` (nc=10) and `-obj2coco` |
 | `detr`      | `("detect",)`                       | detect | original DETR; inference-only (no trainer, `train()` raises); fixed 800 square |
 | `rtdetr`    | `("detect",)` (default)             | detect | detect-only |
@@ -1084,7 +1085,7 @@ generic state-dict factory. See
 
 ## GTR detection
 
-Family `gtr`, class `LibreGTR`, sizes `s`, `m`, `l`, `x`, task `detect`.
-Canonical checkpoint names are `LibreGTR{s,m,l,x}.pt`. Upstream detection
-`.pth` files auto-convert using EMA parameters; other GTR tasks are not yet
-supported. See [GTR validation evidence](gtr.md).
+Family `gtr`, class `LibreGTR`, sizes `s`, `m`, `l`, `x`, tasks `detect`
+(default) and `segment`. Canonical checkpoint names are `LibreGTR{s,m,l,x}.pt`
+and `LibreGTR{s,m,l,x}-seg.pt`. Upstream detection and segmentation `.pth`
+files auto-convert using EMA parameters. See [GTR validation evidence](gtr.md).
