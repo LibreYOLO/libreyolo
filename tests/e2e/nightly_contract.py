@@ -1,13 +1,13 @@
 """Versioned contract for the nightly e2e test suite."""
 
-NIGHTLY_E2E_SUITE_VERSION = "3.0"
+NIGHTLY_E2E_SUITE_VERSION = "3.1"
 NIGHTLY_E2E_SUITE_CONTRACT = (
     "general=curated smallest native inference cases for public detector families, "
     "each pulled from a public auto-download route (LibreYOLO HF, or Deci's CDN "
     "for YOLO-NAS); gaze (L2CS/Gaze360) is non-redistributable and runs only in "
     "the non-gated per-family suite, not the gated nightly; "
-    "flagship=YOLO9/RF-DETR validation, video, tracking, CLI, and one RF1 "
-    "training/reload size per flagship family; training-time CUDA graphs, "
+    "flagship=YOLO9/RF-DETR validation, input equivalence, video, tracking, CLI, "
+    "and one RF1 training/reload size per flagship family; training-time CUDA graphs, "
     "inference CUDA graphs, export backends, ExecuTorch, and extended task "
     "training remain opt-in"
 )

@@ -215,6 +215,12 @@ class BaseModel(ABC):
     # tensor), so families opt in only after a parity test covers them.
     SUPPORTS_CUDA_GRAPH: ClassVar[bool] = False
 
+    # Calls ("predict", "val") that need a square ``imgsz``. Families whose
+    # preprocessing resizes to a single side list the calls a rectangular
+    # ``imgsz=(h, w)`` would otherwise crash in deep inside, so users get a
+    # clear error instead.
+    SQUARE_IMGSZ_CALLS: ClassVar[frozenset[str]] = frozenset()
+
     # How a family embeds a finite video under task="embed".
     #   "frames" (default) — one Results per decoded frame, the historical
     #       behavior every existing family keeps.
@@ -2431,6 +2437,9 @@ class BaseModel(ABC):
 
         if imgsz is None:
             imgsz = self._get_input_size()
+        from ...utils.image_size import reject_rectangular_imgsz
+
+        reject_rectangular_imgsz(self, imgsz, "val")
         if plots is not None and "save_plots" not in kwargs:
             kwargs["save_plots"] = plots
         from libreyolo.validation.config import VISUALIZE_TASKS
