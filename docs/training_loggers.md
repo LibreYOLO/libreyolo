@@ -26,13 +26,13 @@ any subset of `on_train_start`, `on_train_epoch_end`, `on_train_end`,
 `on_train_exception`:
 
 ```python
-from libreyolo import LibreYOLO9
+from libreyolo import LibreYOLO
 from libreyolo.training import TrainEpochEvent
 
 def on_epoch(e: TrainEpochEvent):
     print(f"epoch {e.epoch}/{e.total_epochs} loss={e.train_loss:.4f}")
 
-model = LibreYOLO9("yolo9-s.pt")
+model = LibreYOLO("LibreYOLO9s.pt")
 model.train(data="coco8.yaml", epochs=10, callbacks=on_epoch)
 ```
 
