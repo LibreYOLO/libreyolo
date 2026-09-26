@@ -120,6 +120,23 @@ class TestResolveModelName:
         assert cli_config.resolve_model_name("lazy-s") == "LibreLazys.pt"
         assert cli_config.resolve_model_name("lazy-s-sem") == "LibreLazys.pt"
 
+    def test_shared_checkpoint_tasks_get_no_cli_name(self):
+        """CLIP/SigLIP2/PE embed reuse the -cls file; no -embed name exists."""
+        names = set(cli_config.get_all_cli_names())
+        assert "clip-b16-cls" in names
+        assert not any(
+            name.startswith(("clip-", "siglip2-", "pe-")) and name.endswith("-embed")
+            for name in names
+        )
+        assert resolve_model_name("clip-b16-embed") == "clip-b16-embed"
+
+    def test_weight_unavailable_reason(self):
+        assert cli_config.weight_unavailable_reason("yolo9-s") is None
+        assert cli_config.weight_unavailable_reason("facerec-l") is None
+        assert cli_config.weight_unavailable_reason("best.pt") is None
+        assert "lost upstream" in cli_config.weight_unavailable_reason("yolo1-t")
+        assert "Gaze360" in cli_config.weight_unavailable_reason("l2cs-r50")
+
     def test_case_insensitive(self):
         assert resolve_model_name("YOLOX-S") == "LibreYOLOXs.pt"
         assert resolve_model_name("Yolo9-T") == "LibreYOLO9t.pt"

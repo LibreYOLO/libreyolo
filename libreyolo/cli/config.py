@@ -91,8 +91,13 @@ def _register_cli_names_for_class(cls) -> None:
         if suffix:
             _CLI_NAME_TO_WEIGHTS[f"{cli_name}-{suffix}"] = weight_name
 
+    weight_tasks = getattr(cls, "WEIGHT_TASKS", None)
     for task in getattr(cls, "SUPPORTED_TASKS", ("detect",)):
         if task == default_task:
+            continue
+        # Tasks that reuse another task's checkpoint (e.g. CLIP embed on the
+        # -cls weights) have no file of their own to name.
+        if weight_tasks and task not in weight_tasks:
             continue
         suffix = task_to_suffix(task)
         if suffix is None:
@@ -151,6 +156,26 @@ def resolve_model_name(model: str) -> str:
     """
     _build_name_map()
     return _CLI_NAME_TO_WEIGHTS.get(model.lower(), model)
+
+
+def weight_unavailable_reason(model: str) -> Optional[str]:
+    """Return why a CLI model name's checkpoint cannot be auto-downloaded.
+
+    ``None`` means the name routes to a download URL (whether that URL is live
+    is only known over the network). Mirrors ``download_weights`` routing.
+    """
+    _build_name_map()
+    weight = _CLI_NAME_TO_WEIGHTS.get(model.lower())
+    if weight is None or weight.lower().startswith("librefacerec-"):
+        return None
+    for cls in _iter_model_classes():
+        try:
+            url = cls.get_download_url(weight)
+        except Exception as exc:  # families raise the reason for their names
+            return " ".join(str(exc).split())
+        if url:
+            return None
+    return f"LibreYOLO has no download route for {weight}; pass a local checkpoint."
 
 
 def detect_family_from_name(model_name: str) -> Optional[str]:
