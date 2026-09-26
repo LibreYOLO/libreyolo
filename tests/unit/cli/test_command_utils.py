@@ -1502,3 +1502,65 @@ def test_unsupported_device_op_reports_device_error(failing_app, monkeypatch, ar
     data = json.loads(result.stdout)
     assert data["error"] == "device_not_available"
     assert "device=cpu" in data["suggestion"]
+
+
+@pytest.fixture
+def unloadable_app(monkeypatch):
+    """Commands whose model load fails the test: range errors must come first."""
+    for command in ("train", "val", "export", "predict"):
+        monkeypatch.setattr(
+            f"libreyolo.cli.commands.{command}.resolve_model_or_exit",
+            lambda out, model: model,
+        )
+
+    def _no_load(*args, **kwargs):
+        raise AssertionError("the model must not load for an out-of-range value")
+
+    monkeypatch.setattr("libreyolo.LibreYOLO", _no_load)
+    return _make_app(
+        [
+            ("train", train.train_cmd),
+            ("val", val.val_cmd),
+            ("export", export.export_cmd),
+            ("predict", predict.predict_cmd),
+        ]
+    )
+
+
+@pytest.mark.parametrize(
+    "args",
+    [
+        ["predict", "conf=1.5"],
+        ["predict", "iou=2"],
+        ["predict", "max_det=0"],
+        ["predict", "batch=0"],
+        ["val", "data=coco8.yaml", "conf=1.5"],
+        ["val", "data=coco8.yaml", "iou=-0.1"],
+        ["val", "data=coco8.yaml", "batch=0"],
+        ["train", "data=coco8.yaml", "epochs=0"],
+        ["train", "data=coco8.yaml", "batch=0"],
+        ["train", "data=coco8.yaml", "batch=-2"],
+        ["export", "batch=0"],
+        ["export", "nms=true", "conf=1.5"],
+        ["export", "nms=true", "max_det=0"],
+    ],
+    ids=lambda args: " ".join(args),
+)
+def test_out_of_range_values_are_config_range_errors(unloadable_app, tmp_path, args):
+    if args[0] == "predict":
+        source = tmp_path / "image.jpg"
+        source.write_bytes(b"")
+        args = [*args, f"source={source}"]
+    result = runner.invoke(unloadable_app, [*args, "model=yolox-s", "--json"])
+
+    assert result.exit_code == 2, result.output
+    assert json.loads(result.stdout)["error"] == "config_range_error"
+
+
+def test_train_accepts_autobatch(unloadable_app):
+    result = runner.invoke(
+        unloadable_app,
+        ["train", "data=coco8.yaml", "model=yolox-s", "batch=-1", "--dry-run", "--json"],
+    )
+    assert result.exit_code == 0, result.output
+    assert json.loads(result.stdout)["resolved_config"]["batch"] == -1

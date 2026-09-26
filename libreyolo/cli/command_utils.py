@@ -26,6 +26,38 @@ def exit_with_error(
     raise typer.Exit(code=err.exit_code)
 
 
+# Inclusive (low, high) bounds; None leaves that side open.
+_VALUE_RANGES: dict[str, tuple[Optional[float], Optional[float]]] = {
+    "conf": (0.0, 1.0),
+    "iou": (0.0, 1.0),
+    "max_det": (1, None),
+    "batch": (1, None),
+    "epochs": (1, None),
+}
+
+
+def exit_if_out_of_range(
+    out: OutputHandler, *, autobatch: bool = False, **values: Any
+) -> None:
+    """Reject option values outside their valid range with config_range_error.
+
+    ``autobatch`` also accepts ``batch=-1`` (train's AutoBatch request).
+    """
+    for name, value in values.items():
+        if value is None or (autobatch and name == "batch" and value == -1):
+            continue
+        low, high = _VALUE_RANGES[name]
+        if (low is not None and not value >= low) or (
+            high is not None and not value <= high
+        ):
+            bound = f">= {low}" if high is None else f"in [{low}, {high}]"
+            if autobatch and name == "batch":
+                bound += ", or -1 for AutoBatch"
+            exit_with_error(
+                out, "config_range_error", f"{name} must be {bound}, got {value}"
+            )
+
+
 def load_model_or_exit(
     out: OutputHandler,
     *,

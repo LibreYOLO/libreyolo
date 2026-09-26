@@ -9,6 +9,7 @@ from typing import NoReturn, Optional
 import typer
 
 from ..command_utils import (
+    exit_if_out_of_range,
     exit_imgsz_error,
     exit_stage_error,
     exit_with_error,
@@ -232,6 +233,7 @@ def predict_cmd(
         imgsz = parse_imgsz_str(imgsz) if imgsz is not None else None
     except ValueError as exc:
         exit_with_error(out, "invalid_imgsz", str(exc))
+    exit_if_out_of_range(out, conf=conf, iou=iou, max_det=max_det, batch=batch)
 
     # Classify before path validation so webcam indices and RTSP-style URLs do
     # not fall through as nonexistent image files.

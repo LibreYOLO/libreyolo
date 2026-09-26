@@ -7,6 +7,7 @@ from typing import Optional
 import typer
 
 from ..command_utils import (
+    exit_if_out_of_range,
     exit_stage_error,
     exit_with_error,
     get_loaded_model_family,
@@ -526,6 +527,7 @@ def train_cmd(
     import ast
 
     out = OutputHandler(json_mode=json_output, quiet=quiet)
+    exit_if_out_of_range(out, epochs=epochs, batch=batch, autobatch=True)
 
     user_provided = get_user_provided_params()
     normalized_task = None

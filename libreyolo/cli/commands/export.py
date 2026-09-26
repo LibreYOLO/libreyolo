@@ -6,6 +6,7 @@ from typing import Optional
 import typer
 
 from ..command_utils import (
+    exit_if_out_of_range,
     exit_stage_error,
     exit_with_error,
     help_json_callback,
@@ -76,6 +77,7 @@ def export_cmd(
 ) -> None:
     """Export a model to a deployment format."""
     out = OutputHandler(json_mode=json_output, quiet=quiet)
+    exit_if_out_of_range(out, batch=batch, conf=conf, iou=iou, max_det=max_det)
 
     # Resolve format aliases (engine -> tensorrt, litert -> tflite) so JSON
     # output and messages always report the canonical format name.

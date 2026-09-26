@@ -6,6 +6,7 @@ from typing import Optional
 import typer
 
 from ..command_utils import (
+    exit_if_out_of_range,
     exit_stage_error,
     exit_with_error,
     get_loaded_model_family,
@@ -132,6 +133,7 @@ def val_cmd(
         imgsz = parse_imgsz_str(imgsz)
     except ValueError as exc:
         exit_with_error(out, "invalid_imgsz", str(exc))
+    exit_if_out_of_range(out, conf=conf, iou=iou, batch=batch)
     try:
         amp_dtype = normalize_amp_dtype(amp_dtype)
         if max_det < 1:
