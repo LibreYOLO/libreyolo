@@ -1109,6 +1109,28 @@ def test_finalized_pt_export_roundtrip(tmp_path, yolo9t):
     assert torch.equal(ref, out3)
 
 
+@pytest.mark.parametrize("restore", ["reprepare", "dequantize"])
+def test_fp16_remainder_checkpoint_runs_after_return_to_float(tmp_path, yolo9t, restore):
+    """ONNX export and QAT re-prepare an fp16-remainder checkpoint to float32;
+    its half-width input hooks must go too, or float weights see half inputs."""
+    from libreyolo.quant import reprepare_model
+
+    yolo9t.quantize(recipe="int8", calib=None, verbose=False)
+    final = yolo9t.export(format="pt", out=str(tmp_path / "final.pt"))
+    model = LibreYOLO9(final, size="t", device="cpu")
+    assert model.quant_info()["remainder"] == "fp16"
+
+    if restore == "reprepare":
+        reprepare_model(model)
+    else:
+        model.dequantize()
+    model.model.eval()
+    with torch.no_grad():
+        out = _leaf(model.model(torch.randn(1, 3, 64, 64)))
+
+    assert out.dtype == torch.float32
+
+
 def test_finalized_w4a16_fp16_remainder_preserves_quant_dtypes(tmp_path):
     from libreyolo.quant import (
         GroupQuantLinear,

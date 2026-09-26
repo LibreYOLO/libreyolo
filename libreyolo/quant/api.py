@@ -371,6 +371,14 @@ def _install_io_hooks(root: nn.Module, dtype: torch.dtype):
     ]
 
 
+def _remove_io_hooks(root: nn.Module):
+    """Drop the half-width I/O hooks once the interior is float32 again."""
+    for handle in getattr(root, "_q_fp16_hooks", ()):
+        handle.remove()
+    if hasattr(root, "_q_fp16_hooks"):
+        del root._q_fp16_hooks
+
+
 def _install_cast_io_hooks(root: nn.Module, dtype: torch.dtype):
     """Cast the model to a half-width dtype, keeping float32 I/O at the root."""
     root.to(dtype)
@@ -737,6 +745,8 @@ def reprepare_model(wrapper):
     wrapper._quant_manifest = manifest
     if manifest.get("recipe") not in CAST_RECIPES:
         wrapper.model.float()
+        # An fp16 remainder installed half-width I/O hooks at load.
+        _remove_io_hooks(wrapper.model)
     wrapper.model.to(wrapper.device)
     logger.info(
         "Re-prepared finalized checkpoint: fp32 masters reconstructed from "
@@ -838,10 +848,7 @@ def dequantize_model(wrapper):
     root = wrapper.model
 
     if manifest.get("recipe") in CAST_RECIPES:
-        for handle in getattr(root, "_q_fp16_hooks", ()):
-            handle.remove()
-        if hasattr(root, "_q_fp16_hooks"):
-            del root._q_fp16_hooks
+        _remove_io_hooks(root)
         root.float()
     else:
         for name, module in list(_quant_modules(root)):
@@ -880,6 +887,7 @@ def dequantize_model(wrapper):
                 new.weight = module.weight
             new.bias = module.bias
             _swap_module(root, name, new)
+        _remove_io_hooks(root)
         root.float()
 
     wrapper._quant_manifest = None
