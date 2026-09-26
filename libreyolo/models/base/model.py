@@ -229,6 +229,11 @@ class BaseModel(ABC):
     # clear error instead.
     SQUARE_IMGSZ_CALLS: ClassVar[frozenset[str]] = frozenset()
 
+    # Largest network stride for families that only run on stride-aligned
+    # inputs. When set, predict, val, export and train round an unaligned
+    # ``imgsz`` up to a multiple of it with a warning (utils/image_size.py).
+    IMGSZ_STRIDE: ClassVar[int | None] = None
+
     # How a family embeds a finite video under task="embed".
     #   "frames" (default) — one Results per decoded frame, the historical
     #       behavior every existing family keeps.
@@ -2464,9 +2469,10 @@ class BaseModel(ABC):
 
         if imgsz is None:
             imgsz = self._get_input_size()
-        from ...utils.image_size import reject_rectangular_imgsz
+        from ...utils.image_size import reject_rectangular_imgsz, round_imgsz_to_stride
 
         reject_rectangular_imgsz(self, imgsz, "val")
+        imgsz = round_imgsz_to_stride(self, imgsz, "val")
         if plots is not None and "save_plots" not in kwargs:
             kwargs["save_plots"] = plots
         from libreyolo.validation.config import VISUALIZE_TASKS

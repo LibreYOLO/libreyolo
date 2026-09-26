@@ -67,7 +67,7 @@ from ..data import (
     load_data_config,
     resolve_default_coco_image_dir,
 )
-from ..utils.image_size import imgsz_to_hw
+from ..utils.image_size import imgsz_to_hw, round_imgsz_to_stride
 from ..utils.serialization import (
     SCHEMA_VERSION,
     build_class_names,
@@ -226,6 +226,9 @@ class BaseTrainer(ABC):
                 )
         self.model = model
         self.wrapper_model = wrapper_model
+        self.config.imgsz = round_imgsz_to_stride(
+            wrapper_model, self.config.imgsz, "train"
+        )
         self.class_weights = None
         if (self.config.class_weights or self.config.cls_pw > 0) and (
             getattr(wrapper_model, "task", None) != "classify"

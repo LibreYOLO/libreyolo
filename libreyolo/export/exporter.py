@@ -19,6 +19,7 @@ from typing import Optional, Tuple, Union
 import torch
 
 from ..tasks import task_to_suffix
+from ..utils.image_size import round_imgsz_to_stride
 from ..utils.serialization import SCHEMA_VERSION
 from .onnx import (
     _get_version,
@@ -928,6 +929,7 @@ class BaseExporter(ABC):
             imgsz = (int(imgsz), int(imgsz))
         if imgsz[0] <= 0 or imgsz[1] <= 0:
             raise ValueError(f"imgsz values must be positive, got {imgsz}.")
+        imgsz = round_imgsz_to_stride(self.model, imgsz, "export")
         if model_name == "ben2":
             native_shape = (
                 (int(native_imgsz[0]), int(native_imgsz[1]))

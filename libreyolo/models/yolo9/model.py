@@ -71,6 +71,9 @@ class LibreYOLO9(BaseModel):
     # The detection forward is pure tensor work with no host sync, so it
     # captures and replays bit-identically (tests/unit/test_cuda_graph.py).
     SUPPORTS_CUDA_GRAPH = True
+    # P5 feature maps are concatenated with upsampled ones, so every input
+    # side must be a multiple of 32; other sizes are rounded up.
+    IMGSZ_STRIDE = 32
     # Additional checkpoint model_family values accepted as transfer-learning
     # sources (subclass hook; e.g. yolo9_p2 accepts base yolo9 checkpoints).
     TRANSFER_COMPATIBLE_FAMILIES: tuple = ()

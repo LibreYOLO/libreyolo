@@ -40,7 +40,7 @@ from ...utils.general import (
     resolve_save_path,
 )
 from ...utils.image_loader import ImageInput, ImageLoader
-from ...utils.image_size import reject_rectangular_imgsz
+from ...utils.image_size import reject_rectangular_imgsz, round_imgsz_to_stride
 from ...utils.predict_args import normalize_classes, normalize_predict_kwargs
 from ...utils.results import (
     keep_source,
@@ -357,6 +357,7 @@ class InferenceRunner:
             self._set_device(device)
         if imgsz is not None:
             reject_rectangular_imgsz(self.model, imgsz, "predict")
+            imgsz = round_imgsz_to_stride(self.model, imgsz, "predict")
         if (
             kwargs.get("gallery") is not None
             and getattr(self.model, "task", None) != "embed"
