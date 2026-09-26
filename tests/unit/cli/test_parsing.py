@@ -323,3 +323,33 @@ class TestJsonUsageErrors:
         result = runner.invoke(self._app(), ["cmd", "conf=abc"])
         assert result.exit_code == 2
         assert result.stdout == ""
+
+
+class TestOptionValuesAreNotRewritten:
+    """The token after a value-taking ``--key`` is that key's value, verbatim."""
+
+    @pytest.mark.parametrize("value", ["save", "half", "run=1", "half=true"])
+    def test_value_after_double_dash_key_is_kept(self, value):
+        app, captured = _make_app()
+        result = runner.invoke(app, ["--name", value])
+        assert result.exit_code == 0, result.output
+        assert captured["name"] == value
+        assert captured["save"] is False
+        assert captured["half"] is False
+
+    def test_value_after_double_dash_key_is_not_a_provided_param(self):
+        from libreyolo.cli.command_utils import get_user_provided_params
+
+        app = typer.Typer()
+        captured = {}
+
+        @app.command(cls=KeyValueCommand)
+        def cmd(
+            name: str = typer.Option("exp"),
+            save: bool = typer.Option(False),
+        ):
+            captured["user_provided"] = get_user_provided_params()
+
+        result = runner.invoke(app, ["--name", "save"])
+        assert result.exit_code == 0, result.output
+        assert captured["user_provided"] == {"name"}

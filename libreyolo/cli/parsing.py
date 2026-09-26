@@ -22,6 +22,7 @@ def rewrite_known_bool_flags(
     args: list[str],
     bool_flags: set[str],
     negatable: Optional[set[str]] = None,
+    value_options: Optional[set[str]] = None,
 ) -> list[str]:
     """Rewrite known bool flags from key=value or bare-word syntax.
 
@@ -33,11 +34,24 @@ def rewrite_known_bool_flags(
     ``--quiet``) that have no negative form, ``key=false`` drops the flag
     entirely instead of emitting a nonexistent ``--no-<flag>`` (which Click
     would reject with "No such option").
+
+    ``value_options`` are ``--key`` options that take a value: the token after
+    one is that value and is passed through untouched (``--name show``).
     """
     if negatable is None:
         negatable = set()
+    value_options = value_options or set()
     new_args: list[str] = []
+    takes_value = False
     for arg in args:
+        if takes_value:
+            new_args.append(arg)
+            takes_value = False
+            continue
+        if arg in value_options:
+            new_args.append(arg)
+            takes_value = True
+            continue
         m = re.match(r"^([a-zA-Z_][a-zA-Z0-9_-]*)=(.*)$", arg)
         if m:
             key, value = m.group(1), m.group(2)
@@ -88,11 +102,14 @@ class KeyValueCommand(TyperCommand):
         # (TyperOption may not be a direct subclass of click.Option in all envs).
         bool_flags: set[str] = set()
         negatable: set[str] = set()
+        value_options: set[str] = set()
         cli_to_param: dict[str, str] = {}
         for param in self.params:
             if not getattr(param, "opts", None):
                 continue
             param_name = getattr(param, "name", None)
+            if not getattr(param, "is_flag", False):
+                value_options.update(o for o in param.opts if o.startswith("--"))
             for opt in param.opts:
                 if opt.startswith("--"):
                     cli_key = opt.lstrip("-").replace("-", "_")
@@ -125,8 +142,13 @@ class KeyValueCommand(TyperCommand):
         # them without relying on click's ParameterSource tracking (which can
         # be unreliable inside typer's test runner on some Python versions).
         user_provided: set[str] = set()
+        takes_value = False
         for arg in args:
+            if takes_value:
+                takes_value = False
+                continue
             if arg.startswith("--"):
+                takes_value = arg in value_options
                 raw = arg.lstrip("-").split("=")[0].replace("-", "_")
                 user_provided.add(cli_to_param.get(raw, raw))
             elif re.match(r"^[a-zA-Z_][a-zA-Z0-9_-]*=", arg):
@@ -139,9 +161,17 @@ class KeyValueCommand(TyperCommand):
                     user_provided.add(cli_to_param.get(key, key))
         ctx.meta["user_provided"] = user_provided
 
-        new_args = rewrite_known_bool_flags(args, bool_flags, negatable)
+        new_args = rewrite_known_bool_flags(
+            args, bool_flags, negatable, value_options
+        )
         parsed_args: list[str] = []
+        takes_value = False
         for arg in new_args:
+            # The value of a preceding ``--key`` is never rewritten.
+            if takes_value or arg in value_options:
+                parsed_args.append(arg)
+                takes_value = not takes_value
+                continue
             # Match key=value pattern (key must start with letter or underscore)
             m = re.match(r"^([a-zA-Z_][a-zA-Z0-9_-]*)=(.*)$", arg)
             if m:
