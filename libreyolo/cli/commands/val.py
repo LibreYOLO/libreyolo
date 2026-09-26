@@ -8,6 +8,7 @@ import typer
 from ..command_utils import (
     exit_stage_error,
     exit_with_error,
+    get_loaded_model_family,
     help_json_callback,
     load_model_or_exit,
     parse_imgsz_str,
@@ -46,6 +47,11 @@ def val_cmd(
         "comma-separated (e.g. '0,3,5'); every other class's boxes are "
         "dropped from ground truth and predictions. Defaults to the "
         "classes= the checkpoint was trained with, if any",
+    ),
+    single_cls: bool = typer.Option(
+        False,
+        "--single-cls/--no-single-cls",
+        help="Evaluate a G0/G1 detector with every class merged into class 0",
     ),
     batch: int = typer.Option(16, help="Batch size"),
     imgsz: Optional[str] = typer.Option(
@@ -150,6 +156,19 @@ def val_cmd(
         out, model=model, model_path=model_path, device=device
     )
 
+    if single_cls:
+        from libreyolo.models.registry import group_of
+
+        family = get_loaded_model_family(loaded_model)
+        task = getattr(loaded_model, "task", "detect")
+        if group_of(family) not in {"g0", "g1"} or task != "detect":
+            exit_with_error(
+                out,
+                "config_unsupported",
+                "single_cls=True is supported only for G0/G1 detection models; "
+                f"got family={family!r}, task={task!r}.",
+            )
+
     # crop_pct is classification eval preprocessing; say so rather than accept
     # it and change nothing (#878).
     if crop_pct is not None and getattr(loaded_model, "task", "detect") != "classify":
@@ -189,6 +208,7 @@ def val_cmd(
             plot_samples=plot_samples,
             crop_pct=crop_pct,
             # Only when set: some families' val() reject unknown kwargs.
+            **({"single_cls": True} if single_cls else {}),
             **({"visualize": True} if visualize else {}),
             **({"show_labels": False} if not show_labels else {}),
             **({"show_conf": False} if not show_conf else {}),
