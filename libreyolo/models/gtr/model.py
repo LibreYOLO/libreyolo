@@ -657,6 +657,11 @@ class LibreGTR(LibreDFINE):
             resume, GTRPoseConfig, {"data": data, **kwargs}
         )
         data = kwargs.pop("data", None)
+        # The trainer receives these explicitly; a resumed config also has them.
+        for key in ("num_keypoints", "keypoint_dim"):
+            kwargs.pop(key, None)
+        device = device or kwargs.pop("device", "")
+        kwargs.pop("device", None)
         imgsz = int(kwargs.setdefault("imgsz", self.input_size))
         if imgsz != int(self.input_size):
             raise ValueError(
