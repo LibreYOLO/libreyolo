@@ -184,15 +184,14 @@ def test_compiled_step_matches_eager_and_keeps_the_model_untouched(aot_eager):
 def test_missing_boundary_warns_once_and_runs_eager(aot_eager, caplog):
     model = _Toy()
     host, _ = _toy_host(model, spec_fn=lambda: None)
-    host._train_compiler = compile_mod.TrainCompiler(
-        "default", cuda_graph=False, accum_steps=1
-    )
+    compiler = compile_mod.TrainCompiler("default", cuda_graph=False, accum_steps=1)
+    host._train_compiler = compiler
     x, y = torch.randn(2, 4), torch.randn(2, 3)
     with caplog.at_level(logging.WARNING):
         BaseTrainer._forward_train(host, x, y)
         BaseTrainer._forward_train(host, x, y)
     assert caplog.text.count("no compiled training boundary") == 1
-    assert host._train_compiler.disabled and aot_eager == []
+    assert compiler.disabled and host._train_compiler is None and aot_eager == []
 
 
 def test_compiler_failure_falls_back_to_eager(monkeypatch, caplog):
@@ -284,3 +283,26 @@ def test_yolo9_pgi_boundary_matches_the_model_forward():
 
     model.aux_weight = 0.0
     assert YOLO9Trainer.compile_train_spec(host) is None
+
+
+def test_compiler_fallback_hands_cuda_graph_to_the_capture_manager(monkeypatch):
+    """compile=True with cuda_graph=True: if compilation fails, the eager
+    capture manager takes over instead of losing graphs for the run."""
+    model = _Toy()
+    host, _ = _toy_host(model)
+    monkeypatch.setattr(
+        compile_mod.torch,
+        "compile",
+        lambda network, **kw: MagicMock(side_effect=torch._dynamo.exc.TorchDynamoException("x")),
+    )
+    host._train_compiler = compile_mod.TrainCompiler("default", cuda_graph=True, accum_steps=1)
+    host.config = SimpleNamespace(cuda_graph=True)
+    host.device = torch.device("cuda")
+    host.is_distributed = False
+    host.distiller = None
+    host._accum_steps = 1
+    host._cuda_graph_manager = None
+    host._start_cuda_graph_manager = lambda: BaseTrainer._start_cuda_graph_manager(host)
+    BaseTrainer._forward_train(host, torch.randn(2, 4), torch.randn(2, 3))
+    assert host._train_compiler is None
+    assert host._cuda_graph_manager is not None
