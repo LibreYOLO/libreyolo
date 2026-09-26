@@ -59,8 +59,12 @@ def cap_torch_threads(root: Path = _CGROUP_ROOT) -> int | None:
     usable = min((n for n in limits if n), default=None)
     if usable is None:
         return None
+    # torchrun sets LOCAL_WORLD_SIZE; LibreYOLO's own single-node spawn sets
+    # only WORLD_SIZE, which is then the number of ranks on this machine.
     try:
-        local_ranks = int(os.environ.get("LOCAL_WORLD_SIZE", "1"))
+        local_ranks = int(
+            os.environ.get("LOCAL_WORLD_SIZE") or os.environ.get("WORLD_SIZE") or 1
+        )
     except ValueError:
         local_ranks = 1
     usable = max(1, usable // max(1, local_ranks))

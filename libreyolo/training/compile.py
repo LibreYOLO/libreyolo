@@ -99,6 +99,8 @@ class TrainCompiler:
         self.disabled = False
         self.cudagraphs = False
         self._compiled = None
+        # Input signatures that already ran compiled; a new one may compile.
+        self._seen: set = set()
 
     def _disable(self, reason: str) -> None:
         self.disabled = True
@@ -145,16 +147,39 @@ class TrainCompiler:
                 return None
         if self.cudagraphs:
             torch.compiler.cudagraph_mark_step_begin()
+        key = (tuple(imgs.shape), imgs.dtype)
+        # A new input signature is where compilation (and so a compiler
+        # failure) can happen. Frames compiled earlier in that call may
+        # already have run and advanced BatchNorm statistics, so snapshot
+        # buffers and RNG first; the eager retry then starts from the same
+        # state. Seen signatures replay cached code and skip the copy.
+        snapshot = None if key in self._seen else _snapshot_state(self.spec.network, imgs)
         try:
             with _eager_backward_lowering():
-                return self._compiled(imgs)
+                flat = self._compiled(imgs)
         except torch._dynamo.exc.TorchDynamoException as exc:
-            # Raised while tracing or compiling a frame, before its kernels
-            # run. Frames compiled earlier in this call may already have
-            # run: their autograd graph is dropped, so the eager retry only
-            # repeats BatchNorm running-stat updates for this batch.
+            if snapshot is not None:
+                _restore_state(snapshot)
             self._disable(f"compilation failed: {type(exc).__name__}: {exc}")
             return None
+        self._seen.add(key)
+        return flat
+
+
+def _snapshot_state(network, imgs):
+    buffers = [(b, b.detach().clone()) for b in network.buffers()]
+    cuda_rng = torch.cuda.get_rng_state(imgs.device) if imgs.is_cuda else None
+    return buffers, torch.get_rng_state(), cuda_rng, imgs.device
+
+
+def _restore_state(snapshot) -> None:
+    buffers, cpu_rng, cuda_rng, device = snapshot
+    with torch.no_grad():
+        for buffer, saved in buffers:
+            buffer.copy_(saved)
+    torch.set_rng_state(cpu_rng)
+    if cuda_rng is not None:
+        torch.cuda.set_rng_state(cuda_rng, device)
 
 
 def build_train_compiler(trainer) -> TrainCompiler | None:

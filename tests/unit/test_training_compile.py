@@ -306,3 +306,35 @@ def test_compiler_fallback_hands_cuda_graph_to_the_capture_manager(monkeypatch):
     BaseTrainer._forward_train(host, torch.randn(2, 4), torch.randn(2, 3))
     assert host._train_compiler is None
     assert host._cuda_graph_manager is not None
+
+
+def test_failed_compile_restores_buffers_before_the_eager_retry(monkeypatch):
+    """A compile error after earlier frames ran must not double BatchNorm updates."""
+    model = nn.Sequential(nn.Linear(4, 3), nn.BatchNorm1d(3))
+    network = GraphableNetwork(model)
+    spec = CudaGraphTrainSpec(network=network, assemble=MagicMock())
+    before = model[1].running_mean.clone()
+
+    def partly_ran_then_failed(imgs):
+        network(imgs)  # an earlier compiled frame advanced BatchNorm stats
+        raise torch._dynamo.exc.TorchDynamoException("later frame failed")
+
+    monkeypatch.setattr(compile_mod.torch, "compile", lambda net, **kw: partly_ran_then_failed)
+    compiler = compile_mod.TrainCompiler("default", cuda_graph=False, accum_steps=1)
+    host = SimpleNamespace(compile_train_spec=lambda: spec, compile_dynamic=lambda: None)
+    assert compiler.run(host, torch.randn(5, 4)) is None
+    assert compiler.disabled
+    assert torch.equal(model[1].running_mean, before)
+
+
+def test_seen_signatures_skip_the_snapshot(monkeypatch):
+    model = _Toy()
+    host, _ = _toy_host(model)
+    monkeypatch.setattr(compile_mod.torch, "compile", lambda network, **kw: network)
+    snaps = []
+    real = compile_mod._snapshot_state
+    monkeypatch.setattr(compile_mod, "_snapshot_state", lambda *a: snaps.append(1) or real(*a))
+    compiler = compile_mod.TrainCompiler("default", cuda_graph=False, accum_steps=1)
+    for shape in ((2, 4), (2, 4), (3, 4), (2, 4)):
+        compiler.run(host, torch.randn(*shape))
+    assert len(snaps) == 2
