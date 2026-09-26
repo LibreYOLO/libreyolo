@@ -381,6 +381,14 @@ def train_cmd(
             "(single-GPU, supported families only; others run eager)"
         ),
     ),
+    compile: str = typer.Option(
+        "false",
+        help=(
+            "torch.compile the training network: true, false, default, "
+            "reduce-overhead, max-autotune, max-autotune-no-cudagraphs "
+            "(single CUDA GPU; other runs train eager with a warning)"
+        ),
+    ),
     pretrained: bool = typer.Option(True, help="Use pretrained weights"),
     lora: bool = typer.Option(
         False,
@@ -527,10 +535,14 @@ def train_cmd(
     # Parse tuple/list strings
     try:
         from libreyolo.utils.amp import normalize_amp_dtype
-        from libreyolo.training.config import validate_class_weighting
+        from libreyolo.training.config import (
+            normalize_compile,
+            validate_class_weighting,
+        )
 
         cls_pw = validate_class_weighting(cls_pw, class_weights)
         amp_dtype = normalize_amp_dtype(amp_dtype)
+        compile_val = normalize_compile(compile)
         from libreyolo.data.augment.classify import (
             normalize_auto_augment,
             normalize_crop_scale,
@@ -731,6 +743,7 @@ def train_cmd(
         "amp": amp,
         "amp_dtype": amp_dtype,
         "cuda_graph": cuda_graph,
+        "compile": compile_val,
         "lora": lora,
         "freeze": freeze_val,
         "optimizer": optimizer,
@@ -866,6 +879,7 @@ def train_cmd(
             "scheduler": params["scheduler"],
             "amp": params["amp"],
             "amp_dtype": params["amp_dtype"],
+            "compile": params["compile"],
             "max_det": params["max_det"],
             "class_balanced": params["class_balanced"],
             "class_weights": params["class_weights"],
@@ -903,6 +917,7 @@ def train_cmd(
                 "ema_decay": params["ema_decay"],
                 "amp": params["amp"],
                 "amp_dtype": params["amp_dtype"],
+                "compile": params["compile"],
                 "max_det": params["max_det"],
                 "save_period": params["save_period"],
                 "lora": params["lora"],

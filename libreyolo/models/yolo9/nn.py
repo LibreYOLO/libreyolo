@@ -1114,6 +1114,14 @@ class LibreYOLO9Model(nn.Module):
         self.aux_head.to(device)
         return self
 
+    def combine_aux_losses(self, main: dict, aux: dict) -> dict:
+        """Add the PGI auxiliary losses to the main ones at ``aux_weight``."""
+        combined = dict(main)
+        for key in ("total_loss", "box_loss", "dfl_loss", "cls_loss", "box", "dfl", "cls"):
+            if key in main and key in aux:
+                combined[key] = main[key] + self.aux_weight * aux[key]
+        return combined
+
     def forward(self, x, targets=None):
         """
         Forward pass through backbone, neck, and detection head.
@@ -1147,12 +1155,7 @@ class LibreYOLO9Model(nn.Module):
                 return main
             a3, a4, a5 = self.aux(p3, p4, b5)
             aux = self.aux_head([a3, a4, a5], targets=targets, img_size=img_size)
-            weight = self.aux_weight
-            combined = dict(main)
-            for key in ("total_loss", "box_loss", "dfl_loss", "cls_loss", "box", "dfl", "cls"):
-                if key in main and key in aux:
-                    combined[key] = main[key] + weight * aux[key]
-            return combined
+            return self.combine_aux_losses(main, aux)
 
         # Normal forward (training without targets or inference)
         output = self.head([n3, n4, n5])
