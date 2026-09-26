@@ -338,3 +338,19 @@ def test_seen_signatures_skip_the_snapshot(monkeypatch):
     for shape in ((2, 4), (2, 4), (3, 4), (2, 4)):
         compiler.run(host, torch.randn(*shape))
     assert len(snaps) == 2
+
+
+def test_dynamic_shape_compile_failure_suggests_static_shapes(monkeypatch, caplog):
+    """Multi-scale families compile with dynamic shapes; when a PyTorch build
+    cannot lower them the fallback must say how to compile instead."""
+    model = _Toy()
+    host, _ = _toy_host(model)
+    host.compile_dynamic = lambda: True
+    failing = MagicMock(side_effect=torch._dynamo.exc.TorchDynamoException("isIntList"))
+    monkeypatch.setattr(compile_mod.torch, "compile", lambda network, **kw: failing)
+    compiler = compile_mod.TrainCompiler("default", cuda_graph=False, accum_steps=1)
+    host._train_compiler = compiler
+    x, y = torch.randn(2, 4), torch.randn(2, 3)
+    with caplog.at_level(logging.WARNING):
+        BaseTrainer._forward_train(host, x, y)
+    assert compiler.disabled and "multi_scale=False" in caplog.text
