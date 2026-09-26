@@ -858,7 +858,7 @@ class LibreDINOv2(BaseModel):
             wrapper_model=self,
             data=data,
             epochs=epochs,
-            batch_size=resolved_batch,
+            batch=resolved_batch,
             lr0=resolved_lr0,
             imgsz=train_kwargs.pop("imgsz", self.input_size),
             size=self.size,

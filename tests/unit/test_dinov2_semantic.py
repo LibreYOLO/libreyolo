@@ -629,6 +629,25 @@ def test_dinov2_trainer_best_metric_key_matches_task(fake_backbone, task, key):
     assert trainer.best_metric_key == key
 
 
+@pytest.mark.parametrize("key", ["batch", "batch_size"])
+def test_dinov2_train_uses_requested_batch(fake_backbone, tmp_path, monkeypatch, key):
+    from libreyolo.models.dinov2.model import LibreDINOv2
+    from libreyolo.models.dinov2.trainer import DINOv2Trainer
+
+    captured = {}
+    monkeypatch.setattr(
+        DINOv2Trainer, "train", lambda self: captured.update(batch=self.config.batch) or {}
+    )
+    m = LibreDINOv2(model_path=None, size="n", task="semantic", nb_classes=2, device="cpu")
+    m.train(
+        data=str(_make_semantic_yaml(tmp_path)),
+        project=str(tmp_path / "runs"),
+        **{key: 3},
+    )
+
+    assert captured["batch"] == 3
+
+
 @pytest.mark.external_data
 @pytest.mark.network
 @pytest.mark.slow
