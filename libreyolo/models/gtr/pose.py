@@ -35,6 +35,10 @@ class GTRPoseDecoderLayer(PoseDeformableTransformerDecoderLayer):
     keys, which changes GTR's outputs.
     """
 
+    # GTR reassigns out of place in every mode, so unlike EdgeCrafter nothing
+    # leaks into the previous layer's features.
+    eval_pos_aliases_input = False
+
     def forward(
         self,
         tgt_pose,

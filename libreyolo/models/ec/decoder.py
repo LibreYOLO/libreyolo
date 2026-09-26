@@ -1543,7 +1543,20 @@ class PoseDeformableTransformerDecoderLayer(nn.Module):
     to each other inside an instance; across-instance self-attention lets
     keypoints at the same body-index attend across detected people; deformable
     cross-attention pulls features from the encoder memory.
+
+    Upstream EdgeCrafter adds the keypoint position embedding in place in eval
+    mode (``tensor[:, :, -np:] += pos``) and out of place in training. The
+    in-place add changes the layer input itself, so at inference the embedding
+    also reaches the within-instance value and residual, the gate input, and
+    the previous layer's keypoint features that the decoder reuses for
+    refinement. The released checkpoints were evaluated that way, so eval mode
+    reproduces it here without mutating tensors; training keeps upstream's
+    query/key-only form.
     """
+
+    # The decoder mirrors upstream's eval-mode aliasing of the layer input
+    # into the previous layer's refinement features (see class docstring).
+    eval_pos_aliases_input = True
 
     def __init__(
         self,
@@ -1582,10 +1595,9 @@ class PoseDeformableTransformerDecoderLayer(nn.Module):
     @staticmethod
     def with_pos_embed(tensor, pos):
         # Add the positional embedding to the trailing (keypoint) tokens only,
-        # leaving the leading instance token untouched. Done out-of-place: an
-        # in-place slice-assign here corrupts autograd in training (the input is
-        # reused for the residual connection); values are identical to the
-        # in-place form, so inference parity is preserved.
+        # leaving the leading instance token untouched. Always out of place;
+        # eval-mode callers reassign the result to match upstream's in-place
+        # add (see class docstring).
         if pos is None:
             return tensor
         np_ = pos.shape[2]
@@ -1608,7 +1620,10 @@ class PoseDeformableTransformerDecoderLayer(nn.Module):
         bs, nq, num_kpt, d_model = tgt_pose.shape
 
         # within-instance self-attention
-        q = k = self.with_pos_embed(tgt_pose, tgt_pose_query_pos).flatten(0, 1)
+        pos_tgt = self.with_pos_embed(tgt_pose, tgt_pose_query_pos)
+        if not self.training:
+            tgt_pose = pos_tgt
+        q = k = pos_tgt.flatten(0, 1)
         tgt2 = self.within_attn(q, k, tgt_pose.flatten(0, 1))[0].reshape(
             bs, nq, num_kpt, d_model
         )
@@ -1625,8 +1640,11 @@ class PoseDeformableTransformerDecoderLayer(nn.Module):
         tgt_pose = tgt_pose.reshape(bs, num_kpt, nq, d_model).transpose(1, 2)
 
         # deformable cross-attention
+        pos_tgt = self.with_pos_embed(tgt_pose, tgt_pose_query_pos)
+        if not self.training:
+            tgt_pose = pos_tgt
         tgt2_pose = self.cross_attn(
-            self.with_pos_embed(tgt_pose, tgt_pose_query_pos).flatten(1, 2),
+            pos_tgt.flatten(1, 2),
             tgt_pose_reference_points,
             memory,
             memory_spatial_shapes,
@@ -1710,6 +1728,14 @@ class PoseTransformerDecoder(nn.Module):
             refpoint_only_pose = refpoint_pose[:, :, 1:]
             pose_query_sine = self._sine_embedding(refpoint_only_pose)
             pose_query_pos = self.half_pose_ref_point_head(pose_query_sine)
+            if (
+                not self.training
+                and layer_id > 0
+                and getattr(layer, "eval_pos_aliases_input", False)
+            ):
+                # Upstream's in-place eval add to this layer's input also lands
+                # in the previous layer's keypoint features reused below.
+                output_pose_detach = output_pose_detach + pose_query_pos
 
             output = layer(
                 tgt_pose=output,
