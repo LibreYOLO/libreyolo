@@ -5,7 +5,8 @@ License: MIT (LICENSE in this directory)
 Copyright (c) 2026 Intellindust-AI-Lab / The GTR Authors.
 
 Ported backbone, spatial SwiGLU, feature projector, decoder, matching, loss,
-scheduler, Mosaic and batch MixUp in libreyolo/models/gtr/.
+scheduler, Mosaic, batch MixUp and the GTRSeg instance-segmentation model
+(configs/seg) in libreyolo/models/gtr/.
 Modified for native LibreYOLO construction, portable attention, local imports,
 strict checkpoints, and validation loss output/normalization.
 

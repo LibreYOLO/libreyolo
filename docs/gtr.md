@@ -75,6 +75,51 @@ exports as an ONNX Loop rather than an unrolled graph.
 GTR-S at 640px exports in about 2.2 seconds locally with 4,094 graph nodes.
 This is export usability evidence, not a GPU deployment-speed benchmark.
 
+## Instance segmentation
+
+`task="segment"` loads the upstream GTRSeg model: the detector plus a per-query
+mask head fed by the highest-resolution encoder level
+(`configs/seg/coco_seg_finetune`). Canonical names are
+`LibreGTR{s,m,l,x}-seg.pt`, converted from `seg/gtrseg_{s,m,l,x}_coco.pth` in
+the same MIT weight repository with EMA tensors unchanged; the raw upstream
+files also auto-convert. Masks come out as logits at a quarter of the input
+resolution and are thresholded at zero after bilinear upsampling, as upstream.
+
+```python
+model = LibreYOLO("LibreGTRs-seg.pt")
+results = model.predict("image.jpg")  # results.masks
+model.train(data="dataset.yaml", epochs=30)  # YOLO polygon labels
+```
+
+Training reuses the EC segmentation data path (square resize, polygon
+rasterization, ImageNet normalization) with the GTR recipe: grouped matching,
+MAL/box/FGL/DDF losses plus point-sampled mask BCE and Dice (weights from
+`gtrseg_base.yml`), the GTR schedule and backbone LR multipliers. Mosaic and
+MixUp are not applied to segmentation. `lora=True` works as for detection and
+keeps the mask head trainable. Upstream initializes segmentation from the whole
+COCO detector; the same start is available as an explicit transfer,
+`LibreGTR("LibreGTRs.pt", size="s", task="segment",
+allow_detect_to_segment_transfer=True)` or
+`libreyolo train model=LibreGTRs.pt task=segment ...`, and the mask head then
+starts untrained. ONNX and TorchScript export the raw logits, boxes and mask
+logits with the same fixed-shape FP32 constraints as detection.
+
+Segmentation evidence:
+
+- All four checkpoints convert with identical tensors and load strictly. At
+  640px on CPU they match the pinned upstream GTRSeg graph exactly
+  (logits, boxes and mask logits, maximum absolute difference 0) with the same
+  portable operator substitutes as the detection check.
+- GTR-S on a 200-image COCO val2017 subset (the coco1000 validation split,
+  polygons from `instances_val2017.json`, one polygon per instance, crowd
+  regions excluded): box mAP50-95 0.545, mask mAP50-95 0.493, mask mAP50
+  0.698. Upstream reports mask AP 45.0 and AP50 67.9 on full val2017. This is
+  a subset sanity check, not a reproduction.
+- GTR-S ONNX and TorchScript exports reproduce PyTorch predictions on a COCO
+  image (same classes, score difference below 3e-6, mask IoU 1.0).
+- CPU segment training runs end to end, including LoRA and the CLI
+  detect-to-segment transfer.
+
 ## Validation evidence
 
 - All four real EMA checkpoints strictly load without missing learned tensors.

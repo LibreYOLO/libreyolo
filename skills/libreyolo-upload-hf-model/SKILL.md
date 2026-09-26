@@ -253,6 +253,10 @@ LibreECs-pose.pt, LibreECm-pose.pt, LibreECl-pose.pt,
 LibreECx-pose.pt, LibreECs-seg.pt, LibreECm-seg.pt,
 LibreECl-seg.pt, LibreECx-seg.pt,
 
+LibreGTRs.pt, LibreGTRm.pt, LibreGTRl.pt, LibreGTRx.pt,
+LibreGTRs-seg.pt, LibreGTRm-seg.pt, LibreGTRl-seg.pt,
+LibreGTRx-seg.pt,
+
 LibreMobileNetV4s-cls.pt, LibreMobileNetV4m-cls.pt,
 LibreMobileNetV4l-cls.pt,
 
