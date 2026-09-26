@@ -960,3 +960,47 @@ These weight terms are separate from LibreYOLO's MIT source-code license.
 The August 20 replacement is commit e0656d44b80ecb97ba96bb8a804a741169431e0f;
 August 24 commit 124cb0922ebe4af55c025af448312c2374210815 only renamed the file.
 See docs/provenance/edgecrafter.md for links and the chronology.
+
+GTR detection and pose (s/m/l/x)
+Upstream: https://huggingface.co/Phoenix8125/GTR
+Code: https://github.com/Intellindust-AI-Lab/GTR
+The upstream model card explicitly declares MIT for the published weights.
+COCO detection checkpoints use Objects365 pretraining. Conversion selects EMA
+parameters and adds LibreYOLO metadata without changing learned tensors.
+Converted checkpoints: LibreYOLO/LibreGTRs, LibreYOLO/LibreGTRm,
+LibreYOLO/LibreGTRl and LibreYOLO/LibreGTRx. COCO keypoint checkpoints from
+pose/ in the same upstream repository are LibreYOLO/LibreGTR{s,m,l,x}-pose.
+Download revisions are pinned in libreyolo/models/gtr/model.py.
+
+Instance segmentation (seg/gtrseg_{s,m,l,x}_coco.pth, same repository and
+MIT grant, EMA tensors unchanged): LibreYOLO/LibreGTR{s,m,l,x}-seg, with
+revisions pinned in LibreGTR.HF_TASK_REVISIONS.
+
+GTR oriented boxes (s/x)
+Upstream: https://huggingface.co/Phoenix8125/GTR (obb/gtrobb_{s,x}_dota.pth)
+Code: https://github.com/Intellindust-AI-Lab/GTR
+The upstream model card explicitly declares MIT for the published weights.
+The checkpoints are fine-tuned on DOTA v1.0. Conversion selects EMA parameters and adds
+LibreYOLO metadata without changing learned tensors. Converted checkpoints:
+LibreYOLO/LibreGTRs-obb and LibreYOLO/LibreGTRx-obb. Download revisions are
+listed in HF_TASK_REVISIONS in libreyolo/models/gtr/model.py.
+
+GTR depth (s/m/l/x)
+Upstream: https://huggingface.co/Phoenix8125/GTR (depth/gtrdepth_{s,m,l,x}.pth)
+Code: https://github.com/Intellindust-AI-Lab/GTR
+The upstream model card explicitly declares MIT for the published weights.
+The checkpoints were pretrained on a mixed metric-depth corpus (SUN RGB-D,
+DIODE, Virtual KITTI 2, KITTI, Hypersim, TartanAir, ARKitScenes and ImageNet
+pseudo-labels). Conversion selects EMA
+parameters and adds LibreYOLO metadata without changing learned tensors.
+Converted checkpoints: LibreYOLO/LibreGTRs-depth, LibreYOLO/LibreGTRm-depth,
+LibreYOLO/LibreGTRl-depth and LibreYOLO/LibreGTRx-depth.
+
+GTR semantic segmentation (s/m/l/x, Cityscapes)
+Upstream: https://huggingface.co/Phoenix8125/GTR (semseg/gtrsemseg_*_cityscapes.pth)
+Code: https://github.com/Intellindust-AI-Lab/GTR
+The upstream model card explicitly declares MIT for the published weights.
+The checkpoints are fine-tuned on Cityscapes. Conversion (weights/convert_gtr_sem_weights.py) selects EMA parameters and adds
+LibreYOLO metadata without changing learned tensors.
+Converted checkpoints: LibreYOLO/LibreGTR{s,m,l,x}-sem. Download revisions are
+listed in LibreGTR.HF_TASK_REVISIONS.

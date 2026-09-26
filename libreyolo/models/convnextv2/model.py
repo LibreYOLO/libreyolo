@@ -146,7 +146,7 @@ class LibreConvNeXtV2(LibreConvNeXt):
         )
 
     @classmethod
-    def default_checkpoint_names(cls, nc):
+    def default_checkpoint_names(cls, nc, task=None):
         if nc == 1000:
             from ...data.imagenet import imagenet1k_names
 

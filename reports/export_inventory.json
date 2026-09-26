@@ -997,6 +997,94 @@
     "available": true,
     "group": "s"
   },
+  "gtr": {
+    "class": "libreyolo.models.gtr.model.LibreGTR",
+    "tasks": [
+      "detect",
+      "segment",
+      "pose",
+      "obb",
+      "depth",
+      "semantic"
+    ],
+    "default_task": "detect",
+    "sizes": {
+      "s": [
+        1024,
+        2048
+      ],
+      "m": [
+        1024,
+        2048
+      ],
+      "l": [
+        1024,
+        2048
+      ],
+      "x": [
+        1024,
+        2048
+      ]
+    },
+    "default_imgsz": {
+      "s": 640,
+      "m": 640,
+      "l": 640,
+      "x": 640
+    },
+    "task_sizes": {
+      "detect": {
+        "s": 640,
+        "m": 640,
+        "l": 640,
+        "x": 640
+      },
+      "segment": {
+        "s": 640,
+        "m": 640,
+        "l": 640,
+        "x": 640
+      },
+      "pose": {
+        "s": 640,
+        "m": 640,
+        "l": 640,
+        "x": 640
+      },
+      "obb": {
+        "s": 1024,
+        "x": 1024
+      },
+      "depth": {
+        "s": 640,
+        "m": 640,
+        "l": 640,
+        "x": 640
+      },
+      "semantic": {
+        "s": [
+          1024,
+          2048
+        ],
+        "m": [
+          1024,
+          2048
+        ],
+        "l": [
+          1024,
+          2048
+        ],
+        "x": [
+          1024,
+          2048
+        ]
+      }
+    },
+    "export_override": "custom",
+    "optional_extra": null,
+    "available": true,
+    "group": "g1"
+  },
   "hrnet": {
     "class": "libreyolo.models.hrnet.model.LibreHRNet",
     "tasks": [

@@ -84,6 +84,7 @@ FAMILY_DISPLAY_NAMES: Dict[str, str] = {
     "rtdetrv2": "RT-DETRv2",
     "rtdetrv4": "RT-DETRv4",
     "dfine": "D-FINE",
+    "gtr": "GTR",
     "domedetr": "Dome-DETR",
     "deim": "DEIM",
     "deimv2": "DEIMv2",
@@ -256,6 +257,17 @@ FAMILY_AUG_SUPPORT: Dict[str, Dict[str, Support]] = {
     },
     # --- DETR-style pass-through pipelines ------------------------------
     "dfine": dict(_DETR_STYLE),
+    "gtr": {
+        **_DETR_STYLE,
+        "mosaic_prob": _u("Upstream cached Mosaic for the first mosaic_epochs epochs."),
+        "mixup_prob": _u("Upstream batch MixUp for the first mosaic_epochs epochs."),
+        "degrees": _u("Rotation of the post-Mosaic affine; OBB: random rotation range."),
+        "translate": _u("Translation of the post-Mosaic affine."),
+        "mosaic_scale": _u("Scale range of the post-Mosaic affine."),
+        "mixup_scale": _i("Batch MixUp blends at a fixed 0.45-0.55 ratio without rescaling."),
+        "no_aug_epochs": _u("Stops strong augmentations and controls the final LR plateau."),
+        "flip_prob": _u("Horizontal flip; OBB: one horizontal, vertical or diagonal flip."),
+    },
     # Dome-DETR inherits DFINETrainer.create_transforms unchanged, so its
     # knob support is D-FINE's. Multi-scale is the one thing it cannot
     # take (MWAS needs the stride-8 map divisible by the window size), and

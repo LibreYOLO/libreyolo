@@ -56,6 +56,8 @@ from .rtdetrv4.model import LibreRTDETRv4  # noqa: E402  (must precede LibreDFIN
 from .domedetr.model import LibreDOMEDETR  # noqa: E402  (D-FINE derivative; routing is enforced by can_load on encoder.DeFE. in both directions, not by this line — importing it pulls in models.dfine first, so it registers *after* LibreDFINE regardless of position here)
 from .dfine.model import LibreDFINE  # noqa: E402
 from .deim.model import LibreDEIM  # noqa: E402
+# GTR subclasses D-FINE; import after its existing siblings to preserve registry order.
+from .gtr.model import LibreGTR  # noqa: E402
 
 # Vanilla DETR uses a unique top-level query embedding plus packed PyTorch
 # cross-attention weights. Register it before descendants with broader DETR
@@ -872,6 +874,7 @@ __all__ = [
     "LibreDeformableDETR",
     "LibreDINODETR",
     "LibreEC",
+    "LibreGTR",
     "LibrePICODET",
     "LibreRTMDet",
     "LibreYOLO3",

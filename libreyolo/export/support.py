@@ -68,6 +68,46 @@ def _add(
         SUPPORT[key] = entry
 
 
+_add("available", ("gtr",), ("detect", "pose"), ("onnx", "torchscript"),
+     reason="Portable gated recurrence with fixed input resolution.",
+     constraint="FP32; static square input; no custom CUDA plugin")
+
+_add("blocked", ("gtr",), ("detect", "pose"),
+     tuple(fmt for fmt in EXPORT_FORMATS if fmt not in ("onnx", "torchscript")),
+     reason="GTR currently implements only portable ONNX and TorchScript export.")
+
+_add("available", ("gtr",), ("obb",), ("onnx", "torchscript"),
+     reason="Portable gated recurrence with fixed 1024px input; NMS-free rotated boxes.",
+     constraint="FP32; static square input; no custom CUDA plugin")
+
+_add("blocked", ("gtr",), ("obb",),
+     tuple(fmt for fmt in EXPORT_FORMATS if fmt not in ("onnx", "torchscript")),
+     reason="GTR currently implements only portable ONNX and TorchScript export.")
+
+_add("available", ("gtr",), ("depth",), ("onnx", "torchscript"),
+     reason="Portable gated recurrence emitting a fixed-canvas inverse-depth map.",
+     constraint="FP32; static square input; batch 1; no custom CUDA plugin")
+
+_add("blocked", ("gtr",), ("depth",),
+     tuple(fmt for fmt in EXPORT_FORMATS if fmt not in ("onnx", "torchscript")),
+     reason="GTR currently implements only portable ONNX and TorchScript export.")
+
+_add("available", ("gtr",), ("semantic",), ("onnx", "torchscript"),
+     reason="Portable gated recurrence; the graph slides 1024px windows over a fixed canvas.",
+     constraint="FP32; static 1024x2048 canvas; images are letterboxed into it")
+
+_add("blocked", ("gtr",), ("semantic",),
+     tuple(fmt for fmt in EXPORT_FORMATS if fmt not in ("onnx", "torchscript")),
+     reason="GTR currently implements only portable ONNX and TorchScript export.")
+
+_add("available", ("gtr",), ("segment",), ("onnx", "torchscript"),
+     reason="Portable gated recurrence with fixed input resolution; raw mask logits.",
+     constraint="FP32; static square input; no custom CUDA plugin")
+
+_add("blocked", ("gtr",), ("segment",),
+     tuple(fmt for fmt in EXPORT_FORMATS if fmt not in ("onnx", "torchscript")),
+     reason="GTR currently implements only portable ONNX and TorchScript export.")
+
 # Existing parity-backed paths. New validated rows must land with a parity test.
 _add(
     "validated",

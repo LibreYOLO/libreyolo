@@ -256,6 +256,15 @@ before 1.4.0 are documented in the
   Training now also takes the head size and class names from the video dataset,
   as the image classifiers do, so a fine-tuned checkpoint names its classes.
 
+- **EC pose keypoints now match upstream EdgeCrafter.** Upstream adds the
+  keypoint position embedding in place at inference, so it also reaches the
+  attention value, residual, gate input and the previous decoder layer's
+  refinement features; LibreYOLO added it to queries and keys only. The
+  released checkpoints now reproduce the upstream decoder to float rounding
+  (it was off by up to 2.1 in logits), and coco8-pose keypoint mAP50-95 goes
+  from 0.186 to 0.813 (S) and from 0.438 to 0.818 (M). Training keeps
+  upstream's query/key-only form.
+
 - **RF-DETR custom pose checkpoint loading (#874).** Rebuilt GroupPose
   attention masks stay on the decoder's device, preventing device mismatches
   after keypoint schema changes. Custom pose class names are preserved from

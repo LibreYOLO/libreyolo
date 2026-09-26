@@ -465,6 +465,10 @@ def reset_gpu_state():
 
 # (family, size, weights)
 MODEL_CATALOG = [
+    ("gtr", "s", "LibreGTRs.pt"),
+    ("gtr", "m", "LibreGTRm.pt"),
+    ("gtr", "l", "LibreGTRl.pt"),
+    ("gtr", "x", "LibreGTRx.pt"),
     ("yolox", "n", "LibreYOLOXn.pt"),
     ("yolox", "t", "LibreYOLOXt.pt"),
     ("yolox", "s", "LibreYOLOXs.pt"),
@@ -583,6 +587,7 @@ FLAGSHIP_FAMILIES = {"yolo9", "rfdetr"}
 # it has no plain-HTTP route, so a skip-means-failure gate cannot provision it.
 # Gaze inference stays covered by the non-gated per-family L2CS suite.
 GENERAL_NIGHTLY_INFERENCE_MODELS = [
+    ("gtr", "s", "LibreGTRs.pt"),
     ("yolox", "n", "LibreYOLOXn.pt"),
     ("yolo9", "t", "LibreYOLO9t.pt"),
     ("yolo9_e2e", "t", "LibreYOLO9E2Et.pt"),
@@ -766,6 +771,7 @@ FAMILY_MARKERS = {
     "deimv2": pytest.mark.deimv2,
     "tinyformer": pytest.mark.tinyformer,
     "ec": pytest.mark.ec,
+    "gtr": pytest.mark.gtr,
     "rtdetr": pytest.mark.rtdetr,
     "rtdetrv2": pytest.mark.rtdetrv2,
     "rtdetrv4": pytest.mark.rtdetrv4,

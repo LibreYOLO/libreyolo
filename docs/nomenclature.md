@@ -225,6 +225,7 @@ ships:
 | `rtdetr`    | `r18`, `r34`, `r50`, `r50m`, `r101`, `l`, `x` |
 | `rtdetrv2`  | detect: `r18`, `r34`, `r50`, `r50m`, `r101`; OBB: `n`, `s`, `m`, `l`, `x` (fixed 1024) |
 | `rtdetrv4`  | `s`, `m`, `l`, `x` |
+| `gtr`       | detect, segment, pose, depth: `s`, `m`, `l`, `x` (640); semantic: `s`, `m`, `l`, `x` (1024x2048 canvas); OBB: `s`, `x` (fixed 1024) |
 | `rtmdet`    | `t`, `s`, `m`, `l`, `x` |
 | `rfdetr`    | `n`, `s`, `m`, `l` |
 | `lwdetr`    | `t`, `s`, `m`, `l`, `x` (upstream tiny / small / medium / large / xlarge; all at 640, which must stay a multiple of 64) |
@@ -515,6 +516,7 @@ Detector-factory family support follows:
 | `dfine`     | `("detect", "segment")`             | detect | segment uses the D-FINE-seg mask head; same sizes as detect; COCO `-seg` weights on HF (detect-to-segment fine-tune needs an explicit transfer flag) |
 | `deim`      | `("detect",)` (default)             | detect | detect-only |
 | `deimv2`    | `("detect",)` (default)             | detect | detect-only |
+| `gtr`       | `("detect", "segment", "pose", "obb", "depth", "semantic")` | detect | all tasks trainable; segment adds the GTRSeg mask head, pose is COCO 17-keypoint person, OBB uses the upstream DOTA v1.0 class order with `s`/`x` only, depth returns inverse depth, semantic is Cityscapes 19-class |
 | `tinyformer` | `("detect",)`                      | detect | detect-only; dataset-variant weights `-visdrone` (nc=10) and `-obj2coco` |
 | `detr`      | `("detect",)`                       | detect | original DETR; inference-only (no trainer, `train()` raises); fixed 800 square |
 | `rtdetr`    | `("detect",)` (default)             | detect | detect-only |
@@ -685,6 +687,12 @@ LibrePPLiteSegt50-sem.pt   # STDC1 backbone, Cityscapes 19-class, 512x1024
 LibrePPLiteSegb50-sem.pt   # STDC2 backbone, Cityscapes 19-class, 512x1024
 LibrePPLiteSegt75-sem.pt   # STDC1 backbone, Cityscapes 19-class, 768x1536
 LibrePPLiteSegb75-sem.pt   # STDC2 backbone, Cityscapes 19-class, 768x1536
+
+# gtr - GTR semantic segmentation, 1024px windows over a native 1024x2048 canvas
+LibreGTRs-sem.pt           # GTR-S, Cityscapes 19-class semantic
+LibreGTRm-sem.pt           # GTR-M, Cityscapes 19-class semantic
+LibreGTRl-sem.pt           # GTR-L, Cityscapes 19-class semantic
+LibreGTRx-sem.pt           # GTR-X, Cityscapes 19-class semantic
 
 # unet - encoder-decoder semantic segmentation on a native 1024x2048 canvas
 LibreUNets-sem.pt          # UNet-S5-D16 + FCN head, Cityscapes 19-class, 1024x2048
@@ -1082,3 +1090,28 @@ non-commercial under nuScenes terms and are announced by a download notice.
 This raw upstream checkpoint is not converted and is not registered in the
 generic state-dict factory. See
 [ADR 0023](adr/0023-fcos3d-inference.md) for API and evidence.
+
+## GTR
+
+Family `gtr`, class `LibreGTR`, sizes `s`, `m`, `l`, `x`, tasks `detect`
+(default), `segment`, `pose`, `obb`, `depth` and `semantic`. Canonical
+checkpoint names are `LibreGTR{s,m,l,x}.pt`, `LibreGTR{s,m,l,x}-seg.pt` and
+`LibreGTR{s,m,l,x}-pose.pt`. Upstream detection, segmentation and pose `.pth`
+files auto-convert using EMA parameters. Pose is COCO person-only with 17
+keypoints. See [GTR validation evidence](gtr.md).
+
+Task `obb` uses sizes `s` and `x` (the only published DOTA weights) with
+canonical names `LibreGTR{s,x}-obb.pt`; upstream `gtrobb_{s,x}_dota.pth` files
+auto-convert the same way.
+
+GTR depth: task `depth`, sizes `s`, `m`, `l`, `x`, canonical checkpoint names
+`LibreGTR{s,m,l,x}-depth.pt` (the `-depth` suffix is required; there is no
+depth checkpoint under the bare name). `Results.depth_map` is relative inverse
+depth per ADR 0006: the reciprocal of the upstream log-depth head's metre
+output, so `1 / depth_map` recovers upstream's metre estimate for cameras like
+its training ones. Predict, zero-shot `val`, fixed-resolution ONNX/TorchScript
+export and SILog fine-tuning are supported.
+
+GTR semantic segmentation (`task="semantic"`, suffix `-sem`) uses the same
+class and sizes: `LibreGTR{s,m,l,x}-sem.pt`, Cityscapes 19-class, native
+1024x2048 canvas with 1024px sliding windows.

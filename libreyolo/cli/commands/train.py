@@ -36,6 +36,7 @@ _LORA_TRAIN_FAMILIES = {
     "rtdetrv2",
     "rtdetrv4",
     "ec",
+    "gtr",
     "convnext",
 }
 
@@ -101,13 +102,15 @@ def _create_explicit_task_train_model(
                 **scratch_kwargs,
             )
 
-    if family not in {"yolo9", "rfdetr", "dfine"} or resume:
+    if family not in {"yolo9", "rfdetr", "dfine", "gtr"} or resume:
         return None
 
     if family == "yolo9":
         from libreyolo.models.yolo9.model import LibreYOLO9 as model_cls
     elif family == "dfine":
         from libreyolo.models.dfine.model import LibreDFINE as model_cls
+    elif family == "gtr":
+        from libreyolo.models.gtr.model import LibreGTR as model_cls
     else:
         from libreyolo.models.rfdetr.model import LibreRFDETR as model_cls
 
@@ -115,7 +118,7 @@ def _create_explicit_task_train_model(
     train_task = normalize_task(task) if task is not None else filename_task
     if train_task is None:
         return None
-    if family == "dfine" and train_task != "segment":
+    if family in ("dfine", "gtr") and train_task != "segment":
         return None
     if task is None and filename_task == train_task and _model_ref_exists(model_path):
         return None
@@ -123,7 +126,7 @@ def _create_explicit_task_train_model(
     size = model_cls.detect_size_from_filename(Path(model_path).name)
     if size is None:
         return None
-    if family == "dfine" and train_task == "segment":
+    if family in ("dfine", "gtr") and train_task == "segment":
         if not _model_ref_exists(model_path):
             # Published weights (LibreDFINEn-seg.pt or a detect checkpoint used
             # as transfer source) must auto-download here; falling through to
@@ -228,16 +231,19 @@ def _create_dfine_segment_from_loaded_detect_model(
     model_path: str,
     device: str,
 ):
-    """Switch an already-loaded D-FINE detect checkpoint to the segment architecture."""
-    if (
-        get_loaded_model_family(loaded_model) != "dfine"
-        or getattr(loaded_model, "task", "detect") != "detect"
-    ):
+    """Switch an already-loaded D-FINE/GTR detect checkpoint to the segment architecture."""
+    family = get_loaded_model_family(loaded_model)
+    if family not in ("dfine", "gtr"):
+        return None
+    if getattr(loaded_model, "task", "detect") != "detect":
         return None
 
-    from libreyolo.models.dfine.model import LibreDFINE
+    if family == "gtr":
+        from libreyolo.models.gtr.model import LibreGTR as model_cls
+    else:
+        from libreyolo.models.dfine.model import LibreDFINE as model_cls
 
-    return LibreDFINE(
+    return model_cls(
         model_path,
         size=getattr(loaded_model, "size", None),
         task="segment",
@@ -810,7 +816,7 @@ def train_cmd(
             f"LoRA fine-tuning (lora=True) is not supported for {family}.",
             suggestion=(
                 "Use a supported family (RF-DETR, D-FINE, DEIM, DEIMv2, "
-                "RT-DETR v1/v2/v4, EC, ConvNeXt) or remove --lora."
+                "RT-DETR v1/v2/v4, EC, GTR, ConvNeXt) or remove --lora."
             ),
         )
 

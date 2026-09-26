@@ -160,6 +160,18 @@ _RECTANGULAR_BACKEND_FAMILIES = {
     "quicksrnet",
 }
 
+# (family, task) pairs with a rectangular runtime canvas although the family's
+# other tasks are square. GTR semantic slides square windows over 1024x2048.
+_RECTANGULAR_BACKEND_TASKS = {("gtr", "semantic")}
+
+
+def _allows_rectangular_backend(model_family, task=None) -> bool:
+    family = (model_family or "").lower()
+    return family in _RECTANGULAR_BACKEND_FAMILIES or (
+        family,
+        task,
+    ) in _RECTANGULAR_BACKEND_TASKS
+
 # Real-ESRGAN integer upscale factor per size, used by scale-aware restore decode.
 _REALESRGAN_BACKEND_SCALE = {"x4": 4, "x2": 2, "x4t": 4}
 _SWINIR_BACKEND_SCALE = {"s": 4, "m": 4, "l": 4}
@@ -228,9 +240,8 @@ def _read_metadata_imgsz(
             raise MetadataImageSizeError(
                 f"{artifact} has invalid imgsz_h/imgsz_w metadata."
             ) from e
-        if (
-            _is_rectangular_imgsz(imgsz)
-            and (model_family or "").lower() not in _RECTANGULAR_BACKEND_FAMILIES
+        if _is_rectangular_imgsz(imgsz) and not _allows_rectangular_backend(
+            model_family, meta.get("task")
         ):
             raise NotImplementedError(
                 "Rectangular exported-backend inference is currently supported "
@@ -364,6 +375,7 @@ def _is_nms_free_family(model_family: Optional[str]) -> bool:
         "detr",
         "dinodetr",
         "dfine",
+        "gtr",
         "domedetr",
         "deim",
         "deimv2",
@@ -763,7 +775,13 @@ class BaseBackend(ABC):
                 image, effective_imgsz, color_format, self.model_size
             )
             return tensor, img, size, 1.0
-        elif self.model_family == "tinyformer":
+        elif self.model_family in ("tinyformer", "gtr"):
+            if self.model_family == "gtr" and self.task == "obb":
+                from ..models.gtr.obb import preprocess_obb_image
+
+                return preprocess_obb_image(
+                    image, _imgsz_hw(effective_imgsz), color_format
+                )
             tensor, img, size = self._preprocess_tinyformer(
                 image, effective_imgsz, color_format
             )
@@ -878,7 +896,8 @@ class BaseBackend(ABC):
             from ..models.pidnet.model import preprocess_numpy
 
             chw, ratio = preprocess_numpy(arr, (input_h, input_w))
-        elif self.model_family == "segformer":
+        elif self.model_family in ("segformer", "gtr"):
+            # GTR semantic shares the dense-dataset letterbox geometry.
             from ..models.segformer.model import preprocess_numpy
 
             chw, ratio = preprocess_numpy(arr, (input_h, input_w))
@@ -1519,7 +1538,25 @@ class BaseBackend(ABC):
                 all_outputs, orig_w, orig_h, conf, max_det=max_det
             )
             return boxes, scores, cls, None
-        elif self.model_family == "tinyformer":
+        elif self.model_family in ("tinyformer", "gtr"):
+            if self.model_family == "gtr" and self.task == "pose":
+                return self._parse_ec_pose(
+                    all_outputs, orig_w, orig_h, conf, max_det=max_det
+                )
+            if self.model_family == "gtr" and self.task == "segment":
+                # Same head and logit-threshold decode as EC seg.
+                return self._parse_ec_segment(
+                    all_outputs, orig_w, orig_h, conf, max_det=max_det
+                )
+            if self.model_family == "gtr" and self.task == "obb":
+                return self._parse_rtdetr_obb(
+                    all_outputs,
+                    effective_imgsz,
+                    orig_w,
+                    orig_h,
+                    conf,
+                    max_det=max_det,
+                )
             boxes, scores, cls = self._parse_dfine(
                 all_outputs, orig_w, orig_h, conf, max_det=max_det
             )
@@ -3768,7 +3805,7 @@ class BaseBackend(ABC):
         orig_w, orig_h = original_size
         logits_t = torch.from_numpy(np.ascontiguousarray(logits))
         align_corners = False
-        if self.model_family in {"pidnet", "segformer"}:
+        if self.model_family in {"pidnet", "segformer", "gtr"}:
             input_h, input_w = _imgsz_hw(effective_imgsz)
             scale_y = logits_t.shape[-2] / input_h
             scale_x = logits_t.shape[-1] / input_w
@@ -4177,7 +4214,12 @@ class BaseBackend(ABC):
             )
             return preprocessor_cls(img_size=_imgsz_hw(img_size))
 
-        if self.model_family == "tinyformer":
+        if self.model_family == "gtr" and self.task == "obb":
+            from ..models.gtr.obb import GTROBBValPreprocessor
+
+            return GTROBBValPreprocessor(img_size=_imgsz_hw(img_size))
+
+        if self.model_family in ("tinyformer", "gtr"):
             return DEIMv2DINOValPreprocessor(img_size=_imgsz_hw(img_size))
 
         preprocessor_cls = {
@@ -4211,9 +4253,8 @@ class BaseBackend(ABC):
 
     def _resolve_predict_imgsz(self, imgsz: ImageSize | None = None) -> ImageSize:
         effective = _normalize_imgsz(imgsz if imgsz is not None else self.imgsz)
-        if (
-            _is_rectangular_imgsz(effective)
-            and (self.model_family or "").lower() not in _RECTANGULAR_BACKEND_FAMILIES
+        if _is_rectangular_imgsz(effective) and not _allows_rectangular_backend(
+            self.model_family, getattr(self, "task", None)
         ):
             raise NotImplementedError(
                 "Rectangular imgsz backend inference is currently supported "

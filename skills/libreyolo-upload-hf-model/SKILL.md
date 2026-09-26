@@ -102,6 +102,7 @@ file = name + ".pt"
 | DepthAnythingV2 | `LibreDepthAnythingV2` | `LibreDepthAnythingV2s-depth.pt` (only `s` is Apache; b/l/g are CC-BY-NC, see below) |
 | DepthAnything3 | `LibreDepthAnything3` | `LibreDepthAnything3l-depth.pt` (DA3MONO-LARGE; Apache-2.0) |
 | ZipDepth | `LibreZipDepth` | `LibreZipDepthb-depth.pt` (MIT code + weights; `bnpu` is the NPU-decoder checkpoint) |
+| GTR | `LibreGTR` | `LibreGTRs.pt`, `LibreGTRs-depth.pt` (MIT code + weights; depth repos pin revisions per (size, task) in `LibreGTR.HF_TASK_REVISIONS`) |
 | FOMO | `LibreFOMO` | `LibreFOMOs-point.pt` (no weights hosted yet; license-gate first) |
 
 Never-upload families: **L2CS** (Gaze360 terms forbid redistribution) and any
@@ -248,10 +249,19 @@ LibreDeformableDETRr50twostage.pt,
 LibreDINODETRr50.pt, LibreDINODETRr50s5.pt,
 LibreDINODETRswinl.pt,
 
+LibreGTRs.pt, LibreGTRm.pt, LibreGTRl.pt, LibreGTRx.pt,
+LibreGTRs-obb.pt, LibreGTRx-obb.pt,
+
 LibreECs.pt, LibreECm.pt, LibreECl.pt, LibreECx.pt,
 LibreECs-pose.pt, LibreECm-pose.pt, LibreECl-pose.pt,
 LibreECx-pose.pt, LibreECs-seg.pt, LibreECm-seg.pt,
 LibreECl-seg.pt, LibreECx-seg.pt,
+
+LibreGTRs.pt, LibreGTRm.pt, LibreGTRl.pt, LibreGTRx.pt,
+LibreGTRs-depth.pt, LibreGTRm-depth.pt, LibreGTRl-depth.pt,
+LibreGTRx-depth.pt,
+LibreGTRs-seg.pt, LibreGTRm-seg.pt, LibreGTRl-seg.pt,
+LibreGTRx-seg.pt,
 
 LibreMobileNetV4s-cls.pt, LibreMobileNetV4m-cls.pt,
 LibreMobileNetV4l-cls.pt,
@@ -307,6 +317,9 @@ LibreFeyNobgl-matte.pt, LibreFeyNobgl-matte-fp16.pt,
 LibreFeyNobgl-matte-fp8.pt,
 
 LibrePIDNets-sem.pt, LibrePIDNetm-sem.pt, LibrePIDNetl-sem.pt,
+
+LibreGTRs.pt, LibreGTRm.pt, LibreGTRl.pt, LibreGTRx.pt,
+LibreGTRs-sem.pt, LibreGTRm-sem.pt, LibreGTRl-sem.pt, LibreGTRx-sem.pt,
 
 LibrePPLiteSegt50-sem.pt, LibrePPLiteSegb50-sem.pt,
 LibrePPLiteSegt75-sem.pt, LibrePPLiteSegb75-sem.pt,
@@ -369,7 +382,10 @@ non-commercial banner, and the loader prints the restriction before every
 auto-download. The `LICENSE` file carries the Apache-2.0 (super-gradients) and
 MIT (STDC-Seg) code texts *plus* the Cityscapes weight terms, because the code
 and the weights are genuinely different surfaces. Never tag them `apache-2.0`.
-**LibreUNets-sem is NON-COMMERCIAL** on the same Cityscapes-training-data
+**LibreGTR{s,m,l,x}-sem are NON-COMMERCIAL** on the same Cityscapes grounds
+(MIT code and weight-repository declaration, Cityscapes training data): same
+card tags, banner and `LICENSE` split (GTR MIT text plus Cityscapes weight
+terms). **LibreUNets-sem is NON-COMMERCIAL** on the same Cityscapes-training-data
 grounds as PP-LiteSeg: mmsegmentation's official UNet-S5-D16 Cityscapes
 checkpoint, converted in place. Same card tags, same banner, same
 `LICENSE` split (Apache-2.0 mmseg code text plus Cityscapes weight terms).

@@ -379,6 +379,75 @@ def apply_lora_to_ec(core_model: nn.Module) -> nn.Module:
     )
 
 
+# GTR's backbone is a ViTAdapter around a gated-linear-attention ViT
+# (``Block`` under ``backbone.backbone``). Its separate q/k/v projections play
+# the role of the fused ``qkv`` adapted elsewhere; the gate, output and MLP
+# projections are not adapted, matching the attention-input-only reference.
+GTR_TARGET_LINEAR_NAMES = ("q_proj", "k_proj", "v_proj")
+# The oriented-box decoder layer carries the same Linear names under its own
+# class name.
+GTR_DECODER_BLOCK_CLASSES = DETR_BLOCK_CLASSES + ("OBBTransformerDecoderLayer",)
+
+
+def apply_lora_to_gtr(core_model: nn.Module) -> nn.Module:
+    """Inject LoRA adapters into a GTR detection, OBB or pose core model, in place.
+
+    Same shape as :func:`apply_lora_to_ec`: freeze the recurrent ViT base and
+    adapt its q/k/v projections, freeze the decoder layer bases and adapt their
+    Linears, keep the ViTAdapter projector, conv encoder and heads trainable.
+
+    Detection decoder layers are found by class. The pose (DETRPose) decoder
+    has no ``TransformerDecoderLayer``; its layers are the entries of
+    ``decoder.decoder.layers``, adapted on the FFN, gate and deformable
+    attention Linears. Its within/across-instance ``nn.MultiheadAttention``
+    stays frozen without adapters (the module reads ``out_proj.weight``
+    directly). Keypoint heads, query and keypoint embeddings keep training.
+    """
+    _require_detr_layout(core_model)
+    if module_has_lora(core_model):
+        return core_model
+
+    detr_roots = _discover_block_roots(core_model, GTR_DECODER_BLOCK_CLASSES)
+    if not detr_roots:
+        layers = getattr(getattr(core_model.decoder, "decoder", None), "layers", None)
+        detr_roots = [f"decoder.decoder.layers.{i}" for i in range(len(layers or ()))]
+    if not detr_roots:
+        raise ValueError(
+            "No transformer decoder blocks found; expected "
+            f"{GTR_DECODER_BLOCK_CLASSES} classes or decoder.decoder.layers in the model."
+        )
+    target_modules = _collect_linear_targets(
+        core_model, detr_roots, DETR_TARGET_LINEAR_NAMES, skip_frozen=True
+    )
+
+    vit = getattr(core_model.backbone, "backbone", None)
+    if vit is None:
+        raise ValueError(
+            "GTR model has no backbone.backbone ViT; the ViTAdapter layout "
+            "may have changed."
+        )
+    vit_roots = [
+        f"backbone.backbone.{name}"
+        for name, module in vit.named_modules()
+        if name and type(module).__name__ == "Block"
+    ]
+    if not vit_roots:
+        raise ValueError(
+            "backbone.backbone present but no ViT Block modules found; "
+            "the GTR backbone vendoring may have changed."
+        )
+    target_modules += _collect_linear_targets(
+        core_model, vit_roots, GTR_TARGET_LINEAR_NAMES, skip_frozen=False
+    )
+
+    frozen_prefixes = ("backbone.backbone.",) + tuple(
+        f"{root}." for root in detr_roots + vit_roots
+    )
+    return _inject_lora(
+        core_model, target_modules, frozen_prefixes, label="GTR transformer blocks"
+    )
+
+
 # ConvNeXt: a conv classifier whose blocks nonetheless carry channels-last
 # nn.Linear MLPs (timm layout, ``fc1``/``fc2``). Those take the adapters; the
 # depthwise convs, norms, and layer-scale gammas freeze; the classification
@@ -576,6 +645,7 @@ __all__ = [
     "apply_lora_to_detr",
     "apply_lora_to_deimv2",
     "apply_lora_to_ec",
+    "apply_lora_to_gtr",
     "apply_lora_to_convnext",
     "merge_lora_adapters",
     "is_peft_available",
