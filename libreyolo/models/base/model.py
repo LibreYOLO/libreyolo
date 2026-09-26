@@ -2441,19 +2441,20 @@ class BaseModel(ABC):
                 backend used is surfaced as ``model.last_eval_backend``.
 
         Returns:
-            Dictionary with metrics/precision, metrics/recall,
-            metrics/mAP50, metrics/mAP50-95.
+            Flat dictionary of metric name to finite number, with
+            metrics/precision, metrics/recall, metrics/mAP50,
+            metrics/mAP50-95.
 
             Detection validation additionally reports the F1-optimal
             confidence threshold as a free by-product of the COCO matching:
-            ``metrics/best_conf`` (global, micro-averaged over classes) and
-            ``metrics/best_conf_per_class`` (class name to threshold), with
-            ``metrics/best_conf_f1`` the F1 reached at the global optimum.
-            F1 is defined at IoU 0.50 matching; crowd/ignore regions count
-            as neither TP nor FP. Use it as a data-driven ``conf=`` for
-            deployment instead of a folklore default. Entries are NaN for
-            classes where no threshold reaches F1 > 0 (no predictions, no
-            ground truth, or all false positives).
+            ``metrics/best_conf`` (global, micro-averaged over classes) with
+            ``metrics/best_conf_f1`` the F1 reached there, and
+            ``box.best_conf_per_class`` (class name to threshold) on the
+            result. F1 is defined at IoU 0.50 matching; crowd/ignore regions
+            count as neither TP nor FP. Use it as a data-driven ``conf=`` for
+            deployment instead of a folklore default. A threshold and F1 of
+            0.0 mean no threshold reaches F1 > 0 (no predictions, no ground
+            truth, or all false positives).
 
             Detect and segment results also carry ``box.image_metrics``: image
             filename to ``precision``, ``recall``, ``f1``, ``tp``, ``fp`` and

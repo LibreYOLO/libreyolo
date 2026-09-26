@@ -367,9 +367,17 @@ def test_detection_validator_emits_best_conf_keys_with_class_names():
 
     assert metrics["metrics/best_conf"] == pytest.approx(0.4)
     assert metrics["metrics/best_conf_f1"] == pytest.approx(10.0 / 11.0)
-    per_class = metrics["metrics/best_conf_per_class"]
+    # Per-class thresholds live on the result object, not in the flat mapping.
+    assert "metrics/best_conf_per_class" not in metrics
+    per_class = validator.best_conf_per_class
     assert per_class["cat"] == pytest.approx(0.7)
     assert per_class["dog"] == pytest.approx(0.4)
+
+    from libreyolo.validation.base import with_image_metrics
+
+    validator.image_metrics = {}
+    results = with_image_metrics(metrics, validator)
+    assert results.box.best_conf_per_class == per_class
 
 
 @pytest.mark.unit
@@ -384,12 +392,12 @@ def test_detection_validator_print_results_handles_best_conf_table():
 
     metrics = validator._compute_metrics()
 
-    validator._print_results(metrics)  # must not raise on dict/NaN values
+    validator._print_results(metrics)  # must not raise
 
 
 @pytest.mark.unit
-def test_detection_validator_best_conf_nan_without_sweep_source():
-    """Evaluator stubs without match results degrade to NaN, never crash."""
+def test_detection_validator_best_conf_zero_without_sweep_source():
+    """Evaluator stubs without match results degrade to 0.0, never crash."""
 
     class _DummyEvaluator:
         def compute(self, save_json=None):
@@ -421,10 +429,10 @@ def test_detection_validator_best_conf_nan_without_sweep_source():
     assert metrics["metrics/recall"] == pytest.approx(0.202)
     assert metrics["metrics/mAP50"] == pytest.approx(0.21)
     assert metrics["metrics/mAP50-95"] == pytest.approx(0.2)
-    # New keys degrade gracefully.
-    assert NAN_OK(metrics["metrics/best_conf"])
-    assert NAN_OK(metrics["metrics/best_conf_f1"])
-    assert metrics["metrics/best_conf_per_class"] == {}
+    # New keys degrade to finite values.
+    assert metrics["metrics/best_conf"] == 0.0
+    assert metrics["metrics/best_conf_f1"] == 0.0
+    assert validator.best_conf_per_class == {}
 
 
 @pytest.mark.unit
@@ -488,9 +496,88 @@ def test_best_conf_is_additive_existing_metrics_bit_exact():
     new_keys = {
         "metrics/best_conf",
         "metrics/best_conf_f1",
-        "metrics/best_conf_per_class",
     }
     assert set(metrics) == expected_existing | new_keys
+
+
+def _assert_flat_finite(metrics):
+    """The val() contract: a flat mapping of finite real numbers."""
+    import json
+    import numbers
+
+    for key, value in metrics.items():
+        assert isinstance(value, numbers.Real) and not isinstance(value, bool), (
+            key,
+            value,
+        )
+        assert math.isfinite(value), (key, value)
+    {k: float(v) for k, v in metrics.items()}
+    json.dumps(metrics, allow_nan=False)
+
+
+@pytest.mark.unit
+def test_detection_validator_metrics_are_flat_finite_without_any_threshold():
+    """All-FP and no-prediction classes: 0.0 thresholds, never NaN."""
+    from libreyolo.validation.base import with_image_metrics
+
+    annotations = [_gt(1, 1, 2, 0, 50)]
+    preds = [
+        _pred(100, 100, 0.9, 0),
+        _pred(120, 100, 0.4, 0),
+    ]
+    evaluator = _run_evaluator(
+        annotations, preds, _TWO_CLASS_CATEGORIES, _TWO_CLASS_LABEL_MAP
+    )
+    validator = _detection_validator(evaluator, ["cat", "dog"])
+    validator.image_metrics = {}
+
+    results = with_image_metrics(validator._compute_metrics(), validator)
+
+    _assert_flat_finite(results)
+    assert results["metrics/best_conf"] == 0.0
+    assert results["metrics/best_conf_f1"] == 0.0
+    assert results.box.best_conf_per_class == {"cat": 0.0, "dog": 0.0}
+    import json
+
+    json.dumps(results.box.best_conf_per_class, allow_nan=False)
+    validator.seen = 1
+    validator.speed = {"total": 0.0}
+    validator._print_results(results)
+
+
+@pytest.mark.unit
+def test_detection_validator_metrics_are_flat_finite():
+    annotations, preds = _two_class_fixture()
+    evaluator = _run_evaluator(
+        annotations, preds, _TWO_CLASS_CATEGORIES, _TWO_CLASS_LABEL_MAP
+    )
+    validator = _detection_validator(evaluator, ["cat", "dog"])
+
+    _assert_flat_finite(validator._compute_metrics())
+
+
+@pytest.mark.unit
+def test_segmentation_validator_metrics_are_flat_finite():
+    from libreyolo.validation.base import with_image_metrics
+    from libreyolo.validation.detection_validator import SegmentationValidator
+
+    annotations, preds = _two_class_fixture()
+    validator = SegmentationValidator.__new__(SegmentationValidator)
+    validator.config = SimpleNamespace(verbose=False, save_json=False)
+    validator.save_dir = None
+    validator.class_names = ["cat", "dog"]
+    validator.image_metrics = {}
+    validator.bbox_evaluator = _run_evaluator(
+        annotations, preds, _TWO_CLASS_CATEGORIES, _TWO_CLASS_LABEL_MAP
+    )
+    validator.mask_evaluator = _run_evaluator(
+        annotations, preds, _TWO_CLASS_CATEGORIES, _TWO_CLASS_LABEL_MAP
+    )
+
+    results = with_image_metrics(validator._compute_metrics(), validator)
+
+    _assert_flat_finite(results)
+    assert isinstance(results.box.best_conf_per_class, dict)
 
 
 if __name__ == "__main__":
