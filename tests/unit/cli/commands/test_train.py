@@ -575,6 +575,36 @@ def test_train_rfdetr_scheduler_override_reaches_trainer(monkeypatch, tmp_path):
     assert "ignores these parameters" not in result.output
 
 
+@pytest.mark.parametrize("val_args", [["val=false"], ["--no-val"]])
+def test_train_rfdetr_val_false_disables_validation(monkeypatch, tmp_path, val_args):
+    """RF-DETR's trainer honours eval_interval=0; the CLI used to drop
+    val=false for it while the Python API applied it."""
+    captured = {}
+
+    class _RFDETRLike:
+        FAMILY = "rfdetr"
+        device = "cpu"
+
+        def train(self, data, **kwargs):
+            captured["kwargs"] = kwargs
+            return {"output_dir": str(tmp_path / "rfdetr_exp")}
+
+    monkeypatch.setattr(
+        "libreyolo.cli.commands.train.load_model_or_exit",
+        lambda out, model, model_path, device: _RFDETRLike(),
+    )
+
+    result = runner.invoke(
+        _make_app(),
+        ["data=dummy.yaml", "model=LibreRFDETRm.pt", f"project={tmp_path}",
+         "exist_ok=true", *val_args, "--json"],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert captured["kwargs"]["eval_interval"] == 0
+    assert "does not support disabling validation" not in result.output
+
+
 def test_train_rfdetr_lora_flag_reaches_trainer(monkeypatch, tmp_path):
     app = _make_app()
     captured = {}

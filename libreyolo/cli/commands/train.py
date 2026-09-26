@@ -1004,14 +1004,9 @@ def train_cmd(
         not resume_val or "pretrained" in user_provided
     ):
         train_kwargs["pretrained"] = train_pretrained  # Not in TrainConfig
-    if family == "rfdetr":
-        if train_pretrained is not False:
-            train_kwargs.pop("pretrained", None)
-        if not val and "val" in user_provided:
-            out.progress(
-                "Warning: RF-DETR does not support disabling validation via val=false. Ignoring."
-            )
-    elif not val:
+    if family == "rfdetr" and train_pretrained is not False:
+        train_kwargs.pop("pretrained", None)
+    if not val:
         train_kwargs["eval_interval"] = 0
 
     # Run training
