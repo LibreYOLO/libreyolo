@@ -282,8 +282,16 @@ def write_job(
 
 def _restore_caller_identity(payload: dict[str, Any]) -> None:
     """Expose the original user program identity to rank-local integrations."""
+    import importlib.util
+
     sys.argv[:] = payload["caller_argv"]
     caller_main_file = payload["caller_main_file"]
+    # Processes a rank starts with spawn/forkserver (DataLoader workers) set
+    # up ``__mp_main__`` from ``__main__.__spec__.name`` when present, else
+    # from ``__main__.__file__``. With only ``__file__`` restored they would
+    # execute the user's script and rerun an unguarded top-level train(), so
+    # the spec keeps naming this module while ``__file__`` names the program.
+    coordinator_spec = importlib.util.find_spec("libreyolo.training._ddp_coordinator")
     for module_name in ("__main__", "__mp_main__"):
         module = sys.modules.get(module_name)
         if module is None:
@@ -292,6 +300,8 @@ def _restore_caller_identity(payload: dict[str, Any]) -> None:
             module.__dict__.pop("__file__", None)
         else:
             module.__file__ = caller_main_file
+        if coordinator_spec is not None:
+            module.__spec__ = coordinator_spec
 
 
 def _coordinator_worker(rank: int, job_dir: str) -> None:
