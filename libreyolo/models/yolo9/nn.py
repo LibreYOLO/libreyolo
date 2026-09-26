@@ -658,8 +658,10 @@ class DDetect(nn.Module):
         dtype, device = feats[0].dtype, feats[0].device
         for feat, stride in zip(feats, self._stride_values):
             _, _, h, w = feat.shape
-            shift_x = torch.arange(end=w, device=device, dtype=dtype) + 0.5
-            shift_y = torch.arange(end=h, device=device, dtype=dtype) + 0.5
+            # Integer Range then cast: ONNX Range has no float16 kernel, so a
+            # half-precision export must not emit it with a float16 dtype.
+            shift_x = torch.arange(end=w, device=device).to(dtype) + 0.5
+            shift_y = torch.arange(end=h, device=device).to(dtype) + 0.5
             shift_y, shift_x = torch.meshgrid(shift_y, shift_x, indexing="ij")
             anchor_points.append(
                 torch.stack([shift_x, shift_y], dim=-1).reshape(-1, 2)

@@ -86,6 +86,12 @@ class OnnxBackend(BaseBackend):
 
         self.session = ort.InferenceSession(onnx_path, providers=providers)
         self.input_name = self.session.get_inputs()[0].name
+        # export(half=True) graphs take float16 input; preprocessing yields
+        # float32, so inputs are cast to the graph's float type.
+        self._input_float_dtype = {
+            "tensor(float16)": np.float16,
+            "tensor(float)": np.float32,
+        }.get(self.session.get_inputs()[0].type)
         self.output_names = [output.name for output in self.session.get_outputs()]
         try:
             runtime_metadata = dict(
@@ -287,5 +293,22 @@ class OnnxBackend(BaseBackend):
         return self._dynamic_batch_axis and not self.embedded_nms
 
     def _run_inference(self, blob: np.ndarray) -> list:
-        """Run ONNX Runtime inference."""
-        return self.session.run(None, {self.input_name: blob})
+        """Run ONNX Runtime inference.
+
+        Float inputs are cast to the graph's input float type, and float16
+        outputs back to float32, so FP16 exports postprocess like FP32 ones.
+        """
+        input_dtype = getattr(self, "_input_float_dtype", None)
+        if (
+            input_dtype is not None
+            and np.issubdtype(blob.dtype, np.floating)
+            and blob.dtype != input_dtype
+        ):
+            blob = blob.astype(input_dtype)
+        outputs = self.session.run(None, {self.input_name: blob})
+        return [
+            output.astype(np.float32)
+            if isinstance(output, np.ndarray) and output.dtype == np.float16
+            else output
+            for output in outputs
+        ]

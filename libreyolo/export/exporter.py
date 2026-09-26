@@ -106,6 +106,31 @@ def _restore_rfdetr_export_state(snapshots):
             module._export = state["export"]
 
 
+def _snapshot_tensor_slots(root):
+    """Record every parameter and buffer slot of ``root`` with its tensor.
+
+    ``Module.half()``/``.to()`` rebind parameter data and replace buffer
+    tensors rather than writing into them, so keeping the original tensors
+    is enough to restore exact values, dtype and device afterwards.
+    """
+    slots = []
+    for module in root.modules():
+        for name, param in module._parameters.items():
+            if param is not None:
+                slots.append((module._parameters, name, param, param.data))
+        for name, buf in module._buffers.items():
+            if buf is not None:
+                slots.append((module._buffers, name, buf, None))
+    return slots
+
+
+def _restore_tensor_slots(slots):
+    for store, name, tensor, data in slots:
+        store[name] = tensor
+        if data is not None:
+            tensor.data = data
+
+
 def _classify_eval_metadata(model) -> dict:
     """The model's classification eval pipeline as flat export metadata (#886).
 
@@ -1094,6 +1119,11 @@ class BaseExporter(ABC):
         original_training = root_model.training
         root_model.eval()
 
+        # A half-precision export must leave the caller's model untouched;
+        # casting back with float() would keep the fp16 rounding.
+        apply_half = half and not int8 and self.apply_model_half
+        tensor_slots = _snapshot_tensor_slots(root_model) if apply_half else None
+
         original_device = next(root_model.parameters()).device
         root_model.to(device)
 
@@ -1443,7 +1473,7 @@ class BaseExporter(ABC):
             channels = 2 if isinstance(getattr(self.model, "input_profile", None), dict) else 3
             dummy = torch.randn(batch, channels, h, w, device=device)
 
-        if half and not int8 and self.apply_model_half:
+        if apply_half:
             nn_model.half()
             dummy = dummy.half()
 
@@ -1458,9 +1488,8 @@ class BaseExporter(ABC):
                 _restore_rfdetr_export_state(rfdetr_export_snapshots)
             nn_model.to(original_device)
             root_model.to(original_device)
-            if half and not int8 and self.apply_model_half:
-                nn_model.float()
-                root_model.float()
+            if tensor_slots is not None:
+                _restore_tensor_slots(tensor_slots)
             if original_training:
                 root_model.train()
                 nn_model.train()
