@@ -315,6 +315,23 @@ class Dinov2WithRegistersPatchEmbeddings(nn.Module):
         return embeddings
 
 
+def _not_exporting() -> bool:
+    """Fallback for ``torch.compiler.is_exporting`` on torch versions without it."""
+    return False
+
+
+def _compiling_not_exporting() -> bool:
+    """True while ``torch.compile`` traces; False for eager, TorchScript and export.
+
+    Dynamo reports symbolic sizes as plain ``int`` to traced code, so the
+    dynamic-shape case cannot be told apart here; the eager boundary below
+    applies to every compiled trace that actually interpolates.
+    """
+    return torch.compiler.is_compiling() and not getattr(
+        torch.compiler, "is_exporting", _not_exporting
+    )()
+
+
 class WindowedDinov2WithRegistersEmbeddings(nn.Module):
     """
     Construct the CLS token, mask token, register tokens, position and patch embeddings.
@@ -353,6 +370,26 @@ class WindowedDinov2WithRegistersEmbeddings(nn.Module):
         # Skip interpolation for matching dimensions (unless tracing)
         if not torch.jit.is_tracing() and num_patches == num_positions and height == width:
             return self.position_embeddings
+
+        if _compiling_not_exporting():
+            return self._interpolate_pos_encoding_eager(embeddings, height, width)
+        return self._interpolate_pos_encoding(embeddings, height, width)
+
+    @torch.compiler.disable
+    def _interpolate_pos_encoding_eager(self, embeddings: torch.Tensor, height: int, width: int) -> torch.Tensor:
+        """Eager boundary for :meth:`_interpolate_pos_encoding` under ``torch.compile``.
+
+        The antialiased bicubic backward rejects symbolic sizes during AOT
+        tracing (``_upsample_bicubic2d_aa_backward``: ``isIntList() INTERNAL
+        ASSERT FAILED``), which fails dynamic-shape compilation at the second
+        input resolution. Running this one interpolation eagerly keeps its
+        math and gradients unchanged and lets the rest of the model compile.
+        The native-resolution fast path above returns before reaching it.
+        """
+        return self._interpolate_pos_encoding(embeddings, height, width)
+
+    def _interpolate_pos_encoding(self, embeddings: torch.Tensor, height: int, width: int) -> torch.Tensor:
+        num_positions = self.position_embeddings.shape[1] - 1
 
         # Handle class token and patch embeddings separately
         class_pos_embed = self.position_embeddings[:, 0]
@@ -1023,7 +1060,7 @@ class WindowedDinov2WithRegistersModel(WindowedDinov2WithRegistersPreTrainedMode
         output_hidden_states = (
             output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
         )
-        return_dict = return_dict if return_dict is not None else self.config.use_return_dict
+        return_dict = return_dict if return_dict is not None else self.config.return_dict
 
         if pixel_values is None:
             raise ValueError("You have to specify pixel_values")
@@ -1134,7 +1171,7 @@ class WindowedDinov2WithRegistersForImageClassification(WindowedDinov2WithRegist
         >>> list(outputs.logits.shape)
         [1, 3]
         """
-        return_dict = return_dict if return_dict is not None else self.config.use_return_dict
+        return_dict = return_dict if return_dict is not None else self.config.return_dict
 
         outputs = self.dinov2_with_registers(
             pixel_values,
@@ -1250,7 +1287,7 @@ class WindowedDinov2WithRegistersBackbone(WindowedDinov2WithRegistersPreTrainedM
         [1, 32, 2, 2]
 
         """
-        return_dict = return_dict if return_dict is not None else self.config.use_return_dict
+        return_dict = return_dict if return_dict is not None else self.config.return_dict
         output_hidden_states = (
             output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
         )

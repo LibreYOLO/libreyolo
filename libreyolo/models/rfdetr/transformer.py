@@ -529,7 +529,27 @@ class Transformer(nn.Module):
         values only depend on the input resolution, so build the tensor
         once per (shapes, device) and reuse it; the cached tensor is
         read-only downstream.
+
+        Under ``torch.compile`` the tensor is built in-graph instead: the
+        cache's attribute write and key comparison become Dynamo guards that
+        pin every input resolution, so each multi-scale size would recompile.
+        ``torch.full`` keeps symbolic sizes symbolic (``torch.tensor`` of
+        symbolic ints specializes them). Export keeps the cached path.
         """
+        if torch.compiler.is_compiling() and not getattr(
+            torch.compiler, "is_exporting", lambda: False
+        )():
+            return torch.stack(
+                [
+                    torch.stack(
+                        [
+                            torch.full((), h, dtype=torch.long, device=device),
+                            torch.full((), w, dtype=torch.long, device=device),
+                        ]
+                    )
+                    for h, w in spatial_shapes_hw
+                ]
+            )
         key = (tuple(spatial_shapes_hw), str(device))
         cached = getattr(self, "_spatial_shapes_cache", None)
         if cached is None or cached[0] != key:

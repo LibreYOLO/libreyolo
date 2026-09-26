@@ -322,6 +322,13 @@ class TestBuildTrainKwargs:
 
         assert kwargs["single_cls"] is True
 
+    def test_compile_reaches_both_flagship_train_kwargs(self, tmp_path):
+        assert build_train_kwargs({"compile": "default"})["compile"] == "default"
+        kwargs = cli_config._build_rfdetr_train_kwargs(
+            {"project": str(tmp_path), "name": "c", "exist_ok": True, "compile": "default"}
+        )
+        assert kwargs["compile"] == "default"
+
     def test_rfdetr_cli_run_dir_is_not_incremented_twice(self, monkeypatch, tmp_path):
         """The CLI pre-increments and creates the run dir, so the wrapper must
         write into that exact dir instead of incrementing it again."""

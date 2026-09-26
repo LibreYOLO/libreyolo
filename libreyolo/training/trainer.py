@@ -310,6 +310,8 @@ class BaseTrainer(ABC):
         self._cuda_graph_manager = None
         self._cuda_graph_spec = None
         self._cuda_graph_spec_resolved = False
+        # Opt-in torch.compile of the training network (config.compile).
+        self._train_compiler = None
 
     # =========================================================================
     # Config
@@ -490,6 +492,21 @@ class BaseTrainer(ABC):
         """
         return None
 
+    def compile_train_spec(self):
+        """Network/loss boundary compiled by ``train(compile=...)``.
+
+        Same contract as :meth:`cuda_graph_train_spec`, which it returns by
+        default. A family overrides it when the compiler can cover more than
+        CUDA graph capture can (YOLO9's PGI auxiliary branch). ``None`` keeps
+        the run eager.
+        """
+        return self.cuda_graph_train_spec()
+
+    def compile_dynamic(self) -> Optional[bool]:
+        """``dynamic=`` for ``torch.compile``; families with per-batch sizes
+        return True. None lets PyTorch mark a dimension dynamic once it changes."""
+        return None
+
     def invalidate_cuda_graph(self, reason: str) -> None:
         """Drop any captured training graph so a later batch re-captures.
 
@@ -523,6 +540,20 @@ class BaseTrainer(ABC):
         # getattr defaults keep partially-constructed trainers (test
         # doubles, exotic subclasses skipping BaseTrainer.__init__) on the
         # plain eager path.
+        compiler = getattr(self, "_train_compiler", None)
+        if compiler is not None:
+            flat = compiler.run(self, imgs)
+            if flat is not None:
+                return compiler.spec.assemble(flat, imgs, targets, polygons)
+            if not compiler.disabled:
+                return self.on_forward(imgs, targets, polygons=polygons)
+            # Compilation fell back to eager: a requested cuda_graph now
+            # goes to the eager capture manager, from the next batch on.
+            self._train_compiler = None
+            start_graphs = getattr(self, "_start_cuda_graph_manager", None)
+            if start_graphs is not None:
+                start_graphs()
+            return self.on_forward(imgs, targets, polygons=polygons)
         manager = getattr(self, "_cuda_graph_manager", None)
         if manager is not None and not manager.disabled:
             if not getattr(self, "_cuda_graph_spec_resolved", False):
@@ -1968,26 +1999,43 @@ class BaseTrainer(ABC):
         # can only ever see the fully-built model, optimizer and criterion.
         # Unsupported run shapes downgrade to eager with one clear warning
         # instead of failing the run.
-        if getattr(self.config, "cuda_graph", False):
-            reason = None
-            if self.device.type != "cuda":
-                reason = "device is not CUDA"
-            elif self.is_distributed:
-                reason = "distributed training is not supported yet"
-            elif self.distiller is not None:
-                reason = "distillation runs are not supported"
-            if reason is not None:
-                if is_main_process():
-                    logger.warning(
-                        "cuda_graph=True ignored (%s); training runs eager.",
-                        reason,
-                    )
-            else:
-                from libreyolo.training.cuda_graph import TrainGraphManager
+        if getattr(self.config, "compile", False):
+            from libreyolo.training.compile import build_train_compiler
 
-                self._cuda_graph_manager = TrainGraphManager()
+            self._train_compiler = build_train_compiler(self)
+        # A compiled run replays CUDA graphs through the compiler, if at all:
+        # the eager capture manager would record Inductor's launches again.
+        # If compilation later falls back to eager, _forward_train starts it.
+        if self._train_compiler is None:
+            self._start_cuda_graph_manager()
 
         self._is_setup = True
+
+    def _start_cuda_graph_manager(self) -> None:
+        """Create the eager capture manager when ``cuda_graph=True`` allows it."""
+        if not getattr(self.config, "cuda_graph", False):
+            return
+        reason = None
+        if self.device.type != "cuda":
+            reason = "device is not CUDA"
+        elif self.is_distributed:
+            reason = "distributed training is not supported yet"
+        elif self.distiller is not None:
+            reason = "distillation runs are not supported"
+        if reason is not None:
+            if is_main_process():
+                logger.warning(
+                    "cuda_graph=True ignored (%s); training runs eager.",
+                    reason,
+                )
+            return
+        from libreyolo.training.cuda_graph import TrainGraphManager
+
+        # One-step-per-batch loops drop ``.grad`` between forward and
+        # backward; accumulation keeps it alive across replays.
+        self._cuda_graph_manager = TrainGraphManager(
+            preserve_accumulated_grads=self._accum_steps > 1
+        )
 
     def _ddp_find_unused_parameters(self) -> bool:
         """Subclasses override to flip when their forward graph is conditional.
@@ -2046,6 +2094,12 @@ class BaseTrainer(ABC):
         # a leftover True would silently truncate this run's first epoch.
         self._stop_training = False
         try:
+            # Containers with a CPU limit still show every host core; an
+            # oversized OpenMP pool then gets the process throttled each
+            # step. Scoped to train(): the finally below restores it.
+            from .cpu_threads import cap_torch_threads
+
+            self._threads_before_cap = cap_torch_threads()
             self.setup()
             self._maybe_export_check()
 
@@ -2223,6 +2277,11 @@ class BaseTrainer(ABC):
                 except Exception:
                     logger.exception("Training exception callback failed")
             raise
+        finally:
+            from .cpu_threads import restore_torch_threads
+
+            restore_torch_threads(getattr(self, "_threads_before_cap", None))
+            self._threads_before_cap = None
 
     def _dispatch_artifact_callbacks(self, method_name: str, event) -> None:
         try:

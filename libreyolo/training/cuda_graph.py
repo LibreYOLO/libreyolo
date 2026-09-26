@@ -41,6 +41,15 @@ Capture-time contracts (enforced by the trainer, documented here):
   micro-batch). Stateful buffers (BatchNorm running stats) *are* advanced by
   those extra forwards, so they are snapshotted before capture and restored
   in place afterwards and the buffer trajectory matches eager exactly.
+- Replay, unlike warm-up, *does* hand gradients to autograd: the graphed
+  backward returns its static gradient buffers. When a parameter's ``.grad``
+  is None, autograd adopts that buffer as ``.grad`` instead of copying it,
+  and the next replay overwrites it before accumulating, so ``g0 + g1``
+  silently becomes ``2 * g1``. Under gradient accumulation the manager
+  therefore gives every live ``.grad`` its own storage before each replay
+  (one gradient-sized copy per micro-batch after the first of a window).
+  Without accumulation the loop drops ``.grad`` between forward and
+  backward, so nothing can be overwritten and no copy is made.
 - Under AMP, capture and replay must run with autocast caching disabled;
   the trainer's autocast context handles this when a manager is active.
 - Distributed training and distillation are not captured in this version;
@@ -267,9 +276,15 @@ class TrainGraphManager:
         self,
         warmup_threshold: int = DEFAULT_WARMUP_THRESHOLD,
         num_warmup_iters: int = DEFAULT_NUM_WARMUP_ITERS,
+        preserve_accumulated_grads: bool = True,
     ):
         self.warmup_threshold = max(1, int(warmup_threshold))
         self.num_warmup_iters = max(1, int(num_warmup_iters))
+        # True whenever ``.grad`` can survive from one replay to the next
+        # (gradient accumulation). The trainer passes False only for its
+        # one-step-per-batch loops, which drop ``.grad`` before every
+        # backward and so never need the copy.
+        self.preserve_accumulated_grads = bool(preserve_accumulated_grads)
         self.disabled = False
         self._graphed: Optional[Callable] = None
         self._graph_key: Optional[GraphKey] = None
@@ -319,6 +334,22 @@ class TrainGraphManager:
         self._captured_network = None
         self._forward_before_capture = None
 
+    def _own_accumulated_grads(self, network: nn.Module) -> None:
+        """Give every live ``.grad`` its own storage before a replay.
+
+        The graphed backward returns its static gradient buffers. A parameter
+        whose ``.grad`` was None adopts that buffer as its ``.grad`` (autograd
+        steals rather than copies a gradient nothing else references), so
+        the next replay would overwrite the accumulated value and then add
+        its own gradient on top, turning ``g0 + g1`` into ``2 * g1``. Cloning
+        first makes the replay accumulate into memory the graph never writes.
+        """
+        if not self.preserve_accumulated_grads:
+            return
+        for param in network.parameters():
+            if param.grad is not None:
+                param.grad = param.grad.clone()
+
     def invalidate(self, reason: str) -> None:
         """Drop the captured graph and re-capture on a later batch.
 
@@ -365,6 +396,7 @@ class TrainGraphManager:
                 self._eager_after_capture += 1
                 return None
             try:
+                self._own_accumulated_grads(spec.network)
                 return self._graphed(imgs)
             except Exception as exc:  # replay must never kill a run
                 self._disable(f"graph replay failed: {exc!r}")
@@ -520,6 +552,7 @@ class TrainGraphManager:
                 ", ".join(stochastic[:3]),
             )
         try:
+            self._own_accumulated_grads(spec.network)
             return self._graphed(imgs)
         except Exception as exc:
             self._disable(f"first graph replay failed: {exc!r}")
