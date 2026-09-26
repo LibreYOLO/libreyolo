@@ -1088,3 +1088,11 @@ Family `gtr`, class `LibreGTR`, sizes `s`, `m`, `l`, `x`, task `detect`.
 Canonical checkpoint names are `LibreGTR{s,m,l,x}.pt`. Upstream detection
 `.pth` files auto-convert using EMA parameters; other GTR tasks are not yet
 supported. See [GTR validation evidence](gtr.md).
+
+GTR depth: task `depth`, sizes `s`, `m`, `l`, `x`, canonical checkpoint names
+`LibreGTR{s,m,l,x}-depth.pt` (the `-depth` suffix is required; there is no
+depth checkpoint under the bare name). `Results.depth_map` is relative inverse
+depth per ADR 0006: the reciprocal of the upstream log-depth head's metre
+output, so `1 / depth_map` recovers upstream's metre estimate for cameras like
+its training ones. Predict, zero-shot `val`, fixed-resolution ONNX/TorchScript
+export and SILog fine-tuning are supported.

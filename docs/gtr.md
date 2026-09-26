@@ -1,6 +1,7 @@
 # GTR detection
 
-`LibreGTR` supports detection with the upstream S, M, L and X architectures.
+`LibreGTR` supports detection with the upstream S, M, L and X architectures,
+and monocular depth (see [Depth](#depth)).
 The GTR source pin is `782e737efe2e6437ac537fbdcee089673d3376c1` (MIT).
 The upstream weight repository explicitly declares MIT. Required inherited
 Apache-2.0 notices are retained in `libreyolo/models/gtr/NOTICE`.
@@ -61,8 +62,9 @@ silently ignored.
 and the decoder layers while the backbone base stays frozen (see
 [lora.md](lora.md)); it needs `pip install "libreyolo[lora]"` and works from
 Python and the CLI. Adapter checkpoints reload directly and export merges the
-adapters into dense weights. The other GTR tasks (segmentation, pose, depth,
-OBB, semantic segmentation) are not implemented.
+adapters into dense weights. Detection LoRA does not apply to depth (see
+[Depth](#depth)). GTR segmentation, pose, OBB and semantic segmentation are
+not implemented.
 
 ```python
 model = LibreYOLO("LibreGTRs.pt")
@@ -74,6 +76,51 @@ formats and dynamic spatial shapes are not enabled. The portable recurrence
 exports as an ONNX Loop rather than an unrolled graph.
 GTR-S at 640px exports in about 2.2 seconds locally with 4,094 graph nodes.
 This is export usability evidence, not a GPU deployment-speed benchmark.
+
+## Depth
+
+`task="depth"` loads the upstream `gtrdepth_{s,m,l,x}` models: the GTR
+backbone and encoder with a DPT depth head (upstream's adaptation of the
+Depth-Anything-V2 metric head, Apache-2.0), pretrained on upstream's mixed
+metric-depth corpus with a log-depth head (metres, `exp(clamp(logit, -4, 5))`).
+There is no NYU fine-tune; upstream reports NYU Depth V2 after a per-image
+log-affine fit with six test-time views.
+
+```python
+model = LibreYOLO("LibreGTRs-depth.pt")
+result = model.predict("image.jpg")[0]
+inverse_depth = result.depth_map  # higher is closer; 1 / value is metres
+```
+
+`Results.depth_map` follows the LibreYOLO depth contract (ADR 0006): relative
+inverse depth on the original canvas. The graph emits the exact reciprocal of
+upstream's metre output, so `1 / depth_map` recovers it; the metre scale holds
+only for cameras and scenes like the training data. ImageNet normalization is
+inside the graph, and native preprocessing stretch-resizes to a square
+`imgsz` (default 640), as upstream validation does. Exported backends use the
+shared cv2 stretch resize, so exported predictions on downscaled images are an
+approximation of native ones; given the same input tensor, ONNX matches within
+5e-6 and TorchScript exactly.
+
+`val()` uses the shared depth validator (per-image scale and shift fitted in
+inverse-depth space), not upstream's log-affine, six-view, two-tile protocol,
+so its numbers are not comparable to the upstream table. Fine-tuning uses the
+upstream SILog loss and `configs/depth/gtrdepth_base.yml` recipe (AdamW 2e-4,
+backbone at 0.1x, warmup, flat then cosine to 0.1x, EMA 0.999, clipping 0.1,
+FP32) on the shared depth dataset; supply depth in metres to keep the metric
+scale. LoRA, TTA, tiled inference and tracking are rejected for depth.
+
+Depth evidence:
+
+- All four real checkpoints load strictly, and at 640px the converted models
+  match the pinned upstream graph exactly (max abs difference 0.0 on
+  `pred_depth`) with the same portable operators as the detection check.
+- On 9 NYU Depth V2 validation images (metres, stretch 640, shared
+  validator): delta1 0.706 / 0.762 / 0.808 / 0.843 and AbsRel 0.172 / 0.155 /
+  0.141 / 0.127 for S / M / L / X. This is a pipeline check, not a benchmark.
+- Converted checkpoints are `LibreYOLO/LibreGTR{s,m,l,x}-depth`. Download
+  revisions are placeholders in `LibreGTR.HF_TASK_REVISIONS` until the
+  repositories are published.
 
 ## Validation evidence
 
