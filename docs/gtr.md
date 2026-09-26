@@ -292,9 +292,25 @@ result.obb.xywhr  # (cx, cy, w, h, theta) in pixels, theta in [0, pi)
 - ONNX and TorchScript export a fixed 1024px FP32 graph; exported models predict
   and validate through the same decoding. GTR-S OBB ONNX export takes about three
   minutes on CPU.
-- OBB is inference-only: `train()` raises. Porting the upstream oriented
-  criterion (MAL, KLD box loss, six-distribution FGL, Chamfer/KLD matching) and
-  its flip/rotate augmentation is future work.
+- `train()` fine-tunes on YOLO OBB datasets with the upstream DOTA recipe
+  (`configs/obb/dota_finetune`): MAL, L1 and KLD losses with Chamfer/KLD
+  Hungarian matching over three query groups and oriented denoising; AdamW at
+  5e-4 with backbone LR 0.36x (S) or 0.032x (X), weight decay 1e-4 (S) or
+  1.25e-4 (X); 2000-iteration quadratic warmup then a flat LR; 20 (S) or 30 (X)
+  epochs; EMA, clipping 0.1, FP32. Augmentation is upstream's: one random
+  horizontal, vertical or diagonal flip (`flip_prob`, 0.75) and a random
+  rotation (probability 0.5, uniform within `degrees`, 180; a multiple of 90
+  degrees when the image holds `storage-tank` or `roundabout`), on the square
+  canvas. Upstream trains on pre-split 1024px tiles; LibreYOLO resizes and
+  pads arbitrary images first, as at inference. A dataset with a different
+  class count rebuilds the heads; `lora=True` adapts the backbone q/k/v and the
+  decoder layers as for detection, and export merges the adapters.
+
+```python
+model = LibreYOLO("LibreGTRs-obb.pt")
+model.train(data="dota.yaml", epochs=20)          # YOLO OBB labels
+model.train(data="dota.yaml", epochs=20, lora=True)
+```
 
 Evidence, CPU:
 
@@ -309,6 +325,15 @@ Evidence, CPU:
   a tiny sample that may overlap upstream training data, not a DOTA benchmark.
 - ONNX and TorchScript exports of S reproduce PyTorch predictions (max abs diff
   9e-4 px and 6e-8) and the same DOTA8 metrics.
+- Training: on a fixed batch the ported criterion and matcher reproduce the
+  pinned upstream `OBBGTRCriterion` exactly (all 33 loss terms, max abs diff
+  0.0; `tests/unit/test_gtr_obb_train.py`). Three CPU epochs from GTR-S on the
+  4 DOTA8 train tiles (batch 2) raise DOTA8 val mAP50-95(OBB) from 0.525 to
+  0.619 at the best epoch, with mAP50 0.98 to 1.0; with `lora=True` it
+  reaches 0.579, leaves the frozen backbone base unchanged, and the reloaded
+  checkpoint and its TorchScript export give the same metrics. A dataset with
+  a different class count rebuilds the heads, and `resume=True` continues from
+  `last.pt`. These are pipeline checks, not DOTA fine-tuning results.
 
 Reproduce the parity check without network access:
 

@@ -488,10 +488,6 @@ class LibreGTR(LibreDFINE):
                 loggers=loggers,
                 **kwargs,
             )
-        if self.task == "obb":
-            raise NotImplementedError(
-                "GTR OBB is inference-only in LibreYOLO; training is not implemented"
-            )
         from dataclasses import fields
 
         from libreyolo.data import load_data_config
@@ -523,6 +519,9 @@ class LibreGTR(LibreDFINE):
         if self.task == "segment":
             from .seg_trainer import GTRSegConfig as config_cls
             from .seg_trainer import GTRSegTrainer as trainer_cls
+        elif self.task == "obb":
+            from .obb_trainer import GTROBBConfig as config_cls
+            from .obb_trainer import GTROBBTrainer as trainer_cls
         else:
             from .trainer import GTRTrainer as trainer_cls
 

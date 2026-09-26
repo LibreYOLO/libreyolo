@@ -126,12 +126,6 @@ def test_task_mismatch_is_rejected(tmp_path, obb_state):
         LibreGTR(str(path), size="s", nb_classes=15, device="cpu", task="detect")
 
 
-def test_obb_training_is_rejected(tmp_path, obb_state):
-    model = LibreYOLO(str(_save(tmp_path, obb_state)), device="cpu")
-    with pytest.raises(NotImplementedError, match="inference-only"):
-        model.train(data="dota8.yaml")
-
-
 def test_preprocessing_pads_bottom_right_and_normalizes():
     image = Image.fromarray(np.full((50, 100, 3), 255, dtype=np.uint8))
     tensor, _, size, scale = preprocess_obb_image(image, 64)
