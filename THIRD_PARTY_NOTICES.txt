@@ -797,7 +797,8 @@ Used for: RF-DETR model family (libreyolo/models/rfdetr/), LoRA
           graph gradient-ownership step (libreyolo/training/cuda_graph.py)
           and the torch.compile compatibility changes in the RF-DETR
           DINOv2 backbone and transformer follow RF-DETR v1.11.0
-          (#1411, #1455, #1468).
+          (commit d96d6ff9303ec5af7bb8f73e83f0f04ecb6ef728; PRs #1411, #1455,
+          #1468).
 
 --------------------------------------------------------------------
 DINOv2 (Meta AI / facebookresearch)

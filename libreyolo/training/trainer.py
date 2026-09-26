@@ -1687,14 +1687,6 @@ class BaseTrainer(ABC):
         if self._is_setup:
             return
 
-        # Containers with a CPU limit still show every host core; an
-        # oversized OpenMP pool then gets the process throttled each step.
-        # Restored when train() returns, so the rest of the process keeps
-        # its own setting.
-        from .cpu_threads import cap_torch_threads
-
-        self._threads_before_cap = cap_torch_threads()
-
         quant_manifest = getattr(self.wrapper_model, "_quant_manifest", None)
         if quant_manifest and quant_manifest.get("recipe") in ("fp16", "bf16"):
             raise ValueError(
@@ -2102,6 +2094,12 @@ class BaseTrainer(ABC):
         # a leftover True would silently truncate this run's first epoch.
         self._stop_training = False
         try:
+            # Containers with a CPU limit still show every host core; an
+            # oversized OpenMP pool then gets the process throttled each
+            # step. Scoped to train(): the finally below restores it.
+            from .cpu_threads import cap_torch_threads
+
+            self._threads_before_cap = cap_torch_threads()
             self.setup()
             self._maybe_export_check()
 
