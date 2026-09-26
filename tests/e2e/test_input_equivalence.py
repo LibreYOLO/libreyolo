@@ -81,16 +81,38 @@ def _iou(a, b):
 
 
 def _assert_all_matched(src, dst, what, min_iou):
-    """Match every ``src`` box to its own same-class ``dst`` box (one-to-one)."""
-    unused = set(range(len(dst[0])))
-    for box, cls in zip(*src):
-        candidates = [(_iou(box, dst[0][j]), j) for j in unused if dst[1][j] == cls]
-        best, j = max(candidates, default=(0.0, None))
-        assert best >= min_iou, (
-            f"{what}: class {cls} box {box.round(1).tolist()} has no unused match "
-            f"(best IoU {best:.3f} < {min_iou})"
-        )
-        unused.remove(j)
+    """Match every ``src`` box to its own same-class ``dst`` box (one-to-one).
+
+    Bipartite matching over pairs at or above ``min_iou``, so nearby
+    same-class boxes (RF-DETR has no NMS) cannot steal each other's partner
+    the way a greedy pass would.
+    """
+    edges = [
+        [
+            j
+            for j, (other, other_cls) in enumerate(zip(*dst))
+            if other_cls == cls and _iou(box, other) >= min_iou
+        ]
+        for box, cls in zip(*src)
+    ]
+    owner = {}
+
+    def augment(i, seen):
+        for j in edges[i]:
+            if j not in seen:
+                seen.add(j)
+                if j not in owner or augment(owner[j], seen):
+                    owner[j] = i
+                    return True
+        return False
+
+    for i, (box, cls) in enumerate(zip(*src)):
+        if not augment(i, set()):
+            best = max((_iou(box, o) for o, oc in zip(*dst) if oc == cls), default=0.0)
+            raise AssertionError(
+                f"{what}: class {cls} box {box.round(1).tolist()} has no unused "
+                f"match at IoU >= {min_iou} (best IoU {best:.3f})"
+            )
 
 
 def _assert_same_detections(expected, actual, what, min_iou=MIN_IOU):
