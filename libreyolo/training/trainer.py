@@ -274,6 +274,13 @@ class BaseTrainer(ABC):
 
         # Device
         self.device = self._setup_device()
+        quant_manifest = getattr(self.wrapper_model, "_quant_manifest", None)
+        if quant_manifest:
+            from ..quant.api import simulation_device
+
+            self.device = simulation_device(
+                self.device, quant_manifest.get("recipe")
+            )
 
         # Training state
         self.start_epoch = 0

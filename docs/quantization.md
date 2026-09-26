@@ -121,7 +121,8 @@ straight-through-estimator gradients, computed in fp32 islands even under
 AMP). Simulation is numerics-true: a `val()` score on any device is a real
 claim about the quantized arithmetic. It is not a speed claim; packed
 low-bit kernels are a separate deployment concern. The `fp16` and `bf16`
-casts are the exception: they execute natively.
+casts are the exception: they execute natively. Apple MPS implements neither
+the fake-quantize ops nor float8, so on a Mac the other recipes run on CPU.
 
 **Native fp8 tier** (finalized checkpoints on fp8 tensor cores, Ada sm_89 /
 Hopper / Blackwell): finalized fp8 `QuantLinear` modules run their GEMM

@@ -88,3 +88,16 @@ def test_float_trainer_does_not_apply_qat_guards():
     assert config.ema is True
     assert config.sync_bn is True
     assert config.average_best == 3
+
+
+def test_qat_trainer_runs_off_mps():
+    """MPS lacks fake-quantize kernels, so QAT trains on CPU there."""
+    import torch
+
+    trainer = _ProbeTrainer(
+        torch.nn.Linear(1, 1),
+        wrapper_model=SimpleNamespace(_quant_manifest={"recipe": "int8"}),
+        device="mps",
+    )
+
+    assert trainer.device == torch.device("cpu")

@@ -9,6 +9,7 @@ from ..command_utils import (
     exit_stage_error,
     exit_with_error,
     help_json_callback,
+    is_device_op_error,
     load_model_or_exit,
     parse_imgsz_str,
     resolve_model_or_exit,
@@ -179,6 +180,8 @@ def export_cmd(
     except ImportError as e:
         exit_with_error(out, "export_dep_missing", str(e))
     except NotImplementedError as e:
+        if is_device_op_error(e):
+            exit_stage_error(out, stage="Export", detail=e)
         exit_with_error(out, "format_precision_unsupported", str(e))
     except Exception as e:
         exit_stage_error(out, stage="Export", detail=e)

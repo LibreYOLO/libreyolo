@@ -854,6 +854,35 @@ def test_quantized_forward_and_qat_gradients(yolo9t):
     assert torch.isfinite(qmod.weight.grad).all()
 
 
+def test_quantize_moves_mps_model_to_cpu(yolo9t):
+    """MPS lacks fake-quantize kernels: quantized models simulate on CPU."""
+    yolo9t.device = torch.device("mps")  # as if auto-selected on a Mac
+
+    yolo9t.quantize(recipe="int8", calib=None, verbose=False)
+
+    assert yolo9t.device == torch.device("cpu")
+    assert next(yolo9t.model.parameters()).device.type == "cpu"
+
+
+def test_quant_checkpoint_structure_loads_off_mps(yolo9t):
+    from libreyolo.quant import apply_quant_structure
+
+    yolo9t.device = torch.device("mps")
+
+    apply_quant_structure(yolo9t, {"recipe": "int8"})
+
+    assert yolo9t.device == torch.device("cpu")
+    assert next(yolo9t.model.parameters()).device.type == "cpu"
+
+
+def test_cast_recipes_keep_mps():
+    from libreyolo.quant.api import simulation_device
+
+    assert simulation_device("mps", "fp16") == torch.device("mps")
+    assert simulation_device("mps", "int8") == torch.device("cpu")
+    assert simulation_device("cuda:0", "int8") == torch.device("cuda:0")
+
+
 def test_save_load_roundtrip(tmp_path, yolo9t):
     yolo9t.quantize(recipe="int8", calib=None, verbose=False)
     path = tmp_path / "LibreYOLO9t-int8.pt"

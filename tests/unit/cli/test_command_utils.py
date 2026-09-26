@@ -311,6 +311,16 @@ class _FailingModel:
         raise RuntimeError("disk full")
 
 
+class _MPSFailingModel(_FailingModel):
+    def _fail(self, **kwargs):
+        raise NotImplementedError(
+            "The operator 'aten::fake_quantize_per_channel_affine_cachemask' "
+            "is not currently implemented for the MPS device."
+        )
+
+    train = val = export = _fail
+
+
 @pytest.fixture
 def failing_app(monkeypatch):
     monkeypatch.setattr(
@@ -1471,3 +1481,24 @@ def test_export_help_json_only_lists_export_flags():
     assert "--quiet" in flags
     assert "--dry-run" not in flags
     assert "--yes" not in flags
+
+
+@pytest.mark.parametrize(
+    "argv",
+    [
+        ["train", "data=coco8.yaml", "model=yolox-s", "--json"],
+        ["val", "data=coco8.yaml", "model=yolox-s", "--json"],
+        ["export", "model=yolox-s", "format=onnx", "--json"],
+    ],
+)
+def test_unsupported_device_op_reports_device_error(failing_app, monkeypatch, argv):
+    monkeypatch.setattr(
+        "libreyolo.LibreYOLO", lambda *args, **kwargs: _MPSFailingModel()
+    )
+
+    result = runner.invoke(failing_app, argv)
+
+    assert result.exit_code == 1
+    data = json.loads(result.stdout)
+    assert data["error"] == "device_not_available"
+    assert "device=cpu" in data["suggestion"]

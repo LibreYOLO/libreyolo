@@ -125,6 +125,30 @@ def default_keep_high_precision(family: str) -> Tuple[str, ...]:
     return _FAMILY_KEEP_HIGH_PRECISION.get(family, ())
 
 
+def simulation_device(device, recipe: str) -> torch.device:
+    """Return the device a ``recipe``-quantized model can run on.
+
+    MPS implements neither the fake-quantize ops nor float8, so quantized
+    models run on CPU there. Cast recipes execute natively and keep MPS.
+    """
+    device = torch.device(device)
+    if device.type != "mps" or recipe in CAST_RECIPES:
+        return device
+    logger.warning(
+        "'%s' quantization runs on CPU: MPS lacks the fake-quantize and "
+        "float8 kernels it needs.",
+        recipe,
+    )
+    return torch.device("cpu")
+
+
+def _move_to_simulation_device(wrapper, recipe: str) -> None:
+    device = simulation_device(wrapper.device, recipe)
+    if device != torch.device(wrapper.device):
+        wrapper.device = device
+        wrapper.model.to(device)
+
+
 def _check_support(family: str, recipe: str):
     if recipe not in RECIPES:
         raise QuantizationError(
@@ -471,6 +495,7 @@ def quantize_model(
         if keep_high_precision is not None
         else default_keep_high_precision(family)
     )
+    _move_to_simulation_device(wrapper, recipe)
 
     manifest = {
         "schema": QUANT_SCHEMA_VERSION,
@@ -871,6 +896,7 @@ def apply_quant_structure(wrapper, manifest: Dict):
         if not getattr(wrapper, "_quant_manifest", None):
             _install_cast_io_hooks(wrapper.model, _cast_dtype(recipe))
     else:
+        _move_to_simulation_device(wrapper, recipe)
         keep_raw = manifest.get("keep_high_precision")
         keep = (
             tuple(keep_raw)

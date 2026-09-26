@@ -164,6 +164,13 @@ def resolve_model_or_exit(out: OutputHandler, model: str) -> str:
     )
 
 
+def is_device_op_error(exc: BaseException | str) -> bool:
+    """True for torch's "operator ... not implemented for the <X> device"."""
+    return isinstance(exc, NotImplementedError) and (
+        "not currently implemented for the" in str(exc)
+    )
+
+
 def exit_stage_error(
     out: OutputHandler,
     *,
@@ -173,6 +180,9 @@ def exit_stage_error(
     suggestion: Optional[str] = None,
 ) -> NoReturn:
     """Emit a stage-specific runtime error and terminate the command."""
+    if is_device_op_error(detail):
+        code = "device_not_available"
+        suggestion = suggestion or "Run on another device, for example device=cpu."
     exit_with_error(
         out,
         code,
