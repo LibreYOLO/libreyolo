@@ -9,6 +9,9 @@ scheduler, Mosaic and batch MixUp, and the depth head and SILog loss in
 libreyolo/models/gtr/.
 Ported the oriented-box (OBB) decoder, rotated-box operations and oriented
 denoising from engine/gtr/obb/ as libreyolo/models/gtr/obb_*.py.
+Semantic segmentation head, loss and sliding-window evaluation
+(engine/gtr/semseg, engine/solver/semseg_solver.py) in sem.py and
+sem_trainer.py; Cityscapes weights from Phoenix8125/GTR semseg/.
 Modified for native LibreYOLO construction, portable attention, local imports,
 strict checkpoints, and validation loss output/normalization.
 

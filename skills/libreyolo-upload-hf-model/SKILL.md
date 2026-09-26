@@ -316,6 +316,9 @@ LibreFeyNobgl-matte-fp8.pt,
 
 LibrePIDNets-sem.pt, LibrePIDNetm-sem.pt, LibrePIDNetl-sem.pt,
 
+LibreGTRs.pt, LibreGTRm.pt, LibreGTRl.pt, LibreGTRx.pt,
+LibreGTRs-sem.pt, LibreGTRm-sem.pt, LibreGTRl-sem.pt, LibreGTRx-sem.pt,
+
 LibrePPLiteSegt50-sem.pt, LibrePPLiteSegb50-sem.pt,
 LibrePPLiteSegt75-sem.pt, LibrePPLiteSegb75-sem.pt,
 LibreUNets-sem.pt,
@@ -377,7 +380,10 @@ non-commercial banner, and the loader prints the restriction before every
 auto-download. The `LICENSE` file carries the Apache-2.0 (super-gradients) and
 MIT (STDC-Seg) code texts *plus* the Cityscapes weight terms, because the code
 and the weights are genuinely different surfaces. Never tag them `apache-2.0`.
-**LibreUNets-sem is NON-COMMERCIAL** on the same Cityscapes-training-data
+**LibreGTR{s,m,l,x}-sem are NON-COMMERCIAL** on the same Cityscapes grounds
+(MIT code and weight-repository declaration, Cityscapes training data): same
+card tags, banner and `LICENSE` split (GTR MIT text plus Cityscapes weight
+terms). **LibreUNets-sem is NON-COMMERCIAL** on the same Cityscapes-training-data
 grounds as PP-LiteSeg: mmsegmentation's official UNet-S5-D16 Cityscapes
 checkpoint, converted in place. Same card tags, same banner, same
 `LICENSE` split (Apache-2.0 mmseg code text plus Cityscapes weight terms).
