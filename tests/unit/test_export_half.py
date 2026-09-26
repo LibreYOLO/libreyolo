@@ -30,14 +30,19 @@ def _build_rfdetr():
 
 
 _BUILDERS = {"yolo9": _build_yolo9, "rfdetr": _build_rfdetr}
+_CASES = [
+    (family, fmt) for family in sorted(_BUILDERS) for fmt in ("onnx", "torchscript")
+]
 
 
-@pytest.fixture(scope="module", params=sorted(_BUILDERS))
+@pytest.fixture(scope="module", params=_CASES, ids=["-".join(c) for c in _CASES])
 def half_export(request, tmp_path_factory):
-    pytest.importorskip("onnx")
-    pytest.importorskip("onnxruntime")
+    family, fmt = request.param
+    if fmt == "onnx":
+        pytest.importorskip("onnx")
+        pytest.importorskip("onnxruntime")
     torch.manual_seed(0)
-    model, imgsz = _BUILDERS[request.param]()
+    model, imgsz = _BUILDERS[family]()
     model.model.eval()
     before = {k: v.detach().clone() for k, v in model.model.state_dict().items()}
     tensor = torch.rand(1, 3, imgsz, imgsz)
@@ -50,18 +55,28 @@ def half_export(request, tmp_path_factory):
     if isinstance(native, torch.Tensor):
         native = (native,)
     native = [output.detach().numpy() for output in native]
+    kwargs = {"simplify": False} if fmt == "onnx" else {}
     artifact = model.export(
-        format="onnx",
+        format=fmt,
         half=True,
         imgsz=imgsz,
-        simplify=False,
-        output_path=str(tmp_path_factory.mktemp(request.param) / "half.onnx"),
+        output_path=str(tmp_path_factory.mktemp(family) / f"half.{fmt}"),
+        **kwargs,
     )
-    return request.param, model, before, artifact, tensor, native
+    return family, fmt, model, before, artifact, tensor, native
+
+
+def _graph_input_is_fp16(fmt, artifact):
+    if fmt == "onnx":
+        import onnxruntime as ort
+
+        session = ort.InferenceSession(artifact, providers=["CPUExecutionProvider"])
+        return session.get_inputs()[0].type == "tensor(float16)"
+    return next(torch.jit.load(artifact).parameters()).dtype == torch.float16
 
 
 def test_half_export_leaves_the_model_bit_exact(half_export):
-    _, model, before, *_ = half_export
+    _, _, model, before, *_ = half_export
     after = model.model.state_dict()
 
     assert after.keys() == before.keys()
@@ -70,14 +85,11 @@ def test_half_export_leaves_the_model_bit_exact(half_export):
         assert torch.equal(after[key], tensor), key
 
 
-def test_half_onnx_export_loads_and_predicts(half_export):
-    import onnxruntime as ort
-
+def test_half_export_loads_and_predicts(half_export):
     from libreyolo import LibreYOLO
 
-    family, _, _, artifact, tensor, native = half_export
-    session = ort.InferenceSession(artifact, providers=["CPUExecutionProvider"])
-    assert session.get_inputs()[0].type == "tensor(float16)"
+    family, fmt, _, _, artifact, tensor, native = half_export
+    assert _graph_input_is_fp16(fmt, artifact)
 
     backend = LibreYOLO(artifact, device="cpu")
     outputs = backend._run_inference(tensor.numpy())

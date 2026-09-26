@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import itertools
 import json
 import logging
 from pathlib import Path
@@ -24,6 +25,23 @@ from .base import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _graph_float_dtype(module, metadata: dict) -> torch.dtype | None:
+    """Float dtype the traced graph was built with (its weights' dtype)."""
+    for tensor in itertools.chain(module.parameters(), module.buffers()):
+        if tensor.is_floating_point():
+            return tensor.dtype
+    if str(metadata.get("precision", "")).lower() == "fp16":
+        return torch.float16
+    return None
+
+
+def _output_to_numpy(output: torch.Tensor) -> np.ndarray:
+    output = output.detach()
+    if output.dtype in (torch.float16, torch.bfloat16):
+        output = output.float()
+    return output.cpu().numpy()
 
 
 class TorchScriptBackend(BaseBackend):
@@ -60,6 +78,9 @@ class TorchScriptBackend(BaseBackend):
         raw_meta = extra_files.get("libreyolo_metadata.json", "")
         if raw_meta:
             metadata = json.loads(raw_meta)
+        # export(half=True) traces a float16 graph; preprocessing yields
+        # float32, so inputs are cast to the graph's float dtype.
+        self._input_float_dtype = _graph_float_dtype(self.model, metadata)
         warn_on_metadata_schema_version(
             metadata,
             artifact=f"TorchScript metadata for {model_path}",
@@ -131,17 +152,20 @@ class TorchScriptBackend(BaseBackend):
 
     def _run_inference(self, blob: np.ndarray) -> list:
         tensor = torch.from_numpy(blob).to(self.device)
+        input_dtype = getattr(self, "_input_float_dtype", None)
+        if input_dtype is not None and tensor.is_floating_point():
+            tensor = tensor.to(input_dtype)
         with torch.no_grad():
             outputs = self.model(tensor)
 
         if isinstance(outputs, torch.Tensor):
-            return [outputs.detach().cpu().numpy()]
+            return [_output_to_numpy(outputs)]
 
         if isinstance(outputs, (tuple, list)):
             out_list = []
             for out in outputs:
                 if isinstance(out, torch.Tensor):
-                    out_list.append(out.detach().cpu().numpy())
+                    out_list.append(_output_to_numpy(out))
                 else:
                     raise TypeError(
                         f"Unsupported TorchScript output element type: {type(out)!r}"
