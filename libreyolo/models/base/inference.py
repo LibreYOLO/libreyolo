@@ -34,6 +34,7 @@ from ...utils.drawing import (
     draw_tile_grid,
 )
 from ...utils.general import (
+    check_overlap_ratio,
     get_safe_stem,
     get_slice_bboxes,
     log_saved_result,
@@ -310,7 +311,8 @@ class InferenceRunner:
                 convention (``cv2.imread``, video frames); pass ``"rgb"`` for
                 RGB arrays. PIL images and tensors are always RGB.
             tiling: Enable tiled inference for large images.
-            overlap_ratio: Tile overlap ratio.
+            overlap_ratio: Fraction of each tile shared with its neighbour,
+                in ``[0, 1)``.
             output_file_format: Output format ("jpg", "png", "webp").
             cuda_graph: Replay the forward pass from a captured CUDA graph.
                 Small detectors are launch-bound, so collapsing the forward's
@@ -396,6 +398,8 @@ class InferenceRunner:
             raise ValueError(
                 "tiling and augment cannot be used together. Disable one of them."
             )
+        if tiling:
+            check_overlap_ratio(overlap_ratio)
         if augment and getattr(self.model, "task", None) == "point":
             raise ValueError(
                 "Test-time augmentation does not support point-task models yet. "

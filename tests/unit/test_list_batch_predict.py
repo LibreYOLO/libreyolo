@@ -229,6 +229,30 @@ def test_runner_tiling_list_save_uses_indexed_filenames(tmp_path):
     assert sorted(p.name for p in out_dir.iterdir()) == ["image0.jpg", "image1.jpg"]
 
 
+@pytest.mark.parametrize("overlap_ratio", [1.0, 1.5, -0.1, float("nan")])
+def test_runner_tiling_rejects_overlap_ratio_outside_unit_interval(overlap_ratio):
+    # A 16px image skips slicing; the check must not depend on image size.
+    runner = InferenceRunner(_StubModel())
+
+    with pytest.raises(ValueError, match=r"overlap_ratio must be in \[0, 1\)"):
+        runner(
+            np.zeros((16, 16, 3), dtype=np.uint8),
+            tiling=True,
+            overlap_ratio=overlap_ratio,
+        )
+
+
+def test_slice_bboxes_rejects_overlap_that_would_not_advance():
+    from libreyolo.utils.general import get_slice_bboxes
+
+    assert get_slice_bboxes(100, 50, slice_size=64, overlap_ratio=0.0) == [
+        (0, 0, 64, 50),
+        (36, 0, 100, 50),
+    ]
+    with pytest.raises(ValueError, match="overlap_ratio"):
+        get_slice_bboxes(100, 50, slice_size=64, overlap_ratio=-0.1)
+
+
 def test_runner_tiling_list_save_indexes_large_image_dirs(tmp_path):
     """The full tiled path derives its save directory stem from save_stem."""
     runner = InferenceRunner(_StubModel())
