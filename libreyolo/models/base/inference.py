@@ -594,9 +594,11 @@ class InferenceRunner:
                 ext = output_file_format or "jpg"
                 save_path = resolve_save_path(output_path, image_path, ext=ext)
                 # Reuse the decoded source rather than fetching the input again.
+                # The private check keeps a local file from being cached on
+                # the result by the lazy ``orig_img`` load.
                 img_pil = (
                     Image.fromarray(result.orig_img[..., ::-1])
-                    if result.orig_img is not None
+                    if getattr(result, "_orig_img", None) is not None
                     else ImageLoader.load(source, color_format=color_format)
                 )
                 self._save_annotated_image(result, img_pil, save_path)
@@ -777,7 +779,7 @@ class InferenceRunner:
                     )
                     img_pil = (
                         Image.fromarray(result.orig_img[..., ::-1])
-                        if result.orig_img is not None
+                        if getattr(result, "_orig_img", None) is not None
                         else ImageLoader.load(image, color_format=color_format)
                     )
                     self._save_annotated_image(result, img_pil, save_path)

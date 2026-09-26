@@ -146,6 +146,18 @@ def test_runner_list_mixes_paths_and_in_memory_images(tmp_path):
     assert results[1].path is None
 
 
+def test_runner_path_result_exposes_orig_img(tmp_path):
+    img_file = tmp_path / "photo.png"
+    rgb = np.zeros((10, 12, 3), dtype=np.uint8)
+    rgb[..., 0] = 255
+    Image.fromarray(rgb).save(img_file)
+
+    result = InferenceRunner(_StubModel())(str(img_file))
+
+    assert result.orig_img.shape == (10, 12, 3)
+    assert result.orig_img[0, 0].tolist() == [0, 0, 255]  # BGR
+
+
 def test_runner_list_save_uses_indexed_filenames(tmp_path):
     runner = InferenceRunner(_StubModel())
     out_dir = tmp_path / "out"

@@ -1960,9 +1960,18 @@ class Results:
 
     @property
     def orig_img(self) -> np.ndarray | None:
-        """Source image as an ``HxWx3`` uint8 BGR array, or None if not kept."""
+        """Source image as an ``HxWx3`` uint8 BGR array, or None if unavailable.
+
+        Predictions on local files do not keep the decoded pixels; the image
+        is read back from ``path`` on first access and cached.
+        """
         source = self._orig_img
-        if source is not None and not isinstance(source, np.ndarray):
+        if source is None:
+            rgb = self._path_rgb()
+            if rgb is not None:
+                source = np.ascontiguousarray(rgb[..., ::-1])
+                self._orig_img = source
+        elif not isinstance(source, np.ndarray):
             # Predict keeps the decoded PIL image; convert on first access.
             source = np.ascontiguousarray(np.asarray(source.convert("RGB"))[..., ::-1])
             self._orig_img = source
@@ -2326,6 +2335,20 @@ class Results:
                 Image.fromarray(rgb.astype(np.uint8)).resize((w, h), Image.BILINEAR)
             )
         return rgb.astype(np.uint8)
+
+    def _path_rgb(self) -> np.ndarray | None:
+        """Decode the source at ``path`` (an image or a video frame), or None."""
+        if not self.path or not _is_local_file(self.path):
+            return None
+        from PIL import Image
+
+        rgb = self._video_frame_rgb()
+        if rgb is None:
+            try:
+                rgb = np.asarray(Image.open(self.path).convert("RGB"))
+            except (OSError, ValueError):
+                return None
+        return rgb
 
     def _video_frame_rgb(self) -> np.ndarray | None:
         """Decode frame ``frame_idx`` of the video at ``path``, or None."""
