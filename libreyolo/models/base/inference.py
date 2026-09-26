@@ -41,7 +41,7 @@ from ...utils.general import (
 )
 from ...utils.image_loader import ImageInput, ImageLoader
 from ...utils.image_size import reject_rectangular_imgsz
-from ...utils.predict_args import normalize_predict_kwargs
+from ...utils.predict_args import normalize_classes, normalize_predict_kwargs
 from ...utils.results import (
     keep_source,
     AlbedoMap,
@@ -283,7 +283,7 @@ class InferenceRunner:
             conf: Confidence threshold.
             iou: IoU threshold for NMS.
             imgsz: Input size override (None = model default).
-            classes: Filter to specific class IDs.
+            classes: Filter to specific class IDs, a list or a single int.
             max_det: Maximum detections per image.
             save: If True, saves annotated image or video.
             batch: Images per forward pass for directory and list sources.
@@ -332,6 +332,7 @@ class InferenceRunner:
         predict_input_kwargs = {
             key: kwargs.pop(key) for key in declared_predict_inputs if key in kwargs
         }
+        classes = normalize_classes(classes)
         missing_predict_inputs = sorted(
             key
             for key in required_predict_inputs

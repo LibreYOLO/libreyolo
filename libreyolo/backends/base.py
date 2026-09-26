@@ -58,7 +58,7 @@ from ..utils.general import (
 )
 from ..utils.image_loader import ImageLoader
 from ..utils.model_info import build_model_info, format_model_info
-from ..utils.predict_args import normalize_predict_kwargs
+from ..utils.predict_args import normalize_classes, normalize_predict_kwargs
 from ..utils.results import (
     keep_source,
     Boxes,
@@ -5118,6 +5118,7 @@ class BaseBackend(ABC):
     ) -> Union[Results, List[Results], Generator[Results, None, None]]:
         """Run inference on images, directories, videos, or screen captures."""
         normalize_predict_kwargs(kwargs)
+        classes = normalize_classes(classes)
         if device not in (None, "", "auto", self.device):
             logger.warning(
                 "Backend was loaded on device=%s; predict(device=%s) is ignored. "

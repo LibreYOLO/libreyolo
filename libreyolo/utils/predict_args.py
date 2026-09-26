@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import warnings
+from numbers import Integral
 
 
 NOOP_PREDICT_KWARGS = {
@@ -30,6 +31,13 @@ ACCEPTED_PREDICT_KWARGS = {
     "stream_buffer",
     "vid_stride",
 }
+
+
+def normalize_classes(classes):
+    """Accept a single class id (``classes=0``) as a one-element list."""
+    if isinstance(classes, Integral) and not isinstance(classes, bool):
+        return [int(classes)]
+    return classes
 
 
 def normalize_predict_kwargs(kwargs: dict, passthrough: set[str] | None = None) -> dict:

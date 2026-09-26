@@ -126,6 +126,15 @@ def test_runner_batch_of_one_still_returns_a_list():
     assert len(results) == 1
 
 
+def test_runner_accepts_a_single_int_class_filter():
+    runner = InferenceRunner(_StubModel())
+    image = np.zeros((8, 8, 3), dtype=np.uint8)
+
+    assert len(runner(image, classes=0)) == 1
+    assert len(runner(image, classes=1)) == 0
+    assert len(runner(image, classes=np.int64(0))) == 1
+
+
 def test_runner_accepts_tuple_and_empty_list():
     runner = InferenceRunner(_StubModel())
 
@@ -363,6 +372,21 @@ def test_backend_call_splits_batched_array():
 
     assert out == ["r", "r"]
     assert seen["shapes"] == [(8, 8, 3), (8, 8, 3)]
+
+
+def test_backend_call_accepts_a_single_int_class_filter():
+    backend = _bare_backend()
+    seen = {}
+
+    def fake_single(image, **kwargs):
+        seen["classes"] = kwargs.get("classes")
+        return "r"
+
+    backend._predict_single = fake_single
+
+    backend(np.zeros((8, 8, 3), dtype=np.uint8), classes=0)
+
+    assert seen["classes"] == [0]
 
 
 def test_backend_streams_list_lazily_in_batch_sized_chunks():
