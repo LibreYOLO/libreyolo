@@ -384,6 +384,9 @@ def apply_lora_to_ec(core_model: nn.Module) -> nn.Module:
 # the role of the fused ``qkv`` adapted elsewhere; the gate, output and MLP
 # projections are not adapted, matching the attention-input-only reference.
 GTR_TARGET_LINEAR_NAMES = ("q_proj", "k_proj", "v_proj")
+# The oriented-box decoder layer carries the same Linear names under its own
+# class name.
+GTR_DECODER_BLOCK_CLASSES = DETR_BLOCK_CLASSES + ("OBBTransformerDecoderLayer",)
 
 
 def apply_lora_to_gtr(core_model: nn.Module) -> nn.Module:
@@ -397,11 +400,11 @@ def apply_lora_to_gtr(core_model: nn.Module) -> nn.Module:
     if module_has_lora(core_model):
         return core_model
 
-    detr_roots = _discover_block_roots(core_model, DETR_BLOCK_CLASSES)
+    detr_roots = _discover_block_roots(core_model, GTR_DECODER_BLOCK_CLASSES)
     if not detr_roots:
         raise ValueError(
             "No transformer decoder blocks found; expected "
-            f"{DETR_BLOCK_CLASSES} classes in the model."
+            f"{GTR_DECODER_BLOCK_CLASSES} classes in the model."
         )
     target_modules = _collect_linear_targets(
         core_model, detr_roots, DETR_TARGET_LINEAR_NAMES, skip_frozen=True
