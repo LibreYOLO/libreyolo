@@ -61,8 +61,10 @@ the same numerical preprocessing. Results boxes stay on the original canvas.
 
 Training supports horizontal and vertical flips. Color changes, mosaic,
 mixup, affine/projective augmentation, random crops, multi-scale RF-DETR
-training, LoRA, distillation and quantization are outside this initial profile.
-Unsupported explicit options raise; the histogram defaults disable them.
+training, LoRA and distillation are outside this initial profile. Unsupported
+explicit options raise; the histogram defaults disable them. Quantization is
+not validated for this profile either, but nothing rejects it: `quantize()`
+and QAT on a histogram model run without a profile check.
 Training uses one device and a fixed positive batch. CUDA graph training and
 auto-batch are not supported. Prediction supports arrays, files, lists,
 directories and `stream=True` over those finite sources; TTA, tiling, videos,
@@ -106,7 +108,8 @@ convolution. Neither initialization is a pretrained event detector. The saved
 profile. Reload requires no dataset configuration for prediction. Training and
 validation reject a dataset whose profile differs from the model. ONNX accepts
 FP32 without embedded NMS; its graph input is normalized NCHW float32 with two
-channels. Other export formats and quantized export are not supported.
+channels. Other export formats raise. Quantized export is not validated;
+an int8 model still exports to QDQ ONNX without a profile check.
 Prepared-data prediction requires no Prophesee SDK. In an ONNX-only
 installation without PyTorch, use `libreyolo.backends.onnx.OnnxBackend` directly;
 the `LibreYOLO` factory requires PyTorch.
