@@ -60,9 +60,14 @@ class TorchScriptBackend(BaseBackend):
         if device == "auto":
             if torch.cuda.is_available():
                 resolved_device = "cuda"
-            elif torch.backends.mps.is_available():
-                resolved_device = "mps"
             else:
+                # Auto never picks MPS: traced graphs keep Python scalars as
+                # float64 constants, which MPS refuses to load.
+                if torch.backends.mps.is_available():
+                    logger.info(
+                        "TorchScript runs on CPU on Apple Silicon: MPS cannot "
+                        "load the float64 constants traced graphs carry."
+                    )
                 resolved_device = "cpu"
         else:
             resolved_device = device

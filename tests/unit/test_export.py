@@ -1299,6 +1299,30 @@ class TestTorchScriptExport:
             result = loaded(dummy)
             assert result.shape == (1, 4)
 
+    def test_torchscript_backend_auto_device_skips_mps(self, monkeypatch, tmp_path):
+        """Auto must not pick MPS: it cannot load traced float64 constants."""
+        from libreyolo.backends.torchscript import TorchScriptBackend
+
+        output_path = tmp_path / "model.torchscript"
+        TorchScriptExporter(_make_wrapper(model_name="yolo9"))(
+            output_path=str(output_path), device="cpu"
+        )
+        real_load = torch.jit.load
+        map_locations = []
+
+        def recording_load(path, map_location=None, **kwargs):
+            map_locations.append(str(map_location))
+            return real_load(path, map_location="cpu", **kwargs)
+
+        monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
+        monkeypatch.setattr(torch.backends.mps, "is_available", lambda: True)
+        monkeypatch.setattr(torch.jit, "load", recording_load)
+
+        backend = TorchScriptBackend(str(output_path))
+
+        assert map_locations == ["cpu"]
+        assert str(backend.device) == "cpu"
+
     def test_rfdetr_position_embedding_dim_buffer_not_checkpointed(self):
         from libreyolo.models.rfdetr.backbone import PositionEmbeddingSine
 
