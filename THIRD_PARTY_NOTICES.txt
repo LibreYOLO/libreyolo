@@ -2820,11 +2820,15 @@ License: MIT (LICENSE in this directory)
 Copyright (c) 2026 Intellindust-AI-Lab / The GTR Authors.
 
 Ported backbone, spatial SwiGLU, feature projector, decoder, matching, loss,
-scheduler, Mosaic and batch MixUp in libreyolo/models/gtr/.
+scheduler, Mosaic and batch MixUp, and the depth head and SILog loss in
+libreyolo/models/gtr/.
 Modified for native LibreYOLO construction, portable attention, local imports,
 strict checkpoints, and validation loss output/normalization.
 
 Retained source notices identify these Apache-2.0 components:
+- Depth-Anything-V2 (DPT depth head, SILog loss; code only):
+  https://github.com/DepthAnything/Depth-Anything-V2
+  Copyright (c) 2024 Depth Anything V2 authors.
 - DEIM (Mosaic, batch MixUp): https://github.com/Intellindust-AI-Lab/DEIM
   Copyright (c) 2024 The DEIM Authors.
 - D-FINE: https://github.com/Peterande/D-FINE

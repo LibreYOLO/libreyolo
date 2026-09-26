@@ -1038,7 +1038,7 @@ class BaseExporter(ABC):
             nn_model = DETRExportWrapper(nn_model).to(device)
             nn_model.eval()
             dfine_wrapped = True
-        elif family in ("dfine", "gtr"):
+        elif family == "dfine" or (family == "gtr" and task == "detect"):
             from ..models.dfine.nn import DFINEExportWrapper
 
             # deploy() (BN fusion + decoder-layer pruning + head swap) mutates

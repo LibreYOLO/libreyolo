@@ -102,6 +102,7 @@ file = name + ".pt"
 | DepthAnythingV2 | `LibreDepthAnythingV2` | `LibreDepthAnythingV2s-depth.pt` (only `s` is Apache; b/l/g are CC-BY-NC, see below) |
 | DepthAnything3 | `LibreDepthAnything3` | `LibreDepthAnything3l-depth.pt` (DA3MONO-LARGE; Apache-2.0) |
 | ZipDepth | `LibreZipDepth` | `LibreZipDepthb-depth.pt` (MIT code + weights; `bnpu` is the NPU-decoder checkpoint) |
+| GTR | `LibreGTR` | `LibreGTRs.pt`, `LibreGTRs-depth.pt` (MIT code + weights; depth repos pin revisions per (size, task) in `LibreGTR.HF_TASK_REVISIONS`) |
 | FOMO | `LibreFOMO` | `LibreFOMOs-point.pt` (no weights hosted yet; license-gate first) |
 
 Never-upload families: **L2CS** (Gaze360 terms forbid redistribution) and any
@@ -252,6 +253,10 @@ LibreECs.pt, LibreECm.pt, LibreECl.pt, LibreECx.pt,
 LibreECs-pose.pt, LibreECm-pose.pt, LibreECl-pose.pt,
 LibreECx-pose.pt, LibreECs-seg.pt, LibreECm-seg.pt,
 LibreECl-seg.pt, LibreECx-seg.pt,
+
+LibreGTRs.pt, LibreGTRm.pt, LibreGTRl.pt, LibreGTRx.pt,
+LibreGTRs-depth.pt, LibreGTRm-depth.pt, LibreGTRl-depth.pt,
+LibreGTRx-depth.pt,
 
 LibreMobileNetV4s-cls.pt, LibreMobileNetV4m-cls.pt,
 LibreMobileNetV4l-cls.pt,
