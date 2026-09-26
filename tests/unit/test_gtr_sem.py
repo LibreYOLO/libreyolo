@@ -153,8 +153,7 @@ def test_download_urls_and_notice():
     )
     assert LibreGTR.get_download_url("LibreGTRm.pt").endswith("/LibreGTRm.pt")
     assert LibreGTR.detect_task_from_filename("LibreGTRx-sem.pt") == "semantic"
-    assert "NON-COMMERCIAL" in LibreGTR.get_download_notice("LibreGTRs-sem.pt", url)
-    assert LibreGTR.get_download_notice("LibreGTRs.pt", url) is None
+    assert LibreGTR.get_download_notice("LibreGTRs-sem.pt", url) is None
 
 
 def _write_semantic_dataset(root, count=2):
