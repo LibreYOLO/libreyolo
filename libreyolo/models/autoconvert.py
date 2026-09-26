@@ -641,9 +641,20 @@ def _rfdetr_class_metadata(
     raw_nc: int | None,
 ) -> tuple[int, Any | None]:
     """Resolve RF-DETR public class metadata without guessing custom 90-class heads."""
-    if raw_nc == 90 and _is_coco_rfdetr_checkpoint(loaded):
+    is_coco = raw_nc == 90 and _is_coco_rfdetr_checkpoint(loaded)
+    if isinstance(loaded, dict) and _name_count(loaded.get("names")) == 0:
+        # Fill missing labels only after resolving the class space. Stale
+        # nested names must not turn a custom 90-class checkpoint into COCO.
+        nc = 80 if is_coco else (1 if raw_nc == 0 else raw_nc or 80)
+        nested = {key: value for key, value in loaded.items() if key != "names"}
+        if _name_count(_checkpoint_names(nested)) == nc:
+            loaded = nested
+    if is_coco:
         # COCO arch-classes (91 outputs incl. background) -> LibreYOLO's COCO-80.
-        return 80, _checkpoint_names(loaded, 80)
+        names = _checkpoint_names(loaded, 80)
+        # Omit empty foreign placeholders so wrapping restores COCO labels,
+        # rather than padding an empty mapping with generic class_i names.
+        return 80, names or None
 
     if raw_nc == 0:
         # RF-DETR scores classes with independent sigmoids (focal loss); there

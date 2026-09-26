@@ -450,8 +450,15 @@ remap applied at post-process). A checkpoint is treated as COCO when it:
 A genuine custom 90-class RF-DETR is preserved as `nc = 90`. It is identified
 by a `names`/`class_names` list, an explicit non-80 class count, or a non-COCO
 dataset hint (e.g. `args.dataset_file`), so the bare-checkpoint COCO fallback
-does not fire for it. Empty placeholders (`""`, `{}`, `[]`) are ignored when
-deciding whether a dataset hint is present.
+does not fire for it. Empty dataset placeholders (`""`, `{}`, `[]`) are ignored
+when deciding whether a dataset hint is present.
+
+An empty class-name container alone does not establish COCO identity: an
+otherwise ambiguous 90-class checkpoint retains `nc = 90`. After resolving
+the class count, empty top-level names can use nested `args.class_names` or
+`hyper_parameters.class_names` only when their length matches that count.
+Nested fallback labels cannot establish a different class space. When metadata
+establishes COCO identity but names are empty, wrapping supplies COCO-80 labels.
 
 Schema helpers live in `libreyolo/utils/serialization.py`:
 

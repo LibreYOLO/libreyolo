@@ -212,7 +212,12 @@ def wrap_libreyolo_checkpoint(
     schema_version: str = SCHEMA_VERSION,
     **extra_metadata: Any,
 ) -> dict[str, Any]:
-    """Build a strict LibreYOLO v1.0 metadata-wrapped checkpoint."""
+    """Build a strict LibreYOLO v1.0 metadata-wrapped checkpoint.
+
+    Foreign converters should pass ``names=None`` when source labels are absent
+    to derive defaults from their resolved ``nc``. An explicit empty container
+    instead follows sparse-name normalization and receives generic labels.
+    """
     normalized_task = normalize_task(task)
     if normalized_task is None:
         raise CheckpointMetadataError("task is required.")

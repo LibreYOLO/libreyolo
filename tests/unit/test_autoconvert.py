@@ -430,6 +430,61 @@ class TestAutoconvertOrchestration:
         # A checkpoint that explicitly declares 80 classes is COCO.
         assert autoconvert_module._rfdetr_class_metadata({"nc": 80}, 90)[0] == 80
 
+    @pytest.mark.parametrize("loaded", [
+        {"names": []},
+        {"names": {}},
+        {"args": argparse.Namespace(class_names=[])},
+        {"args": argparse.Namespace(class_names={})},
+    ])
+    def test_rfdetr_empty_names_without_coco_metadata_preserve_90_classes(self, loaded):
+        assert autoconvert_module._rfdetr_class_metadata(loaded, 90)[0] == 90
+
+    @pytest.mark.parametrize("names", [[], {}])
+    @pytest.mark.parametrize("metadata", [
+        {"nc": 80},
+        {"args": argparse.Namespace(num_classes=80)},
+        {"dataset": "coco"},
+    ])
+    def test_rfdetr_confirmed_coco_empty_names_restore_labels(self, names, metadata):
+        nc, names = autoconvert_module._rfdetr_class_metadata({"names": names, **metadata}, 90)
+        assert (nc, names) == (80, None)
+        wrapped = wrap_libreyolo_checkpoint(
+            {"class_embed.bias": torch.zeros(91)},
+            model_family="rfdetr", size="n", task="detect",
+            nc=nc, names=names, imgsz=384,
+        )
+        assert len(wrapped["names"]) == 80
+        assert wrapped["names"][0] == "person"
+        assert wrapped["names"][79] == "toothbrush"
+
+    @pytest.mark.parametrize("names", [[], {}])
+    @pytest.mark.parametrize("metadata", [
+        {"nc": 90},
+        {"num_classes": 90},
+        {"args": argparse.Namespace(num_classes=90)},
+        {"dataset": "custom90"},
+        {"data": {"path": "/datasets/custom90"}},
+    ])
+    def test_rfdetr_empty_names_preserve_custom_class_metadata(self, names, metadata):
+        assert autoconvert_module._rfdetr_class_metadata(
+            {"names": names, **metadata}, 90,
+        )[0] == 90
+
+    @pytest.mark.parametrize("names", [[], {}])
+    @pytest.mark.parametrize("container", ["args", "hyper_parameters"])
+    def test_rfdetr_empty_names_do_not_hide_nested_custom_names(self, names, container):
+        custom_names = [f"custom_{i}" for i in range(90)]
+        loaded = {"names": names, container: {"class_names": custom_names}}
+        assert autoconvert_module._rfdetr_class_metadata(loaded, 90) == (90, custom_names)
+        assert loaded["names"] == names
+
+    @pytest.mark.parametrize("names", [[], {}])
+    @pytest.mark.parametrize("metadata", [{}, {"nc": 90}, {"num_classes": 90}])
+    def test_rfdetr_stale_nested_coco_names_do_not_change_class_space(self, names, metadata):
+        stale_names = [f"stale_{i}" for i in range(80)]
+        loaded = {"names": names, "args": {"class_names": stale_names}, **metadata}
+        assert autoconvert_module._rfdetr_class_metadata(loaded, 90) == (90, names)
+
     def test_returns_none_for_non_upstream_file(self, tmp_path):
         src = tmp_path / "random.pt"
         torch.save({"some.random.tensor": torch.zeros(4)}, src)
