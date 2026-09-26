@@ -168,6 +168,15 @@ before 1.4.0 are documented in the
 
 ### Fixed
 
+- **Square-only families reject a rectangular `imgsz` with a clear error
+  (#903).** `predict(imgsz=(h, w))` on RF-DETR, D-FINE, DEIM, DEIMv2,
+  EdgeCrafter and TinyFormer crashed deep in preprocessing with a `TypeError`
+  or an OpenCV resize error; it now raises `ValueError: <family> predict()
+  does not support rectangular input sizes ... Use a square imgsz.`, as
+  YOLO-NAS already did. `val(imgsz=(h, w))` gets the same error on DEIMv2 and
+  TinyFormer, where it also crashed; rectangular validation keeps working on
+  the other four.
+
 - **Rectangular fine-tunes reload at the size they were trained at (#899).**
   A model trained with `imgsz=(h, w)` stored the size in its checkpoint
   (`imgsz_h` / `imgsz_w`), but loading it went back to the family's square
