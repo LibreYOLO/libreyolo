@@ -78,3 +78,27 @@ def test_affinity_mask_also_limits(tmp_path, pool, monkeypatch):
     monkeypatch.setattr(cpu_threads.os, "sched_getaffinity", lambda pid: set(range(8)), raising=False)
     assert cpu_threads.cap_torch_threads(_cgroup(tmp_path, "max 100000")) == 128
     assert pool["n"] == 8
+
+
+def test_train_restores_the_pool_even_when_setup_fails(monkeypatch):
+    from types import SimpleNamespace
+
+    from libreyolo.training.trainer import BaseTrainer
+
+    calls = []
+    monkeypatch.setattr(cpu_threads, "cap_torch_threads", lambda: calls.append("cap") or 64)
+    monkeypatch.setattr(cpu_threads, "restore_torch_threads", lambda n: calls.append(("restore", n)))
+
+    def failing_setup():
+        raise RuntimeError("bad dataset")
+
+    host = SimpleNamespace(
+        setup=failing_setup,
+        _build_train_exception_event=lambda exc, elapsed: None,
+        _dispatch_artifact_callbacks=lambda *a: None,
+        callbacks=SimpleNamespace(on_train_exception=lambda event: None),
+    )
+    with pytest.raises(RuntimeError, match="bad dataset"):
+        BaseTrainer.train(host)
+    assert calls == ["cap", ("restore", 64)]
+    assert host._threads_before_cap is None
