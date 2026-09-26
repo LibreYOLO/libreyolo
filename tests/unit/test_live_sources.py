@@ -214,6 +214,26 @@ def test_existing_numeric_filename_is_not_claimed_as_webcam(tmp_path, monkeypatc
     assert classify_source("0").kind == SourceKind.IMAGE
 
 
+@pytest.mark.parametrize("name", ["cam.mts", "cam.dav", "cam.bin", "cam"])
+def test_existing_video_with_uncommon_extension_dispatches_as_video(tmp_path, name):
+    cv2 = pytest.importorskip("cv2", reason="opencv-python required for video tests")
+    clip = tmp_path / "clip.mp4"
+    writer = cv2.VideoWriter(str(clip), cv2.VideoWriter_fourcc(*"mp4v"), 30.0, (20, 16))
+    for _ in range(2):
+        writer.write(np.zeros((16, 20, 3), dtype=np.uint8))
+    writer.release()
+    source = clip.rename(tmp_path / name)
+
+    assert classify_source(str(source)).kind == SourceKind.VIDEO
+
+
+def test_extensionless_image_file_stays_an_image(tmp_path):
+    path = tmp_path / "frame"
+    Image.new("RGB", (8, 8)).save(path, format="PNG")
+
+    assert classify_source(path).kind == SourceKind.IMAGE
+
+
 def test_missing_stream_list_fails_at_dispatch(tmp_path):
     path = Path(tmp_path) / "missing.streams"
     with pytest.raises(FileNotFoundError, match="Stream list not found"):

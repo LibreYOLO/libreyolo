@@ -22,6 +22,7 @@ from urllib.parse import urlsplit, urlunsplit
 
 import numpy as np
 
+from .image_loader import SUPPORTED_EXTENSIONS as IMAGE_EXTENSIONS
 from .screen import is_screen_source
 from .video import is_video_file
 
@@ -175,8 +176,41 @@ def _read_stream_list(path: Path) -> tuple[int | str, ...]:
     return tuple(sources)
 
 
+def _opens_as_video(path: Path) -> bool:
+    """Return whether an existing file of unknown type is a video.
+
+    Files Pillow can decode stay images. Anything else is probed with the
+    same ``cv2.VideoCapture`` that :class:`~libreyolo.utils.video.VideoSource`
+    uses, so camera dumps with uncommon or missing extensions still play.
+    """
+    from PIL import Image
+
+    try:
+        with Image.open(path) as image:
+            image.load()
+        return False
+    except Image.DecompressionBombError:
+        return False
+    except Exception:
+        pass
+    try:
+        import cv2
+    except ImportError:
+        return False
+    # An absolute path keeps a file named e.g. "0" from reaching a camera.
+    capture = cv2.VideoCapture(str(path.absolute()))
+    try:
+        return bool(capture.isOpened())
+    finally:
+        capture.release()
+
+
 def classify_source(source: Any) -> SourceSpec:
-    """Classify one public prediction source without opening it."""
+    """Classify one public prediction source.
+
+    Only existing files whose extension is neither a known image nor a known
+    video format are opened, to tell images from videos.
+    """
     if is_screen_source(source):
         return SourceSpec(SourceKind.SCREEN, source)
 
@@ -221,6 +255,13 @@ def classify_source(source: Any) -> SourceSpec:
         existing = _existing_path(source)
         if existing is not None and existing.is_dir():
             return SourceSpec(SourceKind.DIRECTORY, source)
+        if (
+            existing is not None
+            and existing.is_file()
+            and path.suffix.lower() not in IMAGE_EXTENSIONS
+            and _opens_as_video(existing)
+        ):
+            return SourceSpec(SourceKind.VIDEO, source)
 
     return SourceSpec(SourceKind.IMAGE, source)
 

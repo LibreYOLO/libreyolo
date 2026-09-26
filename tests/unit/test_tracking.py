@@ -868,6 +868,24 @@ class TestTrackImageSequences:
             )
 
 
+@pytest.mark.parametrize(
+    "name",
+    ["cam.mts", "cam.m2ts", "cam.flv", "cam.3gp", "cam.h264", "cam.dav", "cam.bin", "cam"],
+)
+def test_tracks_video_files_with_uncommon_or_missing_extensions(tmp_path, name):
+    cv2 = pytest.importorskip("cv2", reason="opencv-python required for video tests")
+    clip = tmp_path / "clip.mp4"
+    writer = cv2.VideoWriter(str(clip), cv2.VideoWriter_fourcc(*"mp4v"), 30.0, (20, 16))
+    for _ in range(3):
+        writer.write(np.zeros((16, 20, 3), dtype=np.uint8))
+    writer.release()
+    source = clip.rename(tmp_path / name)
+
+    results = list(BaseModel.track(_StubTrackModel(), str(source)))
+
+    assert [r.frame_idx for r in results] == [0, 1, 2]
+
+
 class _CustomTracker:
     def __init__(self):
         self.resets = 0
