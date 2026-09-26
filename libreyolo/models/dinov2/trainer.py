@@ -21,6 +21,19 @@ class DINOv2Trainer(SemanticValidationLossMixin, RFDETRTrainer):
     """
 
     artifact_model_families = ("dinov2",)
+    # Score key each task's validation writes into checkpoints. Resume only
+    # restores the saved best score when this matches the trainer's key.
+    task_best_metric_keys = {
+        "classify": "metrics/accuracy_top1",
+        "semantic": "metrics/mIoU",
+    }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        task = getattr(getattr(self, "wrapper_model", None), "task", "semantic")
+        self.best_metric_key = self.task_best_metric_keys.get(
+            task, self.best_metric_key
+        )
 
     @classmethod
     def _config_class(cls) -> Type[TrainConfig]:

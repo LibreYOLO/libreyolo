@@ -561,6 +561,74 @@ def test_dinov2_semantic_resume_continues_same_run_dir(fake_backbone, tmp_path):
     assert len(res2["epoch_losses"]) == 1
 
 
+def test_dinov2_semantic_resume_keeps_best_metric(
+    fake_backbone, tmp_path, monkeypatch
+):
+    """Semantic checkpoints record metrics/mIoU; resume must restore that best
+    score instead of resetting it, or the first resumed epoch overwrites
+    best.pt regardless of its score."""
+    from libreyolo.models.dinov2.model import LibreDINOv2
+    from libreyolo.models.dinov2.trainer import DINOv2Trainer
+    from libreyolo.utils.serialization import load_trusted_torch_file
+
+    yaml_path = _make_semantic_yaml(tmp_path)
+    common = dict(
+        data=str(yaml_path),
+        batch=2,
+        imgsz=70,
+        workers=0,
+        eval_interval=1,
+        project=str(tmp_path / "runs"),
+        name="best_resume",
+        amp=False,
+        ema=False,
+        warmup_epochs=0,
+    )
+    first = LibreDINOv2(
+        model_path=None, size="n", task="semantic", nb_classes=2, device="cpu"
+    )
+    res = first.train(epochs=1, **common)
+    saved = load_trusted_torch_file(
+        res["last_checkpoint"], map_location="cpu", context="test"
+    )
+    assert saved["best_metric_key"] == "metrics/mIoU"
+
+    restored = {}
+    original_resume = DINOv2Trainer.resume
+
+    def _spy_resume(self, checkpoint_path):
+        original_resume(self, checkpoint_path)
+        restored["epoch"] = self.best_epoch
+        restored["value"] = self.best_mAP50_95
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(DINOv2Trainer, "resume", _spy_resume)
+    second = LibreDINOv2(
+        model_path=None, size="n", task="semantic", nb_classes=2, device="cpu"
+    )
+    with pytest.raises(KeyboardInterrupt):
+        second.train(epochs=2, resume=True, **common)
+
+    assert restored["epoch"] == saved["best_epoch"] >= 1
+    assert restored["value"] == pytest.approx(saved["best_metric_value"])
+
+
+@pytest.mark.parametrize(
+    ("task", "key"),
+    [("semantic", "metrics/mIoU"), ("classify", "metrics/accuracy_top1")],
+)
+def test_dinov2_trainer_best_metric_key_matches_task(fake_backbone, task, key):
+    from libreyolo.models.dinov2.model import LibreDINOv2
+    from libreyolo.models.dinov2.trainer import DINOv2Trainer
+
+    m = LibreDINOv2(model_path=None, size="n", task=task, nb_classes=2, device="cpu")
+    trainer = DINOv2Trainer(
+        model=m.model, wrapper_model=m, data="unused.yaml", size="n", device="cpu"
+    )
+
+    assert trainer.best_metric_key == key
+
+
 @pytest.mark.external_data
 @pytest.mark.network
 @pytest.mark.slow
