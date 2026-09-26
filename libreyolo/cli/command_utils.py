@@ -191,6 +191,31 @@ def exit_stage_error(
     )
 
 
+# What torch raises when an input size does not tile a model's feature maps.
+_IMGSZ_SHAPE_ERRORS = ("Sizes of tensors must match", "must match the size of tensor")
+
+
+def is_imgsz_error(exc: BaseException) -> bool:
+    """Whether a model call failed because it cannot run at the requested imgsz."""
+    message = str(exc)
+    if isinstance(exc, ValueError):
+        return "imgsz" in message
+    return isinstance(exc, RuntimeError) and any(
+        marker in message for marker in _IMGSZ_SHAPE_ERRORS
+    )
+
+
+def exit_imgsz_error(out: OutputHandler, exc: BaseException) -> NoReturn:
+    """Report an imgsz the model cannot take as a usage error."""
+    exit_with_error(
+        out,
+        "invalid_imgsz",
+        f"The model cannot run at this imgsz: {exc}",
+        suggestion="Use a multiple of the model stride (e.g. 320 or 640), "
+        "or omit imgsz for the model's native size.",
+    )
+
+
 def get_user_provided_params() -> Set[str]:
     """Return parameter names explicitly provided on the current command line."""
     ctx = click.get_current_context(silent=True)

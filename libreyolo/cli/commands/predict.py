@@ -4,16 +4,19 @@ import inspect
 import time
 from collections.abc import Iterator
 from pathlib import Path
-from typing import Optional
+from typing import NoReturn, Optional
 
 import typer
 
 from ..command_utils import (
+    exit_imgsz_error,
+    exit_stage_error,
     exit_with_error,
     get_loaded_model_family,
     get_loaded_model_input_size,
     get_user_provided_params,
     help_json_callback,
+    is_imgsz_error,
     load_model_or_exit,
     parse_imgsz_str,
     resolve_model_or_exit,
@@ -42,6 +45,28 @@ def _call_accepts_kwarg(callable_obj, name: str) -> bool:
             return True
 
     return name in signature.parameters
+
+
+def _exit_inference_error(
+    out: OutputHandler, exc: Exception, *, imgsz_provided: bool
+) -> NoReturn:
+    """Map a failure inside the model call to the documented exit code."""
+    from PIL import UnidentifiedImageError
+
+    message = str(exc)
+    if imgsz_provided and is_imgsz_error(exc):
+        exit_imgsz_error(out, exc)
+    if isinstance(exc, (FileNotFoundError, ConnectionError)) or message.startswith(
+        "Failed to load image from"
+    ):
+        exit_with_error(out, "source_not_found", message)
+    if (
+        isinstance(exc, UnidentifiedImageError)
+        or message.startswith("Failed to decode image")
+        or (isinstance(exc, OSError) and "truncated" in message.lower())
+    ):
+        exit_with_error(out, "data_invalid", f"Cannot read the source image: {message}")
+    exit_stage_error(out, stage="Inference", detail=exc)
 
 
 def _build_predict_kwargs(
@@ -364,7 +389,10 @@ def predict_cmd(
     if gallery_obj is not None:
         predict_kwargs["gallery"] = gallery_obj
         predict_kwargs["threshold"] = gallery_threshold
-    results = loaded_model(runtime_source, **predict_kwargs)
+    try:
+        results = loaded_model(runtime_source, **predict_kwargs)
+    except Exception as exc:
+        _exit_inference_error(out, exc, imgsz_provided=imgsz is not None)
     elapsed = time.time() - t0
 
     if effective_stream and isinstance(results, Iterator):
@@ -407,6 +435,8 @@ def predict_cmd(
                 out.result(data)
         except KeyboardInterrupt:
             out.progress("Inference stopped.")
+        except Exception as exc:
+            _exit_inference_error(out, exc, imgsz_provided=imgsz is not None)
         finally:
             close = getattr(results, "close", None)
             if close is not None:
