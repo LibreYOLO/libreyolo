@@ -8,6 +8,7 @@ Artifacts without the key keep the historical top-left pad.
 from __future__ import annotations
 
 import importlib.util
+import sys
 
 import numpy as np
 import pytest
@@ -19,6 +20,7 @@ _HAS_ORT = (
     importlib.util.find_spec("onnx") is not None
     and importlib.util.find_spec("onnxruntime") is not None
 )
+_HAS_COREML = importlib.util.find_spec("coremltools") is not None
 
 IMG = 128
 NC = 3
@@ -137,6 +139,27 @@ def test_center_pad_export_matches_pt_on_non_square_image(tmp_path, fmt):
     _assert_same_detections(expected, actual)
     assert backend.letterbox_pad == "center"
     assert backend._get_val_preprocessor().letterbox_pad == "center"
+
+
+@pytest.mark.coreml
+@pytest.mark.skipif(sys.platform != "darwin", reason="CoreML inference needs macOS")
+@pytest.mark.skipif(not _HAS_COREML, reason="coremltools not installed")
+@pytest.mark.parametrize("pad", ["topleft", "center"])
+def test_coreml_export_matches_pt_on_non_square_image(tmp_path, pad):
+    from libreyolo import LibreYOLO
+
+    model = _tiny_yolo9(pad)
+    image = _image()
+    expected = model.predict(image, conf=CONF, imgsz=IMG, color_format="rgb")
+
+    path = model.export(
+        "coreml", output_path=str(tmp_path / "yolo9t.mlpackage"), imgsz=IMG
+    )
+    backend = LibreYOLO(path, device="cpu")
+    actual = backend.predict(image, conf=CONF, imgsz=IMG, color_format="rgb")
+
+    assert backend.letterbox_pad == pad
+    _assert_same_detections(expected, actual)
 
 
 @pytest.mark.onnx

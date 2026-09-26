@@ -411,4 +411,60 @@ class TestCoreMLBackendModule:
 
         assert tuple(tensor.shape) == (1, 3, 32, 64)
         assert original_size == (16, 8)
-        assert ratio == 1.0
+        assert ratio == 4.0
+
+    @pytest.mark.parametrize("pad", ["topleft", "center"])
+    def test_backend_preprocess_letterboxes_yolo9_like_pt(self, pad):
+        from libreyolo.backends.coreml import CoreMLBackend
+        from libreyolo.preprocess.yolo9 import preprocess_numpy
+
+        backend = CoreMLBackend.__new__(CoreMLBackend)
+        backend.model_family = "yolo9"
+        backend.letterbox_pad = pad
+        image = np.random.default_rng(0).integers(0, 256, (72, 128, 3), np.uint8)
+
+        tensor, _img, original_size, ratio = backend._preprocess(image, 64, "rgb")
+
+        expected, expected_ratio = preprocess_numpy(image, 64, letterbox_pad=pad)
+        assert original_size == (128, 72)
+        assert ratio == expected_ratio
+        np.testing.assert_allclose(tensor[0].numpy() / 255.0, expected, atol=1e-6)
+
+    def test_backend_embedded_nms_unletterboxes_center_yolo9(self):
+        from libreyolo.backends.coreml import CoreMLBackend
+
+        backend = CoreMLBackend.__new__(CoreMLBackend)
+        backend.model_family = "yolo9"
+        backend.letterbox_pad = "center"
+        backend.output_names = ["confidence", "coordinates"]
+        # 1280x720 into 128x128: ratio 0.1, 72 px tall, 28 px pad on top.
+        confidence = np.array([[0.9, 0.1]], np.float32)
+        coordinates = np.array([[64.0, 64.0, 20.0, 10.0]], np.float32)
+
+        boxes, scores, class_ids, _ = backend._parse_embedded_nms(
+            [confidence, coordinates], 128, (1280, 720), conf=0.5
+        )
+
+        np.testing.assert_allclose(boxes, [[540.0, 310.0, 740.0, 410.0]], atol=1e-3)
+        assert scores.tolist() == pytest.approx([0.9])
+        assert class_ids.tolist() == [0]
+
+    def test_backend_reads_letterbox_pad_metadata(self, tmp_path, monkeypatch):
+        fake, mlmodel = _patch_ct(monkeypatch)
+        monkeypatch.setattr(sys, "platform", "darwin")
+        pkg = tmp_path / "fake.mlpackage"
+        pkg.mkdir()
+        mlmodel.get_spec.return_value = SimpleNamespace(
+            description=SimpleNamespace(output=[SimpleNamespace(name="out")])
+        )
+        fake.models.MLModel.return_value = mlmodel
+
+        from libreyolo.backends.coreml import CoreMLBackend
+
+        for meta, expected in (
+            ({"letterbox_pad": "center"}, "center"),
+            ({"letterbox_pad": "topleft"}, "topleft"),
+            ({}, "topleft"),
+        ):
+            mlmodel.user_defined_metadata = {"model_family": "yolo9", **meta}
+            assert CoreMLBackend(str(pkg)).letterbox_pad == expected
