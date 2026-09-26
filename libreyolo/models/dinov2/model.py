@@ -268,6 +268,19 @@ class LibreDINOv2(BaseModel):
         "embed",
     )
     WEIGHT_TASKS: ClassVar[Tuple[str, ...]] = ("semantic", "classify")
+    # No task heads are published; the family starts from the DINOv2 backbone.
+    # LibreDINOv2n.pt is left routable for the backbone-only mirror that
+    # scripts/mirror_dinov2.py builds.
+    UNPUBLISHED_WEIGHTS: ClassVar[Dict[str, str]] = {
+        f"LibreDINOv2{size}{suffix}": (
+            "LibreDINOv2 ships no trained heads. Build "
+            f"LibreDINOv2(size={size!r}, nb_classes=N{task_arg}) from the "
+            "pretrained DINOv2 backbone and train it."
+        )
+        for size in ("n", "s", "m", "l")
+        for suffix, task_arg in (("", ""), ("-cls", ", task='classify'"))
+        if (size, suffix) != ("n", "")
+    }
     DEFAULT_TASK: ClassVar[str] = "semantic"
 
     TRAIN_CONFIG: ClassVar[type] = DINOv2Config

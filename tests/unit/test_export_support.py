@@ -839,8 +839,17 @@ def test_default_download_urls_keep_task_repo_suffixes():
             sizes = metadata["task_sizes"].get(task) or metadata["default_imgsz"]
             if not sizes or not cls.FILENAME_PREFIX:
                 continue
-            size = next(iter(sizes))
             suffix = task_to_suffix(task)
+            # Skip sizes the family declares unpublished (they raise instead).
+            published = [
+                s
+                for s in sizes
+                if f"{cls.FILENAME_PREFIX}{s}{'-' + suffix if suffix else ''}"
+                not in cls.UNPUBLISHED_WEIGHTS
+            ]
+            if not published:
+                continue
+            size = published[0]
             filename = f"{cls.FILENAME_PREFIX}{size}"
             if suffix:
                 filename += f"-{suffix}"

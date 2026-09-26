@@ -49,6 +49,13 @@ class LibreDepthAnythingV2(BaseModel):
         "l": 518,
         "g": 518,
     }
+    # Size g is accepted for local conversions only.
+    UNPUBLISHED_WEIGHTS: ClassVar[Dict[str, str]] = {
+        "LibreDepthAnythingV2g-depth": (
+            "The ViT-G checkpoint is not publicly released upstream; pass a "
+            "local checkpoint or use LibreDepthAnythingV2l-depth.pt."
+        ),
+    }
     SUPPORTED_TASKS = ("depth",)
     # Forward is pure tensor work with no host sync, verified to capture and
     # replay bit-identically (tests/unit/test_cuda_graph_families.py).

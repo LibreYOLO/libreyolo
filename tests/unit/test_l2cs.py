@@ -514,9 +514,13 @@ def test_invalid_output_file_format_raises(tmp_path):
         model(img, face_boxes=[(0, 0, 64, 64)], save=True, output_file_format="tif")
 
 
-def test_get_download_url_is_none():
-    """L2CS weights are never auto-downloaded — Gaze360 license forbids mirroring."""
-    assert LibreL2CS.get_download_url("LibreL2CSr50.pt") is None
+def test_get_download_url_explains_unhosted_weights():
+    """L2CS weights are never mirrored — Gaze360 license forbids it."""
+    with pytest.raises(FileNotFoundError, match="Gaze360 license"):
+        LibreL2CS.get_download_url("LibreL2CSr50.pt")
+    with pytest.raises(FileNotFoundError, match="only the ResNet-50"):
+        LibreL2CS.get_download_url("LibreL2CSr18.pt")
+    assert LibreL2CS.get_download_url("LibreYOLO9s.pt") is None
 
 
 def test_missing_weights_gives_helpful_error():

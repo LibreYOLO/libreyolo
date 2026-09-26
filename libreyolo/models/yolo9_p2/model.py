@@ -38,7 +38,7 @@ class LibreYOLO9P2(LibreYOLO9):
 
     Example::
 
-        >>> model = LibreYOLO9P2("LibreYOLO9P2t.pt", size="t")
+        >>> model = LibreYOLO9P2("LibreYOLO9P2s-visdrone.pt", size="s")
         >>> detections = model(image_path, save=True)
     """
 

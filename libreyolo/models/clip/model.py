@@ -73,6 +73,12 @@ class LibreCLIP(BaseModel):
     WEIGHT_TASKS: ClassVar[Tuple[str, ...]] = ("classify",)
     DEFAULT_TASK: ClassVar[str] = "classify"
     REQUIRE_TASK_SUFFIX: ClassVar[bool] = True
+    UNPUBLISHED_WEIGHTS: ClassVar[Dict[str, str]] = {
+        "LibreCLIPl14-cls": (
+            "ViT-L/14 weights are not published yet; use LibreCLIPb16-cls.pt "
+            "or LibreCLIPb32-cls.pt."
+        ),
+    }
     TRAIN_CONFIG = None
 
     # The text->image attention pooling makes multi-scale TTA meaningless and

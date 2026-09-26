@@ -404,3 +404,55 @@ def test_unpublished_weights_error_mentions_token_when_one_was_sent(
 
     with pytest.raises(download.WeightsNotPublishedError, match="HF_TOKEN"):
         download.download_weights(str(tmp_path / "model.pt"), "s")
+
+
+@pytest.mark.parametrize(
+    ("filename", "reason"),
+    [
+        ("LibreYOLO1t.pt", "lost upstream"),
+        ("LibreDepthAnythingV2g-depth.pt", "not publicly released"),
+        ("LibreEoMTs-seg.pt", "size l only"),
+        ("LibreEoMTb-sem.pt", "size l only"),
+        ("LibreVJEPA2l256-cls.pt", "LibreVJEPA2l256-cls-ssv2.pt"),
+        ("LibreCLIPl14-cls.pt", "not published yet"),
+    ],
+)
+def test_unpublished_weight_names_raise_their_reason(filename, reason, tmp_path):
+    with pytest.raises(FileNotFoundError, match="LibreYOLO publishes no") as exc_info:
+        download.download_weights(str(tmp_path / filename), "s")
+    assert reason in str(exc_info.value)
+
+
+def test_unpublished_dinov2_names_point_to_backbone_training(tmp_path):
+    pytest.importorskip("transformers")
+    from libreyolo.models import _ensure_rfdetr
+
+    _ensure_rfdetr()
+    with pytest.raises(FileNotFoundError, match="ships no trained heads"):
+        download.download_weights(str(tmp_path / "LibreDINOv2s-cls.pt"), "s")
+
+
+@pytest.mark.parametrize(
+    "filename",
+    [
+        "LibreYOLO1b.pt",
+        "LibreEoMTs-panoptic.pt",
+        "LibreVJEPA2l256-cls-ssv2.pt",
+        "LibreCLIPb16-cls.pt",
+        "LibreYOLO9P2s-visdrone.pt",
+    ],
+)
+def test_published_neighbours_of_unpublished_names_still_route(
+    filename, monkeypatch, tmp_path
+):
+    seen = {}
+    monkeypatch.setattr(
+        download,
+        "download_url_to_path",
+        lambda url, _path, *, verify=None: seen.setdefault("url", url),
+    )
+    download.download_weights(str(tmp_path / filename), "s")
+    stem = filename.removesuffix(".pt")
+    assert seen["url"] == (
+        f"https://huggingface.co/LibreYOLO/{stem}/resolve/main/{filename}"
+    )

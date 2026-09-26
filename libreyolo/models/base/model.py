@@ -236,6 +236,10 @@ class BaseModel(ABC):
     # trained on a non-default dataset opt in; the variant stays part of the
     # Hugging Face repo name in ``get_download_url``.
     WEIGHT_VARIANTS: ClassVar[tuple[str, ...]] = ()
+    # Weight stems the filename grammar accepts but LibreYOLO does not publish
+    # (e.g. {"LibreYOLO1t": "The tiny weights are lost upstream."}), mapped to
+    # the reason shown instead of attempting a download that would 404.
+    UNPUBLISHED_WEIGHTS: ClassVar[dict[str, str]] = {}
 
     # Batched-predict policy: True when ``_preprocess`` yields stackable
     # (1, C, H, W) tensors and every tensor in the ``_forward`` output keeps
@@ -997,6 +1001,12 @@ class BaseModel(ABC):
         variant = cls.detect_variant_from_filename(filename)
         variant_suffix = f"-{variant}" if variant else ""
         name = f"{cls.FILENAME_PREFIX}{size}{suffix}{variant_suffix}"
+        reason = cls.UNPUBLISHED_WEIGHTS.get(name)
+        if reason is not None:
+            raise FileNotFoundError(
+                f"{Path(filename).name}: LibreYOLO publishes no "
+                f"{name}{cls.WEIGHT_EXT}. {reason}"
+            )
         return f"https://huggingface.co/LibreYOLO/{name}/resolve/main/{name}{cls.WEIGHT_EXT}"
 
     @classmethod
