@@ -1,4 +1,4 @@
-"""GTR detection wrapper with strict checkpoint loading."""
+"""GTR wrapper (detect, obb, depth) with strict checkpoint loading."""
 
 from pathlib import Path
 from typing import ClassVar
@@ -9,6 +9,7 @@ from ...training.callbacks import TrainCallbacks
 from ...validation.preprocessors import DEIMv2DINOValPreprocessor
 from ..dfine.model import LibreDFINE
 from ..ec.postprocess import preprocess_image
+from . import depth as gtr_depth
 from .config import GTRConfig
 from .nn import LibreGTRModel
 from .obb import OBB_INPUT_SIZES, is_gtr_obb_state_dict
@@ -20,18 +21,28 @@ class LibreGTR(LibreDFINE):
     FAMILY = "gtr"
     FILENAME_PREFIX = "LibreGTR"
     INPUT_SIZES: ClassVar[dict[str, int]] = {s: 640 for s in ("s", "m", "l", "x")}
-    SUPPORTED_TASKS = ("detect", "obb")
+    SUPPORTED_TASKS = ("detect", "obb", "depth")
     TASK_INPUT_SIZES: ClassVar[dict] = {
         "detect": INPUT_SIZES,
         "obb": OBB_INPUT_SIZES,
+        "depth": INPUT_SIZES,
     }
     DEFAULT_TASK = "detect"
     TRAIN_CONFIG = GTRConfig
     SUPPORTS_CUDA_GRAPH = False
     val_preprocessor_class = DEIMv2DINOValPreprocessor
+    # Depth task (ADR 0006): square stretch resize, as in upstream validation.
+    depth_imgsz_divisor = 32
+    depth_resize_mode = "stretch"
 
     @classmethod
     def can_load(cls, sd):
+        if (
+            "backbone.backbone._model.blocks.0.attn.gk_proj.0.weight" in sd
+            and "encoder.stages.0.1.weight" in sd
+            and gtr_depth.is_depth_state_dict(sd)
+        ):
+            return True
         return (
             "backbone.backbone._model.blocks.0.attn.gk_proj.0.weight" in sd
             and "decoder.dec_score_head.0.weight" in sd
@@ -43,7 +54,17 @@ class LibreGTR(LibreDFINE):
 
     @classmethod
     def detect_checkpoint_task(cls, sd):
-        return "obb" if is_gtr_obb_state_dict(sd) else None
+        if gtr_depth.is_depth_state_dict(sd):
+            return "depth"
+        if is_gtr_obb_state_dict(sd):
+            return "obb"
+        return super().detect_checkpoint_task(sd)
+
+    @classmethod
+    def detect_nb_classes(cls, sd):
+        if gtr_depth.is_depth_state_dict(sd):
+            return 1
+        return super().detect_nb_classes(sd)
 
     @classmethod
     def default_checkpoint_names(cls, nc):
@@ -52,11 +73,21 @@ class LibreGTR(LibreDFINE):
         return dict(DOTA_NAMES) if nc == len(DOTA_NAMES) else None
 
     def _validate_loaded_state_dict_for_task(self, state_dict, checkpoint=None):
+        is_depth = gtr_depth.is_depth_state_dict(state_dict)
+        if is_depth != (self.task == "depth"):
+            raise RuntimeError(
+                "GTR depth checkpoints must be loaded with task='depth' (the "
+                "'-depth' filename suffix), and other GTR checkpoints without it."
+            )
+        if is_depth:
+            return
         is_obb = is_gtr_obb_state_dict(state_dict)
         if self.task == "obb" and not is_obb:
             raise ValueError("GTR task='obb' requires a five-coordinate OBB checkpoint")
         if self.task != "obb" and is_obb:
             raise ValueError("GTR OBB checkpoints must be loaded with task='obb'")
+        if not is_obb:
+            super()._validate_loaded_state_dict_for_task(state_dict, checkpoint)
 
     @staticmethod
     def _weight(sd, key):
@@ -74,11 +105,13 @@ class LibreGTR(LibreDFINE):
             return {192: "s", 256: "m"}[width]
         if width == 384:
             weight = cls._weight(sd, "decoder.decoder.layers.0.linear1")
-            return (
-                {1024: "l", 2048: "x"}.get(weight.shape[0])
-                if weight is not None
-                else None
-            )
+            if weight is not None:
+                return {1024: "l", 2048: "x"}.get(weight.shape[0])
+            # Depth checkpoints have no transformer decoder; L and X differ in
+            # the backbone MLP ratio (4 vs 6).
+            weight = sd.get("backbone.backbone._model.blocks.0.mlp.gate_proj.weight")
+            if weight is not None:
+                return {2048: "l", 3072: "x"}.get(weight.shape[0])
         return None
 
     @classmethod
@@ -94,12 +127,16 @@ class LibreGTR(LibreDFINE):
         "x": "b029aa3335222ffaba58f8533cc2cd007b79bc3e",
     }
 
-    # Per-(size, task) Hugging Face revisions for task checkpoints.
-    # PLACEHOLDER: fill each ``None`` with the commit SHA after uploading
-    # LibreYOLO/LibreGTR{size}-{task}; until then the download is unpinned.
-    TASK_HF_REVISIONS: ClassVar[dict[tuple[str, str], str | None]] = {
+    # Pinned revisions of the task repositories, keyed by (size, task).
+    # PLACEHOLDER: fill each value with the commit SHA of
+    # LibreYOLO/LibreGTR{size}-{task} once uploaded; None falls back to ``main``.
+    HF_TASK_REVISIONS: ClassVar[dict[tuple[str, str], str | None]] = {
         ("s", "obb"): None,
         ("x", "obb"): None,
+        ("s", "depth"): None,
+        ("m", "depth"): None,
+        ("l", "depth"): None,
+        ("x", "depth"): None,
     }
 
     @classmethod
@@ -108,19 +145,37 @@ class LibreGTR(LibreDFINE):
         if size is None:
             return None
         stem = Path(filename).stem
-        for (task_size, task), revision in cls.TASK_HF_REVISIONS.items():
-            name = f"LibreGTR{task_size}-{task}"
-            if task_size == size and stem == name:
-                return (
-                    f"https://huggingface.co/LibreYOLO/{name}/resolve/"
-                    f"{revision or 'main'}/{name}.pt"
-                )
-        if stem != f"LibreGTR{size}":
+        if stem == f"LibreGTR{size}":
+            revision = cls.HF_REVISIONS[size]
+            return f"https://huggingface.co/LibreYOLO/LibreGTR{size}/resolve/{revision}/LibreGTR{size}.pt"
+        task = cls.detect_task_from_filename(filename)
+        if (size, task) not in cls.HF_TASK_REVISIONS or stem != (
+            f"LibreGTR{size}-{task}"
+        ):
             return None
-        revision = cls.HF_REVISIONS[size]
-        return f"https://huggingface.co/LibreYOLO/LibreGTR{size}/resolve/{revision}/LibreGTR{size}.pt"
+        revision = cls.HF_TASK_REVISIONS[(size, task)] or "main"
+        return f"https://huggingface.co/LibreYOLO/{stem}/resolve/{revision}/{stem}.pt"
+
+    @classmethod
+    def get_download_notice(cls, filename, url):
+        del url
+        if cls.detect_task_from_filename(filename) != "depth":
+            return None
+        return (
+            "GTR depth was pretrained on a mixed corpus (SUN RGB-D, DIODE, "
+            "Virtual KITTI 2, KITTI, Hypersim, TartanAir, ARKitScenes, ImageNet "
+            "pseudo-labels) whose individual terms are not all permissive. "
+            "LibreYOLO redistributes these weights under the MIT licence the "
+            "authors applied to them; if your use is commercial, satisfy "
+            "yourself about the training-data terms."
+        )
 
     def _init_model(self):
+        if self.task == "depth":
+            self.nb_classes = 1
+            return gtr_depth.LibreGTRDepthModel(
+                self.size, eval_spatial_size=(self.input_size, self.input_size)
+            )
         if self.task == "obb":
             from .obb_nn import LibreGTROBBModel
 
@@ -128,6 +183,14 @@ class LibreGTR(LibreDFINE):
                 self.size, self.nb_classes, (self.input_size, self.input_size)
             )
         return LibreGTRModel(self.size, self.nb_classes)
+
+    def _rebuild_for_new_classes(self, new_nb_classes):
+        if self.task == "depth":
+            # Depth has a single schema slot and no class-dependent layers.
+            self.nb_classes = 1
+            self.names = {0: "depth"}
+            return
+        super()._rebuild_for_new_classes(new_nb_classes)
 
     @staticmethod
     def _apply_lora(model):
@@ -143,6 +206,9 @@ class LibreGTR(LibreDFINE):
         # Loading a custom-class checkpoint may rebuild the module after the
         # base constructor has switched the original module to evaluation.
         self.model.eval()
+        if self.task == "depth":
+            self.nb_classes = 1
+            self.names = {0: "depth"}
 
     def _get_available_layers(self):
         return {
@@ -151,8 +217,9 @@ class LibreGTR(LibreDFINE):
             "decoder": self.model.decoder,
         }
 
-    @staticmethod
-    def _get_preprocess_numpy():
+    def _get_preprocess_numpy(self):
+        if getattr(self, "task", "detect") == "depth":
+            return gtr_depth.preprocess_numpy
         from ...preprocess.ec import preprocess_numpy
 
         return preprocess_numpy
@@ -165,6 +232,8 @@ class LibreGTR(LibreDFINE):
 
     def _preprocess(self, image, color_format="auto", input_size=None):
         size = self._validate_imgsz(input_size or self.input_size)
+        if self.task == "depth":
+            return gtr_depth.preprocess_image(image, size, color_format)
         if self.task == "obb":
             from .obb import preprocess_obb_image
 
@@ -174,6 +243,8 @@ class LibreGTR(LibreDFINE):
     def _postprocess(
         self, output, conf_thres, iou_thres, original_size, max_det=300, **kwargs
     ):
+        if self.task == "depth":
+            return gtr_depth.postprocess(output, original_size)
         if self.task == "obb":
             from ...postprocess.rtdetr import postprocess_obb
 
@@ -220,6 +291,27 @@ class LibreGTR(LibreDFINE):
         **kwargs,
     ) -> dict:
         """Fine-tune GTR; resume restores saved settings before explicit overrides."""
+        if self.task == "depth":
+            return gtr_depth.train(
+                self,
+                data=data,
+                epochs=epochs,
+                batch=batch,
+                imgsz=imgsz,
+                lr0=lr0,
+                device=device,
+                workers=workers,
+                seed=seed,
+                project=project,
+                name=name,
+                exist_ok=exist_ok,
+                resume=resume,
+                amp=amp,
+                patience=patience,
+                callbacks=callbacks,
+                loggers=loggers,
+                **kwargs,
+            )
         if self.task == "obb":
             raise NotImplementedError(
                 "GTR OBB is inference-only in LibreYOLO; training is not implemented"

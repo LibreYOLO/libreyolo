@@ -1,4 +1,4 @@
-"""Convert GTR detection or OBB EMA weights to a strict LibreYOLO checkpoint.
+"""Convert GTR detection, OBB or depth EMA weights to a strict LibreYOLO checkpoint.
 
 Source: Intellindust-AI-Lab/GTR, MIT, revision
 782e737efe2e6437ac537fbdcee089673d3376c1. Learned tensors are unchanged.
@@ -32,7 +32,14 @@ def convert(input_path: str, output_path: str, size: str | None = None):
     nc = LibreGTR.detect_nb_classes(state)
     task = LibreGTR.detect_checkpoint_task(state) or "detect"
     extra = {}
-    if task == "obb":
+    if task == "depth":
+        from libreyolo.models.gtr import depth as gtr_depth
+
+        nc = 1
+        model = gtr_depth.LibreGTRDepthModel(detected)
+        imgsz = 640
+        extra["names"] = {0: "depth"}
+    elif task == "obb":
         from libreyolo.models.gtr.obb_nn import OBB_INPUT_SIZE, LibreGTROBBModel
 
         model = LibreGTROBBModel(detected, nc)
