@@ -170,11 +170,14 @@ class LibreGTR(LibreDFINE):
     HF_TASK_REVISIONS: ClassVar[dict[tuple[str, str], str | None]] = {
         ("s", "obb"): None,
         ("x", "obb"): None,
-        ("s", "depth"): None,
-        ("m", "depth"): None,
-        ("l", "depth"): None,
-        ("x", "depth"): None,
-        **{(s, "semantic"): None for s in "smlx"},
+        ("s", "depth"): "3b960faed54cc12b19574fdb192f9ff3dfffeb7d",
+        ("m", "depth"): "2ad291095758e3e52277946a40d1ca30e974b7f6",
+        ("l", "depth"): "479fe22b204f8f8e2062829fd1f006f0289da175",
+        ("x", "depth"): "00ff02fdd17c191d1f0b7d781b49f76d911cab62",
+        ("s", "semantic"): "b87f1b01e3432eda543459a2260073e9abac2326",
+        ("m", "semantic"): "432535a05d295e3a2c3c59ef8fa169e3cbb46bbe",
+        ("l", "semantic"): "4d402de8a1b4e425d964ce7b3f534402120c2756",
+        ("x", "semantic"): "12838dc0a9e6ce97d54ad11f401535a66410965c",
     }
 
     @classmethod
