@@ -3080,21 +3080,15 @@ class BaseTrainer(ABC):
     # =========================================================================
 
     def _should_validate_epoch(self, epoch: int) -> bool:
-        # The final epoch always validates when validation is on, so a run
-        # shorter than eval_interval still reports metrics and writes best.pt.
-        scheduled = self.config.eval_interval > 0 and (
-            (epoch + 1) % self.config.eval_interval == 0
-            or self._is_final_epoch(epoch)
+        # eval_interval <= 0 (val=False) turns validation off, final epoch
+        # included. Otherwise the final epoch always validates, so a short run
+        # still reports metrics, writes best.pt and gets its final plots and
+        # precise-BN metrics.
+        if self.config.eval_interval <= 0:
+            return False
+        return (epoch + 1) % self.config.eval_interval == 0 or self._is_final_epoch(
+            epoch
         )
-        final_plot = (
-            bool(getattr(self.config, "save_plots", False))
-            and self._is_final_epoch(epoch)
-        )
-        precise_bn_final = (
-            int(getattr(self.config, "precise_bn", 0) or 0) > 0
-            and self._is_final_epoch(epoch)
-        )
-        return scheduled or final_plot or precise_bn_final
 
     def _is_final_epoch(self, epoch: int) -> bool:
         return (epoch + 1) >= self.config.epochs
@@ -3629,7 +3623,9 @@ class BaseTrainer(ABC):
         from .precise_bn import compute_precise_bn_stats
 
         distributed = bool(getattr(self, "is_distributed", False))
-        refresh = int(getattr(self, "best_epoch", 0) or 0) != self.current_epoch + 1
+        best_epoch = int(getattr(self, "best_epoch", 0) or 0)
+        # No validated best (e.g. val=False): nothing to refresh.
+        refresh = best_epoch > 0 and best_epoch != self.current_epoch + 1
         refresh = self._sync_main_bool(refresh)
         if not refresh:
             return False

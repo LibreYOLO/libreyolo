@@ -15,8 +15,10 @@ from libreyolo.training.trainer import BaseTrainer
 pytestmark = pytest.mark.unit
 
 
-def _schedule(eval_interval: int, epochs: int) -> list[int]:
-    trainer = SimpleNamespace(config=TrainConfig(eval_interval=eval_interval, epochs=epochs))
+def _schedule(eval_interval: int, epochs: int, **config) -> list[int]:
+    trainer = SimpleNamespace(
+        config=TrainConfig(eval_interval=eval_interval, epochs=epochs, **config)
+    )
     trainer._is_final_epoch = lambda epoch: BaseTrainer._is_final_epoch(trainer, epoch)
     return [
         epoch + 1
@@ -38,6 +40,14 @@ def _schedule(eval_interval: int, epochs: int) -> list[int]:
 )
 def test_validation_schedule_includes_the_final_epoch(eval_interval, epochs, validated):
     assert _schedule(eval_interval, epochs) == validated
+
+
+@pytest.mark.parametrize("config", [{"save_plots": True}, {"precise_bn": 2}])
+def test_validation_off_also_skips_final_plots_and_precise_bn_metrics(config):
+    """val=False means no validation; final plots and precise BN used to force
+    one anyway."""
+    assert _schedule(0, 3, **config) == []
+    assert _schedule(10, 3, **config) == [3]
 
 
 def test_val_false_turns_validation_off():
@@ -98,8 +108,10 @@ def tiny_dataset(tmp_path):
     return str(path)
 
 
-@pytest.mark.parametrize("val", [True, False])
-def test_yolo9_short_run_validates_unless_val_is_off(tmp_path, tiny_dataset, val):
+@pytest.mark.parametrize(
+    "val,extra", [(True, {}), (False, {}), (False, {"save_plots": True, "precise_bn": 2})]
+)
+def test_yolo9_short_run_validates_unless_val_is_off(tmp_path, tiny_dataset, val, extra):
     from libreyolo import LibreYOLO9
 
     results = LibreYOLO9(None, size="t", device="cpu").train(
@@ -112,6 +124,7 @@ def test_yolo9_short_run_validates_unless_val_is_off(tmp_path, tiny_dataset, val
         project=str(tmp_path / "runs"),
         name="short",
         val=val,
+        **extra,
     )
 
     assert results["epoch_metrics"][-1]["validated"] is val
