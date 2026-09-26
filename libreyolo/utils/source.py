@@ -153,6 +153,7 @@ def _is_stream_item(source: Any) -> bool:
         or is_network_stream(source)
         or is_youtube_url(source)
         or is_video_file(source)
+        or _is_probed_video_file(source)
     )
 
 
@@ -205,6 +206,16 @@ def _opens_as_video(path: Path) -> bool:
         capture.release()
 
 
+def _is_probed_video_file(source: Any) -> bool:
+    """An existing file without an image extension that opens as a video."""
+    if not isinstance(source, (str, Path)):
+        return False
+    if Path(source).suffix.lower() in IMAGE_EXTENSIONS:
+        return False
+    existing = _existing_path(source)
+    return existing is not None and existing.is_file() and _opens_as_video(existing)
+
+
 def _is_batched_array(source: Any) -> bool:
     """A 4-D NumPy array or tensor is a batch of images (NCHW or NHWC)."""
     if isinstance(source, np.ndarray):
@@ -219,7 +230,8 @@ def classify_source(source: Any) -> SourceSpec:
     """Classify one public prediction source.
 
     Only existing files whose extension is neither a known image nor a known
-    video format are opened, to tell images from videos.
+    video format are opened, to tell images from videos. List items are
+    classified the same way. Directories collect images only.
     """
     if is_screen_source(source):
         return SourceSpec(SourceKind.SCREEN, source)
@@ -268,12 +280,7 @@ def classify_source(source: Any) -> SourceSpec:
         existing = _existing_path(source)
         if existing is not None and existing.is_dir():
             return SourceSpec(SourceKind.DIRECTORY, source)
-        if (
-            existing is not None
-            and existing.is_file()
-            and path.suffix.lower() not in IMAGE_EXTENSIONS
-            and _opens_as_video(existing)
-        ):
+        if _is_probed_video_file(source):
             return SourceSpec(SourceKind.VIDEO, source)
 
     return SourceSpec(SourceKind.IMAGE, source)

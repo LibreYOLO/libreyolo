@@ -227,6 +227,39 @@ def test_existing_video_with_uncommon_extension_dispatches_as_video(tmp_path, na
     assert classify_source(str(source)).kind == SourceKind.VIDEO
 
 
+def _write_clip(path):
+    cv2 = pytest.importorskip("cv2", reason="opencv-python required for video tests")
+    clip = path.with_name(path.name + ".tmp.mp4")
+    writer = cv2.VideoWriter(str(clip), cv2.VideoWriter_fourcc(*"mp4v"), 30.0, (20, 16))
+    for _ in range(2):
+        writer.write(np.zeros((16, 20, 3), dtype=np.uint8))
+    writer.release()
+    return clip.rename(path)
+
+
+@pytest.mark.parametrize("name", ["cam.bin", "cam.dump", "cam"])
+def test_source_lists_probe_videos_like_single_sources(tmp_path, name):
+    probed = str(_write_clip(tmp_path / name))
+    known = str(_write_clip(tmp_path / "known.mp4"))
+
+    spec = classify_source([probed])
+    assert spec.kind == SourceKind.STREAMS
+    assert spec.items == (probed,)
+    assert classify_source([known, probed]).items == (known, probed)
+
+    stream_list = tmp_path / "cameras.streams"
+    stream_list.write_text(f"{probed}\n", encoding="utf-8")
+    assert classify_source(stream_list).items == (probed,)
+
+
+def test_source_list_of_extensionless_images_stays_a_batch(tmp_path):
+    path = tmp_path / "frame"
+    Image.new("RGB", (8, 8)).save(path, format="PNG")
+
+    spec = classify_source([path, str(path)])
+    assert spec.kind == SourceKind.IMAGE_BATCH
+
+
 def test_extensionless_image_file_stays_an_image(tmp_path):
     path = tmp_path / "frame"
     Image.new("RGB", (8, 8)).save(path, format="PNG")
