@@ -408,6 +408,17 @@ def build_train_kwargs(
     return kwargs
 
 
+def _run_dir_of_checkpoint(checkpoint: Any) -> Path | None:
+    """The run directory of a ``<run>/weights/*.pt`` training checkpoint."""
+    if not isinstance(checkpoint, (str, Path)):
+        return None
+    path = Path(checkpoint)
+    if path.suffix != ".pt" or path.parent.name != "weights" or not path.is_file():
+        return None
+    run_dir = path.parent.parent
+    return run_dir if run_dir.name else None
+
+
 def _build_rfdetr_train_kwargs(
     params: dict[str, Any],
     *,
@@ -421,14 +432,25 @@ def _build_rfdetr_train_kwargs(
     """
     from libreyolo.utils.general import increment_path
 
-    output_dir = increment_path(
-        Path(params["project"]) / params["name"],
-        exist_ok=params["exist_ok"],
-        mkdir=True,
-    )
+    provided = user_provided or set()
+    resume_run = None
+    resuming = "resume" in provided and bool(params.get("resume"))
+    if resuming and not {"project", "name"} & provided:
+        resume_run = _run_dir_of_checkpoint(
+            model_path if params["resume"] is True else params["resume"]
+        )
+    if resume_run is not None:
+        # Resuming continues the source run instead of opening a new one.
+        output_dir = resume_run
+    else:
+        output_dir = increment_path(
+            Path(params["project"]) / params["name"],
+            exist_ok=params["exist_ok"],
+            mkdir=True,
+        )
 
-    # The run dir was already incremented and created above, so the wrapper
-    # must not increment it a second time (its own default is exist_ok=False).
+    # The run dir is final here (incremented and created above, or the resumed
+    # run), so the wrapper must not increment it (its default is exist_ok=False).
     kwargs: dict[str, Any] = {"output_dir": str(output_dir), "exist_ok": True}
 
     direct_mappings = {
@@ -475,7 +497,6 @@ def _build_rfdetr_train_kwargs(
         if cli_name in params:
             kwargs[target_name] = params[cli_name]
 
-    provided = user_provided or set()
     if "imgsz" in provided and params.get("imgsz") is not None:
         kwargs["imgsz"] = params["imgsz"]
 

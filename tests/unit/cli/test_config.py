@@ -370,6 +370,44 @@ class TestBuildTrainKwargs:
             "rfdetr_exp2",
         ]
 
+    @pytest.mark.parametrize("resume", [True, "path"], ids=["resume=true", "resume=path"])
+    def test_rfdetr_cli_resume_writes_into_the_source_run(self, tmp_path, resume):
+        checkpoint = tmp_path / "runs" / "rf" / "weights" / "last.pt"
+        checkpoint.parent.mkdir(parents=True)
+        checkpoint.write_bytes(b"")
+        params = {
+            "project": str(tmp_path / "runs" / "train"),
+            "name": "rfdetr_exp",
+            "exist_ok": False,
+            "resume": True if resume is True else str(checkpoint),
+        }
+
+        kwargs = cli_config._build_rfdetr_train_kwargs(
+            params, model_path=str(checkpoint), user_provided={"resume"}
+        )
+
+        assert kwargs["output_dir"] == str(tmp_path / "runs" / "rf")
+        assert kwargs["exist_ok"] is True
+        assert kwargs["resume"] == str(checkpoint)
+        assert not (tmp_path / "runs" / "train").exists()
+
+    def test_rfdetr_cli_resume_keeps_an_explicit_run_name(self, tmp_path):
+        checkpoint = tmp_path / "runs" / "rf" / "weights" / "last.pt"
+        checkpoint.parent.mkdir(parents=True)
+        checkpoint.write_bytes(b"")
+        params = {
+            "project": str(tmp_path / "out"),
+            "name": "continued",
+            "exist_ok": False,
+            "resume": True,
+        }
+
+        kwargs = cli_config._build_rfdetr_train_kwargs(
+            params, model_path=str(checkpoint), user_provided={"resume", "name"}
+        )
+
+        assert kwargs["output_dir"] == str(tmp_path / "out" / "continued")
+
 
 class TestGetCfgDefaults:
     """Test that cfg defaults are fully derived from dataclasses."""
