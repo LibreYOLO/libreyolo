@@ -1091,12 +1091,14 @@ This raw upstream checkpoint is not converted and is not registered in the
 generic state-dict factory. See
 [ADR 0023](adr/0023-fcos3d-inference.md) for API and evidence.
 
-## GTR detection
+## GTR
 
 Family `gtr`, class `LibreGTR`, sizes `s`, `m`, `l`, `x`, tasks `detect`
-(default) and `segment`. Canonical checkpoint names are `LibreGTR{s,m,l,x}.pt`
-and `LibreGTR{s,m,l,x}-seg.pt`. Upstream detection and segmentation `.pth`
-files auto-convert using EMA parameters. See [GTR validation evidence](gtr.md).
+(default), `segment`, `pose`, `obb`, `depth` and `semantic`. Canonical
+checkpoint names are `LibreGTR{s,m,l,x}.pt`, `LibreGTR{s,m,l,x}-seg.pt` and
+`LibreGTR{s,m,l,x}-pose.pt`. Upstream detection, segmentation and pose `.pth`
+files auto-convert using EMA parameters. Pose is COCO person-only with 17
+keypoints. See [GTR validation evidence](gtr.md).
 
 Task `obb` uses sizes `s` and `x` (the only published DOTA weights) with
 canonical names `LibreGTR{s,x}-obb.pt`; upstream `gtrobb_{s,x}_dota.pth` files

@@ -61,6 +61,7 @@ in preflight.
 | grounding_dino | detect |  |  |  |  |  |  |  |  |  |  |  |  |
 | gtr | detect | available | available |  |  |  |  |  |  |  |  |  |  |
 | gtr | segment | available | available |  |  |  |  |  |  |  |  |  |  |
+| gtr | pose | available | available |  |  |  |  |  |  |  |  |  |  |
 | gtr | obb | available | available |  |  |  |  |  |  |  |  |  |  |
 | gtr | depth | available | available |  |  |  |  |  |  |  |  |  |  |
 | gtr | semantic | available | available |  |  |  |  |  |  |  |  |  |  |
@@ -556,6 +557,8 @@ These converter paths are callable with the recorded validation context.
 - `gtr` / `detect` / `torchscript`: Portable gated recurrence with fixed input resolution. Constraint: FP32; static square input; no custom CUDA plugin
 - `gtr` / `segment` / `onnx`: Portable gated recurrence with fixed input resolution; raw mask logits. Constraint: FP32; static square input; no custom CUDA plugin
 - `gtr` / `segment` / `torchscript`: Portable gated recurrence with fixed input resolution; raw mask logits. Constraint: FP32; static square input; no custom CUDA plugin
+- `gtr` / `pose` / `onnx`: Portable gated recurrence with fixed input resolution. Constraint: FP32; static square input; no custom CUDA plugin
+- `gtr` / `pose` / `torchscript`: Portable gated recurrence with fixed input resolution. Constraint: FP32; static square input; no custom CUDA plugin
 - `gtr` / `obb` / `onnx`: Portable gated recurrence with fixed 1024px input; NMS-free rotated boxes. Constraint: FP32; static square input; no custom CUDA plugin
 - `gtr` / `obb` / `torchscript`: Portable gated recurrence with fixed 1024px input; NMS-free rotated boxes. Constraint: FP32; static square input; no custom CUDA plugin
 - `gtr` / `depth` / `onnx`: Portable gated recurrence emitting a fixed-canvas inverse-depth map. Constraint: FP32; static square input; batch 1; no custom CUDA plugin
@@ -1076,6 +1079,16 @@ These converter paths are callable with the recorded validation context.
 - `gtr` / `segment` / `tflite`: GTR currently implements only portable ONNX and TorchScript export.
 - `gtr` / `segment` / `coreml`: GTR currently implements only portable ONNX and TorchScript export.
 - `gtr` / `segment` / `coreai`: GTR currently implements only portable ONNX and TorchScript export.
+- `gtr` / `pose` / `executorch`: GTR currently implements only portable ONNX and TorchScript export.
+- `gtr` / `pose` / `tensorrt`: GTR currently implements only portable ONNX and TorchScript export.
+- `gtr` / `pose` / `openvino`: GTR currently implements only portable ONNX and TorchScript export.
+- `gtr` / `pose` / `paddle`: GTR currently implements only portable ONNX and TorchScript export.
+- `gtr` / `pose` / `mnn`: GTR currently implements only portable ONNX and TorchScript export.
+- `gtr` / `pose` / `rknn`: GTR currently implements only portable ONNX and TorchScript export.
+- `gtr` / `pose` / `ncnn`: GTR currently implements only portable ONNX and TorchScript export.
+- `gtr` / `pose` / `tflite`: GTR currently implements only portable ONNX and TorchScript export.
+- `gtr` / `pose` / `coreml`: GTR currently implements only portable ONNX and TorchScript export.
+- `gtr` / `pose` / `coreai`: GTR currently implements only portable ONNX and TorchScript export.
 - `gtr` / `obb` / `executorch`: GTR currently implements only portable ONNX and TorchScript export.
 - `gtr` / `obb` / `tensorrt`: GTR currently implements only portable ONNX and TorchScript export.
 - `gtr` / `obb` / `openvino`: GTR currently implements only portable ONNX and TorchScript export.
