@@ -582,6 +582,45 @@ def test_dinov2_semantic_resume_continues_same_run_dir(fake_backbone, tmp_path):
     assert (runs_root / "resume_test2").exists()
 
 
+def test_dinov2_resume_path_continues_that_run(fake_backbone, tmp_path, monkeypatch):
+    """resume='<run>/weights/last.pt' wrote into a new default run instead of
+    the run the checkpoint came from."""
+    import libreyolo.models.dinov2.trainer as dinov2_trainer
+    from libreyolo.models.dinov2.model import LibreDINOv2
+
+    captured = {}
+
+    class _Trainer:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+        def setup(self):
+            pass
+
+        def resume(self, path):
+            captured["resumed_from"] = path
+
+        def train(self):
+            return {}
+
+    monkeypatch.setattr(dinov2_trainer, "DINOv2Trainer", _Trainer)
+    checkpoint = tmp_path / "runs" / "dinov2_exp4" / "weights" / "last.pt"
+    checkpoint.parent.mkdir(parents=True)
+    checkpoint.write_bytes(b"")
+    model = LibreDINOv2(
+        model_path=None, size="n", task="semantic", nb_classes=2, device="cpu"
+    )
+
+    model.train(data="unused.yaml", resume=str(checkpoint))
+
+    assert captured["resumed_from"] == str(checkpoint)
+    assert (captured["project"], captured["name"]) == (
+        str(tmp_path / "runs"),
+        "dinov2_exp4",
+    )
+    assert captured["exist_ok"] is True
+
+
 def test_dinov2_semantic_resume_keeps_best_metric(
     fake_backbone, tmp_path, monkeypatch
 ):

@@ -1298,11 +1298,17 @@ class LibreRFDETR(BaseModel):
         batch = train_kwargs.pop("batch", None)
         lr0 = train_kwargs.pop("lr0", None)
         resume_checkpoint = None
-        if resume is True and output_dir is None and project is None and name is None:
-            resume_checkpoint = self._loaded_run_checkpoint()
-            if resume_checkpoint is not None:
+        resumes_own_run = False
+        if resume and output_dir is None and project is None and name is None:
+            # A run checkpoint (<run>/weights/*.pt), loaded or passed as a
+            # path, keeps writing into its own run.
+            resume_checkpoint = self._loaded_run_checkpoint(
+                None if resume is True else resume
+            )
+            if resume_checkpoint is not None and resume_checkpoint.parent.parent.name:
                 project = resume_checkpoint.parent.parent.parent
                 name = resume_checkpoint.parent.parent.name
+                resumes_own_run = True
         if output_dir is not None:
             output_path = Path(output_dir)
             if project is None:
@@ -1315,9 +1321,9 @@ class LibreRFDETR(BaseModel):
             if name is None:
                 name = _TRAIN_DEFAULTS.name
         run_dir = Path(project) / str(name)
-        if resume is True and not exist_ok_given:
-            # resume=True reads weights/last.pt from this exact run_dir below;
-            # keep writing there unless exist_ok=False asks for a new run.
+        if (resume is True or resumes_own_run) and not exist_ok_given:
+            # The resumed run is this exact run_dir; keep writing there unless
+            # exist_ok=False asks for a new run.
             exist_ok = True
 
         resume_path = None

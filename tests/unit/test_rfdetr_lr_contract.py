@@ -169,6 +169,35 @@ def test_rfdetr_resume_exist_ok_false_starts_a_new_run(monkeypatch, tmp_path):
     assert captured["kwargs"]["exist_ok"] is False
 
 
+def test_rfdetr_resume_path_continues_that_run(monkeypatch, tmp_path):
+    """resume='<run>/weights/last.pt' wrote into a new runs/train/rfdetr_exp*
+    instead of the run the checkpoint came from, unlike every other family."""
+    import torch
+
+    captured = _install_dummy_trainer(monkeypatch, {"save_dir": "unused"})
+    checkpoint = tmp_path / "runs" / "rfdetr_exp3" / "weights" / "last.pt"
+    checkpoint.parent.mkdir(parents=True)
+    torch.save({"epoch": 0}, checkpoint)
+
+    _make_wrapper().train(data="data.yaml", resume=str(checkpoint))
+    kwargs = captured["kwargs"]
+    assert captured["resume"] == str(checkpoint)
+    assert (kwargs["project"], kwargs["name"]) == (str(tmp_path / "runs"), "rfdetr_exp3")
+    assert kwargs["exist_ok"] is True
+
+    _make_wrapper().train(data="data.yaml", resume=str(checkpoint), exist_ok=False)
+    assert captured["kwargs"]["name"] == "rfdetr_exp3"
+    assert captured["kwargs"]["exist_ok"] is False
+
+    _make_wrapper().train(
+        data="data.yaml", resume=str(checkpoint), project=str(tmp_path / "out"), name="n"
+    )
+    assert (captured["kwargs"]["project"], captured["kwargs"]["name"]) == (
+        str(tmp_path / "out"),
+        "n",
+    )
+
+
 def _save_rfdetr_run(path, **saved):
     import torch
 
