@@ -55,3 +55,23 @@ def test_released_weights_need_data(captured):
     with pytest.raises(ValueError, match=r"val\(\) needs data="):
         model.val(workers=0)
     assert captured == {}
+
+
+def test_val_after_training_without_a_checkpoint_reload(captured):
+    """Families that keep the trained weights in memory without reloading a
+    checkpoint (e.g. Dome-DETR) had no dataset in the cached config, so
+    train() then val() raised 'carries no training dataset'."""
+    from types import SimpleNamespace
+
+    from libreyolo.training.trainer import BaseTrainer
+
+    model = _model()  # built from scratch: no checkpoint, empty cache
+    trainer = SimpleNamespace(
+        wrapper_model=model,
+        config=SimpleNamespace(single_cls=False, classes=None, data="/runs/data/new.yaml"),
+    )
+    BaseTrainer._sync_wrapper_subset_config(trainer)  # what setup() does
+
+    model.val(workers=0)
+
+    assert captured["data"] == "/runs/data/new.yaml"

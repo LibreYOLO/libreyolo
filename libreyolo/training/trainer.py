@@ -2321,16 +2321,22 @@ class BaseTrainer(ABC):
         way it was trained. Once a new run starts, that checkpoint no longer
         describes the model: fine-tuning a ``single_cls`` checkpoint on
         multi-class data must not validate every epoch on collapsed labels.
+        The run's dataset is recorded too, so ``val()`` without ``data=``
+        validates on it even when the family does not reload a checkpoint
+        after training.
         """
         wrapper = getattr(self, "wrapper_model", None)
         probe = getattr(wrapper, "_checkpoint_train_config", None)
         if wrapper is None or not callable(probe):
             return
-        wrapper._loaded_checkpoint_train_config = {
+        synced = {
             **probe(),
             "single_cls": bool(getattr(self.config, "single_cls", False)),
             "classes": getattr(self.config, "classes", None),
         }
+        if getattr(self.config, "data", None):
+            synced["data"] = self.config.data
+        wrapper._loaded_checkpoint_train_config = synced
 
     def _dispatch_artifact_callbacks(self, method_name: str, event) -> None:
         try:
