@@ -2583,7 +2583,8 @@ class BaseModel(ABC):
         """Run validation on a dataset.
 
         Args:
-            data: Path to data.yaml file.
+            data: Path to data.yaml file. Defaults to the dataset the
+                checkpoint was trained on, when it saved one.
             batch: Batch size.
             imgsz: Square image size or ``(height, width)`` tuple. Defaults to
                 the model's native input size.
@@ -2743,6 +2744,19 @@ class BaseModel(ABC):
             # Same contract as predict(device=...): move the model, so the
             # validator's inputs and the weights end up on one device.
             self._runner._set_device(device)
+
+        if data is None and not any(
+            kwargs.get(key) for key in ("data_dir", "keypoints_json")
+        ):
+            # As in the ecosystem, a trained model validates on the dataset
+            # it was trained on.
+            data = self._checkpoint_train_config().get("data")
+            if not data:
+                raise ValueError(
+                    "val() needs data= (a dataset yaml): this model carries no "
+                    "training dataset to reuse, e.g. released weights."
+                )
+            logger.info("Validating on the training dataset %s", data)
 
         config = ValidationConfig(
             data=data,
