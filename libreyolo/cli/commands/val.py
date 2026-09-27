@@ -1,6 +1,5 @@
 """Val command: evaluate a model on a dataset."""
 
-from pathlib import Path
 from typing import Optional
 
 import typer
@@ -128,7 +127,7 @@ def val_cmd(
 ) -> None:
     """Evaluate a model on a dataset."""
     from libreyolo.utils.amp import normalize_amp_dtype
-    from libreyolo.utils.general import increment_path
+    from libreyolo.validation.config import val_save_dir
 
     out = OutputHandler(json_mode=json_output, quiet=quiet)
     try:
@@ -183,7 +182,7 @@ def val_cmd(
         )
 
     # Resolve save directory
-    save_dir = str(increment_path(Path(project) / name, exist_ok=exist_ok, mkdir=True))
+    save_dir = val_save_dir(project, name, exist_ok, mkdir=True)
 
     # Run validation
     out.progress(f"Validating {model} on {data} ({split} split)...")

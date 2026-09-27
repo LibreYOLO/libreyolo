@@ -4477,6 +4477,9 @@ class BaseBackend(ABC):
         verbose: bool = True,
         *,
         plots: bool | None = None,
+        project: str | None = None,
+        name: str | None = None,
+        exist_ok: bool = False,
         **kwargs,
     ) -> Dict:
         from ..validation import (
@@ -4511,6 +4514,9 @@ class BaseBackend(ABC):
             raise NotImplementedError(
                 "Rectangular exported-backend validation is not supported yet."
             )
+        from ..validation.config import resolve_val_output_kwargs
+
+        resolve_val_output_kwargs(kwargs, project, name, exist_ok)
         if plots is not None and "save_plots" not in kwargs:
             kwargs["save_plots"] = plots
         from libreyolo.validation.config import VISUALIZE_TASKS

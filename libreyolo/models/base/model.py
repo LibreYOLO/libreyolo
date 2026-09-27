@@ -2542,6 +2542,9 @@ class BaseModel(ABC):
         verbose: bool = True,
         *,
         plots: bool | None = None,
+        project: str | None = None,
+        name: str | None = None,
+        exist_ok: bool = False,
         **kwargs,
     ) -> Dict:
         """Run validation on a dataset.
@@ -2560,6 +2563,14 @@ class BaseModel(ABC):
             split: Dataset split ("val", "test").
             save_json: Save predictions in COCO JSON format.
             plots: Alias for save_plots.
+            project: Directory that holds validation runs (default
+                ``runs/val`` when ``name`` is given).
+            name: Run subdirectory inside ``project`` (default ``exp``),
+                incremented (``exp2``, ...) if it exists. Without ``project``
+                or ``name``, outputs go to a timestamped ``runs/val/``
+                directory.
+            exist_ok: Reuse an existing ``project/name`` instead of
+                incrementing.
             verbose: Print detailed metrics.
             visualize: (kwarg) Draw every validated image to
                 ``save_dir/visualize/errors/`` (any false positive or false
@@ -2628,6 +2639,9 @@ class BaseModel(ABC):
 
         reject_rectangular_imgsz(self, imgsz, "val")
         imgsz = round_imgsz_to_stride(self, imgsz, "val")
+        from libreyolo.validation.config import resolve_val_output_kwargs
+
+        resolve_val_output_kwargs(kwargs, project, name, exist_ok)
         if plots is not None and "save_plots" not in kwargs:
             kwargs["save_plots"] = plots
         from libreyolo.validation.config import VISUALIZE_TASKS

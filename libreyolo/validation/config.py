@@ -19,6 +19,49 @@ from libreyolo.utils.plot_samples import (  # noqa: F401  (re-exported)
 #: Tasks whose validators draw ``visualize=True`` images (#887).
 VISUALIZE_TASKS = ("detect", "segment", "classify")
 
+#: ``val(project=, name=)`` defaults, shared with the CLI.
+DEFAULT_VAL_PROJECT = "runs/val"
+DEFAULT_VAL_NAME = "exp"
+
+
+def val_save_dir(
+    project: Optional[Union[str, Path]] = None,
+    name: Optional[str] = None,
+    exist_ok: bool = False,
+    *,
+    mkdir: bool = False,
+) -> str:
+    """Directory for a validation run: ``project/name``.
+
+    ``name`` is incremented (``exp``, ``exp2``, ...) when the directory exists,
+    unless ``exist_ok``.
+    """
+    from libreyolo.utils.general import increment_path
+
+    path = Path(project or DEFAULT_VAL_PROJECT) / (name or DEFAULT_VAL_NAME)
+    return str(increment_path(path, exist_ok=bool(exist_ok), mkdir=mkdir))
+
+
+def resolve_val_output_kwargs(
+    kwargs: dict,
+    project: Optional[Union[str, Path]],
+    name: Optional[str],
+    exist_ok: bool,
+) -> None:
+    """Turn ``val(project=, name=, exist_ok=)`` into ``save_dir`` in ``kwargs``.
+
+    Without ``project`` or ``name``, ``save_dir`` (or the validator's default
+    timestamped directory) is left as is.
+    """
+    if project is None and name is None:
+        return
+    if kwargs.get("save_dir") is not None:
+        raise ValueError(
+            "val() takes either save_dir or project/name for its output "
+            "directory, not both."
+        )
+    kwargs["save_dir"] = val_save_dir(project, name, exist_ok)
+
 
 @dataclass
 class ValidationConfig:
