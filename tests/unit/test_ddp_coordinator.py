@@ -103,6 +103,20 @@ def _job_dirs() -> set[Path]:
     return set(root.glob("libreyolo-ddp-job-*"))
 
 
+@pytest.fixture
+def private_tempdir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """Give this test its own system temp dir, inherited by the coordinator.
+
+    The cleanup checks compare job dirs in the temp root; with the shared root,
+    jobs from other xdist workers made the before/after sets differ.
+    """
+    root = tmp_path / "tmp"
+    root.mkdir()
+    monkeypatch.setenv("TMPDIR", str(root))
+    monkeypatch.setattr(tempfile, "tempdir", None)
+    return root
+
+
 def test_job_protocol_round_trip(tmp_path: Path) -> None:
     job_dir = tmp_path / "job"
     with warnings.catch_warnings(record=True) as caught:
@@ -245,7 +259,7 @@ def test_job_protocol_rejects_future_version(tmp_path: Path) -> None:
 
 
 def test_coordinator_propagates_env_result_mask_and_cleans_up(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, private_tempdir: Path
 ) -> None:
     monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "2,3")
     before = _job_dirs()
@@ -275,7 +289,9 @@ def test_coordinator_propagates_env_result_mask_and_cleans_up(
     assert json.loads(result_path.read_text())["rank"] == 0
 
 
-def test_coordinator_surfaces_worker_traceback_and_cleans_up(tmp_path: Path) -> None:
+def test_coordinator_surfaces_worker_traceback_and_cleans_up(
+    tmp_path: Path, private_tempdir: Path
+) -> None:
     before = _job_dirs()
     with pytest.raises(RuntimeError, match="intentional rank failure"):
         spawn_ddp_train(
