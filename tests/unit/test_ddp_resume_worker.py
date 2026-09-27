@@ -144,3 +144,49 @@ def test_yolo9_worker_loads_a_fine_tune_with_coco_width_class_towers(
     run = captured[-1]
     assert run["resumed_from"] == str(last)
     assert (Path(run["config"].project), run["config"].name) == (tmp_path / "runs", "dr")
+
+
+def test_rfdetr_worker_resumes_the_loaded_run(tmp_path, monkeypatch):
+    """``LibreRFDETR(last.pt)`` left ``model_path`` unset, so the worker's
+    ``resume=True`` looked for ``runs/train/rfdetr_exp/weights/last.pt``
+    instead of continuing the run the parent had loaded."""
+    from libreyolo import LibreYOLO
+    from libreyolo.models.rfdetr import model as rfdetr_model
+    from libreyolo.models.rfdetr.trainer import RFDETRConfig
+
+    last = tmp_path / "runs" / "dr" / "weights" / "last.pt"
+    last.parent.mkdir(parents=True)
+    rfdetr_model.LibreRFDETR({}, size="n", nb_classes=2, device="cpu").save(str(last))
+    config = RFDETRConfig(
+        data="data.yaml", epochs=5, project=str(tmp_path / "runs"), name="dr"
+    ).to_dict()
+    checkpoint = torch.load(last, map_location="cpu", weights_only=False)
+    torch.save({**checkpoint, "epoch": 0, "config": config}, last)
+
+    resumed = {}
+
+    class _Trainer:
+        def __init__(self, model, wrapper_model=None, **kwargs):
+            resumed["kwargs"] = kwargs
+
+        def setup(self):
+            pass
+
+        def resume(self, checkpoint_path):
+            resumed["from"] = checkpoint_path
+
+        def train(self):
+            return {}
+
+    monkeypatch.setattr(rfdetr_model, "RFDETRTrainer", _Trainer)
+
+    parent, train_kw = _parent_spawn_args(
+        monkeypatch, LibreYOLO(str(last), device="cpu"), data="data.yaml", resume=True
+    )
+    worker, train_kw = _worker(parent, train_kw)
+    worker.train(**train_kw)
+
+    assert resumed["from"] == str(last)
+    kwargs = resumed["kwargs"]
+    assert (kwargs["project"], kwargs["name"]) == (str(tmp_path / "runs"), "dr")
+    assert (kwargs["epochs"], kwargs["exist_ok"]) == (5, True)

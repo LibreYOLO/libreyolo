@@ -485,6 +485,10 @@ class LibreRFDETR(BaseModel):
         if weight_source is not None:
             self._load_weights(weight_source)
             self.model.eval()
+        if isinstance(model_path, str):
+            # Record the checkpoint as the factory does, so resume=True (also
+            # in DDP workers, which construct directly) finds the loaded run.
+            self.model_path = weight_source
         if self._is_pose and self.nb_classes == 1 and self.names.get(0) == "class_0":
             self.names = {0: "person"}
 
