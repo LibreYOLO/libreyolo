@@ -621,6 +621,58 @@ def test_dinov2_resume_path_continues_that_run(fake_backbone, tmp_path, monkeypa
     assert captured["exist_ok"] is True
 
 
+def test_dinov2_resume_restores_saved_settings(fake_backbone, tmp_path, monkeypatch):
+    """resume restored only the dataset: epochs, batch, lr0 and imgsz fell back
+    to the defaults (100 epochs), so a shorter run trained past its end."""
+    import libreyolo.models.dinov2.trainer as dinov2_trainer
+    from libreyolo.models.dinov2.config import DINOv2Config
+    from libreyolo.models.dinov2.model import LibreDINOv2
+
+    captured = {}
+
+    class _Trainer:
+        def __init__(self, **kwargs):
+            captured.clear()
+            captured.update(kwargs)
+
+        def setup(self):
+            pass
+
+        def resume(self, path):
+            captured["resumed_from"] = path
+
+        def train(self):
+            return {}
+
+    monkeypatch.setattr(dinov2_trainer, "DINOv2Trainer", _Trainer)
+    config = DINOv2Config(
+        data="saved.yaml", epochs=7, batch=3, lr0=0.0123, imgsz=70, workers=0
+    ).to_dict()
+    checkpoint = tmp_path / "runs" / "dinov2_exp2" / "weights" / "last.pt"
+    checkpoint.parent.mkdir(parents=True)
+    torch.save({"epoch": 2, "config": config}, checkpoint)
+
+    def model():
+        return LibreDINOv2(
+            model_path=None, size="n", task="semantic", nb_classes=2, device="cpu"
+        )
+
+    model().train(resume=str(checkpoint))
+    assert captured["resumed_from"] == str(checkpoint)
+    assert (captured["data"], captured["epochs"], captured["batch"]) == ("saved.yaml", 7, 3)
+    assert captured["lr0"] == pytest.approx(0.0123)
+    assert (captured["imgsz"], captured["workers"]) == (70, 0)
+
+    # Explicit arguments, in either spelling, win over the saved ones.
+    model().train(resume=str(checkpoint), epochs=9, batch_size=5, lr=0.5, imgsz=84)
+    assert (captured["epochs"], captured["batch"], captured["imgsz"]) == (9, 5, 84)
+    assert captured["lr0"] == pytest.approx(0.5)
+
+    # A fresh run keeps the defaults.
+    model().train(data="new.yaml")
+    assert (captured["epochs"], captured["batch"]) == (DINOv2Config().epochs, 4)
+
+
 def test_dinov2_semantic_resume_keeps_best_metric(
     fake_backbone, tmp_path, monkeypatch
 ):
