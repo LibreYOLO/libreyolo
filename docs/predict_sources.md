@@ -7,6 +7,7 @@ interpreted as image filenames.
 | Source | Python value | Behavior |
 | --- | --- | --- |
 | Image or image URL | `"image.jpg"`, `PIL.Image`, NumPy, tensor | One result |
+| Batched array or tensor | 4-D NumPy array (NHWC or NCHW) or NCHW tensor | List, one result per image |
 | Image directory or list | `"images/"`, `[image1, image2]` | List, or a lazy generator with `stream=True` |
 | Video file or URL | `"clip.mp4"` | List by default; generator with `stream=True` |
 | Screen | `"screen"`, `"screen 1"` | One capture; continuous with `stream=True` |
@@ -14,6 +15,11 @@ interpreted as image filenames.
 | Network stream | `rtsp://`, `rtmp://`, `tcp://`, `udp://`, or an HLS `.m3u8` URL | Continuous; requires `stream=True` in Python |
 | YouTube | A `youtube.com` or `youtu.be` page URL | Resolved through `yt-dlp`, then read as a live stream |
 | Multiple cameras | A list of stream sources or a `.streams` text file | One capture thread per source; results are yielded with the source in `result.path` |
+
+NumPy arrays are read as BGR, the OpenCV channel order, so `cv2.imread()`
+output and decoded video frames need no conversion. Pass `color_format="rgb"`
+for an RGB array such as `np.asarray(pil_image)`. PIL images and tensors are
+RGB.
 
 ## Python
 

@@ -85,8 +85,9 @@ Validation frequency is protocol-mandated every epoch (gdino
 `val_interval=1`; rt-detr / d-fine / lw-detr call `evaluate()` unconditionally,
 lw-detr twice). The knob that exists is validation COST (image cache, hoisted
 validator, graphed val forward), not frequency. LibreYOLO's own
-`TrainConfig.eval_interval` defaults to 10 — a short smoke never validates
-unless you pass `eval_interval=1`.
+`TrainConfig.eval_interval` defaults to 10 and the final epoch always
+validates, so a short smoke validates once at the end; pass
+`eval_interval=1` to validate every epoch.
 
 ## Where the work happens
 
