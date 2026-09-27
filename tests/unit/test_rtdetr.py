@@ -37,9 +37,13 @@ def test_download_route_requires_own_canonical_filename(size):
         ("rtdetr-r50.pt", "LibreRTDETRr50.pt"),
         ("LibreRTDETR-r50.pt", "LibreRTDETRr50.pt"),
         ("detr-r50-e632da11.pth", "LibreDETRr50.pt"),
+        ("LibreDETR-r50.pt", "LibreDETRr50.pt"),
+        ("LibreDETR-r101-dc5.pt", "LibreDETRr101dc5.pt"),
+        ("my_detr-r50.pt", "LibreDETRr50.pt"),
+        ("LibreDETRr50.pt", "LibreDETRr50.pt"),
     ],
 )
-def test_ecosystem_rtdetr_names_download_rtdetr_weights(filename, expected):
+def test_rtdetr_and_detr_names_download_their_own_weights(filename, expected):
     """1.5.0 downloaded LibreRTDETRl.pt for rtdetr-l.pt; the #850 narrowing
     dropped that, and rtdetr-r50.pt fetched the DETR checkpoint instead."""
     from libreyolo.models import _ensure_rfdetr
@@ -51,6 +55,15 @@ def test_ecosystem_rtdetr_names_download_rtdetr_weights(filename, expected):
         None,
     )
     assert url is not None and url.endswith("/" + expected)
+
+
+@pytest.mark.parametrize(
+    "filename", ["rtdetr-r50.pt", "LibreRTDETR-r50.pt", "librertdetr-r101.pt"]
+)
+def test_detr_does_not_claim_rtdetr_names(filename):
+    from libreyolo.models.detr.model import LibreDETR
+
+    assert LibreDETR.get_download_url(filename) is None
 
 
 @pytest.mark.parametrize(
