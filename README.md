@@ -75,7 +75,7 @@ package. For unreleased work, `git checkout dev`.
 
 </details>
 
-## One API, seventeen tasks
+## One API, twenty tasks
 
 The same three lines run every task. Only the checkpoint changes.
 

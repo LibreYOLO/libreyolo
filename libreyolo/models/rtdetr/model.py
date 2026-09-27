@@ -290,6 +290,13 @@ class LibreRTDETR(BaseModel):
         # Autodownload must not mistake another family's "-log" or "-layered"
         # variant for RT-DETR-L. Keep that inference only for local checkpoints.
         basename = os.path.basename(filename)
+        # Ecosystem names (rtdetr-l.pt) and the hyphenated LibreRTDETR-l.pt
+        # download the canonical LibreRTDETR<size>.pt, as in 1.5.0.
+        alias = re.fullmatch(
+            r"(?:rtdetr|librertdetr)-([a-z0-9]+)\.pt", basename.lower()
+        )
+        if alias is not None and alias.group(1) in cls.INPUT_SIZES:
+            basename = f"{cls.FILENAME_PREFIX}{alias.group(1)}.pt"
         pattern = cls._filename_regex()
         if pattern is None or pattern.fullmatch(basename.lower()) is None:
             return None

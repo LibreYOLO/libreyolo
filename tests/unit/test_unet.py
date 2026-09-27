@@ -262,12 +262,9 @@ def test_family_metadata_and_task_contract():
         LibreUNet(size="s", task="detect", device="cpu")
 
 
-def test_download_notice_names_the_non_commercial_restriction():
-    notice = LibreUNet.get_download_notice("LibreUNets-sem.pt", "https://example")
-    assert "NON-COMMERCIAL" in notice
-    assert "cityscapes-dataset.com/license" in notice
-    assert "not to LibreYOLO's MIT code" in notice
-    assert "fine-tune started from this checkpoint inherits" in notice
+def test_download_has_no_license_notice():
+    """The weights keep mmsegmentation's Apache-2.0; nothing to warn about."""
+    assert LibreUNet.get_download_notice("LibreUNets-sem.pt", "https://example") is None
 
 
 def test_restricted_license_metadata_round_trips_through_load_and_trainer():
@@ -346,15 +343,15 @@ def test_official_raw_import_keeps_license_names_and_rectangle(
     digest = hashlib.sha256(source.read_bytes()).hexdigest()
     monkeypatch.setattr(unet_module, "SOURCE_DIGEST", digest)
     model = (LibreYOLO if factory else LibreUNet)(str(source), device="cpu")
-    assert model.weight_license == unet_module.WEIGHT_LICENSE
-    assert model.weight_commercial_use is False
+    assert model.weight_license == unet_module.WEIGHT_LICENSE == "Apache-2.0"
+    assert model.weight_commercial_use is True
     assert model.weight_dataset == "Cityscapes"
-    assert model.weight_license_url == unet_module.CITYSCAPES_LICENSE_URL
+    assert model.weight_license_url == unet_module.WEIGHT_LICENSE_URL
     assert model.names == CITYSCAPES_NAMES
     if factory:
         saved = torch.load(model.model_path, weights_only=True)
         assert saved["source_sha256"] == digest
-        assert saved["weight_commercial_use"] is False
+        assert saved["weight_commercial_use"] is True
         assert (saved["imgsz"], saved["imgsz_h"], saved["imgsz_w"]) == (
             2048,
             1024,

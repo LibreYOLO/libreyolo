@@ -54,7 +54,8 @@ image=None)` methods.
 - Configure the instance before passing it. `tracker_config` and additional
   tracker keyword arguments are rejected with an instance.
 - For an instance, `track_conf` is the **detector** confidence cutoff (default
-  `0.25`). Set it low enough to retain weak detections needed by your tracker.
+  `0.25`); `conf=`, when given, sets that cutoff instead, as in `predict()`.
+  Set it low enough to retain weak detections needed by your tracker.
   LibreYOLO does not inspect or modify the instance's association thresholds
   or frame-rate settings. Configure timing for the retained frame rate,
   accounting for `vid_stride` yourself.

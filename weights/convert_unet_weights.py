@@ -4,7 +4,7 @@ Usage:
     python weights/convert_unet_weights.py \
         /tmp/unet-mmseg/fcn_unet_cityscapes.pth weights/LibreUNets-sem.pt
 
-The released checkpoint is trained on Cityscapes and is NON-COMMERCIAL; the
+The released checkpoint is Apache-2.0, as mmsegmentation declares; the
 conversion stamps that into the checkpoint metadata so it travels with the
 file (see libreyolo/models/unet/NOTICE).
 """
@@ -31,13 +31,17 @@ SOURCE_URL = (
     "fcn_unet_s5-d16_4x4_512x1024_160k_cityscapes_20211210_145204-6860854e.pth"
 )
 SOURCE_REVISION = "open-mmlab/mmsegmentation@b040e147adfa"
-CITYSCAPES_LICENSE_URL = "https://www.cityscapes-dataset.com/license/"
 
 
 def convert(input_path: str, output_path: str) -> None:
     add_repo_root_to_path()
     from libreyolo.models.unet.convert import convert_upstream_unet_state_dict
-    from libreyolo.models.unet.model import CITYSCAPES_NAMES, WEIGHT_LICENSE, LibreUNet
+    from libreyolo.models.unet.model import (
+        CITYSCAPES_NAMES,
+        WEIGHT_LICENSE,
+        WEIGHT_LICENSE_URL,
+        LibreUNet,
+    )
     from libreyolo.models.unet.nn import SIZE_CONFIGS
 
     digest = sha256(input_path)
@@ -100,9 +104,9 @@ def convert(input_path: str, output_path: str) -> None:
         resize_mode="stretch",
         ignore_index=255,
         weight_license=WEIGHT_LICENSE,
-        weight_license_url=CITYSCAPES_LICENSE_URL,
+        weight_license_url=WEIGHT_LICENSE_URL,
         weight_dataset="Cityscapes",
-        weight_commercial_use=False,
+        weight_commercial_use=True,
         source_url=SOURCE_URL,
         source_sha256=digest,
         source_revision=SOURCE_REVISION,
@@ -114,10 +118,6 @@ def convert(input_path: str, output_path: str) -> None:
     save_checkpoint(wrapped, tmp)
     tmp.replace(out)
     print(f"Wrote {out} (size={size}, nc={nc}, imgsz={imgsz_h}x{imgsz_w})")
-    print(
-        "NOTE: this checkpoint derives from Cityscapes and is restricted to "
-        f"NON-COMMERCIAL use ({CITYSCAPES_LICENSE_URL})."
-    )
 
 
 if __name__ == "__main__":

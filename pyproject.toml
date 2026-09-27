@@ -309,6 +309,9 @@ fiftyone = [
     # installing them together leaves whichever landed last in place. See
     # docs/fiftyone.md.
     "fiftyone>=1.0.0",
+    # graphql-core 3.3.0 (2026-09-27) removed graphql.execution.ExecutionContext,
+    # which strawberry-graphql imports, so `import fiftyone` fails with it.
+    "graphql-core<3.3",
 ]
 tensorboard = [
     "tensorboard>=2.13.0",

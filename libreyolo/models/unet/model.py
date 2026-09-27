@@ -8,11 +8,9 @@ not the 2015 Caffe valid-convolution graph. Inference runs whole frames at the
 upstream evaluation canvas (1024x2048); ``weights/parity_unet.py`` proves the
 graph bit-identical to the pinned mmseg implementation.
 
-Licensing: the architecture is Apache-2.0 (open-mmlab/mmsegmentation). The
-released Cityscapes checkpoint is redistributable but NON-COMMERCIAL under
-Cityscapes dataset terms, the same hosting path as PP-LiteSeg. A fine-tune
-started from it inherits that term; train from scratch on your own data for
-weights free of it.
+Licensing: the architecture and the released Cityscapes checkpoint are
+Apache-2.0 (open-mmlab/mmsegmentation); the weights keep the license upstream
+declares for them.
 """
 
 from __future__ import annotations
@@ -68,8 +66,10 @@ CITYSCAPES_NAMES: dict[int, str] = {
     18: "bicycle",
 }
 
-CITYSCAPES_LICENSE_URL = "https://www.cityscapes-dataset.com/license/"
-WEIGHT_LICENSE = "Cityscapes dataset terms, non-commercial"
+WEIGHT_LICENSE = "Apache-2.0"
+WEIGHT_LICENSE_URL = (
+    "https://github.com/open-mmlab/mmsegmentation/blob/b040e147adfa/LICENSE"
+)
 _WEIGHT_METADATA_KEYS = (
     "weight_license",
     "weight_license_url",
@@ -178,26 +178,12 @@ class LibreUNet(BaseModel):
             metadata.update(
                 names=dict(CITYSCAPES_NAMES),
                 weight_license=WEIGHT_LICENSE,
-                weight_license_url=CITYSCAPES_LICENSE_URL,
+                weight_license_url=WEIGHT_LICENSE_URL,
                 weight_dataset="Cityscapes",
-                weight_commercial_use=False,
+                weight_commercial_use=True,
                 source_sha256=SOURCE_DIGEST,
             )
         return metadata
-
-    @classmethod
-    def get_download_notice(cls, filename: str, url: str) -> str | None:
-        del url
-        return (
-            f"{Path(filename).name} is a converted U-Net checkpoint trained on "
-            "Cityscapes. The Cityscapes license restricts the dataset and its "
-            "derivatives, including this checkpoint, to NON-COMMERCIAL use "
-            f"({CITYSCAPES_LICENSE_URL}). The restriction applies to this "
-            "pretrained checkpoint, not to LibreYOLO's MIT code or the U-Net "
-            "architecture. A fine-tune started from this checkpoint inherits "
-            "the restriction; train from scratch on your own data for weights "
-            "without that term."
-        )
 
     def __init__(
         self,

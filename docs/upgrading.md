@@ -42,6 +42,30 @@ letterbox flip: there is none.
   scores will move. That is the intended geometry match with upstream, not
   a silent default flip of your old files.
 
+### Inputs, resume and validation
+
+- NumPy image arrays are read as BGR, the OpenCV order; 1.5 read them as
+  RGB unless `color_format="bgr"` was passed. Add `color_format="rgb"` where
+  you pass an RGB array such as `np.asarray(pil_image)`. `cv2.imread()`
+  output and video frames need no change.
+- A 4-D NumPy array or tensor is a batch: `predict()` returns a list with one
+  `Results` per image instead of using only the first image.
+- `train(resume=True)` and `train(resume="<run>/weights/last.pt")` restore
+  the run's saved training arguments and keep writing into that run's
+  directory; arguments you pass explicitly win. Resuming released weights,
+  or a run that already reached its `epochs`, raises a `ValueError` that
+  says so.
+- With validation on, the final epoch always validates, so runs shorter than
+  `eval_interval` now report metrics and write `best.pt`. `train(val=False)`
+  turns validation off entirely, final plots and precise-BN refresh
+  included; such runs write no `best.pt`, only `last.pt` and the periodic
+  `epoch_<n>.pt` files `save_period` asks for.
+- Validation during training writes into `<run>/val` instead of `runs/val/`
+  in the working directory.
+- CLI `train` failures are classified by exception type (`config_type_error`,
+  `config_unknown_key`, `config_unsupported`, `cuda_oom`, `io_error`)
+  instead of always `io_error`, so configuration errors now exit with 2.
+
 ## v1.4.0 to v1.5.0
 
 Nothing was removed from the public API surface: every class and function that

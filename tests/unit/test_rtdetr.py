@@ -28,6 +28,45 @@ def test_download_route_requires_own_canonical_filename(size):
 
 
 @pytest.mark.parametrize(
+    "filename,expected",
+    [
+        ("rtdetr-l.pt", "LibreRTDETRl.pt"),
+        ("rtdetr-x.pt", "LibreRTDETRx.pt"),
+        ("LibreRTDETR-l.pt", "LibreRTDETRl.pt"),
+        ("LibreRTDETR-x.pt", "LibreRTDETRx.pt"),
+        ("rtdetr-r50.pt", "LibreRTDETRr50.pt"),
+        ("LibreRTDETR-r50.pt", "LibreRTDETRr50.pt"),
+        ("detr-r50-e632da11.pth", "LibreDETRr50.pt"),
+        ("LibreDETR-r50.pt", "LibreDETRr50.pt"),
+        ("LibreDETR-r101-dc5.pt", "LibreDETRr101dc5.pt"),
+        ("my_detr-r50.pt", "LibreDETRr50.pt"),
+        ("LibreDETRr50.pt", "LibreDETRr50.pt"),
+    ],
+)
+def test_rtdetr_and_detr_names_download_their_own_weights(filename, expected):
+    """1.5.0 downloaded LibreRTDETRl.pt for rtdetr-l.pt; the #850 narrowing
+    dropped that, and rtdetr-r50.pt fetched the DETR checkpoint instead."""
+    from libreyolo.models import _ensure_rfdetr
+    from libreyolo.models.base.model import BaseModel
+
+    _ensure_rfdetr()
+    url = next(
+        (url for cls in BaseModel._registry if (url := cls.get_download_url(filename))),
+        None,
+    )
+    assert url is not None and url.endswith("/" + expected)
+
+
+@pytest.mark.parametrize(
+    "filename", ["rtdetr-r50.pt", "LibreRTDETR-r50.pt", "librertdetr-r101.pt"]
+)
+def test_detr_does_not_claim_rtdetr_names(filename):
+    from libreyolo.models.detr.model import LibreDETR
+
+    assert LibreDETR.get_download_url(filename) is None
+
+
+@pytest.mark.parametrize(
     "filename",
     [
         "last.pt",  # the canonical regression case

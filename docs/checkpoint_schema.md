@@ -187,7 +187,7 @@ add `train_imgsz_h` / `train_imgsz_w` for the actual training crop.
 Weight provenance uses optional flat `weight_license`, `weight_license_url`,
 `weight_dataset`, and boolean `weight_commercial_use` fields. Raw imports of
 the official Cityscapes artifact identify it by its pinned SHA-256 and write
-its non-commercial terms and class names; an arbitrary U-Net tensor layout
+its Apache-2.0 license terms and class names; an arbitrary U-Net tensor layout
 does not establish a weight license. Fine-tunes and U-Net DDP bootstrap
 checkpoints preserve these fields. Explicit scratch training clears inherited
 weight terms. Other families retain their existing flat DDP bootstrap tensors.

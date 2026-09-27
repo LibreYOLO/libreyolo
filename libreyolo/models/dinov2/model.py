@@ -769,11 +769,25 @@ class LibreDINOv2(BaseModel):
     # Training
     # =========================================================================
 
+    def _resume_saved_settings(self, resume_path: str | Path) -> dict[str, Any]:
+        """Training settings saved in a resume checkpoint, minus the ones a
+        resume never restores (architecture, device, run directory)."""
+        from dataclasses import fields
+
+        from ..base.model import _RESUME_UNRESTORED_KEYS
+
+        valid = {field.name for field in fields(DINOv2Config)}
+        return {
+            key: value
+            for key, value in self._checkpoint_train_config(resume_path).items()
+            if key in valid and key not in _RESUME_UNRESTORED_KEYS
+        }
+
     @ddp_aware(batch_key="batch_size")
     def train(
         self,
         data: str | None = None,
-        epochs: int = 100,
+        epochs: int | None = None,
         batch_size: int | None = None,
         lr: float | None = None,
         output_dir: str | None = None,
@@ -844,6 +858,30 @@ class LibreDINOv2(BaseModel):
             # exist_ok=False asks for a new run.
             exist_ok = True
 
+        resume_path = None
+        if resume:
+            if resume_checkpoint is not None:
+                resume_path = resume_checkpoint
+            else:
+                resume_path = (
+                    run_dir / "weights" / "last.pt" if resume is True else resume
+                )
+            # Continue with the run's saved settings; explicit arguments win.
+            saved = self._resume_saved_settings(resume_path)
+            if data is None:
+                data = saved.get("data")
+            if epochs is None:
+                epochs = saved.get("epochs")
+            if batch is None and batch_size is None:
+                batch = saved.get("batch")
+            if lr0 is None and lr is None:
+                lr0 = saved.get("lr0")
+            for key, value in saved.items():
+                if key not in train_kwargs and key not in ("data", "epochs", "batch", "lr0"):
+                    train_kwargs[key] = value
+        if epochs is None:
+            epochs = _TRAIN_DEFAULTS.epochs
+
         if batch is not None and batch_size is not None and batch != batch_size:
             raise ValueError(
                 f"Conflicting DINOv2 batch values: batch={batch} and batch_size={batch_size}"
@@ -864,16 +902,6 @@ class LibreDINOv2(BaseModel):
         if resolved_device is None:
             resolved_device = str(self.device)
 
-        resume_path = None
-        if resume:
-            if resume_checkpoint is not None:
-                resume_path = resume_checkpoint
-            else:
-                resume_path = (
-                    run_dir / "weights" / "last.pt" if resume is True else resume
-                )
-            if data is None:
-                data = self._checkpoint_train_config(resume_path).get("data")
         if not data:
             raise ValueError(
                 "DINOv2 train() needs data= (a dataset yaml)"
