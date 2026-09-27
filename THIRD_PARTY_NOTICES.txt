@@ -492,8 +492,8 @@ Used for: U-Net semantic segmentation family
           FCN-head graph whose state-dict keys match the official
           Cityscapes checkpoint. This is not the 2015 Caffe
           valid-convolution U-Net and not nnU-Net. The released
-          Cityscapes checkpoint is redistributable but NON-COMMERCIAL
-          under Cityscapes dataset terms; see
+          Cityscapes checkpoint keeps the Apache-2.0 license
+          mmsegmentation declares for it; see
           weights/LICENSE_NOTICE.txt and libreyolo/models/unet/NOTICE.
 
 --------------------------------------------------------------------

@@ -58,7 +58,8 @@ letterbox flip: there is none.
 - With validation on, the final epoch always validates, so runs shorter than
   `eval_interval` now report metrics and write `best.pt`. `train(val=False)`
   turns validation off entirely, final plots and precise-BN refresh
-  included; such runs write only `last.pt`.
+  included; such runs write no `best.pt`, only `last.pt` and the periodic
+  `epoch_<n>.pt` files `save_period` asks for.
 - Validation during training writes into `<run>/val` instead of `runs/val/`
   in the working directory.
 - CLI `train` failures are classified by exception type (`config_type_error`,
