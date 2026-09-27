@@ -8,6 +8,7 @@ from libreyolo.training.ddp_spawn import ddp_aware
 from ...tasks import normalize_task
 from ...training.callbacks import TrainCallbacks
 from ...validation.preprocessors import DEIMv2DINOValPreprocessor
+from ..base.model import _drop_disabled_eval_interval
 from ..dfine.model import LibreDFINE
 from ..ec.postprocess import preprocess_image
 from . import depth as gtr_depth
@@ -562,6 +563,10 @@ class LibreGTR(LibreDFINE):
             for key, value in settings.items()
             if key in valid and key not in self._RESUME_UNRESTORED
         }
+        if kwargs.get("val") is True:
+            # val=True re-enables validation a saved val=False turned off.
+            kwargs.pop("val")
+            _drop_disabled_eval_interval(settings, True)
         explicit = {
             "data": data,
             "epochs": epochs,
@@ -670,6 +675,11 @@ class LibreGTR(LibreDFINE):
         from dataclasses import fields
 
         explicit = {k: v for k, v in overrides.items() if v is not None}
+        # val=True is the default; it only matters to re-enable validation a
+        # saved val=False turned off, and the semantic trainer rejects the key.
+        reenable_val = explicit.get("val") is True
+        if reenable_val:
+            explicit.pop("val")
         if not resume:
             return None, explicit
         path = str(resume) if isinstance(resume, (str, Path)) else self.model_path
@@ -681,6 +691,7 @@ class LibreGTR(LibreDFINE):
             for key, value in (self._checkpoint_train_config(path) or {}).items()
             if key in valid and key not in self._RESUME_UNRESTORED
         }
+        _drop_disabled_eval_interval(saved, reenable_val)
         run = self._resume_run_settings(
             path, explicit.get("project"), explicit.get("name"), explicit.get("exist_ok")
         )

@@ -349,3 +349,23 @@ def test_lora_training_with_mosaic_and_mixup_runs_end_to_end(tmp_path):
 
     exported = model.export(format="onnx", imgsz=160, simplify=False)
     assert exported
+
+
+def test_resume_settings_val_true_drops_a_disabled_interval(monkeypatch):
+    """Pose, semantic and depth resume through _resume_settings; val=True must
+    not reach the semantic trainer (it rejects unknown keys) and must turn a
+    saved val=False (eval_interval=0) back on."""
+    from libreyolo.models.gtr.sem_trainer import GTRSemConfig
+
+    model = object.__new__(LibreGTR)
+    model.model_path = "last.pt"
+    monkeypatch.setattr(
+        LibreGTR,
+        "_checkpoint_train_config",
+        lambda self, path: {"epochs": 9, "eval_interval": 0},
+    )
+    _, settings = model._resume_settings(True, GTRSemConfig, {"data": "d.yaml", "val": True})
+    assert settings == {"epochs": 9, "data": "d.yaml"}
+
+    _, settings = model._resume_settings(True, GTRSemConfig, {"data": "d.yaml"})
+    assert settings == {"epochs": 9, "eval_interval": 0, "data": "d.yaml"}
