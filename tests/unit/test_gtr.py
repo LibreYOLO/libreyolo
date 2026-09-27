@@ -351,6 +351,20 @@ def test_resume_continues_the_checkpoint_run_dir(tmp_path, monkeypatch, saved_ex
     assert captured["save_dir"] == path.parent.parent
 
 
+def test_resume_exist_ok_false_starts_a_new_run(tmp_path, monkeypatch):
+    """An explicit exist_ok=False resumes into a new numbered run beside the
+    checkpoint's run, as the other families do."""
+    path = _saved_gtr_run_checkpoint(tmp_path)
+    captured = _capture_gtr_resume(monkeypatch)
+
+    LibreYOLO(str(path), device="cpu").train(resume=True, exist_ok=False, device="cpu")
+
+    run_dir = path.parent.parent
+    assert captured["save_dir"] != run_dir
+    assert captured["save_dir"].parent == run_dir.parent
+    assert captured["save_dir"].name.startswith(run_dir.name)
+
+
 def test_resume_does_not_restore_saved_device(tmp_path, monkeypatch):
     """A saved multi-GPU device never reaches the DDP launcher, which only
     reads the device passed to train(); the call's device (auto) applies."""

@@ -1293,6 +1293,7 @@ class LibreRFDETR(BaseModel):
         train_kwargs = dict(kwargs)
         project = train_kwargs.pop("project", None)
         name = train_kwargs.pop("name", None)
+        exist_ok_given = "exist_ok" in train_kwargs
         exist_ok = train_kwargs.pop("exist_ok", _TRAIN_DEFAULTS.exist_ok)
         batch = train_kwargs.pop("batch", None)
         lr0 = train_kwargs.pop("lr0", None)
@@ -1314,9 +1315,9 @@ class LibreRFDETR(BaseModel):
             if name is None:
                 name = _TRAIN_DEFAULTS.name
         run_dir = Path(project) / str(name)
-        if resume is True:
+        if resume is True and not exist_ok_given:
             # resume=True reads weights/last.pt from this exact run_dir below;
-            # never let _get_save_dir() increment away from it mid-resume.
+            # keep writing there unless exist_ok=False asks for a new run.
             exist_ok = True
 
         resume_path = None

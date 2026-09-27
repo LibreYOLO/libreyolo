@@ -150,6 +150,25 @@ def test_rfdetr_resume_true_continues_the_loaded_run(monkeypatch, tmp_path):
     assert captured["kwargs"]["exist_ok"] is True
 
 
+def test_rfdetr_resume_exist_ok_false_starts_a_new_run(monkeypatch, tmp_path):
+    """As for the other families, an explicit exist_ok=False resumes the loaded
+    run's checkpoint into a new numbered run beside it."""
+    import torch
+
+    captured = _install_dummy_trainer(monkeypatch, {"save_dir": "unused"})
+    checkpoint = tmp_path / "runs" / "train" / "rfdetr_exp2" / "weights" / "last.pt"
+    checkpoint.parent.mkdir(parents=True)
+    torch.save({"epoch": 0}, checkpoint)
+    wrapper = _make_wrapper()
+    wrapper.model_path = str(checkpoint)
+
+    wrapper.train(data="data.yaml", resume=True, exist_ok=False)
+
+    assert captured["resume"] == str(checkpoint)
+    assert captured["kwargs"]["name"] == "rfdetr_exp2"
+    assert captured["kwargs"]["exist_ok"] is False
+
+
 def _save_rfdetr_run(path, **saved):
     import torch
 

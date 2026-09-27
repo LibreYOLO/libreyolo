@@ -560,6 +560,27 @@ def test_dinov2_semantic_resume_continues_same_run_dir(fake_backbone, tmp_path):
     # only epoch index 1 trained, not epochs 0 and 1 from scratch.
     assert len(res2["epoch_losses"]) == 1
 
+    # An explicit exist_ok=False resumes into a new numbered run instead.
+    m3 = LibreDINOv2(
+        model_path=None, size="n", task="semantic", nb_classes=2, device="cpu"
+    )
+    m3.train(
+        data=str(yaml_path),
+        epochs=3,
+        batch=2,
+        imgsz=70,
+        workers=0,
+        eval_interval=0,
+        project=str(runs_root),
+        name="resume_test",
+        resume=True,
+        exist_ok=False,
+        amp=False,
+        ema=False,
+        warmup_epochs=0,
+    )
+    assert (runs_root / "resume_test2").exists()
+
 
 def test_dinov2_semantic_resume_keeps_best_metric(
     fake_backbone, tmp_path, monkeypatch
