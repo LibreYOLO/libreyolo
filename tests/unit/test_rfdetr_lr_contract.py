@@ -269,3 +269,26 @@ def test_rfdetr_train_rejects_conflicting_lr_aliases(tmp_path):
             lr0=0.002,
             output_dir=str(tmp_path / "conflict"),
         )
+
+
+def test_rfdetr_resume_without_data_uses_the_saved_dataset(monkeypatch, tmp_path):
+    """train(resume=True) with no data= crashed with a TypeError; the other
+    families restore the checkpoint's dataset."""
+    captured = _install_dummy_trainer(monkeypatch, {"save_dir": "unused"})
+    data = str(tmp_path / "saved.yaml")
+    last = _save_rfdetr_run(tmp_path / "rf" / "weights" / "last.pt", epochs=7, data=data)
+    wrapper = _make_wrapper()
+    wrapper.model_path = str(last)
+
+    wrapper.train(resume=True)
+
+    assert captured["resume"] == str(last)
+    assert captured["kwargs"]["data"] == data
+
+
+def test_rfdetr_train_without_data_says_so(monkeypatch, tmp_path):
+    _install_dummy_trainer(monkeypatch, {"save_dir": "unused"})
+
+    with pytest.raises(ValueError, match="needs data="):
+        _make_wrapper().train(output_dir=str(tmp_path / "run"))
+

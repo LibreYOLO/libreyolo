@@ -1264,7 +1264,7 @@ class LibreRFDETR(BaseModel):
     @ddp_aware(batch_key="batch_size")
     def train(
         self,
-        data: str,
+        data: str | None = None,
         epochs: int | None = None,
         batch_size: int | None = None,
         lr: float | None = None,
@@ -1277,7 +1277,8 @@ class LibreRFDETR(BaseModel):
         """Fine-tune RF-DETR through LibreYOLO's native trainer.
 
         Args:
-            data: Path to the dataset YAML file.
+            data: Path to the dataset YAML file. Optional when resuming: the
+                dataset saved in the resume checkpoint is used.
             epochs: Number of epochs to train (default 100).
             batch_size: Batch size (alias of ``batch=`` passed via kwargs).
             lr: Initial learning rate (alias of ``lr0=`` passed via kwargs).
@@ -1340,6 +1341,8 @@ class LibreRFDETR(BaseModel):
                 )
             # Continue with the run's saved settings; explicit arguments win.
             saved = self._resume_saved_settings(resume_path)
+            if data is None:
+                data = self._checkpoint_train_config(resume_path).get("data")
             if epochs is None:
                 epochs = saved.get("epochs")
             if batch is None and batch_size is None:
@@ -1370,6 +1373,11 @@ class LibreRFDETR(BaseModel):
             resolved_batch = 4
         if resolved_lr0 is None:
             resolved_lr0 = 1e-4
+        if not data:
+            raise ValueError(
+                "RF-DETR train() needs data= (a dataset yaml)"
+                + ("; the resume checkpoint saved none." if resume else ".")
+            )
 
         pose_train_metadata = {}
         if self._is_pose:

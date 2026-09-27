@@ -772,7 +772,7 @@ class LibreDINOv2(BaseModel):
     @ddp_aware(batch_key="batch_size")
     def train(
         self,
-        data: str,
+        data: str | None = None,
         epochs: int = 100,
         batch_size: int | None = None,
         lr: float | None = None,
@@ -872,6 +872,13 @@ class LibreDINOv2(BaseModel):
                 resume_path = (
                     run_dir / "weights" / "last.pt" if resume is True else resume
                 )
+            if data is None:
+                data = self._checkpoint_train_config(resume_path).get("data")
+        if not data:
+            raise ValueError(
+                "DINOv2 train() needs data= (a dataset yaml)"
+                + ("; the resume checkpoint saved none." if resume else ".")
+            )
 
         trainer = DINOv2Trainer(
             model=self.model,

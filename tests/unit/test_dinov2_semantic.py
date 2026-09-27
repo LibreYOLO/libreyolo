@@ -864,3 +864,41 @@ def test_dinov2_semantic_rejects_lora(fake_backbone, tmp_path, monkeypatch):
             warmup_epochs=0,
             lora=True,
         )
+
+
+def test_dinov2_resume_without_data_uses_the_saved_dataset(fake_backbone, tmp_path, monkeypatch):
+    """train(resume=True) with no data= restores the checkpoint's dataset."""
+    from libreyolo.models.dinov2 import trainer as dinov2_trainer
+    from libreyolo.models.dinov2.model import LibreDINOv2
+
+    yaml_path = _make_semantic_yaml(tmp_path)
+    common = dict(
+        batch=2, imgsz=70, workers=0, eval_interval=0, amp=False, ema=False,
+        warmup_epochs=0, project=str(tmp_path / "runs"), name="nodata",
+    )
+    first = LibreDINOv2(model_path=None, size="n", task="semantic", nb_classes=2, device="cpu")
+    res = first.train(data=str(yaml_path), epochs=1, **common)
+
+    seen = {}
+    original_init = dinov2_trainer.DINOv2Trainer.__init__
+
+    def _spy_init(self, *args, **kwargs):
+        seen["data"] = kwargs.get("data")
+        original_init(self, *args, **kwargs)
+
+    monkeypatch.setattr(dinov2_trainer.DINOv2Trainer, "__init__", _spy_init)
+    resumed = LibreDINOv2(
+        model_path=res["last_checkpoint"], size="n", task="semantic", nb_classes=2, device="cpu"
+    )
+    resumed.train(epochs=2, resume=True, **{k: v for k, v in common.items() if k not in ("project", "name")})
+
+    assert seen["data"] and seen["data"].endswith(".yaml")
+
+
+def test_dinov2_train_without_data_says_so(fake_backbone):
+    from libreyolo.models.dinov2.model import LibreDINOv2
+
+    model = LibreDINOv2(model_path=None, size="n", task="semantic", nb_classes=2, device="cpu")
+    with pytest.raises(ValueError, match="needs data="):
+        model.train(epochs=1)
+
