@@ -317,6 +317,17 @@ class LibreYOLO9(BaseModel):
 
         self._rebuild_for_new_classes(new_nc)
 
+    def _prepare_model_for_state_dict(self, state_dict: dict) -> None:
+        """Match the checkpoint's class-tower width when the class count matches.
+
+        A fine-tune keeps its source checkpoint's tower width, which a fresh
+        build at the same ``nc`` may not reproduce: 2-class YOLO9-t towers
+        fine-tuned from COCO are 80 wide, a 2-class build is 64 wide. DDP
+        workers build at the checkpoint's ``nc`` before loading it.
+        """
+        self._align_class_towers_for_transfer(state_dict)
+        super()._prepare_model_for_state_dict(state_dict)
+
     def _restore_after_training(self, results: dict) -> None:
         """Reload the saved checkpoint and leave the model ready for inference."""
         checkpoint = None

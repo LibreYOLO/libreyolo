@@ -139,6 +139,24 @@ class LibreYOLO9E2E(LibreYOLO9):
         head._loss_fn = None
         head.to(next(self.model.parameters()).device)
 
+    def _prepare_model_for_state_dict(self, state_dict: dict) -> None:
+        """Also match the one-to-one class towers' width to the checkpoint."""
+        super()._prepare_model_for_state_dict(state_dict)
+        hidden_key = "head.one2one_cv3.0.0.conv.weight"
+        if hidden_key not in state_dict:
+            return
+        head = self.model.head
+        checkpoint_hidden = int(state_dict[hidden_key].shape[0])
+        if int(head.one2one_cv3[0][0].conv.weight.shape[0]) == checkpoint_hidden:
+            return
+        channels = [int(seq[0].conv.weight.shape[1]) for seq in head.one2one_cv3]
+        head.one2one_cv3 = head._build_class_towers(
+            channels, checkpoint_hidden, self.nb_classes
+        )
+        head._init_one2one_bias()
+        head._loss_fn = None
+        head.to(next(self.model.parameters()).device)
+
     # =====================================================================
     # Inference pipeline
     # =====================================================================
