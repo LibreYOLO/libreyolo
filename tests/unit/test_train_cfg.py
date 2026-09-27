@@ -343,3 +343,46 @@ def test_ecosystem_cls_loss_gain_is_warned_about_not_a_crash(detect_yaml, tmp_pa
                 LibreYOLO9(None, size="t", device="cpu").train(
                     data=detect_yaml, device="cpu", **kwargs
                 )
+
+
+def test_unknown_train_key_warning_suggests_the_close_name(detect_yaml, monkeypatch):
+    """epoch=1 trained the default 300 epochs behind a bare 'ignored' warning;
+    the warning now names the close match, without applying it."""
+    from libreyolo import LibreYOLO9
+    from libreyolo.training.config import ECSegConfig
+    from libreyolo.training.trainer import BaseTrainer
+
+    class _Built(Exception):
+        pass
+
+    def init(self, model, wrapper_model=None, callbacks=None, loggers=None, **kwargs):
+        raise _Built(self._config_class().from_kwargs(**kwargs))
+
+    monkeypatch.setattr(BaseTrainer, "__init__", init)
+    for key, value, hint in (("epoch", 1, "epochs"), ("lr", 0.02, "lr0")):
+        with pytest.warns(UserWarning, match=rf"\['{key}'\] \(did you mean '{hint}'\?\)"):
+            with pytest.raises(_Built) as built:
+                LibreYOLO9(None, size="t", device="cpu").train(
+                    data=detect_yaml, device="cpu", **{key: value}
+                )
+        config = built.value.args[0]
+        assert (config.epochs, config.lr0) == (300, 0.01)  # never auto-corrected
+
+    # Family configs with their own from_kwargs share the warning.
+    with pytest.warns(UserWarning, match=r"did you mean 'epochs'"):
+        ECSegConfig.from_kwargs(epoch=1)
+
+
+def test_ecosystem_options_get_no_misleading_hint():
+    """lrf is not lr0 and the cls loss gain is not cls_pw: exact ecosystem
+    names LibreYOLO lacks are reported as ignored without a guess."""
+    import warnings
+
+    from libreyolo.training.config import YOLO9Config
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        YOLO9Config.from_kwargs(lrf=0.1, cls=0.5, zzz=1)
+
+    (message,) = [str(w.message) for w in caught]
+    assert message == "Unknown training config keys (ignored): ['cls', 'lrf', 'zzz']"
