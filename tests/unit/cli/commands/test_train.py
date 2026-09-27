@@ -1836,4 +1836,8 @@ def test_multi_gpu_device_builds_the_model_on_one_device(monkeypatch, tmp_path, 
 
     assert result.exit_code == 0, result.output
     assert captured['load_device'] == 'cuda:0'
-    assert captured['device'] == device
+    # train() gets a spec its DDP launcher parses to both GPUs.
+    assert captured['device'] == '0,1'
+    from libreyolo.training.distributed import parse_device_arg
+
+    assert parse_device_arg(captured['device']) == [0, 1]

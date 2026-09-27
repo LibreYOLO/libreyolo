@@ -654,7 +654,10 @@ def train_cmd(
     # the model itself is built on the first of those devices.
     from libreyolo.training.distributed import parse_device_arg
 
-    requested_gpus = parse_device_arg(device.strip("[]") if isinstance(device, str) else device)
+    if isinstance(device, str) and device.strip().startswith("["):
+        # device=[0,1] means the same GPUs as device=0,1.
+        device = device.strip().strip("[]").replace(" ", "")
+    requested_gpus = parse_device_arg(device)
     model_device = f"cuda:{requested_gpus[0]}" if len(requested_gpus) > 1 else device
 
     loaded_model = None
