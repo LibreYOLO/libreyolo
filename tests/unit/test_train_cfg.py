@@ -210,3 +210,18 @@ def test_family_train_methods_are_auto_wrapped(import_path, class_name):
     assert getattr(cls.train, "_libreyolo_cfg_wrapped", False) is True, (
         f"{class_name}.train is not cfg-wrapped"
     )
+
+
+def test_python_mosaic_sets_mosaic_prob_like_the_cli():
+    """train(mosaic=0) warned 'Unknown training config keys (ignored)' and kept
+    mosaic on, while the CLI maps mosaic to mosaic_prob."""
+    import warnings
+
+    from libreyolo.training.config import YOLO9Config
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        assert YOLO9Config.from_kwargs(mosaic=0).mosaic_prob == 0
+    assert YOLO9Config.from_kwargs(mosaic=0.5, mosaic_prob=0.5).mosaic_prob == 0.5
+    with pytest.raises(ValueError, match="Conflicting mosaic values"):
+        YOLO9Config.from_kwargs(mosaic=0, mosaic_prob=1.0)

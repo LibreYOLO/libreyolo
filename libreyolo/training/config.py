@@ -389,8 +389,17 @@ class TrainConfig:
 
         ``val=False``, the ecosystem's spelling, turns validation during
         training off (``eval_interval=0``), as the CLI ``val=false`` does.
+        ``mosaic`` is the ecosystem's and the CLI's name for ``mosaic_prob``.
         """
         val = kwargs.pop("val", True)
+        if "mosaic" in kwargs:
+            mosaic = kwargs.pop("mosaic")
+            if "mosaic_prob" in kwargs and kwargs["mosaic_prob"] != mosaic:
+                raise ValueError(
+                    f"Conflicting mosaic values: mosaic={mosaic} and "
+                    f"mosaic_prob={kwargs['mosaic_prob']}"
+                )
+            kwargs["mosaic_prob"] = mosaic
         valid = {f.name for f in fields(cls)}
         unknown = set(kwargs) - valid
         if unknown:
