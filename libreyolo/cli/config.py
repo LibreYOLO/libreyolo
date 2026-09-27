@@ -549,6 +549,11 @@ def _build_rfdetr_train_kwargs(
 # user set.
 _FAMILY_RESOLVED_TRAIN_DEFAULTS = frozenset({"gtr", "ppliteseg", "yolonas"})
 
+# Families whose own train() restores a resumed run's saved settings and run
+# directory (RF-DETR has its own builder below). On resume the CLI passes only
+# the options the user set, as for RESUME_RESTORES_TRAIN_ARGS families.
+_SELF_RESTORING_RESUME_FAMILIES = frozenset({"dinov2"})
+
 
 def build_family_train_kwargs(
     params: dict[str, Any],
@@ -561,8 +566,9 @@ def build_family_train_kwargs(
     """Build train kwargs, translating family-specific CLI/API mismatches."""
     # A resume restores the run's saved arguments; Typer defaults must not
     # override them, only the options the user set.
-    resume_restores = bool(params.get("resume")) and getattr(
-        get_model_class(family), "RESUME_RESTORES_TRAIN_ARGS", False
+    resume_restores = bool(params.get("resume")) and (
+        family in _SELF_RESTORING_RESUME_FAMILIES
+        or getattr(get_model_class(family), "RESUME_RESTORES_TRAIN_ARGS", False)
     )
     if family in _FAMILY_RESOLVED_TRAIN_DEFAULTS or resume_restores:
         from .aliases import train_aliases

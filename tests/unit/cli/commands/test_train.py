@@ -1473,6 +1473,40 @@ def test_yolo9_resume_forwards_only_user_options(monkeypatch, tmp_path, syntax):
                 'name'} & captured.keys()
 
 
+@pytest.mark.parametrize('syntax', ['key_value', 'flags'])
+def test_dinov2_resume_forwards_only_user_options(monkeypatch, tmp_path, syntax):
+    """The CLI sent its defaults (epochs 100, batch 4, lr0, imgsz 640, project,
+    name) on a DINOv2 resume, so the loaded run was not continued and its
+    saved settings were overridden."""
+    captured = {}
+    last = tmp_path / 'runs' / 'train' / 'dinov2_exp2' / 'weights' / 'last.pt'
+    last.parent.mkdir(parents=True)
+    last.write_bytes(b'')
+
+    class DINOv2Like:
+        FAMILY = 'dinov2'
+        task = 'semantic'
+        device = 'cpu'
+
+        def train(self, data, **kwargs):
+            captured.update(kwargs, data=data)
+            return {'save_dir': str(last.parent.parent)}
+
+    monkeypatch.setattr('libreyolo.cli.commands.train.load_model_or_exit',
+                        lambda *args, **kwargs: DINOv2Like())
+    options = {'model': str(last), 'data': 'seg.yaml', 'resume': 'true', 'workers': '0'}
+    if syntax == 'key_value':
+        args = [f'{key}={value}' for key, value in options.items()]
+    else:
+        args = [part for key, value in options.items() for part in (f'--{key}', value)]
+    result = runner.invoke(_make_app(), args + ['--json'])
+
+    assert result.exit_code == 0, result.output
+    assert (captured['resume'], captured['workers'], captured['data']) == (True, 0, 'seg.yaml')
+    assert not {'epochs', 'imgsz', 'batch', 'lr0', 'project', 'name',
+                'exist_ok'} & captured.keys()
+
+
 @pytest.mark.parametrize(
     "model,args,expected",
     [
