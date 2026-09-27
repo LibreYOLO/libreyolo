@@ -384,13 +384,15 @@ class TrainConfig:
         self.plot_samples = validate_plot_samples(self.plot_samples)
 
     @classmethod
-    def from_kwargs(cls, **kwargs):
+    def from_kwargs(cls, /, **kwargs):
         """Construct config, warning on unknown keys.
 
         ``val=False``, the ecosystem's spelling, turns validation during
         training off (``eval_interval=0``), as the CLI ``val=false`` does.
         ``mosaic`` and ``fliplr``, the ecosystem's and the CLI's names for
-        ``mosaic_prob`` and ``flip_prob``, are accepted too.
+        ``mosaic_prob`` and ``flip_prob``, are accepted too. ``cls`` is positional
+        only so an ecosystem ``cls`` loss-gain key is warned about like other
+        unknown keys instead of colliding with it.
         """
         val = kwargs.pop("val", True)
         kwargs = apply_train_aliases(kwargs)
@@ -1100,7 +1102,7 @@ class ECSegConfig(ECConfig):
     mask_downsample_ratio: int = 4
 
     @classmethod
-    def from_kwargs(cls, **kwargs):
+    def from_kwargs(cls, /, **kwargs):
         cfg = super().from_kwargs(**kwargs)
         size = str(cfg.size).lower()
         if size in {"l", "x"}:

@@ -38,7 +38,7 @@ class GTRPoseConfig(ECPoseConfig):
     name: str = "gtr_pose_exp"
 
     @classmethod
-    def from_kwargs(cls, **kwargs):
+    def from_kwargs(cls, /, **kwargs):
         cfg = super().from_kwargs(**kwargs)
         size = str(cfg.size).lower()
         if size not in POSE_RECIPES:

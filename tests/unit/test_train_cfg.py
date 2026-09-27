@@ -312,3 +312,34 @@ def test_call_spellings_override_cfg_file_settings(train_config_of, detect_yaml,
     )
 
     assert (config.mosaic_prob, config.mixup_prob, config.flip_prob) == (0, 0.4, 0.3)
+
+
+def test_ecosystem_cls_loss_gain_is_warned_about_not_a_crash(detect_yaml, tmp_path, monkeypatch):
+    """TrainConfig.from_kwargs(cls, **kwargs) collided with a cls= key, so
+    train(cls=0.5) and any cfg= yaml copied from ecosystem defaults crashed
+    with 'got multiple values for argument cls'."""
+    from libreyolo import LibreYOLO9
+    from libreyolo.models.rfdetr.config import RFDETRConfig
+    from libreyolo.training.config import YOLO9Config
+    from libreyolo.training.trainer import BaseTrainer
+
+    for config_cls in (YOLO9Config, RFDETRConfig):
+        with pytest.warns(UserWarning, match=r"ignored\): \['box', 'cls'\]"):
+            config_cls.from_kwargs(cls=0.5, box=7.5)
+
+    class _Built(Exception):
+        pass
+
+    def init(self, *args, **kwargs):
+        self.config = self._config_class().from_kwargs(**kwargs)
+        raise _Built(self.config)
+
+    monkeypatch.setattr(BaseTrainer, "__init__", init)
+    cfg = tmp_path / "ecosystem.yaml"
+    cfg.write_text("epochs: 3\nbatch: 2\nbox: 7.5\ncls: 0.5\ndfl: 1.5\n")
+    for kwargs in ({"cls": 0.5}, {"cfg": str(cfg)}):
+        with pytest.warns(UserWarning, match="Unknown training config keys"):
+            with pytest.raises(_Built):
+                LibreYOLO9(None, size="t", device="cpu").train(
+                    data=detect_yaml, device="cpu", **kwargs
+                )
