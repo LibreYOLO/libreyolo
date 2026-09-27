@@ -69,8 +69,13 @@ class LibreDETR(BaseModel):
         if detected is not None:
             return detected
         name = Path(filename).name.lower()
-        # "rtdetr-r50.pt" and "LibreRTDETR-r50.pt" name RT-DETR, not DETR.
-        match = re.search(r"(?<!rt)detr-r(50|101)(-dc5)?(?:-|\.|$)", name)
+        # "detr" must start the name, follow a separator or "libre", so that
+        # RT-DETR, DINO-DETR and Deformable DETR names are not taken as DETR.
+        match = re.search(
+            r"(?:^|(?<![a-z])(?<!rt[-_])(?<!dino[-_])(?<!deformable[-_])|(?<=libre))"
+            r"detr-r(50|101)(-dc5)?(?:-|\.|$)",
+            name,
+        )
         if match is None:
             return None
         depth, dc5 = match.groups()
