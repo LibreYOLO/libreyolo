@@ -7,6 +7,7 @@ exported at. The backend names both sizes before calling the runtime.
 
 from __future__ import annotations
 
+import importlib.machinery
 import importlib.util
 import sys
 from unittest.mock import MagicMock
@@ -20,7 +21,9 @@ _HAS_ORT = (
     importlib.util.find_spec("onnx") is not None
     and importlib.util.find_spec("onnxruntime") is not None
 )
-_HAS_COREML = importlib.util.find_spec("coremltools") is not None
+# test_export_coreml.py stubs coremltools into sys.modules when it is missing,
+# and find_spec() on that stub raises; look for the installed package instead.
+_HAS_COREML = importlib.machinery.PathFinder.find_spec("coremltools") is not None
 
 
 def _backend(cls, fixed_hw, **attrs):
