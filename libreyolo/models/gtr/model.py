@@ -448,6 +448,16 @@ class LibreGTR(LibreDFINE):
         **kwargs,
     ) -> dict:
         """Fine-tune GTR; resume restores saved settings before explicit overrides."""
+        # pretrained=False never gets here: the public train() wrapper rebuilds
+        # the network from scratch and consumes it. True (the CLI default)
+        # fine-tunes the loaded weights; nothing else has a meaning here.
+        pretrained = kwargs.pop("pretrained", None)
+        if pretrained is not None and pretrained is not True:
+            raise ValueError(
+                "GTR train() takes pretrained=True (fine-tune the loaded weights) "
+                f"or pretrained=False (train from scratch), got {pretrained!r}. "
+                "To start from other weights, load them as the model instead."
+            )
         if self.task == "semantic":
             from .sem_trainer import train_semantic
 
@@ -531,7 +541,6 @@ class LibreGTR(LibreDFINE):
 
             config_cls = GTRConfig
 
-        kwargs.pop("pretrained", None)
         resume_path = None
         settings = {}
         if resume:
@@ -679,7 +688,6 @@ class LibreGTR(LibreDFINE):
 
         from .pose_trainer import GTRPoseConfig, GTRPoseTrainer
 
-        kwargs.pop("pretrained", None)
         resume_path, kwargs = self._resume_settings(
             resume, GTRPoseConfig, {"data": data, **kwargs}
         )

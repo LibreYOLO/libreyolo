@@ -166,7 +166,6 @@ def train_semantic(
     model, *, data=None, resume=False, callbacks=None, loggers=None, **kwargs
 ):
     """Fine-tune a GTR semantic model on a dense-mask dataset YAML."""
-    kwargs.pop("pretrained", None)
     resume_path, kwargs = model._resume_settings(
         resume, GTRSemConfig, {"data": data, **kwargs}
     )

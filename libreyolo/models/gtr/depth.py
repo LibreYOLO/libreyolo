@@ -191,7 +191,6 @@ def train(wrapper, *, data=None, resume=False, **kwargs):
 
     if kwargs.get("lora"):
         raise ValueError("LoRA is not supported for depth models (ADR 0006).")
-    kwargs.pop("pretrained", None)
     resume_path, settings = wrapper._resume_settings(
         resume, GTRDepthConfig, {"data": data, **kwargs}
     )

@@ -378,6 +378,12 @@ def test_unsupported_training_policy_is_rejected(kwargs):
         GTRConfig(**kwargs)
 
 
+def test_detect_training_rejects_a_pretrained_path():
+    model = LibreGTR(None, size="s", nb_classes=1, device="cpu")
+    with pytest.raises(ValueError, match="pretrained=True"):
+        model.train(data="data.yaml", pretrained="other.pt")
+
+
 def test_resume_keeps_resolved_optimizer_overrides(monkeypatch):
     from types import SimpleNamespace
 
