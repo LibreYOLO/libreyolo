@@ -67,11 +67,50 @@ def test_val_after_training_without_a_checkpoint_reload(captured):
 
     model = _model()  # built from scratch: no checkpoint, empty cache
     trainer = SimpleNamespace(
-        wrapper_model=model,
-        config=SimpleNamespace(single_cls=False, classes=None, data="/runs/data/new.yaml"),
+        wrapper_model=model, config=SimpleNamespace(data="/runs/data/new.yaml")
     )
-    BaseTrainer._sync_wrapper_subset_config(trainer)  # what setup() does
+    BaseTrainer._record_trained_dataset(trainer)  # what a finished train() does
 
     model.val(workers=0)
 
     assert captured["data"] == "/runs/data/new.yaml"
+
+
+def test_failed_training_keeps_the_checkpoint_dataset(captured, tmp_path):
+    """Setup failing on dataset B left the cache pointing at B while the
+    weights were still the checkpoint's, trained on A."""
+    from torch import nn
+
+    from libreyolo.training.trainer import BaseTrainer
+
+    class _SetupFails(BaseTrainer):
+        def get_model_family(self):
+            return "yolo9"
+
+        def get_model_tag(self):
+            return "tiny"
+
+        def create_transforms(self):
+            raise NotImplementedError
+
+        def create_scheduler(self, iters_per_epoch):
+            raise NotImplementedError
+
+        def get_loss_components(self, outputs):
+            return {}
+
+        def _setup_data(self):
+            raise FileNotFoundError("dataset B has no images")
+
+    model = _model()
+    model._loaded_checkpoint_train_config = {"data": "/runs/data/a.yaml"}
+    trainer = _SetupFails(
+        nn.Linear(1, 1), wrapper_model=model, data="/runs/data/b.yaml",
+        device="cpu", ema=False, project=str(tmp_path),
+    )
+    with pytest.raises(FileNotFoundError):
+        trainer.train()
+
+    model.val(workers=0)
+
+    assert captured["data"] == "/runs/data/a.yaml"

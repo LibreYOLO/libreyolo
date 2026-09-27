@@ -702,6 +702,7 @@ def test_precise_bn_improvement_cancels_early_stop():
     trainer._refresh_best_precise_bn_checkpoint = no_op
     trainer._write_average_checkpoint = no_op
     trainer._build_train_results = lambda: {"trained_epochs": trained_epochs}
+    trainer._record_trained_dataset = no_op
     trainer._build_train_end_event = lambda *_args: None
     trainer._build_train_exception_event = lambda *_args: None
 

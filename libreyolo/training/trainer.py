@@ -2291,6 +2291,7 @@ class BaseTrainer(ABC):
                     )
 
             results = self._build_train_results()
+            self._record_trained_dataset()
             end_event = self._build_train_end_event(total_time, results)
             if is_main_process():
                 self._dispatch_artifact_callbacks("on_train_end", end_event)
@@ -2321,22 +2322,30 @@ class BaseTrainer(ABC):
         way it was trained. Once a new run starts, that checkpoint no longer
         describes the model: fine-tuning a ``single_cls`` checkpoint on
         multi-class data must not validate every epoch on collapsed labels.
-        The run's dataset is recorded too, so ``val()`` without ``data=``
-        validates on it even when the family does not reload a checkpoint
-        after training.
         """
         wrapper = getattr(self, "wrapper_model", None)
         probe = getattr(wrapper, "_checkpoint_train_config", None)
         if wrapper is None or not callable(probe):
             return
-        synced = {
+        wrapper._loaded_checkpoint_train_config = {
             **probe(),
             "single_cls": bool(getattr(self.config, "single_cls", False)),
             "classes": getattr(self.config, "classes", None),
         }
-        if getattr(self.config, "data", None):
-            synced["data"] = self.config.data
-        wrapper._loaded_checkpoint_train_config = synced
+
+    def _record_trained_dataset(self) -> None:
+        """Let ``val()`` without ``data=`` use this run's dataset.
+
+        Only once training finished: until then the weights still belong to
+        the checkpoint the wrapper was loaded from. Families that reload a
+        checkpoint afterwards overwrite this with the same value.
+        """
+        wrapper = getattr(self, "wrapper_model", None)
+        probe = getattr(wrapper, "_checkpoint_train_config", None)
+        data = getattr(self.config, "data", None)
+        if wrapper is None or not callable(probe) or not data:
+            return
+        wrapper._loaded_checkpoint_train_config = {**probe(), "data": data}
 
     def _dispatch_artifact_callbacks(self, method_name: str, event) -> None:
         try:
