@@ -246,6 +246,32 @@ def exit_stage_error(
     )
 
 
+def model_call_error_code(exc: BaseException) -> str:
+    """CLI error code for an exception raised inside a model call.
+
+    Argument and configuration errors are usage errors (exit 2), not I/O
+    failures: ``ValueError`` is a bad value, ``TypeError`` a bad or unknown
+    argument, ``NotImplementedError`` a configuration the model does not
+    support.
+    """
+    message = str(exc)
+    if is_device_op_error(exc):
+        return "device_not_available"
+    if "CUDA out of memory" in message or type(exc).__name__ == "OutOfMemoryError":
+        return "cuda_oom"
+    if isinstance(exc, NotImplementedError):
+        return "config_unsupported"
+    if isinstance(exc, TypeError):
+        if "unexpected keyword argument" in message or message.startswith(
+            "Unsupported"
+        ):
+            return "config_unknown_key"
+        return "config_type_error"
+    if isinstance(exc, ValueError):
+        return "config_type_error"
+    return "io_error"
+
+
 # What torch raises when an input size does not tile a model's feature maps.
 _IMGSZ_SHAPE_ERRORS = ("Sizes of tensors must match", "must match the size of tensor")
 

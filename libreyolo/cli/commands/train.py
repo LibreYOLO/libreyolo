@@ -16,6 +16,7 @@ from ..command_utils import (
     help_json_callback,
     is_imgsz_error,
     load_model_or_exit,
+    model_call_error_code,
     parse_imgsz_str,
     resolve_model_or_exit,
 )
@@ -1039,7 +1040,9 @@ def train_cmd(
     except Exception as e:
         if "imgsz" in user_provided and is_imgsz_error(e):
             exit_imgsz_error(out, e)
-        exit_stage_error(out, stage="Training", detail=e)
+        exit_stage_error(
+            out, stage="Training", detail=e, code=model_call_error_code(e)
+        )
 
     training_hours = (time.time() - t0) / 3600
 

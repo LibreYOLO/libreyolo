@@ -1721,3 +1721,46 @@ def test_histogram_training_prep_leaves_unreadable_yaml_to_the_loader(tmp_path, 
     data.write_bytes(content)
     wrapper = SimpleNamespace(FAMILY="yolo9", task="detect", input_profile=None)
     assert prepare_histogram_training(wrapper, (), {"data": str(data)}) is None
+
+
+@pytest.mark.parametrize(
+    "exc,code,exit_code",
+    [
+        (ValueError("lr0 must be positive"), "config_type_error", 2),
+        (TypeError("train() got an unexpected keyword argument 'foo'"), "config_unknown_key", 2),
+        (TypeError("Unsupported GTR semantic training arguments: ['foo']"), "config_unknown_key", 2),
+        (TypeError("freeze must be None, an int, or a list"), "config_type_error", 2),
+        (NotImplementedError("Rectangular training is not supported"), "config_unsupported", 2),
+        (
+            NotImplementedError(
+                "The operator 'aten::foo' is not currently implemented for the MPS device."
+            ),
+            "device_not_available",
+            1,
+        ),
+        (OSError("No space left on device"), "io_error", 1),
+        (RuntimeError("CUDA out of memory. Tried to allocate 2.00 GiB"), "cuda_oom", 1),
+    ],
+    ids=["value", "kwarg", "unsupported-args", "type", "unsupported", "device", "os", "oom"],
+)
+def test_train_failures_report_their_error_type(monkeypatch, tmp_path, exc, code, exit_code):
+    class _Failing:
+        FAMILY = "yolo9"
+        device = "cpu"
+
+        def train(self, data, **kwargs):
+            raise exc
+
+    monkeypatch.setattr(
+        "libreyolo.cli.commands.train.load_model_or_exit",
+        lambda *a, **k: _Failing(),
+    )
+    result = runner.invoke(
+        _make_app(),
+        ["data=dummy.yaml", "model=LibreYOLO9t.pt", f"project={tmp_path}", "--json"],
+    )
+
+    assert result.exit_code == exit_code, result.output
+    data = json.loads(result.stdout)
+    assert data["error"] == code
+    assert str(exc) in data["message"]
