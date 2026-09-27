@@ -7,6 +7,8 @@ in ``project/name``, with ``name`` incremented (``exp``, ``exp2``, ...) unless
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 import libreyolo.validation as validation
@@ -74,7 +76,10 @@ def test_project_or_name_alone_uses_the_cli_defaults(tmp_path, recorded, monkeyp
     model.val(data="data.yaml", imgsz=64, project="evals")
     model.val(data="data.yaml", imgsz=64, name="mine")
 
-    assert [c.save_dir for c in recorded] == ["evals/exp", "runs/val/mine"]
+    assert [Path(c.save_dir) for c in recorded] == [
+        Path("evals/exp"),
+        Path("runs/val/mine"),
+    ]
 
 
 def test_without_project_or_name_the_default_directory_is_unchanged(recorded):
