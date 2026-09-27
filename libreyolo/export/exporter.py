@@ -528,12 +528,34 @@ class BaseExporter(ABC):
     apply_model_half: bool  # whether to cast model to fp16 (only ONNX/TorchScript)
     supports_embedded_nms: bool = False
     default_int8_calibration_data: bool = False
+    # Export options read with kwargs.get() rather than named parameters;
+    # the rest are the named parameters of __call__, _preflight and _export.
+    _extra_export_kwargs: frozenset[str] = frozenset({"nms", "deepstream"})
 
     def __init_subclass__(cls, **kwargs):
         super().__init_subclass__(**kwargs)
         name = getattr(cls, "format_name", None)
         if name is not None:
             BaseExporter._registry[name] = cls
+
+    @classmethod
+    def _accepted_export_kwargs(cls) -> set[str]:
+        """Export options this format uses, from its signatures."""
+        import inspect
+
+        accepted = set(cls._extra_export_kwargs)
+        for klass in cls.__mro__:
+            for method in ("__call__", "_preflight", "_export"):
+                function = klass.__dict__.get(method)
+                if function is None:
+                    continue
+                accepted.update(
+                    parameter.name
+                    for parameter in inspect.signature(function).parameters.values()
+                    if parameter.kind
+                    in (parameter.KEYWORD_ONLY, parameter.POSITIONAL_OR_KEYWORD)
+                )
+        return accepted
 
     def __init__(self, model):
         self.model = model
@@ -572,6 +594,7 @@ class BaseExporter(ABC):
         fraction: float = 1.0,
         allow_download_scripts: bool = False,
         verbose: bool = False,
+        quantize: Optional[Union[int, str]] = None,
         **kwargs,
     ) -> str:
         """Export the model.
@@ -591,7 +614,10 @@ class BaseExporter(ABC):
             fraction: Fraction of calibration dataset to use (default: 1.0).
             allow_download_scripts: Allow embedded Python in dataset YAML downloads.
             verbose: Enable verbose logging (default: False).
+            quantize: Precision as the ecosystem spells it: 16 (FP16, as
+                ``half=True``), 8 (INT8, as ``int8=True``) or 32 (FP32).
             **kwargs: Format-specific parameters forwarded to ``_export()``.
+                Options the format does not use are warned about and ignored.
 
         Returns:
             Path to the exported model file.
@@ -601,6 +627,21 @@ class BaseExporter(ABC):
         # (reconstructing fp32 masters, enabling export mode) also wait for
         # every request rejection.
         pre_trace_hook = kwargs.pop("_pre_trace_hook", None)
+        unknown = sorted(set(kwargs) - self._accepted_export_kwargs())
+        if unknown:
+            warnings.warn(
+                f"Unknown {self.format_name} export arguments (ignored): {unknown}",
+                stacklevel=3,
+            )
+        if quantize is not None:
+            precision = {"16": "fp16", "8": "int8", "32": "fp32"}.get(str(quantize))
+            if precision is None:
+                raise ValueError(f"quantize must be 16, 8 or 32, got {quantize!r}.")
+            if (half and precision != "fp16") or (int8 and precision != "int8"):
+                raise ValueError(
+                    f"quantize={quantize!r} conflicts with half={half}, int8={int8}."
+                )
+            half, int8 = precision == "fp16", precision == "int8"
         if isinstance(getattr(self.model, "input_profile", None), dict):
             if self.format_name != "onnx" or half or int8 or kwargs.get("nms", False):
                 raise ValueError(
@@ -2790,6 +2831,7 @@ class CoreMLExporter(BaseExporter):
     supports_fp16 = True
     apply_model_half = False  # ct.convert handles precision via compute_precision
     supports_embedded_nms = True
+    _extra_export_kwargs = BaseExporter._extra_export_kwargs | {"max_det"}
 
     def _preflight(self, *, half: bool, int8: bool, data: Optional[str], **kwargs):
         if kwargs.get("nms"):

@@ -1830,3 +1830,50 @@ class TestTensorRTExportConfig:
         config = load_export_config("tensorrt_default.yaml")
         assert config.precision == "fp16"
         assert config.workspace == 4.0
+
+
+class TestExportArgumentChecks:
+    """quantize= and unknown export options (ecosystem export arguments)."""
+
+    @pytest.fixture
+    def model(self):
+        from libreyolo import LibreYOLO9
+
+        return LibreYOLO9(None, size="t", device="cpu")
+
+    def test_quantize_16_exports_fp16(self, model, tmp_path):
+        """quantize=16 exported FP32 without a word; it now means half=True."""
+        onnx = pytest.importorskip("onnx")
+
+        path = model.export(
+            format="onnx", imgsz=64, quantize=16, simplify=False,
+            output_path=str(tmp_path / "q16.onnx"),
+        )
+
+        graph_input = onnx.load(path).graph.input[0]
+        assert graph_input.type.tensor_type.elem_type == onnx.TensorProto.FLOAT16
+
+    @pytest.mark.parametrize(
+        "kwargs,match",
+        [
+            ({"quantize": 4}, "quantize must be 16, 8 or 32"),
+            ({"quantize": 8, "half": True}, "conflicts with half"),
+        ],
+    )
+    def test_quantize_rejects_what_it_cannot_honor(self, model, tmp_path, kwargs, match):
+        with pytest.raises(ValueError, match=match):
+            model.export(format="onnx", imgsz=64, output_path=str(tmp_path / "m.onnx"), **kwargs)
+
+    def test_unknown_export_option_is_warned_about(self, model, tmp_path):
+        pytest.importorskip("onnx")
+        with pytest.warns(UserWarning, match=r"Unknown onnx export arguments \(ignored\): \['made_up'\]"):
+            model.export(
+                format="onnx", imgsz=64, simplify=False, made_up=1,
+                output_path=str(tmp_path / "m.onnx"),
+            )
+
+    def test_format_options_are_not_reported_as_unknown(self):
+        assert {"nms", "conf", "iou", "max_det", "deepstream"} <= OnnxExporter._accepted_export_kwargs()
+        assert {"nms", "max_det", "compute_units"} <= CoreMLExporter._accepted_export_kwargs()
+        assert "workspace" in TensorRTExporter._accepted_export_kwargs()
+        assert "workspace" not in OnnxExporter._accepted_export_kwargs()
