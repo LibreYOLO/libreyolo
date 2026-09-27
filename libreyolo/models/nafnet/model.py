@@ -103,6 +103,7 @@ class LibreNAFNet(BaseModel):
     DEFAULT_TASK = "restore"
     REQUIRE_TASK_SUFFIX = True
     TRAIN_CONFIG = NAFNetConfig
+    RESUME_RESTORES_TRAIN_ARGS = True
     SUPPORTS_BATCHED_PREDICT = True
     TTA_ENABLED = False
     # Dataset/degradation weight variants (e.g. SIDD denoise vs the default GoPro
@@ -311,14 +312,8 @@ class LibreNAFNet(BaseModel):
         )
 
         if resume:
-            if not self.model_path:
-                raise ValueError(
-                    "resume=True requires a checkpoint. Load one first: "
-                    "model = LibreNAFNet('path/to/last.pt', size='s'); "
-                    "model.train(data=..., resume=True)"
-                )
             trainer.setup()
-            trainer.resume(str(self.model_path))
+            trainer.resume(self._resume_checkpoint(resume))
 
         results = trainer.train()
         best_ckpt = results.get("best_checkpoint")

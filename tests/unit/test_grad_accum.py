@@ -1030,6 +1030,7 @@ def test_resume_checkpoint_preserves_nbs_and_optimizer_step_iter(tmp_path):
 
     resumed = _make_trainer(_TinyModel(), accum=2, num_batches=3)
     resumed.save_dir = tmp_path / "second"
+    resumed.config.epochs = 2  # a finished run has nothing to resume
     resumed.resume(str(checkpoint_path))
     assert resumed.start_epoch == 1
     assert resumed.config.nbs == 4

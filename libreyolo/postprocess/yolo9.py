@@ -25,7 +25,7 @@ ImageSize = Union[int, Tuple[int, int]]
 
 
 def _input_size_hw(input_size: ImageSize) -> Tuple[int, int]:
-    if isinstance(input_size, tuple):
+    if isinstance(input_size, (tuple, list)):
         if len(input_size) != 2:
             raise ValueError(f"input_size must be int or (height, width), got {input_size}")
         h, w = int(input_size[0]), int(input_size[1])

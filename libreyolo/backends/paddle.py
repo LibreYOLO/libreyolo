@@ -128,6 +128,7 @@ class PaddleBackend(BaseBackend):
             supported_tasks=supported_tasks,
             default_task=default_task,
             **classify_eval_kwargs(runtime_metadata),
+            letterbox_pad=runtime_metadata.get("letterbox_pad"),
             num_bins=runtime_metadata.get("num_bins"),
             bin_width_deg=runtime_metadata.get("bin_width_deg"),
             offset_deg=runtime_metadata.get("offset_deg"),

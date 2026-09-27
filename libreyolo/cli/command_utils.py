@@ -26,6 +26,38 @@ def exit_with_error(
     raise typer.Exit(code=err.exit_code)
 
 
+# Inclusive (low, high) bounds; None leaves that side open.
+_VALUE_RANGES: dict[str, tuple[Optional[float], Optional[float]]] = {
+    "conf": (0.0, 1.0),
+    "iou": (0.0, 1.0),
+    "max_det": (1, None),
+    "batch": (1, None),
+    "epochs": (1, None),
+}
+
+
+def exit_if_out_of_range(
+    out: OutputHandler, *, autobatch: bool = False, **values: Any
+) -> None:
+    """Reject option values outside their valid range with config_range_error.
+
+    ``autobatch`` also accepts ``batch=-1`` (train's AutoBatch request).
+    """
+    for name, value in values.items():
+        if value is None or (autobatch and name == "batch" and value == -1):
+            continue
+        low, high = _VALUE_RANGES[name]
+        if (low is not None and not value >= low) or (
+            high is not None and not value <= high
+        ):
+            bound = f">= {low}" if high is None else f"in [{low}, {high}]"
+            if autobatch and name == "batch":
+                bound += ", or -1 for AutoBatch"
+            exit_with_error(
+                out, "config_range_error", f"{name} must be {bound}, got {value}"
+            )
+
+
 def load_model_or_exit(
     out: OutputHandler,
     *,
@@ -41,11 +73,34 @@ def load_model_or_exit(
     try:
         return LibreYOLO(model_path, device=device, task=task)
     except Exception as exc:
+        missing = _missing_accelerator(device)
+        if missing is not None:
+            exit_with_error(
+                out,
+                "device_not_available",
+                f"device={device} was requested but {missing} is not available "
+                "on this machine.",
+                suggestion="Use device=cpu, or device=auto to pick the best "
+                "available device.",
+            )
         exit_with_error(
             out,
             "model_load_failed",
             f"Failed to load model '{model}': {exc}",
         )
+
+
+def _missing_accelerator(device: Any) -> Optional[str]:
+    """Name the accelerator ``device`` asks for when this machine lacks it."""
+    import torch
+
+    name = str(device).strip().lower()
+    if name.startswith("cuda") or name.replace(",", "").isdigit():
+        return None if torch.cuda.is_available() else "CUDA"
+    if name.startswith("mps"):
+        mps = getattr(torch.backends, "mps", None)
+        return None if mps is not None and mps.is_available() else "MPS"
+    return None
 
 
 def get_loaded_model_family(loaded_model: Any) -> Optional[str]:
@@ -164,6 +219,13 @@ def resolve_model_or_exit(out: OutputHandler, model: str) -> str:
     )
 
 
+def is_device_op_error(exc: BaseException | str) -> bool:
+    """True for torch's "operator ... not implemented for the <X> device"."""
+    return isinstance(exc, NotImplementedError) and (
+        "not currently implemented for the" in str(exc)
+    )
+
+
 def exit_stage_error(
     out: OutputHandler,
     *,
@@ -173,10 +235,70 @@ def exit_stage_error(
     suggestion: Optional[str] = None,
 ) -> NoReturn:
     """Emit a stage-specific runtime error and terminate the command."""
+    if is_device_op_error(detail):
+        code = "device_not_available"
+        suggestion = suggestion or "Run on another device, for example device=cpu."
     exit_with_error(
         out,
         code,
         f"{stage} failed: {detail}",
+        suggestion=suggestion,
+    )
+
+
+def model_call_error_code(exc: BaseException) -> str:
+    """CLI error code for an exception raised inside a model call.
+
+    Argument and configuration errors are usage errors (exit 2), not I/O
+    failures: ``ValueError`` is a bad value, ``TypeError`` a bad or unknown
+    argument, ``NotImplementedError`` a configuration the model does not
+    support.
+    """
+    message = str(exc)
+    if is_device_op_error(exc):
+        return "device_not_available"
+    if "CUDA out of memory" in message or type(exc).__name__ == "OutOfMemoryError":
+        return "cuda_oom"
+    if isinstance(exc, NotImplementedError):
+        return "config_unsupported"
+    if isinstance(exc, TypeError):
+        if "unexpected keyword argument" in message or message.startswith(
+            "Unsupported"
+        ):
+            return "config_unknown_key"
+        return "config_type_error"
+    if isinstance(exc, ValueError):
+        return "config_type_error"
+    return "io_error"
+
+
+# What torch raises when an input size does not tile a model's feature maps.
+_IMGSZ_SHAPE_ERRORS = ("Sizes of tensors must match", "must match the size of tensor")
+
+
+def is_imgsz_error(exc: BaseException) -> bool:
+    """Whether a model call failed because it cannot run at the requested imgsz."""
+    message = str(exc)
+    if isinstance(exc, ValueError):
+        return "imgsz" in message
+    return isinstance(exc, RuntimeError) and any(
+        marker in message for marker in _IMGSZ_SHAPE_ERRORS
+    )
+
+
+def exit_imgsz_error(out: OutputHandler, exc: BaseException) -> NoReturn:
+    """Report an imgsz the model cannot take as a usage error."""
+    if "exported with a fixed" in str(exc):
+        suggestion = "Use the exported imgsz, or re-export at the size you need."
+    else:
+        suggestion = (
+            "Use a multiple of the model stride (e.g. 320 or 640), "
+            "or omit imgsz for the model's native size."
+        )
+    exit_with_error(
+        out,
+        "invalid_imgsz",
+        f"The model cannot run at this imgsz: {exc}",
         suggestion=suggestion,
     )
 

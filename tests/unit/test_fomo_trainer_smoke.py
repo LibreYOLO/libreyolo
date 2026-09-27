@@ -68,6 +68,7 @@ class TestLibreFOMOTrainerSmoke:
     def test_train_resume_calls_trainer_resume(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
         model = _make_random_fomo(size="s", nc=1)
         dummy_ckpt = tmp_path / "last.pt"
+        torch.save({"epoch": 0, "config": {"epochs": 3}}, dummy_ckpt)
         model.model_path = dummy_ckpt
 
         setup_called = False

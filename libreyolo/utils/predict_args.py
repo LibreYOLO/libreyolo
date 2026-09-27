@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import warnings
+from numbers import Integral
 
 
 NOOP_PREDICT_KWARGS = {
@@ -30,6 +31,31 @@ ACCEPTED_PREDICT_KWARGS = {
     "stream_buffer",
     "vid_stride",
 }
+
+
+# predict()'s default max_det, and the candidate budget every family's
+# postprocess supports.
+DEFAULT_MAX_DET = 300
+
+
+def postprocess_max_det(max_det: int, classes) -> int:
+    """Return the ``max_det`` to pass to a postprocess that runs before the
+    ``classes`` filter.
+
+    Postprocess keeps the top ``max_det`` detections over every class, so with
+    a class filter a small ``max_det`` could keep only other classes. Keep at
+    least the default budget there and cut to ``max_det`` after filtering.
+    """
+    if classes is None:
+        return max_det
+    return max(int(max_det), DEFAULT_MAX_DET)
+
+
+def normalize_classes(classes):
+    """Accept a single class id (``classes=0``) as a one-element list."""
+    if isinstance(classes, Integral) and not isinstance(classes, bool):
+        return [int(classes)]
+    return classes
 
 
 def normalize_predict_kwargs(kwargs: dict, passthrough: set[str] | None = None) -> dict:

@@ -96,6 +96,7 @@ class TrainCompiler:
         self.cuda_graph = cuda_graph
         self.accum_steps = accum_steps
         self.spec = None
+        self.dynamic = None
         self.disabled = False
         self.cudagraphs = False
         self._compiled = None
@@ -116,6 +117,7 @@ class TrainCompiler:
             )
             return
         dynamic = trainer.compile_dynamic()
+        self.dynamic = dynamic
         options, self.cudagraphs = _inductor_options(
             self.mode,
             cuda_graph=self.cuda_graph,
@@ -160,7 +162,15 @@ class TrainCompiler:
         except torch._dynamo.exc.TorchDynamoException as exc:
             if snapshot is not None:
                 _restore_state(snapshot)
-            self._disable(f"compilation failed: {type(exc).__name__}: {exc}")
+            reason = f"compilation failed: {type(exc).__name__}: {exc}"
+            if getattr(self, "dynamic", None):
+                # Multi-scale training compiles with dynamic shapes, which some
+                # PyTorch builds cannot lower; static shapes compile there.
+                reason += (
+                    "; dynamic-shape compilation is not supported by this "
+                    "PyTorch build, set multi_scale=False to compile"
+                )
+            self._disable(reason)
             return None
         self._seen.add(key)
         return flat

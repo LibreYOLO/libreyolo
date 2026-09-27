@@ -22,6 +22,7 @@ from urllib.parse import urlsplit, urlunsplit
 
 import numpy as np
 
+from .image_loader import SUPPORTED_EXTENSIONS as IMAGE_EXTENSIONS
 from .screen import is_screen_source
 from .video import is_video_file
 
@@ -152,6 +153,7 @@ def _is_stream_item(source: Any) -> bool:
         or is_network_stream(source)
         or is_youtube_url(source)
         or is_video_file(source)
+        or _is_probed_video_file(source)
     )
 
 
@@ -175,8 +177,62 @@ def _read_stream_list(path: Path) -> tuple[int | str, ...]:
     return tuple(sources)
 
 
+def _opens_as_video(path: Path) -> bool:
+    """Return whether an existing file of unknown type is a video.
+
+    Files Pillow can decode stay images. Anything else is probed with the
+    same ``cv2.VideoCapture`` that :class:`~libreyolo.utils.video.VideoSource`
+    uses, so camera dumps with uncommon or missing extensions still play.
+    """
+    from PIL import Image
+
+    try:
+        with Image.open(path) as image:
+            image.load()
+        return False
+    except Image.DecompressionBombError:
+        return False
+    except Exception:
+        pass
+    try:
+        import cv2
+    except ImportError:
+        return False
+    # An absolute path keeps a file named e.g. "0" from reaching a camera.
+    capture = cv2.VideoCapture(str(path.absolute()))
+    try:
+        return bool(capture.isOpened())
+    finally:
+        capture.release()
+
+
+def _is_probed_video_file(source: Any) -> bool:
+    """An existing file without an image extension that opens as a video."""
+    if not isinstance(source, (str, Path)):
+        return False
+    if Path(source).suffix.lower() in IMAGE_EXTENSIONS:
+        return False
+    existing = _existing_path(source)
+    return existing is not None and existing.is_file() and _opens_as_video(existing)
+
+
+def _is_batched_array(source: Any) -> bool:
+    """A 4-D NumPy array or tensor is a batch of images (NCHW or NHWC)."""
+    if isinstance(source, np.ndarray):
+        return source.ndim == 4
+    # Checked through sys.modules so torch-free deployments never import it;
+    # a tensor cannot exist unless torch is already loaded.
+    torch = sys.modules.get("torch")
+    return torch is not None and isinstance(source, torch.Tensor) and source.dim() == 4
+
+
 def classify_source(source: Any) -> SourceSpec:
-    """Classify one public prediction source without opening it."""
+    """Classify one public prediction source.
+
+    Only existing files whose extension is neither a known image nor a known
+    video format are opened, to tell images from videos. List items are
+    classified the same way. Directories collect images only.
+    """
     if is_screen_source(source):
         return SourceSpec(SourceKind.SCREEN, source)
 
@@ -200,6 +256,9 @@ def classify_source(source: Any) -> SourceSpec:
             )
         return SourceSpec(SourceKind.IMAGE_BATCH, source, items)
 
+    if _is_batched_array(source):
+        return SourceSpec(SourceKind.IMAGE_BATCH, source, tuple(source))
+
     # BytesIO is both a supported atomic ImageInput and an iterator over bytes.
     # Keep it on the single-image path before recognizing lazy frame iterators.
     if isinstance(source, io.BytesIO):
@@ -221,6 +280,8 @@ def classify_source(source: Any) -> SourceSpec:
         existing = _existing_path(source)
         if existing is not None and existing.is_dir():
             return SourceSpec(SourceKind.DIRECTORY, source)
+        if _is_probed_video_file(source):
+            return SourceSpec(SourceKind.VIDEO, source)
 
     return SourceSpec(SourceKind.IMAGE, source)
 
@@ -588,8 +649,9 @@ class ImageSequenceSource:
             timing (a tracker's lost-track buffer, or the fps written into
             a saved output video).
         save_name: Base name used to derive an output path when saving.
-        color_format: Color format hint passed to ``ImageLoader`` for NumPy
-            frames: ``"auto"``, ``"rgb"``, or ``"bgr"``.
+        color_format: Channel order of NumPy frames, passed to
+            ``ImageLoader``: ``"auto"`` (default) and ``"bgr"`` read them as
+            BGR (OpenCV), ``"rgb"`` as RGB.
 
     Note:
         Can only be iterated once, like :class:`~libreyolo.utils.video.VideoSource`.

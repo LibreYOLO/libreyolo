@@ -34,29 +34,24 @@ HUB_CHECKPOINT_FILENAME = "model.pt"
 
 _REPO_SEGMENT_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 
-# A bare ``owner/name`` string whose last segment ends in a local artifact
-# extension keeps its historical meaning: a (possibly missing) local path that
-# the legacy auto-download flow may create. Only extension-less names can be
-# claimed as Hub repo ids without changing existing behavior.
-_LOCAL_ARTIFACT_SUFFIXES = (
-    ".pt",
-    ".pth",
-    ".safetensors",
-    ".onnx",
-    ".torchscript",
-    ".pte",
-    ".tflite",
-    ".mnn",
-    ".engine",
-    ".tensorrt",
-    ".mlpackage",
-    ".xml",
-    ".bin",
-    ".param",
-    ".yaml",
-    ".yml",
-    ".json",
-)
+# A bare ``owner/name`` string whose last segment has a file extension keeps
+# its historical meaning: a (possibly missing) local path that the legacy
+# auto-download flow may create (``weights/model.pt``, ``ckpts/best.pth.tar``,
+# ``cfg/yolov4.weights``). A dot followed by a digit is a version
+# (``owner/model-v1.5``), not an extension, so such repo ids stay on the Hub.
+_FILE_EXTENSION_RE = re.compile(r"\.[A-Za-z][A-Za-z0-9]*$")
+
+# Names the factory routes by name and auto-downloads itself, with or without
+# an extension (``models/librefacerec-l``).
+_LOCAL_NAME_PREFIXES = ("librefacerec-",)
+
+
+def _names_local_artifact(model_path: str) -> bool:
+    name = model_path.rsplit("/", 1)[-1].lower()
+    return bool(_FILE_EXTENSION_RE.search(name)) or name.startswith(
+        _LOCAL_NAME_PREFIXES
+    )
+
 
 # File types inside a Hub repo that LibreYOLO(...) can load directly.
 _WEIGHT_CANDIDATE_SUFFIXES = (".pt", ".safetensors")
@@ -116,8 +111,8 @@ def parse_hub_reference(model_path: str) -> HubRef | None:
     - ``hf://owner/repo`` (optionally ``@revision``, optionally a trailing
       ``/path/to/file`` inside the repo)
     - bare ``owner/repo`` when it cannot be a local path: exactly one forward
-      slash, valid Hub characters, no local artifact extension, and nothing
-      with that name on disk.
+      slash, valid Hub characters, no file extension, not a LibreYOLO
+      auto-download name, and nothing with that name on disk.
     """
     if not isinstance(model_path, str) or not model_path:
         return None
@@ -155,7 +150,7 @@ def parse_hub_reference(model_path: str) -> HubRef | None:
         return None
     if model_path.startswith((".", "~", "/")) or ":" in model_path:
         return None
-    if model_path.lower().endswith(_LOCAL_ARTIFACT_SUFFIXES):
+    if _names_local_artifact(model_path):
         return None
     if not _is_valid_repo_id(model_path):
         return None
@@ -175,7 +170,7 @@ def looks_like_repo_id(model_path: str) -> bool:
         and model_path.count("/") == 1
         and "\\" not in model_path
         and ":" not in model_path
-        and not model_path.lower().endswith(_LOCAL_ARTIFACT_SUFFIXES)
+        and not _names_local_artifact(model_path)
         and _is_valid_repo_id(model_path)
     )
 

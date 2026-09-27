@@ -152,7 +152,14 @@ class OBBValidator(BaseValidator):
                 img_files = data_cfg.get(f"{split}_img_files")
                 label_files = data_cfg.get(f"{split}_label_files")
             if dataset is None and img_files is None:
-                split_path = Path(data_cfg.get(split, Path(data_cfg["path"]) / "images" / split))
+                split_value = data_cfg.get(split, Path(data_cfg["path"]) / "images" / split)
+                if not split_value:
+                    raise FileNotFoundError(
+                        f"Dataset yaml has no {split!r} split: its {split!r} entry "
+                        "is empty. Point it at the images, or validate another "
+                        "split (e.g. split='val')."
+                    )
+                split_path = Path(split_value)
                 img_files = get_img_files(split_path)
                 label_files = img2label_paths(img_files)
         elif self.config.data_dir:

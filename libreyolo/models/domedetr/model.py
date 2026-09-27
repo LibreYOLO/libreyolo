@@ -69,6 +69,7 @@ class LibreDOMEDETR(BaseModel):
     DEFAULT_TASK = "detect"
     TASK_INPUT_SIZES = {"detect": INPUT_SIZES}
     TRAIN_CONFIG = DOMEDETRConfig
+    RESUME_RESTORES_TRAIN_ARGS = True
     WEIGHT_VARIANTS = ("aitod", "visdrone")
     val_preprocessor_class = DOMEDETRValPreprocessor
     TTA_FIXED_SIZE = True  # fixed square resize; multi-scale TTA is a no-op
@@ -364,14 +365,8 @@ class LibreDOMEDETR(BaseModel):
         )
 
         if resume:
-            if not self.model_path:
-                raise ValueError(
-                    "resume=True requires a checkpoint. Load one first: "
-                    "model = LibreYOLO('LibreDOMEDETRs-visdrone.pt'); "
-                    "model.train(data=..., resume=True)"
-                )
             trainer.setup()
-            trainer.resume(str(self.model_path))
+            trainer.resume(self._resume_checkpoint(resume))
             return trainer.train()
 
         return trainer.train()

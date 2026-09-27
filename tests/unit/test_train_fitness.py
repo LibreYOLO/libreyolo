@@ -263,6 +263,7 @@ def test_custom_resume_rejected_before_loading_weights_and_default_resume_works(
     default_result = default.train()
     with pytest.raises(ValueError, match="Custom fitness does not support resume"):
         original.resume(default_result["last_checkpoint"])
+    resumed.config.epochs = 6  # a finished run has nothing to resume
     resumed.resume(default_result["last_checkpoint"])
     assert resumed.start_epoch == 5
     assert resumed.best_epoch == 5
@@ -443,3 +444,50 @@ def test_distributed_fitness_rank_zero_stop_and_failure(tmp_path, failure):
         assert [r["epochs"] for r in ranks] == [4, 4]
         assert [r["calls"] for r in ranks] == [4, 0]
         assert load_checkpoint(tmp_path / "run/weights/best.pt")["best_epoch"] == 2
+
+
+def _final_save_worker(rank, init_file, root):
+    import time
+
+    torch.set_num_threads(1)
+    dist.init_process_group(
+        "gloo", init_method=f"file://{init_file}", rank=rank, world_size=2
+    )
+    try:
+        trainer = make_trainer(Path(root) / "run")
+        marker = Path(root, "final_writes_done")
+        if rank == 0:
+            original = trainer._write_average_checkpoint
+
+            def slow_final_writes():
+                out = original()
+                time.sleep(2.0)
+                marker.write_text("done")
+                return out
+
+            trainer._write_average_checkpoint = slow_final_writes
+        trainer.train()
+        # Every rank reloads the final checkpoints right after train() returns
+        # (``_restore_after_training``), so rank 0's final writes must be done.
+        Path(root, f"rank{rank}.json").write_text(
+            json.dumps({"final_writes_seen": marker.exists()})
+        )
+    finally:
+        dist.destroy_process_group()
+
+
+@pytest.mark.distributed
+@pytest.mark.timeout(90)
+@pytest.mark.skipif(
+    not dist.is_available() or not dist.is_gloo_available(), reason="requires Gloo"
+)
+def test_distributed_ranks_wait_for_final_checkpoint_writes(tmp_path):
+    mp.spawn(
+        _final_save_worker,
+        args=(str(tmp_path / "init"), str(tmp_path)),
+        nprocs=2,
+        join=True,
+    )
+    for rank in range(2):
+        outcome = json.loads((tmp_path / f"rank{rank}.json").read_text())
+        assert outcome == {"final_writes_seen": True}

@@ -44,7 +44,8 @@ pip install "libreyolo[vlm-train]"
   transform re-renders the target text. Mosaic-style compositing does not
   apply to generative targets.
 - `resume=` continues from a prior adapter checkpoint (weights only; the
-  optimizer state starts fresh, and the log says so).
+  optimizer state starts fresh, and the log says so). `resume=True` on a
+  model loaded from `<run>/weights/last` continues and writes into that run.
 - `callbacks=` and `loggers=` are the standard training layers; TensorBoard,
   MLflow, and W&B loggers work unchanged.
 

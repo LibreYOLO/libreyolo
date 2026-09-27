@@ -289,12 +289,10 @@ class SetCriterion(nn.Module):
             src_boxes = outputs["pred_boxes"][idx]
             target_boxes = torch.cat([t["boxes"][i] for t, (_, i) in zip(targets, indices)], dim=0)
 
-            iou_targets = torch.diag(
-                box_ops.box_iou(
-                    box_ops.box_cxcywh_to_xyxy(src_boxes.detach()),
-                    box_ops.box_cxcywh_to_xyxy(target_boxes),
-                )[0]
-            )
+            iou_targets = box_ops.paired_box_iou(
+                box_ops.box_cxcywh_to_xyxy(src_boxes.detach()),
+                box_ops.box_cxcywh_to_xyxy(target_boxes),
+            )[0]
             pos_ious = iou_targets.clone().detach()
             prob = src_logits.sigmoid()
             # init positive weights and negative weights
@@ -318,12 +316,10 @@ class SetCriterion(nn.Module):
             src_boxes = outputs["pred_boxes"][idx]
             target_boxes = torch.cat([t["boxes"][i] for t, (_, i) in zip(targets, indices)], dim=0)
 
-            iou_targets = torch.diag(
-                box_ops.box_iou(
-                    box_ops.box_cxcywh_to_xyxy(src_boxes.detach()),
-                    box_ops.box_cxcywh_to_xyxy(target_boxes),
-                )[0]
-            )
+            iou_targets = box_ops.paired_box_iou(
+                box_ops.box_cxcywh_to_xyxy(src_boxes.detach()),
+                box_ops.box_cxcywh_to_xyxy(target_boxes),
+            )[0]
             pos_ious = iou_targets.clone().detach()
             # pos_ious_func = pos_ious ** 2
             pos_ious_func = pos_ious
@@ -356,12 +352,10 @@ class SetCriterion(nn.Module):
             src_boxes = outputs["pred_boxes"][idx]
             target_boxes = torch.cat([t["boxes"][i] for t, (_, i) in zip(targets, indices)], dim=0)
 
-            iou_targets = torch.diag(
-                box_ops.box_iou(
-                    box_ops.box_cxcywh_to_xyxy(src_boxes.detach()),
-                    box_ops.box_cxcywh_to_xyxy(target_boxes),
-                )[0]
-            )
+            iou_targets = box_ops.paired_box_iou(
+                box_ops.box_cxcywh_to_xyxy(src_boxes.detach()),
+                box_ops.box_cxcywh_to_xyxy(target_boxes),
+            )[0]
             pos_ious = iou_targets.clone().detach()
 
             cls_iou_targets = torch.zeros(
@@ -447,11 +441,9 @@ class SetCriterion(nn.Module):
         losses = {}
         losses["loss_bbox"] = loss_bbox.sum() / num_boxes
 
-        loss_giou = 1 - torch.diag(
-            box_ops.generalized_box_iou(
-                box_ops.box_cxcywh_to_xyxy(src_boxes),
-                box_ops.box_cxcywh_to_xyxy(target_boxes),
-            )
+        loss_giou = 1 - box_ops.paired_generalized_box_iou(
+            box_ops.box_cxcywh_to_xyxy(src_boxes),
+            box_ops.box_cxcywh_to_xyxy(target_boxes),
         )
         losses["loss_giou"] = loss_giou.sum() / num_boxes
         return losses

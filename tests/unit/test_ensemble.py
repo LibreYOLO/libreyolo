@@ -224,6 +224,8 @@ class TestPredict:
         b = StubMember(COCOISH)
         result = LibreEnsemble([a, b])(image, classes=[1])
         assert result.boxes.cls.tolist() == [1.0]
+        result = LibreEnsemble([a, b])(image, classes=1)
+        assert result.boxes.cls.tolist() == [1.0]
 
     def test_min_votes_consensus(self, image):
         a = StubMember(

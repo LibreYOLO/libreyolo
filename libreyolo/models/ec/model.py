@@ -27,6 +27,7 @@ class LibreEC(BaseModel):
     """LibreYOLO wrapper for EdgeCrafter EC / ECPose / ECSeg."""
 
     FAMILY = "ec"
+    RESUME_RESTORES_TRAIN_ARGS = True
     FILENAME_PREFIX = "LibreEC"
     INPUT_SIZES = {"s": 640, "m": 640, "l": 640, "x": 640}
     POSE_INPUT_SIZES = {"s": 640, "m": 640, "l": 640, "x": 640}
@@ -429,10 +430,8 @@ class LibreEC(BaseModel):
         )
 
         if resume:
-            if not self.model_path:
-                raise ValueError("resume=True requires a checkpoint. Load one first.")
             trainer.setup()
-            trainer.resume(str(self.model_path))
+            trainer.resume(self._resume_checkpoint(resume))
             return trainer.train()
 
         results = trainer.train()
@@ -582,10 +581,8 @@ class LibreEC(BaseModel):
         )
 
         if resume:
-            if not self.model_path:
-                raise ValueError("resume=True requires a checkpoint. Load one first.")
             trainer.setup()
-            trainer.resume(str(self.model_path))
+            trainer.resume(self._resume_checkpoint(resume))
             return trainer.train()
 
         results = trainer.train()

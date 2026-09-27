@@ -654,6 +654,8 @@ LibreRFDETRn-obb.pt        # obb
 LibreRFDETRm-ui.pt         # detect; UI element variant (UI-DETR-1, 1 class)
 
 # dinov2 — DINOv2 backbone + task head (NOT the RF-DETR detector)
+# No trained heads are published: build LibreDINOv2(size=...) from the
+# pretrained backbone and train; these names are for your own checkpoints.
 LibreDINOv2n.pt            # semantic (default task; dense head at 518)
 LibreDINOv2n-cls.pt        # classify (linear probe at 224)
 # Either artifact may be loaded with task="embed"; the head is bypassed and
@@ -726,7 +728,7 @@ LibreECs-seg.pt         # segment
 LibreDepthAnythingV2s-depth.pt   # ViT-S (Apache-2.0 weights)
 LibreDepthAnythingV2b-depth.pt   # ViT-B (CC-BY-NC-4.0 weights)
 LibreDepthAnythingV2l-depth.pt   # ViT-L (CC-BY-NC-4.0 weights)
-LibreDepthAnythingV2g-depth.pt   # ViT-G (CC-BY-NC-4.0 weights)
+LibreDepthAnythingV2g-depth.pt   # ViT-G (local checkpoints only; not released upstream)
 
 # depth_anything3 — Depth Anything 3 mono (recommended depth quality default)
 LibreDepthAnything3l-depth.pt    # DA3MONO-LARGE ViT-L (Apache-2.0 weights)

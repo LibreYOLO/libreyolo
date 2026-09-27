@@ -451,3 +451,59 @@ def test_trainer_explicit_batch_skips_resolve():
 
     assert calls == [], "resolve_auto_batch must not be called for explicit batch"
     assert trainer.config.batch == 8
+
+
+def test_autobatch_backpropagates_the_training_step_at_the_probe_size():
+    """``step`` replaces the forward-only probe and sees the requested canvas."""
+    model = nn.Linear(4, 2)
+    shapes, backward_calls = [], []
+    model.weight.register_hook(lambda grad: backward_calls.append(1))
+
+    def step(x):
+        shapes.append(tuple(x.shape))
+        return (model.weight * 2.0).sum() + x.mean()
+
+    def mem_fn(b):
+        return int((0.5 + 0.25 * b) * 1024**3)
+
+    with _make_cuda_patches(mem_fn, total_gib=24.0, model=model):
+        result = autobatch(
+            model, imgsz=544, amp=False, fraction=0.45, max_probe=16, step=step
+        )
+
+    assert shapes == [(b, 3, 544, 544) for b in (1, 2, 4, 8, 16)]
+    assert len(backward_calls) == 5
+    assert result == _floor_pow2_strict((24.0 * 0.45 - 0.5) / 0.25)
+
+
+def test_resolve_forwards_the_probe_step():
+    def step(x):
+        return x.sum()
+
+    with patch("libreyolo.training.autobatch.autobatch", return_value=4) as probe:
+        resolve_auto_batch(nn.Linear(4, 2), imgsz=544, amp=False, step=step)
+
+    assert probe.call_args.kwargs["step"] is step
+    assert probe.call_args.kwargs["imgsz"] == 544
+
+
+@_requires_trainer
+def test_trainer_probes_with_the_family_autobatch_probe():
+    """setup() takes the probe canvas and loss step from ``autobatch_probe``."""
+    trainer = _make_minimal_trainer(batch=-1)
+
+    def step(x):
+        return x.sum()
+
+    trainer.autobatch_probe = lambda: {"imgsz": 544, "step": step}
+    seen = {}
+
+    def _fake_resolve(m, imgsz, amp, world_size, **kw):
+        seen.update(imgsz=imgsz, step=kw.get("step"))
+        return 8
+
+    with patch("libreyolo.training.autobatch.resolve_auto_batch", side_effect=_fake_resolve):
+        trainer.setup()
+
+    assert seen == {"imgsz": 544, "step": step}
+    assert trainer.config.batch == 8

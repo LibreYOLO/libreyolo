@@ -18,6 +18,7 @@ import numpy as np
 import torch
 from PIL import Image
 
+from ..preprocess.letterbox import apply_letterbox_hwc, letterbox_geometry
 from ..tasks import normalize_supported_tasks, normalize_task, resolve_task
 from ..utils.general import COCO_CLASSES
 from ..utils.image_loader import ImageLoader
@@ -105,6 +106,7 @@ class CoreMLBackend(BaseBackend):
         )
         spec = self.model.get_spec()
         self.output_names = [out.name for out in spec.description.output]
+        self._fixed_input_hw = self._read_fixed_input_hw(spec)
 
         meta = (
             dict(self.model.user_defined_metadata)
@@ -151,8 +153,21 @@ class CoreMLBackend(BaseBackend):
             task=resolved_task,
             supported_tasks=supported_tasks,
             default_task=default_task,
+            letterbox_pad=meta.get("letterbox_pad"),
             **pose_metadata,
         )
+
+    @staticmethod
+    def _read_fixed_input_hw(spec) -> tuple[int, int] | None:
+        """(H, W) of the fixed ImageType input; None for flexible sizes."""
+        try:
+            image_type = spec.description.input[0].type.imageType
+            if image_type.WhichOneof("SizeFlexibility") is not None:
+                return None
+            h, w = int(image_type.height), int(image_type.width)
+        except (AttributeError, IndexError, TypeError, ValueError):
+            return None
+        return (h, w) if h > 0 and w > 0 else None
 
     @staticmethod
     def _parse_metadata(
@@ -282,8 +297,18 @@ class CoreMLBackend(BaseBackend):
             padded = Image.new("RGB", (input_w, input_h), (114, 114, 114))
             padded.paste(resized, (0, 0))
             chw = np.array(padded).transpose(2, 0, 1).astype(np.float32)
+        elif family == "yolo9":
+            # Same letterbox as the .pt (pad placement from export metadata).
+            padded, ratio, _dx, _dy = apply_letterbox_hwc(
+                np.array(img),
+                input_h,
+                input_w,
+                pad=getattr(self, "letterbox_pad", None),
+                fill=114,
+            )
+            chw = padded.transpose(2, 0, 1).astype(np.float32)
         else:
-            # yolo9, rtdetr, rfdetr: plain resize to the exported input.
+            # rtdetr, rfdetr: plain resize to the exported input.
             ratio = 1.0
             resized = img.resize((input_w, input_h), Image.Resampling.BILINEAR)
             chw = np.array(resized).transpose(2, 0, 1).astype(np.float32)
@@ -343,6 +368,14 @@ class CoreMLBackend(BaseBackend):
         elif family == "rtdetr":
             boxes[:, [0, 2]] *= orig_w
             boxes[:, [1, 3]] *= orig_h
+        elif family == "yolo9":
+            input_h, input_w = _imgsz_hw(effective_imgsz)
+            ratio, _, _, dx, dy = letterbox_geometry(
+                orig_h, orig_w, input_h, input_w, getattr(self, "letterbox_pad", None)
+            )
+            boxes[:, [0, 2]] -= dx
+            boxes[:, [1, 3]] -= dy
+            boxes /= ratio
         else:
             input_h, input_w = _imgsz_hw(effective_imgsz)
             scale_x = orig_w / input_w
@@ -365,6 +398,7 @@ class CoreMLBackend(BaseBackend):
             raise ValueError(
                 f"CoreMLBackend expects (1, C, H, W) blob; got {blob.shape}"
             )
+        self._check_fixed_input_size(blob, "CoreML")
 
         hwc = np.transpose(blob[0], (1, 2, 0))
         uint8 = np.ascontiguousarray(np.clip(hwc, 0, 255).astype(np.uint8))

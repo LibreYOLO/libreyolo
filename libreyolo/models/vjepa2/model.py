@@ -86,6 +86,15 @@ class LibreVJEPA2(BaseModel):
     # is not canonical and must not resolve.
     REQUIRE_TASK_SUFFIX: ClassVar[bool] = True
     WEIGHT_VARIANTS: ClassVar[Tuple[str, ...]] = ("ssv2", "diving48")
+    # Published probes always carry a dataset variant.
+    UNPUBLISHED_WEIGHTS: ClassVar[Dict[str, str]] = {
+        f"LibreVJEPA2{size}-cls": (
+            "Published V-JEPA 2 probes carry a dataset suffix: "
+            + ", ".join(f"LibreVJEPA2{s}-cls-{v}.pt" for s, v in sorted(PROBE_FRAMES))
+            + "."
+        )
+        for size in ("l256", "h256", "g256", "g384")
+    }
 
     # Self-supervised pretraining is out of scope; the probe trainer is wired
     # separately in trainer.py.

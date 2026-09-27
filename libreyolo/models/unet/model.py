@@ -99,6 +99,7 @@ class LibreUNet(BaseModel):
         size: config["imgsz"] for size, config in SIZE_CONFIGS.items()
     }
     TRAIN_CONFIG: ClassVar[type[UNetConfig]] = UNetConfig
+    RESUME_RESTORES_TRAIN_ARGS: ClassVar[bool] = True
 
     # Training samples the mmseg Cityscapes recipe: rescale the source frame by
     # a factor in ``rescale_range``, then random-crop ``train_crop`` with
@@ -449,11 +450,6 @@ class LibreUNet(BaseModel):
         """Train U-Net with the mmseg Cityscapes-style CE + auxiliary recipe."""
         from .trainer import UNetTrainer
 
-        if resume and not self.model_path:
-            raise ValueError(
-                "resume=True requires a checkpoint; load last.pt before training."
-            )
-
         train_imgsz = imgsz if imgsz is not None else self.semantic_train_imgsz
         train_h, train_w = _input_size_hw(train_imgsz)
         if train_h % STRIDE or train_w % STRIDE:
@@ -491,7 +487,7 @@ class LibreUNet(BaseModel):
         )
         if resume:
             trainer.setup()
-            trainer.resume(str(self.model_path))
+            trainer.resume(self._resume_checkpoint(resume))
         result = trainer.train()
         self._restore_after_training(result)
         return result

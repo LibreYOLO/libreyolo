@@ -12,6 +12,7 @@ from .base import (
     classify_eval_kwargs,
     BaseBackend,
     ImageSize,
+    _imgsz_hw,
     _read_metadata_imgsz,
     _read_pose_metadata,
     _read_runtime_metadata,
@@ -121,6 +122,9 @@ class OpenVINOBackend(BaseBackend):
         self.embedded_nms_raw_output_index = self._find_output_index("raw")
 
         static_imgsz = self._read_static_input_imgsz(ov_model)
+        self._fixed_input_hw = (
+            _imgsz_hw(static_imgsz) if static_imgsz is not None else None
+        )
         if static_imgsz is not None:
             imgsz = static_imgsz
 
@@ -136,6 +140,7 @@ class OpenVINOBackend(BaseBackend):
             supported_tasks=supported_tasks,
             default_task=default_task,
             **classify_eval_kwargs(runtime_metadata),
+            letterbox_pad=runtime_metadata.get("letterbox_pad"),
             num_bins=runtime_metadata.get("num_bins"),
             bin_width_deg=runtime_metadata.get("bin_width_deg"),
             offset_deg=runtime_metadata.get("offset_deg"),
@@ -256,5 +261,6 @@ class OpenVINOBackend(BaseBackend):
 
     def _run_inference(self, blob: np.ndarray) -> list:
         """Run OpenVINO inference."""
+        self._check_fixed_input_size(blob, "OpenVINO")
         result = self.compiled_model(blob)
         return [result[output] for output in self.compiled_model.outputs]

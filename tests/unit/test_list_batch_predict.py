@@ -80,6 +80,94 @@ def test_runner_accepts_list_of_in_memory_images():
     assert all(len(r) == 1 for r in results)
 
 
+def test_runner_reads_numpy_input_as_bgr_by_default():
+    """cv2.imread() frames are BGR; predict must not read them as RGB."""
+    seen = []
+
+    class _Recorder(_StubModel):
+        def _preprocess(self, image, color_format="auto", input_size=None):
+            out = super()._preprocess(image, color_format, input_size)
+            seen.append(np.array(out[1]))
+            return out
+
+    runner = InferenceRunner(_Recorder())
+    frame_bgr = np.zeros((8, 8, 3), dtype=np.uint8)
+    frame_bgr[..., 2] = 255  # red in BGR
+
+    result = runner(frame_bgr)
+    runner(frame_bgr[..., ::-1].copy(), color_format="rgb")
+
+    assert seen[0][0, 0].tolist() == [255, 0, 0]
+    assert seen[1][0, 0].tolist() == [255, 0, 0]
+    assert result.orig_img[0, 0].tolist() == [0, 0, 255]
+
+
+@pytest.mark.parametrize("batch", [1, 2])
+@pytest.mark.parametrize(
+    "source",
+    [
+        torch.rand(3, 3, 16, 16),
+        np.zeros((3, 16, 16, 3), dtype=np.uint8),
+    ],
+    ids=["nchw_tensor", "nhwc_array"],
+)
+def test_runner_splits_batched_array_into_one_result_per_image(source, batch):
+    results = InferenceRunner(_StubModel())(source, batch=batch)
+
+    assert isinstance(results, list)
+    assert len(results) == 3
+    assert all(r.orig_shape == (16, 16) for r in results)
+
+
+def test_runner_batch_of_one_still_returns_a_list():
+    results = InferenceRunner(_StubModel())(torch.rand(1, 3, 16, 16))
+
+    assert isinstance(results, list)
+    assert len(results) == 1
+
+
+def test_runner_accepts_a_single_int_class_filter():
+    runner = InferenceRunner(_StubModel())
+    image = np.zeros((8, 8, 3), dtype=np.uint8)
+
+    assert len(runner(image, classes=0)) == 1
+    assert len(runner(image, classes=1)) == 0
+    assert len(runner(image, classes=np.int64(0))) == 1
+
+
+class _RankedStubModel(_StubModel):
+    """Postprocess that keeps its top ``max_det`` over all classes."""
+
+    SUPPORTS_BATCHED_PREDICT = True
+
+    def _postprocess(self, output, conf, iou, original_size, max_det=300, **kwargs):
+        dets = [
+            ([1.0, 1.0, 5.0, 5.0], 0.9, 0),
+            ([6.0, 1.0, 9.0, 5.0], 0.7, 1),
+            ([1.0, 6.0, 5.0, 9.0], 0.6, 1),
+        ][:max_det]
+        return {
+            "boxes": [d[0] for d in dets],
+            "scores": [d[1] for d in dets],
+            "classes": [d[2] for d in dets],
+            "num_detections": len(dets),
+        }
+
+
+@pytest.mark.parametrize("batch", [1, 2])
+def test_runner_filters_classes_before_max_det(batch):
+    runner = InferenceRunner(_RankedStubModel())
+    image = np.zeros((10, 10, 3), dtype=np.uint8)
+
+    (result, _) = runner([image, image], classes=[1], max_det=1, batch=batch)
+    assert result.boxes.cls.tolist() == [1.0]
+    assert result.boxes.conf.tolist() == pytest.approx([0.7])
+
+    result = runner(image, classes=[1], max_det=2)
+    assert result.boxes.conf.tolist() == pytest.approx([0.7, 0.6])
+    assert len(runner(image, max_det=1)) == 1
+
+
 def test_runner_accepts_tuple_and_empty_list():
     runner = InferenceRunner(_StubModel())
 
@@ -98,6 +186,18 @@ def test_runner_list_mixes_paths_and_in_memory_images(tmp_path):
 
     assert results[0].path == str(img_file)
     assert results[1].path is None
+
+
+def test_runner_path_result_exposes_orig_img(tmp_path):
+    img_file = tmp_path / "photo.png"
+    rgb = np.zeros((10, 12, 3), dtype=np.uint8)
+    rgb[..., 0] = 255
+    Image.fromarray(rgb).save(img_file)
+
+    result = InferenceRunner(_StubModel())(str(img_file))
+
+    assert result.orig_img.shape == (10, 12, 3)
+    assert result.orig_img[0, 0].tolist() == [0, 0, 255]  # BGR
 
 
 def test_runner_list_save_uses_indexed_filenames(tmp_path):
@@ -127,6 +227,30 @@ def test_runner_tiling_list_save_uses_indexed_filenames(tmp_path):
     runner(images, tiling=True, save=True, output_path=str(out_dir))
 
     assert sorted(p.name for p in out_dir.iterdir()) == ["image0.jpg", "image1.jpg"]
+
+
+@pytest.mark.parametrize("overlap_ratio", [1.0, 1.5, -0.1, float("nan")])
+def test_runner_tiling_rejects_overlap_ratio_outside_unit_interval(overlap_ratio):
+    # A 16px image skips slicing; the check must not depend on image size.
+    runner = InferenceRunner(_StubModel())
+
+    with pytest.raises(ValueError, match=r"overlap_ratio must be in \[0, 1\)"):
+        runner(
+            np.zeros((16, 16, 3), dtype=np.uint8),
+            tiling=True,
+            overlap_ratio=overlap_ratio,
+        )
+
+
+def test_slice_bboxes_rejects_overlap_that_would_not_advance():
+    from libreyolo.utils.general import get_slice_bboxes
+
+    assert get_slice_bboxes(100, 50, slice_size=64, overlap_ratio=0.0) == [
+        (0, 0, 64, 50),
+        (36, 0, 100, 50),
+    ]
+    with pytest.raises(ValueError, match="overlap_ratio"):
+        get_slice_bboxes(100, 50, slice_size=64, overlap_ratio=-0.1)
 
 
 def test_runner_tiling_list_save_indexes_large_image_dirs(tmp_path):
@@ -289,6 +413,57 @@ def test_backend_call_routes_list_to_process_in_batches():
     assert out == ["r", "r", "r"]
     assert seen["batch"] == 2
     assert len(seen["images"]) == 3
+
+
+def test_backend_call_splits_batched_array():
+    backend = _bare_backend()
+    seen = {}
+
+    def fake_process(images, **kwargs):
+        seen["shapes"] = [image.shape for image in images]
+        return ["r"] * len(images)
+
+    backend._process_in_batches = fake_process
+
+    out = backend(np.zeros((2, 8, 8, 3), dtype=np.uint8))
+
+    assert out == ["r", "r"]
+    assert seen["shapes"] == [(8, 8, 3), (8, 8, 3)]
+
+
+def test_backend_call_accepts_a_single_int_class_filter():
+    backend = _bare_backend()
+    seen = {}
+
+    def fake_single(image, **kwargs):
+        seen["classes"] = kwargs.get("classes")
+        return "r"
+
+    backend._predict_single = fake_single
+
+    backend(np.zeros((8, 8, 3), dtype=np.uint8), classes=0)
+
+    assert seen["classes"] == [0]
+
+
+def test_backend_filters_classes_before_max_det():
+    backend = _bare_backend()
+    backend.names = {0: "a", 1: "b"}
+    backend.task = "detect"
+
+    result = backend._build_result(
+        np.array([[0, 0, 4, 4], [5, 5, 9, 9], [0, 5, 4, 9]], dtype=np.float32),
+        np.array([0.9, 0.7, 0.6], dtype=np.float32),
+        np.array([0, 1, 1]),
+        orig_shape=(10, 10),
+        image_path=None,
+        iou=0.5,
+        classes=[1],
+        max_det=1,
+    )
+
+    assert result.boxes.cls.tolist() == [1.0]
+    assert result.boxes.conf.tolist() == pytest.approx([0.7])
 
 
 def test_backend_streams_list_lazily_in_batch_sized_chunks():

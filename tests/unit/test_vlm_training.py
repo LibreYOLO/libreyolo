@@ -438,3 +438,78 @@ class TestResumePreservesRunDir:
 
         assert trainer.save_dir == tmp_path / "runs" / "vlm_exp2"
         assert trainer.config.exist_ok is False
+
+    def test_resume_true_continues_the_loaded_run(self, tmp_path, monkeypatch):
+        """Runs increment (train, train2); resume=True on a checkpoint loaded
+        from train2 must resume and keep writing train2, never train."""
+        from libreyolo.models.vlm.training.trainer import VLMDetectionTrainer
+
+        monkeypatch.chdir(tmp_path)
+        runs = tmp_path / "runs" / "vlm"
+        for run in ("train", "train2"):
+            last = runs / run / "weights" / "last"
+            last.mkdir(parents=True)
+            (last / CONTRACT_FILENAME).write_text("{}")
+        wrapper = self._fake_wrapper()
+        wrapper._checkpoint_dir = runs / "train2" / "weights" / "last"
+
+        trainer = VLMDetectionTrainer(wrapper, data="data.yaml", resume=True)
+
+        assert trainer.save_dir == runs / "train2"
+        assert trainer._resolve_resume_dir() == runs / "train2" / "weights" / "last"
+
+
+class _TinyLM(torch.nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.q_proj = torch.nn.Linear(4, 4, bias=False)
+
+    def forward(self, x):
+        return self.q_proj(x)
+
+
+def test_resume_applies_adapter_to_base_not_merged_weights(tmp_path):
+    """Loading a LoRA checkpoint merges its adapter; resuming it must start
+    from base + adapter, not base + adapter applied twice."""
+    peft = pytest.importorskip("peft")
+    from libreyolo.models.vlm.training.trainer import VLMDetectionTrainer
+
+    torch.manual_seed(0)
+    base = _TinyLM()
+    base_state = {k: v.clone() for k, v in base.state_dict().items()}
+    trained = peft.get_peft_model(
+        base, peft.LoraConfig(r=2, lora_alpha=4, target_modules=["q_proj"])
+    )
+    torch.nn.init.normal_(trained.base_model.model.q_proj.lora_B["default"].weight)
+    checkpoint = tmp_path / "runs" / "vlm" / "train" / "weights" / "last"
+    trained.save_pretrained(str(checkpoint))
+    (checkpoint / CONTRACT_FILENAME).write_text("{}")
+    expected = trained.merge_and_unload().q_proj.weight.detach().clone()
+
+    def _load_base(_snapshot):
+        fresh = _TinyLM()
+        fresh.load_state_dict(base_state)
+        return fresh, None
+
+    wrapper = type(
+        "LoadedWrapper",
+        (),
+        {
+            "FAMILY": "qwen3vl",
+            "_checkpoint_dir": checkpoint,
+            "_ensure_weights": lambda self: "base-snapshot",
+            "_load_pretrained": lambda self, snapshot: _load_base(snapshot),
+        },
+    )()
+    # What LibreVLM(checkpoint) holds: the adapter already merged in.
+    merged = _TinyLM()
+    merged.q_proj.weight.data.copy_(expected)
+    wrapper.model = merged
+
+    trainer = VLMDetectionTrainer(
+        wrapper, data="data.yaml", resume=True, project=str(tmp_path / "unused")
+    )
+    resumed = trainer._build_train_model(checkpoint)
+    resumed.merge_adapter()
+
+    assert torch.allclose(resumed.base_model.model.q_proj.weight, expected)

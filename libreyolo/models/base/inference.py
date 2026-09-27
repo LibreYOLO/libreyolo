@@ -34,14 +34,19 @@ from ...utils.drawing import (
     draw_tile_grid,
 )
 from ...utils.general import (
+    check_overlap_ratio,
     get_safe_stem,
     get_slice_bboxes,
     log_saved_result,
     resolve_save_path,
 )
 from ...utils.image_loader import ImageInput, ImageLoader
-from ...utils.image_size import reject_rectangular_imgsz
-from ...utils.predict_args import normalize_predict_kwargs
+from ...utils.image_size import reject_rectangular_imgsz, round_imgsz_to_stride
+from ...utils.predict_args import (
+    normalize_classes,
+    normalize_predict_kwargs,
+    postprocess_max_det,
+)
 from ...utils.results import (
     keep_source,
     AlbedoMap,
@@ -275,14 +280,15 @@ class InferenceRunner:
         Run inference on an image, list of images, directory, or video.
 
         Args:
-            source: Input image, list/tuple of in-memory images, directory
+            source: Input image, list/tuple of in-memory images, a batched
+                NCHW tensor or NHWC/NCHW array (one Results per image), directory
                 path, video file path, or a screen-capture source such as
                 ``"screen"``, ``"screen 1"``, or ``"screen 1 100 200 512 256"``
                 (monitor index, then ``left top width height``).
             conf: Confidence threshold.
             iou: IoU threshold for NMS.
             imgsz: Input size override (None = model default).
-            classes: Filter to specific class IDs.
+            classes: Filter to specific class IDs, a list or a single int.
             max_det: Maximum detections per image.
             save: If True, saves annotated image or video.
             batch: Images per forward pass for directory and list sources.
@@ -300,9 +306,13 @@ class InferenceRunner:
             show: If True, display annotated frames in a window (video and
                 screen sources only).
             output_path: Optional output path.
-            color_format: Color format hint.
+            color_format: Channel order of NumPy array inputs. ``"auto"``
+                (default) and ``"bgr"`` read arrays as BGR, the OpenCV
+                convention (``cv2.imread``, video frames); pass ``"rgb"`` for
+                RGB arrays. PIL images and tensors are always RGB.
             tiling: Enable tiled inference for large images.
-            overlap_ratio: Tile overlap ratio.
+            overlap_ratio: Fraction of each tile shared with its neighbour,
+                in ``[0, 1)``.
             output_file_format: Output format ("jpg", "png", "webp").
             cuda_graph: Replay the forward pass from a captured CUDA graph.
                 Small detectors are launch-bound, so collapsing the forward's
@@ -328,6 +338,7 @@ class InferenceRunner:
         predict_input_kwargs = {
             key: kwargs.pop(key) for key in declared_predict_inputs if key in kwargs
         }
+        classes = normalize_classes(classes)
         missing_predict_inputs = sorted(
             key
             for key in required_predict_inputs
@@ -352,6 +363,7 @@ class InferenceRunner:
             self._set_device(device)
         if imgsz is not None:
             reject_rectangular_imgsz(self.model, imgsz, "predict")
+            imgsz = round_imgsz_to_stride(self.model, imgsz, "predict")
         if (
             kwargs.get("gallery") is not None
             and getattr(self.model, "task", None) != "embed"
@@ -386,6 +398,8 @@ class InferenceRunner:
             raise ValueError(
                 "tiling and augment cannot be used together. Disable one of them."
             )
+        if tiling:
+            check_overlap_ratio(overlap_ratio)
         if augment and getattr(self.model, "task", None) == "point":
             raise ValueError(
                 "Test-time augmentation does not support point-task models yet. "
@@ -590,9 +604,11 @@ class InferenceRunner:
                 ext = output_file_format or "jpg"
                 save_path = resolve_save_path(output_path, image_path, ext=ext)
                 # Reuse the decoded source rather than fetching the input again.
+                # The private check keeps a local file from being cached on
+                # the result by the lazy ``orig_img`` load.
                 img_pil = (
                     Image.fromarray(result.orig_img[..., ::-1])
-                    if result.orig_img is not None
+                    if getattr(result, "_orig_img", None) is not None
                     else ImageLoader.load(source, color_format=color_format)
                 )
                 self._save_annotated_image(result, img_pil, save_path)
@@ -773,7 +789,7 @@ class InferenceRunner:
                     )
                     img_pil = (
                         Image.fromarray(result.orig_img[..., ::-1])
-                        if result.orig_img is not None
+                        if getattr(result, "_orig_img", None) is not None
                         else ImageLoader.load(image, color_format=color_format)
                     )
                     self._save_annotated_image(result, img_pil, save_path)
@@ -882,13 +898,15 @@ class InferenceRunner:
                 conf,
                 iou,
                 original_size,
-                max_det=max_det,
+                max_det=postprocess_max_det(max_det, classes),
                 ratio=ratio,
                 classes=classes,
                 **kwargs,
             )
             image_path = image if isinstance(image, (str, Path)) else None
-            result = self._wrap_results(detections, original_size, image_path, classes)
+            result = self._wrap_results(
+                detections, original_size, image_path, classes, max_det=max_det
+            )
             keep_source(result, original_img, image_path)
             if save:
                 ext = output_file_format or "jpg"
@@ -1033,6 +1051,7 @@ class InferenceRunner:
         original_size: Tuple[int, int],
         image_path,
         classes: Optional[List[int]],
+        max_det: Optional[int] = None,
     ) -> Results:
         """Convert raw detection dict to a Results object.
 
@@ -1042,6 +1061,9 @@ class InferenceRunner:
             original_size: (width, height) from preprocessing.
             image_path: Source path or None.
             classes: Optional class filter list.
+            max_det: With ``classes``, the number of highest-scoring boxes to
+                keep after filtering (the postprocess ran with a wider budget,
+                see ``postprocess_max_det``).
         """
         # Classification: a probs vector, no boxes. Wrap into Results.probs so
         # result.probs.top1 / .top5 work like the rest of the ecosystem.
@@ -1368,6 +1390,15 @@ class InferenceRunner:
             )
             if obb_t is not None:
                 obb_t = obb_t[cls_mask]
+            if max_det is not None and 0 <= max_det < len(conf_t):
+                top = torch.topk(conf_t, int(max_det)).indices.sort().values
+                boxes_t, conf_t, cls_t = boxes_t[top], conf_t[top], cls_t[top]
+                if masks_t is not None:
+                    masks_t = masks_t[top]
+                if keypoints_t is not None:
+                    keypoints_t = keypoints_t[top]
+                if obb_t is not None:
+                    obb_t = obb_t[top]
 
         # original_size from preprocess is (W, H); orig_shape is (H, W)
         orig_w, orig_h = original_size
@@ -1444,14 +1475,16 @@ class InferenceRunner:
             conf,
             iou,
             original_size,
-            max_det=max_det,
+            max_det=postprocess_max_det(max_det, classes),
             ratio=ratio,
             classes=classes,
             **kwargs,
         )
 
         # Wrap into Results
-        result = self._wrap_results(detections, original_size, image_path, classes)
+        result = self._wrap_results(
+            detections, original_size, image_path, classes, max_det=max_det
+        )
         keep_source(result, original_img, image_path)
 
         # Save annotated image
@@ -1536,13 +1569,13 @@ class InferenceRunner:
                 conf,
                 iou,
                 original_size,
-                max_det=max_det,
+                max_det=postprocess_max_det(max_det, classes),
                 ratio=ratio,
                 classes=classes,
                 **kwargs,
             )
             result = self._wrap_results(
-                detections, original_size, source_label, classes
+                detections, original_size, source_label, classes, max_det=max_det
             )
             result.orig_img = original_img
             return result

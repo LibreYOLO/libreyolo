@@ -868,6 +868,121 @@ class TestTrackImageSequences:
             )
 
 
+@pytest.mark.parametrize(
+    "name",
+    ["cam.mts", "cam.m2ts", "cam.flv", "cam.3gp", "cam.h264", "cam.dav", "cam.bin", "cam"],
+)
+def test_tracks_video_files_with_uncommon_or_missing_extensions(tmp_path, name):
+    cv2 = pytest.importorskip("cv2", reason="opencv-python required for video tests")
+    clip = tmp_path / "clip.mp4"
+    writer = cv2.VideoWriter(str(clip), cv2.VideoWriter_fourcc(*"mp4v"), 30.0, (20, 16))
+    for _ in range(3):
+        writer.write(np.zeros((16, 20, 3), dtype=np.uint8))
+    writer.release()
+    source = clip.rename(tmp_path / name)
+
+    results = list(BaseModel.track(_StubTrackModel(), str(source)))
+
+    assert [r.frame_idx for r in results] == [0, 1, 2]
+
+
+_NEAR_BOX = (1.0, 1.0, 5.0, 5.0)
+_FAR_BOX = (12.0, 9.0, 18.0, 15.0)
+
+
+def _ids_per_call(model, boxes, **kwargs):
+    """One single-frame track() call per box, as in a per-frame loop."""
+    ids = []
+    for box in boxes:
+        model._box = list(box)
+        (result,) = list(BaseModel.track(model, _make_frames(1), **kwargs))
+        ids.append(result.track_id.tolist())
+    return ids
+
+
+@pytest.mark.parametrize(
+    "tracker", ["bytetrack.yaml", "botsort.yaml", "ocsort.yml", "ByteTrack.YAML"]
+)
+def test_builtin_tracker_accepts_the_yaml_spelling(tracker, tmp_path, monkeypatch):
+    """The ecosystem names its trackers bytetrack.yaml / botsort.yaml; those
+    raised 'Unknown tracker'."""
+    monkeypatch.chdir(tmp_path)
+    (result,) = list(BaseModel.track(_StubTrackModel(), _make_frames(1), tracker=tracker))
+    assert result.track_id.tolist() == [1]
+
+
+def test_tracker_yaml_that_is_a_local_file_is_not_silently_ignored(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "bytetrack.yaml").write_text("track_buffer: 60\n")
+    with pytest.raises(ValueError, match="does not read tracker yaml files"):
+        next(BaseModel.track(_StubTrackModel(), _make_frames(1), tracker="bytetrack.yaml"))
+
+
+class TestTrackPersist:
+    def test_persist_keeps_the_tracker_across_calls(self):
+        boxes = [_NEAR_BOX, _FAR_BOX, _NEAR_BOX]
+
+        # A fresh tracker per call numbers every first sighting 1 ...
+        assert _ids_per_call(_StubTrackModel(), boxes) == [[1], [1], [1]]
+        # ... while a kept tracker opens a second track for the far box and
+        # recovers the first one when it reappears.
+        assert _ids_per_call(_StubTrackModel(), boxes, persist=True) == [
+            [1],
+            [2],
+            [1],
+        ]
+
+    def test_persist_is_not_forwarded_as_a_tracker_config_key(self):
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            _ids_per_call(_StubTrackModel(), [_NEAR_BOX], persist=True)
+        assert not [w for w in caught if "Unknown tracking config" in str(w.message)]
+
+    def test_persist_false_starts_fresh_and_drops_the_kept_tracker(self):
+        model = _StubTrackModel()
+        _ids_per_call(model, [_NEAR_BOX], persist=True)
+
+        assert _ids_per_call(model, [_FAR_BOX]) == [[1]]
+        assert _ids_per_call(model, [_NEAR_BOX], persist=True) == [[1]]
+        assert _ids_per_call(model, [_FAR_BOX], persist=True) == [[2]]
+
+    def test_persist_resets_on_a_new_tracker_config(self):
+        model = _StubTrackModel()
+        _ids_per_call(model, [_NEAR_BOX], persist=True)
+
+        assert _ids_per_call(model, [_FAR_BOX], persist=True, track_buffer=10) == [
+            [1]
+        ]
+
+    def test_persist_resets_on_a_new_directory_source(self, tmp_path):
+        first, second = tmp_path / "a", tmp_path / "b"
+        for folder in (first, second):
+            folder.mkdir()
+            Image.new("RGB", (20, 16)).save(folder / "000.png")
+        model = _StubTrackModel()
+
+        def track_dir(folder, box):
+            model._box = list(box)
+            (result,) = list(BaseModel.track(model, folder, persist=True))
+            return result.track_id.tolist()
+
+        assert track_dir(first, _NEAR_BOX) == [1]
+        assert track_dir(first, _FAR_BOX) == [2]
+        assert track_dir(second, _FAR_BOX) == [1]
+
+    def test_persist_does_not_reset_a_custom_tracker(self):
+        tracker = _CustomTracker()
+        model = _StubTrackModel()
+
+        list(BaseModel.track(model, _make_frames(1), tracker=tracker, persist=True))
+        list(BaseModel.track(model, _make_frames(1), tracker=tracker, persist=True))
+        assert tracker.resets == 1
+        assert len(tracker.images) == 2
+
+        list(BaseModel.track(model, _make_frames(1), tracker=tracker))
+        assert tracker.resets == 2
+
+
 class _CustomTracker:
     def __init__(self):
         self.resets = 0
@@ -1086,3 +1201,41 @@ class TestCustomTracker:
         from libreyolo.tracking import Tracker
 
         assert get_type_hints(BaseModel.track)["tracker"] == str | Tracker
+
+
+class TestTrackDetectionConf:
+    """track(conf=...) is the ecosystem's detection threshold, shared with predict."""
+
+    class _Stub(_StubTrackModel):
+        def _postprocess(self, output, conf, iou, original_size, **kwargs):
+            self.seen_conf.append(conf)
+            keep = self._score >= conf
+            return {
+                "boxes": [self._box] if keep else [],
+                "scores": [self._score] if keep else [],
+                "classes": [0] if keep else [],
+                "num_detections": int(keep),
+            }
+
+    def _run(self, **kwargs):
+        model = self._Stub(score=0.3)
+        model.seen_conf = []
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")  # no "Unknown tracking config keys"
+            results = list(BaseModel.track(model, _make_frames(1), **kwargs))
+        return model.seen_conf, results
+
+    def test_conf_sets_the_detection_threshold(self):
+        """conf=0.5 was warned about and ignored; detection stayed at 0.1."""
+        seen, results = self._run(conf=0.5)
+        assert seen == [0.5]
+        assert len(results[0]) == 0  # the 0.3 detection is below conf
+
+    def test_default_keeps_the_tracker_low_threshold(self):
+        seen, results = self._run()
+        assert seen == [0.1]
+        assert results[0].track_id.tolist() == [1]
+
+    def test_conf_out_of_range_is_rejected(self):
+        with pytest.raises(ValueError, match="conf must be"):
+            self._run(conf=1.5)

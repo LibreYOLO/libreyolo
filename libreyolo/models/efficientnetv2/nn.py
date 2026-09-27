@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import math
 import re
+import warnings
 from copy import deepcopy
 from typing import Dict, List, Optional, Tuple
 
@@ -116,6 +117,13 @@ def _is_static_pad(kernel_size: int, stride: int = 1, dilation: int = 1) -> bool
 def _pad_same(x: torch.Tensor, kernel_size: Tuple[int, int], stride: Tuple[int, int],
               dilation: Tuple[int, int] = (1, 1), value: float = 0.0) -> torch.Tensor:
     ih, iw = x.size()[-2:]
+    if torch.jit.is_tracing():
+        # Export graphs have a fixed H/W. Bake the pads as constants: traced
+        # shape arithmetic is folded to wrong pads by onnxsim when the batch
+        # axis is dynamic.
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", torch.jit.TracerWarning)
+            ih, iw = int(ih), int(iw)
     pad_h = _get_same_padding(ih, kernel_size[0], stride[0], dilation[0])
     pad_w = _get_same_padding(iw, kernel_size[1], stride[1], dilation[1])
     return F.pad(x, (pad_w // 2, pad_w - pad_w // 2, pad_h // 2, pad_h - pad_h // 2), value=value)

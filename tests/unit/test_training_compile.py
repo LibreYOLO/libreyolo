@@ -248,8 +248,8 @@ def test_rfdetr_compiles_dynamic_only_with_multi_scale():
 
 
 def test_yolo9_pgi_boundary_matches_the_model_forward():
-    """The default YOLO9 recipe trains the PGI auxiliary branch; capture skips
-    it, the compile boundary must reproduce the model's own loss exactly."""
+    """The default YOLO9 recipe trains the PGI auxiliary branch; the capture
+    and compile boundary must reproduce the model's own loss exactly."""
     from libreyolo.models.yolo9.nn import LibreYOLO9Model
     from libreyolo.models.yolo9.trainer import YOLO9Trainer
 
@@ -260,9 +260,9 @@ def test_yolo9_pgi_boundary_matches_the_model_forward():
     host.cuda_graph_train_spec = functools.partial(
         YOLO9Trainer.cuda_graph_train_spec, host
     )
-    assert host.cuda_graph_train_spec() is None
     spec = YOLO9Trainer.compile_train_spec(host)
     assert spec is not None
+    assert type(spec.network.module).__name__ == "_PGITrainForward"
 
     x = torch.randn(2, 3, 64, 64)
     targets = torch.zeros(2, 3, 5)
@@ -338,3 +338,19 @@ def test_seen_signatures_skip_the_snapshot(monkeypatch):
     for shape in ((2, 4), (2, 4), (3, 4), (2, 4)):
         compiler.run(host, torch.randn(*shape))
     assert len(snaps) == 2
+
+
+def test_dynamic_shape_compile_failure_suggests_static_shapes(monkeypatch, caplog):
+    """Multi-scale families compile with dynamic shapes; when a PyTorch build
+    cannot lower them the fallback must say how to compile instead."""
+    model = _Toy()
+    host, _ = _toy_host(model)
+    host.compile_dynamic = lambda: True
+    failing = MagicMock(side_effect=torch._dynamo.exc.TorchDynamoException("isIntList"))
+    monkeypatch.setattr(compile_mod.torch, "compile", lambda network, **kw: failing)
+    compiler = compile_mod.TrainCompiler("default", cuda_graph=False, accum_steps=1)
+    host._train_compiler = compiler
+    x, y = torch.randn(2, 4), torch.randn(2, 3)
+    with caplog.at_level(logging.WARNING):
+        BaseTrainer._forward_train(host, x, y)
+    assert compiler.disabled and "multi_scale=False" in caplog.text

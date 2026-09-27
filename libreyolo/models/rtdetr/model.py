@@ -150,6 +150,7 @@ class LibreRTDETR(BaseModel):
         "x": 640,
     }
     TRAIN_CONFIG = RTDETRConfig
+    RESUME_RESTORES_TRAIN_ARGS = True
     val_preprocessor_class = RTDETRValPreprocessor
 
     # =========================================================================
@@ -628,13 +629,8 @@ class LibreRTDETR(BaseModel):
         )
 
         if resume:
-            if not self.model_path:
-                raise ValueError(
-                    "resume=True requires a checkpoint. Load one first: "
-                    "model = LibreRTDETR('path/to/last.pt'); model.train(data=..., resume=True)"
-                )
             trainer.setup()
-            trainer.resume(str(self.model_path))
+            trainer.resume(self._resume_checkpoint(resume))
 
         results = trainer.train()
 

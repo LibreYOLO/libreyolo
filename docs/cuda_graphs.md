@@ -86,9 +86,15 @@ Traps that have each produced a wrong answer in practice:
 
 ## Not supported, and why
 
+Only families that set `SUPPORTS_CUDA_GRAPH = True` capture. Every other
+family raises `NotImplementedError`; most have simply not been verified yet.
+`model.graph_info()["supported"]` reports the flag for a loaded model.
+Families ruled out for a known reason:
+
 | Family | Reason |
 | --- | --- |
 | `l2cs` (gaze) | Out of scope. |
+| `domedetr` | PAQI's query count is data dependent (boolean masking and a greedy NMS loop), so the forward syncs the host and changes shape per image. |
 
 `sensenova` used to sit in this table, but its vision tower has since been
 made capturable and `models/sensenova/model.py` now sets
@@ -159,7 +165,7 @@ ASPP branch is the one that drifts, and the op underneath is
 by capture, and uninitialized allocations in our own code were each ruled out
 first. Note the failure mode: replay is deterministic and looks plausible, it
 is simply wrong. That is precisely the silent-wrongness this gate exists to
-prevent, so the family stays off.
+prevent, so the decoder stays eager.
 
 
 ## Interaction with hub MSDA kernels

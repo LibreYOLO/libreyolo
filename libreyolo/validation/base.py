@@ -24,10 +24,21 @@ if TYPE_CHECKING:
 
 
 class BoxImageMetrics:
-    """``results.box``: holds ``image_metrics`` for detect and segment (#887)."""
+    """``results.box``: per-image and per-class results for detect and segment.
 
-    def __init__(self, image_metrics: Dict[str, Dict[str, float]]) -> None:
+    ``image_metrics`` (#887) maps each image filename to its box metrics.
+    ``best_conf_per_class`` maps each class name to its F1-optimal confidence
+    threshold (IoU 0.50 matching), 0.0 for classes where no threshold reaches
+    F1 > 0; empty when the validator does not run the sweep (segmentation).
+    """
+
+    def __init__(
+        self,
+        image_metrics: Dict[str, Dict[str, float]],
+        best_conf_per_class: Optional[Dict[str, float]] = None,
+    ) -> None:
         self.image_metrics = image_metrics
+        self.best_conf_per_class = dict(best_conf_per_class or {})
 
     def __repr__(self) -> str:
         return f"BoxImageMetrics({len(self.image_metrics)} images)"
@@ -36,26 +47,34 @@ class BoxImageMetrics:
 class ValidationMetrics(dict):
     """The metrics dict ``val()`` returns, plus per-image results.
 
-    It is a plain ``dict`` of metric keys. ``box.image_metrics`` maps each
-    image filename to its ``precision``, ``recall``, ``f1``, ``tp``, ``fp`` and
-    ``fn``, as in the ecosystem's validation results, so the images a model
-    gets wrong are ``[k for k, m in r.box.image_metrics.items() if m["fp"] or
-    m["fn"]]``. Detect and segment only; segmentation counts boxes.
+    It is a plain, flat ``dict`` of metric keys to finite numbers. Per-image
+    and per-class results live on ``box`` instead. ``box.image_metrics`` maps
+    each image filename to its ``precision``, ``recall``, ``f1``, ``tp``,
+    ``fp`` and ``fn``, as in the ecosystem's validation results, so the images
+    a model gets wrong are ``[k for k, m in r.box.image_metrics.items() if
+    m["fp"] or m["fn"]]``. ``box.best_conf_per_class`` maps class names to
+    F1-optimal confidence thresholds. Detect and segment only; segmentation
+    counts boxes.
     """
 
     def __init__(
-        self, metrics: Dict[str, Any], image_metrics: Dict[str, Dict[str, float]]
+        self,
+        metrics: Dict[str, Any],
+        image_metrics: Dict[str, Dict[str, float]],
+        best_conf_per_class: Optional[Dict[str, float]] = None,
     ) -> None:
         super().__init__(metrics)
-        self.box = BoxImageMetrics(image_metrics)
+        self.box = BoxImageMetrics(image_metrics, best_conf_per_class)
 
 
 def with_image_metrics(metrics: Any, validator: Any) -> Any:
-    """Attach a validator's per-image results to the metrics ``val()`` returns."""
+    """Attach a validator's per-image and per-class results to ``val()``'s metrics."""
     image_metrics = getattr(validator, "image_metrics", None)
     if image_metrics is None or not isinstance(metrics, dict):
         return metrics
-    return ValidationMetrics(metrics, image_metrics)
+    return ValidationMetrics(
+        metrics, image_metrics, getattr(validator, "best_conf_per_class", None)
+    )
 
 
 class BaseValidator(ABC):

@@ -150,7 +150,7 @@ def validate_mix_probabilities(mixup, cutmix) -> tuple[float, float]:
 
 
 def build_classify_transforms(
-    imgsz: int,
+    imgsz: int | tuple[int, int],
     augment: bool,
     *,
     mean=IMAGENET_MEAN,
@@ -217,6 +217,13 @@ def build_classify_transforms(
         if erasing_p > 0:
             ops.append(transforms.RandomErasing(p=erasing_p, inplace=True))
         return transforms.Compose(ops)
+    if isinstance(imgsz, (tuple, list)):
+        # Export and INT8 calibration pass the resolved (height, width).
+        if len(imgsz) != 2 or int(imgsz[0]) != int(imgsz[1]):
+            raise NotImplementedError(
+                f"Classification eval supports square imgsz only, got {tuple(imgsz)}."
+            )
+        imgsz = int(imgsz[0])
     if square_resize:
         # Squash to a fixed square (no aspect-preserving resize + center crop).
         # SigLIP's native eval pipeline resizes directly to (imgsz, imgsz).

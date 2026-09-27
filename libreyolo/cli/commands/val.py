@@ -1,14 +1,17 @@
 """Val command: evaluate a model on a dataset."""
 
-from pathlib import Path
 from typing import Optional
 
 import typer
 
 from ..command_utils import (
+    exit_if_out_of_range,
+    exit_imgsz_error,
     exit_stage_error,
     exit_with_error,
+    get_loaded_model_family,
     help_json_callback,
+    is_imgsz_error,
     load_model_or_exit,
     parse_imgsz_str,
     resolve_model_or_exit,
@@ -46,6 +49,11 @@ def val_cmd(
         "comma-separated (e.g. '0,3,5'); every other class's boxes are "
         "dropped from ground truth and predictions. Defaults to the "
         "classes= the checkpoint was trained with, if any",
+    ),
+    single_cls: bool = typer.Option(
+        False,
+        "--single-cls/--no-single-cls",
+        help="Evaluate a G0/G1 detector with every class merged into class 0",
     ),
     batch: int = typer.Option(16, help="Batch size"),
     imgsz: Optional[str] = typer.Option(
@@ -119,13 +127,14 @@ def val_cmd(
 ) -> None:
     """Evaluate a model on a dataset."""
     from libreyolo.utils.amp import normalize_amp_dtype
-    from libreyolo.utils.general import increment_path
+    from libreyolo.validation.config import val_save_dir
 
     out = OutputHandler(json_mode=json_output, quiet=quiet)
     try:
         imgsz = parse_imgsz_str(imgsz)
     except ValueError as exc:
         exit_with_error(out, "invalid_imgsz", str(exc))
+    exit_if_out_of_range(out, conf=conf, iou=iou, batch=batch)
     try:
         amp_dtype = normalize_amp_dtype(amp_dtype)
         if max_det < 1:
@@ -150,6 +159,19 @@ def val_cmd(
         out, model=model, model_path=model_path, device=device
     )
 
+    if single_cls:
+        from libreyolo.models.registry import group_of
+
+        family = get_loaded_model_family(loaded_model)
+        task = getattr(loaded_model, "task", "detect")
+        if group_of(family) not in {"g0", "g1"} or task != "detect":
+            exit_with_error(
+                out,
+                "config_unsupported",
+                "single_cls=True is supported only for G0/G1 detection models; "
+                f"got family={family!r}, task={task!r}.",
+            )
+
     # crop_pct is classification eval preprocessing; say so rather than accept
     # it and change nothing (#878).
     if crop_pct is not None and getattr(loaded_model, "task", "detect") != "classify":
@@ -160,7 +182,7 @@ def val_cmd(
         )
 
     # Resolve save directory
-    save_dir = str(increment_path(Path(project) / name, exist_ok=exist_ok, mkdir=True))
+    save_dir = val_save_dir(project, name, exist_ok, mkdir=True)
 
     # Run validation
     out.progress(f"Validating {model} on {data} ({split} split)...")
@@ -189,6 +211,7 @@ def val_cmd(
             plot_samples=plot_samples,
             crop_pct=crop_pct,
             # Only when set: some families' val() reject unknown kwargs.
+            **({"single_cls": True} if single_cls else {}),
             **({"visualize": True} if visualize else {}),
             **({"show_labels": False} if not show_labels else {}),
             **({"show_conf": False} if not show_conf else {}),
@@ -196,6 +219,8 @@ def val_cmd(
     except FileNotFoundError as e:
         exit_with_error(out, "data_not_found", str(e))
     except Exception as e:
+        if imgsz is not None and is_imgsz_error(e):
+            exit_imgsz_error(out, e)
         exit_stage_error(out, stage="Validation", detail=e)
 
     if getattr(loaded_model, "task", "detect") == "classify":

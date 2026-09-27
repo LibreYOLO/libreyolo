@@ -266,6 +266,8 @@ class TrainConfig:
     name: str = "exp"
     exist_ok: bool = False
     save_period: int = 10
+    # Validate every N epochs and always after the final one; <= 0 (or
+    # ``val=False``) turns validation during training off.
     eval_interval: int = 10
     # Prediction/NMS cap used by validation during training.
     max_det: int = 300
@@ -382,17 +384,31 @@ class TrainConfig:
         self.plot_samples = validate_plot_samples(self.plot_samples)
 
     @classmethod
-    def from_kwargs(cls, **kwargs):
-        """Construct config, warning on unknown keys."""
+    def from_kwargs(cls, /, **kwargs):
+        """Construct config, warning on unknown keys.
+
+        ``val=False``, the ecosystem's spelling, turns validation during
+        training off (``eval_interval=0``), as the CLI ``val=false`` does.
+        ``mosaic`` and ``fliplr``, the ecosystem's and the CLI's names for
+        ``mosaic_prob`` and ``flip_prob``, are accepted too. ``cls`` is positional
+        only so an ecosystem ``cls`` loss-gain key is warned about like other
+        unknown keys instead of colliding with it.
+        """
+        val = kwargs.pop("val", True)
+        kwargs = apply_train_aliases(kwargs)
         valid = {f.name for f in fields(cls)}
         unknown = set(kwargs) - valid
         if unknown:
             warnings.warn(
-                f"Unknown training config keys (ignored): {sorted(unknown)}",
+                f"Unknown training config keys (ignored): {sorted(unknown)}"
+                + _typo_hint(unknown, valid),
                 stacklevel=2,
             )
         filtered = {k: v for k, v in kwargs.items() if k in valid}
-        return cls(**filtered)
+        config = cls(**filtered)
+        if not val:
+            config.eval_interval = 0
+        return config
 
     def to_dict(self) -> dict:
         """Convert to dict with tuples converted to lists for YAML/checkpoint."""
@@ -408,6 +424,78 @@ class TrainConfig:
         path.parent.mkdir(parents=True, exist_ok=True)
         with open(path, "w") as f:
             yaml.dump(self.to_dict(), f, default_flow_style=False, sort_keys=False)
+
+
+# Ecosystem train and augmentation argument names (docs.ultralytics.com/usage/cfg).
+# An unknown key spelled exactly like one of them is an option LibreYOLO does
+# not have, not a typo, so it gets no "did you mean" hint (``lrf`` is not
+# ``lr0``, the ``cls`` loss gain is not ``cls_pw``).
+_ECOSYSTEM_TRAIN_ARGS = frozenset(
+    {
+        "model", "data", "epochs", "time", "patience", "batch", "imgsz", "save",
+        "save_period", "cache", "device", "workers", "project", "name",
+        "exist_ok", "save_dir", "pretrained", "cls_remap", "optimizer", "seed",
+        "deterministic", "verbose", "single_cls", "classes", "rect",
+        "multi_scale", "cos_lr", "close_mosaic", "resume", "amp", "quantize",
+        "fraction", "profile", "freeze", "lr0", "lrf", "momentum",
+        "weight_decay", "warmup_epochs", "warmup_momentum", "warmup_bias_lr",
+        "distill_model", "dis", "box", "cls", "cls_pw", "dfl", "pose", "kobj",
+        "rle", "angle", "dlog", "dgrad", "dlam", "nbs", "overlap_mask",
+        "mask_ratio", "dropout", "val", "nms", "plots", "compile",
+        "channels_last", "max_det", "hsv_h", "hsv_s", "hsv_v", "degrees",
+        "translate", "scale", "shear", "perspective", "flipud", "fliplr", "bgr",
+        "mosaic", "mixup", "cutmix", "copy_paste", "copy_paste_mode",
+        "auto_augment", "erasing", "augmentations",
+    }
+)
+
+
+def _typo_hint(unknown: set, valid: set) -> str:
+    """`` (did you mean 'epochs'?)`` for unknown keys close to a real one."""
+    from ..cli.errors import suggest_key
+
+    # The CLI spellings train() also accepts.
+    candidates = sorted(valid | {"mosaic", "fliplr", "val"})
+    hints = [
+        (key, suggest_key(key, candidates))
+        for key in sorted(unknown)
+        if key not in _ECOSYSTEM_TRAIN_ARGS
+    ]
+    hints = [(key, match) for key, match in hints if match]
+    if not hints:
+        return ""
+    if len(unknown) == 1:
+        return f" (did you mean {hints[0][1]!r}?)"
+    return " (did you mean " + ", ".join(
+        f"{match!r} for {key!r}" for key, match in hints
+    ) + "?)"
+
+
+def apply_train_aliases(kwargs: dict, task: str | None = None) -> dict:
+    """Map the CLI's train spellings to their TrainConfig fields.
+
+    ``mosaic`` -> ``mosaic_prob`` and ``fliplr`` -> ``flip_prob`` for every
+    task. ``mixup`` -> ``mixup_prob`` only when ``task`` is given and is not
+    ``classify``, where ``mixup`` is the batch-MixUp field itself (the CLI's
+    task-aware table in ``cli/aliases.py``). An alias and its field with
+    different values conflict.
+    """
+    from ..cli.aliases import CLASSIFY_TRAIN_ALIASES, train_aliases
+
+    aliases = dict(CLASSIFY_TRAIN_ALIASES if task is None else train_aliases(task))
+    aliases["fliplr"] = "flip_prob"
+    resolved = dict(kwargs)
+    for alias, field_name in aliases.items():
+        if alias not in resolved:
+            continue
+        value = resolved.pop(alias)
+        if field_name in resolved and resolved[field_name] != value:
+            raise ValueError(
+                f"Conflicting {alias} values: {alias}={value} and "
+                f"{field_name}={resolved[field_name]}"
+            )
+        resolved[field_name] = value
+    return resolved
 
 
 @dataclass(kw_only=True)
@@ -1060,7 +1148,7 @@ class ECSegConfig(ECConfig):
     mask_downsample_ratio: int = 4
 
     @classmethod
-    def from_kwargs(cls, **kwargs):
+    def from_kwargs(cls, /, **kwargs):
         cfg = super().from_kwargs(**kwargs)
         size = str(cfg.size).lower()
         if size in {"l", "x"}:

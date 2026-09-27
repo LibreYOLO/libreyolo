@@ -40,6 +40,13 @@ logger = logging.getLogger(__name__)
 _COCO91_TO_COCO80 = COCO91_TO_COCO80
 
 _TRAIN_DEFAULTS = RFDETRConfig()
+# RF-DETR train() spellings of TrainConfig fields.
+_TRAIN_ARG_ALIASES = {
+    "num_workers": "workers",
+    "use_ema": "ema",
+    "checkpoint_interval": "save_period",
+    "early_stopping_patience": "patience",
+}
 
 
 _RFDETR_UPSTREAM_WEIGHT_URLS = {
@@ -81,10 +88,9 @@ class LibreRFDETR(BaseModel):
     multi-scale deformable attention. Segmentation variants add a
     lightweight mask head for instance segmentation.
 
-    autobatch_fraction is lower than the default 0.60 because the probe's
-    fake backward underestimates RF-DETR's real training memory (the loss
-    backward runs through SetCriterion and 6 aux-loss decoder layers), and
-    DDP adds gradient buckets on top.
+    autobatch_fraction is lower than the default 0.60: the probe runs the real
+    loss step at the largest multi-scale canvas, but optimizer/EMA state and
+    DDP gradient buckets are allocated only once training starts.
 
     Args:
         model_path: Path to weights, pre-loaded state_dict, or None for pretrained.
@@ -479,6 +485,10 @@ class LibreRFDETR(BaseModel):
         if weight_source is not None:
             self._load_weights(weight_source)
             self.model.eval()
+        if isinstance(model_path, str):
+            # Record the checkpoint as the factory does, so resume=True (also
+            # in DDP workers, which construct directly) finds the loaded run.
+            self.model_path = weight_source
         if self._is_pose and self.nb_classes == 1 and self.names.get(0) == "class_0":
             self.names = {0: "person"}
 
@@ -1212,6 +1222,20 @@ class LibreRFDETR(BaseModel):
         if model is not None and hasattr(model, "eval"):
             model.eval()
 
+    def _resume_saved_settings(self, resume_path: str | Path) -> dict[str, Any]:
+        """Training settings saved in a resume checkpoint, minus the ones a
+        resume never restores (architecture, device, run directory, data)."""
+        from dataclasses import fields
+
+        from ..base.model import _RESUME_UNRESTORED_KEYS
+
+        valid = {field.name for field in fields(RFDETRConfig)}
+        return {
+            key: value
+            for key, value in self._checkpoint_train_config(resume_path).items()
+            if key in valid and key != "data" and key not in _RESUME_UNRESTORED_KEYS
+        }
+
     def _resume_checkpoint_uses_lora(self, resume_path: str | Path) -> bool:
         """Return True when a resume checkpoint needs a LoRA-wrapped graph."""
         path = Path(resume_path)
@@ -1240,8 +1264,8 @@ class LibreRFDETR(BaseModel):
     @ddp_aware(batch_key="batch_size")
     def train(
         self,
-        data: str,
-        epochs: int = 100,
+        data: str | None = None,
+        epochs: int | None = None,
         batch_size: int | None = None,
         lr: float | None = None,
         output_dir: str | None = None,
@@ -1253,8 +1277,9 @@ class LibreRFDETR(BaseModel):
         """Fine-tune RF-DETR through LibreYOLO's native trainer.
 
         Args:
-            data: Path to the dataset YAML file.
-            epochs: Number of epochs to train.
+            data: Path to the dataset YAML file. Optional when resuming: the
+                dataset saved in the resume checkpoint is used.
+            epochs: Number of epochs to train (default 100).
             batch_size: Batch size (alias of ``batch=`` passed via kwargs).
             lr: Initial learning rate (alias of ``lr0=`` passed via kwargs).
             output_dir: Directory for training runs and checkpoints, split into
@@ -1262,6 +1287,8 @@ class LibreRFDETR(BaseModel):
                 ``<RFDETRConfig.project>/<RFDETRConfig.name>`` when omitted;
                 ``project=`` / ``name=`` kwargs take precedence over this split.
             resume: Checkpoint path, or True to resume the loaded checkpoint.
+                The run continues with its saved training settings; arguments
+                passed explicitly override them.
             callbacks: Optional callback or iterable. One object may define
                 fitness(metrics) to select best.pt and drive patience; custom
                 fitness requires a new run (resume=False).
@@ -1271,9 +1298,22 @@ class LibreRFDETR(BaseModel):
         train_kwargs = dict(kwargs)
         project = train_kwargs.pop("project", None)
         name = train_kwargs.pop("name", None)
+        exist_ok_given = "exist_ok" in train_kwargs
         exist_ok = train_kwargs.pop("exist_ok", _TRAIN_DEFAULTS.exist_ok)
         batch = train_kwargs.pop("batch", None)
         lr0 = train_kwargs.pop("lr0", None)
+        resume_checkpoint = None
+        resumes_own_run = False
+        if resume and output_dir is None and project is None and name is None:
+            # A run checkpoint (<run>/weights/*.pt), loaded or passed as a
+            # path, keeps writing into its own run.
+            resume_checkpoint = self._loaded_run_checkpoint(
+                None if resume is True else resume
+            )
+            if resume_checkpoint is not None and resume_checkpoint.parent.parent.name:
+                project = resume_checkpoint.parent.parent.parent
+                name = resume_checkpoint.parent.parent.name
+                resumes_own_run = True
         if output_dir is not None:
             output_path = Path(output_dir)
             if project is None:
@@ -1286,10 +1326,39 @@ class LibreRFDETR(BaseModel):
             if name is None:
                 name = _TRAIN_DEFAULTS.name
         run_dir = Path(project) / str(name)
-        if resume is True:
-            # resume=True reads weights/last.pt from this exact run_dir below;
-            # never let _get_save_dir() increment away from it mid-resume.
+        if (resume is True or resumes_own_run) and not exist_ok_given:
+            # The resumed run is this exact run_dir; keep writing there unless
+            # exist_ok=False asks for a new run.
             exist_ok = True
+
+        resume_path = None
+        if resume:
+            if resume_checkpoint is not None:
+                resume_path = resume_checkpoint
+            else:
+                resume_path = (
+                    run_dir / "weights" / "last.pt" if resume is True else resume
+                )
+            # Continue with the run's saved settings; explicit arguments win.
+            saved = self._resume_saved_settings(resume_path)
+            if data is None:
+                data = self._checkpoint_train_config(resume_path).get("data")
+            if epochs is None:
+                epochs = saved.get("epochs")
+            if batch is None and batch_size is None:
+                batch = saved.get("batch")
+            if lr0 is None and lr is None:
+                lr0 = saved.get("lr0")
+            explicit = set(train_kwargs) | {
+                canonical
+                for alias, canonical in _TRAIN_ARG_ALIASES.items()
+                if alias in train_kwargs
+            }
+            for key, value in saved.items():
+                if key not in explicit and key not in ("epochs", "batch", "lr0"):
+                    train_kwargs[key] = value
+        if epochs is None:
+            epochs = _TRAIN_DEFAULTS.epochs
 
         if batch is not None and batch_size is not None and batch != batch_size:
             raise ValueError(
@@ -1304,6 +1373,11 @@ class LibreRFDETR(BaseModel):
             resolved_batch = 4
         if resolved_lr0 is None:
             resolved_lr0 = 1e-4
+        if not data:
+            raise ValueError(
+                "RF-DETR train() needs data= (a dataset yaml)"
+                + ("; the resume checkpoint saved none." if resume else ".")
+            )
 
         pose_train_metadata = {}
         if self._is_pose:
@@ -1404,20 +1478,12 @@ class LibreRFDETR(BaseModel):
                 name="RF-DETR train imgsz",
             )
 
-        aliases = {
-            "num_workers": "workers",
-            "use_ema": "ema",
-            "checkpoint_interval": "save_period",
-            "early_stopping_patience": "patience",
-        }
-        for src, dst in aliases.items():
+        for src, dst in _TRAIN_ARG_ALIASES.items():
             if src in train_kwargs:
                 train_kwargs[dst] = train_kwargs.pop(src)
         train_kwargs.pop("early_stopping", None)
 
-        resume_path = None
         if resume:
-            resume_path = run_dir / "weights" / "last.pt" if resume is True else resume
             if not train_kwargs.get("single_cls", False):
                 checkpoint_config = self._checkpoint_train_config(resume_path)
                 if bool(checkpoint_config.get("single_cls", False)):

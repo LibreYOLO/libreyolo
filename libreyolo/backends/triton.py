@@ -431,6 +431,7 @@ class TritonBackend(BaseBackend):
             supported_tasks=parsed_metadata.supported_tasks,
             default_task=parsed_metadata.default_task,
             **classify_eval_kwargs(runtime),
+            letterbox_pad=runtime.get("letterbox_pad"),
             num_bins=runtime.get("num_bins"),
             bin_width_deg=runtime.get("bin_width_deg"),
             offset_deg=runtime.get("offset_deg"),

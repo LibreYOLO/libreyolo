@@ -316,6 +316,14 @@ LibreYOLO backends so they can apply native original-canvas clipping and runtime
 `predict(conf=..., iou=..., max_det=...)` semantics. Third-party consumers that
 want graph-embedded NMS should use the first output.
 
+YOLO9-family runtime exports also write the checkpoint's `letterbox_pad`
+(`"topleft"` or `"center"`). LibreYOLO backends use it to letterbox inputs,
+map boxes and keypoints back to the original canvas, and build validation
+preprocessing; INT8 calibration and DeepStream `symmetric-padding` follow it
+too. Artifacts without the key, including every export written before it
+existed, use top-left. Backends reject any other value. Consumers of the
+embedded-NMS output must undo the same pad.
+
 ## Quantized Checkpoints
 
 Quantized models add one optional flat key, `quant`: a small manifest dict

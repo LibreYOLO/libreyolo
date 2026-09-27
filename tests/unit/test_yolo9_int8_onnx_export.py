@@ -12,17 +12,14 @@ from PIL import Image
 pytestmark = [pytest.mark.unit, pytest.mark.onnx, pytest.mark.export_backend]
 
 
-@pytest.mark.skipif(
+_needs_onnx = pytest.mark.skipif(
     importlib.util.find_spec("onnx") is None
     or importlib.util.find_spec("onnxruntime") is None,
     reason="onnx/onnxruntime not installed",
 )
-def test_yolo9_detect_onnx_int8_export_loads_and_predicts(tmp_path):
-    import onnx
-    import onnxruntime as ort
 
-    from libreyolo import LibreYOLO, LibreYOLO9
 
+def _calibration_yaml(tmp_path):
     image_dir = tmp_path / "images" / "train"
     image_dir.mkdir(parents=True)
     rng = np.random.default_rng(0)
@@ -45,6 +42,17 @@ def test_yolo9_detect_onnx_int8_export_loads_and_predicts(tmp_path):
         ),
         encoding="utf-8",
     )
+    return data_yaml
+
+
+@_needs_onnx
+def test_yolo9_detect_onnx_int8_export_loads_and_predicts(tmp_path):
+    import onnx
+    import onnxruntime as ort
+
+    from libreyolo import LibreYOLO, LibreYOLO9
+
+    data_yaml = _calibration_yaml(tmp_path)
 
     model = LibreYOLO9(None, size="t", nb_classes=2, device="cpu")
     for block in model.model.head.cv3:
@@ -90,3 +98,98 @@ def test_yolo9_detect_onnx_int8_export_loads_and_predicts(tmp_path):
     loaded = LibreYOLO(str(int8_path), device="cpu")
     result = loaded.predict(np.zeros((64, 64, 3), dtype=np.uint8), conf=0.0, imgsz=64)
     assert result.boxes is not None
+
+
+def _quantized_conv_names(graph):
+    """Conv nodes whose weight input comes from a DequantizeLinear node."""
+    producers = {output: node for node in graph.node for output in node.output}
+    return {
+        node.name
+        for node in graph.node
+        if node.op_type == "Conv"
+        and getattr(producers.get(node.input[1]), "op_type", None)
+        == "DequantizeLinear"
+    }
+
+
+@_needs_onnx
+def test_yolo9_onnx_int8_keeps_the_first_conv_and_head_float(tmp_path):
+    """The family's float layers stay float, as in ``model.quantize()``.
+
+    Quantized class-logit convs saturate at the calibrated maximum: with a
+    maximum of 0 every score reads exactly sigmoid(0) = 0.5.
+    """
+    import onnx
+
+    from libreyolo import LibreYOLO9
+
+    model = LibreYOLO9(None, size="t", nb_classes=2, device="cpu")
+    path = model.export(
+        "onnx",
+        output_path=str(tmp_path / "int8.onnx"),
+        imgsz=64,
+        simplify=False,
+        dynamic=False,
+        int8=True,
+        data=str(_calibration_yaml(tmp_path)),
+    )
+
+    graph = onnx.load(path).graph
+    convs = {node.name for node in graph.node if node.op_type == "Conv"}
+    quantized = _quantized_conv_names(graph)
+    float_scopes = ("/head/", "/backbone/conv0/")
+    head_convs = {name for name in convs if any(s in name for s in float_scopes)}
+    assert head_convs and not head_convs & quantized
+    assert quantized == convs - head_convs
+
+    consumers = {}
+    for node in graph.node:
+        for name in node.input:
+            consumers.setdefault(name, []).append(node.op_type)
+    for node in graph.node:
+        if node.name in head_convs and "/head/" in node.name:
+            # Head outputs (class logits, box distributions) stay unclipped.
+            assert "QuantizeLinear" not in consumers.get(node.output[0], []), node.name
+
+
+@_needs_onnx
+def test_yolo9_onnx_int8_explicit_nodes_to_exclude_replace_the_default(tmp_path):
+    import onnx
+
+    from libreyolo import LibreYOLO9
+
+    model = LibreYOLO9(None, size="t", nb_classes=2, device="cpu")
+    path = model.export(
+        "onnx",
+        output_path=str(tmp_path / "int8.onnx"),
+        imgsz=64,
+        simplify=False,
+        dynamic=False,
+        int8=True,
+        data=str(_calibration_yaml(tmp_path)),
+        nodes_to_exclude=[],
+    )
+
+    graph = onnx.load(path).graph
+    convs = {node.name for node in graph.node if node.op_type == "Conv"}
+    assert _quantized_conv_names(graph) == convs
+
+
+@_needs_onnx
+def test_yolo9_onnx_int8_export_with_dynamic_batch(tmp_path):
+    from libreyolo import LibreYOLO, LibreYOLO9
+
+    model = LibreYOLO9(None, size="t", nb_classes=2, device="cpu")
+    path = model.export(
+        "onnx",
+        output_path=str(tmp_path / "int8.onnx"),
+        imgsz=64,
+        simplify=False,
+        dynamic=True,
+        int8=True,
+        data=str(_calibration_yaml(tmp_path)),
+    )
+
+    backend = LibreYOLO(path, device="cpu")
+    outputs = backend._run_inference(np.zeros((2, 3, 64, 64), dtype=np.float32))
+    assert outputs[0].shape[0] == 2

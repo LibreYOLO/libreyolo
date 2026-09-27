@@ -19,7 +19,6 @@ logger = logging.getLogger(__name__)
 COCO_TOPK_FAMILIES = {"dfine", "deim", "deimv2", "tinyformer", "ec", "rfdetr", "rtdetr", "rtdetrv2", "rtdetrv4"}
 BEST_CONF_KEY = "metrics/best_conf"
 BEST_CONF_F1_KEY = "metrics/best_conf_f1"
-BEST_CONF_PER_CLASS_KEY = "metrics/best_conf_per_class"
 
 
 def _collapse_coco_ground_truth(coco_api, category_id: int):
@@ -248,6 +247,12 @@ class DetectionValidator(ValidationLossMixin, BaseValidator):
                 split_path_str = data_cfg.get(
                     self.config.split, f"images/{self.config.split}"
                 )
+                if not split_path_str:
+                    raise FileNotFoundError(
+                        f"Dataset yaml has no {self.config.split!r} split: its "
+                        f"{self.config.split!r} entry is empty. Point it at the "
+                        "images, or validate another split (e.g. split='val')."
+                    )
 
                 if str(split_path_str).endswith(".txt"):
                     txt_path = Path(data_cfg["path"]) / split_path_str
@@ -488,6 +493,8 @@ class DetectionValidator(ValidationLossMixin, BaseValidator):
         # Image filename -> precision/recall/f1/tp/fp/fn (#887); val() returns
         # it as ``results.box.image_metrics``.
         self.image_metrics: Dict[str, Dict[str, float]] = {}
+        # Class name -> F1-optimal confidence; ``results.box.best_conf_per_class``.
+        self.best_conf_per_class: Dict[str, float] = {}
         self._image_metrics_warned = False
         if getattr(self.config, "visualize", False):
             from .val_plotter import reset_visualize_dir  # noqa: PLC0415
@@ -1303,53 +1310,53 @@ class DetectionValidator(ValidationLossMixin, BaseValidator):
             return str(names[label])
         return str(label)
 
-    def _best_conf_metrics(self) -> Dict[str, Any]:
+    def _best_conf_metrics(self) -> Dict[str, float]:
         """Free deploy-threshold metric from the finished COCO evaluation.
 
         Sweeps F1 over the already-scored, already-matched predictions
         (IoU 0.50 matching, see ``COCOEvaluator.best_conf_thresholds``) and
         reports the confidence threshold that maximizes it, globally
         (micro-averaged over all classes) and per class. Purely additive:
-        existing metric keys are untouched.
+        existing metric keys are untouched, and every value stays a finite
+        float so the metrics mapping remains flat.
 
         New keys:
-            ``metrics/best_conf``: global F1-optimal confidence, NaN when no
-                threshold achieves F1 > 0 (or the sweep source is missing).
-            ``metrics/best_conf_f1``: F1 at that threshold, NaN likewise.
-            ``metrics/best_conf_per_class``: dict of class name to threshold,
-                NaN entries for all-FP or no-prediction classes.
+            ``metrics/best_conf``: global F1-optimal confidence.
+            ``metrics/best_conf_f1``: F1 at that threshold.
+
+        Both are 0.0 when no threshold achieves F1 > 0 (or the sweep source
+        is missing). The per-class thresholds are not metric keys; they are
+        stored on ``self.best_conf_per_class`` (class name to threshold, 0.0
+        for classes where no threshold reaches F1 > 0), which ``val()``
+        exposes as ``results.box.best_conf_per_class``.
         """
-        nan = float("nan")
         self._best_conf_table = None
+        self.best_conf_per_class = {}
         sweep_fn = getattr(self.coco_evaluator, "best_conf_thresholds", None)
         sweep = sweep_fn() if callable(sweep_fn) else None
         if sweep is None:
-            return {
-                BEST_CONF_KEY: nan,
-                BEST_CONF_F1_KEY: nan,
-                BEST_CONF_PER_CLASS_KEY: {},
-            }
+            return {BEST_CONF_KEY: 0.0, BEST_CONF_F1_KEY: 0.0}
 
-        global_thr, global_f1 = sweep["global"]
+        def _finite_pair(pair) -> Tuple[float, float]:
+            thr, f1 = float(pair[0]), float(pair[1])
+            if not (np.isfinite(thr) and np.isfinite(f1)):
+                return 0.0, 0.0
+            return thr, f1
+
+        global_thr, global_f1 = _finite_pair(sweep["global"])
         per_class: Dict[str, float] = {}
-        table = [("all", float(global_thr), float(global_f1))]
+        table = [("all", global_thr, global_f1)]
         for label in sorted(sweep["per_class"]):
-            thr, f1 = sweep["per_class"][label]
+            thr, f1 = _finite_pair(sweep["per_class"][label])
             name = self._class_display_name(label)
-            per_class[name] = float(thr)
-            table.append((name, float(thr), float(f1)))
+            per_class[name] = thr
+            table.append((name, thr, f1))
         self._best_conf_table = table
-        return {
-            BEST_CONF_KEY: float(global_thr),
-            BEST_CONF_F1_KEY: float(global_f1),
-            BEST_CONF_PER_CLASS_KEY: per_class,
-        }
+        self.best_conf_per_class = per_class
+        return {BEST_CONF_KEY: global_thr, BEST_CONF_F1_KEY: global_f1}
 
     def _print_results(self, metrics: Dict[str, float]) -> None:
-        printable = {
-            k: v for k, v in metrics.items() if k != BEST_CONF_PER_CLASS_KEY
-        }
-        super()._print_results(printable)
+        super()._print_results(metrics)
 
         table = getattr(self, "_best_conf_table", None)
         if not table:
@@ -1358,8 +1365,8 @@ class DetectionValidator(ValidationLossMixin, BaseValidator):
         logger.info("  %-24s %10s %8s", "class", "best_conf", "F1")
         for name, thr, f1 in table:
             logger.info("  %-24s %10.4f %8.4f", name, thr, f1)
-        if any(np.isnan(thr) for _, thr, _ in table):
-            logger.info("  (nan: no threshold reaches F1 > 0 for that class)")
+        if any(f1 <= 0.0 for _, _, f1 in table):
+            logger.info("  (F1 0.0000: no threshold reaches F1 > 0 for that class)")
 
 
 class SegmentationValidator(DetectionValidator):

@@ -394,6 +394,20 @@ class LWDETR(nn.Module):
                 [_resize_linear(m, num_classes) for m in self.transformer.enc_out_class_embed]
             )
 
+    def select_detection_head_rows(self, rows: "list[int]") -> None:
+        """Rebuild the classification head so output ``i`` copies old output ``rows[i]``.
+
+        Used to carry pretrained class logits over to a dataset whose classes
+        are a reordered subset of the checkpoint's (e.g. COCO category-id
+        columns to contiguous dataset indices). Applies to ``class_embed`` and,
+        for two-stage models, every ``enc_out_class_embed``.
+        """
+        self.class_embed = _select_linear_rows(self.class_embed, rows)
+        if self.two_stage:
+            self.transformer.enc_out_class_embed = nn.ModuleList(
+                [_select_linear_rows(m, rows) for m in self.transformer.enc_out_class_embed]
+            )
+
     def reinitialize_grouppose_class_head(self, num_columns: int) -> None:
         """Resize the GroupPose class head to ``num_columns`` (empty slot + one per class).
 

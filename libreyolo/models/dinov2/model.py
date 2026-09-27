@@ -268,6 +268,19 @@ class LibreDINOv2(BaseModel):
         "embed",
     )
     WEIGHT_TASKS: ClassVar[Tuple[str, ...]] = ("semantic", "classify")
+    # No task heads are published; the family starts from the DINOv2 backbone.
+    # LibreDINOv2n.pt is left routable for the backbone-only mirror that
+    # scripts/mirror_dinov2.py builds.
+    UNPUBLISHED_WEIGHTS: ClassVar[Dict[str, str]] = {
+        f"LibreDINOv2{size}{suffix}": (
+            "LibreDINOv2 ships no trained heads. Build "
+            f"LibreDINOv2(size={size!r}, nb_classes=N{task_arg}) from the "
+            "pretrained DINOv2 backbone and train it."
+        )
+        for size in ("n", "s", "m", "l")
+        for suffix, task_arg in (("", ""), ("-cls", ", task='classify'"))
+        if (size, suffix) != ("n", "")
+    }
     DEFAULT_TASK: ClassVar[str] = "semantic"
 
     TRAIN_CONFIG: ClassVar[type] = DINOv2Config
@@ -759,7 +772,7 @@ class LibreDINOv2(BaseModel):
     @ddp_aware(batch_key="batch_size")
     def train(
         self,
-        data: str,
+        data: str | None = None,
         epochs: int = 100,
         batch_size: int | None = None,
         lr: float | None = None,
@@ -798,9 +811,22 @@ class LibreDINOv2(BaseModel):
         train_kwargs = dict(kwargs)
         project = train_kwargs.pop("project", None)
         name = train_kwargs.pop("name", None)
+        exist_ok_given = "exist_ok" in train_kwargs
         exist_ok = train_kwargs.pop("exist_ok", _TRAIN_DEFAULTS.exist_ok)
         batch = train_kwargs.pop("batch", None)
         lr0 = train_kwargs.pop("lr0", None)
+        resume_checkpoint = None
+        resumes_own_run = False
+        if resume and output_dir is None and project is None and name is None:
+            # A run checkpoint (<run>/weights/*.pt), loaded or passed as a
+            # path, keeps writing into its own run.
+            resume_checkpoint = self._loaded_run_checkpoint(
+                None if resume is True else resume
+            )
+            if resume_checkpoint is not None and resume_checkpoint.parent.parent.name:
+                project = resume_checkpoint.parent.parent.parent
+                name = resume_checkpoint.parent.parent.name
+                resumes_own_run = True
         if output_dir is not None:
             output_path = _Path(output_dir)
             if project is None:
@@ -813,9 +839,9 @@ class LibreDINOv2(BaseModel):
             if name is None:
                 name = _TRAIN_DEFAULTS.name
         run_dir = _Path(project) / str(name)
-        if resume is True:
-            # resume=True reads weights/last.pt from this exact run_dir below;
-            # never let _get_save_dir() increment away from it mid-resume.
+        if (resume is True or resumes_own_run) and not exist_ok_given:
+            # The resumed run is this exact run_dir; keep writing there unless
+            # exist_ok=False asks for a new run.
             exist_ok = True
 
         if batch is not None and batch_size is not None and batch != batch_size:
@@ -840,14 +866,26 @@ class LibreDINOv2(BaseModel):
 
         resume_path = None
         if resume:
-            resume_path = run_dir / "weights" / "last.pt" if resume is True else resume
+            if resume_checkpoint is not None:
+                resume_path = resume_checkpoint
+            else:
+                resume_path = (
+                    run_dir / "weights" / "last.pt" if resume is True else resume
+                )
+            if data is None:
+                data = self._checkpoint_train_config(resume_path).get("data")
+        if not data:
+            raise ValueError(
+                "DINOv2 train() needs data= (a dataset yaml)"
+                + ("; the resume checkpoint saved none." if resume else ".")
+            )
 
         trainer = DINOv2Trainer(
             model=self.model,
             wrapper_model=self,
             data=data,
             epochs=epochs,
-            batch_size=resolved_batch,
+            batch=resolved_batch,
             lr0=resolved_lr0,
             imgsz=train_kwargs.pop("imgsz", self.input_size),
             size=self.size,

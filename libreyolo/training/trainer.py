@@ -67,7 +67,7 @@ from ..data import (
     load_data_config,
     resolve_default_coco_image_dir,
 )
-from ..utils.image_size import imgsz_to_hw
+from ..utils.image_size import imgsz_to_hw, round_imgsz_to_stride
 from ..utils.serialization import (
     SCHEMA_VERSION,
     build_class_names,
@@ -226,6 +226,9 @@ class BaseTrainer(ABC):
                 )
         self.model = model
         self.wrapper_model = wrapper_model
+        self.config.imgsz = round_imgsz_to_stride(
+            wrapper_model, self.config.imgsz, "train"
+        )
         self.class_weights = None
         if (self.config.class_weights or self.config.cls_pw > 0) and (
             getattr(wrapper_model, "task", None) != "classify"
@@ -271,6 +274,13 @@ class BaseTrainer(ABC):
 
         # Device
         self.device = self._setup_device()
+        quant_manifest = getattr(self.wrapper_model, "_quant_manifest", None)
+        if quant_manifest:
+            from ..quant.api import simulation_device
+
+            self.device = simulation_device(
+                self.device, quant_manifest.get("recipe")
+            )
 
         # Training state
         self.start_epoch = 0
@@ -507,6 +517,16 @@ class BaseTrainer(ABC):
         return True. None lets PyTorch mark a dimension dynamic once it changes."""
         return None
 
+    def autobatch_probe(self) -> Dict:
+        """Family hook: what ``batch=-1`` probes memory with.
+
+        ``imgsz`` is the probe input size and should be the largest canvas a
+        training batch reaches. ``step`` optionally maps a probe batch to the
+        training loss, so the probe backpropagates the real loss instead of a
+        forward-only sum.
+        """
+        return {"imgsz": self.config.imgsz, "step": None}
+
     def invalidate_cuda_graph(self, reason: str) -> None:
         """Drop any captured training graph so a later batch re-captures.
 
@@ -572,8 +592,8 @@ class BaseTrainer(ABC):
                     manager.disabled = True
                     logger.warning(
                         "cuda_graph=True ignored (%s does not support "
-                        "training capture for this task); training runs "
-                        "eager.",
+                        "training capture for this model, task or "
+                        "configuration); training runs eager.",
                         type(self).__name__,
                     )
             spec = getattr(self, "_cuda_graph_spec", None)
@@ -1687,6 +1707,7 @@ class BaseTrainer(ABC):
         if self._is_setup:
             return
 
+        self._sync_wrapper_subset_config()
         quant_manifest = getattr(self.wrapper_model, "_quant_manifest", None)
         if quant_manifest and quant_manifest.get("recipe") in ("fp16", "bf16"):
             raise ValueError(
@@ -1771,9 +1792,11 @@ class BaseTrainer(ABC):
         if getattr(self.config, "batch", 16) == -1:
             from libreyolo.training.autobatch import resolve_auto_batch, _DEFAULT_FRACTION
 
+            probe = self.autobatch_probe()
             self.config.batch = resolve_auto_batch(
                 self.model,
-                imgsz=self.config.imgsz,
+                imgsz=probe.get("imgsz", self.config.imgsz),
+                step=probe.get("step"),
                 amp=self.config.amp,
                 amp_dtype=self.config.amp_dtype,
                 world_size=self.world_size,
@@ -2239,7 +2262,14 @@ class BaseTrainer(ABC):
                 self.distiller.cleanup()
 
             self._refresh_best_precise_bn_checkpoint()
-            self._write_average_checkpoint()
+            try:
+                self._write_average_checkpoint()
+            finally:
+                # Rank 0 has just written the final checkpoints. Every rank
+                # reloads them after train() returns, so no rank may leave
+                # before the writes are complete. In ``finally`` so a rank-0
+                # failure still releases its peers.
+                barrier()
             adopt_input_size = getattr(
                 getattr(self, "wrapper_model", None),
                 "_adopt_trained_input_size",
@@ -2261,6 +2291,7 @@ class BaseTrainer(ABC):
                     )
 
             results = self._build_train_results()
+            self._record_trained_dataset()
             end_event = self._build_train_end_event(total_time, results)
             if is_main_process():
                 self._dispatch_artifact_callbacks("on_train_end", end_event)
@@ -2282,6 +2313,39 @@ class BaseTrainer(ABC):
 
             restore_torch_threads(getattr(self, "_threads_before_cap", None))
             self._threads_before_cap = None
+
+    def _sync_wrapper_subset_config(self) -> None:
+        """Point the wrapper's saved-run config at this run's class subset.
+
+        Validators inherit ``single_cls``/``classes`` from the checkpoint the
+        wrapper was loaded from, so a subset-trained checkpoint validates the
+        way it was trained. Once a new run starts, that checkpoint no longer
+        describes the model: fine-tuning a ``single_cls`` checkpoint on
+        multi-class data must not validate every epoch on collapsed labels.
+        """
+        wrapper = getattr(self, "wrapper_model", None)
+        probe = getattr(wrapper, "_checkpoint_train_config", None)
+        if wrapper is None or not callable(probe):
+            return
+        wrapper._loaded_checkpoint_train_config = {
+            **probe(),
+            "single_cls": bool(getattr(self.config, "single_cls", False)),
+            "classes": getattr(self.config, "classes", None),
+        }
+
+    def _record_trained_dataset(self) -> None:
+        """Let ``val()`` without ``data=`` use this run's dataset.
+
+        Only once training finished: until then the weights still belong to
+        the checkpoint the wrapper was loaded from. Families that reload a
+        checkpoint afterwards overwrite this with the same value.
+        """
+        wrapper = getattr(self, "wrapper_model", None)
+        probe = getattr(wrapper, "_checkpoint_train_config", None)
+        data = getattr(self.config, "data", None)
+        if wrapper is None or not callable(probe) or not data:
+            return
+        wrapper._loaded_checkpoint_train_config = {**probe(), "data": data}
 
     def _dispatch_artifact_callbacks(self, method_name: str, event) -> None:
         try:
@@ -3030,20 +3094,25 @@ class BaseTrainer(ABC):
     # Validation
     # =========================================================================
 
+    def _validation_save_dir(self) -> Optional[str]:
+        """Where validation during training writes (config.yaml, plots, json).
+
+        Inside the run, so it never leaves runs/val/<tag>_<time> directories
+        in the working directory.
+        """
+        save_dir = getattr(self, "save_dir", None)
+        return str(Path(save_dir) / "val") if save_dir is not None else None
+
     def _should_validate_epoch(self, epoch: int) -> bool:
-        scheduled = (
-            self.config.eval_interval > 0
-            and (epoch + 1) % self.config.eval_interval == 0
+        # eval_interval <= 0 (val=False) turns validation off, final epoch
+        # included. Otherwise the final epoch always validates, so a short run
+        # still reports metrics, writes best.pt and gets its final plots and
+        # precise-BN metrics.
+        if self.config.eval_interval <= 0:
+            return False
+        return (epoch + 1) % self.config.eval_interval == 0 or self._is_final_epoch(
+            epoch
         )
-        final_plot = (
-            bool(getattr(self.config, "save_plots", False))
-            and self._is_final_epoch(epoch)
-        )
-        precise_bn_final = (
-            int(getattr(self.config, "precise_bn", 0) or 0) > 0
-            and self._is_final_epoch(epoch)
-        )
-        return scheduled or final_plot or precise_bn_final
 
     def _is_final_epoch(self, epoch: int) -> bool:
         return (epoch + 1) >= self.config.epochs
@@ -3096,9 +3165,7 @@ class BaseTrainer(ABC):
                 if save_plots is not None
                 else bool(getattr(self.config, "save_plots", False)) and is_final_epoch
             )
-            val_save_dir = (
-                str(self.save_dir / "val") if val_save_plots else None
-            )
+            val_save_dir = self._validation_save_dir()
 
             val_config = ValidationConfig(
                 data=self.config.data,
@@ -3241,6 +3308,7 @@ class BaseTrainer(ABC):
 
             logger.info(f"Running classification validation for epoch {epoch + 1}")
             val_config = ValidationConfig(
+                save_dir=self._validation_save_dir(),
                 data=self.config.data,
                 batch_size=max(1, self.config.batch // max(getattr(self, "world_size", 1), 1)),
                 imgsz=self.config.imgsz,
@@ -3318,6 +3386,7 @@ class BaseTrainer(ABC):
                 getattr(self.wrapper_model, "semantic_val_imgsz", None) or self.config.imgsz
             )
             val_config = ValidationConfig(
+                save_dir=self._validation_save_dir(),
                 data=self.config.data,
                 batch_size=max(1, self.config.batch // max(getattr(self, "world_size", 1), 1)),
                 imgsz=val_imgsz,
@@ -3375,6 +3444,7 @@ class BaseTrainer(ABC):
 
             logger.info(f"Running depth validation for epoch {epoch + 1}")
             val_config = ValidationConfig(
+                save_dir=self._validation_save_dir(),
                 data=self.config.data,
                 batch_size=max(1, self.config.batch // max(getattr(self, "world_size", 1), 1)),
                 imgsz=self.config.imgsz,
@@ -3429,6 +3499,7 @@ class BaseTrainer(ABC):
 
             logger.info(f"Running restore validation for epoch {epoch + 1}")
             val_config = ValidationConfig(
+                save_dir=self._validation_save_dir(),
                 data=self.config.data,
                 batch_size=max(1, self.config.batch // max(getattr(self, "world_size", 1), 1)),
                 imgsz=self.config.imgsz,
@@ -3578,7 +3649,9 @@ class BaseTrainer(ABC):
         from .precise_bn import compute_precise_bn_stats
 
         distributed = bool(getattr(self, "is_distributed", False))
-        refresh = int(getattr(self, "best_epoch", 0) or 0) != self.current_epoch + 1
+        best_epoch = int(getattr(self, "best_epoch", 0) or 0)
+        # No validated best (e.g. val=False): nothing to refresh.
+        refresh = best_epoch > 0 and best_epoch != self.current_epoch + 1
         refresh = self._sync_main_bool(refresh)
         if not refresh:
             return False
@@ -3794,6 +3867,9 @@ class BaseTrainer(ABC):
             checkpoint_task = extra_checkpoint_meta.pop(
                 "task", getattr(getattr(self, "wrapper_model", None), "task", "detect")
             )
+            # As in _save_checkpoint, a family's extra metadata wins over the
+            # config imgsz (U-Net stores its evaluation canvas here).
+            checkpoint_imgsz = extra_checkpoint_meta.pop("imgsz", checkpoint_imgsz)
             average_metric_key = (
                 average_metrics.get("best_metric_key") if average_metrics else None
             )
@@ -4173,6 +4249,21 @@ class BaseTrainer(ABC):
                     f"Resume requires the saved {option} setting "
                     f"({option}={saved_value}); use a new run to change it."
                 )
+
+        if "epoch" not in checkpoint:
+            raise ValueError(
+                f"Cannot resume from {checkpoint_path}: it holds no training state. "
+                "Released weights start a new run: train without resume, "
+                "e.g. model.train(data=...)."
+            )
+        trained_epochs = int(checkpoint["epoch"]) + 1
+        if trained_epochs >= self.config.epochs:
+            raise ValueError(
+                f"Cannot resume from {checkpoint_path}: its run already trained "
+                f"{trained_epochs}/{self.config.epochs} epochs, so nothing is left "
+                "to resume. Start a new run from these weights instead: "
+                "model.train(data=...) without resume."
+            )
 
         try:
             model_state = checkpoint.get("train_model", checkpoint["model"])

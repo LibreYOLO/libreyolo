@@ -311,6 +311,16 @@ class _FailingModel:
         raise RuntimeError("disk full")
 
 
+class _MPSFailingModel(_FailingModel):
+    def _fail(self, **kwargs):
+        raise NotImplementedError(
+            "The operator 'aten::fake_quantize_per_channel_affine_cachemask' "
+            "is not currently implemented for the MPS device."
+        )
+
+    train = val = export = _fail
+
+
 @pytest.fixture
 def failing_app(monkeypatch):
     monkeypatch.setattr(
@@ -1471,3 +1481,211 @@ def test_export_help_json_only_lists_export_flags():
     assert "--quiet" in flags
     assert "--dry-run" not in flags
     assert "--yes" not in flags
+
+
+@pytest.mark.parametrize(
+    "argv",
+    [
+        ["train", "data=coco8.yaml", "model=yolox-s", "--json"],
+        ["val", "data=coco8.yaml", "model=yolox-s", "--json"],
+        ["export", "model=yolox-s", "format=onnx", "--json"],
+    ],
+)
+def test_unsupported_device_op_reports_device_error(failing_app, monkeypatch, argv):
+    monkeypatch.setattr(
+        "libreyolo.LibreYOLO", lambda *args, **kwargs: _MPSFailingModel()
+    )
+
+    result = runner.invoke(failing_app, argv)
+
+    assert result.exit_code == 1
+    data = json.loads(result.stdout)
+    assert data["error"] == "device_not_available"
+    assert "device=cpu" in data["suggestion"]
+
+
+@pytest.fixture
+def unloadable_app(monkeypatch):
+    """Commands whose model load fails the test: range errors must come first."""
+    for command in ("train", "val", "export", "predict"):
+        monkeypatch.setattr(
+            f"libreyolo.cli.commands.{command}.resolve_model_or_exit",
+            lambda out, model: model,
+        )
+
+    def _no_load(*args, **kwargs):
+        raise AssertionError("the model must not load for an out-of-range value")
+
+    monkeypatch.setattr("libreyolo.LibreYOLO", _no_load)
+    return _make_app(
+        [
+            ("train", train.train_cmd),
+            ("val", val.val_cmd),
+            ("export", export.export_cmd),
+            ("predict", predict.predict_cmd),
+        ]
+    )
+
+
+@pytest.mark.parametrize(
+    "args",
+    [
+        ["predict", "conf=1.5"],
+        ["predict", "iou=2"],
+        ["predict", "max_det=0"],
+        ["predict", "batch=0"],
+        ["val", "data=coco8.yaml", "conf=1.5"],
+        ["val", "data=coco8.yaml", "iou=-0.1"],
+        ["val", "data=coco8.yaml", "batch=0"],
+        ["train", "data=coco8.yaml", "epochs=0"],
+        ["train", "data=coco8.yaml", "batch=0"],
+        ["train", "data=coco8.yaml", "batch=-2"],
+        ["export", "batch=0"],
+        ["export", "nms=true", "conf=1.5"],
+        ["export", "nms=true", "max_det=0"],
+    ],
+    ids=lambda args: " ".join(args),
+)
+def test_out_of_range_values_are_config_range_errors(unloadable_app, tmp_path, args):
+    if args[0] == "predict":
+        source = tmp_path / "image.jpg"
+        source.write_bytes(b"")
+        args = [*args, f"source={source}"]
+    result = runner.invoke(unloadable_app, [*args, "model=yolox-s", "--json"])
+
+    assert result.exit_code == 2, result.output
+    assert json.loads(result.stdout)["error"] == "config_range_error"
+
+
+def test_train_accepts_autobatch(unloadable_app):
+    result = runner.invoke(
+        unloadable_app,
+        ["train", "data=coco8.yaml", "model=yolox-s", "batch=-1", "--dry-run", "--json"],
+    )
+    assert result.exit_code == 0, result.output
+    assert json.loads(result.stdout)["resolved_config"]["batch"] == -1
+
+
+def test_missing_cuda_is_device_not_available(monkeypatch):
+    def _cpu_only_torch(*args, **kwargs):
+        raise AssertionError("Torch not compiled with CUDA enabled")
+
+    monkeypatch.setattr("libreyolo.LibreYOLO", _cpu_only_torch)
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
+    app = _make_app([("export", export.export_cmd), ("info", special.info_cmd)])
+
+    cuda = runner.invoke(app, ["export", "model=yolox-s", "device=cuda", "--json"])
+    assert cuda.exit_code == 1, cuda.output
+    assert json.loads(cuda.stdout)["error"] == "device_not_available"
+
+    cpu = runner.invoke(app, ["export", "model=yolox-s", "device=cpu", "--json"])
+    assert cpu.exit_code == 4, cpu.output
+    assert json.loads(cpu.stdout)["error"] == "model_load_failed"
+
+
+class _StrideModel:
+    """Fails like a CNN run at an imgsz that is not a stride multiple."""
+
+    FAMILY = "yolo9"
+    size = "t"
+    task = "detect"
+    device = "cpu"
+
+    def _fail(self, **kwargs):
+        raise RuntimeError(
+            "Sizes of tensors must match except in dimension 1. Expected size 40 "
+            "but got size 41 for tensor number 1 in the list."
+        )
+
+    def train(self, data=None, **kwargs):
+        self._fail()
+
+    val = _fail
+    export = _fail
+
+
+@pytest.mark.parametrize(
+    "command",
+    [["train", "data=coco8.yaml"], ["val", "data=coco8.yaml"], ["export"]],
+    ids=["train", "val", "export"],
+)
+def test_unfit_imgsz_is_invalid_imgsz(monkeypatch, tmp_path, command):
+    for name in ("train", "val", "export"):
+        monkeypatch.setattr(
+            f"libreyolo.cli.commands.{name}.load_model_or_exit",
+            lambda *args, **kwargs: _StrideModel(),
+        )
+    monkeypatch.setattr(
+        "libreyolo.cli.commands.train._create_explicit_task_train_model",
+        lambda **_kwargs: None,
+    )
+    app = _make_app(
+        [("train", train.train_cmd), ("val", val.val_cmd), ("export", export.export_cmd)]
+    )
+    base = [*command, "model=LibreYOLO9t.pt", "--json"]
+    if command[0] != "export":
+        base.append(f"project={tmp_path}")
+
+    bad = runner.invoke(app, [*base, "imgsz=330"])
+    assert bad.exit_code == 2, bad.output
+    assert json.loads(bad.stdout)["error"] == "invalid_imgsz"
+
+    native = runner.invoke(app, base)
+    assert native.exit_code == 1, native.output
+    assert json.loads(native.stdout)["error"] == "io_error"
+
+
+def test_fixed_shape_export_imgsz_error_suggests_the_exported_size(capsys):
+    from libreyolo.cli.command_utils import exit_imgsz_error
+    from libreyolo.cli.output import OutputHandler
+
+    exc = ValueError(
+        "This ONNX model was exported with a fixed 64x64 input and cannot run "
+        "at the requested 96x96 (imgsz)."
+    )
+    with pytest.raises(typer.Exit):
+        exit_imgsz_error(OutputHandler(json_mode=True), exc)
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["error"] == "invalid_imgsz"
+    assert "exported imgsz" in payload["suggestion"]
+    assert "stride" not in payload["suggestion"]
+
+
+def test_missing_resume_checkpoint_is_checkpoint_not_found(monkeypatch, tmp_path):
+    class _Resumable:
+        FAMILY = "rfdetr"
+        device = "cpu"
+
+        def train(self, data, **kwargs):
+            raise FileNotFoundError("Resume checkpoint not found: LibreRFDETRn.pt")
+
+    monkeypatch.setattr(
+        "libreyolo.cli.commands.train._create_explicit_task_train_model",
+        lambda **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        "libreyolo.cli.commands.train.load_model_or_exit",
+        lambda *args, **kwargs: _Resumable(),
+    )
+    app = _make_app([("train", train.train_cmd), ("val", val.val_cmd)])
+    result = runner.invoke(
+        app,
+        ["train", "data=coco8.yaml", "model=rfdetr-n", "resume=true", f"project={tmp_path}", "--json"],
+    )
+
+    assert result.exit_code == 4, result.output
+    data = json.loads(result.stdout)
+    assert data["error"] == "checkpoint_not_found"
+    assert "coco8.yaml" not in data["suggestion"]
+
+
+def test_metadata_of_a_non_checkpoint_is_a_json_error(tmp_path):
+    image = tmp_path / "dog.jpg"
+    image.write_bytes(b"\xff\xd8\xff\xe0 not a checkpoint")
+    app = _make_app([("metadata", special.metadata_cmd), ("info", special.info_cmd)])
+
+    result = runner.invoke(app, ["metadata", f"path={image}", "--json"])
+
+    assert result.exit_code == 4, result.output
+    assert json.loads(result.stdout)["error"] == "model_load_failed"

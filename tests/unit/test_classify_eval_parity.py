@@ -124,10 +124,17 @@ def test_calibration_uses_the_eval_transform(family):
     np.testing.assert_array_equal(array, model._preprocess(_IMAGE)[0][0].numpy())
 
 
-def test_calibration_loader_gets_batches(tmp_path):
-    """The loader dropped every image when the family returned a bare tensor."""
-    from libreyolo.export.calibration import get_calibration_dataloader
+@pytest.mark.parametrize("family", sorted(set(FAMILIES) - {"vjepa2"}))
+def test_calibration_accepts_the_exporter_hw_tuple(family):
+    """The exporter resolves imgsz to ``(h, w)`` before building calibration."""
+    model = _model(family)
+    size = int(model.input_size)
+    array, ratio = model._get_preprocess_numpy()(np.asarray(_IMAGE), (size, size))
+    assert ratio == 1.0
+    np.testing.assert_array_equal(array, model._preprocess(_IMAGE)[0][0].numpy())
 
+
+def _calibration_yaml(tmp_path):
     images = tmp_path / "images"
     images.mkdir()
     for i in range(3):
@@ -135,13 +142,32 @@ def test_calibration_loader_gets_batches(tmp_path):
     (tmp_path / "data.yaml").write_text(
         f"path: {tmp_path}\ntrain: images\nval: images\nnames:\n  0: a\n"
     )
+    return str(tmp_path / "data.yaml")
+
+
+def test_calibration_loader_gets_batches(tmp_path):
+    """The loader dropped every image when the family returned a bare tensor."""
+    from libreyolo.export.calibration import get_calibration_dataloader
+
     model = _model("resnet")
     loader = get_calibration_dataloader(
-        data=str(tmp_path / "data.yaml"),
+        data=_calibration_yaml(tmp_path),
         imgsz=224,
         batch=3,
         fraction=1.0,
         preprocess_fn=model._get_preprocess_numpy(),
+    )
+    batches = list(loader)
+    assert [b.shape for b in batches] == [(3, 3, 224, 224)]
+
+
+def test_exporter_calibration_gets_batches_for_a_classifier(tmp_path):
+    """INT8 export hands the loader ``(h, w)``; no image may be skipped."""
+    from libreyolo.export.exporter import BaseExporter
+
+    exporter = SimpleNamespace(model=_model("resnet"))
+    loader = BaseExporter._load_calibration(
+        exporter, _calibration_yaml(tmp_path), (224, 224), 3, 1.0
     )
     batches = list(loader)
     assert [b.shape for b in batches] == [(3, 3, 224, 224)]

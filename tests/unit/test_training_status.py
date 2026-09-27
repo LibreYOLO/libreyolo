@@ -128,6 +128,40 @@ def test_status_failed_records_error(tmp_path):
     assert "out of memory" in failed["error"]["message"]
 
 
+def test_setup_failure_writes_no_status_in_the_working_directory(tmp_path, monkeypatch):
+    """A run failing during setup has no run directory yet; its failure event
+    carried save_dir='' and status.json landed in the working directory."""
+    from torch import nn
+
+    from libreyolo.training.trainer import BaseTrainer
+
+    class _SetupFails(BaseTrainer):
+        def get_model_family(self):
+            return "yolo9"
+
+        def get_model_tag(self):
+            return "tiny"
+
+        def create_transforms(self):
+            raise NotImplementedError
+
+        def create_scheduler(self, iters_per_epoch):
+            raise NotImplementedError
+
+        def get_loss_components(self, outputs):
+            return {}
+
+        def setup(self):
+            raise FileNotFoundError("dataset images not found")
+
+    monkeypatch.chdir(tmp_path)
+    trainer = _SetupFails(nn.Linear(1, 1), data=None, device="cpu", ema=False)
+
+    with pytest.raises(FileNotFoundError, match="dataset images not found"):
+        trainer.train()
+    assert list(tmp_path.iterdir()) == []
+
+
 def test_status_atomic_write_is_valid_json_every_time(tmp_path):
     """status.json must always parse; never a half-written file."""
     cb = TrainingStatusCallback(write_log=False)

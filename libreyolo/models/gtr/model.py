@@ -40,6 +40,8 @@ class LibreGTR(LibreDFINE):
     }
     DEFAULT_TASK = "detect"
     TRAIN_CONFIG = GTRConfig
+    # GTR resolves resume settings per task itself (_resume_settings).
+    RESUME_RESTORES_TRAIN_ARGS = False
     SUPPORTS_CUDA_GRAPH = False
     val_preprocessor_class = DEIMv2DINOValPreprocessor
     POSE_NUM_KEYPOINTS = 17
@@ -446,6 +448,16 @@ class LibreGTR(LibreDFINE):
         **kwargs,
     ) -> dict:
         """Fine-tune GTR; resume restores saved settings before explicit overrides."""
+        # pretrained=False never gets here: the public train() wrapper rebuilds
+        # the network from scratch and consumes it. True (the CLI default)
+        # fine-tunes the loaded weights; nothing else has a meaning here.
+        pretrained = kwargs.pop("pretrained", None)
+        if pretrained is not None and pretrained is not True:
+            raise ValueError(
+                "GTR train() takes pretrained=True (fine-tune the loaded weights) "
+                f"or pretrained=False (train from scratch), got {pretrained!r}. "
+                "To start from other weights, load them as the model instead."
+            )
         if self.task == "semantic":
             from .sem_trainer import train_semantic
 
@@ -529,7 +541,6 @@ class LibreGTR(LibreDFINE):
 
             config_cls = GTRConfig
 
-        kwargs.pop("pretrained", None)
         resume_path = None
         settings = {}
         if resume:
@@ -549,7 +560,7 @@ class LibreGTR(LibreDFINE):
         settings = {
             key: value
             for key, value in settings.items()
-            if key in valid and key not in {"size", "num_classes", "resume"}
+            if key in valid and key not in self._RESUME_UNRESTORED
         }
         explicit = {
             "data": data,
@@ -569,6 +580,10 @@ class LibreGTR(LibreDFINE):
             {key: value for key, value in explicit.items() if value is not None}
         )
         settings.update(kwargs)
+        if resume_path:
+            settings.update(
+                self._resume_run_settings(resume_path, project, name, exist_ok)
+            )
         if device:
             settings["device"] = device
         settings.setdefault("device", "auto")
@@ -622,6 +637,30 @@ class LibreGTR(LibreDFINE):
         self.model.to(self.device)
         return results
 
+    # Saved settings a resume does not restore. ``device`` follows the call,
+    # as in every other family: a saved multi-GPU spec reached the trainer
+    # without the DDP launcher, which only sees the device passed to train().
+    _RESUME_UNRESTORED = frozenset({"size", "num_classes", "resume", "device"})
+
+    def _resume_run_settings(self, path, project, name, exist_ok=None) -> dict:
+        """Settings that keep a resumed run writing into its own directory.
+
+        The saved config holds the requested base name (``gtr_exp``), not the
+        incremented directory the run wrote to (``gtr_exp2``), so the run is
+        taken from the ``<run>/weights/*.pt`` checkpoint path instead. An
+        explicit ``exist_ok=False`` asks for a new numbered run beside it.
+        """
+        if project is not None or name is not None:
+            return {}
+        checkpoint = self._loaded_run_checkpoint(path)
+        if checkpoint is None:
+            return {}
+        run_dir = checkpoint.parent.parent
+        run = {"project": str(run_dir.parent), "name": run_dir.name}
+        if exist_ok is None:
+            run["exist_ok"] = True
+        return run
+
     def _resume_settings(self, resume, config_cls, overrides):
         """Resolve a resume request to (checkpoint path, merged settings).
 
@@ -640,9 +679,12 @@ class LibreGTR(LibreDFINE):
         saved = {
             key: value
             for key, value in (self._checkpoint_train_config(path) or {}).items()
-            if key in valid and key not in {"size", "num_classes", "resume"}
+            if key in valid and key not in self._RESUME_UNRESTORED
         }
-        return str(path), {**saved, **explicit}
+        run = self._resume_run_settings(
+            path, explicit.get("project"), explicit.get("name"), explicit.get("exist_ok")
+        )
+        return str(path), {**saved, **explicit, **run}
 
     def _train_pose(
         self, data, *, device="", resume=False, callbacks=None, loggers=None, **kwargs
@@ -652,7 +694,6 @@ class LibreGTR(LibreDFINE):
 
         from .pose_trainer import GTRPoseConfig, GTRPoseTrainer
 
-        kwargs.pop("pretrained", None)
         resume_path, kwargs = self._resume_settings(
             resume, GTRPoseConfig, {"data": data, **kwargs}
         )

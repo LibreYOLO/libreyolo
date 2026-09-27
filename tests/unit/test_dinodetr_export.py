@@ -106,3 +106,17 @@ def test_ncnn_export_is_rejected_before_conversion(tmp_path):
             imgsz=240,
             output_path=str(tmp_path / "dinodetr_ncnn"),
         )
+
+
+def test_onnx_export_traces_on_cpu_when_the_model_is_on_cuda(tmp_path):
+    # Tracing the two-stage top-k graph on CUDA can kill the process natively.
+    from libreyolo import LibreDINODETR
+    from libreyolo.export.exporter import OnnxExporter
+
+    model = LibreDINODETR(None, size="r50", nb_classes=3, device="cpu")
+    exporter = OnnxExporter(model)
+    with pytest.warns(RuntimeWarning, match="DINO-DETR ONNX export is traced on CPU"):
+        _, device, _ = exporter._resolve_params(
+            str(tmp_path / "dinodetr.onnx"), 128, "cuda", False, False
+        )
+    assert device == torch.device("cpu")

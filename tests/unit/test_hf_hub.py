@@ -85,6 +85,61 @@ def test_parse_rejects_when_owner_is_local_dir(tmp_path, monkeypatch):
     assert parse_hub_reference("runs/exp1") is None
 
 
+@pytest.mark.parametrize(
+    "path",
+    [
+        "ckpts/model_best.pth.tar",
+        "ckpts/last.ckpt",
+        "cfg/yolov4.weights",
+        "paddle/model.pdparams",
+        "keras/model.h5",
+        "models/librefacerec-l",
+        "models/librefacerec-l.onnx",
+    ],
+)
+def test_parse_keeps_missing_local_style_paths_local(tmp_path, monkeypatch, path):
+    monkeypatch.chdir(tmp_path)
+    assert parse_hub_reference(path) is None
+    assert not hf_hub.looks_like_repo_id(path)
+
+
+def test_parse_keeps_versioned_repo_ids_on_the_hub(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    assert parse_hub_reference("someuser/yolo9-v1.5") == HubRef("someuser/yolo9-v1.5")
+    assert parse_hub_reference("hf://models/librefacerec-l") == HubRef(
+        "models/librefacerec-l"
+    )
+
+
+def _no_hub(*args, **kwargs):
+    raise AssertionError("local-style path must not reach the Hub")
+
+
+def test_factory_routes_librefacerec_path_to_auto_download(tmp_path, monkeypatch):
+    import libreyolo.models.facerec as facerec
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(hf_hub, "resolve_hub_checkpoint", _no_hub)
+    seen = []
+    monkeypatch.setattr(
+        facerec, "LibreFaceEmbedder", lambda path, device: seen.append(path)
+    )
+
+    LibreYOLO("models/librefacerec-l", device="cpu")
+
+    assert seen == ["models/librefacerec-l"]
+
+
+def test_factory_missing_local_checkpoint_does_not_reach_the_hub(
+    tmp_path, monkeypatch
+):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(hf_hub, "resolve_hub_checkpoint", _no_hub)
+
+    with pytest.raises(ValueError, match="Model weights file not found"):
+        LibreYOLO("ckpts/model_best.pth.tar", device="cpu")
+
+
 # ---------------------------------------------------------------------------
 # Repo file selection
 # ---------------------------------------------------------------------------

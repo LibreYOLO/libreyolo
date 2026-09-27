@@ -22,6 +22,7 @@ def rewrite_known_bool_flags(
     args: list[str],
     bool_flags: set[str],
     negatable: Optional[set[str]] = None,
+    value_options: Optional[set[str]] = None,
 ) -> list[str]:
     """Rewrite known bool flags from key=value or bare-word syntax.
 
@@ -33,11 +34,24 @@ def rewrite_known_bool_flags(
     ``--quiet``) that have no negative form, ``key=false`` drops the flag
     entirely instead of emitting a nonexistent ``--no-<flag>`` (which Click
     would reject with "No such option").
+
+    ``value_options`` are ``--key`` options that take a value: the token after
+    one is that value and is passed through untouched (``--name show``).
     """
     if negatable is None:
         negatable = set()
+    value_options = value_options or set()
     new_args: list[str] = []
+    takes_value = False
     for arg in args:
+        if takes_value:
+            new_args.append(arg)
+            takes_value = False
+            continue
+        if arg in value_options:
+            new_args.append(arg)
+            takes_value = True
+            continue
         m = re.match(r"^([a-zA-Z_][a-zA-Z0-9_-]*)=(.*)$", arg)
         if m:
             key, value = m.group(1), m.group(2)
@@ -58,6 +72,27 @@ def rewrite_known_bool_flags(
     return new_args
 
 
+def _usage_error_types() -> tuple[type[Exception], ...]:
+    """Click's UsageError, plus the copy newer Typer versions vendor."""
+    types: list[type[Exception]] = [click.exceptions.UsageError]
+    try:
+        from typer._click.exceptions import UsageError as VendoredUsageError
+    except ImportError:
+        pass
+    else:
+        types.append(VendoredUsageError)
+    return tuple(types)
+
+
+def _usage_error_code(exc: Exception) -> str:
+    names = {cls.__name__ for cls in type(exc).__mro__}
+    if "NoSuchOption" in names or "unexpected extra argument" in str(exc):
+        return "config_unknown_key"
+    if "MissingParameter" in names:
+        return "config_required_key"
+    return "config_type_error"
+
+
 class KeyValueCommand(TyperCommand):
     """Typer command that accepts both key=value and --key value syntax."""
 
@@ -67,11 +102,14 @@ class KeyValueCommand(TyperCommand):
         # (TyperOption may not be a direct subclass of click.Option in all envs).
         bool_flags: set[str] = set()
         negatable: set[str] = set()
+        value_options: set[str] = set()
         cli_to_param: dict[str, str] = {}
         for param in self.params:
             if not getattr(param, "opts", None):
                 continue
             param_name = getattr(param, "name", None)
+            if not getattr(param, "is_flag", False):
+                value_options.update(o for o in param.opts if o.startswith("--"))
             for opt in param.opts:
                 if opt.startswith("--"):
                     cli_key = opt.lstrip("-").replace("-", "_")
@@ -104,8 +142,13 @@ class KeyValueCommand(TyperCommand):
         # them without relying on click's ParameterSource tracking (which can
         # be unreliable inside typer's test runner on some Python versions).
         user_provided: set[str] = set()
+        takes_value = False
         for arg in args:
+            if takes_value:
+                takes_value = False
+                continue
             if arg.startswith("--"):
+                takes_value = arg in value_options
                 raw = arg.lstrip("-").split("=")[0].replace("-", "_")
                 user_provided.add(cli_to_param.get(raw, raw))
             elif re.match(r"^[a-zA-Z_][a-zA-Z0-9_-]*=", arg):
@@ -118,9 +161,17 @@ class KeyValueCommand(TyperCommand):
                     user_provided.add(cli_to_param.get(key, key))
         ctx.meta["user_provided"] = user_provided
 
-        new_args = rewrite_known_bool_flags(args, bool_flags, negatable)
+        new_args = rewrite_known_bool_flags(
+            args, bool_flags, negatable, value_options
+        )
         parsed_args: list[str] = []
+        takes_value = False
         for arg in new_args:
+            # The value of a preceding ``--key`` is never rewritten.
+            if takes_value or arg in value_options:
+                parsed_args.append(arg)
+                takes_value = not takes_value
+                continue
             # Match key=value pattern (key must start with letter or underscore)
             m = re.match(r"^([a-zA-Z_][a-zA-Z0-9_-]*)=(.*)$", arg)
             if m:
@@ -133,7 +184,33 @@ class KeyValueCommand(TyperCommand):
             else:
                 parsed_args.append(arg)
 
-        return super().parse_args(ctx, parsed_args)
+        # Click's parser consumes the list, so check for --json up front.
+        json_requested = "--json" in parsed_args
+        try:
+            return super().parse_args(ctx, parsed_args)
+        except _usage_error_types() as exc:
+            if not json_requested:
+                raise
+            # --json promises a machine-readable error, usage errors included.
+            from .errors import CLIError
+            from .output import OutputHandler
+
+            possibilities = getattr(exc, "possibilities", None) or []
+            if possibilities:
+                suggestion = f"Did you mean '{possibilities[0].lstrip('-').replace('-', '_')}'?"
+            else:
+                suggestion = f"Run 'libreyolo {ctx.info_name} --help' for valid options."
+            err = CLIError(_usage_error_code(exc), exc.format_message(), suggestion)
+            OutputHandler(json_mode=True).error(err)
+            ctx.exit(err.exit_code)
+
+    def invoke(self, ctx: click.Context) -> Any:
+        if ctx.params.get("json_output"):
+            from .output import stdout_reserved_for_json
+
+            with stdout_reserved_for_json():
+                return super().invoke(ctx)
+        return super().invoke(ctx)
 
 
 class PythonLiteral(click.ParamType):

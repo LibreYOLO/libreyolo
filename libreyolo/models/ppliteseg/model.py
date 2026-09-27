@@ -506,10 +506,10 @@ class LibrePPLiteSeg(BaseModel):
         device: str = "",
         workers: int = 4,
         seed: int = 0,
-        project: str = "runs/train",
-        name: str = "ppliteseg_exp",
+        project: Optional[str] = None,
+        name: Optional[str] = None,
         exist_ok: bool = False,
-        resume: bool = False,
+        resume: bool | str | Path = False,
         amp: bool = False,
         callbacks: TrainCallbacks = None,
         loggers=None,
@@ -524,8 +524,33 @@ class LibrePPLiteSeg(BaseModel):
 
         The released recipe keeps mixed precision off; ``amp`` defaults to
         ``False`` to match it rather than silently changing the recipe.
+
+        ``resume=True`` resumes the loaded checkpoint and, when that is a run's
+        ``weights/*.pt``, keeps writing into that run; a path resumes from that
+        file. ``project``/``name`` default to ``runs/train/ppliteseg_exp``.
         """
         from .trainer import PPLiteSegTrainer
+
+        resume_path = None
+        if resume:
+            if resume is True:
+                run_checkpoint = self._loaded_run_checkpoint()
+                if run_checkpoint is not None and project is None and name is None:
+                    project = str(run_checkpoint.parent.parent.parent)
+                    name = run_checkpoint.parent.parent.name
+                    # Never let _get_save_dir() increment away from the run.
+                    exist_ok = True
+                resume_path = self.model_path
+            else:
+                resume_path = resume
+            if not resume_path:
+                raise ValueError(
+                    "resume=True requires a checkpoint; load last.pt before training."
+                )
+        if project is None:
+            project = "runs/train"
+        if name is None:
+            name = "ppliteseg_exp"
 
         train_imgsz = imgsz if imgsz is not None else self.semantic_train_imgsz
         train_h, train_w = _input_size_hw(train_imgsz)
@@ -548,7 +573,7 @@ class LibrePPLiteSeg(BaseModel):
             project=project,
             name=name,
             exist_ok=exist_ok,
-            resume=resume,
+            resume=bool(resume_path),
             amp=amp,
             **kwargs,
         )
@@ -562,6 +587,9 @@ class LibrePPLiteSeg(BaseModel):
             loggers=loggers,
             **train_kwargs,
         )
+        if resume_path:
+            trainer.setup()
+            trainer.resume(str(resume_path))
         result = trainer.train()
         self._restore_after_training(result)
         return result

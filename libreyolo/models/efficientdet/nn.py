@@ -13,6 +13,7 @@ and head BatchNorm additionally use momentum 0.01, matching ``effdet``'s
 from __future__ import annotations
 
 import math
+import warnings
 from collections import OrderedDict
 from typing import Dict, List, Sequence, Tuple
 
@@ -68,6 +69,13 @@ def _pad_same(
     value: float = 0.0,
 ) -> torch.Tensor:
     height, width = x.shape[-2:]
+    if torch.jit.is_tracing():
+        # Export graphs have a fixed H/W. Bake the pads as constants: traced
+        # shape arithmetic is folded to wrong pads by onnxsim when the batch
+        # axis is dynamic.
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", torch.jit.TracerWarning)
+            height, width = int(height), int(width)
     pad_h = _same_padding(height, kernel_size[0], stride[0], dilation[0])
     pad_w = _same_padding(width, kernel_size[1], stride[1], dilation[1])
     if pad_h or pad_w:

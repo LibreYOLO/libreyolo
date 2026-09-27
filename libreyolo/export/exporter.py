@@ -19,6 +19,7 @@ from typing import Optional, Tuple, Union
 import torch
 
 from ..tasks import task_to_suffix
+from ..utils.image_size import round_imgsz_to_stride
 from ..utils.serialization import SCHEMA_VERSION
 from .onnx import (
     _get_version,
@@ -105,6 +106,31 @@ def _restore_rfdetr_export_state(snapshots):
             module._export = state["export"]
 
 
+def _snapshot_tensor_slots(root):
+    """Record every parameter and buffer slot of ``root`` with its tensor.
+
+    ``Module.half()``/``.to()`` rebind parameter data and replace buffer
+    tensors rather than writing into them, so keeping the original tensors
+    is enough to restore exact values, dtype and device afterwards.
+    """
+    slots = []
+    for module in root.modules():
+        for name, param in module._parameters.items():
+            if param is not None:
+                slots.append((module._parameters, name, param, param.data))
+        for name, buf in module._buffers.items():
+            if buf is not None:
+                slots.append((module._buffers, name, buf, None))
+    return slots
+
+
+def _restore_tensor_slots(slots):
+    for store, name, tensor, data in slots:
+        store[name] = tensor
+        if data is not None:
+            tensor.data = data
+
+
 def _classify_eval_metadata(model) -> dict:
     """The model's classification eval pipeline as flat export metadata (#886).
 
@@ -128,6 +154,16 @@ def _classify_eval_metadata(model) -> dict:
     if resize_mode is not None:
         meta["resize_mode"] = str(resize_mode)
     return meta
+
+
+def _letterbox_pad_metadata(model) -> dict:
+    """YOLO9-family letterbox placement, so exported runtimes pad like the .pt."""
+    pad = getattr(model, "letterbox_pad", None)
+    if pad is None:
+        return {}
+    from ..preprocess.letterbox import normalize_letterbox_pad
+
+    return {"letterbox_pad": normalize_letterbox_pad(pad)}
 
 
 def _pose_keypoint_shape_metadata(model) -> dict:
@@ -492,12 +528,34 @@ class BaseExporter(ABC):
     apply_model_half: bool  # whether to cast model to fp16 (only ONNX/TorchScript)
     supports_embedded_nms: bool = False
     default_int8_calibration_data: bool = False
+    # Export options read with kwargs.get() rather than named parameters;
+    # the rest are the named parameters of __call__, _preflight and _export.
+    _extra_export_kwargs: frozenset[str] = frozenset({"nms", "deepstream"})
 
     def __init_subclass__(cls, **kwargs):
         super().__init_subclass__(**kwargs)
         name = getattr(cls, "format_name", None)
         if name is not None:
             BaseExporter._registry[name] = cls
+
+    @classmethod
+    def _accepted_export_kwargs(cls) -> set[str]:
+        """Export options this format uses, from its signatures."""
+        import inspect
+
+        accepted = set(cls._extra_export_kwargs)
+        for klass in cls.__mro__:
+            for method in ("__call__", "_preflight", "_export"):
+                function = klass.__dict__.get(method)
+                if function is None:
+                    continue
+                accepted.update(
+                    parameter.name
+                    for parameter in inspect.signature(function).parameters.values()
+                    if parameter.kind
+                    in (parameter.KEYWORD_ONLY, parameter.POSITIONAL_OR_KEYWORD)
+                )
+        return accepted
 
     def __init__(self, model):
         self.model = model
@@ -536,6 +594,7 @@ class BaseExporter(ABC):
         fraction: float = 1.0,
         allow_download_scripts: bool = False,
         verbose: bool = False,
+        quantize: Optional[Union[int, str]] = None,
         **kwargs,
     ) -> str:
         """Export the model.
@@ -555,7 +614,10 @@ class BaseExporter(ABC):
             fraction: Fraction of calibration dataset to use (default: 1.0).
             allow_download_scripts: Allow embedded Python in dataset YAML downloads.
             verbose: Enable verbose logging (default: False).
+            quantize: Precision as the ecosystem spells it: 16 (FP16, as
+                ``half=True``), 8 (INT8, as ``int8=True``) or 32 (FP32).
             **kwargs: Format-specific parameters forwarded to ``_export()``.
+                Options the format does not use are warned about and ignored.
 
         Returns:
             Path to the exported model file.
@@ -565,6 +627,21 @@ class BaseExporter(ABC):
         # (reconstructing fp32 masters, enabling export mode) also wait for
         # every request rejection.
         pre_trace_hook = kwargs.pop("_pre_trace_hook", None)
+        unknown = sorted(set(kwargs) - self._accepted_export_kwargs())
+        if unknown:
+            warnings.warn(
+                f"Unknown {self.format_name} export arguments (ignored): {unknown}",
+                stacklevel=3,
+            )
+        if quantize is not None:
+            precision = {"16": "fp16", "8": "int8", "32": "fp32"}.get(str(quantize))
+            if precision is None:
+                raise ValueError(f"quantize must be 16, 8 or 32, got {quantize!r}.")
+            if (half and precision != "fp16") or (int8 and precision != "int8"):
+                raise ValueError(
+                    f"quantize={quantize!r} conflicts with half={half}, int8={int8}."
+                )
+            half, int8 = precision == "fp16", precision == "int8"
         if isinstance(getattr(self.model, "input_profile", None), dict):
             if self.format_name != "onnx" or half or int8 or kwargs.get("nms", False):
                 raise ValueError(
@@ -910,7 +987,7 @@ class BaseExporter(ABC):
                 imgsz = self._square_fallback_for_restored_rect(imgsz, model_name)
             else:
                 imgsz = (int(native_imgsz), int(native_imgsz))
-        elif isinstance(imgsz, tuple):
+        elif isinstance(imgsz, (tuple, list)):
             if len(imgsz) != 2:
                 raise ValueError(f"imgsz tuple must be (height, width), got {imgsz}")
             imgsz = (int(imgsz[0]), int(imgsz[1]))
@@ -918,6 +995,7 @@ class BaseExporter(ABC):
             imgsz = (int(imgsz), int(imgsz))
         if imgsz[0] <= 0 or imgsz[1] <= 0:
             raise ValueError(f"imgsz values must be positive, got {imgsz}.")
+        imgsz = round_imgsz_to_stride(self.model, imgsz, "export")
         if model_name == "ben2":
             native_shape = (
                 (int(native_imgsz[0]), int(native_imgsz[1]))
@@ -1081,6 +1159,11 @@ class BaseExporter(ABC):
         root_model = nn_model
         original_training = root_model.training
         root_model.eval()
+
+        # A half-precision export must leave the caller's model untouched;
+        # casting back with float() would keep the fp16 rounding.
+        apply_half = half and not int8 and self.apply_model_half
+        tensor_slots = _snapshot_tensor_slots(root_model) if apply_half else None
 
         original_device = next(root_model.parameters()).device
         root_model.to(device)
@@ -1431,7 +1514,7 @@ class BaseExporter(ABC):
             channels = 2 if isinstance(getattr(self.model, "input_profile", None), dict) else 3
             dummy = torch.randn(batch, channels, h, w, device=device)
 
-        if half and not int8 and self.apply_model_half:
+        if apply_half:
             nn_model.half()
             dummy = dummy.half()
 
@@ -1446,9 +1529,8 @@ class BaseExporter(ABC):
                 _restore_rfdetr_export_state(rfdetr_export_snapshots)
             nn_model.to(original_device)
             root_model.to(original_device)
-            if half and not int8 and self.apply_model_half:
-                nn_model.float()
-                root_model.float()
+            if tensor_slots is not None:
+                _restore_tensor_slots(tensor_slots)
             if original_training:
                 root_model.train()
                 nn_model.train()
@@ -1565,6 +1647,7 @@ class BaseExporter(ABC):
         }
         if onnx_path is not None:
             meta["exported_from"] = str(Path(onnx_path).name)
+        meta.update(_letterbox_pad_metadata(self.model))
         # Classification eval preprocessing must travel with every artifact,
         # not just ONNX. Exported-backend predict() otherwise falls back to
         # crop_pct=0.875 and bilinear resize, which changes classifier logits
@@ -1641,6 +1724,7 @@ class BaseExporter(ABC):
         from ..utils.event_histogram import input_metadata
         for key, value in input_metadata(self.model).items():
             meta[key] = json.dumps(value) if isinstance(value, dict) else str(value)
+        meta.update(_letterbox_pad_metadata(self.model))
         # Classification eval preprocessing — lets exported-backend inference
         # and validation match native predict()/val() (#886).
         for key, value in _classify_eval_metadata(self.model).items():
@@ -1728,21 +1812,23 @@ class OnnxExporter(BaseExporter):
         )
         family = self.model._get_model_name()
         size = getattr(self.model, "size", None)
-        if family == "deformable_detr" and size == "r50twostage":
-            if half:
-                raise NotImplementedError(
-                    "Deformable DETR two-stage ONNX export is validated in FP32 only."
-                )
-            if device.type != "cpu":
-                warnings.warn(
-                    "Deformable DETR two-stage ONNX export is traced on CPU because "
-                    "the legacy PyTorch exporter can terminate while lowering its "
-                    "CUDA top-k graph. The model is restored to its original device "
-                    "after export.",
-                    RuntimeWarning,
-                    stacklevel=3,
-                )
-                device = torch.device("cpu")
+        two_stage = family == "deformable_detr" and size == "r50twostage"
+        if two_stage and half:
+            raise NotImplementedError(
+                "Deformable DETR two-stage ONNX export is validated in FP32 only."
+            )
+        # DINO-DETR selects its queries with the same two-stage encoder top-k.
+        if (two_stage or family == "dinodetr") and device.type != "cpu":
+            label = "DINO-DETR" if family == "dinodetr" else "Deformable DETR two-stage"
+            warnings.warn(
+                f"{label} ONNX export is traced on CPU because "
+                "the legacy PyTorch exporter can terminate while lowering its "
+                "CUDA top-k graph. The model is restored to its original device "
+                "after export.",
+                RuntimeWarning,
+                stacklevel=3,
+            )
+            device = torch.device("cpu")
         return imgsz, device, output_path
 
     def _preflight(self, *, half: bool, int8: bool, data: Optional[str], **kwargs):
@@ -1883,6 +1969,7 @@ class OnnxExporter(BaseExporter):
                 conf=conf,
                 iou=iou,
                 task=ds_task,
+                letterbox_pad=_letterbox_pad_metadata(self.model).get("letterbox_pad"),
             )
 
         if int8:
@@ -1908,6 +1995,16 @@ class OnnxExporter(BaseExporter):
                     nms=nms,
                     deepstream=deepstream,
                 )
+                # Without explicit nodes_to_exclude, the family's float
+                # layers (YOLO9: first conv and the head) stay float, as in
+                # model.quantize().
+                keep_high_precision = ()
+                if nodes_to_exclude is None:
+                    from ..quant.api import default_keep_high_precision
+
+                    keep_high_precision = default_keep_high_precision(
+                        self.model._get_model_name()
+                    )
                 result = quantize_onnx_int8(
                     fp32_path,
                     output_path,
@@ -1916,7 +2013,11 @@ class OnnxExporter(BaseExporter):
                     preprocessed_path=preprocessed_path,
                     calibrate_method=calibrate_method,
                     nodes_to_exclude=nodes_to_exclude,
-                    skip_symbolic_shape=nms,
+                    # ORT symbolic shape inference fails on dynamic-batch
+                    # and embedded-NMS graphs ("Incomplete symbolic shape
+                    # inference"); plain ONNX shape inference still runs.
+                    skip_symbolic_shape=nms or dynamic,
+                    keep_high_precision=keep_high_precision,
                 )
                 _write_deepstream_sidecars(result)
                 return result
@@ -2730,6 +2831,7 @@ class CoreMLExporter(BaseExporter):
     supports_fp16 = True
     apply_model_half = False  # ct.convert handles precision via compute_precision
     supports_embedded_nms = True
+    _extra_export_kwargs = BaseExporter._extra_export_kwargs | {"max_det"}
 
     def _preflight(self, *, half: bool, int8: bool, data: Optional[str], **kwargs):
         if kwargs.get("nms"):

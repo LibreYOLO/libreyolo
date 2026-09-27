@@ -146,6 +146,11 @@ def test_checkpoint_unavailable_reason_is_weight_specific():
         ValueError("Could not determine download URL for 'missing.pt'.")
     )
     assert _checkpoint_unavailable_reason(
+        FileNotFoundError(
+            "No weights are published at https://example.test/model.pt (HTTP 401)"
+        )
+    )
+    assert _checkpoint_unavailable_reason(
         FileNotFoundError("annotations file not found")
     ) is None
     assert _checkpoint_unavailable_reason(RuntimeError("ONNX export failed")) is None

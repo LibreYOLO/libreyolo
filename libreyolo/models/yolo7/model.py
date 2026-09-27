@@ -46,6 +46,7 @@ class LibreYOLO7(BaseModel):
     # Machine-readable "trainable" flag: the CLI discovers family training
     # defaults through this (cli/config.py); None would mean inference-only.
     TRAIN_CONFIG = YOLOv7Config
+    RESUME_RESTORES_TRAIN_ARGS = True
 
     # =====================================================================
     # Registry classmethods
@@ -285,13 +286,8 @@ class LibreYOLO7(BaseModel):
         )
 
         if resume:
-            if not self.model_path:
-                raise ValueError(
-                    "resume=True requires a checkpoint. Load one first: "
-                    "model = LibreYOLO('last.pt'); model.train(data=..., resume=True)"
-                )
             trainer.setup()
-            trainer.resume(str(self.model_path))
+            trainer.resume(self._resume_checkpoint(resume))
 
         results = trainer.train()
 

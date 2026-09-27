@@ -560,6 +560,153 @@ def test_dinov2_semantic_resume_continues_same_run_dir(fake_backbone, tmp_path):
     # only epoch index 1 trained, not epochs 0 and 1 from scratch.
     assert len(res2["epoch_losses"]) == 1
 
+    # An explicit exist_ok=False resumes into a new numbered run instead.
+    m3 = LibreDINOv2(
+        model_path=None, size="n", task="semantic", nb_classes=2, device="cpu"
+    )
+    m3.train(
+        data=str(yaml_path),
+        epochs=3,
+        batch=2,
+        imgsz=70,
+        workers=0,
+        eval_interval=0,
+        project=str(runs_root),
+        name="resume_test",
+        resume=True,
+        exist_ok=False,
+        amp=False,
+        ema=False,
+        warmup_epochs=0,
+    )
+    assert (runs_root / "resume_test2").exists()
+
+
+def test_dinov2_resume_path_continues_that_run(fake_backbone, tmp_path, monkeypatch):
+    """resume='<run>/weights/last.pt' wrote into a new default run instead of
+    the run the checkpoint came from."""
+    import libreyolo.models.dinov2.trainer as dinov2_trainer
+    from libreyolo.models.dinov2.model import LibreDINOv2
+
+    captured = {}
+
+    class _Trainer:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+        def setup(self):
+            pass
+
+        def resume(self, path):
+            captured["resumed_from"] = path
+
+        def train(self):
+            return {}
+
+    monkeypatch.setattr(dinov2_trainer, "DINOv2Trainer", _Trainer)
+    checkpoint = tmp_path / "runs" / "dinov2_exp4" / "weights" / "last.pt"
+    checkpoint.parent.mkdir(parents=True)
+    checkpoint.write_bytes(b"")
+    model = LibreDINOv2(
+        model_path=None, size="n", task="semantic", nb_classes=2, device="cpu"
+    )
+
+    model.train(data="unused.yaml", resume=str(checkpoint))
+
+    assert captured["resumed_from"] == str(checkpoint)
+    assert (captured["project"], captured["name"]) == (
+        str(tmp_path / "runs"),
+        "dinov2_exp4",
+    )
+    assert captured["exist_ok"] is True
+
+
+def test_dinov2_semantic_resume_keeps_best_metric(
+    fake_backbone, tmp_path, monkeypatch
+):
+    """Semantic checkpoints record metrics/mIoU; resume must restore that best
+    score instead of resetting it, or the first resumed epoch overwrites
+    best.pt regardless of its score."""
+    from libreyolo.models.dinov2.model import LibreDINOv2
+    from libreyolo.models.dinov2.trainer import DINOv2Trainer
+    from libreyolo.utils.serialization import load_trusted_torch_file
+
+    yaml_path = _make_semantic_yaml(tmp_path)
+    common = dict(
+        data=str(yaml_path),
+        batch=2,
+        imgsz=70,
+        workers=0,
+        eval_interval=1,
+        project=str(tmp_path / "runs"),
+        name="best_resume",
+        amp=False,
+        ema=False,
+        warmup_epochs=0,
+    )
+    first = LibreDINOv2(
+        model_path=None, size="n", task="semantic", nb_classes=2, device="cpu"
+    )
+    res = first.train(epochs=1, **common)
+    saved = load_trusted_torch_file(
+        res["last_checkpoint"], map_location="cpu", context="test"
+    )
+    assert saved["best_metric_key"] == "metrics/mIoU"
+
+    restored = {}
+    original_resume = DINOv2Trainer.resume
+
+    def _spy_resume(self, checkpoint_path):
+        original_resume(self, checkpoint_path)
+        restored["epoch"] = self.best_epoch
+        restored["value"] = self.best_mAP50_95
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(DINOv2Trainer, "resume", _spy_resume)
+    second = LibreDINOv2(
+        model_path=None, size="n", task="semantic", nb_classes=2, device="cpu"
+    )
+    with pytest.raises(KeyboardInterrupt):
+        second.train(epochs=2, resume=True, **common)
+
+    assert restored["epoch"] == saved["best_epoch"] >= 1
+    assert restored["value"] == pytest.approx(saved["best_metric_value"])
+
+
+@pytest.mark.parametrize(
+    ("task", "key"),
+    [("semantic", "metrics/mIoU"), ("classify", "metrics/accuracy_top1")],
+)
+def test_dinov2_trainer_best_metric_key_matches_task(fake_backbone, task, key):
+    from libreyolo.models.dinov2.model import LibreDINOv2
+    from libreyolo.models.dinov2.trainer import DINOv2Trainer
+
+    m = LibreDINOv2(model_path=None, size="n", task=task, nb_classes=2, device="cpu")
+    trainer = DINOv2Trainer(
+        model=m.model, wrapper_model=m, data="unused.yaml", size="n", device="cpu"
+    )
+
+    assert trainer.best_metric_key == key
+
+
+@pytest.mark.parametrize("key", ["batch", "batch_size"])
+def test_dinov2_train_uses_requested_batch(fake_backbone, tmp_path, monkeypatch, key):
+    from libreyolo.models.dinov2.model import LibreDINOv2
+    from libreyolo.models.dinov2.trainer import DINOv2Trainer
+
+    captured = {}
+    monkeypatch.setattr(
+        DINOv2Trainer, "train", lambda self: captured.update(batch=self.config.batch) or {}
+    )
+    m = LibreDINOv2(model_path=None, size="n", task="semantic", nb_classes=2, device="cpu")
+    m.train(
+        data=str(_make_semantic_yaml(tmp_path)),
+        project=str(tmp_path / "runs"),
+        **{key: 3},
+    )
+
+    assert captured["batch"] == 3
+
 
 @pytest.mark.external_data
 @pytest.mark.network
@@ -717,3 +864,41 @@ def test_dinov2_semantic_rejects_lora(fake_backbone, tmp_path, monkeypatch):
             warmup_epochs=0,
             lora=True,
         )
+
+
+def test_dinov2_resume_without_data_uses_the_saved_dataset(fake_backbone, tmp_path, monkeypatch):
+    """train(resume=True) with no data= restores the checkpoint's dataset."""
+    from libreyolo.models.dinov2 import trainer as dinov2_trainer
+    from libreyolo.models.dinov2.model import LibreDINOv2
+
+    yaml_path = _make_semantic_yaml(tmp_path)
+    common = dict(
+        batch=2, imgsz=70, workers=0, eval_interval=0, amp=False, ema=False,
+        warmup_epochs=0, project=str(tmp_path / "runs"), name="nodata",
+    )
+    first = LibreDINOv2(model_path=None, size="n", task="semantic", nb_classes=2, device="cpu")
+    res = first.train(data=str(yaml_path), epochs=1, **common)
+
+    seen = {}
+    original_init = dinov2_trainer.DINOv2Trainer.__init__
+
+    def _spy_init(self, *args, **kwargs):
+        seen["data"] = kwargs.get("data")
+        original_init(self, *args, **kwargs)
+
+    monkeypatch.setattr(dinov2_trainer.DINOv2Trainer, "__init__", _spy_init)
+    resumed = LibreDINOv2(
+        model_path=res["last_checkpoint"], size="n", task="semantic", nb_classes=2, device="cpu"
+    )
+    resumed.train(epochs=2, resume=True, **{k: v for k, v in common.items() if k not in ("project", "name")})
+
+    assert seen["data"] and seen["data"].endswith(".yaml")
+
+
+def test_dinov2_train_without_data_says_so(fake_backbone):
+    from libreyolo.models.dinov2.model import LibreDINOv2
+
+    model = LibreDINOv2(model_path=None, size="n", task="semantic", nb_classes=2, device="cpu")
+    with pytest.raises(ValueError, match="needs data="):
+        model.train(epochs=1)
+

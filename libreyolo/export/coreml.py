@@ -114,9 +114,16 @@ def _prepare_yolo9_static_eval(nn_model: nn.Module, dummy: torch.Tensor):
         return lambda: None
 
     # Warm-up forward: input values are irrelevant — anchors depend only on
-    # the feature-map geometry, which is fixed by dummy's H/W.
-    with torch.no_grad():
-        nn_model(dummy)
+    # the feature-map geometry, which is fixed by dummy's H/W. The exporter
+    # already set ``head.export``, and that branch skips the anchor cache, so
+    # warm up without it or the frozen tensors stay empty (IndexError below).
+    was_export = getattr(head, "export", False)
+    head.export = False
+    try:
+        with torch.no_grad():
+            nn_model(dummy)
+    finally:
+        head.export = was_export
 
     frozen_anchors = head.anchors.detach().clone()
     frozen_strides = head.strides.detach().clone()

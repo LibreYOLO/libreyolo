@@ -210,3 +210,179 @@ def test_family_train_methods_are_auto_wrapped(import_path, class_name):
     assert getattr(cls.train, "_libreyolo_cfg_wrapped", False) is True, (
         f"{class_name}.train is not cfg-wrapped"
     )
+
+
+def test_python_mosaic_sets_mosaic_prob_like_the_cli():
+    """train(mosaic=0) warned 'Unknown training config keys (ignored)' and kept
+    mosaic on, while the CLI maps mosaic to mosaic_prob."""
+    import warnings
+
+    from libreyolo.training.config import YOLO9Config
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        assert YOLO9Config.from_kwargs(mosaic=0).mosaic_prob == 0
+    assert YOLO9Config.from_kwargs(mosaic=0.5, mosaic_prob=0.5).mosaic_prob == 0.5
+    with pytest.raises(ValueError, match="Conflicting mosaic values"):
+        YOLO9Config.from_kwargs(mosaic=0, mosaic_prob=1.0)
+
+
+@pytest.fixture
+def train_config_of(monkeypatch):
+    """Run a real train() up to the trainer config, then stop."""
+    from libreyolo.training.trainer import BaseTrainer
+
+    class _Built(Exception):
+        pass
+
+    real_init = BaseTrainer.__init__
+
+    def init(self, *args, **kwargs):
+        real_init(self, *args, **kwargs)
+        raise _Built(self.config)
+
+    monkeypatch.setattr(BaseTrainer, "__init__", init)
+
+    def run(model, **kwargs):
+        import warnings
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")  # no "Unknown training config keys"
+            with pytest.raises(_Built) as built:
+                model.train(**kwargs)
+        return built.value.args[0]
+
+    return run
+
+
+@pytest.fixture
+def detect_yaml(tmp_path):
+    import yaml
+    from PIL import Image
+
+    root = tmp_path / "data"
+    for split in ("train", "val"):
+        (root / "images" / split).mkdir(parents=True)
+        (root / "labels" / split).mkdir(parents=True)
+        Image.new("RGB", (32, 32)).save(root / "images" / split / "a.jpg")
+        (root / "labels" / split / "a.txt").write_text("0 0.5 0.5 0.2 0.2\n")
+    path = root / "data.yaml"
+    path.write_text(yaml.safe_dump({"path": str(root), "train": "images/train",
+                                    "val": "images/val", "names": {0: "a"}}))
+    return str(path)
+
+
+def test_python_train_takes_the_cli_augmentation_spellings(train_config_of, detect_yaml):
+    """On detection, mixup set the classification MixUp field and fliplr was
+    ignored with a warning; the CLI maps them to mixup_prob and flip_prob."""
+    from libreyolo import LibreYOLO9
+
+    config = train_config_of(
+        LibreYOLO9(None, size="t", device="cpu"),
+        data=detect_yaml, device="cpu", mixup=0.3, fliplr=0.2, mosaic=0,
+    )
+
+    assert (config.mixup_prob, config.flip_prob, config.mosaic_prob) == (0.3, 0.2, 0)
+    assert config.mixup == 0.0
+
+
+def test_classification_mixup_stays_the_batch_mixup_field(train_config_of, tmp_path):
+    from libreyolo import LibreMobileNetV4
+
+    config = train_config_of(
+        LibreMobileNetV4(size="s", device="cpu"),
+        data=str(tmp_path), device="cpu", mixup=0.3,
+    )
+
+    assert config.mixup == 0.3
+    assert config.mixup_prob == LibreMobileNetV4.TRAIN_CONFIG().mixup_prob
+
+
+def test_call_spellings_override_cfg_file_settings(train_config_of, detect_yaml, tmp_path):
+    """mosaic=0 with a cfg= file holding mosaic_prob=1.0 raised 'Conflicting
+    mosaic values' instead of letting the call win, as for canonical names."""
+    from libreyolo import LibreYOLO9
+
+    cfg = tmp_path / "train.yaml"
+    cfg.write_text("mosaic_prob: 1.0\nmixup_prob: 0.1\nfliplr: 0.3\n")
+
+    config = train_config_of(
+        LibreYOLO9(None, size="t", device="cpu"),
+        data=detect_yaml, device="cpu", cfg=str(cfg), mosaic=0, mixup=0.4,
+    )
+
+    assert (config.mosaic_prob, config.mixup_prob, config.flip_prob) == (0, 0.4, 0.3)
+
+
+def test_ecosystem_cls_loss_gain_is_warned_about_not_a_crash(detect_yaml, tmp_path, monkeypatch):
+    """TrainConfig.from_kwargs(cls, **kwargs) collided with a cls= key, so
+    train(cls=0.5) and any cfg= yaml copied from ecosystem defaults crashed
+    with 'got multiple values for argument cls'."""
+    from libreyolo import LibreYOLO9
+    from libreyolo.models.rfdetr.config import RFDETRConfig
+    from libreyolo.training.config import YOLO9Config
+    from libreyolo.training.trainer import BaseTrainer
+
+    for config_cls in (YOLO9Config, RFDETRConfig):
+        with pytest.warns(UserWarning, match=r"ignored\): \['box', 'cls'\]"):
+            config_cls.from_kwargs(cls=0.5, box=7.5)
+
+    class _Built(Exception):
+        pass
+
+    def init(self, *args, **kwargs):
+        self.config = self._config_class().from_kwargs(**kwargs)
+        raise _Built(self.config)
+
+    monkeypatch.setattr(BaseTrainer, "__init__", init)
+    cfg = tmp_path / "ecosystem.yaml"
+    cfg.write_text("epochs: 3\nbatch: 2\nbox: 7.5\ncls: 0.5\ndfl: 1.5\n")
+    for kwargs in ({"cls": 0.5}, {"cfg": str(cfg)}):
+        with pytest.warns(UserWarning, match="Unknown training config keys"):
+            with pytest.raises(_Built):
+                LibreYOLO9(None, size="t", device="cpu").train(
+                    data=detect_yaml, device="cpu", **kwargs
+                )
+
+
+def test_unknown_train_key_warning_suggests_the_close_name(detect_yaml, monkeypatch):
+    """epoch=1 trained the default 300 epochs behind a bare 'ignored' warning;
+    the warning now names the close match, without applying it."""
+    from libreyolo import LibreYOLO9
+    from libreyolo.training.config import ECSegConfig
+    from libreyolo.training.trainer import BaseTrainer
+
+    class _Built(Exception):
+        pass
+
+    def init(self, model, wrapper_model=None, callbacks=None, loggers=None, **kwargs):
+        raise _Built(self._config_class().from_kwargs(**kwargs))
+
+    monkeypatch.setattr(BaseTrainer, "__init__", init)
+    for key, value, hint in (("epoch", 1, "epochs"), ("lr", 0.02, "lr0")):
+        with pytest.warns(UserWarning, match=rf"\['{key}'\] \(did you mean '{hint}'\?\)"):
+            with pytest.raises(_Built) as built:
+                LibreYOLO9(None, size="t", device="cpu").train(
+                    data=detect_yaml, device="cpu", **{key: value}
+                )
+        config = built.value.args[0]
+        assert (config.epochs, config.lr0) == (300, 0.01)  # never auto-corrected
+
+    # Family configs with their own from_kwargs share the warning.
+    with pytest.warns(UserWarning, match=r"did you mean 'epochs'"):
+        ECSegConfig.from_kwargs(epoch=1)
+
+
+def test_ecosystem_options_get_no_misleading_hint():
+    """lrf is not lr0 and the cls loss gain is not cls_pw: exact ecosystem
+    names LibreYOLO lacks are reported as ignored without a guess."""
+    import warnings
+
+    from libreyolo.training.config import YOLO9Config
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        YOLO9Config.from_kwargs(lrf=0.1, cls=0.5, zzz=1)
+
+    (message,) = [str(w.message) for w in caught]
+    assert message == "Unknown training config keys (ignored): ['cls', 'lrf', 'zzz']"

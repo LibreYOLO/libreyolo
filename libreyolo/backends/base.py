@@ -36,6 +36,11 @@ from ..postprocess.yolonas import (
     YOLO_NAS_RESIZE_SIZE,
 )
 from ..preprocess import as_batched_input, as_input
+from ..preprocess.letterbox import (
+    DEFAULT_LETTERBOX_PAD,
+    LETTERBOX_PADS,
+    letterbox_geometry,
+)
 from ..preprocess.yolo9 import preprocess_image
 from ..preprocess.yolonas import (
     preprocess_image as yolonas_preprocess_image,
@@ -53,7 +58,11 @@ from ..utils.general import (
 )
 from ..utils.image_loader import ImageLoader
 from ..utils.model_info import build_model_info, format_model_info
-from ..utils.predict_args import normalize_predict_kwargs
+from ..utils.predict_args import (
+    normalize_classes,
+    normalize_predict_kwargs,
+    postprocess_max_det,
+)
 from ..utils.results import (
     keep_source,
     Boxes,
@@ -109,13 +118,6 @@ def _zeros_f32(shape):
     if _torch_installed():
         return torch.zeros(shape, dtype=torch.float32)
     return np.zeros(shape, dtype=np.float32)
-
-
-def _zeros_bool(length):
-    """All-False mask, as a ``torch.Tensor`` if torch is installed."""
-    if _torch_installed():
-        return torch.zeros(length, dtype=torch.bool)
-    return np.zeros(length, dtype=bool)
 
 
 def _bool_array(data):
@@ -177,6 +179,10 @@ _REALESRGAN_BACKEND_SCALE = {"x4": 4, "x2": 2, "x4t": 4}
 _SWINIR_BACKEND_SCALE = {"s": 4, "m": 4, "l": 4}
 _QUICKSRNET_BACKEND_SCALE = {"m2": 2}
 _REALESRGAN_BACKEND_PAD_MULTIPLE = {"x4": 1, "x2": 2, "x4t": 1}
+
+# Depth families whose native preprocessing resizes the [0, 1] float image
+# bicubically; exported backends use the same kernel.
+_DEPTH_CUBIC_RESIZE_FAMILIES = {"midas", "depth_anything"}
 
 # Families removed from LibreYOLO. An exported artifact whose metadata still names
 # one of these must fail loudly instead of being silently parsed as YOLO9.
@@ -297,7 +303,24 @@ def _read_runtime_metadata(meta: dict) -> dict[str, Any]:
         runtime_meta["bin_width_deg"] = float(meta["bin_width_deg"])
     if meta.get("offset_deg") is not None:
         runtime_meta["offset_deg"] = float(meta["offset_deg"])
+    if meta.get("letterbox_pad") is not None:
+        runtime_meta["letterbox_pad"] = str(meta["letterbox_pad"])
     return runtime_meta
+
+
+def _validate_letterbox_pad(value) -> str:
+    """YOLO9 letterbox placement from export metadata.
+
+    Artifacts without the key (every export before 1.6) keep top-left pad.
+    """
+    if value is None or value == "":
+        return DEFAULT_LETTERBOX_PAD
+    if value not in LETTERBOX_PADS:
+        raise ValueError(
+            f"Invalid letterbox_pad metadata {value!r}; expected one of "
+            f"{', '.join(LETTERBOX_PADS)}."
+        )
+    return value
 
 
 def _nms_numpy(
@@ -529,6 +552,7 @@ class BaseBackend(ABC):
         num_bins: int | None = None,
         bin_width_deg: float | None = None,
         offset_deg: float | None = None,
+        letterbox_pad: str | None = None,
     ):
         self.model_path = model_path
         self.nb_classes = nb_classes
@@ -580,6 +604,7 @@ class BaseBackend(ABC):
         self.norm_mean = tuple(norm_mean or legacy.get("norm_mean", _IMAGENET_MEAN))
         self.norm_std = tuple(norm_std or legacy.get("norm_std", _IMAGENET_STD))
         self.resize_mode = resize_mode or legacy.get("resize_mode", "center_crop")
+        self.letterbox_pad = _validate_letterbox_pad(letterbox_pad)
         # Set by backends that load a model with NMS baked into the graph; such
         # models emit final (1, max_det, 6) detections instead of raw tensors.
         if not hasattr(self, "embedded_nms"):
@@ -637,7 +662,12 @@ class BaseBackend(ABC):
                 return self._preprocess_restore_native(image, color_format)
             return self._preprocess_restore(image, effective_imgsz, color_format)
         if self.task == "depth":
-            return self._preprocess_depth(image, effective_imgsz, color_format)
+            return self._preprocess_depth(
+                image,
+                effective_imgsz,
+                color_format,
+                cubic=self.model_family in _DEPTH_CUBIC_RESIZE_FAMILIES,
+            )
         if self.task == "normal":
             return self._preprocess_normal(image, effective_imgsz, color_format)
         if self.task == "edge":
@@ -851,7 +881,10 @@ class BaseBackend(ABC):
             return _y7_pre(image, input_size=sz, color_format=color_format)
         else:
             tensor, img, size = preprocess_image(
-                image, input_size=effective_imgsz, color_format=color_format
+                image,
+                input_size=effective_imgsz,
+                color_format=color_format,
+                letterbox_pad=getattr(self, "letterbox_pad", None),
             )
             return tensor, img, size, 1.0
 
@@ -992,7 +1025,7 @@ class BaseBackend(ABC):
         return img_tensor.unsqueeze(0).float(), original_img, original_size, 1.0
 
     @staticmethod
-    def _preprocess_depth(image, input_size, color_format):
+    def _preprocess_depth(image, input_size, color_format, cubic=False):
         """Depth preprocessing for fixed-shape exported runtimes.
 
         Native depth prediction keeps the aspect ratio (short side to the
@@ -1001,14 +1034,26 @@ class BaseBackend(ABC):
         depth map is resized back to the original canvas after inference
         (ADR 0006). Padding is deliberately avoided: padded pixels would leak
         fake depth context into real pixels through the receptive field.
+        ``cubic`` resizes the ``[0, 1]`` float image bicubically, as the
+        native MiDaS and Depth Anything V2 preprocessing does.
         """
         input_h, input_w = _imgsz_hw(input_size)
         img = ImageLoader.load(image, color_format=color_format)
         original_size = img.size
         original_img = img.copy()
         arr = np.asarray(img, dtype=np.uint8)
-        resized = cv2.resize(arr, (input_w, input_h), interpolation=cv2.INTER_LINEAR)
-        chw = resized.astype(np.float32).transpose(2, 0, 1) / 255.0
+        if cubic:
+            resized = cv2.resize(
+                arr.astype(np.float32) / 255.0,
+                (input_w, input_h),
+                interpolation=cv2.INTER_CUBIC,
+            )
+            chw = resized.transpose(2, 0, 1)
+        else:
+            resized = cv2.resize(
+                arr, (input_w, input_h), interpolation=cv2.INTER_LINEAR
+            )
+            chw = resized.astype(np.float32).transpose(2, 0, 1) / 255.0
         img_tensor = torch.from_numpy(np.ascontiguousarray(chw)).unsqueeze(0)
         return img_tensor, original_img, original_size, 1.0
 
@@ -1985,7 +2030,11 @@ class BaseBackend(ABC):
         class_ids = det[:, 5].astype(np.int64)
 
         input_h, input_w = _imgsz_hw(effective_imgsz)
-        ratio = min(input_h / orig_h, input_w / orig_w)
+        ratio, _, _, dx, dy = letterbox_geometry(
+            orig_h, orig_w, input_h, input_w, getattr(self, "letterbox_pad", None)
+        )
+        boxes[:, [0, 2]] -= dx
+        boxes[:, [1, 3]] -= dy
         boxes /= ratio
         boxes[:, [0, 2]] = np.clip(boxes[:, [0, 2]], 0, orig_w)
         boxes[:, [1, 3]] = np.clip(boxes[:, [1, 3]], 0, orig_h)
@@ -2307,6 +2356,7 @@ class BaseBackend(ABC):
                 original_size=(orig_w, orig_h),
                 max_det=max_det,
                 letterbox=True,
+                letterbox_pad=getattr(self, "letterbox_pad", None),
             )
             boxes = np.asarray(parsed["boxes"], dtype=np.float32).reshape(-1, 4)
             max_scores = np.asarray(parsed["scores"], dtype=np.float32)
@@ -2380,14 +2430,15 @@ class BaseBackend(ABC):
             boxes[:, [0, 2]] *= orig_w / input_w
             boxes[:, [1, 3]] *= orig_h / input_h
         else:
-            ratio = min(input_h / orig_h, input_w / orig_w)
-            if isinstance(getattr(self, "input_profile", None), dict):
-                from ..preprocess.letterbox import letterbox_geometry
-                _, _, _, dx, dy = letterbox_geometry(orig_h, orig_w, input_h, input_w, self.letterbox_pad)
-                boxes[:, [0, 2]] -= dx
-                boxes[:, [1, 3]] -= dy
+            ratio, _, _, dx, dy = letterbox_geometry(
+                orig_h, orig_w, input_h, input_w, getattr(self, "letterbox_pad", None)
+            )
+            boxes[:, [0, 2]] -= dx
+            boxes[:, [1, 3]] -= dy
             boxes[:, :4] /= ratio
             if keypoints is not None:
+                keypoints[..., 0] -= dx
+                keypoints[..., 1] -= dy
                 keypoints[..., :2] /= ratio
         boxes[:, [0, 2]] = np.clip(boxes[:, [0, 2]], 0, orig_w)
         boxes[:, [1, 3]] = np.clip(boxes[:, [1, 3]], 0, orig_h)
@@ -4062,6 +4113,20 @@ class BaseBackend(ABC):
         if self.model_family == "fcos":
             max_det = min(int(max_det), 100)
 
+        # Filter classes before the max_det cut, so the cut cannot keep only
+        # other classes.
+        if classes is not None and len(boxes) > 0:
+            cls_keep = np.isin(np.asarray(class_ids), np.asarray(list(classes)))
+            boxes = boxes[cls_keep]
+            max_scores = max_scores[cls_keep]
+            class_ids = class_ids[cls_keep]
+            if masks is not None:
+                masks = masks[cls_keep]
+            if obb is not None:
+                obb = obb[cls_keep]
+            if keypoints is not None:
+                keypoints = keypoints[cls_keep]
+
         if len(boxes) > max_det:
             top_indices = np.argsort(max_scores)[::-1][:max_det]
             boxes = boxes[top_indices]
@@ -4078,21 +4143,6 @@ class BaseBackend(ABC):
         conf_t = _f32(max_scores)
         cls_t = _f32(class_ids)
         obb_t = _f32(obb) if obb is not None else None
-
-        if classes is not None and len(boxes_t) > 0:
-            cls_mask = _zeros_bool(len(cls_t))
-            for cid in classes:
-                cls_mask |= cls_t == cid
-            boxes_t = boxes_t[cls_mask]
-            conf_t = conf_t[cls_mask]
-            cls_t = cls_t[cls_mask]
-            mask_np = _to_blob(cls_mask)
-            if masks is not None:
-                masks = masks[mask_np]
-            if obb_t is not None:
-                obb_t = obb_t[cls_mask]
-            if keypoints is not None:
-                keypoints = keypoints[mask_np]
 
         masks_obj = None
         if masks is not None and len(masks) > 0:
@@ -4249,6 +4299,11 @@ class BaseBackend(ABC):
             "yolonas": YOLONASValPreprocessor,
             "yolox": YOLOXValPreprocessor,
         }.get(self.model_family, StandardValPreprocessor)
+        if preprocessor_cls in (YOLO9ValPreprocessor, YOLO9E2EValPreprocessor):
+            return preprocessor_cls(
+                img_size=_imgsz_hw(img_size),
+                letterbox_pad=getattr(self, "letterbox_pad", None),
+            )
         return preprocessor_cls(img_size=_imgsz_hw(img_size))
 
     def _resolve_predict_imgsz(self, imgsz: ImageSize | None = None) -> ImageSize:
@@ -4262,6 +4317,28 @@ class BaseBackend(ABC):
                 "Real-ESRGAN exports only."
             )
         return effective
+
+    def _check_fixed_input_size(self, blob, runtime: str) -> None:
+        """Name both sizes when a fixed-shape export gets another input size.
+
+        ``_fixed_input_hw`` is the (H, W) a static-shape artifact was exported
+        at (None when H/W are dynamic). Runtimes reject a mismatch with their
+        own errors, which do not say what size the model expects.
+        """
+        fixed = getattr(self, "_fixed_input_hw", None)
+        shape = getattr(blob, "shape", ())
+        if fixed is None or len(shape) != 4:
+            return
+        h, w = (int(v) for v in fixed)
+        got_h, got_w = int(shape[2]), int(shape[3])
+        if (got_h, got_w) == (h, w):
+            return
+        exported = h if h == w else (h, w)
+        raise ValueError(
+            f"This {runtime} model was exported with a fixed {h}x{w} input and "
+            f"cannot run at the requested {got_h}x{got_w}. Use "
+            f"imgsz={exported}, or re-export the model at the size you need."
+        )
 
     def _forward(self, input_tensor: torch.Tensor):
         blob = _to_blob(input_tensor)
@@ -4422,6 +4499,9 @@ class BaseBackend(ABC):
         verbose: bool = True,
         *,
         plots: bool | None = None,
+        project: str | None = None,
+        name: str | None = None,
+        exist_ok: bool = False,
         **kwargs,
     ) -> Dict:
         from ..validation import (
@@ -4456,6 +4536,9 @@ class BaseBackend(ABC):
             raise NotImplementedError(
                 "Rectangular exported-backend validation is not supported yet."
             )
+        from ..validation.config import resolve_val_output_kwargs
+
+        resolve_val_output_kwargs(kwargs, project, name, exist_ok)
         if plots is not None and "save_plots" not in kwargs:
             kwargs["save_plots"] = plots
         from libreyolo.validation.config import VISUALIZE_TASKS
@@ -4719,7 +4802,7 @@ class BaseBackend(ABC):
             conf,
             ratio=ratio,
             iou=iou,
-            max_det=max_det,
+            max_det=postprocess_max_det(max_det, classes),
         )
         boxes, max_scores, class_ids, masks, obb, keypoints = (
             self._unpack_parsed_outputs(parsed)
@@ -5020,7 +5103,7 @@ class BaseBackend(ABC):
                     conf,
                     ratio=ratio,
                     iou=iou,
-                    max_det=max_det,
+                    max_det=postprocess_max_det(max_det, classes),
                 )
                 boxes, max_scores, class_ids, masks, obb, keypoints = (
                     self._unpack_parsed_outputs(parsed)
@@ -5080,6 +5163,7 @@ class BaseBackend(ABC):
     ) -> Union[Results, List[Results], Generator[Results, None, None]]:
         """Run inference on images, directories, videos, or screen captures."""
         normalize_predict_kwargs(kwargs)
+        classes = normalize_classes(classes)
         if device not in (None, "", "auto", self.device):
             logger.warning(
                 "Backend was loaded on device=%s; predict(device=%s) is ignored. "
@@ -5308,7 +5392,7 @@ class BaseBackend(ABC):
                 conf,
                 ratio=ratio,
                 iou=iou,
-                max_det=max_det,
+                max_det=postprocess_max_det(max_det, classes),
             )
             boxes, max_scores, class_ids, masks, obb, keypoints = (
                 self._unpack_parsed_outputs(parsed)

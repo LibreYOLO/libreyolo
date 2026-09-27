@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 import torch
 
@@ -185,3 +187,85 @@ def test_optimizer_step_moves_every_group():
             for param, original in zip(group["params"][:2], originals)
         )
         assert moved, "every parameter group must actually take a step"
+
+
+class _RecordingTrainer:
+    """Stand-in for PPLiteSegTrainer that records the resume handshake."""
+
+    def __init__(self, **kwargs):
+        self.kwargs = kwargs
+        self.calls = []
+        _RecordingTrainer.last = self
+
+    def setup(self):
+        self.calls.append("setup")
+
+    def resume(self, path):
+        self.calls.append(("resume", path))
+
+    def train(self):
+        self.calls.append("train")
+        return {}
+
+
+def test_resume_true_continues_the_loaded_run(tmp_path):
+    import numpy as np
+    from PIL import Image
+
+    for split in ("train", "val"):
+        for subdir in ("images", "masks"):
+            (tmp_path / subdir / split).mkdir(parents=True)
+        for index in range(2):
+            pixels = np.random.default_rng(index).integers(
+                0, 256, (64, 128, 3), dtype=np.uint8
+            )
+            mask = np.zeros((64, 128), dtype=np.uint8)
+            mask[:, 64:] = 1
+            Image.fromarray(pixels).save(tmp_path / "images" / split / f"{index}.png")
+            Image.fromarray(mask).save(tmp_path / "masks" / split / f"{index}.png")
+    data = tmp_path / "data.yaml"
+    data.write_text(
+        "train: images/train\nval: images/val\nmasks_dir: masks\nnames: [left, right]\n"
+    )
+    common = dict(
+        data=str(data),
+        batch=2,
+        imgsz=(64, 128),
+        device="cpu",
+        workers=0,
+        loggers=[],
+        warmup_epochs=0,
+    )
+    model = LibrePPLiteSeg(size="t50", nb_classes=2, device="cpu")
+    model.input_size = (64, 128)
+    first = model.train(epochs=1, project=str(tmp_path / "runs"), **common)
+    last = Path(first["last_checkpoint"])
+
+    resumed = LibrePPLiteSeg(str(last), size="t50", device="cpu")
+    resumed.input_size = (64, 128)
+    results = resumed.train(epochs=2, resume=True, **common)
+
+    # Only the second epoch runs, and it writes into the loaded run directory
+    # instead of a fresh runs/train/ppliteseg_exp2.
+    assert len(results["epoch_losses"]) == 1
+    assert Path(results["last_checkpoint"]) == last
+    assert [p.name for p in (tmp_path / "runs").iterdir()] == ["ppliteseg_exp"]
+
+
+def test_resume_path_resumes_that_checkpoint(tmp_path, monkeypatch):
+    monkeypatch.setattr("libreyolo.models.ppliteseg.trainer.PPLiteSegTrainer", _RecordingTrainer)
+    checkpoint = tmp_path / "elsewhere.pt"
+    model = LibrePPLiteSeg(size="t50", device="cpu")
+
+    model.train(data="unused.yaml", resume=str(checkpoint))
+
+    trainer = _RecordingTrainer.last
+    assert trainer.calls == ["setup", ("resume", str(checkpoint)), "train"]
+    assert trainer.kwargs["project"] == "runs/train"
+    assert trainer.kwargs["name"] == "ppliteseg_exp"
+
+
+def test_resume_true_requires_a_checkpoint(monkeypatch):
+    monkeypatch.setattr("libreyolo.models.ppliteseg.trainer.PPLiteSegTrainer", _RecordingTrainer)
+    with pytest.raises(ValueError, match="requires a checkpoint"):
+        LibrePPLiteSeg(size="t50", device="cpu").train(data="unused.yaml", resume=True)

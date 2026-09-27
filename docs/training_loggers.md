@@ -26,13 +26,13 @@ any subset of `on_train_start`, `on_train_epoch_end`, `on_train_end`,
 `on_train_exception`:
 
 ```python
-from libreyolo import LibreYOLO9
+from libreyolo import LibreYOLO
 from libreyolo.training import TrainEpochEvent
 
 def on_epoch(e: TrainEpochEvent):
     print(f"epoch {e.epoch}/{e.total_epochs} loss={e.train_loss:.4f}")
 
-model = LibreYOLO9("yolo9-s.pt")
+model = LibreYOLO("LibreYOLO9s.pt")
 model.train(data="coco8.yaml", epochs=10, callbacks=on_epoch)
 ```
 
@@ -201,7 +201,7 @@ inference-only (`g3`/`g4`) families all raise a clear configuration error.
 ### TensorBoard
 
 ```
-pip install libreyolo[tensorboard]
+pip install "libreyolo[tensorboard]"
 ```
 
 `TensorBoardLogger(log_dir=None)` — event files default to
@@ -210,7 +210,7 @@ pip install libreyolo[tensorboard]
 ### MLflow
 
 ```
-pip install libreyolo[mlflow]
+pip install "libreyolo[mlflow]"
 ```
 
 `MLflowLogger(tracking_uri=None, experiment_name=None, run_name=None,
@@ -229,7 +229,7 @@ pass a database URI instead, e.g.
 ### Weights & Biases
 
 ```
-pip install libreyolo[wandb]
+pip install "libreyolo[wandb]"
 ```
 
 `WandbLogger(project=None, name=None, entity=None,
@@ -242,7 +242,7 @@ Run names default to `<family><size>-<task>` (e.g. `yolo9s-detect`).
 ### Comet
 
 ```
-pip install libreyolo[comet]
+pip install "libreyolo[comet]"
 ```
 
 `CometLogger(project_name=None, workspace=None, name=None, api_key=None,
@@ -254,7 +254,7 @@ online=None, log_artifacts=True, log_checkpoints=False)` uses the current
 ### ClearML
 
 ```
-pip install libreyolo[clearml]
+pip install "libreyolo[clearml]"
 ```
 
 `ClearMLLogger(project_name="LibreYOLO", task_name=None, tags=None,
@@ -267,7 +267,7 @@ and credentials are otherwise used normally.
 ### Neptune
 
 ```
-pip install libreyolo[neptune]
+pip install "libreyolo[neptune]"
 ```
 
 `NeptuneLogger(project=None, api_token=None, name=None, run_id=None,
@@ -285,7 +285,7 @@ without the TFLite extra.
 ### DVCLive / DVC
 
 ```
-pip install libreyolo[dvclive]  # or libreyolo[dvc]
+pip install "libreyolo[dvclive]"  # or "libreyolo[dvc]"
 ```
 
 `DVCLiveLogger(log_dir=None, resume=None, report=None, save_dvc_exp=False,

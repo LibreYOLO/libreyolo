@@ -514,3 +514,57 @@ def test_resume_restores_epoch_optimizer_and_ema(tmp_path, monkeypatch):
     reloaded = LibreUNet(resumed["last_checkpoint"], device="cpu")
     assert reloaded.weight_license == model.weight_license
     assert reloaded.weight_commercial_use is False
+
+
+def test_average_best_writes_the_same_canvas_metadata_as_last(tmp_path, monkeypatch):
+    from PIL import Image
+
+    # U-Net's checkpoint hook carries imgsz; the average writer must not also
+    # pass it explicitly (TypeError: multiple values for 'imgsz').
+    monkeypatch.setitem(
+        SIZE_CONFIGS,
+        "s",
+        {
+            **SIZE_CONFIGS["s"],
+            "base_channels": 4,
+            "imgsz": (32, 64),
+            "train_crop": (32, 64),
+        },
+    )
+    for split in ("train", "val"):
+        for subdir in ("images", "masks"):
+            (tmp_path / subdir / split).mkdir(parents=True)
+        for index in range(2):
+            pixels = np.random.default_rng(index).integers(
+                0, 256, (32, 64, 3), dtype=np.uint8
+            )
+            mask = np.zeros((32, 64), dtype=np.uint8)
+            mask[:, 32:] = 1
+            Image.fromarray(pixels).save(tmp_path / "images" / split / f"{index}.png")
+            Image.fromarray(mask).save(tmp_path / "masks" / split / f"{index}.png")
+    data = tmp_path / "data.yaml"
+    data.write_text(
+        "train: images/train\nval: images/val\nmasks_dir: masks\nnames: [left, right]\n"
+    )
+    model = LibreUNet(nb_classes=2, device="cpu")
+    results = model.train(
+        data=str(data),
+        epochs=2,
+        batch=2,
+        imgsz=(32, 64),
+        device="cpu",
+        workers=0,
+        project=str(tmp_path / "runs"),
+        name="avg",
+        loggers=[],
+        warmup_epochs=0,
+        no_aug_epochs=0,
+        average_best=2,
+    )
+    weights = tmp_path / "runs" / "avg" / "weights"
+    average = torch.load(weights / "average.pt", weights_only=True)
+    last = torch.load(weights / "last.pt", weights_only=True)
+    assert average["averaged_snapshot_count"] == 2
+    for key in ("imgsz", "imgsz_h", "imgsz_w", "train_imgsz_h", "train_imgsz_w"):
+        assert average[key] == last[key], key
+    assert results["last_checkpoint"]

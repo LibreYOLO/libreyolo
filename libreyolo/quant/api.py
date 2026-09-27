@@ -106,6 +106,12 @@ _FAMILY_KEEP_HIGH_PRECISION: Dict[str, Tuple[str, ...]] = {
     ),
 }
 _ALWAYS_KEEP = ("dfl",)
+# Training-only branches stay float whatever keep list a checkpoint manifest
+# carries. YOLO9's PGI branch is attached by train() after quantization, so
+# QAT trains it in float and its checkpoints hold no quant state for it.
+_FAMILY_TRAINING_ONLY: Dict[str, Tuple[str, ...]] = {
+    "yolo9": ("aux.", "aux_head."),
+}
 
 # Tensorwise weight scaling lets cuBLASLt fuse the complete FP8 Linear
 # epilogue. Broad use is not accuracy-neutral on vision transformers, but the
@@ -123,6 +129,30 @@ class QuantizationError(ValueError):
 
 def default_keep_high_precision(family: str) -> Tuple[str, ...]:
     return _FAMILY_KEEP_HIGH_PRECISION.get(family, ())
+
+
+def simulation_device(device, recipe: str) -> torch.device:
+    """Return the device a ``recipe``-quantized model can run on.
+
+    MPS implements neither the fake-quantize ops nor float8, so quantized
+    models run on CPU there. Cast recipes execute natively and keep MPS.
+    """
+    device = torch.device(device)
+    if device.type != "mps" or recipe in CAST_RECIPES:
+        return device
+    logger.warning(
+        "'%s' quantization runs on CPU: MPS lacks the fake-quantize and "
+        "float8 kernels it needs.",
+        recipe,
+    )
+    return torch.device("cpu")
+
+
+def _move_to_simulation_device(wrapper, recipe: str) -> None:
+    device = simulation_device(wrapper.device, recipe)
+    if device != torch.device(wrapper.device):
+        wrapper.device = device
+        wrapper.model.to(device)
 
 
 def _check_support(family: str, recipe: str):
@@ -162,8 +192,10 @@ def _select_modules(
     root: nn.Module,
     recipe: str,
     keep: Tuple[str, ...],
+    family: str = "",
 ) -> Dict[str, nn.Module]:
     """Deterministically select float modules to swap for a recipe."""
+    keep = (*keep, *_FAMILY_TRAINING_ONLY.get(family, ()))
     selected: Dict[str, nn.Module] = {}
     for name, module in root.named_modules():
         if not name or _is_excluded(name, keep):
@@ -339,6 +371,14 @@ def _install_io_hooks(root: nn.Module, dtype: torch.dtype):
     ]
 
 
+def _remove_io_hooks(root: nn.Module):
+    """Drop the half-width I/O hooks once the interior is float32 again."""
+    for handle in getattr(root, "_q_fp16_hooks", ()):
+        handle.remove()
+    if hasattr(root, "_q_fp16_hooks"):
+        del root._q_fp16_hooks
+
+
 def _install_cast_io_hooks(root: nn.Module, dtype: torch.dtype):
     """Cast the model to a half-width dtype, keeping float32 I/O at the root."""
     root.to(dtype)
@@ -471,6 +511,7 @@ def quantize_model(
         if keep_high_precision is not None
         else default_keep_high_precision(family)
     )
+    _move_to_simulation_device(wrapper, recipe)
 
     manifest = {
         "schema": QUANT_SCHEMA_VERSION,
@@ -500,7 +541,7 @@ def quantize_model(
                 "(QAT, or QAD with distill_model=) to recover accuracy.",
                 recipe,
             )
-        selected = _select_modules(wrapper.model, recipe, keep)
+        selected = _select_modules(wrapper.model, recipe, keep, wrapper.FAMILY)
         if not selected:
             raise QuantizationError(
                 f"No quantizable modules found for recipe '{recipe}' on family "
@@ -704,6 +745,8 @@ def reprepare_model(wrapper):
     wrapper._quant_manifest = manifest
     if manifest.get("recipe") not in CAST_RECIPES:
         wrapper.model.float()
+        # An fp16 remainder installed half-width I/O hooks at load.
+        _remove_io_hooks(wrapper.model)
     wrapper.model.to(wrapper.device)
     logger.info(
         "Re-prepared finalized checkpoint: fp32 masters reconstructed from "
@@ -805,10 +848,7 @@ def dequantize_model(wrapper):
     root = wrapper.model
 
     if manifest.get("recipe") in CAST_RECIPES:
-        for handle in getattr(root, "_q_fp16_hooks", ()):
-            handle.remove()
-        if hasattr(root, "_q_fp16_hooks"):
-            del root._q_fp16_hooks
+        _remove_io_hooks(root)
         root.float()
     else:
         for name, module in list(_quant_modules(root)):
@@ -847,6 +887,7 @@ def dequantize_model(wrapper):
                 new.weight = module.weight
             new.bias = module.bias
             _swap_module(root, name, new)
+        _remove_io_hooks(root)
         root.float()
 
     wrapper._quant_manifest = None
@@ -871,13 +912,14 @@ def apply_quant_structure(wrapper, manifest: Dict):
         if not getattr(wrapper, "_quant_manifest", None):
             _install_cast_io_hooks(wrapper.model, _cast_dtype(recipe))
     else:
+        _move_to_simulation_device(wrapper, recipe)
         keep_raw = manifest.get("keep_high_precision")
         keep = (
             tuple(keep_raw)
             if keep_raw is not None
             else default_keep_high_precision(wrapper.FAMILY)
         )
-        selected = _select_modules(wrapper.model, recipe, keep)
+        selected = _select_modules(wrapper.model, recipe, keep, wrapper.FAMILY)
         counts = _swap_selected(wrapper.model, recipe, selected)
         tensorwise = manifest.get("fp8_tensorwise_weights", ())
         if tensorwise:

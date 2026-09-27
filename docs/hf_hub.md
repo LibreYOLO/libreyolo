@@ -7,7 +7,7 @@ LibreYOLO metadata schema (v1.0, see `docs/checkpoint_schema.md`).
 The integration is optional:
 
 ```bash
-pip install libreyolo[hf]
+pip install "libreyolo[hf]"
 ```
 
 `import libreyolo` never imports `huggingface_hub`; it is only loaded when a
@@ -30,7 +30,11 @@ Resolution rules:
 - A local file or directory with the same name always wins over the bare
   `owner/repo` form. Use the `hf://` form to bypass that precedence.
 - The bare form is only treated as a Hub reference when the last segment has
-  no file extension, so paths like `weights/model.pt` keep their meaning.
+  no file extension, so paths like `weights/model.pt` or
+  `ckpts/model_best.pth.tar` keep their meaning. A dot followed by a digit is
+  a version, not an extension: `owner/model-v1.5` is still a Hub reference.
+  `librefacerec-*` names such as `models/librefacerec-l` are never Hub
+  references; they auto-download from the LibreYOLO org as before.
 - Without an explicit filename, the single `*.pt` (or `*.safetensors`) file
   in the repo is used. Repos with several checkpoints raise an error listing
   them; select one with `hf://owner/repo/<filename>`.
@@ -57,7 +61,7 @@ Any loaded model can be published, together with an auto-generated model card
 derived from its checkpoint metadata (family, size, task, classes, metrics):
 
 ```python
-model = LibreYOLO("runs/detect/train/weights/best.pt")
+model = LibreYOLO("runs/train/yolo9_exp/weights/best.pt")
 model.push_to_hub("someuser/my-finetune")                  # public
 model.push_to_hub("someuser/my-finetune", private=True)    # private
 model.push_to_hub("someuser/my-finetune", license="mit",

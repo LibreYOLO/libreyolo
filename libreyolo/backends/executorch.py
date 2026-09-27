@@ -149,6 +149,7 @@ class ExecuTorchBackend(BaseBackend):
             supported_tasks=supported_tasks,
             default_task=default_task,
             **classify_eval_kwargs(metadata),
+            letterbox_pad=metadata.get("letterbox_pad"),
             **_read_pose_metadata(metadata),
         )
 

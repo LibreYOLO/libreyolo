@@ -2,7 +2,11 @@
 
 import pytest
 
-from libreyolo.utils.predict_args import normalize_predict_kwargs
+from libreyolo.utils.predict_args import (
+    normalize_classes,
+    normalize_predict_kwargs,
+    postprocess_max_det,
+)
 
 pytestmark = pytest.mark.unit
 
@@ -71,3 +75,18 @@ def test_passthrough_kwargs_are_not_silently_accepted_by_default():
 def test_unknown_predict_kwargs_fail_clearly():
     with pytest.raises(TypeError, match="Unsupported predict option"):
         normalize_predict_kwargs({"unknown": True})
+
+
+@pytest.mark.parametrize(
+    "classes, expected",
+    [(0, [0]), (3, [3]), ([0, 2], [0, 2]), ((1,), (1,)), (None, None)],
+)
+def test_normalize_classes_accepts_a_single_int(classes, expected):
+    assert normalize_classes(classes) == expected
+
+
+def test_postprocess_max_det_widens_only_with_a_class_filter():
+    assert postprocess_max_det(1, None) == 1
+    assert postprocess_max_det(1, [16]) == 300
+    assert postprocess_max_det(1000, [16]) == 1000
+

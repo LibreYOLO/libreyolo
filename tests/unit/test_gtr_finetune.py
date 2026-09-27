@@ -175,6 +175,30 @@ def test_resume_settings_restore_saved_config_before_overrides(monkeypatch):
     assert model._resume_settings(False, GTRSemConfig, {"lr0": None}) == (None, {})
 
 
+def test_resume_settings_continue_the_checkpoint_run(tmp_path, monkeypatch):
+    from libreyolo.models.gtr.sem_trainer import GTRSemConfig
+
+    checkpoint = tmp_path / "runs" / "gtr_exp2" / "weights" / "last.pt"
+    checkpoint.parent.mkdir(parents=True)
+    checkpoint.write_bytes(b"")
+    model = object.__new__(LibreGTR)
+    model.model_path = str(checkpoint)
+    saved = {"project": "elsewhere", "name": "gtr_exp", "exist_ok": False}
+    monkeypatch.setattr(LibreGTR, "_checkpoint_train_config", lambda self, path: saved)
+
+    _, settings = model._resume_settings(True, GTRSemConfig, {"data": "d.yaml"})
+    assert settings == {
+        "data": "d.yaml",
+        "project": str(tmp_path / "runs"),
+        "name": "gtr_exp2",
+        "exist_ok": True,
+    }
+    _, settings = model._resume_settings(
+        True, GTRSemConfig, {"data": "d.yaml", "name": "fresh"}
+    )
+    assert settings == {"data": "d.yaml", **saved, "name": "fresh"}
+
+
 def test_mixup_collate_is_epoch_gated():
     from libreyolo.data.dataset import yolox_collate_fn
     from libreyolo.models.gtr.transforms import GTRMixUpCollate

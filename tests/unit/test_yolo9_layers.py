@@ -749,3 +749,26 @@ def test_yolo9_trainer_checkpoint_uses_resolved_data_classes_for_obb(tmp_path):
     assert trainer.config.num_classes == 1
     assert checkpoint["nc"] == 1
     assert checkpoint["config"]["num_classes"] == 1
+
+
+def test_anchor_cache_rebuilds_on_device_or_dtype_change():
+    """A per-call device switch must not reuse anchors cached on the old device."""
+    feats = [
+        torch.randn(1, 64, 8, 8),
+        torch.randn(1, 128, 4, 4),
+        torch.randn(1, 256, 2, 2),
+    ]
+    head = DDetect(nc=2, ch=(64, 128, 256), reg_max=16, stride=(8, 16, 32))
+    anchors, _ = head._grid(feats)
+    assert anchors.device.type == "cpu"
+
+    # Simulate a cache left on another device by an earlier forward.
+    head.anchors = head.anchors.to("meta")
+    head.strides = head.strides.to("meta")
+    anchors, strides = head._grid(feats)
+    assert anchors.device.type == "cpu"
+    assert strides.device.type == "cpu"
+
+    anchors, strides = head._grid([f.double() for f in feats])
+    assert anchors.dtype == torch.float64
+    assert strides.dtype == torch.float64

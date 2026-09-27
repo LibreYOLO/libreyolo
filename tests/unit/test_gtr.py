@@ -284,6 +284,98 @@ def test_resume_restores_saved_config_then_explicit_overrides(tmp_path, monkeypa
     assert captured["source"] == str(path)
 
 
+def _saved_gtr_run_checkpoint(tmp_path, **saved_overrides):
+    import yaml
+
+    data = tmp_path / "data.yaml"
+    data.write_text(
+        yaml.safe_dump(
+            {
+                "path": str(tmp_path),
+                "train": "images",
+                "val": "images",
+                "names": ["one", "two"],
+            }
+        )
+    )
+    model = LibreGTRModel(nb_classes=2)
+    checkpoint = wrap_libreyolo_checkpoint(
+        model.state_dict(),
+        model_family="gtr",
+        size="s",
+        nc=2,
+        task="detect",
+        imgsz=160,
+        names={0: "one", 1: "two"},
+    )
+    project = tmp_path / "runs" / "train"
+    saved = {
+        "data": str(data),
+        "imgsz": 160,
+        "project": str(project),
+        "name": "gtr_exp",
+        "exist_ok": False,
+        **saved_overrides,
+    }
+    checkpoint.update(config=saved, epoch=5)
+    (project / "gtr_exp" / "weights").mkdir(parents=True)
+    path = project / "gtr_exp2" / "weights" / "last.pt"
+    path.parent.mkdir(parents=True)
+    torch.save(checkpoint, path)
+    return path
+
+
+def _capture_gtr_resume(monkeypatch):
+    from libreyolo.models.gtr.trainer import GTRTrainer
+
+    captured = {}
+
+    def setup(trainer):
+        captured.update(config=trainer.config, save_dir=trainer._get_save_dir())
+
+    monkeypatch.setattr(GTRTrainer, "setup", setup)
+    monkeypatch.setattr(GTRTrainer, "resume", lambda t, source: None)
+    monkeypatch.setattr(GTRTrainer, "train", lambda t: {})
+    return captured
+
+
+@pytest.mark.parametrize("saved_exist_ok", [False, True])
+def test_resume_continues_the_checkpoint_run_dir(tmp_path, monkeypatch, saved_exist_ok):
+    """The saved name is the base name (gtr_exp); resuming gtr_exp2 must not
+    start gtr_exp3 or, with a saved exist_ok=True, overwrite gtr_exp."""
+    path = _saved_gtr_run_checkpoint(tmp_path, exist_ok=saved_exist_ok)
+    captured = _capture_gtr_resume(monkeypatch)
+
+    LibreYOLO(str(path), device="cpu").train(resume=True, device="cpu")
+
+    assert captured["save_dir"] == path.parent.parent
+
+
+def test_resume_exist_ok_false_starts_a_new_run(tmp_path, monkeypatch):
+    """An explicit exist_ok=False resumes into a new numbered run beside the
+    checkpoint's run, as the other families do."""
+    path = _saved_gtr_run_checkpoint(tmp_path)
+    captured = _capture_gtr_resume(monkeypatch)
+
+    LibreYOLO(str(path), device="cpu").train(resume=True, exist_ok=False, device="cpu")
+
+    run_dir = path.parent.parent
+    assert captured["save_dir"] != run_dir
+    assert captured["save_dir"].parent == run_dir.parent
+    assert captured["save_dir"].name.startswith(run_dir.name)
+
+
+def test_resume_does_not_restore_saved_device(tmp_path, monkeypatch):
+    """A saved multi-GPU device never reaches the DDP launcher, which only
+    reads the device passed to train(); the call's device (auto) applies."""
+    path = _saved_gtr_run_checkpoint(tmp_path, device="0,1")
+    captured = _capture_gtr_resume(monkeypatch)
+
+    LibreYOLO(str(path), device="cpu").train(resume=True)
+
+    assert captured["config"].device == "auto"
+
+
 def test_gtr_reports_only_truly_ignored_augmentations():
     from libreyolo.cli.config import get_unsupported_train_params
 
@@ -298,6 +390,12 @@ def test_unsupported_training_policy_is_rejected(kwargs):
 
     with pytest.raises(ValueError, match="GTR currently supports"):
         GTRConfig(**kwargs)
+
+
+def test_detect_training_rejects_a_pretrained_path():
+    model = LibreGTR(None, size="s", nb_classes=1, device="cpu")
+    with pytest.raises(ValueError, match="pretrained=True"):
+        model.train(data="data.yaml", pretrained="other.pt")
 
 
 def test_resume_keeps_resolved_optimizer_overrides(monkeypatch):

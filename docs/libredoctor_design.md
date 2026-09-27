@@ -180,7 +180,7 @@ convention it establishes, for future tools (serve/API, MCP, labeling, ...):
    `libreyolo <name>`. No separate repos, no plugins.
 2. The base install must not get heavier: utilities lazy-import everything
    beyond base deps, and anything heavy becomes a `pyproject` extra
-   (`pip install libreyolo[serve]`). Doctor needs no extra.
+   (`pip install "libreyolo[serve]"`). Doctor needs no extra.
 3. Utilities consume the library through its public surface
    (`libreyolo/data`, `libreyolo/tasks.py`) and never reach into model
    internals; core never imports from utilities. Import direction is one-way.

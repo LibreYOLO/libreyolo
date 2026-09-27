@@ -120,6 +120,23 @@ class TestResolveModelName:
         assert cli_config.resolve_model_name("lazy-s") == "LibreLazys.pt"
         assert cli_config.resolve_model_name("lazy-s-sem") == "LibreLazys.pt"
 
+    def test_shared_checkpoint_tasks_get_no_cli_name(self):
+        """CLIP/SigLIP2/PE embed reuse the -cls file; no -embed name exists."""
+        names = set(cli_config.get_all_cli_names())
+        assert "clip-b16-cls" in names
+        assert not any(
+            name.startswith(("clip-", "siglip2-", "pe-")) and name.endswith("-embed")
+            for name in names
+        )
+        assert resolve_model_name("clip-b16-embed") == "clip-b16-embed"
+
+    def test_weight_unavailable_reason(self):
+        assert cli_config.weight_unavailable_reason("yolo9-s") is None
+        assert cli_config.weight_unavailable_reason("facerec-l") is None
+        assert cli_config.weight_unavailable_reason("best.pt") is None
+        assert "lost upstream" in cli_config.weight_unavailable_reason("yolo1-t")
+        assert "Gaze360" in cli_config.weight_unavailable_reason("l2cs-r50")
+
     def test_case_insensitive(self):
         assert resolve_model_name("YOLOX-S") == "LibreYOLOXs.pt"
         assert resolve_model_name("Yolo9-T") == "LibreYOLO9t.pt"
@@ -369,6 +386,75 @@ class TestBuildTrainKwargs:
             "rfdetr_exp",
             "rfdetr_exp2",
         ]
+
+    @pytest.mark.parametrize("resume", [True, "path"], ids=["resume=true", "resume=path"])
+    def test_rfdetr_cli_resume_writes_into_the_source_run(self, tmp_path, resume):
+        checkpoint = tmp_path / "runs" / "rf" / "weights" / "last.pt"
+        checkpoint.parent.mkdir(parents=True)
+        checkpoint.write_bytes(b"")
+        params = {
+            "project": str(tmp_path / "runs" / "train"),
+            "name": "rfdetr_exp",
+            "exist_ok": False,
+            "resume": True if resume is True else str(checkpoint),
+        }
+
+        kwargs = cli_config._build_rfdetr_train_kwargs(
+            params, model_path=str(checkpoint), user_provided={"resume"}
+        )
+
+        assert kwargs["output_dir"] == str(tmp_path / "runs" / "rf")
+        assert kwargs["exist_ok"] is True
+        assert kwargs["resume"] == str(checkpoint)
+        assert not (tmp_path / "runs" / "train").exists()
+
+    def test_rfdetr_cli_resume_forwards_only_user_options(self, tmp_path):
+        """CLI defaults (epochs, batch, lr0, ...) overrode the saved settings
+        of a resumed RF-DETR run and could reject it as already finished."""
+        checkpoint = tmp_path / "runs" / "rf" / "weights" / "last.pt"
+        checkpoint.parent.mkdir(parents=True)
+        checkpoint.write_bytes(b"")
+        params = {
+            "project": str(tmp_path / "runs" / "train"),
+            "name": "rfdetr_exp",
+            "exist_ok": False,
+            "resume": True,
+            "epochs": 100,
+            "batch": 4,
+            "lr0": 1e-4,
+            "workers": 8,
+            "patience": 50,
+            "ema": True,
+        }
+
+        kwargs = cli_config._build_rfdetr_train_kwargs(
+            params, model_path=str(checkpoint), user_provided={"resume", "epochs"}
+        )
+
+        assert kwargs["epochs"] == 100
+        assert not {"batch", "lr0", "num_workers", "use_ema", "early_stopping",
+                    "early_stopping_patience"} & kwargs.keys()
+        new_run = cli_config._build_rfdetr_train_kwargs(
+            {**params, "resume": False}, user_provided=set()
+        )
+        assert (new_run["batch"], new_run["num_workers"]) == (4, 8)
+
+    def test_rfdetr_cli_resume_keeps_an_explicit_run_name(self, tmp_path):
+        checkpoint = tmp_path / "runs" / "rf" / "weights" / "last.pt"
+        checkpoint.parent.mkdir(parents=True)
+        checkpoint.write_bytes(b"")
+        params = {
+            "project": str(tmp_path / "out"),
+            "name": "continued",
+            "exist_ok": False,
+            "resume": True,
+        }
+
+        kwargs = cli_config._build_rfdetr_train_kwargs(
+            params, model_path=str(checkpoint), user_provided={"resume", "name"}
+        )
+
+        assert kwargs["output_dir"] == str(tmp_path / "out" / "continued")
 
 
 class TestGetCfgDefaults:

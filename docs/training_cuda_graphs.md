@@ -4,14 +4,14 @@ Opt-in capture of the training network's forward and backward passes into
 CUDA graphs, cutting per-step kernel-launch overhead on launch-bound runs.
 
 ```python
-from libreyolo import LIBREYOLO
+from libreyolo import LibreYOLO
 
-model = LIBREYOLO("libreyolo9t.pt")
+model = LibreYOLO("LibreYOLO9t.pt")
 model.train(data="data.yaml", epochs=100, cuda_graph=True)
 ```
 
 ```bash
-libreyolo train --model libreyolo9t.pt --data data.yaml --cuda-graph
+libreyolo train --model LibreYOLO9t.pt --data data.yaml --cuda-graph
 ```
 
 The flag is always safe to pass: a family, task or configuration that
@@ -201,6 +201,10 @@ settled. A family hook that does something similar should call
 | semantic | segformer, lingbotvision |
 | point | fomo |
 | restore | nafnet |
+
+Four more trainers inherit a shared mixin and so also capture, but are not
+in the parity test and have no measured numbers: `convnextv2` (classify) and
+`domedetr`, `gtr`, `tinyformer` (detect).
 
 Everything else, meaning other tasks on the families above, families not
 listed, distributed (DDP) runs and distillation runs, downgrades to plain eager

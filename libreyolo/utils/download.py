@@ -19,7 +19,30 @@ _DOWNLOAD_TIMEOUT = (10, 60)
 _DOWNLOAD_CHUNK_SIZE = 1024 * 1024
 _DOWNLOAD_LOCK_TIMEOUT = 6 * 60 * 60
 _DOWNLOAD_LOCK_POLL_SECONDS = 0.1
+# Statuses that mean the object is not published (Hugging Face answers 401 for
+# a repo that does not exist or is private). Retrying cannot fix them.
+_UNPUBLISHED_STATUS_CODES = frozenset({401, 403, 404, 410})
 logger = logging.getLogger(__name__)
+
+
+class WeightsNotPublishedError(FileNotFoundError):
+    """Raised when a weight URL answers with a permanent 'not there' status."""
+
+    def __init__(self, url: str, status_code: int, *, used_token: bool = False):
+        self.url = url
+        self.status_code = status_code
+        token_hint = (
+            " The request sent your Hugging Face token; an invalid HF_TOKEN "
+            "also causes this."
+            if used_token and status_code == 401
+            else ""
+        )
+        super().__init__(
+            f"No weights are published at {url} (HTTP {status_code}): the "
+            "file does not exist or is not public. Pass the path to a local "
+            "checkpoint instead, or pick a published weight name "
+            f"(`libreyolo models` lists the families).{token_hint}"
+        )
 
 
 def _get_hf_token() -> Optional[str]:
@@ -240,6 +263,12 @@ def _download_once(url: str, partial: Path, headers: dict[str, str]) -> None:
             # download's temporary file so the retry starts cleanly.
             _reset_partial(partial)
 
+        if response.status_code in _UNPUBLISHED_STATUS_CODES:
+            raise WeightsNotPublishedError(
+                url,
+                response.status_code,
+                used_token="Authorization" in request_headers,
+            )
         response.raise_for_status()
 
         append = offset > 0 and response.status_code == 206
@@ -375,6 +404,8 @@ def download_url_to_path(url: str, path: Path, *, verify=None) -> None:
             try:
                 _download_once(url, partial, headers)
                 break
+            except WeightsNotPublishedError:
+                raise
             except Exception as e:
                 if attempt == _DOWNLOAD_RETRIES:
                     partial_size = partial.stat().st_size if partial.exists() else 0

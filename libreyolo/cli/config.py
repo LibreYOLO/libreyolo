@@ -91,8 +91,13 @@ def _register_cli_names_for_class(cls) -> None:
         if suffix:
             _CLI_NAME_TO_WEIGHTS[f"{cli_name}-{suffix}"] = weight_name
 
+    weight_tasks = getattr(cls, "WEIGHT_TASKS", None)
     for task in getattr(cls, "SUPPORTED_TASKS", ("detect",)):
         if task == default_task:
+            continue
+        # Tasks that reuse another task's checkpoint (e.g. CLIP embed on the
+        # -cls weights) have no file of their own to name.
+        if weight_tasks and task not in weight_tasks:
             continue
         suffix = task_to_suffix(task)
         if suffix is None:
@@ -151,6 +156,26 @@ def resolve_model_name(model: str) -> str:
     """
     _build_name_map()
     return _CLI_NAME_TO_WEIGHTS.get(model.lower(), model)
+
+
+def weight_unavailable_reason(model: str) -> Optional[str]:
+    """Return why a CLI model name's checkpoint cannot be auto-downloaded.
+
+    ``None`` means the name routes to a download URL (whether that URL is live
+    is only known over the network). Mirrors ``download_weights`` routing.
+    """
+    _build_name_map()
+    weight = _CLI_NAME_TO_WEIGHTS.get(model.lower())
+    if weight is None or weight.lower().startswith("librefacerec-"):
+        return None
+    for cls in _iter_model_classes():
+        try:
+            url = cls.get_download_url(weight)
+        except Exception as exc:  # families raise the reason for their names
+            return " ".join(str(exc).split())
+        if url:
+            return None
+    return f"LibreYOLO has no download route for {weight}; pass a local checkpoint."
 
 
 def detect_family_from_name(model_name: str) -> Optional[str]:
@@ -408,6 +433,17 @@ def build_train_kwargs(
     return kwargs
 
 
+def _run_dir_of_checkpoint(checkpoint: Any) -> Path | None:
+    """The run directory of a ``<run>/weights/*.pt`` training checkpoint."""
+    if not isinstance(checkpoint, (str, Path)):
+        return None
+    path = Path(checkpoint)
+    if path.suffix != ".pt" or path.parent.name != "weights" or not path.is_file():
+        return None
+    run_dir = path.parent.parent
+    return run_dir if run_dir.name else None
+
+
 def _build_rfdetr_train_kwargs(
     params: dict[str, Any],
     *,
@@ -421,14 +457,25 @@ def _build_rfdetr_train_kwargs(
     """
     from libreyolo.utils.general import increment_path
 
-    output_dir = increment_path(
-        Path(params["project"]) / params["name"],
-        exist_ok=params["exist_ok"],
-        mkdir=True,
-    )
+    provided = user_provided or set()
+    resume_run = None
+    resuming = "resume" in provided and bool(params.get("resume"))
+    if resuming and not {"project", "name"} & provided:
+        resume_run = _run_dir_of_checkpoint(
+            model_path if params["resume"] is True else params["resume"]
+        )
+    if resume_run is not None:
+        # Resuming continues the source run instead of opening a new one.
+        output_dir = resume_run
+    else:
+        output_dir = increment_path(
+            Path(params["project"]) / params["name"],
+            exist_ok=params["exist_ok"],
+            mkdir=True,
+        )
 
-    # The run dir was already incremented and created above, so the wrapper
-    # must not increment it a second time (its own default is exist_ok=False).
+    # The run dir is final here (incremented and created above, or the resumed
+    # run), so the wrapper must not increment it (its default is exist_ok=False).
     kwargs: dict[str, Any] = {"output_dir": str(output_dir), "exist_ok": True}
 
     direct_mappings = {
@@ -471,15 +518,16 @@ def _build_rfdetr_train_kwargs(
         "precise_bn": "precise_bn",
     }
 
+    # A resume restores the run's saved settings; only the options the user
+    # set may override them, never the CLI defaults.
     for cli_name, target_name in direct_mappings.items():
-        if cli_name in params:
+        if cli_name in params and (not resuming or cli_name in provided):
             kwargs[target_name] = params[cli_name]
 
-    provided = user_provided or set()
     if "imgsz" in provided and params.get("imgsz") is not None:
         kwargs["imgsz"] = params["imgsz"]
 
-    if "patience" in params:
+    if "patience" in params and (not resuming or "patience" in provided):
         kwargs["early_stopping"] = params["patience"] > 0
         kwargs["early_stopping_patience"] = params["patience"]
 
@@ -494,6 +542,14 @@ def _build_rfdetr_train_kwargs(
     return kwargs
 
 
+# Families whose train() resolves its own size-, task- or checkpoint-specific
+# recipe (GTR resume settings, PP-LiteSeg's per-size train crop, YOLO-NAS's
+# per-task optimizer/LR/AMP). Forwarding the generic Typer defaults would
+# overwrite that recipe silently, so the CLI passes only the train options the
+# user set.
+_FAMILY_RESOLVED_TRAIN_DEFAULTS = frozenset({"gtr", "ppliteseg", "yolonas"})
+
+
 def build_family_train_kwargs(
     params: dict[str, Any],
     family: str | None,
@@ -503,9 +559,12 @@ def build_family_train_kwargs(
     task: str | None = None,
 ) -> dict[str, Any]:
     """Build train kwargs, translating family-specific CLI/API mismatches."""
-    if family == "gtr":
-        # Let the family resolve size-specific defaults and checkpoint resume
-        # settings. Forwarding Typer defaults would overwrite both silently.
+    # A resume restores the run's saved arguments; Typer defaults must not
+    # override them, only the options the user set.
+    resume_restores = bool(params.get("resume")) and getattr(
+        get_model_class(family), "RESUME_RESTORES_TRAIN_ARGS", False
+    )
+    if family in _FAMILY_RESOLVED_TRAIN_DEFAULTS or resume_restores:
         from .aliases import train_aliases
 
         aliases = train_aliases(task)
@@ -515,9 +574,8 @@ def build_family_train_kwargs(
             key: value for key, value in build_train_kwargs(params, task=task).items()
             if inverse.get(key, key) in provided
         }
-        # Resume is a wrapper option, not a TrainConfig field, so the generic
-        # field-based builder does not include it.
-        if "resume" in provided:
+        # GTR resolves resume=True against the CLI model path.
+        if family == "gtr" and "resume" in provided:
             resume = params.get("resume", False)
             kwargs["resume"] = (model_path or True) if resume is True else resume
         return kwargs

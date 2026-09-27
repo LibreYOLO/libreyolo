@@ -1960,9 +1960,18 @@ class Results:
 
     @property
     def orig_img(self) -> np.ndarray | None:
-        """Source image as an ``HxWx3`` uint8 BGR array, or None if not kept."""
+        """Source image as an ``HxWx3`` uint8 BGR array, or None if unavailable.
+
+        Predictions on local files do not keep the decoded pixels; the image
+        is read back from ``path`` on first access and cached.
+        """
         source = self._orig_img
-        if source is not None and not isinstance(source, np.ndarray):
+        if source is None:
+            rgb = self._path_rgb()
+            if rgb is not None:
+                source = np.ascontiguousarray(rgb[..., ::-1])
+                self._orig_img = source
+        elif not isinstance(source, np.ndarray):
             # Predict keeps the decoded PIL image; convert on first access.
             source = np.ascontiguousarray(np.asarray(source.convert("RGB"))[..., ::-1])
             self._orig_img = source
@@ -2327,9 +2336,23 @@ class Results:
             )
         return rgb.astype(np.uint8)
 
+    def _path_rgb(self) -> np.ndarray | None:
+        """Decode the source at ``path`` (an image or a video frame), or None."""
+        if not self.path or not _is_local_file(self.path):
+            return None
+        from PIL import Image
+
+        rgb = self._video_frame_rgb()
+        if rgb is None:
+            try:
+                rgb = np.asarray(Image.open(self.path).convert("RGB"))
+            except (OSError, ValueError):
+                return None
+        return rgb
+
     def _video_frame_rgb(self) -> np.ndarray | None:
         """Decode frame ``frame_idx`` of the video at ``path``, or None."""
-        if self.frame_idx is None or not self.path or not Path(self.path).is_file():
+        if self.frame_idx is None or not self.path or not _is_local_file(self.path):
             return None
         import cv2
 
@@ -2802,6 +2825,18 @@ def stack_result_embeddings(prediction: Any) -> torch.Tensor:
     return torch.cat(non_empty, dim=0)
 
 
+def _is_local_file(path: Any) -> bool:
+    """``Path(path).is_file()``, but False for strings the OS rejects as paths.
+
+    A signed S3/GCS URL can exceed the OS path limit, so ``stat`` raises
+    ``ENAMETOOLONG`` instead of reporting that no such file exists.
+    """
+    try:
+        return Path(path).is_file()
+    except (OSError, ValueError):
+        return False
+
+
 def keep_source(result: Any, image: Any, source: Any = None) -> Any:
     """Attach the decoded source image so ``Results.plot()`` can draw on it.
 
@@ -2810,7 +2845,7 @@ def keep_source(result: Any, image: Any, source: Any = None) -> Any:
     decoded image in memory. In-memory inputs and URLs keep their pixels.
     """
     if isinstance(result, Results) and not (
-        isinstance(source, (str, Path)) and Path(source).is_file()
+        isinstance(source, (str, Path)) and _is_local_file(source)
     ):
         result.orig_img = image
     return result

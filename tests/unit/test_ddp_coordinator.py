@@ -103,6 +103,20 @@ def _job_dirs() -> set[Path]:
     return set(root.glob("libreyolo-ddp-job-*"))
 
 
+@pytest.fixture
+def private_tempdir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """Give this test its own system temp dir, inherited by the coordinator.
+
+    The cleanup checks compare job dirs in the temp root; with the shared root,
+    jobs from other xdist workers made the before/after sets differ.
+    """
+    root = tmp_path / "tmp"
+    root.mkdir()
+    monkeypatch.setenv("TMPDIR", str(root))
+    monkeypatch.setattr(tempfile, "tempdir", None)
+    return root
+
+
 def test_job_protocol_round_trip(tmp_path: Path) -> None:
     job_dir = tmp_path / "job"
     with warnings.catch_warnings(record=True) as caught:
@@ -245,7 +259,7 @@ def test_job_protocol_rejects_future_version(tmp_path: Path) -> None:
 
 
 def test_coordinator_propagates_env_result_mask_and_cleans_up(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, private_tempdir: Path
 ) -> None:
     monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "2,3")
     before = _job_dirs()
@@ -275,7 +289,9 @@ def test_coordinator_propagates_env_result_mask_and_cleans_up(
     assert json.loads(result_path.read_text())["rank"] == 0
 
 
-def test_coordinator_surfaces_worker_traceback_and_cleans_up(tmp_path: Path) -> None:
+def test_coordinator_surfaces_worker_traceback_and_cleans_up(
+    tmp_path: Path, private_tempdir: Path
+) -> None:
     before = _job_dirs()
     with pytest.raises(RuntimeError, match="intentional rank failure"):
         spawn_ddp_train(
@@ -1019,3 +1035,31 @@ def test_unguarded_compatibility_fallback_stops_without_recursing(
     ]
     assert "from a spawned subprocess" in completed.stderr
     assert "if __name__ == '__main__'" in completed.stderr
+
+
+def test_rank_children_import_the_coordinator_not_the_user_script(tmp_path, monkeypatch):
+    """Guardless DDP hung: DataLoader workers a rank starts with spawn ran the
+    user's unguarded script as ``__mp_main__`` (from the restored ``__file__``)
+    and re-entered train(). Spawn must set up main from the coordinator."""
+    import types
+    from multiprocessing import spawn
+
+    from libreyolo.training import _ddp_coordinator as coordinator
+
+    user_script = tmp_path / "train_unguarded.py"
+    user_script.write_text("raise SystemExit('user script must not run')\n")
+    fake_main = types.ModuleType("__mp_main__")
+    fake_main.__file__ = "/path/to/_ddp_coordinator.py"
+    fake_main.__spec__ = None
+    monkeypatch.setitem(sys.modules, "__main__", fake_main)
+    monkeypatch.setitem(sys.modules, "__mp_main__", fake_main)
+    monkeypatch.setattr(sys, "argv", list(sys.argv))
+
+    coordinator._restore_caller_identity(
+        {"caller_argv": [str(user_script)], "caller_main_file": str(user_script)}
+    )
+
+    assert fake_main.__file__ == str(user_script)
+    prep = spawn.get_preparation_data("worker")
+    assert prep.get("init_main_from_name") == "libreyolo.training._ddp_coordinator"
+    assert "init_main_from_path" not in prep

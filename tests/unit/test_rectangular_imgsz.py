@@ -488,6 +488,125 @@ def test_yolox_postprocess_accepts_rect_size_at_unit_ratio():
     assert result.orig_shape == (192, 320)
 
 
+@pytest.mark.parametrize("imgsz", [[64, 64], [64, 96]])
+def test_yolo9_predict_accepts_list_imgsz(imgsz):
+    from libreyolo.models.yolo9.model import LibreYOLO9
+    from libreyolo.postprocess.yolo9 import _input_size_hw as yolo9_input_size_hw
+
+    assert yolo9_input_size_hw(imgsz) == tuple(imgsz)
+    model = LibreYOLO9(None, size="t", nb_classes=2, device="cpu")
+    model.model.eval()
+
+    result = model.predict(np.zeros((60, 90, 3), dtype=np.uint8), imgsz=imgsz)
+
+    assert result.orig_shape == (60, 90)
+
+
+def test_export_accepts_list_imgsz():
+    from libreyolo.export.exporter import OnnxExporter
+    from libreyolo.models.yolo9.model import LibreYOLO9
+
+    model = LibreYOLO9(None, size="t", nb_classes=2, device="cpu")
+    imgsz, _, _ = OnnxExporter(model)._resolve_params(
+        output_path=None, imgsz=[320, 320], device="cpu", half=False, int8=False
+    )
+
+    assert imgsz == (320, 320)
+
+
+# ---------------------------------------------------------------------------
+# Stride rounding (IMGSZ_STRIDE): unaligned sizes round up with a warning
+# ---------------------------------------------------------------------------
+
+
+class _Strided:
+    FAMILY = "strided"
+    IMGSZ_STRIDE = 32
+
+
+@pytest.mark.parametrize(
+    "imgsz, expected",
+    [
+        (333, 352),
+        ((333, 500), (352, 512)),
+        ([320, 330], (320, 352)),
+        (320, 320),
+        ((320, 640), (320, 640)),
+        ([320, 640], [320, 640]),
+        (None, None),
+        (0, 0),
+        ("640", "640"),
+    ],
+)
+def test_round_imgsz_to_stride(imgsz, expected):
+    from libreyolo.utils.image_size import round_imgsz_to_stride
+
+    assert round_imgsz_to_stride(_Strided(), imgsz, "predict") == expected
+
+
+def test_round_imgsz_to_stride_warns_only_when_it_changes_the_size(caplog):
+    import logging
+
+    from libreyolo.utils.image_size import round_imgsz_to_stride
+
+    with caplog.at_level(logging.WARNING, logger="libreyolo.utils.image_size"):
+        round_imgsz_to_stride(_Strided(), 320, "val")
+        assert not caplog.records
+        round_imgsz_to_stride(_Strided(), 333, "val")
+    assert "imgsz=333" in caplog.text and "imgsz=352" in caplog.text
+
+
+def test_round_imgsz_to_stride_ignores_families_without_a_stride():
+    from libreyolo.utils.image_size import round_imgsz_to_stride
+
+    assert round_imgsz_to_stride(object(), 333, "predict") == 333
+
+
+@pytest.mark.parametrize("imgsz", [40, (40, 70)])
+def test_yolo9_predict_rounds_unaligned_imgsz(imgsz):
+    from libreyolo.models.yolo9.model import LibreYOLO9
+
+    model = LibreYOLO9(None, size="t", nb_classes=2, device="cpu")
+    model.model.eval()
+
+    result = model.predict(np.zeros((50, 60, 3), dtype=np.uint8), imgsz=imgsz)
+
+    assert result.orig_shape == (50, 60)
+
+
+def test_yolo9_val_export_and_train_round_unaligned_imgsz(monkeypatch):
+    import torch.nn as nn
+
+    import libreyolo.validation as validation
+    from libreyolo.export.exporter import OnnxExporter
+    from libreyolo.models.yolo9.model import LibreYOLO9
+    from libreyolo.models.yolo9.trainer import YOLO9Trainer
+
+    model = LibreYOLO9(None, size="t", nb_classes=2, device="cpu")
+
+    imgsz, _, _ = OnnxExporter(model)._resolve_params(
+        output_path=None, imgsz=333, device="cpu", half=False, int8=False
+    )
+    assert imgsz == (352, 352)
+
+    trainer = YOLO9Trainer(model=nn.Identity(), wrapper_model=model, imgsz=333)
+    assert trainer.config.imgsz == 352
+
+    seen = {}
+
+    class _Stop(Exception):
+        pass
+
+    def fake_config(**kwargs):
+        seen["imgsz"] = kwargs["imgsz"]
+        raise _Stop
+
+    monkeypatch.setattr(validation, "ValidationConfig", fake_config)
+    with pytest.raises(_Stop):
+        model.val(data="unused.yaml", imgsz=(333, 400))
+    assert seen["imgsz"] == (352, 416)
+
+
 def test_tta_postprocess_uses_the_preprocessed_canvas(monkeypatch):
     from libreyolo.models.yolo9.model import LibreYOLO9
 

@@ -182,9 +182,51 @@ class TestWarningFilters:
 
         _configure_warning_filters()
 
-        assert len(calls) == 3
+        assert len(calls) == 4
         assert all(args[0] == "ignore" for args, _kwargs in calls)
-        assert all(kwargs["category"] is DeprecationWarning for _args, kwargs in calls)
+        assert all(
+            kwargs["category"] in (DeprecationWarning, FutureWarning)
+            for _args, kwargs in calls
+        )
+
+    def test_cli_silences_the_torch_jit_script_future_warning(self):
+        import warnings
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            _configure_warning_filters()
+            warnings.warn(
+                "`torch.jit.script` is deprecated. Please switch to "
+                "`torch.compile` or `torch.export`.",
+                FutureWarning,
+            )
+        assert caught == []
+
+    def test_importing_gtr_does_not_script_at_import(self):
+        import os
+        import subprocess
+        import sys
+        from pathlib import Path
+
+        import libreyolo
+
+        code = (
+            "import warnings\n"
+            "with warnings.catch_warnings(record=True) as caught:\n"
+            "    warnings.simplefilter('always')\n"
+            "    import libreyolo.models.gtr.attention\n"
+            "print(sum('torch.jit.script' in str(w.message) for w in caught))\n"
+        )
+        repo_root = str(Path(libreyolo.__file__).resolve().parents[1])
+        proc = subprocess.run(
+            [sys.executable, "-c", code],
+            capture_output=True,
+            text=True,
+            timeout=300,
+            env={**os.environ, "PYTHONPATH": repo_root},
+        )
+        assert proc.returncode == 0, proc.stderr[-2000:]
+        assert proc.stdout.strip().splitlines()[-1] == "0"
 
 
 class TestEdgeCases:
@@ -271,3 +313,85 @@ class TestUserProvidedParams:
         result = runner.invoke(app, [])
         assert result.exit_code == 0
         assert captured["user_provided"] == set()
+
+
+class TestJsonUsageErrors:
+    """Click usage errors follow the --json error contract."""
+
+    @staticmethod
+    def _app():
+        app = typer.Typer()
+
+        @app.command("cmd", cls=KeyValueCommand)
+        def cmd(
+            conf: float = typer.Option(0.25),
+            max_det: int = typer.Option(300),
+            json_output: bool = typer.Option(False, "--json"),
+        ):
+            pass
+
+        @app.command("other")
+        def other():
+            pass
+
+        return app
+
+    @pytest.mark.parametrize(
+        ("args", "code"),
+        [
+            (["conf=abc"], "config_type_error"),
+            (["--conf", "abc"], "config_type_error"),
+            (["confx=0.3"], "config_unknown_key"),
+            (["--max-dett", "5"], "config_unknown_key"),
+        ],
+    )
+    def test_usage_error_is_json_under_json_flag(self, args, code):
+        import json
+
+        result = runner.invoke(self._app(), ["cmd", *args, "--json"])
+        assert result.exit_code == 2
+        payload = json.loads(result.stdout)
+        assert payload["error"] == code
+        assert payload["schema_version"] == 1
+
+    def test_unknown_key_suggests_the_close_match(self):
+        import json
+
+        result = runner.invoke(self._app(), ["cmd", "max_dett=5", "json=true"])
+        assert result.exit_code == 2
+        assert json.loads(result.stdout)["suggestion"] == "Did you mean 'max_det'?"
+
+    def test_usage_error_without_json_keeps_stdout_empty(self):
+        result = runner.invoke(self._app(), ["cmd", "conf=abc"])
+        assert result.exit_code == 2
+        assert result.stdout == ""
+
+
+class TestOptionValuesAreNotRewritten:
+    """The token after a value-taking ``--key`` is that key's value, verbatim."""
+
+    @pytest.mark.parametrize("value", ["save", "half", "run=1", "half=true"])
+    def test_value_after_double_dash_key_is_kept(self, value):
+        app, captured = _make_app()
+        result = runner.invoke(app, ["--name", value])
+        assert result.exit_code == 0, result.output
+        assert captured["name"] == value
+        assert captured["save"] is False
+        assert captured["half"] is False
+
+    def test_value_after_double_dash_key_is_not_a_provided_param(self):
+        from libreyolo.cli.command_utils import get_user_provided_params
+
+        app = typer.Typer()
+        captured = {}
+
+        @app.command(cls=KeyValueCommand)
+        def cmd(
+            name: str = typer.Option("exp"),
+            save: bool = typer.Option(False),
+        ):
+            captured["user_provided"] = get_user_provided_params()
+
+        result = runner.invoke(app, ["--name", "save"])
+        assert result.exit_code == 0, result.output
+        assert captured["user_provided"] == {"name"}

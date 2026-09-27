@@ -575,6 +575,36 @@ def test_train_rfdetr_scheduler_override_reaches_trainer(monkeypatch, tmp_path):
     assert "ignores these parameters" not in result.output
 
 
+@pytest.mark.parametrize("val_args", [["val=false"], ["--no-val"]])
+def test_train_rfdetr_val_false_disables_validation(monkeypatch, tmp_path, val_args):
+    """RF-DETR's trainer honours eval_interval=0; the CLI used to drop
+    val=false for it while the Python API applied it."""
+    captured = {}
+
+    class _RFDETRLike:
+        FAMILY = "rfdetr"
+        device = "cpu"
+
+        def train(self, data, **kwargs):
+            captured["kwargs"] = kwargs
+            return {"output_dir": str(tmp_path / "rfdetr_exp")}
+
+    monkeypatch.setattr(
+        "libreyolo.cli.commands.train.load_model_or_exit",
+        lambda out, model, model_path, device: _RFDETRLike(),
+    )
+
+    result = runner.invoke(
+        _make_app(),
+        ["data=dummy.yaml", "model=LibreRFDETRm.pt", f"project={tmp_path}",
+         "exist_ok=true", *val_args, "--json"],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert captured["kwargs"]["eval_interval"] == 0
+    assert "does not support disabling validation" not in result.output
+
+
 def test_train_rfdetr_lora_flag_reaches_trainer(monkeypatch, tmp_path):
     app = _make_app()
     captured = {}
@@ -1409,6 +1439,40 @@ def test_gtr_resume_reaches_training(monkeypatch, tmp_path, syntax, resume, expe
     assert not {'imgsz', 'batch', 'lr0', 'weight_decay', 'ema'} & captured.keys()
 
 
+@pytest.mark.parametrize('syntax', ['key_value', 'flags'])
+def test_yolo9_resume_forwards_only_user_options(monkeypatch, tmp_path, syntax):
+    """Typer defaults (pretrained=True, epochs, imgsz, ...) must not reach a
+    resume: pretrained=True was rejected with resume, and the rest overrode
+    the run's saved arguments."""
+    captured = {}
+    last = tmp_path / 'run' / 'weights' / 'last.pt'
+    last.parent.mkdir(parents=True)
+    last.write_bytes(b'')
+
+    class YOLO9Like:
+        FAMILY = 'yolo9'
+        task = 'detect'
+        device = 'cpu'
+
+        def train(self, data, **kwargs):
+            captured.update(kwargs, data=data)
+            return {'save_dir': str(last.parent.parent), 'epoch_losses': [1.0]}
+
+    monkeypatch.setattr('libreyolo.cli.commands.train.load_model_or_exit',
+                        lambda *args, **kwargs: YOLO9Like())
+    options = {'model': str(last), 'data': 'coco8.yaml', 'resume': 'true', 'epochs': '2'}
+    if syntax == 'key_value':
+        args = [f'{key}={value}' for key, value in options.items()]
+    else:
+        args = [part for key, value in options.items() for part in (f'--{key}', value)]
+    result = runner.invoke(_make_app(), args + ['--json'])
+
+    assert result.exit_code == 0, result.output
+    assert (captured['resume'], captured['epochs']) == (True, 2)
+    assert not {'pretrained', 'imgsz', 'batch', 'lr0', 'optimizer', 'project',
+                'name'} & captured.keys()
+
+
 @pytest.mark.parametrize(
     "model,args,expected",
     [
@@ -1438,3 +1502,265 @@ def test_train_dry_run_rejects_unknown_compile_mode():
     data = json.loads(result.stdout)
     assert data["error"] == "config_type_error"
     assert "compile must be" in data["message"]
+
+
+@pytest.mark.parametrize(
+    "grammar", [["aux_weight=0"], ["--aux-weight", "0"]], ids=["key=value", "--flag"]
+)
+def test_train_aux_weight_reaches_yolo9_train(monkeypatch, tmp_path, grammar):
+    app = _make_app()
+    captured = {}
+
+    class _YOLO9Like:
+        FAMILY = "yolo9"
+        device = "cpu"
+
+        def train(self, data, **kwargs):
+            captured["kwargs"] = kwargs
+            return {"save_dir": str(tmp_path / "exp")}
+
+    monkeypatch.setattr(
+        "libreyolo.cli.commands.train.load_model_or_exit",
+        lambda **_kwargs: _YOLO9Like(),
+    )
+    result = runner.invoke(
+        app,
+        ["data=dummy.yaml", "model=LibreYOLO9t.pt", f"project={tmp_path}", *grammar, "--json"],
+    )
+    assert result.exit_code == 0, result.stdout
+    assert captured["kwargs"]["aux_weight"] == 0.0
+
+
+def test_train_aux_weight_rejected_outside_yolo9(monkeypatch, tmp_path):
+    app = _make_app()
+
+    class _YOLOXLike:
+        FAMILY = "yolox"
+        device = "cpu"
+
+        def train(self, data, **kwargs):  # pragma: no cover - must not run
+            raise AssertionError("train() must not be reached")
+
+    monkeypatch.setattr(
+        "libreyolo.cli.commands.train.load_model_or_exit",
+        lambda **_kwargs: _YOLOXLike(),
+    )
+    result = runner.invoke(
+        app,
+        ["data=dummy.yaml", "model=LibreYOLOXs.pt", f"project={tmp_path}", "aux_weight=0", "--json"],
+    )
+    assert result.exit_code != 0
+    data = json.loads(result.stdout)
+    assert data["error"] == "config_unsupported"
+    assert "aux_weight" in data["message"]
+
+
+def test_gtr_semantic_cli_train_accepts_the_pretrained_flag(monkeypatch, tmp_path):
+    """The CLI always forwards ``pretrained``; GTR semantic must not reject it."""
+    from libreyolo import LibreGTR
+
+    captured = {}
+
+    class _FakeSemTrainer:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+        def train(self):
+            return {"save_dir": str(tmp_path / "sem")}
+
+    monkeypatch.setattr(
+        "libreyolo.models.gtr.sem_trainer.GTRSemTrainer", _FakeSemTrainer
+    )
+    model = LibreGTR(None, size="s", nb_classes=2, device="cpu", task="semantic")
+    monkeypatch.setattr(
+        "libreyolo.cli.commands.train.load_model_or_exit", lambda **_kwargs: model
+    )
+    result = runner.invoke(
+        _make_app(),
+        ["model=LibreGTRs-sem.pt", "data=dummy.yaml", "epochs=1", "--json"],
+    )
+    assert result.exit_code == 0, result.output
+    assert captured["data"] == "dummy.yaml"
+    assert captured["epochs"] == 1
+    assert "pretrained" not in captured
+
+
+@pytest.mark.parametrize(
+    "args,expected_imgsz",
+    [
+        ([], (768, 768)),
+        (["imgsz=512x1024"], (512, 1024)),
+        (["--imgsz", "512x1024"], (512, 1024)),
+    ],
+    ids=["default", "key_value", "flag"],
+)
+def test_ppliteseg_cli_train_keeps_the_size_aware_recipe(
+    monkeypatch, tmp_path, args, expected_imgsz
+):
+    """t75 trains on its 768x768 crop unless imgsz is passed; no Typer defaults leak."""
+    from libreyolo.models.ppliteseg.model import LibrePPLiteSeg
+
+    captured = {}
+
+    class _FakeTrainer:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+        def train(self):
+            return {"save_dir": str(tmp_path / "pp")}
+
+    monkeypatch.setattr(
+        "libreyolo.models.ppliteseg.trainer.PPLiteSegTrainer", _FakeTrainer
+    )
+    model = LibrePPLiteSeg(size="t75", device="cpu")
+    monkeypatch.setattr(
+        "libreyolo.cli.commands.train.load_model_or_exit", lambda **_kwargs: model
+    )
+    result = runner.invoke(
+        _make_app(),
+        ["model=LibrePPLiteSegt75-sem.pt", "data=dummy.yaml", *args, "--json"],
+    )
+    assert result.exit_code == 0, result.output
+    assert captured["imgsz"] == expected_imgsz
+    assert (captured["epochs"], captured["batch"], captured["amp"]) == (800, 8, False)
+    # The recipe's poly schedule, momentum and augmentation come from
+    # PPLiteSegConfig, not from the generic CLI defaults.
+    leaked = {"scheduler", "optimizer", "lr0", "momentum", "warmup_epochs", "mosaic_prob"}
+    assert not leaked & captured.keys()
+
+
+@pytest.mark.parametrize(
+    "args,expected",
+    [
+        ([], {"optimizer": "AdamW", "lr0": 5e-5, "amp": False, "epochs": 100}),
+        (
+            ["lr0=0.001", "amp=true", "optimizer=sgd"],
+            {"optimizer": "sgd", "lr0": 0.001, "amp": True, "epochs": 100},
+        ),
+        (
+            ["--lr0", "0.001", "--amp", "--optimizer", "sgd"],
+            {"optimizer": "sgd", "lr0": 0.001, "amp": True, "epochs": 100},
+        ),
+    ],
+    ids=["default", "key_value", "flag"],
+)
+def test_yolonas_obb_cli_train_keeps_the_obb_recipe(monkeypatch, args, expected):
+    """Generic CLI defaults (SGD, lr0=0.01, AMP) must not replace the OBB recipe."""
+    from libreyolo import LibreYOLONAS
+
+    captured = {}
+
+    def _capture_train_obb(self, data, **kwargs):
+        captured.update(kwargs)
+        return {"save_dir": "runs/train/yolonas_obb_exp"}
+
+    monkeypatch.setattr(LibreYOLONAS, "_train_obb", _capture_train_obb)
+    model = LibreYOLONAS(None, size="s", device="cpu", task="obb")
+    monkeypatch.setattr(
+        "libreyolo.cli.commands.train.load_model_or_exit", lambda **_kwargs: model
+    )
+    result = runner.invoke(
+        _make_app(),
+        ["model=LibreYOLONASs-obb.pt", "data=dummy.yaml", *args, "--json"],
+    )
+    assert result.exit_code == 0, result.output
+    assert {key: captured[key] for key in expected} == expected
+    assert captured["name"] == "yolonas_obb_exp"
+    # Weight decay, schedule, warmup and augmentation come from YOLONASOBBConfig.
+    leaked = {"momentum", "weight_decay", "scheduler", "warmup_epochs", "mosaic_prob"}
+    assert not leaked & captured.keys()
+
+
+@pytest.mark.parametrize(
+    "content",
+    [b"train: [x\n", b"names: {0: a\n", b"- a\n- b\n", b"\xff\xd8\xff\xe0jpeg"],
+    ids=["flow-list", "flow-map", "top-level-list", "binary"],
+)
+def test_train_unreadable_data_yaml_reports_data_not_found(monkeypatch, tmp_path, content):
+    """A malformed dataset YAML reaches the loader's data error, not a traceback."""
+    data = tmp_path / "bad.yaml"
+    data.write_bytes(content)
+
+    class _YOLO9Like:
+        FAMILY = "yolo9"
+        device = "cpu"
+
+        def train(self, data, **kwargs):
+            raise FileNotFoundError(f"Failed to load dataset config '{data}': bad")
+
+    monkeypatch.setattr(
+        "libreyolo.cli.commands.train._create_explicit_task_train_model",
+        lambda **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        "libreyolo.cli.commands.train.load_model_or_exit",
+        lambda **_kwargs: _YOLO9Like(),
+    )
+    result = runner.invoke(
+        _make_app(),
+        [f"data={data}", "model=LibreYOLO9t.pt", f"project={tmp_path}", "epochs=1", "--json"],
+    )
+    assert result.exit_code == 3, result.output
+    payload = json.loads(result.stdout)
+    assert payload["error"] == "data_not_found"
+    assert payload["suggestion"]
+
+
+@pytest.mark.parametrize(
+    "content",
+    [b"train: [x\n", b"- a\n- b\n", b"\xff\xd8\xff\xe0jpeg"],
+    ids=["flow-list", "top-level-list", "binary"],
+)
+def test_histogram_training_prep_leaves_unreadable_yaml_to_the_loader(tmp_path, content):
+    """The early histogram check must not preempt the family's dataset error."""
+    from types import SimpleNamespace
+
+    from libreyolo.data.event_histogram import prepare_histogram_training
+
+    data = tmp_path / "bad.yaml"
+    data.write_bytes(content)
+    wrapper = SimpleNamespace(FAMILY="yolo9", task="detect", input_profile=None)
+    assert prepare_histogram_training(wrapper, (), {"data": str(data)}) is None
+
+
+@pytest.mark.parametrize(
+    "exc,code,exit_code",
+    [
+        (ValueError("lr0 must be positive"), "config_type_error", 2),
+        (TypeError("train() got an unexpected keyword argument 'foo'"), "config_unknown_key", 2),
+        (TypeError("Unsupported GTR semantic training arguments: ['foo']"), "config_unknown_key", 2),
+        (TypeError("freeze must be None, an int, or a list"), "config_type_error", 2),
+        (NotImplementedError("Rectangular training is not supported"), "config_unsupported", 2),
+        (
+            NotImplementedError(
+                "The operator 'aten::foo' is not currently implemented for the MPS device."
+            ),
+            "device_not_available",
+            1,
+        ),
+        (OSError("No space left on device"), "io_error", 1),
+        (RuntimeError("CUDA out of memory. Tried to allocate 2.00 GiB"), "cuda_oom", 1),
+    ],
+    ids=["value", "kwarg", "unsupported-args", "type", "unsupported", "device", "os", "oom"],
+)
+def test_train_failures_report_their_error_type(monkeypatch, tmp_path, exc, code, exit_code):
+    class _Failing:
+        FAMILY = "yolo9"
+        device = "cpu"
+
+        def train(self, data, **kwargs):
+            raise exc
+
+    monkeypatch.setattr(
+        "libreyolo.cli.commands.train.load_model_or_exit",
+        lambda *a, **k: _Failing(),
+    )
+    result = runner.invoke(
+        _make_app(),
+        ["data=dummy.yaml", "model=LibreYOLO9t.pt", f"project={tmp_path}", "--json"],
+    )
+
+    assert result.exit_code == exit_code, result.output
+    data = json.loads(result.stdout)
+    assert data["error"] == code
+    assert str(exc) in data["message"]

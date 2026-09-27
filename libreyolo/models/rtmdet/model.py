@@ -61,6 +61,7 @@ class LibreRTMDet(BaseModel):
         "segment": INPUT_SIZES,
     }
     TRAIN_CONFIG = RTMDetConfig
+    RESUME_RESTORES_TRAIN_ARGS = True
     val_preprocessor_class = RTMDetValPreprocessor
 
     # =========================================================================
@@ -354,13 +355,8 @@ class LibreRTMDet(BaseModel):
         )
 
         if resume:
-            if not self.model_path:
-                raise ValueError(
-                    "resume=True requires a checkpoint. Load one first: "
-                    "model = LibreRTMDet('path/to/last.pt'); model.train(data=..., resume=True)"
-                )
             trainer.setup()
-            trainer.resume(str(self.model_path))
+            trainer.resume(self._resume_checkpoint(resume))
 
         results = trainer.train()
         best_ckpt = results.get("best_checkpoint")

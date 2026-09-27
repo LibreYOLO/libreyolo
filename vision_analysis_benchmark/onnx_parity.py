@@ -204,6 +204,8 @@ def _checkpoint_unavailable_reason(exc: BaseException) -> str | None:
         return str(exc)
     if "could not determine download url" in text:
         return str(exc)
+    if "no weights are published at" in text:
+        return str(exc)
     if "failed to download weights" in text and any(
         marker in text
         for marker in (

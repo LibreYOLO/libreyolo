@@ -658,8 +658,10 @@ class DDetect(nn.Module):
         dtype, device = feats[0].dtype, feats[0].device
         for feat, stride in zip(feats, self._stride_values):
             _, _, h, w = feat.shape
-            shift_x = torch.arange(end=w, device=device, dtype=dtype) + 0.5
-            shift_y = torch.arange(end=h, device=device, dtype=dtype) + 0.5
+            # Integer Range then cast: ONNX Range has no float16 kernel, so a
+            # half-precision export must not emit it with a float16 dtype.
+            shift_x = torch.arange(end=w, device=device).to(dtype) + 0.5
+            shift_y = torch.arange(end=h, device=device).to(dtype) + 0.5
             shift_y, shift_x = torch.meshgrid(shift_y, shift_x, indexing="ij")
             anchor_points.append(
                 torch.stack([shift_x, shift_y], dim=-1).reshape(-1, 2)
@@ -674,7 +676,15 @@ class DDetect(nn.Module):
             anchor_points, stride_scale = self._anchor_grid(feats)
             return anchor_points.transpose(0, 1), stride_scale.transpose(0, 1)
         shape = feats[0].shape
-        cached = not self.dynamic and self.shape == shape
+        # The cache is a plain attribute, so ``.to()`` does not move it: key it
+        # on device and dtype too, or a per-call device switch reuses stale
+        # anchors from the previous device.
+        cached = (
+            not self.dynamic
+            and self.shape == shape
+            and self.anchors.device == feats[0].device
+            and self.anchors.dtype == feats[0].dtype
+        )
         if not cached:
             anchor_points, stride_scale = self._anchor_grid(feats)
             self.anchors = anchor_points.transpose(0, 1)
@@ -893,7 +903,7 @@ class Backbone9(nn.Module):
         spp_out = cfg["spp_out"]
         self.spp = SPPELAN(spp_in, spp_out // 2, spp_out)
 
-    def forward(self, x):
+    def forward(self, x, return_b5=False):
         # Stem
         x = self.conv0(x)
         x = self.conv1(x)
@@ -909,12 +919,15 @@ class Backbone9(nn.Module):
         x = self.down3(p3)
         p4 = self.elan3(x)
 
-        # Stage 4 - B5 (pre-SPP) then SPP → P5. Stash B5 for the optional
-        # PGI aux neck without changing this method's 3-tuple return.
+        # Stage 4 - B5 (pre-SPP) then SPP → P5. The PGI aux neck needs the
+        # pre-SPP B5; it is returned on request instead of being stored on the
+        # module, which would keep a non-leaf tensor alive and break deepcopy.
         x = self.down4(p4)
-        self.last_b5 = self.elan4(x)
-        p5 = self.spp(self.last_b5)
+        b5 = self.elan4(x)
+        p5 = self.spp(b5)
 
+        if return_b5:
+            return p3, p4, p5, b5
         return p3, p4, p5
 
 
@@ -1114,6 +1127,13 @@ class LibreYOLO9Model(nn.Module):
         self.aux_head.to(device)
         return self
 
+    def disable_aux(self):
+        """Drop the PGI branch so its parameters leave the optimizer and DDP."""
+        self.aux = None
+        self.aux_head = None
+        self.aux_weight = 0.0
+        return self
+
     def combine_aux_losses(self, main: dict, aux: dict) -> dict:
         """Add the PGI auxiliary losses to the main ones at ``aux_weight``."""
         combined = dict(main)
@@ -1136,9 +1156,17 @@ class LibreYOLO9Model(nn.Module):
             Training without targets: Raw predictions (list of tensors)
             Inference: Dict with decoded predictions and features
         """
-        # Backbone. ``last_b5`` is the pre-SPP B5 feature the PGI aux
-        # branch needs; the public 3-tuple return stays (p3, p4, post-SPP p5).
-        p3, p4, p5 = self.backbone(x)
+        # Backbone. The PGI aux branch also needs the pre-SPP B5 feature.
+        use_aux = (
+            self.training
+            and targets is not None
+            and self.aux is not None
+            and self.aux_weight > 0
+        )
+        if use_aux:
+            p3, p4, p5, b5 = self.backbone(x, return_b5=True)
+        else:
+            p3, p4, p5 = self.backbone(x)
 
         # Neck
         n3, n4, n5 = self.neck(p3, p4, p5)
@@ -1148,10 +1176,7 @@ class LibreYOLO9Model(nn.Module):
             # Pass image size for anchor generation
             img_size = (x.shape[3], x.shape[2])  # (W, H)
             main = self.head([n3, n4, n5], targets=targets, img_size=img_size)
-            if self.aux is None or self.aux_weight <= 0:
-                return main
-            b5 = getattr(self.backbone, "last_b5", None)
-            if b5 is None:
+            if not use_aux:
                 return main
             a3, a4, a5 = self.aux(p3, p4, b5)
             aux = self.aux_head([a3, a4, a5], targets=targets, img_size=img_size)

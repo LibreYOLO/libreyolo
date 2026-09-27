@@ -5,7 +5,7 @@ import json
 import pytest
 import torch
 import typer
-from PIL import Image
+from PIL import Image, UnidentifiedImageError
 from typer.testing import CliRunner
 
 from libreyolo.cli.commands import predict as predict_module
@@ -320,3 +320,81 @@ def test_predict_rtsp_source_bypasses_local_path_validation(monkeypatch):
 
     assert result.exit_code == 0
     assert fake_model.calls[0][0] == source
+
+
+class _FailingModel:
+    FAMILY = "yolo9"
+    task = "detect"
+    size = "t"
+    device = "cpu"
+
+    def __init__(self, exc, *, lazy=False):
+        self.exc = exc
+        self.lazy = lazy
+
+    def _get_input_size(self) -> int:
+        return 640
+
+    def __call__(self, source, **kwargs):
+        if not self.lazy:
+            raise self.exc
+
+        def generate():
+            raise self.exc
+            yield  # pragma: no cover
+
+        return generate()
+
+
+@pytest.mark.parametrize(
+    ("source", "extra", "exc", "lazy", "code", "exit_code"),
+    [
+        (
+            "image",
+            ["imgsz=150"],
+            RuntimeError("Sizes of tensors must match except in dimension 1."),
+            False,
+            "invalid_imgsz",
+            2,
+        ),
+        (
+            "image",
+            [],
+            UnidentifiedImageError("cannot identify image file"),
+            False,
+            "data_invalid",
+            3,
+        ),
+        (
+            "https://example.com/missing.jpg",
+            [],
+            ValueError("Failed to load image from URL 'x': 404 Client Error"),
+            False,
+            "source_not_found",
+            3,
+        ),
+        ("7", [], ConnectionError("Cannot open live stream: 7"), True, "source_not_found", 3),
+        ("image", [], RuntimeError("boom"), False, "io_error", 1),
+    ],
+    ids=["imgsz", "corrupt", "url-404", "camera", "other"],
+)
+def test_predict_model_failures_emit_json_errors(
+    monkeypatch, tmp_path, source, extra, exc, lazy, code, exit_code
+):
+    if source == "image":
+        source = tmp_path / "image.jpg"
+        Image.new("RGB", (12, 10)).save(source)
+    monkeypatch.setattr(predict_module, "resolve_model_or_exit", lambda out, model: model)
+    monkeypatch.setattr(
+        predict_module,
+        "load_model_or_exit",
+        lambda *args, **kwargs: _FailingModel(exc, lazy=lazy),
+    )
+
+    result = runner.invoke(
+        _make_app(),
+        [f"source={source}", "model=LibreYOLO9t.pt", *extra, "--json"],
+    )
+
+    assert result.exit_code == exit_code, result.output
+    assert json.loads(result.stdout)["error"] == code

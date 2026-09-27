@@ -44,6 +44,7 @@ class LibreDEIMv2(BaseModel):
     SUPPORTS_CUDA_GRAPH = True
     INPUT_SIZES = {size: int(cfg["input_size"]) for size, cfg in SIZE_CONFIGS.items()}
     TRAIN_CONFIG = DEIMv2Config
+    RESUME_RESTORES_TRAIN_ARGS = True
     val_preprocessor_class = DEIMv2ValPreprocessor
     TTA_FIXED_SIZE = True  # resizes to a fixed square; multi-scale TTA is a no-op
     IMGSZ_DIVISOR = 32
@@ -340,14 +341,8 @@ class LibreDEIMv2(BaseModel):
         trainer = DEIMv2Trainer(**trainer_kwargs)
 
         if resume:
-            if not self.model_path:
-                raise ValueError(
-                    "resume=True requires a checkpoint. Load one first: "
-                    "model = LibreDEIMv2('path/to/last.pt'); "
-                    "model.train(data=..., resume=True)"
-                )
             trainer.setup()
-            trainer.resume(str(self.model_path))
+            trainer.resume(self._resume_checkpoint(resume))
             return trainer.train()
 
         results = trainer.train()

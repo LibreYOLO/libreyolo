@@ -66,7 +66,9 @@ model.train(data="data.yaml", epochs=100, allow_experimental=True)
 model.train(data="data.yaml", epochs=100)
 ```
 
-There is no deprecation shim. A call that still passes it raises `TypeError`.
+The argument no longer has any effect. `train()` warns
+`Unknown training config keys (ignored): ['allow_experimental']` and trains
+normally; `export()` ignores it without a warning.
 
 `BaseModel.EXPERIMENTAL_WEIGHT_FILENAMES` was removed with it. The
 `get_download_notice()` hook survives and is still overridden by midas,
@@ -151,7 +153,7 @@ model.val(data="coco.yaml", faster_coco_eval=False)
 or set `LIBREYOLO_FASTER_COCO_EVAL=0`. The backend actually used is logged at
 INFO, exposed as `model.last_eval_backend` after `val()`, and included as
 `eval_backend` in the CLI JSON payload. Install the fast path with
-`pip install libreyolo[fast-eval]`.
+`pip install "libreyolo[fast-eval]"`.
 
 #### YOLOX checkpoints trained before v1.5.0 need an eps override to score faithfully
 

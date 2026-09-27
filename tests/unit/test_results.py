@@ -799,6 +799,23 @@ class TestResultsPlot:
         np.testing.assert_array_equal(result.orig_img, rgb[..., ::-1])
         np.testing.assert_array_equal(result[:1].orig_img, rgb[..., ::-1])
 
+    def test_orig_img_loads_from_path_when_not_kept(self, tmp_path):
+        rgb = _source_rgb()
+        path = tmp_path / "img.png"
+        Image.fromarray(rgb).save(path)
+        result = _detect_result(path=str(path))
+
+        np.testing.assert_array_equal(result.orig_img, rgb[..., ::-1])
+        assert result.orig_img is result.orig_img  # decoded once, then cached
+        np.testing.assert_array_equal(result[:1].orig_img, rgb[..., ::-1])
+
+    def test_orig_img_is_none_without_a_readable_path(self, tmp_path):
+        assert _detect_result().orig_img is None
+        assert _detect_result(path=str(tmp_path / "missing.jpg")).orig_img is None
+        not_image = tmp_path / "notes.txt"
+        not_image.write_text("not an image")
+        assert _detect_result(path=str(not_image)).orig_img is None
+
     def test_classify_plot_writes_top5(self):
         rgb = np.full((48, 64, 3), 200, dtype=np.uint8)
         result = Results(
@@ -878,9 +895,29 @@ class TestKeepSource:
         in_memory = keep_source(_detect_result(), Image.fromarray(rgb), None)
         url = keep_source(_detect_result(), Image.fromarray(rgb), "https://x.test/a.jpg")
 
-        assert on_disk.orig_img is None
+        assert on_disk._orig_img is None  # not held in memory
         assert in_memory.orig_img is not None and url.orig_img is not None
         np.testing.assert_array_equal(on_disk.plot(), in_memory.plot())
+        assert on_disk._orig_img is None  # plot() reopens without caching
+        np.testing.assert_array_equal(on_disk.orig_img, in_memory.orig_img)
+
+    def test_signed_url_longer_than_path_max_keeps_pixels(self):
+        from libreyolo.utils.results import keep_source
+
+        # Longer than PATH_MAX on Linux (4096) and macOS (1024): stat() raises
+        # ENAMETOOLONG instead of reporting a missing file.
+        url = "https://bucket.test/frame.jpg?X-Amz-Signature=" + "a" * 5000
+        rgb = _source_rgb()
+
+        result = keep_source(_detect_result(), Image.fromarray(rgb), url)
+
+        assert result.orig_img is not None
+
+    def test_video_frame_lookup_ignores_overlong_path(self):
+        result = _detect_result(path="https://bucket.test/clip.mp4?sig=" + "a" * 5000)
+        result.frame_idx = 0
+
+        assert result._video_frame_rgb() is None
 
     def test_gif_frame_plots_on_its_own_frame(self, tmp_path):
         frames = [

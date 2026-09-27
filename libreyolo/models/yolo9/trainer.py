@@ -210,19 +210,21 @@ class YOLO9Trainer(BaseTrainer):
     def on_forward(self, imgs: torch.Tensor, targets: torch.Tensor, polygons=None) -> Dict:
         return self.model(imgs, targets=targets)
 
-    def compile_train_spec(self):
-        """Compile boundary: the capture spec, plus the default PGI recipe.
+    def cuda_graph_train_spec(self):
+        """Capture spec: graph the network, keep the DFL/TAL loss eager.
 
-        Capture runs the network without targets, which skips the PGI
-        auxiliary branch, so :meth:`cuda_graph_train_spec` declines models
-        with it. The compiler has no such limit: the adapter below returns
-        the main and auxiliary raw head maps, and ``assemble`` applies both
-        heads' losses and :meth:`LibreYOLO9Model.combine_aux_losses`, the
-        path the model's own forward takes with targets.
+        The split reuses the model's own boundary: a train-mode forward
+        without targets returns the concatenated head maps, and
+        ``assemble`` replays exactly the loss path ``LibreYOLO9Model.
+        forward`` takes with targets (anchors tracking the input size,
+        then the head's loss over the raw maps). With the PGI auxiliary
+        branch (the fine-tuning default) the graphed network also returns
+        the auxiliary head maps, and ``assemble`` adds that head's loss via
+        :meth:`LibreYOLO9Model.combine_aux_losses`. Restricted to the plain
+        detect head: subclasses with derived heads (e2e dual assignment)
+        or other tasks compute loss at a different boundary and run eager.
+        The compile path (``BaseTrainer.compile_train_spec``) reuses this.
         """
-        spec = self.cuda_graph_train_spec()
-        if spec is not None:
-            return spec
         from libreyolo.training.cuda_graph import (
             CudaGraphTrainSpec,
             GraphableNetwork,
@@ -231,62 +233,34 @@ class YOLO9Trainer(BaseTrainer):
 
         task = getattr(getattr(self, "wrapper_model", None), "task", "detect")
         model = self.model
-        if (
-            task != "detect"
-            or not isinstance(model, LibreYOLO9Model)
-            or type(model.head) is not DDetect
-            or getattr(model, "aux", None) is None
-            or type(getattr(model, "aux_head", None)) is not DDetect
-            or model.aux_weight <= 0
-        ):
-            return None
-        network = GraphableNetwork(_PGITrainForward(model))
-
-        def assemble(flat, imgs, targets, polygons=None):
-            maps = network.rebuild(flat)
-            img_size = [imgs.shape[3], imgs.shape[2]]
-            losses = []
-            for head, raw in ((model.head, maps["main"]), (model.aux_head, maps["aux"])):
-                loss_fn = head._get_loss_fn(imgs.device)
-                loss_fn.update_anchors(img_size)
-                losses.append(loss_fn(raw, targets))
-            return model.combine_aux_losses(*losses)
-
-        return CudaGraphTrainSpec(network=network, assemble=assemble)
-
-    def cuda_graph_train_spec(self):
-        """Capture spec: graph the network, keep the DFL/TAL loss eager.
-
-        The split reuses the model's own boundary: a train-mode forward
-        without targets returns the concatenated head maps, and
-        ``assemble`` replays exactly the loss path ``LibreYOLO9Model.
-        forward`` takes with targets (anchors tracking the input size,
-        then the head's loss over the raw maps). Restricted to the plain
-        detect head: subclasses with derived heads (e2e dual assignment)
-        or other tasks compute loss at a different boundary and run eager.
-        """
-        from libreyolo.training.cuda_graph import (
-            CudaGraphTrainSpec,
-            GraphableNetwork,
-        )
-        from .nn import DDetect, LibreYOLO9Model
-
-        task = getattr(getattr(self, "wrapper_model", None), "task", "detect")
         if task != "detect":
             return None
-        if not isinstance(self.model, LibreYOLO9Model):
+        if not isinstance(model, LibreYOLO9Model):
             return None
-        if type(self.model.head) is not DDetect:
-            return None
-        # Captured forward runs without targets, so the PGI aux branch never
-        # executes and aux params get zero gradients. Fall back to eager.
-        if getattr(self.model, "aux", None) is not None:
+        if type(model.head) is not DDetect:
             return None
 
-        network = GraphableNetwork(self.model)
+        if getattr(model, "aux", None) is not None:
+            if type(getattr(model, "aux_head", None)) is not DDetect or model.aux_weight <= 0:
+                return None
+            network = GraphableNetwork(_PGITrainForward(model))
+
+            def assemble(flat, imgs, targets, polygons=None):
+                maps = network.rebuild(flat)
+                img_size = [imgs.shape[3], imgs.shape[2]]
+                losses = []
+                for head, raw in ((model.head, maps["main"]), (model.aux_head, maps["aux"])):
+                    loss_fn = head._get_loss_fn(imgs.device)
+                    loss_fn.update_anchors(img_size)
+                    losses.append(loss_fn(raw, targets))
+                return model.combine_aux_losses(*losses)
+
+            return CudaGraphTrainSpec(network=network, assemble=assemble)
+
+        network = GraphableNetwork(model)
 
         def assemble(flat, imgs, targets, polygons=None):
-            loss_fn = self.model.head._get_loss_fn(imgs.device)
+            loss_fn = model.head._get_loss_fn(imgs.device)
             loss_fn.update_anchors([imgs.shape[3], imgs.shape[2]])
             return loss_fn(network.rebuild(flat), targets)
 
@@ -302,7 +276,7 @@ class _PGITrainForward(torch.nn.Module):
 
     def forward(self, x: torch.Tensor):
         model = self.model
-        p3, p4, p5 = model.backbone(x)
+        p3, p4, p5, b5 = model.backbone(x, return_b5=True)
         main = model.head(list(model.neck(p3, p4, p5)))
-        aux = model.aux_head(list(model.aux(p3, p4, model.backbone.last_b5)))
+        aux = model.aux_head(list(model.aux(p3, p4, b5)))
         return {"main": main, "aux": aux}

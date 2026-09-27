@@ -7,12 +7,16 @@ from typing import Optional
 import typer
 
 from ..command_utils import (
+    exit_if_out_of_range,
+    exit_imgsz_error,
     exit_stage_error,
     exit_with_error,
     get_loaded_model_family,
     get_user_provided_params,
     help_json_callback,
+    is_imgsz_error,
     load_model_or_exit,
+    model_call_error_code,
     parse_imgsz_str,
     resolve_model_or_exit,
 )
@@ -367,6 +371,11 @@ def train_cmd(
         help="Recompute BatchNorm running stats from this many train images "
         "after the last epoch (0 = off)",
     ),
+    aux_weight: Optional[float] = typer.Option(
+        None,
+        help="YOLO9 only: PGI auxiliary-branch loss weight for fine-tuning "
+        "(default 0.25; 0 trains the main head only)",
+    ),
     seed: int = typer.Option(0, help="Random seed"),
     resume: str = typer.Option("", help="Resume training: true, or path to checkpoint"),
     amp: bool = typer.Option(True, help="Automatic Mixed Precision"),
@@ -521,6 +530,7 @@ def train_cmd(
     import ast
 
     out = OutputHandler(json_mode=json_output, quiet=quiet)
+    exit_if_out_of_range(out, epochs=epochs, batch=batch, autobatch=True)
 
     user_provided = get_user_provided_params()
     normalized_task = None
@@ -979,26 +989,48 @@ def train_cmd(
         user_provided=user_provided,
         task=train_task,
     )
+    if aux_weight is not None:
+        if loaded_family != "yolo9":
+            exit_with_error(
+                out,
+                "config_unsupported",
+                f"aux_weight applies to YOLO9 only; got family={loaded_family!r}.",
+            )
+        train_kwargs["aux_weight"] = aux_weight
     if histogram_input:
         train_kwargs.update(histogram_recipe_defaults(family))
-    if train_pretrained is not None:
+    # pretrained picks initial weights for a new run; a resume continues its
+    # checkpoint, so only an explicit pretrained= reaches train() then.
+    if train_pretrained is not None and (
+        not resume_val or "pretrained" in user_provided
+    ):
         train_kwargs["pretrained"] = train_pretrained  # Not in TrainConfig
-    if family == "rfdetr":
-        if train_pretrained is not False:
-            train_kwargs.pop("pretrained", None)
-        if not val and "val" in user_provided:
-            out.progress(
-                "Warning: RF-DETR does not support disabling validation via val=false. Ignoring."
-            )
-    elif not val:
+    if family == "rfdetr" and train_pretrained is not False:
+        train_kwargs.pop("pretrained", None)
+    if not val:
         train_kwargs["eval_interval"] = 0
 
     # Run training
-    out.progress(f"Training {model} on {data} for {params['epochs']} epochs...")
+    if resume_val:
+        out.progress(f"Resuming training of {model} on {data}...")
+    else:
+        out.progress(f"Training {model} on {data} for {params['epochs']} epochs...")
     t0 = time.time()
     try:
         results = loaded_model.train(data=data, **train_kwargs)
     except FileNotFoundError as e:
+        if "checkpoint not found" in str(e).lower():
+            exit_with_error(
+                out,
+                "checkpoint_not_found",
+                str(e),
+                suggestion=(
+                    "Resume a run from its checkpoint: "
+                    "model=<run>/weights/last.pt resume=true."
+                    if resume_val
+                    else None
+                ),
+            )
         exit_with_error(
             out,
             "data_not_found",
@@ -1006,7 +1038,11 @@ def train_cmd(
             suggestion=f"Check that '{data}' exists and is a valid YOLO-format dataset YAML.",
         )
     except Exception as e:
-        exit_stage_error(out, stage="Training", detail=e)
+        if "imgsz" in user_provided and is_imgsz_error(e):
+            exit_imgsz_error(out, e)
+        exit_stage_error(
+            out, stage="Training", detail=e, code=model_call_error_code(e)
+        )
 
     training_hours = (time.time() - t0) / 3600
 

@@ -239,3 +239,34 @@ def test_resume_continues_saved_run(tmp_path):
     results = resumed.train(resume=True, exist_ok=True)
     # The saved 2-epoch schedule is restored and only the second epoch runs.
     assert len(results["epoch_losses"]) == 1
+
+
+def test_train_honors_or_rejects_explicit_pretrained(monkeypatch):
+    """True fine-tunes, False trains from scratch, anything else is refused."""
+    captured = {}
+
+    class _FakeSemTrainer:
+        def __init__(self, **kwargs):
+            captured.clear()
+            captured.update(kwargs)
+
+        def train(self):
+            return {}
+
+    monkeypatch.setattr(
+        "libreyolo.models.gtr.sem_trainer.GTRSemTrainer", _FakeSemTrainer
+    )
+    model = LibreGTR(None, size="s", nb_classes=2, device="cpu", task="semantic")
+    model._training_from_scratch = False
+
+    model.train(data="data.yaml", pretrained=True)
+    assert "pretrained" not in captured
+    assert model._training_from_scratch is False
+
+    loaded = model.model
+    model.train(data="data.yaml", pretrained=False)
+    assert captured["model"] is not loaded
+    assert model._training_from_scratch is True
+
+    with pytest.raises(ValueError, match="pretrained=True"):
+        model.train(data="data.yaml", pretrained="other.pt")
