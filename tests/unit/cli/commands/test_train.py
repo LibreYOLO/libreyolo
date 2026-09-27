@@ -1470,7 +1470,15 @@ def test_yolo9_resume_forwards_only_user_options(monkeypatch, tmp_path, syntax):
     assert result.exit_code == 0, result.output
     assert (captured['resume'], captured['epochs']) == (True, 2)
     assert not {'pretrained', 'imgsz', 'batch', 'lr0', 'optimizer', 'project',
-                'name'} & captured.keys()
+                'name', 'val', 'eval_interval'} & captured.keys()
+
+    # An explicit val=true reaches train(), so it can turn validation back on
+    # for a run saved with val=false.
+    captured.clear()
+    extra = ['val=true'] if syntax == 'key_value' else ['--val']
+    result = runner.invoke(_make_app(), args + extra + ['--json'])
+    assert result.exit_code == 0, result.output
+    assert captured['val'] is True and 'eval_interval' not in captured
 
 
 @pytest.mark.parametrize('syntax', ['key_value', 'flags'])
