@@ -668,6 +668,15 @@ def test_dinov2_resume_restores_saved_settings(fake_backbone, tmp_path, monkeypa
     assert (captured["epochs"], captured["batch"], captured["imgsz"]) == (9, 5, 84)
     assert captured["lr0"] == pytest.approx(0.5)
 
+    # val=True turns validation back on for a run saved with val=False.
+    torch.save(
+        {"epoch": 2, "config": {**config, "eval_interval": 0}}, checkpoint
+    )
+    model().train(resume=str(checkpoint), val=True)
+    assert "eval_interval" not in captured
+    model().train(resume=str(checkpoint))
+    assert captured["eval_interval"] == 0
+
     # A fresh run keeps the defaults.
     model().train(data="new.yaml")
     assert (captured["epochs"], captured["batch"]) == (DINOv2Config().epochs, 4)

@@ -92,6 +92,17 @@ _RESUME_UNRESTORED_KEYS = _WRAPPER_OWNED_CFG_KEYS | {
 }
 
 
+def _drop_disabled_eval_interval(saved: dict[str, Any], requested_val: Any) -> None:
+    """Let an explicit ``val=True`` on resume turn validation back on.
+
+    ``val=False`` is saved as ``eval_interval=0``. Restoring that alongside
+    ``val=True`` would keep validation off, so the family default interval
+    applies instead.
+    """
+    if requested_val and (saved.get("eval_interval") or 0) <= 0:
+        saved.pop("eval_interval", None)
+
+
 def _wrap_train_with_cfg(train_fn: Callable) -> Callable:
     """Add shared config-file and scratch-initialization handling to ``train()``.
 
@@ -187,9 +198,11 @@ def _wrap_train_with_cfg(train_fn: Callable) -> Callable:
             accepts_any = any(
                 p.kind == p.VAR_KEYWORD for p in sig.parameters.values()
             )
+            restored = self._resume_train_args(resume, given)
+            _drop_disabled_eval_interval(restored, merged.get("val"))
             merged.update(
                 (key, value)
-                for key, value in self._resume_train_args(resume, given).items()
+                for key, value in restored.items()
                 if accepts_any or key in sig.parameters
             )
 
