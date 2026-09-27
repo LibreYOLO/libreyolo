@@ -130,6 +130,19 @@ def test_finetune_on_full_coco_dataset_maps_every_class(tmp_path, coco_model):
     assert trainer.model.nb_classes == 80
 
 
+def test_resuming_a_mapped_coco_head_leaves_it_unchanged(tmp_path, coco_model):
+    """A training checkpoint already holds the mapped ``nc + 1`` head (1.5.0
+    resized it too), so setting up its resume must not remap it again."""
+    data = _write_yaml(tmp_path, COCO_CLASSES)
+    trainer = _setup_trainer(coco_model, data)
+    trained = _head_rows(trainer.model.model.class_embed)
+
+    resumed = _setup_trainer(coco_model, data)
+
+    assert resumed.model.model.class_embed.out_features == 81
+    assert _head_rows(resumed.model.model.class_embed) == trained
+
+
 def test_finetune_on_other_classes_resizes_and_says_so(tmp_path, caplog, coco_model):
     model = coco_model
     data = _write_yaml(tmp_path, ["helmet", "vest"])
