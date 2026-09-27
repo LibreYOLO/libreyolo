@@ -1806,3 +1806,34 @@ def test_train_failures_report_their_error_type(monkeypatch, tmp_path, exc, code
     data = json.loads(result.stdout)
     assert data["error"] == code
     assert str(exc) in data["message"]
+
+
+@pytest.mark.parametrize('device', ['0,1', '[0,1]'])
+def test_multi_gpu_device_builds_the_model_on_one_device(monkeypatch, tmp_path, device):
+    """`libreyolo train ... device=0,1` (shown in the docs) failed with
+    "Invalid device string: '0,1'" because the model was built with the
+    multi-GPU spec; train() is what launches the ranks."""
+    captured = {}
+
+    class YOLO9Like:
+        FAMILY = 'yolo9'
+        task = 'detect'
+        device = 'cpu'
+
+        def train(self, data, **kwargs):
+            captured.update(kwargs)
+            return {'save_dir': str(tmp_path)}
+
+    def load(*args, **kwargs):
+        captured['load_device'] = kwargs.get('device')
+        return YOLO9Like()
+
+    monkeypatch.setattr('libreyolo.cli.commands.train.load_model_or_exit', load)
+    result = runner.invoke(
+        _make_app(),
+        ['model=LibreYOLO9t.pt', 'data=coco8.yaml', f'device={device}', 'epochs=1', '--json'],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert captured['load_device'] == 'cuda:0'
+    assert captured['device'] == device
