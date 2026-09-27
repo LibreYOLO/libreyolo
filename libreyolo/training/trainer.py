@@ -3079,6 +3079,15 @@ class BaseTrainer(ABC):
     # Validation
     # =========================================================================
 
+    def _validation_save_dir(self) -> Optional[str]:
+        """Where validation during training writes (config.yaml, plots, json).
+
+        Inside the run, so it never leaves runs/val/<tag>_<time> directories
+        in the working directory.
+        """
+        save_dir = getattr(self, "save_dir", None)
+        return str(Path(save_dir) / "val") if save_dir is not None else None
+
     def _should_validate_epoch(self, epoch: int) -> bool:
         # eval_interval <= 0 (val=False) turns validation off, final epoch
         # included. Otherwise the final epoch always validates, so a short run
@@ -3141,9 +3150,7 @@ class BaseTrainer(ABC):
                 if save_plots is not None
                 else bool(getattr(self.config, "save_plots", False)) and is_final_epoch
             )
-            val_save_dir = (
-                str(self.save_dir / "val") if val_save_plots else None
-            )
+            val_save_dir = self._validation_save_dir()
 
             val_config = ValidationConfig(
                 data=self.config.data,
@@ -3286,6 +3293,7 @@ class BaseTrainer(ABC):
 
             logger.info(f"Running classification validation for epoch {epoch + 1}")
             val_config = ValidationConfig(
+                save_dir=self._validation_save_dir(),
                 data=self.config.data,
                 batch_size=max(1, self.config.batch // max(getattr(self, "world_size", 1), 1)),
                 imgsz=self.config.imgsz,
@@ -3363,6 +3371,7 @@ class BaseTrainer(ABC):
                 getattr(self.wrapper_model, "semantic_val_imgsz", None) or self.config.imgsz
             )
             val_config = ValidationConfig(
+                save_dir=self._validation_save_dir(),
                 data=self.config.data,
                 batch_size=max(1, self.config.batch // max(getattr(self, "world_size", 1), 1)),
                 imgsz=val_imgsz,
@@ -3420,6 +3429,7 @@ class BaseTrainer(ABC):
 
             logger.info(f"Running depth validation for epoch {epoch + 1}")
             val_config = ValidationConfig(
+                save_dir=self._validation_save_dir(),
                 data=self.config.data,
                 batch_size=max(1, self.config.batch // max(getattr(self, "world_size", 1), 1)),
                 imgsz=self.config.imgsz,
@@ -3474,6 +3484,7 @@ class BaseTrainer(ABC):
 
             logger.info(f"Running restore validation for epoch {epoch + 1}")
             val_config = ValidationConfig(
+                save_dir=self._validation_save_dir(),
                 data=self.config.data,
                 batch_size=max(1, self.config.batch // max(getattr(self, "world_size", 1), 1)),
                 imgsz=self.config.imgsz,

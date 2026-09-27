@@ -1,3 +1,4 @@
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -92,7 +93,7 @@ def test_trainer_validation_routes_point_task(monkeypatch):
     )
     
     trainer._is_final_epoch = lambda epoch: False
-    trainer.save_dir = SimpleNamespace()
+    trainer.save_dir = Path("run")  # validation output goes to run/val
     trainer._scalar_mapping = lambda x: x
 
     result = trainer._run_validation(0)
@@ -148,7 +149,7 @@ def test_trainer_passes_opt_in_loss_adapter_to_detection_validator(monkeypatch):
     trainer.model = SimpleNamespace(state_dict=lambda: {})
     trainer.wrapper_model = SimpleNamespace(task="detect", model=trainer.model)
     trainer._is_final_epoch = lambda epoch: False
-    trainer.save_dir = SimpleNamespace()
+    trainer.save_dir = Path("run")  # validation output goes to run/val
     trainer._scalar_mapping = lambda values: values
     trainer.build_validation_loss_adapter = lambda model: adapter
 

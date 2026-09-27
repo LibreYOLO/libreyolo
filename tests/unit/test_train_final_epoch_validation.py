@@ -111,9 +111,14 @@ def tiny_dataset(tmp_path):
 @pytest.mark.parametrize(
     "val,extra", [(True, {}), (False, {}), (False, {"save_plots": True, "precise_bn": 2})]
 )
-def test_yolo9_short_run_validates_unless_val_is_off(tmp_path, tiny_dataset, val, extra):
+def test_yolo9_short_run_validates_unless_val_is_off(
+    tmp_path, tiny_dataset, monkeypatch, val, extra
+):
     from libreyolo import LibreYOLO9
 
+    cwd = tmp_path / "cwd"
+    cwd.mkdir()
+    monkeypatch.chdir(cwd)
     results = LibreYOLO9(None, size="t", device="cpu").train(
         data=tiny_dataset,
         epochs=1,
@@ -129,3 +134,34 @@ def test_yolo9_short_run_validates_unless_val_is_off(tmp_path, tiny_dataset, val
 
     assert results["epoch_metrics"][-1]["validated"] is val
     assert (tmp_path / "runs" / "short" / "weights" / "best.pt").exists() is val
+    # Validation output stays in the run instead of runs/val/<tag>_<time> in
+    # the working directory.
+    assert (tmp_path / "runs" / "short" / "val" / "config.yaml").exists() is val
+    assert list(cwd.iterdir()) == []
+
+
+def test_classification_validation_output_stays_in_the_run(tmp_path, monkeypatch):
+    import numpy as np
+    from PIL import Image
+
+    from libreyolo import LibreMobileNetV4
+
+    for split in ("train", "val"):
+        for index, color in enumerate(((200, 0, 0), (0, 200, 0))):
+            folder = tmp_path / "data" / split / f"c{index}"
+            folder.mkdir(parents=True)
+            for j in range(4):
+                Image.fromarray(np.full((32, 32, 3), color, dtype=np.uint8)).save(
+                    folder / f"{j}.png"
+                )
+    cwd = tmp_path / "cwd"
+    cwd.mkdir()
+    monkeypatch.chdir(cwd)
+
+    LibreMobileNetV4(size="s", device="cpu").train(
+        data=str(tmp_path / "data"), epochs=1, batch=4, imgsz=32, workers=0,
+        device="cpu", project=str(tmp_path / "runs"), name="cls",
+    )
+
+    assert (tmp_path / "runs" / "cls" / "val" / "config.yaml").exists()
+    assert list(cwd.iterdir()) == []

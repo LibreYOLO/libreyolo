@@ -216,9 +216,7 @@ class FOMOTrainer(BaseTrainer):
                 if save_plots is not None
                 else bool(getattr(self.config, "save_plots", False)) and is_final_epoch
             )
-            val_save_dir = (
-                str(self.save_dir / "val") if val_save_plots else None
-            )
+            val_save_dir = self._validation_save_dir()
 
             val_config = ValidationConfig(
                 data=self.config.data,

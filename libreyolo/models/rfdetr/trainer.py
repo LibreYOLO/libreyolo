@@ -1393,7 +1393,7 @@ class RFDETRTrainer(BaseTrainer):
                 allow_download_scripts=self.config.allow_download_scripts,
                 oks_sigmas=self._resolve_oks_sigmas(),
                 save_plots=val_save_plots,
-                save_dir=str(self.save_dir / "val") if val_save_plots else None,
+                save_dir=self._validation_save_dir(),
                 plot_samples=getattr(self.config, "plot_samples", 8),
             )
 
