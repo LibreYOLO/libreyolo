@@ -108,15 +108,17 @@ def _wrap_train_with_cfg(train_fn: Callable) -> Callable:
 
     @functools.wraps(train_fn)
     def wrapper(self, *args, cfg=None, **user_kwargs):
+        # CLI/ecosystem spellings (mosaic, fliplr, mixup on detection) name
+        # their fields per source, before cfg= and resume merge, so a call's
+        # mosaic=0 overrides a saved mosaic_prob instead of conflicting with it.
+        task = getattr(self, "task", None)
+        user_kwargs = apply_train_aliases(user_kwargs, task=task)
         merged = dict(user_kwargs)
         if cfg is not None:
-            cfg_kwargs = load_train_cfg(cfg)
+            cfg_kwargs = apply_train_aliases(load_train_cfg(cfg), task=task)
             consumed = set(pos_names[: len(args)]) | _WRAPPER_OWNED_CFG_KEYS
             merged = {k: v for k, v in cfg_kwargs.items() if k not in consumed}
             merged.update(user_kwargs)
-        # CLI/ecosystem spellings (mosaic, fliplr, mixup on detection) name
-        # their fields before resume restores anything, so they count as given.
-        merged = apply_train_aliases(merged, task=getattr(self, "task", None))
 
         resume = merged.get("resume", False)
         resumes_optimizer = "optimizer" in sig.parameters and "optimizer" not in merged

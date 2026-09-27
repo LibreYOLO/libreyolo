@@ -296,3 +296,19 @@ def test_classification_mixup_stays_the_batch_mixup_field(train_config_of, tmp_p
 
     assert config.mixup == 0.3
     assert config.mixup_prob == LibreMobileNetV4.TRAIN_CONFIG().mixup_prob
+
+
+def test_call_spellings_override_cfg_file_settings(train_config_of, detect_yaml, tmp_path):
+    """mosaic=0 with a cfg= file holding mosaic_prob=1.0 raised 'Conflicting
+    mosaic values' instead of letting the call win, as for canonical names."""
+    from libreyolo import LibreYOLO9
+
+    cfg = tmp_path / "train.yaml"
+    cfg.write_text("mosaic_prob: 1.0\nmixup_prob: 0.1\nfliplr: 0.3\n")
+
+    config = train_config_of(
+        LibreYOLO9(None, size="t", device="cpu"),
+        data=detect_yaml, device="cpu", cfg=str(cfg), mosaic=0, mixup=0.4,
+    )
+
+    assert (config.mosaic_prob, config.mixup_prob, config.flip_prob) == (0, 0.4, 0.3)
