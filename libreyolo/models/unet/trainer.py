@@ -73,9 +73,8 @@ class UNetTrainer(
         return result
 
     def _checkpoint_extra_metadata(self) -> dict[str, Any]:
-        # A fine-tune started from the Cityscapes checkpoint is a derivative
-        # work and inherits its NON-COMMERCIAL term; carry the license fields
-        # into best.pt / last.pt so reloading them keeps the restriction.
+        # Carry the source checkpoint's license fields into best.pt / last.pt
+        # so a fine-tune keeps the terms of the weights it started from.
         extra = dict(super()._checkpoint_extra_metadata())
         extra.update(self.wrapper_model._checkpoint_metadata())
         train_h, train_w = _input_size_hw(self.config.imgsz)

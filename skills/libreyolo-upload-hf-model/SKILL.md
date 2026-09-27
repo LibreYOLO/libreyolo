@@ -94,7 +94,7 @@ file = name + ".pt"
 | PPOCR | `LibrePPOCR` | `LibrePPOCRt-ocr.pt` (PP-OCRv5 text det+rec; sizes `t`/`l`; Apache-2.0) |
 | PIDNet | `LibrePIDNet` | `LibrePIDNets-sem.pt` (semantic-only) |
 | PPLiteSeg | `LibrePPLiteSeg` | `LibrePPLiteSegt50-sem.pt` (semantic-only; sizes `t50`/`b50`/`t75`/`b75`, natively rectangular. Weights are **non-commercial** — Cityscapes dataset terms, see below) |
-| UNet | `LibreUNet` | `LibreUNets-sem.pt` (semantic-only; size `s`, natively 512x1024. Weights are **non-commercial** — Cityscapes dataset terms, same hosting path as PP-LiteSeg) |
+| UNet | `LibreUNet` | `LibreUNets-sem.pt` (semantic-only; size `s`, evaluates at 1024x2048. Apache-2.0 weights, as mmsegmentation declares) |
 | LingBotVision | `LibreLingBotVision` | `LibreLingBotVisions-sem.pt` (semantic-only; Apache-2.0 backbone + LibreYOLO-trained ADE20K head) |
 | SegFormer | `LibreSegformer` | `LibreSegformerb0-sem.pt` (semantic-only; ADE20K. Weights are **non-commercial** — NVIDIA Source Code License, see below) |
 | EoMT | `LibreEoMT` | `LibreEoMTl-sem.pt` (semantic), `LibreEoMTl-seg.pt` (COCO instance), `LibreEoMTs-panoptic.pt` (COCO panoptic) |
@@ -385,10 +385,10 @@ and the weights are genuinely different surfaces. Never tag them `apache-2.0`.
 **LibreGTR{s,m,l,x}-sem are NON-COMMERCIAL** on the same Cityscapes grounds
 (MIT code and weight-repository declaration, Cityscapes training data): same
 card tags, banner and `LICENSE` split (GTR MIT text plus Cityscapes weight
-terms). **LibreUNets-sem is NON-COMMERCIAL** on the same Cityscapes-training-data
-grounds as PP-LiteSeg: mmsegmentation's official UNet-S5-D16 Cityscapes
-checkpoint, converted in place. Same card tags, same banner, same
-`LICENSE` split (Apache-2.0 mmseg code text plus Cityscapes weight terms).
+terms). **LibreUNets-sem is Apache-2.0**: mmsegmentation's official
+UNet-S5-D16 Cityscapes checkpoint keeps the license upstream declares for it,
+like PIDNet's MIT Cityscapes weights; the card carries a Cityscapes dataset
+note, not a non-commercial banner.
 Faster R-CNN's four torchvision checkpoints and FCOS's torchvision checkpoint
 have no per-object license file; the maintainer approved BSD-3-Clause rehosting
 on the releasing-project **implied** basis. Every card and NOTICE must say that
