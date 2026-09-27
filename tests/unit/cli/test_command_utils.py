@@ -1635,6 +1635,23 @@ def test_unfit_imgsz_is_invalid_imgsz(monkeypatch, tmp_path, command):
     assert json.loads(native.stdout)["error"] == "io_error"
 
 
+def test_fixed_shape_export_imgsz_error_suggests_the_exported_size(capsys):
+    from libreyolo.cli.command_utils import exit_imgsz_error
+    from libreyolo.cli.output import OutputHandler
+
+    exc = ValueError(
+        "This ONNX model was exported with a fixed 64x64 input and cannot run "
+        "at the requested 96x96 (imgsz)."
+    )
+    with pytest.raises(typer.Exit):
+        exit_imgsz_error(OutputHandler(json_mode=True), exc)
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["error"] == "invalid_imgsz"
+    assert "exported imgsz" in payload["suggestion"]
+    assert "stride" not in payload["suggestion"]
+
+
 def test_missing_resume_checkpoint_is_checkpoint_not_found(monkeypatch, tmp_path):
     class _Resumable:
         FAMILY = "rfdetr"

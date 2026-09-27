@@ -288,12 +288,18 @@ def is_imgsz_error(exc: BaseException) -> bool:
 
 def exit_imgsz_error(out: OutputHandler, exc: BaseException) -> NoReturn:
     """Report an imgsz the model cannot take as a usage error."""
+    if "exported with a fixed" in str(exc):
+        suggestion = "Use the exported imgsz, or re-export at the size you need."
+    else:
+        suggestion = (
+            "Use a multiple of the model stride (e.g. 320 or 640), "
+            "or omit imgsz for the model's native size."
+        )
     exit_with_error(
         out,
         "invalid_imgsz",
         f"The model cannot run at this imgsz: {exc}",
-        suggestion="Use a multiple of the model stride (e.g. 320 or 640), "
-        "or omit imgsz for the model's native size.",
+        suggestion=suggestion,
     )
 
 
