@@ -7,6 +7,7 @@ Artifacts without the key keep the historical top-left pad.
 
 from __future__ import annotations
 
+import importlib.machinery
 import importlib.util
 import sys
 
@@ -20,7 +21,9 @@ _HAS_ORT = (
     importlib.util.find_spec("onnx") is not None
     and importlib.util.find_spec("onnxruntime") is not None
 )
-_HAS_COREML = importlib.util.find_spec("coremltools") is not None
+# test_export_coreml.py stubs coremltools into sys.modules when it is missing,
+# so look for the installed package rather than the module cache.
+_HAS_COREML = importlib.machinery.PathFinder.find_spec("coremltools") is not None
 
 IMG = 128
 NC = 3
