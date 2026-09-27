@@ -72,6 +72,9 @@ logger = logging.getLogger(__name__)
 # both, so a user-generated starter yaml hits this naturally.
 _WRAPPER_OWNED_CFG_KEYS = frozenset({"size", "num_classes"})
 
+# Built-in trackers selectable by name in track().
+_BUILTIN_TRACKERS = frozenset({"bytetrack", "botsort", "ocsort", "deepocsort"})
+
 # Saved training arguments a resume does not restore: the wrapper owns the
 # architecture keys (pose trainers also take the keypoint layout from the
 # dataset), ``device`` follows the call, the run directory comes from the
@@ -2090,6 +2093,20 @@ class BaseModel(ABC):
             elif isinstance(tracker_config, TrackConfig):
                 tracker = "bytetrack"
             tracker = (tracker or "bytetrack").lower()
+            tracker_file = Path(tracker)
+            if (
+                tracker_file.suffix in (".yaml", ".yml")
+                and tracker_file.parent == Path(".")
+                and tracker_file.stem in _BUILTIN_TRACKERS
+            ):
+                # The ecosystem names its built-in trackers by config file.
+                if tracker_file.is_file():
+                    raise ValueError(
+                        f"tracker={tracker!r} names a local file; LibreYOLO does not "
+                        f"read tracker yaml files. Use tracker={tracker_file.stem!r} "
+                        "and pass its settings as keyword arguments or tracker_config."
+                    )
+                tracker = tracker_file.stem
 
             if (
                 tracker in ("bytetrack", "botsort")
@@ -2156,7 +2173,8 @@ class BaseModel(ABC):
             else:
                 raise ValueError(
                     f"Unknown tracker {tracker!r}; "
-                    "choose 'bytetrack', 'botsort', 'ocsort' or 'deepocsort'."
+                    "choose 'bytetrack', 'botsort', 'ocsort' or 'deepocsort' "
+                    "(a .yaml suffix is accepted)."
                 )
             tracker_key = (
                 tracker,

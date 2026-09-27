@@ -900,6 +900,24 @@ def _ids_per_call(model, boxes, **kwargs):
     return ids
 
 
+@pytest.mark.parametrize(
+    "tracker", ["bytetrack.yaml", "botsort.yaml", "ocsort.yml", "ByteTrack.YAML"]
+)
+def test_builtin_tracker_accepts_the_yaml_spelling(tracker, tmp_path, monkeypatch):
+    """The ecosystem names its trackers bytetrack.yaml / botsort.yaml; those
+    raised 'Unknown tracker'."""
+    monkeypatch.chdir(tmp_path)
+    (result,) = list(BaseModel.track(_StubTrackModel(), _make_frames(1), tracker=tracker))
+    assert result.track_id.tolist() == [1]
+
+
+def test_tracker_yaml_that_is_a_local_file_is_not_silently_ignored(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "bytetrack.yaml").write_text("track_buffer: 60\n")
+    with pytest.raises(ValueError, match="does not read tracker yaml files"):
+        next(BaseModel.track(_StubTrackModel(), _make_frames(1), tracker="bytetrack.yaml"))
+
+
 class TestTrackPersist:
     def test_persist_keeps_the_tracker_across_calls(self):
         boxes = [_NEAR_BOX, _FAR_BOX, _NEAR_BOX]
