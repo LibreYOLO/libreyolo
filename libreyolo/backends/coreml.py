@@ -106,6 +106,7 @@ class CoreMLBackend(BaseBackend):
         )
         spec = self.model.get_spec()
         self.output_names = [out.name for out in spec.description.output]
+        self._fixed_input_hw = self._read_fixed_input_hw(spec)
 
         meta = (
             dict(self.model.user_defined_metadata)
@@ -155,6 +156,18 @@ class CoreMLBackend(BaseBackend):
             letterbox_pad=meta.get("letterbox_pad"),
             **pose_metadata,
         )
+
+    @staticmethod
+    def _read_fixed_input_hw(spec) -> tuple[int, int] | None:
+        """(H, W) of the fixed ImageType input; None for flexible sizes."""
+        try:
+            image_type = spec.description.input[0].type.imageType
+            if image_type.WhichOneof("SizeFlexibility") is not None:
+                return None
+            h, w = int(image_type.height), int(image_type.width)
+        except (AttributeError, IndexError, TypeError, ValueError):
+            return None
+        return (h, w) if h > 0 and w > 0 else None
 
     @staticmethod
     def _parse_metadata(
@@ -385,6 +398,7 @@ class CoreMLBackend(BaseBackend):
             raise ValueError(
                 f"CoreMLBackend expects (1, C, H, W) blob; got {blob.shape}"
             )
+        self._check_fixed_input_size(blob, "CoreML")
 
         hwc = np.transpose(blob[0], (1, 2, 0))
         uint8 = np.ascontiguousarray(np.clip(hwc, 0, 255).astype(np.uint8))

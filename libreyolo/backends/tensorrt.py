@@ -15,6 +15,7 @@ from .base import (
     classify_eval_kwargs,
     BaseBackend,
     ImageSize,
+    _imgsz_hw,
     _read_metadata_imgsz,
     _read_pose_metadata,
     _read_runtime_metadata,
@@ -144,7 +145,11 @@ class TensorRTBackend(BaseBackend):
             model_family,
             artifact=f"TensorRT metadata sidecar {sidecar_path}",
         )
-        imgsz = self._read_static_input_imgsz(self.input_shape) or metadata_imgsz or 640
+        static_imgsz = self._read_static_input_imgsz(self.input_shape)
+        self._fixed_input_hw = (
+            _imgsz_hw(static_imgsz) if static_imgsz is not None else None
+        )
+        imgsz = static_imgsz or metadata_imgsz or 640
         if not self._metadata:
             inferred_task = self._detect_task_from_filename()
             if inferred_task is not None:
@@ -346,6 +351,7 @@ class TensorRTBackend(BaseBackend):
 
     def _run_inference(self, blob: np.ndarray) -> list:
         """Run TensorRT inference and return outputs as a list."""
+        self._check_fixed_input_size(blob, "TensorRT")
         outputs_dict = self._infer(blob)
         return [outputs_dict[name] for name in self.output_names]
 
@@ -424,6 +430,7 @@ class TensorRTBackend(BaseBackend):
             batched_input = np.concatenate(
                 [t.numpy() for t in tensors], axis=0
             )  # (B, C, H, W)
+            self._check_fixed_input_size(batched_input, "TensorRT")
             batch_outputs = self._infer(batched_input)
 
             for idx, (

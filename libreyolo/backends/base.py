@@ -4318,6 +4318,28 @@ class BaseBackend(ABC):
             )
         return effective
 
+    def _check_fixed_input_size(self, blob, runtime: str) -> None:
+        """Name both sizes when a fixed-shape export gets another input size.
+
+        ``_fixed_input_hw`` is the (H, W) a static-shape artifact was exported
+        at (None when H/W are dynamic). Runtimes reject a mismatch with their
+        own errors, which do not say what size the model expects.
+        """
+        fixed = getattr(self, "_fixed_input_hw", None)
+        shape = getattr(blob, "shape", ())
+        if fixed is None or len(shape) != 4:
+            return
+        h, w = (int(v) for v in fixed)
+        got_h, got_w = int(shape[2]), int(shape[3])
+        if (got_h, got_w) == (h, w):
+            return
+        exported = h if h == w else (h, w)
+        raise ValueError(
+            f"This {runtime} model was exported with a fixed {h}x{w} input and "
+            f"cannot run at the requested {got_h}x{got_w}. Use "
+            f"imgsz={exported}, or re-export the model at the size you need."
+        )
+
     def _forward(self, input_tensor: torch.Tensor):
         blob = _to_blob(input_tensor)
         try:

@@ -16,6 +16,7 @@ from .base import (
     BaseBackend,
     ImageSize,
     MetadataImageSizeError,
+    _imgsz_hw,
     _read_pose_metadata,
 )
 from .metadata import parse_export_metadata
@@ -137,6 +138,9 @@ class OnnxBackend(BaseBackend):
             not isinstance(input_shape[2], int) or not isinstance(input_shape[3], int)
         )
         static_imgsz = self._read_static_input_imgsz(input_shape)
+        self._fixed_input_hw = (
+            _imgsz_hw(static_imgsz) if static_imgsz is not None else None
+        )
         if static_imgsz is not None:
             imgsz = static_imgsz
         elif metadata_imgsz is not None:
@@ -298,6 +302,7 @@ class OnnxBackend(BaseBackend):
         Float inputs are cast to the graph's input float type, and float16
         outputs back to float32, so FP16 exports postprocess like FP32 ones.
         """
+        self._check_fixed_input_size(blob, "ONNX")
         input_dtype = getattr(self, "_input_float_dtype", None)
         if (
             input_dtype is not None
